@@ -1,9 +1,18 @@
 import type { XbTavernContext, XbTavernMessage } from '../../shared/message-assembler';
 import type { TavernAssistantPreset } from '../../shared/assistant-presets';
-import { captureTavernAssistantAcceptedStateBasis } from '../../shared/accepted-state';
-import { ensureTavernMemoryDefaultsInitialized } from '../../shared/memory-files';
 import {
+    assertTavernAssistantAcceptedStateBasisCurrent,
+    captureTavernAssistantAcceptedStateBasisInCurrentTransaction,
+    type TavernAssistantAcceptedStateBasis,
+} from '../../shared/accepted-state';
+import { ensureTavernMemoryDefaultsInitialized } from '../../shared/memory-files';
+import db, {
     listTavernAssistantChatMessages,
+    tavernMemoryFilesTable,
+    tavernMemorySnapshotsTable,
+    tavernMessagesTable,
+    tavernSessionsTable,
+    tavernStateDocumentsTable,
     type TavernAssistantChatMessageRecord,
 } from '../../shared/session-db';
 import {
@@ -14,7 +23,39 @@ import {
     type XbTavernManagerOnceResult,
 } from './manager.js';
 import { buildAssistantChatMessages } from './assistant-chat-context.js';
-import { createTavernStateWriteCasTracker } from './state-write-cas';
+import {
+    createTavernStateWriteCasTrackerInCurrentTransaction,
+    type TavernStateWriteCasTracker,
+} from './state-write-cas';
+
+export interface XbTavernAssistantChatWriteContext {
+    acceptedStateBasis: TavernAssistantAcceptedStateBasis;
+    stateWriteCas: TavernStateWriteCasTracker;
+}
+
+export async function prepareXbTavernAssistantChatWriteContext(
+    sessionId = '',
+    assistantOrder?: number,
+): Promise<XbTavernAssistantChatWriteContext> {
+    const id = String(sessionId || '').trim();
+    if (!id) {throw new Error('manager_session_required');}
+    await ensureTavernMemoryDefaultsInitialized(id);
+    return await db.transaction(
+        'r',
+        tavernMessagesTable,
+        tavernMemoryFilesTable,
+        tavernMemorySnapshotsTable,
+        tavernStateDocumentsTable,
+        tavernSessionsTable,
+        async () => {
+            const [acceptedStateBasis, stateWriteCas] = await Promise.all([
+                captureTavernAssistantAcceptedStateBasisInCurrentTransaction(id, assistantOrder),
+                createTavernStateWriteCasTrackerInCurrentTransaction(id),
+            ]);
+            return { acceptedStateBasis, stateWriteCas };
+        },
+    );
+}
 
 export interface XbTavernAssistantChatInput {
     sessionId: string;
@@ -32,6 +73,7 @@ export interface XbTavernAssistantChatInput {
     onStreamProgress?: (snapshot: TavernManagerStreamSnapshot) => void;
     onProtocolEvent?: (event: TavernManagerProtocolEvent) => void;
     beforeWriteGuard?: () => Promise<void> | void;
+    writeContext?: XbTavernAssistantChatWriteContext;
 }
 
 export interface XbTavernAssistantChatResult {
@@ -103,12 +145,10 @@ export async function runXbTavernAssistantChat(input: XbTavernAssistantChatInput
     if (!sessionId) {throw new Error('manager_session_required');}
     if (!question) {throw new Error('manager_question_required');}
 
-    await ensureTavernMemoryDefaultsInitialized(sessionId);
-    const acceptedStateBasis = await captureTavernAssistantAcceptedStateBasis(
+    const writeContext = input.writeContext || await prepareXbTavernAssistantChatWriteContext(
         sessionId,
         input.assistantOrder,
     );
-    const stateWriteCas = await createTavernStateWriteCasTracker(sessionId);
 
     const messages = Array.isArray(input.preparedMessages)
         ? [...input.preparedMessages]
@@ -141,9 +181,12 @@ export async function runXbTavernAssistantChat(input: XbTavernAssistantChatInput
             turn: Math.max(0, Number(input.turn) || 0),
             userOrder: input.userOrder,
             assistantOrder: input.assistantOrder,
-            beforeWriteGuard: input.beforeWriteGuard,
-            acceptedStateBasis,
-            stateWriteCas,
+            beforeWriteGuard: async () => {
+                await assertTavernAssistantAcceptedStateBasisCurrent(writeContext.acceptedStateBasis);
+                await input.beforeWriteGuard?.();
+            },
+            acceptedStateBasis: writeContext.acceptedStateBasis,
+            stateWriteCas: writeContext.stateWriteCas,
             contextSnapshot: input.contextSnapshot,
             signal: input.signal,
             executeManagerOnce: input.executeManagerOnce,

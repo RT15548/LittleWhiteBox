@@ -2458,9 +2458,7 @@ export async function updateTavernMessage(
         }
         await tavernMessagesTable.update([id, messageOrder], update);
         await tavernSessionsTable.update(id, {
-            ...(options.incrementTimelineRevision === true
-                ? { storyTimelineRevision: nextTavernStoryTimelineRevision(session) }
-                : {}),
+            storyTimelineRevision: nextTavernStoryTimelineRevision(session),
             updatedAt: now(),
         });
         const updated = await tavernMessagesTable.get([id, messageOrder]);

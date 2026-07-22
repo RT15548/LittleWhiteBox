@@ -32,7 +32,6 @@ import {
     createTavernSession,
     clearTavernAssistantChatMessages,
     deleteTavernAssistantChatMessages,
-    getLatestTavernAssistantOrder,
     getLatestTavernAssistantChatUserMessageAtOrBefore,
     getLatestTavernUserMessageAtOrBefore,
     getNextTavernAssistantChatUserOrderAfter,
@@ -43,7 +42,6 @@ import {
     listTavernAssistantChatMessageOrdersInRange,
     listTavernAssistantChatMessagesInRange,
     listTavernMessageOrdersFrom,
-    normalizedTavernStoryTimelineRevision,
     normalizeTavernSessionState,
     queueAcceptedTurnManagerRetry,
     replaceTavernAssistantChatMessages,
@@ -115,7 +113,10 @@ import {
     cancelAndRollbackXbTavernManagersForMessageRange,
     type TavernManagerLiveProgress,
 } from './runtime/manager';
-import { runXbTavernAssistantChat } from './runtime/assistant-chat-runner';
+import {
+    prepareXbTavernAssistantChatWriteContext,
+    runXbTavernAssistantChat,
+} from './runtime/assistant-chat-runner';
 import { ensureTavernAssistantChatBudget } from './runtime/assistant-chat-context';
 import {
     cancelAcceptedRollbackManagersBeforeMessage,
@@ -4290,7 +4291,6 @@ async function runManagerQuestion(
     managerAutoScroll.value = true;
     let sourceUserOrder = -1;
     let acceptedFloorAtStart = -1;
-    let storyTimelineRevisionAtStart = 1;
     let userMessageAppended = false;
     let liveRun: TavernAssistantChatLiveRun | null = null;
     let protocolResultPersisted = false;
@@ -4299,17 +4299,16 @@ async function runManagerQuestion(
         && selectedSessionId.value === managerSessionId
     );
     try {
-        const [latestUserMessage, latestAssistantOrder, storedSession] = await Promise.all([
+        const [latestUserMessage, writeContext, storedSession] = await Promise.all([
             getLatestTavernUserMessageAtOrBefore(managerSessionId, Number.POSITIVE_INFINITY),
-            getLatestTavernAssistantOrder(managerSessionId),
+            prepareXbTavernAssistantChatWriteContext(managerSessionId),
             getTavernSession(managerSessionId),
         ]);
         if (!storedSession) {throw new Error('session_missing');}
         managerTurn = Number(normalizeTavernSessionState(storedSession.state || {}).turn || 0);
         managerContextSnapshot = buildSessionContextSnapshotBase(storedSession);
         sourceUserOrder = latestUserMessage?.order ?? -1;
-        acceptedFloorAtStart = latestAssistantOrder ?? -1;
-        storyTimelineRevisionAtStart = normalizedTavernStoryTimelineRevision(storedSession);
+        acceptedFloorAtStart = writeContext.acceptedStateBasis.floor;
         const historyBeforeOrder = Number(options.historyBeforeOrder);
         const historyBeforeTurn = Number.isFinite(historyBeforeOrder)
             ? historyBeforeOrder <= 0
@@ -4432,18 +4431,7 @@ async function runManagerQuestion(
             userOrder: sourceUserOrder,
             assistantOrder: acceptedFloorAtStart,
             signal: controller.signal,
-            beforeWriteGuard: async () => {
-                const [currentAcceptedFloor, currentSession] = await Promise.all([
-                    getLatestTavernAssistantOrder(managerSessionId),
-                    getTavernSession(managerSessionId),
-                ]);
-                if ((currentAcceptedFloor ?? -1) !== acceptedFloorAtStart
-                    || !currentSession
-                    || normalizedTavernStoryTimelineRevision(currentSession) !== storyTimelineRevisionAtStart
-                ) {
-                    throw new Error('assistant_timeline_advanced');
-                }
-            },
+            writeContext,
             onProtocolEvent: liveRun.onProtocolEvent,
             onStreamProgress: liveRun.onStreamProgress,
         });

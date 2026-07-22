@@ -966,13 +966,13 @@ export async function runSharedManagerToolLoop(input: {
                 await input.beforeWriteGuard?.();
             };
             const afterToolWrite = async () => {
-                await stateWriteCas.acceptCurrent(toolCall.name, args);
                 if (input.acceptedStateBasis) {
                     await commitTavernAssistantAcceptedStateWriteInCurrentTransaction(
                         input.acceptedStateBasis,
                         resolveTavernAcceptedStateToolWrite(toolCall.name, args),
                     );
                 }
+                await stateWriteCas.acceptCurrent(toolCall.name, args);
             };
             throwIfManagerAborted(input.signal);
             const traceEntry: Record<string, unknown> = {
@@ -1056,6 +1056,7 @@ export async function runSharedManagerToolLoop(input: {
             const toolError = String(toolResult.error || '');
             if (
                 toolError === 'assistant_timeline_advanced'
+                || toolError === 'assistant_timeline_unsettled'
                 || toolError.startsWith('manager_resource_revision_conflict:')
             ) {
                 throw new Error(toolError);

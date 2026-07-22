@@ -107,7 +107,9 @@ export interface TavernStateWriteCasTracker {
     acceptCurrent(toolName: string, args: Record<string, unknown>): Promise<void>;
 }
 
-export async function createTavernStateWriteCasTracker(sessionId = ''): Promise<TavernStateWriteCasTracker> {
+export async function createTavernStateWriteCasTrackerInCurrentTransaction(
+    sessionId = '',
+): Promise<TavernStateWriteCasTracker> {
     const id = String(sessionId || '').trim();
     const memoryVersions = new Map<string, string>();
     const stateVersions = new Map<string, string>();
@@ -195,4 +197,8 @@ export async function createTavernStateWriteCasTracker(sessionId = ''): Promise<
             }
         },
     };
+}
+
+export async function createTavernStateWriteCasTracker(sessionId = ''): Promise<TavernStateWriteCasTracker> {
+    return await createTavernStateWriteCasTrackerInCurrentTransaction(sessionId);
 }

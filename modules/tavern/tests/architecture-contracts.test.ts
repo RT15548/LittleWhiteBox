@@ -2360,8 +2360,6 @@ test('tavern memory editor actions live outside the app controller', () => {
     assert.match(appSource, /async function commitUserAcceptedState\(sessionId = selectedSessionId\.value, userOrder\?: number\) \{[\s\S]*const explicitOrder = Number\(userOrder\);[\s\S]*getLatestTavernUserMessageAtOrBefore\(id, Number\.POSITIVE_INFINITY\)[\s\S]*await saveAcceptedStateSnapshot\(id, latestUserOrder \?\? -1\);[\s\S]*\}/);
     assert.match(appSource, /commitAcceptedState,/);
     assert.match(appSource, /commitUserAcceptedState,/);
-    assert.match(appSource, /let sourceUserOrder = -1;[\s\S]*let acceptedFloorAtStart = -1;[\s\S]*getLatestTavernUserMessageAtOrBefore\(managerSessionId, Number\.POSITIVE_INFINITY\)[\s\S]*getLatestTavernAssistantOrder\(managerSessionId\)[\s\S]*const budget = await ensureTavernAssistantChatBudget/);
-    assert.match(appSource, /preparedMessages: budget\.messages[\s\S]*beforeWriteGuard:[\s\S]*assistant_timeline_advanced/);
 });
 
 test('tavern streaming action-check UI renders from live runtime events and keeps dark card styling aligned', () => {

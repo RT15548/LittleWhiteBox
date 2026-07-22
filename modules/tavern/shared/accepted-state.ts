@@ -1,5 +1,6 @@
 import db, {
     assertTavernManagerRunSourceMessages,
+    getLatestTavernMessage,
     hashTavernMemoryRecord,
     hashTavernStateDocument,
     normalizedTavernStoryTimelineRevision,
@@ -22,14 +23,13 @@ import db, {
     type TavernMemorySnapshotRecord,
     type TavernMemorySnapshotFileEntry,
     type TavernManagerRunRecord,
-    type TavernStructuredStateDocumentRecord,
+    type TavernMessageRecord,
     type TavernStatusSnapshotRecord,
     type TavernCommunicationSnapshotRecord,
 } from './session-db';
 import { saveTavernCommunicationSnapshot } from './communications';
 import { getLatestTavernMemorySnapshot, saveTavernMemorySnapshot } from './memory-files';
 import {
-    getLatestTavernStatusSnapshot,
     saveTavernStatusSnapshot,
     TAVERN_STATUS_DOC_ID,
     TAVERN_STATUS_DOC_TYPE,
@@ -48,8 +48,9 @@ export interface TavernAssistantAcceptedStateBasis {
     sessionId: string;
     floor: number;
     storyTimelineRevision: number;
+    storySettled: boolean;
+    storyAnchor: Pick<TavernMessageRecord, 'messageId' | 'order' | 'role' | 'timelineRevision'> | null;
     memoryFiles: TavernMemorySnapshotFileEntry[];
-    statusDocument: TavernStructuredStateDocumentRecord | null;
 }
 
 export interface TavernAssistantAcceptedStateWrite {
@@ -76,46 +77,79 @@ function cloneAcceptedStateValue<T>(value: T): T {
     return JSON.parse(JSON.stringify(value)) as T;
 }
 
-export async function captureTavernAssistantAcceptedStateBasis(
+export async function captureTavernAssistantAcceptedStateBasisInCurrentTransaction(
     sessionId = '',
     floorInput?: number,
 ): Promise<TavernAssistantAcceptedStateBasis> {
     const id = String(sessionId || '').trim();
     if (!id) {throw new Error('assistant_accepted_state_session_required');}
+    const session = await tavernSessionsTable.get(id);
+    if (!session) {throw new Error('assistant_accepted_state_session_missing');}
+    const floor = await resolveTavernAcceptedSnapshotFloor(id, floorInput);
+    const [latestStoryMessage, memorySnapshot] = await Promise.all([
+        getLatestTavernMessage(id),
+        getLatestTavernMemorySnapshot(id, floor),
+    ]);
+    const memoryFiles = memorySnapshot
+        ? memorySnapshot.files
+        : (await tavernMemoryFilesTable.where('sessionId').equals(id).toArray())
+            .map((file) => ({ path: file.path, file }));
+    const storyAnchor = latestStoryMessage?.role === 'assistant' && latestStoryMessage.order === floor
+        ? {
+            messageId: latestStoryMessage.messageId,
+            order: latestStoryMessage.order,
+            role: latestStoryMessage.role,
+            timelineRevision: latestStoryMessage.timelineRevision,
+        }
+        : null;
+    return {
+        sessionId: id,
+        floor,
+        storyTimelineRevision: normalizedTavernStoryTimelineRevision(session),
+        storySettled: !latestStoryMessage || !!storyAnchor,
+        storyAnchor,
+        memoryFiles: cloneAcceptedStateValue(memoryFiles),
+    };
+}
+
+export async function captureTavernAssistantAcceptedStateBasis(
+    sessionId = '',
+    floorInput?: number,
+): Promise<TavernAssistantAcceptedStateBasis> {
     return await db.transaction(
         'r',
         tavernMessagesTable,
         tavernMemoryFilesTable,
         tavernMemorySnapshotsTable,
-        tavernStateDocumentsTable,
-        tavernStatusSnapshotsTable,
         tavernSessionsTable,
-        async () => {
-            const session = await tavernSessionsTable.get(id);
-            if (!session) {throw new Error('assistant_accepted_state_session_missing');}
-            const floor = await resolveTavernAcceptedSnapshotFloor(id, floorInput);
-            const [memorySnapshot, statusSnapshot] = await Promise.all([
-                getLatestTavernMemorySnapshot(id, floor),
-                getLatestTavernStatusSnapshot(id, floor),
-            ]);
-            const memoryFiles = memorySnapshot
-                ? memorySnapshot.files
-                : (await tavernMemoryFilesTable.where('sessionId').equals(id).toArray())
-                    .map((file) => ({ path: file.path, file }));
-            const currentStatus = statusSnapshot
-                ? null
-                : await tavernStateDocumentsTable.get([id, TAVERN_STATUS_DOC_TYPE, TAVERN_STATUS_DOC_ID]) || null;
-            return {
-                sessionId: id,
-                floor,
-                storyTimelineRevision: normalizedTavernStoryTimelineRevision(session),
-                memoryFiles: cloneAcceptedStateValue(memoryFiles),
-                statusDocument: cloneAcceptedStateValue(statusSnapshot
-                    ? statusSnapshot.document || null
-                    : currentStatus),
-            };
-        },
+        () => captureTavernAssistantAcceptedStateBasisInCurrentTransaction(sessionId, floorInput),
     );
+}
+
+export async function assertTavernAssistantAcceptedStateBasisCurrent(
+    basis: TavernAssistantAcceptedStateBasis,
+): Promise<void> {
+    const sessionId = String(basis?.sessionId || '').trim();
+    const session = sessionId ? await tavernSessionsTable.get(sessionId) : null;
+    if (!session
+        || normalizedTavernStoryTimelineRevision(session) !== basis.storyTimelineRevision
+    ) {
+        throw new Error('assistant_timeline_advanced');
+    }
+    if (!basis.storySettled) {throw new Error('assistant_timeline_unsettled');}
+    const latestStoryMessage = await getLatestTavernMessage(sessionId);
+    if (!basis.storyAnchor) {
+        if (latestStoryMessage) {throw new Error('assistant_timeline_advanced');}
+        return;
+    }
+    if (!latestStoryMessage
+        || latestStoryMessage.role !== 'assistant'
+        || latestStoryMessage.messageId !== basis.storyAnchor.messageId
+        || latestStoryMessage.order !== basis.storyAnchor.order
+        || latestStoryMessage.timelineRevision !== basis.storyAnchor.timelineRevision
+    ) {
+        throw new Error('assistant_timeline_advanced');
+    }
 }
 
 export async function commitTavernAssistantAcceptedStateWriteInCurrentTransaction(
@@ -127,19 +161,15 @@ export async function commitTavernAssistantAcceptedStateWriteInCurrentTransactio
     if (!sessionId || !Number.isFinite(floor)) {
         throw new Error('assistant_accepted_state_basis_invalid');
     }
-    const session = await tavernSessionsTable.get(sessionId);
-    if (!session
-        || normalizedTavernStoryTimelineRevision(session) !== basis.storyTimelineRevision
-    ) {
-        throw new Error('assistant_timeline_advanced');
-    }
+    await assertTavernAssistantAcceptedStateBasisCurrent(basis);
     const changedFiles = [...new Set((change.changedFiles || []).map((path) => String(path || '').trim()).filter(Boolean))];
     const statusChanged = (change.changedStates || []).some((key) => (
         String(key || '').trim() === `${TAVERN_STATUS_DOC_TYPE}/${TAVERN_STATUS_DOC_ID}`
     ));
 
     if (changedFiles.length) {
-        const files = new Map(basis.memoryFiles.map((entry) => [
+        const acceptedAtFloor = await tavernMemorySnapshotsTable.get([sessionId, floor]);
+        const files = new Map((acceptedAtFloor?.files || basis.memoryFiles).map((entry) => [
             entry.path,
             cloneAcceptedStateValue(entry.file),
         ]));
@@ -157,7 +187,6 @@ export async function commitTavernAssistantAcceptedStateWriteInCurrentTransactio
             files: nextFiles,
             createdAt: Date.now(),
         });
-        basis.memoryFiles = cloneAcceptedStateValue(nextFiles);
     }
 
     if (statusChanged) {
