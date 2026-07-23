@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-23T06:16:36.980Z",
+  "generatedAt": "2026-07-23T07:44:31.631Z",
   "version": 2,
   "files": [
     {
@@ -651,7 +651,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/assistant-file-manifest.json",
       "relativePath": "modules/assistant/assistant-file-manifest.json",
       "extension": ".json",
-      "sizeBytes": 273532
+      "sizeBytes": 273825
     },
     {
       "source": "littlewhitebox",
@@ -924,7 +924,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/tests/sillytavern-openai-compatible-adapter.test.js",
       "relativePath": "modules/assistant/tests/sillytavern-openai-compatible-adapter.test.js",
       "extension": ".js",
-      "sizeBytes": 50586
+      "sizeBytes": 53505
     },
     {
       "source": "littlewhitebox",
@@ -4326,7 +4326,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/shared/host-llm/chat-completions/client.js",
       "relativePath": "shared/host-llm/chat-completions/client.js",
       "extension": ".js",
-      "sizeBytes": 9578
+      "sizeBytes": 12033
     },
     {
       "source": "littlewhitebox",

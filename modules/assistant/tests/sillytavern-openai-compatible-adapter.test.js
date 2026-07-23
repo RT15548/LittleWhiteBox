@@ -13,9 +13,11 @@ import {
     buildHostGoogleGeneratePayload,
     buildHostOpenAICompatibleGeneratePayload,
     buildHostOpenAICompatibleStatusPayload,
+    createHostChatCompletion,
     fetchHostChatCompletionsModels,
     fetchHostOpenAICompatibleModels,
     setHostChatCompletionsRequestHeadersProvider,
+    streamHostChatCompletion,
 } from '../../../shared/host-llm/chat-completions/client.js';
 import { createAgentAdapter } from '../../agent-core/provider-config.js';
 import { resolveResultToolCalls } from '../../agent-core/runtime/protocol.js';
@@ -1139,7 +1141,7 @@ test('host OpenAI-compatible requests resolve fresh async SillyTavern headers pe
     }
 });
 
-test('host OpenAI-compatible model pull maps CSRF and HTML failures to refresh guidance', async () => {
+test('host OpenAI-compatible model pull maps explicit CSRF failures to refresh guidance', async () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = async () => ({
         ok: false,
@@ -1153,6 +1155,82 @@ test('host OpenAI-compatible model pull maps CSRF and HTML failures to refresh g
                 await fetchHostOpenAICompatibleModels({});
             },
             /酒馆当前页面的 CSRF token 已失效，请按 F5 刷新并重新进入酒馆后再试。/,
+        );
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
+test('host model pull reports generic HTML gateway failures without mislabeling them as CSRF', async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => ({
+        ok: false,
+        status: 502,
+        statusText: 'Bad Gateway',
+        headers: { get: (name) => name === 'content-type' ? 'text/html; charset=utf-8' : '' },
+        text: async () => '<!DOCTYPE html><html><head><title>Bad Gateway</title></head><body>upstream unavailable</body></html>',
+    });
+
+    try {
+        await assert.rejects(
+            async () => fetchHostOpenAICompatibleModels({}),
+            (error) => {
+                assert.match(error.message, /非 JSON 的 HTML 页面/);
+                assert.match(error.message, /HTTP 502 Bad Gateway/);
+                assert.match(error.message, /Bad Gateway/);
+                assert.doesNotMatch(error.message, /CSRF token 已失效/);
+                return true;
+            },
+        );
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
+test('host non-stream generation identifies an HTML login page instead of reporting CSRF', async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => ({
+        ok: true,
+        status: 200,
+        headers: { get: () => 'text/html' },
+        text: async () => '<html><head><title>登录</title></head><body>请重新登录</body></html>',
+    });
+
+    try {
+        await assert.rejects(
+            async () => createHostChatCompletion({ messages: [] }),
+            (error) => {
+                assert.match(error.message, /酒馆后端生成失败/);
+                assert.match(error.message, /HTTP 200/);
+                assert.match(error.message, /登录/);
+                assert.doesNotMatch(error.message, /CSRF token 已失效/);
+                return true;
+            },
+        );
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
+test('host stream generation preserves HTML service errors with their HTTP status', async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => ({
+        ok: false,
+        status: 503,
+        statusText: 'Service Unavailable',
+        headers: { get: () => 'text/html' },
+        text: async () => '<!DOCTYPE html><html><body><h1>Service temporarily unavailable</h1></body></html>',
+    });
+
+    try {
+        await assert.rejects(
+            async () => streamHostChatCompletion({ messages: [] }, () => {}),
+            (error) => {
+                assert.match(error.message, /HTTP 503 Service Unavailable/);
+                assert.match(error.message, /Service temporarily unavailable/);
+                assert.doesNotMatch(error.message, /CSRF token 已失效/);
+                return true;
+            },
         );
     } finally {
         globalThis.fetch = originalFetch;

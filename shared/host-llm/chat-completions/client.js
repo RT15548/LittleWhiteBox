@@ -70,7 +70,7 @@ export async function buildHostChatCompletionGenerateRequest(payload = {}, strea
 }
 
 function looksLikeHtmlDocument(text = '') {
-    return /^\s*<!DOCTYPE\s+html/i.test(String(text || ''));
+    return /^\s*(?:<!DOCTYPE\s+html\b|<html\b)/i.test(String(text || ''));
 }
 
 function isCsrfFailureText(text = '') {
@@ -81,9 +81,75 @@ function buildCsrfRefreshMessage() {
     return '酒馆当前页面的 CSRF token 已失效，请按 F5 刷新并重新进入酒馆后再试。';
 }
 
-function normalizeHostFailureMessage(rawText = '', fallbackMessage = '') {
-    if (isCsrfFailureText(rawText) || looksLikeHtmlDocument(rawText)) {
+function decodeHtmlCodePoint(value = '', radix = 10) {
+    const codePoint = Number.parseInt(String(value || ''), radix);
+    return Number.isInteger(codePoint) && codePoint >= 0 && codePoint <= 0x10FFFF
+        ? String.fromCodePoint(codePoint)
+        : '';
+}
+
+function decodeHtmlText(text = '') {
+    return String(text || '')
+        .replace(/&nbsp;|&#160;/gi, ' ')
+        .replace(/&amp;/gi, '&')
+        .replace(/&lt;/gi, '<')
+        .replace(/&gt;/gi, '>')
+        .replace(/&quot;/gi, '"')
+        .replace(/&#39;|&apos;/gi, "'")
+        .replace(/&#x([0-9a-f]+);?/gi, (_match, hex) => decodeHtmlCodePoint(hex, 16))
+        .replace(/&#([0-9]+);?/g, (_match, number) => decodeHtmlCodePoint(number));
+}
+
+function summarizeHtmlDocument(text = '') {
+    const html = String(text || '');
+    const title = decodeHtmlText((html.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i) || [])[1] || '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    const body = decodeHtmlText(html
+        .replace(/<script\b[\s\S]*?<\/script>/gi, ' ')
+        .replace(/<style\b[\s\S]*?<\/style>/gi, ' ')
+        .replace(/<[^>]+>/g, ' '))
+        .replace(/\s+/g, ' ')
+        .trim();
+    const summary = title || body;
+    return summary.length > 240 ? `${summary.slice(0, 237)}...` : summary;
+}
+
+function responseFailureContext(response = null) {
+    const status = Number(response?.status);
+    const statusText = String(response?.statusText || '').trim();
+    let contentType = '';
+    try {
+        contentType = String(response?.headers?.get?.('content-type') || '').trim();
+    } catch {
+        contentType = '';
+    }
+    return {
+        status: Number.isFinite(status) && status > 0 ? status : 0,
+        statusText,
+        contentType,
+    };
+}
+
+function formatHttpStatus(context = {}) {
+    if (!context.status) return '';
+    return `HTTP ${context.status}${context.statusText ? ` ${context.statusText}` : ''}`;
+}
+
+function normalizeHostFailureMessage(rawText = '', fallbackMessage = '', response = null) {
+    if (isCsrfFailureText(rawText)) {
         return buildCsrfRefreshMessage();
+    }
+    const context = responseFailureContext(response);
+    const isHtml = looksLikeHtmlDocument(rawText) || /\btext\/html\b/i.test(context.contentType);
+    if (isHtml) {
+        const status = formatHttpStatus(context);
+        const summary = summarizeHtmlDocument(rawText);
+        return [
+            '酒馆后端返回了非 JSON 的 HTML 页面',
+            status ? `（${status}）` : '',
+            summary ? `：${summary}` : '',
+        ].join('');
     }
     return String(rawText || fallbackMessage || '').trim();
 }
@@ -194,13 +260,14 @@ export async function fetchHostChatCompletionsModels(
     try {
         data = rawText ? JSON.parse(rawText) : {};
     } catch (error) {
-        throw new Error(`酒馆后端模型列表拉取失败：${normalizeHostFailureMessage(rawText, String(error?.message || error))}`);
+        throw new Error(`酒馆后端模型列表拉取失败：${normalizeHostFailureMessage(rawText, String(error?.message || error), response)}`);
     }
 
     if (!response.ok || data?.error) {
         const message = normalizeHostFailureMessage(
             data?.message || data?.error?.message || rawText,
             `HTTP ${response.status}`,
+            response,
         );
         throw new Error(`酒馆后端模型列表拉取失败：${message}`);
     }
@@ -232,13 +299,14 @@ export async function createHostChatCompletion(payload = {}, options = {}) {
     try {
         data = rawText ? JSON.parse(rawText) : {};
     } catch (error) {
-        throw new Error(`酒馆后端生成失败：${normalizeHostFailureMessage(rawText, String(error?.message || error))}`);
+        throw new Error(`酒馆后端生成失败：${normalizeHostFailureMessage(rawText, String(error?.message || error), response)}`);
     }
 
     if (!response.ok || data?.error) {
         const message = normalizeHostFailureMessage(
             data?.error?.message || data?.message || rawText,
             `HTTP ${response.status}`,
+            response,
         );
         throw new Error(`酒馆后端生成失败：${message}`);
     }
@@ -260,7 +328,7 @@ export async function streamHostChatCompletion(payload = {}, onEvent, options = 
 
     if (!response.ok) {
         const text = await response.text().catch(() => '');
-        throw new Error(normalizeHostFailureMessage(text, `酒馆后端流式生成失败：HTTP ${response.status}`));
+        throw new Error(normalizeHostFailureMessage(text, `酒馆后端流式生成失败：HTTP ${response.status}`, response));
     }
 
     await readSseEventsFromResponse(response, (event) => {
