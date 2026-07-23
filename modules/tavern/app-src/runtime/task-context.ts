@@ -74,22 +74,30 @@ export async function loadTavernTaskPromptState(
 }
 
 function storyTaskBlock(task: TavernTaskVersionRecord): string {
+    const isPlayerIssued = task.issuer.kind === 'player';
+    const executor = task.assignee ? partyLabel(task.assignee) : '';
     return [
-        `[${escapeEvidence(task.taskId)}]`,
-        `等级：${escapeEvidence(task.grade)}`,
-        `发布者：${escapeEvidence(partyLabel(task.issuer))}`,
-        task.assignee ? `承接者：${escapeEvidence(partyLabel(task.assignee))}` : '',
+        `《${escapeEvidence(task.title)}》`,
+        isPlayerIssued
+            ? `${escapeEvidence(partyLabel(task.issuer))}发起的委托，${executor ? `执行人：${escapeEvidence(executor)}` : '尚未有人接手。'}`
+            : `委托人：${escapeEvidence(partyLabel(task.issuer))}`,
+        `${isPlayerIssued ? '目标' : '委托'}：${escapeEvidence(task.objective)}`,
         `地点：${escapeEvidence(task.location || '未指定')}`,
-        `目标：${escapeEvidence(task.objective)}`,
-        `报酬：${task.reward}`,
+        `报酬：${task.reward} 小白币`,
         `当前进展：${escapeEvidence(task.progressSummary || '尚未开始')}`,
     ].filter(Boolean).join('\n');
 }
 
+function storyPlayerName(tasks: TavernTaskVersionRecord[]): string {
+    const player = tasks
+        .flatMap((task) => [task.issuer, task.assignee])
+        .find((party): party is TavernTaskParty => party?.kind === 'player');
+    return partyLabel(player);
+}
+
 function terminalTaskLine(task: TavernTaskVersionRecord): string {
     return [
-        `[${escapeEvidence(task.taskId)}]`,
-        escapeEvidence(task.title),
+        `《${escapeEvidence(task.title)}》`,
         statusLabel(task.status),
         escapeEvidence(task.resultSummary || task.progressSummary || ''),
     ].filter(Boolean).join(' · ');
@@ -104,11 +112,16 @@ export function buildTavernStoryTaskPrompt(tasks: TavernTaskVersionRecord[] = []
     if (!active.length && !terminal.length) {return '';}
     return [
         ...(active.length ? [
-            '<active_phone_tasks>',
-            '玩家已经主动接取或发布并交由他人执行以下正式任务。这些是有效事实和可选目标，不代表人物已经抵达现场，也不代表任务已经完成。',
+            '<active_tasks>',
+            `${escapeEvidence(storyPlayerName(active))}当前接手或发起的委托。`,
+            '',
+            '小白币价值参考：一种能兑换奇物的特殊筹码。',
+            '50 币可兑换极轻微好感物件，',
+            '500 币可扭转一段关系或伪造一个身份，',
+            '1000 币足以彻底重塑一个人的认知与信念。',
             '',
             active.map(storyTaskBlock).join('\n\n'),
-            '</active_phone_tasks>',
+            '</active_tasks>',
         ] : []),
         ...(active.length && terminal.length ? [''] : []),
         ...(terminal.length ? [

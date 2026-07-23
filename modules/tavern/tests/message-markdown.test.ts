@@ -125,6 +125,70 @@ test('tavern markdown protects nested inline HTML structure lines without breaki
     assertBalancedParagraphs(html);
 });
 
+test('tavern markdown keeps indented replacement text owned by its raw HTML container', () => {
+    const html = renderMarkdownToHtml([
+        '<details class="style-gallery">',
+        '  <summary class="art-header">展品</summary>',
+        '  <div class="art-body">',
+        '    <div class="art-text">',
+        '        状态栏替换文字',
+        '          保留相对缩进',
+        '    </div>',
+        '  </div>',
+        '</details>',
+        '',
+        '    HTML 外的缩进代码',
+    ].join('\n'));
+
+    const detailsHtml = html.match(/<details[\s\S]*?<\/details>/)?.[0] || '';
+    assert.match(detailsHtml, /状态栏替换文字/);
+    assert.match(detailsHtml, /保留相对缩进/);
+    assert.doesNotMatch(detailsHtml, /<pre|<code/);
+    assert.match(html, /<pre><code>HTML 外的缩进代码\n<\/code><\/pre>/);
+});
+
+test('tavern markdown closes an HTML container on a content line without consuming outside code', () => {
+    const html = renderMarkdownToHtml([
+        '<details>',
+        '  内容</details>',
+        '',
+        '    HTML 外的缩进代码',
+    ].join('\n'));
+
+    const detailsHtml = html.match(/<details[\s\S]*?<\/details>/)?.[0] || '';
+    assert.match(detailsHtml, /内容/);
+    assert.doesNotMatch(detailsHtml, /<pre|<code/);
+    assert.match(html, /<\/details>\s*<pre><code>HTML 外的缩进代码\n<\/code><\/pre>/);
+    assertBalancedParagraphs(html);
+});
+
+test('tavern markdown recognizes quoted greater-than characters inside HTML attributes', () => {
+    const html = renderMarkdownToHtml([
+        '<div data-value="/>">',
+        '    容器内文字',
+        '</div>',
+    ].join('\n'));
+
+    const containerHtml = html.match(/<div data-value="\/>"[\s\S]*?<\/div>/)?.[0] || '';
+    assert.match(containerHtml, /容器内文字/);
+    assert.doesNotMatch(containerHtml, /<pre|<code/);
+});
+
+test('tavern markdown does not dedent outside content after unmatched optional HTML tags', () => {
+    const html = renderMarkdownToHtml([
+        '<ul>',
+        '<li>',
+        '    第一项',
+        '<li>',
+        '    第二项',
+        '</ul>',
+        '',
+        '    HTML 外的缩进代码',
+    ].join('\n'));
+
+    assert.match(html, /<pre><code>HTML 外的缩进代码\n<\/code><\/pre>/);
+});
+
 test('tavern markdown protects generic HTML container boundaries around markdown lists', () => {
     const html = renderMarkdownToHtml([
         '<section class="panel"><div>',

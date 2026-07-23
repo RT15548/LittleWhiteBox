@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-23T02:21:32.827Z",
+  "generatedAt": "2026-07-23T06:16:36.980Z",
   "version": 2,
   "files": [
     {
@@ -389,10 +389,17 @@
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/agent-core/ui/markdown-html-boundaries.js",
+      "relativePath": "modules/agent-core/ui/markdown-html-boundaries.js",
+      "extension": ".js",
+      "sizeBytes": 12589
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/agent-core/ui/message-markdown.js",
       "relativePath": "modules/agent-core/ui/message-markdown.js",
       "extension": ".js",
-      "sizeBytes": 28006
+      "sizeBytes": 27257
     },
     {
       "source": "littlewhitebox",
@@ -2793,7 +2800,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/tavern/app-src/runtime/task-context.ts",
       "relativePath": "modules/tavern/app-src/runtime/task-context.ts",
       "extension": ".ts",
-      "sizeBytes": 8289
+      "sizeBytes": 8910
     },
     {
       "source": "littlewhitebox",
@@ -3822,7 +3829,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/tavern/tests/message-markdown.test.ts",
       "relativePath": "modules/tavern/tests/message-markdown.test.ts",
       "extension": ".ts",
-      "sizeBytes": 12645
+      "sizeBytes": 14916
     },
     {
       "source": "littlewhitebox",
@@ -3850,7 +3857,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/tavern/tests/run-turn.test.ts",
       "relativePath": "modules/tavern/tests/run-turn.test.ts",
       "extension": ".ts",
-      "sizeBytes": 267841
+      "sizeBytes": 267824
     },
     {
       "source": "littlewhitebox",

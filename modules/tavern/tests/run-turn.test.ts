@@ -4344,7 +4344,7 @@ test('formal tasks enter both local and ST-native depth-1 prompts while board ca
         presetId: preset.id,
         presetName: preset.name,
     });
-    const task = await createRunTurnActiveTask(session.id, 'prompt');
+    await createRunTurnActiveTask(session.id, 'prompt');
     let nativeDepthPrompts: Array<{ layer?: string; depth?: number; role?: string; content?: string }> = [];
     const result = await simulateXbTavernRequest({
         sessionId: session.id,
@@ -4375,9 +4375,9 @@ test('formal tasks enter both local and ST-native depth-1 prompts while board ca
     const taskDepth = (nativeDepthPrompts || []).find((entry) => entry.layer === 'runtime-task');
     assert.equal(taskDepth?.depth, 1);
     assert.equal(taskDepth?.role, 'system');
-    assert.match(String(taskDepth?.content || ''), new RegExp(task.taskId));
+    assert.match(String(taskDepth?.content || ''), /《运行时委托 3》/);
     assert.match(String(taskDepth?.content || ''), /完成运行时目标 3/);
-    assert.match(result.buildSnapshot.rawMessagesJson, /<active_phone_tasks>/);
+    assert.match(result.buildSnapshot.rawMessagesJson, /<active_tasks>/);
     assert.match(result.requestSnapshot.rawRequestJson, /完成运行时目标 3/);
     assert.doesNotMatch(result.requestSnapshot.rawRequestJson, /完成运行时目标 1|完成运行时目标 2|完成运行时目标 4/);
 });
