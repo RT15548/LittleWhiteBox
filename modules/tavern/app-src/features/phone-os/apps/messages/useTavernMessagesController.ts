@@ -27,7 +27,10 @@ import type {
     TavernCommunicationThreadRecord,
     TavernMemoryIndexFileEntry,
 } from '../../../../../shared/session-db';
-import { runTavernOnce } from '../../../../runtime/run-once';
+import {
+    runTavernOnce,
+    type TavernGetNativeWorldInfoRuntime,
+} from '../../../../runtime/run-once';
 import { buildTavernAutomaticCommunicationContacts } from './tavern-messages-contacts';
 import { buildTavernMessagesRequestMessages } from './tavern-messages-context';
 import { parseTavernPhoneReply } from './tavern-messages-response';
@@ -54,6 +57,8 @@ export interface TavernPhoneControllerOptions {
     memoryEditorMode: Ref<'preview' | 'edit'>;
     characterArchiveBusy: ComputedRef<boolean>;
     requestHost: TavernHostRequest;
+    refreshContextSnapshot: (sessionId: string) => Promise<XbTavernContext>;
+    getNativeWorldInfoRuntime: TavernGetNativeWorldInfoRuntime;
     addHostMessageHandler: (handler: TavernHostMessageHandler) => () => void;
     isThreadVisible?: (sessionId: string, threadId: string) => boolean;
 }
@@ -310,6 +315,7 @@ export function useTavernMessagesController(options: TavernPhoneControllerOption
         task: TavernPhoneSendTask,
         userMessage: TavernCommunicationMessageRecord,
     ) {
+        task.contextSnapshot = cloneSerializable(await options.refreshContextSnapshot(task.sessionId));
         const history = await listTavernCommunicationMessages(task.sessionId, task.thread.id);
         const contactMemory = task.contact.memoryPath
             ? await getTavernMemoryFile(task.sessionId, task.contact.memoryPath)
@@ -322,6 +328,7 @@ export function useTavernMessagesController(options: TavernPhoneControllerOption
             thread: task.thread,
             communicationMessages: history,
             userMessage,
+            getNativeWorldInfoRuntime: options.getNativeWorldInfoRuntime,
         });
     }
 

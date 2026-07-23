@@ -1537,7 +1537,7 @@ export function buildContextHistory(
     return history;
 }
 
-async function loadCommunicationEventsForHistory(
+export async function loadCommunicationEventsForHistory(
     sessionId = '',
     messages: TavernMessageRecord[] = [],
     playerName = '',

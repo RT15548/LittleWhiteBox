@@ -39,6 +39,7 @@ export function useTavernPhoneController(options: TavernPhoneControllerOptions) 
         chatCancelling: options.chatCancelling,
         memoryEditorMode: options.memoryEditorMode,
         characterArchiveBusy: options.characterArchiveBusy,
+        getNativeWorldInfoRuntime: options.getNativeWorldInfoRuntime,
         onEconomyChanged: wallet.refreshAfterEconomyDomainChange,
     });
     os = useTavernPhoneOsController({

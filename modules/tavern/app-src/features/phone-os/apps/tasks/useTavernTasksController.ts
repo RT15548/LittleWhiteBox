@@ -19,7 +19,6 @@ import {
     tavernTaskPhoneBoundaryAnchorOrder,
 } from '../../../../../shared/tasks/task-phone-boundary';
 import {
-    generateTavernTaskRecipe,
     type TavernTaskBoardRecord,
     type TavernTaskCandidate,
     type TavernTaskExpectedPhoneBoundary,
@@ -27,7 +26,10 @@ import {
     type TavernTaskListing,
     type TavernTaskVersionRecord,
 } from '../../../../../shared/tasks/task-types';
-import { runTavernOnce } from '../../../../runtime/run-once';
+import {
+    runTavernOnce,
+    type TavernGetNativeWorldInfoRuntime,
+} from '../../../../runtime/run-once';
 import {
     buildTavernTaskPromptLayers,
     type TavernTaskPromptLayers,
@@ -65,6 +67,7 @@ export interface TavernTasksControllerOptions {
     chatCancelling: Ref<boolean>;
     memoryEditorMode: Ref<'preview' | 'edit'>;
     characterArchiveBusy: ComputedRef<boolean>;
+    getNativeWorldInfoRuntime: TavernGetNativeWorldInfoRuntime;
     onEconomyChanged?: () => void | Promise<void>;
 }
 
@@ -316,7 +319,6 @@ export function useTavernTasksController(options: TavernTasksControllerOptions) 
         const contextSnapshot = cloneSerializable(options.effectiveContext.value || {});
         const agentConfig = cloneSerializable(options.agentConfig.value || {});
         const taskSnapshot = cloneSerializable(tasks.value);
-        const recipe = generateTavernTaskRecipe();
         boardRefreshing.value = true;
         boardError.value = '';
         try {
@@ -325,7 +327,7 @@ export function useTavernTasksController(options: TavernTasksControllerOptions) 
                 sessionId,
                 anchorOrder,
                 contextSnapshot,
-                queryText: '地下委托、工作机会、当前危机、地点与可行动线索',
+                getNativeWorldInfoRuntime: options.getNativeWorldInfoRuntime,
             });
             if (controller.signal.aborted || sessionId !== currentSessionId()) {return;}
             const exclusions = knownBoardExclusions(layers);
@@ -335,7 +337,6 @@ export function useTavernTasksController(options: TavernTasksControllerOptions) 
                 messages: buildTavernTaskBoardRequestMessages({
                     layers,
                     currentTasks: taskSnapshot,
-                    recipe,
                     excludedTitles: exclusions.excludedTitles,
                 }),
                 tools: [],
@@ -531,7 +532,7 @@ export function useTavernTasksController(options: TavernTasksControllerOptions) 
                 sessionId,
                 anchorOrder,
                 contextSnapshot,
-                queryText: `${task.title}\n${task.objective}\n${task.requirements || ''}\n${task.location}`,
+                getNativeWorldInfoRuntime: options.getNativeWorldInfoRuntime,
             });
             if (controller.signal.aborted || sessionId !== currentSessionId()) {return null;}
             const result = await runTavernOnce({

@@ -1,9 +1,7 @@
-import { buildXbTavernBrainAsync } from '../../../../../shared/brain';
 import {
     tavernCommunicationPayloadText,
 } from '../../../../../shared/communication-message';
 import {
-    type TavernChatPromptPresetBundle,
     type XbTavernContext,
     type XbTavernMemoryContext,
     type XbTavernMessage,
@@ -27,9 +25,15 @@ import {
 } from '../../../../../shared/session-contract';
 import { getTavernStatusStateForSession } from '../../../../../shared/status-state';
 import { buildTavernStatusPanelYaml } from '../../../../../shared/status-prompt';
-import { buildContextHistory, loadTavernPromptHistoryWindow } from '../../../../runtime/run-once';
 import {
-    buildTavernIncomingPhoneMessage,
+    resolveTavernWorldbookAtStoryBoundary,
+} from '../../../../runtime/anchored-worldbook';
+import {
+    buildContextHistory,
+    loadTavernPromptHistoryWindow,
+    type TavernGetNativeWorldInfoRuntime,
+} from '../../../../runtime/run-once';
+import {
     buildTavernPhonePromptMessages,
     buildTavernPhoneThreadContextMessage,
 } from './tavern-messages-prompt';
@@ -37,14 +41,6 @@ import {
 function normalizeIncomingMessage(value: unknown): string {
     return String(value || '').replace(/\r\n?/g, '\n').trim().slice(0, 2000);
 }
-
-const PHONE_ACTIVATION_PRESET: TavernChatPromptPresetBundle = {
-    id: 'littlewhitebox-phone-channel',
-    name: '小白酒馆私人消息',
-    source: 'littlewhitebox',
-    selected: true,
-    sections: [],
-};
 
 function filterMemoryContext(
     memoryContext: XbTavernMemoryContext | undefined,
@@ -95,6 +91,7 @@ export async function buildTavernMessagesRequestMessages(input: {
     thread: TavernCommunicationThreadRecord;
     communicationMessages: TavernCommunicationMessageRecord[];
     userMessage: TavernCommunicationMessageRecord;
+    getNativeWorldInfoRuntime: TavernGetNativeWorldInfoRuntime;
 }): Promise<XbTavernMessage[]> {
     const session = await getTavernSession(input.sessionId);
     if (!session) {throw new Error('当前私人消息会话不存在。');}
@@ -107,26 +104,29 @@ export async function buildTavernMessagesRequestMessages(input: {
     const anchorOrder = Number.isInteger(Number(input.userMessage.anchorOrder))
         ? Number(input.userMessage.anchorOrder)
         : -1;
+    const anchoredWorldbook = await resolveTavernWorldbookAtStoryBoundary({
+        sessionId: input.sessionId,
+        contextSnapshot: input.contextSnapshot,
+        throughOrder: anchorOrder,
+        getNativeWorldInfoRuntime: input.getNativeWorldInfoRuntime,
+    });
     const historyWindow = await loadTavernPromptHistoryWindow({
         sessionId: input.sessionId,
         contextWindowStartOrder: sessionState.contextWindowStartOrder,
         currentUserMessage: incomingMessage,
         beforeOrder: anchorOrder + 1,
     });
+    const mainHistory = buildContextHistory(historyWindow.historyMessages);
     const baseContext = buildContactContext({
         context: input.contextSnapshot,
         contact: input.contact,
         profile: input.contactProfile,
     });
-    const mainHistory = buildContextHistory(historyWindow.historyMessages);
     const phoneThreadContext = buildTavernPhoneThreadContextMessage({
         playerName: String(baseContext.user?.name || '玩家'),
         contact: input.contact,
         thread: input.thread,
         messages: input.communicationMessages,
-        incomingMessage: incomingPayload,
-        anchorOrder,
-        includeIncoming: false,
         excludeUserSequence: input.userMessage.sequence,
     });
     const contextForBuild: XbTavernContext = {
@@ -160,15 +160,6 @@ export async function buildTavernMessagesRequestMessages(input: {
         ...(retrievedMemory || {}),
         ...(statusState?.document ? { statusPanelYaml: buildTavernStatusPanelYaml(statusState.status) } : {}),
     }, runtime);
-    const currentUserMessage = buildTavernIncomingPhoneMessage(incomingPayload, anchorOrder);
-    const brain = await buildXbTavernBrainAsync({
-        context: contextForBuild,
-        chatPreset: PHONE_ACTIVATION_PRESET,
-        currentUserMessage,
-        historyMode: 'raw',
-        turn: sessionState.turn,
-        entryStates: sessionState.worldEntryStates,
-    });
     return buildTavernPhonePromptMessages({
         context: contextForBuild,
         contact: input.contact,
@@ -180,6 +171,6 @@ export async function buildTavernMessagesRequestMessages(input: {
         anchorOrder,
         incomingUserSequence: input.userMessage.sequence,
         memoryContext,
-        activatedWorldEntries: brain.buildResult.activatedWorldEntries,
+        activatedWorldEntries: anchoredWorldbook.activatedWorldEntries,
     });
 }

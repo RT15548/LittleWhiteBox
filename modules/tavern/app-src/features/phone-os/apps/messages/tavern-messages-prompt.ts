@@ -67,10 +67,25 @@ function buildPhoneRolePrompt(context: XbTavernContext, contact: TavernCommunica
         '不要续写主线剧情，不写旁白、动作描写或心理独白，不替用户说话。',
         '通讯渠道未知：不要假定或输出微信、QQ、短信、电话、终端等渠道名称；世界观中的合法通讯语境只能从 <setting> 判断。',
         '',
+        '<thinking>',
+        '## 定位（我手上有哪些资料？）',
+        '- 第 0 层：我自己（ROLE 指令）。',
+        '- 第 1 层：<setting> 世界与人物设定。',
+        '- 第 2 层：<story_history> 主线剧情 + <current_state_and_memory> 当前状态与记忆。',
+        '- 第 3 层：<private_message_summary> 此前通讯摘要 + <private_message_thread> 近期消息原文。',
+        '- 最后的 [user] turn：<incoming_private_message> 当前收到的消息 + 收尾指令。',
+        '',
+        '## 这条消息怎么接',
+        '- <private_message_summary> 是截至上一轮的通讯事实全貌，先读它建立大背景。',
+        '- <private_message_thread> 是最近的具体消息原文，顺着它的语感和上下文往下接。',
+        '- 最后那个 [user] turn 里的 <incoming_private_message> 就是要回复的消息，直接对它作答。',
+        '- 消息要自然、简短，像真人随手发的；适合拆分时拆成一至三个小消息，不写小作文。',
+        '</thinking>',
+        '',
         '判断顺序：',
         `1. 从 <setting> 与人物记忆确认「${contact.name}」的性格、知识边界及与「${playerName}」的关系。`,
         '2. 从主线历史、当前状态、状态栏与地图确认此刻处境，决定 reply、silent 或 unavailable。',
-        '3. 从 <private_message_thread> 延续称呼、语气与已成立的信息，不把承诺、邀请或计划当成已经发生的现场行动。',
+        '3. 从通讯摘要与近期原文延续称呼、语气与已成立的信息，不把承诺、邀请或计划当成已经发生的现场行动。',
         '4. reply 时输出 1 至 3 条自然、简短的消息，可按角色和情境选择文字、语音或图片。不要为了展示能力强行使用多媒体。',
         '',
         '唯一允许输出的是一个合法 JSON 对象，结构如下：',
@@ -261,9 +276,6 @@ export function buildTavernPhoneThreadContextMessage(input: {
     contact: TavernCommunicationContactRecord;
     thread: TavernCommunicationThreadRecord;
     messages: TavernCommunicationMessageRecord[];
-    incomingMessage: TavernCommunicationMessagePayload;
-    anchorOrder: number;
-    includeIncoming?: boolean;
     excludeUserSequence?: number;
 }): XbTavernMessage {
     const sent = input.messages
@@ -274,20 +286,24 @@ export function buildTavernPhoneThreadContextMessage(input: {
         .slice(-PHONE_HISTORY_LIMIT);
     const playerName = normalizeInlineText(input.playerName, 80) || '玩家';
     const lines = sent.map((message) => (
-        `${message.role === 'user' ? playerName : input.contact.name}（${tavernCommunicationPayloadTypeLabel(message.payload)}）：${escapeEvidence(tavernCommunicationPayloadText(message.payload))}`
+        `${escapeEvidence(message.role === 'user' ? playerName : input.contact.name)}（${tavernCommunicationPayloadTypeLabel(message.payload)}）：${escapeEvidence(tavernCommunicationPayloadText(message.payload))}`
     ));
+    const summary = promptContent(input.thread.summary);
     return {
         role: 'system',
         name: 'private_message_thread',
         content: [
+            ...(hasPromptContent(summary) ? [
+                '<private_message_summary>',
+                '此前通讯摘要：',
+                escapeEvidence(summary),
+                '</private_message_summary>',
+                '',
+            ] : []),
             '<private_message_thread>',
-            input.thread.summary ? `较早线程摘要：${escapeEvidence(promptContent(input.thread.summary))}` : '',
             ...lines,
-            input.includeIncoming === false
-                ? ''
-                : `${playerName}：${buildTavernIncomingPhoneMessage(input.incomingMessage, input.anchorOrder)}`,
             '</private_message_thread>',
-        ].filter(Boolean).join('\n'),
+        ].join('\n'),
     };
 }
 
@@ -327,13 +343,15 @@ export function buildTavernPhonePromptMessages(input: {
             contact: input.contact,
             thread: input.thread,
             messages: input.communicationMessages,
-            incomingMessage: input.incomingMessage,
-            anchorOrder: input.anchorOrder,
             excludeUserSequence: input.incomingUserSequence,
         }),
         {
             role: 'user',
-            content: `现在你是「${input.contact.name}」，回复上面私人消息线程里最后那条来自「${playerName}」的消息。\n延续这段对话，符合你此刻的处境。只输出规定的合法 JSON 对象，不要输出任何别的东西。`,
+            content: [
+                buildTavernIncomingPhoneMessage(input.incomingMessage, input.anchorOrder),
+                '',
+                `请以「${input.contact.name}」的身份回复这条来自「${playerName}」的消息。回复必须衔接主线剧情理解与私人消息上下文，语气用词符合「${input.contact.name}」的人物设定。只输出规定的合法 JSON 对象。`,
+            ].join('\n'),
         },
     ];
 }

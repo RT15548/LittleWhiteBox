@@ -1193,7 +1193,7 @@ test('tavern phone reply work participates in chat and archive lifecycle guards'
     assert.doesNotMatch(phoneControllerSource, /getTavernMemoryFile\(sessionId, 'memory\/state\.md'\)/);
 });
 
-test('tavern phone context uses its own preset and timeline-anchored main-story integration', () => {
+test('tavern phone context keeps timeline-anchored main-story integration and media boundaries', () => {
     const phoneControllerSource = readRepoFile('modules/tavern/app-src/features/phone-os/apps/messages/useTavernMessagesController.ts');
     const phoneContextSource = readRepoFile('modules/tavern/app-src/features/phone-os/apps/messages/tavern-messages-context.ts');
     const phonePromptSource = readRepoFile('modules/tavern/app-src/features/phone-os/apps/messages/tavern-messages-prompt.ts');
@@ -1216,10 +1216,6 @@ test('tavern phone context uses its own preset and timeline-anchored main-story 
     const managerSource = readRepoFile('modules/tavern/app-src/runtime/manager.ts');
 
     assert.match(phoneControllerSource, /buildTavernMessagesRequestMessages/);
-    assert.match(phoneContextSource, /id: 'littlewhitebox-phone-channel'/);
-    assert.match(phoneContextSource, /loadTavernPromptHistoryWindow/);
-    assert.match(phoneContextSource, /beforeOrder: anchorOrder \+ 1/);
-    assert.match(phoneContextSource, /chatPreset: PHONE_ACTIVATION_PRESET/);
     assert.match(phoneContextSource, /buildTavernPhonePromptMessages/);
     assert.match(phonePromptSource, /<role>/);
     assert.match(phonePromptSource, /<setting>/);

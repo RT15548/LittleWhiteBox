@@ -1103,6 +1103,8 @@ const phoneContext = useTavernPhoneController({
     memoryEditorMode,
     characterArchiveBusy: computed(() => characterArchiveSyncState.value.busy),
     requestHost,
+    refreshContextSnapshot: refreshPhoneContextSnapshot,
+    getNativeWorldInfoRuntime: getNativeWorldbookRuntime,
     addHostMessageHandler: hostBridge.addMessageHandler,
 }) satisfies TavernPhoneContext;
 
@@ -1901,6 +1903,25 @@ async function getHostContext(input: {
         },
     }, options);
     return (response.result || response) as Record<string, unknown>;
+}
+
+async function refreshPhoneContextSnapshot(sessionId: string): Promise<XbTavernContext> {
+    const id = String(sessionId || '').trim();
+    const session = sessions.value.find((item) => item.id === id)
+        || (selectedSession.value?.id === id ? selectedSession.value : null)
+        || await getTavernSession(id);
+    if (!session) {throw new Error('当前私人消息会话不存在。');}
+    const characterKey = sessionCharacterKey(session);
+    if (!characterKey) {throw new Error('当前私人消息会话没有绑定角色。');}
+    const nativeCharacterId = resolveCurrentNativeCharacterId(characterKey);
+    const payload = await getHostContext({
+        nativeCharacterId,
+        includeHistory: false,
+        includeWorldbooks: false,
+    });
+    const nextContext = preserveSessionAuthorNote(payload.context as XbTavernContext || {}, session);
+    assertContextMatchesCharacterKey(nextContext, characterKey);
+    return nextContext;
 }
 
 function currentContextCharacterKey() {

@@ -40,9 +40,6 @@ export function tavernTaskRequestErrorText(error: unknown): string {
         return '小白币余额不足，无法冻结这笔委托报酬。';
     }
     if (message.startsWith('task_response_invalid')) {return '终端没有收到可用的任务结果，请重试。';}
-    if (message.startsWith('task_prompt_required_context_exceeds_budget')) {
-        return '当前剧情资料过多，任务终端无法在完整保留关键内容的情况下生成结果。';
-    }
     if (message.startsWith('task_session_missing')) {return '这段剧情已经不存在。';}
     if (message.startsWith('task_action_conflict')) {return '这次操作已经失效，请重新打开任务后再试。';}
     if (message.startsWith('task_board_missing')) {return '委托板已经变化，请重新读取。';}

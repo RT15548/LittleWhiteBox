@@ -69,6 +69,7 @@ function createController(sessionId: string) {
         chatCancelling: ref(false),
         memoryEditorMode: ref<'preview' | 'edit'>('preview'),
         characterArchiveBusy: computed(() => false),
+        getNativeWorldInfoRuntime: async () => ({ timedState: { sticky: {}, cooldown: {} } }),
     }));
     if (!controller) {throw new Error('controller_scope_missing');}
     return { controller, scope };

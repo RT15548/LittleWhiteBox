@@ -136,6 +136,7 @@ test('an observing phone controller refreshes tasks and wallet after another wri
             chatCancelling: ref(false),
             memoryEditorMode: ref<'preview' | 'edit'>('preview'),
             characterArchiveBusy: computed(() => false),
+            getNativeWorldInfoRuntime: async () => ({ timedState: { sticky: {}, cooldown: {} } }),
             onEconomyChanged: wallet.refreshAfterEconomyDomainChange,
         });
         useTavernPhoneDomainSync({

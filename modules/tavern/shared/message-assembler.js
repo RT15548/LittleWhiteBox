@@ -1021,6 +1021,11 @@ function buildNativePromptEntries(runtime = {}) {
   });
   return entries;
 }
+function buildActivatedWorldEntriesFromNativeRuntime(runtime = {}) {
+  const activatedEntries = normalizeNativeActivatedEntries(runtime.activatedEntries);
+  const promptEntries = buildNativePromptEntries(runtime);
+  return promptEntries.length ? promptEntries : activatedEntries;
+}
 function insertionTargetForEntry(entry) {
   switch (entry.position) {
     case 0 /* before */:
@@ -1547,7 +1552,7 @@ function prepareXbTavernMessageBuild(context = {}, chatPreset = {}, runtimeState
     buildAuthorNoteInjectScanText(context, currentUserMessage)
   ].filter(Boolean).join("\n");
   const nativeActivatedEntries = normalizeNativeActivatedEntries(context.nativeWorldInfo?.activatedEntries);
-  const nativePromptEntries = buildNativePromptEntries(context.nativeWorldInfo);
+  const nativePromptEntries = buildActivatedWorldEntriesFromNativeRuntime(context.nativeWorldInfo);
   const worldSettings = {
     ...runtimeWorldSettings,
     scanText,
@@ -1859,6 +1864,7 @@ export {
   XBTavernSelectiveLogic,
   XBTavernWorldPosition,
   activateWorldEntries,
+  buildActivatedWorldEntriesFromNativeRuntime,
   buildAuthorNoteInjectScanText,
   buildScanText,
   buildXbTavernMessages,

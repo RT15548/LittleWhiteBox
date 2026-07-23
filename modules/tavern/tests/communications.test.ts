@@ -38,6 +38,7 @@ import {
     parseTavernPhoneReply,
 } from '../app-src/features/phone-os/apps/messages/tavern-messages-response';
 import { XBTavernWorldPosition, type ActivatedWorldEntry } from '../shared/message-assembler';
+import type { TavernGetNativeWorldInfoRuntime } from '../app-src/runtime/run-once';
 
 function activatedPhoneWorldEntry(content: string, position: XBTavernWorldPosition, depth = 0): ActivatedWorldEntry {
     return {
@@ -597,7 +598,7 @@ test('reopening a phone thread after the main story advances creates a new timel
     );
 });
 
-test('phone generation uses the anchored Tavern history window and five-layer prompt envelopes', async () => {
+test('phone generation uses the main-story native worldbook at its anchor and a real final user turn', async () => {
     await db.delete();
     await db.open();
     const session = await createTavernSession({
@@ -609,6 +610,12 @@ test('phone generation uses the anchored Tavern history window and five-layer pr
                 description: 'NORMAL_MAIN_CHARACTER_CARD',
             },
             user: { name: '玩家' },
+            worldEntries: [{
+                uid: 'phone-local-reactivation-must-not-run',
+                key: ['现在剧情进行到哪里了'],
+                content: 'LOCAL_PHONE_REACTIVATION_BAD',
+                position: XBTavernWorldPosition.before,
+            }],
         },
     });
     const contact = await createTavernCommunicationContact({
@@ -626,10 +633,21 @@ test('phone generation uses the anchored Tavern history window and five-layer pr
         replies: ['之前的手机回复。'],
         summary: '艾琳答应保持联系。',
     });
-    for (let order = 0; order < 25; order += 1) {
+    for (let order = 0; order < 26; order += 1) {
         await appendTavernMessage(session.id, {
             role: order % 2 === 0 ? 'user' : 'assistant',
             content: `main-history-${order}`,
+            ...(order === 24 ? {
+                runtimeStateSnapshot: {
+                    turn: 12,
+                    contextWindowStartOrder: 0,
+                    worldEntryStates: {},
+                    nativeWorldInfoTimedState: {
+                        sticky: { anchored: { hash: 24 } },
+                        cooldown: {},
+                    },
+                },
+            } : {}),
         });
     }
     const sent = await appendSentTavernCommunicationMessage({
@@ -640,6 +658,7 @@ test('phone generation uses the anchored Tavern history window and five-layer pr
     const currentThread = (await listTavernCommunicationThreads(session.id))
         .find((thread) => thread.id === contact.thread.id) || contact.thread;
     const fullContactProfile = longPhonePromptValue('CONTEXT_CONTACT');
+    let nativeWorldbookInput: Parameters<TavernGetNativeWorldInfoRuntime>[0] | null = null;
     const requestMessages = await buildTavernMessagesRequestMessages({
         sessionId: session.id,
         contextSnapshot: session.contextSnapshot || {},
@@ -648,6 +667,14 @@ test('phone generation uses the anchored Tavern history window and five-layer pr
         thread: currentThread,
         communicationMessages: await listTavernCommunicationMessages(session.id, contact.thread.id),
         userMessage: sent.message,
+        getNativeWorldInfoRuntime: async (input) => {
+            nativeWorldbookInput = input;
+            return {
+                trigger: input.trigger,
+                worldInfoBefore: 'NATIVE_ANCHOR_WORLD_INFO',
+                timedState: { sticky: {}, cooldown: {} },
+            };
+        },
     });
     const raw = JSON.stringify(requestMessages);
     const roleMessage = requestMessages[0];
@@ -656,10 +683,15 @@ test('phone generation uses the anchored Tavern history window and five-layer pr
     const storyCloseIndex = requestMessages.findIndex((message) => message.content === '</story_history>');
     const currentStateIndex = requestMessages.findIndex((message) => message.content.startsWith('<current_state_and_memory>'));
     const privateMessageThreadIndex = requestMessages.findIndex((message) => message.name === 'private_message_thread');
-    const finalInstruction = requestMessages.at(-1);
+    const finalUserTurn = requestMessages.at(-1);
+    const privateMessageThread = requestMessages[privateMessageThreadIndex]?.content || '';
+    const nativeWorldbookContext = nativeWorldbookInput?.context || {};
 
     assert.match(roleMessage?.content || '', /^<role>/);
     assert.match(roleMessage?.content || '', /不超过200字/);
+    assert.match(roleMessage?.content || '', /<private_message_summary>/);
+    assert.match(roleMessage?.content || '', /最后的 \[user\] turn：<incoming_private_message>/);
+    assert.doesNotMatch(roleMessage?.content || '', /phone_thread_context|第 3 层最后那条/);
     assert.match(settingMessage?.content || '', /^<setting>/);
     assert.match(settingMessage?.content || '', /<character_card>[\s\S]*## Character\n艾琳[\s\S]*## User\n玩家/);
     assert.doesNotMatch(settingMessage?.content || '', /## Description/);
@@ -668,18 +700,32 @@ test('phone generation uses the anchored Tavern history window and five-layer pr
     assert.doesNotMatch(raw, /NORMAL_MAIN_CHARACTER_CARD/);
     assert.match(raw, /之前的手机消息/);
     assert.match(raw, /之前的手机回复/);
-    assert.match(raw, /艾琳答应保持联系/);
+    assert.match(privateMessageThread, /<private_message_summary>\n此前通讯摘要：\n艾琳答应保持联系。\n<\/private_message_summary>/);
+    assert.match(privateMessageThread, /<private_message_thread>[\s\S]*之前的手机消息[\s\S]*之前的手机回复[\s\S]*<\/private_message_thread>/);
+    assert.doesNotMatch(privateMessageThread, /现在剧情进行到哪里了|incoming_private_message|较早线程摘要/);
     assert.doesNotMatch(raw, /main-history-15/);
-    assert.match(raw, /main-history-16/);
+    assert.doesNotMatch(raw, /main-history-16/);
+    assert.match(raw, /main-history-17/);
+    assert.match(raw, /main-history-25/);
     assert.match(raw, /main-history-24/);
+    assert.match(raw, /NATIVE_ANCHOR_WORLD_INFO/);
+    assert.doesNotMatch(raw, /LOCAL_PHONE_REACTIVATION_BAD/);
     assert.match(raw, /现在剧情进行到哪里了/);
     assert.equal(raw.match(/现在剧情进行到哪里了/g)?.length, 1);
+    assert.equal(raw.match(/<incoming_private_message anchor_order=/g)?.length, 1);
     assert.ok(storyOpenIndex >= 0 && storyOpenIndex < storyCloseIndex);
     assert.ok(storyCloseIndex < currentStateIndex);
     assert.ok(currentStateIndex < privateMessageThreadIndex);
-    assert.equal(finalInstruction?.role, 'user');
-    assert.match(finalInstruction?.content || '', /现在你是「艾琳」/);
-    assert.doesNotMatch(finalInstruction?.content || '', /现在剧情进行到哪里了/);
+    assert.equal(finalUserTurn?.role, 'user');
+    assert.match(finalUserTurn?.content || '', /^<incoming_private_message anchor_order="25" type="text">现在剧情进行到哪里了？<\/incoming_private_message>/);
+    assert.match(finalUserTurn?.content || '', /请以「艾琳」的身份回复这条来自「玩家」的消息/);
+    assert.doesNotMatch(finalUserTurn?.content || '', /回复上面|线程里最后那条/);
+    assert.equal(nativeWorldbookInput?.currentUserMessage, '');
+    assert.equal(nativeWorldbookInput?.trigger, 'normal');
+    assert.equal(nativeWorldbookContext.character?.name, '主角色');
+    assert.match(JSON.stringify(nativeWorldbookContext.history), /main-history-16/);
+    assert.match(JSON.stringify(nativeWorldbookContext.history), /main-history-24|main-history-25/);
+    assert.doesNotMatch(JSON.stringify(nativeWorldbookContext.history), /之前的手机消息|现在剧情进行到哪里了/);
 });
 
 test('phone prompt keeps the full contact memory once and excludes it from related-character recall', () => {
@@ -735,7 +781,7 @@ test('phone prompt keeps the full contact memory once and excludes it from relat
     assert.match(currentState, /WORLD_DEPTH_ONE_MARKER/);
     assert.doesNotMatch(currentState, /WORLD_DEPTH_FOUR_MARKER/);
     assert.ok(messages.findIndex((message) => message.content.includes('WORLD_DEPTH_FOUR_MARKER')) < messages.findIndex((message) => message.content === '</story_history>'));
-    assert.equal(raw.match(/<incoming_private_message/g)?.length, 1);
+    assert.equal(raw.match(/<incoming_private_message anchor_order=/g)?.length, 1);
     assert.equal(messages.at(-1)?.role, 'user');
 });
 
@@ -828,8 +874,8 @@ test('phone prompt omits the optional current-state envelope when every source i
         activatedWorldEntries: [],
     });
 
-    assert.equal(messages.some((message) => message.content.includes('<current_state_and_memory>')), false);
-    assert.equal(JSON.stringify(messages).match(/<incoming_private_message/g)?.length, 1);
+    assert.equal(messages.some((message) => message.content.startsWith('<current_state_and_memory>')), false);
+    assert.equal(JSON.stringify(messages).match(/<incoming_private_message anchor_order=/g)?.length, 1);
 });
 
 test('session branching clones phone state and session deletion cascades it', async () => {

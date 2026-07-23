@@ -1549,6 +1549,14 @@ function buildNativePromptEntries(runtime: XbTavernNativeWorldInfoRuntime = {}):
     return entries;
 }
 
+export function buildActivatedWorldEntriesFromNativeRuntime(
+    runtime: XbTavernNativeWorldInfoRuntime = {},
+): ActivatedWorldEntry[] {
+    const activatedEntries = normalizeNativeActivatedEntries(runtime.activatedEntries);
+    const promptEntries = buildNativePromptEntries(runtime);
+    return promptEntries.length ? promptEntries : activatedEntries;
+}
+
 function insertionTargetForEntry(entry: Pick<ActivatedWorldEntry, 'position' | 'depth' | 'outletName' | 'outlet'>): string {
     switch (entry.position) {
         case XBTavernWorldPosition.before:
@@ -2172,7 +2180,7 @@ function prepareXbTavernMessageBuild(
         buildAuthorNoteInjectScanText(context, currentUserMessage),
     ].filter(Boolean).join('\n');
     const nativeActivatedEntries = normalizeNativeActivatedEntries(context.nativeWorldInfo?.activatedEntries);
-    const nativePromptEntries = buildNativePromptEntries(context.nativeWorldInfo);
+    const nativePromptEntries = buildActivatedWorldEntriesFromNativeRuntime(context.nativeWorldInfo);
     const worldSettings = {
         ...runtimeWorldSettings,
         scanText,

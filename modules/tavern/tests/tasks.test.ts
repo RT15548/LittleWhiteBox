@@ -40,7 +40,6 @@ import {
     restoreTavernTasksAndEconomyToFloor,
 } from '../shared/tasks/task-timeline';
 import {
-    generateTavernTaskRecipe,
     parseTavernTaskBoardResponse,
     parseTavernTaskCandidatesResponse,
     type TavernTaskExpectedPhoneBoundary,
@@ -53,6 +52,9 @@ import {
     TAVERN_PLAYER_ACCOUNT_ID,
     TAVERN_SYSTEM_SINK_ACCOUNT_ID,
 } from '../shared/economy/economy-types';
+import { buildTavernTaskBoardRequestMessages } from '../app-src/features/phone-os/apps/tasks/tavern-task-prompts';
+import { buildTavernTaskPromptLayers } from '../app-src/features/phone-os/apps/tasks/tavern-task-context';
+import type { TavernGetNativeWorldInfoRuntime } from '../app-src/runtime/run-once';
 
 type TestPhoneBoundaryInput<T extends { boundary: TavernTaskExpectedPhoneBoundary }> = Omit<T, 'boundary'> & {
     anchorOrder?: number;
@@ -204,6 +206,75 @@ function candidateRows() {
     }));
 }
 
+test('task generation scans through the latest AI and preserves character and native worldbook grounding', async () => {
+    await db.delete();
+    await db.open();
+    const contextSnapshot = {
+        character: {
+            name: 'TASK_CHARACTER',
+            description: 'TASK_DESCRIPTION',
+            personality: 'TASK_PERSONALITY',
+            scenario: 'TASK_SCENARIO',
+        },
+        user: { name: 'TASK_USER', persona: 'TASK_PERSONA' },
+    };
+    const session = await createTavernSession({
+        title: 'Task worldbook boundary',
+        contextSnapshot,
+    });
+    await appendTavernMessage(session.id, { role: 'user', content: 'TASK_STORY_USER' });
+    await appendTavernMessage(session.id, { role: 'assistant', content: 'TASK_STORY_LATEST_AI' });
+    let nativeWorldbookInput: Parameters<TavernGetNativeWorldInfoRuntime>[0] | null = null;
+    const layers = await buildTavernTaskPromptLayers({
+        sessionId: session.id,
+        contextSnapshot,
+        anchorOrder: 2,
+        getNativeWorldInfoRuntime: async (input) => {
+            nativeWorldbookInput = input;
+            return {
+                worldInfoBefore: 'TASK_WORLD_BEFORE',
+                worldInfoAfter: 'TASK_WORLD_AFTER',
+                worldInfoExamples: [
+                    { position: 'before', content: 'TASK_WORLD_EXAMPLE_TOP' },
+                    { position: 'after', content: 'TASK_WORLD_EXAMPLE_BOTTOM' },
+                ],
+                anBefore: ['TASK_WORLD_AUTHOR_TOP'],
+                anAfter: ['TASK_WORLD_AUTHOR_BOTTOM'],
+                worldInfoDepth: [{ depth: 3, role: 0, entries: ['TASK_WORLD_DEPTH'] }],
+                outlets: { 'quest-terminal': ['TASK_WORLD_OUTLET'] },
+            };
+        },
+    });
+    const request = JSON.stringify(buildTavernTaskBoardRequestMessages({
+        layers,
+        currentTasks: [],
+        excludedTitles: [],
+    }));
+    const worldMarkers = [
+        'TASK_WORLD_BEFORE',
+        'TASK_WORLD_AFTER',
+        'TASK_WORLD_EXAMPLE_TOP',
+        'TASK_WORLD_AUTHOR_TOP',
+        'TASK_WORLD_EXAMPLE_BOTTOM',
+        'TASK_WORLD_AUTHOR_BOTTOM',
+        'TASK_WORLD_DEPTH',
+        'TASK_WORLD_OUTLET',
+    ];
+
+    [
+        'TASK_CHARACTER',
+        'TASK_DESCRIPTION',
+        'TASK_PERSONALITY',
+        'TASK_SCENARIO',
+        'TASK_USER',
+        'TASK_PERSONA',
+        ...worldMarkers,
+    ].forEach((marker) => assert.equal(request.includes(marker), true));
+    assert.equal(nativeWorldbookInput?.currentUserMessage, '');
+    assert.equal(JSON.stringify(nativeWorldbookInput?.context.history).includes('TASK_STORY_USER'), true);
+    assert.equal(JSON.stringify(nativeWorldbookInput?.context.history).includes('TASK_STORY_LATEST_AI'), true);
+});
+
 test('task board and candidate response protocols enforce their stable boundaries', () => {
     const response = `prefix\n${JSON.stringify({ tasks: boardListings().map(({ id: _id, issuer, ...listing }) => ({
         ...listing,
@@ -263,15 +334,6 @@ test('task board and candidate response protocols enforce their stable boundarie
         { ...boardListings()[5], title: ` ${boardListings()[0].title} ` },
     ] })), /task_response_invalid/);
 
-    const recipe = generateTavernTaskRecipe({ random: () => 0 });
-    assert.deepEqual(recipe.map((slot) => slot.role), [
-        'grounded',
-        'investigation_social',
-        'dangerous',
-        'moral_gray',
-        'strange',
-        'wildcard',
-    ]);
 });
 
 test('database upgrade creates current task storage and clears pre-v20 economy data', async () => {

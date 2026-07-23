@@ -336,59 +336,6 @@ export const TAVERN_TASK_GRADE_REWARD_RANGES: Readonly<Record<TavernTaskBoardGra
     EX: [1_501, 5_000],
 };
 
-export type TavernTaskRecipeRole =
-    | 'grounded'
-    | 'investigation_social'
-    | 'dangerous'
-    | 'moral_gray'
-    | 'strange'
-    | 'wildcard';
-
-export interface TavernTaskRecipeSlot {
-    role: TavernTaskRecipeRole;
-    archetype: string;
-    instruction: string;
-}
-
-const TAVERN_TASK_RECIPE_POOLS: Readonly<Record<TavernTaskRecipeRole, readonly Omit<TavernTaskRecipeSlot, 'role'>[]>> = {
-    grounded: [
-        { archetype: 'delivery', instruction: '一项普通、贴地气的跑腿、运送或代办委托。' },
-        { archetype: 'repair', instruction: '一项围绕修理、补给或恢复日常秩序的具体委托。' },
-        { archetype: 'search', instruction: '一项看似普通但有明确对象与地点的寻找委托。' },
-        { archetype: 'escort', instruction: '一项低调、现实且有明确终点的护送或陪同委托。' },
-    ],
-    investigation_social: [
-        { archetype: 'investigation', instruction: '一项需要查证线索、辨别真假或追踪来源的调查委托。' },
-        { archetype: 'negotiation', instruction: '一项需要谈判、斡旋或说服具体对象的社交委托。' },
-        { archetype: 'infiltration-social', instruction: '一项需要以身份、关系或礼仪进入某个圈层的委托。' },
-        { archetype: 'reputation', instruction: '一项围绕名誉、传闻或公开立场产生冲突的委托。' },
-    ],
-    dangerous: [
-        { archetype: 'hunt', instruction: '一项存在明确人身危险的追捕、狩猎或清除委托。' },
-        { archetype: 'rescue', instruction: '一项时间紧迫、环境危险的营救或撤离委托。' },
-        { archetype: 'hazard-zone', instruction: '一项必须进入危险区域才能完成的委托。' },
-        { archetype: 'defense', instruction: '一项需要抵御真实威胁、守住对象或地点的委托。' },
-    ],
-    moral_gray: [
-        { archetype: 'smuggling', instruction: '一项涉及走私、规避监管或非法运输的灰色委托。' },
-        { archetype: 'theft', instruction: '一项涉及盗取、掉包或秘密取回物品的委托。' },
-        { archetype: 'blackmail', instruction: '一项涉及把柄、胁迫或利益交换的道德灰区委托。' },
-        { archetype: 'sabotage', instruction: '一项需要破坏、误导或让某件事失败的灰色委托。' },
-    ],
-    strange: [
-        { archetype: 'impossible-client', instruction: '一项委托人或受益者身份异常、但仍符合世界规则的古怪委托。' },
-        { archetype: 'ritual-procedure', instruction: '一项步骤离奇、限制明确且不能随意省略的委托。' },
-        { archetype: 'wrong-object', instruction: '一项围绕用途、归属或存在方式反常的物件展开的委托。' },
-        { archetype: 'social-absurdity', instruction: '一项表面荒诞、实则会牵动真实关系与后果的委托。' },
-    ],
-    wildcard: [
-        { archetype: 'world-specific', instruction: '自由发挥一项只有当前世界才会出现的具体委托。' },
-        { archetype: 'faction-shift', instruction: '自由发挥一项会改变组织关系或地方局势的委托。' },
-        { archetype: 'personal-stakes', instruction: '自由发挥一项小人物诉求会引出更大后果的委托。' },
-        { archetype: 'unexpected-service', instruction: '自由发挥一项职业、服务或交换方式出人意料的委托。' },
-    ],
-};
-
 function createLocalId(prefix: string): string {
     return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
@@ -746,21 +693,4 @@ export function normalizeTavernTaskVersionRecord(record: TavernTaskVersionRecord
 
 function normalizeComparisonText(value: unknown): string {
     return String(value || '').normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase();
-}
-
-export function generateTavernTaskRecipe(options: { random?: () => number } = {}): TavernTaskRecipeSlot[] {
-    const random = options.random || Math.random;
-    const roles: TavernTaskRecipeRole[] = [
-        'grounded',
-        'investigation_social',
-        'dangerous',
-        'moral_gray',
-        'strange',
-        'wildcard',
-    ];
-    return roles.map((role) => {
-        const pool = TAVERN_TASK_RECIPE_POOLS[role];
-        const index = Math.min(pool.length - 1, Math.max(0, Math.floor(random() * pool.length)));
-        return { role, ...pool[index] };
-    });
 }

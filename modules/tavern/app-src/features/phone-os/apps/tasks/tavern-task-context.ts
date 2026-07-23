@@ -1,10 +1,4 @@
-import { buildXbTavernBrainAsync } from '../../../../../shared/brain';
 import { listTavernCommunicationContacts } from '../../../../../shared/communications';
-import {
-    buildXbTavernMemoryIgnoredTerms,
-    buildXbTavernMemoryQuery,
-    retrieveXbTavernMemoryContext,
-} from '../../../../../shared/memory-retrieval';
 import {
     getCharacterNameFromMemoryPath,
     getTavernMemoryFile,
@@ -13,38 +7,31 @@ import {
 } from '../../../../../shared/memory-files';
 import type {
     ActivatedWorldEntry,
-    TavernChatPromptPresetBundle,
     XbTavernContext,
-    XbTavernMessage,
 } from '../../../../../shared/message-assembler';
 import {
     getTavernSession,
     normalizeTavernSessionState,
 } from '../../../../../shared/session-db';
+import {
+    normalizeTavernSessionContract,
+    resolveTavernSessionContractRuntime,
+} from '../../../../../shared/session-contract';
 import { buildTavernStatusPanelYaml } from '../../../../../shared/status-prompt';
 import { getTavernStatusStateForSession } from '../../../../../shared/status-state';
+import { buildTavernSpatialStateDigest } from '../../../../../shared/structured-state';
 import { listCurrentTavernTasks } from '../../../../../shared/tasks/task-service';
-import { buildContextHistory } from '../../../../runtime/run-once';
-import { loadTavernPromptHistoryWindow } from '../../../../runtime/prompt-history-window';
+import { resolveTavernWorldbookAtStoryBoundary } from '../../../../runtime/anchored-worldbook';
+import type { TavernGetNativeWorldInfoRuntime } from '../../../../runtime/run-once';
 
-const TASK_ACTIVATION_PRESET: TavernChatPromptPresetBundle = {
-    id: 'littlewhitebox-phone-tasks',
-    name: '小白酒馆地下委托终端',
-    source: 'littlewhitebox',
-    selected: true,
-    sections: [],
-};
 const TASK_KNOWN_NAME_TERMINAL_LIMIT = 12;
 
 export interface TavernTaskPromptLayers {
     context: XbTavernContext;
-    history: XbTavernMessage[];
     activatedWorldEntries: ActivatedWorldEntry[];
     stateMemory: string;
-    retrievedMemories: Array<{ title?: string; path?: string; content?: string }>;
     status: string;
     map: string;
-    structuredStates: string[];
     knownNames: string[];
 }
 
@@ -52,54 +39,41 @@ export async function buildTavernTaskPromptLayers(input: {
     sessionId: string;
     contextSnapshot: XbTavernContext;
     anchorOrder: number;
-    queryText: string;
+    getNativeWorldInfoRuntime: TavernGetNativeWorldInfoRuntime;
 }): Promise<TavernTaskPromptLayers> {
     const session = await getTavernSession(input.sessionId);
     if (!session) {throw new Error('task_session_missing');}
     const sessionState = normalizeTavernSessionState(session.state || {});
-    const historyWindow = await loadTavernPromptHistoryWindow({
-        sessionId: input.sessionId,
-        contextWindowStartOrder: sessionState.contextWindowStartOrder,
-        beforeOrder: input.anchorOrder + 1,
-    });
-    const history = buildContextHistory(historyWindow.historyMessages);
-    const contextForActivation: XbTavernContext = {
-        ...input.contextSnapshot,
-        worldSettings: {
-            ...(input.contextSnapshot.worldSettings || {}),
-            trigger: 'tasks',
-        },
-        history,
-    };
-    const [stateMemory, memoryContext, statusState, memoryFiles, contacts, liveTasks, terminalTasks, brain] = await Promise.all([
-        getTavernMemoryFile(input.sessionId, 'memory/state.md'),
-        retrieveXbTavernMemoryContext({
-            sessionId: input.sessionId,
-            queryText: buildXbTavernMemoryQuery(contextForActivation, input.queryText),
-            ignoredTerms: buildXbTavernMemoryIgnoredTerms(contextForActivation),
-            includeMemoryFiles: true,
-            includeStructuredStates: true,
-        }),
-        getTavernStatusStateForSession(input.sessionId),
-        listTavernMemoryFiles(input.sessionId),
+    const runtime = resolveTavernSessionContractRuntime(normalizeTavernSessionContract(sessionState.contract));
+    const [stateMemory, statusState, map, memoryFiles, contacts, liveTasks, terminalTasks, worldbook] = await Promise.all([
+        runtime.includeMemoryFiles
+            ? getTavernMemoryFile(input.sessionId, 'memory/state.md')
+            : Promise.resolve(null),
+        runtime.includeStatusStates
+            ? getTavernStatusStateForSession(input.sessionId)
+            : Promise.resolve(null),
+        runtime.includeStructuredStates
+            ? buildTavernSpatialStateDigest(input.sessionId)
+            : Promise.resolve(''),
+        runtime.includeMemoryFiles
+            ? listTavernMemoryFiles(input.sessionId)
+            : Promise.resolve([]),
         listTavernCommunicationContacts(input.sessionId),
         listCurrentTavernTasks(input.sessionId, { statuses: ['active', 'recruiting'] }),
         listCurrentTavernTasks(input.sessionId, {
             statuses: ['completed', 'failed', 'cancelled'],
             limit: TASK_KNOWN_NAME_TERMINAL_LIMIT,
         }),
-        buildXbTavernBrainAsync({
-            context: contextForActivation,
-            chatPreset: TASK_ACTIVATION_PRESET,
-            currentUserMessage: input.queryText,
-            historyMode: 'raw',
-            turn: sessionState.turn,
-            entryStates: sessionState.worldEntryStates,
+        resolveTavernWorldbookAtStoryBoundary({
+            sessionId: input.sessionId,
+            contextSnapshot: input.contextSnapshot,
+            throughOrder: input.anchorOrder - 1,
+            getNativeWorldInfoRuntime: input.getNativeWorldInfoRuntime,
         }),
     ]);
     const knownNames = [
-        contextForActivation.user?.name,
-        contextForActivation.character?.name,
+        input.contextSnapshot.user?.name,
+        input.contextSnapshot.character?.name,
         ...contacts.map((contact) => contact.name),
         ...[...liveTasks, ...terminalTasks].flatMap((task) => [
             task.issuer.kind === 'world' ? task.issuer.name : '',
@@ -110,23 +84,11 @@ export async function buildTavernTaskPromptLayers(input: {
             .map((file) => getCharacterNameFromMemoryPath(file.path)),
     ].map((value) => String(value || '').trim()).filter(Boolean);
     return {
-        context: contextForActivation,
-        history,
-        activatedWorldEntries: brain.buildResult.activatedWorldEntries,
+        context: input.contextSnapshot,
+        activatedWorldEntries: worldbook.activatedWorldEntries,
         stateMemory: String(stateMemory?.content || ''),
-        retrievedMemories: (memoryContext.memoryFiles || [])
-            .filter((file) => isCharacterMemoryPath(String(file.path || '')))
-            .map((file) => ({
-                title: file.title,
-                path: file.path,
-                content: file.content,
-            })),
-        status: buildTavernStatusPanelYaml(statusState.status),
-        map: String(memoryContext.spatialState || ''),
-        structuredStates: (memoryContext.structuredStates || []).map((item) => [
-            item.title || `${item.docType || 'state'}/${item.docId || 'main'}`,
-            item.digest || '',
-        ].filter(Boolean).join('：')),
+        status: statusState ? buildTavernStatusPanelYaml(statusState.status) : '',
+        map: String(map || ''),
         knownNames: [...new Set(knownNames)],
     };
 }
