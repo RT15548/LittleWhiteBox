@@ -95,7 +95,6 @@ export function useTavernManagerDisplay(options: TavernManagerDisplayOptions) {
             failed: '失败',
             cancelled: '已取消',
             superseded: '已作废',
-            rolled_back: '未采用',
         };
         return labels[status] || status || '未知';
     }
@@ -108,7 +107,7 @@ export function useTavernManagerDisplay(options: TavernManagerDisplayOptions) {
             if (silentMs > 30000) {return 'danger';}
             if (silentMs > 9000) {return 'warn';}
         }
-        if (['failed', 'rolled_back'].includes(status)) {return 'danger';}
+        if (status === 'failed') {return 'danger';}
         if (['cancelled', 'superseded'].includes(status)) {return 'muted';}
         if (['queued', 'running'].includes(status)) {return 'active';}
         if (status === 'completed') {return 'done';}
@@ -136,7 +135,7 @@ export function useTavernManagerDisplay(options: TavernManagerDisplayOptions) {
             if (silentMs <= 30000) {return `等待中 · 已运行 ${runningFor} · 上次心跳 ${formatDurationAgo(updatedAt)}`;}
             return `可能卡住 · 已运行 ${runningFor} · ${formatDurationAgo(updatedAt)}没有心跳`;
         }
-        if (['completed', 'failed', 'cancelled', 'superseded', 'rolled_back'].includes(status)) {
+        if (['completed', 'failed', 'cancelled', 'superseded'].includes(status)) {
             return `已结束 · ${formatDurationAgo(updatedAt)}`;
         }
         return updatedAt ? `最后更新 ${formatDurationAgo(updatedAt)}` : '';
@@ -156,7 +155,6 @@ export function useTavernManagerDisplay(options: TavernManagerDisplayOptions) {
             return '原因：维护结果未能安全写入剧情快照，系统已撤回本轮写入。';
         }
         if (error && labels[error]) {return `原因：${labels[error]}`;}
-        if (run.status === 'rolled_back') {return '原因：本次结果已撤回，当前记忆、地图和状态栏保持上一版。';}
         if (error) {return `原因：${error}`;}
         return '';
     }
@@ -180,7 +178,6 @@ export function useTavernManagerDisplay(options: TavernManagerDisplayOptions) {
         if (run.status === 'running') {return '记忆：正在整理';}
         if (run.status === 'failed') {return files.length ? `记忆：已写入 ${files.length} 份档案，但本轮失败` : '记忆：未完成';}
         if (['cancelled', 'superseded'].includes(run.status)) {return '记忆：已停止，未采用本轮结果';}
-        if (run.status === 'rolled_back') {return '记忆：未采用，已撤回本轮写入';}
         if (!files.length) {return '记忆：没有写入文件';}
         return `记忆：已更新 ${files.length} 份档案`;
     }
@@ -191,7 +188,6 @@ export function useTavernManagerDisplay(options: TavernManagerDisplayOptions) {
         if (run.status === 'running') {return '地图：正在判断本轮有没有空间变化';}
         if (run.status === 'failed') {return states.length ? `地图：已写入 ${states.length} 份状态，但本轮失败` : '地图：未完成';}
         if (['cancelled', 'superseded'].includes(run.status)) {return '地图：已停止，未采用本轮结果';}
-        if (run.status === 'rolled_back') {return '地图：未采用，已撤回本轮更新';}
         if (states.length) {return `地图：已更新 ${states.length} 份状态`;}
         return '地图：本轮没有明确空间变化，未更新';
     }

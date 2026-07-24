@@ -78,14 +78,38 @@ function hasFunctionCallPart(content) {
     return !!content?.parts?.some((part) => part?.functionCall?.name);
 }
 
-function getFunctionCallPartKey(part, index) {
+function getFunctionCallPartKey(part, partIndex, contentIndex = 0) {
     if (!part?.functionCall?.name) return '';
+    const id = String(part.functionCall.id || '').trim();
+    if (id) return `id:${id}`;
     return [
-        String(part.functionCall.id || ''),
+        String(contentIndex),
         String(part.functionCall.name || ''),
-        JSON.stringify(part.functionCall.args || {}),
-        String(index),
+        String(partIndex),
     ].join('\u0000');
+}
+
+function mergeGoogleFunctionCallPart(currentPart, incomingPart) {
+    const currentCall = currentPart?.functionCall || {};
+    const incomingCall = incomingPart?.functionCall || {};
+    const currentArgs = currentCall.args && typeof currentCall.args === 'object' && !Array.isArray(currentCall.args)
+        ? currentCall.args
+        : {};
+    const incomingArgs = incomingCall.args && typeof incomingCall.args === 'object' && !Array.isArray(incomingCall.args)
+        ? incomingCall.args
+        : {};
+    return {
+        ...currentPart,
+        ...incomingPart,
+        ...(currentPart?.thoughtSignature && !incomingPart?.thoughtSignature
+            ? { thoughtSignature: currentPart.thoughtSignature }
+            : {}),
+        functionCall: {
+            ...currentCall,
+            ...incomingCall,
+            args: { ...currentArgs, ...incomingArgs },
+        },
+    };
 }
 
 function buildRepairedStreamedContent(contents = [], streamedText = '') {
@@ -100,36 +124,43 @@ function buildRepairedStreamedContent(contents = [], streamedText = '') {
     const latestFunctionCallContent = [...normalizedContents]
         .reverse()
         .find((content) => hasFunctionCallPart(content)) || null;
-    const baseContent = cloneJson(latestSignedContent || latestFunctionCallContent || normalizedContents[normalizedContents.length - 1]);
+    const baseSourceContent = latestSignedContent || latestFunctionCallContent || normalizedContents[normalizedContents.length - 1];
+    const baseContentIndex = normalizedContents.indexOf(baseSourceContent);
+    const baseContent = cloneJson(baseSourceContent);
     if (!baseContent?.parts?.length) {
         return normalizedContents[normalizedContents.length - 1];
     }
 
     if (latestFunctionCallContent) {
         const bestFunctionCallParts = new Map();
-        normalizedContents.forEach((content) => {
+        const orderedFunctionCallKeys = [];
+        normalizedContents.forEach((content, contentIndex) => {
             content.parts.forEach((part, index) => {
-                const key = getFunctionCallPartKey(part, index);
+                const key = getFunctionCallPartKey(part, index, contentIndex);
                 if (!key) return;
+                if (!bestFunctionCallParts.has(key)) {
+                    orderedFunctionCallKeys.push(key);
+                }
                 const currentBest = bestFunctionCallParts.get(key);
-                if (!currentBest || part.thoughtSignature || !currentBest.thoughtSignature) {
+                if (!currentBest) {
                     bestFunctionCallParts.set(key, cloneJson(part));
+                } else {
+                    bestFunctionCallParts.set(key, mergeGoogleFunctionCallPart(currentBest, part));
                 }
             });
         });
 
         const existingKeys = new Set();
         baseContent.parts = baseContent.parts.map((part, index) => {
-            const key = getFunctionCallPartKey(part, index);
+            const key = getFunctionCallPartKey(part, index, baseContentIndex);
             if (!key) return part;
             existingKeys.add(key);
             return bestFunctionCallParts.get(key) || part;
         });
 
-        latestFunctionCallContent.parts.forEach((part, index) => {
-            const key = getFunctionCallPartKey(part, index);
-            if (!key || existingKeys.has(key)) return;
-            baseContent.parts.push(bestFunctionCallParts.get(key) || cloneJson(part));
+        orderedFunctionCallKeys.forEach((key) => {
+            if (existingKeys.has(key)) return;
+            baseContent.parts.push(bestFunctionCallParts.get(key));
             existingKeys.add(key);
         });
     }
@@ -159,44 +190,105 @@ function extractVisibleText(response) {
         : '';
 }
 
-function extractFunctionCalls(response) {
+function getRawFunctionCalls(response) {
     const sdkFunctionCalls = Array.isArray(response?.functionCalls)
         ? response.functionCalls
         : [];
     const contentFunctionCalls = (response?.candidates?.[0]?.content?.parts || [])
         .map((item) => item?.functionCall || item)
         .filter((item) => item && item.name);
-    const rawCalls = sdkFunctionCalls.length
+    return sdkFunctionCalls.length
         ? sdkFunctionCalls
         : contentFunctionCalls;
-    return rawCalls
-        .map((item, index) => ({
-            id: item.id || `google-tool-${index + 1}`,
-            name: item.name || '',
-            arguments: JSON.stringify(item.args || {}),
-        }))
+}
+
+function normalizeFunctionCallArguments(item) {
+    try {
+        return JSON.stringify(item?.args || {});
+    } catch {
+        return '{}';
+    }
+}
+
+function parseFunctionCallArguments(argumentsText) {
+    try {
+        const value = JSON.parse(String(argumentsText || '{}'));
+        return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+    } catch {
+        return null;
+    }
+}
+
+function mergeFunctionCallArguments(currentArguments, incomingArguments) {
+    const current = parseFunctionCallArguments(currentArguments);
+    const incoming = parseFunctionCallArguments(incomingArguments);
+    if (current && incoming) {
+        return JSON.stringify({ ...current, ...incoming });
+    }
+    return String(incomingArguments || '').trim() || String(currentArguments || '{}');
+}
+
+function extractFunctionCalls(response, internalIdPrefix = 'google-tool') {
+    return getRawFunctionCalls(response)
+        .map((item, index) => {
+            const providerId = String(item.id || '').trim();
+            return {
+                // The runtime needs a stable local key even when Gemini legitimately omits functionCall.id.
+                id: providerId || `${internalIdPrefix}-${index + 1}`,
+                name: item.name || '',
+                arguments: normalizeFunctionCallArguments(item),
+                // Keep an explicit empty marker: it tells the response writer to omit id entirely.
+                ...(providerId ? {} : { providerId: '' }),
+            };
+        })
         .filter((item) => item.name);
 }
 
-function mergeFunctionCalls(existing = [], incoming = []) {
-    const merged = Array.isArray(existing) ? [...existing] : [];
-    (Array.isArray(incoming) ? incoming : []).forEach((item) => {
-        if (!item?.name) return;
-        const key = [
-            String(item.id || ''),
-            String(item.name || ''),
-            String(item.arguments || ''),
-        ].join('\u0000');
-        const exists = merged.some((current) => [
-            String(current.id || ''),
-            String(current.name || ''),
-            String(current.arguments || ''),
-        ].join('\u0000') === key);
-        if (!exists) {
-            merged.push(item);
+function createStreamFunctionCallAccumulator(internalIdPrefix) {
+    const calls = [];
+    const callsByProviderId = new Map();
+    let nextLocalId = 0;
+
+    function mergeInto(call, item, providerId, argumentsText) {
+        call.name = String(item.name || call.name || '').trim();
+        call.arguments = mergeFunctionCallArguments(call.arguments, argumentsText);
+        if (providerId) {
+            callsByProviderId.set(providerId, call);
+            if (call.id !== providerId) {
+                call.providerId = providerId;
+            } else {
+                delete call.providerId;
+            }
         }
-    });
-    return merged;
+        return call;
+    }
+
+    function append(response) {
+        getRawFunctionCalls(response).forEach((item) => {
+            const name = String(item?.name || '').trim();
+            if (!name) return;
+            const providerId = String(item?.id || '').trim();
+            const argumentsText = normalizeFunctionCallArguments(item);
+            let call = providerId ? callsByProviderId.get(providerId) : null;
+            if (!call) {
+                call = {
+                    id: providerId || `${internalIdPrefix}-${++nextLocalId}`,
+                    name,
+                    arguments: argumentsText,
+                    ...(providerId ? {} : { providerId: '' }),
+                };
+                calls.push(call);
+            } else {
+                mergeInto(call, item, providerId, argumentsText);
+            }
+            if (providerId) {
+                callsByProviderId.set(providerId, call);
+            }
+        });
+        return calls.map((call) => ({ ...call }));
+    }
+
+    return { append };
 }
 
 function buildToolResponseMessage(toolResponses = []) {
@@ -204,12 +296,18 @@ function buildToolResponseMessage(toolResponses = []) {
         role: 'user',
         parts: toolResponses
             .filter((item) => item && item.name)
-            .map((item) => ({
-                functionResponse: {
-                    name: item.name,
-                    response: item.response || {},
-                },
-            })),
+            .map((item) => {
+                const responseId = Object.prototype.hasOwnProperty.call(item, 'providerId')
+                    ? String(item.providerId || '').trim()
+                    : String(item.id || '').trim();
+                return {
+                    functionResponse: {
+                        ...(responseId ? { id: responseId } : {}),
+                        name: item.name,
+                        response: item.response || {},
+                    },
+                };
+            }),
     };
 }
 
@@ -307,6 +405,7 @@ function getNewModelContentsFromHistory(chat, beforeLength = 0) {
 
 function buildConversation(messages) {
     const toolNameById = new Map();
+    const providerToolCallIdByInternalId = new Map();
     const contents = [];
     const filteredMessages = (messages || []).filter((message) => (
         message.role === 'user' || message.role === 'assistant' || message.role === 'tool'
@@ -316,6 +415,9 @@ function buildConversation(messages) {
         (message.tool_calls || []).forEach((toolCall) => {
             if (toolCall.id && toolCall.function?.name) {
                 toolNameById.set(toolCall.id, toolCall.function.name);
+            }
+            if (toolCall.id && Object.prototype.hasOwnProperty.call(toolCall, 'providerToolCallId')) {
+                providerToolCallIdByInternalId.set(toolCall.id, String(toolCall.providerToolCallId || '').trim());
             }
         });
     });
@@ -327,10 +429,15 @@ function buildConversation(messages) {
             let cursor = index;
             while (cursor < filteredMessages.length && filteredMessages[cursor].role === 'tool') {
                 const toolMessage = filteredMessages[cursor];
+                const internalId = String(toolMessage.tool_call_id || '').trim();
+                const responseId = providerToolCallIdByInternalId.has(internalId)
+                    ? providerToolCallIdByInternalId.get(internalId)
+                    : internalId;
                 parts.push({
                     functionResponse: {
+                        ...(responseId ? { id: responseId } : {}),
                         name: String(toolMessage.toolName || toolMessage.tool_name || '').trim()
-                            || toolNameById.get(toolMessage.tool_call_id || '')
+                            || toolNameById.get(internalId)
                             || 'tool_result',
                         response: parseArguments(toolMessage.content),
                     },
@@ -360,6 +467,12 @@ function buildConversation(messages) {
                     ...(message.content ? [buildTextPart(message.content)] : []),
                     ...message.tool_calls.map((toolCall) => ({
                         functionCall: {
+                            ...(() => {
+                                const providerId = Object.prototype.hasOwnProperty.call(toolCall, 'providerToolCallId')
+                                    ? String(toolCall.providerToolCallId || '').trim()
+                                    : String(toolCall.id || '').trim();
+                                return providerId ? { id: providerId } : {};
+                            })(),
                             name: toolCall.function.name,
                             args: parseArguments(toolCall.function.arguments),
                         },
@@ -409,13 +522,7 @@ function emitStreamProgress(task, payload) {
 }
 
 function mergeStreamText(previous, incoming) {
-    const next = String(incoming || '');
-    const current = String(previous || '');
-    if (!next) return current;
-    if (!current) return next;
-    if (next.startsWith(current)) return next;
-    if (current.endsWith(next)) return current;
-    return `${current}${next}`;
+    return `${String(previous || '')}${String(incoming || '')}`;
 }
 
 export class GoogleAdapter {
@@ -423,6 +530,7 @@ export class GoogleAdapter {
         this.config = config;
         this.supportsSessionToolLoop = true;
         this.activeChat = null;
+        this.toolCallResponseSequence = 0;
         this.client = new GoogleGenAI({
             apiKey: config.apiKey,
             httpOptions: {
@@ -458,11 +566,20 @@ export class GoogleAdapter {
             }];
         }
 
-        if (tools.length && task.toolChoice && task.toolChoice !== 'auto' && task.toolChoice !== 'none') {
+        if (tools.length) {
+            const toolChoice = String(task.toolChoice || 'auto').trim();
+            const functionCallingConfig = toolChoice === 'none'
+                ? { mode: FunctionCallingConfigMode.NONE }
+                : toolChoice === 'auto'
+                    ? { mode: FunctionCallingConfigMode.AUTO }
+                    : toolChoice === 'required'
+                        ? { mode: FunctionCallingConfigMode.ANY }
+                    : {
+                        mode: FunctionCallingConfigMode.ANY,
+                        allowedFunctionNames: [toolChoice],
+                    };
             config.toolConfig = {
-                functionCallingConfig: {
-                    mode: FunctionCallingConfigMode.ANY,
-                },
+                functionCallingConfig,
             };
         }
 
@@ -528,6 +645,7 @@ export class GoogleAdapter {
         const chat = this.client.chats.create(payload.createPayload);
         return {
             chat,
+            sessionConfig: payload.createPayload.config,
             sendPayload: payload.sendPayload,
             requestInspection: this.inspectRequest(task, { payload }),
         };
@@ -538,8 +656,19 @@ export class GoogleAdapter {
         let thoughts;
         let text;
         let finalFunctionCalls = [];
+        const internalIdPrefix = `google-tool-${++this.toolCallResponseSequence}`;
+        const streamFunctionCalls = createStreamFunctionCallAccumulator(internalIdPrefix);
         let streamedGoogleContent = null;
-        const requestPayload = { ...sendPayload };
+        const requestConfig = task.signal
+            ? {
+                ...(this.sessionConfig || {}),
+                abortSignal: task.signal,
+            }
+            : undefined;
+        const requestPayload = {
+            ...sendPayload,
+            ...(requestConfig ? { config: requestConfig } : {}),
+        };
         const shouldUseStreaming = typeof task.onStreamProgress === 'function';
         const historyLengthBeforeSend = getChatHistory(chat).length;
         // Google SDK 的 sendMessage/sendMessageStream 一旦传 per-request config，
@@ -551,7 +680,6 @@ export class GoogleAdapter {
             const stream = await chat.sendMessageStream(requestPayload);
             const thoughtMap = new Map();
             let streamedText = '';
-            let streamedToolCalls = [];
             let lastChunk = null;
             const streamedContents = [];
 
@@ -566,15 +694,7 @@ export class GoogleAdapter {
                     thoughtMap.set(key, mergeStreamText(thoughtMap.get(key) || '', item.text));
                 });
 
-                streamedToolCalls = (chunk.functionCalls || []).map((item, index) => ({
-                    id: item.id || `google-tool-${index + 1}`,
-                    name: item.name || '',
-                    arguments: JSON.stringify(item.args || {}),
-                })).filter((item) => item.name);
-                finalFunctionCalls = mergeFunctionCalls(
-                    finalFunctionCalls,
-                    streamedToolCalls.length ? streamedToolCalls : extractFunctionCalls(chunk),
-                );
+                finalFunctionCalls = streamFunctionCalls.append(chunk);
 
                 const chunkText = extractVisibleText(chunk);
                 streamedText = mergeStreamText(streamedText, chunkText);
@@ -587,11 +707,14 @@ export class GoogleAdapter {
                             label: `思考块 ${index + 1}`,
                             text: value,
                         })),
-                    ...(streamedToolCalls.length ? { toolCalls: streamedToolCalls, toolCallDraft: true } : {}),
+                    ...(finalFunctionCalls.length ? { toolCalls: finalFunctionCalls, toolCallDraft: true } : {}),
                 });
             }
 
-            response = lastChunk || { functionCalls: streamedToolCalls };
+            response = {
+                ...(lastChunk || {}),
+                functionCalls: finalFunctionCalls,
+            };
             streamedGoogleContent = buildRepairedStreamedContent(streamedContents, streamedText)
                 || response?.candidates?.[0]?.content
                 || null;
@@ -608,10 +731,9 @@ export class GoogleAdapter {
             text = extractVisibleText(response);
         }
 
-        const toolCalls = extractFunctionCalls(response);
-        const normalizedToolCalls = toolCalls.length
-            ? toolCalls
-            : finalFunctionCalls;
+        const normalizedToolCalls = shouldUseStreaming
+            ? finalFunctionCalls
+            : extractFunctionCalls(response, internalIdPrefix);
         const historyModelContents = getNewModelContentsFromHistory(chat, historyLengthBeforeSend);
 
         return {
@@ -657,6 +779,7 @@ export class GoogleAdapter {
 
         const created = this.createChat(task);
         this.activeChat = created.chat;
+        this.sessionConfig = created.sessionConfig;
         return {
             ...await this.sendThroughChat(this.activeChat, created.sendPayload, task),
             requestInspection: created.requestInspection,

@@ -27,8 +27,15 @@ const resolveConversationTokens = (contextTokens as unknown as {
         messages?: XbTavernMessage[];
         tools?: unknown[] | null;
         providerConfig?: Record<string, unknown>;
+        signal?: AbortSignal;
     }) => Promise<number>;
 }).resolveConversationTokens;
+const estimateConversationTokens = (contextTokens as unknown as {
+    estimateConversationTokens: (input: {
+        messages?: XbTavernMessage[];
+        tools?: unknown[] | null;
+    }) => number;
+}).estimateConversationTokens;
 
 export interface XbTavernAssistantChatCompactionSnapshot {
     currentTokens: number;
@@ -71,17 +78,20 @@ function buildAssistantChatUserPrompt(input: {
     ].join('\n');
 }
 
-function normalizeReplayAssistantToolCalls(toolCalls: Array<{ id?: string; name?: string; arguments?: string }> = []): Array<{ id?: string; name?: string; arguments?: string }> {
+function normalizeReplayAssistantToolCalls(toolCalls: Array<{ id?: string; name?: string; arguments?: string; providerId?: string }> = []): Array<{ id?: string; name?: string; arguments?: string; providerId?: string }> {
     const seen = new Set<string>();
     return (Array.isArray(toolCalls) ? toolCalls : [])
         .map((toolCall) => ({
             id: String(toolCall?.id || ''),
             name: String(toolCall?.name || '').trim(),
             arguments: String(toolCall?.arguments || '{}'),
+            ...(Object.prototype.hasOwnProperty.call(toolCall || {}, 'providerId')
+                ? { providerId: String(toolCall?.providerId || '') }
+                : {}),
         }))
         .filter((toolCall) => {
             if (!toolCall.name) {return false;}
-            const key = `${toolCall.id}\u0000${toolCall.name}\u0000${toolCall.arguments}`;
+            const key = `${toolCall.id}\u0000${toolCall.name}\u0000${toolCall.arguments}\u0000${Object.prototype.hasOwnProperty.call(toolCall, 'providerId') ? `provider:${toolCall.providerId}` : 'provider:absent'}`;
             if (seen.has(key)) {return false;}
             seen.add(key);
             return true;
@@ -130,6 +140,9 @@ export async function buildAssistantChatMessages(input: {
                 tool_calls: toolCalls.map((toolCall) => ({
                     id: toolCall.id || '',
                     type: 'function',
+                    ...(Object.prototype.hasOwnProperty.call(toolCall, 'providerId')
+                        ? { providerToolCallId: toolCall.providerId }
+                        : {}),
                     function: {
                         name: toolCall.name || '',
                         arguments: toolCall.arguments || '{}',
@@ -185,20 +198,60 @@ async function estimateAssistantChatContext(input: {
     contextSnapshot?: XbTavernContext;
     question: string;
     history?: TavernAssistantChatMessageRecord[];
+    signal?: AbortSignal;
 }): Promise<{ messages: XbTavernMessage[]; tokens: number }> {
+    throwIfAssistantChatAborted(input.signal);
     const providerConfig = resolveXbTavernProviderConfig(input.agentConfig || {}, {
         role: 'delegate',
         timeoutMs: TAVERN_ASSISTANT_CHAT_TIMEOUT_MS,
     });
     const messages = await buildAssistantChatMessages(input);
+    throwIfAssistantChatAborted(input.signal);
     const tokens = await resolveConversationTokens({
         messages,
         tools: getTavernManagerToolDefinitions({
             webSearchEnabled: isManagerWebSearchEnabled(input.agentConfig),
         }),
         providerConfig: providerConfig as unknown as Record<string, unknown>,
+        signal: input.signal,
     });
+    throwIfAssistantChatAborted(input.signal);
     return { messages, tokens };
+}
+
+/**
+ * Estimates the request-shaped assistant context without compacting or
+ * mutating persisted chat history. This stays local for the chat-input meter;
+ * `ensureTavernAssistantChatBudget` is the exact send-time authority.
+ */
+export async function estimateTavernAssistantChatContext(input: {
+    sessionId: string;
+    agentConfig: Record<string, unknown>;
+    assistantPreset?: TavernAssistantPreset;
+    contextSnapshot?: XbTavernContext;
+    question: string;
+    history?: TavernAssistantChatMessageRecord[];
+    signal?: AbortSignal;
+}): Promise<number> {
+    const sessionId = String(input.sessionId || '').trim();
+    if (!sessionId) {return 0;}
+    throwIfAssistantChatAborted(input.signal);
+    const history = Array.isArray(input.history)
+        ? [...input.history].sort((left, right) => left.order - right.order)
+        : await listTavernAssistantChatMessages(sessionId);
+    throwIfAssistantChatAborted(input.signal);
+    const messages = await buildAssistantChatMessages({
+        ...input,
+        sessionId,
+        history,
+    });
+    throwIfAssistantChatAborted(input.signal);
+    return estimateConversationTokens({
+        messages,
+        tools: getTavernManagerToolDefinitions({
+            webSearchEnabled: isManagerWebSearchEnabled(input.agentConfig),
+        }),
+    });
 }
 
 export async function ensureTavernAssistantChatBudget(input: EnsureTavernAssistantChatBudgetInput): Promise<{
@@ -225,6 +278,7 @@ export async function ensureTavernAssistantChatBudget(input: EnsureTavernAssista
         contextSnapshot: input.contextSnapshot,
         question: input.question,
         history,
+        signal: input.signal,
     });
     let currentTokens = initialContext.tokens;
     if (currentTokens <= TAVERN_ASSISTANT_CHAT_SUMMARY_TRIGGER_TOKENS) {
@@ -237,6 +291,7 @@ export async function ensureTavernAssistantChatBudget(input: EnsureTavernAssista
         contextSnapshot: input.contextSnapshot,
         question: input.question,
         history: [],
+        signal: input.signal,
     });
     const fixedTokens = fixedContext.tokens;
     const historyTokens = Math.max(0, currentTokens - fixedTokens);
@@ -277,6 +332,7 @@ export async function ensureTavernAssistantChatBudget(input: EnsureTavernAssista
             contextSnapshot: input.contextSnapshot,
             question: input.question,
             history: candidateHistory,
+            signal: input.signal,
         });
         const nextTokens = candidateContext.tokens;
         const status = nextTokens <= TAVERN_ASSISTANT_CHAT_SUMMARY_TRIGGER_TOKENS

@@ -81,7 +81,13 @@
 .tavern-task-published-actions button {min-height: 34px; display: inline-flex; align-items: center; gap: 6px; border: 1px solid color-mix(in srgb, var(--task-olive) 38%, var(--task-line)); border-radius: 10px; background: color-mix(in srgb, var(--task-olive) 9%, var(--task-surface)); color: var(--task-olive-strong); padding: 0 11px; font: 690 10px/1 var(--phone-os-font);}
 .tavern-task-board-status button svg,
 .tavern-task-published-actions button svg {width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round;}
-.tavern-task-board-status button:disabled {opacity: 0.54;}
+.tavern-task-board-status button:disabled:not(.is-refreshing) {opacity: 0.54;}
+.tavern-task-refresh-button {display: inline-flex; align-items: center; gap: 6px;}
+.tavern-task-refresh-button svg {width: 15px; height: 15px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round;}
+.tavern-task-refresh-button.is-refreshing {cursor: progress;}
+.tavern-task-refresh-button.is-refreshing svg {animation: xb-tavern-spin 0.85s linear infinite;}
+.tavern-task-refresh-button .tavern-task-refresh-label {display: inline-block; max-width: 80px; overflow: hidden; white-space: nowrap; transition: max-width .18s ease, opacity .18s ease;}
+.tavern-task-refresh-button.is-refreshing .tavern-task-refresh-label {max-width: 0; opacity: 0;}
 
 .tavern-task-offer-list,
 .tavern-task-list {display: grid; gap: 10px;}
@@ -141,7 +147,7 @@
 .tavern-task-published-actions {display: flex; justify-content: flex-end; margin: 0 0 10px;}
 
 .tavern-task-empty {min-height: 210px; display: grid; align-content: center; justify-items: center; gap: 9px; color: var(--task-muted); padding: 24px 22px; text-align: center;}
-.tavern-task-empty > span {width: 66px; height: 50px; display: flex; align-items: end; justify-content: center; gap: 5px; border: 1px solid var(--task-line); border-radius: 8px; background: var(--task-surface); padding: 11px; transform: rotate(-2deg);}
+.tavern-task-empty > span {width: 66px; height: 50px; display: flex; align-items: end; justify-content: center; gap: 5px; border: 1px solid var(--task-line); border-radius: 8px; background: var(--task-surface); padding: 11px;}
 .tavern-task-empty > span i {width: 5px; border-radius: 2px 2px 0 0; background: var(--task-olive);}
 .tavern-task-empty > span i:nth-child(1) {height: 10px; opacity: 0.45;}
 .tavern-task-empty > span i:nth-child(2) {height: 20px; opacity: 0.7;}

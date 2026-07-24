@@ -745,6 +745,9 @@ export function createAssistantRuntime(deps) {
                         id: toolCall.id,
                         name: toolCall.name,
                         response: toolResult,
+                        ...(Object.prototype.hasOwnProperty.call(toolCall, 'providerId')
+                            ? { providerId: toolCall.providerId }
+                            : {}),
                     });
                     render();
                 }

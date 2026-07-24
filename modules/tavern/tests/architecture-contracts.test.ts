@@ -878,8 +878,6 @@ test('tavern chat exposes local settings modals without leaving the session', ()
     assert.match(settingsPageSource, /<TavernCornerActions[\s\S]*include-home[\s\S]*home-last[\s\S]*@home="activeView = 'home'"[\s\S]*@toggle-theme="homeThemeDark = !homeThemeDark"/);
     assert.match(chatPageSource, /type ChatQuickWorkspace =[\s\S]*'characters'[\s\S]*'api'[\s\S]*'chatPreset'[\s\S]*'assistantPreset'[\s\S]*'worldbooks'[\s\S]*'regex'[\s\S]*'base';/);
     assert.match(chatPageSource, /const quickSettingsOpen = ref<ChatQuickWorkspace \| null>\(null\)/);
-    assert.match(chatPageSource, /const chatAppMenuItems:[\s\S]*key: 'characters'[\s\S]*key: 'api'[\s\S]*key: 'chatPreset'[\s\S]*key: 'assistantPreset'[\s\S]*key: 'worldbooks'[\s\S]*key: 'regex'[\s\S]*key: 'base'/);
-    assert.match(chatPageSource, /mobileLabel: '角色卡'[\s\S]*mobileLabel: 'API 配置'[\s\S]*mobileLabel: '聊天预设'[\s\S]*mobileLabel: '助手预设'[\s\S]*mobileLabel: '世界书'[\s\S]*mobileLabel: '基础设置'/);
     assert.match(chatPageSource, /clearSelection: clearCharacterSelection,[\s\S]*refresh: refreshCharacterList,/);
     assert.match(chatPageSource, /class="home-corner-actions page-corner-actions chat-app-menu-shell"[\s\S]*title="首页"[\s\S]*class="home-icon-button chat-app-menu-button chat-app-menu-button-desktop"[\s\S]*title="酒馆操作菜单"/);
     assert.match(chatPageSource, /class="xb-sidebar settings-sidebar chat-character-sidebar"[\s\S]*class="chat-character-card"[\s\S]*@click="openChatAppWorkspace\('characters'\)"[\s\S]*v-for="item in chatAppMenuItems"[\s\S]*class="guide-step"[\s\S]*@click="openChatAppWorkspace\(item\.key\)"/);
@@ -889,7 +887,6 @@ test('tavern chat exposes local settings modals without leaving the session', ()
     assert.doesNotMatch(chatPageSource, /class="chat-mobile-icon-button chat-mobile-utility-button"[\s\S]*title="聊天预设"[\s\S]*@click="openChatAppWorkspace\('chatPreset'\)"/);
     assert.doesNotMatch(chatPageSource, /class="chat-mobile-icon-button chat-mobile-utility-button"[\s\S]*title="API 配置"[\s\S]*@click="openChatAppWorkspace\('api'\)"/);
     assert.doesNotMatch(chatPageSource, /class="chat-mobile-icon-button chat-mobile-utility-button"[\s\S]*title="世界书"[\s\S]*@click="openChatAppWorkspace\('worldbooks'\)"/);
-    assert.match(chatPageSource, /class="chat-app-menu-popover"[\s\S]*v-for="item in chatAppMenuItems"[\s\S]*class="chat-app-menu-item"[\s\S]*@click="openChatAppWorkspace\(item\.key\)"/);
     assert.match(chatPageSource, /function openChatAppWorkspace\(workspace: ChatQuickWorkspace\)[\s\S]*closeChatAppMenu\(\);[\s\S]*closeMobileChatPanel\(\);[\s\S]*activeSettingsWorkspace\.value = workspace;[\s\S]*quickSettingsOpen\.value = workspace;[\s\S]*workspace === 'characters'[\s\S]*clearCharacterSelection\(\);[\s\S]*refreshCharacterList\(\)[\s\S]*workspace === 'chatPreset'[\s\S]*syncChatPresetFromHost\(\)[\s\S]*workspace === 'assistantPreset'[\s\S]*refreshPresets\(\)[\s\S]*workspace === 'worldbooks'[\s\S]*syncWorldbooksForCurrentCharacter\(\)[\s\S]*syncGlobalWorldbooksFromHost\(\)[\s\S]*workspace === 'regex'[\s\S]*refreshRegexFromHost\(\)[\s\S]*workspace === 'base'[\s\S]*loadTavernUsers\(\)/);
     assert.doesNotMatch(chatPageSource, /ref="chatAppMenuRef"|const chatAppMenuRef = ref/);
     assert.match(chatPageSource, /const desktopChatAppMenuRef = ref<HTMLElement \| null>\(null\);[\s\S]*const mobileChatAppMenuRef = ref<HTMLElement \| null>\(null\);/);
@@ -1666,10 +1663,9 @@ test('tavern accepted-turn manager uses an unconfirmed candidate and a persisten
     assert.match(managerSource, /claimNextQueuedAcceptedTurnManagerRun/);
     assert.match(managerSource, /TAVERN_MANAGER_LEASE_DURATION_MS = 30000/);
     assert.match(managerSource, /assertRunningTavernManagerRunLease/);
-    assert.match(managerSource, /abortedByCurrentTurnSignal[\s\S]*restoreQueuedAcceptedTurnAfterCurrentAbort/);
-    assert.match(managerSource, /manager_queue_interrupted_by_current_turn_abort/);
     assert.doesNotMatch(managerSource, /getLatestTavernAssistantOrder|manager_timeline_advanced/);
-    assert.match(sessionDbSource, /clearTavernManagerRunSnapshots/);
+    assert.match(sessionDbSource, /export async function rollbackManagerRunWrites\(/);
+    assert.doesNotMatch(sessionDbSource, /clearTavernManagerRunSnapshots|rollbackManagerRunMemoryWrites|rollbackManagerRunStateWrites|rollbackManagerStateRunsForMessageRange/);
     assert.match(sessionDbSource, /managerCandidates: 'sessionId, assistantOrder, updatedAt'/);
     assert.match(sessionDbSource, /leaseOwnerId/);
     assert.match(sessionDbSource, /leaseExpiresAt/);

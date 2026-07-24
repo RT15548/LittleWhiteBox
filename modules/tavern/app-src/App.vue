@@ -118,6 +118,7 @@ import {
     runXbTavernAssistantChat,
 } from './runtime/assistant-chat-runner';
 import {
+    estimateTavernAssistantChatContext,
     ensureTavernAssistantChatBudget,
     TAVERN_ASSISTANT_CHAT_MAX_CONTEXT_TOKENS,
 } from './runtime/assistant-chat-context';
@@ -340,6 +341,7 @@ const managerInputStatus = ref('');
 const managerChatItems = shallowRef<TavernAssistantChatUnit[]>([]);
 const managerChatHasMore = ref(false);
 const assistantChatBudgetTokens = ref<number | null>(null);
+const assistantChatBudgetPending = ref(false);
 const managerPendingUserMessage = shallowRef<TavernPendingAssistantUserMessage | null>(null);
 const isManagerAssistantRunning = ref(false);
 const isManagerAssistantCancelling = ref(false);
@@ -737,6 +739,9 @@ const managerMessageFeedbackTimers = new Map<string, number>();
 let tavernToastTimer: number | null = null;
 let assistantChatRefreshSerial = 0;
 let assistantChatOlderLoading = false;
+let assistantChatContextRefreshSerial = 0;
+let assistantChatContextRefreshTimer: number | null = null;
+let assistantChatContextAbortController: AbortController | null = null;
 let memoryProjectionRefreshSerial = 0;
 let mapProjectionRefreshSerial = 0;
 let atlasProjectionRefreshSerial = 0;
@@ -1281,9 +1286,11 @@ const runtimeActionCheckSignature = computed(() => runtimeActionCheckEvents.valu
         event.success ? 1 : 0,
     ].join(':'))
     .join('|'));
-const assistantChatContextLabel = computed(() => assistantChatBudgetTokens.value === null
-    ? `— / ${Math.round(TAVERN_ASSISTANT_CHAT_MAX_CONTEXT_TOKENS / 1000)}k`
-    : `${Math.round(assistantChatBudgetTokens.value / 1000)}k / ${Math.round(TAVERN_ASSISTANT_CHAT_MAX_CONTEXT_TOKENS / 1000)}k`);
+const assistantChatContextLabel = computed(() => assistantChatBudgetPending.value
+    ? `… / ${Math.round(TAVERN_ASSISTANT_CHAT_MAX_CONTEXT_TOKENS / 1000)}k`
+    : assistantChatBudgetTokens.value === null
+        ? `— / ${Math.round(TAVERN_ASSISTANT_CHAT_MAX_CONTEXT_TOKENS / 1000)}k`
+        : `${Math.round(assistantChatBudgetTokens.value / 1000)}k / ${Math.round(TAVERN_ASSISTANT_CHAT_MAX_CONTEXT_TOKENS / 1000)}k`);
 const assistantChatContextUsage = computed(() => assistantChatBudgetTokens.value === null
     ? null
     : Math.max(0, Math.min(1, assistantChatBudgetTokens.value / TAVERN_ASSISTANT_CHAT_MAX_CONTEXT_TOKENS)));
@@ -1996,6 +2003,80 @@ function buildSessionContextSnapshotBase(session: TavernSessionRecord): XbTavern
             name,
         },
     };
+}
+
+function cancelAssistantChatContextMeterRefresh(options: { clear?: boolean } = {}): void {
+    assistantChatContextRefreshSerial += 1;
+    if (assistantChatContextRefreshTimer !== null) {
+        window.clearTimeout(assistantChatContextRefreshTimer);
+        assistantChatContextRefreshTimer = null;
+    }
+    assistantChatContextAbortController?.abort();
+    assistantChatContextAbortController = null;
+    assistantChatBudgetPending.value = false;
+    if (options.clear) {
+        assistantChatBudgetTokens.value = null;
+    }
+}
+
+function refreshAssistantChatContextMeter(options: { immediate?: boolean } = {}): void {
+    cancelAssistantChatContextMeterRefresh();
+    const sessionId = String(selectedSessionId.value || '').trim();
+    if (!sessionId) {
+        assistantChatBudgetTokens.value = null;
+        return;
+    }
+    const requestSerial = assistantChatContextRefreshSerial;
+    const resolve = async () => {
+        if (requestSerial !== assistantChatContextRefreshSerial || selectedSessionId.value !== sessionId) {return;}
+        const controller = new AbortController();
+        assistantChatContextAbortController = controller;
+        assistantChatBudgetTokens.value = null;
+        assistantChatBudgetPending.value = true;
+        const session = selectedSession.value?.id === sessionId
+            ? selectedSession.value
+            : sessions.value.find((item) => item.id === sessionId);
+        try {
+            const tokens = await estimateTavernAssistantChatContext({
+                sessionId,
+                agentConfig: agentConfig.value,
+                assistantPreset: activeAssistantPreset.value,
+                contextSnapshot: session ? buildSessionContextSnapshotBase(session) : {},
+                question: managerInputDraft.value.trim(),
+                signal: controller.signal,
+            });
+            if (
+                requestSerial !== assistantChatContextRefreshSerial
+                || selectedSessionId.value !== sessionId
+                || controller.signal.aborted
+                || !Number.isFinite(tokens)
+            ) {return;}
+            assistantChatBudgetTokens.value = tokens;
+        } catch {
+            // A stale local estimate leaves the meter neutral.
+        } finally {
+            if (requestSerial === assistantChatContextRefreshSerial && assistantChatContextAbortController === controller) {
+                assistantChatContextAbortController = null;
+                assistantChatBudgetPending.value = false;
+            }
+        }
+    };
+    if (options.immediate) {
+        void resolve();
+        return;
+    }
+    assistantChatContextRefreshTimer = window.setTimeout(() => {
+        assistantChatContextRefreshTimer = null;
+        void resolve();
+    }, 220);
+}
+
+function assistantChatContextMeterConfigSignature(value: unknown): string {
+    try {
+        return JSON.stringify(value || {}) || '';
+    } catch {
+        return '';
+    }
 }
 
 async function saveCurrentAuthorNote(note: XbTavernAuthorNote): Promise<void> {
@@ -2812,6 +2893,7 @@ async function refreshAssistantChat(
             managerChatItems.value = [];
             managerChatHasMore.value = false;
         }
+        refreshAssistantChatContextMeter({ immediate: true });
         return;
     }
     if (id !== selectedSessionId.value) {return;}
@@ -2822,6 +2904,7 @@ async function refreshAssistantChat(
     if (requestSerial !== assistantChatRefreshSerial || id !== selectedSessionId.value) {return;}
     managerChatItems.value = page.items;
     managerChatHasMore.value = page.hasMore;
+    refreshAssistantChatContextMeter({ immediate: true });
 }
 
 function appendAssistantChatMessageProjection(message: TavernAssistantChatMessageRecord) {
@@ -4310,6 +4393,7 @@ async function runManagerQuestion(
         ? buildSessionContextSnapshotBase(managerSession)
         : {};
     const controller = new AbortController();
+    cancelAssistantChatContextMeterRefresh();
     managerAssistantControllersBySession.set(managerSessionId, controller);
     managerAssistantController.value = controller;
     isManagerAssistantRunning.value = true;
@@ -4412,7 +4496,10 @@ async function runManagerQuestion(
                 scheduleManagerCompactionOverlayHide();
             },
         });
-        if (ownsManagerUi()) {assistantChatBudgetTokens.value = budget.currentTokens;}
+        if (ownsManagerUi()) {
+            assistantChatBudgetTokens.value = budget.currentTokens;
+            assistantChatBudgetPending.value = false;
+        }
         if (!budget.canProceed) {
             throw new Error('助手上下文超过 258k，当前请求没有发送。');
         }
@@ -4627,7 +4714,7 @@ async function clearAssistantChatHistory() {
     clearManagerPendingUserMessage(sessionId);
     managerChatItems.value = [];
     managerChatHasMore.value = false;
-    assistantChatBudgetTokens.value = null;
+    refreshAssistantChatContextMeter({ immediate: true });
     managerInputStatus.value = '';
     managerAutoScroll.value = true;
     if (editingManagerMessageKey.value.startsWith(`manager:${sessionId}:`)) {
@@ -4637,6 +4724,19 @@ async function clearAssistantChatHistory() {
     showTavernToast('助手对话已清空');
     void nextTick(() => scrollManagerToBottom(true));
 }
+
+watch([
+    () => String(selectedSessionId.value || '').trim(),
+    () => assistantChatContextMeterConfigSignature(agentConfig.value),
+    () => assistantChatContextMeterConfigSignature(activeAssistantPreset.value),
+], () => {
+    refreshAssistantChatContextMeter({ immediate: true });
+}, { immediate: true });
+
+watch(managerInputDraft, () => {
+    if (isManagerAssistantRunning.value) {return;}
+    refreshAssistantChatContextMeter();
+});
 
 watch([
     () => visibleChatMessages.value.length,
@@ -5130,6 +5230,7 @@ onUnmounted(() => {
     managerAssistantControllersBySession.forEach((controller) => controller.abort());
     managerAssistantControllersBySession.clear();
     managerAssistantController.value = null;
+    cancelAssistantChatContextMeterRefresh({ clear: true });
     clearManagerLiveProtocolState();
     clearManagerPendingUserMessage();
     clearManagerMessageFeedback();

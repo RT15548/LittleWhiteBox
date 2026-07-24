@@ -1,14 +1,21 @@
 import db, {
     appendTavernStructuredStatePatch,
+    ensureTavernManagerStateSnapshot,
     ensureSeedStructuredStateDocument,
     getTavernStructuredStateDocument,
+    hashTavernStateDocument,
     listTavernStructuredStateDocuments,
     listTavernStructuredStatePatches,
     putTavernStructuredStateDocument,
     tavernMessagesTable,
+    tavernManagerRunsTable,
+    tavernManagerStateSnapshotsTable,
     tavernSessionsTable,
     tavernStateDocumentsTable,
     tavernStatePatchesTable,
+    TAVERN_MANAGER_ACTIVE_MAP_RESOURCE_ID,
+    TAVERN_MANAGER_ACTIVE_MAP_RESOURCE_TYPE,
+    updateTavernManagerStateSnapshotAfter,
     type TavernStructuredStateDocType,
     type TavernStructuredStateDocumentRecord,
     type TavernStructuredStatePatchRecord,
@@ -350,6 +357,32 @@ async function setActiveMapDocId(sessionId = '', docId = DEFAULT_DOC_ID): Promis
         state,
         updatedAt: now(),
     });
+    return activeMapDocId;
+}
+
+async function setActiveMapDocIdForManager(
+    sessionId = '',
+    docId = DEFAULT_DOC_ID,
+    managerRunId = '',
+): Promise<string> {
+    const runId = String(managerRunId || '').trim();
+    if (runId) {
+        await ensureTavernManagerStateSnapshot({
+            managerRunId: runId,
+            sessionId,
+            docType: TAVERN_MANAGER_ACTIVE_MAP_RESOURCE_TYPE,
+            docId: TAVERN_MANAGER_ACTIVE_MAP_RESOURCE_ID,
+        });
+    }
+    const activeMapDocId = await setActiveMapDocId(sessionId, docId);
+    if (runId) {
+        await updateTavernManagerStateSnapshotAfter({
+            managerRunId: runId,
+            sessionId,
+            docType: TAVERN_MANAGER_ACTIVE_MAP_RESOURCE_TYPE,
+            docId: TAVERN_MANAGER_ACTIVE_MAP_RESOURCE_ID,
+        });
+    }
     return activeMapDocId;
 }
 
@@ -1417,6 +1450,14 @@ async function dedupeActorElementsForSavedDocument(input: {
         if (!next.removedElements.length) {continue;}
         const revision = Math.max(0, Number(row.revision) || 0) + 1;
         const digest = createMapDigest(next.document, revision);
+        if (input.managerRunId) {
+            await ensureTavernManagerStateSnapshot({
+                managerRunId: input.managerRunId,
+                sessionId: input.sessionId,
+                docType: row.docType,
+                docId: row.docId,
+            });
+        }
         await tavernStateDocumentsTable.put({
             ...row,
             data: next.document,
@@ -1440,6 +1481,14 @@ async function dedupeActorElementsForSavedDocument(input: {
             changedIds: next.removedElements.map((element) => element.id),
             removedElements: next.removedElements,
         });
+        if (input.managerRunId) {
+            await updateTavernManagerStateSnapshotAfter({
+                managerRunId: input.managerRunId,
+                sessionId: input.sessionId,
+                docType: row.docType,
+                docId: row.docId,
+            });
+        }
         otherDocumentRemovals.push({
             docId: row.docId,
             revision,
@@ -3346,7 +3395,9 @@ export async function executeTavernStateTool(
         }
 
         if (normalizedToolName === TAVERN_STATE_TOOL_NAMES.READ_SCENE) {
-            const atlasRecord = await getSeededAtlasDocumentRecord(id);
+            const atlasRecord = options.managerRunId
+                ? await getTavernStructuredStateDocument(id, ATLAS_DOC_TYPE, DEFAULT_ATLAS_DOC_ID)
+                : await getSeededAtlasDocumentRecord(id);
             const atlas = normalizeAtlasDocumentFromRecord(atlasRecord);
             const target = resolveMapIntentTarget(atlas, args);
             const mode = String(args.mode || 'summary').trim() || 'summary';
@@ -3449,7 +3500,9 @@ export async function executeTavernStateTool(
         }
 
         if (normalizedToolName === TAVERN_STATE_TOOL_NAMES.EDIT_SCENE) {
-            const atlasRecord = await getSeededAtlasDocumentRecord(id);
+            const atlasRecord = options.managerRunId
+                ? await getTavernStructuredStateDocument(id, ATLAS_DOC_TYPE, DEFAULT_ATLAS_DOC_ID)
+                : await getSeededAtlasDocumentRecord(id);
             const atlas = normalizeAtlasDocumentFromRecord(atlasRecord);
             const target = resolveMapIntentTarget(atlas, args);
             const existing = await getTavernStructuredStateDocument(id, MAP_DOC_TYPE, target.docId);
@@ -3565,9 +3618,23 @@ export async function executeTavernStateTool(
                 let effectiveOps = [...compiled.effectiveOps];
                 let removedElements = [...compiled.removedElements];
                 let changedIds = [...compiled.changedIds];
-                await db.transaction('rw', tavernStateDocumentsTable, tavernStatePatchesTable, tavernMessagesTable, tavernSessionsTable, async () => {
+                await db.transaction('rw', tavernStateDocumentsTable, tavernStatePatchesTable, tavernMessagesTable, tavernManagerRunsTable, tavernManagerStateSnapshotsTable, tavernSessionsTable, async () => {
                     await options.beforeWriteGuard?.();
+                    const liveExisting = await getTavernStructuredStateDocument(id, MAP_DOC_TYPE, target.docId);
+                    const liveAtlasRecord = await getTavernStructuredStateDocument(id, ATLAS_DOC_TYPE, DEFAULT_ATLAS_DOC_ID);
+                    if (hashTavernStateDocument(liveExisting) !== hashTavernStateDocument(existing)
+                        || hashTavernStateDocument(liveAtlasRecord) !== hashTavernStateDocument(atlasRecord)) {
+                        throw new Error('manager_resource_revision_conflict:map-scene');
+                    }
                     if (compiled.effectiveOps.length) {
+                        if (options.managerRunId) {
+                            await ensureTavernManagerStateSnapshot({
+                                managerRunId: options.managerRunId,
+                                sessionId: id,
+                                docType: MAP_DOC_TYPE,
+                                docId: target.docId,
+                            });
+                        }
                         const actorDedupe = await dedupeActorElementsForSavedDocument({
                             sessionId: id,
                             docType: MAP_DOC_TYPE,
@@ -3617,8 +3684,24 @@ export async function executeTavernStateTool(
                             changedIds,
                             removedElements,
                         });
+                        if (options.managerRunId) {
+                            await updateTavernManagerStateSnapshotAfter({
+                                managerRunId: options.managerRunId,
+                                sessionId: id,
+                                docType: MAP_DOC_TYPE,
+                                docId: target.docId,
+                            });
+                        }
                     }
                     if (atlasPatch.changed) {
+                        if (options.managerRunId) {
+                            await ensureTavernManagerStateSnapshot({
+                                managerRunId: options.managerRunId,
+                                sessionId: id,
+                                docType: ATLAS_DOC_TYPE,
+                                docId: DEFAULT_ATLAS_DOC_ID,
+                            });
+                        }
                         await putTavernStructuredStateDocument({
                             sessionId: id,
                             docType: ATLAS_DOC_TYPE,
@@ -3647,6 +3730,14 @@ export async function executeTavernStateTool(
                             changedIds: atlasPatch.changedIds,
                             removedElements: [],
                         });
+                        if (options.managerRunId) {
+                            await updateTavernManagerStateSnapshotAfter({
+                                managerRunId: options.managerRunId,
+                                sessionId: id,
+                                docType: ATLAS_DOC_TYPE,
+                                docId: DEFAULT_ATLAS_DOC_ID,
+                            });
+                        }
                     }
                     await options.afterWriteObserver?.();
                 });
@@ -4012,10 +4103,14 @@ export async function executeTavernStateTool(
                     tavernStateDocumentsTable,
                     tavernStatePatchesTable,
                     tavernMessagesTable,
+                    tavernManagerRunsTable,
+                    tavernManagerStateSnapshotsTable,
                     tavernSessionsTable,
                     async () => {
                         await options.beforeWriteGuard?.();
-                        const existing = await getSeededAtlasDocumentRecord(id);
+                        const existing = options.managerRunId
+                            ? await getTavernStructuredStateDocument(id, ATLAS_DOC_TYPE, DEFAULT_ATLAS_DOC_ID)
+                            : await getSeededAtlasDocumentRecord(id);
                         const currentRevision = Number(existing?.revision) || 0;
                         if (Number.isFinite(Number(args.baseRevision)) && Number(args.baseRevision) !== currentRevision) {
                             return {
@@ -4083,6 +4178,14 @@ export async function executeTavernStateTool(
                             };
                         }
                         const timestamp = now();
+                        if (options.managerRunId) {
+                            await ensureTavernManagerStateSnapshot({
+                                managerRunId: options.managerRunId,
+                                sessionId: id,
+                                docType,
+                                docId,
+                            });
+                        }
                         const saved = await putTavernStructuredStateDocument({
                             sessionId: id,
                             docType,
@@ -4111,8 +4214,16 @@ export async function executeTavernStateTool(
                             changedIds: patch.changedIds,
                             removedElements: [],
                         });
+                        if (options.managerRunId) {
+                            await updateTavernManagerStateSnapshotAfter({
+                                managerRunId: options.managerRunId,
+                                sessionId: id,
+                                docType,
+                                docId,
+                            });
+                        }
                         if (patch.syncedActiveMapDocId) {
-                            await setActiveMapDocId(id, patch.syncedActiveMapDocId);
+                            await setActiveMapDocIdForManager(id, patch.syncedActiveMapDocId, options.managerRunId);
                         }
                         await options.afterWriteObserver?.();
                         return {
@@ -4140,6 +4251,8 @@ export async function executeTavernStateTool(
                 tavernStateDocumentsTable,
                 tavernStatePatchesTable,
                 tavernMessagesTable,
+                tavernManagerRunsTable,
+                tavernManagerStateSnapshotsTable,
                 tavernSessionsTable,
                 async () => {
                     await options.beforeWriteGuard?.();
@@ -4161,7 +4274,7 @@ export async function executeTavernStateTool(
                             return { ok: false, summary: `${docType}/${docId} does not exist.`, docType, docId, error: 'state_document_not_found' };
                         }
                         const previousActiveDocId = await getActiveMapDocId(id);
-                        const activeDocId = await setActiveMapDocId(id, docId);
+                        const activeDocId = await setActiveMapDocIdForManager(id, docId, options.managerRunId);
                         const warnings = await buildMapAtlasMismatchWarning(id, docId);
                         if (previousActiveDocId !== activeDocId) {
                             await options.afterWriteObserver?.();
@@ -4209,7 +4322,7 @@ export async function executeTavernStateTool(
                                 return { ok: false, summary: `${docType}/${docId} does not exist.`, docType, docId, error: 'state_document_not_found' };
                             }
                             const previousActiveDocId = await getActiveMapDocId(id);
-                            const activeDocId = await setActiveMapDocId(id, docId);
+                            const activeDocId = await setActiveMapDocIdForManager(id, docId, options.managerRunId);
                             activeChanged = previousActiveDocId !== activeDocId;
                             if (activeChanged) {
                                 await options.afterWriteObserver?.();
@@ -4277,6 +4390,15 @@ export async function executeTavernStateTool(
                     ])];
                     const digest = createMapDigest(nextDocument, nextRevision);
 
+                    if (options.managerRunId) {
+                        await ensureTavernManagerStateSnapshot({
+                            managerRunId: options.managerRunId,
+                            sessionId: id,
+                            docType,
+                            docId,
+                        });
+                    }
+
                     const saved = await putTavernStructuredStateDocument({
                         sessionId: id,
                         docType,
@@ -4305,8 +4427,16 @@ export async function executeTavernStateTool(
                         changedIds,
                         removedElements,
                     });
+                    if (options.managerRunId) {
+                        await updateTavernManagerStateSnapshotAfter({
+                            managerRunId: options.managerRunId,
+                            sessionId: id,
+                            docType,
+                            docId,
+                        });
+                    }
                     if (activate) {
-                        await setActiveMapDocId(id, docId);
+                        await setActiveMapDocIdForManager(id, docId, options.managerRunId);
                     }
                     const activateWarnings = activate
                         ? await buildMapAtlasMismatchWarning(id, docId)

@@ -43,7 +43,7 @@ function run(
 test('only unfinished manager statuses require live synchronization', () => {
     assert.equal(shouldReconcileTavernManagerRun(run('queued')), true);
     assert.equal(shouldReconcileTavernManagerRun(run('running')), true);
-    for (const status of ['completed', 'failed', 'cancelled', 'superseded', 'rolled_back'] as const) {
+    for (const status of ['completed', 'failed', 'cancelled', 'superseded'] as const) {
         assert.equal(shouldReconcileTavernManagerRun(run(status)), false, status);
     }
     assert.equal(shouldReconcileTavernManagerRun(null), false);

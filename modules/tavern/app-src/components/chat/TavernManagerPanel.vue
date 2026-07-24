@@ -267,7 +267,6 @@ function managerWorkTitle(run: TavernManagerRunRecord) {
         failed: '后台维护失败',
         cancelled: '后台维护已停止',
         superseded: '本次维护已作废',
-        rolled_back: '本次维护未采用',
     };
     return labels[String(run.status || '')] || '后台维护';
 }
@@ -302,7 +301,6 @@ function managerWorkSummaryLine(run: TavernManagerRunRecord) {
     }
     if (status === 'cancelled') {return '后台工作已停止，没有采用未完成的结果。';}
     if (status === 'superseded') {return '剧情内容已经变化，这次旧结果没有采用。';}
-    if (status === 'rolled_back') {return '本次结果已经撤回，当前状态保持上一版。';}
     return formatRunActivityLine(run) || '暂无更多信息。';
 }
 

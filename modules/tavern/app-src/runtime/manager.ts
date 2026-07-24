@@ -27,21 +27,24 @@ import {
 import {
     assertTavernManagerRunSourceMessages,
     assertRunningTavernManagerRunLease,
-    clearTavernManagerRunSnapshots,
     claimNextQueuedAcceptedTurnManagerRun,
+    claimExpiredAcceptedTurnManagerRun,
     createRecoveredAcceptedTurnManagerRun,
     createTavernManagerRun,
     deleteTavernManagerCandidateForMessageRange,
     getRecoveredAcceptedTurnManagerRun,
+    getTavernManagerRun,
     getTavernMessage,
     getTavernSession,
+    listExpiredAcceptedTurnManagerRuns,
     listInterruptedAcceptedTurnManagerRuns,
     listTavernManagerMemorySnapshots,
+    listTavernManagerStateSnapshots,
     listTavernManagerRuns,
-    markExpiredAcceptedTurnManagerRunsInterrupted,
-    rollbackManagerRunMemoryWrites,
+    rollbackManagerRunWrites,
     rollbackManagerRunsForMessageRange,
     touchRunningTavernManagerRun,
+    transitionTavernManagerRun,
     updateTavernManagerRun,
     type TavernManagerRunRecord,
     type TavernManagerRunSourceIdentity,
@@ -55,8 +58,6 @@ import {
     executeTavernStatusTool,
     getTavernStatusStateForSession,
     isTavernStatusToolName,
-    rollbackStatusStateForManagerRun,
-    rollbackStatusStateForMessageRange,
     TAVERN_STATUS_TOOL_NAMES,
     type TavernStatusToolResult,
 } from '../../shared/status-state';
@@ -585,7 +586,10 @@ function isManagerAbortLike(error: unknown, signal?: AbortSignal): boolean {
     return name === 'AbortError' || /abort|aborted|cancelled|canceled/i.test(message);
 }
 
-function managerFailureStatus(error: unknown, signal?: AbortSignal): TavernManagerRunRecord['status'] {
+export function resolveTavernManagerFailureStatus(
+    error: unknown,
+    signal?: AbortSignal,
+): Extract<TavernManagerRunRecord['status'], 'failed' | 'cancelled' | 'superseded'> {
     const message = error instanceof Error ? error.message : String(error || '');
     if (isManagerAbortLike(error, signal)) {return 'cancelled';}
     if (
@@ -597,132 +601,23 @@ function managerFailureStatus(error: unknown, signal?: AbortSignal): TavernManag
     return 'failed';
 }
 
-async function rollbackManagerRunWritesIfNeeded(managerRunId = ''): Promise<{
+async function rollbackManagerRunWritesIfNeeded(managerRunId = '', options: {
+    expectedLeaseOwnerId: string;
+    expectedStatus: TavernManagerRunRecord['status'];
+    requireUnexpiredLease?: boolean;
+    finalStatus?: TavernManagerRunRecord['status'];
+    finalError?: string;
+}): Promise<{
     managerRun: TavernManagerRunRecord | null;
     conflicts: string[];
 } | null> {
-    const memorySnapshots = await listTavernManagerMemorySnapshots(managerRunId);
-    const hasMemoryWrites = memorySnapshots.some((snapshot) => String(snapshot.afterHash || '').trim());
-    const statusResult = await rollbackStatusStateForManagerRun(managerRunId);
-    const hasStatusWrites = statusResult.rolledBack > 0 || statusResult.skipped > 0 || statusResult.conflicts.length > 0;
-    if (!hasMemoryWrites && !hasStatusWrites) {
+    const result = await rollbackManagerRunWrites(managerRunId, options);
+    if (!options.finalStatus && !result.rolledBack && !result.conflicts.length && !result.skipped) {
         return null;
     }
-    const memoryResult = hasMemoryWrites
-        ? await rollbackManagerRunMemoryWrites(managerRunId)
-        : { rolledBack: 0, conflicts: [], skipped: 0 };
-    const conflicts = [...memoryResult.conflicts, ...statusResult.conflicts];
-    const run = await updateTavernManagerRun(managerRunId, {});
-    if (run && conflicts.length) {
-        await updateTavernManagerRun(managerRunId, {
-            error: mergeRollbackRunError(run.error, conflicts),
-        });
-    } else if (run && hasStatusWrites && !hasMemoryWrites) {
-        await updateTavernManagerRun(managerRunId, {
-            status: 'rolled_back',
-            error: '',
-        });
-    }
     return {
-        managerRun: await updateTavernManagerRun(managerRunId, {}),
-        conflicts,
-    };
-}
-
-function mergeRollbackRunError(existing = '', conflicts: string[] = []): string {
-    const current = String(existing || '').trim();
-    if (!conflicts.length) {return current;}
-    const prefix = 'rollback_conflict:';
-    const currentConflicts = current.startsWith(prefix)
-        ? current.slice(prefix.length).split(',').map((item) => item.trim()).filter(Boolean)
-        : [];
-    const merged = [...new Set([...currentConflicts, ...conflicts])];
-    return `${prefix}${merged.join(',')}`;
-}
-
-async function restoreQueuedAcceptedTurnAfterCurrentAbort(input: {
-    selected: {
-        run: TavernManagerRunRecord;
-        userMessage: TavernMessageRecord;
-        assistantMessage: TavernMessageRecord;
-    };
-    leaseOwnerId: string;
-    onManagerRunSaved?: (run: TavernManagerRunRecord) => void | Promise<void>;
-}): Promise<XbTavernManagerRunResult> {
-    const runId = input.selected.run.id;
-    try {
-        await assertRunningTavernManagerRunLease(runId, input.leaseOwnerId);
-    } catch {
-        const interrupted = await updateTavernManagerRun(runId, {}) || input.selected.run;
-        return {
-            ok: false,
-            managerRun: interrupted,
-            error: interrupted.error || 'manager_lease_lost',
-        };
-    }
-    const rollback = await rollbackManagerRunWritesIfNeeded(runId);
-    if (rollback && !rollback.conflicts.length) {
-        await rebuildTavernMemoryDerivedIndexForLiveSession(input.selected.run.sessionId);
-    }
-    if (rollback?.conflicts.length) {
-        const conflicted = rollback.managerRun || await updateTavernManagerRun(runId, {
-            status: 'failed',
-            error: mergeRollbackRunError('manager_queue_interrupted_by_current_turn_abort', rollback.conflicts),
-        }) || input.selected.run;
-        await input.onManagerRunSaved?.(conflicted);
-        return {
-            ok: false,
-            managerRun: conflicted,
-            error: conflicted.error || 'manager_queue_interrupted_rollback_conflict',
-        };
-    }
-
-    try {
-        const sourceMessages = await resolveManagerSourceMessagesByOrder(
-            input.selected.run.sessionId,
-            input.selected.run.userOrder,
-            input.selected.run.assistantOrder,
-        );
-        assertManagerSourceIdentity({
-            sourceUserMessageId: input.selected.run.sourceUserMessageId,
-            sourceAssistantMessageId: input.selected.run.sourceAssistantMessageId,
-            sourceUserCreatedAt: input.selected.run.sourceUserCreatedAt,
-            sourceAssistantCreatedAt: input.selected.run.sourceAssistantCreatedAt,
-            sourceUserRevision: input.selected.run.sourceUserRevision,
-            sourceAssistantRevision: input.selected.run.sourceAssistantRevision,
-        }, sourceMessages);
-    } catch {
-        const cancelled = await updateTavernManagerRun(runId, {
-            status: 'cancelled',
-            error: 'manager_source_messages_superseded',
-        }) || input.selected.run;
-        await input.onManagerRunSaved?.(cancelled);
-        return {
-            ok: false,
-            managerRun: cancelled,
-            error: cancelled.error,
-        };
-    }
-
-    await clearTavernManagerRunSnapshots(runId);
-    const queuedAgain = await updateTavernManagerRun(runId, {
-        status: 'queued',
-        leaseOwnerId: '',
-        leaseExpiresAt: 0,
-        provider: '',
-        model: '',
-        outputText: '任务已恢复队列，等待按剧情顺序重新维护。',
-        parsedAction: '',
-        toolTrace: undefined,
-        changedFiles: [],
-        changedStates: [],
-        error: 'manager_queue_interrupted_by_current_turn_abort',
-    }) || input.selected.run;
-    await input.onManagerRunSaved?.(queuedAgain);
-    return {
-        ok: false,
-        managerRun: queuedAgain,
-        error: queuedAgain.error,
+        managerRun: result.managerRun,
+        conflicts: result.conflicts,
     };
 }
 
@@ -951,6 +846,9 @@ export async function runSharedManagerToolLoop(input: {
             id: String(toolCall.id || ''),
             name: String(toolCall.name || ''),
             arguments: String(toolCall.arguments || '{}'),
+            ...(Object.prototype.hasOwnProperty.call(toolCall, 'providerId')
+                ? { providerId: String((toolCall as Record<string, unknown>).providerId || '') }
+                : {}),
         }));
         input.messages.push(assistantToolMessage);
         protocolMessages.push(assistantToolMessage);
@@ -1112,6 +1010,9 @@ export async function runSharedManagerToolLoop(input: {
                 id: toolCall.id,
                 name: toolCall.name,
                 response: toolResult,
+                ...(Object.prototype.hasOwnProperty.call(toolCall, 'providerId')
+                    ? { providerId: String((toolCall as Record<string, unknown>).providerId || '') }
+                    : {}),
             });
             if (!toolResult.ok) {
                 lightBrake.record(String(toolCall.name || ''), String(toolResult.error || toolResult.summary || 'tool_failed'));
@@ -1247,7 +1148,6 @@ async function createOrUpdateManagerRun(input: {
     });
     const providerLabel = getXbTavernProviderLabel(String(providerConfig.provider || ''));
     const patch = {
-        status: 'running' as const,
         provider: providerLabel,
         model: String(providerConfig.model || ''),
         inputSummary: input.inputSummary,
@@ -1256,7 +1156,11 @@ async function createOrUpdateManagerRun(input: {
         await assertRunningTavernManagerRunLease(input.managerRunId, input.leaseOwnerId);
     }
     const record = input.managerRunId
-        ? await updateTavernManagerRun(input.managerRunId, patch)
+        ? await updateTavernManagerRun(input.managerRunId, patch, {
+            expectedStatus: 'running',
+            ...(input.leaseOwnerId !== undefined ? { expectedLeaseOwnerId: input.leaseOwnerId } : {}),
+            ...(input.leaseOwnerId ? { requireUnexpiredLease: true } : {}),
+        })
         : await createTavernManagerRun({
             sessionId: input.sessionId,
             trigger: input.trigger,
@@ -1264,6 +1168,7 @@ async function createOrUpdateManagerRun(input: {
             userOrder: Number.isInteger(Number(input.userOrder)) ? Number(input.userOrder) : -1,
             assistantOrder: Number.isInteger(Number(input.assistantOrder)) ? Number(input.assistantOrder) : -1,
             ...patch,
+            status: 'running',
         });
     if (!record) {
         throw new Error('manager_run_missing');
@@ -1294,7 +1199,28 @@ function startManagerRunHeartbeat(managerRunId = '', leaseOwnerId = '', signal?:
 }
 
 async function finalizeManagerRun(record: TavernManagerRunRecord, patch: Partial<TavernManagerRunRecord>): Promise<TavernManagerRunRecord> {
-    return await updateTavernManagerRun(record.id, patch) || record;
+    const {
+        status: nextStatus,
+        leaseOwnerId: _leaseOwnerId,
+        leaseExpiresAt: _leaseExpiresAt,
+        ...details
+    } = patch;
+    const conditions = {
+        expectedStatus: record.status,
+        expectedLeaseOwnerId: String(record.leaseOwnerId || ''),
+        ...(record.leaseOwnerId ? { requireUnexpiredLease: true } : {}),
+    };
+    if (nextStatus && nextStatus !== record.status) {
+        return await transitionTavernManagerRun(record.id, {
+            ...details,
+            status: nextStatus,
+        }, conditions) || record;
+    }
+    return await updateTavernManagerRun(record.id, details, {
+        expectedStatus: record.status,
+        expectedLeaseOwnerId: String(record.leaseOwnerId || ''),
+        ...(record.leaseOwnerId ? { requireUnexpiredLease: true } : {}),
+    }) || record;
 }
 
 async function rebuildTavernMemoryDerivedIndexForLiveSession(sessionId = ''): Promise<void> {
@@ -1502,8 +1428,16 @@ async function runManagerTask(input: {
         };
     } catch (error) {
         const errorText = error instanceof Error ? error.message : String(error || 'manager_failed');
-        const status = managerFailureStatus(error, input.signal);
-        const failed = await finalizeManagerRun(managerRun, {
+        const status = resolveTavernManagerFailureStatus(error, input.signal);
+        const rolledBack = input.caller === 'auto' || ['cancelled', 'superseded'].includes(status)
+            ? await rollbackManagerRunWritesIfNeeded(managerRun.id, {
+                expectedStatus: 'running',
+                expectedLeaseOwnerId: String(input.leaseOwnerId || ''),
+                finalStatus: status,
+                finalError: errorText,
+            })
+            : null;
+        const failed = rolledBack?.managerRun || await transitionTavernManagerRun(managerRun.id, {
             status,
             provider: resultProvider,
             model: resultModel,
@@ -1511,13 +1445,12 @@ async function runManagerTask(input: {
             toolTrace,
             changedFiles,
             changedStates,
-            leaseOwnerId: '',
-            leaseExpiresAt: 0,
             error: errorText,
-        });
-        const rolledBack = input.caller === 'auto' || ['cancelled', 'superseded'].includes(status)
-            ? await rollbackManagerRunWritesIfNeeded(managerRun.id)
-            : null;
+        }, {
+            expectedStatus: 'running',
+            expectedLeaseOwnerId: String(input.leaseOwnerId || ''),
+            ...(input.leaseOwnerId ? { requireUnexpiredLease: true } : {}),
+        }) || managerRun;
         if (rolledBack && !rolledBack.conflicts.length) {
             await rebuildTavernMemoryDerivedIndexForLiveSession(input.sessionId);
         }
@@ -1542,6 +1475,9 @@ async function runManagerTask(input: {
 export async function runXbTavernManagerAfterTurn(input: XbTavernManagerRunInput): Promise<XbTavernManagerRunResult> {
     const sessionId = String(input.sessionId || '').trim();
     if (!sessionId) {throw new Error('manager_session_required');}
+    const leaseOwnerId = input.leaseOwnerId || (!input.managerRunId
+        ? `manager-direct-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+        : '');
     const sourceIdentity = resolveExpectedManagerSourceIdentity(input);
     const contractRuntime = resolveSessionContractRuntime(input.sessionContract);
     const taskSourceSnapshot = await loadTavernTaskAnchorSnapshot(sessionId, {
@@ -1549,15 +1485,30 @@ export async function runXbTavernManagerAfterTurn(input: XbTavernManagerRunInput
     });
     const hasTaskWork = hasMaintainableTavernTasksInAnchorSnapshot(taskSourceSnapshot);
     if (!contractRuntime.hasAutomaticManagerWork && !hasTaskWork) {
-        await assertManagerRunLease(input);
+        if (input.managerRunId) {
+            await assertRunningTavernManagerRunLease(input.managerRunId, leaseOwnerId);
+        }
         const skipped = input.managerRunId
-            ? await updateTavernManagerRun(input.managerRunId, {
-                status: input.deferCompletion ? 'running' : 'completed',
-                outputText: '契约未授权后台记忆或地图维护，本轮已跳过。',
-                parsedAction: 'manager_skipped_by_contract',
-                ...(input.deferCompletion ? {} : { leaseOwnerId: '', leaseExpiresAt: 0 }),
-                error: '',
-            })
+            ? input.deferCompletion
+                ? await updateTavernManagerRun(input.managerRunId, {
+                    outputText: '契约未授权后台记忆或地图维护，本轮已跳过。',
+                    parsedAction: 'manager_skipped_by_contract',
+                    error: '',
+                }, {
+                    expectedStatus: 'running',
+                    expectedLeaseOwnerId: leaseOwnerId,
+                    ...(leaseOwnerId ? { requireUnexpiredLease: true } : {}),
+                })
+                : await transitionTavernManagerRun(input.managerRunId, {
+                    status: 'completed',
+                    outputText: '契约未授权后台记忆或地图维护，本轮已跳过。',
+                    parsedAction: 'manager_skipped_by_contract',
+                    error: '',
+                }, {
+                    expectedStatus: 'running',
+                    expectedLeaseOwnerId: leaseOwnerId,
+                    ...(leaseOwnerId ? { requireUnexpiredLease: true } : {}),
+                })
             : await createTavernManagerRun({
                 sessionId,
                 trigger: ACCEPTED_TURN_MANAGER_TRIGGER,
@@ -1589,8 +1540,11 @@ export async function runXbTavernManagerAfterTurn(input: XbTavernManagerRunInput
         ? await (async () => {
             await assertManagerRunLease(input);
             return updateTavernManagerRun(input.managerRunId, {
-            status: 'running',
-            inputSummary,
+                inputSummary,
+            }, {
+                expectedStatus: 'running',
+                ...(input.leaseOwnerId !== undefined ? { expectedLeaseOwnerId: input.leaseOwnerId } : {}),
+                ...(input.leaseOwnerId ? { requireUnexpiredLease: true } : {}),
             });
         })()
         : await createTavernManagerRun({
@@ -1600,7 +1554,9 @@ export async function runXbTavernManagerAfterTurn(input: XbTavernManagerRunInput
             userOrder: input.userMessage.order,
             assistantOrder: input.assistantMessage.order,
             ...sourceIdentity,
-            status: 'queued',
+            status: 'running',
+            leaseOwnerId,
+            leaseExpiresAt: Date.now() + TAVERN_MANAGER_LEASE_DURATION_MS,
             inputSummary,
         });
     if (!managerRun) {
@@ -1631,16 +1587,16 @@ export async function runXbTavernManagerAfterTurn(input: XbTavernManagerRunInput
             requireChangedFiles: false,
             beforeWriteGuard: async () => {
                 throwIfManagerAborted(input.signal);
-                await assertManagerRunLease(input);
+                await assertRunningTavernManagerRunLease(managerRun.id, leaseOwnerId);
                 await resolveCurrentManagerSourceMessages(input);
             },
             beforeCompletionGuard: async () => {
                 throwIfManagerAborted(input.signal);
-                await assertManagerRunLease(input);
+                await assertRunningTavernManagerRunLease(managerRun.id, leaseOwnerId);
                 await resolveCurrentManagerSourceMessages(input);
             },
             deferCompletion: input.deferCompletion,
-            leaseOwnerId: input.leaseOwnerId,
+            leaseOwnerId,
             sessionContract: input.sessionContract,
             contextSnapshot: input.contextSnapshot || currentSourceMessages.assistantMessage.contextSnapshot || currentSourceMessages.userMessage.contextSnapshot || {},
             signal: input.signal,
@@ -1659,7 +1615,9 @@ export async function runXbTavernManagerAfterTurn(input: XbTavernManagerRunInput
         }
         await resolveCurrentManagerSourceMessages(input);
         const changedFiles = [...(result.changedFiles || [])];
-        await assertManagerRunLease(input);
+        if (input.deferCompletion) {
+            await assertRunningTavernManagerRunLease(managerRun.id, leaseOwnerId);
+        }
         return {
             ok: true,
             managerRun: result.managerRun,
@@ -1670,12 +1628,33 @@ export async function runXbTavernManagerAfterTurn(input: XbTavernManagerRunInput
         };
     } catch (error) {
         const errorText = error instanceof Error ? error.message : String(error || 'manager_failed');
-        const status = managerFailureStatus(error, input.signal);
-        const failed = await finalizeManagerRun(managerRun, {
+        const status = resolveTavernManagerFailureStatus(error, input.signal);
+        let rolledBack: Awaited<ReturnType<typeof rollbackManagerRunWritesIfNeeded>> = null;
+        try {
+            rolledBack = await rollbackManagerRunWritesIfNeeded(managerRun.id, {
+                expectedStatus: 'running',
+                expectedLeaseOwnerId: leaseOwnerId,
+                finalStatus: status,
+                finalError: errorText,
+            });
+        } catch (rollbackError) {
+            if (!(rollbackError instanceof Error && rollbackError.message === 'manager_lease_lost')) {throw rollbackError;}
+            const current = await getTavernManagerRun(managerRun.id);
+            return {
+                ok: false,
+                managerRun: current || managerRun,
+                protocolMessages: [],
+                error: errorText,
+            };
+        }
+        const failed = rolledBack?.managerRun || await transitionTavernManagerRun(managerRun.id, {
             status,
             error: errorText,
-        });
-        const rolledBack = await rollbackManagerRunWritesIfNeeded(managerRun.id);
+        }, {
+            expectedStatus: 'running',
+            expectedLeaseOwnerId: leaseOwnerId,
+            ...(leaseOwnerId ? { requireUnexpiredLease: true } : {}),
+        }) || managerRun;
         if (rolledBack && !rolledBack.conflicts.length) {
             await rebuildTavernMemoryDerivedIndexForLiveSession(sessionId);
         }
@@ -1691,30 +1670,29 @@ export async function runXbTavernManagerAfterTurn(input: XbTavernManagerRunInput
 export async function failAndRollbackAcceptedTurnManagerRun(
     managerRunId = '',
     error = 'manager_accepted_snapshot_failed',
+    leaseOwnerId = '',
+    finalStatus: Extract<TavernManagerRunRecord['status'], 'failed' | 'cancelled' | 'superseded'> = 'failed',
 ): Promise<TavernManagerRunRecord | null> {
     const runId = String(managerRunId || '').trim();
     if (!runId) {return null;}
-    await updateTavernManagerRun(runId, {
-        status: 'failed',
-        leaseOwnerId: '',
-        leaseExpiresAt: 0,
-        error,
+    const expectedStatus = leaseOwnerId ? 'running' : 'failed';
+    const rollback = await rollbackManagerRunWritesIfNeeded(runId, {
+        expectedStatus,
+        expectedLeaseOwnerId: leaseOwnerId,
+        finalStatus,
+        finalError: error,
     });
-    const rollback = await rollbackManagerRunWritesIfNeeded(runId);
-    const run = rollback?.managerRun || await updateTavernManagerRun(runId, {});
-    const finalError = rollback?.conflicts.length
-        ? mergeRollbackRunError(error, rollback.conflicts)
-        : error;
-    const failed = run ? await updateTavernManagerRun(runId, {
-        status: 'failed',
-        leaseOwnerId: '',
-        leaseExpiresAt: 0,
-        error: finalError,
-    }) : null;
-    if (rollback && run && !rollback.conflicts.length) {
-        await rebuildTavernMemoryDerivedIndexForLiveSession(run.sessionId);
+    const finished = rollback?.managerRun || await transitionTavernManagerRun(runId, {
+        status: finalStatus,
+        error,
+    }, {
+        expectedStatus,
+        ...(leaseOwnerId ? { expectedLeaseOwnerId: leaseOwnerId } : { expectedLeaseOwnerId: '' }),
+    });
+    if (rollback && finished && !rollback.conflicts.length) {
+        await rebuildTavernMemoryDerivedIndexForLiveSession(finished.sessionId);
     }
-    return failed || run;
+    return finished;
 }
 
 export async function recoverInterruptedAcceptedTurnManagerRuns(input: {
@@ -1723,22 +1701,35 @@ export async function recoverInterruptedAcceptedTurnManagerRuns(input: {
 }): Promise<TavernManagerRunRecord[]> {
     const sessionId = String(input.sessionId || '').trim();
     if (!sessionId) {return [];}
-    await markExpiredAcceptedTurnManagerRunsInterrupted(sessionId);
+    const expired = await listExpiredAcceptedTurnManagerRuns(sessionId);
     const interrupted = await listInterruptedAcceptedTurnManagerRuns(sessionId);
     const recovered: TavernManagerRunRecord[] = [];
-    for (const run of interrupted) {
+    for (const candidate of [...expired, ...interrupted]) {
+        const recoveryOwner = candidate.status === 'running'
+            ? `manager-recovery-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+            : '';
+        const run = candidate.status === 'running'
+            ? await claimExpiredAcceptedTurnManagerRun({
+                sessionId,
+                managerRunId: candidate.id,
+                leaseOwnerId: recoveryOwner,
+                leaseDurationMs: TAVERN_MANAGER_LEASE_DURATION_MS,
+            })
+            : candidate;
+        if (!run) {continue;}
         const existingRecovery = await getRecoveredAcceptedTurnManagerRun(run.id);
         if (existingRecovery) {
-            const superseded = await updateTavernManagerRun(run.id, {
+            const superseded = await transitionTavernManagerRun(run.id, {
                 status: 'superseded',
-                leaseOwnerId: '',
-                leaseExpiresAt: 0,
                 error: 'manager_worker_recovered',
+            }, {
+                expectedStatus: run.status,
+                expectedLeaseOwnerId: run.leaseOwnerId || '',
             });
             if (superseded) {await input.onManagerRunSaved?.(superseded);}
             continue;
         }
-        const failed = await failAndRollbackAcceptedTurnManagerRun(run.id, 'manager_worker_interrupted') || run;
+        const failed = await failAndRollbackAcceptedTurnManagerRun(run.id, 'manager_worker_interrupted', recoveryOwner) || run;
         const failedWithConflict = String(failed.error || '').startsWith('rollback_conflict:');
         if (failedWithConflict) {
             await input.onManagerRunSaved?.(failed);
@@ -1755,22 +1746,24 @@ export async function recoverInterruptedAcceptedTurnManagerRuns(input: {
                 sourceAssistantRevision: run.sourceAssistantRevision,
             }, sourceMessages);
         } catch {
-            const superseded = await updateTavernManagerRun(run.id, {
+            const superseded = await transitionTavernManagerRun(run.id, {
                 status: 'superseded',
-                leaseOwnerId: '',
-                leaseExpiresAt: 0,
                 error: 'manager_source_messages_changed',
+            }, {
+                expectedStatus: 'failed',
+                expectedLeaseOwnerId: '',
             });
             if (superseded) {await input.onManagerRunSaved?.(superseded);}
             continue;
         }
         const replacement = await createRecoveredAcceptedTurnManagerRun(run.id);
         if (!replacement?.created) {continue;}
-        const superseded = await updateTavernManagerRun(run.id, {
+        const superseded = await transitionTavernManagerRun(run.id, {
             status: 'superseded',
-            leaseOwnerId: '',
-            leaseExpiresAt: 0,
             error: 'manager_worker_recovered',
+        }, {
+            expectedStatus: 'failed',
+            expectedLeaseOwnerId: '',
         });
         if (superseded) {await input.onManagerRunSaved?.(superseded);}
         recovered.push(replacement.run);
@@ -1803,28 +1796,27 @@ export async function runNextQueuedAcceptedTurnManager(input: Omit<XbTavernManag
             assistantMessage: sourceMessages.assistantMessage,
         };
     } catch {
-        const cancelled = await updateTavernManagerRun(claimedRun.id, {
-            status: 'cancelled',
-            leaseOwnerId: '',
-            leaseExpiresAt: 0,
+        const superseded = await transitionTavernManagerRun(claimedRun.id, {
+            status: 'superseded',
             error: 'manager_source_messages_changed',
+        }, {
+            expectedStatus: 'running',
+            expectedLeaseOwnerId: leaseOwnerId,
+            requireUnexpiredLease: true,
         }) || claimedRun;
-        await input.onManagerRunSaved?.(cancelled);
+        await input.onManagerRunSaved?.(superseded);
         return {
             ok: false,
-            managerRun: cancelled,
-            error: cancelled.error,
+            managerRun: superseded,
+            error: superseded.error,
         };
     }
 
     const controller = new AbortController();
-    let abortedByCurrentTurnSignal = false;
     const abortFromInput = () => {
-        abortedByCurrentTurnSignal = true;
         controller.abort();
     };
     if (input.signal?.aborted) {
-        abortedByCurrentTurnSignal = true;
         controller.abort();
     } else {
         input.signal?.addEventListener('abort', abortFromInput, { once: true });
@@ -1853,29 +1845,37 @@ export async function runNextQueuedAcceptedTurnManager(input: Omit<XbTavernManag
             deferCompletion: true,
             signal: controller.signal,
         });
-        if (!result.ok && abortedByCurrentTurnSignal && input.signal?.aborted) {
-            return await restoreQueuedAcceptedTurnAfterCurrentAbort({
-                selected,
-                leaseOwnerId,
-                onManagerRunSaved: input.onManagerRunSaved,
-            });
-        }
         await input.onManagerRunSaved?.(result.managerRun);
         return result;
     } catch (error) {
-        if (abortedByCurrentTurnSignal && input.signal?.aborted) {
-            return await restoreQueuedAcceptedTurnAfterCurrentAbort({
-                selected,
-                leaseOwnerId,
-                onManagerRunSaved: input.onManagerRunSaved,
-            });
-        }
         const errorText = error instanceof Error ? error.message : String(error || 'manager_failed');
-        const failed = await updateTavernManagerRun(selected.run.id, {
-            status: managerFailureStatus(error, controller.signal),
-            leaseOwnerId: '',
-            leaseExpiresAt: 0,
+        const status = resolveTavernManagerFailureStatus(error, controller.signal);
+        let rolledBack: Awaited<ReturnType<typeof rollbackManagerRunWritesIfNeeded>> = null;
+        try {
+            rolledBack = await rollbackManagerRunWritesIfNeeded(selected.run.id, {
+                expectedStatus: 'running',
+                expectedLeaseOwnerId: leaseOwnerId,
+                finalStatus: status,
+                finalError: errorText,
+            });
+        } catch (rollbackError) {
+            if (!(rollbackError instanceof Error && rollbackError.message === 'manager_lease_lost')) {throw rollbackError;}
+            const current = await getTavernManagerRun(selected.run.id);
+            const finished = current || selected.run;
+            await input.onManagerRunSaved?.(finished);
+            return {
+                ok: false,
+                managerRun: finished,
+                error: errorText,
+            };
+        }
+        const failed = rolledBack?.managerRun || await transitionTavernManagerRun(selected.run.id, {
+            status,
             error: errorText,
+        }, {
+            expectedStatus: 'running',
+            expectedLeaseOwnerId: leaseOwnerId,
+            requireUnexpiredLease: true,
         }) || selected.run;
         await input.onManagerRunSaved?.(failed);
         return {
@@ -1907,19 +1907,25 @@ export async function describeXbTavernManagerRollbackImpactForMessageRange(sessi
     const statusImpact = await describeStatusStateRollbackImpactForMessageRange(id, order);
     let pendingRuns = 0;
     let writtenMemoryFiles = 0;
+    let writtenStructuredStates = 0;
+    let writtenStatusSnapshots = 0;
     for (const run of runs) {
         if (['queued', 'running'].includes(run.status)) {
             pendingRuns += 1;
         }
         const memorySnapshots = await listTavernManagerMemorySnapshots(run.id);
         writtenMemoryFiles += memorySnapshots.filter((snapshot) => String(snapshot.afterHash || '').trim()).length;
+        const stateSnapshots = await listTavernManagerStateSnapshots(run.id);
+        const written = stateSnapshots.filter((snapshot) => String(snapshot.afterHash || '').trim());
+        writtenStructuredStates += written.length;
+        writtenStatusSnapshots += written.filter((snapshot) => snapshot.docType === 'tavern.status').length;
     }
     return {
         affectedRuns: runs.length,
         pendingRuns,
         writtenMemoryFiles,
-        writtenStatusPatches: statusImpact.writtenStatusPatches,
-        hasWrittenState: writtenMemoryFiles > 0 || statusImpact.changed,
+        writtenStatusPatches: Math.max(statusImpact.writtenStatusPatches, writtenStatusSnapshots),
+        hasWrittenState: writtenMemoryFiles > 0 || writtenStructuredStates > 0 || statusImpact.changed,
     };
 }
 
@@ -1941,12 +1947,11 @@ export async function cancelAndRollbackXbTavernManagersForMessageRange(sessionId
             run.controller.abort();
         }
     });
-    const memory = await rollbackManagerRunsForMessageRange(id, order);
-    const status = await rollbackStatusStateForMessageRange(id, order);
+    const rollback = await rollbackManagerRunsForMessageRange(id, order);
     return {
-        runIds: [...new Set([...memory.runIds, ...status.runIds])],
-        rolledBack: memory.rolledBack + status.rolledBack,
-        conflicts: [...memory.conflicts, ...status.conflicts],
-        skipped: memory.skipped + status.skipped,
+        runIds: rollback.runIds,
+        rolledBack: rollback.rolledBack,
+        conflicts: rollback.conflicts,
+        skipped: rollback.skipped,
     };
 }

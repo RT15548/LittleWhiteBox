@@ -96,6 +96,32 @@ async function resetDb() {
     await db.open();
 }
 
+test('ebook conversation storage keeps the explicit empty Google provider tool id across reload', async () => {
+    await resetDb();
+    const bookId = 'provider-id-reload';
+    const state = {
+        book: { id: bookId },
+        messages: [{
+            role: 'assistant',
+            content: '',
+            toolCalls: [{
+                id: 'google-tool-1-1',
+                name: 'Read',
+                arguments: '{"path":"book/outline.md"}',
+                providerId: '',
+            }],
+        }],
+    };
+    const store = createEbookConversationStore({ state });
+    await store.persistConversation(bookId);
+
+    const restoredState = { book: { id: bookId }, messages: [] };
+    await createEbookConversationStore({ state: restoredState }).restoreConversation(bookId);
+    const restoredToolCall = restoredState.messages[0]?.toolCalls?.[0];
+    assert.equal(restoredToolCall?.providerId, '');
+    assert.equal(Object.prototype.hasOwnProperty.call(restoredToolCall || {}, 'providerId'), true);
+});
+
 test('ebook startup posts frame-ready before shelf hydration and host config is prewarmed', () => {
     const appSource = readFileSync(new URL('../app-src/ebook-app.js', import.meta.url), 'utf8');
     const stateSource = readFileSync(new URL('../app-src/state.js', import.meta.url), 'utf8');
@@ -3762,14 +3788,15 @@ test('Book conversation preserves tool context separately from UI folding', asyn
                 content: '',
                 thoughts: [{ label: '思考块', text: '先读取第一章。' }],
                 toolCalls: [{
-                    id: 'call-read',
+                    id: 'ebook-tool-1',
                     name: EBOOK_TOOL_NAMES.READ,
                     arguments: '{"filePath":"book/chapters/001.md"}',
+                    providerId: '',
                 }],
             },
             {
                 role: 'tool',
-                toolCallId: 'call-read',
+                toolCallId: 'ebook-tool-1',
                 toolName: EBOOK_TOOL_NAMES.READ,
                 content: '{"ok":true,"content":"1: # 第 1 章"}',
             },
@@ -3789,13 +3816,17 @@ test('Book conversation preserves tool context separately from UI folding', asyn
     assert.equal(state.messages.length, 4);
     assert.equal(state.messages[1].thoughts[0].text, '先读取第一章。');
     assert.equal(state.messages[1].toolCalls[0].name, EBOOK_TOOL_NAMES.READ);
+    assert.equal(Object.prototype.hasOwnProperty.call(state.messages[1].toolCalls[0], 'providerId'), true);
+    assert.equal(state.messages[1].toolCalls[0].providerId, '');
     assert.equal(state.messages[2].role, 'tool');
-    assert.equal(state.messages[2].toolCallId, 'call-read');
+    assert.equal(state.messages[2].toolCallId, 'ebook-tool-1');
 
     const providerMessages = buildEbookProviderMessagesFromHistory(state.messages);
     assert.equal(providerMessages[1].tool_calls[0].function.name, EBOOK_TOOL_NAMES.READ);
+    assert.equal(Object.prototype.hasOwnProperty.call(providerMessages[1].tool_calls[0], 'providerToolCallId'), true);
+    assert.equal(providerMessages[1].tool_calls[0].providerToolCallId, '');
     assert.equal(providerMessages[2].role, 'tool');
-    assert.equal(providerMessages[2].tool_call_id, 'call-read');
+    assert.equal(providerMessages[2].tool_call_id, 'ebook-tool-1');
     assert.equal(providerMessages[2].toolName, EBOOK_TOOL_NAMES.READ);
 });
 
@@ -7462,7 +7493,6 @@ test('Book agent uses Google-style session tool loop without rebuilding replay h
                                     role: 'model',
                                     parts: [{
                                         functionCall: {
-                                            id: 'google-read-outline',
                                             name: EBOOK_TOOL_NAMES.READ,
                                             args: {
                                                 filePath: 'book/outline.md',
@@ -7479,10 +7509,12 @@ test('Book agent uses Google-style session tool loop without rebuilding replay h
                         assert.deepEqual(task.toolResponses.map((item) => ({
                             id: item.id,
                             name: item.name,
+                            providerId: item.providerId,
                             ok: item.response.ok,
                         })), [{
-                            id: 'google-read-outline',
+                            id: 'ebook-tool-1',
                             name: EBOOK_TOOL_NAMES.READ,
+                            providerId: '',
                             ok: true,
                         }]);
                         return {
@@ -7510,7 +7542,8 @@ test('Book agent uses Google-style session tool loop without rebuilding replay h
 
     assert.equal(seenTasks.length, 3);
     assert.deepEqual(state.messages.map((message) => message.role), ['user', 'assistant', 'tool', 'assistant']);
-    assert.equal(state.messages[1].toolCalls[0].id, 'google-read-outline');
+    assert.equal(state.messages[1].toolCalls[0].id, 'ebook-tool-1');
+    assert.equal(state.messages[1].toolCalls[0].providerId, '');
     assert.equal(state.messages[1].thoughts.length, 1);
     assert.equal(state.messages[3].thoughts.length, 1);
     assert.equal(state.messages[3].thoughts[0].text, '大纲可用。');

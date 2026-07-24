@@ -16,8 +16,6 @@ import {
     getTavernStatusToolDefinitions,
     getTavernStatusStateForSession,
     normalizeStatusDocument,
-    rollbackStatusStateForMessageRange,
-    saveTavernStatusSnapshot,
     type TavernStatusDocument,
 } from '../shared/status-state';
 import { buildTavernStatusPanelYaml } from '../shared/status-prompt';
@@ -344,94 +342,4 @@ test('status item icons canonicalize before fingerprinting and ignore invalid se
     assert.match(push.warnings?.join('\n') || '', /icon非法\(sword_icon\).*已忽略/);
     const pushedItem = push.document?.subjects[0].tabs[0].blocks.find((block) => block.id === 'items')?.fields.find((field) => field.id === 'fake-sword') as { icon?: string };
     assert.equal(pushedItem.icon, undefined);
-});
-
-test('status rollback restores accepted snapshots by message range', async () => {
-    const session = await createTavernSession({ title: 'Status rollback' });
-    await executeTavernStatusTool(session.id, TAVERN_STATUS_TOOL_NAMES.INIT, { document: createStatusDoc(50) }, {
-        managerRunId: 'run-init',
-        sourceUserOrder: 1,
-        sourceAssistantOrder: 2,
-    });
-    await saveTavernStatusSnapshot(session.id, 2);
-    await executeTavernStatusTool(session.id, TAVERN_STATUS_TOOL_NAMES.PATCH, {
-        ops: [
-            { op: 'delta', subjectId: 'user', tabId: 'overview', blockId: 'stats', fieldId: 'san', delta: 10 },
-        ],
-    }, {
-        managerRunId: 'run-early',
-        sourceUserOrder: 3,
-        sourceAssistantOrder: 4,
-    });
-    await saveTavernStatusSnapshot(session.id, 4);
-    await executeTavernStatusTool(session.id, TAVERN_STATUS_TOOL_NAMES.PATCH, {
-        ops: [
-            { op: 'delta', subjectId: 'user', tabId: 'overview', blockId: 'stats', fieldId: 'san', delta: -25 },
-        ],
-    }, {
-        managerRunId: 'run-late',
-        sourceUserOrder: 5,
-        sourceAssistantOrder: 6,
-    });
-
-    const beforeRollback = await getTavernStatusStateForSession(session.id);
-    assert.equal((beforeRollback.status.subjects[0].tabs[0].blocks[0].fields[0] as { value?: number }).value, 35);
-
-    const rollback = await rollbackStatusStateForMessageRange(session.id, 5);
-    assert.equal(rollback.rolledBack, 1);
-    assert.deepEqual(rollback.runIds, ['run-late']);
-
-    const afterRollback = await getTavernStatusStateForSession(session.id);
-    assert.equal((afterRollback.status.subjects[0].tabs[0].blocks[0].fields[0] as { value?: number }).value, 60);
-
-    const patches = await listTavernStructuredStatePatches({
-        sessionId: session.id,
-        docType: TAVERN_STATUS_DOC_TYPE,
-        docId: TAVERN_STATUS_DOC_ID,
-        includeRolledBack: true,
-    });
-    assert.equal(patches.filter((patch) => patch.status === 'rolled_back').length, 1);
-});
-
-test('status rollback preserves user-anchored manager chat status snapshots', async () => {
-    const session = await createTavernSession({ title: 'Status rollback user anchor' });
-    await executeTavernStatusTool(session.id, TAVERN_STATUS_TOOL_NAMES.INIT, { document: createStatusDoc(50) }, {
-        managerRunId: 'run-init',
-        sourceUserOrder: 1,
-        sourceAssistantOrder: 2,
-    });
-    await saveTavernStatusSnapshot(session.id, 2);
-    await executeTavernStatusTool(session.id, TAVERN_STATUS_TOOL_NAMES.PATCH, {
-        ops: [
-            { op: 'delta', subjectId: 'user', tabId: 'overview', blockId: 'stats', fieldId: 'san', delta: -10 },
-        ],
-    }, {
-        caller: 'auto',
-        managerRunId: 'run-auto',
-        sourceUserOrder: 5,
-        sourceAssistantOrder: 6,
-    });
-    await executeTavernStatusTool(session.id, TAVERN_STATUS_TOOL_NAMES.PATCH, {
-        ops: [
-            { op: 'set', subjectId: 'user', tabId: 'overview', blockId: 'stats', fieldId: 'san', value: 80 },
-        ],
-    }, {
-        caller: 'chat',
-        managerRunId: 'run-manual',
-    });
-    await saveTavernStatusSnapshot(session.id, 5);
-
-    const rollback = await rollbackStatusStateForMessageRange(session.id, 6);
-    assert.equal(rollback.rolledBack, 1);
-    assert.deepEqual(rollback.conflicts, []);
-
-    const state = await getTavernStatusStateForSession(session.id);
-    assert.equal((state.status.subjects[0].tabs[0].blocks[0].fields[0] as { value?: number }).value, 80);
-    const patches = await listTavernStructuredStatePatches({
-        sessionId: session.id,
-        docType: TAVERN_STATUS_DOC_TYPE,
-        docId: TAVERN_STATUS_DOC_ID,
-        includeRolledBack: true,
-    });
-    assert.equal(patches.filter((patch) => patch.status === 'rolled_back').length, 1);
 });

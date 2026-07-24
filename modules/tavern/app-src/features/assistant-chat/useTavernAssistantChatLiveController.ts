@@ -80,19 +80,25 @@ interface PendingProtocolTool {
     resolved: boolean;
 }
 
-function normalizeProtocolToolCalls(message: XbTavernMessage): Array<{ id?: string; name?: string; arguments?: string }> {
+function normalizeProtocolToolCalls(message: XbTavernMessage): Array<{ id?: string; name?: string; arguments?: string; providerId?: string }> {
     if (Array.isArray(message.toolCalls) && message.toolCalls.length) {
         return message.toolCalls.map((toolCall) => ({
             id: typeof toolCall?.id === 'string' ? toolCall.id : '',
             name: typeof toolCall?.name === 'string' ? toolCall.name : '',
             arguments: typeof toolCall?.arguments === 'string' ? toolCall.arguments : '{}',
+            ...(Object.prototype.hasOwnProperty.call(toolCall || {}, 'providerId')
+                ? { providerId: String(toolCall?.providerId || '') }
+                : {}),
         }));
     }
     if (!Array.isArray(message.tool_calls)) {return [];}
     return message.tool_calls.map((toolCall) => ({
-        id: typeof toolCall?.id === 'string' ? toolCall.id : '',
-        name: typeof toolCall?.function?.name === 'string' ? toolCall.function.name : '',
-        arguments: typeof toolCall?.function?.arguments === 'string' ? toolCall.function.arguments : '{}',
+            id: typeof toolCall?.id === 'string' ? toolCall.id : '',
+            name: typeof toolCall?.function?.name === 'string' ? toolCall.function.name : '',
+            arguments: typeof toolCall?.function?.arguments === 'string' ? toolCall.function.arguments : '{}',
+            ...(Object.prototype.hasOwnProperty.call(toolCall || {}, 'providerToolCallId')
+                ? { providerId: String(toolCall?.providerToolCallId || '') }
+                : {}),
     }));
 }
 

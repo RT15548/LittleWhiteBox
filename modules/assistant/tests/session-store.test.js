@@ -10,6 +10,7 @@ const {
     sessionsTable,
 } = await import('../shared/session-db.js');
 const { createPlanLedger } = await import('../../agent-core/plan-ledger.js');
+const { buildProviderMessagesFromHistory } = await import('../../agent-core/runtime/protocol.js');
 
 async function resetDb() {
     await db.delete();
@@ -76,6 +77,31 @@ test('session store keeps legacy default session on first restore', async () => 
     assert.equal(state.messages[0].content, 'hello');
 });
 
+test('session store keeps the explicit empty Google provider tool id across reload', async () => {
+    await resetDb();
+    const state = createState();
+    const store = createStore(state);
+    await store.restoreSession();
+    state.messages = [{
+        role: 'assistant',
+        content: '',
+        toolCalls: [{
+            id: 'google-tool-1-1',
+            name: 'Read',
+            arguments: '{"path":"memory/state.md"}',
+            providerId: '',
+        }],
+    }];
+    await store.persistSession();
+
+    const restoredState = createState();
+    const restoredStore = createStore(restoredState);
+    await restoredStore.restoreSession();
+    const restoredToolCall = restoredState.messages[0]?.toolCalls?.[0];
+    assert.equal(restoredToolCall?.providerId, '');
+    assert.equal(Object.prototype.hasOwnProperty.call(restoredToolCall || {}, 'providerId'), true);
+});
+
 test('clearSession rotates assistantSessionId and clears old plans', async () => {
     await resetDb();
     const state = createState();
@@ -99,4 +125,49 @@ test('clearSession rotates assistantSessionId and clears old plans', async () =>
 
     const oldPlans = await ledger.listPlans(oldSessionId);
     assert.equal(oldPlans.count, 0);
+});
+
+test('session store keeps explicit Google provider ids through restore and replay', async () => {
+    await resetDb();
+    const state = createState();
+    const store = createStore(state);
+    await store.restoreSession();
+
+    state.messages = [
+        { role: 'user', content: '读取两个文件。' },
+        {
+            role: 'assistant',
+            content: '',
+            toolCalls: [
+                {
+                    id: 'google-tool-1-1',
+                    name: 'Read',
+                    arguments: '{"path":"a.md"}',
+                    providerId: '',
+                },
+                {
+                    id: 'legacy-local-id',
+                    name: 'Read',
+                    arguments: '{"path":"legacy.md"}',
+                },
+            ],
+        },
+        { role: 'tool', toolCallId: 'google-tool-1-1', toolName: 'Read', content: '{"ok":true}' },
+    ];
+    await store.persistSession();
+
+    const stored = await messagesTable.where('sessionId').equals(state.assistantSessionId).toArray();
+    const storedCalls = stored[1]?.toolCalls || [];
+    assert.equal(Object.prototype.hasOwnProperty.call(storedCalls[0], 'providerId'), true);
+    assert.equal(storedCalls[0]?.providerId, '');
+    assert.equal(Object.prototype.hasOwnProperty.call(storedCalls[1], 'providerId'), false);
+
+    state.messages = [];
+    await store.restoreSession();
+    const replay = buildProviderMessagesFromHistory(state.messages);
+    const replayCalls = replay[1]?.tool_calls || [];
+
+    assert.equal(Object.prototype.hasOwnProperty.call(replayCalls[0], 'providerToolCallId'), true);
+    assert.equal(replayCalls[0]?.providerToolCallId, '');
+    assert.equal(Object.prototype.hasOwnProperty.call(replayCalls[1], 'providerToolCallId'), false);
 });

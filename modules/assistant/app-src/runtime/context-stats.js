@@ -265,17 +265,15 @@ function logContextStats(reason, {
 export function createContextStatsController(deps) {
     const {
         state,
-        render,
         getActiveProviderConfig,
         getToolDefinitions,
         TOOL_DEFINITIONS,
         MAX_CONTEXT_TOKENS,
     } = deps;
 
-    let latestContextStatsSignature = '';
     let latestResolvedContextStatsSignature = '';
     let latestResolvedContextTokens = 0;
-    let contextStatsRequestSerial = 0;
+    let contextStatsAbortController = null;
 
     function resolveToolDefinitions(tools = null) {
         if (Array.isArray(tools)) return tools;
@@ -299,21 +297,31 @@ export function createContextStatsController(deps) {
         return hasher.digest();
     }
 
-    async function resolveContextTokens({ messages = [], tools = null } = {}) {
+    async function resolveContextTokens({ messages = [], tools = null, signal } = {}) {
         const providerConfig = getActiveProviderConfig();
         const resolvedTools = resolveToolDefinitions(tools);
-        return await resolveConversationTokens({ messages, tools: resolvedTools, providerConfig });
+        return await resolveConversationTokens({ messages, tools: resolvedTools, providerConfig, signal });
     }
 
     async function forceUpdateContextStats(messages = [], tools = null) {
+        contextStatsAbortController?.abort();
+        const requestController = new AbortController();
+        contextStatsAbortController = requestController;
         const providerConfig = getActiveProviderConfig();
         const resolvedTools = resolveToolDefinitions(tools);
         const signature = buildContextStatsSignature(messages, resolvedTools);
         const summaryActive = !!state.historySummary;
         const cacheHit = latestResolvedContextStatsSignature === signature;
-        let usedTokens = cacheHit
-            ? latestResolvedContextTokens
-            : await resolveContextTokens({ messages, tools: resolvedTools });
+        let usedTokens;
+        try {
+            usedTokens = cacheHit
+                ? latestResolvedContextTokens
+                : await resolveContextTokens({ messages, tools: resolvedTools, signal: requestController.signal });
+        } finally {
+            if (contextStatsAbortController === requestController) {
+                contextStatsAbortController = null;
+            }
+        }
 
         if (!Number.isFinite(usedTokens)) {
             usedTokens = estimateConversationTokens({ messages, tools: resolvedTools });
@@ -321,7 +329,6 @@ export function createContextStatsController(deps) {
 
         latestResolvedContextStatsSignature = signature;
         latestResolvedContextTokens = usedTokens;
-        latestContextStatsSignature = signature;
         state.contextStats = {
             usedTokens,
             budgetTokens: MAX_CONTEXT_TOKENS,
@@ -357,7 +364,6 @@ export function createContextStatsController(deps) {
             ? latestResolvedContextTokens
             : estimateConversationTokens({ messages, tools: resolvedTools });
 
-        latestContextStatsSignature = signature;
         state.contextStats = {
             usedTokens: estimatedTokens,
             budgetTokens: MAX_CONTEXT_TOKENS,
@@ -371,41 +377,6 @@ export function createContextStatsController(deps) {
             summaryActive,
             cacheHit,
             source: cacheHit ? 'resolved-cache' : 'estimated',
-        });
-
-        if (latestResolvedContextStatsSignature === signature) {
-            return;
-        }
-
-        const requestSerial = ++contextStatsRequestSerial;
-        resolveContextTokens({ messages, tools: resolvedTools }).then((usedTokens) => {
-            if (requestSerial !== contextStatsRequestSerial) return;
-            if (latestContextStatsSignature !== signature) return;
-            if (!Number.isFinite(usedTokens)) return;
-            latestResolvedContextStatsSignature = signature;
-            latestResolvedContextTokens = usedTokens;
-            const changed = state.contextStats.usedTokens !== usedTokens
-                || state.contextStats.summaryActive !== summaryActive
-                || state.contextStats.budgetTokens !== MAX_CONTEXT_TOKENS;
-            state.contextStats = {
-                usedTokens,
-                budgetTokens: MAX_CONTEXT_TOKENS,
-                summaryActive,
-            };
-            logContextStats('updateContextStats:resolved', {
-                providerConfig,
-                messages,
-                tools: resolvedTools,
-                usedTokens,
-                summaryActive,
-                cacheHit: false,
-                source: 'resolved',
-            });
-            if (changed) {
-                render();
-            }
-        }).catch(() => {
-            // Keep estimated stats on tokenizer failure.
         });
     }
 

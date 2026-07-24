@@ -40,6 +40,9 @@ function serializeMessage(message, normalizeAttachments, normalizeThoughtBlocks,
                 id: toolCall.id || '',
                 name: toolCall.name || '',
                 arguments: String(toolCall.arguments || '{}'),
+                ...(Object.prototype.hasOwnProperty.call(toolCall || {}, 'providerId')
+                    ? { providerId: String(toolCall.providerId || '') }
+                    : {}),
             }))
             : [],
         thoughts: normalizeThoughtBlocks(message.thoughts).map((item) => ({
@@ -69,6 +72,9 @@ function normalizeRestoredMessage(message, deps) {
                     id: String(toolCall.id || createRequestId('tool')),
                     name: String(toolCall.name || ''),
                     arguments: String(toolCall.arguments || '{}'),
+                    ...(Object.prototype.hasOwnProperty.call(toolCall || {}, 'providerId')
+                        ? { providerId: String(toolCall.providerId || '') }
+                        : {}),
                 }))
             : undefined,
         thoughts: normalizeThoughtBlocks(message.thoughts || []),

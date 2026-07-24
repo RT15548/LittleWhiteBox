@@ -224,8 +224,12 @@ test('protocol persistence stores the complete terminal protocol in one batch', 
         },
     });
     const run = controller.startRun('session-1');
-    const assistantToolMessage = { role: 'assistant' as const, content: '先查一下。', toolCalls: [{ id: 'read-1', name: 'Read', arguments: '{"path":"a.ts"}' }] };
-    const toolMessage = { role: 'tool' as const, content: '{"ok":true}', toolCallId: 'read-1', toolName: 'Read', toolDisplay: '读取完成。' };
+    const assistantToolMessage = {
+        role: 'assistant' as const,
+        content: '先查一下。',
+        toolCalls: [{ id: 'google-tool-1-1', name: 'Read', arguments: '{"path":"a.ts"}', providerId: '' }],
+    };
+    const toolMessage = { role: 'tool' as const, content: '{"ok":true}', toolCallId: 'google-tool-1-1', toolName: 'Read', toolDisplay: '读取完成。' };
     const finalMessage = { role: 'assistant' as const, content: '已经处理完成。' };
     run.onProtocolEvent({ type: 'assistant_tool_round', message: assistantToolMessage });
     run.onProtocolEvent({ type: 'tool_result', message: toolMessage });
@@ -236,6 +240,8 @@ test('protocol persistence stores the complete terminal protocol in one batch', 
     );
 
     assert.deepEqual(persistedBatches.map((batch) => batch.length), [3]);
+    assert.equal(Object.prototype.hasOwnProperty.call(persistedBatches[0]?.[0]?.toolCalls?.[0] || {}, 'providerId'), true);
+    assert.equal(persistedBatches[0]?.[0]?.toolCalls?.[0]?.providerId, '');
     assert.equal(persistedBatches[0]?.[2]?.content, '已经处理完成。');
     assert.equal(persistedBatches[0]?.[2]?.finishReason, 'stop');
 });

@@ -38,6 +38,9 @@ function serializeMessage(bookId, message = {}, order = 0) {
                 id: String(toolCall?.id || ''),
                 name: String(toolCall?.name || ''),
                 arguments: String(toolCall?.arguments || '{}'),
+                ...(Object.prototype.hasOwnProperty.call(toolCall || {}, 'providerId')
+                    ? { providerId: String(toolCall.providerId || '') }
+                    : {}),
             })).filter((toolCall) => toolCall.name)
             : [],
         providerPayload: cloneJson(message.providerPayload),
@@ -60,6 +63,9 @@ function normalizeRestoredMessage(message = {}) {
                 id: String(toolCall?.id || ''),
                 name: String(toolCall?.name || ''),
                 arguments: String(toolCall?.arguments || '{}'),
+                ...(Object.prototype.hasOwnProperty.call(toolCall || {}, 'providerId')
+                    ? { providerId: String(toolCall.providerId || '') }
+                    : {}),
             })).filter((toolCall) => toolCall.name)
             : undefined,
         providerPayload: cloneJson(message.providerPayload),

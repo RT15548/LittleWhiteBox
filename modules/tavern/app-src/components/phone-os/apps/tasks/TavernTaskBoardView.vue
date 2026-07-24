@@ -25,14 +25,17 @@ const emit = defineEmits<{
       <strong>{{ board?.listings.length || 0 }} 项委托</strong>
       <button
         type="button"
+        class="tavern-task-refresh-button"
+        :class="{ 'is-refreshing': refreshing }"
         :disabled="refreshing || loading"
+        :aria-label="refreshing ? '刷新中' : '刷新委托板'"
         @click="emit('refresh')"
       >
         <svg
           viewBox="0 0 24 24"
           aria-hidden="true"
         ><path d="M19 8a8 8 0 1 0 1 7M19 4v4h-4" /></svg>
-        {{ refreshing ? '刷新中' : '刷新' }}
+        <span class="tavern-task-refresh-label">刷新</span>
       </button>
     </div>
     <div
@@ -73,10 +76,17 @@ const emit = defineEmits<{
       <strong>暂无委托</strong>
       <button
         type="button"
+        class="tavern-task-refresh-button"
+        :class="{ 'is-refreshing': refreshing }"
         :disabled="refreshing || loading"
+        :aria-label="refreshing ? '刷新中' : '刷新委托'"
         @click="emit('refresh')"
       >
-        {{ refreshing ? '正在刷新' : '刷新委托' }}
+        <svg
+          viewBox="0 0 24 24"
+          aria-hidden="true"
+        ><path d="M19 8a8 8 0 1 0 1 7M19 4v4h-4" /></svg>
+        <span class="tavern-task-refresh-label">刷新委托</span>
       </button>
     </div>
   </section>

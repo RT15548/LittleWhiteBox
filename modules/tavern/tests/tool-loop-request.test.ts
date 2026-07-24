@@ -57,8 +57,30 @@ test('tool loop request plan builds google follow-up payloads from actual send s
             role: 'user',
             parts: [{
                 functionResponse: {
+                    id: 'check-1',
                     name: 'ActionCheck',
                     response: { ok: true, roll: 17 },
+                },
+            }],
+        },
+    });
+
+    const idlessToolResponsePayload = buildGoogleSessionToolLoopSendPayload(resolveTavernToolLoopRequestPlan({
+        supportsSessionToolLoop: true,
+        toolResponses: [{
+            id: 'google-tool-1-1',
+            providerId: '',
+            name: 'ActionCheck',
+            response: { ok: true },
+        }],
+    }));
+    assert.deepEqual(idlessToolResponsePayload, {
+        message: {
+            role: 'user',
+            parts: [{
+                functionResponse: {
+                    name: 'ActionCheck',
+                    response: { ok: true },
                 },
             }],
         },

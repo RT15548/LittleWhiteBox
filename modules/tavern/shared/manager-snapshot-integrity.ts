@@ -26,7 +26,7 @@ export function findUnacceptedTavernManagerMutationRunIds(
 ): string[] {
     const runs = Array.isArray(input.runs) ? input.runs : [];
     const terminalRunIds = new Set(runs
-        .filter((run) => ['completed', 'rolled_back'].includes(String(run.status || '')))
+        .filter((run) => String(run.status || '') === 'completed')
         .map((run) => String(run.id || ''))
         .filter(Boolean));
     const unsettled = new Set(runs

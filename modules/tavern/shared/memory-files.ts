@@ -8,6 +8,7 @@ import db, {
     getTavernMessage,
     getLatestTavernAssistantOrder,
     getLatestTavernMessage,
+    hashTavernMemoryRecord,
     listTavernMessageOrdersFrom,
     listTavernMessages,
     listLatestTavernMessagesWithCount,
@@ -16,6 +17,7 @@ import db, {
     tavernMemorySnapshotsTable,
     tavernMemoryIndexesTable,
     tavernManagerMemorySnapshotsTable,
+    tavernManagerRunsTable,
     tavernMessagesTable,
     tavernSessionsTable,
     ensureTavernManagerMemorySnapshot,
@@ -1537,6 +1539,7 @@ export async function executeTavernMemoryTool(
                 tavernMemoryIndexesTable,
                 tavernMemorySnapshotsTable,
                 tavernManagerMemorySnapshotsTable,
+                tavernManagerRunsTable,
                 tavernMessagesTable,
                 tavernSessionsTable,
                 async () => {
@@ -1584,6 +1587,7 @@ export async function executeTavernMemoryTool(
             const successCount = appliedCount + satisfiedCount;
             const failedCount = Math.max(0, editResults.length - successCount);
             const changed = result.content !== file.content;
+            const expectedFileHash = hashTavernMemoryRecord(file);
             if (changed) {
                 await db.transaction(
                     'rw',
@@ -1591,10 +1595,15 @@ export async function executeTavernMemoryTool(
                     tavernMemoryIndexesTable,
                     tavernMemorySnapshotsTable,
                     tavernManagerMemorySnapshotsTable,
+                    tavernManagerRunsTable,
                     tavernMessagesTable,
                     tavernSessionsTable,
                     async () => {
                         await options.beforeWriteGuard?.();
+                        const liveFile = await getTavernMemoryFile(id, path);
+                        if (hashTavernMemoryRecord(liveFile) !== expectedFileHash) {
+                            throw new Error(`manager_resource_revision_conflict:memory/${path}`);
+                        }
                         if (options.managerRunId) {
                             await ensureTavernManagerMemorySnapshot({ managerRunId: options.managerRunId, sessionId: id, path });
                         }

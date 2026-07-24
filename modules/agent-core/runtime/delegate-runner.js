@@ -349,6 +349,9 @@ export function createDelegateRunner(deps = {}) {
                         id: toolCall.id,
                         name: toolCall.name,
                         response: toolResult,
+                        ...(Object.prototype.hasOwnProperty.call(toolCall, 'providerId')
+                            ? { providerId: String(toolCall.providerId || '') }
+                            : {}),
                     });
                 }
                 if (adapter?.supportsSessionToolLoop) {

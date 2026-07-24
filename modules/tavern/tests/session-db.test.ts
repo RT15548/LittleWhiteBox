@@ -26,6 +26,7 @@ import db, {
     getLatestTavernAssistantChatMessage as getLatestTavernManagerMessage,
     getLatestTavernMessage,
     getTavernSession,
+    getTavernManagerRun,
     getTavernManagerCandidate,
     getAcceptedTurnManagerQueueState,
     getTavernMessage,
@@ -48,8 +49,8 @@ import db, {
     normalizeTavernSessionState,
     replaceTavernAssistantChatMessages,
     replaceTavernSessionState,
+    rollbackManagerRunWrites,
     rollbackManagerRunsForMessageRange,
-    rollbackManagerStateRunsForMessageRange,
     saveTavernPreset,
     setActiveTavernPresetId,
     tavernAssistantPresetsTable,
@@ -74,6 +75,7 @@ import db, {
     updateTavernAssistantChatMessage as updateTavernManagerMessage,
     updateTavernMessage,
     updateTavernManagerRun,
+    transitionTavernManagerRun,
     updateTavernSessionState,
     createTavernManagerRun,
     getTavernStructuredStateDocument,
@@ -612,7 +614,10 @@ test('accepted-turn queue claims one oldest pair per session and never runs two 
     assert.equal(firstClaim?.assistantOrder, 1);
     assert.equal(firstClaim?.status, 'running');
     assert.equal(await claimNextQueuedAcceptedTurnManagerRun(session.id, { leaseOwnerId: 'worker-b' }), null);
-    await updateTavernManagerRun(firstClaim?.id || '', { status: 'completed' });
+    await transitionTavernManagerRun(firstClaim?.id || '', { status: 'completed' }, {
+        expectedStatus: 'running',
+        expectedLeaseOwnerId: 'worker-a',
+    });
     const secondClaim = await claimNextQueuedAcceptedTurnManagerRun(session.id, { leaseOwnerId: 'worker-b' });
     assert.equal(secondClaim?.assistantOrder, 3);
     assert.equal(secondClaim?.status, 'running');
@@ -655,8 +660,14 @@ test('a non-owner manager worker exits promptly and waits for the lease deadline
         nextLeaseExpiresAt: running.leaseExpiresAt,
     });
 
-    await updateTavernManagerRun(running.id, { status: 'completed', leaseOwnerId: '', leaseExpiresAt: 0 });
-    await updateTavernManagerRun(queued.id, { status: 'cancelled' });
+    await transitionTavernManagerRun(running.id, { status: 'completed' }, {
+        expectedStatus: 'running',
+        expectedLeaseOwnerId: String(running.leaseOwnerId || ''),
+    });
+    await transitionTavernManagerRun(queued.id, { status: 'cancelled' }, {
+        expectedStatus: 'queued',
+        expectedLeaseOwnerId: '',
+    });
     resumeQueuedAcceptedTurnManagers({
         sessionId: session.id,
         agentConfig: {},
@@ -797,7 +808,10 @@ test('accepted-turn completion snapshots only the run delta and atomically relea
     assert.ok(await getTavernMemoryFile(session.id, 'memory/characters/后来者.md'));
     const nextClaim = await claimNextQueuedAcceptedTurnManagerRun(session.id, { leaseOwnerId: 'other-tab' });
     assert.equal(nextClaim?.assistantOrder, laterAssistant.order);
-    await updateTavernManagerRun(nextClaim?.id || '', { status: 'failed', leaseOwnerId: '', leaseExpiresAt: 0 });
+    await transitionTavernManagerRun(nextClaim?.id || '', { status: 'failed' }, {
+        expectedStatus: 'running',
+        expectedLeaseOwnerId: 'other-tab',
+    });
 });
 
 test('accepted task completion stays staged until manager acceptance atomically settles the escrow', async () => {
@@ -1309,6 +1323,57 @@ test('accepted snapshot transaction rejects ABA replacement after manager execut
         leaseOwnerId: String(result?.managerRun.leaseOwnerId || ''),
     }), /manager_source_messages_changed/);
     assert.equal((await tavernManagerRunsTable.get(result?.managerRun.id || ''))?.status, 'running');
+});
+
+test('accepted snapshot source race finishes the queued manager as superseded', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Accepted snapshot source race' });
+    const user = await appendTavernMessage(session.id, { role: 'user', content: '原始用户楼。' });
+    const assistant = await appendTavernMessage(session.id, { role: 'assistant', content: '原始助手楼。' });
+    const run = await createTavernManagerRun({
+        sessionId: session.id,
+        turn: 1,
+        userOrder: user.order,
+        assistantOrder: assistant.order,
+        sourceUserMessageId: user.messageId,
+        sourceAssistantMessageId: assistant.messageId,
+        sourceUserCreatedAt: user.createdAt,
+        sourceAssistantCreatedAt: assistant.createdAt,
+        sourceUserRevision: user.timelineRevision,
+        sourceAssistantRevision: assistant.timelineRevision,
+        status: 'queued',
+    });
+    let managerFinished = false;
+    let sourceChanged = false;
+    const savedStatuses: string[] = [];
+
+    resumeQueuedAcceptedTurnManagers({
+        sessionId: session.id,
+        agentConfig: { delegateConfigured: true },
+        sessionContract: DEFAULT_TAVERN_SESSION_CONTRACT,
+        executeManagerOnce: async () => {
+            managerFinished = true;
+            return { text: '维护完成。' };
+        },
+        onManagerRunSaved: async (_sessionId, savedRun) => {
+            savedStatuses.push(savedRun.status);
+            if (sourceChanged || !managerFinished || savedRun.id !== run.id || savedRun.status !== 'running') {return;}
+            sourceChanged = true;
+            await updateTavernMessage(session.id, assistant.order, {
+                content: 'accepted snapshot 之前被替换的助手楼。',
+            }, { incrementTimelineRevision: true });
+        },
+    });
+    await waitForQueuedAcceptedTurnManagers(session.id);
+
+    const finalRun = await tavernManagerRunsTable.get(run.id);
+    assert.equal(sourceChanged, true);
+    assert.equal(finalRun?.status, 'superseded');
+    assert.equal(finalRun?.leaseOwnerId, '');
+    assert.equal(finalRun?.error, 'manager_accepted_snapshot_failed:manager_source_messages_changed');
+    assert.equal(savedStatuses.includes('superseded'), true);
 });
 
 test('completed assistant turn counting scans structurally before a boundary without loading message arrays', async () => {
@@ -2014,9 +2079,12 @@ test('tavern memory db tracks state snapshots and manager runs', async () => {
         assistantOrder: assistantMessage.order,
         status: 'queued',
     });
-    await updateTavernManagerRun(run.id, {
+    await transitionTavernManagerRun(run.id, {
         status: 'completed',
         parsedAction: 'create_new_episode',
+    }, {
+        expectedStatus: 'queued',
+        expectedLeaseOwnerId: '',
     });
 
     assert.equal((await getTavernMemoryFile(session.id, 'memory/state.md'))?.content.includes('共同目标'), true);
@@ -2050,7 +2118,10 @@ test('tavern manager run heartbeat only touches active running runs', async () =
     assert.ok(Number(touched?.leaseExpiresAt || 0) > Number(run.leaseExpiresAt || 0));
     assert.equal((await getTavernSession(session.id))?.updatedAt, sessionBeforeHeartbeat?.updatedAt);
 
-    const completed = await updateTavernManagerRun(run.id, { status: 'completed' });
+    const completed = await transitionTavernManagerRun(run.id, { status: 'completed' }, {
+        expectedStatus: 'running',
+        expectedLeaseOwnerId: 'heartbeat-worker',
+    });
     const afterTerminalHeartbeat = await touchRunningTavernManagerRun(run.id);
     assert.equal(afterTerminalHeartbeat?.status, 'completed');
     assert.equal((await listTavernManagerRuns(session.id))[0]?.status, 'completed');
@@ -4194,40 +4265,6 @@ test('MapPatch dryRun keeps revision stable and legacy reset/init inputs are sti
     assert.deepEqual(ids, ['new-room']);
 });
 
-test('MapPatch manager map writes are not rolled back by message rollback', async () => {
-    await db.delete();
-    await db.open();
-
-    const session = await createTavernSession({ title: 'Map survives rollback' });
-    const userMessage = await appendTavernMessage(session.id, { role: 'user', content: '进北屋。' });
-    const assistantMessage = await appendTavernMessage(session.id, { role: 'assistant', content: '北屋里有一口井。' });
-    const run = await createTavernManagerRun({
-        sessionId: session.id,
-        trigger: 'after_turn',
-        status: 'running',
-        turn: 1,
-        userOrder: userMessage.order,
-        assistantOrder: assistantMessage.order,
-    });
-
-    await executeTavernStateTool(session.id, 'MapPatch', {
-        ops: [{ op: 'add', element: { id: 'north-room', type: 'rect', pos: [10, 10], size: [80, 60], cat: 'wall' } }],
-    }, {
-        caller: 'auto',
-        managerRunId: run.id,
-        sourceUserOrder: userMessage.order,
-        sourceAssistantOrder: assistantMessage.order,
-    });
-
-    const rollback = await rollbackManagerStateRunsForMessageRange(session.id, userMessage.order);
-    assert.deepEqual(rollback, { runIds: [], rolledBack: 0, conflicts: [], skipped: 0 });
-    const map = await getTavernStructuredStateDocument(session.id, 'tavern.map', 'main');
-    const elements = (map?.data as { elements?: Array<{ id?: string }> })?.elements || [];
-    assert.equal(elements.some((element) => element.id === 'north-room'), true);
-    assert.equal((await listTavernStructuredStatePatches({ sessionId: session.id })).length, 1);
-    assert.equal((await listTavernStructuredStatePatches({ sessionId: session.id, includeRolledBack: true }))[0]?.status, 'active');
-});
-
 test('MapPatch serializes concurrent map writes without losing elements', async () => {
     await db.delete();
     await db.open();
@@ -5069,7 +5106,7 @@ test('MapPatch actor dedupe falls back to actor id when actorKey is missing', as
     assert.deepEqual(barActors.map((element) => element.id), ['npc-kai']);
 });
 
-test('manager range cancellation does not roll back map-only writes', async () => {
+test('manager range cancellation rolls back map-only writes from state snapshots', async () => {
     await db.delete();
     await db.open();
 
@@ -5095,11 +5132,11 @@ test('manager range cancellation does not roll back map-only writes', async () =
     });
 
     const rollback = await cancelAndRollbackXbTavernManagersForMessageRange(session.id, assistantMessage.order);
-    assert.equal(rollback.rolledBack, 0);
+    assert.equal(rollback.rolledBack, 1);
     const map = await getTavernStructuredStateDocument(session.id, 'tavern.map', 'main');
     const elements = (map?.data as { elements?: Array<{ id?: string }> })?.elements || [];
-    assert.equal(elements.some((element) => element.id === 'yard'), true);
-    assert.equal((await listTavernManagerRuns(session.id))[0]?.status, 'cancelled');
+    assert.equal(elements.some((element) => element.id === 'yard'), false);
+    assert.equal((await listTavernManagerRuns(session.id))[0]?.status, 'superseded');
 });
 
 test('Map tools are in the unified manager tool schema', () => {
@@ -5868,7 +5905,7 @@ test('manager rollback keeps memory conflict audit', async () => {
 
     assert.deepEqual(rolledBack.conflicts, ['memory/state.md']);
     const updatedRun = (await listTavernManagerRuns(session.id))[0];
-    assert.equal(updatedRun?.status, 'rolled_back');
+    assert.equal(updatedRun?.status, 'superseded');
     assert.equal(updatedRun?.error, 'rollback_conflict:memory/state.md');
 });
 
@@ -7261,7 +7298,7 @@ test('tavern manager rolls back earlier memory writes when a source message is d
     await restoreTavernMemoryToFloor(session.id, assistantMessage.order);
     assert.doesNotMatch((await getTavernMemoryFile(session.id, 'memory/state.md'))?.content || '', /稍后必须回滚/);
     const run = (await listTavernManagerRuns(session.id))[0];
-    assert.equal(run?.status, 'rolled_back');
+    assert.equal(run?.status, 'superseded');
     const snapshots = await listTavernManagerMemorySnapshots(run?.id || '');
     assert.equal(snapshots.length, 1);
     assert.equal(snapshots[0]?.path, 'memory/state.md');
@@ -7330,7 +7367,7 @@ test('tavern manager cancellation aborts an active auto run and rolls back writt
     await restoreTavernMemoryToFloor(session.id, assistantMessage.order);
     assert.doesNotMatch((await getTavernMemoryFile(session.id, 'memory/state.md'))?.content || '', /会被取消/);
     const run = (await listTavernManagerRuns(session.id)).find((item) => item.id === pending.id);
-    assert.equal(run?.status, 'rolled_back');
+    assert.equal(run?.status, 'superseded');
 });
 
 test('tavern manager rollback uses snapshots even when changedFiles were not finalized', async () => {
@@ -7366,7 +7403,7 @@ test('tavern manager rollback uses snapshots even when changedFiles were not fin
     assert.deepEqual(await listTavernMemorySnapshots(session.id), []);
     await restoreTavernMemoryToFloor(session.id, assistantMessage.order);
     assert.doesNotMatch((await getTavernMemoryFile(session.id, 'memory/state.md'))?.content || '', /尚未 finalize/);
-    assert.equal((await listTavernManagerRuns(session.id))[0]?.status, 'rolled_back');
+    assert.equal((await listTavernManagerRuns(session.id))[0]?.status, 'superseded');
 });
 
 test('tavern manager rollback cancels queued accepted-turn runs without rollback writes', async () => {
@@ -7391,7 +7428,7 @@ test('tavern manager rollback cancels queued accepted-turn runs without rollback
     assert.equal(rollback.rolledBack, 0);
     assert.deepEqual(rollback.conflicts, []);
     const updated = (await listTavernManagerRuns(session.id)).find((item) => item.id === run.id);
-    assert.equal(updated?.status, 'cancelled');
+    assert.equal(updated?.status, 'superseded');
     assert.equal(updated?.error, 'manager_source_messages_superseded');
 });
 
@@ -7580,13 +7617,58 @@ test('tavern manager memory rollback is idempotent', async () => {
     });
 
     const first = await rollbackManagerRunsForMessageRange(session.id, assistantMessage.order);
+    const afterFirst = await tavernManagerRunsTable.get(run.id);
+    // Make a repeat write observable even when both calls happen within one clock tick.
+    await tavernManagerRunsTable.update(run.id, { updatedAt: 1 });
     const second = await rollbackManagerRunsForMessageRange(session.id, assistantMessage.order);
+    const afterSecond = await tavernManagerRunsTable.get(run.id);
 
     assert.equal(first.rolledBack, 1);
+    assert.equal(afterFirst?.status, 'superseded');
     assert.equal(second.rolledBack, 0);
     assert.deepEqual(second.conflicts, []);
+    assert.equal(afterSecond?.status, 'superseded');
+    assert.equal(afterSecond?.updatedAt, 1);
     const snapshot = (await listTavernManagerMemorySnapshots(run.id))[0];
     assert.equal(snapshot?.rollbackStatus, 'rolled_back');
+});
+
+test('message-range rollback preserves an already cancelled manager run on repeated calls', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Cancelled manager range rollback' });
+    const userMessage = await appendTavernMessage(session.id, { role: 'user', content: '第一轮。' });
+    const assistantMessage = await appendTavernMessage(session.id, { role: 'assistant', content: '第一轮回复。' });
+    const run = await createTavernManagerRun({
+        sessionId: session.id,
+        turn: 1,
+        userOrder: userMessage.order,
+        assistantOrder: assistantMessage.order,
+        trigger: 'after_turn',
+        status: 'running',
+        leaseOwnerId: 'cancelled-worker',
+        leaseExpiresAt: Date.now() + 30000,
+    });
+    const write = await executeTavernMemoryTool(session.id, 'MemoryWrite', {
+        filePath: 'memory/state.md',
+        content: '# 已取消\n\n这次写入已经在取消路径中回滚。',
+    }, { managerRunId: run.id, caller: 'auto' });
+    assert.equal(write.ok, true);
+    await rollbackManagerRunWrites(run.id, {
+        expectedStatus: 'running',
+        expectedLeaseOwnerId: 'cancelled-worker',
+        finalStatus: 'cancelled',
+        finalError: 'manager_aborted',
+    });
+
+    await rollbackManagerRunsForMessageRange(session.id, assistantMessage.order);
+    await rollbackManagerRunsForMessageRange(session.id, assistantMessage.order);
+
+    const current = await getTavernManagerRun(run.id);
+    assert.equal(current?.status, 'cancelled');
+    assert.equal(current?.error, 'manager_aborted');
+    assert.equal((await listTavernManagerMemorySnapshots(run.id))[0]?.rollbackStatus, 'rolled_back');
 });
 
 test('tavern manager rollback does not overwrite user-edited memory conflicts', async () => {
@@ -7624,7 +7706,7 @@ test('tavern manager rollback does not overwrite user-edited memory conflicts', 
     assert.equal((await getTavernMemoryFile(session.id, 'memory/state.md'))?.content, '用户手动修正。');
     const snapshot = (await listTavernManagerMemorySnapshots(run.id))[0];
     assert.equal(snapshot?.rollbackStatus, 'conflict');
-    assert.equal((await listTavernManagerRuns(session.id))[0]?.status, 'rolled_back');
+    assert.equal((await listTavernManagerRuns(session.id))[0]?.status, 'superseded');
     assert.match((await getTavernMemoryIndex(session.id))?.error || '', /rollback_conflict:memory\/state\.md/);
 });
 

@@ -1,12 +1,17 @@
 import db, {
     appendTavernStructuredStatePatch,
+    ensureTavernManagerStateSnapshot,
     getTavernStructuredStateDocument,
+    hashTavernStateDocument,
     listTavernStructuredStatePatches,
     tavernMessagesTable,
+    tavernManagerRunsTable,
+    tavernManagerStateSnapshotsTable,
     tavernSessionsTable,
     tavernStateDocumentsTable,
     tavernStatePatchesTable,
     tavernStatusSnapshotsTable,
+    updateTavernManagerStateSnapshotAfter,
     type TavernStatusSnapshotRecord,
     type TavernStructuredStateDocumentRecord,
     type TavernStructuredStatePatchRecord,
@@ -996,8 +1001,20 @@ export async function executeTavernStatusTool(
             createdAt: existing?.createdAt || timestamp,
             updatedAt: timestamp,
         };
-        await db.transaction('rw', tavernStateDocumentsTable, tavernStatePatchesTable, tavernStatusSnapshotsTable, tavernMessagesTable, tavernSessionsTable, async () => {
+        await db.transaction('rw', tavernStateDocumentsTable, tavernStatePatchesTable, tavernStatusSnapshotsTable, tavernMessagesTable, tavernManagerRunsTable, tavernManagerStateSnapshotsTable, tavernSessionsTable, async () => {
             await options.beforeWriteGuard?.();
+            const liveExisting = await getStatusRecord(id);
+            if (hashTavernStateDocument(liveExisting) !== hashTavernStateDocument(existing)) {
+                throw new Error('manager_resource_revision_conflict:tavern.status/main');
+            }
+            if (options.managerRunId) {
+                await ensureTavernManagerStateSnapshot({
+                    managerRunId: options.managerRunId,
+                    sessionId: id,
+                    docType: TAVERN_STATUS_DOC_TYPE,
+                    docId: TAVERN_STATUS_DOC_ID,
+                });
+            }
             await tavernStateDocumentsTable.put(record);
             await appendTavernStructuredStatePatch({
                 sessionId: id,
@@ -1014,6 +1031,14 @@ export async function executeTavernStatusTool(
                 beforeData: before,
                 afterData: normalized.document,
             });
+            if (options.managerRunId) {
+                await updateTavernManagerStateSnapshotAfter({
+                    managerRunId: options.managerRunId,
+                    sessionId: id,
+                    docType: TAVERN_STATUS_DOC_TYPE,
+                    docId: TAVERN_STATUS_DOC_ID,
+                });
+            }
             await tavernSessionsTable.update(id, { updatedAt: timestamp });
             await options.afterWriteObserver?.();
         });
@@ -1096,8 +1121,20 @@ export async function executeTavernStatusTool(
         digest: afterFingerprint,
         updatedAt: timestamp,
     };
-    await db.transaction('rw', tavernStateDocumentsTable, tavernStatePatchesTable, tavernStatusSnapshotsTable, tavernMessagesTable, tavernSessionsTable, async () => {
+    await db.transaction('rw', tavernStateDocumentsTable, tavernStatePatchesTable, tavernStatusSnapshotsTable, tavernMessagesTable, tavernManagerRunsTable, tavernManagerStateSnapshotsTable, tavernSessionsTable, async () => {
         await options.beforeWriteGuard?.();
+        const liveExisting = await getStatusRecord(id);
+        if (hashTavernStateDocument(liveExisting) !== hashTavernStateDocument(existing)) {
+            throw new Error('manager_resource_revision_conflict:tavern.status/main');
+        }
+        if (options.managerRunId) {
+            await ensureTavernManagerStateSnapshot({
+                managerRunId: options.managerRunId,
+                sessionId: id,
+                docType: TAVERN_STATUS_DOC_TYPE,
+                docId: TAVERN_STATUS_DOC_ID,
+            });
+        }
         await tavernStateDocumentsTable.put(record);
         await appendTavernStructuredStatePatch({
             sessionId: id,
@@ -1114,6 +1151,14 @@ export async function executeTavernStatusTool(
             beforeData: before,
             afterData: after,
         });
+        if (options.managerRunId) {
+            await updateTavernManagerStateSnapshotAfter({
+                managerRunId: options.managerRunId,
+                sessionId: id,
+                docType: TAVERN_STATUS_DOC_TYPE,
+                docId: TAVERN_STATUS_DOC_ID,
+            });
+        }
         await tavernSessionsTable.update(id, { updatedAt: timestamp });
         await options.afterWriteObserver?.();
     });
@@ -1127,116 +1172,5 @@ export async function executeTavernStatusTool(
         document: after,
         warnings,
         changedIds: applied.changedIds,
-    };
-}
-
-export async function rollbackStatusStateForMessageRange(sessionId = '', fromOrder = 0): Promise<{
-    runIds: string[];
-    rolledBack: number;
-    conflicts: string[];
-    skipped: number;
-}> {
-    const id = String(sessionId || '').trim();
-    const order = Number(fromOrder);
-    if (!id || !Number.isFinite(order)) {
-        return { runIds: [], rolledBack: 0, conflicts: [], skipped: 0 };
-    }
-    const candidatePatches = (await listTavernStructuredStatePatches({
-        sessionId: id,
-        docType: TAVERN_STATUS_DOC_TYPE,
-        docId: TAVERN_STATUS_DOC_ID,
-        includeRolledBack: true,
-    }))
-        .filter((patch) => patch.status !== 'rolled_back')
-        .filter((patch) => Number(patch.sourceUserOrder) >= order || Number(patch.sourceAssistantOrder) >= order)
-        .sort((left, right) => Number(right.revision) - Number(left.revision) || Number(right.createdAt) - Number(left.createdAt));
-    const beforeRestore = statusRecordFingerprint(await getStatusRecord(id));
-    await restoreTavernStatusToFloor(id, order - 1);
-    const afterRestore = statusRecordFingerprint(await getStatusRecord(id));
-    const timestamp = now();
-    if (candidatePatches.length) {
-        await db.transaction('rw', tavernStatePatchesTable, tavernSessionsTable, async () => {
-            await Promise.all(candidatePatches.map((patch) => tavernStatePatchesTable.update(patch.id, {
-                status: 'rolled_back',
-                updatedAt: timestamp,
-            })));
-            await tavernSessionsTable.update(id, { updatedAt: timestamp });
-        });
-    }
-    return {
-        runIds: [...new Set(candidatePatches.map((patch) => String(patch.managerRunId || '')).filter(Boolean))],
-        rolledBack: candidatePatches.length || beforeRestore !== afterRestore ? Math.max(1, candidatePatches.length) : 0,
-        conflicts: [],
-        skipped: 0,
-    };
-}
-
-export async function rollbackStatusStateForManagerRun(managerRunId = ''): Promise<{
-    runIds: string[];
-    rolledBack: number;
-    conflicts: string[];
-    skipped: number;
-}> {
-    const runId = String(managerRunId || '').trim();
-    if (!runId) {return { runIds: [], rolledBack: 0, conflicts: [], skipped: 0 };}
-    const candidatePatches = (await tavernStatePatchesTable.where('managerRunId').equals(runId).toArray())
-        .filter((patch) => patch.docType === TAVERN_STATUS_DOC_TYPE && patch.docId === TAVERN_STATUS_DOC_ID)
-        .filter((patch) => patch.status !== 'rolled_back')
-        .sort((left, right) => Number(right.revision) - Number(left.revision) || Number(right.createdAt) - Number(left.createdAt));
-    const patches = candidatePatches.filter((patch) => patch.beforeData !== undefined && patch.afterData !== undefined);
-    const skipped = candidatePatches.length - patches.length;
-    if (!patches.length) {return { runIds: candidatePatches.length ? [runId] : [], rolledBack: 0, conflicts: [], skipped };}
-    return await rollbackStatusPatches(patches[0].sessionId, patches, skipped);
-}
-
-async function rollbackStatusPatches(
-    sessionId = '',
-    patches: TavernStructuredStatePatchRecord[] = [],
-    skipped = 0,
-): Promise<{
-    runIds: string[];
-    rolledBack: number;
-    conflicts: string[];
-    skipped: number;
-}> {
-    const id = String(sessionId || '').trim();
-    if (!id || !patches.length) {return { runIds: [], rolledBack: 0, conflicts: [], skipped };}
-    const current = await getStatusRecord(id);
-    if (!current) {return { runIds: [...new Set(patches.map((patch) => String(patch.managerRunId || '')).filter(Boolean))], rolledBack: 0, conflicts: [], skipped: patches.length + skipped };}
-    const latestAfter = normalizeStatusDocument(patches[0]?.afterData || createEmptyStatusDocument()).document;
-    const currentStatus = normalizeStatusDocument(current.data).document;
-    if (createStatusSemanticFingerprint(currentStatus) !== createStatusSemanticFingerprint(latestAfter)) {
-        return {
-            runIds: [...new Set(patches.map((patch) => String(patch.managerRunId || '')).filter(Boolean))],
-            rolledBack: 0,
-            conflicts: ['status'],
-            skipped,
-        };
-    }
-    const targetBefore = patches[patches.length - 1]?.beforeData;
-    const normalized = normalizeStatusDocument(targetBefore || createEmptyStatusDocument()).document;
-    normalized.meta.revision = Math.max(0, (patches[patches.length - 1]?.revision || 1) - 1);
-    const timestamp = now();
-    const digest = createStatusSemanticFingerprint(normalized);
-    await db.transaction('rw', tavernStateDocumentsTable, tavernStatePatchesTable, tavernSessionsTable, async () => {
-        await tavernStateDocumentsTable.put({
-            ...current,
-            title: titleForStatusDocument(normalized),
-            revision: normalized.meta.revision,
-            data: normalized,
-            digest,
-            updatedAt: timestamp,
-        });
-        await Promise.all(patches.map((patch) => tavernStatePatchesTable.update(patch.id, {
-            status: 'rolled_back',
-            updatedAt: timestamp,
-        })));
-        await tavernSessionsTable.update(id, { updatedAt: timestamp });
-    });
-    return {
-        runIds: [...new Set(patches.map((patch) => String(patch.managerRunId || '')).filter(Boolean))],
-        rolledBack: patches.length,
-        conflicts: [],
-        skipped,
     };
 }

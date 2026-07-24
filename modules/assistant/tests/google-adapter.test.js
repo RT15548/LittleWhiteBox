@@ -324,6 +324,7 @@ test('google adapter sends tool responses through the active chat session', asyn
             role: 'user',
             parts: [{
                 functionResponse: {
+                    id: 'tool-1',
                     name: 'ReadSkillsCatalog',
                     response: { ok: true, skillCount: 1 },
                 },
@@ -388,6 +389,7 @@ test('google adapter streams tool responses through the active chat session', as
             role: 'user',
             parts: [{
                 functionResponse: {
+                    id: 'tool-1',
                     name: 'ReadSkillsCatalog',
                     response: { ok: true, skillCount: 1 },
                 },
@@ -737,4 +739,229 @@ test('google adapter replays preserved googleContents in cold-start history orde
     });
 
     assert.deepEqual(createPayload.history.slice(1, 3), googleContents);
+});
+
+test('google adapter preserves tool ids and maps toolChoice to Gemini config', async () => {
+    const adapter = new GoogleAdapter({
+        apiKey: 'test-key',
+        baseUrl: 'https://example.com/google',
+        model: 'gemini-test',
+    });
+    let createPayload;
+    let sendPayload;
+    adapter.client.chats.create = (payload) => {
+        createPayload = payload;
+        return {
+            sendMessage: async (payload) => {
+                sendPayload = payload;
+                return { candidates: [{ content: { role: 'model', parts: [{ text: 'ok' }] } }] };
+            },
+        };
+    };
+    await adapter.chat({
+        messages: [
+            { role: 'user', content: '继续' },
+            {
+                role: 'assistant',
+                content: '',
+                tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'Read', arguments: '{}' } }],
+            },
+            { role: 'tool', tool_call_id: 'call-1', content: '{"ok":true}' },
+        ],
+        tools: [{ function: { name: 'Read', description: 'read', parameters: { type: 'object' } } }],
+        toolChoice: 'Read',
+    });
+    assert.equal(createPayload.config.toolConfig.functionCallingConfig.mode, 'ANY');
+    assert.deepEqual(createPayload.config.toolConfig.functionCallingConfig.allowedFunctionNames, ['Read']);
+    const modelTurn = createPayload.history.find((content) => content.parts?.some((part) => part.functionCall));
+    assert.equal(modelTurn.parts.find((part) => part.functionCall).functionCall.id, 'call-1');
+    assert.equal(sendPayload.message[0].functionResponse.id, 'call-1');
+
+    const requiredPayload = adapter.buildChatPayload({
+        messages: [{ role: 'user', content: '继续' }],
+        tools: [{ function: { name: 'Read', description: 'read', parameters: { type: 'object' } } }],
+        toolChoice: 'required',
+    });
+    assert.equal(requiredPayload.createPayload.config.toolConfig.functionCallingConfig.mode, 'ANY');
+    assert.equal(Object.hasOwn(requiredPayload.createPayload.config.toolConfig.functionCallingConfig, 'allowedFunctionNames'), false);
+});
+
+test('google adapter sends the full session config with abortSignal and keeps duplicate stream deltas', async () => {
+    const adapter = new GoogleAdapter({
+        apiKey: 'test-key',
+        baseUrl: 'https://example.com/google',
+        model: 'gemini-test',
+    });
+    let requestPayload;
+    adapter.client.chats.create = () => ({
+        sendMessageStream: async function* sendMessageStream(payload) {
+            requestPayload = payload;
+            yield {
+                candidates: [{ content: { role: 'model', parts: [{ text: 'A' }] } }],
+                functionCalls: [
+                    { id: 'call-1', name: 'Read', args: { path: 'a' } },
+                    { id: 'call-2', name: 'Read', args: { path: 'b' } },
+                ],
+            };
+            yield {
+                candidates: [{ content: { role: 'model', parts: [{ text: 'A' }] } }],
+                functionCalls: [{ id: 'call-1', name: 'Read', args: { mode: 'full' } }],
+            };
+        },
+    });
+    const controller = new AbortController();
+    const result = await adapter.chat({
+        messages: [{ role: 'user', content: '读取' }],
+        tools: [{ function: { name: 'Read', description: 'read', parameters: { type: 'object' } } }],
+        onStreamProgress: () => {},
+        signal: controller.signal,
+    });
+    assert.equal(requestPayload.config.abortSignal, controller.signal);
+    assert.equal(result.text, 'AA');
+    assert.deepEqual(result.toolCalls.map((item) => item.id), ['call-1', 'call-2']);
+    assert.deepEqual(JSON.parse(result.toolCalls[0].arguments), { path: 'a', mode: 'full' });
+});
+
+test('google adapter keeps local ids for parallel id-less calls and omits them from function responses', async () => {
+    const adapter = new GoogleAdapter({
+        apiKey: 'test-key',
+        baseUrl: 'https://example.com/google',
+        model: 'gemini-test',
+    });
+    let receivedToolResponsePayload = null;
+    let sendCount = 0;
+    adapter.client.chats.create = () => ({
+        sendMessage: async (payload) => {
+            sendCount += 1;
+            if (sendCount === 1) {
+                return {
+                    functionCalls: [
+                        { name: 'Read', args: { path: 'a.md' } },
+                        { name: 'Read', args: { path: 'b.md' } },
+                    ],
+                    candidates: [{
+                        content: {
+                            role: 'model',
+                            parts: [
+                                { functionCall: { name: 'Read', args: { path: 'a.md' } } },
+                                { functionCall: { name: 'Read', args: { path: 'b.md' } } },
+                            ],
+                        },
+                    }],
+                };
+            }
+            receivedToolResponsePayload = payload;
+            return {
+                text: '两个文件都已读取。',
+                candidates: [{
+                    content: { role: 'model', parts: [{ text: '两个文件都已读取。' }] },
+                }],
+            };
+        },
+    });
+
+    const first = await adapter.chat({
+        messages: [{ role: 'user', content: '分别读取两个文件' }],
+        tools: [{ function: { name: 'Read', description: 'read', parameters: { type: 'object' } } }],
+    });
+    assert.equal(first.toolCalls.length, 2);
+    assert.notEqual(first.toolCalls[0].id, first.toolCalls[1].id);
+    assert.ok(first.toolCalls.every((call) => call.id.startsWith('google-tool-')));
+    assert.deepEqual(first.toolCalls.map((call) => call.providerId), ['', '']);
+
+    await adapter.chat({
+        toolResponses: first.toolCalls.map((call) => ({
+            id: call.id,
+            providerId: call.providerId,
+            name: call.name,
+            response: { ok: true },
+        })),
+    });
+    const functionResponses = receivedToolResponsePayload.message.parts.map((part) => part.functionResponse);
+    assert.deepEqual(functionResponses.map((response) => response.name), ['Read', 'Read']);
+    assert.ok(functionResponses.every((response) => !Object.prototype.hasOwnProperty.call(response, 'id')));
+});
+
+test('google adapter omits id-less Google call ids when replaying persisted history', async () => {
+    const adapter = new GoogleAdapter({
+        apiKey: 'test-key',
+        baseUrl: 'https://example.com/google',
+        model: 'gemini-test',
+    });
+    let createPayload = null;
+    adapter.client.chats.create = (payload) => {
+        createPayload = payload;
+        return {
+            sendMessage: async () => ({
+                candidates: [{ content: { role: 'model', parts: [{ text: '继续。' }] } }],
+            }),
+        };
+    };
+
+    await adapter.chat({
+        messages: [
+            { role: 'user', content: '读取两个文件' },
+            {
+                role: 'assistant',
+                content: '',
+                tool_calls: [
+                    {
+                        id: 'google-tool-1-1',
+                        type: 'function',
+                        providerToolCallId: '',
+                        function: { name: 'Read', arguments: '{"path":"a.md"}' },
+                    },
+                    {
+                        id: 'google-tool-1-2',
+                        type: 'function',
+                        providerToolCallId: '',
+                        function: { name: 'Read', arguments: '{"path":"b.md"}' },
+                    },
+                ],
+            },
+            { role: 'tool', tool_call_id: 'google-tool-1-1', toolName: 'Read', content: '{"ok":true}' },
+            { role: 'tool', tool_call_id: 'google-tool-1-2', toolName: 'Read', content: '{"ok":true}' },
+            { role: 'user', content: '继续' },
+        ],
+        tools: [{ function: { name: 'Read', description: 'read', parameters: { type: 'object' } } }],
+    });
+
+    const functionCalls = createPayload.history[1].parts.map((part) => part.functionCall);
+    const functionResponses = createPayload.history[2].parts.map((part) => part.functionResponse);
+    assert.ok(functionCalls.every((call) => !Object.prototype.hasOwnProperty.call(call, 'id')));
+    assert.ok(functionResponses.every((response) => !Object.prototype.hasOwnProperty.call(response, 'id')));
+});
+
+test('google adapter keeps separate id-less calls from separate stream chunks', async () => {
+    const adapter = new GoogleAdapter({
+        apiKey: 'test-key',
+        baseUrl: 'https://example.com/google',
+        model: 'gemini-test',
+    });
+    adapter.client.chats.create = () => ({
+        sendMessageStream: async function* sendMessageStream() {
+            yield {
+                functionCalls: [{ name: 'Read', args: { path: 'first.md' } }],
+                candidates: [{ content: { role: 'model', parts: [{ functionCall: { name: 'Read', args: { path: 'first.md' } } }] } }],
+            };
+            yield {
+                functionCalls: [{ name: 'Read', args: { path: 'second.md' } }],
+                candidates: [{ content: { role: 'model', parts: [{ functionCall: { name: 'Read', args: { path: 'second.md' } } }] } }],
+            };
+        },
+    });
+
+    const result = await adapter.chat({
+        messages: [{ role: 'user', content: '读取两个不同文件' }],
+        tools: [{ function: { name: 'Read', description: 'read', parameters: { type: 'object' } } }],
+        onStreamProgress: () => {},
+    });
+
+    assert.equal(result.toolCalls.length, 2);
+    assert.notEqual(result.toolCalls[0].id, result.toolCalls[1].id);
+    assert.deepEqual(result.toolCalls.map((call) => JSON.parse(call.arguments).path), ['first.md', 'second.md']);
+    assert.deepEqual(result.toolCalls.map((call) => call.providerId), ['', '']);
+    const replayCalls = result.providerPayload.googleContent.parts.map((part) => part.functionCall).filter(Boolean);
+    assert.equal(replayCalls.length, 2);
+    assert.ok(replayCalls.every((call) => !Object.prototype.hasOwnProperty.call(call, 'id')));
 });

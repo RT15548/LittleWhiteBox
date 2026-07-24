@@ -17,7 +17,7 @@ const emit = defineEmits<{
 
 const normalizedUsage = computed(() => {
     if (props.usage === null || !Number.isFinite(Number(props.usage))) {
-        return props.canClear ? 0.12 : 0;
+        return 0;
     }
     return Math.max(0, Math.min(1, Number(props.usage)));
 });

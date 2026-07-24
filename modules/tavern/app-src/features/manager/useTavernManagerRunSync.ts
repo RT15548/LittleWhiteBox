@@ -77,7 +77,6 @@ const TERMINAL_MANAGER_RUN_STATUSES = [
     'failed',
     'cancelled',
     'superseded',
-    'rolled_back',
 ] as const satisfies ReadonlyArray<TavernManagerRunRecord['status']>;
 
 function normalizeSessionId(value = ''): string {

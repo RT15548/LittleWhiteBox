@@ -446,6 +446,13 @@
     color: var(--xb-stamp);
 }
 
+.tavern-chat.xb-page .chat-app-menu-divider {
+    width: calc(100% - 10px);
+    height: 1px;
+    margin: 4px 5px;
+    background: var(--xb-rule);
+}
+
 .tavern-chat.xb-page .chat-app-menu-label-mobile {
     display: none;
 }
@@ -698,10 +705,7 @@
     }
 
     .tavern-chat.xb-page .chat-app-menu-shell-mobile .chat-app-menu-return-home {
-        margin-top: 4px;
-        border-top: 1px solid var(--xb-rule);
-        border-radius: 0 0 7px 7px;
-        padding-top: 8px;
+        border-radius: 7px;
     }
 
     .tavern-chat.xb-page .chat-mobile-icon-button {

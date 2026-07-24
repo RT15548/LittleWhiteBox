@@ -626,6 +626,7 @@ export function createEbookAgentRunner(deps = {}) {
             let finalAnswerReminderSent = false;
             let pendingToolResponses = null;
             let pendingFinalAnswerReminderText = '';
+            let contextMeterAbortController = null;
             const providerMessageOptions = {
                 finalAnswerReminderText: '',
             };
@@ -657,6 +658,11 @@ export function createEbookAgentRunner(deps = {}) {
 
             async function updateContextMeterFromRequest(messages = []) {
                 if (!Array.isArray(messages) || !messages.length) return;
+                contextMeterAbortController?.abort();
+                const requestController = new AbortController();
+                contextMeterAbortController = requestController;
+                const abortFromRun = () => requestController.abort();
+                controller.signal.addEventListener('abort', abortFromRun, { once: true });
                 const updateSerial = (Number(state.contextStatsRequestSerial) || 0) + 1;
                 state.contextStatsRequestSerial = updateSerial;
                 try {
@@ -664,12 +670,13 @@ export function createEbookAgentRunner(deps = {}) {
                         messages,
                         tools,
                         providerConfig,
+                        signal: requestController.signal,
                     });
                     const currentStateKey = buildConversationContextMeterStateKey(state, providerConfig);
                     if (
                         updateSerial !== state.contextStatsRequestSerial
                         || !Number.isFinite(usedTokens)
-                        || controller.signal.aborted
+                        || requestController.signal.aborted
                     ) return;
                     state.contextStats = {
                         usedTokens,
@@ -682,6 +689,11 @@ export function createEbookAgentRunner(deps = {}) {
                     renderStreamingSurface();
                 } catch {
                     // The renderer keeps its local estimate if tokenizer counting is unavailable.
+                } finally {
+                    controller.signal.removeEventListener('abort', abortFromRun);
+                    if (contextMeterAbortController === requestController) {
+                        contextMeterAbortController = null;
+                    }
                 }
             }
 
@@ -862,6 +874,9 @@ export function createEbookAgentRunner(deps = {}) {
                             id: toolCall.id,
                             name: toolCall.name,
                             response: toolResult,
+                            ...(Object.prototype.hasOwnProperty.call(toolCall, 'providerId')
+                                ? { providerId: toolCall.providerId }
+                                : {}),
                         });
                         recordToolResultForLightBrake(toolCall, toolResult);
                         if (toolChangesBookFiles(toolCall.name)) {

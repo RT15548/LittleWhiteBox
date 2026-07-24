@@ -141,14 +141,16 @@ const authorNoteRoleOptions = [
     { value: XBTavernPromptRole.ASSISTANT, label: 'Assistant' },
 ];
 const chatAppMenuItems: Array<{ key: ChatQuickWorkspace; label: string; mobileLabel: string }> = [
-    { key: 'characters', label: '角色卡', mobileLabel: '角色卡' },
-    { key: 'api', label: 'API 配置', mobileLabel: 'API 配置' },
     { key: 'chatPreset', label: '聊天预设', mobileLabel: '聊天预设' },
-    { key: 'assistantPreset', label: '助手预设', mobileLabel: '助手预设' },
+    { key: 'api', label: 'API 配置', mobileLabel: 'API 配置' },
     { key: 'worldbooks', label: '世界书', mobileLabel: '世界书' },
     { key: 'regex', label: '正则', mobileLabel: '正则' },
+    { key: 'characters', label: '角色卡', mobileLabel: '角色卡' },
+    { key: 'assistantPreset', label: '助手预设', mobileLabel: '助手预设' },
     { key: 'base', label: '基础设置', mobileLabel: '基础设置' },
 ];
+const chatAppMenuCoreItems = chatAppMenuItems.slice(0, 5);
+const chatAppMenuAppItems = chatAppMenuItems.slice(5);
 
 function closeMobileChatPanel() {
     closeChatAppMenu();
@@ -633,7 +635,22 @@ onUnmounted(() => {
               aria-label="酒馆操作"
             >
               <button
-                v-for="item in chatAppMenuItems"
+                v-for="item in chatAppMenuCoreItems"
+                :key="item.key"
+                type="button"
+                class="chat-app-menu-item"
+                role="menuitem"
+                @click="openChatAppWorkspace(item.key)"
+              >
+                <span class="chat-app-menu-label-full">{{ item.label }}</span>
+                <span class="chat-app-menu-label-mobile">{{ item.mobileLabel }}</span>
+              </button>
+              <div
+                class="chat-app-menu-divider"
+                role="separator"
+              />
+              <button
+                v-for="item in chatAppMenuAppItems"
                 :key="item.key"
                 type="button"
                 class="chat-app-menu-item"
@@ -652,6 +669,10 @@ onUnmounted(() => {
                 <span class="chat-app-menu-label-full">{{ homeThemeDark ? '切换到白天' : '切换到夜间' }}</span>
                 <span class="chat-app-menu-label-mobile">{{ homeThemeDark ? '白天模式' : '夜间模式' }}</span>
               </button>
+              <div
+                class="chat-app-menu-divider"
+                role="separator"
+              />
               <button
                 type="button"
                 class="chat-app-menu-item chat-app-menu-return-home"

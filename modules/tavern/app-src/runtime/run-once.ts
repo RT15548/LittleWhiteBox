@@ -109,6 +109,7 @@ import { createXbTavernAgentRuntime } from './agent-runtime';
 import {
     failAndRollbackAcceptedTurnManagerRun,
     recoverInterruptedAcceptedTurnManagerRuns,
+    resolveTavernManagerFailureStatus,
     runNextQueuedAcceptedTurnManager,
     type TavernManagerLiveProgress,
     type XbTavernManagerOnceOptions,
@@ -483,7 +484,7 @@ export interface TavernRunOnceResult {
     provider?: string;
     finishReason?: string;
     providerPayload?: unknown;
-    toolCalls?: Array<{ id?: string; name?: string; arguments?: string }>;
+    toolCalls?: Array<{ id?: string; name?: string; arguments?: string; providerId?: string }>;
     requestSnapshot: TavernRequestSnapshot;
 }
 
@@ -1346,6 +1347,9 @@ function normalizeRequestSnapshotMessages(messages: XbTavernMessage[] = []): XbT
             normalized.tool_calls = message.tool_calls.map((toolCall) => ({
                 ...(toolCall.id ? { id: String(toolCall.id) } : {}),
                 ...(toolCall.type ? { type: String(toolCall.type) } : {}),
+                ...(Object.prototype.hasOwnProperty.call(toolCall, 'providerToolCallId')
+                    ? { providerToolCallId: String(toolCall.providerToolCallId || '') }
+                    : {}),
                 ...(toolCall.function ? {
                     function: {
                         name: String(toolCall.function.name || ''),
@@ -1359,6 +1363,9 @@ function normalizeRequestSnapshotMessages(messages: XbTavernMessage[] = []): XbT
                 ...(toolCall.id ? { id: String(toolCall.id) } : {}),
                 name: String(toolCall.name || ''),
                 arguments: String(toolCall.arguments || ''),
+                ...(Object.prototype.hasOwnProperty.call(toolCall, 'providerId')
+                    ? { providerId: String(toolCall.providerId || '') }
+                    : {}),
             }));
         }
         if (message.tool_call_id) {normalized.tool_call_id = String(message.tool_call_id);}
@@ -2043,6 +2050,9 @@ async function runTavernActionCheckLoop(input: {
                 id: String(toolCall.id || ''),
                 name: String(toolCall.name || ''),
                 response: toolResult,
+                ...(Object.prototype.hasOwnProperty.call(toolCall, 'providerId')
+                    ? { providerId: String(toolCall.providerId || '') }
+                    : {}),
             });
             protocolMessages.push(buildProviderToolResultMessage({
                 toolCallId: String(toolCall.id || ''),
@@ -2162,6 +2172,8 @@ function scheduleQueuedAcceptedTurnManager(input: QueuedAcceptedTurnManagerSched
                         const failed = await failAndRollbackAcceptedTurnManagerRun(
                             result.managerRun.id,
                             `manager_accepted_snapshot_failed:${errorText}`,
+                            String(result.managerRun.leaseOwnerId || ''),
+                            resolveTavernManagerFailureStatus(error),
                         );
                         if (failed) {
                             await notifyRunCallback(() => input.onManagerRunSaved?.(sessionId, failed));

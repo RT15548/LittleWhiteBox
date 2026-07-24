@@ -42,6 +42,8 @@ export interface XbTavernMessage {
     tool_calls?: Array<{
         id?: string;
         type?: string;
+        /** Google functionCall.id is optional; an explicit empty value means omit it on replay. */
+        providerToolCallId?: string;
         function?: {
             name?: string;
             arguments?: string;
@@ -51,6 +53,7 @@ export interface XbTavernMessage {
         id?: string;
         name?: string;
         arguments?: string;
+        providerId?: string;
     }>;
     tool_call_id?: string;
     toolCallId?: string;
