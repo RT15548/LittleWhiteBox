@@ -616,13 +616,14 @@ export interface TavernManagerContext {
     managerInputStatus: Ref<string>;
     managerPendingUserMessage: TavernReadable<TavernPendingAssistantUserMessage | null>;
     managerRuns: Ref<TavernManagerRunRecord[]>;
+    managerRunDisplayStatus: TavernCommand<[run: TavernManagerRunRecord], string>;
     managerRunTone: TavernCommand<[runOrStatus: TavernManagerRunRecord | string], string>;
     managerScrollControlsActive: Ref<boolean>;
     managerScrollRef: Ref<HTMLElement | null>;
     managerWorkRef: Ref<HTMLElement | null>;
-    managerStatusLabel: TavernCommand<[status?: string], string>;
-    managerToolStatusLabel: TavernCommand<[item: { status?: string; ok?: boolean }], string>;
-    managerToolTone: TavernCommand<[item: { status?: string; ok?: boolean }], string>;
+    managerStatusLabel: TavernCommand<[runOrStatus?: TavernManagerRunRecord | string], string>;
+    managerToolStatusLabel: TavernCommand<[item: { status?: string; ok?: boolean }, run?: TavernManagerRunRecord], string>;
+    managerToolTone: TavernCommand<[item: { status?: string; ok?: boolean }, run?: TavernManagerRunRecord], string>;
     managerToolTraceItems: TavernCommand<[value: unknown], TavernManagerToolTraceItem[]>;
     memoryFileDisplayName: TavernCommand<[fileOrPath?: TavernMemoryFileListEntry | TavernMemoryFileRecord | string | null], string>;
     memoryFiles: Ref<TavernMemoryIndexFileEntry[]>;
@@ -637,7 +638,7 @@ export interface TavernManagerContext {
     showManagerScrollBottom: Ref<boolean>;
     showManagerScrollTop: Ref<boolean>;
     startEditManagerMessage: TavernCommand<[message: TavernAssistantChatMessageUnit]>;
-    toolTraceSummary: TavernCommand<[value: unknown], string>;
+    toolTraceSummary: TavernCommand<[value: unknown, run?: TavernManagerRunRecord], string>;
     updateManagerScrollButtons: TavernCommand;
     visibleManagerChatItems: TavernReadable<TavernAssistantChatUnit[]>;
 }

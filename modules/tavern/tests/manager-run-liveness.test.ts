@@ -82,7 +82,17 @@ test('stale floor 169 run cannot override completed floor 210 or keep the manage
     assert.equal(display.currentManagerWorkRun.value?.id, completed210.id);
     assert.equal(display.managerBusy.value, false);
     assert.equal(display.archivedManagerRuns.value[0]?.id, stale169.id);
-    assert.match(display.formatRunActivityLine(stale169), /可能卡住/);
+    assert.equal(stale169.status, 'running');
+    assert.equal(display.managerRunDisplayStatus(stale169), 'interrupted');
+    assert.equal(display.managerStatusLabel(stale169), '维护已中断');
+    assert.equal(display.managerRunTone(stale169), 'danger');
+    assert.equal(display.formatRunModelLine(stale169), '后台维护已中断');
+    assert.match(display.formatRunActivityLine(stale169), /^维护已中断/);
+    assert.match(display.formatRunMemoryLine(stale169), /维护中断/);
+    assert.match(display.formatRunMapLine(stale169), /维护中断/);
+    assert.equal(display.managerToolStatusLabel({ status: 'running' }, stale169), '已中断');
+    assert.equal(display.managerToolTone({ status: 'running' }, stale169), 'is-error');
+    assert.match(display.toolTraceSummary([{ status: 'running' }], stale169), /维护已中断/);
 });
 
 test('fresh background maintenance still overrides the latest completed run and blocks conflicts', () => {

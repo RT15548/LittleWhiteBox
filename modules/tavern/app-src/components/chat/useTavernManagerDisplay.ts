@@ -87,10 +87,19 @@ export function useTavernManagerDisplay(options: TavernManagerDisplayOptions) {
         return isPersistedManagerRunActive(run, managerStatusClock.value);
     }
 
-    function managerStatusLabel(status = '') {
+    function managerRunDisplayStatus(run: TavernManagerRunRecord) {
+        const status = String(run.status || '');
+        return status === 'running' && !isManagerRunActive(run) ? 'interrupted' : status;
+    }
+
+    function managerStatusLabel(runOrStatus: TavernManagerRunRecord | string = '') {
+        const status = typeof runOrStatus === 'string'
+            ? runOrStatus
+            : managerRunDisplayStatus(runOrStatus);
         const labels: Record<string, string> = {
             queued: '排队中',
             running: '运行中',
+            interrupted: '维护已中断',
             completed: '完成',
             failed: '失败',
             cancelled: '已取消',
@@ -100,7 +109,8 @@ export function useTavernManagerDisplay(options: TavernManagerDisplayOptions) {
     }
 
     function managerRunTone(runOrStatus: TavernManagerRunRecord | string = '') {
-        const status = typeof runOrStatus === 'string' ? runOrStatus : String(runOrStatus?.status || '');
+        const status = typeof runOrStatus === 'string' ? runOrStatus : managerRunDisplayStatus(runOrStatus);
+        if (status === 'interrupted') {return 'danger';}
         if (typeof runOrStatus !== 'string' && status === 'running') {
             const updatedAt = Number(runOrStatus.updatedAt) || Number(runOrStatus.createdAt) || 0;
             const silentMs = Math.max(0, managerStatusClock.value - updatedAt);
@@ -115,15 +125,17 @@ export function useTavernManagerDisplay(options: TavernManagerDisplayOptions) {
     }
 
     function formatRunModelLine(run: TavernManagerRunRecord) {
-        if (run.status === 'queued') {return '等待后台模型';}
-        if (run.status === 'running') {return '后台模型运行中';}
+        const status = managerRunDisplayStatus(run);
+        if (status === 'queued') {return '等待后台模型';}
+        if (status === 'running') {return '后台模型运行中';}
+        if (status === 'interrupted') {return '后台维护已中断';}
         const provider = String(run.provider || '').trim();
         const model = String(run.model || '').trim();
         return [provider, model].filter(Boolean).join(' / ') || '未记录模型信息';
     }
 
     function formatRunActivityLine(run: TavernManagerRunRecord) {
-        const status = String(run.status || '');
+        const status = managerRunDisplayStatus(run);
         const updatedAt = Number(run.updatedAt) || Number(run.createdAt) || 0;
         if (status === 'queued') {
             return `等待开始 · 建立于 ${formatDurationAgo(run.createdAt)}`;
@@ -134,6 +146,9 @@ export function useTavernManagerDisplay(options: TavernManagerDisplayOptions) {
             if (silentMs <= 9000) {return `还活着 · 已运行 ${runningFor} · 正在等 API/工具返回`;}
             if (silentMs <= 30000) {return `等待中 · 已运行 ${runningFor} · 上次心跳 ${formatDurationAgo(updatedAt)}`;}
             return `可能卡住 · 已运行 ${runningFor} · ${formatDurationAgo(updatedAt)}没有心跳`;
+        }
+        if (status === 'interrupted') {
+            return `维护已中断 · 已运行 ${formatRunningDuration(run.createdAt)} · ${formatDurationAgo(updatedAt)}没有心跳`;
         }
         if (['completed', 'failed', 'cancelled', 'superseded'].includes(status)) {
             return `已结束 · ${formatDurationAgo(updatedAt)}`;
@@ -174,29 +189,35 @@ export function useTavernManagerDisplay(options: TavernManagerDisplayOptions) {
 
     function formatRunMemoryLine(run: TavernManagerRunRecord) {
         const files = Array.isArray(run.changedFiles) ? run.changedFiles : [];
-        if (run.status === 'queued') {return '记忆：等待开始';}
-        if (run.status === 'running') {return '记忆：正在整理';}
-        if (run.status === 'failed') {return files.length ? `记忆：已写入 ${files.length} 份档案，但本轮失败` : '记忆：未完成';}
-        if (['cancelled', 'superseded'].includes(run.status)) {return '记忆：已停止，未采用本轮结果';}
+        const status = managerRunDisplayStatus(run);
+        if (status === 'queued') {return '记忆：等待开始';}
+        if (status === 'running') {return '记忆：正在整理';}
+        if (status === 'interrupted') {return '记忆：维护中断，等待恢复或回滚';}
+        if (status === 'failed') {return files.length ? `记忆：已写入 ${files.length} 份档案，但本轮失败` : '记忆：未完成';}
+        if (['cancelled', 'superseded'].includes(status)) {return '记忆：已停止，未采用本轮结果';}
         if (!files.length) {return '记忆：没有写入文件';}
         return `记忆：已更新 ${files.length} 份档案`;
     }
 
     function formatRunMapLine(run: TavernManagerRunRecord) {
         const states = Array.isArray(run.changedStates) ? run.changedStates : [];
-        if (run.status === 'queued') {return '地图：等待开始';}
-        if (run.status === 'running') {return '地图：正在判断本轮有没有空间变化';}
-        if (run.status === 'failed') {return states.length ? `地图：已写入 ${states.length} 份状态，但本轮失败` : '地图：未完成';}
-        if (['cancelled', 'superseded'].includes(run.status)) {return '地图：已停止，未采用本轮结果';}
+        const status = managerRunDisplayStatus(run);
+        if (status === 'queued') {return '地图：等待开始';}
+        if (status === 'running') {return '地图：正在判断本轮有没有空间变化';}
+        if (status === 'interrupted') {return '地图：维护中断，等待恢复或回滚';}
+        if (status === 'failed') {return states.length ? `地图：已写入 ${states.length} 份状态，但本轮失败` : '地图：未完成';}
+        if (['cancelled', 'superseded'].includes(status)) {return '地图：已停止，未采用本轮结果';}
         if (states.length) {return `地图：已更新 ${states.length} 份状态`;}
         return '地图：本轮没有明确空间变化，未更新';
     }
 
-    function toolTraceSummary(value: unknown) {
+    function toolTraceSummary(value: unknown, run?: TavernManagerRunRecord) {
         if (!value) {return '';}
+        const interrupted = !!run && managerRunDisplayStatus(run) === 'interrupted';
         if (Array.isArray(value)) {
             const failed = value.filter((item) => item && typeof item === 'object' && (item as { ok?: unknown }).ok === false).length;
             const running = value.filter((item) => item && typeof item === 'object' && String((item as { status?: unknown }).status || '') === 'running').length;
+            if (interrupted && running) {return `工具调用 ${value.length} 次 · 维护已中断`;}
             if (running) {return `工具调用 ${value.length} 次 · ${running} 个运行中`;}
             return failed ? `工具调用 ${value.length} 次 · ${failed} 次失败` : `工具调用 ${value.length} 次 · 全部成功`;
         }
@@ -206,6 +227,7 @@ export function useTavernManagerDisplay(options: TavernManagerDisplayOptions) {
             if (total) {
                 const running = Math.max(0, Math.floor(Number(record.running) || 0));
                 const failed = Math.max(0, Math.floor(Number(record.failed) || 0));
+                if (interrupted && running) {return `工具调用 ${total} 次 · 维护已中断`;}
                 if (running) {return `工具调用 ${total} 次 · ${running} 个运行中`;}
                 return failed ? `工具调用 ${total} 次 · ${failed} 次失败` : `工具调用 ${total} 次 · 全部成功`;
             }
@@ -214,7 +236,7 @@ export function useTavernManagerDisplay(options: TavernManagerDisplayOptions) {
                 .filter((count) => count > 0);
             if (counts.length) {return `工具调用 ${Math.max(...counts)} 次`;}
             const keys = Object.keys(record).length;
-            return keys ? `工具记录 ${keys} 项` : '';
+            return keys ? `工具记录 ${keys} 项${interrupted ? ' · 维护已中断' : ''}` : '';
         }
         return '有工具记录';
     }
@@ -262,13 +284,15 @@ export function useTavernManagerDisplay(options: TavernManagerDisplayOptions) {
             });
     }
 
-    function managerToolStatusLabel(item: { status?: string; ok?: boolean }) {
+    function managerToolStatusLabel(item: { status?: string; ok?: boolean }, run?: TavernManagerRunRecord) {
+        if (run && managerRunDisplayStatus(run) === 'interrupted' && item.status === 'running') {return '已中断';}
         if (item.status === 'running') {return '运行中';}
         if (item.ok === false) {return '失败';}
         return '已返回';
     }
 
-    function managerToolTone(item: { status?: string; ok?: boolean }) {
+    function managerToolTone(item: { status?: string; ok?: boolean }, run?: TavernManagerRunRecord) {
+        if (run && managerRunDisplayStatus(run) === 'interrupted' && item.status === 'running') {return 'is-error';}
         if (item.status === 'running') {return 'is-running';}
         if (item.ok === false) {return 'is-error';}
         return 'is-resolved';
@@ -286,6 +310,7 @@ export function useTavernManagerDisplay(options: TavernManagerDisplayOptions) {
         hiddenManagerRunCount,
         isManagerRunActive,
         managerBusy,
+        managerRunDisplayStatus,
         managerRunTone,
         managerStatusClock,
         managerStatusLabel,

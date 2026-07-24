@@ -76,6 +76,7 @@ const {
     managerChatHasMore,
     managerInputDraft,
     managerPendingUserMessage,
+    managerRunDisplayStatus,
     managerRunTone,
     managerScrollControlsActive,
     managerScrollRef,
@@ -111,7 +112,7 @@ function setManagerComposeTextareaRef(element: Element | null) {
 }
 
 function handleManagerWorkBandToggle(event: Event) {
-    managerWorkDisclosure.setOpenFromEvent(managerDisclosureId('work-band'), event);
+    managerWorkDisclosure.setOpenFromEvent(managerWorkDisclosureId(), event);
     if ((event.currentTarget as HTMLDetailsElement | null)?.open) {
         void loadCurrentManagerWorkRunDetail();
     } else {
@@ -151,7 +152,7 @@ async function loadCurrentManagerWorkRunDetail(): Promise<void> {
     const request = ++managerWorkRunDetailRequest;
     const detail = await getTavernManagerRun(summary.id);
     if (request !== managerWorkRunDetailRequest
-        || !managerWorkDisclosure.isOpen(managerDisclosureId('work-band'))
+        || !managerWorkDisclosure.isOpen(managerWorkDisclosureId())
         || currentManagerWorkRunSummary.value?.id !== summary.id
     ) {return;}
     managerWorkRunDetail.value = detail;
@@ -175,6 +176,10 @@ function managerMarkdownSignature(text = '') {
 
 function managerDisclosureId(kind: string, ...parts: Array<string | number | undefined>) {
     return `manager:${kind}:${parts.map((part) => String(part ?? '')).join(':')}`;
+}
+
+function managerWorkDisclosureId() {
+    return managerDisclosureId('work-band', currentManagerWorkRunSummary.value?.id || '');
 }
 
 const managerChatMessageItems = computed(() => visibleManagerChatItems.value);
@@ -263,17 +268,18 @@ function managerWorkTitle(run: TavernManagerRunRecord) {
     const labels: Record<string, string> = {
         queued: '等待后台维护',
         running: '正在维护上一轮剧情',
+        interrupted: '后台维护已中断',
         completed: '后台维护完成',
         failed: '后台维护失败',
         cancelled: '后台维护已停止',
         superseded: '本次维护已作废',
     };
-    return labels[String(run.status || '')] || '后台维护';
+    return labels[managerRunDisplayStatus(run)] || '后台维护';
 }
 
 function managerWorkSummaryLine(run: TavernManagerRunRecord) {
     if (isManagerRunRetrying(run)) {return '正在重新连接后台模型，等待新的处理结果。';}
-    const status = String(run.status || '');
+    const status = managerRunDisplayStatus(run);
     if (status === 'queued') {return '上一轮剧情已经确认，正在等待后台开始。';}
     if (status === 'running') {
         const activeTool = [...currentManagerTraceItems.value]
@@ -326,13 +332,9 @@ watch(
         if (next.every((value, index) => value === previous?.[index])) {return;}
         managerWorkRunDetailRequest += 1;
         managerWorkRunDetail.value = null;
-        const status = String(currentManagerWorkRunSummary.value?.status || '');
-        if (['queued', 'running'].includes(status)) {
-            managerWorkDisclosure.setOpen(managerDisclosureId('work-band'), true);
+        if (managerWorkDisclosure.isOpen(managerWorkDisclosureId())) {
             void loadCurrentManagerWorkRunDetail();
-            return;
         }
-        managerWorkDisclosure.reset();
     },
 );
 
@@ -418,7 +420,7 @@ watch(session.selectedSessionId, () => {
       :ref="setManagerWorkRef"
       class="manager-work-band"
       :class="`tone-${managerWorkBandTone}`"
-      :open="managerWorkDisclosure.isOpen(managerDisclosureId('work-band'))"
+      :open="managerWorkDisclosure.isOpen(managerWorkDisclosureId())"
       @toggle="handleManagerWorkBandToggle"
     >
       <summary>
@@ -432,18 +434,18 @@ watch(session.selectedSessionId, () => {
         </span>
       </summary>
       <div
-        v-if="managerWorkDisclosure.isOpen(managerDisclosureId('work-band'))"
+        v-if="managerWorkDisclosure.isOpen(managerWorkDisclosureId())"
         class="manager-work-band-body"
       >
         <section
           v-if="currentManagerWorkRun"
           class="manager-work-section manager-work-current"
-          :class="[`is-${currentManagerWorkRun.status}`, `tone-${managerRunTone(currentManagerWorkRun)}`, { 'is-retrying': isManagerRunRetrying(currentManagerWorkRun) }]"
+          :class="[`is-${managerRunDisplayStatus(currentManagerWorkRun)}`, `tone-${managerRunTone(currentManagerWorkRun)}`, { 'is-retrying': isManagerRunRetrying(currentManagerWorkRun) }]"
           :aria-busy="isManagerRunRetrying(currentManagerWorkRun) ? 'true' : 'false'"
         >
           <div class="manager-work-section-head">
             <strong>本次运行</strong>
-            <small>{{ managerRunKindLabel(currentManagerWorkRun) }} · {{ isManagerRunRetrying(currentManagerWorkRun) ? '重试中' : managerStatusLabel(currentManagerWorkRun.status) }}</small>
+            <small>{{ managerRunKindLabel(currentManagerWorkRun) }} · {{ isManagerRunRetrying(currentManagerWorkRun) ? '重试中' : managerStatusLabel(currentManagerWorkRun) }}</small>
           </div>
           <p class="manager-work-source">
             {{ formatRunInputLine(currentManagerWorkRun) }}
@@ -481,18 +483,18 @@ watch(session.selectedSessionId, () => {
         >
           <div class="manager-work-section-head">
             <strong>工具调用</strong>
-            <small>{{ toolTraceSummary(currentManagerWorkRun.toolTrace) }}</small>
+            <small>{{ toolTraceSummary(currentManagerWorkRun.toolTrace, currentManagerWorkRun) }}</small>
           </div>
           <div class="manager-tool-list">
             <div
               v-for="tool in currentManagerTraceItems"
               :key="tool.displayKey"
               class="manager-tool-item"
-              :class="managerToolTone(tool)"
+              :class="managerToolTone(tool, currentManagerWorkRun)"
             >
               <div class="manager-tool-head">
                 <span>{{ tool.name }}</span>
-                <em>{{ managerToolStatusLabel(tool) }}<template v-if="tool.elapsedLabel"> · {{ tool.elapsedLabel }}</template></em>
+                <em>{{ managerToolStatusLabel(tool, currentManagerWorkRun) }}<template v-if="tool.elapsedLabel"> · {{ tool.elapsedLabel }}</template></em>
               </div>
               <details
                 v-if="tool.thoughts.length"
@@ -550,10 +552,10 @@ watch(session.selectedSessionId, () => {
               :class="[`tone-${managerRunTone(run)}`]"
             >
               <div>
-                <strong>{{ managerRunKindLabel(run) }} · {{ managerStatusLabel(run.status) }}</strong>
+                <strong>{{ managerRunKindLabel(run) }} · {{ managerStatusLabel(run) }}</strong>
                 <small>{{ formatRunInputLine(run) }}</small>
               </div>
-              <span>{{ toolTraceSummary(run.toolTrace) || formatRunActivityLine(run) }}</span>
+              <span>{{ toolTraceSummary(run.toolTrace, run) || formatRunActivityLine(run) }}</span>
             </div>
             <p v-if="hiddenManagerRunCount">
               更早 {{ hiddenManagerRunCount }} 条已收起。
