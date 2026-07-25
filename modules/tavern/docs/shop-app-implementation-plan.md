@@ -55,7 +55,7 @@ modules/tavern/tests/shop.test.ts
 1. 定义 duration、catalog、inventory、activation、state version、输入和错误类型。
 2. 写入 14 个固定商品；`absolute-obedience`使用永久 1200。
 3. 为每个商品写完整人工 injection，不能从 description 自动扩写。
-4. 实现纯函数：参数规范化、模板渲染、活跃判定、剩余回合、分区投影、Prompt block。
+4. 实现纯函数：参数规范化、静态 injection 投影、活跃判定、剩余回合、分区投影、Prompt block；参数只能作为单份 JSON 数据，不能插入命令句。
 5. 明确 exact duplicate 激活键：`itemId + 规范化参数`；重复激活直接拒绝，不扣库存且不创建队列。
 
 最低测试：
@@ -223,8 +223,11 @@ modules/tavern/tests/communications.test.ts
 buildTavernShopRuntimeDepthEntries({
     sessionId,
     currentTurn: sessionState.turn,
+    atAnchorOrder: currentUserOrder,
 })
 ```
+
+真实生成与重 roll 都必须使用当前 USER 的持久化 `order`；请求预览使用假定的新 USER order。禁止读取无坐标的 current Shop state，否则 USER 保存后才激活的效果会倒灌进该回合。
 
 并将它追加到现有 `runtimeDepthEntries`。传给 native prompt 的 `runtimeDepthPrompts`必须使用同一数组，禁止为 native/local 写两份 injection 生成器。
 
@@ -247,6 +250,7 @@ Shop entry 的 order 必须高于其他 Tavern depth-1 状态条目，使它成�
 - 无活跃效果时不出现空标题。
 - 最后一回合出现消退说明，下一主回合不再出现。
 - 重 roll 使用原回合 Shop 投影；原回复之后激活的效果不倒灌。
+- 普通 RP 使用当前 USER 的 order；该 USER 保存后才激活的效果同样不得倒灌。
 
 ### 阶段 E：Phone OS 控制层与跨标签页同步
 

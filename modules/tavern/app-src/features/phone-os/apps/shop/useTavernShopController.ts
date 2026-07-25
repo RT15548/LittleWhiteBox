@@ -10,6 +10,9 @@ import {
     type TavernShopDeactivateResult,
     type TavernShopPurchaseResult,
 } from '../../../../../shared/shop/shop-service';
+import {
+    getTavernShopItem,
+} from '../../../../../shared/shop/shop-catalog';
 import type {
     TavernShopActivation,
     TavernShopItem,
@@ -67,6 +70,7 @@ export function useTavernShopController(options: TavernShopControllerOptions) {
     const busyAction = ref('');
     let readSequence = 0;
     let mutationRevision = 0;
+    let mutationOwner: { sessionId: string; actionId: string; actionKey: string } | null = null;
 
     const inventoryState = computed(() => currentVersion.value?.state || emptyState());
     const shelfItems = computed(() => projectTavernShopShelf(inventoryState.value));
@@ -95,6 +99,7 @@ export function useTavernShopController(options: TavernShopControllerOptions) {
     function resetState(): void {
         readSequence += 1;
         mutationRevision += 1;
+        mutationOwner = null;
         currentVersion.value = null;
         currentTurn.value = 0;
         loading.value = false;
@@ -224,6 +229,13 @@ export function useTavernShopController(options: TavernShopControllerOptions) {
         return intent.sessionId === currentSessionId();
     }
 
+    function actionBlockedReason(intent: TavernShopActionIntent): string {
+        if (intent.kind === 'purchase') {
+            return purchaseBlockedReason(getTavernShopItem(intent.itemId));
+        }
+        return activationBlockedReason();
+    }
+
     async function recoverFromActionError(error: unknown): Promise<void> {
         const uiError = tavernShopUiError(error);
         actionError.value = uiError.message;
@@ -243,14 +255,26 @@ export function useTavernShopController(options: TavernShopControllerOptions) {
         successMessage: string,
         refreshWallet: boolean,
     ): Promise<TResult | null> {
-        if (busyAction.value || !intentMatchesCurrentSession(intent)) {return null;}
+        if (mutationOwner || !intentMatchesCurrentSession(intent)) {return null;}
+        const blocked = actionBlockedReason(intent);
+        if (blocked) {
+            actionError.value = blocked;
+            return null;
+        }
         const actionKey = `${intent.kind}:${intent.itemId}:${intent.activationId || ''}`;
+        const owner = {
+            sessionId: intent.sessionId,
+            actionId: intent.actionId,
+            actionKey,
+        };
+        mutationOwner = owner;
         busyAction.value = actionKey;
         actionError.value = '';
         status.value = '';
+        const ownsMutation = () => mutationOwner === owner && intentMatchesCurrentSession(intent);
         try {
             const result = await execute();
-            if (!intentMatchesCurrentSession(intent)) {return result;}
+            if (!ownsMutation()) {return result;}
             mutationRevision += 1;
             currentVersion.value = result.record;
             options.showToast?.(successMessage);
@@ -258,16 +282,20 @@ export function useTavernShopController(options: TavernShopControllerOptions) {
                 try {
                     await options.wallet.refreshAfterEconomyDomainChange();
                 } catch {
+                    if (!ownsMutation()) {return result;}
                     status.value = '契约已经生效，但钱包显示刷新失败；重新打开钱包会再次读取。';
                     options.showToast?.(status.value, { tone: 'warning', durationMs: 4200 });
                 }
             }
             return result;
         } catch (error) {
-            if (intentMatchesCurrentSession(intent)) {await recoverFromActionError(error);}
+            if (ownsMutation()) {await recoverFromActionError(error);}
             return null;
         } finally {
-            if (busyAction.value === actionKey) {busyAction.value = '';}
+            if (mutationOwner === owner) {
+                mutationOwner = null;
+                busyAction.value = '';
+            }
         }
     }
 

@@ -22,13 +22,15 @@ import {
     getTavernShopItem,
 } from './shop-catalog';
 import {
+    findTavernShopStateInvariantViolation,
+} from './shop-invariants';
+import {
     isTavernShopActivationActive,
     normalizeTavernShopAnchorOrder,
     normalizeTavernShopParameters,
     normalizeTavernShopSessionId,
     normalizeTavernShopStateVersionRecord,
     normalizeTavernShopTurn,
-    tavernShopActivationKey,
     throwTavernShopError,
     TAVERN_SHOP_CURRENT_MARKER,
     type ActivateTavernShopItemInput,
@@ -36,7 +38,6 @@ import {
     type PurchaseTavernShopItemInput,
     type TavernShopActivation,
     type TavernShopInventoryState,
-    type TavernShopItem,
     type TavernShopStateAction,
     type TavernShopStateVersionRecord,
 } from './shop-types';
@@ -162,7 +163,7 @@ function buildNextVersion(
     const state = current ? clone(current.state) : { items: {} };
     mutate(state);
     const timestamp = now();
-    return normalizeTavernShopStateVersionRecord({
+    const next = normalizeTavernShopStateVersionRecord({
         sessionId,
         revision: current ? current.revision + 1 : 1,
         versionId: createId('shop-version'),
@@ -174,6 +175,21 @@ function buildNextVersion(
         createdAt: timestamp,
         updatedAt: timestamp,
     } as TavernShopStateVersionRecord);
+    const invariantViolation = findTavernShopStateInvariantViolation(next.state);
+    if (invariantViolation) {
+        const detail = `${invariantViolation.itemId}:${invariantViolation.activationId || ''}`;
+        if (invariantViolation.code === 'purchase-limit') {
+            throwTavernShopError('shop_purchase_limit_reached', invariantViolation.itemId);
+        }
+        if (invariantViolation.code === 'activation-overlap') {
+            throwTavernShopError('shop_activation_duplicate', invariantViolation.itemId);
+        }
+        if (invariantViolation.code === 'parameters-invalid') {
+            throwTavernShopError('shop_parameters_invalid', detail);
+        }
+        throwTavernShopError('shop_state_invalid', detail || invariantViolation.code);
+    }
+    return next;
 }
 
 async function appendVersionInTransaction(
@@ -208,6 +224,7 @@ function findActivation(
 
 export interface TavernShopPurchaseResult {
     record: TavernShopStateVersionRecord;
+    actionRecord: TavernShopStateVersionRecord;
     transaction: TavernEconomyTransactionRecord;
     playerBalance: number;
     replay: boolean;
@@ -215,12 +232,14 @@ export interface TavernShopPurchaseResult {
 
 export interface TavernShopActivateResult {
     record: TavernShopStateVersionRecord;
+    actionRecord: TavernShopStateVersionRecord;
     activation: TavernShopActivation;
     replay: boolean;
 }
 
 export interface TavernShopDeactivateResult {
     record: TavernShopStateVersionRecord;
+    actionRecord: TavernShopStateVersionRecord;
     activation: TavernShopActivation;
     replay: boolean;
 }
@@ -304,8 +323,11 @@ export async function purchaseTavernShopItem(input: PurchaseTavernShopItemInput)
                 ) {
                     throwTavernShopError('shop_action_conflict', actionId);
                 }
+                const current = await getCurrentVersionInTransaction(sessionId);
+                if (!current) {throwTavernShopError('shop_state_invalid', 'replay.current_missing');}
                 return {
-                    record: clone(replay),
+                    record: clone(current),
+                    actionRecord: clone(replay),
                     transaction,
                     playerBalance: transaction.playerBalanceAfter,
                     replay: true,
@@ -314,13 +336,17 @@ export async function purchaseTavernShopItem(input: PurchaseTavernShopItemInput)
             await assertTavernPhoneBoundaryInCurrentTransaction(sessionId, input.boundary);
             const current = await getCurrentVersionInTransaction(sessionId);
             assertVersionCas(current, expectedRevision, expectedVersionId);
-            if (item.purchaseLimit !== undefined) {
-                const entry = current?.state.items[item.id];
-                const purchasedCount = (entry?.quantity || 0) + (entry?.activations?.length || 0);
-                if (purchasedCount >= item.purchaseLimit) {
-                    throwTavernShopError('shop_purchase_limit_reached', item.id);
-                }
-            }
+            const next = buildNextVersion(current, sessionId, actionId, {
+                kind: 'purchase',
+                itemId: item.id,
+            }, anchorOrder, (state) => {
+                const entry = state.items[item.id] || { itemId: item.id, quantity: 0, activations: [] };
+                state.items[item.id] = {
+                    itemId: item.id,
+                    quantity: entry.quantity + 1,
+                    activations: [...entry.activations],
+                };
+            });
             const transaction = await postTavernEconomyTransactionInCurrentDbTransaction({
                 sessionId,
                 idempotencyKey: purchaseIdempotencyKey(actionId),
@@ -334,49 +360,17 @@ export async function purchaseTavernShopItem(input: PurchaseTavernShopItemInput)
                 sourceId: item.id,
                 anchorOrder,
             }, { touchSessionOnCreate: false });
-            const next = buildNextVersion(current, sessionId, actionId, {
-                kind: 'purchase',
-                itemId: item.id,
-            }, anchorOrder, (state) => {
-                const entry = state.items[item.id] || { itemId: item.id, quantity: 0, activations: [] };
-                state.items[item.id] = {
-                    itemId: item.id,
-                    quantity: entry.quantity + 1,
-                    activations: [...entry.activations],
-                };
-            });
             await appendVersionInTransaction(current, next);
             await touchSession(sessionId);
             return {
                 record: clone(next),
+                actionRecord: clone(next),
                 transaction,
                 playerBalance: transaction.playerBalanceAfter,
                 replay: false,
             };
         },
     );
-}
-
-function assertNoActiveDuplicate(
-    state: TavernShopInventoryState,
-    item: TavernShopItem,
-    parameters: Record<string, string>,
-    currentTurn: number,
-): void {
-    const entry = state.items[item.id];
-    if (!entry) {return;}
-    if (item.stacking === 'global-single') {
-        if (entry.activations.some((activation) => isTavernShopActivationActive(activation, item, currentTurn))) {
-            throwTavernShopError('shop_activation_duplicate', item.id);
-        }
-        return;
-    }
-    const key = tavernShopActivationKey(item, parameters);
-    const duplicate = entry.activations.some((activation) => (
-        isTavernShopActivationActive(activation, item, currentTurn)
-        && tavernShopActivationKey(item, activation.parameters) === key
-    ));
-    if (duplicate) {throwTavernShopError('shop_activation_duplicate', item.id);}
 }
 
 export async function activateTavernShopItem(input: ActivateTavernShopItemInput): Promise<TavernShopActivateResult> {
@@ -408,7 +402,14 @@ export async function activateTavernShopItem(input: ActivateTavernShopItemInput)
                 if (!activation || !sameJson(activation.parameters, parameters)) {
                     throwTavernShopError('shop_action_conflict', actionId);
                 }
-                return { record: clone(replay), activation: clone(activation), replay: true };
+                const current = await getCurrentVersionInTransaction(sessionId);
+                if (!current) {throwTavernShopError('shop_state_invalid', 'replay.current_missing');}
+                return {
+                    record: clone(current),
+                    actionRecord: clone(replay),
+                    activation: clone(activation),
+                    replay: true,
+                };
             }
             await assertTavernPhoneBoundaryInCurrentTransaction(sessionId, input.boundary);
             const current = await getCurrentVersionInTransaction(sessionId);
@@ -419,7 +420,6 @@ export async function activateTavernShopItem(input: ActivateTavernShopItemInput)
             if (!entry || entry.quantity < 1) {
                 throwTavernShopError('shop_quantity_insufficient', item.id);
             }
-            assertNoActiveDuplicate(state, item, parameters, currentTurn);
             const activation: TavernShopActivation = {
                 id: createId('shop-activation'),
                 itemId: item.id,
@@ -443,7 +443,12 @@ export async function activateTavernShopItem(input: ActivateTavernShopItemInput)
             });
             await appendVersionInTransaction(current, next);
             await touchSession(sessionId);
-            return { record: clone(next), activation: clone(activation), replay: false };
+            return {
+                record: clone(next),
+                actionRecord: clone(next),
+                activation: clone(activation),
+                replay: false,
+            };
         },
     );
 }
@@ -475,7 +480,14 @@ export async function deactivateTavernShopItem(input: DeactivateTavernShopItemIn
                 actionId);
                 const activation = findActivation(replay.state, item.id, activationId);
                 if (!activation) {throwTavernShopError('shop_action_conflict', actionId);}
-                return { record: clone(replay), activation: clone(activation), replay: true };
+                const current = await getCurrentVersionInTransaction(sessionId);
+                if (!current) {throwTavernShopError('shop_state_invalid', 'replay.current_missing');}
+                return {
+                    record: clone(current),
+                    actionRecord: clone(replay),
+                    activation: clone(activation),
+                    replay: true,
+                };
             }
             await assertTavernPhoneBoundaryInCurrentTransaction(sessionId, input.boundary);
             const current = await getCurrentVersionInTransaction(sessionId);
@@ -513,7 +525,12 @@ export async function deactivateTavernShopItem(input: DeactivateTavernShopItemIn
             });
             await appendVersionInTransaction(current, next);
             await touchSession(sessionId);
-            return { record: clone(next), activation: clone(endedActivation), replay: false };
+            return {
+                record: clone(next),
+                actionRecord: clone(next),
+                activation: clone(endedActivation),
+                replay: false,
+            };
         },
     );
 }

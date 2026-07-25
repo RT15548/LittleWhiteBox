@@ -523,6 +523,8 @@ export type TavernBuildNativeChatPromptRuntime = (input: {
     [TAVERN_LOCAL_PROMPT_MESSAGES]?: XbTavernMessage[];
 }) => Promise<{
     messages?: XbTavernMessage[];
+    /** Explicit final-array boundary for the current USER; never infer it by role. */
+    currentUserMessageIndex: number | null;
     source?: string;
     promptMessageCount?: number;
     diagnostics?: Record<string, unknown>;
@@ -631,7 +633,10 @@ async function applyNativeChatPromptBuild(input: {
      * block uses it to guarantee the observable "last block before USER"
      * ordering, which the SillyTavern extension-prompt key order cannot.
      */
-    finalizeNativeMessages?: (messages: XbTavernMessage[]) => XbTavernMessage[];
+    finalizeNativeMessages?: (
+        messages: XbTavernMessage[],
+        currentUserMessageIndex: number | null | undefined,
+    ) => XbTavernMessage[];
     diagnostics?: TavernDiagnostics;
 }): Promise<{ buildResult: XbTavernMessageBuildResult; buildSnapshot: XbTavernBuildSnapshot }> {
     if (!input.buildNativeChatPrompt) {
@@ -655,7 +660,7 @@ async function applyNativeChatPromptBuild(input: {
         throw new Error('native_prompt_builder_returned_empty_messages');
     }
     const finalizedMessages = input.finalizeNativeMessages
-        ? input.finalizeNativeMessages(nativeMessages)
+        ? input.finalizeNativeMessages(nativeMessages, nativePrompt?.currentUserMessageIndex)
         : nativeMessages;
     if (!Array.isArray(finalizedMessages) || !finalizedMessages.length) {
         throw new Error('native_prompt_finalizer_returned_empty_messages');
@@ -1780,6 +1785,7 @@ export async function simulateXbTavernRequest(input: XbTavernSimulateRequestInpu
         ? await runTavernStage('simulate_shop_context', () => buildTavernShopRuntimeDepthEntries({
             sessionId: session.id,
             currentTurn: sessionState.turn,
+            atAnchorOrder: (contextWindow?.historyMessages.at(-1)?.order ?? -1) + 1,
         }))
         : [];
     const runtimeProtocolMessages = buildRuntimeProtocolMessages(sessionContractRuntime, {
@@ -1865,9 +1871,10 @@ export async function simulateXbTavernRequest(input: XbTavernSimulateRequestInpu
         memoryContext: filteredMemoryContext,
         runtimeDepthPrompts: [...taskDepthEntries, ...shopDepthEntries],
         runtimeProtocolMessages,
-        finalizeNativeMessages: (messages) => placeTavernShopPromptBlockBeforeCurrentUser(
+        finalizeNativeMessages: (messages, currentUserMessageIndex) => placeTavernShopPromptBlockBeforeCurrentUser(
             messages,
             shopDepthEntries[0]?.content || '',
+            currentUserMessageIndex,
         ),
         diagnostics: input.diagnostics,
     });
@@ -2433,7 +2440,7 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
     const shopDepthEntries = await runTavernStage('turn_shop_context', () => buildTavernShopRuntimeDepthEntries({
         sessionId: baseSession.id,
         currentTurn: sessionState.turn,
-        ...(rerollPreparation && userMessage ? { atAnchorOrder: userMessage.order } : {}),
+        atAnchorOrder: userMessage?.order ?? contextWindow.historyMessages.at(-1)?.order ?? -1,
     }));
     const runtimeProtocolMessages = buildRuntimeProtocolMessages(sessionContractRuntime, {
         includePhoneCommunication: communicationEvents.length > 0,
@@ -2524,9 +2531,10 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
         chancePrompt: chanceEncounterEvent ? buildChanceEncounterPromptMessage().content : '',
         runtimeDepthPrompts: [...taskDepthEntries, ...shopDepthEntries],
         runtimeProtocolMessages,
-        finalizeNativeMessages: (messages) => placeTavernShopPromptBlockBeforeCurrentUser(
+        finalizeNativeMessages: (messages, currentUserMessageIndex) => placeTavernShopPromptBlockBeforeCurrentUser(
             messages,
             shopDepthEntries[0]?.content || '',
+            currentUserMessageIndex,
         ),
         diagnostics: turnDiagnostics,
     });

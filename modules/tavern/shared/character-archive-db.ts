@@ -68,11 +68,14 @@ import {
     findTavernShopItem,
 } from './shop/shop-catalog';
 import {
-    normalizeTavernShopParameters,
-    normalizeTavernShopStateVersionRecord,
+    parseCanonicalTavernShopStateVersionRecord,
     TAVERN_SHOP_CURRENT_MARKER,
+    type TavernShopActivation,
     type TavernShopStateVersionRecord,
 } from './shop/shop-types';
+import {
+    findTavernShopStateInvariantViolation,
+} from './shop/shop-invariants';
 
 const RESTORE_TEMP_CHARACTER_PREFIX = '__lwb_restore__';
 const RESTORE_BATCH_SIZE = 500;
@@ -354,13 +357,38 @@ function assertTaskEconomyArchiveStable(input: {
  * exactly one current marker on the highest revision, and only catalog-known
  * item ids. Unknown or malformed shop state fails the whole archive.
  */
+function assertShopArchiveStateInvariants(state: TavernShopStateVersionRecord['state']): void {
+    const violation = findTavernShopStateInvariantViolation(state);
+    if (!violation) {return;}
+    const detail = `${violation.itemId}:${violation.activationId || ''}`;
+    if (violation.code === 'item-unknown') {
+        throw new Error(`archive_shop_item_unknown:${violation.itemId}`);
+    }
+    if (violation.code === 'purchase-limit') {
+        throw new Error(`archive_shop_purchase_limit_invalid:${violation.itemId}`);
+    }
+    if (violation.code === 'activation-id-duplicate') {
+        throw new Error(`archive_shop_activation_id_duplicate:${violation.activationId || ''}`);
+    }
+    if (violation.code === 'parameters-invalid') {
+        throw new Error(`archive_shop_parameters_invalid:${detail}`);
+    }
+    if (violation.code === 'activation-lifecycle-invalid') {
+        throw new Error(`archive_shop_activation_end_invalid:${violation.activationId || ''}`);
+    }
+    if (violation.code === 'activation-overlap') {
+        throw new Error(`archive_shop_activation_overlap_invalid:${detail}`);
+    }
+    throw new Error(`archive_shop_state_invalid:${detail}`);
+}
+
 function assertShopArchiveStable(input: {
     session: TavernSessionRecord;
     versions: TavernShopStateVersionRecord[];
     transactions: TavernEconomyTransactionRecord[];
 }): void {
     const sessionId = input.session.id;
-    const rows = input.versions.map((row) => normalizeTavernShopStateVersionRecord(row));
+    const rows = input.versions.map((row) => cloneSerializable(row));
     const versionIds = new Set<string>();
     const actionIds = new Set<string>();
     for (const row of rows) {
@@ -372,39 +400,7 @@ function assertShopArchiveStable(input: {
         if (!findTavernShopItem(row.action.itemId)) {
             throw new Error(`archive_shop_item_unknown:${row.action.itemId}`);
         }
-        const rowActivationIds = new Set<string>();
-        for (const [itemId, entry] of Object.entries(row.state.items)) {
-            const item = findTavernShopItem(itemId);
-            if (!item) {throw new Error(`archive_shop_item_unknown:${itemId}`);}
-            if (item.purchaseLimit !== undefined && entry.quantity + entry.activations.length > item.purchaseLimit) {
-                throw new Error(`archive_shop_purchase_limit_invalid:${itemId}`);
-            }
-            for (const activation of entry.activations) {
-                if (rowActivationIds.has(activation.id)) {
-                    throw new Error(`archive_shop_activation_id_duplicate:${activation.id}`);
-                }
-                rowActivationIds.add(activation.id);
-                const normalizedParameters = normalizeTavernShopParameters(item, activation.parameters);
-                const parameterKeys = Object.keys(activation.parameters).sort();
-                const normalizedKeys = Object.keys(normalizedParameters).sort();
-                if (
-                    JSON.stringify(parameterKeys) !== JSON.stringify(normalizedKeys)
-                    || normalizedKeys.some((key) => activation.parameters[key] !== normalizedParameters[key])
-                ) {
-                    throw new Error(`archive_shop_parameters_invalid:${itemId}:${activation.id}`);
-                }
-                if (activation.endedAtTurn !== undefined) {
-                    if (
-                        item.duration.kind !== 'manual'
-                        || activation.endedAtTurn < activation.startsAtTurn
-                        || Number(activation.endedAtOrder) < activation.activatedAtOrder
-                        || Number(activation.endedAt) < activation.activatedAt
-                    ) {
-                        throw new Error(`archive_shop_activation_end_invalid:${activation.id}`);
-                    }
-                }
-            }
-        }
+        assertShopArchiveStateInvariants(row.state);
         const actionActivationId = String(row.action.activationId || '');
         if (row.action.kind === 'purchase') {
             if (actionActivationId) {throw new Error(`archive_shop_action_invalid:${row.actionId}`);}
@@ -435,6 +431,14 @@ function assertShopArchiveStable(input: {
             left.localeCompare(right)
         )));
     });
+    const activationOrigin = (activation: TavernShopActivation) => ({
+        id: activation.id,
+        itemId: activation.itemId,
+        parameters: activation.parameters,
+        startsAtTurn: activation.startsAtTurn,
+        activatedAtOrder: activation.activatedAtOrder,
+        activatedAt: activation.activatedAt,
+    });
     let previousState = { items: {} } as TavernShopStateVersionRecord['state'];
     let previousAnchor = -1;
     for (const row of rows) {
@@ -459,6 +463,7 @@ function assertShopArchiveStable(input: {
                 || beforeEntry.quantity < 1
                 || !activation
                 || beforeEntry.activations.some((candidate) => candidate.id === activationId)
+                || activation.activatedAtOrder !== row.anchorOrder
             ) {
                 throw new Error(`archive_shop_transition_invalid:${row.actionId}`);
             }
@@ -477,6 +482,8 @@ function assertShopArchiveStable(input: {
                 || beforeActivation.endedAtTurn !== undefined
                 || !endedActivation
                 || endedActivation.endReason !== 'manual'
+                || endedActivation.endedAtOrder !== row.anchorOrder
+                || canonicalJson(activationOrigin(beforeActivation)) !== canonicalJson(activationOrigin(endedActivation))
             ) {
                 throw new Error(`archive_shop_transition_invalid:${row.actionId}`);
             }
@@ -929,6 +936,20 @@ function remapArchiveRecord(
     return { table, record } as unknown as TavernCharacterArchiveRecord;
 }
 
+/** One Shop restore ingress: remap, strict canonical parse, then write exactly that record. */
+function canonicalizeArchiveRecordForRestore(record: TavernCharacterArchiveRecord): TavernCharacterArchiveRecord {
+    if (record.table !== 'shopStateVersions') {return record;}
+    try {
+        return {
+            ...record,
+            record: parseCanonicalTavernShopStateVersionRecord(record.record),
+        } as TavernCharacterArchiveRecord;
+    } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error || 'invalid');
+        throw new Error(`archive_shop_noncanonical:${detail}`);
+    }
+}
+
 async function deleteTableRecordsBySessionId(table: ArchiveRuntimeTable, sessionId = ''): Promise<number> {
     let deletedCount = 0;
     while (true) {
@@ -1119,13 +1140,13 @@ export async function restoreTavernCharacterArchiveFromRecords(input: {
     try {
         for await (const records of input.recordBatches) {
             for (const record of records) {
-                const remapped = remapArchiveRecord(record, {
+                const remapped = canonicalizeArchiveRecordForRestore(remapArchiveRecord(record, {
                     characterKey,
                     tempCharacterKey,
                     mapSessionId: mapper.mapSessionId,
                     mapManagerRunId: mapper.mapManagerRunId,
                     mapPatchId: mapper.mapPatchId,
-                });
+                }));
                 if (remapped.table === 'sessions') {
                     const sessionId = String(remapped.record.id || '').trim();
                     if (stagedSessionIds.has(sessionId)) {throw new Error(`archive_session_duplicate:${sessionId}`);}

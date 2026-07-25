@@ -381,3 +381,50 @@ export function normalizeTavernShopStateVersionRecord(
         updatedAt,
     };
 }
+
+/**
+ * Archive input is intentionally stricter than ordinary runtime parsing:
+ * restores only accept records already expressed in the current canonical
+ * shape. This prevents a coercible transport value (for example, "1") from
+ * being validated as a number and then persisted unchanged.
+ */
+function isStrictCanonicalShopValue(raw: unknown, canonical: unknown): boolean {
+    if (Object.is(raw, canonical)) {return true;}
+    if (!raw || !canonical || typeof raw !== 'object' || typeof canonical !== 'object') {
+        return false;
+    }
+    if (Array.isArray(raw) || Array.isArray(canonical)) {
+        if (!Array.isArray(raw) || !Array.isArray(canonical) || raw.length !== canonical.length) {
+            return false;
+        }
+        return raw.every((value, index) => isStrictCanonicalShopValue(value, canonical[index]));
+    }
+    const rawPrototype = Object.getPrototypeOf(raw);
+    const canonicalPrototype = Object.getPrototypeOf(canonical);
+    if (
+        (rawPrototype !== Object.prototype && rawPrototype !== null)
+        || (canonicalPrototype !== Object.prototype && canonicalPrototype !== null)
+    ) {
+        return false;
+    }
+    const rawRecord = raw as Record<string, unknown>;
+    const canonicalRecord = canonical as Record<string, unknown>;
+    const rawKeys = Object.keys(rawRecord).sort();
+    const canonicalKeys = Object.keys(canonicalRecord).sort();
+    if (
+        rawKeys.length !== canonicalKeys.length
+        || rawKeys.some((key, index) => key !== canonicalKeys[index])
+    ) {
+        return false;
+    }
+    return rawKeys.every((key) => isStrictCanonicalShopValue(rawRecord[key], canonicalRecord[key]));
+}
+
+/** Parses a Shop archive row and rejects every coercion, omission, or extra field. */
+export function parseCanonicalTavernShopStateVersionRecord(value: unknown): TavernShopStateVersionRecord {
+    const canonical = normalizeTavernShopStateVersionRecord(value as TavernShopStateVersionRecord);
+    if (!isStrictCanonicalShopValue(value, canonical)) {
+        throwTavernShopError('shop_state_invalid', 'version.noncanonical');
+    }
+    return canonical;
+}

@@ -41,6 +41,13 @@ const balanceLabel = computed(() => {
     if (!phone.wallet.balanceReady.value) {return '不可用';}
     return String(phone.wallet.balance.value);
 });
+const dialogBlockedReason = computed(() => {
+    const current = dialog.value;
+    if (!current) {return '';}
+    return current.intent.kind === 'purchase'
+        ? phone.shop.purchaseBlockedReason(current.item)
+        : phone.shop.activationBlockedReason();
+});
 
 function showPath(path: string) {
     closeDialog();
@@ -191,6 +198,7 @@ watch(() => session.selectedSessionId.value, closeDialog);
     :known-target-names="phone.shop.knownTargetNames.value"
     :permanent-confirm="dialog.permanentConfirm"
     :busy="!!phone.shop.busyAction.value"
+    :blocked-reason="dialogBlockedReason"
     :error="phone.shop.actionError.value"
     @cancel="closeDialog"
     @confirm="confirmDialog"

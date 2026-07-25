@@ -272,6 +272,10 @@ function buildOpenAiMessages(context = {}, currentUserMessage = "") {
     return result;
   }, []);
 }
+function createCurrentUserBoundaryMarker() {
+  return `
+__LWB_CURRENT_USER_BOUNDARY_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}__`;
+}
 function countMatchedMessages(sourceMessages = [], targetMessages = []) {
   const remaining = /* @__PURE__ */ new Map();
   targetMessages.forEach((message) => {
@@ -547,7 +551,12 @@ async function buildNativePromptNow(input = {}, queuedAt = nowMs(), signal) {
       addNativeWorldInfoOutlets(runtime);
       applyAuthorNotePrompt(context, input.currentUserMessage || "", runtime);
     });
-    const messages = await traceNativePromptStep(trace, "build_chat_messages", () => buildOpenAiMessages(context, input.currentUserMessage || ""));
+    const currentUserMessage = normalizeText(input.currentUserMessage || "");
+    const currentUserBoundaryMarker = currentUserMessage ? createCurrentUserBoundaryMarker() : "";
+    const messages = await traceNativePromptStep(trace, "build_chat_messages", () => buildOpenAiMessages(
+      context,
+      `${currentUserMessage}${currentUserBoundaryMarker}`
+    ));
     const messageExamples = await traceNativePromptStep(trace, "build_examples", () => buildMessageExamples(context));
     const nativeInputHistory = Array.isArray(context.history) ? context.history : [];
     const nativeInputHistoryMessages = nativeInputHistory.map((item) => ({
@@ -572,14 +581,20 @@ async function buildNativePromptNow(input = {}, queuedAt = nowMs(), signal) {
       messages,
       messageExamples
     }, true));
-    const normalizedMessages = (Array.isArray(prepared) ? prepared : []).map(toXbMessage).filter(Boolean);
+    const preparedMessages = (Array.isArray(prepared) ? prepared : []).map(toXbMessage).filter(Boolean);
+    const currentUserMessageIndex = currentUserBoundaryMarker ? preparedMessages.findIndex((message) => message.role === "user" && String(message.content || "").includes(currentUserBoundaryMarker)) : -1;
+    if (currentUserBoundaryMarker && currentUserMessageIndex < 0) {
+      throw new Error("native_prompt_current_user_boundary_missing");
+    }
+    const normalizedMessages = preparedMessages.map((message, index) => index === currentUserMessageIndex ? { ...message, content: String(message.content || "").replace(currentUserBoundaryMarker, "") } : message);
+    const messagesForDiagnostics = currentUserBoundaryMarker ? messages.map((message) => message.role === "user" && String(message.content || "").includes(currentUserBoundaryMarker) ? { ...message, content: String(message.content || "").replace(currentUserBoundaryMarker, "") } : message) : messages;
     const matchedHistory = countMatchedMessages(nativeInputHistoryMessages, normalizedMessages);
-    const matchedConversation = countMatchedMessages(messages, normalizedMessages);
+    const matchedConversation = countMatchedMessages(messagesForDiagnostics, normalizedMessages);
     const nativeDiagnostics = {
       nativeInputHistoryCount: nativeInputHistoryMessages.length,
       nativeInputHistoryChars: nativeInputHistoryMessages.reduce((sum, message) => sum + normalizeText(message.content).length, 0),
-      nativeBuiltConversationMessageCount: messages.length,
-      nativeBuiltConversationChars: messages.reduce((sum, message) => sum + normalizeText(message.content).length, 0),
+      nativeBuiltConversationMessageCount: messagesForDiagnostics.length,
+      nativeBuiltConversationChars: messagesForDiagnostics.reduce((sum, message) => sum + normalizeText(message.content).length, 0),
       nativePreparedMessageCount: Array.isArray(prepared) ? prepared.length : 0,
       nativePreparedMessageChars: normalizedMessages.reduce((sum, message) => sum + normalizeText(message.content).length, 0),
       nativeMatchedHistoryCount: matchedHistory.count,
@@ -599,6 +614,7 @@ async function buildNativePromptNow(input = {}, queuedAt = nowMs(), signal) {
     });
     return {
       messages: normalizedMessages,
+      currentUserMessageIndex: currentUserMessageIndex >= 0 ? currentUserMessageIndex : null,
       source: "sillytavern-prepareOpenAIMessages",
       promptMessageCount: normalizedMessages.length,
       diagnostics: nativeDiagnostics

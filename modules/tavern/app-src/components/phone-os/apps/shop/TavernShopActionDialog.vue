@@ -10,6 +10,7 @@ const props = defineProps<{
     knownTargetNames: string[];
     permanentConfirm: boolean;
     busy: boolean;
+    blockedReason: string;
     error: string;
 }>();
 
@@ -38,17 +39,23 @@ const message = computed(() => {
         return '这条规则一旦生效便没有关闭按钮，只能回滚到激活前的剧情位置或删除会话解除。';
     }
     return props.item.inputs.length
-        ? '填写规则作用的数据。它只会进入人工审核过的契约模板。'
+        ? '填写规则作用的数据。它只会作为数据交给固定的契约规则。'
         : '确认后，这条规则会从下一次叙事请求开始生效。';
 });
 const confirmText = computed(() => {
     if (props.busy) {return '正在落契';}
+    if (props.blockedReason) {return '暂不可提交';}
     if (props.intent.kind === 'purchase') {return `支付 ${props.item.price} 币`;}
     if (props.intent.kind === 'deactivate') {return '确认关闭';}
     if (props.item.duration.kind === 'permanent' && !props.permanentConfirm) {return '继续确认';}
     if (props.permanentConfirm) {return '永久生效';}
     return '确认启用';
 });
+
+function confirm(): void {
+    if (props.busy || props.blockedReason) {return;}
+    emit('confirm');
+}
 
 function updateParameter(key: string, value: string) {
     emit('update:parameters', { ...props.parameters, [key]: value });
@@ -90,7 +97,7 @@ onBeforeUnmount(() => {
       <form
         class="tavern-shop-dialog"
         :class="{ 'is-permanent': permanentConfirm }"
-        @submit.prevent="emit('confirm')"
+        @submit.prevent="confirm"
       >
         <header>
           <span>{{ permanentConfirm ? '朱印不可撤' : '规则契约' }}</span>
@@ -152,11 +159,11 @@ onBeforeUnmount(() => {
           </div>
         </dl>
         <div
-          v-if="error"
+          v-if="blockedReason || error"
           class="tavern-shop-dialog-error"
           role="status"
         >
-          {{ error }}
+          {{ blockedReason || error }}
         </div>
         <footer>
           <button
@@ -169,7 +176,7 @@ onBeforeUnmount(() => {
           </button>
           <button
             type="submit"
-            :disabled="busy"
+            :disabled="busy || !!blockedReason"
           >
             {{ confirmText }}
           </button>

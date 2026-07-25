@@ -73,6 +73,7 @@ import { TAVERN_TASK_CURRENT_MARKER } from '../shared/tasks/task-types';
 import { captureTavernPhoneBoundary } from '../shared/phone-boundary';
 import {
     activateTavernShopItem,
+    deactivateTavernShopItem,
     getCurrentTavernShopState,
     purchaseTavernShopItem,
 } from '../shared/shop/shop-service';
@@ -1138,17 +1139,167 @@ test('tavern character archive rejects a broken shop current marker before promo
         if (row.table !== 'shopStateVersions' || Number((row.record as { revision?: number }).revision) !== 3) {
             return row;
         }
+        const record = Object.fromEntries(Object.entries(row.record).filter(([key]) => key !== 'currentMarker'));
         return {
             ...row,
-            record: {
-                ...row.record,
-                currentMarker: undefined,
-            },
+            record,
         } as TavernCharacterArchiveRecord;
     });
     await db.delete();
     await db.open();
 
     await assert.rejects(restoreFromRecords(manifest, brokenRecords), /archive_shop_current_marker_invalid/);
+    assert.equal((await listTavernSessions()).length, 0);
+});
+
+test('tavern character archive rejects coercible Shop records before they can enter the database', async () => {
+    await seedArchiveSource();
+    const { manifest, records } = await buildArchive('char-a', 500);
+    const brokenRecords = records.map((row) => {
+        if (row.table !== 'shopStateVersions' || Number((row.record as { revision?: number }).revision) !== 1) {
+            return row;
+        }
+        const record = JSON.parse(JSON.stringify(row.record)) as {
+            state: { items: Record<string, { quantity: number | string }> };
+        };
+        record.state.items.flower.quantity = '1';
+        return { ...row, record } as TavernCharacterArchiveRecord;
+    });
+    await db.delete();
+    await db.open();
+
+    await assert.rejects(restoreFromRecords(manifest, brokenRecords), /archive_shop_noncanonical/);
+    assert.equal((await listTavernSessions()).length, 0);
+});
+
+test('tavern character archive enforces Shop stacking and lifecycle invariants before promotion', async () => {
+    await seedArchiveSource();
+    const { manifest, records } = await buildArchive('char-a', 500);
+    const overlappingRecords = records.map((row) => {
+        if (row.table !== 'shopStateVersions' || Number((row.record as { revision?: number }).revision) !== 3) {
+            return row;
+        }
+        const record = JSON.parse(JSON.stringify(row.record)) as {
+            state: { items: Record<string, { activations: Array<Record<string, unknown>> }> };
+        };
+        const activation = record.state.items['absolute-obedience'].activations[0];
+        record.state.items['absolute-obedience'].activations.push({
+            ...activation,
+            id: 'archive-overlapping-activation',
+        });
+        return { ...row, record } as unknown as TavernCharacterArchiveRecord;
+    });
+    await db.delete();
+    await db.open();
+    await assert.rejects(restoreFromRecords(manifest, overlappingRecords), /archive_shop_activation_overlap_invalid/);
+    assert.equal((await listTavernSessions()).length, 0);
+
+    await seedArchiveSource();
+    const secondArchive = await buildArchive('char-a', 500);
+    const invalidLifecycleRecords = secondArchive.records.map((row) => {
+        if (row.table !== 'shopStateVersions' || Number((row.record as { revision?: number }).revision) !== 3) {
+            return row;
+        }
+        const record = JSON.parse(JSON.stringify(row.record)) as {
+            state: { items: Record<string, { activations: Array<Record<string, unknown>> }> };
+        };
+        const activation = record.state.items['absolute-obedience'].activations[0];
+        record.state.items['absolute-obedience'].activations[0] = {
+            ...activation,
+            endedAtTurn: activation.startsAtTurn,
+            endedAtOrder: activation.activatedAtOrder,
+            endedAt: activation.activatedAt,
+            endReason: 'manual',
+        };
+        return { ...row, record } as unknown as TavernCharacterArchiveRecord;
+    });
+    await db.delete();
+    await db.open();
+    await assert.rejects(restoreFromRecords(secondArchive.manifest, invalidLifecycleRecords), /archive_shop_activation_end_invalid/);
+    assert.equal((await listTavernSessions()).length, 0);
+});
+
+test('tavern character archive preserves Shop activation facts across activate and deactivate transitions', async () => {
+    const { a1 } = await seedArchiveSource();
+    const boundary = await captureTavernPhoneBoundary(a1.id);
+    const currentCas = async () => {
+        const current = await getCurrentTavernShopState(a1.id);
+        return {
+            expectedRevision: current?.revision ?? 0,
+            expectedVersionId: current?.versionId ?? '',
+        };
+    };
+    await purchaseTavernShopItem({
+        sessionId: a1.id,
+        itemId: 'privacy-camera',
+        actionId: 'archive-buy-camera',
+        boundary,
+        ...(await currentCas()),
+    });
+    const activated = await activateTavernShopItem({
+        sessionId: a1.id,
+        itemId: 'privacy-camera',
+        parameters: { targetName: '艾拉' },
+        actionId: 'archive-use-camera',
+        boundary,
+        ...(await currentCas()),
+    });
+    await deactivateTavernShopItem({
+        sessionId: a1.id,
+        itemId: 'privacy-camera',
+        activationId: activated.activation.id,
+        actionId: 'archive-close-camera',
+        boundary,
+        ...(await currentCas()),
+    });
+    const { manifest, records } = await buildArchive('char-a', 500);
+
+    const rewrittenOrigin = records.map((row) => {
+        const action = (row.record as { action?: { kind?: string } }).action;
+        if (row.table !== 'shopStateVersions' || action?.kind !== 'deactivate') {return row;}
+        const record = JSON.parse(JSON.stringify(row.record)) as {
+            action: { itemId: string; activationId: string };
+            state: { items: Record<string, { activations: Array<{ id: string; parameters: Record<string, string> }> }> };
+        };
+        const activation = record.state.items[record.action.itemId].activations
+            .find((candidate) => candidate.id === record.action.activationId)!;
+        activation.parameters.targetName = '贝塔';
+        return { ...row, record } as TavernCharacterArchiveRecord;
+    });
+    await db.delete();
+    await db.open();
+    await assert.rejects(restoreFromRecords(manifest, rewrittenOrigin), /archive_shop_transition_invalid/);
+    assert.equal((await listTavernSessions()).length, 0);
+
+    const movedEndpoint = records.map((row) => {
+        const action = (row.record as { action?: { kind?: string } }).action;
+        if (row.table !== 'shopStateVersions' || action?.kind !== 'deactivate') {return row;}
+        const record = JSON.parse(JSON.stringify(row.record)) as {
+            action: { itemId: string; activationId: string };
+            state: { items: Record<string, { activations: Array<{ id: string; endedAtOrder: number }> }> };
+        };
+        const activation = record.state.items[record.action.itemId].activations
+            .find((candidate) => candidate.id === record.action.activationId)!;
+        activation.endedAtOrder += 1;
+        return { ...row, record } as TavernCharacterArchiveRecord;
+    });
+    await assert.rejects(restoreFromRecords(manifest, movedEndpoint), /archive_shop_transition_invalid/);
+    assert.equal((await listTavernSessions()).length, 0);
+
+    const movedOrigin = records.map((row) => {
+        const action = (row.record as { action?: { kind?: string; itemId?: string } }).action;
+        if (row.table !== 'shopStateVersions' || action?.kind !== 'activate' || action.itemId !== 'privacy-camera') {
+            return row;
+        }
+        const record = JSON.parse(JSON.stringify(row.record)) as {
+            action: { itemId: string; activationId: string };
+            state: { items: Record<string, { activations: Array<{ id: string; activatedAtOrder: number }> }> };
+        };
+        const activation = record.state.items[record.action.itemId].activations
+            .find((candidate) => candidate.id === record.action.activationId)!;
+        activation.activatedAtOrder += 1;
+        return { ...row, record } as TavernCharacterArchiveRecord;
+    });
+    await assert.rejects(restoreFromRecords(manifest, movedOrigin), /archive_shop_transition_invalid/);
     assert.equal((await listTavernSessions()).length, 0);
 });

@@ -986,7 +986,7 @@ test('phone replies stay under active shop effects in a system message before US
         assert.equal(shopIndex, messages.length - 2, 'shop system message must sit right before the USER turn');
         assert.equal(messages.at(-1)?.role, 'user');
         assert.match(messages[shopIndex]?.content || '', /## 当前生效道具/);
-        assert.match(messages[shopIndex]?.content || '', /作用对象（数据）："艾琳"/);
+        assert.match(messages[shopIndex]?.content || '', /"targetName":"艾琳"/);
         assert.match(
             messages[shopIndex]?.content || '',
             /剩余主回合：1/,
@@ -1017,7 +1017,7 @@ test('phone replies stay under active shop effects in a system message before US
     });
     const retriedAtOriginalAnchor = await buildRequestMessages();
     const anchoredShop = retriedAtOriginalAnchor.find((message) => message.name === 'active_shop_effects');
-    assert.match(anchoredShop?.content || '', /作用对象（数据）："艾琳"/);
-    assert.doesNotMatch(anchoredShop?.content || '', /作用对象（数据）："贝塔"/);
+    assert.match(anchoredShop?.content || '', /"targetName":"艾琳"/);
+    assert.doesNotMatch(anchoredShop?.content || '', /"targetName":"贝塔"/);
     assert.match(anchoredShop?.content || '', /剩余主回合：1/);
 });

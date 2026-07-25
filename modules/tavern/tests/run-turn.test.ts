@@ -80,6 +80,7 @@ import type { TavernTaskListing, TavernTaskVersionRecord } from '../shared/tasks
 import { captureTavernPhoneBoundary } from '../shared/phone-boundary';
 import {
     activateTavernShopItem,
+    getCurrentTavernShopState,
     purchaseTavernShopItem,
 } from '../shared/shop/shop-service';
 
@@ -119,11 +120,17 @@ const identityApplySubstituteParams = async (items: TavernSubstituteParamsItem[]
 });
 
 function createLocalTestNativePrompt(): NonNullable<XbTavernRunTurnInput['buildNativeChatPrompt']> {
-    return async (input) => ({
-        source: 'test-local-prompt',
-        promptMessageCount: input[TAVERN_LOCAL_PROMPT_MESSAGES]?.length || 0,
-        messages: input[TAVERN_LOCAL_PROMPT_MESSAGES] || [],
-    });
+    return async (input) => {
+        const messages = input[TAVERN_LOCAL_PROMPT_MESSAGES] || [];
+        return {
+            source: 'test-local-prompt',
+            promptMessageCount: messages.length,
+            messages,
+            currentUserMessageIndex: messages.findIndex((message) => (
+                message.role === 'user' && message.content === input.currentUserMessage
+            )),
+        };
+    };
 }
 
 function withDefaultNativePromptHooks<T extends XbTavernRunTurnInput | XbTavernSimulateRequestInput>(input: T): T {
@@ -548,6 +555,7 @@ test('xb tavern run turn sends the same ST-native prompt shape used by simulatio
                 source: 'test-native-builder',
                 promptMessageCount: 1,
                 messages: [{ role: 'assistant', content: 'NATIVE_MESSAGE \n\t' }],
+                currentUserMessageIndex: null,
             };
         },
         executeRunOnce: async (options: TavernRunOnceOptions) => {
@@ -830,6 +838,7 @@ test('xb tavern session author note reaches native prompt for real and simulated
                 source: 'test-native-builder',
                 promptMessageCount: 1,
                 messages: [{ role: 'system', content: String((input.context?.authorNote as { prompt?: string } | undefined)?.prompt || '') }],
+                currentUserMessageIndex: null,
             };
         },
         executeRunOnce: async (options: TavernRunOnceOptions) => {
@@ -868,6 +877,7 @@ test('xb tavern session author note reaches native prompt for real and simulated
             source: 'test-native-builder',
             promptMessageCount: 1,
             messages: [{ role: 'system', content: String((input.context?.authorNote as { prompt?: string } | undefined)?.prompt || '') }],
+            currentUserMessageIndex: null,
         }),
     });
     assert.match(simulated.requestSnapshot.rawMessagesJson || '', /PLAYER_AUTHOR_NOTE/);
@@ -1277,6 +1287,7 @@ test('xb tavern run turn injects status panel yaml without exposing status tools
                 { role: 'system', content: input.memoryPrompt || '' },
                 { role: 'user', content: input.currentUserMessage || '' },
             ],
+            currentUserMessageIndex: 1,
         }),
         executeRunOnce: async (options: TavernRunOnceOptions) => {
             rawMessages = JSON.stringify(options.messages);
@@ -1399,6 +1410,7 @@ test('xb tavern action check uses status panel gauge when stat matches', async (
                 { role: 'system', content: [input.memoryPrompt || '', input.actionCheckPrompt || ''].filter(Boolean).join('\n\n') },
                 { role: 'user', content: input.currentUserMessage || '' },
             ],
+            currentUserMessageIndex: 1,
         }),
         executeRunOnce,
     });
@@ -3285,6 +3297,9 @@ test('xb tavern native prompt build receives prompt-stage regexed history and cu
                 messages,
                 source: 'test-native-prompt',
                 promptMessageCount: messages.length,
+                currentUserMessageIndex: messages.findIndex((message) => (
+                    message.role === 'user' && message.content === input.currentUserMessage
+                )),
             };
         },
     });
@@ -3355,6 +3370,7 @@ test('xb tavern native prompt build fails instead of falling back when native me
                 source: 'test-native-prompt',
                 promptMessageCount: 0,
                 messages: [],
+                currentUserMessageIndex: null,
             }),
         }),
         /native_prompt_builder_returned_empty_messages/,
@@ -3386,6 +3402,7 @@ test('xb tavern native prompt runtime fails before request when regex hook is mi
                 source: 'test-native-prompt',
                 promptMessageCount: 1,
                 messages: [{ role: 'user', content: 'Should not send.' }],
+                currentUserMessageIndex: 0,
             }),
             executeRunOnce: async () => {
                 providerCalls += 1;
@@ -3436,6 +3453,7 @@ test('xb tavern native prompt runtime fails before request when substitute hook 
                     source: 'test-native-prompt',
                     promptMessageCount: 1,
                     messages: [{ role: 'user', content: 'Should not inspect.' }],
+                    currentUserMessageIndex: 0,
                 };
             },
         }),
@@ -4374,6 +4392,9 @@ test('formal tasks enter both local and ST-native depth-1 prompts while board ca
                 source: 'test-native-task-prompt',
                 promptMessageCount: input[TAVERN_LOCAL_PROMPT_MESSAGES]?.length || 0,
                 messages: input[TAVERN_LOCAL_PROMPT_MESSAGES] || [],
+                currentUserMessageIndex: (input[TAVERN_LOCAL_PROMPT_MESSAGES] || []).findIndex((message) => (
+                    message.role === 'user' && message.content === input.currentUserMessage
+                )),
             };
         },
     });
@@ -4454,10 +4475,14 @@ test('active shop effects close the system message before USER in local and ST-n
                 moved.push(message);
             }
             if (shopBlock) {moved.unshift({ role: 'system', content: shopBlock });}
+            moved.push({ role: 'user', content: 'depth-0 user after current USER' });
             return {
                 source: 'test-native-shop-prompt',
                 promptMessageCount: moved.length,
                 messages: moved,
+                currentUserMessageIndex: moved.findIndex((message) => (
+                    message.role === 'user' && message.content === input.currentUserMessage
+                )),
             };
         },
     });
@@ -4473,12 +4498,11 @@ test('active shop effects close the system message before USER in local and ST-n
         1,
         'the shop block must appear exactly once in the final request',
     );
-    const lastUserIndex = finalMessages.reduce(
-        (found, message, index) => (message.role === 'user' ? index : found),
-        -1,
-    );
-    assert.ok(lastUserIndex > 0);
-    const beforeUser = finalMessages[lastUserIndex - 1];
+    const currentUserIndex = finalMessages.findIndex((message) => message.content === '继续。');
+    const depthZeroUserAfterCurrentIndex = finalMessages.findIndex((message) => message.content === 'depth-0 user after current USER');
+    assert.ok(currentUserIndex > 0);
+    assert.ok(depthZeroUserAfterCurrentIndex > currentUserIndex);
+    const beforeUser = finalMessages[currentUserIndex - 1];
     assert.equal(beforeUser.role, 'system');
     assert.match(String(beforeUser.content), /## 当前生效道具[\s\S]*<\/shop_effect>\s*$/, 'shop block must be the last block before USER');
     assert.match(String(beforeUser.content), /剩余主回合：5/);
@@ -4568,8 +4592,90 @@ test('reroll uses the shop state at the original user turn and excludes later ac
             return await execute(options);
         },
     });
-    assert.match(rerollPrompt, /作用对象（数据）："艾拉"/);
-    assert.doesNotMatch(rerollPrompt, /作用对象（数据）："贝塔"/);
+    assert.match(rerollPrompt, /"targetName":"艾拉"/);
+    assert.doesNotMatch(rerollPrompt, /"targetName":"贝塔"/);
+});
+
+test('normal RP uses the current USER anchor and excludes Shop activations made after it was saved', async () => {
+    await resetDb();
+    const preset = createDefaultXbTavernPreset();
+    const session = await createTavernSession({
+        title: 'Shop normal turn anchor',
+        characterKey: 'char-shop-normal-anchor',
+        characterName: 'Aster',
+        contextSnapshot: {
+            character: { characterKey: 'char-shop-normal-anchor', name: 'Aster', description: 'A careful courier.' },
+            user: { name: '测试玩家' },
+        },
+        presetId: preset.id,
+        presetName: preset.name,
+    });
+    const initialBoundary = await captureTavernPhoneBoundary(session.id);
+    const firstPurchase = await purchaseTavernShopItem({
+        sessionId: session.id,
+        itemId: 'flower',
+        actionId: 'normal-anchor-buy-first',
+        boundary: initialBoundary,
+        expectedRevision: 0,
+        expectedVersionId: '',
+    });
+    const firstActivation = await activateTavernShopItem({
+        sessionId: session.id,
+        itemId: 'flower',
+        parameters: { targetName: '艾拉' },
+        actionId: 'normal-anchor-use-first',
+        boundary: initialBoundary,
+        expectedRevision: firstPurchase.record.revision,
+        expectedVersionId: firstPurchase.record.versionId,
+    });
+    let capturedPrompt = '';
+    let activatedAfterCurrentUser = false;
+    await runXbTavernTurn({
+        sessionId: session.id,
+        agentConfig: { provider: 'fake-provider', model: 'fake-model' },
+        contextSnapshot: session.contextSnapshot || {},
+        preset,
+        currentUserMessage: '我把另一束花放到桌上。',
+        onUserMessageSaved: async (sessionId) => {
+            if (activatedAfterCurrentUser) {return;}
+            activatedAfterCurrentUser = true;
+            const boundary = await captureTavernPhoneBoundary(sessionId);
+            const current = await getCurrentTavernShopState(sessionId);
+            const laterPurchase = await purchaseTavernShopItem({
+                sessionId,
+                itemId: 'flower',
+                actionId: 'normal-anchor-buy-later',
+                boundary,
+                expectedRevision: current?.revision || 0,
+                expectedVersionId: current?.versionId || '',
+            });
+            await activateTavernShopItem({
+                sessionId,
+                itemId: 'flower',
+                parameters: { targetName: '贝塔' },
+                actionId: 'normal-anchor-use-later',
+                boundary,
+                expectedRevision: laterPurchase.record.revision,
+                expectedVersionId: laterPurchase.record.versionId,
+            });
+        },
+        executeRunOnce: async (options) => {
+            capturedPrompt = options.messages.map((message) => String(message.content || '')).join('\n');
+            return {
+                text: 'Aster replies.',
+                provider: 'fake-provider',
+                model: 'fake-model',
+                finishReason: 'stop',
+                requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages, {
+                    provider: 'fake-provider',
+                    model: 'fake-model',
+                }),
+            };
+        },
+    });
+    assert.equal(firstActivation.record.state.items.flower.activations.length, 1);
+    assert.match(capturedPrompt, /"targetName":"艾拉"/);
+    assert.doesNotMatch(capturedPrompt, /"targetName":"贝塔"/);
 });
 
 test('xb tavern world entry substitution skips null worldbook records', async () => {
