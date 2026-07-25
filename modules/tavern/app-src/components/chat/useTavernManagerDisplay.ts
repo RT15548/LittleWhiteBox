@@ -178,10 +178,10 @@ export function useTavernManagerDisplay(options: TavernManagerDisplayOptions) {
         const assistantOrder = Number(run.assistantOrder);
         const userOrder = Number(run.userOrder);
         const roleTurn = Number.isInteger(assistantOrder) && assistantOrder >= 0
-            ? `第 ${assistantOrder + 1} 楼`
+            ? `第 ${assistantOrder} 楼`
             : `第 ${Math.max(0, Number(run.turn) || 0)} 次维护`;
         const source = Number.isInteger(userOrder) && userOrder >= 0 && Number.isInteger(assistantOrder) && assistantOrder >= 0
-            ? `原文 ${userOrder + 1}-${assistantOrder + 1} 楼`
+            ? `原文 ${userOrder}-${assistantOrder} 楼`
             : '';
         const trigger = ['accepted_turn', 'after_turn'].includes(run.trigger) ? '已接受回合维护' : String(run.trigger || '');
         return [roleTurn, source, trigger].filter(Boolean).join(' · ');

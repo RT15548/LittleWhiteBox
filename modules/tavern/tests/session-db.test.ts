@@ -114,6 +114,11 @@ import { runXbTavernAssistantChat as runXbTavernManagerChat } from '../app-src/r
 import { buildAssistantChatMessages } from '../app-src/runtime/assistant-chat-context';
 import { rollbackImpactLines } from '../app-src/features/accepted-rollback/accepted-rollback';
 import {
+    createTavernSessionState,
+    useTavernSessionController,
+    type TavernSessionControllerOptions,
+} from '../app-src/features/session/useTavernSessionController';
+import {
     loadTavernAssistantChatUnitPage,
     loadTavernAssistantToolTurnDetail,
 } from '../app-src/features/assistant-chat/assistant-chat-projection';
@@ -545,6 +550,24 @@ test('tavern message indexed helpers read latest, direct, recent, and range wind
     assert.deepEqual(rangeWithCount.messages.map((message) => message.order), [2, 3]);
     assert.equal(rangeWithCount.total, 4);
     assert.deepEqual((await listTavernMessagesInRange(session.id, 4, Number.POSITIVE_INFINITY)).map((message) => message.order), [4, 5]);
+});
+
+test('session archive floor label follows the latest stored order when the transcript is sparse', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Sparse floor label' });
+    await appendTavernMessage(session.id, { role: 'user', content: '0' });
+    await appendTavernMessage(session.id, { role: 'assistant', content: '1' });
+    await appendTavernMessage(session.id, { role: 'user', content: '2' });
+    await deleteTavernMessages(session.id, [0]);
+
+    const state = createTavernSessionState();
+    const controller = useTavernSessionController(state, {} as TavernSessionControllerOptions);
+    await controller.refreshSessionLatestMessageOrdersForSessions([session]);
+
+    assert.equal((await getLatestTavernMessage(session.id))?.order, 2);
+    assert.equal(controller.sessionFloorLabel(session), '第 2 楼');
 });
 
 test('manager candidates become fixed queued pairs only when the next user message is atomically stored', async () => {
@@ -7917,7 +7940,7 @@ test('rollback impact reports status-only manager writes as state rollback', asy
         managers: managerImpact,
         willRollbackState: true,
         willCancelWork: false,
-    }), [`状态栏会恢复到第 ${assistantMessage.order} 楼后的状态。`]);
+    }), [`状态栏会恢复到第 ${assistantMessage.order - 1} 楼后的状态。`]);
 });
 
 test('tavern manager memory rollback is idempotent', async () => {

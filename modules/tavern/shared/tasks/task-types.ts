@@ -202,6 +202,10 @@ export type TavernTaskErrorCode =
     | 'task_task_not_recruiting'
     | 'task_task_not_active'
     | 'task_staging_invalid'
+    | 'task_response_json_invalid'
+    | 'task_response_shape_invalid'
+    | 'task_response_items_invalid'
+    | 'task_response_truncated'
     | 'task_response_invalid';
 
 export class TavernTaskError extends Error {
@@ -308,22 +312,14 @@ export interface FailTavernTaskInput {
 
 export interface TaskBoardParseOptions {
     excludedTitles?: string[];
-    excludedIssuerNames?: string[];
     existingTitles?: string[];
-    knownNames?: string[];
     createId?: (prefix: string) => string;
 }
 
 export interface TaskCandidateParseOptions {
-    excludedNames?: string[];
-    knownNames?: string[];
     createId?: (prefix: string) => string;
 }
 
-const DEFAULT_BOARD_MIN_LISTINGS = 6;
-const DEFAULT_BOARD_MAX_LISTINGS = 6;
-const DEFAULT_CANDIDATE_MIN = 3;
-const DEFAULT_CANDIDATE_MAX = 4;
 const MAX_SAFE_TEXT = 8_000;
 
 export const TAVERN_TASK_GRADE_REWARD_RANGES: Readonly<Record<TavernTaskBoardGrade, readonly [number, number]>> = {
@@ -412,8 +408,11 @@ export function normalizeTavernTaskCandidates(
     options: { min?: number; max?: number; allowEmpty?: boolean } = {},
 ): TavernTaskCandidate[] {
     if (!Array.isArray(value)) {throwTavernTaskError('task_candidates_invalid');}
-    const max = options.max ?? DEFAULT_CANDIDATE_MAX;
-    const min = options.min ?? DEFAULT_CANDIDATE_MIN;
+    const max = options.max ?? Number.MAX_SAFE_INTEGER;
+    const min = options.min ?? 0;
+    if (value.length === 0 && options.allowEmpty === false) {
+        throwTavernTaskError('task_candidates_invalid', '0');
+    }
     if ((value.length !== 0 || options.allowEmpty === false) && (value.length < min || value.length > max)) {
         throwTavernTaskError('task_candidates_invalid', `${value.length}`);
     }
@@ -469,8 +468,8 @@ export function normalizeTavernTaskListing(value: unknown, idFallback = ''): Tav
 
 export function normalizeTavernTaskListings(value: unknown, options: { min?: number; max?: number } = {}): TavernTaskListing[] {
     if (!Array.isArray(value)) {throwTavernTaskError('task_board_payload_invalid', 'tasks');}
-    const max = options.max ?? DEFAULT_BOARD_MAX_LISTINGS;
-    const min = options.min ?? DEFAULT_BOARD_MIN_LISTINGS;
+    const max = options.max ?? Number.MAX_SAFE_INTEGER;
+    const min = options.min ?? 0;
     if (value.length < min || value.length > max) {throwTavernTaskError('task_board_payload_invalid', `${value.length}`);}
     const listings = value.map((item, index) => normalizeTavernTaskListing(item, `listing-${index + 1}`));
     const ids = new Set<string>();
@@ -483,6 +482,11 @@ export function normalizeTavernTaskListings(value: unknown, options: { min?: num
         titles.add(title);
     }
     return listings;
+}
+
+function parseJsonCandidate(value: string): unknown {
+    try {return JSON.parse(value);} catch { /* try one conservative repair */ }
+    return JSON.parse(value.replace(/,(\s*[}\]])/g, '$1'));
 }
 
 function extractJsonValues(textValue: string): unknown[] {
@@ -505,7 +509,7 @@ function extractJsonValues(textValue: string): unknown[] {
             if (character === '{') {depth += 1;}
             if (character === '}') {depth -= 1;}
             if (depth === 0) {
-                try {values.push(JSON.parse(source.slice(start, index + 1)));} catch { /* try next brace */ }
+                try {values.push(parseJsonCandidate(source.slice(start, index + 1)));} catch { /* try next brace */ }
                 start = index;
                 break;
             }
@@ -520,62 +524,61 @@ export function parseTavernTaskBoardResponse(value: string, options: TaskBoardPa
         ...(options.excludedTitles || []),
         ...(options.existingTitles || []),
     ].map(normalizeComparisonText).filter(Boolean));
-    const excludedIssuerNames = new Set([
-        ...(options.excludedIssuerNames || []),
-        ...(options.knownNames || []),
-    ].map(normalizeComparisonText).filter(Boolean));
-    for (const parsed of extractJsonValues(value)) {
+    const parsedValues = extractJsonValues(value);
+    if (!parsedValues.length) {throwTavernTaskError('task_response_json_invalid');}
+    let foundTasksArray = false;
+    for (const parsed of parsedValues) {
         if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {continue;}
         const tasks = (parsed as Record<string, unknown>).tasks;
         if (!Array.isArray(tasks)) {continue;}
-        try {
-            const listings = normalizeTavernTaskListings(tasks, {
-                min: DEFAULT_BOARD_MIN_LISTINGS,
-                max: DEFAULT_BOARD_MAX_LISTINGS,
-            });
-            if (listings.some((listing) => excludedTitles.has(normalizeComparisonText(listing.title)))) {
-                throwTavernTaskError('task_board_listing_duplicate', 'excluded_title');
-            }
-            if (listings.some((listing) => excludedIssuerNames.has(normalizeComparisonText(listing.issuer.name)))) {
-                throwTavernTaskError('task_board_listing_invalid', 'excluded_issuer');
-            }
-            return listings.map((listing) => ({
-                ...listing,
-                id: createId('listing'),
-                issuer: { ...listing.issuer, id: createId('issuer') },
-            }));
-        } catch {
-            continue;
+        foundTasksArray = true;
+        const listings: TavernTaskListing[] = [];
+        const titles = new Set<string>();
+        for (let index = 0; index < tasks.length; index += 1) {
+            try {
+                const listing = normalizeTavernTaskListing(tasks[index], `listing-${index + 1}`);
+                const title = normalizeComparisonText(listing.title);
+                if (excludedTitles.has(title) || titles.has(title)) {continue;}
+                titles.add(title);
+                listings.push({
+                    ...listing,
+                    id: createId('listing'),
+                    issuer: { ...listing.issuer, id: createId('issuer') },
+                });
+            } catch { /* keep other valid entries */ }
         }
+        if (listings.length) {return listings;}
     }
-    throwTavernTaskError('task_response_invalid');
+    if (!foundTasksArray) {throwTavernTaskError('task_response_shape_invalid', 'tasks_must_be_array');}
+    throwTavernTaskError('task_response_items_invalid', 'tasks');
 }
 
 export function parseTavernTaskCandidatesResponse(value: string, options: TaskCandidateParseOptions = {}): TavernTaskCandidate[] {
     const createId = options.createId || createLocalId;
-    const excludedNames = new Set([
-        ...(options.excludedNames || []),
-        ...(options.knownNames || []),
-    ].map(normalizeComparisonText).filter(Boolean));
-    for (const parsed of extractJsonValues(value)) {
+    const parsedValues = extractJsonValues(value);
+    if (!parsedValues.length) {throwTavernTaskError('task_response_json_invalid');}
+    let foundCandidatesArray = false;
+    for (const parsed of parsedValues) {
         if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {continue;}
         const candidates = (parsed as Record<string, unknown>).candidates;
         if (!Array.isArray(candidates)) {continue;}
-        try {
-            const normalized = normalizeTavernTaskCandidates(candidates, {
-                min: DEFAULT_CANDIDATE_MIN,
-                max: DEFAULT_CANDIDATE_MAX,
-                allowEmpty: true,
-            });
-            if (normalized.some((candidate) => excludedNames.has(normalizeComparisonText(candidate.name)))) {
-                throwTavernTaskError('task_candidate_invalid', 'excluded_name');
-            }
-            return normalized.map((candidate) => ({ ...candidate, id: createId('candidate') }));
-        } catch {
-            continue;
+        foundCandidatesArray = true;
+        if (!candidates.length) {return [];}
+        const normalized: TavernTaskCandidate[] = [];
+        const names = new Set<string>();
+        for (let index = 0; index < candidates.length; index += 1) {
+            try {
+                const candidate = normalizeTavernTaskCandidate(candidates[index], `candidate-${index + 1}`);
+                const name = normalizeComparisonText(candidate.name);
+                if (names.has(name)) {continue;}
+                names.add(name);
+                normalized.push({ ...candidate, id: createId('candidate') });
+            } catch { /* keep other valid entries */ }
         }
+        if (normalized.length) {return normalized;}
     }
-    throwTavernTaskError('task_response_invalid');
+    if (!foundCandidatesArray) {throwTavernTaskError('task_response_shape_invalid', 'candidates_must_be_array');}
+    throwTavernTaskError('task_response_items_invalid', 'candidates');
 }
 
 export function normalizeTavernTaskBoardRecord(record: TavernTaskBoardRecord): TavernTaskBoardRecord {
@@ -591,10 +594,7 @@ export function normalizeTavernTaskBoardRecord(record: TavernTaskBoardRecord): T
         revision,
         epoch,
         anchorOrder,
-        listings: normalizeTavernTaskListings(record.listings, {
-            min: DEFAULT_BOARD_MIN_LISTINGS,
-            max: DEFAULT_BOARD_MAX_LISTINGS,
-        }),
+        listings: normalizeTavernTaskListings(record.listings),
         generatedAt,
     };
 }
@@ -672,11 +672,7 @@ export function normalizeTavernTaskVersionRecord(record: TavernTaskVersionRecord
         ...(text(record.hook, 2_000) ? { hook: text(record.hook, 2_000) } : {}),
         progressSummary: text(record.progressSummary, MAX_SAFE_TEXT),
         resultSummary: text(record.resultSummary, MAX_SAFE_TEXT),
-        candidates: normalizeTavernTaskCandidates(record.candidates, {
-            min: DEFAULT_CANDIDATE_MIN,
-            max: DEFAULT_CANDIDATE_MAX,
-            allowEmpty: true,
-        }),
+        candidates: normalizeTavernTaskCandidates(record.candidates),
         ...(text(record.sourceBoardId, 180) ? { sourceBoardId: text(record.sourceBoardId, 180) } : {}),
         ...(text(record.sourceListingId, 180) ? { sourceListingId: text(record.sourceListingId, 180) } : {}),
         ...(record.sourceBoardRevision === undefined

@@ -751,11 +751,7 @@ async function updateCandidatesInCurrentTransaction(input: UpdateTavernTaskCandi
     const expectedRevision = normalizeRevision(input.expectedRevision);
     const expectedVersionId = normalizeVersionId(input.expectedVersionId);
     const anchorOrder = normalizeTavernTaskAnchorOrder(tavernTaskPhoneBoundaryAnchorOrder(input.boundary));
-    const candidates = normalizeTavernTaskCandidates(input.candidates, {
-        min: 3,
-        max: 4,
-        allowEmpty: true,
-    });
+    const candidates = normalizeTavernTaskCandidates(input.candidates);
     const replay = await findActionVersion(sessionId, actionId);
     if (replay) {
         await assertMutationReplayPredecessor(replay, {

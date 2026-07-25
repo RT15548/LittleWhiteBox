@@ -2610,7 +2610,7 @@ test('tavern streaming action-check UI renders from live runtime events and keep
     assert.match(conversationPanelSource, /function openSessionArchiveFromComposeMenu\(\) \{[\s\S]*closeComposeMenu\(\);[\s\S]*sessionArchiveOpen\.value = true;[\s\S]*\}/);
     assert.match(contextSource, /currentChatCharacterSessions: TavernReadable<TavernSessionRecord\[\]>/);
     assert.match(appSource, /const currentChatCharacterSessions = computed<TavernSessionRecord\[\]>\(\(\) => \{[\s\S]*selectedSession\.value\?\.characterKey[\s\S]*effectiveContext\.value\.character\?\.characterKey[\s\S]*\.filter\(\(session\) => String\(session\.characterKey \|\| ''\)\.trim\(\) === characterKey\)/);
-    assert.match(appSource, /watch\(\(\) => currentChatCharacterSessions\.value\.map\(\(session\) => session\.id\)\.join\('\|'\), \(\) => \{[\s\S]*refreshSessionMessageCountsForSessions\(currentChatCharacterSessions\.value\)/);
+    assert.match(appSource, /watch\(\(\) => currentChatCharacterSessions\.value\.map\(\(session\) => session\.id\)\.join\('\|'\), \(\) => \{[\s\S]*refreshSessionLatestMessageOrdersForSessions\(currentChatCharacterSessions\.value\)/);
     assert.match(appSource, /const sessionContext = \{[\s\S]*currentChatCharacterSessions,/);
     assert.doesNotMatch(conversationPanelSource, /useTavernCharacterContext|selectedCharacterSessions/);
     assert.match(conversationPanelSource, /v-if="sessionArchiveOpen"[\s\S]*class="character-session-archive-overlay chat-session-archive-overlay"[\s\S]*v-for="archivedSession in currentChatCharacterSessions"[\s\S]*@click="openArchivedSession\(archivedSession\.id\)"/);
@@ -2798,9 +2798,9 @@ test('tavern character archive separates new chat from existing session selectio
     assert.match(appSource, /sessionFloorLabel,/);
     assert.match(appSource, /function sessionFloorLabel\(session\?: TavernSessionRecord \| null\)[\s\S]*return sessionController\.sessionFloorLabel\(session\);/);
     assert.match(sessionSource, /function sessionFloorLabel\(session\?: TavernSessionRecord \| null\)[\s\S]*return '统计中'/);
-    assert.match(appSource, /async function refreshSessionMessageCountsForSessions\(targetSessions: TavernSessionRecord\[\] = \[\]\)[\s\S]*sessionController\.refreshSessionMessageCountsForSessions\(targetSessions\);/);
-    assert.match(sessionSource, /async function refreshSessionMessageCountsForSessions\(targetSessions: TavernSessionRecord\[\] = \[\]\)[\s\S]*countTavernMessages\(id\)/);
-    assert.match(appSource, /watch\(\(\) => selectedCharacterSessions\.value\.map\(\(session\) => session\.id\)\.join\('\|'\)[\s\S]*refreshSessionMessageCountsForSessions\(selectedCharacterSessions\.value\)/);
+    assert.match(appSource, /async function refreshSessionLatestMessageOrdersForSessions\(targetSessions: TavernSessionRecord\[\] = \[\]\)[\s\S]*sessionController\.refreshSessionLatestMessageOrdersForSessions\(targetSessions\);/);
+    assert.match(sessionSource, /async function refreshSessionLatestMessageOrdersForSessions\(targetSessions: TavernSessionRecord\[\] = \[\]\)[\s\S]*getLatestTavernMessage\(id\)/);
+    assert.match(appSource, /watch\(\(\) => selectedCharacterSessions\.value\.map\(\(session\) => session\.id\)\.join\('\|'\)[\s\S]*refreshSessionLatestMessageOrdersForSessions\(selectedCharacterSessions\.value\)/);
     assert.match(sessionDbSource, /export async function countTavernMessages[\s\S]*\.where\('sessionId'\)\.equals\(id\)\.count\(\)/);
     assert.doesNotMatch(sessionDbSource, /countTavernMessages[\s\S]*toArray\(\)\)\.length/);
     assert.doesNotMatch(characterContextObject, /openSession: selectSession/);

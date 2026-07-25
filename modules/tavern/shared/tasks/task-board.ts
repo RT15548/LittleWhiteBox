@@ -94,7 +94,7 @@ export async function replaceTavernTaskBoard(input: ReplaceTavernTaskBoardInput)
     const expected = expectedRevision(input.expectedRevision);
     const expectedEpochValue = expectedEpoch(input.expectedEpoch);
     const anchorOrder = normalizeTavernTaskAnchorOrder(tavernTaskPhoneBoundaryAnchorOrder(input.boundary));
-    const listings = normalizeTavernTaskListings(input.listings, { min: 6, max: 6 });
+    const listings = normalizeTavernTaskListings(input.listings);
     const generationId = String(input.generationId || '').trim() || createId('task-board');
     const generatedAt = Number(input.generatedAt ?? now());
     if (!Number.isSafeInteger(generatedAt) || generatedAt <= 0) {

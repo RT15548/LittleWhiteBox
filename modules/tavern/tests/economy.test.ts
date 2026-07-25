@@ -33,6 +33,7 @@ import {
     TAVERN_SYSTEM_MINT_ACCOUNT_ID,
     TAVERN_SYSTEM_SINK_ACCOUNT_ID,
 } from '../shared/economy/economy-types';
+import { formatTavernWalletTransactionAnchor } from '../app-src/features/phone-os/apps/wallet/tavern-wallet-format';
 
 function playerSpendInput(sessionId: string, idempotencyKey: string, amount: number, anchorOrder: number) {
     return {
@@ -49,6 +50,27 @@ function playerSpendInput(sessionId: string, idempotencyKey: string, amount: num
         anchorOrder,
     };
 }
+
+test('wallet anchors render their zero-based timeline coordinate', () => {
+    const label = formatTavernWalletTransactionAnchor({
+        id: 'floor-zero',
+        sessionId: 'session',
+        idempotencyKey: 'floor-zero',
+        fromAccountId: TAVERN_SYSTEM_MINT_ACCOUNT_ID,
+        toAccountId: TAVERN_PLAYER_ACCOUNT_ID,
+        amount: 1,
+        kind: 'test',
+        title: 'test',
+        note: '',
+        sourceDomain: 'test',
+        sourceId: 'test',
+        anchorOrder: 0,
+        ledgerOrder: 0,
+        playerBalanceAfter: 1,
+        createdAt: 0,
+    });
+    assert.match(label, /^第 0 楼/);
+});
 
 test('database v18 adds empty economy storage and existing sessions open lazily', async () => {
     await db.delete();

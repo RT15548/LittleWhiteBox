@@ -39,5 +39,5 @@ export function formatTavernWalletTransactionAnchor(
 ): string {
     const time = walletTimeFormatter.format(new Date(transaction.createdAt));
     if (transaction.anchorOrder < 0) {return `会话开户 · ${time}`;}
-    return `第 ${transaction.anchorOrder + 1} 楼 · ${time}`;
+    return `第 ${transaction.anchorOrder} 楼 · ${time}`;
 }

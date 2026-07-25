@@ -316,7 +316,6 @@ const {
     selectedSessionLatestAssistantOrder,
     selectedSessionMessageTotal,
     selectedSessionMessageWindowOffsetFromEnd,
-    sessionMessageCounts,
     sessions,
     visibleChatMessages,
 } = sessionState;
@@ -1134,16 +1133,12 @@ function warnPhoneWorkInProgress(message = '手机消息正在等待回复，请
     showTavernToast(message, { tone: 'warning', durationMs: 2600 });
 }
 
-function sessionFloorCount(session?: TavernSessionRecord | null) {
-    return sessionController.sessionFloorCount(session);
-}
-
 function sessionFloorLabel(session?: TavernSessionRecord | null) {
     return sessionController.sessionFloorLabel(session);
 }
 
-async function refreshSessionMessageCountsForSessions(targetSessions: TavernSessionRecord[] = []) {
-    await sessionController.refreshSessionMessageCountsForSessions(targetSessions);
+async function refreshSessionLatestMessageOrdersForSessions(targetSessions: TavernSessionRecord[] = []) {
+    await sessionController.refreshSessionLatestMessageOrdersForSessions(targetSessions);
 }
 
 const activeMemoryFiles = computed(() => memoryFiles.value.filter((file) => file.status !== 'stale'));
@@ -1467,11 +1462,11 @@ watch(memoryFileSearchText, () => {
 });
 
 watch(() => selectedCharacterSessions.value.map((session) => session.id).join('|'), () => {
-    void refreshSessionMessageCountsForSessions(selectedCharacterSessions.value);
+    void refreshSessionLatestMessageOrdersForSessions(selectedCharacterSessions.value);
 }, { immediate: true });
 
 watch(() => currentChatCharacterSessions.value.map((session) => session.id).join('|'), () => {
-    void refreshSessionMessageCountsForSessions(currentChatCharacterSessions.value);
+    void refreshSessionLatestMessageOrdersForSessions(currentChatCharacterSessions.value);
 }, { immediate: true });
 
 function describeError(error: unknown) {
@@ -4053,7 +4048,7 @@ async function deleteMessageTurn(message: TavernMessageRecord) {
         return;
     }
     const ordersToDelete = await findDeleteOrders(message);
-    const floor = Math.max(1, Number(message.order) + 1);
+    const floor = Math.max(0, Math.floor(Number(message.order) || 0));
     const fromOrder = Math.min(...ordersToDelete);
     const impact = await describeAcceptedStateRollbackImpact(message.sessionId, fromOrder);
     const confirmLines = [

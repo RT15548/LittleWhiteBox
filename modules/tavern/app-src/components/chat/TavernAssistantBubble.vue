@@ -196,9 +196,9 @@ function deleteMessage() {
             <span
               v-show="!!message"
               class="message-floor-label"
-              :title="message ? `第 ${String(Number(message.order) + 1)} 楼` : ''"
+              :title="message ? `第 ${String(Math.max(0, Math.floor(Number(message.order) || 0)))} 楼` : ''"
             >
-              {{ message ? `#${Math.max(1, Number(message.order) + 1)}` : '' }}
+              {{ message ? `#${Math.max(0, Math.floor(Number(message.order) || 0))}` : '' }}
             </span>
             <small class="bubble-time-tag">{{ bubbleTimeLabel }}</small>
           </span>

@@ -44,6 +44,7 @@ import {
     parseTavernTaskCandidatesResponse,
     type TavernTaskExpectedPhoneBoundary,
     type TavernTaskListing,
+    type TavernTaskVersionRecord,
 } from '../shared/tasks/task-types';
 import {
     postTavernEconomyTransaction,
@@ -52,8 +53,18 @@ import {
     TAVERN_PLAYER_ACCOUNT_ID,
     TAVERN_SYSTEM_SINK_ACCOUNT_ID,
 } from '../shared/economy/economy-types';
-import { buildTavernTaskBoardRequestMessages } from '../app-src/features/phone-os/apps/tasks/tavern-task-prompts';
-import { buildTavernTaskPromptLayers } from '../app-src/features/phone-os/apps/tasks/tavern-task-context';
+import {
+    buildTavernTaskBoardRequestMessages,
+    buildTavernTaskCandidatesRequestMessages,
+} from '../app-src/features/phone-os/apps/tasks/tavern-task-prompts';
+import {
+    assertTavernTaskGenerationFinished,
+    tavernTaskRequestErrorText,
+} from '../app-src/features/phone-os/apps/tasks/tavern-task-response';
+import {
+    buildTavernTaskPromptLayers,
+    type TavernTaskPromptLayers,
+} from '../app-src/features/phone-os/apps/tasks/tavern-task-context';
 import type { TavernGetNativeWorldInfoRuntime } from '../app-src/runtime/run-once';
 
 type TestPhoneBoundaryInput<T extends { boundary: TavernTaskExpectedPhoneBoundary }> = Omit<T, 'boundary'> & {
@@ -206,6 +217,87 @@ function candidateRows() {
     }));
 }
 
+function recruitingTaskForPrompt(): TavernTaskVersionRecord {
+    return {
+        sessionId: 'prompt-session',
+        taskId: 'prompt-task',
+        revision: 1,
+        versionId: 'prompt-task:1',
+        currentMarker: 'current',
+        actionId: 'prompt-action',
+        status: 'recruiting',
+        issuer: { kind: 'player', id: 'player', name: 'TASK_USER' },
+        reward: 80,
+        escrowAccountId: 'escrow:prompt-task',
+        title: '寻找一位危险品看管人',
+        objective: '把封存物安全送到指定地点',
+        location: '旧城区',
+        risk: '封存物可能在途中苏醒',
+        grade: 'C',
+        tags: ['接触'],
+        progressSummary: '',
+        resultSummary: '',
+        candidates: [],
+        anchorOrder: 2,
+        createdAt: 1,
+        updatedAt: 1,
+    };
+}
+
+test('task requests use the new direction recipe only for board generation', () => {
+    const layers: TavernTaskPromptLayers = {
+        context: {
+            character: { name: 'TASK_CHARACTER', description: 'TASK_DESCRIPTION' },
+            user: { name: 'TASK_USER', persona: 'TASK_PERSONA' },
+        },
+        activatedWorldEntries: [],
+        stateMemory: '',
+        status: '',
+        map: '',
+        knownNames: ['TASK_CHARACTER', 'TASK_USER'],
+    };
+    const boardRequest = buildTavernTaskBoardRequestMessages({
+        layers,
+        currentTasks: [],
+        excludedTitles: [],
+    }).map((message) => message.content).join('\n');
+    const candidateRequest = buildTavernTaskCandidatesRequestMessages({
+        layers,
+        task: recruitingTaskForPrompt(),
+    }).map((message) => message.content).join('\n');
+
+    [
+        ['禁忌', '150~350'],
+        ['接触', '40~80'],
+        ['夹缝', '100~200'],
+        ['窥秘', '60~120'],
+        ['掠夺', '80~150'],
+        ['怪癖', '15~40'],
+    ].forEach(([label, reward]) => {
+        assert.equal(boardRequest.includes(`### ${label}`), true);
+        assert.equal(boardRequest.includes(`${label}｜报酬 ${reward}`), true);
+    });
+    ['standoff', 'dirty', 'escort', 'investigate', 'compete', 'absurd'].forEach((legacyKey) => {
+        assert.equal(boardRequest.includes(legacyKey), false);
+    });
+    assert.equal(boardRequest.includes('扒 <setting>'), true);
+    assert.equal(boardRequest.includes('第 1 层'), false);
+    assert.equal(boardRequest.includes('第1层'), false);
+    assert.equal(boardRequest.includes('tags 的第一项必须严格对应本条方向'), true);
+    assert.equal(boardRequest.includes('tasks 必须是数组'), true);
+    assert.equal(boardRequest.includes('tags 必须是字符串数组'), true);
+    assert.equal(boardRequest.includes('reward 必须是正整数 JSON 数字，不得写成字符串'), true);
+    assert.equal(boardRequest.includes('不可用作发布者'), false);
+
+    assert.equal(candidateRequest.includes('## 第一步：读懂委托'), true);
+    assert.equal(candidateRequest.includes('低报酬、高风险或条件苛刻的任务可以无人应征'), true);
+    assert.equal(candidateRequest.includes('## 第三步：六个方向逐条构思'), false);
+    assert.equal(candidateRequest.includes('### 禁忌'), false);
+    assert.equal(candidateRequest.includes('candidates 必须是数组'), true);
+    assert.equal(candidateRequest.includes('name、description、pitch、capability、risk 必须全部是字符串'), true);
+    assert.equal(candidateRequest.includes('不可用作候选人'), false);
+});
+
 test('task generation scans through the latest AI and preserves character and native worldbook grounding', async () => {
     await db.delete();
     await db.open();
@@ -275,7 +367,7 @@ test('task generation scans through the latest AI and preserves character and na
     assert.equal(JSON.stringify(nativeWorldbookInput?.context.history).includes('TASK_STORY_LATEST_AI'), true);
 });
 
-test('task board and candidate response protocols enforce their stable boundaries', () => {
+test('task response parsing keeps valid paid output without confusing business variance with invalid JSON', () => {
     const response = `prefix\n${JSON.stringify({ tasks: boardListings().map(({ id: _id, issuer, ...listing }) => ({
         ...listing,
         issuer: { name: issuer.name, description: issuer.description },
@@ -287,15 +379,22 @@ test('task board and candidate response protocols enforce their stable boundarie
     assert.equal(listings.length, 6);
     assert.equal(new Set(listings.map((listing) => listing.id)).size, 6);
 
-    assert.throws(() => parseTavernTaskBoardResponse(response, {
+    const withoutExcludedTitle = parseTavernTaskBoardResponse(response, {
         excludedTitles: ['委托 1'],
-    }), /task_response_invalid/);
-    assert.throws(() => parseTavernTaskBoardResponse(response, {
-        knownNames: ['陌生发布者 2'],
-    }), /task_response_invalid/);
+    });
+    assert.equal(withoutExcludedTitle.length, 5);
+    assert.equal(withoutExcludedTitle.some((listing) => listing.title === '委托 1'), false);
+    assert.equal(listings.some((listing) => listing.issuer.name === '陌生发布者 2'), true);
+
     const invalidReward = response.replace('"reward":60', '"reward":101');
-    assert.throws(() => parseTavernTaskBoardResponse(invalidReward), /task_response_invalid/);
-    assert.throws(() => parseTavernTaskBoardResponse(JSON.stringify({ tasks: boardListings().slice(0, 5) })), /task_response_invalid/);
+    assert.equal(parseTavernTaskBoardResponse(invalidReward).length, 5);
+    assert.equal(parseTavernTaskBoardResponse(JSON.stringify({ tasks: boardListings().slice(0, 5) })).length, 5);
+
+    const withTrailingComma = `${JSON.stringify({ tasks: boardListings().slice(0, 1) }).slice(0, -1)},}`;
+    assert.equal(parseTavernTaskBoardResponse(withTrailingComma).length, 1);
+    assert.throws(() => parseTavernTaskBoardResponse('{"tasks":['), /task_response_json_invalid/);
+    assert.throws(() => parseTavernTaskBoardResponse('{"tasks":"not-an-array"}'), /task_response_shape_invalid:tasks_must_be_array/);
+    assert.throws(() => parseTavernTaskBoardResponse('{"tasks":[{"title":"字段不足"}]}'), /task_response_items_invalid:tasks/);
 
     assert.deepEqual(parseTavernTaskCandidatesResponse('{"candidates":[]}'), []);
     assert.equal(parseTavernTaskCandidatesResponse(JSON.stringify({ candidates: candidateRows() })).length, 3);
@@ -310,29 +409,34 @@ test('task board and candidate response protocols enforce their stable boundarie
             risk: '隐患 4',
         },
     ] })).length, 4);
-    assert.throws(
-        () => parseTavernTaskCandidatesResponse(JSON.stringify({ candidates: candidateRows().slice(0, 2) })),
-        /task_response_invalid/,
-    );
-    assert.throws(
-        () => parseTavernTaskCandidatesResponse(JSON.stringify({ candidates: [
+    assert.equal(parseTavernTaskCandidatesResponse(JSON.stringify({ candidates: candidateRows().slice(0, 2) })).length, 2);
+    assert.equal(
+        parseTavernTaskCandidatesResponse(JSON.stringify({ candidates: [
             ...candidateRows(),
             ...candidateRows().slice(0, 2).map((candidate, index) => ({ ...candidate, id: `extra-${index}`, name: `额外候选 ${index}` })),
-        ] })),
-        /task_response_invalid/,
+        ] })).length,
+        5,
     );
-    assert.throws(
-        () => parseTavernTaskCandidatesResponse(JSON.stringify({ candidates: candidateRows() }), { knownNames: ['候选人 1'] }),
-        /task_response_invalid/,
-    );
-    assert.throws(() => parseTavernTaskCandidatesResponse(JSON.stringify({ candidates: [
+    const duplicateCandidate = parseTavernTaskCandidatesResponse(JSON.stringify({ candidates: [
         ...candidateRows().slice(0, 2),
         { ...candidateRows()[2], name: ' 候选人 1 ' },
-    ] })), /task_response_invalid/);
-    assert.throws(() => parseTavernTaskBoardResponse(JSON.stringify({ tasks: [
+    ] }));
+    assert.equal(duplicateCandidate.length, 2);
+    assert.equal(duplicateCandidate.some((candidate) => candidate.name === '候选人 1'), true);
+
+    const duplicateListing = parseTavernTaskBoardResponse(JSON.stringify({ tasks: [
         ...boardListings().slice(0, 5),
         { ...boardListings()[5], title: ` ${boardListings()[0].title} ` },
-    ] })), /task_response_invalid/);
+    ] }));
+    assert.equal(duplicateListing.length, 5);
+
+    assert.throws(() => assertTavernTaskGenerationFinished('MAX_TOKENS'), /task_response_truncated:MAX_TOKENS/);
+    assert.doesNotThrow(() => assertTavernTaskGenerationFinished('STOP'));
+    assert.equal(tavernTaskRequestErrorText(new Error('task_response_json_invalid')), '终端返回内容不是合法 JSON。');
+    assert.equal(
+        tavernTaskRequestErrorText(new Error('task_response_shape_invalid:tasks_must_be_array')),
+        '终端返回的 JSON 结构不正确：tasks 或 candidates 必须是数组。',
+    );
 
 });
 
@@ -455,7 +559,7 @@ test('database v20 hard-cuts v19 task and economy data at the upgrade boundary',
     assert.equal(await getTavernTaskPlayerBalance('v19-task-session'), 100);
 });
 
-test('task board replacement is strict and CAS-protected', async () => {
+test('task board replacement accepts partial generated output and remains CAS-protected', async () => {
     await db.delete();
     await db.open();
     const session = await createTavernSession({ title: 'Task board' });
@@ -474,14 +578,15 @@ test('task board replacement is strict and CAS-protected', async () => {
         generationId: 'late-board',
         listings: boardListings(),
     }), /task_board_revision_conflict/);
-    await assert.rejects(replaceTavernTaskBoard({
+    const partial = await replaceTavernTaskBoard({
         sessionId: session.id,
         expectedRevision: 1,
         anchorOrder: 2,
         generationId: 'partial-board',
         listings: boardListings().slice(0, 5),
-    }), /task_board_payload_invalid/);
-    assert.equal((await tavernTaskBoardsTable.get(session.id))?.generationId, 'board-one');
+    });
+    assert.equal(partial.listings.length, 5);
+    assert.equal((await tavernTaskBoardsTable.get(session.id))?.generationId, 'partial-board');
 });
 
 test('task board epoch rejects a stale refresh after rollback recreates the same revision', async () => {
@@ -818,10 +923,11 @@ test('player publishing, candidate CAS and settlement have no partial writes', a
         sessionId: session.id,
         taskId: published.taskId,
         expectedRevision: published.revision,
-        candidates: candidateRows(),
+        candidates: candidateRows().slice(0, 2),
         anchorOrder: 1,
         actionId: 'candidate-refresh',
     });
+    assert.equal(recruiting.candidates.length, 2);
     await assert.rejects(updateTavernTaskCandidates({
         sessionId: session.id,
         taskId: published.taskId,

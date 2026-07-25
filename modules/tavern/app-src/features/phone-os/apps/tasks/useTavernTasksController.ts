@@ -30,15 +30,13 @@ import {
     runTavernOnce,
     type TavernGetNativeWorldInfoRuntime,
 } from '../../../../runtime/run-once';
-import {
-    buildTavernTaskPromptLayers,
-    type TavernTaskPromptLayers,
-} from './tavern-task-context';
+import { buildTavernTaskPromptLayers } from './tavern-task-context';
 import {
     buildTavernTaskBoardRequestMessages,
     buildTavernTaskCandidatesRequestMessages,
 } from './tavern-task-prompts';
 import {
+    assertTavernTaskGenerationFinished,
     parseTavernTaskBoardGenerationResponse,
     parseTavernTaskCandidatesGenerationResponse,
     tavernTaskRequestErrorText,
@@ -289,7 +287,7 @@ export function useTavernTasksController(options: TavernTasksControllerOptions) 
             : 'empty-story';
     }
 
-    function knownBoardExclusions(layers: TavernTaskPromptLayers) {
+    function boardTitleExclusions() {
         return {
             excludedTitles: [...new Set([
                 ...(board.value?.listings || []).map((listing) => listing.title),
@@ -300,7 +298,6 @@ export function useTavernTasksController(options: TavernTasksControllerOptions) 
                     .slice(0, TASK_BOARD_TERMINAL_TITLE_LIMIT)
                     .map((task) => task.title),
             ])],
-            excludedIssuerNames: layers.knownNames,
         };
     }
 
@@ -330,7 +327,7 @@ export function useTavernTasksController(options: TavernTasksControllerOptions) 
                 getNativeWorldInfoRuntime: options.getNativeWorldInfoRuntime,
             });
             if (controller.signal.aborted || sessionId !== currentSessionId()) {return;}
-            const exclusions = knownBoardExclusions(layers);
+            const exclusions = boardTitleExclusions();
             const result = await runTavernOnce({
                 agentConfig,
                 providerRole: 'delegate',
@@ -345,6 +342,7 @@ export function useTavernTasksController(options: TavernTasksControllerOptions) 
                 promptDiagnostics: { channel: 'phone-tasks', operation: 'refresh-board' },
             });
             if (controller.signal.aborted || sessionId !== currentSessionId()) {return;}
+            assertTavernTaskGenerationFinished(result.finishReason);
             const listings = parseTavernTaskBoardGenerationResponse(result.text, exclusions);
             const nextBoard = await replaceTavernTaskBoard({
                 sessionId,
@@ -545,9 +543,8 @@ export function useTavernTasksController(options: TavernTasksControllerOptions) 
                 promptDiagnostics: { channel: 'phone-tasks', operation: 'recruit-candidates', taskId: task.taskId },
             });
             if (controller.signal.aborted || sessionId !== currentSessionId()) {return null;}
-            const candidates = parseTavernTaskCandidatesGenerationResponse(result.text, {
-                knownNames: layers.knownNames,
-            });
+            assertTavernTaskGenerationFinished(result.finishReason);
+            const candidates = parseTavernTaskCandidatesGenerationResponse(result.text);
             const version = await updateTavernTaskCandidates({
                 sessionId,
                 taskId: taskSnapshot.taskId,

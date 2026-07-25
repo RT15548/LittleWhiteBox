@@ -138,7 +138,7 @@ function renderRoleplayMarkdown(text = '') {
 }
 
 function messageFloorLabel(message: TavernMessageRecord) {
-    return `#${Math.max(1, Number(message.order) + 1)}`;
+    return `#${Math.max(0, Math.floor(Number(message.order) || 0))}`;
 }
 
 const liveAssistantCanRender = computed(() => (

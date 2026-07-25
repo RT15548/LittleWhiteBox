@@ -88,7 +88,7 @@ export async function describeAcceptedStateRollbackImpact(sessionId: string, cha
 }
 
 function rollbackImpactTargetLabel(targetFloor: number): string {
-    return targetFloor >= 0 ? `第 ${targetFloor + 1} 楼后的状态` : '开局前状态';
+    return targetFloor >= 0 ? `第 ${targetFloor} 楼后的状态` : '开局前状态';
 }
 
 function joinRollbackTargets(targets: string[]): string {
