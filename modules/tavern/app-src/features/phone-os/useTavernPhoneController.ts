@@ -1,3 +1,4 @@
+import { computed } from 'vue';
 import {
     TAVERN_PHONE_MESSAGES_APP_ID,
     TAVERN_PHONE_WALLET_APP_ID,
@@ -11,11 +12,16 @@ import {
 import { useTavernWalletController } from './apps/wallet/useTavernWalletController';
 import { useTavernTasksController } from './apps/tasks/useTavernTasksController';
 import { useTavernPhoneDomainSync } from './useTavernPhoneDomainSync';
+import { useTavernShopController } from './apps/shop/useTavernShopController';
 
 const MESSAGES_THREADS_PATH = '/threads';
 const WALLET_LEDGER_PATH = '/ledger';
 
-export function useTavernPhoneController(options: TavernPhoneControllerOptions) {
+export interface TavernPhoneControllerInput extends TavernPhoneControllerOptions {
+    showToast?: (message: string, options?: { tone?: 'info' | 'warning'; durationMs?: number }) => void;
+}
+
+export function useTavernPhoneController(options: TavernPhoneControllerInput) {
     let contactNavigationSequence = 0;
     let os!: ReturnType<typeof useTavernPhoneOsController>;
     const messages = useTavernMessagesController({
@@ -42,14 +48,32 @@ export function useTavernPhoneController(options: TavernPhoneControllerOptions) 
         getNativeWorldInfoRuntime: options.getNativeWorldInfoRuntime,
         onEconomyChanged: wallet.refreshAfterEconomyDomainChange,
     });
+    const shop = useTavernShopController({
+        selectedSessionId: options.selectedSessionId,
+        chatRunning: options.chatRunning,
+        chatCancelling: options.chatCancelling,
+        phoneSending: computed(() => (
+            messages.isSending.value
+            || messages.threads.value.some((thread) => thread.replyRequest?.status === 'pending')
+        )),
+        memoryEditorMode: options.memoryEditorMode,
+        characterArchiveBusy: options.characterArchiveBusy,
+        wallet,
+        knownTargetNames: computed(() => [
+            String(options.effectiveContext.value?.character?.name || ''),
+            ...messages.contacts.value.map((contact) => contact.name),
+        ]),
+        showToast: options.showToast,
+    });
     os = useTavernPhoneOsController({
-        apps: createTavernPhoneAppRegistry({ messages, wallet, tasks }),
+        apps: createTavernPhoneAppRegistry({ messages, wallet, tasks, shop }),
         selectedSessionId: options.selectedSessionId,
     });
     useTavernPhoneDomainSync({
         selectedSessionId: options.selectedSessionId,
         onTasksChanged: tasks.refreshAfterTaskDomainChange,
         onEconomyChanged: wallet.refreshAfterEconomyDomainChange,
+        onShopChanged: shop.refreshAfterShopDomainChange,
     });
 
     async function openPhone() {
@@ -100,6 +124,7 @@ export function useTavernPhoneController(options: TavernPhoneControllerOptions) 
         openWallet,
         os,
         showMessageThreads,
+        shop,
         tasks,
         wallet,
     };

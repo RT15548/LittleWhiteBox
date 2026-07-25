@@ -9,6 +9,7 @@ import db, {
     appendTavernMessage,
     createTavernManagerRun,
     createTavernSession,
+    getLatestTavernMessage,
     getTavernManagerCandidate,
     getSelectedTavernSessionId,
     listTavernAssistantChatMessages as listTavernManagerMessages,
@@ -29,6 +30,7 @@ import db, {
     tavernEconomyTransactionsTable,
     tavernTaskBoardsTable,
     tavernTaskVersionsTable,
+    tavernShopStateVersionsTable,
 } from '../shared/session-db';
 import {
     exportTavernCharacterArchive,
@@ -58,6 +60,7 @@ import {
 } from '../shared/economy/economy-service';
 import {
     TAVERN_PLAYER_ACCOUNT_ID,
+    TAVERN_SYSTEM_MINT_ACCOUNT_ID,
     TAVERN_SYSTEM_SINK_ACCOUNT_ID,
 } from '../shared/economy/economy-types';
 import { replaceTavernTaskBoard } from '../shared/tasks/task-board';
@@ -67,6 +70,13 @@ import {
     updateTavernTaskCandidates,
 } from '../shared/tasks/task-service';
 import { TAVERN_TASK_CURRENT_MARKER } from '../shared/tasks/task-types';
+import { captureTavernPhoneBoundary } from '../shared/phone-boundary';
+import {
+    activateTavernShopItem,
+    getCurrentTavernShopState,
+    purchaseTavernShopItem,
+} from '../shared/shop/shop-service';
+import { TAVERN_SHOP_CURRENT_MARKER } from '../shared/shop/shop-types';
 import {
     appendSentTavernCommunicationMessage,
     completeTavernCommunicationReply,
@@ -161,6 +171,52 @@ async function seedArchiveTasks(sessionId: string, prefix = 'archive') {
             { id: `${prefix}-candidate-3`, name: '无灯修女', description: '从不携带光源的地下引路人', pitch: '她熟悉镜廊关闭后的第二条路。', capability: '黑暗环境导航与异常规避', risk: '要求带走途中发现的一件无名遗物' },
         ],
         boundary,
+    });
+}
+
+async function seedArchiveShop(sessionId: string) {
+    const latest = await getLatestTavernMessage(sessionId);
+    await postTavernEconomyTransaction({
+        sessionId,
+        idempotencyKey: 'archive:shop-top-up',
+        fromAccountId: TAVERN_SYSTEM_MINT_ACCOUNT_ID,
+        toAccountId: TAVERN_PLAYER_ACCOUNT_ID,
+        amount: 2_000,
+        kind: 'archive_test_top_up',
+        title: '归档测试充值',
+        sourceDomain: 'test',
+        sourceId: 'archive:shop-top-up',
+        anchorOrder: Number(latest?.order ?? -1) + 1,
+    });
+    const boundary = await captureTavernPhoneBoundary(sessionId);
+    const cas = async () => {
+        const current = await getCurrentTavernShopState(sessionId);
+        return {
+            expectedRevision: current?.revision ?? 0,
+            expectedVersionId: current?.versionId ?? '',
+        };
+    };
+    await purchaseTavernShopItem({
+        sessionId,
+        itemId: 'flower',
+        actionId: 'archive-buy-flower',
+        boundary,
+        ...(await cas()),
+    });
+    await purchaseTavernShopItem({
+        sessionId,
+        itemId: 'absolute-obedience',
+        actionId: 'archive-buy-obedience',
+        boundary,
+        ...(await cas()),
+    });
+    await activateTavernShopItem({
+        sessionId,
+        itemId: 'absolute-obedience',
+        parameters: { targetName: '艾拉' },
+        actionId: 'archive-use-obedience',
+        boundary,
+        ...(await cas()),
     });
 }
 
@@ -336,6 +392,7 @@ async function seedArchiveSource() {
     await saveTavernCommunicationSnapshot(a1.id, 1);
     await seedArchiveTasks(a1.id);
     await seedArchiveTasks(b1.id, 'other-character');
+    await seedArchiveShop(a1.id);
     await tavernSessionsTable.update(a1.id, { updatedAt: 1000 });
     await tavernSessionsTable.update(a2.id, { updatedAt: 3000 });
     await tavernSessionsTable.update(b1.id, { updatedAt: 4000 });
@@ -395,8 +452,9 @@ test('tavern character archive backup includes only the current character and cr
     assert.equal(manifest.counts.memoryFiles, 1);
     assert.equal(manifest.counts.stateDocuments, 5);
     assert.equal(manifest.counts.communications, 6);
-    assert.equal(manifest.counts.economy, 12);
+    assert.equal(manifest.counts.economy, 15);
     assert.equal(manifest.counts.tasks, 3);
+    assert.equal(manifest.counts.shop, 3);
     assert(uploadedParts.every((part) => part.filename.includes('_archive-test_part_')));
     assert(!records.some((row) => JSON.stringify(row.record).includes('char-b')));
     assert(!records.some((row) => JSON.stringify(row.record).includes('b-session-1')));
@@ -405,9 +463,12 @@ test('tavern character archive backup includes only the current character and cr
     assert(records.some((row) => row.table === 'communicationMessages'));
     assert(records.some((row) => row.table === 'communicationSnapshots'));
     assert.equal(records.filter((row) => row.table === 'economyAccounts').length, 7);
-    assert.equal(records.filter((row) => row.table === 'economyTransactions').length, 5);
+    assert.equal(records.filter((row) => row.table === 'economyTransactions').length, 8);
     assert.equal(records.filter((row) => row.table === 'taskBoards').length, 1);
     assert.equal(records.filter((row) => row.table === 'taskVersions').length, 2);
+    assert.equal(records.filter((row) => row.table === 'shopStateVersions').length, 3);
+    assert.equal(records.filter((row) => row.table === 'economyTransactions'
+        && String((row.record as { kind?: string }).kind || '') === 'shop_purchase').length, 2);
     assert.equal(
         (records.find((row) => row.table === 'taskVersions' && Number((row.record as { revision?: number }).revision) === 2)?.record as { candidates?: unknown[] } | undefined)?.candidates?.length,
         3,
@@ -621,10 +682,10 @@ test('tavern character archive restore replaces only the current character and r
         ],
     );
     assert.equal(restoredPhoneThreads[0]?.replyRequest?.status, 'failed');
-    assert.equal((await tavernEconomyAccountsTable.get([restoredA1, TAVERN_PLAYER_ACCOUNT_ID]))?.balance, 25);
+    assert.equal((await tavernEconomyAccountsTable.get([restoredA1, TAVERN_PLAYER_ACCOUNT_ID]))?.balance, 775);
     assert.equal((await tavernEconomyAccountsTable.get([restoredA2, TAVERN_PLAYER_ACCOUNT_ID]))?.balance, 95);
     assert.equal(await tavernEconomyAccountsTable.where('sessionId').equals(restoredA1).count(), 4);
-    assert.equal(await tavernEconomyTransactionsTable.where('sessionId').equals(restoredA1).count(), 3);
+    assert.equal(await tavernEconomyTransactionsTable.where('sessionId').equals(restoredA1).count(), 6);
     assert.equal((await tavernEconomyTransactionsTable.where('[sessionId+idempotencyKey]').equals([
         restoredA1,
         'archive:a1-spend',
@@ -655,18 +716,32 @@ test('tavern character archive restore replaces only the current character and r
         restoredTaskVersions.find((version) => version.revision === 2)?.candidates.map((candidate) => candidate.name),
         ['弥娅', '壳匠', '无灯修女'],
     );
+    const restoredShopVersions = await tavernShopStateVersionsTable.where('sessionId').equals(restoredA1).toArray();
+    assert.equal(restoredShopVersions.length, 3);
+    const restoredShopCurrent = restoredShopVersions.find((version) => version.currentMarker === TAVERN_SHOP_CURRENT_MARKER);
+    assert.equal(restoredShopCurrent?.revision, 3);
+    assert.equal(restoredShopCurrent?.state.items.flower.quantity, 1);
+    assert.equal(restoredShopCurrent?.state.items['absolute-obedience'].quantity, 0);
+    assert.equal(restoredShopCurrent?.state.items['absolute-obedience'].activations.length, 1);
+    assert.equal(restoredShopCurrent?.state.items['absolute-obedience'].activations[0]?.parameters.targetName, '艾拉');
+    assert.equal(restoredShopCurrent?.state.items['absolute-obedience'].activations[0]?.startsAtTurn, 0);
     assert.equal(await getSelectedTavernSessionId(), restoredA2);
     assert.equal(result.selectedSessionId, restoredA2);
 });
 
-test('tavern character archive accepts only the current v5 protocol', async () => {
+test('tavern character archive accepts only the current v6 protocol', async () => {
     await seedArchiveSource();
     const { manifest, records } = await buildArchive('char-a', 500);
+    const retiredV5Manifest = {
+        ...manifest,
+        version: 5,
+    } as unknown as TavernCharacterArchiveManifest;
     const retiredV4Manifest = {
         ...manifest,
         version: 4,
     } as unknown as TavernCharacterArchiveManifest;
 
+    await assert.rejects(restoreFromRecords(retiredV5Manifest, records), /archive_version_unsupported:5/);
     await assert.rejects(restoreFromRecords(retiredV4Manifest, records), /archive_version_unsupported:4/);
 });
 
@@ -809,6 +884,7 @@ test('tavern character archive cleans session-scoped temp rows that have no rest
             communications: 0,
             economy: 1,
             tasks: 0,
+            shop: 0,
         },
         parts: [{
             ...manifest.parts[0],
@@ -860,6 +936,7 @@ test('tavern character archive can restore an empty archive by clearing only the
             communications: 0,
             economy: 0,
             tasks: 0,
+            shop: 0,
         },
         parts: [],
     };
@@ -1004,4 +1081,74 @@ test('tavern character archive manifest handles arraybuffer 404 without hanging'
     } finally {
         globalThis.XMLHttpRequest = previousXhr;
     }
+});
+
+test('tavern character archive rejects unknown shop items before promotion', async () => {
+    await seedArchiveSource();
+    const { manifest, records } = await buildArchive('char-a', 500);
+    const brokenRecords = records.map((row) => {
+        if (row.table !== 'shopStateVersions' || Number((row.record as { revision?: number }).revision) !== 3) {
+            return row;
+        }
+        const record = row.record as unknown as { state: { items: Record<string, unknown> } };
+        return {
+            ...row,
+            record: {
+                ...row.record,
+                state: {
+                    items: {
+                        ...record.state.items,
+                        'not-a-catalog-item': { itemId: 'not-a-catalog-item', quantity: 1, activations: [] },
+                    },
+                },
+            },
+        } as TavernCharacterArchiveRecord;
+    });
+    await db.delete();
+    await db.open();
+
+    await assert.rejects(restoreFromRecords(manifest, brokenRecords), /archive_shop_item_unknown/);
+    assert.equal((await listTavernSessions()).length, 0);
+});
+
+test('tavern character archive rejects shop activation parameters outside the catalog contract', async () => {
+    await seedArchiveSource();
+    const { manifest, records } = await buildArchive('char-a', 500);
+    const brokenRecords = records.map((row) => {
+        if (row.table !== 'shopStateVersions' || Number((row.record as { revision?: number }).revision) !== 3) {
+            return row;
+        }
+        const record = JSON.parse(JSON.stringify(row.record)) as {
+            state: { items: Record<string, { activations: Array<{ parameters: Record<string, string> }> }> };
+        };
+        record.state.items['absolute-obedience'].activations[0].parameters.injected = '额外字段';
+        return { ...row, record } as TavernCharacterArchiveRecord;
+    });
+    await db.delete();
+    await db.open();
+
+    await assert.rejects(restoreFromRecords(manifest, brokenRecords), /archive_shop_parameters_invalid/);
+    assert.equal((await listTavernSessions()).length, 0);
+});
+
+test('tavern character archive rejects a broken shop current marker before promotion', async () => {
+    await seedArchiveSource();
+    const { manifest, records } = await buildArchive('char-a', 500);
+    const brokenRecords = records.map((row) => {
+        if (row.table !== 'shopStateVersions' || Number((row.record as { revision?: number }).revision) !== 3) {
+            return row;
+        }
+        return {
+            ...row,
+            record: {
+                ...row.record,
+                currentMarker: undefined,
+            },
+        } as TavernCharacterArchiveRecord;
+    });
+    await db.delete();
+    await db.open();
+
+    await assert.rejects(restoreFromRecords(manifest, brokenRecords), /archive_shop_current_marker_invalid/);
+    assert.equal((await listTavernSessions()).length, 0);
 });

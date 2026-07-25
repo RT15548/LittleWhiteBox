@@ -12,6 +12,8 @@ import {
     retrieveXbTavernMemoryContext,
 } from '../../../../../shared/memory-retrieval';
 import {
+    countCompletedTavernAssistantTurnsBefore,
+    getLatestTavernMessage,
     getTavernSession,
     normalizeTavernSessionState,
     type TavernCommunicationContactRecord,
@@ -25,6 +27,12 @@ import {
 } from '../../../../../shared/session-contract';
 import { getTavernStatusDocumentForSession } from '../../../../../shared/status-state';
 import { buildTavernStatusPanelYaml } from '../../../../../shared/status-prompt';
+import {
+    buildTavernShopPromptBlock,
+} from '../../../../../shared/shop/shop-prompt';
+import {
+    getTavernShopStateAtAnchor,
+} from '../../../../../shared/shop/shop-service';
 import {
     resolveTavernWorldbookAtStoryBoundary,
 } from '../../../../runtime/anchored-worldbook';
@@ -81,6 +89,16 @@ function buildContactContext(input: {
             data: { description: input.profile },
         },
     };
+}
+
+async function resolveShopTurnAtStoryAnchor(input: {
+    sessionId: string;
+    anchorOrder: number;
+    currentTurn: number;
+}): Promise<number> {
+    const latest = await getLatestTavernMessage(input.sessionId);
+    if ((latest?.order ?? -1) === input.anchorOrder) {return input.currentTurn;}
+    return await countCompletedTavernAssistantTurnsBefore(input.sessionId, input.anchorOrder + 1);
 }
 
 export async function buildTavernMessagesRequestMessages(input: {
@@ -160,6 +178,20 @@ export async function buildTavernMessagesRequestMessages(input: {
         ...(retrievedMemory || {}),
         ...(statusState?.document ? { statusPanelYaml: buildTavernStatusPanelYaml(statusState.status) } : {}),
     }, runtime);
+    // Read-only projection: active shop effects travel with private messages
+    // too, so the replying contact stays under the same rules as the main RP.
+    const [shopState, shopTurn] = await Promise.all([
+        // Shop actions are anchored to the next story order, while private
+        // messages record the latest existing story order. Reading +1 keeps
+        // actions made at that boundary and excludes later story state.
+        getTavernShopStateAtAnchor(input.sessionId, anchorOrder + 1),
+        resolveShopTurnAtStoryAnchor({
+            sessionId: input.sessionId,
+            anchorOrder,
+            currentTurn: sessionState.turn,
+        }),
+    ]);
+    const shopPrompt = buildTavernShopPromptBlock(shopState?.state || null, shopTurn);
     return buildTavernPhonePromptMessages({
         context: contextForBuild,
         contact: input.contact,
@@ -172,5 +204,6 @@ export async function buildTavernMessagesRequestMessages(input: {
         incomingUserSequence: input.userMessage.sequence,
         memoryContext,
         activatedWorldEntries: anchoredWorldbook.activatedWorldEntries,
+        shopPrompt,
     });
 }

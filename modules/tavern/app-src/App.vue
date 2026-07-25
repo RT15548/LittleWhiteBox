@@ -1122,6 +1122,7 @@ const phoneContext = useTavernPhoneController({
     refreshContextSnapshot: refreshPhoneContextSnapshot,
     getNativeWorldInfoRuntime: getNativeWorldbookRuntime,
     addHostMessageHandler: hostBridge.addMessageHandler,
+    showToast: showTavernToast,
 }) satisfies TavernPhoneContext;
 
 function isPhoneSendingForSession(sessionId = selectedSessionId.value): boolean {
@@ -2583,6 +2584,7 @@ function summarizeArchiveCounts(counts = createEmptyTavernCharacterArchiveCounts
         `${Number(counts.communications) || 0} 条通讯数据`,
         `${Number(counts.economy) || 0} 条经济数据`,
         `${Number(counts.tasks) || 0} 条任务数据`,
+        `${Number(counts.shop) || 0} 条商店数据`,
     ].join('，');
 }
 

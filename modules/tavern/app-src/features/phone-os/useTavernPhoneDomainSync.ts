@@ -5,15 +5,18 @@ import db, {
     tavernEconomyAccountsTable,
     tavernEconomyTransactionsTable,
     tavernSessionsTable,
+    tavernShopStateVersionsTable,
     tavernTaskBoardsTable,
     tavernTaskVersionsTable,
 } from '../../../shared/session-db';
 import { TAVERN_TASK_CURRENT_MARKER } from '../../../shared/tasks/task-types';
+import { TAVERN_SHOP_CURRENT_MARKER } from '../../../shared/shop/shop-types';
 
 interface TavernPhoneDomainSyncOptions {
     selectedSessionId: Ref<string>;
     onTasksChanged: () => void | Promise<void>;
     onEconomyChanged: () => void | Promise<void>;
+    onShopChanged: () => void | Promise<void>;
 }
 
 interface DexieLiveQuerySubscription {
@@ -90,8 +93,27 @@ async function economyDomainFingerprint(sessionId: string): Promise<string> {
     });
 }
 
+async function shopDomainFingerprint(sessionId: string): Promise<string> {
+    return await db.transaction('r', tavernSessionsTable, tavernShopStateVersionsTable, async () => {
+        const [session, rows] = await Promise.all([
+            tavernSessionsTable.get(sessionId),
+            tavernShopStateVersionsTable
+                .where('[sessionId+currentMarker]')
+                .equals([sessionId, TAVERN_SHOP_CURRENT_MARKER])
+                .toArray(),
+        ]);
+        const current = rows[0];
+        return JSON.stringify([
+            session?.id ? 1 : 0,
+            Number(session?.state?.turn) || 0,
+            current?.revision || 0,
+            current?.versionId || '',
+        ]);
+    });
+}
+
 function createRefreshScheduler(
-    label: 'Task' | 'Economy',
+    label: 'Task' | 'Economy' | 'Shop',
     callback: () => void | Promise<void>,
 ) {
     let running = false;
@@ -122,6 +144,7 @@ export function useTavernPhoneDomainSync(options: TavernPhoneDomainSyncOptions):
     let generation = 0;
     const scheduleTaskRefresh = createRefreshScheduler('Task', options.onTasksChanged);
     const scheduleEconomyRefresh = createRefreshScheduler('Economy', options.onEconomyChanged);
+    const scheduleShopRefresh = createRefreshScheduler('Shop', options.onShopChanged);
 
     function stopSubscriptions(): void {
         generation += 1;
@@ -136,6 +159,7 @@ export function useTavernPhoneDomainSync(options: TavernPhoneDomainSyncOptions):
         const currentGeneration = generation;
         let taskFingerprint: string | null = null;
         let economyFingerprint: string | null = null;
+        let shopFingerprint: string | null = null;
         subscriptions = [
             runLiveQuery(() => taskDomainFingerprint(sessionId)).subscribe({
                 next: (nextFingerprint) => {
@@ -162,6 +186,19 @@ export function useTavernPhoneDomainSync(options: TavernPhoneDomainSyncOptions):
                     scheduleEconomyRefresh();
                 },
                 error: (error) => console.warn('[LittleWhiteBox/tavern] Economy domain sync failed', error),
+            }),
+            runLiveQuery(() => shopDomainFingerprint(sessionId)).subscribe({
+                next: (nextFingerprint) => {
+                    if (currentGeneration !== generation) {return;}
+                    if (shopFingerprint === null) {
+                        shopFingerprint = nextFingerprint;
+                        return;
+                    }
+                    if (nextFingerprint === shopFingerprint) {return;}
+                    shopFingerprint = nextFingerprint;
+                    scheduleShopRefresh();
+                },
+                error: (error) => console.warn('[LittleWhiteBox/tavern] Shop domain sync failed', error),
             }),
         ];
     }

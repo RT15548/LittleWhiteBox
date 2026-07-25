@@ -1,18 +1,8 @@
 import db, {
-    tavernEconomyAccountsTable,
-    tavernEconomyTransactionsTable,
     tavernSessionsTable,
     tavernTaskBoardsTable,
     tavernTaskVersionsTable,
 } from '../session-db';
-import {
-    describeTavernEconomyRestoreImpact,
-    restoreTavernEconomyToFloorInCurrentDbTransaction,
-} from '../economy/economy-timeline';
-import type {
-    TavernEconomyRestoreImpact,
-    TavernEconomyRestoreResult,
-} from '../economy/economy-types';
 import {
     TAVERN_TASK_CURRENT_MARKER,
     normalizeTavernTaskAnchorOrder,
@@ -20,16 +10,6 @@ import {
     type TavernTaskRestoreImpact,
     type TavernTaskVersionRecord,
 } from './task-types';
-
-export interface TavernTasksAndEconomyRestoreImpact {
-    tasks: TavernTaskRestoreImpact;
-    economy: TavernEconomyRestoreImpact;
-}
-
-export interface TavernTasksAndEconomyRestoreResult {
-    tasks: TavernTaskRestoreImpact;
-    economy: TavernEconomyRestoreResult;
-}
 
 type TaskRangeCollection<T> = {
     toArray(): Promise<T[]>;
@@ -91,20 +71,8 @@ export async function describeTavernTasksRestoreImpact(
     );
 }
 
-export async function describeTavernTasksAndEconomyRestoreImpact(
-    value = '',
-    targetValue = -1,
-): Promise<TavernTasksAndEconomyRestoreImpact> {
-    const sessionId = normalizeSessionId(value);
-    const targetFloor = normalizeTavernTaskAnchorOrder(targetValue);
-    const [tasks, economy] = await Promise.all([
-        describeTavernTasksRestoreImpact(sessionId, targetFloor),
-        describeTavernEconomyRestoreImpact(sessionId, targetFloor),
-    ]);
-    return { tasks, economy };
-}
-
-async function restoreTavernTasksToFloorInCurrentDbTransaction(input: {
+/** Caller must include sessions, taskBoards and taskVersions in the active transaction. */
+export async function restoreTavernTasksToFloorInCurrentDbTransaction(input: {
     sessionId: string;
     targetFloor: number;
     touchSession?: boolean;
@@ -157,40 +125,4 @@ async function restoreTavernTasksToFloorInCurrentDbTransaction(input: {
         await tavernSessionsTable.update(sessionId, { updatedAt: Date.now() });
     }
     return impact;
-}
-
-/**
- * The accepted-history rollback entrypoint. Task state and all ledger facts
- * after the same floor are removed inside one IndexedDB transaction.
- */
-export async function restoreTavernTasksAndEconomyToFloor(
-    value = '',
-    targetValue = -1,
-): Promise<TavernTasksAndEconomyRestoreResult> {
-    const sessionId = normalizeSessionId(value);
-    const targetFloor = normalizeTavernTaskAnchorOrder(targetValue);
-    return await db.transaction(
-        'rw',
-        tavernSessionsTable,
-        tavernTaskBoardsTable,
-        tavernTaskVersionsTable,
-        tavernEconomyAccountsTable,
-        tavernEconomyTransactionsTable,
-        async () => {
-            const tasks = await restoreTavernTasksToFloorInCurrentDbTransaction({
-                sessionId,
-                targetFloor,
-                touchSession: false,
-            });
-            const economy = await restoreTavernEconomyToFloorInCurrentDbTransaction(
-                sessionId,
-                targetFloor,
-                { touchSessionOnChange: false },
-            );
-            if (tasks.changed || economy.changed) {
-                await tavernSessionsTable.update(sessionId, { updatedAt: Date.now() });
-            }
-            return { tasks, economy };
-        },
-    );
 }

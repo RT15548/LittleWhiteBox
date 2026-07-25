@@ -325,6 +325,8 @@ export function buildTavernPhonePromptMessages(input: {
     incomingUserSequence?: number;
     memoryContext?: XbTavernMemoryContext;
     activatedWorldEntries: ActivatedWorldEntry[];
+    /** Active shop effects, placed as an independent system message right before USER. */
+    shopPrompt?: string;
 }): XbTavernMessage[] {
     const playerName = normalizeInlineText(input.context.user?.name || '玩家', 80);
     const currentState = buildCurrentStateAndMemory({
@@ -345,6 +347,11 @@ export function buildTavernPhonePromptMessages(input: {
             messages: input.communicationMessages,
             excludeUserSequence: input.incomingUserSequence,
         }),
+        ...(hasPromptContent(input.shopPrompt) ? [{
+            role: 'system' as const,
+            name: 'active_shop_effects',
+            content: promptContent(input.shopPrompt),
+        }] : []),
         {
             role: 'user',
             content: [

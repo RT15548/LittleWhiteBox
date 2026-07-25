@@ -36,9 +36,9 @@ import {
 } from '../shared/tasks/task-service';
 import { captureTavernTaskPhoneBoundary } from '../shared/tasks/task-phone-boundary';
 import {
-    describeTavernTasksAndEconomyRestoreImpact,
-    restoreTavernTasksAndEconomyToFloor,
-} from '../shared/tasks/task-timeline';
+    describeTavernAcceptedEconomicRestoreImpact,
+    restoreTavernAcceptedEconomicStateToFloor,
+} from '../shared/accepted-economic-state';
 import {
     parseTavernTaskBoardResponse,
     parseTavernTaskCandidatesResponse,
@@ -601,7 +601,7 @@ test('task board epoch rejects a stale refresh after rollback recreates the same
         listings: boardListings(),
     });
     const staleBoundary = await captureTavernTaskPhoneBoundary(session.id);
-    await restoreTavernTasksAndEconomyToFloor(session.id, 1);
+    await restoreTavernAcceptedEconomicStateToFloor(session.id, 1);
     const epochAfterRollback = Number((await tavernSessionsTable.get(session.id))?.taskBoardEpoch);
     const replacement = await replaceTavernTaskBoard({
         sessionId: session.id,
@@ -632,7 +632,7 @@ test('an empty task board rollback still advances its epoch and rejects a stale 
     const staleBoundary = await captureTavernTaskPhoneBoundary(session.id);
     const epochBeforeRollback = Number((await tavernSessionsTable.get(session.id))?.taskBoardEpoch);
 
-    const restored = await restoreTavernTasksAndEconomyToFloor(session.id, 0);
+    const restored = await restoreTavernAcceptedEconomicStateToFloor(session.id, 0);
     assert.equal(restored.tasks.clearedBoard, false);
     const epochAfterRollback = Number((await tavernSessionsTable.get(session.id))?.taskBoardEpoch);
     assert.equal(epochAfterRollback, epochBeforeRollback + 1);
@@ -853,7 +853,7 @@ test('task version id rejects a stale mutation after rollback rebuilds the same 
         anchorOrder: 1,
         actionId: 'old-revision-two',
     });
-    await restoreTavernTasksAndEconomyToFloor(session.id, 0);
+    await restoreTavernAcceptedEconomicStateToFloor(session.id, 0);
     const restored = await getCurrentTavernTask(session.id, accepted.taskId);
     const rebuiltRevisionTwo = await progressTavernTaskRaw({
         sessionId: session.id,
@@ -1276,7 +1276,7 @@ test('delayed staged settlement keeps its evidence floor across newer wallet act
     assert.equal(await tavernEconomyTransactionsTable.where('sessionId').equals(session.id).count(), transactions.length);
 
     const boardEpochBeforeRestore = Number((await tavernSessionsTable.get(session.id))?.taskBoardEpoch);
-    const restored = await restoreTavernTasksAndEconomyToFloor(session.id, 2);
+    const restored = await restoreTavernAcceptedEconomicStateToFloor(session.id, 2);
     assert.equal(restored.tasks.changed, true);
     assert.ok(Number((await tavernSessionsTable.get(session.id))?.taskBoardEpoch) > boardEpochBeforeRestore);
     assert.equal(restored.economy.transactionCount, 1);
@@ -1324,11 +1324,11 @@ test('task and economy rollback share one floor and restore current markers', as
         generationId: 'rollback-board-two',
         listings: boardListings().map((listing) => ({ ...listing, id: `${listing.id}-new` })),
     });
-    assert.deepEqual(await describeTavernTasksAndEconomyRestoreImpact(session.id, 2).then((impact) => ({
+    assert.deepEqual(await describeTavernAcceptedEconomicRestoreImpact(session.id, 2).then((impact) => ({
         tasks: impact.tasks.changed,
         economy: impact.economy.changed,
     })), { tasks: true, economy: true });
-    const restored = await restoreTavernTasksAndEconomyToFloor(session.id, 2);
+    const restored = await restoreTavernAcceptedEconomicStateToFloor(session.id, 2);
     assert.equal(restored.tasks.clearedBoard, true);
     assert.equal(restored.economy.transactionCount, 1);
     assert.equal(await tavernTaskBoardsTable.get(session.id), undefined);

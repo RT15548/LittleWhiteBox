@@ -49,6 +49,9 @@ import type {
     TavernTaskBoardRecord,
     TavernTaskVersionRecord,
 } from './tasks/task-types';
+import type {
+    TavernShopStateVersionRecord,
+} from './shop/shop-types';
 
 type TavernDexieUpgradeCollection = {
     each: (callback: (record: Record<string, unknown>) => void) => Promise<unknown>;
@@ -540,6 +543,7 @@ class TavernDatabase extends Dexie {
     economyTransactions!: DexieTable<TavernEconomyTransactionRecord>;
     taskBoards!: DexieTable<TavernTaskBoardRecord>;
     taskVersions!: DexieTable<TavernTaskVersionRecord>;
+    shopStateVersions!: DexieTable<TavernShopStateVersionRecord>;
 
     constructor() {
         super('LittleWhiteBox_Tavern');
@@ -974,6 +978,9 @@ class TavernDatabase extends Dexie {
                 afterKey = [String(last.sessionId || ''), Number(last.order)];
             }
         });
+        this.version(25).stores({
+            shopStateVersions: '[sessionId+revision], sessionId, versionId, &[sessionId+actionId], &[sessionId+currentMarker], [sessionId+anchorOrder], updatedAt',
+        });
     }
 }
 
@@ -1004,6 +1011,7 @@ export const tavernEconomyAccountsTable = db.economyAccounts;
 export const tavernEconomyTransactionsTable = db.economyTransactions;
 export const tavernTaskBoardsTable = db.taskBoards;
 export const tavernTaskVersionsTable = db.taskVersions;
+export const tavernShopStateVersionsTable = db.shopStateVersions;
 
 type DexieRangeCollection<T> = {
     reverse(): DexieRangeCollection<T>;
@@ -1393,6 +1401,7 @@ export async function branchTavernSession(sessionId = ''): Promise<TavernSession
         tavernEconomyTransactionsTable,
         tavernTaskBoardsTable,
         tavernTaskVersionsTable,
+        tavernShopStateVersionsTable,
         async () => {
             const sourceSession = await tavernSessionsTable.get(sourceSessionId);
             if (!sourceSession) {return null;}
@@ -1417,6 +1426,7 @@ export async function branchTavernSession(sessionId = ''): Promise<TavernSession
                 economyTransactions,
                 taskBoard,
                 taskVersions,
+                shopVersions,
             ] = await Promise.all([
                 tavernMessagesTable.where('sessionId').equals(sourceSessionId).toArray(),
                 tavernAssistantChatMessagesTable.where('sessionId').equals(sourceSessionId).toArray(),
@@ -1437,6 +1447,7 @@ export async function branchTavernSession(sessionId = ''): Promise<TavernSession
                 tavernEconomyTransactionsTable.where('sessionId').equals(sourceSessionId).toArray(),
                 tavernTaskBoardsTable.get(sourceSessionId),
                 tavernTaskVersionsTable.where('sessionId').equals(sourceSessionId).toArray(),
+                tavernShopStateVersionsTable.where('sessionId').equals(sourceSessionId).toArray(),
             ]);
             assertTavernManagerSnapshotStable({
                 runs: managerRuns,
@@ -1578,6 +1589,10 @@ export async function branchTavernSession(sessionId = ''): Promise<TavernSession
                     ...cloneSerializable(version, version),
                     sessionId: nextSessionId,
                 }))) : 0,
+                shopVersions.length ? tavernShopStateVersionsTable.bulkPut(shopVersions.map((version) => ({
+                    ...cloneSerializable(version, version),
+                    sessionId: nextSessionId,
+                }))) : 0,
             ]);
             return session;
         },
@@ -1613,9 +1628,10 @@ export async function deleteTavernSession(sessionId = ''): Promise<number> {
         tavernEconomyTransactionsTable,
         tavernTaskBoardsTable,
         tavernTaskVersionsTable,
+        tavernShopStateVersionsTable,
         tavernMetaTable,
         async () => {
-            const [messages, assistantChatMessages, assistantChatSummaryKeys, runs, snapshots, stateSnapshots, files, memorySnapshots, indexes, stateDocuments, statePatches, statusSnapshots, communicationContacts, communicationThreads, communicationMessages, communicationSnapshots, economyAccounts, economyTransactions, taskBoard, taskVersions] = await Promise.all([
+            const [messages, assistantChatMessages, assistantChatSummaryKeys, runs, snapshots, stateSnapshots, files, memorySnapshots, indexes, stateDocuments, statePatches, statusSnapshots, communicationContacts, communicationThreads, communicationMessages, communicationSnapshots, economyAccounts, economyTransactions, taskBoard, taskVersions, shopVersions] = await Promise.all([
                 tavernMessagesTable.where('sessionId').equals(id).toArray(),
                 tavernAssistantChatMessagesTable.where('sessionId').equals(id).toArray(),
                 (tavernAssistantChatMessageSummariesTable as unknown as DexieRangeTable<TavernAssistantChatMessageSummaryRecord>)
@@ -1637,6 +1653,7 @@ export async function deleteTavernSession(sessionId = ''): Promise<number> {
                 tavernEconomyTransactionsTable.where('sessionId').equals(id).toArray(),
                 tavernTaskBoardsTable.get(id),
                 tavernTaskVersionsTable.where('sessionId').equals(id).toArray(),
+                tavernShopStateVersionsTable.where('sessionId').equals(id).toArray(),
             ]);
             const managerCandidate = await tavernManagerCandidatesTable.get(id);
             await Promise.all([
@@ -1661,6 +1678,7 @@ export async function deleteTavernSession(sessionId = ''): Promise<number> {
                 economyTransactions.length ? tavernEconomyTransactionsTable.bulkDelete(economyTransactions.map((transaction) => [transaction.sessionId, transaction.id])) : 0,
                 taskBoard ? tavernTaskBoardsTable.delete(id) : 0,
                 taskVersions.length ? tavernTaskVersionsTable.bulkDelete(taskVersions.map((version) => [version.sessionId, version.taskId, version.revision])) : 0,
+                shopVersions.length ? tavernShopStateVersionsTable.bulkDelete(shopVersions.map((version) => [version.sessionId, version.revision])) : 0,
             ]);
             await tavernSessionsTable.delete(id);
             const selected = await tavernMetaTable.get('selectedSessionId');

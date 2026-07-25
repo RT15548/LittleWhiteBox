@@ -60,6 +60,19 @@ import type {
     TavernTaskListing,
     TavernTaskVersionRecord,
 } from '../../shared/tasks/task-types';
+import type {
+    TavernShopActivation,
+    TavernShopItem,
+    TavernShopStateVersionRecord,
+} from '../../shared/shop/shop-types';
+import type {
+    TavernShopActionIntent,
+} from '../features/phone-os/apps/shop/useTavernShopController';
+import type {
+    TavernShopActivationRow,
+    TavernShopInventoryRow,
+    TavernShopShelfRow,
+} from '../features/phone-os/apps/shop/tavern-shop-presentation';
 export type { TavernDisplaySettings, TavernUserOption } from '../../shared/settings';
 
 export type TavernReadable<T> = Ref<T> | ComputedRef<T>;
@@ -556,6 +569,36 @@ export interface TavernTasksContext {
     withdrawTask: TavernCommand<[task: TavernTaskVersionRecord], Promise<TavernTaskVersionRecord | null>>;
 }
 
+export interface TavernShopContext {
+    actionError: Ref<string>;
+    activeItems: TavernReadable<TavernShopActivationRow[]>;
+    activate: TavernCommand<[intent: TavernShopActionIntent, parameters: Record<string, unknown>], Promise<unknown>>;
+    activationBlockedReason: TavernCommand<[], string>;
+    busyAction: Ref<string>;
+    currentTurn: Ref<number>;
+    currentVersion: Ref<TavernShopStateVersionRecord | null>;
+    deactivate: TavernCommand<[intent: TavernShopActionIntent], Promise<unknown>>;
+    exhaustedItems: TavernReadable<TavernShopInventoryRow[]>;
+    heldItems: TavernReadable<TavernShopInventoryRow[]>;
+    interactionBlockedReason: TavernReadable<string>;
+    knownTargetNames: TavernReadable<string[]>;
+    loadError: Ref<string>;
+    loading: Ref<boolean>;
+    prepareActivation: TavernCommand<[item: TavernShopItem], Promise<TavernShopActionIntent | null>>;
+    prepareDeactivation: TavernCommand<[
+        item: TavernShopItem,
+        activation: TavernShopActivation,
+    ], Promise<TavernShopActionIntent | null>>;
+    preparePurchase: TavernCommand<[item: TavernShopItem], Promise<TavernShopActionIntent | null>>;
+    prepareShop: TavernCommand<[], Promise<void>>;
+    purchase: TavernCommand<[intent: TavernShopActionIntent], Promise<unknown>>;
+    purchaseBlockedReason: TavernCommand<[item: TavernShopItem], string>;
+    refreshAfterShopDomainChange: TavernCommand<[], Promise<void>>;
+    refreshShop: TavernCommand<[], Promise<void>>;
+    shelfItems: TavernReadable<TavernShopShelfRow[]>;
+    status: Ref<string>;
+}
+
 export interface TavernPhoneContext {
     isConversationVisible: TavernCommand<[sessionId?: string, threadId?: string], boolean>;
     messages: TavernMessagesContext;
@@ -564,6 +607,7 @@ export interface TavernPhoneContext {
     openWallet: TavernCommand;
     os: TavernPhoneOsContext;
     showMessageThreads: TavernCommand;
+    shop: TavernShopContext;
     tasks: TavernTasksContext;
     wallet: TavernWalletContext;
 }

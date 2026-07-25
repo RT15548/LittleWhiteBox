@@ -7929,6 +7929,12 @@ test('rollback impact reports status-only manager writes as state rollback', asy
             affectedTaskCount: 0,
             clearedBoard: false,
         },
+        shop: {
+            changed: false,
+            targetFloor: assistantMessage.order - 1,
+            deletedVersionCount: 0,
+            affectedItemCount: 0,
+        },
         economy: {
             changed: false,
             targetFloor: assistantMessage.order - 1,

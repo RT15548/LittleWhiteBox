@@ -24,6 +24,7 @@ import db, {
     tavernEconomyTransactionsTable,
     tavernTaskBoardsTable,
     tavernTaskVersionsTable,
+    tavernShopStateVersionsTable,
     TAVERN_COMMUNICATION_REPLY_INTERRUPTED_ERROR,
     type TavernCommunicationSnapshotRecord,
     type TavernCommunicationThreadRecord,
@@ -52,6 +53,7 @@ import {
 import { assertTavernManagerSnapshotStable } from './manager-snapshot-integrity';
 import {
     TAVERN_PLAYER_ACCOUNT_ID,
+    TAVERN_SYSTEM_SINK_ACCOUNT_ID,
     type TavernEconomyAccountRecord,
     type TavernEconomyTransactionRecord,
 } from './economy/economy-types';
@@ -62,6 +64,15 @@ import {
     type TavernTaskParty,
     type TavernTaskVersionRecord,
 } from './tasks/task-types';
+import {
+    findTavernShopItem,
+} from './shop/shop-catalog';
+import {
+    normalizeTavernShopParameters,
+    normalizeTavernShopStateVersionRecord,
+    TAVERN_SHOP_CURRENT_MARKER,
+    type TavernShopStateVersionRecord,
+} from './shop/shop-types';
 
 const RESTORE_TEMP_CHARACTER_PREFIX = '__lwb_restore__';
 const RESTORE_BATCH_SIZE = 500;
@@ -74,6 +85,7 @@ const ARCHIVE_COUNT_FIELDS = [
     'communications',
     'economy',
     'tasks',
+    'shop',
 ] as const satisfies readonly (keyof TavernCharacterArchiveCounts)[];
 const ARCHIVE_TABLE_NAMES = new Set<string>(TAVERN_CHARACTER_ARCHIVE_TABLES);
 
@@ -124,6 +136,7 @@ const archiveTables: ArchiveTableMap = {
     economyTransactions: { table: tavernEconomyTransactionsTable as unknown as ArchiveRuntimeTable, sessionIndex: 'sessionId' },
     taskBoards: { table: tavernTaskBoardsTable as unknown as ArchiveRuntimeTable, sessionIndex: 'sessionId' },
     taskVersions: { table: tavernTaskVersionsTable as unknown as ArchiveRuntimeTable, sessionIndex: 'sessionId' },
+    shopStateVersions: { table: tavernShopStateVersionsTable as unknown as ArchiveRuntimeTable, sessionIndex: 'sessionId' },
 };
 
 function now(): number {
@@ -159,6 +172,7 @@ function incrementArchiveCounts(counts: TavernCharacterArchiveCounts, table: Tav
     if (table.startsWith('communication')) {counts.communications = (Number(counts.communications) || 0) + 1;}
     if (table.startsWith('economy')) {counts.economy += 1;}
     if (table.startsWith('task')) {counts.tasks += 1;}
+    if (table.startsWith('shop')) {counts.shop += 1;}
 }
 
 function totalManifestCount(manifest: TavernCharacterArchiveManifest): number {
@@ -169,7 +183,8 @@ function totalManifestCount(manifest: TavernCharacterArchiveManifest): number {
         + (Number(counts.stateDocuments) || 0)
         + (Number(counts.communications) || 0)
         + (Number(counts.economy) || 0)
-        + (Number(counts.tasks) || 0);
+        + (Number(counts.tasks) || 0)
+        + (Number(counts.shop) || 0);
 }
 
 type CapturedCharacterArchiveSession = {
@@ -216,6 +231,7 @@ async function captureCharacterArchiveSession(sessionId = ''): Promise<CapturedC
         tavernEconomyTransactionsTable,
         tavernTaskBoardsTable,
         tavernTaskVersionsTable,
+        tavernShopStateVersionsTable,
         async () => {
             const session = await tavernSessionsTable.get(id);
             if (!session) {throw new Error('archive_session_missing');}
@@ -333,6 +349,178 @@ function assertTaskEconomyArchiveStable(input: {
     }
 }
 
+/**
+ * Shop invariants for an archived session: a continuous 1..N revision chain,
+ * exactly one current marker on the highest revision, and only catalog-known
+ * item ids. Unknown or malformed shop state fails the whole archive.
+ */
+function assertShopArchiveStable(input: {
+    session: TavernSessionRecord;
+    versions: TavernShopStateVersionRecord[];
+    transactions: TavernEconomyTransactionRecord[];
+}): void {
+    const sessionId = input.session.id;
+    const rows = input.versions.map((row) => normalizeTavernShopStateVersionRecord(row));
+    const versionIds = new Set<string>();
+    const actionIds = new Set<string>();
+    for (const row of rows) {
+        if (row.sessionId !== sessionId) {throw new Error(`archive_shop_session_mismatch:${sessionId}`);}
+        if (versionIds.has(row.versionId)) {throw new Error(`archive_shop_version_id_duplicate:${row.versionId}`);}
+        versionIds.add(row.versionId);
+        if (actionIds.has(row.actionId)) {throw new Error(`archive_shop_action_id_duplicate:${row.actionId}`);}
+        actionIds.add(row.actionId);
+        if (!findTavernShopItem(row.action.itemId)) {
+            throw new Error(`archive_shop_item_unknown:${row.action.itemId}`);
+        }
+        const rowActivationIds = new Set<string>();
+        for (const [itemId, entry] of Object.entries(row.state.items)) {
+            const item = findTavernShopItem(itemId);
+            if (!item) {throw new Error(`archive_shop_item_unknown:${itemId}`);}
+            if (item.purchaseLimit !== undefined && entry.quantity + entry.activations.length > item.purchaseLimit) {
+                throw new Error(`archive_shop_purchase_limit_invalid:${itemId}`);
+            }
+            for (const activation of entry.activations) {
+                if (rowActivationIds.has(activation.id)) {
+                    throw new Error(`archive_shop_activation_id_duplicate:${activation.id}`);
+                }
+                rowActivationIds.add(activation.id);
+                const normalizedParameters = normalizeTavernShopParameters(item, activation.parameters);
+                const parameterKeys = Object.keys(activation.parameters).sort();
+                const normalizedKeys = Object.keys(normalizedParameters).sort();
+                if (
+                    JSON.stringify(parameterKeys) !== JSON.stringify(normalizedKeys)
+                    || normalizedKeys.some((key) => activation.parameters[key] !== normalizedParameters[key])
+                ) {
+                    throw new Error(`archive_shop_parameters_invalid:${itemId}:${activation.id}`);
+                }
+                if (activation.endedAtTurn !== undefined) {
+                    if (
+                        item.duration.kind !== 'manual'
+                        || activation.endedAtTurn < activation.startsAtTurn
+                        || Number(activation.endedAtOrder) < activation.activatedAtOrder
+                        || Number(activation.endedAt) < activation.activatedAt
+                    ) {
+                        throw new Error(`archive_shop_activation_end_invalid:${activation.id}`);
+                    }
+                }
+            }
+        }
+        const actionActivationId = String(row.action.activationId || '');
+        if (row.action.kind === 'purchase') {
+            if (actionActivationId) {throw new Error(`archive_shop_action_invalid:${row.actionId}`);}
+        } else {
+            const activation = row.state.items[row.action.itemId]?.activations
+                .find((candidate) => candidate.id === actionActivationId);
+            if (!actionActivationId || !activation) {
+                throw new Error(`archive_shop_action_invalid:${row.actionId}`);
+            }
+            if (row.action.kind === 'deactivate' && activation.endReason !== 'manual') {
+                throw new Error(`archive_shop_action_invalid:${row.actionId}`);
+            }
+        }
+    }
+    if (!rows.length) {return;}
+    rows.sort((left, right) => left.revision - right.revision);
+    if (rows.some((row, index) => row.revision !== index + 1)) {
+        throw new Error(`archive_shop_version_chain_invalid:${sessionId}`);
+    }
+    const currentRows = rows.filter((row) => row.currentMarker === TAVERN_SHOP_CURRENT_MARKER);
+    const current = rows.at(-1)!;
+    if (currentRows.length !== 1 || currentRows[0].versionId !== current.versionId) {
+        throw new Error(`archive_shop_current_marker_invalid:${sessionId}`);
+    }
+    const canonicalJson = (value: unknown): string => JSON.stringify(value, (_key, entry) => {
+        if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {return entry;}
+        return Object.fromEntries(Object.entries(entry as Record<string, unknown>).sort(([left], [right]) => (
+            left.localeCompare(right)
+        )));
+    });
+    let previousState = { items: {} } as TavernShopStateVersionRecord['state'];
+    let previousAnchor = -1;
+    for (const row of rows) {
+        if (row.anchorOrder < previousAnchor) {
+            throw new Error(`archive_shop_anchor_regression:${row.actionId}`);
+        }
+        const expected = cloneSerializable(previousState);
+        const beforeEntry = expected.items[row.action.itemId];
+        const rowEntry = row.state.items[row.action.itemId];
+        if (row.action.kind === 'purchase') {
+            const source = beforeEntry || { itemId: row.action.itemId, quantity: 0, activations: [] };
+            expected.items[row.action.itemId] = {
+                itemId: row.action.itemId,
+                quantity: source.quantity + 1,
+                activations: [...source.activations],
+            };
+        } else if (row.action.kind === 'activate') {
+            const activationId = String(row.action.activationId || '');
+            const activation = rowEntry?.activations.find((candidate) => candidate.id === activationId);
+            if (
+                !beforeEntry
+                || beforeEntry.quantity < 1
+                || !activation
+                || beforeEntry.activations.some((candidate) => candidate.id === activationId)
+            ) {
+                throw new Error(`archive_shop_transition_invalid:${row.actionId}`);
+            }
+            expected.items[row.action.itemId] = {
+                itemId: row.action.itemId,
+                quantity: beforeEntry.quantity - 1,
+                activations: [...beforeEntry.activations, activation],
+            };
+        } else {
+            const activationId = String(row.action.activationId || '');
+            const beforeActivation = beforeEntry?.activations.find((candidate) => candidate.id === activationId);
+            const endedActivation = rowEntry?.activations.find((candidate) => candidate.id === activationId);
+            if (
+                !beforeEntry
+                || !beforeActivation
+                || beforeActivation.endedAtTurn !== undefined
+                || !endedActivation
+                || endedActivation.endReason !== 'manual'
+            ) {
+                throw new Error(`archive_shop_transition_invalid:${row.actionId}`);
+            }
+            expected.items[row.action.itemId] = {
+                itemId: row.action.itemId,
+                quantity: beforeEntry.quantity,
+                activations: beforeEntry.activations.map((activation) => (
+                    activation.id === activationId ? endedActivation : activation
+                )),
+            };
+        }
+        if (canonicalJson(expected) !== canonicalJson(row.state)) {
+            throw new Error(`archive_shop_transition_invalid:${row.actionId}`);
+        }
+        previousState = row.state;
+        previousAnchor = row.anchorOrder;
+    }
+    const purchases = rows.filter((row) => row.action.kind === 'purchase');
+    const shopTransactions = input.transactions.filter((transaction) => (
+        transaction.kind === 'shop_purchase' || transaction.sourceDomain === 'shop'
+    ));
+    if (shopTransactions.length !== purchases.length) {
+        throw new Error(`archive_shop_ledger_count_invalid:${sessionId}`);
+    }
+    for (const purchase of purchases) {
+        const item = findTavernShopItem(purchase.action.itemId)!;
+        const transaction = shopTransactions.find((candidate) => (
+            candidate.idempotencyKey === `shop:purchase:${purchase.actionId}`
+        ));
+        if (
+            !transaction
+            || transaction.fromAccountId !== TAVERN_PLAYER_ACCOUNT_ID
+            || transaction.toAccountId !== TAVERN_SYSTEM_SINK_ACCOUNT_ID
+            || transaction.amount !== item.price
+            || transaction.kind !== 'shop_purchase'
+            || transaction.sourceDomain !== 'shop'
+            || transaction.sourceId !== item.id
+            || transaction.anchorOrder !== purchase.anchorOrder
+        ) {
+            throw new Error(`archive_shop_ledger_invalid:${purchase.actionId}`);
+        }
+    }
+}
+
 async function assertCharacterArchiveStable(characterKey = ''): Promise<void> {
     const key = normalizeCharacterKey(characterKey);
     await db.transaction(
@@ -346,10 +534,11 @@ async function assertCharacterArchiveStable(characterKey = ''): Promise<void> {
         tavernEconomyTransactionsTable,
         tavernTaskBoardsTable,
         tavernTaskVersionsTable,
+        tavernShopStateVersionsTable,
         async () => {
             const sessions = await tavernSessionsTable.where('characterKey').equals(key).toArray();
             for (const session of sessions) {
-                const [runs, memorySnapshots, stateSnapshots, statePatches, accounts, transactions, board, versions] = await Promise.all([
+                const [runs, memorySnapshots, stateSnapshots, statePatches, accounts, transactions, board, versions, shopVersions] = await Promise.all([
                     tavernManagerRunsTable.where('sessionId').equals(session.id).toArray(),
                     tavernManagerMemorySnapshotsTable.where('sessionId').equals(session.id).toArray(),
                     tavernManagerStateSnapshotsTable.where('sessionId').equals(session.id).toArray(),
@@ -358,6 +547,7 @@ async function assertCharacterArchiveStable(characterKey = ''): Promise<void> {
                     tavernEconomyTransactionsTable.where('sessionId').equals(session.id).toArray(),
                     tavernTaskBoardsTable.get(session.id),
                     tavernTaskVersionsTable.where('sessionId').equals(session.id).toArray(),
+                    tavernShopStateVersionsTable.where('sessionId').equals(session.id).toArray(),
                 ]);
                 assertTavernManagerSnapshotStable({ runs, memorySnapshots, stateSnapshots, statePatches }, 'manager_archive_unaccepted_writes');
                 assertTaskEconomyArchiveStable({
@@ -367,6 +557,7 @@ async function assertCharacterArchiveStable(characterKey = ''): Promise<void> {
                     accounts,
                     transactions,
                 });
+                assertShopArchiveStable({ session, versions: shopVersions, transactions });
             }
         },
     );
@@ -819,6 +1010,7 @@ async function writeArchiveRecordBatch(batch: TavernCharacterArchiveRecord[]): P
         tavernEconomyTransactionsTable,
         tavernTaskBoardsTable,
         tavernTaskVersionsTable,
+        tavernShopStateVersionsTable,
         async () => {
             for (const table of TAVERN_CHARACTER_ARCHIVE_TABLES) {
                 const rows = batch.filter((record) => record.table === table).map((record) => record.record);
@@ -863,6 +1055,7 @@ async function promoteTempArchiveToCharacter(tempCharacterKey = '', characterKey
         tavernEconomyTransactionsTable,
         tavernTaskBoardsTable,
         tavernTaskVersionsTable,
+        tavernShopStateVersionsTable,
         tavernMetaTable,
         async () => {
             const tempSessionCount = await tavernSessionsTable.where('characterKey').equals(tempCharacterKey).count();

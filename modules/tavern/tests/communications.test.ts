@@ -7,6 +7,7 @@ import db, {
     createTavernSession,
     deleteTavernSession,
     appendTavernMessage,
+    updateTavernSessionState,
     tavernCommunicationSnapshotsTable,
     tavernCommunicationThreadsTable,
 } from '../shared/session-db';
@@ -39,6 +40,11 @@ import {
 } from '../app-src/features/phone-os/apps/messages/tavern-messages-response';
 import { XBTavernWorldPosition, type ActivatedWorldEntry } from '../shared/message-assembler';
 import type { TavernGetNativeWorldInfoRuntime } from '../app-src/runtime/run-once';
+import { captureTavernPhoneBoundary } from '../shared/phone-boundary';
+import {
+    activateTavernShopItem,
+    purchaseTavernShopItem,
+} from '../shared/shop/shop-service';
 
 function activatedPhoneWorldEntry(content: string, position: XBTavernWorldPosition, depth = 0): ActivatedWorldEntry {
     return {
@@ -915,4 +921,103 @@ test('session branching clones phone state and session deletion cascades it', as
     assert.equal(await completePhoneReply(late, { replies: ['迟到回复'] }), null);
     assert.deepEqual(await listTavernCommunicationContacts(session.id), []);
     assert.deepEqual(await listTavernCommunicationThreads(session.id), []);
+});
+
+test('phone replies stay under active shop effects in a system message before USER', async () => {
+    await db.delete();
+    await db.open();
+    const session = await createTavernSession({
+        title: 'Phone shop context',
+        characterName: '主角色',
+        contextSnapshot: {
+            character: { name: '主角色', description: 'MAIN_CARD_MARKER' },
+            user: { name: '玩家' },
+        },
+    });
+    const contact = await createTavernCommunicationContact({
+        sessionId: session.id,
+        name: '艾琳',
+        source: 'manual',
+    });
+    const boundary = await captureTavernPhoneBoundary(session.id);
+    const purchased = await purchaseTavernShopItem({
+        sessionId: session.id,
+        itemId: 'flower',
+        actionId: 'phone-buy-flower',
+        boundary,
+        expectedRevision: 0,
+        expectedVersionId: '',
+    });
+    const activated = await activateTavernShopItem({
+        sessionId: session.id,
+        itemId: 'flower',
+        parameters: { targetName: '艾琳' },
+        actionId: 'phone-use-flower',
+        boundary,
+        expectedRevision: purchased.record.revision,
+        expectedVersionId: purchased.record.versionId,
+    });
+    const sent = await appendSentTavernCommunicationMessage({
+        sessionId: session.id,
+        threadId: contact.thread.id,
+        content: '在吗？',
+    });
+    const buildRequestMessages = async () => await buildTavernMessagesRequestMessages({
+        sessionId: session.id,
+        contextSnapshot: session.contextSnapshot || {},
+        contact: contact.contact,
+        contactProfile: 'CONTACT_PROFILE_MARKER',
+        thread: contact.thread,
+        communicationMessages: await listTavernCommunicationMessages(session.id, contact.thread.id),
+        userMessage: sent.message,
+        getNativeWorldInfoRuntime: async (input) => ({
+            trigger: input.trigger,
+            worldInfoBefore: '',
+            timedState: { sticky: {}, cooldown: {} },
+        }),
+    });
+
+    const first = await buildRequestMessages();
+    const second = await buildRequestMessages();
+    for (const messages of [first, second]) {
+        const shopIndex = messages.findIndex((message) => message.name === 'active_shop_effects');
+        assert.ok(shopIndex >= 0, 'private message requests must carry the active shop effects');
+        assert.equal(messages[shopIndex]?.role, 'system');
+        assert.equal(shopIndex, messages.length - 2, 'shop system message must sit right before the USER turn');
+        assert.equal(messages.at(-1)?.role, 'user');
+        assert.match(messages[shopIndex]?.content || '', /## 当前生效道具/);
+        assert.match(messages[shopIndex]?.content || '', /作用对象（数据）："艾琳"/);
+        assert.match(
+            messages[shopIndex]?.content || '',
+            /剩余主回合：1/,
+            'prompt projection must never consume rounds: repeated sends keep the same remaining count',
+        );
+    }
+
+    await appendTavernMessage(session.id, { role: 'user', content: '主剧情向前推进。' });
+    await appendTavernMessage(session.id, { role: 'assistant', content: '主剧情回复。' });
+    await updateTavernSessionState(session.id, { turn: 1 });
+    const laterBoundary = await captureTavernPhoneBoundary(session.id);
+    const laterPurchase = await purchaseTavernShopItem({
+        sessionId: session.id,
+        itemId: 'flower',
+        actionId: 'phone-buy-future-flower',
+        boundary: laterBoundary,
+        expectedRevision: activated.record.revision,
+        expectedVersionId: activated.record.versionId,
+    });
+    await activateTavernShopItem({
+        sessionId: session.id,
+        itemId: 'flower',
+        parameters: { targetName: '贝塔' },
+        actionId: 'phone-use-future-flower',
+        boundary: laterBoundary,
+        expectedRevision: laterPurchase.record.revision,
+        expectedVersionId: laterPurchase.record.versionId,
+    });
+    const retriedAtOriginalAnchor = await buildRequestMessages();
+    const anchoredShop = retriedAtOriginalAnchor.find((message) => message.name === 'active_shop_effects');
+    assert.match(anchoredShop?.content || '', /作用对象（数据）："艾琳"/);
+    assert.doesNotMatch(anchoredShop?.content || '', /作用对象（数据）："贝塔"/);
+    assert.match(anchoredShop?.content || '', /剩余主回合：1/);
 });

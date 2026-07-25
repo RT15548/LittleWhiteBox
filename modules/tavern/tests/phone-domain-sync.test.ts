@@ -20,7 +20,9 @@ import { replaceTavernTaskBoard } from '../shared/tasks/task-board';
 import type { TavernTaskListing } from '../shared/tasks/task-types';
 import { useTavernTasksController } from '../app-src/features/phone-os/apps/tasks/useTavernTasksController';
 import { useTavernWalletController } from '../app-src/features/phone-os/apps/wallet/useTavernWalletController';
+import { useTavernShopController } from '../app-src/features/phone-os/apps/shop/useTavernShopController';
 import { useTavernPhoneDomainSync } from '../app-src/features/phone-os/useTavernPhoneDomainSync';
+import { purchaseTavernShopItem } from '../shared/shop/shop-service';
 
 function taskListings(): TavernTaskListing[] {
     return (['E', 'D', 'C', 'B', 'A', 'S'] as const).map((grade, index) => ({
@@ -66,6 +68,7 @@ test('phone domain sync establishes a baseline and ignores ordinary manager run 
         selectedSessionId,
         onTasksChanged: () => {taskRefreshes += 1;},
         onEconomyChanged: () => {economyRefreshes += 1;},
+        onShopChanged: () => {},
     }));
 
     try {
@@ -139,12 +142,22 @@ test('an observing phone controller refreshes tasks and wallet after another wri
             getNativeWorldInfoRuntime: async () => ({ timedState: { sticky: {}, cooldown: {} } }),
             onEconomyChanged: wallet.refreshAfterEconomyDomainChange,
         });
+        const shop = useTavernShopController({
+            selectedSessionId,
+            chatRunning: ref(false),
+            chatCancelling: ref(false),
+            phoneSending: ref(false),
+            memoryEditorMode: ref<'preview' | 'edit'>('preview'),
+            characterArchiveBusy: computed(() => false),
+            wallet,
+        });
         useTavernPhoneDomainSync({
             selectedSessionId,
             onTasksChanged: tasks.refreshAfterTaskDomainChange,
             onEconomyChanged: wallet.refreshAfterEconomyDomainChange,
+            onShopChanged: shop.refreshAfterShopDomainChange,
         });
-        return { tasks, wallet };
+        return { shop, tasks, wallet };
     });
     if (!observer) {throw new Error('phone_domain_sync_scope_missing');}
 
@@ -152,6 +165,7 @@ test('an observing phone controller refreshes tasks and wallet after another wri
         await Promise.all([
             observer.tasks.refreshTaskData(),
             observer.wallet.refreshWallet(),
+            observer.shop.refreshShop(),
         ]);
         await settleLiveQueries();
         assert.equal(observer.tasks.board.value, null);
@@ -184,6 +198,21 @@ test('an observing phone controller refreshes tasks and wallet after another wri
             observer.wallet.balance.value === 80
             && observer.wallet.transactions.value[0]?.id === transaction.id
         ));
+
+        const purchase = await purchaseTavernShopItem({
+            sessionId: session.id,
+            itemId: 'flower',
+            boundary: null,
+            actionId: 'domain-sync-shop-purchase',
+            expectedRevision: 0,
+            expectedVersionId: '',
+        });
+        await waitUntil(() => (
+            observer.shop.currentVersion.value?.versionId === purchase.record.versionId
+            && observer.wallet.balance.value === 30
+        ));
+        assert.equal(observer.shop.heldItems.value[0]?.item.id, 'flower');
+        assert.equal(observer.shop.heldItems.value[0]?.quantity, 1);
     } finally {
         scope.stop();
     }

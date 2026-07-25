@@ -1,5 +1,13 @@
+import type {
+    TavernExpectedPhoneBoundary,
+    TavernPhoneBoundary,
+} from '../phone-boundary';
+
 export const TAVERN_TASK_CURRENT_MARKER = 'current' as const;
 export const TAVERN_TASK_PLAYER_PARTY_ID = 'player' as const;
+
+export type TavernTaskPhoneBoundary = TavernPhoneBoundary;
+export type TavernTaskExpectedPhoneBoundary = TavernExpectedPhoneBoundary;
 
 export const TAVERN_TASK_GRADES = ['E', 'D', 'C', 'B', 'A', 'S', 'EX'] as const;
 export type TavernTaskBoardGrade = typeof TAVERN_TASK_GRADES[number];
@@ -143,14 +151,6 @@ export interface TavernTaskAnchorSnapshot {
     anchorOrder: number;
     tasks: TavernTaskVersionRecord[];
 }
-
-export interface TavernTaskPhoneBoundary {
-    messageId: string;
-    order: number;
-    timelineRevision: number;
-}
-
-export type TavernTaskExpectedPhoneBoundary = TavernTaskPhoneBoundary | null;
 
 export interface TavernTaskRestoreImpact {
     changed: boolean;
