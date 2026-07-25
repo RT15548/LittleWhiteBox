@@ -252,6 +252,18 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
         return html;
     }
 
+    /**
+     * Assistant-chat cards own their short-lived cache and release it with
+     * their DOM window. Do not put their historical content in the shared RP
+     * cache, which intentionally outlives a manager-chat page.
+     */
+    function renderUncachedMarkdown(text = '', renderOptions: TavernRoleplayMarkdownOptions = {}) {
+        const raw = renderOptions.roleplay
+            ? preprocessTavernRoleplayMarkdown(text, renderOptions)
+            : String(text || '');
+        return renderMarkdownToHtml(raw, renderOptions.roleplay ? { htmlFenceMode: 'code' } : {});
+    }
+
     function stripTavernImageMarkers(text = '') {
         return String(text || '')
             .replace(TAVERN_IMAGE_MARKER_REGEX, '')
@@ -1249,6 +1261,7 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
         markdownSignature,
         releaseMarkdownRootResources,
         renderChatMarkdown,
+        renderUncachedMarkdown,
         stripTavernImageMarkers,
     };
 }

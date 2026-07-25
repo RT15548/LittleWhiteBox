@@ -1,8 +1,10 @@
 import {
     getTavernAssistantChatMessage,
-    listTavernAssistantChatMessagesBefore,
-    listTavernAssistantChatMessagesInRange,
+    listTavernAssistantChatMessageSummariesBefore,
+    listTavernAssistantChatMessageSummariesInRange,
+    tavernAssistantChatMessageHasEffectiveToolCalls,
     type TavernAssistantChatMessageRecord,
+    type TavernAssistantChatMessageSummaryRecord,
 } from '../../../shared/session-db';
 
 export const TAVERN_ASSISTANT_CHAT_INITIAL_UNIT_LIMIT = 5;
@@ -79,6 +81,8 @@ interface ProjectedAssistantChatRows {
     details: Map<string, TavernAssistantToolTurnDetail>;
 }
 
+type TavernAssistantChatProjectionRecord = TavernAssistantChatMessageRecord | TavernAssistantChatMessageSummaryRecord;
+
 interface NormalizedToolDisplay {
     path: string;
     elapsedMs: number;
@@ -92,15 +96,11 @@ function compactText(value: unknown, limit = 220): string {
     return text.length > limit ? `${text.slice(0, Math.max(1, limit - 1))}…` : text;
 }
 
-function assistantMessageHasToolCalls(message: TavernAssistantChatMessageRecord | null | undefined): boolean {
-    if (!message || message.role !== 'assistant') {return false;}
-    if (message.error === true || ['aborted', 'error'].includes(String(message.finishReason || '').trim())) {
-        return false;
-    }
-    return Array.isArray(message.toolCalls) && message.toolCalls.length > 0;
+function assistantMessageHasToolCalls(message: TavernAssistantChatProjectionRecord | null | undefined): boolean {
+    return tavernAssistantChatMessageHasEffectiveToolCalls(message);
 }
 
-function assistantMessageRevisionKey(message: TavernAssistantChatMessageRecord): string {
+function assistantMessageRevisionKey(message: TavernAssistantChatProjectionRecord): string {
     return [
         message.sessionId,
         message.order,
@@ -161,8 +161,8 @@ function normalizeToolDisplay(
 }
 
 function buildToolCallDetails(
-    assistantMessage: TavernAssistantChatMessageRecord,
-    toolMessages: TavernAssistantChatMessageRecord[],
+    assistantMessage: TavernAssistantChatProjectionRecord,
+    toolMessages: TavernAssistantChatProjectionRecord[],
 ): TavernAssistantToolCallDetail[] {
     const toolMessagesById = new Map<string, TavernAssistantChatMessageRecord[]>();
     toolMessages.forEach((message) => {
@@ -209,8 +209,8 @@ function buildToolCallDetails(
 function buildToolTurnProjection(
     sessionId: string,
     rounds: Array<{
-        assistantMessage: TavernAssistantChatMessageRecord;
-        toolMessages: TavernAssistantChatMessageRecord[];
+        assistantMessage: TavernAssistantChatProjectionRecord;
+        toolMessages: TavernAssistantChatProjectionRecord[];
     }>,
     includeDetail = false,
 ): { unit: TavernAssistantToolTurnUnit; detail?: TavernAssistantToolTurnDetail } {
@@ -259,7 +259,7 @@ function buildToolTurnProjection(
                 key: `assistant-tool-round:${assistantMessageRevisionKey(assistantMessage)}`,
                 order: assistantMessage.order,
                 preface: String(assistantMessage.content || '').trim(),
-                thoughts: normalizeThoughts(assistantMessage.thoughts),
+                thoughts: normalizeThoughts('thoughts' in assistantMessage ? assistantMessage.thoughts : undefined),
                 calls,
             })),
         },
@@ -267,7 +267,7 @@ function buildToolTurnProjection(
 }
 
 function projectAssistantChatRows(
-    messages: TavernAssistantChatMessageRecord[],
+    messages: TavernAssistantChatProjectionRecord[],
     options: { includeDetails?: boolean } = {},
 ): ProjectedAssistantChatRows {
     const sorted = [...messages].sort((left, right) => left.order - right.order);
@@ -278,8 +278,8 @@ function projectAssistantChatRows(
         if (!message || !['user', 'assistant', 'tool'].includes(message.role)) {continue;}
         if (assistantMessageHasToolCalls(message)) {
             const rounds: Array<{
-                assistantMessage: TavernAssistantChatMessageRecord;
-                toolMessages: TavernAssistantChatMessageRecord[];
+                assistantMessage: TavernAssistantChatProjectionRecord;
+                toolMessages: TavernAssistantChatProjectionRecord[];
             }> = [];
             let nextIndex = index;
             while (nextIndex < sorted.length && assistantMessageHasToolCalls(sorted[nextIndex])) {
@@ -312,14 +312,18 @@ function projectAssistantChatRows(
             content: String(message.content || ''),
             createdAt: Number(message.createdAt) || 0,
             error: message.error === true,
-            thoughtCount: Array.isArray(message.thoughts) ? message.thoughts.length : 0,
+            thoughtCount: 'thoughtCount' in message
+                ? Math.max(0, Number(message.thoughtCount) || 0)
+                : Array.isArray((message as TavernAssistantChatMessageRecord).thoughts)
+                    ? (message as TavernAssistantChatMessageRecord).thoughts!.length
+                    : 0,
         });
     }
     return { units, details };
 }
 
 export function projectTavernAssistantChatUnits(
-    messages: TavernAssistantChatMessageRecord[] = [],
+    messages: TavernAssistantChatProjectionRecord[] = [],
 ): TavernAssistantChatUnit[] {
     return projectAssistantChatRows(messages).units;
 }
@@ -347,7 +351,7 @@ export async function loadTavernAssistantChatUnitPage(
     let exhausted = false;
 
     while (!exhausted) {
-        const chunk = await listTavernAssistantChatMessagesBefore(id, cursor, rawBatchSize);
+        const chunk = await listTavernAssistantChatMessageSummariesBefore(id, cursor, rawBatchSize);
         if (!chunk.length) {
             exhausted = true;
             break;
@@ -381,13 +385,29 @@ export async function loadTavernAssistantChatUnitPage(
 export async function loadTavernAssistantToolTurnDetail(
     item: Pick<TavernAssistantToolTurnUnit, 'key' | 'sessionId' | 'startOrder' | 'endOrder'>,
 ): Promise<TavernAssistantToolTurnDetail | null> {
-    const rows = await listTavernAssistantChatMessagesInRange(
+    const rows = await listTavernAssistantChatMessageSummariesInRange(
         item.sessionId,
         item.startOrder,
         item.endOrder,
     );
     const projected = projectAssistantChatRows(rows, { includeDetails: true });
-    return projected.details.get(item.key) || null;
+    const detail = projected.details.get(item.key);
+    if (!detail) {return null;}
+    const assistantRows = await Promise.all(detail.rounds.map(async (round) => await getTavernAssistantChatMessage(item.sessionId, round.order)));
+    const assistantsByOrder = new Map(assistantRows.filter((row): row is TavernAssistantChatMessageRecord => !!row).map((row) => [row.order, row]));
+    return {
+        ...detail,
+        rounds: detail.rounds.map((round) => {
+            const assistant = assistantsByOrder.get(round.order);
+            return assistant
+                ? {
+                    ...round,
+                    preface: String(assistant.content || '').trim(),
+                    thoughts: normalizeThoughts(assistant.thoughts),
+                }
+                : round;
+        }),
+    };
 }
 
 export async function loadTavernAssistantMessageThoughts(

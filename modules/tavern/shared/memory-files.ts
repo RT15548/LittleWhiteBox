@@ -1,16 +1,22 @@
 import { applyTextEdits } from '../../agent-core/tools/text-edit.js';
 import { getTavilySearchToolDefinition } from '../../agent-core/tavily-search.js';
+import { grepTextSources } from '../../agent-core/runtime/text-grep.js';
+import { readTextFile } from '../../agent-core/runtime/text-read.js';
+import Dexie from '../../../libs/dexie.mjs';
 
 import { getTavernManagerStateToolDefinitions } from './structured-state';
 import { getTavernStatusToolDefinitions } from './status-state';
 import type { XbTavernContext, XbTavernWorldBook, XbTavernWorldEntry } from './message-assembler';
 import db, {
     getTavernMessage,
+    getTavernTranscriptStats,
     getLatestTavernAssistantOrder,
     getLatestTavernMessage,
     hashTavernMemoryRecord,
     listTavernMessageOrdersFrom,
     listTavernMessages,
+    listTavernMessagesAfterOrder,
+    listTavernMessagesBeforeOrder,
     listLatestTavernMessagesWithCount,
     listTavernMessagesInRangeWithCount,
     tavernMemoryFilesTable,
@@ -59,7 +65,6 @@ export interface TavernMemoryToolResult {
     path?: string;
     files?: Array<Pick<TavernMemoryFileRecord, 'path' | 'status' | 'updatedAt'>>;
     content?: string;
-    numberedContent?: string;
     lineStart?: number;
     lineEnd?: number;
     totalLines?: number;
@@ -96,6 +101,7 @@ const DEFAULT_MEMORY_READ_LIMIT = 1200;
 const MAX_MEMORY_READ_LIMIT = 2000;
 const DEFAULT_MEMORY_GREP_LIMIT = 100;
 const MAX_MEMORY_GREP_LIMIT = 100;
+const DexieRangeKeys = Dexie as unknown as { minKey: unknown; maxKey: unknown };
 
 function now(): number {
     return Date.now();
@@ -140,18 +146,6 @@ function clampLimit(value: unknown, fallback: number, max: number): number {
     const number = Math.floor(Number(value));
     if (!Number.isFinite(number) || number <= 0) {return fallback;}
     return Math.min(max, number);
-}
-
-function normalizeOutputMode(value: unknown = ''): 'content' | 'files_with_matches' | 'count' {
-    const text = String(value || 'content')
-        .trim()
-        .replace(/[\s-]/g, '_')
-        .replace(/[A-Z]/g, (char) => `_${char.toLowerCase()}`)
-        .replace(/_+/g, '_')
-        .replace(/^_+|_+$/g, '');
-    if (text === 'files_with_matches' || text === 'fileswithmatches') {return 'files_with_matches';}
-    if (text === 'count') {return 'count';}
-    return 'content';
 }
 
 export function isStateMemoryPath(path = ''): boolean {
@@ -350,11 +344,6 @@ function buildMemoryIndexFileEntry(file: TavernMemoryFileRecord): TavernMemoryIn
     return {
         ...entry,
         title: memoryFileTitleFromPath(file.path),
-        searchText: normalizeBody([
-            file.path,
-            memoryFileTitleFromPath(file.path),
-            file.content || '',
-        ].filter(Boolean).join('\n'), 20000),
     };
 }
 
@@ -668,14 +657,18 @@ export async function getTavernMemoryIndex(sessionId = '', kind = 'markdown-deri
     return await tavernMemoryIndexesTable.get([id, kind]) || null;
 }
 
-function buildFingerprint(files: TavernMemoryFileRecord[]): string {
-    const payload = files.map((file) => `${file.path}\u001f${file.status}\u001f${file.updatedAt}\u001f${file.content.length}`).join('\u001e');
+function buildFingerprint(parts: string[]): string {
+    const payload = parts.join('\u001e');
     let hash = 2166136261;
     for (let index = 0; index < payload.length; index += 1) {
         hash ^= payload.charCodeAt(index);
         hash = Math.imul(hash, 16777619) >>> 0;
     }
-    return `${files.length}:${hash.toString(16)}`;
+    return `${parts.length}:${hash.toString(16)}`;
+}
+
+function memoryFileFingerprintPart(file: Pick<TavernMemoryFileRecord, 'path' | 'status' | 'updatedAt' | 'content'>): string {
+    return `${file.path}\u001f${file.status}\u001f${file.updatedAt}\u001f${String(file.content || '').length}`;
 }
 
 export async function rebuildTavernMemoryDerivedIndex(sessionId = ''): Promise<TavernMemoryIndexRecord> {
@@ -683,16 +676,23 @@ export async function rebuildTavernMemoryDerivedIndex(sessionId = ''): Promise<T
     if (!id) {throw new Error('memory_session_required');}
     const timestamp = now();
     try {
-        const files = await listTavernMemoryFiles(id, { includeStale: true });
+        // Stream one file at a time: a body is read, reduced to metadata
+        // plus a short preview, then released before the next page loads.
+        const fingerprintParts: string[] = [];
+        const entries: TavernMemoryIndexFileEntry[] = [];
+        for await (const file of iterateTavernMemoryFiles(id, { includeStale: true, pageSize: 1 })) {
+            fingerprintParts.push(memoryFileFingerprintPart(file));
+            entries.push(buildMemoryIndexFileEntry(file));
+        }
         const record: TavernMemoryIndexRecord = {
             sessionId: id,
             kind: 'markdown-derived',
             status: 'ready',
             error: '',
-            sourceFingerprint: buildFingerprint(files),
+            sourceFingerprint: buildFingerprint(fingerprintParts),
             derivedAt: timestamp,
             updatedAt: timestamp,
-            files: files.map(buildMemoryIndexFileEntry),
+            files: entries,
         };
         await tavernMemoryIndexesTable.put(record);
         return record;
@@ -731,6 +731,80 @@ export async function listTavernMemoryFileEntries(sessionId = ''): Promise<Taver
             preview: String(file.preview || ''),
         }))
         : [];
+}
+
+function createMemoryContentSearchAbortError(): Error {
+    const error = new Error('memory_content_search_aborted');
+    error.name = 'AbortError';
+    return error;
+}
+
+/**
+ * On-demand memory body scan for the UI search box. One file body is held at
+ * a time and only the matching paths are returned; the caller owns
+ * cancellation and drops the result set with the query, session, or panel.
+ */
+export async function searchTavernMemoryFileContents(
+    sessionId = '',
+    query = '',
+    options: { signal?: AbortSignal } = {},
+): Promise<string[]> {
+    const id = String(sessionId || '').trim();
+    const needle = String(query || '').trim().toLocaleLowerCase();
+    if (!id || !needle) {return [];}
+    const matches: string[] = [];
+    for await (const file of iterateTavernMemoryFiles(id, { includeStale: true, pageSize: 1 })) {
+        if (options.signal?.aborted) {throw createMemoryContentSearchAbortError();}
+        if (String(file.content || '').toLocaleLowerCase().includes(needle)) {
+            matches.push(file.path);
+        }
+        if (options.signal?.aborted) {throw createMemoryContentSearchAbortError();}
+    }
+    return matches;
+}
+
+async function listTavernMemoryFilePaths(sessionId = ''): Promise<string[]> {
+    const id = String(sessionId || '').trim();
+    if (!id) {return [];}
+    const table = tavernMemoryFilesTable as unknown as {
+        where(index: string): { equals(value: unknown): { primaryKeys(): Promise<unknown[]> } };
+    };
+    const keys = await table.where('sessionId').equals(id).primaryKeys();
+    return keys
+        .map((key: unknown) => Array.isArray(key) ? String(key[1] || '') : '')
+        .filter(Boolean)
+        .sort((left: string, right: string) => left.localeCompare(right, 'zh-CN'));
+}
+
+async function* iterateTavernMemoryFiles(
+    sessionId = '',
+    options: { includeStale?: boolean; pageSize?: number } = {},
+): AsyncGenerator<TavernMemoryFileRecord> {
+    const id = String(sessionId || '').trim();
+    if (!id) {return;}
+    const pageSize = Math.max(1, Math.min(500, Math.floor(Number(options.pageSize) || 1)));
+    const table = tavernMemoryFilesTable as unknown as {
+        where(index: string): {
+            between(lower: unknown, upper: unknown, includeLower?: boolean, includeUpper?: boolean): {
+                limit(count: number): { toArray(): Promise<TavernMemoryFileRecord[]> };
+            };
+        };
+    };
+    let afterPath = '';
+    while (true) {
+        const rows = await table.where('[sessionId+path]').between(
+            [id, afterPath || DexieRangeKeys.minKey],
+            [id, DexieRangeKeys.maxKey],
+            !afterPath,
+            true,
+        ).limit(pageSize).toArray();
+        if (!rows.length) {return;}
+        for (const row of rows) {
+            if (options.includeStale || row.status !== 'stale') {yield row;}
+        }
+        afterPath = String(rows.at(-1)?.path || '');
+        if (!afterPath || rows.length < pageSize) {return;}
+    }
 }
 
 function getToolPath(args: Record<string, unknown>): string {
@@ -860,9 +934,9 @@ function formatWorldbookEntryFileContent(book: XbTavernWorldBook, entry: XbTaver
     return metaLines.join('\n');
 }
 
-function listWorldbookSourceFiles(context: XbTavernContext = {}): Array<{ path: string; content: string; readonly: true }> {
+function* iterateWorldbookSourceFiles(context: XbTavernContext = {}): Generator<{ path: string; content: string; readonly: true }> {
     const books = Array.isArray(context.worldBooks) ? context.worldBooks : [];
-    const files: Array<{ path: string; content: string; readonly: true }> = [];
+    const references: Array<{ path: string; book: XbTavernWorldBook; entry: XbTavernWorldEntry; index: number }> = [];
     books.forEach((book, bookIndex) => {
         const bookName = sanitizeTavernSourceSegment(book.name, `book-${bookIndex + 1}`);
         const sourceType = String(book.worldSourceType || 'entries').trim();
@@ -873,53 +947,124 @@ function listWorldbookSourceFiles(context: XbTavernContext = {}): Array<{ path: 
             const content = normalizeBody(entry.content || '');
             if (!content) {return;}
             const uid = sanitizeTavernSourceSegment(entry.uid ?? entry.id ?? entry.comment ?? entryIndex, `entry-${entryIndex + 1}`);
-            files.push({
+            references.push({
                 path: `worldbooks/${bucket}/${bookName}/${uid}.md`,
-                content: formatWorldbookEntryFileContent(book, entry, entryIndex),
-                readonly: true,
+                book,
+                entry,
+                index: entryIndex,
             });
         });
     });
-    if (!files.length && Array.isArray(context.worldEntries)) {
+    if (!references.length && Array.isArray(context.worldEntries)) {
         context.worldEntries.forEach((entry, entryIndex) => {
             const content = normalizeBody(entry.content || '');
             if (!content) {return;}
             const bookName = sanitizeTavernSourceSegment(entry.sourceWorldBook || 'worldEntries', 'worldEntries');
             const uid = sanitizeTavernSourceSegment(entry.uid ?? entry.id ?? entry.comment ?? entryIndex, `entry-${entryIndex + 1}`);
-            files.push({
+            references.push({
                 path: `worldbooks/entries/${bookName}/${uid}.md`,
-                content: formatWorldbookEntryFileContent({ name: bookName, entries: [entry] }, entry, entryIndex),
-                readonly: true,
+                book: { name: bookName, entries: [entry] },
+                entry,
+                index: entryIndex,
             });
         });
     }
-    return files.sort((left, right) => left.path.localeCompare(right.path, 'zh-CN'));
+    for (const reference of references.sort((left, right) => left.path.localeCompare(right.path, 'zh-CN'))) {
+        yield {
+            path: reference.path,
+            content: formatWorldbookEntryFileContent(reference.book, reference.entry, reference.index),
+            readonly: true,
+        };
+    }
 }
 
-async function listTavernSourceFilePaths(sessionId = '', context: XbTavernContext = {}): Promise<string[]> {
-    const memoryFiles = await listTavernMemoryFiles(sessionId, { includeStale: true });
-    const messageOrders = await listTavernMessageOrdersFrom(sessionId, 0);
+function listWorldbookSourcePaths(context: XbTavernContext = {}): string[] {
+    const books = Array.isArray(context.worldBooks) ? context.worldBooks : [];
+    const paths: string[] = [];
+    books.forEach((book, bookIndex) => {
+        const bookName = sanitizeTavernSourceSegment(book.name, `book-${bookIndex + 1}`);
+        const sourceType = String(book.worldSourceType || 'entries').trim();
+        const bucket = sourceType === 'character' || sourceType === 'global' || sourceType === 'chat'
+            ? sourceType
+            : 'entries';
+        (Array.isArray(book.entries) ? book.entries : []).forEach((entry, entryIndex) => {
+            if (!String(entry.content || '').trim()) {return;}
+            const uid = sanitizeTavernSourceSegment(entry.uid ?? entry.id ?? entry.comment ?? entryIndex, `entry-${entryIndex + 1}`);
+            paths.push(`worldbooks/${bucket}/${bookName}/${uid}.md`);
+        });
+    });
+    if (!paths.length && Array.isArray(context.worldEntries)) {
+        context.worldEntries.forEach((entry, entryIndex) => {
+            if (!String(entry.content || '').trim()) {return;}
+            const bookName = sanitizeTavernSourceSegment(entry.sourceWorldBook || 'worldEntries', 'worldEntries');
+            const uid = sanitizeTavernSourceSegment(entry.uid ?? entry.id ?? entry.comment ?? entryIndex, `entry-${entryIndex + 1}`);
+            paths.push(`worldbooks/entries/${bookName}/${uid}.md`);
+        });
+    }
+    return paths.sort((left, right) => left.localeCompare(right, 'zh-CN'));
+}
+
+function findWorldbookSourceFile(
+    context: XbTavernContext = {},
+    targetPath = '',
+): { path: string; content: string; readonly: true } | null {
+    const books = Array.isArray(context.worldBooks) ? context.worldBooks : [];
+    let hasBookFile = false;
+    for (const [bookIndex, book] of books.entries()) {
+        const bookName = sanitizeTavernSourceSegment(book.name, `book-${bookIndex + 1}`);
+        const sourceType = String(book.worldSourceType || 'entries').trim();
+        const bucket = sourceType === 'character' || sourceType === 'global' || sourceType === 'chat'
+            ? sourceType
+            : 'entries';
+        const entries = Array.isArray(book.entries) ? book.entries : [];
+        for (const [entryIndex, entry] of entries.entries()) {
+            if (!String(entry.content || '').trim()) {continue;}
+            hasBookFile = true;
+            const uid = sanitizeTavernSourceSegment(entry.uid ?? entry.id ?? entry.comment ?? entryIndex, `entry-${entryIndex + 1}`);
+            const path = `worldbooks/${bucket}/${bookName}/${uid}.md`;
+            if (path !== targetPath) {continue;}
+            return {
+                path,
+                content: formatWorldbookEntryFileContent(book, entry, entryIndex),
+                readonly: true,
+            };
+        }
+    }
+    if (hasBookFile || !Array.isArray(context.worldEntries)) {return null;}
+    for (const [entryIndex, entry] of context.worldEntries.entries()) {
+        if (!String(entry.content || '').trim()) {continue;}
+        const bookName = sanitizeTavernSourceSegment(entry.sourceWorldBook || 'worldEntries', 'worldEntries');
+        const uid = sanitizeTavernSourceSegment(entry.uid ?? entry.id ?? entry.comment ?? entryIndex, `entry-${entryIndex + 1}`);
+        const path = `worldbooks/entries/${bookName}/${uid}.md`;
+        if (path !== targetPath) {continue;}
+        return {
+            path,
+            content: formatWorldbookEntryFileContent({ name: bookName, entries: [entry] }, entry, entryIndex),
+            readonly: true,
+        };
+    }
+    return null;
+}
+
+async function listTavernSourceFilePaths(
+    sessionId = '',
+    context: XbTavernContext = {},
+    directory = '',
+): Promise<string[]> {
+    const includeChat = !directory || directory.startsWith('chat/');
+    const includeWorldbooks = !directory || directory.startsWith('worldbooks/');
+    const includeMemory = !directory || directory.startsWith('memory/');
+    const [memoryPaths, messageOrders] = await Promise.all([
+        includeMemory ? listTavernMemoryFilePaths(sessionId) : Promise.resolve([]),
+        includeChat ? listTavernMessageOrdersFrom(sessionId, 0) : Promise.resolve([]),
+    ]);
     return [
-        'chat/transcript.md',
-        ...messageOrders.map((order) => `chat/messages/${order}.md`),
-        ...listWorldbookSourceFiles(context).map((file) => file.path),
-        ...memoryFiles.map((file) => file.path),
-    ].sort((left, right) => left.localeCompare(right, 'zh-CN'));
-}
-
-function normalizeGrepOutputMode(value: unknown = ''): 'content' | 'files_with_matches' | 'count' {
-    const text = String(value || 'content').trim();
-    const key = text.replace(/[\s-]/g, '_').replace(/[A-Z]/g, (char) => `_${char.toLowerCase()}`).replace(/_+/g, '_').replace(/^_+|_+$/g, '');
-    if (key === 'files_with_matches' || key === 'fileswithmatches') {return 'files_with_matches';}
-    if (key === 'count') {return 'count';}
-    return 'content';
-}
-
-function buildSourceSearchRegExp(pattern = '', useRegex = false): RegExp {
-    const text = String(pattern || '');
-    if (!text) {throw new Error('grep_pattern_required');}
-    if (useRegex === true) {return new RegExp(text, 'iu');}
-    return new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'iu');
+        ...(includeChat ? ['chat/transcript.md', ...messageOrders.map((order) => `chat/messages/${order}.md`)] : []),
+        ...(includeWorldbooks ? listWorldbookSourcePaths(context) : []),
+        ...memoryPaths,
+    ]
+        .filter((path) => !directory || path.startsWith(directory))
+        .sort((left, right) => left.localeCompare(right, 'zh-CN'));
 }
 
 function sourcePathInScope(path = '', rawScope = '', include = ''): boolean {
@@ -946,35 +1091,75 @@ function sourcePathInScope(path = '', rawScope = '', include = ''): boolean {
     return new RegExp(`^${escaped.startsWith('chat/') || escaped.startsWith('worldbooks/') || escaped.startsWith('memory/') ? escaped : `(?:chat|worldbooks|memory)/${escaped}`}$`).test(path);
 }
 
-function grepTextFile(
-    rows: Array<{ path: string; lineNumber?: number; line?: string; context?: string; count?: number }>,
-    file: { path: string; content: string },
-    regexp: RegExp,
-    outputMode: 'content' | 'files_with_matches' | 'count',
-    contextLines = 0,
-) {
-    const lines = splitLines(file.content);
-    let matchCount = 0;
-    lines.forEach((line, index) => {
-        regexp.lastIndex = 0;
-        if (!regexp.test(line)) {return;}
-        matchCount += 1;
-        if (outputMode === 'content') {
-            const start = Math.max(0, index - contextLines);
-            const end = Math.min(lines.length, index + contextLines + 1);
-            rows.push({
-                path: file.path,
-                lineNumber: index + 1,
-                line,
-                context: numberLines(lines.slice(start, end), start + 1),
-            });
+function throwIfSourceGrepAborted(signal?: AbortSignal): void {
+    if (!signal?.aborted) {return;}
+    const error = new Error('manager_aborted');
+    error.name = 'AbortError';
+    throw error;
+}
+
+function sourceScopeIncludesChat(scope = '', include = ''): boolean {
+    return !scope
+        || sourcePathInScope('chat/transcript.md', scope, include)
+        || scope.startsWith('chat/');
+}
+
+async function* iterateTavernGrepSources(
+    sessionId: string,
+    scope: string,
+    include: string,
+    context: XbTavernContext,
+    signal?: AbortSignal,
+): AsyncGenerator<{ path: string; content: string }> {
+    // Keep the established global-Grep ordering. Pagination is observable to
+    // the model, so chat must not crowd out worldbook or memory evidence.
+    if (!scope || scope.startsWith('worldbooks/')) {
+        for (const file of iterateWorldbookSourceFiles(context)) {
+            throwIfSourceGrepAborted(signal);
+            if (sourcePathInScope(file.path, scope, include)) {
+                yield file;
+            }
         }
-    });
-    if (outputMode === 'files_with_matches' && matchCount > 0) {
-        rows.push({ path: file.path });
-    } else if (outputMode === 'count' && matchCount > 0) {
-        rows.push({ path: file.path, count: matchCount });
     }
+
+    if (!scope || scope.startsWith('memory/')) {
+        for await (const file of iterateTavernMemoryFiles(sessionId, { includeStale: true })) {
+            throwIfSourceGrepAborted(signal);
+            if (sourcePathInScope(file.path, scope, include)) {
+                yield { path: file.path, content: file.content };
+            }
+        }
+    }
+
+    if (sourceScopeIncludesChat(scope, include)) {
+        const exactChatMessage = scope.match(/^chat\/messages\/(\d+)\.md$/);
+        if (exactChatMessage) {
+            throwIfSourceGrepAborted(signal);
+            const order = Number(exactChatMessage[1]);
+            const message = await getTavernMessage(sessionId, order);
+            const path = `chat/messages/${order}.md`;
+            if (message && sourcePathInScope(path, scope, include)) {
+                yield { path, content: normalizeBody(message.content || '') };
+            }
+        } else {
+            const pageSize = 200;
+            let afterOrder = -1;
+            while (true) {
+                throwIfSourceGrepAborted(signal);
+                const messages = await listTavernMessagesAfterOrder(sessionId, afterOrder, pageSize);
+                if (!messages.length) {break;}
+                for (const message of messages) {
+                    throwIfSourceGrepAborted(signal);
+                    const path = `chat/messages/${message.order}.md`;
+                    if (!sourcePathInScope(path, scope, include) && !sourcePathInScope('chat/transcript.md', scope, include)) {continue;}
+                    yield { path, content: normalizeBody(message.content || '') };
+                }
+                afterOrder = messages.at(-1)?.order ?? afterOrder;
+                if (messages.length < pageSize) {break;}
+            }
+        }
+    }
+
 }
 
 export function getTavernSourceFileToolDefinitions(): TavernManagerToolDefinition[] {
@@ -1145,78 +1330,100 @@ export function getTavernSourceFileToolDefinitions(): TavernManagerToolDefinitio
     ];
 }
 
-async function readTavernTranscriptFile(sessionId = '', args: Record<string, unknown> = {}): Promise<TavernMemoryToolResult> {
+function transcriptMessageLines(message: TavernMessageRecord): string[] {
+    return [
+        `## order ${message.order} ${message.role}`,
+        ...splitLines(normalizeBody(message.content || '')),
+        '',
+    ];
+}
+
+function sourceReadNow(): number {
+    return typeof performance !== 'undefined' && typeof performance.now === 'function'
+        ? performance.now()
+        : Date.now();
+}
+
+async function yieldTavernSourceRead(signal: AbortSignal | undefined, lastYieldAt: number): Promise<number> {
+    if (sourceReadNow() - lastYieldAt < 8) {return lastYieldAt;}
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    throwIfSourceGrepAborted(signal);
+    return sourceReadNow();
+}
+
+async function readTavernTranscriptFile(
+    sessionId = '',
+    args: Record<string, unknown> = {},
+    signal?: AbortSignal,
+): Promise<TavernMemoryToolResult> {
     const tail = Math.floor(Number(args.tail) || 0);
     const offset = toPositiveInteger(args.offset, 1);
     const limit = clampLimit(args.limit, DEFAULT_MEMORY_READ_LIMIT, MAX_MEMORY_READ_LIMIT);
-    const lines: string[] = [];
-    let totalMessages = 0;
-    if (tail > 0) {
-        let pageOffset = 0;
-        while (lines.length < Math.min(MAX_MEMORY_READ_LIMIT, tail)) {
-            const page = await listLatestTavernMessagesWithCount(sessionId, 100, pageOffset);
-            totalMessages = page.total;
-            if (!page.messages.length) {break;}
-            const pageLines = page.messages.flatMap((message) => [
-                `## order ${message.order} ${message.role}`,
-                normalizeBody(message.content || ''),
-                '',
-            ]);
-            lines.unshift(...pageLines);
-            pageOffset += page.messages.length;
-            if (pageOffset >= page.total) {break;}
+    const tailLimit = tail > 0 ? Math.min(MAX_MEMORY_READ_LIMIT, tail) : 0;
+    const selected: string[] = [];
+    const { totalLines, totalMessages } = await getTavernTranscriptStats(sessionId);
+    let lastYieldAt = sourceReadNow();
+
+    if (tailLimit) {
+        let remaining = Math.min(totalLines, tailLimit);
+        let beforeOrder = Number.POSITIVE_INFINITY;
+        while (remaining > 0) {
+            throwIfSourceGrepAborted(signal);
+            const messages = await listTavernMessagesBeforeOrder(sessionId, beforeOrder, 200);
+            if (!messages.length) {break;}
+            for (let index = messages.length - 1; index >= 0 && remaining > 0; index -= 1) {
+                const lines = transcriptMessageLines(messages[index]!);
+                const start = Math.max(0, lines.length - remaining);
+                selected.unshift(...lines.slice(start));
+                remaining -= lines.length - start;
+                lastYieldAt = await yieldTavernSourceRead(signal, lastYieldAt);
+            }
+            beforeOrder = messages[0]!.order;
         }
-        const selected = lines.slice(Math.max(0, lines.length - Math.min(MAX_MEMORY_READ_LIMIT, tail)));
-        const startLine = Math.max(1, lines.length - selected.length + 1);
+        const startLine = Math.max(1, totalLines - selected.length + 1);
         return {
             ok: true,
             path: 'chat/transcript.md',
             content: numberLines(selected, startLine),
-            numberedContent: numberLines(selected, startLine),
             lineStart: startLine,
             lineEnd: startLine + selected.length - 1,
-            totalLines: lines.length,
-            truncated: lines.length > selected.length,
+            totalLines,
+            truncated: totalLines > selected.length,
             nextOffset: 0,
             summary: `读取 chat/transcript.md 末尾 ${selected.length} 行（${totalMessages} 条消息）。`,
         };
     }
 
-    let messageOffset = 0;
-    let skippedLines = 0;
-    while (lines.length < limit) {
-        const page = await listTavernMessagesInRangeWithCount(sessionId, 0, Number.POSITIVE_INFINITY, 200, messageOffset);
-        totalMessages = page.total;
-        if (!page.messages.length) {break;}
-        for (const message of page.messages) {
-            const block = [
-                `## order ${message.order} ${message.role}`,
-                normalizeBody(message.content || ''),
-                '',
-            ];
-            if (skippedLines + block.length < offset) {
-                skippedLines += block.length;
-                continue;
+    let afterOrder = -1;
+    let scannedLines = 0;
+    while (true) {
+        throwIfSourceGrepAborted(signal);
+        const messages = await listTavernMessagesAfterOrder(sessionId, afterOrder, 200);
+        if (!messages.length) {break;}
+        for (const message of messages) {
+            for (const line of transcriptMessageLines(message)) {
+                scannedLines += 1;
+                if (scannedLines >= offset && selected.length < limit) {
+                    selected.push(line);
+                }
             }
-            const start = Math.max(0, offset - skippedLines - 1);
-            lines.push(...block.slice(start));
-            skippedLines += block.length;
-            if (lines.length >= limit) {break;}
+            lastYieldAt = await yieldTavernSourceRead(signal, lastYieldAt);
+            if (selected.length >= limit) {break;}
         }
-        messageOffset += page.messages.length;
-        if (messageOffset >= page.total) {break;}
+        afterOrder = messages.at(-1)?.order ?? afterOrder;
+        if (selected.length >= limit || messages.length < 200) {break;}
     }
-    const selected = lines.slice(0, limit);
+
+    const nextOffset = offset + selected.length < totalLines ? offset + selected.length : 0;
     return {
         ok: true,
         path: 'chat/transcript.md',
         content: numberLines(selected, offset),
-        numberedContent: numberLines(selected, offset),
         lineStart: offset,
         lineEnd: offset + selected.length - 1,
-        totalLines: offset + selected.length - 1,
-        truncated: selected.length >= limit,
-        nextOffset: selected.length >= limit ? offset + selected.length : 0,
+        totalLines,
+        truncated: nextOffset > 0,
+        nextOffset,
         summary: `读取 chat/transcript.md 第 ${offset}-${offset + selected.length - 1} 行（${totalMessages} 条消息）。`,
     };
 }
@@ -1226,9 +1433,10 @@ async function readTavernSourceFile(
     filePath = '',
     args: Record<string, unknown> = {},
     context: XbTavernContext = {},
+    signal?: AbortSignal,
 ): Promise<TavernMemoryToolResult> {
     if (filePath === 'chat/transcript.md') {
-        return readTavernTranscriptFile(sessionId, args);
+        return readTavernTranscriptFile(sessionId, args, signal);
     }
     const chatMessageMatch = filePath.match(/^chat\/messages\/(\d+)\.md$/);
     if (chatMessageMatch) {
@@ -1249,7 +1457,7 @@ async function readTavernSourceFile(
         ].filter((line) => line !== '').join('\n');
         return readVirtualTextFile(filePath, content, args);
     }
-    const worldbook = listWorldbookSourceFiles(context).find((file) => file.path === filePath);
+    const worldbook = findWorldbookSourceFile(context, filePath);
     if (worldbook) {
         return readVirtualTextFile(filePath, worldbook.content, args);
     }
@@ -1264,28 +1472,18 @@ async function readTavernSourceFile(
 }
 
 function readVirtualTextFile(filePath = '', content = '', args: Record<string, unknown> = {}): TavernMemoryToolResult {
-    const lines = splitLines(content);
-    const tail = Math.floor(Number(args.tail) || 0);
-    let startLine = toPositiveInteger(args.offset, 1);
-    let limit = clampLimit(args.limit, DEFAULT_MEMORY_READ_LIMIT, MAX_MEMORY_READ_LIMIT);
-    if (tail > 0) {
-        limit = Math.min(MAX_MEMORY_READ_LIMIT, tail);
-        startLine = Math.max(1, lines.length - limit + 1);
-    }
-    const startIndex = Math.max(0, startLine - 1);
-    const selected = lines.slice(startIndex, startIndex + limit);
-    const nextOffset = startIndex + limit < lines.length ? startIndex + limit + 1 : 0;
+    const result = readTextFile(content, {
+        offset: args.offset,
+        limit: args.limit,
+        tail: args.tail,
+        defaultLimit: DEFAULT_MEMORY_READ_LIMIT,
+        maxLimit: MAX_MEMORY_READ_LIMIT,
+    });
     return {
         ok: true,
         path: filePath,
-        lineStart: startIndex + 1,
-        lineEnd: startIndex + selected.length,
-        totalLines: lines.length,
-        content: numberLines(selected, startIndex + 1),
-        numberedContent: numberLines(selected, startIndex + 1),
-        truncated: nextOffset > 0,
-        nextOffset,
-        summary: `读取 ${filePath} 第 ${startIndex + 1}-${startIndex + selected.length} 行，共 ${lines.length} 行。`,
+        ...result,
+        summary: `读取 ${filePath} 第 ${result.lineStart}-${result.lineEnd} 行，共 ${result.totalLines} 行。`,
     };
 }
 
@@ -1302,6 +1500,7 @@ export async function executeTavernSourceFileTool(
         beforeWriteGuard?: () => Promise<void> | void;
         afterWriteObserver?: () => Promise<void> | void;
         contextSnapshot?: XbTavernContext;
+        signal?: AbortSignal;
     } = {},
 ): Promise<TavernMemoryToolResult> {
     const id = String(sessionId || '').trim();
@@ -1310,7 +1509,7 @@ export async function executeTavernSourceFileTool(
     try {
         if (toolName === TAVERN_SOURCE_FILE_TOOL_NAMES.LS) {
             const directory = normalizeTavernSourceDirectoryPath(args.path || 'memory/');
-            const entries = collectTavernDirectoryEntries(await listTavernSourceFilePaths(id, context), directory);
+            const entries = collectTavernDirectoryEntries(await listTavernSourceFilePaths(id, context, directory), directory);
             const offset = toPositiveInteger(args.offset, 1);
             const limit = Math.min(300, Math.max(1, Math.floor(Number(args.limit) || 100)));
             const page = entries.slice(offset - 1, offset - 1 + limit);
@@ -1334,66 +1533,38 @@ export async function executeTavernSourceFileTool(
                     limit: args.limit,
                 }, options);
             }
-            return readTavernSourceFile(id, normalizeTavernSourceFilePath(rawPath), args, context);
+            return readTavernSourceFile(id, normalizeTavernSourceFilePath(rawPath), args, context, options.signal);
         }
         if (toolName === TAVERN_SOURCE_FILE_TOOL_NAMES.GREP) {
             const pattern = String(args.pattern ?? args.query ?? '').trim();
             if (!pattern) {return { ok: false, summary: '缺少搜索词。', error: 'grep_pattern_required' };}
-            const regexp = buildSourceSearchRegExp(pattern, args.regex === true || args.useRegex === true);
-            const outputMode = normalizeGrepOutputMode(args.outputMode);
             const limit = Math.min(MAX_MEMORY_GREP_LIMIT, Math.max(1, Math.floor(Number(args.limit) || MAX_MEMORY_GREP_LIMIT)));
-            const offset = toNonNegativeInteger(args.offset, 0);
-            const contextLines = Math.min(5, toNonNegativeInteger(args.contextLines, 0));
             const scope = normalizeTavernSourcePath(args.filePath || args.path || args.scope || '');
             const include = String(args.include || '').trim();
-            const rows: Array<{ path: string; lineNumber?: number; line?: string; context?: string; count?: number }> = [];
-            let searchedFileCount = 0;
-            for (const file of listWorldbookSourceFiles(context)) {
-                if (!sourcePathInScope(file.path, scope, include)) {continue;}
-                searchedFileCount += 1;
-                grepTextFile(rows, file, regexp, outputMode, contextLines);
-            }
-            const memoryFiles = await listTavernMemoryFiles(id, { includeStale: true });
-            memoryFiles.forEach((file) => {
-                if (!sourcePathInScope(file.path, scope, include)) {return;}
-                searchedFileCount += 1;
-                grepTextFile(rows, { path: file.path, content: file.content }, regexp, outputMode, contextLines);
+            const result = await grepTextSources({
+                pattern,
+                useRegex: args.regex === true || args.useRegex === true,
+                // Tavern's established grep dialect is Unicode-aware.
+                regexFlags: 'iu',
+                outputMode: args.outputMode,
+                limit,
+                offset: args.offset,
+                contextLines: Math.min(5, toNonNegativeInteger(args.contextLines, 0)),
+                signal: options.signal,
+                abortMessage: 'manager_aborted',
+                sources: iterateTavernGrepSources(id, scope, include, context, options.signal),
             });
-            if (!scope || sourcePathInScope('chat/transcript.md', scope, include) || scope.startsWith('chat/')) {
-                const pageSize = 500;
-                let rangeOffset = 0;
-                while (true) {
-                    const page = await listTavernMessagesInRangeWithCount(id, 0, Number.POSITIVE_INFINITY, pageSize, rangeOffset);
-                    if (!page.messages.length) {break;}
-                    page.messages.forEach((message) => {
-                        const path = `chat/messages/${message.order}.md`;
-                        if (!sourcePathInScope(path, scope, include) && !sourcePathInScope('chat/transcript.md', scope, include)) {return;}
-                        searchedFileCount += 1;
-                        grepTextFile(rows, { path, content: normalizeBody(message.content || '') }, regexp, outputMode, contextLines);
-                    });
-                    rangeOffset += page.messages.length;
-                    if (rangeOffset >= page.total) {break;}
-                }
-            }
-            const page = rows.slice(offset, offset + limit);
             return {
                 ok: true,
-                pattern,
+                pattern: result.pattern,
                 path: scope,
-                outputMode,
-                searchedFileCount,
-                count: rows.length,
-                results: page,
-                matches: page.map((row) => ({
-                    path: row.path,
-                    line: row.lineNumber,
-                    text: row.line,
-                    context: row.context,
-                    count: row.count,
-                })),
-                truncated: offset + limit < rows.length,
-                nextOffset: offset + limit < rows.length ? offset + limit : 0,
-                summary: `搜索到 ${rows.length} 项，返回 ${page.length} 项。`,
+                outputMode: result.outputMode,
+                searchedFileCount: result.searchedFileCount,
+                count: result.count,
+                results: result.results,
+                truncated: result.truncated,
+                nextOffset: result.nextOffset,
+                summary: `搜索到 ${result.count} 项，返回 ${result.results.length} 项。`,
             };
         }
         if (toolName === TAVERN_SOURCE_FILE_TOOL_NAMES.WRITE) {
@@ -1506,28 +1677,18 @@ export async function executeTavernMemoryTool(
             const path = getToolPath(args);
             const file = await getTavernMemoryFile(id, path);
             if (!file) {return { ok: false, summary: `${path} 不存在。`, path, error: 'memory_file_not_found' };}
-            const lines = splitLines(file.content);
-            const tail = Math.floor(Number(args.tail) || 0);
-            let startLine = toPositiveInteger(args.offset, 1);
-            let limit = clampLimit(args.limit, DEFAULT_MEMORY_READ_LIMIT, MAX_MEMORY_READ_LIMIT);
-            if (tail > 0) {
-                limit = Math.min(MAX_MEMORY_READ_LIMIT, tail);
-                startLine = Math.max(1, lines.length - limit + 1);
-            }
-            const startIndex = Math.max(0, startLine - 1);
-            const selected = lines.slice(startIndex, startIndex + limit);
-            const nextOffset = startIndex + limit < lines.length ? startIndex + limit + 1 : 0;
+            const result = readTextFile(file.content, {
+                offset: args.offset,
+                limit: args.limit,
+                tail: args.tail,
+                defaultLimit: DEFAULT_MEMORY_READ_LIMIT,
+                maxLimit: MAX_MEMORY_READ_LIMIT,
+            });
             return {
                 ok: true,
-                summary: `读取 ${path} 第 ${startIndex + 1}-${startIndex + selected.length} 行，共 ${lines.length} 行。`,
+                summary: `读取 ${path} 第 ${result.lineStart}-${result.lineEnd} 行，共 ${result.totalLines} 行。`,
                 path,
-                content: selected.join('\n'),
-                numberedContent: numberLines(selected, startIndex + 1),
-                lineStart: startIndex + 1,
-                lineEnd: startIndex + selected.length,
-                totalLines: lines.length,
-                truncated: nextOffset > 0,
-                nextOffset,
+                ...result,
             };
         }
         if (toolName === TAVERN_MEMORY_TOOL_NAMES.WRITE) {
@@ -1660,13 +1821,7 @@ export async function executeTavernMemoryTool(
         if (toolName === TAVERN_MEMORY_TOOL_NAMES.GREP) {
             const pattern = String(args.pattern || '').trim();
             if (!pattern) {return { ok: false, summary: '缺少搜索词。', error: 'memory_grep_pattern_required' };}
-            const matcher = args.regex === true || args.useRegex === true
-                ? new RegExp(pattern, 'iu')
-                : null;
-            const lower = pattern.toLowerCase();
-            const outputMode = normalizeOutputMode(args.outputMode);
             const limit = clampLimit(args.limit, DEFAULT_MEMORY_GREP_LIMIT, MAX_MEMORY_GREP_LIMIT);
-            const offset = toNonNegativeInteger(args.offset, 0);
             const contextLines = Math.min(5, toNonNegativeInteger(args.contextLines, 0));
             const rawScope = String(args.filePath || args.path || '').trim();
             const normalizedFileScope = rawScope && rawScope.endsWith('.md')
@@ -1678,47 +1833,39 @@ export async function executeTavernMemoryTool(
             if (directoryScope && (!directoryScope.startsWith('memory/') || directoryScope.includes('..'))) {
                 throw new Error('memory_path_scope_required');
             }
-            const matches: Array<{ path: string; line?: number; text?: string; context?: string; count?: number }> = [];
-            const files = (await listTavernMemoryFiles(id, { includeStale: true }))
-                .filter((file) => {
-                    if (normalizedFileScope) {return file.path === normalizedFileScope;}
-                    if (directoryScope) {return file.path.startsWith(directoryScope.endsWith('/') ? directoryScope : `${directoryScope}/`);}
-                    return true;
-                });
-            files.forEach((file) => {
-                const lines = splitLines(file.content);
-                let matchCount = 0;
-                lines.forEach((line, index) => {
-                    if (matcher) {matcher.lastIndex = 0;}
-                    const ok = matcher ? matcher.test(line) : line.toLowerCase().includes(lower);
-                    if (ok) {
-                        matchCount += 1;
-                        if (outputMode === 'content') {
-                            const start = Math.max(0, index - contextLines);
-                            const end = Math.min(lines.length, index + contextLines + 1);
-                            matches.push({
-                                path: file.path,
-                                line: index + 1,
-                                text: line.trim(),
-                                context: contextLines > 0 ? numberLines(lines.slice(start, end), start + 1) : undefined,
-                            });
-                        }
-                    }
-                });
-                if (outputMode === 'files_with_matches' && matchCount > 0) {
-                    matches.push({ path: file.path });
-                } else if (outputMode === 'count' && matchCount > 0) {
-                    matches.push({ path: file.path, count: matchCount });
+            const directoryPrefix = directoryScope && !directoryScope.endsWith('/') ? `${directoryScope}/` : directoryScope;
+            async function* sources() {
+                for await (const file of iterateTavernMemoryFiles(id, { includeStale: true })) {
+                    if (normalizedFileScope && file.path !== normalizedFileScope) {continue;}
+                    if (directoryPrefix && !file.path.startsWith(directoryPrefix)) {continue;}
+                    yield { path: file.path, content: file.content };
                 }
+            }
+            const result = await grepTextSources({
+                pattern,
+                useRegex: args.regex === true || args.useRegex === true,
+                // Tavern's established grep dialect is Unicode-aware.
+                regexFlags: 'iu',
+                outputMode: args.outputMode,
+                limit,
+                offset: args.offset,
+                contextLines,
+                sources: sources(),
             });
-            const page = matches.slice(offset, offset + limit);
+            const matches = result.results.map((match) => ({
+                path: match.path,
+                line: match.lineNumber,
+                text: match.line?.trim(),
+                context: match.context,
+                count: match.count,
+            }));
             return {
                 ok: true,
-                summary: `搜索到 ${matches.length} 项，返回 ${page.length} 项。`,
-                count: matches.length,
-                truncated: offset + limit < matches.length,
-                nextOffset: offset + limit < matches.length ? offset + limit : 0,
-                matches: page,
+                summary: `搜索到 ${result.count} 项，返回 ${matches.length} 项。`,
+                count: result.count,
+                truncated: result.truncated,
+                nextOffset: result.nextOffset,
+                matches,
             };
         }
         if (toolName === TAVERN_MEMORY_TOOL_NAMES.CHAT_HISTORY) {

@@ -1,6 +1,9 @@
 import db, {
     tavernManagerMemorySnapshotsTable,
     tavernAssistantChatMessagesTable,
+    tavernAssistantChatMessageSummariesTable,
+    buildTavernAssistantChatMessageSummary,
+    rebuildTavernTranscriptLineCounts,
     tavernManagerCandidatesTable,
     tavernManagerRunsTable,
     tavernManagerStateSnapshotsTable,
@@ -194,6 +197,7 @@ async function captureCharacterArchiveSession(sessionId = ''): Promise<CapturedC
         tavernSessionsTable,
         tavernMessagesTable,
         tavernAssistantChatMessagesTable,
+        tavernAssistantChatMessageSummariesTable,
         tavernManagerRunsTable,
         tavernManagerCandidatesTable,
         tavernManagerMemorySnapshotsTable,
@@ -757,6 +761,7 @@ async function deleteArchiveForSessionId(sessionId = ''): Promise<void> {
             await deleteTableRecordsBySessionId(archiveTables[table].table, id);
         }
     }
+    await deleteTableRecordsBySessionId(tavernAssistantChatMessageSummariesTable as unknown as ArchiveRuntimeTable, id);
     await tavernSessionsTable.delete(id);
 }
 
@@ -795,6 +800,7 @@ async function writeArchiveRecordBatch(batch: TavernCharacterArchiveRecord[]): P
         tavernSessionsTable,
         tavernMessagesTable,
         tavernAssistantChatMessagesTable,
+        tavernAssistantChatMessageSummariesTable,
         tavernManagerRunsTable,
         tavernManagerCandidatesTable,
         tavernManagerMemorySnapshotsTable,
@@ -820,6 +826,12 @@ async function writeArchiveRecordBatch(batch: TavernCharacterArchiveRecord[]): P
                     await archiveTables[table].table.bulkAdd(rows);
                 }
             }
+            const assistantMessages = batch
+                .filter((record): record is Extract<TavernCharacterArchiveRecord, { table: 'assistantChatMessages' }> => record.table === 'assistantChatMessages')
+                .map((record) => record.record);
+            if (assistantMessages.length) {
+                await tavernAssistantChatMessageSummariesTable.bulkPut(assistantMessages.map(buildTavernAssistantChatMessageSummary));
+            }
         },
     );
 }
@@ -832,6 +844,7 @@ async function promoteTempArchiveToCharacter(tempCharacterKey = '', characterKey
         tavernSessionsTable,
         tavernMessagesTable,
         tavernAssistantChatMessagesTable,
+        tavernAssistantChatMessageSummariesTable,
         tavernManagerRunsTable,
         tavernManagerCandidatesTable,
         tavernManagerMemorySnapshotsTable,
@@ -941,6 +954,7 @@ export async function restoreTavernCharacterArchiveFromRecords(input: {
             }
         }
         await flush();
+        await rebuildTavernTranscriptLineCounts(stagedSessionIds);
 
         if (rowCount !== expectedRowCount) {
             throw new Error(`archive_row_count_mismatch:${rowCount}:${expectedRowCount}`);

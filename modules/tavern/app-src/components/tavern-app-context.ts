@@ -41,7 +41,7 @@ import type {
     TavernEconomyTransactionCursor,
     TavernEconomyTransactionRecord,
 } from '../../shared/economy/economy-types';
-import type { TavernMapStateDocumentItem } from '../../shared/structured-state';
+import type { TavernMapStateDocumentItem, TavernStructuredStatePatchDisplay } from '../../shared/structured-state';
 import type { TavernStatusFieldDeltaMap } from '../../shared/status-state';
 import type { TavernDrawContext } from '../features/draw/useTavernDrawController';
 import type {
@@ -407,6 +407,7 @@ export interface TavernChatContext {
     messageKey: TavernCommand<[message: TavernMessageRecord], string>;
     normalizeTavernSessionState: TavernCommand<[value?: unknown], { turn?: number }>;
     renderChatMarkdown: TavernCommand<[text?: string, options?: { roleplay?: boolean; userName?: string; characterName?: string }], string>;
+    renderUncachedMarkdown: TavernCommand<[text?: string, options?: { roleplay?: boolean; userName?: string; characterName?: string }], string>;
     rerollLatestAssistant: TavernCommand<[], Promise<void>>;
     revealOlderChatMessages: TavernCommand<[force?: boolean], boolean>;
     revealNewerChatMessages: TavernCommand<[force?: boolean], boolean>;
@@ -612,6 +613,7 @@ export interface TavernManagerContext {
     managerCompactionOverlay: Ref<TavernManagerCompactionOverlay | null>;
     managerComposeTextareaRef: Ref<HTMLTextAreaElement | null>;
     managerChatHasMore: Ref<boolean>;
+    managerChatHasNewer: Ref<boolean>;
     managerInputDraft: Ref<string>;
     managerInputStatus: Ref<string>;
     managerPendingUserMessage: TavernReadable<TavernPendingAssistantUserMessage | null>;
@@ -630,6 +632,7 @@ export interface TavernManagerContext {
     memoryIndexStatusLine: TavernReadable<string>;
     retryManagerRun: TavernCommand<[run: TavernManagerRunRecord], Promise<void>>;
     revealOlderManagerMessages: TavernCommand<[], Promise<void>>;
+    revealNewerManagerMessages: TavernCommand<[], Promise<void>>;
     rerunFromManagerMessage: TavernCommand<[message: TavernAssistantChatMessageUnit], Promise<void>>;
     saveEditManagerMessage: TavernCommand<[message: TavernAssistantChatMessageUnit, options?: { rerun?: boolean }], Promise<void>>;
     scrollManagerToBottom: TavernCommand<[force?: boolean, options?: { collapseWindow?: boolean; revealHelpers?: boolean }]>;
@@ -683,17 +686,19 @@ export interface TavernWorkspaceContext {
     activeMapDocId: Ref<string>;
     atlasActiveLocationKey: Ref<string>;
     atlasStateDocument: Ref<TavernStructuredStateDocumentRecord | null>;
-    atlasStatePatches: Ref<TavernStructuredStatePatchRecord[]>;
+    atlasLatestPatchSummary: Ref<string>;
     chatWorkspacePanel: Ref<TavernChatWorkspacePanelKey>;
     displayUserName: TavernReadable<string>;
     mapStateDocuments: Ref<TavernMapStateDocumentItem[]>;
     mapStateDocument: Ref<TavernStructuredStateDocumentRecord | null>;
-    mapStatePatches: Ref<TavernStructuredStatePatchRecord[]>;
+    mapStatePatches: Ref<TavernStructuredStatePatchDisplay[]>;
+    mapStatePatchCount: Ref<number>;
+    mapStateTimelineAvailable: Ref<boolean>;
+    loadMapTimelinePatches: TavernCommand<[sessionId: string, docId: string], Promise<TavernStructuredStatePatchRecord[]>>;
     materialSymbolFontReady: TavernReadable<boolean>;
     materialSymbolFontStatus: TavernReadable<'idle' | 'loading' | 'ready' | 'failed'>;
     statusFieldDeltas: Ref<TavernStatusFieldDeltaMap>;
     statusStateDocument: Ref<TavernStructuredStateDocumentRecord | null>;
-    statusStatePatches: Ref<TavernStructuredStatePatchRecord[]>;
     saveSessionContract: TavernCommand<[nextContract?: Partial<TavernSessionContract>], Promise<TavernSessionRecord | null>>;
     sessionContract: TavernReadable<TavernSessionContract>;
     visibleUserAvatar: TavernReadable<string>;

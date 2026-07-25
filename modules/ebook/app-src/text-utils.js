@@ -16,9 +16,9 @@ export function safeJsonParse(text, fallback = {}) {
     }
 }
 
-export function safeJsonStringify(value) {
+export function safeJsonStringify(value, indentation = 2) {
     try {
-        return JSON.stringify(value, null, 2);
+        return JSON.stringify(value, null, indentation);
     } catch {
         return String(value || '');
     }

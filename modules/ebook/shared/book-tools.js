@@ -1,6 +1,6 @@
 import { createPlanLedger } from '../../agent-core/plan-ledger.js';
 import { isTavilyConfigured, runTavilySearchTool } from '../../agent-core/tavily-search.js';
-import { ebookPlansTable, listBookFiles, renameBook } from './ebook-db.js';
+import { ebookPlansTable, iterateBookFiles, listBookFilePaths, listBookFiles, renameBook } from './ebook-db.js';
 import { createBookFileToolHandlers, collectDirectoryEntries } from './book-file-tools.js';
 import {
     EBOOK_TOOL_NAMES,
@@ -57,6 +57,14 @@ export function createBookToolRuntime(options = {}) {
         return await listBookFiles(await currentBookId());
     }
 
+    async function listPaths() {
+        return await listBookFilePaths(await currentBookId());
+    }
+
+    async function* iterateFiles() {
+        yield* iterateBookFiles(await currentBookId());
+    }
+
     function assertWritable() {
         if (readOnly) throw new Error('book_tool_read_only');
     }
@@ -79,8 +87,11 @@ export function createBookToolRuntime(options = {}) {
     const fileTools = createBookFileToolHandlers({
         currentBookId,
         getFiles,
+        listPaths,
+        iterateFiles,
         onFilesChanged,
         readOnly,
+        signal: options.signal,
     });
 
     async function execute(name = '', args = {}) {

@@ -24,6 +24,7 @@ import {
     ensureTavernMemoryDefaultsInitialized,
     getTavernMemoryIndex,
     rebuildTavernMemoryDerivedIndex,
+    searchTavernMemoryFileContents,
 } from '../shared/memory-files';
 import {
     appendTavernMessage,
@@ -41,6 +42,7 @@ import {
     listTavernAssistantChatMessageOrdersFrom,
     listTavernAssistantChatMessageOrdersInRange,
     listTavernAssistantChatMessagesInRange,
+    listTavernStructuredStatePatches,
     listTavernMessageOrdersFrom,
     normalizeTavernSessionState,
     queueAcceptedTurnManagerRetry,
@@ -58,11 +60,16 @@ import {
     type TavernMemoryIndexRecord,
     type TavernMessageRecord,
     type TavernStructuredStateDocumentRecord,
-    type TavernStructuredStatePatchRecord,
     type TavernSessionRecord,
 } from '../shared/session-db';
-import { getTavernAtlasStateForSession, getTavernMapStateForSession, type TavernMapStateDocumentItem } from '../shared/structured-state';
-import { getTavernStatusStateForSession, type TavernStatusFieldDeltaMap } from '../shared/status-state';
+import {
+    getTavernAtlasStateForSession,
+    getTavernMapStateForSession,
+    TAVERN_MAP_TIMELINE_PATCH_LIMIT,
+    type TavernMapStateDocumentItem,
+    type TavernStructuredStatePatchDisplay,
+} from '../shared/structured-state';
+import { getTavernStatusProjectionForSession, type TavernStatusFieldDeltaMap } from '../shared/status-state';
 import { saveAcceptedStateSnapshot } from '../shared/accepted-state';
 import {
     exportTavernCharacterArchive,
@@ -315,7 +322,7 @@ const {
 } = sessionState;
 const managerRuns = shallowRef<TavernManagerRunRecord[]>([]);
 const memoryFiles = ref<TavernMemoryIndexFileEntry[]>([]);
-const memoryIndex = ref<TavernMemoryIndexRecord | null>(null);
+const memoryIndexState = shallowRef<Pick<TavernMemoryIndexRecord, 'status' | 'error'> | null>(null);
 const selectedMemoryFilePath = ref('');
 const selectedMemoryFileRecord = ref<TavernMemoryFileRecord | null>(null);
 const memoryEditorDraft = ref('');
@@ -327,12 +334,13 @@ const chatWorkspacePanel = ref<TavernChatWorkspacePanelKey>('map');
 const mapStateDocuments = ref<TavernMapStateDocumentItem[]>([]);
 const activeMapDocId = ref('main');
 const mapStateDocument = ref<TavernStructuredStateDocumentRecord | null>(null);
-const mapStatePatches = ref<TavernStructuredStatePatchRecord[]>([]);
+const mapStatePatches = ref<TavernStructuredStatePatchDisplay[]>([]);
+const mapStatePatchCount = ref(0);
+const mapStateTimelineAvailable = ref(false);
 const atlasStateDocument = ref<TavernStructuredStateDocumentRecord | null>(null);
-const atlasStatePatches = ref<TavernStructuredStatePatchRecord[]>([]);
+const atlasLatestPatchSummary = ref('');
 const atlasActiveLocationKey = ref('');
 const statusStateDocument = ref<TavernStructuredStateDocumentRecord | null>(null);
-const statusStatePatches = ref<TavernStructuredStatePatchRecord[]>([]);
 const statusFieldDeltas = ref<TavernStatusFieldDeltaMap>({});
 const managerActionStatus = ref('');
 const retryingManagerRunId = ref('');
@@ -340,6 +348,8 @@ const managerInputDraft = ref('');
 const managerInputStatus = ref('');
 const managerChatItems = shallowRef<TavernAssistantChatUnit[]>([]);
 const managerChatHasMore = ref(false);
+const managerChatHasNewer = ref(false);
+const TAVERN_ASSISTANT_CHAT_VISIBLE_UNIT_LIMIT = TAVERN_ASSISTANT_CHAT_INITIAL_UNIT_LIMIT + TAVERN_ASSISTANT_CHAT_OLDER_UNIT_LIMIT;
 const assistantChatBudgetTokens = ref<number | null>(null);
 const assistantChatBudgetPending = ref(false);
 const managerPendingUserMessage = shallowRef<TavernPendingAssistantUserMessage | null>(null);
@@ -712,6 +722,7 @@ const {
     markdownSignature,
     releaseMarkdownRootResources,
     renderChatMarkdown,
+    renderUncachedMarkdown,
     stripTavernImageMarkers,
 } = useTavernMarkdownTools({
     chatScrollRef,
@@ -1172,15 +1183,65 @@ function memoryFileSortWeight(path = '') {
 function memoryFileSearchCorpus(file: TavernMemoryIndexFileEntry) {
     const cached = memoryFileSearchCorpusCache.get(file);
     if (cached) {return cached;}
+    // Metadata corpus only: the short index preview stays, full bodies are
+    // scanned on demand and surface through memoryContentSearchMatches.
     const corpus = normalizedSearchText([
         file.path,
         memoryFileDisplayName(file),
         memoryFileKindLabel(file),
         file.status,
-        file.searchText || file.preview || '',
+        file.preview || '',
     ].filter(Boolean).join('\n'));
     memoryFileSearchCorpusCache.set(file, corpus);
     return corpus;
+}
+
+// On-demand body scan behind the memory search box. Only the matched path
+// set is held here; the scan is aborted and the set dropped when the query
+// clears, the session switches, or the app unmounts.
+const memoryContentSearchMatches = shallowRef<Set<string> | null>(null);
+let memoryContentSearchController: AbortController | null = null;
+let memoryContentSearchSerial = 0;
+let memoryContentSearchTimer: number | undefined;
+
+function cancelMemoryContentSearch() {
+    memoryContentSearchSerial += 1;
+    if (memoryContentSearchTimer !== undefined) {
+        window.clearTimeout(memoryContentSearchTimer);
+        memoryContentSearchTimer = undefined;
+    }
+    if (memoryContentSearchController) {
+        memoryContentSearchController.abort();
+        memoryContentSearchController = null;
+    }
+    memoryContentSearchMatches.value = null;
+}
+
+function queueMemoryContentSearch() {
+    const query = normalizedSearchText(memoryFileSearchText.value);
+    const sessionId = String(selectedSessionId.value || '').trim();
+    cancelMemoryContentSearch();
+    if (!query || !sessionId) {return;}
+    const serial = memoryContentSearchSerial;
+    memoryContentSearchTimer = window.setTimeout(() => {
+        memoryContentSearchTimer = undefined;
+        if (serial !== memoryContentSearchSerial) {return;}
+        const controller = new AbortController();
+        memoryContentSearchController = controller;
+        void searchTavernMemoryFileContents(sessionId, query, { signal: controller.signal })
+            .then((paths) => {
+                if (serial !== memoryContentSearchSerial) {return;}
+                if (sessionId !== String(selectedSessionId.value || '').trim()) {return;}
+                memoryContentSearchMatches.value = new Set(paths);
+            })
+            .catch((error) => {
+                if (controller.signal.aborted || (error instanceof Error && error.name === 'AbortError')) {return;}
+                console.warn('[小白酒馆] 搜索记忆正文失败', error);
+            })
+            .finally(() => {
+                if (memoryContentSearchController === controller) {memoryContentSearchController = null;}
+            });
+    }, 200);
 }
 
 function memoryFileVisibleLimitForGroup(groupKey = '') {
@@ -1206,7 +1267,8 @@ const memoryDirectoryGroups = computed(() => {
     const query = normalizedSearchText(memoryFileSearchText.value);
     const selectedPath = String(selectedMemoryFilePath.value || '').trim();
     const filtered = query
-        ? sortedFiles.filter((file) => memoryFileSearchCorpus(file).includes(query))
+        ? sortedFiles.filter((file) => memoryFileSearchCorpus(file).includes(query)
+            || memoryContentSearchMatches.value?.has(file.path) === true)
         : sortedFiles;
     if (!filtered.length && query) {return [];}
     const limit = memoryFileVisibleLimitForGroup('all');
@@ -1247,7 +1309,7 @@ const memoryEditorDirty = computed(() => (
     && memoryEditorDraft.value !== memoryEditorBaseContent.value
 ));
 const memoryIndexStatusLine = computed(() => {
-    const index = memoryIndex.value;
+    const index = memoryIndexState.value;
     if (!index) {return '还没有可检索记忆';}
     if (index.status === 'ready') {return '记忆可检索';}
     if (index.status === 'failed') {return `记忆整理失败：${index.error || 'memory_index_failed'}`;}
@@ -1401,6 +1463,7 @@ watch(selectedCharacterGreetingOptions, (options) => {
 
 watch(memoryFileSearchText, () => {
     memoryFileGroupVisibleLimits.value = {};
+    queueMemoryContentSearch();
 });
 
 watch(() => selectedCharacterSessions.value.map((session) => session.id).join('|'), () => {
@@ -2886,33 +2949,50 @@ async function saveSessionContract(nextContract: Partial<TavernSessionContract> 
 
 async function refreshAssistantChat(
     sessionId = selectedSessionId.value,
-    options: { limit?: number } = {},
+    options: { limit?: number; preserveDetachedWindow?: boolean } = {},
 ) {
     const id = String(sessionId || '').trim();
     if (!id) {
         if (!selectedSessionId.value) {
             managerChatItems.value = [];
             managerChatHasMore.value = false;
+            managerChatHasNewer.value = false;
         }
         refreshAssistantChatContextMeter({ immediate: true });
         return;
     }
     if (id !== selectedSessionId.value) {return;}
     const requestSerial = ++assistantChatRefreshSerial;
+    if (options.preserveDetachedWindow && managerChatHasNewer.value) {
+        refreshAssistantChatContextMeter({ immediate: true });
+        return;
+    }
     const page = await loadTavernAssistantChatUnitPage(id, {
         limit: Math.max(1, Number(options.limit) || TAVERN_ASSISTANT_CHAT_INITIAL_UNIT_LIMIT),
     });
     if (requestSerial !== assistantChatRefreshSerial || id !== selectedSessionId.value) {return;}
+    if (options.preserveDetachedWindow && managerChatHasNewer.value) {
+        refreshAssistantChatContextMeter({ immediate: true });
+        return;
+    }
     managerChatItems.value = page.items;
     managerChatHasMore.value = page.hasMore;
+    managerChatHasNewer.value = false;
     refreshAssistantChatContextMeter({ immediate: true });
 }
 
 function appendAssistantChatMessageProjection(message: TavernAssistantChatMessageRecord) {
     const [unit] = projectTavernAssistantChatUnits([message]);
     if (!unit || unit.kind !== 'message') {return;}
-    managerChatItems.value = [...managerChatItems.value.filter((item) => item.key !== unit.key), unit]
+    const nextItems = [...managerChatItems.value.filter((item) => item.key !== unit.key), unit]
         .sort((left, right) => left.startOrder - right.startOrder);
+    if (nextItems.length > TAVERN_ASSISTANT_CHAT_VISIBLE_UNIT_LIMIT) {
+        managerChatItems.value = nextItems.slice(-TAVERN_ASSISTANT_CHAT_VISIBLE_UNIT_LIMIT);
+        managerChatHasMore.value = true;
+        managerChatHasNewer.value = false;
+        return;
+    }
+    managerChatItems.value = nextItems;
 }
 
 function removeAssistantChatMessageProjections(orders: number[] = []) {
@@ -2940,17 +3020,18 @@ function refreshAssistantChatProjectionNonFatal(sessionId: string, context: stri
 function clearManagerWorkspaceProjections() {
     managerRuns.value = [];
     memoryFiles.value = [];
-    memoryIndex.value = null;
+    memoryIndexState.value = null;
     invalidateMemoryFileRecordLoad();
     mapStateDocuments.value = [];
     activeMapDocId.value = 'main';
     mapStateDocument.value = null;
     mapStatePatches.value = [];
+    mapStatePatchCount.value = 0;
+    mapStateTimelineAvailable.value = false;
     atlasStateDocument.value = null;
-    atlasStatePatches.value = [];
+    atlasLatestPatchSummary.value = '';
     atlasActiveLocationKey.value = '';
     statusStateDocument.value = null;
-    statusStatePatches.value = [];
     statusFieldDeltas.value = {};
     selectedMemoryFilePath.value = '';
 }
@@ -2964,7 +3045,7 @@ async function refreshMemoryProjection(sessionId = selectedSessionId.value) {
     const requestSerial = ++memoryProjectionRefreshSerial;
     if (!id) {
         memoryFiles.value = [];
-        memoryIndex.value = null;
+        memoryIndexState.value = null;
         invalidateMemoryFileRecordLoad();
         selectedMemoryFilePath.value = '';
         return;
@@ -2984,9 +3065,8 @@ async function refreshMemoryProjection(sessionId = selectedSessionId.value) {
         contentLength: Math.max(0, Number(file.contentLength) || 0),
         title: String(file.title || ''),
         preview: String(file.preview || ''),
-        searchText: String(file.searchText || ''),
     })) : [];
-    memoryIndex.value = index;
+    memoryIndexState.value = { status: index.status, error: index.error };
     if (!memoryFiles.value.some((file) => file.path === selectedMemoryFilePath.value)) {
         if (memoryEditorDirty.value && selectedMemoryFilePath.value) {
             memoryEditorStatus.value = '当前档案已变化，草稿仍保留';
@@ -3004,6 +3084,8 @@ async function refreshMapProjection(sessionId = selectedSessionId.value) {
         activeMapDocId.value = 'main';
         mapStateDocument.value = null;
         mapStatePatches.value = [];
+        mapStatePatchCount.value = 0;
+        mapStateTimelineAvailable.value = false;
         return;
     }
     const mapState = await getTavernMapStateForSession(id);
@@ -3012,6 +3094,20 @@ async function refreshMapProjection(sessionId = selectedSessionId.value) {
     activeMapDocId.value = mapState.activeDocId;
     mapStateDocument.value = mapState.activeDocument;
     mapStatePatches.value = mapState.activePatches;
+    mapStatePatchCount.value = mapState.activePatchCount;
+    mapStateTimelineAvailable.value = mapState.activeTimelineAvailable;
+}
+
+async function loadMapTimelinePatches(sessionId = '', docId = '') {
+    const sourceSessionId = String(sessionId || '').trim();
+    const id = String(docId || '').trim();
+    if (!sourceSessionId || !id) {return [];}
+    return await listTavernStructuredStatePatches({
+        sessionId: sourceSessionId,
+        docType: 'tavern.map',
+        docId: id,
+        limit: TAVERN_MAP_TIMELINE_PATCH_LIMIT,
+    });
 }
 
 async function refreshAtlasProjection(sessionId = selectedSessionId.value) {
@@ -3019,14 +3115,14 @@ async function refreshAtlasProjection(sessionId = selectedSessionId.value) {
     const requestSerial = ++atlasProjectionRefreshSerial;
     if (!id) {
         atlasStateDocument.value = null;
-        atlasStatePatches.value = [];
+        atlasLatestPatchSummary.value = '';
         atlasActiveLocationKey.value = '';
         return;
     }
     const atlasState = await getTavernAtlasStateForSession(id);
     if (requestSerial !== atlasProjectionRefreshSerial || id !== selectedSessionId.value) {return;}
     atlasStateDocument.value = atlasState.document;
-    atlasStatePatches.value = atlasState.patches;
+    atlasLatestPatchSummary.value = atlasState.latestPatchSummary;
     atlasActiveLocationKey.value = atlasState.activeLocationKey;
 }
 
@@ -3035,14 +3131,12 @@ async function refreshStatusProjection(sessionId = selectedSessionId.value) {
     const requestSerial = ++statusProjectionRefreshSerial;
     if (!id) {
         statusStateDocument.value = null;
-        statusStatePatches.value = [];
         statusFieldDeltas.value = {};
         return;
     }
-    const statusState = await getTavernStatusStateForSession(id);
+    const statusState = await getTavernStatusProjectionForSession(id);
     if (requestSerial !== statusProjectionRefreshSerial || id !== selectedSessionId.value) {return;}
     statusStateDocument.value = statusState.document;
-    statusStatePatches.value = statusState.patches;
     statusFieldDeltas.value = statusState.fieldDeltas;
 }
 
@@ -3157,16 +3251,28 @@ async function revealOlderManagerMessages() {
         managerAutoScroll.value = false;
         managerScrollPane.preserveViewportDuringMutation(() => {
             const seen = new Set(managerChatItems.value.map((item) => item.key));
-            managerChatItems.value = [
+            const nextItems = [
                 ...page.items.filter((item) => !seen.has(item.key)),
                 ...managerChatItems.value,
             ];
+            const trimmed = nextItems.length > TAVERN_ASSISTANT_CHAT_VISIBLE_UNIT_LIMIT;
+            managerChatItems.value = trimmed
+                ? nextItems.slice(0, TAVERN_ASSISTANT_CHAT_VISIBLE_UNIT_LIMIT)
+                : nextItems;
             managerChatHasMore.value = page.hasMore;
+            managerChatHasNewer.value = managerChatHasNewer.value || trimmed;
         });
         void nextTick(() => updateManagerScrollButtons());
     } finally {
         assistantChatOlderLoading = false;
     }
+}
+
+async function revealNewerManagerMessages() {
+    const sessionId = String(selectedSessionId.value || '').trim();
+    if (!sessionId || !managerChatHasNewer.value || assistantChatOlderLoading) {return;}
+    await refreshAssistantChat(sessionId);
+    void nextTick(() => scrollManagerToBottom());
 }
 
 async function resetChatMessageWindowForUserTurn(options: { rerollLatestAssistant?: boolean } = {}) {
@@ -4555,7 +4661,7 @@ async function runManagerQuestion(
         });
         protocolResultPersisted = true;
         const projectionResults = await Promise.allSettled([
-            refreshAssistantChat(managerSessionId),
+            refreshAssistantChat(managerSessionId, { preserveDetachedWindow: true }),
             refreshSettledManagerDomains(managerSessionId, { changedFiles, changedStates }),
         ]);
         const projectionErrors = projectionResults.filter((item) => item.status === 'rejected');
@@ -4715,6 +4821,7 @@ async function clearAssistantChatHistory() {
     clearManagerPendingUserMessage(sessionId);
     managerChatItems.value = [];
     managerChatHasMore.value = false;
+    managerChatHasNewer.value = false;
     refreshAssistantChatContextMeter({ immediate: true });
     managerInputStatus.value = '';
     managerAutoScroll.value = true;
@@ -4816,8 +4923,10 @@ watch([
 
 watch(() => selectedSessionId.value, (nextSessionId, previousSessionId) => {
     assistantChatRefreshSerial += 1;
+    cancelMemoryContentSearch();
     managerChatItems.value = [];
     managerChatHasMore.value = false;
+    managerChatHasNewer.value = false;
     assistantChatBudgetTokens.value = null;
     if (previousSessionId && previousSessionId !== nextSessionId) {
         if (editingMessageKey.value.startsWith(`${previousSessionId}:`)) {
@@ -4990,6 +5099,7 @@ const chatContext = {
     messageKey,
     normalizeTavernSessionState,
     renderChatMarkdown,
+    renderUncachedMarkdown,
     rerollLatestAssistant,
     revealOlderChatMessages,
     revealNewerChatMessages,
@@ -5062,6 +5172,7 @@ const managerContext = {
     managerInputDraft,
     managerInputStatus,
     managerChatHasMore,
+    managerChatHasNewer,
     managerPendingUserMessage: visibleManagerPendingUserMessage,
     managerRuns,
     managerRunDisplayStatus,
@@ -5078,6 +5189,7 @@ const managerContext = {
     memoryIndexStatusLine,
     retryManagerRun,
     revealOlderManagerMessages,
+    revealNewerManagerMessages,
     rerunFromManagerMessage: async (message) => {
         await rerunFromManagerMessage(message);
     },
@@ -5131,17 +5243,19 @@ const workspaceContext = {
     activeMapDocId,
     atlasActiveLocationKey,
     atlasStateDocument,
-    atlasStatePatches,
+    atlasLatestPatchSummary,
     chatWorkspacePanel,
     displayUserName: userName,
     mapStateDocuments,
     mapStateDocument,
     mapStatePatches,
+    mapStatePatchCount,
+    mapStateTimelineAvailable,
+    loadMapTimelinePatches,
     materialSymbolFontReady,
     materialSymbolFontStatus,
     statusFieldDeltas,
     statusStateDocument,
-    statusStatePatches,
     saveSessionContract,
     sessionContract,
     visibleUserAvatar,
@@ -5223,6 +5337,7 @@ onMounted(async () => {
 onUnmounted(() => {
     document.removeEventListener('focusin', handleKeyboardViewportFocus, true);
     document.removeEventListener('focusout', handleKeyboardViewportFocus, true);
+    cancelMemoryContentSearch();
     hostBridge.dispose(new Error('tavern_unmounted'));
     disposeMarkdownTools();
     clearRuntimeAssistantLiveState();

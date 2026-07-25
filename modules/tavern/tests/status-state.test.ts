@@ -215,6 +215,25 @@ test('StatusInit writes the current document and a reversible patch record', asy
     assert.deepEqual(patches[0].ops, [{ op: 'init' }]);
 });
 
+test('StatusRead history returns the requested persisted tail without changing ordinary document reads', async () => {
+    const session = await createTavernSession({ title: 'Status history window' });
+    await executeTavernStatusTool(session.id, TAVERN_STATUS_TOOL_NAMES.INIT, { document: createStatusDoc() });
+    await executeTavernStatusTool(session.id, TAVERN_STATUS_TOOL_NAMES.PATCH, {
+        ops: [{ op: 'delta', subjectId: 'user', tabId: 'overview', blockId: 'stats', fieldId: 'san', delta: -1 }],
+    });
+    await executeTavernStatusTool(session.id, TAVERN_STATUS_TOOL_NAMES.PATCH, {
+        ops: [{ op: 'delta', subjectId: 'user', tabId: 'overview', blockId: 'stats', fieldId: 'san', delta: -2 }],
+    });
+
+    const document = await executeTavernStatusTool(session.id, TAVERN_STATUS_TOOL_NAMES.READ, { mode: 'document' });
+    const history = await executeTavernStatusTool(session.id, TAVERN_STATUS_TOOL_NAMES.READ, { mode: 'history', tail: 2 });
+
+    assert.equal(document.ok, true);
+    assert.equal((document.document?.subjects[0]?.tabs[0]?.blocks[0]?.fields[0] as { value?: number } | undefined)?.value, 47);
+    assert.equal(history.ok, true);
+    assert.deepEqual(history.patches?.map((patch) => patch.revision), [2, 3]);
+});
+
 test('StatusPatch only mutates existing blocks and skips semantic no-op writes', async () => {
     const session = await createTavernSession({ title: 'Status patch' });
     await executeTavernStatusTool(session.id, TAVERN_STATUS_TOOL_NAMES.INIT, { document: createStatusDoc() });

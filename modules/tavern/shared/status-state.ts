@@ -3,6 +3,7 @@ import db, {
     ensureTavernManagerStateSnapshot,
     getTavernStructuredStateDocument,
     hashTavernStateDocument,
+    listTavernStructuredStatePatchPage,
     listTavernStructuredStatePatches,
     tavernMessagesTable,
     tavernManagerRunsTable,
@@ -635,6 +636,44 @@ export async function getTavernStatusStateForSession(sessionId = ''): Promise<{
     return { document: record, status: normalized, patches, fieldDeltas: deriveRecentStatusFieldDeltas(patches) };
 }
 
+export async function getTavernStatusDocumentForSession(sessionId = ''): Promise<{
+    document: TavernStructuredStateDocumentRecord | null;
+    status: TavernStatusDocument;
+}> {
+    const document = await getStatusRecord(sessionId);
+    return {
+        document,
+        status: normalizeStatusDocument(document?.data || createEmptyStatusDocument()).document,
+    };
+}
+
+/**
+ * UI and ordinary reads only need the current document plus the latest delta.
+ * Patch history remains in IndexedDB until an explicit history request asks
+ * for a page of it.
+ */
+export async function getTavernStatusProjectionForSession(sessionId = ''): Promise<{
+    document: TavernStructuredStateDocumentRecord | null;
+    status: TavernStatusDocument;
+    fieldDeltas: TavernStatusFieldDeltaMap;
+}> {
+    const [state, latest] = await Promise.all([
+        getTavernStatusDocumentForSession(sessionId),
+        listTavernStructuredStatePatchPage({
+            sessionId,
+            docType: TAVERN_STATUS_DOC_TYPE,
+            docId: TAVERN_STATUS_DOC_ID,
+            limit: 1,
+            tail: 1,
+        }),
+    ]);
+    return {
+        document: state.document,
+        status: state.status,
+        fieldDeltas: deriveRecentStatusFieldDeltas(latest.patches),
+    };
+}
+
 export async function describeStatusStateRollbackImpactForMessageRange(sessionId = '', fromOrder = 0): Promise<{
     changed: boolean;
     writtenStatusPatches: number;
@@ -915,28 +954,26 @@ export async function executeTavernStatusTool(
 
     if (name === TAVERN_STATUS_TOOL_NAMES.READ) {
         const mode = normalizeText(args.mode, 20) || 'summary';
-        const state = await getTavernStatusStateForSession(id);
-        if (mode === 'document') {
-            return {
-                ok: true,
-                summary: state.document ? `状态栏 REV ${state.document.revision}` : '状态栏尚未初始化。',
-                changed: false,
-                docType: TAVERN_STATUS_DOC_TYPE,
-                docId: TAVERN_STATUS_DOC_ID,
-                revision: state.document?.revision || 0,
-                document: state.status,
-            };
-        }
         if (mode === 'history') {
             const tail = Math.max(1, Math.min(MAX_READ_LIMIT, Math.floor(Number(args.tail) || 20)));
+            const [record, page] = await Promise.all([
+                getStatusRecord(id),
+                listTavernStructuredStatePatchPage({
+                    sessionId: id,
+                    docType: TAVERN_STATUS_DOC_TYPE,
+                    docId: TAVERN_STATUS_DOC_ID,
+                    limit: tail,
+                    tail,
+                }),
+            ]);
             return {
                 ok: true,
-                summary: `返回最近 ${Math.min(tail, state.patches.length)} 条状态栏 patch。`,
+                summary: `返回最近 ${page.patches.length} 条状态栏 patch。`,
                 changed: false,
                 docType: TAVERN_STATUS_DOC_TYPE,
                 docId: TAVERN_STATUS_DOC_ID,
-                revision: state.document?.revision || 0,
-                patches: state.patches.slice(-tail).map((patch) => ({
+                revision: record?.revision || 0,
+                patches: page.patches.map((patch) => ({
                     id: patch.id,
                     revision: patch.revision,
                     managerRunId: patch.managerRunId,
@@ -947,14 +984,27 @@ export async function executeTavernStatusTool(
                 })),
             };
         }
+        const record = await getStatusRecord(id);
+        const status = normalizeStatusDocument(record?.data || createEmptyStatusDocument()).document;
+        if (mode === 'document') {
+            return {
+                ok: true,
+                summary: record ? `状态栏 REV ${record.revision}` : '状态栏尚未初始化。',
+                changed: false,
+                docType: TAVERN_STATUS_DOC_TYPE,
+                docId: TAVERN_STATUS_DOC_ID,
+                revision: record?.revision || 0,
+                document: status,
+            };
+        }
         return {
             ok: true,
-            summary: state.document ? `状态栏含 ${state.status.subjects.length} 个档案入口。` : '状态栏尚未初始化。',
+            summary: record ? `状态栏含 ${status.subjects.length} 个档案入口。` : '状态栏尚未初始化。',
             changed: false,
             docType: TAVERN_STATUS_DOC_TYPE,
             docId: TAVERN_STATUS_DOC_ID,
-            revision: state.document?.revision || 0,
-            subjects: summarizeStatusDocument(state.status),
+            revision: record?.revision || 0,
+            subjects: summarizeStatusDocument(status),
         };
     }
 

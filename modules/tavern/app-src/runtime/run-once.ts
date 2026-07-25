@@ -102,7 +102,7 @@ import {
     buildXbTavernMemoryQuery,
     retrieveXbTavernMemoryContext,
 } from '../../shared/memory-retrieval';
-import { getTavernStatusStateForSession, type TavernStatusDocument } from '../../shared/status-state';
+import { getTavernStatusDocumentForSession, type TavernStatusDocument } from '../../shared/status-state';
 import { buildTavernStatusPanelYaml } from '../../shared/status-prompt';
 import { hasMaintainableTavernTasksAtAnchor } from '../../shared/tasks/task-service';
 import { createXbTavernAgentRuntime } from './agent-runtime';
@@ -849,7 +849,7 @@ async function buildStatusPanelPromptContext(sessionId = '', runtime: TavernSess
 }> {
     const id = String(sessionId || '').trim();
     if (!id || !runtime.includeStatusStates) {return { statusPanelYaml: '' };}
-    const state = await getTavernStatusStateForSession(id);
+    const state = await getTavernStatusDocumentForSession(id);
     if (!state.document) {return { statusPanelYaml: '' };}
     return {
         statusPanelYaml: buildTavernStatusPanelYaml(state.status),

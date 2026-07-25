@@ -1,10 +1,15 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, watch, type CSSProperties } from 'vue';
+import { computed, nextTick, onBeforeUnmount, ref, shallowRef, watch, type CSSProperties } from 'vue';
 import type {
     TavernStructuredStateDocumentRecord,
     TavernStructuredStatePatchRecord,
 } from '../../shared/session-db';
-import type { TavernMapDocument, TavernMapElement, TavernMapStateDocumentItem } from '../../shared/structured-state';
+import type {
+    TavernMapDocument,
+    TavernMapElement,
+    TavernMapStateDocumentItem,
+    TavernStructuredStatePatchDisplay,
+} from '../../shared/structured-state';
 import { isRenderableMapDocument } from '../../shared/map-state-content';
 import { createSeedMapDocument } from '../../shared/map-state-seed';
 import { applyTrustedMapPatchOps } from '../../shared/map-state-ops';
@@ -108,7 +113,10 @@ const props = withDefaults(defineProps<{
     activeDocId?: string;
     selectedDocId?: string;
     document: TavernStructuredStateDocumentRecord | null;
-    patches: TavernStructuredStatePatchRecord[];
+    patches: TavernStructuredStatePatchDisplay[];
+    patchCount?: number;
+    timelineAvailable?: boolean;
+    loadTimelinePatches?: (sessionId: string, docId: string) => Promise<TavernStructuredStatePatchRecord[]>;
     compact?: boolean;
     playerDisplayName?: string;
     playerAvatarUrl?: string;
@@ -123,6 +131,9 @@ const props = withDefaults(defineProps<{
     playerAvatarUrl: '',
     materialSymbolsReady: false,
     materialSymbolsStatus: 'idle',
+    patchCount: 0,
+    timelineAvailable: false,
+    loadTimelinePatches: undefined,
 });
 const emit = defineEmits<{
     (event: 'update:selectedDocId', docId: string): void;
@@ -132,6 +143,9 @@ const replayKey = ref(0);
 const svgDefsNonce = ref(0);
 const replayMode = ref<MapReplayMode>('patch');
 const timelineIndex = ref(0);
+const timelinePatches = shallowRef<TavernStructuredStatePatchRecord[]>([]);
+const timelineLoading = ref(false);
+const timelineError = ref('');
 const localSelectedDocId = ref('');
 const mapSvgRef = ref<SVGSVGElement | null>(null);
 const mapPanOffset = ref<[number, number]>([0, 0]);
@@ -148,6 +162,7 @@ const mapDrag = ref<{
     clientHeight: number;
 } | null>(null);
 let timelineTimer: number | undefined;
+let timelineRequestSerial = 0;
 
 function svgDefId(id: string): string {
     return `${svgLocalId(id)}-r${svgDefsNonce.value}`;
@@ -194,6 +209,15 @@ const selectedDocumentRecord = computed<TavernMapStateDocumentItem | TavernStruc
         || props.document
         || null;
 });
+const timelineSourceKey = computed(() => {
+    const document = selectedDocumentRecord.value;
+    return [
+        String(document?.sessionId || '').trim(),
+        String(document?.docId || '').trim(),
+        Number(document?.revision || 0),
+        Number(document?.updatedAt || 0),
+    ].join('\u0000');
+});
 const selectedDocPatches = computed(() => {
     const docId = String(selectedDocumentRecord.value?.docId || '').trim();
     return docId && docId === String(props.document?.docId || '').trim() ? props.patches : [];
@@ -207,7 +231,7 @@ const mapDocument = computed<TavernMapDocument | null>(() => {
 const latestPatch = computed(() => selectedDocPatches.value.at(-1) || null);
 const mapBadgeExpanded = ref(false);
 const timelineFrames = computed<MapReplayFrame[]>(() => {
-    const sorted = [...selectedDocPatches.value].sort((left, right) => Number(left.revision || 0) - Number(right.revision || 0));
+    const sorted = [...timelinePatches.value].sort((left, right) => Number(left.revision || 0) - Number(right.revision || 0));
     let document = defaultDisplayMap();
     return sorted.map((patch, index) => {
         const ops = Array.isArray(patch.ops) ? patch.ops as Array<Record<string, unknown>> : [];
@@ -225,10 +249,11 @@ const activeTimelineFrame = computed(() => {
     const index = Math.max(0, Math.min(timelineIndex.value, timelineFrames.value.length - 1));
     return timelineFrames.value[index] || null;
 });
-const canReplayTimeline = computed(() => timelineFrames.value.length > 0 && Number(timelineFrames.value[0]?.revision || 0) <= 1);
+const hasReplayableTimeline = computed(() => timelineFrames.value.length > 0 && Number(timelineFrames.value[0]?.revision || 0) <= 1);
+const canReplayTimeline = computed(() => props.timelineAvailable === true && !!props.loadTimelinePatches && !timelineLoading.value);
 const activePatch = computed(() => replayMode.value === 'timeline' ? activeTimelineFrame.value?.patch || latestPatch.value : latestPatch.value);
 const activeMapDocument = computed(() => replayMode.value === 'timeline' ? activeTimelineFrame.value?.document || mapDocument.value : mapDocument.value);
-const latestOps = computed(() => Array.isArray(activePatch.value?.ops) ? activePatch.value?.ops as Array<Record<string, unknown>> : []);
+const latestOps = computed(() => Array.isArray(activePatch.value?.ops) ? activePatch.value?.ops as unknown as Array<Record<string, unknown>> : []);
 const latestChangedIds = computed(() => new Set((activePatch.value?.changedIds || []).map((id) => String(id || '').trim()).filter(Boolean)));
 const latestOpById = computed(() => {
     const map = new Map<string, MapOpKind>();
@@ -295,7 +320,7 @@ function userFacingDigestLine(line = '') {
 }
 const digestLines = computed(() => digest.value.split('\n').map(userFacingDigestLine).filter(Boolean).slice(0, 4));
 const elementCount = computed(() => activeMapDocument.value?.elements.length || 0);
-const totalPatchCount = computed(() => selectedDocPatches.value.length);
+const totalPatchCount = computed(() => Math.max(0, Number(props.patchCount) || 0));
 const mapDocuments = computed(() => Array.isArray(props.documents) && props.documents.length
     ? props.documents
     : props.document ? [{ ...props.document, active: true }] : []);
@@ -337,9 +362,14 @@ function mapVisualContext(): TavernMapElementVisualContext {
 watch(() => props.document?.revision, () => {
     replayMode.value = 'patch';
     clearTimelineTimer();
+    releaseTimelinePatches();
     timelineIndex.value = Math.max(0, timelineFrames.value.length - 1);
     replayKey.value += 1;
     mapBadgeExpanded.value = false;
+});
+
+watch(timelineSourceKey, () => {
+    releaseTimelinePatches();
 });
 
 watch(() => [props.selectedDocId, props.activeDocId, props.document?.docId, props.documents.length] as const, () => {
@@ -360,7 +390,7 @@ watch(() => selectedDocPatches.value.length, () => {
     if (timelineIndex.value >= timelineFrames.value.length) {
         timelineIndex.value = Math.max(0, timelineFrames.value.length - 1);
     }
-    if (replayMode.value === 'timeline' && !canReplayTimeline.value) {
+    if (replayMode.value === 'timeline' && !hasReplayableTimeline.value) {
         replayMode.value = 'patch';
         clearTimelineTimer();
     }
@@ -369,6 +399,7 @@ watch(() => selectedDocPatches.value.length, () => {
 
 onBeforeUnmount(() => {
     clearTimelineTimer();
+    releaseTimelinePatches();
 });
 
 function clearTimelineTimer() {
@@ -376,6 +407,13 @@ function clearTimelineTimer() {
         window.clearTimeout(timelineTimer);
         timelineTimer = undefined;
     }
+}
+
+function releaseTimelinePatches() {
+    timelineRequestSerial += 1;
+    timelinePatches.value = [];
+    timelineLoading.value = false;
+    timelineError.value = '';
 }
 
 function resetMapPan() {
@@ -1115,7 +1153,7 @@ const vignetteOverlay = computed(() => {
 
 function scheduleTimelineNext() {
     clearTimelineTimer();
-    if (replayMode.value !== 'timeline' || !canReplayTimeline.value || timelineFrames.value.length <= 1) {return;}
+    if (replayMode.value !== 'timeline' || !hasReplayableTimeline.value || timelineFrames.value.length <= 1) {return;}
     void nextTick(() => {
         timelineTimer = window.setTimeout(() => {
             if (replayMode.value !== 'timeline') {return;}
@@ -1153,6 +1191,7 @@ function itemClass(item: MapRenderItem) {
 
 function replayLatestPatch() {
     clearTimelineTimer();
+    releaseTimelinePatches();
     replayMode.value = 'patch';
     replayKey.value += 1;
     resetMapPan();
@@ -1160,13 +1199,44 @@ function replayLatestPatch() {
 
 function replayFullMap() {
     clearTimelineTimer();
+    releaseTimelinePatches();
     replayMode.value = 'full';
     replayKey.value += 1;
     resetMapPan();
 }
 
-function replayTimeline() {
-    if (!canReplayTimeline.value) {return;}
+async function replayTimeline() {
+    const load = props.loadTimelinePatches;
+    const document = selectedDocumentRecord.value;
+    const sessionId = String(document?.sessionId || '').trim();
+    const docId = String(document?.docId || '').trim();
+    if (props.timelineAvailable !== true || !load || !sessionId || !docId || timelineLoading.value) {return;}
+    const sourceKey = timelineSourceKey.value;
+    const requestSerial = ++timelineRequestSerial;
+    timelineLoading.value = true;
+    timelineError.value = '';
+    let patches: TavernStructuredStatePatchRecord[] = [];
+    try {
+        patches = await load(sessionId, docId);
+    } catch (error) {
+        if (requestSerial === timelineRequestSerial && sourceKey === timelineSourceKey.value) {
+            timelinePatches.value = [];
+            timelineError.value = '时间线读取失败，可重试。';
+            console.warn('[小白酒馆] 读取地图时间线失败', error);
+        }
+        return;
+    } finally {
+        if (requestSerial === timelineRequestSerial) {
+            timelineLoading.value = false;
+        }
+    }
+    if (requestSerial !== timelineRequestSerial || sourceKey !== timelineSourceKey.value) {return;}
+    timelineError.value = '';
+    timelinePatches.value = patches;
+    if (!hasReplayableTimeline.value) {
+        releaseTimelinePatches();
+        return;
+    }
     replayMode.value = 'timeline';
     timelineIndex.value = 0;
     replayKey.value += 1;
@@ -1177,7 +1247,7 @@ function replayTimeline() {
 function stepTimeline(offset: number) {
     clearTimelineTimer();
     replayMode.value = 'timeline';
-    if (!canReplayTimeline.value) {return;}
+    if (!hasReplayableTimeline.value) {return;}
     const length = timelineFrames.value.length;
     if (!length) {return;}
     timelineIndex.value = (timelineIndex.value + offset + length) % length;
@@ -1199,6 +1269,7 @@ function handleSelectedDocChange(event: Event) {
     emit('update:selectedDocId', localSelectedDocId.value);
     replayMode.value = 'patch';
     clearTimelineTimer();
+    releaseTimelinePatches();
     replayKey.value += 1;
     resetMapPan();
 }
@@ -1312,6 +1383,20 @@ function handleMapWheel(event: WheelEvent) {
         </button>
       </div>
     </header>
+    <div
+      v-if="timelineError"
+      class="tavern-map-timeline-error"
+      role="alert"
+    >
+      <span>{{ timelineError }}</span>
+      <button
+        type="button"
+        :disabled="timelineLoading"
+        @click="replayTimeline"
+      >
+        重试
+      </button>
+    </div>
     <div
       v-if="hasRenderableMap"
       class="tavern-map-canvas"

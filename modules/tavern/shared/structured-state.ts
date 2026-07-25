@@ -4,8 +4,8 @@ import db, {
     ensureSeedStructuredStateDocument,
     getTavernStructuredStateDocument,
     hashTavernStateDocument,
+    listTavernStructuredStatePatchPage,
     listTavernStructuredStateDocuments,
-    listTavernStructuredStatePatches,
     putTavernStructuredStateDocument,
     tavernMessagesTable,
     tavernManagerRunsTable,
@@ -71,6 +71,9 @@ export const TAVERN_STATE_TOOL_NAMES = {
     READ_SCENE: 'MapSceneRead',
     EDIT_SCENE: 'MapSceneEdit',
 } as const;
+
+/** Maximum complete patch history the map replay UI will load into memory. */
+export const TAVERN_MAP_TIMELINE_PATCH_LIMIT = 80;
 
 const MODEL_FACING_STATE_TOOL_NAMES = new Set<string>([
     TAVERN_STATE_TOOL_NAMES.READ_ATLAS,
@@ -295,6 +298,49 @@ export type TavernStateDocumentListItem = Pick<TavernStructuredStateDocumentReco
 export type TavernMapStateDocumentItem = TavernStructuredStateDocumentRecord & {
     active?: boolean;
 };
+
+/** A transient UI projection; full patches stay in IndexedDB for audit/replay. */
+export interface TavernStructuredStatePatchDisplay {
+    id: string;
+    docType: TavernStructuredStateDocType;
+    docId: string;
+    revision: number;
+    summary: string;
+    createdAt: number;
+    changedIds: string[];
+    removedElements: unknown[];
+    ops: Array<{ op: string; id: string }>;
+}
+
+export function projectTavernStructuredStatePatchForDisplay(
+    patch: TavernStructuredStatePatchRecord,
+): TavernStructuredStatePatchDisplay {
+    const ops = Array.isArray(patch.ops) ? patch.ops : [];
+    return {
+        id: patch.id,
+        docType: patch.docType,
+        docId: patch.docId,
+        revision: patch.revision,
+        summary: patch.summary,
+        createdAt: patch.createdAt,
+        changedIds: Array.isArray(patch.changedIds) ? patch.changedIds.map((id) => String(id || '')).filter(Boolean) : [],
+        // A removal animation needs the removed element shape, but only for
+        // the single latest patch retained by the live UI.
+        removedElements: Array.isArray(patch.removedElements) ? patch.removedElements : [],
+        ops: ops.map((rawOp) => {
+            const op = rawOp && typeof rawOp === 'object' && !Array.isArray(rawOp)
+                ? rawOp as Record<string, unknown>
+                : {};
+            const element = op.element && typeof op.element === 'object' && !Array.isArray(op.element)
+                ? op.element as Record<string, unknown>
+                : {};
+            return {
+                op: String(op.op || ''),
+                id: String(op.id || element.id || ''),
+            };
+        }),
+    };
+}
 
 function now(): number {
     return Date.now();
@@ -3463,25 +3509,29 @@ export async function executeTavernStateTool(
                 };
             }
             if (mode === 'history') {
-                const patches = await listTavernStructuredStatePatches({ sessionId: id, docType: MAP_DOC_TYPE, docId: target.docId });
                 const tail = Math.max(0, Number(args.tail) || 0);
                 const limit = Math.max(1, Math.min(MAX_STATE_READ_LIMIT, Number(args.limit) || 20));
                 const offset = Math.max(0, Number(args.offset) || 0);
-                const start = tail > 0 ? Math.max(0, patches.length - Math.min(MAX_STATE_READ_LIMIT, tail)) : offset;
-                const page = patches.slice(start, start + (tail > 0 ? Math.min(MAX_STATE_READ_LIMIT, tail) : limit));
-                const nextOffset = start + page.length < patches.length ? start + page.length : 0;
+                const page = await listTavernStructuredStatePatchPage({
+                    sessionId: id,
+                    docType: MAP_DOC_TYPE,
+                    docId: target.docId,
+                    limit: tail > 0 ? Math.min(MAX_STATE_READ_LIMIT, tail) : limit,
+                    offset,
+                    tail: tail > 0 ? Math.min(MAX_STATE_READ_LIMIT, tail) : 0,
+                });
                 return {
                     ok: true,
                     file: target.sceneName,
                     scene: target.sceneName,
-                    summary: `Found ${patches.length} saved scene patch transaction(s); returned ${page.length}.`,
+                    summary: `Found ${page.total} saved scene patch transaction(s); returned ${page.patches.length}.`,
                     docType: MAP_DOC_TYPE,
                     docId: target.docId,
                     revision: record.revision,
-                    count: patches.length,
-                    truncated: nextOffset > 0,
-                    nextOffset,
-                    patches: page,
+                    count: page.total,
+                    truncated: page.truncated,
+                    nextOffset: page.nextOffset,
+                    patches: page.patches,
                 };
             }
             return {
@@ -3981,23 +4031,27 @@ export async function executeTavernStateTool(
                     };
                 }
                 if (mode === 'history') {
-                    const patches = await listTavernStructuredStatePatches({ sessionId: id, docType, docId });
                     const tail = Math.max(0, Number(args.tail) || 0);
                     const limit = Math.max(1, Math.min(MAX_STATE_READ_LIMIT, Number(args.limit) || 20));
                     const offset = Math.max(0, Number(args.offset) || 0);
-                    const start = tail > 0 ? Math.max(0, patches.length - Math.min(MAX_STATE_READ_LIMIT, tail)) : offset;
-                    const page = patches.slice(start, start + (tail > 0 ? Math.min(MAX_STATE_READ_LIMIT, tail) : limit));
-                    const nextOffset = start + page.length < patches.length ? start + page.length : 0;
+                    const page = await listTavernStructuredStatePatchPage({
+                        sessionId: id,
+                        docType,
+                        docId,
+                        limit: tail > 0 ? Math.min(MAX_STATE_READ_LIMIT, tail) : limit,
+                        offset,
+                        tail: tail > 0 ? Math.min(MAX_STATE_READ_LIMIT, tail) : 0,
+                    });
                     return {
                         ok: true,
-                        summary: `Found ${patches.length} saved atlas patch transaction(s); returned ${page.length}.`,
+                        summary: `Found ${page.total} saved atlas patch transaction(s); returned ${page.patches.length}.`,
                         docType,
                         docId,
                         revision: record.revision,
-                        count: patches.length,
-                        truncated: nextOffset > 0,
-                        nextOffset,
-                        patches: page,
+                        count: page.total,
+                        truncated: page.truncated,
+                        nextOffset: page.nextOffset,
+                        patches: page.patches,
                     };
                 }
                 return { ok: false, summary: `Unsupported atlas MapInspect mode: ${mode}`, docType, docId, error: 'state_read_mode_invalid' };
@@ -4063,23 +4117,27 @@ export async function executeTavernStateTool(
                 };
             }
             if (mode === 'history') {
-                const patches = await listTavernStructuredStatePatches({ sessionId: id, docType, docId });
                 const tail = Math.max(0, Number(args.tail) || 0);
                 const limit = Math.max(1, Math.min(MAX_STATE_READ_LIMIT, Number(args.limit) || 20));
                 const offset = Math.max(0, Number(args.offset) || 0);
-                const start = tail > 0 ? Math.max(0, patches.length - Math.min(MAX_STATE_READ_LIMIT, tail)) : offset;
-                const page = patches.slice(start, start + (tail > 0 ? Math.min(MAX_STATE_READ_LIMIT, tail) : limit));
-                const nextOffset = start + page.length < patches.length ? start + page.length : 0;
+                const page = await listTavernStructuredStatePatchPage({
+                    sessionId: id,
+                    docType,
+                    docId,
+                    limit: tail > 0 ? Math.min(MAX_STATE_READ_LIMIT, tail) : limit,
+                    offset,
+                    tail: tail > 0 ? Math.min(MAX_STATE_READ_LIMIT, tail) : 0,
+                });
                 return {
                     ok: true,
-                    summary: `Found ${patches.length} saved patch transaction(s); returned ${page.length}.`,
+                    summary: `Found ${page.total} saved patch transaction(s); returned ${page.patches.length}.`,
                     docType,
                     docId,
                     revision: record.revision,
-                    count: patches.length,
-                    truncated: nextOffset > 0,
-                    nextOffset,
-                    patches: page,
+                    count: page.total,
+                    truncated: page.truncated,
+                    nextOffset: page.nextOffset,
+                    patches: page.patches,
                 };
             }
             return { ok: false, summary: `Unsupported MapInspect mode: ${mode}`, docType, docId, error: 'state_read_mode_invalid' };
@@ -4483,7 +4541,9 @@ export async function getTavernMapStateForSession(sessionId = ''): Promise<{
     documents: TavernMapStateDocumentItem[];
     activeDocId: string;
     activeDocument: TavernStructuredStateDocumentRecord | null;
-    activePatches: TavernStructuredStatePatchRecord[];
+    activePatches: TavernStructuredStatePatchDisplay[];
+    activePatchCount: number;
+    activeTimelineAvailable: boolean;
 }> {
     const resolved = await resolveTavernActiveMapDocument(sessionId);
     const activeDocId = resolved.activeDocId;
@@ -4514,11 +4574,36 @@ export async function getTavernMapStateForSession(sessionId = ''): Promise<{
         });
     const record = resolved.record;
     const normalizedDocument = record ? normalizeMapDocumentFromRecord(record) : null;
-    const activePatches = record
-        ? await listTavernStructuredStatePatches({ sessionId, docType: MAP_DOC_TYPE, docId: record.docId, limit: 80 })
-        : [];
+    const [activePatchPage, firstActivePatchPage] = record
+        ? await Promise.all([
+            listTavernStructuredStatePatchPage({
+                sessionId,
+                docType: MAP_DOC_TYPE,
+                docId: record.docId,
+                limit: 1,
+                tail: 1,
+            }),
+            listTavernStructuredStatePatchPage({
+                sessionId,
+                docType: MAP_DOC_TYPE,
+                docId: record.docId,
+                limit: 1,
+            }),
+        ])
+        : [
+            { patches: [] as TavernStructuredStatePatchRecord[], total: 0 },
+            { patches: [] as TavernStructuredStatePatchRecord[], total: 0 },
+        ];
+    const activePatches = activePatchPage.patches.map(projectTavernStructuredStatePatchForDisplay);
     if (!record || !normalizedDocument) {
-        return { documents, activeDocId, activeDocument: null, activePatches: [] };
+        return {
+            documents,
+            activeDocId,
+            activeDocument: null,
+            activePatches: [],
+            activePatchCount: 0,
+            activeTimelineAvailable: false,
+        };
     }
     return {
         documents,
@@ -4530,22 +4615,27 @@ export async function getTavernMapStateForSession(sessionId = ''): Promise<{
             digest: createMapDigest(normalizedDocument, record.revision),
         },
         activePatches,
+        activePatchCount: activePatchPage.total,
+        activeTimelineAvailable: activePatchPage.total > 0
+            && activePatchPage.total <= TAVERN_MAP_TIMELINE_PATCH_LIMIT
+            && Number(firstActivePatchPage.patches[0]?.revision || 0) <= 1,
     };
 }
 
 export async function getTavernAtlasStateForSession(sessionId = ''): Promise<{
     document: TavernStructuredStateDocumentRecord | null;
-    patches: TavernStructuredStatePatchRecord[];
+    latestPatchSummary: string;
     activeLocationKey: string;
 }> {
     const record = await getSeededAtlasDocumentRecord(sessionId);
-    if (!record) {return { document: null, patches: [], activeLocationKey: '' };}
+    if (!record) {return { document: null, latestPatchSummary: '', activeLocationKey: '' };}
     const normalized = normalizeAtlasDocumentFromRecord(record);
-    const patches = await listTavernStructuredStatePatches({
+    const page = await listTavernStructuredStatePatchPage({
         sessionId,
         docType: ATLAS_DOC_TYPE,
         docId: DEFAULT_ATLAS_DOC_ID,
-        limit: 80,
+        limit: 1,
+        tail: 1,
     });
     return {
         document: {
@@ -4554,7 +4644,7 @@ export async function getTavernAtlasStateForSession(sessionId = ''): Promise<{
             title: atlasTitle(normalized),
             digest: createAtlasDigest(normalized),
         },
-        patches,
+        latestPatchSummary: String(page.patches[0]?.summary || ''),
         activeLocationKey: normalized.activeLocationKey || '',
     };
 }

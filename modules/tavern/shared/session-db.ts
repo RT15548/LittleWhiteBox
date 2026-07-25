@@ -50,6 +50,13 @@ import type {
     TavernTaskVersionRecord,
 } from './tasks/task-types';
 
+type TavernDexieUpgradeCollection = {
+    each: (callback: (record: Record<string, unknown>) => void) => Promise<unknown>;
+    limit: (count: number) => TavernDexieUpgradeCollection;
+    modify: (callback: (record: Record<string, unknown>) => void) => Promise<unknown>;
+    toArray: () => Promise<Record<string, unknown>[]>;
+};
+
 type TavernDexieUpgradeTable = {
     clear: () => Promise<unknown>;
     toArray: () => Promise<Record<string, unknown>[]>;
@@ -57,10 +64,9 @@ type TavernDexieUpgradeTable = {
     bulkDelete: (keys: unknown[]) => Promise<unknown>;
     where: (index: string) => {
         anyOf: (values: unknown[]) => { delete: () => Promise<unknown> };
+        above: (value: unknown) => TavernDexieUpgradeCollection;
     };
-    toCollection: () => {
-        modify: (callback: (record: Record<string, unknown>) => void) => Promise<unknown>;
-    };
+    toCollection: () => TavernDexieUpgradeCollection;
 };
 
 type TavernDexieUpgradeTransaction = {
@@ -90,6 +96,8 @@ export interface TavernSessionRecord {
     storyTimelineRevision: number;
     /** Monotonic task-board CAS epoch; never decremented by timeline rollback. */
     taskBoardEpoch: number;
+    /** Physical line count of the derived chat/transcript.md source file. */
+    transcriptLineCount?: number;
     state?: TavernSessionState;
 }
 
@@ -232,6 +240,27 @@ export interface TavernAssistantChatMessageRecord {
     toolDisplay?: unknown;
 }
 
+/**
+ * Lightweight, derived projection for assistant-chat UI lists. The full
+ * protocol record remains in assistantChatMessages for exact provider replay.
+ */
+export interface TavernAssistantChatMessageSummaryRecord {
+    sessionId: string;
+    order: number;
+    role: XbTavernMessage['role'];
+    content: string;
+    name?: string;
+    error?: boolean;
+    createdAt: number;
+    updatedAt: number;
+    finishReason?: string;
+    thoughtCount?: number;
+    toolCalls?: Array<{ id?: string; name?: string; providerId?: string }>;
+    toolCallId?: string;
+    toolName?: string;
+    toolDisplay?: unknown;
+}
+
 export type TavernMaintenanceRunTrigger = 'accepted_turn' | 'after_turn';
 
 export interface TavernManagerRunRecord {
@@ -320,7 +349,6 @@ export interface TavernMemoryFileListEntry {
 
 export interface TavernMemoryIndexFileEntry extends TavernMemoryFileListEntry {
     title?: string;
-    searchText?: string;
 }
 
 export type TavernManagerMemorySnapshotStatus = 'pending' | 'rolled_back' | 'conflict' | 'skipped';
@@ -490,6 +518,7 @@ class TavernDatabase extends Dexie {
     sessions!: DexieTable<TavernSessionRecord>;
     messages!: DexieTable<TavernMessageRecord>;
     assistantChatMessages!: DexieTable<TavernAssistantChatMessageRecord>;
+    assistantChatMessageSummaries!: DexieTable<TavernAssistantChatMessageSummaryRecord>;
     meta!: DexieTable<TavernMetaRecord>;
     presets!: DexieTable<TavernPresetRecord>;
     managerRuns!: DexieTable<TavernManagerRunRecord>;
@@ -905,6 +934,46 @@ class TavernDatabase extends Dexie {
         this.version(22).stores({
             managerRuns: 'id, sessionId, status, turn, assistantOrder, [sessionId+assistantOrder], [sessionId+updatedAt], [sessionId+status+updatedAt], [sessionId+status+error+updatedAt], updatedAt',
         });
+        this.version(23).stores({
+            assistantChatMessageSummaries: '[sessionId+order], sessionId, order',
+        });
+        const version24 = this.version(24) as unknown as TavernDexieVersionWithUpgrade;
+        version24.stores({});
+        version24.upgrade(async (transaction: TavernDexieUpgradeTransaction) => {
+            const sessionsTable = transaction.table('sessions');
+            const messagesTable = transaction.table('messages');
+            const assistantMessagesTable = transaction.table('assistantChatMessages');
+            const summaryTable = transaction.table('assistantChatMessageSummaries');
+            const transcriptLinesBySession = new Map<string, number>();
+            await messagesTable.toCollection().each((message) => {
+                const sessionId = String(message.sessionId || '').trim();
+                if (!sessionId) {return;}
+                transcriptLinesBySession.set(
+                    sessionId,
+                    (transcriptLinesBySession.get(sessionId) || 0)
+                        + countTavernTranscriptMessageLines(message),
+                );
+            });
+            await sessionsTable.toCollection().modify((session) => {
+                session.transcriptLineCount = transcriptLinesBySession.get(String(session.id || '')) || 0;
+            });
+            await summaryTable.clear();
+            const assistantSummaryBatchSize = 16;
+            let afterKey: [string, number] | null = null;
+            while (true) {
+                const page = await (afterKey
+                    ? assistantMessagesTable.where(':id').above(afterKey)
+                    : assistantMessagesTable.toCollection())
+                    .limit(assistantSummaryBatchSize)
+                    .toArray() as unknown as TavernAssistantChatMessageRecord[];
+                if (!page.length) {break;}
+                await summaryTable.bulkPut(page
+                    .map(buildTavernAssistantChatMessageSummary) as unknown as Record<string, unknown>[]);
+                const last = page.at(-1);
+                if (!last) {break;}
+                afterKey = [String(last.sessionId || ''), Number(last.order)];
+            }
+        });
     }
 }
 
@@ -913,6 +982,7 @@ const db = new TavernDatabase();
 export const tavernSessionsTable = db.sessions;
 export const tavernMessagesTable = db.messages;
 export const tavernAssistantChatMessagesTable = db.assistantChatMessages;
+export const tavernAssistantChatMessageSummariesTable = db.assistantChatMessageSummaries;
 export const tavernMetaTable = db.meta;
 export const tavernPresetsTable = db.presets;
 export const tavernManagerRunsTable = db.managerRuns;
@@ -958,6 +1028,24 @@ const DexieRangeKeys = Dexie as unknown as { minKey: unknown; maxKey: unknown };
 
 function now(): number {
     return Date.now();
+}
+
+/**
+ * chat/transcript.md renders a heading, normalized body lines, and one blank
+ * separator for every roleplay message. Keep this alongside message writes so
+ * the session aggregate remains the exact Read-tool line count.
+ */
+export function countTavernTranscriptMessageLines(message: { content?: unknown }): number {
+    const body = String(message.content || '').replace(/\r\n?/g, '\n').trim();
+    return 2 + body.split('\n').length;
+}
+
+function normalizedTavernTranscriptLineCount(value: unknown): number {
+    return Math.max(0, Math.floor(Number(value) || 0));
+}
+
+function nextTavernTranscriptLineCount(session: Pick<TavernSessionRecord, 'transcriptLineCount'>, delta: number): number {
+    return Math.max(0, normalizedTavernTranscriptLineCount(session.transcriptLineCount) + delta);
 }
 
 function createId(prefix = 'tavern-session'): string {
@@ -1224,6 +1312,7 @@ export async function createTavernSession(input: Partial<TavernSessionRecord> = 
         summary: String(input.summary || ''),
         storyTimelineRevision: Math.max(1, Math.floor(Number(input.storyTimelineRevision) || 1)),
         taskBoardEpoch: Math.max(1, Math.floor(Number(input.taskBoardEpoch) || 1)),
+        transcriptLineCount: normalizedTavernTranscriptLineCount(input.transcriptLineCount),
         state: cloneSerializable(normalizeTavernSessionState(input.state || {}), {}),
     };
     await db.transaction('rw', tavernSessionsTable, tavernMetaTable, tavernStateDocumentsTable, async () => {
@@ -1285,6 +1374,7 @@ export async function branchTavernSession(sessionId = ''): Promise<TavernSession
         tavernSessionsTable,
         tavernMessagesTable,
         tavernAssistantChatMessagesTable,
+        tavernAssistantChatMessageSummariesTable,
         tavernManagerRunsTable,
         tavernManagerCandidatesTable,
         tavernManagerMemorySnapshotsTable,
@@ -1361,6 +1451,7 @@ export async function branchTavernSession(sessionId = ''): Promise<TavernSession
                 createdAt: timestamp,
                 updatedAt: timestamp,
                 storyTimelineRevision: 1,
+                transcriptLineCount: normalizedTavernTranscriptLineCount(sourceSession.transcriptLineCount),
                 contextSnapshot: cloneSerializable(sourceSession.contextSnapshot, undefined),
                 buildSnapshot: cloneSerializable(sourceSession.buildSnapshot, undefined),
                 state: cloneSerializable(normalizeTavernSessionState(sourceSession.state || {}), {}),
@@ -1375,6 +1466,10 @@ export async function branchTavernSession(sessionId = ''): Promise<TavernSession
                     sessionId: nextSessionId,
                 }))) : 0,
                 assistantChatMessages.length ? tavernAssistantChatMessagesTable.bulkPut(assistantChatMessages.map((message) => ({
+                    ...cloneSerializable(message, message),
+                    sessionId: nextSessionId,
+                }))) : 0,
+                assistantChatMessages.length ? tavernAssistantChatMessageSummariesTable.bulkPut(assistantChatMessages.map((message) => buildTavernAssistantChatMessageSummary({
                     ...cloneSerializable(message, message),
                     sessionId: nextSessionId,
                 }))) : 0,
@@ -1499,6 +1594,7 @@ export async function deleteTavernSession(sessionId = ''): Promise<number> {
         tavernSessionsTable,
         tavernMessagesTable,
         tavernAssistantChatMessagesTable,
+        tavernAssistantChatMessageSummariesTable,
         tavernManagerRunsTable,
         tavernManagerCandidatesTable,
         tavernManagerMemorySnapshotsTable,
@@ -1519,9 +1615,11 @@ export async function deleteTavernSession(sessionId = ''): Promise<number> {
         tavernTaskVersionsTable,
         tavernMetaTable,
         async () => {
-            const [messages, assistantChatMessages, runs, snapshots, stateSnapshots, files, memorySnapshots, indexes, stateDocuments, statePatches, statusSnapshots, communicationContacts, communicationThreads, communicationMessages, communicationSnapshots, economyAccounts, economyTransactions, taskBoard, taskVersions] = await Promise.all([
+            const [messages, assistantChatMessages, assistantChatSummaryKeys, runs, snapshots, stateSnapshots, files, memorySnapshots, indexes, stateDocuments, statePatches, statusSnapshots, communicationContacts, communicationThreads, communicationMessages, communicationSnapshots, economyAccounts, economyTransactions, taskBoard, taskVersions] = await Promise.all([
                 tavernMessagesTable.where('sessionId').equals(id).toArray(),
                 tavernAssistantChatMessagesTable.where('sessionId').equals(id).toArray(),
+                (tavernAssistantChatMessageSummariesTable as unknown as DexieRangeTable<TavernAssistantChatMessageSummaryRecord>)
+                    .where('sessionId').equals(id).primaryKeys(),
                 tavernManagerRunsTable.where('sessionId').equals(id).toArray(),
                 tavernManagerMemorySnapshotsTable.where('sessionId').equals(id).toArray(),
                 tavernManagerStateSnapshotsTable.where('sessionId').equals(id).toArray(),
@@ -1544,6 +1642,7 @@ export async function deleteTavernSession(sessionId = ''): Promise<number> {
             await Promise.all([
                 messages.length ? tavernMessagesTable.bulkDelete(messages.map((message) => [message.sessionId, message.order])) : 0,
                 assistantChatMessages.length ? tavernAssistantChatMessagesTable.bulkDelete(assistantChatMessages.map((message) => [message.sessionId, message.order])) : 0,
+                assistantChatSummaryKeys.length ? tavernAssistantChatMessageSummariesTable.bulkDelete(assistantChatSummaryKeys) : 0,
                 runs.length ? tavernManagerRunsTable.bulkDelete(runs.map((run) => run.id)) : 0,
                 managerCandidate ? tavernManagerCandidatesTable.delete(id) : 0,
                 snapshots.length ? tavernManagerMemorySnapshotsTable.bulkDelete(snapshots.map((snapshot) => [snapshot.managerRunId, snapshot.path])) : 0,
@@ -1731,6 +1830,7 @@ export async function appendTavernMessage(sessionId: string, message: TavernAppe
         await tavernMessagesTable.put(record);
         await tavernSessionsTable.update(id, {
             storyTimelineRevision: nextTavernStoryTimelineRevision(session),
+            transcriptLineCount: nextTavernTranscriptLineCount(session, countTavernTranscriptMessageLines(record)),
             updatedAt: timestamp,
         });
     });
@@ -2059,6 +2159,7 @@ export async function commitTavernAssistantResponseForLatestUser(
                 {
                     ...buildTavernAssistantSessionUpdate(existingSession, state, options.sessionSnapshot, timestamp),
                     storyTimelineRevision: nextTavernStoryTimelineRevision(existingSession),
+                    transcriptLineCount: nextTavernTranscriptLineCount(existingSession, countTavernTranscriptMessageLines(assistantMessage)),
                 },
             );
             const session = await tavernSessionsTable.get(id);
@@ -2151,6 +2252,10 @@ export async function commitTavernLatestAssistantReroll(
                 {
                     ...buildTavernAssistantSessionUpdate(existingSession, state, options.sessionSnapshot, timestamp),
                     storyTimelineRevision: nextTavernStoryTimelineRevision(existingSession),
+                    transcriptLineCount: nextTavernTranscriptLineCount(
+                        existingSession,
+                        countTavernTranscriptMessageLines(assistantMessage) - countTavernTranscriptMessageLines(currentAssistant),
+                    ),
                 },
             );
             const session = await tavernSessionsTable.get(id);
@@ -2275,6 +2380,7 @@ export async function appendTavernUserMessageAndConfirmManagerCandidate(
             }
             await tavernSessionsTable.update(id, {
                 storyTimelineRevision: nextTavernStoryTimelineRevision(session),
+                transcriptLineCount: nextTavernTranscriptLineCount(session, countTavernTranscriptMessageLines(userMessage)),
                 updatedAt: timestamp,
             });
         },
@@ -2473,6 +2579,12 @@ export async function updateTavernMessage(
         await tavernMessagesTable.update([id, messageOrder], update);
         await tavernSessionsTable.update(id, {
             storyTimelineRevision: nextTavernStoryTimelineRevision(session),
+            ...(Object.hasOwn(update, 'content') ? {
+                transcriptLineCount: nextTavernTranscriptLineCount(
+                    session,
+                    countTavernTranscriptMessageLines(update) - countTavernTranscriptMessageLines(existing),
+                ),
+            } : {}),
             updatedAt: now(),
         });
         const updated = await tavernMessagesTable.get([id, messageOrder]);
@@ -2497,6 +2609,12 @@ export async function deleteTavernMessages(sessionId = '', orders: number[] = []
         await tavernMessagesTable.bulkDelete(existingKeys);
         await tavernSessionsTable.update(id, {
             storyTimelineRevision: nextTavernStoryTimelineRevision(session),
+            transcriptLineCount: nextTavernTranscriptLineCount(
+                session,
+                -existing
+                    .filter((message): message is TavernMessageRecord => !!message)
+                    .reduce((total, message) => total + countTavernTranscriptMessageLines(message), 0),
+            ),
             updatedAt: now(),
         });
         return existingKeys.length;
@@ -2514,13 +2632,11 @@ export async function truncateTavernMessagesAndReplaceSessionState(
     return await db.transaction('rw', tavernMessagesTable, tavernSessionsTable, async () => {
         const existingSession = await tavernSessionsTable.get(id);
         if (!existingSession) {return { deleted: 0, session: null };}
-        const keys = await (tavernMessagesTable as unknown as DexieRangeTable<TavernMessageRecord>)
+        const deletedMessages = await (tavernMessagesTable as unknown as DexieRangeTable<TavernMessageRecord>)
             .where('[sessionId+order]')
             .between([id, firstDeletedOrder], [id, DexieRangeKeys.maxKey], true, true)
-            .primaryKeys();
-        const messageKeys = keys
-            .filter((key): key is [string, number] => Array.isArray(key) && key[0] === id && Number.isInteger(Number(key[1])))
-            .map((key) => [id, Number(key[1])] as [string, number]);
+            .toArray();
+        const messageKeys = deletedMessages.map((message) => [id, message.order] as [string, number]);
         const state = buildReplacementTavernSessionState(existingSession, stateInput);
         if (messageKeys.length) {
             await tavernMessagesTable.bulkDelete(messageKeys);
@@ -2531,6 +2647,12 @@ export async function truncateTavernMessagesAndReplaceSessionState(
             ...(messageKeys.length
                 ? { storyTimelineRevision: nextTavernStoryTimelineRevision(existingSession) }
                 : {}),
+            ...(messageKeys.length ? {
+                transcriptLineCount: nextTavernTranscriptLineCount(
+                    existingSession,
+                    -deletedMessages.reduce((total, message) => total + countTavernTranscriptMessageLines(message), 0),
+                ),
+            } : {}),
             updatedAt: timestamp,
             buildSnapshot: cloneSerializable(state.lastBuildSnapshot || existingSession.buildSnapshot, undefined),
         });
@@ -2669,6 +2791,86 @@ export async function listTavernMessagesInRange(
         .limit(safeLimit)
         .toArray())
         .map(normalizeStoredTavernMessageRecord);
+}
+
+/**
+ * Returns the next chronological page after a known message order. Unlike an
+ * offset query, this keeps IndexedDB work proportional to the page itself.
+ */
+export async function listTavernMessagesAfterOrder(
+    sessionId = '',
+    afterOrder = -1,
+    limit = 1000,
+): Promise<TavernMessageRecord[]> {
+    const id = String(sessionId || '').trim();
+    if (!id) {return [];}
+    const after = Math.floor(Number(afterOrder));
+    const start = Number.isFinite(after) ? Math.max(0, after + 1) : 0;
+    const safeLimit = Math.max(1, Math.min(1000, Math.floor(Number(limit) || 1000)));
+    return (await (tavernMessagesTable as unknown as DexieRangeTable<TavernMessageRecord>)
+        .where('[sessionId+order]')
+        .between([id, start], [id, DexieRangeKeys.maxKey], true, true)
+        .limit(safeLimit)
+        .toArray())
+        .map(normalizeStoredTavernMessageRecord);
+}
+
+/** Returns one chronological page immediately before an order boundary. */
+export async function listTavernMessagesBeforeOrder(
+    sessionId = '',
+    beforeOrder = Number.POSITIVE_INFINITY,
+    limit = 1000,
+): Promise<TavernMessageRecord[]> {
+    const id = String(sessionId || '').trim();
+    if (!id) {return [];}
+    const finiteBefore = Number.isFinite(Number(beforeOrder));
+    const boundary = Math.floor(Number(beforeOrder) || 0);
+    if (finiteBefore && boundary <= 0) {return [];}
+    const upperOrder = finiteBefore ? boundary : DexieRangeKeys.maxKey;
+    const includeUpper = !finiteBefore;
+    const safeLimit = Math.max(1, Math.min(1000, Math.floor(Number(limit) || 1000)));
+    const rows = await (tavernMessagesTable as unknown as DexieRangeTable<TavernMessageRecord>)
+        .where('[sessionId+order]')
+        .between([id, DexieRangeKeys.minKey], [id, upperOrder], true, includeUpper)
+        .reverse()
+        .limit(safeLimit)
+        .toArray();
+    return rows.reverse().map(normalizeStoredTavernMessageRecord);
+}
+
+export async function getTavernTranscriptStats(sessionId = ''): Promise<{ totalLines: number; totalMessages: number }> {
+    const id = String(sessionId || '').trim();
+    if (!id) {return { totalLines: 0, totalMessages: 0 };}
+    return await db.transaction('r', tavernSessionsTable, tavernMessagesTable, async () => {
+        const [session, totalMessages] = await Promise.all([
+            tavernSessionsTable.get(id),
+            tavernMessagesTable.where('sessionId').equals(id).count(),
+        ]);
+        return {
+            totalLines: normalizedTavernTranscriptLineCount(session?.transcriptLineCount),
+            totalMessages,
+        };
+    });
+}
+
+/** Repairs the derived transcript aggregate at import and upgrade boundaries. */
+export async function rebuildTavernTranscriptLineCounts(sessionIds: Iterable<string> = []): Promise<void> {
+    const ids = [...new Set(Array.from(sessionIds, (value) => String(value || '').trim()).filter(Boolean))];
+    if (!ids.length) {return;}
+    await db.transaction('rw', tavernSessionsTable, tavernMessagesTable, async () => {
+        for (const id of ids) {
+            let transcriptLineCount = 0;
+            await (tavernMessagesTable as unknown as DexieRangeTable<TavernMessageRecord>)
+                .where('sessionId')
+                .equals(id)
+                .each((message) => {
+                    transcriptLineCount += countTavernTranscriptMessageLines(message);
+                });
+            await tavernSessionsTable.update(id, {
+                transcriptLineCount,
+            });
+        }
+    });
 }
 
 export async function listTavernMessagesInRangeWithCount(
@@ -2862,6 +3064,59 @@ function buildTavernAssistantChatMessageRecord(
     };
 }
 
+function compactAssistantChatToolText(value: unknown, limit = 600): string {
+    const text = String(value || '');
+    return text.length > limit ? `${text.slice(0, Math.max(1, limit - 1))}…` : text;
+}
+
+/**
+ * The single "effective tool call" verdict shared by the summary index and
+ * the chat projection. A failed or cancelled assistant message keeps its full
+ * content and renders as a plain message even when it carries toolCalls.
+ */
+export function tavernAssistantChatMessageHasEffectiveToolCalls(
+    message: { role?: unknown; error?: unknown; finishReason?: unknown; toolCalls?: unknown } | null | undefined,
+): boolean {
+    if (!message || message.role !== 'assistant') {return false;}
+    if (message.error === true) {return false;}
+    if (['aborted', 'error'].includes(String(message.finishReason || '').trim())) {return false;}
+    return Array.isArray(message.toolCalls) && message.toolCalls.length > 0;
+}
+
+export function buildTavernAssistantChatMessageSummary(
+    message: TavernAssistantChatMessageRecord,
+): TavernAssistantChatMessageSummaryRecord {
+    const hasToolCalls = tavernAssistantChatMessageHasEffectiveToolCalls(message);
+    return {
+        sessionId: message.sessionId,
+        order: message.order,
+        role: message.role,
+        content: message.role === 'tool'
+            ? ''
+            : hasToolCalls
+                ? compactAssistantChatToolText(message.content)
+                : String(message.content || ''),
+        name: message.name,
+        error: message.error === true,
+        createdAt: message.createdAt,
+        updatedAt: message.updatedAt,
+        finishReason: message.finishReason,
+        thoughtCount: Array.isArray(message.thoughts) ? message.thoughts.length : 0,
+        toolCalls: hasToolCalls
+            ? message.toolCalls?.map((toolCall) => ({
+                id: String(toolCall?.id || ''),
+                name: String(toolCall?.name || ''),
+                ...(Object.prototype.hasOwnProperty.call(toolCall || {}, 'providerId')
+                    ? { providerId: String(toolCall?.providerId || '') }
+                    : {}),
+            }))
+            : undefined,
+        toolCallId: message.toolCallId,
+        toolName: message.toolName,
+        toolDisplay: cloneSerializable(message.toolDisplay, undefined),
+    };
+}
+
 export async function replaceTavernAssistantChatMessages(
     sessionId: string,
     deleteOrders: number[] = [],
@@ -2876,10 +3131,11 @@ export async function replaceTavernAssistantChatMessages(
     if (!uniqueDeleteOrders.length && !inputs.length) {return [];}
     const timestamp = now();
     let records: TavernAssistantChatMessageRecord[] = [];
-    await db.transaction('rw', tavernAssistantChatMessagesTable, tavernSessionsTable, async () => {
+    await db.transaction('rw', tavernAssistantChatMessagesTable, tavernAssistantChatMessageSummariesTable, tavernSessionsTable, async () => {
         if (!await tavernSessionsTable.get(id)) {throw new Error('session_missing');}
         if (uniqueDeleteOrders.length) {
             await tavernAssistantChatMessagesTable.bulkDelete(uniqueDeleteOrders.map((order) => [id, order]));
+            await tavernAssistantChatMessageSummariesTable.bulkDelete(uniqueDeleteOrders.map((order) => [id, order]));
         }
         const latest = await getLatestTavernAssistantChatMessage(id);
         const firstOrder = (latest ? Math.floor(Number(latest.order)) : -1) + 1;
@@ -2891,6 +3147,7 @@ export async function replaceTavernAssistantChatMessages(
         ));
         if (records.length) {
             await tavernAssistantChatMessagesTable.bulkPut(records);
+            await tavernAssistantChatMessageSummariesTable.bulkPut(records.map(buildTavernAssistantChatMessageSummary));
         }
         await tavernSessionsTable.update(id, { updatedAt: timestamp });
     });
@@ -2923,33 +3180,37 @@ export async function updateTavernAssistantChatMessage(
     const id = String(sessionId || '').trim();
     const messageOrder = Number(order);
     if (!id || !Number.isInteger(messageOrder) || messageOrder < 0) {return null;}
-    const existing = await tavernAssistantChatMessagesTable.get([id, messageOrder]);
-    if (!existing) {return null;}
-    const timestamp = now();
-    const update: Partial<TavernAssistantChatMessageRecord> = {
-        updatedAt: timestamp,
-    };
-    if ('content' in patch) {update.content = String(patch.content || '');}
-    if ('error' in patch) {update.error = patch.error === true;}
-    if ('provider' in patch) {update.provider = String(patch.provider || '');}
-    if ('model' in patch) {update.model = String(patch.model || '');}
-    if ('finishReason' in patch) {update.finishReason = String(patch.finishReason || '');}
-    if ('thoughts' in patch) {update.thoughts = cloneSerializable(patch.thoughts, undefined);}
-    if ('providerPayload' in patch) {update.providerPayload = cloneSerializable(patch.providerPayload, undefined);}
-    if ('toolCalls' in patch) {update.toolCalls = normalizeAssistantChatToolCalls(patch);}
-    if ('toolCallId' in patch) {update.toolCallId = String(patch.toolCallId || '').trim();}
-    if ('toolName' in patch) {update.toolName = String(patch.toolName || '').trim();}
-    if ('toolDisplay' in patch) {update.toolDisplay = cloneSerializable(patch.toolDisplay, undefined);}
-    if (patch.clearProtocolPayload === true) {
-        update.providerPayload = undefined;
-        update.toolCalls = undefined;
-        update.toolCallId = undefined;
-        update.toolName = undefined;
-        update.toolDisplay = undefined;
-    }
-    await tavernAssistantChatMessagesTable.update([id, messageOrder], update);
-    await tavernSessionsTable.update(id, { updatedAt: timestamp });
-    return await tavernAssistantChatMessagesTable.get([id, messageOrder]) || null;
+    return await db.transaction('rw', tavernAssistantChatMessagesTable, tavernAssistantChatMessageSummariesTable, tavernSessionsTable, async () => {
+        const existing = await tavernAssistantChatMessagesTable.get([id, messageOrder]);
+        if (!existing) {return null;}
+        const timestamp = now();
+        const update: Partial<TavernAssistantChatMessageRecord> = {
+            updatedAt: timestamp,
+        };
+        if ('content' in patch) {update.content = String(patch.content || '');}
+        if ('error' in patch) {update.error = patch.error === true;}
+        if ('provider' in patch) {update.provider = String(patch.provider || '');}
+        if ('model' in patch) {update.model = String(patch.model || '');}
+        if ('finishReason' in patch) {update.finishReason = String(patch.finishReason || '');}
+        if ('thoughts' in patch) {update.thoughts = cloneSerializable(patch.thoughts, undefined);}
+        if ('providerPayload' in patch) {update.providerPayload = cloneSerializable(patch.providerPayload, undefined);}
+        if ('toolCalls' in patch) {update.toolCalls = normalizeAssistantChatToolCalls(patch);}
+        if ('toolCallId' in patch) {update.toolCallId = String(patch.toolCallId || '').trim();}
+        if ('toolName' in patch) {update.toolName = String(patch.toolName || '').trim();}
+        if ('toolDisplay' in patch) {update.toolDisplay = cloneSerializable(patch.toolDisplay, undefined);}
+        if (patch.clearProtocolPayload === true) {
+            update.providerPayload = undefined;
+            update.toolCalls = undefined;
+            update.toolCallId = undefined;
+            update.toolName = undefined;
+            update.toolDisplay = undefined;
+        }
+        await tavernAssistantChatMessagesTable.update([id, messageOrder], update);
+        await tavernSessionsTable.update(id, { updatedAt: timestamp });
+        const saved = await tavernAssistantChatMessagesTable.get([id, messageOrder]) || null;
+        if (saved) {await tavernAssistantChatMessageSummariesTable.put(buildTavernAssistantChatMessageSummary(saved));}
+        return saved;
+    });
 }
 
 export async function deleteTavernAssistantChatMessages(sessionId = '', orders: number[] = []): Promise<number> {
@@ -2964,8 +3225,9 @@ export async function deleteTavernAssistantChatMessages(sessionId = '', orders: 
         if (existing) {existingKeys.push([id, order]);}
     }));
     if (!existingKeys.length) {return 0;}
-    await db.transaction('rw', tavernAssistantChatMessagesTable, tavernSessionsTable, async () => {
+    await db.transaction('rw', tavernAssistantChatMessagesTable, tavernAssistantChatMessageSummariesTable, tavernSessionsTable, async () => {
         await tavernAssistantChatMessagesTable.bulkDelete(existingKeys);
+        await tavernAssistantChatMessageSummariesTable.bulkDelete(existingKeys);
         await tavernSessionsTable.update(id, { updatedAt: now() });
     });
     return existingKeys.length;
@@ -2975,6 +3237,45 @@ export async function listTavernAssistantChatMessages(sessionId = ''): Promise<T
     const id = String(sessionId || '').trim();
     if (!id) {return [];}
     return tavernAssistantChatMessagesTable.where('sessionId').equals(id).sortBy('order');
+}
+
+export async function listTavernAssistantChatMessageSummariesBefore(
+    sessionId = '',
+    beforeOrder = Number.POSITIVE_INFINITY,
+    limit = 32,
+): Promise<TavernAssistantChatMessageSummaryRecord[]> {
+    const id = String(sessionId || '').trim();
+    if (!id) {return [];}
+    const finiteBefore = Number.isFinite(Number(beforeOrder));
+    const boundary = Math.floor(Number(beforeOrder) || 0);
+    if (finiteBefore && boundary <= 0) {return [];}
+    const upperOrder = finiteBefore ? boundary : DexieRangeKeys.maxKey;
+    const includeUpper = !finiteBefore;
+    const safeLimit = Math.max(1, Math.min(500, Math.floor(Number(limit) || 32)));
+    const rows = await (tavernAssistantChatMessageSummariesTable as unknown as DexieRangeTable<TavernAssistantChatMessageSummaryRecord>)
+        .where('[sessionId+order]')
+        .between([id, DexieRangeKeys.minKey], [id, upperOrder], true, includeUpper)
+        .reverse()
+        .limit(safeLimit)
+        .toArray();
+    return rows.reverse();
+}
+
+export async function listTavernAssistantChatMessageSummariesInRange(
+    sessionId = '',
+    startOrder = 0,
+    endOrder = Number.POSITIVE_INFINITY,
+): Promise<TavernAssistantChatMessageSummaryRecord[]> {
+    const id = String(sessionId || '').trim();
+    if (!id) {return [];}
+    const start = Math.max(0, Math.floor(Number(startOrder) || 0));
+    const finiteEnd = Number.isFinite(Number(endOrder));
+    const end = finiteEnd ? Math.max(start, Math.floor(Number(endOrder) || start)) : DexieRangeKeys.maxKey;
+    const rows = await (tavernAssistantChatMessageSummariesTable as unknown as DexieRangeTable<TavernAssistantChatMessageSummaryRecord>)
+        .where('[sessionId+order]')
+        .between([id, start], [id, end], true, true)
+        .toArray();
+    return rows;
 }
 
 export async function getTavernAssistantChatMessage(
@@ -3097,7 +3398,7 @@ export async function listTavernAssistantChatMessageOrdersInRange(
 export async function clearTavernAssistantChatMessages(sessionId = ''): Promise<number> {
     const id = String(sessionId || '').trim();
     if (!id) {return 0;}
-    return await db.transaction('rw', tavernAssistantChatMessagesTable, tavernSessionsTable, async () => {
+    return await db.transaction('rw', tavernAssistantChatMessagesTable, tavernAssistantChatMessageSummariesTable, tavernSessionsTable, async () => {
         const keys = await (tavernAssistantChatMessagesTable as unknown as DexieRangeTable<TavernAssistantChatMessageRecord>)
             .where('sessionId')
             .equals(id)
@@ -3107,6 +3408,7 @@ export async function clearTavernAssistantChatMessages(sessionId = ''): Promise<
         ));
         if (!messageKeys.length) {return 0;}
         await tavernAssistantChatMessagesTable.bulkDelete(messageKeys);
+        await tavernAssistantChatMessageSummariesTable.bulkDelete(messageKeys);
         await tavernSessionsTable.update(id, { updatedAt: now() });
         return messageKeys.length;
     });
@@ -3973,6 +4275,77 @@ export async function listTavernStructuredStatePatches(input: {
             .sort((left, right) => compareOldestFirst(right, left))
             .slice(0, limit)
             .sort(compareOldestFirst);
+    });
+}
+
+/**
+ * Reads one active structured-state history page without materializing the
+ * rest of the document's patch log in JavaScript. The full patch records
+ * remain the audit and rollback source in IndexedDB.
+ */
+export async function listTavernStructuredStatePatchPage(input: {
+    sessionId?: string;
+    docType?: TavernStructuredStateDocType | string;
+    docId?: string;
+    limit?: number;
+    offset?: number;
+    tail?: number;
+} = {}): Promise<{
+    patches: TavernStructuredStatePatchRecord[];
+    total: number;
+    truncated: boolean;
+    nextOffset: number;
+}> {
+    const sessionId = String(input.sessionId || '').trim();
+    if (!sessionId) {return { patches: [], total: 0, truncated: false, nextOffset: 0 };}
+    const docType = String(input.docType || '').trim();
+    const docId = String(input.docId || '').trim();
+    const requestedLimit = Math.floor(Number(input.limit) || 20);
+    const limit = Math.max(1, requestedLimit);
+    const offset = Math.max(0, Math.floor(Number(input.offset) || 0));
+    const requestedTail = Math.max(0, Math.floor(Number(input.tail) || 0));
+    const prefix = [sessionId];
+    let index = '[sessionId+status+revision]';
+    if (docType && docId) {
+        index = '[sessionId+docType+docId+status+revision]';
+        prefix.push(docType, docId);
+    } else if (docType) {
+        index = '[sessionId+docType+status+revision]';
+        prefix.push(docType);
+    } else if (docId) {
+        index = '[sessionId+docId+status+revision]';
+        prefix.push(docId);
+    }
+    const compareOldestFirst = (
+        left: TavernStructuredStatePatchRecord,
+        right: TavernStructuredStatePatchRecord,
+    ) => Number(left.revision) - Number(right.revision)
+        || (left.id === right.id ? 0 : left.id < right.id ? -1 : 1);
+    const statePatchTable = tavernStatePatchesTable as unknown as DexieRangeTable<TavernStructuredStatePatchRecord>;
+    return await db.transaction('r', tavernStatePatchesTable, async () => {
+        const range = () => statePatchTable
+            .where(index)
+            .between(
+                [...prefix, 'active', DexieRangeKeys.minKey],
+                [...prefix, 'active', DexieRangeKeys.maxKey],
+                true,
+                true,
+            );
+        const [total, rows] = await Promise.all([
+            range().count(),
+            requestedTail > 0
+                ? range().reverse().limit(Math.min(limit, requestedTail)).toArray()
+                : range().offset(offset).limit(limit).toArray(),
+        ]);
+        const patches = rows.sort(compareOldestFirst);
+        const start = requestedTail > 0 ? Math.max(0, total - patches.length) : offset;
+        const nextOffset = start + patches.length < total ? start + patches.length : 0;
+        return {
+            patches,
+            total,
+            truncated: nextOffset > 0,
+            nextOffset,
+        };
     });
 }
 

@@ -1,4 +1,6 @@
 import { applyTextEdits } from '../../agent-core/tools/text-edit.js';
+import { grepTextSources } from '../../agent-core/runtime/text-grep.js';
+import { readTextFile } from '../../agent-core/runtime/text-read.js';
 import {
     assertBookDirectoryPath,
     assertBookFilePath,
@@ -29,20 +31,6 @@ function toLineNumber(value, fallback = 1) {
     return Number.isFinite(number) && number > 0 ? number : fallback;
 }
 
-function clampLimit(value, fallback = DEFAULT_READ_LIMIT, max = MAX_READ_LIMIT) {
-    const number = Math.floor(Number(value));
-    if (!Number.isFinite(number) || number <= 0) return fallback;
-    return Math.min(max, number);
-}
-
-function splitLines(text = '') {
-    return String(text ?? '').replace(/\r\n?/g, '\n').split('\n');
-}
-
-function numberLines(lines = [], startLine = 1) {
-    return lines.map((line, index) => `${startLine + index}: ${line}`).join('\n');
-}
-
 export function collectDirectoryEntries(files = [], directoryPath = 'book/') {
     const dir = normalizeBookDirectoryPath(directoryPath) || 'book/';
     const entryMap = new Map();
@@ -59,8 +47,9 @@ export function collectDirectoryEntries(files = [], directoryPath = 'book/') {
         });
     });
     files.forEach((file) => {
-        if (!file.path.startsWith(dir) || file.path === dir) return;
-        const rest = file.path.slice(dir.length);
+        const filePath = typeof file === 'string' ? file : String(file?.path || '');
+        if (!filePath.startsWith(dir) || filePath === dir) return;
+        const rest = filePath.slice(dir.length);
         if (!rest) return;
         const [first] = rest.split('/');
         if (!first) return;
@@ -116,14 +105,6 @@ function buildIncludePredicate(include = '') {
     return (path) => regexp.test(path);
 }
 
-function normalizeGrepOutputMode(value = '') {
-    const text = String(value || 'content').trim();
-    const key = text.replace(/[\s-]/g, '_').replace(/[A-Z]/g, (char) => `_${char.toLowerCase()}`).replace(/_+/g, '_').replace(/^_+|_+$/g, '');
-    if (key === 'files_with_matches' || key === 'fileswithmatches') return 'files_with_matches';
-    if (key === 'count') return 'count';
-    return 'content';
-}
-
 function resolveGrepPathScope(rawPath = '') {
     const text = String(rawPath || '').trim();
     if (!text) return { directory: '', filePath: '' };
@@ -132,20 +113,20 @@ function resolveGrepPathScope(rawPath = '') {
     return { directory: assertBookDirectoryPath(text), filePath: '' };
 }
 
-function buildSearchRegExp(pattern = '', useRegex = false) {
-    const text = String(pattern || '');
-    if (!text) throw new Error('grep_pattern_required');
-    if (useRegex !== true) {
-        return new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
-    }
-    return new RegExp(text, 'i');
-}
-
 export function createBookFileToolHandlers(options = {}) {
     const currentBookId = typeof options.currentBookId === 'function' ? options.currentBookId : async () => options.bookId;
     const getFiles = typeof options.getFiles === 'function' ? options.getFiles : async () => [];
+    const listPaths = typeof options.listPaths === 'function'
+        ? options.listPaths
+        : async () => (await getFiles()).map((file) => String(file?.path || '')).filter(Boolean);
+    const iterateFiles = typeof options.iterateFiles === 'function'
+        ? options.iterateFiles
+        : async function* () {
+            for (const file of await getFiles()) yield file;
+        };
     const onFilesChanged = typeof options.onFilesChanged === 'function' ? options.onFilesChanged : null;
     const readOnly = !!options.readOnly;
+    const signal = options.signal;
 
     function assertWritable() {
         if (readOnly) throw new Error('book_tool_read_only');
@@ -168,8 +149,7 @@ export function createBookFileToolHandlers(options = {}) {
 
     async function executeLs(args = {}) {
         const directory = assertBookDirectoryPath(args.path || 'book/');
-        const files = await getFiles();
-        const entries = collectDirectoryEntries(files, directory);
+        const entries = collectDirectoryEntries(await listPaths(), directory);
         const offset = toLineNumber(args.offset, 1);
         const limit = Math.min(300, Math.max(1, Math.floor(Number(args.limit) || 100)));
         const page = entries.slice(offset - 1, offset - 1 + limit);
@@ -188,8 +168,7 @@ export function createBookFileToolHandlers(options = {}) {
         const pattern = normalizeText(args.pattern || 'book/**', 1000);
         const pathScope = args.path ? assertBookDirectoryPath(args.path) : '';
         const regexp = globToRegExp(pattern);
-        const files = await getFiles();
-        let paths = files.map((file) => file.path).filter((path) => regexp.test(path));
+        let paths = (await listPaths()).filter((path) => regexp.test(path));
         if (pathScope) paths = paths.filter((path) => path.startsWith(pathScope));
         paths.sort((left, right) => left.localeCompare(right, 'zh-CN'));
         return {
@@ -205,54 +184,39 @@ export function createBookFileToolHandlers(options = {}) {
 
     async function executeGrep(args = {}) {
         const pattern = args.pattern ?? args.query ?? '';
-        const regexp = buildSearchRegExp(pattern, args.useRegex === true);
         const scope = resolveGrepPathScope(args.path || args.scope || '');
         const include = buildIncludePredicate(args.include || '');
-        const outputMode = normalizeGrepOutputMode(args.outputMode);
-        const limit = Math.min(MAX_GREP_RESULTS, Math.max(1, Math.floor(Number(args.limit) || MAX_GREP_RESULTS)));
-        const offset = Math.max(0, Math.floor(Number(args.offset) || 0));
-        const contextLines = Math.min(5, Math.max(0, Math.floor(Number(args.contextLines) || 0)));
-        const files = (await getFiles()).filter((file) => {
-            if (scope.filePath) return file.path === scope.filePath;
-            return (!scope.directory || file.path.startsWith(scope.directory)) && include(file.path);
-        });
-        const rows = [];
-        files.forEach((file) => {
-            const lines = splitLines(file.content);
-            let matchCount = 0;
-            lines.forEach((line, index) => {
-                regexp.lastIndex = 0;
-                if (!regexp.test(line)) return;
-                matchCount += 1;
-                if (outputMode === 'content') {
-                    const start = Math.max(0, index - contextLines);
-                    const end = Math.min(lines.length, index + contextLines + 1);
-                    rows.push({
-                        path: file.path,
-                        lineNumber: index + 1,
-                        line,
-                        context: numberLines(lines.slice(start, end), start + 1),
-                    });
-                }
-            });
-            if (outputMode === 'files_with_matches' && matchCount > 0) {
-                rows.push({ path: file.path });
-            } else if (outputMode === 'count' && matchCount > 0) {
-                rows.push({ path: file.path, count: matchCount });
+        async function* sources() {
+            for await (const file of iterateFiles()) {
+                if (scope.filePath && file.path !== scope.filePath) continue;
+                if (!scope.filePath && (scope.directory && !file.path.startsWith(scope.directory))) continue;
+                if (!include(file.path)) continue;
+                yield file;
             }
+        }
+        const result = await grepTextSources({
+            pattern,
+            useRegex: args.useRegex === true,
+            // Ebook's established grep dialect is plain case-insensitive.
+            regexFlags: 'i',
+            outputMode: args.outputMode,
+            limit: Math.min(MAX_GREP_RESULTS, Math.max(1, Math.floor(Number(args.limit) || MAX_GREP_RESULTS))),
+            offset: args.offset,
+            contextLines: Math.min(5, Math.max(0, Math.floor(Number(args.contextLines) || 0))),
+            signal,
+            sources: sources(),
         });
-        const page = rows.slice(offset, offset + limit);
         return {
             ok: true,
-            pattern: String(pattern || ''),
+            pattern: result.pattern,
             path: scope.filePath || scope.directory,
-            outputMode,
-            searchedFileCount: files.length,
-            count: rows.length,
-            results: page,
-            truncated: offset + limit < rows.length,
-            nextOffset: offset + limit < rows.length ? offset + limit : 0,
-            summary: `搜索到 ${rows.length} 项，返回 ${page.length} 项。`,
+            outputMode: result.outputMode,
+            searchedFileCount: result.searchedFileCount,
+            count: result.count,
+            results: result.results,
+            truncated: result.truncated,
+            nextOffset: result.nextOffset,
+            summary: `搜索到 ${result.count} 项，返回 ${result.results.length} 项。`,
         };
     }
 
@@ -267,27 +231,18 @@ export function createBookFileToolHandlers(options = {}) {
         const filePath = assertBookFilePath(path);
         const file = await getBookFile(await currentBookId(), filePath);
         if (!file) throw new Error('book_file_not_found');
-        const lines = splitLines(file.content);
-        const tail = Math.floor(Number(args.tail) || 0);
-        let startLine = toLineNumber(args.offset, 1);
-        let limit = clampLimit(args.limit);
-        if (tail > 0) {
-            limit = Math.min(MAX_READ_LIMIT, tail);
-            startLine = Math.max(1, lines.length - limit + 1);
-        }
-        const startIndex = Math.max(0, startLine - 1);
-        const selected = lines.slice(startIndex, startIndex + limit);
-        const nextOffset = startIndex + limit < lines.length ? startIndex + limit + 1 : 0;
+        const result = readTextFile(file.content, {
+            offset: args.offset,
+            limit: args.limit,
+            tail: args.tail,
+            defaultLimit: DEFAULT_READ_LIMIT,
+            maxLimit: MAX_READ_LIMIT,
+        });
         return {
             ok: true,
             path: filePath,
-            lineStart: startIndex + 1,
-            lineEnd: startIndex + selected.length,
-            totalLines: lines.length,
-            content: numberLines(selected, startIndex + 1),
-            truncated: nextOffset > 0,
-            nextOffset,
-            summary: `读取 ${filePath} 第 ${startIndex + 1}-${startIndex + selected.length} 行，共 ${lines.length} 行。`,
+            ...result,
+            summary: `读取 ${filePath} 第 ${result.lineStart}-${result.lineEnd} 行，共 ${result.totalLines} 行。`,
         };
     }
 

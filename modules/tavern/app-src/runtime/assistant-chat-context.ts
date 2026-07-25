@@ -4,7 +4,7 @@ import type { TavernAssistantPreset } from '../../shared/assistant-presets';
 import {
     ensureTavernMemoryDefaultsInitialized,
     getTavernManagerToolDefinitions,
-    listTavernMemoryFiles,
+    getTavernMemoryFile,
 } from '../../shared/memory-files';
 import {
     listTavernAssistantChatMessages,
@@ -107,11 +107,14 @@ export async function buildAssistantChatMessages(input: {
     history?: TavernAssistantChatMessageRecord[];
 }): Promise<XbTavernMessage[]> {
     await ensureTavernMemoryDefaultsInitialized(input.sessionId);
-    const [memoryFiles, history, tasks] = await Promise.all([
-        listTavernMemoryFiles(input.sessionId, { includeStale: true }),
+    const [stateFile, history, tasks] = await Promise.all([
+        // The resident block only ever renders memory/state.md; keep the rest
+        // of the memory library cold in IndexedDB.
+        getTavernMemoryFile(input.sessionId, 'memory/state.md'),
         Array.isArray(input.history) ? input.history : listTavernAssistantChatMessages(input.sessionId),
         loadTavernTaskPromptState(input.sessionId),
     ]);
+    const memoryFiles = stateFile ? [stateFile] : [];
     const taskContextMessage = buildTavernAssistantTaskContextMessage(tasks);
     const messages: XbTavernMessage[] = [{
         role: 'system',

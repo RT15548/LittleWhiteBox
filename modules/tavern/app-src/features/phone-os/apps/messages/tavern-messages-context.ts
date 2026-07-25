@@ -23,7 +23,7 @@ import {
     resolveTavernSessionContractRuntime,
     type TavernSessionContractRuntime,
 } from '../../../../../shared/session-contract';
-import { getTavernStatusStateForSession } from '../../../../../shared/status-state';
+import { getTavernStatusDocumentForSession } from '../../../../../shared/status-state';
 import { buildTavernStatusPanelYaml } from '../../../../../shared/status-prompt';
 import {
     resolveTavernWorldbookAtStoryBoundary,
@@ -154,7 +154,7 @@ export async function buildTavernMessagesRequestMessages(input: {
         })
         : undefined;
     const statusState = runtime.includeStatusStates
-        ? await getTavernStatusStateForSession(input.sessionId)
+        ? await getTavernStatusDocumentForSession(input.sessionId)
         : null;
     const memoryContext = filterMemoryContext({
         ...(retrievedMemory || {}),

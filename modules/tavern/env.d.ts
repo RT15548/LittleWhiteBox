@@ -210,6 +210,43 @@ declare module '*.js' {
         warning?: string;
         results?: unknown;
     };
+    export function grepTextSources(options?: {
+        pattern?: unknown;
+        query?: unknown;
+        useRegex?: boolean;
+        regex?: boolean;
+        regexFlags?: string;
+        outputMode?: unknown;
+        limit?: unknown;
+        offset?: unknown;
+        contextLines?: unknown;
+        signal?: AbortSignal;
+        abortMessage?: string;
+        timeSliceMs?: number;
+        sources?: Iterable<{ path: string; content: string }> | AsyncIterable<{ path: string; content: string }>;
+    }): Promise<{
+        pattern: string;
+        outputMode: string;
+        searchedFileCount: number;
+        count: number;
+        results: Array<{ path: string; lineNumber?: number; line?: string; context?: string; count?: number }>;
+        truncated: boolean;
+        nextOffset: number;
+    }>;
+    export function readTextFile(content?: unknown, options?: {
+        offset?: unknown;
+        limit?: unknown;
+        tail?: unknown;
+        defaultLimit?: unknown;
+        maxLimit?: unknown;
+    }): {
+        content: string;
+        lineStart: number;
+        lineEnd: number;
+        totalLines: number;
+        truncated: boolean;
+        nextOffset: number;
+    };
     export function buildProviderAssistantToolCallMessage(
         result?: Record<string, unknown>,
         toolCalls?: unknown[],

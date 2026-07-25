@@ -3,7 +3,7 @@ import {
     getCharacterNameFromMemoryPath,
     getTavernMemoryFile,
     isCharacterMemoryPath,
-    listTavernMemoryFiles,
+    listTavernMemoryFileEntries,
 } from '../../../../../shared/memory-files';
 import type {
     ActivatedWorldEntry,
@@ -18,7 +18,7 @@ import {
     resolveTavernSessionContractRuntime,
 } from '../../../../../shared/session-contract';
 import { buildTavernStatusPanelYaml } from '../../../../../shared/status-prompt';
-import { getTavernStatusStateForSession } from '../../../../../shared/status-state';
+import { getTavernStatusDocumentForSession } from '../../../../../shared/status-state';
 import { buildTavernSpatialStateDigest } from '../../../../../shared/structured-state';
 import { listCurrentTavernTasks } from '../../../../../shared/tasks/task-service';
 import { resolveTavernWorldbookAtStoryBoundary } from '../../../../runtime/anchored-worldbook';
@@ -50,13 +50,13 @@ export async function buildTavernTaskPromptLayers(input: {
             ? getTavernMemoryFile(input.sessionId, 'memory/state.md')
             : Promise.resolve(null),
         runtime.includeStatusStates
-            ? getTavernStatusStateForSession(input.sessionId)
+            ? getTavernStatusDocumentForSession(input.sessionId)
             : Promise.resolve(null),
         runtime.includeStructuredStates
             ? buildTavernSpatialStateDigest(input.sessionId)
             : Promise.resolve(''),
         runtime.includeMemoryFiles
-            ? listTavernMemoryFiles(input.sessionId)
+            ? listTavernMemoryFileEntries(input.sessionId)
             : Promise.resolve([]),
         listTavernCommunicationContacts(input.sessionId),
         listCurrentTavernTasks(input.sessionId, { statuses: ['active', 'recruiting'] }),
@@ -80,6 +80,8 @@ export async function buildTavernTaskPromptLayers(input: {
             task.assignee?.kind === 'world' ? task.assignee.name : '',
         ]),
         ...memoryFiles
+            // Index entries include stale records; the old content read did not.
+            .filter((file) => file.status !== 'stale')
             .filter((file) => isCharacterMemoryPath(file.path))
             .map((file) => getCharacterNameFromMemoryPath(file.path)),
     ].map((value) => String(value || '').trim()).filter(Boolean);

@@ -2,6 +2,7 @@
 import { computed, nextTick, shallowRef, watch } from 'vue';
 import TavernAssistantContextButton from './TavernAssistantContextButton.vue';
 import TavernAssistantToolRun from './TavernAssistantToolRun.vue';
+import TavernMessageMarkdown from './TavernMessageMarkdown.vue';
 import { loadTavernAssistantToolTurnDetail } from '../../features/assistant-chat/assistant-chat-projection';
 import TavernScrollControls from '../TavernScrollControls.vue';
 import { useTavernChatContext, useTavernManagerContext, useTavernSessionContext, useTavernShellContext } from '../tavern-app-context';
@@ -27,7 +28,7 @@ const {
     formatMessageTime,
     htmlRenderEnabled,
     markdownSignature,
-    renderChatMarkdown,
+    renderUncachedMarkdown,
     roleLabel,
     thoughtSummaryLabel,
 } = chat;
@@ -74,6 +75,7 @@ const {
     managerCompactionOverlay,
     managerComposeTextareaRef,
     managerChatHasMore,
+    managerChatHasNewer,
     managerInputDraft,
     managerPendingUserMessage,
     managerRunDisplayStatus,
@@ -87,6 +89,7 @@ const {
     managerToolTraceItems,
     retryManagerRun,
     revealOlderManagerMessages,
+    revealNewerManagerMessages,
     rerunFromManagerMessage,
     saveEditManagerMessage,
     scrollManagerToBottom,
@@ -172,6 +175,10 @@ function managerMarkdownSignature(text = '') {
         htmlRenderEnabled.value ? 'html-render:on' : 'html-render:off',
         homeThemeDark.value ? 'theme:dark' : 'theme:light',
     ].join('\u0000'));
+}
+
+function renderManagerMarkdown(text = '') {
+    return renderUncachedMarkdown(text);
 }
 
 function managerDisclosureId(kind: string, ...parts: Array<string | number | undefined>) {
@@ -516,12 +523,14 @@ watch(session.selectedSessionId, () => {
                   </div>
                 </template>
               </details>
-              <div
+              <TavernMessageMarkdown
                 v-if="tool.preface"
                 :key="`work-tool-preface:${currentManagerWorkRun.id}:${tool.displayKey}:${managerMarkdownSignature(tool.preface)}`"
-                class="manager-tool-preface xb-tavern-markdown"
-                :data-markdown-signature="managerMarkdownSignature(tool.preface)"
-                v-html="renderChatMarkdown(tool.preface)"
+                class="manager-tool-preface"
+                :text="tool.preface"
+                :render="renderManagerMarkdown"
+                :signature="managerMarkdownSignature(tool.preface)"
+                phase="settled"
               />
               <small v-if="tool.args">{{ tool.args }}</small>
               <p v-if="tool.summary">
@@ -676,12 +685,14 @@ watch(session.selectedSessionId, () => {
                   </div>
                 </details>
               </div>
-              <div
+              <TavernMessageMarkdown
                 v-if="!isEditingManagerMessage(item)"
                 :key="`history-message:${item.key}:${managerMarkdownSignature(item.content)}`"
-                class="xb-tavern-markdown"
-                :data-markdown-signature="managerMarkdownSignature(item.content)"
-                v-html="renderChatMarkdown(item.content)"
+                class="manager-message-markdown"
+                :text="item.content"
+                :render="renderManagerMarkdown"
+                :signature="managerMarkdownSignature(item.content)"
+                phase="settled"
               />
               <div
                 v-if="!isEditingManagerMessage(item)"
@@ -733,11 +744,22 @@ watch(session.selectedSessionId, () => {
               :item="item"
               :open="assistantChatDisclosure.isOpen(managerDisclosureId('chat-tool-turn', item.key))"
               :load-detail="loadTavernAssistantToolTurnDetail"
-              :render-markdown="renderChatMarkdown"
+              :render-markdown="renderManagerMarkdown"
               :markdown-signature="managerMarkdownSignature"
               @toggle="assistantChatDisclosure.setOpen(managerDisclosureId('chat-tool-turn', item.key), $event)"
             />
           </template>
+          <div
+            v-if="managerChatHasNewer"
+            class="chat-history-gate manager-history-gate"
+            role="button"
+            tabindex="0"
+            @click="revealNewerManagerMessages()"
+            @keydown.enter.prevent="revealNewerManagerMessages()"
+            @keydown.space.prevent="revealNewerManagerMessages()"
+          >
+            返回较新记录
+          </div>
 
           <article
             v-if="managerPendingUserMessage"
@@ -748,11 +770,13 @@ watch(session.selectedSessionId, () => {
               <strong>{{ roleLabel('user') }}</strong>
               <small>发送中</small>
             </div>
-            <div
+            <TavernMessageMarkdown
               :key="`pending-user:${pendingManagerUserRenderState.signature}`"
-              class="xb-tavern-markdown"
-              :data-markdown-signature="pendingManagerUserRenderState.signature"
-              v-html="renderChatMarkdown(pendingManagerUserRenderState.text)"
+              class="manager-pending-message-markdown"
+              :text="pendingManagerUserRenderState.text"
+              :render="renderManagerMarkdown"
+              :signature="pendingManagerUserRenderState.signature"
+              phase="settled"
             />
           </article>
 

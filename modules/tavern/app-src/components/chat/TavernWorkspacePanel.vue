@@ -61,10 +61,13 @@ const {
     activeMapDocId,
     atlasActiveLocationKey,
     atlasStateDocument,
-    atlasStatePatches,
+    atlasLatestPatchSummary,
+    loadMapTimelinePatches,
     mapStateDocuments,
     mapStateDocument,
+    mapStatePatchCount,
     mapStatePatches,
+    mapStateTimelineAvailable,
     materialSymbolFontReady,
     materialSymbolFontStatus,
     sessionContract,
@@ -128,6 +131,8 @@ const selectedMapTitle = computed(() => String(
 ));
 const selectedMapIsActive = computed(() => String(selectedMapRecord.value?.docId || '') === String(activeMapDocId.value || 'main'));
 const selectedMapPatches = computed(() => selectedMapIsActive.value ? mapStatePatches.value : []);
+const selectedMapPatchCount = computed(() => selectedMapIsActive.value ? mapStatePatchCount.value : 0);
+const selectedMapTimelineAvailable = computed(() => selectedMapIsActive.value && mapStateTimelineAvailable.value);
 const currentLocationHasNoMap = computed(() => !mapPreviewPinned.value && !!atlasDocument.value.activeLocationKey && !atlasActiveMapDocId.value);
 type MapInfoLine = {
     key: string;
@@ -348,6 +353,9 @@ function selectDirectoryMemoryFile(path: string) {
           :active-doc-id="activeMapDocId"
           :document="selectedMapRecord"
           :patches="selectedMapPatches"
+          :patch-count="selectedMapPatchCount"
+          :timeline-available="selectedMapTimelineAvailable"
+          :load-timeline-patches="loadMapTimelinePatches"
           :player-display-name="displayUserName"
           :player-avatar-url="visibleUserAvatar"
           :material-symbols-ready="materialSymbolFontReady"
@@ -357,7 +365,7 @@ function selectDirectoryMemoryFile(path: string) {
           v-else-if="mapWorkspaceView === 'world'"
           display-mode="graph"
           :document="atlasStateDocument"
-          :patches="atlasStatePatches"
+          :latest-patch-summary="atlasLatestPatchSummary"
           :active-location-key="atlasActiveLocationKey"
           :active-map-doc-id="activeMapDocId"
           :preview-map-doc-id="selectedMapDocId"
@@ -381,7 +389,7 @@ function selectDirectoryMemoryFile(path: string) {
           v-if="mapWorkspaceView === 'world'"
           display-mode="detail"
           :document="atlasStateDocument"
-          :patches="atlasStatePatches"
+          :latest-patch-summary="atlasLatestPatchSummary"
           :active-location-key="atlasActiveLocationKey"
           :active-map-doc-id="activeMapDocId"
           :preview-map-doc-id="selectedMapDocId"

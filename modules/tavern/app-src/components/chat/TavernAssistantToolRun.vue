@@ -159,7 +159,8 @@ function turnStatusLabel() {
           <TavernMessageMarkdown
             v-if="round.preface"
             class="assistant-tool-run-preface xb-tavern-markdown"
-            :html="renderMarkdown(round.preface)"
+            :text="round.preface"
+            :render="renderMarkdown"
             :signature="markdownSignature(round.preface)"
             phase="settled"
           />

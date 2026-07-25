@@ -15,7 +15,7 @@ import {
 } from '../../../../../shared/communications';
 import {
     getTavernMemoryFile,
-    listTavernMemoryFiles,
+    listTavernMemoryFileEntries,
 } from '../../../../../shared/memory-files';
 import type { XbTavernContext } from '../../../../../shared/message-assembler';
 import {
@@ -210,7 +210,11 @@ export function useTavernMessagesController(options: TavernPhoneControllerOption
             return;
         }
         const contextSnapshot = options.effectiveContext.value || {};
-        const memoryFiles = await listTavernMemoryFiles(sessionId);
+        // Contact building only needs path/status metadata; memory bodies stay
+        // in IndexedDB. Index entries include stale records, so keep the old
+        // active-only contract of the previous full-content read.
+        const memoryFiles = (await listTavernMemoryFileEntries(sessionId))
+            .filter((file) => file.status !== 'stale');
         if (requestSequence !== refreshSequence || sessionId !== String(options.selectedSessionId.value || '').trim()) {return;}
         await reconcileTavernCommunicationContacts({
             sessionId,

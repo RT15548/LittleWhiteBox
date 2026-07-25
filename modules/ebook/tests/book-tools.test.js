@@ -718,6 +718,15 @@ test('Book Grep defaults to literal text search and only uses regex when request
     assert.equal(literal.ok, true);
     assert.equal(literal.count, 1);
     assert.equal(literal.results[0].lineNumber, 1);
+    assert.equal(Object.hasOwn(literal.results[0], 'context'), false);
+
+    const cancelled = new AbortController();
+    cancelled.abort();
+    const cancelledRuntime = createBookToolRuntime({ bookId: book.id, signal: cancelled.signal });
+    await assert.rejects(
+        () => cancelledRuntime.execute(EBOOK_TOOL_NAMES.GREP, { pattern: '普通章节', path: 'book/notes/' }),
+        (error) => error?.name === 'AbortError',
+    );
 
     const defaultPlainPattern = await runtime.execute(EBOOK_TOOL_NAMES.GREP, {
         pattern: 'C.*D',
@@ -732,6 +741,45 @@ test('Book Grep defaults to literal text search and only uses regex when request
     });
     assert.equal(regex.count, 1);
     assert.equal(regex.results[0].lineNumber, 3);
+
+    const legacyRegex = await runtime.execute(EBOOK_TOOL_NAMES.GREP, {
+        pattern: '\\8',
+        path: 'book/notes/',
+        useRegex: true,
+    });
+    assert.equal(legacyRegex.count, 0);
+});
+
+test('Book Grep keeps the legacy non-Unicode regex dialect', async () => {
+    await resetDb();
+    const book = await createBook('Grep 方言测试');
+    await upsertBookFile(book.id, 'book/notes/dialect.md', ['字', '📡'].join('\n'));
+    const runtime = createBookToolRuntime({ bookId: book.id });
+
+    // Under the ebook 'i' dialect an emoji is two UTF-16 code units, so `^.$`
+    // matches the single BMP character but not the emoji.
+    const regex = await runtime.execute(EBOOK_TOOL_NAMES.GREP, {
+        pattern: '^.$',
+        path: 'book/notes/',
+        useRegex: true,
+    });
+    assert.equal(regex.ok, true);
+    assert.equal(regex.count, 1);
+    assert.equal(regex.results[0].lineNumber, 1);
+});
+
+test('Book Grep preserves the public locale path order while streaming file content', async () => {
+    await resetDb();
+    const book = await createBook('Grep 路径排序测试');
+    const paths = ['book/阿.md', 'book/B.md', 'book/啊.md'];
+    for (const path of paths) await upsertBookFile(book.id, path, '命中');
+    const runtime = createBookToolRuntime({ bookId: book.id });
+
+    const result = await runtime.execute(EBOOK_TOOL_NAMES.GREP, { pattern: '命中', path: 'book/' });
+    assert.deepEqual(
+        result.results.map((row) => row.path),
+        [...paths].sort((left, right) => left.localeCompare(right, 'zh-CN')),
+    );
 });
 
 test('Book Grep works after loose JSON argument repair decodes unicode escapes', async () => {

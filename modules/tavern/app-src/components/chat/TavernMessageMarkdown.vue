@@ -4,7 +4,9 @@ import { useTavernChatContext } from '../tavern-app-context';
 import { patchTavernMarkdownRoot } from './patch-markdown-root';
 
 const props = defineProps<{
-    html: string;
+    html?: string;
+    text?: string;
+    render?: (text: string) => string;
     signature: string;
     actionCheckGroups?: string;
     phase: 'live' | 'settled';
@@ -25,7 +27,7 @@ function enhanceRenderedMarkdown() {
 function renderMarkdown() {
     const root = markdownRoot.value;
     if (!root) {return;}
-    const html = props.html || '';
+    const html = props.render ? props.render(props.text || '') : props.html || '';
     if (html !== renderedHtml || props.signature !== renderedSignature || props.phase !== renderedPhase) {
         chat.releaseMarkdownRootResources(root);
         patchTavernMarkdownRoot(root, html);
@@ -39,7 +41,7 @@ function renderMarkdown() {
 onMounted(renderMarkdown);
 
 watch(
-    () => [props.html, props.signature, props.phase] as const,
+    () => [props.html, props.text, props.render, props.signature, props.phase] as const,
     renderMarkdown,
     { flush: 'post' },
 );

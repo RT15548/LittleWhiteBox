@@ -2713,7 +2713,7 @@ test('tavern keeps the app exit button on home only', () => {
     }
 });
 
-test('tavern memory workspace keeps session-scoped lazy file loading and index-backed search text', () => {
+test('tavern memory workspace keeps session-scoped lazy file loading', () => {
     const appSource = readRepoFile('modules/tavern/app-src/App.vue');
     const editorSource = readRepoFile('modules/tavern/app-src/components/TavernMemoryEditor.vue');
     const memoryWorkspaceSource = readRepoFile('modules/tavern/app-src/components/chat/useTavernMemoryWorkspace.ts');
@@ -2731,7 +2731,6 @@ test('tavern memory workspace keeps session-scoped lazy file loading and index-b
     assert.match(editorSource, /:disabled="!hasSelectedFile \|\| !dirty \|\| readOnly"/);
     assert.match(editorSource, /:readonly="readOnly"/);
     assert.match(memoryWorkspaceSource, /function invalidateMemoryFileRecordLoad/);
-    assert.match(appSource, /file\.searchText \|\| file\.preview \|\| ''/);
 });
 
 test('tavern worldbook preview keeps summary lean and expanded content ephemeral', () => {

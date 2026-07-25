@@ -13,7 +13,8 @@ import {
     ensureTavernMemoryDefaultsInitialized,
     executeTavernSourceFileTool,
     getTavernManagerToolDefinitions,
-    listTavernMemoryFiles,
+    getTavernMemoryFile,
+    listTavernMemoryFileEntries,
     rebuildTavernMemoryDerivedIndex,
     TAVERN_SOURCE_FILE_TOOL_NAMES,
     type TavernMemoryToolResult,
@@ -56,7 +57,7 @@ import { executeTavernStateTool, getTavernAtlasStateForSession, TAVERN_STATE_TOO
 import {
     describeStatusStateRollbackImpactForMessageRange,
     executeTavernStatusTool,
-    getTavernStatusStateForSession,
+    getTavernStatusDocumentForSession,
     isTavernStatusToolName,
     TAVERN_STATUS_TOOL_NAMES,
     type TavernStatusToolResult,
@@ -238,6 +239,14 @@ function normalizeText(value: unknown = '', limit = 4000): string {
 function safeJson(value: unknown): string {
     try {
         return JSON.stringify(value, null, 2);
+    } catch {
+        return String(value || '');
+    }
+}
+
+function serializeToolResult(value: unknown): string {
+    try {
+        return JSON.stringify(value);
     } catch {
         return String(value || '');
     }
@@ -903,6 +912,7 @@ export async function runSharedManagerToolLoop(input: {
                     beforeWriteGuard: beforeToolWrite,
                     afterWriteObserver: afterToolWrite,
                     contextSnapshot: input.contextSnapshot,
+                    signal: input.signal,
                 });
                 toolResult = isStateWritingTool(toolCall.name)
                     ? await withSessionStateWriteLock(input.sessionId, executeTool, input.signal)
@@ -992,7 +1002,7 @@ export async function runSharedManagerToolLoop(input: {
             const toolMessage = buildProviderToolResultMessage({
                 toolCallId: toolCall.id,
                 toolName: toolCall.name,
-                content: safeJson(toolResult),
+                content: serializeToolResult(toolResult),
             }) as unknown as XbTavernMessage;
             toolMessage.toolCallId = String(toolCall.id || '');
             toolMessage.toolDisplay = {
@@ -1245,14 +1255,25 @@ async function buildAutoManagerMessages(input: XbTavernManagerRunInput, sourceMe
     if (contractRuntime.includeMemoryFiles) {
         await ensureTavernMemoryDefaultsInitialized(input.sessionId);
     }
-    const memoryFiles = contractRuntime.includeMemoryFiles
-        ? await listTavernMemoryFiles(input.sessionId, { includeStale: true })
-        : [];
+    const [stateFile, memoryEntries] = contractRuntime.includeMemoryFiles
+        // Only state.md's body reaches the prompt; every other file
+        // contributes metadata (path/status) via the derived index.
+        ? await Promise.all([
+            getTavernMemoryFile(input.sessionId, 'memory/state.md'),
+            listTavernMemoryFileEntries(input.sessionId),
+        ])
+        : [null, []];
+    const memoryFiles = memoryEntries.map((entry) => ({
+        path: entry.path,
+        status: entry.status,
+        updatedAt: entry.updatedAt,
+        content: entry.path === 'memory/state.md' ? String(stateFile?.content || '') : '',
+    }));
     const atlasState = contractRuntime.includeStructuredStates
         ? await getTavernAtlasStateForSession(input.sessionId)
         : null;
     const statusState = contractRuntime.includeStatusStates
-        ? await getTavernStatusStateForSession(input.sessionId)
+        ? await getTavernStatusDocumentForSession(input.sessionId)
         : null;
     const communicationEvidence = await buildTavernCommunicationEvidenceAtAnchor(
         input.sessionId,

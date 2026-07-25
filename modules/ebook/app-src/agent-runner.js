@@ -63,7 +63,7 @@ function buildToolResultMessage({ toolCallId = '', toolName = '', toolResult, to
         role: 'tool',
         toolCallId: String(toolCallId || ''),
         toolName: String(toolName || ''),
-        content: safeJsonStringify(toolResult),
+        content: safeJsonStringify(toolResult, 0),
     };
     if (toolDisplay && typeof toolDisplay === 'object') {
         message.toolDisplay = toolDisplay;
