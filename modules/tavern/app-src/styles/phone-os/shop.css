@@ -39,9 +39,7 @@
     --shop-shadow: rgba(0, 0, 0, 0.34);
 }
 
-.tavern-shop-head {min-height: 76px; display: flex; align-items: end; justify-content: space-between; gap: 14px; border-bottom: 1px solid var(--shop-line); background: color-mix(in srgb, var(--shop-paper-high) 84%, transparent); padding: 12px 15px 10px 18px;}
-.tavern-shop-head > div {display: grid; gap: 4px;}
-.tavern-shop-head small {color: var(--shop-red); font: 720 8px/1 var(--xb-font-mono); letter-spacing: 0.22em;}
+.tavern-shop-head {min-height: 68px; display: flex; align-items: end; justify-content: space-between; gap: 14px; border-bottom: 1px solid var(--shop-line); background: color-mix(in srgb, var(--shop-paper-high) 84%, transparent); padding: 14px 15px 11px 18px;}
 .tavern-shop-head h2 {margin: 0; font: 760 28px/1 var(--phone-os-font); letter-spacing: -0.035em;}
 .tavern-shop-balance {min-width: 92px; min-height: 45px; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 3px 8px; border: 1px solid color-mix(in srgb, var(--shop-gold) 42%, var(--shop-line)); border-radius: 6px 14px 14px 6px; background: linear-gradient(125deg, color-mix(in srgb, var(--shop-gold) 12%, var(--shop-paper-high)), var(--shop-paper-high)); color: var(--shop-ink); padding: 7px 9px 7px 11px; box-shadow: inset 3px 0 0 color-mix(in srgb, var(--shop-gold) 58%, transparent);}
 .tavern-shop-balance span {grid-column: 1 / -1; color: var(--shop-muted); font: 650 7px/1 var(--xb-font-mono); letter-spacing: 0.12em; text-align: right;}
@@ -69,8 +67,8 @@
 .tavern-shop-ticket::before {content: ""; position: absolute; inset: 0 auto 0 0; width: 5px; background: repeating-linear-gradient(to bottom, var(--shop-red) 0 7px, transparent 7px 11px);}
 .tavern-shop-ticket::after {content: ""; position: absolute; inset: 0 0 auto; height: 3px; background: repeating-linear-gradient(90deg, transparent 0 7px, color-mix(in srgb, var(--shop-line) 90%, transparent) 7px 8px); opacity: 0.55;}
 .tavern-phone-device .tavern-shop-ticket:hover {transform: translateY(-1px); box-shadow: 0 10px 24px var(--shop-shadow);}
-.tavern-shop-ticket > header {display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; align-items: center; gap: 9px;}
-.tavern-shop-ticket-icon {width: 36px; height: 36px; display: grid; place-items: center; border: 1px solid color-mix(in srgb, var(--shop-red) 24%, var(--shop-line)); border-radius: 50%; background: var(--shop-red-soft); color: var(--shop-red-deep); font-size: 19px;}
+.tavern-shop-ticket > header {display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; align-items: center; gap: 9px;}
+.tavern-shop-ticket-icon {width: 44px; height: 44px; display: grid; place-items: center; overflow: visible; color: var(--shop-red-deep); font-size: 32px; line-height: 1; font-variation-settings: "FILL" 1, "wght" 430, "GRAD" 0, "opsz" 40;}
 .tavern-shop-ticket header > div {min-width: 0; display: grid; gap: 3px;}
 .tavern-shop-ticket header small {color: var(--shop-muted); font: 620 7px/1 var(--xb-font-mono); letter-spacing: 0.09em;}
 .tavern-shop-ticket h3 {margin: 0; font: 730 15px/1.05 var(--phone-os-font);}
@@ -96,7 +94,7 @@
 .tavern-shop-active-contract.is-permanent {border-color: color-mix(in srgb, var(--shop-red-deep) 72%, var(--shop-line)); background: linear-gradient(135deg, color-mix(in srgb, var(--shop-red-deep) 22%, #17110f), color-mix(in srgb, var(--shop-paper-high) 88%, #17110f));}
 .tavern-shop-contract-seal {position: absolute; top: 10px; right: 10px; width: 42px; height: 42px; display: grid; place-items: center; border: 2px double var(--shop-red); border-radius: 50%; color: var(--shop-red); font: 780 10px/1 var(--phone-os-font); opacity: 0.22; transform: rotate(-11deg);}
 .tavern-shop-active-contract > header {display: flex; align-items: center; gap: 9px; padding-right: 45px;}
-.tavern-shop-active-contract > header > span {width: 34px; height: 34px; display: grid; place-items: center; flex: 0 0 auto; border-radius: 9px; background: var(--shop-red-soft); color: var(--shop-red-deep); font-size: 18px;}
+.tavern-shop-active-contract > header > span {width: 42px; height: 42px; display: grid; place-items: center; overflow: visible; flex: 0 0 auto; color: var(--shop-red-deep); font-size: 30px; line-height: 1; font-variation-settings: "FILL" 1, "wght" 430, "GRAD" 0, "opsz" 40;}
 .tavern-shop-active-contract > header > div {display: grid; gap: 3px;}
 .tavern-shop-active-contract header small {color: var(--shop-red); font: 680 7px/1 var(--xb-font-mono); letter-spacing: 0.12em;}
 .tavern-shop-active-contract h3 {margin: 0; font: 730 14px/1 var(--phone-os-font);}
@@ -106,8 +104,8 @@
 .tavern-shop-active-contract > footer span {color: var(--shop-muted); font: 560 8px/1.2 var(--phone-os-font);}
 .tavern-shop-active-contract > footer button {min-width: 60px; min-height: 32px; border: 1px solid color-mix(in srgb, var(--shop-red) 42%, var(--shop-line)); border-radius: 8px; background: transparent; color: var(--shop-red); font: 670 9px/1 var(--phone-os-font);}
 
-.tavern-shop-inventory-card {display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; align-items: center; gap: 9px; border: 1px solid var(--shop-line); border-radius: 12px; background: color-mix(in srgb, var(--shop-paper-high) 90%, transparent); padding: 10px;}
-.tavern-shop-inventory-card > span {width: 38px; height: 38px; display: grid; place-items: center; border-radius: 10px; background: var(--shop-paper-low); color: var(--shop-red-deep); font-size: 19px;}
+.tavern-shop-inventory-card {display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; align-items: center; gap: 9px; border: 1px solid var(--shop-line); border-radius: 12px; background: color-mix(in srgb, var(--shop-paper-high) 90%, transparent); padding: 10px;}
+.tavern-shop-inventory-card > span {width: 44px; height: 44px; display: grid; place-items: center; overflow: visible; color: var(--shop-red-deep); font-size: 30px; line-height: 1; font-variation-settings: "FILL" 1, "wght" 430, "GRAD" 0, "opsz" 40;}
 .tavern-shop-inventory-card > div {min-width: 0; display: grid; gap: 4px;}
 .tavern-shop-inventory-card h3 {margin: 0; font: 700 12px/1 var(--phone-os-font);}
 .tavern-shop-inventory-card p {display: -webkit-box; overflow: hidden; margin: 0; color: var(--shop-muted); font: 500 8px/1.35 var(--phone-os-font); -webkit-box-orient: vertical; -webkit-line-clamp: 2;}

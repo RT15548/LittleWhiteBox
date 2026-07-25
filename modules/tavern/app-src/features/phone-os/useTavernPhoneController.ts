@@ -59,10 +59,7 @@ export function useTavernPhoneController(options: TavernPhoneControllerInput) {
         memoryEditorMode: options.memoryEditorMode,
         characterArchiveBusy: options.characterArchiveBusy,
         wallet,
-        knownTargetNames: computed(() => [
-            String(options.effectiveContext.value?.character?.name || ''),
-            ...messages.contacts.value.map((contact) => contact.name),
-        ]),
+        knownTargetNames: computed(() => messages.contacts.value.map((contact) => contact.name)),
         showToast: options.showToast,
     });
     os = useTavernPhoneOsController({

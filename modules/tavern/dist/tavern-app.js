@@ -64163,7 +64163,7 @@ var GTe = /* @__PURE__ */ Pv(WTe, [["render", zTe]]), JTe = { id: "tavern-shop-d
       }
     }
     return mt(() => n.selectedSessionId.value, c), (_, I) => (M(), N(Ke, null, [s.value ? (M(), N("section", KEe, [
-      m("header", WEe, [I[6] || (I[6] = m("div", null, [m("small", null, "规则当铺"), m("h2", null, "商店")], -1)), m("button", {
+      m("header", WEe, [I[6] || (I[6] = m("h2", null, "商店", -1)), m("button", {
         type: "button",
         class: "tavern-shop-balance",
         title: A(t).wallet.balanceError.value || "打开钱包",
@@ -66769,7 +66769,7 @@ function _xe(e) {
     memoryEditorMode: e.memoryEditorMode,
     characterArchiveBusy: e.characterArchiveBusy,
     wallet: a,
-    knownTargetNames: J(() => [String(e.effectiveContext.value?.character?.name || ""), ...r.contacts.value.map((f) => f.name)]),
+    knownTargetNames: J(() => r.contacts.value.map((f) => f.name)),
     showToast: e.showToast
   });
   n = lCe({

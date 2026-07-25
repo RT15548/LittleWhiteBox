@@ -105,10 +105,7 @@ watch(() => session.selectedSessionId.value, closeDialog);
     class="tavern-phone-app tavern-shop-app"
   >
     <header class="tavern-shop-head">
-      <div>
-        <small>规则当铺</small>
-        <h2>商店</h2>
-      </div>
+      <h2>商店</h2>
       <button
         type="button"
         class="tavern-shop-balance"
