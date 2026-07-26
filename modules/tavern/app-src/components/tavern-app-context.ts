@@ -73,6 +73,7 @@ import type {
     TavernShopInventoryRow,
     TavernShopShelfRow,
 } from '../features/phone-os/apps/shop/tavern-shop-presentation';
+import type { useTavernBankController } from '../features/phone-os/apps/bank/useTavernBankController';
 export type { TavernDisplaySettings, TavernUserOption } from '../../shared/settings';
 
 export type TavernReadable<T> = Ref<T> | ComputedRef<T>;
@@ -599,7 +600,10 @@ export interface TavernShopContext {
     status: Ref<string>;
 }
 
+export type TavernBankContext = ReturnType<typeof useTavernBankController>;
+
 export interface TavernPhoneContext {
+    bank: TavernBankContext;
     isConversationVisible: TavernCommand<[sessionId?: string, threadId?: string], boolean>;
     messages: TavernMessagesContext;
     openContact: TavernCommand<[contactId: string], Promise<void>>;

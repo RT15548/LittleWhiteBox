@@ -25,6 +25,8 @@ import db, {
     tavernTaskBoardsTable,
     tavernTaskVersionsTable,
     tavernShopStateVersionsTable,
+    tavernBankStateVersionsTable,
+    tavernBankActivitiesTable,
     TAVERN_COMMUNICATION_REPLY_INTERRUPTED_ERROR,
     type TavernCommunicationSnapshotRecord,
     type TavernCommunicationThreadRecord,
@@ -52,8 +54,12 @@ import {
 } from './character-archive-types';
 import { assertTavernManagerSnapshotStable } from './manager-snapshot-integrity';
 import {
+    TAVERN_ECONOMY_OPENING_GRANT,
+    TAVERN_ECONOMY_OPENING_IDEMPOTENCY_KEY,
     TAVERN_PLAYER_ACCOUNT_ID,
+    TAVERN_SYSTEM_MINT_ACCOUNT_ID,
     TAVERN_SYSTEM_SINK_ACCOUNT_ID,
+    type TavernEconomyAccountKind,
     type TavernEconomyAccountRecord,
     type TavernEconomyTransactionRecord,
 } from './economy/economy-types';
@@ -76,6 +82,20 @@ import {
 import {
     findTavernShopStateInvariantViolation,
 } from './shop/shop-invariants';
+import {
+    findTavernBankActivitiesInvariantViolation,
+    parseCanonicalTavernBankActivityRecord,
+    parseCanonicalTavernBankStateVersionRecord,
+} from './bank/bank-invariants';
+import {
+    findTavernBankHistoryInvariantViolation,
+} from './bank/bank-history';
+import { TAVERN_BANK_PUSH_BET } from './bank/games/push-your-luck';
+import {
+    TAVERN_BANK_CURRENT_MARKER,
+    type TavernBankActivityRecord,
+    type TavernBankStateVersionRecord,
+} from './bank/bank-types';
 
 const RESTORE_TEMP_CHARACTER_PREFIX = '__lwb_restore__';
 const RESTORE_BATCH_SIZE = 500;
@@ -89,6 +109,7 @@ const ARCHIVE_COUNT_FIELDS = [
     'economy',
     'tasks',
     'shop',
+    'bank',
 ] as const satisfies readonly (keyof TavernCharacterArchiveCounts)[];
 const ARCHIVE_TABLE_NAMES = new Set<string>(TAVERN_CHARACTER_ARCHIVE_TABLES);
 
@@ -140,6 +161,8 @@ const archiveTables: ArchiveTableMap = {
     taskBoards: { table: tavernTaskBoardsTable as unknown as ArchiveRuntimeTable, sessionIndex: 'sessionId' },
     taskVersions: { table: tavernTaskVersionsTable as unknown as ArchiveRuntimeTable, sessionIndex: 'sessionId' },
     shopStateVersions: { table: tavernShopStateVersionsTable as unknown as ArchiveRuntimeTable, sessionIndex: 'sessionId' },
+    bankStateVersions: { table: tavernBankStateVersionsTable as unknown as ArchiveRuntimeTable, sessionIndex: 'sessionId' },
+    bankActivities: { table: tavernBankActivitiesTable as unknown as ArchiveRuntimeTable, sessionIndex: 'sessionId' },
 };
 
 function now(): number {
@@ -176,6 +199,7 @@ function incrementArchiveCounts(counts: TavernCharacterArchiveCounts, table: Tav
     if (table.startsWith('economy')) {counts.economy += 1;}
     if (table.startsWith('task')) {counts.tasks += 1;}
     if (table.startsWith('shop')) {counts.shop += 1;}
+    if (table.startsWith('bank')) {counts.bank += 1;}
 }
 
 function totalManifestCount(manifest: TavernCharacterArchiveManifest): number {
@@ -187,7 +211,8 @@ function totalManifestCount(manifest: TavernCharacterArchiveManifest): number {
         + (Number(counts.communications) || 0)
         + (Number(counts.economy) || 0)
         + (Number(counts.tasks) || 0)
-        + (Number(counts.shop) || 0);
+        + (Number(counts.shop) || 0)
+        + (Number(counts.bank) || 0);
 }
 
 type CapturedCharacterArchiveSession = {
@@ -235,6 +260,8 @@ async function captureCharacterArchiveSession(sessionId = ''): Promise<CapturedC
         tavernTaskBoardsTable,
         tavernTaskVersionsTable,
         tavernShopStateVersionsTable,
+        tavernBankStateVersionsTable,
+        tavernBankActivitiesTable,
         async () => {
             const session = await tavernSessionsTable.get(id);
             if (!session) {throw new Error('archive_session_missing');}
@@ -258,6 +285,138 @@ async function captureCharacterArchiveSession(sessionId = ''): Promise<CapturedC
 function taskPartyAccountId(party: TavernTaskParty | undefined): string {
     if (!party) {return '';}
     return party.kind === 'player' ? TAVERN_PLAYER_ACCOUNT_ID : `counterparty:${party.id}`;
+}
+
+function archiveEconomyAccountKind(accountId = ''): TavernEconomyAccountKind | null {
+    const id = String(accountId || '').trim();
+    if (id === TAVERN_PLAYER_ACCOUNT_ID) {return 'player';}
+    if (id === TAVERN_SYSTEM_MINT_ACCOUNT_ID || id === TAVERN_SYSTEM_SINK_ACCOUNT_ID) {return 'system';}
+    if (/^contact:[^:\s][^\s]*$/u.test(id)) {return 'contact';}
+    if (/^counterparty:[^:\s][^\s]*$/u.test(id)) {return 'counterparty';}
+    if (/^escrow:[^:\s][^\s]*$/u.test(id)) {return 'escrow';}
+    return null;
+}
+
+/** Replays the persisted Economy ledger so archived balances cannot diverge from its facts. */
+function assertEconomyArchiveLedgerStable(input: {
+    session: TavernSessionRecord;
+    accounts: TavernEconomyAccountRecord[];
+    transactions: TavernEconomyTransactionRecord[];
+}): void {
+    const sessionId = input.session.id;
+    const accounts = new Map<string, TavernEconomyAccountRecord>();
+    for (const account of input.accounts) {
+        const kind = archiveEconomyAccountKind(account.id);
+        if (
+            account.sessionId !== sessionId
+            || !kind
+            || account.kind !== kind
+            || accounts.has(account.id)
+            || !Number.isSafeInteger(account.balance)
+            || ((kind === 'player' || kind === 'escrow') && account.balance < 0)
+            || !Number.isSafeInteger(account.createdAt)
+            || account.createdAt < 0
+            || !Number.isSafeInteger(account.updatedAt)
+            || account.updatedAt < 0
+        ) {
+            throw new Error(`archive_economy_account_invalid:${sessionId}:${String(account.id || '')}`);
+        }
+        accounts.set(account.id, account);
+    }
+
+    const transactions = input.transactions.slice().sort((left, right) => left.ledgerOrder - right.ledgerOrder);
+    if (!transactions.length) {
+        if (accounts.size) {throw new Error(`archive_economy_accounts_without_ledger:${sessionId}`);}
+        return;
+    }
+    const opening = transactions[0];
+    if (
+        opening.ledgerOrder !== 0
+        || opening.idempotencyKey !== TAVERN_ECONOMY_OPENING_IDEMPOTENCY_KEY
+        || opening.fromAccountId !== TAVERN_SYSTEM_MINT_ACCOUNT_ID
+        || opening.toAccountId !== TAVERN_PLAYER_ACCOUNT_ID
+        || opening.amount !== TAVERN_ECONOMY_OPENING_GRANT
+        || opening.kind !== 'opening_grant'
+        || opening.sourceDomain !== 'economy'
+        || opening.sourceId !== 'opening-grant'
+        || opening.anchorOrder !== -1
+        || opening.reversalOfTransactionId !== undefined
+    ) {
+        throw new Error(`archive_economy_opening_invalid:${sessionId}`);
+    }
+
+    const balances = new Map(Array.from(accounts.keys(), (accountId) => [accountId, 0]));
+    const transactionIds = new Map<string, TavernEconomyTransactionRecord>();
+    const idempotencyKeys = new Set<string>();
+    const ledgerOrders = new Set<number>();
+    const reversedTransactionIds = new Set<string>();
+    for (const transaction of transactions) {
+        const from = accounts.get(transaction.fromAccountId);
+        const to = accounts.get(transaction.toAccountId);
+        if (
+            transaction.sessionId !== sessionId
+            || !String(transaction.id || '').trim()
+            || transactionIds.has(transaction.id)
+            || !String(transaction.idempotencyKey || '').trim()
+            || idempotencyKeys.has(transaction.idempotencyKey)
+            || !from
+            || !to
+            || transaction.fromAccountId === transaction.toAccountId
+            || !Number.isSafeInteger(transaction.amount)
+            || transaction.amount <= 0
+            || !Number.isSafeInteger(transaction.anchorOrder)
+            || transaction.anchorOrder < -1
+            || !Number.isSafeInteger(transaction.ledgerOrder)
+            || transaction.ledgerOrder < 0
+            || ledgerOrders.has(transaction.ledgerOrder)
+            || !Number.isSafeInteger(transaction.playerBalanceAfter)
+            || transaction.playerBalanceAfter < 0
+            || !Number.isSafeInteger(transaction.createdAt)
+            || transaction.createdAt < 0
+        ) {
+            throw new Error(`archive_economy_transaction_invalid:${sessionId}:${String(transaction.id || '')}`);
+        }
+        if (transaction.reversalOfTransactionId !== undefined) {
+            const originalId = String(transaction.reversalOfTransactionId || '').trim();
+            const original = transactionIds.get(originalId);
+            if (
+                !originalId
+                || !original
+                || reversedTransactionIds.has(originalId)
+                || transaction.fromAccountId !== original.toAccountId
+                || transaction.toAccountId !== original.fromAccountId
+                || transaction.amount !== original.amount
+                || transaction.anchorOrder < original.anchorOrder
+            ) {
+                throw new Error(`archive_economy_reversal_invalid:${sessionId}:${originalId}`);
+            }
+            reversedTransactionIds.add(originalId);
+        }
+
+        const fromBalance = Number(balances.get(from.id) || 0) - transaction.amount;
+        const toBalance = Number(balances.get(to.id) || 0) + transaction.amount;
+        if (
+            !Number.isSafeInteger(fromBalance)
+            || !Number.isSafeInteger(toBalance)
+            || ((from.kind === 'player' || from.kind === 'escrow') && fromBalance < 0)
+        ) {
+            throw new Error(`archive_economy_balance_transition_invalid:${sessionId}:${transaction.id}`);
+        }
+        balances.set(from.id, fromBalance);
+        balances.set(to.id, toBalance);
+        const playerBalance = Number(balances.get(TAVERN_PLAYER_ACCOUNT_ID) || 0);
+        if (transaction.playerBalanceAfter !== playerBalance) {
+            throw new Error(`archive_economy_player_balance_invalid:${sessionId}:${transaction.id}`);
+        }
+        transactionIds.set(transaction.id, transaction);
+        idempotencyKeys.add(transaction.idempotencyKey);
+        ledgerOrders.add(transaction.ledgerOrder);
+    }
+    for (const account of accounts.values()) {
+        if (account.balance !== Number(balances.get(account.id) || 0)) {
+            throw new Error(`archive_economy_account_balance_invalid:${sessionId}:${account.id}`);
+        }
+    }
 }
 
 function assertTaskEconomyArchiveStable(input: {
@@ -528,6 +687,208 @@ function assertShopArchiveStable(input: {
     }
 }
 
+type TavernBankOpenedFact = {
+    kind: 'deposit' | 'fund' | 'dice' | 'push' | 'ladder';
+    amount: number;
+    anchorOrder: number;
+};
+
+function assertBankArchiveStable(input: {
+    session: TavernSessionRecord;
+    versions: TavernBankStateVersionRecord[];
+    activities: TavernBankActivityRecord[];
+    transactions: TavernEconomyTransactionRecord[];
+}): void {
+    const sessionId = input.session.id;
+    const rows = input.versions.map((row) => parseCanonicalTavernBankStateVersionRecord(row));
+    const activities = input.activities.map((activity) => parseCanonicalTavernBankActivityRecord(activity));
+    const activityViolation = findTavernBankActivitiesInvariantViolation(activities);
+    if (activityViolation) {
+        throw new Error(`archive_bank_activity_invalid:${activityViolation.code}:${activityViolation.detail}`);
+    }
+    const versionIds = new Set<string>();
+    const actionIds = new Set<string>();
+    for (const row of rows) {
+        if (row.sessionId !== sessionId) {throw new Error(`archive_bank_session_mismatch:${sessionId}`);}
+        if (versionIds.has(row.versionId)) {throw new Error(`archive_bank_version_id_duplicate:${row.versionId}`);}
+        if (actionIds.has(row.actionId)) {throw new Error(`archive_bank_action_id_duplicate:${row.actionId}`);}
+        versionIds.add(row.versionId);
+        actionIds.add(row.actionId);
+    }
+    for (const activity of activities) {
+        if (activity.sessionId !== sessionId) {throw new Error(`archive_bank_activity_session_mismatch:${sessionId}`);}
+    }
+    if (!rows.length) {
+        if (activities.length || input.transactions.some((transaction) => transaction.sourceDomain === 'bank')) {
+            throw new Error(`archive_bank_orphan_facts:${sessionId}`);
+        }
+        return;
+    }
+    rows.sort((left, right) => left.revision - right.revision);
+    if (rows.some((row, index) => row.revision !== index + 1)) {
+        throw new Error(`archive_bank_version_chain_invalid:${sessionId}`);
+    }
+    const currentRows = rows.filter((row) => row.currentMarker === TAVERN_BANK_CURRENT_MARKER);
+    const current = rows.at(-1)!;
+    if (currentRows.length !== 1 || currentRows[0].versionId !== current.versionId) {
+        throw new Error(`archive_bank_current_marker_invalid:${sessionId}`);
+    }
+    const sessionTurn = Number(input.session.state?.turn);
+    const currentSessionTurn = Number.isSafeInteger(sessionTurn) && sessionTurn >= 0 ? sessionTurn : 0;
+    if (current.turn > currentSessionTurn) {
+        throw new Error(`archive_bank_turn_ahead_of_session:${sessionId}`);
+    }
+    const historyViolation = findTavernBankHistoryInvariantViolation({ versions: rows, activities });
+    if (historyViolation) {
+        throw new Error(`archive_bank_${historyViolation.code.replaceAll('-', '_')}:${historyViolation.detail}`);
+    }
+
+    const opened = new Map<string, TavernBankOpenedFact>();
+    let previousAnchor = -1;
+    for (const row of rows) {
+        if (row.anchorOrder < previousAnchor) {throw new Error(`archive_bank_anchor_regression:${row.actionId}`);}
+        previousAnchor = row.anchorOrder;
+        const action = row.action;
+        let openedId = '';
+        let openedFact: TavernBankOpenedFact | null = null;
+        if (action.kind === 'deposit-open') {
+            openedId = action.positionId;
+            openedFact = { kind: 'deposit', amount: action.amount, anchorOrder: row.anchorOrder };
+            if (!row.state.openDeposits.some((position) => position.id === openedId)) {
+                throw new Error(`archive_bank_transition_invalid:${row.actionId}`);
+            }
+        } else if (action.kind === 'fund-open') {
+            openedId = action.positionId;
+            openedFact = { kind: 'fund', amount: action.amount, anchorOrder: row.anchorOrder };
+            if (!row.state.openInvestments.some((position) => position.id === openedId)) {
+                throw new Error(`archive_bank_transition_invalid:${row.actionId}`);
+            }
+        } else if (action.kind === 'dice-start') {
+            openedId = action.gameId;
+            openedFact = { kind: 'dice', amount: action.bet, anchorOrder: row.anchorOrder };
+        } else if (action.kind === 'push-start') {
+            openedId = action.gameId;
+            openedFact = { kind: 'push', amount: TAVERN_BANK_PUSH_BET, anchorOrder: row.anchorOrder };
+        } else if (action.kind === 'ladder-start') {
+            openedId = action.gameId;
+            openedFact = { kind: 'ladder', amount: action.bet, anchorOrder: row.anchorOrder };
+        }
+        if (openedFact) {
+            if (opened.has(openedId)) {throw new Error(`archive_bank_source_id_duplicate:${openedId}`);}
+            opened.set(openedId, openedFact);
+            if (openedFact.kind === 'dice' || openedFact.kind === 'push' || openedFact.kind === 'ladder') {
+                if (row.state.activeGame?.kind !== openedFact.kind || row.state.activeGame.game.id !== openedId) {
+                    throw new Error(`archive_bank_transition_invalid:${row.actionId}`);
+                }
+            }
+        }
+        const referencedGameId = 'gameId' in action ? action.gameId : '';
+        if (referencedGameId && !action.kind.endsWith('-start')) {
+            const fact = opened.get(referencedGameId);
+            const expectedKind = action.kind.startsWith('dice-') ? 'dice'
+                : action.kind.startsWith('push-') ? 'push'
+                    : action.kind.startsWith('ladder-') ? 'ladder' : '';
+            if (!fact || fact.kind !== expectedKind) {throw new Error(`archive_bank_game_reference_invalid:${row.actionId}`);}
+        }
+        if (action.kind === 'deposit-withdraw-early' && opened.get(action.positionId)?.kind !== 'deposit') {
+            throw new Error(`archive_bank_position_reference_invalid:${row.actionId}`);
+        }
+        for (const positionId of action.settledPositionIds) {
+            const fact = opened.get(positionId);
+            if (!fact || (fact.kind !== 'deposit' && fact.kind !== 'fund')) {
+                throw new Error(`archive_bank_settlement_reference_invalid:${row.actionId}`);
+            }
+            const activity = activities.find((candidate) => candidate.sourceId === positionId);
+            if (!activity || activity.anchorOrder !== row.anchorOrder) {
+                throw new Error(`archive_bank_settlement_activity_invalid:${row.actionId}`);
+            }
+        }
+
+    }
+
+    const activitiesBySource = new Map(activities.map((activity) => [activity.sourceId, activity]));
+    for (const activity of activities) {
+        const fact = opened.get(activity.sourceId);
+        if (!fact || fact.amount !== activity.amountIn || activity.anchorOrder < fact.anchorOrder) {
+            throw new Error(`archive_bank_activity_source_invalid:${activity.sourceId}`);
+        }
+        if (activity.detail.kind !== fact.kind) {
+            throw new Error(`archive_bank_activity_kind_invalid:${activity.sourceId}`);
+        }
+    }
+    for (const row of rows) {
+        if (row.action.kind !== 'deposit-withdraw-early') {continue;}
+        const activity = activitiesBySource.get(row.action.positionId);
+        if (!activity || activity.anchorOrder !== row.anchorOrder || activity.detail.kind !== 'deposit') {
+            throw new Error(`archive_bank_withdraw_activity_invalid:${row.actionId}`);
+        }
+        const maturedInSameAction = row.action.settledPositionIds.includes(row.action.positionId);
+        if (
+            (maturedInSameAction && activity.detail.outcome !== 'matured')
+            || (!maturedInSameAction && activity.detail.outcome !== 'withdrawn-early')
+        ) {
+            throw new Error(`archive_bank_withdraw_outcome_invalid:${row.actionId}`);
+        }
+    }
+
+    const expectedTransactions = new Map<string, {
+        sourceId: string;
+        amount: number;
+        kind: 'bank_deposit_lock' | 'bank_fund_lock' | 'bank_wager' | 'bank_settlement' | 'bank_payout';
+        fromAccountId: string;
+        toAccountId: string;
+        anchorOrder: number;
+    }>();
+    for (const [sourceId, fact] of opened) {
+        expectedTransactions.set(fact.kind === 'deposit' || fact.kind === 'fund'
+            ? `bank:lock:${sourceId}`
+            : `bank:wager:${sourceId}`, {
+            sourceId,
+            amount: fact.amount,
+            kind: fact.kind === 'deposit' ? 'bank_deposit_lock'
+                : fact.kind === 'fund' ? 'bank_fund_lock' : 'bank_wager',
+            fromAccountId: TAVERN_PLAYER_ACCOUNT_ID,
+            toAccountId: TAVERN_SYSTEM_SINK_ACCOUNT_ID,
+            anchorOrder: fact.anchorOrder,
+        });
+    }
+    for (const activity of activities) {
+        if (activity.payout <= 0) {continue;}
+        const position = activity.detail.kind === 'deposit' || activity.detail.kind === 'fund';
+        expectedTransactions.set(position ? `bank:settle:${activity.sourceId}` : `bank:payout:${activity.sourceId}`, {
+            sourceId: activity.sourceId,
+            amount: activity.payout,
+            kind: position ? 'bank_settlement' : 'bank_payout',
+            fromAccountId: TAVERN_SYSTEM_SINK_ACCOUNT_ID,
+            toAccountId: TAVERN_PLAYER_ACCOUNT_ID,
+            anchorOrder: activity.anchorOrder,
+        });
+    }
+    const bankTransactions = input.transactions.filter((transaction) => transaction.sourceDomain === 'bank');
+    if (bankTransactions.length !== expectedTransactions.size) {
+        throw new Error(`archive_bank_ledger_count_invalid:${sessionId}`);
+    }
+    const transactionKeys = new Set<string>();
+    for (const transaction of bankTransactions) {
+        if (transactionKeys.has(transaction.idempotencyKey)) {
+            throw new Error(`archive_bank_ledger_duplicate:${transaction.idempotencyKey}`);
+        }
+        transactionKeys.add(transaction.idempotencyKey);
+        const expected = expectedTransactions.get(transaction.idempotencyKey);
+        if (
+            !expected
+            || transaction.sourceId !== expected.sourceId
+            || transaction.amount !== expected.amount
+            || transaction.kind !== expected.kind
+            || transaction.fromAccountId !== expected.fromAccountId
+            || transaction.toAccountId !== expected.toAccountId
+            || transaction.anchorOrder !== expected.anchorOrder
+        ) {
+            throw new Error(`archive_bank_ledger_invalid:${transaction.idempotencyKey}`);
+        }
+    }
+}
+
 async function assertCharacterArchiveStable(characterKey = ''): Promise<void> {
     const key = normalizeCharacterKey(characterKey);
     await db.transaction(
@@ -542,10 +903,24 @@ async function assertCharacterArchiveStable(characterKey = ''): Promise<void> {
         tavernTaskBoardsTable,
         tavernTaskVersionsTable,
         tavernShopStateVersionsTable,
+        tavernBankStateVersionsTable,
+        tavernBankActivitiesTable,
         async () => {
             const sessions = await tavernSessionsTable.where('characterKey').equals(key).toArray();
             for (const session of sessions) {
-                const [runs, memorySnapshots, stateSnapshots, statePatches, accounts, transactions, board, versions, shopVersions] = await Promise.all([
+                const [
+                    runs,
+                    memorySnapshots,
+                    stateSnapshots,
+                    statePatches,
+                    accounts,
+                    transactions,
+                    board,
+                    versions,
+                    shopVersions,
+                    bankVersions,
+                    bankActivities,
+                ] = await Promise.all([
                     tavernManagerRunsTable.where('sessionId').equals(session.id).toArray(),
                     tavernManagerMemorySnapshotsTable.where('sessionId').equals(session.id).toArray(),
                     tavernManagerStateSnapshotsTable.where('sessionId').equals(session.id).toArray(),
@@ -555,6 +930,8 @@ async function assertCharacterArchiveStable(characterKey = ''): Promise<void> {
                     tavernTaskBoardsTable.get(session.id),
                     tavernTaskVersionsTable.where('sessionId').equals(session.id).toArray(),
                     tavernShopStateVersionsTable.where('sessionId').equals(session.id).toArray(),
+                    tavernBankStateVersionsTable.where('sessionId').equals(session.id).toArray(),
+                    tavernBankActivitiesTable.where('sessionId').equals(session.id).toArray(),
                 ]);
                 assertTavernManagerSnapshotStable({ runs, memorySnapshots, stateSnapshots, statePatches }, 'manager_archive_unaccepted_writes');
                 assertTaskEconomyArchiveStable({
@@ -565,6 +942,13 @@ async function assertCharacterArchiveStable(characterKey = ''): Promise<void> {
                     transactions,
                 });
                 assertShopArchiveStable({ session, versions: shopVersions, transactions });
+                assertBankArchiveStable({
+                    session,
+                    versions: bankVersions,
+                    activities: bankActivities,
+                    transactions,
+                });
+                assertEconomyArchiveLedgerStable({ session, accounts, transactions });
             }
         },
     );
@@ -936,18 +1320,42 @@ function remapArchiveRecord(
     return { table, record } as unknown as TavernCharacterArchiveRecord;
 }
 
-/** One Shop restore ingress: remap, strict canonical parse, then write exactly that record. */
+/** Domain restore ingress: remap, strict canonical parse, then write exactly that record. */
 function canonicalizeArchiveRecordForRestore(record: TavernCharacterArchiveRecord): TavernCharacterArchiveRecord {
-    if (record.table !== 'shopStateVersions') {return record;}
-    try {
-        return {
-            ...record,
-            record: parseCanonicalTavernShopStateVersionRecord(record.record),
-        } as TavernCharacterArchiveRecord;
-    } catch (error) {
-        const detail = error instanceof Error ? error.message : String(error || 'invalid');
-        throw new Error(`archive_shop_noncanonical:${detail}`);
+    if (record.table === 'shopStateVersions') {
+        try {
+            return {
+                ...record,
+                record: parseCanonicalTavernShopStateVersionRecord(record.record),
+            } as TavernCharacterArchiveRecord;
+        } catch (error) {
+            const detail = error instanceof Error ? error.message : String(error || 'invalid');
+            throw new Error(`archive_shop_noncanonical:${detail}`);
+        }
     }
+    if (record.table === 'bankStateVersions') {
+        try {
+            return {
+                ...record,
+                record: parseCanonicalTavernBankStateVersionRecord(record.record),
+            } as TavernCharacterArchiveRecord;
+        } catch (error) {
+            const detail = error instanceof Error ? error.message : String(error || 'invalid');
+            throw new Error(`archive_bank_version_noncanonical:${detail}`);
+        }
+    }
+    if (record.table === 'bankActivities') {
+        try {
+            return {
+                ...record,
+                record: parseCanonicalTavernBankActivityRecord(record.record),
+            } as TavernCharacterArchiveRecord;
+        } catch (error) {
+            const detail = error instanceof Error ? error.message : String(error || 'invalid');
+            throw new Error(`archive_bank_activity_noncanonical:${detail}`);
+        }
+    }
+    return record;
 }
 
 async function deleteTableRecordsBySessionId(table: ArchiveRuntimeTable, sessionId = ''): Promise<number> {
@@ -1032,6 +1440,8 @@ async function writeArchiveRecordBatch(batch: TavernCharacterArchiveRecord[]): P
         tavernTaskBoardsTable,
         tavernTaskVersionsTable,
         tavernShopStateVersionsTable,
+        tavernBankStateVersionsTable,
+        tavernBankActivitiesTable,
         async () => {
             for (const table of TAVERN_CHARACTER_ARCHIVE_TABLES) {
                 const rows = batch.filter((record) => record.table === table).map((record) => record.record);
@@ -1077,6 +1487,8 @@ async function promoteTempArchiveToCharacter(tempCharacterKey = '', characterKey
         tavernTaskBoardsTable,
         tavernTaskVersionsTable,
         tavernShopStateVersionsTable,
+        tavernBankStateVersionsTable,
+        tavernBankActivitiesTable,
         tavernMetaTable,
         async () => {
             const tempSessionCount = await tavernSessionsTable.where('characterKey').equals(tempCharacterKey).count();

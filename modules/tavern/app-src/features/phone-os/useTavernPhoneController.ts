@@ -1,4 +1,4 @@
-import { computed } from 'vue';
+import { computed, type ComputedRef } from 'vue';
 import {
     TAVERN_PHONE_MESSAGES_APP_ID,
     TAVERN_PHONE_WALLET_APP_ID,
@@ -13,11 +13,13 @@ import { useTavernWalletController } from './apps/wallet/useTavernWalletControll
 import { useTavernTasksController } from './apps/tasks/useTavernTasksController';
 import { useTavernPhoneDomainSync } from './useTavernPhoneDomainSync';
 import { useTavernShopController } from './apps/shop/useTavernShopController';
+import { useTavernBankController } from './apps/bank/useTavernBankController';
 
 const MESSAGES_THREADS_PATH = '/threads';
 const WALLET_LEDGER_PATH = '/ledger';
 
 export interface TavernPhoneControllerInput extends TavernPhoneControllerOptions {
+    acceptedRollbackBusy: ComputedRef<boolean>;
     showToast?: (message: string, options?: { tone?: 'info' | 'warning'; durationMs?: number }) => void;
 }
 
@@ -62,8 +64,16 @@ export function useTavernPhoneController(options: TavernPhoneControllerInput) {
         knownTargetNames: computed(() => messages.contacts.value.map((contact) => contact.name)),
         showToast: options.showToast,
     });
+    const bank = useTavernBankController({
+        selectedSessionId: options.selectedSessionId,
+        memoryEditorMode: options.memoryEditorMode,
+        characterArchiveBusy: options.characterArchiveBusy,
+        acceptedRollbackBusy: options.acceptedRollbackBusy,
+        wallet,
+        showToast: options.showToast,
+    });
     os = useTavernPhoneOsController({
-        apps: createTavernPhoneAppRegistry({ messages, wallet, tasks, shop }),
+        apps: createTavernPhoneAppRegistry({ messages, wallet, tasks, shop, bank }),
         selectedSessionId: options.selectedSessionId,
     });
     useTavernPhoneDomainSync({
@@ -71,6 +81,7 @@ export function useTavernPhoneController(options: TavernPhoneControllerInput) {
         onTasksChanged: tasks.refreshAfterTaskDomainChange,
         onEconomyChanged: wallet.refreshAfterEconomyDomainChange,
         onShopChanged: shop.refreshAfterShopDomainChange,
+        onBankChanged: bank.refreshAfterBankDomainChange,
     });
 
     async function openPhone() {
@@ -114,6 +125,7 @@ export function useTavernPhoneController(options: TavernPhoneControllerInput) {
     }
 
     return {
+        bank,
         isConversationVisible,
         messages,
         openContact,

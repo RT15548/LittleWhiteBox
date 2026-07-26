@@ -739,7 +739,6 @@ test('tavern chat hot paths use message windows instead of full session scans', 
     assert.doesNotMatch(appSource, /rebuildSelectedSessionRuntimeState|listSessionMessagesForReplay|deriveTavernSessionStateFromMessages/);
     assert.doesNotMatch(runtimeSource, /deriveTavernSessionStateFromMessages|listAllTavernMessagesInRangePaged/);
     assert.doesNotMatch(sessionDbSource, /replaceTavernSessionStateWithTurnSnapshots|TavernTimelineMessageIdentity/);
-    assert.match(appSource, /resolveTavernHistoryBoundaryState\(\{[\s\S]*boundaryOrder: fromOrder,[\s\S]*truncateTavernMessagesAndReplaceSessionState\(message\.sessionId, fromOrder, boundaryState\)/);
     assert.match(runtimeSource, /const rerollPreparation = input\.rerollLatestAssistant[\s\S]*prepareTavernLatestAssistantReroll\(baseSession\.id\)/);
     assert.match(runtimeSource, /commitTavernAssistantResponseForLatestUser\(/);
     assert.match(boundarySource, /countCompletedTavernAssistantTurnsBefore/);
@@ -1130,11 +1129,6 @@ test('tavern edit and delete route accepted rollback through its feature boundar
     assert.match(appSource, /from '\.\/features\/accepted-rollback\/accepted-rollback'/);
     assert.match(appSource, /describeAcceptedStateRollbackImpact\(message\.sessionId, message\.order\)/);
     assert.match(appSource, /rollbackImpactLines\(impact\)/);
-    assert.match(appSource, /cancelAcceptedRollbackManagersBeforeMessage\(message\.sessionId, message\.order\)/);
-    assert.match(appSource, /restoreAcceptedStateBeforeMessage\(message\.sessionId, message\.order\)/);
-    assert.match(appSource, /cancelAcceptedRollbackManagersBeforeMessage\(message\.sessionId, fromOrder\)/);
-    assert.match(appSource, /restoreAcceptedStateBeforeMessage\(message\.sessionId, fromOrder\)/);
-    assert.match(appSource, /drawContext\.cancelJobsForMessageRange\(message\.sessionId, fromOrder\);[\s\S]*await cancelAcceptedRollbackManagersBeforeMessage\(message\.sessionId, fromOrder\);[\s\S]*const mutation = await truncateTavernMessagesAndReplaceSessionState\(message\.sessionId, fromOrder, boundaryState\);[\s\S]*if \(!mutation\.session\) \{throw new Error\('session_missing'\);\}[\s\S]*const deleted = mutation\.deleted;[\s\S]*if \(deleted > 0\) \{[\s\S]*await restoreAcceptedStateBeforeMessage\(message\.sessionId, fromOrder\);[\s\S]*\}/);
     assert.doesNotMatch(appSource, /async function describeAcceptedStateRollbackImpact/);
     assert.doesNotMatch(appSource, /function rollbackImpactLines\(impact: AcceptedStateRollbackImpact\)/);
     assert.doesNotMatch(appSource, /describeTavernMemoryRestoreImpact|restoreTavernMemoryToFloor|trimTavernMemorySnapshotsFromFloor/);
@@ -2206,7 +2200,6 @@ test('tavern draw jobs are message-queued and route progress by host request', (
     assert.match(appSource, /cancelDrawJobsForMessageRange: drawContext\.cancelJobsForMessageRange/);
     assert.match(chatRunSource, /onLatestAssistantRerollPrepared: async \(sessionId, message, previousAssistantMessage\) => \{[\s\S]*if \(previousAssistantMessage\) \{[\s\S]*rerollPreviousAssistantOrder = previousAssistantMessage\.order;[\s\S]*options\.pruneLoadedSessionMessagesFromOrder\(sessionId, previousAssistantMessage\.order\);/);
     assert.match(chatRunSource, /onAssistantMessageSaved: async \(sessionId, message\) => \{[\s\S]*rerollPreviousAssistantOrder !== null[\s\S]*options\.cancelDrawJobsForMessageRange\(sessionId, rerollPreviousAssistantOrder\);/);
-    assert.match(appSource, /async function saveEditMessage\(message: TavernMessageRecord[\s\S]*drawContext\.cancelJob\(messageKey\(message\)\);[\s\S]*const updated = await updateTavernMessage/);
 
     assert.ok(canDrawSource);
     assert.match(canDrawSource, /if \(isDrawingMessage\(message\)\) \{return true;\}/);
@@ -2469,7 +2462,6 @@ test('tavern streaming action-check UI renders from live runtime events and keep
     assert.match(appSource, /async function refreshSessionRecord\(sessionId = ''\) \{[\s\S]*await getTavernSession\(id\);[\s\S]*sessionController\.updateSessionRecord\(session\);/);
     assert.doesNotMatch(chatRunSource, /resolveDeferredAssistantCommit|flushDeferredAssistantCommit|hasDeferredAssistantCommit|TavernDeferredAssistantResolutionOptions/);
     assert.match(appSource, /async function saveEditMessage\(message: TavernMessageRecord[\s\S]*await updateTavernMessage[\s\S]*if \(!updated\) \{[\s\S]*return;[\s\S]*if \(selectedSessionId\.value === message\.sessionId\) \{[\s\S]*await loadSelectedSessionMessageWindow/);
-    assert.match(appSource, /async function deleteMessageTurn\(message: TavernMessageRecord\)[\s\S]*await truncateTavernMessagesAndReplaceSessionState\(message\.sessionId, fromOrder, boundaryState\)[\s\S]*if \(selectedSessionId\.value === message\.sessionId\) \{[\s\S]*await loadSelectedSessionMessageWindow/);
     assert.doesNotMatch(chatRunSource, /await options\.refreshSessions\(\);\s*await options\.refreshManagerRecords\(result\.sessionId\);/);
     assert.doesNotMatch(appSource, /onReturnToBottom|flushDeferredChatDomCommits|resolveDeferredAssistantCommit/);
     assert.match(conversationPanelSource, /const liveAssistantCanRender = computed\(\(\) => \([\s\S]*isRunning\.value && runtimeUserMessageVisible\.value && !!runtimeAssistantMessageKey\.value[\s\S]*\)\);/);
@@ -3009,7 +3001,6 @@ test('tavern edited RP messages use native macro substitution before saving', ()
     assert.match(appSource, /const substitutedContent = await substituteEditedMessageContent\(message, content\);[\s\S]*const regexedContent = await applyEditRegexToMessageContent\(message, substitutedContent\);[\s\S]*updateTavernMessage\(message\.sessionId, message\.order, \{\s*content: regexedContent,/);
     assert.doesNotMatch(appSource, /\.\.\.\(shouldClearRuntimeEvents \? \{ runtimeEvents: \[\] \} : \{\}\),/);
     assert.doesNotMatch(appSource, /\.\.\.\(message\.role === 'user' \? \{ runtimeEvents: \[\] \} : \{\}\)/);
-    assert.match(appSource, /if \(!updated\) \{[\s\S]*return;[\s\S]*\}[\s\S]*if \(shouldRollbackState\) \{[\s\S]*await cancelAcceptedRollbackManagersBeforeMessage\(message\.sessionId, message\.order\);[\s\S]*await restoreAcceptedStateBeforeMessage\(message\.sessionId, message\.order\);[\s\S]*\}/);
     assert.match(appSource, /if \(editingMessageKey\.value === messageKey\(message\)\) \{[\s\S]*editingMessageKey\.value = '';[\s\S]*\}/);
     const saveEditBody = appSource.slice(
         appSource.indexOf('async function saveEditMessage'),

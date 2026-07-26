@@ -31,6 +31,9 @@ import db, {
     tavernTaskBoardsTable,
     tavernTaskVersionsTable,
     tavernShopStateVersionsTable,
+    tavernBankStateVersionsTable,
+    tavernBankActivitiesTable,
+    updateTavernSessionState,
 } from '../shared/session-db';
 import {
     exportTavernCharacterArchive,
@@ -78,6 +81,25 @@ import {
     purchaseTavernShopItem,
 } from '../shared/shop/shop-service';
 import { TAVERN_SHOP_CURRENT_MARKER } from '../shared/shop/shop-types';
+import {
+    bidTavernBankDiceGame,
+    drawTavernBankPushCard,
+    getCurrentTavernBankState,
+    getCurrentTavernBankView,
+    openTavernBankDeposit,
+    openTavernBankFund,
+    settleDueTavernBankPositions,
+    startTavernBankDiceGame,
+    startTavernBankLadderGame,
+    startTavernBankPushGame,
+    stepTavernBankLadderGame,
+} from '../shared/bank/bank-service';
+import { createTavernBankSequenceRandom } from '../shared/bank/bank-random';
+import {
+    TAVERN_BANK_CURRENT_MARKER,
+    type TavernBankActivityRecord,
+    type TavernBankStateVersionRecord,
+} from '../shared/bank/bank-types';
 import {
     appendSentTavernCommunicationMessage,
     completeTavernCommunicationReply,
@@ -219,6 +241,123 @@ async function seedArchiveShop(sessionId: string) {
         boundary,
         ...(await cas()),
     });
+}
+
+async function seedArchiveBank(sessionId: string) {
+    const latest = await getLatestTavernMessage(sessionId);
+    await postTavernEconomyTransaction({
+        sessionId,
+        idempotencyKey: 'archive:bank-top-up',
+        fromAccountId: TAVERN_SYSTEM_MINT_ACCOUNT_ID,
+        toAccountId: TAVERN_PLAYER_ACCOUNT_ID,
+        amount: 2_000,
+        kind: 'archive_test_top_up',
+        title: '归档测试充值',
+        sourceDomain: 'test',
+        sourceId: 'archive:bank-top-up',
+        anchorOrder: Number(latest?.order ?? -1) + 1,
+    });
+    const boundary = await captureTavernPhoneBoundary(sessionId);
+    const cas = async () => {
+        const current = await getCurrentTavernBankState(sessionId);
+        return {
+            expectedRevision: current?.revision ?? 0,
+            expectedVersionId: current?.versionId ?? '',
+        };
+    };
+    await openTavernBankDeposit({
+        sessionId,
+        boundary,
+        actionId: 'archive-bank-deposit',
+        productId: 'short-term',
+        amount: 100,
+        ...(await cas()),
+    });
+    await updateTavernSessionState(sessionId, { turn: 10 });
+    await settleDueTavernBankPositions({
+        sessionId,
+        boundary,
+        actionId: 'archive-bank-settle',
+        ...(await cas()),
+    });
+    await openTavernBankFund({
+        sessionId,
+        boundary,
+        actionId: 'archive-bank-fund',
+        productId: 'steady-fund',
+        amount: 200,
+        ...(await cas()),
+    }, { random: createTavernBankSequenceRandom([500]) });
+    await startTavernBankDiceGame({
+        sessionId,
+        boundary,
+        actionId: 'archive-bank-dice',
+        bet: 50,
+        ...(await cas()),
+    }, { random: createTavernBankSequenceRandom([0, 1, 2, 3, 4, 5, 0, 1, 2, 3]) });
+    const gameId = (await getCurrentTavernBankState(sessionId))?.state.activeGame?.game.id;
+    await bidTavernBankDiceGame({
+        sessionId,
+        boundary,
+        actionId: 'archive-bank-dice-bid',
+        gameId: String(gameId),
+        bid: { count: 1, face: 2 },
+        ...(await cas()),
+    }, { random: createTavernBankSequenceRandom([0]) });
+}
+
+async function createArchiveBankSession(id: string, title: string) {
+    const session = await createTavernSession({
+        id,
+        title,
+        characterKey: 'char-a',
+        characterName: 'Aster',
+        contextSnapshot: { character: { characterKey: 'char-a', name: 'Aster' } },
+    });
+    await appendTavernMessage(session.id, { role: 'user', content: title });
+    return session;
+}
+
+async function seedArchivePushHistory(sessionId: string) {
+    const boundary = await captureTavernPhoneBoundary(sessionId);
+    const started = await startTavernBankPushGame({
+        sessionId,
+        boundary,
+        actionId: 'archive-bank-push-start',
+        expectedRevision: 0,
+        expectedVersionId: '',
+    }, { random: createTavernBankSequenceRandom([9, 8, 7, 6, 5, 4, 3, 2, 1]) });
+    const gameId = (await getCurrentTavernBankState(sessionId))?.state.activeGame?.game.id;
+    await drawTavernBankPushCard({
+        sessionId,
+        boundary,
+        actionId: 'archive-bank-push-draw',
+        expectedRevision: 1,
+        expectedVersionId: String(started.record?.versionId),
+        gameId: String(gameId),
+    });
+}
+
+async function seedArchiveLadderHistory(sessionId: string) {
+    const boundary = await captureTavernPhoneBoundary(sessionId);
+    const started = await startTavernBankLadderGame({
+        sessionId,
+        boundary,
+        actionId: 'archive-bank-ladder-start',
+        expectedRevision: 0,
+        expectedVersionId: '',
+        bet: 30,
+    });
+    const gameId = (await getCurrentTavernBankState(sessionId))?.state.activeGame?.game.id;
+    await stepTavernBankLadderGame({
+        sessionId,
+        boundary,
+        actionId: 'archive-bank-ladder-step',
+        expectedRevision: 1,
+        expectedVersionId: String(started.record?.versionId),
+        gameId: String(gameId),
+        choice: 'safe',
+    }, { random: createTavernBankSequenceRandom([0]) });
 }
 
 async function seedArchiveSource() {
@@ -730,9 +869,13 @@ test('tavern character archive restore replaces only the current character and r
     assert.equal(result.selectedSessionId, restoredA2);
 });
 
-test('tavern character archive accepts only the current v6 protocol', async () => {
+test('tavern character archive accepts only the current v7 protocol', async () => {
     await seedArchiveSource();
     const { manifest, records } = await buildArchive('char-a', 500);
+    const retiredV6Manifest = {
+        ...manifest,
+        version: 6,
+    } as unknown as TavernCharacterArchiveManifest;
     const retiredV5Manifest = {
         ...manifest,
         version: 5,
@@ -742,6 +885,7 @@ test('tavern character archive accepts only the current v6 protocol', async () =
         version: 4,
     } as unknown as TavernCharacterArchiveManifest;
 
+    await assert.rejects(restoreFromRecords(retiredV6Manifest, records), /archive_version_unsupported:6/);
     await assert.rejects(restoreFromRecords(retiredV5Manifest, records), /archive_version_unsupported:5/);
     await assert.rejects(restoreFromRecords(retiredV4Manifest, records), /archive_version_unsupported:4/);
 });
@@ -886,6 +1030,7 @@ test('tavern character archive cleans session-scoped temp rows that have no rest
             economy: 1,
             tasks: 0,
             shop: 0,
+            bank: 0,
         },
         parts: [{
             ...manifest.parts[0],
@@ -938,6 +1083,7 @@ test('tavern character archive can restore an empty archive by clearing only the
             economy: 0,
             tasks: 0,
             shop: 0,
+            bank: 0,
         },
         parts: [],
     };
@@ -1302,4 +1448,464 @@ test('tavern character archive preserves Shop activation facts across activate a
     });
     await assert.rejects(restoreFromRecords(manifest, movedOrigin), /archive_shop_transition_invalid/);
     assert.equal((await listTavernSessions()).length, 0);
+});
+
+test('tavern character archive rejects coercible Bank records before they can enter the database', async () => {
+    const { a1 } = await seedArchiveSource();
+    await seedArchiveBank(a1.id);
+    const { manifest, records } = await buildArchive('char-a', 500);
+    const brokenRecords = records.map((row) => {
+        if (row.table !== 'bankStateVersions'
+            || (row.record as { currentMarker?: string }).currentMarker !== TAVERN_BANK_CURRENT_MARKER) {
+            return row;
+        }
+        return {
+            ...row,
+            record: { ...row.record, revision: String((row.record as { revision: number }).revision) },
+        } as unknown as TavernCharacterArchiveRecord;
+    });
+    await db.delete();
+    await db.open();
+
+    await assert.rejects(restoreFromRecords(manifest, brokenRecords), /archive_bank_version_noncanonical/);
+    assert.equal((await listTavernSessions()).length, 0);
+});
+
+test('tavern character archive rejects impossible Bank version turns before promotion', async () => {
+    const { a1 } = await seedArchiveSource();
+    await seedArchiveBank(a1.id);
+    const { manifest, records } = await buildArchive('char-a', 500);
+    const mutateVersions = (
+        mutate: (record: TavernBankStateVersionRecord) => void,
+    ): TavernCharacterArchiveRecord[] => records.map((row) => {
+        if (row.table !== 'bankStateVersions') {return row;}
+        const record = structuredClone(row.record) as TavernBankStateVersionRecord;
+        mutate(record);
+        return { ...row, record } as TavernCharacterArchiveRecord;
+    });
+    const missingTurn = records.map((row) => {
+        if (row.table !== 'bankStateVersions'
+            || (row.record as { currentMarker?: string }).currentMarker !== TAVERN_BANK_CURRENT_MARKER) {
+            return row;
+        }
+        const record = structuredClone(row.record) as TavernBankStateVersionRecord & { turn?: number };
+        delete record.turn;
+        return { ...row, record } as TavernCharacterArchiveRecord;
+    });
+    const regressedTurn = mutateVersions((record) => {
+        if (record.action.kind === 'dice-start') {record.turn = 9;}
+    });
+    const mismatchedOpenTurn = mutateVersions((record) => {
+        const action = record.action;
+        if (action.kind !== 'deposit-open') {return;}
+        const position = record.state.openDeposits.find((candidate) => candidate.id === action.positionId);
+        if (!position) {return;}
+        position.startTurn += 1;
+        position.maturityTurn += 1;
+    });
+    const prematureSettlement = mutateVersions((record) => {
+        if (record.action.kind === 'settle-due') {record.turn = 9;}
+    });
+    const missingDueSettlement = mutateVersions((record) => {
+        if (record.action.kind === 'settle-due') {record.action.settledPositionIds = [];}
+    });
+    const headAheadOfSession = mutateVersions((record) => {
+        if (record.currentMarker === TAVERN_BANK_CURRENT_MARKER) {record.turn = 11;}
+    });
+
+    for (const [candidate, pattern] of [
+        [missingTurn, /archive_bank_version_noncanonical/],
+        [regressedTurn, /archive_bank_version_replay_invalid:archive-bank-dice:turn/],
+        [mismatchedOpenTurn, /archive_bank_position_replay_invalid:archive-bank-deposit:deposit-open/],
+        [prematureSettlement, /archive_bank_position_replay_invalid:archive-bank-settle:settlement-turn/],
+        [missingDueSettlement, /archive_bank_position_replay_invalid:archive-bank-settle:settlement-turn/],
+        [headAheadOfSession, /archive_bank_turn_ahead_of_session/],
+    ] as const) {
+        await db.delete();
+        await db.open();
+        await assert.rejects(restoreFromRecords(manifest, candidate), pattern);
+        assert.equal((await listTavernSessions()).length, 0);
+    }
+});
+
+test('tavern character archive rejects a broken Bank current marker before promotion', async () => {
+    const { a1 } = await seedArchiveSource();
+    await seedArchiveBank(a1.id);
+    const { manifest, records } = await buildArchive('char-a', 500);
+    const brokenRecords = records.map((row) => {
+        if (row.table !== 'bankStateVersions'
+            || (row.record as { currentMarker?: string }).currentMarker !== TAVERN_BANK_CURRENT_MARKER) {
+            return row;
+        }
+        const record = Object.fromEntries(Object.entries(row.record).filter(([key]) => key !== 'currentMarker'));
+        return { ...row, record } as TavernCharacterArchiveRecord;
+    });
+    await db.delete();
+    await db.open();
+
+    await assert.rejects(restoreFromRecords(manifest, brokenRecords), /archive_bank_current_marker_invalid/);
+    assert.equal((await listTavernSessions()).length, 0);
+});
+
+test('tavern character archive rejects a broken Bank version chain before promotion', async () => {
+    const { a1 } = await seedArchiveSource();
+    await seedArchiveBank(a1.id);
+    const { manifest, records } = await buildArchive('char-a', 500);
+    const brokenRecords = records.map((row) => {
+        if (row.table !== 'bankStateVersions'
+            || (row.record as { currentMarker?: string }).currentMarker !== TAVERN_BANK_CURRENT_MARKER) {
+            return row;
+        }
+        return {
+            ...row,
+            record: { ...row.record, revision: (row.record as { revision: number }).revision + 1 },
+        } as TavernCharacterArchiveRecord;
+    });
+    await db.delete();
+    await db.open();
+
+    await assert.rejects(restoreFromRecords(manifest, brokenRecords), /archive_bank_version_chain_invalid/);
+    assert.equal((await listTavernSessions()).length, 0);
+});
+
+test('tavern character archive rejects a Bank activity that violates its net invariant before promotion', async () => {
+    const { a1 } = await seedArchiveSource();
+    await seedArchiveBank(a1.id);
+    const { manifest, records } = await buildArchive('char-a', 500);
+    const brokenRecords = records.map((row) => {
+        if (row.table !== 'bankActivities') {return row;}
+        return {
+            ...row,
+            record: { ...row.record, net: (row.record as { net: number }).net + 500 },
+        } as TavernCharacterArchiveRecord;
+    });
+    await db.delete();
+    await db.open();
+
+    await assert.rejects(restoreFromRecords(manifest, brokenRecords), /archive_bank_activity_noncanonical/);
+    assert.equal((await listTavernSessions()).length, 0);
+});
+
+test('tavern character archive binds every opened Bank amount to its action and debit', async () => {
+    const { a1 } = await seedArchiveSource();
+    await seedArchiveBank(a1.id);
+    const { manifest, records } = await buildArchive('char-a', 500);
+    const forgedDeposit = records.map((row) => {
+        if (row.table !== 'bankStateVersions') {return row;}
+        const record = structuredClone(row.record) as TavernBankStateVersionRecord;
+        const action = record.action;
+        if (action.kind !== 'deposit-open') {return row;}
+        const position = record.state.openDeposits.find((candidate) => candidate.id === action.positionId);
+        if (!position) {return row;}
+        Object.assign(position, {
+            principal: 2_000,
+            maturityAmount: 2_120,
+            earlyWithdrawalAmount: 1_940,
+        });
+        return { ...row, record } as TavernCharacterArchiveRecord;
+    });
+    const forgedFund = records.map((row) => {
+        if (row.table !== 'bankStateVersions') {return row;}
+        const record = structuredClone(row.record) as TavernBankStateVersionRecord;
+        for (const position of record.state.openInvestments) {
+            Object.assign(position, { principal: 2_000, settlementAmount: 2_000 });
+        }
+        return { ...row, record } as TavernCharacterArchiveRecord;
+    });
+    const forgedDiceBet = records.map((row) => {
+        if (row.table !== 'bankStateVersions') {return row;}
+        const record = structuredClone(row.record) as TavernBankStateVersionRecord;
+        if (record.state.activeGame?.kind === 'dice') {record.state.activeGame.game.bet = 100;}
+        return { ...row, record } as TavernCharacterArchiveRecord;
+    });
+    const forgedDepositLedger = records.map((row) => {
+        if (row.table === 'bankStateVersions') {
+            const record = structuredClone(row.record) as TavernBankStateVersionRecord;
+            const action = record.action;
+            if (action.kind !== 'deposit-open') {return row;}
+            action.amount = 2_000;
+            const position = record.state.openDeposits.find((candidate) => candidate.id === action.positionId);
+            if (!position) {return row;}
+            Object.assign(position, {
+                principal: 2_000,
+                maturityAmount: 2_120,
+                earlyWithdrawalAmount: 1_940,
+            });
+            return { ...row, record } as TavernCharacterArchiveRecord;
+        }
+        if (row.table === 'bankActivities') {
+            const record = structuredClone(row.record) as TavernBankActivityRecord;
+            if (record.detail.kind !== 'deposit') {return row;}
+            Object.assign(record, { amountIn: 2_000, payout: 2_120, net: 120 });
+            return { ...row, record } as TavernCharacterArchiveRecord;
+        }
+        return row;
+    });
+    const forgedFundLedger = records.map((row) => {
+        if (row.table !== 'bankStateVersions') {return row;}
+        const record = structuredClone(row.record) as TavernBankStateVersionRecord;
+        if (record.action.kind === 'fund-open') {record.action.amount = 2_000;}
+        for (const position of record.state.openInvestments) {
+            Object.assign(position, { principal: 2_000, settlementAmount: 2_000 });
+        }
+        return { ...row, record } as TavernCharacterArchiveRecord;
+    });
+    const forgedDiceLedger = records.map((row) => {
+        if (row.table !== 'bankStateVersions') {return row;}
+        const record = structuredClone(row.record) as TavernBankStateVersionRecord;
+        if (record.action.kind === 'dice-start') {record.action.bet = 100;}
+        if (record.state.activeGame?.kind === 'dice') {record.state.activeGame.game.bet = 100;}
+        return { ...row, record } as TavernCharacterArchiveRecord;
+    });
+    for (const [candidate, pattern] of [
+        [forgedDeposit, /archive_bank_position_replay_invalid/],
+        [forgedFund, /archive_bank_position_replay_invalid/],
+        [forgedDiceBet, /archive_bank_game_replay_invalid/],
+        [forgedDepositLedger, /archive_bank_ledger_invalid/],
+        [forgedFundLedger, /archive_bank_ledger_invalid/],
+        [forgedDiceLedger, /archive_bank_ledger_invalid/],
+    ] as const) {
+        await db.delete();
+        await db.open();
+        await assert.rejects(restoreFromRecords(manifest, candidate), pattern);
+        assert.equal((await listTavernSessions()).length, 0);
+    }
+
+    await seedArchiveSource();
+    const ladderSession = await createArchiveBankSession('archive-ladder-bet-session', 'ladder bet chain');
+    await seedArchiveLadderHistory(ladderSession.id);
+    const ladderArchive = await buildArchive('char-a', 500);
+    const forgedLadderBet = ladderArchive.records.map((row) => {
+        if (row.table !== 'bankStateVersions') {return row;}
+        const record = structuredClone(row.record) as TavernBankStateVersionRecord;
+        if (record.state.activeGame?.kind !== 'ladder') {return row;}
+        const game = record.state.activeGame.game;
+        game.bet = 40;
+        game.riskBase = 36;
+        game.cashoutAmount = game.history.length ? 45 : 36;
+        if (game.history[0]) {game.history[0].amountAfterSuccess = 45;}
+        return { ...row, record } as TavernCharacterArchiveRecord;
+    });
+    const forgedLadderLedger = ladderArchive.records.map((row) => {
+        if (row.table !== 'bankStateVersions') {return row;}
+        const record = structuredClone(row.record) as TavernBankStateVersionRecord;
+        if (record.action.kind === 'ladder-start') {record.action.bet = 40;}
+        if (record.state.activeGame?.kind !== 'ladder') {return { ...row, record } as TavernCharacterArchiveRecord;}
+        const game = record.state.activeGame.game;
+        game.bet = 40;
+        game.riskBase = 36;
+        game.cashoutAmount = game.history.length ? 45 : 36;
+        if (game.history[0]) {game.history[0].amountAfterSuccess = 45;}
+        return { ...row, record } as TavernCharacterArchiveRecord;
+    });
+    await db.delete();
+    await db.open();
+    await assert.rejects(
+        restoreFromRecords(ladderArchive.manifest, forgedLadderBet),
+        /archive_bank_game_replay_invalid/,
+    );
+    assert.equal((await listTavernSessions()).length, 0);
+    await db.delete();
+    await db.open();
+    await assert.rejects(
+        restoreFromRecords(ladderArchive.manifest, forgedLadderLedger),
+        /archive_bank_ledger_invalid/,
+    );
+    assert.equal((await listTavernSessions()).length, 0);
+});
+
+test('tavern character archive replays Economy balances behind Bank debits before promotion', async () => {
+    const { a1 } = await seedArchiveSource();
+    await seedArchiveBank(a1.id);
+    const { manifest, records } = await buildArchive('char-a', 500);
+    const inflatedPlayerAccount = records.map((row) => {
+        if (row.table !== 'economyAccounts' || (row.record as { id?: string }).id !== TAVERN_PLAYER_ACCOUNT_ID) {
+            return row;
+        }
+        return {
+            ...row,
+            record: { ...row.record, balance: (row.record as { balance: number }).balance + 1_000 },
+        } as TavernCharacterArchiveRecord;
+    });
+    const forgedRunningBalance = records.map((row) => {
+        if (row.table !== 'economyTransactions'
+            || (row.record as { sourceDomain?: string }).sourceDomain !== 'bank') {
+            return row;
+        }
+        return {
+            ...row,
+            record: {
+                ...row.record,
+                playerBalanceAfter: (row.record as { playerBalanceAfter: number }).playerBalanceAfter + 1_000,
+            },
+        } as TavernCharacterArchiveRecord;
+    });
+    for (const candidate of [inflatedPlayerAccount, forgedRunningBalance]) {
+        await db.delete();
+        await db.open();
+        await assert.rejects(
+            restoreFromRecords(manifest, candidate),
+            /archive_economy_(account_balance|player_balance)_invalid/,
+        );
+        assert.equal((await listTavernSessions()).length, 0);
+    }
+});
+
+test('tavern character archive structurally replays every multi-step Bank game', async () => {
+    const { a1 } = await seedArchiveSource();
+    await seedArchiveBank(a1.id);
+    const diceArchive = await buildArchive('char-a', 500);
+    const mutateDiceHead = (
+        mutate: (record: TavernBankStateVersionRecord) => void,
+    ): TavernCharacterArchiveRecord[] => diceArchive.records.map((row) => {
+        if (row.table !== 'bankStateVersions') {return row;}
+        const record = structuredClone(row.record) as TavernBankStateVersionRecord;
+        if (record.action.kind !== 'dice-bid') {return row;}
+        mutate(record);
+        return { ...row, record } as TavernCharacterArchiveRecord;
+    });
+    const changedDice = mutateDiceHead((record) => {
+        if (record.state.activeGame?.kind === 'dice') {record.state.activeGame.game.playerDice[0] = 6;}
+    });
+    const rewrittenBid = mutateDiceHead((record) => {
+        if (record.state.activeGame?.kind === 'dice' && record.state.activeGame.game.bids[0]) {
+            record.state.activeGame.game.bids[0].face = 3;
+        }
+    });
+    const vanishedGame = mutateDiceHead((record) => {delete record.state.activeGame;});
+    for (const candidate of [changedDice, rewrittenBid, vanishedGame]) {
+        await db.delete();
+        await db.open();
+        await assert.rejects(
+            restoreFromRecords(diceArchive.manifest, candidate),
+            /archive_bank_(game|activity)_replay_invalid/,
+        );
+        assert.equal((await listTavernSessions()).length, 0);
+    }
+
+    await seedArchiveSource();
+    const pushSession = await createArchiveBankSession('archive-push-chain-session', 'push chain');
+    await seedArchivePushHistory(pushSession.id);
+    const pushArchive = await buildArchive('char-a', 500);
+    const reorderedPushDeck = pushArchive.records.map((row) => {
+        if (row.table !== 'bankStateVersions') {return row;}
+        const record = structuredClone(row.record) as TavernBankStateVersionRecord;
+        if (record.action.kind !== 'push-draw' || record.state.activeGame?.kind !== 'push') {return row;}
+        const deck = record.state.activeGame.game.deck;
+        [deck[1], deck[7]] = [deck[7], deck[1]];
+        return { ...row, record } as TavernCharacterArchiveRecord;
+    });
+    await db.delete();
+    await db.open();
+    await assert.rejects(
+        restoreFromRecords(pushArchive.manifest, reorderedPushDeck),
+        /archive_bank_game_replay_invalid/,
+    );
+    assert.equal((await listTavernSessions()).length, 0);
+
+    await seedArchiveSource();
+    const ladderSession = await createArchiveBankSession('archive-ladder-chain-session', 'ladder chain');
+    await seedArchiveLadderHistory(ladderSession.id);
+    const ladderArchive = await buildArchive('char-a', 500);
+    const skippedLadderFloor = ladderArchive.records.map((row) => {
+        if (row.table !== 'bankStateVersions') {return row;}
+        const record = structuredClone(row.record) as TavernBankStateVersionRecord;
+        if (record.action.kind !== 'ladder-step' || record.state.activeGame?.kind !== 'ladder') {return row;}
+        const game = record.state.activeGame.game;
+        game.history.push({ floor: 2, choice: 'safe', amountAfterSuccess: 41 });
+        game.completedFloors = 2;
+        game.cashoutAmount = 41;
+        return { ...row, record } as TavernCharacterArchiveRecord;
+    });
+    await db.delete();
+    await db.open();
+    await assert.rejects(
+        restoreFromRecords(ladderArchive.manifest, skippedLadderFloor),
+        /archive_bank_game_replay_invalid/,
+    );
+    assert.equal((await listTavernSessions()).length, 0);
+});
+
+test('tavern character archive rejects a Bank head whose open fund silently mutated between versions', async () => {
+    const { a1 } = await seedArchiveSource();
+    await seedArchiveBank(a1.id);
+    const { manifest, records } = await buildArchive('char-a', 500);
+    // The steady-fund position is opened at revision 3 and must survive unchanged into the
+    // revision-4 head. Rewriting a historical fact the product contract does not recompute
+    // (its opening timestamp) keeps the position internally consistent yet makes it diverge
+    // from the version that opened it — a mutation only the chain replay can catch.
+    const mutatedFund = records.map((row) => {
+        if (row.table !== 'bankStateVersions'
+            || (row.record as { currentMarker?: string }).currentMarker !== TAVERN_BANK_CURRENT_MARKER) {
+            return row;
+        }
+        const record = JSON.parse(JSON.stringify(row.record)) as {
+            state: { openInvestments: Array<{ openedAt: number }> };
+        };
+        record.state.openInvestments[0].openedAt += 1;
+        return { ...row, record } as unknown as TavernCharacterArchiveRecord;
+    });
+    await db.delete();
+    await db.open();
+    await assert.rejects(restoreFromRecords(manifest, mutatedFund), /archive_bank_position_replay_invalid/);
+    assert.equal((await listTavernSessions()).length, 0);
+});
+
+test('tavern character archive rejects a Bank head carrying a fund that was never opened', async () => {
+    const { a1 } = await seedArchiveSource();
+    await seedArchiveBank(a1.id);
+    const { manifest, records } = await buildArchive('char-a', 500);
+    // Clone the head's real steady-fund under a fresh id: contract-valid in isolation, but no
+    // version ever opened it. It has no live entry to match against, so the replay must reject
+    // it instead of trusting the head's word that the position exists.
+    const phantomFund = records.map((row) => {
+        if (row.table !== 'bankStateVersions'
+            || (row.record as { currentMarker?: string }).currentMarker !== TAVERN_BANK_CURRENT_MARKER) {
+            return row;
+        }
+        const record = JSON.parse(JSON.stringify(row.record)) as {
+            state: { openInvestments: Array<{ id: string }> };
+        };
+        record.state.openInvestments.push({
+            ...record.state.openInvestments[0],
+            id: 'phantom-fund-never-opened',
+        });
+        return { ...row, record } as unknown as TavernCharacterArchiveRecord;
+    });
+    await db.delete();
+    await db.open();
+    await assert.rejects(restoreFromRecords(manifest, phantomFund), /archive_bank_position_replay_invalid/);
+    assert.equal((await listTavernSessions()).length, 0);
+});
+
+test('tavern character archive preserves hidden Bank fund results and in-progress games across restore', async () => {
+    const { a1 } = await seedArchiveSource();
+    await seedArchiveBank(a1.id);
+    const sourceView = await getCurrentTavernBankView(a1.id);
+    assert.equal(Object.hasOwn(sourceView.investments[0] || {}, 'resolvedReturnBps'), false);
+    const { manifest, records } = await buildArchive('char-a', 500);
+    assert.equal(records.filter((row) => row.table === 'bankStateVersions').length, 5);
+    assert.equal(records.filter((row) => row.table === 'bankActivities').length, 1);
+    assert.equal(manifest.counts.bank, 6);
+    await db.delete();
+    await db.open();
+
+    await restoreFromRecords(manifest, records);
+    const restoredA1 = 'restore-job-test-a-session-1';
+    const restoredVersions = await tavernBankStateVersionsTable.where('sessionId').equals(restoredA1).toArray();
+    assert.equal(restoredVersions.length, 5);
+    const head = restoredVersions.find((row) => row.currentMarker === TAVERN_BANK_CURRENT_MARKER);
+    assert.equal(head?.revision, 5);
+    assert.equal(head?.state.activeGame?.kind, 'dice');
+    assert.ok(head?.state.activeGame?.game.id);
+    assert.equal(head?.state.openInvestments.length, 1);
+    assert.equal(typeof head?.state.openInvestments[0]?.resolvedReturnBps, 'number');
+    const restoredView = await getCurrentTavernBankView(restoredA1);
+    assert.equal(Object.hasOwn(restoredView.investments[0] || {}, 'resolvedReturnBps'), false);
+    const restoredActivities = await tavernBankActivitiesTable.where('sessionId').equals(restoredA1).toArray();
+    assert.equal(restoredActivities.length, 1);
+    assert.equal(restoredActivities[0]?.sessionId, restoredA1);
+    assert.equal(restoredActivities[0]?.detail.kind, 'deposit');
+    assert.equal(restoredActivities[0]?.amountIn, 100);
+    assert.equal(restoredActivities[0]?.payout, 106);
 });

@@ -2,6 +2,8 @@ import Dexie from '../../../../../libs/dexie.mjs';
 import { onScopeDispose, watch, type Ref } from 'vue';
 import { TAVERN_PLAYER_ACCOUNT_ID } from '../../../shared/economy/economy-types';
 import db, {
+    tavernBankStateVersionsTable,
+    tavernBankActivitiesTable,
     tavernEconomyAccountsTable,
     tavernEconomyTransactionsTable,
     tavernSessionsTable,
@@ -11,12 +13,14 @@ import db, {
 } from '../../../shared/session-db';
 import { TAVERN_TASK_CURRENT_MARKER } from '../../../shared/tasks/task-types';
 import { TAVERN_SHOP_CURRENT_MARKER } from '../../../shared/shop/shop-types';
+import { TAVERN_BANK_CURRENT_MARKER } from '../../../shared/bank/bank-types';
 
 interface TavernPhoneDomainSyncOptions {
     selectedSessionId: Ref<string>;
     onTasksChanged: () => void | Promise<void>;
     onEconomyChanged: () => void | Promise<void>;
     onShopChanged: () => void | Promise<void>;
+    onBankChanged: () => void | Promise<void>;
 }
 
 interface DexieLiveQuerySubscription {
@@ -42,6 +46,17 @@ interface LatestLedgerCollection {
 interface LatestLedgerTable {
     where(index: string): {
         between(lower: unknown, upper: unknown, includeLower?: boolean, includeUpper?: boolean): LatestLedgerCollection;
+    };
+}
+
+interface LatestBankActivityCollection {
+    reverse(): LatestBankActivityCollection;
+    first(): Promise<{ id: string; createdAt: number } | undefined>;
+}
+
+interface LatestBankActivityTable {
+    where(index: string): {
+        between(lower: unknown, upper: unknown, includeLower?: boolean, includeUpper?: boolean): LatestBankActivityCollection;
     };
 }
 
@@ -112,8 +127,34 @@ async function shopDomainFingerprint(sessionId: string): Promise<string> {
     });
 }
 
+async function bankDomainFingerprint(sessionId: string): Promise<string> {
+    return await db.transaction('r', tavernSessionsTable, tavernBankStateVersionsTable, tavernBankActivitiesTable, async () => {
+        const [session, rows, latestActivity] = await Promise.all([
+            tavernSessionsTable.get(sessionId),
+            tavernBankStateVersionsTable
+                .where('[sessionId+currentMarker]')
+                .equals([sessionId, TAVERN_BANK_CURRENT_MARKER])
+                .toArray(),
+            (tavernBankActivitiesTable as unknown as LatestBankActivityTable)
+                .where('[sessionId+createdAt]')
+                .between([sessionId, 0], [sessionId, Number.MAX_SAFE_INTEGER], true, true)
+                .reverse()
+                .first(),
+        ]);
+        const current = rows[0];
+        return JSON.stringify([
+            session?.id ? 1 : 0,
+            Number(session?.state?.turn) || 0,
+            current?.revision || 0,
+            current?.versionId || '',
+            latestActivity?.createdAt ?? -1,
+            latestActivity?.id || '',
+        ]);
+    });
+}
+
 function createRefreshScheduler(
-    label: 'Task' | 'Economy' | 'Shop',
+    label: 'Task' | 'Economy' | 'Shop' | 'Bank',
     callback: () => void | Promise<void>,
 ) {
     let running = false;
@@ -145,6 +186,7 @@ export function useTavernPhoneDomainSync(options: TavernPhoneDomainSyncOptions):
     const scheduleTaskRefresh = createRefreshScheduler('Task', options.onTasksChanged);
     const scheduleEconomyRefresh = createRefreshScheduler('Economy', options.onEconomyChanged);
     const scheduleShopRefresh = createRefreshScheduler('Shop', options.onShopChanged);
+    const scheduleBankRefresh = createRefreshScheduler('Bank', options.onBankChanged);
 
     function stopSubscriptions(): void {
         generation += 1;
@@ -160,6 +202,7 @@ export function useTavernPhoneDomainSync(options: TavernPhoneDomainSyncOptions):
         let taskFingerprint: string | null = null;
         let economyFingerprint: string | null = null;
         let shopFingerprint: string | null = null;
+        let bankFingerprint: string | null = null;
         subscriptions = [
             runLiveQuery(() => taskDomainFingerprint(sessionId)).subscribe({
                 next: (nextFingerprint) => {
@@ -199,6 +242,19 @@ export function useTavernPhoneDomainSync(options: TavernPhoneDomainSyncOptions):
                     scheduleShopRefresh();
                 },
                 error: (error) => console.warn('[LittleWhiteBox/tavern] Shop domain sync failed', error),
+            }),
+            runLiveQuery(() => bankDomainFingerprint(sessionId)).subscribe({
+                next: (nextFingerprint) => {
+                    if (currentGeneration !== generation) {return;}
+                    if (bankFingerprint === null) {
+                        bankFingerprint = nextFingerprint;
+                        return;
+                    }
+                    if (nextFingerprint === bankFingerprint) {return;}
+                    bankFingerprint = nextFingerprint;
+                    scheduleBankRefresh();
+                },
+                error: (error) => console.warn('[LittleWhiteBox/tavern] Bank domain sync failed', error),
             }),
         ];
     }

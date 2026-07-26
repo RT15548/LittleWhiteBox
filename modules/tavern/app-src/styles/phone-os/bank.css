@@ -1,0 +1,347 @@
+.tavern-bank-icon-vault {fill: color-mix(in srgb, var(--phone-app-accent) 30%, #10201a); stroke: rgba(255, 248, 232, 0.5); stroke-width: 1.3;}
+.tavern-bank-icon-roof {fill: color-mix(in srgb, var(--phone-app-accent) 72%, #0d1712);}
+.tavern-bank-icon-dial {fill: none; stroke: #f4e6bf; stroke-width: 2.6;}
+.tavern-bank-icon-mark {fill: none; stroke: #f4e6bf; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round;}
+.tavern-bank-icon-base {fill: none; stroke: rgba(255, 248, 232, 0.5); stroke-width: 2.6; stroke-linecap: round;}
+
+.tavern-bank-app {
+    --bank-felt: #e7ece2;
+    --bank-felt-high: #f4f7ee;
+    --bank-felt-low: #d4dcc8;
+    --bank-ink: #1b2620;
+    --bank-muted: #647065;
+    --bank-line: rgba(40, 60, 45, 0.16);
+    --bank-green: #2f6f5b;
+    --bank-green-deep: #205244;
+    --bank-gold: #a97e24;
+    --bank-gold-high: #d6ab4e;
+    --bank-red: #b0453a;
+    --bank-shadow: rgba(30, 45, 32, 0.16);
+    grid-template-rows: auto auto auto minmax(0, 1fr);
+    color: var(--bank-ink);
+    background:
+        radial-gradient(circle at 14% 2%, rgba(226, 244, 232, 0.85), transparent 27%),
+        repeating-linear-gradient(93deg, rgba(40, 70, 52, 0.03) 0 1px, transparent 1px 7px),
+        var(--bank-felt);
+}
+
+.xb-os-shell.theme-dark .tavern-bank-app {
+    --bank-felt: #10140f;
+    --bank-felt-high: #1a201a;
+    --bank-felt-low: #232b22;
+    --bank-ink: #e9f0e2;
+    --bank-muted: #93a390;
+    --bank-line: rgba(210, 232, 205, 0.13);
+    --bank-green: #4f9d84;
+    --bank-green-deep: #3a8069;
+    --bank-gold: #d1a254;
+    --bank-gold-high: #edc474;
+    --bank-red: #cf6152;
+    --bank-shadow: rgba(0, 0, 0, 0.34);
+}
+
+.tavern-bank-head {min-height: 68px; display: flex; align-items: end; justify-content: space-between; gap: 14px; border-bottom: 1px solid var(--bank-line); background: color-mix(in srgb, var(--bank-felt-high) 84%, transparent); padding: 14px 15px 11px 18px;}
+.tavern-bank-head h2 {margin: 0; font: 760 28px/1 var(--phone-os-font); letter-spacing: -0.035em;}
+.tavern-bank-balance {min-width: 92px; min-height: 45px; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 3px 8px; border: 1px solid color-mix(in srgb, var(--bank-gold) 42%, var(--bank-line)); border-radius: 6px 14px 14px 6px; background: linear-gradient(125deg, color-mix(in srgb, var(--bank-gold) 12%, var(--bank-felt-high)), var(--bank-felt-high)); color: var(--bank-ink); padding: 7px 9px 7px 11px; box-shadow: inset 3px 0 0 color-mix(in srgb, var(--bank-gold) 58%, transparent);}
+.tavern-bank-balance span {grid-column: 1 / -1; color: var(--bank-muted); font: 650 7px/1 var(--xb-font-mono); letter-spacing: 0.12em; text-align: right;}
+.tavern-bank-balance strong {grid-column: 1 / -1; overflow: hidden; color: var(--bank-gold); font: 780 17px/1 var(--xb-font-mono); text-align: right; text-overflow: ellipsis;}
+.tavern-phone-device .tavern-bank-balance:hover {border-color: var(--bank-gold); background: color-mix(in srgb, var(--bank-gold) 10%, var(--bank-felt-high));}
+
+.tavern-bank-tabs {display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 5px; border-bottom: 1px solid var(--bank-line); background: color-mix(in srgb, var(--bank-felt-high) 72%, transparent); padding: 6px 8px;}
+.tavern-bank-tabs button {position: relative; min-height: 38px; display: flex; align-items: center; justify-content: center; gap: 6px; border: 0; border-radius: 8px; background: transparent; color: var(--bank-muted); font: 690 11px/1 var(--phone-os-font);}
+.tavern-bank-tabs button::after {content: ""; position: absolute; inset: auto 28% -5px; height: 3px; border-radius: 2px 2px 0 0; background: var(--bank-green); opacity: 0; transform: scaleX(0.5); transition: opacity 0.16s ease, transform 0.16s ease;}
+.tavern-bank-tabs button.is-active {background: color-mix(in srgb, var(--bank-green) 9%, transparent); color: var(--bank-green-deep);}
+.tavern-bank-tabs button.is-active::after {opacity: 1; transform: scaleX(1);}
+.tavern-phone-device .tavern-bank-tabs button:hover:not(:disabled) {background: color-mix(in srgb, var(--bank-green) 8%, transparent); color: var(--bank-green);}
+
+.tavern-bank-status {border-bottom: 1px solid color-mix(in srgb, var(--bank-gold) 35%, var(--bank-line)); background: color-mix(in srgb, var(--bank-gold) 10%, var(--bank-felt-high)); color: var(--bank-gold); padding: 7px 12px; font: 620 9px/1.4 var(--phone-os-font);}
+.tavern-bank-status:empty {display: none;}
+.tavern-bank-scroll {min-height: 0; display: grid; align-content: start; gap: 16px; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; -webkit-overflow-scrolling: touch; scrollbar-width: thin; padding: 13px 12px 24px;}
+
+.tavern-bank-section {display: grid; gap: 9px;}
+.tavern-bank-section > header {display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 3px;}
+.tavern-bank-section > header span {color: var(--bank-green-deep); font: 730 12px/1 var(--phone-os-font); letter-spacing: 0.05em;}
+.tavern-bank-section > header i {color: var(--bank-muted); font: normal 600 7px/1 var(--xb-font-mono);}
+
+.tavern-bank-position-list,
+.tavern-bank-product-list {display: grid; gap: 10px;}
+
+.tavern-bank-position {position: relative; overflow: hidden; display: grid; gap: 9px; border: 1px solid color-mix(in srgb, var(--bank-green) 30%, var(--bank-line)); border-radius: 5px 15px 15px 5px; background: linear-gradient(135deg, color-mix(in srgb, var(--bank-green) 9%, var(--bank-felt-high)), var(--bank-felt-high) 62%); padding: 12px 13px 11px 16px; box-shadow: inset 4px 0 0 var(--bank-green), 0 7px 18px var(--bank-shadow);}
+.tavern-bank-position.is-fund {border-color: color-mix(in srgb, var(--bank-gold) 42%, var(--bank-line)); box-shadow: inset 4px 0 0 var(--bank-gold), 0 7px 18px var(--bank-shadow);}
+.tavern-bank-position.is-matured {border-color: color-mix(in srgb, var(--bank-gold) 58%, var(--bank-line)); box-shadow: inset 4px 0 0 var(--bank-gold), 0 7px 18px var(--bank-shadow);}
+.tavern-bank-position > header {display: flex; align-items: center; justify-content: space-between; gap: 10px;}
+.tavern-bank-position > header > div {min-width: 0; display: grid; gap: 3px;}
+.tavern-bank-position header small {color: var(--bank-green); font: 680 7px/1 var(--xb-font-mono); letter-spacing: 0.12em;}
+.tavern-bank-position.is-fund header small {color: var(--bank-gold);}
+.tavern-bank-position h3 {margin: 0; font: 730 15px/1.05 var(--phone-os-font);}
+.tavern-bank-position > header > strong {color: var(--bank-gold); font: 780 14px/1 var(--xb-font-mono);}
+.tavern-bank-position > p {margin: 0; color: var(--bank-muted); font: 510 9px/1.45 var(--phone-os-font);}
+.tavern-bank-position dl {display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 0; border-top: 1px dashed var(--bank-line); padding-top: 9px;}
+.tavern-bank-position dl > div {display: grid; gap: 2px;}
+.tavern-bank-position dt {color: var(--bank-muted); font: 620 7px/1 var(--xb-font-mono); letter-spacing: 0.08em;}
+.tavern-bank-position dd {margin: 0; color: var(--bank-ink); font: 690 11px/1 var(--xb-font-mono);}
+.tavern-bank-position > footer {display: flex; align-items: center; justify-content: space-between; gap: 9px; border-top: 1px dashed var(--bank-line); padding-top: 9px;}
+.tavern-bank-position > footer span {color: var(--bank-muted); font: 560 8px/1.2 var(--phone-os-font);}
+.tavern-bank-position > footer button {min-width: 66px; min-height: 32px; border: 1px solid color-mix(in srgb, var(--bank-green) 42%, var(--bank-line)); border-radius: 8px; background: transparent; color: var(--bank-green-deep); font: 670 9px/1 var(--phone-os-font);}
+.tavern-bank-position > footer button:disabled {opacity: 0.55;}
+
+.tavern-bank-product {display: grid; gap: 8px; border: 1px solid var(--bank-line); border-radius: 4px 14px 14px 4px; background: linear-gradient(120deg, color-mix(in srgb, var(--bank-green) 4%, var(--bank-felt-high)), var(--bank-felt-high)); padding: 12px 12px 11px 15px; box-shadow: 0 6px 16px var(--bank-shadow); transition: transform 0.15s ease, box-shadow 0.15s ease;}
+.tavern-bank-product.is-fund {background: linear-gradient(120deg, color-mix(in srgb, var(--bank-gold) 5%, var(--bank-felt-high)), var(--bank-felt-high));}
+.tavern-phone-device .tavern-bank-product:hover {transform: translateY(-1px); box-shadow: 0 10px 24px var(--bank-shadow);}
+.tavern-bank-product > header {display: flex; align-items: baseline; justify-content: space-between; gap: 9px;}
+.tavern-bank-product h3 {margin: 0; font: 730 14px/1.05 var(--phone-os-font);}
+.tavern-bank-product > header span {flex: 0 0 auto; color: var(--bank-green-deep); font: 650 8px/1 var(--xb-font-mono); letter-spacing: 0.06em;}
+.tavern-bank-product.is-fund > header span {color: var(--bank-gold);}
+.tavern-bank-product > p {margin: 0; color: var(--bank-muted); font: 510 9px/1.5 var(--phone-os-font);}
+.tavern-bank-product ul {display: grid; gap: 3px; margin: 0; padding: 0; list-style: none;}
+.tavern-bank-product li {position: relative; color: var(--bank-ink); padding-left: 12px; font: 540 9px/1.4 var(--phone-os-font);}
+.tavern-bank-product li::before {content: ""; position: absolute; top: 5px; left: 2px; width: 4px; height: 4px; border-radius: 50%; background: color-mix(in srgb, var(--bank-green) 60%, transparent);}
+.tavern-bank-product.is-fund li::before {background: color-mix(in srgb, var(--bank-gold) 62%, transparent);}
+.tavern-bank-product > button {justify-self: end; min-width: 72px; min-height: 34px; border: 1px solid var(--bank-green-deep); border-radius: 8px; background: linear-gradient(180deg, var(--bank-green), var(--bank-green-deep)); color: #f4faf1; font: 690 10px/1 var(--phone-os-font); box-shadow: 0 4px 10px color-mix(in srgb, var(--bank-green) 24%, transparent);}
+.tavern-bank-product.is-fund > button {border-color: color-mix(in srgb, var(--bank-gold) 70%, #6b4d13); background: linear-gradient(180deg, var(--bank-gold-high), var(--bank-gold)); color: #2c1f06; box-shadow: 0 4px 10px color-mix(in srgb, var(--bank-gold) 24%, transparent);}
+.tavern-bank-product > button:disabled {border-color: var(--bank-line); background: color-mix(in srgb, var(--bank-muted) 18%, var(--bank-felt-low)); color: var(--bank-muted); box-shadow: none; opacity: 0.66;}
+
+.tavern-bank-empty-copy {margin: 0; border: 1px dashed var(--bank-line); border-radius: 11px; color: var(--bank-muted); padding: 17px 14px; font: 520 9px/1.45 var(--phone-os-font); text-align: center;}
+
+.tavern-bank-notice {display: grid; justify-items: start; gap: 7px; border: 1px solid var(--bank-line); border-radius: 12px; background: var(--bank-felt-high); padding: 16px;}
+.tavern-bank-notice strong {font: 710 13px/1 var(--phone-os-font);}
+.tavern-bank-notice p {margin: 0; color: var(--bank-muted); font: 510 10px/1.5 var(--phone-os-font);}
+.tavern-bank-notice button {min-height: 34px; border: 1px solid var(--bank-green); border-radius: 8px; background: transparent; color: var(--bank-green-deep); padding: 0 12px; font: 650 9px/1 var(--phone-os-font);}
+.tavern-bank-loading {display: grid; gap: 10px;}
+.tavern-bank-loading span {height: 96px; border-radius: 13px; background: linear-gradient(100deg, var(--bank-felt-low) 20%, var(--bank-felt-high) 45%, var(--bank-felt-low) 70%); background-size: 220% 100%; animation: tavern-bank-shimmer 1.25s ease-in-out infinite;}
+.tavern-bank-loading span:nth-child(2) {animation-delay: 0.1s;}
+.tavern-bank-loading span:nth-child(3) {animation-delay: 0.2s;}
+@keyframes tavern-bank-shimmer {to {background-position: -120% 0;}}
+
+.tavern-bank-floor-resume {display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; border: 1px solid color-mix(in srgb, var(--bank-green) 40%, var(--bank-line)); border-radius: 5px 15px 15px 5px; background: linear-gradient(135deg, color-mix(in srgb, var(--bank-green) 12%, var(--bank-felt-high)), var(--bank-felt-high) 60%); padding: 12px 13px 12px 16px; box-shadow: inset 4px 0 0 var(--bank-green), 0 7px 18px var(--bank-shadow);}
+.tavern-bank-floor-resume > div {min-width: 0; display: grid; gap: 3px;}
+.tavern-bank-floor-resume small {color: var(--bank-green); font: 680 7px/1 var(--xb-font-mono); letter-spacing: 0.12em;}
+.tavern-bank-floor-resume strong {font: 740 15px/1 var(--phone-os-font);}
+.tavern-bank-floor-resume p {margin: 0; color: var(--bank-muted); font: 510 9px/1.45 var(--phone-os-font);}
+.tavern-bank-floor-resume > button {min-width: 76px; min-height: 40px; border: 1px solid var(--bank-green-deep); border-radius: 9px; background: linear-gradient(180deg, var(--bank-green), var(--bank-green-deep)); color: #f4faf1; font: 690 10px/1 var(--phone-os-font);}
+.tavern-bank-floor-hint {margin: 0; border: 1px dashed color-mix(in srgb, var(--bank-gold) 40%, var(--bank-line)); border-radius: 11px; background: color-mix(in srgb, var(--bank-gold) 8%, transparent); color: var(--bank-gold); padding: 12px 14px; font: 560 9px/1.45 var(--phone-os-font);}
+
+.tavern-bank-floor-games {display: grid; gap: 11px;}
+.tavern-bank-floor-game {display: grid; gap: 9px; border: 1px solid var(--bank-line); border-radius: 4px 15px 15px 4px; background: linear-gradient(120deg, color-mix(in srgb, var(--bank-green) 5%, var(--bank-felt-high)), var(--bank-felt-high)); padding: 13px 13px 12px 16px; box-shadow: 0 7px 18px var(--bank-shadow);}
+.tavern-bank-floor-game > header {display: flex; align-items: baseline; justify-content: space-between; gap: 9px;}
+.tavern-bank-floor-game h3 {margin: 0; font: 740 16px/1.05 var(--phone-os-font);}
+.tavern-bank-floor-game > header span {flex: 0 0 auto; color: var(--bank-green-deep); font: 640 8px/1.2 var(--xb-font-mono); text-align: right;}
+.tavern-bank-floor-game > p {margin: 0; color: var(--bank-muted); font: 510 10px/1.5 var(--phone-os-font);}
+.tavern-bank-floor-art {position: relative; height: 92px; overflow: hidden; border: 1px solid color-mix(in srgb, var(--bank-green) 25%, var(--bank-line)); border-radius: 3px 12px 12px 3px; background: radial-gradient(circle at 72% 18%, color-mix(in srgb, var(--bank-gold) 18%, transparent), transparent 30%), linear-gradient(145deg, color-mix(in srgb, var(--bank-green-deep) 88%, #07100c), color-mix(in srgb, var(--bank-green) 55%, #14251d)); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.035), inset 0 -24px 44px rgba(0, 0, 0, 0.18);}
+.tavern-bank-floor-art::after {content: ""; position: absolute; inset: 0; background: repeating-linear-gradient(115deg, transparent 0 12px, rgba(255, 255, 255, 0.022) 12px 13px); pointer-events: none;}
+.tavern-bank-floor-art.is-dice {display: grid; place-items: center;}
+.tavern-bank-art-die {position: absolute; width: 54px; height: 54px; display: grid; grid-template-columns: repeat(2, 8px); place-content: center; gap: 9px 11px; border: 1px solid rgba(255, 248, 224, 0.48); border-radius: 13px; background: linear-gradient(145deg, #f1ead2, #bca65e); box-shadow: 0 12px 22px rgba(0, 0, 0, 0.32), inset 0 -4px 0 rgba(79, 54, 13, 0.2);}
+.tavern-bank-art-die.is-left {left: calc(50% - 52px); transform: rotate(-13deg);}
+.tavern-bank-art-die.is-right {left: calc(50% + 1px); transform: rotate(11deg);}
+.tavern-bank-art-die i {width: 8px; height: 8px; border-radius: 50%; background: #234c3f; box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.35);}
+.tavern-bank-art-die.is-left i:last-child {grid-column: 1 / -1; justify-self: center;}
+.tavern-bank-floor-art.is-push {perspective: 500px;}
+.tavern-bank-art-card {position: absolute; top: 14px; left: 50%; width: 48px; height: 66px; border: 1px solid rgba(255, 245, 218, 0.42); border-radius: 7px; background: #e8dfc3; box-shadow: 0 12px 20px rgba(0, 0, 0, 0.34); transform-origin: 50% 110%;}
+.tavern-bank-art-card.is-back {margin-left: -67px; background: repeating-linear-gradient(45deg, #214f41 0 5px, #17392f 5px 10px); transform: rotate(-17deg);}
+.tavern-bank-art-card.is-coin {margin-left: -24px; display: grid; place-items: center; transform: translateY(-2px);}
+.tavern-bank-art-card.is-coin i {width: 27px; height: 27px; border: 5px double #916819; border-radius: 50%; background: #d9ad4d; box-shadow: inset 0 0 0 2px #f1cf7a;}
+.tavern-bank-art-card.is-bomb {margin-left: 19px; display: grid; place-items: center; transform: rotate(17deg);}
+.tavern-bank-art-card.is-bomb i {position: relative; width: 27px; height: 27px; border-radius: 50%; background: #29322d; box-shadow: inset -5px -5px 0 #151b17;}
+.tavern-bank-art-card.is-bomb i::before {content: ""; position: absolute; top: -12px; left: 19px; width: 15px; height: 15px; border-top: 3px solid #a97e24; border-radius: 50%; transform: rotate(-28deg);}
+.tavern-bank-floor-art.is-ladder {display: flex; align-items: flex-end; justify-content: center; gap: 4px; padding: 13px 28px;}
+.tavern-bank-floor-art.is-ladder span {width: 28px; height: calc(14px + var(--bank-floor) * 10px); border: 1px solid rgba(239, 213, 145, 0.42); border-radius: 3px 3px 0 0; background: linear-gradient(180deg, color-mix(in srgb, var(--bank-gold-high) 86%, #f5e2a4), color-mix(in srgb, var(--bank-gold) 70%, #634311)); box-shadow: inset 0 -5px 0 rgba(65, 41, 7, 0.18), 0 8px 15px rgba(0, 0, 0, 0.24);}
+.tavern-bank-floor-art.is-ladder i {position: absolute; top: 15px; left: calc(50% + 39px); width: 15px; height: 15px; border: 3px solid #f1d078; border-radius: 50%; background: var(--bank-green-deep); box-shadow: 0 5px 10px rgba(0, 0, 0, 0.3);}
+
+.tavern-bank-floor-bet {display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 4px 10px; border-top: 1px dashed var(--bank-line); padding-top: 10px;}
+.tavern-bank-floor-bet > span {color: var(--bank-muted); font: 650 8px/1 var(--xb-font-mono); letter-spacing: 0.1em;}
+.tavern-bank-floor-bet > small {grid-column: 1 / -1; color: var(--bank-muted); font: 540 8px/1.3 var(--phone-os-font);}
+.tavern-bank-floor-bet.is-fixed > strong {color: var(--bank-gold); font: 780 18px/1 var(--xb-font-mono);}
+
+.tavern-bank-amount-field {display: inline-grid; grid-template-columns: 34px minmax(48px, 1fr) 34px; align-items: center; gap: 6px; justify-self: start;}
+.tavern-bank-amount-field button {width: 34px; height: 34px; display: grid; place-items: center; border: 1px solid color-mix(in srgb, var(--bank-green, #2f6f5b) 40%, rgba(120, 130, 120, 0.4)); border-radius: 9px; background: color-mix(in srgb, var(--bank-green, #2f6f5b) 8%, transparent); color: var(--bank-green-deep, #205244); font: 720 16px/1 var(--xb-font-mono); -webkit-user-select: none; user-select: none;}
+.tavern-bank-amount-field button:disabled {opacity: 0.5;}
+.tavern-bank-amount-field > strong {color: var(--bank-ink, #1b2620); font: 780 18px/1 var(--xb-font-mono); text-align: center;}
+.tavern-bank-amount-field input {width: 100%; min-height: 40px; border: 1px solid var(--bank-line, rgba(40, 60, 45, 0.16)); border-radius: 9px; outline: 0; background: rgba(255, 255, 255, 0.05); color: inherit; padding: 8px 6px; font: 700 15px/1 var(--xb-font-mono); text-align: center; -moz-appearance: textfield; appearance: textfield;}
+.tavern-bank-amount-field input::-webkit-outer-spin-button,
+.tavern-bank-amount-field input::-webkit-inner-spin-button {margin: 0; -webkit-appearance: none; appearance: none;}
+
+.tavern-bank-floor-start {min-height: 42px; border: 1px solid var(--bank-green-deep); border-radius: 10px; background: linear-gradient(180deg, var(--bank-green), var(--bank-green-deep)); color: #f4faf1; font: 720 12px/1 var(--phone-os-font); box-shadow: 0 5px 12px color-mix(in srgb, var(--bank-green) 26%, transparent);}
+.tavern-bank-floor-start:disabled {border-color: var(--bank-line); background: color-mix(in srgb, var(--bank-muted) 18%, var(--bank-felt-low)); color: var(--bank-muted); box-shadow: none; opacity: 0.66;}
+.tavern-bank-floor-error {border: 1px solid color-mix(in srgb, var(--bank-red) 34%, transparent); border-radius: 9px; background: color-mix(in srgb, var(--bank-red) 9%, transparent); color: var(--bank-red); padding: 9px 11px; font: 560 9px/1.45 var(--phone-os-font);}
+
+.tavern-bank-game {gap: 13px;}
+.tavern-bank-game-head {display: flex; align-items: center; gap: 10px;}
+.tavern-bank-game-head h2 {margin: 0; font: 750 20px/1 var(--phone-os-font); letter-spacing: -0.02em;}
+.tavern-bank-game-back {min-height: 32px; border: 1px solid var(--bank-line); border-radius: 8px; background: color-mix(in srgb, var(--bank-felt-high) 80%, transparent); color: var(--bank-muted); padding: 0 11px; font: 650 9px/1 var(--phone-os-font);}
+.tavern-phone-device .tavern-bank-game-back:hover {border-color: color-mix(in srgb, var(--bank-green) 40%, var(--bank-line)); color: var(--bank-green);}
+.tavern-bank-game-stage {display: grid; gap: 9px; border: 1px solid var(--bank-line); border-radius: 14px; background: linear-gradient(150deg, color-mix(in srgb, var(--bank-green) 10%, var(--bank-felt-high)), var(--bank-felt-high) 68%); padding: 14px; box-shadow: 0 7px 18px var(--bank-shadow);}
+.tavern-bank-game-note {margin: 0; color: var(--bank-muted); font: 510 9px/1.5 var(--phone-os-font);}
+.tavern-bank-game-settled {display: grid; justify-items: start; gap: 8px; border: 1px dashed var(--bank-line); border-radius: 13px; background: var(--bank-felt-high); padding: 18px 15px;}
+.tavern-bank-game-settled strong {font: 730 15px/1 var(--phone-os-font);}
+.tavern-bank-game-settled p {margin: 0; color: var(--bank-muted); font: 510 10px/1.5 var(--phone-os-font);}
+.tavern-bank-game-settled button {min-height: 38px; border: 1px solid var(--bank-green-deep); border-radius: 9px; background: linear-gradient(180deg, var(--bank-green), var(--bank-green-deep)); color: #f4faf1; padding: 0 16px; font: 700 11px/1 var(--phone-os-font);}
+.tavern-bank-game-settled strong.is-win {color: var(--bank-green-deep);}
+.tavern-bank-game-settled strong.is-loss {color: var(--bank-danger, #b4462f);}
+.tavern-bank-outcome-net {font: 760 16px/1 var(--xb-font-mono) !important;}
+.tavern-bank-outcome-net.is-positive {color: var(--bank-green-deep) !important;}
+.tavern-bank-outcome-net.is-negative {color: var(--bank-danger, #b4462f) !important;}
+.tavern-bank-outcome-detail {color: var(--bank-muted);}
+.tavern-bank-outcome-dice {display: flex; flex-wrap: wrap; gap: 14px; width: 100%;}
+.tavern-bank-outcome-dice > div {display: grid; gap: 6px;}
+.tavern-bank-outcome-dice > div > span {color: var(--bank-green); font: 680 8px/1 var(--xb-font-mono); letter-spacing: 0.12em;}
+.tavern-bank-dice-pips.is-dealer b {background: color-mix(in srgb, var(--bank-gold) 16%, var(--bank-felt-high)); color: var(--bank-green-deep);}
+.tavern-bank-outcome-ladder {display: grid; gap: 5px; margin: 0; padding: 0; width: 100%; list-style: none;}
+.tavern-bank-outcome-ladder li {display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; border-radius: 8px; padding: 6px 10px; background: color-mix(in srgb, var(--bank-green) 6%, transparent); font: 560 10px/1.3 var(--phone-os-font);}
+.tavern-bank-outcome-ladder li.is-success {background: color-mix(in srgb, var(--bank-green) 14%, transparent);}
+.tavern-bank-outcome-ladder li.is-fail {background: color-mix(in srgb, var(--bank-danger, #b4462f) 16%, transparent);}
+.tavern-bank-outcome-ladder li.is-idle {opacity: 0.5;}
+.tavern-bank-outcome-ladder li em {font-style: normal; color: var(--bank-muted);}
+
+.tavern-bank-dice-row {display: flex; align-items: center; justify-content: space-between; gap: 10px;}
+.tavern-bank-dice-row > span {color: var(--bank-green); font: 680 8px/1 var(--xb-font-mono); letter-spacing: 0.12em;}
+.tavern-bank-dice-pips {display: flex; flex-wrap: wrap; gap: 6px;}
+.tavern-bank-dice-pips b {width: 34px; height: 34px; display: grid; place-items: center; border: 1px solid color-mix(in srgb, var(--bank-green) 34%, var(--bank-line)); border-radius: 9px; background: color-mix(in srgb, var(--bank-felt-high) 92%, var(--bank-green)); color: var(--bank-green-deep); font: 800 18px/1 var(--xb-font-mono); box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--bank-green) 18%, transparent);}
+.tavern-bank-dice-history {display: grid; gap: 7px; border: 1px solid var(--bank-line); border-radius: 13px; background: var(--bank-felt-high); padding: 12px 13px;}
+.tavern-bank-dice-history > header {color: var(--bank-green-deep); font: 700 10px/1 var(--phone-os-font); letter-spacing: 0.04em;}
+.tavern-bank-dice-history ol {display: grid; gap: 5px; margin: 0; padding: 0; list-style: none;}
+.tavern-bank-dice-history li {display: flex; align-items: center; justify-content: space-between; gap: 10px; border-radius: 8px; background: color-mix(in srgb, var(--bank-green) 6%, transparent); padding: 6px 10px;}
+.tavern-bank-dice-history li.is-dealer {background: color-mix(in srgb, var(--bank-gold) 9%, transparent);}
+.tavern-bank-dice-history li span {color: var(--bank-muted); font: 620 8px/1 var(--xb-font-mono); letter-spacing: 0.06em;}
+.tavern-bank-dice-history li strong {color: var(--bank-ink); font: 720 12px/1 var(--xb-font-mono);}
+.tavern-bank-dice-history > p {margin: 0; color: var(--bank-muted); font: 510 9px/1.45 var(--phone-os-font);}
+.tavern-bank-dice-controls {display: grid; gap: 10px;}
+.tavern-bank-dice-picker {display: grid; grid-template-columns: 1fr 1fr; gap: 12px;}
+.tavern-bank-dice-picker label {display: grid; justify-items: center; gap: 6px;}
+.tavern-bank-dice-picker label span {color: var(--bank-muted); font: 650 8px/1 var(--xb-font-mono); letter-spacing: 0.1em;}
+.tavern-bank-dice-picker .tavern-bank-amount-field {justify-self: center;}
+.tavern-bank-dice-evidence {display: grid; grid-template-columns: 1fr 1fr; gap: 7px;}
+.tavern-bank-dice-evidence span {border: 1px solid var(--bank-line); border-radius: 9px; background: color-mix(in srgb, var(--bank-green) 6%, var(--bank-felt-high)); color: var(--bank-muted); padding: 8px 7px; font: 560 8px/1.35 var(--phone-os-font); text-align: center;}
+.tavern-bank-dice-evidence strong {color: var(--bank-gold); font: 780 12px/1 var(--xb-font-mono);}
+.tavern-bank-dice-floor {margin: 0; color: var(--bank-muted); font: 540 8px/1.4 var(--phone-os-font); text-align: center;}
+.tavern-bank-dice-actions {display: grid; grid-template-columns: 1.4fr 1fr; gap: 9px;}
+.tavern-bank-dice-bid {min-height: 44px; border: 1px solid var(--bank-green-deep); border-radius: 10px; background: linear-gradient(180deg, var(--bank-green), var(--bank-green-deep)); color: #f4faf1; font: 720 11px/1 var(--phone-os-font); box-shadow: 0 5px 12px color-mix(in srgb, var(--bank-green) 26%, transparent);}
+.tavern-bank-dice-challenge {min-height: 44px; border: 1px solid color-mix(in srgb, var(--bank-gold) 62%, #6b4d13); border-radius: 10px; background: linear-gradient(180deg, var(--bank-gold-high), var(--bank-gold)); color: #2c1f06; font: 720 11px/1 var(--phone-os-font);}
+.tavern-bank-dice-bid:disabled,
+.tavern-bank-dice-challenge:disabled {border-color: var(--bank-line); background: color-mix(in srgb, var(--bank-muted) 18%, var(--bank-felt-low)); color: var(--bank-muted); box-shadow: none; opacity: 0.66;}
+
+.tavern-bank-push-stage {display: grid; gap: 10px; border: 1px solid var(--bank-line); border-radius: 14px; background: linear-gradient(150deg, color-mix(in srgb, var(--bank-green) 10%, var(--bank-felt-high)), var(--bank-felt-high) 68%); padding: 14px; box-shadow: 0 7px 18px var(--bank-shadow);}
+.tavern-bank-push-pot,
+.tavern-bank-ladder-pot {display: grid; grid-template-columns: auto auto minmax(0, 1fr); align-items: baseline; gap: 4px 8px;}
+.tavern-bank-push-pot small,
+.tavern-bank-ladder-pot small {grid-column: 1 / -1; color: var(--bank-muted); font: 650 8px/1 var(--xb-font-mono); letter-spacing: 0.1em;}
+.tavern-bank-push-pot strong,
+.tavern-bank-ladder-pot strong {color: var(--bank-gold); font: 820 30px/1 var(--xb-font-mono);}
+.tavern-bank-push-pot span,
+.tavern-bank-ladder-pot span {color: var(--bank-muted); font: 560 9px/1.2 var(--phone-os-font);}
+.tavern-bank-push-meta {display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 0; border-top: 1px dashed var(--bank-line); padding-top: 10px;}
+.tavern-bank-push-meta > div {display: grid; gap: 3px; border-radius: 9px; background: color-mix(in srgb, var(--bank-green) 6%, transparent); padding: 8px 6px; text-align: center;}
+.tavern-bank-push-meta > div.is-hot {background: color-mix(in srgb, var(--bank-red) 12%, transparent);}
+.tavern-bank-push-meta dt {color: var(--bank-muted); font: 620 7px/1.1 var(--xb-font-mono); letter-spacing: 0.04em;}
+.tavern-bank-push-meta dd {margin: 0; color: var(--bank-ink); font: 740 13px/1 var(--xb-font-mono);}
+.tavern-bank-push-meta > div.is-hot dd {color: var(--bank-red);}
+.tavern-bank-push-actions {display: grid; grid-template-columns: 1fr 1.3fr; gap: 9px;}
+.tavern-bank-push-draw {min-height: 46px; border: 1px solid var(--bank-green-deep); border-radius: 10px; background: linear-gradient(180deg, var(--bank-green), var(--bank-green-deep)); color: #f4faf1; font: 730 12px/1 var(--phone-os-font); box-shadow: 0 5px 12px color-mix(in srgb, var(--bank-green) 26%, transparent);}
+.tavern-bank-push-cash {min-height: 46px; border: 1px solid color-mix(in srgb, var(--bank-gold) 62%, #6b4d13); border-radius: 10px; background: linear-gradient(180deg, var(--bank-gold-high), var(--bank-gold)); color: #2c1f06; font: 730 11px/1 var(--phone-os-font);}
+.tavern-bank-push-draw:disabled,
+.tavern-bank-push-cash:disabled {border-color: var(--bank-line); background: color-mix(in srgb, var(--bank-muted) 18%, var(--bank-felt-low)); color: var(--bank-muted); box-shadow: none; opacity: 0.66;}
+
+.tavern-bank-ladder-stage {display: grid; gap: 8px; border: 1px solid var(--bank-line); border-radius: 14px; background: linear-gradient(150deg, color-mix(in srgb, var(--bank-green) 10%, var(--bank-felt-high)), var(--bank-felt-high) 68%); padding: 14px; box-shadow: 0 7px 18px var(--bank-shadow);}
+.tavern-bank-ladder-progress {margin: 0; color: var(--bank-muted); font: 560 10px/1.2 var(--phone-os-font);}
+.tavern-bank-ladder-progress b {color: var(--bank-green-deep); font: 760 13px/1 var(--xb-font-mono);}
+.tavern-bank-ladder-history {display: grid; gap: 7px; border: 1px solid var(--bank-line); border-radius: 13px; background: var(--bank-felt-high); padding: 12px 13px;}
+.tavern-bank-ladder-history > header {color: var(--bank-green-deep); font: 700 10px/1 var(--phone-os-font); letter-spacing: 0.04em;}
+.tavern-bank-ladder-history ol {display: grid; gap: 5px; margin: 0; padding: 0; list-style: none;}
+.tavern-bank-ladder-history li {display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; border-radius: 8px; background: color-mix(in srgb, var(--bank-green) 6%, transparent); padding: 6px 10px;}
+.tavern-bank-ladder-history li.is-current {border: 1px solid color-mix(in srgb, var(--bank-gold) 42%, transparent); background: color-mix(in srgb, var(--bank-gold) 10%, transparent);}
+.tavern-bank-ladder-history li.is-upcoming {opacity: 0.48;}
+.tavern-bank-ladder-history li span {color: var(--bank-muted); font: 620 8px/1 var(--xb-font-mono);}
+.tavern-bank-ladder-history li em {color: var(--bank-green); font: 640 9px/1 var(--phone-os-font); font-style: normal;}
+.tavern-bank-ladder-history li strong {color: var(--bank-ink); font: 720 11px/1 var(--xb-font-mono); text-align: right;}
+.tavern-bank-ladder-choices {display: grid; gap: 8px;}
+.tavern-bank-ladder-choices > header {color: var(--bank-green-deep); font: 700 10px/1 var(--phone-os-font); letter-spacing: 0.04em;}
+.tavern-bank-ladder-choice {display: grid; gap: 3px; border: 1px solid var(--bank-line); border-radius: 11px; background: var(--bank-felt-high); padding: 11px 13px; text-align: left; box-shadow: 0 5px 13px var(--bank-shadow); transition: transform 0.15s ease;}
+.tavern-bank-ladder-choice strong {font: 730 13px/1 var(--phone-os-font);}
+.tavern-bank-ladder-choice span {color: var(--bank-muted); font: 620 8px/1 var(--xb-font-mono);}
+.tavern-bank-ladder-choice em {color: var(--bank-green-deep); font: 560 9px/1.3 var(--phone-os-font); font-style: normal;}
+.tavern-bank-ladder-choice.is-safe {box-shadow: inset 4px 0 0 var(--bank-green), 0 5px 13px var(--bank-shadow);}
+.tavern-bank-ladder-choice.is-medium {box-shadow: inset 4px 0 0 var(--bank-gold), 0 5px 13px var(--bank-shadow);}
+.tavern-bank-ladder-choice.is-medium em {color: var(--bank-gold);}
+.tavern-bank-ladder-choice.is-risky {box-shadow: inset 4px 0 0 var(--bank-red), 0 5px 13px var(--bank-shadow);}
+.tavern-bank-ladder-choice.is-risky em {color: var(--bank-red);}
+.tavern-bank-ladder-choice:disabled {opacity: 0.55;}
+.tavern-phone-device .tavern-bank-ladder-choice:not(:disabled):hover {transform: translateY(-1px);}
+.tavern-bank-ladder-cash {min-height: 44px; border: 1px solid color-mix(in srgb, var(--bank-gold) 62%, #6b4d13); border-radius: 10px; background: linear-gradient(180deg, var(--bank-gold-high), var(--bank-gold)); color: #2c1f06; font: 730 11px/1 var(--phone-os-font);}
+.tavern-bank-ladder-cash:disabled {border-color: var(--bank-line); background: color-mix(in srgb, var(--bank-muted) 18%, var(--bank-felt-low)); color: var(--bank-muted); opacity: 0.66;}
+
+.tavern-bank-records-summary {display: grid; grid-template-columns: 1fr 1fr; gap: 10px;}
+.tavern-bank-records-net,
+.tavern-bank-records-win {display: grid; gap: 3px; border: 1px solid var(--bank-line); border-radius: 13px; background: var(--bank-felt-high); padding: 13px; box-shadow: 0 6px 16px var(--bank-shadow);}
+.tavern-bank-records-net small,
+.tavern-bank-records-win small {color: var(--bank-muted); font: 640 8px/1 var(--xb-font-mono); letter-spacing: 0.08em;}
+.tavern-bank-records-net strong {color: var(--bank-ink); font: 820 26px/1 var(--xb-font-mono);}
+.tavern-bank-records-net.is-positive strong {color: var(--bank-green);}
+.tavern-bank-records-net.is-negative strong {color: var(--bank-red);}
+.tavern-bank-records-net span,
+.tavern-bank-records-win span {color: var(--bank-muted); font: 560 8px/1.2 var(--phone-os-font);}
+.tavern-bank-records-win strong {color: var(--bank-gold); font: 800 22px/1 var(--xb-font-mono);}
+.tavern-bank-records-list {display: grid; gap: 7px; margin: 0; padding: 0; list-style: none;}
+.tavern-bank-record {display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; border: 1px solid var(--bank-line); border-radius: 11px; background: var(--bank-felt-high); padding: 10px 13px;}
+.tavern-bank-record-body {min-width: 0; display: grid; gap: 3px;}
+.tavern-bank-record-body strong {overflow: hidden; font: 700 12px/1.1 var(--phone-os-font); text-overflow: ellipsis; white-space: nowrap;}
+.tavern-bank-record-body span {color: var(--bank-muted); font: 520 8px/1.3 var(--phone-os-font);}
+.tavern-bank-record-net {color: var(--bank-muted); font: 780 13px/1 var(--xb-font-mono);}
+.tavern-bank-record-net.is-positive {color: var(--bank-green);}
+.tavern-bank-record-net.is-negative {color: var(--bank-red);}
+.tavern-bank-record-detail {grid-column: 1 / -1; border-top: 1px dashed var(--bank-line); padding-top: 8px;}
+.tavern-bank-record-detail summary {cursor: pointer; color: var(--bank-green-deep); font: 650 8px/1.2 var(--phone-os-font); list-style: none;}
+.tavern-bank-record-detail summary::-webkit-details-marker {display: none;}
+.tavern-bank-record-detail summary::after {content: "＋"; float: right; color: var(--bank-gold); font: 700 10px/1 var(--xb-font-mono);}
+.tavern-bank-record-detail[open] summary::after {content: "－";}
+.tavern-bank-record-detail dl {display: grid; gap: 0; margin: 8px 0 0; border: 1px solid var(--bank-line); border-radius: 8px; background: color-mix(in srgb, var(--bank-green) 4%, transparent); padding: 2px 8px;}
+.tavern-bank-record-detail dl > div {display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 8px; border-bottom: 1px dashed var(--bank-line); padding: 7px 0;}
+.tavern-bank-record-detail dl > div:last-child {border-bottom: 0;}
+.tavern-bank-record-detail dt {color: var(--bank-muted); font: 620 7px/1.35 var(--xb-font-mono);}
+.tavern-bank-record-detail dd {min-width: 0; margin: 0; color: var(--bank-ink); font: 540 8px/1.45 var(--phone-os-font); overflow-wrap: anywhere; text-align: right;}
+
+.tavern-bank-app button:focus-visible {outline: 2px solid var(--bank-green); outline-offset: 2px;}
+
+.tavern-bank-dialog-backdrop {position: fixed; z-index: 12070; inset: 0; display: grid; place-items: center; overflow-y: auto; background: rgba(6, 13, 10, 0.84); padding: max(18px, env(safe-area-inset-top)) 18px max(22px, env(safe-area-inset-bottom)); backdrop-filter: blur(15px) saturate(0.72);}
+.tavern-bank-dialog {--dialog-felt: #16201a; --dialog-felt-high: #1e2a22; --dialog-ink: #e9f0e2; --dialog-muted: #9db09a; --dialog-line: rgba(210, 232, 205, 0.16); --dialog-green: #4f9d84; --dialog-gold: #dfb564; width: min(360px, 100%); overflow: hidden; border: 1px solid var(--dialog-line); border-radius: 5px 18px 18px 5px; background: linear-gradient(135deg, rgba(79, 157, 132, 0.1), transparent 42%), var(--dialog-felt); color: var(--dialog-ink); box-shadow: inset 5px 0 0 var(--dialog-green), 0 28px 90px rgba(0, 0, 0, 0.6); font-family: var(--xb-font-ui);}
+.tavern-bank-dialog.is-withdraw {box-shadow: inset 5px 0 0 var(--dialog-gold), 0 28px 90px rgba(0, 0, 0, 0.66);}
+.tavern-bank-dialog header {display: grid; gap: 7px; border-bottom: 1px dashed var(--dialog-line); padding: 18px 18px 14px 22px;}
+.tavern-bank-dialog header span {color: var(--dialog-green); font: 720 8px/1 var(--xb-font-mono); letter-spacing: 0.2em;}
+.tavern-bank-dialog.is-withdraw header span {color: var(--dialog-gold);}
+.tavern-bank-dialog header strong {font: 740 20px/1.18 var(--xb-font-ui);}
+.tavern-bank-dialog > p {margin: 0; color: var(--dialog-muted); padding: 14px 18px 6px 22px; font: 510 11px/1.55 var(--xb-font-ui);}
+.tavern-bank-dialog-amount {display: grid; gap: 6px; padding: 8px 18px 4px 22px;}
+.tavern-bank-dialog-amount label {display: grid; gap: 6px;}
+.tavern-bank-dialog-amount label > span {color: var(--dialog-gold); font: 660 8px/1 var(--xb-font-mono); letter-spacing: 0.08em;}
+.tavern-bank-dialog-amount .tavern-bank-amount-field {grid-template-columns: 40px minmax(60px, 1fr) 40px; width: 100%;}
+.tavern-bank-dialog-amount .tavern-bank-amount-field button {width: 40px; height: 42px; border-color: var(--dialog-line); background: rgba(255, 255, 255, 0.05); color: var(--dialog-green);}
+.tavern-bank-dialog-amount .tavern-bank-amount-field input {border-color: var(--dialog-line); background: rgba(255, 255, 255, 0.045); color: var(--dialog-ink);}
+.tavern-bank-dialog-amount .tavern-bank-amount-field input:focus {border-color: var(--dialog-green); box-shadow: 0 0 0 3px rgba(79, 157, 132, 0.16);}
+.tavern-bank-dialog-amount > small {color: var(--dialog-muted); font: 540 9px/1.35 var(--xb-font-ui);}
+.tavern-bank-dialog-receipt {display: grid; gap: 0; margin: 10px 18px 2px 22px; border: 1px solid var(--dialog-line); border-radius: 10px; background: rgba(255, 255, 255, 0.03); padding: 3px 10px;}
+.tavern-bank-dialog-receipt > div {display: grid; grid-template-columns: 54px minmax(0, 1fr); gap: 8px; border-bottom: 1px dashed var(--dialog-line); padding: 8px 0;}
+.tavern-bank-dialog-receipt > div:last-child {border-bottom: 0;}
+.tavern-bank-dialog-receipt dt {color: var(--dialog-muted); font: 620 8px/1.3 var(--xb-font-mono);}
+.tavern-bank-dialog-receipt dd {margin: 0; color: var(--dialog-ink); font: 610 9px/1.35 var(--xb-font-ui); text-align: right;}
+.tavern-bank-dialog-error {margin: 10px 18px 0 22px; border: 1px solid rgba(207, 97, 82, 0.32); border-radius: 9px; background: rgba(207, 97, 82, 0.08); color: #e89184; padding: 9px 10px; font: 560 9px/1.45 var(--xb-font-ui);}
+.tavern-bank-dialog footer {display: grid; grid-template-columns: 1fr 1.25fr; gap: 8px; padding: 14px 18px 18px 22px;}
+.tavern-bank-dialog footer button {min-height: 42px; border: 1px solid var(--dialog-line); border-radius: 10px; background: rgba(255, 255, 255, 0.045); color: var(--dialog-muted); font: 680 11px/1 var(--xb-font-ui);}
+.tavern-bank-dialog footer button:last-child {border-color: color-mix(in srgb, var(--dialog-green) 65%, transparent); background: linear-gradient(180deg, var(--dialog-green), #2f6f5b); color: #f4faf1;}
+.tavern-bank-dialog.is-withdraw footer button:last-child {border-color: color-mix(in srgb, var(--dialog-gold) 65%, transparent); background: linear-gradient(180deg, var(--dialog-gold), #a97e24); color: #2c1f06;}
+.tavern-bank-dialog footer button:disabled {opacity: 0.5;}
+.tavern-bank-dialog footer button:focus-visible,
+.tavern-bank-dialog-amount input:focus-visible {outline: 2px solid var(--dialog-gold); outline-offset: 2px;}
+.tavern-phone-device.is-mobile-fullscreen .tavern-bank-dialog-amount input {font-size: 16px;}
+
+@media (max-width: 380px), (max-height: 690px) {
+    .tavern-bank-head {min-height: 68px; padding-top: 9px;}
+    .tavern-bank-head h2 {font-size: 25px;}
+    .tavern-bank-scroll {padding-right: 10px; padding-left: 10px;}
+    .tavern-bank-push-pot strong,
+    .tavern-bank-ladder-pot strong {font-size: 26px;}
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .tavern-bank-product,
+    .tavern-bank-ladder-choice,
+    .tavern-bank-tabs button::after {transition-duration: 0.01ms;}
+    .tavern-bank-loading span {animation: none;}
+}

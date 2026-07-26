@@ -362,6 +362,14 @@ async function ensureEconomyInCurrentDbTransaction(sessionId: string): Promise<T
     };
 }
 
+/**
+ * Ensures the Economy opening fact inside a caller-owned transaction. The
+ * caller must include sessions, economyAccounts and economyTransactions.
+ */
+export async function ensureTavernEconomyInCurrentDbTransaction(sessionId = ''): Promise<TavernEconomySummary> {
+    return await ensureEconomyInCurrentDbTransaction(normalizeSessionId(sessionId));
+}
+
 export async function ensureTavernEconomy(sessionId = ''): Promise<TavernEconomySummary> {
     const id = normalizeSessionId(sessionId);
     return await db.transaction(

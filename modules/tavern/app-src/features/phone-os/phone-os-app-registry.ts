@@ -7,12 +7,16 @@ import TavernTasksApp from '../../components/phone-os/apps/tasks/TavernTasksApp.
 import TavernTasksIcon from '../../components/phone-os/apps/tasks/TavernTasksIcon.vue';
 import TavernShopApp from '../../components/phone-os/apps/shop/TavernShopApp.vue';
 import TavernShopIcon from '../../components/phone-os/apps/shop/TavernShopIcon.vue';
+import TavernBankApp from '../../components/phone-os/apps/bank/TavernBankApp.vue';
+import TavernBankIcon from '../../components/phone-os/apps/bank/TavernBankIcon.vue';
 import type { useTavernMessagesController } from './apps/messages/useTavernMessagesController';
 import type { useTavernWalletController } from './apps/wallet/useTavernWalletController';
 import type { useTavernTasksController } from './apps/tasks/useTavernTasksController';
 import type { useTavernShopController } from './apps/shop/useTavernShopController';
+import type { useTavernBankController } from './apps/bank/useTavernBankController';
 import {
     defineTavernPhoneApps,
+    TAVERN_PHONE_BANK_APP_ID,
     TAVERN_PHONE_MESSAGES_APP_ID,
     TAVERN_PHONE_SHOP_APP_ID,
     TAVERN_PHONE_TASKS_APP_ID,
@@ -24,12 +28,14 @@ type TavernMessagesController = ReturnType<typeof useTavernMessagesController>;
 type TavernWalletController = ReturnType<typeof useTavernWalletController>;
 type TavernTasksController = ReturnType<typeof useTavernTasksController>;
 type TavernShopController = ReturnType<typeof useTavernShopController>;
+type TavernBankController = ReturnType<typeof useTavernBankController>;
 
 export function createTavernPhoneAppRegistry(input: {
     messages: Pick<TavernMessagesController, 'prepareMessages' | 'unreadTotal'>;
     wallet: Pick<TavernWalletController, 'prepareWallet'>;
     tasks: Pick<TavernTasksController, 'prepareTasks' | 'cancelTransientRequests'>;
     shop: Pick<TavernShopController, 'prepareShop'>;
+    bank: Pick<TavernBankController, 'prepareBank'>;
 }): readonly TavernPhoneAppDefinition[] {
     return defineTavernPhoneApps([
         {
@@ -84,6 +90,22 @@ export function createTavernPhoneAppRegistry(input: {
             onActivate: async () => {
                 await Promise.all([
                     input.shop.prepareShop(),
+                    input.wallet.prepareWallet(),
+                ]);
+            },
+        },
+        {
+            id: TAVERN_PHONE_BANK_APP_ID,
+            name: '银行',
+            shortName: '银行',
+            iconComponent: markRaw(TavernBankIcon),
+            accent: '#2f6f5b',
+            rootPath: '/vault',
+            order: 50,
+            component: markRaw(TavernBankApp),
+            onActivate: async () => {
+                await Promise.all([
+                    input.bank.prepareBank(),
                     input.wallet.prepareWallet(),
                 ]);
             },

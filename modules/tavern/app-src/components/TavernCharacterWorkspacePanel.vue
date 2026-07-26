@@ -610,6 +610,10 @@ watch(
                 <dt>商店</dt>
                 <dd>{{ characterArchiveSyncState.result.counts.shop }}</dd>
               </div>
+              <div>
+                <dt>银行</dt>
+                <dd>{{ characterArchiveSyncState.result.counts.bank }}</dd>
+              </div>
             </dl>
           </div>
         </section>

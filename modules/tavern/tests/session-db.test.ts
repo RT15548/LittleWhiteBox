@@ -7935,6 +7935,14 @@ test('rollback impact reports status-only manager writes as state rollback', asy
             deletedVersionCount: 0,
             affectedItemCount: 0,
         },
+        bank: {
+            changed: false,
+            targetFloor: assistantMessage.order - 1,
+            deletedVersionCount: 0,
+            deletedActivityCount: 0,
+            affectedPositionCount: 0,
+            activeGameAffected: false,
+        },
         economy: {
             changed: false,
             targetFloor: assistantMessage.order - 1,

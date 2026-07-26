@@ -28,6 +28,10 @@ import type {
 import type {
     TavernShopStateVersionRecord,
 } from './shop/shop-types';
+import type {
+    TavernBankActivityRecord,
+    TavernBankStateVersionRecord,
+} from './bank/bank-types';
 
 export type TavernCharacterArchiveMode = 'backup' | 'restore' | '';
 
@@ -62,6 +66,7 @@ export interface TavernCharacterArchiveCounts {
     economy: number;
     tasks: number;
     shop: number;
+    bank: number;
 }
 
 export interface TavernCharacterArchivePartManifest {
@@ -73,7 +78,7 @@ export interface TavernCharacterArchivePartManifest {
     sha256: string;
 }
 
-export const CURRENT_TAVERN_CHARACTER_ARCHIVE_VERSION = 6 as const;
+export const CURRENT_TAVERN_CHARACTER_ARCHIVE_VERSION = 7 as const;
 
 export interface TavernCharacterArchiveManifest {
     version: typeof CURRENT_TAVERN_CHARACTER_ARCHIVE_VERSION;
@@ -126,6 +131,8 @@ export const TAVERN_CHARACTER_ARCHIVE_TABLES = [
     'taskBoards',
     'taskVersions',
     'shopStateVersions',
+    'bankStateVersions',
+    'bankActivities',
 ] as const;
 
 export type TavernCharacterArchiveTable = typeof TAVERN_CHARACTER_ARCHIVE_TABLES[number];
@@ -153,6 +160,8 @@ export type TavernCharacterArchiveRecordPayload = {
     taskBoards: TavernTaskBoardRecord;
     taskVersions: TavernTaskVersionRecord;
     shopStateVersions: TavernShopStateVersionRecord;
+    bankStateVersions: TavernBankStateVersionRecord;
+    bankActivities: TavernBankActivityRecord;
 };
 
 export type TavernCharacterArchiveRecord<TTable extends TavernCharacterArchiveTable = TavernCharacterArchiveTable> = {
@@ -188,5 +197,6 @@ export function createEmptyTavernCharacterArchiveCounts(): TavernCharacterArchiv
         economy: 0,
         tasks: 0,
         shop: 0,
+        bank: 0,
     };
 }

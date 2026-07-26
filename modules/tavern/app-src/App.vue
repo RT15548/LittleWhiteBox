@@ -47,7 +47,6 @@ import {
     normalizeTavernSessionState,
     queueAcceptedTurnManagerRetry,
     replaceTavernAssistantChatMessages,
-    truncateTavernMessagesAndReplaceSessionState,
     updateTavernSessionState,
     updateTavernAssistantChatMessage,
     updateTavernMessage,
@@ -130,10 +129,11 @@ import {
     TAVERN_ASSISTANT_CHAT_MAX_CONTEXT_TOKENS,
 } from './runtime/assistant-chat-context';
 import {
-    cancelAcceptedRollbackManagersBeforeMessage,
     describeAcceptedStateRollbackImpact,
+    isAcceptedRollbackInProgress,
     rollbackImpactLines,
-    restoreAcceptedStateBeforeMessage,
+    truncateAcceptedStoryMessagesAndRestoreState,
+    updateAcceptedStoryMessageAndRestoreState,
 } from './features/accepted-rollback/accepted-rollback';
 import {
     useTavernRuntimeDisplayProjection,
@@ -1118,6 +1118,7 @@ const phoneContext = useTavernPhoneController({
     chatCancelling: isCancellingRun,
     memoryEditorMode,
     characterArchiveBusy: computed(() => characterArchiveSyncState.value.busy),
+    acceptedRollbackBusy: computed(() => isAcceptedRollbackInProgress(selectedSessionId.value)),
     requestHost,
     refreshContextSnapshot: refreshPhoneContextSnapshot,
     getNativeWorldInfoRuntime: getNativeWorldbookRuntime,
@@ -2585,6 +2586,7 @@ function summarizeArchiveCounts(counts = createEmptyTavernCharacterArchiveCounts
         `${Number(counts.economy) || 0} 条经济数据`,
         `${Number(counts.tasks) || 0} 条任务数据`,
         `${Number(counts.shop) || 0} 条商店数据`,
+        `${Number(counts.bank) || 0} 条银行数据`,
     ].join('，');
 }
 
@@ -3976,19 +3978,25 @@ async function saveEditMessage(message: TavernMessageRecord, options: { rollback
     }
     const substitutedContent = await substituteEditedMessageContent(message, content);
     const regexedContent = await applyEditRegexToMessageContent(message, substitutedContent);
-    drawContext.cancelJob(messageKey(message));
-    const updated = await updateTavernMessage(message.sessionId, message.order, {
-        content: regexedContent,
-    }, {
-        incrementTimelineRevision: true,
-    });
+    const applyEdit = async () => {
+        drawContext.cancelJob(messageKey(message));
+        if (shouldRollbackState) {
+            return await updateAcceptedStoryMessageAndRestoreState({
+                sessionId: message.sessionId,
+                order: message.order,
+                content: regexedContent,
+            });
+        }
+        return await updateTavernMessage(message.sessionId, message.order, {
+            content: regexedContent,
+        }, {
+            incrementTimelineRevision: true,
+        });
+    };
+    const updated = await applyEdit();
     if (!updated) {
         flashMessageAction(message, 'edit', false);
         return;
-    }
-    if (shouldRollbackState) {
-        await cancelAcceptedRollbackManagersBeforeMessage(message.sessionId, message.order);
-        await restoreAcceptedStateBeforeMessage(message.sessionId, message.order);
     }
     if (selectedSessionId.value === message.sessionId) {
         await loadSelectedSessionMessageWindow({ sessionId: message.sessionId });
@@ -4084,13 +4092,13 @@ async function deleteMessageTurn(message: TavernMessageRecord) {
         return;
     }
     drawContext.cancelJobsForMessageRange(message.sessionId, fromOrder);
-    await cancelAcceptedRollbackManagersBeforeMessage(message.sessionId, fromOrder);
-    const mutation = await truncateTavernMessagesAndReplaceSessionState(message.sessionId, fromOrder, boundaryState);
+    const mutation = await truncateAcceptedStoryMessagesAndRestoreState({
+        sessionId: message.sessionId,
+        fromOrder,
+        state: boundaryState,
+    });
     if (!mutation.session) {throw new Error('session_missing');}
     const deleted = mutation.deleted;
-    if (deleted > 0) {
-        await restoreAcceptedStateBeforeMessage(message.sessionId, fromOrder);
-    }
     if (selectedSessionId.value === message.sessionId) {
         resetChatMessageWindowState();
         await loadSelectedSessionMessageWindow({ sessionId: message.sessionId });
