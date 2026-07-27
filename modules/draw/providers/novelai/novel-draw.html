@@ -154,6 +154,18 @@ select.input { cursor: pointer; }
 .btn-danger:hover { background: rgba(248, 81, 73, 0.1); }
 .btn-icon { width: 40px; padding: 0; }
 .btn-group { display: flex; gap: 8px; flex-wrap: wrap; }
+.nd-mode-btn.mode-active { background: var(--accent); border-color: var(--accent); color: #000; font-weight: 500; }
+.nd-mode-btn.mode-active:hover { background: #e5b685; }
+.nd-backend-panel { margin-top: 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-tertiary); }
+.nd-backend-status-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.nd-status-dot { width: 10px; height: 10px; border-radius: 50%; background: #888; flex: 0 0 auto; }
+.nd-status-dot.ok { background: #3ecf8e; box-shadow: 0 0 6px rgba(62,207,142,0.6); }
+.nd-status-dot.bad { background: #f85149; box-shadow: 0 0 6px rgba(248,81,73,0.6); }
+.nd-status-dot.checking { background: #f0b429; }
+.nd-status-txt { font-size: 13px; color: var(--text-primary); flex: 1 1 auto; }
+.nd-backend-status-row .btn-sm { margin-left: auto; }
+.nd-guide-steps { margin: 6px 0 0; padding-left: 20px; font-size: 12px; color: var(--text-secondary, #aaa); line-height: 1.7; }
+.nd-guide-steps code { background: rgba(255,255,255,0.08); padding: 1px 5px; border-radius: 4px; font-size: 11px; }
 .btn-sm { padding: 6px 10px; min-height: 32px; font-size: 12px; }
 .btn.saving { pointer-events: none; opacity: 0.7; }
 .btn.save-success { background: var(--success) !important; border-color: var(--success) !important; color: #fff !important; pointer-events: none; }
@@ -701,6 +713,41 @@ select.input { cursor: pointer; }
                             <button id="nd_toggle_key" class="btn btn-icon"><i class="fa-solid fa-eye"></i></button>
                         </div>
                         <p class="form-hint">仅存储在本地浏览器</p>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">第三方端点 URL（可选）</label>
+                        <div class="input-row">
+                            <input id="nd_api_base_url" type="text" class="input" placeholder="https://image.novelai.net">
+                            <button id="nd_reset_base_url" class="btn btn-icon" title="重置为官方地址"><i class="fa-solid fa-rotate-left"></i></button>
+                        </div>
+                        <p class="form-hint">留空使用官方端点。填写中转/反代地址时只需填根地址（如 https://xxx.com），会自动追加 /ai/generate-image；点重置按钮可恢复为官方地址。</p>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">发送方式</label>
+                        <div class="btn-group" id="nd_send_mode_group">
+                            <button type="button" class="btn nd-mode-btn" data-send-mode="frontend"><i class="fa-solid fa-globe"></i> 前端直连</button>
+                            <button type="button" class="btn nd-mode-btn" data-send-mode="backend"><i class="fa-solid fa-server"></i> 后端发送</button>
+                        </div>
+                        <label class="check-row" style="margin-top:8px;"><input type="checkbox" id="nd_insecure_tls"> 忽略证书验证（仅后端发送模式、连接自签证书端点时勾选）</label>
+                        <p class="form-hint">前端直连：浏览器直接请求（需对方支持 CORS + 有效证书）。后端发送：由酒馆后端代发，可绕过 CORS 与自签证书。</p>
+
+                        <!-- 后端插件状态栏（仅后端发送模式显示） -->
+                        <div id="nd_backend_panel" class="nd-backend-panel hidden">
+                            <div class="nd-backend-status-row">
+                                <span id="nd_backend_dot" class="nd-status-dot"></span>
+                                <span id="nd_backend_status_text" class="nd-status-txt">检测中...</span>
+                                <button id="nd_backend_recheck" class="btn btn-sm" type="button"><i class="fa-solid fa-rotate"></i> 重新检测</button>
+                            </div>
+                            <div id="nd_backend_guide" class="nd-backend-guide hidden">
+                                <p class="form-hint" style="margin-top:4px;">后端插件未就绪。插件文件已随 LittleWhiteBox 一起下载，只需手动搬到酒馆的后端插件目录并重启：</p>
+                                <ol class="nd-guide-steps">
+                                    <li>找到插件文件夹（在本扩展目录下）：<br><code>SillyTavern/public/scripts/extensions/third-party/LittleWhiteBox/server-plugin/littlewhitebox-nai/</code></li>
+                                    <li>把整个 <code>littlewhitebox-nai</code> 文件夹（含 <code>index.js</code> / <code>package.json</code> / <code>manifest.json</code>）剪切或复制到：<br><code>SillyTavern/plugins/littlewhitebox-nai/</code></li>
+                                    <li>用文本编辑器打开 <code>SillyTavern/config.yaml</code>，找到 <code>enableServerPlugins</code> 一行改为 <code>enableServerPlugins: true</code>（若没有这一行就新增）</li>
+                                    <li>完全关闭并重启 SillyTavern，回到这里点“重新检测”</li>
+                                </ol>
+                            </div>
+                        </div>
                     </div>
                     <div class="form-row">
                         <div class="form-group">
@@ -1375,6 +1422,9 @@ let state = {
     enabled: false,
     mode: 'manual',
     apiKey: '',
+    apiBaseUrl: '',
+    sendMode: 'frontend',
+    insecureTLS: false,
     timeout: DEFAULTS.timeout,
     requestDelay: { ...DEFAULTS.requestDelay },
     cacheDays: DEFAULTS.cacheDays,
@@ -1505,6 +1555,41 @@ function switchView(viewId) {
 
 function updateModeButtons(mode) {
     $$('.header-mode button').forEach(btn => btn.classList.toggle('active', btn.dataset.mode === mode));
+}
+
+function updateSendModeUI(mode) {
+    const m = mode === 'backend' ? 'backend' : 'frontend';
+    const group = $('nd_send_mode_group');
+    if (group) {
+        group.querySelectorAll('.nd-mode-btn').forEach(btn => {
+            btn.classList.toggle('mode-active', btn.dataset.sendMode === m);
+        });
+    }
+    state.sendMode = m;
+    const panel = $('nd_backend_panel');
+    if (panel) {
+        panel.classList.toggle('hidden', m !== 'backend');
+        if (m === 'backend') requestBackendPluginCheck();
+    }
+}
+
+function requestBackendPluginCheck() {
+    setBackendStatusUI('checking', '检测中...');
+    postToParent({ type: 'CHECK_BACKEND_PLUGIN' });
+}
+
+function setBackendStatusUI(state, text) {
+    const dot = $('nd_backend_dot');
+    const txt = $('nd_backend_status_text');
+    const guide = $('nd_backend_guide');
+    if (dot) dot.className = 'nd-status-dot ' + (state === 'ok' ? 'ok' : state === 'bad' ? 'bad' : 'checking');
+    if (txt) txt.textContent = text || '';
+    if (guide) guide.classList.toggle('hidden', state !== 'bad');
+}
+
+function getSendMode() {
+    const active = $('nd_send_mode_group')?.querySelector('.nd-mode-btn.mode-active');
+    return active?.dataset?.sendMode === 'backend' ? 'backend' : 'frontend';
 }
 
 function updateBadge(enabled) {
@@ -2411,6 +2496,9 @@ function applyStateToUI() {
         $('nd_show_floating').checked = state.showFloatingButton === true;
 
         $('nd_api_key').value = state.apiKey || '';
+        $('nd_api_base_url').value = state.apiBaseUrl || '';
+        updateSendModeUI(state.sendMode === 'backend' ? 'backend' : 'frontend');
+        $('nd_insecure_tls').checked = state.insecureTLS === true;
         $('nd_timeout').value = Math.round((state.timeout > 0 ? state.timeout : DEFAULTS.timeout) / 1000);
         const dMin = state.requestDelay?.min > 0 ? state.requestDelay.min : DEFAULTS.requestDelay.min;
         const dMax = state.requestDelay?.max > 0 ? state.requestDelay.max : DEFAULTS.requestDelay.max;
@@ -2611,6 +2699,22 @@ window.addEventListener('message', event => {
             $('nd_preview_img').src = data.url;
             $('nd_preview').classList.add('visible');
             break;
+
+        case 'BACKEND_PLUGIN_STATUS': {
+            const st = data.status || {};
+            if (st.ready) {
+                setBackendStatusUI('ok', `后端插件已就绪${st.version ? '（v' + st.version + '）' : ''}`);
+            } else {
+                const reasonText = st.reason === 'unreachable'
+                    ? '无法连接后端（可能未开启 enableServerPlugins）'
+                    : st.reason === 'not_installed'
+                        ? '后端插件未安装'
+                        : '后端插件未就绪';
+                setBackendStatusUI('bad', reasonText);
+            }
+            break;
+        }
+
             
         case 'STATUS':
             if (data.target === 'worldbook') {
@@ -2780,17 +2884,64 @@ document.addEventListener('DOMContentLoaded', () => {
         else { i.type = 'password'; ic.className = 'fa-solid fa-eye'; }
     });
     
+    $('nd_reset_base_url').addEventListener('click', () => {
+        $('nd_api_base_url').value = '';
+        setSavingState($('nd_save_api'));
+        postToParent({
+            type: 'SAVE_API_CONFIG',
+            apiKey: $('nd_api_key').value.trim(),
+            apiBaseUrl: '',
+            sendMode: getSendMode(),
+            insecureTLS: $('nd_insecure_tls').checked,
+            timeout: Number($('nd_timeout').value) * 1000 || 180000,
+            requestDelay: parseDelay($('nd_delay').value)
+        });
+    });
+
+    $('nd_send_mode_group').querySelectorAll('.nd-mode-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            const mode = btn.dataset.sendMode === 'backend' ? 'backend' : 'frontend';
+            updateSendModeUI(mode);
+            postToParent({
+                type: 'SAVE_API_CONFIG',
+                apiKey: $('nd_api_key').value.trim(),
+                apiBaseUrl: $('nd_api_base_url').value.trim(),
+                sendMode: mode,
+                insecureTLS: $('nd_insecure_tls').checked,
+                timeout: Number($('nd_timeout').value) * 1000 || 180000,
+                requestDelay: parseDelay($('nd_delay').value)
+            });
+        });
+    });
+
+    $('nd_insecure_tls').addEventListener('change', () => {
+        postToParent({
+            type: 'SAVE_API_CONFIG',
+            apiKey: $('nd_api_key').value.trim(),
+            apiBaseUrl: $('nd_api_base_url').value.trim(),
+            sendMode: getSendMode(),
+            insecureTLS: $('nd_insecure_tls').checked,
+            timeout: Number($('nd_timeout').value) * 1000 || 180000,
+            requestDelay: parseDelay($('nd_delay').value)
+        });
+    });
+
+    $('nd_backend_recheck').addEventListener('click', () => requestBackendPluginCheck());
+
     $('nd_save_api').addEventListener('click', () => {
         setSavingState($('nd_save_api'));
         postToParent({
             type: 'SAVE_API_CONFIG',
             apiKey: $('nd_api_key').value.trim(),
+            apiBaseUrl: $('nd_api_base_url').value.trim(),
+            sendMode: getSendMode(),
+            insecureTLS: $('nd_insecure_tls').checked,
             timeout: Number($('nd_timeout').value) * 1000 || 180000,
             requestDelay: parseDelay($('nd_delay').value)
         });
     });
     
-    $('nd_test_api').addEventListener('click', () => postToParent({ type: 'TEST_API', apiKey: $('nd_api_key').value.trim() }));
+    $('nd_test_api').addEventListener('click', () => postToParent({ type: 'TEST_API', apiKey: $('nd_api_key').value.trim(), apiBaseUrl: $('nd_api_base_url').value.trim(), sendMode: getSendMode(), insecureTLS: $('nd_insecure_tls').checked }));
     
     $('nd_test_single').addEventListener('click', () => postToParent({ type: 'TEST_SINGLE', tags: $('nd_test_tags').value }));
     
