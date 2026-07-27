@@ -42,9 +42,8 @@
 
 .tavern-bank-head {min-height: 68px; display: flex; align-items: end; justify-content: space-between; gap: 14px; border-bottom: 1px solid var(--bank-line); background: color-mix(in srgb, var(--bank-felt-high) 84%, transparent); padding: 14px 15px 11px 18px;}
 .tavern-bank-head h2 {margin: 0; font: 760 28px/1 var(--phone-os-font); letter-spacing: -0.035em;}
-.tavern-bank-balance {min-width: 92px; min-height: 45px; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 3px 8px; border: 1px solid color-mix(in srgb, var(--bank-gold) 42%, var(--bank-line)); border-radius: 6px 14px 14px 6px; background: linear-gradient(125deg, color-mix(in srgb, var(--bank-gold) 12%, var(--bank-felt-high)), var(--bank-felt-high)); color: var(--bank-ink); padding: 7px 9px 7px 11px; box-shadow: inset 3px 0 0 color-mix(in srgb, var(--bank-gold) 58%, transparent);}
-.tavern-bank-balance span {grid-column: 1 / -1; color: var(--bank-muted); font: 650 7px/1 var(--xb-font-mono); letter-spacing: 0.12em; text-align: right;}
-.tavern-bank-balance strong {grid-column: 1 / -1; overflow: hidden; color: var(--bank-gold); font: 780 17px/1 var(--xb-font-mono); text-align: right; text-overflow: ellipsis;}
+.tavern-bank-balance {min-width: 92px; min-height: 45px; display: grid; place-items: center; border: 1px solid color-mix(in srgb, var(--bank-gold) 42%, var(--bank-line)); border-radius: 6px 14px 14px 6px; background: linear-gradient(125deg, color-mix(in srgb, var(--bank-gold) 12%, var(--bank-felt-high)), var(--bank-felt-high)); color: var(--bank-ink); padding: 7px 11px; box-shadow: inset 3px 0 0 color-mix(in srgb, var(--bank-gold) 58%, transparent);}
+.tavern-bank-balance strong {max-width: 100%; overflow: hidden; color: var(--bank-gold); font: 780 17px/1 var(--xb-font-mono); text-align: center; text-overflow: ellipsis;}
 .tavern-phone-device .tavern-bank-balance:hover {border-color: var(--bank-gold); background: color-mix(in srgb, var(--bank-gold) 10%, var(--bank-felt-high));}
 
 .tavern-bank-tabs {display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 5px; border-bottom: 1px solid var(--bank-line); background: color-mix(in srgb, var(--bank-felt-high) 72%, transparent); padding: 6px 8px;}

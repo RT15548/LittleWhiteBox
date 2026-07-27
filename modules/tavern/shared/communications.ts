@@ -809,7 +809,7 @@ function buildCommunicationTimelineEventContent(input: {
         `${message.role === 'user' ? playerName : contactName}（${tavernCommunicationPayloadTypeLabel(message.payload)}）：${escapeCommunicationEvidence(tavernCommunicationPayloadText(message.payload))}`
     ));
     return [
-        `[${escapeCommunicationEvidence(playerName)} 与 ${escapeCommunicationEvidence(contactName)} 的私人消息 · 发生于剧情此刻]`,
+        `[${escapeCommunicationEvidence(playerName)} 与 ${escapeCommunicationEvidence(contactName)} 发生了信息互动，内容是：]`,
         ...lines,
     ].join('\n');
 }
@@ -867,7 +867,7 @@ export async function listTavernCommunicationTimelineEvents(
                 createdAt: Math.min(...sorted.map((message) => message.createdAt)),
                 content,
                 message: {
-                    role: 'system',
+                    role: 'user',
                     name: 'private_message',
                     content,
                 },

@@ -20,7 +20,6 @@ const emit = defineEmits<{
         aria-hidden="true"
       >{{ row.item.icon }}</span>
       <div>
-        <small>{{ row.categoryLabel }}</small>
         <h3>{{ row.item.name }}</h3>
       </div>
       <strong class="tavern-shop-price">

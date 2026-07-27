@@ -15776,7 +15776,7 @@ function Rne(e = {}) {
   return e.hasCommunicationEvidence !== !0 ? "" : [
     "## Private Message Evidence",
     "",
-    "- A source block headed `[A 与 B 的私人消息 · 发生于剧情此刻]` is an already-occurred private exchange at that timeline position.",
+    "- A source block headed `[A 与 B 发生了信息互动，内容是：]` is an already-occurred private exchange at that timeline position.",
     "- Only the named participants know its contents by default.",
     "- Plans, invitations, and promises in those messages establish communication facts only. Do not record the related physical action as completed unless later RP evidence confirms it."
   ].join(`
@@ -30512,7 +30512,7 @@ function RA(e) {
 }
 function Hie(e) {
   const t = YT(e.playerName, 120) || "用户", n = YT(e.contactName, 120) || "联系人", r = e.messages.map((a) => `${a.role === "user" ? t : n}（${ax(a.payload)}）：${RA(Bv(a.payload))}`);
-  return [`[${RA(t)} 与 ${RA(n)} 的私人消息 · 发生于剧情此刻]`, ...r].join(`
+  return [`[${RA(t)} 与 ${RA(n)} 发生了信息互动，内容是：]`, ...r].join(`
 `);
 }
 async function m3(e = "", t = {}) {
@@ -30542,7 +30542,7 @@ async function m3(e = "", t = {}) {
       createdAt: Math.min(...y.map((T) => T.createdAt)),
       content: A,
       message: {
-        role: "system",
+        role: "user",
         name: "private_message",
         content: A
       }
@@ -59935,7 +59935,7 @@ function pIe() {
     name: "private_message_protocol",
     content: [
       "<private_message_rules>",
-      "标有“私人消息 · 发生于剧情此刻”的历史片段，是在对应剧情位置已经发生的私人通讯。",
+      "标有“发生了信息互动”的历史片段，是在对应剧情位置已经发生的私人通讯。",
       "默认只有片段中点名的参与者知道消息内容。",
       "消息里的计划、邀请和承诺只表示通讯事实；除非后续剧情明确确认，不得视为对应现场行动已经完成。",
       "</private_message_rules>"
@@ -64249,7 +64249,7 @@ var o1e = {
       return Array.from(String(h || "").trim())[0] || "·";
     }
     function c(h) {
-      h.key !== "Enter" || h.shiftKey || h.isComposing || (h.preventDefault(), n.canSend && a("send"));
+      h.key === "Enter" && (h.isComposing || h.shiftKey || h.altKey || (h.ctrlKey || h.metaKey || window.innerWidth >= 760) && (h.preventDefault(), n.canSend && a("send")));
     }
     function d() {
       const h = i.value;
@@ -65972,7 +65972,7 @@ var cMe = /* @__PURE__ */ kh(oMe, [["render", uMe]]), dMe = { id: "tavern-shop-d
     return (r, a) => (C(), N("article", GMe, [
       f("header", null, [
         f("span", JMe, L(e.row.item.icon), 1),
-        f("div", null, [f("small", null, L(e.row.categoryLabel), 1), f("h3", null, L(e.row.item.name), 1)]),
+        f("div", null, [f("h3", null, L(e.row.item.name), 1)]),
         f("strong", jMe, [a[1] || (a[1] = f("i", { "aria-hidden": "true" }, "币", -1)), lr(L(e.row.item.price), 1)])
       ]),
       f("p", null, L(e.row.item.description), 1),
@@ -66113,12 +66113,12 @@ var cMe = /* @__PURE__ */ kh(oMe, [["render", uMe]]), dMe = { id: "tavern-shop-d
       }
     }
     return ct(() => n.selectedSessionId.value, c), (y, A) => (C(), N(Le, null, [s.value ? (C(), N("section", iRe, [
-      f("header", oRe, [A[6] || (A[6] = f("h2", null, "商店", -1)), f("button", {
+      f("header", oRe, [A[5] || (A[5] = f("h2", null, "商店", -1)), f("button", {
         type: "button",
         class: "tavern-shop-balance",
         title: k(t).wallet.balanceError.value || "打开钱包",
         onClick: A[0] || (A[0] = (...T) => k(t).openWallet && k(t).openWallet(...T))
-      }, [A[5] || (A[5] = f("span", null, "小白币", -1)), f("strong", null, L(o.value), 1)], 8, lRe)]),
+      }, [f("strong", null, L(o.value), 1)], 8, lRe)]),
       f("nav", uRe, [f("button", {
         type: "button",
         class: Me({ "is-active": a.value === bf }),
@@ -66129,7 +66129,7 @@ var cMe = /* @__PURE__ */ kh(oMe, [["render", uMe]]), dMe = { id: "tavern-shop-d
         class: Me({ "is-active": a.value === X_ }),
         "aria-current": a.value === X_ ? "page" : void 0,
         onClick: A[2] || (A[2] = (T) => u(X_))
-      }, [A[7] || (A[7] = lr(" 背包 ", -1)), i.value ? (C(), N("i", fRe, L(i.value > 99 ? "99+" : i.value), 1)) : ie("", !0)], 10, dRe)]),
+      }, [A[6] || (A[6] = lr(" 背包 ", -1)), i.value ? (C(), N("i", fRe, L(i.value > 99 ? "99+" : i.value), 1)) : ie("", !0)], 10, dRe)]),
       k(t).shop.status.value ? (C(), N("div", mRe, L(k(t).shop.status.value), 1)) : ie("", !0),
       a.value === bf ? (C(), _t(sRe, {
         key: 1,
@@ -66170,8 +66170,8 @@ var cMe = /* @__PURE__ */ kh(oMe, [["render", uMe]]), dMe = { id: "tavern-shop-d
         "onRetry"
       ]))
     ])) : (C(), N("section", hRe, [
-      A[8] || (A[8] = f("strong", null, "商店页面不见了", -1)),
-      A[9] || (A[9] = f("p", null, "返回货架后再试一次。", -1)),
+      A[7] || (A[7] = f("strong", null, "商店页面不见了", -1)),
+      A[8] || (A[8] = f("p", null, "返回货架后再试一次。", -1)),
       f("button", {
         type: "button",
         onClick: A[3] || (A[3] = (T) => u(bf))
@@ -67359,12 +67359,12 @@ var zPe = { class: "tavern-bank-scroll" }, GPe = {
       t.os.replaceAppRoute(Rl, o);
     }
     return (o, l) => r.value ? (C(), N("section", p$e, [
-      f("header", g$e, [l[6] || (l[6] = f("h2", null, "银行", -1)), f("button", {
+      f("header", g$e, [l[5] || (l[5] = f("h2", null, "银行", -1)), f("button", {
         type: "button",
         class: "tavern-bank-balance",
         title: k(t).wallet.balanceError.value || "打开钱包",
         onClick: l[0] || (l[0] = (...u) => k(t).openWallet && k(t).openWallet(...u))
-      }, [l[5] || (l[5] = f("span", null, "小白币", -1)), f("strong", null, L(s.value), 1)], 8, v$e)]),
+      }, [f("strong", null, L(s.value), 1)], 8, v$e)]),
       f("nav", y$e, [
         f("button", {
           type: "button",
@@ -67388,8 +67388,8 @@ var zPe = { class: "tavern-bank-scroll" }, GPe = {
       k(t).bank.status.value ? (C(), N("div", S$e, L(k(t).bank.status.value), 1)) : ie("", !0),
       n.value === k("/vault") ? (C(), _t(wPe, { key: 1 })) : n.value === k("/floor") ? (C(), _t(VPe, { key: 2 })) : n.value === k("/records") ? (C(), _t(nNe, { key: 3 })) : n.value === k("/floor/dice") ? (C(), _t(RNe, { key: 4 })) : n.value === k("/floor/push") ? (C(), _t(WNe, { key: 5 })) : n.value === k("/floor/ladder") ? (C(), _t(h$e, { key: 6 })) : ie("", !0)
     ])) : (C(), N("section", k$e, [
-      l[7] || (l[7] = f("strong", null, "银行的门牌不见了", -1)),
-      l[8] || (l[8] = f("p", null, "回到金库后再试一次。", -1)),
+      l[6] || (l[6] = f("strong", null, "银行的门牌不见了", -1)),
+      l[7] || (l[7] = f("p", null, "回到金库后再试一次。", -1)),
       f("button", {
         type: "button",
         onClick: l[4] || (l[4] = (u) => i(k("/vault")))

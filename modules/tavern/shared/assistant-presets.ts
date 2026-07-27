@@ -88,7 +88,7 @@ function buildPhoneCommunicationEvidenceSection(options: TavernManagerPromptOpti
     return [
         '## Private Message Evidence',
         '',
-        '- A source block headed `[A 与 B 的私人消息 · 发生于剧情此刻]` is an already-occurred private exchange at that timeline position.',
+        '- A source block headed `[A 与 B 发生了信息互动，内容是：]` is an already-occurred private exchange at that timeline position.',
         '- Only the named participants know its contents by default.',
         '- Plans, invitations, and promises in those messages establish communication facts only. Do not record the related physical action as completed unless later RP evidence confirms it.',
     ].join('\n');

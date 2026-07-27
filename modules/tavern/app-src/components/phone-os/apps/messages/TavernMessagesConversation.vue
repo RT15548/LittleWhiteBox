@@ -48,7 +48,10 @@ function initial(name = ''): string {
 }
 
 function handleKeydown(event: KeyboardEvent) {
-    if (event.key !== 'Enter' || event.shiftKey || event.isComposing) {return;}
+    if (event.key !== 'Enter') {return;}
+    if (event.isComposing || event.shiftKey || event.altKey) {return;}
+    const shouldSend = event.ctrlKey || event.metaKey || window.innerWidth >= 760;
+    if (!shouldSend) {return;}
     event.preventDefault();
     if (props.canSend) {emit('send');}
 }

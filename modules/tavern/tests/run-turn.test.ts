@@ -6383,7 +6383,7 @@ test('phone timeline events stay at their anchor and leave the main prompt with 
     });
     assert.match(anchored.requestSnapshot.rawRequestJson, /ANCHOR_PHONE_USER/);
     assert.match(anchored.requestSnapshot.rawRequestJson, /ANCHOR_PHONE_REPLY/);
-    assert.match(anchored.requestSnapshot.rawRequestJson, /\[沈知意 与 艾琳 的私人消息 · 发生于剧情此刻\]/);
+    assert.match(anchored.requestSnapshot.rawRequestJson, /\[沈知意 与 艾琳 发生了信息互动，内容是：\]/);
     assert.match(anchored.requestSnapshot.rawRequestJson, /沈知意（文字）：ANCHOR_PHONE_USER/);
     assert.match(anchored.requestSnapshot.rawRequestJson, /艾琳（文字）：ANCHOR_PHONE_REPLY/);
     assert.match(anchored.requestSnapshot.rawRequestJson, /private_message_rules/);
@@ -6456,7 +6456,7 @@ test('accepted-turn manager receives phone events anchored immediately before th
     assert.match(managerPrompt, /MANAGER_PHONE_USER/);
     assert.match(managerPrompt, /MANAGER_PHONE_REPLY/);
     assert.match(managerPrompt, /BEGIN UNTRUSTED PHONE EVIDENCE/);
-    assert.match(managerPrompt, /\[沈知意 与 艾琳 的私人消息 · 发生于剧情此刻\]/);
+    assert.match(managerPrompt, /\[沈知意 与 艾琳 发生了信息互动，内容是：\]/);
     assert.match(managerPrompt, /沈知意（文字）：MANAGER_PHONE_USER/);
     assert.match(managerPrompt, /艾琳（文字）：MANAGER_PHONE_REPLY/);
     assert.match(managerPrompt, /Private Message Evidence/);

@@ -343,7 +343,8 @@ test('phone communications persist independently and anchor to the current Taver
     });
     assert.equal(events.length, 1);
     assert.equal(events[0]?.anchorOrder, 1);
-    assert.match(String(events[0]?.content || ''), /^\[林晚 与 艾琳 的私人消息 · 发生于剧情此刻\]/);
+    assert.equal(events[0]?.message.role, 'user');
+    assert.match(String(events[0]?.content || ''), /^\[林晚 与 艾琳 发生了信息互动，内容是：\]/);
     assert.match(String(events[0]?.content || ''), /林晚（文字）：你在哪？/);
     assert.match(String(events[0]?.content || ''), /艾琳（语音）：我还在车站/);
     assert.match(String(events[0]?.content || ''), /艾琳（图片）：车站入口被暴雨淹没的现场照片/);

@@ -199,7 +199,7 @@ function buildPhoneCommunicationProtocolMessage(): XbTavernMessage {
         name: 'private_message_protocol',
         content: [
             '<private_message_rules>',
-            '标有“私人消息 · 发生于剧情此刻”的历史片段，是在对应剧情位置已经发生的私人通讯。',
+            '标有“发生了信息互动”的历史片段，是在对应剧情位置已经发生的私人通讯。',
             '默认只有片段中点名的参与者知道消息内容。',
             '消息里的计划、邀请和承诺只表示通讯事实；除非后续剧情明确确认，不得视为对应现场行动已经完成。',
             '</private_message_rules>',

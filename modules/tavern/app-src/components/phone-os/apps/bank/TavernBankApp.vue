@@ -49,7 +49,6 @@ function showPath(path: string) {
         :title="phone.wallet.balanceError.value || '打开钱包'"
         @click="phone.openWallet"
       >
-        <span>小白币</span>
         <strong>{{ balanceLabel }}</strong>
       </button>
     </header>
