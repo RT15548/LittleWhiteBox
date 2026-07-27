@@ -271,6 +271,38 @@ function createRenderIframe() {
     return iframe;
 }
 
+function holdManagedRuntimePlaceholder(wrapper, iframe) {
+    const existingHeight = Number(wrapper.dataset.ttRuntimePlaceholderHeight);
+    if (existingHeight > 0) return true;
+    if (!(iframe instanceof HTMLIFrameElement)) return false;
+
+    const wrapperHeight = Math.ceil(wrapper.getBoundingClientRect().height);
+    const iframeHeight = Math.ceil(iframe.getBoundingClientRect().height);
+    if (wrapperHeight <= 0 || iframeHeight <= 0) return false;
+
+    wrapper.dataset.ttRuntimePlaceholderHeight = String(wrapperHeight);
+    wrapper.dataset.ttRuntimeIframeHeight = String(iframeHeight);
+    wrapper.style.height = `${wrapperHeight}px`;
+    wrapper.style.visibility = 'hidden';
+    wrapper.setAttribute('inert', '');
+    wrapper.setAttribute('aria-hidden', 'true');
+    return true;
+}
+
+function releaseManagedRuntimePlaceholder(wrapper, iframe) {
+    const wrapperHeight = Number(wrapper.dataset.ttRuntimePlaceholderHeight);
+    const iframeHeight = Number(wrapper.dataset.ttRuntimeIframeHeight);
+    if (!(wrapperHeight > 0) || !(iframeHeight > 0)) return;
+
+    iframe.style.height = `${iframeHeight}px`;
+    delete wrapper.dataset.ttRuntimePlaceholderHeight;
+    delete wrapper.dataset.ttRuntimeIframeHeight;
+    wrapper.style.removeProperty('height');
+    wrapper.style.removeProperty('visibility');
+    wrapper.removeAttribute('inert');
+    wrapper.removeAttribute('aria-hidden');
+}
+
 function setIframeContent(iframe, html, settings) {
     const full = buildWrappedHtml(html);
     if (settings.useBlob) {
@@ -294,7 +326,8 @@ function activateManagedRuntime({ source, signal }) {
     const timeouts = new Set();
     const animationFrames = new Set();
     const previousDisplay = source.style.display;
-    const wrapper = document.createElement('div');
+    const wrapper = getOrCreateWrapper(source);
+    const hadPlaceholder = Number(wrapper.dataset.ttRuntimePlaceholderHeight) > 0;
     const iframe = createRenderIframe();
     let mappedWindow = null;
     let mappedRecord = null;
@@ -303,9 +336,6 @@ function activateManagedRuntime({ source, signal }) {
     let heightFrame = null;
     let hostAbortBound = false;
     let messageListenerAcquired = false;
-
-    wrapper.className = 'xiaobaix-iframe-wrapper';
-    wrapper.style.margin = '0';
 
     const scheduleTimeout = (callback, delay) => {
         const id = setTimeout(() => {
@@ -327,9 +357,10 @@ function activateManagedRuntime({ source, signal }) {
     };
     const abort = () => controller.abort(signal.reason);
 
-    const dispose = () => {
+    const dispose = (preservePlaceholder) => {
         if (disposed) return;
         disposed = true;
+        const placeholderHeld = preservePlaceholder && holdManagedRuntimePlaceholder(wrapper, iframe);
         let firstError;
         const run = callback => {
             try { callback(); } catch (error) { firstError ??= error; }
@@ -350,8 +381,12 @@ function activateManagedRuntime({ source, signal }) {
         // The extension-scoped 32-entry hash cache, not one runtime, owns URL revocation.
         run(() => releaseIframeBlob(iframe));
         run(() => iframe.remove());
-        run(() => wrapper.remove());
-        run(() => { source.style.display = previousDisplay; });
+        if (placeholderHeld) {
+            run(() => { source.style.display = 'none'; });
+        } else {
+            run(() => wrapper.remove());
+            run(() => { source.style.display = previousDisplay; });
+        }
         if (messageListenerAcquired) run(releaseManagedMessageListener);
 
         if (firstError !== undefined) throw firstError;
@@ -362,8 +397,7 @@ function activateManagedRuntime({ source, signal }) {
         hostAbortBound = true;
         acquireManagedMessageListener();
         messageListenerAcquired = true;
-        source.parentNode.insertBefore(wrapper, source);
-        wrapper.appendChild(iframe);
+        wrapper.replaceChildren(iframe);
         mappedWindow = iframe.contentWindow;
         if (!mappedWindow) throw new Error('LittleWhiteBox managed iframe has no contentWindow');
         mappedRecord = { iframe, wrapper, scheduleHeight };
@@ -391,9 +425,10 @@ function activateManagedRuntime({ source, signal }) {
         }
 
         source.style.display = 'none';
-        return dispose;
+        releaseManagedRuntimePlaceholder(wrapper, iframe);
+        return () => dispose(true);
     } catch (error) {
-        try { dispose(); } catch (cleanupError) {
+        try { dispose(hadPlaceholder); } catch (cleanupError) {
             const failure = new Error('LittleWhiteBox managed runtime activation and cleanup failed');
             failure.cause = error;
             failure.cleanupError = cleanupError;
