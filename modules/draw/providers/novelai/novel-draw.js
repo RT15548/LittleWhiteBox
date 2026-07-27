@@ -17,7 +17,7 @@ import {
     setSlotSelection, clearSlotSelection,
     updatePreviewSavedUrl, deletePreview, getCacheStats, clearExpiredCache, clearAllCache,
     getGallerySummary, getCharacterPreviews, openGallery, closeGallery, destroyGalleryCache,
-    getPreviewDisplayUrl, preloadPreviewDisplayUrl, warmSlotPreviewNeighbors
+    getPreviewDisplayUrl, getBase64ImagePayload, preloadPreviewDisplayUrl, warmSlotPreviewNeighbors
 } from '../../shared/gallery-cache.js';
 import {
     PROVIDER_MAP,
@@ -32,6 +32,13 @@ import {
 } from '../../shared/draw-settings.js';
 import { fetchDrawLlmModels, getLastDrawLlmRequestSnapshot, normalizeDrawLlmApi } from '../../shared/draw-llm.js';
 import { createSerialImageRequestQueue } from '../../shared/serial-image-request-queue.js';
+import {
+    NovelImageResponseError,
+    extractImageFromResponse,
+    formatImageBase64,
+    readImageResponse,
+} from './novel-image-response.js';
+import { snapshotNovelRequestConfig } from './novel-request-config.js';
 import {
     loadTagGuide,
     loadPromptTemplates,
@@ -68,14 +75,26 @@ import {
 const MODULE_KEY = 'novelDraw';
 const SERVER_FILE_KEY = 'settings';
 const HTML_PATH = `${extensionFolderPath}/modules/draw/providers/novelai/novel-draw.html`;
-const NOVELAI_DEFAULT_BASE_URL = 'https://image.novelai.net';
 const NOVELAI_IMAGE_API = 'https://image.novelai.net/ai/generate-image';
 // 后端发送模式走 SillyTavern server plugin 转发（需安装 plugins/littlewhitebox-nai 并开启 enableServerPlugins），
 // 用于绕过浏览器 CORS / 自签证书限制。
-const NAI_BACKEND_GENERATE = '/api/plugins/littlewhitebox-nai/generate-image';
-const NAI_BACKEND_TEST = '/api/plugins/littlewhitebox-nai/test';
+const NAI_BACKEND_GENERATE = '/api/plugins/littlewhitebox-nai/v1/generate-image';
+const NAI_BACKEND_TEST = '/api/plugins/littlewhitebox-nai/v1/test';
 const NAI_BACKEND_STATUS = '/api/plugins/littlewhitebox-nai/status';
+const NAI_BACKEND_MIN_VERSION = '1.0.1';
 const CONFIG_VERSION = 7;
+
+function isVersionAtLeast(version, minimum) {
+    const parse = value => String(value || '').split('.').map(part => Number.parseInt(part, 10) || 0);
+    const current = parse(version);
+    const required = parse(minimum);
+    for (let index = 0; index < Math.max(current.length, required.length); index++) {
+        if ((current[index] || 0) !== (required[index] || 0)) {
+            return (current[index] || 0) > (required[index] || 0);
+        }
+    }
+    return true;
+}
 
 // 探测后端 server plugin 是否已安装并就绪。返回 { ready, version?, reason }。
 async function checkBackendPluginStatus() {
@@ -84,7 +103,13 @@ async function checkBackendPluginStatus() {
         if (res.status === 404) return { ready: false, reason: 'not_installed' };
         if (!res.ok) return { ready: false, reason: `http_${res.status}` };
         const data = await res.json().catch(() => null);
-        if (data && data.ok === true) return { ready: true, version: data.version || '' };
+        if (data && data.ok === true) {
+            const version = String(data.version || '');
+            if (!isVersionAtLeast(version, NAI_BACKEND_MIN_VERSION)) {
+                return { ready: false, version, reason: 'outdated', minimumVersion: NAI_BACKEND_MIN_VERSION };
+            }
+            return { ready: true, version };
+        }
         return { ready: false, reason: 'bad_response' };
     } catch (e) {
         return { ready: false, reason: 'unreachable' };
@@ -104,7 +129,6 @@ function resolveNovelAIImageApi(baseUrl) {
     return `${trimmed}/ai/generate-image`;
 }
 const MAX_SEED = 0xFFFFFFFF;
-const API_TEST_TIMEOUT = 15000;
 const PLACEHOLDER_REGEX = /\[image:([a-z0-9\-_]+)\]/gi;
 
 // ── 消息文本过滤 ──────────────────────────────────────────────────
@@ -756,6 +780,7 @@ function parseApiError(status, text) {
 
 function handleFetchError(e) {
     if (e.name === 'AbortError') return new NovelDrawError('超时', ErrorType.TIMEOUT);
+    if (e instanceof NovelImageResponseError) return new NovelDrawError(e.message, ErrorType.PARSE);
     if (e.message?.includes('Failed to fetch')) return new NovelDrawError('网络错误', ErrorType.NETWORK);
     if (e instanceof NovelDrawError) return e;
     return new NovelDrawError(e.message || '未知错误', ErrorType.UNKNOWN);
@@ -1148,14 +1173,6 @@ async function ensureJSZip() {
     });
 }
 
-async function extractImageFromZip(zipData) {
-    const JSZip = await ensureJSZip();
-    const zip = await JSZip.loadAsync(zipData);
-    const file = Object.values(zip.files).find(f => f.name.endsWith('.png') || f.name.endsWith('.webp'));
-    if (!file) throw new NovelDrawError('ZIP 无图片', ErrorType.PARSE);
-    return await file.async('base64');
-}
-
 // ═══════════════════════════════════════════════════════════════════════════
 // 角色检测与标签组装
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1367,16 +1384,17 @@ function danbooruToNai(tag) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 // 后端发送：把 payload + 第三方 url + key 交给 ST server plugin，Node 端代发并返回 base64。
-async function generateViaBackend({ apiBaseUrl, apiKey, insecure, payload, signal }) {
+async function generateViaBackend({ apiBaseUrl, apiKey, insecure, payload, signal, timeout }) {
     let res;
     try {
         res = await fetch(NAI_BACKEND_GENERATE, {
             method: 'POST',
             headers: getRequestHeaders(),
             signal,
-            body: JSON.stringify({ url: apiBaseUrl || '', key: apiKey, insecure: !!insecure, payload }),
+            body: JSON.stringify({ url: apiBaseUrl || '', key: apiKey, insecure: !!insecure, payload, timeout }),
         });
     } catch (e) {
+        if (e?.name === 'AbortError') throw e;
         throw new NovelDrawError('后端代发失败（未安装 littlewhitebox-nai 插件或 SillyTavern 未开启 server plugins）', ErrorType.NETWORK);
     }
     if (res.status === 404) {
@@ -1386,13 +1404,20 @@ async function generateViaBackend({ apiBaseUrl, apiKey, insecure, payload, signa
         throw parseApiError(res.status, await res.text().catch(() => ''));
     }
     const data = await res.json().catch(() => null);
-    if (!data || data.ok !== true || !data.base64) {
+    if (!data || typeof data !== 'object' || data.ok !== true) {
         const status = data?.status;
         const msg = data?.error || '后端生图失败';
         if (status) throw parseApiError(status, msg);
+        if (data?.code === 'timeout') throw new NovelDrawError('请求超时', ErrorType.TIMEOUT);
         throw new NovelDrawError(msg, ErrorType.UNKNOWN);
     }
-    return data.base64;
+    if (typeof data.base64 !== 'string' || data.base64.length === 0) {
+        throw new NovelDrawError('后端返回的图片格式无效', ErrorType.PARSE);
+    }
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(data.mime)) {
+        throw new NovelDrawError('后端返回的图片类型无效', ErrorType.PARSE);
+    }
+    return formatImageBase64(data.base64, data.mime);
 }
 
 async function testApiConnection(apiKey, baseUrl, opts = {}) {
@@ -1401,8 +1426,11 @@ async function testApiConnection(apiKey, baseUrl, opts = {}) {
     const sendMode = opts.sendMode || settings.sendMode || 'frontend';
     const insecure = opts.insecure ?? settings.insecureTLS === true;
     const resolvedBase = baseUrl ?? settings.apiBaseUrl;
+    const timeout = (opts.timeout > 0)
+        ? opts.timeout
+        : (settings.timeout > 0 ? settings.timeout : DEFAULT_SETTINGS.timeout);
     const controller = new AbortController();
-    const tid = setTimeout(() => controller.abort(), API_TEST_TIMEOUT);
+    const tid = setTimeout(() => controller.abort(), timeout);
 
     // 后端发送模式：走 server plugin 的 /test。
     if (sendMode === 'backend') {
@@ -1411,13 +1439,14 @@ async function testApiConnection(apiKey, baseUrl, opts = {}) {
                 method: 'POST',
                 headers: getRequestHeaders(),
                 signal: controller.signal,
-                body: JSON.stringify({ url: resolvedBase || '', key: apiKey, insecure: !!insecure }),
+                body: JSON.stringify({ url: resolvedBase || '', key: apiKey, insecure: !!insecure, timeout }),
             });
             clearTimeout(tid);
             if (res.status === 404) throw new NovelDrawError('后端端点不存在：请安装 plugins/littlewhitebox-nai 并开启 enableServerPlugins 后重启酒馆', ErrorType.NETWORK);
             const data = await res.json().catch(() => null);
             if (data?.ok === true) return { success: true };
             if (data?.status === 401) throw new NovelDrawError('API Key 无效', ErrorType.AUTH);
+            if (data?.code === 'timeout') throw new NovelDrawError('请求超时', ErrorType.TIMEOUT);
             throw new NovelDrawError(data?.error || `返回: ${res.status}`, ErrorType.NETWORK);
         } catch (e) {
             clearTimeout(tid);
@@ -1550,13 +1579,14 @@ function buildNovelAIRequestBody({ scene, characterPrompts, negativePrompt, para
 }
 
 async function generateNovelImage({ scene, characterPrompts, negativePrompt, params, generationConfig, signal, onQueueStateChange }) {
+    const requestConfig = snapshotNovelRequestConfig(getSettings(), generationConfig, DEFAULT_SETTINGS.timeout);
+    if (!requestConfig.apiKey) throw new NovelDrawError('请先配置 API Key', ErrorType.AUTH);
+    const queuedParams = { ...params };
+
     return await enqueueImageRequest(async () => {
-        const settings = getSettings();
-        if (!settings.apiKey) throw new NovelDrawError('请先配置 API Key', ErrorType.AUTH);
+        const finalParams = { ...queuedParams };
 
-        const finalParams = { ...params };
-
-        const overrideSize = String(generationConfig?.overrideSize ?? settings.overrideSize ?? 'default');
+        const overrideSize = requestConfig.overrideSize;
         if (overrideSize !== 'default') {
             const { SIZE_OPTIONS } = await import('./floating-panel.js');
             const sizeOpt = SIZE_OPTIONS.find(o => o.value === overrideSize);
@@ -1566,10 +1596,9 @@ async function generateNovelImage({ scene, characterPrompts, negativePrompt, par
             }
         }
 
-        const apiUrl = resolveNovelAIImageApi(settings.apiBaseUrl);
+        const apiUrl = resolveNovelAIImageApi(requestConfig.apiBaseUrl);
         const controller = new AbortController();
-        const timeout = (settings.timeout > 0) ? settings.timeout : DEFAULT_SETTINGS.timeout;
-        const tid = setTimeout(() => controller.abort(), timeout);
+        const tid = setTimeout(() => controller.abort(), requestConfig.timeout);
 
         if (signal) {
             signal.addEventListener('abort', () => controller.abort(), { once: true });
@@ -1582,13 +1611,14 @@ async function generateNovelImage({ scene, characterPrompts, negativePrompt, par
             if (signal?.aborted) throw new NovelDrawError('已取消', ErrorType.UNKNOWN);
 
             // 后端发送：交给 SillyTavern server plugin 代发，绕过浏览器 CORS / 自签证书。
-            if (settings.sendMode === 'backend') {
+            if (requestConfig.sendMode === 'backend') {
                 const base64 = await generateViaBackend({
-                    apiBaseUrl: settings.apiBaseUrl,
-                    apiKey: settings.apiKey,
-                    insecure: settings.insecureTLS === true,
+                    apiBaseUrl: requestConfig.apiBaseUrl,
+                    apiKey: requestConfig.apiKey,
+                    insecure: requestConfig.insecureTLS,
                     payload,
                     signal: controller.signal,
+                    timeout: requestConfig.timeout,
                 });
                 console.log(`[NovelDraw] 完成(后端) ${Date.now() - t0}ms`);
                 return base64;
@@ -1597,13 +1627,13 @@ async function generateNovelImage({ scene, characterPrompts, negativePrompt, par
             // 前端直连：浏览器直接请求 NovelAI / 第三方端点。
             const res = await fetch(apiUrl, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${settings.apiKey}` },
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${requestConfig.apiKey}` },
                 signal: controller.signal,
                 body: JSON.stringify(payload),
             });
             if (!res.ok) throw parseApiError(res.status, await res.text().catch(() => ''));
-            const buffer = await res.arrayBuffer();
-            const base64 = await extractImageFromZip(buffer);
+            const responseData = await readImageResponse(res, controller.signal);
+            const base64 = await extractImageFromResponse(responseData, ensureJSZip, controller.signal);
             console.log(`[NovelDraw] 完成 ${Date.now() - t0}ms`);
             return base64;
         } catch (e) {
@@ -2317,7 +2347,8 @@ async function saveSingleImage(container) {
     setImageState(container, ImageState.SAVING);
     try {
         const charName = preview.characterName || getChatCharacterName();
-        const url = await saveBase64AsFile(preview.base64, charName, `novel_${imgId}`, 'png');
+        const image = getBase64ImagePayload(preview.base64);
+        const url = await saveBase64AsFile(image.base64, charName, `novel_${imgId}`, image.format);
         preview.savedUrl = url;
         await updatePreviewSavedUrl(imgId, url);
         await setSlotSelection(slotId, imgId);
@@ -3505,6 +3536,7 @@ async function handleFrameMessage(event) {
                 await testApiConnection(data.apiKey, data.apiBaseUrl, {
                     sendMode: data.sendMode,
                     insecure: data.insecureTLS,
+                    timeout: data.timeout,
                 });
                 postStatus('success', '连接成功', 'api');
             } catch (e) {
@@ -3921,7 +3953,8 @@ async function handleFrameMessage(event) {
                     break;
                 }
                 const charName = preview.characterName || getChatCharacterName();
-                const url = await saveBase64AsFile(preview.base64, charName, `novel_${data.imgId}`, 'png');
+                const image = getBase64ImagePayload(preview.base64);
+                const url = await saveBase64AsFile(image.base64, charName, `novel_${data.imgId}`, image.format);
                 preview.savedUrl = url;
                 await updatePreviewSavedUrl(data.imgId, url);
                 if (Number.isFinite(preview.messageId)) await syncNovelDrawSavedFromPreview(preview.messageId, preview, { savedUrl: url });
@@ -4000,7 +4033,7 @@ async function handleFrameMessage(event) {
                 const base64 = await generateNovelImage({ scene, characterPrompts: [], negativePrompt: preset?.negativePrefix || '', params: preset?.params || {} });
                 {
                     const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
-                    if (iframe) postToIframe(iframe, { type: 'TEST_RESULT', url: `data:image/png;base64,${base64}` }, 'LittleWhiteBox-NovelDraw');
+                    if (iframe) postToIframe(iframe, { type: 'TEST_RESULT', url: getPreviewDisplayUrl({ base64 }) }, 'LittleWhiteBox-NovelDraw');
                 }
                 postStatus('success', `完成 ${((Date.now() - t0) / 1000).toFixed(1)}s`);
             } catch (e) {

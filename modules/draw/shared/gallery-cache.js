@@ -44,6 +44,17 @@ function parseBase64Image(value) {
     };
 }
 
+export function getBase64ImagePayload(value) {
+    const parsed = parseBase64Image(value);
+    if (!parsed?.data) return { base64: '', format: 'png' };
+    const format = parsed.mime === 'image/jpeg'
+        ? 'jpg'
+        : parsed.mime === 'image/webp'
+            ? 'webp'
+            : 'png';
+    return { base64: parsed.data, format };
+}
+
 function base64ToBlob(base64, mime) {
     const binary = atob(base64);
     const chunkSize = 8192;
@@ -758,7 +769,8 @@ export async function savePreviewImage(imgId, filePrefix = 'draw') {
     if (preview.savedUrl) return preview.savedUrl;
     if (!preview.base64) throw new Error('图片缓存不存在');
     const charName = preview.characterName || getChatCharacterName();
-    const url = await saveBase64AsFile(preview.base64, charName, `${filePrefix}_${imgId}`, 'png');
+    const image = getBase64ImagePayload(preview.base64);
+    const url = await saveBase64AsFile(image.base64, charName, `${filePrefix}_${imgId}`, image.format);
     await updatePreviewSavedUrl(imgId, url);
     return url;
 }
@@ -1121,7 +1133,8 @@ async function saveCurrentGalleryImage() {
     
     try {
         const charName = current.characterName || getChatCharacterName();
-        const url = await saveBase64AsFile(current.base64, charName, `novel_${current.imgId}`, 'png');
+        const image = getBase64ImagePayload(current.base64);
+        const url = await saveBase64AsFile(image.base64, charName, `novel_${current.imgId}`, image.format);
         await updatePreviewSavedUrl(current.imgId, url);
         current.savedUrl = url;
         await setSlotSelection(slotId, current.imgId);

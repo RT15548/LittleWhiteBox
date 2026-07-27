@@ -69,6 +69,17 @@ module.exports = {
     },
     overrides: [
         {
+            files: ['server-plugin/**/*.js'],
+            env: {
+                browser: false,
+                node: true,
+            },
+            parserOptions: {
+                ecmaVersion: 'latest',
+                sourceType: 'script',
+            },
+        },
+        {
             files: ['modules/tavern/**/*.ts'],
             parser: '@typescript-eslint/parser',
             parserOptions: {

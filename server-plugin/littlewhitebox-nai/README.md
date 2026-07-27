@@ -18,7 +18,7 @@
 SillyTavern/plugins/littlewhitebox-nai/
 ```
 
-放好后目录里应包含：`index.js`、`package.json`、`manifest.json`、`README.md`。
+放好后目录里应包含：`index.js`、`novelai-client.js`、`package.json`、`manifest.json`、`README.md`。
 
 > 注意：不是 `public/scripts/extensions/`（那是前端扩展目录），而是 SillyTavern 根目录下的 `plugins/`。
 
@@ -33,7 +33,7 @@ enableServerPlugins: true
 重启后，启动日志里应出现：
 
 ```
-[littlewhitebox-nai] server plugin initialized (v1.0.0)
+[littlewhitebox-nai] server plugin initialized (v1.0.1)
 ```
 
 回到 LittleWhiteBox 的 NovelAI 绘图设置 →「API 配置」→「发送方式」点「后端发送」，
@@ -48,16 +48,18 @@ enableServerPlugins: true
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/status` | 前端检测插件是否就绪 |
-| POST | `/generate-image` | 代发 NovelAI 生图请求，返回图片 base64 |
-| POST | `/test` | 测试第三方端点连通性 |
+| POST | `/v1/generate-image` | 代发 NovelAI 生图请求，返回图片 base64 与 MIME |
+| POST | `/v1/test` | 测试第三方端点连通性 |
 
-`generate-image` / `test` 请求体：`{ url?, key, payload?, insecure? }`
+`v1/generate-image` / `v1/test` 请求体：`{ url?, key, payload?, insecure?, timeout }`
 - `url`：第三方端点根地址（留空 = 官方 `https://image.novelai.net`）
 - `key`：NovelAI API Key
 - `insecure`：为 `true` 时后端忽略 TLS 证书校验（仅连接自签证书端点时使用）
+- `timeout`：沿用前端设置的请求超时，单位为毫秒
 
 ---
 
 ## 安全说明
 - 本插件只做「把前端给定的 payload + key 转发到 NovelAI/第三方端点并回传图片」，不落盘、不改配置。
-- `insecure` 会在单次请求内临时放宽 TLS 校验，请仅在信任的自签证书端点上使用。
+- `insecure` 只会关闭当前这一笔上游 HTTPS 请求的证书校验，请仅在信任的自签证书端点上使用。
+- 浏览器取消请求或断开连接时，上游请求会同步终止；响应和单张图片解压结果各有 128 MiB 的内部安全上限。

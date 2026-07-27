@@ -742,7 +742,7 @@ select.input { cursor: pointer; }
                                 <p class="form-hint" style="margin-top:4px;">后端插件未就绪。插件文件已随 LittleWhiteBox 一起下载，只需手动搬到酒馆的后端插件目录并重启：</p>
                                 <ol class="nd-guide-steps">
                                     <li>找到插件文件夹（在本扩展目录下）：<br><code>SillyTavern/public/scripts/extensions/third-party/LittleWhiteBox/server-plugin/littlewhitebox-nai/</code></li>
-                                    <li>把整个 <code>littlewhitebox-nai</code> 文件夹（含 <code>index.js</code> / <code>package.json</code> / <code>manifest.json</code>）剪切或复制到：<br><code>SillyTavern/plugins/littlewhitebox-nai/</code></li>
+                                    <li>把整个 <code>littlewhitebox-nai</code> 文件夹（含 <code>index.js</code> / <code>novelai-client.js</code> / <code>package.json</code> / <code>manifest.json</code>）剪切或复制到：<br><code>SillyTavern/plugins/littlewhitebox-nai/</code></li>
                                     <li>用文本编辑器打开 <code>SillyTavern/config.yaml</code>，找到 <code>enableServerPlugins</code> 一行改为 <code>enableServerPlugins: true</code>（若没有这一行就新增）</li>
                                     <li>完全关闭并重启 SillyTavern，回到这里点“重新检测”</li>
                                 </ol>
@@ -2705,7 +2705,9 @@ window.addEventListener('message', event => {
             if (st.ready) {
                 setBackendStatusUI('ok', `后端插件已就绪${st.version ? '（v' + st.version + '）' : ''}`);
             } else {
-                const reasonText = st.reason === 'unreachable'
+                const reasonText = st.reason === 'outdated'
+                    ? `后端插件版本过旧（当前 v${st.version || '未知'}，需要 v${st.minimumVersion}+）`
+                    : st.reason === 'unreachable'
                     ? '无法连接后端（可能未开启 enableServerPlugins）'
                     : st.reason === 'not_installed'
                         ? '后端插件未安装'
@@ -2941,7 +2943,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
     
-    $('nd_test_api').addEventListener('click', () => postToParent({ type: 'TEST_API', apiKey: $('nd_api_key').value.trim(), apiBaseUrl: $('nd_api_base_url').value.trim(), sendMode: getSendMode(), insecureTLS: $('nd_insecure_tls').checked }));
+    $('nd_test_api').addEventListener('click', () => postToParent({ type: 'TEST_API', apiKey: $('nd_api_key').value.trim(), apiBaseUrl: $('nd_api_base_url').value.trim(), sendMode: getSendMode(), insecureTLS: $('nd_insecure_tls').checked, timeout: Number($('nd_timeout').value) * 1000 || DEFAULTS.timeout }));
     
     $('nd_test_single').addEventListener('click', () => postToParent({ type: 'TEST_SINGLE', tags: $('nd_test_tags').value }));
     
