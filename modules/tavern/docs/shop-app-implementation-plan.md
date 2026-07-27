@@ -55,14 +55,14 @@ modules/tavern/tests/shop.test.ts
 1. 定义 duration、catalog、inventory、activation、state version、输入和错误类型。
 2. 写入 25 个固定商品；`absolute-obedience`使用永久 1200。
 3. 为每个商品写完整人工 injection，不能从 description 自动扩写。
-4. 实现纯函数：参数规范化、静态 injection 投影、活跃判定、剩余回合、分区投影、Prompt block；参数只能作为单份 JSON 数据，不能插入命令句。
+4. 实现纯函数：参数规范化、静态 injection 投影、活跃判定、剩余回合、分区投影、Prompt block；参数按输入定义进入受控模板槽位，其中 `rule` 明确作为言出法随的世界规则执行。
 5. 明确 exact duplicate 激活键：`itemId + 规范化参数`；重复激活直接拒绝，不扣库存且不创建队列。
 
 最低测试：
 
 - 一次性等价于 1 回合，失败不涉及任何状态变化。
 - 5 回合边界为 5 次而非 4/6 次。
-- 有限效果只在存活区间内投影，不输出倒计时或消退说明。
+- 有限状态只在存活区间内投影且不输出倒计时；首个到期故事边界投影一次人工审核的恢复说明，一次性事件不反向撤销既成事实。
 - manual / permanent 不生成虚假倒计时。
 - 参数被限长和安全转义，不能闭合 Prompt 标签。
 - 相同输入的稳定投影字节一致。
@@ -248,7 +248,7 @@ Shop entry 的 order 必须高于其他 Tavern depth-1 状态条目，使它成�
 - 私人消息最终消息中，Shop system 必须紧邻当前 USER 之前；发送多条私人消息后 remaining 不变。
 - 任务生成、Manager 和小白助手请求不包含 Shop block。
 - 无活跃效果时不出现空标题。
-- 到期后的下一主回合不再出现该效果。
+- 到期后的下一主回合不再出现生效规则，但状态类道具会出现一次明确的恢复说明。
 - 重 roll 使用原回合 Shop 投影；原回复之后激活的效果不倒灌。
 - 普通 RP 使用当前 USER 的 order；该 USER 保存后才激活的效果同样不得倒灌。
 
@@ -395,7 +395,7 @@ git diff --check
 - [ ] Prompt 构建零写入。
 - [ ] 请求失败不消耗。
 - [ ] 一次性刷新后不丢失。
-- [ ] final round 同时遵守效果并提示结束。
+- [ ] 最后一轮完整遵守效果，下一故事边界明确恢复正常规则。
 - [ ] manual 可关闭，permanent 不可关闭。
 - [ ] 私人消息不消耗主回合。
 - [ ] 重 roll 不双重消耗或倒灌未来激活。
@@ -406,7 +406,7 @@ git diff --check
 - [ ] 主 RP 和私人消息生效。
 - [ ] 两种叙事请求中 Shop 都是当前 USER 之前最近的 system 约束。
 - [ ] Tasks / Manager / Assistant 不泄漏。
-- [ ] 用户参数已转义并被标记为数据。
+- [ ] 普通用户参数只填充人工审核的叙事模板；言出法随的 `rule` 按产品语义作为世界规则投影。
 - [ ] 最终 Prompt 不泄漏 Shop 内部索引、版本或时间线键。
 - [ ] 无效果时无空块。
 

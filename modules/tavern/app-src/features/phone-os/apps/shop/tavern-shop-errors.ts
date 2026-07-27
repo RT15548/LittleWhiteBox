@@ -18,7 +18,7 @@ export function tavernShopUiError(error: unknown): TavernShopUiError {
         return { kind: 'conflict', message: '背包已在其他页面更新，已为你刷新；请关闭后重新操作。' };
     }
     const staleStateMessages: Partial<Record<string, string>> = {
-        shop_purchase_limit_reached: '限购状态已经变化，已刷新背包；请关闭后重新操作。',
+        shop_purchase_limit_reached: '这件永久道具已经拥有，已刷新背包；请关闭后重新操作。',
         shop_quantity_insufficient: '这件道具的库存已经变化，已刷新背包；请关闭后重新操作。',
         shop_activation_duplicate: '同一目标上的同款效果仍在生效，已刷新背包；请关闭后重新操作。',
         shop_activation_missing: '这个生效记录已经不存在，已刷新背包；请关闭后重新操作。',

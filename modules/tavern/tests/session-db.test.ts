@@ -178,6 +178,7 @@ import {
     acceptTavernTaskListing,
     getCurrentTavernTask,
     getTavernTaskPlayerBalance,
+    listTavernTaskVersionsByActionPrefix,
     progressTavernTask,
 } from '../shared/tasks/task-service';
 import { TAVERN_TASK_TOOL_NAMES } from '../shared/tasks/task-tools';
@@ -1058,8 +1059,10 @@ test('manual accepted-turn retry is queued and commits task settlement with a te
     await waitForQueuedAcceptedTurnManagers(session.id);
 
     const retry = (await listTavernManagerRuns(session.id)).find((run) => run.recoverySourceRunId === source.id);
+    const committedTaskVersions = await listTavernTaskVersionsByActionPrefix(session.id, `${retry?.id}:`);
     assert.equal(retry?.status, 'completed');
     assert.equal((await getCurrentTavernTask(session.id, task.taskId))?.status, 'completed');
+    assert.deepEqual(committedTaskVersions.map((item) => item.taskId), [task.taskId]);
     assert.equal(await getTavernTaskPlayerBalance(session.id), 100 + task.reward);
     assert.equal(savedRunStatuses.includes('completed'), true);
     assert.equal(liveProgress.some((progress) => progress.sessionId === session.id && progress.runId === retry?.id), true);

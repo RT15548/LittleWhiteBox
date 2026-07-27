@@ -40,8 +40,14 @@ import {
 import { XBTavernWorldPosition, type ActivatedWorldEntry } from '../shared/message-assembler';
 import type { TavernGetNativeWorldInfoRuntime } from '../app-src/runtime/run-once';
 import { captureTavernPhoneBoundary } from '../shared/phone-boundary';
+import { postTavernEconomyTransaction } from '../shared/economy/economy-service';
+import {
+    TAVERN_PLAYER_ACCOUNT_ID,
+    TAVERN_SYSTEM_MINT_ACCOUNT_ID,
+} from '../shared/economy/economy-types';
 import {
     activateTavernShopItem,
+    deactivateTavernShopItem,
     purchaseTavernShopItem,
 } from '../shared/shop/shop-service';
 
@@ -923,7 +929,7 @@ test('session branching clones phone state and session deletion cascades it', as
     assert.deepEqual(await listTavernCommunicationThreads(session.id), []);
 });
 
-test('phone replies stay under active shop effects in a system message before USER', async () => {
+test('phone replies receive active and manually-ended shop effects before USER', async () => {
     await db.delete();
     await db.open();
     const session = await createTavernSession({
@@ -940,19 +946,31 @@ test('phone replies stay under active shop effects in a system message before US
         source: 'manual',
     });
     const boundary = await captureTavernPhoneBoundary(session.id);
+    await postTavernEconomyTransaction({
+        sessionId: session.id,
+        idempotencyKey: 'phone-shop-top-up',
+        fromAccountId: TAVERN_SYSTEM_MINT_ACCOUNT_ID,
+        toAccountId: TAVERN_PLAYER_ACCOUNT_ID,
+        amount: 1_100,
+        kind: 'test_top_up',
+        title: '私信商店测试充值',
+        sourceDomain: 'test',
+        sourceId: 'phone-shop-top-up',
+        anchorOrder: 0,
+    });
     const purchased = await purchaseTavernShopItem({
         sessionId: session.id,
-        itemId: 'flower',
-        actionId: 'phone-buy-flower',
+        itemId: 'privacy-camera',
+        actionId: 'phone-buy-camera',
         boundary,
         expectedRevision: 0,
         expectedVersionId: '',
     });
-    await activateTavernShopItem({
+    const activated = await activateTavernShopItem({
         sessionId: session.id,
-        itemId: 'flower',
+        itemId: 'privacy-camera',
         parameters: { targetName: '艾琳' },
-        actionId: 'phone-use-flower',
+        actionId: 'phone-use-camera',
         boundary,
         expectedRevision: purchased.record.revision,
         expectedVersionId: purchased.record.versionId,
@@ -987,4 +1005,17 @@ test('phone replies stay under active shop effects in a system message before US
         assert.equal(messages.at(-1)?.role, 'user');
         assert.ok(String(messages[shopIndex]?.content || '').trim());
     }
+    const stopped = await deactivateTavernShopItem({
+        sessionId: session.id,
+        itemId: 'privacy-camera',
+        activationId: activated.activation.id,
+        actionId: 'phone-stop-camera',
+        boundary,
+        expectedRevision: activated.record.revision,
+        expectedVersionId: activated.record.versionId,
+    });
+    assert.equal(stopped.activation.endReason, 'manual');
+    const afterClose = await buildRequestMessages();
+    const closeBlock = afterClose.find((message) => message.name === 'active_shop_effects');
+    assert.match(String(closeBlock?.content || ''), /「隐私摄像头」已经关闭/);
 });

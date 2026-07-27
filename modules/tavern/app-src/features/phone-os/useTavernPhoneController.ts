@@ -81,7 +81,10 @@ export function useTavernPhoneController(options: TavernPhoneControllerInput) {
         onTasksChanged: tasks.refreshAfterTaskDomainChange,
         onEconomyChanged: wallet.refreshAfterEconomyDomainChange,
         onShopChanged: shop.refreshAfterShopDomainChange,
-        onBankChanged: bank.refreshAfterBankDomainChange,
+        onBankChanged: (change) => bank.refreshAfterBankDomainChange(
+            change.sessionId,
+            change.settledPositionIds,
+        ),
     });
 
     async function openPhone() {

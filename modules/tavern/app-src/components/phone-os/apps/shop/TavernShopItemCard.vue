@@ -35,7 +35,7 @@ const emit = defineEmits<{
         :title="blockedReason || `购买${row.item.name}`"
         @click="emit('purchase', row)"
       >
-        {{ busy ? '购买中' : row.purchaseLimitReached ? '已限购' : '购买' }}
+        {{ busy ? '购买中' : row.purchaseLimitReached ? '已拥有' : '购买' }}
       </button>
     </footer>
     <small

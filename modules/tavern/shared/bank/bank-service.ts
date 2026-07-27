@@ -303,11 +303,14 @@ function activitySourceIdsForAction(record: TavernBankStateVersionRecord): strin
     return [...ids];
 }
 
-async function listActionActivities(record: TavernBankStateVersionRecord): Promise<TavernBankActivityRecord[]> {
-    const activities = await Promise.all(activitySourceIdsForAction(record).map(async (sourceId) => {
+async function listActivitiesBySourceIds(
+    sessionId: string,
+    sourceIds: readonly string[],
+): Promise<TavernBankActivityRecord[]> {
+    const activities = await Promise.all(sourceIds.map(async (sourceId) => {
         const rows = await tavernBankActivitiesTable
             .where('[sessionId+sourceId]')
-            .equals([record.sessionId, sourceId])
+            .equals([sessionId, sourceId])
             .toArray();
         return rows[0] || null;
     }));
@@ -315,6 +318,10 @@ async function listActionActivities(record: TavernBankStateVersionRecord): Promi
         .filter((activity): activity is TavernBankActivityRecord => Boolean(activity))
         .sort((left, right) => right.createdAt - left.createdAt || right.id.localeCompare(left.id))
         .map((activity) => clone(activity));
+}
+
+async function listActionActivities(record: TavernBankStateVersionRecord): Promise<TavernBankActivityRecord[]> {
+    return await listActivitiesBySourceIds(record.sessionId, activitySourceIdsForAction(record));
 }
 
 async function postBankTransaction(input: {
@@ -678,6 +685,16 @@ export async function listTavernBankActivities(sessionId = '', options: { limit?
     return rows
         .sort((left, right) => right.createdAt - left.createdAt || right.id.localeCompare(left.id))
         .map((row) => clone(row));
+}
+
+export async function listTavernBankActivitiesBySourceIds(
+    sessionId = '',
+    sourceIds: readonly string[] = [],
+): Promise<TavernBankActivityRecord[]> {
+    const id = normalizeSessionId(sessionId);
+    const normalizedSourceIds = [...new Set(sourceIds.map((value) => String(value || '').trim()).filter(Boolean))];
+    if (!normalizedSourceIds.length) {return [];}
+    return await listActivitiesBySourceIds(id, normalizedSourceIds);
 }
 
 export async function openTavernBankDeposit(input: OpenTavernBankDepositInput, options: TavernBankServiceOptions = {}): Promise<TavernBankMutationResult> {

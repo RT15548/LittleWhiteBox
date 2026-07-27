@@ -12,7 +12,6 @@ export interface TavernShopShelfRow {
     item: TavernShopItem;
     categoryLabel: string;
     durationLabel: string;
-    purchasedCount: number;
     purchaseLimitReached: boolean;
 }
 
@@ -64,13 +63,12 @@ function parameterSummary(item: TavernShopItem, activation: TavernShopActivation
 export function projectTavernShopShelf(state: TavernShopInventoryState): TavernShopShelfRow[] {
     return listTavernShopCatalog().map((item) => {
         const entry = state.items[item.id];
-        const purchasedCount = (entry?.quantity || 0) + (entry?.activations.length || 0);
+        const acquiredCount = (entry?.quantity || 0) + (entry?.activations.length || 0);
         return {
             item,
             categoryLabel: tavernShopCategoryLabel(item.category),
             durationLabel: tavernShopDurationLabel(item),
-            purchasedCount,
-            purchaseLimitReached: item.purchaseLimit !== undefined && purchasedCount >= item.purchaseLimit,
+            purchaseLimitReached: item.purchaseLimit !== undefined && acquiredCount >= item.purchaseLimit,
         };
     });
 }

@@ -427,6 +427,25 @@ export async function listCurrentTavernTasks(
     return clone(filterTaskRows(await listIndexedCurrentTaskRows(sessionId, options), options));
 }
 
+export async function listTavernTaskVersionsByActionPrefix(
+    value = '',
+    actionPrefixValue = '',
+): Promise<TavernTaskVersionRecord[]> {
+    const sessionId = normalizeSessionId(value);
+    const actionPrefix = String(actionPrefixValue || '').trim();
+    if (!actionPrefix) {return [];}
+    const rows = await (tavernTaskVersionsTable as unknown as TaskRangeTable<TavernTaskVersionRecord>)
+        .where('[sessionId+actionId]')
+        .between(
+            [sessionId, actionPrefix],
+            [sessionId, `${actionPrefix}\uffff`],
+            true,
+            true,
+        )
+        .toArray();
+    return clone(rows.sort((left, right) => left.revision - right.revision || left.taskId.localeCompare(right.taskId)));
+}
+
 export async function loadTavernTaskAnchorSnapshot(
     value = '',
     boundary: { anchorOrder: number },

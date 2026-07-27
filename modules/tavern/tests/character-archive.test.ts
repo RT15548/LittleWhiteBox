@@ -1367,6 +1367,19 @@ test('tavern character archive enforces Shop stacking and lifecycle invariants b
 
 test('tavern character archive preserves Shop activation facts across activate and deactivate transitions', async () => {
     const { a1 } = await seedArchiveSource();
+    const latest = await getLatestTavernMessage(a1.id);
+    await postTavernEconomyTransaction({
+        sessionId: a1.id,
+        idempotencyKey: 'archive:camera-top-up',
+        fromAccountId: TAVERN_SYSTEM_MINT_ACCOUNT_ID,
+        toAccountId: TAVERN_PLAYER_ACCOUNT_ID,
+        amount: 1_200,
+        kind: 'archive_test_top_up',
+        title: '归档摄像头测试充值',
+        sourceDomain: 'test',
+        sourceId: 'archive:camera-top-up',
+        anchorOrder: Number(latest?.order ?? -1) + 1,
+    });
     const boundary = await captureTavernPhoneBoundary(a1.id);
     const currentCas = async () => {
         const current = await getCurrentTavernShopState(a1.id);

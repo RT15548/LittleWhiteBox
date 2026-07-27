@@ -232,6 +232,7 @@ function buildMemorySection(statePrompt: string, characterPrompt: string): strin
         'Two file types, fixed paths:',
         '- Global facts → `memory/state.md` (a single file, not a directory).',
         '- Character files → `memory/characters/<name>.md` (one file per character, filename = character name).',
+        '- A character filename and the character name written inside that file must exactly match the spelling used in the RP text. Never translate, transliterate, convert between Simplified and Traditional Chinese, or substitute an English name; retrieval depends on exact name matching.',
         '- Routing: global facts go to `state.md`; a specific character\'s durable changes go to that character\'s file. When character material bloats `state.md`, move it into the matching character file.',
         '',
         'What not to do:',

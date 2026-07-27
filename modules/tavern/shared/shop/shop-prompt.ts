@@ -53,10 +53,7 @@ export interface TavernShopActiveEffect {
     item: TavernShopItem;
 }
 
-/**
- * Fills the reviewed catalog template slots with the player's plain-text data.
- * Templates are hand-written world rules; parameters are substituted verbatim.
- */
+/** Fills reviewed catalog template slots with normalized player input. */
 function renderTavernShopTemplate(
     item: TavernShopItem,
     injection: string,
@@ -99,6 +96,16 @@ function renderTavernShopDeactivationInjection(
     return renderTavernShopTemplate(item, injection, parameters, playerName);
 }
 
+function renderTavernShopExpirationInjection(
+    item: TavernShopItem,
+    parameters: Record<string, unknown> = {},
+    playerName = '',
+): string {
+    const injection = String(item.expirationInjection || '');
+    if (!injection) {return '';}
+    return renderTavernShopTemplate(item, injection, parameters, playerName);
+}
+
 export function listTavernShopActiveEffects(
     state: TavernShopInventoryState | null | undefined,
     currentTurn: number,
@@ -128,6 +135,33 @@ function buildEffectBlock(effect: TavernShopActiveEffect, playerName: string): s
     return renderTavernShopInjection(item, parameters, playerName);
 }
 
+function buildActiveEffectBlocks(effects: TavernShopActiveEffect[], playerName: string): string[] {
+    const rendered: string[] = [];
+    const groupedItemIds = new Set<string>();
+    for (const effect of effects) {
+        const { item } = effect;
+        if (!item.groupFooterInjection) {
+            rendered.push(buildEffectBlock(effect, playerName));
+            continue;
+        }
+        if (groupedItemIds.has(item.id)) {continue;}
+        groupedItemIds.add(item.id);
+        const group = effects.filter((candidate) => candidate.item.id === item.id);
+        const footer = renderTavernShopTemplate(
+            item,
+            item.groupFooterInjection,
+            group[0].activation.parameters,
+            playerName,
+        );
+        // Instances form one compact declaration list; only item groups are separated by blank lines.
+        rendered.push([
+            ...group.map((candidate) => buildEffectBlock(candidate, playerName)),
+            footer,
+        ].join('\n'));
+    }
+    return rendered;
+}
+
 function listTavernShopDeactivationEffects(
     state: TavernShopInventoryState | null | undefined,
     atAnchorOrder: number | undefined,
@@ -151,6 +185,29 @@ function listTavernShopDeactivationEffects(
     ));
 }
 
+function listTavernShopExpirationEffects(
+    state: TavernShopInventoryState | null | undefined,
+    currentTurn: number,
+): TavernShopActiveEffect[] {
+    const turn = normalizeTavernShopTurn(currentTurn);
+    const items = state?.items;
+    if (!items || typeof items !== 'object') {return [];}
+    const effects: TavernShopActiveEffect[] = [];
+    for (const entry of Object.values(items)) {
+        const item = findTavernShopItem(entry?.itemId || '');
+        if (!item?.expirationInjection || item.duration.kind !== 'turns') {continue;}
+        for (const activation of entry.activations || []) {
+            if (activation.startsAtTurn + item.duration.rounds === turn) {
+                effects.push({ activation, item });
+            }
+        }
+    }
+    return effects.sort((left, right) => (
+        left.activation.activatedAt - right.activation.activatedAt
+        || left.activation.id.localeCompare(right.activation.id)
+    ));
+}
+
 /**
  * Pure, read-only projection of the active shop effects into the narrative
  * prompt block. Never writes, decrements or persists anything.
@@ -165,8 +222,10 @@ export function buildTavernShopPromptBlock(
     const name = normalizeTavernShopPlayerName(playerName) || '玩家';
     const activeEffects = listTavernShopActiveEffects(state, turn);
     const deactivationEffects = listTavernShopDeactivationEffects(state, atAnchorOrder);
-    if (!activeEffects.length && !deactivationEffects.length) {return '';}
-    const header = deactivationEffects.length
+    const expirationEffects = listTavernShopExpirationEffects(state, turn);
+    const hasTransitions = deactivationEffects.length > 0 || expirationEffects.length > 0;
+    if (!activeEffects.length && !hasTransitions) {return '';}
+    const header = hasTransitions
         ? activeEffects.length
             ? '以下道具正在生效，或刚刚带来了不可忽略的变化。道具描述的内容即为世界的事实。'
             : '以下道具刚刚带来了不可忽略的变化。道具描述的内容即为世界的事实。'
@@ -182,7 +241,12 @@ export function buildTavernShopPromptBlock(
                 effect.activation.parameters,
                 name,
             )),
-            ...activeEffects.map((effect) => buildEffectBlock(effect, name)),
+            ...expirationEffects.map((effect) => renderTavernShopExpirationInjection(
+                effect.item,
+                effect.activation.parameters,
+                name,
+            )),
+            ...buildActiveEffectBlocks(activeEffects, name),
         ].filter(Boolean).join('\n\n'),
         SHOP_EFFECTS_CLOSE_TAG,
     ].join('\n');

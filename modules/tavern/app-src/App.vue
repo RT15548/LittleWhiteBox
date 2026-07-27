@@ -36,6 +36,7 @@ import {
     getLatestTavernAssistantChatUserMessageAtOrBefore,
     getLatestTavernUserMessageAtOrBefore,
     getNextTavernAssistantChatUserOrderAfter,
+    getTavernManagerRun,
     getTavernMessage,
     getTavernSession,
     listTavernAssistantChatMessages,
@@ -108,6 +109,11 @@ import {
 } from '../shared/runtime-events';
 import type { TavernApplyRegexItem, TavernApplyRegexResult } from '../shared/regex';
 import type { TavernSubstituteParamsItem, TavernSubstituteParamsOptions, TavernSubstituteParamsResult } from '../shared/substitute-params';
+import {
+    getCurrentTavernTask,
+    listTavernTaskVersionsByActionPrefix,
+} from '../shared/tasks/task-service';
+import type { TavernTaskVersionRecord } from '../shared/tasks/task-types';
 import {
     buildContextHistory,
     resumeQueuedAcceptedTurnManagers,
@@ -1289,6 +1295,18 @@ function handleManagerRunSaved(
     managerRun: TavernManagerRunRecord,
 ) {
     managerRunSync.acceptSavedRun(sessionId, managerRun);
+}
+
+function handleTaskActionsCommitted(sessionId: string, tasks: TavernTaskVersionRecord[]) {
+    if (sessionId !== selectedSessionId.value) {return;}
+    const completed = [...new Map(tasks
+        .filter((task) => task.status === 'completed')
+        .map((task) => [task.taskId, task])).values()];
+    if (!completed.length) {return;}
+    const details = completed.map((task) => task.assignee?.kind === 'player'
+        ? `《${task.title}》，+${task.reward} 小白币`
+        : `《${task.title}》，已支付 ${task.reward} 小白币`);
+    showTavernToast(`任务完成：${details.join('；')}。`, { durationMs: 5200 });
 }
 
 function handleManagerProgress(progress: TavernManagerLiveProgress) {
@@ -3149,6 +3167,7 @@ async function refreshAllManagerDomainProjections(sessionId = selectedSessionId.
 }
 
 async function refreshSettledManagerDomains(sessionId: string, changes: {
+    id?: string;
     changedFiles?: string[];
     changedStates?: string[];
     status?: string;
@@ -3165,6 +3184,41 @@ async function refreshSettledManagerDomains(sessionId: string, changes: {
     if (changedStates.some((key) => key.startsWith('tavern.atlas/'))) {refreshes.push(refreshAtlasProjection(sessionId));}
     if (changedStates.some((key) => key.startsWith('tavern.status/'))) {refreshes.push(refreshStatusProjection(sessionId));}
     await Promise.all(refreshes);
+    if (
+        changes.status !== 'completed'
+        || !changes.id
+        || sessionId !== selectedSessionId.value
+        || isAcceptedRollbackInProgress(sessionId)
+    ) {return;}
+    const [currentRun, taskVersions] = await Promise.all([
+        getTavernManagerRun(changes.id),
+        listTavernTaskVersionsByActionPrefix(sessionId, `${changes.id}:`),
+    ]);
+    if (
+        currentRun?.status !== 'completed'
+        || sessionId !== selectedSessionId.value
+        || isAcceptedRollbackInProgress(sessionId)
+    ) {return;}
+    const latestByTask = new Map(taskVersions.map((task) => [task.taskId, task]));
+    const [currentTasks, finalRun] = await Promise.all([
+        Promise.all([...latestByTask.keys()].map((taskId) => getCurrentTavernTask(sessionId, taskId))),
+        getTavernManagerRun(changes.id),
+    ]);
+    const committedTasks = currentTasks.filter((task): task is TavernTaskVersionRecord => {
+        if (!task) {return false;}
+        const committed = latestByTask.get(task.taskId);
+        return !!committed
+            && task.status === 'completed'
+            && task.versionId === committed.versionId
+            && task.actionId === committed.actionId;
+    });
+    if (
+        finalRun?.status === 'completed'
+        && sessionId === selectedSessionId.value
+        && !isAcceptedRollbackInProgress(sessionId)
+    ) {
+        handleTaskActionsCommitted(sessionId, committedTasks);
+    }
 }
 
 function resumeSelectedSessionManagers(sessionId: string) {

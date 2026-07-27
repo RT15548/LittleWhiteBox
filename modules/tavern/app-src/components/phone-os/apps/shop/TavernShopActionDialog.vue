@@ -43,6 +43,9 @@ const message = computed(() => {
     if (props.permanentConfirm) {
         return '这条规则一旦生效便没有关闭按钮，只能回滚到激活前的剧情位置或删除会话解除。';
     }
+    if (props.item.inputs.some((input) => input.key === 'rule')) {
+        return '填写一条最多 50 字的世界运行方式。确认后，它会作为永久规则进入叙事。';
+    }
     return props.item.inputs.length
         ? '填写规则作用的数据。它只会作为数据交给固定的道具规则。'
         : '确认后，这条规则会从下一次叙事请求开始生效。';

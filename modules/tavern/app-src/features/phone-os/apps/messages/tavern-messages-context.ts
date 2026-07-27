@@ -195,6 +195,7 @@ export async function buildTavernMessagesRequestMessages(input: {
         shopState?.state || null,
         shopTurn,
         String(baseContext.user?.name || '').trim(),
+        anchorOrder + 1,
     );
     return buildTavernPhonePromptMessages({
         context: contextForBuild,

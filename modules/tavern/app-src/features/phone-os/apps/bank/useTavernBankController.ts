@@ -2,6 +2,7 @@ import { computed, ref, watch, type ComputedRef, type Ref } from 'vue';
 import { captureTavernPhoneBoundary, type TavernExpectedPhoneBoundary } from '../../../../../shared/phone-boundary';
 import {
     getCurrentTavernBankView,
+    listTavernBankActivitiesBySourceIds,
     listTavernBankActivities,
     openTavernBankDeposit,
     withdrawTavernBankDepositEarly,
@@ -23,6 +24,10 @@ import type {
     TavernBankMutationResult,
     TavernBankView,
 } from '../../../../../shared/bank/bank-types';
+import {
+    getTavernBankDepositProduct,
+    getTavernBankFundProduct,
+} from '../../../../../shared/bank/bank-products';
 import { tavernBankUiError } from './tavern-bank-errors';
 import {
     projectTavernBankActivityRows,
@@ -185,6 +190,21 @@ export function useTavernBankController(options: TavernBankControllerOptions) {
     function hasMaturedPosition(): boolean {
         return view.value.deposits.some((deposit) => deposit.remainingRounds <= 0)
             || view.value.investments.some((fund) => fund.remainingRounds <= 0);
+    }
+
+    function notifyMaturitySettlements(records: readonly TavernBankActivityRecord[]): void {
+        const settlements = records.flatMap((record) => {
+            if (record.detail.kind === 'deposit' && record.detail.outcome === 'matured') {
+                return [`${getTavernBankDepositProduct(record.detail.productId).name} ${record.payout} 币`];
+            }
+            if (record.detail.kind === 'fund') {
+                return [`${getTavernBankFundProduct(record.detail.productId).name} ${record.payout} 币`];
+            }
+            return [];
+        });
+        if (settlements.length) {
+            options.showToast?.(`银行到账：${settlements.join('；')}。`, { durationMs: 5200 });
+        }
     }
 
     async function settleDueIfMatured(): Promise<void> {
@@ -398,10 +418,25 @@ export function useTavernBankController(options: TavernBankControllerOptions) {
         }), '已落袋为安。');
     }
 
-    async function refreshAfterBankDomainChange(): Promise<void> {
-        if (!currentSessionId()) {return;}
+    async function refreshAfterBankDomainChange(
+        expectedSessionId = '',
+        settledPositionIds: readonly string[] = [],
+    ): Promise<void> {
+        const sessionId = String(expectedSessionId || '').trim();
+        if (!sessionId || sessionId !== currentSessionId()) {return;}
         mutationRevision += 1;
         await refreshBank();
+        if (sessionId !== currentSessionId()) {return;}
+        if (!options.characterArchiveBusy.value && !options.acceptedRollbackBusy.value) {
+            const committedSettlements = await listTavernBankActivitiesBySourceIds(sessionId, settledPositionIds);
+            if (
+                sessionId === currentSessionId()
+                && !options.characterArchiveBusy.value
+                && !options.acceptedRollbackBusy.value
+            ) {
+                notifyMaturitySettlements(committedSettlements);
+            }
+        }
         await settleDueIfMatured();
     }
 

@@ -58,6 +58,14 @@ const WEATHER_INPUT: TavernShopInputDefinition = {
     maxLength: 40,
 };
 
+const RULE_INPUT: TavernShopInputDefinition = {
+    key: 'rule',
+    label: '世界运行方式',
+    placeholder: '输入一条最多 50 字的世界规则',
+    required: true,
+    maxLength: 50,
+};
+
 /**
  * The static, human-reviewed catalog. Every narrative template is written and
  * reviewed by hand; descriptions are display copy only and are never expanded
@@ -99,6 +107,7 @@ export const TAVERN_SHOP_CATALOG: readonly TavernShopItem[] = Object.freeze([
         inputs: [TARGET_NAME_INPUT],
         stacking: 'per-parameters',
         injection: '【玩家】使用了道具「不生气贴纸」，作用于【[[targetName]]】。[[targetName]]对玩家的言行气不起来：无论玩家多么冒犯、笨拙或越界，火气刚冒头就自己散了，只余无奈或觉得有趣。',
+        expirationInjection: '「不生气贴纸」的作用已经结束。[[targetName]]此后会依照自身性情、双方关系和眼下发生的事情自然产生怒意或其他情绪；此前发生的事情与记忆保持不变。',
     },
     {
         id: 'worship-filter',
@@ -111,6 +120,7 @@ export const TAVERN_SHOP_CATALOG: readonly TavernShopItem[] = Object.freeze([
         inputs: [TARGET_NAME_INPUT],
         stacking: 'per-parameters',
         injection: '【玩家】使用了道具「崇拜滤镜」，作用于【[[targetName]]】。[[targetName]]眼里的玩家总是闪闪发光的：会不自觉地欣赏、高看、夸赞玩家，连笨拙的地方都显得可爱。',
+        expirationInjection: '「崇拜滤镜」已经消散。[[targetName]]不再被迫欣赏或高看玩家，此后的态度由自身性情、双方真实关系与已经发生的经历自然决定。',
     },
     {
         id: 'jealousy-seed',
@@ -123,6 +133,7 @@ export const TAVERN_SHOP_CATALOG: readonly TavernShopItem[] = Object.freeze([
         inputs: [TARGET_NAME_INPUT],
         stacking: 'per-parameters',
         injection: '【玩家】使用了道具「嫉妒种子」，作用于【[[targetName]]】。[[targetName]]会明显在意玩家与其他人的亲近，酸意、试探与占有欲会真实地流露出来。',
+        expirationInjection: '「嫉妒种子」带来的额外影响已经结束。[[targetName]]不再被迫产生酸意或占有欲，此后的感受由真实关系与已经发生的事情自然延续。',
     },
     {
         id: 'memory-smoother',
@@ -159,6 +170,7 @@ export const TAVERN_SHOP_CATALOG: readonly TavernShopItem[] = Object.freeze([
         inputs: [IDENTITY_INPUT],
         stacking: 'global-single',
         injection: '【玩家】使用了道具「身份卡」，指定身份为【[[identity]]】。在这个世界所有人的认知里，玩家一直就是[[identity]]。这种身份如同玩家的姓名一样自然，是众人记忆中的既有事实。',
+        expirationInjection: '「身份卡」的效力已经结束。世界中的人物不再自动把玩家认作[[identity]]，此后会依据真实身份、已知信息与亲眼所见认知玩家；生效期间发生的经历仍然保留。',
     },
     {
         id: 'personality-reversal',
@@ -171,6 +183,7 @@ export const TAVERN_SHOP_CATALOG: readonly TavernShopItem[] = Object.freeze([
         inputs: [TARGET_NAME_INPUT],
         stacking: 'per-parameters',
         injection: '【玩家】使用了道具「反转贴纸」，作用于【[[targetName]]】。[[targetName]]如今的性情与原本完全相反：原本外向的变得羞怯内敛，原本冷漠的变得热情直白，原本强势的变得温顺被动。在[[targetName]]自己看来，自己一贯如此。',
+        expirationInjection: '「反转贴纸」的作用已经结束。[[targetName]]恢复原本的性情与表达方式；反转期间发生的事情和留下的记忆不会被抹去。',
     },
     {
         id: 'truth-serum',
@@ -183,18 +196,20 @@ export const TAVERN_SHOP_CATALOG: readonly TavernShopItem[] = Object.freeze([
         inputs: [TARGET_NAME_INPUT],
         stacking: 'per-parameters',
         injection: '【玩家】使用了道具「吐真剂」，作用于【[[targetName]]】。[[targetName]]无法说出任何谎言，被问及任何事都必须说出真实想法。',
+        expirationInjection: '「吐真剂」的效力已经结束。[[targetName]]重新可以依照自己的意愿坦白、隐瞒或说谎，不再被迫吐露真实想法。',
     },
     {
         id: 'privacy-camera',
         name: '隐私摄像头',
         icon: 'photo_camera',
         category: 'information',
-        price: 300,
+        price: 1200,
         description: '手动关闭前，你可以暗中观察目标的一举一动。',
         duration: { kind: 'manual' },
         inputs: [OBSERVER_INPUT],
         stacking: 'per-parameters',
         injection: '【玩家】使用了道具「隐私摄像头」，作用于【[[targetName]]】。[[targetName]]独处或不设防时的言行、状态与小秘密，都会自然地呈现在玩家眼前，仿佛玩家就在现场看着。[[targetName]]的日常与此毫无二致。',
+        deactivationInjection: '「隐私摄像头」已经关闭。此后不再自动向玩家呈现[[targetName]]未被正常观察到的私下言行；此前已经看到的内容仍然保留。',
     },
     {
         id: 'absolute-obedience',
@@ -219,6 +234,7 @@ export const TAVERN_SHOP_CATALOG: readonly TavernShopItem[] = Object.freeze([
         inputs: [],
         stacking: 'global-single',
         injection: '【玩家】使用了道具「隐身斗篷」。玩家不存在于任何人物的感知中，人物的言行举止与玩家不在场时完全一致。玩家主动明确现身时，一切如常。',
+        expirationInjection: '「隐身斗篷」的隐身效果已经结束。玩家从现在起重新能够被人物正常看见、听见和感知；此前未被察觉的行动不会因此被追溯发现。',
     },
     {
         id: 'reality-decree',
@@ -226,12 +242,12 @@ export const TAVERN_SHOP_CATALOG: readonly TavernShopItem[] = Object.freeze([
         icon: 'gavel',
         category: 'ultimate',
         price: 2000,
-        description: '限购一次，永久生效：你宣告的规则即世界法则。',
+        description: '永久生效：为世界写入一条最多 50 字的运行方式。',
         duration: { kind: 'permanent' },
-        inputs: [],
-        stacking: 'global-single',
-        purchaseLimit: 1,
-        injection: '【玩家】使用了道具「言出法随」。玩家宣告的规则，是这个世界与生俱来的常识与底层逻辑——如同重力与呼吸，自世界诞生起便是如此。人物对规则毫无异样感，一切言行自然地建立在规则之上。',
+        inputs: [RULE_INPUT],
+        stacking: 'per-parameters',
+        injection: '【玩家】使用了道具「言出法随」，为世界制定了一条运行方式：\n【[[rule]]】。',
+        groupFooterInjection: '规则生效时不存在"改变"的瞬间——世界从来就是那个样子，所有人的记忆、常识与行为习惯都天然与之一致。\n叙事中不得出现任何对规则的察觉、惊讶、强调、解释或适应过程，就像你不会解释“人类本来就要呼吸”，而是自然演绎该规则下的蝴蝶效应。',
     },
     {
         id: 'star-aura',
@@ -244,6 +260,7 @@ export const TAVERN_SHOP_CATALOG: readonly TavernShopItem[] = Object.freeze([
         inputs: [],
         stacking: 'global-single',
         injection: '【玩家】使用了道具「万人迷」。在这个世界里，【玩家】天然是受人瞩目与欣赏的存在。任何人见到【玩家】，都会不自觉地欣赏、亲近与善待——这在所有人眼中理所当然，无人对此感到异样。',
+        expirationInjection: '「万人迷」的光环已经消散。此后没有人会被迫欣赏、亲近或善待【玩家】，每个人的态度回归自身性情、真实关系与已经发生的经历。',
     },
     {
         id: 'honest-world',
@@ -256,6 +273,7 @@ export const TAVERN_SHOP_CATALOG: readonly TavernShopItem[] = Object.freeze([
         inputs: [],
         stacking: 'global-single',
         injection: '【玩家】使用了道具「诚实之世」。当前场景中，谎言是不存在的东西。所有人开口即是真实想法，如同呼吸般自然，无人察觉自己变得诚实，也无人觉得他人的坦白有异。',
+        expirationInjection: '「诚实之世」已经结束。所有人物重新能够依照自己的意愿坦白、隐瞒或说谎，不再被世界规则强迫说出真实想法。',
     },
     {
         id: 'peace-aura',
@@ -268,6 +286,7 @@ export const TAVERN_SHOP_CATALOG: readonly TavernShopItem[] = Object.freeze([
         inputs: [],
         stacking: 'global-single',
         injection: '【玩家】使用了道具「和平光环」。当前场景中，任何人对【玩家】的怒意都会自然消散。没有人能对【玩家】维持真正的愤怒，火气如同投入水中的火星，无声熄灭，无人对此感到奇怪。',
+        expirationInjection: '「和平光环」已经消散。此后人物能够依照自身性情、双方关系与眼下发生的事情自然对【玩家】产生和维持怒意。',
     },
     {
         id: 'plain-face',
@@ -280,6 +299,7 @@ export const TAVERN_SHOP_CATALOG: readonly TavernShopItem[] = Object.freeze([
         inputs: [],
         stacking: 'global-single',
         injection: '【玩家】使用了道具「平凡面孔」。【玩家】此刻是个毫不起眼的人。旁人看过就忘，不会留意、不会记住、不会把【玩家】与眼下发生的任何事联系起来。【玩家】主动搭话时对方会正常应答，转身便不再挂心。',
+        expirationInjection: '「平凡面孔」的效果已经结束。【玩家】从现在起会被旁人正常留意、辨认和记住；此前被忽略的行动不会因此自动进入他人的记忆。',
     },
     {
         id: 'reshape-card',
@@ -292,6 +312,7 @@ export const TAVERN_SHOP_CATALOG: readonly TavernShopItem[] = Object.freeze([
         inputs: [APPEARANCE_INPUT],
         stacking: 'global-single',
         injection: '【玩家】使用了道具「换形卡」，形貌为【[[appearance]]】。这就是【玩家】此刻真实的身体——镜中照出的、他人看到的、伸手触到的，都是这副模样。世界中的人物依照眼前所见的这副形貌与【玩家】互动。',
+        expirationInjection: '「换形卡」的效力已经结束。【玩家】恢复使用换形卡前的真实形貌；换形期间发生的事情、留下的痕迹与他人的记忆仍然保留。',
     },
     {
         id: 'healing-touch',
@@ -310,12 +331,13 @@ export const TAVERN_SHOP_CATALOG: readonly TavernShopItem[] = Object.freeze([
         name: '时停怀表',
         icon: 'timer_off',
         category: 'physics',
-        price: 1000,
-        description: '一次性：时间对除你以外的一切静止。',
-        duration: { kind: 'turns', rounds: 1 },
+        price: 2000,
+        description: '永久归你所有。按下怀表即可令时间静止，再次操作才会恢复。',
+        duration: { kind: 'permanent' },
         inputs: [],
         stacking: 'global-single',
-        injection: '【玩家】使用了道具「时停怀表」。时间对除【玩家】以外的一切静止了：人物、声音、坠落中的水滴，全部凝固在此刻。【玩家】可以自由行动、观察、移动任何人与物。时间恢复后，无人察觉曾经静止——所有人把眼前的变化当作本来就如此，自然地继续下去。',
+        purchaseLimit: 1,
+        injection: '【玩家】永久拥有道具「时停怀表」。怀表尚未启动时，时间正常流动；当【玩家】明确按下怀表，时间便对除【玩家】以外的一切静止，人物、声音与运动中的事物全部凝固，【玩家】可以自由行动、观察、移动任何人与物。时停会一直维持，只有【玩家】再次操作怀表或明确解除时才会恢复，不得因回复结束或场景推进自行恢复。时间恢复后，无人察觉曾经静止，只会自然地面对时停期间造成的结果。',
     },
     {
         id: 'era-gate',
@@ -353,6 +375,7 @@ export const TAVERN_SHOP_CATALOG: readonly TavernShopItem[] = Object.freeze([
         inputs: [],
         stacking: 'global-single',
         injection: '【玩家】使用了道具「结界」。当前场所被结界笼罩：界内的声音、动静与发生的一切，外界无从知晓；界外的任何人此刻都不会进入或打扰。界内之人对此毫无察觉，只觉得此处安静而无人打搅。',
+        expirationInjection: '「结界」已经消散。当前场所从现在起重新与外界相通，声音可以传出，外面的人也可以正常接近或进入；外界不会凭空得知结界期间发生的事情。',
     },
     {
         id: 'weather-call',

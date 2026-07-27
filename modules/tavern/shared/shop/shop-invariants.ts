@@ -118,7 +118,6 @@ export function findTavernShopStateInvariantViolation(
         ) {
             return { code: 'purchase-limit', itemId };
         }
-
         const validActivations: Array<{
             activation: TavernShopActivation;
             interval: TavernShopActivationInterval;

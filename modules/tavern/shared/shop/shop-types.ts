@@ -11,7 +11,7 @@ export type TavernShopDuration =
 
 export type TavernShopCategory = 'emotion' | 'memory' | 'information' | 'behavior' | 'scene' | 'ultimate' | 'world-cognition' | 'physics';
 
-export type TavernShopInputKey = 'targetName' | 'identity' | 'appearance' | 'era' | 'location' | 'weather';
+export type TavernShopInputKey = 'targetName' | 'identity' | 'appearance' | 'era' | 'location' | 'weather' | 'rule';
 
 export type TavernShopStacking = 'global-single' | 'per-parameters';
 
@@ -35,6 +35,10 @@ export interface TavernShopItem {
     stacking: TavernShopStacking;
     purchaseLimit?: number;
     injection: string;
+    /** Prompt guidance emitted once after all active instances of this item. */
+    groupFooterInjection?: string;
+    /** One-boundary world transition emitted when a turns-limited state expires. */
+    expirationInjection?: string;
     /** Optional one-shot world transition when a manual effect is closed. */
     deactivationInjection?: string;
 }
@@ -182,10 +186,7 @@ function normalizeLimitedText(value: unknown, limit: number): string {
         .slice(0, limit);
 }
 
-/**
- * User input only ever fills reviewed template slots as data. Values are
- * normalized, length-capped and reduced to the declared input keys.
- */
+/** Normalizes, length-caps and reduces input to the item's declared template slots. */
 export function normalizeTavernShopParameters(
     item: TavernShopItem,
     rawParameters: Record<string, unknown> = {},

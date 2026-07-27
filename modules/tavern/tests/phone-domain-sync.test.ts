@@ -68,7 +68,10 @@ async function waitUntil(predicate: () => boolean): Promise<void> {
     throw new Error('phone_domain_sync_timeout');
 }
 
-function createSyncedBankObserver(selectedSessionId: ReturnType<typeof ref<string>>) {
+function createSyncedBankObserver(
+    selectedSessionId: ReturnType<typeof ref<string>>,
+    showToast?: (message: string) => void,
+) {
     const scope = effectScope();
     const observer = scope.run(() => {
         const wallet = useTavernWalletController({
@@ -81,13 +84,17 @@ function createSyncedBankObserver(selectedSessionId: ReturnType<typeof ref<strin
             characterArchiveBusy: computed(() => false),
             acceptedRollbackBusy: computed(() => false),
             wallet,
+            showToast,
         });
         useTavernPhoneDomainSync({
             selectedSessionId,
             onTasksChanged: () => {},
             onEconomyChanged: wallet.refreshAfterEconomyDomainChange,
             onShopChanged: () => {},
-            onBankChanged: bank.refreshAfterBankDomainChange,
+            onBankChanged: (change) => bank.refreshAfterBankDomainChange(
+                change.sessionId,
+                change.settledPositionIds,
+            ),
         });
         return { bank, wallet };
     });
@@ -214,7 +221,10 @@ test('an observing phone controller refreshes tasks and wallet after another wri
             onTasksChanged: tasks.refreshAfterTaskDomainChange,
             onEconomyChanged: wallet.refreshAfterEconomyDomainChange,
             onShopChanged: shop.refreshAfterShopDomainChange,
-            onBankChanged: bank.refreshAfterBankDomainChange,
+            onBankChanged: (change) => bank.refreshAfterBankDomainChange(
+                change.sessionId,
+                change.settledPositionIds,
+            ),
         });
         return { bank, shop, tasks, wallet };
     });
@@ -378,9 +388,20 @@ test('Bank domain sync turns a remote turn advance into one automatic maturity s
     const session = await createTavernSession({ title: 'Bank turn settlement sync' });
     await ensureTavernEconomy(session.id);
     await appendTavernMessage(session.id, { role: 'user', content: '等待存单到期' });
-    const observer = createSyncedBankObserver(ref(session.id));
+    const selectedSessionId = ref(session.id);
+    const firstToasts: string[] = [];
+    const secondToasts: string[] = [];
+    const lateToasts: string[] = [];
+    const first = createSyncedBankObserver(selectedSessionId, (message) => {firstToasts.push(message);});
+    const second = createSyncedBankObserver(selectedSessionId, (message) => {secondToasts.push(message);});
+    let late: ReturnType<typeof createSyncedBankObserver> | null = null;
     try {
-        await Promise.all([observer.bank.refreshBank(), observer.wallet.refreshWallet()]);
+        await Promise.all([
+            first.bank.refreshBank(),
+            first.wallet.refreshWallet(),
+            second.bank.refreshBank(),
+            second.wallet.refreshWallet(),
+        ]);
         await settleLiveQueries();
         await openTavernBankDeposit({
             ...await bankMutationHead(session.id),
@@ -388,18 +409,43 @@ test('Bank domain sync turns a remote turn advance into one automatic maturity s
             productId: 'short-term',
             amount: 100,
         });
-        await waitUntil(() => observer.bank.deposits.value.length === 1);
+        await waitUntil(() => first.bank.deposits.value.length === 1 && second.bank.deposits.value.length === 1);
         const record = await tavernSessionsTable.get(session.id);
         await tavernSessionsTable.update(session.id, {
             state: { ...(record?.state || {}), turn: 999 },
         });
-        await waitUntil(() => observer.bank.deposits.value.length === 0);
+        await waitUntil(() => (
+            first.bank.deposits.value.length === 0
+            && second.bank.deposits.value.length === 0
+            && firstToasts.some((message) => /银行到账：短期存单 106 币/.test(message))
+            && secondToasts.some((message) => /银行到账：短期存单 106 币/.test(message))
+        ));
         const settlements = (await tavernEconomyTransactionsTable.where('sessionId').equals(session.id).toArray())
             .filter((transaction) => transaction.kind === 'bank_settlement');
         assert.equal(settlements.length, 1);
         assert.equal(settlements[0].amount, 106);
-        assert.equal(observer.bank.actionError.value, '');
+        assert.equal(first.bank.actionError.value, '');
+        assert.equal(second.bank.actionError.value, '');
+        const firstNoticeCount = firstToasts.length;
+        const secondNoticeCount = secondToasts.length;
+        late = createSyncedBankObserver(selectedSessionId, (message) => {lateToasts.push(message);});
+        await Promise.all([late.bank.refreshBank(), late.wallet.refreshWallet()]);
+        await settleLiveQueries();
+        const settledSession = await tavernSessionsTable.get(session.id);
+        await tavernSessionsTable.update(session.id, {
+            state: { ...(settledSession?.state || {}), turn: 1_000 },
+        });
+        await waitUntil(() => (
+            first.bank.currentTurn.value === 1_000
+            && second.bank.currentTurn.value === 1_000
+            && late?.bank.currentTurn.value === 1_000
+        ));
+        assert.equal(firstToasts.length, firstNoticeCount);
+        assert.equal(secondToasts.length, secondNoticeCount);
+        assert.deepEqual(lateToasts, []);
     } finally {
-        observer.scope.stop();
+        first.scope.stop();
+        second.scope.stop();
+        late?.scope.stop();
     }
 });

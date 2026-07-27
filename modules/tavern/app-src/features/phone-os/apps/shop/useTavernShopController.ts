@@ -155,7 +155,7 @@ export function useTavernShopController(options: TavernShopControllerOptions) {
         if (blocked) {return blocked;}
         if (busyAction.value) {return '上一笔交易仍在提交。';}
         const row = shelfItems.value.find((candidate) => candidate.item.id === item.id);
-        if (row?.purchaseLimitReached) {return '当前会话已达到限购数量。';}
+        if (row?.purchaseLimitReached) {return '已经拥有这件永久道具。';}
         if (options.wallet.balanceLoading.value) {return '钱包余额正在读取。';}
         if (!options.wallet.balanceReady.value || options.wallet.balanceError.value) {return '钱包暂时无法确认余额。';}
         if (options.wallet.balance.value < item.price) {return `还差 ${item.price - options.wallet.balance.value} 小白币。`;}

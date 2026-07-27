@@ -92,7 +92,7 @@ type TavernShopDuration =
     | { kind: 'permanent' };
 
 interface TavernShopInputDefinition {
-    key: 'targetName' | 'identity';
+    key: 'targetName' | 'identity' | 'appearance' | 'era' | 'location' | 'weather' | 'rule';
     label: string;
     placeholder: string;
     required: true;
@@ -111,17 +111,19 @@ interface TavernShopItem {
     stacking: 'global-single' | 'per-parameters';
     purchaseLimit?: number;
     injection: string;
+    groupFooterInjection?: string; // 同商品多实例合并后只投影一次
+    expirationInjection?: string; // turns 状态到期边界的一次性世界转换
     deactivationInjection?: string; // 仅 manual：关闭后下一主 RP 的一次性世界转换
 }
 ```
 
-`injection`是人工审核的世界规则模板，只允许使用商品 `inputs` 已声明的受控占位符。运行时值先按输入定义规范化后替换；未知或残留占位符直接报错。`deactivationInjection`只用于需要明确世界转换的手动道具：关闭动作已有结束坐标，下一主 RP 在同一坐标投影一次，不新增待处理状态。
+`injection`是人工审核的世界规则模板，只允许使用商品 `inputs` 已声明的受控占位符。运行时值先按输入定义规范化后替换；未知或残留占位符直接报错。`groupFooterInjection`用于同一商品可同时存在多个实例、但共同说明只应出现一次的 Prompt。`expirationInjection`用于有限状态到期时明确恢复正常规则；它由激活回合和时长直接推导，不持久化待处理状态。`deactivationInjection`用于需要明确世界转换的手动道具：关闭动作已有结束坐标，同一故事边界投影该转换，不新增待处理状态。
 
 `stacking`只约束活跃实例，不代表自动排队：
 
 - `global-single`：同一商品在整个会话中最多存在一个活跃实例。
 - `per-parameters`：同一商品对同一组规范化参数最多存在一个活跃实例；例如同一个目标身上的同款道具尚未结束时，再次使用会直接拒绝，不扣 quantity，也不创建排队状态。
-- 购买仍可增加未使用 quantity；旧实例结束后，玩家必须再次手动点击使用。除 `purchaseLimit`外，购买不会被活跃实例隐式拦截。
+- 购买只增加未使用 quantity，不会被活跃实例隐式拦截；是否能使用由激活时的 `stacking` 约束决定。`purchaseLimit`只用于不可重复取得的永久物品。
 
 ### 5.2 背包状态
 
@@ -221,7 +223,9 @@ remainingRounds = activation.startsAtTurn + rounds - currentTurn;
 ### 6.3 有限持续
 
 - 每次主 RP 成功保存自然减少一回合。
-- Prompt 不输出倒计时或到期说明。
+- 生效期间不输出倒计时。
+- 状态类道具在首个到期故事边界投影一次 `expirationInjection`，明确告诉模型效果已经结束以及恢复后的规则；同一边界的重 roll 会得到相同转换。
+- 一次性事件类道具不投影反向失效：赠礼、治愈、传送、天气和记忆改变已经形成的剧情事实继续保留。
 - 不创建“待消退”记录，不运行清理任务。
 
 ### 6.4 手动持续
@@ -235,8 +239,9 @@ remainingRounds = activation.startsAtTurn + rounds - currentTurn;
 
 - 不显示关闭按钮。
 - 使用前必须二次确认，并明确说明只能通过剧情回滚到激活前或删除会话解除。
-- `言出法随`为全局单例且每会话限购一次。
+- `言出法随`每次使用写入一条不超过 50 字的永久世界运行方式；按规则文本去重，不同规则可同时生效，共同的叙事说明只投影一次。
 - `言听计从`按目标人物去重；可对不同人物分别激活。
+- `时停怀表`永久归玩家所有且只能取得一次；未操作时不改变时间，玩家明确操作后维持时停，直至玩家再次操作或明确解除。
 
 ### 6.6 重 roll
 
@@ -373,17 +378,17 @@ Shop 在私人消息中同样是 USER 之前最后一个 system message。不得
 | `identity-card` | 身份卡 | 500 | 10 回合 | 指定身份 | 全局单例 |
 | `personality-reversal` | 反转贴纸 | 250 | 5 回合 | 目标人物 | 按目标 |
 | `truth-serum` | 吐真剂 | 500 | 3 回合 | 目标人物 | 按目标 |
-| `privacy-camera` | 隐私摄像头 | 300 | 手动结束 | 观察对象 | 按目标 |
+| `privacy-camera` | 隐私摄像头 | 1200 | 手动结束 | 观察对象 | 按目标 |
 | `absolute-obedience` | 言听计从 | 1200 | 永久 | 目标人物 | 按目标 |
 | `invisibility-cloak` | 隐身斗篷 | 300 | 5 回合 | 无 | 全局单例 |
-| `reality-decree` | 言出法随 | 2000 | 永久 | 无 | 全局单例、限购一次 |
+| `reality-decree` | 言出法随 | 2000 | 永久 | 世界运行方式（最多 50 字） | 按规则 |
 | `star-aura` | 万人迷 | 800 | 5 回合 | 无 | 全局单例 |
 | `honest-world` | 诚实之世 | 1500 | 3 回合 | 无 | 全局单例 |
 | `peace-aura` | 和平光环 | 400 | 5 回合 | 无 | 全局单例 |
 | `plain-face` | 平凡面孔 | 300 | 5 回合 | 无 | 全局单例 |
 | `reshape-card` | 换形卡 | 600 | 10 回合 | 外貌描述 | 全局单例 |
 | `healing-touch` | 妙手回春 | 150 | 1 回合 | 目标人物 | 按目标 |
-| `time-stop-watch` | 时停怀表 | 1000 | 1 回合 | 无 | 全局单例 |
+| `time-stop-watch` | 时停怀表 | 2000 | 永久 | 无 | 全局单例、只能取得一次 |
 | `era-gate` | 岁月之门 | 2000 | 手动返回 | 目标年代 | 全局单例 |
 | `warp-talisman` | 咫尺符 | 300 | 1 回合 | 目标地点 | 按地点 |
 | `barrier` | 结界 | 500 | 5 回合 | 无 | 全局单例 |
@@ -425,7 +430,7 @@ Phone OS 返回键遵循现有 route stack，不另造导航状态。
 - 顶部固定显示余额，直接读取 Wallet Controller。
 - 按目录分类展示 25 个静态商品。
 - 卡片显示：图标、名称、说明、价格、生命周期标签。
-- 余额不足、限购完成或状态未就绪时按钮禁用并给出明确原因。
+- 余额不足、唯一永久物品已拥有或状态未就绪时按钮禁用并给出明确原因。
 - 购买采用确认弹窗；成功后全局 toast“已购买”。
 - 不使用乐观扣款，事务成功后再刷新钱包和背包。
 

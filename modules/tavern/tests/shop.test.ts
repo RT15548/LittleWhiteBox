@@ -189,7 +189,15 @@ test('shop catalog is a reviewed static list of twenty five items', () => {
             assert.ok(item.duration.rounds >= 1, `rounds invalid on ${item.id}`);
         }
     }
-    assert.equal(getTavernShopItem('reality-decree').purchaseLimit, 1);
+    const decree = getTavernShopItem('reality-decree');
+    assert.equal(decree.stacking, 'per-parameters');
+    assert.equal(decree.inputs[0]?.key, 'rule');
+    assert.equal(decree.inputs[0]?.maxLength, 50);
+    assert.equal(getTavernShopItem('privacy-camera').price, 1_200);
+    const watch = getTavernShopItem('time-stop-watch');
+    assert.equal(watch.price, 2_000);
+    assert.equal(watch.duration.kind, 'permanent');
+    assert.equal(watch.purchaseLimit, 1);
     assert.equal(getTavernShopItem('identity-card').stacking, 'global-single');
     assert.equal(getTavernShopItem('invisibility-cloak').stacking, 'global-single');
     assert.equal(getTavernShopItem('absolute-obedience').duration.kind, 'permanent');
@@ -231,6 +239,24 @@ test('shop activation lifetime follows main-rp turn semantics', () => {
     assert.equal(isTavernShopActivationActive(ended, camera, 5), false);
 });
 
+test('turn-limited states declare expiration at one story boundary without undoing one-shot events', () => {
+    const stickerState = activationState({
+        itemId: 'no-anger-sticker',
+        parameters: { targetName: '艾拉' },
+        startsAtTurn: 2,
+    });
+    assert.match(buildTavernShopPromptBlock(stickerState, 6), /艾拉对玩家的言行气不起来/);
+    assert.match(buildTavernShopPromptBlock(stickerState, 7), /「不生气贴纸」的作用已经结束/);
+    assert.equal(buildTavernShopPromptBlock(stickerState, 8), '');
+
+    const healedState = activationState({
+        itemId: 'healing-touch',
+        parameters: { targetName: '艾拉' },
+        startsAtTurn: 2,
+    });
+    assert.equal(buildTavernShopPromptBlock(healedState, 3), '');
+});
+
 test('shop parameters are normalized length-capped text', () => {
     const flower = getTavernShopItem('flower');
     const normalized = normalizeTavernShopParameters(flower, { targetName: '  艾　拉\n  测试  ' });
@@ -241,6 +267,8 @@ test('shop parameters are normalized length-capped text', () => {
     assert.throws(() => normalizeTavernShopParameters(flower, { targetName: '   ' }), /shop_parameters_invalid/);
     const cloak = getTavernShopItem('invisibility-cloak');
     assert.deepEqual(normalizeTavernShopParameters(cloak, { targetName: '被忽略的输入' }), {});
+    const decree = getTavernShopItem('reality-decree');
+    assert.equal(normalizeTavernShopParameters(decree, { rule: '规则'.repeat(30) }).rule.length, 50);
 });
 
 test('placeTavernShopPromptBlockBeforeCurrentUser repairs the final ordering deterministically', () => {
@@ -522,7 +550,7 @@ test('shop activation rejects duplicate active effects without consuming stock',
 test('shop deactivation is only allowed for active manual effects', async () => {
     await resetDb();
     const session = await createTavernSession({ title: 'Shop deactivate' });
-    await topUpPlayer({ sessionId: session.id, amount: 2_000, key: 'top-up-deactivate' });
+    await topUpPlayer({ sessionId: session.id, amount: 2_300, key: 'top-up-deactivate' });
     await purchaseItem({ sessionId: session.id, itemId: 'absolute-obedience', actionId: 'buy-obedience' });
     const obedience = await activateItem({
         sessionId: session.id,
@@ -585,7 +613,7 @@ test('shop deactivation is only allowed for active manual effects', async () => 
         }),
         /shop_activation_missing/,
     );
-    assert.equal(await getTavernPlayerBalance(session.id), 600);
+    assert.equal(await getTavernPlayerBalance(session.id), 0);
 });
 
 test('era gate closing records one manual ending at the current story boundary', async () => {
@@ -609,19 +637,52 @@ test('era gate closing records one manual ending at the current story boundary',
     assert.equal(returned.activation.endedAtOrder, returned.record.anchorOrder);
 });
 
-test('shop purchase limit is enforced inside the same transaction', async () => {
+test('reality decree purchases and activates multiple permanent rules with one shared prompt explanation', async () => {
     await resetDb();
-    const session = await createTavernSession({ title: 'Shop limit' });
-    await topUpPlayer({ sessionId: session.id, amount: 4_000, key: 'top-up-limit' });
+    const session = await createTavernSession({ title: 'Shop world rules' });
+    await topUpPlayer({ sessionId: session.id, amount: 4_000, key: 'top-up-world-rules' });
     const first = await purchaseItem({ sessionId: session.id, itemId: 'reality-decree', actionId: 'buy-decree-1' });
     assert.equal(first.playerBalance, 2_100);
+    const second = await purchaseItem({ sessionId: session.id, itemId: 'reality-decree', actionId: 'buy-decree-2' });
+    assert.equal(second.playerBalance, 100);
+    await activateItem({
+        sessionId: session.id,
+        itemId: 'reality-decree',
+        parameters: { rule: '所有人都无法说谎' },
+        actionId: 'use-decree-1',
+    });
+    await activateItem({
+        sessionId: session.id,
+        itemId: 'reality-decree',
+        parameters: { rule: '夜晚的月亮呈现红色' },
+        actionId: 'use-decree-2',
+    });
+    const current = await getCurrentTavernShopState(session.id);
+    assert.equal(current?.state.items['reality-decree'].quantity, 0);
+    assert.equal(current?.state.items['reality-decree'].activations.length, 2);
+    const prompt = buildTavernShopPromptBlock(current?.state, 0);
+    assert.match(prompt, /【所有人都无法说谎】。/);
+    assert.match(prompt, /【夜晚的月亮呈现红色】。/);
+    assert.equal(prompt.split('规则生效时不存在"改变"的瞬间').length - 1, 1);
+});
+
+test('time-stop watch is acquired once as a permanent player item', async () => {
+    await resetDb();
+    const session = await createTavernSession({ title: 'Shop permanent watch' });
+    await topUpPlayer({ sessionId: session.id, amount: 4_000, key: 'top-up-watch' });
+    const purchased = await purchaseItem({
+        sessionId: session.id,
+        itemId: 'time-stop-watch',
+        actionId: 'buy-watch-1',
+    });
+    assert.equal(purchased.playerBalance, 2_100);
     await assert.rejects(
-        purchaseItem({ sessionId: session.id, itemId: 'reality-decree', actionId: 'buy-decree-2' }),
+        purchaseItem({ sessionId: session.id, itemId: 'time-stop-watch', actionId: 'buy-watch-2' }),
         /shop_purchase_limit_reached/,
     );
     assert.equal(await getTavernPlayerBalance(session.id), 2_100);
     const current = await getCurrentTavernShopState(session.id);
-    assert.equal(current?.state.items['reality-decree'].quantity, 1);
+    assert.equal(current?.state.items['time-stop-watch'].quantity, 1);
 });
 
 test('shop state follows anchors and accepted rollback restores shop and wallet together', async () => {
@@ -766,5 +827,7 @@ test('shop runtime depth entries project the current state as one depth-1 system
     assert.equal(entries[0].role, 'system');
     assert.equal(entries[0].order, TAVERN_SHOP_PROMPT_DEPTH_ORDER);
     assert.equal(entries[0].layer, TAVERN_SHOP_PROMPT_LAYER);
-    assert.deepEqual(await buildTavernShopRuntimeDepthEntries({ sessionId: session.id, currentTurn: 5 }), []);
+    const expirationEntries = await buildTavernShopRuntimeDepthEntries({ sessionId: session.id, currentTurn: 5 });
+    assert.match(expirationEntries[0]?.content || '', /「不生气贴纸」的作用已经结束/);
+    assert.deepEqual(await buildTavernShopRuntimeDepthEntries({ sessionId: session.id, currentTurn: 6 }), []);
 });
