@@ -45,7 +45,6 @@ import { sortTavernTasksByRecent } from './tavern-task-presentation';
 
 const TASK_TIMELINE_PAGE_SIZE = 20;
 const TASK_HISTORY_PAGE_SIZE = 20;
-const TASK_BOARD_TERMINAL_TITLE_LIMIT = 12;
 
 export interface TavernTaskPublishDraft {
     title: string;
@@ -287,20 +286,6 @@ export function useTavernTasksController(options: TavernTasksControllerOptions) 
             : 'empty-story';
     }
 
-    function boardTitleExclusions() {
-        return {
-            excludedTitles: [...new Set([
-                ...(board.value?.listings || []).map((listing) => listing.title),
-                ...tasks.value
-                    .filter((task) => task.status === 'active' || task.status === 'recruiting')
-                    .map((task) => task.title),
-                ...terminalTasks(sortTavernTasksByRecent(tasks.value))
-                    .slice(0, TASK_BOARD_TERMINAL_TITLE_LIMIT)
-                    .map((task) => task.title),
-            ])],
-        };
-    }
-
     async function refreshTaskBoard(): Promise<void> {
         const blocked = interactionBlockedReason.value;
         const sessionId = currentSessionId();
@@ -315,7 +300,6 @@ export function useTavernTasksController(options: TavernTasksControllerOptions) 
         const expectedEpoch = boardEpoch;
         const contextSnapshot = cloneSerializable(options.effectiveContext.value || {});
         const agentConfig = cloneSerializable(options.agentConfig.value || {});
-        const taskSnapshot = cloneSerializable(tasks.value);
         boardRefreshing.value = true;
         boardError.value = '';
         try {
@@ -327,14 +311,11 @@ export function useTavernTasksController(options: TavernTasksControllerOptions) 
                 getNativeWorldInfoRuntime: options.getNativeWorldInfoRuntime,
             });
             if (controller.signal.aborted || sessionId !== currentSessionId()) {return;}
-            const exclusions = boardTitleExclusions();
             const result = await runTavernOnce({
                 agentConfig,
                 providerRole: 'delegate',
                 messages: buildTavernTaskBoardRequestMessages({
                     layers,
-                    currentTasks: taskSnapshot,
-                    excludedTitles: exclusions.excludedTitles,
                 }),
                 tools: [],
                 toolChoice: 'none',
@@ -343,7 +324,7 @@ export function useTavernTasksController(options: TavernTasksControllerOptions) 
             });
             if (controller.signal.aborted || sessionId !== currentSessionId()) {return;}
             assertTavernTaskGenerationFinished(result.finishReason);
-            const listings = parseTavernTaskBoardGenerationResponse(result.text, exclusions);
+            const listings = parseTavernTaskBoardGenerationResponse(result.text);
             const nextBoard = await replaceTavernTaskBoard({
                 sessionId,
                 expectedRevision,

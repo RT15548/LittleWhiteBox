@@ -311,8 +311,6 @@ export interface FailTavernTaskInput {
 }
 
 export interface TaskBoardParseOptions {
-    excludedTitles?: string[];
-    existingTitles?: string[];
     createId?: (prefix: string) => string;
 }
 
@@ -473,13 +471,9 @@ export function normalizeTavernTaskListings(value: unknown, options: { min?: num
     if (value.length < min || value.length > max) {throwTavernTaskError('task_board_payload_invalid', `${value.length}`);}
     const listings = value.map((item, index) => normalizeTavernTaskListing(item, `listing-${index + 1}`));
     const ids = new Set<string>();
-    const titles = new Set<string>();
     for (const listing of listings) {
         if (ids.has(listing.id)) {throwTavernTaskError('task_board_listing_duplicate', listing.id);}
         ids.add(listing.id);
-        const title = normalizeComparisonText(listing.title);
-        if (titles.has(title)) {throwTavernTaskError('task_board_listing_duplicate', listing.title);}
-        titles.add(title);
     }
     return listings;
 }
@@ -520,10 +514,6 @@ function extractJsonValues(textValue: string): unknown[] {
 
 export function parseTavernTaskBoardResponse(value: string, options: TaskBoardParseOptions = {}): TavernTaskListing[] {
     const createId = options.createId || createLocalId;
-    const excludedTitles = new Set([
-        ...(options.excludedTitles || []),
-        ...(options.existingTitles || []),
-    ].map(normalizeComparisonText).filter(Boolean));
     const parsedValues = extractJsonValues(value);
     if (!parsedValues.length) {throwTavernTaskError('task_response_json_invalid');}
     let foundTasksArray = false;
@@ -533,13 +523,9 @@ export function parseTavernTaskBoardResponse(value: string, options: TaskBoardPa
         if (!Array.isArray(tasks)) {continue;}
         foundTasksArray = true;
         const listings: TavernTaskListing[] = [];
-        const titles = new Set<string>();
         for (let index = 0; index < tasks.length; index += 1) {
             try {
                 const listing = normalizeTavernTaskListing(tasks[index], `listing-${index + 1}`);
-                const title = normalizeComparisonText(listing.title);
-                if (excludedTitles.has(title) || titles.has(title)) {continue;}
-                titles.add(title);
                 listings.push({
                     ...listing,
                     id: createId('listing'),

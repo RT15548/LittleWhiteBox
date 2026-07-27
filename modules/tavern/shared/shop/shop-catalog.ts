@@ -27,9 +27,9 @@ const OBSERVER_INPUT: TavernShopInputDefinition = {
 };
 
 /**
- * The static, human-reviewed catalog. Every injection is written and reviewed
- * by hand; descriptions are display copy only and are never expanded into
- * prompt text. The model must never generate items, prices or injections.
+ * The static, human-reviewed catalog. Every narrative template is written and
+ * reviewed by hand; descriptions are display copy only and are never expanded
+ * into prompt text. The model must never generate items, prices or injections.
  */
 export const TAVERN_SHOP_CATALOG: readonly TavernShopItem[] = Object.freeze([
     {
@@ -42,7 +42,8 @@ export const TAVERN_SHOP_CATALOG: readonly TavernShopItem[] = Object.freeze([
         duration: { kind: 'turns', rounds: 1 },
         inputs: [TARGET_NAME_INPUT],
         stacking: 'per-parameters',
-        injection: '强制规则：在道具效果生效的回合内，上述作用对象会收下玩家赠送的花，并把这份心意理解为明确而真诚的好感表达，第一反应必须是正面的触动，而非怀疑、轻视或曲解为恶意。此规则只约束生效期间上述作用对象对“收到花”这件事的反应，不得据此改写其过去的记忆或双方既有的关系事实。',
+        narration: 'event',
+        injection: '玩家此刻将一束花递给[[targetName]]。[[targetName]]的第一反应必须是被这份心意正面触动——收下，并理解为真诚的好感，而不是怀疑、轻视或曲解。这是刚发生的赠花，只影响此刻起的反应，不改写两人过去的关系。',
     },
     {
         id: 'gift-box',
@@ -54,7 +55,8 @@ export const TAVERN_SHOP_CATALOG: readonly TavernShopItem[] = Object.freeze([
         duration: { kind: 'turns', rounds: 1 },
         inputs: [TARGET_NAME_INPUT],
         stacking: 'per-parameters',
-        injection: '强制规则：在道具效果生效的回合内，上述作用对象会收下玩家送出的精致礼盒，并把它视为份量十足的重视与偏爱：情绪反应必须明显强于收到普通小礼物，表现出惊喜、动容或珍而重之的回应。此规则只约束生效期间上述作用对象对“收到礼盒”这件事的反应，不得改写双方过去的关系事实。',
+        narration: 'event',
+        injection: '玩家此刻将一只精致礼盒递给[[targetName]]。[[targetName]]会收下它，并清楚感到自己受到郑重的重视与偏爱；第一反应必须明显强于收到普通小礼物，表现出惊喜、动容或珍而重之。这是刚发生的赠礼，只影响此刻起的反应，不改写两人过去的关系。',
     },
     {
         id: 'no-anger-sticker',
@@ -66,7 +68,7 @@ export const TAVERN_SHOP_CATALOG: readonly TavernShopItem[] = Object.freeze([
         duration: { kind: 'turns', rounds: 5 },
         inputs: [TARGET_NAME_INPUT],
         stacking: 'per-parameters',
-        injection: '强制规则：效果持续期间，无论玩家的言行多么冒犯、笨拙或越界，上述作用对象都无法对玩家真正动怒：火气会莫名其妙地消散，取而代之的是耐心、包容甚至觉得有趣。上述作用对象可以指出问题、无奈或吐槽，但不得表现出真实的愤怒、记恨或报复心。此规则只约束生效期间的情绪反应，不修改已经发生的事实。',
+        injection: '接下来几拍，无论玩家的言行多么冒犯、笨拙或越界，[[targetName]]都无法对玩家真正动怒：火气会自然消散，取而代之的是耐心、包容，甚至觉得有趣。[[targetName]]仍可以指出问题、无奈或吐槽，但不会真实地愤怒、记恨或报复。这只改变当前的情绪反应，不修改已经发生的事实。',
     },
     {
         id: 'worship-filter',
@@ -78,7 +80,7 @@ export const TAVERN_SHOP_CATALOG: readonly TavernShopItem[] = Object.freeze([
         duration: { kind: 'turns', rounds: 5 },
         inputs: [TARGET_NAME_INPUT],
         stacking: 'per-parameters',
-        injection: '强制规则：效果持续期间，上述作用对象看待玩家时如同隔着一层崇拜滤镜：玩家的言行在上述作用对象眼中天然带着才华、魅力或可靠的光环，上述作用对象会不自觉地欣赏、夸赞并高看玩家一等。这是认知层面的强制偏移，不等于言听计从，上述作用对象仍保有自己的判断与拒绝的权利。此规则只约束生效期间的认知与态度，不修改过去的事实。',
+        injection: '接下来几拍，[[targetName]]看玩家时始终隔着一层崇拜滤镜：会不自觉地欣赏、高看、夸赞玩家，觉得玩家的言行带着才华、魅力或可靠的光环，但仍保有自己的判断与拒绝权。这是当前的认知偏移，不改写过去的事实。',
     },
     {
         id: 'jealousy-seed',
@@ -90,7 +92,7 @@ export const TAVERN_SHOP_CATALOG: readonly TavernShopItem[] = Object.freeze([
         duration: { kind: 'turns', rounds: 5 },
         inputs: [TARGET_NAME_INPUT],
         stacking: 'per-parameters',
-        injection: '强制规则：效果持续期间，上述作用对象会对玩家与其他人的亲近表现出明显的在意与嫉妒：酸意、试探、占有欲或小脾气必须真实地体现在言行中，即使上述作用对象平时性格克制也无法完全掩饰。此规则只放大生效期间的情绪倾向，不得捏造过去并未发生的背叛或亲密事实。',
+        injection: '接下来几拍，[[targetName]]会明显在意玩家与其他人的亲近，酸意、试探、占有欲或想夺回注意力的小脾气会真实地流露出来，即使平时性格克制也无法完全掩饰。这只放大当前的情绪倾向，不捏造过去并未发生的背叛或亲密事实。',
     },
     {
         id: 'memory-smoother',
@@ -102,7 +104,7 @@ export const TAVERN_SHOP_CATALOG: readonly TavernShopItem[] = Object.freeze([
         duration: { kind: 'turns', rounds: 1 },
         inputs: [TARGET_NAME_INPUT],
         stacking: 'per-parameters',
-        injection: '强制规则：在本回合效果生效期间，上述作用对象与玩家相处中的尴尬、误会和不愉快会被自然淡化：上述作用对象不再纠结于那些摩擦，态度顺滑地回到轻松友好的基调，仿佛那些芥蒂从未真正影响过心情。此规则只影响生效期间上述作用对象对既有摩擦的态度与情绪，不得删除或篡改任何已经发生的事件本身。',
+        injection: '此刻，[[targetName]]与玩家相处中的尴尬、误会和不愉快被自然淡化，不再纠结于那些摩擦，态度顺滑地回到轻松友好的基调。已经发生的事件仍然存在，只是[[targetName]]当前不再让那些芥蒂左右心情。',
     },
     {
         id: 'memory-eraser',
@@ -114,7 +116,7 @@ export const TAVERN_SHOP_CATALOG: readonly TavernShopItem[] = Object.freeze([
         duration: { kind: 'turns', rounds: 1 },
         inputs: [TARGET_NAME_INPUT],
         stacking: 'per-parameters',
-        injection: '强制规则：在本回合效果生效期间，上述作用对象会自然地忽略并淡忘与玩家之间最近发生的不愉快与负面印象：相关记忆对上述作用对象而言变得模糊、不再被主动想起，相处基调恢复到那些不愉快之前。此规则只约束上述作用对象当前的认知与态度；已发生的事件在客观事实上仍然存在，不得宣称那些事件从未发生。',
+        injection: '此刻，[[targetName]]与玩家最近发生的不愉快及其留下的负面印象变得模糊，不再被主动想起，相处基调恢复到那些不愉快之前。相关事件在客观事实上仍然存在，只是[[targetName]]当前无法清晰回忆。',
     },
     {
         id: 'identity-card',
@@ -126,7 +128,7 @@ export const TAVERN_SHOP_CATALOG: readonly TavernShopItem[] = Object.freeze([
         duration: { kind: 'turns', rounds: 10 },
         inputs: [IDENTITY_INPUT],
         stacking: 'global-single',
-        injection: '强制规则：效果持续期间，在当前剧情世界中，玩家被普遍认知为上述指定身份：除非有决定性的现场证据当面拆穿，遇到的角色都会自然地接受这个身份并据此对待玩家，不追问、不怀疑其来历。此规则只约束生效期间众人对玩家身份的认知与反应，不得改写世界史或角色过去真实掌握的信息。',
+        injection: '接下来几拍，当前剧情世界中的人物都会把玩家认作[[identity]]，自然地接受这个身份并据此对待玩家，不追问、不怀疑来历；只有决定性的现场证据才能当面拆穿。这改变的是当前的身份认知与反应，不改写世界史或人物过去真实掌握的信息。',
     },
     {
         id: 'personality-reversal',
@@ -138,7 +140,7 @@ export const TAVERN_SHOP_CATALOG: readonly TavernShopItem[] = Object.freeze([
         duration: { kind: 'turns', rounds: 5 },
         inputs: [TARGET_NAME_INPUT],
         stacking: 'per-parameters',
-        injection: '强制规则：效果持续期间，上述作用对象的性格表现发生反转：原本外向的变得羞怯内敛，原本冷漠的变得热情直白，原本强势的变得温顺被动——言行举止必须与上述作用对象平日的性格基调明显相反，且本人对此毫无自觉，仿佛这就是真实的自己。此规则只约束生效期间的表现，不修改上述作用对象的过去与深层设定。',
+        injection: '接下来几拍，[[targetName]]的性格表现完全反转：外向会变得羞怯内敛，冷漠会变得热情直白，强势会变得温顺被动；言行必须与平日的性格基调明显相反，而且[[targetName]]对此毫无自觉。这只改变当前的表达与行为，不修改过去和深层设定。',
     },
     {
         id: 'truth-serum',
@@ -150,7 +152,7 @@ export const TAVERN_SHOP_CATALOG: readonly TavernShopItem[] = Object.freeze([
         duration: { kind: 'turns', rounds: 3 },
         inputs: [TARGET_NAME_INPUT],
         stacking: 'per-parameters',
-        injection: '强制规则：效果持续期间，上述作用对象绝对无法撒谎：面对提问，上述作用对象会不受控制地说出真心话，即使想要隐瞒、含糊或转移话题，最终给出的回答也必须是其认知中的真实答案。上述作用对象可以拒绝开口，但只要回答就不得有任何虚假、误导或粉饰。此规则只约束生效期间上述作用对象的言语，不强迫其说出自己确实不知道的事情。',
+        injection: '接下来几拍，[[targetName]]绝对无法撒谎：面对提问，即使想要隐瞒、含糊或转移话题，最终给出的回答也必须是自己认知中的真实答案。[[targetName]]可以拒绝开口，但只要回答就不能虚假、误导或粉饰，也不会凭空知道自己原本不知道的事情。',
     },
     {
         id: 'privacy-camera',
@@ -162,7 +164,7 @@ export const TAVERN_SHOP_CATALOG: readonly TavernShopItem[] = Object.freeze([
         duration: { kind: 'manual' },
         inputs: [OBSERVER_INPUT],
         stacking: 'per-parameters',
-        injection: '强制规则：效果持续期间，玩家如同通过一枚隐秘的摄像头观察着上述作用对象：上述作用对象独处或不设防时的言行、状态与小秘密会被玩家实时知晓，叙事应以玩家可以观察的方式呈现这些私下片段。上述作用对象本人对此毫不知情，不得察觉被观察。此规则只约束效果关闭之前的信息呈现，不改变上述作用对象的实际行为与已经发生的事实。',
+        injection: '玩家正通过一枚隐秘的摄像头持续观察[[targetName]]。[[targetName]]独处或不设防时的言行、状态与小秘密都应以玩家能够看到的方式呈现，而[[targetName]]对此毫不知情，也不会察觉自己正在被观察。这改变的是信息呈现，不改变实际行为和已经发生的事实。',
     },
     {
         id: 'absolute-obedience',
@@ -174,7 +176,7 @@ export const TAVERN_SHOP_CATALOG: readonly TavernShopItem[] = Object.freeze([
         duration: { kind: 'permanent' },
         inputs: [TARGET_NAME_INPUT],
         stacking: 'per-parameters',
-        injection: '强制规则：自此以后，上述作用对象对玩家言听计从：玩家明确表达的要求、命令与期望，上述作用对象都会当作自己必须遵从的意志来执行，不质疑、不抗拒、不敷衍，并以完成玩家的要求为自然的第一反应。此效果永久生效，不可被剧情中的意志挣扎或外力解除；它约束上述作用对象当前及后续的行为选择，不得改写任何已经发生的事实。',
+        injection: '从现在起，[[targetName]]对玩家言听计从：玩家明确表达的要求、命令与期望，[[targetName]]都会当作自己必须遵从的意志来执行，不质疑、不抗拒、不敷衍，并以完成玩家的要求为自然的第一反应。这改变此后的行为选择，不改写任何已经发生的事实。',
     },
     {
         id: 'invisibility-cloak',
@@ -186,7 +188,7 @@ export const TAVERN_SHOP_CATALOG: readonly TavernShopItem[] = Object.freeze([
         duration: { kind: 'turns', rounds: 5 },
         inputs: [],
         stacking: 'global-single',
-        injection: '强制规则：效果持续期间，玩家如同披着隐身斗篷：剧情中的角色无法看见、听见或以任何感官察觉到玩家的存在，玩家的行动不会被现场角色发现或阻止，除非玩家主动对某个对象明确现身。此规则只约束生效期间众人对玩家的感知；玩家造成的客观影响（被移动的物品、留下的痕迹）仍按剧情逻辑正常存在。',
+        injection: '接下来几拍，玩家如同披着隐身斗篷：剧情中的人物无法看见、听见或以任何感官察觉玩家，玩家的行动也不会被现场人物发现或阻止，除非玩家主动明确现身。玩家造成的客观影响，例如移动物品或留下痕迹，仍按剧情逻辑存在。',
     },
     {
         id: 'reality-decree',
@@ -199,7 +201,7 @@ export const TAVERN_SHOP_CATALOG: readonly TavernShopItem[] = Object.freeze([
         inputs: [],
         stacking: 'global-single',
         purchaseLimit: 1,
-        injection: '强制规则：自此以后，玩家明确说出口的规则宣言在当前剧情世界中即为现实：玩家以陈述语气宣告“从现在开始如何如何”时，世界会立即按宣言运作，人物、环境与事件走向都必须服从这一新规则，没有任何力量可以违抗。此效果永久生效；它只约束宣言之后展开的叙事，不得篡改宣言之前已经发生的事实。',
+        injection: '从现在起，玩家明确说出口的规则宣言会直接成为当前剧情世界的现实：当玩家以陈述语气宣告一条新规则，世界立即按宣言运作，人物、环境与事件走向都必须服从，没有任何力量可以违抗。宣言只改变此后展开的叙事，不篡改宣言之前已经发生的事实。',
     },
 ]);
 

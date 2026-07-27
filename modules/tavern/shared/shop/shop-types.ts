@@ -15,6 +15,8 @@ export type TavernShopInputKey = 'targetName' | 'identity';
 
 export type TavernShopStacking = 'global-single' | 'per-parameters';
 
+export type TavernShopNarration = 'event' | 'state';
+
 export interface TavernShopInputDefinition {
     key: TavernShopInputKey;
     label: string;
@@ -33,6 +35,7 @@ export interface TavernShopItem {
     duration: TavernShopDuration;
     inputs: readonly TavernShopInputDefinition[];
     stacking: TavernShopStacking;
+    narration?: TavernShopNarration;
     purchaseLimit?: number;
     injection: string;
 }

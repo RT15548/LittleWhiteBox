@@ -979,6 +979,7 @@ test('phone replies stay under active shop effects in a system message before US
 
     const first = await buildRequestMessages();
     const second = await buildRequestMessages();
+    const projectedShopBlocks: string[] = [];
     for (const messages of [first, second]) {
         const shopIndex = messages.findIndex((message) => message.name === 'active_shop_effects');
         assert.ok(shopIndex >= 0, 'private message requests must carry the active shop effects');
@@ -986,13 +987,11 @@ test('phone replies stay under active shop effects in a system message before US
         assert.equal(shopIndex, messages.length - 2, 'shop system message must sit right before the USER turn');
         assert.equal(messages.at(-1)?.role, 'user');
         assert.match(messages[shopIndex]?.content || '', /## 当前生效道具/);
-        assert.match(messages[shopIndex]?.content || '', /"targetName":"艾琳"/);
-        assert.match(
-            messages[shopIndex]?.content || '',
-            /剩余主回合：1/,
-            'prompt projection must never consume rounds: repeated sends keep the same remaining count',
-        );
+        assert.match(messages[shopIndex]?.content || '', /玩家此刻将一束花递给艾琳/);
+        assert.doesNotMatch(messages[shopIndex]?.content || '', /剩余主回合|参数数据/);
+        projectedShopBlocks.push(messages[shopIndex]?.content || '');
     }
+    assert.equal(projectedShopBlocks[1], projectedShopBlocks[0], 'repeated sends keep the same event projection');
 
     await appendTavernMessage(session.id, { role: 'user', content: '主剧情向前推进。' });
     await appendTavernMessage(session.id, { role: 'assistant', content: '主剧情回复。' });
@@ -1017,7 +1016,6 @@ test('phone replies stay under active shop effects in a system message before US
     });
     const retriedAtOriginalAnchor = await buildRequestMessages();
     const anchoredShop = retriedAtOriginalAnchor.find((message) => message.name === 'active_shop_effects');
-    assert.match(anchoredShop?.content || '', /"targetName":"艾琳"/);
-    assert.doesNotMatch(anchoredShop?.content || '', /"targetName":"贝塔"/);
-    assert.match(anchoredShop?.content || '', /剩余主回合：1/);
+    assert.match(anchoredShop?.content || '', /玩家此刻将一束花递给艾琳/);
+    assert.doesNotMatch(anchoredShop?.content || '', /玩家此刻将一束花递给贝塔/);
 });

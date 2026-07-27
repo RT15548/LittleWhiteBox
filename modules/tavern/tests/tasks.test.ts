@@ -258,9 +258,8 @@ test('task requests use the new direction recipe only for board generation', () 
     };
     const boardRequest = buildTavernTaskBoardRequestMessages({
         layers,
-        currentTasks: [],
-        excludedTitles: [],
     }).map((message) => message.content).join('\n');
+    assert.doesNotMatch(boardRequest, /现存任务|排除标题|排除已列出的标题/);
     const candidateRequest = buildTavernTaskCandidatesRequestMessages({
         layers,
         task: recruitingTaskForPrompt(),
@@ -339,8 +338,6 @@ test('task generation scans through the latest AI and preserves character and na
     });
     const request = JSON.stringify(buildTavernTaskBoardRequestMessages({
         layers,
-        currentTasks: [],
-        excludedTitles: [],
     }));
     const worldMarkers = [
         'TASK_WORLD_BEFORE',
@@ -378,12 +375,6 @@ test('task response parsing keeps valid paid output without confusing business v
     });
     assert.equal(listings.length, 6);
     assert.equal(new Set(listings.map((listing) => listing.id)).size, 6);
-
-    const withoutExcludedTitle = parseTavernTaskBoardResponse(response, {
-        excludedTitles: ['委托 1'],
-    });
-    assert.equal(withoutExcludedTitle.length, 5);
-    assert.equal(withoutExcludedTitle.some((listing) => listing.title === '委托 1'), false);
     assert.equal(listings.some((listing) => listing.issuer.name === '陌生发布者 2'), true);
 
     const invalidReward = response.replace('"reward":60', '"reward":101');
@@ -424,11 +415,13 @@ test('task response parsing keeps valid paid output without confusing business v
     assert.equal(duplicateCandidate.length, 2);
     assert.equal(duplicateCandidate.some((candidate) => candidate.name === '候选人 1'), true);
 
+    // Titles are display text, not identity: a repeated title is kept, not silently dropped.
     const duplicateListing = parseTavernTaskBoardResponse(JSON.stringify({ tasks: [
         ...boardListings().slice(0, 5),
         { ...boardListings()[5], title: ` ${boardListings()[0].title} ` },
     ] }));
-    assert.equal(duplicateListing.length, 5);
+    assert.equal(duplicateListing.length, 6);
+    assert.equal(new Set(duplicateListing.map((listing) => listing.id)).size, 6);
 
     assert.throws(() => assertTavernTaskGenerationFinished('MAX_TOKENS'), /task_response_truncated:MAX_TOKENS/);
     assert.doesNotThrow(() => assertTavernTaskGenerationFinished('STOP'));
@@ -587,6 +580,30 @@ test('task board replacement accepts partial generated output and remains CAS-pr
     });
     assert.equal(partial.listings.length, 5);
     assert.equal((await tavernTaskBoardsTable.get(session.id))?.generationId, 'partial-board');
+});
+
+test('task board persists distinct listings when display titles repeat', async () => {
+    await db.delete();
+    await db.open();
+    const session = await createTavernSession({ title: 'Task board duplicate display titles' });
+    const generated = boardListings().map(({ id: _id, issuer, ...listing }) => ({
+        ...listing,
+        issuer: { name: issuer.name, description: issuer.description },
+    }));
+    generated[5] = { ...generated[5], title: ` ${generated[0].title} ` };
+    const listings = parseTavernTaskBoardResponse(JSON.stringify({ tasks: generated }));
+
+    const board = await replaceTavernTaskBoard({
+        sessionId: session.id,
+        expectedRevision: 0,
+        anchorOrder: 1,
+        generationId: 'same-title-board',
+        listings,
+    });
+
+    assert.equal(board.listings.length, 6);
+    assert.equal(board.listings.filter((listing) => listing.title === generated[0].title).length, 2);
+    assert.equal(new Set(board.listings.map((listing) => listing.id)).size, 6);
 });
 
 test('task board epoch rejects a stale refresh after rollback recreates the same revision', async () => {

@@ -6,12 +6,8 @@ import {
     type TavernTaskListing,
 } from '../../../../../shared/tasks/task-types';
 
-export function parseTavernTaskBoardGenerationResponse(value = '', options: {
-    excludedTitles?: string[];
-} = {}): TavernTaskListing[] {
-    return parseTavernTaskBoardResponse(value, {
-        excludedTitles: options.excludedTitles,
-    });
+export function parseTavernTaskBoardGenerationResponse(value = ''): TavernTaskListing[] {
+    return parseTavernTaskBoardResponse(value);
 }
 
 export function parseTavernTaskCandidatesGenerationResponse(value = ''): TavernTaskCandidate[] {

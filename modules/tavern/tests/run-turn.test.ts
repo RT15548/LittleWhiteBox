@@ -4505,7 +4505,8 @@ test('active shop effects close the system message before USER in local and ST-n
     const beforeUser = finalMessages[currentUserIndex - 1];
     assert.equal(beforeUser.role, 'system');
     assert.match(String(beforeUser.content), /## 当前生效道具[\s\S]*<\/shop_effect>\s*$/, 'shop block must be the last block before USER');
-    assert.match(String(beforeUser.content), /剩余主回合：5/);
+    assert.match(String(beforeUser.content), /艾拉都无法对玩家真正动怒/);
+    assert.doesNotMatch(String(beforeUser.content), /剩余主回合|参数数据|上述作用对象/);
     assert.match(result.requestSnapshot.rawRequestJson, /## 当前生效道具/);
 });
 
@@ -4592,8 +4593,8 @@ test('reroll uses the shop state at the original user turn and excludes later ac
             return await execute(options);
         },
     });
-    assert.match(rerollPrompt, /"targetName":"艾拉"/);
-    assert.doesNotMatch(rerollPrompt, /"targetName":"贝塔"/);
+    assert.match(rerollPrompt, /玩家此刻将一束花递给艾拉/);
+    assert.doesNotMatch(rerollPrompt, /玩家此刻将一束花递给贝塔/);
 });
 
 test('normal RP uses the current USER anchor and excludes Shop activations made after it was saved', async () => {
@@ -4674,8 +4675,8 @@ test('normal RP uses the current USER anchor and excludes Shop activations made 
         },
     });
     assert.equal(firstActivation.record.state.items.flower.activations.length, 1);
-    assert.match(capturedPrompt, /"targetName":"艾拉"/);
-    assert.doesNotMatch(capturedPrompt, /"targetName":"贝塔"/);
+    assert.match(capturedPrompt, /玩家此刻将一束花递给艾拉/);
+    assert.doesNotMatch(capturedPrompt, /玩家此刻将一束花递给贝塔/);
 });
 
 test('xb tavern world entry substitution skips null worldbook records', async () => {

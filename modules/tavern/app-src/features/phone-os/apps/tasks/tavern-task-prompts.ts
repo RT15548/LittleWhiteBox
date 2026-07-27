@@ -7,8 +7,6 @@ import {
 import type { TavernTaskVersionRecord } from '../../../../../shared/tasks/task-types';
 import type { TavernTaskPromptLayers } from './tavern-task-context';
 
-const TASK_GENERATION_TERMINAL_CONTEXT_LIMIT = 8;
-
 const TASK_DIRECTIONS = [
     {
         label: '禁忌',
@@ -276,17 +274,6 @@ function buildCurrentStateMessage(layers: TavernTaskPromptLayers): XbTavernMessa
     };
 }
 
-function existingTaskBrief(tasks: TavernTaskVersionRecord[]): string {
-    const live = tasks.filter((task) => task.status === 'active' || task.status === 'recruiting');
-    const terminal = tasks
-        .filter((task) => ['completed', 'failed', 'cancelled'].includes(task.status))
-        .sort((left, right) => right.updatedAt - left.updatedAt)
-        .slice(0, TASK_GENERATION_TERMINAL_CONTEXT_LIMIT);
-    const visible = [...live, ...terminal];
-    if (!visible.length) {return '无';}
-    return visible.map((task) => `- [${task.status}] ${cleanText(task.title)}`).join('\n');
-}
-
 function knownNamesBlock(names: string[]): string {
     const values = names.map((name) => cleanText(name)).filter(Boolean);
     return values.length ? values.map((name) => `- ${name}`).join('\n') : '无';
@@ -294,10 +281,7 @@ function knownNamesBlock(names: string[]): string {
 
 function boardTaskDataMessage(input: {
     layers: TavernTaskPromptLayers;
-    currentTasks: TavernTaskVersionRecord[];
-    excludedTitles: string[];
 }): XbTavernMessage {
-    const exclusions = input.excludedTitles.map((title) => cleanText(title)).filter(Boolean);
     return {
         role: 'user',
         name: 'task_data',
@@ -307,12 +291,6 @@ function boardTaskDataMessage(input: {
             '',
             '## 已知或已登场人物名字（可以作为发布者；人物关系只能依据 <setting>）',
             knownNamesBlock(input.layers.knownNames),
-            '',
-            '## 现存任务（避免重复）',
-            existingTaskBrief(input.currentTasks),
-            '',
-            '## 排除标题',
-            exclusions.length ? exclusions.map((title) => `- ${title}`).join('\n') : '无',
             '',
             '## 六方向配方（严格按此顺序输出）',
             ...TASK_DIRECTIONS.map((direction, index) => (
@@ -367,8 +345,6 @@ function assembleTaskPrompt(input: {
 
 export function buildTavernTaskBoardRequestMessages(input: {
     layers: TavernTaskPromptLayers;
-    currentTasks: TavernTaskVersionRecord[];
-    excludedTitles: string[];
 }): XbTavernMessage[] {
     return assembleTaskPrompt({
         mode: 'board',
@@ -377,7 +353,7 @@ export function buildTavernTaskBoardRequestMessages(input: {
         command: [
             '刷新委托板。',
             '严格按 <task_data> 的六方向顺序生成六条任务，一个方向一条，不重不漏。',
-            '排除已列出的标题，人物关系必须服从 <setting>，报酬严格服从经济刻度。',
+            '人物关系必须服从 <setting>，报酬严格服从经济刻度。',
             '只输出第 0 层规定的合法 JSON 对象。',
         ].join('\n'),
     });
