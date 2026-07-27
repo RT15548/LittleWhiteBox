@@ -24,8 +24,10 @@ const cancelRef = ref<HTMLButtonElement | null>(null);
 let returnFocus: HTMLElement | null = null;
 const title = computed(() => {
     if (props.intent.kind === 'purchase') {return `购入「${props.item.name}」？`;}
-    if (props.intent.kind === 'deactivate') {return `关闭「${props.item.name}」？`;}
-    if (props.permanentConfirm) {return '最后确认：永久封契';}
+    if (props.intent.kind === 'deactivate') {
+        return props.item.id === 'era-gate' ? '返回主时间线？' : `关闭「${props.item.name}」？`;
+    }
+    if (props.permanentConfirm) {return '最后确认：永久生效';}
     return `启用「${props.item.name}」？`;
 });
 const message = computed(() => {
@@ -33,20 +35,23 @@ const message = computed(() => {
         return `将支付 ${props.item.price} 小白币。购买只会放入背包，不会立刻改变剧情。`;
     }
     if (props.intent.kind === 'deactivate') {
+        if (props.item.id === 'era-gate') {
+            return '确认后，下一次主剧情回复会回到主时间线；在目标年代的经历仍保留为已经发生的过去。';
+        }
         return '关闭后，从下一次模型请求开始不再注入这条规则。已经生成的内容不会被改写。';
     }
     if (props.permanentConfirm) {
         return '这条规则一旦生效便没有关闭按钮，只能回滚到激活前的剧情位置或删除会话解除。';
     }
     return props.item.inputs.length
-        ? '填写规则作用的数据。它只会作为数据交给固定的契约规则。'
+        ? '填写规则作用的数据。它只会作为数据交给固定的道具规则。'
         : '确认后，这条规则会从下一次叙事请求开始生效。';
 });
 const confirmText = computed(() => {
-    if (props.busy) {return '正在落契';}
+    if (props.busy) {return '正在提交';}
     if (props.blockedReason) {return '暂不可提交';}
     if (props.intent.kind === 'purchase') {return `支付 ${props.item.price} 币`;}
-    if (props.intent.kind === 'deactivate') {return '确认关闭';}
+    if (props.intent.kind === 'deactivate') {return props.item.id === 'era-gate' ? '确认返回' : '确认关闭';}
     if (props.item.duration.kind === 'permanent' && !props.permanentConfirm) {return '继续确认';}
     if (props.permanentConfirm) {return '永久生效';}
     return '确认启用';
@@ -100,7 +105,7 @@ onBeforeUnmount(() => {
         @submit.prevent="confirm"
       >
         <header>
-          <span>{{ permanentConfirm ? '朱印不可撤' : '规则契约' }}</span>
+          <span>{{ permanentConfirm ? '生效后不可撤' : '使用道具' }}</span>
           <strong id="tavern-shop-dialog-title">{{ title }}</strong>
         </header>
         <p>{{ message }}</p>
@@ -137,7 +142,7 @@ onBeforeUnmount(() => {
         </div>
         <dl class="tavern-shop-dialog-receipt">
           <div>
-            <dt>契约</dt>
+            <dt>道具</dt>
             <dd>{{ item.name }}</dd>
           </div>
           <div>

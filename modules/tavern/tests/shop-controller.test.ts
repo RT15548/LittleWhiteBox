@@ -156,7 +156,7 @@ test('shop controller reports a committed purchase even when wallet refresh fail
         const result = await controller.purchase(intent);
         assert.ok(result);
         assert.equal(controller.actionError.value, '');
-        assert.match(controller.status.value, /已经生效.*刷新失败/);
+        assert.match(controller.status.value, /已经购入.*刷新失败/);
         assert.equal(controller.currentVersion.value?.state.items.flower?.quantity, 1);
     } finally {
         scope.stop();

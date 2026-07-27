@@ -191,7 +191,11 @@ export async function buildTavernMessagesRequestMessages(input: {
             currentTurn: sessionState.turn,
         }),
     ]);
-    const shopPrompt = buildTavernShopPromptBlock(shopState?.state || null, shopTurn);
+    const shopPrompt = buildTavernShopPromptBlock(
+        shopState?.state || null,
+        shopTurn,
+        String(baseContext.user?.name || '').trim(),
+    );
     return buildTavernPhonePromptMessages({
         context: contextForBuild,
         contact: input.contact,

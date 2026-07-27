@@ -83,10 +83,10 @@ export function useTavernShopController(options: TavernShopControllerOptions) {
     )]);
     const interactionBlockedReason = computed(() => {
         if (!currentSessionId()) {return '请先进入一个会话。';}
-        if (options.chatRunning.value || options.chatCancelling.value) {return '角色正在回复，规则当铺暂时封柜。';}
+        if (options.chatRunning.value || options.chatCancelling.value) {return '角色正在回复，商店暂时打烊。';}
         if (options.phoneSending.value) {return '私人消息正在等待回复，暂时不能改变生效规则。';}
-        if (options.memoryEditorMode.value === 'edit') {return '请先退出记忆编辑，再操作规则当铺。';}
-        if (options.characterArchiveBusy.value) {return '角色档案正在同步，规则当铺暂时封柜。';}
+        if (options.memoryEditorMode.value === 'edit') {return '请先退出记忆编辑，再操作商店。';}
+        if (options.characterArchiveBusy.value) {return '角色档案正在同步，商店暂时打烊。';}
         if (loading.value) {return '背包仍在清点，请稍候。';}
         if (loadError.value) {return '背包状态读取失败，请先重试。';}
         return '';
@@ -153,7 +153,7 @@ export function useTavernShopController(options: TavernShopControllerOptions) {
     function purchaseBlockedReason(item: TavernShopItem): string {
         const blocked = interactionBlockedReason.value;
         if (blocked) {return blocked;}
-        if (busyAction.value) {return '上一项契约仍在提交。';}
+        if (busyAction.value) {return '上一笔交易仍在提交。';}
         const row = shelfItems.value.find((candidate) => candidate.item.id === item.id);
         if (row?.purchaseLimitReached) {return '当前会话已达到限购数量。';}
         if (options.wallet.balanceLoading.value) {return '钱包余额正在读取。';}
@@ -163,7 +163,7 @@ export function useTavernShopController(options: TavernShopControllerOptions) {
     }
 
     function activationBlockedReason(): string {
-        return interactionBlockedReason.value || (busyAction.value ? '上一项契约仍在提交。' : '');
+        return interactionBlockedReason.value || (busyAction.value ? '上一笔交易仍在提交。' : '');
     }
 
     async function createIntent(
@@ -283,7 +283,7 @@ export function useTavernShopController(options: TavernShopControllerOptions) {
                     await options.wallet.refreshAfterEconomyDomainChange();
                 } catch {
                     if (!ownsMutation()) {return result;}
-                    status.value = '契约已经生效，但钱包显示刷新失败；重新打开钱包会再次读取。';
+                    status.value = '道具已经购入，但钱包显示刷新失败；重新打开钱包会再次读取。';
                     options.showToast?.(status.value, { tone: 'warning', durationMs: 4200 });
                 }
             }
@@ -301,7 +301,7 @@ export function useTavernShopController(options: TavernShopControllerOptions) {
 
     async function purchase(intent: TavernShopActionIntent): Promise<TavernShopPurchaseResult | null> {
         if (intent.kind !== 'purchase') {return null;}
-        return await runAction(intent, () => purchaseTavernShopItem(intent), '已购入，契约已放进背包。', true);
+        return await runAction(intent, () => purchaseTavernShopItem(intent), '已购入，道具已放进背包。', true);
     }
 
     async function activate(
@@ -309,7 +309,7 @@ export function useTavernShopController(options: TavernShopControllerOptions) {
         parameters: Record<string, unknown>,
     ): Promise<TavernShopActivateResult | null> {
         if (intent.kind !== 'activate') {return null;}
-        return await runAction(intent, () => activateTavernShopItem({ ...intent, parameters }), '契约已经生效。', false);
+        return await runAction(intent, () => activateTavernShopItem({ ...intent, parameters }), '道具已经生效。', false);
     }
 
     async function deactivate(intent: TavernShopActionIntent): Promise<TavernShopDeactivateResult | null> {
@@ -317,7 +317,7 @@ export function useTavernShopController(options: TavernShopControllerOptions) {
         return await runAction(intent, () => deactivateTavernShopItem({
             ...intent,
             activationId: intent.activationId!,
-        }), '契约已经关闭。', false);
+        }), intent.itemId === 'era-gate' ? '已回到主时间线。' : '道具已经关闭。', false);
     }
 
     async function refreshAfterShopDomainChange(): Promise<void> {

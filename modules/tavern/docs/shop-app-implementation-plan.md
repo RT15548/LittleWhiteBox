@@ -53,7 +53,7 @@ modules/tavern/tests/shop.test.ts
 工作内容：
 
 1. 定义 duration、catalog、inventory、activation、state version、输入和错误类型。
-2. 写入 14 个固定商品；`absolute-obedience`使用永久 1200。
+2. 写入 25 个固定商品；`absolute-obedience`使用永久 1200。
 3. 为每个商品写完整人工 injection，不能从 description 自动扩写。
 4. 实现纯函数：参数规范化、静态 injection 投影、活跃判定、剩余回合、分区投影、Prompt block；参数只能作为单份 JSON 数据，不能插入命令句。
 5. 明确 exact duplicate 激活键：`itemId + 规范化参数`；重复激活直接拒绝，不扣库存且不创建队列。
@@ -62,7 +62,7 @@ modules/tavern/tests/shop.test.ts
 
 - 一次性等价于 1 回合，失败不涉及任何状态变化。
 - 5 回合边界为 5 次而非 4/6 次。
-- 最后一回合包含消退说明。
+- 有限效果只在存活区间内投影，不输出倒计时或消退说明。
 - manual / permanent 不生成虚假倒计时。
 - 参数被限长和安全转义，不能闭合 Prompt 标签。
 - 相同输入的稳定投影字节一致。
@@ -248,7 +248,7 @@ Shop entry 的 order 必须高于其他 Tavern depth-1 状态条目，使它成�
 - 私人消息最终消息中，Shop system 必须紧邻当前 USER 之前；发送多条私人消息后 remaining 不变。
 - 任务生成、Manager 和小白助手请求不包含 Shop block。
 - 无活跃效果时不出现空标题。
-- 最后一回合出现消退说明，下一主回合不再出现。
+- 到期后的下一主回合不再出现该效果。
 - 重 roll 使用原回合 Shop 投影；原回复之后激活的效果不倒灌。
 - 普通 RP 使用当前 USER 的 order；该 USER 保存后才激活的效果同样不得倒灌。
 
@@ -337,7 +337,7 @@ APP 内路由：
 - 暗色主题不是简单反色，保持墨纸和封印层级。
 - 永久效果二次确认；manual 才显示关闭。
 - 已耗尽折叠只存在组件内存。
-- 不为 14 项货架引入虚拟列表或新状态库。
+- 不为 25 项货架引入虚拟列表或新状态库。
 - 关闭 dialog 后清空目标输入和待操作对象，避免跨商品串值。
 
 组件测试只覆盖用户可观察行为；不做源码字符串、类名或组件层级快照测试。

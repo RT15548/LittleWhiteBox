@@ -1786,6 +1786,7 @@ export async function simulateXbTavernRequest(input: XbTavernSimulateRequestInpu
             sessionId: session.id,
             currentTurn: sessionState.turn,
             atAnchorOrder: (contextWindow?.historyMessages.at(-1)?.order ?? -1) + 1,
+            playerName: String(liveContext.user?.name || '').trim(),
         }))
         : [];
     const runtimeProtocolMessages = buildRuntimeProtocolMessages(sessionContractRuntime, {
@@ -2441,6 +2442,7 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
         sessionId: baseSession.id,
         currentTurn: sessionState.turn,
         atAnchorOrder: userMessage?.order ?? contextWindow.historyMessages.at(-1)?.order ?? -1,
+        playerName: String(liveContext.user?.name || '').trim(),
     }));
     const runtimeProtocolMessages = buildRuntimeProtocolMessages(sessionContractRuntime, {
         includePhoneCommunication: communicationEvents.length > 0,

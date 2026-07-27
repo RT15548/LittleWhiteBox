@@ -76,7 +76,7 @@ const exhaustedOpen = ref(false);
           v-else
           class="tavern-shop-empty-copy"
         >
-          没有正在改写剧情规则的契约。
+          暂无正在生效的道具。
         </p>
       </section>
 
@@ -103,7 +103,7 @@ const exhaustedOpen = ref(false);
           v-else
           class="tavern-shop-empty-copy"
         >
-          背包里还没有待使用的契约。
+          背包里还没有待使用的道具。
         </p>
       </section>
 

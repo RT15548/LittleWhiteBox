@@ -119,7 +119,7 @@ watch(() => session.selectedSessionId.value, closeDialog);
 
     <nav
       class="tavern-shop-tabs"
-      aria-label="规则当铺页面"
+      aria-label="道具商店页面"
     >
       <button
         type="button"
@@ -177,7 +177,7 @@ watch(() => session.selectedSessionId.value, closeDialog);
     v-else
     class="tavern-phone-app tavern-phone-route-missing"
   >
-    <strong>规则当铺的门牌不见了</strong>
+    <strong>商店页面不见了</strong>
     <p>返回货架后再试一次。</p>
     <button
       type="button"

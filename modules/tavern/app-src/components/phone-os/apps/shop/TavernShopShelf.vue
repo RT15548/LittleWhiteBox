@@ -35,7 +35,7 @@ const groups = computed(() => {
       class="tavern-shop-notice is-error"
       role="status"
     >
-      <strong>货架暂时蒙尘</strong>
+      <strong>货架暂时打烊</strong>
       <p>{{ error }}</p>
       <button
         type="button"
@@ -61,7 +61,7 @@ const groups = computed(() => {
     >
       <header>
         <span>{{ group.label }}</span>
-        <i>{{ group.rows.length }} 份规则</i>
+        <i>{{ group.rows.length }} 件</i>
       </header>
       <div class="tavern-shop-ticket-list">
         <TavernShopItemCard

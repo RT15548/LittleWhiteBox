@@ -34,7 +34,7 @@ const emit = defineEmits<{
       :title="blockedReason || `使用${row.item.name}`"
       @click="emit('activate', row)"
     >
-      {{ busy ? '落契中' : '使用' }}
+      {{ busy ? '生效中' : '使用' }}
     </button>
   </article>
 </template>

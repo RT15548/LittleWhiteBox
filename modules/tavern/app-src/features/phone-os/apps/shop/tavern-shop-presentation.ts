@@ -33,12 +33,14 @@ export interface TavernShopInventoryRow {
 }
 
 const CATEGORY_LABELS: Record<TavernShopCategory, string> = {
-    emotion: '情绪契约',
-    memory: '认知契约',
-    information: '吐露契约',
-    behavior: '行为契约',
-    scene: '场景契约',
-    ultimate: '终局契约',
+    emotion: '心绪之物',
+    memory: '记忆之物',
+    information: '耳目之物',
+    behavior: '性情之物',
+    scene: '境界之物',
+    ultimate: '镇店之物',
+    'world-cognition': '众目之物',
+    physics: '造化之物',
 };
 
 export function tavernShopCategoryLabel(category: TavernShopCategory): string {
@@ -50,7 +52,7 @@ export function tavernShopDurationLabel(item: TavernShopItem): string {
         return item.duration.rounds === 1 ? '一次性 · 下一主回合' : `${item.duration.rounds} 个主回合`;
     }
     if (item.duration.kind === 'manual') {return '持续生效 · 可关闭';}
-    return '永久契约 · 不可关闭';
+    return '永久生效 · 不可关闭';
 }
 
 function parameterSummary(item: TavernShopItem, activation: TavernShopActivation): string {

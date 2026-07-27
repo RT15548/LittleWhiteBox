@@ -40,6 +40,6 @@ export function tavernShopUiError(error: unknown): TavernShopUiError {
     };
     return {
         kind: 'ordinary',
-        message: messages[code] || '规则当铺暂时无法完成操作，请稍后重试。',
+        message: messages[code] || '商店暂时无法完成操作，请稍后重试。',
     };
 }

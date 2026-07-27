@@ -355,7 +355,7 @@ export async function purchaseTavernShopItem(input: PurchaseTavernShopItemInput)
                 amount: item.price,
                 kind: 'shop_purchase',
                 title: `购买 · ${item.name}`,
-                note: `在规则当铺购入「${item.name}」。`,
+                note: `在商店购入「${item.name}」。`,
                 sourceDomain: 'shop',
                 sourceId: item.id,
                 anchorOrder,

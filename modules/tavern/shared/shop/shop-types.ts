@@ -9,13 +9,11 @@ export type TavernShopDuration =
     | { kind: 'manual' }
     | { kind: 'permanent' };
 
-export type TavernShopCategory = 'emotion' | 'memory' | 'information' | 'behavior' | 'scene' | 'ultimate';
+export type TavernShopCategory = 'emotion' | 'memory' | 'information' | 'behavior' | 'scene' | 'ultimate' | 'world-cognition' | 'physics';
 
-export type TavernShopInputKey = 'targetName' | 'identity';
+export type TavernShopInputKey = 'targetName' | 'identity' | 'appearance' | 'era' | 'location' | 'weather';
 
 export type TavernShopStacking = 'global-single' | 'per-parameters';
-
-export type TavernShopNarration = 'event' | 'state';
 
 export interface TavernShopInputDefinition {
     key: TavernShopInputKey;
@@ -35,9 +33,10 @@ export interface TavernShopItem {
     duration: TavernShopDuration;
     inputs: readonly TavernShopInputDefinition[];
     stacking: TavernShopStacking;
-    narration?: TavernShopNarration;
     purchaseLimit?: number;
     injection: string;
+    /** Optional one-shot world transition when a manual effect is closed. */
+    deactivationInjection?: string;
 }
 
 export interface TavernShopActivation {
