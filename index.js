@@ -130,7 +130,7 @@ export function activate() {
     api.registerParticipant({
         id: 'littlewhitebox/message-runtime',
         protocolVersion: 1,
-        claimRuntimes: claimManagedIframeRuntimes,
+        prepareContent: claimManagedIframeRuntimes,
         didMount: mountManagedDecorators,
     });
 }
