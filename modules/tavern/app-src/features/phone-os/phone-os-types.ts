@@ -5,6 +5,7 @@ export const TAVERN_PHONE_WALLET_APP_ID = 'wallet';
 export const TAVERN_PHONE_TASKS_APP_ID = 'tasks';
 export const TAVERN_PHONE_SHOP_APP_ID = 'shop';
 export const TAVERN_PHONE_BANK_APP_ID = 'bank';
+export const TAVERN_PHONE_PET_APP_ID = 'pet';
 
 export type TavernPhonePresentationMode = 'desktop-device' | 'mobile-fullscreen';
 

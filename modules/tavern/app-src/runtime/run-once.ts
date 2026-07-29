@@ -33,7 +33,6 @@ import {
 } from '../../shared/session-contract';
 import {
     appendTavernUserMessageAndConfirmManagerCandidate,
-    commitTavernAssistantResponseForLatestUser,
     commitTavernLatestAssistantReroll,
     createTavernSession,
     getAcceptedTurnManagerQueueState,
@@ -50,6 +49,7 @@ import {
     type TavernSessionRecord,
     type TavernSessionState,
 } from '../../shared/session-db';
+import { commitTavernAssistantResponseWithPetForLatestUser } from '../../shared/pet/pet-story-turn';
 import {
     completeAcceptedTurnManagerRunWithSnapshot,
     resolveTavernAcceptedStateSnapshotDomains,
@@ -136,6 +136,7 @@ import {
     buildTavernShopRuntimeDepthEntries,
     placeTavernShopPromptBlockBeforeCurrentUser,
 } from '../../shared/shop/shop-prompt';
+import { buildTavernPetRuntimeDepthEntries } from '../../shared/pet/pet-prompt';
 
 export {
     loadTavernPromptHistoryWindow,
@@ -1789,6 +1790,12 @@ export async function simulateXbTavernRequest(input: XbTavernSimulateRequestInpu
             playerName: String(liveContext.user?.name || '').trim(),
         }))
         : [];
+    const petDepthEntries = session
+        ? await runTavernStage('simulate_pet_context', () => buildTavernPetRuntimeDepthEntries({
+            sessionId: session.id,
+            atAnchorOrder: (contextWindow?.historyMessages.at(-1)?.order ?? -1) + 1,
+        }))
+        : [];
     const runtimeProtocolMessages = buildRuntimeProtocolMessages(sessionContractRuntime, {
         includePhoneCommunication: communicationEvents.length > 0,
     });
@@ -1800,7 +1807,7 @@ export async function simulateXbTavernRequest(input: XbTavernSimulateRequestInpu
         turn: sessionState.turn,
         entryStates: sessionState.worldEntryStates,
         memoryContext: filteredMemoryContext,
-        runtimeDepthEntries: [...taskDepthEntries, ...shopDepthEntries],
+        runtimeDepthEntries: [...taskDepthEntries, ...petDepthEntries, ...shopDepthEntries],
         runtimeProtocolMessages,
         diagnostics: input.diagnostics || {},
         regexApplications,
@@ -1870,7 +1877,7 @@ export async function simulateXbTavernRequest(input: XbTavernSimulateRequestInpu
         currentUserMessage: nativePromptConversation.currentUserMessage,
         generationType: String(input.generationTrigger || 'normal'),
         memoryContext: filteredMemoryContext,
-        runtimeDepthPrompts: [...taskDepthEntries, ...shopDepthEntries],
+        runtimeDepthPrompts: [...taskDepthEntries, ...petDepthEntries, ...shopDepthEntries],
         runtimeProtocolMessages,
         finalizeNativeMessages: (messages, currentUserMessageIndex) => placeTavernShopPromptBlockBeforeCurrentUser(
             messages,
@@ -2444,6 +2451,10 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
         atAnchorOrder: userMessage?.order ?? contextWindow.historyMessages.at(-1)?.order ?? -1,
         playerName: String(liveContext.user?.name || '').trim(),
     }));
+    const petDepthEntries = await runTavernStage('turn_pet_context', () => buildTavernPetRuntimeDepthEntries({
+        sessionId: baseSession.id,
+        atAnchorOrder: userMessage?.order ?? contextWindow.historyMessages.at(-1)?.order ?? -1,
+    }));
     const runtimeProtocolMessages = buildRuntimeProtocolMessages(sessionContractRuntime, {
         includePhoneCommunication: communicationEvents.length > 0,
     });
@@ -2458,6 +2469,7 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
         runtimeDepthEntries: [
             ...taskDepthEntries,
             ...buildChanceEncounterDepthEntries(chanceEncounterEvent),
+            ...petDepthEntries,
             ...shopDepthEntries,
         ],
         runtimeProtocolMessages,
@@ -2531,7 +2543,7 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
         signal: input.signal,
         memoryContext: filteredMemoryContext,
         chancePrompt: chanceEncounterEvent ? buildChanceEncounterPromptMessage().content : '',
-        runtimeDepthPrompts: [...taskDepthEntries, ...shopDepthEntries],
+        runtimeDepthPrompts: [...taskDepthEntries, ...petDepthEntries, ...shopDepthEntries],
         runtimeProtocolMessages,
         finalizeNativeMessages: (messages, currentUserMessageIndex) => placeTavernShopPromptBlockBeforeCurrentUser(
             messages,
@@ -2741,7 +2753,7 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
                 assistantMessageInput,
                 commitOptions,
             )
-            : await commitTavernAssistantResponseForLatestUser(
+            : await commitTavernAssistantResponseWithPetForLatestUser(
                 session.id,
                 userMessage,
                 assistantMessageInput,
@@ -2797,7 +2809,7 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
                 input.onStreamProgress?.({ text: partialRegex.text });
             }
             const nextTurn = Number(sessionState.turn || 0) + 1;
-            const committed = await commitTavernAssistantResponseForLatestUser(
+            const committed = await commitTavernAssistantResponseWithPetForLatestUser(
                 session.id,
                 userMessage,
                 {
@@ -2850,7 +2862,7 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
             };
         }
         const errorText = formatTavernRunErrorMessage(error instanceof Error ? error.message : String(error || 'run_failed'));
-        const committed = await commitTavernAssistantResponseForLatestUser(
+        const committed = await commitTavernAssistantResponseWithPetForLatestUser(
             session.id,
             userMessage,
             {

@@ -9,3 +9,6 @@ scripts/story-summary-replay.local.json
 scripts/story-summary-replay.samples/
 scripts/story-summary-replay-output/
 scripts/.story-summary-replay-cache/
+
+# Local browser acceptance artifacts
+output/playwright/

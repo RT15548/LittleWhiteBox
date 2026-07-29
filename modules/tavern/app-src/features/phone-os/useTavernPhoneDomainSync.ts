@@ -5,6 +5,8 @@ import db, {
     tavernBankStateVersionsTable,
     tavernEconomyAccountsTable,
     tavernEconomyTransactionsTable,
+    tavernPetActivitiesTable,
+    tavernPetStateVersionsTable,
     tavernSessionsTable,
     tavernShopStateVersionsTable,
     tavernTaskBoardsTable,
@@ -16,6 +18,11 @@ import {
     TAVERN_BANK_CURRENT_MARKER,
     type TavernBankStateVersionRecord,
 } from '../../../shared/bank/bank-types';
+import {
+    TAVERN_PET_CURRENT_MARKER,
+    type TavernPetActivityRecord,
+    type TavernPetStateVersionRecord,
+} from '../../../shared/pet/pet-types';
 
 interface TavernPhoneDomainSyncOptions {
     selectedSessionId: Ref<string>;
@@ -23,11 +30,17 @@ interface TavernPhoneDomainSyncOptions {
     onEconomyChanged: () => void | Promise<void>;
     onShopChanged: () => void | Promise<void>;
     onBankChanged: (change: TavernBankDomainChange) => void | Promise<void>;
+    onPetChanged: (change: TavernPetDomainChange) => void | Promise<void>;
 }
 
 export interface TavernBankDomainChange {
     sessionId: string;
     settledPositionIds: string[];
+}
+
+export interface TavernPetDomainChange {
+    sessionId: string;
+    activityIds: string[];
 }
 
 interface DexieLiveQuerySubscription {
@@ -64,6 +77,33 @@ interface BankVersionRangeTable {
             includeLower?: boolean,
             includeUpper?: boolean,
         ): { toArray(): Promise<TavernBankStateVersionRecord[]> };
+    };
+}
+
+interface PetVersionRangeTable {
+    where(index: string): {
+        between(
+            lower: unknown,
+            upper: unknown,
+            includeLower?: boolean,
+            includeUpper?: boolean,
+        ): { toArray(): Promise<TavernPetStateVersionRecord[]> };
+    };
+}
+
+interface LatestPetActivityCollection {
+    reverse(): LatestPetActivityCollection;
+    first(): Promise<TavernPetActivityRecord | undefined>;
+}
+
+interface LatestPetActivityTable {
+    where(index: string): {
+        between(
+            lower: unknown,
+            upper: unknown,
+            includeLower?: boolean,
+            includeUpper?: boolean,
+        ): LatestPetActivityCollection;
     };
 }
 
@@ -165,6 +205,49 @@ async function bankDomainFingerprint(sessionId: string): Promise<TavernBankDomai
     });
 }
 
+interface TavernPetDomainSnapshot {
+    fingerprint: string;
+    revision: number;
+    versionId: string;
+}
+
+async function petDomainFingerprint(sessionId: string): Promise<TavernPetDomainSnapshot> {
+    return await db.transaction(
+        'r',
+        tavernSessionsTable,
+        tavernPetStateVersionsTable,
+        tavernPetActivitiesTable,
+        async () => {
+            const [session, rows, latestActivity] = await Promise.all([
+                tavernSessionsTable.get(sessionId),
+                tavernPetStateVersionsTable
+                    .where('[sessionId+currentMarker]')
+                    .equals([sessionId, TAVERN_PET_CURRENT_MARKER])
+                    .toArray(),
+                (tavernPetActivitiesTable as unknown as LatestPetActivityTable)
+                    .where('[sessionId+createdAt]')
+                    .between([sessionId, 0], [sessionId, Number.MAX_SAFE_INTEGER], true, true)
+                    .reverse()
+                    .first(),
+            ]);
+            const current = rows[0];
+            const revision = current?.revision || 0;
+            const versionId = current?.versionId || '';
+            return {
+                fingerprint: JSON.stringify([
+                    session?.id ? 1 : 0,
+                    revision,
+                    versionId,
+                    latestActivity?.id || '',
+                    latestActivity?.createdAt ?? -1,
+                ]),
+                revision,
+                versionId,
+            };
+        },
+    );
+}
+
 async function bankSettledPositionIdsBetween(input: {
     sessionId: string;
     previousRevision: number;
@@ -188,6 +271,42 @@ async function bankSettledPositionIdsBetween(input: {
             )
             .toArray();
         return [...new Set(rows.flatMap((row) => row.action.settledPositionIds || []))];
+    });
+}
+
+async function petActivityIdsBetween(input: {
+    sessionId: string;
+    previousRevision: number;
+    previousVersionId: string;
+    nextRevision: number;
+}): Promise<string[]> {
+    if (input.nextRevision <= input.previousRevision) {return [];}
+    if (input.previousRevision === 0 && input.nextRevision !== 1) {return [];}
+    return await db.transaction('r', tavernPetStateVersionsTable, async () => {
+        if (input.previousRevision > 0) {
+            const previous = await tavernPetStateVersionsTable.get([
+                input.sessionId,
+                input.previousRevision,
+            ]);
+            if (!previous || previous.versionId !== input.previousVersionId) {return [];}
+        }
+        const rows = await (tavernPetStateVersionsTable as unknown as PetVersionRangeTable)
+            .where('[sessionId+revision]')
+            .between(
+                [input.sessionId, input.previousRevision + 1],
+                [input.sessionId, input.nextRevision],
+                true,
+                true,
+            )
+            .toArray();
+        const ordered = rows.sort((left, right) => left.revision - right.revision);
+        const expectedCount = input.nextRevision - input.previousRevision;
+        if (ordered.length !== expectedCount
+            || ordered.some((row, index) => row.revision !== input.previousRevision + index + 1)
+        ) {
+            return [];
+        }
+        return [...new Set(ordered.flatMap((row) => row.activityId ? [row.activityId] : []))];
     });
 }
 
@@ -254,6 +373,42 @@ function createBankRefreshScheduler(
     };
 }
 
+function createPetRefreshScheduler(
+    callback: (change: TavernPetDomainChange) => void | Promise<void>,
+) {
+    let running = false;
+    let pendingSessionId = '';
+    const pendingActivityIds = new Set<string>();
+    return (change: TavernPetDomainChange) => {
+        if (pendingSessionId && pendingSessionId !== change.sessionId) {
+            pendingActivityIds.clear();
+        }
+        pendingSessionId = change.sessionId;
+        change.activityIds.forEach((activityId) => pendingActivityIds.add(activityId));
+        if (running) {return;}
+        running = true;
+        void (async () => {
+            try {
+                while (pendingSessionId) {
+                    const next: TavernPetDomainChange = {
+                        sessionId: pendingSessionId,
+                        activityIds: [...pendingActivityIds],
+                    };
+                    pendingSessionId = '';
+                    pendingActivityIds.clear();
+                    try {
+                        await callback(next);
+                    } catch (error) {
+                        console.warn('[LittleWhiteBox/tavern] Pet domain refresh failed', error);
+                    }
+                }
+            } finally {
+                running = false;
+            }
+        })();
+    };
+}
+
 export function useTavernPhoneDomainSync(options: TavernPhoneDomainSyncOptions): void {
     let subscriptions: DexieLiveQuerySubscription[] = [];
     let generation = 0;
@@ -261,6 +416,7 @@ export function useTavernPhoneDomainSync(options: TavernPhoneDomainSyncOptions):
     const scheduleEconomyRefresh = createRefreshScheduler('Economy', options.onEconomyChanged);
     const scheduleShopRefresh = createRefreshScheduler('Shop', options.onShopChanged);
     const scheduleBankRefresh = createBankRefreshScheduler(options.onBankChanged);
+    const schedulePetRefresh = createPetRefreshScheduler(options.onPetChanged);
 
     function stopSubscriptions(): void {
         generation += 1;
@@ -277,7 +433,9 @@ export function useTavernPhoneDomainSync(options: TavernPhoneDomainSyncOptions):
         let economyFingerprint: string | null = null;
         let shopFingerprint: string | null = null;
         let bankSnapshot: TavernBankDomainSnapshot | null = null;
+        let petSnapshot: TavernPetDomainSnapshot | null = null;
         let bankChangeQueue = Promise.resolve();
+        let petChangeQueue = Promise.resolve();
         subscriptions = [
             runLiveQuery(() => taskDomainFingerprint(sessionId)).subscribe({
                 next: (nextFingerprint) => {
@@ -340,6 +498,29 @@ export function useTavernPhoneDomainSync(options: TavernPhoneDomainSyncOptions):
                         });
                 },
                 error: (error) => console.warn('[LittleWhiteBox/tavern] Bank domain sync failed', error),
+            }),
+            runLiveQuery(() => petDomainFingerprint(sessionId)).subscribe({
+                next: (nextSnapshot) => {
+                    if (currentGeneration !== generation) {return;}
+                    const previousSnapshot = petSnapshot;
+                    petSnapshot = nextSnapshot;
+                    if (!previousSnapshot || nextSnapshot.fingerprint === previousSnapshot.fingerprint) {return;}
+                    petChangeQueue = petChangeQueue
+                        .then(async () => {
+                            const activityIds = await petActivityIdsBetween({
+                                sessionId,
+                                previousRevision: previousSnapshot.revision,
+                                previousVersionId: previousSnapshot.versionId,
+                                nextRevision: nextSnapshot.revision,
+                            });
+                            if (currentGeneration !== generation) {return;}
+                            schedulePetRefresh({ sessionId, activityIds });
+                        })
+                        .catch((error) => {
+                            console.warn('[LittleWhiteBox/tavern] Pet activity sync failed', error);
+                        });
+                },
+                error: (error) => console.warn('[LittleWhiteBox/tavern] Pet domain sync failed', error),
             }),
         ];
     }

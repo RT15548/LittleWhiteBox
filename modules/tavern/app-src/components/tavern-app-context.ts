@@ -74,6 +74,7 @@ import type {
     TavernShopShelfRow,
 } from '../features/phone-os/apps/shop/tavern-shop-presentation';
 import type { useTavernBankController } from '../features/phone-os/apps/bank/useTavernBankController';
+import type { useTavernPetController } from '../features/phone-os/apps/pet/useTavernPetController';
 export type { TavernDisplaySettings, TavernUserOption } from '../../shared/settings';
 
 export type TavernReadable<T> = Ref<T> | ComputedRef<T>;
@@ -601,6 +602,7 @@ export interface TavernShopContext {
 }
 
 export type TavernBankContext = ReturnType<typeof useTavernBankController>;
+export type TavernPetContext = ReturnType<typeof useTavernPetController>;
 
 export interface TavernPhoneContext {
     bank: TavernBankContext;
@@ -610,6 +612,7 @@ export interface TavernPhoneContext {
     openPhone: TavernCommand<[], Promise<void>>;
     openWallet: TavernCommand;
     os: TavernPhoneOsContext;
+    pet: TavernPetContext;
     showMessageThreads: TavernCommand;
     shop: TavernShopContext;
     tasks: TavernTasksContext;

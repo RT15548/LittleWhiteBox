@@ -9,15 +9,19 @@ import TavernShopApp from '../../components/phone-os/apps/shop/TavernShopApp.vue
 import TavernShopIcon from '../../components/phone-os/apps/shop/TavernShopIcon.vue';
 import TavernBankApp from '../../components/phone-os/apps/bank/TavernBankApp.vue';
 import TavernBankIcon from '../../components/phone-os/apps/bank/TavernBankIcon.vue';
+import TavernPetApp from '../../components/phone-os/apps/pet/TavernPetApp.vue';
+import TavernPetIcon from '../../components/phone-os/apps/pet/TavernPetIcon.vue';
 import type { useTavernMessagesController } from './apps/messages/useTavernMessagesController';
 import type { useTavernWalletController } from './apps/wallet/useTavernWalletController';
 import type { useTavernTasksController } from './apps/tasks/useTavernTasksController';
 import type { useTavernShopController } from './apps/shop/useTavernShopController';
 import type { useTavernBankController } from './apps/bank/useTavernBankController';
+import type { useTavernPetController } from './apps/pet/useTavernPetController';
 import {
     defineTavernPhoneApps,
     TAVERN_PHONE_BANK_APP_ID,
     TAVERN_PHONE_MESSAGES_APP_ID,
+    TAVERN_PHONE_PET_APP_ID,
     TAVERN_PHONE_SHOP_APP_ID,
     TAVERN_PHONE_TASKS_APP_ID,
     TAVERN_PHONE_WALLET_APP_ID,
@@ -29,6 +33,7 @@ type TavernWalletController = ReturnType<typeof useTavernWalletController>;
 type TavernTasksController = ReturnType<typeof useTavernTasksController>;
 type TavernShopController = ReturnType<typeof useTavernShopController>;
 type TavernBankController = ReturnType<typeof useTavernBankController>;
+type TavernPetController = ReturnType<typeof useTavernPetController>;
 
 export function createTavernPhoneAppRegistry(input: {
     messages: Pick<TavernMessagesController, 'prepareMessages' | 'unreadTotal'>;
@@ -36,6 +41,7 @@ export function createTavernPhoneAppRegistry(input: {
     tasks: Pick<TavernTasksController, 'prepareTasks' | 'cancelTransientRequests'>;
     shop: Pick<TavernShopController, 'prepareShop'>;
     bank: Pick<TavernBankController, 'prepareBank'>;
+    pet: Pick<TavernPetController, 'deactivatePet' | 'preparePet'>;
 }): readonly TavernPhoneAppDefinition[] {
     return defineTavernPhoneApps([
         {
@@ -109,6 +115,23 @@ export function createTavernPhoneAppRegistry(input: {
                     input.wallet.prepareWallet(),
                 ]);
             },
+        },
+        {
+            id: TAVERN_PHONE_PET_APP_ID,
+            name: '住户',
+            shortName: '住户',
+            iconComponent: markRaw(TavernPetIcon),
+            accent: '#87916f',
+            rootPath: '/room',
+            order: 60,
+            component: markRaw(TavernPetApp),
+            onActivate: async () => {
+                await Promise.all([
+                    input.pet.preparePet(),
+                    input.wallet.prepareWallet(),
+                ]);
+            },
+            onDeactivate: input.pet.deactivatePet,
         },
     ]);
 }

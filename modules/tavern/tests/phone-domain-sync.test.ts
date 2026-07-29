@@ -26,6 +26,7 @@ import { useTavernTasksController } from '../app-src/features/phone-os/apps/task
 import { useTavernWalletController } from '../app-src/features/phone-os/apps/wallet/useTavernWalletController';
 import { useTavernShopController } from '../app-src/features/phone-os/apps/shop/useTavernShopController';
 import { useTavernBankController } from '../app-src/features/phone-os/apps/bank/useTavernBankController';
+import { useTavernPetController } from '../app-src/features/phone-os/apps/pet/useTavernPetController';
 import { useTavernPhoneDomainSync } from '../app-src/features/phone-os/useTavernPhoneDomainSync';
 import { purchaseTavernShopItem } from '../shared/shop/shop-service';
 import {
@@ -36,6 +37,9 @@ import {
 } from '../shared/bank/bank-service';
 import { createTavernBankSequenceRandom } from '../shared/bank/bank-random';
 import { captureTavernPhoneBoundary } from '../shared/phone-boundary';
+import { lureTavernPet } from '../shared/pet/pet-service';
+import { createTavernPetSequenceRandomSource } from '../shared/pet/pet-random';
+import { advanceTavernPetStoryTurnForTest } from './pet-test-helpers';
 
 function taskListings(): TavernTaskListing[] {
     return (['E', 'D', 'C', 'B', 'A', 'S'] as const).map((grade, index) => ({
@@ -95,10 +99,54 @@ function createSyncedBankObserver(
                 change.sessionId,
                 change.settledPositionIds,
             ),
+            onPetChanged: () => {},
         });
         return { bank, wallet };
     });
     if (!observer) {throw new Error('phone_bank_domain_sync_scope_missing');}
+    return { ...observer, scope };
+}
+
+function createSyncedPetObserver(
+    selectedSessionId: ReturnType<typeof ref<string>>,
+    showToast?: (message: string) => void,
+) {
+    const scope = effectScope();
+    const observer = scope.run(() => {
+        const wallet = useTavernWalletController({
+            selectedSessionId,
+            isLedgerVisible: () => true,
+        });
+        const pet = useTavernPetController({
+            selectedSessionId,
+            agentConfig: ref({}),
+            chatRunning: ref(false),
+            chatCancelling: ref(false),
+            memoryEditorMode: ref<'preview' | 'edit'>('preview'),
+            characterArchiveBusy: computed(() => false),
+            acceptedRollbackBusy: computed(() => false),
+            wallet,
+            showToast,
+        });
+        useTavernPhoneDomainSync({
+            selectedSessionId,
+            onTasksChanged: () => {},
+            onEconomyChanged: async () => {
+                await Promise.all([
+                    wallet.refreshAfterEconomyDomainChange(),
+                    pet.refreshAfterEconomyDomainChange(),
+                ]);
+            },
+            onShopChanged: () => {},
+            onBankChanged: () => {},
+            onPetChanged: (change) => pet.refreshAfterPetDomainChange(
+                change.sessionId,
+                change.activityIds,
+            ),
+        });
+        return { pet, wallet };
+    });
+    if (!observer) {throw new Error('phone_pet_domain_sync_scope_missing');}
     return { ...observer, scope };
 }
 
@@ -127,6 +175,7 @@ test('phone domain sync establishes a baseline and ignores ordinary manager run 
         onEconomyChanged: () => {economyRefreshes += 1;},
         onShopChanged: () => {},
         onBankChanged: () => {},
+        onPetChanged: () => {},
     }));
 
     try {
@@ -225,6 +274,7 @@ test('an observing phone controller refreshes tasks and wallet after another wri
                 change.sessionId,
                 change.settledPositionIds,
             ),
+            onPetChanged: () => {},
         });
         return { bank, shop, tasks, wallet };
     });
@@ -315,6 +365,53 @@ test('an observing phone controller refreshes tasks and wallet after another wri
         assert.equal(observer.bank.deposits.value.length, 1);
     } finally {
         scope.stop();
+    }
+});
+
+test('Pet domain sync refreshes a remote resident and emits each new frozen notification once', async () => {
+    await db.delete();
+    await db.open();
+    const session = await createTavernSession({ title: 'Pet domain sync observer' });
+    await ensureTavernEconomy(session.id);
+    const selectedSessionId = ref(session.id);
+    const toasts: string[] = [];
+    const lateToasts: string[] = [];
+    const observer = createSyncedPetObserver(selectedSessionId, (message) => {toasts.push(message);});
+    let late: ReturnType<typeof createSyncedPetObserver> | null = null;
+    try {
+        await Promise.all([observer.pet.preparePet(), observer.wallet.refreshWallet()]);
+        await settleLiveQueries();
+        assert.equal(observer.pet.view.value.existence, 'undiscovered');
+        assert.equal(observer.wallet.balance.value, 100);
+
+        await lureTavernPet({
+            sessionId: session.id,
+            boundary: null,
+            actionId: 'domain-sync-pet-lure',
+            expectedRevision: 0,
+            expectedVersionId: '',
+        }, createTavernPetSequenceRandomSource([71, 0, 15, 15, 15]));
+        await waitUntil(() => (
+            observer.pet.view.value.phase === 'luring'
+            && observer.wallet.balance.value === 90
+        ));
+        assert.deepEqual(toasts, []);
+
+        await advanceTavernPetStoryTurnForTest(session.id, []);
+        await waitUntil(() => (
+            observer.pet.view.value.phase === 'egg'
+            && toasts.includes('角落里多了一枚蛋。')
+        ));
+        assert.deepEqual(toasts, ['角落里多了一枚蛋。']);
+
+        late = createSyncedPetObserver(selectedSessionId, (message) => {lateToasts.push(message);});
+        await Promise.all([late.pet.preparePet(), late.wallet.refreshWallet()]);
+        await settleLiveQueries();
+        assert.equal(late.pet.view.value.phase, 'egg');
+        assert.deepEqual(lateToasts, []);
+    } finally {
+        observer.scope.stop();
+        late?.scope.stop();
     }
 });
 

@@ -740,7 +740,7 @@ test('tavern chat hot paths use message windows instead of full session scans', 
     assert.doesNotMatch(runtimeSource, /deriveTavernSessionStateFromMessages|listAllTavernMessagesInRangePaged/);
     assert.doesNotMatch(sessionDbSource, /replaceTavernSessionStateWithTurnSnapshots|TavernTimelineMessageIdentity/);
     assert.match(runtimeSource, /const rerollPreparation = input\.rerollLatestAssistant[\s\S]*prepareTavernLatestAssistantReroll\(baseSession\.id\)/);
-    assert.match(runtimeSource, /commitTavernAssistantResponseForLatestUser\(/);
+    assert.match(runtimeSource, /commitTavernAssistantResponseWithPetForLatestUser\(/);
     assert.match(boundarySource, /countCompletedTavernAssistantTurnsBefore/);
     assert.match(boundarySource, /loadTavernPromptHistoryWindow/);
     assert.doesNotMatch(boundarySource, /buildXbTavernBrain|Worldbook|WorldInfoRuntime|applySubstituteParams|listTavernMessages/);
@@ -778,7 +778,7 @@ test('tavern RP reroll controls always target the database tail pair', () => {
     assert.match(assistantBubbleSource, /function rerunMessage\(\) \{[\s\S]*chat\.rerollLatestAssistant\(\);[\s\S]*title="重 roll 最后一轮"[\s\S]*aria-label="重 roll 最后一轮"/);
     assert.match(runtimeSource, /input\.rerollLatestAssistant[\s\S]*prepareTavernLatestAssistantReroll\(baseSession\.id\)/);
     assert.match(sessionDbSource, /const latestMessage = await getLatestTavernMessage\(id\);[\s\S]*\['user', 'assistant'\]\.includes\(latestMessage\.role\)[\s\S]*latestMessage\.role === 'user' \? 'reply_to_user' : 'replace_assistant'[\s\S]*getLatestTavernUserMessageAtOrBefore\(id, latestMessage\.order - 1\)/);
-    assert.match(runtimeSource, /rerollPreparation\?\.mode === 'replace_assistant'[\s\S]*commitTavernLatestAssistantReroll\([\s\S]*commitTavernAssistantResponseForLatestUser\(/);
+    assert.match(runtimeSource, /rerollPreparation\?\.mode === 'replace_assistant'[\s\S]*commitTavernLatestAssistantReroll\([\s\S]*commitTavernAssistantResponseWithPetForLatestUser\(/);
     assert.doesNotMatch(combinedSource, /reuseUserMessageOrder|resolveTavernRerunUserMessage|rerunFromMessage|canRerunMessage|tavern-rerun/);
 });
 
@@ -1344,7 +1344,7 @@ test('tavern data rollback helpers keep paired state writes inside transactions'
     assert.match(memorySource, /db\.transaction\(\s*'rw'[\s\S]*ensureTavernManagerMemorySnapshot\(\{ managerRunId: options\.managerRunId, sessionId: id, path \}\)[\s\S]*writeTavernMemoryFile\(id, path/);
     assert.match(memorySource, /updateTavernManagerMemorySnapshotAfter\(\{ managerRunId: options\.managerRunId, sessionId: id, path/);
     assert.match(runOnceSource, /prepareTavernLatestAssistantReroll\(baseSession\.id\)/);
-    assert.match(runOnceSource, /commitTavernAssistantResponseForLatestUser\(/);
+    assert.match(runOnceSource, /commitTavernAssistantResponseWithPetForLatestUser\(/);
     assert.match(runOnceSource, /commitTavernLatestAssistantReroll\(/);
     assert.doesNotMatch(runOnceSource, /rollbackTavernManagerRun|restoreTavernMemorySnapshot|restoreTavernCommunicationSnapshot|restoreTavernStatusSnapshot|deleteAcceptedStateSnapshots/);
     assert.match(sessionDbSource, /export async function truncateTavernMessagesAndReplaceSessionState\([\s\S]*db\.transaction\('rw', tavernMessagesTable, tavernSessionsTable,[\s\S]*tavernMessagesTable\.bulkDelete\(messageKeys\)[\s\S]*tavernSessionsTable\.update\(id,/);
@@ -1622,7 +1622,7 @@ test('tavern accepted-turn manager uses an unconfirmed candidate and a persisten
     const productionRunTurnCall = chatRunSource.match(/const result = await runXbTavernTurn\(\{[\s\S]*?runManager: true,[\s\S]*?onManagerRunSaved:[\s\S]*?\n[ ]{12}\}\);/);
     const removeSessionBody = sessionSource.match(/async function removeSession\(sessionId: string\) \{[\s\S]*?const removed = await deleteTavernSession\(id\);/);
 
-    assert.match(runOnceSource, /commitTavernAssistantResponseForLatestUser/);
+    assert.match(runOnceSource, /commitTavernAssistantResponseWithPetForLatestUser/);
     assert.match(runOnceSource, /runNextQueuedAcceptedTurnManager/);
     assert.match(runOnceSource, /const queuedAcceptedTurnManagerWorkers = new Map<string, Promise<void>>\(\);/);
     assert.match(runOnceSource, /function scheduleQueuedAcceptedTurnManager/);
@@ -1644,7 +1644,7 @@ test('tavern accepted-turn manager uses an unconfirmed candidate and a persisten
     assert.match(removeSessionBody[0], /await options\.cancelAndRollbackManagersForSession\(id\);[\s\S]*const removed = await deleteTavernSession\(id\);/);
     assert.doesNotMatch(removeSessionBody[0], /waitForQueuedAcceptedTurnManagers/);
     assert.match(runOnceSource, /await saveAcceptedStateSnapshot\(baseSession\.id\);/);
-    assert.match(runTurnSource, /const commitOptions = \{[\s\S]*managerCandidate: \{[\s\S]*turn: nextTurn[\s\S]*commitTavernLatestAssistantReroll\([\s\S]*commitTavernAssistantResponseForLatestUser\(/);
+    assert.match(runTurnSource, /const commitOptions = \{[\s\S]*managerCandidate: \{[\s\S]*turn: nextTurn[\s\S]*commitTavernLatestAssistantReroll\([\s\S]*commitTavernAssistantResponseWithPetForLatestUser\(/);
     assert.match(managerSource, /const TAVERN_MANAGER_TIMEOUT_MS = 5 \* 60 \* 1000;/);
     assert.doesNotMatch(managerSource, /15 \* 60 \* 1000/);
     assert.match(managerSource, /await input\.onManagerRunSaved\?\.\(managerRun\);\s*try \{/);
@@ -1682,6 +1682,7 @@ test('tavern markdown enhancement lives outside the app controller', () => {
     const drawMarkdownImagesSource = readRepoFile('modules/tavern/app-src/features/draw/draw-markdown-images.ts');
     const sdDrawSource = readRepoFile('modules/draw/providers/sd-webui/sd-draw.js');
     const novelDrawSource = readRepoFile('modules/draw/providers/novelai/novel-draw.js');
+    const novelRequestConfigSource = readRepoFile('modules/draw/providers/novelai/novel-request-config.js');
     const comfyDrawSource = readRepoFile('modules/draw/providers/comfyui/comfy-draw.js');
     const fourthWallSource = readRepoFile('modules/fourth-wall/fourth-wall.js');
     const fourthWallImageProtocolSource = readRepoFile('modules/fourth-wall/fw-image-protocol.js');
@@ -1843,7 +1844,8 @@ test('tavern markdown enhancement lives outside the app controller', () => {
     assert.doesNotMatch(comfyFingerprintSource, /auth|apiKey|token/);
     assert.match(sdFingerprintSource, /endpointHash: hashStableValue/);
     assert.match(comfyFingerprintSource, /workflowHash: hashStableValue/);
-    assert.match(novelDrawSource, /generationConfig\?\.overrideSize/);
+    assert.match(novelDrawSource, /snapshotNovelRequestConfig\(getSettings\(\), generationConfig/);
+    assert.match(novelRequestConfigSource, /generationConfig\?\.overrideSize/);
     assert.match(sdDrawSource, /generationConfig\?\.prepared === true \? params/);
     assert.match(sdDrawSource, /fetchSdProxy\('generate', body, \{ signal, generationConfig \}\)/);
     assert.match(comfyDrawSource, /generationConfig\?\.prepared === true \? params/);

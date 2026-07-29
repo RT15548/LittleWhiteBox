@@ -14,6 +14,7 @@ import { useTavernTasksController } from './apps/tasks/useTavernTasksController'
 import { useTavernPhoneDomainSync } from './useTavernPhoneDomainSync';
 import { useTavernShopController } from './apps/shop/useTavernShopController';
 import { useTavernBankController } from './apps/bank/useTavernBankController';
+import { useTavernPetController } from './apps/pet/useTavernPetController';
 
 const MESSAGES_THREADS_PATH = '/threads';
 const WALLET_LEDGER_PATH = '/ledger';
@@ -38,6 +39,17 @@ export function useTavernPhoneController(options: TavernPhoneControllerInput) {
     const wallet = useTavernWalletController({
         selectedSessionId: options.selectedSessionId,
         isLedgerVisible: (sessionId) => os?.isAppRouteVisible(sessionId, TAVERN_PHONE_WALLET_APP_ID, WALLET_LEDGER_PATH) === true,
+    });
+    const pet = useTavernPetController({
+        selectedSessionId: options.selectedSessionId,
+        agentConfig: options.agentConfig,
+        chatRunning: options.chatRunning,
+        chatCancelling: options.chatCancelling,
+        memoryEditorMode: options.memoryEditorMode,
+        characterArchiveBusy: options.characterArchiveBusy,
+        acceptedRollbackBusy: options.acceptedRollbackBusy,
+        wallet,
+        showToast: options.showToast,
     });
     const tasks = useTavernTasksController({
         selectedSessionId: options.selectedSessionId,
@@ -73,23 +85,37 @@ export function useTavernPhoneController(options: TavernPhoneControllerInput) {
         showToast: options.showToast,
     });
     os = useTavernPhoneOsController({
-        apps: createTavernPhoneAppRegistry({ messages, wallet, tasks, shop, bank }),
+        apps: createTavernPhoneAppRegistry({ messages, wallet, tasks, shop, bank, pet }),
         selectedSessionId: options.selectedSessionId,
     });
     useTavernPhoneDomainSync({
         selectedSessionId: options.selectedSessionId,
         onTasksChanged: tasks.refreshAfterTaskDomainChange,
-        onEconomyChanged: wallet.refreshAfterEconomyDomainChange,
+        onEconomyChanged: async () => {
+            await Promise.all([
+                wallet.refreshAfterEconomyDomainChange(),
+                pet.refreshAfterEconomyDomainChange(),
+            ]);
+        },
         onShopChanged: shop.refreshAfterShopDomainChange,
         onBankChanged: (change) => bank.refreshAfterBankDomainChange(
             change.sessionId,
             change.settledPositionIds,
         ),
+        onPetChanged: (change) => pet.refreshAfterPetDomainChange(
+            change.sessionId,
+            change.activityIds,
+        ),
     });
 
     async function openPhone() {
         os.openPhone();
-        if (os.isOpen.value) {await wallet.refreshBalance();}
+        if (os.isOpen.value) {
+            await Promise.all([
+                wallet.refreshBalance(),
+                pet.preparePet(),
+            ]);
+        }
     }
 
     function showMessageThreads() {
@@ -135,6 +161,7 @@ export function useTavernPhoneController(options: TavernPhoneControllerInput) {
         openPhone,
         openWallet,
         os,
+        pet,
         showMessageThreads,
         shop,
         tasks,
