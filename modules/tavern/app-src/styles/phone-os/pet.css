@@ -205,6 +205,18 @@
 
 .tavern-pet-stage.is-waiting .tavern-pet-face {color: color-mix(in srgb, var(--pet-text) 76%, var(--pet-accent));}
 
+.tavern-pet-wait-hint {
+    position: relative;
+    z-index: 3;
+    margin: 0 auto;
+    max-width: 30em;
+    padding: 9px 15px 0;
+    color: var(--pet-muted);
+    font: 500 11px/1.7 var(--pet-serif);
+    text-align: center;
+    text-wrap: balance;
+}
+
 .tavern-pet-vitals {
     position: relative;
     z-index: 3;
@@ -493,7 +505,21 @@
     font-family: var(--pet-face, "Cascadia Mono", monospace);
 }
 
+.tavern-pet-icon::before {
+    content: "";
+    position: absolute;
+    inset: 16%;
+    border-radius: 24%;
+    background:
+        radial-gradient(ellipse at 50% 40%, rgba(135, 145, 111, 0.24), transparent 70%),
+        linear-gradient(160deg, #101112, #070809);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), inset 0 0 10px rgba(0, 0, 0, 0.55);
+    z-index: 0;
+}
+
 .tavern-pet-icon-glyph {
+    position: relative;
+    z-index: 1;
     display: block;
     max-width: 100%;
     overflow: hidden;
@@ -504,7 +530,7 @@
     white-space: nowrap;
 }
 
-.tavern-pet-icon.is-undiscovered .tavern-pet-icon-glyph {font-size: 25px; opacity: 0.32;}
+.tavern-pet-icon.is-undiscovered .tavern-pet-icon-glyph {font-size: 24px; opacity: 0.46;}
 .tavern-pet-icon.is-luring .tavern-pet-icon-glyph {font-size: 28px; opacity: 0.58; text-shadow: 0 0 13px rgba(255, 255, 255, 0.48);}
 .tavern-pet-icon.is-egg .tavern-pet-icon-glyph {font-size: 24px; letter-spacing: 0;}
 .tavern-pet-icon.is-juvenile .tavern-pet-icon-glyph {font-size: 8px;}

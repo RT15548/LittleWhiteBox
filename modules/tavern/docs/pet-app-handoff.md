@@ -1,10 +1,10 @@
 # 不明物 APP 工程交接与实施记录
 
 - 状态：A–G 已实现；阶段 H 的代码、静态审查、测试与生产构建已收口（2026-07-29）。浏览器人工验收按用户要求停止，不虚报为完成。
-- 交付目标：按已确认规格完整实现 Phone OS「住户」APP，不停在脚手架或演示 UI
+- 交付目标：按已确认规格完整实现 Phone OS「不明物」APP，不停在脚手架或演示 UI
 - 当前仓库状态：领域、两张 Pet 表、主回合事务、生命周期、模型协议、Phone OS UI 与生产 bundle 均已落地；最终 dirty diff 审查、静态门禁与构建产物已完成。
 
-已通过的自动门禁：`npm run test:tavern`（867/867）、`vue-tsc`、
+已通过的自动门禁：`npm run test:tavern`（871/871）、`vue-tsc`、
 `npm run lint:tavern`、`npm run build:tavern`、`git diff --check`。已完成的
 真实 ST 验收包括诱饵扣款、自然成长至 adult、arrival/hatch/adulthood 痕迹、
 pending evolution 静态回落，以及完整 30 事件目录中非 milestone 事件的 Public
@@ -88,7 +88,7 @@ git diff --check
 ## 6. 可直接转发给实施团队的话
 
 ```text
-请在当前 LittleWhiteBox 仓库中完整实现 Phone OS「不明物 / 住户」APP。
+请在当前 LittleWhiteBox 仓库中完整实现 Phone OS「不明物」APP。
 
 开工前完整阅读并遵守：
 1. 随任务提供或由平台注入的 AGENTS.md / 工作规则；

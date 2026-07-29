@@ -98,6 +98,20 @@ export function tavernPetStageText(view: TavernPetView): string {
     return view.phaseProgressLabel || '它正在看你。';
 }
 
+const WAIT_HINTS = Object.freeze({
+    luring: '喂过之后，它要顺着故事慢慢靠近。回到对话里继续往下走，过一阵子再回来看看这间暗室。',
+    egg: '蛋跟着你和角色的对话慢慢变化。多在对话里走几段，过一阵子再回来看它。',
+    juvenile: '它还没长定。回到对话里继续陪它往下走，它会随着故事慢慢成形。',
+});
+
+export function tavernPetWaitHint(view: TavernPetView): string {
+    if (view.existence === 'undiscovered' || view.dormant) {return '';}
+    if (view.phase === 'luring') {return WAIT_HINTS.luring;}
+    if (view.phase === 'egg') {return WAIT_HINTS.egg;}
+    if (view.phase === 'juvenile') {return WAIT_HINTS.juvenile;}
+    return '';
+}
+
 export function tavernPetReadableState(view: TavernPetView): string {
     if (view.existence === 'undiscovered') {return '暗室里还没有住户。';}
     if (view.phase === 'luring') {return '食物已经放下，住户尚未出现。';}
@@ -128,7 +142,7 @@ export function tavernPetCurrentUtterance(
     const latest = view.latestUtterance;
     return {
         key: latestActivityId || view.versionId || view.phase || view.existence,
-        face: latest?.face || view.currentFace || (view.existence === 'undiscovered' ? '▓' : '·'),
+        face: latest?.face || view.currentFace || (view.existence === 'undiscovered' ? '◌' : '·'),
         text: tavernPetStageText(view),
         motion: latest?.motion || 'none',
         ...(latest?.murmur ? { murmur: latest.murmur } : {}),

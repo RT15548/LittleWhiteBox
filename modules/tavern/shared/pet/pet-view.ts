@@ -63,7 +63,7 @@ function phaseProgressLabel(record: TavernPetStateVersionRecord): string {
 
 function currentFace(record: TavernPetStateVersionRecord): string {
     const { state } = record;
-    if (state.phase === 'luring') {return '▓';}
+    if (state.phase === 'luring') {return '◌';}
     if (state.phase === 'egg') {return '(🥚)';}
     return tavernPetFaceForEmotion(state.phase, state.personaId, state.emotion);
 }

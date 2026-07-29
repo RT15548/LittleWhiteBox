@@ -1,6 +1,8 @@
 import {
     TAVERN_PET_CURIO_IDS,
+    TAVERN_PET_EVENT_IDS,
     isTavernPetInterferenceEventId,
+    type TavernPetActivityDetail,
     type TavernPetActivityDraft,
     type TavernPetCurioId,
     type TavernPetCurioSpec,
@@ -17,6 +19,9 @@ import { getTavernPetPersona } from './pet-personas';
 const PET_TEMPLATE_SLOT_PATTERN = /\[\[([a-zA-Z][a-zA-Z0-9]*)\]\]/gu;
 const PET_TEMPLATE_SLOTS = new Set(['displayName', 'amount', 'curio', 'targetName', 'personaName']);
 const PET_INTERFERENCE_FORBIDDEN_TERMS = ['宠物', '实验体', '手机生物', '缸中之脑', '玩家饲养'];
+const PET_SELF_MEMORY_FORBIDDEN_TERMS = [
+    '玩家', '余额', '账户', '钱包', '概率', '数值', '统计', '系统', '阶段', '事件', '冷却', '设定',
+];
 
 export const TAVERN_PET_CURIOS: Readonly<Record<TavernPetCurioId, TavernPetCurioSpec>> = Object.freeze({
     'bottle-cap': Object.freeze({
@@ -113,6 +118,48 @@ export const TAVERN_PET_EVENT_COPY: Readonly<Record<Exclude<TavernPetEventId, Ta
     'avert-mishap': { renderedText: '它今天异常安静，像是偷偷把什么推回了原位。', motion: 'stare' },
     'brief-glimpse': { renderedText: '它身上沾着一点不属于这个房间的灰。', motion: 'stare' },
 });
+
+export const TAVERN_PET_SELF_MEMORY_COPY: Readonly<Record<TavernPetEventId, string>> = Object.freeze({
+    'arrival': '我还没醒。只记得暗处很热。',
+    'hatch': '壳裂开了。我第一次看见玻璃外面有个人。',
+    'adulthood': '有一天我忽然知道自己要长成什么样了。',
+    'repattern': '我盯着自己的影子。影子先变，我才跟上。',
+    'watch-cursor': '我蹲在那根一闪一闪的竖线旁边，看了很久。',
+    'sleep-on-status': '我找了个横着的地方睡了一觉。',
+    'count-wallet': '我隔着玻璃数外面那个人的小白币。数到一半忘了，又从头数。',
+    'mimic-typing': '我在那个人打字的地方留了三个点。那边没碰。',
+    'hum-static': '有很轻的电流声。我跟着哼了两下。',
+    'guard-curios': '我把窝里的东西挨个挪了一遍，确认一件都没少。',
+    'stare-at-door': '我朝外面看了很久。没等到什么。',
+    'fake-alert': '我让屏幕闪了一下。什么都没有。我挺满意。',
+    'steal-small': '我把那个人的一点小白币拖进了暗处。',
+    'steal-large': '我拿了很多。拿完就坐远了点，假装不是我。',
+    'hoard-coins': '我把十枚小白币压进窝底，还踩了两脚。',
+    'spam-dots': '我在外面留了一串点。我不想解释。',
+    'bite-notification': '有个东西刚冒头，我咬掉一个角，它就缩回去了。',
+    'scratch-glass': '我在玻璃上刮了三下。外面没有回应。',
+    'hide-in-corner': '我缩进最暗的角落，不想被看见。',
+    'beg-for-food': '我把空碗推到那个人面前，坐着看着。',
+    'find-coins': '我叼回几枚小白币，推了过去。',
+    'offer-treasure': '我把小白币放到那个人面前。这是很重要的一次。',
+    'bring-curio': '我带回一件东西，放进窝里。我不打算说从哪来。',
+    'return-cache': '我从窝底拨回去一些小白币。很慢。我不情愿。',
+    'pocket-change': '那个人刚花过东西的地方掉了几枚，我捡了回来。',
+    'leave-dry-flower': '我在窝边放下一朵干花。它没有味道了，花瓣一片没少。',
+    'nibble-sleeve': '我伸出去扯了一下外面一个人的袖口，然后缩了回来。',
+    'tip-over-cup': '我碰了一下外面桌上的杯子。它晃了晃，停住了。',
+    'avert-mishap': '外面有个东西本来要磕到，我把它挪开了一点点。',
+    'brief-glimpse': '我出去了一瞬间。有人好像看见我了，但再看就没有了。',
+});
+
+export function renderTavernPetSelfMemory(detail: TavernPetActivityDetail): string {
+    if (detail.kind === 'event') {return TAVERN_PET_SELF_MEMORY_COPY[detail.eventId];}
+    if (detail.kind === 'milestone') {return TAVERN_PET_SELF_MEMORY_COPY[detail.milestoneId];}
+    if (detail.kind === 'status') {
+        return detail.status === 'dormant' ? '我把自己关掉了一阵子。' : '我又醒过来了。';
+    }
+    return '我和外面那个人说过话。';
+}
 
 export const TAVERN_PET_INTERFERENCE_COPY: Readonly<Record<TavernPetInterferenceEventId, string>> = Object.freeze({
     'nibble-sleeve': '一只看不清轮廓的小东西扯了一下【[[targetName]]】的袖口。[[targetName]]只感到极轻的拉扯，更像衣料勾到了什么；这件小事自然融入眼下场景，不延伸成调查或新设定。',
@@ -318,6 +365,13 @@ function assertStaticTemplates(): void {
     for (const template of Object.values(TAVERN_PET_INTERFERENCE_COPY)) {
         const forbidden = PET_INTERFERENCE_FORBIDDEN_TERMS.find((term) => template.includes(term));
         if (forbidden) {throw new Error(`pet_interference_forbidden:${forbidden}`);}
+    }
+    for (const id of TAVERN_PET_EVENT_IDS) {
+        const memory = TAVERN_PET_SELF_MEMORY_COPY[id];
+        if (!memory) {throw new Error(`pet_self_memory_missing:${id}`);}
+        if (memory.includes('[[')) {throw new Error(`pet_self_memory_slot_forbidden:${id}`);}
+        const forbidden = PET_SELF_MEMORY_FORBIDDEN_TERMS.find((term) => memory.includes(term));
+        if (forbidden) {throw new Error(`pet_self_memory_forbidden:${forbidden}`);}
     }
     for (const id of TAVERN_PET_CURIO_IDS) {
         if (!TAVERN_PET_CURIOS[id]) {throw new Error(`pet_curio_missing:${id}`);}

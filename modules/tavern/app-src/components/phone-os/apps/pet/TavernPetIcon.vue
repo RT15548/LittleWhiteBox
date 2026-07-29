@@ -5,7 +5,7 @@ import { useTavernPhoneContext } from '../../../tavern-app-context';
 const phone = useTavernPhoneContext();
 const view = computed(() => phone.pet.view.value);
 const glyph = computed(() => {
-    if (view.value.existence === 'undiscovered') {return '▓';}
+    if (view.value.existence === 'undiscovered') {return '◌';}
     if (view.value.phase === 'luring') {return '·';}
     if (view.value.phase === 'egg') {return '🥚';}
     return view.value.currentFace || '·';

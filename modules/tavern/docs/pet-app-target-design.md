@@ -115,7 +115,7 @@ Pet 只新增两个持久实体。
 
 **为何持久**：自主事件、聊天回复、阶段里程碑和休眠是用户可观察事实；它们需要冻结当时文本，并且不能随文案目录更新而改写。普通交互已经由 StateVersion action 和统计表达，不重复写 Activity。
 
-**生命周期**：事件/里程碑/聊天/休眠结算时同事务追加；UI 读取最近 30 条；底层不按显示上限裁剪；回滚、分支、删除和档案与会话同行。
+**生命周期**：事件/里程碑/聊天/休眠结算时同事务追加；UI 读取最近 30 条；私聊认知投影读取最近 5 条非 chat Activity，任意数量的聊天 Activity 都不能挤掉事件记忆；底层不按显示上限裁剪；回滚、分支、删除和档案与会话同行。
 
 ### 5.3 终态目录
 
@@ -639,7 +639,7 @@ Pet 不是彩色养成面板，而是系统里一块比屏幕更深的暗室：
 
 ### 12.2 图标与页面
 
-Phone 打开时预加载 Pet View，保证桌面图标真实反映阶段：未发现为暗色噪点、luring 为微弱剪影、egg 为裂纹蛋、juvenile 为幼体脸、adult 为 persona default face、dormant 为灰色睡眠态。桌面标签固定“住户”，避免为一个动态名字扩张 Phone manifest 契约；App 内标题显示玩家命名或 specimen label。
+Phone 打开时预加载 Pet View，保证桌面图标真实反映阶段：未发现为暗色噪点、luring 为微弱剪影、egg 为裂纹蛋、juvenile 为幼体脸、adult 为 persona default face、dormant 为灰色睡眠态。APP 名称、桌面标签和首屏 eyebrow 固定为“不明物”，不随玩家命名变化；App 内标题显示玩家命名或 specimen label。
 
 单根路由 `/room`，不做多页导航：
 

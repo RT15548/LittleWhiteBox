@@ -341,11 +341,13 @@ LittleWhiteBox/
 │   │   │   ├── App.vue                     # Tavern 主 Vue 单文件组件
 │   │   │   ├── features/assistant-chat/    # 助手聊天的有界历史投影、懒加载详情与轻量 live 状态
 │   │   │   ├── features/manager/           # 自动 manager 的轻量运行同步
+│   │   │   ├── features/phone-os/          # Phone OS 注册、路由、领域同步与六款 App Controller
 │   │   │   ├── map-display.ts              # 地图/空间状态展示辅助
 │   │   │   ├── runtime/                   # Tavern manager / run-once / provider 等运行时接线
 │   │   │   ├── components/                # Tavern Vue 子组件
 │   │   │   │   ├── TavernMapPanel.vue      # 地图面板
-│   │   │   │   └── chat/                  # 聊天页相关组件
+│   │   │   │   ├── chat/                  # 聊天页相关组件
+│   │   │   │   └── phone-os/              # Phone 外壳与信息/钱包/任务/商店/银行/不明物页面
 │   │   │   └── styles/                    # Tavern app 样式分片
 │   │   ├── host/                          # 与 SillyTavern 宿主环境桥接
 │   │   │   ├── agent-config.js             # agent 配置解析与默认值
@@ -355,7 +357,13 @@ LittleWhiteBox/
 │   │   │   ├── assistant-presets.ts        # assistant preset 定义与规整
 │   │   │   ├── structured-state.ts         # 结构化状态模型
 │   │   │   ├── map-state-*.ts              # 地图状态内容、操作与种子数据
+│   │   │   ├── economy/                     # Phone 钱包与跨领域余额/流水事实
+│   │   │   ├── tasks/                       # 任务板、发布、应征与结算领域
+│   │   │   ├── shop/                        # 商店目录、库存、效果与时间线领域
+│   │   │   ├── bank/                        # 银行存款、游戏、结算与历史领域
+│   │   │   ├── pet/                         # “不明物”生命周期、事件、聊天、Prompt 与历史领域
 │   │   │   └── message-assembler.ts        # Tavern 消息组装与协议消息转换
+│   │   ├── docs/                           # 银行、商店与“不明物”的目标设计和实施规格
 │   │   └── tests/                         # Tavern 模块测试（session-db、run-turn、map 等）
 │   │
 │   ├── template-editor/                   # 模板编辑器
@@ -466,6 +474,19 @@ LittleWhiteBox/
 ```
 
 ## 快速定位建议
+
+### 小白酒馆 Phone OS 速记
+
+Phone OS 当前注册六款 APP；`modules/tavern/app-src/features/phone-os/phone-os-app-registry.ts` 是名称、顺序和入口的唯一事实来源：
+
+| APP | 领域职责 | 主要位置 |
+|---|---|---|
+| 信息 | 联系人线程、私聊生成与未读状态 | `app-src/components/phone-os/apps/messages/`、`app-src/features/phone-os/apps/messages/` |
+| 钱包 | 小白币余额与统一 Economy 流水 | `app-src/components/phone-os/apps/wallet/`、`shared/economy/` |
+| 任务 | 委托板、玩家发布、应征与结算 | `app-src/components/phone-os/apps/tasks/`、`shared/tasks/` |
+| 商店 | 商品购买、库存与持续效果 | `app-src/components/phone-os/apps/shop/`、`shared/shop/` |
+| 银行 | 存款、风险游戏、结算与历史 | `app-src/components/phone-os/apps/bank/`、`shared/bank/` |
+| 不明物 | 暗室生物的生命周期、互动、聊天、事件与极低频剧情插曲 | `app-src/components/phone-os/apps/pet/`、`shared/pet/` |
 
 ### 小白助手架构速记
 

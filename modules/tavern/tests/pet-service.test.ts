@@ -239,6 +239,48 @@ test('Pet chat persistence gives juvenile and adult the same 120-code-point cano
     ]);
 });
 
+test('Pet private chat snapshot keeps event memories after newer chat activities', async () => {
+    await resetTavernPetTestDb();
+    const session = await createTavernPetTestSession('Pet chat memory activity filter');
+    await seedCurrentTavernPetState(session.id, createTavernPetTestState('juvenile'));
+    const event = parseCanonicalTavernPetActivityRecord({
+        sessionId: session.id,
+        id: 'pet-memory-event',
+        sourceActionId: 'pet-memory-event-action',
+        turn: 1,
+        anchorOrder: 1,
+        detail: {
+            kind: 'event',
+            eventId: 'watch-cursor',
+            renderedText: '它蹲在光标旁边，盯着那根一闪一闪的竖线。',
+            face: '( · )',
+            motion: 'stare',
+        },
+        coinDelta: 0,
+        createdAt: 1,
+    });
+    const chats = Array.from({ length: 6 }, (_, index) => parseCanonicalTavernPetActivityRecord({
+        sessionId: session.id,
+        id: `pet-memory-chat:${index}`,
+        sourceActionId: `pet-memory-chat-action:${index}`,
+        turn: index + 2,
+        anchorOrder: index + 2,
+        detail: {
+            kind: 'chat',
+            playerText: `第 ${index + 1} 次聊天`,
+            petText: '记得。',
+            face: '( · )',
+            motion: 'none',
+        },
+        coinDelta: 0,
+        createdAt: index + 2,
+    }));
+    await tavernPetActivitiesTable.bulkPut([event, ...chats]);
+
+    const snapshot = await getTavernPetPrivateSnapshotForChat(session.id);
+    assert.deepEqual(snapshot?.recentActivities.map((activity) => activity.id), ['pet-memory-event']);
+});
+
 test('stale Phone boundaries and stale Pet CAS fail before random or persistent writes', async () => {
     await resetTavernPetTestDb();
     const session = await createTavernPetTestSession('Pet stale gates');

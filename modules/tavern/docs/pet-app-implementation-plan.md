@@ -10,7 +10,7 @@
   Economy 原子事务、主 Assistant/Pet/Economy 同事务推进、历史/回滚/分支/
   删除/archive v8、聊天与判词、interference Prompt、Controller/Domain Sync、
   Phone OS UI 和生产 bundle。
-- 自动验证已通过：`npm run test:tavern`（867/867）、
+- 自动验证已通过：`npm run test:tavern`（871/871）、
   `npx vue-tsc --noEmit -p tsconfig.tavern.json`、`npm run lint:tavern`、
   `npm run build:tavern`、`git diff --check`。
 - 真实 ST 已验收诱饵扣款、自然成长至 adult、三个阶段里程碑、pending
@@ -211,7 +211,7 @@ getTavernPetStateAtAnchor(sessionId, targetFloor)
 listTavernPetActivities(sessionId, options)
 ```
 
-私有聊天快照只给 Controller 的闭合调用路径使用，不加入 Phone context/registry DTO。普通 UI 只能拿 Public View。
+私有聊天快照只给 Controller 的闭合调用路径使用，不加入 Phone context/registry DTO。快照的记忆痕迹固定为最近 5 条非 chat Activity，查询在取满 5 条后停止，连续聊天不能挤掉更早的事件。普通 UI 只能拿 Public View。
 
 ### B3. 玩家 mutation runner
 
@@ -554,7 +554,7 @@ modules/tavern/app-src/styles.css
 
 ```text
 id: pet
-name/shortName: 住户
+name/shortName: 不明物
 rootPath: /room
 order: 60（Bank 之后）
 accent: 低亮灰绿/旧纸金，与 Wallet/Shop/Bank 区分

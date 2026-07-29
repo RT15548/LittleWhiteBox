@@ -118,8 +118,8 @@ export function createTavernPhoneAppRegistry(input: {
         },
         {
             id: TAVERN_PHONE_PET_APP_ID,
-            name: '住户',
-            shortName: '住户',
+            name: '不明物',
+            shortName: '不明物',
             iconComponent: markRaw(TavernPetIcon),
             accent: '#87916f',
             rootPath: '/room',

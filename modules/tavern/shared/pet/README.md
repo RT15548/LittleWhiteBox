@@ -10,7 +10,7 @@ Implemented modules:
 - `pet-rules.ts` — pure lifecycle, interaction, mood, satiety and personality transitions.
 - `pet-personas.ts` — the nine reviewed static persona cards and face whitelists.
 - `pet-events.ts` — the complete 30-event catalog, conditions and structured effects.
-- `pet-copy.ts` — frozen user-facing event, milestone and fallback-verdict copy.
+- `pet-copy.ts` — frozen user-facing event, first-person memory, milestone and fallback-verdict copy.
 - `pet-random.ts` — the injectable synchronous random boundary and deterministic draw helpers.
 - `pet-invariants.ts` — canonical state, version and activity invariants.
 - `pet-history.ts` — full version-chain replay and Activity/Economy causal validation.
@@ -34,6 +34,12 @@ cross into Vue or the Phone context. Story turns enter through
 `pet-story-turn.ts`, while player actions and parsed model results enter through
 `pet-service.ts`. Both reuse the same canonical/history checks and Economy
 transaction helpers.
+
+The private chat snapshot projects the latest five non-chat Activities through
+the reviewed first-person memory catalog. Persisted names, summaries and both
+sides of chat history are escaped before entering the tagged system message;
+static cognition wording is protected by tests, never by a runtime assertion
+that could reject a player's chat.
 
 This layer may depend on Tavern sessions/messages and public Economy primitives.
 It must not mutate Shop, Bank, Tasks or structured world state. Curios belong to

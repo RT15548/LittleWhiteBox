@@ -83,6 +83,7 @@ const MAX_ACTIVITY_LIMIT = 100;
 
 type PetRangeCollection<T> = {
     reverse(): PetRangeCollection<T>;
+    filter(predicate: (value: T) => boolean): PetRangeCollection<T>;
     limit(count: number): PetRangeCollection<T>;
     first(): Promise<T | undefined>;
     toArray(): Promise<T[]>;
@@ -371,6 +372,24 @@ async function listActivitiesInCurrentTransaction(
         )
         .reverse()
         .limit(limit)
+        .toArray();
+    return rows.map((row) => parseCanonicalTavernPetActivityRecord(row));
+}
+
+async function listRecentTavernPetMemoriesInCurrentTransaction(
+    sessionId: string,
+): Promise<TavernPetActivityRecord[]> {
+    const rows = await (tavernPetActivitiesTable as unknown as PetRangeTable<TavernPetActivityRecord>)
+        .where('[sessionId+createdAt]')
+        .between(
+            [sessionId, 0],
+            [sessionId, Number.MAX_SAFE_INTEGER],
+            true,
+            true,
+        )
+        .reverse()
+        .filter((row) => row.detail.kind !== 'chat')
+        .limit(5)
         .toArray();
     return rows.map((row) => parseCanonicalTavernPetActivityRecord(row));
 }
@@ -754,7 +773,7 @@ export async function getTavernPetPrivateSnapshotForChat(
     const [session, record, recentActivities] = await Promise.all([
         tavernSessionsTable.get(id),
         getCurrentRecord(id),
-        listActivitiesInCurrentTransaction(id, { limit: 5 }),
+        listRecentTavernPetMemoriesInCurrentTransaction(id),
     ]);
     if (!session) {throwTavernPetError('pet_session_missing', id);}
     if (!record) {return null;}

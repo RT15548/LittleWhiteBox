@@ -6,9 +6,12 @@ import TavernPetChatBar from './TavernPetChatBar.vue';
 import TavernPetNamingDialog from './TavernPetNamingDialog.vue';
 import TavernPetNestDrawer from './TavernPetNestDrawer.vue';
 import TavernPetStage from './TavernPetStage.vue';
+import { tavernPetWaitHint } from '../../../../features/phone-os/apps/pet/tavern-pet-presentation';
 
 const phone = useTavernPhoneContext();
 const pet = phone.pet;
+
+const waitHint = computed(() => tavernPetWaitHint(pet.view.value));
 
 const visibleActions = computed(() => pet.view.value.availableActions.filter((action) => action.id !== 'chat'));
 const actionGate = computed(() => {
@@ -47,7 +50,7 @@ async function handleAction(actionId: Parameters<typeof pet.performAction>[0]): 
   >
     <header class="tavern-pet-head">
       <div>
-        <small>LOCAL RESIDENT</small>
+        <small>不明物</small>
         <h2>{{ pet.view.value.displayName }}</h2>
       </div>
       <div class="tavern-pet-head-actions">
@@ -84,10 +87,17 @@ async function handleAction(actionId: Parameters<typeof pet.performAction>[0]): 
         :murmur-visible="pet.murmurVisible.value"
       />
 
+      <p
+        v-if="waitHint"
+        class="tavern-pet-wait-hint"
+      >
+        {{ waitHint }}
+      </p>
+
       <section
         v-if="pet.view.value.satietyPercent !== undefined"
         class="tavern-pet-vitals"
-        aria-label="住户状态"
+        aria-label="不明物状态"
       >
         <div class="tavern-pet-satiety">
           <span>饱食</span>
