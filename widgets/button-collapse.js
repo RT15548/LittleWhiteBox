@@ -1,4 +1,7 @@
+import { createMessageButtonOwnership } from '../core/message-button-ownership.js';
+
 let stylesInjected = false;
+const messageButtonOwnership = createMessageButtonOwnership();
 
 const SELECTORS = {
   chat: '#chat',
@@ -198,6 +201,10 @@ const initButtonCollapse = () => {
   }
 };
 
+const configureButtonCollapseRuntime = ({ ownsMessageButtons = true } = {}) => {
+  messageButtonOwnership.configure(ownsMessageButtons);
+};
+
 const processButtonCollapse = () => {
   processExistingVisible();
 };
@@ -236,6 +243,7 @@ const createButtonCollapseCleanup = (message) => {
 };
 
 const cleanup = () => {
+  if (!messageButtonOwnership.ownsButtons()) return;
   io?.disconnect(); io = null;
   mo?.disconnect(); mo = null;
   queue = [];
@@ -271,4 +279,4 @@ if (typeof window !== 'undefined') {
   });
 }
 
-export { initButtonCollapse, cleanup, registerButtonToSubContainer, processButtonCollapse, createButtonCollapseCleanup };
+export { initButtonCollapse, cleanup, registerButtonToSubContainer, processButtonCollapse, createButtonCollapseCleanup, configureButtonCollapseRuntime };

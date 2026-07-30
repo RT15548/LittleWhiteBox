@@ -8,8 +8,8 @@ does not request managed ownership.
 
 - `environment.js` freezes host detection for the current page.
 - `participant.js` owns protocol validation, the participant identity, and the supported-feature policy.
-- `iframe-runtime.js` translates ChatSurface runtime claims to LittleWhiteBox's generic leased iframe runtime.
-- `message-decorators.js` composes lifecycle-safe message buttons.
+- `iframe-runtime.js` and `runtime-claims.js` translate ChatSurface claims to the generic leased iframe runtime.
+- `message-decorators.js` and `decorator-lifecycle.js` compose lifecycle-safe message buttons and their disposers.
 - `settings-ui.js` freezes settings that cannot change after ChatSurface takes ownership.
 
 Feature modules do not know about TauriTavern. They expose generic mount/cleanup or runtime-configuration functions;

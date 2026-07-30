@@ -20,6 +20,7 @@ import { extensionFolderPath } from "../../core/constants.js";
 import { xbLog, CacheRegistry } from "../../core/debug-core.js";
 import { createModuleEvents } from "../../core/event-manager.js";
 import { postToIframe, isTrustedMessage } from "../../core/iframe-messaging.js";
+import { createMessageButtonOwnership } from "../../core/message-button-ownership.js";
 import { initAfterAiGate, notifyAfterAiHint, registerAfterAiHandler } from "../../core/after-ai-gate.js";
 import { getDefaultApiPrefix, resolveApiBaseUrl } from "../../shared/common/openai-url-utils.js";
 import {
@@ -124,7 +125,7 @@ import { invalidateLexicalIndex, warmupIndex, removeDocumentsByFloor, addEventDo
 // ═══════════════════════════════════════════════════════════════════════════
 
 const MODULE_ID = "storySummary";
-let ownsMessageButtons = true;
+const messageButtonOwnership = createMessageButtonOwnership();
 const iframePath = `${extensionFolderPath}/modules/story-summary/story-summary.html`;
 const VALID_SECTIONS = ["keywords", "events", "characters", "arcs", "facts"];
 const MESSAGE_EVENT = "message";
@@ -1296,7 +1297,7 @@ function createSummaryBtn(mesId) {
 }
 
 function addSummaryBtnToMessage(mesId) {
-    if (!ownsMessageButtons) return;
+    if (!messageButtonOwnership.ownsButtons()) return;
     if (!getSettings().storySummary?.enabled) return;
     const msg = document.querySelector(`#chat .mes[mesid="${mesId}"]`);
     if (!msg || msg.querySelector(".xiaobaix-story-summary-btn")) return;
@@ -1308,7 +1309,7 @@ function addSummaryBtnToMessage(mesId) {
 }
 
 export function configureStorySummaryRuntime({ ownsMessageButtons: nextOwnership = true } = {}) {
-    ownsMessageButtons = nextOwnership;
+    messageButtonOwnership.configure(nextOwnership);
 }
 
 export function mountStorySummaryButton(message, mesId) {
@@ -1321,7 +1322,7 @@ export function mountStorySummaryButton(message, mesId) {
 }
 
 function initButtonsForAll() {
-    if (!ownsMessageButtons) return;
+    if (!messageButtonOwnership.ownsButtons()) return;
     if (!getSettings().storySummary?.enabled) return;
     $("#chat .mes").each((_, el) => {
         const mesId = el.getAttribute("mesid");
@@ -1330,7 +1331,7 @@ function initButtonsForAll() {
 }
 
 function initButtonForLatestMessage() {
-    if (!ownsMessageButtons) return;
+    if (!messageButtonOwnership.ownsButtons()) return;
     if (!getSettings().storySummary?.enabled) return;
     const { chat } = getContext();
     const mesId = Array.isArray(chat) ? chat.length - 1 : null;
@@ -3174,7 +3175,7 @@ function unregisterEvents() {
     cancelHideApplyTimer();
     clearDeferredBackgroundTasks();
 
-    $(".xiaobaix-story-summary-btn").remove();
+    messageButtonOwnership.runOwnedCleanup(() => $(".xiaobaix-story-summary-btn").remove());
     hideOverlay();
 
     clearExtensionPrompt();

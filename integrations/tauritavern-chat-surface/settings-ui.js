@@ -8,11 +8,10 @@ const LOCKED_CONTROL_IDS = Object.freeze([
     'xiaobaix_draw_provider', 'xiaobaix_draw_open_settings',
     'xiaobaix_tts_enabled', 'xiaobaix_tts_open_settings',
     'xiaobaix_render_enabled', 'xiaobaix_max_rendered', 'xiaobaix_reset_btn',
+    'xiaobaix_xposition_btn',
 ]);
 
-export function lockTauriTavernChatSurfaceSettings(root = document) {
-    if (!isTauriTavernChatSurfaceManaged()) return;
-
+export function applyTauriTavernChatSurfaceSettingsLock(root) {
     const reason = 'TauriTavern bounded ChatSurface 当前会话已冻结此设置；请先关闭聊天虚拟化并重新加载。';
     for (const id of LOCKED_CONTROL_IDS) {
         const element = root.getElementById(id);
@@ -22,4 +21,9 @@ export function lockTauriTavernChatSurfaceSettings(root = document) {
         element.disabled = true;
         element.classList.add('disabled-control');
     }
+}
+
+export function lockTauriTavernChatSurfaceSettings(root = document) {
+    if (!isTauriTavernChatSurfaceManaged()) return;
+    applyTauriTavernChatSurfaceSettingsLock(root);
 }

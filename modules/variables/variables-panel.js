@@ -3,6 +3,8 @@ import { saveSettingsDebounced, chat_metadata } from "../../../../../../script.j
 import { getLocalVariable, setLocalVariable, getGlobalVariable, setGlobalVariable } from "../../../../../variables.js";
 import { extensionFolderPath } from "../../core/constants.js";
 import { createModuleEvents, event_types } from "../../core/event-manager.js";
+import { createMessageButtonOwnership } from "../../core/message-button-ownership.js";
+import { createVariablesPanelRuntime } from "./variables-panel-runtime.js";
 
 const CONFIG = {
   extensionName: "variables-panel",
@@ -11,7 +13,7 @@ const CONFIG = {
   watchInterval: 1500, touchTimeout: 4000, longPressDelay: 700,
 };
 
-let ownsMessageButtons = true;
+const messageButtonOwnership = createMessageButtonOwnership();
 
 const EMBEDDED_CSS = `
 .vm-container{color:var(--SmartThemeBodyColor);background:var(--SmartThemeBlurTintColor);flex-direction:column;overflow-y:auto;z-index:3000;position:fixed;display:none}
@@ -204,7 +206,7 @@ class VariablesPanel {
   enable(){
     this.createContainer(); this.bindEvents();
     this.loadVariables();
-    if (ownsMessageButtons) this.installMessageButtons();
+    if (messageButtonOwnership.ownsButtons()) this.installMessageButtons();
   }
   disable(){ this.cleanup(); }
 
@@ -639,7 +641,9 @@ class VariablesPanel {
   }
 
   addButtonsToAllMessages(){ $('#chat .mes').each((_,el)=>{ const mid=el.getAttribute('mesid'); if(mid) this.addButtonToMessage(mid); }); }
-  removeAllMessageButtons(){ $('#chat .mes .mes_btn.mes_variables_panel').remove(); }
+  removeAllMessageButtons(){
+    messageButtonOwnership.runOwnedCleanup(() => $('#chat .mes .mes_btn.mes_variables_panel').remove());
+  }
 
   installMessageButtons(){
     const delayedAdd=(id)=> setTimeout(()=>{ if(id!=null) this.addButtonToMessage(id); },120);
@@ -674,11 +678,16 @@ class VariablesPanel {
 
 }
 
-let variablesPanelInstance=null;
+const variablesPanelRuntime=createVariablesPanelRuntime({
+  createPanel:()=>new VariablesPanel(),
+  disposePanel:(instance)=>{ instance.removeMessageButtons(); instance.cleanup(); },
+});
 
 export function configureVariablesPanelRuntime({ ownsMessageButtons: nextOwnership = true } = {}) {
-  if (variablesPanelInstance) throw new Error('Variables Panel runtime ownership is already active');
-  ownsMessageButtons = nextOwnership;
+  if (variablesPanelRuntime.getInstance() || variablesPanelRuntime.isInitializing()) {
+    throw new Error('Variables Panel runtime ownership is already active');
+  }
+  messageButtonOwnership.configure(nextOwnership);
 }
 
 export function mountVariablesButton(message, messageId) {
@@ -692,7 +701,7 @@ export function mountVariablesButton(message, messageId) {
   button.appendChild(icon);
   button.addEventListener('click',(event)=>{
     event.preventDefault(); event.stopPropagation();
-    void Promise.resolve(variablesPanelInstance || initVariablesPanel())
+    void initVariablesPanel()
       .then(instance=>instance.open())
       .catch(error=>console.error(`[${CONFIG.extensionName}] 打开失败:`,error));
   });
@@ -703,12 +712,9 @@ export function mountVariablesButton(message, messageId) {
 }
 
 export async function initVariablesPanel(){
+  extension_settings.variables ??= { global:{} };
   try{
-    extension_settings.variables ??= { global:{} };
-    if(variablesPanelInstance) variablesPanelInstance.cleanup();
-    variablesPanelInstance=new VariablesPanel();
-    await variablesPanelInstance.init();
-    return variablesPanelInstance;
+    return await variablesPanelRuntime.init();
   }catch(e){
     console.error(`[${CONFIG.extensionName}] 加载失败:`,e);
     toastr?.error?.('Variables Panel加载失败');
@@ -716,5 +722,5 @@ export async function initVariablesPanel(){
   }
 }
 
-export function getVariablesPanelInstance(){ return variablesPanelInstance; }
-export function cleanupVariablesPanel(){ if(variablesPanelInstance){ variablesPanelInstance.removeMessageButtons(); variablesPanelInstance.cleanup(); variablesPanelInstance=null; } }
+export function getVariablesPanelInstance(){ return variablesPanelRuntime.getInstance(); }
+export function cleanupVariablesPanel(){ variablesPanelRuntime.dispose(); }

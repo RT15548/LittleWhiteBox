@@ -4,11 +4,11 @@ import { EXT_FOLDER_ID, EXT_ID, extensionFolderPath } from "./core/constants.js"
 import { executeSlashCommand } from "./core/slash-command.js";
 import { EventCenter } from "./core/event-manager.js";
 import { initTasks } from "./modules/scheduled-tasks/scheduled-tasks.js";
-import { initMessagePreview, addHistoryButtonsDebounced, configureMessagePreviewRuntime } from "./modules/message-preview.js";
+import { initMessagePreview, addHistoryButtonsDebounced, configureMessagePreviewRuntime, removeOwnedHistoryButtons } from "./modules/message-preview.js";
 import { initImmersiveMode } from "./modules/immersive-mode.js";
 import { hasActiveCustomTemplate, hasCustomTemplateForMessage, initTemplateEditor } from "./modules/template-editor/template-editor.js";
 import { initFourthWall, initFourthWallFloorTools, refreshFourthWallFloorTools, closeFourthWall, openFourthWall } from "./modules/fourth-wall/fourth-wall.js";
-import { initButtonCollapse } from "./widgets/button-collapse.js";
+import { configureButtonCollapseRuntime, initButtonCollapse } from "./widgets/button-collapse.js";
 import { initVariablesPanel, cleanupVariablesPanel, configureVariablesPanelRuntime } from "./modules/variables/variables-panel.js";
 import { initStreamingGeneration } from "./modules/streaming-generation.js";
 import { initVariablesCore, cleanupVariablesCore } from "./modules/variables/variables-core.js";
@@ -84,6 +84,7 @@ configureMessagePreviewRuntime({
 configureVariablesPanelRuntime({ ownsMessageButtons: !CHAT_SURFACE_MANAGED });
 configureStorySummaryRuntime({ ownsMessageButtons: !CHAT_SURFACE_MANAGED });
 configureStoryOutlineRuntime({ enabled: !CHAT_SURFACE_MANAGED });
+configureButtonCollapseRuntime({ ownsMessageButtons: !CHAT_SURFACE_MANAGED });
 
 const DRAW_PROVIDER_VALUES = new Set(['disabled', 'novelai', 'sdwebui', 'comfyui']);
 let tavernModulePromise = null;
@@ -760,7 +761,8 @@ function cleanupAllResources() {
     if (!CHAT_SURFACE_MANAGED) {
         try { cleanupRenderer(); } catch (e) { }
     }
-    document.querySelectorAll('.memory-button, .mes_history_preview').forEach(btn => btn.remove());
+    document.querySelectorAll('.memory-button').forEach(btn => btn.remove());
+    removeOwnedHistoryButtons();
     document.querySelectorAll('#message_preview_btn').forEach(btn => {
         if (btn instanceof HTMLElement) {
             btn.style.display = 'none';

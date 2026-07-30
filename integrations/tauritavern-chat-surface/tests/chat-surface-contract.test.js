@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { createMessageButtonOwnership } from '../../../core/message-button-ownership.js';
+import { createVariablesPanelRuntime } from '../../../modules/variables/variables-panel-runtime.js';
+import { mountMessageDecorators } from '../decorator-lifecycle.js';
 import {
     CHAT_SURFACE_PROTOCOL_VERSION,
     inspectTauriTavernChatSurface,
@@ -10,6 +13,8 @@ import {
     getUnsupportedManagedFeatures,
     registerTauriTavernChatSurfaceParticipant,
 } from '../participant.js';
+import { claimIframeRuntimes } from '../runtime-claims.js';
+import { applyTauriTavernChatSurfaceSettingsLock } from '../settings-ui.js';
 
 function createSettings(overrides = {}) {
     return {
@@ -160,4 +165,134 @@ test('managed ownership rejects protocol mismatches', () => {
             api: { protocolVersion: CHAT_SURFACE_PROTOCOL_VERSION + 1, registerParticipant() {} },
         },
     })), /participant v1 API is unavailable/);
+});
+
+test('externally owned message buttons ignore module-wide cleanup', () => {
+    const ownership = createMessageButtonOwnership();
+    let cleanupCount = 0;
+
+    assert.equal(ownership.runOwnedCleanup(() => { cleanupCount += 1; }), true);
+    ownership.configure(false);
+    assert.equal(ownership.ownsButtons(), false);
+    assert.equal(ownership.runOwnedCleanup(() => { cleanupCount += 1; }), false);
+    assert.equal(cleanupCount, 1);
+});
+
+test('message decorator disposer releases decorators and container exactly once', () => {
+    const calls = [];
+    const element = {};
+    const release = mountMessageDecorators({
+        element,
+        mesid: 12,
+        createContainerCleanup(receivedElement) {
+            assert.equal(receivedElement, element);
+            return () => calls.push('container:release');
+        },
+        decorators: [
+            (_element, mesid) => { calls.push(`first:mount:${mesid}`); return () => calls.push('first:release'); },
+            (_element, mesid) => { calls.push(`second:mount:${mesid}`); return () => calls.push('second:release'); },
+        ],
+    });
+
+    assert.deepEqual(calls, ['first:mount:12', 'second:mount:12']);
+    release();
+    release();
+    assert.deepEqual(calls, [
+        'first:mount:12',
+        'second:mount:12',
+        'second:release',
+        'first:release',
+        'container:release',
+    ]);
+});
+
+test('message decorator mount failure rolls back partial managed UI', () => {
+    const calls = [];
+    assert.throws(() => mountMessageDecorators({
+        element: {},
+        mesid: 7,
+        createContainerCleanup: () => () => calls.push('container:release'),
+        decorators: [
+            () => () => calls.push('first:release'),
+            () => { throw new Error('mount failed'); },
+        ],
+    }), /mount failed/);
+    assert.deepEqual(calls, ['first:release', 'container:release']);
+});
+
+test('managed settings lock includes the X button position control', () => {
+    const attributes = new Map();
+    const classes = new Set();
+    const requestedIds = [];
+    const control = {
+        disabled: false,
+        setAttribute(name, value) { attributes.set(name, value); },
+        classList: { add(name) { classes.add(name); } },
+    };
+    const root = {
+        getElementById(id) {
+            requestedIds.push(id);
+            return id === 'xiaobaix_xposition_btn' ? control : null;
+        },
+    };
+
+    applyTauriTavernChatSurfaceSettingsLock(root);
+
+    assert.equal(requestedIds.includes('xiaobaix_xposition_btn'), true);
+    assert.equal(control.disabled, true);
+    assert.equal(attributes.get('aria-disabled'), 'true');
+    assert.equal(classes.has('disabled-control'), true);
+});
+
+test('runtime claims include only renderable code blocks while rendering is enabled', () => {
+    const mountRuntime = () => {};
+    const codeBlocks = [
+        { id: 'html', parentElement: { id: 'html-pre' } },
+        { id: 'plain', parentElement: { id: 'plain-pre' } },
+    ];
+    const claimed = [];
+    const content = {
+        querySelectorAll(selector) {
+            assert.equal(selector, 'pre > code');
+            return codeBlocks;
+        },
+    };
+    const claims = { claim(source, activate) { claimed.push({ source, activate }); } };
+
+    claimIframeRuntimes({
+        content,
+        claims,
+        settings: { enabled: true, renderEnabled: true },
+        shouldRender: code => code.id === 'html',
+        mountRuntime,
+    });
+
+    assert.deepEqual(claimed, [{ source: codeBlocks[0].parentElement, activate: mountRuntime }]);
+});
+
+test('Variables Panel runtime reuses one initialization and one instance', async () => {
+    let createCount = 0;
+    let disposeCount = 0;
+    let finishInitialization;
+    const initialization = new Promise(resolve => { finishInitialization = resolve; });
+    const panel = { init: () => initialization };
+    const runtime = createVariablesPanelRuntime({
+        createPanel() { createCount += 1; return panel; },
+        disposePanel(instance) { assert.equal(instance, panel); disposeCount += 1; },
+    });
+
+    const first = runtime.init();
+    const second = runtime.init();
+    assert.equal(createCount, 1);
+    finishInitialization();
+
+    const [firstInstance, secondInstance] = await Promise.all([first, second]);
+    assert.equal(firstInstance, panel);
+    assert.equal(secondInstance, panel);
+    assert.equal(await runtime.init(), panel);
+    assert.equal(createCount, 1);
+
+    runtime.dispose();
+    assert.equal(disposeCount, 1);
+    assert.equal(runtime.getInstance(), null);
 });
