@@ -188,8 +188,8 @@ class VariablesPanel {
   }
 
   async init(){
-    this.injectUI(); this.bindControlToggle();
-    const s=this.getSettings(); this.state.isEnabled=s.enabled; this.syncCheckbox();
+    this.injectUI();
+    const s=this.getSettings(); this.state.isEnabled=s.enabled;
     if(s.enabled) this.enable();
   }
 
@@ -208,13 +208,12 @@ class VariablesPanel {
     this.loadVariables();
     if (messageButtonOwnership.ownsButtons()) this.installMessageButtons();
   }
-  disable(){ this.cleanup(); }
 
   cleanup(){
-    this.stopWatcher(); this.unbindEvents(); this.unbindControlToggle(); this.removeContainer(); this.removeAllMessageButtons();
+    this.stopWatcher(); this.unbindEvents(); this.removeContainer(); this.removeMessageButtons();
     const tm=this.state.timers; if(tm.watcher) clearInterval(tm.watcher); if(tm.longPress) clearTimeout(tm.longPress);
     tm.touch.forEach(x=>clearTimeout(x)); tm.touch.clear();
-    Object.assign(this.state,{isOpen:false,timers:{watcher:null,longPress:null,touch:new Map()},currentInlineForm:null,formState:{},rulesChecksum:''});
+    Object.assign(this.state,{isOpen:false,isEnabled:false,timers:{watcher:null,longPress:null,touch:new Map()},currentInlineForm:null,formState:{},rulesChecksum:''});
     this.variableSnapshot=null; this.savingInProgress=false;
   }
 
@@ -234,23 +233,6 @@ class VariablesPanel {
     this.loadVariables(); this.startWatcher();
   }
   close(){ this.state.isOpen=false; this.stopWatcher(); this.unbindEvents(); this.removeContainer(); }
-
-  bindControlToggle(){
-    const id='xiaobaix_variables_panel_enabled';
-    const bind=()=>{
-      const cb=document.getElementById(id); if(!cb) return false;
-      this.handleCheckboxChange && cb.removeEventListener('change',this.handleCheckboxChange);
-      this.handleCheckboxChange=e=> this.toggleEnabled(e.target instanceof HTMLInputElement ? !!e.target.checked : false);
-      cb.addEventListener('change',this.handleCheckboxChange); if(cb instanceof HTMLInputElement) cb.checked=this.state.isEnabled; return true;
-    };
-    if(!bind()) setTimeout(bind,100);
-  }
-  unbindControlToggle(){
-    const cb=document.getElementById('xiaobaix_variables_panel_enabled');
-    if(cb && this.handleCheckboxChange) cb.removeEventListener('change',this.handleCheckboxChange);
-    this.handleCheckboxChange=null;
-  }
-  syncCheckbox(){ const cb=document.getElementById('xiaobaix_variables_panel_enabled'); if(cb instanceof HTMLInputElement) cb.checked=this.state.isEnabled; }
 
   bindEvents(){
     if(!this.state.container?.length) return;
@@ -614,11 +596,6 @@ class VariablesPanel {
   restoreExpandedStates(t,s){ if(!s?.size) return; setTimeout(()=>{ $(`#${t}-variables-list .vm-item`).each(function(){ const k=$(this).data('key'); if(k!==undefined && s.has(String(k))) $(this).addClass('expanded'); }); },50); }
   restoreAllExpandedStates(st){ Object.entries(st).forEach(([t,s])=> this.restoreExpandedStates(t,s)); }
 
-  toggleEnabled(en){
-    const s=this.getSettings(); s.enabled=this.state.isEnabled=en; saveSettingsDebounced(); this.syncCheckbox();
-    en ? (this.enable(),this.open()) : this.disable();
-  }
-
   createPerMessageBtn(messageId){
     const btn=document.createElement('div');
     btn.className='mes_btn mes_variables_panel';
@@ -680,7 +657,7 @@ class VariablesPanel {
 
 const variablesPanelRuntime=createVariablesPanelRuntime({
   createPanel:()=>new VariablesPanel(),
-  disposePanel:(instance)=>{ instance.removeMessageButtons(); instance.cleanup(); },
+  disposePanel:(instance)=>instance.cleanup(),
 });
 
 export function configureVariablesPanelRuntime({ ownsMessageButtons: nextOwnership = true } = {}) {

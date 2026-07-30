@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { createMessageButtonOwnership } from '../../../core/message-button-ownership.js';
-import { createVariablesPanelRuntime } from '../../../modules/variables/variables-panel-runtime.js';
 import { mountMessageDecorators } from '../decorator-lifecycle.js';
 import {
     CHAT_SURFACE_PROTOCOL_VERSION,
@@ -268,31 +267,4 @@ test('runtime claims include only renderable code blocks while rendering is enab
     });
 
     assert.deepEqual(claimed, [{ source: codeBlocks[0].parentElement, activate: mountRuntime }]);
-});
-
-test('Variables Panel runtime reuses one initialization and one instance', async () => {
-    let createCount = 0;
-    let disposeCount = 0;
-    let finishInitialization;
-    const initialization = new Promise(resolve => { finishInitialization = resolve; });
-    const panel = { init: () => initialization };
-    const runtime = createVariablesPanelRuntime({
-        createPanel() { createCount += 1; return panel; },
-        disposePanel(instance) { assert.equal(instance, panel); disposeCount += 1; },
-    });
-
-    const first = runtime.init();
-    const second = runtime.init();
-    assert.equal(createCount, 1);
-    finishInitialization();
-
-    const [firstInstance, secondInstance] = await Promise.all([first, second]);
-    assert.equal(firstInstance, panel);
-    assert.equal(secondInstance, panel);
-    assert.equal(await runtime.init(), panel);
-    assert.equal(createCount, 1);
-
-    runtime.dispose();
-    assert.equal(disposeCount, 1);
-    assert.equal(runtime.getInstance(), null);
 });

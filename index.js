@@ -957,7 +957,7 @@ async function setupSettings() {
             { id: 'xiaobaix_preview_enabled', key: 'preview', init: initMessagePreview },
             { id: 'scheduled_tasks_enabled', key: 'tasks', init: initTasks },
             { id: 'xiaobaix_template_enabled', key: 'templateEditor', init: initTemplateEditor },
-            { id: 'xiaobaix_variables_panel_enabled', key: 'variablesPanel', init: initVariablesPanel },
+            { id: 'xiaobaix_variables_panel_enabled', key: 'variablesPanel', init: initVariablesPanel, cleanup: cleanupVariablesPanel },
             { id: 'xiaobaix_variables_core_enabled', key: 'variablesCore', init: initVariablesCore },
             { id: 'xiaobaix_story_summary_enabled', key: 'storySummary' },
             { id: 'xiaobaix_story_outline_enabled', key: 'storyOutline' },
@@ -965,7 +965,7 @@ async function setupSettings() {
             { id: 'xiaobaix_ena_planner_enabled', key: 'enaPlanner', init: initEnaPlanner },
         ];
 
-        moduleConfigs.forEach(({ id, key, init }) => {
+        moduleConfigs.forEach(({ id, key, init, cleanup }) => {
             $(`#${id}`).prop("checked", settings[key]?.enabled || false).on("change", async function () {
                 if (!isXiaobaixEnabled) return;
                 const enabled = $(this).prop('checked');
@@ -983,6 +983,7 @@ async function setupSettings() {
                     moduleCleanupFunctions.get(key)();
                     moduleCleanupFunctions.delete(key);
                 }
+                if (!enabled && cleanup) cleanup();
                 if (enabled && init) await init();
                 if (enabled && key === 'tts') {
                     try { refreshFourthWallFloorTools(); } catch { }
