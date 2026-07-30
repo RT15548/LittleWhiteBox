@@ -247,7 +247,6 @@ export async function runSummaryGeneration(mesId, config, callbacks = {}) {
             },
             genParams: config.gen || {},
             useStream,
-            timeout: 120000,
             sessionId: SUMMARY_SESSION_ID,
         });
     } catch (err) {

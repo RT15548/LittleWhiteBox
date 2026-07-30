@@ -34,6 +34,7 @@ const PROVIDER_MAP = {
 
 const JSON_PREFILL = DEFAULT_SUMMARY_ASSISTANT_PREFILL_PROMPT;
 const HOST_GENERATION_PROVIDERS = new Set(['openai']);
+const SUMMARY_GENERATION_TIMEOUT_MS = 180_000;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 工具函数
@@ -51,7 +52,7 @@ function getStreamingModule() {
     return mod?.xbgenrawCommand ? mod : null;
 }
 
-function waitForStreamingComplete(sessionId, streamingMod, timeout = 120000) {
+function waitForStreamingComplete(sessionId, streamingMod, timeout = SUMMARY_GENERATION_TIMEOUT_MS) {
     return new Promise((resolve, reject) => {
         const start = Date.now();
         const poll = () => {
@@ -154,7 +155,7 @@ function attachSamplingParams(payload, genParams = {}) {
     return payload;
 }
 
-async function callHostSummaryGeneration(promptData, llmApi = {}, genParams = {}, useStream = true, timeout = 120000) {
+async function callHostSummaryGeneration(promptData, llmApi = {}, genParams = {}, useStream = true, timeout = SUMMARY_GENERATION_TIMEOUT_MS) {
     const provider = normalizeSummaryProvider(llmApi.provider);
     const model = String(llmApi.model || '').trim();
     if (!model) {
@@ -173,7 +174,7 @@ async function callHostSummaryGeneration(promptData, llmApi = {}, genParams = {}
         !!useStream,
     ), genParams);
 
-    const abortable = createTimeoutSignal(Number(timeout) || 120000);
+    const abortable = createTimeoutSignal(Number(timeout) || SUMMARY_GENERATION_TIMEOUT_MS);
     try {
         if (!useStream) {
             const data = await createHostChatCompletion(payload, { signal: abortable.signal });
@@ -333,7 +334,7 @@ export async function generateSummary(options) {
         llmApi = {},
         genParams = {},
         useStream = true,
-        timeout = 120000,
+        timeout = SUMMARY_GENERATION_TIMEOUT_MS,
         sessionId = 'xb_summary'
     } = options;
 
