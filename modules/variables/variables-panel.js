@@ -1,7 +1,7 @@
 import { extension_settings, getContext, saveMetadataDebounced } from "../../../../../extensions.js";
 import { saveSettingsDebounced, chat_metadata } from "../../../../../../script.js";
 import { getLocalVariable, setLocalVariable, getGlobalVariable, setGlobalVariable } from "../../../../../variables.js";
-import { MANAGED_CHAT_SURFACE, extensionFolderPath } from "../../core/constants.js";
+import { extensionFolderPath } from "../../core/constants.js";
 import { createModuleEvents, event_types } from "../../core/event-manager.js";
 
 const CONFIG = {
@@ -10,6 +10,8 @@ const CONFIG = {
   defaultSettings: { enabled: false },
   watchInterval: 1500, touchTimeout: 4000, longPressDelay: 700,
 };
+
+let ownsMessageButtons = true;
 
 const EMBEDDED_CSS = `
 .vm-container{color:var(--SmartThemeBodyColor);background:var(--SmartThemeBlurTintColor);flex-direction:column;overflow-y:auto;z-index:3000;position:fixed;display:none}
@@ -201,7 +203,8 @@ class VariablesPanel {
 
   enable(){
     this.createContainer(); this.bindEvents();
-    this.loadVariables(); this.installMessageButtons();
+    this.loadVariables();
+    if (ownsMessageButtons) this.installMessageButtons();
   }
   disable(){ this.cleanup(); }
 
@@ -639,7 +642,6 @@ class VariablesPanel {
   removeAllMessageButtons(){ $('#chat .mes .mes_btn.mes_variables_panel').remove(); }
 
   installMessageButtons(){
-    if (MANAGED_CHAT_SURFACE) return;
     const delayedAdd=(id)=> setTimeout(()=>{ if(id!=null) this.addButtonToMessage(id); },120);
     const delayedScan=()=> setTimeout(()=> this.addButtonsToAllMessages(),150);
     this.removeMessageButtonsListeners();
@@ -674,7 +676,12 @@ class VariablesPanel {
 
 let variablesPanelInstance=null;
 
-export function mountManagedVariablesButton(message, messageId) {
+export function configureVariablesPanelRuntime({ ownsMessageButtons: nextOwnership = true } = {}) {
+  if (variablesPanelInstance) throw new Error('Variables Panel runtime ownership is already active');
+  ownsMessageButtons = nextOwnership;
+}
+
+export function mountVariablesButton(message, messageId) {
   if (!extension_settings[EXT_ID]?.variablesPanel?.enabled || message.querySelector('.mes_variables_panel')) return;
   const button=document.createElement('div');
   button.className='mes_btn mes_variables_panel';

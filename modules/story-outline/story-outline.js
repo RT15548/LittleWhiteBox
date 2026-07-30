@@ -26,7 +26,7 @@ import { chat_metadata, name1, processCommands, eventSource, event_types as st_e
 import { loadWorldInfo, saveWorldInfo, world_names, world_info } from "../../../../../world-info.js";
 import { getContext } from "../../../../../st-context.js";
 import { streamingGeneration } from "../streaming-generation.js";
-import { EXT_ID, MANAGED_CHAT_SURFACE, extensionFolderPath } from "../../core/constants.js";
+import { EXT_ID, extensionFolderPath } from "../../core/constants.js";
 import { createModuleEvents, event_types } from "../../core/event-manager.js";
 import { StoryOutlineStorage } from "../../core/server-storage.js";
 import { promptManager } from "../../../../../openai.js";
@@ -49,6 +49,7 @@ const DEBUG_KEY = 'LittleWhiteBox_StoryOutline_Debug';
 const OVERLAY_LAYOUT_KEY = 'LittleWhiteBox_StoryOutline_OverlayLayout';
 
 let overlayCreated = false, frameReady = false, pendingMsgs = [], presetCleanup = null, step1Cache = null;
+let runtimeEnabled = true;
 
 // ==================== 2. 通用工具 ====================
 
@@ -1500,7 +1501,8 @@ function cleanup() {
 
 // ==================== Toggle 监听（始终注册）====================
 
-if (!MANAGED_CHAT_SURFACE) $(document).on("xiaobaix:storyOutline:toggle", (_e, enabled) => {
+$(document).on("xiaobaix:storyOutline:toggle", (_e, enabled) => {
+    if (!runtimeEnabled) return;
     if (enabled) {
         registerEvents();
         initBtns();
@@ -1510,7 +1512,8 @@ if (!MANAGED_CHAT_SURFACE) $(document).on("xiaobaix:storyOutline:toggle", (_e, e
     }
 });
 
-if (!MANAGED_CHAT_SURFACE) document.addEventListener('xiaobaixEnabledChanged', e => {
+document.addEventListener('xiaobaixEnabledChanged', e => {
+    if (!runtimeEnabled) return;
     if (!e?.detail?.enabled) {
         cleanup();
     } else if (getSettings().storyOutline?.enabled) {
@@ -1540,7 +1543,12 @@ async function initSettingsFromServer() {
     } catch { }
 }
 
-if (!MANAGED_CHAT_SURFACE) jQuery(() => {
+function configureStoryOutlineRuntime({ enabled = true } = {}) {
+    runtimeEnabled = enabled;
+}
+
+jQuery(() => {
+    if (!runtimeEnabled) return;
     if (!getSettings().storyOutline?.enabled) return;
     initSettingsFromServer();
     initPromptConfigFromServer();
@@ -1549,4 +1557,4 @@ if (!MANAGED_CHAT_SURFACE) jQuery(() => {
     window.registerModuleCleanup?.('storyOutline', cleanup);
 });
 
-export { cleanup, formatOutlinePrompt };
+export { cleanup, configureStoryOutlineRuntime, formatOutlinePrompt };

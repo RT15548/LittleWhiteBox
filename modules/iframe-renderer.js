@@ -22,7 +22,7 @@ let lastApplyTs = 0;
 let pendingHeight = null;
 let pendingRec = null;
 let messageListenerBound = false;
-let managedRuntimeCount = 0;
+let leasedRuntimeCount = 0;
 
 CacheRegistry.register(MODULE_ID, {
     name: 'Blob URL 缓存',
@@ -72,7 +72,7 @@ function djb2(str) {
     return (h >>> 0).toString(16);
 }
 
-function shouldRenderContentByBlock(codeBlock) {
+export function shouldRenderCodeBlock(codeBlock) {
     if (!codeBlock) return false;
     const content = (codeBlock.textContent || '').trim();
     if (!content) return false;
@@ -243,18 +243,18 @@ ${vhFix}
 <body>${html}</body></html>`;
 }
 
-function acquireManagedMessageListener() {
+function acquireLeasedRuntimeMessageListener() {
     if (!messageListenerBound) {
         // eslint-disable-next-line no-restricted-syntax -- messages require an exact live iframe winMap entry.
         window.addEventListener('message', handleIframeMessage);
         messageListenerBound = true;
     }
-    managedRuntimeCount += 1;
+    leasedRuntimeCount += 1;
 }
 
-function releaseManagedMessageListener() {
-    managedRuntimeCount -= 1;
-    if (managedRuntimeCount === 0 && messageListenerBound) {
+function releaseLeasedRuntimeMessageListener() {
+    leasedRuntimeCount -= 1;
+    if (leasedRuntimeCount === 0 && messageListenerBound) {
         window.removeEventListener('message', handleIframeMessage);
         messageListenerBound = false;
     }
@@ -271,7 +271,7 @@ function createRenderIframe() {
     return iframe;
 }
 
-function holdManagedRuntimePlaceholder(wrapper, iframe) {
+function holdRuntimePlaceholder(wrapper, iframe) {
     const existingHeight = Number(wrapper.dataset.ttRuntimePlaceholderHeight);
     if (existingHeight > 0) return true;
     if (!(iframe instanceof HTMLIFrameElement)) return false;
@@ -289,7 +289,7 @@ function holdManagedRuntimePlaceholder(wrapper, iframe) {
     return true;
 }
 
-function releaseManagedRuntimePlaceholder(wrapper, iframe) {
+function releaseRuntimePlaceholder(wrapper, iframe) {
     const wrapperHeight = Number(wrapper.dataset.ttRuntimePlaceholderHeight);
     const iframeHeight = Number(wrapper.dataset.ttRuntimeIframeHeight);
     if (!(wrapperHeight > 0) || !(iframeHeight > 0)) return;
@@ -312,14 +312,14 @@ function setIframeContent(iframe, html, settings) {
     }
 }
 
-function activateManagedRuntime({ source, signal }) {
+export function mountLeasedIframeRuntime({ source, signal }) {
     if (!(source instanceof HTMLPreElement) || !source.isConnected || !source.parentNode) {
-        throw new Error('LittleWhiteBox managed runtime source is not a live <pre>');
+        throw new Error('LittleWhiteBox leased runtime source is not a live <pre>');
     }
 
     const settings = getSettings();
     const code = source.querySelector(':scope > code');
-    if (!code) throw new Error('LittleWhiteBox managed runtime source lost its <code>');
+    if (!code) throw new Error('LittleWhiteBox leased runtime source lost its <code>');
     const html = code.textContent || '';
     const externalUrl = extractExternalUrl(html);
     const controller = new AbortController();
@@ -332,7 +332,7 @@ function activateManagedRuntime({ source, signal }) {
     let mappedWindow = null;
     let mappedRecord = null;
     let disposed = false;
-    let pendingManagedHeight = 0;
+    let pendingRuntimeHeight = 0;
     let heightFrame = null;
     let hostAbortBound = false;
     let messageListenerAcquired = false;
@@ -346,12 +346,12 @@ function activateManagedRuntime({ source, signal }) {
         return id;
     };
     const scheduleHeight = (height) => {
-        pendingManagedHeight = height;
+        pendingRuntimeHeight = height;
         if (heightFrame !== null) return;
         heightFrame = requestAnimationFrame(() => {
             animationFrames.delete(heightFrame);
             heightFrame = null;
-            if (!controller.signal.aborted) iframe.style.height = `${pendingManagedHeight}px`;
+            if (!controller.signal.aborted) iframe.style.height = `${pendingRuntimeHeight}px`;
         });
         animationFrames.add(heightFrame);
     };
@@ -360,7 +360,7 @@ function activateManagedRuntime({ source, signal }) {
     const dispose = (preservePlaceholder) => {
         if (disposed) return;
         disposed = true;
-        const placeholderHeld = preservePlaceholder && holdManagedRuntimePlaceholder(wrapper, iframe);
+        const placeholderHeld = preservePlaceholder && holdRuntimePlaceholder(wrapper, iframe);
         let firstError;
         const run = callback => {
             try { callback(); } catch (error) { firstError ??= error; }
@@ -387,7 +387,7 @@ function activateManagedRuntime({ source, signal }) {
             run(() => wrapper.remove());
             run(() => { source.style.display = previousDisplay; });
         }
-        if (messageListenerAcquired) run(releaseManagedMessageListener);
+        if (messageListenerAcquired) run(releaseLeasedRuntimeMessageListener);
 
         if (firstError !== undefined) throw firstError;
     };
@@ -395,11 +395,11 @@ function activateManagedRuntime({ source, signal }) {
     try {
         signal.addEventListener('abort', abort, { once: true });
         hostAbortBound = true;
-        acquireManagedMessageListener();
+        acquireLeasedRuntimeMessageListener();
         messageListenerAcquired = true;
         wrapper.replaceChildren(iframe);
         mappedWindow = iframe.contentWindow;
-        if (!mappedWindow) throw new Error('LittleWhiteBox managed iframe has no contentWindow');
+        if (!mappedWindow) throw new Error('LittleWhiteBox leased iframe has no contentWindow');
         mappedRecord = { iframe, wrapper, scheduleHeight };
         winMap.set(mappedWindow, mappedRecord);
 
@@ -425,26 +425,16 @@ function activateManagedRuntime({ source, signal }) {
         }
 
         source.style.display = 'none';
-        releaseManagedRuntimePlaceholder(wrapper, iframe);
+        releaseRuntimePlaceholder(wrapper, iframe);
         return () => dispose(true);
     } catch (error) {
         try { dispose(hadPlaceholder); } catch (cleanupError) {
-            const failure = new Error('LittleWhiteBox managed runtime activation and cleanup failed');
+            const failure = new Error('LittleWhiteBox leased runtime activation and cleanup failed');
             failure.cause = error;
             failure.cleanupError = cleanupError;
             throw failure;
         }
         throw error;
-    }
-}
-
-export function claimManagedIframeRuntimes({ content }, claims) {
-    const settings = getSettings();
-    if (!settings.enabled || settings.renderEnabled === false) return;
-    for (const code of content.querySelectorAll('pre > code')) {
-        if (shouldRenderContentByBlock(code)) {
-            claims.claim(code.parentElement, activateManagedRuntime);
-        }
     }
 }
 
@@ -671,7 +661,7 @@ export function processCodeBlocks(messageElement, forceFinal = true) {
         
         codeBlocks.forEach(codeBlock => {
             const preElement = codeBlock.parentElement;
-            const should = shouldRenderContentByBlock(codeBlock);
+            const should = shouldRenderCodeBlock(codeBlock);
             const html = codeBlock.textContent || '';
             const hash = djb2(html);
             const externalUrl = extractExternalUrl(html);

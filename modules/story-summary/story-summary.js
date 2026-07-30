@@ -16,7 +16,7 @@ import {
     extension_prompt_roles,
     getRequestHeaders,
 } from "../../../../../../script.js";
-import { extensionFolderPath, MANAGED_CHAT_SURFACE } from "../../core/constants.js";
+import { extensionFolderPath } from "../../core/constants.js";
 import { xbLog, CacheRegistry } from "../../core/debug-core.js";
 import { createModuleEvents } from "../../core/event-manager.js";
 import { postToIframe, isTrustedMessage } from "../../core/iframe-messaging.js";
@@ -124,6 +124,7 @@ import { invalidateLexicalIndex, warmupIndex, removeDocumentsByFloor, addEventDo
 // ═══════════════════════════════════════════════════════════════════════════
 
 const MODULE_ID = "storySummary";
+let ownsMessageButtons = true;
 const iframePath = `${extensionFolderPath}/modules/story-summary/story-summary.html`;
 const VALID_SECTIONS = ["keywords", "events", "characters", "arcs", "facts"];
 const MESSAGE_EVENT = "message";
@@ -1295,7 +1296,7 @@ function createSummaryBtn(mesId) {
 }
 
 function addSummaryBtnToMessage(mesId) {
-    if (MANAGED_CHAT_SURFACE) return;
+    if (!ownsMessageButtons) return;
     if (!getSettings().storySummary?.enabled) return;
     const msg = document.querySelector(`#chat .mes[mesid="${mesId}"]`);
     if (!msg || msg.querySelector(".xiaobaix-story-summary-btn")) return;
@@ -1306,7 +1307,11 @@ function addSummaryBtnToMessage(mesId) {
     msg.querySelector(".flex-container.flex1.alignitemscenter")?.appendChild(btn);
 }
 
-export function mountManagedStorySummaryButton(message, mesId) {
+export function configureStorySummaryRuntime({ ownsMessageButtons: nextOwnership = true } = {}) {
+    ownsMessageButtons = nextOwnership;
+}
+
+export function mountStorySummaryButton(message, mesId) {
     if (!getSettings().storySummary?.enabled || message.querySelector('.xiaobaix-story-summary-btn')) return;
     const button = createSummaryBtn(mesId);
     if (!window.registerButtonToSubContainer?.(mesId, button)) {
@@ -1316,7 +1321,7 @@ export function mountManagedStorySummaryButton(message, mesId) {
 }
 
 function initButtonsForAll() {
-    if (MANAGED_CHAT_SURFACE) return;
+    if (!ownsMessageButtons) return;
     if (!getSettings().storySummary?.enabled) return;
     $("#chat .mes").each((_, el) => {
         const mesId = el.getAttribute("mesid");
@@ -1325,7 +1330,7 @@ function initButtonsForAll() {
 }
 
 function initButtonForLatestMessage() {
-    if (MANAGED_CHAT_SURFACE) return;
+    if (!ownsMessageButtons) return;
     if (!getSettings().storySummary?.enabled) return;
     const { chat } = getContext();
     const mesId = Array.isArray(chat) ? chat.length - 1 : null;
@@ -2876,7 +2881,6 @@ async function handleMessageUpdated(scheduledChatId) {
 }
 
 function handleMessageRendered(data) {
-    if (MANAGED_CHAT_SURFACE) return;
     const mesId = data?.element ? $(data.element).attr("mesid") : data?.messageId;
     if (mesId != null) addSummaryBtnToMessage(mesId);
     else initButtonsForAll();

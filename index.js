@@ -1,15 +1,15 @@
 import { extension_settings, extensionTypes } from "../../../extensions.js";
 import { saveSettingsDebounced, eventSource, event_types, getRequestHeaders } from "../../../../script.js";
-import { EXT_FOLDER_ID, EXT_ID, MANAGED_CHAT_SURFACE, extensionFolderPath } from "./core/constants.js";
+import { EXT_FOLDER_ID, EXT_ID, extensionFolderPath } from "./core/constants.js";
 import { executeSlashCommand } from "./core/slash-command.js";
 import { EventCenter } from "./core/event-manager.js";
 import { initTasks } from "./modules/scheduled-tasks/scheduled-tasks.js";
-import { initMessagePreview, addHistoryButtonsDebounced, mountManagedHistoryButton } from "./modules/message-preview.js";
+import { initMessagePreview, addHistoryButtonsDebounced, configureMessagePreviewRuntime } from "./modules/message-preview.js";
 import { initImmersiveMode } from "./modules/immersive-mode.js";
 import { hasActiveCustomTemplate, hasCustomTemplateForMessage, initTemplateEditor } from "./modules/template-editor/template-editor.js";
 import { initFourthWall, initFourthWallFloorTools, refreshFourthWallFloorTools, closeFourthWall, openFourthWall } from "./modules/fourth-wall/fourth-wall.js";
-import { initButtonCollapse, mountManagedButtonCollapse } from "./widgets/button-collapse.js";
-import { initVariablesPanel, cleanupVariablesPanel, mountManagedVariablesButton } from "./modules/variables/variables-panel.js";
+import { initButtonCollapse } from "./widgets/button-collapse.js";
+import { initVariablesPanel, cleanupVariablesPanel, configureVariablesPanelRuntime } from "./modules/variables/variables-panel.js";
 import { initStreamingGeneration } from "./modules/streaming-generation.js";
 import { initVariablesCore, cleanupVariablesCore } from "./modules/variables/variables-core.js";
 import { initControlAudio } from "./modules/control-audio.js";
@@ -20,7 +20,6 @@ import {
     clearBlobCaches,
     renderHtmlInIframe,
     shrinkRenderedWindowFull,
-    claimManagedIframeRuntimes,
 } from "./modules/iframe-renderer.js";
 import { initVarCommands, cleanupVarCommands } from "./modules/variables/var-commands.js";
 import { initVareventEditor, cleanupVareventEditor } from "./modules/variables/varevent-editor.js";
@@ -34,12 +33,17 @@ import {
     clearSharedImageRequests as clearSharedImageRequestsRuntime,
     generateSharedImage as generateSharedImageRuntime,
 } from "./modules/draw/shared/generated-image-runtime.js";
-import { mountManagedStorySummaryButton } from "./modules/story-summary/story-summary.js";
-import "./modules/story-outline/story-outline.js";
+import { configureStorySummaryRuntime } from "./modules/story-summary/story-summary.js";
+import { configureStoryOutlineRuntime } from "./modules/story-outline/story-outline.js";
 import { initTts, cleanupTts } from "./modules/tts/tts.js";
 import { initEnaPlanner, cleanupEnaPlanner } from "./modules/ena-planner/ena-planner.js";
 import { initAssistant, cleanupAssistant } from "./modules/assistant/assistant.js";
 import { initEbook, cleanupEbook } from "./modules/ebook/ebook.js";
+import {
+    activateTauriTavernChatSurface,
+    isTauriTavernChatSurfaceManaged,
+    lockTauriTavernChatSurfaceSettings,
+} from "./integrations/tauritavern-chat-surface/index.js";
 
 extension_settings[EXT_ID] = extension_settings[EXT_ID] || {
     enabled: true,
@@ -72,68 +76,14 @@ settings.audio ||= {};
 settings.audio.enabled = true;
 settings.wrapperIframe = true;
 
-function mountManagedDecorators({ element, mesid }) {
-    if (!settings.enabled) return;
-    if (hasCustomTemplateForMessage(mesid)) {
-        throw new Error('LittleWhiteBox bounded ChatSurface does not support custom template iframes');
-    }
-    const releases = [];
-    const release = () => {
-        let firstError;
-        for (let index = releases.length - 1; index >= 0; index -= 1) {
-            try { releases[index]?.(); } catch (error) { firstError ??= error; }
-        }
-        releases.length = 0;
-        if (firstError !== undefined) throw firstError;
-    };
-
-    try {
-        releases.push(mountManagedHistoryButton(element, mesid));
-        releases.push(mountManagedVariablesButton(element, mesid));
-        releases.push(mountManagedStorySummaryButton(element, mesid));
-        releases.push(mountManagedButtonCollapse(element));
-    } catch (error) {
-        try { release(); } catch (cleanupError) {
-            const failure = new Error('LittleWhiteBox managed decorator mount and cleanup failed');
-            failure.cause = error;
-            failure.cleanupError = cleanupError;
-            throw failure;
-        }
-        throw error;
-    }
-    return release;
-}
-
-function assertManagedSettingsCompatible() {
-    if (!settings.enabled) return;
-    const unsupported = [
-        ['immersive mode', settings.immersive?.enabled],
-        ['message preview/purge', settings.preview?.enabled],
-        ['story-outline floor tools', settings.storyOutline?.enabled],
-        ['TTS floor tools', settings.tts?.enabled],
-        ['fourth-wall floor tools', settings.fourthWall?.enabled],
-        ['draw provider', normalizeDrawProvider(settings.drawProvider) !== 'disabled'],
-        ['custom template iframe', hasActiveCustomTemplate()],
-    ].filter(([, enabled]) => enabled).map(([name]) => name);
-    if (unsupported.length > 0) {
-        throw new Error(`LittleWhiteBox bounded ChatSurface does not support: ${unsupported.join(', ')}`);
-    }
-}
-
-export function activate() {
-    if (!MANAGED_CHAT_SURFACE) return;
-    assertManagedSettingsCompatible();
-    const api = window.__TAURITAVERN__?.api?.chatSurface;
-    if (api?.protocolVersion !== 1 || typeof api.registerParticipant !== 'function') {
-        throw new Error('TauriTavern ChatSurface participant v1 API is unavailable');
-    }
-    api.registerParticipant({
-        id: 'littlewhitebox/message-runtime',
-        protocolVersion: 1,
-        prepareContent: claimManagedIframeRuntimes,
-        didMount: mountManagedDecorators,
-    });
-}
+const CHAT_SURFACE_MANAGED = isTauriTavernChatSurfaceManaged();
+configureMessagePreviewRuntime({
+    ownsHistoryButtons: !CHAT_SURFACE_MANAGED,
+    supportsPreview: !CHAT_SURFACE_MANAGED,
+});
+configureVariablesPanelRuntime({ ownsMessageButtons: !CHAT_SURFACE_MANAGED });
+configureStorySummaryRuntime({ ownsMessageButtons: !CHAT_SURFACE_MANAGED });
+configureStoryOutlineRuntime({ enabled: !CHAT_SURFACE_MANAGED });
 
 const DRAW_PROVIDER_VALUES = new Set(['disabled', 'novelai', 'sdwebui', 'comfyui']);
 let tavernModulePromise = null;
@@ -205,6 +155,15 @@ async function cleanupTavernSafely() {
 
 function normalizeDrawProvider(provider) {
     return DRAW_PROVIDER_VALUES.has(provider) ? provider : 'disabled';
+}
+
+export function activate() {
+    return activateTauriTavernChatSurface({
+        settings,
+        hasActiveCustomTemplate,
+        hasCustomTemplateForMessage,
+        isDrawProviderActive: () => normalizeDrawProvider(settings.drawProvider) !== 'disabled',
+    });
 }
 
 function migrateDrawProviderSettings(targetSettings) {
@@ -798,7 +757,7 @@ function cleanupAllResources() {
         } catch (e) { }
     });
     moduleCleanupFunctions.clear();
-    if (!MANAGED_CHAT_SURFACE) {
+    if (!CHAT_SURFACE_MANAGED) {
         try { cleanupRenderer(); } catch (e) { }
     }
     document.querySelectorAll('.memory-button, .mes_history_preview').forEach(btn => btn.remove());
@@ -840,28 +799,6 @@ function toggleSettingsControls(enabled) {
     syncFeatureActionButtons();
 }
 
-function lockManagedSettingsControls() {
-    if (!MANAGED_CHAT_SURFACE) return;
-    const reason = 'TauriTavern bounded ChatSurface 当前会话已冻结此设置；请先关闭聊天虚拟化并重新加载。';
-    const ids = [
-        'xiaobaix_enabled', 'xiaobaix_recorded_enabled', 'xiaobaix_preview_enabled',
-        'xiaobaix_template_enabled', 'xiaobaix_immersive_enabled',
-        'xiaobaix_variables_panel_enabled', 'xiaobaix_story_summary_enabled',
-        'xiaobaix_story_outline_enabled', 'xiaobaix_fourth_wall_open_settings',
-        'xiaobaix_draw_provider', 'xiaobaix_draw_open_settings',
-        'xiaobaix_tts_enabled', 'xiaobaix_tts_open_settings',
-        'xiaobaix_render_enabled', 'xiaobaix_max_rendered', 'xiaobaix_reset_btn',
-    ];
-    ids.forEach(id => {
-        const element = document.getElementById(id);
-        if (!element) return;
-        element.setAttribute('aria-disabled', 'true');
-        element.setAttribute('title', reason);
-        element.disabled = true;
-        element.classList.add('disabled-control');
-    });
-}
-
 function syncFeatureActionButtons() {
     const bindings = [
         { toggleId: 'xiaobaix_ena_planner_enabled', buttonId: 'xiaobaix_ena_planner_open_settings' }
@@ -900,7 +837,7 @@ function syncFeatureActionButtons() {
         drawButton.disabled = !isXiaobaixEnabled;
         drawButton.classList.toggle('disabled-action', !isXiaobaixEnabled);
     }
-    lockManagedSettingsControls();
+    lockTauriTavernChatSurfaceSettings();
 }
 
 async function toggleAllFeatures(enabled) {
@@ -908,29 +845,29 @@ async function toggleAllFeatures(enabled) {
         toggleSettingsControls(true);
         try { window.XB_applyPrevStates && window.XB_applyPrevStates(); } catch (e) { }
         saveSettingsDebounced();
-        if (!MANAGED_CHAT_SURFACE) initRenderer();
+        if (!CHAT_SURFACE_MANAGED) initRenderer();
         try { initVarCommands(); } catch (e) { }
         try { initVareventEditor(); } catch (e) { }
         if (extension_settings[EXT_ID].tasks?.enabled) {
             await initTasks();
         }
         const moduleInits = [
-            { condition: !MANAGED_CHAT_SURFACE && extension_settings[EXT_ID].immersive?.enabled, init: initImmersiveMode },
-            { condition: !MANAGED_CHAT_SURFACE && extension_settings[EXT_ID].templateEditor?.enabled, init: initTemplateEditor },
+            { condition: !CHAT_SURFACE_MANAGED && extension_settings[EXT_ID].immersive?.enabled, init: initImmersiveMode },
+            { condition: !CHAT_SURFACE_MANAGED && extension_settings[EXT_ID].templateEditor?.enabled, init: initTemplateEditor },
             { condition: true, init: initControlAudio },
             { condition: extension_settings[EXT_ID].variablesPanel?.enabled, init: initVariablesPanel },
             { condition: extension_settings[EXT_ID].variablesCore?.enabled, init: initVariablesCore },
-            { condition: !MANAGED_CHAT_SURFACE && extension_settings[EXT_ID].tts?.enabled, init: initTts },
+            { condition: !CHAT_SURFACE_MANAGED && extension_settings[EXT_ID].tts?.enabled, init: initTts },
             { condition: extension_settings[EXT_ID].enaPlanner?.enabled, init: initEnaPlanner },
             { condition: true, init: initEbook },
             { condition: true, init: () => { void initTavernSafely(); } },
             { condition: true, init: initStreamingGeneration },
-            { condition: !MANAGED_CHAT_SURFACE, init: initButtonCollapse }
+            { condition: !CHAT_SURFACE_MANAGED, init: initButtonCollapse }
         ];
         moduleInits.forEach(({ condition, init }) => {
             if (condition) init();
         });
-        if (!MANAGED_CHAT_SURFACE) {
+        if (!CHAT_SURFACE_MANAGED) {
             try {
                 await initActiveDrawProvider();
             } catch (e) {
@@ -1171,7 +1108,7 @@ async function setupSettings() {
 
         $("#xiaobaix_render_enabled").prop("checked", settings.renderEnabled !== false).on("change", async function () {
             if (!isXiaobaixEnabled) return;
-            if (MANAGED_CHAT_SURFACE) return;
+            if (CHAT_SURFACE_MANAGED) return;
             const wasEnabled = settings.renderEnabled !== false;
             settings.renderEnabled = $(this).prop("checked");
             saveSettingsDebounced();
@@ -1197,7 +1134,7 @@ async function setupSettings() {
             .val(Number.isFinite(settings.maxRenderedMessages) ? settings.maxRenderedMessages : 5)
             .on("input change", function () {
                 if (!isXiaobaixEnabled) return;
-                if (MANAGED_CHAT_SURFACE) return;
+                if (CHAT_SURFACE_MANAGED) return;
                 const v = normalizeMaxRendered($(this).val());
                 $(this).val(v);
                 settings.maxRenderedMessages = v;
@@ -1208,7 +1145,7 @@ async function setupSettings() {
         $(document).off('click.xbreset', '#xiaobaix_reset_btn').on('click.xbreset', '#xiaobaix_reset_btn', async function (e) {
             e.preventDefault();
             e.stopPropagation();
-            if (MANAGED_CHAT_SURFACE) return;
+            if (CHAT_SURFACE_MANAGED) return;
             const MAP = {
                 recorded: 'xiaobaix_recorded_enabled',
                 immersive: 'xiaobaix_immersive_enabled',
@@ -1248,7 +1185,7 @@ async function setupSettings() {
             settings.audio.enabled = true;
             try { saveSettingsDebounced(); } catch (e) { }
         });
-        lockManagedSettingsControls();
+        lockTauriTavernChatSurfaceSettings();
     } catch (err) { }
 }
 
@@ -1302,7 +1239,7 @@ function setupMenuTabs() {
     }, 300);
 }
 
-if (!MANAGED_CHAT_SURFACE) {
+if (!CHAT_SURFACE_MANAGED) {
     window.processExistingMessages = processExistingMessages;
     window.renderHtmlInIframe = renderHtmlInIframe;
 }
@@ -1333,7 +1270,7 @@ jQuery(async () => {
 
         try { initControlAudio(); } catch (e) { }
 
-        if (isXiaobaixEnabled && !MANAGED_CHAT_SURFACE) {
+        if (isXiaobaixEnabled && !CHAT_SURFACE_MANAGED) {
             initRenderer();
         }
 
@@ -1365,19 +1302,19 @@ jQuery(async () => {
             }
 
             const moduleInits = [
-                { condition: !MANAGED_CHAT_SURFACE && settings.immersive?.enabled, init: initImmersiveMode },
-                { condition: !MANAGED_CHAT_SURFACE && settings.templateEditor?.enabled, init: initTemplateEditor },
+                { condition: !CHAT_SURFACE_MANAGED && settings.immersive?.enabled, init: initImmersiveMode },
+                { condition: !CHAT_SURFACE_MANAGED && settings.templateEditor?.enabled, init: initTemplateEditor },
                 { condition: settings.variablesPanel?.enabled, init: initVariablesPanel },
                 { condition: settings.variablesCore?.enabled, init: initVariablesCore },
-                { condition: !MANAGED_CHAT_SURFACE && settings.tts?.enabled, init: initTts },
+                { condition: !CHAT_SURFACE_MANAGED && settings.tts?.enabled, init: initTts },
                 { condition: settings.enaPlanner?.enabled, init: initEnaPlanner },
                 { condition: true, init: initEbook },
                 { condition: true, init: () => { void initTavernSafely(); } },
                 { condition: true, init: initStreamingGeneration },
-                { condition: !MANAGED_CHAT_SURFACE, init: initButtonCollapse }
+                { condition: !CHAT_SURFACE_MANAGED, init: initButtonCollapse }
             ];
             moduleInits.forEach(({ condition, init }) => { if (condition) init(); });
-            if (!MANAGED_CHAT_SURFACE) {
+            if (!CHAT_SURFACE_MANAGED) {
                 try {
                     await initActiveDrawProvider();
                 } catch (e) {
@@ -1402,7 +1339,7 @@ jQuery(async () => {
             }
         }, 2000);
 
-        if (!MANAGED_CHAT_SURFACE) {
+        if (!CHAT_SURFACE_MANAGED) {
             setInterval(() => {
                 if (isXiaobaixEnabled) processExistingMessages();
             }, 30000);

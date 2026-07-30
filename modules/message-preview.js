@@ -1,9 +1,15 @@
 import { extension_settings, getContext } from "../../../../extensions.js";
 import { saveSettingsDebounced, eventSource, event_types } from "../../../../../script.js";
-import { EXT_ID, MANAGED_CHAT_SURFACE } from "../core/constants.js";
+import { EXT_ID } from "../core/constants.js";
 
 const C = { MAX_HISTORY: 10, CHECK: 200, DEBOUNCE: 300, CLEAN: 300000, TARGET: "/api/backends/chat-completions/generate", TIMEOUT: 30, ASSOC_DELAY: 1000, REQ_WINDOW: 30000 };
 const S = { active: false, isPreview: false, isLong: false, isHistoryUiBound: false, previewData: null, previewIds: new Set(), interceptedIds: [], history: [], listeners: [], resolve: null, reject: null, sendBtnWasDisabled: false, longPressTimer: null, longPressDelay: 1000, chatLenBefore: 0, restoreLong: null, cleanTimer: null, previewAbort: null, tailAPI: null, genEndedOff: null, cleanupFallback: null, pendingPurge: false };
+const runtimeOptions = { ownsHistoryButtons: true, supportsPreview: true };
+
+function configureMessagePreviewRuntime({ ownsHistoryButtons = true, supportsPreview = true } = {}) {
+  runtimeOptions.ownsHistoryButtons = ownsHistoryButtons;
+  runtimeOptions.supportsPreview = supportsPreview;
+}
 
 const $q = (sel) => $(sel);
 const ON = (e, c) => eventSource.on(e, c);
@@ -862,7 +868,7 @@ async function interceptPreview(url, options) {
 }
 
 const addHistoryButtonsDebounced = debounce(() => {
-  if (MANAGED_CHAT_SURFACE) return;
+  if (!runtimeOptions.ownsHistoryButtons) return;
   const set = getSettings(); if (!set.recorded.enabled || !geEnabled()) return;
   $(".mes_history_preview").remove();
   $("#chat .mes").each(function () {
@@ -874,7 +880,7 @@ const addHistoryButtonsDebounced = debounce(() => {
   });
 }, C.DEBOUNCE);
 
-function mountManagedHistoryButton(message, messageId) {
+function mountHistoryButton(message, messageId) {
   const set = getSettings();
   if (!set.recorded.enabled || !geEnabled() || messageId <= 0 || message.getAttribute('is_user') === 'true') return;
   if (message.querySelector('.mes_history_preview')) return;
@@ -1040,7 +1046,7 @@ function initMessagePreview() {
   try {
     cleanup();
     const set = getSettings();
-    if (MANAGED_CHAT_SURFACE && set.preview.enabled) return;
+    if (!runtimeOptions.supportsPreview && set.preview.enabled) return;
     S.tailAPI = installEventSourceTail(eventSource);
     const btn = $(`<div id="message_preview_btn" class="fa-regular fa-note-sticky interactable" title="预览消息"></div>`);
     $("#send_but").before(btn); bindBtn();
@@ -1069,4 +1075,10 @@ function initMessagePreview() {
 window.addEventListener("beforeunload", cleanup);
 window.messagePreviewCleanup = cleanup;
 
-export { initMessagePreview, addHistoryButtonsDebounced, cleanup, mountManagedHistoryButton };
+export {
+  initMessagePreview,
+  addHistoryButtonsDebounced,
+  cleanup,
+  configureMessagePreviewRuntime,
+  mountHistoryButton,
+};

@@ -220,10 +220,10 @@ const registerButtonToSubContainer = (messageId, buttonEl) => {
   return true;
 };
 
-const mountManagedButtonCollapse = (message) => {
-  const collapseBtn = message?.querySelector(SELECTORS.collapse);
-  if (!collapseBtn) return;
+const createButtonCollapseCleanup = (message) => {
   return () => {
+    const collapseBtn = message?.querySelector(SELECTORS.collapse);
+    if (!collapseBtn) return;
     const sub = collapseBtn.querySelector('.xiaobaix-sub-container');
     const mesButtons = message.querySelector(SELECTORS.mesButtons);
     if (sub && mesButtons) {
@@ -271,4 +271,4 @@ if (typeof window !== 'undefined') {
   });
 }
 
-export { initButtonCollapse, cleanup, registerButtonToSubContainer, processButtonCollapse, mountManagedButtonCollapse };
+export { initButtonCollapse, cleanup, registerButtonToSubContainer, processButtonCollapse, createButtonCollapseCleanup };
