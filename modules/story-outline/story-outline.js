@@ -26,7 +26,7 @@ import { chat_metadata, name1, processCommands, eventSource, event_types as st_e
 import { loadWorldInfo, saveWorldInfo, world_names, world_info } from "../../../../../world-info.js";
 import { getContext } from "../../../../../st-context.js";
 import { streamingGeneration } from "../streaming-generation.js";
-import { EXT_ID, extensionFolderPath } from "../../core/constants.js";
+import { EXT_ID, MANAGED_CHAT_SURFACE, extensionFolderPath } from "../../core/constants.js";
 import { createModuleEvents, event_types } from "../../core/event-manager.js";
 import { StoryOutlineStorage } from "../../core/server-storage.js";
 import { promptManager } from "../../../../../openai.js";
@@ -1500,7 +1500,7 @@ function cleanup() {
 
 // ==================== Toggle 监听（始终注册）====================
 
-$(document).on("xiaobaix:storyOutline:toggle", (_e, enabled) => {
+if (!MANAGED_CHAT_SURFACE) $(document).on("xiaobaix:storyOutline:toggle", (_e, enabled) => {
     if (enabled) {
         registerEvents();
         initBtns();
@@ -1510,7 +1510,7 @@ $(document).on("xiaobaix:storyOutline:toggle", (_e, enabled) => {
     }
 });
 
-document.addEventListener('xiaobaixEnabledChanged', e => {
+if (!MANAGED_CHAT_SURFACE) document.addEventListener('xiaobaixEnabledChanged', e => {
     if (!e?.detail?.enabled) {
         cleanup();
     } else if (getSettings().storyOutline?.enabled) {
@@ -1540,7 +1540,7 @@ async function initSettingsFromServer() {
     } catch { }
 }
 
-jQuery(() => {
+if (!MANAGED_CHAT_SURFACE) jQuery(() => {
     if (!getSettings().storyOutline?.enabled) return;
     initSettingsFromServer();
     initPromptConfigFromServer();

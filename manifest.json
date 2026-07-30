@@ -8,5 +8,8 @@
     "author": "biex",
     "version": "3.0.4",
     "homePage": "https://github.com/RT15548/LittleWhiteBox",
-    "generate_interceptor": "xiaobaixGenerateInterceptor"
+    "generate_interceptor": "xiaobaixGenerateInterceptor",
+    "hooks": {
+        "activate": "activate"
+    }
 }

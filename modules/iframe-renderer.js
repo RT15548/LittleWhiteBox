@@ -21,6 +21,8 @@ const BLOB_CACHE_LIMIT = 32;
 let lastApplyTs = 0;
 let pendingHeight = null;
 let pendingRec = null;
+let messageListenerBound = false;
+let managedRuntimeCount = 0;
 
 CacheRegistry.register(MODULE_ID, {
     name: 'Blob URL 缓存',
@@ -162,19 +164,20 @@ function extractExternalUrl(content) {
     return null;
 }
 
-async function fetchExternalHtml(url) {
+async function fetchExternalHtml(url, signal) {
     try {
-        const r = await fetch(url, { mode: 'cors' });
+        const r = await fetch(url, { mode: 'cors', signal });
         if (r.ok) return await r.text();
     } catch (_) {}
     return null;
 }
 
-async function loadExternalUrl(iframe, url, settings) {
+async function loadExternalUrl(iframe, url, settings, { signal, scheduleTimeout = setTimeout } = {}) {
     try {
         iframe.srcdoc = '<!DOCTYPE html><html><body style="display:flex;justify-content:center;align-items:center;height:100px;color:#888;font-family:sans-serif;background:transparent">加载中...</body></html>';
 
-        let html = await fetchExternalHtml(url);
+        let html = await fetchExternalHtml(url, signal);
+        if (signal?.aborted) return;
 
         if (html && settings.variablesCore?.enabled && typeof replaceXbGetVarInString === 'function') {
             try {
@@ -185,14 +188,8 @@ async function loadExternalUrl(iframe, url, settings) {
         }
 
         if (html) {
-            const full = buildWrappedHtml(html);
-            if (settings.useBlob) {
-                const codeHash = djb2(html);
-                setIframeBlobHTML(iframe, full, codeHash);
-            } else {
-                iframe.srcdoc = full;
-            }
-            setTimeout(() => {
+            setIframeContent(iframe, html, settings);
+            scheduleTimeout(() => {
                 try {
                     const targetOrigin = getIframeTargetOrigin(iframe);
                     postToIframe(iframe, { type: 'probe' }, null, targetOrigin);
@@ -205,6 +202,7 @@ async function loadExternalUrl(iframe, url, settings) {
             iframe.setAttribute('scrolling', 'auto');
         }
     } catch (err) {
+        if (signal?.aborted) return;
         console.error('[iframeRenderer] 外部URL加载失败:', err);
         iframe.removeAttribute('srcdoc');
         iframe.src = url;
@@ -243,6 +241,211 @@ ${vhFix}
 <style>html,body{margin:0;padding:0;background:transparent}</style>
 </head>
 <body>${html}</body></html>`;
+}
+
+function acquireManagedMessageListener() {
+    if (!messageListenerBound) {
+        // eslint-disable-next-line no-restricted-syntax -- messages require an exact live iframe winMap entry.
+        window.addEventListener('message', handleIframeMessage);
+        messageListenerBound = true;
+    }
+    managedRuntimeCount += 1;
+}
+
+function releaseManagedMessageListener() {
+    managedRuntimeCount -= 1;
+    if (managedRuntimeCount === 0 && messageListenerBound) {
+        window.removeEventListener('message', handleIframeMessage);
+        messageListenerBound = false;
+    }
+}
+
+function createRenderIframe() {
+    const iframe = document.createElement('iframe');
+    iframe.id = generateUniqueId();
+    iframe.className = 'xiaobaix-iframe';
+    iframe.style.cssText = 'width:100%;border:none;background:transparent;overflow:hidden;height:0;margin:0;padding:0;display:block;contain:layout paint style;will-change:height;min-height:50px';
+    iframe.setAttribute('frameborder', '0');
+    iframe.setAttribute('scrolling', 'no');
+    iframe.loading = 'eager';
+    return iframe;
+}
+
+function holdManagedRuntimePlaceholder(wrapper, iframe) {
+    const existingHeight = Number(wrapper.dataset.ttRuntimePlaceholderHeight);
+    if (existingHeight > 0) return true;
+    if (!(iframe instanceof HTMLIFrameElement)) return false;
+
+    const wrapperHeight = Math.ceil(wrapper.getBoundingClientRect().height);
+    const iframeHeight = Math.ceil(iframe.getBoundingClientRect().height);
+    if (wrapperHeight <= 0 || iframeHeight <= 0) return false;
+
+    wrapper.dataset.ttRuntimePlaceholderHeight = String(wrapperHeight);
+    wrapper.dataset.ttRuntimeIframeHeight = String(iframeHeight);
+    wrapper.style.height = `${wrapperHeight}px`;
+    wrapper.style.visibility = 'hidden';
+    wrapper.setAttribute('inert', '');
+    wrapper.setAttribute('aria-hidden', 'true');
+    return true;
+}
+
+function releaseManagedRuntimePlaceholder(wrapper, iframe) {
+    const wrapperHeight = Number(wrapper.dataset.ttRuntimePlaceholderHeight);
+    const iframeHeight = Number(wrapper.dataset.ttRuntimeIframeHeight);
+    if (!(wrapperHeight > 0) || !(iframeHeight > 0)) return;
+
+    iframe.style.height = `${iframeHeight}px`;
+    delete wrapper.dataset.ttRuntimePlaceholderHeight;
+    delete wrapper.dataset.ttRuntimeIframeHeight;
+    wrapper.style.removeProperty('height');
+    wrapper.style.removeProperty('visibility');
+    wrapper.removeAttribute('inert');
+    wrapper.removeAttribute('aria-hidden');
+}
+
+function setIframeContent(iframe, html, settings) {
+    const full = buildWrappedHtml(html);
+    if (settings.useBlob) {
+        setIframeBlobHTML(iframe, full, djb2(html));
+    } else {
+        iframe.srcdoc = full;
+    }
+}
+
+function activateManagedRuntime({ source, signal }) {
+    if (!(source instanceof HTMLPreElement) || !source.isConnected || !source.parentNode) {
+        throw new Error('LittleWhiteBox managed runtime source is not a live <pre>');
+    }
+
+    const settings = getSettings();
+    const code = source.querySelector(':scope > code');
+    if (!code) throw new Error('LittleWhiteBox managed runtime source lost its <code>');
+    const html = code.textContent || '';
+    const externalUrl = extractExternalUrl(html);
+    const controller = new AbortController();
+    const timeouts = new Set();
+    const animationFrames = new Set();
+    const previousDisplay = source.style.display;
+    const wrapper = getOrCreateWrapper(source);
+    const hadPlaceholder = Number(wrapper.dataset.ttRuntimePlaceholderHeight) > 0;
+    const iframe = createRenderIframe();
+    let mappedWindow = null;
+    let mappedRecord = null;
+    let disposed = false;
+    let pendingManagedHeight = 0;
+    let heightFrame = null;
+    let hostAbortBound = false;
+    let messageListenerAcquired = false;
+
+    const scheduleTimeout = (callback, delay) => {
+        const id = setTimeout(() => {
+            timeouts.delete(id);
+            if (!controller.signal.aborted) callback();
+        }, delay);
+        timeouts.add(id);
+        return id;
+    };
+    const scheduleHeight = (height) => {
+        pendingManagedHeight = height;
+        if (heightFrame !== null) return;
+        heightFrame = requestAnimationFrame(() => {
+            animationFrames.delete(heightFrame);
+            heightFrame = null;
+            if (!controller.signal.aborted) iframe.style.height = `${pendingManagedHeight}px`;
+        });
+        animationFrames.add(heightFrame);
+    };
+    const abort = () => controller.abort(signal.reason);
+
+    const dispose = (preservePlaceholder) => {
+        if (disposed) return;
+        disposed = true;
+        const placeholderHeld = preservePlaceholder && holdManagedRuntimePlaceholder(wrapper, iframe);
+        let firstError;
+        const run = callback => {
+            try { callback(); } catch (error) { firstError ??= error; }
+        };
+
+        run(() => controller.abort('runtime disposed'));
+        if (hostAbortBound) run(() => signal.removeEventListener('abort', abort));
+        timeouts.forEach(id => run(() => clearTimeout(id)));
+        timeouts.clear();
+        animationFrames.forEach(id => run(() => cancelAnimationFrame(id)));
+        animationFrames.clear();
+        heightFrame = null;
+        if (mappedWindow && winMap.get(mappedWindow) === mappedRecord) {
+            run(() => winMap.delete(mappedWindow));
+        }
+        run(() => { iframe.src = 'about:blank'; });
+        run(() => iframe.removeAttribute('srcdoc'));
+        // The extension-scoped 32-entry hash cache, not one runtime, owns URL revocation.
+        run(() => releaseIframeBlob(iframe));
+        run(() => iframe.remove());
+        if (placeholderHeld) {
+            run(() => { source.style.display = 'none'; });
+        } else {
+            run(() => wrapper.remove());
+            run(() => { source.style.display = previousDisplay; });
+        }
+        if (messageListenerAcquired) run(releaseManagedMessageListener);
+
+        if (firstError !== undefined) throw firstError;
+    };
+
+    try {
+        signal.addEventListener('abort', abort, { once: true });
+        hostAbortBound = true;
+        acquireManagedMessageListener();
+        messageListenerAcquired = true;
+        wrapper.replaceChildren(iframe);
+        mappedWindow = iframe.contentWindow;
+        if (!mappedWindow) throw new Error('LittleWhiteBox managed iframe has no contentWindow');
+        mappedRecord = { iframe, wrapper, scheduleHeight };
+        winMap.set(mappedWindow, mappedRecord);
+
+        if (externalUrl) {
+            void loadExternalUrl(iframe, externalUrl, settings, {
+                signal: controller.signal,
+                scheduleTimeout,
+            });
+        } else {
+            let renderedHtml = html;
+            if (settings.variablesCore?.enabled && typeof replaceXbGetVarInString === 'function') {
+                try { renderedHtml = replaceXbGetVarInString(renderedHtml); } catch (error) {
+                    console.warn('xbgetvar 宏替换失败:', error);
+                }
+            }
+            setIframeContent(iframe, renderedHtml, settings);
+            scheduleTimeout(() => {
+                try {
+                    const targetOrigin = getIframeTargetOrigin(iframe);
+                    postToIframe(iframe, { type: 'probe' }, null, targetOrigin);
+                } catch {}
+            }, 0);
+        }
+
+        source.style.display = 'none';
+        releaseManagedRuntimePlaceholder(wrapper, iframe);
+        return () => dispose(true);
+    } catch (error) {
+        try { dispose(hadPlaceholder); } catch (cleanupError) {
+            const failure = new Error('LittleWhiteBox managed runtime activation and cleanup failed');
+            failure.cause = error;
+            failure.cleanupError = cleanupError;
+            throw failure;
+        }
+        throw error;
+    }
+}
+
+export function claimManagedIframeRuntimes({ content }, claims) {
+    const settings = getSettings();
+    if (!settings.enabled || settings.renderEnabled === false) return;
+    for (const code of content.querySelectorAll('pre > code')) {
+        if (shouldRenderContentByBlock(code)) {
+            claims.claim(code.parentElement, activateManagedRuntime);
+        }
+    }
 }
 
 function getOrCreateWrapper(preEl) {
@@ -332,10 +535,15 @@ function handleIframeMessage(event) {
             }
         }
     }
+    if (!rec?.iframe) return;
     
-    if (rec && rec.iframe && typeof data.height === 'number') {
+    if (typeof data.height === 'number') {
         const next = Math.max(0, Number(data.height) || 0);
         if (next < 1) return;
+        if (rec.scheduleHeight) {
+            rec.scheduleHeight(next);
+            return;
+        }
         const prev = lastHeights.get(rec.iframe) || 0;
         if (!data.force && Math.abs(next - prev) < 1) return;
         if (data.force) {
@@ -404,13 +612,7 @@ export function renderHtmlInIframe(htmlContent, container, preElement) {
     try {
         const originalHash = djb2(htmlContent);
         const externalUrl = extractExternalUrl(htmlContent);
-        const iframe = document.createElement('iframe');
-        iframe.id = generateUniqueId();
-        iframe.className = 'xiaobaix-iframe';
-        iframe.style.cssText = 'width:100%;border:none;background:transparent;overflow:hidden;height:0;margin:0;padding:0;display:block;contain:layout paint style;will-change:height;min-height:50px';
-        iframe.setAttribute('frameborder', '0');
-        iframe.setAttribute('scrolling', 'no');
-        iframe.loading = 'eager';
+        const iframe = createRenderIframe();
         
         const wrapper = getOrCreateWrapper(preElement);
         wrapper.querySelectorAll('.xiaobaix-iframe').forEach(old => {
@@ -435,14 +637,7 @@ export function renderHtmlInIframe(htmlContent, container, preElement) {
                 }
             }
 
-            const codeHash = djb2(htmlContent);
-            const full = buildWrappedHtml(htmlContent);
-
-            if (settings.useBlob) {
-                setIframeBlobHTML(iframe, full, codeHash);
-            } else {
-                iframe.srcdoc = full;
-            }
+            setIframeContent(iframe, htmlContent, settings);
 
             try {
                 const targetOrigin = getIframeTargetOrigin(iframe);
@@ -639,8 +834,6 @@ function shrinkRenderedWindowFull() {
         });
     }
 }
-
-let messageListenerBound = false;
 
 export function initRenderer() {
     const settings = getSettings();
