@@ -471,6 +471,10 @@
 .tavern-pet-interference-switch > i > b {position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: var(--pet-muted); transition: transform 0.18s ease, background 0.18s ease;}
 .tavern-pet-interference-switch[aria-checked="true"] > i {border-color: color-mix(in srgb, var(--pet-accent) 48%, transparent); background: rgba(135, 145, 111, 0.16);}
 .tavern-pet-interference-switch[aria-checked="true"] > i > b {background: var(--pet-accent); transform: translateX(16px);}
+.tavern-pet-leave-button {color: #c98b72 !important;}
+.tavern-pet-leave-button > span {display: grid; gap: 4px;}
+.tavern-pet-leave-button > span strong {font: 620 11px/1.3 var(--phone-os-font);}
+.tavern-pet-leave-button > span small {color: color-mix(in srgb, #c98b72 78%, var(--pet-muted)); font: 500 10px/1.45 var(--pet-serif);}
 
 .tavern-pet-dialog-backdrop {place-items: center; padding: 18px;}
 .tavern-pet-dialog {
@@ -493,6 +497,7 @@
 .tavern-pet-dialog-actions {display: flex; flex-wrap: wrap; justify-content: end; gap: 7px; margin-top: 5px;}
 .tavern-pet-dialog-actions button {min-height: 44px; border: 1px solid var(--pet-line); border-radius: 3px; background: transparent; color: var(--pet-muted); padding: 0 11px; font: 620 10px/1.2 var(--phone-os-font);}
 .tavern-pet-dialog-actions button:last-child {border-color: color-mix(in srgb, var(--pet-accent) 48%, var(--pet-line)); background: rgba(135, 145, 111, 0.14); color: var(--pet-text);}
+.tavern-pet-dialog-actions .tavern-pet-danger {border-color: color-mix(in srgb, #c98b72 62%, var(--pet-line)); background: rgba(201, 139, 114, 0.12); color: #e1a98f;}
 
 .tavern-pet-icon {
     position: relative;

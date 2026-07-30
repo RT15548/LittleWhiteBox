@@ -2,8 +2,8 @@ import {
     TAVERN_PET_CURIO_IDS,
     TAVERN_PET_EVENT_IDS,
     isTavernPetInterferenceEventId,
-    type TavernPetActivityDetail,
-    type TavernPetActivityDraft,
+    type TavernPetJournalDetail,
+    type TavernPetJournalDraft,
     type TavernPetCurioId,
     type TavernPetCurioSpec,
     type TavernPetEventId,
@@ -152,7 +152,7 @@ export const TAVERN_PET_SELF_MEMORY_COPY: Readonly<Record<TavernPetEventId, stri
     'brief-glimpse': '我出去了一瞬间。有人好像看见我了，但再看就没有了。',
 });
 
-export function renderTavernPetSelfMemory(detail: TavernPetActivityDetail): string {
+export function renderTavernPetSelfMemory(detail: TavernPetJournalDetail): string {
     if (detail.kind === 'event') {return TAVERN_PET_SELF_MEMORY_COPY[detail.eventId];}
     if (detail.kind === 'milestone') {return TAVERN_PET_SELF_MEMORY_COPY[detail.milestoneId];}
     if (detail.kind === 'status') {
@@ -241,7 +241,7 @@ type TavernPetEventCopyInput = TavernPetEventCopyInputBase & (
     | { eventId: TavernPetNonInterferenceEventId; injectedText?: never }
 );
 
-export function renderTavernPetEventCopy(input: TavernPetEventCopyInput): TavernPetActivityDraft {
+export function renderTavernPetEventCopy(input: TavernPetEventCopyInput): TavernPetJournalDraft {
     const copy = TAVERN_PET_EVENT_COPY[input.eventId];
     const values = {
         displayName: tavernPetDisplayName(input.state),
@@ -283,14 +283,14 @@ export function renderTavernPetInterferenceText(
     }).trim();
 }
 
-export function renderTavernPetMilestoneActivity(input: {
+export function renderTavernPetMilestoneJournal(input: {
     milestoneId: TavernPetMilestoneId;
     state: TavernPetState;
-    turn: number;
-    anchorOrder: number;
+    petTurn: number;
+    sourceAnchorOrder: number;
     personaId?: TavernPetPersonaId;
     verdict?: string;
-}): TavernPetActivityDraft {
+}): TavernPetJournalDraft {
     const personaName = input.personaId ? getTavernPetPersona(input.personaId).displayName : '';
     const displayName = tavernPetDisplayName(input.state);
     const renderedText = input.verdict || {
@@ -311,8 +311,8 @@ export function renderTavernPetMilestoneActivity(input: {
             milestoneId: input.milestoneId,
             renderedText,
             motion: 'bounce',
-            milestoneTurn: input.turn,
-            milestoneAnchor: input.anchorOrder,
+            milestonePetTurn: input.petTurn,
+            milestoneSourceAnchorOrder: input.sourceAnchorOrder,
             ...(input.personaId ? { personaId: input.personaId } : {}),
             ...(input.verdict ? { verdict: input.verdict } : {}),
         },
@@ -324,10 +324,10 @@ export function renderTavernPetMilestoneActivity(input: {
     };
 }
 
-export function renderTavernPetStatusActivity(
+export function renderTavernPetStatusJournal(
     status: 'dormant' | 'woke',
     state: TavernPetState,
-): TavernPetActivityDraft {
+): TavernPetJournalDraft {
     return status === 'dormant'
         ? {
             detail: { kind: 'status', status, renderedText: '它把自己关机了。', motion: 'hide' },

@@ -27,8 +27,6 @@ import db, {
     tavernShopStateVersionsTable,
     tavernBankStateVersionsTable,
     tavernBankActivitiesTable,
-    tavernPetStateVersionsTable,
-    tavernPetActivitiesTable,
     TAVERN_COMMUNICATION_REPLY_INTERRUPTED_ERROR,
     type TavernCommunicationSnapshotRecord,
     type TavernCommunicationThreadRecord,
@@ -98,11 +96,6 @@ import {
     type TavernBankActivityRecord,
     type TavernBankStateVersionRecord,
 } from './bank/bank-types';
-import {
-    parseCanonicalTavernPetActivityRecord,
-    parseCanonicalTavernPetStateVersionRecord,
-} from './pet/pet-invariants';
-import { assertTavernPetHistoryInvariant } from './pet/pet-history';
 
 const RESTORE_TEMP_CHARACTER_PREFIX = '__lwb_restore__';
 const RESTORE_BATCH_SIZE = 500;
@@ -117,7 +110,6 @@ const ARCHIVE_COUNT_FIELDS = [
     'tasks',
     'shop',
     'bank',
-    'pet',
 ] as const satisfies readonly (keyof TavernCharacterArchiveCounts)[];
 const ARCHIVE_TABLE_NAMES = new Set<string>(TAVERN_CHARACTER_ARCHIVE_TABLES);
 
@@ -171,8 +163,6 @@ const archiveTables: ArchiveTableMap = {
     shopStateVersions: { table: tavernShopStateVersionsTable as unknown as ArchiveRuntimeTable, sessionIndex: 'sessionId' },
     bankStateVersions: { table: tavernBankStateVersionsTable as unknown as ArchiveRuntimeTable, sessionIndex: 'sessionId' },
     bankActivities: { table: tavernBankActivitiesTable as unknown as ArchiveRuntimeTable, sessionIndex: 'sessionId' },
-    petStateVersions: { table: tavernPetStateVersionsTable as unknown as ArchiveRuntimeTable, sessionIndex: 'sessionId' },
-    petActivities: { table: tavernPetActivitiesTable as unknown as ArchiveRuntimeTable, sessionIndex: 'sessionId' },
 };
 
 function now(): number {
@@ -210,7 +200,6 @@ function incrementArchiveCounts(counts: TavernCharacterArchiveCounts, table: Tav
     if (table.startsWith('task')) {counts.tasks += 1;}
     if (table.startsWith('shop')) {counts.shop += 1;}
     if (table.startsWith('bank')) {counts.bank += 1;}
-    if (table.startsWith('pet')) {counts.pet += 1;}
 }
 
 function totalManifestCount(manifest: TavernCharacterArchiveManifest): number {
@@ -223,8 +212,7 @@ function totalManifestCount(manifest: TavernCharacterArchiveManifest): number {
         + (Number(counts.economy) || 0)
         + (Number(counts.tasks) || 0)
         + (Number(counts.shop) || 0)
-        + (Number(counts.bank) || 0)
-        + (Number(counts.pet) || 0);
+        + (Number(counts.bank) || 0);
 }
 
 type CapturedCharacterArchiveSession = {
@@ -274,8 +262,6 @@ async function captureCharacterArchiveSession(sessionId = ''): Promise<CapturedC
         tavernShopStateVersionsTable,
         tavernBankStateVersionsTable,
         tavernBankActivitiesTable,
-        tavernPetStateVersionsTable,
-        tavernPetActivitiesTable,
         async () => {
             const session = await tavernSessionsTable.get(id);
             if (!session) {throw new Error('archive_session_missing');}
@@ -919,8 +905,6 @@ async function assertCharacterArchiveStable(characterKey = ''): Promise<void> {
         tavernShopStateVersionsTable,
         tavernBankStateVersionsTable,
         tavernBankActivitiesTable,
-        tavernPetStateVersionsTable,
-        tavernPetActivitiesTable,
         async () => {
             const sessions = await tavernSessionsTable.where('characterKey').equals(key).toArray();
             for (const session of sessions) {
@@ -936,8 +920,6 @@ async function assertCharacterArchiveStable(characterKey = ''): Promise<void> {
                     shopVersions,
                     bankVersions,
                     bankActivities,
-                    petVersions,
-                    petActivities,
                 ] = await Promise.all([
                     tavernManagerRunsTable.where('sessionId').equals(session.id).toArray(),
                     tavernManagerMemorySnapshotsTable.where('sessionId').equals(session.id).toArray(),
@@ -950,8 +932,6 @@ async function assertCharacterArchiveStable(characterKey = ''): Promise<void> {
                     tavernShopStateVersionsTable.where('sessionId').equals(session.id).toArray(),
                     tavernBankStateVersionsTable.where('sessionId').equals(session.id).toArray(),
                     tavernBankActivitiesTable.where('sessionId').equals(session.id).toArray(),
-                    tavernPetStateVersionsTable.where('sessionId').equals(session.id).toArray(),
-                    tavernPetActivitiesTable.where('sessionId').equals(session.id).toArray(),
                 ]);
                 assertTavernManagerSnapshotStable({ runs, memorySnapshots, stateSnapshots, statePatches }, 'manager_archive_unaccepted_writes');
                 assertTaskEconomyArchiveStable({
@@ -967,12 +947,6 @@ async function assertCharacterArchiveStable(characterKey = ''): Promise<void> {
                     versions: bankVersions,
                     activities: bankActivities,
                     transactions,
-                });
-                assertTavernPetHistoryInvariant({
-                    sessionId: session.id,
-                    versions: petVersions,
-                    activities: petActivities,
-                    economyTransactions: transactions,
                 });
                 assertEconomyArchiveLedgerStable({ session, accounts, transactions });
             }
@@ -1381,28 +1355,6 @@ function canonicalizeArchiveRecordForRestore(record: TavernCharacterArchiveRecor
             throw new Error(`archive_bank_activity_noncanonical:${detail}`);
         }
     }
-    if (record.table === 'petStateVersions') {
-        try {
-            return {
-                ...record,
-                record: parseCanonicalTavernPetStateVersionRecord(record.record),
-            } as TavernCharacterArchiveRecord;
-        } catch (error) {
-            const detail = error instanceof Error ? error.message : String(error || 'invalid');
-            throw new Error(`archive_pet_version_noncanonical:${detail}`);
-        }
-    }
-    if (record.table === 'petActivities') {
-        try {
-            return {
-                ...record,
-                record: parseCanonicalTavernPetActivityRecord(record.record),
-            } as TavernCharacterArchiveRecord;
-        } catch (error) {
-            const detail = error instanceof Error ? error.message : String(error || 'invalid');
-            throw new Error(`archive_pet_activity_noncanonical:${detail}`);
-        }
-    }
     return record;
 }
 
@@ -1490,8 +1442,6 @@ async function writeArchiveRecordBatch(batch: TavernCharacterArchiveRecord[]): P
         tavernShopStateVersionsTable,
         tavernBankStateVersionsTable,
         tavernBankActivitiesTable,
-        tavernPetStateVersionsTable,
-        tavernPetActivitiesTable,
         async () => {
             for (const table of TAVERN_CHARACTER_ARCHIVE_TABLES) {
                 const rows = batch.filter((record) => record.table === table).map((record) => record.record);
@@ -1539,8 +1489,6 @@ async function promoteTempArchiveToCharacter(tempCharacterKey = '', characterKey
         tavernShopStateVersionsTable,
         tavernBankStateVersionsTable,
         tavernBankActivitiesTable,
-        tavernPetStateVersionsTable,
-        tavernPetActivitiesTable,
         tavernMetaTable,
         async () => {
             const tempSessionCount = await tavernSessionsTable.where('characterKey').equals(tempCharacterKey).count();

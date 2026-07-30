@@ -1,5 +1,5 @@
 import 'fake-indexeddb/auto';
-import test from 'node:test';
+import test, { after, before } from 'node:test';
 import assert from 'node:assert/strict';
 
 import db, {
@@ -12,8 +12,9 @@ import db, {
     listTavernManagerMemorySnapshots,
     listTavernManagerRuns,
     listTavernMessages,
-    tavernPetActivitiesTable,
-    tavernPetStateVersionsTable,
+    tavernPetActionsTable,
+    tavernPetCompanionTable,
+    tavernPetJournalTable,
     updateTavernSessionState,
     updateTavernMessage,
 } from '../shared/session-db';
@@ -81,17 +82,38 @@ import type { TavernTaskListing, TavernTaskVersionRecord } from '../shared/tasks
 import { ensureTavernEconomy } from '../shared/economy/economy-service';
 import { renderTavernPetInterferenceText } from '../shared/pet/pet-copy';
 import {
-    parseCanonicalTavernPetActivityRecord,
-    parseCanonicalTavernPetStateVersionRecord,
-} from '../shared/pet/pet-invariants';
-import { TAVERN_PET_CURRENT_MARKER } from '../shared/pet/pet-types';
-import { createTavernPetTestState } from './pet-test-helpers';
+    appendTavernPetTransitionInCurrentDbTransaction,
+    getTavernPetCompanionInCurrentDbTransaction,
+} from '../shared/pet/pet-service';
+import {
+    createTavernPetTestState,
+    seedTavernPetForTest,
+} from './pet-test-helpers';
 
 async function resetDb() {
     await waitForQueuedAcceptedTurnManagers();
     await db.delete();
     await db.open();
 }
+
+const originalConsoleInfo = console.info.bind(console);
+
+before(() => {
+    console.info = (...args: Parameters<typeof console.info>) => {
+        if (args[0] === '[小白酒馆] turn stage start' || args[0] === '[小白酒馆] turn stage end') {
+            return;
+        }
+        originalConsoleInfo(...args);
+    };
+});
+
+after(async () => {
+    try {
+        await waitForQueuedAcceptedTurnManagers();
+    } finally {
+        console.info = originalConsoleInfo;
+    }
+});
 
 function makeContextWindowMessage(order: number, role: string, content = `message-${order}`) {
     return {
@@ -4412,16 +4434,14 @@ test('formal tasks enter both local and ST-native depth-1 prompts while board ca
     assert.doesNotMatch(result.requestSnapshot.rawRequestJson, /完成运行时目标 1|完成运行时目标 2|完成运行时目标 4/);
 });
 
-test('Pet interference enters ST-native simulation and turn depth prompts for the immediately following turn', async () => {
+test('global Pet interference enters ST-native simulation and turn depth prompts only at its source anchor', async () => {
     await resetDb();
     const preset = createDefaultXbTavernPreset();
     const session = await createTavernSession({
         title: 'Pet native prompt',
         characterKey: 'char-pet-native-prompt',
         characterName: 'Aster',
-        contextSnapshot: {
-            character: { characterKey: 'char-pet-native-prompt', name: 'Aster' },
-        },
+        contextSnapshot: { character: { characterKey: 'char-pet-native-prompt', name: 'Aster' } },
         presetId: preset.id,
         presetName: preset.name,
     });
@@ -4432,8 +4452,9 @@ test('Pet interference enters ST-native simulation and turn depth prompts for th
             content: `Pet prompt history ${order}`,
         });
     }
+    await seedTavernPetForTest(session.id, createTavernPetTestState('adult'));
     const injectedText = renderTavernPetInterferenceText('brief-glimpse');
-    const activityDraft = {
+    const journal = {
         detail: {
             kind: 'event' as const,
             eventId: 'brief-glimpse' as const,
@@ -4444,43 +4465,41 @@ test('Pet interference enters ST-native simulation and turn depth prompts for th
         },
         coinDelta: 0,
     };
-    await tavernPetStateVersionsTable.put(parseCanonicalTavernPetStateVersionRecord({
-        sessionId: session.id,
-        revision: 1,
-        versionId: 'pet-native-prompt-version-1',
-        currentMarker: TAVERN_PET_CURRENT_MARKER,
-        actionId: 'pet-native-prompt-fixture',
-        action: {
-            kind: 'turn-advance',
-            context: {
-                turn: 0,
-                anchorOrder: 5,
-                latestEconomyLedgerOrder: 0,
-                recentExternalSpend: 0,
-                playerBalance: 100,
-                knownTargetName: '',
-                evolutionRequestId: 'pet-native-prompt-evolution-1',
-            },
-            randomDraws: [],
-            outcome: { eventId: 'brief-glimpse', activity: activityDraft },
+    await db.transaction(
+        'rw',
+        tavernPetCompanionTable,
+        tavernPetActionsTable,
+        tavernPetJournalTable,
+        async () => {
+            const current = await getTavernPetCompanionInCurrentDbTransaction();
+            if (!current) {throw new Error('pet_native_prompt_companion_missing');}
+            const state = structuredClone(current.state);
+            state.petTurn += 1;
+            await appendTavernPetTransitionInCurrentDbTransaction({
+                current,
+                actionId: 'pet-native-prompt-fixture',
+                sourceSessionId: session.id,
+                sourceTurn: 0,
+                sourceAnchorOrder: 5,
+                action: {
+                    kind: 'turn-advance',
+                    context: {
+                        sourceSessionId: session.id,
+                        sourceTurn: 0,
+                        sourceAnchorOrder: 5,
+                        petTurn: state.petTurn,
+                        recentExternalSpend: 0,
+                        playerBalance: 100,
+                        knownTargetName: '',
+                        evolutionRequestId: 'pet-native-prompt-evolution-1',
+                    },
+                    outcome: { eventId: 'brief-glimpse', journal },
+                },
+                state,
+                journal,
+            });
         },
-        activityId: 'pet-native-prompt-activity-1',
-        anchorOrder: 5,
-        turn: 0,
-        state: createTavernPetTestState('adult'),
-        createdAt: 5,
-        updatedAt: 5,
-    }));
-    await tavernPetActivitiesTable.put(parseCanonicalTavernPetActivityRecord({
-        sessionId: session.id,
-        id: 'pet-native-prompt-activity-1',
-        sourceActionId: 'pet-native-prompt-fixture',
-        turn: 0,
-        anchorOrder: 5,
-        detail: activityDraft.detail,
-        coinDelta: 0,
-        createdAt: 5,
-    }));
+    );
 
     const nativeDepthPromptRuns: Array<Array<{
         layer?: string;

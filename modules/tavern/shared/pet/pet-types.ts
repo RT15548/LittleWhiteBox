@@ -1,6 +1,6 @@
 import type { TavernExpectedPhoneBoundary } from '../phone-boundary';
 
-export const TAVERN_PET_CURRENT_MARKER = 'current' as const;
+export const TAVERN_PET_COMPANION_ID = 'companion' as const;
 
 export const TAVERN_PET_PHASES = ['luring', 'egg', 'juvenile', 'adult'] as const;
 export type TavernPetPhase = typeof TAVERN_PET_PHASES[number];
@@ -91,9 +91,9 @@ export const TAVERN_PET_EVENT_IDS = [
 export type TavernPetEventId = typeof TAVERN_PET_EVENT_IDS[number];
 
 export type TavernPetMilestoneId = 'arrival' | 'hatch' | 'adulthood' | 'repattern';
-export type TavernPetActivityEventId = Exclude<TavernPetEventId, TavernPetMilestoneId>;
+export type TavernPetJournalEventId = Exclude<TavernPetEventId, TavernPetMilestoneId>;
 export type TavernPetNonInterferenceEventId = Exclude<
-    TavernPetActivityEventId,
+    TavernPetJournalEventId,
     TavernPetInterferenceEventId
 >;
 
@@ -114,7 +114,7 @@ export interface TavernPetAxes {
 
 export interface TavernPetOrigin {
     specimenNumber: number;
-    arrivalTurn: number;
+    arrivalAfterTurns: number;
     birthBias: TavernPetAxes;
 }
 
@@ -125,7 +125,7 @@ export interface TavernPetIncubationLedger {
 }
 
 export interface TavernPetInteractionWindow {
-    turn: number;
+    petTurn: number;
     feedCount: number;
     tapCount: number;
     bgmCount: number;
@@ -165,11 +165,14 @@ export interface TavernPetEvolutionRequest {
     previousPersonaId?: TavernPetPersonaId;
     axes: TavernPetAxes;
     stats: TavernPetLifetimeStats;
-    turn: number;
-    anchorOrder: number;
+    sourceSessionId: string;
+    sourceTurn: number;
+    sourcePetTurn: number;
+    sourceAnchorOrder: number;
 }
 
 export interface TavernPetState {
+    petTurn: number;
     phase: TavernPetPhase;
     dormant: boolean;
     origin: TavernPetOrigin;
@@ -185,9 +188,7 @@ export interface TavernPetState {
     incubation?: TavernPetIncubationLedger;
     interactionWindow: TavernPetInteractionWindow;
     idleTurns: number;
-    observedEconomyLedgerOrder: number;
-    beggingDeadlineTurn?: number;
-    lastFeedTurn?: number;
+    beggingDeadlinePetTurn?: number;
     toyCooldownTurns: number;
     eventCooldowns: Partial<Record<TavernPetEventId, number>>;
     interferenceEnabled: boolean;
@@ -277,15 +278,11 @@ export interface TavernPetEventEvaluationContext {
     knownTargetName: string;
 }
 
-export interface TavernPetRandomDraw {
-    maxExclusive: number;
-    value: number;
-}
-
 export interface TavernPetTurnContext {
-    turn: number;
-    anchorOrder: number;
-    latestEconomyLedgerOrder: number;
+    sourceSessionId: string;
+    sourceTurn: number;
+    sourceAnchorOrder: number;
+    petTurn: number;
     recentExternalSpend: number;
     playerBalance: number;
     knownTargetName: string;
@@ -301,7 +298,7 @@ export interface TavernPetCoinEffect {
     sourceId: string;
 }
 
-export type TavernPetActivityDetail =
+export type TavernPetJournalDetail =
     | {
         kind: 'event';
         eventId: TavernPetInterferenceEventId;
@@ -323,8 +320,8 @@ export type TavernPetActivityDetail =
         milestoneId: TavernPetMilestoneId;
         renderedText: string;
         motion: TavernPetMotion;
-        milestoneTurn: number;
-        milestoneAnchor: number;
+        milestonePetTurn: number;
+        milestoneSourceAnchorOrder: number;
         personaId?: TavernPetPersonaId;
         verdict?: string;
     }
@@ -343,8 +340,8 @@ export type TavernPetActivityDetail =
         motion: TavernPetMotion;
     };
 
-export interface TavernPetActivityDraft {
-    detail: TavernPetActivityDetail;
+export interface TavernPetJournalDraft {
+    detail: TavernPetJournalDetail;
     coinDelta: number;
     notificationText?: string;
 }
@@ -352,7 +349,7 @@ export interface TavernPetActivityDraft {
 export interface TavernPetTurnOutcome {
     eventId?: TavernPetEventId;
     milestoneId?: TavernPetMilestoneId;
-    activity?: TavernPetActivityDraft;
+    journal?: TavernPetJournalDraft;
     coinEffect?: TavernPetCoinEffect;
 }
 
@@ -380,7 +377,6 @@ export type TavernPetStateAction =
     | {
         kind: 'turn-advance';
         context: TavernPetTurnContext;
-        randomDraws: TavernPetRandomDraw[];
         outcome: TavernPetTurnOutcome;
     }
     | {
@@ -396,28 +392,34 @@ export type TavernPetStateAction =
         usedFallback: boolean;
     };
 
-export interface TavernPetStateVersionRecord {
-    sessionId: string;
+export interface TavernPetCompanionRecord {
+    id: typeof TAVERN_PET_COMPANION_ID;
     revision: number;
     versionId: string;
-    currentMarker?: typeof TAVERN_PET_CURRENT_MARKER;
-    actionId: string;
-    action: TavernPetStateAction;
-    activityId?: string;
-    anchorOrder: number;
-    turn: number;
     state: TavernPetState;
     createdAt: number;
     updatedAt: number;
 }
 
-export interface TavernPetActivityRecord {
-    sessionId: string;
+export interface TavernPetActionRecord {
+    id: string;
+    revision: number;
+    sourceSessionId: string;
+    sourceTurn: number;
+    sourceAnchorOrder: number;
+    action: TavernPetStateAction;
+    activityId?: string;
+    createdAt: number;
+}
+
+export interface TavernPetJournalRecord {
     id: string;
     sourceActionId: string;
-    turn: number;
-    anchorOrder: number;
-    detail: TavernPetActivityDetail;
+    sourceSessionId: string;
+    sourceTurn: number;
+    sourceAnchorOrder: number;
+    petTurn: number;
+    detail: TavernPetJournalDetail;
     coinDelta: number;
     notificationText?: string;
     createdAt: number;
@@ -459,25 +461,31 @@ export interface TavernPetView {
     availableActions: TavernPetAvailableAction[];
 }
 
-export interface TavernPetStateVersionReceipt {
-    sessionId: string;
+export interface TavernPetCompanionReceipt {
+    id: typeof TAVERN_PET_COMPANION_ID;
     revision: number;
     versionId: string;
-    actionId: string;
-    action: TavernPetStateAction;
-    activityId?: string;
-    anchorOrder: number;
-    turn: number;
     createdAt: number;
     updatedAt: number;
 }
 
+export interface TavernPetActionReceipt {
+    id: string;
+    revision: number;
+    sourceSessionId: string;
+    sourceTurn: number;
+    sourceAnchorOrder: number;
+    action: TavernPetStateAction;
+    activityId?: string;
+    createdAt: number;
+}
+
 export interface TavernPetMutationResult {
-    record: TavernPetStateVersionReceipt | null;
-    actionRecord: TavernPetStateVersionReceipt | null;
+    companion: TavernPetCompanionReceipt | null;
+    actionRecord: TavernPetActionReceipt | null;
     view: TavernPetView;
     playerBalance: number;
-    activities: TavernPetActivityRecord[];
+    journal: TavernPetJournalRecord[];
     replay: boolean;
     changed: boolean;
 }
@@ -518,20 +526,16 @@ export interface ResolveTavernPetEvolutionInput {
     usedFallback: boolean;
 }
 
-export interface TavernPetPrivateChatSnapshot {
-    record: TavernPetStateVersionRecord;
-    recentActivities: TavernPetActivityRecord[];
+export interface LetTavernPetLeaveInput {
+    sessionId: string;
+    boundary: TavernExpectedPhoneBoundary;
+    expectedRevision: number;
+    expectedVersionId: string;
 }
 
-export interface TavernPetRestoreImpact {
-    changed: boolean;
-    targetFloor: number;
-    deletedVersionCount: number;
-    deletedActivityCount: number;
-    phaseChanged: boolean;
-    personaChanged: boolean;
-    pendingEvolutionChanged: boolean;
-    coinDelta: number;
+export interface TavernPetPrivateChatSnapshot {
+    companion: TavernPetCompanionRecord;
+    recentJournal: TavernPetJournalRecord[];
 }
 
 export type TavernPetErrorCode =
@@ -544,9 +548,7 @@ export type TavernPetErrorCode =
     | 'pet_version_id_invalid'
     | 'pet_version_conflict'
     | 'pet_anchor_order_invalid'
-    | 'pet_anchor_order_regression'
     | 'pet_turn_invalid'
-    | 'pet_turn_regression'
     | 'pet_state_missing'
     | 'pet_state_exists'
     | 'pet_phase_invalid'
@@ -561,23 +563,25 @@ export type TavernPetErrorCode =
     | 'pet_random_invalid'
     | 'pet_random_exhausted'
     | 'pet_state_invalid'
-    | 'pet_activity_invalid'
+    | 'pet_journal_invalid'
     | 'pet_history_invalid';
 
 export const TAVERN_PET_INSUFFICIENT_FUNDS_REASON = 'insufficient-funds';
 
 export class TavernPetError extends Error {
     readonly code: TavernPetErrorCode;
+    readonly detail: string;
     readonly reason: string;
 
-    constructor(code: TavernPetErrorCode, reason = '') {
-        super(reason ? `${code}:${reason}` : code);
+    constructor(code: TavernPetErrorCode, detail = '') {
+        super(detail ? `${code}:${detail}` : code);
         this.name = 'TavernPetError';
         this.code = code;
-        this.reason = reason;
+        this.detail = detail;
+        this.reason = detail;
     }
 }
 
-export function throwTavernPetError(code: TavernPetErrorCode, reason = ''): never {
-    throw new TavernPetError(code, reason);
+export function throwTavernPetError(code: TavernPetErrorCode, detail = ''): never {
+    throw new TavernPetError(code, detail);
 }

@@ -5,6 +5,8 @@ export interface DexieTable<T = Record<string, unknown>> {
     update(key: unknown, changes: Partial<T>): Promise<number>;
     delete(key: unknown): Promise<void>;
     bulkDelete(keys: unknown[]): Promise<void>;
+    count(): Promise<number>;
+    toArray(): Promise<T[]>;
     orderBy(index: string): { reverse(): { toArray(): Promise<T[]> } };
     where(index: string): {
         equals(value: unknown): {

@@ -12,7 +12,7 @@ import {
 } from './pet-personas';
 import {
     TAVERN_PET_EMOTIONS,
-    type TavernPetActivityRecord,
+    type TavernPetJournalRecord,
     type TavernPetAxes,
     type TavernPetChatResponse,
     type TavernPetEmotion,
@@ -183,7 +183,7 @@ const COGNITION_SEPARATOR = '下面是输出格式，只和你怎么回话有关
 
 function chatSystemMessage(
     state: TavernPetState,
-    activities: readonly TavernPetActivityRecord[],
+    journal: readonly TavernPetJournalRecord[],
 ): string {
     if (state.phase !== 'juvenile' && state.phase !== 'adult') {
         throwTavernPetError('pet_chat_unavailable', state.phase);
@@ -200,8 +200,8 @@ function chatSystemMessage(
             ].join('\n'))
             .join('\n')
         : '无';
-    const traces = activities.length
-        ? activities.slice(0, 5).map((activity) => renderTavernPetSelfMemory(activity.detail)).join('\n')
+    const traces = journal.length
+        ? journal.slice(0, 5).map((entry) => renderTavernPetSelfMemory(entry.detail)).join('\n')
         : '无';
     const selfName = selfNameLine(state);
     const summaryLine = '我对外面那个人的印象：'
@@ -265,13 +265,13 @@ function chatSystemMessage(
 
 export function buildTavernPetChatMessages(input: {
     state: TavernPetState;
-    recentActivities: readonly TavernPetActivityRecord[];
+    recentJournal: readonly TavernPetJournalRecord[];
     playerText: unknown;
 }): XbTavernMessage[] {
     const playerText = normalizeTavernPetPlayerText(input.playerText);
     if (!playerText) {throwTavernPetError('pet_chat_invalid', 'player-text');}
     return [
-        { role: 'system', content: chatSystemMessage(input.state, input.recentActivities) },
+        { role: 'system', content: chatSystemMessage(input.state, input.recentJournal) },
         { role: 'user', content: playerText },
     ];
 }

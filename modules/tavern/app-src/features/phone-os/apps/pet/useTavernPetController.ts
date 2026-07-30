@@ -9,12 +9,12 @@ import {
 import { captureTavernPhoneBoundary } from '../../../../../shared/phone-boundary';
 import {
     commitTavernPetChatResponse,
-    getCurrentTavernPetView,
+    getTavernPetSnapshot,
     getTavernPetPendingEvolutionRequest,
     getTavernPetPrivateSnapshotForChat,
     interactWithTavernPet,
-    listTavernPetActivities,
-    listTavernPetActivitiesByIds,
+    letTavernPetLeave,
+    listTavernPetJournalByIds,
     lureTavernPet,
     renameTavernPet,
     resolveTavernPetEvolution,
@@ -30,9 +30,9 @@ import {
     tavernPetStaticEvolutionVerdict,
 } from '../../../../../shared/pet/pet-chat';
 import type {
-    TavernPetActivityRecord,
     TavernPetAvailableAction,
     TavernPetInteractionId,
+    TavernPetJournalRecord,
     TavernPetMutationBoundary,
     TavernPetMutationResult,
     TavernPetView,
@@ -47,14 +47,14 @@ import {
     tavernPetUiError,
 } from './tavern-pet-errors';
 import {
-    projectTavernPetActivityRows,
+    projectTavernPetJournalRows,
     tavernPetCurrentUtterance,
     TAVERN_PET_REBUFF_FACE,
     type TavernPetUtterancePresentation,
 } from './tavern-pet-presentation';
 
 type TavernPetModelRunner = (options: TavernRunOnceOptions) => Promise<TavernRunOnceResult>;
-type TavernPetMutationKind = Exclude<TavernPetInteractionId, 'chat'> | 'rename' | 'toggle-interference';
+type TavernPetMutationKind = Exclude<TavernPetInteractionId, 'chat'> | 'rename' | 'toggle-interference' | 'leave';
 type TavernPetModelRequestKind = '' | 'chat' | 'evolution';
 
 export interface TavernPetControllerOptions {
@@ -111,7 +111,7 @@ function cloneSerializable<T>(value: T): T {
 
 export function useTavernPetController(options: TavernPetControllerOptions) {
     const view = ref<TavernPetView>(emptyTavernPetView());
-    const activities = ref<ReturnType<typeof projectTavernPetActivityRows>>([]);
+    const journal = ref<ReturnType<typeof projectTavernPetJournalRows>>([]);
     const loading = ref(false);
     const loadError = ref('');
     const actionError = ref('');
@@ -123,7 +123,8 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
     const nestOpen = ref(false);
     const namingOpen = ref(false);
     const nameDraft = ref('');
-    const latestActivityId = ref('');
+    const latestJournalId = ref('');
+    const leaveConfirmOpen = ref(false);
     const temporaryUtterance = ref<TavernPetUtterancePresentation | null>(null);
     const murmurVisible = ref(true);
     let readSequence = 0;
@@ -136,12 +137,12 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
     let pendingLookup = false;
     let pendingScheduleQueued = false;
     let murmurTimer: ReturnType<typeof setTimeout> | null = null;
-    const seenActivityIds = new Set<string>();
+    const seenJournalIds = new Set<string>();
     const modelRunner = options.runModel || runTavernOnce;
 
     const utterance = computed<TavernPetUtterancePresentation>(() => (
         temporaryUtterance.value
-        || tavernPetCurrentUtterance(view.value, latestActivityId.value)
+        || tavernPetCurrentUtterance(view.value, latestJournalId.value)
     ));
     const hasCustomName = computed(() => Boolean(
         view.value.specimenLabel
@@ -187,9 +188,9 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
         clearMurmurTimer();
         pendingLookup = false;
         pendingScheduleQueued = false;
-        seenActivityIds.clear();
+        seenJournalIds.clear();
         view.value = emptyTavernPetView();
-        activities.value = [];
+        journal.value = [];
         loading.value = false;
         loadError.value = '';
         actionError.value = '';
@@ -199,7 +200,8 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
         nestOpen.value = false;
         namingOpen.value = false;
         nameDraft.value = '';
-        latestActivityId.value = '';
+        latestJournalId.value = '';
+        leaveConfirmOpen.value = false;
         temporaryUtterance.value = null;
         murmurVisible.value = true;
     }
@@ -247,15 +249,21 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
 
     function applyPetSnapshot(
         nextView: TavernPetView,
-        nextActivities: readonly TavernPetActivityRecord[],
+        nextJournal: readonly TavernPetJournalRecord[],
         input: { baseline?: boolean; clearTemporary?: boolean } = {},
     ): void {
         view.value = nextView;
-        activities.value = projectTavernPetActivityRows(nextActivities);
-        latestActivityId.value = nextActivities[0]?.id || '';
+        journal.value = projectTavernPetJournalRows(nextJournal);
+        latestJournalId.value = nextJournal[0]?.id || '';
+        if (nextView.existence !== 'present') {
+            nestOpen.value = false;
+            namingOpen.value = false;
+            nameDraft.value = '';
+            leaveConfirmOpen.value = false;
+        }
         if (input.clearTemporary !== false) {temporaryUtterance.value = null;}
         if (input.baseline) {
-            nextActivities.forEach((activity) => seenActivityIds.add(activity.id));
+            nextJournal.forEach((entry) => seenJournalIds.add(entry.id));
         }
     }
 
@@ -274,15 +282,12 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
         if (input.visibleLoading !== false) {loading.value = true;}
         loadError.value = '';
         try {
-            const [nextView, nextActivities] = await Promise.all([
-                getCurrentTavernPetView(sessionId),
-                listTavernPetActivities(sessionId, { limit: 30 }),
-            ]);
+            const snapshot = await getTavernPetSnapshot(sessionId);
             if (sequence !== readSequence
                 || readStateRevision !== stateRevision
                 || sessionId !== currentSessionId()
             ) {return;}
-            applyPetSnapshot(nextView, nextActivities, input);
+            applyPetSnapshot(snapshot.view, snapshot.journal, input);
             preparedSessionId = sessionId;
         } catch (error) {
             if (sequence !== readSequence
@@ -304,14 +309,14 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
         schedulePendingEvolution();
     }
 
-    function notifyActivities(records: readonly TavernPetActivityRecord[]): void {
+    function notifyJournal(records: readonly TavernPetJournalRecord[]): void {
         [...records]
             .sort((left, right) => left.createdAt - right.createdAt || left.id.localeCompare(right.id))
-            .forEach((activity) => {
-                if (seenActivityIds.has(activity.id)) {return;}
-                seenActivityIds.add(activity.id);
-                if (activity.notificationText) {
-                    options.showToast?.(activity.notificationText, { durationMs: 4_800 });
+            .forEach((entry) => {
+                if (seenJournalIds.has(entry.id)) {return;}
+                seenJournalIds.add(entry.id);
+                if (entry.notificationText) {
+                    options.showToast?.(entry.notificationText, { durationMs: 4_800 });
                 }
             });
     }
@@ -320,10 +325,10 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
         stateRevision += 1;
         readSequence += 1;
         loading.value = false;
-        applyPetSnapshot(result.view, result.activities);
+        applyPetSnapshot(result.view, result.journal);
         const activityId = result.actionRecord?.activityId || '';
-        if (activityId) {
-            notifyActivities(result.activities.filter((activity) => activity.id === activityId));
+        if (activityId && result.actionRecord?.sourceSessionId === currentSessionId()) {
+            notifyJournal(result.journal.filter((entry) => entry.id === activityId));
         }
     }
 
@@ -409,11 +414,11 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
             ));
             if (!owns()) {return null;}
             applyMutationResult(result);
-            const committedActivity = result.actionRecord?.activityId
-                ? result.activities.find((activity) => activity.id === result.actionRecord?.activityId)
+            const committedJournal = result.actionRecord?.activityId
+                ? result.journal.find((entry) => entry.id === result.actionRecord?.activityId)
                 : null;
-            if (committedActivity?.detail.kind === 'chat' && committedActivity.detail.murmur) {
-                armMurmur(committedActivity.detail.murmur);
+            if (committedJournal?.detail.kind === 'chat' && committedJournal.detail.murmur) {
+                armMurmur(committedJournal.detail.murmur);
             } else {
                 armMurmur('');
             }
@@ -466,6 +471,7 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
 
     function openNaming(): void {
         if (view.value.phase !== 'juvenile' && view.value.phase !== 'adult') {return;}
+        actionError.value = '';
         nameDraft.value = hasCustomName.value ? view.value.displayName : '';
         namingOpen.value = true;
     }
@@ -478,6 +484,27 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
     function deactivatePet(): void {
         closeNaming();
         closeNest();
+        closeLeaveConfirmation();
+    }
+
+    function openLeaveConfirmation(): void {
+        if (view.value.existence !== 'present' || mutationOwner || busyAction.value) {return;}
+        actionError.value = '';
+        leaveConfirmOpen.value = true;
+    }
+
+    function closeLeaveConfirmation(): void {
+        if (busyAction.value !== 'leave') {leaveConfirmOpen.value = false;}
+    }
+
+    async function confirmPetLeave(): Promise<TavernPetMutationResult | null> {
+        if (!leaveConfirmOpen.value) {return null;}
+        const result = await runMutation('leave', async (boundary) => await letTavernPetLeave(boundary));
+        if (result) {
+            leaveConfirmOpen.value = false;
+            closeNest();
+        }
+        return result;
     }
 
     async function submitName(value = nameDraft.value): Promise<TavernPetMutationResult | null> {
@@ -560,8 +587,6 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
         status.value = '';
         temporaryUtterance.value = null;
         try {
-            const boundary = await captureTavernPhoneBoundary(owner.sessionId);
-            if (!ownsModelRequest(owner)) {return;}
             const lateBlocked = baseInteractionBlockedReason();
             if (lateBlocked || options.chatRunning.value || options.chatCancelling.value) {
                 chatError.value = lateBlocked || '角色正在回复';
@@ -570,8 +595,8 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
             const snapshot = await getTavernPetPrivateSnapshotForChat(owner.sessionId);
             if (!ownsModelRequest(owner)) {return;}
             if (!snapshot
-                || snapshot.record.revision !== view.value.revision
-                || snapshot.record.versionId !== view.value.versionId
+                || snapshot.companion.revision !== view.value.revision
+                || snapshot.companion.versionId !== view.value.versionId
             ) {
                 chatError.value = '它在你等回复的时候变了主意。';
                 stateRevision += 1;
@@ -582,8 +607,8 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
                 agentConfig: cloneSerializable(options.agentConfig.value || {}),
                 providerRole: 'delegate',
                 messages: buildTavernPetChatMessages({
-                    state: snapshot.record.state,
-                    recentActivities: snapshot.recentActivities,
+                    state: snapshot.companion.state,
+                    recentJournal: snapshot.recentJournal,
                     playerText,
                 }),
                 tools: [],
@@ -592,16 +617,18 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
                 promptDiagnostics: { channel: 'phone-pet', operation: 'chat' },
             });
             if (!ownsModelRequest(owner)) {return;}
-            const parsed = parseTavernPetChatResponse(modelResult.text, snapshot.record.state);
+            const parsed = parseTavernPetChatResponse(modelResult.text, snapshot.companion.state);
             parsed.warnings.forEach((warning) => {
                 console.warn('[LittleWhiteBox/tavern] Pet chat response warning', warning);
             });
+            const boundary = await captureTavernPhoneBoundary(owner.sessionId);
+            if (!ownsModelRequest(owner)) {return;}
             const result = await commitTavernPetChatResponse({
                 sessionId: owner.sessionId,
                 boundary,
                 actionId,
-                expectedRevision: snapshot.record.revision,
-                expectedVersionId: snapshot.record.versionId,
+                expectedRevision: snapshot.companion.revision,
+                expectedVersionId: snapshot.companion.versionId,
                 playerText,
                 response: parsed.response,
             });
@@ -709,18 +736,18 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
     }
 
     async function refreshAfterPetDomainChange(
-        expectedSessionId = '',
-        activityIds: readonly string[] = [],
+        journalIds: readonly string[] = [],
     ): Promise<void> {
-        const sessionId = String(expectedSessionId || '').trim();
-        if (!sessionId || sessionId !== currentSessionId()) {return;}
+        const sessionId = currentSessionId();
+        if (!sessionId) {return;}
         stateRevision += 1;
         await refreshPet({ visibleLoading: false });
         if (sessionId !== currentSessionId()) {return;}
-        const records = await listTavernPetActivitiesByIds(sessionId, activityIds);
+        const records = await listTavernPetJournalByIds(journalIds);
         if (sessionId !== currentSessionId()) {return;}
-        notifyActivities(records);
-        const latest = records.find((record) => record.id === latestActivityId.value);
+        const sourceLocalRecords = records.filter((record) => record.sourceSessionId === sessionId);
+        notifyJournal(sourceLocalRecords);
+        const latest = sourceLocalRecords.find((record) => record.id === latestJournalId.value);
         if (latest?.detail.kind === 'chat' && latest.detail.murmur) {
             armMurmur(latest.detail.murmur);
         }
@@ -776,7 +803,7 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
     return {
         actionBlockedReason,
         actionError,
-        activities,
+        journal,
         busyAction,
         canSubmitChat,
         chatBlockedReason,
@@ -785,11 +812,13 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
         deactivatePet,
         closeNaming,
         closeNest,
+        closeLeaveConfirmation,
         hasCustomName,
         interactionBlockedReason,
         isChatWaiting,
         isModelWaiting,
         loadError,
+        leaveConfirmOpen,
         loading,
         modelRequestKind,
         murmurVisible,
@@ -798,12 +827,14 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
         nestOpen,
         openNaming,
         openNest,
+        openLeaveConfirmation,
         performAction,
         preparePet,
         refreshAfterEconomyDomainChange,
         refreshAfterPetDomainChange,
         refreshPet,
         restoreSpecimenName,
+        confirmPetLeave,
         sendChat,
         setInterferenceEnabled,
         status,

@@ -1,15 +1,14 @@
 import db, {
-    getLatestTavernMessage,
     tavernEconomyAccountsTable,
     tavernEconomyTransactionsTable,
     tavernMessagesTable,
-    tavernPetActivitiesTable,
-    tavernPetStateVersionsTable,
+    tavernPetActionsTable,
+    tavernPetCompanionTable,
+    tavernPetJournalTable,
     tavernSessionsTable,
     type TavernSessionRecord,
 } from '../session-db';
 import {
-    ensureTavernEconomy,
     ensureTavernEconomyInCurrentDbTransaction,
     postTavernEconomyTransactionInCurrentDbTransaction,
 } from '../economy/economy-service';
@@ -25,8 +24,8 @@ import {
 import {
     canonicalTavernPetStaticVerdict,
     isTavernPetVerdictText,
-    renderTavernPetMilestoneActivity,
-    renderTavernPetStatusActivity,
+    renderTavernPetMilestoneJournal,
+    renderTavernPetStatusJournal,
 } from './pet-copy';
 import {
     normalizeTavernPetChatResponse,
@@ -34,11 +33,11 @@ import {
 } from './pet-chat';
 import {
     assertTavernPetStateInvariant,
-    parseCanonicalTavernPetActivityRecord,
-    parseCanonicalTavernPetStateVersionRecord,
+    parseCanonicalTavernPetActionRecord,
+    parseCanonicalTavernPetCompanionRecord,
+    parseCanonicalTavernPetJournalRecord,
 } from './pet-invariants';
 import {
-    createTavernPetRecordingRandomSource,
     drawTavernPetOrigin,
     tavernPetRandomSource,
     type TavernPetRandomSource,
@@ -54,55 +53,37 @@ import {
     wakeTavernPetState,
 } from './pet-rules';
 import {
-    TAVERN_PET_CURRENT_MARKER,
+    TAVERN_PET_COMPANION_ID,
     TAVERN_PET_INSUFFICIENT_FUNDS_REASON,
     type CommitTavernPetChatResponseInput,
     type InteractWithTavernPetInput,
+    type LetTavernPetLeaveInput,
     type LureTavernPetInput,
     type RenameTavernPetInput,
     type ResolveTavernPetEvolutionInput,
     type SetTavernPetInterferenceInput,
-    type TavernPetActivityDraft,
-    type TavernPetActivityRecord,
+    type TavernPetActionReceipt,
+    type TavernPetActionRecord,
+    type TavernPetCompanionReceipt,
+    type TavernPetCompanionRecord,
     type TavernPetEvolutionRequest,
     type TavernPetInteractionId,
+    type TavernPetJournalDraft,
+    type TavernPetJournalRecord,
     type TavernPetMutationBoundary,
     type TavernPetMutationResult,
     type TavernPetPrivateChatSnapshot,
     type TavernPetState,
     type TavernPetStateAction,
-    type TavernPetStateVersionReceipt,
-    type TavernPetStateVersionRecord,
     type WakeTavernPetInput,
     throwTavernPetError,
 } from './pet-types';
 import { createTavernPetView } from './pet-view';
 
-const DEFAULT_ACTIVITY_LIMIT = 30;
-const MAX_ACTIVITY_LIMIT = 100;
-
-type PetRangeCollection<T> = {
-    reverse(): PetRangeCollection<T>;
-    filter(predicate: (value: T) => boolean): PetRangeCollection<T>;
-    limit(count: number): PetRangeCollection<T>;
-    first(): Promise<T | undefined>;
-    toArray(): Promise<T[]>;
-};
-
-type PetRangeTable<T> = {
-    where(index: string): {
-        between(
-            lower: unknown,
-            upper: unknown,
-            includeLower?: boolean,
-            includeUpper?: boolean,
-        ): PetRangeCollection<T>;
-    };
-};
-
-type PetBulkGetTable<T> = {
-    bulkGet(keys: unknown[]): Promise<Array<T | undefined>>;
-};
+const DEFAULT_JOURNAL_LIMIT = 30;
+const MAX_JOURNAL_LIMIT = 100;
+const RECENT_MEMORY_JOURNAL_PAGE_SIZE = 16;
+const RECENT_MEMORY_JOURNAL_LIMIT = 5;
 
 interface TavernPetPaymentSpec {
     idempotencyKey: string;
@@ -116,24 +97,47 @@ interface TavernPetPaymentSpec {
 interface TavernPetPlayerMutationPlan {
     action: TavernPetStateAction;
     state: TavernPetState;
-    activity?: TavernPetActivityDraft;
-    observePostedLedger?: boolean;
+    journal?: TavernPetJournalDraft;
 }
 
 interface TavernPetPlayerMutationOptions {
     payment: TavernPetPaymentSpec | null;
-    replayMatches: (record: TavernPetStateVersionRecord) => boolean;
+    replayMatches: (record: TavernPetActionRecord) => boolean;
     build: (input: {
-        current: TavernPetStateVersionRecord | null;
+        current: TavernPetCompanionRecord | null;
         session: TavernSessionRecord;
-        currentTurn: number;
+        currentPetTurn: number;
         playerBalance: number;
     }) => TavernPetPlayerMutationPlan;
 }
 
-export interface ListTavernPetActivitiesOptions {
+interface TavernPetJournalRangeCollection {
+    reverse(): TavernPetJournalRangeCollection;
+    limit(amount: number): TavernPetJournalRangeCollection;
+    toArray(): Promise<TavernPetJournalRecord[]>;
+}
+
+interface TavernPetJournalReadTable {
+    orderBy(index: string): TavernPetJournalRangeCollection;
+    where(index: string): {
+        between(
+            lower: unknown,
+            upper: unknown,
+            includeLower?: boolean,
+            includeUpper?: boolean,
+        ): TavernPetJournalRangeCollection;
+    };
+    bulkGet(ids: readonly string[]): Promise<Array<TavernPetJournalRecord | undefined>>;
+}
+
+interface TavernPetClearTable {
+    clear(): Promise<void>;
+}
+
+export interface ListTavernPetJournalOptions {
     limit?: number;
     beforeCreatedAt?: number | null;
+    sourceSessionId?: string;
 }
 
 function now(): number {
@@ -245,7 +249,7 @@ function sameJson(left: unknown, right: unknown): boolean {
 }
 
 function normalizeMutationBoundary(input: TavernPetMutationBoundary): TavernPetMutationBoundary & {
-    anchorOrder: number;
+    sourceAnchorOrder: number;
 } {
     const expectedRevision = normalizeExpectedRevision(input.expectedRevision);
     return {
@@ -254,65 +258,339 @@ function normalizeMutationBoundary(input: TavernPetMutationBoundary): TavernPetM
         actionId: normalizeActionId(input.actionId),
         expectedRevision,
         expectedVersionId: normalizeExpectedVersionId(input.expectedVersionId, expectedRevision),
-        anchorOrder: tavernPhoneBoundaryAnchorOrder(input.boundary),
+        sourceAnchorOrder: tavernPhoneBoundaryAnchorOrder(input.boundary),
     };
 }
 
-function versionReceipt(record: TavernPetStateVersionRecord | null): TavernPetStateVersionReceipt | null {
+function companionReceipt(record: TavernPetCompanionRecord | null): TavernPetCompanionReceipt | null {
     if (!record) {return null;}
     return {
-        sessionId: record.sessionId,
+        id: record.id,
         revision: record.revision,
         versionId: record.versionId,
-        actionId: record.actionId,
-        action: clone(record.action),
-        ...(record.activityId ? { activityId: record.activityId } : {}),
-        anchorOrder: record.anchorOrder,
-        turn: record.turn,
         createdAt: record.createdAt,
         updatedAt: record.updatedAt,
     };
 }
 
-async function findActionVersionInCurrentTransaction(
-    sessionId: string,
-    actionId: string,
-): Promise<TavernPetStateVersionRecord | null> {
-    const rows = await tavernPetStateVersionsTable
-        .where('[sessionId+actionId]')
-        .equals([sessionId, actionId])
-        .toArray();
-    const row = rows[0];
-    return row ? parseCanonicalTavernPetStateVersionRecord(row) : null;
+function actionReceipt(record: TavernPetActionRecord | null): TavernPetActionReceipt | null {
+    if (!record) {return null;}
+    return {
+        id: record.id,
+        revision: record.revision,
+        sourceSessionId: record.sourceSessionId,
+        sourceTurn: record.sourceTurn,
+        sourceAnchorOrder: record.sourceAnchorOrder,
+        action: clone(record.action),
+        ...(record.activityId ? { activityId: record.activityId } : {}),
+        createdAt: record.createdAt,
+    };
 }
 
-export async function findTavernPetActionVersionInCurrentDbTransaction(
-    sessionId: string,
+export async function getTavernPetCompanionInCurrentDbTransaction(): Promise<TavernPetCompanionRecord | null> {
+    const row = await tavernPetCompanionTable.get(TAVERN_PET_COMPANION_ID);
+    return row ? parseCanonicalTavernPetCompanionRecord(row) : null;
+}
+
+export async function findTavernPetActionInCurrentDbTransaction(
     actionId: string,
-): Promise<TavernPetStateVersionRecord | null> {
-    return await findActionVersionInCurrentTransaction(
-        normalizeSessionId(sessionId),
-        normalizeActionId(actionId),
+): Promise<TavernPetActionRecord | null> {
+    const row = await tavernPetActionsTable.get(normalizeActionId(actionId));
+    return row ? parseCanonicalTavernPetActionRecord(row) : null;
+}
+
+async function listJournalInCurrentTransaction(
+    options: ListTavernPetJournalOptions = {},
+): Promise<TavernPetJournalRecord[]> {
+    const limit = Math.min(
+        MAX_JOURNAL_LIMIT,
+        Math.max(1, Math.floor(Number(options.limit) || DEFAULT_JOURNAL_LIMIT)),
     );
+    const before = Number(options.beforeCreatedAt);
+    const hasBefore = options.beforeCreatedAt !== null
+        && options.beforeCreatedAt !== undefined
+        && Number.isSafeInteger(before)
+        && before >= 0;
+    const sourceSessionId = options.sourceSessionId === undefined
+        ? ''
+        : normalizeSessionId(options.sourceSessionId);
+    const table = tavernPetJournalTable as unknown as TavernPetJournalReadTable;
+    const rows = sourceSessionId
+        ? await table
+            .where('[sourceSessionId+createdAt+id]')
+            .between(
+                [sourceSessionId, 0, ''],
+                hasBefore
+                    ? [sourceSessionId, before, '']
+                    : [sourceSessionId, Number.MAX_SAFE_INTEGER, '\uffff'],
+                true,
+                !hasBefore,
+            )
+            .reverse()
+            .limit(limit)
+            .toArray()
+        : await (hasBefore
+            ? table
+                .where('[createdAt+id]')
+                .between([0, ''], [before, ''], true, false)
+            : table.orderBy('[createdAt+id]'))
+            .reverse()
+            .limit(limit)
+            .toArray();
+    return rows.map((row) => parseCanonicalTavernPetJournalRecord(row));
 }
 
-export async function getCurrentTavernPetStateVersionInCurrentDbTransaction(
+async function listRecentPetMemoriesInCurrentTransaction(): Promise<TavernPetJournalRecord[]> {
+    const table = tavernPetJournalTable as unknown as TavernPetJournalReadTable;
+    const memories: TavernPetJournalRecord[] = [];
+    let upper: [number, string] = [Number.MAX_SAFE_INTEGER, '\uffff'];
+    let includeUpper = true;
+    while (memories.length < RECENT_MEMORY_JOURNAL_LIMIT) {
+        const page = await table
+            .where('[createdAt+id]')
+            .between([0, ''], upper, true, includeUpper)
+            .reverse()
+            .limit(RECENT_MEMORY_JOURNAL_PAGE_SIZE)
+            .toArray();
+        if (!page.length) {break;}
+        for (const row of page) {
+            const journal = parseCanonicalTavernPetJournalRecord(row);
+            if (journal.detail.kind !== 'chat') {memories.push(journal);}
+            if (memories.length >= RECENT_MEMORY_JOURNAL_LIMIT) {break;}
+        }
+        if (memories.length >= RECENT_MEMORY_JOURNAL_LIMIT || page.length < RECENT_MEMORY_JOURNAL_PAGE_SIZE) {
+            break;
+        }
+        const oldest = page.at(-1);
+        if (!oldest) {break;}
+        upper = [oldest.createdAt, oldest.id];
+        includeUpper = false;
+    }
+    return memories;
+}
+
+async function currentPlayerBalanceInTransaction(sessionId: string): Promise<number> {
+    const account = await tavernEconomyAccountsTable.get([sessionId, TAVERN_PLAYER_ACCOUNT_ID]);
+    if (!account || !Number.isSafeInteger(account.balance) || account.balance < 0) {
+        throwTavernPetError('pet_state_invalid', 'player-balance');
+    }
+    return account.balance;
+}
+
+async function buildMutationResultInCurrentTransaction(input: {
+    session: TavernSessionRecord;
+    current: TavernPetCompanionRecord | null;
+    actionRecord: TavernPetActionRecord | null;
+    replay: boolean;
+    changed: boolean;
+}): Promise<TavernPetMutationResult> {
+    const [journal, playerBalance] = await Promise.all([
+        listJournalInCurrentTransaction(),
+        currentPlayerBalanceInTransaction(input.session.id),
+    ]);
+    return {
+        companion: companionReceipt(input.current),
+        actionRecord: actionReceipt(input.actionRecord),
+        view: createTavernPetView({
+            companion: input.current,
+            journal,
+            playerBalance,
+        }),
+        playerBalance,
+        journal: clone(journal),
+        replay: input.replay,
+        changed: input.changed,
+    };
+}
+
+async function findPaymentTransaction(
     sessionId: string,
-): Promise<TavernPetStateVersionRecord | null> {
-    const rows = await tavernPetStateVersionsTable
-        .where('[sessionId+currentMarker]')
-        .equals([sessionId, TAVERN_PET_CURRENT_MARKER])
+    idempotencyKey: string,
+): Promise<TavernEconomyTransactionRecord | null> {
+    const rows = await tavernEconomyTransactionsTable
+        .where('[sessionId+idempotencyKey]')
+        .equals([sessionId, idempotencyKey])
         .toArray();
-    if (rows.length > 1) {throwTavernPetError('pet_history_invalid', 'multiple-current');}
-    return rows[0] ? parseCanonicalTavernPetStateVersionRecord(rows[0]) : null;
+    return rows[0] || null;
 }
 
-async function getCurrentRecord(sessionId: string): Promise<TavernPetStateVersionRecord | null> {
-    return await getCurrentTavernPetStateVersionInCurrentDbTransaction(sessionId);
+function assertPaymentTransaction(
+    transaction: TavernEconomyTransactionRecord | null,
+    sessionId: string,
+    sourceAnchorOrder: number,
+    payment: TavernPetPaymentSpec,
+): TavernEconomyTransactionRecord {
+    if (!transaction
+        || transaction.sessionId !== sessionId
+        || transaction.idempotencyKey !== payment.idempotencyKey
+        || transaction.fromAccountId !== TAVERN_PLAYER_ACCOUNT_ID
+        || transaction.toAccountId !== TAVERN_SYSTEM_SINK_ACCOUNT_ID
+        || transaction.amount !== payment.amount
+        || transaction.kind !== payment.kind
+        || transaction.title !== payment.title
+        || transaction.note !== payment.note
+        || transaction.sourceDomain !== 'pet'
+        || transaction.sourceId !== payment.sourceId
+        || transaction.anchorOrder !== sourceAnchorOrder
+    ) {
+        throwTavernPetError('pet_action_conflict', payment.idempotencyKey);
+    }
+    return transaction;
 }
 
-function assertVersionCas(
-    current: TavernPetStateVersionRecord | null,
+async function assertReplayArtifacts(
+    replay: TavernPetActionRecord,
+    payment: TavernPetPaymentSpec | null,
+): Promise<void> {
+    const journalRows = (await tavernPetJournalTable
+        .where('sourceActionId')
+        .equals(replay.id)
+        .toArray())
+        .map((row) => parseCanonicalTavernPetJournalRecord(row));
+    if (replay.activityId) {
+        const journal = journalRows[0] || null;
+        if (!journal
+            || journalRows.length !== 1
+            || journal.id !== replay.activityId
+            || journal.sourceSessionId !== replay.sourceSessionId
+            || journal.sourceTurn !== replay.sourceTurn
+            || journal.sourceAnchorOrder !== replay.sourceAnchorOrder
+        ) {
+            throwTavernPetError('pet_action_conflict', replay.id);
+        }
+    } else if (journalRows.length) {
+        throwTavernPetError('pet_action_conflict', replay.id);
+    }
+    if (payment) {
+        assertPaymentTransaction(
+            await findPaymentTransaction(replay.sourceSessionId, payment.idempotencyKey),
+            replay.sourceSessionId,
+            replay.sourceAnchorOrder,
+            payment,
+        );
+    }
+}
+
+function buildCompanion(input: {
+    current: TavernPetCompanionRecord | null;
+    state: TavernPetState;
+    timestamp: number;
+}): TavernPetCompanionRecord {
+    assertTavernPetStateInvariant(input.state);
+    return parseCanonicalTavernPetCompanionRecord({
+        id: TAVERN_PET_COMPANION_ID,
+        revision: input.current ? input.current.revision + 1 : 1,
+        versionId: createId('pet-companion'),
+        state: clone(input.state),
+        createdAt: input.current?.createdAt ?? input.timestamp,
+        updatedAt: input.timestamp,
+    });
+}
+
+function buildJournal(input: {
+    id: string;
+    sourceActionId: string;
+    sourceSessionId: string;
+    sourceTurn: number;
+    sourceAnchorOrder: number;
+    petTurn: number;
+    draft: TavernPetJournalDraft;
+    timestamp: number;
+}): TavernPetJournalRecord {
+    return parseCanonicalTavernPetJournalRecord({
+        id: input.id,
+        sourceActionId: input.sourceActionId,
+        sourceSessionId: input.sourceSessionId,
+        sourceTurn: input.sourceTurn,
+        sourceAnchorOrder: input.sourceAnchorOrder,
+        petTurn: input.petTurn,
+        detail: clone(input.draft.detail),
+        coinDelta: input.draft.coinDelta,
+        ...(input.draft.notificationText ? { notificationText: input.draft.notificationText } : {}),
+        createdAt: input.timestamp,
+    });
+}
+
+function buildAction(input: {
+    id: string;
+    companion: TavernPetCompanionRecord;
+    sourceSessionId: string;
+    sourceTurn: number;
+    sourceAnchorOrder: number;
+    action: TavernPetStateAction;
+    activityId?: string;
+    timestamp: number;
+}): TavernPetActionRecord {
+    return parseCanonicalTavernPetActionRecord({
+        id: input.id,
+        revision: input.companion.revision,
+        sourceSessionId: input.sourceSessionId,
+        sourceTurn: input.sourceTurn,
+        sourceAnchorOrder: input.sourceAnchorOrder,
+        action: clone(input.action),
+        ...(input.activityId ? { activityId: input.activityId } : {}),
+        createdAt: input.timestamp,
+    });
+}
+
+export async function appendTavernPetTransitionInCurrentDbTransaction(input: {
+    current: TavernPetCompanionRecord | null;
+    actionId: string;
+    sourceSessionId: string;
+    sourceTurn: number;
+    sourceAnchorOrder: number;
+    action: TavernPetStateAction;
+    state: TavernPetState;
+    journal?: TavernPetJournalDraft;
+    timestamp?: number;
+}): Promise<{
+    companion: TavernPetCompanionRecord;
+    action: TavernPetActionRecord;
+    journal: TavernPetJournalRecord | null;
+}> {
+    const timestamp = input.timestamp ?? now();
+    const companion = buildCompanion({
+        current: input.current,
+        state: input.state,
+        timestamp,
+    });
+    const activityId = input.journal ? createId('pet-journal') : undefined;
+    const action = buildAction({
+        id: normalizeActionId(input.actionId),
+        companion,
+        sourceSessionId: normalizeSessionId(input.sourceSessionId),
+        sourceTurn: normalizeTurn(input.sourceTurn),
+        sourceAnchorOrder: normalizeTurn(input.sourceAnchorOrder),
+        action: input.action,
+        ...(activityId ? { activityId } : {}),
+        timestamp,
+    });
+    const journal = input.journal && activityId
+        ? buildJournal({
+            id: activityId,
+            sourceActionId: action.id,
+            sourceSessionId: action.sourceSessionId,
+            sourceTurn: action.sourceTurn,
+            sourceAnchorOrder: action.sourceAnchorOrder,
+            petTurn: companion.state.petTurn,
+            draft: input.journal,
+            timestamp,
+        })
+        : null;
+    await (tavernPetActionsTable as unknown as {
+        add(record: TavernPetActionRecord): Promise<unknown>;
+    }).add(action);
+    if (journal) {
+        await (tavernPetJournalTable as unknown as {
+            add(record: TavernPetJournalRecord): Promise<unknown>;
+        }).add(journal);
+    }
+    await tavernPetCompanionTable.put(companion);
+    return { companion: clone(companion), action: clone(action), journal: journal ? clone(journal) : null };
+}
+
+function assertCompanionCas(
+    current: TavernPetCompanionRecord | null,
     expectedRevision: number,
     expectedVersionId: string,
 ): void {
@@ -334,280 +612,6 @@ function assertVersionCas(
     }
 }
 
-async function appendVersionInCurrentTransaction(
-    current: TavernPetStateVersionRecord | null,
-    next: TavernPetStateVersionRecord,
-): Promise<void> {
-    if (current) {
-        const historical = clone(current);
-        delete historical.currentMarker;
-        await tavernPetStateVersionsTable.put(historical);
-    }
-    await (tavernPetStateVersionsTable as unknown as {
-        add(record: TavernPetStateVersionRecord): Promise<unknown>;
-    }).add(next);
-}
-
-async function listActivitiesInCurrentTransaction(
-    sessionId: string,
-    options: ListTavernPetActivitiesOptions = {},
-): Promise<TavernPetActivityRecord[]> {
-    const limit = Math.min(
-        MAX_ACTIVITY_LIMIT,
-        Math.max(1, Math.floor(Number(options.limit) || DEFAULT_ACTIVITY_LIMIT)),
-    );
-    const before = Number(options.beforeCreatedAt);
-    const hasBefore = options.beforeCreatedAt !== null
-        && options.beforeCreatedAt !== undefined
-        && Number.isSafeInteger(before)
-        && before >= 0;
-    const upperCreatedAt = hasBefore ? before : Number.MAX_SAFE_INTEGER;
-    const rows = await (tavernPetActivitiesTable as unknown as PetRangeTable<TavernPetActivityRecord>)
-        .where('[sessionId+createdAt]')
-        .between(
-            [sessionId, 0],
-            [sessionId, upperCreatedAt],
-            true,
-            !hasBefore,
-        )
-        .reverse()
-        .limit(limit)
-        .toArray();
-    return rows.map((row) => parseCanonicalTavernPetActivityRecord(row));
-}
-
-async function listRecentTavernPetMemoriesInCurrentTransaction(
-    sessionId: string,
-): Promise<TavernPetActivityRecord[]> {
-    const rows = await (tavernPetActivitiesTable as unknown as PetRangeTable<TavernPetActivityRecord>)
-        .where('[sessionId+createdAt]')
-        .between(
-            [sessionId, 0],
-            [sessionId, Number.MAX_SAFE_INTEGER],
-            true,
-            true,
-        )
-        .reverse()
-        .filter((row) => row.detail.kind !== 'chat')
-        .limit(5)
-        .toArray();
-    return rows.map((row) => parseCanonicalTavernPetActivityRecord(row));
-}
-
-async function currentPlayerBalanceInTransaction(sessionId: string): Promise<number> {
-    const account = await tavernEconomyAccountsTable.get([sessionId, TAVERN_PLAYER_ACCOUNT_ID]);
-    if (!account || !Number.isSafeInteger(account.balance) || account.balance < 0) {
-        throwTavernPetError('pet_state_invalid', 'player-balance');
-    }
-    return account.balance;
-}
-
-async function buildMutationResultInCurrentTransaction(input: {
-    session: TavernSessionRecord;
-    current: TavernPetStateVersionRecord | null;
-    actionRecord: TavernPetStateVersionRecord | null;
-    replay: boolean;
-    changed: boolean;
-}): Promise<TavernPetMutationResult> {
-    const [activities, playerBalance] = await Promise.all([
-        listActivitiesInCurrentTransaction(input.session.id),
-        currentPlayerBalanceInTransaction(input.session.id),
-    ]);
-    return {
-        record: versionReceipt(input.current),
-        actionRecord: versionReceipt(input.actionRecord),
-        view: createTavernPetView({
-            record: input.current,
-            activities,
-            currentTurn: sessionTurn(input.session),
-            playerBalance,
-        }),
-        playerBalance,
-        activities: clone(activities),
-        replay: input.replay,
-        changed: input.changed,
-    };
-}
-
-async function findPaymentTransaction(
-    sessionId: string,
-    idempotencyKey: string,
-): Promise<TavernEconomyTransactionRecord | null> {
-    const rows = await tavernEconomyTransactionsTable
-        .where('[sessionId+idempotencyKey]')
-        .equals([sessionId, idempotencyKey])
-        .toArray();
-    return rows[0] || null;
-}
-
-function assertPaymentTransaction(
-    transaction: TavernEconomyTransactionRecord | null,
-    sessionId: string,
-    anchorOrder: number,
-    payment: TavernPetPaymentSpec,
-): TavernEconomyTransactionRecord {
-    if (!transaction
-        || transaction.sessionId !== sessionId
-        || transaction.idempotencyKey !== payment.idempotencyKey
-        || transaction.fromAccountId !== TAVERN_PLAYER_ACCOUNT_ID
-        || transaction.toAccountId !== TAVERN_SYSTEM_SINK_ACCOUNT_ID
-        || transaction.amount !== payment.amount
-        || transaction.kind !== payment.kind
-        || transaction.title !== payment.title
-        || transaction.note !== payment.note
-        || transaction.sourceDomain !== 'pet'
-        || transaction.sourceId !== payment.sourceId
-        || transaction.anchorOrder !== anchorOrder
-    ) {
-        throwTavernPetError('pet_action_conflict', payment.idempotencyKey);
-    }
-    return transaction;
-}
-
-async function assertReplayArtifacts(
-    replay: TavernPetStateVersionRecord,
-    payment: TavernPetPaymentSpec | null,
-): Promise<void> {
-    const activityRows = await tavernPetActivitiesTable
-        .where('[sessionId+sourceActionId]')
-        .equals([replay.sessionId, replay.actionId])
-        .toArray();
-    if (replay.activityId) {
-        const activity = activityRows[0]
-            ? parseCanonicalTavernPetActivityRecord(activityRows[0])
-            : null;
-        if (!activity
-            || activityRows.length !== 1
-            || activity.id !== replay.activityId
-            || activity.turn !== replay.turn
-            || activity.anchorOrder !== replay.anchorOrder
-        ) {
-            throwTavernPetError('pet_action_conflict', replay.actionId);
-        }
-    } else if (activityRows.length) {
-        throwTavernPetError('pet_action_conflict', replay.actionId);
-    }
-    if (payment) {
-        assertPaymentTransaction(
-            await findPaymentTransaction(replay.sessionId, payment.idempotencyKey),
-            replay.sessionId,
-            replay.anchorOrder,
-            payment,
-        );
-    }
-}
-
-function buildVersion(input: {
-    current: TavernPetStateVersionRecord | null;
-    sessionId: string;
-    actionId: string;
-    action: TavernPetStateAction;
-    activityId?: string;
-    anchorOrder: number;
-    turn: number;
-    state: TavernPetState;
-    timestamp: number;
-}): TavernPetStateVersionRecord {
-    if (input.current && input.anchorOrder < input.current.anchorOrder) {
-        throwTavernPetError(
-            'pet_anchor_order_regression',
-            [String(input.anchorOrder), String(input.current.anchorOrder)].join('<'),
-        );
-    }
-    if (input.current && input.turn < input.current.turn) {
-        throwTavernPetError(
-            'pet_turn_regression',
-            [String(input.turn), String(input.current.turn)].join('<'),
-        );
-    }
-    assertTavernPetStateInvariant(input.state);
-    return parseCanonicalTavernPetStateVersionRecord({
-        sessionId: input.sessionId,
-        revision: input.current ? input.current.revision + 1 : 1,
-        versionId: createId('pet-version'),
-        currentMarker: TAVERN_PET_CURRENT_MARKER,
-        actionId: input.actionId,
-        action: clone(input.action),
-        ...(input.activityId ? { activityId: input.activityId } : {}),
-        anchorOrder: input.anchorOrder,
-        turn: input.turn,
-        state: clone(input.state),
-        createdAt: input.timestamp,
-        updatedAt: input.timestamp,
-    });
-}
-
-function buildActivity(input: {
-    sessionId: string;
-    id: string;
-    sourceActionId: string;
-    turn: number;
-    anchorOrder: number;
-    draft: TavernPetActivityDraft;
-    timestamp: number;
-}): TavernPetActivityRecord {
-    return parseCanonicalTavernPetActivityRecord({
-        sessionId: input.sessionId,
-        id: input.id,
-        sourceActionId: input.sourceActionId,
-        turn: input.turn,
-        anchorOrder: input.anchorOrder,
-        detail: clone(input.draft.detail),
-        coinDelta: input.draft.coinDelta,
-        ...(input.draft.notificationText
-            ? { notificationText: input.draft.notificationText }
-            : {}),
-        createdAt: input.timestamp,
-    });
-}
-
-export async function appendTavernPetTransitionInCurrentDbTransaction(input: {
-    current: TavernPetStateVersionRecord | null;
-    sessionId: string;
-    actionId: string;
-    action: TavernPetStateAction;
-    anchorOrder: number;
-    turn: number;
-    state: TavernPetState;
-    activity?: TavernPetActivityDraft;
-    timestamp?: number;
-}): Promise<{
-    record: TavernPetStateVersionRecord;
-    activity: TavernPetActivityRecord | null;
-}> {
-    const timestamp = input.timestamp ?? now();
-    const activityId = input.activity ? createId('pet-activity') : undefined;
-    const activity = input.activity && activityId
-        ? buildActivity({
-            sessionId: input.sessionId,
-            id: activityId,
-            sourceActionId: input.actionId,
-            turn: input.turn,
-            anchorOrder: input.anchorOrder,
-            draft: input.activity,
-            timestamp,
-        })
-        : null;
-    const record = buildVersion({
-        current: input.current,
-        sessionId: input.sessionId,
-        actionId: input.actionId,
-        action: input.action,
-        ...(activityId ? { activityId } : {}),
-        anchorOrder: input.anchorOrder,
-        turn: input.turn,
-        state: input.state,
-        timestamp,
-    });
-    if (activity) {
-        await (tavernPetActivitiesTable as unknown as {
-            add(record: TavernPetActivityRecord): Promise<unknown>;
-        }).add(activity);
-    }
-    await appendVersionInCurrentTransaction(input.current, record);
-    return { record: clone(record), activity: activity ? clone(activity) : null };
-}
-
 async function runTavernPetPlayerMutation(
     boundaryInput: TavernPetMutationBoundary,
     options: TavernPetPlayerMutationOptions,
@@ -617,25 +621,26 @@ async function runTavernPetPlayerMutation(
         'rw',
         tavernMessagesTable,
         tavernSessionsTable,
-        tavernPetStateVersionsTable,
-        tavernPetActivitiesTable,
+        tavernPetCompanionTable,
+        tavernPetActionsTable,
+        tavernPetJournalTable,
         tavernEconomyAccountsTable,
         tavernEconomyTransactionsTable,
         async () => {
             const session = await tavernSessionsTable.get(input.sessionId);
             if (!session) {throwTavernPetError('pet_session_missing', input.sessionId);}
-            const replay = await findActionVersionInCurrentTransaction(input.sessionId, input.actionId);
+            const replay = await findTavernPetActionInCurrentDbTransaction(input.actionId);
             if (replay) {
-                if (replay.revision !== input.expectedRevision + 1
-                    || replay.anchorOrder !== input.anchorOrder
+                if (replay.sourceSessionId !== input.sessionId
+                    || replay.sourceAnchorOrder !== input.sourceAnchorOrder
                     || !options.replayMatches(replay)
                 ) {
                     throwTavernPetError('pet_action_conflict', input.actionId);
                 }
                 await ensureTavernEconomyInCurrentDbTransaction(input.sessionId);
                 await assertReplayArtifacts(replay, options.payment);
-                const current = await getCurrentRecord(input.sessionId);
-                if (!current) {throwTavernPetError('pet_history_invalid', 'replay-current-missing');}
+                const current = await getTavernPetCompanionInCurrentDbTransaction();
+                if (!current) {throwTavernPetError('pet_history_invalid', 'replay-companion-missing');}
                 return await buildMutationResultInCurrentTransaction({
                     session,
                     current,
@@ -645,19 +650,17 @@ async function runTavernPetPlayerMutation(
                 });
             }
             await assertTavernPhoneBoundaryInCurrentTransaction(input.sessionId, input.boundary);
-            const current = await getCurrentRecord(input.sessionId);
-            assertVersionCas(current, input.expectedRevision, input.expectedVersionId);
+            const current = await getTavernPetCompanionInCurrentDbTransaction();
+            assertCompanionCas(current, input.expectedRevision, input.expectedVersionId);
             const economy = await ensureTavernEconomyInCurrentDbTransaction(input.sessionId);
-            const currentTurn = sessionTurn(session);
             const plan = options.build({
                 current,
                 session,
-                currentTurn,
+                currentPetTurn: current?.state.petTurn ?? 0,
                 playerBalance: economy.playerBalance,
             });
-            let transaction: TavernEconomyTransactionRecord | null = null;
             if (options.payment) {
-                transaction = await postTavernEconomyTransactionInCurrentDbTransaction({
+                const transaction = await postTavernEconomyTransactionInCurrentDbTransaction({
                     sessionId: input.sessionId,
                     idempotencyKey: options.payment.idempotencyKey,
                     fromAccountId: TAVERN_PLAYER_ACCOUNT_ID,
@@ -668,55 +671,30 @@ async function runTavernPetPlayerMutation(
                     note: options.payment.note,
                     sourceDomain: 'pet',
                     sourceId: options.payment.sourceId,
-                    anchorOrder: input.anchorOrder,
+                    anchorOrder: input.sourceAnchorOrder,
                 }, { touchSessionOnCreate: false });
                 assertPaymentTransaction(
                     transaction,
                     input.sessionId,
-                    input.anchorOrder,
+                    input.sourceAnchorOrder,
                     options.payment,
                 );
             }
-            if (plan.observePostedLedger) {
-                if (!transaction) {throwTavernPetError('pet_state_invalid', 'observed-ledger-without-payment');}
-                plan.state.observedEconomyLedgerOrder = transaction.ledgerOrder;
-            }
-            assertTavernPetStateInvariant(plan.state);
-            const timestamp = now();
-            const activityId = plan.activity ? createId('pet-activity') : undefined;
-            const activity = plan.activity && activityId
-                ? buildActivity({
-                    sessionId: input.sessionId,
-                    id: activityId,
-                    sourceActionId: input.actionId,
-                    turn: currentTurn,
-                    anchorOrder: input.anchorOrder,
-                    draft: plan.activity,
-                    timestamp,
-                })
-                : null;
-            const next = buildVersion({
+            const appended = await appendTavernPetTransitionInCurrentDbTransaction({
                 current,
-                sessionId: input.sessionId,
                 actionId: input.actionId,
+                sourceSessionId: input.sessionId,
+                sourceTurn: sessionTurn(session),
+                sourceAnchorOrder: input.sourceAnchorOrder,
                 action: plan.action,
-                ...(activityId ? { activityId } : {}),
-                anchorOrder: input.anchorOrder,
-                turn: currentTurn,
                 state: plan.state,
-                timestamp,
+                ...(plan.journal ? { journal: plan.journal } : {}),
             });
-            if (activity) {
-                await (tavernPetActivitiesTable as unknown as {
-                    add(record: TavernPetActivityRecord): Promise<unknown>;
-                }).add(activity);
-            }
-            await appendVersionInCurrentTransaction(current, next);
-            await tavernSessionsTable.update(input.sessionId, { updatedAt: timestamp });
+            await tavernSessionsTable.update(input.sessionId, { updatedAt: now() });
             return await buildMutationResultInCurrentTransaction({
                 session,
-                current: next,
-                actionRecord: next,
+                current: appended.companion,
+                actionRecord: appended.action,
                 replay: false,
                 changed: true,
             });
@@ -750,87 +728,92 @@ function wakePayment(actionId: string): TavernPetPaymentSpec {
 }
 
 export async function getCurrentTavernPetView(sessionId = '') {
+    return (await getTavernPetSnapshot(sessionId)).view;
+}
+
+/**
+ * Reads the Companion projection and its observable Journal from one database
+ * transaction so a Phone refresh cannot combine different Companion revisions.
+ */
+export async function getTavernPetSnapshot(sessionId = ''): Promise<{
+    view: ReturnType<typeof createTavernPetView>;
+    journal: TavernPetJournalRecord[];
+}> {
     const id = normalizeSessionId(sessionId);
-    const [session, record, activities, economy] = await Promise.all([
-        tavernSessionsTable.get(id),
-        getCurrentRecord(id),
-        listActivitiesInCurrentTransaction(id),
-        ensureTavernEconomy(id),
-    ]);
-    if (!session) {throwTavernPetError('pet_session_missing', id);}
-    return createTavernPetView({
-        record,
-        activities,
-        currentTurn: sessionTurn(session),
-        playerBalance: economy.playerBalance,
-    });
+    return await db.transaction(
+        'rw',
+        tavernSessionsTable,
+        tavernPetCompanionTable,
+        tavernPetJournalTable,
+        tavernEconomyAccountsTable,
+        tavernEconomyTransactionsTable,
+        async () => {
+            const session = await tavernSessionsTable.get(id);
+            if (!session) {throwTavernPetError('pet_session_missing', id);}
+            const [companion, journal, economy] = await Promise.all([
+                getTavernPetCompanionInCurrentDbTransaction(),
+                listJournalInCurrentTransaction(),
+                ensureTavernEconomyInCurrentDbTransaction(id),
+            ]);
+            return {
+                view: createTavernPetView({
+                    companion,
+                    journal,
+                    playerBalance: economy.playerBalance,
+                }),
+                journal: clone(journal),
+            };
+        },
+    );
 }
 
 export async function getTavernPetPrivateSnapshotForChat(
     sessionId = '',
 ): Promise<TavernPetPrivateChatSnapshot | null> {
     const id = normalizeSessionId(sessionId);
-    const [session, record, recentActivities] = await Promise.all([
-        tavernSessionsTable.get(id),
-        getCurrentRecord(id),
-        listRecentTavernPetMemoriesInCurrentTransaction(id),
-    ]);
-    if (!session) {throwTavernPetError('pet_session_missing', id);}
-    if (!record) {return null;}
-    return { record: clone(record), recentActivities: clone(recentActivities) };
+    return await db.transaction(
+        'r',
+        tavernSessionsTable,
+        tavernPetCompanionTable,
+        tavernPetJournalTable,
+        async () => {
+            const [session, companion, recentJournal] = await Promise.all([
+                tavernSessionsTable.get(id),
+                getTavernPetCompanionInCurrentDbTransaction(),
+                listRecentPetMemoriesInCurrentTransaction(),
+            ]);
+            if (!session) {throwTavernPetError('pet_session_missing', id);}
+            if (!companion) {return null;}
+            return { companion: clone(companion), recentJournal: clone(recentJournal) };
+        },
+    );
 }
 
 export async function getTavernPetPendingEvolutionRequest(
     sessionId = '',
 ): Promise<TavernPetEvolutionRequest | null> {
     const id = normalizeSessionId(sessionId);
-    const [session, record] = await Promise.all([
+    const [session, companion] = await Promise.all([
         tavernSessionsTable.get(id),
-        getCurrentRecord(id),
+        getTavernPetCompanionInCurrentDbTransaction(),
     ]);
     if (!session) {throwTavernPetError('pet_session_missing', id);}
-    return record?.state.pendingEvolution
-        ? clone(record.state.pendingEvolution)
-        : null;
+    return companion?.state.pendingEvolution ? clone(companion.state.pendingEvolution) : null;
 }
 
-export async function getTavernPetStateAtAnchor(
-    sessionId = '',
-    targetFloor = -1,
-): Promise<TavernPetStateVersionRecord | null> {
-    const id = normalizeSessionId(sessionId);
-    const floor = Number(targetFloor);
-    if (!Number.isSafeInteger(floor) || floor < -1) {
-        throwTavernPetError('pet_anchor_order_invalid', String(targetFloor));
-    }
-    if (floor < 0) {return null;}
-    const row = await (tavernPetStateVersionsTable as unknown as PetRangeTable<TavernPetStateVersionRecord>)
-        .where('[sessionId+anchorOrder]')
-        .between([id, 0], [id, floor], true, true)
-        .reverse()
-        .first();
-    return row ? parseCanonicalTavernPetStateVersionRecord(row) : null;
+export async function listTavernPetJournal(
+    options: ListTavernPetJournalOptions = {},
+): Promise<TavernPetJournalRecord[]> {
+    return clone(await listJournalInCurrentTransaction(options));
 }
 
-export async function listTavernPetActivities(
-    sessionId = '',
-    options: ListTavernPetActivitiesOptions = {},
-): Promise<TavernPetActivityRecord[]> {
-    return clone(await listActivitiesInCurrentTransaction(normalizeSessionId(sessionId), options));
-}
-
-export async function listTavernPetActivitiesByIds(
-    sessionId = '',
-    activityIds: readonly string[] = [],
-): Promise<TavernPetActivityRecord[]> {
-    const id = normalizeSessionId(sessionId);
-    const ids = [...new Set(activityIds.map((value) => String(value || '').trim()).filter(Boolean))];
+export async function listTavernPetJournalByIds(
+    journalIds: readonly string[] = [],
+): Promise<TavernPetJournalRecord[]> {
+    const ids = [...new Set(journalIds.map((value) => String(value || '').trim()).filter(Boolean))];
     if (!ids.length) {return [];}
-    const rows = await (tavernPetActivitiesTable as unknown as PetBulkGetTable<TavernPetActivityRecord>)
-        .bulkGet(ids.map((activityId) => [id, activityId]));
-    return rows.flatMap((row) => (
-        row ? [parseCanonicalTavernPetActivityRecord(row)] : []
-    ));
+    const rows = await (tavernPetJournalTable as unknown as TavernPetJournalReadTable).bulkGet(ids);
+    return rows.flatMap((row) => row ? [parseCanonicalTavernPetJournalRecord(row)] : []);
 }
 
 export async function lureTavernPet(
@@ -842,21 +825,15 @@ export async function lureTavernPet(
     return await runTavernPetPlayerMutation(input, {
         payment,
         replayMatches: (record) => record.action.kind === 'lure',
-        build: ({ current, currentTurn, playerBalance }) => {
+        build: ({ current, playerBalance }) => {
             if (current) {throwTavernPetError('pet_state_exists');}
             if (payment.amount > playerBalance) {
                 throwTavernPetError('pet_interaction_unavailable', TAVERN_PET_INSUFFICIENT_FUNDS_REASON);
             }
-            const recording = createTavernPetRecordingRandomSource(random);
-            const origin = drawTavernPetOrigin(currentTurn, recording.random);
+            const origin = drawTavernPetOrigin(random);
             return {
                 action: { kind: 'lure', origin: clone(origin) },
-                state: createTavernPetLuringState({
-                    origin,
-                    currentTurn,
-                    observedEconomyLedgerOrder: -1,
-                }),
-                observePostedLedger: true,
+                state: createTavernPetLuringState({ origin, petTurn: 0 }),
             };
         },
     });
@@ -879,12 +856,12 @@ export async function interactWithTavernPet(
         payment,
         replayMatches: (record) => record.action.kind === 'interact'
             && record.action.interactionId === interactionId,
-        build: ({ current, currentTurn, playerBalance }) => {
+        build: ({ current, currentPetTurn, playerBalance }) => {
             if (!current) {throwTavernPetError('pet_state_missing');}
             if (cost > playerBalance) {
                 throwTavernPetError('pet_interaction_unavailable', TAVERN_PET_INSUFFICIENT_FUNDS_REASON);
             }
-            const transition = applyTavernPetInteraction(current.state, interactionId, currentTurn);
+            const transition = applyTavernPetInteraction(current.state, interactionId, currentPetTurn);
             return {
                 action: { kind: 'interact', interactionId },
                 state: transition.state,
@@ -901,17 +878,16 @@ export async function wakeTavernPet(
     return await runTavernPetPlayerMutation(input, {
         payment,
         replayMatches: (record) => record.action.kind === 'wake',
-        build: ({ current, currentTurn, playerBalance }) => {
+        build: ({ current, currentPetTurn, playerBalance }) => {
             if (!current) {throwTavernPetError('pet_state_missing');}
             if (payment.amount > playerBalance) {
                 throwTavernPetError('pet_interaction_unavailable', TAVERN_PET_INSUFFICIENT_FUNDS_REASON);
             }
-            const state = wakeTavernPetState(current.state, currentTurn);
+            const state = wakeTavernPetState(current.state, currentPetTurn);
             return {
                 action: { kind: 'wake' },
                 state,
-                activity: renderTavernPetStatusActivity('woke', state),
-                observePostedLedger: true,
+                journal: renderTavernPetStatusJournal('woke', state),
             };
         },
     });
@@ -972,12 +948,12 @@ export async function commitTavernPetChatResponse(
         replayMatches: (record) => record.action.kind === 'chat'
             && record.action.playerText === playerText
             && sameJson(record.action.response, rawResponse),
-        build: ({ current, currentTurn }) => {
+        build: ({ current, currentPetTurn }) => {
             if (!current) {throwTavernPetError('pet_state_missing');}
             const response = normalizeTavernPetChatResponse(rawResponse, current.state);
             const transition = applyTavernPetChatResponse(
                 current.state,
-                currentTurn,
+                currentPetTurn,
                 playerText,
                 response,
             );
@@ -989,7 +965,7 @@ export async function commitTavernPetChatResponse(
                     appliedAxes: transition.appliedAxes,
                 },
                 state: transition.state,
-                activity: {
+                journal: {
                     detail: {
                         kind: 'chat',
                         playerText,
@@ -1018,15 +994,16 @@ export async function resolveTavernPetEvolution(
         'rw',
         tavernMessagesTable,
         tavernSessionsTable,
-        tavernPetStateVersionsTable,
-        tavernPetActivitiesTable,
+        tavernPetCompanionTable,
+        tavernPetActionsTable,
+        tavernPetJournalTable,
         tavernEconomyAccountsTable,
         tavernEconomyTransactionsTable,
         async () => {
             const session = await tavernSessionsTable.get(sessionId);
             if (!session) {throwTavernPetError('pet_session_missing', sessionId);}
             await ensureTavernEconomyInCurrentDbTransaction(sessionId);
-            const replay = await findActionVersionInCurrentTransaction(sessionId, actionId);
+            const replay = await findTavernPetActionInCurrentDbTransaction(actionId);
             if (replay) {
                 if (replay.action.kind !== 'resolve-evolution'
                     || replay.action.requestId !== requestId
@@ -1034,8 +1011,8 @@ export async function resolveTavernPetEvolution(
                     throwTavernPetError('pet_action_conflict', actionId);
                 }
                 await assertReplayArtifacts(replay, null);
-                const current = await getCurrentRecord(sessionId);
-                if (!current) {throwTavernPetError('pet_history_invalid', 'evolution-current-missing');}
+                const current = await getTavernPetCompanionInCurrentDbTransaction();
+                if (!current) {throwTavernPetError('pet_history_invalid', 'evolution-companion-missing');}
                 return await buildMutationResultInCurrentTransaction({
                     session,
                     current,
@@ -1044,7 +1021,7 @@ export async function resolveTavernPetEvolution(
                     changed: false,
                 });
             }
-            const current = await getCurrentRecord(sessionId);
+            const current = await getTavernPetCompanionInCurrentDbTransaction();
             if (!current) {throwTavernPetError('pet_state_missing');}
             const pending = current.state.pendingEvolution;
             if (!pending || pending.requestId !== requestId) {
@@ -1053,51 +1030,70 @@ export async function resolveTavernPetEvolution(
             if (usedFallback && verdict !== canonicalTavernPetStaticVerdict(pending.personaId)) {
                 throwTavernPetError('pet_chat_invalid', 'fallback-verdict');
             }
-            const latestMessage = await getLatestTavernMessage(sessionId);
-            const anchorOrder = Math.max(current.anchorOrder, (latestMessage?.order ?? -1) + 1);
-            const turn = Math.max(current.turn, sessionTurn(session));
             const state = resolveTavernPetEvolutionState(current.state, requestId);
-            const draft = renderTavernPetMilestoneActivity({
+            const journal = renderTavernPetMilestoneJournal({
                 milestoneId: pending.milestoneId,
                 state,
-                turn: pending.turn,
-                anchorOrder: pending.anchorOrder,
+                petTurn: pending.sourcePetTurn,
+                sourceAnchorOrder: pending.sourceAnchorOrder,
                 personaId: pending.personaId,
                 verdict,
             });
-            const timestamp = now();
-            const activityId = createId('pet-activity');
-            const activity = buildActivity({
-                sessionId,
-                id: activityId,
-                sourceActionId: actionId,
-                turn,
-                anchorOrder,
-                draft,
-                timestamp,
-            });
-            const next = buildVersion({
+            const appended = await appendTavernPetTransitionInCurrentDbTransaction({
                 current,
-                sessionId,
                 actionId,
+                sourceSessionId: pending.sourceSessionId,
+                sourceTurn: pending.sourceTurn,
+                sourceAnchorOrder: pending.sourceAnchorOrder,
                 action: { kind: 'resolve-evolution', requestId, verdict, usedFallback },
-                activityId,
-                anchorOrder,
-                turn,
                 state,
-                timestamp,
+                journal,
             });
-            await (tavernPetActivitiesTable as unknown as {
-                add(record: TavernPetActivityRecord): Promise<unknown>;
-            }).add(activity);
-            await appendVersionInCurrentTransaction(current, next);
-            await tavernSessionsTable.update(sessionId, { updatedAt: timestamp });
             return await buildMutationResultInCurrentTransaction({
                 session,
-                current: next,
-                actionRecord: next,
+                current: appended.companion,
+                actionRecord: appended.action,
                 replay: false,
                 changed: true,
+            });
+        },
+    );
+}
+
+export async function letTavernPetLeave(
+    rawInput: LetTavernPetLeaveInput,
+): Promise<TavernPetMutationResult> {
+    const sessionId = normalizeSessionId(rawInput.sessionId);
+    const expectedRevision = normalizeExpectedRevision(rawInput.expectedRevision);
+    const expectedVersionId = normalizeExpectedVersionId(rawInput.expectedVersionId, expectedRevision);
+    return await db.transaction(
+        'rw',
+        tavernMessagesTable,
+        tavernSessionsTable,
+        tavernPetCompanionTable,
+        tavernPetActionsTable,
+        tavernPetJournalTable,
+        tavernEconomyAccountsTable,
+        tavernEconomyTransactionsTable,
+        async () => {
+            const session = await tavernSessionsTable.get(sessionId);
+            if (!session) {throwTavernPetError('pet_session_missing', sessionId);}
+            await assertTavernPhoneBoundaryInCurrentTransaction(sessionId, rawInput.boundary);
+            const current = await getTavernPetCompanionInCurrentDbTransaction();
+            assertCompanionCas(current, expectedRevision, expectedVersionId);
+            await ensureTavernEconomyInCurrentDbTransaction(sessionId);
+            await Promise.all([
+                (tavernPetCompanionTable as unknown as TavernPetClearTable).clear(),
+                (tavernPetActionsTable as unknown as TavernPetClearTable).clear(),
+                (tavernPetJournalTable as unknown as TavernPetClearTable).clear(),
+            ]);
+            await tavernSessionsTable.update(sessionId, { updatedAt: now() });
+            return await buildMutationResultInCurrentTransaction({
+                session,
+                current: null,
+                actionRecord: null,
+                replay: false,
+                changed: Boolean(current),
             });
         },
     );

@@ -11,26 +11,21 @@ import {
 import Dexie from '../../../libs/dexie.mjs';
 
 import {
-    tavernEconomyTransactionsTable,
-    tavernPetActivitiesTable,
-    tavernPetStateVersionsTable,
+    appendTavernMessage,
+    tavernPetActionsTable,
+    tavernPetJournalTable,
 } from '../shared/session-db';
+import { canonicalTavernPetStaticVerdict } from '../shared/pet/pet-copy';
+import { TAVERN_PET_JUVENILE_PROFILE } from '../shared/pet/pet-personas';
 import {
     getTavernPetPendingEvolutionRequest,
     getTavernPetPrivateSnapshotForChat,
     interactWithTavernPet,
 } from '../shared/pet/pet-service';
 import {
-    canonicalTavernPetStaticVerdict,
-} from '../shared/pet/pet-copy';
-import {
-    TAVERN_PET_JUVENILE_PROFILE,
-} from '../shared/pet/pet-personas';
-import {
     TAVERN_PET_INSUFFICIENT_FUNDS_REASON,
     TavernPetError,
     type TavernPetState,
-    type TavernPetStateVersionRecord,
 } from '../shared/pet/pet-types';
 import type { TavernRunOnceResult } from '../app-src/runtime/run-once';
 import {
@@ -43,9 +38,13 @@ import {
     createTavernPetTestSession,
     createTavernPetTestState,
     resetTavernPetTestDb,
-    seedCurrentTavernPetState,
+    seedTavernPetForTest,
     tavernPetMutationBoundary,
 } from './pet-test-helpers';
+
+function modelResult(text: string): TavernRunOnceResult {
+    return { text } as TavernRunOnceResult;
+}
 
 function deferred<T>() {
     let resolve!: (value: T | PromiseLike<T>) => void;
@@ -57,32 +56,6 @@ function deferred<T>() {
     return { promise, reject, resolve };
 }
 
-function modelResult(text: string): TavernRunOnceResult {
-    return { text } as TavernRunOnceResult;
-}
-
-async function waitUntil(predicate: () => boolean, label = 'pet_controller_timeout'): Promise<void> {
-    for (let index = 0; index < 160; index += 1) {
-        if (predicate()) {return;}
-        await new Promise<void>((resolve) => setTimeout(resolve, 5));
-    }
-    throw new Error(label);
-}
-
-function createPendingAdultState(requestId = 'pet-controller-evolution'): TavernPetState {
-    const state = createTavernPetTestState('adult');
-    state.pendingEvolution = {
-        requestId,
-        milestoneId: 'adulthood',
-        personaId: 'sunlet',
-        axes: structuredClone(state.axes),
-        stats: structuredClone(state.lifetimeStats),
-        turn: 0,
-        anchorOrder: 0,
-    };
-    return state;
-}
-
 function juvenileChatJson(text = '好'): string {
     return JSON.stringify({
         face: TAVERN_PET_JUVENILE_PROFILE.faces.happy,
@@ -92,6 +65,25 @@ function juvenileChatJson(text = '好'): string {
         murmur: null,
         summaryUpdate: null,
     });
+}
+
+function createPendingAdultState(
+    sourceSessionId: string,
+    requestId = 'pet-controller-evolution',
+): TavernPetState {
+    const state = createTavernPetTestState('adult');
+    state.pendingEvolution = {
+        requestId,
+        milestoneId: 'adulthood',
+        personaId: 'sunlet',
+        axes: structuredClone(state.axes),
+        stats: structuredClone(state.lifetimeStats),
+        sourceSessionId,
+        sourceTurn: 1,
+        sourcePetTurn: state.petTurn,
+        sourceAnchorOrder: 0,
+    };
+    return state;
 }
 
 function createController(input: {
@@ -119,10 +111,8 @@ function createController(input: {
         memoryEditorMode,
         characterArchiveBusy: computed(() => characterArchiveBusy.value),
         acceptedRollbackBusy: computed(() => acceptedRollbackBusy.value),
-        wallet: {
-            refreshAfterEconomyDomainChange: input.refreshWallet || (() => {}),
-        },
-        showToast: input.showToast,
+        wallet: { refreshAfterEconomyDomainChange: input.refreshWallet || (() => {}) },
+        ...(input.showToast ? { showToast: input.showToast } : {}),
         runModel: input.runModel,
     }));
     if (!controller) {throw new Error('pet_controller_scope_missing');}
@@ -137,9 +127,17 @@ function createController(input: {
     };
 }
 
-test('Pet controller turns a rapid double lure into one mutation', async () => {
+async function waitUntil(predicate: () => boolean, detail: string): Promise<void> {
+    for (let attempt = 0; attempt < 160; attempt += 1) {
+        if (predicate()) {return;}
+        await new Promise<void>((resolve) => setTimeout(resolve, 5));
+    }
+    throw new Error(detail);
+}
+
+test('controller serializes rapid mutations against the one global companion', async () => {
     await resetTavernPetTestDb();
-    const session = await createTavernPetTestSession('Pet controller double click');
+    const session = await createTavernPetTestSession('Controller lure');
     const selectedSessionId = ref(session.id);
     const { controller, scope } = createController({ selectedSessionId });
     try {
@@ -151,24 +149,18 @@ test('Pet controller turns a rapid double lure into one mutation', async () => {
         assert.ok(first);
         assert.equal(second, null);
         assert.equal(controller.view.value.existence, 'present');
-        assert.equal(await tavernPetStateVersionsTable.where('sessionId').equals(session.id).count(), 1);
-        assert.equal(
-            (await tavernEconomyTransactionsTable.where('sessionId').equals(session.id).toArray())
-                .filter((transaction) => transaction.sourceDomain === 'pet').length,
-            1,
-        );
+        assert.equal(await tavernPetActionsTable.where('revision').equals(1).count(), 1);
     } finally {
         scope.stop();
     }
 });
 
-test('Pet controller reports a committed action when Wallet refresh fails', async () => {
+test('a committed action remains visible when the wallet refresh fails', async () => {
     await resetTavernPetTestDb();
-    const session = await createTavernPetTestSession('Pet controller Wallet refresh');
-    const selectedSessionId = ref(session.id);
+    const session = await createTavernPetTestSession('Controller wallet refresh');
     const toasts: string[] = [];
     const { controller, scope } = createController({
-        selectedSessionId,
+        selectedSessionId: ref(session.id),
         refreshWallet: async () => {throw new Error('wallet_refresh_failed');},
         showToast: (message) => {toasts.push(message);},
     });
@@ -178,18 +170,17 @@ test('Pet controller reports a committed action when Wallet refresh fails', asyn
         assert.equal(controller.actionError.value, '');
         assert.equal(controller.status.value, '操作已经完成，余额显示稍后刷新。');
         assert.deepEqual(toasts, ['操作已经完成，余额显示稍后刷新。']);
-        assert.equal(await tavernPetStateVersionsTable.where('sessionId').equals(session.id).count(), 1);
+        assert.equal(await tavernPetActionsTable.where('revision').equals(1).count(), 1);
     } finally {
         scope.stop();
     }
 });
 
-test('Pet controller clears app-local drawers and drafts when its route deactivates', async () => {
+test('route deactivation clears only local Pet drawers and drafts', async () => {
     await resetTavernPetTestDb();
-    const session = await createTavernPetTestSession('Pet controller route deactivation');
-    await seedCurrentTavernPetState(session.id, createTavernPetTestState('juvenile'));
-    const selectedSessionId = ref(session.id);
-    const { controller, scope } = createController({ selectedSessionId });
+    const session = await createTavernPetTestSession('Controller route deactivation');
+    await seedTavernPetForTest(session.id, createTavernPetTestState('juvenile'));
+    const { controller, scope } = createController({ selectedSessionId: ref(session.id) });
     try {
         await controller.preparePet();
         controller.openNest();
@@ -199,18 +190,18 @@ test('Pet controller clears app-local drawers and drafts when its route deactiva
         assert.equal(controller.nestOpen.value, false);
         assert.equal(controller.namingOpen.value, false);
         assert.equal(controller.nameDraft.value, '');
+        assert.equal(controller.view.value.existence, 'present');
     } finally {
         scope.stop();
     }
 });
 
-test('an empty Pet model reply stays temporary and writes no Activity or memory', async () => {
+test('an empty model reply stays temporary and writes neither journal nor chat memory', async () => {
     await resetTavernPetTestDb();
-    const session = await createTavernPetTestSession('Pet controller chat failure');
-    await seedCurrentTavernPetState(session.id, createTavernPetTestState('juvenile'));
-    const selectedSessionId = ref(session.id);
+    const session = await createTavernPetTestSession('Controller empty chat');
+    await seedTavernPetForTest(session.id, createTavernPetTestState('juvenile'));
     const { controller, scope } = createController({
-        selectedSessionId,
+        selectedSessionId: ref(session.id),
         runModel: async () => modelResult(''),
     });
     try {
@@ -220,23 +211,22 @@ test('an empty Pet model reply stays temporary and writes no Activity or memory'
         assert.equal(controller.chatError.value, '它不想理你。');
         assert.equal(controller.utterance.value.face, TAVERN_PET_REBUFF_FACE);
         assert.equal(controller.utterance.value.text, '它不想理你。');
-        assert.equal(await tavernPetActivitiesTable.where('sessionId').equals(session.id).count(), 0);
-        const state = await getTavernPetPrivateSnapshotForChat(session.id);
-        assert.equal(state?.record.revision, 1);
-        assert.equal(state?.record.state.chatMemory.recent.length, 0);
+        assert.equal(await tavernPetJournalTable.count(), 0);
+        const snapshot = await getTavernPetPrivateSnapshotForChat(session.id);
+        assert.equal(snapshot?.companion.revision, 1);
+        assert.equal(snapshot?.companion.state.chatMemory.recent.length, 0);
     } finally {
         scope.stop();
     }
 });
 
-test('Pet chat keeps the normalized text visible when the request fails', async () => {
+test('a failed model request leaves the normalized sent text visible', async () => {
     await resetTavernPetTestDb();
-    const session = await createTavernPetTestSession('Pet controller normalized failed chat');
-    await seedCurrentTavernPetState(session.id, createTavernPetTestState('juvenile'));
-    const selectedSessionId = ref(session.id);
+    const session = await createTavernPetTestSession('Controller normalized failed chat');
+    await seedTavernPetForTest(session.id, createTavernPetTestState('juvenile'));
     let sentText = '';
     const { controller, scope } = createController({
-        selectedSessionId,
+        selectedSessionId: ref(session.id),
         runModel: async (options) => {
             sentText = String(options.messages.at(-1)?.content || '');
             throw new Error('pet_test_network_failure');
@@ -249,20 +239,19 @@ test('Pet chat keeps the normalized text visible when the request fails', async 
         assert.equal([...controller.chatInput.value].length, 120);
         assert.equal(controller.chatInput.value, '株式会社'.repeat(30));
         assert.equal(sentText, controller.chatInput.value);
-        assert.equal(await tavernPetActivitiesTable.where('sessionId').equals(session.id).count(), 0);
+        assert.equal(await tavernPetJournalTable.count(), 0);
     } finally {
         scope.stop();
     }
 });
 
-test('a player message that normalizes to empty stays a local input error', async () => {
+test('a player message that normalizes to empty is a local input error', async () => {
     await resetTavernPetTestDb();
-    const session = await createTavernPetTestSession('Pet controller empty normalized chat');
-    await seedCurrentTavernPetState(session.id, createTavernPetTestState('juvenile'));
-    const selectedSessionId = ref(session.id);
+    const session = await createTavernPetTestSession('Controller empty normalized chat');
+    await seedTavernPetForTest(session.id, createTavernPetTestState('juvenile'));
     let modelCalls = 0;
     const { controller, scope } = createController({
-        selectedSessionId,
+        selectedSessionId: ref(session.id),
         runModel: async () => {
             modelCalls += 1;
             return modelResult(juvenileChatJson());
@@ -275,13 +264,13 @@ test('a player message that normalizes to empty stays a local input error', asyn
         assert.equal(controller.chatInput.value, '');
         assert.equal(controller.chatError.value, '先跟它说点什么。');
         assert.equal(modelCalls, 0);
-        assert.equal(await tavernPetActivitiesTable.where('sessionId').equals(session.id).count(), 0);
+        assert.equal(await tavernPetJournalTable.count(), 0);
     } finally {
         scope.stop();
     }
 });
 
-test('Pet wallet errors are classified by structured reason instead of localized message text', () => {
+test('wallet UI classification uses the structured Pet reason rather than localized text', () => {
     assert.deepEqual(tavernPetUiError(new TavernPetError(
         'pet_interaction_unavailable',
         TAVERN_PET_INSUFFICIENT_FUNDS_REASON,
@@ -292,21 +281,217 @@ test('Pet wallet errors are classified by structured reason instead of localized
     )).kind, 'generic');
 });
 
-test('archive invalidation keeps the Pet mutation owner until its original write promise settles', async () => {
+test('controller sends normalized input and commits a forgiving model response', async () => {
     await resetTavernPetTestDb();
-    const session = await createTavernPetTestSession('Pet controller mutation epoch');
+    const session = await createTavernPetTestSession('Controller chat');
+    await seedTavernPetForTest(session.id, createTavernPetTestState('juvenile'));
     const selectedSessionId = ref(session.id);
+    let sentText = '';
+    const { controller, scope } = createController({
+        selectedSessionId,
+        runModel: async (options) => {
+            sentText = String(options.messages.at(-1)?.content || '');
+            return modelResult('{}\n{"response":{"text":"咱就是说"}}');
+        },
+    });
+    try {
+        await controller.preparePet();
+        controller.chatInput.value = ` ㍿${'啊'.repeat(119)} `;
+        await controller.sendChat();
+        assert.equal([...sentText].length, 120);
+        assert.equal([...controller.chatInput.value].length, 0);
+        assert.equal(controller.view.value.latestUtterance?.text, '咱就是说');
+    } finally {
+        scope.stop();
+    }
+});
+
+test('leave confirmation clears the shared companion only after explicit confirmation', async () => {
+    await resetTavernPetTestDb();
+    const session = await createTavernPetTestSession('Controller leave');
+    await seedTavernPetForTest(session.id, createTavernPetTestState('juvenile'));
+    const selectedSessionId = ref(session.id);
+    const { controller, scope } = createController({ selectedSessionId });
+    try {
+        await controller.preparePet();
+        controller.openLeaveConfirmation();
+        assert.equal(controller.leaveConfirmOpen.value, true);
+        await controller.confirmPetLeave();
+        assert.equal(controller.leaveConfirmOpen.value, false);
+        assert.equal(controller.view.value.existence, 'undiscovered');
+    } finally {
+        scope.stop();
+    }
+});
+
+test('opening a Pet intent dialog does not inherit an earlier action error', async () => {
+    await resetTavernPetTestDb();
+    const session = await createTavernPetTestSession('Controller dialog error scope');
+    await seedTavernPetForTest(session.id, createTavernPetTestState('juvenile'));
+    const { controller, scope } = createController({ selectedSessionId: ref(session.id) });
+    try {
+        await controller.preparePet();
+        controller.actionError.value = '上一项操作失败。';
+        controller.openNaming();
+        assert.equal(controller.namingOpen.value, true);
+        assert.equal(controller.actionError.value, '');
+        controller.closeNaming();
+
+        controller.actionError.value = '另一项操作失败。';
+        controller.openLeaveConfirmation();
+        assert.equal(controller.leaveConfirmOpen.value, true);
+        assert.equal(controller.actionError.value, '');
+    } finally {
+        scope.stop();
+    }
+});
+
+test('memory editing invalidates stale model work without clearing its in-flight owner', async () => {
+    await resetTavernPetTestDb();
+    const session = await createTavernPetTestSession('Controller stale chat');
+    await seedTavernPetForTest(session.id, createTavernPetTestState('juvenile'));
+    const selectedSessionId = ref(session.id);
+    let resolveModel!: (value: TavernRunOnceResult) => void;
+    const pending = new Promise<TavernRunOnceResult>((resolve) => {resolveModel = resolve;});
+    const { controller, memoryEditorMode, scope } = createController({
+        selectedSessionId,
+        runModel: async () => await pending,
+    });
+    try {
+        await controller.preparePet();
+        controller.chatInput.value = '你好';
+        const sending = controller.sendChat();
+        await Promise.resolve();
+        memoryEditorMode.value = 'edit';
+        resolveModel(modelResult(JSON.stringify({
+            face: TAVERN_PET_JUVENILE_PROFILE.faces.default,
+            text: '迟到的话',
+            motion: 'none',
+            emotionShift: null,
+            murmur: null,
+            summaryUpdate: null,
+        })));
+        await sending;
+        assert.notEqual(controller.view.value.latestUtterance?.text, '迟到的话');
+    } finally {
+        scope.stop();
+    }
+});
+
+test('Pet chat re-captures the current Phone boundary after the model returns', async () => {
+    await resetTavernPetTestDb();
+    const session = await createTavernPetTestSession('Controller fresh boundary');
+    await seedTavernPetForTest(session.id, createTavernPetTestState('juvenile'));
+    const selectedSessionId = ref(session.id);
+    let resolveModel!: (result: TavernRunOnceResult) => void;
+    let modelStarted!: () => void;
+    const model = new Promise<TavernRunOnceResult>((resolve) => {resolveModel = resolve;});
+    const started = new Promise<void>((resolve) => {modelStarted = resolve;});
+    const { controller, scope } = createController({
+        selectedSessionId,
+        runModel: async () => {
+            modelStarted();
+            return await model;
+        },
+    });
+    try {
+        await controller.preparePet();
+        controller.chatInput.value = '还在吗';
+        const sending = controller.sendChat();
+        await started;
+        await appendTavernMessage(session.id, { role: 'user', content: '另一标签页推进的输入。' });
+        await appendTavernMessage(session.id, { role: 'assistant', content: '另一标签页推进的回复。' });
+        resolveModel(modelResult(JSON.stringify({ text: '我在。' })));
+        await sending;
+        assert.equal(controller.chatError.value, '');
+        assert.equal(controller.view.value.latestUtterance?.text, '我在。');
+        assert.equal(await tavernPetActionsTable.where('revision').equals(2).count(), 1);
+    } finally {
+        scope.stop();
+    }
+});
+
+test('a session resolving another session’s pending evolution refreshes globally without leaking its toast', async () => {
+    await resetTavernPetTestDb();
+    const source = await createTavernPetTestSession('Controller evolution source');
+    const observer = await createTavernPetTestSession('Controller evolution observer');
+    const pendingState = createTavernPetTestState('adult', { petTurn: 1, phaseTurnCount: 30 });
+    pendingState.pendingEvolution = {
+        requestId: 'cross-session-evolution',
+        milestoneId: 'adulthood',
+        personaId: 'sunlet',
+        axes: structuredClone(pendingState.axes),
+        stats: structuredClone(pendingState.lifetimeStats),
+        sourceSessionId: source.id,
+        sourceTurn: 1,
+        sourcePetTurn: 1,
+        sourceAnchorOrder: 0,
+    };
+    await seedTavernPetForTest(source.id, pendingState);
+    const toasts: string[] = [];
+    const { controller, scope } = createController({
+        selectedSessionId: ref(observer.id),
+        showToast: (message) => {toasts.push(message);},
+        runModel: async () => modelResult(canonicalTavernPetStaticVerdict('sunlet')),
+    });
+    try {
+        await controller.preparePet();
+        await waitUntil(() => controller.view.value.pendingEvolution === false, 'cross_session_evolution_not_committed');
+        assert.equal(controller.view.value.existence, 'present');
+        assert.deepEqual(toasts, []);
+    } finally {
+        scope.stop();
+    }
+});
+
+test('two concurrent model replies converge through global Companion CAS without a lost chat write', async () => {
+    await resetTavernPetTestDb();
+    const session = await createTavernPetTestSession('Controller concurrent chat');
+    await seedTavernPetForTest(session.id, createTavernPetTestState('juvenile'));
+    const selectedSessionId = ref(session.id);
+    let resolveFirst!: (result: TavernRunOnceResult) => void;
+    let resolveSecond!: (result: TavernRunOnceResult) => void;
+    const firstResult = new Promise<TavernRunOnceResult>((resolve) => {resolveFirst = resolve;});
+    const secondResult = new Promise<TavernRunOnceResult>((resolve) => {resolveSecond = resolve;});
+    const first = createController({ selectedSessionId, runModel: async () => await firstResult });
+    const second = createController({ selectedSessionId, runModel: async () => await secondResult });
+    try {
+        await Promise.all([first.controller.preparePet(), second.controller.preparePet()]);
+        first.controller.chatInput.value = '第一句';
+        second.controller.chatInput.value = '第二句';
+        const sends = [first.controller.sendChat(), second.controller.sendChat()];
+        await Promise.resolve();
+        resolveFirst(modelResult(JSON.stringify({ text: '先到。' })));
+        resolveSecond(modelResult(JSON.stringify({ text: '后到。' })));
+        await Promise.all(sends);
+        assert.equal(await tavernPetActionsTable.where('revision').equals(2).count(), 1);
+        assert.equal([first.controller.view.value.latestUtterance?.text, second.controller.view.value.latestUtterance?.text]
+            .filter(Boolean).length >= 1, true);
+    } finally {
+        first.scope.stop();
+        second.scope.stop();
+    }
+});
+
+test('archive invalidation keeps a mutation owner until its original write settles', async () => {
+    await resetTavernPetTestDb();
+    const session = await createTavernPetTestSession('Controller mutation epoch');
     const characterArchiveBusy = ref(false);
-    const { controller, scope } = createController({ selectedSessionId, characterArchiveBusy });
-    const table = tavernPetStateVersionsTable as unknown as {
-        add(record: TavernPetStateVersionRecord): Promise<unknown>;
+    const { controller, scope } = createController({
+        selectedSessionId: ref(session.id),
+        characterArchiveBusy,
+    });
+    const table = tavernPetActionsTable as unknown as {
+        add(record: unknown): Promise<unknown>;
     };
     const originalAdd = table.add.bind(table);
     const writeStarted = deferred<void>();
     const releaseWrite = deferred<void>();
     table.add = async (record) => {
         writeStarted.resolve();
-        await (Dexie as unknown as { waitFor<T>(promise: Promise<T>): Promise<T> }).waitFor(releaseWrite.promise);
+        await (Dexie as unknown as {
+            waitFor<T>(promise: Promise<T>): Promise<T>;
+        }).waitFor(releaseWrite.promise);
         return await originalAdd(record);
     };
     try {
@@ -325,7 +510,7 @@ test('archive invalidation keeps the Pet mutation owner until its original write
         assert.equal(await first, null);
         assert.equal(controller.busyAction.value, '');
         assert.equal(controller.view.value.existence, 'undiscovered');
-        assert.equal(await tavernPetStateVersionsTable.where('sessionId').equals(session.id).count(), 1);
+        assert.equal(await tavernPetActionsTable.where('revision').equals(1).count(), 1);
     } finally {
         table.add = originalAdd;
         releaseWrite.resolve();
@@ -333,15 +518,14 @@ test('archive invalidation keeps the Pet mutation owner until its original write
     }
 });
 
-test('a stale Pet chat result is discarded and refreshed after an external mutation', async () => {
+test('a stale chat result is discarded after another writer changes the global companion', async () => {
     await resetTavernPetTestDb();
-    const session = await createTavernPetTestSession('Pet controller stale chat');
-    await seedCurrentTavernPetState(session.id, createTavernPetTestState('juvenile'));
-    const selectedSessionId = ref(session.id);
+    const session = await createTavernPetTestSession('Controller stale chat');
+    await seedTavernPetForTest(session.id, createTavernPetTestState('juvenile'));
     const response = deferred<TavernRunOnceResult>();
     const started = deferred<void>();
     const { controller, scope } = createController({
-        selectedSessionId,
+        selectedSessionId: ref(session.id),
         runModel: async () => {
             started.resolve();
             return await response.promise;
@@ -360,20 +544,19 @@ test('a stale Pet chat result is discarded and refreshed after an external mutat
         await pendingChat;
         assert.equal(controller.chatError.value, '它在你等回复的时候变了主意。');
         assert.equal(controller.view.value.revision, 2);
-        assert.equal(await tavernPetActivitiesTable.where('sessionId').equals(session.id).count(), 0);
-        assert.equal((await getTavernPetPrivateSnapshotForChat(session.id))?.record.state.chatMemory.recent.length, 0);
+        assert.equal(await tavernPetJournalTable.count(), 0);
+        assert.equal((await getTavernPetPrivateSnapshotForChat(session.id))?.companion.state.chatMemory.recent.length, 0);
     } finally {
         response.reject(new Error('disposed'));
         scope.stop();
     }
 });
 
-test('session switch aborts the old chat and its finally cannot clear the new request owner', async () => {
+test('session switch aborts the old chat without letting its finally clear the new owner', async () => {
     await resetTavernPetTestDb();
-    const firstSession = await createTavernPetTestSession('Pet old chat owner');
-    const secondSession = await createTavernPetTestSession('Pet new chat owner');
-    await seedCurrentTavernPetState(firstSession.id, createTavernPetTestState('juvenile'));
-    await seedCurrentTavernPetState(secondSession.id, createTavernPetTestState('juvenile'));
+    const firstSession = await createTavernPetTestSession('Controller old chat owner');
+    const secondSession = await createTavernPetTestSession('Controller new chat owner');
+    await seedTavernPetForTest(firstSession.id, createTavernPetTestState('juvenile'));
     const selectedSessionId = ref(firstSession.id);
     const calls: Array<{
         signal: AbortSignal | undefined;
@@ -394,7 +577,7 @@ test('session switch aborts the old chat and its finally cannot clear the new re
         await waitUntil(() => calls.length === 1, 'pet_old_chat_not_started');
         selectedSessionId.value = secondSession.id;
         await nextTick();
-        await waitUntil(() => controller.view.value.versionId.includes(secondSession.id), 'pet_new_session_not_prepared');
+        await waitUntil(() => controller.view.value.existence === 'present', 'pet_new_session_not_prepared');
         assert.equal(calls[0].signal?.aborted, true);
 
         controller.chatInput.value = '新会话';
@@ -408,23 +591,22 @@ test('session switch aborts the old chat and its finally cannot clear the new re
         await newChat;
         assert.equal(controller.modelRequestKind.value, '');
         assert.equal(controller.view.value.revision, 2);
-        assert.equal(await tavernPetActivitiesTable.where('sessionId').equals(firstSession.id).count(), 0);
-        assert.equal(await tavernPetActivitiesTable.where('sessionId').equals(secondSession.id).count(), 1);
+        assert.equal(await tavernPetJournalTable.where('sourceSessionId').equals(firstSession.id).count(), 0);
+        assert.equal(await tavernPetJournalTable.where('sourceSessionId').equals(secondSession.id).count(), 1);
     } finally {
         calls.forEach((call) => call.response.reject(new Error('disposed')));
         scope.stop();
     }
 });
 
-test('pending evolution waits for the main chat and falls back without leaving a request lock', async () => {
+test('pending evolution waits for main chat and falls back without leaving a request lock', async () => {
     await resetTavernPetTestDb();
-    const session = await createTavernPetTestSession('Pet pending fallback');
-    await seedCurrentTavernPetState(session.id, createPendingAdultState('pet-controller-fallback'));
-    const selectedSessionId = ref(session.id);
+    const session = await createTavernPetTestSession('Controller pending fallback');
+    await seedTavernPetForTest(session.id, createPendingAdultState(session.id, 'pending-fallback'));
     const chatRunning = ref(true);
     let modelCalls = 0;
     const { controller, scope } = createController({
-        selectedSessionId,
+        selectedSessionId: ref(session.id),
         chatRunning,
         runModel: async () => {
             modelCalls += 1;
@@ -441,28 +623,22 @@ test('pending evolution waits for the main chat and falls back without leaving a
         await waitUntil(() => controller.view.value.pendingEvolution === false, 'pet_fallback_not_committed');
         assert.equal(modelCalls, 1);
         assert.equal(controller.modelRequestKind.value, '');
-        const rows = await tavernPetStateVersionsTable.where('sessionId').equals(session.id).toArray();
-        const resolution = rows.find((row) => row.action.kind === 'resolve-evolution');
-        assert.ok(resolution && resolution.action.kind === 'resolve-evolution');
-        if (resolution?.action.kind === 'resolve-evolution') {
-            assert.equal(resolution.action.usedFallback, true);
-            assert.equal(resolution.action.verdict, canonicalTavernPetStaticVerdict('sunlet'));
-        }
+        const resolution = (await tavernPetActionsTable.toArray()).find((row) => row.action.kind === 'resolve-evolution');
+        assert.equal(resolution?.action.kind === 'resolve-evolution' && resolution.action.usedFallback, true);
     } finally {
         scope.stop();
     }
 });
 
-test('an active pending evolution yields to the main chat and retries after it ends', async () => {
+test('an active pending evolution yields to main chat and retries after it ends', async () => {
     await resetTavernPetTestDb();
-    const session = await createTavernPetTestSession('Pet pending main-chat yield');
-    await seedCurrentTavernPetState(session.id, createPendingAdultState('pet-controller-main-chat-yield'));
-    const selectedSessionId = ref(session.id);
+    const session = await createTavernPetTestSession('Controller pending yield');
+    await seedTavernPetForTest(session.id, createPendingAdultState(session.id, 'pending-yield'));
     const chatRunning = ref(false);
     let modelCalls = 0;
     let firstSignal: AbortSignal | undefined;
     const { controller, scope } = createController({
-        selectedSessionId,
+        selectedSessionId: ref(session.id),
         chatRunning,
         runModel: async (options) => {
             modelCalls += 1;
@@ -496,10 +672,10 @@ test('an active pending evolution yields to the main chat and retries after it e
     }
 });
 
-test('an aborted pending evolution remains recoverable by a new Phone root scope', async () => {
+test('a cancelled pending evolution remains recoverable from a fresh Phone root', async () => {
     await resetTavernPetTestDb();
-    const session = await createTavernPetTestSession('Pet pending recovery');
-    await seedCurrentTavernPetState(session.id, createPendingAdultState('pet-controller-recovery'));
+    const session = await createTavernPetTestSession('Controller pending recovery');
+    await seedTavernPetForTest(session.id, createPendingAdultState(session.id, 'pending-recovery'));
     const selectedSessionId = ref(session.id);
     const firstResponse = deferred<TavernRunOnceResult>();
     let firstSignal: AbortSignal | undefined;
@@ -525,8 +701,8 @@ test('an aborted pending evolution remains recoverable by a new Phone root scope
     try {
         await second.controller.preparePet();
         await waitUntil(() => second.controller.view.value.pendingEvolution === false, 'pet_recovery_not_committed');
-        const rows = await tavernPetStateVersionsTable.where('sessionId').equals(session.id).toArray();
-        const resolutions = rows.filter((row) => row.action.kind === 'resolve-evolution');
+        const resolutions = (await tavernPetActionsTable.toArray())
+            .filter((row) => row.action.kind === 'resolve-evolution');
         assert.equal(resolutions.length, 1);
         assert.equal(resolutions[0].action.kind === 'resolve-evolution' && resolutions[0].action.usedFallback, false);
     } finally {
@@ -535,10 +711,10 @@ test('an aborted pending evolution remains recoverable by a new Phone root scope
     }
 });
 
-test('two Phone roots resolving one pending evolution converge on the first verdict', async () => {
+test('two Phone roots resolving one pending evolution preserve the first verdict', async () => {
     await resetTavernPetTestDb();
-    const session = await createTavernPetTestSession('Pet pending race');
-    await seedCurrentTavernPetState(session.id, createPendingAdultState('pet-controller-race'));
+    const session = await createTavernPetTestSession('Controller pending race');
+    await seedTavernPetForTest(session.id, createPendingAdultState(session.id, 'pending-race'));
     const selectedSessionId = ref(session.id);
     const chatRunning = ref(true);
     const firstResponse = deferred<TavernRunOnceResult>();
@@ -559,12 +735,13 @@ test('two Phone roots resolving one pending evolution converge on the first verd
         await waitUntil(() => first.controller.view.value.pendingEvolution === false, 'pet_race_first_not_committed');
         secondResponse.resolve(modelResult(losingVerdict));
         await waitUntil(() => second.controller.modelRequestKind.value === '', 'pet_race_second_not_finished');
-        const rows = await tavernPetStateVersionsTable.where('sessionId').equals(session.id).toArray();
-        const resolutions = rows.filter((row) => row.action.kind === 'resolve-evolution');
+        const resolutions = (await tavernPetActionsTable.toArray())
+            .filter((row) => row.action.kind === 'resolve-evolution');
         assert.equal(resolutions.length, 1);
-        const action = resolutions[0].action;
-        assert.equal(action.kind === 'resolve-evolution' ? action.verdict : '', winningVerdict);
-        assert.equal(await tavernPetActivitiesTable.where('sessionId').equals(session.id).count(), 1);
+        assert.equal(
+            resolutions[0].action.kind === 'resolve-evolution' ? resolutions[0].action.verdict : '',
+            winningVerdict,
+        );
         assert.equal(first.controller.actionError.value, '');
         assert.equal(second.controller.actionError.value, '');
     } finally {
@@ -575,26 +752,25 @@ test('two Phone roots resolving one pending evolution converge on the first verd
     }
 });
 
-test('a committed wake toast is not repeated by the same-tab domain refresh', async () => {
+test('a committed wake toast is not repeated by a same-tab domain refresh', async () => {
     await resetTavernPetTestDb();
-    const session = await createTavernPetTestSession('Pet toast dedupe');
-    await seedCurrentTavernPetState(session.id, createTavernPetTestState('adult', {
+    const session = await createTavernPetTestSession('Controller toast dedupe');
+    await seedTavernPetForTest(session.id, createTavernPetTestState('adult', {
         dormant: true,
         satiety: 0,
     }));
-    const selectedSessionId = ref(session.id);
     const toasts: string[] = [];
     const { controller, scope } = createController({
-        selectedSessionId,
+        selectedSessionId: ref(session.id),
         showToast: (message) => {toasts.push(message);},
     });
     try {
         await controller.preparePet();
         const result = await controller.performAction('wake');
-        const activityId = result?.actionRecord?.activityId || '';
-        assert.ok(activityId);
+        const journalId = result?.actionRecord?.activityId || '';
+        assert.ok(journalId);
         assert.deepEqual(toasts, ['它回来了。']);
-        await controller.refreshAfterPetDomainChange(session.id, [activityId]);
+        await controller.refreshAfterPetDomainChange([journalId]);
         assert.deepEqual(toasts, ['它回来了。']);
     } finally {
         scope.stop();

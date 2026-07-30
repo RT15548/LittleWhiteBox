@@ -88,7 +88,7 @@ function predicateMatches(spec: TavernPetEventSpec, context: TavernPetEventEvalu
             && context.playerBalance >= 50;
         case 'wild-axis': return state.axes.tameness < -20;
         case 'hurt-emotion': return state.emotion === 'aggrieved' || state.emotion === 'resentful';
-        case 'can-beg': return state.satiety >= 1 && state.satiety <= 59 && state.beggingDeadlineTurn === undefined;
+        case 'can-beg': return state.satiety >= 1 && state.satiety <= 59 && state.beggingDeadlinePetTurn === undefined;
         case 'adult-bright-emotion': return state.phase === 'adult'
             && (state.emotion === 'happy' || state.emotion === 'excited');
         case 'generous-and-happy': return state.phase === 'adult'

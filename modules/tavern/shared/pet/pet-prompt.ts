@@ -1,12 +1,20 @@
 import type { XbTavernRuntimeDepthEntry } from '../message-assembler';
-import { tavernPetActivitiesTable } from '../session-db';
+import {
+    tavernCommunicationContactsTable,
+    tavernMessagesTable,
+    tavernPetActionsTable,
+    tavernPetJournalTable,
+    type TavernMessageRecord,
+} from '../session-db';
 import { renderTavernPetInterferenceText } from './pet-copy';
-import { parseCanonicalTavernPetActivityRecord } from './pet-invariants';
-import { getTavernPetStateAtAnchor } from './pet-service';
+import {
+    parseCanonicalTavernPetActionRecord,
+    parseCanonicalTavernPetJournalRecord,
+} from './pet-invariants';
 import {
     isTavernPetInterferenceEventId,
-    type TavernPetActivityDetail,
-    type TavernPetActivityRecord,
+    type TavernPetJournalDetail,
+    type TavernPetJournalRecord,
     type TavernPetInterferenceEventId,
 } from './pet-types';
 
@@ -15,32 +23,35 @@ export const TAVERN_PET_INTERFERENCE_PROMPT_BOUNDARY = '以下内容仅是已经
 export const TAVERN_PET_INTERFERENCE_PROMPT_LAYER = 'runtime-pet-interference';
 export const TAVERN_PET_INTERFERENCE_PROMPT_DEPTH_ORDER = 1_000_000_050;
 
-type PetPromptRangeCollection<T> = {
-    toArray(): Promise<T[]>;
+type TavernPetInterferenceDetail = Extract<
+    TavernPetJournalDetail,
+    { kind: 'event'; eventId: TavernPetInterferenceEventId }
+>;
+
+type TavernPetInterferenceJournal = TavernPetJournalRecord & {
+    detail: TavernPetInterferenceDetail;
 };
 
-type PetPromptRangeTable<T> = {
+interface TavernPetStoryMessageRangeCollection {
+    reverse(): TavernPetStoryMessageRangeCollection;
+    filter(predicate: (message: TavernMessageRecord) => boolean): TavernPetStoryMessageRangeCollection;
+    limit(amount: number): TavernPetStoryMessageRangeCollection;
+    toArray(): Promise<TavernMessageRecord[]>;
+}
+
+interface TavernPetStoryMessageRangeTable {
     where(index: string): {
         between(
             lower: unknown,
             upper: unknown,
             includeLower?: boolean,
             includeUpper?: boolean,
-        ): PetPromptRangeCollection<T>;
+        ): TavernPetStoryMessageRangeCollection;
     };
-};
-
-type TavernPetInterferenceDetail = Extract<
-    TavernPetActivityDetail,
-    { kind: 'event'; eventId: TavernPetInterferenceEventId }
->;
-
-type TavernPetInterferenceActivity = TavernPetActivityRecord & {
-    detail: TavernPetInterferenceDetail;
-};
+}
 
 function isTavernPetInterferenceDetail(
-    detail: TavernPetActivityDetail | undefined,
+    detail: TavernPetJournalDetail | undefined,
 ): detail is TavernPetInterferenceDetail {
     return detail?.kind === 'event'
         && isTavernPetInterferenceEventId(detail.eventId)
@@ -48,10 +59,18 @@ function isTavernPetInterferenceDetail(
         && detail.injectedText.length > 0;
 }
 
-function isTavernPetInterferenceActivity(
-    activity: TavernPetActivityRecord,
-): activity is TavernPetInterferenceActivity {
-    return isTavernPetInterferenceDetail(activity.detail);
+function isTavernPetInterferenceJournal(
+    journal: TavernPetJournalRecord,
+): journal is TavernPetInterferenceJournal {
+    return isTavernPetInterferenceDetail(journal.detail);
+}
+
+function normalizeContactName(value: unknown): string {
+    return String(value || '')
+        .normalize('NFKC')
+        .replace(/[\u0000-\u001f\u007f-\u009f]/gu, '')
+        .replace(/\s+/gu, ' ')
+        .trim();
 }
 
 function escapePetPromptText(value: string): string {
@@ -75,80 +94,121 @@ export function buildTavernPetInterferencePromptBlock(injectedText: unknown): st
     ].join('\n');
 }
 
-async function listTavernPetActivitiesAtAnchor(
-    sessionId: string,
-    anchorOrder: number,
-): Promise<TavernPetActivityRecord[]> {
-    const rows = await (tavernPetActivitiesTable as unknown as PetPromptRangeTable<TavernPetActivityRecord>)
-        .where('[sessionId+anchorOrder]')
-        .between(
-            [sessionId, anchorOrder],
-            [sessionId, anchorOrder],
-            true,
-            true,
-        )
+async function listTavernPetJournalAtAnchor(
+    sourceSessionId: string,
+    sourceAnchorOrder: number,
+): Promise<TavernPetJournalRecord[]> {
+    const rows = await tavernPetJournalTable
+        .where('[sourceSessionId+sourceAnchorOrder]')
+        .equals([sourceSessionId, sourceAnchorOrder])
         .toArray();
-    return rows.map((row) => parseCanonicalTavernPetActivityRecord(row));
+    return rows.map((row) => parseCanonicalTavernPetJournalRecord(row));
+}
+
+async function sourceTargetStillKnown(
+    sourceSessionId: string,
+    frozenTargetName: string,
+    sourceAnchorOrder: number,
+): Promise<boolean> {
+    if (!frozenTargetName || /[<>&]/u.test(frozenTargetName)) {return false;}
+    const [contacts, context] = await Promise.all([
+        tavernCommunicationContactsTable.where('sessionId').equals(sourceSessionId).toArray(),
+        (tavernMessagesTable as unknown as TavernPetStoryMessageRangeTable)
+            .where('[sessionId+order]')
+            .between([sourceSessionId, 0], [sourceSessionId, sourceAnchorOrder], true, false)
+            .reverse()
+            .filter((message) => !message.error && (message.role === 'user' || message.role === 'assistant'))
+            .limit(6)
+            .toArray(),
+    ]);
+    if (!contacts.some((contact) => normalizeContactName(contact.name) === frozenTargetName)) {
+        return false;
+    }
+    const normalizedTarget = frozenTargetName.toLocaleLowerCase();
+    return context.some((message) => String(message.content || '').toLocaleLowerCase().includes(normalizedTarget));
+}
+
+async function sourceAssistantFloorStillExists(
+    sourceSessionId: string,
+    sourceAnchorOrder: number,
+): Promise<boolean> {
+    const message = await tavernMessagesTable.get([sourceSessionId, sourceAnchorOrder]);
+    return message?.role === 'assistant' && message.error !== true;
 }
 
 export async function buildTavernPetRuntimeDepthEntries(input: {
     sessionId: string;
     atAnchorOrder: number;
 }): Promise<XbTavernRuntimeDepthEntry[]> {
-    const sessionId = String(input.sessionId || '').trim();
+    const sourceSessionId = String(input.sessionId || '').trim();
     const atAnchorOrder = Number(input.atAnchorOrder);
-    if (!sessionId
+    if (!sourceSessionId
         || !Number.isSafeInteger(atAnchorOrder)
         || atAnchorOrder <= 0
     ) {
         return [];
     }
-    const eventAnchor = atAnchorOrder - 1;
+    const sourceAnchorOrder = atAnchorOrder - 1;
     try {
-        const [record, activities] = await Promise.all([
-            getTavernPetStateAtAnchor(sessionId, eventAnchor),
-            listTavernPetActivitiesAtAnchor(sessionId, eventAnchor),
-        ]);
-        const interference = activities.filter(isTavernPetInterferenceActivity);
+        const journalAtAnchor = await listTavernPetJournalAtAnchor(sourceSessionId, sourceAnchorOrder);
+        const interference = journalAtAnchor.filter(isTavernPetInterferenceJournal);
         if (!interference.length) {return [];}
         if (interference.length !== 1) {
-            console.warn('[tavern-pet] interference projection skipped: multiple-interference-at-floor');
+            console.warn('[tavern-pet] interference projection skipped: multiple-interference-at-anchor');
             return [];
         }
-        const activity = interference[0];
-        const actionActivityDetail = record?.action.kind === 'turn-advance'
-            ? record.action.outcome.activity?.detail
+        const journal = interference[0];
+        const rawAction = await tavernPetActionsTable.get(journal.sourceActionId);
+        const action = rawAction ? parseCanonicalTavernPetActionRecord(rawAction) : null;
+        const actionJournal = action?.action.kind === 'turn-advance'
+            ? action.action.outcome.journal
             : undefined;
-        if (!record
-            || record.actionId !== activity.sourceActionId
-            || record.activityId !== activity.id
-            || record.anchorOrder !== eventAnchor
-            || activity.turn !== record.turn
-            || activity.anchorOrder !== record.anchorOrder
-            || record.action.kind !== 'turn-advance'
-            || record.action.outcome.eventId !== activity.detail.eventId
-            || !isTavernPetInterferenceDetail(actionActivityDetail)
-            || actionActivityDetail.eventId !== activity.detail.eventId
-            || actionActivityDetail.injectedText !== activity.detail.injectedText
+        if (!action
+            || action.id !== journal.sourceActionId
+            || action.activityId !== journal.id
+            || action.sourceSessionId !== sourceSessionId
+            || action.sourceTurn !== journal.sourceTurn
+            || action.sourceAnchorOrder !== sourceAnchorOrder
+            || action.action.kind !== 'turn-advance'
+            || action.action.context.sourceSessionId !== sourceSessionId
+            || action.action.context.sourceTurn !== journal.sourceTurn
+            || action.action.context.sourceAnchorOrder !== sourceAnchorOrder
+            || action.action.context.petTurn !== journal.petTurn
+            || action.action.outcome.eventId !== journal.detail.eventId
+            || !actionJournal
+            || !isTavernPetInterferenceDetail(actionJournal.detail)
+            || actionJournal.detail.eventId !== journal.detail.eventId
+            || actionJournal.detail.injectedText !== journal.detail.injectedText
+            || JSON.stringify(actionJournal) !== JSON.stringify({
+                detail: journal.detail,
+                coinDelta: journal.coinDelta,
+                ...(journal.notificationText ? { notificationText: journal.notificationText } : {}),
+            })
         ) {
             console.warn('[tavern-pet] interference projection skipped: interference-causality');
             return [];
         }
-        const targetName = activity.detail.eventId === 'nibble-sleeve'
-            ? record.action.context.knownTargetName
+        if (!await sourceAssistantFloorStillExists(sourceSessionId, sourceAnchorOrder)) {
+            console.warn('[tavern-pet] interference projection skipped: interference-source-floor-missing');
+            return [];
+        }
+        const targetName = journal.detail.eventId === 'nibble-sleeve'
+            ? action.action.context.knownTargetName
             : '';
-        if (activity.detail.eventId === 'nibble-sleeve' && !targetName) {
+        if (journal.detail.eventId === 'nibble-sleeve'
+            && !await sourceTargetStillKnown(sourceSessionId, targetName, sourceAnchorOrder)
+        ) {
             console.warn('[tavern-pet] interference projection skipped: interference-target-missing');
             return [];
         }
-        const expectedText = renderTavernPetInterferenceText(activity.detail.eventId, targetName);
-        if (actionActivityDetail.injectedText !== expectedText
-            || activity.detail.injectedText !== expectedText
+        const expectedText = renderTavernPetInterferenceText(journal.detail.eventId, targetName);
+        if (journal.detail.injectedText !== expectedText
+            || actionJournal.detail.injectedText !== expectedText
         ) {
             console.warn('[tavern-pet] interference projection skipped: interference-text-mismatch');
             return [];
         }
-        const content = buildTavernPetInterferencePromptBlock(activity.detail.injectedText);
+        const content = buildTavernPetInterferencePromptBlock(journal.detail.injectedText);
         if (!content) {return [];}
         return [{
             content,

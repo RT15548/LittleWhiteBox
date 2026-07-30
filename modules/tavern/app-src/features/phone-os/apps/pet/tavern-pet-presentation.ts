@@ -1,7 +1,7 @@
 import { getTavernPetPersona, TAVERN_PET_JUVENILE_PROFILE } from '../../../../../shared/pet/pet-personas';
 import type {
-    TavernPetActivityRecord,
     TavernPetAvailableAction,
+    TavernPetJournalRecord,
     TavernPetMotion,
     TavernPetView,
 } from '../../../../../shared/pet/pet-types';
@@ -27,7 +27,7 @@ const MILESTONE_LABELS = Object.freeze({
     repattern: '变形',
 });
 
-export interface TavernPetActivityRow {
+export interface TavernPetJournalRow {
     id: string;
     kind: 'event' | 'milestone' | 'chat' | 'status';
     label: string;
@@ -45,19 +45,19 @@ export interface TavernPetUtterancePresentation {
     murmur?: string;
 }
 
-function activityText(activity: TavernPetActivityRecord): string {
-    const detail = activity.detail;
+function journalText(entry: TavernPetJournalRecord): string {
+    const detail = entry.detail;
     if (detail.kind === 'chat') {return detail.petText;}
     return detail.renderedText;
 }
 
-function activityLabel(activity: TavernPetActivityRecord): string {
-    const detail = activity.detail;
+function journalLabel(entry: TavernPetJournalRecord): string {
+    const detail = entry.detail;
     if (detail.kind === 'chat') {return '它回应了';}
     if (detail.kind === 'status') {return detail.status === 'woke' ? '重新活动' : '停止活动';}
     if (detail.kind === 'milestone') {return MILESTONE_LABELS[detail.milestoneId];}
-    if (activity.coinDelta > 0) {return `带回 ${activity.coinDelta} 小白币`;}
-    if (activity.coinDelta < 0) {return `拿走 ${Math.abs(activity.coinDelta)} 小白币`;}
+    if (entry.coinDelta > 0) {return `带回 ${entry.coinDelta} 小白币`;}
+    if (entry.coinDelta < 0) {return `拿走 ${Math.abs(entry.coinDelta)} 小白币`;}
     return '留下痕迹';
 }
 
@@ -71,17 +71,17 @@ function timeLabel(createdAt: number): string {
     });
 }
 
-export function projectTavernPetActivityRows(
-    activities: readonly TavernPetActivityRecord[],
-): TavernPetActivityRow[] {
-    return activities.map((activity) => ({
-        id: activity.id,
-        kind: activity.detail.kind,
-        label: activityLabel(activity),
-        text: activityText(activity),
-        coinDelta: activity.coinDelta,
-        createdAt: activity.createdAt,
-        timeLabel: timeLabel(activity.createdAt),
+export function projectTavernPetJournalRows(
+    journal: readonly TavernPetJournalRecord[],
+): TavernPetJournalRow[] {
+    return journal.map((entry) => ({
+        id: entry.id,
+        kind: entry.detail.kind,
+        label: journalLabel(entry),
+        text: journalText(entry),
+        coinDelta: entry.coinDelta,
+        createdAt: entry.createdAt,
+        timeLabel: timeLabel(entry.createdAt),
     }));
 }
 

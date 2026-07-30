@@ -46,8 +46,6 @@ export function tavernPetUiError(error: unknown, context: 'action' | 'chat' = 'a
         if (error.code === 'pet_revision_conflict'
             || error.code === 'pet_version_conflict'
             || error.code === 'pet_action_conflict'
-            || error.code === 'pet_anchor_order_regression'
-            || error.code === 'pet_turn_regression'
             || error.code === 'pet_evolution_stale'
         ) {
             return {

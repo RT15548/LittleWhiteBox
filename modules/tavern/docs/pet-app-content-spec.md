@@ -1,13 +1,13 @@
 # 不明物 APP 内容规格
 
-- 状态：已确认，供实现直接录入
+- 状态：v28 global-companion 已确认，供实现直接录入
 - 依赖：[目标设计](./pet-app-target-design.md)
 - 原则：本文件冻结 v1 的 persona、表情、收藏、事件文案、精确谓词、UI 文案和模型 messages；实现团队不得临场改写或补出第二套内容来源
 
 ## 1. 文本与插值规则
 
-- 所有持久文案在写 Activity 前完成插值并冻结；后续目录改动不改历史。
-- 所有用户输入先 NFKC、CRLF 统一为 LF、去控制字符、合并非换行空白、trim，再应用长度上限。Pet chat 玩家文本按 Unicode code point 静默截到 120，并在请求前把规范化结果同步回输入框。
+- 所有持久文案在写 petJournal 前完成插值并冻结；后续目录改动不改历史。
+- 所有用户输入先 NFKC、CRLF 统一为 LF、去控制字符、合并非换行空白、trim，再应用长度上限。Pet chat 玩家文本按 Unicode code point 静默截到 120，并在请求前把规范化结果同步回输入框；ChatBar 在 IME composition 结束后才执行该限制，规范化为空只显示本地输入提示。
 - 允许的模板槽只有：`[[displayName]]`、`[[amount]]`、`[[curio]]`、`[[targetName]]`、`[[personaName]]`。
 - 模板初始化时扫描未知槽；出现未声明槽直接构建失败，不在运行时原样显示。
 - 未命名时 `displayName = 实验体 #NNN`，NNN 为三位补零 specimenNumber；命名后使用玩家名字。
@@ -80,17 +80,26 @@ persona policy 只改变普通事件候选。milestone/status 不可 blocked/boo
 
 ## 4. 精确事件谓词与窗口
 
-### 4.1 Economy 观察窗口
+### 4.1 来源会话 Economy 观察窗口
 
-每次活跃主回合推进，在写入本次 Pet Economy effect 前：
+Pet 是全局唯一，但每次主回合只观察其来源会话的钱包。全局 state 不保存会话 map、
+余额副本或 Economy 游标；窗口下界从该来源会话最近一条 `petActions` 推导。
 
-1. 读取 session Economy 最新 `ledgerOrder`，没有流水时为 `-1`。
-2. 读取 `state.observedEconomyLedgerOrder < ledgerOrder <= latestLedgerOrder` 的记录。
-3. `recentExternalSpend` 只统计 `sourceDomain ∈ {'shop','bank'}`、`fromAccountId === 'player'` 的 amount。
+每次首次消费的**活跃**来源主回合，在写入本次 Pet Economy effect 前：
+
+1. 以本次 sourceSessionId 和 sourceAnchorOrder 为范围，找到该会话此前最近一条
+   `petActions`；没有时下界为会话的起点。
+2. 读取该 session 中 `previousPetAction.sourceAnchorOrder < anchorOrder <= currentSourceAnchorOrder`
+   的 Economy 记录。
+3. `recentExternalSpend` 只统计 `sourceDomain ∈ {'shop','bank'}`、`fromAccountId === 'player'`
+   的 amount。
 4. Pet、Tasks、Economy opening grant、reversal 和其他 sourceDomain 不计。
-5. 候选和被动变化完成后，把 state 游标设为步骤 1 的 latestLedgerOrder；本次 Pet 新流水留给下一窗口读取但会因 sourceDomain=`pet` 被过滤。
+5. 本次提交的 `petActions` 自身成为该来源会话下一窗口的下界；不向 global state 写
+   Economy 游标。本次 Pet 流水仍因 sourceDomain=`pet` 被过滤。
 
-lure 完成扣款后把游标设到该扣款 ledgerOrder。wake 完成扣款后同样重置到 wake 流水，休眠期间的旧消费不追责。普通 feed/toy/chat/pat/hit/name/toggle 不改变游标。
+lure、wake 和普通 Pet action 都会留下来源 action，因而自然成为此会话下一次观察的
+边界。另一个会话的 action 永不改变本会话窗口；休眠来源回合不处理旧消费，只消费
+全局 `petTurn`。
 
 ### 4.2 “近期”与次数
 
@@ -101,8 +110,9 @@ lure 完成扣款后把游标设到该扣款 ledgerOrder。wake 完成扣款后�
 - “至少 1 件 curio”：`curios.length >= 1`。
 - “仍有普通 curio”：前五件 curio 中至少一件缺失。
 - “饱食 1..59”：包含 1 和 59。
-- `beg-for-food` 的“无未结讨食”：`beggingDeadlineTurn === undefined`。
-- “余额”：在 transaction 内读取 Economy player account；不存在按 0，不自行创建 opening grant。
+- `beg-for-food` 的“无未结讨食”：`beggingDeadlinePetTurn === undefined`。
+- “余额”：进入 Pet action/主回合 transaction 时按现有 Economy 懒初始化契约确保来源
+  session 的 player account；随后读取该 account 的安全整数余额。
 - “近期有消费”的 ambient `count-wallet` 条件与 persona 条件为 OR。
 
 ### 4.3 已知人物解析
@@ -126,7 +136,7 @@ lure 完成扣款后把游标设到该扣款 ledgerOrder。wake 完成扣款后�
 - 普通事件先 `nextInt(100) < eventChance`，通过后按目标设计表格顺序做整数累计权重抽取。
 - effect 随机只在事件已选中后消费：steal-small 5..15、steal-large 20..40、find-coins 3..10、offer-treasure 10..20、pocket-change 1..5、return-cache 1..`min(20,nestCoins)`，均为闭区间均匀整数。
 - bring-curio 对缺失普通 curio 按本文件目录顺序组成数组，再等权抽取。
-- 边界、重放、CAS、余额和候选验证失败时不得提前消费任何随机数。lure 的顺序固定为“无现存 Pet → 余额至少 10 → 创建 recording random source → 五次 origin 抽取”。
+- 边界、重放、CAS、余额和候选验证失败时不得提前消费任何随机数。lure 的顺序固定为“无现存 Pet → 余额至少 10 → 五次 origin 抽取”。随机只服务本次首次动作，不保存 draws 或 replay source。
 
 ## 5. 事件表现与冻结文案
 
@@ -134,8 +144,8 @@ lure 完成扣款后把游标设到该扣款 ledgerOrder。wake 完成扣款后�
 
 - 事件 face 取 effect 完成后的当前 profile/emotion 映射。
 - milestone arrival/hatch/adulthood/repattern 的 motion 都是 `bounce`。
-- 下表 motion 写入 Activity 并冻结，不另做随机动画。
-- toast 为空即不通知；非空 toast 插值后写 Activity.notificationText 冻结，`[[displayName]]` 不在展示时重新计算。
+- 下表 motion 写入 Journal 并冻结，不另做随机动画。
+- toast 为空即不通知；非空 toast 插值后写 Journal.notificationText 冻结，`[[displayName]]` 不在展示时重新计算。
 
 ### 5.2 Milestone 与 status
 
@@ -181,7 +191,7 @@ lure 完成扣款后把游标设到该扣款 ledgerOrder。wake 完成扣款后�
 
 ### 5.4 私聊第一人称记忆
 
-私聊只投影最近 5 条**非 chat Activity**；聊天 Activity 无论有多少都不能挤掉事件、里程碑或状态记忆。下表是 30 个事件/里程碑进入 `<pet_memory>` 时的唯一规范文案源：只保留它亲历的感官碎片，不带 `injectedText`、目标姓名、金额、事件 ID 或完整外部上下文。
+私聊只投影最近 5 条**非 chat Journal**；聊天 Journal 无论有多少都不能挤掉事件、里程碑或状态记忆。下表是 30 个事件/里程碑进入 `<pet_memory>` 时的唯一规范文案源：只保留它亲历的感官碎片，不带 `injectedText`、目标姓名、金额、事件 ID 或完整外部上下文。
 
 | ID | 第一人称记忆 |
 |---|---|
@@ -216,11 +226,11 @@ lure 完成扣款后把游标设到该扣款 ledgerOrder。wake 完成扣款后�
 | `avert-mishap` | 外面有个东西本来要磕到，我把它挪开了一点点。 |
 | `brief-glimpse` | 我出去了一瞬间。有人好像看见我了，但再看就没有了。 |
 
-status 记忆固定为：dormant=`我把自己关掉了一阵子。`，woke=`我又醒过来了。`。这些文案由 `pet-copy.ts` 拥有并接受静态目录完整性/禁词检查，不从已冻结的 Public Activity 正文临时改写。
+status 记忆固定为：dormant=`我把自己关掉了一阵子。`，woke=`我又醒过来了。`。这些文案由 `pet-copy.ts` 拥有并接受静态目录完整性/禁词检查，不从已冻结的 Public Journal 正文临时改写。
 
 ## 6. 剧情插曲冻结文本
 
-Activity 的 `injectedText` 只保存标签内部正文；只有下面四个 interference event 可以且必须携带它，其他 event 禁止该字段；`pet-prompt.ts` 统一包 header/tag。四条正文精确如下：
+Journal event 的 `injectedText` 只保存标签内部正文；只有下面四个 interference event 可以且必须携带它，其他 event 禁止该字段；`pet-prompt.ts` 统一包 header/tag。四条正文精确如下：
 
 ### `nibble-sleeve`
 
@@ -258,7 +268,7 @@ Activity 的 `injectedText` 只保存标签内部正文；只有下面四个 int
 </pet_interference>
 ```
 
-禁用词只扫描 `TAVERN_PET_INTERFERENCE_COPY` 的原始静态模板：`宠物`、`实验体`、`手机生物`、`缸中之脑`、`玩家饲养`。动态联系人名和 Activity 原文不扫描；Activity 保持普通原文，Prompt 投影时统一转义 `& < >`。投影以 eventId 与 action context 的 `knownTargetName` 重算正文，action 和 Activity 的两份 `injectedText` 都必须相等；`nibble-sleeve` 缺目标或任一不一致时 `console.warn + return []`。查询、canonical 解析、重复条目或因果校验失败也同样不得影响主 RP；archive/history 的严格校验不放松。
+禁用词只扫描 `TAVERN_PET_INTERFERENCE_COPY` 的原始静态模板：`宠物`、`实验体`、`手机生物`、`缸中之脑`、`玩家饲养`。动态联系人名和 journal 原文不扫描；journal 保持普通原文，Prompt 投影时统一转义 `& < >`。投影仅查询当前来源 session + anchor，并先确认来源 anchor 仍是一条有效 Assistant 楼层；以 eventId 和 action context 的 `knownTargetName` 重算正文。只有四个 interference eventId 可且必须携带 `injectedText`，action 和 journal 的两份值都必须相等。`nibble-sleeve` 还必须确认目标仍是来源联系人的当前名称，且名称仍出现在该 Assistant 楼层之前的有效 story 上下文；缺目标、来源楼层/上下文失效或 action/journal 任一不一致时 `console.warn + return []`。查询、canonical 解析、重复条目或因果校验失败也同样不得影响主 RP；严格 canonical/invariant 校验不放松。
 
 ## 7. 固定 UI 文案
 
@@ -355,7 +365,7 @@ Pet 页面固定为暗室，不随 Phone 亮色主题翻成白底；亮色主题
 - 动作区宽屏 4 列，`< 360px` 时 2 列；每个按钮最小高度 48px。聊天条不随键盘产生横向滚动。
 - Home icon：undiscovered=`◌`，luring=`·`，egg=`🥚`，juvenile=juvenile.default，adult=currentFace；图标底层统一垫一层暗室 inset（`::before` 圆角内凹+微光），glyph 叠在其上；undiscovered glyph 保持低透明度但可辨。dormant 保留原图形并降饱和/亮度，右下角加纯 CSS `zZ`，不拼新 persona face。
 - `none`：无 transform；`shake`：320ms 内 X 轴 `0,-4,4,-2,2,0px`；`bounce`：420ms Y 轴 `0,-8,0px`；`turn-away`：280ms `translateX(10px)` 且 opacity 到 .72；`hide`：360ms `translateY(8px)` 且 opacity 到 .20；`approach`：300ms scale `1→1.08`；`stare`：600ms scale `1→1.04` 后停留。
-- motion 每次 Activity/chat 只播放一次，不循环。`prefers-reduced-motion: reduce` 时所有 transform 取消，仅做 120ms opacity 交替；dormant `zZ` 不动画。
+- motion 每次 Journal/chat 只播放一次，不循环。`prefers-reduced-motion: reduce` 时所有 transform 取消，仅做 120ms opacity 交替；dormant `zZ` 不动画。
 
 ## 8. Pet 聊天模型契约
 
@@ -388,7 +398,7 @@ System message 采用**第一人称认知投影**：整段从不明物自己的�
 我们最近说过的话：
 {最多 6 组规范化的「那个人：…／我：…」或 无}
 我最近做过的事：
-{最近 5 条非 chat Activity 的第一人称自述；无 injectedText、目标姓名或完整外部上下文}
+{最近 5 条非 chat Journal 的第一人称自述；无 injectedText、目标姓名或完整外部上下文}
 </pet_memory>
 
 {capabilityLines：能把东西藏进窝、叼回小东西、数玻璃外的小白币、抓挠玻璃、缩进暗角；仅 adult && interferenceEnabled 追加“偶尔能从缝里伸出去碰一下外面”。}

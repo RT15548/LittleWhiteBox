@@ -3,6 +3,7 @@ import { computed } from 'vue';
 import { useTavernPhoneContext } from '../../../tavern-app-context';
 import TavernPetActions from './TavernPetActions.vue';
 import TavernPetChatBar from './TavernPetChatBar.vue';
+import TavernPetLeaveDialog from './TavernPetLeaveDialog.vue';
 import TavernPetNamingDialog from './TavernPetNamingDialog.vue';
 import TavernPetNestDrawer from './TavernPetNestDrawer.vue';
 import TavernPetStage from './TavernPetStage.vue';
@@ -156,12 +157,13 @@ async function handleAction(actionId: Parameters<typeof pet.performAction>[0]): 
     <TavernPetNestDrawer
       :open="pet.nestOpen.value"
       :view="pet.view.value"
-      :activities="pet.activities.value"
+      :journal="pet.journal.value"
       :busy="!!pet.busyAction.value || pet.isChatWaiting.value"
       :has-custom-name="pet.hasCustomName.value"
       @close="pet.closeNest"
       @rename="pet.openNaming"
       @toggle-interference="pet.setInterferenceEnabled"
+      @leave="pet.openLeaveConfirmation"
     />
     <TavernPetNamingDialog
       v-model="pet.nameDraft.value"
@@ -173,6 +175,13 @@ async function handleAction(actionId: Parameters<typeof pet.performAction>[0]): 
       @close="pet.closeNaming"
       @submit="pet.submitName()"
       @restore="pet.restoreSpecimenName"
+    />
+    <TavernPetLeaveDialog
+      :open="pet.leaveConfirmOpen.value"
+      :busy="pet.busyAction.value === 'leave'"
+      :error="pet.actionError.value"
+      @close="pet.closeLeaveConfirmation"
+      @confirm="pet.confirmPetLeave"
     />
   </section>
 </template>

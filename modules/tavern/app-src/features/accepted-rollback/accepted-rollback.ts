@@ -28,7 +28,6 @@ import type {
 import type { TavernEconomyRestoreImpact } from '../../../shared/economy/economy-types';
 import type { TavernShopRestoreImpact } from '../../../shared/shop/shop-types';
 import type { TavernBankRestoreImpact } from '../../../shared/bank/bank-types';
-import type { TavernPetRestoreImpact } from '../../../shared/pet/pet-types';
 import type { TavernTaskRestoreImpact } from '../../../shared/tasks/task-types';
 import {
     cancelAndRollbackXbTavernManagersForMessageRange,
@@ -43,7 +42,6 @@ export type AcceptedStateRollbackImpact = {
     tasks: TavernTaskRestoreImpact;
     shop: TavernShopRestoreImpact;
     bank: TavernBankRestoreImpact;
-    pet: TavernPetRestoreImpact;
     economy: TavernEconomyRestoreImpact;
     managers: {
         affectedRuns: number;
@@ -173,7 +171,6 @@ export async function describeAcceptedStateRollbackImpact(sessionId: string, cha
         tasks: economic.tasks,
         shop: economic.shop,
         bank: economic.bank,
-        pet: economic.pet,
         economy: economic.economy,
         managers,
         willRollbackState: memory.changed
@@ -182,7 +179,6 @@ export async function describeAcceptedStateRollbackImpact(sessionId: string, cha
             || economic.tasks.changed
             || economic.shop.changed
             || economic.bank.changed
-            || economic.pet.changed
             || economic.economy.changed,
         willCancelWork: managers.pendingRuns > 0,
     };
@@ -207,7 +203,6 @@ export function rollbackImpactLines(impact: AcceptedStateRollbackImpact): string
     if (impact.tasks.changed) {restoreTargets.push('任务状态');}
     if (impact.shop.changed) {restoreTargets.push('背包与道具效果');}
     if (impact.bank.changed) {restoreTargets.push('银行头寸与对局');}
-    if (impact.pet.changed) {restoreTargets.push('住户状态与痕迹');}
     if (impact.economy.changed) {restoreTargets.push('钱包流水');}
     if (restoreTargets.length) {
         lines.push(`${joinRollbackTargets(restoreTargets)}会恢复到${target}。`);

@@ -1191,20 +1191,29 @@ async function assertManagerRunLease(input: Pick<XbTavernManagerRunInput, 'manag
     await assertRunningTavernManagerRunLease(input.managerRunId, input.leaseOwnerId);
 }
 
-function startManagerRunHeartbeat(managerRunId = '', leaseOwnerId = '', signal?: AbortSignal): () => void {
+function startManagerRunHeartbeat(managerRunId = '', leaseOwnerId = '', signal?: AbortSignal): () => Promise<void> {
     const id = String(managerRunId || '').trim();
-    if (!id) {return () => undefined;}
+    if (!id) {return async () => undefined;}
     let stopped = false;
-    const timer = setInterval(() => {
+    const pendingTouches = new Set<Promise<unknown>>();
+    const touch = () => {
         if (stopped || signal?.aborted) {return;}
-        void touchRunningTavernManagerRun(id, {
+        const pendingTouch = touchRunningTavernManagerRun(id, {
             leaseOwnerId,
             leaseDurationMs: TAVERN_MANAGER_LEASE_DURATION_MS,
+        }).catch((error) => {
+            if (!stopped && !signal?.aborted) {
+                console.warn('[小白酒馆] manager lease heartbeat failed', error);
+            }
         });
-    }, TAVERN_MANAGER_HEARTBEAT_INTERVAL_MS);
-    return () => {
+        pendingTouches.add(pendingTouch);
+        void pendingTouch.then(() => pendingTouches.delete(pendingTouch));
+    };
+    const timer = setInterval(touch, TAVERN_MANAGER_HEARTBEAT_INTERVAL_MS);
+    return async () => {
         stopped = true;
         clearInterval(timer);
+        await Promise.allSettled([...pendingTouches]);
     };
 }
 
@@ -1489,7 +1498,7 @@ async function runManagerTask(input: {
             error: errorText,
         };
     } finally {
-        stopHeartbeat();
+        await stopHeartbeat();
     }
 }
 

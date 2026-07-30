@@ -37,9 +37,11 @@ import {
 } from '../shared/bank/bank-service';
 import { createTavernBankSequenceRandom } from '../shared/bank/bank-random';
 import { captureTavernPhoneBoundary } from '../shared/phone-boundary';
-import { lureTavernPet } from '../shared/pet/pet-service';
-import { createTavernPetSequenceRandomSource } from '../shared/pet/pet-random';
-import { advanceTavernPetStoryTurnForTest } from './pet-test-helpers';
+import {
+    advanceTavernPetStoryTurnForTest,
+    createTavernPetTestSession,
+    lureTavernPetForTest,
+} from './pet-test-helpers';
 
 function taskListings(): TavernTaskListing[] {
     return (['E', 'D', 'C', 'B', 'A', 'S'] as const).map((grade, index) => ({
@@ -139,10 +141,7 @@ function createSyncedPetObserver(
             },
             onShopChanged: () => {},
             onBankChanged: () => {},
-            onPetChanged: (change) => pet.refreshAfterPetDomainChange(
-                change.sessionId,
-                change.activityIds,
-            ),
+            onPetChanged: (change) => pet.refreshAfterPetDomainChange(change.journalIds),
         });
         return { pet, wallet };
     });
@@ -368,41 +367,45 @@ test('an observing phone controller refreshes tasks and wallet after another wri
     }
 });
 
-test('Pet domain sync refreshes a remote resident and emits each new frozen notification once', async () => {
+test('Pet domain sync refreshes a globally shared resident but emits Journal notifications only in their source session', async () => {
     await db.delete();
     await db.open();
-    const session = await createTavernSession({ title: 'Pet domain sync observer' });
-    await ensureTavernEconomy(session.id);
-    const selectedSessionId = ref(session.id);
+    const source = await createTavernPetTestSession('Pet domain sync source');
+    const observerSession = await createTavernPetTestSession('Pet domain sync observer');
+    const selectedSessionId = ref(observerSession.id);
     const toasts: string[] = [];
+    const sourceToasts: string[] = [];
     const lateToasts: string[] = [];
     const observer = createSyncedPetObserver(selectedSessionId, (message) => {toasts.push(message);});
+    const sourceObserver = createSyncedPetObserver(ref(source.id), (message) => {sourceToasts.push(message);});
     let late: ReturnType<typeof createSyncedPetObserver> | null = null;
     try {
-        await Promise.all([observer.pet.preparePet(), observer.wallet.refreshWallet()]);
+        await Promise.all([
+            observer.pet.preparePet(),
+            observer.wallet.refreshWallet(),
+            sourceObserver.pet.preparePet(),
+            sourceObserver.wallet.refreshWallet(),
+        ]);
         await settleLiveQueries();
         assert.equal(observer.pet.view.value.existence, 'undiscovered');
+        assert.equal(sourceObserver.pet.view.value.existence, 'undiscovered');
         assert.equal(observer.wallet.balance.value, 100);
 
-        await lureTavernPet({
-            sessionId: session.id,
-            boundary: null,
-            actionId: 'domain-sync-pet-lure',
-            expectedRevision: 0,
-            expectedVersionId: '',
-        }, createTavernPetSequenceRandomSource([71, 0, 15, 15, 15]));
+        await lureTavernPetForTest(source.id, 'domain-sync-pet-lure');
         await waitUntil(() => (
             observer.pet.view.value.phase === 'luring'
-            && observer.wallet.balance.value === 90
+            && observer.wallet.balance.value === 100
         ));
         assert.deepEqual(toasts, []);
 
-        await advanceTavernPetStoryTurnForTest(session.id, []);
+        await advanceTavernPetStoryTurnForTest(source.id, []);
         await waitUntil(() => (
             observer.pet.view.value.phase === 'egg'
-            && toasts.includes('角落里多了一枚蛋。')
+            && sourceObserver.pet.view.value.phase === 'egg'
+            && sourceToasts.includes('角落里多了一枚蛋。')
         ));
-        assert.deepEqual(toasts, ['角落里多了一枚蛋。']);
+        assert.deepEqual(toasts, []);
+        assert.deepEqual(sourceToasts, ['角落里多了一枚蛋。']);
 
         late = createSyncedPetObserver(selectedSessionId, (message) => {lateToasts.push(message);});
         await Promise.all([late.pet.preparePet(), late.wallet.refreshWallet()]);
@@ -411,6 +414,7 @@ test('Pet domain sync refreshes a remote resident and emits each new frozen noti
         assert.deepEqual(lateToasts, []);
     } finally {
         observer.scope.stop();
+        sourceObserver.scope.stop();
         late?.scope.stop();
     }
 });

@@ -614,10 +614,6 @@ watch(
                 <dt>银行</dt>
                 <dd>{{ characterArchiveSyncState.result.counts.bank }}</dd>
               </div>
-              <div>
-                <dt>住户</dt>
-                <dd>{{ characterArchiveSyncState.result.counts.pet }}</dd>
-              </div>
             </dl>
           </div>
         </section>

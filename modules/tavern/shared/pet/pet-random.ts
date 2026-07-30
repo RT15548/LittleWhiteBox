@@ -1,6 +1,5 @@
 import {
     type TavernPetOrigin,
-    type TavernPetRandomDraw,
     throwTavernPetError,
 } from './pet-types';
 import type { TavernPetEventCandidate } from './pet-events';
@@ -41,46 +40,6 @@ export function createTavernPetSequenceRandomSource(values: readonly number[]): 
     };
 }
 
-export function createTavernPetRecordingRandomSource(source: TavernPetRandomSource): {
-    random: TavernPetRandomSource;
-    draws: TavernPetRandomDraw[];
-} {
-    const draws: TavernPetRandomDraw[] = [];
-    return {
-        draws,
-        random: {
-            nextInt(maxExclusive: number): number {
-                const max = assertMaxExclusive(maxExclusive);
-                const value = assertRandomValue(source.nextInt(max), max);
-                draws.push({ maxExclusive: max, value });
-                return value;
-            },
-        },
-    };
-}
-
-export function createTavernPetReplayRandomSource(draws: readonly TavernPetRandomDraw[]): TavernPetRandomSource & {
-    assertExhausted(): void;
-} {
-    let index = 0;
-    return {
-        nextInt(maxExclusive: number): number {
-            const max = assertMaxExclusive(maxExclusive);
-            const draw = draws[index++];
-            if (!draw) {throwTavernPetError('pet_random_exhausted');}
-            if (draw.maxExclusive !== max) {
-                throwTavernPetError('pet_random_invalid', `replay-max:${draw.maxExclusive}/${max}`);
-            }
-            return assertRandomValue(draw.value, max);
-        },
-        assertExhausted(): void {
-            if (index !== draws.length) {
-                throwTavernPetError('pet_random_invalid', `replay-extra:${draws.length - index}`);
-            }
-        },
-    };
-}
-
 export function drawTavernPetInclusiveInteger(
     minimum: number,
     maximum: number,
@@ -98,15 +57,12 @@ function drawBirthBiasAxis(random: TavernPetRandomSource): number {
 }
 
 /** Origin has a frozen draw order: specimen, delay, tameness, generosity, brightness. */
-export function drawTavernPetOrigin(currentTurn: number, random: TavernPetRandomSource): TavernPetOrigin {
-    if (!Number.isSafeInteger(currentTurn) || currentTurn < 0) {
-        throwTavernPetError('pet_turn_invalid', String(currentTurn));
-    }
+export function drawTavernPetOrigin(random: TavernPetRandomSource): TavernPetOrigin {
     const specimenNumber = random.nextInt(999) + 1;
-    const arrivalTurn = currentTurn + random.nextInt(3) + 1;
+    const arrivalAfterTurns = random.nextInt(3) + 1;
     return {
         specimenNumber,
-        arrivalTurn,
+        arrivalAfterTurns,
         birthBias: {
             tameness: drawBirthBiasAxis(random),
             generosity: drawBirthBiasAxis(random),

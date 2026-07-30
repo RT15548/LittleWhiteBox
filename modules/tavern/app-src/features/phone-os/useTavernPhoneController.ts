@@ -102,10 +102,7 @@ export function useTavernPhoneController(options: TavernPhoneControllerInput) {
             change.sessionId,
             change.settledPositionIds,
         ),
-        onPetChanged: (change) => pet.refreshAfterPetDomainChange(
-            change.sessionId,
-            change.activityIds,
-        ),
+        onPetChanged: (change) => pet.refreshAfterPetDomainChange(change.journalIds),
     });
 
     async function openPhone() {

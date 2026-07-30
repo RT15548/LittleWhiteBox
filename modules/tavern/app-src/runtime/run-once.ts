@@ -2263,7 +2263,15 @@ export async function waitForQueuedAcceptedTurnManagers(sessionId = ''): Promise
         const queues = target
             ? [queuedAcceptedTurnManagerWorkers.get(target)].filter(Boolean) as Promise<void>[]
             : [...queuedAcceptedTurnManagerWorkers.values()];
-        if (!queues.length) {return;}
+        if (!queues.length) {
+            if (target) {
+                clearQueuedAcceptedTurnManagerRecoveryTimer(target);
+            } else {
+                [...queuedAcceptedTurnManagerRecoveryTimers.keys()]
+                    .forEach((id) => clearQueuedAcceptedTurnManagerRecoveryTimer(id));
+            }
+            return;
+        }
         await Promise.allSettled(queues);
     }
 }

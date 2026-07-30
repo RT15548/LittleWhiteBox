@@ -5,8 +5,8 @@ import db, {
     tavernBankStateVersionsTable,
     tavernEconomyAccountsTable,
     tavernEconomyTransactionsTable,
-    tavernPetActivitiesTable,
-    tavernPetStateVersionsTable,
+    tavernPetActionsTable,
+    tavernPetCompanionTable,
     tavernSessionsTable,
     tavernShopStateVersionsTable,
     tavernTaskBoardsTable,
@@ -19,9 +19,8 @@ import {
     type TavernBankStateVersionRecord,
 } from '../../../shared/bank/bank-types';
 import {
-    TAVERN_PET_CURRENT_MARKER,
-    type TavernPetActivityRecord,
-    type TavernPetStateVersionRecord,
+    TAVERN_PET_COMPANION_ID,
+    type TavernPetActionRecord,
 } from '../../../shared/pet/pet-types';
 
 interface TavernPhoneDomainSyncOptions {
@@ -39,8 +38,7 @@ export interface TavernBankDomainChange {
 }
 
 export interface TavernPetDomainChange {
-    sessionId: string;
-    activityIds: string[];
+    journalIds: string[];
 }
 
 interface DexieLiveQuerySubscription {
@@ -77,33 +75,6 @@ interface BankVersionRangeTable {
             includeLower?: boolean,
             includeUpper?: boolean,
         ): { toArray(): Promise<TavernBankStateVersionRecord[]> };
-    };
-}
-
-interface PetVersionRangeTable {
-    where(index: string): {
-        between(
-            lower: unknown,
-            upper: unknown,
-            includeLower?: boolean,
-            includeUpper?: boolean,
-        ): { toArray(): Promise<TavernPetStateVersionRecord[]> };
-    };
-}
-
-interface LatestPetActivityCollection {
-    reverse(): LatestPetActivityCollection;
-    first(): Promise<TavernPetActivityRecord | undefined>;
-}
-
-interface LatestPetActivityTable {
-    where(index: string): {
-        between(
-            lower: unknown,
-            upper: unknown,
-            includeLower?: boolean,
-            includeUpper?: boolean,
-        ): LatestPetActivityCollection;
     };
 }
 
@@ -211,35 +182,18 @@ interface TavernPetDomainSnapshot {
     versionId: string;
 }
 
-async function petDomainFingerprint(sessionId: string): Promise<TavernPetDomainSnapshot> {
+async function petDomainFingerprint(): Promise<TavernPetDomainSnapshot> {
     return await db.transaction(
         'r',
-        tavernSessionsTable,
-        tavernPetStateVersionsTable,
-        tavernPetActivitiesTable,
+        tavernPetCompanionTable,
         async () => {
-            const [session, rows, latestActivity] = await Promise.all([
-                tavernSessionsTable.get(sessionId),
-                tavernPetStateVersionsTable
-                    .where('[sessionId+currentMarker]')
-                    .equals([sessionId, TAVERN_PET_CURRENT_MARKER])
-                    .toArray(),
-                (tavernPetActivitiesTable as unknown as LatestPetActivityTable)
-                    .where('[sessionId+createdAt]')
-                    .between([sessionId, 0], [sessionId, Number.MAX_SAFE_INTEGER], true, true)
-                    .reverse()
-                    .first(),
-            ]);
-            const current = rows[0];
-            const revision = current?.revision || 0;
+            const current = await tavernPetCompanionTable.get(TAVERN_PET_COMPANION_ID);
+            const revision = Number(current?.revision) || 0;
             const versionId = current?.versionId || '';
             return {
                 fingerprint: JSON.stringify([
-                    session?.id ? 1 : 0,
                     revision,
                     versionId,
-                    latestActivity?.id || '',
-                    latestActivity?.createdAt ?? -1,
                 ]),
                 revision,
                 versionId,
@@ -274,32 +228,21 @@ async function bankSettledPositionIdsBetween(input: {
     });
 }
 
-async function petActivityIdsBetween(input: {
-    sessionId: string;
+async function petJournalIdsBetween(input: {
     previousRevision: number;
-    previousVersionId: string;
     nextRevision: number;
 }): Promise<string[]> {
     if (input.nextRevision <= input.previousRevision) {return [];}
     if (input.previousRevision === 0 && input.nextRevision !== 1) {return [];}
-    return await db.transaction('r', tavernPetStateVersionsTable, async () => {
-        if (input.previousRevision > 0) {
-            const previous = await tavernPetStateVersionsTable.get([
-                input.sessionId,
-                input.previousRevision,
-            ]);
-            if (!previous || previous.versionId !== input.previousVersionId) {return [];}
-        }
-        const rows = await (tavernPetStateVersionsTable as unknown as PetVersionRangeTable)
-            .where('[sessionId+revision]')
-            .between(
-                [input.sessionId, input.previousRevision + 1],
-                [input.sessionId, input.nextRevision],
-                true,
-                true,
-            )
-            .toArray();
-        const ordered = rows.sort((left, right) => left.revision - right.revision);
+    return await db.transaction('r', tavernPetActionsTable, async () => {
+        const revisions = Array.from(
+            { length: input.nextRevision - input.previousRevision },
+            (_, index) => input.previousRevision + index + 1,
+        );
+        const rows = await Promise.all(revisions.map(async (revision) => (
+            await tavernPetActionsTable.where('revision').equals(revision).first()
+        )));
+        const ordered = rows.filter((row): row is TavernPetActionRecord => Boolean(row));
         const expectedCount = input.nextRevision - input.previousRevision;
         if (ordered.length !== expectedCount
             || ordered.some((row, index) => row.revision !== input.previousRevision + index + 1)
@@ -377,25 +320,21 @@ function createPetRefreshScheduler(
     callback: (change: TavernPetDomainChange) => void | Promise<void>,
 ) {
     let running = false;
-    let pendingSessionId = '';
-    const pendingActivityIds = new Set<string>();
+    let requested = false;
+    const pendingJournalIds = new Set<string>();
     return (change: TavernPetDomainChange) => {
-        if (pendingSessionId && pendingSessionId !== change.sessionId) {
-            pendingActivityIds.clear();
-        }
-        pendingSessionId = change.sessionId;
-        change.activityIds.forEach((activityId) => pendingActivityIds.add(activityId));
+        change.journalIds.forEach((journalId) => pendingJournalIds.add(journalId));
+        requested = true;
         if (running) {return;}
         running = true;
         void (async () => {
             try {
-                while (pendingSessionId) {
+                while (requested) {
+                    requested = false;
                     const next: TavernPetDomainChange = {
-                        sessionId: pendingSessionId,
-                        activityIds: [...pendingActivityIds],
+                        journalIds: [...pendingJournalIds],
                     };
-                    pendingSessionId = '';
-                    pendingActivityIds.clear();
+                    pendingJournalIds.clear();
                     try {
                         await callback(next);
                     } catch (error) {
@@ -499,7 +438,7 @@ export function useTavernPhoneDomainSync(options: TavernPhoneDomainSyncOptions):
                 },
                 error: (error) => console.warn('[LittleWhiteBox/tavern] Bank domain sync failed', error),
             }),
-            runLiveQuery(() => petDomainFingerprint(sessionId)).subscribe({
+            runLiveQuery(() => petDomainFingerprint()).subscribe({
                 next: (nextSnapshot) => {
                     if (currentGeneration !== generation) {return;}
                     const previousSnapshot = petSnapshot;
@@ -507,17 +446,15 @@ export function useTavernPhoneDomainSync(options: TavernPhoneDomainSyncOptions):
                     if (!previousSnapshot || nextSnapshot.fingerprint === previousSnapshot.fingerprint) {return;}
                     petChangeQueue = petChangeQueue
                         .then(async () => {
-                            const activityIds = await petActivityIdsBetween({
-                                sessionId,
+                            const journalIds = await petJournalIdsBetween({
                                 previousRevision: previousSnapshot.revision,
-                                previousVersionId: previousSnapshot.versionId,
                                 nextRevision: nextSnapshot.revision,
                             });
                             if (currentGeneration !== generation) {return;}
-                            schedulePetRefresh({ sessionId, activityIds });
+                            schedulePetRefresh({ journalIds });
                         })
                         .catch((error) => {
-                            console.warn('[LittleWhiteBox/tavern] Pet activity sync failed', error);
+                            console.warn('[LittleWhiteBox/tavern] Pet journal sync failed', error);
                         });
                 },
                 error: (error) => console.warn('[LittleWhiteBox/tavern] Pet domain sync failed', error),

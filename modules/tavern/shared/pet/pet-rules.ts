@@ -5,8 +5,8 @@ import {
 import {
     renderTavernPetEventCopy,
     renderTavernPetInterferenceText,
-    renderTavernPetMilestoneActivity,
-    renderTavernPetStatusActivity,
+    renderTavernPetMilestoneJournal,
+    renderTavernPetStatusJournal,
     TAVERN_PET_REGULAR_CURIO_IDS,
 } from './pet-copy';
 import {
@@ -80,9 +80,9 @@ function emptyStats(): TavernPetLifetimeStats {
     };
 }
 
-export function createTavernPetInteractionWindow(turn: number): TavernPetInteractionWindow {
+export function createTavernPetInteractionWindow(petTurn: number): TavernPetInteractionWindow {
     return {
-        turn: assertTurn(turn),
+        petTurn: assertTurn(petTurn),
         feedCount: 0,
         tapCount: 0,
         bgmCount: 0,
@@ -95,10 +95,10 @@ export function createTavernPetInteractionWindow(turn: number): TavernPetInterac
 
 export function createTavernPetLuringState(input: {
     origin: TavernPetOrigin;
-    currentTurn: number;
-    observedEconomyLedgerOrder: number;
+    petTurn: number;
 }): TavernPetState {
     return {
+        petTurn: assertTurn(input.petTurn),
         phase: 'luring',
         dormant: false,
         origin: clone(input.origin),
@@ -109,9 +109,8 @@ export function createTavernPetLuringState(input: {
         emotionRemainingTurns: 0,
         nestCoins: 0,
         curios: [],
-        interactionWindow: createTavernPetInteractionWindow(input.currentTurn),
+        interactionWindow: createTavernPetInteractionWindow(input.petTurn),
         idleTurns: 0,
-        observedEconomyLedgerOrder: input.observedEconomyLedgerOrder,
         toyCooldownTurns: 0,
         eventCooldowns: {},
         interferenceEnabled: true,
@@ -177,9 +176,9 @@ function resetEmotionToBaseline(state: TavernPetState): void {
     state.emotionRemainingTurns = 0;
 }
 
-function currentWindow(state: TavernPetState, currentTurn: number): TavernPetInteractionWindow {
-    if (state.interactionWindow.turn !== currentTurn) {
-        state.interactionWindow = createTavernPetInteractionWindow(currentTurn);
+function currentWindow(state: TavernPetState, currentPetTurn: number): TavernPetInteractionWindow {
+    if (state.interactionWindow.petTurn !== currentPetTurn) {
+        state.interactionWindow = createTavernPetInteractionWindow(currentPetTurn);
     }
     return state.interactionWindow;
 }
@@ -207,7 +206,7 @@ export function deriveTavernPetPersona(state: Pick<TavernPetState, 'axes' | 'ori
 export function tavernPetInteractionUnavailableReason(
     state: TavernPetState | null,
     interactionId: TavernPetInteractionId,
-    currentTurn: number,
+    currentPetTurn: number,
     playerBalance: number,
 ): string {
     if (!state) {
@@ -220,9 +219,9 @@ export function tavernPetInteractionUnavailableReason(
         return playerBalance < TAVERN_PET_INTERACTION_COSTS.wake ? '小白币不足' : '';
     }
     if (interactionId === 'lure' || interactionId === 'wake') {return '现在不能这样做';}
-    const window = state.interactionWindow.turn === currentTurn
+    const window = state.interactionWindow.petTurn === currentPetTurn
         ? state.interactionWindow
-        : createTavernPetInteractionWindow(currentTurn);
+        : createTavernPetInteractionWindow(currentPetTurn);
     if (interactionId === 'feed') {
         if (state.satiety >= 100) {return '已经吃不下了';}
         return playerBalance < TAVERN_PET_INTERACTION_COSTS.feed ? '小白币不足' : '';
@@ -253,20 +252,19 @@ export interface TavernPetInteractionTransition {
 export function applyTavernPetInteraction(
     source: TavernPetState,
     interactionId: Exclude<TavernPetInteractionId, 'lure' | 'chat' | 'wake'>,
-    currentTurn: number,
+    currentPetTurn: number,
 ): TavernPetInteractionTransition {
-    const turn = assertTurn(currentTurn);
+    const petTurn = assertTurn(currentPetTurn);
     const state = clone(source);
-    const reason = tavernPetInteractionUnavailableReason(state, interactionId, turn, Number.MAX_SAFE_INTEGER);
+    const reason = tavernPetInteractionUnavailableReason(state, interactionId, petTurn, Number.MAX_SAFE_INTEGER);
     if (reason) {throwTavernPetError('pet_interaction_unavailable', `${interactionId}:${reason}`);}
-    const window = currentWindow(state, turn);
+    const window = currentWindow(state, petTurn);
     let appliedAxes = false;
     window.interactionCount += 1;
     if (interactionId === 'feed') {
         state.satiety = Math.min(100, state.satiety + 30);
         window.feedCount += 1;
-        state.lastFeedTurn = turn;
-        delete state.beggingDeadlineTurn;
+        delete state.beggingDeadlinePetTurn;
         state.lifetimeStats.feedCount += 1;
         if (state.phase === 'egg') {
             state.incubation!.feedCount += 1;
@@ -312,14 +310,14 @@ export function applyTavernPetInteraction(
     return { state, appliedAxes };
 }
 
-export function wakeTavernPetState(source: TavernPetState, currentTurn: number): TavernPetState {
+export function wakeTavernPetState(source: TavernPetState, currentPetTurn: number): TavernPetState {
     const state = clone(source);
     if (!state.dormant) {throwTavernPetError('pet_not_dormant');}
     state.dormant = false;
     state.satiety = 30;
     applyTavernPetAxesDelta(state, { tameness: -6, generosity: 0, brightness: -10 }, { ignoreAge: true });
     resetEmotionToBaseline(state);
-    state.interactionWindow = createTavernPetInteractionWindow(currentTurn);
+    state.interactionWindow = createTavernPetInteractionWindow(currentPetTurn);
     return state;
 }
 
@@ -337,15 +335,15 @@ export function setTavernPetInterferenceState(source: TavernPetState, enabled: b
 
 export function applyTavernPetChatResponse(
     source: TavernPetState,
-    currentTurn: number,
+    currentPetTurn: number,
     playerText: string,
     response: TavernPetChatResponse,
 ): TavernPetInteractionTransition {
     const state = clone(source);
-    const reason = tavernPetInteractionUnavailableReason(state, 'chat', currentTurn, Number.MAX_SAFE_INTEGER);
+    const reason = tavernPetInteractionUnavailableReason(state, 'chat', currentPetTurn, Number.MAX_SAFE_INTEGER);
     if (reason) {throwTavernPetError('pet_chat_unavailable', reason);}
     const canonicalResponse = normalizeTavernPetChatResponse(response, state);
-    const window = currentWindow(state, currentTurn);
+    const window = currentWindow(state, currentPetTurn);
     const appliedAxes = window.chatCount === 0;
     window.chatCount += 1;
     window.interactionCount += 1;
@@ -405,8 +403,10 @@ function buildEvolutionRequest(
         ...(previousPersonaId ? { previousPersonaId } : {}),
         axes: clone(state.axes),
         stats: clone(state.lifetimeStats),
-        turn: context.turn,
-        anchorOrder: context.anchorOrder,
+        sourceSessionId: context.sourceSessionId,
+        sourceTurn: context.sourceTurn,
+        sourcePetTurn: context.petTurn,
+        sourceAnchorOrder: context.sourceAnchorOrder,
     };
 }
 
@@ -419,8 +419,11 @@ function advancePhaseMilestone(state: TavernPetState, context: TavernPetTurnCont
         return {
             milestoneId: 'hatch',
             eventId: 'hatch',
-            activity: renderTavernPetMilestoneActivity({
-                milestoneId: 'hatch', state, turn: context.turn, anchorOrder: context.anchorOrder,
+            journal: renderTavernPetMilestoneJournal({
+                milestoneId: 'hatch',
+                state,
+                petTurn: context.petTurn,
+                sourceAnchorOrder: context.sourceAnchorOrder,
             }),
         };
     }
@@ -492,7 +495,7 @@ function applyEventEffect(
     if (spec.effect.kind === 'emotion') {
         setTavernPetEmotion(state, spec.effect.emotion);
     } else if (spec.effect.kind === 'beg') {
-        state.beggingDeadlineTurn = context.turn + 2;
+        state.beggingDeadlinePetTurn = context.petTurn + 2;
     } else if (spec.effect.kind === 'steal') {
         amount = drawTavernPetInclusiveInteger(spec.effect.minimum, spec.effect.maximum, random);
         coinDelta = -amount;
@@ -501,7 +504,7 @@ function applyEventEffect(
             amount,
             direction: 'debit',
             kind: spec.effect.ledgerKind,
-            idempotencyKey: `pet:event:${context.turn}:${eventId}`,
+            idempotencyKey: `pet:event:${context.sourceSessionId}:${context.sourceTurn}:${eventId}`,
             title: '住户拿走小白币',
             sourceId: eventId,
         };
@@ -514,7 +517,7 @@ function applyEventEffect(
             amount,
             direction: 'debit',
             kind: spec.effect.ledgerKind,
-            idempotencyKey: `pet:event:${context.turn}:${eventId}`,
+            idempotencyKey: `pet:event:${context.sourceSessionId}:${context.sourceTurn}:${eventId}`,
             title: '住户窝藏小白币',
             sourceId: eventId,
         };
@@ -526,7 +529,7 @@ function applyEventEffect(
             amount,
             direction: 'credit',
             kind: spec.effect.ledgerKind,
-            idempotencyKey: `pet:event:${context.turn}:${eventId}`,
+            idempotencyKey: `pet:event:${context.sourceSessionId}:${context.sourceTurn}:${eventId}`,
             title: spec.effect.ledgerKind === 'pet_find' ? '住户带回小白币' : '住户赠送小白币',
             sourceId: eventId,
         };
@@ -539,7 +542,7 @@ function applyEventEffect(
             amount,
             direction: 'credit',
             kind: 'pet_return',
-            idempotencyKey: `pet:return:${context.turn}:${eventId}`,
+            idempotencyKey: `pet:return:${context.sourceSessionId}:${context.sourceTurn}:${eventId}`,
             title: '住户归还窝藏小白币',
             sourceId: eventId,
         };
@@ -551,7 +554,7 @@ function applyEventEffect(
             amount,
             direction: 'credit',
             kind: 'pet_find',
-            idempotencyKey: `pet:event:${context.turn}:${eventId}`,
+            idempotencyKey: `pet:event:${context.sourceSessionId}:${context.sourceTurn}:${eventId}`,
             title: '住户捡回小白币',
             sourceId: eventId,
         };
@@ -589,7 +592,7 @@ function applyEventEffect(
         : renderTavernPetEventCopy({ ...copyInput, eventId });
     return {
         eventId,
-        activity,
+        journal: activity,
         ...(coinEffect ? { coinEffect } : {}),
     };
 }
@@ -599,40 +602,48 @@ export function advanceTavernPetTurn(
     context: TavernPetTurnContext,
     random: TavernPetRandomSource,
 ): TavernPetTurnTransition {
-    const turn = assertTurn(context.turn);
-    if (turn <= source.interactionWindow.turn && source.phase !== 'luring') {
-        throwTavernPetError('pet_turn_regression', `${turn}<=${source.interactionWindow.turn}`);
+    const petTurn = assertTurn(context.petTurn);
+    if (petTurn !== source.petTurn + 1) {
+        throwTavernPetError(
+            'pet_turn_invalid',
+            [String(source.petTurn), String(petTurn)].join('->'),
+        );
     }
     const state = clone(source);
+    state.petTurn = petTurn;
     if (state.phase === 'luring') {
-        if (turn < state.origin.arrivalTurn) {return { changed: false, state, outcome: {} };}
+        state.phaseTurnCount += 1;
+        state.interactionWindow = createTavernPetInteractionWindow(petTurn);
+        if (state.phaseTurnCount < state.origin.arrivalAfterTurns) {
+            return { changed: true, state, outcome: {} };
+        }
         state.phase = 'egg';
         state.phaseTurnCount = 0;
         state.satiety = 50;
         state.incubation = { feedCount: 0, tapCount: 0, bgmCount: 0 };
-        state.interactionWindow = createTavernPetInteractionWindow(turn);
-        state.observedEconomyLedgerOrder = context.latestEconomyLedgerOrder;
-        const activity = renderTavernPetMilestoneActivity({
-            milestoneId: 'arrival', state, turn, anchorOrder: context.anchorOrder,
+        const journal = renderTavernPetMilestoneJournal({
+            milestoneId: 'arrival',
+            state,
+            petTurn,
+            sourceAnchorOrder: context.sourceAnchorOrder,
         });
-        return { changed: true, state, outcome: { eventId: 'arrival', milestoneId: 'arrival', activity } };
+        return { changed: true, state, outcome: { eventId: 'arrival', milestoneId: 'arrival', journal } };
     }
-    if (state.dormant) {return { changed: false, state, outcome: {} };}
+    if (state.dormant) {return { changed: true, state, outcome: {} };}
 
     const previousWindow = clone(state.interactionWindow);
     const hadInteraction = previousWindow.interactionCount > 0;
     const wasFed = previousWindow.feedCount > 0;
     decrementCooldowns(state);
-    state.observedEconomyLedgerOrder = context.latestEconomyLedgerOrder;
     state.satiety = Math.max(0, state.satiety - 3);
     if (state.satiety === 0) {
         state.dormant = true;
         state.lifetimeStats.dormantCount += 1;
-        state.interactionWindow = createTavernPetInteractionWindow(turn);
+        state.interactionWindow = createTavernPetInteractionWindow(petTurn);
         return {
             changed: true,
             state,
-            outcome: { activity: renderTavernPetStatusActivity('dormant', state) },
+            outcome: { journal: renderTavernPetStatusJournal('dormant', state) },
         };
     }
 
@@ -645,9 +656,9 @@ export function advanceTavernPetTurn(
             applyTavernPetAxesDelta(state, { tameness: -2, generosity: 0, brightness: -2 });
         }
         if (!hadInteraction && state.idleTurns >= 8) {setTavernPetEmotion(state, 'bored');}
-        if (state.beggingDeadlineTurn !== undefined && turn >= state.beggingDeadlineTurn) {
+        if (state.beggingDeadlinePetTurn !== undefined && petTurn >= state.beggingDeadlinePetTurn) {
             applyTavernPetAxesDelta(state, { tameness: -2, generosity: -2, brightness: -2 });
-            delete state.beggingDeadlineTurn;
+            delete state.beggingDeadlinePetTurn;
             setTavernPetEmotion(state, 'aggrieved');
         }
         if (context.recentExternalSpend > 0 && !wasFed) {
@@ -655,7 +666,7 @@ export function advanceTavernPetTurn(
         }
     }
     state.phaseTurnCount += 1;
-    state.interactionWindow = createTavernPetInteractionWindow(turn);
+    state.interactionWindow = createTavernPetInteractionWindow(petTurn);
     const milestone = advancePhaseMilestone(state, context);
     if (milestone) {return { changed: true, state, outcome: milestone };}
     if (state.phase === 'egg') {return { changed: true, state, outcome: {} };}

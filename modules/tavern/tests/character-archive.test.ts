@@ -33,8 +33,6 @@ import db, {
     tavernShopStateVersionsTable,
     tavernBankStateVersionsTable,
     tavernBankActivitiesTable,
-    tavernPetStateVersionsTable,
-    tavernPetActivitiesTable,
     updateTavernSessionState,
 } from '../shared/session-db';
 import {
@@ -103,14 +101,6 @@ import {
     type TavernBankStateVersionRecord,
 } from '../shared/bank/bank-types';
 import {
-    commitTavernPetChatResponse,
-    getTavernPetPrivateSnapshotForChat,
-    interactWithTavernPet,
-    resolveTavernPetEvolution,
-} from '../shared/pet/pet-service';
-import { canonicalTavernPetStaticVerdict } from '../shared/pet/pet-copy';
-import { getTavernPetPersona } from '../shared/pet/pet-personas';
-import {
     appendSentTavernCommunicationMessage,
     completeTavernCommunicationReply,
     createTavernCommunicationContact,
@@ -121,13 +111,6 @@ import {
 } from '../shared/communications';
 import { tavernCommunicationPayloadText } from '../shared/communication-message';
 import { executeTavernMemoryTool } from '../shared/memory-files';
-import {
-    advanceTavernPetStoryTurnForTest,
-    advanceTavernPetToAdultPendingForTest,
-    createTavernPetTestSession,
-    lureTavernPetForTest,
-    tavernPetMutationBoundary,
-} from './pet-test-helpers';
 
 const identityCodec: TavernCharacterArchiveJsonlCodec = {
     gzip: async (bytes) => bytes,
@@ -556,35 +539,6 @@ async function seedArchiveSource() {
     return { a1, a2, b1 };
 }
 
-async function createArchivePetSession(id: string, title: string) {
-    return await createTavernPetTestSession(title, {
-        id,
-        characterKey: 'char-a',
-        characterName: 'Aster',
-        contextSnapshot: { character: { characterKey: 'char-a', name: 'Aster' } },
-    });
-}
-
-async function commitArchivePetChat(sessionId: string, playerText: string, summaryUpdate: string) {
-    const snapshot = await getTavernPetPrivateSnapshotForChat(sessionId);
-    const personaId = snapshot?.record.state.personaId;
-    if (!snapshot || snapshot.record.state.phase !== 'adult' || !personaId) {
-        throw new Error('archive_pet_adult_missing');
-    }
-    return await commitTavernPetChatResponse({
-        ...await tavernPetMutationBoundary(sessionId, `archive-pet-chat:${sessionId}`),
-        playerText,
-        response: {
-            face: getTavernPetPersona(personaId).faces.happy,
-            text: '我记得。',
-            motion: 'approach',
-            emotionShift: 'happy',
-            murmur: '没有忘',
-            summaryUpdate,
-        },
-    });
-}
-
 async function buildArchive(characterKey = 'char-a', targetRawBytes = 420) {
     const uploadedParts: Array<{ filename: string; bytes: Uint8Array }> = [];
     const archiveId = 'archive-test';
@@ -941,133 +895,28 @@ test('tavern character archive accepts only the current v8 protocol', async () =
     await assert.rejects(restoreFromRecords(retiredV4Manifest, records), /archive_version_unsupported:4/);
 });
 
-test('tavern character archive v8 round-trips egg, adult, pending verdict and private chat memory', async () => {
-    await db.delete();
-    await db.open();
-    const egg = await createArchivePetSession('archive-pet-egg', 'Archive Pet egg');
-    await lureTavernPetForTest(egg.id, 'archive-pet-egg-lure');
-    await advanceTavernPetStoryTurnForTest(egg.id, []);
-    await interactWithTavernPet({
-        ...await tavernPetMutationBoundary(egg.id, 'archive-pet-egg-feed'),
-        interactionId: 'feed',
-    });
+test('tavern character archive deliberately excludes the global companion', async () => {
+    const { a1 } = await seedArchiveSource();
+    const { lureTavernPet } = await import('../shared/pet/pet-service');
+    const { createTavernPetSequenceRandomSource } = await import('../shared/pet/pet-random');
+    const { tavernPetCompanionTable } = await import('../shared/session-db');
+    await lureTavernPet({
+        sessionId: a1.id,
+        boundary: await captureTavernPhoneBoundary(a1.id),
+        actionId: 'archive-global-pet',
+        expectedRevision: 0,
+        expectedVersionId: '',
+    }, createTavernPetSequenceRandomSource([71, 0, 15, 15, 15]));
+    assert.equal((await tavernPetCompanionTable.get('companion'))?.id, 'companion');
 
-    const pending = await createArchivePetSession('archive-pet-pending', 'Archive Pet pending');
-    await advanceTavernPetToAdultPendingForTest(pending.id);
-    await commitArchivePetChat(pending.id, '你还记得我吗', '它把玩家视为会回来的人。');
-    const pendingBefore = await getTavernPetPrivateSnapshotForChat(pending.id);
-    const pendingRequestId = pendingBefore?.record.state.pendingEvolution?.requestId || '';
-    assert.ok(pendingRequestId);
-
-    const resolved = await createArchivePetSession('archive-pet-resolved', 'Archive Pet resolved');
-    await advanceTavernPetToAdultPendingForTest(resolved.id);
-    const resolvedPending = await getTavernPetPrivateSnapshotForChat(resolved.id);
-    const resolvedRequest = resolvedPending?.record.state.pendingEvolution;
-    if (!resolvedRequest) {throw new Error('archive_pet_pending_missing');}
-    const resolvedVerdict = canonicalTavernPetStaticVerdict(resolvedRequest.personaId);
-    await resolveTavernPetEvolution({
-        sessionId: resolved.id,
-        requestId: resolvedRequest.requestId,
-        verdict: resolvedVerdict,
-        usedFallback: true,
-    });
-    await commitArchivePetChat(resolved.id, '长大以后呢', '它把玩家放在不会划掉的位置。');
-
-    const sourcePendingVersions = (await tavernPetStateVersionsTable.where('sessionId').equals(pending.id).toArray())
-        .sort((left, right) => left.revision - right.revision);
-    const sourceResolvedActivities = await tavernPetActivitiesTable.where('sessionId').equals(resolved.id).toArray();
-    const { manifest, records } = await buildArchive('char-a', 4_096);
-    const petRecords = records.filter((row) => row.table === 'petStateVersions' || row.table === 'petActivities');
-    assert.equal(manifest.version, 8);
-    assert.equal(manifest.counts.pet, petRecords.length);
-    assert.ok(records.some((row) => row.table === 'petStateVersions'));
-    assert.ok(records.some((row) => row.table === 'petActivities'));
+    const { manifest, records } = await buildArchive('char-a', 2_048);
+    assert.equal(manifest.version, 9);
+    assert.equal(records.some((record) => String(record.table).startsWith('pet')), false);
 
     await db.delete();
     await db.open();
     await restoreFromRecords(manifest, records);
-    const restoredEggId = 'restore-job-test-archive-pet-egg';
-    const restoredPendingId = 'restore-job-test-archive-pet-pending';
-    const restoredResolvedId = 'restore-job-test-archive-pet-resolved';
-    const [restoredEgg, restoredPending, restoredResolved] = await Promise.all([
-        getTavernPetPrivateSnapshotForChat(restoredEggId),
-        getTavernPetPrivateSnapshotForChat(restoredPendingId),
-        getTavernPetPrivateSnapshotForChat(restoredResolvedId),
-    ]);
-    assert.equal(restoredEgg?.record.state.phase, 'egg');
-    assert.equal(restoredEgg?.record.state.incubation?.feedCount, 1);
-    assert.equal(restoredPending?.record.state.phase, 'adult');
-    assert.equal(restoredPending?.record.state.pendingEvolution?.requestId, pendingRequestId);
-    assert.equal(restoredPending?.record.state.chatMemory.summary, '它把玩家视为会回来的人。');
-    assert.deepEqual(restoredPending?.record.state.chatMemory.recent.at(-1), {
-        playerText: '你还记得我吗',
-        petText: '我记得。',
-    });
-    assert.equal(restoredResolved?.record.state.pendingEvolution, undefined);
-    assert.equal(restoredResolved?.record.state.chatMemory.summary, '它把玩家放在不会划掉的位置。');
-
-    const restoredPendingVersions = (await tavernPetStateVersionsTable.where('sessionId').equals(restoredPendingId).toArray())
-        .sort((left, right) => left.revision - right.revision);
-    assert.deepEqual(
-        restoredPendingVersions.map((record) => [record.versionId, record.actionId, record.activityId || '']),
-        sourcePendingVersions.map((record) => [record.versionId, record.actionId, record.activityId || '']),
-    );
-    const restoredResolvedActivities = await tavernPetActivitiesTable.where('sessionId').equals(restoredResolvedId).toArray();
-    assert.deepEqual(
-        restoredResolvedActivities.map((activity) => [activity.id, activity.sourceActionId, activity.detail]),
-        sourceResolvedActivities.map((activity) => [activity.id, activity.sourceActionId, activity.detail]),
-    );
-    assert.ok(restoredResolvedActivities.some((activity) => (
-        activity.detail.kind === 'milestone' && activity.detail.verdict === resolvedVerdict
-    )));
-});
-
-test('tavern character archive rejects corrupt Pet shape, history, Activity and Economy before promotion', async () => {
-    await db.delete();
-    await db.open();
-    const session = await createArchivePetSession('archive-pet-corrupt', 'Archive Pet corrupt');
-    await lureTavernPetForTest(session.id, 'archive-pet-corrupt-lure');
-    await advanceTavernPetStoryTurnForTest(session.id, []);
-    const { manifest, records } = await buildArchive('char-a', 2_048);
-
-    const noncanonical = structuredClone(records);
-    const noncanonicalVersion = noncanonical.find((row) => row.table === 'petStateVersions');
-    if (!noncanonicalVersion) {throw new Error('archive_pet_version_record_missing');}
-    (noncanonicalVersion.record as unknown as Record<string, unknown>).legacyStage = 'egg';
-
-    const brokenChain = structuredClone(records);
-    const brokenRevision = brokenChain
-        .filter((row) => row.table === 'petStateVersions')
-        .map((row) => row.record as { revision: number })
-        .find((record) => record.revision === 2);
-    if (!brokenRevision) {throw new Error('archive_pet_revision_record_missing');}
-    brokenRevision.revision = 3;
-
-    const brokenActivity = structuredClone(records);
-    const arrivalActivity = brokenActivity
-        .find((row) => row.table === 'petActivities')?.record as { notificationText?: string } | undefined;
-    if (!arrivalActivity) {throw new Error('archive_pet_activity_record_missing');}
-    arrivalActivity.notificationText = '错误的到达通知。';
-
-    const brokenEconomy = structuredClone(records);
-    const petPayment = brokenEconomy
-        .filter((row) => row.table === 'economyTransactions')
-        .map((row) => row.record as { sourceDomain?: string; amount: number })
-        .find((record) => record.sourceDomain === 'pet');
-    if (!petPayment) {throw new Error('archive_pet_economy_record_missing');}
-    petPayment.amount += 1;
-
-    for (const [candidate, pattern] of [
-        [noncanonical, /archive_pet_version_noncanonical/],
-        [brokenChain, /pet_history_invalid:version-chain/],
-        [brokenActivity, /pet_history_invalid:activity-notification/],
-        [brokenEconomy, /pet_history_invalid:payment/],
-    ] as const) {
-        await db.delete();
-        await db.open();
-        await assert.rejects(restoreFromRecords(manifest, candidate), pattern);
-        assert.equal((await listTavernSessions()).length, 0);
-    }
+    assert.equal(await tavernPetCompanionTable.get('companion'), undefined);
 });
 
 test('tavern character archive rejects broken task funding before promotion', async () => {
@@ -1211,7 +1060,6 @@ test('tavern character archive cleans session-scoped temp rows that have no rest
             tasks: 0,
             shop: 0,
             bank: 0,
-            pet: 0,
         },
         parts: [{
             ...manifest.parts[0],
@@ -1265,7 +1113,6 @@ test('tavern character archive can restore an empty archive by clearing only the
             tasks: 0,
             shop: 0,
             bank: 0,
-            pet: 0,
         },
         parts: [],
     };

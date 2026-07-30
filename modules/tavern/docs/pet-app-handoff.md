@@ -1,104 +1,110 @@
-# 不明物 APP 工程交接与实施记录
+# 不明物 APP 工程交接
 
-- 状态：A–G 已实现；阶段 H 的代码、静态审查、测试与生产构建已收口（2026-07-29）。浏览器人工验收按用户要求停止，不虚报为完成。
-- 交付目标：按已确认规格完整实现 Phone OS「不明物」APP，不停在脚手架或演示 UI
-- 当前仓库状态：领域、两张 Pet 表、主回合事务、生命周期、模型协议、Phone OS UI 与生产 bundle 均已落地；最终 dirty diff 审查、静态门禁与构建产物已完成。
+- 状态：v28 global-companion hard cut 已实现；worktree 未提交。
+- 交付目标：完整实现 Phone OS「不明物」APP；不保留会话级 Pet、演示 UI 或旧架构兼容层。
+- 约束：不 commit、不 push；不启动浏览器测试。保留 worktree 中与本任务无关的用户改动。
 
-已通过的自动门禁：`npm run test:tavern`（871/871）、`vue-tsc`、
-`npm run lint:tavern`、`npm run build:tavern`、`git diff --check`。已完成的
-真实 ST 验收包括诱饵扣款、自然成长至 adult、arrival/hatch/adulthood 痕迹、
-pending evolution 静态回落，以及完整 30 事件目录中非 milestone 事件的 Public
-View/UI 观察。其余桌面/移动、主题、reduced-motion、键盘焦点与私密字段的
-浏览器复验按用户要求停止；本记录不把自动测试覆盖虚写成人工十组场景全部完成。
-
-2026-07-29 最终 hardening 已把实现与四份文档统一到同一终态：interference
-只扫描静态模板，只有四个 eventId 可且必须带 `injectedText`，投影按 action context
-重算冻结正文、动态文本转义且 Prompt fail-open；模型边界枚举 JSON 候选并采用最后
-一个可用回复后才回落普通正文；再塑形按成年后的活跃
-`phaseTurnCount` 冷却；archive canonical 严格验证三句判词；模型边界宽进而
-canonical 严存；juvenile 与 adult 共用 120 code points 的 canonical 上限，幼生
-短句仅由 persona 风格约束；Controller
-用临时 `mutationEpoch` 管理失效写入；余额错误使用结构化 reason，lure 在余额
-校验后才消费随机；ChatBar 使用 code-point/IME 输入边界，窝抽屉所有关闭入口
-一致服从 busy。未增加 legacy 字段、持久锁或兼容分支。
-
-## 1. 团队必须先读
+## 1. 先读的权威资料
 
 按顺序完整阅读：
 
-1. 随任务提供的 `AGENTS.md` / 工作规则；若由平台注入，无需在仓库寻找同名文件。
-2. [目标设计](./pet-app-target-design.md)：产品边界、状态模型、事务与删除路径。
-3. [内容规格](./pet-app-content-spec.md)：不可自行改写的 persona、事件、文案和 Prompt。
-4. [施工方案](./pet-app-implementation-plan.md)：阶段 A–H、测试与 review 顺序。
-5. [领域 README](../shared/pet/README.md)：文件所有权和依赖方向。
-6. 当前 Bank、Shop、Economy、accepted rollback、archive、Phone OS 和 `run-once.ts` 实现；代码是外部接口与当前版本号的事实来源。
+1. 任务提供的 AGENTS.md / 工作规则。
+2. [目标设计](./pet-app-target-design.md)：全局所有权、数据模型、时钟、事务和删除路径。
+3. [内容规格](./pet-app-content-spec.md)：冻结的 persona、事件、文案、Prompt 与精确谓词。
+4. [施工方案](./pet-app-implementation-plan.md)：硬切顺序与最低稳定契约。
+5. [领域 README](../shared/pet/README.md)：目录职责和依赖方向。
+6. 当前 Bank、Shop、Economy、session DB、run-once、Phone OS、rollback 和 archive 实现：
+   代码是现有事务 API、Dexie version 和 archive version 的事实来源。
 
-## 2. 冲突时的权威顺序
+冲突时的权威顺序：
 
-```text
-当前代码：现有 API、事务原语、DB/archive 当前版本、Phone/Prompt 接法
-    ↓
-目标设计：产品边界、领域模型、不变量和非目标
-    ↓
-内容规格：静态目录、文案、Prompt 与精确谓词
-    ↓
-施工方案：实施顺序和推荐文件切片
-```
+~~~text
+当前代码（接口和版本号）
+  ↓
+目标设计（所有权和产品边界）
+  ↓
+内容规格（静态内容和外部协议）
+  ↓
+施工方案（切片和验证顺序）
+~~~
 
-施工方案里的文件名可因现有代码的真实边界做等价调整，但不能改变所有权、数据模型或行为契约。发现上面几层真正冲突时停止相关切片，给出具体文件/行号和一个最小修正方案；不要用兼容字段、双路径或 UI 补丁掩盖。
+## 2. 已冻结终态
 
-## 3. 开工要求
+全局只有一只 companion。它拥有身份、成长、人格、饱食、情绪、冷却、聊天记忆、
+窝、收藏、待判词与全局 journal；来源会话只提供本次主回合、Phone boundary、
+当前钱包、付款/偷还钱流水、联系人和剧情插曲 anchor。
 
-- 先检查 `git status`，保留用户已有改动；不要重置、覆盖或顺手整理无关代码。
-- 重新确认 Dexie 和角色档案当前版本，使用连续新版本号；文档中的 26→27、v7→v8 只是确认时基线。
-- 按 A→H 施工。阶段 A 先完成纯规则与目录；Phone 入口只能在阶段 G、真实服务接通后注册。
-- 每个阶段完成后运行该阶段最低测试并 review 上下游、边界、错误路径、回滚和删除路径；不要等 UI 做完才补事务。
-- 不需要重新询问已经在目标设计/内容规格确认的产品决定。
-- 不为未发布 Pet 构思增加 legacy schema、旧字段 fallback、双 UI 或迁移读取器。
-- 不修改 Shop inventory 来服务 Pet；curio 永远属于 Pet。
-- 不在 Dexie transaction 中调用模型；不在 Assistant 保存后另开 transaction 补推进 Pet。
-- 不把 axes、chatMemory、cooldown、event weight、pending snapshot 或 Economy 游标交给 Controller/DOM。
-- 不提交或推送 Git，除非主人另行要求。
+DB v28 hard cut：
 
-## 4. 必须交付的结果
+~~~text
+petCompanion  # 一行 id=companion，state/revision/versionId
+petActions    # 紧凑全局幂等凭证和来源 provenance
+petJournal    # 全局可观察历史和来源 provenance
+~~~
 
-- `shared/pet` 终态领域文件全部实现，不留 TODO、假数据或不可达分支。
-- 两张 Pet 表、严格 canonical/history 校验、原子 Economy 写入和幂等/CAS。
-- 主 Assistant/Pet/Economy 同事务推进，reroll/partial/error 行为符合规格。
-- accepted rollback、branch、delete、archive temp restore/promote 全链路覆盖。
-- Pet chat、pending evolution、静态 fallback 和 floor-aware interference Prompt。
-- Phone Controller、Domain Sync、动态阶段图标、单页暗室 UI、窝抽屉和命名。
-- 目标设计列出的稳定契约测试，以及施工方案要求的生产 bundle。
-- 将施工方案状态改为“已实现并通过阶段 H 验证（日期）”；若任何人工验收未做，逐项写明，不得笼统声称完成。
+删除 petStateVersions、petActivities、pet-timeline 和所有旧 reader/type alias/
+migration 分支。v28 只丢弃旧 Pet 数据，不影响其他正式领域表。来源 session ID
+是历史标签，不是 Pet 所有者、外键或删除级联对象。
+
+全局 state.petTurn 是唯一成长来源时钟：每个首次消费的有效主回合都加一，包括
+dormant；不同 session 的同号 turn 分别消费，重写同一 session/turn 不重复消费。
+dormant 不推进 phaseTurnCount、成长、饥饿或冷却。phaseTurnCount 是活跃成长时钟，
+lastEvolutionActiveTurn 仅与它比较。
+
+accepted rollback、branch、delete session 和 character archive 对 Pet 必须为零接线。
+Economy 仍按会话正常回滚；Pet 已经得到的成长、饱食、action 与 journal 不退。
+这是接受的少量刷取空间，不加补偿账、持久锁或 session map。
+
+## 3. 实施顺序
+
+1. 文档和 README 已冻结 global-companion 边界；继续改动前核对它们彼此一致。
+2. 先写跨会话失败测试：A 养/B 看、A:1+B:1、同来源重放、B 付款/A 可见、回滚
+   不退 Pet、branch/delete/archive 脱钩、并发 CAS、dormant、source-local
+   interference、reset、v28 非 Pet 保全。
+3. 在当前连续 Dexie version 建立 v28：删除旧两表，建立三表，重写类型、
+   invariant 和纯规则时钟。
+4. 重写 Pet service 与 pet-story-turn：所有动作使用 global CAS，但只触碰来源会话
+   Economy；主 Assistant、Pet、来源 Economy 保持同一 transaction。
+5. 删除 lifecycle/character archive 的 Pet 接线和 pet-timeline.ts。
+6. 重写 prompt、Controller、Domain Sync：全局 view，来源本地插曲，epoch 只作
+   临时 UI 失效控制。
+7. 补回归、全量 review，重建 Tavern 和助手索引，再运行所有门禁。
+
+## 4. 不可放松的边界
+
+- 主回合 actionId 固定为 pet:story:{sessionId}:{turn}；同键永远不重抽随机、不重复
+  成长、不重复 journal/流水。
+- 玩家动作顺序为来源 Phone boundary → global CAS → 来源会话钱包 → 三张 Pet 表。
+  lure 必须在余额检查后才消费五次 origin 随机；不保存 random draws 或 replay source。
+- B 喂食只扣 B 钱包；提交后 A/B 都立即看到同一 companion。
+- 当前会话的 Economy 观察窗口从该会话上一条 petActions 推导，不能塞进全局 state。
+- strict canonical/invariant 失败即拒绝；只有 interference Prompt 投影是
+  console.warn + return [] 的 fail-open。
+- 插曲仅按 sourceSessionId + sourceAnchorOrder 进入来源会话；来源 Assistant 楼层、
+  `nibble-sleeve` 的联系人或楼层前上下文失效，或 action/journal 因果不一致时都不注入。
+- 只有四个 interference eventId 可且必须带 injectedText；投影按 eventId +
+  knownTargetName 重算，再转义 &、<、>。
+- 模型调用永远在 transaction 外；外部 chat parser 宽进，canonical 写入严存。
+  juvenile/adult 同为 120 Unicode code points，幼体短句只是 Prompt 风格。
+- Controller mutationEpoch、busy、request owner 和 AbortController 只存在当前
+  生命周期，不新增持久锁或数据库字段。
+- “让它离开”二次确认后只清三张 Pet 表，不退款。
 
 ## 5. 完成门禁
 
-必须全部通过：
+必须执行：
 
-```powershell
+~~~powershell
+npm run test:tavern
 npm run test:tavern
 npx vue-tsc --noEmit -p tsconfig.tavern.json
 npm run lint:tavern
 npm run build:tavern
+npm run build:assistant
 git diff --check
-```
+~~~
 
-并完成施工方案阶段 H 的 10 组人工场景。最终汇报只需要：实现结果、关键边界选择、验证结果、未完成项、实际变更文件；不要用“测试全绿”代替架构自查。
-
-## 6. 可直接转发给实施团队的话
-
-```text
-请在当前 LittleWhiteBox 仓库中完整实现 Phone OS「不明物」APP。
-
-开工前完整阅读并遵守：
-1. 随任务提供或由平台注入的 AGENTS.md / 工作规则；
-2. modules/tavern/docs/pet-app-target-design.md；
-3. modules/tavern/docs/pet-app-content-spec.md；
-4. modules/tavern/docs/pet-app-implementation-plan.md；
-5. modules/tavern/docs/pet-app-handoff.md；
-6. modules/tavern/shared/pet/README.md。
-
-当前代码是现有 API、DB/archive 版本与集成方式的事实来源；目标设计和内容规格是已确认产品契约。按施工方案 A→H 连续完成，不停在文档、空目录、假入口或演示 UI。入口最后注册；不为未发布构思做兼容；不改 Shop inventory；模型调用不得进入 Dexie transaction；主 Assistant、Pet 和 Economy 必须同事务推进。
-
-先检查并保护现有 worktree。每阶段做最低测试和通盘 review；遇到真实规格冲突时报告具体证据和最小修正方案，不自行加双路径。完成后执行全部测试、类型检查、lint、build、diff check 和阶段 H 人工场景，更新施工方案状态并汇报未完成项。除非另有指示，不 commit、不 push。
-```
+交付前还要人工审查：三表无旧 reader、跨会话状态和来源钱包分离、rollback/
+branch/delete/archive 零 Pet 接线、interference source-local fail-open、Controller
+旧请求不污染 UI、reset 真清三表、dist 与源码一致。用户已明确不要浏览器测试；
+不得虚报为已完成浏览器验收。

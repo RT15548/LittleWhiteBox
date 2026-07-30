@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { ref, toRef } from 'vue';
 import type { TavernPetView } from '../../../../../shared/pet/pet-types';
-import type { TavernPetActivityRow } from '../../../../features/phone-os/apps/pet/tavern-pet-presentation';
+import type { TavernPetJournalRow } from '../../../../features/phone-os/apps/pet/tavern-pet-presentation';
 import { useTavernPhoneModal } from '../../useTavernPhoneModal';
 
 const props = defineProps<{
     open: boolean;
     view: TavernPetView;
-    activities: TavernPetActivityRow[];
+    journal: TavernPetJournalRow[];
     busy: boolean;
     hasCustomName: boolean;
 }>();
@@ -16,6 +16,7 @@ const emit = defineEmits<{
     (event: 'close'): void;
     (event: 'rename'): void;
     (event: 'toggle-interference', enabled: boolean): void;
+    (event: 'leave'): void;
 }>();
 
 const backdropRef = ref<HTMLElement | null>(null);
@@ -55,7 +56,7 @@ function closeFromBackdrop(event: MouseEvent): void {
       >
         <header>
           <div>
-            <small>NEST / LOCAL</small>
+            <small>NEST / GLOBAL</small>
             <h3 id="tavern-pet-nest-title">
               它的窝
             </h3>
@@ -103,10 +104,10 @@ function closeFromBackdrop(event: MouseEvent): void {
           <section class="tavern-pet-nest-section">
             <div class="tavern-pet-section-head">
               <h4>最近留下的痕迹</h4>
-              <small>{{ activities.length }}</small>
+              <small>{{ journal.length }}</small>
             </div>
             <p
-              v-if="!activities.length"
+              v-if="!journal.length"
               class="tavern-pet-nest-empty"
             >
               这里暂时没有新的痕迹。
@@ -116,14 +117,14 @@ function closeFromBackdrop(event: MouseEvent): void {
               class="tavern-pet-traces"
             >
               <li
-                v-for="activity in activities"
-                :key="activity.id"
+                v-for="entry in journal"
+                :key="entry.id"
               >
                 <div>
-                  <strong>{{ activity.label }}</strong>
-                  <time v-if="activity.timeLabel">{{ activity.timeLabel }}</time>
+                  <strong>{{ entry.label }}</strong>
+                  <time v-if="entry.timeLabel">{{ entry.timeLabel }}</time>
                 </div>
-                <p>{{ activity.text }}</p>
+                <p>{{ entry.text }}</p>
               </li>
             </ol>
           </section>
@@ -151,6 +152,18 @@ function closeFromBackdrop(event: MouseEvent): void {
                 <small>只会发生很轻的小插曲；关闭后不删除已经发生的痕迹。</small>
               </span>
               <i aria-hidden="true"><b /></i>
+            </button>
+            <button
+              type="button"
+              class="tavern-pet-leave-button"
+              :disabled="busy"
+              @click="emit('leave')"
+            >
+              <span>
+                <strong>让它离开</strong>
+                <small>清空它留下的一切，不退款，也无法找回。</small>
+              </span>
+              <i aria-hidden="true">›</i>
             </button>
           </section>
         </div>

@@ -5,8 +5,9 @@ import db, {
     tavernEconomyTransactionsTable,
     tavernManagerCandidatesTable,
     tavernMessagesTable,
-    tavernPetActivitiesTable,
-    tavernPetStateVersionsTable,
+    tavernPetActionsTable,
+    tavernPetCompanionTable,
+    tavernPetJournalTable,
     tavernSessionsTable,
     type TavernAppendMessageInput,
     type TavernAssistantResponseCommitOptions,
@@ -17,6 +18,7 @@ import db, {
     type TavernSessionRecord,
 } from '../session-db';
 import {
+    ensureTavernEconomyInCurrentDbTransaction,
     postTavernEconomyTransactionInCurrentDbTransaction,
 } from '../economy/economy-service';
 import {
@@ -27,40 +29,73 @@ import {
     type TavernEconomyTransactionRecord,
 } from '../economy/economy-types';
 import {
-    createTavernPetRecordingRandomSource,
     tavernPetRandomSource,
     type TavernPetRandomSource,
 } from './pet-random';
 import { advanceTavernPetTurn } from './pet-rules';
 import {
     appendTavernPetTransitionInCurrentDbTransaction,
-    findTavernPetActionVersionInCurrentDbTransaction,
-    getCurrentTavernPetStateVersionInCurrentDbTransaction,
+    findTavernPetActionInCurrentDbTransaction,
+    getTavernPetCompanionInCurrentDbTransaction,
 } from './pet-service';
 import {
-    type TavernPetStateVersionRecord,
+    parseCanonicalTavernPetActionRecord,
+} from './pet-invariants';
+import {
+    type TavernPetActionRecord,
+    type TavernPetCompanionRecord,
     type TavernPetTurnContext,
     throwTavernPetError,
 } from './pet-types';
 
-type PetStoryRangeCollection<T> = {
-    reverse(): PetStoryRangeCollection<T>;
-    filter(predicate: (value: T) => boolean): PetStoryRangeCollection<T>;
-    limit(count: number): PetStoryRangeCollection<T>;
-    first(): Promise<T | undefined>;
-    toArray(): Promise<T[]>;
-};
+interface TavernStoryMessageRangeCollection {
+    reverse(): TavernStoryMessageRangeCollection;
+    filter(predicate: (message: TavernMessageRecord) => boolean): TavernStoryMessageRangeCollection;
+    limit(amount: number): TavernStoryMessageRangeCollection;
+    toArray(): Promise<TavernMessageRecord[]>;
+}
 
-type PetStoryRangeTable<T> = {
+interface TavernStoryMessageRangeTable {
     where(index: string): {
         between(
             lower: unknown,
             upper: unknown,
             includeLower?: boolean,
             includeUpper?: boolean,
-        ): PetStoryRangeCollection<T>;
+        ): TavernStoryMessageRangeCollection;
     };
-};
+}
+
+interface TavernPetActionRangeCollection {
+    reverse(): TavernPetActionRangeCollection;
+    first(): Promise<TavernPetActionRecord | undefined>;
+}
+
+interface TavernPetActionReadTable {
+    where(index: string): {
+        between(
+            lower: unknown,
+            upper: unknown,
+            includeLower?: boolean,
+            includeUpper?: boolean,
+        ): TavernPetActionRangeCollection;
+    };
+}
+
+interface TavernEconomyAnchorRangeCollection {
+    toArray(): Promise<TavernEconomyTransactionRecord[]>;
+}
+
+interface TavernEconomyAnchorRangeTable {
+    where(index: string): {
+        between(
+            lower: unknown,
+            upper: unknown,
+            includeLower?: boolean,
+            includeUpper?: boolean,
+        ): TavernEconomyAnchorRangeCollection;
+    };
+}
 
 function clone<T>(value: T): T {
     if (typeof structuredClone === 'function') {return structuredClone(value);}
@@ -102,7 +137,7 @@ async function recentStoryMessagesAtFloor(
     sessionId: string,
     floor: number,
 ): Promise<TavernMessageRecord[]> {
-    return await (tavernMessagesTable as unknown as PetStoryRangeTable<TavernMessageRecord>)
+    return await (tavernMessagesTable as unknown as TavernStoryMessageRangeTable)
         .where('[sessionId+order]')
         .between([sessionId, 0], [sessionId, floor], true, true)
         .reverse()
@@ -143,38 +178,6 @@ async function resolveKnownTargetName(
     return candidates[0]?.name || '';
 }
 
-async function getLatestEconomyTransaction(
-    sessionId: string,
-): Promise<TavernEconomyTransactionRecord | null> {
-    return await (tavernEconomyTransactionsTable as unknown as PetStoryRangeTable<TavernEconomyTransactionRecord>)
-        .where('[sessionId+ledgerOrder]')
-        .between(
-            [sessionId, 0],
-            [sessionId, Number.MAX_SAFE_INTEGER],
-            true,
-            true,
-        )
-        .reverse()
-        .first() || null;
-}
-
-async function listEconomyTransactionsAfter(
-    sessionId: string,
-    ledgerOrder: number,
-    latestLedgerOrder: number,
-): Promise<TavernEconomyTransactionRecord[]> {
-    if (latestLedgerOrder <= ledgerOrder) {return [];}
-    return await (tavernEconomyTransactionsTable as unknown as PetStoryRangeTable<TavernEconomyTransactionRecord>)
-        .where('[sessionId+ledgerOrder]')
-        .between(
-            [sessionId, ledgerOrder],
-            [sessionId, latestLedgerOrder],
-            false,
-            true,
-        )
-        .toArray();
-}
-
 function recentExternalSpend(rows: readonly TavernEconomyTransactionRecord[]): number {
     return rows.reduce((sum, row) => {
         if ((row.sourceDomain === 'shop' || row.sourceDomain === 'bank')
@@ -202,9 +205,44 @@ function assertPlayerAccount(
 function evolutionRequestId(
     sessionId: string,
     turn: number,
-    current: TavernPetStateVersionRecord,
+    current: TavernPetCompanionRecord,
 ): string {
     return ['pet', 'evolution-request', sessionId, String(turn), current.versionId].join(':');
+}
+
+async function previousSourceAction(
+    sessionId: string,
+    sourceAnchorOrder: number,
+): Promise<TavernPetActionRecord | null> {
+    const row = await (tavernPetActionsTable as unknown as TavernPetActionReadTable)
+        .where('[sourceSessionId+sourceAnchorOrder+createdAt+id]')
+        .between(
+            [sessionId, Number.MIN_SAFE_INTEGER, Number.MIN_SAFE_INTEGER, ''],
+            [sessionId, sourceAnchorOrder, Number.MIN_SAFE_INTEGER, ''],
+            true,
+            false,
+        )
+        .reverse()
+        .first();
+    return row ? parseCanonicalTavernPetActionRecord(row) : null;
+}
+
+async function sourceRecentExternalSpend(input: {
+    sessionId: string;
+    currentSourceAnchorOrder: number;
+}): Promise<number> {
+    const previous = await previousSourceAction(input.sessionId, input.currentSourceAnchorOrder);
+    const lowerAnchorOrder = previous?.sourceAnchorOrder ?? -1;
+    const rows = await (tavernEconomyTransactionsTable as unknown as TavernEconomyAnchorRangeTable)
+        .where('[sessionId+anchorOrder+ledgerOrder]')
+        .between(
+            [input.sessionId, lowerAnchorOrder, Number.MAX_SAFE_INTEGER],
+            [input.sessionId, input.currentSourceAnchorOrder, Number.MAX_SAFE_INTEGER],
+            false,
+            true,
+        )
+        .toArray();
+    return recentExternalSpend(rows);
 }
 
 async function postTurnCoinEffect(
@@ -214,14 +252,14 @@ async function postTurnCoinEffect(
 ): Promise<TavernEconomyTransactionRecord | null> {
     const effect = outcome.coinEffect;
     if (!effect) {
-        if (outcome.activity?.coinDelta) {
-            throwTavernPetError('pet_state_invalid', 'activity-coin-without-ledger');
+        if (outcome.journal?.coinDelta) {
+            throwTavernPetError('pet_state_invalid', 'journal-coin-without-ledger');
         }
         return null;
     }
     const expectedDelta = effect.direction === 'debit' ? -effect.amount : effect.amount;
-    if (outcome.activity?.coinDelta !== expectedDelta) {
-        throwTavernPetError('pet_state_invalid', 'activity-coin-mismatch');
+    if (outcome.journal?.coinDelta !== expectedDelta) {
+        throwTavernPetError('pet_state_invalid', 'journal-coin-mismatch');
     }
     const fromAccountId = effect.direction === 'debit'
         ? TAVERN_PLAYER_ACCOUNT_ID
@@ -239,12 +277,12 @@ async function postTurnCoinEffect(
         amount: effect.amount,
         kind: effect.kind,
         title: effect.title,
-        note: outcome.activity?.detail.kind === 'event'
-            ? outcome.activity.detail.renderedText
+        note: outcome.journal?.detail.kind === 'event'
+            ? outcome.journal.detail.renderedText
             : effect.title,
         sourceDomain: 'pet',
         sourceId: effect.sourceId,
-        anchorOrder: context.anchorOrder,
+        anchorOrder: context.sourceAnchorOrder,
     }, { touchSessionOnCreate: false });
 }
 
@@ -254,60 +292,57 @@ export async function advanceTavernPetTurnInCurrentDbTransaction(input: {
     assistantOrder: number;
     nextTurn: number;
     random?: TavernPetRandomSource;
-}): Promise<TavernPetStateVersionRecord | null> {
-    const current = await getCurrentTavernPetStateVersionInCurrentDbTransaction(input.session.id);
-    if (!current || current.state.dormant) {return current;}
-    const actionId = ['pet', 'turn', String(input.nextTurn)].join(':');
-    const replay = await findTavernPetActionVersionInCurrentDbTransaction(input.session.id, actionId);
+}): Promise<TavernPetCompanionRecord | null> {
+    const current = await getTavernPetCompanionInCurrentDbTransaction();
+    if (!current) {return null;}
+    const actionId = ['pet', 'story', input.session.id, String(input.nextTurn)].join(':');
+    const replay = await findTavernPetActionInCurrentDbTransaction(actionId);
     if (replay) {
         if (replay.action.kind !== 'turn-advance'
-            || replay.turn !== input.nextTurn
-            || replay.anchorOrder !== input.assistantOrder
+            || replay.sourceSessionId !== input.session.id
+            || replay.sourceTurn !== input.nextTurn
         ) {
             throwTavernPetError('pet_action_conflict', actionId);
         }
-        return replay;
+        return current;
     }
-    const [latestTransaction, playerAccount, knownTargetName] = await Promise.all([
-        getLatestEconomyTransaction(input.session.id),
+    await ensureTavernEconomyInCurrentDbTransaction(input.session.id);
+    const [playerAccount, knownTargetName, sourceSpend] = await Promise.all([
         tavernEconomyAccountsTable.get([input.session.id, TAVERN_PLAYER_ACCOUNT_ID]),
         resolveKnownTargetName(input.session.id, input.expectedUser.order),
+        sourceRecentExternalSpend({
+            sessionId: input.session.id,
+            currentSourceAnchorOrder: input.expectedUser.order,
+        }),
     ]);
-    const latestLedgerOrder = latestTransaction?.ledgerOrder ?? -1;
-    const observedRows = await listEconomyTransactionsAfter(
-        input.session.id,
-        current.state.observedEconomyLedgerOrder,
-        latestLedgerOrder,
-    );
     const context: TavernPetTurnContext = {
-        turn: input.nextTurn,
-        anchorOrder: input.assistantOrder,
-        latestEconomyLedgerOrder: latestLedgerOrder,
-        recentExternalSpend: recentExternalSpend(observedRows),
+        sourceSessionId: input.session.id,
+        sourceTurn: input.nextTurn,
+        sourceAnchorOrder: input.assistantOrder,
+        petTurn: current.state.petTurn + 1,
+        recentExternalSpend: sourceSpend,
         playerBalance: assertPlayerAccount(playerAccount).balance,
         knownTargetName,
         evolutionRequestId: evolutionRequestId(input.session.id, input.nextTurn, current),
     };
-    const recording = createTavernPetRecordingRandomSource(input.random || tavernPetRandomSource);
-    const transition = advanceTavernPetTurn(current.state, context, recording.random);
-    if (!transition.changed) {return current;}
+    const transition = advanceTavernPetTurn(current.state, context, input.random || tavernPetRandomSource);
+    if (!transition.changed) {throwTavernPetError('pet_state_invalid', 'global-turn-not-consumed');}
     await postTurnCoinEffect(input.session.id, context, transition.outcome);
     const committed = await appendTavernPetTransitionInCurrentDbTransaction({
         current,
-        sessionId: input.session.id,
         actionId,
+        sourceSessionId: input.session.id,
+        sourceTurn: input.nextTurn,
+        sourceAnchorOrder: input.assistantOrder,
         action: {
             kind: 'turn-advance',
             context: clone(context),
-            randomDraws: clone(recording.draws),
             outcome: clone(transition.outcome),
         },
-        anchorOrder: input.assistantOrder,
-        turn: input.nextTurn,
         state: transition.state,
-        ...(transition.outcome.activity ? { activity: transition.outcome.activity } : {}),
+        ...(transition.outcome.journal ? { journal: transition.outcome.journal } : {}),
     });
-    return committed.record;
+    return committed.companion;
 }
 
 export async function commitTavernAssistantResponseWithPetForLatestUser(
@@ -323,8 +358,9 @@ export async function commitTavernAssistantResponseWithPetForLatestUser(
         tavernSessionsTable,
         tavernManagerCandidatesTable,
         tavernCommunicationContactsTable,
-        tavernPetStateVersionsTable,
-        tavernPetActivitiesTable,
+        tavernPetCompanionTable,
+        tavernPetActionsTable,
+        tavernPetJournalTable,
         tavernEconomyAccountsTable,
         tavernEconomyTransactionsTable,
         async () => {

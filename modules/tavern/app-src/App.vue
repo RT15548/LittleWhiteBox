@@ -2605,7 +2605,6 @@ function summarizeArchiveCounts(counts = createEmptyTavernCharacterArchiveCounts
         `${Number(counts.tasks) || 0} 条任务数据`,
         `${Number(counts.shop) || 0} 条商店数据`,
         `${Number(counts.bank) || 0} 条银行数据`,
-        `${Number(counts.pet) || 0} 条住户数据`,
     ].join('，');
 }
 

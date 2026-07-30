@@ -8,8 +8,6 @@ import db, {
     tavernTaskBoardsTable,
     tavernTaskVersionsTable,
     tavernMessagesTable,
-    tavernPetActivitiesTable,
-    tavernPetStateVersionsTable,
     truncateTavernMessagesAndReplaceSessionStateInCurrentDbTransaction,
     updateTavernMessageInCurrentDbTransaction,
     type TavernMessageRecord,
@@ -44,17 +42,11 @@ import {
 import type {
     TavernShopRestoreImpact,
 } from './shop/shop-types';
-import {
-    describeTavernPetRestoreImpact,
-    restoreTavernPetToFloorInCurrentDbTransaction,
-} from './pet/pet-timeline';
-import type { TavernPetRestoreImpact } from './pet/pet-types';
 
 export interface TavernAcceptedEconomicRestoreImpact {
     tasks: TavernTaskRestoreImpact;
     shop: TavernShopRestoreImpact;
     bank: TavernBankRestoreImpact;
-    pet: TavernPetRestoreImpact;
     economy: TavernEconomyRestoreImpact;
 }
 
@@ -62,7 +54,6 @@ export interface TavernAcceptedEconomicRestoreResult {
     tasks: TavernTaskRestoreImpact;
     shop: TavernShopRestoreImpact;
     bank: TavernBankRestoreImpact;
-    pet: TavernPetRestoreImpact;
     economy: TavernEconomyRestoreResult;
 }
 
@@ -104,14 +95,13 @@ export async function describeTavernAcceptedEconomicRestoreImpact(
 ): Promise<TavernAcceptedEconomicRestoreImpact> {
     const sessionId = normalizeSessionId(value);
     const targetFloor = normalizeTargetFloor(targetValue);
-    const [tasks, shop, bank, pet, economy] = await Promise.all([
+    const [tasks, shop, bank, economy] = await Promise.all([
         describeTavernTasksRestoreImpact(sessionId, targetFloor),
         describeTavernShopRestoreImpact(sessionId, targetFloor),
         describeTavernBankRestoreImpact(sessionId, targetFloor),
-        describeTavernPetRestoreImpact(sessionId, targetFloor),
         describeTavernEconomyRestoreImpact(sessionId, targetFloor),
     ]);
-    return { tasks, shop, bank, pet, economy };
+    return { tasks, shop, bank, economy };
 }
 
 /**
@@ -134,8 +124,6 @@ export async function restoreTavernAcceptedEconomicStateToFloor(
         tavernShopStateVersionsTable,
         tavernBankStateVersionsTable,
         tavernBankActivitiesTable,
-        tavernPetStateVersionsTable,
-        tavernPetActivitiesTable,
         tavernEconomyAccountsTable,
         tavernEconomyTransactionsTable,
         async () => restoreTavernAcceptedEconomicStateToFloorInCurrentDbTransaction({
@@ -169,20 +157,15 @@ export async function restoreTavernAcceptedEconomicStateToFloorInCurrentDbTransa
         targetFloor,
         touchSession: false,
     });
-    const pet = await restoreTavernPetToFloorInCurrentDbTransaction({
-        sessionId,
-        targetFloor,
-        touchSession: false,
-    });
     const economy = await restoreTavernEconomyToFloorInCurrentDbTransaction(
         sessionId,
         targetFloor,
         { touchSessionOnChange: false },
     );
-    if (input.touchSession !== false && (tasks.changed || shop.changed || bank.changed || pet.changed || economy.changed)) {
+    if (input.touchSession !== false && (tasks.changed || shop.changed || bank.changed || economy.changed)) {
         await tavernSessionsTable.update(sessionId, { updatedAt: Date.now() });
     }
-    return { tasks, shop, bank, pet, economy };
+    return { tasks, shop, bank, economy };
 }
 
 /**
@@ -211,8 +194,6 @@ export async function updateTavernMessageAndRestoreAcceptedEconomicState(input: 
         tavernShopStateVersionsTable,
         tavernBankStateVersionsTable,
         tavernBankActivitiesTable,
-        tavernPetStateVersionsTable,
-        tavernPetActivitiesTable,
         tavernEconomyAccountsTable,
         tavernEconomyTransactionsTable,
         async () => {
@@ -254,8 +235,6 @@ export async function truncateTavernMessagesAndRestoreAcceptedEconomicState(inpu
         tavernShopStateVersionsTable,
         tavernBankStateVersionsTable,
         tavernBankActivitiesTable,
-        tavernPetStateVersionsTable,
-        tavernPetActivitiesTable,
         tavernEconomyAccountsTable,
         tavernEconomyTransactionsTable,
         async () => {

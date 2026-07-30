@@ -13,9 +13,9 @@ import {
 } from './pet-rules';
 import {
     TAVERN_PET_INTERACTION_IDS,
-    type TavernPetActivityRecord,
+    type TavernPetCompanionRecord,
+    type TavernPetJournalRecord,
     type TavernPetPersonaId,
-    type TavernPetStateVersionRecord,
     type TavernPetView,
 } from './pet-types';
 
@@ -47,8 +47,8 @@ function emptyView(playerBalance: number): TavernPetView {
     };
 }
 
-function phaseProgressLabel(record: TavernPetStateVersionRecord): string {
-    const { state } = record;
+function phaseProgressLabel(companion: TavernPetCompanionRecord): string {
+    const { state } = companion;
     if (state.phase === 'luring') {return '食物少了一点。房间里还是没有东西。';}
     if (state.phase === 'egg') {
         return state.phaseTurnCount <= 4
@@ -61,19 +61,19 @@ function phaseProgressLabel(record: TavernPetStateVersionRecord): string {
         : '它正在看你。';
 }
 
-function currentFace(record: TavernPetStateVersionRecord): string {
-    const { state } = record;
+function currentFace(companion: TavernPetCompanionRecord): string {
+    const { state } = companion;
     if (state.phase === 'luring') {return '◌';}
     if (state.phase === 'egg') {return '(🥚)';}
     return tavernPetFaceForEmotion(state.phase, state.personaId, state.emotion);
 }
 
 function latestUtterance(
-    activity: TavernPetActivityRecord | null,
+    journal: TavernPetJournalRecord | null,
     face: string,
 ): TavernPetView['latestUtterance'] {
-    if (!activity) {return undefined;}
-    const { detail } = activity;
+    if (!journal) {return undefined;}
+    const { detail } = journal;
     if (detail.kind === 'event') {
         return { face: detail.face, text: detail.renderedText, motion: detail.motion };
     }
@@ -92,29 +92,28 @@ function latestUtterance(
     };
 }
 
-function latestActivity(activities: readonly TavernPetActivityRecord[]): TavernPetActivityRecord | null {
-    return [...activities].sort((left, right) => (
-        right.anchorOrder - left.anchorOrder
+function latestJournal(journal: readonly TavernPetJournalRecord[]): TavernPetJournalRecord | null {
+    return [...journal].sort((left, right) => (
+        right.petTurn - left.petTurn
         || right.createdAt - left.createdAt
         || right.id.localeCompare(left.id)
     ))[0] || null;
 }
 
 export function createTavernPetView(input: {
-    record: TavernPetStateVersionRecord | null;
-    activities?: readonly TavernPetActivityRecord[];
-    currentTurn: number;
+    companion: TavernPetCompanionRecord | null;
+    journal?: readonly TavernPetJournalRecord[];
     playerBalance: number;
 }): TavernPetView {
-    if (!input.record) {return emptyView(input.playerBalance);}
-    const record = input.record;
-    const { state } = record;
-    const face = currentFace(record);
+    if (!input.companion) {return emptyView(input.playerBalance);}
+    const companion = input.companion;
+    const { state } = companion;
+    const face = currentFace(companion);
     const actions = TAVERN_PET_INTERACTION_IDS.flatMap((interactionId) => {
         const reason = tavernPetInteractionUnavailableReason(
             state,
             interactionId,
-            input.currentTurn,
+            state.petTurn,
             input.playerBalance,
         );
         const relevant = state.phase === 'luring'
@@ -132,12 +131,12 @@ export function createTavernPetView(input: {
             reason,
         }];
     });
-    const activity = latestActivity(input.activities || []);
+    const journal = latestJournal(input.journal || []);
     const persona = state.personaId ? getTavernPetPersona(state.personaId) : null;
-    const utterance = latestUtterance(activity, face);
+    const utterance = latestUtterance(journal, face);
     return {
-        revision: record.revision,
-        versionId: record.versionId,
+        revision: companion.revision,
+        versionId: companion.versionId,
         existence: 'present',
         phase: state.phase,
         dormant: state.dormant,
@@ -148,7 +147,7 @@ export function createTavernPetView(input: {
         ...(state.phase === 'luring' ? {} : {
             satietyPercent: state.satiety,
             emotionLabel: EMOTION_LABELS[state.emotion],
-            phaseProgressLabel: phaseProgressLabel(record),
+            phaseProgressLabel: phaseProgressLabel(companion),
             storageMb: Math.trunc(state.lifetimeStats.feedCount / 50) + 1,
         }),
         pendingEvolution: Boolean(state.pendingEvolution),
