@@ -191,17 +191,18 @@ const { repairLooseToolArguments } = looseToolArgumentsModule as unknown as {
 
 function managerTaskListings(): TavernTaskListing[] {
     const rows = [
-        ['E', 10],
-        ['D', 25],
-        ['C', 60],
-        ['B', 180],
-        ['A', 400],
-        ['S', 900],
+        ['禁忌', 'B', 150, '易介入', '现在就行'],
+        ['接触', 'C', 60, '易介入', '任意时候'],
+        ['夹缝', 'C', 100, '易介入', '现在就行'],
+        ['窥秘', 'C', 80, '中介入', '任意时候'],
+        ['掠夺', 'C', 100, '中介入', '特定时机：下课后'],
+        ['怪癖', 'D', 25, '深介入', '特定时机：入夜后'],
     ] as const;
-    return rows.map(([grade, reward], index) => ({
+    return rows.map(([direction, grade, reward, posture, timing], index) => ({
         id: `manager-listing-${index + 1}`,
         grade,
-        tags: [`manager-tag-${index + 1}`],
+        tags: [direction, `manager-tag-${index + 1}`],
+        posture,
         title: `自动维护委托 ${index + 1}`,
         issuer: {
             id: `manager-issuer-${index + 1}`,
@@ -211,6 +212,7 @@ function managerTaskListings(): TavernTaskListing[] {
         hook: `异常钩子 ${index + 1}`,
         objective: `完成自动维护目标 ${index + 1}`,
         location: `地点 ${index + 1}`,
+        timing,
         risk: `风险 ${index + 1}`,
         reward,
     }));

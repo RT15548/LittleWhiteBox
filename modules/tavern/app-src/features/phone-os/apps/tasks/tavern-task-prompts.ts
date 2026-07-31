@@ -4,41 +4,28 @@ import {
     type XbTavernContext,
     type XbTavernMessage,
 } from '../../../../../shared/message-assembler';
-import type { TavernTaskVersionRecord } from '../../../../../shared/tasks/task-types';
+import {
+    TAVERN_TASK_DIRECTIONS,
+    TAVERN_TASK_DIRECTION_REWARD_RANGES,
+    type TavernTaskDirection,
+    type TavernTaskVersionRecord,
+} from '../../../../../shared/tasks/task-types';
 import type { TavernTaskPromptLayers } from './tavern-task-context';
 
-const TASK_DIRECTIONS = [
-    {
-        label: '禁忌',
-        reward: '150~350',
-        rule: '某人想要一件见不得光的东西或服务。报酬高，代价是你得沾上脏东西。',
-    },
-    {
-        label: '接触',
-        reward: '40~80',
-        rule: '需要贴身看管、运送或陪同一个极具吸引力或极度危险的目标。密闭空间，长时间相处，路上什么都可能发生。',
-    },
-    {
-        label: '夹缝',
-        reward: '100~200',
-        rule: '两股势力正在暗中撕咬，需要一个局外人来打破平衡。玩家可以选边，也可以两头吃。',
-    },
-    {
-        label: '窥秘',
-        reward: '60~120',
-        rule: '某个光鲜的地方或人物背后藏着不对劲的东西。越查越深，真相可能比表面更脏。',
-    },
-    {
-        label: '掠夺',
-        reward: '80~150',
-        rule: '出现了一个稀缺且极具诱惑力的目标，其他竞争者已经闻风而动。赢了独占，输了血亏。',
-    },
-    {
-        label: '怪癖',
-        reward: '15~40',
-        rule: '发布者的要求极其离谱但极其认真。看似可笑，深究下去让人头皮发麻。',
-    },
-] as const;
+const TASK_DIRECTION_RULES: Readonly<Record<TavernTaskDirection, string>> = {
+    禁忌: '某人想要一件见不得光的东西或服务。报酬高，代价是你得沾上脏东西。',
+    接触: '需要贴身看管、运送或陪同一个极具吸引力或极度危险的目标。密闭空间，长时间相处，路上什么都可能发生。',
+    夹缝: '两股势力正在暗中撕咬，需要一个局外人来打破平衡。玩家可以选边，也可以两头吃。',
+    窥秘: '某个光鲜的地方或人物背后藏着不对劲的东西。越查越深，真相可能比表面更脏。',
+    掠夺: '出现了一个稀缺且极具诱惑力的目标，其他竞争者已经闻风而动。赢了独占，输了血亏。',
+    怪癖: '发布者的要求极其离谱但极其认真。看似可笑，深究下去让人头皮发麻。',
+};
+
+const TASK_DIRECTIONS = TAVERN_TASK_DIRECTIONS.map((label) => ({ label, rule: TASK_DIRECTION_RULES[label] }));
+
+function directionRewardRange(label: typeof TASK_DIRECTIONS[number]['label']): string {
+    return TAVERN_TASK_DIRECTION_REWARD_RANGES[label].join('~');
+}
 
 function cleanText(value: unknown): string {
     return String(value || '').replace(/\r\n?/g, '\n').trim();
@@ -117,7 +104,7 @@ function economyRules(): string {
         '改变 NPC 认知的 MC 级操作至少 1000 币。',
         '',
         '六方向报酬范围：',
-        ...TASK_DIRECTIONS.map((direction) => `- ${direction.label}：${direction.reward} 币`),
+        ...TASK_DIRECTIONS.map((direction) => `- ${direction.label}：${directionRewardRange(direction.label)} 币`),
         '',
         'grade 仅按最终 reward 派生，用来兼容任务终端现有协议：',
         '- E：5~15；D：16~40；C：41~100；B：101~250；A：251~600。',
@@ -131,24 +118,26 @@ function buildTaskRolePrompt(mode: 'board' | 'candidates'): string {
             '<thinking>',
             '（全程中文，心里进行，绝对不许输出到 JSON 外面！(｀・ω・´)）',
             '',
-            '## 第一步：世界基调与欲望锚定',
-            '- 扒 <setting>：这个世界的核心驱动力是什么',
-            '- 扒玩家画像：什么人设？什么可能让 ta 心跳加速',
-            '- 任务的“诱饵”必须精准戳中这个世界和这个玩家的欲望频率',
+            '这是文字角色扮演：玩家必须亲自打字完成转时、换地点、认识人物和建立氛围，不能点击跳转。',
+            '<setting> 决定世界边界，<current_state> 只帮助控制介入成本；不要把六条任务都改写成玩家眼前正在做的事。',
             '',
-            '## 第二步：避雷铁律',
+            '## 先决定介入姿态',
+            '- 六条恰好分配：易介入 3 条、中介入 2 条、深介入 1 条；姿态与六方向彼此独立。',
+            '- 易介入：无需另约时间、远行或重建场景；由身边人物、附近地点或自然出现的新人物带入，一次正常回复即可开始。',
+            '- 中介入：只需一次自然过渡，例如下课后、去相邻地点、跟某人离开。',
+            '- 深介入：必须主动开启新的时间、地点、人物或氛围。它的钩子必须立即给出具体关系、诱惑或冲突，不能把全部吸引力推迟到“调查以后”。',
+            '',
+            '## 再构思六方向',
             '- 严禁硬凑熟人：只有 <setting> 明确写明与玩家已有关系的人物，才可视为熟人；其余人物一律从陌生关系开始。',
             '- 严禁说教和伟光正：发布者都是有私欲的人，他们贪婪、算计、恐慌、有癖好。没有人发任务是为了拯救世界。',
             '- 严禁脱离世界观：先在脑子里把这个世界的设定过一遍，再动笔。',
             '',
-            '## 第三步：六个方向逐条构思',
-            '',
             ...TASK_DIRECTIONS.flatMap((direction) => [
-                `### ${direction.label}`,
+                `### ${direction.label}｜${directionRewardRange(direction.label)} 币`,
                 direction.rule,
                 '',
             ]),
-            '每个方向想好这个世界里的具体场景和人物再输出，不要套模版！',
+            '每条都必须值得玩家为它写字；不要只给谜面、远期承诺或“调查真相”式空目标。',
             '</thinking>',
         ]
         : [
@@ -172,13 +161,17 @@ function buildTaskRolePrompt(mode: 'board' | 'candidates'): string {
     const outputProtocol = mode === 'board'
         ? [
             '委托板刷新时只输出一个合法 JSON 对象，结构必须是：',
-            '{"tasks":[{"grade":"E|D|C|B|A","tags":["六方向之一","可选的世界观标签"],"title":"短而有悬念的标题","issuer":{"name":"发布者名字","description":"发布者身份、气质与一句有辨识度的话"},"hook":"一至两句处境与钩子","objective":"清晰可执行的完成目标","requirements":"可选的限制或条件","location":"地点","risk":"具体风险","reward":100}]}',
+            '{"tasks":[{"grade":"B","tags":["禁忌","校园"],"posture":"易介入","title":"封蜡箱签收","issuer":{"name":"停尸房守夜人","description":"值夜的老人，右手一直压着一张无名签收单。"},"hook":"有只写着死人名字的箱子刚送到后门。","objective":"替收件人签收封蜡箱","requirements":"不要拆封","location":"教学楼后门值班室","timing":"现在就行","risk":"签收记录留下玩家姓名","reward":180}]}',
             '- 根值必须是对象；tasks 必须是数组；tasks 的每一项必须是对象。',
-            '- grade、title、hook、objective、location、risk 必须是字符串。',
-            '- tags 必须是字符串数组，不得输出单个字符串。',
+            '- title 最多 12 字；issuer.name 最多 32 字；issuer.description 最多 80 字，只写身份与一个可感细节。',
+            '- hook 最多 120 字，是唯一允许有叙事味道的字段；其余字段短、明确、只写事实。',
+            '- objective 最多 48 字，只写一个可判定完成的动作，禁用“调查真相”“处理此事”等模糊目标。',
+            '- location 最多 48 字，具体到可直接走到；risk 最多 64 字，只写一个具体坏结果。',
+            '- posture 只能是易介入、中介入、深介入；timing 只能是“现在就行”“任意时候”或“特定时机：具体条件”。易介入禁止特定时机。',
+            '- tags 必须是含 1~4 项的字符串数组，每项最多 16 字，不得输出单个字符串。',
             '- issuer 必须是对象；issuer.name 与 issuer.description 必须是字符串。',
             '- reward 必须是正整数 JSON 数字，不得写成字符串；grade 必须覆盖该 reward 所在区间。',
-            '- requirements 若输出则必须是字符串；没有限制时可以省略该字段，不要输出 null。',
+            '- requirements 最多 64 字；没有条件时省略，不要输出 null。',
             `每条任务 tags 的第一项必须严格对应本条方向，只能是：${TASK_DIRECTIONS.map((direction) => direction.label).join('、')}。`,
         ]
         : [
@@ -294,7 +287,7 @@ function boardTaskDataMessage(input: {
             '',
             '## 六方向配方（严格按此顺序输出）',
             ...TASK_DIRECTIONS.map((direction, index) => (
-                `${index + 1}. ${direction.label}｜报酬 ${direction.reward}｜${direction.rule}`
+                `${index + 1}. ${direction.label}｜报酬 ${directionRewardRange(direction.label)}｜${direction.rule}`
             )),
             '</task_data>',
         ].join('\n'),
@@ -321,6 +314,7 @@ function candidateTaskDataMessage(layers: TavernTaskPromptLayers, task: TavernTa
             `目标：${cleanText(task.objective)}`,
             task.requirements ? `限制：${cleanText(task.requirements)}` : '',
             `地点：${cleanText(task.location)}`,
+            task.timing ? `时机：${cleanText(task.timing)}` : '',
             task.risk ? `风险：${cleanText(task.risk)}` : '',
             '</task_data>',
         ].filter(Boolean).join('\n'),

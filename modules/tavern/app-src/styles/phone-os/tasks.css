@@ -114,7 +114,13 @@
 .tavern-task-ticket-grade {width: 34px; height: 34px; display: grid; place-items: center; border-radius: 11px; background: var(--task-olive-soft); color: var(--task-olive-strong); font: 780 12px/1 var(--task-mono);}
 .tavern-task-ticket-copy {min-width: 0; display: grid; align-content: center; gap: 5px;}
 .tavern-task-ticket-title {display: -webkit-box; overflow: hidden; font: 730 14px/1.24 var(--phone-os-font); -webkit-box-orient: vertical; -webkit-line-clamp: 2;}
-.tavern-task-ticket-copy > small {overflow: hidden; color: color-mix(in srgb, var(--task-muted) 84%, transparent); font: 520 8px/1.2 var(--phone-os-font); text-overflow: ellipsis; white-space: nowrap;}
+.tavern-task-ticket-meta {min-width: 0; display: flex; align-items: center; gap: 5px;}
+.tavern-task-ticket-meta > em {flex: none; border: 1px solid color-mix(in srgb, var(--task-olive) 32%, var(--task-line)); border-radius: 4px; background: color-mix(in srgb, var(--task-olive) 9%, transparent); color: var(--task-olive-strong); padding: 2px 4px; font: normal 700 7px/1 var(--phone-os-font);}
+.tavern-task-ticket-meta > em.is-中介入 {border-color: color-mix(in srgb, var(--task-amber) 36%, var(--task-line)); background: color-mix(in srgb, var(--task-amber) 9%, transparent); color: var(--task-amber);}
+.tavern-task-ticket-meta > em.is-深介入 {border-color: color-mix(in srgb, var(--task-rust) 36%, var(--task-line)); background: color-mix(in srgb, var(--task-rust) 9%, transparent); color: var(--task-rust);}
+.tavern-task-ticket-meta > em.is-legacy {color: var(--task-muted);}
+.tavern-task-ticket-meta > small {min-width: 0; overflow: hidden; color: color-mix(in srgb, var(--task-muted) 84%, transparent); font: 520 8px/1.2 var(--phone-os-font); text-overflow: ellipsis; white-space: nowrap;}
+.tavern-task-ticket-place {overflow: hidden; color: color-mix(in srgb, var(--task-muted) 72%, transparent); font: 500 7px/1.2 var(--phone-os-font); text-overflow: ellipsis; white-space: nowrap;}
 .tavern-task-dossier-tags {display: flex; flex-wrap: wrap; gap: 4px;}
 .tavern-task-dossier-tags i {border: 1px solid color-mix(in srgb, var(--task-olive) 26%, var(--task-line)); border-radius: 999px; background: color-mix(in srgb, var(--task-olive) 7%, transparent); color: var(--task-muted); padding: 3px 6px; font: normal 620 7px/1 var(--task-mono);}
 .tavern-task-ticket-reward {min-width: 66px; display: grid; align-content: center; justify-items: end; gap: 4px; text-align: right;}

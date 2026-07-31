@@ -283,6 +283,26 @@
     background: #0b0d11;
 }
 
+.tavern-phone-device.is-chrome-dark .tavern-phone-system-navigation {
+    border-top-color: rgba(224, 235, 214, 0.10);
+    background: #070808;
+    backdrop-filter: none;
+}
+
+.tavern-phone-device.is-chrome-dark .tavern-phone-home-control {color: #edf0e6;}
+.tavern-phone-device.is-chrome-dark .tavern-phone-dismiss-control {color: #a4aa9f;}
+.tavern-phone-device.is-chrome-dark .tavern-phone-dismiss-control::before {
+    border-color: rgba(224, 235, 214, 0.12);
+    background: rgba(20, 24, 21, 0.78);
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.34);
+}
+
+.tavern-phone-device.is-chrome-dark .tavern-phone-systembar {
+    background: rgba(9, 11, 11, 0.92);
+    backdrop-filter: blur(14px) saturate(0.82);
+}
+.tavern-phone-device.is-chrome-dark .tavern-phone-system-icons {color: #edf0e6;}
+
 .tavern-phone-system-navigation-spacer {width: 44px; height: 44px;}
 
 .tavern-phone-home-control {
@@ -381,6 +401,15 @@
 .tavern-phone-device .tavern-phone-dismiss-control:hover:not(:disabled)::before {
     border-color: color-mix(in srgb, var(--phone-os-blue) 20%, var(--phone-os-line));
     background: color-mix(in srgb, var(--phone-os-blue) 9%, var(--phone-os-surface));
+}
+.tavern-phone-device.is-chrome-dark .tavern-phone-home-control:hover:not(:disabled) {
+    background: rgba(143, 162, 116, 0.13);
+    color: #fff;
+}
+.tavern-phone-device.is-chrome-dark .tavern-phone-dismiss-control:hover:not(:disabled) {color: #fff;}
+.tavern-phone-device.is-chrome-dark .tavern-phone-dismiss-control:hover:not(:disabled)::before {
+    border-color: rgba(143, 162, 116, 0.38);
+    background: rgba(143, 162, 116, 0.14);
 }
 .tavern-phone-system-navigation.is-home .tavern-phone-home-control:hover:not(:disabled) {
     background: rgba(255, 255, 255, 0.13);

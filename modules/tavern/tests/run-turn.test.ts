@@ -169,17 +169,18 @@ function withDefaultNativePromptHooks<T extends XbTavernRunTurnInput | XbTavernS
 
 function runTurnTaskListings(): TavernTaskListing[] {
     const rows = [
-        ['E', 10],
-        ['D', 25],
-        ['C', 60],
-        ['B', 180],
-        ['A', 400],
-        ['S', 900],
+        ['禁忌', 'B', 150, '易介入', '现在就行'],
+        ['接触', 'C', 60, '易介入', '任意时候'],
+        ['夹缝', 'C', 100, '易介入', '现在就行'],
+        ['窥秘', 'C', 80, '中介入', '任意时候'],
+        ['掠夺', 'C', 100, '中介入', '特定时机：下课后'],
+        ['怪癖', 'D', 25, '深介入', '特定时机：入夜后'],
     ] as const;
-    return rows.map(([grade, reward], index) => ({
+    return rows.map(([direction, grade, reward, posture, timing], index) => ({
         id: `runtime-listing-${index + 1}`,
         grade,
-        tags: [`runtime-tag-${index + 1}`],
+        tags: [direction, `runtime-tag-${index + 1}`],
+        posture,
         title: `运行时委托 ${index + 1}`,
         issuer: {
             id: `runtime-issuer-${index + 1}`,
@@ -188,7 +189,9 @@ function runTurnTaskListings(): TavernTaskListing[] {
         },
         hook: `异常钩子 ${index + 1}`,
         objective: `完成运行时目标 ${index + 1}`,
+        requirements: `运行时要求 ${index + 1}`,
         location: `地点 ${index + 1}`,
+        timing,
         risk: `风险 ${index + 1}`,
         reward,
     }));
@@ -4428,7 +4431,18 @@ test('formal tasks enter both local and ST-native depth-1 prompts while board ca
     assert.equal(taskDepth?.depth, 1);
     assert.equal(taskDepth?.role, 'system');
     assert.match(String(taskDepth?.content || ''), /《运行时委托 3》/);
+    assert.match(String(taskDepth?.content || ''), /等级：C/);
+    assert.match(String(taskDepth?.content || ''), /标签：夹缝、runtime-tag-3/);
+    assert.match(String(taskDepth?.content || ''), /委托人：陌生发布者 3/);
+    assert.match(String(taskDepth?.content || ''), /委托人资料：发布者描述 3/);
+    assert.match(String(taskDepth?.content || ''), /缘由与线索：异常钩子 3/);
     assert.match(String(taskDepth?.content || ''), /完成运行时目标 3/);
+    assert.match(String(taskDepth?.content || ''), /要求：运行时要求 3/);
+    assert.match(String(taskDepth?.content || ''), /地点：地点 3/);
+    assert.match(String(taskDepth?.content || ''), /时机：现在就行/);
+    assert.match(String(taskDepth?.content || ''), /风险：风险 3/);
+    assert.match(String(taskDepth?.content || ''), /报酬：100 小白币/);
+    assert.match(String(taskDepth?.content || ''), /此前进展：已接取任务/);
     assert.match(result.buildSnapshot.rawMessagesJson, /<active_tasks>/);
     assert.match(result.requestSnapshot.rawRequestJson, /完成运行时目标 3/);
     assert.doesNotMatch(result.requestSnapshot.rawRequestJson, /完成运行时目标 1|完成运行时目标 2|完成运行时目标 4/);

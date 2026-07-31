@@ -26,6 +26,8 @@ export interface TavernPhoneAppManifest {
     accent: string;
     rootPath: string;
     order: number;
+    /** Lets an app extend a fixed visual surface through the shared system bars. */
+    chromeTone?: 'dark';
 }
 
 export interface TavernPhoneAppDefinition extends TavernPhoneAppManifest {
@@ -43,7 +45,13 @@ export function defineTavernPhoneApps(
     const normalized = definitions.map((definition) => {
         const id = String(definition.id || '').trim();
         const rootPath = String(definition.rootPath || '').trim();
-        if (!id || !rootPath.startsWith('/') || !definition.component || !definition.iconComponent) {
+        if (
+            !id
+            || !rootPath.startsWith('/')
+            || !definition.component
+            || !definition.iconComponent
+            || (definition.chromeTone !== undefined && definition.chromeTone !== 'dark')
+        ) {
             throw new Error('invalid_phone_app_definition');
         }
         if (ids.has(id)) {throw new Error(`duplicate_phone_app_definition:${id}`);}

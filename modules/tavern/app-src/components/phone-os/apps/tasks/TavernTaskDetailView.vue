@@ -85,6 +85,12 @@ const emit = defineEmits<{
             <dt>要求</dt><dd>{{ task.requirements }}</dd>
           </div>
           <div><dt>地点</dt><dd>{{ task.location }}</dd></div>
+          <div v-if="task.posture">
+            <dt>介入</dt><dd>{{ task.posture }}</dd>
+          </div>
+          <div v-if="task.timing">
+            <dt>时机</dt><dd>{{ task.timing }}</dd>
+          </div>
           <div v-if="task.risk">
             <dt>风险</dt><dd>{{ task.risk }}</dd>
           </div>

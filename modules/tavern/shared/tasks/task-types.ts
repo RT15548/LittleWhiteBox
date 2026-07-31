@@ -15,6 +15,20 @@ export type TavernTaskGrade = TavernTaskBoardGrade | 'CUSTOM';
 
 export type TavernTaskStatus = 'recruiting' | 'active' | 'completed' | 'failed' | 'cancelled';
 export type TavernTaskPartyKind = 'player' | 'world';
+export const TAVERN_TASK_DIRECTIONS = ['禁忌', '接触', '夹缝', '窥秘', '掠夺', '怪癖'] as const;
+export type TavernTaskDirection = typeof TAVERN_TASK_DIRECTIONS[number];
+export const TAVERN_TASK_POSTURES = ['易介入', '中介入', '深介入'] as const;
+export type TavernTaskPosture = typeof TAVERN_TASK_POSTURES[number];
+export type TavernTaskTiming = '现在就行' | '任意时候' | `特定时机：${string}`;
+
+export const TAVERN_TASK_DIRECTION_REWARD_RANGES: Readonly<Record<TavernTaskDirection, readonly [number, number]>> = {
+    禁忌: [150, 350],
+    接触: [40, 80],
+    夹缝: [100, 200],
+    窥秘: [60, 120],
+    掠夺: [80, 150],
+    怪癖: [15, 40],
+};
 export type TavernTaskMutationKind =
     | 'accept'
     | 'publish'
@@ -53,12 +67,19 @@ export interface TavernTaskListing {
     id: string;
     grade: TavernTaskBoardGrade;
     tags: string[];
+    /**
+     * Compatibility: upstream boards and character archive v9 predate intervention metadata.
+     * Remove the optional branch only when those records are no longer supported.
+     */
+    posture?: TavernTaskPosture;
     title: string;
     issuer: TavernTaskListingIssuer;
     hook: string;
     objective: string;
     requirements?: string;
     location: string;
+    /** Same compatibility boundary as posture. */
+    timing?: TavernTaskTiming;
     risk: string;
     reward: number;
 }
@@ -111,6 +132,10 @@ export interface TavernTaskVersionRecord {
     risk: string;
     grade: TavernTaskGrade;
     tags: string[];
+    /** Present on generated world tasks accepted from current boards; absent on player-issued and pre-metadata records. */
+    posture?: TavernTaskPosture;
+    /** Same ownership and compatibility boundary as posture. */
+    timing?: TavernTaskTiming;
     hook?: string;
 
     progressSummary: string;
@@ -312,6 +337,7 @@ export interface FailTavernTaskInput {
 
 export interface TaskBoardParseOptions {
     createId?: (prefix: string) => string;
+    warn?: (message: string) => void;
 }
 
 export interface TaskCandidateParseOptions {
@@ -319,6 +345,19 @@ export interface TaskCandidateParseOptions {
 }
 
 const MAX_SAFE_TEXT = 8_000;
+
+const GENERATED_TASK_TEXT_LIMITS = {
+    title: 12,
+    issuerName: 32,
+    issuerDescription: 80,
+    hook: 120,
+    tag: 16,
+    objective: 48,
+    requirements: 64,
+    location: 48,
+    timing: 40,
+    risk: 64,
+} as const;
 
 export const TAVERN_TASK_GRADE_REWARD_RANGES: Readonly<Record<TavernTaskBoardGrade, readonly [number, number]>> = {
     E: [5, 15],
@@ -337,6 +376,24 @@ function createLocalId(prefix: string): string {
 function text(value: unknown, limit: number, required = false): string {
     const normalized = String(value ?? '').replace(/\r\n?/g, '\n').trim().slice(0, limit);
     if (required && !normalized) {throwTavernTaskError('task_text_invalid');}
+    return normalized;
+}
+
+function generatedTaskText(
+    value: unknown,
+    field: keyof typeof GENERATED_TASK_TEXT_LIMITS,
+    required = true,
+): string {
+    if (value === undefined || value === null) {
+        if (required) {throwTavernTaskError('task_board_listing_invalid', field);}
+        return '';
+    }
+    if (typeof value !== 'string') {throwTavernTaskError('task_board_listing_invalid', field);}
+    const normalized = value.replace(/\s+/gu, ' ').trim();
+    const length = [...normalized].length;
+    if ((required && !normalized) || length > GENERATED_TASK_TEXT_LIMITS[field]) {
+        throwTavernTaskError('task_board_listing_invalid', field);
+    }
     return normalized;
 }
 
@@ -382,6 +439,37 @@ export function normalizeTavernTaskTags(value: unknown): string[] {
         .filter(Boolean)
         .slice(0, 8);
     return [...new Set(tags)];
+}
+
+function normalizeGeneratedTaskTags(value: unknown): string[] {
+    if (!Array.isArray(value) || value.length < 1 || value.length > 4) {
+        throwTavernTaskError('task_board_listing_invalid', 'tags');
+    }
+    const tags = value.map((item) => generatedTaskText(item, 'tag'));
+    if (new Set(tags).size !== tags.length) {
+        throwTavernTaskError('task_board_listing_invalid', 'tags_duplicate');
+    }
+    return tags;
+}
+
+export function normalizeTavernTaskPosture(value: unknown): TavernTaskPosture {
+    if (typeof value !== 'string') {throwTavernTaskError('task_board_listing_invalid', 'posture');}
+    const posture = value.trim() as TavernTaskPosture;
+    if (!TAVERN_TASK_POSTURES.includes(posture)) {
+        throwTavernTaskError('task_board_listing_invalid', 'posture');
+    }
+    return posture;
+}
+
+export function normalizeTavernTaskTiming(value: unknown, posture?: TavernTaskPosture): TavernTaskTiming {
+    const timing = generatedTaskText(value, 'timing');
+    if (timing !== '现在就行' && timing !== '任意时候' && !/^特定时机：\S/u.test(timing)) {
+        throwTavernTaskError('task_board_listing_invalid', 'timing');
+    }
+    if (posture === '易介入' && timing.startsWith('特定时机：')) {
+        throwTavernTaskError('task_board_listing_invalid', 'easy_posture_timing');
+    }
+    return timing as TavernTaskTiming;
 }
 
 export function normalizeTavernTaskCandidate(value: unknown, idFallback = ''): TavernTaskCandidate {
@@ -438,9 +526,22 @@ export function normalizeTavernTaskListing(value: unknown, idFallback = ''): Tav
         ? record.issuer as Record<string, unknown>
         : null;
     if (!issuer) {throwTavernTaskError('task_board_listing_invalid', 'issuer');}
-    const requirements = text(record.requirements, MAX_SAFE_TEXT);
+    const requirements = generatedTaskText(record.requirements, 'requirements', false);
+    if (typeof record.grade !== 'string') {throwTavernTaskError('task_board_listing_invalid', 'grade');}
+    if (typeof record.reward !== 'number') {throwTavernTaskError('task_board_listing_invalid', 'reward');}
     const grade = normalizeTavernTaskBoardGrade(record.grade);
     const reward = normalizeTavernTaskReward(record.reward);
+    const posture = normalizeTavernTaskPosture(record.posture);
+    const timing = normalizeTavernTaskTiming(record.timing, posture);
+    const tags = normalizeGeneratedTaskTags(record.tags);
+    const direction = tags[0] as TavernTaskDirection | undefined;
+    if (!direction || !TAVERN_TASK_DIRECTIONS.includes(direction)) {
+        throwTavernTaskError('task_board_listing_invalid', 'direction');
+    }
+    const [directionMinimumReward, directionMaximumReward] = TAVERN_TASK_DIRECTION_REWARD_RANGES[direction];
+    if (reward < directionMinimumReward || reward > directionMaximumReward) {
+        throwTavernTaskError('task_reward_invalid', `${direction}:${reward}`);
+    }
     const [minimumReward, maximumReward] = TAVERN_TASK_GRADE_REWARD_RANGES[grade];
     if (reward < minimumReward || reward > maximumReward) {
         throwTavernTaskError('task_reward_invalid', `${grade}:${reward}`);
@@ -448,18 +549,20 @@ export function normalizeTavernTaskListing(value: unknown, idFallback = ''): Tav
     return {
         id,
         grade,
-        tags: normalizeTavernTaskTags(record.tags),
-        title: text(record.title, 180, true),
+        tags,
+        posture,
+        title: generatedTaskText(record.title, 'title'),
         issuer: {
             id: text(issuer.id, 180) || `issuer-${id}`,
-            name: text(issuer.name, 120, true),
-            description: text(issuer.description, 2_000, true),
+            name: generatedTaskText(issuer.name, 'issuerName'),
+            description: generatedTaskText(issuer.description, 'issuerDescription'),
         },
-        hook: text(record.hook, 2_000, true),
-        objective: text(record.objective, MAX_SAFE_TEXT, true),
+        hook: generatedTaskText(record.hook, 'hook'),
+        objective: generatedTaskText(record.objective, 'objective'),
         ...(requirements ? { requirements } : {}),
-        location: text(record.location, 600, true),
-        risk: text(record.risk, 2_000, true),
+        location: generatedTaskText(record.location, 'location'),
+        timing,
+        risk: generatedTaskText(record.risk, 'risk'),
         reward,
     };
 }
@@ -514,6 +617,7 @@ function extractJsonValues(textValue: string): unknown[] {
 
 export function parseTavernTaskBoardResponse(value: string, options: TaskBoardParseOptions = {}): TavernTaskListing[] {
     const createId = options.createId || createLocalId;
+    const warn = options.warn || ((message: string) => console.warn(`[LittleWhiteBox/tasks] ${message}`));
     const parsedValues = extractJsonValues(value);
     if (!parsedValues.length) {throwTavernTaskError('task_response_json_invalid');}
     let foundTasksArray = false;
@@ -523,17 +627,41 @@ export function parseTavernTaskBoardResponse(value: string, options: TaskBoardPa
         if (!Array.isArray(tasks)) {continue;}
         foundTasksArray = true;
         const listings: TavernTaskListing[] = [];
+        const directions = new Set<TavernTaskDirection>();
         for (let index = 0; index < tasks.length; index += 1) {
             try {
                 const listing = normalizeTavernTaskListing(tasks[index], `listing-${index + 1}`);
+                const direction = listing.tags[0] as TavernTaskDirection;
+                if (directions.has(direction)) {throwTavernTaskError('task_board_listing_duplicate', direction);}
+                directions.add(direction);
                 listings.push({
                     ...listing,
                     id: createId('listing'),
                     issuer: { ...listing.issuer, id: createId('issuer') },
                 });
-            } catch { /* keep other valid entries */ }
+            } catch (error) {
+                const detail = error instanceof Error ? error.message : String(error || 'invalid');
+                warn(`task_board_listing_dropped:index=${index + 1}:${detail}`);
+            }
         }
-        if (listings.length) {return listings;}
+        if (listings.length) {
+            listings.sort((left, right) => (
+                TAVERN_TASK_DIRECTIONS.indexOf(left.tags[0] as TavernTaskDirection)
+                - TAVERN_TASK_DIRECTIONS.indexOf(right.tags[0] as TavernTaskDirection)
+            ));
+            const missingDirections = TAVERN_TASK_DIRECTIONS.filter((direction) => !directions.has(direction));
+            if (missingDirections.length) {
+                warn(`task_board_direction_quota_mismatch:missing=${missingDirections.join(',')}`);
+            }
+            const counts = new Map(TAVERN_TASK_POSTURES.map((posture) => [
+                posture,
+                listings.filter((listing) => listing.posture === posture).length,
+            ]));
+            if (counts.get('易介入') !== 3 || counts.get('中介入') !== 2 || counts.get('深介入') !== 1) {
+                warn(`task_board_posture_quota_mismatch:easy=${counts.get('易介入') || 0},medium=${counts.get('中介入') || 0},deep=${counts.get('深介入') || 0}`);
+            }
+            return listings;
+        }
     }
     if (!foundTasksArray) {throwTavernTaskError('task_response_shape_invalid', 'tasks_must_be_array');}
     throwTavernTaskError('task_response_items_invalid', 'tasks');
@@ -635,6 +763,11 @@ export function normalizeTavernTaskVersionRecord(record: TavernTaskVersionRecord
     const currentMarker = record.currentMarker === TAVERN_TASK_CURRENT_MARKER
         ? TAVERN_TASK_CURRENT_MARKER
         : undefined;
+    const posture = record.posture === undefined ? undefined : normalizeTavernTaskPosture(record.posture);
+    const timing = record.timing === undefined ? undefined : normalizeTavernTaskTiming(record.timing, posture);
+    if ((posture && !timing) || (!posture && timing)) {
+        throwTavernTaskError('task_response_invalid', 'task_intervention_metadata');
+    }
     return {
         ...record,
         sessionId: sessionIdentifier(record.sessionId),
@@ -655,6 +788,8 @@ export function normalizeTavernTaskVersionRecord(record: TavernTaskVersionRecord
         risk: text(record.risk, 2_000),
         grade: normalizeTavernTaskGrade(record.grade),
         tags: normalizeTavernTaskTags(record.tags),
+        ...(posture ? { posture } : {}),
+        ...(timing ? { timing } : {}),
         ...(text(record.hook, 2_000) ? { hook: text(record.hook, 2_000) } : {}),
         progressSummary: text(record.progressSummary, MAX_SAFE_TEXT),
         resultSummary: text(record.resultSummary, MAX_SAFE_TEXT),

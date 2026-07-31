@@ -137,12 +137,12 @@ async function seedArchiveTasks(sessionId: string, prefix = 'archive') {
     const taskId = `${prefix}-published-task`;
     const boundary = await captureTavernTaskPhoneBoundary(sessionId);
     const listingBlueprints = [
-        ['E', 10, '替钟表匠送一枚停摆齿轮'],
-        ['D', 30, '查清夜班渡船少掉的一名乘客'],
-        ['C', 80, '护送一箱会模仿哭声的矿石'],
-        ['B', 180, '替死人签收一只封蜡箱'],
-        ['A', 420, '从无主领馆取回失踪印玺'],
-        ['S', 900, '阻止天空列车驶入废弃站台'],
+        ['禁忌', 'B', 180, '易介入', '现在就行', '替死人签收封蜡箱'],
+        ['接触', 'C', 80, '易介入', '任意时候', '护送哭泣的矿石'],
+        ['夹缝', 'B', 160, '易介入', '现在就行', '夜班渡船的空位'],
+        ['窥秘', 'C', 80, '中介入', '任意时候', '停摆齿轮的来历'],
+        ['掠夺', 'B', 140, '中介入', '特定时机：闭馆后', '无主领馆的印玺'],
+        ['怪癖', 'D', 30, '深介入', '特定时机：末班车前', '废站台的车票'],
     ] as const;
     await replaceTavernTaskBoard({
         sessionId,
@@ -150,10 +150,11 @@ async function seedArchiveTasks(sessionId: string, prefix = 'archive') {
         expectedRevision: 0,
         expectedEpoch: 1,
         boundary,
-        listings: listingBlueprints.map(([grade, reward, title], index) => ({
+        listings: listingBlueprints.map(([direction, grade, reward, posture, timing, title], index) => ({
             id: `${prefix}-listing-${index + 1}`,
             grade,
-            tags: index % 2 ? ['调查'] : ['委托'],
+            tags: [direction, index % 2 ? '调查' : '委托'],
+            posture,
             title,
             issuer: {
                 id: `${prefix}-issuer-${index + 1}`,
@@ -163,6 +164,7 @@ async function seedArchiveTasks(sessionId: string, prefix = 'archive') {
             hook: '委托表面简单，但有一条刻意被遮住的附注。',
             objective: `完成第 ${index + 1} 项可执行目标并带回可信结果。`,
             location: `旧城区 ${index + 1} 号节点`,
+            timing,
             risk: '不得把委托内容交给无关人物。',
             reward,
         })),
@@ -834,7 +836,9 @@ test('tavern character archive restore replaces only the current character and r
     const restoredTaskVersions = await tavernTaskVersionsTable.where('sessionId').equals(restoredA1).toArray();
     assert.equal(restoredTaskBoard?.generationId, 'archive-board-1');
     assert.equal(restoredTaskBoard?.listings.length, 6);
-    assert.equal(restoredTaskBoard?.listings[3]?.title, '替死人签收一只封蜡箱');
+    assert.equal(restoredTaskBoard?.listings[3]?.title, '停摆齿轮的来历');
+    assert.equal(restoredTaskBoard?.listings[3]?.posture, '中介入');
+    assert.equal(restoredTaskBoard?.listings[3]?.timing, '任意时候');
     assert.equal(restoredTaskVersions.length, 2);
     assert.equal(restoredTaskVersions.find((version) => version.currentMarker === TAVERN_TASK_CURRENT_MARKER)?.revision, 2);
     const restoredCurrentTask = restoredTaskVersions.find((version) => version.currentMarker === TAVERN_TASK_CURRENT_MARKER);

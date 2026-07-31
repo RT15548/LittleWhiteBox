@@ -122,6 +122,7 @@ export function createTavernPhoneAppRegistry(input: {
             shortName: '不明物',
             iconComponent: markRaw(TavernPetIcon),
             accent: '#87916f',
+            chromeTone: 'dark',
             rootPath: '/room',
             order: 60,
             component: markRaw(TavernPetApp),

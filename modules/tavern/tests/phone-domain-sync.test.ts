@@ -44,10 +44,19 @@ import {
 } from './pet-test-helpers';
 
 function taskListings(): TavernTaskListing[] {
-    return (['E', 'D', 'C', 'B', 'A', 'S'] as const).map((grade, index) => ({
+    const rows = [
+        ['禁忌', 'B', 150, '易介入', '现在就行'],
+        ['接触', 'C', 60, '易介入', '任意时候'],
+        ['夹缝', 'C', 100, '易介入', '现在就行'],
+        ['窥秘', 'C', 80, '中介入', '任意时候'],
+        ['掠夺', 'C', 100, '中介入', '特定时机：下课后'],
+        ['怪癖', 'D', 25, '深介入', '特定时机：入夜后'],
+    ] as const;
+    return rows.map(([direction, grade, reward, posture, timing], index) => ({
         id: `domain-sync-listing-${index}`,
         grade,
-        tags: ['同步'],
+        tags: [direction, '同步'],
+        posture,
         title: `跨标签委托 ${index}`,
         issuer: {
             id: `domain-sync-issuer-${index}`,
@@ -57,8 +66,9 @@ function taskListings(): TavernTaskListing[] {
         hook: '新的委托已经送达。',
         objective: '验证另一个页面能看到已提交的任务事实。',
         location: '测试区',
+        timing,
         risk: '无',
-        reward: [10, 25, 60, 180, 400, 900][index],
+        reward,
     }));
 }
 

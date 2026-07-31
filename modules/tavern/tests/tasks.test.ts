@@ -181,17 +181,18 @@ async function failTavernTask(input: OptionalVersionId<Parameters<typeof failTav
 
 function boardListings(): TavernTaskListing[] {
     const rows = [
-        ['E', 10],
-        ['D', 25],
-        ['C', 60],
-        ['B', 180],
-        ['A', 400],
-        ['S', 900],
+        ['禁忌', 'B', 150, '易介入', '现在就行'],
+        ['接触', 'C', 60, '易介入', '任意时候'],
+        ['夹缝', 'C', 100, '易介入', '现在就行'],
+        ['窥秘', 'C', 80, '中介入', '任意时候'],
+        ['掠夺', 'C', 100, '中介入', '特定时机：下课后'],
+        ['怪癖', 'D', 25, '深介入', '特定时机：入夜后'],
     ] as const;
-    return rows.map(([grade, reward], index) => ({
+    return rows.map(([direction, grade, reward, posture, timing], index) => ({
         id: `listing-${index + 1}`,
         grade,
-        tags: [`tag-${index + 1}`],
+        tags: [direction, `tag-${index + 1}`],
+        posture,
         title: `委托 ${index + 1}`,
         issuer: {
             id: `issuer-${index + 1}`,
@@ -201,6 +202,7 @@ function boardListings(): TavernTaskListing[] {
         hook: `异常钩子 ${index + 1}`,
         objective: `完成目标 ${index + 1}`,
         location: `地点 ${index + 1}`,
+        timing,
         risk: `风险 ${index + 1}`,
         reward,
     }));
@@ -279,12 +281,15 @@ test('task requests use the new direction recipe only for board generation', () 
     ['standoff', 'dirty', 'escort', 'investigate', 'compete', 'absurd'].forEach((legacyKey) => {
         assert.equal(boardRequest.includes(legacyKey), false);
     });
-    assert.equal(boardRequest.includes('扒 <setting>'), true);
+    assert.equal(boardRequest.includes('玩家必须亲自打字完成转时、换地点、认识人物和建立氛围'), true);
+    assert.equal(boardRequest.includes('易介入 3 条、中介入 2 条、深介入 1 条'), true);
+    assert.equal(boardRequest.includes('posture 只能是易介入、中介入、深介入'), true);
+    assert.equal(boardRequest.includes('易介入禁止特定时机'), true);
     assert.equal(boardRequest.includes('第 1 层'), false);
     assert.equal(boardRequest.includes('第1层'), false);
     assert.equal(boardRequest.includes('tags 的第一项必须严格对应本条方向'), true);
     assert.equal(boardRequest.includes('tasks 必须是数组'), true);
-    assert.equal(boardRequest.includes('tags 必须是字符串数组'), true);
+    assert.equal(boardRequest.includes('tags 必须是含 1~4 项的字符串数组'), true);
     assert.equal(boardRequest.includes('reward 必须是正整数 JSON 数字，不得写成字符串'), true);
     assert.equal(boardRequest.includes('不可用作发布者'), false);
 
@@ -376,10 +381,34 @@ test('task response parsing keeps valid paid output without confusing business v
     assert.equal(listings.length, 6);
     assert.equal(new Set(listings.map((listing) => listing.id)).size, 6);
     assert.equal(listings.some((listing) => listing.issuer.name === '陌生发布者 2'), true);
+    const shuffled = parseTavernTaskBoardResponse(JSON.stringify({
+        tasks: [...boardListings().slice(3), ...boardListings().slice(0, 3)],
+    }), { warn: () => undefined });
+    assert.deepEqual(shuffled.map((listing) => listing.tags[0]), ['禁忌', '接触', '夹缝', '窥秘', '掠夺', '怪癖']);
 
+    const warnings: string[] = [];
     const invalidReward = response.replace('"reward":60', '"reward":101');
-    assert.equal(parseTavernTaskBoardResponse(invalidReward).length, 5);
-    assert.equal(parseTavernTaskBoardResponse(JSON.stringify({ tasks: boardListings().slice(0, 5) })).length, 5);
+    assert.equal(parseTavernTaskBoardResponse(invalidReward, { warn: (warning) => warnings.push(warning) }).length, 5);
+    assert.equal(warnings.some((warning) => warning.startsWith('task_board_listing_dropped:index=2:')), true);
+    assert.equal(warnings.some((warning) => warning.startsWith('task_board_posture_quota_mismatch:')), true);
+    const stringReward = response.replace('"reward":60', '"reward":"60"');
+    assert.equal(parseTavernTaskBoardResponse(stringReward, { warn: () => undefined }).length, 5);
+    assert.equal(parseTavernTaskBoardResponse(JSON.stringify({
+        tasks: boardListings().map((listing, index) => index === 0
+            ? { ...listing, objective: 123 }
+            : listing),
+    }), { warn: () => undefined }).length, 5);
+    assert.equal(parseTavernTaskBoardResponse(JSON.stringify({
+        tasks: boardListings().map((listing, index) => index === 0
+            ? { ...listing, timing: '特定时机：三天后' }
+            : listing),
+    }), { warn: () => undefined }).length, 5);
+    assert.equal(parseTavernTaskBoardResponse(JSON.stringify({
+        tasks: boardListings().map((listing, index) => index === 0
+            ? { ...listing, title: '超过十二个字的任务标题必须被单独丢弃' }
+            : listing),
+    }), { warn: () => undefined }).length, 5);
+    assert.equal(parseTavernTaskBoardResponse(JSON.stringify({ tasks: boardListings().slice(0, 5) }), { warn: () => undefined }).length, 5);
 
     const withTrailingComma = `${JSON.stringify({ tasks: boardListings().slice(0, 1) }).slice(0, -1)},}`;
     assert.equal(parseTavernTaskBoardResponse(withTrailingComma).length, 1);
@@ -772,9 +801,12 @@ test('accepting a listing atomically locks world money without mutating the boar
     const accepted = await acceptTavernTaskListing(input);
     const replay = await acceptTavernTaskListing(input);
     assert.equal(replay.actionId, accepted.actionId);
+    assert.equal(accepted.progressSummary, '已接取任务');
+    assert.equal(accepted.posture, '易介入');
+    assert.equal(accepted.timing, '现在就行');
     assert.equal(await getTavernTaskPlayerBalance(session.id), 100);
-    assert.equal((await tavernEconomyAccountsTable.get([session.id, accepted.escrowAccountId]))?.balance, 60);
-    assert.equal((await tavernEconomyAccountsTable.get([session.id, 'counterparty:issuer-3']))?.balance, -60);
+    assert.equal((await tavernEconomyAccountsTable.get([session.id, accepted.escrowAccountId]))?.balance, 100);
+    assert.equal((await tavernEconomyAccountsTable.get([session.id, 'counterparty:issuer-3']))?.balance, -100);
     assert.equal((await tavernTaskBoardsTable.get(session.id))?.listings.length, 6);
     assert.equal(await tavernTaskVersionsTable.where('sessionId').equals(session.id).count(), 1);
     assert.equal(await tavernEconomyTransactionsTable.where('sessionId').equals(session.id).count(), 2);
@@ -1201,7 +1233,7 @@ test('staged maintenance writes nothing until commit and stale anchor state fail
     assert.equal(await getTavernTaskPlayerBalance(session.id), 100);
     await commitTavernTaskStagingContext(context);
     assert.equal((await getCurrentTavernTask(session.id, accepted.taskId))?.status, 'completed');
-    assert.equal(await getTavernTaskPlayerBalance(session.id), 110);
+    assert.equal(await getTavernTaskPlayerBalance(session.id), 250);
 
     const staleContext = await createTavernTaskStagingContext(session.id, 1);
     const staleTask = staleContext.projected.get(accepted.taskId);
@@ -1271,7 +1303,7 @@ test('delayed staged settlement keeps its evidence floor across newer wallet act
     assert.equal(completedTask?.anchorOrder, 2);
     assert.equal(settlement?.anchorOrder, 2);
     assert.ok(Number(settlement?.ledgerOrder) > laterSpend.ledgerOrder);
-    assert.equal(await getTavernTaskPlayerBalance(session.id), 105);
+    assert.equal(await getTavernTaskPlayerBalance(session.id), 245);
 
     await assert.rejects(postTavernEconomyTransaction({
         sessionId: session.id,
@@ -1301,9 +1333,9 @@ test('delayed staged settlement keeps its evidence floor across newer wallet act
     const retainedSettlement = settlement
         ? await tavernEconomyTransactionsTable.get([session.id, settlement.id])
         : undefined;
-    assert.equal(retainedSettlement?.playerBalanceAfter, 110);
+    assert.equal(retainedSettlement?.playerBalanceAfter, 250);
     assert.equal((await getCurrentTavernTask(session.id, accepted.taskId))?.status, 'completed');
-    assert.equal(await getTavernTaskPlayerBalance(session.id), 110);
+    assert.equal(await getTavernTaskPlayerBalance(session.id), 250);
 });
 
 test('task and economy rollback share one floor and restore current markers', async () => {
@@ -1354,6 +1386,6 @@ test('task and economy rollback share one floor and restore current markers', as
     assert.equal(current?.status, 'active');
     assert.equal(current?.currentMarker, 'current');
     assert.equal(await getTavernTaskPlayerBalance(session.id), 100);
-    assert.equal((await tavernEconomyAccountsTable.get([session.id, active.escrowAccountId]))?.balance, 25);
+    assert.equal((await tavernEconomyAccountsTable.get([session.id, active.escrowAccountId]))?.balance, 60);
     assert.equal((await tavernEconomyAccountsTable.get([session.id, TAVERN_PLAYER_ACCOUNT_ID]))?.balance, 100);
 });

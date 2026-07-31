@@ -58,6 +58,14 @@ const emit = defineEmits<{
             <span>地点</span>
             <p>{{ listing.location }}</p>
           </section>
+          <section v-if="listing.posture">
+            <span>介入</span>
+            <p>{{ listing.posture }}</p>
+          </section>
+          <section v-if="listing.timing">
+            <span>时机</span>
+            <p>{{ listing.timing }}</p>
+          </section>
           <section v-if="listing.risk">
             <span>风险</span>
             <p>{{ listing.risk }}</p>

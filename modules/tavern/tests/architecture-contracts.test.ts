@@ -1294,6 +1294,7 @@ test('tavern phone app definitions reject invalid registries and preserve determ
             accent: '#3f7f68',
             rootPath: '/atlas',
             order: 20,
+            chromeTone: 'dark',
             component,
         },
         {
@@ -1309,6 +1310,7 @@ test('tavern phone app definitions reject invalid registries and preserve determ
     ]);
 
     assert.deepEqual(apps.map((app) => app.id), ['messages', 'map']);
+    assert.equal(apps[1]?.chromeTone, 'dark');
     assert.equal(Object.isFrozen(apps), true);
     assert.throws(() => defineTavernPhoneApps([
         { ...apps[0], order: 10 },
@@ -1316,6 +1318,9 @@ test('tavern phone app definitions reject invalid registries and preserve determ
     ]), /duplicate_phone_app_definition:messages/);
     assert.throws(() => defineTavernPhoneApps([
         { ...apps[0], id: 'broken', rootPath: 'threads' },
+    ]), /invalid_phone_app_definition/);
+    assert.throws(() => defineTavernPhoneApps([
+        { ...apps[0], id: 'broken-tone', chromeTone: 'sepia' as 'dark' },
     ]), /invalid_phone_app_definition/);
 });
 

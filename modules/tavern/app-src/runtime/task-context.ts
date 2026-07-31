@@ -76,15 +76,23 @@ export async function loadTavernTaskPromptState(
 function storyTaskBlock(task: TavernTaskVersionRecord): string {
     const isPlayerIssued = task.issuer.kind === 'player';
     const executor = task.assignee ? partyLabel(task.assignee) : '';
+    const issuerDescription = task.issuer.kind === 'world' ? task.issuer.description : '';
     return [
         `《${escapeEvidence(task.title)}》`,
+        `等级：${escapeEvidence(task.grade)}`,
+        task.tags.length ? `标签：${task.tags.map(escapeEvidence).join('、')}` : '',
         isPlayerIssued
             ? `${escapeEvidence(partyLabel(task.issuer))}发起的委托，${executor ? `执行人：${escapeEvidence(executor)}` : '尚未有人接手。'}`
             : `委托人：${escapeEvidence(partyLabel(task.issuer))}`,
-        `${isPlayerIssued ? '目标' : '委托'}：${escapeEvidence(task.objective)}`,
+        issuerDescription ? `委托人资料：${escapeEvidence(issuerDescription)}` : '',
+        task.hook ? `缘由与线索：${escapeEvidence(task.hook)}` : '',
+        `目标：${escapeEvidence(task.objective)}`,
+        task.requirements ? `要求：${escapeEvidence(task.requirements)}` : '',
         `地点：${escapeEvidence(task.location || '未指定')}`,
+        task.timing ? `时机：${escapeEvidence(task.timing)}` : '',
+        task.risk ? `风险：${escapeEvidence(task.risk)}` : '',
         `报酬：${task.reward} 小白币`,
-        `当前进展：${escapeEvidence(task.progressSummary || '尚未开始')}`,
+        `此前进展：${escapeEvidence(task.progressSummary || (task.status === 'active' ? '已接取任务' : '等待应征者'))}`,
     ].filter(Boolean).join('\n');
 }
 
