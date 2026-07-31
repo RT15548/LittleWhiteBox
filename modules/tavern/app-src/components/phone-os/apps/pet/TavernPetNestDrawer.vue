@@ -8,7 +8,8 @@ const props = defineProps<{
     open: boolean;
     view: TavernPetView;
     journal: TavernPetJournalRow[];
-    busy: boolean;
+    modelBusy: boolean;
+    mutationBusy: boolean;
     hasCustomName: boolean;
 }>();
 
@@ -23,14 +24,14 @@ const backdropRef = ref<HTMLElement | null>(null);
 const closeRef = ref<HTMLButtonElement | null>(null);
 
 function requestClose(): void {
-    if (!props.busy) {emit('close');}
+    if (!props.mutationBusy) {emit('close');}
 }
 
 useTavernPhoneModal({
     open: toRef(props, 'open'),
     modalRef: backdropRef,
     initialFocus: () => closeRef.value,
-    canClose: () => !props.busy,
+    canClose: () => !props.mutationBusy,
     close: requestClose,
 });
 
@@ -65,7 +66,7 @@ function closeFromBackdrop(event: MouseEvent): void {
             ref="closeRef"
             type="button"
             aria-label="关闭它的窝"
-            :disabled="busy"
+            :disabled="mutationBusy"
             @click="requestClose"
           >
             ×
@@ -133,7 +134,7 @@ function closeFromBackdrop(event: MouseEvent): void {
             <button
               v-if="view.phase === 'juvenile' || view.phase === 'adult'"
               type="button"
-              :disabled="busy"
+              :disabled="modelBusy || mutationBusy"
               @click="emit('rename')"
             >
               <span>{{ hasCustomName ? '改名字' : '给它一个名字' }}</span>
@@ -143,7 +144,7 @@ function closeFromBackdrop(event: MouseEvent): void {
               type="button"
               role="switch"
               :aria-checked="view.interferenceEnabled"
-              :disabled="busy"
+              :disabled="modelBusy || mutationBusy"
               class="tavern-pet-interference-switch"
               @click="emit('toggle-interference', !view.interferenceEnabled)"
             >
@@ -156,7 +157,7 @@ function closeFromBackdrop(event: MouseEvent): void {
             <button
               type="button"
               class="tavern-pet-leave-button"
-              :disabled="busy"
+              :disabled="modelBusy || mutationBusy"
               @click="emit('leave')"
             >
               <span>

@@ -13,7 +13,7 @@ import db, {
 import { ensureTavernEconomy } from '../shared/economy/economy-service';
 import { captureTavernPhoneBoundary } from '../shared/phone-boundary';
 import { createTavernPetSequenceRandomSource } from '../shared/pet/pet-random';
-import { createTavernPetLuringState } from '../shared/pet/pet-rules';
+import { createTavernPetEggState, deriveTavernPetPersona } from '../shared/pet/pet-rules';
 import {
     appendTavernPetTransitionInCurrentDbTransaction,
     getTavernPetCompanionInCurrentDbTransaction,
@@ -23,14 +23,14 @@ import {
 import { commitTavernAssistantResponseWithPetForLatestUser } from '../shared/pet/pet-story-turn';
 import type {
     TavernPetMutationBoundary,
+    TavernPetOrigin,
     TavernPetPhase,
     TavernPetState,
 } from '../shared/pet/pet-types';
 
-export const PET_TEST_ORIGIN = Object.freeze({
+export const PET_TEST_ORIGIN: TavernPetOrigin = Object.freeze({
     specimenNumber: 72,
-    arrivalAfterTurns: 1,
-    birthBias: { tameness: 1, generosity: 1, brightness: 1 },
+    birthBias: Object.freeze({ closeness: 1, sharing: 1, tempo: 1 }),
 });
 
 function clone<T>(value: T): T {
@@ -51,26 +51,22 @@ export async function createTavernPetTestSession(
     return session;
 }
 
+/** Builds only canonical hard-cut state shapes for direct domain fixtures. */
 export function createTavernPetTestState(
     phase: TavernPetPhase,
     overrides: Partial<TavernPetState> = {},
 ): TavernPetState {
-    const state = createTavernPetLuringState({ origin: clone(PET_TEST_ORIGIN), petTurn: 0 });
-    if (phase !== 'luring') {
-        state.phase = phase;
-        state.satiety = 50;
-        if (phase === 'egg') {
-            state.incubation = { feedCount: 0, tapCount: 0, bgmCount: 0 };
-        }
-        if (phase === 'juvenile') {
-            state.phaseTurnCount = 1;
-        }
-        if (phase === 'adult') {
-            state.phaseTurnCount = 1;
-            state.axes = { tameness: 30, generosity: 30, brightness: 30 };
-            state.personaId = 'sunlet';
-            state.lastEvolutionActiveTurn = 0;
-        }
+    const state = createTavernPetEggState({ origin: clone(PET_TEST_ORIGIN) });
+    if (phase === 'juvenile') {
+        state.phase = 'juvenile';
+        state.petTurn = 1;
+        state.nextMomentPetTurn = 7;
+    } else if (phase === 'adult') {
+        state.phase = 'adult';
+        state.petTurn = 30;
+        state.personaId = deriveTavernPetPersona(state);
+        state.lastEvolutionPetTurn = 25;
+        state.nextMomentPetTurn = 36;
     }
     return Object.assign(state, clone(overrides));
 }
@@ -126,7 +122,7 @@ export async function lureTavernPetForTest(
 ) {
     return await lureTavernPet(
         await tavernPetMutationBoundary(sessionId, actionId),
-        createTavernPetSequenceRandomSource([71, 0, 15, 15, 15]),
+        createTavernPetSequenceRandomSource([71, 15, 15, 15]),
     );
 }
 

@@ -393,24 +393,27 @@ test('Pet domain sync refreshes a globally shared resident but emits Journal not
 
         await lureTavernPetForTest(source.id, 'domain-sync-pet-lure');
         await waitUntil(() => (
-            observer.pet.view.value.phase === 'luring'
+            observer.pet.view.value.phase === 'egg'
             && observer.wallet.balance.value === 100
         ));
         assert.deepEqual(toasts, []);
 
         await advanceTavernPetStoryTurnForTest(source.id, []);
         await waitUntil(() => (
-            observer.pet.view.value.phase === 'egg'
-            && sourceObserver.pet.view.value.phase === 'egg'
-            && sourceToasts.includes('角落里多了一枚蛋。')
+            observer.pet.view.value.phase === 'juvenile'
+            && sourceObserver.pet.view.value.phase === 'juvenile'
+            && sourceToasts.includes('住户破壳了。')
         ));
         assert.deepEqual(toasts, []);
-        assert.deepEqual(sourceToasts, ['角落里多了一枚蛋。']);
+        assert.ok(sourceToasts.includes('住户破壳了。'));
+        assert.equal(observer.pet.homeNotice.value, true);
+        observer.pet.clearHomeNotice();
+        assert.equal(observer.pet.homeNotice.value, false);
 
         late = createSyncedPetObserver(selectedSessionId, (message) => {lateToasts.push(message);});
         await Promise.all([late.pet.preparePet(), late.wallet.refreshWallet()]);
         await settleLiveQueries();
-        assert.equal(late.pet.view.value.phase, 'egg');
+        assert.equal(late.pet.view.value.phase, 'juvenile');
         assert.deepEqual(lateToasts, []);
     } finally {
         observer.scope.stop();

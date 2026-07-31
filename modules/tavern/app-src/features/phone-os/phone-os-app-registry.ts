@@ -41,7 +41,7 @@ export function createTavernPhoneAppRegistry(input: {
     tasks: Pick<TavernTasksController, 'prepareTasks' | 'cancelTransientRequests'>;
     shop: Pick<TavernShopController, 'prepareShop'>;
     bank: Pick<TavernBankController, 'prepareBank'>;
-    pet: Pick<TavernPetController, 'deactivatePet' | 'preparePet'>;
+    pet: Pick<TavernPetController, 'clearHomeNotice' | 'deactivatePet' | 'preparePet'>;
 }): readonly TavernPhoneAppDefinition[] {
     return defineTavernPhoneApps([
         {
@@ -130,6 +130,7 @@ export function createTavernPhoneAppRegistry(input: {
                     input.pet.preparePet(),
                     input.wallet.prepareWallet(),
                 ]);
+                input.pet.clearHomeNotice();
             },
             onDeactivate: input.pet.deactivatePet,
         },

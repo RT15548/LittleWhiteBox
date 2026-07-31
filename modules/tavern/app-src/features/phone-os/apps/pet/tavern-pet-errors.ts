@@ -61,14 +61,14 @@ export function tavernPetUiError(error: unknown, context: 'action' | 'chat' = 'a
             return { kind: 'wallet', message: '小白币不够。' };
         }
         if (error.code === 'pet_chat_invalid' || error.code === 'pet_chat_unavailable') {
-            return { kind: 'chat', message: '它不想理你。' };
+            return { kind: 'chat', message: '它没听清。' };
         }
     }
     if (context === 'chat' && isTavernPetProviderUnavailable(error)) {
-        return { kind: 'provider', message: '它今天不肯开口。' };
+        return { kind: 'provider', message: '它没听清。' };
     }
     return {
         kind: 'generic',
-        message: context === 'chat' ? '它不想理你。' : '这次没有碰到它。请再试一次。',
+        message: context === 'chat' ? '它没听清。' : '这次没有碰到它。请再试一次。',
     };
 }

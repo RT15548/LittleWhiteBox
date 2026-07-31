@@ -1,87 +1,35 @@
 # Pet domain
 
-This directory owns the complete Tavern unknown-resident domain. There is one
-global companion for the whole Tavern database. A Tavern session is only an
-input source: it supplies a Phone boundary, a wallet, story messages,
-contacts, and the anchor at which an interference may be projected.
+不明物是一个全局唯一的 Companion domain：主 RP 只提供时间，当前会话只提供来源钱包、Phone boundary 和剧情落点。它不是 session archive、角色档案或回滚领域的一部分。
 
-`shared/pet` is the only layer allowed to interpret private companion state,
-lifecycle rules, personas, event selection, chat memory, pending evolution, or
-Pet journal history.
+## 模块边界
 
-Persistent facts are limited to three global Dexie tables:
+- `pet-types.ts`：唯一 public state/action/record/error 形状。
+- `pet-invariants.ts`：canonical records 和严格状态校验。
+- `pet-rules.ts`：无 I/O 的阶段、食欲、traits、moment、事件、persona 规则。
+- `pet-events.ts` / `pet-copy.ts`：事件、相处片段、静态文案、Prompt 文本。
+- `pet-random.ts`：只给即时规则消费的随机源；不录制 replay draws。
+- `pet-service.ts`：Companion CAS、玩家礼物、聊天、moment、snapshot、删除。
+- `pet-story-turn.ts`：Assistant 提交后的全局时间推进和来源会话 Economy 效果。
+- `pet-prompt.ts`：仅来源会话的 fail-open interference projection。
+- `pet-chat.ts`：模型 Prompt、输入规范化、宽进严存解析和演化判词。
+- `pet-view.ts`：不泄露 traits、私聊输入、pending 细节的 Public View。
 
-- `petCompanion` has exactly one row, `id: 'companion'`. It owns the current
-  `revision`, `versionId`, and private state.
-- `petActions` is the compact, global idempotency journal. An action records
-  its committed revision and source session/turn/anchor; that provenance never
-  makes the session an owner or a foreign-key dependency.
-- `petJournal` stores user-observable events, chats, statuses, and milestones
-  with their source session/anchor. A deleted source session leaves these
-  historical labels intact.
+## 设计不变量
 
-The global Pet clock is `state.petTurn`. Every distinct consumed main-story
-source (`pet:story:{sessionId}:{turn}`) advances it once, including dormant
-turns; dormant turns deliberately do not advance active-phase growth, hunger,
-or cooldown facts. `phaseTurnCount` remains the active-growth clock. Source
-turn numbers from different sessions are never compared.
+- 三张表：`petCompanion`（一行 current）、`petActions`（一 action 一 revision）、`petJournal`（全局可观察历史）。
+- `petTurn` 只在有效主回合递增；同一来源 key 重放不二次成长。
+- 可恢复的长期事实才写 state：阶段、traits、食欲、窝、聊天记忆、moment、演化和真正统计。舞台触碰/动画/连点和 Home 亮点属于 UI 临时态；打开不明物页会清除亮点，不写入 Pet 表。
+- `phase` 只有 `egg | juvenile | adult`。lure 立即 egg，下一回合 hatch，juvenile 可聊天。
+- appetite 归零不造成 dormancy、人格惩罚或玩法锁定。
+- traits 是 `closeness / sharing / tempo` 的相处偏好，不含善恶；只由 moment 写入。
+- moment 不过期、最多一条、每次完成/跳过后至少六个 active turns、按三轴轮转，并写入第一人称 memory。`pendingMoment` 未处理时不产生第二条 moment，但不阻止同一回合的普通事件、藏币、Curio 与 interference。
+- 事件和长期安静只能产生内容，不能把“不打开 APP”解释为冷落。
+- 所有动态 Prompt 数据转义；interference 投影不可信时 fail-open，绝不影响主 RP。
+- 旧 Pet schema 是 v29 hard cut。不要添加旧字段读取、转换或 alias。
 
-Implemented module ownership:
+## 写入与删除
 
-- `pet-types.ts` — private companion state, global action/journal records,
-  public view, input/result, and error contracts.
-- `pet-rules.ts` — pure lifecycle, interaction, mood, satiety, personality,
-  and global-clock transitions.
-- `pet-personas.ts`, `pet-events.ts`, `pet-copy.ts`, `pet-random.ts` — static
-  reviewed catalogues, copy, and synchronous deterministic random boundary.
-- `pet-invariants.ts` — canonical companion/action/journal validation. Replay
-  artifact checks stay at the mutation boundary; no session version-chain or
-  standalone Pet-history replay exists.
-- `pet-view.ts` — deep, redacted projection from the global companion to a
-  Controller-safe DTO.
-- `pet-service.ts` — atomic player actions, chat commits, evolution resolution,
-  the one-transaction public `snapshot` projection, and the explicit
-  irreversible “let it leave” reset.
-- `pet-story-turn.ts` — the only main-RP registration point. It deduplicates a
-  source session turn and advances the global companion in the Assistant
-  transaction.
-- `pet-prompt.ts` — source-session/anchor-aware projection of one-turn
-  interference events. It rechecks the source Assistant floor; `nibble-sleeve`
-  also requires its frozen contact to remain present in the pre-floor story
-  context. Missing, rolled-back, or no-longer-valid source context is fail-open
-  and injects nothing.
-- `pet-chat.ts` — isolated model messages, tolerant external parsing, and
-  strict canonical chat/evolution validation.
+玩家礼物在来源 Phone boundary、全局 Companion CAS 和来源 Economy 的一个 Dexie transaction 内完成。主回合 action ID 固定为 `pet:story:{sessionId}:{turn}`。跨会话冲突依赖 revision/version CAS，不添加持久锁。
 
-The Phone controller receives only the deep-redacted public view. It receives a
-current session only when it must pay, validate a Phone boundary, or request a
-source-local prompt projection. Private axes, cooldowns, chat memory, pending
-snapshots, and global action internals never cross into Vue or Phone context.
-
-Economy remains session-owned. Paid actions and autonomous Pet money events use
-the source session's wallet and commit atomically with the global companion
-CAS/action/journal write. Session rollback can refund Economy, but it never
-rewinds companion growth, satiety, state, actions, or journal entries. This is
-intentional; the domain accepts limited replayable space instead of adding a
-compensation system.
-
-Pet is deliberately absent from accepted rollback, branch, session delete, and
-character archive. Those lifecycle paths must not copy, restore, delete, count,
-or validate global Pet data. There is no old table reader, archive migration,
-or compatibility alias: DB v28 drops the old session-owned Pet tables and their
-contents. A future global Pet import/export feature must be independent of
-character archives.
-
-Model/network calls always finish before a short Dexie commit transaction; no
-request lifecycle is persisted in a separate table. Deleting the feature means
-deleting this directory and the Phone Pet directories, removing the small
-story/Phone/Prompt registrations, dropping the three global Pet tables, and
-rebuilding the Tavern bundle. The reset user action instead clears only the
-three Pet tables after a second confirmation and never refunds money.
-
-Specifications:
-
-- [Target design](../../docs/pet-app-target-design.md)
-- [Content specification](../../docs/pet-app-content-spec.md)
-- [Implementation plan](../../docs/pet-app-implementation-plan.md)
-- [Engineering handoff](../../docs/pet-app-handoff.md)
+rollback/branch/delete session/character archive 不触碰 Pet。`letTavernPetLeave` 是唯一删除入口，经过 UI 二次确认后清空 Companion、Actions、Journal，且不退款。

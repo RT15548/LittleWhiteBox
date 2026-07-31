@@ -1,629 +1,494 @@
+/*
+ * The resident lives behind a one-way observation pane: spare, dark and a
+ * little tactile.  This deliberately has no dashboard, progress bar or task
+ * grid; time belongs to the story, and this surface is where the player comes
+ * back to notice what changed.
+ */
 .tavern-pet-app {
-    --pet-bg: #08090a;
-    --pet-surface: #0d0f10;
-    --pet-surface-soft: #121416;
-    --pet-line: rgba(232, 228, 215, 0.09);
-    --pet-text: #d8d5cc;
-    --pet-muted: #73756f;
-    --pet-faint: #454842;
-    --pet-accent: #87916f;
-    --pet-warning: #a66f5b;
-    --pet-serif: "Iowan Old Style", "Noto Serif SC", "Songti SC", serif;
-    --pet-face: "Cascadia Mono", "SFMono-Regular", "Noto Sans Mono CJK SC", monospace;
+    --pet-ink: #edf0e6;
+    --pet-paper: #b7bdb0;
+    --pet-fade: #747b72;
+    --pet-line: rgba(224, 235, 214, 0.13);
+    --pet-line-bright: rgba(224, 235, 214, 0.25);
+    --pet-amber: #c8b36d;
+    --pet-moss: #8fa274;
+    --pet-danger: #d49278;
+    --pet-bg: #090b0b;
+    --pet-panel: #0e1110;
+    --pet-panel-raised: #141815;
+    padding: 0;
+    background:
+        radial-gradient(ellipse 68% 40% at 48% 20%, rgba(152, 174, 115, 0.12), transparent 72%),
+        linear-gradient(160deg, #101412 0%, var(--pet-bg) 44%, #070808 100%);
+    color: var(--pet-ink);
+}
+
+.tavern-pet-frame {
     position: relative;
-    isolation: isolate;
-    grid-template-rows: auto minmax(250px, 1fr) auto auto;
+    min-height: 0;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
     overflow: hidden;
-    background: var(--pet-bg);
-    color: var(--pet-text);
-    padding: 42px 0 0;
+    isolation: isolate;
 }
 
-.tavern-pet-app::before,
-.tavern-pet-app::after {
-    content: "";
+.tavern-pet-frame::before,
+.tavern-pet-frame::after {
     position: absolute;
-    inset: 42px 0 0;
-    z-index: -2;
-    pointer-events: none;
-}
-
-.tavern-pet-app::before {
-    background: radial-gradient(ellipse at 50% 36%, rgba(135, 145, 111, 0.10), transparent 62%);
-}
-
-.tavern-pet-app::after {
     z-index: -1;
-    opacity: 0.16;
-    background-image: radial-gradient(circle, rgba(232, 228, 215, 0.22) 0.55px, transparent 0.7px);
-    background-size: 7px 7px;
-    mask-image: linear-gradient(to bottom, transparent, #000 16%, #000 72%, transparent);
+    pointer-events: none;
+    content: '';
 }
 
-.tavern-pet-app.is-dormant::before {opacity: 0.36;}
-.tavern-pet-app.is-dormant::after {opacity: 0.07;}
+.tavern-pet-frame::before {
+    inset: 0;
+    opacity: 0.36;
+    background-image: repeating-linear-gradient(
+        0deg,
+        transparent 0,
+        transparent 3px,
+        rgba(227, 239, 213, 0.025) 4px
+    );
+    mix-blend-mode: screen;
+}
+
+.tavern-pet-frame::after {
+    width: 50%;
+    height: 42%;
+    right: -24%;
+    top: 18%;
+    border: 1px solid rgba(200, 179, 109, 0.09);
+    border-radius: 50%;
+    box-shadow: 0 0 80px rgba(200, 179, 109, 0.06);
+    transform: rotate(-24deg);
+}
+
+.tavern-pet-body {
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: var(--pet-fade) transparent;
+}
+
+.tavern-pet-load-error {
+    min-height: 0;
+    display: grid;
+    place-content: center;
+    justify-items: center;
+    gap: 11px;
+    padding: 24px;
+    color: var(--pet-paper);
+    text-align: center;
+}
 
 .tavern-pet-head {
-    position: relative;
-    z-index: 3;
-    min-width: 0;
+    min-height: 67px;
     display: flex;
-    align-items: end;
+    align-items: center;
     justify-content: space-between;
     gap: 14px;
     border-bottom: 1px solid var(--pet-line);
-    background: rgba(8, 9, 10, 0.78);
-    padding: 12px 16px 11px;
+    padding: 13px 16px 11px;
+    background: rgba(7, 9, 8, 0.66);
+    backdrop-filter: blur(10px);
 }
 
 .tavern-pet-head > div:first-child {min-width: 0; display: grid; gap: 3px;}
 .tavern-pet-head small,
-.tavern-pet-dialog > small,
-.tavern-pet-drawer header small {
-    color: var(--pet-faint);
-    font: 650 9px/1.1 var(--phone-os-font);
-    letter-spacing: 0.18em;
+.tavern-pet-drawer header small,
+.tavern-pet-dialog > small {
+    color: var(--pet-moss);
+    font: 700 9px/1 var(--phone-os-font, ui-monospace, monospace);
+    letter-spacing: 0.16em;
 }
 
 .tavern-pet-head h2 {
-    max-width: 210px;
     overflow: hidden;
     margin: 0;
-    color: var(--pet-text);
-    font: 650 20px/1.05 var(--pet-serif);
-    letter-spacing: 0.03em;
+    color: var(--pet-ink);
+    font: 600 clamp(19px, 5vw, 24px)/1.08 var(--pet-serif, Georgia, serif);
+    letter-spacing: 0.025em;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.tavern-pet-head-actions {
-    min-width: 0;
-    display: flex;
-    align-items: center;
-    justify-content: end;
-    gap: 8px;
-}
-
+.tavern-pet-head-actions {display: flex; align-items: center; flex: 0 0 auto; gap: 9px;}
 .tavern-pet-head-actions > span {
-    color: var(--pet-muted);
-    font: 570 10px/1 var(--phone-os-font);
-    white-space: nowrap;
+    color: var(--pet-fade);
+    font: 650 9px/1 var(--phone-os-font, ui-monospace, monospace);
+    letter-spacing: 0.09em;
 }
 
-.tavern-pet-head-actions button,
-.tavern-pet-load-error button {
-    min-height: 34px;
+.tavern-pet-head-actions > button,
+.tavern-pet-arrival-button,
+.tavern-pet-moment button,
+.tavern-pet-gifts button,
+.tavern-pet-chatbar > button,
+.tavern-pet-load-error button,
+.tavern-pet-drawer button,
+.tavern-pet-dialog button {
+    cursor: pointer;
+    transition: border-color 160ms ease, background 160ms ease, color 160ms ease, transform 120ms ease;
+}
+
+.tavern-pet-head-actions > button {
     border: 1px solid var(--pet-line);
     border-radius: 999px;
-    background: transparent;
-    color: var(--pet-text);
-    padding: 0 11px;
-    font: 620 11px/1 var(--phone-os-font);
+    background: rgba(146, 167, 116, 0.08);
+    color: var(--pet-paper);
+    padding: 7px 10px;
+    font: 650 10px/1 var(--phone-os-font, ui-monospace, monospace);
 }
+
+.tavern-pet-head-actions > button:hover {border-color: var(--pet-line-bright); color: var(--pet-ink);}
 
 .tavern-pet-stage {
     position: relative;
-    min-width: 0;
-    min-height: 250px;
+    min-height: 242px;
     display: grid;
-    place-items: center;
+    align-content: center;
+    justify-items: center;
+    gap: 13px;
     overflow: hidden;
-    padding: 24px 22px 18px;
-}
-
-.tavern-pet-stage::before,
-.tavern-pet-stage::after {
-    content: "";
-    position: absolute;
-    pointer-events: none;
+    border-bottom: 1px solid var(--pet-line);
+    padding: 27px 20px 24px;
+    background:
+        linear-gradient(180deg, rgba(190, 216, 158, 0.055), transparent 56%),
+        radial-gradient(ellipse at 50% 36%, rgba(8, 10, 9, 0.05), rgba(0, 0, 0, 0.46));
 }
 
 .tavern-pet-stage::before {
-    top: 24%;
-    left: 12%;
-    right: 12%;
-    height: 1px;
-    background: linear-gradient(90deg, transparent, var(--pet-line), transparent);
-}
-
-.tavern-pet-stage::after {
-    left: 50%;
-    bottom: 18%;
-    width: 44%;
-    height: 18px;
-    border-radius: 50%;
-    background: rgba(0, 0, 0, 0.58);
-    filter: blur(11px);
-    transform: translateX(-50%);
+    position: absolute;
+    inset: 13px;
+    border: 1px solid rgba(231, 242, 219, 0.08);
+    border-radius: 18px 18px 36% 36% / 12px 12px 22% 22%;
+    box-shadow: inset 0 0 46px rgba(0, 0, 0, 0.68), 0 16px 42px rgba(0, 0, 0, 0.16);
+    pointer-events: none;
+    content: '';
 }
 
 .tavern-pet-stage-grain {
     position: absolute;
     inset: 0;
-    opacity: 0.12;
-    background-image:
-        linear-gradient(90deg, transparent 49.7%, rgba(216, 213, 204, 0.08) 50%, transparent 50.3%),
-        linear-gradient(transparent 49.7%, rgba(216, 213, 204, 0.05) 50%, transparent 50.3%);
-    background-size: 83px 83px;
-    mask-image: radial-gradient(circle at center, #000, transparent 72%);
+    opacity: 0.32;
     pointer-events: none;
+    background:
+        radial-gradient(circle at 17% 33%, rgba(235, 246, 218, 0.12) 0 1px, transparent 1.5px),
+        radial-gradient(circle at 68% 62%, rgba(235, 246, 218, 0.08) 0 1px, transparent 1.5px);
+    background-size: 31px 37px, 43px 29px;
 }
 
 .tavern-pet-presence {
     position: relative;
-    z-index: 2;
-    width: min(100%, 330px);
-    min-width: 0;
+    z-index: 1;
+    width: min(70vw, 192px);
+    min-height: 110px;
     display: grid;
-    justify-items: center;
-    gap: 22px;
-    text-align: center;
-    transform-origin: 50% 68%;
+    place-items: center;
+    border: 0;
+    border-radius: 50%;
+    outline: 0;
+    background: transparent;
+    color: var(--pet-ink);
+    padding: 13px;
 }
+
+.tavern-pet-presence::before {
+    position: absolute;
+    inset: 10%;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(195, 177, 103, 0.15), rgba(107, 139, 94, 0.06) 39%, transparent 70%);
+    box-shadow: 0 0 42px rgba(167, 187, 130, 0.11);
+    content: '';
+    transition: transform 180ms ease, opacity 180ms ease;
+}
+
+.tavern-pet-presence:hover:not(:disabled)::before {opacity: 0.92; transform: scale(1.08);}
+.tavern-pet-presence:active:not(:disabled) {transform: scale(0.97);}
+.tavern-pet-presence:disabled {cursor: wait;}
 
 .tavern-pet-face {
+    position: relative;
+    z-index: 1;
     max-width: 100%;
-    color: var(--pet-text);
-    font: 560 clamp(2.4rem, 8vw, 4.2rem)/1 var(--pet-face);
-    letter-spacing: -0.08em;
-    text-shadow: 0 0 30px rgba(216, 213, 204, 0.08);
+    overflow: visible;
+    color: #f1f3e9;
+    font: 500 clamp(34px, 13vw, 62px)/0.9 var(--pet-face, "Cascadia Mono", monospace);
+    letter-spacing: -0.13em;
+    text-shadow: 0 0 9px rgba(237, 240, 230, 0.24), 0 0 28px rgba(143, 162, 116, 0.18);
     white-space: nowrap;
-}
-
-.tavern-pet-app.is-luring .tavern-pet-face,
-.tavern-pet-app.is-undiscovered .tavern-pet-face {
-    color: var(--pet-faint);
-    font-size: 3.2rem;
-    letter-spacing: 0.08em;
 }
 
 .tavern-pet-stage blockquote {
-    max-width: 29em;
+    position: relative;
+    z-index: 1;
+    max-width: min(31em, 100%);
     margin: 0;
-    color: var(--pet-text);
-    font: 500 0.9rem/1.8 var(--pet-serif);
+    color: var(--pet-paper);
+    font: 500 13px/1.72 var(--pet-serif, Georgia, serif);
     letter-spacing: 0.035em;
+    text-align: center;
+    text-wrap: balance;
     white-space: pre-line;
 }
 
-.tavern-pet-stage blockquote::before,
-.tavern-pet-stage blockquote::after {color: var(--pet-faint);}
-.tavern-pet-stage blockquote::before {content: "“"; margin-right: 0.08em;}
-.tavern-pet-stage blockquote::after {content: "”"; margin-left: 0.08em;}
+.tavern-pet-stage blockquote::before {margin-right: 0.09em; color: var(--pet-fade); content: '“';}
+.tavern-pet-stage blockquote::after {margin-left: 0.09em; color: var(--pet-fade); content: '”';}
+.tavern-pet-murmur {position: relative; z-index: 1; margin-top: -8px; color: var(--pet-fade); font: italic 500 11px/1.4 var(--pet-serif, Georgia, serif);}
+.tavern-pet-stage.is-waiting .tavern-pet-face {color: var(--pet-amber); animation: tavern-pet-breathe 1.1s ease-in-out infinite alternate;}
 
-.tavern-pet-murmur {
-    margin-top: -14px;
-    color: var(--pet-muted);
-    font: italic 500 0.72rem/1.5 var(--pet-serif);
-    letter-spacing: 0.04em;
+.tavern-pet-arrival {
+    display: grid;
+    gap: 13px;
+    justify-items: center;
+    border-bottom: 1px solid var(--pet-line);
+    padding: 21px 20px 25px;
 }
 
-.tavern-pet-stage.is-dormant {
-    filter: saturate(0.12);
-    opacity: 0.58;
+.tavern-pet-arrival p {max-width: 24em; margin: 0; color: var(--pet-paper); font: 500 13px/1.65 var(--pet-serif, Georgia, serif); text-align: center;}
+.tavern-pet-arrival-button {
+    min-width: 168px;
+    display: grid;
+    gap: 4px;
+    border: 1px solid color-mix(in srgb, var(--pet-amber) 46%, var(--pet-line));
+    border-radius: 3px;
+    background: linear-gradient(140deg, rgba(200, 179, 109, 0.19), rgba(143, 162, 116, 0.09));
+    color: var(--pet-ink);
+    padding: 12px 16px;
+    font: 670 12px/1 var(--phone-os-font, ui-monospace, monospace);
 }
-
-.tavern-pet-stage.is-waiting .tavern-pet-face {color: color-mix(in srgb, var(--pet-text) 76%, var(--pet-accent));}
-
-.tavern-pet-wait-hint {
-    position: relative;
-    z-index: 3;
-    margin: 0 auto;
-    max-width: 30em;
-    padding: 9px 15px 0;
-    color: var(--pet-muted);
-    font: 500 11px/1.7 var(--pet-serif);
-    text-align: center;
-    text-wrap: balance;
-}
+.tavern-pet-arrival-button small {color: var(--pet-amber); font: 650 10px/1 var(--phone-os-font, ui-monospace, monospace);}
+.tavern-pet-arrival-button:hover:not(:disabled) {border-color: var(--pet-amber); background: rgba(200, 179, 109, 0.24); transform: translateY(-1px);}
+.tavern-pet-arrival-button:disabled {opacity: 0.48; cursor: not-allowed;}
 
 .tavern-pet-vitals {
-    position: relative;
-    z-index: 3;
-    display: grid;
-    gap: 9px;
-    border-top: 1px solid var(--pet-line);
-    background: rgba(8, 9, 10, 0.88);
-    padding: 10px 16px 11px;
-}
-
-.tavern-pet-satiety {
-    display: grid;
-    grid-template-columns: 34px minmax(0, 1fr) 28px;
-    align-items: center;
-    gap: 8px;
-    color: var(--pet-muted);
-    font: 570 10px/1 var(--phone-os-font);
-}
-
-.tavern-pet-satiety > i {
-    height: 5px;
-    overflow: hidden;
-    border-radius: 999px;
-    background: var(--pet-surface-soft);
-}
-
-.tavern-pet-satiety > i > b {
-    height: 100%;
-    display: block;
-    border-radius: inherit;
-    background: var(--pet-accent);
-    box-shadow: 0 0 12px rgba(135, 145, 111, 0.28);
-}
-
-.tavern-pet-satiety > strong {color: var(--pet-text); text-align: right;}
-.tavern-pet-state-line {display: flex; justify-content: space-between; gap: 20px; color: var(--pet-muted); font: 550 10px/1.2 var(--phone-os-font);}
-.tavern-pet-state-line strong {margin-left: 5px; color: var(--pet-text); font-weight: 650;}
-
-.tavern-pet-controls {
-    position: relative;
-    z-index: 4;
-    display: grid;
-    background: var(--pet-surface);
-    border-top: 1px solid var(--pet-line);
-}
-
-.tavern-pet-actions {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 1px;
-    background: var(--pet-line);
-}
-
-.tavern-pet-actions button {
-    position: relative;
-    min-width: 0;
-    min-height: 48px;
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 5px;
-    border: 0;
-    border-radius: 0;
-    background: var(--pet-surface);
-    color: var(--pet-text);
-    padding: 8px 5px;
-    font: 620 11px/1.15 var(--phone-os-font);
+    gap: 12px;
+    border-bottom: 1px solid var(--pet-line);
+    padding: 11px 16px;
+    color: var(--pet-fade);
+    font: 580 10px/1.3 var(--phone-os-font, ui-monospace, monospace);
+    letter-spacing: 0.035em;
 }
+.tavern-pet-vitals > i {width: 3px; height: 3px; border-radius: 50%; background: var(--pet-moss); box-shadow: 0 0 8px var(--pet-moss);}
+.tavern-pet-vitals strong {margin-left: 5px; color: var(--pet-ink); font-weight: 700;}
 
-.tavern-pet-actions button small {color: var(--pet-accent); font: 700 9px/1 var(--phone-os-font);}
-.tavern-pet-actions button i {position: absolute; right: 5px; bottom: 3px; color: var(--pet-muted); font: normal 11px/1 var(--pet-face);}
-.tavern-pet-actions button:hover:not(:disabled) {background: var(--pet-surface-soft); color: #f2efe6;}
-.tavern-pet-actions button:active:not(:disabled) {background: #181b19; transform: none;}
-.tavern-pet-actions button:disabled {color: var(--pet-faint); cursor: not-allowed;}
+.tavern-pet-moment {
+    position: relative;
+    display: grid;
+    gap: 11px;
+    margin: 15px 12px 0;
+    border: 1px solid rgba(200, 179, 109, 0.28);
+    border-radius: 5px 18px 5px 18px;
+    background: linear-gradient(120deg, rgba(200, 179, 109, 0.10), rgba(12, 16, 13, 0.83));
+    box-shadow: inset 0 1px rgba(245, 237, 194, 0.06);
+    padding: 15px;
+}
+.tavern-pet-moment::after {position: absolute; top: 10px; right: 12px; color: rgba(200, 179, 109, 0.54); font: 18px/1 var(--pet-face, monospace); content: '…';}
+.tavern-pet-moment > small {color: var(--pet-amber); font: 700 9px/1 var(--phone-os-font, ui-monospace, monospace); letter-spacing: 0.13em;}
+.tavern-pet-moment > p {max-width: 26em; margin: 0; padding-right: 18px; color: var(--pet-ink); font: 500 14px/1.62 var(--pet-serif, Georgia, serif);}
+.tavern-pet-moment-choices {display: grid; gap: 7px;}
+.tavern-pet-moment-choices button,
+.tavern-pet-moment-skip {
+    min-height: 37px;
+    border: 1px solid var(--pet-line);
+    border-radius: 3px;
+    background: rgba(5, 7, 6, 0.36);
+    color: var(--pet-paper);
+    padding: 8px 10px;
+    text-align: left;
+    font: 560 11px/1.25 var(--phone-os-font, ui-monospace, monospace);
+}
+.tavern-pet-moment-choices button:hover:not(:disabled) {border-color: rgba(200, 179, 109, 0.54); background: rgba(200, 179, 109, 0.12); color: var(--pet-ink);}
+.tavern-pet-moment-skip {justify-self: start; min-height: 0; border-color: transparent; background: transparent; color: var(--pet-fade); padding: 2px 0; font-size: 10px;}
+.tavern-pet-moment button:disabled {opacity: 0.48; cursor: not-allowed;}
+
+.tavern-pet-gifts {display: grid; margin: 14px 12px 0; border-top: 1px solid var(--pet-line);}
+.tavern-pet-gift-trigger {
+    min-height: 45px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border: 0;
+    background: transparent;
+    color: var(--pet-paper);
+    padding: 0 3px;
+    font: 630 11px/1 var(--phone-os-font, ui-monospace, monospace);
+}
+.tavern-pet-gift-trigger i {color: var(--pet-moss); font: 500 20px/1 var(--pet-serif, Georgia, serif);}
+.tavern-pet-gift-trigger:hover {color: var(--pet-ink);}
+.tavern-pet-gift-list {display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; padding: 0 0 12px;}
+.tavern-pet-gift-list button {
+    min-height: 45px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 3px 6px;
+    border: 1px solid var(--pet-line);
+    border-radius: 3px;
+    background: rgba(143, 162, 116, 0.055);
+    color: var(--pet-paper);
+    padding: 8px 9px;
+    text-align: left;
+    font: 600 11px/1 var(--phone-os-font, ui-monospace, monospace);
+}
+.tavern-pet-gift-list button small {grid-column: 1; color: var(--pet-amber); font: 600 9px/1 var(--phone-os-font, ui-monospace, monospace);}
+.tavern-pet-gift-list button i {grid-row: 1 / 3; grid-column: 2; color: var(--pet-moss); font: 600 15px/1 var(--pet-face, monospace);}
+.tavern-pet-gift-list button:hover:not(:disabled) {border-color: rgba(143, 162, 116, 0.56); background: rgba(143, 162, 116, 0.13); color: var(--pet-ink);}
+.tavern-pet-gift-list button:disabled {opacity: 0.46; cursor: not-allowed;}
 
 .tavern-pet-chatbar {
     position: relative;
-    min-width: 0;
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 8px;
+    margin-top: 13px;
     border-top: 1px solid var(--pet-line);
-    padding: 8px 10px 9px;
+    padding: 12px;
+    background: rgba(5, 6, 6, 0.36);
 }
-
 .tavern-pet-chatbar input {
     min-width: 0;
-    height: 44px;
+    height: 43px;
     border: 1px solid var(--pet-line);
-    border-radius: 4px;
+    border-radius: 2px;
     outline: 0;
-    background: #090a0b;
-    color: var(--pet-text);
-    padding: 0 12px;
-    font: 500 16px/1 var(--pet-serif);
+    background: rgba(1, 2, 2, 0.54);
+    color: var(--pet-ink);
+    padding: 0 11px;
+    font: 500 16px/1 var(--pet-serif, Georgia, serif);
 }
-
-.tavern-pet-chatbar input::placeholder {color: var(--pet-faint);}
-.tavern-pet-chatbar input:focus {border-color: color-mix(in srgb, var(--pet-accent) 64%, transparent); box-shadow: 0 0 0 2px rgba(135, 145, 111, 0.10);}
-
+.tavern-pet-chatbar input::placeholder {color: var(--pet-fade);}
+.tavern-pet-chatbar input:focus {border-color: rgba(143, 162, 116, 0.73); box-shadow: 0 0 0 2px rgba(143, 162, 116, 0.10);}
 .tavern-pet-chatbar > button {
     min-width: 58px;
-    min-height: 44px;
-    border: 1px solid color-mix(in srgb, var(--pet-accent) 42%, var(--pet-line));
-    border-radius: 4px;
-    background: color-mix(in srgb, var(--pet-accent) 15%, var(--pet-surface));
-    color: var(--pet-text);
+    border: 1px solid rgba(143, 162, 116, 0.38);
+    border-radius: 2px;
+    background: rgba(143, 162, 116, 0.14);
+    color: var(--pet-ink);
     padding: 0 12px;
-    font: 650 11px/1 var(--phone-os-font);
+    font: 700 10px/1 var(--phone-os-font, ui-monospace, monospace);
 }
+.tavern-pet-chatbar > button:hover:not(:disabled) {border-color: var(--pet-moss); background: rgba(143, 162, 116, 0.22);}
+.tavern-pet-chatbar > button:disabled {border-color: var(--pet-line); background: transparent; color: var(--pet-fade); cursor: not-allowed;}
+.tavern-pet-chat-reason {position: absolute; top: -8px; right: 14px; max-width: calc(100% - 28px); overflow: hidden; color: var(--pet-fade); font: 500 9px/1.2 var(--phone-os-font, ui-monospace, monospace); text-overflow: ellipsis; white-space: nowrap;}
 
-.tavern-pet-chatbar > button:disabled {border-color: var(--pet-line); background: transparent; color: var(--pet-faint);}
-.tavern-pet-chat-reason {position: absolute; right: 11px; top: -18px; max-width: calc(100% - 22px); color: var(--pet-muted); font: 500 9px/1.2 var(--phone-os-font);}
+.tavern-pet-live-region {position: absolute; left: 12px; right: 12px; bottom: 102px; z-index: 8; display: grid; gap: 4px; pointer-events: none;}
+.tavern-pet-live-region p {justify-self: center; max-width: 100%; margin: 0; border: 1px solid var(--pet-line-bright); border-radius: 999px; background: rgba(7, 9, 8, 0.92); color: var(--pet-ink); padding: 7px 12px; font: 560 10px/1.3 var(--phone-os-font, ui-monospace, monospace); box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);}
 
-.tavern-pet-live-region {
-    position: absolute;
-    left: 12px;
-    right: 12px;
-    bottom: 112px;
-    z-index: 8;
-    display: grid;
-    gap: 4px;
-    pointer-events: none;
-}
+.tavern-pet-loading {position: absolute; inset: 67px 0 0; z-index: 20; display: grid; place-content: center; justify-items: center; gap: 11px; background: rgba(7, 9, 8, 0.92); color: var(--pet-paper); padding: 24px; text-align: center; backdrop-filter: blur(10px);}
+.tavern-pet-loading span {color: var(--pet-amber); font: 500 23px/1 var(--pet-face, monospace); letter-spacing: 0.25em; animation: tavern-pet-dots 0.9s ease-in-out infinite alternate;}
+.tavern-pet-loading p {margin: 0; font: 500 13px/1.65 var(--pet-serif, Georgia, serif);}
+.tavern-pet-load-error p {margin: 0; font: 500 13px/1.65 var(--pet-serif, Georgia, serif);}
+.tavern-pet-load-error button {border: 1px solid var(--pet-line-bright); border-radius: 2px; background: transparent; color: var(--pet-ink); padding: 8px 12px; font: 650 10px/1 var(--phone-os-font, ui-monospace, monospace);}
 
-.tavern-pet-live-region p {
-    justify-self: center;
-    max-width: 100%;
-    margin: 0;
-    border: 1px solid var(--pet-line);
-    border-radius: 999px;
-    background: rgba(13, 15, 16, 0.94);
-    color: var(--pet-text);
-    padding: 7px 11px;
-    font: 560 10px/1.3 var(--phone-os-font);
-    box-shadow: 0 8px 26px rgba(0, 0, 0, 0.34);
-}
-
-.tavern-pet-loading,
-.tavern-pet-load-error {
-    position: absolute;
-    inset: 42px 0 0;
-    z-index: 20;
-    display: grid;
-    place-content: center;
-    justify-items: center;
-    gap: 10px;
-    background: rgba(8, 9, 10, 0.94);
-    color: var(--pet-muted);
-    text-align: center;
-    padding: 24px;
-}
-
-.tavern-pet-loading span {color: var(--pet-accent); font: 500 22px/1 var(--pet-face); letter-spacing: 0.24em;}
-.tavern-pet-loading p,
-.tavern-pet-load-error p {margin: 0; font: 500 12px/1.6 var(--pet-serif);}
-
-.tavern-pet-drawer-backdrop,
-.tavern-pet-dialog-backdrop {
-    position: absolute;
-    inset: 42px 0 0;
-    z-index: 24;
-    display: grid;
-    background: rgba(0, 0, 0, 0.58);
-    backdrop-filter: blur(5px);
-}
-
+/* Nest and dialogs deliberately use the same dark-room material, without
+ * creating a second app or a session-local collection. */
+.tavern-pet-drawer-backdrop,.tavern-pet-dialog-backdrop {position: absolute; inset: 0; z-index: 24; display: grid; background: rgba(0, 0, 0, 0.64); backdrop-filter: blur(7px);}
 .tavern-pet-drawer-backdrop {align-items: end;}
-.tavern-pet-drawer {
-    width: 100%;
-    max-height: 82%;
-    min-height: 0;
-    display: grid;
-    grid-template-rows: auto minmax(0, 1fr);
-    overflow: hidden;
-    border-top: 1px solid rgba(232, 228, 215, 0.16);
-    border-radius: 18px 18px 0 0;
-    background: #0b0d0e;
-    color: var(--pet-text);
-    box-shadow: 0 -22px 60px rgba(0, 0, 0, 0.54);
-}
-
-.tavern-pet-drawer > header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-    border-bottom: 1px solid var(--pet-line);
-    padding: 14px 15px 12px;
-}
-
-.tavern-pet-drawer header > div {display: grid; gap: 3px;}
-.tavern-pet-drawer h3,
-.tavern-pet-dialog h3 {margin: 0; color: var(--pet-text); font: 620 21px/1.1 var(--pet-serif);}
-.tavern-pet-drawer header > button {width: 44px; height: 44px; border: 0; background: transparent; color: var(--pet-muted); font: 300 25px/1 var(--phone-os-font);}
-.tavern-pet-drawer-scroll {min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 14px 15px 24px; scrollbar-width: thin; scrollbar-color: var(--pet-faint) transparent;}
-
-.tavern-pet-nest-coins {
-    position: relative;
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: end;
-    gap: 4px 16px;
-    border-bottom: 1px solid var(--pet-line);
-    padding: 5px 0 18px;
-}
-
-.tavern-pet-nest-coins span {color: var(--pet-muted); font: 570 11px/1.2 var(--phone-os-font);}
-.tavern-pet-nest-coins strong {grid-row: 1 / 3; grid-column: 2; color: var(--pet-accent); font: 500 30px/1 var(--pet-face);}
-.tavern-pet-nest-coins p {margin: 0; color: var(--pet-faint); font: 500 10px/1.4 var(--pet-serif);}
+.tavern-pet-drawer {width: 100%; max-height: 82%; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); overflow: hidden; border-top: 1px solid var(--pet-line-bright); border-radius: 18px 18px 0 0; background: #0b0e0c; color: var(--pet-ink); box-shadow: 0 -22px 70px rgba(0, 0, 0, 0.65);}
+.tavern-pet-drawer > header {display: flex; align-items: center; justify-content: space-between; gap: 15px; border-bottom: 1px solid var(--pet-line); padding: 14px 15px 12px;}
+.tavern-pet-drawer header > div {display: grid; gap: 4px;}
+.tavern-pet-drawer h3,.tavern-pet-dialog h3 {margin: 0; color: var(--pet-ink); font: 600 21px/1.08 var(--pet-serif, Georgia, serif);}
+.tavern-pet-drawer header > button {width: 40px; height: 40px; border: 1px solid transparent; border-radius: 50%; background: transparent; color: var(--pet-paper); font: 300 25px/1 var(--phone-os-font, ui-monospace, monospace);}
+.tavern-pet-drawer header > button:hover:not(:disabled) {border-color: var(--pet-line); background: var(--pet-panel-raised);}
+.tavern-pet-drawer-scroll {min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 14px 15px 26px; scrollbar-width: thin; scrollbar-color: var(--pet-fade) transparent;}
+.tavern-pet-nest-coins {display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 5px 18px; border-bottom: 1px solid var(--pet-line); padding: 6px 0 18px;}
+.tavern-pet-nest-coins span {color: var(--pet-paper); font: 600 11px/1.3 var(--phone-os-font, ui-monospace, monospace);}
+.tavern-pet-nest-coins strong {grid-row: 1 / 3; grid-column: 2; color: var(--pet-amber); font: 500 31px/1 var(--pet-face, monospace);}
+.tavern-pet-nest-coins p {margin: 0; color: var(--pet-fade); font: 500 11px/1.5 var(--pet-serif, Georgia, serif);}
 .tavern-pet-nest-section {display: grid; gap: 10px; border-bottom: 1px solid var(--pet-line); padding: 17px 0;}
-.tavern-pet-nest-section h4 {margin: 0; color: var(--pet-muted); font: 660 10px/1 var(--phone-os-font); letter-spacing: 0.08em;}
+.tavern-pet-nest-section h4 {margin: 0; color: var(--pet-moss); font: 700 9px/1 var(--phone-os-font, ui-monospace, monospace); letter-spacing: 0.13em;}
 .tavern-pet-section-head {display: flex; align-items: center; justify-content: space-between; gap: 12px;}
-.tavern-pet-section-head small {color: var(--pet-faint); font: 600 10px/1 var(--pet-face);}
-.tavern-pet-nest-empty {margin: 0; color: var(--pet-faint); font: 500 12px/1.7 var(--pet-serif);}
-
-.tavern-pet-curios,
-.tavern-pet-traces {list-style: none; display: grid; gap: 0; margin: 0; padding: 0;}
-.tavern-pet-curios li,
-.tavern-pet-traces li {border-top: 1px dotted var(--pet-line); padding: 11px 0;}
-.tavern-pet-curios li:first-child,
-.tavern-pet-traces li:first-child {border-top: 0; padding-top: 2px;}
-.tavern-pet-curios strong,
-.tavern-pet-traces strong {color: var(--pet-text); font: 620 11px/1.3 var(--phone-os-font);}
-.tavern-pet-curios p,
-.tavern-pet-traces p {margin: 4px 0 0; color: var(--pet-muted); font: 500 12px/1.65 var(--pet-serif);}
+.tavern-pet-section-head small {color: var(--pet-fade); font: 600 10px/1 var(--pet-face, monospace);}
+.tavern-pet-nest-empty {margin: 0; color: var(--pet-fade); font: 500 12px/1.7 var(--pet-serif, Georgia, serif);}
+.tavern-pet-curios,.tavern-pet-traces {display: grid; gap: 0; margin: 0; padding: 0; list-style: none;}
+.tavern-pet-curios li,.tavern-pet-traces li {border-top: 1px dotted var(--pet-line); padding: 11px 0;}
+.tavern-pet-curios li:first-child,.tavern-pet-traces li:first-child {border-top: 0; padding-top: 2px;}
+.tavern-pet-curios strong,.tavern-pet-traces strong {color: var(--pet-ink); font: 630 11px/1.3 var(--phone-os-font, ui-monospace, monospace);}
+.tavern-pet-curios p,.tavern-pet-traces p {margin: 4px 0 0; color: var(--pet-paper); font: 500 12px/1.65 var(--pet-serif, Georgia, serif);}
 .tavern-pet-traces li > div {display: flex; align-items: center; justify-content: space-between; gap: 10px;}
-.tavern-pet-traces time {color: var(--pet-faint); font: 500 9px/1 var(--pet-face);}
-
-.tavern-pet-nest-settings {display: grid; padding: 12px 0 0;}
-.tavern-pet-nest-settings > button {
-    min-height: 50px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    border: 0;
-    border-bottom: 1px solid var(--pet-line);
-    border-radius: 0;
-    background: transparent;
-    color: var(--pet-text);
-    padding: 8px 0;
-    text-align: left;
-    font: 600 11px/1.4 var(--phone-os-font);
-}
-
-.tavern-pet-nest-settings > button > i {color: var(--pet-faint); font: normal 22px/1 var(--phone-os-font);}
-.tavern-pet-interference-switch > span {min-width: 0; display: grid; gap: 4px;}
-.tavern-pet-interference-switch > span strong {font: 620 11px/1.3 var(--phone-os-font);}
-.tavern-pet-interference-switch > span small {color: var(--pet-muted); font: 500 10px/1.45 var(--pet-serif);}
-.tavern-pet-interference-switch > i {position: relative; flex: 0 0 38px; width: 38px; height: 22px; border: 1px solid var(--pet-line); border-radius: 999px; background: var(--pet-surface-soft);}
-.tavern-pet-interference-switch > i > b {position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: var(--pet-muted); transition: transform 0.18s ease, background 0.18s ease;}
-.tavern-pet-interference-switch[aria-checked="true"] > i {border-color: color-mix(in srgb, var(--pet-accent) 48%, transparent); background: rgba(135, 145, 111, 0.16);}
-.tavern-pet-interference-switch[aria-checked="true"] > i > b {background: var(--pet-accent); transform: translateX(16px);}
-.tavern-pet-leave-button {color: #c98b72 !important;}
-.tavern-pet-leave-button > span {display: grid; gap: 4px;}
-.tavern-pet-leave-button > span strong {font: 620 11px/1.3 var(--phone-os-font);}
-.tavern-pet-leave-button > span small {color: color-mix(in srgb, #c98b72 78%, var(--pet-muted)); font: 500 10px/1.45 var(--pet-serif);}
+.tavern-pet-traces time {color: var(--pet-fade); font: 500 9px/1 var(--pet-face, monospace);}
+.tavern-pet-nest-settings {display: grid; padding-top: 12px;}
+.tavern-pet-nest-settings > button {min-height: 51px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border: 0; border-bottom: 1px solid var(--pet-line); border-radius: 0; background: transparent; color: var(--pet-ink); padding: 8px 0; text-align: left; font: 600 11px/1.4 var(--phone-os-font, ui-monospace, monospace);}
+.tavern-pet-nest-settings > button:hover:not(:disabled) {color: #fff;}
+.tavern-pet-nest-settings > button:disabled {opacity: 0.45; cursor: not-allowed;}
+.tavern-pet-nest-settings > button > i {color: var(--pet-fade); font: normal 22px/1 var(--phone-os-font, ui-monospace, monospace);}
+.tavern-pet-interference-switch > span,.tavern-pet-leave-button > span {min-width: 0; display: grid; gap: 4px;}
+.tavern-pet-interference-switch > span strong,.tavern-pet-leave-button > span strong {font: 620 11px/1.3 var(--phone-os-font, ui-monospace, monospace);}
+.tavern-pet-interference-switch > span small,.tavern-pet-leave-button > span small {color: var(--pet-fade); font: 500 10px/1.45 var(--pet-serif, Georgia, serif);}
+.tavern-pet-interference-switch > i {position: relative; flex: 0 0 38px; width: 38px; height: 22px; border: 1px solid var(--pet-line); border-radius: 999px; background: var(--pet-panel-raised);}
+.tavern-pet-interference-switch > i > b {position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: var(--pet-fade); transition: transform 180ms ease, background 180ms ease;}
+.tavern-pet-interference-switch[aria-checked="true"] > i {border-color: rgba(143, 162, 116, 0.58); background: rgba(143, 162, 116, 0.17);}
+.tavern-pet-interference-switch[aria-checked="true"] > i > b {background: var(--pet-moss); transform: translateX(16px);}
+.tavern-pet-leave-button {color: var(--pet-danger) !important;}
+.tavern-pet-leave-button > span small {color: color-mix(in srgb, var(--pet-danger) 75%, var(--pet-fade));}
 
 .tavern-pet-dialog-backdrop {place-items: center; padding: 18px;}
-.tavern-pet-dialog {
-    width: min(100%, 330px);
-    display: grid;
-    gap: 10px;
-    border: 1px solid rgba(232, 228, 215, 0.15);
-    border-radius: 8px;
-    background: #0c0e0f;
-    color: var(--pet-text);
-    box-shadow: 0 24px 70px rgba(0, 0, 0, 0.62);
-    padding: 18px;
-}
-
-.tavern-pet-dialog > p {margin: 0 0 2px; color: var(--pet-muted); font: 500 11px/1.6 var(--pet-serif);}
-.tavern-pet-dialog > label {margin-top: 4px; color: var(--pet-muted); font: 620 10px/1 var(--phone-os-font);}
-.tavern-pet-dialog > input {height: 46px; border: 1px solid var(--pet-line); border-radius: 3px; outline: 0; background: #08090a; color: var(--pet-text); padding: 0 11px; font: 500 16px/1 var(--pet-serif);}
-.tavern-pet-dialog > input:focus {border-color: var(--pet-accent); box-shadow: 0 0 0 2px rgba(135, 145, 111, 0.11);}
-.tavern-pet-dialog .tavern-pet-dialog-error {color: #c98b72;}
+.tavern-pet-dialog {width: min(100%, 334px); display: grid; gap: 11px; border: 1px solid var(--pet-line-bright); border-radius: 5px 15px 5px 15px; background: linear-gradient(145deg, #151916, #090c0a); color: var(--pet-ink); box-shadow: 0 25px 75px rgba(0, 0, 0, 0.7); padding: 19px;}
+.tavern-pet-dialog > p {margin: 0 0 2px; color: var(--pet-paper); font: 500 12px/1.62 var(--pet-serif, Georgia, serif);}
+.tavern-pet-dialog > label {margin-top: 4px; color: var(--pet-paper); font: 650 10px/1 var(--phone-os-font, ui-monospace, monospace);}
+.tavern-pet-dialog > input {height: 45px; border: 1px solid var(--pet-line); border-radius: 2px; outline: 0; background: rgba(0, 0, 0, 0.34); color: var(--pet-ink); padding: 0 11px; font: 500 16px/1 var(--pet-serif, Georgia, serif);}
+.tavern-pet-dialog > input:focus {border-color: var(--pet-moss); box-shadow: 0 0 0 2px rgba(143, 162, 116, 0.12);}
+.tavern-pet-dialog .tavern-pet-dialog-error {color: var(--pet-danger);}
 .tavern-pet-dialog-actions {display: flex; flex-wrap: wrap; justify-content: end; gap: 7px; margin-top: 5px;}
-.tavern-pet-dialog-actions button {min-height: 44px; border: 1px solid var(--pet-line); border-radius: 3px; background: transparent; color: var(--pet-muted); padding: 0 11px; font: 620 10px/1.2 var(--phone-os-font);}
-.tavern-pet-dialog-actions button:last-child {border-color: color-mix(in srgb, var(--pet-accent) 48%, var(--pet-line)); background: rgba(135, 145, 111, 0.14); color: var(--pet-text);}
-.tavern-pet-dialog-actions .tavern-pet-danger {border-color: color-mix(in srgb, #c98b72 62%, var(--pet-line)); background: rgba(201, 139, 114, 0.12); color: #e1a98f;}
+.tavern-pet-dialog-actions button {min-height: 40px; border: 1px solid var(--pet-line); border-radius: 2px; background: transparent; color: var(--pet-paper); padding: 0 11px; font: 650 10px/1.2 var(--phone-os-font, ui-monospace, monospace);}
+.tavern-pet-dialog-actions button:last-child {border-color: rgba(143, 162, 116, 0.52); background: rgba(143, 162, 116, 0.14); color: var(--pet-ink);}
+.tavern-pet-dialog-actions button:hover:not(:disabled) {border-color: var(--pet-line-bright); background: var(--pet-panel-raised);}
+.tavern-pet-dialog-actions .tavern-pet-danger {border-color: rgba(212, 146, 120, 0.54); background: rgba(212, 146, 120, 0.12); color: #ebb39d;}
+.tavern-pet-dialog button:disabled {opacity: 0.48; cursor: not-allowed;}
 
-.tavern-pet-icon {
-    position: relative;
-    width: 100%;
-    height: 100%;
-    display: grid;
-    place-items: center;
-    overflow: visible;
-    color: #f1eee5;
-    font-family: var(--pet-face, "Cascadia Mono", monospace);
-}
-
-.tavern-pet-icon::before {
-    content: "";
-    position: absolute;
-    inset: 16%;
-    border-radius: 24%;
-    background:
-        radial-gradient(ellipse at 50% 40%, rgba(135, 145, 111, 0.24), transparent 70%),
-        linear-gradient(160deg, #101112, #070809);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), inset 0 0 10px rgba(0, 0, 0, 0.55);
-    z-index: 0;
-}
-
-.tavern-pet-icon-glyph {
-    position: relative;
-    z-index: 1;
-    display: block;
-    max-width: 100%;
-    overflow: hidden;
-    font-size: 9px;
-    line-height: 1;
-    letter-spacing: -0.12em;
-    text-overflow: clip;
-    white-space: nowrap;
-}
-
+.tavern-pet-icon {position: relative; width: 100%; height: 100%; display: grid; place-items: center; overflow: visible; color: var(--pet-ink); font-family: var(--pet-face, "Cascadia Mono", monospace);}
+.tavern-pet-icon::before {position: absolute; inset: 16%; z-index: 0; border-radius: 30% 30% 43% 43%; background: radial-gradient(ellipse at 50% 40%, rgba(143, 162, 116, 0.30), transparent 70%), linear-gradient(160deg, #151a16, #080a09); box-shadow: inset 0 1px rgba(255, 255, 255, 0.09), inset 0 0 11px rgba(0, 0, 0, 0.55); content: '';}
+.tavern-pet-icon-glyph {position: relative; z-index: 1; display: block; max-width: 100%; overflow: hidden; font-size: 9px; line-height: 1; letter-spacing: -0.12em; text-overflow: clip; white-space: nowrap;}
 .tavern-pet-icon.is-undiscovered .tavern-pet-icon-glyph {font-size: 24px; opacity: 0.46;}
-.tavern-pet-icon.is-luring .tavern-pet-icon-glyph {font-size: 28px; opacity: 0.58; text-shadow: 0 0 13px rgba(255, 255, 255, 0.48);}
 .tavern-pet-icon.is-egg .tavern-pet-icon-glyph {font-size: 24px; letter-spacing: 0;}
 .tavern-pet-icon.is-juvenile .tavern-pet-icon-glyph {font-size: 8px;}
-.tavern-pet-icon.is-dormant {filter: grayscale(1) brightness(0.64);}
-.tavern-pet-icon > small {position: absolute; right: 0; bottom: 0; color: #e8e4d7; font: 700 8px/1 var(--pet-face, monospace); letter-spacing: -0.08em;}
+.tavern-pet-icon > small {position: absolute; right: 0; bottom: 0; color: var(--pet-amber); font: 700 10px/1 var(--pet-face, monospace); text-shadow: 0 0 7px rgba(200, 179, 109, 0.8);}
 
-.tavern-pet-sr-only {
-    position: absolute !important;
-    width: 1px !important;
-    height: 1px !important;
-    overflow: hidden !important;
-    clip: rect(0, 0, 0, 0) !important;
-    clip-path: inset(50%) !important;
-    white-space: nowrap !important;
-}
-
+.tavern-pet-sr-only {position: absolute !important; width: 1px !important; height: 1px !important; overflow: hidden !important; clip: rect(0, 0, 0, 0) !important; clip-path: inset(50%) !important; white-space: nowrap !important;}
 .tavern-pet-presence.motion-shake {animation: tavern-pet-shake 320ms ease-out both;}
-.tavern-pet-presence.motion-bounce {animation: tavern-pet-bounce 420ms cubic-bezier(0.2, 0.8, 0.3, 1) both;}
+.tavern-pet-presence.motion-bounce {animation: tavern-pet-bounce 430ms cubic-bezier(0.2, 0.8, 0.3, 1) both;}
 .tavern-pet-presence.motion-turn-away {animation: tavern-pet-turn-away 280ms ease-out both;}
 .tavern-pet-presence.motion-hide {animation: tavern-pet-hide 360ms ease-out both;}
 .tavern-pet-presence.motion-approach {animation: tavern-pet-approach 300ms ease-out both;}
 .tavern-pet-presence.motion-stare {animation: tavern-pet-stare 600ms ease-out both;}
-
 @keyframes tavern-pet-shake {0%, 100% {transform: translateX(0);} 18% {transform: translateX(-4px);} 36% {transform: translateX(4px);} 56% {transform: translateX(-2px);} 74% {transform: translateX(2px);}}
-@keyframes tavern-pet-bounce {0%, 100% {transform: translateY(0);} 48% {transform: translateY(-8px);}}
-@keyframes tavern-pet-turn-away {to {transform: translateX(10px); opacity: 0.72;}}
+@keyframes tavern-pet-bounce {0%, 100% {transform: translateY(0);} 48% {transform: translateY(-9px);}}
+@keyframes tavern-pet-turn-away {to {transform: translateX(10px); opacity: 0.70;}}
 @keyframes tavern-pet-hide {to {transform: translateY(8px); opacity: 0.20;}}
 @keyframes tavern-pet-approach {to {transform: scale(1.08);}}
-@keyframes tavern-pet-stare {to {transform: scale(1.04);}}
-
-.tavern-pet-murmur-enter-active,
-.tavern-pet-murmur-leave-active {transition: opacity 0.22s ease;}
-.tavern-pet-murmur-enter-from,
-.tavern-pet-murmur-leave-to {opacity: 0;}
-.tavern-pet-drawer-enter-active,
-.tavern-pet-drawer-leave-active {transition: background 0.2s ease;}
-.tavern-pet-drawer-enter-active .tavern-pet-drawer,
-.tavern-pet-drawer-leave-active .tavern-pet-drawer {transition: transform 0.24s ease, opacity 0.18s ease;}
-.tavern-pet-drawer-enter-from .tavern-pet-drawer,
-.tavern-pet-drawer-leave-to .tavern-pet-drawer {transform: translateY(24px); opacity: 0;}
-.tavern-pet-dialog-enter-active,
-.tavern-pet-dialog-leave-active {transition: opacity 0.18s ease;}
-.tavern-pet-dialog-enter-from,
-.tavern-pet-dialog-leave-to {opacity: 0;}
-
-.tavern-phone-device .tavern-pet-app button:focus-visible,
-.tavern-phone-device .tavern-pet-app input:focus-visible {
-    outline: 2px solid color-mix(in srgb, var(--pet-accent) 78%, #fff);
-    outline-offset: 2px;
-}
-
-.xb-os-shell:not(.theme-dark) .tavern-pet-app {
-    box-shadow: inset 0 0 0 1px rgba(232, 228, 215, 0.12);
-}
+@keyframes tavern-pet-stare {50% {transform: scale(1.045);} 100% {transform: scale(1.02);}}
+@keyframes tavern-pet-breathe {to {opacity: 0.65; transform: scale(1.035);}}
+@keyframes tavern-pet-dots {to {opacity: 0.35; letter-spacing: 0.4em;}}
+.tavern-pet-murmur-enter-active,.tavern-pet-murmur-leave-active {transition: opacity 220ms ease;}
+.tavern-pet-murmur-enter-from,.tavern-pet-murmur-leave-to {opacity: 0;}
+.tavern-pet-gifts-enter-active,.tavern-pet-gifts-leave-active {transition: opacity 160ms ease, transform 160ms ease;}
+.tavern-pet-gifts-enter-from,.tavern-pet-gifts-leave-to {opacity: 0; transform: translateY(-5px);}
+.tavern-pet-drawer-enter-active,.tavern-pet-drawer-leave-active {transition: background 200ms ease;}
+.tavern-pet-drawer-enter-active .tavern-pet-drawer,.tavern-pet-drawer-leave-active .tavern-pet-drawer {transition: transform 240ms ease, opacity 180ms ease;}
+.tavern-pet-drawer-enter-from .tavern-pet-drawer,.tavern-pet-drawer-leave-to .tavern-pet-drawer {opacity: 0; transform: translateY(24px);}
+.tavern-pet-dialog-enter-active,.tavern-pet-dialog-leave-active {transition: opacity 180ms ease;}
+.tavern-pet-dialog-enter-from,.tavern-pet-dialog-leave-to {opacity: 0;}
+.tavern-phone-device .tavern-pet-app button:focus-visible,.tavern-phone-device .tavern-pet-app input:focus-visible {outline: 2px solid color-mix(in srgb, var(--pet-amber) 76%, #fff); outline-offset: 2px;}
+.xb-os-shell:not(.theme-dark) .tavern-pet-app {box-shadow: inset 0 0 0 1px rgba(232, 228, 215, 0.12);}
 
 @media (max-width: 359px) {
-    .tavern-pet-actions {grid-template-columns: repeat(2, minmax(0, 1fr));}
     .tavern-pet-head {padding-inline: 13px;}
     .tavern-pet-head-actions > span {display: none;}
-    .tavern-pet-stage {padding-inline: 14px;}
-    .tavern-pet-face {font-size: clamp(2.2rem, 11vw, 3.2rem);}
+    .tavern-pet-stage {min-height: 224px; padding-inline: 13px;}
+    .tavern-pet-vitals {gap: 8px; font-size: 9px;}
 }
 
-.tavern-phone-device.is-mobile-fullscreen .tavern-pet-app {
-    padding-top: env(safe-area-inset-top, 0px);
-}
-
-.tavern-phone-device.is-mobile-fullscreen .tavern-pet-app::before,
-.tavern-phone-device.is-mobile-fullscreen .tavern-pet-app::after,
-.tavern-phone-device.is-mobile-fullscreen .tavern-pet-loading,
-.tavern-phone-device.is-mobile-fullscreen .tavern-pet-load-error,
-.tavern-phone-device.is-mobile-fullscreen .tavern-pet-drawer-backdrop,
-.tavern-phone-device.is-mobile-fullscreen .tavern-pet-dialog-backdrop {
-    top: env(safe-area-inset-top, 0px);
-}
+.tavern-phone-device.is-mobile-fullscreen .tavern-pet-app {padding-top: env(safe-area-inset-top, 0px);}
+.tavern-phone-device.is-mobile-fullscreen .tavern-pet-loading {top: calc(67px + env(safe-area-inset-top, 0px));}
 
 @media (prefers-reduced-motion: reduce) {
-    .tavern-pet-presence.motion-shake,
-    .tavern-pet-presence.motion-bounce,
-    .tavern-pet-presence.motion-turn-away,
-    .tavern-pet-presence.motion-hide,
-    .tavern-pet-presence.motion-approach,
-    .tavern-pet-presence.motion-stare {
-        animation: tavern-pet-reduced-motion 120ms ease both;
-    }
-    .tavern-pet-interference-switch > i > b,
-    .tavern-pet-drawer-enter-active .tavern-pet-drawer,
-    .tavern-pet-drawer-leave-active .tavern-pet-drawer {transition-duration: 0.12s; transform: none;}
+    .tavern-pet-presence.motion-shake,.tavern-pet-presence.motion-bounce,.tavern-pet-presence.motion-turn-away,.tavern-pet-presence.motion-hide,.tavern-pet-presence.motion-approach,.tavern-pet-presence.motion-stare,.tavern-pet-stage.is-waiting .tavern-pet-face,.tavern-pet-loading span {animation: tavern-pet-reduced-motion 120ms ease both;}
+    .tavern-pet-interference-switch > i > b,.tavern-pet-drawer-enter-active .tavern-pet-drawer,.tavern-pet-drawer-leave-active .tavern-pet-drawer,.tavern-pet-gifts-enter-active,.tavern-pet-gifts-leave-active {transition-duration: 120ms; transform: none;}
 }
-
 @keyframes tavern-pet-reduced-motion {from {opacity: 0.72;} to {opacity: 1;}}

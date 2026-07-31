@@ -1010,6 +1010,16 @@ class TavernDatabase extends Dexie {
             petActions: 'id, &revision, sourceSessionId, [sourceSessionId+sourceTurn], [sourceSessionId+sourceAnchorOrder], [sourceSessionId+sourceAnchorOrder+createdAt+id], createdAt',
             petJournal: 'id, sourceActionId, sourceSessionId, [sourceSessionId+sourceAnchorOrder], [sourceSessionId+createdAt+id], petTurn, [createdAt+id]',
         });
+        this.version(29).stores({
+            petCompanion: null,
+            petActions: null,
+            petJournal: null,
+        });
+        this.version(30).stores({
+            petCompanion: 'id',
+            petActions: 'id, &revision, sourceSessionId, [sourceSessionId+sourceTurn], [sourceSessionId+sourceAnchorOrder], [sourceSessionId+sourceAnchorOrder+createdAt+id], createdAt',
+            petJournal: 'id, &sourceActionId, sourceSessionId, [sourceSessionId+sourceAnchorOrder], [sourceSessionId+createdAt+id], petTurn, [petTurn+createdAt+id], [createdAt+id]',
+        });
     }
 }
 

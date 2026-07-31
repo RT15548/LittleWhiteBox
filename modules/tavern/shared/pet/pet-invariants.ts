@@ -3,29 +3,42 @@ import {
     TAVERN_PET_CURIO_IDS,
     TAVERN_PET_EMOTIONS,
     TAVERN_PET_EVENT_IDS,
-    TAVERN_PET_INTERACTION_IDS,
+    TAVERN_PET_MOMENT_IDS,
     TAVERN_PET_PERSONA_IDS,
     TAVERN_PET_PHASES,
     isTavernPetInterferenceEventId,
     type TavernPetActionRecord,
-    type TavernPetAxes,
     type TavernPetChatResponse,
     type TavernPetCompanionRecord,
     type TavernPetEvolutionRequest,
-    type TavernPetInteractionWindow,
     type TavernPetJournalDetail,
     type TavernPetJournalDraft,
     type TavernPetJournalRecord,
     type TavernPetLifetimeStats,
+    type TavernPetMomentChoiceId,
+    type TavernPetMomentId,
+    type TavernPetMomentResolutionId,
     type TavernPetOrigin,
     type TavernPetState,
     type TavernPetStateAction,
+    type TavernPetTraits,
     type TavernPetTurnOutcome,
     throwTavernPetError,
 } from './pet-types';
 import { isTavernPetVerdictText } from './pet-copy';
+import { TAVERN_PET_JUVENILE_PROFILE, TAVERN_PET_PERSONAS } from './pet-personas';
 
-const MILESTONE_IDS = new Set(['arrival', 'hatch', 'adulthood', 'repattern']);
+const MILESTONE_IDS = ['arrival', 'hatch', 'adulthood', 'repattern'] as const;
+const MOTIONS = ['none', 'shake', 'bounce', 'turn-away', 'hide', 'approach', 'stare'] as const;
+const MOMENT_CHOICES: Readonly<Record<TavernPetMomentId, readonly TavernPetMomentChoiceId[]>> = Object.freeze({
+    'glass-hand': ['touch-glass', 'wait-nearby', 'leave-space'],
+    'bottle-cap': ['roll-together', 'keep-it', 'look-away'],
+    'quiet-corner': ['tap-back', 'leave-a-light', 'let-it-be'],
+});
+const KNOWN_FACES = new Set([
+    ...Object.values(TAVERN_PET_JUVENILE_PROFILE.faces),
+    ...Object.values(TAVERN_PET_PERSONAS).flatMap((profile) => Object.values(profile.faces)),
+]);
 
 export interface TavernPetInvariantViolation {
     code: 'state-invalid' | 'companion-invalid' | 'action-invalid' | 'journal-invalid';
@@ -51,16 +64,16 @@ function assertPlainObject(
     optional: readonly string[],
     detail: string,
 ): Record<string, unknown> {
-    if (!isRecord(value)) {return fail(detail + '.shape');}
+    if (!isRecord(value)) {return fail(`${detail}.shape`);}
     const prototype = Object.getPrototypeOf(value);
-    if (prototype !== Object.prototype && prototype !== null) {return fail(detail + '.prototype');}
+    if (prototype !== Object.prototype && prototype !== null) {return fail(`${detail}.prototype`);}
     const keys = Object.keys(value);
     const allowed = new Set([...required, ...optional]);
     if (keys.some((key) => !allowed.has(key)) || required.some((key) => !keys.includes(key))) {
-        return fail(detail + '.keys');
+        return fail(`${detail}.keys`);
     }
-    for (const key of optional) {
-        if (keys.includes(key) && value[key] === undefined) {return fail([detail, key, 'undefined'].join('.'));}
+    if (optional.some((key) => keys.includes(key) && value[key] === undefined)) {
+        return fail(`${detail}.undefined`);
     }
     return value;
 }
@@ -93,197 +106,208 @@ function assertEnum<T extends string>(value: unknown, values: readonly T[], deta
     return value as T;
 }
 
-function assertAxes(value: unknown, detail: string): asserts value is TavernPetAxes {
-    const axes = assertPlainObject(value, ['tameness', 'generosity', 'brightness'], [], detail);
-    assertInteger(axes.tameness, -100, 100, detail + '.tameness');
-    assertInteger(axes.generosity, -100, 100, detail + '.generosity');
-    assertInteger(axes.brightness, -100, 100, detail + '.brightness');
+function assertFace(value: unknown, detail: string): string {
+    const face = assertString(value, detail, 80);
+    if (!KNOWN_FACES.has(face)) {return fail(detail);}
+    return face;
 }
 
-function assertBirthBiasAxes(value: unknown, detail: string): asserts value is TavernPetAxes {
-    assertAxes(value, detail);
-    for (const [key, axis] of Object.entries(value as TavernPetAxes)) {
-        if (axis === 0 || Math.abs(axis) > 15) {return fail([detail, key].join('.'));}
+function assertMotion(value: unknown, detail: string): void {
+    assertEnum(value, MOTIONS, detail);
+}
+
+function assertTraits(value: unknown, detail: string): asserts value is TavernPetTraits {
+    const traits = assertPlainObject(value, ['closeness', 'sharing', 'tempo'], [], detail);
+    assertInteger(traits.closeness, -100, 100, `${detail}.closeness`);
+    assertInteger(traits.sharing, -100, 100, `${detail}.sharing`);
+    assertInteger(traits.tempo, -100, 100, `${detail}.tempo`);
+}
+
+function assertBirthBias(value: unknown, detail: string): void {
+    assertTraits(value, detail);
+    const bias = value as TavernPetTraits;
+    for (const [trait, amount] of Object.entries(bias)) {
+        if (amount === 0 || Math.abs(amount) > 15) {return fail(`${detail}.${trait}`);}
     }
 }
 
 function assertOrigin(value: unknown, detail: string): asserts value is TavernPetOrigin {
-    const origin = assertPlainObject(value, ['specimenNumber', 'arrivalAfterTurns', 'birthBias'], [], detail);
-    assertInteger(origin.specimenNumber, 1, 999, detail + '.specimenNumber');
-    assertInteger(origin.arrivalAfterTurns, 1, 3, detail + '.arrivalAfterTurns');
-    assertBirthBiasAxes(origin.birthBias, detail + '.birthBias');
-}
-
-function assertWindow(value: unknown, detail: string): asserts value is TavernPetInteractionWindow {
-    const window = assertPlainObject(value, [
-        'petTurn', 'feedCount', 'tapCount', 'bgmCount', 'patCount', 'annoyCount', 'chatCount', 'interactionCount',
-    ], [], detail);
-    assertInteger(window.petTurn, 0, Number.MAX_SAFE_INTEGER, detail + '.petTurn');
-    assertInteger(window.feedCount, 0, Number.MAX_SAFE_INTEGER, detail + '.feedCount');
-    assertInteger(window.tapCount, 0, 2, detail + '.tapCount');
-    assertInteger(window.bgmCount, 0, 1, detail + '.bgmCount');
-    assertInteger(window.patCount, 0, Number.MAX_SAFE_INTEGER, detail + '.patCount');
-    assertInteger(window.annoyCount, 0, 4, detail + '.annoyCount');
-    assertInteger(window.chatCount, 0, Number.MAX_SAFE_INTEGER, detail + '.chatCount');
-    assertInteger(window.interactionCount, 0, Number.MAX_SAFE_INTEGER, detail + '.interactionCount');
+    const origin = assertPlainObject(value, ['specimenNumber', 'birthBias'], [], detail);
+    assertInteger(origin.specimenNumber, 1, 999, `${detail}.specimenNumber`);
+    assertBirthBias(origin.birthBias, `${detail}.birthBias`);
 }
 
 function assertStats(value: unknown, detail: string): asserts value is TavernPetLifetimeStats {
     const stats = assertPlainObject(value, [
-        'feedCount', 'tapCount', 'bgmCount', 'patCount', 'hitCount', 'toyCount', 'chatCount',
-        'dormantCount', 'stolenTotal', 'giftedTotal',
+        'feedCount', 'toyCount', 'chatCount', 'momentCount', 'stolenTotal', 'giftedTotal',
     ], [], detail);
     for (const key of Object.keys(stats)) {
-        assertInteger(stats[key], 0, Number.MAX_SAFE_INTEGER, [detail, key].join('.'));
+        assertInteger(stats[key], 0, Number.MAX_SAFE_INTEGER, `${detail}.${key}`);
     }
+}
+
+function assertMoment(
+    value: unknown,
+    detail: string,
+): asserts value is { id: TavernPetMomentId } {
+    const moment = assertPlainObject(value, ['id'], [], detail);
+    assertEnum(moment.id, TAVERN_PET_MOMENT_IDS, `${detail}.id`);
+}
+
+function assertMomentChoice(
+    momentId: TavernPetMomentId,
+    choiceId: unknown,
+    detail: string,
+    allowSkip = false,
+): TavernPetMomentResolutionId {
+    if (allowSkip && choiceId === 'skip') {return 'skip';}
+    const choice = assertString(choiceId, detail, 40) as TavernPetMomentChoiceId;
+    if (!MOMENT_CHOICES[momentId].includes(choice)) {return fail(detail);}
+    return choice;
 }
 
 function assertEvolution(value: unknown, detail: string): asserts value is TavernPetEvolutionRequest {
     const request = assertPlainObject(value, [
-        'requestId', 'milestoneId', 'personaId', 'axes', 'stats',
+        'requestId', 'milestoneId', 'personaId', 'traits', 'stats',
         'sourceSessionId', 'sourceTurn', 'sourcePetTurn', 'sourceAnchorOrder',
     ], ['previousPersonaId'], detail);
-    assertString(request.requestId, detail + '.requestId', 240);
-    assertEnum(request.milestoneId, ['adulthood', 'repattern'], detail + '.milestoneId');
-    assertEnum(request.personaId, TAVERN_PET_PERSONA_IDS, detail + '.personaId');
+    assertString(request.requestId, `${detail}.requestId`, 240);
+    const milestoneId = assertEnum(request.milestoneId, ['adulthood', 'repattern'], `${detail}.milestoneId`);
+    assertEnum(request.personaId, TAVERN_PET_PERSONA_IDS, `${detail}.personaId`);
     if (request.previousPersonaId !== undefined) {
-        assertEnum(request.previousPersonaId, TAVERN_PET_PERSONA_IDS, detail + '.previousPersonaId');
+        assertEnum(request.previousPersonaId, TAVERN_PET_PERSONA_IDS, `${detail}.previousPersonaId`);
     }
-    assertAxes(request.axes, detail + '.axes');
-    assertStats(request.stats, detail + '.stats');
-    assertString(request.sourceSessionId, detail + '.sourceSessionId', 240);
-    assertInteger(request.sourceTurn, 0, Number.MAX_SAFE_INTEGER, detail + '.sourceTurn');
-    assertInteger(request.sourcePetTurn, 0, Number.MAX_SAFE_INTEGER, detail + '.sourcePetTurn');
-    assertInteger(request.sourceAnchorOrder, 0, Number.MAX_SAFE_INTEGER, detail + '.sourceAnchorOrder');
+    if (milestoneId === 'adulthood' && request.previousPersonaId !== undefined) {
+        return fail(`${detail}.previousPersonaId`);
+    }
+    if (milestoneId === 'repattern'
+        && (request.previousPersonaId === undefined || request.previousPersonaId === request.personaId)
+    ) {
+        return fail(`${detail}.previousPersonaId`);
+    }
+    assertTraits(request.traits, `${detail}.traits`);
+    assertStats(request.stats, `${detail}.stats`);
+    assertString(request.sourceSessionId, `${detail}.sourceSessionId`, 240);
+    assertInteger(request.sourceTurn, 0, Number.MAX_SAFE_INTEGER, `${detail}.sourceTurn`);
+    assertInteger(request.sourcePetTurn, 0, Number.MAX_SAFE_INTEGER, `${detail}.sourcePetTurn`);
+    assertInteger(request.sourceAnchorOrder, 0, Number.MAX_SAFE_INTEGER, `${detail}.sourceAnchorOrder`);
 }
 
-function assertChatMemory(value: unknown, detail: string): void {
-    const memory = assertPlainObject(value, ['summary', 'recent'], [], detail);
-    assertString(memory.summary, detail + '.summary', 100, true);
-    if (!Array.isArray(memory.recent) || memory.recent.length > 6) {return fail(detail + '.recent');}
+/**
+ * Keep the type transition immediately beside the complete runtime validation.
+ * Callers must never treat a DB payload as an evolution request before this
+ * function returns.
+ */
+function requireEvolution(value: unknown, detail: string): TavernPetEvolutionRequest {
+    assertEvolution(value, detail);
+    return value;
+}
+
+function assertChatMemory(
+    value: unknown,
+    detail: string,
+): asserts value is TavernPetState['chatMemory'] {
+    const memory = assertPlainObject(value, ['summary', 'recent', 'moments'], [], detail);
+    assertString(memory.summary, `${detail}.summary`, 100, true);
+    if (!Array.isArray(memory.recent) || memory.recent.length > 6) {return fail(`${detail}.recent`);}
     memory.recent.forEach((entry, index) => {
-        const round = assertPlainObject(entry, ['playerText', 'petText'], [], [detail, 'recent', String(index)].join('.'));
-        assertString(round.playerText, [detail, 'recent', String(index), 'playerText'].join('.'), 120);
-        assertString(round.petText, [detail, 'recent', String(index), 'petText'].join('.'), 120);
+        const round = assertPlainObject(entry, ['playerText', 'petText'], [], `${detail}.recent.${String(index)}`);
+        assertString(round.playerText, `${detail}.recent.${String(index)}.playerText`, 120);
+        assertString(round.petText, `${detail}.recent.${String(index)}.petText`, 120);
     });
+    if (!Array.isArray(memory.moments) || memory.moments.length > 12) {return fail(`${detail}.moments`);}
+    memory.moments.forEach((entry, index) => assertString(entry, `${detail}.moments.${String(index)}`, 180));
 }
 
 function assertCooldowns(value: unknown, detail: string): void {
     const cooldowns = assertPlainObject(value, [], TAVERN_PET_EVENT_IDS, detail);
     for (const [eventId, remaining] of Object.entries(cooldowns)) {
-        assertEnum(eventId, TAVERN_PET_EVENT_IDS, [detail, eventId, 'id'].join('.'));
-        if (MILESTONE_IDS.has(eventId)) {return fail([detail, eventId].join('.'));}
-        assertInteger(remaining, 1, Number.MAX_SAFE_INTEGER, [detail, eventId].join('.'));
+        assertEnum(eventId, TAVERN_PET_EVENT_IDS, `${detail}.${eventId}.id`);
+        if ((MILESTONE_IDS as readonly string[]).includes(eventId)) {return fail(`${detail}.${eventId}`);}
+        assertInteger(remaining, 1, Number.MAX_SAFE_INTEGER, `${detail}.${eventId}`);
     }
 }
 
 function assertState(value: unknown): asserts value is TavernPetState {
     const state = assertPlainObject(value, [
-        'petTurn', 'phase', 'dormant', 'origin', 'phaseTurnCount', 'axes', 'satiety', 'emotion',
-        'emotionRemainingTurns', 'nestCoins', 'curios', 'interactionWindow', 'idleTurns',
-        'toyCooldownTurns', 'eventCooldowns', 'interferenceEnabled', 'interferenceGateTurns',
-        'chatMemory', 'lifetimeStats',
-    ], [
-        'personaId', 'petName', 'incubation', 'beggingDeadlinePetTurn',
-        'lastEvolutionActiveTurn', 'pendingEvolution',
-    ], 'state');
+        'petTurn', 'phase', 'origin', 'traits', 'appetite', 'emotion',
+        'emotionRemainingTurns', 'nextMomentPetTurn', 'lastMeaningfulInteractionPetTurn',
+        'chatMemory', 'nestCoins', 'curios', 'eventCooldowns', 'interferenceEnabled', 'lifetimeStats',
+    ], ['personaId', 'petName', 'pendingMoment', 'lastEvolutionPetTurn', 'pendingEvolution'], 'state');
     const petTurn = assertInteger(state.petTurn, 0, Number.MAX_SAFE_INTEGER, 'state.petTurn');
     const phase = assertEnum(state.phase, TAVERN_PET_PHASES, 'state.phase');
-    const dormant = assertBoolean(state.dormant, 'state.dormant');
     assertOrigin(state.origin, 'state.origin');
-    const phaseTurnCount = assertInteger(state.phaseTurnCount, 0, Number.MAX_SAFE_INTEGER, 'state.phaseTurnCount');
-    assertAxes(state.axes, 'state.axes');
-    const satiety = assertInteger(state.satiety, 0, 100, 'state.satiety');
+    assertTraits(state.traits, 'state.traits');
+    assertInteger(state.appetite, 0, 100, 'state.appetite');
     const emotion = assertEnum(state.emotion, TAVERN_PET_EMOTIONS, 'state.emotion');
-    const emotionTurns = assertInteger(state.emotionRemainingTurns, 0, 5, 'state.emotionRemainingTurns');
-    if ((emotion === 'calm' || emotion === 'bored') && emotionTurns !== 0) {
+    const emotionRemainingTurns = assertInteger(state.emotionRemainingTurns, 0, 5, 'state.emotionRemainingTurns');
+    if ((emotion === 'calm' || emotion === 'bored') && emotionRemainingTurns !== 0) {
         return fail('state.emotionRemainingTurns');
     }
+    assertInteger(state.nextMomentPetTurn, 0, Number.MAX_SAFE_INTEGER, 'state.nextMomentPetTurn');
+    const lastMeaningful = assertInteger(
+        state.lastMeaningfulInteractionPetTurn,
+        0,
+        petTurn,
+        'state.lastMeaningfulInteractionPetTurn',
+    );
+    void lastMeaningful;
     if (state.personaId !== undefined) {assertEnum(state.personaId, TAVERN_PET_PERSONA_IDS, 'state.personaId');}
     if (state.petName !== undefined) {assertString(state.petName, 'state.petName', 12);}
+    const pendingMoment = state.pendingMoment;
+    if (pendingMoment !== undefined) {
+        assertMoment(pendingMoment, 'state.pendingMoment');
+    }
+    if (state.lastEvolutionPetTurn !== undefined) {
+        assertInteger(state.lastEvolutionPetTurn, 0, petTurn, 'state.lastEvolutionPetTurn');
+    }
+    const pendingEvolution = state.pendingEvolution === undefined
+        ? undefined
+        : requireEvolution(state.pendingEvolution, 'state.pendingEvolution');
+    if (pendingEvolution !== undefined) {
+        if (pendingEvolution.sourcePetTurn > petTurn) {return fail('state.pendingEvolution.sourcePetTurn');}
+    }
+    const chatMemory = state.chatMemory;
+    assertChatMemory(chatMemory, 'state.chatMemory');
     assertInteger(state.nestCoins, 0, Number.MAX_SAFE_INTEGER, 'state.nestCoins');
     if (!Array.isArray(state.curios) || new Set(state.curios).size !== state.curios.length) {
         return fail('state.curios');
     }
-    state.curios.forEach((curio, index) => assertEnum(curio, TAVERN_PET_CURIO_IDS, ['state.curios', String(index)].join('.')));
-    if (state.incubation !== undefined) {
-        const incubation = assertPlainObject(state.incubation, ['feedCount', 'tapCount', 'bgmCount'], [], 'state.incubation');
-        assertInteger(incubation.feedCount, 0, Number.MAX_SAFE_INTEGER, 'state.incubation.feedCount');
-        assertInteger(incubation.tapCount, 0, Number.MAX_SAFE_INTEGER, 'state.incubation.tapCount');
-        assertInteger(incubation.bgmCount, 0, Number.MAX_SAFE_INTEGER, 'state.incubation.bgmCount');
-    }
-    assertWindow(state.interactionWindow, 'state.interactionWindow');
-    if (state.interactionWindow.petTurn > petTurn) {return fail('state.interactionWindow.petTurn');}
-    assertInteger(state.idleTurns, 0, Number.MAX_SAFE_INTEGER, 'state.idleTurns');
-    if (state.beggingDeadlinePetTurn !== undefined) {
-        assertInteger(state.beggingDeadlinePetTurn, 0, Number.MAX_SAFE_INTEGER, 'state.beggingDeadlinePetTurn');
-    }
-    assertInteger(state.toyCooldownTurns, 0, 3, 'state.toyCooldownTurns');
+    state.curios.forEach((curio, index) => assertEnum(curio, TAVERN_PET_CURIO_IDS, `state.curios.${String(index)}`));
     assertCooldowns(state.eventCooldowns, 'state.eventCooldowns');
     assertBoolean(state.interferenceEnabled, 'state.interferenceEnabled');
-    assertInteger(state.interferenceGateTurns, 0, 15, 'state.interferenceGateTurns');
-    if (state.lastEvolutionActiveTurn !== undefined) {
-        assertInteger(state.lastEvolutionActiveTurn, 0, phaseTurnCount, 'state.lastEvolutionActiveTurn');
-    }
-    if (state.pendingEvolution !== undefined) {
-        assertEvolution(state.pendingEvolution, 'state.pendingEvolution');
-        if (state.pendingEvolution.sourcePetTurn > petTurn) {
-            return fail('state.pendingEvolution.sourcePetTurn');
-        }
-    }
-    assertChatMemory(state.chatMemory, 'state.chatMemory');
     assertStats(state.lifetimeStats, 'state.lifetimeStats');
 
-    const incubation = state.incubation as TavernPetState['incubation'];
-    const personaId = state.personaId as TavernPetState['personaId'];
-    const pending = state.pendingEvolution as TavernPetState['pendingEvolution'];
-    if (phase === 'luring') {
-        if (dormant
-            || satiety !== 0
-            || phaseTurnCount >= state.origin.arrivalAfterTurns
-            || incubation !== undefined
-            || personaId !== undefined
-            || state.petName !== undefined
-            || state.lastEvolutionActiveTurn !== undefined
-            || pending !== undefined
-        ) {
-            return fail('state.luring');
-        }
-        return;
-    }
-    if (dormant !== (satiety === 0)) {return fail('state.dormant-satiety');}
     if (phase === 'egg') {
-        if (!incubation
-            || personaId !== undefined
-            || phaseTurnCount > 7
-            || state.lastEvolutionActiveTurn !== undefined
-            || pending !== undefined
+        if (petTurn !== 0
+            || state.personaId !== undefined
+            || state.pendingMoment !== undefined
+            || state.lastEvolutionPetTurn !== undefined
+            || state.pendingEvolution !== undefined
+            || chatMemory.summary
+            || chatMemory.recent.length
+            || chatMemory.moments.length
         ) {
             return fail('state.egg');
         }
-    } else if (incubation !== undefined) {
-        return fail('state.incubation-phase');
+        return;
     }
-    if (phase === 'juvenile' && (personaId !== undefined
-        || phaseTurnCount > 39
-        || state.lastEvolutionActiveTurn !== undefined
-        || pending !== undefined
-    )) {
-        return fail('state.juvenile-persona');
+    if (phase === 'juvenile') {
+        if (petTurn < 1
+            || petTurn > 24
+            || state.personaId !== undefined
+            || state.lastEvolutionPetTurn !== undefined
+            || state.pendingEvolution !== undefined
+        ) {
+            return fail('state.juvenile');
+        }
+        return;
     }
-    if (phase === 'adult' && (personaId === undefined || state.lastEvolutionActiveTurn === undefined)) {
-        return fail('state.adult-persona');
+    if (petTurn < 25 || state.personaId === undefined || state.lastEvolutionPetTurn === undefined) {
+        return fail('state.adult');
     }
-    if (pending && (phase !== 'adult' || pending.personaId !== personaId)) {
-        return fail('state.pendingEvolution.persona');
-    }
-    if (pending?.milestoneId === 'adulthood' && pending.previousPersonaId !== undefined) {
-        return fail('state.pendingEvolution.previousPersonaId');
-    }
-    if (pending?.milestoneId === 'repattern'
-        && (!pending.previousPersonaId || pending.previousPersonaId === pending.personaId)
-    ) {
-        return fail('state.pendingEvolution.previousPersonaId');
+    if (pendingEvolution !== undefined && pendingEvolution.personaId !== state.personaId) {
+        return fail('state.pendingEvolution.personaId');
     }
 }
 
@@ -291,19 +315,21 @@ function assertChatResponse(value: unknown, detail: string): asserts value is Ta
     const response = assertPlainObject(value, [
         'face', 'text', 'motion', 'emotionShift', 'murmur', 'summaryUpdate',
     ], [], detail);
-    assertString(response.face, detail + '.face', 80);
-    assertString(response.text, detail + '.text', 120);
-    assertEnum(response.motion, ['none', 'shake', 'bounce', 'turn-away', 'hide', 'approach', 'stare'], detail + '.motion');
-    if (response.emotionShift !== null) {assertEnum(response.emotionShift, TAVERN_PET_EMOTIONS, detail + '.emotionShift');}
-    if (response.murmur !== null) {assertString(response.murmur, detail + '.murmur', 30);}
-    if (response.summaryUpdate !== null) {assertString(response.summaryUpdate, detail + '.summaryUpdate', 100);}
+    assertFace(response.face, `${detail}.face`);
+    assertString(response.text, `${detail}.text`, 120);
+    assertMotion(response.motion, `${detail}.motion`);
+    if (response.emotionShift !== null) {
+        assertEnum(response.emotionShift, TAVERN_PET_EMOTIONS, `${detail}.emotionShift`);
+    }
+    if (response.murmur !== null) {assertString(response.murmur, `${detail}.murmur`, 30);}
+    if (response.summaryUpdate !== null) {assertString(response.summaryUpdate, `${detail}.summaryUpdate`, 100);}
 }
 
 function assertJournalDetail(value: unknown, detail: string): asserts value is TavernPetJournalDetail {
-    if (!isRecord(value)) {return fail(detail + '.shape');}
+    if (!isRecord(value)) {return fail(`${detail}.shape`);}
     if (value.kind === 'event') {
-        const eventId = assertEnum(value.eventId, TAVERN_PET_EVENT_IDS, detail + '.eventId');
-        if (MILESTONE_IDS.has(eventId)) {return fail(detail + '.eventId');}
+        const eventId = assertEnum(value.eventId, TAVERN_PET_EVENT_IDS, `${detail}.eventId`);
+        if ((MILESTONE_IDS as readonly string[]).includes(eventId)) {return fail(`${detail}.eventId`);}
         const event = assertPlainObject(
             value,
             isTavernPetInterferenceEventId(eventId)
@@ -312,11 +338,11 @@ function assertJournalDetail(value: unknown, detail: string): asserts value is T
             [],
             detail,
         );
-        assertString(event.renderedText, detail + '.renderedText', 500);
-        assertString(event.face, detail + '.face', 80);
-        assertEnum(event.motion, ['none', 'shake', 'bounce', 'turn-away', 'hide', 'approach', 'stare'], detail + '.motion');
+        assertString(event.renderedText, `${detail}.renderedText`, 500);
+        assertFace(event.face, `${detail}.face`);
+        assertMotion(event.motion, `${detail}.motion`);
         if (isTavernPetInterferenceEventId(eventId)) {
-            assertString(event.injectedText, detail + '.injectedText', 500);
+            assertString(event.injectedText, `${detail}.injectedText`, 500);
         }
         return;
     }
@@ -324,62 +350,79 @@ function assertJournalDetail(value: unknown, detail: string): asserts value is T
         const milestone = assertPlainObject(value, [
             'kind', 'milestoneId', 'renderedText', 'motion', 'milestonePetTurn', 'milestoneSourceAnchorOrder',
         ], ['personaId', 'verdict'], detail);
-        assertEnum(milestone.milestoneId, ['arrival', 'hatch', 'adulthood', 'repattern'], detail + '.milestoneId');
-        assertString(milestone.renderedText, detail + '.renderedText', 500);
-        if (milestone.motion !== 'bounce') {return fail(detail + '.motion');}
-        assertInteger(milestone.milestonePetTurn, 0, Number.MAX_SAFE_INTEGER, detail + '.milestonePetTurn');
-        assertInteger(milestone.milestoneSourceAnchorOrder, 0, Number.MAX_SAFE_INTEGER, detail + '.milestoneSourceAnchorOrder');
-        if (milestone.personaId !== undefined) {
-            assertEnum(milestone.personaId, TAVERN_PET_PERSONA_IDS, detail + '.personaId');
-        }
-        if (milestone.verdict !== undefined && !isTavernPetVerdictText(String(milestone.verdict))) {
-            return fail(detail + '.verdict');
+        const milestoneId = assertEnum(milestone.milestoneId, MILESTONE_IDS, `${detail}.milestoneId`);
+        assertString(milestone.renderedText, `${detail}.renderedText`, 500);
+        if (milestone.motion !== 'bounce') {return fail(`${detail}.motion`);}
+        assertInteger(milestone.milestonePetTurn, 0, Number.MAX_SAFE_INTEGER, `${detail}.milestonePetTurn`);
+        assertInteger(milestone.milestoneSourceAnchorOrder, 0, Number.MAX_SAFE_INTEGER, `${detail}.milestoneSourceAnchorOrder`);
+        if (milestoneId === 'adulthood' || milestoneId === 'repattern') {
+            assertEnum(milestone.personaId, TAVERN_PET_PERSONA_IDS, `${detail}.personaId`);
+            if (!isTavernPetVerdictText(String(milestone.verdict || ''))) {return fail(`${detail}.verdict`);}
+        } else if (milestone.personaId !== undefined || milestone.verdict !== undefined) {
+            return fail(`${detail}.persona`);
         }
         return;
     }
     if (value.kind === 'chat') {
         const chat = assertPlainObject(value, ['kind', 'playerText', 'petText', 'face', 'motion'], ['murmur'], detail);
-        assertString(chat.playerText, detail + '.playerText', 120);
-        assertString(chat.petText, detail + '.petText', 120);
-        assertString(chat.face, detail + '.face', 80);
-        assertEnum(chat.motion, ['none', 'shake', 'bounce', 'turn-away', 'hide', 'approach', 'stare'], detail + '.motion');
-        if (chat.murmur !== undefined) {assertString(chat.murmur, detail + '.murmur', 30);}
+        assertString(chat.playerText, `${detail}.playerText`, 120);
+        assertString(chat.petText, `${detail}.petText`, 120);
+        assertFace(chat.face, `${detail}.face`);
+        assertMotion(chat.motion, `${detail}.motion`);
+        if (chat.murmur !== undefined) {assertString(chat.murmur, `${detail}.murmur`, 30);}
         return;
     }
-    if (value.kind === 'status') {
-        const status = assertPlainObject(value, ['kind', 'status', 'renderedText', 'motion'], [], detail);
-        assertEnum(status.status, ['dormant', 'woke'], detail + '.status');
-        assertString(status.renderedText, detail + '.renderedText', 500);
-        assertEnum(status.motion, ['none', 'shake', 'bounce', 'turn-away', 'hide', 'approach', 'stare'], detail + '.motion');
+    if (value.kind === 'moment') {
+        const moment = assertPlainObject(value, ['kind', 'momentId', 'choiceId', 'renderedText', 'motion'], [], detail);
+        const momentId = assertEnum(moment.momentId, TAVERN_PET_MOMENT_IDS, `${detail}.momentId`);
+        assertMomentChoice(momentId, moment.choiceId, `${detail}.choiceId`, true);
+        assertString(moment.renderedText, `${detail}.renderedText`, 500);
+        assertMotion(moment.motion, `${detail}.motion`);
         return;
     }
-    return fail(detail + '.kind');
+    return fail(`${detail}.kind`);
 }
 
 function assertJournalDraft(value: unknown, detail: string): asserts value is TavernPetJournalDraft {
     const draft = assertPlainObject(value, ['detail', 'coinDelta'], ['notificationText'], detail);
-    assertJournalDetail(draft.detail, detail + '.detail');
-    assertInteger(draft.coinDelta, -40, 40, detail + '.coinDelta');
-    if (draft.notificationText !== undefined) {assertString(draft.notificationText, detail + '.notificationText', 240);}
+    assertJournalDetail(draft.detail, `${detail}.detail`);
+    assertInteger(draft.coinDelta, -40, 40, `${detail}.coinDelta`);
+    if (draft.notificationText !== undefined) {assertString(draft.notificationText, `${detail}.notificationText`, 240);}
+}
+
+/** Same validated-boundary helper as requireEvolution for action payloads. */
+function requireJournalDraft(value: unknown, detail: string): TavernPetJournalDraft {
+    assertJournalDraft(value, detail);
+    return value;
 }
 
 function assertTurnOutcome(value: unknown, detail: string): asserts value is TavernPetTurnOutcome {
     const outcome = assertPlainObject(value, [], ['eventId', 'milestoneId', 'journal', 'coinEffect'], detail);
-    if (outcome.eventId !== undefined) {assertEnum(outcome.eventId, TAVERN_PET_EVENT_IDS, detail + '.eventId');}
-    if (outcome.milestoneId !== undefined) {
-        assertEnum(outcome.milestoneId, ['arrival', 'hatch', 'adulthood', 'repattern'], detail + '.milestoneId');
-    }
-    if (outcome.journal !== undefined) {assertJournalDraft(outcome.journal, detail + '.journal');}
+    if (outcome.eventId !== undefined) {assertEnum(outcome.eventId, TAVERN_PET_EVENT_IDS, `${detail}.eventId`);}
+    if (outcome.milestoneId !== undefined) {assertEnum(outcome.milestoneId, MILESTONE_IDS, `${detail}.milestoneId`);}
+    if (outcome.eventId !== undefined && outcome.milestoneId !== undefined) {return fail(`${detail}.kind`);}
+    const journal = outcome.journal === undefined
+        ? undefined
+        : requireJournalDraft(outcome.journal, `${detail}.journal`);
+    if (outcome.eventId !== undefined
+        && journal !== undefined
+        && journal.detail.kind !== 'event'
+    ) {return fail(`${detail}.eventJournal`);}
+    if (outcome.milestoneId !== undefined
+        && journal !== undefined
+        && journal.detail.kind !== 'milestone'
+    ) {return fail(`${detail}.milestoneJournal`);}
     if (outcome.coinEffect !== undefined) {
         const coin = assertPlainObject(outcome.coinEffect, [
             'amount', 'direction', 'kind', 'idempotencyKey', 'title', 'sourceId',
-        ], [], detail + '.coinEffect');
-        assertInteger(coin.amount, 1, 40, detail + '.coinEffect.amount');
-        assertEnum(coin.direction, ['debit', 'credit'], detail + '.coinEffect.direction');
-        assertEnum(coin.kind, ['pet_steal', 'pet_hoard', 'pet_find', 'pet_gift', 'pet_return'], detail + '.coinEffect.kind');
-        assertString(coin.idempotencyKey, detail + '.coinEffect.idempotencyKey', 240);
-        assertString(coin.title, detail + '.coinEffect.title', 140);
-        assertString(coin.sourceId, detail + '.coinEffect.sourceId', 180);
+        ], [], `${detail}.coinEffect`);
+        assertInteger(coin.amount, 1, 40, `${detail}.coinEffect.amount`);
+        assertEnum(coin.direction, ['debit', 'credit'], `${detail}.coinEffect.direction`);
+        assertEnum(coin.kind, ['pet_steal', 'pet_hoard', 'pet_find', 'pet_gift', 'pet_return'], `${detail}.coinEffect.kind`);
+        assertString(coin.idempotencyKey, `${detail}.coinEffect.idempotencyKey`, 240);
+        assertString(coin.title, `${detail}.coinEffect.title`, 140);
+        assertString(coin.sourceId, `${detail}.coinEffect.sourceId`, 180);
+        if (!journal || journal.coinDelta === 0) {return fail(`${detail}.coinEffect.journal`);}
     }
 }
 
@@ -388,15 +431,15 @@ function assertTurnContext(value: unknown, detail: string): void {
         'sourceSessionId', 'sourceTurn', 'sourceAnchorOrder', 'petTurn',
         'recentExternalSpend', 'playerBalance', 'knownTargetName', 'evolutionRequestId',
     ], [], detail);
-    assertString(context.sourceSessionId, detail + '.sourceSessionId', 240);
-    assertInteger(context.sourceTurn, 0, Number.MAX_SAFE_INTEGER, detail + '.sourceTurn');
-    assertInteger(context.sourceAnchorOrder, 0, Number.MAX_SAFE_INTEGER, detail + '.sourceAnchorOrder');
-    assertInteger(context.petTurn, 1, Number.MAX_SAFE_INTEGER, detail + '.petTurn');
-    assertInteger(context.recentExternalSpend, 0, Number.MAX_SAFE_INTEGER, detail + '.recentExternalSpend');
-    assertInteger(context.playerBalance, 0, Number.MAX_SAFE_INTEGER, detail + '.playerBalance');
-    const knownTargetName = assertString(context.knownTargetName, detail + '.knownTargetName', 40, true);
-    if (/[<>&]/u.test(knownTargetName)) {return fail(detail + '.knownTargetName');}
-    assertString(context.evolutionRequestId, detail + '.evolutionRequestId', 240);
+    assertString(context.sourceSessionId, `${detail}.sourceSessionId`, 240);
+    assertInteger(context.sourceTurn, 0, Number.MAX_SAFE_INTEGER, `${detail}.sourceTurn`);
+    assertInteger(context.sourceAnchorOrder, 0, Number.MAX_SAFE_INTEGER, `${detail}.sourceAnchorOrder`);
+    assertInteger(context.petTurn, 1, Number.MAX_SAFE_INTEGER, `${detail}.petTurn`);
+    assertInteger(context.recentExternalSpend, 0, Number.MAX_SAFE_INTEGER, `${detail}.recentExternalSpend`);
+    assertInteger(context.playerBalance, 0, Number.MAX_SAFE_INTEGER, `${detail}.playerBalance`);
+    const knownTargetName = assertString(context.knownTargetName, `${detail}.knownTargetName`, 40, true);
+    if (/[<>&]/u.test(knownTargetName)) {return fail(`${detail}.knownTargetName`);}
+    assertString(context.evolutionRequestId, `${detail}.evolutionRequestId`, 240);
 }
 
 function assertAction(value: unknown): asserts value is TavernPetStateAction {
@@ -408,14 +451,7 @@ function assertAction(value: unknown): asserts value is TavernPetStateAction {
     }
     if (value.kind === 'interact') {
         const action = assertPlainObject(value, ['kind', 'interactionId'], [], 'action');
-        const interaction = assertEnum(action.interactionId, TAVERN_PET_INTERACTION_IDS, 'action.interactionId');
-        if (interaction === 'lure' || interaction === 'chat' || interaction === 'wake') {
-            return fail('action.interactionId');
-        }
-        return;
-    }
-    if (value.kind === 'wake') {
-        assertPlainObject(value, ['kind'], [], 'action');
+        if (action.interactionId !== 'feed' && action.interactionId !== 'toy') {return fail('action.interactionId');}
         return;
     }
     if (value.kind === 'rename') {
@@ -435,16 +471,26 @@ function assertAction(value: unknown): asserts value is TavernPetStateAction {
         return;
     }
     if (value.kind === 'chat') {
-        const action = assertPlainObject(value, ['kind', 'playerText', 'response', 'appliedAxes'], [], 'action');
+        const action = assertPlainObject(value, ['kind', 'playerText', 'response'], [], 'action');
         assertString(action.playerText, 'action.playerText', 120);
         assertChatResponse(action.response, 'action.response');
-        assertBoolean(action.appliedAxes, 'action.appliedAxes');
+        return;
+    }
+    if (value.kind === 'resolve-moment') {
+        const action = assertPlainObject(value, ['kind', 'momentId', 'choiceId'], [], 'action');
+        const momentId = assertEnum(action.momentId, TAVERN_PET_MOMENT_IDS, 'action.momentId');
+        assertMomentChoice(momentId, action.choiceId, 'action.choiceId');
+        return;
+    }
+    if (value.kind === 'skip-moment') {
+        const action = assertPlainObject(value, ['kind', 'momentId'], [], 'action');
+        assertEnum(action.momentId, TAVERN_PET_MOMENT_IDS, 'action.momentId');
         return;
     }
     if (value.kind === 'resolve-evolution') {
         const action = assertPlainObject(value, ['kind', 'requestId', 'verdict', 'usedFallback'], [], 'action');
         assertString(action.requestId, 'action.requestId', 240);
-        if (!isTavernPetVerdictText(String(action.verdict))) {return fail('action.verdict');}
+        if (!isTavernPetVerdictText(String(action.verdict || ''))) {return fail('action.verdict');}
         assertBoolean(action.usedFallback, 'action.usedFallback');
         return;
     }
@@ -456,9 +502,7 @@ export function assertTavernPetStateInvariant(state: TavernPetState): void {
 }
 
 export function parseCanonicalTavernPetCompanionRecord(value: unknown): TavernPetCompanionRecord {
-    const record = assertPlainObject(value, [
-        'id', 'revision', 'versionId', 'state', 'createdAt', 'updatedAt',
-    ], [], 'companion');
+    const record = assertPlainObject(value, ['id', 'revision', 'versionId', 'state', 'createdAt', 'updatedAt'], [], 'companion');
     if (record.id !== TAVERN_PET_COMPANION_ID) {return fail('companion.id');}
     assertInteger(record.revision, 1, Number.MAX_SAFE_INTEGER, 'companion.revision');
     assertString(record.versionId, 'companion.versionId', 240);

@@ -14,12 +14,12 @@ import {
     getTavernPetPrivateSnapshotForChat,
     interactWithTavernPet,
     letTavernPetLeave,
-    listTavernPetJournalByIds,
     lureTavernPet,
     renameTavernPet,
     resolveTavernPetEvolution,
+    resolveTavernPetMoment,
     setTavernPetInterferenceEnabled,
-    wakeTavernPet,
+    skipTavernPetMoment,
 } from '../../../../../shared/pet/pet-service';
 import {
     buildTavernPetChatMessages,
@@ -33,6 +33,8 @@ import type {
     TavernPetAvailableAction,
     TavernPetInteractionId,
     TavernPetJournalRecord,
+    TavernPetMomentChoiceId,
+    TavernPetMomentId,
     TavernPetMutationBoundary,
     TavernPetMutationResult,
     TavernPetView,
@@ -54,7 +56,8 @@ import {
 } from './tavern-pet-presentation';
 
 type TavernPetModelRunner = (options: TavernRunOnceOptions) => Promise<TavernRunOnceResult>;
-type TavernPetMutationKind = Exclude<TavernPetInteractionId, 'chat'> | 'rename' | 'toggle-interference' | 'leave';
+type TavernPetMutationKind = Exclude<TavernPetInteractionId, 'chat'>
+    | 'rename' | 'toggle-interference' | 'leave' | 'resolve-moment' | 'skip-moment';
 type TavernPetModelRequestKind = '' | 'chat' | 'evolution';
 
 export interface TavernPetControllerOptions {
@@ -91,8 +94,7 @@ function emptyTavernPetView(): TavernPetView {
         revision: 0,
         versionId: '',
         existence: 'undiscovered',
-        dormant: false,
-        displayName: '？？？',
+        displayName: '暗室空着',
         pendingEvolution: false,
         interferenceEnabled: true,
         nest: { coins: 0, curios: [] },
@@ -109,6 +111,13 @@ function cloneSerializable<T>(value: T): T {
     return JSON.parse(JSON.stringify(value)) as T;
 }
 
+function isTavernPetHomeNoticeJournal(entry: TavernPetJournalRecord): boolean {
+    if (entry.detail.kind === 'milestone') {
+        return entry.detail.milestoneId !== 'arrival';
+    }
+    return entry.detail.kind === 'event' && Boolean(entry.notificationText);
+}
+
 export function useTavernPetController(options: TavernPetControllerOptions) {
     const view = ref<TavernPetView>(emptyTavernPetView());
     const journal = ref<ReturnType<typeof projectTavernPetJournalRows>>([]);
@@ -117,6 +126,7 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
     const actionError = ref('');
     const chatError = ref('');
     const status = ref('');
+    const homeNotice = ref(false);
     const busyAction = ref('');
     const modelRequestKind = ref<TavernPetModelRequestKind>('');
     const chatInput = ref('');
@@ -136,6 +146,8 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
     let modelEpoch = 0;
     let pendingLookup = false;
     let pendingScheduleQueued = false;
+    let knownPendingMomentId = '';
+    let knownPendingEvolution = false;
     let murmurTimer: ReturnType<typeof setTimeout> | null = null;
     const seenJournalIds = new Set<string>();
     const modelRunner = options.runModel || runTavernOnce;
@@ -148,7 +160,6 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
         view.value.specimenLabel
         && view.value.displayName !== view.value.specimenLabel
         && view.value.phase !== 'egg'
-        && view.value.phase !== 'luring'
     ));
     const isChatWaiting = computed(() => modelRequestKind.value === 'chat');
     const isModelWaiting = computed(() => modelRequestKind.value !== '');
@@ -188,6 +199,8 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
         clearMurmurTimer();
         pendingLookup = false;
         pendingScheduleQueued = false;
+        knownPendingMomentId = '';
+        knownPendingEvolution = false;
         seenJournalIds.clear();
         view.value = emptyTavernPetView();
         journal.value = [];
@@ -196,6 +209,7 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
         actionError.value = '';
         chatError.value = '';
         status.value = '';
+        homeNotice.value = false;
         chatInput.value = '';
         nestOpen.value = false;
         namingOpen.value = false;
@@ -216,6 +230,7 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
         }
         if (loading.value) {return '住户的数据还在读取。';}
         if (loadError.value) {return '住户的数据暂时读不到。';}
+        if (modelOwner) {return '它正忙着开口，等它说完。';}
         return '';
     }
 
@@ -229,7 +244,6 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
         const blocked = baseInteractionBlockedReason();
         if (blocked) {return blocked;}
         if (mutationOwner || busyAction.value) {return '它还在反应……';}
-        if (modelRequestKind.value === 'chat') {return '它还在反应……';}
         return action.enabled ? '' : action.reason;
     }
 
@@ -237,11 +251,11 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
         const blocked = baseInteractionBlockedReason();
         if (blocked) {return blocked;}
         if (options.chatRunning.value || options.chatCancelling.value) {return '角色正在回复';}
-        if (mutationOwner || modelOwner) {return '它还在反应……';}
+        if (mutationOwner) {return '它还在反应……';}
         const action = findAction('chat');
+        if (view.value.phase === 'egg') {return '';}
         if (action) {return action.enabled ? '' : action.reason;}
-        if (view.value.dormant) {return '它睡着了';}
-        return '它还不会说话';
+        return '它还没破壳';
     });
     const canSubmitChat = computed(() => (
         !chatBlockedReason.value && Boolean(String(chatInput.value || '').trim())
@@ -255,6 +269,21 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
         view.value = nextView;
         journal.value = projectTavernPetJournalRows(nextJournal);
         latestJournalId.value = nextJournal[0]?.id || '';
+        const nextPendingMomentId = nextView.pendingMoment?.id || '';
+        const nextPendingEvolution = nextView.pendingEvolution === true;
+        if (input.baseline) {
+            knownPendingMomentId = nextPendingMomentId;
+            knownPendingEvolution = nextPendingEvolution;
+            nextJournal.forEach((entry) => seenJournalIds.add(entry.id));
+        } else {
+            if ((nextPendingMomentId && nextPendingMomentId !== knownPendingMomentId)
+                || (nextPendingEvolution && !knownPendingEvolution)
+            ) {
+                homeNotice.value = true;
+            }
+            knownPendingMomentId = nextPendingMomentId;
+            knownPendingEvolution = nextPendingEvolution;
+        }
         if (nextView.existence !== 'present') {
             nestOpen.value = false;
             namingOpen.value = false;
@@ -262,22 +291,19 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
             leaveConfirmOpen.value = false;
         }
         if (input.clearTemporary !== false) {temporaryUtterance.value = null;}
-        if (input.baseline) {
-            nextJournal.forEach((entry) => seenJournalIds.add(entry.id));
-        }
     }
 
     async function refreshPet(input: {
         baseline?: boolean;
         visibleLoading?: boolean;
         clearTemporary?: boolean;
-    } = {}): Promise<void> {
+    } = {}): Promise<{ view: TavernPetView; journal: TavernPetJournalRecord[] } | null> {
         const sessionId = currentSessionId();
         const sequence = ++readSequence;
         const readStateRevision = stateRevision;
         if (!sessionId) {
             resetState();
-            return;
+            return null;
         }
         if (input.visibleLoading !== false) {loading.value = true;}
         loadError.value = '';
@@ -286,15 +312,17 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
             if (sequence !== readSequence
                 || readStateRevision !== stateRevision
                 || sessionId !== currentSessionId()
-            ) {return;}
+            ) {return null;}
             applyPetSnapshot(snapshot.view, snapshot.journal, input);
             preparedSessionId = sessionId;
+            return snapshot;
         } catch (error) {
             if (sequence !== readSequence
                 || readStateRevision !== stateRevision
                 || sessionId !== currentSessionId()
-            ) {return;}
+            ) {return null;}
             loadError.value = tavernPetUiError(error).message;
+            return null;
         } finally {
             if (sequence === readSequence) {loading.value = false;}
         }
@@ -381,7 +409,7 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
             return null;
         }
         const sessionId = currentSessionId();
-        if (!sessionId || mutationOwner || modelRequestKind.value === 'chat') {return null;}
+        if (!sessionId || mutationOwner || modelOwner) {return null;}
         const owner = { sessionId, actionKey: kind, epoch: mutationEpoch };
         mutationOwner = owner;
         busyAction.value = kind;
@@ -436,6 +464,36 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
         }
     }
 
+    function giftReaction(kind: TavernPetMutationKind): void {
+        const current = view.value;
+        if (current.existence !== 'present') {return;}
+        const egg = current.phase === 'egg';
+        const reactions = kind === 'feed'
+            ? egg
+                ? [
+                    { face: '(🥚)', text: '壳轻轻晃了一下。像是高兴。', motion: 'bounce' as const },
+                    { face: '(🥚)', text: '里面传出很轻的磕碰声。', motion: 'shake' as const },
+                ]
+                : [
+                    { face: current.currentFace || '·', text: '它把食物拖进了角落。', motion: 'approach' as const },
+                    { face: current.currentFace || '·', text: '它把碗底舔出了一个亮圈。', motion: 'stare' as const },
+                    { face: current.currentFace || '·', text: '食物少了三分之一。它什么都没承认。', motion: 'turn-away' as const },
+                ]
+            : [
+                { face: current.currentFace || '·', text: '它把玩具拨来拨去。', motion: 'bounce' as const },
+                { face: current.currentFace || '·', text: '它把玩具压在身下，慢慢推到窝边。', motion: 'approach' as const },
+                { face: current.currentFace || '·', text: '它把玩具藏进了窝里，又拿出来。', motion: 'hide' as const },
+            ];
+        const reaction = reactions[Math.floor(Math.random() * reactions.length)];
+        temporaryUtterance.value = {
+            key: `pet-gift:${kind}:${Date.now()}`,
+            face: reaction.face,
+            text: reaction.text,
+            motion: reaction.motion,
+        };
+        armMurmur('');
+    }
+
     async function performAction(actionId: TavernPetInteractionId): Promise<TavernPetMutationResult | null> {
         const action = findAction(actionId);
         if (!action) {return null;}
@@ -451,21 +509,68 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
         if (actionId === 'lure') {
             return await runMutation('lure', (boundary) => lureTavernPet(boundary));
         }
-        if (actionId === 'wake') {
-            return await runMutation('wake', (boundary) => wakeTavernPet(boundary));
-        }
-        return await runMutation(actionId, (boundary) => interactWithTavernPet({
+        const result = await runMutation(actionId, (boundary) => interactWithTavernPet({
             ...boundary,
             interactionId: actionId,
         }));
+        if (result) {giftReaction(actionId);}
+        return result;
+    }
+
+    function touchStage(): void {
+        const current = view.value;
+        const reactions = current.existence === 'undiscovered'
+            ? [{ face: '◌', text: '暗室里什么都没有。', motion: 'none' as const }]
+            : current.phase === 'egg'
+                ? [
+                    { face: '(🥚)', text: '……咚。', motion: 'shake' as const },
+                    { face: '(🥚)', text: '（蛋壳里面蹭了一下）', motion: 'bounce' as const },
+                    { face: '(🥚)', text: '( •̀ _ •́ )?', motion: 'stare' as const },
+                ]
+                : [
+                    { face: current.currentFace || '·', text: '它看了你一眼。', motion: 'stare' as const },
+                    { face: current.currentFace || '·', text: '它往前蹭了一点。', motion: 'approach' as const },
+                    { face: current.currentFace || '·', text: '它把脸藏了一下。', motion: 'hide' as const },
+                    { face: current.currentFace || '·', text: '它轻轻晃了晃。', motion: 'shake' as const },
+                ];
+        const reaction = reactions[Math.floor(Math.random() * reactions.length)];
+        temporaryUtterance.value = {
+            key: `pet-touch:${Date.now()}`,
+            face: reaction.face,
+            text: reaction.text,
+            motion: reaction.motion,
+        };
+        armMurmur('');
+    }
+
+    async function resolveMoment(
+        momentId: TavernPetMomentId,
+        choiceId: TavernPetMomentChoiceId,
+    ): Promise<TavernPetMutationResult | null> {
+        if (view.value.pendingMoment?.id !== momentId) {return null;}
+        return await runMutation('resolve-moment', (boundary) => resolveTavernPetMoment({
+            ...boundary,
+            momentId,
+            choiceId,
+        }));
+    }
+
+    async function skipMoment(momentId: TavernPetMomentId): Promise<TavernPetMutationResult | null> {
+        if (view.value.pendingMoment?.id !== momentId) {return null;}
+        return await runMutation('skip-moment', (boundary) => skipTavernPetMoment({ ...boundary, momentId }));
     }
 
     function openNest(): void {
-        if (view.value.existence !== 'present' || view.value.phase === 'luring') {return;}
+        if (view.value.existence !== 'present') {return;}
         nestOpen.value = true;
     }
 
-    function closeNest(): void {
+    function clearHomeNotice(): void {
+        homeNotice.value = false;
+    }
+
+    function closeNest(force = false): void {
+        if (!force && (mutationOwner || busyAction.value)) {return;}
         nestOpen.value = false;
     }
 
@@ -483,12 +588,12 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
 
     function deactivatePet(): void {
         closeNaming();
-        closeNest();
+        closeNest(true);
         closeLeaveConfirmation();
     }
 
     function openLeaveConfirmation(): void {
-        if (view.value.existence !== 'present' || mutationOwner || busyAction.value) {return;}
+        if (view.value.existence !== 'present' || mutationOwner || modelOwner || busyAction.value) {return;}
         actionError.value = '';
         leaveConfirmOpen.value = true;
     }
@@ -567,6 +672,18 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
         armMurmur('');
     }
 
+    function showEggChatResponse(): void {
+        const replies = ['……咚。', '（蛋壳里面蹭了一下）', '( •̀ _ •́ )?', '它没有听懂，只把壳转了一点。'];
+        const text = replies[Math.floor(Math.random() * replies.length)];
+        temporaryUtterance.value = {
+            key: `pet-egg-reply:${Date.now()}`,
+            face: '(🥚)',
+            text,
+            motion: text === '……咚。' ? 'shake' : 'bounce',
+        };
+        armMurmur('');
+    }
+
     async function sendChat(): Promise<void> {
         chatError.value = '';
         const blocked = chatBlockedReason.value;
@@ -580,6 +697,11 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
             chatError.value = '先跟它说点什么。';
             return;
         }
+        if (view.value.phase === 'egg') {
+            showEggChatResponse();
+            chatInput.value = '';
+            return;
+        }
         const actionId = createActionId('chat');
         const owner = beginModelRequest('chat', actionId);
         if (!owner) {return;}
@@ -587,9 +709,8 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
         status.value = '';
         temporaryUtterance.value = null;
         try {
-            const lateBlocked = baseInteractionBlockedReason();
-            if (lateBlocked || options.chatRunning.value || options.chatCancelling.value) {
-                chatError.value = lateBlocked || '角色正在回复';
+            if (options.chatRunning.value || options.chatCancelling.value) {
+                chatError.value = '角色正在回复';
                 return;
             }
             const snapshot = await getTavernPetPrivateSnapshotForChat(owner.sessionId);
@@ -665,6 +786,7 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
             || options.memoryEditorMode.value === 'edit'
             || options.characterArchiveBusy.value
             || options.acceptedRollbackBusy.value
+            || Boolean(mutationOwner)
             || Boolean(modelOwner);
     }
 
@@ -741,11 +863,16 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
         const sessionId = currentSessionId();
         if (!sessionId) {return;}
         stateRevision += 1;
-        await refreshPet({ visibleLoading: false });
+        const snapshot = await refreshPet({ visibleLoading: false });
         if (sessionId !== currentSessionId()) {return;}
-        const records = await listTavernPetJournalByIds(journalIds);
-        if (sessionId !== currentSessionId()) {return;}
-        const sourceLocalRecords = records.filter((record) => record.sourceSessionId === sessionId);
+        const journalIdSet = new Set(journalIds);
+        const changedRecords = (snapshot?.journal || []).filter((record) => journalIdSet.has(record.id));
+        if (changedRecords.some(isTavernPetHomeNoticeJournal)) {
+            homeNotice.value = true;
+        }
+        const sourceLocalRecords = changedRecords.filter((record) => (
+            record.sourceSessionId === sessionId
+        ));
         notifyJournal(sourceLocalRecords);
         const latest = sourceLocalRecords.find((record) => record.id === latestJournalId.value);
         if (latest?.detail.kind === 'chat' && latest.detail.murmur) {
@@ -809,11 +936,13 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
         chatBlockedReason,
         chatError,
         chatInput,
+        clearHomeNotice,
         deactivatePet,
         closeNaming,
         closeNest,
         closeLeaveConfirmation,
         hasCustomName,
+        homeNotice,
         interactionBlockedReason,
         isChatWaiting,
         isModelWaiting,
@@ -834,11 +963,14 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
         refreshAfterPetDomainChange,
         refreshPet,
         restoreSpecimenName,
+        resolveMoment,
         confirmPetLeave,
         sendChat,
         setInterferenceEnabled,
+        skipMoment,
         status,
         submitName,
+        touchStage,
         utterance,
         view,
     };

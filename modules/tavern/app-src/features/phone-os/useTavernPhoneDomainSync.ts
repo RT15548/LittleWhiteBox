@@ -78,6 +78,17 @@ interface BankVersionRangeTable {
     };
 }
 
+interface TavernPetActionRevisionRangeTable {
+    where(index: string): {
+        between(
+            lower: unknown,
+            upper: unknown,
+            includeLower?: boolean,
+            includeUpper?: boolean,
+        ): { toArray(): Promise<TavernPetActionRecord[]> };
+    };
+}
+
 function normalizeSessionId(value = ''): string {
     return String(value || '').trim();
 }
@@ -235,14 +246,10 @@ async function petJournalIdsBetween(input: {
     if (input.nextRevision <= input.previousRevision) {return [];}
     if (input.previousRevision === 0 && input.nextRevision !== 1) {return [];}
     return await db.transaction('r', tavernPetActionsTable, async () => {
-        const revisions = Array.from(
-            { length: input.nextRevision - input.previousRevision },
-            (_, index) => input.previousRevision + index + 1,
-        );
-        const rows = await Promise.all(revisions.map(async (revision) => (
-            await tavernPetActionsTable.where('revision').equals(revision).first()
-        )));
-        const ordered = rows.filter((row): row is TavernPetActionRecord => Boolean(row));
+        const ordered = await (tavernPetActionsTable as unknown as TavernPetActionRevisionRangeTable)
+            .where('revision')
+            .between(input.previousRevision + 1, input.nextRevision, true, true)
+            .toArray();
         const expectedCount = input.nextRevision - input.previousRevision;
         if (ordered.length !== expectedCount
             || ordered.some((row, index) => row.revision !== input.previousRevision + index + 1)

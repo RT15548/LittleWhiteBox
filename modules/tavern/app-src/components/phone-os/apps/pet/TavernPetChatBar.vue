@@ -6,6 +6,7 @@ const props = defineProps<{
     canSubmit: boolean;
     disabledReason: string;
     waiting: boolean;
+    egg: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -66,7 +67,7 @@ function submitOnEnter(event: KeyboardEvent): void {
       type="text"
       autocomplete="off"
       enterkeyhint="send"
-      placeholder="跟它说点什么……"
+      :placeholder="egg ? '跟蛋壳说点什么……' : '跟它说点什么……'"
       :disabled="waiting"
       :aria-describedby="disabledReason ? 'tavern-pet-chat-reason' : undefined"
       @compositionstart="startComposition"
@@ -79,7 +80,7 @@ function submitOnEnter(event: KeyboardEvent): void {
       :disabled="!canSubmit"
       :title="disabledReason"
     >
-      {{ waiting ? '……' : '发送' }}
+      {{ waiting ? '……' : egg ? '敲一下' : '发送' }}
     </button>
     <small
       v-if="disabledReason"

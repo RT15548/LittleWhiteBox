@@ -9,6 +9,10 @@ import {
     type TavernPetEventId,
     type TavernPetInterferenceEventId,
     type TavernPetMilestoneId,
+    type TavernPetMomentChoiceId,
+    type TavernPetMomentId,
+    type TavernPetMomentResolutionId,
+    type TavernPetMomentTrait,
     type TavernPetMotion,
     type TavernPetNonInterferenceEventId,
     type TavernPetPersonaId,
@@ -47,6 +51,50 @@ export const TAVERN_PET_CURIOS: Readonly<Record<TavernPetCurioId, TavernPetCurio
 export const TAVERN_PET_REGULAR_CURIO_IDS = Object.freeze(
     TAVERN_PET_CURIO_IDS.filter((id) => id !== 'dry-flower'),
 );
+
+export interface TavernPetMomentOptionCopy {
+    id: TavernPetMomentChoiceId;
+    label: string;
+    traitDelta: number;
+    memory: string;
+    journalText: string;
+}
+
+export interface TavernPetMomentCopy {
+    trait: TavernPetMomentTrait;
+    prompt: string;
+    options: readonly TavernPetMomentOptionCopy[];
+}
+
+export const TAVERN_PET_MOMENT_COPY: Readonly<Record<TavernPetMomentId, TavernPetMomentCopy>> = Object.freeze({
+    'glass-hand': Object.freeze({
+        trait: 'closeness',
+        prompt: '它往玻璃边挪了一点，又停住。',
+        options: Object.freeze([
+            Object.freeze({ id: 'touch-glass', label: '把手贴在玻璃上', traitDelta: 12, memory: '你把手贴在玻璃上。我也贴了一会儿。', journalText: '你把手贴在玻璃上。它隔着玻璃停了一会儿。' }),
+            Object.freeze({ id: 'wait-nearby', label: '坐在原处等它', traitDelta: -12, memory: '你没有叫我过去。你在原处等。', journalText: '你没有催它，只在原处等了一会儿。' }),
+            Object.freeze({ id: 'leave-space', label: '先不打扰', traitDelta: 0, memory: '那天玻璃边很安静。', journalText: '玻璃边安静了一会儿。它没有再往前。' }),
+        ]),
+    }),
+    'bottle-cap': Object.freeze({
+        trait: 'sharing',
+        prompt: '它叼回一个瓶盖，死死压在身下。',
+        options: Object.freeze([
+            Object.freeze({ id: 'roll-together', label: '和它一起滚着玩', traitDelta: 12, memory: '你和我把瓶盖滚来滚去。', journalText: '你陪它把瓶盖滚来滚去，它追得很认真。' }),
+            Object.freeze({ id: 'keep-it', label: '让它收进窝里', traitDelta: -12, memory: '你让我把瓶盖压在窝底。', journalText: '你让它把瓶盖压进窝底，它松开了一点爪子。' }),
+            Object.freeze({ id: 'look-away', label: '假装没看见', traitDelta: 0, memory: '我压着瓶盖。你没有来拿。', journalText: '它压着瓶盖。你假装没有看见。' }),
+        ]),
+    }),
+    'quiet-corner': Object.freeze({
+        trait: 'tempo',
+        prompt: '它在最暗的角落里发出一点很轻的响动，又不继续了。',
+        options: Object.freeze([
+            Object.freeze({ id: 'tap-back', label: '轻轻敲两下玻璃', traitDelta: 12, memory: '你敲了两下。我又敲回去。', journalText: '你轻轻敲了两下玻璃，暗处也回了两下。' }),
+            Object.freeze({ id: 'leave-a-light', label: '留一盏小光等着', traitDelta: -12, memory: '你留着一点光。我们没有说话。', journalText: '你留了一点小光，暗处没有再响。' }),
+            Object.freeze({ id: 'let-it-be', label: '让它自己待着', traitDelta: 0, memory: '那个角落自己响了一会儿。', journalText: '那个角落自己响了一会儿，后来又安静了。' }),
+        ]),
+    }),
+});
 
 interface TavernPetEventCopy {
     renderedText: string;
@@ -155,9 +203,7 @@ export const TAVERN_PET_SELF_MEMORY_COPY: Readonly<Record<TavernPetEventId, stri
 export function renderTavernPetSelfMemory(detail: TavernPetJournalDetail): string {
     if (detail.kind === 'event') {return TAVERN_PET_SELF_MEMORY_COPY[detail.eventId];}
     if (detail.kind === 'milestone') {return TAVERN_PET_SELF_MEMORY_COPY[detail.milestoneId];}
-    if (detail.kind === 'status') {
-        return detail.status === 'dormant' ? '我把自己关掉了一阵子。' : '我又醒过来了。';
-    }
+    if (detail.kind === 'moment') {return detail.renderedText;}
     return '我和外面那个人说过话。';
 }
 
@@ -324,21 +370,31 @@ export function renderTavernPetMilestoneJournal(input: {
     };
 }
 
-export function renderTavernPetStatusJournal(
-    status: 'dormant' | 'woke',
-    state: TavernPetState,
-): TavernPetJournalDraft {
-    return status === 'dormant'
-        ? {
-            detail: { kind: 'status', status, renderedText: '它把自己关机了。', motion: 'hide' },
-            coinDelta: 0,
-            notificationText: `${tavernPetDisplayName(state)} 停止了活动。`,
-        }
-        : {
-            detail: { kind: 'status', status, renderedText: '灰掉的轮廓动了一下。它回来了。', motion: 'approach' },
-            coinDelta: 0,
-            notificationText: '它回来了。',
-        };
+export function getTavernPetMomentCopy(momentId: TavernPetMomentId): TavernPetMomentCopy {
+    const copy = TAVERN_PET_MOMENT_COPY[momentId];
+    if (!copy) {throw new Error(`pet_moment_missing:${momentId}`);}
+    return copy;
+}
+
+export function renderTavernPetMomentJournal(input: {
+    momentId: TavernPetMomentId;
+    choiceId: TavernPetMomentResolutionId;
+}): TavernPetJournalDraft {
+    const moment = getTavernPetMomentCopy(input.momentId);
+    const option = moment.options.find((entry) => entry.id === input.choiceId);
+    const renderedText = option
+        ? option.journalText
+        : '它等了一会儿，又把那一点心事收回暗处。';
+    return {
+        detail: {
+            kind: 'moment',
+            momentId: input.momentId,
+            choiceId: input.choiceId,
+            renderedText,
+            motion: input.choiceId === 'skip' ? 'hide' : 'approach',
+        },
+        coinDelta: 0,
+    };
 }
 
 export function isTavernPetVerdictText(value: string): boolean {

@@ -56,17 +56,15 @@ function drawBirthBiasAxis(random: TavernPetRandomSource): number {
     return value < 15 ? value - 15 : value - 14;
 }
 
-/** Origin has a frozen draw order: specimen, delay, tameness, generosity, brightness. */
+/** Origin has a frozen draw order: specimen, closeness, sharing, tempo. */
 export function drawTavernPetOrigin(random: TavernPetRandomSource): TavernPetOrigin {
     const specimenNumber = random.nextInt(999) + 1;
-    const arrivalAfterTurns = random.nextInt(3) + 1;
     return {
         specimenNumber,
-        arrivalAfterTurns,
         birthBias: {
-            tameness: drawBirthBiasAxis(random),
-            generosity: drawBirthBiasAxis(random),
-            brightness: drawBirthBiasAxis(random),
+            closeness: drawBirthBiasAxis(random),
+            sharing: drawBirthBiasAxis(random),
+            tempo: drawBirthBiasAxis(random),
         },
     };
 }

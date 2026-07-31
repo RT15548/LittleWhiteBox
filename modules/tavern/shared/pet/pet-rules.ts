@@ -1,19 +1,15 @@
 import {
-    collectTavernPetEventCandidates,
-    getTavernPetEvent,
-} from './pet-events';
-import {
+    getTavernPetMomentCopy,
     renderTavernPetEventCopy,
     renderTavernPetInterferenceText,
-    renderTavernPetMilestoneJournal,
-    renderTavernPetStatusJournal,
+    renderTavernPetMomentJournal,
     TAVERN_PET_REGULAR_CURIO_IDS,
 } from './pet-copy';
+import { collectTavernPetEventCandidates, getTavernPetEvent } from './pet-events';
 import {
     getTavernPetDialogueProfile,
     tavernPetFaceForEmotion,
 } from './pet-personas';
-import { normalizeTavernPetChatResponse } from './pet-chat';
 import {
     drawTavernPetInclusiveInteger,
     drawWeightedTavernPetEventCandidate,
@@ -21,176 +17,141 @@ import {
     type TavernPetRandomSource,
 } from './pet-random';
 import {
-    isTavernPetInterferenceEventId,
-    type TavernPetAxes,
     type TavernPetChatResponse,
     type TavernPetEmotion,
     type TavernPetEventId,
+    type TavernPetGiftId,
     type TavernPetInteractionId,
-    type TavernPetInteractionWindow,
-    type TavernPetLifetimeStats,
-    type TavernPetOrigin,
+    type TavernPetJournalDraft,
+    type TavernPetMomentChoiceId,
+    type TavernPetMomentId,
     type TavernPetPersonaId,
     type TavernPetState,
     type TavernPetTurnContext,
     type TavernPetTurnOutcome,
     type TavernPetTurnTransition,
+    isTavernPetInterferenceEventId,
     throwTavernPetError,
 } from './pet-types';
 
 export const TAVERN_PET_INTERACTION_COSTS: Readonly<Record<TavernPetInteractionId, number>> = Object.freeze({
     lure: 10,
     feed: 10,
-    'tap-shell': 0,
-    'play-bgm': 0,
-    pat: 0,
-    hit: 0,
     toy: 20,
     chat: 0,
-    wake: 50,
 });
+
+const JUVENILE_ACTIVE_TURNS = 24;
+const ADULTHOOD_PET_TURN = JUVENILE_ACTIVE_TURNS + 1;
+const MOMENT_INTERVAL_TURNS = 6;
+const EVOLUTION_COOLDOWN_PET_TURNS = 30;
+const BLANK_PERSONA_BALANCE_THRESHOLD = 5;
+const MOMENT_ORDER = ['glass-hand', 'bottle-cap', 'quiet-corner'] as const;
 
 function clone<T>(value: T): T {
     if (typeof structuredClone === 'function') {return structuredClone(value);}
     return JSON.parse(JSON.stringify(value)) as T;
 }
 
-function assertTurn(value: unknown): number {
-    const turn = Number(value);
-    if (!Number.isSafeInteger(turn) || turn < 0) {throwTavernPetError('pet_turn_invalid', String(value));}
-    return turn;
+function clampTrait(value: number): number {
+    return Math.max(-100, Math.min(100, Math.trunc(value)));
 }
 
-function emptyAxes(): TavernPetAxes {
-    return { tameness: 0, generosity: 0, brightness: 0 };
+function assertPetTurn(value: unknown): number {
+    if (!Number.isSafeInteger(value) || Number(value) < 0) {
+        throwTavernPetError('pet_turn_invalid', String(value));
+    }
+    return Number(value);
 }
 
-function emptyStats(): TavernPetLifetimeStats {
-    return {
-        feedCount: 0,
-        tapCount: 0,
-        bgmCount: 0,
-        patCount: 0,
-        hitCount: 0,
-        toyCount: 0,
-        chatCount: 0,
-        dormantCount: 0,
-        stolenTotal: 0,
-        giftedTotal: 0,
-    };
+function isActivePhase(state: TavernPetState): state is TavernPetState & { phase: 'juvenile' | 'adult' } {
+    return state.phase === 'juvenile' || state.phase === 'adult';
 }
 
-export function createTavernPetInteractionWindow(petTurn: number): TavernPetInteractionWindow {
-    return {
-        petTurn: assertTurn(petTurn),
-        feedCount: 0,
-        tapCount: 0,
-        bgmCount: 0,
-        patCount: 0,
-        annoyCount: 0,
-        chatCount: 0,
-        interactionCount: 0,
-    };
+function nextMomentId(momentCount: number): TavernPetMomentId {
+    return MOMENT_ORDER[momentCount % MOMENT_ORDER.length];
 }
 
-export function createTavernPetLuringState(input: {
-    origin: TavernPetOrigin;
-    petTurn: number;
-}): TavernPetState {
-    return {
-        petTurn: assertTurn(input.petTurn),
-        phase: 'luring',
-        dormant: false,
-        origin: clone(input.origin),
-        phaseTurnCount: 0,
-        axes: emptyAxes(),
-        satiety: 0,
-        emotion: 'calm',
-        emotionRemainingTurns: 0,
-        nestCoins: 0,
-        curios: [],
-        interactionWindow: createTavernPetInteractionWindow(input.petTurn),
-        idleTurns: 0,
-        toyCooldownTurns: 0,
-        eventCooldowns: {},
-        interferenceEnabled: true,
-        interferenceGateTurns: 0,
-        chatMemory: { summary: '', recent: [] },
-        lifetimeStats: emptyStats(),
-    };
+function momentTraitDelta(momentId: TavernPetMomentId, choiceId: TavernPetMomentChoiceId): number {
+    const option = getTavernPetMomentCopy(momentId).options.find((entry) => entry.id === choiceId);
+    if (!option) {throwTavernPetError('pet_moment_stale', `${momentId}:${choiceId}`);}
+    return option.traitDelta;
 }
 
-export function clampTavernPetAxis(value: number): number {
-    if (!Number.isSafeInteger(value)) {throwTavernPetError('pet_state_invalid', `axis:${String(value)}`);}
-    return Math.max(-100, Math.min(100, value));
+function appendMomentMemory(state: TavernPetState, momentId: TavernPetMomentId, choiceId: TavernPetMomentChoiceId): void {
+    const option = getTavernPetMomentCopy(momentId).options.find((entry) => entry.id === choiceId);
+    if (!option) {throwTavernPetError('pet_moment_stale', `${momentId}:${choiceId}`);}
+    state.chatMemory.moments = [...state.chatMemory.moments, option.memory].slice(-12);
 }
 
-function adultAdjustedDelta(value: number): number {
-    return value === 0 ? 0 : Math.trunc(value / 2);
+function decrementCooldowns(state: TavernPetState): void {
+    const next: Partial<Record<TavernPetEventId, number>> = {};
+    for (const [eventId, remaining] of Object.entries(state.eventCooldowns) as Array<[TavernPetEventId, number]>) {
+        const nextRemaining = Math.max(0, remaining - 1);
+        if (nextRemaining > 0) {next[eventId] = nextRemaining;}
+    }
+    state.eventCooldowns = next;
 }
 
-export function applyTavernPetAxesDelta(
-    state: TavernPetState,
-    delta: TavernPetAxes,
-    options: { ignoreAge?: boolean } = {},
-): void {
-    const effective = options.ignoreAge || state.phase !== 'adult'
-        ? delta
-        : {
-            tameness: adultAdjustedDelta(delta.tameness),
-            generosity: adultAdjustedDelta(delta.generosity),
-            brightness: adultAdjustedDelta(delta.brightness),
-        };
-    state.axes = {
-        tameness: clampTavernPetAxis(state.axes.tameness + effective.tameness),
-        generosity: clampTavernPetAxis(state.axes.generosity + effective.generosity),
-        brightness: clampTavernPetAxis(state.axes.brightness + effective.brightness),
-    };
-}
-
-function emotionDuration(emotion: TavernPetEmotion): number {
-    return {
-        calm: 0,
-        happy: 3,
-        aggrieved: 4,
-        resentful: 5,
-        excited: 2,
-        bored: 0,
-    }[emotion];
-}
-
-export function tavernPetBaselineEmotion(state: TavernPetState): TavernPetEmotion {
-    if (state.axes.brightness < -60) {return 'bored';}
-    if (state.axes.tameness < -60) {return 'resentful';}
-    if (state.axes.brightness > 60) {return 'happy';}
+export function tavernPetBaselineEmotion(_state: TavernPetState): TavernPetEmotion {
     return 'calm';
 }
 
 export function setTavernPetEmotion(state: TavernPetState, emotion: TavernPetEmotion): void {
     state.emotion = emotion;
-    state.emotionRemainingTurns = emotionDuration(emotion);
+    state.emotionRemainingTurns = emotion === 'calm' || emotion === 'bored' ? 0 : 3;
 }
 
-function resetEmotionToBaseline(state: TavernPetState): void {
-    state.emotion = tavernPetBaselineEmotion(state);
-    state.emotionRemainingTurns = 0;
+function decayEmotion(state: TavernPetState): void {
+    if (state.emotion === 'calm' || state.emotion === 'bored') {return;}
+    state.emotionRemainingTurns = Math.max(0, state.emotionRemainingTurns - 1);
+    if (state.emotionRemainingTurns === 0) {state.emotion = tavernPetBaselineEmotion(state);}
 }
 
-function currentWindow(state: TavernPetState, currentPetTurn: number): TavernPetInteractionWindow {
-    if (state.interactionWindow.petTurn !== currentPetTurn) {
-        state.interactionWindow = createTavernPetInteractionWindow(currentPetTurn);
-    }
-    return state.interactionWindow;
+export function createTavernPetEggState(input: {
+    origin: TavernPetState['origin'];
+    petTurn?: number;
+}): TavernPetState {
+    const petTurn = assertPetTurn(input.petTurn ?? 0);
+    return {
+        petTurn,
+        phase: 'egg',
+        origin: clone(input.origin),
+        traits: clone(input.origin.birthBias),
+        appetite: 60,
+        emotion: 'calm',
+        emotionRemainingTurns: 0,
+        nextMomentPetTurn: 0,
+        lastMeaningfulInteractionPetTurn: petTurn,
+        chatMemory: { summary: '', recent: [], moments: [] },
+        nestCoins: 0,
+        curios: [],
+        eventCooldowns: {},
+        interferenceEnabled: true,
+        lifetimeStats: {
+            feedCount: 0,
+            toyCount: 0,
+            chatCount: 0,
+            momentCount: 0,
+            stolenTotal: 0,
+            giftedTotal: 0,
+        },
+    };
 }
 
-export function deriveTavernPetPersona(state: Pick<TavernPetState, 'axes' | 'origin'>): TavernPetPersonaId {
-    const axes = state.axes;
-    if (Math.abs(axes.tameness) <= 20 && Math.abs(axes.generosity) <= 20 && Math.abs(axes.brightness) <= 20) {
+export function deriveTavernPetPersona(
+    state: Pick<TavernPetState, 'traits' | 'origin'>,
+): TavernPetPersonaId {
+    const { traits } = state;
+    if (Math.abs(traits.closeness) <= BLANK_PERSONA_BALANCE_THRESHOLD
+        && Math.abs(traits.sharing) <= BLANK_PERSONA_BALANCE_THRESHOLD
+        && Math.abs(traits.tempo) <= BLANK_PERSONA_BALANCE_THRESHOLD
+    ) {
         return 'blank';
     }
-    const sign = (value: number, bias: number) => value > 20 ? '+' : value < -20 ? '-' : bias > 0 ? '+' : '-';
-    const key = `${sign(axes.tameness, state.origin.birthBias.tameness)}${sign(axes.generosity, state.origin.birthBias.generosity)}${sign(axes.brightness, state.origin.birthBias.brightness)}`;
-    const personas: Record<string, TavernPetPersonaId> = {
+    const sign = (value: number, birthBias: number) => value === 0 ? (birthBias >= 0 ? '+' : '-') : value > 0 ? '+' : '-';
+    const key = `${sign(traits.closeness, state.origin.birthBias.closeness)}${sign(traits.sharing, state.origin.birthBias.sharing)}${sign(traits.tempo, state.origin.birthBias.tempo)}`;
+    const personaByTraits: Readonly<Record<string, TavernPetPersonaId>> = {
         '+++': 'sunlet',
         '++-': 'rain-courier',
         '+-+': 'ledger-keeper',
@@ -200,124 +161,50 @@ export function deriveTavernPetPersona(state: Pick<TavernPetState, 'axes' | 'ori
         '--+': 'merry-bandit',
         '---': 'abyss-tenant',
     };
-    return personas[key];
+    return personaByTraits[key];
 }
 
 export function tavernPetInteractionUnavailableReason(
     state: TavernPetState | null,
     interactionId: TavernPetInteractionId,
-    currentPetTurn: number,
     playerBalance: number,
 ): string {
-    if (!state) {
-        if (interactionId !== 'lure') {return '它还没有出现';}
-        return playerBalance < TAVERN_PET_INTERACTION_COSTS.lure ? '小白币不足' : '';
+    const cost = TAVERN_PET_INTERACTION_COSTS[interactionId];
+    if (interactionId === 'lure') {
+        if (state) {return '暗室里已经有住户了';}
+        return playerBalance >= cost ? '' : '小白币不足';
     }
-    if (state.phase === 'luring') {return '房间里还没有东西';}
-    if (state.dormant) {
-        if (interactionId !== 'wake') {return '它睡着了';}
-        return playerBalance < TAVERN_PET_INTERACTION_COSTS.wake ? '小白币不足' : '';
+    if (!state) {return '暗室里还没有东西';}
+    if (interactionId === 'chat') {
+        return state.phase === 'egg' ? '蛋壳还没有裂开' : '';
     }
-    if (interactionId === 'lure' || interactionId === 'wake') {return '现在不能这样做';}
-    const window = state.interactionWindow.petTurn === currentPetTurn
-        ? state.interactionWindow
-        : createTavernPetInteractionWindow(currentPetTurn);
     if (interactionId === 'feed') {
-        if (state.satiety >= 100) {return '已经吃不下了';}
-        return playerBalance < TAVERN_PET_INTERACTION_COSTS.feed ? '小白币不足' : '';
-    }
-    if (interactionId === 'tap-shell') {
-        if (state.phase !== 'egg') {return '现在没有蛋壳可敲';}
-        return window.tapCount >= 2 ? '它不想再被敲了' : '';
-    }
-    if (interactionId === 'play-bgm') {
-        if (state.phase !== 'egg') {return '它已经不住在壳里了';}
-        return window.bgmCount >= 1 ? '这一回合已经放过了' : '';
-    }
-    if (interactionId === 'pat' || interactionId === 'hit' || interactionId === 'toy' || interactionId === 'chat') {
-        if (state.phase !== 'juvenile' && state.phase !== 'adult') {return interactionId === 'chat' ? '它还不会说话' : '它还没有破壳';}
+        return playerBalance >= cost ? '' : '小白币不足';
     }
     if (interactionId === 'toy') {
-        if (state.toyCooldownTurns > 0) {return '它暂时不想玩';}
-        return playerBalance < TAVERN_PET_INTERACTION_COSTS.toy ? '小白币不足' : '';
+        if (state.phase === 'egg') {return '它还没长出能玩玩具的手';}
+        return playerBalance >= cost ? '' : '小白币不足';
     }
-    return '';
+    return '现在不能这样做';
 }
 
-export interface TavernPetInteractionTransition {
-    state: TavernPetState;
-    appliedAxes: boolean;
-}
-
-export function applyTavernPetInteraction(
+export function applyTavernPetGift(
     source: TavernPetState,
-    interactionId: Exclude<TavernPetInteractionId, 'lure' | 'chat' | 'wake'>,
-    currentPetTurn: number,
-): TavernPetInteractionTransition {
-    const petTurn = assertTurn(currentPetTurn);
+    giftId: TavernPetGiftId,
+): TavernPetState {
     const state = clone(source);
-    const reason = tavernPetInteractionUnavailableReason(state, interactionId, petTurn, Number.MAX_SAFE_INTEGER);
-    if (reason) {throwTavernPetError('pet_interaction_unavailable', `${interactionId}:${reason}`);}
-    const window = currentWindow(state, petTurn);
-    let appliedAxes = false;
-    window.interactionCount += 1;
-    if (interactionId === 'feed') {
-        state.satiety = Math.min(100, state.satiety + 30);
-        window.feedCount += 1;
-        delete state.beggingDeadlinePetTurn;
+    if (giftId === 'feed') {
+        state.appetite = Math.min(100, state.appetite + 30);
         state.lifetimeStats.feedCount += 1;
-        if (state.phase === 'egg') {
-            state.incubation!.feedCount += 1;
-        } else {
-            applyTavernPetAxesDelta(state, { tameness: 2, generosity: -2, brightness: 2 });
-            appliedAxes = true;
-        }
         setTavernPetEmotion(state, 'happy');
-    } else if (interactionId === 'tap-shell') {
-        window.tapCount += 1;
-        state.incubation!.tapCount += 1;
-        state.lifetimeStats.tapCount += 1;
-    } else if (interactionId === 'play-bgm') {
-        window.bgmCount += 1;
-        state.incubation!.bgmCount += 1;
-        state.lifetimeStats.bgmCount += 1;
-    } else if (interactionId === 'pat') {
-        window.patCount += 1;
-        state.lifetimeStats.patCount += 1;
-        if (window.patCount <= 2) {
-            applyTavernPetAxesDelta(state, { tameness: 4, generosity: 0, brightness: 2 });
-            setTavernPetEmotion(state, 'happy');
-            appliedAxes = true;
-        } else {
-            window.annoyCount += 1;
-            if (window.annoyCount >= 5) {
-                window.annoyCount = 0;
-                setTavernPetEmotion(state, 'resentful');
-            }
-        }
-    } else if (interactionId === 'hit') {
-        state.lifetimeStats.hitCount += 1;
-        applyTavernPetAxesDelta(state, { tameness: -4, generosity: -2, brightness: -2 });
-        setTavernPetEmotion(state, 'resentful');
-        appliedAxes = true;
-    } else if (interactionId === 'toy') {
+    } else if (giftId === 'toy') {
+        if (!isActivePhase(state)) {throwTavernPetError('pet_interaction_unavailable', 'toy-phase');}
         state.lifetimeStats.toyCount += 1;
-        state.toyCooldownTurns = 3;
-        applyTavernPetAxesDelta(state, { tameness: 2, generosity: 2, brightness: 4 });
-        setTavernPetEmotion(state, 'happy');
-        appliedAxes = true;
+        setTavernPetEmotion(state, 'excited');
+    } else {
+        throwTavernPetError('pet_interaction_invalid', String(giftId));
     }
-    return { state, appliedAxes };
-}
-
-export function wakeTavernPetState(source: TavernPetState, currentPetTurn: number): TavernPetState {
-    const state = clone(source);
-    if (!state.dormant) {throwTavernPetError('pet_not_dormant');}
-    state.dormant = false;
-    state.satiety = 30;
-    applyTavernPetAxesDelta(state, { tameness: -6, generosity: 0, brightness: -10 }, { ignoreAge: true });
-    resetEmotionToBaseline(state);
-    state.interactionWindow = createTavernPetInteractionWindow(currentPetTurn);
+    state.lastMeaningfulInteractionPetTurn = state.petTurn;
     return state;
 }
 
@@ -335,59 +222,58 @@ export function setTavernPetInterferenceState(source: TavernPetState, enabled: b
 
 export function applyTavernPetChatResponse(
     source: TavernPetState,
-    currentPetTurn: number,
     playerText: string,
     response: TavernPetChatResponse,
-): TavernPetInteractionTransition {
+): TavernPetState {
     const state = clone(source);
-    const reason = tavernPetInteractionUnavailableReason(state, 'chat', currentPetTurn, Number.MAX_SAFE_INTEGER);
-    if (reason) {throwTavernPetError('pet_chat_unavailable', reason);}
-    const canonicalResponse = normalizeTavernPetChatResponse(response, state);
-    const window = currentWindow(state, currentPetTurn);
-    const appliedAxes = window.chatCount === 0;
-    window.chatCount += 1;
-    window.interactionCount += 1;
+    if (!isActivePhase(state)) {throwTavernPetError('pet_chat_unavailable', state.phase);}
     state.lifetimeStats.chatCount += 1;
-    if (appliedAxes) {applyTavernPetAxesDelta(state, { tameness: 2, generosity: 2, brightness: 2 });}
-    setTavernPetEmotion(state, canonicalResponse.emotionShift || 'happy');
-    state.chatMemory.recent = [
-        ...state.chatMemory.recent,
-        { playerText, petText: canonicalResponse.text },
-    ].slice(-6);
-    if (canonicalResponse.summaryUpdate !== null) {state.chatMemory.summary = canonicalResponse.summaryUpdate;}
-    return { state, appliedAxes };
+    state.lastMeaningfulInteractionPetTurn = state.petTurn;
+    state.chatMemory.recent = [...state.chatMemory.recent, { playerText, petText: response.text }].slice(-6);
+    if (response.summaryUpdate !== null) {state.chatMemory.summary = response.summaryUpdate;}
+    if (response.emotionShift !== null) {setTavernPetEmotion(state, response.emotionShift);}
+    return state;
 }
 
-function decrementCooldowns(state: TavernPetState): void {
-    state.toyCooldownTurns = Math.max(0, state.toyCooldownTurns - 1);
-    state.interferenceGateTurns = Math.max(0, state.interferenceGateTurns - 1);
-    const next: Partial<Record<TavernPetEventId, number>> = {};
-    for (const [eventId, remaining] of Object.entries(state.eventCooldowns) as Array<[TavernPetEventId, number]>) {
-        const value = Math.max(0, remaining - 1);
-        if (value > 0) {next[eventId] = value;}
+export interface TavernPetMomentTransition {
+    state: TavernPetState;
+    journal: TavernPetJournalDraft;
+}
+
+export function resolveTavernPetMomentState(
+    source: TavernPetState,
+    momentId: TavernPetMomentId,
+    choiceId: TavernPetMomentChoiceId,
+): TavernPetMomentTransition {
+    const state = clone(source);
+    const pending = state.pendingMoment;
+    if (!pending || pending.id !== momentId) {throwTavernPetError('pet_moment_stale', momentId);}
+    const moment = getTavernPetMomentCopy(momentId);
+    const delta = momentTraitDelta(momentId, choiceId);
+    const trait = moment.trait;
+    state.traits[trait] = clampTrait(state.traits[trait] + delta);
+    appendMomentMemory(state, momentId, choiceId);
+    state.lifetimeStats.momentCount += 1;
+    state.lastMeaningfulInteractionPetTurn = state.petTurn;
+    state.nextMomentPetTurn = state.petTurn + MOMENT_INTERVAL_TURNS;
+    delete state.pendingMoment;
+    setTavernPetEmotion(state, choiceId === 'leave-space' || choiceId === 'look-away' || choiceId === 'let-it-be' ? 'calm' : 'happy');
+    return { state, journal: renderTavernPetMomentJournal({ momentId, choiceId }) };
+}
+
+export function skipTavernPetMomentState(
+    source: TavernPetState,
+    momentId: TavernPetMomentId,
+): TavernPetMomentTransition {
+    const state = clone(source);
+    if (!state.pendingMoment || state.pendingMoment.id !== momentId) {
+        throwTavernPetError('pet_moment_stale', momentId);
     }
-    state.eventCooldowns = next;
-}
-
-function decayEmotion(state: TavernPetState, random: TavernPetRandomSource): void {
-    if (state.emotion === 'calm' || state.emotion === 'bored') {return;}
-    state.emotionRemainingTurns = Math.max(0, state.emotionRemainingTurns - 1);
-    if (state.emotionRemainingTurns > 0) {return;}
-    if (state.emotion === 'aggrieved' && tavernPetProbabilityPasses(30, random)) {
-        setTavernPetEmotion(state, 'resentful');
-        return;
-    }
-    resetEmotionToBaseline(state);
-}
-
-function settleIncubation(state: TavernPetState): void {
-    const incubation = state.incubation || { feedCount: 0, tapCount: 0, bgmCount: 0 };
-    applyTavernPetAxesDelta(state, {
-        tameness: Math.min(incubation.feedCount, 5) * 2 - Math.min(incubation.tapCount, 5) * 2,
-        generosity: 0,
-        brightness: Math.min(incubation.bgmCount, 3) * 2,
-    }, { ignoreAge: true });
-    delete state.incubation;
+    state.lifetimeStats.momentCount += 1;
+    state.lastMeaningfulInteractionPetTurn = state.petTurn;
+    state.nextMomentPetTurn = state.petTurn + MOMENT_INTERVAL_TURNS;
+    delete state.pendingMoment;
+    return { state, journal: renderTavernPetMomentJournal({ momentId, choiceId: 'skip' }) };
 }
 
 function buildEvolutionRequest(
@@ -396,12 +282,14 @@ function buildEvolutionRequest(
     milestoneId: 'adulthood' | 'repattern',
     previousPersonaId?: TavernPetPersonaId,
 ): void {
+    const personaId = state.personaId;
+    if (!personaId) {throwTavernPetError('pet_state_invalid', 'evolution-persona');}
     state.pendingEvolution = {
         requestId: context.evolutionRequestId,
         milestoneId,
-        personaId: state.personaId!,
+        personaId,
         ...(previousPersonaId ? { previousPersonaId } : {}),
-        axes: clone(state.axes),
+        traits: clone(state.traits),
         stats: clone(state.lifetimeStats),
         sourceSessionId: context.sourceSessionId,
         sourceTurn: context.sourceTurn,
@@ -410,46 +298,32 @@ function buildEvolutionRequest(
     };
 }
 
-function advancePhaseMilestone(state: TavernPetState, context: TavernPetTurnContext): TavernPetTurnOutcome | null {
-    if (state.phase === 'egg' && state.phaseTurnCount >= 8) {
-        settleIncubation(state);
-        state.phase = 'juvenile';
-        state.phaseTurnCount = 0;
-        setTavernPetEmotion(state, 'excited');
-        return {
-            milestoneId: 'hatch',
-            eventId: 'hatch',
-            journal: renderTavernPetMilestoneJournal({
-                milestoneId: 'hatch',
-                state,
-                petTurn: context.petTurn,
-                sourceAnchorOrder: context.sourceAnchorOrder,
-            }),
-        };
-    }
-    if (state.phase === 'juvenile' && state.phaseTurnCount >= 40) {
-        const personaId = deriveTavernPetPersona(state);
+function maybeAdvanceMilestone(
+    state: TavernPetState,
+    context: TavernPetTurnContext,
+): TavernPetTurnOutcome | null {
+    if (state.phase === 'juvenile' && state.petTurn >= ADULTHOOD_PET_TURN) {
         state.phase = 'adult';
-        state.phaseTurnCount = 0;
-        state.personaId = personaId;
-        state.lastEvolutionActiveTurn = 0;
+        state.personaId = deriveTavernPetPersona(state);
+        state.lastEvolutionPetTurn = state.petTurn;
         setTavernPetEmotion(state, 'excited');
         buildEvolutionRequest(state, context, 'adulthood');
-        return { milestoneId: 'adulthood', eventId: 'adulthood' };
+        return { milestoneId: 'adulthood' };
     }
     if (state.phase === 'adult') {
-        const derived = deriveTavernPetPersona(state);
-        const lastEvolutionActiveTurn = state.lastEvolutionActiveTurn ?? 0;
+        const nextPersona = deriveTavernPetPersona(state);
+        const lastEvolutionPetTurn = state.lastEvolutionPetTurn;
         if (!state.pendingEvolution
-            && derived !== state.personaId
-            && state.phaseTurnCount - lastEvolutionActiveTurn >= 30
+            && nextPersona !== state.personaId
+            && lastEvolutionPetTurn !== undefined
+            && state.petTurn - lastEvolutionPetTurn >= EVOLUTION_COOLDOWN_PET_TURNS
         ) {
             const previousPersonaId = state.personaId;
-            state.personaId = derived;
-            state.lastEvolutionActiveTurn = state.phaseTurnCount;
+            state.personaId = nextPersona;
+            state.lastEvolutionPetTurn = state.petTurn;
             setTavernPetEmotion(state, 'excited');
             buildEvolutionRequest(state, context, 'repattern', previousPersonaId);
-            return { milestoneId: 'repattern', eventId: 'repattern' };
+            return { milestoneId: 'repattern' };
         }
     }
     return null;
@@ -457,45 +331,32 @@ function advancePhaseMilestone(state: TavernPetState, context: TavernPetTurnCont
 
 function eventChance(state: TavernPetState): number {
     let chance = 30;
-    if (state.satiety >= 1 && state.satiety <= 29) {chance += 10;}
+    if (state.appetite <= 24) {chance += 10;}
     if (state.emotion === 'excited' || state.emotion === 'bored') {chance += 5;}
     return Math.min(45, chance);
 }
 
-type TavernPetRegularEventId = Exclude<
-    TavernPetEventId,
-    'arrival' | 'hatch' | 'adulthood' | 'repattern'
->;
-
-function isTavernPetRegularEventId(eventId: TavernPetEventId): eventId is TavernPetRegularEventId {
-    return eventId !== 'arrival'
-        && eventId !== 'hatch'
-        && eventId !== 'adulthood'
-        && eventId !== 'repattern';
+function isRegularEventId(eventId: TavernPetEventId): eventId is Exclude<TavernPetEventId, 'arrival' | 'hatch' | 'adulthood' | 'repattern'> {
+    return eventId !== 'arrival' && eventId !== 'hatch' && eventId !== 'adulthood' && eventId !== 'repattern';
 }
 
 function applyEventEffect(
-    state: TavernPetState,
+    state: TavernPetState & { phase: 'juvenile' | 'adult' },
     eventId: TavernPetEventId,
     context: TavernPetTurnContext,
     random: TavernPetRandomSource,
 ): TavernPetTurnOutcome {
     const spec = getTavernPetEvent(eventId);
-    if (!isTavernPetRegularEventId(eventId) || spec.category === 'milestone') {
+    if (!isRegularEventId(eventId) || spec.category === 'milestone') {
         throwTavernPetError('pet_state_invalid', `event:${eventId}`);
     }
-    if (state.phase !== 'juvenile' && state.phase !== 'adult') {
-        throwTavernPetError('pet_phase_invalid', state.phase);
-    }
     let amount: number | undefined;
-    let curioId: (typeof state.curios)[number] | undefined;
+    let curioId: TavernPetState['curios'][number] | undefined;
     let coinDelta = 0;
     let coinEffect: TavernPetTurnOutcome['coinEffect'];
     let injectedText: string | undefined;
     if (spec.effect.kind === 'emotion') {
         setTavernPetEmotion(state, spec.effect.emotion);
-    } else if (spec.effect.kind === 'beg') {
-        state.beggingDeadlinePetTurn = context.petTurn + 2;
     } else if (spec.effect.kind === 'steal') {
         amount = drawTavernPetInclusiveInteger(spec.effect.minimum, spec.effect.maximum, random);
         coinDelta = -amount;
@@ -563,6 +424,7 @@ function applyEventEffect(
             curioId = 'dry-flower';
         } else {
             const missing = TAVERN_PET_REGULAR_CURIO_IDS.filter((id) => !state.curios.includes(id));
+            if (!missing.length) {throwTavernPetError('pet_state_invalid', 'event-curio-empty');}
             curioId = missing[random.nextInt(missing.length)];
         }
         state.curios = [...state.curios, curioId];
@@ -571,30 +433,25 @@ function applyEventEffect(
             spec.effect.templateId,
             eventId === 'nibble-sleeve' ? context.knownTargetName : '',
         );
-        state.interferenceGateTurns = 15;
     }
     state.eventCooldowns[eventId] = spec.cooldownTurns;
     const face = tavernPetFaceForEmotion(state.phase, state.personaId, state.emotion);
-    const copyInput = {
-        state,
-        amount,
-        curioId,
-        targetName: context.knownTargetName,
-        face,
-        coinDelta,
-    };
-    const activity = isTavernPetInterferenceEventId(eventId)
+    const base = { state, amount, curioId, targetName: context.knownTargetName, face, coinDelta };
+    const journal = isTavernPetInterferenceEventId(eventId)
         ? renderTavernPetEventCopy({
-            ...copyInput,
+            ...base,
             eventId,
             injectedText: injectedText || throwTavernPetError('pet_state_invalid', `event:${eventId}:injectedText`),
         })
-        : renderTavernPetEventCopy({ ...copyInput, eventId });
-    return {
-        eventId,
-        journal: activity,
-        ...(coinEffect ? { coinEffect } : {}),
-    };
+        : renderTavernPetEventCopy({ ...base, eventId });
+    return { eventId, journal, ...(coinEffect ? { coinEffect } : {}) };
+}
+
+function maybeCreateMoment(state: TavernPetState): boolean {
+    if (!isActivePhase(state) || state.pendingMoment || state.petTurn < state.nextMomentPetTurn) {return false;}
+    const id = nextMomentId(state.lifetimeStats.momentCount);
+    state.pendingMoment = { id };
+    return true;
 }
 
 export function advanceTavernPetTurn(
@@ -602,87 +459,55 @@ export function advanceTavernPetTurn(
     context: TavernPetTurnContext,
     random: TavernPetRandomSource,
 ): TavernPetTurnTransition {
-    const petTurn = assertTurn(context.petTurn);
+    const petTurn = assertPetTurn(context.petTurn);
     if (petTurn !== source.petTurn + 1) {
-        throwTavernPetError(
-            'pet_turn_invalid',
-            [String(source.petTurn), String(petTurn)].join('->'),
-        );
+        throwTavernPetError('pet_turn_invalid', `${String(source.petTurn)}->${String(petTurn)}`);
     }
     const state = clone(source);
     state.petTurn = petTurn;
-    if (state.phase === 'luring') {
-        state.phaseTurnCount += 1;
-        state.interactionWindow = createTavernPetInteractionWindow(petTurn);
-        if (state.phaseTurnCount < state.origin.arrivalAfterTurns) {
-            return { changed: true, state, outcome: {} };
-        }
-        state.phase = 'egg';
-        state.phaseTurnCount = 0;
-        state.satiety = 50;
-        state.incubation = { feedCount: 0, tapCount: 0, bgmCount: 0 };
-        const journal = renderTavernPetMilestoneJournal({
-            milestoneId: 'arrival',
-            state,
-            petTurn,
-            sourceAnchorOrder: context.sourceAnchorOrder,
-        });
-        return { changed: true, state, outcome: { eventId: 'arrival', milestoneId: 'arrival', journal } };
-    }
-    if (state.dormant) {return { changed: true, state, outcome: {} };}
-
-    const previousWindow = clone(state.interactionWindow);
-    const hadInteraction = previousWindow.interactionCount > 0;
-    const wasFed = previousWindow.feedCount > 0;
-    decrementCooldowns(state);
-    state.satiety = Math.max(0, state.satiety - 3);
-    if (state.satiety === 0) {
-        state.dormant = true;
-        state.lifetimeStats.dormantCount += 1;
-        state.interactionWindow = createTavernPetInteractionWindow(petTurn);
+    if (state.phase === 'egg') {
+        state.phase = 'juvenile';
+        state.nextMomentPetTurn = petTurn + MOMENT_INTERVAL_TURNS;
+        setTavernPetEmotion(state, 'excited');
         return {
             changed: true,
             state,
-            outcome: { journal: renderTavernPetStatusJournal('dormant', state) },
+            outcome: {
+                milestoneId: 'hatch',
+                journal: {
+                    detail: {
+                        kind: 'milestone',
+                        milestoneId: 'hatch',
+                        renderedText: '壳从里面裂开了。有什么东西抬头看你。',
+                        motion: 'bounce',
+                        milestonePetTurn: petTurn,
+                        milestoneSourceAnchorOrder: context.sourceAnchorOrder,
+                    },
+                    coinDelta: 0,
+                    notificationText: '住户破壳了。',
+                },
+            },
         };
     }
-
-    decayEmotion(state, random);
-    if (state.phase === 'egg') {
-        state.idleTurns = 0;
-    } else {
-        state.idleTurns = hadInteraction ? 0 : state.idleTurns + 1;
-        if (!hadInteraction && state.idleTurns % 5 === 0) {
-            applyTavernPetAxesDelta(state, { tameness: -2, generosity: 0, brightness: -2 });
-        }
-        if (!hadInteraction && state.idleTurns >= 8) {setTavernPetEmotion(state, 'bored');}
-        if (state.beggingDeadlinePetTurn !== undefined && petTurn >= state.beggingDeadlinePetTurn) {
-            applyTavernPetAxesDelta(state, { tameness: -2, generosity: -2, brightness: -2 });
-            delete state.beggingDeadlinePetTurn;
-            setTavernPetEmotion(state, 'aggrieved');
-        }
-        if (context.recentExternalSpend > 0 && !wasFed) {
-            applyTavernPetAxesDelta(state, { tameness: 0, generosity: -2, brightness: -2 });
-        }
-    }
-    state.phaseTurnCount += 1;
-    state.interactionWindow = createTavernPetInteractionWindow(petTurn);
-    const milestone = advancePhaseMilestone(state, context);
+    if (!isActivePhase(state)) {throwTavernPetError('pet_phase_invalid', state.phase);}
+    state.appetite = Math.max(0, state.appetite - 2);
+    decrementCooldowns(state);
+    decayEmotion(state);
+    const milestone = maybeAdvanceMilestone(state, context);
     if (milestone) {return { changed: true, state, outcome: milestone };}
-    if (state.phase === 'egg') {return { changed: true, state, outcome: {} };}
-
+    maybeCreateMoment(state);
     const candidates = collectTavernPetEventCandidates({
         state,
         playerBalance: context.playerBalance,
         recentExternalSpend: context.recentExternalSpend,
         knownTargetName: context.knownTargetName,
     });
-    if (!candidates.length || !tavernPetProbabilityPasses(eventChance(state), random)) {
+    if (!candidates.length) {return { changed: true, state, outcome: {} };}
+    if (!tavernPetProbabilityPasses(eventChance(state), random)) {
         return { changed: true, state, outcome: {} };
     }
     const selected = drawWeightedTavernPetEventCandidate(candidates, random);
-    const outcome = applyEventEffect(state, selected.spec.id, context, random);
-    return { changed: true, state, outcome };
+    return { changed: true, state, outcome: applyEventEffect(state, selected.spec.id, context, random) };
 }
 
 export function resolveTavernPetEvolutionState(source: TavernPetState, requestId: string): TavernPetState {
@@ -695,6 +520,5 @@ export function resolveTavernPetEvolutionState(source: TavernPetState, requestId
 }
 
 export function currentTavernPetDialogueProfile(state: TavernPetState) {
-    if (state.phase !== 'juvenile' && state.phase !== 'adult') {return null;}
-    return getTavernPetDialogueProfile(state.phase, state.personaId);
+    return isActivePhase(state) ? getTavernPetDialogueProfile(state.phase, state.personaId) : null;
 }
