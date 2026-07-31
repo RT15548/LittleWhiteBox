@@ -1,5 +1,6 @@
 import { applyTavernTaskStagedAction } from './task-service';
 import {
+    TAVERN_TASK_PROGRESS_SUMMARY_MAX_LENGTH,
     TavernTaskError,
     type TavernTaskStagingContext,
     type TavernTaskStatus,
@@ -45,8 +46,10 @@ export function getTavernTaskToolDefinitions(): Array<{
             function: {
                 name: TAVERN_TASK_TOOL_NAMES.PROGRESS,
                 description: [
-                    'Record concrete progress for an existing active task.',
+                    'Record a material change toward the exact objective of an existing active task, only when it is not yet complete or failed.',
                     'Player-assigned tasks require real story evidence. A player-issued task assigned to a world NPC may instead advance conservatively from elapsed floors, assignee capability/risk, current world state, and prior progress.',
+                    'The objective is the one and only goal. Requirements only constrain execution. Do not add subgoals from the hook, risk, prior progress, unresolved side facts, or dramatic possibilities.',
+                    'progressSummary replaces the prior note. Compress it to cumulative objective-only state: only confirmed facts directly relevant to the objective and its exact remaining gap. Never recap the turn, dialogue, emotions, relationship movement, side plots, or speculation.',
                     'Do not create tasks, accept listings, recruit candidates, or move money.',
                     'Do not treat the player merely claiming completion as sufficient evidence.',
                 ].join('\n'),
@@ -54,7 +57,11 @@ export function getTavernTaskToolDefinitions(): Array<{
                     type: 'object',
                     properties: {
                         ...identityProperties,
-                        progressSummary: { type: 'string', description: 'Concise factual progress supported by the new story.' },
+                        progressSummary: {
+                            type: 'string',
+                            maxLength: TAVERN_TASK_PROGRESS_SUMMARY_MAX_LENGTH,
+                            description: 'At most 120 Unicode code points. Cumulative objective-only state, not a turn summary: only confirmed facts directly relevant to the objective and its exact remaining gap.',
+                        },
                     },
                     required: ['taskId', 'revision', 'progressSummary'],
                     additionalProperties: false,
@@ -68,6 +75,8 @@ export function getTavernTaskToolDefinitions(): Array<{
                 description: [
                     'Complete an existing active task only when its objective is credibly achieved.',
                     'Player-assigned tasks require story evidence. A player-issued task assigned to a world NPC may complete from conservative off-screen progression only when elapsed floors, capability/risk, world state, and prior progress support a terminal outcome.',
+                    'The objective is the one and only completion target. Requirements only constrain execution. Do not invent another goal or completion condition from the hook, risk, prior progress, or other unanswered facts.',
+                    'A character providing the fact requested by the objective is evidence; a bare claim that the task is “done” is not. Once accepted evidence credibly confirms the objective, complete it instead of adding drama with TaskProgress.',
                     'Settlement is limited to the task escrow; this tool cannot spend the player wallet or create a task.',
                 ].join('\n'),
                 parameters: {

@@ -18,6 +18,7 @@ import {
 import {
     TAVERN_TASK_CURRENT_MARKER,
     TAVERN_TASK_PLAYER_PARTY_ID,
+    TAVERN_TASK_PROGRESS_SUMMARY_MAX_LENGTH,
     normalizeTavernTaskAnchorOrder,
     normalizeTavernTaskCandidate,
     normalizeTavernTaskCandidates,
@@ -115,6 +116,12 @@ function normalizeActionId(value = ''): string {
     const actionId = String(value || '').trim().slice(0, 220);
     if (!actionId) {throwTavernTaskError('task_action_required');}
     return actionId;
+}
+
+function normalizeProgressSummary(value: unknown): string {
+    return [...normalizeText(value, TASK_TEXT_LIMIT, true)]
+        .slice(0, TAVERN_TASK_PROGRESS_SUMMARY_MAX_LENGTH)
+        .join('');
 }
 
 function normalizeRevision(value: unknown): number {
@@ -958,7 +965,7 @@ async function progressTaskInCurrentTransaction(
     const expectedRevision = normalizeRevision(input.expectedRevision);
     const expectedVersionId = normalizeVersionId(input.expectedVersionId);
     const anchorOrder = normalizeTavernTaskAnchorOrder(input.anchorOrder);
-    const progressSummary = normalizeText(input.progressSummary, TASK_TEXT_LIMIT, true);
+    const progressSummary = normalizeProgressSummary(input.progressSummary);
     const replay = await findActionVersion(sessionId, actionId);
     if (replay) {
         await assertMutationReplayPredecessor(replay, {
@@ -1178,7 +1185,7 @@ export function applyTavernTaskStagedAction(
     const previousAction = context.actions.find((action) => action.actionId === actionId);
     if (previousAction) {
         const summaryMatches = input.kind === 'progress'
-            ? previousAction.progressSummary === normalizeText(input.progressSummary, TASK_TEXT_LIMIT, true)
+            ? previousAction.progressSummary === normalizeProgressSummary(input.progressSummary)
             : previousAction.resultSummary === normalizeText(input.resultSummary, TASK_TEXT_LIMIT, true);
         if (
             previousAction.taskId !== taskId
@@ -1209,7 +1216,7 @@ export function applyTavernTaskStagedAction(
         anchorOrder,
     };
     if (input.kind === 'progress') {
-        const progressSummary = normalizeText(input.progressSummary, TASK_TEXT_LIMIT, true);
+        const progressSummary = normalizeProgressSummary(input.progressSummary);
         if (progressSummary === current.progressSummary) {return { version: clone(current), changed: false };}
         action.progressSummary = progressSummary;
         patch = { progressSummary };

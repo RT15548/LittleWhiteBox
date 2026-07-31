@@ -41,6 +41,7 @@ import {
     restoreTavernAcceptedEconomicStateToFloor,
 } from '../shared/accepted-economic-state';
 import {
+    TAVERN_TASK_PROGRESS_SUMMARY_MAX_LENGTH,
     parseTavernTaskBoardResponse,
     parseTavernTaskCandidatesResponse,
     type TavernTaskExpectedPhoneBoundary,
@@ -814,6 +815,42 @@ test('accepting a listing atomically locks world money without mutating the boar
         actionId: 'second-action',
         taskId: 'second-task',
     }), /task_listing_already_accepted/);
+});
+
+test('task progress stores a bounded objective state instead of an unbounded turn recap', async () => {
+    await db.delete();
+    await db.open();
+    const session = await createTavernSession({ title: 'Bounded task progress' });
+    const board = await replaceTavernTaskBoard({
+        sessionId: session.id,
+        expectedRevision: 0,
+        anchorOrder: 1,
+        generationId: 'bounded-progress-board',
+        listings: boardListings(),
+    });
+    const accepted = await acceptTavernTaskListing({
+        sessionId: session.id,
+        boardId: board.generationId,
+        boardRevision: board.revision,
+        listingId: board.listings[0].id,
+        anchorOrder: 1,
+        actionId: 'bounded-progress-accept',
+        taskId: 'bounded-progress-task',
+    });
+    const verboseSummary = '已确认一条目标事实🙂'.repeat(30);
+    const progress = await progressTavernTask({
+        sessionId: session.id,
+        taskId: accepted.taskId,
+        expectedRevision: accepted.revision,
+        progressSummary: verboseSummary,
+        anchorOrder: 2,
+        actionId: 'bounded-progress-update',
+    });
+    assert.equal([...progress.progressSummary].length, TAVERN_TASK_PROGRESS_SUMMARY_MAX_LENGTH);
+    assert.equal(
+        progress.progressSummary,
+        [...verboseSummary].slice(0, TAVERN_TASK_PROGRESS_SUMMARY_MAX_LENGTH).join(''),
+    );
 });
 
 test('accepting before the board boundary fails without creating task or wallet facts', async () => {

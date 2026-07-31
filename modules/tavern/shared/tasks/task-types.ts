@@ -5,6 +5,7 @@ import type {
 
 export const TAVERN_TASK_CURRENT_MARKER = 'current' as const;
 export const TAVERN_TASK_PLAYER_PARTY_ID = 'player' as const;
+export const TAVERN_TASK_PROGRESS_SUMMARY_MAX_LENGTH = 120;
 
 export type TavernTaskPhoneBoundary = TavernPhoneBoundary;
 export type TavernTaskExpectedPhoneBoundary = TavernExpectedPhoneBoundary;

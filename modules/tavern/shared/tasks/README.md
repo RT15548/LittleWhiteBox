@@ -22,4 +22,6 @@ Generated listings have no publisher. The board Prompt does not request one, the
 
 Accepting a current generated listing copies its complete world information into the task version. The Task service creates an anonymous, task-scoped funding party only for escrow accounting; it is not a character and never enters task generation, presentation or RP context. The main RP receives the listing's world facts, including `timing`, but never receives `posture`: intervention cost is Task UI metadata, not something characters know.
 
+Automatic maintenance treats `objective` as the one and only goal and completion target; `requirements` only constrain execution. `progressSummary` is a replacement snapshot containing only confirmed facts directly relevant to that objective and its exact remaining gap, never a turn recap or a source of new goals. New progress writes are capped at 120 Unicode code points; older persisted text remains readable until the next task mutation replaces it.
+
 Player-published tasks do not acquire a generated posture or timing. Older formal-line boards and task versions may also lack them; current generated responses must contain both.
