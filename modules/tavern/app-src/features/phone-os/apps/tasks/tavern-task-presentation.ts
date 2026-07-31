@@ -1,6 +1,5 @@
 import type {
     TavernTaskGrade,
-    TavernTaskListing,
     TavernTaskStatus,
     TavernTaskVersionRecord,
 } from '../../../../../shared/tasks/task-types';
@@ -34,13 +33,6 @@ export function tavernTaskDirectionLabel(task: TavernTaskVersionRecord): string 
     return tavernTaskDirection(task) === 'published' ? '我发布的' : '我接取的';
 }
 
-export function tavernTaskCounterparty(task: TavernTaskVersionRecord): string {
-    if (tavernTaskDirection(task) === 'published') {
-        return task.assignee?.name || '尚未选定执行人';
-    }
-    return task.issuer.name;
-}
-
 export function tavernTaskRewardLabel(reward: number): string {
     return Math.max(0, Math.floor(Number(reward) || 0)).toLocaleString('zh-CN');
 }
@@ -59,10 +51,6 @@ export function tavernTaskTimestampLabel(timestamp: number): string {
         minute: '2-digit',
         hour12: false,
     }).format(value);
-}
-
-export function tavernTaskListingFingerprint(listing: TavernTaskListing): string {
-    return `${listing.issuer.name}\u0000${listing.title}\u0000${listing.objective}`;
 }
 
 export function sortTavernTasksByRecent(tasks: TavernTaskVersionRecord[]): TavernTaskVersionRecord[] {

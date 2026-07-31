@@ -41,7 +41,7 @@ const emit = defineEmits<{
     >
       <article class="tavern-task-dossier">
         <header>
-          <span>{{ listing.issuer.name }}</span>
+          <span>{{ listing.tags[0] }}</span>
           <h2>{{ listing.title }}</h2>
           <p>{{ listing.hook }}</p>
         </header>
@@ -69,10 +69,6 @@ const emit = defineEmits<{
           <section v-if="listing.risk">
             <span>风险</span>
             <p>{{ listing.risk }}</p>
-          </section>
-          <section>
-            <span>发布者</span>
-            <p>{{ listing.issuer.description }}</p>
           </section>
         </div>
         <div

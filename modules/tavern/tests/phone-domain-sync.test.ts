@@ -58,11 +58,6 @@ function taskListings(): TavernTaskListing[] {
         tags: [direction, '同步'],
         posture,
         title: `跨标签委托 ${index}`,
-        issuer: {
-            id: `domain-sync-issuer-${index}`,
-            name: `委托人 ${index}`,
-            description: '用于验证跨标签任务板刷新。',
-        },
         hook: '新的委托已经送达。',
         objective: '验证另一个页面能看到已提交的任务事实。',
         location: '测试区',

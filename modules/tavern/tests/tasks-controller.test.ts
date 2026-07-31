@@ -35,11 +35,6 @@ function taskListings(): TavernTaskListing[] {
         tags: [direction, '测试'],
         posture,
         title: `控制器委托 ${index}`,
-        issuer: {
-            id: `controller-issuer-${index}`,
-            name: `委托人 ${index}`,
-            description: '用于控制器行为测试。',
-        },
         hook: '测试入口',
         objective: '验证读取不会倒退。',
         location: '测试区',

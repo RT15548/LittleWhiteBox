@@ -88,7 +88,7 @@ export function getTavernTaskToolDefinitions(): Array<{
                 description: [
                     'Fail an existing active task only when an irreversible failure or expiry is credible.',
                     'Player-assigned tasks require story evidence. A player-issued task assigned to a world NPC may fail from conservative off-screen progression when elapsed floors, capability/risk, world state, and prior progress support it.',
-                    'Failure refunds the original issuer from escrow; this tool cannot create tasks or spend new player funds.',
+                    'Failure returns escrow to its original funding source; this tool cannot create tasks or spend new player funds.',
                 ].join('\n'),
                 parameters: {
                     type: 'object',

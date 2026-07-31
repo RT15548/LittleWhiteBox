@@ -204,11 +204,6 @@ function managerTaskListings(): TavernTaskListing[] {
         tags: [direction, `manager-tag-${index + 1}`],
         posture,
         title: `自动维护委托 ${index + 1}`,
-        issuer: {
-            id: `manager-issuer-${index + 1}`,
-            name: `陌生发布者 ${index + 1}`,
-            description: `发布者描述 ${index + 1}`,
-        },
         hook: `异常钩子 ${index + 1}`,
         objective: `完成自动维护目标 ${index + 1}`,
         location: `地点 ${index + 1}`,

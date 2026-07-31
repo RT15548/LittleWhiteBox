@@ -21,6 +21,7 @@ import { replaceTavernTaskBoard as replaceTavernTaskBoardRaw } from '../shared/t
 import {
     acceptTavernTaskListing as acceptTavernTaskListingRaw,
     applyTavernTaskStagedAction,
+    buildTavernTaskCounterpartyAccountId,
     cancelTavernTask as cancelTavernTaskRaw,
     commitTavernTaskStagingContext,
     completeTavernTask as completeTavernTaskRaw,
@@ -194,11 +195,6 @@ function boardListings(): TavernTaskListing[] {
         tags: [direction, `tag-${index + 1}`],
         posture,
         title: `委托 ${index + 1}`,
-        issuer: {
-            id: `issuer-${index + 1}`,
-            name: `陌生发布者 ${index + 1}`,
-            description: `发布者描述 ${index + 1}`,
-        },
         hook: `异常钩子 ${index + 1}`,
         objective: `完成目标 ${index + 1}`,
         location: `地点 ${index + 1}`,
@@ -291,7 +287,7 @@ test('task requests use the new direction recipe only for board generation', () 
     assert.equal(boardRequest.includes('tasks 必须是数组'), true);
     assert.equal(boardRequest.includes('tags 必须是含 1~4 项的字符串数组'), true);
     assert.equal(boardRequest.includes('reward 必须是正整数 JSON 数字，不得写成字符串'), true);
-    assert.equal(boardRequest.includes('不可用作发布者'), false);
+    assert.equal(boardRequest.includes('"issuer"'), false);
 
     assert.equal(candidateRequest.includes('## 第一步：读懂委托'), true);
     assert.equal(candidateRequest.includes('低报酬、高风险或条件苛刻的任务可以无人应征'), true);
@@ -369,10 +365,10 @@ test('task generation scans through the latest AI and preserves character and na
     assert.equal(JSON.stringify(nativeWorldbookInput?.context.history).includes('TASK_STORY_LATEST_AI'), true);
 });
 
-test('task response parsing keeps valid paid output without confusing business variance with invalid JSON', () => {
-    const response = `prefix\n${JSON.stringify({ tasks: boardListings().map(({ id: _id, issuer, ...listing }) => ({
+test('task response parsing keeps valid paid output without inventing a publisher', () => {
+    const response = `prefix\n${JSON.stringify({ tasks: boardListings().map(({ id: _id, ...listing }, index) => ({
         ...listing,
-        issuer: { name: issuer.name, description: issuer.description },
+        ...(index === 1 ? { issuer: { name: '模型擅自生成的发布者', description: '不应进入委托。' } } : {}),
     })) })}\nsuffix`;
     let id = 0;
     const listings = parseTavernTaskBoardResponse(response, {
@@ -380,7 +376,7 @@ test('task response parsing keeps valid paid output without confusing business v
     });
     assert.equal(listings.length, 6);
     assert.equal(new Set(listings.map((listing) => listing.id)).size, 6);
-    assert.equal(listings.some((listing) => listing.issuer.name === '陌生发布者 2'), true);
+    assert.equal(listings.some((listing) => 'issuer' in listing), false);
     const shuffled = parseTavernTaskBoardResponse(JSON.stringify({
         tasks: [...boardListings().slice(3), ...boardListings().slice(0, 3)],
     }), { warn: () => undefined });
@@ -615,10 +611,7 @@ test('task board persists distinct listings when display titles repeat', async (
     await db.delete();
     await db.open();
     const session = await createTavernSession({ title: 'Task board duplicate display titles' });
-    const generated = boardListings().map(({ id: _id, issuer, ...listing }) => ({
-        ...listing,
-        issuer: { name: issuer.name, description: issuer.description },
-    }));
+    const generated = boardListings().map(({ id: _id, ...listing }) => listing);
     generated[5] = { ...generated[5], title: ` ${generated[0].title} ` };
     const listings = parseTavernTaskBoardResponse(JSON.stringify({ tasks: generated }));
 
@@ -806,7 +799,10 @@ test('accepting a listing atomically locks world money without mutating the boar
     assert.equal(accepted.timing, '现在就行');
     assert.equal(await getTavernTaskPlayerBalance(session.id), 100);
     assert.equal((await tavernEconomyAccountsTable.get([session.id, accepted.escrowAccountId]))?.balance, 100);
-    assert.equal((await tavernEconomyAccountsTable.get([session.id, 'counterparty:issuer-3']))?.balance, -100);
+    assert.equal((await tavernEconomyAccountsTable.get([
+        session.id,
+        buildTavernTaskCounterpartyAccountId(accepted.issuer.id),
+    ]))?.balance, -100);
     assert.equal((await tavernTaskBoardsTable.get(session.id))?.listings.length, 6);
     assert.equal(await tavernTaskVersionsTable.where('sessionId').equals(session.id).count(), 1);
     assert.equal(await tavernEconomyTransactionsTable.where('sessionId').equals(session.id).count(), 2);
@@ -1067,7 +1063,7 @@ test('task action replays cannot cross mutation transitions', async () => {
     }), /task_action_conflict/);
 });
 
-test('task cancellation and failure return escrow to the correct issuer', async () => {
+test('task cancellation and failure return escrow to the correct funding source', async () => {
     await db.delete();
     await db.open();
 
@@ -1159,7 +1155,10 @@ test('task cancellation and failure return escrow to the correct issuer', async 
     });
     assert.equal(failedAccepted.status, 'failed');
     assert.equal(await getTavernTaskPlayerBalance(acceptedSession.id), 100);
-    assert.equal((await tavernEconomyAccountsTable.get([acceptedSession.id, 'counterparty:issuer-1']))?.balance, 0);
+    assert.equal((await tavernEconomyAccountsTable.get([
+        acceptedSession.id,
+        buildTavernTaskCounterpartyAccountId(accepted.issuer.id),
+    ]))?.balance, 0);
     assert.equal((await tavernEconomyAccountsTable.get([acceptedSession.id, accepted.escrowAccountId]))?.balance, 0);
 });
 

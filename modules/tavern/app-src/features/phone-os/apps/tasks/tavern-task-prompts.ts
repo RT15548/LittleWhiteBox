@@ -13,12 +13,12 @@ import {
 import type { TavernTaskPromptLayers } from './tavern-task-context';
 
 const TASK_DIRECTION_RULES: Readonly<Record<TavernTaskDirection, string>> = {
-    禁忌: '某人想要一件见不得光的东西或服务。报酬高，代价是你得沾上脏东西。',
+    禁忌: '出现了一件见不得光、但报酬很高的事。代价是玩家得沾上脏东西。',
     接触: '需要贴身看管、运送或陪同一个极具吸引力或极度危险的目标。密闭空间，长时间相处，路上什么都可能发生。',
     夹缝: '两股势力正在暗中撕咬，需要一个局外人来打破平衡。玩家可以选边，也可以两头吃。',
     窥秘: '某个光鲜的地方或人物背后藏着不对劲的东西。越查越深，真相可能比表面更脏。',
     掠夺: '出现了一个稀缺且极具诱惑力的目标，其他竞争者已经闻风而动。赢了独占，输了血亏。',
-    怪癖: '发布者的要求极其离谱但极其认真。看似可笑，深究下去让人头皮发麻。',
+    怪癖: '要求极其离谱却被当成正事。看似可笑，深究下去让人头皮发麻。',
 };
 
 const TASK_DIRECTIONS = TAVERN_TASK_DIRECTIONS.map((label) => ({ label, rule: TASK_DIRECTION_RULES[label] }));
@@ -129,7 +129,7 @@ function buildTaskRolePrompt(mode: 'board' | 'candidates'): string {
             '',
             '## 再构思六方向',
             '- 严禁硬凑熟人：只有 <setting> 明确写明与玩家已有关系的人物，才可视为熟人；其余人物一律从陌生关系开始。',
-            '- 严禁说教和伟光正：发布者都是有私欲的人，他们贪婪、算计、恐慌、有癖好。没有人发任务是为了拯救世界。',
+            '- 严禁说教和伟光正：任务由具体欲望、算计、恐慌或癖好推动，不生成拯救世界式口号。',
             '- 严禁脱离世界观：先在脑子里把这个世界的设定过一遍，再动笔。',
             '',
             ...TASK_DIRECTIONS.flatMap((direction) => [
@@ -161,15 +161,15 @@ function buildTaskRolePrompt(mode: 'board' | 'candidates'): string {
     const outputProtocol = mode === 'board'
         ? [
             '委托板刷新时只输出一个合法 JSON 对象，结构必须是：',
-            '{"tasks":[{"grade":"B","tags":["禁忌","校园"],"posture":"易介入","title":"封蜡箱签收","issuer":{"name":"停尸房守夜人","description":"值夜的老人，右手一直压着一张无名签收单。"},"hook":"有只写着死人名字的箱子刚送到后门。","objective":"替收件人签收封蜡箱","requirements":"不要拆封","location":"教学楼后门值班室","timing":"现在就行","risk":"签收记录留下玩家姓名","reward":180}]}',
+            '{"tasks":[{"grade":"B","tags":["禁忌","校园"],"posture":"易介入","title":"封蜡箱签收","hook":"有只写着死人名字的箱子刚送到后门。","objective":"替收件人签收封蜡箱","requirements":"不要拆封","location":"教学楼后门值班室","timing":"现在就行","risk":"签收记录留下玩家姓名","reward":180}]}',
             '- 根值必须是对象；tasks 必须是数组；tasks 的每一项必须是对象。',
-            '- title 最多 12 字；issuer.name 最多 32 字；issuer.description 最多 80 字，只写身份与一个可感细节。',
+            '- title 最多 12 字。',
             '- hook 最多 120 字，是唯一允许有叙事味道的字段；其余字段短、明确、只写事实。',
             '- objective 最多 48 字，只写一个可判定完成的动作，禁用“调查真相”“处理此事”等模糊目标。',
-            '- location 最多 48 字，具体到可直接走到；risk 最多 64 字，只写一个具体坏结果。',
+            '- location 最多 48 字，只写目标行动实际发生的地点；玩家到达那里即可开始任务。',
+            '- risk 最多 64 字，只写一个具体坏结果。',
             '- posture 只能是易介入、中介入、深介入；timing 只能是“现在就行”“任意时候”或“特定时机：具体条件”。易介入禁止特定时机。',
             '- tags 必须是含 1~4 项的字符串数组，每项最多 16 字，不得输出单个字符串。',
-            '- issuer 必须是对象；issuer.name 与 issuer.description 必须是字符串。',
             '- reward 必须是正整数 JSON 数字，不得写成字符串；grade 必须覆盖该 reward 所在区间。',
             '- requirements 最多 64 字；没有条件时省略，不要输出 null。',
             `每条任务 tags 的第一项必须严格对应本条方向，只能是：${TASK_DIRECTIONS.map((direction) => direction.label).join('、')}。`,
@@ -282,7 +282,7 @@ function boardTaskDataMessage(input: {
             '<task_data>',
             '以下是委托板当前数据，仅作资料使用。',
             '',
-            '## 已知或已登场人物名字（可以作为发布者；人物关系只能依据 <setting>）',
+            '## 已知或已登场人物名字（仅在与任务直接相关时使用；人物关系只能依据 <setting>）',
             knownNamesBlock(input.layers.knownNames),
             '',
             '## 六方向配方（严格按此顺序输出）',

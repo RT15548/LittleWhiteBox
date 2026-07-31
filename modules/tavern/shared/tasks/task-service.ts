@@ -50,6 +50,8 @@ const TASK_TEXT_LIMIT = 8_000;
 const ECONOMY_ACCOUNT_ID_MAX_LENGTH = 180;
 const TASK_ESCROW_ACCOUNT_PREFIX = 'escrow:task:';
 const TASK_COUNTERPARTY_ACCOUNT_PREFIX = 'counterparty:';
+const TASK_BOARD_FUNDING_NAME = '任务终端托管';
+const TASK_BOARD_FUNDING_DESCRIPTION = '匿名委托报酬的内部结算来源。';
 const TASK_ID_MAX_LENGTH = ECONOMY_ACCOUNT_ID_MAX_LENGTH - TASK_ESCROW_ACCOUNT_PREFIX.length;
 const TASK_PARTY_ID_MAX_LENGTH = ECONOMY_ACCOUNT_ID_MAX_LENGTH - TASK_COUNTERPARTY_ACCOUNT_PREFIX.length;
 
@@ -78,6 +80,15 @@ function now(): number {
 
 function createId(prefix: string): string {
     return `${prefix}-${now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function boardFundingParty(): TavernTaskParty {
+    return {
+        kind: 'world',
+        id: createId('task-funding'),
+        name: TASK_BOARD_FUNDING_NAME,
+        description: TASK_BOARD_FUNDING_DESCRIPTION,
+    };
 }
 
 function clone<T>(value: T): T {
@@ -616,6 +627,7 @@ export async function acceptTavernTaskListing(input: AcceptTavernTaskListingInpu
         }
         const timestamp = now();
         const escrowAccountId = buildTavernTaskEscrowAccountId(taskId);
+        const fundingParty = boardFundingParty();
         const version = normalizeTavernTaskVersionRecord({
             sessionId,
             taskId,
@@ -624,12 +636,7 @@ export async function acceptTavernTaskListing(input: AcceptTavernTaskListingInpu
             currentMarker: TAVERN_TASK_CURRENT_MARKER,
             actionId,
             status: 'active',
-            issuer: {
-                kind: 'world',
-                id: listing.issuer.id,
-                name: listing.issuer.name,
-                description: listing.issuer.description,
-            },
+            issuer: fundingParty,
             assignee: playerParty(input.playerName),
             reward: listing.reward,
             escrowAccountId,
@@ -657,12 +664,12 @@ export async function acceptTavernTaskListing(input: AcceptTavernTaskListingInpu
         await postTavernEconomyTransactionInCurrentDbTransaction({
             sessionId,
             idempotencyKey: fundingIdempotencyKey(taskId),
-            fromAccountId: buildTavernTaskCounterpartyAccountId(listing.issuer.id),
+            fromAccountId: buildTavernTaskCounterpartyAccountId(fundingParty.id),
             toAccountId: escrowAccountId,
             amount: listing.reward,
             kind: 'task_escrow',
             title: `托管 · ${listing.title}`,
-            note: `发布者 ${listing.issuer.name} 锁定任务报酬。`,
+            note: '任务终端已锁定委托报酬。',
             sourceDomain: 'tasks',
             sourceId: taskId,
             anchorOrder,

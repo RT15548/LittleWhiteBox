@@ -76,7 +76,6 @@ export async function buildTavernTaskPromptLayers(input: {
         input.contextSnapshot.character?.name,
         ...contacts.map((contact) => contact.name),
         ...[...liveTasks, ...terminalTasks].flatMap((task) => [
-            task.issuer.kind === 'world' ? task.issuer.name : '',
             task.assignee?.kind === 'world' ? task.assignee.name : '',
         ]),
         ...memoryFiles

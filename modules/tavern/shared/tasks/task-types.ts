@@ -57,12 +57,6 @@ export interface TavernTaskPlayerParty {
 
 export type TavernTaskParty = TavernTaskWorldParty | TavernTaskPlayerParty;
 
-export interface TavernTaskListingIssuer {
-    id: string;
-    name: string;
-    description: string;
-}
-
 export interface TavernTaskListing {
     id: string;
     grade: TavernTaskBoardGrade;
@@ -73,7 +67,6 @@ export interface TavernTaskListing {
      */
     posture?: TavernTaskPosture;
     title: string;
-    issuer: TavernTaskListingIssuer;
     hook: string;
     objective: string;
     requirements?: string;
@@ -345,11 +338,8 @@ export interface TaskCandidateParseOptions {
 }
 
 const MAX_SAFE_TEXT = 8_000;
-
 const GENERATED_TASK_TEXT_LIMITS = {
     title: 12,
-    issuerName: 32,
-    issuerDescription: 80,
     hook: 120,
     tag: 16,
     objective: 48,
@@ -522,10 +512,6 @@ export function normalizeTavernTaskListing(value: unknown, idFallback = ''): Tav
     const record = value as Record<string, unknown>;
     const id = text(record.id, 180) || idFallback;
     if (!id) {throwTavernTaskError('task_board_listing_invalid', 'id');}
-    const issuer = record.issuer && typeof record.issuer === 'object' && !Array.isArray(record.issuer)
-        ? record.issuer as Record<string, unknown>
-        : null;
-    if (!issuer) {throwTavernTaskError('task_board_listing_invalid', 'issuer');}
     const requirements = generatedTaskText(record.requirements, 'requirements', false);
     if (typeof record.grade !== 'string') {throwTavernTaskError('task_board_listing_invalid', 'grade');}
     if (typeof record.reward !== 'number') {throwTavernTaskError('task_board_listing_invalid', 'reward');}
@@ -552,11 +538,6 @@ export function normalizeTavernTaskListing(value: unknown, idFallback = ''): Tav
         tags,
         posture,
         title: generatedTaskText(record.title, 'title'),
-        issuer: {
-            id: text(issuer.id, 180) || `issuer-${id}`,
-            name: generatedTaskText(issuer.name, 'issuerName'),
-            description: generatedTaskText(issuer.description, 'issuerDescription'),
-        },
         hook: generatedTaskText(record.hook, 'hook'),
         objective: generatedTaskText(record.objective, 'objective'),
         ...(requirements ? { requirements } : {}),
@@ -637,7 +618,6 @@ export function parseTavernTaskBoardResponse(value: string, options: TaskBoardPa
                 listings.push({
                     ...listing,
                     id: createId('listing'),
-                    issuer: { ...listing.issuer, id: createId('issuer') },
                 });
             } catch (error) {
                 const detail = error instanceof Error ? error.message : String(error || 'invalid');

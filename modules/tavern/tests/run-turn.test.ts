@@ -182,11 +182,6 @@ function runTurnTaskListings(): TavernTaskListing[] {
         tags: [direction, `runtime-tag-${index + 1}`],
         posture,
         title: `运行时委托 ${index + 1}`,
-        issuer: {
-            id: `runtime-issuer-${index + 1}`,
-            name: `陌生发布者 ${index + 1}`,
-            description: `发布者描述 ${index + 1}`,
-        },
         hook: `异常钩子 ${index + 1}`,
         objective: `完成运行时目标 ${index + 1}`,
         requirements: `运行时要求 ${index + 1}`,
@@ -4433,8 +4428,7 @@ test('formal tasks enter both local and ST-native depth-1 prompts while board ca
     assert.match(String(taskDepth?.content || ''), /《运行时委托 3》/);
     assert.match(String(taskDepth?.content || ''), /等级：C/);
     assert.match(String(taskDepth?.content || ''), /标签：夹缝、runtime-tag-3/);
-    assert.match(String(taskDepth?.content || ''), /委托人：陌生发布者 3/);
-    assert.match(String(taskDepth?.content || ''), /委托人资料：发布者描述 3/);
+    assert.doesNotMatch(String(taskDepth?.content || ''), /委托人|发布者|任务终端托管/);
     assert.match(String(taskDepth?.content || ''), /缘由与线索：异常钩子 3/);
     assert.match(String(taskDepth?.content || ''), /完成运行时目标 3/);
     assert.match(String(taskDepth?.content || ''), /要求：运行时要求 3/);

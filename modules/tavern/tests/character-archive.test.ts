@@ -156,11 +156,6 @@ async function seedArchiveTasks(sessionId: string, prefix = 'archive') {
             tags: [direction, index % 2 ? '调查' : '委托'],
             posture,
             title,
-            issuer: {
-                id: `${prefix}-issuer-${index + 1}`,
-                name: `陌生委托人 ${index + 1}`,
-                description: '只在地下委托终端留下单向联络暗号。',
-            },
             hook: '委托表面简单，但有一条刻意被遮住的附注。',
             objective: `完成第 ${index + 1} 项可执行目标并带回可信结果。`,
             location: `旧城区 ${index + 1} 号节点`,
