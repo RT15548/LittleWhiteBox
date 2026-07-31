@@ -341,6 +341,7 @@
     let timelineHasRenderedEvents = false;
     let currentTimelineChatId = '';
     let settingsSaveTimeoutId = null;
+    let currentChatSummaryEnabled = true;
     let panelConfigLoadedFromServer = false;
     let settingsOpenedWithServerConfig = false;
     const pendingConfigSaveRequests = new Map();
@@ -442,6 +443,27 @@
         } else {
             config.trigger.timing = normalizeTriggerTiming(config.trigger.timing);
         }
+    }
+
+    function syncCurrentChatSummaryControls(enabled = currentChatSummaryEnabled) {
+        currentChatSummaryEnabled = enabled !== false;
+        const toggle = $('current-chat-enabled');
+        if (toggle) {
+            toggle.checked = currentChatSummaryEnabled;
+            toggle.disabled = false;
+        }
+
+        const generateButton = $('btn-generate');
+        if (generateButton) {
+            generateButton.disabled = !currentChatSummaryEnabled;
+            generateButton.title = currentChatSummaryEnabled ? '' : '请先启用当前聊天的剧情总结';
+        }
+
+        for (const id of ['hide-summarized', 'keep-visible-count', 'use-vector-boundary']) {
+            const control = $(id);
+            if (control) control.disabled = !currentChatSummaryEnabled;
+        }
+        syncVectorBoundaryControl(config.vector?.enabled, currentChatSummaryEnabled && config.ui.hideSummarized);
     }
 
     function syncAutoSummaryControls() {
@@ -2248,6 +2270,10 @@
         const btn = $('btn-generate');
 
         switch (d.type) {
+            case 'CHAT_SUMMARY_STATE':
+                syncCurrentChatSummaryControls(d.state?.effectiveEnabled !== false);
+                break;
+
             case 'GENERATION_STATE':
                 localGenerating = !!d.isGenerating;
                 btn.textContent = localGenerating ? '停止' : '总结';
@@ -2566,6 +2592,14 @@
             e.target.value = val;
         };
 
+        // Current chat switch (saved immediately in chat metadata)
+        $('current-chat-enabled').onchange = e => {
+            const enabled = e.target.checked;
+            e.target.disabled = true;
+            syncCurrentChatSummaryControls(enabled);
+            postMsg('SET_CURRENT_CHAT_ENABLED', { enabled });
+        };
+
         // Main actions
         $('btn-clear').onclick = async () => {
             const action = await showCleanActionMenu();
@@ -2705,6 +2739,7 @@
         renderFacts([]);
 
         bindEvents();
+        syncCurrentChatSummaryControls(currentChatSummaryEnabled);
 
         // === THEME SWITCHER ===
         (function () {

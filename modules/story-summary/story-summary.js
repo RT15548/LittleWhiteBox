@@ -8,15 +8,16 @@
 // 4) Prompt 注入：extension_prompts + IN_CHAT + depth（动态计算，最小为2）
 // ═══════════════════════════════════════════════════════════════════════════
 
-import { getContext } from "../../../../../extensions.js";
+import { getContext, saveMetadataDebounced } from "../../../../../extensions.js";
 import {
     event_types,
     extension_prompts,
     extension_prompt_types,
     extension_prompt_roles,
     getRequestHeaders,
+    chat_metadata,
 } from "../../../../../../script.js";
-import { extensionFolderPath } from "../../core/constants.js";
+import { EXT_ID, extensionFolderPath } from "../../core/constants.js";
 import { xbLog, CacheRegistry } from "../../core/debug-core.js";
 import { createModuleEvents } from "../../core/event-manager.js";
 import { postToIframe, isTrustedMessage } from "../../core/iframe-messaging.js";
@@ -39,6 +40,11 @@ import {
     saveSummaryPanelConfigVerified,
     loadConfigFromServer,
 } from "./data/config.js";
+import {
+    getChatStorySummaryEnabled,
+    resolveStorySummaryEnabled,
+    setChatStorySummaryEnabled,
+} from "./data/chat-toggle.js";
 import {
     getSummaryStore,
     saveSummaryStore,
@@ -131,6 +137,48 @@ const VALID_SECTIONS = ["keywords", "events", "characters", "arcs", "facts"];
 const MESSAGE_EVENT = "message";
 const SUMMARY_MODEL_FETCH_PROVIDERS = new Set(["openai"]);
 const SUMMARY_MODEL_FETCH_TIMEOUT_MS = 5000;
+
+export function getStorySummaryChatState() {
+    const context = getContext();
+    const globalEnabled = Boolean(getSettings().storySummary?.enabled);
+    const hasChat = Boolean(context?.chatId);
+    const chatEnabled = hasChat
+        ? getChatStorySummaryEnabled(chat_metadata, EXT_ID)
+        : true;
+    return {
+        hasChat,
+        chatId: context?.chatId || null,
+        globalEnabled,
+        chatEnabled,
+        effectiveEnabled: hasChat && resolveStorySummaryEnabled(globalEnabled, chatEnabled),
+    };
+}
+
+export function isStorySummaryEnabledForCurrentChat() {
+    return getStorySummaryChatState().effectiveEnabled;
+}
+
+function notifyStorySummaryChatState() {
+    const state = getStorySummaryChatState();
+    postToFrame({ type: "CHAT_SUMMARY_STATE", state });
+    $(document).trigger("xiaobaix:storySummary:chat-state", [state]);
+}
+
+export async function setStorySummaryEnabledForCurrentChat(enabled) {
+    const context = getContext();
+    if (!context?.chatId) {
+        throw new Error("No active chat");
+    }
+
+    setChatStorySummaryEnabled(chat_metadata, EXT_ID, enabled);
+    saveMetadataDebounced?.();
+    notifyStorySummaryChatState();
+
+    if (events) {
+        await handleChatChanged();
+    }
+    return getStorySummaryChatState();
+}
 
 function compactRecallRuntimeStatsForLog(statsList = getRecallRuntimeStats()) {
     if (!Array.isArray(statsList) || !statsList.length) return "[]";
@@ -1874,11 +1922,13 @@ async function importSummaryMemoryPackage(rawText) {
 // Compatibility export for ena-planner.
 // Returns a compact plain-text snapshot of story-summary memory.
 export function getStorySummaryForEna() {
+    if (!isStorySummaryEnabledForCurrentChat()) return "";
     const promptText = String(_lastBuiltPromptText || "").trim();
     return promptText || getStorySummaryMemoryText();
 }
 
 export function getStorySummaryMemoryText() {
+    if (!isStorySummaryEnabledForCurrentChat()) return "";
     return formatStorySummaryMemoryText(getSummaryStore());
 }
 
@@ -2040,7 +2090,7 @@ async function getHideBoundaryFloor(store) {
 }
 
 async function applyHideState({ reset = true } = {}) {
-    if (!getSettings().storySummary?.enabled) return;
+    if (!isStorySummaryEnabledForCurrentChat()) return;
     const store = getSummaryStore();
     const ui = getHideUiSettings();
     if (!ui.hideSummarized) return;
@@ -2073,7 +2123,7 @@ function applyHideStateDebounced({ reset = false } = {}) {
     cancelHideApplyTimer();
     hideApplyTimer = setTimeout(() => {
         hideApplyTimer = null;
-        if (!getSettings().storySummary?.enabled) return;
+        if (!isStorySummaryEnabledForCurrentChat()) return;
         if (!getHideUiSettings().hideSummarized) return;
         applyHideState({ reset }).catch((e) => xbLog.warn(MODULE_ID, "applyHideState failed", e));
     }, HIDE_APPLY_DEBOUNCE_MS);
@@ -2167,7 +2217,7 @@ async function clearHideState() {
 async function maybeAutoRunSummary(reason) {
     const { chatId, chat } = getContext();
     if (!chatId || !Array.isArray(chat)) return;
-    if (!getSettings().storySummary?.enabled) return;
+    if (!isStorySummaryEnabledForCurrentChat()) return;
 
     const cfgAll = getSummaryPanelConfig();
     const trig = cfgAll.trigger || {};
@@ -2212,7 +2262,7 @@ async function autoRunSummaryWithRetry(targetMesId, configForRun) {
                         addEventDocuments(allEvents.filter(e => idSet.has(e.id)));
                     }
 
-                    if (getSettings().storySummary?.enabled && getHideUiSettings().hideSummarized) {
+                    if (isStorySummaryEnabledForCurrentChat() && getHideUiSettings().hideSummarized) {
                         applyHideStateDebounced();
                     }
                     await updateFrameStatsAfterSummary(store);
@@ -2261,6 +2311,7 @@ async function handleFrameMessage(event) {
             sendVectorConfigToFrame();
             sendVectorStatsToFrame();
             sendAnchorStatsToFrame();
+            notifyStorySummaryChatState();
             break;
         }
 
@@ -2282,7 +2333,22 @@ async function handleFrameMessage(event) {
             $(".xb-ss-close-btn").show();
             break;
 
+        case "SET_CURRENT_CHAT_ENABLED": {
+            try {
+                await setStorySummaryEnabledForCurrentChat(data.enabled !== false);
+            } catch (error) {
+                xbLog.warn(MODULE_ID, "Failed to update current chat story summary state", error);
+                notifyStorySummaryChatState();
+            }
+            break;
+        }
+
         case "REQUEST_GENERATE": {
+            if (!isStorySummaryEnabledForCurrentChat()) {
+                postToFrame({ type: "SUMMARY_STATUS", statusText: "请先启用当前聊天的剧情总结" });
+                notifyStorySummaryChatState();
+                break;
+            }
             const ctx = getContext();
             currentMesId = (ctx.chat?.length ?? 1) - 1;
             handleManualGenerate(currentMesId, data.config || {});
@@ -2763,12 +2829,19 @@ async function handleChatChanged() {
     lastRecallLogText = "";
     const { chat } = getContext();
     activeChatId = getContext().chatId || null;
+    notifyStorySummaryChatState();
+    initButtonsForAll();
+
+    if (!isStorySummaryEnabledForCurrentChat()) {
+        await deactivateCurrentChatStorySummary();
+        return;
+    }
+
     logRecallRuntimeCheckpoint("chatChanged:before-retain", `chat=${activeChatId || "-"} length=${Array.isArray(chat) ? chat.length : 0}`);
     await retainRecallRuntimeOnly(activeChatId);
     const newLength = Array.isArray(chat) ? chat.length : 0;
 
     await rollbackSummaryIfNeeded();
-    initButtonsForAll();
 
     const store = getSummaryStore();
 
@@ -2800,6 +2873,7 @@ async function handleChatChanged() {
 }
 
 async function handleMessageDeleted(scheduledChatId) {
+    if (!isStorySummaryEnabledForCurrentChat()) return;
     if (isChatStale(scheduledChatId)) return;
     const { chat, chatId } = getContext();
     const newLength = chat?.length || 0;
@@ -2823,6 +2897,7 @@ async function handleMessageDeleted(scheduledChatId) {
 }
 
 async function handleMessageSwiped(scheduledChatId) {
+    if (!isStorySummaryEnabledForCurrentChat()) return;
     if (isChatStale(scheduledChatId)) return;
     const { chat, chatId } = getContext();
     const lastFloor = (chat?.length || 1) - 1;
@@ -2845,6 +2920,7 @@ async function handleMessageSwiped(scheduledChatId) {
 }
 
 async function handleMessageReceived(scheduledChatId, targetMesId = null) {
+    if (!isStorySummaryEnabledForCurrentChat()) return;
     if (isChatStale(scheduledChatId)) return;
     const { chat, chatId } = getContext();
     const lastFloor = (chat?.length || 1) - 1;
@@ -2871,10 +2947,12 @@ async function handleMessageReceived(scheduledChatId, targetMesId = null) {
 function handleMessageSent(scheduledChatId) {
     if (isChatStale(scheduledChatId)) return;
     initButtonForLatestMessage();
+    if (!isStorySummaryEnabledForCurrentChat()) return;
     scheduleAutoSummary("before_user");
 }
 
 async function handleMessageUpdated(scheduledChatId) {
+    if (!isStorySummaryEnabledForCurrentChat()) return;
     if (isChatStale(scheduledChatId)) return;
     await rollbackSummaryIfNeeded();
     initButtonsForAll();
@@ -2882,6 +2960,7 @@ async function handleMessageUpdated(scheduledChatId) {
 }
 
 function handleMessageRendered(data) {
+    if (!getSettings().storySummary?.enabled) return;
     const mesId = data?.element ? $(data.element).attr("mesid") : data?.messageId;
     if (mesId != null) addSummaryBtnToMessage(mesId);
     else initButtonsForAll();
@@ -2892,6 +2971,7 @@ function handleMessageRendered(data) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 function handleMessageSentForRecall() {
+    if (!isStorySummaryEnabledForCurrentChat()) return;
     const { chat } = getContext();
     const lastMsg = chat?.[chat.length - 1];
     if (lastMsg?.is_user) {
@@ -2910,7 +2990,7 @@ function clearExtensionPrompt() {
 
 async function handleGenerationStarted(type, _params, isDryRun) {
     if (isDryRun) return;
-    if (!getSettings().storySummary?.enabled) return;
+    if (!isStorySummaryEnabledForCurrentChat()) return;
 
     const T0 = performance.now();
     const timing = {
@@ -3048,6 +3128,7 @@ function isChatStale(scheduledChatId) {
 }
 
 function notifyStorySummaryAfterAi(data, source) {
+    if (!isStorySummaryEnabledForCurrentChat()) return;
     const { chatId, chat } = getContext();
     if (!chatId || !Array.isArray(chat) || !chat.length) return;
 
@@ -3071,7 +3152,7 @@ function registerAfterAiGateHandler() {
     initAfterAiGate();
     if (afterAiGateDispose) return;
     afterAiGateDispose = registerAfterAiHandler(MODULE_ID, async ({ chatId, messageId }) => {
-        if (!getSettings().storySummary?.enabled) return;
+        if (!isStorySummaryEnabledForCurrentChat()) return;
         if (activeChatId !== chatId) return;
         scheduleWithChatGuard(handleMessageReceived, 0, messageId);
     });
@@ -3125,6 +3206,7 @@ function registerEvents() {
 
     events.on(event_types.CHAT_CHANGED, () => {
         activeChatId = getContext().chatId || null;
+        notifyStorySummaryChatState();
         scheduleWithChatGuard(handleChatChanged, 80);
     });
     events.on(event_types.MESSAGE_DELETED, () => scheduleWithChatGuard(handleMessageDeleted, 50));
@@ -3187,6 +3269,25 @@ function unregisterEvents() {
     window.removeEventListener("resize", handleViewportChangeForBackground);
     window.visualViewport?.removeEventListener?.("resize", handleViewportChangeForBackground);
     window.visualViewport?.removeEventListener?.("scroll", handleViewportChangeForBackground);
+    notifyStorySummaryChatState();
+}
+
+async function deactivateCurrentChatStorySummary() {
+    clearDeferredBackgroundTasks();
+    cancelHideApplyTimer();
+    clearExtensionPrompt();
+    _lastBuiltPromptText = "";
+    lastRecallLogText = "";
+
+    if (activeChatId) {
+        clearRecallRuntime(activeChatId).catch(() => {});
+    }
+
+    try {
+        await clearHideState();
+    } catch (error) {
+        xbLog.warn(MODULE_ID, "Failed to restore hidden messages while disabling this chat", error);
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -3405,7 +3506,7 @@ function showBackupManagerModal(initialFiles) {
 $(document).on("xiaobaix:storySummary:toggle", async (_e, enabled) => {
     if (enabled) {
         registerEvents();
-        initButtonsForAll();
+        await handleChatChanged();
     } else {
         try {
             await clearHideState();
@@ -3414,6 +3515,7 @@ $(document).on("xiaobaix:storySummary:toggle", async (_e, enabled) => {
         }
         unregisterEvents();
     }
+    notifyStorySummaryChatState();
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -3424,14 +3526,16 @@ jQuery(() => {
     window.registerModuleCleanup?.(MODULE_ID, unregisterEvents);
     if (!getSettings().storySummary?.enabled) return;
     (async () => {
-        await loadConfigFromServer();
+        try {
+            await loadConfigFromServer();
+        } catch (e) {
+            xbLog.warn(MODULE_ID, "Failed to load server config before initialization; using local cache", e);
+        }
         registerEvents();
         initStateIntegration();
         maybePreloadTokenizer();
+        await handleChatChanged();
     })().catch((e) => {
-        xbLog.warn(MODULE_ID, "初始化前加载服务端配置失败，继续使用本地缓存", e);
-        registerEvents();
-        initStateIntegration();
-        maybePreloadTokenizer();
+        xbLog.error(MODULE_ID, "Story summary initialization failed", e);
     });
 });
