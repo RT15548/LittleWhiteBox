@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-31T14:33:32.908Z",
+  "generatedAt": "2026-08-01T16:19:09.415Z",
   "version": 2,
   "files": [
     {
@@ -357,7 +357,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/agent-core/config.js",
       "relativePath": "modules/agent-core/config.js",
       "extension": ".js",
-      "sizeBytes": 12305
+      "sizeBytes": 13155
     },
     {
       "source": "littlewhitebox",
@@ -378,7 +378,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/agent-core/provider-config.js",
       "relativePath": "modules/agent-core/provider-config.js",
       "extension": ".js",
-      "sizeBytes": 7483
+      "sizeBytes": 7399
     },
     {
       "source": "littlewhitebox",
@@ -504,14 +504,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/agent-core/ui/settings-markup.js",
       "relativePath": "modules/agent-core/ui/settings-markup.js",
       "extension": ".js",
-      "sizeBytes": 14362
+      "sizeBytes": 14777
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/agent-core/ui/settings-panel.js",
       "relativePath": "modules/agent-core/ui/settings-panel.js",
       "extension": ".js",
-      "sizeBytes": 55618
+      "sizeBytes": 56823
     },
     {
       "source": "littlewhitebox",
@@ -742,7 +742,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/assistant-file-manifest.json",
       "relativePath": "modules/assistant/assistant-file-manifest.json",
       "extension": ".json",
-      "sizeBytes": 309926
+      "sizeBytes": 310274
     },
     {
       "source": "littlewhitebox",
@@ -917,7 +917,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/tests/config.test.js",
       "relativePath": "modules/assistant/tests/config.test.js",
       "extension": ".js",
-      "sizeBytes": 8932
+      "sizeBytes": 10704
     },
     {
       "source": "littlewhitebox",
@@ -2037,7 +2037,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/tavern/app-src/App.vue",
       "relativePath": "modules/tavern/app-src/App.vue",
       "extension": ".vue",
-      "sizeBytes": 224067
+      "sizeBytes": 224124
     },
     {
       "source": "littlewhitebox",
@@ -2282,21 +2282,21 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/tavern/app-src/components/phone-os/apps/pet/TavernPetApp.vue",
       "relativePath": "modules/tavern/app-src/components/phone-os/apps/pet/TavernPetApp.vue",
       "extension": ".vue",
-      "sizeBytes": 7209
+      "sizeBytes": 9332
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/tavern/app-src/components/phone-os/apps/pet/TavernPetChatBar.vue",
       "relativePath": "modules/tavern/app-src/components/phone-os/apps/pet/TavernPetChatBar.vue",
       "extension": ".vue",
-      "sizeBytes": 2349
+      "sizeBytes": 2645
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/tavern/app-src/components/phone-os/apps/pet/TavernPetGiftShelf.vue",
       "relativePath": "modules/tavern/app-src/components/phone-os/apps/pet/TavernPetGiftShelf.vue",
       "extension": ".vue",
-      "sizeBytes": 1765
+      "sizeBytes": 1865
     },
     {
       "source": "littlewhitebox",
@@ -2311,6 +2311,13 @@
       "relativePath": "modules/tavern/app-src/components/phone-os/apps/pet/TavernPetLeaveDialog.vue",
       "extension": ".vue",
       "sizeBytes": 2288
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/tavern/app-src/components/phone-os/apps/pet/TavernPetMomentSheet.vue",
+      "relativePath": "modules/tavern/app-src/components/phone-os/apps/pet/TavernPetMomentSheet.vue",
+      "extension": ".vue",
+      "sizeBytes": 2580
     },
     {
       "source": "littlewhitebox",
@@ -2331,7 +2338,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/tavern/app-src/components/phone-os/apps/pet/TavernPetStage.vue",
       "relativePath": "modules/tavern/app-src/components/phone-os/apps/pet/TavernPetStage.vue",
       "extension": ".vue",
-      "sizeBytes": 1869
+      "sizeBytes": 1890
     },
     {
       "source": "littlewhitebox",
@@ -2422,14 +2429,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/tavern/app-src/components/phone-os/apps/tasks/TavernTaskCard.vue",
       "relativePath": "modules/tavern/app-src/components/phone-os/apps/tasks/TavernTaskCard.vue",
       "extension": ".vue",
-      "sizeBytes": 1347
+      "sizeBytes": 1403
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/tavern/app-src/components/phone-os/apps/tasks/TavernTaskDetailView.vue",
       "relativePath": "modules/tavern/app-src/components/phone-os/apps/tasks/TavernTaskDetailView.vue",
       "extension": ".vue",
-      "sizeBytes": 5728
+      "sizeBytes": 5876
     },
     {
       "source": "littlewhitebox",
@@ -2450,14 +2457,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/tavern/app-src/components/phone-os/apps/tasks/TavernTaskOfferCard.vue",
       "relativePath": "modules/tavern/app-src/components/phone-os/apps/tasks/TavernTaskOfferCard.vue",
       "extension": ".vue",
-      "sizeBytes": 1611
+      "sizeBytes": 1582
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/tavern/app-src/components/phone-os/apps/tasks/TavernTaskOfferDetailView.vue",
       "relativePath": "modules/tavern/app-src/components/phone-os/apps/tasks/TavernTaskOfferDetailView.vue",
       "extension": ".vue",
-      "sizeBytes": 3382
+      "sizeBytes": 3250
     },
     {
       "source": "littlewhitebox",
@@ -2478,7 +2485,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/tavern/app-src/components/phone-os/apps/tasks/TavernTasksApp.vue",
       "relativePath": "modules/tavern/app-src/components/phone-os/apps/tasks/TavernTasksApp.vue",
       "extension": ".vue",
-      "sizeBytes": 12723
+      "sizeBytes": 12782
     },
     {
       "source": "littlewhitebox",
@@ -2919,7 +2926,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/tavern/app-src/features/phone-os/apps/pet/useTavernPetController.ts",
       "relativePath": "modules/tavern/app-src/features/phone-os/apps/pet/useTavernPetController.ts",
       "extension": ".ts",
-      "sizeBytes": 36609
+      "sizeBytes": 38590
     },
     {
       "source": "littlewhitebox",
@@ -2947,21 +2954,21 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/tavern/app-src/features/phone-os/apps/tasks/tavern-task-context.ts",
       "relativePath": "modules/tavern/app-src/features/phone-os/apps/tasks/tavern-task-context.ts",
       "extension": ".ts",
-      "sizeBytes": 4305
+      "sizeBytes": 4239
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/tavern/app-src/features/phone-os/apps/tasks/tavern-task-presentation.ts",
       "relativePath": "modules/tavern/app-src/features/phone-os/apps/tasks/tavern-task-presentation.ts",
       "extension": ".ts",
-      "sizeBytes": 2690
+      "sizeBytes": 2262
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/tavern/app-src/features/phone-os/apps/tasks/tavern-task-prompts.ts",
       "relativePath": "modules/tavern/app-src/features/phone-os/apps/tasks/tavern-task-prompts.ts",
       "extension": ".ts",
-      "sizeBytes": 18819
+      "sizeBytes": 18547
     },
     {
       "source": "littlewhitebox",
@@ -3024,7 +3031,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/tavern/app-src/features/phone-os/useTavernPhoneController.ts",
       "relativePath": "modules/tavern/app-src/features/phone-os/useTavernPhoneController.ts",
       "extension": ".ts",
-      "sizeBytes": 6656
+      "sizeBytes": 6711
     },
     {
       "source": "littlewhitebox",
@@ -3157,7 +3164,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/tavern/app-src/runtime/provider.ts",
       "relativePath": "modules/tavern/app-src/runtime/provider.ts",
       "extension": ".ts",
-      "sizeBytes": 4414
+      "sizeBytes": 4410
     },
     {
       "source": "littlewhitebox",
@@ -3178,7 +3185,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/tavern/app-src/runtime/task-context.ts",
       "relativePath": "modules/tavern/app-src/runtime/task-context.ts",
       "extension": ".ts",
-      "sizeBytes": 9543
+      "sizeBytes": 9353
     },
     {
       "source": "littlewhitebox",
@@ -3367,7 +3374,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/tavern/app-src/styles/phone-os/pet.css",
       "relativePath": "modules/tavern/app-src/styles/phone-os/pet.css",
       "extension": ".css",
-      "sizeBytes": 27155
+      "sizeBytes": 31073
     },
     {
       "source": "littlewhitebox",
@@ -3766,7 +3773,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/tavern/shared/assistant-presets.ts",
       "relativePath": "modules/tavern/shared/assistant-presets.ts",
       "extension": ".ts",
-      "sizeBytes": 45242
+      "sizeBytes": 46187
     },
     {
       "source": "littlewhitebox",
@@ -4039,7 +4046,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/tavern/shared/pet/pet-chat.ts",
       "relativePath": "modules/tavern/shared/pet/pet-chat.ts",
       "extension": ".ts",
-      "sizeBytes": 23718
+      "sizeBytes": 25420
     },
     {
       "source": "littlewhitebox",
@@ -4095,7 +4102,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/tavern/shared/pet/pet-service.ts",
       "relativePath": "modules/tavern/shared/pet/pet-service.ts",
       "extension": ".ts",
-      "sizeBytes": 38467
+      "sizeBytes": 38852
     },
     {
       "source": "littlewhitebox",
@@ -4109,14 +4116,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/tavern/shared/pet/pet-types.ts",
       "relativePath": "modules/tavern/shared/pet/pet-types.ts",
       "extension": ".ts",
-      "sizeBytes": 15859
+      "sizeBytes": 16208
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/tavern/shared/pet/pet-view.ts",
       "relativePath": "modules/tavern/shared/pet/pet-view.ts",
       "extension": ".ts",
-      "sizeBytes": 5432
+      "sizeBytes": 6433
     },
     {
       "source": "littlewhitebox",
@@ -4277,7 +4284,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/tavern/shared/tasks/README.md",
       "relativePath": "modules/tavern/shared/tasks/README.md",
       "extension": ".md",
-      "sizeBytes": 1953
+      "sizeBytes": 2856
     },
     {
       "source": "littlewhitebox",
@@ -4298,7 +4305,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/tavern/shared/tasks/task-service.ts",
       "relativePath": "modules/tavern/shared/tasks/task-service.ts",
       "extension": ".ts",
-      "sizeBytes": 54532
+      "sizeBytes": 54962
     },
     {
       "source": "littlewhitebox",
@@ -4312,14 +4319,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/tavern/shared/tasks/task-tools.ts",
       "relativePath": "modules/tavern/shared/tasks/task-tools.ts",
       "extension": ".ts",
-      "sizeBytes": 7201
+      "sizeBytes": 8584
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/tavern/shared/tasks/task-types.ts",
       "relativePath": "modules/tavern/shared/tasks/task-types.ts",
       "extension": ".ts",
-      "sizeBytes": 31332
+      "sizeBytes": 30642
     },
     {
       "source": "littlewhitebox",
@@ -4438,7 +4445,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/tavern/tests/character-archive.test.ts",
       "relativePath": "modules/tavern/tests/character-archive.test.ts",
       "extension": ".ts",
-      "sizeBytes": 86712
+      "sizeBytes": 86484
     },
     {
       "source": "littlewhitebox",
@@ -4585,14 +4592,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/tavern/tests/pet-controller.test.ts",
       "relativePath": "modules/tavern/tests/pet-controller.test.ts",
       "extension": ".ts",
-      "sizeBytes": 13212
+      "sizeBytes": 21659
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/tavern/tests/pet-service.test.ts",
       "relativePath": "modules/tavern/tests/pet-service.test.ts",
       "extension": ".ts",
-      "sizeBytes": 18637
+      "sizeBytes": 20803
     },
     {
       "source": "littlewhitebox",
@@ -4606,14 +4613,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/tavern/tests/pet.test.ts",
       "relativePath": "modules/tavern/tests/pet.test.ts",
       "extension": ".ts",
-      "sizeBytes": 13320
+      "sizeBytes": 14747
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/tavern/tests/phone-domain-sync.test.ts",
       "relativePath": "modules/tavern/tests/phone-domain-sync.test.ts",
       "extension": ".ts",
-      "sizeBytes": 23413
+      "sizeBytes": 23152
     },
     {
       "source": "littlewhitebox",
@@ -4627,7 +4634,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/tavern/tests/run-turn.test.ts",
       "relativePath": "modules/tavern/tests/run-turn.test.ts",
       "extension": ".ts",
-      "sizeBytes": 276726
+      "sizeBytes": 276468
     },
     {
       "source": "littlewhitebox",
@@ -4662,7 +4669,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/tavern/tests/session-db.test.ts",
       "relativePath": "modules/tavern/tests/session-db.test.ts",
       "extension": ".ts",
-      "sizeBytes": 409043
+      "sizeBytes": 408860
     },
     {
       "source": "littlewhitebox",
@@ -4718,14 +4725,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/tavern/tests/tasks-controller.test.ts",
       "relativePath": "modules/tavern/tests/tasks-controller.test.ts",
       "extension": ".ts",
-      "sizeBytes": 11843
+      "sizeBytes": 11669
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/tavern/tests/tasks.test.ts",
       "relativePath": "modules/tavern/tests/tasks.test.ts",
       "extension": ".ts",
-      "sizeBytes": 61084
+      "sizeBytes": 62378
     },
     {
       "source": "littlewhitebox",

@@ -19,7 +19,7 @@ const emit = defineEmits<{
 }>();
 
 const face = computed(() => props.waiting ? tavernPetThinkingFace(props.view) : props.utterance.face);
-const text = computed(() => props.waiting ? '它还在反应……' : props.utterance.text);
+const text = computed(() => props.waiting ? '它在想怎么回答你……' : props.utterance.text);
 const motionClass = computed(() => props.waiting ? 'motion-none' : `motion-${props.utterance.motion}`);
 const readableState = computed(() => tavernPetReadableState(props.view));
 </script>
@@ -40,7 +40,7 @@ const readableState = computed(() => tavernPetReadableState(props.view));
       :class="motionClass"
       type="button"
       :disabled="waiting"
-      :aria-label="waiting ? '它还在反应' : '碰一碰它'"
+      :aria-label="waiting ? '它正在想怎么回答你' : '碰一碰它'"
       @click="emit('touch')"
     >
       <div

@@ -1125,6 +1125,7 @@ const phoneContext = useTavernPhoneController({
     memoryEditorMode,
     characterArchiveBusy: computed(() => characterArchiveSyncState.value.busy),
     acceptedRollbackBusy: computed(() => isAcceptedRollbackInProgress(selectedSessionId.value)),
+    openApiSettings: () => openSettingsWorkspace('api'),
     requestHost,
     refreshContextSnapshot: refreshPhoneContextSnapshot,
     getNativeWorldInfoRuntime: getNativeWorldbookRuntime,

@@ -161,6 +161,10 @@ export interface TavernPetDialogueProfile {
     boostedEventIds: readonly TavernPetEventId[];
 }
 
+export type TavernPetChatProfile =
+    | { phase: 'juvenile'; personaId?: never }
+    | { phase: 'adult'; personaId: TavernPetPersonaId };
+
 export interface TavernPetCurioSpec {
     id: TavernPetCurioId;
     label: string;
@@ -350,6 +354,11 @@ export interface TavernPetAvailableAction {
     reason: string;
 }
 
+export interface TavernPetGuidanceView {
+    kind: 'arrival' | 'egg' | 'first-chat' | 'moment' | 'hunger';
+    text: string;
+}
+
 export interface TavernPetView {
     revision: number;
     versionId: string;
@@ -362,6 +371,7 @@ export interface TavernPetView {
     appetiteLabel?: string;
     emotionLabel?: string;
     phaseProgressLabel?: string;
+    guidance?: TavernPetGuidanceView;
     storageMb?: number;
     pendingMoment?: TavernPetMomentView;
     pendingEvolution: boolean;
@@ -417,6 +427,7 @@ export interface SetTavernPetInterferenceInput extends TavernPetMutationBoundary
 export interface CommitTavernPetChatResponseInput extends TavernPetMutationBoundary {
     playerText: string;
     response: TavernPetChatResponse;
+    responseProfile: TavernPetChatProfile;
 }
 export interface ResolveTavernPetMomentInput extends TavernPetMutationBoundary {
     momentId: TavernPetMomentId;

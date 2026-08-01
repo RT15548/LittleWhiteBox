@@ -27,6 +27,7 @@ import {
     normalizeTavernPetPlayerText,
     parseTavernPetChatResponse,
     parseTavernPetEvolutionVerdict,
+    tavernPetChatProfile,
     tavernPetStaticEvolutionVerdict,
 } from '../../../../../shared/pet/pet-chat';
 import type {
@@ -44,6 +45,7 @@ import {
     type TavernRunOnceOptions,
     type TavernRunOnceResult,
 } from '../../../../runtime/run-once';
+import { resolveXbTavernProviderConfig } from '../../../../runtime/provider';
 import {
     isTavernPetAbortError,
     tavernPetUiError,
@@ -58,13 +60,10 @@ import {
 type TavernPetModelRunner = (options: TavernRunOnceOptions) => Promise<TavernRunOnceResult>;
 type TavernPetMutationKind = Exclude<TavernPetInteractionId, 'chat'>
     | 'rename' | 'toggle-interference' | 'leave' | 'resolve-moment' | 'skip-moment';
-type TavernPetModelRequestKind = '' | 'chat' | 'evolution';
 
 export interface TavernPetControllerOptions {
     selectedSessionId: Ref<string>;
     agentConfig: Ref<Record<string, unknown>>;
-    chatRunning: Ref<boolean>;
-    chatCancelling: Ref<boolean>;
     memoryEditorMode: Ref<'preview' | 'edit'>;
     characterArchiveBusy: ComputedRef<boolean>;
     acceptedRollbackBusy: ComputedRef<boolean>;
@@ -72,6 +71,7 @@ export interface TavernPetControllerOptions {
         refreshAfterEconomyDomainChange: () => void | Promise<void>;
     };
     showToast?: (message: string, options?: { tone?: 'info' | 'warning'; durationMs?: number }) => void;
+    openApiSettings?: () => void;
     runModel?: TavernPetModelRunner;
 }
 
@@ -83,7 +83,6 @@ interface TavernPetMutationOwner {
 
 interface TavernPetModelOwner {
     sessionId: string;
-    kind: Exclude<TavernPetModelRequestKind, ''>;
     key: string;
     epoch: number;
     controller: AbortController;
@@ -128,7 +127,7 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
     const status = ref('');
     const homeNotice = ref(false);
     const busyAction = ref('');
-    const modelRequestKind = ref<TavernPetModelRequestKind>('');
+    const chatRequestKey = ref('');
     const chatInput = ref('');
     const nestOpen = ref(false);
     const namingOpen = ref(false);
@@ -142,10 +141,14 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
     let preparedSessionId = '';
     let mutationOwner: TavernPetMutationOwner | null = null;
     let mutationEpoch = 0;
-    let modelOwner: TavernPetModelOwner | null = null;
-    let modelEpoch = 0;
+    let chatOwner: TavernPetModelOwner | null = null;
+    let chatEpoch = 0;
+    let evolutionOwner: TavernPetModelOwner | null = null;
+    let evolutionEpoch = 0;
+    let evolutionRetryRequested = false;
     let pendingLookup = false;
     let pendingScheduleQueued = false;
+    let disposed = false;
     let knownPendingMomentId = '';
     let knownPendingEvolution = false;
     let murmurTimer: ReturnType<typeof setTimeout> | null = null;
@@ -161,8 +164,12 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
         && view.value.displayName !== view.value.specimenLabel
         && view.value.phase !== 'egg'
     ));
-    const isChatWaiting = computed(() => modelRequestKind.value === 'chat');
-    const isModelWaiting = computed(() => modelRequestKind.value !== '');
+    const delegateProvider = computed(() => resolveXbTavernProviderConfig(
+        options.agentConfig.value || {},
+        { role: 'delegate' },
+    ));
+    const delegateModelReady = computed(() => delegateProvider.value.readiness.ok);
+    const isChatWaiting = computed(() => Boolean(chatRequestKey.value));
 
     function currentSessionId(): string {
         return String(options.selectedSessionId.value || '').trim();
@@ -183,11 +190,19 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
         }, 3_000);
     }
 
-    function cancelModelRequest(): void {
-        modelEpoch += 1;
-        modelOwner?.controller.abort();
-        modelOwner = null;
-        modelRequestKind.value = '';
+    function cancelChatRequest(): void {
+        chatEpoch += 1;
+        chatOwner?.controller.abort();
+        chatOwner = null;
+        chatRequestKey.value = '';
+    }
+
+    function cancelEvolutionRequest(retryAfterCancel = false): void {
+        if (!evolutionOwner) {return;}
+        if (retryAfterCancel) {evolutionRetryRequested = true;}
+        evolutionEpoch += 1;
+        evolutionOwner.controller.abort();
+        evolutionOwner = null;
     }
 
     function resetState(): void {
@@ -195,7 +210,9 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
         stateRevision += 1;
         mutationEpoch += 1;
         preparedSessionId = '';
-        cancelModelRequest();
+        cancelChatRequest();
+        evolutionRetryRequested = false;
+        cancelEvolutionRequest();
         clearMurmurTimer();
         pendingLookup = false;
         pendingScheduleQueued = false;
@@ -230,7 +247,6 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
         }
         if (loading.value) {return '住户的数据还在读取。';}
         if (loadError.value) {return '住户的数据暂时读不到。';}
-        if (modelOwner) {return '它正忙着开口，等它说完。';}
         return '';
     }
 
@@ -244,16 +260,18 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
         const blocked = baseInteractionBlockedReason();
         if (blocked) {return blocked;}
         if (mutationOwner || busyAction.value) {return '它还在反应……';}
+        if (isChatWaiting.value) {return '它正在想怎么回答你。';}
         return action.enabled ? '' : action.reason;
     }
 
     const chatBlockedReason = computed(() => {
         const blocked = baseInteractionBlockedReason();
         if (blocked) {return blocked;}
-        if (options.chatRunning.value || options.chatCancelling.value) {return '角色正在回复';}
+        if (isChatWaiting.value) {return '它正在想怎么回答你。';}
         if (mutationOwner) {return '它还在反应……';}
-        const action = findAction('chat');
         if (view.value.phase === 'egg') {return '';}
+        if (!delegateModelReady.value) {return '还没有配置分身模型。';}
+        const action = findAction('chat');
         if (action) {return action.enabled ? '' : action.reason;}
         return '它还没破壳';
     });
@@ -360,11 +378,11 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
         }
     }
 
-    async function refreshWalletAfterCommit(owns: () => boolean): Promise<void> {
+    async function refreshWalletAfterCommit(sessionId: string): Promise<void> {
         try {
             await options.wallet.refreshAfterEconomyDomainChange();
         } catch {
-            if (!owns()) {return;}
+            if (sessionId !== currentSessionId()) {return;}
             status.value = '操作已经完成，余额显示稍后刷新。';
             options.showToast?.(status.value, { tone: 'warning', durationMs: 4_200 });
         }
@@ -409,7 +427,8 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
             return null;
         }
         const sessionId = currentSessionId();
-        if (!sessionId || mutationOwner || modelOwner) {return null;}
+        if (!sessionId || mutationOwner || chatOwner) {return null;}
+        cancelEvolutionRequest(true);
         const owner = { sessionId, actionKey: kind, epoch: mutationEpoch };
         mutationOwner = owner;
         busyAction.value = kind;
@@ -450,8 +469,7 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
             } else {
                 armMurmur('');
             }
-            await refreshWalletAfterCommit(owns);
-            schedulePendingEvolution();
+            void refreshWalletAfterCommit(sessionId);
             return owns() ? result : null;
         } catch (error) {
             if (owns()) {await recoverMutationError(error, owns);}
@@ -461,6 +479,7 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
                 mutationOwner = null;
                 busyAction.value = '';
             }
+            schedulePendingEvolution();
         }
     }
 
@@ -593,7 +612,7 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
     }
 
     function openLeaveConfirmation(): void {
-        if (view.value.existence !== 'present' || mutationOwner || modelOwner || busyAction.value) {return;}
+        if (view.value.existence !== 'present' || mutationOwner || chatOwner || busyAction.value) {return;}
         actionError.value = '';
         leaveConfirmOpen.value = true;
     }
@@ -632,34 +651,54 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
         }));
     }
 
-    function beginModelRequest(
-        kind: Exclude<TavernPetModelRequestKind, ''>,
-        key: string,
-    ): TavernPetModelOwner | null {
+    function beginChatRequest(key: string): TavernPetModelOwner | null {
         const sessionId = currentSessionId();
-        if (!sessionId || modelOwner) {return null;}
+        if (!sessionId || chatOwner) {return null;}
+        cancelEvolutionRequest(true);
         const owner: TavernPetModelOwner = {
             sessionId,
-            kind,
             key,
-            epoch: modelEpoch,
+            epoch: chatEpoch,
             controller: new AbortController(),
         };
-        modelOwner = owner;
-        modelRequestKind.value = kind;
+        chatOwner = owner;
+        chatRequestKey.value = key;
         return owner;
     }
 
-    function ownsModelRequest(owner: TavernPetModelOwner): boolean {
-        return modelOwner === owner
-            && owner.epoch === modelEpoch
+    function ownsChatRequest(owner: TavernPetModelOwner): boolean {
+        return chatOwner === owner
+            && owner.epoch === chatEpoch
             && owner.sessionId === currentSessionId();
     }
 
-    function finishModelRequest(owner: TavernPetModelOwner): void {
-        if (modelOwner !== owner) {return;}
-        modelOwner = null;
-        modelRequestKind.value = '';
+    function finishChatRequest(owner: TavernPetModelOwner): void {
+        if (chatOwner !== owner) {return;}
+        chatOwner = null;
+        chatRequestKey.value = '';
+    }
+
+    function beginEvolutionRequest(key: string): TavernPetModelOwner | null {
+        const sessionId = currentSessionId();
+        if (!sessionId || evolutionOwner) {return null;}
+        const owner: TavernPetModelOwner = {
+            sessionId,
+            key,
+            epoch: evolutionEpoch,
+            controller: new AbortController(),
+        };
+        evolutionOwner = owner;
+        return owner;
+    }
+
+    function ownsEvolutionRequest(owner: TavernPetModelOwner): boolean {
+        return evolutionOwner === owner
+            && owner.epoch === evolutionEpoch
+            && owner.sessionId === currentSessionId();
+    }
+
+    function finishEvolutionRequest(owner: TavernPetModelOwner): void {
+        if (evolutionOwner === owner) {evolutionOwner = null;}
     }
 
     function showTemporaryChatFailure(message: string): void {
@@ -684,6 +723,17 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
         armMurmur('');
     }
 
+    function cancelChat(): void {
+        if (!chatOwner) {return;}
+        cancelChatRequest();
+        chatError.value = '';
+        schedulePendingEvolution();
+    }
+
+    function openApiSettings(): void {
+        options.openApiSettings?.();
+    }
+
     async function sendChat(): Promise<void> {
         chatError.value = '';
         const blocked = chatBlockedReason.value;
@@ -703,18 +753,14 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
             return;
         }
         const actionId = createActionId('chat');
-        const owner = beginModelRequest('chat', actionId);
+        const owner = beginChatRequest(actionId);
         if (!owner) {return;}
         actionError.value = '';
         status.value = '';
         temporaryUtterance.value = null;
         try {
-            if (options.chatRunning.value || options.chatCancelling.value) {
-                chatError.value = '角色正在回复';
-                return;
-            }
             const snapshot = await getTavernPetPrivateSnapshotForChat(owner.sessionId);
-            if (!ownsModelRequest(owner)) {return;}
+            if (!ownsChatRequest(owner)) {return;}
             if (!snapshot
                 || snapshot.companion.revision !== view.value.revision
                 || snapshot.companion.versionId !== view.value.versionId
@@ -737,13 +783,13 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
                 signal: owner.controller.signal,
                 promptDiagnostics: { channel: 'phone-pet', operation: 'chat' },
             });
-            if (!ownsModelRequest(owner)) {return;}
+            if (!ownsChatRequest(owner)) {return;}
             const parsed = parseTavernPetChatResponse(modelResult.text, snapshot.companion.state);
             parsed.warnings.forEach((warning) => {
                 console.warn('[LittleWhiteBox/tavern] Pet chat response warning', warning);
             });
             const boundary = await captureTavernPhoneBoundary(owner.sessionId);
-            if (!ownsModelRequest(owner)) {return;}
+            if (!ownsChatRequest(owner)) {return;}
             const result = await commitTavernPetChatResponse({
                 sessionId: owner.sessionId,
                 boundary,
@@ -752,8 +798,9 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
                 expectedVersionId: snapshot.companion.versionId,
                 playerText,
                 response: parsed.response,
+                responseProfile: tavernPetChatProfile(snapshot.companion.state),
             });
-            if (!ownsModelRequest(owner)) {return;}
+            if (!ownsChatRequest(owner)) {return;}
             applyMutationResult(result);
             chatInput.value = '';
             chatError.value = '';
@@ -761,7 +808,7 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
             armMurmur(parsed.response.murmur || '');
             schedulePendingEvolution();
         } catch (error) {
-            if (!ownsModelRequest(owner) || isTavernPetAbortError(error)) {return;}
+            if (!ownsChatRequest(owner) || isTavernPetAbortError(error)) {return;}
             const uiError = tavernPetUiError(error, 'chat');
             chatError.value = uiError.message;
             showTemporaryChatFailure(uiError.message);
@@ -773,51 +820,56 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
                 ]);
             }
         } finally {
-            finishModelRequest(owner);
+            finishChatRequest(owner);
             schedulePendingEvolution();
         }
     }
 
     function pendingEvolutionBlocked(): boolean {
-        return !view.value.pendingEvolution
+        return disposed
+            || !view.value.pendingEvolution
             || !currentSessionId()
-            || options.chatRunning.value
-            || options.chatCancelling.value
             || options.memoryEditorMode.value === 'edit'
             || options.characterArchiveBusy.value
             || options.acceptedRollbackBusy.value
             || Boolean(mutationOwner)
-            || Boolean(modelOwner);
+            || Boolean(chatOwner)
+            || Boolean(evolutionOwner);
     }
 
     async function processPendingEvolution(): Promise<void> {
-        if (pendingLookup || pendingEvolutionBlocked()) {return;}
+        if (disposed || pendingLookup || pendingEvolutionBlocked()) {return;}
         pendingLookup = true;
         const sessionId = currentSessionId();
         try {
             const request = await getTavernPetPendingEvolutionRequest(sessionId);
             if (!request || sessionId !== currentSessionId() || pendingEvolutionBlocked()) {return;}
-            const owner = beginModelRequest('evolution', request.requestId);
+            const owner = beginEvolutionRequest(request.requestId);
             if (!owner) {return;}
             try {
                 let verdict = '';
                 let usedFallback = false;
-                try {
-                    const modelResult = await modelRunner({
-                        agentConfig: cloneSerializable(options.agentConfig.value || {}),
-                        providerRole: 'delegate',
-                        messages: buildTavernPetEvolutionMessages(request),
-                        tools: [],
-                        toolChoice: 'none',
-                        signal: owner.controller.signal,
-                        promptDiagnostics: { channel: 'phone-pet', operation: 'evolution' },
-                    });
-                    if (!ownsModelRequest(owner)) {return;}
-                    verdict = parseTavernPetEvolutionVerdict(modelResult.text);
-                } catch (error) {
-                    if (!ownsModelRequest(owner) || isTavernPetAbortError(error)) {return;}
+                if (!delegateModelReady.value) {
                     verdict = tavernPetStaticEvolutionVerdict(request);
                     usedFallback = true;
+                } else {
+                    try {
+                        const modelResult = await modelRunner({
+                            agentConfig: cloneSerializable(options.agentConfig.value || {}),
+                            providerRole: 'delegate',
+                            messages: buildTavernPetEvolutionMessages(request),
+                            tools: [],
+                            toolChoice: 'none',
+                            signal: owner.controller.signal,
+                            promptDiagnostics: { channel: 'phone-pet', operation: 'evolution' },
+                        });
+                        if (!ownsEvolutionRequest(owner)) {return;}
+                        verdict = parseTavernPetEvolutionVerdict(modelResult.text);
+                    } catch (error) {
+                        if (!ownsEvolutionRequest(owner) || isTavernPetAbortError(error)) {return;}
+                        verdict = tavernPetStaticEvolutionVerdict(request);
+                        usedFallback = true;
+                    }
                 }
                 const result = await resolveTavernPetEvolution({
                     sessionId: owner.sessionId,
@@ -825,10 +877,10 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
                     verdict,
                     usedFallback,
                 });
-                if (!ownsModelRequest(owner)) {return;}
+                if (!ownsEvolutionRequest(owner)) {return;}
                 applyMutationResult(result);
             } catch (error) {
-                if (!ownsModelRequest(owner) || isTavernPetAbortError(error)) {return;}
+                if (!ownsEvolutionRequest(owner) || isTavernPetAbortError(error)) {return;}
                 const uiError = tavernPetUiError(error);
                 if (uiError.kind === 'conflict') {
                     stateRevision += 1;
@@ -837,22 +889,26 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
                     console.warn('[LittleWhiteBox/tavern] Pet evolution resolution failed', error);
                 }
             } finally {
-                finishModelRequest(owner);
+                finishEvolutionRequest(owner);
             }
         } catch (error) {
             if (sessionId === currentSessionId() && !isTavernPetAbortError(error)) {
                 console.warn('[LittleWhiteBox/tavern] Pet pending evolution read failed', error);
             }
         } finally {
+            const retryCancelledEvolution = evolutionRetryRequested;
+            evolutionRetryRequested = false;
             pendingLookup = false;
+            if (retryCancelledEvolution) {schedulePendingEvolution();}
         }
     }
 
     function schedulePendingEvolution(): void {
-        if (pendingScheduleQueued) {return;}
+        if (disposed || pendingScheduleQueued) {return;}
         pendingScheduleQueued = true;
         void Promise.resolve().then(async () => {
             pendingScheduleQueued = false;
+            if (disposed) {return;}
             await processPendingEvolution();
         });
     }
@@ -893,20 +949,10 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
     }, { immediate: true });
     watch([
         () => view.value.pendingEvolution,
-        options.chatRunning,
-        options.chatCancelling,
         options.memoryEditorMode,
         options.characterArchiveBusy,
         options.acceptedRollbackBusy,
     ], schedulePendingEvolution);
-    watch([
-        options.chatRunning,
-        options.chatCancelling,
-    ], () => {
-        if (options.chatRunning.value || options.chatCancelling.value) {
-            cancelModelRequest();
-        }
-    });
     watch([
         options.memoryEditorMode,
         options.characterArchiveBusy,
@@ -917,13 +963,17 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
             || options.acceptedRollbackBusy.value
         ) {
             mutationEpoch += 1;
-            cancelModelRequest();
+            cancelChatRequest();
+            cancelEvolutionRequest(true);
         }
     });
     onScopeDispose(() => {
+        disposed = true;
         readSequence += 1;
         mutationEpoch += 1;
-        cancelModelRequest();
+        cancelChatRequest();
+        evolutionRetryRequested = false;
+        cancelEvolutionRequest();
         clearMurmurTimer();
     });
 
@@ -932,6 +982,7 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
         actionError,
         journal,
         busyAction,
+        cancelChat,
         canSubmitChat,
         chatBlockedReason,
         chatError,
@@ -941,15 +992,14 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
         closeNaming,
         closeNest,
         closeLeaveConfirmation,
+        delegateModelReady,
         hasCustomName,
         homeNotice,
         interactionBlockedReason,
         isChatWaiting,
-        isModelWaiting,
         loadError,
         leaveConfirmOpen,
         loading,
-        modelRequestKind,
         murmurVisible,
         nameDraft,
         namingOpen,
@@ -957,6 +1007,7 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
         openNaming,
         openNest,
         openLeaveConfirmation,
+        openApiSettings,
         performAction,
         preparePet,
         refreshAfterEconomyDomainChange,

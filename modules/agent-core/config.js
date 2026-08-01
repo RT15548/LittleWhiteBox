@@ -8,6 +8,7 @@ export const DEFAULT_PROVIDER = 'openai-compatible';
 export const DEFAULT_PRESET_NAME = '默认';
 export const DEFAULT_PERMISSION_MODE = 'default';
 export const DEFAULT_JSAPI_PERMISSION = 'deny';
+export const DEFAULT_MAX_TOKENS = 32000;
 export const AGENT_SETTINGS_CONFIG_VERSION = 1;
 export const AGENT_PERMISSION_MODE_OPTIONS = Object.freeze([
     { value: 'default', label: '默认权限' },
@@ -23,14 +24,16 @@ export const DEFAULT_MODEL_CONFIGS = {
         baseUrl: 'https://api.openai.com/v1',
         model: 'gpt-4.1-mini',
         apiKey: '',
-        temperature: 0.2,
+        temperature: 1,
+        maxTokens: DEFAULT_MAX_TOKENS,
         sendTemperature: true,
     },
     'openai-compatible': {
         baseUrl: 'https://api.openai.com/v1',
         model: 'gpt-4o-mini',
         apiKey: '',
-        temperature: 0.2,
+        temperature: 1,
+        maxTokens: DEFAULT_MAX_TOKENS,
         sendTemperature: true,
         toolMode: 'native',
     },
@@ -38,7 +41,8 @@ export const DEFAULT_MODEL_CONFIGS = {
         baseUrl: '',
         model: 'gpt-4o-mini',
         apiKey: '',
-        temperature: 0.2,
+        temperature: 1,
+        maxTokens: DEFAULT_MAX_TOKENS,
         sendTemperature: true,
         toolMode: 'native',
     },
@@ -46,28 +50,32 @@ export const DEFAULT_MODEL_CONFIGS = {
         baseUrl: '',
         model: 'claude-sonnet-4-0',
         apiKey: '',
-        temperature: 0.2,
+        temperature: 1,
+        maxTokens: DEFAULT_MAX_TOKENS,
         sendTemperature: true,
     },
     'sillytavern-google': {
         baseUrl: '',
         model: 'gemini-2.5-pro',
         apiKey: '',
-        temperature: 0.2,
+        temperature: 1,
+        maxTokens: DEFAULT_MAX_TOKENS,
         sendTemperature: true,
     },
     anthropic: {
         baseUrl: 'https://api.anthropic.com',
         model: 'claude-sonnet-4-0',
         apiKey: '',
-        temperature: 0.2,
+        temperature: 1,
+        maxTokens: DEFAULT_MAX_TOKENS,
         sendTemperature: true,
     },
     google: {
         baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
         model: 'gemini-2.5-pro',
         apiKey: '',
-        temperature: 0.2,
+        temperature: 1,
+        maxTokens: DEFAULT_MAX_TOKENS,
         sendTemperature: true,
     },
 };
@@ -100,6 +108,17 @@ export function normalizeJsApiPermission(value) {
     return value === 'allow' ? 'allow' : DEFAULT_JSAPI_PERMISSION;
 }
 
+export function normalizeMaxTokens(value, fallback = DEFAULT_MAX_TOKENS) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric) || numeric <= 0) {
+        const fallbackNumeric = Number(fallback);
+        return Number.isFinite(fallbackNumeric) && fallbackNumeric > 0
+            ? Math.floor(fallbackNumeric)
+            : DEFAULT_MAX_TOKENS;
+    }
+    return Math.min(Number.MAX_SAFE_INTEGER, Math.floor(numeric));
+}
+
 export function normalizePresetName(value) {
     const normalized = String(value || '').trim();
     return normalized || DEFAULT_PRESET_NAME;
@@ -108,9 +127,13 @@ export function normalizePresetName(value) {
 export function normalizeModelConfigs(modelConfigs = {}) {
     const next = cloneDefaultModelConfigs();
     Object.keys(DEFAULT_MODEL_CONFIGS).forEach((provider) => {
+        const source = (modelConfigs && typeof modelConfigs[provider] === 'object')
+            ? modelConfigs[provider]
+            : {};
         next[provider] = {
             ...DEFAULT_MODEL_CONFIGS[provider],
-            ...((modelConfigs && typeof modelConfigs[provider] === 'object') ? modelConfigs[provider] : {}),
+            ...source,
+            maxTokens: normalizeMaxTokens(source.maxTokens),
         };
     });
     return next;

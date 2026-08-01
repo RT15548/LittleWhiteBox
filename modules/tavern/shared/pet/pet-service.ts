@@ -26,7 +26,11 @@ import {
     isTavernPetVerdictText,
     renderTavernPetMilestoneJournal,
 } from './pet-copy';
-import { normalizeTavernPetChatResponse, normalizeTavernPetPlayerText } from './pet-chat';
+import {
+    mapTavernPetChatFaceToState,
+    normalizeTavernPetChatResponseForProfile,
+    normalizeTavernPetPlayerText,
+} from './pet-chat';
 import {
     assertTavernPetStateInvariant,
     parseCanonicalTavernPetActionRecord,
@@ -97,6 +101,7 @@ interface TavernPetPlayerMutationPlan {
 
 interface TavernPetPlayerMutationOptions {
     payment: TavernPetPaymentSpec | null;
+    commitAgainstCurrentState?: boolean;
     replayMatches: (record: TavernPetActionRecord) => boolean;
     build: (input: {
         current: TavernPetCompanionRecord | null;
@@ -558,7 +563,9 @@ async function runTavernPetPlayerMutation(
             }
             await assertTavernPhoneBoundaryInCurrentTransaction(input.sessionId, input.boundary);
             const current = await getTavernPetCompanionInCurrentDbTransaction();
-            assertCompanionCas(current, input.expectedRevision, input.expectedVersionId);
+            if (!options.commitAgainstCurrentState) {
+                assertCompanionCas(current, input.expectedRevision, input.expectedVersionId);
+            }
             const economy = await ensureTavernEconomyInCurrentDbTransaction(input.sessionId);
             const plan = options.build({
                 current,
@@ -776,15 +783,18 @@ export async function commitTavernPetChatResponse(
     const input = normalizeMutationBoundary(rawInput);
     const playerText = normalizePlayerText(rawInput.playerText);
     const rawResponse = clone(rawInput.response);
+    const responseProfile = clone(rawInput.responseProfile);
     return await runTavernPetPlayerMutation(input, {
         payment: null,
+        commitAgainstCurrentState: true,
         replayMatches: (record) => record.action.kind === 'chat'
             && record.action.playerText === playerText
             && sameJson(record.action.response, rawResponse),
         build: ({ current }) => {
             if (!current) {throwTavernPetError('pet_state_missing');}
-            const response = normalizeTavernPetChatResponse(rawResponse, current.state);
+            const response = normalizeTavernPetChatResponseForProfile(rawResponse, responseProfile);
             const state = applyTavernPetChatResponse(current.state, playerText, response);
+            const journalFace = mapTavernPetChatFaceToState(response.face, responseProfile, current.state);
             return {
                 action: { kind: 'chat', playerText, response },
                 state,
@@ -793,7 +803,7 @@ export async function commitTavernPetChatResponse(
                         kind: 'chat',
                         playerText,
                         petText: response.text,
-                        face: response.face,
+                        face: journalFace,
                         motion: response.motion,
                         ...(response.murmur ? { murmur: response.murmur } : {}),
                     },

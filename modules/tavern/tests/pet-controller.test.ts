@@ -29,6 +29,7 @@ import {
 import { TAVERN_PET_REBUFF_FACE } from '../app-src/features/phone-os/apps/pet/tavern-pet-presentation';
 import { tavernPetUiError } from '../app-src/features/phone-os/apps/pet/tavern-pet-errors';
 import {
+    advanceTavernPetStoryTurnForTest,
     createTavernPetTestSession,
     createTavernPetTestState,
     lureTavernPetForTest,
@@ -81,39 +82,47 @@ function createPendingAdultState(sourceSessionId: string, requestId = 'pet-contr
 
 function createController(input: {
     selectedSessionId: Ref<string>;
+    agentConfig?: Ref<Record<string, unknown>>;
     runModel?: TavernPetControllerOptions['runModel'];
     refreshWallet?: () => void | Promise<void>;
     showToast?: TavernPetControllerOptions['showToast'];
-    chatRunning?: Ref<boolean>;
-    chatCancelling?: Ref<boolean>;
+    openApiSettings?: () => void;
     memoryEditorMode?: Ref<'preview' | 'edit'>;
     characterArchiveBusy?: Ref<boolean>;
     acceptedRollbackBusy?: Ref<boolean>;
 }) {
     const scope = effectScope();
-    const chatRunning = input.chatRunning || ref(false);
-    const chatCancelling = input.chatCancelling || ref(false);
     const memoryEditorMode = input.memoryEditorMode || ref<'preview' | 'edit'>('preview');
     const characterArchiveBusy = input.characterArchiveBusy || ref(false);
     const acceptedRollbackBusy = input.acceptedRollbackBusy || ref(false);
+    const agentConfig = input.agentConfig || ref<Record<string, unknown>>({
+        delegateConfigured: true,
+        delegateConfig: {
+            provider: 'openai-compatible',
+            modelConfigs: {
+                'openai-compatible': {
+                    baseUrl: 'https://delegate.example/v1',
+                    model: 'pet-model',
+                    apiKey: 'pet-key',
+                },
+            },
+        },
+    });
     const controller = scope.run(() => useTavernPetController({
         selectedSessionId: input.selectedSessionId,
-        agentConfig: ref({}),
-        chatRunning,
-        chatCancelling,
+        agentConfig,
         memoryEditorMode,
         characterArchiveBusy: computed(() => characterArchiveBusy.value),
         acceptedRollbackBusy: computed(() => acceptedRollbackBusy.value),
         wallet: { refreshAfterEconomyDomainChange: input.refreshWallet || (() => {}) },
         ...(input.showToast ? { showToast: input.showToast } : {}),
+        ...(input.openApiSettings ? { openApiSettings: input.openApiSettings } : {}),
         runModel: input.runModel,
     }));
     if (!controller) {throw new Error('pet_controller_scope_missing');}
     return {
         acceptedRollbackBusy,
         characterArchiveBusy,
-        chatCancelling,
-        chatRunning,
         controller,
         memoryEditorMode,
         scope,
@@ -164,7 +173,7 @@ test('a local milestone notifies once instead of being swallowed by snapshot bas
     }
 });
 
-test('the nest stays open through a persistent mutation and can close after it settles', async () => {
+test('a committed pet action releases the UI without waiting for wallet presentation refresh', async () => {
     await resetTavernPetTestDb();
     const session = await createTavernPetTestSession('Controller nest mutation guard');
     const walletRefresh = deferred<void>();
@@ -172,21 +181,18 @@ test('the nest stays open through a persistent mutation and can close after it s
         selectedSessionId: ref(session.id),
         refreshWallet: async () => await walletRefresh.promise,
     });
-    let operation: ReturnType<typeof controller.performAction> | null = null;
     try {
         await controller.preparePet();
-        operation = controller.performAction('lure');
-        await waitUntil(() => controller.view.value.phase === 'egg' && controller.busyAction.value === 'lure');
+        const operation = controller.performAction('lure');
+        await waitUntil(() => controller.view.value.phase === 'egg');
+        await operation;
+        assert.equal(controller.busyAction.value, '');
         controller.openNest();
         controller.closeNest();
-        assert.equal(controller.nestOpen.value, true);
-        walletRefresh.resolve();
-        await operation;
-        controller.closeNest();
         assert.equal(controller.nestOpen.value, false);
+        walletRefresh.resolve();
     } finally {
         walletRefresh.resolve();
-        await operation?.catch((): null => null);
         scope.stop();
     }
 });
@@ -252,6 +258,196 @@ test('a model failure keeps normalized player input and says it did not hear cle
         assert.equal(controller.utterance.value.face, TAVERN_PET_REBUFF_FACE);
         assert.equal(await tavernPetJournalTable.count(), 0);
     } finally {
+        scope.stop();
+    }
+});
+
+test('main-story generation neither blocks nor cancels an in-flight pet chat', async () => {
+    await resetTavernPetTestDb();
+    const session = await createTavernPetTestSession('Controller independent pet chat');
+    await seedTavernPetForTest(session.id, createTavernPetTestState('juvenile', {
+        petTurn: 24,
+        nextMomentPetTurn: 30,
+    }));
+    const gate = deferred<TavernRunOnceResult>();
+    const { controller, scope } = createController({
+        selectedSessionId: ref(session.id),
+        runModel: async (options) => options.promptDiagnostics?.operation === 'evolution'
+            ? modelResult(canonicalTavernPetStaticVerdict('blank'))
+            : await gate.promise,
+    });
+    try {
+        await controller.preparePet();
+        controller.chatInput.value = '你也听见外面了吗';
+        const send = controller.sendChat();
+        await waitUntil(() => controller.isChatWaiting.value);
+        assert.equal(controller.chatBlockedReason.value, '它正在想怎么回答你。');
+        await advanceTavernPetStoryTurnForTest(session.id, [99]);
+        gate.resolve(modelResult(juvenileChatJson('听见了。')));
+        await send;
+        assert.equal(controller.chatError.value, '');
+        assert.equal(controller.chatInput.value, '');
+        assert.equal(controller.view.value.phase, 'adult');
+        assert.equal(controller.utterance.value.text, '听见了。');
+        await waitUntil(() => controller.view.value.pendingEvolution === false);
+    } finally {
+        gate.resolve(modelResult(juvenileChatJson()));
+        scope.stop();
+    }
+});
+
+test('disposing the controller cannot restart pending evolution from an old chat finally', async () => {
+    await resetTavernPetTestDb();
+    const session = await createTavernPetTestSession('Controller disposed evolution');
+    await seedTavernPetForTest(session.id, createTavernPetTestState('juvenile', {
+        petTurn: 24,
+        nextMomentPetTurn: 30,
+    }));
+    const chatGate = deferred<TavernRunOnceResult>();
+    const modelOperations: string[] = [];
+    const { controller, scope } = createController({
+        selectedSessionId: ref(session.id),
+        runModel: async (options) => {
+            const operation = String(options.promptDiagnostics?.operation || '');
+            modelOperations.push(operation);
+            return operation === 'chat'
+                ? await chatGate.promise
+                : modelResult(canonicalTavernPetStaticVerdict('blank'));
+        },
+    });
+    let stopped = false;
+    try {
+        await controller.preparePet();
+        controller.chatInput.value = '等你长大再回答也可以';
+        const send = controller.sendChat();
+        await waitUntil(() => controller.isChatWaiting.value);
+        await advanceTavernPetStoryTurnForTest(session.id, [99]);
+        await controller.refreshAfterPetDomainChange();
+        assert.equal(controller.view.value.pendingEvolution, true);
+
+        scope.stop();
+        stopped = true;
+        chatGate.resolve(modelResult(juvenileChatJson('我长大了。')));
+        await send;
+        await new Promise<void>((resolve) => setTimeout(resolve, 30));
+
+        assert.deepEqual(modelOperations, ['chat']);
+        assert.equal(
+            (await getTavernPetPrivateSnapshotForChat(session.id))?.companion.state.pendingEvolution?.milestoneId,
+            'adulthood',
+        );
+    } finally {
+        chatGate.resolve(modelResult(juvenileChatJson()));
+        if (!stopped) {scope.stop();}
+    }
+});
+
+test('missing delegate configuration blocks only model chat and exposes the configuration action', async () => {
+    await resetTavernPetTestDb();
+    const session = await createTavernPetTestSession('Controller missing pet model');
+    await seedTavernPetForTest(session.id, createTavernPetTestState('juvenile'));
+    let modelCalls = 0;
+    let settingsOpens = 0;
+    const { controller, scope } = createController({
+        selectedSessionId: ref(session.id),
+        agentConfig: ref({}),
+        openApiSettings: () => {settingsOpens += 1;},
+        runModel: async () => {
+            modelCalls += 1;
+            return modelResult(juvenileChatJson());
+        },
+    });
+    try {
+        await controller.preparePet();
+        controller.chatInput.value = '你在吗';
+        assert.equal(controller.delegateModelReady.value, false);
+        assert.equal(controller.chatBlockedReason.value, '还没有配置分身模型。');
+        assert.equal(controller.canSubmitChat.value, false);
+        await controller.sendChat();
+        assert.equal(modelCalls, 0);
+        assert.equal(controller.chatInput.value, '你在吗');
+        controller.openApiSettings();
+        assert.equal(settingsOpens, 1);
+    } finally {
+        scope.stop();
+    }
+});
+
+test('cancelling pet chat restores idle presentation and preserves the draft', async () => {
+    await resetTavernPetTestDb();
+    const session = await createTavernPetTestSession('Controller cancel pet chat');
+    await seedTavernPetForTest(session.id, createTavernPetTestState('juvenile'));
+    const gate = deferred<TavernRunOnceResult>();
+    const { controller, scope } = createController({
+        selectedSessionId: ref(session.id),
+        runModel: async () => await gate.promise,
+    });
+    try {
+        await controller.preparePet();
+        controller.chatInput.value = '先等等';
+        const send = controller.sendChat();
+        await waitUntil(() => controller.isChatWaiting.value);
+        controller.cancelChat();
+        assert.equal(controller.isChatWaiting.value, false);
+        assert.equal(controller.chatInput.value, '先等等');
+        gate.resolve(modelResult(juvenileChatJson('迟到的回答')));
+        await send;
+        assert.equal(await tavernPetJournalTable.count(), 0);
+    } finally {
+        gate.resolve(modelResult(juvenileChatJson()));
+        scope.stop();
+    }
+});
+
+test('background evolution never presents as a pet reply or blocks the chat composer', async () => {
+    await resetTavernPetTestDb();
+    const session = await createTavernPetTestSession('Controller silent evolution');
+    await seedTavernPetForTest(session.id, createPendingAdultState(session.id));
+    const gate = deferred<TavernRunOnceResult>();
+    let modelCalls = 0;
+    const { controller, scope } = createController({
+        selectedSessionId: ref(session.id),
+        runModel: async () => {
+            modelCalls += 1;
+            return await gate.promise;
+        },
+    });
+    try {
+        await controller.preparePet();
+        await waitUntil(() => modelCalls === 1);
+        controller.chatInput.value = '你现在是什么样子';
+        assert.equal(controller.isChatWaiting.value, false);
+        assert.equal(controller.chatBlockedReason.value, '');
+        assert.equal(controller.canSubmitChat.value, true);
+    } finally {
+        gate.resolve(modelResult(canonicalTavernPetStaticVerdict('blank')));
+        scope.stop();
+    }
+});
+
+test('a cancelled background evolution is rescheduled after the cancelling action settles', async () => {
+    await resetTavernPetTestDb();
+    const session = await createTavernPetTestSession('Controller resumes cancelled evolution');
+    await seedTavernPetForTest(session.id, createPendingAdultState(session.id, 'resume-evolution'));
+    const firstRequest = deferred<TavernRunOnceResult>();
+    let modelCalls = 0;
+    const { controller, scope } = createController({
+        selectedSessionId: ref(session.id),
+        runModel: async () => {
+            modelCalls += 1;
+            if (modelCalls === 1) {return await firstRequest.promise;}
+            return modelResult(canonicalTavernPetStaticVerdict('blank'));
+        },
+    });
+    try {
+        await controller.preparePet();
+        await waitUntil(() => modelCalls === 1);
+        assert.ok(await controller.performAction('feed'));
+        firstRequest.resolve(modelResult(canonicalTavernPetStaticVerdict('blank')));
+        await waitUntil(() => modelCalls === 2, 'cancelled_evolution_was_not_rescheduled');
+        await waitUntil(() => controller.view.value.pendingEvolution === false, 'rescheduled_evolution_did_not_settle');
+    } finally {
+        firstRequest.resolve(modelResult(canonicalTavernPetStaticVerdict('blank')));
         scope.stop();
     }
 });

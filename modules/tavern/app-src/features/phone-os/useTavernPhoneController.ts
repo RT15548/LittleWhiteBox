@@ -21,6 +21,7 @@ const WALLET_LEDGER_PATH = '/ledger';
 
 export interface TavernPhoneControllerInput extends TavernPhoneControllerOptions {
     acceptedRollbackBusy: ComputedRef<boolean>;
+    openApiSettings: () => void;
     showToast?: (message: string, options?: { tone?: 'info' | 'warning'; durationMs?: number }) => void;
 }
 
@@ -43,13 +44,15 @@ export function useTavernPhoneController(options: TavernPhoneControllerInput) {
     const pet = useTavernPetController({
         selectedSessionId: options.selectedSessionId,
         agentConfig: options.agentConfig,
-        chatRunning: options.chatRunning,
-        chatCancelling: options.chatCancelling,
         memoryEditorMode: options.memoryEditorMode,
         characterArchiveBusy: options.characterArchiveBusy,
         acceptedRollbackBusy: options.acceptedRollbackBusy,
         wallet,
         showToast: options.showToast,
+        openApiSettings: () => {
+            os.closePhone();
+            options.openApiSettings();
+        },
     });
     const tasks = useTavernTasksController({
         selectedSessionId: options.selectedSessionId,

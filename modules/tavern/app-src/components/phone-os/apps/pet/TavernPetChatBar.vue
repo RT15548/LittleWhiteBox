@@ -12,6 +12,7 @@ const props = defineProps<{
 const emit = defineEmits<{
     (event: 'update:modelValue', value: string): void;
     (event: 'submit'): void;
+    (event: 'cancel'): void;
 }>();
 
 const composing = ref(false);
@@ -61,29 +62,40 @@ function submitOnEnter(event: KeyboardEvent): void {
       class="tavern-pet-sr-only"
       for="tavern-pet-chat-input"
     >跟住户说点什么</label>
-    <input
-      id="tavern-pet-chat-input"
-      :value="modelValue"
-      type="text"
-      autocomplete="off"
-      enterkeyhint="send"
-      :placeholder="egg ? '跟蛋壳说点什么……' : '跟它说点什么……'"
-      :disabled="waiting"
-      :aria-describedby="disabledReason ? 'tavern-pet-chat-reason' : undefined"
-      @compositionstart="startComposition"
-      @compositionend="finishComposition"
-      @input="updateValue"
-      @keydown.enter="submitOnEnter"
-    >
-    <button
-      type="submit"
-      :disabled="!canSubmit"
-      :title="disabledReason"
-    >
-      {{ waiting ? '……' : egg ? '敲一下' : '发送' }}
-    </button>
+    <div class="tavern-pet-chatbar-field">
+      <input
+        id="tavern-pet-chat-input"
+        :value="modelValue"
+        type="text"
+        autocomplete="off"
+        enterkeyhint="send"
+        :placeholder="egg ? '隔着壳说句话……' : '跟它说句话……'"
+        :disabled="waiting"
+        :aria-describedby="disabledReason && !waiting ? 'tavern-pet-chat-reason' : undefined"
+        @compositionstart="startComposition"
+        @compositionend="finishComposition"
+        @input="updateValue"
+        @keydown.enter="submitOnEnter"
+      >
+      <button
+        v-if="waiting"
+        type="button"
+        class="is-cancel"
+        @click="emit('cancel')"
+      >
+        停一下
+      </button>
+      <button
+        v-else
+        type="submit"
+        :disabled="!canSubmit"
+        :title="disabledReason"
+      >
+        {{ egg ? '敲一下' : '发送' }}
+      </button>
+    </div>
     <small
-      v-if="disabledReason"
+      v-if="disabledReason && !waiting"
       id="tavern-pet-chat-reason"
       class="tavern-pet-chat-reason"
     >{{ disabledReason }}</small>

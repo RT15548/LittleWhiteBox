@@ -36,6 +36,10 @@ function emptyView(playerBalance: number): TavernPetView {
         versionId: '',
         existence: 'undiscovered',
         displayName: '暗室空着',
+        guidance: {
+            kind: 'arrival',
+            text: '角落里有只空碟。放点什么，也许会有东西闻着味道过来。',
+        },
         pendingEvolution: false,
         interferenceEnabled: true,
         nest: { coins: 0, curios: [] },
@@ -62,6 +66,26 @@ function currentFace(companion: TavernPetCompanionRecord): string {
     return state.phase === 'egg'
         ? '(🥚)'
         : tavernPetFaceForEmotion(state.phase, state.personaId, state.emotion);
+}
+
+function currentGuidance(companion: TavernPetCompanionRecord): TavernPetView['guidance'] {
+    const { state } = companion;
+    if (state.phase === 'egg') {
+        return {
+            kind: 'egg',
+            text: '蛋壳偶尔轻轻一响。外面的故事往前走一步，回来时它也许就醒了。',
+        };
+    }
+    if (state.pendingMoment) {
+        return { kind: 'moment', text: '它今天好像有件事没说完。' };
+    }
+    if (state.lifetimeStats.chatCount === 0) {
+        return { kind: 'first-chat', text: '它刚学会认你的声音，正等着你先开口。' };
+    }
+    if (state.appetite <= 24) {
+        return { kind: 'hunger', text: '它看了眼空碟，又假装没看。' };
+    }
+    return undefined;
 }
 
 function latestJournal(journal: readonly TavernPetJournalRecord[]): TavernPetJournalRecord | null {
@@ -108,6 +132,7 @@ export function createTavernPetView(input: {
         return [{ id, cost: TAVERN_PET_INTERACTION_COSTS[id], enabled: !reason, reason }];
     });
     const latest = latestJournal(input.journal || []);
+    const guidance = currentGuidance(companion);
     const persona = state.personaId
         ? { id: state.personaId, displayName: getTavernPetPersona(state.personaId).displayName }
         : null;
@@ -133,6 +158,7 @@ export function createTavernPetView(input: {
         appetiteLabel: appetiteLabel(state.appetite),
         emotionLabel: EMOTION_LABELS[state.emotion],
         phaseProgressLabel: phaseProgressLabel(companion),
+        ...(guidance ? { guidance } : {}),
         ...(pendingMoment ? { pendingMoment } : {}),
         pendingEvolution: Boolean(state.pendingEvolution),
         interferenceEnabled: state.interferenceEnabled,

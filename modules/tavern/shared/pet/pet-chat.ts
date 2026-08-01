@@ -12,10 +12,14 @@ import {
 } from './pet-personas';
 import {
     TAVERN_PET_EMOTIONS,
+    TAVERN_PET_PERSONA_IDS,
+    type TavernPetChatProfile,
     type TavernPetJournalRecord,
     type TavernPetChatResponse,
+    type TavernPetDialogueProfile,
     type TavernPetEmotion,
     type TavernPetEvolutionRequest,
+    type TavernPetFaceKey,
     type TavernPetMotion,
     type TavernPetState,
     type TavernPetTraits,
@@ -499,11 +503,8 @@ function normalizeLooseJsonCandidate(
 
 function normalizeStrictTavernPetChatResponseObject(
     object: Record<string, unknown>,
-    state: TavernPetState,
+    profile: TavernPetDialogueProfile,
 ): TavernPetChatResponse {
-    if (state.phase !== 'juvenile' && state.phase !== 'adult') {
-        throwTavernPetError('pet_chat_unavailable', state.phase);
-    }
     const unknownFields = Object.keys(object).filter((key) => !CHAT_RESPONSE_FIELDS.has(key));
     if (unknownFields.length
         || typeof object.face !== 'string'
@@ -515,7 +516,6 @@ function normalizeStrictTavernPetChatResponseObject(
     ) {
         throwTavernPetError('pet_chat_invalid', unknownFields.length ? 'unknown-fields' : 'fields');
     }
-    const profile = getTavernPetDialogueProfile(state.phase, state.personaId);
     const allowedFaces = Object.entries(profile.faces)
         .filter(([key]) => key !== 'thinking')
         .map(([, face]) => face);
@@ -537,6 +537,40 @@ function normalizeStrictTavernPetChatResponseObject(
         murmur: strictNullableText(object.murmur, 30, 'murmur'),
         summaryUpdate: strictNullableText(object.summaryUpdate, 100, 'summaryUpdate'),
     };
+}
+
+function resolveTavernPetChatProfile(profile: TavernPetChatProfile): TavernPetDialogueProfile {
+    if (profile?.phase === 'juvenile' && profile.personaId === undefined) {
+        return getTavernPetDialogueProfile('juvenile');
+    }
+    if (profile?.phase === 'adult'
+        && TAVERN_PET_PERSONA_IDS.some((personaId) => personaId === profile.personaId)
+    ) {
+        return getTavernPetDialogueProfile('adult', profile.personaId);
+    }
+    throwTavernPetError('pet_chat_invalid', 'profile');
+}
+
+export function tavernPetChatProfile(state: TavernPetState): TavernPetChatProfile {
+    if (state.phase === 'juvenile') {return { phase: 'juvenile' };}
+    if (state.phase === 'adult' && state.personaId) {
+        return { phase: 'adult', personaId: state.personaId };
+    }
+    throwTavernPetError('pet_chat_unavailable', state.phase);
+}
+
+export function mapTavernPetChatFaceToState(
+    face: string,
+    sourceProfile: TavernPetChatProfile,
+    targetState: TavernPetState,
+): string {
+    const source = resolveTavernPetChatProfile(sourceProfile);
+    const faceKey = Object.entries(source.faces).find(([, value]) => value === face)?.[0] as TavernPetFaceKey | undefined;
+    if (!faceKey || faceKey === 'thinking') {throwTavernPetError('pet_chat_invalid', 'face');}
+    if (targetState.phase !== 'juvenile' && targetState.phase !== 'adult') {
+        throwTavernPetError('pet_chat_unavailable', targetState.phase);
+    }
+    return getTavernPetDialogueProfile(targetState.phase, targetState.personaId).faces[faceKey];
 }
 
 export function parseTavernPetChatResponse(
@@ -573,10 +607,17 @@ export function normalizeTavernPetChatResponse(
     raw: unknown,
     state: TavernPetState,
 ): TavernPetChatResponse {
+    return normalizeTavernPetChatResponseForProfile(raw, tavernPetChatProfile(state));
+}
+
+export function normalizeTavernPetChatResponseForProfile(
+    raw: unknown,
+    profile: TavernPetChatProfile,
+): TavernPetChatResponse {
     if (!isJsonObject(raw)) {
         throwTavernPetError('pet_chat_invalid', 'object');
     }
-    return normalizeStrictTavernPetChatResponseObject(raw, state);
+    return normalizeStrictTavernPetChatResponseObject(raw, resolveTavernPetChatProfile(profile));
 }
 
 export function buildTavernPetEvolutionMessages(

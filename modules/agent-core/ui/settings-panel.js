@@ -12,6 +12,7 @@ import {
     buildDefaultPreset,
     normalizeAgentConfig,
     normalizeJsApiPermission,
+    normalizeMaxTokens,
     normalizeModelConfigs,
     normalizePermissionMode,
     normalizePresetName,
@@ -425,7 +426,8 @@ export function createAgentSettingsPanel(deps = {}) {
             delegateBaseUrl: String(delegateProviderConfig.baseUrl || ''),
             delegateModel: String(delegateProviderConfig.model || ''),
             delegateApiKey: String(delegateProviderConfig.apiKey || ''),
-            delegateTemperature: normalizeTemperature(delegateProviderConfig.temperature, 0.2),
+            delegateTemperature: normalizeTemperature(delegateProviderConfig.temperature, 1),
+            delegateMaxTokens: normalizeMaxTokens(delegateProviderConfig.maxTokens),
             delegateSendTemperature: shouldSendTemperature(delegateProviderConfig),
             delegateReasoningEnabled: Boolean(delegateProviderConfig.reasoningEnabled),
             delegateReasoningEffort: normalizeReasoningEffort(delegateProviderConfig.reasoningEffort),
@@ -440,7 +442,8 @@ export function createAgentSettingsPanel(deps = {}) {
             baseUrl: String(providerConfig.baseUrl || ''),
             model: String(providerConfig.model || ''),
             apiKey: String(providerConfig.apiKey || ''),
-            temperature: normalizeTemperature(providerConfig.temperature, 0.2),
+            temperature: normalizeTemperature(providerConfig.temperature, 1),
+            maxTokens: normalizeMaxTokens(providerConfig.maxTokens),
             sendTemperature: shouldSendTemperature(providerConfig),
             reasoningEnabled: Boolean(providerConfig.reasoningEnabled),
             reasoningEffort: normalizeReasoningEffort(providerConfig.reasoningEffort),
@@ -455,7 +458,8 @@ export function createAgentSettingsPanel(deps = {}) {
             delegateBaseUrl: String(providerConfig.baseUrl || ''),
             delegateModel: String(providerConfig.model || ''),
             delegateApiKey: String(providerConfig.apiKey || ''),
-            delegateTemperature: normalizeTemperature(providerConfig.temperature, 0.2),
+            delegateTemperature: normalizeTemperature(providerConfig.temperature, 1),
+            delegateMaxTokens: normalizeMaxTokens(providerConfig.maxTokens),
             delegateSendTemperature: shouldSendTemperature(providerConfig),
             delegateReasoningEnabled: Boolean(providerConfig.reasoningEnabled),
             delegateReasoningEffort: normalizeReasoningEffort(providerConfig.reasoningEffort),
@@ -504,7 +508,8 @@ export function createAgentSettingsPanel(deps = {}) {
             baseUrl: root.querySelector('#xb-assistant-base-url')?.value.trim() || '',
             model: root.querySelector('#xb-assistant-model')?.value.trim() || '',
             apiKey: root.querySelector('#xb-assistant-api-key')?.value.trim() || '',
-            temperature: normalizeTemperature(root.querySelector('#xb-assistant-temperature')?.value, draft.temperature ?? 0.2),
+            temperature: normalizeTemperature(root.querySelector('#xb-assistant-temperature')?.value, draft.temperature ?? 1),
+            maxTokens: normalizeMaxTokens(root.querySelector('#xb-assistant-max-tokens')?.value, draft.maxTokens),
             sendTemperature: root.querySelector('#xb-assistant-send-temperature')?.checked ?? Boolean(draft.sendTemperature ?? true),
             reasoningEnabled: root.querySelector('#xb-assistant-reasoning-enabled')?.checked || false,
             reasoningEffort: normalizeReasoningEffort(root.querySelector('#xb-assistant-reasoning-effort')?.value),
@@ -516,7 +521,8 @@ export function createAgentSettingsPanel(deps = {}) {
             baseUrl: root.querySelector('#xb-assistant-delegate-base-url')?.value.trim() ?? draft.delegateBaseUrl ?? '',
             model: root.querySelector('#xb-assistant-delegate-model')?.value.trim() ?? draft.delegateModel ?? '',
             apiKey: root.querySelector('#xb-assistant-delegate-api-key')?.value.trim() ?? draft.delegateApiKey ?? '',
-            temperature: normalizeTemperature(root.querySelector('#xb-assistant-delegate-temperature')?.value, draft.delegateTemperature ?? 0.2),
+            temperature: normalizeTemperature(root.querySelector('#xb-assistant-delegate-temperature')?.value, draft.delegateTemperature ?? 1),
+            maxTokens: normalizeMaxTokens(root.querySelector('#xb-assistant-delegate-max-tokens')?.value, draft.delegateMaxTokens),
             sendTemperature: root.querySelector('#xb-assistant-delegate-send-temperature')?.checked ?? Boolean(draft.delegateSendTemperature ?? true),
             reasoningEnabled: root.querySelector('#xb-assistant-delegate-reasoning-enabled')?.checked ?? Boolean(draft.delegateReasoningEnabled),
             reasoningEffort: normalizeReasoningEffort(root.querySelector('#xb-assistant-delegate-reasoning-effort')?.value || draft.delegateReasoningEffort),
@@ -548,6 +554,7 @@ export function createAgentSettingsPanel(deps = {}) {
             model: providerConfig.model,
             apiKey: providerConfig.apiKey,
             temperature: providerConfig.temperature,
+            maxTokens: providerConfig.maxTokens,
             sendTemperature: providerConfig.sendTemperature,
             reasoningEnabled: providerConfig.reasoningEnabled,
             reasoningEffort: providerConfig.reasoningEffort,
@@ -563,6 +570,7 @@ export function createAgentSettingsPanel(deps = {}) {
             delegateModel: delegateProviderConfig.model,
             delegateApiKey: delegateProviderConfig.apiKey,
             delegateTemperature: delegateProviderConfig.temperature,
+            delegateMaxTokens: delegateProviderConfig.maxTokens,
             delegateSendTemperature: delegateProviderConfig.sendTemperature,
             delegateReasoningEnabled: delegateProviderConfig.reasoningEnabled,
             delegateReasoningEffort: delegateProviderConfig.reasoningEffort,
@@ -575,19 +583,13 @@ export function createAgentSettingsPanel(deps = {}) {
         return state.configDraft;
     }
 
-    function resolveRuntimeMaxTokens(draft = ensureConfigDraft()) {
-        if (isAnthropicProvider(draft.provider)) {
-            return 32000;
-        }
-        return null;
-    }
-
     function buildProviderConfigFromDraft(draft = ensureConfigDraft()) {
         return {
             baseUrl: String(draft.baseUrl || ''),
             model: String(draft.model || ''),
             apiKey: String(draft.apiKey || ''),
-            temperature: normalizeTemperature(draft.temperature, 0.2),
+            temperature: normalizeTemperature(draft.temperature, 1),
+            maxTokens: normalizeMaxTokens(draft.maxTokens),
             sendTemperature: Boolean(draft.sendTemperature ?? true),
             reasoningEnabled: Boolean(draft.reasoningEnabled),
             reasoningEffort: normalizeReasoningEffort(draft.reasoningEffort),
@@ -602,7 +604,8 @@ export function createAgentSettingsPanel(deps = {}) {
             baseUrl: String(draft.delegateBaseUrl || ''),
             model: String(draft.delegateModel || ''),
             apiKey: String(draft.delegateApiKey || ''),
-            temperature: normalizeTemperature(draft.delegateTemperature, 0.2),
+            temperature: normalizeTemperature(draft.delegateTemperature, 1),
+            maxTokens: normalizeMaxTokens(draft.delegateMaxTokens),
             sendTemperature: Boolean(draft.delegateSendTemperature ?? true),
             reasoningEnabled: Boolean(draft.delegateReasoningEnabled),
             reasoningEffort: normalizeReasoningEffort(draft.delegateReasoningEffort),
@@ -635,9 +638,9 @@ export function createAgentSettingsPanel(deps = {}) {
             apiKey: draft.apiKey || '',
             tavilyApiKey: draft.tavilyApiKey || '',
             tavilyBaseUrl: normalizeTavilyBaseUrl(draft.tavilyBaseUrl || DEFAULT_TAVILY_BASE_URL),
-            temperature: draft.sendTemperature === false ? undefined : normalizeTemperature(draft.temperature, 0.2),
+            temperature: draft.sendTemperature === false ? undefined : normalizeTemperature(draft.temperature, 1),
             sendTemperature: Boolean(draft.sendTemperature ?? true),
-            maxTokens: resolveRuntimeMaxTokens(draft),
+            maxTokens: normalizeMaxTokens(draft.maxTokens),
             timeoutMs: AGENT_REQUEST_TIMEOUT_MS,
             toolMode: draft.toolMode || 'native',
             reasoningEnabled: Boolean(draft.reasoningEnabled),
@@ -653,9 +656,9 @@ export function createAgentSettingsPanel(deps = {}) {
             apiKey: draft.delegateApiKey || '',
             tavilyApiKey: draft.tavilyApiKey || '',
             tavilyBaseUrl: normalizeTavilyBaseUrl(draft.tavilyBaseUrl || DEFAULT_TAVILY_BASE_URL),
-            temperature: draft.delegateSendTemperature === false ? undefined : normalizeTemperature(draft.delegateTemperature, 0.2),
+            temperature: draft.delegateSendTemperature === false ? undefined : normalizeTemperature(draft.delegateTemperature, 1),
             sendTemperature: Boolean(draft.delegateSendTemperature ?? true),
-            maxTokens: isAnthropicProvider(draft.delegateProvider) ? 32000 : null,
+            maxTokens: normalizeMaxTokens(draft.delegateMaxTokens),
             timeoutMs: AGENT_REQUEST_TIMEOUT_MS,
             toolMode: draft.delegateToolMode || 'native',
             reasoningEnabled: Boolean(draft.delegateReasoningEnabled),
@@ -738,6 +741,7 @@ export function createAgentSettingsPanel(deps = {}) {
         const permissionModeSelect = root.querySelector('#xb-assistant-permission-mode');
         const jsApiPermissionSelect = root.querySelector('#xb-assistant-jsapi-permission');
         const pulledSelect = root.querySelector('#xb-assistant-model-pulled');
+        const maxTokensInput = root.querySelector('#xb-assistant-max-tokens');
         const presetSelect = root.querySelector('#xb-assistant-preset-select');
         const presetNameInput = root.querySelector('#xb-assistant-preset-name');
         const delegatePresetSelect = root.querySelector('#xb-assistant-delegate-preset-select');
@@ -747,6 +751,7 @@ export function createAgentSettingsPanel(deps = {}) {
         const delegateApiKeyInput = root.querySelector('#xb-assistant-delegate-api-key');
         const tavilyApiKeyInput = root.querySelector('#xb-assistant-tavily-api-key');
         const delegatePulledSelect = root.querySelector('#xb-assistant-delegate-model-pulled');
+        const delegateMaxTokensInput = root.querySelector('#xb-assistant-delegate-max-tokens');
         const delegateToolModeWrap = root.querySelector('#xb-assistant-delegate-tool-mode-wrap');
         const delegateToolModeSelect = root.querySelector('#xb-assistant-delegate-tool-mode');
         const delegateReasoningEnabledInput = root.querySelector('#xb-assistant-delegate-reasoning-enabled');
@@ -769,7 +774,8 @@ export function createAgentSettingsPanel(deps = {}) {
         root.querySelector('#xb-assistant-base-url').value = draft.baseUrl || '';
         root.querySelector('#xb-assistant-model').value = draft.model || '';
         root.querySelector('#xb-assistant-api-key').value = draft.apiKey || '';
-        root.querySelector('#xb-assistant-temperature').value = String(normalizeTemperature(draft.temperature, 0.2));
+        if (maxTokensInput) maxTokensInput.value = String(normalizeMaxTokens(draft.maxTokens));
+        root.querySelector('#xb-assistant-temperature').value = String(normalizeTemperature(draft.temperature, 1));
         root.querySelector('#xb-assistant-send-temperature').checked = Boolean(draft.sendTemperature ?? true);
         if (tavilyApiKeyInput) tavilyApiKeyInput.value = draft.tavilyApiKey || '';
         toolModeWrap.style.display = isToolModeProvider(provider) ? '' : 'none';
@@ -795,7 +801,8 @@ export function createAgentSettingsPanel(deps = {}) {
         if (delegateApiKeyInput) delegateApiKeyInput.value = draft.delegateApiKey || '';
         const delegateTemperatureInput = root.querySelector('#xb-assistant-delegate-temperature');
         const delegateSendTemperatureInput = root.querySelector('#xb-assistant-delegate-send-temperature');
-        if (delegateTemperatureInput) delegateTemperatureInput.value = String(normalizeTemperature(draft.delegateTemperature, 0.2));
+        if (delegateMaxTokensInput) delegateMaxTokensInput.value = String(normalizeMaxTokens(draft.delegateMaxTokens));
+        if (delegateTemperatureInput) delegateTemperatureInput.value = String(normalizeTemperature(draft.delegateTemperature, 1));
         if (delegateSendTemperatureInput) delegateSendTemperatureInput.checked = Boolean(draft.delegateSendTemperature ?? true);
         if (delegateToolModeWrap) {
             delegateToolModeWrap.style.display = isToolModeProvider(delegateProvider) ? '' : 'none';
@@ -1027,6 +1034,10 @@ export function createAgentSettingsPanel(deps = {}) {
             syncConfigDraft(root);
         });
 
+        root.querySelector('#xb-assistant-max-tokens')?.addEventListener('input', () => {
+            syncConfigDraft(root);
+        });
+
         root.querySelector('#xb-assistant-temperature')?.addEventListener('input', () => {
             syncConfigDraft(root);
         });
@@ -1070,6 +1081,10 @@ export function createAgentSettingsPanel(deps = {}) {
         });
 
         root.querySelector('#xb-assistant-delegate-api-key')?.addEventListener('input', () => {
+            syncConfigDraft(root);
+        });
+
+        root.querySelector('#xb-assistant-delegate-max-tokens')?.addEventListener('input', () => {
             syncConfigDraft(root);
         });
 

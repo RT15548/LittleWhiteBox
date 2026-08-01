@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
     DEFAULT_JSAPI_PERMISSION,
+    DEFAULT_MAX_TOKENS,
     normalizeAgentConfig,
     normalizeAgentSettings,
 } from '../../agent-core/config.js';
@@ -14,6 +15,56 @@ test('assistant settings default jsApiPermission to deny', () => {
 
     assert.equal(settings.jsApiPermission, DEFAULT_JSAPI_PERMISSION);
     assert.equal(config.jsApiPermission, DEFAULT_JSAPI_PERMISSION);
+});
+
+test('assistant API defaults use a neutral temperature and an explicit output limit', () => {
+    const config = normalizeAgentConfig({});
+    const main = resolveActiveProviderConfig(config);
+    const delegate = resolveActiveProviderConfig(config, { role: 'delegate' });
+
+    assert.equal(DEFAULT_MAX_TOKENS, 32000);
+    assert.equal(main.temperature, 1);
+    assert.equal(main.maxTokens, 32000);
+    assert.equal(delegate.temperature, 1);
+    assert.equal(delegate.maxTokens, 32000);
+});
+
+test('assistant API presets preserve independent main and delegate output limits', () => {
+    const config = normalizeAgentConfig({
+        currentPresetName: '主助手',
+        presets: {
+            主助手: {
+                provider: 'openai-compatible',
+                modelConfigs: {
+                    'openai-compatible': {
+                        model: 'main-model',
+                        apiKey: 'main-key',
+                        temperature: 0.8,
+                        maxTokens: 64000,
+                    },
+                },
+            },
+        },
+        delegateConfigured: true,
+        delegateConfig: {
+            provider: 'google',
+            modelConfigs: {
+                google: {
+                    model: 'delegate-model',
+                    apiKey: 'delegate-key',
+                    temperature: 1.2,
+                    maxTokens: 12000,
+                },
+            },
+        },
+    });
+
+    const main = resolveActiveProviderConfig(config);
+    const delegate = resolveActiveProviderConfig(config, { role: 'delegate' });
+    assert.equal(main.temperature, 0.8);
+    assert.equal(main.maxTokens, 64000);
+    assert.equal(delegate.temperature, 1.2);
+    assert.equal(delegate.maxTokens, 12000);
 });
 
 test('assistant config preserves explicit jsApiPermission', () => {

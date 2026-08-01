@@ -127,8 +127,6 @@ function createSyncedPetObserver(
         const pet = useTavernPetController({
             selectedSessionId,
             agentConfig: ref({}),
-            chatRunning: ref(false),
-            chatCancelling: ref(false),
             memoryEditorMode: ref<'preview' | 'edit'>('preview'),
             characterArchiveBusy: computed(() => false),
             acceptedRollbackBusy: computed(() => false),

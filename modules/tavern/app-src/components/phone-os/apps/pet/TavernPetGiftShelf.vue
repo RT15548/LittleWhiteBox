@@ -20,13 +20,18 @@ const available = computed(() => props.actions.filter((action): action is Tavern
 function reason(action: TavernPetAvailableAction): string {
     return props.blockedReason || (action.enabled ? '' : action.reason);
 }
+
+function choose(actionId: TavernPetGiftId): void {
+    open.value = false;
+    emit('action', actionId);
+}
 </script>
 
 <template>
   <section
     v-if="available.length"
     class="tavern-pet-gifts"
-    aria-label="给它东西"
+    aria-label="放点东西"
   >
     <button
       type="button"
@@ -34,7 +39,7 @@ function reason(action: TavernPetAvailableAction): string {
       :aria-expanded="open"
       @click="open = !open"
     >
-      <span>给它东西</span>
+      <span>放点东西</span>
       <i aria-hidden="true">{{ open ? '−' : '+' }}</i>
     </button>
     <Transition name="tavern-pet-gifts">
@@ -48,7 +53,7 @@ function reason(action: TavernPetAvailableAction): string {
           type="button"
           :disabled="!!reason(action)"
           :title="reason(action)"
-          @click="emit('action', action.id)"
+          @click="choose(action.id)"
         >
           <span>{{ action.id === 'feed' ? '食物' : '玩具' }}</span>
           <small>{{ action.cost }} 小白币</small>

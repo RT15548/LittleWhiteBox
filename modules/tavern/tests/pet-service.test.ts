@@ -30,6 +30,7 @@ import { buildTavernPetRuntimeDepthEntries } from '../shared/pet/pet-prompt';
 import { createTavernPetSequenceRandomSource } from '../shared/pet/pet-random';
 import {
     appendTavernPetTransitionInCurrentDbTransaction,
+    commitTavernPetChatResponse,
     getCurrentTavernPetView,
     getTavernPetCompanionInCurrentDbTransaction,
     getTavernPetPrivateSnapshotForChat,
@@ -48,7 +49,7 @@ import {
     type TavernPetChatResponse,
     type TavernPetJournalDraft,
 } from '../shared/pet/pet-types';
-import { TAVERN_PET_JUVENILE_PROFILE } from '../shared/pet/pet-personas';
+import { getTavernPetDialogueProfile, TAVERN_PET_JUVENILE_PROFILE } from '../shared/pet/pet-personas';
 import {
     advanceTavernPetStoryTurnForTest,
     createTavernPetTestSession,
@@ -292,16 +293,69 @@ test('strict chat persistence accepts a four-character juvenile reply and reject
         murmur: null,
         summaryUpdate: null,
     };
-    const { commitTavernPetChatResponse } = await import('../shared/pet/pet-service');
     await commitTavernPetChatResponse({
-        ...await tavernPetMutationBoundary(session.id, 'juvenile-chat'), playerText: '你在吗', response,
+        ...await tavernPetMutationBoundary(session.id, 'juvenile-chat'),
+        playerText: '你在吗',
+        response,
+        responseProfile: { phase: 'juvenile' },
     });
     await assert.rejects(commitTavernPetChatResponse({
-        ...await tavernPetMutationBoundary(session.id, 'long-chat'), playerText: '你在吗', response: { ...response, text: '啊'.repeat(121) },
+        ...await tavernPetMutationBoundary(session.id, 'long-chat'),
+        playerText: '你在吗',
+        response: { ...response, text: '啊'.repeat(121) },
+        responseProfile: { phase: 'juvenile' },
     }), /pet_chat_invalid/);
     assert.deepEqual((await getTavernPetPrivateSnapshotForChat(session.id))?.companion.state.chatMemory.recent, [
         { playerText: '你在吗', petText: '咱就是说' },
     ]);
+});
+
+test('pet chat commits against the latest companion after the main story advances in parallel', async () => {
+    await resetTavernPetTestDb();
+    const session = await createTavernPetTestSession('Parallel story and pet chat');
+    await seedTavernPetForTest(session.id, createTavernPetTestState('juvenile', {
+        petTurn: 24,
+        nextMomentPetTurn: 30,
+    }));
+    const before = await getTavernPetPrivateSnapshotForChat(session.id);
+    assert.ok(before);
+
+    await advanceTavernPetStoryTurnForTest(session.id, [99]);
+    const current = await getTavernPetPrivateSnapshotForChat(session.id);
+    assert.ok(current);
+    assert.ok(current.companion.state.petTurn > before.companion.state.petTurn);
+    assert.equal(current.companion.state.phase, 'adult');
+
+    const freshBoundary = await tavernPetMutationBoundary(session.id, 'parallel-pet-chat');
+    const committed = await commitTavernPetChatResponse({
+        ...freshBoundary,
+        expectedRevision: before.companion.revision,
+        expectedVersionId: before.companion.versionId,
+        playerText: '外面刚刚很热闹',
+        responseProfile: { phase: 'juvenile' },
+        response: {
+            face: TAVERN_PET_JUVENILE_PROFILE.faces.happy,
+            text: '我也听见了。',
+            motion: 'stare',
+            emotionShift: null,
+            murmur: null,
+            summaryUpdate: null,
+        },
+    });
+
+    const after = await getTavernPetPrivateSnapshotForChat(session.id);
+    assert.ok(after);
+    assert.equal(after.companion.state.petTurn, current.companion.state.petTurn);
+    assert.deepEqual(after.companion.state.chatMemory.recent.at(-1), {
+        playerText: '外面刚刚很热闹',
+        petText: '我也听见了。',
+    });
+    assert.ok(current.companion.state.personaId);
+    assert.equal(
+        committed.view.latestUtterance?.face,
+        getTavernPetDialogueProfile('adult', current.companion.state.personaId).faces.happy,
+    );
+    assert.notEqual(committed.view.latestUtterance?.face, TAVERN_PET_JUVENILE_PROFILE.faces.happy);
 });
 
 test('simultaneous stale global CAS writes leave exactly one visible update', async () => {
