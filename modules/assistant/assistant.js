@@ -34,7 +34,6 @@ import {
     normalizePresetName,
 } from "../agent-core/config.js";
 import { createPlanLedger, isPlanToolName } from "../agent-core/plan-ledger.js";
-import { getPathExtension, isSupportedPublicTextPath } from "../agent-core/tools/text-file-types.js";
 import { plansTable as assistantPlansTable } from "./shared/session-db.js";
 import {
     findLocalDirectoryByPath as kernelFindLocalDirectoryByPath,
@@ -1120,22 +1119,6 @@ async function readTextFile(publicPath, options = {}) {
     return text;
 }
 
-function normalizeDirectReadablePublicPath(rawPath) {
-    const normalized = String(rawPath || '').trim().replace(/\\/g, '/').replace(/^\/+/, '');
-    if (!normalized) return '';
-    if (normalized.includes('..')) return '';
-    if (normalized.includes('?') || normalized.includes('#')) return '';
-    if (normalized.startsWith('api/') || normalized.startsWith('user/')) return '';
-    if (normalized.startsWith('local/')) return '';
-
-    if (!isSupportedPublicTextPath(normalized)) return '';
-    return normalized;
-}
-
-function pathExtension(pathText = '') {
-    return getPathExtension(pathText);
-}
-
 function escapeRegExp(text) {
     return String(text || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -1614,7 +1597,6 @@ async function readFile(args = {}, options = {}) {
         throw new Error('file_not_indexed');
     }
     assertLookupScopePath(targetPath, scope);
-    const directReadablePath = normalizeDirectReadablePublicPath(targetPath);
     const indexedFiles = getLookupIndexedFiles(manifest, options.localSources, scope);
     const directoryPath = normalizeIndexedDirectoryPath(targetPath);
     const directoryItems = buildDirectoryItems(indexedFiles, directoryPath || targetPath, options.localSources);
@@ -1622,15 +1604,8 @@ async function readFile(args = {}, options = {}) {
     const requestedOffset = Math.max(1, Math.trunc(Number(args.offset ?? args.startLine) || 1));
     const requestedLimit = resolveReadLimit(args.limit);
     const requestedTail = resolveReadTail(args.tail);
-    const entry = indexedFiles.find((item) => item.publicPath === targetPath)
-        || (directReadablePath
-            ? {
-                publicPath: directReadablePath,
-                relativePath: directReadablePath,
-                source: 'direct-public-path',
-                extension: pathExtension(directReadablePath),
-            }
-            : null);
+    // The manifest is the project-read authorization boundary. Never fetch an unindexed public path directly.
+    const entry = indexedFiles.find((item) => item.publicPath === targetPath) || null;
     const requestedEndAlias = Number(args.endLine);
     const hasTailConflictRange = Number.isFinite(Number(args.offset))
         || Number.isFinite(Number(args.limit))

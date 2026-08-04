@@ -35,6 +35,7 @@ const PROVIDER_MAP = {
 const JSON_PREFILL = DEFAULT_SUMMARY_ASSISTANT_PREFILL_PROMPT;
 const HOST_GENERATION_PROVIDERS = new Set(['openai']);
 const SUMMARY_GENERATION_TIMEOUT_MS = 180_000;
+const SUMMARY_CANCELLED_CODE = 'summary_generation_cancelled';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 工具函数
@@ -52,13 +53,34 @@ function getStreamingModule() {
     return mod?.xbgenrawCommand ? mod : null;
 }
 
-function waitForStreamingComplete(sessionId, streamingMod, timeout = SUMMARY_GENERATION_TIMEOUT_MS) {
+export function createSummaryGenerationCancelledError() {
+    const error = new Error('生成已停止');
+    error.name = 'AbortError';
+    error.code = SUMMARY_CANCELLED_CODE;
+    return error;
+}
+
+export function isSummaryGenerationCancelledError(error) {
+    return error?.code === SUMMARY_CANCELLED_CODE;
+}
+
+function cancelRequest(request) {
+    request.cancelled = true;
+    request.abortController?.abort();
+    request.streamingMod?.cancel?.(request.sessionId);
+}
+
+function waitForStreamingComplete(sessionId, streamingMod, request, timeout = SUMMARY_GENERATION_TIMEOUT_MS) {
     return new Promise((resolve, reject) => {
         const start = Date.now();
         const poll = () => {
+            if (request.cancelled) return reject(createSummaryGenerationCancelledError());
             const { isStreaming, text } = streamingMod.getStatus(sessionId);
             if (!isStreaming) return resolve(text || '');
-            if (Date.now() - start > timeout) return reject(new Error('生成超时'));
+            if (Date.now() - start > timeout) {
+                streamingMod.cancel?.(sessionId);
+                return reject(new Error('生成超时'));
+            }
             setTimeout(poll, 300);
         };
         poll();
@@ -76,6 +98,7 @@ function createTimeoutSignal(timeout) {
         }, timeout);
     }
     return {
+        controller,
         signal: controller.signal,
         isTimedOut: () => timedOut,
         cleanup: () => {
@@ -155,7 +178,7 @@ function attachSamplingParams(payload, genParams = {}) {
     return payload;
 }
 
-async function callHostSummaryGeneration(promptData, llmApi = {}, genParams = {}, useStream = true, timeout = SUMMARY_GENERATION_TIMEOUT_MS) {
+async function callHostSummaryGeneration(promptData, llmApi = {}, genParams = {}, useStream = true, timeout = SUMMARY_GENERATION_TIMEOUT_MS, request) {
     const provider = normalizeSummaryProvider(llmApi.provider);
     const model = String(llmApi.model || '').trim();
     if (!model) {
@@ -175,6 +198,10 @@ async function callHostSummaryGeneration(promptData, llmApi = {}, genParams = {}
     ), genParams);
 
     const abortable = createTimeoutSignal(Number(timeout) || SUMMARY_GENERATION_TIMEOUT_MS);
+    request.abortController = abortable.controller;
+    if (request.cancelled) {
+        abortable.controller.abort();
+    }
     try {
         if (!useStream) {
             const data = await createHostChatCompletion(payload, { signal: abortable.signal });
@@ -206,11 +233,17 @@ async function callHostSummaryGeneration(promptData, llmApi = {}, genParams = {}
         if (streamError) throw streamError;
         return output;
     } catch (error) {
+        if (request.cancelled) {
+            throw createSummaryGenerationCancelledError();
+        }
         if (abortable.isTimedOut()) {
             throw new Error('生成超时');
         }
         throw error;
     } finally {
+        if (request.abortController === abortable.controller) {
+            request.abortController = null;
+        }
         abortable.cleanup();
     }
 }
@@ -335,71 +368,108 @@ export async function generateSummary(options) {
         genParams = {},
         useStream = true,
         timeout = SUMMARY_GENERATION_TIMEOUT_MS,
-        sessionId = 'xb_summary'
+        sessionId = 'xb_summary',
+        signal = null,
     } = options;
-
-    if (!newHistoryText?.trim()) {
-        throw new Error('新对话内容为空');
+    const request = {
+        cancelled: false,
+        abortController: null,
+        streamingMod: null,
+        sessionId,
+    };
+    const handleAbort = () => cancelRequest(request);
+    if (signal?.aborted) {
+        handleAbort();
+    } else {
+        signal?.addEventListener?.('abort', handleAbort, { once: true });
     }
 
-    const promptData = buildSummaryMessages(
-        existingSummary,
-        existingFacts,
-        newHistoryText,
-        historyRange,
-        nextEventId,
-        existingEventCount
-    );
+    try {
+        if (request.cancelled) {
+            throw createSummaryGenerationCancelledError();
+        }
+        if (!newHistoryText?.trim()) {
+            throw new Error('新对话内容为空');
+        }
 
-    if (shouldUseHostGeneration(llmApi)) {
-        const rawOutput = await callHostSummaryGeneration(promptData, llmApi, genParams, useStream, timeout);
+        const promptData = buildSummaryMessages(
+            existingSummary,
+            existingFacts,
+            newHistoryText,
+            historyRange,
+            nextEventId,
+            existingEventCount
+        );
+
+        if (shouldUseHostGeneration(llmApi)) {
+            const rawOutput = await callHostSummaryGeneration(
+                promptData,
+                llmApi,
+                genParams,
+                useStream,
+                timeout,
+                request,
+            );
+            if (xbLog.isEnabled()) {
+                xbLog.info("storySummaryLlm", `LLM输出(len=${rawOutput?.length || 0}): ${String(rawOutput || "").slice(0, 1200)}`);
+            }
+            return JSON_PREFILL + rawOutput;
+        }
+
+        const streamingMod = getStreamingModule();
+        if (!streamingMod) {
+            throw new Error('生成模块未加载');
+        }
+        request.streamingMod = streamingMod;
+
+        const args = {
+            as: 'user',
+            nonstream: useStream ? 'false' : 'true',
+            top64: promptData.top64,
+            bottom64: promptData.bottom64,
+            bottomassistant: promptData.assistantPrefill,
+            id: sessionId,
+        };
+
+        if (llmApi.provider && llmApi.provider !== 'st') {
+            const mappedApi = PROVIDER_MAP[normalizeSummaryProvider(llmApi.provider)];
+            if (mappedApi) {
+                args.api = mappedApi;
+                if (llmApi.url) args.apiurl = resolveApiBaseUrl(llmApi.url, getDefaultApiPrefix(llmApi.provider));
+                if (llmApi.key) args.apipassword = llmApi.key;
+                if (llmApi.model) args.model = llmApi.model;
+            }
+        }
+
+        if (genParams.temperature != null) args.temperature = genParams.temperature;
+        if (genParams.top_p != null) args.top_p = genParams.top_p;
+        if (genParams.top_k != null) args.top_k = genParams.top_k;
+        if (genParams.presence_penalty != null) args.presence_penalty = genParams.presence_penalty;
+        if (genParams.frequency_penalty != null) args.frequency_penalty = genParams.frequency_penalty;
+
+        let rawOutput;
+        if (useStream) {
+            const sid = await streamingMod.xbgenrawCommand(args, '');
+            request.sessionId = sid;
+            if (request.cancelled) {
+                streamingMod.cancel?.(sid);
+                throw createSummaryGenerationCancelledError();
+            }
+            rawOutput = await waitForStreamingComplete(sid, streamingMod, request, timeout);
+        } else {
+            rawOutput = await streamingMod.xbgenrawCommand(args, '');
+        }
+
+        if (request.cancelled) {
+            throw createSummaryGenerationCancelledError();
+        }
+
         if (xbLog.isEnabled()) {
             xbLog.info("storySummaryLlm", `LLM输出(len=${rawOutput?.length || 0}): ${String(rawOutput || "").slice(0, 1200)}`);
         }
+
         return JSON_PREFILL + rawOutput;
+    } finally {
+        signal?.removeEventListener?.('abort', handleAbort);
     }
-
-    const streamingMod = getStreamingModule();
-    if (!streamingMod) {
-        throw new Error('生成模块未加载');
-    }
-
-    const args = {
-        as: 'user',
-        nonstream: useStream ? 'false' : 'true',
-        top64: promptData.top64,
-        bottom64: promptData.bottom64,
-        bottomassistant: promptData.assistantPrefill,
-        id: sessionId,
-    };
-
-    if (llmApi.provider && llmApi.provider !== 'st') {
-        const mappedApi = PROVIDER_MAP[normalizeSummaryProvider(llmApi.provider)];
-        if (mappedApi) {
-            args.api = mappedApi;
-            if (llmApi.url) args.apiurl = resolveApiBaseUrl(llmApi.url, getDefaultApiPrefix(llmApi.provider));
-            if (llmApi.key) args.apipassword = llmApi.key;
-            if (llmApi.model) args.model = llmApi.model;
-        }
-    }
-
-    if (genParams.temperature != null) args.temperature = genParams.temperature;
-    if (genParams.top_p != null) args.top_p = genParams.top_p;
-    if (genParams.top_k != null) args.top_k = genParams.top_k;
-    if (genParams.presence_penalty != null) args.presence_penalty = genParams.presence_penalty;
-    if (genParams.frequency_penalty != null) args.frequency_penalty = genParams.frequency_penalty;
-
-    let rawOutput;
-    if (useStream) {
-        const sid = await streamingMod.xbgenrawCommand(args, '');
-        rawOutput = await waitForStreamingComplete(sid, streamingMod, timeout);
-    } else {
-        rawOutput = await streamingMod.xbgenrawCommand(args, '');
-    }
-
-    if (xbLog.isEnabled()) {
-        xbLog.info("storySummaryLlm", `LLM输出(len=${rawOutput?.length || 0}): ${String(rawOutput || "").slice(0, 1200)}`);
-    }
-
-    return JSON_PREFILL + rawOutput;
 }

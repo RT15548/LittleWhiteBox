@@ -1,5 +1,8 @@
+/* global process */
+
 import fs from 'node:fs';
 import path from 'node:path';
+import ignore from 'ignore';
 
 const pluginRoot = process.cwd();
 const stRoot = path.resolve(pluginRoot, '../../../../..');
@@ -12,7 +15,16 @@ const INCLUDED_BINARY_TEXT_RESOURCES = new Set([
     'libs/material-symbols/codepoints',
     'modules/draw/shared/data/danbooru-chars.dat',
 ]);
-const EXCLUDED_DIR_NAMES = new Set(['.git', 'node_modules', 'dist', 'coverage']);
+const EXCLUDED_DIR_NAMES = new Set([
+    '.git',
+    '.story-summary-replay-cache',
+    '.vscode',
+    'node_modules',
+    'dist',
+    'coverage',
+    'story-summary-replay-output',
+    'story-summary-replay.samples',
+]);
 const EXCLUDED_PUBLIC_SUBTREES = ['scripts/extensions/third-party/LittleWhiteBox'];
 const EXCLUDED_FILE_NAMES = new Set(['context-api-map.json', 'extract-output.txt', 'extract-output2.txt']);
 
@@ -61,9 +73,22 @@ function walkDirectory(rootPath, currentPath = rootPath, files = []) {
     return files;
 }
 
+function getIgnoredFiles(ignoreRoot, fullPaths) {
+    const ignorePath = path.join(ignoreRoot, '.gitignore');
+    if (!fs.existsSync(ignorePath)) return new Set();
+    const matcher = ignore().add(fs.readFileSync(ignorePath, 'utf8'));
+    return new Set(fullPaths.filter((fullPath) => {
+        const relativePath = toPosix(path.relative(ignoreRoot, fullPath));
+        return relativePath && !relativePath.startsWith('..') && matcher.ignores(relativePath);
+    }));
+}
+
 function buildPluginEntries() {
-    return walkDirectory(pluginRoot)
-        .filter((fullPath) => !toPosix(path.relative(pluginRoot, fullPath)).startsWith('modules/assistant/dist/'))
+    const candidates = walkDirectory(pluginRoot)
+        .filter(fullPath => !toPosix(path.relative(pluginRoot, fullPath)).startsWith('modules/assistant/dist/'));
+    const ignoredFiles = getIgnoredFiles(pluginRoot, candidates);
+    return candidates
+        .filter(fullPath => !ignoredFiles.has(fullPath))
         .map((fullPath) => {
             const relativePath = toPosix(path.relative(pluginRoot, fullPath));
             const stat = fs.statSync(fullPath);
@@ -78,11 +103,16 @@ function buildPluginEntries() {
 }
 
 function buildPublicEntries() {
-    return walkDirectory(publicRoot)
-        .map((fullPath) => toPosix(path.relative(publicRoot, fullPath)))
-        .filter((relativePath) => !EXCLUDED_PUBLIC_SUBTREES.some((excluded) => relativePath.startsWith(excluded)))
-        .map((relativePath) => {
-            const fullPath = path.join(publicRoot, relativePath);
+    const candidates = walkDirectory(publicRoot)
+        .filter(fullPath => {
+            const relativePath = toPosix(path.relative(publicRoot, fullPath));
+            return !EXCLUDED_PUBLIC_SUBTREES.some(excluded => relativePath.startsWith(excluded));
+        });
+    const ignoredFiles = getIgnoredFiles(stRoot, candidates);
+    return candidates
+        .filter(fullPath => !ignoredFiles.has(fullPath))
+        .map((fullPath) => {
+            const relativePath = toPosix(path.relative(publicRoot, fullPath));
             const stat = fs.statSync(fullPath);
             return {
                 source: 'sillytavern-public',

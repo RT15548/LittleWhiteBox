@@ -12,19 +12,14 @@ const EXT_ID = "LittleWhiteBox";
 
 test("new chats inherit the enabled default without mutating metadata", () => {
     const metadata = {};
-
     assert.equal(getChatStorySummaryEnabled(metadata, EXT_ID), true);
     assert.deepEqual(metadata, {});
 });
 
 test("chat-level disabled state is persisted under extension metadata", () => {
     const metadata = {};
-
     assert.equal(setChatStorySummaryEnabled(metadata, EXT_ID, false), false);
-    assert.equal(
-        metadata.extensions[EXT_ID][STORY_SUMMARY_CHAT_ENABLED_KEY],
-        false,
-    );
+    assert.equal(metadata.extensions[EXT_ID][STORY_SUMMARY_CHAT_ENABLED_KEY], false);
     assert.equal(getChatStorySummaryEnabled(metadata, EXT_ID), false);
 });
 

@@ -8,7 +8,7 @@
 // 4) Prompt 注入：extension_prompts + IN_CHAT + depth（动态计算，最小为2）
 // ═══════════════════════════════════════════════════════════════════════════
 
-import { getContext, saveMetadataDebounced } from "../../../../../extensions.js";
+import { getContext } from "../../../../../extensions.js";
 import {
     event_types,
     extension_prompts,
@@ -48,11 +48,13 @@ import {
 import {
     getSummaryStore,
     saveSummaryStore,
+    saveSummaryStoreImmediately,
     calcHideRange,
     rollbackSummaryIfNeeded,
     rollbackSummaryOnce,
     clearSummaryData,
     getRollbackOnceTargetEndMesId,
+    isSummaryConsumable,
     extractRelationshipsFromFacts,
 } from "./data/store.js";
 import { normalizeCharacterAliases } from "./data/character-aliases.js";
@@ -65,6 +67,7 @@ import {
 
 // summary generation
 import { runSummaryGeneration } from "./generate/generator.js";
+import { createSummaryGenerationCancelledError } from "./generate/llm.js";
 
 // vector service
 import { embed, getEngineFingerprint, testOnlineService } from "./vector/utils/embedder.js";
@@ -81,6 +84,7 @@ import {
     getMeta,
     updateMeta,
     saveEventVectors as saveEventVectorsToDb,
+    getAllEventVectors,
     clearEventVectors,
     deleteEventVectorsByIds,
     clearAllChunks,
@@ -137,25 +141,47 @@ const VALID_SECTIONS = ["keywords", "events", "characters", "arcs", "facts"];
 const MESSAGE_EVENT = "message";
 const SUMMARY_MODEL_FETCH_PROVIDERS = new Set(["openai"]);
 const SUMMARY_MODEL_FETCH_TIMEOUT_MS = 5000;
+let chatSummaryStateChanging = false;
+let activeSummaryExecution = null;
 
-export function getStorySummaryChatState() {
+function getStorySummaryEnablement() {
     const context = getContext();
     const globalEnabled = Boolean(getSettings().storySummary?.enabled);
     const hasChat = Boolean(context?.chatId);
     const chatEnabled = hasChat
         ? getChatStorySummaryEnabled(chat_metadata, EXT_ID)
         : true;
+    const effectiveEnabled = hasChat && resolveStorySummaryEnabled(globalEnabled, chatEnabled);
+    return { context, hasChat, globalEnabled, chatEnabled, effectiveEnabled };
+}
+
+export function getStorySummaryChatState() {
+    const { context, hasChat, globalEnabled, chatEnabled, effectiveEnabled } = getStorySummaryEnablement();
+    const chat = context?.chat;
+    const consumable = effectiveEnabled
+        && isSummaryConsumable(getSummaryStore(), Array.isArray(chat) ? chat.length : 0);
     return {
         hasChat,
         chatId: context?.chatId || null,
         globalEnabled,
         chatEnabled,
-        effectiveEnabled: hasChat && resolveStorySummaryEnabled(globalEnabled, chatEnabled),
+        effectiveEnabled,
+        consumable,
+        changing: chatSummaryStateChanging,
     };
 }
 
 export function isStorySummaryEnabledForCurrentChat() {
-    return getStorySummaryChatState().effectiveEnabled;
+    return getStorySummaryEnablement().effectiveEnabled;
+}
+
+export function isStorySummaryConsumableForCurrentChat() {
+    const { context, effectiveEnabled } = getStorySummaryEnablement();
+    if (!effectiveEnabled) return false;
+    return isSummaryConsumable(
+        getSummaryStore(),
+        Array.isArray(context?.chat) ? context.chat.length : 0,
+    );
 }
 
 function notifyStorySummaryChatState() {
@@ -165,18 +191,47 @@ function notifyStorySummaryChatState() {
 }
 
 export async function setStorySummaryEnabledForCurrentChat(enabled) {
+    if (chatSummaryStateChanging) {
+        throw new Error("Story summary chat state is already changing");
+    }
     const context = getContext();
     if (!context?.chatId) {
         throw new Error("No active chat");
     }
 
-    setChatStorySummaryEnabled(chat_metadata, EXT_ID, enabled);
-    saveMetadataDebounced?.();
-    notifyStorySummaryChatState();
-
-    if (events) {
-        await handleChatChanged();
+    const targetChatId = context.chatId;
+    const targetMetadata = context.chatMetadata || chat_metadata;
+    const previousEnabled = getChatStorySummaryEnabled(targetMetadata, EXT_ID);
+    const nextEnabled = enabled !== false;
+    if (previousEnabled === nextEnabled) {
+        notifyStorySummaryChatState();
+        return getStorySummaryChatState();
     }
+
+    chatSummaryStateChanging = true;
+    setChatStorySummaryEnabled(targetMetadata, EXT_ID, nextEnabled);
+    if (!nextEnabled) {
+        cancelActiveSummaryExecution();
+    }
+
+    try {
+        notifyStorySummaryChatState();
+        await context.saveMetadata();
+
+        if (getContext()?.chatId === targetChatId && events) {
+            await handleChatChanged();
+        }
+    } catch (error) {
+        setChatStorySummaryEnabled(targetMetadata, EXT_ID, previousEnabled);
+        if (getContext()?.chatId === targetChatId && events) {
+            await handleChatChanged();
+        }
+        throw error;
+    } finally {
+        chatSummaryStateChanging = false;
+        notifyStorySummaryChatState();
+    }
+
     return getStorySummaryChatState();
 }
 
@@ -276,7 +331,6 @@ let afterAiGateDispose = null;
 let activeChatId = null;
 let vectorCancelled = false;
 let vectorAbortController = null;
-let _lastBuiltPromptText = "";
 let eventEditSyncToken = 0;
 let eventEditSyncQueue = Promise.resolve();
 
@@ -498,6 +552,44 @@ function applyHideRangeInMemory(range) {
 
 function isSummaryGenerating() {
     return guard.isRunning('summary');
+}
+
+function beginSummaryExecution() {
+    const { chatId } = getContext();
+    if (!chatId) return null;
+    const execution = {
+        chatId,
+        controller: new AbortController(),
+    };
+    activeSummaryExecution = execution;
+    return execution;
+}
+
+function cancelActiveSummaryExecution() {
+    const execution = activeSummaryExecution;
+    if (!execution || execution.controller.signal.aborted) return false;
+    execution.controller.abort();
+    cancelHideApplyTimer();
+    return true;
+}
+
+function finishSummaryExecution(execution) {
+    if (activeSummaryExecution === execution) {
+        activeSummaryExecution = null;
+    }
+}
+
+function isSummaryExecutionActive(execution) {
+    return !!execution
+        && !execution.controller.signal.aborted
+        && activeSummaryExecution === execution
+        && getContext()?.chatId === execution.chatId;
+}
+
+function assertSummaryExecutionActive(execution) {
+    if (!isSummaryExecutionActive(execution)) {
+        throw createSummaryGenerationCancelledError();
+    }
 }
 
 function notifySummaryState() {
@@ -1031,20 +1123,22 @@ function warmupActiveVectorCache() {
         });
 }
 
-async function rebuildActiveVectorCacheAfterSummary() {
+async function rebuildActiveVectorCacheAfterSummary(execution) {
+    assertSummaryExecutionActive(execution);
     const vectorCfg = getVectorConfig();
     if (!vectorCfg?.enabled) return;
 
-    const { chatId } = getContext();
-    if (!chatId) return;
+    const chatId = execution.chatId;
 
     try {
         logRecallRuntimeCheckpoint("afterSummaryRefresh:start", `chat=${chatId}`);
         postToFrame({ type: "SUMMARY_STATUS", statusText: "记忆数据已更新，下次召回时加载。" });
         let result = await refreshRecallRuntime(chatId, { reason: 'after-summary' });
+        assertSummaryExecutionActive(execution);
         if (result?.stale) {
             logRecallRuntimeCheckpoint("afterSummaryRefresh:retry", `chat=${chatId}`);
             result = await refreshRecallRuntime(chatId, { reason: 'after-summary-retry' });
+            assertSummaryExecutionActive(execution);
         }
         if (result?.skipped) {
             xbLog.info(MODULE_ID, "大总结后召回运行时已标记待加载");
@@ -1056,6 +1150,10 @@ async function rebuildActiveVectorCacheAfterSummary() {
         logRecallRuntimeCheckpoint("afterSummaryRefresh:done", `chat=${chatId} ready=${result?.ready ? 1 : 0} stale=${result?.stale ? 1 : 0}`);
         await sendVectorStatsToFrame();
     } catch (error) {
+        if (!isSummaryExecutionActive(execution)) {
+            await clearRecallRuntime(chatId);
+            throw createSummaryGenerationCancelledError();
+        }
         xbLog.warn(MODULE_ID, "大总结后刷新向量热缓存失败", error);
     }
 }
@@ -1069,49 +1167,113 @@ function buildEventLexicalSignature(event) {
     return `${event?.title || ""} ${participants} ${event?.summary || ""}`.trim();
 }
 
-async function autoVectorizeNewEvents(newEventIds) {
-    if (!newEventIds?.length) return;
+async function collectMissingEventVectorPairs(chatId, events, fingerprint) {
+    const existingVectors = await getAllEventVectors(chatId);
+    const existingIds = new Set(existingVectors
+        .filter(item => item?.fingerprint === fingerprint)
+        .map(item => item?.eventId)
+        .filter(Boolean));
+    return (events || [])
+        .filter(event => event?.id && !existingIds.has(event.id))
+        .map(event => ({ id: event.id, text: buildEventVectorText(event) }))
+        .filter(pair => pair.text);
+}
 
+async function autoVectorizeMissingEvents(store, execution) {
+    assertSummaryExecutionActive(execution);
     const vectorCfg = getVectorConfig();
     if (!vectorCfg?.enabled) return;
 
-    const { chatId } = getContext();
-    if (!chatId) return;
-
-    const store = getSummaryStore();
+    const chatId = execution.chatId;
     const events = store?.json?.events || [];
-    const newEventIdSet = new Set(newEventIds);
+    const fingerprint = getEngineFingerprint(vectorCfg);
+    const meta = await getMeta(chatId);
+    assertSummaryExecutionActive(execution);
+    if (meta?.fingerprint && meta.fingerprint !== fingerprint) return;
 
-    const newEvents = events.filter((e) => newEventIdSet.has(e.id));
-    if (!newEvents.length) return;
-
-    const pairs = newEvents
-        .map((e) => ({ id: e.id, text: buildEventVectorText(e) }))
-        .filter((p) => p.text);
+    const pairs = await collectMissingEventVectorPairs(chatId, events, fingerprint);
+    assertSummaryExecutionActive(execution);
 
     if (!pairs.length) return;
 
     try {
-        const fingerprint = getEngineFingerprint(vectorCfg);
         const batchSize = 20;
 
         for (let i = 0; i < pairs.length; i += batchSize) {
             const batch = pairs.slice(i, i + batchSize);
             const texts = batch.map((p) => p.text);
 
-            const vectors = await embed(texts, vectorCfg);
+            const vectors = await embed(texts, vectorCfg, { signal: execution.controller.signal });
+            assertSummaryExecutionActive(execution);
             const items = batch.map((p, idx) => ({
                 eventId: p.id,
                 vector: vectors[idx],
             }));
 
             await saveEventVectorsToDb(chatId, items, fingerprint);
+            assertSummaryExecutionActive(execution);
         }
 
         xbLog.info(MODULE_ID, `L2 自动增量完成: ${pairs.length} 个事件`);
         await sendVectorStatsToFrame();
     } catch (e) {
+        assertSummaryExecutionActive(execution);
         xbLog.error(MODULE_ID, "L2 自动向量化失败", e);
+    }
+}
+
+async function repairMissingEventVectorsForCurrentChat() {
+    const release = guard.acquire('vector');
+    if (!release) return 0;
+
+    const targetChatId = getContext()?.chatId || null;
+    try {
+        const vectorCfg = getVectorConfig();
+        if (!targetChatId || !vectorCfg?.enabled) return 0;
+
+        const store = getSummaryStore();
+        const events = store?.json?.events || [];
+        if (!events.length) return 0;
+
+        const fingerprint = getEngineFingerprint(vectorCfg);
+        const meta = await getMeta(targetChatId);
+        if (meta?.fingerprint && meta.fingerprint !== fingerprint) return 0;
+
+        const pairs = await collectMissingEventVectorPairs(targetChatId, events, fingerprint);
+        if (!pairs.length) return 0;
+
+        let repaired = 0;
+        for (let i = 0; i < pairs.length; i += 20) {
+            const batch = pairs.slice(i, i + 20);
+            const vectors = await embed(batch.map(pair => pair.text), vectorCfg);
+            if (
+                getContext()?.chatId !== targetChatId
+                || !isStorySummaryEnabledForCurrentChat()
+            ) return repaired;
+
+            const currentEvents = new Map((getSummaryStore()?.json?.events || [])
+                .filter(event => event?.id)
+                .map(event => [event.id, buildEventVectorText(event)]));
+            const items = batch
+                .map((pair, index) => ({ pair, vector: vectors[index] }))
+                .filter(item => currentEvents.get(item.pair.id) === item.pair.text)
+                .map(item => ({ eventId: item.pair.id, vector: item.vector }));
+            if (items.length > 0) {
+                await saveEventVectorsToDb(targetChatId, items, fingerprint);
+                repaired += items.length;
+            }
+        }
+
+        if (repaired > 0) {
+            xbLog.info(MODULE_ID, `L2 自动补齐完成: ${repaired} 个事件`);
+            await sendVectorStatsToFrame();
+        }
+        return repaired;
+    } catch (error) {
+        xbLog.warn(MODULE_ID, 'L2 自动补齐失败', error);
+        return 0;
+    } finally {
+        release();
     }
 }
 
@@ -1215,15 +1377,16 @@ async function syncEventVectorsOnEditNow(oldEvents, newEvents, syncToken) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 向量完整性检测（仅提醒，不自动操作）
+// 向量完整性检测与派生数据自动修复
 // ═══════════════════════════════════════════════════════════════════════════
 
 async function checkVectorIntegrityAndWarn() {
     const vectorCfg = getVectorConfig();
     if (!vectorCfg?.enabled) return;
-
-    const now = Date.now();
-    if (now - lastVectorWarningAt < VECTOR_WARNING_COOLDOWN_MS) return;
+    if (guard.isAnyRunning('summary', 'vector', 'anchor')) {
+        scheduleVectorIntegrityCheck(BACKGROUND_VISIBLE_GRACE_MS);
+        return;
+    }
 
     const { chat, chatId } = getContext();
     if (!chatId || !chat?.length) return;
@@ -1235,7 +1398,6 @@ async function checkVectorIntegrityAndWarn() {
     if (totalEvents === 0) return;
 
     const meta = await getMeta(chatId);
-    const stats = await getStorageStats(chatId);
     const fingerprint = getEngineFingerprint(vectorCfg);
 
     const issues = [];
@@ -1249,12 +1411,22 @@ async function checkVectorIntegrityAndWarn() {
         issues.push(`${chunkFloorGap} 层片段未向量化`);
     }
 
-    const eventVectorGap = totalEvents - stats.eventVectors;
-    if (eventVectorGap > 0) {
-        issues.push(`${eventVectorGap} 个事件未向量化`);
+    let missingEventPairs = [];
+    if (!meta.fingerprint || meta.fingerprint === fingerprint) {
+        missingEventPairs = await collectMissingEventVectorPairs(chatId, store?.json?.events || [], fingerprint);
+    }
+    if (missingEventPairs.length > 0) {
+        await repairMissingEventVectorsForCurrentChat();
+        if (getContext()?.chatId !== chatId) return;
+        missingEventPairs = await collectMissingEventVectorPairs(chatId, store?.json?.events || [], fingerprint);
+    }
+    if (missingEventPairs.length > 0) {
+        issues.push(`${missingEventPairs.length} 个事件未向量化`);
     }
 
     if (issues.length > 0) {
+        const now = Date.now();
+        if (now - lastVectorWarningAt < VECTOR_WARNING_COOLDOWN_MS) return;
         lastVectorWarningAt = now;
         await executeSlashCommand(`/echo severity=warning 向量数据不完整：${issues.join('、')}。请打开剧情总结面板点击"生成向量"。`);
     }
@@ -1461,7 +1633,7 @@ async function sendFrameBaseData(store, totalFloors) {
         vectorEnabled: !!getVectorConfig()?.enabled,
         canRollback: rollbackTargetEndMesId != null,
         rollbackTargetSummarizedUpTo: rollbackTargetEndMesId == null ? 0 : rollbackTargetEndMesId + 1,
-        rollbackWillClearAll: rollbackTargetEndMesId != null && rollbackTargetEndMesId < 0,
+        rollbackWillResetBoundary: rollbackTargetEndMesId != null && rollbackTargetEndMesId < 0,
     });
 }
 
@@ -1842,17 +2014,6 @@ function applyImportedSummaryBoundary(store, boundary) {
     return true;
 }
 
-function clearPendingImportBoundary(store) {
-    if (!store?.pendingImportBoundary) {
-        return false;
-    }
-
-    delete store.pendingImportBoundary;
-    store.updatedAt = Date.now();
-    saveSummaryStore();
-    return true;
-}
-
 async function importSummaryMemoryPackage(rawText) {
     if (!String(rawText || "").trim()) {
         throw new Error("记忆包内容为空");
@@ -1882,9 +2043,11 @@ async function importSummaryMemoryPackage(rawText) {
     if (!store) {
         throw new Error("无法读取当前聊天的总结存储");
     }
+    const previousStore = structuredClone(store);
 
     store.json = importedJson;
     delete store.aliasMigrations;
+    delete store.summaryInvalid;
     const importBoundary = (Array.isArray(chat) ? chat.length : 0) - 1;
     if (importBoundary >= 0) {
         applyImportedSummaryBoundary(store, importBoundary);
@@ -1894,9 +2057,13 @@ async function importSummaryMemoryPackage(rawText) {
         store.pendingImportBoundary = true;
     }
     store.updatedAt = Date.now();
-    saveSummaryStore();
-
-    _lastBuiltPromptText = "";
+    try {
+        await saveSummaryStoreImmediately(chatId);
+    } catch (error) {
+        for (const key of Object.keys(store)) delete store[key];
+        Object.assign(store, previousStore);
+        throw error;
+    }
 
     refreshEntityLexiconAndWarmup();
     scheduleLexicalWarmup();
@@ -1922,13 +2089,11 @@ async function importSummaryMemoryPackage(rawText) {
 // Compatibility export for ena-planner.
 // Returns a compact plain-text snapshot of story-summary memory.
 export function getStorySummaryForEna() {
-    if (!isStorySummaryEnabledForCurrentChat()) return "";
-    const promptText = String(_lastBuiltPromptText || "").trim();
-    return promptText || getStorySummaryMemoryText();
+    if (!isStorySummaryConsumableForCurrentChat()) return "";
+    return getStorySummaryMemoryText();
 }
 
 export function getStorySummaryMemoryText() {
-    if (!isStorySummaryEnabledForCurrentChat()) return "";
     return formatStorySummaryMemoryText(getSummaryStore());
 }
 
@@ -2090,7 +2255,7 @@ async function getHideBoundaryFloor(store) {
 }
 
 async function applyHideState({ reset = true } = {}) {
-    if (!isStorySummaryEnabledForCurrentChat()) return;
+    if (!isStorySummaryConsumableForCurrentChat()) return;
     const store = getSummaryStore();
     const ui = getHideUiSettings();
     if (!ui.hideSummarized) return;
@@ -2123,7 +2288,7 @@ function applyHideStateDebounced({ reset = false } = {}) {
     cancelHideApplyTimer();
     hideApplyTimer = setTimeout(() => {
         hideApplyTimer = null;
-        if (!isStorySummaryEnabledForCurrentChat()) return;
+        if (!isStorySummaryConsumableForCurrentChat()) return;
         if (!getHideUiSettings().hideSummarized) return;
         applyHideState({ reset }).catch((e) => xbLog.warn(MODULE_ID, "applyHideState failed", e));
     }, HIDE_APPLY_DEBOUNCE_MS);
@@ -2218,6 +2383,7 @@ async function maybeAutoRunSummary(reason) {
     const { chatId, chat } = getContext();
     if (!chatId || !Array.isArray(chat)) return;
     if (!isStorySummaryEnabledForCurrentChat()) return;
+    if (!isStorySummaryConsumableForCurrentChat()) return;
 
     const cfgAll = getSummaryPanelConfig();
     const trig = cfgAll.trigger || {};
@@ -2239,16 +2405,21 @@ async function maybeAutoRunSummary(reason) {
 async function autoRunSummaryWithRetry(targetMesId, configForRun) {
     const release = guard.acquire('summary');
     if (!release) return;
+    const execution = beginSummaryExecution();
+    if (!execution) {
+        release();
+        return;
+    }
     notifySummaryState();
 
     try {
+        let lastResult = null;
         for (let attempt = 1; attempt <= 3; attempt++) {
             const result = await runSummaryGeneration(targetMesId, configForRun, {
                 onStatus: (text) => postToFrame({ type: "SUMMARY_STATUS", statusText: text }),
                 onError: (msg) => postToFrame({ type: "SUMMARY_ERROR", message: msg }),
-                onComplete: async ({ newEventIds, aliasChanged }) => {
-                    const store = getSummaryStore();
-                    clearPendingImportBoundary(store);
+                onComplete: async ({ newEventIds, aliasChanged, store }) => {
+                    assertSummaryExecutionActive(execution);
                     postToFrame({ type: "SUMMARY_FULL_DATA", payload: buildFramePayload(store) });
 
                     // Incrementally add new events to the lexical index
@@ -2265,31 +2436,50 @@ async function autoRunSummaryWithRetry(targetMesId, configForRun) {
                     if (isStorySummaryEnabledForCurrentChat() && getHideUiSettings().hideSummarized) {
                         applyHideStateDebounced();
                     }
-                    await updateFrameStatsAfterSummary(store);
+                    await updateFrameStatsAfterSummary(store, execution);
 
-                    await autoVectorizeNewEvents(newEventIds);
-                    await rebuildActiveVectorCacheAfterSummary();
+                    await autoVectorizeMissingEvents(store, execution);
+                    await rebuildActiveVectorCacheAfterSummary(execution);
                 },
+            }, {
+                signal: execution.controller.signal,
+                targetChatId: execution.chatId,
             });
+            lastResult = result;
+
+            if (result.cancelled) {
+                if (result.committed && isStorySummaryConsumableForCurrentChat()) {
+                    scheduleVectorIntegrityCheck();
+                }
+                return;
+            }
 
             if (result.success) {
+                if (isStorySummaryConsumableForCurrentChat()) scheduleVectorIntegrityCheck();
                 return;
             }
 
             if (attempt < 3) await sleep(1000);
         }
 
-        await executeSlashCommand("/echo severity=error 剧情总结失败（已自动重试 3 次）。请稍后再试。");
+        if (lastResult?.stale) {
+            await executeSlashCommand("/echo severity=warning 对话在总结期间持续变化，本次结果未保存；下次触发时会重新总结。");
+        } else {
+            await executeSlashCommand("/echo severity=error 剧情总结失败（已自动重试 3 次）。请稍后再试。");
+        }
     } finally {
+        finishSummaryExecution(execution);
         release();
         notifySummaryState();
     }
 }
 
-async function updateFrameStatsAfterSummary(store) {
+async function updateFrameStatsAfterSummary(store, execution) {
+    assertSummaryExecutionActive(execution);
     const { chat } = getContext();
     const totalFloors = Array.isArray(chat) ? chat.length : 0;
     await sendFrameBaseData(store, totalFloors);
+    assertSummaryExecutionActive(execution);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -2338,6 +2528,7 @@ async function handleFrameMessage(event) {
                 await setStorySummaryEnabledForCurrentChat(data.enabled !== false);
             } catch (error) {
                 xbLog.warn(MODULE_ID, "Failed to update current chat story summary state", error);
+                postToFrame({ type: "SUMMARY_ERROR", message: "当前聊天开关未能保存，请重试" });
                 notifyStorySummaryChatState();
             }
             break;
@@ -2349,6 +2540,10 @@ async function handleFrameMessage(event) {
                 notifyStorySummaryChatState();
                 break;
             }
+            if (!isStorySummaryConsumableForCurrentChat()) {
+                postToFrame({ type: "SUMMARY_ERROR", message: "总结历史无法安全回滚：请导出当前总结，修正后重新导入，或清空总结数据" });
+                break;
+            }
             const ctx = getContext();
             currentMesId = (ctx.chat?.length ?? 1) - 1;
             handleManualGenerate(currentMesId, data.config || {});
@@ -2356,9 +2551,9 @@ async function handleFrameMessage(event) {
         }
 
         case "REQUEST_CANCEL":
-            window.xiaobaixStreamingGeneration?.cancel?.("xb9");
-            postToFrame({ type: "GENERATION_STATE", isGenerating: false });
-            postToFrame({ type: "SUMMARY_STATUS", statusText: "已停止" });
+            if (cancelActiveSummaryExecution()) {
+                postToFrame({ type: "SUMMARY_STATUS", statusText: "正在停止..." });
+            }
             break;
 
         case "FETCH_SUMMARY_MODELS":
@@ -2468,6 +2663,7 @@ async function handleFrameMessage(event) {
             (async () => {
                 try {
                     const result = await importSummaryMemoryPackage(data.text || "");
+                    notifyStorySummaryChatState();
                     postToFrame({
                         type: "SUMMARY_IMPORT_RESULT",
                         success: true,
@@ -2578,12 +2774,15 @@ async function handleFrameMessage(event) {
             const { chat, chatId } = getContext();
             cancelPendingEventEditSync();
             await clearSummaryData(chatId);
+            clearExtensionPrompt();
+            lastRecallLogText = "";
             invalidateLexicalIndex();
             await clearHideState();
             const totalFloors = Array.isArray(chat) ? chat.length : 0;
             const store = getSummaryStore();
             await sendFrameBaseData(store, totalFloors);
             sendFrameFullData(store, totalFloors);
+            notifyStorySummaryChatState();
             await executeSlashCommand("/echo severity=info 剧情总结数据已清空");
             break;
         }
@@ -2609,7 +2808,7 @@ async function handleFrameMessage(event) {
             if (result.success) {
                 invalidateLexicalIndex();
                 if (getHideUiSettings().hideSummarized) {
-                    if (result.clearedAll) {
+                    if (result.clearedBoundary) {
                         await clearHideState();
                     } else {
                         await applyHideState({ reset: true });
@@ -2620,14 +2819,18 @@ async function handleFrameMessage(event) {
             const nextStore = getSummaryStore();
             await sendFrameBaseData(nextStore, totalFloors);
             sendFrameFullData(nextStore, totalFloors);
+            notifyStorySummaryChatState();
 
             if (!result.success) {
-                await executeSlashCommand("/echo severity=error 回退总结失败，请稍后重试");
+                await executeSlashCommand("/echo severity=error 回退总结失败：数据已被修改或历史链不完整，未应用任何更改");
                 break;
             }
 
-            if (result.clearedAll) {
-                await executeSlashCommand("/echo severity=info 已回退上一次总结，当前总结数据已清空");
+            if (result.clearedBoundary) {
+                const message = result.clearedAll
+                    ? "已回退首次总结，当前总结数据已清空"
+                    : "已回退首次总结；未被本次总结修改的内容已保留";
+                await executeSlashCommand(`/echo severity=info ${message}`);
             } else {
                 await executeSlashCommand(`/echo severity=info 已回退上一次总结，已总结楼层退回到 ${result.targetEndMesId + 1} 楼`);
             }
@@ -2783,15 +2986,19 @@ async function handleManualGenerate(mesId, config) {
 
     const release = guard.acquire('summary');
     if (!release) return;
+    const execution = beginSummaryExecution();
+    if (!execution) {
+        release();
+        return;
+    }
     notifySummaryState();
 
     try {
-        await runSummaryGeneration(mesId, config, {
+        const result = await runSummaryGeneration(mesId, config, {
             onStatus: (text) => postToFrame({ type: "SUMMARY_STATUS", statusText: text }),
             onError: (msg) => postToFrame({ type: "SUMMARY_ERROR", message: msg }),
-            onComplete: async ({ newEventIds, aliasChanged }) => {
-                const store = getSummaryStore();
-                clearPendingImportBoundary(store);
+            onComplete: async ({ newEventIds, aliasChanged, store }) => {
+                assertSummaryExecutionActive(execution);
                 postToFrame({ type: "SUMMARY_FULL_DATA", payload: buildFramePayload(store) });
 
                 // Incrementally add new events to the lexical index
@@ -2806,13 +3013,20 @@ async function handleManualGenerate(mesId, config) {
                 }
 
                 applyHideStateDebounced();
-                await updateFrameStatsAfterSummary(store);
+                await updateFrameStatsAfterSummary(store, execution);
 
-                await autoVectorizeNewEvents(newEventIds);
-                await rebuildActiveVectorCacheAfterSummary();
+                await autoVectorizeMissingEvents(store, execution);
+                await rebuildActiveVectorCacheAfterSummary(execution);
             },
+        }, {
+            signal: execution.controller.signal,
+            targetChatId: execution.chatId,
         });
+        if (result.committed && isStorySummaryConsumableForCurrentChat()) {
+            scheduleVectorIntegrityCheck();
+        }
     } finally {
+        finishSummaryExecution(execution);
         release();
         notifySummaryState();
     }
@@ -2825,7 +3039,6 @@ async function handleManualGenerate(mesId, config) {
 async function handleChatChanged() {
     if (!events) return;
     clearDeferredBackgroundTasks();
-    _lastBuiltPromptText = "";  // ← 加这一行，切聊天时清掉旧 summary
     lastRecallLogText = "";
     const { chat } = getContext();
     activeChatId = getContext().chatId || null;
@@ -2834,6 +3047,7 @@ async function handleChatChanged() {
 
     if (!isStorySummaryEnabledForCurrentChat()) {
         await deactivateCurrentChatStorySummary();
+        notifyStorySummaryChatState();
         return;
     }
 
@@ -2841,7 +3055,13 @@ async function handleChatChanged() {
     await retainRecallRuntimeOnly(activeChatId);
     const newLength = Array.isArray(chat) ? chat.length : 0;
 
-    await rollbackSummaryIfNeeded();
+    const rollback = await rollbackSummaryIfNeeded();
+    if (rollback.status === 'failed') {
+        await deactivateCurrentChatStorySummary();
+        notifyStorySummaryChatState();
+        await executeSlashCommand('/echo severity=error 剧情总结无法安全回滚，已停止使用旧总结；请导出当前总结，修正后重新导入，或清空总结数据');
+        return;
+    }
 
     const store = getSummaryStore();
 
@@ -2870,6 +3090,7 @@ async function handleChatChanged() {
     logRecallRuntimeCheckpoint("chatChanged:after-warm-request", `chat=${activeChatId || "-"}`);
 
     scheduleVectorIntegrityCheck();
+    notifyStorySummaryChatState();
 }
 
 async function handleMessageDeleted(scheduledChatId) {
@@ -2878,7 +3099,11 @@ async function handleMessageDeleted(scheduledChatId) {
     const { chat, chatId } = getContext();
     const newLength = chat?.length || 0;
 
-    const didRollback = await rollbackSummaryIfNeeded();
+    const rollback = await rollbackSummaryIfNeeded();
+    if (rollback.status === 'failed') {
+        await deactivateCurrentChatStorySummary();
+        await executeSlashCommand('/echo severity=error 剧情总结无法安全回滚，已停止使用旧总结；请导出当前总结，修正后重新导入，或清空总结数据');
+    }
     await syncOnMessageDeleted(chatId, newLength);
 
     // L0 同步：清理 floor >= newLength 的 atoms / index / vectors
@@ -2893,7 +3118,10 @@ async function handleMessageDeleted(scheduledChatId) {
     await sendAnchorStatsToFrame();
     await sendVectorStatsToFrame();
 
-    applyHideStateDebounced({ reset: didRollback });
+    if (rollback.status !== 'failed') {
+        applyHideStateDebounced({ reset: rollback.status === 'rolled_back' });
+    }
+    notifyStorySummaryChatState();
 }
 
 async function handleMessageSwiped(scheduledChatId) {
@@ -2920,7 +3148,7 @@ async function handleMessageSwiped(scheduledChatId) {
 }
 
 async function handleMessageReceived(scheduledChatId, targetMesId = null) {
-    if (!isStorySummaryEnabledForCurrentChat()) return;
+    if (!isStorySummaryConsumableForCurrentChat()) return;
     if (isChatStale(scheduledChatId)) return;
     const { chat, chatId } = getContext();
     const lastFloor = (chat?.length || 1) - 1;
@@ -2947,16 +3175,23 @@ async function handleMessageReceived(scheduledChatId, targetMesId = null) {
 function handleMessageSent(scheduledChatId) {
     if (isChatStale(scheduledChatId)) return;
     initButtonForLatestMessage();
-    if (!isStorySummaryEnabledForCurrentChat()) return;
+    if (!isStorySummaryConsumableForCurrentChat()) return;
     scheduleAutoSummary("before_user");
 }
 
 async function handleMessageUpdated(scheduledChatId) {
     if (!isStorySummaryEnabledForCurrentChat()) return;
     if (isChatStale(scheduledChatId)) return;
-    await rollbackSummaryIfNeeded();
+    const rollback = await rollbackSummaryIfNeeded();
+    if (rollback.status === 'failed') {
+        await deactivateCurrentChatStorySummary();
+        notifyStorySummaryChatState();
+        await executeSlashCommand('/echo severity=error 剧情总结无法安全回滚，已停止使用旧总结；请导出当前总结，修正后重新导入，或清空总结数据');
+        return;
+    }
     initButtonsForAll();
     applyHideStateDebounced({ reset: false });
+    notifyStorySummaryChatState();
 }
 
 function handleMessageRendered(data) {
@@ -2971,7 +3206,7 @@ function handleMessageRendered(data) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 function handleMessageSentForRecall() {
-    if (!isStorySummaryEnabledForCurrentChat()) return;
+    if (!isStorySummaryConsumableForCurrentChat()) return;
     const { chat } = getContext();
     const lastMsg = chat?.[chat.length - 1];
     if (lastMsg?.is_user) {
@@ -2990,7 +3225,10 @@ function clearExtensionPrompt() {
 
 async function handleGenerationStarted(type, _params, isDryRun) {
     if (isDryRun) return;
-    if (!isStorySummaryEnabledForCurrentChat()) return;
+    if (!isStorySummaryConsumableForCurrentChat()) {
+        clearExtensionPrompt();
+        return;
+    }
 
     const T0 = performance.now();
     const timing = {
@@ -3056,7 +3294,10 @@ async function handleGenerationStarted(type, _params, isDryRun) {
     } else {
         boundary = store?.lastSummarizedMesId ?? -1;
     }
-    if (!vectorCfg?.enabled && boundary < 0 && store?.pendingImportBoundary && store?.json) {
+    // A restored/imported canonical summary has no floor vectors yet; inject it directly
+    // until the next successful summary establishes a real floor boundary.
+    const usePendingCanonicalSummary = boundary < 0 && store?.pendingImportBoundary && store?.json;
+    if (usePendingCanonicalSummary) {
         boundary = chatLen - 1;
     }
     timing.boundary = Math.round(performance.now() - T_Boundary);
@@ -3076,7 +3317,7 @@ async function handleGenerationStarted(type, _params, isDryRun) {
     // 构建注入文本
     let text = "";
     const T_BuildPrompt = performance.now();
-    if (vectorCfg?.enabled) {
+    if (vectorCfg?.enabled && !usePendingCanonicalSummary) {
         const r = await buildVectorPromptText(excludeLastAi, {
             postToFrame,
             echo: executeSlashCommand,
@@ -3089,7 +3330,6 @@ async function handleGenerationStarted(type, _params, isDryRun) {
         text = buildNonVectorPromptText() || "";
     }
     timing.buildPrompt = Math.round(performance.now() - T_BuildPrompt);
-    _lastBuiltPromptText = text;
     if (!text.trim()) {
         logTiming('empty_prompt');
         return;
@@ -3205,8 +3445,9 @@ function registerEvents() {
     initButtonsForAll();
 
     events.on(event_types.CHAT_CHANGED, () => {
+        cancelActiveSummaryExecution();
+        cancelHideApplyTimer();
         activeChatId = getContext().chatId || null;
-        notifyStorySummaryChatState();
         scheduleWithChatGuard(handleChatChanged, 80);
     });
     events.on(event_types.MESSAGE_DELETED, () => scheduleWithChatGuard(handleMessageDeleted, 50));
@@ -3245,6 +3486,7 @@ function registerEvents() {
 }
 
 function unregisterEvents() {
+    cancelActiveSummaryExecution();
     if (!events) return;
     CacheRegistry.unregister(MODULE_ID);
     logRecallRuntimeCheckpoint("unregisterEvents:clear-runtime");
@@ -3276,7 +3518,6 @@ async function deactivateCurrentChatStorySummary() {
     clearDeferredBackgroundTasks();
     cancelHideApplyTimer();
     clearExtensionPrompt();
-    _lastBuiltPromptText = "";
     lastRecallLogText = "";
 
     if (activeChatId) {
@@ -3508,6 +3749,7 @@ $(document).on("xiaobaix:storySummary:toggle", async (_e, enabled) => {
         registerEvents();
         await handleChatChanged();
     } else {
+        cancelActiveSummaryExecution();
         try {
             await clearHideState();
         } catch (e) {

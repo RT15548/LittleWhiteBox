@@ -1,6 +1,9 @@
 ﻿import { extension_settings } from '../../../../../extensions.js';
 import { getRequestHeaders, saveSettingsDebounced, substituteParamsExtended } from '../../../../../../script.js';
-import { getStorySummaryForEna } from '../story-summary/story-summary.js';
+import {
+    getStorySummaryForEna,
+    isStorySummaryConsumableForCurrentChat,
+} from '../story-summary/story-summary.js';
 import { buildVectorPromptText } from '../story-summary/generate/prompt.js';
 import { getVectorConfig } from '../story-summary/data/config.js';
 import { extensionFolderPath } from '../../core/constants.js';
@@ -414,29 +417,6 @@ function collectRecentChatSnippet(chat, maxMessages) {
 
     if (!lines.length) return '';
     return `<chat_history>\n${lines.join('\n')}\n</chat_history>`;
-}
-
-function getCachedStorySummary() {
-    const live = getStorySummaryForEna();
-    const ctx = getContextSafe();
-    const meta = ctx?.chatMetadata ?? window.chat_metadata;
-
-    if (live && live.trim().length > 30) {
-        // 拿到了新的，存起来
-        if (meta) {
-            meta.ena_cached_story_summary = live;
-            saveSettingsDebounced();
-        }
-        return live;
-    }
-
-    // 没拿到（首轮/重启），从 chat_metadata 读上次的
-    if (meta?.ena_cached_story_summary) {
-        console.log('[EnaPlanner] Using persisted story summary from chat_metadata');
-        return meta.ena_cached_story_summary;
-    }
-
-    return '';
 }
 
 /**
@@ -1112,35 +1092,37 @@ async function buildPlannerMessages(rawUserInput) {
     const charBlockRaw = formatCharCardBlock(charObj);
 
     // --- Story memory: try fresh vector recall with current user input ---
-    let cachedSummary = '';
+    let storyMemoryRaw = '';
     let recallSource = 'none';
-    try {
-        const vectorCfg = getVectorConfig();
-        if (vectorCfg?.enabled) {
-            const result = await runWithTimeout(
-                () => buildVectorPromptText(false, {
-                    pendingUserMessage: rawUserInput,
-                }),
-                VECTOR_RECALL_TIMEOUT_MS,
-                `向量召回超时（>${Math.floor(VECTOR_RECALL_TIMEOUT_MS / 1000)}s）`
-            );
-            cachedSummary = result?.text?.trim() || '';
-            if (cachedSummary) recallSource = 'fresh';
+    if (isStorySummaryConsumableForCurrentChat()) {
+        try {
+            const vectorCfg = getVectorConfig();
+            if (vectorCfg?.enabled) {
+                const result = await runWithTimeout(
+                    () => buildVectorPromptText(false, {
+                        pendingUserMessage: rawUserInput,
+                    }),
+                    VECTOR_RECALL_TIMEOUT_MS,
+                    `向量召回超时（>${Math.floor(VECTOR_RECALL_TIMEOUT_MS / 1000)}s）`
+                );
+                storyMemoryRaw = result?.text?.trim() || '';
+                if (storyMemoryRaw) recallSource = 'vector';
+            }
+        } catch (e) {
+            console.warn('[Ena] Fresh vector recall failed, falling back to canonical summary:', e);
         }
-    } catch (e) {
-        console.warn('[Ena] Fresh vector recall failed, falling back to cached data:', e);
-    }
-    if (!cachedSummary) {
-        cachedSummary = getCachedStorySummary();
-        if (cachedSummary) recallSource = 'stale';
+        if (!storyMemoryRaw) {
+            storyMemoryRaw = getStorySummaryForEna();
+            if (storyMemoryRaw) recallSource = 'canonical';
+        }
+    } else {
+        recallSource = 'disabled';
     }
     console.log(`[Ena] Story memory source: ${recallSource}`);
 
     // --- Chat history: last 2 AI messages (floors N-1 & N-3) ---
-    // Two messages instead of one to avoid cross-device cache miss:
-    // story_summary cache is captured during main AI generation, so if
-    // user switches device and triggers Ena before a new generation,
-    // having N-3 as backup context prevents a gap.
+    // Two messages instead of one so the planner retains immediate continuity
+    // when no canonical summary or vector recall is available yet.
     const recentChatRaw = collectRecentChatSnippet(chat, 2);
 
     const plotsRaw = formatPlotsBlock(extractLastNPlots(chat, s.plotCount));
@@ -1157,7 +1139,7 @@ async function buildPlannerMessages(rawUserInput) {
     const recentChat = await renderTemplateAll(recentChatRaw, env, messageVars);
     const plots = await renderTemplateAll(plotsRaw, env, messageVars);
     const vector = await renderTemplateAll(vectorRaw, env, messageVars);
-    const storySummary = cachedSummary.trim().length > 30 ? await renderTemplateAll(cachedSummary, env, messageVars) : '';
+    const storySummary = storyMemoryRaw.trim() ? await renderTemplateAll(storyMemoryRaw, env, messageVars) : '';
     const worldbook = await renderTemplateAll(worldbookRaw, env, messageVars);
     const userInput = await renderTemplateAll(rawUserInput, env, messageVars);
     const storyOutline = outlineRaw.trim().length > 10 ? await renderTemplateAll(outlineRaw, env, messageVars) : '';
@@ -1214,7 +1196,7 @@ async function buildPlannerMessages(rawUserInput) {
 
     const finalMessages = s.mergeConsecutiveSystemMessages ? mergeConsecutiveSystemMessages(messages) : messages;
 
-    return { messages: finalMessages, meta: { charBlockRaw, worldbookRaw, recentChatRaw, vectorRaw, cachedSummaryLen: cachedSummary.length, plotsRaw } };
+    return { messages: finalMessages, meta: { charBlockRaw, worldbookRaw, recentChatRaw, vectorRaw, storySummaryLen: storyMemoryRaw.length, plotsRaw } };
 }
 
 /**
