@@ -2563,13 +2563,14 @@ function initImageObserver() {
 }
 
 function hydrateImageSlots(container) {
-    initImageObserver();
-    container.querySelectorAll('.fw-img-slot:not([data-observed])').forEach(slot => {
-        slot.setAttribute('data-observed', '1');
-        if (!slot.dataset.loaded && !slot.dataset.loading) {
-            slot.innerHTML = `<div class="fw-img-placeholder"><i class="fa-regular fa-image"></i><span>滚动加载</span></div>`;
-        }
-        imageObserver.observe(slot);
+    container.querySelectorAll('.fw-img-slot:not([data-loaded]):not([data-loading])').forEach(slot => {
+        const tags = parseImageToken(decodeURIComponent(slot.dataset.raw || ''));
+        if (!tags) return;
+        slot.dataset.loading = '1';
+        const requestId = 'fwimg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+        pendingImages.set(requestId, { slot, tags });
+        slot.innerHTML = `<div class="fw-img-loading"><i class="fa-solid fa-search"></i> 查询缓存...</div>`;
+        postToParent({ type: 'CHECK_IMAGE_CACHE', requestId, tags });
     });
 }
 
