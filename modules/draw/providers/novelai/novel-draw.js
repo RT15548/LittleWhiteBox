@@ -59,6 +59,7 @@ import {
     stopSharedDrawPreviewRuntime,
     renderAllDrawPreviews,
     renderPreviewsForMessage as renderSharedPreviewsForMessage,
+    backgroundSafeDelay,
 } from '../../shared/draw-common.js';
 // ═══════════════════════════════════════════════════════════════════════════
 // 常量
@@ -1155,14 +1156,14 @@ async function ensureJSZip() {
     if (window.JSZip) return window.JSZip;
     if (jsZipLoaded) {
         // 另一个调用者已发起加载 — 等待完成，但加超时防止无限挂起
-        await new Promise((resolve, reject) => {
-            let waited = 0;
-            const c = setInterval(() => {
-                if (window.JSZip) { clearInterval(c); resolve(); return; }
-                waited += 50;
-                if (waited > 15000) { clearInterval(c); reject(new NovelDrawError('JSZip 加载超时', ErrorType.NETWORK)); }
-            }, 50);
-        });
+        // 用后台安全延时做轮询步进，避免后台标签页被定时器节流而卡住加载
+        const deadline = Date.now() + 15000;
+        while (!window.JSZip) {
+            if (Date.now() > deadline) {
+                throw new NovelDrawError('JSZip 加载超时', ErrorType.NETWORK);
+            }
+            await backgroundSafeDelay(50);
+        }
         return window.JSZip;
     }
     jsZipLoaded = true;
@@ -2800,10 +2801,8 @@ async function generateImagesFromText(options = {}) {
             if (i < tasks.length - 1) {
                 const delay = randomDelay(settings.requestDelay?.min, settings.requestDelay?.max);
                 options.onStateChange?.('cooldown', { duration: delay, nextIndex: i + 2, total: tasks.length });
-                await new Promise(resolve => {
-                    const tid = setTimeout(resolve, delay);
-                    signal.addEventListener('abort', () => { clearTimeout(tid); resolve(); }, { once: true });
-                });
+                // 使用后台安全延时：切到后台标签页时不会被浏览器定时器节流卡住
+                await backgroundSafeDelay(delay, { signal });
             }
         }
 
@@ -3096,10 +3095,8 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
                 const delay = randomDelay(settings.requestDelay?.min, settings.requestDelay?.max);
                 onStateChange?.('cooldown', { duration: delay, nextIndex: i + 2, total: tasks.length });
 
-                await new Promise(r => {
-                    const tid = setTimeout(r, delay);
-                    signal.addEventListener('abort', () => { clearTimeout(tid); r(); }, { once: true });
-                });
+                // 使用后台安全延时：切到后台标签页时不会被浏览器定时器节流卡住
+                await backgroundSafeDelay(delay, { signal });
             }
         }
 

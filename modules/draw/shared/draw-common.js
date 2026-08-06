@@ -998,3 +998,135 @@ export function stopSharedDrawPreviewRuntime() {
     clearPendingDrawPreviewTimers();
     cleanupDrawPreviewMessageObserver();
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// backgroundSafeDelay —— 后台标签页不被节流的延时
+//
+// 背景：浏览器会把后台标签页里的 setTimeout/setInterval 节流到最低 1 次/秒，
+// 长时间后台甚至冻结到 1 次/分钟。绘图任务之间的冷却等待（十几~几十秒）
+// 因此会“卡住”，切回前台才继续。
+//
+// 方案 A（主）：把计时放进 Web Worker。Worker 线程的定时器不受主线程后台
+//   节流影响，到点用 postMessage 通知主线程 resolve。
+// 方案 B（兜底）：Worker 不可用时，用绝对时间(deadline) + 短周期轮询，
+//   后台最多慢 ~1 秒，远好于“完全卡死”。
+// ═══════════════════════════════════════════════════════════════════════════
+
+let _bgTimerWorker = null;
+let _bgTimerWorkerFailed = false;
+let _bgTimerSeq = 0;
+const _bgTimerPending = new Map(); // id -> resolve
+
+function _ensureBgTimerWorker() {
+    if (_bgTimerWorker || _bgTimerWorkerFailed) return _bgTimerWorker;
+    if (typeof Worker === 'undefined' || typeof Blob === 'undefined' || typeof URL === 'undefined' || !URL.createObjectURL) {
+        _bgTimerWorkerFailed = true;
+        return null;
+    }
+    try {
+        // Worker 内部：收到 {id, ms} 就 setTimeout，到点回传 {id}；收到 {cancel:id} 则清除。
+        const src = 'const timers=new Map();' +
+            'self.onmessage=function(e){' +
+            'var d=e.data||{};' +
+            'if(d.cancel!=null){var t=timers.get(d.cancel);if(t){clearTimeout(t);timers.delete(d.cancel);}return;}' +
+            'var id=d.id,ms=d.ms;' +
+            'var t=setTimeout(function(){timers.delete(id);self.postMessage({id:id});},ms);' +
+            'timers.set(id,t);' +
+            '};';
+        const blob = new Blob([src], { type: 'application/javascript' });
+        const url = URL.createObjectURL(blob);
+        _bgTimerWorker = new Worker(url);
+        // Worker 创建后 blob URL 可立即释放
+        try { URL.revokeObjectURL(url); } catch { /* noop */ }
+        _bgTimerWorker.onmessage = (e) => {
+            const id = e?.data?.id;
+            if (id == null) return;
+            const resolve = _bgTimerPending.get(id);
+            if (resolve) {
+                _bgTimerPending.delete(id);
+                resolve();
+            }
+        };
+        _bgTimerWorker.onerror = () => {
+            // Worker 运行异常：标记失败并释放所有等待者，让它们走轮询兜底
+            _bgTimerWorkerFailed = true;
+            try { _bgTimerWorker?.terminate(); } catch { /* noop */ }
+            _bgTimerWorker = null;
+            for (const [, resolve] of _bgTimerPending) resolve();
+            _bgTimerPending.clear();
+        };
+    } catch {
+        _bgTimerWorkerFailed = true;
+        _bgTimerWorker = null;
+    }
+    return _bgTimerWorker;
+}
+
+/**
+ * 后台安全延时。切到后台标签页时仍能按时/近似按时触发。
+ * @param {number} ms 延时毫秒数
+ * @param {{ signal?: AbortSignal }} [options] 传入 AbortSignal 可提前结束等待
+ * @returns {Promise<void>} 到点、或被 abort 时 resolve（不会 reject）
+ */
+export function backgroundSafeDelay(ms, { signal } = {}) {
+    const delay = Math.max(0, Number(ms) || 0);
+    if (delay === 0) return Promise.resolve();
+    if (signal?.aborted) return Promise.resolve();
+
+    const worker = _ensureBgTimerWorker();
+
+    // ── 方案 A：Web Worker 计时 ──
+    if (worker) {
+        return new Promise((resolve) => {
+            const id = ++_bgTimerSeq;
+            let settled = false;
+            const done = () => {
+                if (settled) return;
+                settled = true;
+                _bgTimerPending.delete(id);
+                if (signal) signal.removeEventListener('abort', onAbort);
+                resolve();
+            };
+            const onAbort = () => {
+                try { worker.postMessage({ cancel: id }); } catch { /* noop */ }
+                done();
+            };
+            _bgTimerPending.set(id, done);
+            if (signal) signal.addEventListener('abort', onAbort, { once: true });
+            try {
+                worker.postMessage({ id, ms: delay });
+            } catch {
+                // 投递失败：退回轮询兜底
+                _bgTimerPending.delete(id);
+                if (signal) signal.removeEventListener('abort', onAbort);
+                _pollingDelay(delay, signal).then(resolve);
+            }
+        });
+    }
+
+    // ── 方案 B：绝对时间轮询兜底 ──
+    return _pollingDelay(delay, signal);
+}
+
+function _pollingDelay(delay, signal) {
+    return new Promise((resolve) => {
+        const deadline = Date.now() + delay;
+        let settled = false;
+        const finish = () => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(tid);
+            if (signal) signal.removeEventListener('abort', finish);
+            resolve();
+        };
+        const tick = () => {
+            if (settled) return;
+            const remaining = deadline - Date.now();
+            if (remaining <= 0) { finish(); return; }
+            // 后台时浏览器把 setTimeout 限到 ~1s/次；用绝对 deadline 保证不会因累积误差而漏点。
+            tid = setTimeout(tick, Math.min(remaining, 1000));
+        };
+        let tid = setTimeout(tick, Math.min(delay, 1000));
+        if (signal) signal.addEventListener('abort', finish, { once: true });
+    });
+}
