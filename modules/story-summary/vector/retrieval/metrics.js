@@ -20,6 +20,10 @@
  */
 export function createMetrics() {
     return {
+        external: {
+            failures: [],
+        },
+
         // Query Build - 查询构建
         query: {
             buildTime: 0,
@@ -109,6 +113,9 @@ export function createMetrics() {
             lexHitButNotSelected: 0,
             rerankApplied: false,
             rerankFailed: false,
+            rerankBatchTotal: 0,
+            rerankBatchFailed: 0,
+            rerankFailures: [],
             beforeRerank: 0,
             afterRerank: 0,
             rerankTime: 0,
@@ -419,6 +426,16 @@ export function formatMetricsLog(metrics) {
         lines.push(`│   └─ median: ${sim.median}`);
     }
 
+    if (m.event.rerankStatus) {
+        lines.push(`├─ event_rerank: ${m.event.rerankStatus}`);
+        lines.push(`│   ├─ candidates: ${m.event.rerankCandidates || 0}/${m.event.rerankSourceCandidates || 0}`);
+        lines.push(`│   ├─ tail: ${m.event.rerankTailCandidates || 0}`);
+        if (m.event.rerankExactTimeMarker) {
+            lines.push(`│   ├─ exact_time: ${m.event.rerankExactTimeMarker}, floors=${m.event.rerankExactTimeFloors || 0}, candidates=${m.event.rerankExactTimeCandidates || 0}, forced=${m.event.rerankExactTimeForced || 0}`);
+        }
+        lines.push(`│   └─ batches: ${m.event.rerankBatchTotal || 0}, failed=${m.event.rerankBatchFailed || 0}`);
+    }
+
     lines.push(`├─ causal_chain: depth=${m.event.causalChainDepth}, count=${m.event.causalCount}`);
     lines.push(`└─ focus_characters_used: ${m.event.entitiesUsed} [${(m.event.entityNames || []).join(', ')}], focus_terms_count=${m.event.focusTermsCount || 0}`);
     lines.push('');
@@ -551,6 +568,9 @@ export function formatMetricsLog(metrics) {
     lines.push(`│   └─ runtime_get_event_vectors: ${m.timing.runtimeGetEventVectors || 0}ms`);
     lines.push(`├─ evidence_retrieval: ${m.timing.evidenceRetrieval}ms`);
     lines.push(`├─ floor_rerank: ${m.timing.evidenceRerank || 0}ms`);
+    if (m.event.rerankStatus) {
+        lines.push(`├─ event_rerank: ${m.timing.eventRerank || 0}ms (admission=${m.timing.eventRerankAdmission || 0}ms)`);
+    }
     lines.push(`├─ l1_cosine: ${m.evidence.l1CosineTime}ms`);
     lines.push(`│   ├─ l1_chunk_db: ${m.evidence.l1ChunkFetchTime}ms`);
     lines.push(`│   ├─ l1_vector_db: ${m.evidence.l1VectorFetchTime}ms`);

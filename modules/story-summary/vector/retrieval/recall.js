@@ -41,6 +41,7 @@ import { xbLog } from '../../../../core/debug-core.js';
 import { getContext } from '../../../../../../../extensions.js';
 import {
     buildQueryBundle,
+    describeQueryFocusOwnership,
     refineQueryBundle,
     computeLengthFactor,
     FOCUS_BASE_WEIGHT_R2,
@@ -48,11 +49,33 @@ import {
     FOCUS_MIN_NORMALIZED_WEIGHT,
 } from './query-builder.js';
 import { getLexicalIndex, searchLexicalIndex } from './lexical-index.js';
-import { rerankChunks } from '../llm/reranker.js';
+import { getRerankBatchDiagnostics, rerankChunks } from '../llm/reranker.js';
 import { createMetrics, calcSimilarityStats } from './metrics.js';
 import { tokenizeForIndex } from '../utils/tokenizer.js';
+import { rerankEventsForPrompt } from './event-rerank.js';
 
 const MODULE_ID = 'recall';
+
+function observeRecallStage(observer, stage, ranked, value = undefined) {
+    if (typeof observer !== 'function') return;
+    try {
+        observer({ stage, at: Date.now(), ranked, ...(value === undefined ? {} : { value }) });
+    } catch (error) {
+        xbLog.warn(MODULE_ID, `Recall stage observer failed: ${stage}`, error);
+    }
+}
+
+function recordExternalFailure(metrics, failure) {
+    if (!metrics?.external?.failures || !failure) return;
+    metrics.external.failures.push({
+        stage: String(failure.stage || 'unknown'),
+        kind: String(failure.kind || 'unknown'),
+        status: Number.isInteger(failure.status) ? failure.status : null,
+        attempt: Number.isInteger(failure.attempt) ? failure.attempt : null,
+        batchIndex: Number.isInteger(failure.batchIndex) ? failure.batchIndex : null,
+        elapsedMs: Number.isFinite(failure.elapsedMs) ? failure.elapsedMs : null,
+    });
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 配置
@@ -541,7 +564,7 @@ function fuseByFloor(denseRank, lexRank, cap = CONFIG.FUSION_CAP) {
     }
 
     scored.sort((a, b) => b.fusionScore - a.fusionScore);
-    return { top: scored.slice(0, cap), totalUnique };
+    return { top: scored.slice(0, cap), all: scored, totalUnique };
 }
 
 function mapChunkFloorToAiFloor(floor, chat) {
@@ -642,9 +665,10 @@ function buildMustKeepFloors(lexicalResult, lexicalTerms, atomFloorSet, chat) {
 // [Stage 6] Floor 融合 + Rerank
 // ═══════════════════════════════════════════════════════════════════════════
 
-async function locateAndPullEvidence(anchorHits, queryVector, rerankQuery, lexicalResult, lexicalTerms, metrics) {
+async function locateAndPullEvidence(anchorHits, queryVector, rerankQuery, lexicalResult, lexicalTerms, metrics, stageObserver) {
     const { chatId, chat, name1, name2 } = getContext();
     if (!chatId) return { l0Selected: [], l1ScoredByFloor: new Map(), mustKeepFloors: [] };
+    const captureStages = typeof stageObserver === 'function';
 
     const T_Start = performance.now();
 
@@ -674,6 +698,8 @@ async function locateAndPullEvidence(anchorHits, queryVector, rerankQuery, lexic
     const atomFloorSet = new Set(getStateAtoms().map(a => a.floor));
 
     const lexFloorAgg = new Map();
+    // Replay-only observer data: preserves the pre-gate lexical floor set without affecting recall.
+    const lexFloorBeforeDense = captureStages ? new Map() : null;
     let lexFloorFilteredByDense = 0;
 
     for (const { chunkId, score } of (lexicalResult?.chunkScores || [])) {
@@ -684,6 +710,16 @@ async function locateAndPullEvidence(anchorHits, queryVector, rerankQuery, lexic
 
         // 预过滤：必须有 L0 atoms
         if (!atomFloorSet.has(floor)) continue;
+
+        if (lexFloorBeforeDense) {
+            const raw = lexFloorBeforeDense.get(floor);
+            if (!raw) {
+                lexFloorBeforeDense.set(floor, { maxScore: score, hitCount: 1 });
+            } else {
+                raw.maxScore = Math.max(raw.maxScore, score);
+                raw.hitCount++;
+            }
+        }
 
         // Dense 门槛：lexical floor 必须有最低 dense 相关性
         const denseMax = denseFloorMax.get(floor);
@@ -708,6 +744,22 @@ async function locateAndPullEvidence(anchorHits, queryVector, rerankQuery, lexic
         }))
         .sort((a, b) => b.score - a.score);
 
+    if (captureStages) {
+        observeRecallStage(stageObserver, 'lexicalPreDenseGate', [...lexFloorBeforeDense.entries()]
+            .map(([floor, info]) => ({
+                floor,
+                score: info.maxScore * (1 + CONFIG.LEX_DENSITY_BONUS * Math.log2(Math.max(1, info.hitCount))),
+                denseScore: denseFloorMax.get(floor) ?? null,
+                passedDenseGate: (denseFloorMax.get(floor) ?? -Infinity) >= CONFIG.LEXICAL_FLOOR_DENSE_MIN,
+            }))
+            .sort((a, b) => b.score - a.score));
+
+        observeRecallStage(stageObserver, 'lexical', lexFloorRank.map(item => ({
+            floor: item.id,
+            score: item.score,
+        })));
+    }
+
     if (metrics) {
         metrics.lexical.floorFilteredByDense = lexFloorFilteredByDense;
     }
@@ -723,8 +775,21 @@ async function locateAndPullEvidence(anchorHits, queryVector, rerankQuery, lexic
     // ─────────────────────────────────────────────────────────────────
 
     const T_Fusion_Start = performance.now();
-    const { top: fusedFloors, totalUnique } = fuseByFloor(denseFloorRank, lexFloorRank, CONFIG.FUSION_CAP);
+    const { top: fusedFloors, all: fusedFloorsPreCap, totalUnique } = fuseByFloor(denseFloorRank, lexFloorRank, CONFIG.FUSION_CAP);
     const fusionTime = Math.round(performance.now() - T_Fusion_Start);
+
+    if (captureStages) {
+        observeRecallStage(stageObserver, 'fusionPreCap', fusedFloorsPreCap.map((item, index) => ({
+            floor: item.id,
+            rank: index + 1,
+            score: item.fusionScore,
+        })));
+
+        observeRecallStage(stageObserver, 'fusion', fusedFloors.map(item => ({
+            floor: item.id,
+            score: item.fusionScore,
+        })));
+    }
 
     if (metrics) {
         metrics.fusion.denseFloors = denseFloorRank.length;
@@ -742,6 +807,7 @@ async function locateAndPullEvidence(anchorHits, queryVector, rerankQuery, lexic
     }
 
     if (fusedFloors.length === 0) {
+        if (captureStages) observeRecallStage(stageObserver, 'rerank', []);
         if (metrics) {
             metrics.evidence.floorsSelected = 0;
             metrics.evidence.l0Collected = 0;
@@ -824,13 +890,20 @@ async function locateAndPullEvidence(anchorHits, queryVector, rerankQuery, lexic
     });
 
     const rerankTime = Math.round(performance.now() - T_Rerank_Start);
+    const rerankBatchDiagnostics = getRerankBatchDiagnostics(reranked);
 
     if (metrics) {
         metrics.evidence.rerankApplied = true;
         metrics.evidence.beforeRerank = rerankCandidates.length;
         metrics.evidence.afterRerank = reranked.length;
         metrics.evidence.droppedByRerankCount = Math.max(0, rerankCandidates.length - reranked.length);
-        metrics.evidence.rerankFailed = reranked.some(c => c._rerankFailed);
+        metrics.evidence.rerankBatchTotal = rerankBatchDiagnostics.totalBatches;
+        metrics.evidence.rerankBatchFailed = rerankBatchDiagnostics.failedBatches;
+        metrics.evidence.rerankFailures = rerankBatchDiagnostics.failures.map(item => ({ ...item }));
+        metrics.evidence.rerankFailed = rerankBatchDiagnostics.failedBatches > 0;
+        for (const failure of rerankBatchDiagnostics.failures) {
+            recordExternalFailure(metrics, { stage: 'rerank', ...failure });
+        }
         metrics.evidence.rerankTime = rerankTime;
         metrics.timing.evidenceRerank = rerankTime;
 
@@ -886,6 +959,14 @@ async function locateAndPullEvidence(anchorHits, queryVector, rerankQuery, lexic
         ...reranked.map(r => ({ ...r, _isMustKeep: false })),
         ...mustKeepMissing,
     ];
+
+    if (captureStages) {
+        observeRecallStage(stageObserver, 'rerank', finalFloorItems.map(item => ({
+            floor: item.floor,
+            score: Number.isFinite(item?._rerankScore) ? item._rerankScore : null,
+            source: item._isMustKeep ? 'must-keep' : 'rerank',
+        })));
+    }
 
     const allAtomsByFloor = new Map();
     for (const atom of allAtoms) {
@@ -1125,7 +1206,8 @@ function finalizeRecallTiming(metrics, totalStart) {
     const externalTotal =
         (timing.round1Embed || 0) +
         (timing.round2Embed || 0) +
-        (timing.evidenceRerank || 0);
+        (timing.evidenceRerank || 0) +
+        (timing.eventRerank || 0);
 
     const localKnownTotal =
         (metrics.query?.buildTime || 0) +
@@ -1138,6 +1220,7 @@ function finalizeRecallTiming(metrics, totalStart) {
         (metrics.fusion?.time || 0) +
         (timing.constraintFilter || 0) +
         (timing.evidenceRetrieval || 0) +
+        (timing.eventRerankAdmission || 0) +
         (timing.diffusion || 0) +
         (timing.evidenceAssembly || 0) +
         (timing.formatting || 0);
@@ -1154,7 +1237,8 @@ function finalizeRecallTiming(metrics, totalStart) {
 export async function recallMemory(allEvents, vectorConfig, options = {}) {
     const T0 = performance.now();
     const { chat, chatId, name1 } = getContext();
-    const { pendingUserMessage = null, excludeLastAi = false } = options;
+    const { pendingUserMessage = null, excludeLastAi = false, stageObserver = null } = options;
+    const captureStages = typeof stageObserver === 'function';
 
     const metrics = createMetrics();
 
@@ -1198,6 +1282,9 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
     });
 
     const bundle = buildQueryBundle(lastMessages, pendingUserMessage);
+    if (captureStages) {
+        observeRecallStage(stageObserver, 'queryFocusOwnership', [], describeQueryFocusOwnership(bundle));
+    }
     const focusTerms = bundle.focusTerms || bundle.focusEntities || [];
     const focusCharacters = bundle.focusCharacters || [];
 
@@ -1240,12 +1327,14 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
     try {
         r1Vectors = await embed(segmentTexts, vectorConfig, { timeout: 10000 });
     } catch (e1) {
+        recordExternalFailure(metrics, { stage: 'round1-embed', kind: 'request', attempt: 1 });
         xbLog.warn(MODULE_ID, 'Round 1 向量化失败，500ms 后重试', e1);
         metrics.timing.round1EmbedRetryWait = 500;
         await new Promise(r => setTimeout(r, 500));
         try {
             r1Vectors = await embed(segmentTexts, vectorConfig, { timeout: 15000 });
         } catch (e2) {
+            recordExternalFailure(metrics, { stage: 'round1-embed', kind: 'request', attempt: 2 });
             xbLog.error(MODULE_ID, 'Round 1 向量化重试仍失败', e2);
             metrics.timing.round1Embed = Math.round(performance.now() - T_R1_Embed_Start);
             finalizeRecallTiming(metrics, T0);
@@ -1264,6 +1353,7 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
     metrics.timing.round1Embed = Math.round(performance.now() - T_R1_Embed_Start);
 
     if (!r1Vectors?.length || r1Vectors.some(v => !v?.length)) {
+        recordExternalFailure(metrics, { stage: 'round1-embed', kind: 'invalid-vector', attempt: 1 });
         finalizeRecallTiming(metrics, T0);
         return {
             events: [], l0Selected: [], l1ByFloor: new Map(), causalChain: [],
@@ -1322,6 +1412,12 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
     xbLog.info(MODULE_ID,
         `Round 1: anchors=${anchorHits_v0.length} events=${eventHits_v0.length} weights=[${r1Weights.map(w => w.toFixed(2)).join(',')}] (anchor=${r1AnchorTime}ms event=${r1EventTime}ms)`
     );
+    if (captureStages) {
+        observeRecallStage(stageObserver, 'r1Dense', anchorHits_v0.map(hit => ({
+            floor: hit.floor,
+            score: hit.similarity,
+        })));
+    }
 
     // ═══════════════════════════════════════════════════════════════════
     // 阶段 3: Query Refinement
@@ -1365,10 +1461,22 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
                     `Round 2 weights: [${r2Weights.map(w => w.toFixed(2)).join(',')}]`
                 );
             } else {
+                recordExternalFailure(metrics, {
+                    stage: 'round2-embed',
+                    kind: 'invalid-vector',
+                    attempt: 1,
+                    elapsedMs: metrics.timing.round2Embed,
+                });
                 queryVector_v1 = queryVector_v0;
             }
         } catch (e) {
             metrics.timing.round2Embed = Math.round(performance.now() - T_R2_Embed_Start);
+            recordExternalFailure(metrics, {
+                stage: 'round2-embed',
+                kind: 'request',
+                attempt: 1,
+                elapsedMs: metrics.timing.round2Embed,
+            });
             xbLog.warn(MODULE_ID, 'Round 2 hints 向量化失败，降级使用 Round 1 向量', e);
             queryVector_v1 = queryVector_v0;
         }
@@ -1387,6 +1495,12 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
     xbLog.info(MODULE_ID,
         `Round 2: anchors=${anchorHits.length} floors=${anchorFloors_dense.size} events=${eventHits.length}`
     );
+    if (captureStages) {
+        observeRecallStage(stageObserver, 'r2Dense', anchorHits.map(hit => ({
+            floor: hit.floor,
+            score: hit.similarity,
+        })));
+    }
 
     // ═══════════════════════════════════════════════════════════════════
     // 阶段 5: Lexical Retrieval + Dense-Gated Event Merge
@@ -1495,7 +1609,8 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
         bundle.rerankQuery,
         lexicalResult,
         bundle.lexicalTerms,
-        metrics
+        metrics,
+        stageObserver
     );
 
     // ═══════════════════════════════════════════════════════════════════
@@ -1514,6 +1629,13 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
         { name1 },
     );
     const diffused = diffusionResult?.diffused || [];
+    if (captureStages) {
+        observeRecallStage(stageObserver, 'graph', diffused.map(item => ({
+            floor: item.floor,
+            score: item.finalScore,
+            source: 'graph',
+        })));
+    }
     metrics.diffusion = {
         ...(metrics.diffusion || {}),
         ...(diffusionResult?.metrics || {}),
@@ -1611,6 +1733,40 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
     metrics.event.causalChainDepth = causalMaxDepth;
     metrics.event.causalCount = causalChain.length;
 
+    if (vectorConfig?.eventRerankEnabled === true) {
+        const eventRerank = await rerankEventsForPrompt(eventHits, {
+            query: bundle.focusQuery,
+            focusVector: r1Vectors.at(-1) || null,
+            chatId,
+            chat,
+        });
+        metrics.event.rerankApplied = eventRerank.status === 'applied';
+        metrics.event.rerankStatus = eventRerank.status;
+        metrics.event.rerankSourceCandidates = eventRerank.sourceCount;
+        metrics.event.rerankCandidates = eventRerank.candidateCount;
+        metrics.event.rerankTailCandidates = eventRerank.tailCount;
+        metrics.event.rerankExactTimeMarker = eventRerank.exactTimeMarker;
+        metrics.event.rerankExactTimeFloors = eventRerank.exactTimeFloorCount;
+        metrics.event.rerankExactTimeCandidates = eventRerank.exactTimeCandidateCount;
+        metrics.event.rerankExactTimeForced = eventRerank.exactTimeForcedCount;
+        metrics.event.rerankBatchTotal = eventRerank.diagnostics.totalBatches;
+        metrics.event.rerankBatchFailed = eventRerank.diagnostics.failedBatches;
+        metrics.event.rerankFailures = eventRerank.diagnostics.failures.map(item => ({ ...item }));
+        metrics.event.rerankScores = eventRerank.scores.length
+            ? calcSimilarityStats(eventRerank.scores)
+            : null;
+        metrics.timing.eventRerankAdmission = eventRerank.admissionMs;
+        metrics.timing.eventRerank = eventRerank.rerankMs;
+        for (const failure of eventRerank.diagnostics.failures) {
+            recordExternalFailure(metrics, { stage: 'event-rerank', ...failure });
+        }
+        if (eventRerank.status === 'applied') {
+            eventHits = eventRerank.events;
+        } else if (eventRerank.status !== 'skipped') {
+            xbLog.warn(MODULE_ID, `Event rerank ${eventRerank.status}; keep original event order`);
+        }
+    }
+
     // ═══════════════════════════════════════════════════════════════════
     // 完成
     // ═══════════════════════════════════════════════════════════════════
@@ -1622,7 +1778,7 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
 
     if (xbLog.isEnabled()) {
         xbLog.info(MODULE_ID, `[Recall v9] Total: ${metrics.timing.total}ms`);
-        xbLog.info(MODULE_ID, `[Recall v9] Timing attribution: external=${metrics.timing.externalTotal || 0}ms localKnown=${metrics.timing.localKnownTotal || 0}ms unattributed=${metrics.timing.unattributed || 0}ms | r1Embed=${metrics.timing.round1Embed || 0}ms r2Embed=${metrics.timing.round2Embed || 0}ms rerank=${metrics.timing.evidenceRerank || 0}ms`);
+        xbLog.info(MODULE_ID, `[Recall v9] Timing attribution: external=${metrics.timing.externalTotal || 0}ms localKnown=${metrics.timing.localKnownTotal || 0}ms unattributed=${metrics.timing.unattributed || 0}ms | r1Embed=${metrics.timing.round1Embed || 0}ms r2Embed=${metrics.timing.round2Embed || 0}ms floorRerank=${metrics.timing.evidenceRerank || 0}ms eventRerank=${metrics.timing.eventRerank || 0}ms`);
         xbLog.info(MODULE_ID, `[Recall v9] Query Build: ${metrics.query.buildTime}ms | Refine: ${metrics.query.refineTime}ms`);
         xbLog.info(MODULE_ID, `[Recall v9] R1 weights: [${r1Weights.map(w => w.toFixed(2)).join(', ')}]`);
         xbLog.info(MODULE_ID, `[Recall v9] Focus terms: [${focusTerms.join(', ')}]`);

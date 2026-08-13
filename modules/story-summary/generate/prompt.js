@@ -839,6 +839,101 @@ export function buildNonVectorPromptText() {
 // 向量模式：预算装配
 // ─────────────────────────────────────────────────────────────────────────────
 
+function createEvidenceTraceRecorder(causalById) {
+    const value = { final: [], prompt: [] };
+    const units = { final: new Map(), prompt: new Map() };
+    const anonymousIds = new WeakMap();
+    let nextAnonymousId = 1;
+
+    const objectUnitId = (prefix, item) => {
+        const persistentId = String(item?.id || '').trim();
+        if (persistentId) return `${prefix}:${persistentId}`;
+        if (item && typeof item === 'object') {
+            if (!anonymousIds.has(item)) anonymousIds.set(item, nextAnonymousId++);
+            return `${prefix}:anonymous-${anonymousIds.get(item)}`;
+        }
+        return `${prefix}:anonymous-${nextAnonymousId++}`;
+    };
+    const addFloors = (target, unitId, rawFloors, source, score = null) => {
+        if (!units[target]) return;
+        const normalizedFloors = [...new Set((rawFloors || [])
+            .map(Number)
+            .filter(floor => Number.isInteger(floor) && floor >= 0))];
+        if (!normalizedFloors.length) return;
+
+        let unit = units[target].get(unitId);
+        if (!unit) {
+            unit = { rank: units[target].size + 1, floors: new Set() };
+            units[target].set(unitId, unit);
+        }
+        for (const normalizedFloor of normalizedFloors) {
+            if (unit.floors.has(normalizedFloor)) continue;
+            unit.floors.add(normalizedFloor);
+            value[target].push({
+                floor: normalizedFloor,
+                rank: unit.rank,
+                unitId,
+                score: Number.isFinite(score) ? score : null,
+                source,
+            });
+        }
+    };
+    const floor = (target, rawFloor, source, score = null, unitId = null) => {
+        const normalizedFloor = Number(rawFloor);
+        if (!Number.isInteger(normalizedFloor) || normalizedFloor < 0) return;
+        addFloors(target, unitId || `${source}:${normalizedFloor}`, [normalizedFloor], source, score);
+    };
+    const eventUnitId = item => objectUnitId('event', item);
+    const event = (target, item, source, score = null, unitId = eventUnitId(item)) => {
+        const range = parseFloorRange(item?.summary);
+        if (!range) return;
+        const eventFloors = [];
+        for (let current = range.start; current <= range.end; current++) {
+            eventFloors.push(current);
+        }
+        addFloors(target, unitId, eventFloors, source, score);
+    };
+    const causal = (target, item) => {
+        const unitId = eventUnitId(item);
+        for (const eventId of (item?.causedBy || [])) {
+            const cause = causalById?.get(eventId);
+            event(target, cause?.event, 'causal', cause?.similarity ?? null, unitId);
+        }
+    };
+    const eventEvidence = (target, item, rawFloor) => {
+        floor(target, rawFloor, 'event-evidence', null, eventUnitId(item));
+    };
+    const fact = (target, item) => {
+        floor(
+            target,
+            item?.since ?? item?._addedAt,
+            'constraint',
+            null,
+            objectUnitId('constraint', item),
+        );
+    };
+    const arc = (target, item) => {
+        const floors = [];
+        for (const moment of (item?.moments || [])) {
+            if (typeof moment !== 'object' || moment == null) continue;
+            if (!Number.isInteger(Number(moment._addedAt))) continue;
+            floors.push(moment._addedAt);
+        }
+        if (!floors.length) floors.push(item?._addedAt);
+        addFloors(target, objectUnitId('arc', item), floors, 'arc');
+    };
+    return { value, floor, event, causal, eventEvidence, fact, arc };
+}
+
+function factsInBudgetOrder(grouped) {
+    const ordered = [];
+    for (const facts of (grouped?.people || new Map()).values()) {
+        ordered.push(...[...facts].sort((a, b) => (b.since || 0) - (a.since || 0)));
+    }
+    ordered.push(...[...(grouped?.world || [])].sort((a, b) => (b.since || 0) - (a.since || 0)));
+    return ordered;
+}
+
 /**
  * 构建向量模式注入文本
  * @param {object} store - 存储对象
@@ -847,9 +942,10 @@ export function buildNonVectorPromptText() {
  * @param {string[]} focusCharacters - 焦点人物
  * @param {object} meta - 元数据
  * @param {object} metrics - 指标对象
- * @returns {Promise<{promptText: string, injectionStats: object, metrics: object}>}
+ * @param {{ captureEvidenceTrace?: boolean }} options - replay-only observation options
+ * @returns {Promise<{promptText: string, injectionStats: object, metrics: object, evidenceTrace?: object}>}
  */
-async function buildVectorPrompt(store, recallResult, causalById, focusCharacters, meta, metrics) {
+async function buildVectorPrompt(store, recallResult, causalById, focusCharacters, meta, metrics, options = {}) {
     const T_Start = performance.now();
 
     const data = store.json || {};
@@ -858,6 +954,7 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
     // 从 recallResult 解构
     const l0Selected = recallResult?.l0Selected || [];
     const l1ByFloor = recallResult?.l1ByFloor || new Map();
+    const evidenceTrace = options.captureEvidenceTrace ? createEvidenceTraceRecorder(causalById) : null;
 
     // 装配结果
     const assembled = {
@@ -900,6 +997,9 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
     const filteredConstraints = filterConstraintsByRelevance(allFacts, focusCharacters, knownCharacters);
     const constraintPeopleDict = buildConstraintPeopleDict(recallResult, focusCharacters);
     const groupedConstraints = groupConstraintsForDisplay(filteredConstraints, constraintPeopleDict);
+    if (evidenceTrace) {
+        for (const fact of factsInBudgetOrder(groupedConstraints)) evidenceTrace.fact('final', fact);
+    }
 
     if (metrics) {
         metrics.constraint.total = allFacts.length;
@@ -908,6 +1008,9 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
 
     const constraintBudget = { used: 0, max: Math.min(CONSTRAINT_MAX, total.max - total.used) };
     const groupedSelectedConstraints = selectConstraintsByBudgetDesc(groupedConstraints, constraintBudget);
+    if (evidenceTrace) {
+        for (const fact of factsInBudgetOrder(groupedSelectedConstraints)) evidenceTrace.fact('prompt', fact);
+    }
     const injectedConstraintFacts = (() => {
         let count = groupedSelectedConstraints.world.length;
         for (const facts of groupedSelectedConstraints.people.values()) {
@@ -941,6 +1044,19 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
     // [Arcs] 人物弧光
     // ═══════════════════════════════════════════════════════════════════════
 
+    if (evidenceTrace && data.arcs?.length) {
+        const { name1 } = getContext();
+        const relevant = new Set(
+            [String(name1 || "").trim(), ...(focusCharacters || [])]
+                .map(s => String(s || "").trim())
+                .filter(Boolean)
+        );
+        for (const arc of (data.arcs || [])) {
+            const name = String(arc?.name || "").trim();
+            if (name && relevant.has(name)) evidenceTrace.arc('final', arc);
+        }
+    }
+
     if (data.arcs?.length && total.used < total.max) {
         const { name1 } = getContext();
         const userName = String(name1 || "").trim();
@@ -955,12 +1071,12 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
             const n = String(a?.name || "").trim();
             return n && relevant.has(n);
         });
-
         if (filteredArcs.length) {
             const arcBudget = { used: 0, max: Math.min(ARCS_MAX, total.max - total.used) };
             for (const a of filteredArcs) {
                 const line = formatArcLine(a);
                 if (!pushWithBudget(assembled.arcs.lines, line, arcBudget)) break;
+                if (evidenceTrace) evidenceTrace.arc('prompt', a);
             }
             assembled.arcs.tokens = arcBudget.used;
             total.used += arcBudget.used;
@@ -974,7 +1090,27 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
     // ═══════════════════════════════════════════════════════════════════════
     const eventHits = (recallResult?.events || []).filter(e => e?.event?.summary);
 
-    const candidates = [...eventHits].sort((a, b) => (b.similarity || 0) - (a.similarity || 0));
+    const hasEventRerankScore = item => Number.isFinite(item?._eventRerankScore);
+    const eventRankingScore = item => hasEventRerankScore(item)
+        ? item._eventRerankScore
+        : Number(item?.similarity || 0);
+    const candidates = [...eventHits].sort((a, b) => {
+        const aReranked = hasEventRerankScore(a);
+        const bReranked = hasEventRerankScore(b);
+        if (aReranked !== bReranked) return aReranked ? -1 : 1;
+        return eventRankingScore(b) - eventRankingScore(a);
+    });
+    const eventTraceSource = item => {
+        if (item?._recallType === 'DIRECT') return 'direct-event';
+        if (item?._recallType === 'CAUSAL') return 'causal-event';
+        return 'related-event';
+    };
+    if (evidenceTrace) {
+        for (const item of candidates) {
+            evidenceTrace.event('final', item.event, eventTraceSource(item), eventRankingScore(item));
+            evidenceTrace.causal('final', item.event);
+        }
+    }
     const eventBudget = { used: 0, max: Math.min(EVENT_BUDGET_MAX, total.max - total.used) };
     const relatedBudget = { used: 0, max: RELATED_EVENT_MAX };
     // Once budget becomes tight, keep high-score L2 summaries and stop attaching evidence.
@@ -998,6 +1134,9 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
         const evidenceGroups = useEvidenceForThisEvent
             ? collectEvidenceGroupsForEvent(e.event, l0Selected, l1ByFloor, usedL0Ids)
             : [];
+        if (evidenceTrace) {
+            for (const group of evidenceGroups) evidenceTrace.eventEvidence('final', e.event, group.floor);
+        }
 
         // 格式化事件（含证据）
         const text = formatEventWithEvidence(e, 0, evidenceGroups, causalById);
@@ -1111,6 +1250,18 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
         });
     }
 
+    if (evidenceTrace) {
+        const selectedInBudgetOrder = [...selectedDirect, ...selectedRelated]
+            .sort((a, b) => a.candidateRank - b.candidateRank);
+        for (const item of selectedInBudgetOrder) {
+            evidenceTrace.event('prompt', item.event, eventTraceSource(candidates[item.candidateRank]));
+            evidenceTrace.causal('prompt', item.event);
+            for (const group of item.evidenceGroups || []) {
+                evidenceTrace.eventEvidence('prompt', item.event, group.floor);
+            }
+        }
+    }
+
     // 排序
     selectedDirect.sort((a, b) => getEventSortKey(a.event) - getEventSortKey(b.event));
     selectedRelated.sort((a, b) => getEventSortKey(a.event) - getEventSortKey(b.event));
@@ -1159,6 +1310,21 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
     // 远期：floor <= lastSummarized
     const distantL0 = remainingL0.filter(l0 => l0.floor <= lastSummarized);
 
+    if (evidenceTrace && distantL0.length) {
+        // 先按分数挑组（高分优先），再按时间输出（楼层升序）
+        const distantFloorMap = groupL0ByFloor(distantL0);
+        const distantRanked = [];
+        for (const [floor, l0s] of distantFloorMap) {
+            const group = buildEvidenceGroup(floor, l0s, l1ByFloor);
+            const bestScore = Math.max(...l0s.map(l0 => (l0.rerankScore ?? l0.similarity ?? 0)));
+            distantRanked.push({ group, bestScore });
+        }
+        distantRanked.sort((a, b) => (b.bestScore - a.bestScore) || (a.group.floor - b.group.floor));
+        for (const item of distantRanked) {
+            evidenceTrace.floor('final', item.group.floor, 'l0', item.bestScore);
+        }
+    }
+
     if (distantL0.length && total.used < total.max) {
         const distantBudget = { used: 0, max: Math.min(SUMMARIZED_EVIDENCE_MAX, total.max - total.used) };
 
@@ -1178,6 +1344,7 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
             if (distantBudget.used + group.totalTokens > distantBudget.max) continue;
             distantBudget.used += group.totalTokens;
             acceptedDistantGroups.push(group);
+            if (evidenceTrace) evidenceTrace.floor('prompt', group.floor, 'l0');
             for (const l0 of group.l0Atoms) usedL0Ids.add(l0.id);
             injectionStats.distantEvidence.units++;
         }
@@ -1219,6 +1386,9 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
                 recentRanked.push({ group });
             }
             recentRanked.sort((a, b) => b.group.floor - a.group.floor);
+            if (evidenceTrace) {
+                for (const item of recentRanked) evidenceTrace.floor('final', item.group.floor, 'recent-l0');
+            }
 
             const acceptedRecentGroups = [];
             for (const item of recentRanked) {
@@ -1226,6 +1396,7 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
                 if (recentBudget.used + group.totalTokens > recentBudget.max) continue;
                 recentBudget.used += group.totalTokens;
                 acceptedRecentGroups.push(group);
+                if (evidenceTrace) evidenceTrace.floor('prompt', group.floor, 'recent-l0');
                 for (const l0 of group.l0Atoms) usedL0Ids.add(l0.id);
                 injectionStats.recentEvidence.units++;
             }
@@ -1275,7 +1446,12 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
             metrics.timing.evidenceAssembly = Math.round(performance.now() - T_Start - (metrics.timing.constraintFilter || 0));
             metrics.timing.formatting = 0;
         }
-        return { promptText: "", injectionStats, metrics };
+        return {
+            promptText: "",
+            injectionStats,
+            metrics,
+            ...(evidenceTrace ? { evidenceTrace: evidenceTrace.value } : {}),
+        };
     }
 
     const memoryBody = `<剧情记忆>\n\n${sections.join("\n\n")}\n\n</剧情记忆>`;
@@ -1336,11 +1512,24 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
         metrics.quality.potentialIssues = detectIssues(metrics);
     }
 
-    return { promptText, injectionStats, metrics };
+    return {
+        promptText,
+        injectionStats,
+        metrics,
+        ...(evidenceTrace ? { evidenceTrace: evidenceTrace.value } : {}),
+    };
 }
 
 export async function buildVectorPromptForReplay(store, recallResult, causalById, focusCharacters, meta, metrics) {
-    return await buildVectorPrompt(store, recallResult, causalById, focusCharacters, meta, metrics);
+    return await buildVectorPrompt(
+        store,
+        recallResult,
+        causalById,
+        focusCharacters,
+        meta,
+        metrics,
+        { captureEvidenceTrace: true },
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

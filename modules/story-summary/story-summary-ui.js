@@ -289,6 +289,7 @@
             enabled: false,
             engine: 'online',
             l0Concurrency: 10,
+            eventRerankEnabled: false,
             l0Api: {
                 provider: 'siliconflow', url: 'https://api.siliconflow.cn/v1', key: '', model: 'Qwen/Qwen3-8B', modelCache: [],
                 providers: {
@@ -400,6 +401,7 @@
             base.enabled = !!raw.enabled;
             base.engine = 'online';
             base.l0Concurrency = Math.max(1, Math.min(50, Number(raw.l0Concurrency) || 10));
+            base.eventRerankEnabled = raw.eventRerankEnabled === true;
             Object.assign(base.l0Api, {
                 provider: raw.l0Api?.provider || legacyOnline.provider || base.l0Api.provider,
                 url: raw.l0Api?.url || sharedUrl || base.l0Api.url,
@@ -599,6 +601,7 @@
                     enabled: false,
                     engine: 'online',
                     l0Concurrency: 10,
+                    eventRerankEnabled: false,
                     l0Api: { provider: 'siliconflow', url: 'https://api.siliconflow.cn/v1', key: '', model: 'Qwen/Qwen3-8B', modelCache: [] },
                     embeddingApi: { provider: 'siliconflow', url: 'https://api.siliconflow.cn/v1', key: '', model: 'BAAI/bge-m3', modelCache: [] },
                     rerankApi: { provider: 'siliconflow', url: 'https://api.siliconflow.cn/v1', key: '', model: 'BAAI/bge-reranker-v2-m3', modelCache: [] }
@@ -796,6 +799,7 @@
             enabled: $('vector-enabled')?.checked || false,
             engine: 'online',
             l0Concurrency: Math.max(1, Math.min(50, Number($('vector-l0-concurrency')?.value) || 10)),
+            eventRerankEnabled: $('vector-event-rerank-enabled')?.checked || false,
             l0Api: getVectorApiConfig('l0'),
             embeddingApi: getVectorApiConfig('embedding'),
             rerankApi: getVectorApiConfig('rerank'),
@@ -808,6 +812,7 @@
         $('vector-config-area').classList.toggle('hidden', !cfg.enabled);
         syncVectorBoundaryControl(cfg.enabled, config.ui.hideSummarized);
         $('vector-l0-concurrency').value = String(Math.max(1, Math.min(50, Number(cfg.l0Concurrency) || 10)));
+        $('vector-event-rerank-enabled').checked = cfg.eventRerankEnabled === true;
         loadVectorApiConfig('l0', cfg.l0Api || {});
         loadVectorApiConfig('embedding', cfg.embeddingApi || {});
         loadVectorApiConfig('rerank', cfg.rerankApi || {});

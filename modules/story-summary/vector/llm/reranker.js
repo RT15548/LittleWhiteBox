@@ -16,6 +16,34 @@ const RERANK_BATCH_SIZE = 20;
 const RERANK_MAX_CONCURRENCY = 5;
 let rerankKeyIndex = 0;
 
+function attachBatchDiagnostics(items, diagnostics) {
+    const target = Array.isArray(items) ? items : [];
+    Object.defineProperty(target, '_rerankBatchDiagnostics', {
+        value: diagnostics,
+        enumerable: false,
+        configurable: false,
+        writable: false,
+    });
+    return target;
+}
+
+export function getRerankBatchDiagnostics(items) {
+    return items?._rerankBatchDiagnostics || {
+        totalBatches: 0,
+        failedBatches: 0,
+        failures: [],
+    };
+}
+
+function toFailureDiagnostic(batchIndex, diagnostic = {}) {
+    return {
+        batchIndex,
+        kind: String(diagnostic.kind || 'unknown'),
+        status: Number.isInteger(diagnostic.status) ? diagnostic.status : null,
+        elapsedMs: Number.isFinite(diagnostic.elapsedMs) ? diagnostic.elapsedMs : null,
+    };
+}
+
 function getRerankApiConfig() {
     const cfg = getVectorConfig() || {};
     return cfg.rerankApi || {
@@ -54,18 +82,26 @@ export async function rerank(query, documents, options = {}) {
 
     if (!query?.trim()) {
         xbLog.warn(MODULE_ID, 'query 为空，跳过 rerank');
-        return { results: documents.map((_, i) => ({ index: i, relevance_score: 0 })), failed: true };
+        return {
+            results: documents.map((_, i) => ({ index: i, relevance_score: 0 })),
+            failed: true,
+            diagnostic: { kind: 'invalid-query', status: null, elapsedMs: 0 },
+        };
     }
 
     if (!documents?.length) {
-        return { results: [], failed: false };
+        return { results: [], failed: false, diagnostic: null };
     }
 
     const apiCfg = getRerankApiConfig();
     const key = getNextRerankKey(apiCfg.key);
     if (!key) {
         xbLog.warn(MODULE_ID, '未配置 API Key，跳过 rerank');
-        return { results: documents.map((_, i) => ({ index: i, relevance_score: 0 })), failed: true };
+        return {
+            results: documents.map((_, i) => ({ index: i, relevance_score: 0 })),
+            failed: true,
+            diagnostic: { kind: 'missing-key', status: null, elapsedMs: 0 },
+        };
     }
 
     // 截断超长文档列表
@@ -88,15 +124,14 @@ export async function rerank(query, documents, options = {}) {
 
     if (!validDocs.length) {
         xbLog.warn(MODULE_ID, '无有效文档，跳过 rerank');
-        return { results: [], failed: false };
+        return { results: [], failed: false, diagnostic: null };
     }
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
+    const T0 = performance.now();
 
     try {
-        const T0 = performance.now();
-
         const baseUrl = resolveApiBaseUrl(
             String(apiCfg.url || DEFAULT_RERANK_URL),
             getDefaultApiPrefix(apiCfg.provider || 'siliconflow')
@@ -122,7 +157,9 @@ export async function rerank(query, documents, options = {}) {
 
         if (!response.ok) {
             const errorText = await response.text().catch(() => '');
-            throw new Error(`Rerank API ${response.status}: ${errorText.slice(0, 200)}`);
+            const error = new Error(`Rerank API ${response.status}: ${errorText.slice(0, 200)}`);
+            error.httpStatus = response.status;
+            throw error;
         }
 
         const data = await response.json();
@@ -137,7 +174,11 @@ export async function rerank(query, documents, options = {}) {
         const elapsed = Math.round(performance.now() - T0);
         xbLog.info(MODULE_ID, `Rerank 完成: ${validDocs.length} docs → ${results.length} selected (${elapsed}ms)`);
 
-        return { results: mapped, failed: false };
+        return {
+            results: mapped,
+            failed: false,
+            diagnostic: { kind: null, status: response.status, elapsedMs: elapsed },
+        };
 
     } catch (e) {
         clearTimeout(timeoutId);
@@ -155,6 +196,13 @@ export async function rerank(query, documents, options = {}) {
                 relevance_score: 0,
             })),
             failed: true,
+            diagnostic: {
+                kind: e?.name === 'AbortError'
+                    ? 'timeout'
+                    : (Number.isInteger(e?.httpStatus) ? 'http' : 'network'),
+                status: Number.isInteger(e?.httpStatus) ? e.httpStatus : null,
+                elapsedMs: Math.round(performance.now() - T0),
+            },
         };
     }
 }
@@ -170,30 +218,39 @@ export async function rerank(query, documents, options = {}) {
 export async function rerankChunks(query, chunks, options = {}) {
     const { topN = 40, minScore = 0.1 } = options;
 
-    if (!chunks?.length) return [];
+    if (!chunks?.length) {
+        return attachBatchDiagnostics([], { totalBatches: 0, failedBatches: 0, failures: [] });
+    }
 
     const texts = chunks.map(c => c.text || c.semantic || '');
 
     // ─── 单批：直接调用 ───
     if (texts.length <= RERANK_BATCH_SIZE) {
-        const { results, failed } = await rerank(query, texts, {
+        const { results, failed, diagnostic } = await rerank(query, texts, {
             topN: Math.min(topN, texts.length),
             timeout: options.timeout,
             signal: options.signal,
         });
 
         if (failed) {
-            return chunks.map(c => ({ ...c, _rerankScore: 0, _rerankFailed: true }));
+            return attachBatchDiagnostics(
+                chunks.map(c => ({ ...c, _rerankScore: 0, _rerankFailed: true })),
+                {
+                    totalBatches: 1,
+                    failedBatches: 1,
+                    failures: [toFailureDiagnostic(0, diagnostic)],
+                },
+            );
         }
 
-        return results
+        return attachBatchDiagnostics(results
             .filter(r => r.relevance_score >= minScore)
             .sort((a, b) => b.relevance_score - a.relevance_score)
             .slice(0, topN)
             .map(r => ({
                 ...chunks[r.index],
                 _rerankScore: r.relevance_score,
-            }));
+            })), { totalBatches: 1, failedBatches: 0, failures: [] });
     }
 
     // ─── 多批：拆分 → 并发 → 合并 ───
@@ -209,11 +266,12 @@ export async function rerankChunks(query, chunks, options = {}) {
     xbLog.info(MODULE_ID, `并发 Rerank: ${batches.length} 批 × ≤${RERANK_BATCH_SIZE} docs, concurrency=${concurrency}`);
 
     const batchResults = new Array(batches.length);
+    const batchDiagnostics = new Array(batches.length).fill(null);
     let failedBatches = 0;
 
     const runBatch = async (batchIdx) => {
         const batch = batches[batchIdx];
-        const { results, failed } = await rerank(query, batch.texts, {
+        const { results, failed, diagnostic } = await rerank(query, batch.texts, {
             topN: batch.texts.length,
             timeout: options.timeout,
             signal: options.signal,
@@ -221,6 +279,7 @@ export async function rerankChunks(query, chunks, options = {}) {
 
         if (failed) {
             failedBatches++;
+            batchDiagnostics[batchIdx] = toFailureDiagnostic(batchIdx, diagnostic);
             // 单批降级：保留原始顺序，score=0
             batchResults[batchIdx] = batch.texts.map((_, i) => ({
                 globalIndex: batch.offset + i,
@@ -248,11 +307,18 @@ export async function rerankChunks(query, chunks, options = {}) {
     // 全部失败 → 整体降级
     if (failedBatches === batches.length) {
         xbLog.warn(MODULE_ID, `全部 ${batches.length} 批 rerank 失败，整体降级`);
-        return chunks.slice(0, topN).map(c => ({
-            ...c,
-            _rerankScore: 0,
-            _rerankFailed: true,
-        }));
+        return attachBatchDiagnostics(
+            chunks.slice(0, topN).map(c => ({
+                ...c,
+                _rerankScore: 0,
+                _rerankFailed: true,
+            })),
+            {
+                totalBatches: batches.length,
+                failedBatches,
+                failures: batchDiagnostics.filter(Boolean),
+            },
+        );
     }
 
     // 合并所有批次结果
@@ -272,7 +338,11 @@ export async function rerankChunks(query, chunks, options = {}) {
         `Rerank 合并: ${merged.length} candidates, ${failedBatches}/${batches.length} 批失败, 选中 ${selected.length}`
     );
 
-    return selected;
+    return attachBatchDiagnostics(selected, {
+        totalBatches: batches.length,
+        failedBatches,
+        failures: batchDiagnostics.filter(Boolean),
+    });
 }
 /**
  * 测试 Rerank 服务连接

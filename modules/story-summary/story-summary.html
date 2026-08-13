@@ -648,7 +648,13 @@
                                                     <button class="btn btn-sm" id="rerank-btn-test" style="flex:1">测试</button>
                                                     <button class="btn btn-sm btn-p" id="rerank-btn-save" style="flex:1">保存</button>
                                                 </div>
-                                                <div class="settings-hint" id="rerank-api-connect-status"></div>
+                                                <div class="settings-hint" id="rerank-api-connect-status" style="margin-bottom:16px;"></div>
+                                                <label class="settings-checkbox">
+                                                    <input type="checkbox" id="vector-event-rerank-enabled">
+                                                    <span class="checkbox-mark"></span>
+                                                    <span class="checkbox-label">实验性：精排事件摘要</span>
+                                                </label>
+                                                <div class="settings-hint">只重排已经召回的事件；每次记忆召回最多增加 3 次 Rerank 请求。</div>
                                             </div>
                                         </details>
                                     </div>

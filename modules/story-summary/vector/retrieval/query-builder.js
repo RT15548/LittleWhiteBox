@@ -126,6 +126,35 @@ function extractKeyTerms(text, maxTerms = LEXICAL_TERMS_MAX) {
         .map(x => x.term);
 }
 
+/**
+ * Replay-only construction diagnostic for a pending-focus candidate.
+ * It describes the current bundle and the fixed H-Q-FOCUS arm without selecting the arm.
+ * @param {QueryBundle} bundle
+ * @returns {object}
+ */
+export function describeQueryFocusOwnership(bundle) {
+    const focusText = String(bundle?.querySegments?.at(-1)?.text || '');
+    const focusTerms = extractEntitiesFromText(focusText, bundle?._lexicon, bundle?._displayMap);
+    const focusCharacters = focusTerms.filter(term => bundle?.trustedCharacters?.has(normalizeEntityTerm(term)));
+    const focusLexicalTerms = Array.from(new Set([
+        ...focusTerms.map(normalizeEntityTerm).filter(Boolean),
+        ...extractKeyTerms(focusText),
+    ])).slice(0, LEXICAL_TERMS_MAX);
+    return {
+        baseline: {
+            focusTerms: [...(bundle?.focusTerms || [])],
+            focusCharacters: [...(bundle?.focusCharacters || [])],
+            lexicalTerms: [...(bundle?.lexicalTerms || [])],
+        },
+        focusOnly: {
+            focusTerms,
+            focusCharacters,
+            lexicalTerms: focusLexicalTerms,
+        },
+        usesFocusOnlyCandidate: focusCharacters.length > 0,
+    };
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // 类型定义
 // ─────────────────────────────────────────────────────────────────────────
@@ -141,6 +170,7 @@ function extractKeyTerms(text, maxTerms = LEXICAL_TERMS_MAX) {
  * @typedef {object} QueryBundle
  * @property {QuerySegment[]}    querySegments  - R1 向量段（上下文 oldest→newest，焦点在末尾）
  * @property {QuerySegment|null} hintsSegment   - R2 hints 段（refinement 后填充）
+ * @property {string}   focusQuery      - 当前用户问题的纯文本
  * @property {string}   rerankQuery     - rerank 用的纯自然语言查询（焦点在前）
  * @property {string[]} lexicalTerms    - MiniSearch 查询词
  * @property {string[]} focusTerms      - 焦点词（原 focusEntities）
@@ -223,6 +253,7 @@ export function buildQueryBundle(lastMessages, pendingUserMessage, store = null,
     // 2. 分离焦点与上下文
     const contextEntries = [];
     let focusEntry = null;
+    let focusQuery = '';
     const allCleanTexts = [];
 
     if (pendingUserMessage) {
@@ -230,6 +261,7 @@ export function buildQueryBundle(lastMessages, pendingUserMessage, store = null,
         const pendingClean = cleanMessageText(pendingUserMessage);
         if (pendingClean) {
             const speaker = context.name1 || '用户';
+            focusQuery = pendingClean;
             focusEntry = {
                 text: `${speaker}：${pendingClean}`,
                 charCount: pendingClean.length,
@@ -252,6 +284,7 @@ export function buildQueryBundle(lastMessages, pendingUserMessage, store = null,
             const lastMsg = msgs[msgs.length - 1];
             const entry = buildMessageEntry(lastMsg, context);
             if (entry) {
+                focusQuery = cleanMessageText(lastMsg.mes);
                 focusEntry = entry;
                 allCleanTexts.push(cleanMessageText(lastMsg.mes));
             }
@@ -311,6 +344,7 @@ export function buildQueryBundle(lastMessages, pendingUserMessage, store = null,
     return {
         querySegments,
         hintsSegment: null,
+        focusQuery,
         rerankQuery,
         lexicalTerms: Array.from(termSet),
         focusTerms,
