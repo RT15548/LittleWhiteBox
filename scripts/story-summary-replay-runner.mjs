@@ -199,6 +199,7 @@ function applyCliOverrides(config, argv) {
     const summaryMaxTokens = readFlag(argv, 'summary-api-max-tokens');
     const summaryPrefillMode = readFlag(argv, 'summary-api-prefill-mode');
     const eventRerankEnabled = readFlag(argv, 'event-rerank');
+    const twoPassEventPackingEnabled = readFlag(argv, 'two-pass-event-packing');
     const maxFloors = readFlag(argv, 'max-floors');
     const casesPath = readFlag(argv, 'gold-cases');
     const runsRoot = readFlag(argv, 'gold-runs-root');
@@ -250,6 +251,16 @@ function applyCliOverrides(config, argv) {
         config.vectorConfig = {
             ...(config.vectorConfig || {}),
             eventRerankEnabled: ['1', 'true', 'yes', 'on'].includes(normalized),
+        };
+    }
+    if (twoPassEventPackingEnabled != null) {
+        const normalized = String(twoPassEventPackingEnabled).trim().toLowerCase();
+        if (!['0', '1', 'false', 'true', 'no', 'yes', 'off', 'on'].includes(normalized)) {
+            throw new Error('--two-pass-event-packing 必须是 true 或 false');
+        }
+        config.vectorConfig = {
+            ...(config.vectorConfig || {}),
+            twoPassEventPackingEnabled: ['1', 'true', 'yes', 'on'].includes(normalized),
         };
     }
     if (maxFloors != null) {

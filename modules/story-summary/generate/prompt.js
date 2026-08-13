@@ -1113,13 +1113,113 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
     }
     const eventBudget = { used: 0, max: Math.min(EVENT_BUDGET_MAX, total.max - total.used) };
     const relatedBudget = { used: 0, max: RELATED_EVENT_MAX };
-    // Once budget becomes tight, keep high-score L2 summaries and stop attaching evidence.
-    let allowEventEvidence = true;
-
     const selectedDirect = [];
     const selectedRelated = [];
+    const useTwoPassEventPacking = getVectorConfig()?.twoPassEventPackingEnabled === true;
 
-    for (let candidateRank = 0; candidateRank < candidates.length; candidateRank++) {
+    if (useTwoPassEventPacking) {
+        // Pass 1: secure breadth with ordered L2 summaries under the existing budgets.
+        for (let candidateRank = 0; candidateRank < candidates.length; candidateRank++) {
+            const e = candidates[candidateRank];
+
+            if (total.used >= total.max) break;
+            if (eventBudget.used >= eventBudget.max) break;
+
+            const isDirect = e._recallType === "DIRECT";
+            if (!isDirect && relatedBudget.used >= relatedBudget.max) continue;
+
+            const text = formatEventWithEvidence(e, 0, [], causalById);
+            const cost = estimateTokens(text);
+            const fitEventBudget = eventBudget.used + cost <= eventBudget.max;
+            const fitRelatedBudget = isDirect || (relatedBudget.used + cost <= relatedBudget.max);
+
+            if (total.used + cost > total.max || !fitEventBudget || !fitRelatedBudget) {
+                if (total.used + cost > total.max || !fitEventBudget) break;
+                continue;
+            }
+
+            const detail = {
+                title: e.event?.title || e.event?.id,
+                isDirect,
+                hasEvidence: false,
+                tokens: cost,
+                similarity: e.similarity || 0,
+                l0Count: 0,
+                l1FloorCount: 0,
+            };
+            const selected = {
+                event: e.event,
+                text,
+                tokens: cost,
+                evidenceGroups: [],
+                candidateRank,
+                detail,
+            };
+            (isDirect ? selectedDirect : selectedRelated).push(selected);
+
+            injectionStats.event.selected++;
+            injectionStats.event.tokens += cost;
+            total.used += cost;
+            eventBudget.used += cost;
+            if (!isDirect) relatedBudget.used += cost;
+            eventDetails.list.push(detail);
+        }
+
+        // Pass 2: backfill complete DIRECT evidence groups in the same candidate order.
+        const selectedInPackingOrder = [...selectedDirect, ...selectedRelated]
+            .sort((a, b) => a.candidateRank - b.candidateRank);
+        for (const selected of selectedInPackingOrder) {
+            const e = candidates[selected.candidateRank];
+            if (e?._recallType !== "DIRECT") continue;
+
+            const evidenceGroups = collectEvidenceGroupsForEvent(
+                e.event,
+                l0Selected,
+                l1ByFloor,
+                usedL0Ids,
+            );
+            if (!evidenceGroups.length) continue;
+
+            const text = formatEventWithEvidence(e, 0, evidenceGroups, causalById);
+            const cost = estimateTokens(text);
+            const incrementalCost = cost - selected.tokens;
+            if (incrementalCost < 0) {
+                throw new Error(`Event evidence token cost became negative: ${e.event?.id || 'unknown'}`);
+            }
+            if (total.used + incrementalCost > total.max
+                || eventBudget.used + incrementalCost > eventBudget.max) {
+                for (const group of evidenceGroups) {
+                    for (const l0 of group.l0Atoms) usedL0Ids.delete(l0.id);
+                }
+                continue;
+            }
+
+            let l0Count = 0;
+            let l1FloorCount = 0;
+            for (const group of evidenceGroups) {
+                l0Count += group.l0Atoms.length;
+                if (group.userL1 || group.aiL1) l1FloorCount++;
+            }
+
+            selected.text = text;
+            selected.tokens = cost;
+            selected.evidenceGroups = evidenceGroups;
+            selected.detail.hasEvidence = l0Count > 0;
+            selected.detail.tokens = cost;
+            selected.detail.l0Count = l0Count;
+            selected.detail.l1FloorCount = l1FloorCount;
+
+            injectionStats.event.tokens += incrementalCost;
+            injectionStats.evidence.l0InEvents += l0Count;
+            injectionStats.evidence.l1InEvents += l1FloorCount;
+            total.used += incrementalCost;
+            eventBudget.used += incrementalCost;
+        }
+    } else {
+        // Once budget becomes tight, keep high-score L2 summaries and stop attaching evidence.
+        let allowEventEvidence = true;
+
+        for (let candidateRank = 0; candidateRank < candidates.length; candidateRank++) {
         const e = candidates[candidateRank];
 
         if (total.used >= total.max) break;
@@ -1248,6 +1348,7 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
             l0Count,
             l1FloorCount,
         });
+        }
     }
 
     if (evidenceTrace) {
