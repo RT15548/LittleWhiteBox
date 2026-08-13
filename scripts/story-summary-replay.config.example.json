@@ -38,6 +38,21 @@
       "excludeLastAi": false
     }
   ],
+  "goldEval": {
+    "enabled": false,
+    "casesPath": "path/to/gold-cases.jsonl",
+    "runsRoot": "path/to/private-eval-workspace/runs",
+    "split": "dev",
+    "runName": "dev-baseline",
+    "captureRunDir": "",
+    "caseIntervalMinMs": 12000,
+    "caseIntervalMaxMs": 15000,
+    "reader": {
+      "enabled": false,
+      "maxTokens": 30000,
+      "reasoningEffort": "none"
+    }
+  },
   "compareWithBaseline": true,
   "baselinePath": "scripts/story-summary-replay-output/story-summary-replay-baseline.json",
   "writeBaselineOnMissing": true,
