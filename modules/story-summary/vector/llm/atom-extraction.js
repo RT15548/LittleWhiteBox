@@ -8,7 +8,8 @@
 // 每楼层 1-2 个场景锚点（非碎片原子），60-100 字场景摘要
 // ============================================================================
 
-import { callLLM, cancelAllL0Requests, parseJson } from './llm-service.js';
+import { callLLM, cancelAllL0Requests } from './llm-service.js';
+import { parseJsonResponse } from './json-response.js';
 import { xbLog } from '../../../../core/debug-core.js';
 import { filterText } from '../utils/text-filter.js';
 
@@ -252,7 +253,11 @@ async function extractAtomsForRoundWithRetry(userMessage, aiMessage, aiFloor, op
 
             let parsed;
             try {
-                parsed = parseJson(rawText);
+                const parsedResponse = parseJsonResponse(rawText);
+                parsed = parsedResponse?.value ?? null;
+                if (parsedResponse?.repair) {
+                    xbLog.info(MODULE_ID, `floor ${aiFloor} attempt ${attempt} JSON syntax repaired=${parsedResponse.repair}`);
+                }
             } catch (e) {
                 xbLog.warn(MODULE_ID, `floor ${aiFloor} JSON解析失败 (attempt ${attempt})`);
                 if (attempt < RETRY_COUNT) {

@@ -199,12 +199,3 @@ export function cancelAllL0Requests() {
     }
     activeL0Controllers.clear();
 }
-
-export function parseJson(text) {
-    if (!text) return null;
-    let s = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
-    try { return JSON.parse(s); } catch { }
-    const i = s.indexOf('{'), j = s.lastIndexOf('}');
-    if (i !== -1 && j > i) try { return JSON.parse(s.slice(i, j + 1)); } catch { }
-    return null;
-}
