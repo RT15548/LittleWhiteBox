@@ -441,6 +441,22 @@ function clearVectorMaintenance(chatId = null) {
     else pendingVectorMaintenanceByChat.clear();
 }
 
+function deferVectorIntegrityUntilMaintenance(chatId) {
+    const entry = pendingVectorMaintenanceByChat.get(chatId);
+    if (!entry) return false;
+    entry.reasons.add('integrity-check');
+    return true;
+}
+
+function finishVectorMaintenance(chatId, { forceIntegrityCheck = false } = {}) {
+    const entry = pendingVectorMaintenanceByChat.get(chatId);
+    const shouldCheckIntegrity = forceIntegrityCheck || entry?.reasons?.has('integrity-check');
+    clearVectorMaintenance(chatId);
+    if (shouldCheckIntegrity && !isChatStale(chatId)) {
+        scheduleVectorIntegrityCheck();
+    }
+}
+
 // 向量提醒节流
 let lastVectorWarningAt = 0;
 const VECTOR_WARNING_COOLDOWN_MS = 120000; // 2分钟内不重复提醒
@@ -1020,13 +1036,21 @@ async function maybeRunDelayedVectorMaintenance(scheduledChatId = null) {
 
     const pendingEntry = pendingVectorMaintenanceByChat.get(chatId);
 
-    const stats = await getAnchorStats();
-    const chunkStatus = await getChunkBuildStatus();
+    let stats;
+    let chunkStatus;
+    try {
+        stats = await getAnchorStats();
+        chunkStatus = await getChunkBuildStatus();
+    } catch (e) {
+        xbLog.error(MODULE_ID, "延迟向量维护状态检查失败", e);
+        finishVectorMaintenance(chatId, { forceIntegrityCheck: true });
+        return;
+    }
     const hasL0Work = stats.pending > 0;
     const hasL1Work = chunkStatus.pending > 0;
 
     if (!hasL0Work && !hasL1Work) {
-        clearVectorMaintenance(chatId);
+        finishVectorMaintenance(chatId);
         return;
     }
 
@@ -1063,7 +1087,10 @@ async function maybeRunDelayedVectorMaintenance(scheduledChatId = null) {
                 maxFloors: 20,
                 preferredFloors,
             });
-            if (l0Result?.cancelled) return;
+            if (l0Result?.cancelled) {
+                clearVectorMaintenance(chatId);
+                return;
+            }
         }
 
         if (chunkResult.built > 0 || l0Result?.built > 0) {
@@ -1073,11 +1100,12 @@ async function maybeRunDelayedVectorMaintenance(scheduledChatId = null) {
 
         await sendAnchorStatsToFrame();
         await sendVectorStatsToFrame();
-        clearVectorMaintenance(chatId);
+        finishVectorMaintenance(chatId);
 
         xbLog.info(MODULE_ID, `延迟向量维护完成 l0=${l0Result?.built || 0} l1=${chunkResult.built || 0}`);
     } catch (e) {
         xbLog.error(MODULE_ID, "延迟向量维护失败", e);
+        finishVectorMaintenance(chatId, { forceIntegrityCheck: true });
     } finally {
         release();
     }
@@ -1390,6 +1418,7 @@ async function checkVectorIntegrityAndWarn() {
 
     const { chat, chatId } = getContext();
     if (!chatId || !chat?.length) return;
+    if (deferVectorIntegrityUntilMaintenance(chatId)) return;
 
     const store = getSummaryStore();
     const totalFloors = chat.length;
@@ -1425,6 +1454,9 @@ async function checkVectorIntegrityAndWarn() {
     }
 
     if (issues.length > 0) {
+        // AI 回复可能在完整性检查的异步读取期间到达。
+        // 此时由已排队的自动维护负责收口，不抢先警告。
+        if (deferVectorIntegrityUntilMaintenance(chatId)) return;
         const now = Date.now();
         if (now - lastVectorWarningAt < VECTOR_WARNING_COOLDOWN_MS) return;
         lastVectorWarningAt = now;
