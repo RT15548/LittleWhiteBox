@@ -24,6 +24,7 @@ import { getLexicalIdfAccessor } from './lexical-index.js';
 import { getSummaryStore } from '../../data/store.js';
 import { filterText } from '../utils/text-filter.js';
 import { tokenizeForIndex as tokenizerTokenizeForIndex } from '../utils/tokenizer.js';
+import { buildBoundedRerankQuery } from './rerank-query.js';
 
 // ─────────────────────────────────────────────────────────────────────────
 // 权重常量
@@ -328,9 +329,7 @@ export function buildQueryBundle(lastMessages, pendingUserMessage, store = null,
 
     // 5. rerankQuery（焦点在前，纯自然语言，无前缀）
     const contextLines = contextEntries.map(e => e.text);
-    const rerankQuery = focusEntry
-        ? [focusEntry.text, ...contextLines].join('\n')
-        : contextLines.join('\n');
+    const rerankQuery = buildBoundedRerankQuery(focusEntry?.text || '', contextLines);
 
     // 6. lexicalTerms（实体优先 + 高频实词补充）
     const entityTerms = focusTerms.map(normalizeEntityTerm).filter(Boolean);
