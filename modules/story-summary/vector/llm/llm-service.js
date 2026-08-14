@@ -94,6 +94,12 @@ function extractMessageText(data) {
     return '';
 }
 
+function createL0RequestError(message, failure, cause = null) {
+    const error = new Error(message, cause ? { cause } : undefined);
+    error.l0Failure = failure;
+    return error;
+}
+
 /**
  * 统一 L0 调用 - 浏览器直连 OpenAI-compatible Chat Completions（非流式）
  */
@@ -132,6 +138,7 @@ export async function callLLM(messages, options = {}) {
     if (model.includes('Qwen3')) {
         body.enable_thinking = false;
     }
+    const requestBody = JSON.stringify(body);
 
     const timeoutController = new AbortController();
     const requestSignal = mergeSignals(signal, timeoutController.signal);
@@ -149,23 +156,50 @@ export async function callLLM(messages, options = {}) {
                 'Authorization': `Bearer ${apiKey}`,
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify(body),
+            body: requestBody,
             signal: requestSignal,
         });
 
-        clearTimeout(timeoutId);
-
         if (!response.ok) {
-            const errorText = await response.text().catch(() => '');
-            throw new Error(`L0 API ${response.status}: ${errorText.slice(0, 200)}`);
+            let errorText = '';
+            try {
+                errorText = await response.text();
+            } catch (error) {
+                if (error?.name === 'AbortError') throw error;
+                if (error instanceof TypeError) {
+                    throw createL0RequestError(`L0 network error: ${error.message}`, { kind: 'network' }, error);
+                }
+            }
+            throw createL0RequestError(
+                `L0 API ${response.status}: ${errorText.slice(0, 200)}`,
+                { kind: 'http', status: response.status },
+            );
         }
 
-        const data = await response.json();
+        let data;
+        try {
+            data = await response.json();
+        } catch (error) {
+            if (error?.name === 'AbortError') throw error;
+            if (error instanceof TypeError) {
+                throw createL0RequestError(`L0 network error: ${error.message}`, { kind: 'network' }, error);
+            }
+            throw createL0RequestError('L0 API 响应不是有效 JSON', { kind: 'invalid_json' }, error);
+        }
         return String(extractMessageText(data) ?? '');
     } catch (e) {
-        clearTimeout(timeoutId);
         if (e?.name === 'AbortError' && timedOut) {
-            throw new Error(`L0 request timeout after ${timeout}ms`);
+            throw createL0RequestError(
+                `L0 request timeout after ${timeout}ms`,
+                { kind: 'timeout' },
+                e,
+            );
+        }
+        if (e?.name === 'AbortError') {
+            throw createL0RequestError('L0 request cancelled', { kind: 'cancelled' }, e);
+        }
+        if (!e?.l0Failure && e instanceof TypeError) {
+            throw createL0RequestError(`L0 network error: ${e.message}`, { kind: 'network' }, e);
         }
         xbLog.error(MODULE_ID, 'LLM调用失败', e);
         throw e;

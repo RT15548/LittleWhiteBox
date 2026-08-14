@@ -9,6 +9,11 @@
 // ============================================================================
 
 import { callLLM, cancelAllL0Requests } from './llm-service.js';
+import {
+    getL0RetryDelayMs,
+    isRetryableL0Failure,
+    L0_MAX_ATTEMPTS,
+} from './l0-retry-policy.js';
 import { parseJsonResponse } from './json-response.js';
 import { xbLog } from '../../../../core/debug-core.js';
 import { filterText } from '../utils/text-filter.js';
@@ -16,8 +21,6 @@ import { filterText } from '../utils/text-filter.js';
 const MODULE_ID = 'atom-extraction';
 
 const CONCURRENCY = 10;
-const RETRY_COUNT = 1;
-const RETRY_DELAY = 500;
 const DEFAULT_TIMEOUT = 60000;
 const STAGGER_DELAY = 80;
 const DEBUG_RAW_PREVIEW_LEN = 800;
@@ -100,6 +103,13 @@ const SYSTEM_PROMPT = `你是场景摘要器。从一轮对话中提取1-2个场
 // ============================================================================
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+async function waitBeforeL0Retry(attempt, failure) {
+    const delayMs = getL0RetryDelayMs(attempt);
+    if (delayMs == null || !isRetryableL0Failure(failure)) return false;
+    await sleep(delayMs);
+    return true;
+}
 
 function previewText(text, maxLen = DEBUG_RAW_PREVIEW_LEN) {
     const raw = String(text ?? '').replace(/\s+/g, ' ').trim();
@@ -226,7 +236,7 @@ async function extractAtomsForRoundWithRetry(userMessage, aiMessage, aiFloor, op
 
     const input = `<round>\n${parts.join('\n')}\n</round>\n请读取上述 <round> 内容，提取 1-2 个场景锚点，并严格按 JSON 输出。\n不要解释，不要续写，不要角色扮演，不要输出 JSON 以外的任何内容。`;
 
-    for (let attempt = 0; attempt <= RETRY_COUNT; attempt++) {
+    for (let attempt = 0; attempt < L0_MAX_ATTEMPTS; attempt++) {
         if (batchCancelled) return [];
 
         try {
@@ -242,39 +252,26 @@ async function extractAtomsForRoundWithRetry(userMessage, aiMessage, aiFloor, op
             const rawText = String(response || '');
             xbLog.info(MODULE_ID, `floor ${aiFloor} attempt ${attempt} rawText(len=${rawText.length}): ${previewText(rawText)}`);
             if (!rawText.trim()) {
-                if (attempt < RETRY_COUNT) {
-                    await sleep(RETRY_DELAY);
-                    continue;
-                }
+                if (await waitBeforeL0Retry(attempt, { kind: 'empty' })) continue;
                 return null;
             }
 
             xbLog.info(MODULE_ID, `floor ${aiFloor} attempt ${attempt} parseSource(len=${rawText.length}): ${previewText(rawText)}`);
 
-            let parsed;
-            try {
-                const parsedResponse = parseJsonResponse(rawText);
-                parsed = parsedResponse?.value ?? null;
-                if (parsedResponse?.repair) {
-                    xbLog.info(MODULE_ID, `floor ${aiFloor} attempt ${attempt} JSON syntax repaired=${parsedResponse.repair}`);
-                }
-            } catch (e) {
+            const parsedResponse = parseJsonResponse(rawText);
+            if (!parsedResponse) {
                 xbLog.warn(MODULE_ID, `floor ${aiFloor} JSON解析失败 (attempt ${attempt})`);
-                if (attempt < RETRY_COUNT) {
-                    await sleep(RETRY_DELAY);
-                    continue;
-                }
+                if (await waitBeforeL0Retry(attempt, { kind: 'invalid_json' })) continue;
                 return null;
             }
+            const parsed = parsedResponse.value;
+            if (parsedResponse.repair) {
+                xbLog.info(MODULE_ID, `floor ${aiFloor} attempt ${attempt} JSON syntax repaired=${parsedResponse.repair}`);
+            }
 
-            // 兼容：优先 anchors，回退 atoms
             const rawAnchors = parsed?.anchors;
             if (!rawAnchors || !Array.isArray(rawAnchors)) {
                 xbLog.warn(MODULE_ID, `floor ${aiFloor} attempt ${attempt} 缺少有效 anchors，parsed=${previewText(JSON.stringify(parsed))}`);
-                if (attempt < RETRY_COUNT) {
-                    await sleep(RETRY_DELAY);
-                    continue;
-                }
                 return null;
             }
 
@@ -295,10 +292,7 @@ async function extractAtomsForRoundWithRetry(userMessage, aiMessage, aiFloor, op
         } catch (e) {
             if (batchCancelled) return null;
 
-            if (attempt < RETRY_COUNT) {
-                await sleep(RETRY_DELAY * (attempt + 1));
-                continue;
-            }
+            if (await waitBeforeL0Retry(attempt, e?.l0Failure)) continue;
             xbLog.error(MODULE_ID, `floor ${aiFloor} 失败`, e);
             return null;
         }
