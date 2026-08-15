@@ -187,6 +187,16 @@ function readFlag(argv, name) {
     return value ? value.slice(prefix.length) : null;
 }
 
+function readBooleanFlag(argv, name) {
+    const value = readFlag(argv, name);
+    if (value == null) return null;
+    const normalized = String(value).trim().toLowerCase();
+    if (!['0', '1', 'false', 'true', 'no', 'yes', 'off', 'on'].includes(normalized)) {
+        throw new Error(`--${name} 必须是 true 或 false`);
+    }
+    return ['1', 'true', 'yes', 'on'].includes(normalized);
+}
+
 function applyCliOverrides(config, argv) {
     const samplePath = readFlag(argv, 'sample');
     const snapshotPath = readFlag(argv, 'snapshot');
@@ -198,8 +208,9 @@ function applyCliOverrides(config, argv) {
     const summaryReasoningEffort = readFlag(argv, 'summary-api-reasoning-effort');
     const summaryMaxTokens = readFlag(argv, 'summary-api-max-tokens');
     const summaryPrefillMode = readFlag(argv, 'summary-api-prefill-mode');
-    const eventRerankEnabled = readFlag(argv, 'event-rerank');
-    const twoPassEventPackingEnabled = readFlag(argv, 'two-pass-event-packing');
+    const eventRerankEnabled = readBooleanFlag(argv, 'event-rerank');
+    const eventDetailLaneEnabled = readBooleanFlag(argv, 'event-detail');
+    const twoPassEventPackingEnabled = readBooleanFlag(argv, 'two-pass-event-packing');
     const maxFloors = readFlag(argv, 'max-floors');
     const casesPath = readFlag(argv, 'gold-cases');
     const runsRoot = readFlag(argv, 'gold-runs-root');
@@ -244,23 +255,21 @@ function applyCliOverrides(config, argv) {
         };
     }
     if (eventRerankEnabled != null) {
-        const normalized = String(eventRerankEnabled).trim().toLowerCase();
-        if (!['0', '1', 'false', 'true', 'no', 'yes', 'off', 'on'].includes(normalized)) {
-            throw new Error('--event-rerank 必须是 true 或 false');
-        }
         config.vectorConfig = {
             ...(config.vectorConfig || {}),
-            eventRerankEnabled: ['1', 'true', 'yes', 'on'].includes(normalized),
+            eventRerankEnabled,
+        };
+    }
+    if (eventDetailLaneEnabled != null) {
+        config.vectorConfig = {
+            ...(config.vectorConfig || {}),
+            eventDetailLaneEnabled,
         };
     }
     if (twoPassEventPackingEnabled != null) {
-        const normalized = String(twoPassEventPackingEnabled).trim().toLowerCase();
-        if (!['0', '1', 'false', 'true', 'no', 'yes', 'off', 'on'].includes(normalized)) {
-            throw new Error('--two-pass-event-packing 必须是 true 或 false');
-        }
         config.vectorConfig = {
             ...(config.vectorConfig || {}),
-            twoPassEventPackingEnabled: ['1', 'true', 'yes', 'on'].includes(normalized),
+            twoPassEventPackingEnabled,
         };
     }
     if (maxFloors != null) {

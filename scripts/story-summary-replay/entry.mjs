@@ -947,43 +947,48 @@ async function executeRecallCase(
     const pendingUserMessage = recallCase?.pendingUserMessage ? String(recallCase.pendingUserMessage) : null;
     const excludeLastAi = !!recallCase?.excludeLastAi;
     const recallStartedAt = performance.now();
-    const countedRecall = await withExternalCallTrace(
-        () => modules.recallMemory(allEvents, vectorConfig, {
-            pendingUserMessage,
-            excludeLastAi,
-            stageObserver,
-        }),
+    const meta = await modules.getMeta(modules.getContext().chatId);
+    const countedExecution = await withExternalCallTrace(
+        async () => {
+            const recallResult = await modules.recallMemory(allEvents, vectorConfig, {
+                pendingUserMessage,
+                excludeLastAi,
+                stageObserver,
+                deferRuntimeRelease: vectorConfig?.eventDetailLaneEnabled === true,
+            });
+
+            const normalizedRecall = {
+                ...recallResult,
+                events: recallResult?.events || [],
+                l0Selected: recallResult?.l0Selected || [],
+                l1ByFloor: recallResult?.l1ByFloor || new Map(),
+                causalChain: recallResult?.causalChain || [],
+                focusTerms: recallResult?.focusTerms || recallResult?.focusEntities || [],
+                focusCharacters: recallResult?.focusCharacters || [],
+                metrics: recallResult?.metrics || null,
+            };
+
+            const causalById = new Map(
+                (normalizedRecall.causalChain || [])
+                    .map((item) => [item?.event?.id, item])
+                    .filter((item) => item[0])
+            );
+
+            const builtPrompt = await modules.buildVectorPromptForReplay(
+                store,
+                normalizedRecall,
+                causalById,
+                normalizedRecall.focusCharacters || [],
+                meta,
+                normalizedRecall.metrics || null
+            );
+
+            return { normalizedRecall, builtPrompt };
+        },
         { cassette: transportCassette },
     );
-    const recallResult = countedRecall.value;
     const recallMs = Math.round(performance.now() - recallStartedAt);
-
-    const normalizedRecall = {
-        ...recallResult,
-        events: recallResult?.events || [],
-        l0Selected: recallResult?.l0Selected || [],
-        l1ByFloor: recallResult?.l1ByFloor || new Map(),
-        causalChain: recallResult?.causalChain || [],
-        focusTerms: recallResult?.focusTerms || recallResult?.focusEntities || [],
-        focusCharacters: recallResult?.focusCharacters || [],
-        metrics: recallResult?.metrics || null,
-    };
-
-    const meta = await modules.getMeta(modules.getContext().chatId);
-    const causalById = new Map(
-        (normalizedRecall.causalChain || [])
-            .map((item) => [item?.event?.id, item])
-            .filter((item) => item[0])
-    );
-
-    const builtPrompt = await modules.buildVectorPromptForReplay(
-        store,
-        normalizedRecall,
-        causalById,
-        normalizedRecall.focusCharacters || [],
-        meta,
-        normalizedRecall.metrics || null
-    );
+    const { normalizedRecall, builtPrompt } = countedExecution.value;
 
     let promptText = String(builtPrompt?.promptText || '');
     if (summaryConfig?.trigger?.wrapperHead) {
@@ -1005,16 +1010,16 @@ async function executeRecallCase(
         },
         evidenceTrace: builtPrompt?.evidenceTrace || { final: [], prompt: [] },
         recallMs,
-        externalCalls: countedRecall.calls,
-        externalRequests: countedRecall.requestCount ?? countedRecall.calls,
-        transportTrace: countedRecall.trace,
+        externalCalls: countedExecution.calls,
+        externalRequests: countedExecution.requestCount ?? countedExecution.calls,
+        transportTrace: countedExecution.trace,
         reportCase: {
             label,
             excludeLastAi,
             pendingUserMessagePreview: previewText(pendingUserMessage, 100),
             promptChars: promptText.length,
-            externalCalls: countedRecall.calls,
-            externalRequests: countedRecall.requestCount ?? countedRecall.calls,
+            externalCalls: countedExecution.calls,
+            externalRequests: countedExecution.requestCount ?? countedExecution.calls,
             promptPreview: previewText(promptText, 300),
             metrics: cloneJsonSafe(builtPrompt?.metrics || normalizedRecall.metrics || null),
             injectionStats: cloneJsonSafe(builtPrompt?.injectionStats || null),
