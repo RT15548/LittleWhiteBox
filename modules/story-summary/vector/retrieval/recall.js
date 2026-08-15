@@ -53,6 +53,12 @@ import { getRerankBatchDiagnostics, rerankChunks } from '../llm/reranker.js';
 import { createMetrics, calcSimilarityStats } from './metrics.js';
 import { tokenizeForIndex } from '../utils/tokenizer.js';
 import { rerankEventsForPrompt } from './event-rerank.js';
+import { rankSelectedEventDetails } from './event-detail-retrieval.js';
+import {
+    releaseEventDetailRuntimeLease,
+    transferEventDetailRuntimeLease,
+} from './event-detail-session.js';
+import { buildTemporalTurnCarrier } from './temporal-turn-carrier.js';
 
 const MODULE_ID = 'recall';
 
@@ -1197,6 +1203,81 @@ async function buildL1PairsForSelectedFloors(l0Selected, queryVector, prefetched
     return l1ByFloor;
 }
 
+export async function hydrateSelectedEventDetails(selectedDirect, context, metrics) {
+    const startedAt = performance.now();
+    try {
+        const result = await rankSelectedEventDetails(selectedDirect, context);
+        const elapsedMs = Math.round(performance.now() - startedAt);
+        const stats = result.stats || {};
+        const diagnostics = result.diagnostics || getRerankBatchDiagnostics([]);
+
+        if (metrics?.evidence) {
+            metrics.evidence.eventDetailStatus = result.status || 'failed';
+            metrics.evidence.eventDetailParents = Number(stats.parents || 0);
+            metrics.evidence.eventDetailFloors = Number(stats.floors || 0);
+            metrics.evidence.eventDetailSourceCandidates = Number(stats.sourceCandidates || 0);
+            metrics.evidence.eventDetailCandidates = Number(stats.candidates || 0);
+            metrics.evidence.eventDetailDocumentChars = Number(stats.documentChars || 0);
+            metrics.evidence.eventDetailTemporalCandidates = Number(stats.temporalCandidates || 0);
+            metrics.evidence.eventDetailTemporalReserved = Number(stats.temporalReserved || 0);
+            metrics.evidence.eventDetailTemporalOverflow = Number(stats.temporalOverflow || 0);
+            metrics.evidence.eventDetailVectorHits = Number(stats.vectorHits || 0);
+            metrics.evidence.eventDetailMissingVectors = Number(stats.missingVectors || 0);
+            metrics.evidence.eventDetailItems = result.items.length;
+            metrics.evidence.eventDetailRerankBatchTotal = Number(diagnostics.totalBatches || 0);
+            metrics.evidence.eventDetailRerankBatchFailed = Number(diagnostics.failedBatches || 0);
+            metrics.evidence.eventDetailRerankFailures = diagnostics.failures.map(item => ({ ...item }));
+            metrics.evidence.eventDetailFocusScoreTime = Number(stats.focusScoreMs || 0);
+            metrics.evidence.eventDetailRerankTime = Number(stats.rerankMs || 0);
+            metrics.evidence.eventDetailTime = elapsedMs;
+        }
+        if (metrics?.timing) {
+            metrics.timing.eventDetailFocusScore = Number(stats.focusScoreMs || 0);
+            metrics.timing.eventDetailRerank = Number(stats.rerankMs || 0);
+            metrics.timing.eventDetailRetrieval = elapsedMs;
+            metrics.timing.total = Number(metrics.timing.total || 0) + elapsedMs;
+            metrics.timing.externalTotal = Number(metrics.timing.externalTotal || 0) + Number(stats.rerankMs || 0);
+            metrics.timing.localKnownTotal = Number(metrics.timing.localKnownTotal || 0)
+                + Math.max(0, elapsedMs - Number(stats.rerankMs || 0));
+        }
+        for (const failure of diagnostics.failures) {
+            recordExternalFailure(metrics, { stage: 'event-detail-rerank', ...failure });
+        }
+        return result.items;
+    } catch (error) {
+        const elapsedMs = Math.round(performance.now() - startedAt);
+        xbLog.warn(MODULE_ID, 'Event detail retrieval failed; keep the existing prompt', error);
+        if (metrics?.evidence) {
+            metrics.evidence.eventDetailStatus = 'failed';
+            metrics.evidence.eventDetailItems = 0;
+            metrics.evidence.eventDetailTime = elapsedMs;
+        }
+        if (metrics?.timing) {
+            metrics.timing.eventDetailRetrieval = elapsedMs;
+            metrics.timing.total = Number(metrics.timing.total || 0) + elapsedMs;
+            metrics.timing.localKnownTotal = Number(metrics.timing.localKnownTotal || 0) + elapsedMs;
+        }
+        return [];
+    } finally {
+        await releaseEventDetailContext(context, metrics);
+    }
+}
+
+export async function releaseEventDetailContext(context, metrics) {
+    const startedAt = performance.now();
+    try {
+        return await releaseEventDetailRuntimeLease(context, endRecallRuntimeSession);
+    } catch (error) {
+        xbLog.warn(MODULE_ID, 'Deferred event-detail runtime session release failed', error);
+        return false;
+    } finally {
+        if (metrics?.timing) {
+            metrics.timing.runtimeEndSession = Number(metrics.timing.runtimeEndSession || 0)
+                + Math.round(performance.now() - startedAt);
+        }
+    }
+}
+
 function finalizeRecallTiming(metrics, totalStart) {
     if (!metrics?.timing) return;
     const timing = metrics.timing;
@@ -1237,7 +1318,12 @@ function finalizeRecallTiming(metrics, totalStart) {
 export async function recallMemory(allEvents, vectorConfig, options = {}) {
     const T0 = performance.now();
     const { chat, chatId, name1 } = getContext();
-    const { pendingUserMessage = null, excludeLastAi = false, stageObserver = null } = options;
+    const {
+        pendingUserMessage = null,
+        excludeLastAi = false,
+        stageObserver = null,
+        deferRuntimeRelease = false,
+    } = options;
     const captureStages = typeof stageObserver === 'function';
 
     const metrics = createMetrics();
@@ -1389,6 +1475,7 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
     }
 
     let runtimeLease = null;
+    try {
     const T_Runtime_Begin_Start = performance.now();
     if (chatId) {
         runtimeLease = await beginRecallRuntimeSession(chatId, { reason: 'recallMemory' });
@@ -1398,7 +1485,6 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
     }
     metrics.timing.runtimeBeginSession = Math.round(performance.now() - T_Runtime_Begin_Start);
 
-    try {
     const T_R1_Anchor_Start = performance.now();
     const { hits: anchorHits_v0 } = await recallAnchors(queryVector_v0, vectorConfig, null, snapshot);
     const r1AnchorTime = Math.round(performance.now() - T_R1_Anchor_Start);
@@ -1733,6 +1819,7 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
     metrics.event.causalChainDepth = causalMaxDepth;
     metrics.event.causalCount = causalChain.length;
 
+    let eventRerankApplied = false;
     if (vectorConfig?.eventRerankEnabled === true) {
         const eventRerank = await rerankEventsForPrompt(eventHits, {
             query: bundle.focusQuery,
@@ -1762,8 +1849,35 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
         }
         if (eventRerank.status === 'applied') {
             eventHits = eventRerank.events;
+            eventRerankApplied = true;
         } else if (eventRerank.status !== 'skipped') {
             xbLog.warn(MODULE_ID, `Event rerank ${eventRerank.status}; keep original event order`);
+        }
+    }
+
+    let eventDetailContext = null;
+    if (vectorConfig?.eventDetailLaneEnabled === true) {
+        if (!eventRerankApplied) {
+            metrics.evidence.eventDetailStatus = 'skipped-event-rerank';
+        } else if (!eventHits.some(item => item?._recallType === 'DIRECT')) {
+            metrics.evidence.eventDetailStatus = 'skipped-no-direct-events';
+        } else {
+            const temporalCarrier = buildTemporalTurnCarrier({
+                chat,
+                query: bundle.focusQuery,
+                userName: name1,
+            });
+            eventDetailContext = {
+                chatId,
+                focusQuery: bundle.focusQuery,
+                focusVector: r1Vectors.at(-1) || null,
+                timeMarker: temporalCarrier.marker,
+                temporalFloors: temporalCarrier.exactFloors,
+                temporalCarrier,
+                parentLimit: 20,
+                childLimit: 60,
+            };
+            metrics.evidence.eventDetailStatus = 'ready';
         }
     }
 
@@ -1794,11 +1908,20 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
         xbLog.info(MODULE_ID, `[Recall v9] Diffusion: ${metrics.diffusion?.seedCount || 0} seeds -> ${metrics.diffusion?.pprActivated || 0} activated -> ${metrics.diffusion?.finalCount || 0} final (${metrics.diffusion?.time || 0}ms | graph=${metrics.diffusion?.buildTime || 0}ms ppr=${metrics.diffusion?.pprTime || 0}ms post=${metrics.diffusion?.postVerifyTime || 0}ms)`);
     }
 
+    if (eventDetailContext && deferRuntimeRelease) {
+        runtimeLease = transferEventDetailRuntimeLease(
+            eventDetailContext,
+            runtimeLease,
+            true,
+        );
+    }
+
     return {
         events: eventHits,
         causalChain,
         l0Selected,
         l1ByFloor,
+        eventDetailContext,
         focusEntities: focusTerms,
         focusTerms,
         focusCharacters,

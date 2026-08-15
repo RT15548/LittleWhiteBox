@@ -16,11 +16,17 @@ import { getContext } from "../../../../../../extensions.js";
 import { xbLog } from "../../../core/debug-core.js";
 import { getSummaryStore, getFacts, isRelationFact } from "../data/store.js";
 import { getVectorConfig, getSummaryPanelConfig, getSettings, DEFAULT_MEMORY_PROMPT_TEMPLATE } from "../data/config.js";
-import { recallMemory } from "../vector/retrieval/recall.js";
+import {
+    hydrateSelectedEventDetails,
+    recallMemory,
+    releaseEventDetailContext,
+} from "../vector/retrieval/recall.js";
+import { selectPackedEventDetails } from "../vector/retrieval/event-detail-admission.js";
 import { getMeta } from "../vector/storage/chunk-store.js";
 import { getStateAtoms } from "../vector/storage/state-store.js";
 import { getEngineFingerprint } from "../vector/utils/embedder.js";
 import { buildTrustedCharacters } from "../vector/retrieval/entity-lexicon.js";
+import { formatEventDetailPromptLine } from "./event-detail-presentation.js";
 
 // Metrics
 import { formatMetricsLog, detectIssues } from "../vector/retrieval/metrics.js";
@@ -52,6 +58,8 @@ const EVENT_BUDGET_MAX = 5000;
 const RELATED_EVENT_MAX = 500;
 const SUMMARIZED_EVIDENCE_MAX = 2000;
 const UNSUMMARIZED_EVIDENCE_MAX = 2000;
+const EVENT_DETAIL_EVIDENCE_MAX = 1500;
+const EVENT_DETAIL_TOP_N = 24;
 const TOP_N_STAR = 5;
 
 // L0 显示文本：分号拼接 vs 多行模式的阈值
@@ -947,6 +955,8 @@ function factsInBudgetOrder(grouped) {
  */
 async function buildVectorPrompt(store, recallResult, causalById, focusCharacters, meta, metrics, options = {}) {
     const T_Start = performance.now();
+    const deferredDetailContext = recallResult?.eventDetailContext || null;
+    try {
 
     const data = store.json || {};
     const total = { used: 0, max: SHARED_POOL_MAX };
@@ -961,6 +971,7 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
         constraints: { lines: [], tokens: 0 },
         directEvents: { lines: [], tokens: 0 },
         relatedEvents: { lines: [], tokens: 0 },
+        eventDetailEvidence: { lines: [], tokens: 0 },
         distantEvidence: { lines: [], tokens: 0 },
         recentEvidence: { lines: [], tokens: 0 },
         arcs: { lines: [], tokens: 0 },
@@ -973,6 +984,7 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
         arc: { count: 0, tokens: 0 },
         event: { selected: 0, tokens: 0 },
         evidence: { l0InEvents: 0, l1InEvents: 0, tokens: 0 },
+        eventDetailEvidence: { units: 0, tokens: 0 },
         distantEvidence: { units: 0, tokens: 0 },
         recentEvidence: { units: 0, tokens: 0 },
     };
@@ -1363,6 +1375,21 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
         }
     }
 
+    let eventDetailL1 = Array.isArray(recallResult?.eventDetailL1)
+        ? recallResult.eventDetailL1
+        : null;
+    if (!eventDetailL1 && recallResult?.eventDetailContext) {
+        const selectedDirectHits = selectedDirect.map(selected => candidates[selected.candidateRank]);
+        eventDetailL1 = await hydrateSelectedEventDetails(
+            selectedDirectHits,
+            recallResult.eventDetailContext,
+            metrics,
+        );
+        recallResult.eventDetailL1 = eventDetailL1;
+        recallResult.eventDetailContext = null;
+    }
+    eventDetailL1 ||= [];
+
     // 排序
     selectedDirect.sort((a, b) => getEventSortKey(a.event) - getEventSortKey(b.event));
     selectedRelated.sort((a, b) => getEventSortKey(a.event) - getEventSortKey(b.event));
@@ -1387,6 +1414,40 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
     eventDetails.relatedCount = selectedRelated.length;
     assembled.directEvents.lines = directEventTexts;
     assembled.relatedEvents.lines = relatedEventTexts;
+
+    if (evidenceTrace) {
+        for (const item of eventDetailL1) {
+            evidenceTrace.floor('final', item.floor, 'event-detail-l1', item.score, item.id);
+        }
+    }
+    if (eventDetailL1.length && total.used < total.max) {
+        const detailBudgetMax = Math.min(EVENT_DETAIL_EVIDENCE_MAX, total.max - total.used);
+        const { name1, name2 } = getContext();
+        const lineByChunkId = new Map(eventDetailL1.map(item => [
+            item.chunkId,
+            formatEventDetailPromptLine(item, { userName: name1, characterName: name2 }),
+        ]));
+        const packed = selectPackedEventDetails(eventDetailL1, {
+            limit: EVENT_DETAIL_TOP_N,
+            budget: detailBudgetMax,
+            costFor: item => estimateTokens(lineByChunkId.get(item.chunkId)),
+        });
+        for (const item of packed.selected) {
+            assembled.eventDetailEvidence.lines.push(lineByChunkId.get(item.chunkId));
+            injectionStats.eventDetailEvidence.units++;
+            if (evidenceTrace) {
+                evidenceTrace.floor('prompt', item.floor, 'event-detail-l1', item.score, item.id);
+            }
+        }
+        assembled.eventDetailEvidence.tokens = packed.used;
+        total.used += packed.used;
+        injectionStats.eventDetailEvidence.tokens = packed.used;
+        if (metrics?.evidence) {
+            metrics.evidence.eventDetailPromptItems = packed.selected.length;
+            metrics.evidence.eventDetailPromptTokens = packed.used;
+            metrics.evidence.eventDetailGuardedChunkId = packed.guardedChunkId;
+        }
+    }
 
     // ═══════════════════════════════════════════════════════════════════════
     // [Evidence - Distant] 远期证据（已总结范围，未被事件消费的 L0）
@@ -1532,6 +1593,9 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
     if (assembled.relatedEvents.lines.length) {
         sections.push(`[其他人的事] 别人经历的类似事\n\n${assembled.relatedEvents.lines.join("\n\n")}`);
     }
+    if (assembled.eventDetailEvidence.lines.length) {
+        sections.push(`[原文细节] 可能直接相关的话\n${assembled.eventDetailEvidence.lines.join("\n")}`);
+    }
     if (assembled.distantEvidence.lines.length) {
         sections.push(`[零散记忆] 没归入事件的片段\n${assembled.distantEvidence.lines.join("\n")}`);
     }
@@ -1563,6 +1627,7 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
         if (assembled.constraints.lines.length) metrics.formatting.sectionsIncluded.push('constraints');
         if (assembled.directEvents.lines.length) metrics.formatting.sectionsIncluded.push('direct_events');
         if (assembled.relatedEvents.lines.length) metrics.formatting.sectionsIncluded.push('related_events');
+        if (assembled.eventDetailEvidence.lines.length) metrics.formatting.sectionsIncluded.push('event_detail_evidence');
         if (assembled.distantEvidence.lines.length) metrics.formatting.sectionsIncluded.push('distant_evidence');
         if (assembled.recentEvidence.lines.length) metrics.formatting.sectionsIncluded.push('recent_evidence');
         if (assembled.arcs.lines.length) metrics.formatting.sectionsIncluded.push('arcs');
@@ -1578,12 +1643,15 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
         metrics.budget.breakdown = {
             constraints: assembled.constraints.tokens,
             events: injectionStats.event.tokens,
+            eventDetailEvidence: injectionStats.eventDetailEvidence.tokens,
             distantEvidence: injectionStats.distantEvidence.tokens,
             recentEvidence: injectionStats.recentEvidence.tokens,
             arcs: assembled.arcs.tokens,
         };
 
-        metrics.evidence.tokens = injectionStats.distantEvidence.tokens + injectionStats.recentEvidence.tokens;
+        metrics.evidence.tokens = injectionStats.eventDetailEvidence.tokens
+            + injectionStats.distantEvidence.tokens
+            + injectionStats.recentEvidence.tokens;
         metrics.evidence.recentSource = 'all_l0_window';
         metrics.evidence.recentL1Attached = 0;
         metrics.evidence.assemblyTime = Math.round(
@@ -1619,6 +1687,14 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
         metrics,
         ...(evidenceTrace ? { evidenceTrace: evidenceTrace.value } : {}),
     };
+    } finally {
+        if (deferredDetailContext) {
+            await releaseEventDetailContext(deferredDetailContext, metrics);
+        }
+        if (recallResult?.eventDetailContext === deferredDetailContext) {
+            recallResult.eventDetailContext = null;
+        }
+    }
 }
 
 export async function buildVectorPromptForReplay(store, recallResult, causalById, focusCharacters, meta, metrics) {
@@ -1680,6 +1756,7 @@ export async function buildVectorPromptText(excludeLastAi = false, hooks = {}) {
         recallResult = await recallMemory(allEvents, vectorCfg, {
             excludeLastAi,
             pendingUserMessage,
+            deferRuntimeRelease: vectorCfg.eventDetailLaneEnabled === true,
         });
 
         recallResult = {
@@ -1701,6 +1778,10 @@ export async function buildVectorPromptText(excludeLastAi = false, hooks = {}) {
                 .filter(x => x[0])
         );
     } catch (e) {
+        if (recallResult?.eventDetailContext) {
+            await releaseEventDetailContext(recallResult.eventDetailContext, recallResult?.metrics);
+        }
+        if (recallResult?.eventDetailContext) recallResult.eventDetailContext = null;
         xbLog.error(MODULE_ID, "向量召回失败", e);
 
         if (echo && canNotifyRecallFail()) {

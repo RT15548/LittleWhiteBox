@@ -290,6 +290,7 @@
             engine: 'online',
             l0Concurrency: 10,
             eventRerankEnabled: false,
+            eventDetailLaneEnabled: false,
             twoPassEventPackingEnabled: false,
             l0Api: {
                 provider: 'siliconflow', url: 'https://api.siliconflow.cn/v1', key: '', model: 'Qwen/Qwen3-8B', modelCache: [],
@@ -403,6 +404,7 @@
             base.engine = 'online';
             base.l0Concurrency = Math.max(1, Math.min(50, Number(raw.l0Concurrency) || 10));
             base.eventRerankEnabled = raw.eventRerankEnabled === true;
+            base.eventDetailLaneEnabled = base.eventRerankEnabled && raw.eventDetailLaneEnabled === true;
             base.twoPassEventPackingEnabled = raw.twoPassEventPackingEnabled === true;
             Object.assign(base.l0Api, {
                 provider: raw.l0Api?.provider || legacyOnline.provider || base.l0Api.provider,
@@ -525,6 +527,24 @@
         }
     }
 
+    function syncEventDetailLaneControl() {
+        const eventRerank = $('vector-event-rerank-enabled');
+        const eventDetail = $('vector-event-detail-lane-enabled');
+        if (!eventRerank || !eventDetail) return;
+
+        const enabled = eventRerank.checked === true;
+        eventDetail.disabled = !enabled;
+        const title = enabled ? '' : '需先开启“实验性：精排事件摘要”';
+        const label = eventDetail.closest('.settings-checkbox');
+        eventDetail.title = title;
+        if (label) {
+            label.title = title;
+            label.classList.toggle('is-disabled', !enabled);
+            label.setAttribute('aria-disabled', String(!enabled));
+        }
+        if (!enabled) eventDetail.checked = false;
+    }
+
     function loadConfig() {
         try {
             const s = localStorage.getItem('summary_panel_config');
@@ -604,6 +624,7 @@
                     engine: 'online',
                     l0Concurrency: 10,
                     eventRerankEnabled: false,
+                    eventDetailLaneEnabled: false,
                     twoPassEventPackingEnabled: false,
                     l0Api: { provider: 'siliconflow', url: 'https://api.siliconflow.cn/v1', key: '', model: 'Qwen/Qwen3-8B', modelCache: [] },
                     embeddingApi: { provider: 'siliconflow', url: 'https://api.siliconflow.cn/v1', key: '', model: 'BAAI/bge-m3', modelCache: [] },
@@ -798,11 +819,14 @@
     }
 
     function getVectorConfig() {
+        const eventRerankEnabled = $('vector-event-rerank-enabled')?.checked === true;
         return {
             enabled: $('vector-enabled')?.checked || false,
             engine: 'online',
             l0Concurrency: Math.max(1, Math.min(50, Number($('vector-l0-concurrency')?.value) || 10)),
-            eventRerankEnabled: $('vector-event-rerank-enabled')?.checked || false,
+            eventRerankEnabled,
+            eventDetailLaneEnabled: eventRerankEnabled
+                && $('vector-event-detail-lane-enabled')?.checked === true,
             twoPassEventPackingEnabled: $('vector-two-pass-event-packing-enabled')?.checked || false,
             l0Api: getVectorApiConfig('l0'),
             embeddingApi: getVectorApiConfig('embedding'),
@@ -817,6 +841,9 @@
         syncVectorBoundaryControl(cfg.enabled, config.ui.hideSummarized);
         $('vector-l0-concurrency').value = String(Math.max(1, Math.min(50, Number(cfg.l0Concurrency) || 10)));
         $('vector-event-rerank-enabled').checked = cfg.eventRerankEnabled === true;
+        $('vector-event-detail-lane-enabled').checked = cfg.eventRerankEnabled === true
+            && cfg.eventDetailLaneEnabled === true;
+        syncEventDetailLaneControl();
         $('vector-two-pass-event-packing-enabled').checked = cfg.twoPassEventPackingEnabled === true;
         loadVectorApiConfig('l0', cfg.l0Api || {});
         loadVectorApiConfig('embedding', cfg.embeddingApi || {});
@@ -1004,6 +1031,8 @@
             $('vector-config-area').classList.toggle('hidden', !e.target.checked);
             syncVectorBoundaryControl(e.target.checked, config.ui.hideSummarized);
         };
+        $('vector-event-rerank-enabled').onchange = syncEventDetailLaneControl;
+        syncEventDetailLaneControl();
         syncVectorBoundaryControl(config.vector?.enabled, config.ui.hideSummarized);
 
         ['l0', 'embedding', 'rerank'].forEach(prefix => {

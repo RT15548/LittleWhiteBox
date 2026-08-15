@@ -124,6 +124,7 @@ export function scoreL1FromRecords(chunks = [], chunkVectors = [], queryVector) 
             isUser: chunk.isUser,
             text: chunk.text,
             _cosineScore: vec?.length ? cosineSimilarity(query, vec) : 0,
+            _vectorPresent: !!vec?.length,
         });
     }
     stats.scoreTime = Math.round(performance.now() - scoreStarted);

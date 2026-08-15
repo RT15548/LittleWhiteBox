@@ -2665,6 +2665,11 @@ h1 span {
     user-select: none;
 }
 
+.settings-checkbox.is-disabled {
+    cursor: not-allowed;
+    opacity: .55;
+}
+
 .settings-checkbox input[type="checkbox"] {
     display: none;
 }

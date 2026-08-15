@@ -380,13 +380,15 @@ function normalizeVectorConfig(rawVector = null) {
     const sharedProvider = String(legacyOnline.provider || DEFAULT_VECTOR_PROVIDER).toLowerCase();
     const sharedUrl = String(legacyOnline.url || (sharedProvider === "openrouter" ? DEFAULT_OPENROUTER_URL : DEFAULT_L0_URL)).trim();
     const sharedKey = String(legacyOnline.key || "").trim();
+    const eventRerankEnabled = rawVector?.eventRerankEnabled === true;
 
     return {
         enabled: !!rawVector?.enabled,
         engine: "online",
         l0Concurrency: Math.max(1, Math.min(50, Number(rawVector?.l0Concurrency) || 10)),
-        eventRerankEnabled: rawVector?.eventRerankEnabled === true,
+        eventRerankEnabled,
         twoPassEventPackingEnabled: rawVector?.twoPassEventPackingEnabled === true,
+        eventDetailLaneEnabled: eventRerankEnabled && rawVector?.eventDetailLaneEnabled === true,
         l0Api: normalizeOpenAiCompatApiConfig(rawVector?.l0Api, {
             provider: sharedProvider,
             url: sharedUrl,

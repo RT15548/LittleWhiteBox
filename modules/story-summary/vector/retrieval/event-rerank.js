@@ -2,43 +2,16 @@
 
 import { getRerankBatchDiagnostics, rerankChunks } from '../llm/reranker.js';
 import { scoreRecallRuntimeEvents } from '../runtime/runtime.js';
+import {
+    eventMatchesTemporalFloors,
+    extractFullTimeMarker,
+    findExactTimeFloors,
+} from './temporal-turn-carrier.js';
 
 const EVENT_RERANK_CANDIDATE_MAX = 60;
 
-function normalizeTimeText(value) {
-    return String(value || '').replace(/\s+/g, '').replace(/：/g, ':');
-}
-
-function extractExactTimeMarker(value) {
-    return normalizeTimeText(value).match(/(?:\d{2,4}年)?\d{1,2}月\d{1,2}日\d{1,2}:\d{2}/)?.[0] || '';
-}
-
-function findExactTimeFloors(chat, marker) {
-    if (!marker) return [];
-    const floors = [];
-    for (let floor = 0; floor < (chat || []).length; floor++) {
-        if (normalizeTimeText(chat[floor]?.mes).includes(marker)) floors.push(floor);
-    }
-    return floors;
-}
-
-function parseEventFloorRange(summary) {
-    const match = String(summary || '').match(/\(#(\d+)(?:-(\d+))?\)/);
-    if (!match) return null;
-    return {
-        start: Number(match[1]) - 1,
-        end: Number(match[2] || match[1]) - 1,
-    };
-}
-
 function overlapsExactTimeFloor(item, exactTimeFloors) {
-    if (!exactTimeFloors.length) return false;
-    const range = parseEventFloorRange(item?.event?.summary);
-    if (!range) return false;
-    return exactTimeFloors.some(floor => (
-        (floor >= range.start && floor <= range.end)
-        || floor === range.end + 1
-    ));
+    return eventMatchesTemporalFloors(item?.event, exactTimeFloors);
 }
 
 function buildEventDocument(event) {
@@ -84,7 +57,7 @@ async function selectCandidates(source, { query, focusVector, chatId, chat }) {
     const scoreMap = new Map((scored?.scores || []).map(item => [item.eventId, item.similarity]));
     if (!scoreMap.size) return null;
 
-    const exactTimeMarker = extractExactTimeMarker(query);
+    const exactTimeMarker = extractFullTimeMarker(query) || '';
     const exactTimeFloors = findExactTimeFloors(chat, exactTimeMarker);
     const ranked = eligible
         .map((item, sourceIndex) => ({

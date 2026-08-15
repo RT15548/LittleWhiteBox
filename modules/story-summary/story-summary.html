@@ -655,6 +655,12 @@
                                                     <span class="checkbox-label">实验性：精排事件摘要</span>
                                                 </label>
                                                 <div class="settings-hint">只重排已经召回的事件；每次记忆召回最多增加 3 次 Rerank 请求。</div>
+                                                <label class="settings-checkbox">
+                                                    <input type="checkbox" id="vector-event-detail-lane-enabled">
+                                                    <span class="checkbox-mark"></span>
+                                                    <span class="checkbox-label">实验性：补充原文细节</span>
+                                                </label>
+                                                <div class="settings-hint">需同时开启事件精排；只在已选事件范围内补充原文片段。会增加一次原文精排等待（最多 3 批并发），因此默认关闭。</div>
                                             </div>
                                         </details>
                                     </div>
