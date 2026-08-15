@@ -42,7 +42,7 @@ Incremental_Summary_Requirements:
     - Causal_Chain: 为每个新事件标注直接前因事件ID（causedBy）。仅在因果关系明确（直接导致/明确动机/承接后果）时填写；不明确时填[]完全正常。0-2个，只填 evt-数字，指向已存在或本次新输出事件。
   - Character_Dynamics: 识别新角色，追踪关系趋势（破裂/厌恶/反感/陌生/投缘/亲密/交融）
   - Arc_Tracking: 更新角色弧光轨迹与成长进度(0.0-1.0)
-  - Fact_Tracking: 维护 SPO 三元组知识图谱。追踪生死、物品归属、位置、关系等硬性事实。采用 KV 覆盖模型（s+p 为键）。
+  - Fact_Tracking: 维护 SPO 三元组知识图谱。追踪生死、物品归属、位置、关系、稳定辨识性身体特征等硬性事实。采用 KV 覆盖模型（s+p 为键）。
 </task_settings>
 ---
 Story Analyst:
@@ -138,7 +138,8 @@ Core rules:
 2) Only output facts that are NEW or CHANGED in the new dialogue. Do NOT repeat unchanged facts.
 3) isState meaning:
    - isState: true  -> core constraints that must stay stable and should NEVER be auto-deleted
-                    (identity, location, life/death, ownership, relationship status, binding rules)
+                    (identity, location, life/death, ownership, relationship status,
+                      stable distinctive physical traits, binding rules)
    - isState: false -> non-core facts / soft memories that may be pruned by capacity limits later
 4) Relationship facts:
    - Use predicate format: "对X的看法" (X is the target person)
@@ -190,12 +191,15 @@ Before generating, observe the USER and analyze carefully:
 - What NEW characters appeared for the first time?
 - What relationship CHANGES happened?
 - What arc PROGRESS was made?
-- What facts changed? (status/position/ownership/relationships)
+- What facts changed? (status/position/ownership/relationships/stable distinctive physical traits)
 
 ## factUpdates 规则
 - 目的: 纠错 & 世界一致性约束，只记录硬性事实
 - s+p 为键，相同键会覆盖旧值
-- isState: true=核心约束(位置/身份/生死/关系)，false=有容量上限会被清理
+- isState: true=核心约束(位置/身份/生死/关系/稳定辨识性身体特征)，false=有容量上限会被清理
+- 外貌类统一使用谓词 p="身体特征"；只记录稳定、有辨识度的特征，不记录临时衣着、姿势、表情和普通伤势
+- "身体特征" 的 o 必须写当前完整值。由于相同 s+p 会覆盖旧值，新增特征时必须把已有特征一并写全，不能只写新增部分
+- 例：已有 {"s":"鹿椿若","p":"身体特征","o":"头顶白色分叉鹿角","isState":true}，后续发现鹿耳时应输出 {"s":"鹿椿若","p":"身体特征","o":"头顶白色分叉鹿角，鹿耳","isState":true}，不能只写"鹿耳"
 - 关系类: p="对X的看法"，trend 必填（破裂|厌恶|反感|陌生|投缘|亲密|交融）
 - 删除: {s, p, retracted: true}，不需要 o 字段
 - 更新: {s, p, o, isState, trend?}
