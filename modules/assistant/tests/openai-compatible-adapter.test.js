@@ -226,7 +226,7 @@ test('openai-compatible adapter falls back to top-level tool calls when preserve
     }]);
 });
 
-test('openai-compatible replay prefers repaired top-level tool arguments over raw preserved payload', () => {
+test('openai-compatible unsigned GPT replay prefers repaired top-level tool arguments over raw preserved payload', () => {
     const repairedArguments = '{"filePath":"book/chapters/001.md","content":"她说：\\"回来。\\"\\n第二行"}';
     const rawBrokenArguments = '{"filePath":"book/chapters/001.md","content":"她说："回来。"\n第二行"}';
     const nativeMessages = buildNativeMessages({
@@ -248,6 +248,7 @@ test('openai-compatible replay prefers repaired top-level tool arguments over ra
                         role: 'assistant',
                         content: '',
                         tool_calls: [{
+                            index: 0,
                             id: 'call-write',
                             type: 'function',
                             function: {
@@ -264,9 +265,16 @@ test('openai-compatible replay prefers repaired top-level tool arguments over ra
                 content: '{"ok":true}',
             },
         ],
-    }, 'compat-model');
+    }, 'gpt-5');
 
-    assert.equal(nativeMessages[1].tool_calls[0].function.arguments, repairedArguments);
+    assert.deepEqual(nativeMessages[1].tool_calls, [{
+        id: 'call-write',
+        type: 'function',
+        function: {
+            name: 'Write',
+            arguments: repairedArguments,
+        },
+    }]);
 
     const taggedMessages = buildTaggedMessages({
         systemPrompt: '你是测试助手。',
@@ -278,6 +286,265 @@ test('openai-compatible replay prefers repaired top-level tool arguments over ra
     ));
     assert.match(taggedAssistant.content, /\\"回来。\\"/);
     assert.doesNotMatch(taggedAssistant.content, /她说："回来。"/);
+});
+
+test('openai-compatible replay keeps Gemini signed tool calls exactly as preserved', () => {
+    const signedArguments = '{"filePath":"book/state.md"}';
+    const messages = buildNativeMessages({
+        messages: [
+            { role: 'user', content: '继续。' },
+            {
+                role: 'assistant',
+                content: '',
+                tool_calls: [{
+                    id: 'call-read',
+                    type: 'function',
+                    function: {
+                        name: 'Read',
+                        // 上层重建的参数经过修复流程，字节可能与签名时不同，绝不能覆盖签名调用。
+                        arguments: '{ "filePath": "book/state.md" }',
+                    },
+                }],
+                providerPayload: {
+                    openaiCompatibleMessage: {
+                        role: 'assistant',
+                        content: '',
+                        tool_calls: [{
+                            index: 0,
+                            id: 'call-read',
+                            type: 'function',
+                            function: {
+                                name: 'Read',
+                                arguments: signedArguments,
+                            },
+                            extra_content: {
+                                google: {
+                                    thoughtSignature: 'gemini-signature',
+                                },
+                            },
+                        }],
+                    },
+                },
+            },
+            {
+                role: 'tool',
+                tool_call_id: 'call-read',
+                content: '{"ok":true}',
+            },
+        ],
+    }, '[v]gemini-3.7-flash');
+
+    assert.deepEqual(messages[1].tool_calls, [{
+        id: 'call-read',
+        type: 'function',
+        function: {
+            name: 'Read',
+            arguments: signedArguments,
+        },
+        extra_content: {
+            google: {
+                thoughtSignature: 'gemini-signature',
+            },
+        },
+    }]);
+    assert.equal(messages[2].tool_call_id, 'call-read');
+});
+
+test('openai-compatible streaming derives tool calls and replay payload from one snapshot', async () => {
+    const adapter = new OpenAICompatibleAdapter({
+        apiKey: 'test-key',
+        baseUrl: 'https://signed-single-source.example/v1',
+        model: 'gemini-3-pro',
+    });
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => createSseResponse([
+        {
+            model: 'gemini-3-pro',
+            choices: [{
+                delta: {
+                    tool_calls: [
+                        {
+                            index: 0,
+                            id: 'call-a',
+                            type: 'function',
+                            function: { name: 'Read', arguments: '{"filePath":' },
+                            extra_content: { google: { thought_signature: 'sig-a' } },
+                        },
+                        {
+                            index: 1,
+                            id: 'call-b',
+                            type: 'function',
+                            function: { name: 'Grep', arguments: '{"pattern":' },
+                        },
+                    ],
+                },
+            }],
+        },
+        {
+            choices: [{
+                delta: {
+                    tool_calls: [
+                        {
+                            index: 0,
+                            id: '',
+                            function: { arguments: '"a.md"}' },
+                            extra_content: { google: { thought_signature: '' } },
+                        },
+                        { index: 1, id: '', function: { arguments: '"todo"}' } },
+                    ],
+                },
+                finish_reason: 'tool_calls',
+            }],
+        },
+    ]);
+
+    try {
+        const result = await adapter.chat({
+            messages: [{ role: 'user', content: '并行读取。' }],
+            tools: [{ function: { name: 'Read' } }, { function: { name: 'Grep' } }],
+            onStreamProgress: () => {},
+        });
+
+        const preservedToolCalls = result.providerPayload.openaiCompatibleMessage.tool_calls;
+        assert.equal(result.toolCalls.length, 2);
+        assert.equal(preservedToolCalls.length, result.toolCalls.length);
+        assert.deepEqual(
+            result.toolCalls.map((item) => [item.id, item.name, item.arguments]),
+            [
+                ['call-a', 'Read', '{"filePath":"a.md"}'],
+                ['call-b', 'Grep', '{"pattern":"todo"}'],
+            ],
+        );
+        assert.deepEqual(
+            preservedToolCalls.map((item) => [item.id, item.function.arguments]),
+            result.toolCalls.map((item) => [item.id, item.arguments]),
+        );
+        assert.equal(preservedToolCalls[0].extra_content.google.thought_signature, 'sig-a');
+        assert.equal(Object.hasOwn(preservedToolCalls[1], 'extra_content'), false);
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
+test('openai-compatible streaming rejects a truncated unsigned member of a signed parallel batch', async () => {
+    const adapter = new OpenAICompatibleAdapter({
+        apiKey: 'test-key',
+        baseUrl: 'https://signed-corrupted.example/v1',
+        model: 'gemini-3-pro',
+    });
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => createSseResponse([{
+        model: 'gemini-3-pro',
+        choices: [{
+            delta: {
+                tool_calls: [
+                    {
+                        index: 0,
+                        id: 'call-read',
+                        type: 'function',
+                        function: { name: 'Read', arguments: '{"filePath":"state.md"}' },
+                        extra_content: { google: { thought_signature: 'gemini-signature' } },
+                    },
+                    {
+                        index: 1,
+                        id: 'call-grep',
+                        type: 'function',
+                        function: { name: 'Grep', arguments: '{"pattern":' },
+                    },
+                ],
+            },
+            finish_reason: 'tool_calls',
+        }],
+    }]);
+
+    try {
+        // 签名调用必须原样回放：参数被截断时既不能改写也不能丢签名，只能终止本轮让上层重试。
+        await assert.rejects(() => adapter.chat({
+            messages: [{ role: 'user', content: '读取状态。' }],
+            tools: [{ function: { name: 'Read' } }, { function: { name: 'Grep' } }],
+            onStreamProgress: () => {},
+        }), /openai_compatible_signed_tool_call_corrupted/);
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
+test('openai-compatible streaming validates signed arguments before replay normalization', async () => {
+    const adapter = new OpenAICompatibleAdapter({
+        apiKey: 'test-key',
+        baseUrl: 'https://signed-missing-arguments.example/v1',
+        model: 'gemini-3-pro',
+    });
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => createSseResponse([{
+        model: 'gemini-3-pro',
+        choices: [{
+            delta: {
+                tool_calls: [{
+                    index: 0,
+                    id: 'call-read',
+                    type: 'function',
+                    function: { name: 'Read' },
+                    extra_content: { google: { thought_signature: 'gemini-signature' } },
+                }],
+            },
+            finish_reason: 'tool_calls',
+        }],
+    }]);
+
+    try {
+        await assert.rejects(() => adapter.chat({
+            messages: [{ role: 'user', content: '读取状态。' }],
+            tools: [{ function: { name: 'Read' } }],
+            onStreamProgress: () => {},
+        }), (error) => {
+            assert.equal(error.message, 'openai_compatible_signed_tool_call_corrupted');
+            assert.equal(error.reason, 'invalid_function_arguments');
+            return true;
+        });
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
+test('openai-compatible adapter falls back when Google rejects reasoning_effort as an unknown name', async () => {
+    const config = {
+        apiKey: 'test-key',
+        baseUrl: 'https://google-unknown-name.example/v1beta/openai',
+        model: 'gemini-3-unknown-name-test',
+    };
+    const adapter = new OpenAICompatibleAdapter(config);
+    const requests = [];
+    adapter.client.chat.completions.create = async (body) => {
+        requests.push(body);
+        if (requests.length === 1) {
+            const error = new Error('[400 Bad Request] Invalid JSON payload received. Unknown name "reasoning_effort": Cannot find field.');
+            error.status = 400;
+            error.error = {
+                code: 400,
+                message: 'Invalid JSON payload received. Unknown name "reasoning_effort": Cannot find field.',
+                status: 'INVALID_ARGUMENT',
+            };
+            throw error;
+        }
+        return {
+            choices: [{
+                finish_reason: 'stop',
+                message: { role: 'assistant', content: 'fallback ok' },
+            }],
+            model: config.model,
+        };
+    };
+
+    const result = await adapter.chat({
+        messages: [{ role: 'user', content: 'hello' }],
+        reasoning: { enabled: true, effort: 'high' },
+    });
+
+    assert.equal(requests.length, 2);
+    assert.equal(requests[0].reasoning_effort, 'high');
+    assert.equal(Object.hasOwn(requests[1], 'reasoning_effort'), false);
+    assert.deepEqual(result.requestInspection.degraded, ['reasoning_effort_unsupported']);
 });
 
 test('openai-compatible tagged replay maps tool results from top-level tool calls without stale id bleed', () => {
@@ -493,6 +760,253 @@ test('openai-compatible adapter omits tool fields for pure text requests', async
     assert.equal(Object.hasOwn(requestBody, 'tool_choice'), false);
 });
 
+test('openai-compatible adapter sends reasoning_effort for Gemini and other reasoning models by default', () => {
+    const task = {
+        messages: [{ role: 'user', content: 'hello' }],
+        reasoning: {
+            enabled: true,
+            effort: 'high',
+        },
+    };
+    const geminiBody = new OpenAICompatibleAdapter({
+        apiKey: 'test-key',
+        baseUrl: 'https://example.com/v1',
+        model: '[v]gemini-3.7-flash',
+    }).buildRequestBody(task);
+    const gptBody = new OpenAICompatibleAdapter({
+        apiKey: 'test-key',
+        baseUrl: 'https://example.com/v1',
+        model: 'gpt-5',
+    }).buildRequestBody(task);
+    const deepSeekBody = new OpenAICompatibleAdapter({
+        apiKey: 'test-key',
+        baseUrl: 'https://example.com/v1',
+        model: 'deepseek-reasoner',
+    }).buildRequestBody(task);
+
+    assert.equal(geminiBody.reasoning_effort, 'high');
+    assert.equal(gptBody.reasoning_effort, 'high');
+    assert.equal(deepSeekBody.reasoning_effort, 'high');
+});
+
+test('openai-compatible adapter retries unsupported reasoning_effort once and caches the capability', async () => {
+    const config = {
+        apiKey: 'test-key',
+        baseUrl: 'https://reasoning-fallback.example/v1',
+        model: 'gemini-fallback-test',
+    };
+    const task = {
+        messages: [{ role: 'user', content: 'hello' }],
+        reasoning: { enabled: true, effort: 'high' },
+    };
+    const requests = [];
+    const adapter = new OpenAICompatibleAdapter(config);
+    adapter.client.chat.completions.create = async (body) => {
+        requests.push(body);
+        if (requests.length === 1) {
+            const error = new Error("Unsupported parameter: 'reasoning_effort'");
+            error.status = 400;
+            error.code = 'unsupported_parameter';
+            error.param = 'reasoning_effort';
+            throw error;
+        }
+        return {
+            choices: [{
+                finish_reason: 'stop',
+                message: { role: 'assistant', content: 'fallback ok' },
+            }],
+            model: config.model,
+        };
+    };
+
+    const result = await adapter.chat(task);
+
+    assert.equal(requests.length, 2);
+    assert.equal(requests[0].reasoning_effort, 'high');
+    assert.equal(Object.hasOwn(requests[1], 'reasoning_effort'), false);
+    assert.equal(Object.hasOwn(result.requestInspection.request.body, 'reasoning_effort'), false);
+
+    const cachedRequests = [];
+    const cachedAdapter = new OpenAICompatibleAdapter(config);
+    cachedAdapter.client.chat.completions.create = async (body) => {
+        cachedRequests.push(body);
+        return {
+            choices: [{
+                finish_reason: 'stop',
+                message: { role: 'assistant', content: 'cached fallback ok' },
+            }],
+            model: config.model,
+        };
+    };
+
+    await cachedAdapter.chat(task);
+    assert.equal(cachedRequests.length, 1);
+    assert.equal(Object.hasOwn(cachedRequests[0], 'reasoning_effort'), false);
+
+    const originalDateNow = Date.now;
+    const expiredRequests = [];
+    try {
+        Date.now = () => originalDateNow() + (60 * 60 * 1000);
+        const expiredAdapter = new OpenAICompatibleAdapter(config);
+        expiredAdapter.client.chat.completions.create = async (requestBody) => {
+            expiredRequests.push(requestBody);
+            return {
+                choices: [{
+                    finish_reason: 'stop',
+                    message: { role: 'assistant', content: 'capability probe restored' },
+                }],
+                model: config.model,
+            };
+        };
+        await expiredAdapter.chat(task);
+    } finally {
+        Date.now = originalDateNow;
+    }
+    assert.equal(expiredRequests[0].reasoning_effort, 'high');
+
+    const otherModelBody = new OpenAICompatibleAdapter({
+        ...config,
+        model: 'gemini-other-model',
+    }).buildRequestBody(task);
+    const otherBaseUrlBody = new OpenAICompatibleAdapter({
+        ...config,
+        baseUrl: 'https://reasoning-fallback-other.example/v1',
+    }).buildRequestBody(task);
+    assert.equal(otherModelBody.reasoning_effort, 'high');
+    assert.equal(otherBaseUrlBody.reasoning_effort, 'high');
+});
+
+test('openai-compatible adapter does not retry ambiguous reasoning_effort errors', async () => {
+    const config = {
+        apiKey: 'test-key',
+        baseUrl: 'https://reasoning-invalid-value.example/v1',
+        model: 'gemini-invalid-value-test',
+    };
+    const adapter = new OpenAICompatibleAdapter(config);
+    let requestCount = 0;
+    adapter.client.chat.completions.create = async () => {
+        requestCount += 1;
+        const error = new Error('Unsupported value for reasoning_effort: high');
+        error.status = 400;
+        error.code = 'unsupported_value';
+        error.param = 'reasoning_effort';
+        throw error;
+    };
+
+    await assert.rejects(() => adapter.chat({
+        messages: [{ role: 'user', content: 'hello' }],
+        reasoning: { enabled: true, effort: 'high' },
+    }), /Unsupported value for reasoning_effort/);
+    assert.equal(requestCount, 1);
+    assert.equal(new OpenAICompatibleAdapter(config).buildRequestBody({
+        messages: [{ role: 'user', content: 'hello' }],
+        reasoning: { enabled: true, effort: 'low' },
+    }).reasoning_effort, 'low');
+});
+
+test('openai-compatible adapter retries a rejected native stream before consuming events', async () => {
+    const adapter = new OpenAICompatibleAdapter({
+        apiKey: 'test-key',
+        baseUrl: 'https://reasoning-stream-fallback.example/v1',
+        model: 'gemini-stream-fallback-test',
+    });
+    const originalFetch = globalThis.fetch;
+    const requests = [];
+    globalThis.fetch = async (url, options = {}) => {
+        requests.push(JSON.parse(String(options.body || '{}')));
+        if (requests.length === 1) {
+            return {
+                ok: false,
+                status: 400,
+                text: async () => JSON.stringify({
+                    error: { message: 'Unrecognized request argument supplied: reasoning_effort' },
+                }),
+            };
+        }
+        return createSseResponse([{
+            model: 'gemini-stream-fallback-test',
+            choices: [{
+                index: 0,
+                delta: { role: 'assistant', content: 'stream fallback ok' },
+                finish_reason: 'stop',
+            }],
+        }]);
+    };
+
+    try {
+        const result = await adapter.chat({
+            messages: [{ role: 'user', content: 'hello' }],
+            reasoning: { enabled: true, effort: 'high' },
+            onStreamProgress: () => {},
+        });
+
+        assert.equal(result.text, 'stream fallback ok');
+        assert.equal(requests.length, 2);
+        assert.equal(requests[0].reasoning_effort, 'high');
+        assert.equal(Object.hasOwn(requests[1], 'reasoning_effort'), false);
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
+test('openai-compatible adapter never retries a native stream after the response is accepted', async () => {
+    const config = {
+        apiKey: 'test-key',
+        baseUrl: 'https://reasoning-stream-late-error.example/v1',
+        model: 'gemini-stream-late-error-test',
+    };
+    const adapter = new OpenAICompatibleAdapter(config);
+    const originalFetch = globalThis.fetch;
+    const progress = [];
+    let requestCount = 0;
+    const eventChunk = new TextEncoder().encode(`data: ${JSON.stringify({
+        model: config.model,
+        choices: [{
+            index: 0,
+            delta: { role: 'assistant', content: 'partial' },
+            finish_reason: null,
+        }],
+    })}\n\n`);
+    const lateError = new Error('Unknown parameter: reasoning_effort');
+    lateError.status = 400;
+    globalThis.fetch = async () => {
+        requestCount += 1;
+        let readCount = 0;
+        return {
+            ok: true,
+            status: 200,
+            body: {
+                getReader: () => ({
+                    read: async () => {
+                        readCount += 1;
+                        if (readCount === 1) {
+                            return { done: false, value: eventChunk };
+                        }
+                        throw lateError;
+                    },
+                }),
+            },
+        };
+    };
+
+    try {
+        await assert.rejects(() => adapter.chat({
+            messages: [{ role: 'user', content: 'hello' }],
+            reasoning: { enabled: true, effort: 'high' },
+            onStreamProgress: (snapshot) => progress.push(snapshot.text),
+        }), /Unknown parameter: reasoning_effort/);
+
+        assert.equal(requestCount, 1);
+        assert.deepEqual(progress, ['partial']);
+        assert.equal(new OpenAICompatibleAdapter(config).buildRequestBody({
+            messages: [{ role: 'user', content: 'hello' }],
+            reasoning: { enabled: true, effort: 'low' },
+        }).reasoning_effort, 'low');
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
 test('openai-compatible adapter ignores malformed non-streaming native tool calls', async () => {
     const adapter = new OpenAICompatibleAdapter({
         apiKey: 'test-key',
@@ -588,6 +1102,11 @@ test('openai-compatible adapter keeps streaming enabled in reasoning mode and pr
                             name: 'ReadSkillsCatalog',
                             arguments: '{}',
                         },
+                        extra_content: {
+                            google: {
+                                thoughtSignature: 'stream-signature',
+                            },
+                        },
                     }],
                 },
                 reasoning_content: '先确认可用技能，再决定下一步。',
@@ -638,6 +1157,11 @@ test('openai-compatible adapter keeps streaming enabled in reasoning mode and pr
                     function: {
                         name: 'ReadSkillsCatalog',
                         arguments: '{}',
+                    },
+                    extra_content: {
+                        google: {
+                            thoughtSignature: 'stream-signature',
+                        },
                     },
                 }],
             },

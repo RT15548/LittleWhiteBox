@@ -114,6 +114,313 @@ test('OpenAI-compatible native messages keep task system prompt in the actual re
     assert.equal(inspection.request.body.messages[0]?.content, 'You are the background manager.');
 });
 
+test('SillyTavern OpenAI-compatible retries Google unknown reasoning_effort without the field', async () => {
+    const config = {
+        baseUrl: 'https://st-google-reasoning-fallback.example/v1beta/openai',
+        apiKey: 'test-key',
+        model: 'gemini-st-reasoning-fallback-test',
+        toolMode: 'native',
+    };
+    const adapter = new SillyTavernOpenAICompatibleAdapter(config);
+    const originalFetch = globalThis.fetch;
+    const requests = [];
+    globalThis.fetch = async (_url, options = {}) => {
+        requests.push(JSON.parse(String(options.body || '{}')));
+        if (requests.length === 1) {
+            return createJsonResponse({
+                error: {
+                    code: 400,
+                    message: 'Invalid JSON payload received. Unknown name "reasoning_effort": Cannot find field.',
+                    status: 'INVALID_ARGUMENT',
+                },
+            }, false, 400);
+        }
+        return createJsonResponse({
+            model: config.model,
+            choices: [{
+                finish_reason: 'stop',
+                message: { role: 'assistant', content: 'fallback ok' },
+            }],
+        });
+    };
+
+    try {
+        const result = await adapter.chat({
+            messages: [{ role: 'user', content: 'hello' }],
+            reasoning: { enabled: true, effort: 'high' },
+        });
+
+        assert.equal(requests.length, 2);
+        assert.equal(requests[0].reasoning_effort, 'high');
+        assert.equal(Object.hasOwn(requests[1], 'reasoning_effort'), false);
+        assert.deepEqual(result.requestInspection.degraded, ['reasoning_effort_unsupported']);
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
+test('SillyTavern OpenAI-compatible retries a rejected reasoning stream before accepting it', async () => {
+    const config = {
+        baseUrl: 'https://st-google-reasoning-stream-fallback.example/v1beta/openai',
+        apiKey: 'test-key',
+        model: 'gemini-st-reasoning-stream-fallback-test',
+        toolMode: 'native',
+    };
+    const adapter = new SillyTavernOpenAICompatibleAdapter(config);
+    const originalFetch = globalThis.fetch;
+    const requests = [];
+    globalThis.fetch = async (_url, options = {}) => {
+        requests.push(JSON.parse(String(options.body || '{}')));
+        if (requests.length === 1) {
+            return createJsonResponse({
+                error: {
+                    code: 400,
+                    message: 'Invalid JSON payload received. Unknown name "reasoning_effort": Cannot find field.',
+                    status: 'INVALID_ARGUMENT',
+                },
+            }, false, 400);
+        }
+        return createSseResponse([{
+            model: config.model,
+            choices: [{
+                index: 0,
+                delta: { role: 'assistant', content: 'stream fallback ok' },
+                finish_reason: 'stop',
+            }],
+        }]);
+    };
+
+    try {
+        const result = await adapter.chat({
+            messages: [{ role: 'user', content: 'hello' }],
+            reasoning: { enabled: true, effort: 'high' },
+            onStreamProgress: () => {},
+        });
+
+        assert.equal(result.text, 'stream fallback ok');
+        assert.equal(requests.length, 2);
+        assert.equal(requests[0].reasoning_effort, 'high');
+        assert.equal(Object.hasOwn(requests[1], 'reasoning_effort'), false);
+        assert.deepEqual(result.requestInspection.degraded, ['reasoning_effort_unsupported']);
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
+test('SillyTavern OpenAI-compatible never retries a reasoning stream after accepting it', async () => {
+    const config = {
+        baseUrl: 'https://st-google-reasoning-stream-late-error.example/v1beta/openai',
+        apiKey: 'test-key',
+        model: 'gemini-st-reasoning-stream-late-error-test',
+        toolMode: 'native',
+    };
+    const adapter = new SillyTavernOpenAICompatibleAdapter(config);
+    const originalFetch = globalThis.fetch;
+    const progress = [];
+    let requestCount = 0;
+    const eventChunk = new TextEncoder().encode(`data: ${JSON.stringify({
+        model: config.model,
+        choices: [{
+            index: 0,
+            delta: { role: 'assistant', content: 'partial' },
+            finish_reason: null,
+        }],
+    })}\n\n`);
+    const lateError = new Error('Unknown parameter: reasoning_effort');
+    lateError.status = 400;
+    globalThis.fetch = async () => {
+        requestCount += 1;
+        let readCount = 0;
+        return {
+            ok: true,
+            status: 200,
+            body: {
+                getReader: () => ({
+                    read: async () => {
+                        readCount += 1;
+                        if (readCount === 1) {
+                            return { done: false, value: eventChunk };
+                        }
+                        throw lateError;
+                    },
+                }),
+            },
+        };
+    };
+
+    try {
+        await assert.rejects(() => adapter.chat({
+            messages: [{ role: 'user', content: 'hello' }],
+            reasoning: { enabled: true, effort: 'high' },
+            onStreamProgress: (snapshot) => progress.push(snapshot.text),
+        }), /Unknown parameter: reasoning_effort/);
+
+        assert.equal(requestCount, 1);
+        assert.deepEqual(progress, ['partial']);
+        assert.equal(adapter.buildPayload({
+            messages: [{ role: 'user', content: 'hello' }],
+            reasoning: { enabled: true, effort: 'low' },
+        }).reasoning_effort, 'low');
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
+test('SillyTavern OpenAI-compatible replay skips a corrupted signed tool exchange atomically', () => {
+    const adapter = new SillyTavernOpenAICompatibleAdapter({
+        baseUrl: 'https://example.com/v1',
+        apiKey: 'test-key',
+        model: '[v]gemini-3.7-flash',
+        toolMode: 'native',
+    });
+    const task = {
+        messages: [
+            { role: 'user', content: '继续。' },
+            {
+                role: 'assistant',
+                content: '',
+                tool_calls: [{
+                    id: 'call-read',
+                    type: 'function',
+                    function: {
+                        name: 'Read',
+                        arguments: '{"filePath":"book/state.md"}',
+                    },
+                }],
+                providerPayload: {
+                    openaiCompatibleMessage: {
+                        role: 'assistant',
+                        content: '',
+                        tool_calls: [{
+                            index: 0,
+                            id: 'call-read',
+                            type: 'function',
+                            function: {
+                                name: 'Read',
+                                arguments: '{"filePath":',
+                            },
+                            extra_content: {
+                                google: {
+                                    thoughtSignature: 'gemini-signature',
+                                },
+                            },
+                        }],
+                    },
+                },
+            },
+            {
+                role: 'tool',
+                tool_call_id: 'call-read',
+                content: '{"ok":true}',
+            },
+            { role: 'assistant', content: '读取完成。' },
+            { role: 'user', content: '开始下一轮。' },
+        ],
+        tools: [],
+    };
+    const originalWarn = console.warn;
+    const warnings = [];
+    console.warn = (...args) => warnings.push(args);
+    try {
+        const payload = adapter.buildPayload(task);
+        const repeatedPayload = adapter.buildPayload(task);
+
+        assert.deepEqual(payload.messages, [
+            { role: 'user', content: '继续。' },
+            { role: 'assistant', content: '读取完成。' },
+            { role: 'user', content: '开始下一轮。' },
+        ]);
+        assert.deepEqual(repeatedPayload.messages, payload.messages);
+        assert.equal(warnings.length, 1);
+        assert.equal(warnings[0][1].code, 'openai_compatible_signed_tool_call_history_corrupted');
+    } finally {
+        console.warn = originalWarn;
+    }
+});
+
+test('SillyTavern OpenAI-compatible keeps parallel id-less signed calls paired with tool results', async () => {
+    const adapter = new SillyTavernOpenAICompatibleAdapter({
+        baseUrl: 'https://example.com/v1',
+        apiKey: 'test-key',
+        model: '[v]gemini-3.7-flash',
+        toolMode: 'native',
+    });
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => createJsonResponse({
+        model: '[v]gemini-3.7-flash',
+        choices: [{
+            finish_reason: 'tool_calls',
+            message: {
+                role: 'assistant',
+                content: '',
+                tool_calls: [
+                    {
+                        type: 'function',
+                        function: { name: 'Read', arguments: '{"filePath":"a.md"}' },
+                        extra_content: {
+                            google: { thoughtSignature: 'gemini-signature' },
+                        },
+                    },
+                    {
+                        type: 'function',
+                        function: { name: 'Read', arguments: '{"filePath":"b.md"}' },
+                    },
+                ],
+            },
+        }],
+    });
+
+    try {
+        const result = await adapter.chat({
+            messages: [{ role: 'user', content: '并行读取。' }],
+            tools: [],
+        });
+        const providerToolCalls = result.providerPayload.openaiCompatibleMessage.tool_calls;
+
+        assert.deepEqual(result.toolCalls.map((toolCall) => toolCall.id), [
+            'openai-tool-1',
+            'openai-tool-2',
+        ]);
+        assert.deepEqual(providerToolCalls.map((toolCall) => toolCall.id), [
+            'openai-tool-1',
+            'openai-tool-2',
+        ]);
+
+        const payload = adapter.buildPayload({
+            messages: [
+                { role: 'user', content: '并行读取。' },
+                {
+                    role: 'assistant',
+                    content: '',
+                    providerPayload: result.providerPayload,
+                    tool_calls: result.toolCalls.map((toolCall) => ({
+                        id: toolCall.id,
+                        type: 'function',
+                        function: {
+                            name: toolCall.name,
+                            arguments: toolCall.arguments,
+                        },
+                    })),
+                },
+                { role: 'tool', tool_call_id: result.toolCalls[0].id, content: '{"ok":true}' },
+                { role: 'tool', tool_call_id: result.toolCalls[1].id, content: '{"ok":true}' },
+            ],
+            tools: [],
+        });
+
+        assert.deepEqual(payload.messages[1].tool_calls.map((toolCall) => toolCall.id), [
+            'openai-tool-1',
+            'openai-tool-2',
+        ]);
+        assert.deepEqual(payload.messages.slice(2).map((message) => message.tool_call_id), [
+            'openai-tool-1',
+            'openai-tool-2',
+        ]);
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
 test('SillyTavern OpenAI-compatible Claude-like requests coerce the final system role only in the request messages', async () => {
     const adapter = new SillyTavernOpenAICompatibleAdapter({
         model: 'anthropic/claude-sonnet-4-6',
@@ -1263,11 +1570,15 @@ test('sillytavern OpenAI-compatible adapter streams native tool calls through ho
                         content: '我先读文件。',
                         tool_calls: [{
                             index: 0,
-                            id: 'call-1',
                             type: 'function',
                             function: {
                                 name: 'Read',
                                 arguments: '{"path"',
+                            },
+                            extra_content: {
+                                google: {
+                                    thoughtSignature: 'stream-signature',
+                                },
                             },
                         }],
                     },
@@ -1322,13 +1633,18 @@ test('sillytavern OpenAI-compatible adapter streams native tool calls through ho
         assert.equal(requests[0].body.tool_choice, 'auto');
         assert.equal(result.text, '我先读文件。');
         assert.deepEqual(result.toolCalls, [{
-            id: 'call-1',
+            id: 'openai-tool-1',
             name: 'Read',
             arguments: '{"path":"local/test.txt"}',
         }]);
+        assert.equal(result.providerPayload?.openaiCompatibleMessage?.tool_calls?.[0]?.id, 'openai-tool-1');
         assert.equal(progress.some((snapshot) => snapshot.toolCalls?.[0]?.name === 'Read'), true);
         assert.equal(progress.some((snapshot) => String(snapshot.text || '').includes('我先读文件。')), true);
         assert.equal(result.providerPayload?.openaiCompatibleMessage?.reasoning_content, '先读取一个轻量文件确认工具链。');
+        assert.equal(
+            result.providerPayload?.openaiCompatibleMessage?.tool_calls?.[0]?.extra_content?.google?.thoughtSignature,
+            'stream-signature',
+        );
     } finally {
         globalThis.fetch = originalFetch;
     }

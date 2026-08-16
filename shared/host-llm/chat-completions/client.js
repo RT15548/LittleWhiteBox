@@ -299,7 +299,10 @@ export async function createHostChatCompletion(payload = {}, options = {}) {
     try {
         data = rawText ? JSON.parse(rawText) : {};
     } catch (error) {
-        throw new Error(`酒馆后端生成失败：${normalizeHostFailureMessage(rawText, String(error?.message || error), response)}`);
+        const parseError = new Error(`酒馆后端生成失败：${normalizeHostFailureMessage(rawText, String(error?.message || error), response)}`);
+        parseError.status = response.status;
+        parseError.body = rawText;
+        throw parseError;
     }
 
     if (!response.ok || data?.error) {
@@ -308,7 +311,10 @@ export async function createHostChatCompletion(payload = {}, options = {}) {
             `HTTP ${response.status}`,
             response,
         );
-        throw new Error(`酒馆后端生成失败：${message}`);
+        const error = new Error(`酒馆后端生成失败：${message}`);
+        error.status = response.status;
+        error.error = data?.error;
+        throw error;
     }
 
     return data;
@@ -328,7 +334,17 @@ export async function streamHostChatCompletion(payload = {}, onEvent, options = 
 
     if (!response.ok) {
         const text = await response.text().catch(() => '');
-        throw new Error(normalizeHostFailureMessage(text, `酒馆后端流式生成失败：HTTP ${response.status}`, response));
+        const error = new Error(normalizeHostFailureMessage(
+            text,
+            `酒馆后端流式生成失败：HTTP ${response.status}`,
+            response,
+        ));
+        error.status = response.status;
+        error.body = text;
+        throw error;
+    }
+    if (typeof options.onResponseAccepted === 'function') {
+        options.onResponseAccepted();
     }
 
     await readSseEventsFromResponse(response, (event) => {
