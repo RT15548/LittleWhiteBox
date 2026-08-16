@@ -155,7 +155,7 @@ function collectL0Entities(l0) {
 /**
  * 背景证据是否保留（按焦点实体过滤）
  * 规则：
- * 1) 无焦点实体：过滤
+ * 1) 无焦点实体：保留，由语义相关性决定准入
  * 2) edges 或文本命中焦点实体：保留
  * 否则过滤。
  * @param {object} l0
@@ -163,7 +163,7 @@ function collectL0Entities(l0) {
  * @returns {boolean}
  */
 function shouldKeepEvidenceL0(l0, focusSet) {
-    if (!focusSet?.size) return false;
+    if (!focusSet?.size) return true;
 
     const entities = collectL0Entities(l0);
     for (const f of focusSet) {

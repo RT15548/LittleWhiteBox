@@ -167,7 +167,8 @@ function normalize(s) {
 }
 
 function eventMatchesFocusCharacters(event, focusSet) {
-    if (!focusSet?.size) return false;
+    // RP 不点名不等于在谈别人；没有显式人物时由语义相关性负责准入。
+    if (!focusSet?.size) return true;
     return (event?.participants || [])
         .map(participant => normalize(participant))
         .some(participant => focusSet.has(participant));
