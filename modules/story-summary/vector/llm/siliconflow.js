@@ -8,6 +8,7 @@
 
 import { getVectorConfig } from '../../data/config.js';
 import { getDefaultApiPrefix, resolveApiBaseUrl } from '../../../../shared/common/openai-url-utils.js';
+import { mergeAbortSignals } from '../../../../shared/common/abort-utils.js';
 import { xbLog } from '../../../../core/debug-core.js';
 
 const BASE_URL = 'https://api.siliconflow.cn';
@@ -80,6 +81,7 @@ export async function embed(texts, options = {}) {
     const { timeout = 30000, signal } = options;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
+    const requestSignal = mergeAbortSignals(signal, controller.signal);
 
     try {
         const baseUrl = resolveApiBaseUrl(
@@ -96,7 +98,7 @@ export async function embed(texts, options = {}) {
                 model: String(apiCfg.model || EMBEDDING_MODEL),
                 input: texts,
             }),
-            signal: signal || controller.signal,
+            signal: requestSignal,
         });
 
         clearTimeout(timeoutId);

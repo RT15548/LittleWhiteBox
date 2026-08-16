@@ -20,6 +20,7 @@ import {
     toArrayBuffer,
     toFloat32,
 } from './scoring.js';
+import { throwIfSignalAborted } from '../../../../shared/common/abort-utils.js';
 import { diffuseFromSeeds } from '../retrieval/diffusion.js';
 
 const MODULE_ID = 'recall-runtime';
@@ -196,6 +197,7 @@ async function createWorkerBackend() {
         async call(type, payload, options = {}) {
             return await rpc.call(type, payload, {
                 timeoutMs: options.timeoutMs || WORKER_TIMEOUT_MS,
+                signal: options.signal || null,
             });
         },
         terminate() {
@@ -744,11 +746,14 @@ function retainOnlyLastStats(chatId = null) {
 
 async function callRuntime(type, payload = {}, options = {}) {
     const current = await getBackend();
+    throwIfSignalAborted(options.signal, `RecallRuntime request aborted: ${type}`);
     try {
         const result = await current.call(type, payload, options);
+        throwIfSignalAborted(options.signal, `RecallRuntime request aborted: ${type}`);
         rememberStats(result);
         return result;
     } catch (error) {
+        if (error?.name === 'AbortError') throw error;
         lastError = error?.message || String(error);
         rememberStats(createEmptyStats({
             backend: backendKind,
@@ -817,7 +822,9 @@ export async function beginRecallRuntimeSession(chatId, options = {}) {
     const reason = options.reason || 'recall';
     const requestedAt = Date.now();
     logRuntimeInfo('begin session request', `chat=${key} reason=${reason}`);
-    const result = await callRuntime('beginSession', { chatId: key, reason }, { timeoutMs: options.timeoutMs || SESSION_TIMEOUT_MS });
+    const result = await callRuntime('beginSession', { chatId: key, reason }, {
+        timeoutMs: options.timeoutMs || SESSION_TIMEOUT_MS,
+    });
     if (result?.leaseId) {
         rememberLocalSession(key);
         const dirty = dirtyChats.get(key);
@@ -862,8 +869,11 @@ async function callRuntimePrimitive(chatId, type, payload = {}, options = {}) {
     if (!chatId || hasLocalSession(chatId)) {
         return await callRuntime(type, payload, options);
     }
-    const lease = await beginRecallRuntimeSession(chatId, { reason: `single-call:${type}` });
+    const lease = await beginRecallRuntimeSession(chatId, {
+        reason: `single-call:${type}`,
+    });
     try {
+        throwIfSignalAborted(options.signal, `RecallRuntime request aborted: ${type}`);
         return await callRuntime(type, payload, options);
     } finally {
         if (lease) await endRecallRuntimeSession(lease);
@@ -910,12 +920,18 @@ export async function retainRecallRuntimeOnly(chatId) {
     return result;
 }
 
-export async function getRecallRuntimeMeta(chatId) {
-    return await callRuntimePrimitive(chatId, 'getMeta', { chatId }, { timeoutMs: WORKER_TIMEOUT_MS });
+export async function getRecallRuntimeMeta(chatId, options = {}) {
+    return await callRuntimePrimitive(chatId, 'getMeta', { chatId }, {
+        timeoutMs: WORKER_TIMEOUT_MS,
+        signal: options.signal || null,
+    });
 }
 
-export async function getRecallRuntimeEventVectorsByIds(chatId, eventIds = []) {
-    const response = await callRuntimePrimitive(chatId, 'getEventVectorsByIds', { chatId, eventIds }, { timeoutMs: WORKER_TIMEOUT_MS });
+export async function getRecallRuntimeEventVectorsByIds(chatId, eventIds = [], options = {}) {
+    const response = await callRuntimePrimitive(chatId, 'getEventVectorsByIds', { chatId, eventIds }, {
+        timeoutMs: WORKER_TIMEOUT_MS,
+        signal: options.signal || null,
+    });
     const records = (response?.records || []).map((record) => ({
         ...record,
         vector: toFloat32(record.vector),
@@ -924,16 +940,25 @@ export async function getRecallRuntimeEventVectorsByIds(chatId, eventIds = []) {
     return records;
 }
 
-export async function scoreRecallRuntimeAnchors(chatId, queryVector) {
-    return await callRuntimePrimitive(chatId, 'scoreAnchors', { chatId, queryVector }, { timeoutMs: WORKER_TIMEOUT_MS });
+export async function scoreRecallRuntimeAnchors(chatId, queryVector, options = {}) {
+    return await callRuntimePrimitive(chatId, 'scoreAnchors', { chatId, queryVector }, {
+        timeoutMs: WORKER_TIMEOUT_MS,
+        signal: options.signal || null,
+    });
 }
 
-export async function scoreRecallRuntimeEvents(chatId, queryVector) {
-    return await callRuntimePrimitive(chatId, 'scoreEvents', { chatId, queryVector }, { timeoutMs: WORKER_TIMEOUT_MS });
+export async function scoreRecallRuntimeEvents(chatId, queryVector, options = {}) {
+    return await callRuntimePrimitive(chatId, 'scoreEvents', { chatId, queryVector }, {
+        timeoutMs: WORKER_TIMEOUT_MS,
+        signal: options.signal || null,
+    });
 }
 
-export async function scoreRecallRuntimeL1(chatId, floors, queryVector) {
-    const response = await callRuntimePrimitive(chatId, 'scoreL1', { chatId, floors, queryVector }, { timeoutMs: WORKER_TIMEOUT_MS });
+export async function scoreRecallRuntimeL1(chatId, floors, queryVector, options = {}) {
+    const response = await callRuntimePrimitive(chatId, 'scoreL1', { chatId, floors, queryVector }, {
+        timeoutMs: WORKER_TIMEOUT_MS,
+        signal: options.signal || null,
+    });
     const result = new Map();
     for (const chunk of response?.result || []) {
         if (!result.has(chunk.floor)) result.set(chunk.floor, []);
@@ -954,7 +979,10 @@ export async function diffuseRecallRuntimeL0(chatId, seeds, allAtoms, queryVecto
         allAtoms,
         queryVector,
         name1: options.name1 || '',
-    }, { timeoutMs: WORKER_TIMEOUT_MS });
+    }, {
+        timeoutMs: WORKER_TIMEOUT_MS,
+        signal: options.signal || null,
+    });
 }
 
 export function getRecallRuntimeStats() {

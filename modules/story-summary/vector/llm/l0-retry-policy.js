@@ -8,9 +8,13 @@ export function getL0RetryDelayMs(failedAttemptIndex) {
     return RETRY_DELAYS_MS[index] ?? null;
 }
 
+export function getL0ResponseSchemaFailure(value) {
+    return Array.isArray(value?.anchors) ? null : { kind: 'invalid_schema' };
+}
+
 export function isRetryableL0Failure(failure = {}) {
     const kind = String(failure?.kind || '');
-    if (['network', 'timeout', 'empty', 'invalid_json'].includes(kind)) return true;
+    if (['network', 'timeout', 'empty', 'invalid_json', 'invalid_schema'].includes(kind)) return true;
     if (kind !== 'http') return false;
 
     const status = Number(failure?.status);

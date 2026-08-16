@@ -7,6 +7,10 @@ import {
 } from "./gallery-cache.js";
 import { LLMServiceError } from "./scene-planner.js";
 import { createModuleEvents, event_types } from "../../../core/event-manager.js";
+import {
+    registerGenerateInterceptor,
+    unregisterGenerateInterceptor,
+} from "../../../shared/common/generate-interceptor.js";
 
 const PLACEHOLDER_REGEX = /\[image\s*:\s*([a-z0-9\-_]+)\]/gi;
 const DRAW_IMAGE_HTML_REGEX = /<div\b[^>]*class=(["'])[^"']*\bxb-nd-img\b[^"']*\1[^>]*>[\s\S]*?<\/div>/gi;
@@ -96,14 +100,14 @@ export function stripDrawArtifactsFromChat(chat) {
 
 export function setupDrawGenerateInterceptor(options = {}) {
     const shouldStrip = typeof options.shouldStrip === 'function' ? options.shouldStrip : () => true;
-    globalThis.xiaobaixGenerateInterceptor = function (chat) {
+    registerGenerateInterceptor('draw', (chat) => {
         if (!shouldStrip()) return;
         stripDrawArtifactsFromChat(chat);
-    };
+    });
 }
 
 export function cleanupDrawGenerateInterceptor() {
-    delete globalThis.xiaobaixGenerateInterceptor;
+    unregisterGenerateInterceptor('draw');
 }
 
 export function joinTags(...parts) {

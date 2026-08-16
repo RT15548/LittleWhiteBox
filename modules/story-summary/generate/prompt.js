@@ -9,7 +9,7 @@
 // - 同楼层多个 L0 共享一对 L1（EvidenceGroup per-floor）
 // - L0 展示文本直接使用 semantic 字段（v7: 场景摘要，纯自然语言）
 // - 仅负责"构建注入文本"，不负责写入 extension_prompts
-// - 注入发生在 story-summary.js：GENERATION_STARTED 时写入 extension_prompts
+// - 注入发生在 story-summary.js：generate_interceptor 时写入 extension_prompts
 // ═══════════════════════════════════════════════════════════════════════════
 
 import { getContext } from "../../../../../../extensions.js";
@@ -25,6 +25,16 @@ import { getMeta } from "../vector/storage/chunk-store.js";
 import { getStateAtoms } from "../vector/storage/state-store.js";
 import { getEngineFingerprint } from "../vector/utils/embedder.js";
 import { buildTrustedCharacters } from "../vector/retrieval/entity-lexicon.js";
+import {
+    getTemporalProtectionLimit,
+    parseEventRange,
+    TEMPORAL_PROTECTION_POLICY,
+} from "../vector/retrieval/temporal-turn-carrier.js";
+import {
+    admitDirectEvidenceItems,
+    buildRankRelevance,
+} from "./direct-evidence-packing.js";
+import { buildTemporalEventPackingOrder } from "./temporal-event-packing.js";
 
 // Metrics
 import { formatMetricsLog, detectIssues } from "../vector/retrieval/metrics.js";
@@ -89,20 +99,6 @@ function pushWithBudget(lines, text, state) {
     lines.push(text);
     state.used += t;
     return true;
-}
-
-/**
- * 解析事件摘要中的楼层范围
- * @param {string} summary - 事件摘要
- * @returns {{start: number, end: number}|null} 楼层范围
- */
-function parseFloorRange(summary) {
-    if (!summary) return null;
-    const match = String(summary).match(/\(#(\d+)(?:-(\d+))?\)/);
-    if (!match) return null;
-    const start = Math.max(0, parseInt(match[1], 10) - 1);
-    const end = Math.max(0, (match[2] ? parseInt(match[2], 10) : parseInt(match[1], 10)) - 1);
-    return { start, end };
 }
 
 /**
@@ -184,7 +180,7 @@ function shouldKeepEvidenceL0(l0, focusSet) {
  * @returns {number} 排序键
  */
 function getEventSortKey(event) {
-    const r = parseFloorRange(event?.summary);
+    const r = parseEventRange(event?.summary);
     if (r) return r.start;
     const m = String(event?.id || "").match(/evt-(\d+)/);
     return m ? parseInt(m[1], 10) : Number.MAX_SAFE_INTEGER;
@@ -498,7 +494,7 @@ function formatCausalEventLine(causalItem) {
     const people = (ev.participants || []).join(" / ");
     const summary = cleanSummary(ev.summary);
 
-    const r = parseFloorRange(ev.summary);
+    const r = parseEventRange(ev.summary);
     const floorHint = r ? `(#${r.start + 1}${r.end !== r.start ? `-${r.end + 1}` : ""})` : "";
 
     const lines = [];
@@ -666,79 +662,132 @@ function formatEvidenceGroup(group) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 事件证据收集（per-floor 分组）
+// 事件证据：单条入选（按相关性），楼层分组只负责最终时间线呈现
 // ─────────────────────────────────────────────────────────────────────────────
+//
+// 旧结构的两处错误已在此修正：
+// 1. 收集阶段整楼 claim、预算阶段整楼装箱：超预算的组被丢弃后其中的证据
+//    既进不了 DIRECT，也无法再挂到其他事件（claimed-but-dropped）。
+// 2. 相关性准入单位是"楼"，不是"证据"：同楼层低相关证据可以蹭高相关证据
+//    入选，反之高相关证据可能被同楼大块拖死。
+// 现在：枚举 → 有界时间保护通道 → 普通相关性队列 → 入选后才写
+// usedEvidenceIds → 按事件归属与楼层分组，仅用于按时间线呈现。
+
+const DIRECT_EVIDENCE_FLOOR_OVERHEAD_TOKENS = 10;
+
+function directEvidenceItemTokens(item) {
+    if (item.kind === 'l0') {
+        return estimateTokens(buildL0DisplayText(item.l0));
+    }
+    return estimateTokens(formatL1Line(item.chunk, item.chunk.isUser === true));
+}
 
 /**
- * 为事件收集范围内的 EvidenceGroup
- *
- * 同楼层的 L0 与已精排 L1 归入同一组；仅有 L1 的楼层同样有效。
- *
- * @param {object} eventObj - 事件对象
- * @param {object[]} l0Selected - 所有选中的 L0
- * @param {object[]} l1Selected - 已精排的 L1 原文
- * @param {Set<string>} claimedEvidenceIds - 已归属其他事件的证据 ID
- * @param {object} relevance - 同源序号归一后的相关性
- * @param {Map<number, number>} relevance.l0ByFloor - L0 楼层相关性
- * @param {Map<string, number>} relevance.l1ByChunkId - L1 chunk 相关性
- * @returns {EvidenceGroup[]} 该事件的证据组列表（按楼层排序）
+ * 枚举所有可挂到已入选 DIRECT 事件的证据条目。
+ * 归属（owner）= candidateRank 最小且楼层范围包含该条目的事件；
+ * id 级去重，跨事件不重复枚举。
  */
-function collectEvidenceGroupsForEvent(
-    eventObj,
+function enumerateDirectEvidenceItems(
+    selectedInPackingOrder,
     l0Selected,
-    l1Selected,
-    claimedEvidenceIds,
-    relevance = {},
+    directL1Candidates,
+    relevance,
 ) {
-    const range = parseFloorRange(eventObj?.summary);
-    if (!range) return [];
+    const ownedRanges = selectedInPackingOrder
+        .map(selected => {
+            const range = parseEventRange(selected.event?.summary);
+            return range ? { selected, range } : null;
+        })
+        .filter(Boolean);
 
-    const floorMap = new Map();
-    const ensureFloor = floor => {
-        if (!floorMap.has(floor)) floorMap.set(floor, { l0Atoms: [], l1Chunks: [] });
-        return floorMap.get(floor);
-    };
+    const findOwner = floor => (
+        ownedRanges.find(({ range }) => floor >= range.start && floor <= range.end)?.selected || null
+    );
 
-    for (const l0 of l0Selected) {
-        const evidenceId = `l0:${l0.id}`;
-        if (claimedEvidenceIds.has(evidenceId)) continue;
-        if (l0.floor < range.start || l0.floor > range.end) continue;
-        ensureFloor(l0.floor).l0Atoms.push(l0);
-        claimedEvidenceIds.add(evidenceId);
+    const l0Items = [];
+    const seenL0Ids = new Set();
+    for (const l0 of l0Selected || []) {
+        const owner = findOwner(l0.floor);
+        if (!owner) continue;
+        const id = `l0:${l0.id}`;
+        if (seenL0Ids.has(id)) continue;
+        seenL0Ids.add(id);
+        l0Items.push({
+            kind: 'l0',
+            id,
+            floor: l0.floor,
+            l0,
+            owner,
+            score: Number(relevance.l0ByFloor?.get(l0.floor) || 0),
+            temporal: false,
+        });
     }
 
-    for (const chunk of l1Selected || []) {
-        const evidenceId = `l1:${chunk?.chunkId || ''}`;
-        if (!chunk?.chunkId || claimedEvidenceIds.has(evidenceId)) continue;
+    // fallback 通道（direct evidence 失败回退）的 L1 与其父 L0 捆绑：
+    // 只有父楼层确实入选了 L0 时才允许该 L1 参与入选。
+    const fallbackItems = [];
+    const l1Items = [];
+    const seenL1Ids = new Set();
+    for (const chunk of directL1Candidates || []) {
+        if (!chunk?.chunkId) continue;
+        const id = `l1:${chunk.chunkId}`;
+        if (seenL1Ids.has(id)) continue;
 
         const fallbackParentFloor = Number.isInteger(chunk?._directEvidenceFallbackParentFloor)
             ? chunk._directEvidenceFallbackParentFloor
             : null;
-        const groupFloor = fallbackParentFloor ?? chunk.floor;
-        if (groupFloor < range.start || groupFloor > range.end) continue;
+        const itemFloor = fallbackParentFloor ?? Number(chunk.floor);
+        if (!Number.isInteger(itemFloor)) continue;
+        const owner = findOwner(itemFloor);
+        if (!owner) continue;
+        seenL1Ids.add(id);
 
-        // 失败回退只恢复原有的 L0→top-1 L1 配对，不能把展平后的相邻
-        // USER chunk 当成独立证据挂到另一个事件。
-        const group = floorMap.get(groupFloor);
-        if (fallbackParentFloor != null && !group?.l0Atoms?.length) continue;
-
-        ensureFloor(groupFloor).l1Chunks.push(chunk);
-        claimedEvidenceIds.add(evidenceId);
+        const item = {
+            kind: 'l1',
+            id,
+            floor: itemFloor,
+            chunk,
+            owner,
+            score: Number(relevance.l1ByChunkId?.get(chunk.chunkId) || 0),
+            temporal: chunk._directEvidenceTemporalCarrier === true,
+            ordinaryEligible: chunk._directEvidencePassedMinScore !== false,
+            fallbackParentFloor,
+        };
+        if (fallbackParentFloor != null) fallbackItems.push(item);
+        else l1Items.push(item);
     }
 
-    const groups = [];
-    for (const [floor, evidence] of floorMap) {
-        const group = buildEvidenceGroup(floor, evidence.l0Atoms, evidence.l1Chunks);
-        const l0Score = Number(relevance.l0ByFloor?.get(floor) || 0);
-        const l1Score = Math.max(0, ...evidence.l1Chunks.map(chunk => (
-            Number(relevance.l1ByChunkId?.get(chunk.chunkId) || 0)
-        )));
-        group.relevanceScore = Math.max(l0Score, l1Score);
-        group.temporal = evidence.l1Chunks.some(chunk => chunk._directEvidenceTemporalCarrier === true);
-        groups.push(group);
+    return { l0Items, l1Items, fallbackItems };
+}
+
+/**
+ * 把已入选条目按事件归属组装成按楼层排序的证据组（呈现层）。
+ */
+function attachAdmittedEvidenceToEvents(admittedItems) {
+    for (const item of admittedItems || []) {
+        if (!item.owner.evidenceGroups) item.owner.evidenceGroups = [];
     }
-    groups.sort((a, b) => a.floor - b.floor);
-    return groups;
+
+    const byOwner = new Map();
+    for (const item of admittedItems || []) {
+        if (!byOwner.has(item.owner)) byOwner.set(item.owner, new Map());
+        const floors = byOwner.get(item.owner);
+        if (!floors.has(item.floor)) floors.set(item.floor, { l0Atoms: [], l1Chunks: [] });
+        const bucket = floors.get(item.floor);
+        if (item.kind === 'l0') bucket.l0Atoms.push(item.l0);
+        else bucket.l1Chunks.push(item.chunk);
+    }
+
+    for (const [owner, floors] of byOwner) {
+        const groups = [];
+        for (const [floor, bucket] of floors) {
+            const group = buildEvidenceGroup(floor, bucket.l0Atoms, bucket.l1Chunks);
+            group.temporal = bucket.l1Chunks.some(chunk => chunk._directEvidenceTemporalCarrier === true);
+            groups.push(group);
+        }
+        groups.sort((left, right) => left.floor - right.floor);
+        owner.evidenceGroups = groups;
+    }
 }
 
 function markEvidenceGroupUsed(group, usedEvidenceIds) {
@@ -760,24 +809,6 @@ function l1FallbackFromPairs(l1ByFloor) {
         }
     }
     return [...byId.values()];
-}
-
-function buildOrdinalRelevance(items, getId) {
-    const ids = [];
-    const seen = new Set();
-    for (const item of items || []) {
-        const id = getId(item);
-        if (id == null || seen.has(id)) continue;
-        seen.add(id);
-        ids.push(id);
-    }
-
-    const relevance = new Map();
-    const denominator = ids.length - 1;
-    for (let index = 0; index < ids.length; index++) {
-        relevance.set(ids[index], denominator <= 0 ? 1 : 1 - index / denominator);
-    }
-    return relevance;
 }
 
 function unusedL1PairChunks(l1ByFloor, floor, usedEvidenceIds) {
@@ -962,7 +993,7 @@ function createEvidenceTraceRecorder(causalById) {
     };
     const eventUnitId = item => objectUnitId('event', item);
     const event = (target, item, source, score = null, unitId = eventUnitId(item)) => {
-        const range = parseFloorRange(item?.summary);
+        const range = parseEventRange(item?.summary);
         if (!range) return;
         const eventFloors = [];
         for (let current = range.start; current <= range.end; current++) {
@@ -1032,6 +1063,13 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
     const vectorConfig = getVectorConfig() || {};
     const summarizedEvidenceBudgetMax = vectorConfig.summarizedEvidenceBudget;
     const summarizedEvidenceBudget = { used: 0, max: summarizedEvidenceBudgetMax };
+    const temporalEvidenceProtectionBudget = {
+        used: 0,
+        max: getTemporalProtectionLimit(
+            summarizedEvidenceBudgetMax,
+            TEMPORAL_PROTECTION_POLICY.maxEvidenceBudgetShare,
+        ),
+    };
 
     // 从 recallResult 解构
     const l0Selected = recallResult?.l0Selected || [];
@@ -1183,14 +1221,37 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
     const relatedBudget = { used: 0, max: RELATED_EVENT_MAX };
     const selectedDirect = [];
     const selectedRelated = [];
-    for (let candidateRank = 0; candidateRank < candidates.length; candidateRank++) {
+
+    // L2 时间保护贯穿最终 Prompt：每个时间楼层只取普通相关性排名最高
+    // 的事件，全局最多 5 个。超额事件留在普通队列，不放宽任何预算。
+    const eventTemporalFloors = (recallResult?.eventTemporalFloors || []).filter(Number.isInteger);
+    let temporalProtectedCount = 0;
+    let temporalDroppedCount = 0;
+    const temporalEventPacking = buildTemporalEventPackingOrder(candidates, eventTemporalFloors);
+    const eventPackingOrder = temporalEventPacking.order;
+
+    let eventBudgetRejected = 0;
+    let eventRelatedBudgetRejected = 0;
+    for (let packingIndex = 0; packingIndex < eventPackingOrder.length; packingIndex++) {
+        const { candidateRank, temporal } = eventPackingOrder[packingIndex];
         const e = candidates[candidateRank];
 
-        if (total.used >= total.max) break;
-        if (eventBudget.used >= eventBudget.max) break;
+        if (total.used >= total.max || eventBudget.used >= eventBudget.max) {
+            if (temporal) {
+                temporalDroppedCount++;
+                eventBudgetRejected++;
+                continue;
+            }
+            eventBudgetRejected += eventPackingOrder.length - packingIndex;
+            break;
+        }
 
         const isDirect = e._recallType === "DIRECT";
-        if (!isDirect && relatedBudget.used >= relatedBudget.max) continue;
+        if (!isDirect && relatedBudget.used >= relatedBudget.max) {
+            if (temporal) temporalDroppedCount++;
+            eventRelatedBudgetRejected++;
+            continue;
+        }
 
         const text = formatEventWithEvidence(e, 0, [], causalById);
         const cost = estimateTokens(text);
@@ -1198,10 +1259,20 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
         const fitRelatedBudget = isDirect || (relatedBudget.used + cost <= relatedBudget.max);
 
         if (total.used + cost > total.max || !fitEventBudget || !fitRelatedBudget) {
-            if (total.used + cost > total.max || !fitEventBudget) break;
+            if (temporal) temporalDroppedCount++;
+            if (total.used + cost > total.max || !fitEventBudget) {
+                eventBudgetRejected++;
+                // A malformed/oversized protected event must not prevent a
+                // later protected event from using the same protection path.
+                if (temporal) continue;
+                eventBudgetRejected += eventPackingOrder.length - packingIndex - 1;
+                break;
+            }
+            eventRelatedBudgetRejected++;
             continue;
         }
 
+        if (temporal) temporalProtectedCount++;
         const selected = {
             event: e.event,
             text,
@@ -1217,14 +1288,35 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
         if (!isDirect) relatedBudget.used += cost;
     }
 
+    if (metrics) {
+        // 时间保护与预算截断风险统计：供"修复前数据可用于排障"的口径。
+        metrics.event.temporalFloorsProtected = eventTemporalFloors.length;
+        metrics.event.temporalProtected = temporalProtectedCount;
+        metrics.event.temporalDropped = temporalDroppedCount;
+        metrics.event.temporalWinners = temporalEventPacking.winnerCount;
+        metrics.event.temporalProtectionCap = TEMPORAL_PROTECTION_POLICY.maxProtectedEvents;
+        metrics.event.temporalOverflow = temporalEventPacking.overflowCount;
+        metrics.event.budgetTruncated = {
+            candidates: candidates.length,
+            selected: injectionStats.event.selected,
+            dropped: Math.max(0, candidates.length - injectionStats.event.selected),
+            budgetRejected: eventBudgetRejected,
+            relatedBudgetRejected: eventRelatedBudgetRejected,
+        };
+    }
+
     let directEvidenceL1 = Array.isArray(recallResult?.directEvidenceL1)
         ? recallResult.directEvidenceL1
         : null;
     let directEvidenceStatus = String(recallResult?.directEvidenceStatus || '');
+    const selectedEvidenceOwners = [...selectedDirect, ...selectedRelated]
+        .filter(selected => candidates[selected.candidateRank]?._evidenceEligible === true)
+        .sort((left, right) => left.candidateRank - right.candidateRank);
     if (!directEvidenceL1 && recallResult?.directEvidenceContext) {
-        const selectedDirectHits = selectedDirect.map(selected => candidates[selected.candidateRank]);
+        const selectedEvidenceHits = selectedEvidenceOwners
+            .map(selected => candidates[selected.candidateRank]);
         const result = await hydrateSelectedDirectEvidence(
-            selectedDirectHits,
+            selectedEvidenceHits,
             recallResult.directEvidenceContext,
             metrics,
         );
@@ -1239,56 +1331,98 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
         ? (directEvidenceL1 || [])
         : l1FallbackFromPairs(l1ByFloor);
     const directEvidenceRelevance = {
-        l0ByFloor: buildOrdinalRelevance(l0Selected, l0 => l0.floor),
+        l0ByFloor: buildRankRelevance(l0Selected, l0 => l0.floor),
         l1ByChunkId: directEvidenceStatus === 'applied'
-            ? buildOrdinalRelevance(directL1Candidates, chunk => chunk.chunkId)
+            ? buildRankRelevance(directL1Candidates, chunk => chunk.chunkId)
             : new Map(),
     };
 
-    const claimedEvidenceIds = new Set();
-    const directGroupCandidates = [];
-    const selectedInPackingOrder = [...selectedDirect].sort((a, b) => a.candidateRank - b.candidateRank);
-    for (const selected of selectedInPackingOrder) {
-        const groups = collectEvidenceGroupsForEvent(
-            selected.event,
-            l0Selected,
-            directL1Candidates,
-            claimedEvidenceIds,
-            directEvidenceRelevance,
-        );
-        for (const group of groups) {
-            directGroupCandidates.push({ selected, group });
-            if (evidenceTrace) evidenceTrace.eventEvidence('final', selected.event, group.floor);
+    // ── 单条证据入选 ──
+    // 1) 枚举可挂到已入选 DIRECT 事件的 L0/L1 条目（id 级去重，归属第一个
+    //    候选序事件）；2) 时间保护通道每层最多一条，且最多占实际证据池 40%；
+    //    超额项撤销特权后回普通相关性队列；3) 入选后才写 usedEvidenceIds；
+    //    4) 按事件/楼层分组仅供时间线呈现。
+    const enumeration = enumerateDirectEvidenceItems(
+        selectedEvidenceOwners,
+        l0Selected,
+        directL1Candidates,
+        directEvidenceRelevance,
+    );
+    if (evidenceTrace) {
+        for (const item of [...enumeration.l0Items, ...enumeration.l1Items, ...enumeration.fallbackItems]) {
+            evidenceTrace.eventEvidence('final', item.owner.event, item.floor);
         }
     }
-    directGroupCandidates.sort((left, right) => (
-        Number(right.group.temporal) - Number(left.group.temporal)
-        || right.group.relevanceScore - left.group.relevanceScore
-        || left.group.floor - right.group.floor
-    ));
 
-    for (const item of directGroupCandidates) {
-        const { selected, group } = item;
-        if (summarizedEvidenceBudget.used + group.totalTokens > summarizedEvidenceBudget.max) continue;
-        summarizedEvidenceBudget.used += group.totalTokens;
-        selected.evidenceGroups.push(group);
-        markEvidenceGroupUsed(group, usedEvidenceIds);
-        injectionStats.directEvidence.units++;
-        injectionStats.directEvidence.l0 += group.l0Atoms.length;
-        injectionStats.directEvidence.l1 += group.l1Chunks.length;
-        if (evidenceTrace) evidenceTrace.eventEvidence('prompt', selected.event, group.floor);
+    const admittedEvidenceFloors = new Set();
+    const evidenceAdmissionOptions = {
+        admittedFloors: admittedEvidenceFloors,
+        getTokenCost: directEvidenceItemTokens,
+        floorOverheadTokens: DIRECT_EVIDENCE_FLOOR_OVERHEAD_TOKENS,
+        protectedBudget: temporalEvidenceProtectionBudget,
+    };
+    const admittedItems = admitDirectEvidenceItems(
+        [...enumeration.l0Items, ...enumeration.l1Items],
+        summarizedEvidenceBudget,
+        evidenceAdmissionOptions,
+    );
+    // fallback L1 与父 L0 捆绑：只有父楼层已入选 L0 才能入选
+    const admittedFallbackItems = admitDirectEvidenceItems(
+        enumeration.fallbackItems.filter(item => (
+            admittedItems.some(admitted => admitted.kind === 'l0' && admitted.floor === item.floor)
+        )),
+        summarizedEvidenceBudget,
+        evidenceAdmissionOptions,
+    );
+
+    const allAdmittedItems = [...admittedItems, ...admittedFallbackItems];
+    for (const item of allAdmittedItems) {
+        usedEvidenceIds.add(item.id);
+        if (evidenceTrace) evidenceTrace.eventEvidence('prompt', item.owner.event, item.floor);
     }
 
-    for (const selected of selectedDirect) {
-        selected.evidenceGroups.sort((a, b) => a.floor - b.floor);
+    attachAdmittedEvidenceToEvents(allAdmittedItems);
+    injectionStats.directEvidence.units = allAdmittedItems.reduce(
+        (floors, item) => {
+            floors.add(`${item.owner.candidateRank}:${item.floor}`);
+            return floors;
+        },
+        new Set(),
+    ).size;
+    injectionStats.directEvidence.l0 = allAdmittedItems.filter(item => item.kind === 'l0').length;
+    injectionStats.directEvidence.l1 = allAdmittedItems.filter(item => item.kind === 'l1').length;
+    const directEvidenceEnumeratedCount = enumeration.l0Items.length
+        + enumeration.l1Items.length
+        + enumeration.fallbackItems.length;
+    const directEvidenceTemporalProtectedItems = allAdmittedItems.filter(item => item.temporalProtected === true);
+
+    for (const selected of [...selectedDirect, ...selectedRelated]) {
+        selected.evidenceGroups = selected.evidenceGroups || [];
         const eventItem = candidates[selected.candidateRank];
         selected.text = formatEventWithEvidence(eventItem, 0, selected.evidenceGroups, causalById);
     }
     injectionStats.directEvidence.tokens = summarizedEvidenceBudget.used;
+    const summarizedBudgetUsedByDirectEvidence = summarizedEvidenceBudget.used;
+    // 该 ledger 在实际入选时计费，包含首次出现楼层的标题开销。
+    const directEvidenceTemporalProtectedTokens = temporalEvidenceProtectionBudget.used;
     if (metrics?.evidence) {
         metrics.evidence.directEvidencePromptGroups = injectionStats.directEvidence.units;
         metrics.evidence.directEvidencePromptItems = injectionStats.directEvidence.l0 + injectionStats.directEvidence.l1;
         metrics.evidence.directEvidencePromptTokens = summarizedEvidenceBudget.used;
+        // 单条入选后的枚举/入选/被预算跳过计数；claimed-but-dropped 在该
+        // 结构下不可再现，任何丢弃都来自预算且会计入 skippedByBudget。
+        metrics.evidence.directEvidenceEnumerated = directEvidenceEnumeratedCount;
+        metrics.evidence.directEvidenceAdmitted = allAdmittedItems.length;
+        metrics.evidence.directEvidenceSkippedByBudget = Math.max(
+            0,
+            directEvidenceEnumeratedCount - allAdmittedItems.length,
+        );
+        // 时间保护占用独立统计：用于观察时间命中是否挤压非时间证据。
+        metrics.evidence.directEvidenceTemporalProtectedItems = directEvidenceTemporalProtectedItems.length;
+        metrics.evidence.directEvidenceTemporalProtectedTokens = directEvidenceTemporalProtectedTokens;
+        metrics.evidence.directEvidenceTemporalProtectionBudgetMax = temporalEvidenceProtectionBudget.max;
+        metrics.evidence.summarizedBudgetUsedByDirectEvidence = summarizedBudgetUsedByDirectEvidence;
+        metrics.evidence.summarizedBudgetMax = summarizedEvidenceBudget.max;
     }
 
     // 排序
@@ -1341,42 +1475,27 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
     // 远期：floor <= lastSummarized
     const distantL0 = remainingL0.filter(l0 => l0.floor <= lastSummarized);
 
-    if (evidenceTrace && distantL0.length) {
-        // 先按分数挑组（高分优先），再按时间输出（楼层升序）
-        const distantFloorMap = groupL0ByFloor(distantL0);
-        const distantRanked = [];
-        for (const [floor, l0s] of distantFloorMap) {
-            const group = buildEvidenceGroup(
-                floor,
-                l0s,
-                unusedL1PairChunks(l1ByFloor, floor, usedEvidenceIds),
-            );
-            const bestScore = Math.max(...l0s.map(l0 => (l0.rerankScore ?? l0.similarity ?? 0)));
-            distantRanked.push({ group, bestScore });
-        }
-        distantRanked.sort((a, b) => (b.bestScore - a.bestScore) || (a.group.floor - b.group.floor));
+    // Build distant groups once; trace, admission and starvation attribution
+    // must observe the exact same token costs.
+    const distantRanked = [];
+    for (const [floor, l0s] of groupL0ByFloor(distantL0)) {
+        const group = buildEvidenceGroup(
+            floor,
+            l0s,
+            unusedL1PairChunks(l1ByFloor, floor, usedEvidenceIds),
+        );
+        const bestScore = Math.max(...l0s.map(l0 => (l0.rerankScore ?? l0.similarity ?? 0)));
+        distantRanked.push({ group, bestScore });
+    }
+    distantRanked.sort((a, b) => (b.bestScore - a.bestScore) || (a.group.floor - b.group.floor));
+    if (evidenceTrace) {
         for (const item of distantRanked) {
             evidenceTrace.floor('final', item.group.floor, 'l0', item.bestScore);
         }
     }
 
-    if (distantL0.length && summarizedEvidenceBudget.used < summarizedEvidenceBudget.max) {
-
-        // 先按分数挑组（高分优先），再按时间输出（楼层升序）
-        const distantFloorMap = groupL0ByFloor(distantL0);
-        const distantRanked = [];
-        for (const [floor, l0s] of distantFloorMap) {
-            const group = buildEvidenceGroup(
-                floor,
-                l0s,
-                unusedL1PairChunks(l1ByFloor, floor, usedEvidenceIds),
-            );
-            const bestScore = Math.max(...l0s.map(l0 => (l0.rerankScore ?? l0.similarity ?? 0)));
-            distantRanked.push({ group, bestScore });
-        }
-        distantRanked.sort((a, b) => (b.bestScore - a.bestScore) || (a.group.floor - b.group.floor));
-
-        const acceptedDistantGroups = [];
+    const acceptedDistantGroups = [];
+    if (summarizedEvidenceBudget.used < summarizedEvidenceBudget.max) {
         for (const item of distantRanked) {
             const group = item.group;
             if (summarizedEvidenceBudget.used + group.totalTokens > summarizedEvidenceBudget.max) continue;
@@ -1386,18 +1505,37 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
             markEvidenceGroupUsed(group, usedEvidenceIds);
             injectionStats.distantEvidence.units++;
         }
+    }
 
-        acceptedDistantGroups.sort((a, b) => a.floor - b.floor);
-        for (const group of acceptedDistantGroups) {
-            const groupLines = formatEvidenceGroup(group);
-            for (const line of groupLines) {
-                assembled.distantEvidence.lines.push(line);
-            }
+    acceptedDistantGroups.sort((a, b) => a.floor - b.floor);
+    for (const group of acceptedDistantGroups) {
+        const groupLines = formatEvidenceGroup(group);
+        for (const line of groupLines) {
+            assembled.distantEvidence.lines.push(line);
         }
+    }
 
-        const distantTokens = acceptedDistantGroups.reduce((sum, group) => sum + group.totalTokens, 0);
-        assembled.distantEvidence.tokens = distantTokens;
-        injectionStats.distantEvidence.tokens = distantTokens;
+    const distantTokens = acceptedDistantGroups.reduce((sum, group) => sum + group.totalTokens, 0);
+    assembled.distantEvidence.tokens = distantTokens;
+    injectionStats.distantEvidence.tokens = distantTokens;
+    if (metrics?.evidence) {
+        const distantEvidenceStarved = distantRanked.length > 0 && acceptedDistantGroups.length === 0;
+        const smallestDistantGroup = distantRanked.length
+            ? Math.min(...distantRanked.map(item => item.group.totalTokens))
+            : Number.POSITIVE_INFINITY;
+        const capacityWithoutTemporalProtection = summarizedEvidenceBudget.max
+            - Math.max(0, summarizedBudgetUsedByDirectEvidence - directEvidenceTemporalProtectedTokens);
+        metrics.evidence.distantEvidenceStarved = distantEvidenceStarved;
+        metrics.evidence.distantEvidenceStarvedByTemporalProtection = distantEvidenceStarved
+            && directEvidenceTemporalProtectedTokens > 0
+            && smallestDistantGroup <= capacityWithoutTemporalProtection;
+        metrics.evidence.distantEvidenceDroppedByBudget = Math.max(
+            0,
+            distantRanked.length - acceptedDistantGroups.length,
+        );
+    }
+    if (metrics?.evidence) {
+        metrics.evidence.summarizedBudgetUsedFinal = summarizedEvidenceBudget.used;
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -1600,7 +1738,7 @@ export async function buildVectorPromptForReplay(store, recallResult, causalById
  * @returns {Promise<{text: string, logText: string}>}
  */
 export async function buildVectorPromptText(excludeLastAi = false, hooks = {}) {
-    const { postToFrame = null, echo = null, pendingUserMessage = null } = hooks;
+    const { postToFrame = null, echo = null, pendingUserMessage = null, signal = null } = hooks;
 
     if (!getSettings().storySummary?.enabled) {
         return { text: "", logText: "" };
@@ -1636,6 +1774,7 @@ export async function buildVectorPromptText(excludeLastAi = false, hooks = {}) {
         recallResult = await recallMemory(allEvents, vectorCfg, {
             excludeLastAi,
             pendingUserMessage,
+            signal,
             deferRuntimeRelease: true,
         });
 
@@ -1662,6 +1801,9 @@ export async function buildVectorPromptText(excludeLastAi = false, hooks = {}) {
             await releaseDirectEvidenceContext(recallResult.directEvidenceContext, recallResult?.metrics);
         }
         if (recallResult?.directEvidenceContext) recallResult.directEvidenceContext = null;
+        if (signal?.aborted) {
+            return { text: "", logText: "" };
+        }
         xbLog.error(MODULE_ID, "向量召回失败", e);
 
         if (echo && canNotifyRecallFail()) {
@@ -1677,6 +1819,14 @@ export async function buildVectorPromptText(excludeLastAi = false, hooks = {}) {
         }
 
         return { text: "", logText: `\n[Vector Recall Failed]\n${String(e?.stack || e?.message || e)}\n` };
+    }
+
+    if (signal?.aborted) {
+        if (recallResult?.directEvidenceContext) {
+            await releaseDirectEvidenceContext(recallResult.directEvidenceContext, recallResult?.metrics);
+            recallResult.directEvidenceContext = null;
+        }
+        return { text: "", logText: "" };
     }
 
     const hasUseful =
@@ -1716,6 +1866,9 @@ export async function buildVectorPromptText(excludeLastAi = false, hooks = {}) {
         meta,
         recallResult?.metrics || null
     );
+    if (signal?.aborted) {
+        return { text: "", logText: "" };
+    }
 
     const cfg = getSummaryPanelConfig();
     let finalText = String(promptText || "");

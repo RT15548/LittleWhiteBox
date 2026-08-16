@@ -1268,6 +1268,183 @@ export async function runStorySummaryCancellationCheck() {
     }
 }
 
+export async function runStorySummaryPromptAssemblyCheck() {
+    ensureNodeReplayGlobals();
+    globalThis.localStorage.clear();
+    globalThis.sessionStorage.clear();
+    globalThis.localStorage.setItem('summary_panel_config', JSON.stringify({
+        prompts: { memoryTemplate: '{$剧情记忆}' },
+        trigger: { wrapperHead: '', wrapperTail: '' },
+        ui: { keepVisibleCount: 0 },
+        vector: { enabled: true, summarizedEvidenceBudget: 3000 },
+    }));
+
+    const [{ EXT_ID }, { buildVectorPromptForReplay }, { createMetrics }] = await Promise.all([
+        import('../../core/constants.js'),
+        import('../../modules/story-summary/generate/prompt.js'),
+        import('../../modules/story-summary/vector/retrieval/metrics.js'),
+    ]);
+
+    const store = {
+        lastSummarizedMesId: -1,
+        json: {
+            keywords: [],
+            events: [],
+            characters: { main: [] },
+            arcs: [],
+            facts: [],
+            characterAliases: [],
+        },
+    };
+    __setExtensionSettings({ [EXT_ID]: { storySummary: { enabled: true } } });
+    __setChatMetadata({ extensions: { [EXT_ID]: { storySummary: store } } });
+    __setReplayContext({
+        chatId: 'story-summary-prompt-assembly-check',
+        chat: [],
+        name1: '用户',
+        name2: '角色',
+        groupId: null,
+        characterId: 'story-summary-prompt-assembly-check',
+        saveMetadata: async () => {},
+    });
+
+    const temporalFloors = [0, 10, 20, 30, 40, 50, 60];
+    const temporalEvents = temporalFloors.map((floor, index) => ({
+        event: {
+            id: `temporal-event-${index + 1}`,
+            title: `TEMPORAL_EVENT_${index + 1}`,
+            summary: `时间事件 ${index + 1} (#${floor + 1})`,
+            participants: ['角色'],
+        },
+        _recallType: 'DIRECT',
+        similarity: 1 - index / 100,
+    }));
+    const evidenceOwner = {
+        event: {
+            id: 'evidence-owner',
+            title: 'EVIDENCE_OWNER',
+            summary: '证据归属事件 (#101-110)',
+            participants: ['角色'],
+        },
+        _recallType: 'DIRECT',
+        _evidenceEligible: true,
+        similarity: 0.5,
+    };
+    const events = [
+        ...temporalEvents.slice(0, 5),
+        evidenceOwner,
+        ...temporalEvents.slice(5),
+    ];
+
+    const evidenceMarkers = {
+        protected: 'PROTECTED_EVIDENCE',
+        ordinaryHigh: 'ORDINARY_HIGH_EVIDENCE',
+        temporalOverflow: 'TEMPORAL_OVERFLOW_EVIDENCE',
+        ordinaryLow: 'ORDINARY_LOW_EVIDENCE',
+    };
+    const directEvidenceL1 = [
+        {
+            chunkId: 'protected-evidence',
+            floor: 109,
+            isUser: false,
+            speaker: '角色',
+            text: `${evidenceMarkers.protected} ${'P'.repeat(4000)}`,
+            _directEvidenceTemporalCarrier: true,
+            _directEvidencePassedMinScore: true,
+        },
+        {
+            chunkId: 'ordinary-high-evidence',
+            floor: 105,
+            isUser: false,
+            speaker: '角色',
+            text: `${evidenceMarkers.ordinaryHigh} ${'H'.repeat(3000)}`,
+            _directEvidencePassedMinScore: true,
+        },
+        {
+            chunkId: 'temporal-overflow-evidence',
+            floor: 101,
+            isUser: false,
+            speaker: '角色',
+            text: `${evidenceMarkers.temporalOverflow} ${'O'.repeat(3000)}`,
+            _directEvidenceTemporalCarrier: true,
+            _directEvidencePassedMinScore: true,
+        },
+        {
+            chunkId: 'ordinary-low-evidence',
+            floor: 103,
+            isUser: false,
+            speaker: '角色',
+            text: `${evidenceMarkers.ordinaryLow} ${'L'.repeat(3000)}`,
+            _directEvidencePassedMinScore: true,
+        },
+    ];
+
+    const externalCalls = [];
+    const previousFetch = globalThis.fetch;
+    const previousStreamingModule = globalThis.window.xiaobaixStreamingGeneration;
+    globalThis.fetch = async () => {
+        externalCalls.push('fetch');
+        throw new Error('Prompt assembly check forbids network access');
+    };
+    globalThis.window.xiaobaixStreamingGeneration = {
+        async xbgenrawCommand() {
+            externalCalls.push('streaming-generation');
+            throw new Error('Prompt assembly check forbids generation');
+        },
+    };
+
+    try {
+        const metrics = createMetrics();
+        const built = await buildVectorPromptForReplay(
+            store,
+            {
+                events,
+                eventTemporalFloors: temporalFloors,
+                l0Selected: [],
+                l1ByFloor: new Map(),
+                directEvidenceStatus: 'applied',
+                directEvidenceL1,
+                directEvidenceContext: null,
+            },
+            new Map(),
+            [],
+            { lastChunkFloor: -1 },
+            metrics,
+        );
+        const promptText = String(built?.promptText || '');
+        const renderedEvidenceFloors = [...promptText.matchAll(/^\s*[┌›]\s+#(\d+)\s+\[[^\]]+\]/gm)]
+            .map(match => Number(match[1]));
+
+        return {
+            externalCalls,
+            event: {
+                temporalWinners: metrics.event.temporalWinners,
+                temporalProtectionCap: metrics.event.temporalProtectionCap,
+                temporalProtected: metrics.event.temporalProtected,
+                temporalOverflow: metrics.event.temporalOverflow,
+                overflowRendered: temporalEvents.slice(5).map(item => promptText.includes(item.event.title)),
+            },
+            evidence: {
+                summarizedBudgetMax: metrics.evidence.summarizedBudgetMax,
+                temporalProtectionBudgetMax: metrics.evidence.directEvidenceTemporalProtectionBudgetMax,
+                temporalProtectedItems: metrics.evidence.directEvidenceTemporalProtectedItems,
+                temporalProtectedTokens: metrics.evidence.directEvidenceTemporalProtectedTokens,
+                enumerated: metrics.evidence.directEvidenceEnumerated,
+                admitted: metrics.evidence.directEvidenceAdmitted,
+                skippedByBudget: metrics.evidence.directEvidenceSkippedByBudget,
+                renderedEvidenceFloors,
+                markerRendered: Object.fromEntries(
+                    Object.entries(evidenceMarkers).map(([name, marker]) => [name, promptText.includes(marker)]),
+                ),
+            },
+        };
+    } finally {
+        if (previousFetch === undefined) delete globalThis.fetch;
+        else globalThis.fetch = previousFetch;
+        globalThis.window.xiaobaixStreamingGeneration = previousStreamingModule;
+    }
+}
+
 export async function runStorySummaryPostCommitCancellationCheck() {
     ensureNodeReplayGlobals();
     const [{ EXT_ID }, { runSummaryGeneration }] = await Promise.all([

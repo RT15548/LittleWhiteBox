@@ -11,6 +11,7 @@
 import { callLLM, cancelAllL0Requests } from './llm-service.js';
 import {
     getL0RetryDelayMs,
+    getL0ResponseSchemaFailure,
     isRetryableL0Failure,
     L0_MAX_ATTEMPTS,
 } from './l0-retry-policy.js';
@@ -73,6 +74,8 @@ const SYSTEM_PROMPT = `你是场景摘要器。从一轮对话中提取1-2个场
 - 禁止空泛写法，例如：两人交谈、关系升温、发生冲突、气氛暧昧、展开互动、进行交流、产生矛盾
 - 必须把抽象概括改写成具象句，写清楚谁在什么地方拿着什么、对谁做了什么；如有关键言语行为，可简要保留其内容或目的；态度和关系变化仅在这一轮里有明确依据时再写
 - 60-100字，信息密集但流畅；不要列清单，要在自然语言里尽量塞进可检索钩子
+- 信息无法全部容纳时，严格按此顺序压缩或删除：气氛描写 → 次要反应 → 心理描写 → 动作过程；必须先删完前一类，才可压缩后一类
+- 与本场景直接相关的具名实体（人名、地点、具名物件）、辨识性特征和15字以内的关键原话属于最后保留层；仅在上述四类都已不足以继续压缩时才考虑舍弃；无关名词不要强行塞入
 
 ## edges（关系三元组）
 - s=施事方 t=受事方 r=互动行为（建议 6-12 字，最多 20 字）
@@ -269,11 +272,13 @@ async function extractAtomsForRoundWithRetry(userMessage, aiMessage, aiFloor, op
                 xbLog.info(MODULE_ID, `floor ${aiFloor} attempt ${attempt} JSON syntax repaired=${parsedResponse.repair}`);
             }
 
-            const rawAnchors = parsed?.anchors;
-            if (!rawAnchors || !Array.isArray(rawAnchors)) {
+            const schemaFailure = getL0ResponseSchemaFailure(parsed);
+            if (schemaFailure) {
                 xbLog.warn(MODULE_ID, `floor ${aiFloor} attempt ${attempt} 缺少有效 anchors，parsed=${previewText(JSON.stringify(parsed))}`);
+                if (await waitBeforeL0Retry(attempt, schemaFailure)) continue;
                 return null;
             }
+            const rawAnchors = parsed.anchors;
 
             // 转换为 atom 存储格式（最多 2 个）
             const atoms = rawAnchors

@@ -6,6 +6,8 @@
 import { xbLog } from '../../../../core/debug-core.js';
 import { getVectorConfig } from '../../data/config.js';
 import { getDefaultApiPrefix, resolveApiBaseUrl } from '../../../../shared/common/openai-url-utils.js';
+import { mergeAbortSignals } from '../../../../shared/common/abort-utils.js';
+import { buildBoundedRerankQuery, RERANK_QUERY_MAX_CHARS } from '../retrieval/rerank-query.js';
 
 const MODULE_ID = 'reranker';
 const DEFAULT_RERANK_URL = 'https://api.siliconflow.cn/v1';
@@ -127,8 +129,19 @@ export async function rerank(query, documents, options = {}) {
         return { results: [], failed: false, diagnostic: null };
     }
 
+    // Transport-layer hard bound: every rerank caller (floor / event /
+    // direct-evidence / future) goes through this single choke point, so a
+    // provider-side query limit can never be bypassed by a new call site.
+    const boundedQuery = buildBoundedRerankQuery(query, [], RERANK_QUERY_MAX_CHARS);
+    if (boundedQuery !== query) {
+        xbLog.warn(MODULE_ID,
+            `Rerank query ${query.length} 字符超过 ${RERANK_QUERY_MAX_CHARS}，传输层裁剪（保留末尾）`
+        );
+    }
+
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
+    const requestSignal = mergeAbortSignals(signal, controller.signal);
     const T0 = performance.now();
 
     try {
@@ -144,13 +157,14 @@ export async function rerank(query, documents, options = {}) {
             },
             body: JSON.stringify({
                 model: String(apiCfg.model || RERANK_MODEL),
-                // Zero-darkbox: do not silently truncate query.
-                query,
+                // Composition layer keeps the query deterministic; the
+                // transport bound above is the last-resort hard clip.
+                query: boundedQuery,
                 documents: validDocs,
                 top_n: Math.min(topN, validDocs.length),
                 return_documents: false,
             }),
-            signal: signal || controller.signal,
+            signal: requestSignal,
         });
 
         clearTimeout(timeoutId);
@@ -182,6 +196,10 @@ export async function rerank(query, documents, options = {}) {
 
     } catch (e) {
         clearTimeout(timeoutId);
+
+        // Caller cancellation ends the whole recall. Only this request's own
+        // timeout/provider failure may use the atomic rerank fallback.
+        if (signal?.aborted) throw signal.reason || e;
 
         if (e?.name === 'AbortError') {
             xbLog.warn(MODULE_ID, 'Rerank 超时或取消');

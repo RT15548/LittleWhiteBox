@@ -29,11 +29,33 @@ test('DIRECT evidence parents stay bounded while retaining temporal events', () 
     const source = Array.from({ length: 25 }, (_, index) => event(index, index * 2 + 1, index * 2 + 2));
     const selected = selectDirectEvidenceParents(source, { limit: 20, temporalFloors: [44] });
 
-    assert.equal(selected.length, 22);
+    assert.equal(selected.length, 21);
     assert.deepEqual(selected.slice(0, 20).map(item => item.event.id), source.slice(0, 20).map(item => item.event.id));
     assert.equal(selected.some(item => item.event.id === 'evt-21'), true);
-    assert.equal(selected.some(item => item.event.id === 'evt-22'), true);
+    assert.equal(selected.some(item => item.event.id === 'evt-22'), false);
     assert.deepEqual(floorsForDirectEvidenceParents([event(0, 2, 4)]), [1, 2, 3]);
+});
+
+test('an ordinary parent winner does not promote a temporal runner-up', () => {
+    const selected = selectDirectEvidenceParents([
+        event(0, 10),
+        event(1, 10),
+        event(2, 30),
+    ], { limit: 1, temporalFloors: [9], maxExtraTemporalParents: 5 });
+
+    assert.deepEqual(selected.map(item => item.event.id), ['evt-0']);
+});
+
+test('extra temporal parents are globally capped at five', () => {
+    const source = Array.from({ length: 12 }, (_, index) => event(index, index + 1));
+    const selected = selectDirectEvidenceParents(source, {
+        limit: 2,
+        temporalFloors: Array.from({ length: 12 }, (_, index) => index),
+        maxExtraTemporalParents: 5,
+    });
+
+    assert.equal(selected.length, 7);
+    assert.deepEqual(selected.map(item => item.event.id), source.slice(0, 7).map(item => item.event.id));
 });
 
 test('DIRECT evidence admission keeps an exact-time chunk inside 60 candidates', () => {
@@ -48,7 +70,7 @@ test('DIRECT evidence admission keeps an exact-time chunk inside 60 candidates',
     });
 
     assert.equal(admission.candidates.length, 60);
-    assert.equal(admission.temporalReservedCount, 1);
+    assert.equal(admission.temporalProtectedCount, 1);
     assert.equal(admission.candidates.some(item => item.chunkId === 'c-64'), true);
     assert.equal(admission.candidates.some(item => item.chunkId === 'c-59'), false);
 });
@@ -72,7 +94,107 @@ test('DIRECT evidence admission keeps the requested side of a temporal turn', ()
     });
 
     assert.equal(admission.candidates.length, 60);
-    assert.equal(admission.temporalReservedCount, 1);
+    assert.equal(admission.temporalProtectedCount, 1);
     assert.equal(admission.candidates.some(item => item.chunkId === 'c-64'), true);
     assert.equal(admission.candidates.find(item => item.chunkId === 'c-64')._directEvidenceTemporalCarrier, true);
+});
+
+test('a temporal turn protects only its highest-focus chunk', () => {
+    const source = [
+        { ...chunk(1, 0.9), floor: 8, isUser: true },
+        { ...chunk(2, 0.8), floor: 8, isUser: true },
+        { ...chunk(3, 0.7), floor: 8, isUser: true },
+    ];
+    const admission = selectDirectEvidenceAdmission(source, {
+        limit: 3,
+        timeMarker: '113年11月20日03:38',
+        temporalCarrier: {
+            marker: '113年11月20日03:38',
+            exactFloors: [9],
+            userFloors: [8],
+            assistantFloors: [9],
+            querySpeaker: 'user',
+        },
+    });
+
+    assert.equal(admission.temporalCandidateCount, 3);
+    assert.equal(admission.temporalProtectedCount, 1);
+    assert.deepEqual(
+        admission.candidates.filter(item => item._directEvidenceTemporalCarrier).map(item => item.chunkId),
+        ['c-1'],
+    );
+});
+
+test('temporal candidate privilege is capped at forty percent without excluding ordinary matches', () => {
+    const source = [
+        ...Array.from({ length: 8 }, (_, index) => ({
+            ...chunk(index, 100 - index),
+            floor: index,
+            isUser: true,
+        })),
+        chunk(8, 92),
+        chunk(9, 91),
+    ];
+    const admission = selectDirectEvidenceAdmission(source, {
+        limit: 10,
+        maxTemporalCandidateShare: 0.40,
+        timeMarker: '113年11月20日03:38',
+        temporalCarrier: {
+            marker: '113年11月20日03:38',
+            exactFloors: Array.from({ length: 8 }, (_, index) => index),
+            userFloors: Array.from({ length: 8 }, (_, index) => index),
+            assistantFloors: [],
+            querySpeaker: 'user',
+        },
+    });
+
+    assert.equal(admission.temporalProtectionCap, 4);
+    assert.equal(admission.temporalProtectedCount, 4);
+    assert.equal(admission.temporalOverflowCount, 4);
+    assert.equal(admission.candidates.filter(item => item._directEvidenceTemporalCarrier).length, 4);
+    assert.equal(admission.candidates.filter(item => item._directEvidenceTemporalMatch).length, 8);
+});
+
+test('only protected temporal winners are forced into the candidate set', () => {
+    const regular = Array.from({ length: 10 }, (_, index) => chunk(index, 100 - index));
+    const temporal = Array.from({ length: 8 }, (_, index) => ({
+        ...chunk(10 + index, 10 - index),
+        floor: 20 + index,
+        isUser: true,
+    }));
+    const admission = selectDirectEvidenceAdmission([...regular, ...temporal], {
+        limit: 10,
+        maxTemporalCandidateShare: 0.40,
+        temporalCarrier: {
+            marker: '113年11月20日03:38',
+            exactFloors: temporal.map(item => item.floor),
+            userFloors: temporal.map(item => item.floor),
+            assistantFloors: [],
+            querySpeaker: 'user',
+        },
+    });
+
+    assert.equal(admission.temporalForcedCount, 4);
+    assert.equal(admission.candidates.filter(item => item._directEvidenceTemporalCarrier).length, 4);
+    assert.equal(admission.candidates.some(item => item.chunkId === 'c-14'), false);
+});
+
+test('marker-only matches protect one winner on each actual chunk floor', () => {
+    const admission = selectDirectEvidenceAdmission([
+        chunk(1, 1, '113年11月20日03:38 first'),
+        { ...chunk(2, 0.9, '113年11月20日03:38 second'), floor: 9 },
+        chunk(3, 0.8),
+        chunk(4, 0.7),
+        chunk(5, 0.6),
+    ], {
+        limit: 5,
+        maxTemporalCandidateShare: 0.40,
+        timeMarker: '113年11月20日03:38',
+    });
+
+    assert.equal(admission.temporalProtectedCount, 2);
+    assert.deepEqual(
+        admission.candidates.filter(item => item._directEvidenceTemporalCarrier).map(item => item.chunkId),
+        ['c-1', 'c-2'],
+    );
 });

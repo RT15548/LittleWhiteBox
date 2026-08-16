@@ -3,16 +3,15 @@
 import { getRerankBatchDiagnostics, rerankChunks } from '../llm/reranker.js';
 import { scoreRecallRuntimeEvents } from '../runtime/runtime.js';
 import {
-    eventMatchesTemporalFloors,
     extractFullTimeMarker,
     findExactTimeFloors,
+    getTemporalProtectionLimit,
+    matchingEventTemporalFloors,
+    selectTemporalFloorWinners,
+    TEMPORAL_PROTECTION_POLICY,
 } from './temporal-turn-carrier.js';
 
 const EVENT_RERANK_CANDIDATE_MAX = 60;
-
-function overlapsExactTimeFloor(item, exactTimeFloors) {
-    return eventMatchesTemporalFloors(item?.event, exactTimeFloors);
-}
 
 function buildEventDocument(event) {
     return [
@@ -38,7 +37,7 @@ function isCompleteRerank(reranked, candidates) {
     return seen.size === expected.size;
 }
 
-async function selectCandidates(source, { query, focusVector, chatId, chat }) {
+async function selectCandidates(source, { query, focusVector, chatId, chat, signal }) {
     const eligible = source.filter(item => item?.event?.id && item?.event?.summary);
     if (eligible.length <= EVENT_RERANK_CANDIDATE_MAX) {
         const candidateSet = new Set(eligible);
@@ -48,12 +47,17 @@ async function selectCandidates(source, { query, focusVector, chatId, chat }) {
             exactTimeMarker: '',
             exactTimeFloorCount: 0,
             exactTimeCandidateCount: 0,
+            exactTimeWinnerCount: 0,
+            exactTimeReservedCount: 0,
+            exactTimeOverflowCount: 0,
             exactTimeForcedCount: 0,
         };
     }
     if (!focusVector?.length || !chatId) return null;
 
-    const scored = await scoreRecallRuntimeEvents(chatId, focusVector);
+    const scored = await scoreRecallRuntimeEvents(chatId, focusVector, {
+        signal: signal || null,
+    });
     const scoreMap = new Map((scored?.scores || []).map(item => [item.eventId, item.similarity]));
     if (!scoreMap.size) return null;
 
@@ -64,16 +68,28 @@ async function selectCandidates(source, { query, focusVector, chatId, chat }) {
             item,
             sourceIndex,
             score: scoreMap.get(item.event.id) ?? Number.NEGATIVE_INFINITY,
-            exactTime: overlapsExactTimeFloor(item, exactTimeFloors),
+            exactTimeFloors: matchingEventTemporalFloors(item.event, exactTimeFloors),
         }))
         .sort((left, right) => right.score - left.score || left.sourceIndex - right.sourceIndex);
     const selected = ranked.slice(0, EVENT_RERANK_CANDIDATE_MAX);
     const selectedIds = new Set(selected.map(row => row.item.event.id));
-    const exactTimeRows = ranked.filter(row => row.exactTime).slice(0, EVENT_RERANK_CANDIDATE_MAX);
-    const exactTimeIds = new Set(exactTimeRows.map(row => row.item.event.id));
+    const exactTimeRows = ranked.filter(row => row.exactTimeFloors.length > 0);
+    const exactTimeWinners = selectTemporalFloorWinners(
+        exactTimeRows,
+        row => row.exactTimeFloors,
+    );
+    const exactTimeReserveCap = Math.min(
+        TEMPORAL_PROTECTION_POLICY.maxProtectedEvents,
+        getTemporalProtectionLimit(
+            EVENT_RERANK_CANDIDATE_MAX,
+            TEMPORAL_PROTECTION_POLICY.maxCandidateShare,
+        ),
+    );
+    const exactTimeProtected = exactTimeWinners.slice(0, exactTimeReserveCap);
+    const exactTimeIds = new Set(exactTimeProtected.map(row => row.item.event.id));
     let exactTimeForcedCount = 0;
 
-    for (const row of exactTimeRows) {
+    for (const row of exactTimeProtected) {
         if (selectedIds.has(row.item.event.id)) continue;
         let replaceIndex = selected.length - 1;
         while (replaceIndex >= 0 && exactTimeIds.has(selected[replaceIndex].item.event.id)) {
@@ -96,6 +112,9 @@ async function selectCandidates(source, { query, focusVector, chatId, chat }) {
         exactTimeMarker,
         exactTimeFloorCount: exactTimeFloors.length,
         exactTimeCandidateCount: exactTimeRows.length,
+        exactTimeWinnerCount: exactTimeWinners.length,
+        exactTimeReservedCount: exactTimeProtected.length,
+        exactTimeOverflowCount: Math.max(0, exactTimeWinners.length - exactTimeProtected.length),
         exactTimeForcedCount,
     };
 }
@@ -118,11 +137,15 @@ export async function rerankRecalledEvents(eventHits, options = {}) {
         exactTimeMarker: '',
         exactTimeFloorCount: 0,
         exactTimeCandidateCount: 0,
+        exactTimeWinnerCount: 0,
+        exactTimeReservedCount: 0,
+        exactTimeOverflowCount: 0,
         exactTimeForcedCount: 0,
         diagnostics: { totalBatches: 0, failedBatches: 0, failures: [] },
         scores: [],
     };
-    if (!query || source.length === 0) return base;
+    if (!query) return { ...base, status: 'skipped-no-query' };
+    if (source.length === 0) return { ...base, status: 'skipped-no-candidates' };
 
     const admissionStartedAt = performance.now();
     let admission;
@@ -132,8 +155,10 @@ export async function rerankRecalledEvents(eventHits, options = {}) {
             focusVector: options.focusVector,
             chatId: options.chatId,
             chat: options.chat,
+            signal: options.signal || null,
         });
-    } catch {
+    } catch (error) {
+        if (error?.name === 'AbortError') throw error;
         return {
             ...base,
             status: 'admission-failed',
@@ -141,8 +166,11 @@ export async function rerankRecalledEvents(eventHits, options = {}) {
         };
     }
     const admissionMs = Math.round(performance.now() - admissionStartedAt);
-    if (!admission?.candidates?.length) {
-        return { ...base, status: 'admission-failed', admissionMs };
+    if (!admission) {
+        return { ...base, status: 'admission-skipped', admissionMs };
+    }
+    if (!admission.candidates?.length) {
+        return { ...base, status: 'skipped-no-candidates', admissionMs };
     }
 
     const candidates = admission.candidates.map(item => ({
@@ -153,6 +181,7 @@ export async function rerankRecalledEvents(eventHits, options = {}) {
     const reranked = await rerankChunks(query, candidates, {
         topN: candidates.length,
         minScore: Number.NEGATIVE_INFINITY,
+        signal: options.signal || null,
     });
     const rerankMs = Math.round(performance.now() - rerankStartedAt);
     const diagnostics = getRerankBatchDiagnostics(reranked);
@@ -165,6 +194,9 @@ export async function rerankRecalledEvents(eventHits, options = {}) {
         exactTimeMarker: admission.exactTimeMarker,
         exactTimeFloorCount: admission.exactTimeFloorCount,
         exactTimeCandidateCount: admission.exactTimeCandidateCount,
+        exactTimeWinnerCount: admission.exactTimeWinnerCount,
+        exactTimeReservedCount: admission.exactTimeReservedCount,
+        exactTimeOverflowCount: admission.exactTimeOverflowCount,
         exactTimeForcedCount: admission.exactTimeForcedCount,
         diagnostics,
         scores: reranked

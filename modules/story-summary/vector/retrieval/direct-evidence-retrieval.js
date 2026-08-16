@@ -6,6 +6,7 @@ import {
     selectDirectEvidenceAdmission,
     selectDirectEvidenceParents,
 } from './direct-evidence-admission.js';
+import { selectTemporalFloorWinners } from './temporal-turn-carrier.js';
 
 const DIRECT_EVIDENCE_MIN_SCORE = 0.1;
 
@@ -44,7 +45,12 @@ export async function rankSelectedDirectEvidence(selectedDirect, context) {
     }
 
     const focusStartedAt = performance.now();
-    const scoredByFloor = await scoreRecallRuntimeL1(context.chatId, floors, context.focusVector);
+    const scoredByFloor = await scoreRecallRuntimeL1(
+        context.chatId,
+        floors,
+        context.focusVector,
+        { signal: context?.signal || null },
+    );
     const focusScoreMs = Math.round(performance.now() - focusStartedAt);
     const scoredChunks = floors.flatMap(floor => scoredByFloor.get(floor) || []);
     const admission = selectDirectEvidenceAdmission(scoredChunks, {
@@ -65,8 +71,12 @@ export async function rankSelectedDirectEvidence(selectedDirect, context) {
         candidates: candidates.length,
         documentChars: candidates.reduce((sum, item) => sum + item.text.length, 0),
         temporalCandidates: admission.temporalCandidateCount,
-        temporalReserved: admission.temporalReservedCount,
+        temporalFloorWinners: admission.temporalFloorWinnerCount,
+        temporalProtectionCap: admission.temporalProtectionCap,
+        temporalProtectedCandidates: admission.temporalProtectedCount,
+        temporalForced: admission.temporalForcedCount,
         temporalOverflow: admission.temporalOverflowCount,
+        temporalSameFloorNonWinners: admission.temporalSameFloorNonWinnerCount,
         vectorHits: Number(scoredByFloor._stats?.vectorHits || 0),
         missingVectors,
         focusScoreMs,
@@ -86,14 +96,24 @@ export async function rankSelectedDirectEvidence(selectedDirect, context) {
     const reranked = await rerankChunks(context.focusQuery, candidates, {
         topN: candidates.length,
         minScore: Number.NEGATIVE_INFINITY,
+        signal: context?.signal || null,
     });
     const rerankMs = Math.round(performance.now() - rerankStartedAt);
     const diagnostics = getRerankBatchDiagnostics(reranked);
     const complete = diagnostics.failedBatches === 0 && isCompleteRerank(reranked, candidates);
+    const temporalWinners = complete
+        ? selectTemporalFloorWinners(reranked, item => {
+            const floor = item?.chunk?._directEvidenceTemporalProtectionFloor;
+            return item?.chunk?._directEvidenceTemporalMatch === true && Number.isInteger(floor)
+                ? [floor]
+                : [];
+        })
+        : [];
+    const temporalWinnerIds = new Set(temporalWinners.map(item => item.chunk.chunkId));
     const relevant = complete
         ? reranked.filter(item => (
             Number(item._rerankScore) >= DIRECT_EVIDENCE_MIN_SCORE
-            || item.chunk._directEvidenceTemporalCarrier === true
+            || temporalWinnerIds.has(item.chunk.chunkId)
         ))
         : [];
     const items = relevant.map((item, rankIndex) => ({
@@ -107,8 +127,12 @@ export async function rankSelectedDirectEvidence(selectedDirect, context) {
         score: Number(item._rerankScore || 0),
         focusScore: Number(item.chunk._directEvidenceFocusScore || 0),
         _directEvidenceTemporalExact: item.chunk._directEvidenceTemporalExact === true,
-        _directEvidenceTemporalCarrier: item.chunk._directEvidenceTemporalCarrier === true,
-        _directEvidenceTemporalMarker: item.chunk._directEvidenceTemporalMarker || null,
+        _directEvidenceTemporalMatch: item.chunk._directEvidenceTemporalMatch === true,
+        _directEvidenceTemporalCarrier: temporalWinnerIds.has(item.chunk.chunkId),
+        _directEvidencePassedMinScore: Number(item._rerankScore) >= DIRECT_EVIDENCE_MIN_SCORE,
+        _directEvidenceTemporalMarker: temporalWinnerIds.has(item.chunk.chunkId)
+            ? item.chunk._directEvidenceTemporalMarker || context.timeMarker || null
+            : null,
         rank: rankIndex + 1,
     }));
 
@@ -119,6 +143,7 @@ export async function rankSelectedDirectEvidence(selectedDirect, context) {
         stats: {
             ...baseStats,
             relevantItems: items.length,
+            temporalFinalProtected: temporalWinnerIds.size,
             rerankMs,
         },
     };

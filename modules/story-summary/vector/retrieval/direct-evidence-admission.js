@@ -1,8 +1,11 @@
 import {
     chunkMatchesTemporalCarrier,
-    eventMatchesTemporalFloors,
+    getTemporalProtectionLimit,
+    matchingEventTemporalFloors,
     normalizeTimeText,
     parseEventRange,
+    selectTemporalFloorWinners,
+    TEMPORAL_PROTECTION_POLICY,
 } from './temporal-turn-carrier.js';
 
 const DEFAULT_PARENT_LIMIT = 20;
@@ -22,6 +25,10 @@ export function selectDirectEvidenceParents(selectedDirect, options = {}) {
     const limit = Number.isInteger(options.limit) && options.limit > 0
         ? options.limit
         : DEFAULT_PARENT_LIMIT;
+    const maxExtraTemporalParents = Number.isInteger(options.maxExtraTemporalParents)
+        && options.maxExtraTemporalParents >= 0
+        ? options.maxExtraTemporalParents
+        : TEMPORAL_PROTECTION_POLICY.maxExtraDirectEvidenceParents;
     const temporalFloors = [...new Set((options.temporalFloors || []).filter(Number.isInteger))];
     const source = uniqueBy(
         (selectedDirect || []).filter(item => item?.event?.id && item?.event?.summary),
@@ -29,10 +36,19 @@ export function selectDirectEvidenceParents(selectedDirect, options = {}) {
     );
     const selected = source.slice(0, limit);
     const selectedIds = new Set(selected.map(item => item.event.id));
-    for (const item of source) {
-        if (!eventMatchesTemporalFloors(item.event, temporalFloors) || selectedIds.has(item.event.id)) continue;
+    const temporalWinners = selectTemporalFloorWinners(
+        source,
+        item => matchingEventTemporalFloors(item.event, temporalFloors),
+    );
+    let addedTemporalParents = 0;
+    for (const item of temporalWinners) {
+        // A winner already present in the ordinary top-N still owns its floors;
+        // never promote a runner-up merely to fill the extra-parent allowance.
+        if (selectedIds.has(item.event.id)) continue;
+        if (addedTemporalParents >= maxExtraTemporalParents) break;
         selected.push(item);
         selectedIds.add(item.event.id);
+        addedTemporalParents++;
     }
     return selected;
 }
@@ -55,6 +71,9 @@ export function selectDirectEvidenceAdmission(scoredChunks, options = {}) {
     const limit = Number.isInteger(options.limit) && options.limit > 0
         ? options.limit
         : DEFAULT_CANDIDATE_LIMIT;
+    const maxTemporalCandidateShare = Number.isFinite(Number(options.maxTemporalCandidateShare))
+        ? Number(options.maxTemporalCandidateShare)
+        : TEMPORAL_PROTECTION_POLICY.maxCandidateShare;
     const marker = options.timeMarker || null;
     const temporalCarrier = options.temporalCarrier || null;
     const ranked = uniqueBy(
@@ -74,11 +93,18 @@ export function selectDirectEvidenceAdmission(scoredChunks, options = {}) {
     ));
 
     const temporal = ranked.filter(row => row.temporal);
-    const temporalKept = temporal.slice(0, limit);
-    const temporalIds = new Set(temporalKept.map(row => row.chunk.chunkId));
+    const temporalWinners = selectTemporalFloorWinners(
+        temporal,
+        row => Number.isInteger(Number(row.chunk.floor)) ? [Number(row.chunk.floor)] : [],
+    );
+    const temporalProtectionCap = getTemporalProtectionLimit(limit, maxTemporalCandidateShare);
+    const temporalProtected = temporalWinners.slice(0, temporalProtectionCap);
+    const temporalIds = new Set(temporalProtected.map(row => row.chunk.chunkId));
+    const temporalProtectedFloors = new Set(temporalProtected.map(row => Number(row.chunk.floor)));
     const selected = ranked.slice(0, limit);
     const selectedIds = new Set(selected.map(row => row.chunk.chunkId));
-    for (const row of temporalKept) {
+    let temporalForcedCount = 0;
+    for (const row of temporalProtected) {
         const chunkId = row.chunk.chunkId;
         if (selectedIds.has(chunkId)) continue;
         let replaceIndex = selected.length - 1;
@@ -87,6 +113,7 @@ export function selectDirectEvidenceAdmission(scoredChunks, options = {}) {
         selectedIds.delete(selected[replaceIndex].chunk.chunkId);
         selected[replaceIndex] = row;
         selectedIds.add(chunkId);
+        temporalForcedCount++;
     }
     selected.sort((left, right) => (
         right.focusScore - left.focusScore || left.sourceIndex - right.sourceIndex
@@ -97,13 +124,22 @@ export function selectDirectEvidenceAdmission(scoredChunks, options = {}) {
             ...row.chunk,
             _directEvidenceFocusScore: row.focusScore,
             _directEvidenceTemporalExact: row.exact,
-            _directEvidenceTemporalCarrier: row.temporal,
-            _directEvidenceTemporalMarker: row.temporal ? marker : null,
+            _directEvidenceTemporalCarrier: temporalIds.has(row.chunk.chunkId),
+            _directEvidenceTemporalMatch: row.temporal,
+            _directEvidenceTemporalProtectionFloor: row.temporal
+                && temporalProtectedFloors.has(Number(row.chunk.floor))
+                ? Number(row.chunk.floor)
+                : null,
+            _directEvidenceTemporalMarker: temporalIds.has(row.chunk.chunkId) ? marker : null,
         })),
         sourceCount: ranked.length,
         temporalCandidateCount: temporal.length,
-        temporalReservedCount: temporalKept.length,
-        temporalOverflowCount: Math.max(0, temporal.length - temporalKept.length),
+        temporalFloorWinnerCount: temporalWinners.length,
+        temporalProtectionCap,
+        temporalProtectedCount: temporalProtected.length,
+        temporalForcedCount,
+        temporalOverflowCount: Math.max(0, temporalWinners.length - temporalProtected.length),
+        temporalSameFloorNonWinnerCount: Math.max(0, temporal.length - temporalWinners.length),
     };
 }
 

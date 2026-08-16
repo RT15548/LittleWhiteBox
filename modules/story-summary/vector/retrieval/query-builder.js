@@ -25,6 +25,7 @@ import { getSummaryStore } from '../../data/store.js';
 import { filterText } from '../utils/text-filter.js';
 import { tokenizeForIndex as tokenizerTokenizeForIndex } from '../utils/tokenizer.js';
 import { buildBoundedRerankQuery } from './rerank-query.js';
+import { resolveFocusCharacters } from './event-recall-classification.js';
 
 // ─────────────────────────────────────────────────────────────────────────
 // 权重常量
@@ -134,9 +135,17 @@ function extractKeyTerms(text, maxTerms = LEXICAL_TERMS_MAX) {
  * @returns {object}
  */
 export function describeQueryFocusOwnership(bundle) {
-    const focusText = String(bundle?.querySegments?.at(-1)?.text || '');
+    const focusText = String(bundle?.focusQuery || '');
     const focusTerms = extractEntitiesFromText(focusText, bundle?._lexicon, bundle?._displayMap);
-    const focusCharacters = focusTerms.filter(term => bundle?.trustedCharacters?.has(normalizeEntityTerm(term)));
+    const explicitCharacters = focusTerms.filter(term => (
+        bundle?.trustedCharacters?.has(normalizeEntityTerm(term))
+    ));
+    const focusCharacters = resolveFocusCharacters(
+        focusText,
+        explicitCharacters,
+        bundle?._context,
+        bundle?.focusIsUser,
+    );
     const focusLexicalTerms = Array.from(new Set([
         ...focusTerms.map(normalizeEntityTerm).filter(Boolean),
         ...extractKeyTerms(focusText),
@@ -171,11 +180,12 @@ export function describeQueryFocusOwnership(bundle) {
  * @typedef {object} QueryBundle
  * @property {QuerySegment[]}    querySegments  - R1 向量段（上下文 oldest→newest，焦点在末尾）
  * @property {QuerySegment|null} hintsSegment   - R2 hints 段（refinement 后填充）
- * @property {string}   focusQuery      - 当前用户问题的纯文本
+ * @property {string}   focusQuery      - 当前焦点消息的纯文本
+ * @property {boolean}  focusIsUser     - 焦点消息是否由用户发出
  * @property {string}   rerankQuery     - rerank 用的纯自然语言查询（焦点在前）
  * @property {string[]} lexicalTerms    - MiniSearch 查询词
  * @property {string[]} focusTerms      - 焦点词（原 focusEntities）
- * @property {string[]} focusCharacters - 焦点人物（focusTerms ∩ trustedCharacters）
+ * @property {string[]} focusCharacters - 当前焦点消息的专名 + 我/你解析结果（不含近期上下文人物）
  * @property {string[]} focusEntities   - Deprecated alias of focusTerms
  * @property {Set<string>} allEntities         - Full entity lexicon (includes non-character entities)
  * @property {Set<string>} allCharacters       - Union of trusted and candidate character pools
@@ -255,6 +265,7 @@ export function buildQueryBundle(lastMessages, pendingUserMessage, store = null,
     const contextEntries = [];
     let focusEntry = null;
     let focusQuery = '';
+    let focusIsUser = true;
     const allCleanTexts = [];
 
     if (pendingUserMessage) {
@@ -262,6 +273,7 @@ export function buildQueryBundle(lastMessages, pendingUserMessage, store = null,
         const pendingClean = cleanMessageText(pendingUserMessage);
         if (pendingClean) {
             const speaker = context.name1 || '用户';
+            focusIsUser = true;
             focusQuery = pendingClean;
             focusEntry = {
                 text: `${speaker}：${pendingClean}`,
@@ -285,6 +297,7 @@ export function buildQueryBundle(lastMessages, pendingUserMessage, store = null,
             const lastMsg = msgs[msgs.length - 1];
             const entry = buildMessageEntry(lastMsg, context);
             if (entry) {
+                focusIsUser = lastMsg?.is_user === true;
                 focusQuery = cleanMessageText(lastMsg.mes);
                 focusEntry = entry;
                 allCleanTexts.push(cleanMessageText(lastMsg.mes));
@@ -300,10 +313,20 @@ export function buildQueryBundle(lastMessages, pendingUserMessage, store = null,
         }
     }
 
-    // 3. 提取焦点词与焦点人物
+    // 3. 提取语义词与当前轮人物归属
+    // 语义/词法召回可以使用近期上下文；人物归属只能读取当前焦点消息。
     const combinedText = allCleanTexts.join(' ');
     const focusTerms = extractEntitiesFromText(combinedText, lexicon, displayMap);
-    const focusCharacters = focusTerms.filter(term => trustedCharacters.has(normalizeEntityTerm(term)));
+    const focusOnlyTerms = extractEntitiesFromText(focusQuery, lexicon, displayMap);
+    const explicitFocusCharacters = focusOnlyTerms.filter(term => (
+        trustedCharacters.has(normalizeEntityTerm(term))
+    ));
+    const focusCharacters = resolveFocusCharacters(
+        focusQuery,
+        explicitFocusCharacters,
+        context,
+        focusIsUser,
+    );
 
     // 4. 构建 querySegments
     //    上下文在前（oldest → newest），焦点在末尾
@@ -344,6 +367,7 @@ export function buildQueryBundle(lastMessages, pendingUserMessage, store = null,
         querySegments,
         hintsSegment: null,
         focusQuery,
+        focusIsUser,
         rerankQuery,
         lexicalTerms: Array.from(termSet),
         focusTerms,
@@ -355,6 +379,7 @@ export function buildQueryBundle(lastMessages, pendingUserMessage, store = null,
         candidateCharacters,
         _lexicon: lexicon,
         _displayMap: displayMap,
+        _context: { name1: context?.name1 || '', name2: context?.name2 || '' },
     };
 }
 

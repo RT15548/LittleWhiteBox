@@ -1,5 +1,13 @@
 // Story Summary - tiny Worker RPC helper
 
+import { createAbortError } from '../../../../shared/common/abort-utils.js';
+
+function abortErrorFromSignal(signal) {
+    return signal?.reason?.name === 'AbortError'
+        ? signal.reason
+        : createAbortError('RecallRuntime request aborted');
+}
+
 export function createWorkerRpc(worker, options = {}) {
     let nextId = 1;
     const pending = new Map();
@@ -15,7 +23,7 @@ export function createWorkerRpc(worker, options = {}) {
 
         const item = pending.get(data.id);
         pending.delete(data.id);
-        clearTimeout(item.timer);
+        item.cleanup();
 
         if (data.ok) {
             item.resolve(data.result);
@@ -27,7 +35,7 @@ export function createWorkerRpc(worker, options = {}) {
     worker.onerror = (event) => {
         const error = new Error(event?.message || 'RecallRuntime worker error');
         for (const item of pending.values()) {
-            clearTimeout(item.timer);
+            item.cleanup();
             item.reject(error);
         }
         pending.clear();
@@ -36,21 +44,40 @@ export function createWorkerRpc(worker, options = {}) {
     function call(type, payload = {}, options = {}) {
         const id = nextId++;
         const timeoutMs = Math.max(1000, Number(options.timeoutMs || 30000));
+        const signal = options.signal || null;
+        if (signal?.aborted) return Promise.reject(abortErrorFromSignal(signal));
 
         return new Promise((resolve, reject) => {
-            const timer = setTimeout(() => {
+            let timer = null;
+            let onAbort = null;
+            const cleanup = () => {
+                clearTimeout(timer);
+                signal?.removeEventListener('abort', onAbort);
+            };
+            timer = setTimeout(() => {
                 pending.delete(id);
+                cleanup();
                 reject(new Error(`RecallRuntime worker timeout: ${type}`));
             }, timeoutMs);
 
-            pending.set(id, { resolve, reject, timer });
+            onAbort = () => {
+                if (!pending.delete(id)) return;
+                cleanup();
+                reject(abortErrorFromSignal(signal));
+            };
+            pending.set(id, { resolve, reject, cleanup });
+            signal?.addEventListener('abort', onAbort, { once: true });
+            if (signal?.aborted) {
+                onAbort();
+                return;
+            }
             worker.postMessage({ id, type, payload });
         });
     }
 
     function rejectAll(error) {
         for (const item of pending.values()) {
-            clearTimeout(item.timer);
+            item.cleanup();
             item.reject(error);
         }
         pending.clear();

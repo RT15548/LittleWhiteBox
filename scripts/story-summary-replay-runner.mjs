@@ -382,6 +382,16 @@ function applyCliOverrides(config, argv) {
 }
 
 async function main() {
+    if (process.argv.includes('--check-prompt-assembly')) {
+        await buildBundle();
+        const bundleUrl = `${pathToFileURL(bundlePath).href}?t=${Date.now()}`;
+        // eslint-disable-next-line no-unsanitized/method -- URL points to the bundle path created above.
+        const replayModule = await import(bundleUrl);
+        const result = await replayModule.runStorySummaryPromptAssemblyCheck();
+        console.log(`[story-summary-replay] prompt assembly check: ${JSON.stringify(result)}`);
+        return;
+    }
+
     if (process.argv.includes('--check-cancel')) {
         await buildBundle();
         const bundleUrl = `${pathToFileURL(bundlePath).href}?t=${Date.now()}`;

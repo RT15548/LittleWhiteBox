@@ -38,6 +38,10 @@ import {
 import { getStateAtoms } from '../storage/state-store.js';
 import { getEngineFingerprint, embed } from '../utils/embedder.js';
 import { xbLog } from '../../../../core/debug-core.js';
+import {
+    throwIfSignalAborted,
+    waitForAbortableDelay,
+} from '../../../../shared/common/abort-utils.js';
 import { getContext } from '../../../../../../../extensions.js';
 import {
     buildQueryBundle,
@@ -58,7 +62,14 @@ import {
     releaseDirectEvidenceRuntimeLease,
     transferDirectEvidenceRuntimeLease,
 } from './direct-evidence-session.js';
-import { buildTemporalTurnCarrier } from './temporal-turn-carrier.js';
+import {
+    buildTemporalTurnCarrier,
+    parseEventRange,
+} from './temporal-turn-carrier.js';
+import {
+    eventOwnership,
+    classifyEventRecall,
+} from './event-recall-classification.js';
 
 const MODULE_ID = 'recall';
 
@@ -101,6 +112,7 @@ const CONFIG = {
     EVENT_MIN_SIMILARITY: 0.60,
     EVENT_MMR_LAMBDA: 0.72,
     EVENT_ENTITY_BYPASS_SIM: 0.70,
+    EVENT_EVIDENCE_MIN_SIMILARITY: 0.70,
 
     // Lexical Dense 门槛
     LEXICAL_EVENT_DENSE_MIN: 0.60,
@@ -144,34 +156,12 @@ function cosineSimilarity(a, b) {
     return nA && nB ? dot / (Math.sqrt(nA) * Math.sqrt(nB)) : 0;
 }
 
-/**
- * 从事件 summary 末尾解析楼层范围 (#X) 或 (#X-Y)
- * @param {string} summary
- * @returns {{start: number, end: number}|null}
- */
-function parseFloorRange(summary) {
-    if (!summary) return null;
-    const match = String(summary).match(/\(#(\d+)(?:-(\d+))?\)/);
-    if (!match) return null;
-    const start = Math.max(0, parseInt(match[1], 10) - 1);
-    const end = Math.max(0, (match[2] ? parseInt(match[2], 10) : parseInt(match[1], 10)) - 1);
-    return { start, end };
-}
-
 function normalize(s) {
     return String(s || '')
         .normalize('NFKC')
         .replace(/[\u200B-\u200D\uFEFF]/g, '')
         .trim()
         .toLowerCase();
-}
-
-function eventMatchesFocusCharacters(event, focusSet) {
-    // RP 不点名不等于在谈别人；没有显式人物时由语义相关性负责准入。
-    if (!focusSet?.size) return true;
-    return (event?.participants || [])
-        .map(participant => normalize(participant))
-        .some(participant => focusSet.has(participant));
 }
 
 function getLastMessages(chat, count = 3, excludeLastAi = false) {
@@ -314,14 +304,16 @@ function mmrSelect(candidates, k, lambda, getVector, getScore) {
 // [Anchors] L0 StateAtoms 检索
 // ═══════════════════════════════════════════════════════════════════════════
 
-async function recallAnchors(queryVector, vectorConfig, metrics, snapshot = null) {
+async function recallAnchors(queryVector, vectorConfig, metrics, snapshot = null, signal = null) {
     const { chatId } = getContext();
     if (!chatId || !queryVector?.length) {
         return { hits: [], floors: new Set() };
     }
     const canUseSnapshot = snapshot?.chatId === chatId;
 
-    const meta = canUseSnapshot && snapshot?.meta ? snapshot.meta : await getRecallRuntimeMeta(chatId);
+    const meta = canUseSnapshot && snapshot?.meta
+        ? snapshot.meta
+        : await getRecallRuntimeMeta(chatId, { signal });
     const fp = getEngineFingerprint(vectorConfig);
     if (meta?.fingerprint && meta.fingerprint !== fp) {
         xbLog.warn(MODULE_ID, 'Anchor fingerprint 不匹配');
@@ -331,7 +323,7 @@ async function recallAnchors(queryVector, vectorConfig, metrics, snapshot = null
     const atomsList = getStateAtoms();
     const atomMap = new Map(atomsList.map(a => [a.atomId, a]));
 
-    const runtimeScores = await scoreRecallRuntimeAnchors(chatId, queryVector);
+    const runtimeScores = await scoreRecallRuntimeAnchors(chatId, queryVector, { signal });
     if (metrics) {
         metrics.timing.runtimeScoreAnchors = runtimeScores?.stats?.timings?.scoreAnchorsMs ?? null;
     }
@@ -365,14 +357,16 @@ async function recallAnchors(queryVector, vectorConfig, metrics, snapshot = null
 // 返回 { events, scoreMap }；不回传整库 event vectors
 // ═══════════════════════════════════════════════════════════════════════════
 
-async function recallEvents(queryVector, allEvents, vectorConfig, focusCharacters, metrics, snapshot = null) {
+async function recallEvents(queryVector, allEvents, vectorConfig, focusCharacters, metrics, snapshot = null, signal = null) {
     const { chatId } = getContext();
     if (!chatId || !queryVector?.length || !allEvents?.length) {
         return { events: [], scoreMap: new Map(), vectorMap: new Map() };
     }
     const canUseSnapshot = snapshot?.chatId === chatId;
 
-    const meta = canUseSnapshot && snapshot?.meta ? snapshot.meta : await getRecallRuntimeMeta(chatId);
+    const meta = canUseSnapshot && snapshot?.meta
+        ? snapshot.meta
+        : await getRecallRuntimeMeta(chatId, { signal });
     const fp = getEngineFingerprint(vectorConfig);
     if (meta?.fingerprint && meta.fingerprint !== fp) {
         xbLog.warn(MODULE_ID, 'Event fingerprint 不匹配');
@@ -381,7 +375,7 @@ async function recallEvents(queryVector, allEvents, vectorConfig, focusCharacter
 
     const focusSet = new Set((focusCharacters || []).map(normalize));
 
-    const runtimeScores = await scoreRecallRuntimeEvents(chatId, queryVector);
+    const runtimeScores = await scoreRecallRuntimeEvents(chatId, queryVector, { signal });
     if (metrics) {
         metrics.timing.runtimeScoreEvents = runtimeScores?.stats?.timings?.scoreEventsMs ?? null;
     }
@@ -393,13 +387,13 @@ async function recallEvents(queryVector, allEvents, vectorConfig, focusCharacter
     const scored = allEvents.map(event => {
         const baseSim = scoreMap.get(event.id) ?? 0;
 
-        const hasEntityMatch = eventMatchesFocusCharacters(event, focusSet);
+        const ownership = eventOwnership(event, focusSet);
 
         return {
             _id: event.id,
             event,
             similarity: baseSim,
-            _hasEntityMatch: hasEntityMatch,
+            _ownership: ownership,
             vector: null,
         };
     });
@@ -417,13 +411,13 @@ async function recallEvents(queryVector, allEvents, vectorConfig, focusCharacter
         metrics.event.considered = candidates.length;
     }
 
-    // 实体过滤
+    // 实体过滤（准入规则不变：强语义 bypass 或明确谈焦点人物）
     if (focusSet.size > 0) {
         const beforeFilter = candidates.length;
 
         candidates = candidates.filter(c => {
             if (c.similarity >= CONFIG.EVENT_ENTITY_BYPASS_SIM) return true;
-            return c._hasEntityMatch;
+            return c._ownership === 'focus';
         });
 
         if (metrics) {
@@ -438,7 +432,7 @@ async function recallEvents(queryVector, allEvents, vectorConfig, focusCharacter
     }
 
     const candidateEventIds = candidates.map(c => c._id).filter(Boolean);
-    const candidateVectors = await getRecallRuntimeEventVectorsByIds(chatId, candidateEventIds);
+    const candidateVectors = await getRecallRuntimeEventVectorsByIds(chatId, candidateEventIds, { signal });
     if (metrics) {
         metrics.timing.runtimeGetEventVectors = candidateVectors?._stats?.timings?.getEventVectorsByIdsMs ?? 0;
     }
@@ -464,9 +458,16 @@ async function recallEvents(queryVector, allEvents, vectorConfig, focusCharacter
 
     let directCount = 0;
     let relatedCount = 0;
+    const byOwnership = { focus: 0, other: 0, unknown: 0 };
 
     const results = selected.map(s => {
-        const recallType = s._hasEntityMatch ? 'DIRECT' : 'RELATED';
+        const { ownership, recallType, evidenceEligible } = classifyEventRecall(
+            s.event,
+            focusSet,
+            s.similarity,
+            { evidenceMinSimilarity: CONFIG.EVENT_EVIDENCE_MIN_SIMILARITY },
+        );
+        byOwnership[ownership]++;
         if (recallType === 'DIRECT') directCount++;
         else relatedCount++;
 
@@ -474,12 +475,15 @@ async function recallEvents(queryVector, allEvents, vectorConfig, focusCharacter
             event: s.event,
             similarity: s.similarity,
             _recallType: recallType,
+            _ownership: ownership,
+            _evidenceEligible: evidenceEligible,
         };
     });
 
     if (metrics) {
         metrics.event.selected = results.length;
         metrics.event.byRecallType = { direct: directCount, related: relatedCount, causal: 0, lexical: 0, l0Linked: 0 };
+        metrics.event.byOwnership = byOwnership;
         metrics.event.similarityDistribution = calcSimilarityStats(results.map(r => r.similarity));
     }
 
@@ -678,7 +682,7 @@ function buildMustKeepFloors(lexicalResult, lexicalTerms, atomFloorSet, chat) {
 // [Stage 6] Floor 融合 + Rerank
 // ═══════════════════════════════════════════════════════════════════════════
 
-async function locateAndPullEvidence(anchorHits, queryVector, rerankQuery, lexicalResult, lexicalTerms, metrics, stageObserver) {
+async function locateAndPullEvidence(anchorHits, queryVector, rerankQuery, lexicalResult, lexicalTerms, metrics, stageObserver, signal = null) {
     const { chatId, chat, name1, name2 } = getContext();
     if (!chatId) return { l0Selected: [], l1ScoredByFloor: new Map(), mustKeepFloors: [] };
     const captureStages = typeof stageObserver === 'function';
@@ -852,7 +856,7 @@ async function locateAndPullEvidence(anchorHits, queryVector, rerankQuery, lexic
         metrics.evidence.l1PrefetchTrimmed = Math.max(0, fusedFloors.length - prefetchedFloorItems.length);
     }
 
-    const l1ScoredByFloor = await pullAndScoreL1(chatId, [...floorsToFetch], queryVector);
+    const l1ScoredByFloor = await pullAndScoreL1(chatId, [...floorsToFetch], queryVector, signal);
 
     // ─────────────────────────────────────────────────────────────────
     // 6e. 构建 rerank documents（每个 floor: USER chunks + AI chunks）
@@ -900,6 +904,7 @@ async function locateAndPullEvidence(anchorHits, queryVector, rerankQuery, lexic
     const reranked = await rerankChunks(rerankQuery, rerankCandidates, {
         topN: CONFIG.RERANK_TOP_N,
         minScore: CONFIG.RERANK_MIN_SCORE,
+        signal,
     });
 
     const rerankTime = Math.round(performance.now() - T_Rerank_Start);
@@ -1047,7 +1052,7 @@ async function locateAndPullEvidence(anchorHits, queryVector, rerankQuery, lexic
 // [L1] 拉取 + Cosine 打分
 // ═══════════════════════════════════════════════════════════════════════════
 
-async function pullAndScoreL1(chatId, floors, queryVector) {
+async function pullAndScoreL1(chatId, floors, queryVector, signal = null) {
     const T0 = performance.now();
     if (!chatId || !floors?.length || !queryVector?.length) {
         const result = new Map();
@@ -1064,7 +1069,7 @@ async function pullAndScoreL1(chatId, floors, queryVector) {
         return result;
     }
 
-    const result = await scoreRecallRuntimeL1(chatId, floors, queryVector);
+    const result = await scoreRecallRuntimeL1(chatId, floors, queryVector, { signal });
     result._cosineTime = Math.round(performance.now() - T0);
     result._stats ||= {};
     result._stats.totalTime = result._cosineTime;
@@ -1081,7 +1086,7 @@ async function pullAndScoreL1(chatId, floors, queryVector) {
     return result;
 }
 
-async function buildL1PairsForSelectedFloors(l0Selected, queryVector, prefetchedL1ByFloor, metrics) {
+async function buildL1PairsForSelectedFloors(l0Selected, queryVector, prefetchedL1ByFloor, metrics, signal = null) {
     const T0 = performance.now();
     const { chatId, chat } = getContext();
 
@@ -1135,7 +1140,7 @@ async function buildL1PairsForSelectedFloors(l0Selected, queryVector, prefetched
 
     const missingFloors = [...requiredFloors].filter(f => !merged.has(f));
     if (missingFloors.length > 0) {
-        const extra = await pullAndScoreL1(chatId, missingFloors, queryVector);
+        const extra = await pullAndScoreL1(chatId, missingFloors, queryVector, signal);
         totalCosineTime += Number(extra._cosineTime || 0);
         aggregateStats.chunkFetchTime += Number(extra._stats?.chunkFetchTime || 0);
         aggregateStats.vectorFetchTime += Number(extra._stats?.vectorFetchTime || 0);
@@ -1227,8 +1232,16 @@ export async function hydrateSelectedDirectEvidence(selectedDirect, context, met
             metrics.evidence.directEvidenceRelevantItems = Number(stats.relevantItems || 0);
             metrics.evidence.directEvidenceDocumentChars = Number(stats.documentChars || 0);
             metrics.evidence.directEvidenceTemporalCandidates = Number(stats.temporalCandidates || 0);
-            metrics.evidence.directEvidenceTemporalReserved = Number(stats.temporalReserved || 0);
+            metrics.evidence.directEvidenceTemporalFloorWinners = Number(stats.temporalFloorWinners || 0);
+            metrics.evidence.directEvidenceTemporalProtectionCap = Number(stats.temporalProtectionCap || 0);
+            metrics.evidence.directEvidenceTemporalProtectedCandidates = Number(
+                stats.temporalProtectedCandidates || 0,
+            );
+            metrics.evidence.directEvidenceTemporalForced = Number(stats.temporalForced || 0);
             metrics.evidence.directEvidenceTemporalOverflow = Number(stats.temporalOverflow || 0);
+            metrics.evidence.directEvidenceTemporalSameFloorNonWinners = Number(
+                stats.temporalSameFloorNonWinners || 0,
+            );
             metrics.evidence.directEvidenceVectorHits = Number(stats.vectorHits || 0);
             metrics.evidence.directEvidenceMissingVectors = Number(stats.missingVectors || 0);
             metrics.evidence.directEvidenceItems = result.items.length;
@@ -1253,6 +1266,7 @@ export async function hydrateSelectedDirectEvidence(selectedDirect, context, met
         }
         return result;
     } catch (error) {
+        if (error?.name === 'AbortError') throw error;
         const elapsedMs = Math.round(performance.now() - startedAt);
         xbLog.warn(MODULE_ID, 'DIRECT evidence retrieval failed; keep the existing evidence path', error);
         if (metrics?.evidence) {
@@ -1331,6 +1345,7 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
         excludeLastAi = false,
         stageObserver = null,
         deferRuntimeRelease = false,
+        signal = null,
     } = options;
     const captureStages = typeof stageObserver === 'function';
 
@@ -1419,15 +1434,18 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
     let r1Vectors;
     const T_R1_Embed_Start = performance.now();
     try {
-        r1Vectors = await embed(segmentTexts, vectorConfig, { timeout: 10000 });
+        r1Vectors = await embed(segmentTexts, vectorConfig, { timeout: 10000, signal });
     } catch (e1) {
+        throwIfSignalAborted(signal);
         recordExternalFailure(metrics, { stage: 'round1-embed', kind: 'request', attempt: 1 });
         xbLog.warn(MODULE_ID, 'Round 1 向量化失败，500ms 后重试', e1);
         metrics.timing.round1EmbedRetryWait = 500;
-        await new Promise(r => setTimeout(r, 500));
+        await waitForAbortableDelay(500, signal);
+        throwIfSignalAborted(signal);
         try {
-            r1Vectors = await embed(segmentTexts, vectorConfig, { timeout: 15000 });
+            r1Vectors = await embed(segmentTexts, vectorConfig, { timeout: 15000, signal });
         } catch (e2) {
+            throwIfSignalAborted(signal);
             recordExternalFailure(metrics, { stage: 'round1-embed', kind: 'request', attempt: 2 });
             xbLog.error(MODULE_ID, 'Round 1 向量化重试仍失败', e2);
             metrics.timing.round1Embed = Math.round(performance.now() - T_R1_Embed_Start);
@@ -1486,20 +1504,32 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
     try {
     const T_Runtime_Begin_Start = performance.now();
     if (chatId) {
+        throwIfSignalAborted(signal);
+        // Session acquisition must finish so its lease can always be released;
+        // cancellation is checked immediately after ownership is established.
         runtimeLease = await beginRecallRuntimeSession(chatId, { reason: 'recallMemory' });
-        snapshot.meta = await getRecallRuntimeMeta(chatId);
+        throwIfSignalAborted(signal);
+        snapshot.meta = await getRecallRuntimeMeta(chatId, { signal });
         metrics.timing.runtimeLoadFromDB = runtimeLease?.stats?.timings?.loadFromDBMs ?? 0;
         metrics.timing.runtimeBuildEntry = runtimeLease?.stats?.timings?.buildEntryMs ?? 0;
     }
     metrics.timing.runtimeBeginSession = Math.round(performance.now() - T_Runtime_Begin_Start);
 
     const T_R1_Anchor_Start = performance.now();
-    const { hits: anchorHits_v0 } = await recallAnchors(queryVector_v0, vectorConfig, null, snapshot);
+    const { hits: anchorHits_v0 } = await recallAnchors(queryVector_v0, vectorConfig, null, snapshot, signal);
     const r1AnchorTime = Math.round(performance.now() - T_R1_Anchor_Start);
     metrics.timing.round1AnchorSearch = r1AnchorTime;
 
     const T_R1_Event_Start = performance.now();
-    const { events: eventHits_v0 } = await recallEvents(queryVector_v0, allEvents, vectorConfig, focusCharacters, null, snapshot);
+    const { events: eventHits_v0 } = await recallEvents(
+        queryVector_v0,
+        allEvents,
+        vectorConfig,
+        focusCharacters,
+        null,
+        snapshot,
+        signal,
+    );
     const r1EventTime = Math.round(performance.now() - T_R1_Event_Start);
     metrics.timing.round1EventRetrieval = r1EventTime;
 
@@ -1540,7 +1570,7 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
     if (bundle.hintsSegment) {
         const T_R2_Embed_Start = performance.now();
         try {
-            const [hintsVec] = await embed([bundle.hintsSegment.text], vectorConfig, { timeout: 10000 });
+            const [hintsVec] = await embed([bundle.hintsSegment.text], vectorConfig, { timeout: 10000, signal });
             metrics.timing.round2Embed = Math.round(performance.now() - T_R2_Embed_Start);
 
             if (hintsVec?.length) {
@@ -1564,6 +1594,7 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
                 queryVector_v1 = queryVector_v0;
             }
         } catch (e) {
+            throwIfSignalAborted(signal);
             metrics.timing.round2Embed = Math.round(performance.now() - T_R2_Embed_Start);
             recordExternalFailure(metrics, {
                 stage: 'round2-embed',
@@ -1579,11 +1610,25 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
     }
 
     const T_R2_Anchor_Start = performance.now();
-    const { hits: anchorHits, floors: anchorFloors_dense } = await recallAnchors(queryVector_v1, vectorConfig, metrics, snapshot);
+    const { hits: anchorHits, floors: anchorFloors_dense } = await recallAnchors(
+        queryVector_v1,
+        vectorConfig,
+        metrics,
+        snapshot,
+        signal,
+    );
     metrics.timing.anchorSearch = Math.round(performance.now() - T_R2_Anchor_Start);
 
     const T_R2_Event_Start = performance.now();
-    let { events: eventHits, scoreMap: eventScoreMap } = await recallEvents(queryVector_v1, allEvents, vectorConfig, focusCharacters, metrics, snapshot);
+    let { events: eventHits, scoreMap: eventScoreMap } = await recallEvents(
+        queryVector_v1,
+        allEvents,
+        vectorConfig,
+        focusCharacters,
+        metrics,
+        snapshot,
+        signal,
+    );
     metrics.timing.eventRetrieval = Math.round(performance.now() - T_R2_Event_Start);
 
     xbLog.info(MODULE_ID,
@@ -1623,6 +1668,7 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
     } catch (e) {
         xbLog.warn(MODULE_ID, 'Lexical 检索失败', e);
     }
+    throwIfSignalAborted(signal);
 
     const lexTime = Math.round(performance.now() - T_Lex_Start);
 
@@ -1667,13 +1713,20 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
             continue;
         }
 
-        // 实体分类：与 Dense 路径统一标准
-        const hasEntityMatch = eventMatchesFocusCharacters(ev, focusSetForLexical);
+        // 实体归属与 DIRECT 分类：与 Dense 路径统一标准
+        const { ownership, recallType, evidenceEligible } = classifyEventRecall(
+            ev,
+            focusSetForLexical,
+            sim,
+            { evidenceMinSimilarity: CONFIG.EVENT_EVIDENCE_MIN_SIMILARITY },
+        );
 
         eventHits.push({
             event: ev,
             similarity: sim,
-            _recallType: hasEntityMatch ? 'DIRECT' : 'RELATED',
+            _recallType: recallType,
+            _ownership: ownership,
+            _evidenceEligible: evidenceEligible,
         });
         existingEventIds.add(eid);
         lexicalEventCount++;
@@ -1703,7 +1756,8 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
         lexicalResult,
         bundle.lexicalTerms,
         metrics,
-        stageObserver
+        stageObserver,
+        signal
     );
 
     // ═══════════════════════════════════════════════════════════════════
@@ -1719,7 +1773,7 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
         l0Selected,          // seeds (rerank-verified)
         getStateAtoms(),     // all L0 atoms; vectors stay in runtime
         queryVector_v1,      // R2 query vector (for cosine gate)
-        { name1 },
+        { name1, signal },
     );
     const diffused = diffusionResult?.diffused || [];
     if (captureStages) {
@@ -1757,7 +1811,7 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
     for (const event of allEvents) {
         if (existingEventIds.has(event.id)) continue;
 
-        const range = parseFloorRange(event.summary);
+        const range = parseEventRange(event.summary);
         if (!range) continue;
 
         let hasOverlap = false;
@@ -1773,13 +1827,20 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
         const sim = eventScoreMap.get(event.id) ?? 0;
         if (sim < CONFIG.LEXICAL_EVENT_DENSE_MIN) continue;
 
-        // 实体分类：与所有路径统一标准
-        const hasEntityMatch = eventMatchesFocusCharacters(event, focusSetForLexical);
+        // 实体归属与 DIRECT 分类：与所有路径统一标准
+        const { ownership, recallType, evidenceEligible } = classifyEventRecall(
+            event,
+            focusSetForLexical,
+            sim,
+            { evidenceMinSimilarity: CONFIG.EVENT_EVIDENCE_MIN_SIMILARITY },
+        );
 
         eventHits.push({
             event,
             similarity: sim,
-            _recallType: hasEntityMatch ? 'DIRECT' : 'RELATED',
+            _recallType: recallType,
+            _ownership: ownership,
+            _evidenceEligible: evidenceEligible,
         });
         existingEventIds.add(event.id);
         l0LinkedCount++;
@@ -1798,7 +1859,8 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
         l0Selected,
         queryVector_v1,
         l1ScoredByFloor,
-        metrics
+        metrics,
+        signal,
     );
 
     // ═══════════════════════════════════════════════════════════════════
@@ -1838,6 +1900,7 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
             focusVector: r1Vectors.at(-1) || null,
             chatId,
             chat,
+            signal,
         });
         metrics.event.rerankApplied = eventRerank.status === 'applied';
         metrics.event.rerankStatus = eventRerank.status;
@@ -1847,6 +1910,9 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
         metrics.event.rerankExactTimeMarker = eventRerank.exactTimeMarker;
         metrics.event.rerankExactTimeFloors = eventRerank.exactTimeFloorCount;
         metrics.event.rerankExactTimeCandidates = eventRerank.exactTimeCandidateCount;
+        metrics.event.rerankExactTimeWinners = eventRerank.exactTimeWinnerCount;
+        metrics.event.rerankExactTimeReserved = eventRerank.exactTimeReservedCount;
+        metrics.event.rerankExactTimeOverflow = eventRerank.exactTimeOverflowCount;
         metrics.event.rerankExactTimeForced = eventRerank.exactTimeForcedCount;
         metrics.event.rerankBatchTotal = eventRerank.diagnostics.totalBatches;
         metrics.event.rerankBatchFailed = eventRerank.diagnostics.failedBatches;
@@ -1861,20 +1927,21 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
         }
         if (eventRerank.status === 'applied') {
             eventHits = eventRerank.events;
-        } else if (eventRerank.status !== 'skipped') {
+        } else if (eventRerank.status === 'admission-failed'
+            || eventRerank.status === 'rerank-failed') {
             xbLog.warn(MODULE_ID, `Event rerank ${eventRerank.status}; keep original event order`);
         }
     }
 
     let directEvidenceContext = null;
-    if (!eventHits.some(item => item?._recallType === 'DIRECT')) {
+    const temporalCarrier = buildTemporalTurnCarrier({
+        chat,
+        query: bundle.focusQuery,
+        userName: name1,
+    });
+    if (!eventHits.some(item => item?._evidenceEligible === true)) {
         metrics.evidence.directEvidenceStatus = 'skipped-no-direct-events';
     } else {
-        const temporalCarrier = buildTemporalTurnCarrier({
-            chat,
-            query: bundle.focusQuery,
-            userName: name1,
-        });
         directEvidenceContext = {
             chatId,
             focusQuery: bundle.focusQuery,
@@ -1882,8 +1949,7 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
             timeMarker: temporalCarrier.marker,
             temporalFloors: temporalCarrier.exactFloors,
             temporalCarrier,
-            parentLimit: 20,
-            candidateLimit: 60,
+            signal,
         };
         metrics.evidence.directEvidenceStatus = 'ready';
     }
@@ -1929,6 +1995,10 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
         l0Selected,
         l1ByFloor,
         directEvidenceContext,
+        // 时间精确命中的楼层对 L2 事件同样适用：prompt 层的事件预算选择
+        // 依赖它保证时间命中事件进入最终 Prompt（与 DIRECT 证据无关）。
+        eventTemporalFloors: temporalCarrier.exactFloors,
+        eventTemporalMarker: temporalCarrier.marker,
         focusEntities: focusTerms,
         focusTerms,
         focusCharacters,

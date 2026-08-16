@@ -25,6 +25,15 @@ import { createMessageButtonOwnership } from "../../core/message-button-ownershi
 import { initAfterAiGate, notifyAfterAiHint, registerAfterAiHandler } from "../../core/after-ai-gate.js";
 import { getDefaultApiPrefix, resolveApiBaseUrl } from "../../shared/common/openai-url-utils.js";
 import {
+    commitIfSignalActive,
+    createAbortError,
+    runWithAbortDeadline,
+} from "../../shared/common/abort-utils.js";
+import {
+    registerGenerateInterceptor,
+    unregisterGenerateInterceptor,
+} from "../../shared/common/generate-interceptor.js";
+import {
     fetchHostOpenAICompatibleModels,
     setHostChatCompletionsRequestHeadersProvider,
 } from "../../shared/host-llm/chat-completions/client.js";
@@ -363,32 +372,6 @@ class TaskGuard {
 }
 
 const guard = new TaskGuard();
-
-// 用户消息缓存（解决 GENERATION_STARTED 时 chat 尚未包含用户消息的问题）
-let lastSentUserMessage = null;
-let lastSentTimestamp = 0;
-
-function captureUserInput() {
-    const text = $("#send_textarea").val();
-    if (text?.trim()) {
-        lastSentUserMessage = text.trim();
-        lastSentTimestamp = Date.now();
-    }
-}
-
-function onSendPointerdown(e) {
-    if (e.target?.closest?.("#send_but")) {
-        captureUserInput();
-    }
-}
-
-function onSendKeydown(e) {
-    if (e.key === "Enter" && !e.shiftKey && e.target?.closest?.("#send_textarea")) {
-        captureUserInput();
-    }
-}
-
-function onDocumentFocusIn() {}
 
 let hideApplyTimer = null;
 const HIDE_APPLY_DEBOUNCE_MS = 250;
@@ -2805,8 +2788,8 @@ async function handleFrameMessage(event) {
             }
             const { chat, chatId } = getContext();
             cancelPendingEventEditSync();
+            cancelRecallAndClearPrompt('summary-cleared');
             await clearSummaryData(chatId);
-            clearExtensionPrompt();
             lastRecallLogText = "";
             invalidateLexicalIndex();
             await clearHideState();
@@ -3233,20 +3216,6 @@ function handleMessageRendered(data) {
     else initButtonsForAll();
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// 用户消息缓存（供向量召回使用）
-// ═══════════════════════════════════════════════════════════════════════════
-
-function handleMessageSentForRecall() {
-    if (!isStorySummaryConsumableForCurrentChat()) return;
-    const { chat } = getContext();
-    const lastMsg = chat?.[chat.length - 1];
-    if (lastMsg?.is_user) {
-        lastSentUserMessage = lastMsg.mes;
-        lastSentTimestamp = Date.now();
-    }
-}
-
 function clearExtensionPrompt() {
     delete extension_prompts[EXT_PROMPT_KEY];
 }
@@ -3255,13 +3224,26 @@ function clearExtensionPrompt() {
 // Prompt 注入
 // ═══════════════════════════════════════════════════════════════════════════
 
-async function handleGenerationStarted(type, _params, isDryRun) {
-    if (isDryRun) return;
-    if (!isStorySummaryConsumableForCurrentChat()) {
-        clearExtensionPrompt();
-        return;
-    }
+// 整轮硬截止：召回在宿主 generate_interceptor 的 await 内执行，必须有兜底，
+// 不能把宿主发送流程无限卡住。30s 为初始护栏值，进入浏览器 E2E 后需结合
+// 真实 p50/p95 与首 token 体感校准。
+const STORY_SUMMARY_RECALL_DEADLINE_MS = 30000;
+let activeRecallRun = null;
 
+function cancelActiveRecall(reason = 'cancelled') {
+    const run = activeRecallRun;
+    if (!run) return;
+    activeRecallRun = null;
+    run.cancelReason = reason;
+    run.controller.abort(createAbortError(`Story Summary recall ${reason}`));
+}
+
+function cancelRecallAndClearPrompt(reason) {
+    cancelActiveRecall(reason);
+    clearExtensionPrompt();
+}
+
+async function injectMemoryPrompt(type, signal) {
     const T0 = performance.now();
     const timing = {
         tokenizer: 0,
@@ -3282,8 +3264,6 @@ async function handleGenerationStarted(type, _params, isDryRun) {
     const excludeLastAi = type === "swipe" || type === "regenerate";
     const vectorCfg = getVectorConfig();
 
-    clearExtensionPrompt();
-
     // ★ 最后一道关卡：向量启用时，同步等待分词器就绪
     if (vectorCfg?.enabled && !isTokenizerReady()) {
         const T_Tokenizer = performance.now();
@@ -3295,15 +3275,6 @@ async function handleGenerationStarted(type, _params, isDryRun) {
             timing.tokenizer = Math.round(performance.now() - T_Tokenizer);
         }
     }
-
-    // 判断是否使用缓存的用户消息（30秒内有效）
-    let pendingUserMessage = null;
-    if (type === "normal" && lastSentUserMessage && (Date.now() - lastSentTimestamp < 30000)) {
-        pendingUserMessage = lastSentUserMessage;
-    }
-    // 用完清空
-    lastSentUserMessage = null;
-    lastSentTimestamp = 0;
 
     const { chat, chatId } = getContext();
     const chatLen = Array.isArray(chat) ? chat.length : 0;
@@ -3353,8 +3324,12 @@ async function handleGenerationStarted(type, _params, isDryRun) {
         const r = await buildVectorPromptText(excludeLastAi, {
             postToFrame,
             echo: executeSlashCommand,
-            pendingUserMessage,
+            signal,
         });
+        if (signal?.aborted) {
+            logTiming('aborted_after_build');
+            return;
+        }
         text = r?.text || "";
         lastRecallLogText = String(r?.logText || "");
     } else {
@@ -3374,14 +3349,60 @@ async function handleGenerationStarted(type, _params, isDryRun) {
 
     // 写入 extension_prompts
     const T_WritePrompt = performance.now();
-    extension_prompts[EXT_PROMPT_KEY] = {
-        value: text,
-        position: extension_prompt_types.IN_CHAT,
-        depth,
-        role,
-    };
+    const committed = commitIfSignalActive(signal, () => {
+        extension_prompts[EXT_PROMPT_KEY] = {
+            value: text,
+            position: extension_prompt_types.IN_CHAT,
+            depth,
+            role,
+        };
+    });
+    if (!committed) {
+        logTiming('aborted_before_write');
+        return;
+    }
     timing.writePrompt = Math.round(performance.now() - T_WritePrompt);
     logTiming('injected');
+}
+
+// generate_interceptor 消费者：宿主在用户消息入楼渲染后、Prompt 组装前 await。
+// 旧实现曾在过早的宿主事件中靠输入框缓存猜测焦点；现在直接读取真实 chat，
+// 普通发送以最后一条用户消息为焦点。
+async function runStorySummaryRecallInterceptor(_interceptorChat, _contextSize, _abort, type) {
+    // 新一轮 interceptor 是旧 Prompt 的唯一代际边界；不依赖宿主
+    // 生成开始事件与 generate_interceptor 的相对触发顺序。
+    cancelRecallAndClearPrompt('superseded');
+    if (!isStorySummaryConsumableForCurrentChat()) {
+        return;
+    }
+
+    const controller = new AbortController();
+    const run = { controller, cancelReason: null };
+    activeRecallRun = run;
+    try {
+        await runWithAbortDeadline(
+            signal => injectMemoryPrompt(type, signal),
+            {
+                controller,
+                timeoutMs: STORY_SUMMARY_RECALL_DEADLINE_MS,
+                timeoutMessage: 'Story Summary recall deadline exceeded',
+            },
+        );
+    } catch (error) {
+        // 截止或失败时 fail-open。显式取消的调用方已经清理 Prompt；旧任务
+        // 不能在这里清掉替代它的新任务结果。后台残余任务也受最终写入闸门保护。
+        if (run.cancelReason) {
+            xbLog.info(MODULE_ID, `召回已取消：${run.cancelReason}`);
+        } else {
+            clearExtensionPrompt();
+            xbLog.warn(MODULE_ID,
+                `召回失败或达到 ${STORY_SUMMARY_RECALL_DEADLINE_MS}ms 硬截止，本轮跳过记忆注入`,
+                error
+            );
+        }
+    } finally {
+        if (activeRecallRun === run) activeRecallRun = null;
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -3477,6 +3498,7 @@ function registerEvents() {
     initButtonsForAll();
 
     events.on(event_types.CHAT_CHANGED, () => {
+        cancelRecallAndClearPrompt('chat-changed');
         cancelActiveSummaryExecution();
         cancelHideApplyTimer();
         activeChatId = getContext().chatId || null;
@@ -3485,7 +3507,6 @@ function registerEvents() {
     events.on(event_types.MESSAGE_DELETED, () => scheduleWithChatGuard(handleMessageDeleted, 50));
     events.on(event_types.MESSAGE_RECEIVED, (data) => notifyStorySummaryAfterAi(data, "message_received"));
     events.on(event_types.MESSAGE_SENT, () => scheduleWithChatGuard(handleMessageSent, 150));
-    events.on(event_types.MESSAGE_SENT, handleMessageSentForRecall);
     events.on(event_types.MESSAGE_SWIPED, () => scheduleWithChatGuard(handleMessageSwiped, 100));
     events.on(event_types.MESSAGE_UPDATED, () => scheduleWithChatGuard(handleMessageUpdated, 100));
     events.on(event_types.MESSAGE_EDITED, () => scheduleWithChatGuard(handleMessageUpdated, 100));
@@ -3495,21 +3516,18 @@ function registerEvents() {
         setTimeout(() => handleMessageRendered(data), 50);
     });
 
-    // 用户输入捕获（原生捕获阶段）
-    document.addEventListener("pointerdown", onSendPointerdown, true);
-    document.addEventListener("keydown", onSendKeydown, true);
-    document.addEventListener("focusin", onDocumentFocusIn, true);
+    // 用户输入捕获已删除：普通发送的焦点直接来自已入楼的用户消息
     document.addEventListener("visibilitychange", handleVisibilityChangeForBackground);
     window.addEventListener("resize", handleViewportChangeForBackground, { passive: true });
     window.visualViewport?.addEventListener?.("resize", handleViewportChangeForBackground, { passive: true });
     window.visualViewport?.addEventListener?.("scroll", handleViewportChangeForBackground, { passive: true });
 
-    // 注入链路
-    events.on(event_types.GENERATION_STARTED, handleGenerationStarted);
-    events.on(event_types.GENERATION_STOPPED, clearExtensionPrompt);
+    // 注入链路：召回在宿主 generate_interceptor 内执行（先入楼渲染，再召回）
+    registerGenerateInterceptor('story-summary', runStorySummaryRecallInterceptor);
+    events.on(event_types.GENERATION_STOPPED, () => cancelRecallAndClearPrompt('generation-stopped'));
     events.on(event_types.GENERATION_ENDED, (data) => {
         notifyStorySummaryAfterAi(data, "generation_ended");
-        clearExtensionPrompt();
+        cancelRecallAndClearPrompt('generation-ended');
     });
 
     // 聊天删除时清理对应的服务器向量备份
@@ -3519,6 +3537,7 @@ function registerEvents() {
 
 function unregisterEvents() {
     cancelActiveSummaryExecution();
+    cancelRecallAndClearPrompt('unregistered');
     if (!events) return;
     CacheRegistry.unregister(MODULE_ID);
     logRecallRuntimeCheckpoint("unregisterEvents:clear-runtime");
@@ -3534,11 +3553,8 @@ function unregisterEvents() {
     messageButtonOwnership.runOwnedCleanup(() => $(".xiaobaix-story-summary-btn").remove());
     hideOverlay();
 
-    clearExtensionPrompt();
+    unregisterGenerateInterceptor('story-summary');
 
-    document.removeEventListener("pointerdown", onSendPointerdown, true);
-    document.removeEventListener("keydown", onSendKeydown, true);
-    document.removeEventListener("focusin", onDocumentFocusIn, true);
     document.removeEventListener("visibilitychange", handleVisibilityChangeForBackground);
     window.removeEventListener("resize", handleViewportChangeForBackground);
     window.visualViewport?.removeEventListener?.("resize", handleViewportChangeForBackground);
@@ -3549,7 +3565,7 @@ function unregisterEvents() {
 async function deactivateCurrentChatStorySummary() {
     clearDeferredBackgroundTasks();
     cancelHideApplyTimer();
-    clearExtensionPrompt();
+    cancelRecallAndClearPrompt('deactivated');
     lastRecallLogText = "";
 
     if (activeChatId) {
@@ -3782,6 +3798,7 @@ $(document).on("xiaobaix:storySummary:toggle", async (_e, enabled) => {
         await handleChatChanged();
     } else {
         cancelActiveSummaryExecution();
+        cancelRecallAndClearPrompt('disabled');
         try {
             await clearHideState();
         } catch (e) {

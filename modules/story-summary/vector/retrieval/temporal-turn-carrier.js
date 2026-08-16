@@ -1,3 +1,10 @@
+export const TEMPORAL_PROTECTION_POLICY = Object.freeze({
+    maxExtraDirectEvidenceParents: 5,
+    maxProtectedEvents: 5,
+    maxCandidateShare: 0.40,
+    maxEvidenceBudgetShare: 0.40,
+});
+
 export function normalizeTimeText(value) {
     return String(value || '').replace(/\s+/g, '').replace(/：/g, ':');
 }
@@ -6,9 +13,34 @@ export function parseEventRange(summary) {
     const match = String(summary || '').match(/\(#(\d+)(?:-(\d+))?\)/);
     if (!match) return null;
     return {
-        start: Number(match[1]) - 1,
-        end: Number(match[2] || match[1]) - 1,
+        start: Math.max(0, Number(match[1]) - 1),
+        end: Math.max(0, Number(match[2] || match[1]) - 1),
     };
+}
+
+export function getTemporalProtectionLimit(capacity, share) {
+    const normalizedCapacity = Math.max(0, Math.floor(Number(capacity) || 0));
+    const numericShare = Number(share);
+    const normalizedShare = Number.isFinite(numericShare)
+        ? Math.max(0, Math.min(1, numericShare))
+        : 0;
+    return Math.floor(normalizedCapacity * normalizedShare);
+}
+
+export function selectTemporalFloorWinners(items, getMatchingFloors) {
+    if (typeof getMatchingFloors !== 'function') {
+        throw new TypeError('getMatchingFloors must be a function');
+    }
+    const claimedFloors = new Set();
+    const winners = [];
+    for (const item of items || []) {
+        const matchingFloors = [...new Set((getMatchingFloors(item) || []).filter(Number.isInteger))];
+        const unclaimedFloors = matchingFloors.filter(floor => !claimedFloors.has(floor));
+        if (!unclaimedFloors.length) continue;
+        for (const floor of unclaimedFloors) claimedFloors.add(floor);
+        winners.push(item);
+    }
+    return winners;
 }
 
 export function extractFullTimeMarker(value) {
@@ -26,13 +58,20 @@ export function findExactTimeFloors(chat, marker) {
     return floors;
 }
 
-export function eventMatchesTemporalFloors(event, floors) {
-    if (!(floors || []).length) return false;
+export function matchingEventTemporalFloors(event, floors) {
+    if (!(floors || []).length) return [];
     const range = parseEventRange(event?.summary);
-    if (!range) return false;
-    return floors.some(floor => (
+    if (!range) return [];
+    // A timestamp is commonly rendered on one side of a two-message turn.
+    // Preserve the immediately following floor so the paired reply is not
+    // lost merely because the event range ended on the timestamped message.
+    return [...new Set(floors.filter(Number.isInteger))].filter(floor => (
         (floor >= range.start && floor <= range.end) || floor === range.end + 1
     ));
+}
+
+export function eventMatchesTemporalFloors(event, floors) {
+    return matchingEventTemporalFloors(event, floors).length > 0;
 }
 
 function normalizeUserNames(userNames) {

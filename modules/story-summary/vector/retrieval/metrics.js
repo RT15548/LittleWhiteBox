@@ -91,6 +91,7 @@ export function createMetrics() {
             considered: 0,
             selected: 0,
             byRecallType: { direct: 0, related: 0, causal: 0, lexical: 0, l0Linked: 0 },
+            byOwnership: null,
             similarityDistribution: { min: 0, max: 0, mean: 0, median: 0 },
             entityFilter: null,
             causalChainDepth: 0,
@@ -98,6 +99,13 @@ export function createMetrics() {
             entitiesUsed: 0,
             focusTermsCount: 0,
             entityNames: [],
+            temporalFloorsProtected: 0,
+            temporalProtected: 0,
+            temporalDropped: 0,
+            temporalWinners: 0,
+            temporalProtectionCap: 0,
+            temporalOverflow: 0,
+            budgetTruncated: null,
         },
 
         // Evidence (Two-Stage: Floor rerank → L1 pull) - 原文证据
@@ -152,14 +160,30 @@ export function createMetrics() {
             directEvidenceRelevantItems: 0,
             directEvidenceDocumentChars: 0,
             directEvidenceTemporalCandidates: 0,
-            directEvidenceTemporalReserved: 0,
+            directEvidenceTemporalFloorWinners: 0,
+            directEvidenceTemporalProtectionCap: 0,
+            directEvidenceTemporalProtectedCandidates: 0,
+            directEvidenceTemporalForced: 0,
             directEvidenceTemporalOverflow: 0,
+            directEvidenceTemporalSameFloorNonWinners: 0,
             directEvidenceVectorHits: 0,
             directEvidenceMissingVectors: 0,
             directEvidenceItems: 0,
             directEvidencePromptGroups: 0,
             directEvidencePromptItems: 0,
             directEvidencePromptTokens: 0,
+            directEvidenceEnumerated: 0,
+            directEvidenceAdmitted: 0,
+            directEvidenceSkippedByBudget: 0,
+            directEvidenceTemporalProtectedItems: 0,
+            directEvidenceTemporalProtectedTokens: 0,
+            directEvidenceTemporalProtectionBudgetMax: 0,
+            summarizedBudgetUsedByDirectEvidence: 0,
+            summarizedBudgetUsedFinal: 0,
+            summarizedBudgetMax: 0,
+            distantEvidenceStarved: false,
+            distantEvidenceStarvedByTemporalProtection: false,
+            distantEvidenceDroppedByBudget: 0,
             directEvidenceRerankBatchTotal: 0,
             directEvidenceRerankBatchFailed: 0,
             directEvidenceRerankFailures: [],
@@ -465,6 +489,17 @@ export function formatMetricsLog(metrics) {
     }
 
     lines.push(`├─ causal_chain: depth=${m.event.causalChainDepth}, count=${m.event.causalCount}`);
+    if (m.event.byOwnership) {
+        const bo = m.event.byOwnership;
+        lines.push(`├─ by_ownership: focus=${bo.focus || 0}, other=${bo.other || 0}, unknown=${bo.unknown || 0}`);
+    }
+    if (m.event.budgetTruncated) {
+        const bt = m.event.budgetTruncated;
+        lines.push(`├─ budget_truncation: selected=${bt.selected}/${bt.candidates}, dropped=${bt.dropped}, event_budget=${bt.budgetRejected || 0}, related_budget=${bt.relatedBudgetRejected || 0}`);
+    }
+    if ((m.event.temporalFloorsProtected || 0) > 0) {
+        lines.push(`├─ temporal_protection: floors=${m.event.temporalFloorsProtected}, protected=${m.event.temporalProtected || 0}, dropped=${m.event.temporalDropped || 0}`);
+    }
     lines.push(`└─ focus_characters_used: ${m.event.entitiesUsed} [${(m.event.entityNames || []).join(', ')}], focus_terms_count=${m.event.focusTermsCount || 0}`);
     lines.push('');
 
@@ -517,10 +552,15 @@ export function formatMetricsLog(metrics) {
         lines.push(`├─ DIRECT evidence: ${m.evidence.directEvidenceStatus}`);
         lines.push(`│   ├─ parents/floors: ${m.evidence.directEvidenceParents || 0}/${m.evidence.directEvidenceFloors || 0}`);
         lines.push(`│   ├─ candidates: ${m.evidence.directEvidenceSourceCandidates || 0} → ${m.evidence.directEvidenceCandidates || 0} → relevant=${m.evidence.directEvidenceRelevantItems || 0}`);
+        lines.push(`│   ├─ enumerated/admitted: ${m.evidence.directEvidenceEnumerated || 0}/${m.evidence.directEvidenceAdmitted || 0}, skipped_by_budget=${m.evidence.directEvidenceSkippedByBudget || 0}`);
+        if ((m.evidence.directEvidenceTemporalProtectedItems || 0) > 0) {
+            lines.push(`│   ├─ temporal_protected_in_prompt: items=${m.evidence.directEvidenceTemporalProtectedItems}, tokens=${m.evidence.directEvidenceTemporalProtectedTokens || 0}`);
+        }
         lines.push(`│   ├─ rerank_batches: ${m.evidence.directEvidenceRerankBatchTotal || 0}, failed=${m.evidence.directEvidenceRerankBatchFailed || 0}`);
-        lines.push(`│   ├─ temporal: candidates=${m.evidence.directEvidenceTemporalCandidates || 0}, reserved=${m.evidence.directEvidenceTemporalReserved || 0}`);
+        lines.push(`│   ├─ temporal_candidate_protection: candidates=${m.evidence.directEvidenceTemporalCandidates || 0}, protected=${m.evidence.directEvidenceTemporalProtectedCandidates || 0}, cap=${m.evidence.directEvidenceTemporalProtectionCap || 0}`);
         lines.push(`│   ├─ ranked/prompt: ${m.evidence.directEvidenceItems || 0}/${m.evidence.directEvidencePromptItems || 0} in ${m.evidence.directEvidencePromptGroups || 0} groups`);
-        lines.push(`│   └─ prompt_tokens: ${m.evidence.directEvidencePromptTokens || 0}`);
+        lines.push(`│   ├─ prompt_tokens: ${m.evidence.directEvidencePromptTokens || 0}`);
+        lines.push(`│   └─ summarized_budget: direct=${m.evidence.summarizedBudgetUsedByDirectEvidence || 0}, final=${m.evidence.summarizedBudgetUsedFinal || 0}/${m.evidence.summarizedBudgetMax || 0}${m.evidence.distantEvidenceStarved ? ' ⚠ distant starved' : ''}${m.evidence.distantEvidenceStarvedByTemporalProtection ? ' (temporal protection)' : ''}`);
     }
     lines.push(`├─ tokens: ${m.evidence.tokens}`);
     lines.push(`└─ assembly_time: ${m.evidence.assemblyTime}ms`);
@@ -822,6 +862,26 @@ export function detectIssues(metrics) {
 
     if (m.budget.utilization > 90) {
         issues.push(`High budget utilization (${m.budget.utilization}%) - may be truncating content`);
+    }
+
+    if (m.evidence.distantEvidenceStarved) {
+        issues.push(m.evidence.distantEvidenceStarvedByTemporalProtection
+            ? 'Distant evidence starved - protected temporal DIRECT evidence consumed the summarized budget'
+            : 'Distant evidence starved - DIRECT evidence consumed the summarized budget');
+    }
+
+    if ((m.event.temporalDropped || 0) > 0) {
+        issues.push(`${m.event.temporalDropped} temporal event(s) still dropped - single event may exceed the event budget`);
+    }
+
+    if ((m.evidence.directEvidenceSkippedByBudget || 0) > 0
+        && (m.evidence.directEvidenceEnumerated || 0) > 0
+        && (m.evidence.directEvidenceAdmitted || 0) / m.evidence.directEvidenceEnumerated < 0.5) {
+        issues.push(`Most DIRECT evidence skipped by budget (${m.evidence.directEvidenceSkippedByBudget}/${m.evidence.directEvidenceEnumerated}) - candidate face may be too wide`);
+    }
+
+    if ((m.event.budgetTruncated?.dropped || 0) > 0 && m.budget.utilization > 90) {
+        issues.push(`Event packing truncated ${m.event.budgetTruncated.dropped} candidate(s) at budget limit`);
     }
 
     // ─────────────────────────────────────────────────────────────────

@@ -42,3 +42,11 @@ test('默认上限覆盖供应商拒绝的 7746 字符生产案例', () => {
     assert.ok(result.startsWith('用户：那个在丹房给你上药的姑娘'));
     assert.ok(result.endsWith('B'.repeat(1446)));
 });
+
+test('传输层形状（单串 query 无 context）同样受硬上限约束并保留末尾', () => {
+    const result = buildBoundedRerankQuery('X'.repeat(5998) + '真正问题', []);
+
+    assert.equal(result.length, RERANK_QUERY_MAX_CHARS);
+    assert.ok(result.startsWith('…'));
+    assert.ok(result.endsWith('真正问题'));
+});
