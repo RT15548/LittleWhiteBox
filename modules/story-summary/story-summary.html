@@ -655,12 +655,6 @@
                                                     <span class="checkbox-label">实验性：精排事件摘要</span>
                                                 </label>
                                                 <div class="settings-hint">只重排已经召回的事件；每次记忆召回最多增加 3 次 Rerank 请求。</div>
-                                                <label class="settings-checkbox">
-                                                    <input type="checkbox" id="vector-event-detail-lane-enabled">
-                                                    <span class="checkbox-mark"></span>
-                                                    <span class="checkbox-label">实验性：补充原文细节</span>
-                                                </label>
-                                                <div class="settings-hint">需同时开启事件精排；只在已选事件范围内补充原文片段。会增加一次原文精排等待（最多 3 批并发），因此默认关闭。</div>
                                             </div>
                                         </details>
                                     </div>
@@ -671,12 +665,11 @@
                                 <div class="neo-card-title">
                                     <span>Prompt 装箱</span>
                                 </div>
-                                <label class="settings-checkbox">
-                                    <input type="checkbox" id="vector-two-pass-event-packing-enabled">
-                                    <span class="checkbox-mark"></span>
-                                    <span class="checkbox-label">实验性：两遍式事件装箱</span>
-                                </label>
-                                <div class="settings-hint">先按相关性装入事件摘要，再用剩余预算回填直接命中的证据；不改变候选、排序或预算上限。</div>
+                                <div class="settings-field full">
+                                    <label>已总结证据预算（tokens）</label>
+                                    <input type="number" id="vector-summarized-evidence-budget" min="3000" max="5000" step="500" value="4000">
+                                </div>
+                                <div class="settings-hint">默认 4000。与 L2 事件摘要的 5000-token 池相互独立；这是上限，不会用低相关证据强行填满。</div>
                             </div>
 
                             <!-- Step 1: Memory Anchors -->

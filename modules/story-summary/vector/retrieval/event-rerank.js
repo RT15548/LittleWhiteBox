@@ -101,10 +101,10 @@ async function selectCandidates(source, { query, focusVector, chatId, chat }) {
 }
 
 /**
- * Reorder already recalled L2 events for prompt packing without changing membership.
+ * Finalize the relevance order of already recalled L2 events without changing membership.
  * Any incomplete external result returns the original order as one atomic fallback.
  */
-export async function rerankEventsForPrompt(eventHits, options = {}) {
+export async function rerankRecalledEvents(eventHits, options = {}) {
     const source = Array.isArray(eventHits) ? eventHits : [];
     const query = String(options.query || '').trim();
     const base = {

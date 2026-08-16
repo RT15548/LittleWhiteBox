@@ -2,11 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-    floorsForEventDetailParents,
-    selectEventDetailAdmission,
-    selectEventDetailParents,
-    selectPackedEventDetails,
-} from '../vector/retrieval/event-detail-admission.js';
+    floorsForDirectEvidenceParents,
+    selectDirectEvidenceAdmission,
+    selectDirectEvidenceParents,
+} from '../vector/retrieval/direct-evidence-admission.js';
 
 function event(index, start = index + 1, end = start) {
     return {
@@ -26,24 +25,24 @@ function chunk(index, score, text = `chunk ${index}`) {
     };
 }
 
-test('detail parents stay inside the first 20 selected DIRECT events plus temporal parents', () => {
+test('DIRECT evidence parents stay bounded while retaining temporal events', () => {
     const source = Array.from({ length: 25 }, (_, index) => event(index, index * 2 + 1, index * 2 + 2));
-    const selected = selectEventDetailParents(source, { limit: 20, temporalFloors: [44] });
+    const selected = selectDirectEvidenceParents(source, { limit: 20, temporalFloors: [44] });
 
     assert.equal(selected.length, 22);
     assert.deepEqual(selected.slice(0, 20).map(item => item.event.id), source.slice(0, 20).map(item => item.event.id));
     assert.equal(selected.some(item => item.event.id === 'evt-21'), true);
     assert.equal(selected.some(item => item.event.id === 'evt-22'), true);
-    assert.deepEqual(floorsForEventDetailParents([event(0, 2, 4)]), [1, 2, 3]);
+    assert.deepEqual(floorsForDirectEvidenceParents([event(0, 2, 4)]), [1, 2, 3]);
 });
 
-test('detail admission keeps an exact-time chunk inside the fixed 60 slots', () => {
+test('DIRECT evidence admission keeps an exact-time chunk inside 60 candidates', () => {
     const source = Array.from({ length: 65 }, (_, index) => chunk(
         index,
         100 - index,
         index === 64 ? '<time>113年 11月20日 03:48</time>' : `chunk ${index}`,
     ));
-    const admission = selectEventDetailAdmission(source, {
+    const admission = selectDirectEvidenceAdmission(source, {
         limit: 60,
         timeMarker: '113年11月20日03:48',
     });
@@ -54,13 +53,13 @@ test('detail admission keeps an exact-time chunk inside the fixed 60 slots', () 
     assert.equal(admission.candidates.some(item => item.chunkId === 'c-59'), false);
 });
 
-test('detail admission keeps the requested speaker side of a temporal turn', () => {
+test('DIRECT evidence admission keeps the requested side of a temporal turn', () => {
     const source = Array.from({ length: 65 }, (_, index) => ({
         ...chunk(index, 100 - index),
         floor: index,
         isUser: index === 64,
     }));
-    const admission = selectEventDetailAdmission(source, {
+    const admission = selectDirectEvidenceAdmission(source, {
         limit: 60,
         timeMarker: '113年11月20日03:38',
         temporalCarrier: {
@@ -75,25 +74,5 @@ test('detail admission keeps the requested speaker side of a temporal turn', () 
     assert.equal(admission.candidates.length, 60);
     assert.equal(admission.temporalReservedCount, 1);
     assert.equal(admission.candidates.some(item => item.chunkId === 'c-64'), true);
-    assert.equal(admission.candidates.find(item => item.chunkId === 'c-64')._detailTemporalCarrier, true);
-});
-
-test('detail packing keeps a low-ranked temporal carrier inside top24 and 1500 tokens', () => {
-    const ranked = Array.from({ length: 60 }, (_, index) => ({
-        chunkId: `c-${index}`,
-        score: 100 - index,
-        _detailTemporalCarrier: index === 58,
-        cost: 60,
-    }));
-    const packed = selectPackedEventDetails(ranked, {
-        budget: 1500,
-        limit: 24,
-        costFor: item => item.cost,
-    });
-
-    assert.equal(packed.guardedChunkId, 'c-58');
-    assert.equal(packed.selected.length, 24);
-    assert.equal(packed.selected.some(item => item.chunkId === 'c-58'), true);
-    assert.equal(packed.selected.some(item => item.chunkId === 'c-23'), false);
-    assert.ok(packed.used <= 1500);
+    assert.equal(admission.candidates.find(item => item.chunkId === 'c-64')._directEvidenceTemporalCarrier, true);
 });

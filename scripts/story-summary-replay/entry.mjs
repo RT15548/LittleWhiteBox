@@ -950,40 +950,51 @@ async function executeRecallCase(
     const meta = await modules.getMeta(modules.getContext().chatId);
     const countedExecution = await withExternalCallTrace(
         async () => {
-            const recallResult = await modules.recallMemory(allEvents, vectorConfig, {
-                pendingUserMessage,
-                excludeLastAi,
-                stageObserver,
-                deferRuntimeRelease: vectorConfig?.eventDetailLaneEnabled === true,
-            });
+            let recallResult = null;
+            try {
+                recallResult = await modules.recallMemory(allEvents, vectorConfig, {
+                    pendingUserMessage,
+                    excludeLastAi,
+                    stageObserver,
+                    deferRuntimeRelease: true,
+                });
 
-            const normalizedRecall = {
-                ...recallResult,
-                events: recallResult?.events || [],
-                l0Selected: recallResult?.l0Selected || [],
-                l1ByFloor: recallResult?.l1ByFloor || new Map(),
-                causalChain: recallResult?.causalChain || [],
-                focusTerms: recallResult?.focusTerms || recallResult?.focusEntities || [],
-                focusCharacters: recallResult?.focusCharacters || [],
-                metrics: recallResult?.metrics || null,
-            };
+                const normalizedRecall = {
+                    ...recallResult,
+                    events: recallResult?.events || [],
+                    l0Selected: recallResult?.l0Selected || [],
+                    l1ByFloor: recallResult?.l1ByFloor || new Map(),
+                    causalChain: recallResult?.causalChain || [],
+                    focusTerms: recallResult?.focusTerms || recallResult?.focusEntities || [],
+                    focusCharacters: recallResult?.focusCharacters || [],
+                    metrics: recallResult?.metrics || null,
+                };
 
-            const causalById = new Map(
-                (normalizedRecall.causalChain || [])
-                    .map((item) => [item?.event?.id, item])
-                    .filter((item) => item[0])
-            );
+                const causalById = new Map(
+                    (normalizedRecall.causalChain || [])
+                        .map((item) => [item?.event?.id, item])
+                        .filter((item) => item[0])
+                );
 
-            const builtPrompt = await modules.buildVectorPromptForReplay(
-                store,
-                normalizedRecall,
-                causalById,
-                normalizedRecall.focusCharacters || [],
-                meta,
-                normalizedRecall.metrics || null
-            );
+                const builtPrompt = await modules.buildVectorPromptForReplay(
+                    store,
+                    normalizedRecall,
+                    causalById,
+                    normalizedRecall.focusCharacters || [],
+                    meta,
+                    normalizedRecall.metrics || null
+                );
 
-            return { normalizedRecall, builtPrompt };
+                return { normalizedRecall, builtPrompt };
+            } finally {
+                if (recallResult?.directEvidenceContext) {
+                    await modules.releaseDirectEvidenceContext(
+                        recallResult.directEvidenceContext,
+                        recallResult.metrics,
+                    );
+                    recallResult.directEvidenceContext = null;
+                }
+            }
         },
         { cassette: transportCassette },
     );

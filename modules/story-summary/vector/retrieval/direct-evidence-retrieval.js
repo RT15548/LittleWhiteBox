@@ -1,13 +1,15 @@
 import { getRerankBatchDiagnostics, rerankChunks } from '../llm/reranker.js';
 import { scoreRecallRuntimeL1 } from '../runtime/runtime.js';
 import {
-    floorsForEventDetailParents,
-    formatEventDetailDocument,
-    selectEventDetailAdmission,
-    selectEventDetailParents,
-} from './event-detail-admission.js';
+    floorsForDirectEvidenceParents,
+    formatDirectEvidenceDocument,
+    selectDirectEvidenceAdmission,
+    selectDirectEvidenceParents,
+} from './direct-evidence-admission.js';
 
-function isCompleteDetailRerank(reranked, candidates) {
+const DIRECT_EVIDENCE_MIN_SCORE = 0.1;
+
+function isCompleteRerank(reranked, candidates) {
     if (reranked.length !== candidates.length) return false;
     const expected = new Set(candidates.map(candidate => candidate.chunk));
     const seen = new Set();
@@ -22,12 +24,12 @@ function isCompleteDetailRerank(reranked, candidates) {
     return seen.size === expected.size;
 }
 
-export async function rankSelectedEventDetails(selectedDirect, context) {
-    const parents = selectEventDetailParents(selectedDirect, {
+export async function rankSelectedDirectEvidence(selectedDirect, context) {
+    const parents = selectDirectEvidenceParents(selectedDirect, {
         limit: context?.parentLimit,
         temporalFloors: context?.temporalFloors,
     });
-    const floors = floorsForEventDetailParents(parents);
+    const floors = floorsForDirectEvidenceParents(parents);
     if (!context?.runtimeLease
         || !context?.chatId
         || !context?.focusQuery?.trim()
@@ -45,15 +47,15 @@ export async function rankSelectedEventDetails(selectedDirect, context) {
     const scoredByFloor = await scoreRecallRuntimeL1(context.chatId, floors, context.focusVector);
     const focusScoreMs = Math.round(performance.now() - focusStartedAt);
     const scoredChunks = floors.flatMap(floor => scoredByFloor.get(floor) || []);
-    const admission = selectEventDetailAdmission(scoredChunks, {
-        limit: context.childLimit,
+    const admission = selectDirectEvidenceAdmission(scoredChunks, {
+        limit: context.candidateLimit,
         timeMarker: context.timeMarker,
         temporalCarrier: context.temporalCarrier,
     });
     const candidates = admission.candidates.map((chunk, sourceIndex) => ({
         chunk,
         sourceIndex,
-        text: formatEventDetailDocument(chunk),
+        text: formatDirectEvidenceDocument(chunk),
     }));
     const missingVectors = Number(scoredByFloor._stats?.missingVectors || 0);
     const baseStats = {
@@ -69,6 +71,7 @@ export async function rankSelectedEventDetails(selectedDirect, context) {
         missingVectors,
         focusScoreMs,
         rerankMs: 0,
+        relevantItems: 0,
     };
     if (missingVectors > 0 || candidates.length === 0) {
         return {
@@ -86,10 +89,15 @@ export async function rankSelectedEventDetails(selectedDirect, context) {
     });
     const rerankMs = Math.round(performance.now() - rerankStartedAt);
     const diagnostics = getRerankBatchDiagnostics(reranked);
-    const complete = diagnostics.failedBatches === 0
-        && isCompleteDetailRerank(reranked, candidates);
-    const items = complete ? reranked.map((item, rankIndex) => ({
-        id: `event-detail:${item.chunk.chunkId}`,
+    const complete = diagnostics.failedBatches === 0 && isCompleteRerank(reranked, candidates);
+    const relevant = complete
+        ? reranked.filter(item => (
+            Number(item._rerankScore) >= DIRECT_EVIDENCE_MIN_SCORE
+            || item.chunk._directEvidenceTemporalCarrier === true
+        ))
+        : [];
+    const items = relevant.map((item, rankIndex) => ({
+        id: `direct-evidence:${item.chunk.chunkId}`,
         chunkId: item.chunk.chunkId,
         floor: item.chunk.floor,
         chunkIdx: item.chunk.chunkIdx,
@@ -97,12 +105,12 @@ export async function rankSelectedEventDetails(selectedDirect, context) {
         isUser: item.chunk.isUser === true,
         text: String(item.chunk.text || '').trim(),
         score: Number(item._rerankScore || 0),
-        focusScore: Number(item.chunk._detailFocusScore || 0),
-        _detailTemporalExact: item.chunk._detailTemporalExact === true,
-        _detailTemporalCarrier: item.chunk._detailTemporalCarrier === true,
-        _detailTemporalMarker: item.chunk._detailTemporalMarker || null,
+        focusScore: Number(item.chunk._directEvidenceFocusScore || 0),
+        _directEvidenceTemporalExact: item.chunk._directEvidenceTemporalExact === true,
+        _directEvidenceTemporalCarrier: item.chunk._directEvidenceTemporalCarrier === true,
+        _directEvidenceTemporalMarker: item.chunk._directEvidenceTemporalMarker || null,
         rank: rankIndex + 1,
-    })) : [];
+    }));
 
     return {
         items,
@@ -110,6 +118,7 @@ export async function rankSelectedEventDetails(selectedDirect, context) {
         diagnostics,
         stats: {
             ...baseStats,
+            relevantItems: items.length,
             rerankMs,
         },
     };

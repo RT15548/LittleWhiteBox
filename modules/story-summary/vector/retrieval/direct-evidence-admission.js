@@ -6,8 +6,7 @@ import {
 } from './temporal-turn-carrier.js';
 
 const DEFAULT_PARENT_LIMIT = 20;
-const DEFAULT_CHILD_LIMIT = 60;
-const DEFAULT_PACK_LIMIT = 24;
+const DEFAULT_CANDIDATE_LIMIT = 60;
 
 function uniqueBy(items, getId) {
     const seen = new Set();
@@ -19,7 +18,7 @@ function uniqueBy(items, getId) {
     });
 }
 
-export function selectEventDetailParents(selectedDirect, options = {}) {
+export function selectDirectEvidenceParents(selectedDirect, options = {}) {
     const limit = Number.isInteger(options.limit) && options.limit > 0
         ? options.limit
         : DEFAULT_PARENT_LIMIT;
@@ -38,7 +37,7 @@ export function selectEventDetailParents(selectedDirect, options = {}) {
     return selected;
 }
 
-export function floorsForEventDetailParents(parents) {
+export function floorsForDirectEvidenceParents(parents) {
     const floors = new Set();
     for (const parent of parents || []) {
         const range = parseEventRange(parent?.event?.summary);
@@ -52,10 +51,10 @@ function exactTimeMatch(text, marker) {
     return !!marker && normalizeTimeText(text).includes(normalizeTimeText(marker));
 }
 
-export function selectEventDetailAdmission(scoredChunks, options = {}) {
+export function selectDirectEvidenceAdmission(scoredChunks, options = {}) {
     const limit = Number.isInteger(options.limit) && options.limit > 0
         ? options.limit
-        : DEFAULT_CHILD_LIMIT;
+        : DEFAULT_CANDIDATE_LIMIT;
     const marker = options.timeMarker || null;
     const temporalCarrier = options.temporalCarrier || null;
     const ranked = uniqueBy(
@@ -96,10 +95,10 @@ export function selectEventDetailAdmission(scoredChunks, options = {}) {
     return {
         candidates: selected.map(row => ({
             ...row.chunk,
-            _detailFocusScore: row.focusScore,
-            _detailTemporalExact: row.exact,
-            _detailTemporalCarrier: row.temporal,
-            _detailTemporalMarker: row.temporal ? marker : null,
+            _directEvidenceFocusScore: row.focusScore,
+            _directEvidenceTemporalExact: row.exact,
+            _directEvidenceTemporalCarrier: row.temporal,
+            _directEvidenceTemporalMarker: row.temporal ? marker : null,
         })),
         sourceCount: ranked.length,
         temporalCandidateCount: temporal.length,
@@ -108,49 +107,7 @@ export function selectEventDetailAdmission(scoredChunks, options = {}) {
     };
 }
 
-export function formatEventDetailDocument(chunk) {
+export function formatDirectEvidenceDocument(chunk) {
     const speaker = chunk?.speaker || (chunk?.isUser ? '用户' : '角色');
     return `#${Number(chunk?.floor) + 1} [${speaker}] ${String(chunk?.text || '').trim()}`;
-}
-
-export function selectPackedEventDetails(rankedItems, options = {}) {
-    const limit = Number.isInteger(options.limit) && options.limit > 0
-        ? options.limit
-        : DEFAULT_PACK_LIMIT;
-    const budget = Math.max(0, Number(options.budget || 0));
-    const costFor = typeof options.costFor === 'function' ? options.costFor : () => 0;
-    const excludedIds = options.excludedIds instanceof Set ? options.excludedIds : new Set();
-    const allRanked = uniqueBy(
-        (rankedItems || []).filter(item => item?.chunkId && !excludedIds.has(item.chunkId)),
-        item => item.chunkId,
-    ).map((item, rankIndex) => ({
-        item,
-        rankIndex,
-        cost: Math.max(0, Number(costFor(item) || 0)),
-    }));
-    const guarded = allRanked.find(row => row.item?._detailTemporalCarrier === true)
-        || allRanked.find(row => row.item?._detailTemporalExact === true)
-        || null;
-    const ranked = allRanked.slice(0, limit);
-    if (guarded && !ranked.includes(guarded) && ranked.length > 0) {
-        ranked[ranked.length - 1] = guarded;
-        ranked.sort((left, right) => left.rankIndex - right.rankIndex);
-    }
-    const selected = [];
-    let used = 0;
-    if (guarded && guarded.cost <= budget) {
-        selected.push(guarded);
-        used += guarded.cost;
-    }
-    for (const row of ranked) {
-        if (row === guarded || used + row.cost > budget) continue;
-        selected.push(row);
-        used += row.cost;
-    }
-    selected.sort((left, right) => left.rankIndex - right.rankIndex);
-    return {
-        selected: selected.map(row => ({ ...row.item, _detailPromptCost: row.cost })),
-        used,
-        guardedChunkId: guarded?.item?.chunkId || null,
-    };
 }

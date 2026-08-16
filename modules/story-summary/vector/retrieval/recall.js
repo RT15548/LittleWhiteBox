@@ -52,12 +52,12 @@ import { getLexicalIndex, searchLexicalIndex } from './lexical-index.js';
 import { getRerankBatchDiagnostics, rerankChunks } from '../llm/reranker.js';
 import { createMetrics, calcSimilarityStats } from './metrics.js';
 import { tokenizeForIndex } from '../utils/tokenizer.js';
-import { rerankEventsForPrompt } from './event-rerank.js';
-import { rankSelectedEventDetails } from './event-detail-retrieval.js';
+import { rerankRecalledEvents } from './event-rerank.js';
+import { rankSelectedDirectEvidence } from './direct-evidence-retrieval.js';
 import {
-    releaseEventDetailRuntimeLease,
-    transferEventDetailRuntimeLease,
-} from './event-detail-session.js';
+    releaseDirectEvidenceRuntimeLease,
+    transferDirectEvidenceRuntimeLease,
+} from './direct-evidence-session.js';
 import { buildTemporalTurnCarrier } from './temporal-turn-carrier.js';
 
 const MODULE_ID = 'recall';
@@ -164,6 +164,13 @@ function normalize(s) {
         .replace(/[\u200B-\u200D\uFEFF]/g, '')
         .trim()
         .toLowerCase();
+}
+
+function eventMatchesFocusCharacters(event, focusSet) {
+    if (!focusSet?.size) return false;
+    return (event?.participants || [])
+        .map(participant => normalize(participant))
+        .some(participant => focusSet.has(participant));
 }
 
 function getLastMessages(chat, count = 3, excludeLastAi = false) {
@@ -385,8 +392,7 @@ async function recallEvents(queryVector, allEvents, vectorConfig, focusCharacter
     const scored = allEvents.map(event => {
         const baseSim = scoreMap.get(event.id) ?? 0;
 
-        const participants = (event.participants || []).map(p => normalize(p));
-        const hasEntityMatch = participants.some(p => focusSet.has(p));
+        const hasEntityMatch = eventMatchesFocusCharacters(event, focusSet);
 
         return {
             _id: event.id,
@@ -1203,72 +1209,73 @@ async function buildL1PairsForSelectedFloors(l0Selected, queryVector, prefetched
     return l1ByFloor;
 }
 
-export async function hydrateSelectedEventDetails(selectedDirect, context, metrics) {
+export async function hydrateSelectedDirectEvidence(selectedDirect, context, metrics) {
     const startedAt = performance.now();
     try {
-        const result = await rankSelectedEventDetails(selectedDirect, context);
+        const result = await rankSelectedDirectEvidence(selectedDirect, context);
         const elapsedMs = Math.round(performance.now() - startedAt);
         const stats = result.stats || {};
         const diagnostics = result.diagnostics || getRerankBatchDiagnostics([]);
 
         if (metrics?.evidence) {
-            metrics.evidence.eventDetailStatus = result.status || 'failed';
-            metrics.evidence.eventDetailParents = Number(stats.parents || 0);
-            metrics.evidence.eventDetailFloors = Number(stats.floors || 0);
-            metrics.evidence.eventDetailSourceCandidates = Number(stats.sourceCandidates || 0);
-            metrics.evidence.eventDetailCandidates = Number(stats.candidates || 0);
-            metrics.evidence.eventDetailDocumentChars = Number(stats.documentChars || 0);
-            metrics.evidence.eventDetailTemporalCandidates = Number(stats.temporalCandidates || 0);
-            metrics.evidence.eventDetailTemporalReserved = Number(stats.temporalReserved || 0);
-            metrics.evidence.eventDetailTemporalOverflow = Number(stats.temporalOverflow || 0);
-            metrics.evidence.eventDetailVectorHits = Number(stats.vectorHits || 0);
-            metrics.evidence.eventDetailMissingVectors = Number(stats.missingVectors || 0);
-            metrics.evidence.eventDetailItems = result.items.length;
-            metrics.evidence.eventDetailRerankBatchTotal = Number(diagnostics.totalBatches || 0);
-            metrics.evidence.eventDetailRerankBatchFailed = Number(diagnostics.failedBatches || 0);
-            metrics.evidence.eventDetailRerankFailures = diagnostics.failures.map(item => ({ ...item }));
-            metrics.evidence.eventDetailFocusScoreTime = Number(stats.focusScoreMs || 0);
-            metrics.evidence.eventDetailRerankTime = Number(stats.rerankMs || 0);
-            metrics.evidence.eventDetailTime = elapsedMs;
+            metrics.evidence.directEvidenceStatus = result.status || 'failed';
+            metrics.evidence.directEvidenceParents = Number(stats.parents || 0);
+            metrics.evidence.directEvidenceFloors = Number(stats.floors || 0);
+            metrics.evidence.directEvidenceSourceCandidates = Number(stats.sourceCandidates || 0);
+            metrics.evidence.directEvidenceCandidates = Number(stats.candidates || 0);
+            metrics.evidence.directEvidenceRelevantItems = Number(stats.relevantItems || 0);
+            metrics.evidence.directEvidenceDocumentChars = Number(stats.documentChars || 0);
+            metrics.evidence.directEvidenceTemporalCandidates = Number(stats.temporalCandidates || 0);
+            metrics.evidence.directEvidenceTemporalReserved = Number(stats.temporalReserved || 0);
+            metrics.evidence.directEvidenceTemporalOverflow = Number(stats.temporalOverflow || 0);
+            metrics.evidence.directEvidenceVectorHits = Number(stats.vectorHits || 0);
+            metrics.evidence.directEvidenceMissingVectors = Number(stats.missingVectors || 0);
+            metrics.evidence.directEvidenceItems = result.items.length;
+            metrics.evidence.directEvidenceRerankBatchTotal = Number(diagnostics.totalBatches || 0);
+            metrics.evidence.directEvidenceRerankBatchFailed = Number(diagnostics.failedBatches || 0);
+            metrics.evidence.directEvidenceRerankFailures = diagnostics.failures.map(item => ({ ...item }));
+            metrics.evidence.directEvidenceFocusScoreTime = Number(stats.focusScoreMs || 0);
+            metrics.evidence.directEvidenceRerankTime = Number(stats.rerankMs || 0);
+            metrics.evidence.directEvidenceTime = elapsedMs;
         }
         if (metrics?.timing) {
-            metrics.timing.eventDetailFocusScore = Number(stats.focusScoreMs || 0);
-            metrics.timing.eventDetailRerank = Number(stats.rerankMs || 0);
-            metrics.timing.eventDetailRetrieval = elapsedMs;
+            metrics.timing.directEvidenceFocusScore = Number(stats.focusScoreMs || 0);
+            metrics.timing.directEvidenceRerank = Number(stats.rerankMs || 0);
+            metrics.timing.directEvidenceRetrieval = elapsedMs;
             metrics.timing.total = Number(metrics.timing.total || 0) + elapsedMs;
             metrics.timing.externalTotal = Number(metrics.timing.externalTotal || 0) + Number(stats.rerankMs || 0);
             metrics.timing.localKnownTotal = Number(metrics.timing.localKnownTotal || 0)
                 + Math.max(0, elapsedMs - Number(stats.rerankMs || 0));
         }
         for (const failure of diagnostics.failures) {
-            recordExternalFailure(metrics, { stage: 'event-detail-rerank', ...failure });
+            recordExternalFailure(metrics, { stage: 'direct-evidence-rerank', ...failure });
         }
-        return result.items;
+        return result;
     } catch (error) {
         const elapsedMs = Math.round(performance.now() - startedAt);
-        xbLog.warn(MODULE_ID, 'Event detail retrieval failed; keep the existing prompt', error);
+        xbLog.warn(MODULE_ID, 'DIRECT evidence retrieval failed; keep the existing evidence path', error);
         if (metrics?.evidence) {
-            metrics.evidence.eventDetailStatus = 'failed';
-            metrics.evidence.eventDetailItems = 0;
-            metrics.evidence.eventDetailTime = elapsedMs;
+            metrics.evidence.directEvidenceStatus = 'failed';
+            metrics.evidence.directEvidenceItems = 0;
+            metrics.evidence.directEvidenceTime = elapsedMs;
         }
         if (metrics?.timing) {
-            metrics.timing.eventDetailRetrieval = elapsedMs;
+            metrics.timing.directEvidenceRetrieval = elapsedMs;
             metrics.timing.total = Number(metrics.timing.total || 0) + elapsedMs;
             metrics.timing.localKnownTotal = Number(metrics.timing.localKnownTotal || 0) + elapsedMs;
         }
-        return [];
+        return { items: [], status: 'failed', diagnostics: getRerankBatchDiagnostics([]), stats: {} };
     } finally {
-        await releaseEventDetailContext(context, metrics);
+        await releaseDirectEvidenceContext(context, metrics);
     }
 }
 
-export async function releaseEventDetailContext(context, metrics) {
+export async function releaseDirectEvidenceContext(context, metrics) {
     const startedAt = performance.now();
     try {
-        return await releaseEventDetailRuntimeLease(context, endRecallRuntimeSession);
+        return await releaseDirectEvidenceRuntimeLease(context, endRecallRuntimeSession);
     } catch (error) {
-        xbLog.warn(MODULE_ID, 'Deferred event-detail runtime session release failed', error);
+        xbLog.warn(MODULE_ID, 'Deferred DIRECT evidence runtime session release failed', error);
         return false;
     } finally {
         if (metrics?.timing) {
@@ -1660,8 +1667,7 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
         }
 
         // 实体分类：与 Dense 路径统一标准
-        const participants = (ev.participants || []).map(p => normalize(p));
-        const hasEntityMatch = focusSetForLexical.size > 0 && participants.some(p => focusSetForLexical.has(p));
+        const hasEntityMatch = eventMatchesFocusCharacters(ev, focusSetForLexical);
 
         eventHits.push({
             event: ev,
@@ -1767,9 +1773,7 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
         if (sim < CONFIG.LEXICAL_EVENT_DENSE_MIN) continue;
 
         // 实体分类：与所有路径统一标准
-        const participants = (event.participants || []).map(p => normalize(p));
-        const hasEntityMatch = focusSetForLexical.size > 0
-            && participants.some(p => focusSetForLexical.has(p));
+        const hasEntityMatch = eventMatchesFocusCharacters(event, focusSetForLexical);
 
         eventHits.push({
             event,
@@ -1819,9 +1823,16 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
     metrics.event.causalChainDepth = causalMaxDepth;
     metrics.event.causalCount = causalChain.length;
 
-    let eventRerankApplied = false;
+    // Candidate packing always consumes relevance order. Normalize the base
+    // order before the optional L2 rerank; once reranked, keep that result
+    // intact because cosine similarity and cross-encoder scores are not on
+    // the same scale.
+    eventHits = [...eventHits].sort((left, right) => (
+        Number(right?.similarity || 0) - Number(left?.similarity || 0)
+    ));
+
     if (vectorConfig?.eventRerankEnabled === true) {
-        const eventRerank = await rerankEventsForPrompt(eventHits, {
+        const eventRerank = await rerankRecalledEvents(eventHits, {
             query: bundle.focusQuery,
             focusVector: r1Vectors.at(-1) || null,
             chatId,
@@ -1849,36 +1860,31 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
         }
         if (eventRerank.status === 'applied') {
             eventHits = eventRerank.events;
-            eventRerankApplied = true;
         } else if (eventRerank.status !== 'skipped') {
             xbLog.warn(MODULE_ID, `Event rerank ${eventRerank.status}; keep original event order`);
         }
     }
 
-    let eventDetailContext = null;
-    if (vectorConfig?.eventDetailLaneEnabled === true) {
-        if (!eventRerankApplied) {
-            metrics.evidence.eventDetailStatus = 'skipped-event-rerank';
-        } else if (!eventHits.some(item => item?._recallType === 'DIRECT')) {
-            metrics.evidence.eventDetailStatus = 'skipped-no-direct-events';
-        } else {
-            const temporalCarrier = buildTemporalTurnCarrier({
-                chat,
-                query: bundle.focusQuery,
-                userName: name1,
-            });
-            eventDetailContext = {
-                chatId,
-                focusQuery: bundle.focusQuery,
-                focusVector: r1Vectors.at(-1) || null,
-                timeMarker: temporalCarrier.marker,
-                temporalFloors: temporalCarrier.exactFloors,
-                temporalCarrier,
-                parentLimit: 20,
-                childLimit: 60,
-            };
-            metrics.evidence.eventDetailStatus = 'ready';
-        }
+    let directEvidenceContext = null;
+    if (!eventHits.some(item => item?._recallType === 'DIRECT')) {
+        metrics.evidence.directEvidenceStatus = 'skipped-no-direct-events';
+    } else {
+        const temporalCarrier = buildTemporalTurnCarrier({
+            chat,
+            query: bundle.focusQuery,
+            userName: name1,
+        });
+        directEvidenceContext = {
+            chatId,
+            focusQuery: bundle.focusQuery,
+            focusVector: r1Vectors.at(-1) || null,
+            timeMarker: temporalCarrier.marker,
+            temporalFloors: temporalCarrier.exactFloors,
+            temporalCarrier,
+            parentLimit: 20,
+            candidateLimit: 60,
+        };
+        metrics.evidence.directEvidenceStatus = 'ready';
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -1908,9 +1914,9 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
         xbLog.info(MODULE_ID, `[Recall v9] Diffusion: ${metrics.diffusion?.seedCount || 0} seeds -> ${metrics.diffusion?.pprActivated || 0} activated -> ${metrics.diffusion?.finalCount || 0} final (${metrics.diffusion?.time || 0}ms | graph=${metrics.diffusion?.buildTime || 0}ms ppr=${metrics.diffusion?.pprTime || 0}ms post=${metrics.diffusion?.postVerifyTime || 0}ms)`);
     }
 
-    if (eventDetailContext && deferRuntimeRelease) {
-        runtimeLease = transferEventDetailRuntimeLease(
-            eventDetailContext,
+    if (directEvidenceContext && deferRuntimeRelease) {
+        runtimeLease = transferDirectEvidenceRuntimeLease(
+            directEvidenceContext,
             runtimeLease,
             true,
         );
@@ -1921,7 +1927,7 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
         causalChain,
         l0Selected,
         l1ByFloor,
-        eventDetailContext,
+        directEvidenceContext,
         focusEntities: focusTerms,
         focusTerms,
         focusCharacters,
