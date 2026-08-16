@@ -8,17 +8,13 @@ import { fileURLToPath } from 'node:url';
 
 import { loadGoldCapture } from '../lib/run-store.mjs';
 import { auditStudy, loadStudy } from '../study/store.mjs';
-import {
-    contractAdmitted,
-    forbiddenAdmitted,
-    packCurrentEvents,
-    selectedEventIdsFromTrace,
-} from './prompt-packing-screen.mjs';
 
 const EVENT_SELECT_MAX = 50;
 const EVENT_MMR_LAMBDA = 0.72;
 const EVENT_BUDGET_MAX = 5000;
 const RELATED_EVENT_MAX = 500;
+const L0_JOINED_MAX_LENGTH = 120;
+const EVENT_TRACE_SOURCES = new Set(['direct-event', 'related-event', 'causal-event']);
 
 function sha256(value) {
     return createHash('sha256').update(value).digest('hex');
@@ -32,6 +28,205 @@ async function writeAtomic(filePath, content) {
     const temporary = path.join(path.dirname(filePath), `.${path.basename(filePath)}.${process.pid}.${Date.now()}.tmp`);
     await fs.writeFile(temporary, content, 'utf8');
     await fs.rename(temporary, filePath);
+}
+
+function estimateTokens(text) {
+    if (!text) return 0;
+    const value = String(text);
+    const chinese = (value.match(/[\u4e00-\u9fff]/g) || []).length;
+    return Math.ceil(chinese + (value.length - chinese) / 4);
+}
+
+function cleanSummary(summary) {
+    return String(summary || '').replace(/\s*\(#\d+(?:-\d+)?\)\s*$/, '').trim();
+}
+
+function buildL0DisplayText(l0) {
+    return String(l0?.atom?.semantic || l0?.text || '').trim() || '（未知锚点）';
+}
+
+function formatL1Line(chunk, isUser, names) {
+    const speaker = chunk?.isUser
+        ? String(names?.name1 || '用户')
+        : String(chunk?.speaker || names?.name2 || '角色');
+    const symbol = isUser ? '┌' : '›';
+    return `    ${symbol} #${Number(chunk?.floor) + 1} [${speaker}] ${String(chunk?.text || '').trim()}`;
+}
+
+function buildEvidenceGroup(floor, atoms, l1ByFloor, names) {
+    const pair = l1ByFloor.get(floor);
+    const userL1 = pair?.userTop1 || null;
+    const aiL1 = pair?.aiTop1 || null;
+    let totalTokens = atoms.reduce((sum, atom) => sum + estimateTokens(buildL0DisplayText(atom)), 0) + 10;
+    if (userL1) totalTokens += estimateTokens(formatL1Line(userL1, true, names));
+    if (aiL1) totalTokens += estimateTokens(formatL1Line(aiL1, false, names));
+    return { floor, l0Atoms: atoms, userL1, aiL1, totalTokens };
+}
+
+function formatEvidenceGroup(group, names) {
+    const displayTexts = group.l0Atoms.map(buildL0DisplayText);
+    const joined = displayTexts.join('；');
+    const lines = [];
+    if (joined.length <= L0_JOINED_MAX_LENGTH) {
+        lines.push(`  › #${group.floor + 1} [📌] ${joined}`);
+    } else {
+        lines.push(`  › #${group.floor + 1} [📌] ${displayTexts[0]}`);
+        for (const text of displayTexts.slice(1)) lines.push(`  │      ${text}`);
+    }
+    if (group.userL1) lines.push(formatL1Line(group.userL1, true, names));
+    if (group.aiL1) lines.push(formatL1Line(group.aiL1, false, names));
+    return lines;
+}
+
+function collectEvidenceGroups(event, l0Selected, l1ByFloor, usedL0Ids, names) {
+    const range = parseFloorRange(event?.summary);
+    if (!range) return [];
+    const byFloor = new Map();
+    for (const l0 of l0Selected) {
+        if (usedL0Ids.has(l0.id) || l0.floor < range.start || l0.floor > range.end) continue;
+        if (!byFloor.has(l0.floor)) byFloor.set(l0.floor, []);
+        byFloor.get(l0.floor).push(l0);
+        usedL0Ids.add(l0.id);
+    }
+    return [...byFloor.entries()]
+        .map(([floor, atoms]) => buildEvidenceGroup(floor, atoms, l1ByFloor, names))
+        .sort((left, right) => left.floor - right.floor);
+}
+
+function rollbackEvidenceGroups(groups, usedL0Ids) {
+    for (const group of groups) {
+        for (const atom of group.l0Atoms) usedL0Ids.delete(atom.id);
+    }
+}
+
+function formatCausalEventLine(item) {
+    const event = item?.event || {};
+    const depth = Math.max(1, Math.min(9, item?._causalDepth || 1));
+    const indent = `  │${'  '.repeat(depth - 1)}`;
+    const prefix = `${indent}├─ 前因`;
+    const time = event.timeLabel ? `【${event.timeLabel}】` : '';
+    const people = (event.participants || []).join(' / ');
+    const range = parseFloorRange(event.summary);
+    const floorHint = range
+        ? `(#${range.start + 1}${range.end === range.start ? '' : `-${range.end + 1}`})`
+        : '';
+    return [
+        `${prefix}${time}${people ? ` ${people}` : ''}`,
+        `${indent}  ${`${cleanSummary(event.summary)}${floorHint ? ` ${floorHint}` : ''}`.trim()}`,
+    ].join('\n');
+}
+
+function formatEventWithEvidence(item, groups, causalById, names) {
+    const event = item?.event || item || {};
+    const time = event.timeLabel || '';
+    const title = String(event.title || '').trim();
+    const people = (event.participants || []).join(' / ').trim();
+    const displayTitle = title || people || event.id || '事件';
+    const lines = [time ? `0.【${time}】${displayTitle}` : `0. ${displayTitle}`];
+    if (people && displayTitle !== people) lines.push(`  ${people}`);
+    lines.push(`  ${cleanSummary(event.summary)}`);
+    for (const causeId of event.causedBy || []) {
+        const cause = causalById.get(causeId);
+        if (cause) lines.push(formatCausalEventLine(cause));
+    }
+    for (const group of groups) lines.push(...formatEvidenceGroup(group, names));
+    return lines.join('\n');
+}
+
+function normalizePackingInput(recallResult, names) {
+    const l1ByFloor = new Map((recallResult?.l1ByFloorEntries || []).map(([floor, value]) => [Number(floor), value]));
+    const causalById = new Map((recallResult?.causalChain || [])
+        .filter(item => item?.event?.id)
+        .map(item => [item.event.id, item]));
+    const candidates = (recallResult?.events || [])
+        .filter(item => item?.event?.summary)
+        .map((item, index) => ({ item, inputIndex: index }))
+        .sort((left, right) => ((right.item.similarity || 0) - (left.item.similarity || 0)) || (left.inputIndex - right.inputIndex))
+        .map(entry => entry.item);
+    return {
+        candidates,
+        causalById,
+        l0Selected: recallResult?.l0Selected || [],
+        l1ByFloor,
+        names,
+    };
+}
+
+function selectedRow(candidate, candidateRank, text, tokens, groups = []) {
+    return {
+        eventId: String(candidate?.event?.id || ''),
+        recallType: String(candidate?._recallType || 'RELATED'),
+        candidateRank,
+        text,
+        tokens,
+        evidenceFloors: groups.map(group => group.floor),
+    };
+}
+
+function packCurrentEvents(recallResult, names = null) {
+    const { candidates, causalById, l0Selected, l1ByFloor } = normalizePackingInput(recallResult, names);
+    const usedL0Ids = new Set();
+    const selected = [];
+    let eventTokens = 0;
+    let relatedTokens = 0;
+    let allowEventEvidence = true;
+
+    for (const [candidateRank, candidate] of candidates.entries()) {
+        if (eventTokens >= EVENT_BUDGET_MAX) break;
+        const direct = candidate._recallType === 'DIRECT';
+        if (!direct && relatedTokens >= RELATED_EVENT_MAX) continue;
+        const useEvidence = direct && allowEventEvidence;
+        const groups = useEvidence
+            ? collectEvidenceGroups(candidate.event, l0Selected, l1ByFloor, usedL0Ids, names)
+            : [];
+        const fullText = formatEventWithEvidence(candidate, groups, causalById, names);
+        const fullCost = estimateTokens(fullText);
+        const fullFits = eventTokens + fullCost <= EVENT_BUDGET_MAX
+            && (direct || relatedTokens + fullCost <= RELATED_EVENT_MAX);
+        if (!fullFits) {
+            const summaryText = formatEventWithEvidence(candidate, [], causalById, names);
+            const summaryCost = estimateTokens(summaryText);
+            const summaryFitsEvent = eventTokens + summaryCost <= EVENT_BUDGET_MAX;
+            const summaryFitsRelated = direct || relatedTokens + summaryCost <= RELATED_EVENT_MAX;
+            rollbackEvidenceGroups(groups, usedL0Ids);
+            if (!summaryFitsEvent) break;
+            if (!summaryFitsRelated) continue;
+            if (useEvidence && groups.length) allowEventEvidence = false;
+            selected.push(selectedRow(candidate, candidateRank, summaryText, summaryCost));
+            eventTokens += summaryCost;
+            if (!direct) relatedTokens += summaryCost;
+            continue;
+        }
+        selected.push(selectedRow(candidate, candidateRank, fullText, fullCost, groups));
+        eventTokens += fullCost;
+        if (!direct) relatedTokens += fullCost;
+    }
+    return { selected, eventTokens, relatedTokens };
+}
+
+function selectedEventIdsFromTrace(prompt) {
+    const ids = [];
+    const seen = new Set();
+    for (const item of prompt?.evidenceTrace?.prompt || []) {
+        if (!EVENT_TRACE_SOURCES.has(item?.source)) continue;
+        const unitId = String(item?.unitId || '');
+        if (!unitId.startsWith('event:') || seen.has(unitId)) continue;
+        seen.add(unitId);
+        ids.push(unitId.slice('event:'.length));
+    }
+    return ids;
+}
+
+function contractAdmitted(goldCase, floors) {
+    const all = goldCase?.evidence?.requiredAll || [];
+    const any = goldCase?.evidence?.requiredAny || [];
+    if (!all.length && !any.length) return null;
+    return all.every(floor => floors.has(floor)) && (!any.length || any.some(floor => floors.has(floor)));
+}
+
+function forbiddenAdmitted(goldCase, floors) {
+    const forbidden = goldCase?.evidence?.forbiddenAsCurrent || [];
+    return forbidden.length ? forbidden.some(floor => floors.has(floor)) : null;
 }
 
 function cosineSimilarity(left, right) {
