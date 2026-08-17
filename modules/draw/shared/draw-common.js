@@ -5,7 +5,11 @@ import {
     getPreviewDisplayUrl,
     warmSlotPreviewNeighbors,
 } from "./gallery-cache.js";
-import { LLMServiceError } from "./scene-planner.js";
+import {
+    ScenePlannerError,
+    toSceneCharacterPromptTag,
+} from "./scene-plan-contract.js";
+import { classifyScenePlannerErrorForUi } from "./scene-planner-error-ui.js";
 import { createModuleEvents, event_types } from "../../../core/event-manager.js";
 import {
     GENERATE_INTERCEPTOR_ORDER,
@@ -42,6 +46,12 @@ export const ErrorType = {
     LLM: { code: 'llm', label: 'LLM失败', desc: '场景分析失败' },
     LLM_EMPTY: { code: 'llm_empty', label: '空回', desc: 'LLM 未返回内容' },
     TIMEOUT: { code: 'timeout', label: '超时', desc: '请求超时' },
+    AGENT_CONFIG: { code: 'agent_config', label: 'Agent 配置', desc: '共享 Agent 主预设不可用' },
+    PROMPT_EXPANSION: { code: 'prompt_expansion', label: 'Prompt 展开', desc: 'Prompt 宏展开失败，请检查提示词中的变量宏' },
+    TOOL_PROTOCOL: { code: 'tool_protocol', label: 'Tool 协议', desc: '模型没有按要求调用场景规划 Tool' },
+    SCENE_SCHEMA: { code: 'scene_schema', label: '计划校验', desc: '模型提交的场景计划不符合契约' },
+    PROVIDER: { code: 'provider', label: 'Provider', desc: '模型 Provider 请求失败' },
+    ABORTED: { code: 'aborted', label: '已取消', desc: '场景规划已取消' },
     UNKNOWN: { code: 'unknown', label: '错误', desc: '未知错误' },
     CACHE_LOST: { code: 'cache_lost', label: '缓存丢失', desc: '图片缓存已过期' },
 };
@@ -168,7 +178,7 @@ function formatDanbooruTag(tag, options = {}) {
 
 function buildKnownCharacterBasePrompt(character = {}, options = {}) {
     const danbooruTag = character.danbooruTag ? formatDanbooruTag(character.danbooruTag, options) : '';
-    return joinTags(danbooruTag, character.type, character.appearance);
+    return joinTags(danbooruTag, toSceneCharacterPromptTag(character.type), character.appearance);
 }
 
 const GRID_COL = { A: 0.1, B: 0.3, C: 0.5, D: 0.7, E: 0.9 };
@@ -229,7 +239,14 @@ export function assembleCharacterPrompts(sceneChars, knownCharacters, options = 
         const danbooruTag = char.danbooru ? formatDanbooruTag(char.danbooru, options) : '';
         return {
             name: char.name,
-            prompt: joinTags(danbooruTag, char.type, char.appear, char.costume, char.action, char.interact),
+            prompt: joinTags(
+                danbooruTag,
+                toSceneCharacterPromptTag(char.type),
+                char.appear,
+                char.costume,
+                char.action,
+                char.interact,
+            ),
             uc: char.uc || '',
             center: gridToCoord(char.center) || { x: 0.5, y: 0.5 },
         };
@@ -303,16 +320,8 @@ export function findNearestSentenceEnd(mes, startPos) {
 }
 
 export function classifyError(error) {
-    if (error instanceof LLMServiceError) {
-        const code = String(error.code || '').toUpperCase();
-        const message = String(error.message || '').toLowerCase();
-        if (code === 'EMPTY_OUTPUT' || message.includes('输出为空') || message.includes('未返回内容')) {
-            return ErrorType.LLM_EMPTY;
-        }
-        if (code === 'PARSE_ERROR' || message.includes('无法解析') || message.includes('未解析到图片任务')) {
-            return ErrorType.PARSE;
-        }
-        return ErrorType.LLM;
+    if (error instanceof ScenePlannerError) {
+        return classifyScenePlannerErrorForUi(error, ErrorType);
     }
     if (error?.errorType) return error.errorType;
     const msg = String(error?.message || error || '').toLowerCase();

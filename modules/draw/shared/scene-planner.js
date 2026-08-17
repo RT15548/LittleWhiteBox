@@ -1,7 +1,22 @@
-import { xbLog } from "../../../core/debug-core.js";
-import { callDrawScenePlannerLlm } from "./draw-llm.js";
-import { getWorldInfoPrompt } from "../../../../../../../scripts/world-info.js";
-import jsyaml from "../../../libs/js-yaml.mjs";
+import { xbLog } from '../../../core/debug-core.js';
+import {
+    beginDrawScenePlannerDiagnostic,
+    callDrawScenePlannerAgent,
+} from './draw-agent.js';
+import {
+    ScenePlannerError,
+    createSubmitScenePlanTool,
+    parseSubmittedScenePlan,
+} from './scene-plan-contract.js';
+import {
+    applyPromptSlots,
+    createPromptSlots,
+    emitScenePromptReady,
+    expandScenePromptText,
+    loadScenePromptRuntime,
+    spliceLiteral,
+    wrapPromptExpansionError,
+} from './scene-prompt-expansion.js';
 
 const EMPTY_PROMPT_CONFIG = {
     topSystem: '',
@@ -19,86 +34,56 @@ const EMPTY_PROMPT_CONFIG = {
 {$worldInfo}
 </worldInfo>`,
     assistantAskContent: '',
-    userContent: `
-Content Provider:
+    userContent: `Content Provider:
 <content>
 {{characterInfo}}
 ---
 {{lastMessage}}
 </content>`,
-    metaProtocolStart: '<meta_protocol>',
-    userJsonFormat: '',
-    metaProtocolEnd: `</meta_protocol>`,
+    sceneRules: '',
     assistantCheck: '',
     userConfirm: '',
-    assistantPrefill: '',
 };
 
-export const PROVIDER_MAP = {
-    openai: "openai",
-    google: "google",
-    gemini: "google",
-    claude: "claude",
-    anthropic: "claude",
-};
+export { ScenePlannerError };
 
-/**
- * 获取当前生效的提示词配置（合并自定义覆盖）
- * @param {Object|null} custom  customPrompts 对象，null 字段表示使用默认
- */
 export function getEffectivePromptConfig(custom, defaults = EMPTY_PROMPT_CONFIG) {
-    const base = (defaults && typeof defaults === 'object')
+    const base = defaults && typeof defaults === 'object'
         ? { ...EMPTY_PROMPT_CONFIG, ...defaults }
         : { ...EMPTY_PROMPT_CONFIG };
     if (!custom) return base;
     const merged = { ...base };
     for (const key of Object.keys(base)) {
-        if (typeof custom[key] === 'string' && custom[key].trim()) {
-            merged[key] = custom[key];
-        }
+        if (typeof custom[key] === 'string' && custom[key].trim()) merged[key] = custom[key];
     }
     return merged;
 }
 
-/**
- * 获取当前生效的 TAG 编写指南内容
- * @param {string|null} customGuide  自定义指南内容，null 表示使用文件加载的默认值
- */
 export function getEffectiveTagGuide(customGuide) {
-    if (typeof customGuide === 'string' && customGuide.trim()) return customGuide;
-    return '';
-}
-
-export class LLMServiceError extends Error {
-    constructor(message, code = 'LLM_ERROR', details = null) {
-        super(message);
-        this.name = 'LLMServiceError';
-        this.code = code;
-        this.details = details;
-    }
+    return typeof customGuide === 'string' && customGuide.trim() ? customGuide : '';
 }
 
 export function buildCharacterInfoForLLM(presentCharacters) {
     if (!presentCharacters?.length) {
         return `【已录入角色】: 无
-所有角色都是未知角色，每个角色必须包含 type + appear + action`;
+所有角色都是未知角色，每个角色必须包含 type + appear + costume + action + interact + uc + center`;
     }
 
-    const lines = presentCharacters.map(c => {
-        const aliases = c.aliases?.length ? ` (别名: ${c.aliases.join(', ')})` : '';
-        const type = c.type || 'girl';
-        const danbooru = c.danbooruTag ? ` | danbooru: ${c.danbooruTag}` : '';
-        const appear = c.appearance ? `\n  外貌参考: ${c.appearance}` : '';
-        const outfits = Array.isArray(c.outfits) && c.outfits.length
-            ? `\n  可选服装（仅供参考；请结合剧情自行选择最合适的一套或其变体写入 costume，可在参考基础上体现破损/敞开/滑落/湿透等状态；不要把多套服装直接拼接或混合输出）: ${c.outfits
-                .filter(o => o?.name || o?.tags)
-                .map(o => `${o.name || '服装'}=${o.tags || '未填写tag'}`)
+    const lines = presentCharacters.map((character) => {
+        const aliases = character.aliases?.length ? ` (别名: ${character.aliases.join(', ')})` : '';
+        const type = character.type || 'girl';
+        const danbooru = character.danbooruTag ? ` | danbooru: ${character.danbooruTag}` : '';
+        const appear = character.appearance ? `\n  外貌参考: ${character.appearance}` : '';
+        const outfits = Array.isArray(character.outfits) && character.outfits.length
+            ? `\n  可选服装（仅供参考；请结合剧情自行选择最合适的一套或其变体写入 costume，可在参考基础上体现破损/敞开/滑落/湿透等状态；不要把多套服装直接拼接或混合输出）: ${character.outfits
+                .filter((outfit) => outfit?.name || outfit?.tags)
+                .map((outfit) => `${outfit.name || '服装'}=${outfit.tags || '未填写tag'}`)
                 .join('； ')}`
             : '';
-        return `- ${c.name}${aliases} [${type}]${danbooru}: 外貌已预设，只需输出 name + danbooru + costume + action + interact + uc + center；costume 由你根据当前剧情决定，可参考服装列表自行选择并改写，只描述这一张图实际穿着的内容${appear}${outfits}`;
+        return `- ${character.name}${aliases} [${type}]${danbooru}: 外貌已预设；提交该角色时必须使用规范 name，并将 type/appear 设为空字符串；danbooru/costume/action/interact/uc/center 仍须提交，costume 只描述本图实际穿着${appear}${outfits}`;
     });
 
-    return `【已录入角色】(不要输出这些角色的 type/appear，但 costume 必须完整输出):
+    return `【已录入角色】（别名只用于识别，提交时改回规范名；type/appear 必须为空字符串）:
 ${lines.join('\n')}`;
 }
 
@@ -108,12 +93,11 @@ function collectWorldInfoSections(result) {
         const content = String(text || '').trim();
         if (content) sections.push(`【${title}】\n${content}`);
     };
-
     pushText('酒馆世界书-前置', result?.worldInfoBefore);
     if (Array.isArray(result?.worldInfoDepth)) {
         const depthText = result.worldInfoDepth
-            .flatMap(item => Array.isArray(item?.entries) ? item.entries : [])
-            .map(entry => String(entry || '').trim())
+            .flatMap((item) => (Array.isArray(item?.entries) ? item.entries : []))
+            .map((entry) => String(entry || '').trim())
             .filter(Boolean)
             .join('\n');
         pushText('酒馆世界书-深度', depthText);
@@ -122,12 +106,15 @@ function collectWorldInfoSections(result) {
     return sections;
 }
 
-async function buildNativeWorldInfoForDraw(messageText, presentCharacters) {
+async function buildNativeWorldInfoForDraw(messageText, presentCharacters, resolver) {
     try {
-        const charNames = (presentCharacters || []).map(c => c?.name).filter(Boolean).join(' ');
-        const scanChat = [messageText, charNames].map(v => String(v || '').trim()).filter(Boolean);
+        let getWorldInfoPrompt = resolver;
+        if (typeof getWorldInfoPrompt !== 'function') {
+            ({ getWorldInfoPrompt } = await import('../../../../../../../scripts/world-info.js'));
+        }
+        const charNames = (presentCharacters || []).map((character) => character?.name).filter(Boolean).join(' ');
+        const scanChat = [messageText, charNames].map((value) => String(value || '').trim()).filter(Boolean);
         if (!scanChat.length) return '';
-
         const result = await getWorldInfoPrompt(scanChat, 8192, true, { trigger: 'normal' });
         return collectWorldInfoSections(result).join('\n\n').trim();
     } catch (error) {
@@ -146,405 +133,217 @@ function combineWorldInfoEntries({ uploadedEntries = '', nativeEntries = '' } = 
 }
 
 function buildSessionLimitsLine(maxImages, maxCharactersPerImage) {
+    const imageLimit = Number(maxImages) > 0 ? Math.floor(Number(maxImages)) : 0;
+    const characterLimit = Number(maxCharactersPerImage) > 0
+        ? Math.floor(Number(maxCharactersPerImage))
+        : 0;
     const clauses = [];
-    if (maxImages > 0) {
-        clauses.push(`生成 ${maxImages} 项 images 数组`);
-    } else if (maxCharactersPerImage > 0) {
-        clauses.push('生成 images 数组');
-    }
-    if (maxCharactersPerImage > 0) clauses.push(`每项的 characters 最多 ${maxCharactersPerImage} 人`);
-    if (!clauses.length) return '';
-    return `同时，为本次 <content> 内容${clauses.join('、')}。`;
+    if (imageLimit) clauses.push(`images 必须恰好包含 ${imageLimit} 项`);
+    if (characterLimit) clauses.push(`每项 characters 最多 ${characterLimit} 人`);
+    return clauses.length ? `本次提交数量约束：${clauses.join('；')}。` : '';
 }
 
-function appendLinesToUserConfirm(userConfirm, appendedLines = []) {
-    const baseConfirm = String(userConfirm || '').trimEnd();
-    const appendedText = []
-        .concat(appendedLines || [])
-        .map(line => String(line || '').trim())
-        .filter(Boolean)
-        .join('\n');
-    if (!appendedText) return baseConfirm;
-    if (!baseConfirm) return appendedText;
+const TRAILING_CLOSING_TAG = /\n?(<\/[A-Za-z][\w-]*>)\s*$/;
 
-    const closingTagMatch = baseConfirm.match(/(\n?\s*<\/[A-Za-z0-9_:-]+>\s*)$/);
-    if (!closingTagMatch) {
-        return `${baseConfirm}\n${appendedText}`;
-    }
-
-    const closingTag = closingTagMatch[1].trim();
-    const prefix = baseConfirm.slice(0, baseConfirm.length - closingTagMatch[1].length).trimEnd();
-    return [prefix, appendedText, closingTag].filter(Boolean).join('\n');
+/**
+ * Dynamic instructions stay inside the container the top system prompt opened, so a preset
+ * ending with `</Chat_History>` keeps that tag last.
+ */
+function appendInstruction(base, additions = []) {
+    const text = String(base || '').trim();
+    const extra = additions.map((item) => String(item || '').trim()).filter(Boolean);
+    if (!extra.length) return text;
+    if (!text) return extra.join('\n');
+    const match = text.match(TRAILING_CLOSING_TAG);
+    if (!match) return [text, ...extra].join('\n');
+    return [text.slice(0, match.index).trimEnd(), ...extra, match[1]].filter(Boolean).join('\n');
 }
 
-export async function generateScenePlan(options) {
+function joinTaskSections(sections) {
+    return sections.map((section) => String(section || '').trim()).filter(Boolean).join('\n\n');
+}
+
+async function resolveExpansionRuntime(expansionOptions = {}) {
+    try {
+        return expansionOptions.runtime || await loadScenePromptRuntime();
+    } catch (error) {
+        throw wrapPromptExpansionError(error);
+    }
+}
+
+async function buildScenePlannerRequest(options = {}) {
     const {
         messageText,
         presentCharacters = [],
-        llmApi = {},
-        useStream = false,
         useWorldInfo = false,
         customPrompts = null,
         promptDefaults = EMPTY_PROMPT_CONFIG,
         worldbookEntries = null,
-        timeout = 120000,
         maxImages = 0,
         maxCharactersPerImage = 0,
-        disablePrefill = false,
-        extraOutputRule = '',
-        signal = null,
     } = options;
-    if (!messageText?.trim()) {
-        throw new LLMServiceError('消息内容为空', 'EMPTY_MESSAGE');
+    if (!String(messageText || '').trim()) {
+        throw new ScenePlannerError('消息内容为空。', 'EMPTY_MESSAGE');
     }
+
     const promptConfig = getEffectivePromptConfig(customPrompts, promptDefaults);
-    const effectiveTagGuide = getEffectiveTagGuide(promptConfig.tagGuideContent);
-    const charInfo = buildCharacterInfoForLLM(presentCharacters);
+    const runtime = await resolveExpansionRuntime(options.expansionOptions);
+    const slots = createPromptSlots(['tagGuide', 'worldInfo', 'characterInfo', 'lastMessage']);
 
-    const topMessages = [];
-
-    topMessages.push({
-        role: 'system',
-        content: promptConfig.topSystem
-    });
-
-    let docContent = promptConfig.assistantDoc;
-    if (effectiveTagGuide) {
-        docContent = docContent.replace('{$tagGuide}', effectiveTagGuide);
-    } else {
-        docContent = '好的，我将按照当前图像生成规范生成图像描述。';
-    }
-    topMessages.push({
-        role: 'assistant',
-        content: docContent
-    });
-
-    topMessages.push({
-        role: 'assistant',
-        content: promptConfig.assistantAskBackground
-    });
-
-    const nativeWorldInfo = useWorldInfo ? await buildNativeWorldInfoForDraw(messageText, presentCharacters) : '';
-    const combinedWorldInfo = combineWorldInfoEntries({
-        uploadedEntries: worldbookEntries,
-        nativeEntries: nativeWorldInfo,
-    });
-
-    let worldInfoContent = promptConfig.userWorldInfo;
-    if (combinedWorldInfo) {
-        worldInfoContent = worldInfoContent.replace(/\{\$worldInfo\}/gi, () => combinedWorldInfo);
-    } else if (!useWorldInfo) {
-        // 未启用世界书：清除占位符，避免残留在 prompt 中
-        worldInfoContent = worldInfoContent.replace(/\{\$worldInfo\}/gi, '');
-    } else {
-        // 启用酒馆世界书但未命中条目：清除占位符，避免裸文本残留
-        worldInfoContent = worldInfoContent.replace(/\{\$worldInfo\}/gi, '');
-    }
-    topMessages.push({
-        role: 'user',
-        content: worldInfoContent
-    });
-
-    topMessages.push({
-        role: 'assistant',
-        content: promptConfig.assistantAskContent
-    });
-
-    const mainPrompt = promptConfig.userContent
-        .replace('{{lastMessage}}', messageText)
-        .replace('{{characterInfo}}', charInfo);
-
-    const bottomMessages = [];
-
-    bottomMessages.push({
-        role: 'user',
-        content: promptConfig.metaProtocolStart
-    });
-
-    bottomMessages.push({
-        role: 'user',
-        content: promptConfig.userJsonFormat
-    });
-
-    bottomMessages.push({
-        role: 'user',
-        content: promptConfig.metaProtocolEnd
-    });
-
-    // #10 合规检查 + #11 截断重生：始终保留（prompt engineering 核心技巧）
-    bottomMessages.push({
-        role: 'assistant',
-        content: promptConfig.assistantCheck
-    });
-
-    bottomMessages.push({
-        role: 'user',
-        content: appendLinesToUserConfirm(
-            promptConfig.userConfirm,
-            [
-                buildSessionLimitsLine(maxImages, maxCharactersPerImage),
-                extraOutputRule,
-            ]
-        )
-    });
-
-    const messages = []
-        .concat(topMessages)
-        .concat(mainPrompt.trim() ? [{ role: 'user', content: mainPrompt.trim() }] : [])
-        .concat(bottomMessages);
-    if (!disablePrefill && String(promptConfig.assistantPrefill || '').trim()) {
-        messages.push({ role: 'assistant', content: promptConfig.assistantPrefill });
-    }
-
-    let rawOutput;
     try {
-        rawOutput = await callDrawScenePlannerLlm({
-            messages,
-            llmApi,
-            useStream,
-            timeout,
-            signal,
-        });
-    } catch (e) {
-        console.error('[ScenePlanner] LLM 调用原始错误:', e);
-        console.error('[ScenePlanner] 错误详情:', { message: e?.message, code: e?.code, name: e?.name, stack: e?.stack });
-        xbLog.error('novelDrawLlm', `LLM 调用失败: ${e?.message}`, { code: e?.code, name: e?.name });
-        throw new LLMServiceError(`LLM 调用失败: ${e.message}`, 'CALL_FAILED');
-    }
+        // Every dynamic value is expanded exactly once, then spliced literally into the
+        // already-expanded template. Narrative text never passes through a macro pass twice
+        // and never acts as a `String.replace` replacement string.
+        const expandedMessageText = await expandScenePromptText(messageText, runtime);
+        const nativeWorldInfo = useWorldInfo
+            ? await buildNativeWorldInfoForDraw(expandedMessageText, presentCharacters, options.worldInfoResolver)
+            : '';
+        const expandedWorldInfo = await expandScenePromptText(
+            combineWorldInfoEntries({
+                uploadedEntries: worldbookEntries,
+                nativeEntries: nativeWorldInfo,
+            }),
+            runtime,
+        );
+        const expandedCharacterInfo = await expandScenePromptText(
+            buildCharacterInfoForLLM(presentCharacters),
+            runtime,
+        );
+        const expandedTagGuide = await expandScenePromptText(
+            getEffectiveTagGuide(promptConfig.tagGuideContent),
+            runtime,
+        );
 
-    if (!rawOutput || !String(rawOutput).trim()) {
-        console.warn('[ScenePlanner] LLM 返回为空');
-        xbLog.error('novelDrawLlm', 'LLM 输出为空', null);
-        throw new LLMServiceError('LLM 输出为空', 'EMPTY_OUTPUT');
-    }
+        const guideTemplate = expandedTagGuide
+            ? spliceLiteral(promptConfig.assistantDoc, '{$tagGuide}', slots.tagGuide)
+            : '好的，我将按照当前图像生成规范生成图像描述。';
+        const worldInfoTemplate = String(promptConfig.userWorldInfo || '')
+            .split('{$worldInfo}').join(slots.worldInfo)
+            .split('{$WORLDINFO}').join(slots.worldInfo);
+        const contentTemplate = spliceLiteral(
+            spliceLiteral(promptConfig.userContent, '{{characterInfo}}', slots.characterInfo),
+            '{{lastMessage}}',
+            slots.lastMessage,
+        );
+        const finalInstruction = appendInstruction(promptConfig.userConfirm, [
+            buildSessionLimitsLine(maxImages, maxCharactersPerImage),
+            '完成 mindful_prelude 与全部 images 后，必须且只能调用一次 submit_scene_plan；不要只返回正文。',
+        ]);
 
-    if (xbLog.isEnabled()) {
-        xbLog.info("novelDrawLlm", `rawOutput(len=${rawOutput?.length || 0}): ${String(rawOutput || "").slice(0, 1200)}`);
-    }
+        // Terminal-submit tool calling takes a single system prompt plus one user task; no
+        // synthetic multi-turn chain and no consecutive same-role messages.
+        const userTaskTemplate = joinTaskSections([
+            guideTemplate,
+            promptConfig.assistantAskBackground,
+            worldInfoTemplate,
+            promptConfig.assistantAskContent,
+            contentTemplate,
+            promptConfig.sceneRules,
+            promptConfig.assistantCheck,
+            finalInstruction,
+        ]);
 
-    return rawOutput;
-}
-
-function cleanYamlInput(text) {
-    let normalized = String(text || '')
-        .replace(/\r\n/g, '\n')
-        .replace(/\t/g, '  ')
-        .trim();
-
-    if (!normalized) return '';
-
-    const fencedBlocks = [...normalized.matchAll(/```(?:ya?ml|json)?\s*([\s\S]*?)```/gi)];
-    const fencedWithImages = fencedBlocks.find((match) => /(^|\n)images:\s*(?:#.*)?(?=\n|$|\[)/i.test(match[1] || ''));
-    if (fencedWithImages) {
-        normalized = String(fencedWithImages[1] || '').trim();
-    } else if (fencedBlocks.length > 0) {
-        normalized = String(fencedBlocks[0][1] || '').trim();
-    }
-
-    normalized = normalized
-        .replace(/^```(?:ya?ml|json)?\s*/i, '')
-        .replace(/\s*```$/i, '')
-        .trim();
-
-    const imagesMatch = normalized.match(/(^|\n)images:\s*(?:#.*)?(?=\n|$|\[)/i);
-    if (imagesMatch) {
-        normalized = normalized.slice((imagesMatch.index || 0) + imagesMatch[1].length);
-    }
-
-    const keptLines = [];
-    const lines = normalized.split('\n');
-    for (let index = 0; index < lines.length; index++) {
-        const line = lines[index];
-        const trimmed = line.trim();
-        if (index === 0) {
-            keptLines.push(line);
-            continue;
-        }
-        if (!trimmed) {
-            keptLines.push(line);
-            continue;
-        }
-        if (/^```/.test(trimmed)) break;
-        if (/^[ \t]/.test(line) || /^-\s/.test(line)) {
-            keptLines.push(line);
-            continue;
-        }
-        break;
-    }
-
-    return keptLines.join('\n').trim();
-}
-
-function normalizeYamlScalar(value) {
-    if (value === null || value === undefined) return '';
-    if (typeof value === 'string') return value.trim();
-    if (typeof value === 'number' || typeof value === 'boolean') return String(value).trim();
-    return '';
-}
-
-function parseYamlCharacters(rawCharacters) {
-    if (!Array.isArray(rawCharacters)) return [];
-
-    return rawCharacters.map((rawChar) => {
-        if (!rawChar || typeof rawChar !== 'object') return null;
-
-        const name = normalizeYamlScalar(rawChar.name);
-        if (!name) return null;
-
-        const char = { name };
-        const optionalFields = ['danbooru', 'type', 'appear', 'costume', 'action', 'interact', 'uc', 'center'];
-        for (const field of optionalFields) {
-            const value = normalizeYamlScalar(rawChar[field]);
-            if (value) char[field] = value;
-        }
-        return char;
-    }).filter(Boolean);
-}
-
-function parseYamlImagePlan(text) {
-    let root = null;
-    try {
-        root = jsyaml.load(text);
-    } catch (error) {
-        const message = error?.message || 'YAML 格式无效';
-        throw new LLMServiceError(`YAML 解析失败: ${message}`, 'PARSE_ERROR', {
-            sample: text.slice(0, 300),
-            yamlError: message,
-        });
-    }
-
-    const rawImages = Array.isArray(root?.images)
-        ? root.images
-        : (Array.isArray(root) ? root : []);
-    return rawImages.map((rawImage) => {
-        const image = rawImage && typeof rawImage === 'object' ? rawImage : {};
-        return {
-            index: Number(image.index) || 0,
-            anchor: normalizeYamlScalar(image.anchor),
-            scene: normalizeYamlScalar(image.scene),
-            negative: normalizeYamlScalar(image.negative),
-            chars: parseYamlCharacters(image.characters),
-            hasCharactersField: Object.prototype.hasOwnProperty.call(image, 'characters'),
+        const slotValues = {
+            [slots.tagGuide]: expandedTagGuide,
+            [slots.worldInfo]: expandedWorldInfo,
+            [slots.characterInfo]: expandedCharacterInfo,
+            [slots.lastMessage]: expandedMessageText,
         };
-    });
-}
+        const systemPrompt = applyPromptSlots(
+            await expandScenePromptText(promptConfig.topSystem || '', runtime),
+            slotValues,
+        ).trim();
+        const userTask = applyPromptSlots(
+            await expandScenePromptText(userTaskTemplate, runtime),
+            slotValues,
+        ).trim();
 
-function normalizeImageTasks(images) {
-    const tasks = images.map(img => {
         const task = {
-            index: Number(img.index) || 0,
-            anchor: String(img.anchor || '').trim(),
-            scene: String(img.scene || '').trim(),
-            negative: String(img.negative || '').trim(),
-            chars: [],
-            hasCharactersField: img.hasCharactersField === true
+            systemPrompt,
+            messages: [{ role: 'user', content: userTask }],
+            tools: [createSubmitScenePlanTool({ maxImages, maxCharactersPerImage })],
+            toolChoice: 'required',
         };
-
-        const chars = img.characters || img.chars || [];
-        for (const c of chars) {
-            if (!c?.name) continue;
-            const char = { name: String(c.name).trim() };
-            if (c.danbooru) char.danbooru = String(c.danbooru).trim();
-            if (c.type) char.type = String(c.type).trim().toLowerCase();
-            if (c.appear) char.appear = String(c.appear).trim();
-            if (c.costume) char.costume = String(c.costume).trim();
-            if (c.action) char.action = String(c.action).trim();
-            if (c.interact) char.interact = String(c.interact).trim();
-            if (c.uc) char.uc = String(c.uc).trim();
-            if (c.center) char.center = String(c.center).trim();
-            task.chars.push(char);
-        }
-
-        return task;
-    });
-
-    tasks.sort((a, b) => a.index - b.index);
-
-    let validTasks = tasks.filter(t => t.index > 0 && t.scene);
-
-    if (validTasks.length > 0) {
-        const last = validTasks[validTasks.length - 1];
-        let isComplete;
-
-        if (!last.hasCharactersField) {
-            isComplete = false;
-        } else if (last.chars.length === 0) {
-            isComplete = true;
-        } else {
-            const lastChar = last.chars[last.chars.length - 1];
-            isComplete = (lastChar.action?.length || 0) >= 5;
-        }
-
-        if (!isComplete) {
-            console.warn(`[LLM-Service] 丢弃截断的任务 index=${last.index}`);
-            validTasks.pop();
-        }
+        await emitScenePromptReady(runtime, [
+            ...(systemPrompt ? [{ role: 'system', content: systemPrompt }] : []),
+            ...task.messages,
+        ]);
+        return { task, validationContext: { messageText: expandedMessageText } };
+    } catch (error) {
+        if (error instanceof ScenePlannerError) throw error;
+        throw wrapPromptExpansionError(error);
     }
-
-    validTasks.forEach(t => delete t.hasCharactersField);
-
-    return validTasks;
 }
 
-export function parseImagePlan(aiOutput) {
-    const text = cleanYamlInput(aiOutput);
+export async function buildScenePlannerTask(options = {}) {
+    const request = await buildScenePlannerRequest(options);
+    return request.task;
+}
 
-    if (!text) {
-        throw new LLMServiceError('LLM 输出为空', 'EMPTY_OUTPUT');
-    }
-
-    let yamlResult = [];
+export async function generateAndParseScenePlan(options = {}) {
+    const diagnostic = options.diagnostic || beginDrawScenePlannerDiagnostic();
+    let request;
     try {
-        yamlResult = parseYamlImagePlan(text);
+        request = await buildScenePlannerRequest(options);
     } catch (error) {
-        if (error instanceof LLMServiceError) {
-            xbLog.error('novelDrawLlm', `[LLM-Service] YAML 解析失败: ${error.message}`, error.details || null);
-            throw error;
-        }
+        diagnostic.fail(error, { stage: 'prompt' });
         throw error;
     }
 
-    if (yamlResult && yamlResult.length > 0) {
-        console.log(`%c[LLM-Service] 解析成功: ${yamlResult.length} 个图片任务`, 'color: #3ecf8e');
-        return normalizeImageTasks(yamlResult);
-    }
-
-    xbLog.error('novelDrawLlm', `[LLM-Service] 解析失败，原始输出: ${text.slice(0, 500)}`, null);
-    throw new LLMServiceError('无法解析 LLM 输出', 'PARSE_ERROR', { sample: text.slice(0, 300) });
-}
-
-function shouldRetryScenePlan(error) {
-    if (!(error instanceof LLMServiceError)) return false;
-    return ['PARSE_ERROR', 'EMPTY_OUTPUT', 'NO_IMAGE_TASKS'].includes(error.code);
-}
-
-export async function generateAndParseScenePlan(options) {
-    const parseOutput = (rawOutput) => {
-        const tasks = parseImagePlan(rawOutput);
-        if (tasks.length > 0) return tasks;
-        throw new LLMServiceError('未解析到图片任务', 'NO_IMAGE_TASKS');
-    };
-
+    const task = request.task;
+    const agentCaller = options.agentCaller || callDrawScenePlannerAgent;
+    let response;
     try {
-        const rawOutput = await generateScenePlan(options);
-        return parseOutput(rawOutput);
+        response = await agentCaller({
+            task,
+            timeout: options.timeout,
+            signal: options.signal,
+            diagnostic,
+            ...(options.agentOptions || {}),
+        });
     } catch (error) {
-        if (options?.signal?.aborted || !shouldRetryScenePlan(error)) {
-            throw error;
-        }
-        console.warn('[ScenePlanner] 解析类失败，准备重试一次:', error?.message || error);
+        xbLog.error('novelDrawLlm', `Scene Planner 请求失败: ${error?.message || error}`, {
+            code: error?.code,
+        });
+        if (error instanceof ScenePlannerError) throw error;
+        const wrapped = new ScenePlannerError(
+            `Scene Planner 请求失败：${error?.message || '未知错误'}`,
+            'PROVIDER_REQUEST_FAILED',
+            null,
+            { cause: error },
+        );
+        diagnostic.fail(wrapped, { stage: 'request' });
+        throw wrapped;
     }
 
-    const retryRule = [
-        'CRITICAL OUTPUT RULE:',
-        'Output only valid YAML.',
-        'Do not include Markdown fences.',
-        'Do not include explanations or notes before or after YAML.',
-    ].join('\n');
+    let parsed;
+    try {
+        parsed = parseSubmittedScenePlan(response.result, {
+            messageText: request.validationContext.messageText,
+            presentCharacters: options.presentCharacters,
+            maxImages: options.maxImages,
+            maxCharactersPerImage: options.maxCharactersPerImage,
+            presetName: response.providerConfig?.currentPresetName,
+            provider: response.providerConfig?.provider,
+            model: response.providerConfig?.model,
+        });
+    } catch (error) {
+        const domainError = error instanceof ScenePlannerError
+            ? error
+            : new ScenePlannerError(
+                `场景计划校验失败：${error?.message || '未知错误'}`,
+                'TOOL_ARGUMENTS_SCHEMA_INVALID',
+                null,
+                { cause: error },
+            );
+        diagnostic.fail(domainError, { stage: 'parse' });
+        throw domainError;
+    }
 
-    const retryOutput = await generateScenePlan({
-        ...options,
-        extraOutputRule: retryRule,
+    diagnostic.succeed({ stage: 'parse', imageTaskCount: parsed.tasks.length });
+    xbLog.info('novelDrawLlm', `submit_scene_plan 已接收 ${parsed.tasks.length} 个图片任务`, {
+        provider: response.providerConfig?.provider,
+        model: response.providerConfig?.model,
     });
-    return parseOutput(retryOutput);
+    return parsed.tasks;
 }

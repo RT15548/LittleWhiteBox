@@ -15,6 +15,61 @@ function cloneJson(value) {
     }
 }
 
+/**
+ * The host backend forwards `tool_choice` as `{ type: <string> }` straight to Anthropic, so the
+ * generic AgentCore value has to be translated to Anthropic vocabulary at this adapter boundary.
+ * The shared host/OpenAI helper stays untouched; other hosted providers keep receiving `required`.
+ */
+export function resolveHostClaudeToolChoice(toolChoice) {
+    const normalized = String(toolChoice || '').trim();
+    if (!normalized || normalized === 'auto') return 'auto';
+    if (normalized === 'required') return 'any';
+    if (normalized === 'none') return 'none';
+    throw new Error(
+        `酒馆托管 Claude 不支持 tool_choice：${normalized}。仅支持 auto/required/none。`,
+    );
+}
+
+/** Models where SillyTavern may enable Anthropic manual (budgeted) extended thinking. */
+const CLAUDE_THINKING_MODEL_PATTERN = /^claude-(3-7|opus-4|sonnet-4|haiku-4-5|opus-4-5|opus-4-6|sonnet-4-6|opus-4-7)/;
+/**
+ * Only these models are guaranteed adaptive thinking, which does support forced tool use.
+ * Claude 4.6 depends on the host's `claude.enableAdaptiveThinking` config, which the client
+ * cannot observe, so it is treated conservatively as manual thinking.
+ */
+const CLAUDE_CONFIRMED_ADAPTIVE_THINKING_PATTERN = /^claude-opus-4-7/;
+
+/**
+ * Manual extended thinking is incompatible with a forced tool choice. The tool contract wins:
+ * reasoning is dropped for this request only, and the decision is surfaced as a notice.
+ */
+export function resolveHostClaudeToolProtocol(config = {}, task = {}) {
+    const hasTools = Array.isArray(task.tools) && task.tools.length > 0;
+    if (!hasTools) return { toolChoice: undefined, reasoningDisabledForForcedTool: false };
+    const toolChoice = resolveHostClaudeToolChoice(task.toolChoice);
+    const model = String(config.model || '').trim();
+    const manualThinking = CLAUDE_THINKING_MODEL_PATTERN.test(model)
+        && !CLAUDE_CONFIRMED_ADAPTIVE_THINKING_PATTERN.test(model);
+    return {
+        toolChoice,
+        reasoningDisabledForForcedTool: toolChoice === 'any'
+            && task.reasoning?.enabled === true
+            && manualThinking,
+    };
+}
+
+export const HOST_CLAUDE_FORCED_TOOL_REASONING_NOTICE = '当前模型使用手动 thinking，与强制 Tool 调用冲突；本次请求已因强制 Tool 关闭 Reasoning。';
+
+function buildEffectiveConfig(task = {}, protocol = {}) {
+    const reasoningEnabled = task.reasoning?.enabled === true
+        && protocol.reasoningDisabledForForcedTool !== true;
+    return {
+        toolChoice: String(protocol.toolChoice || ''),
+        reasoningEnabled,
+        reasoningEffort: reasoningEnabled ? String(task.reasoning?.effort || '') : '',
+    };
+}
+
 function parseToolInputJson(text = '') {
     try {
         return {
@@ -80,6 +135,10 @@ function buildHostClaudeMessages(task = {}) {
         }
         messages.push(cloned);
     });
+    const systemPrompt = typeof task.systemPrompt === 'string' ? task.systemPrompt : '';
+    if (systemPrompt.trim() && !(messages[0]?.role === 'system' && messages[0]?.content === systemPrompt)) {
+        messages.unshift({ role: 'system', content: systemPrompt });
+    }
     return messages;
 }
 
@@ -291,36 +350,53 @@ export class SillyTavernClaudeAdapter {
         return buildHostClaudeMessages(task);
     }
 
-    buildPayload(task) {
+    resolveToolProtocol(task) {
+        return resolveHostClaudeToolProtocol(this.config, task);
+    }
+
+    buildPayload(task, protocol = this.resolveToolProtocol(task)) {
         const stream = typeof task.onStreamProgress === 'function';
         const messages = this.buildMessages(task);
-        return buildHostClaudeGeneratePayload(this.config, task, messages, stream);
+        const effectiveTask = {
+            ...task,
+            toolChoice: protocol.toolChoice,
+            ...(protocol.reasoningDisabledForForcedTool
+                ? { reasoning: { ...(task.reasoning || {}), enabled: false } }
+                : {}),
+        };
+        return buildHostClaudeGeneratePayload(this.config, effectiveTask, messages, stream);
     }
 
     async inspectRequest(task, options = {}) {
-        const payload = options.payload || this.buildPayload(task);
+        const protocol = this.resolveToolProtocol(task);
+        const payload = options.payload || this.buildPayload(task, protocol);
         const request = await buildHostChatCompletionGenerateRequest(
             payload,
             typeof task.onStreamProgress === 'function',
         );
-        return this.buildRequestInspection(request);
+        return this.buildRequestInspection(request, protocol, task);
     }
 
-    buildRequestInspection(request) {
+    buildRequestInspection(request, protocol = {}, task = {}) {
         return {
             provider: 'sillytavern-claude',
             model: this.config.model,
             transport: 'sillytavern-chat-completions',
             request: redactRequestSecrets(request),
+            effectiveConfig: buildEffectiveConfig(task, protocol),
+            ...(protocol.reasoningDisabledForForcedTool
+                ? { notices: [HOST_CLAUDE_FORCED_TOOL_REASONING_NOTICE] }
+                : {}),
         };
     }
 
     async chat(task) {
         const stream = typeof task.onStreamProgress === 'function';
-        const payload = this.buildPayload(task);
+        const protocol = this.resolveToolProtocol(task);
+        const payload = this.buildPayload(task, protocol);
         let requestInspection = null;
         const onRequest = (request) => {
-            requestInspection = this.buildRequestInspection(request);
+            requestInspection = this.buildRequestInspection(request, protocol, task);
         };
 
         try {

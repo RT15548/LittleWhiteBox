@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { SillyTavernClaudeAdapter } from '../../agent-core/adapters/sillytavern-claude.js';
+import { SillyTavernClaudeAdapter, HOST_CLAUDE_FORCED_TOOL_REASONING_NOTICE } from '../../agent-core/adapters/sillytavern-claude.js';
 import { SillyTavernGoogleAdapter } from '../../agent-core/adapters/sillytavern-google.js';
 import { SillyTavernOpenAICompatibleAdapter } from '../../agent-core/adapters/sillytavern-openai-compatible.js';
 import { normalizeAnthropicSdkBaseUrl } from '../../agent-core/adapters/anthropic.js';
@@ -23,6 +23,129 @@ import { createAgentAdapter } from '../../agent-core/provider-config.js';
 import { resolveResultToolCalls } from '../../agent-core/runtime/protocol.js';
 import { pullModelsForProvider } from '../../agent-core/ui/settings-panel.js';
 import { buildNativeMessages } from '../../agent-core/adapters/openai-compatible.js';
+
+test('SillyTavern hosted Claude and Google always include and deduplicate systemPrompt', () => {
+    for (const Adapter of [SillyTavernClaudeAdapter, SillyTavernGoogleAdapter]) {
+        const adapter = new Adapter({ model: 'hosted-model' });
+        assert.deepEqual(adapter.buildMessages({
+            systemPrompt: 'Shared system prompt',
+            messages: [{ role: 'user', content: 'hello' }],
+        }).slice(0, 2), [
+            { role: 'system', content: 'Shared system prompt' },
+            { role: 'user', content: 'hello' },
+        ]);
+        assert.deepEqual(adapter.buildMessages({
+            systemPrompt: 'Shared system prompt',
+            messages: [
+                { role: 'system', content: 'Shared system prompt' },
+                { role: 'user', content: 'hello' },
+            ],
+        }).filter((message) => message.role === 'system'), [
+            { role: 'system', content: 'Shared system prompt' },
+        ]);
+        assert.deepEqual(adapter.buildMessages({
+            systemPrompt: 'Shared system prompt',
+            messages: [
+                { role: 'system', content: 'Different system prompt' },
+                { role: 'user', content: 'hello' },
+            ],
+        }).slice(0, 2), [
+            { role: 'system', content: 'Shared system prompt' },
+            { role: 'system', content: 'Different system prompt' },
+        ]);
+    }
+});
+
+test('hosted Claude translates required toolChoice to Anthropic any and guards manual thinking', () => {
+    const tools = [{ type: 'function', function: { name: 'submit_scene_plan', parameters: {} } }];
+    const baseTask = {
+        systemPrompt: 'Scene Planner',
+        messages: [{ role: 'user', content: 'plan' }],
+        tools,
+        toolChoice: 'required',
+        temperature: 0.5,
+        maxTokens: 4096,
+    };
+
+    // Anthropic vocabulary is produced at this adapter boundary only.
+    assert.equal(
+        new SillyTavernClaudeAdapter({ model: 'claude-sonnet-4-5' }).buildPayload(baseTask).tool_choice,
+        'any',
+    );
+    assert.equal(
+        new SillyTavernClaudeAdapter({ model: 'claude-sonnet-4-5' })
+            .buildPayload({ ...baseTask, toolChoice: 'none' }).tool_choice,
+        'none',
+    );
+    assert.equal(
+        new SillyTavernClaudeAdapter({ model: 'claude-sonnet-4-5' })
+            .buildPayload({ ...baseTask, toolChoice: 'auto' }).tool_choice,
+        'auto',
+    );
+    assert.equal(
+        new SillyTavernClaudeAdapter({ model: 'claude-sonnet-4-5' })
+            .buildPayload({ ...baseTask, tools: [], toolChoice: 'required' }).tool_choice,
+        undefined,
+    );
+    for (const toolChoice of ['tool', 'any', 'submit_scene_plan']) {
+        assert.throws(
+            () => new SillyTavernClaudeAdapter({ model: 'claude-sonnet-4-5' })
+                .buildPayload({ ...baseTask, toolChoice }),
+            /仅支持 auto\/required\/none/,
+        );
+    }
+
+    // Google keeps receiving the generic value; the shared host helper is untouched.
+    assert.equal(
+        new SillyTavernGoogleAdapter({ model: 'gemini-2.5-pro' }).buildPayload(baseTask).tool_choice,
+        'required',
+    );
+
+    const reasoningTask = { ...baseTask, reasoning: { enabled: true, effort: 'high' } };
+    // Manual (budgeted) thinking conflicts with a forced tool; the tool contract wins.
+    const manual = new SillyTavernClaudeAdapter({ model: 'claude-sonnet-4-5' });
+    const manualProtocol = manual.resolveToolProtocol(reasoningTask);
+    assert.equal(manualProtocol.reasoningDisabledForForcedTool, true);
+    assert.equal(manual.buildPayload(reasoningTask).reasoning_effort, undefined);
+    assert.equal(manual.buildPayload(reasoningTask).temperature, 0.5);
+    const manualInspection = manual.buildRequestInspection({ url: '/x' }, manualProtocol, reasoningTask);
+    assert.deepEqual(
+        manualInspection.notices,
+        [HOST_CLAUDE_FORCED_TOOL_REASONING_NOTICE],
+    );
+    assert.deepEqual(manualInspection.effectiveConfig, {
+        toolChoice: 'any',
+        reasoningEnabled: false,
+        reasoningEffort: '',
+    });
+    // Claude 4.6 adaptive thinking depends on host config the client cannot observe.
+    assert.equal(
+        new SillyTavernClaudeAdapter({ model: 'claude-opus-4-6' })
+            .resolveToolProtocol(reasoningTask).reasoningDisabledForForcedTool,
+        true,
+    );
+
+    // Confirmed adaptive thinking supports forced tool use, so reasoning is preserved.
+    const adaptive = new SillyTavernClaudeAdapter({ model: 'claude-opus-4-7' });
+    assert.equal(adaptive.resolveToolProtocol(reasoningTask).reasoningDisabledForForcedTool, false);
+    assert.equal(adaptive.buildPayload(reasoningTask).reasoning_effort, 'high');
+    const adaptiveInspection = adaptive.buildRequestInspection(
+        { url: '/x' },
+        adaptive.resolveToolProtocol(reasoningTask),
+        reasoningTask,
+    );
+    assert.equal(adaptiveInspection.notices, undefined);
+    assert.deepEqual(adaptiveInspection.effectiveConfig, {
+        toolChoice: 'any',
+        reasoningEnabled: true,
+        reasoningEffort: 'high',
+    });
+    // A non-forced tool choice never touches reasoning.
+    assert.equal(
+        manual.resolveToolProtocol({ ...reasoningTask, toolChoice: 'auto' }).reasoningDisabledForForcedTool,
+        false,
+    );
+});
 
 function createSseResponse(events = [], delimiter = '\n\n') {
     const payload = events.map((event) => `data: ${JSON.stringify(event)}${delimiter}`).join('') + `data: [DONE]${delimiter}`;
@@ -1846,6 +1969,45 @@ test('sillytavern OpenAI-compatible retries malformed native tool host failures 
             name: 'Read',
             arguments: '{"path":"book/state.md"}',
         }]);
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
+test('sillytavern OpenAI-compatible can forbid automatic tool protocol fallback', async () => {
+    const adapter = new SillyTavernOpenAICompatibleAdapter({
+        baseUrl: '',
+        apiKey: '',
+        model: 'compat-model',
+        toolMode: 'native',
+    });
+    const originalFetch = globalThis.fetch;
+    let requestCount = 0;
+    globalThis.fetch = async () => {
+        requestCount += 1;
+        return createJsonResponse({
+            error: {
+                message: "Cannot read properties of null (reading 'function')",
+                type: 'badresponsestatuscode',
+                code: 'badresponsestatuscode',
+            },
+        }, false, 500);
+    };
+
+    try {
+        await assert.rejects(() => adapter.chat({
+            messages: [{ role: 'user', content: '读状态' }],
+            tools: [{
+                type: 'function',
+                function: {
+                    name: 'Read',
+                    description: 'Read file.',
+                    parameters: { type: 'object', properties: {} },
+                },
+            }],
+            allowToolProtocolFallback: false,
+        }), /Cannot read properties of null/);
+        assert.equal(requestCount, 1);
     } finally {
         globalThis.fetch = originalFetch;
     }

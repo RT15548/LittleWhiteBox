@@ -148,8 +148,12 @@ LittleWhiteBox/
 │   │
 │   ├── agent-core/                         # 多 Agent App 共用的无 UI 核心能力
 │   │   ├── README.md                       # agent-core 边界：什么能共享、什么不能进 core
+│   │   ├── browser-entry.js                # 浏览器单文件 bundle 的业务无关导出入口
 │   │   ├── config.js                       # 终端 Agent 模型配置、预设与默认值标准化
-│   │   ├── provider-config.js              # provider 列表、label、reasoning、adapter factory
+│   │   ├── dist/
+│   │   │   └── agent-core-browser.js       # 供浏览器功能懒加载的 AgentCore ESM 产物
+│   │   ├── provider-config.js              # SDK Adapter factory
+│   │   ├── provider-resolution.js          # 无 SDK 的主预设、Provider、Tool 与 Reasoning 解析
 │   │   ├── ui/
 │   │   │   ├── message-markdown.js         # 消息 Markdown 渲染
 │   │   │   ├── settings-markup.js          # 多 Agent App 共用的 API 配置表单 markup
@@ -224,12 +228,14 @@ LittleWhiteBox/
 │   │   │   ├── data/                       # 跨 Provider 共用画图数据资源
 │   │   │   │   └── danbooru-chars.dat      # Danbooru 角色数据
 │   │   │   ├── draw-common.js              # 占位符、锚点、角色 Prompt、图片 DOM 渲染与错误分类
-│   │   │   ├── draw-llm.js                 # 共享 LLM 调用封装
-│   │   │   ├── draw-settings.js            # 共享 LLM/角色/世界书设置读写，不初始化 Provider 专属 Prompt
+│   │   │   ├── draw-agent.js               # 从共享 Agent 主预设发起单次场景 Tool Calling
+│   │   │   ├── draw-settings.js            # 共享角色、世界书与图库设置读写
 │   │   │   ├── generated-image-runtime.js  # 不可变生成计划、参数感知缓存、同请求合并与消费者级取消
 │   │   │   ├── generation-fingerprint.js    # 稳定序列化与非敏感生成配置哈希
 │   │   │   ├── gallery-cache.js            # 共用图库缓存；聊天 `[image:slot]` 与电纸书 `[ebook-image:slot]` 共用 previews
-│   │   │   ├── scene-planner.js            # Provider 无关的 LLM 场景规划调用与解析
+│   │   │   ├── scene-plan-contract.js      # submit_scene_plan Tool Schema、校验与图片任务转换
+│   │   │   ├── scene-planner.js            # Provider 无关的场景规划任务构造
+│   │   │   ├── scene-prompt-expansion.js   # 场景 Prompt 宏、历史和 Prompt-ready 事件展开
 │   │   │   ├── serial-image-request-queue.js # Provider 级串行与安全冷却原语
 │   │   │   └── worldbook-processor.js      # 世界书上下文处理
 │   │   └── providers/                     # 具体画图后端 Provider
@@ -241,16 +247,14 @@ LittleWhiteBox/
 │   │       │   ├── novel-draw.js           # NovelAI 生命周期、设置、楼层出图与文本源出图 `generateImagesFromText`
 │   │       │   ├── novel-prompts.js        # NovelAI 提示词模板加载与默认配置
 │   │       │   └── prompts/               # NovelAI 提示词模板
-│   │       │       ├── output-format-legacy.md
-│   │       │       ├── output-format.md
+│   │       │       ├── scene-rules.md
 │   │       │       ├── top-system-pov.md
 │   │       │       └── top-system.md
 │   │       ├── sd-webui/                  # SD WebUI Provider
 │   │       │   ├── SD_TAG编写指南.md       # SD 专属 TAG 指南
 │   │       │   ├── floating-panel.js       # SD 楼层/悬浮画图面板
 │   │       │   ├── prompts/               # SD 提示词模板
-│   │       │   │   ├── output-format-legacy.md
-│   │       │   │   ├── output-format.md
+│   │       │   │   ├── scene-rules.md
 │   │       │   │   ├── top-system-pov.md
 │   │       │   │   └── top-system.md
 │   │       │   ├── sd-draw.html            # SD 设置面板 UI
@@ -263,8 +267,7 @@ LittleWhiteBox/
 │   │           ├── comfy-prompts.js        # ComfyUI 提示词模板加载与默认配置
 │   │           ├── floating-panel.js       # ComfyUI 楼层/悬浮画图面板
 │   │           ├── prompts/               # ComfyUI 提示词模板
-│   │           │   ├── output-format-legacy.md
-│   │           │   ├── output-format.md
+│   │           │   ├── scene-rules.md
 │   │           │   ├── top-system-pov.md
 │   │           │   └── top-system.md
 │   │           └── workflows/             # ComfyUI 默认工作流 JSON

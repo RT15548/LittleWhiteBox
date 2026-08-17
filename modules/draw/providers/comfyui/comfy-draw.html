@@ -195,6 +195,26 @@ select.input { cursor: pointer; }
     color: var(--text-secondary); font-family: monospace; font-size: 11px; line-height: 1.45;
     white-space: pre-wrap; word-break: break-word;
 }
+.agent-summary-grid {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px;
+    margin-top: 14px;
+}
+.agent-summary-item {
+    min-width: 0; padding: 11px 12px; background: var(--bg-input);
+    border: 1px solid var(--border); border-radius: 8px;
+}
+.agent-summary-item.wide { grid-column: 1 / -1; }
+.agent-summary-label {
+    display: block; margin-bottom: 4px; color: var(--text-muted);
+    font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
+}
+.agent-summary-value {
+    color: var(--text-primary); font-size: 13px; line-height: 1.4; word-break: break-word;
+}
+@media (max-width: 560px) {
+    .agent-summary-grid { grid-template-columns: 1fr; }
+    .agent-summary-item.wide { grid-column: auto; }
+}
 .comfy-advanced-only { display: flex !important; }
 .prompt-textarea {
     width: 100%; min-height: 180px; max-height: 400px;
@@ -232,13 +252,22 @@ select.input { cursor: pointer; }
 .chain-summary-text { color: var(--text-primary); font-size: 12px; }
 .chain-variables { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; color: var(--text-muted); font-size: 11px; }
 .chain-editable { color: var(--accent); font-size: 11px; }
-.chain-content-preview {
+.chain-content-preview,
+.chain-section-content {
     display: none; margin-top: 8px; padding: 10px;
     background: var(--bg-input); border-radius: 8px;
     border: 1px solid var(--border); white-space: pre-wrap;
     word-break: break-word; font-family: monospace; font-size: 11px; color: var(--text-secondary);
 }
-.chain-item.expanded .chain-content-preview { display: block; }
+.chain-item.expanded > .chain-summary > .chain-content-preview { display: block; }
+.chain-sections { display: grid; gap: 6px; margin-top: 8px; }
+.chain-section {
+    padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px;
+    background: var(--bg-tertiary); cursor: pointer;
+}
+.chain-section:hover { border-color: var(--border-focus); }
+.chain-section-summary { color: var(--text-secondary); font-size: 11px; }
+.chain-section.expanded > .chain-section-content { display: block; }
 .preview-box {
     display: none; margin-top: 16px; text-align: center;
     background: var(--bg-input); border-radius: 10px; padding: 16px;
@@ -468,7 +497,7 @@ select.input { cursor: pointer; }
             <div class="nav-divider"></div>
             <div class="nav-item" data-comfy-view="workflow"><i class="fa-solid fa-microchip"></i>工作流配置</div>
             <div class="nav-item" data-comfy-view="params"><i class="fa-solid fa-sliders"></i>绘图参数</div>
-            <div class="nav-item" data-comfy-view="llm"><i class="fa-solid fa-robot"></i>LLM 配置</div>
+            <div class="nav-item" data-comfy-view="llm"><i class="fa-solid fa-robot"></i>场景 Agent</div>
             <div class="nav-item comfy-advanced-only" data-comfy-view="prompts"><i class="fa-solid fa-file-code"></i>提示词模板</div>
             <div class="nav-item" data-comfy-view="worldbook"><i class="fa-solid fa-book-atlas"></i>世界书</div>
             <div class="nav-divider"></div>
@@ -830,56 +859,30 @@ select.input { cursor: pointer; }
 
             <section class="view" data-comfy-view-panel="llm">
                 <div class="view-header">
-                    <h2 class="view-title">LLM 配置</h2>
-                    <p class="view-desc">场景分析所用的大语言模型渠道设置</p>
+                    <h2 class="view-title">场景 Agent</h2>
+                    <p class="view-desc">场景规划统一跟随共享 Agent 主预设</p>
                 </div>
 
                 <div class="card">
-                    <div class="card-title">渠道配置</div>
-                    <div class="form-group">
-                        <label class="form-label">LLM 渠道</label>
-                        <select id="comfy-shared-llm-provider" class="input">
-                            <option value="st">酒馆主 API</option>
-                            <option value="openai">OpenAI 兼容</option>
-                            <option value="google">Google Gemini</option>
-                            <option value="claude">Claude</option>
-                        </select>
+                    <div class="card-title">共享 Agent 主预设</div>
+                    <p class="form-hint">Provider、模型、API Key、温度、Token、Reasoning 与 Tool 模式均由共享 Agent 管理，画图不保存副本。</p>
+                    <div class="agent-summary-grid">
+                        <div class="agent-summary-item"><span class="agent-summary-label">主预设</span><span id="comfy-agent-preset" class="agent-summary-value">—</span></div>
+                        <div class="agent-summary-item"><span class="agent-summary-label">Provider</span><span id="comfy-agent-provider" class="agent-summary-value">—</span></div>
+                        <div class="agent-summary-item wide"><span class="agent-summary-label">模型</span><span id="comfy-agent-model" class="agent-summary-value">—</span></div>
+                        <div class="agent-summary-item"><span class="agent-summary-label">Tool 模式</span><span id="comfy-agent-tool-mode" class="agent-summary-value">—</span></div>
+                        <div class="agent-summary-item"><span class="agent-summary-label">Reasoning</span><span id="comfy-agent-reasoning" class="agent-summary-value">—</span></div>
                     </div>
-                    <div id="comfy-shared-llm-url-row" class="form-group hidden">
-                        <label class="form-label">API URL</label>
-                        <input id="comfy-shared-llm-url" type="text" class="input" placeholder="https://api.openai.com/v1">
-                        <p class="form-hint">可直接填写完整前缀；若只填裸地址，拉模型时会按渠道补默认前缀。</p>
-                    </div>
-                    <div id="comfy-shared-llm-key-row" class="form-group hidden">
-                        <label class="form-label">API Key</label>
-                        <input id="comfy-shared-llm-key" type="password" class="input" placeholder="sk-xxx...">
-                    </div>
-                    <div id="comfy-shared-llm-model-manual-row" class="form-group hidden">
-                        <label class="form-label">模型</label>
-                        <input id="comfy-shared-llm-model-manual" type="text" class="input" placeholder="gemini-1.5-pro">
-                    </div>
-                    <div id="comfy-shared-llm-model-select-row" class="form-group hidden">
-                        <label class="form-label">模型</label>
-                        <select id="comfy-shared-llm-model-select" class="input">
-                            <option value="">请先拉取模型列表</option>
-                        </select>
-                    </div>
-                    <div id="comfy-shared-llm-connect-row" class="btn-group hidden" style="margin-top:12px;">
-                        <button id="comfy-shared-llm-fetch" class="btn"><i class="fa-solid fa-plug"></i> 连接 / 拉取模型列表</button>
-                    </div>
-                    <div id="comfy-shared-llm-fetch-status" class="status-text"></div>
-                    <div class="form-group" style="margin-top:16px;">
-                        <label class="check-row"><input type="checkbox" id="comfy-shared-use-stream"> 启用流式生成</label>
-                    </div>
-                    <div class="form-group" style="margin-top:8px;">
-                        <label class="check-row"><input type="checkbox" id="comfy-shared-disable-prefill"> 禁用尾部预填充</label>
-                        <p class="form-hint" style="margin-left:12px;">如果当前模型开启后报错，再勾选此项。</p>
+                    <div id="comfy-agent-status" class="status-text"></div>
+                    <div class="tip-box" style="margin-top:12px;">
+                        <i class="fa-solid fa-circle-info"></i>
+                        <div id="comfy-agent-compatibility">正在读取共享 Agent 配置…</div>
                     </div>
                     <div class="action-status-row">
                         <div class="btn-group">
-                            <button class="btn btn-primary" type="button" data-comfy-save-shared><i class="fa-solid fa-floppy-disk"></i> 保存配置</button>
+                            <button id="comfy-agent-open-settings" class="btn btn-primary" type="button"><i class="fa-solid fa-arrow-up-right-from-square"></i> 打开共享 Agent 设置</button>
+                            <button id="comfy-agent-refresh" class="btn" type="button"><i class="fa-solid fa-rotate"></i> 刷新状态</button>
                         </div>
-                        <div id="comfy-shared-status" class="status-text"></div>
                     </div>
                 </div>
 
@@ -897,11 +900,6 @@ select.input { cursor: pointer; }
                         </div>
                         <div id="comfy-filter-status" class="status-text"></div>
                     </div>
-                </div>
-
-                <div class="tip-box">
-                    <i class="fa-solid fa-info-circle"></i>
-                    <div>这里配置的是 ComfyUI 场景分析用的 LLM 渠道。世界书注入请到「世界书」页统一管理。</div>
                 </div>
 
                 <div class="card">
@@ -951,10 +949,10 @@ select.input { cursor: pointer; }
 
                 <div class="card">
                     <div class="prompt-card-header">
-                        <div class="card-title">输出格式规范</div>
+                        <div class="card-title">场景计划规则</div>
                         <button class="btn btn-sm" id="comfy-prompt-reset-format" type="button"><i class="fa-solid fa-rotate-left"></i> 恢复默认</button>
                     </div>
-                    <p class="form-hint">定义 LLM 输出 YAML 的格式要求。</p>
+                    <p class="form-hint">定义 submit_scene_plan 的字段语义、角色规则与构图约束；结构由 Tool Schema 保证。</p>
                     <textarea id="comfy-prompt-format" class="prompt-textarea" rows="8"></textarea>
                 </div>
 
@@ -970,10 +968,10 @@ select.input { cursor: pointer; }
 
                 <div class="card prompt-chain-card">
                     <div class="prompt-card-header prompt-chain-toggle" id="comfy-chain-toggle">
-                        <div class="card-title"><i class="fa-solid fa-link"></i> 消息链结构</div>
+                        <div class="card-title"><i class="fa-solid fa-link"></i> 请求结构</div>
                         <span class="chain-toggle-icon">▶ 展开</span>
                     </div>
-                    <p class="form-hint">查看当前预设会怎样拼进真实消息链。</p>
+                    <p class="form-hint">实际请求只有 1 条 system 与 1 条 user；下列片段按顺序拼进同一条 user 任务。</p>
                     <div id="comfy-prompt-chain" class="prompt-chain-container"></div>
                 </div>
             </section>
@@ -1140,7 +1138,7 @@ select.input { cursor: pointer; }
             <div class="mobile-nav-item" data-comfy-view="api"><i class="fa-solid fa-key"></i><span>API</span></div>
             <div class="mobile-nav-item" data-comfy-view="workflow"><i class="fa-solid fa-microchip"></i><span>工作流</span></div>
             <div class="mobile-nav-item" data-comfy-view="params"><i class="fa-solid fa-sliders"></i><span>参数</span></div>
-            <div class="mobile-nav-item" data-comfy-view="llm"><i class="fa-solid fa-robot"></i><span>LLM</span></div>
+            <div class="mobile-nav-item" data-comfy-view="llm"><i class="fa-solid fa-robot"></i><span>Agent</span></div>
             <div class="mobile-nav-item comfy-advanced-only" data-comfy-view="prompts"><i class="fa-solid fa-file-code"></i><span>提示词</span></div>
             <div class="mobile-nav-item" data-comfy-view="worldbook"><i class="fa-solid fa-book-atlas"></i><span>世界书</span></div>
             <div class="mobile-nav-item" data-comfy-view="characters"><i class="fa-solid fa-user-group"></i><span>角色</span></div>

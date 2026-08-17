@@ -184,6 +184,21 @@ export function normalizeAnthropicSdkBaseUrl(baseUrl = '') {
         .replace(/\/v1$/i, '');
 }
 
+export function resolveAnthropicToolChoice(toolChoice = 'auto', tools = []) {
+    const availableNames = new Set((Array.isArray(tools) ? tools : [])
+        .map((tool) => String(tool?.function?.name || '').trim())
+        .filter(Boolean));
+    const normalizedChoice = String(toolChoice || 'auto').trim() || 'auto';
+
+    if (normalizedChoice === 'auto') return { type: 'auto' };
+    if (normalizedChoice === 'required') return { type: 'any' };
+    if (normalizedChoice === 'none') return { type: 'none' };
+    if (!availableNames.has(normalizedChoice)) {
+        throw new Error(`Anthropic toolChoice 指定了不存在的工具：${normalizedChoice}`);
+    }
+    return { type: 'tool', name: normalizedChoice };
+}
+
 export class AnthropicAdapter {
     constructor(config) {
         this.config = config;
@@ -197,7 +212,8 @@ export class AnthropicAdapter {
     }
 
     buildRequestBody(task) {
-        const tools = (task.tools || []).map((tool) => ({
+        const sourceTools = Array.isArray(task.tools) ? task.tools : [];
+        const tools = sourceTools.map((tool) => ({
             name: tool.function.name,
             description: tool.function.description,
             input_schema: tool.function.parameters,
@@ -207,7 +223,10 @@ export class AnthropicAdapter {
             model: this.config.model,
             system,
             messages: buildAnthropicMessages(task.messages),
-            tools,
+            ...(tools.length ? {
+                tools,
+                tool_choice: resolveAnthropicToolChoice(task.toolChoice, sourceTools),
+            } : {}),
             ...(task.maxTokens ? { max_tokens: task.maxTokens } : {}),
         };
         if (!task.reasoning?.enabled && typeof task.temperature === 'number') {

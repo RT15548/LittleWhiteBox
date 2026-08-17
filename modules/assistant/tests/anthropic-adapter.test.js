@@ -2,7 +2,54 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 
-import { AnthropicAdapter, buildAnthropicMessages } from '../../agent-core/adapters/anthropic.js';
+import {
+    AnthropicAdapter,
+    buildAnthropicMessages,
+    resolveAnthropicToolChoice,
+} from '../../agent-core/adapters/anthropic.js';
+
+const readTool = {
+    type: 'function',
+    function: {
+        name: 'Read',
+        description: 'Read a file.',
+        parameters: { type: 'object', properties: {} },
+    },
+};
+
+test('Anthropic adapter maps every shared tool choice mode', () => {
+    assert.deepEqual(resolveAnthropicToolChoice('auto', [readTool]), { type: 'auto' });
+    assert.deepEqual(resolveAnthropicToolChoice('required', [readTool]), { type: 'any' });
+    assert.deepEqual(resolveAnthropicToolChoice('none', [readTool]), { type: 'none' });
+    assert.deepEqual(resolveAnthropicToolChoice('Read', [readTool]), { type: 'tool', name: 'Read' });
+    assert.throws(
+        () => resolveAnthropicToolChoice('Write', [readTool]),
+        /不存在的工具：Write/,
+    );
+});
+
+test('Anthropic request sends tool_choice only when tools are present', () => {
+    const adapter = new AnthropicAdapter({
+        apiKey: 'test-key',
+        baseUrl: 'https://anthropic.example',
+        model: 'claude-test',
+    });
+    const withTools = adapter.buildRequestBody({
+        messages: [{ role: 'user', content: 'read' }],
+        tools: [readTool],
+        toolChoice: 'required',
+    });
+    const withoutTools = adapter.buildRequestBody({
+        messages: [{ role: 'user', content: 'answer' }],
+        tools: [],
+        toolChoice: 'required',
+    });
+
+    assert.deepEqual(withTools.tool_choice, { type: 'any' });
+    assert.equal(withTools.tools.length, 1);
+    assert.equal(Object.hasOwn(withoutTools, 'tools'), false);
+    assert.equal(Object.hasOwn(withoutTools, 'tool_choice'), false);
+});
 
 test('Anthropic adapter groups consecutive tool results into one user message', () => {
     const messages = buildAnthropicMessages([

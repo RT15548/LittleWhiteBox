@@ -3,6 +3,8 @@
     "private": true,
     "type": "module",
     "scripts": {
+        "build:agent-core": "vite build --config vite.agent-core.config.mjs",
+        "test:draw-agent": "node --test modules/draw/shared/tests/*.test.js",
         "build:assistant:manifest": "node scripts/build-assistant-file-manifest.mjs",
         "build:assistant:jsapi-manifest": "node scripts/build-assistant-jsapi-manifest.mjs",
         "build:assistant:jsapi-runtime": "node scripts/build-assistant-jsapi-runtime.mjs",

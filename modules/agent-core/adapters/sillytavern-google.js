@@ -155,6 +155,10 @@ function buildHostGoogleMessages(task = {}) {
         delete cloned.providerPayload;
         messages.push(cloned);
     });
+    const systemPrompt = typeof task.systemPrompt === 'string' ? task.systemPrompt : '';
+    if (systemPrompt.trim() && !(messages[0]?.role === 'system' && messages[0]?.content === systemPrompt)) {
+        messages.unshift({ role: 'system', content: systemPrompt });
+    }
     return messages;
 }
 

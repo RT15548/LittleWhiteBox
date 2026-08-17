@@ -574,9 +574,19 @@ function buildTaggedProtocolPrompt(task) {
         `  参数 JSON Schema: ${JSON.stringify(tool.function.parameters || {})}`,
     ].join('\n')).join('\n');
 
+    const toolChoice = String(task.toolChoice || 'auto').trim() || 'auto';
+    const toolChoiceInstruction = toolChoice === 'required'
+        ? '本轮必须调用工具，不得只返回正文。'
+        : toolChoice === 'none'
+            ? '本轮不得调用工具，不得输出 <tool_call> 标签。'
+            : toolChoice === 'auto'
+                ? '请根据任务判断是否需要调用工具。'
+                : `本轮必须调用工具 ${toolChoice}，不得调用其他工具，也不得只返回正文。`;
+
     return [
         task.systemPrompt || '',
         '如果你需要调用工具，不要使用原生 tool calling 字段。',
+        toolChoiceInstruction,
         '用 <tool_call> 和 </tool_call> 明确 JSON 范围，请严格输出如下边界标记和包裹的 JSON，不要改写边界标记：',
         '<tool_call>{"name":"工具名","arguments":{...}}</tool_call>',
         '如果需要多个工具调用，可以连续输出多段 <tool_call> ... </tool_call>。',

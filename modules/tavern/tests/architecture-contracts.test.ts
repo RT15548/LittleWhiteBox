@@ -1849,7 +1849,6 @@ test('tavern markdown enhancement lives outside the app controller', () => {
     assert.doesNotMatch(comfyFingerprintSource, /auth|apiKey|token/);
     assert.match(sdFingerprintSource, /endpointHash: hashStableValue/);
     assert.match(comfyFingerprintSource, /workflowHash: hashStableValue/);
-    assert.match(novelDrawSource, /snapshotNovelRequestConfig\(getSettings\(\), generationConfig/);
     assert.match(novelRequestConfigSource, /generationConfig\?\.overrideSize/);
     assert.match(sdDrawSource, /generationConfig\?\.prepared === true \? params/);
     assert.match(sdDrawSource, /fetchSdProxy\('generate', body, \{ signal, generationConfig \}\)/);

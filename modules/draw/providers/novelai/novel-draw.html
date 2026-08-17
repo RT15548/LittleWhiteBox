@@ -598,18 +598,48 @@ select.input { cursor: pointer; }
 .chain-summary-text { display: flex; align-items: center; gap: 6px; }
 .chain-editable { font-size: 10px; opacity: 0.7; }
 .chain-variables { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
-.chain-content-preview {
+.chain-content-preview,
+.chain-section-content {
     display: none; margin-top: 6px; padding: 8px;
     background: var(--bg-input); border-radius: 6px;
     font-family: monospace; font-size: 10px; white-space: pre-wrap;
     max-height: 200px; overflow-y: auto; color: var(--text-muted);
 }
-.chain-item.expanded .chain-content-preview { display: block; }
+.chain-item.expanded > .chain-summary > .chain-content-preview { display: block; }
+.chain-item.has-sections { cursor: default; }
+.chain-sections { display: grid; gap: 5px; margin-top: 6px; }
+.chain-section {
+    padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px;
+    background: var(--bg-tertiary); cursor: pointer;
+}
+.chain-section:hover { border-color: var(--accent); }
+.chain-section-summary { color: var(--text-secondary); font-size: 11px; }
+.chain-section.expanded > .chain-section-content { display: block; }
 .llm-request-preview {
     margin-top: 10px; padding: 12px; max-height: 360px; overflow: auto;
     background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px;
     color: var(--text-secondary); font-family: monospace; font-size: 11px; line-height: 1.45;
     white-space: pre-wrap; word-break: break-word;
+}
+.agent-summary-grid {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px;
+    margin-top: 14px;
+}
+.agent-summary-item {
+    min-width: 0; padding: 11px 12px; background: var(--bg-input);
+    border: 1px solid var(--border); border-radius: 8px;
+}
+.agent-summary-item.wide { grid-column: 1 / -1; }
+.agent-summary-label {
+    display: block; margin-bottom: 4px; color: var(--text-muted);
+    font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
+}
+.agent-summary-value {
+    color: var(--text-primary); font-size: 13px; line-height: 1.4; word-break: break-word;
+}
+@media (max-width: 560px) {
+    .agent-summary-grid { grid-template-columns: 1fr; }
+    .agent-summary-item.wide { grid-column: auto; }
 }
 </style>
 </head>
@@ -654,7 +684,7 @@ select.input { cursor: pointer; }
             <div class="nav-item" data-view="api"><i class="fa-solid fa-key"></i>API 配置</div>
             <div class="nav-divider"></div>
             <div class="nav-item" data-view="params"><i class="fa-solid fa-sliders"></i>绘图参数</div>
-            <div class="nav-item" data-view="llm"><i class="fa-solid fa-robot"></i>LLM 配置</div>
+            <div class="nav-item" data-view="llm"><i class="fa-solid fa-robot"></i>场景 Agent</div>
             <div class="nav-divider"></div>
             <div class="nav-item" data-view="characters"><i class="fa-solid fa-user-group"></i>角色标签</div>
             <div class="nav-item" data-view="gallery"><i class="fa-solid fa-images"></i>图片管理</div>
@@ -934,64 +964,34 @@ select.input { cursor: pointer; }
             </div>
 
             <!-- ═══════════════════════════════════════════════════════════════
-                 LLM 配置
+                 场景 Agent
                  ═══════════════════════════════════════════════════════════════ -->
             <div id="view-llm" class="view">
                 <div class="view-header">
-                    <h2 class="view-title">LLM 配置</h2>
-                    <p class="view-desc">场景分析所用的大语言模型渠道设置</p>
+                    <h2 class="view-title">场景 Agent</h2>
+                    <p class="view-desc">场景规划统一跟随共享 Agent 主预设</p>
                 </div>
                 
                 <div class="card">
-                    <div class="card-title">渠道配置</div>
-                    <div class="form-group">
-                        <label class="form-label">LLM 渠道</label>
-                        <select id="nd_llm_provider" class="input">
-                            <option value="st">酒馆主 API</option>
-                            <option value="openai">OpenAI 兼容</option>
-                            <option value="google">Google Gemini</option>
-                            <option value="claude">Claude</option>
-                        </select>
+                    <div class="card-title">共享 Agent 主预设</div>
+                    <p class="form-hint">Provider、模型、API Key、温度、Token、Reasoning 与 Tool 模式均由共享 Agent 管理，画图不保存副本。</p>
+                    <div class="agent-summary-grid">
+                        <div class="agent-summary-item"><span class="agent-summary-label">主预设</span><span id="nd_agent_preset" class="agent-summary-value">—</span></div>
+                        <div class="agent-summary-item"><span class="agent-summary-label">Provider</span><span id="nd_agent_provider" class="agent-summary-value">—</span></div>
+                        <div class="agent-summary-item wide"><span class="agent-summary-label">模型</span><span id="nd_agent_model" class="agent-summary-value">—</span></div>
+                        <div class="agent-summary-item"><span class="agent-summary-label">Tool 模式</span><span id="nd_agent_tool_mode" class="agent-summary-value">—</span></div>
+                        <div class="agent-summary-item"><span class="agent-summary-label">Reasoning</span><span id="nd_agent_reasoning" class="agent-summary-value">—</span></div>
                     </div>
-                    <div id="nd_llm_url_row" class="form-group hidden">
-                        <label class="form-label">API URL</label>
-                        <input id="nd_llm_url" type="text" class="input" placeholder="https://api.openai.com/v1">
-                        <p class="form-hint">可直接填写完整前缀（如 /v1、/v3、/v1beta）；若只填裸地址，拉模型时会按渠道补默认前缀。</p>
+                    <div id="nd_agent_status" class="status-text"></div>
+                    <div class="tip-box" style="margin-top:12px;">
+                        <i class="fa-solid fa-circle-info"></i>
+                        <div id="nd_agent_compatibility">正在读取共享 Agent 配置…</div>
                     </div>
-                    <div id="nd_llm_key_row" class="form-group hidden">
-                        <label class="form-label">API Key</label>
-                        <input id="nd_llm_key" type="password" class="input" placeholder="sk-xxx...">
-                    </div>
-                    <div id="nd_llm_model_manual_row" class="form-group hidden">
-                        <label class="form-label">模型</label>
-                        <input id="nd_llm_model_manual" type="text" class="input" placeholder="gemini-1.5-pro">
-                    </div>
-                    <div id="nd_llm_model_select_row" class="form-group hidden">
-                        <label class="form-label">模型</label>
-                        <select id="nd_llm_model_select" class="input"><option value="">请先拉取模型列表</option></select>
-                    </div>
-                    <div id="nd_llm_connect_row" class="btn-group hidden" style="margin-top:12px;">
-                        <button id="nd_llm_fetch" class="btn"><i class="fa-solid fa-plug"></i> 连接 / 拉取模型列表</button>
-                    </div>
-                    <div id="nd_llm_fetch_status" class="status-text"></div>
-
-				<div class="form-group" style="margin-top:16px;">
-				    <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
-				        <input type="checkbox" id="nd_use_stream"> 启用流式生成
-				    </label>
-				</div>
-				<div class="form-group" style="margin-top:8px;">
-				    <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
-				        <input type="checkbox" id="nd_disable_prefill"> 禁用尾部预填充
-				    </label>
-				    <p class="form-hint" style="margin-left:24px;">如果当前模型开启后报错，再勾选此项。</p>
-				</div>
-                    
                     <div class="action-status-row">
                         <div class="btn-group">
-                            <button id="nd_llm_save" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> 保存配置</button>
+                            <button id="nd_agent_open_settings" class="btn btn-primary"><i class="fa-solid fa-arrow-up-right-from-square"></i> 打开共享 Agent 设置</button>
+                            <button id="nd_agent_refresh" class="btn"><i class="fa-solid fa-rotate"></i> 刷新状态</button>
                         </div>
-                        <div id="nd_llm_status" class="status-text"></div>
                     </div>
                 </div>
 
@@ -1012,10 +1012,6 @@ select.input { cursor: pointer; }
                     </div>
                 </div>
 
-                <div class="tip-box nd-simple-only">
-                    <i class="fa-solid fa-info-circle"></i>
-                    <div>场景分析提示词由插件内置，无需配置。世界书注入请到「世界书」页统一管理。</div>
-                </div>
                 <div class="card">
                     <div class="card-title">最近一次实际请求</div>
                     <p class="form-hint">显示最近一次场景分析请求，方便检查提示词和上下文。</p>
@@ -1075,6 +1071,7 @@ select.input { cursor: pointer; }
                                         <option value="boy">boy</option>
                                         <option value="man">man</option>
                                         <option value="other">other</option>
+                                        <option value="no_humans">no_humans</option>
                                         <option value="custom">自定义类型</option>
                                     </select>
                                 </div>
@@ -1244,10 +1241,10 @@ select.input { cursor: pointer; }
 
                 <div class="card">
                     <div class="prompt-card-header">
-                        <div class="card-title">输出格式规范</div>
+                        <div class="card-title">场景计划规则</div>
                         <button class="btn btn-sm" id="nd_prompt_reset_format"><i class="fa-solid fa-rotate-left"></i> 恢复默认</button>
                     </div>
-                    <p class="form-hint">定义 LLM 输出 YAML 的格式要求</p>
+                    <p class="form-hint">定义 submit_scene_plan 的字段语义、角色规则与构图约束；结构由 Tool Schema 保证。</p>
                     <textarea id="nd_prompt_format" class="prompt-textarea" rows="8"></textarea>
                 </div>
 
@@ -1264,10 +1261,10 @@ select.input { cursor: pointer; }
                 <!-- 消息链结构预览 -->
                 <div class="card prompt-chain-card">
                     <div class="prompt-card-header prompt-chain-toggle" id="nd_chain_toggle">
-                        <div class="card-title"><i class="fa-solid fa-link"></i> 消息链结构</div>
+                        <div class="card-title"><i class="fa-solid fa-link"></i> 请求结构</div>
                         <span class="chain-toggle-icon">▶ 展开</span>
                     </div>
-                    <p class="form-hint">LLM 实际收到的消息链顺序（点击查看模板内容）</p>
+                    <p class="form-hint">实际请求只有 1 条 system 与 1 条 user；下列片段按顺序拼进同一条 user 任务（点击查看模板内容）</p>
                     <div id="nd_prompt_chain" class="prompt-chain-container"></div>
                 </div>
             </div>
@@ -1339,7 +1336,7 @@ select.input { cursor: pointer; }
             <div class="mobile-nav-item active" data-view="test"><i class="fa-solid fa-flask"></i><span>测试</span></div>
             <div class="mobile-nav-item" data-view="api"><i class="fa-solid fa-key"></i><span>API</span></div>
             <div class="mobile-nav-item" data-view="params"><i class="fa-solid fa-sliders"></i><span>参数</span></div>
-            <div class="mobile-nav-item" data-view="llm"><i class="fa-solid fa-robot"></i><span>LLM</span></div>
+            <div class="mobile-nav-item" data-view="llm"><i class="fa-solid fa-robot"></i><span>Agent</span></div>
             <div class="mobile-nav-item" data-view="characters"><i class="fa-solid fa-user-group"></i><span>角色</span></div>
             <div class="mobile-nav-item" data-view="gallery"><i class="fa-solid fa-images"></i><span>图片</span></div>
             <div class="mobile-nav-item nd-advanced-only" data-view="prompts"><i class="fa-solid fa-file-code"></i><span>提示词</span></div>
@@ -1404,15 +1401,9 @@ const CHARACTER_TYPES = [
     { value: 'boy', label: 'boy (少年)' },
     { value: 'man', label: 'man (成年男性)' },
     { value: 'other', label: 'other (其他)' },
+    { value: 'no_humans', label: 'no_humans (非人主体)' },
     { value: 'custom', label: '自定义...' }
 ];
-
-const providerDefaults = {
-    st: { url: '', needKey: false, canFetch: false, needManualModel: false },
-    openai: { url: 'https://api.openai.com', needKey: true, canFetch: true, needManualModel: false },
-    google: { url: 'https://generativelanguage.googleapis.com', needKey: true, canFetch: true, needManualModel: false },
-    claude: { url: 'https://api.anthropic.com', needKey: true, canFetch: false, needManualModel: true }
-};
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 状态
@@ -1431,8 +1422,7 @@ let state = {
     cacheStats: { count: 0, sizeMB: '0' },
     selectedParamsPresetId: null,
     paramsPresets: [],
-    llmApi: { provider: 'st', url: '', key: '', model: '', modelCache: [] },
-    useStream: true,
+    agentStatus: null,
     characterTags: [],
     autoLearnCharacters: false,
     autoLearnMode: 'new_only',
@@ -1551,6 +1541,10 @@ function switchView(viewId) {
     $(`view-${viewId}`)?.classList.add('active');
     $$(`[data-view="${viewId}"]`).forEach(n => n.classList.add('active'));
     if (viewId === 'gallery') postToParent({ type: 'REFRESH_CACHE_STATS' });
+    if (viewId === 'llm') {
+        postToParent({ type: 'GET_DRAW_AGENT_STATUS' });
+        postToParent({ type: 'GET_LAST_LLM_REQUEST' });
+    }
 }
 
 function updateModeButtons(mode) {
@@ -2096,28 +2090,59 @@ function renderPromptChain(chain) {
     const container = $('nd_prompt_chain');
     if (!container) return;
 
-    const editableMap = { topSystem: 'nd_prompt_system', userJsonFormat: 'nd_prompt_format' };
+    const editableMap = { topSystem: 'nd_prompt_system', sceneRules: 'nd_prompt_format' };
+    const getPreviewContent = (key) => {
+        const defaults = state._defaultPrompts || {};
+        const promptConfig = {
+            ...defaults,
+            topSystem: $('nd_prompt_system')?.value || defaults.topSystem || '',
+            tagGuideContent: $('nd_prompt_guide')?.value || defaults.tagGuideContent || '',
+            sceneRules: $('nd_prompt_format')?.value || defaults.sceneRules || '',
+        };
+        let content = String(promptConfig[key] || '(内置模板，不可编辑)');
+        if (key === 'assistantDoc') {
+            content = content.replace('{$tagGuide}', promptConfig.tagGuideContent || '');
+        }
+        return content.length > 1200 ? `${content.slice(0, 1200)}\n...(已截断)` : content;
+    };
 
     container.innerHTML = chain.map((item, i) => {
         const varsHtml = (item.variables || []).map(v => `<span>📎 ${escapeHtml(v)}</span>`).join(' ');
         const editIcon = item.editable ? ' <span class="chain-editable" title="可在上方编辑">✏️</span>' : '';
         const labelSuffix = item.label ? ` <span class="chain-editable">[${escapeHtml(item.label)}]</span>` : '';
+        const sections = Array.isArray(item.sections) ? item.sections : [];
+        const sectionsHtml = sections.map((section, sectionIndex) => {
+            const sectionVars = (section.variables || []).map(v => `<span>📎 ${escapeHtml(v)}</span>`).join(' ');
+            const sectionEdit = section.editable
+                ? ' <span class="chain-editable" data-edit-trigger title="可在上方编辑">✏️</span>'
+                : '';
+            const sectionLabel = section.label
+                ? ` <span class="chain-editable">[${escapeHtml(section.label)}]</span>`
+                : '';
+            return `
+            <div class="chain-section" data-key="${escapeHtml(section.key)}" data-editable-id="${editableMap[section.key] || ''}">
+                <div class="chain-section-summary">${sectionIndex + 1}. ${escapeHtml(section.summary)}${sectionLabel}${sectionEdit}</div>
+                ${sectionVars ? `<div class="chain-variables">${sectionVars}</div>` : ''}
+                <div class="chain-section-content"></div>
+            </div>`;
+        }).join('');
 
         return `
-        <div class="chain-item" data-key="${escapeHtml(item.key)}" data-editable-id="${editableMap[item.key] || ''}">
+        <div class="chain-item${sections.length ? ' has-sections' : ''}" data-key="${escapeHtml(item.key)}" data-editable-id="${editableMap[item.key] || ''}">
             <span class="chain-role ${item.role}">${item.role}</span>
             <div class="chain-summary">
                 <div class="chain-summary-text">
                     <span>${i + 1}. ${escapeHtml(item.summary)}${labelSuffix}${editIcon}</span>
                 </div>
                 ${varsHtml ? `<div class="chain-variables">${varsHtml}</div>` : ''}
-                <div class="chain-content-preview"></div>
+                ${sectionsHtml ? `<div class="chain-sections">${sectionsHtml}</div>` : '<div class="chain-content-preview"></div>'}
             </div>
         </div>`;
     }).join('');
 
     container.querySelectorAll('.chain-item').forEach(el => {
         el.addEventListener('click', () => {
+            if (el.classList.contains('has-sections')) return;
             const editableId = el.dataset.editableId;
             if (editableId) {
                 const target = $(editableId);
@@ -2125,16 +2150,25 @@ function renderPromptChain(chain) {
             }
             const preview = el.querySelector('.chain-content-preview');
             const isExpanded = el.classList.toggle('expanded');
-            if (isExpanded && !preview.dataset.loaded) {
-                preview.dataset.loaded = '1';
-                const key = el.dataset.key;
-                const defaults = state._defaultPrompts || {};
-                const configMap = {
-                    topSystem: defaults.topSystem,
-                    userJsonFormat: defaults.userJsonFormat,
-                };
-                const content = configMap[key] || '(内置模板，不可编辑)';
-                preview.textContent = content.length > 800 ? content.slice(0, 800) + '\n...(已截断)' : content;
+            if (isExpanded) preview.textContent = getPreviewContent(el.dataset.key);
+        });
+    });
+    container.querySelectorAll('.chain-section').forEach(el => {
+        el.addEventListener('click', (event) => {
+            event.stopPropagation();
+            const preview = el.querySelector('.chain-section-content');
+            const isExpanded = el.classList.toggle('expanded');
+            if (isExpanded) preview.textContent = getPreviewContent(el.dataset.key);
+        });
+    });
+    container.querySelectorAll('[data-edit-trigger]').forEach(trigger => {
+        trigger.addEventListener('click', (event) => {
+            event.stopPropagation();
+            const editableId = trigger.closest('.chain-section')?.dataset.editableId;
+            const target = editableId ? $(editableId) : null;
+            if (target) {
+                target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                target.focus();
             }
         });
     });
@@ -2299,23 +2333,6 @@ function renderModalContent() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// LLM 配置 UI
-// ═══════════════════════════════════════════════════════════════════════════
-
-function updateLlmProviderUI() {
-    const provider = $('nd_llm_provider').value;
-    const pv = providerDefaults[provider] || providerDefaults.st;
-    const isSt = provider === 'st';
-    const hasCache = (state.llmApi?.modelCache?.length || 0) > 0;
-    
-    $('nd_llm_url_row').classList.toggle('hidden', isSt);
-    $('nd_llm_key_row').classList.toggle('hidden', isSt);
-    $('nd_llm_model_manual_row').classList.toggle('hidden', isSt || !pv.needManualModel);
-    $('nd_llm_model_select_row').classList.toggle('hidden', isSt || pv.needManualModel || !hasCache);
-    $('nd_llm_connect_row').classList.toggle('hidden', isSt || !pv.canFetch);
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
 // 提示词模板始终可见
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -2448,6 +2465,26 @@ function renderLastLlmRequest(snapshot) {
         : '暂无请求记录，请先触发一次画图分析。';
 }
 
+function renderDrawAgentStatus(status) {
+    const current = status && typeof status === 'object' ? status : {};
+    state.agentStatus = current;
+    const setText = (id, value) => {
+        const element = $(id);
+        if (element) element.textContent = String(value || '—');
+    };
+    setText('nd_agent_preset', current.presetName);
+    setText('nd_agent_provider', current.providerLabel);
+    setText('nd_agent_model', current.model);
+    setText('nd_agent_tool_mode', current.toolModeLabel);
+    setText('nd_agent_reasoning', current.reasoningEnabled ? `已开启 · ${current.reasoningEffort}` : '未开启');
+    setText('nd_agent_compatibility', current.compatibilityNotice || '请先完成共享 Agent 主预设配置。');
+    updateStatus(
+        $('nd_agent_status'),
+        current.ready ? 'success' : 'error',
+        current.ready ? '共享主预设可用' : current.error?.message || '共享 Agent 配置不可用',
+    );
+}
+
 function renderWorldbookEntriesLocal(book) {
     const container = $('nd_wb_entries');
     const entries = book.entries || [];
@@ -2472,14 +2509,6 @@ function renderWorldbookEntriesLocal(book) {
                 </div>
             </div>`;
         }).join('');
-}
-
-function getCurrentLlmModel() {
-    const provider = $('nd_llm_provider').value;
-    const pv = providerDefaults[provider] || providerDefaults.st;
-    if (pv.needManualModel) return $('nd_llm_model_manual').value.trim();
-    else if (pv.canFetch) return $('nd_llm_model_select').value || '';
-    return '';
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -2520,7 +2549,7 @@ function applyStateToUI() {
         ppSel.value = state.selectedPromptPresetId || '';
         applyPromptPreset();
 
-        applyLlmApi();
+        if (state.agentStatus) renderDrawAgentStatus(state.agentStatus);
         renderCharList();
         renderGalleryView();
         // auto-learn
@@ -2583,28 +2612,7 @@ function applyPromptPreset() {
     const active = presets.find(p => p.id === state.selectedPromptPresetId) || presets[0] || {};
     $('nd_prompt_system').value = active.topSystem ?? '';
     $('nd_prompt_guide').value = active.tagGuideContent ?? '';
-    $('nd_prompt_format').value = active.userJsonFormat ?? '';
-}
-
-function applyLlmApi() {
-    const api = state.llmApi || {};
-    const provider = providerDefaults[api.provider] ? api.provider : 'st';
-    const pv = providerDefaults[provider] || providerDefaults.st;
-    
-    $('nd_llm_provider').value = provider;
-    $('nd_llm_url').value = api.url || pv.url || '';
-    $('nd_llm_key').value = api.key || '';
-    $('nd_use_stream').checked = state.useStream !== false;
-    $('nd_disable_prefill').checked = state.disablePrefill === true;
-    if (pv.needManualModel) $('nd_llm_model_manual').value = api.model || '';
-    
-    const mc = api.modelCache || [];
-    const sel = $('nd_llm_model_select');
-    sel.innerHTML = mc.length > 0
-        ? mc.map(m => `<option value="${escapeHtml(m)}"${m === api.model ? ' selected' : ''}>${escapeHtml(m)}</option>`).join('')
-        : '<option value="">请先拉取模型列表</option>';
-    
-    updateLlmProviderUI();
+    $('nd_prompt_format').value = active.sceneRules ?? '';
 }
 
 function setSelectOrCustom(kind, value) {
@@ -2727,9 +2735,7 @@ window.addEventListener('message', event => {
             if (data.target === 'api') {
                 updateStatus($('nd_api_status'), data.state, data.text);
             } else if (data.target === 'llm') {
-                updateStatus($('nd_llm_status'), data.state, data.text);
-            } else if (data.target === 'llm-fetch') {
-                updateStatus($('nd_llm_fetch_status'), data.state, data.text);
+                updateStatus($('nd_agent_status'), data.state, data.text);
             } else if (data.target === 'params') {
                 updateStatus($('nd_params_status'), data.state, data.text);
             } else if (data.target === 'prompt-preset') {
@@ -2742,11 +2748,6 @@ window.addEventListener('message', event => {
                 updateStatus($('nd_gallery_status'), data.state, data.text);
             } else {
                 updateStatus($('nd_status'), data.state, data.text);
-            }
-            const fetchBtn = $('nd_llm_fetch');
-            if (fetchBtn?.disabled) {
-                fetchBtn.disabled = false;
-                fetchBtn.innerHTML = '<i class="fa-solid fa-plug"></i> 连接 / 拉取模型列表';
             }
             if (data.state === 'success' || data.state === 'error') handleSaveResult(data.state === 'success');
             break;
@@ -2805,6 +2806,10 @@ window.addEventListener('message', event => {
 
         case 'LAST_LLM_REQUEST_DATA':
             renderLastLlmRequest(data.snapshot || null);
+            break;
+
+        case 'DRAW_AGENT_STATUS_DATA':
+            renderDrawAgentStatus(data.status || null);
             break;
 
         case 'SYNC_SUMMARY_FILTER_RESULT': {
@@ -3120,36 +3125,13 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     
     // ═══════════════════════════════════════════════════════════════════════
-    // LLM 配置
+    // 场景 Agent
     // ═══════════════════════════════════════════════════════════════════════
-    $('nd_llm_provider').addEventListener('change', function() {
-        const pv = providerDefaults[this.value] || providerDefaults.st;
-        if (pv.url) $('nd_llm_url').value = pv.url;
-        if (!pv.canFetch) { state.llmApi = state.llmApi || {}; state.llmApi.modelCache = []; }
-        updateLlmProviderUI();
+    $('nd_agent_open_settings').addEventListener('click', () => {
+        postToParent({ type: 'OPEN_SHARED_AGENT_SETTINGS' });
     });
-    
-    $('nd_llm_fetch').addEventListener('click', () => {
-        const btn = $('nd_llm_fetch');
-        btn.disabled = true;
-        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 连接中...';
-        postToParent({ type: 'FETCH_LLM_MODELS', llmApi: { provider: $('nd_llm_provider').value, url: $('nd_llm_url').value.trim(), key: $('nd_llm_key').value.trim() } });
-    });
-    
-    $('nd_llm_save').addEventListener('click', () => {
-        setSavingState($('nd_llm_save'));
-        postToParent({
-            type: 'SAVE_LLM_API',
-            llmApi: {
-                provider: $('nd_llm_provider').value,
-                url: $('nd_llm_url').value.trim(),
-                key: $('nd_llm_key').value.trim(),
-                model: getCurrentLlmModel(),
-                modelCache: state.llmApi?.modelCache || []
-            },
-            useStream: $('nd_use_stream').checked,
-            disablePrefill: $('nd_disable_prefill').checked
-        });
+    $('nd_agent_refresh').addEventListener('click', () => {
+        postToParent({ type: 'GET_DRAW_AGENT_STATUS' });
     });
     $('nd_llm_request_refresh').addEventListener('click', () => {
         postToParent({ type: 'GET_LAST_LLM_REQUEST' });
@@ -3237,7 +3219,7 @@ document.addEventListener('DOMContentLoaded', () => {
         postToParent({ type: 'SAVE_PROMPT_PRESET', selectedPromptPresetId: state.selectedPromptPresetId, customPrompts: {
             topSystem: $('nd_prompt_system').value,
             tagGuideContent: $('nd_prompt_guide').value,
-            userJsonFormat: $('nd_prompt_format').value,
+            sceneRules: $('nd_prompt_format').value,
         }, statusTarget: 'prompt-preset' });
     });
 
@@ -3262,13 +3244,13 @@ document.addEventListener('DOMContentLoaded', () => {
         postToParent({ type: 'SAVE_PROMPT_PRESET', selectedPromptPresetId: state.selectedPromptPresetId, customPrompts: {
             topSystem: $('nd_prompt_system').value,
             tagGuideContent: $('nd_prompt_guide').value,
-            userJsonFormat: $('nd_prompt_format').value,
+            sceneRules: $('nd_prompt_format').value,
         }, statusTarget: 'prompts' });
     });
 
     $('nd_prompt_reset_system').addEventListener('click', () => {
         const activePreset = (state.promptPresets || []).find(p => p.id === state.selectedPromptPresetId);
-        const isPov = activePreset?.name === '默认-第一人称视角';
+        const isPov = activePreset?.name === '默认-第一人称完整规则';
         const defaultTopSystem = isPov ? (state._defaultPrompts?.topSystemPov || '') : (state._defaultPrompts?.topSystem || '');
         $('nd_prompt_system').value = defaultTopSystem;
         postToParent({ type: 'RESET_CUSTOM_PROMPT', key: 'topSystem', selectedPromptPresetId: state.selectedPromptPresetId });
@@ -3278,22 +3260,22 @@ document.addEventListener('DOMContentLoaded', () => {
         postToParent({ type: 'RESET_CUSTOM_PROMPT', key: 'tagGuideContent', selectedPromptPresetId: state.selectedPromptPresetId });
     });
     $('nd_prompt_reset_format').addEventListener('click', () => {
-        $('nd_prompt_format').value = state._defaultPrompts?.userJsonFormat || '';
-        postToParent({ type: 'RESET_CUSTOM_PROMPT', key: 'userJsonFormat', selectedPromptPresetId: state.selectedPromptPresetId });
+        $('nd_prompt_format').value = state._defaultPrompts?.sceneRules || '';
+        postToParent({ type: 'RESET_CUSTOM_PROMPT', key: 'sceneRules', selectedPromptPresetId: state.selectedPromptPresetId });
     });
     $('nd_prompts_reset_all').addEventListener('click', () => {
         if (!confirm('确认恢复全部提示词为默认值？')) return;
         const defaults = state._defaultPrompts || {};
         const activePreset = (state.promptPresets || []).find(p => p.id === state.selectedPromptPresetId);
-        const isPov = activePreset?.name === '默认-第一人称视角';
+        const isPov = activePreset?.name === '默认-第一人称完整规则';
         const topSystemVal = isPov ? (defaults.topSystemPov || '') : (defaults.topSystem || '');
         $('nd_prompt_system').value = topSystemVal;
         $('nd_prompt_guide').value = defaults.tagGuideContent || '';
-        $('nd_prompt_format').value = defaults.userJsonFormat || '';
+        $('nd_prompt_format').value = defaults.sceneRules || '';
         postToParent({ type: 'SAVE_PROMPT_PRESET', selectedPromptPresetId: state.selectedPromptPresetId, customPrompts: {
             topSystem: topSystemVal,
             tagGuideContent: defaults.tagGuideContent || '',
-            userJsonFormat: defaults.userJsonFormat || '',
+            sceneRules: defaults.sceneRules || '',
         }, statusTarget: 'prompts' });
     });
 
@@ -3303,7 +3285,7 @@ document.addEventListener('DOMContentLoaded', () => {
             _version: 1,
             topSystem: $('nd_prompt_system').value,
             tagGuideContent: $('nd_prompt_guide').value,
-            userJsonFormat: $('nd_prompt_format').value,
+            sceneRules: $('nd_prompt_format').value,
         };
         const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
         const a = document.createElement('a');
@@ -3324,7 +3306,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             if (typeof data.topSystem === 'string') $('nd_prompt_system').value = data.topSystem;
             if (typeof data.tagGuideContent === 'string') $('nd_prompt_guide').value = data.tagGuideContent;
-            if (typeof data.userJsonFormat === 'string') $('nd_prompt_format').value = data.userJsonFormat;
+            if (typeof data.sceneRules === 'string') $('nd_prompt_format').value = data.sceneRules;
             alert('导入成功，请点击「保存」以生效');
         } catch (err) {
             alert('导入失败: ' + err.message);

@@ -25,10 +25,7 @@ import {
     preloadPreviewDisplayUrl,
     warmSlotPreviewNeighbors,
 } from "../../shared/gallery-cache.js";
-import {
-    generateAndParseScenePlan,
-    LLMServiceError,
-} from "../../shared/scene-planner.js";
+import { generateAndParseScenePlan } from "../../shared/scene-planner.js";
 import { WorldbookProcessor } from "../../shared/worldbook-processor.js";
 import {
     loadSharedDrawSettings,
@@ -36,7 +33,7 @@ import {
     updateSharedDrawSettingsPersistent,
     normalizeSharedCacheDays,
 } from "../../shared/draw-settings.js";
-import { fetchDrawLlmModels, getLastDrawLlmRequestSnapshot } from "../../shared/draw-llm.js";
+import { getDrawAgentViewModel, getLastDrawAgentDiagnostic, openSharedAgentSettings } from "../../shared/draw-agent.js";
 import { createSerialImageRequestQueue } from "../../shared/serial-image-request-queue.js";
 import { hashStableValue } from "../../shared/generation-fingerprint.js";
 import {
@@ -69,7 +66,6 @@ import {
 } from "../../shared/danbooru-local-db.js";
 import {
     DEFAULT_PROMPT_CONFIG,
-    LEGACY_USER_JSON_FORMAT,
     PROMPT_TEMPLATE_VERSION,
     SD_SCENE_PROMPTS,
     getLoadedTagGuide,
@@ -115,7 +111,7 @@ const DEFAULT_SD_DRAW_SETTINGS = {
     positivePrefix: '',
     negativePrefix: '',
     advancedMode: true,
-    customPrompts: { topSystem: null, tagGuideContent: null, userJsonFormat: null },
+    customPrompts: { topSystem: null, tagGuideContent: null, sceneRules: null },
     promptPresets: [],
     selectedPromptPresetId: null,
     _promptTemplateVersion: 0,
@@ -149,13 +145,6 @@ const SD_SIZE_PRESETS = [
     { value: '768x1280', width: 768, height: 1280 },
     { value: '1280x768', width: 1280, height: 768 },
 ];
-const providerDefaults = {
-    st: { url: '', needKey: false, canFetch: false, needManualModel: false },
-    openai: { url: 'https://api.openai.com', needKey: true, canFetch: true, needManualModel: false },
-    google: { url: 'https://generativelanguage.googleapis.com', needKey: true, canFetch: true, needManualModel: false },
-    claude: { url: 'https://api.anthropic.com', needKey: true, canFetch: false, needManualModel: true },
-};
-
 const saveBtnStates = new WeakMap();
 
 function createDefaultPreset() {
@@ -187,24 +176,17 @@ function createDefaultPreset() {
 
 function getPromptPresetDefaults(name) {
     const guide = getLoadedTagGuide() || '';
-    if (name === '默认-第一人称视角') {
+    if (name === '默认-第一人称完整规则') {
         return {
             topSystem: DEFAULT_PROMPT_CONFIG.topSystemPov || DEFAULT_PROMPT_CONFIG.topSystem,
             tagGuideContent: guide,
-            userJsonFormat: DEFAULT_PROMPT_CONFIG.userJsonFormat,
-        };
-    }
-    if (name === '默认-模型要求低') {
-        return {
-            topSystem: DEFAULT_PROMPT_CONFIG.topSystem,
-            tagGuideContent: guide,
-            userJsonFormat: LEGACY_USER_JSON_FORMAT || DEFAULT_PROMPT_CONFIG.userJsonFormat,
+            sceneRules: DEFAULT_PROMPT_CONFIG.sceneRules,
         };
     }
     return {
         topSystem: DEFAULT_PROMPT_CONFIG.topSystem,
         tagGuideContent: guide,
-        userJsonFormat: DEFAULT_PROMPT_CONFIG.userJsonFormat,
+        sceneRules: DEFAULT_PROMPT_CONFIG.sceneRules,
     };
 }
 
@@ -214,32 +196,9 @@ function createPromptPreset(name, id = `prompt-${Date.now()}-${Math.random().toS
 
 function createDefaultPromptPresets() {
     return [
-        createPromptPreset('默认-模型要求高'),
-        createPromptPreset('默认-第一人称视角'),
-        createPromptPreset('默认-模型要求低'),
+        createPromptPreset('默认-完整规则'),
+        createPromptPreset('默认-第一人称完整规则'),
     ];
-}
-
-function hasPromptOverrideValue(customPrompts = {}) {
-    return ['topSystem', 'tagGuideContent', 'userJsonFormat']
-        .some((key) => typeof customPrompts?.[key] === 'string' && customPrompts[key].trim());
-}
-
-function createPresetFromCustomPrompts(customPrompts = {}) {
-    const defaults = getPromptPresetDefaults('默认-模型要求高');
-    return {
-        id: `prompt-legacy-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        name: '自定义-旧配置迁移',
-        topSystem: typeof customPrompts.topSystem === 'string' && customPrompts.topSystem.trim()
-            ? customPrompts.topSystem
-            : defaults.topSystem,
-        tagGuideContent: typeof customPrompts.tagGuideContent === 'string' && customPrompts.tagGuideContent.trim()
-            ? customPrompts.tagGuideContent
-            : defaults.tagGuideContent,
-        userJsonFormat: typeof customPrompts.userJsonFormat === 'string' && customPrompts.userJsonFormat.trim()
-            ? customPrompts.userJsonFormat
-            : defaults.userJsonFormat,
-    };
 }
 
 function cloneSettingsObject(obj) {
@@ -255,8 +214,8 @@ function normalizeSettings(raw = {}) {
         ? raw.selectedPresetId
         : presets[0]?.id || 'default';
     const merged = {
-        ...DEFAULT_SD_DRAW_SETTINGS,
-        ...raw,
+        host: String(raw.host || ''),
+        auth: String(raw.auth || ''),
         transport: 'st-proxy',
         mode: raw.mode === 'auto' ? 'auto' : 'manual',
         overrideSize: String(raw.overrideSize || 'default'),
@@ -265,6 +224,14 @@ function normalizeSettings(raw = {}) {
         timeout: normalizeNumber(raw.timeout, DEFAULT_SD_DRAW_SETTINGS.timeout, 10000, 600000),
         selectedPresetId,
         presets,
+        selectedModel: String(raw.selectedModel || ''),
+        positivePrefix: String(raw.positivePrefix || ''),
+        negativePrefix: String(raw.negativePrefix || ''),
+        selectedPromptPresetId: raw.selectedPromptPresetId == null ? null : String(raw.selectedPromptPresetId),
+        promptPresets: Array.isArray(raw.promptPresets)
+            ? raw.promptPresets.filter((preset) => preset && typeof preset.sceneRules === 'string')
+            : [],
+        _promptTemplateVersion: Number(raw._promptTemplateVersion) || 0,
         defaultParams: {
             ...DEFAULT_SD_DRAW_SETTINGS.defaultParams,
             ...(raw.defaultParams || {}),
@@ -287,33 +254,13 @@ function normalizeSettings(raw = {}) {
     };
 
     merged.advancedMode = true;
-    merged.customPrompts = { ...DEFAULT_SD_DRAW_SETTINGS.customPrompts, ...(raw.customPrompts || {}) };
-    if (!Array.isArray(merged.promptPresets)) merged.promptPresets = [];
+    if (!merged.promptPresets.length) merged.promptPresets = createDefaultPromptPresets();
 
-    if (!merged.promptPresets.length) {
-        merged.promptPresets = createDefaultPromptPresets();
-        if (hasPromptOverrideValue(merged.customPrompts)) {
-            const legacyPreset = createPresetFromCustomPrompts(merged.customPrompts);
-            merged.promptPresets.push(legacyPreset);
-            merged.selectedPromptPresetId = legacyPreset.id;
-        } else {
-            merged.selectedPromptPresetId = merged.promptPresets[0]?.id || null;
-        }
-    }
-
-    const legacyNames = { '默认1': '默认-模型要求高', '默认2': '默认-模型要求低' };
-    merged.promptPresets.forEach((preset, index) => {
-        if (legacyNames[preset.name]) preset.name = legacyNames[preset.name];
-        preset.id = String(preset.id || `prompt-${Date.now()}-${index}`);
-    });
-
-    const defaultPresetNames = ['默认-模型要求高', '默认-第一人称视角', '默认-模型要求低'];
+    const defaultPresetNames = ['默认-完整规则', '默认-第一人称完整规则'];
     const storedVersion = Number(merged._promptTemplateVersion) || 0;
-    if (!merged.promptPresets.some((preset) => preset.name === '默认-第一人称视角')) {
-        const insertIndex = merged.promptPresets.findIndex((preset) => preset.name === '默认-模型要求低');
-        const povPreset = createPromptPreset('默认-第一人称视角');
-        if (insertIndex >= 0) merged.promptPresets.splice(insertIndex, 0, povPreset);
-        else merged.promptPresets.push(povPreset);
+    if (!merged.promptPresets.some((preset) => preset.name === '默认-第一人称完整规则')) {
+        const povPreset = createPromptPreset('默认-第一人称完整规则');
+        merged.promptPresets.push(povPreset);
     }
     if (storedVersion < PROMPT_TEMPLATE_VERSION) {
         merged.promptPresets = merged.promptPresets.map((preset) => {
@@ -329,24 +276,27 @@ function normalizeSettings(raw = {}) {
     merged.promptPresets = merged.promptPresets.map((preset) => {
         const defaults = getPromptPresetDefaults(preset.name);
         return {
-            ...preset,
-            topSystem: preset.topSystem ?? defaults.topSystem,
-            tagGuideContent: preset.tagGuideContent ?? defaults.tagGuideContent,
-            userJsonFormat: preset.userJsonFormat ?? defaults.userJsonFormat,
+            id: String(preset.id || `prompt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`),
+            name: String(preset.name || '提示词预设'),
+            topSystem: typeof preset.topSystem === 'string' ? preset.topSystem : defaults.topSystem,
+            tagGuideContent: typeof preset.tagGuideContent === 'string'
+                ? preset.tagGuideContent
+                : defaults.tagGuideContent,
+            sceneRules: typeof preset.sceneRules === 'string' ? preset.sceneRules : defaults.sceneRules,
         };
     });
 
     if (!merged.selectedPromptPresetId || !merged.promptPresets.some((preset) => preset.id === merged.selectedPromptPresetId)) {
         merged.selectedPromptPresetId = merged.promptPresets[0]?.id || null;
     }
-    if (!merged.customPrompts.topSystem || !merged.customPrompts.userJsonFormat || merged.customPrompts.tagGuideContent == null) {
-        const activePromptPreset = merged.promptPresets.find((preset) => preset.id === merged.selectedPromptPresetId) || merged.promptPresets[0] || createPromptPreset('默认-模型要求高');
-        merged.customPrompts = {
-            topSystem: activePromptPreset.topSystem,
-            tagGuideContent: activePromptPreset.tagGuideContent,
-            userJsonFormat: activePromptPreset.userJsonFormat,
-        };
-    }
+    const activePromptPreset = merged.promptPresets.find((preset) => preset.id === merged.selectedPromptPresetId)
+        || merged.promptPresets[0]
+        || createPromptPreset('默认-完整规则');
+    merged.customPrompts = {
+        topSystem: activePromptPreset.topSystem,
+        tagGuideContent: activePromptPreset.tagGuideContent,
+        sceneRules: activePromptPreset.sceneRules,
+    };
 
     return merged;
 }
@@ -550,7 +500,7 @@ export async function updateQuickSettings(patch = {}) {
 function getActivePromptPreset(settings = getSettings()) {
     return settings.promptPresets.find((preset) => preset.id === settings.selectedPromptPresetId)
         || settings.promptPresets[0]
-        || createPromptPreset('默认-模型要求高');
+        || createPromptPreset('默认-完整规则');
 }
 
 export function getEffectiveParams(settings = getSettings(), overrides = {}) {
@@ -983,14 +933,14 @@ function bindOverlayEvents() {
     querySettings('#sd-danbooru-local')?.addEventListener('change', async (event) => {
         await setSdDanbooruLocalEnabled(event.target.checked === true);
     });
-    querySettings('#sd-shared-llm-provider')?.addEventListener('change', () => {
-        handleSharedLlmProviderChange();
+    querySettings('#sd-agent-open-settings')?.addEventListener('click', () => {
+        if (!openSharedAgentSettings()) toastr.error('共享 Agent 设置暂不可用', 'SD WebUI');
     });
-    querySettings('#sd-shared-llm-fetch')?.addEventListener('click', async () => {
-        await fetchSharedLlmModels();
+    querySettings('#sd-agent-refresh')?.addEventListener('click', () => {
+        void renderSharedAgentStatus();
     });
     querySettings('#sd-llm-request-refresh')?.addEventListener('click', () => {
-        renderLastLlmRequestPreview();
+        void renderSharedAgentStatus();
     });
     querySettings('#sd-prompt-preset-select')?.addEventListener('change', async () => {
         const selectedId = getValue('sd-prompt-preset-select');
@@ -1001,7 +951,7 @@ function bindOverlayEvents() {
                 settings.customPrompts = {
                     topSystem: active.topSystem,
                     tagGuideContent: active.tagGuideContent,
-                    userJsonFormat: active.userJsonFormat,
+                    sceneRules: active.sceneRules,
                 };
             }
         }, '提示词预设已切换', { notify: false, silent: false }));
@@ -1020,7 +970,7 @@ function bindOverlayEvents() {
             settings.customPrompts = {
                 topSystem: preset.topSystem,
                 tagGuideContent: preset.tagGuideContent,
-                userJsonFormat: preset.userJsonFormat,
+                sceneRules: preset.sceneRules,
             };
         }, '已创建提示词预设', { notify: false, silent: false }));
         if (ok) fillForm(getSettings());
@@ -1052,7 +1002,7 @@ function bindOverlayEvents() {
                 draft.customPrompts = {
                     topSystem: active.topSystem,
                     tagGuideContent: active.tagGuideContent,
-                    userJsonFormat: active.userJsonFormat,
+                    sceneRules: active.sceneRules,
                 };
             }
         }, '提示词预设已删除', { notify: false, silent: false }));
@@ -1068,7 +1018,7 @@ function bindOverlayEvents() {
             draft.customPrompts = {
                 topSystem: nextPreset.topSystem,
                 tagGuideContent: nextPreset.tagGuideContent,
-                userJsonFormat: nextPreset.userJsonFormat,
+                sceneRules: nextPreset.sceneRules,
             };
         }, '提示词预设已保存', { notify: false, silent: false }), {
             statusElementId: 'sd-prompt-preset-status',
@@ -1088,7 +1038,7 @@ function bindOverlayEvents() {
             draft.customPrompts = {
                 topSystem: nextPreset.topSystem,
                 tagGuideContent: nextPreset.tagGuideContent,
-                userJsonFormat: nextPreset.userJsonFormat,
+                sceneRules: nextPreset.sceneRules,
             };
         }, '提示词预设已保存', { notify: false, silent: false }), {
             statusElementId: 'sd-prompts-status',
@@ -1110,7 +1060,7 @@ function bindOverlayEvents() {
     });
     querySettings('#sd-prompt-reset-format')?.addEventListener('click', () => {
         const defaults = getPromptPresetDefaults(getActivePromptPreset(getSettings()).name);
-        setValue('sd-prompt-format', defaults.userJsonFormat);
+        setValue('sd-prompt-format', defaults.sceneRules);
         renderPromptChainPreview();
     });
     querySettings('#sd-prompts-reset-all')?.addEventListener('click', () => {
@@ -1118,7 +1068,7 @@ function bindOverlayEvents() {
         const defaults = getPromptPresetDefaults(getActivePromptPreset(getSettings()).name);
         setValue('sd-prompt-system', defaults.topSystem);
         setValue('sd-prompt-guide', defaults.tagGuideContent);
-        setValue('sd-prompt-format', defaults.userJsonFormat);
+        setValue('sd-prompt-format', defaults.sceneRules);
         renderPromptChainPreview();
     });
     querySettings('#sd-prompts-export')?.addEventListener('click', () => {
@@ -1127,7 +1077,7 @@ function bindOverlayEvents() {
             _version: 1,
             topSystem: getValue('sd-prompt-system'),
             tagGuideContent: getValue('sd-prompt-guide'),
-            userJsonFormat: getValue('sd-prompt-format'),
+            sceneRules: getValue('sd-prompt-format'),
         };
         const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
@@ -1143,12 +1093,12 @@ function bindOverlayEvents() {
         try {
             const text = await file.text();
             const payload = JSON.parse(text);
-            if (typeof payload.topSystem !== 'string' || typeof payload.tagGuideContent !== 'string' || typeof payload.userJsonFormat !== 'string') {
+            if (typeof payload.topSystem !== 'string' || typeof payload.tagGuideContent !== 'string' || typeof payload.sceneRules !== 'string') {
                 throw new Error('不是有效的提示词模板文件');
             }
             setValue('sd-prompt-system', payload.topSystem);
             setValue('sd-prompt-guide', payload.tagGuideContent);
-            setValue('sd-prompt-format', payload.userJsonFormat);
+            setValue('sd-prompt-format', payload.sceneRules);
             renderPromptChainPreview();
             toastr.success('导入成功，请点击保存以生效', 'SD WebUI');
         } catch (error) {
@@ -1189,7 +1139,7 @@ function bindOverlayEvents() {
     bindWorldbookUploadEvents();
     querySettingsAll('[data-sd-save-shared]').forEach((button) => {
         button.addEventListener('click', async (event) => {
-            const statusElementId = event.currentTarget.dataset.sdStatus || 'sd-shared-status';
+            const statusElementId = event.currentTarget.dataset.sdStatus || '';
             await saveAllSettings({ notify: true, triggerButton: event.currentTarget, statusElementId });
         });
     });
@@ -1384,7 +1334,7 @@ function applyPromptPresetToForm(settings = getSettings()) {
     const promptPreset = getActivePromptPreset(settings);
     setValue('sd-prompt-system', promptPreset.topSystem || '');
     setValue('sd-prompt-guide', promptPreset.tagGuideContent || '');
-    setValue('sd-prompt-format', promptPreset.userJsonFormat || '');
+    setValue('sd-prompt-format', promptPreset.sceneRules || '');
     renderPromptChainPreview(settings);
 }
 
@@ -1393,7 +1343,7 @@ function readPromptPresetFromForm(basePreset = getActivePromptPreset(getSettings
         ...basePreset,
         topSystem: getValue('sd-prompt-system'),
         tagGuideContent: getValue('sd-prompt-guide'),
-        userJsonFormat: getValue('sd-prompt-format'),
+        sceneRules: getValue('sd-prompt-format'),
     };
 }
 
@@ -1675,112 +1625,6 @@ function parseCharacterOutfits(value = '') {
         .filter((outfit) => outfit.name || outfit.tags);
 }
 
-function updateSharedLlmProviderUI() {
-    const provider = getValue('sd-shared-llm-provider') || 'st';
-    const providerConfig = providerDefaults[provider] || providerDefaults.st;
-    const sharedDrawSettings = getSharedDrawSettings();
-    const isSt = provider === 'st';
-    const modelCache = Array.isArray(sharedDrawSettings.llmApi?.modelCache) ? sharedDrawSettings.llmApi.modelCache : [];
-    const hasCache = modelCache.length > 0;
-
-    querySettings('#sd-shared-llm-url-row')?.classList.toggle('hidden', isSt);
-    querySettings('#sd-shared-llm-key-row')?.classList.toggle('hidden', isSt);
-    querySettings('#sd-shared-llm-model-manual-row')?.classList.toggle('hidden', isSt || !providerConfig.needManualModel);
-    querySettings('#sd-shared-llm-model-select-row')?.classList.toggle('hidden', isSt || providerConfig.needManualModel || !hasCache);
-    querySettings('#sd-shared-llm-connect-row')?.classList.toggle('hidden', isSt || !providerConfig.canFetch);
-}
-
-function getCurrentSharedLlmModel() {
-    const provider = getValue('sd-shared-llm-provider') || 'st';
-    const providerConfig = providerDefaults[provider] || providerDefaults.st;
-    if (providerConfig.needManualModel) return getValue('sd-shared-llm-model-manual').trim();
-    if (providerConfig.canFetch) return getValue('sd-shared-llm-model-select').trim();
-    return '';
-}
-
-function handleSharedLlmProviderChange() {
-    const provider = getValue('sd-shared-llm-provider') || 'st';
-    const providerConfig = providerDefaults[provider] || providerDefaults.st;
-    const sharedDrawSettings = getSharedDrawSettings();
-    const nextUrl = sharedDrawSettings.llmApi?.provider === provider
-        ? (sharedDrawSettings.llmApi?.url || providerConfig.url || '')
-        : (providerConfig.url || '');
-
-    setValue('sd-shared-llm-url', nextUrl);
-    if (!providerConfig.canFetch) {
-        sharedDrawSettings.llmApi = {
-            ...(sharedDrawSettings.llmApi || {}),
-            modelCache: [],
-        };
-    }
-    fillSharedLlmModelFields();
-    updateSharedLlmProviderUI();
-}
-
-function fillSharedLlmModelFields() {
-    const sharedDrawSettings = getSharedDrawSettings();
-    const llmApi = sharedDrawSettings.llmApi || {};
-    const provider = getValue('sd-shared-llm-provider') || llmApi.provider || 'st';
-    const providerConfig = providerDefaults[provider] || providerDefaults.st;
-    const modelCache = Array.isArray(llmApi.modelCache) ? llmApi.modelCache : [];
-    populateSelect(
-        'sd-shared-llm-model-select',
-        modelCache.map((item) => ({ value: item, label: item })),
-        { value: llmApi.model || '', emptyLabel: '请先拉取模型列表' },
-    );
-    if (providerConfig.needManualModel) {
-        setValue('sd-shared-llm-model-manual', llmApi.model || '');
-    } else if (providerConfig.canFetch) {
-        setSelectValue('sd-shared-llm-model-select', llmApi.model || '');
-    }
-}
-
-async function fetchSharedLlmModels() {
-    const provider = getValue('sd-shared-llm-provider').trim() || 'st';
-    const url = getValue('sd-shared-llm-url').trim();
-    const key = getValue('sd-shared-llm-key').trim();
-    const button = getSettingsElement('sd-shared-llm-fetch');
-
-    if (provider === 'st') {
-        updateStatusText('sd-shared-llm-fetch-status', 'error', '当前渠道无需拉取模型列表');
-        return false;
-    }
-
-    if (button) {
-        button.disabled = true;
-        button.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 连接中...';
-    }
-    updateStatusText('sd-shared-llm-fetch-status', '', '正在连接并拉取模型列表...');
-
-    try {
-        const models = await fetchDrawLlmModels({ provider, url, key });
-
-        await updateSharedDrawSettingsPersistent((settings) => {
-            settings.llmApi = {
-                ...(settings.llmApi || {}),
-                provider,
-                url,
-                key,
-                modelCache: [...new Set(models)],
-                model: getCurrentSharedLlmModel() || settings.llmApi?.model || models[0] || '',
-            };
-        }, `已获取 ${models.length} 个模型`, { notify: false, silent: false });
-
-        fillSharedLlmModelFields();
-        updateSharedLlmProviderUI();
-        updateStatusText('sd-shared-llm-fetch-status', 'success', `已获取 ${models.length} 个模型`);
-        return true;
-    } catch (error) {
-        updateStatusText('sd-shared-llm-fetch-status', 'error', `连接失败：${error?.message || '请检查配置'}`);
-        return false;
-    } finally {
-        if (button) {
-            button.disabled = false;
-            button.innerHTML = '<i class="fa-solid fa-plug"></i> 连接 / 拉取模型列表';
-        }
-    }
-}
-
 function renderFilterRuleRow(rule = { start: '', end: '' }) {
     const list = getSettingsElement('sd-filter-rules-list');
     if (!list) return;
@@ -1883,7 +1727,6 @@ async function handleWorldbookFiles(files) {
     sharedDrawSettings.worldbooks = { ...worldbooks, uploadedBooks: uploaded };
     renderUploadedBooks(uploaded);
     if (added > 0) {
-        updateStatusText('sd-shared-status', 'success', `已读取 ${added} 个世界书，请点击保存配置`);
         updateStatusText('sd-worldbook-status', 'success', `已读取 ${added} 个世界书，请点击保存配置`);
     }
     if (errors.length) {
@@ -1958,7 +1801,6 @@ function renderUploadedBooks(books = []) {
             nextBooks.splice(Number(button.dataset.index), 1);
             sharedDrawSettings.worldbooks = { ...worldbooks, uploadedBooks: nextBooks };
             renderUploadedBooks(nextBooks);
-            updateStatusText('sd-shared-status', '', '已移除，请点击保存配置');
             updateStatusText('sd-worldbook-status', '', '已移除，请点击保存配置');
         });
     });
@@ -2251,39 +2093,20 @@ function renderSdDanbooruResults(results = [], characterId = '', container = nul
 
 function fillSharedDrawForm() {
     const sharedDrawSettings = getSharedDrawSettings();
-    setSelectValue('sd-shared-llm-provider', sharedDrawSettings.llmApi?.provider || 'st');
-    setValue('sd-shared-llm-url', sharedDrawSettings.llmApi?.url || '');
-    setValue('sd-shared-llm-key', sharedDrawSettings.llmApi?.key || '');
-    setChecked('sd-shared-use-stream', sharedDrawSettings.useStream === true);
     setChecked('sd-shared-use-worldinfo', sharedDrawSettings.useWorldInfo === true);
-    setChecked('sd-shared-disable-prefill', sharedDrawSettings.disablePrefill === true);
     setChecked('sd-wb-enabled', sharedDrawSettings.worldbooks?.enabled === true);
     setSelectValue('sd-wb-filter-mode', sharedDrawSettings.worldbooks?.keywordFilterMode || 'auto');
     renderUploadedBooks(sharedDrawSettings.worldbooks?.uploadedBooks || []);
-    fillSharedLlmModelFields();
-    updateSharedLlmProviderUI();
     renderFilterRules(sharedDrawSettings.messageFilterRules || []);
     renderCharacterTagList(sharedDrawSettings.characterTags || []);
-    renderLastLlmRequestPreview();
+    void renderSharedAgentStatus();
     void ensureSdDanbooruLoadedForForm(sharedDrawSettings);
 }
 
 async function saveSharedDrawSettings({ notify = false } = {}) {
-    const llmApi = {
-        provider: getValue('sd-shared-llm-provider').trim() || 'st',
-        url: getValue('sd-shared-llm-url').trim(),
-        key: getValue('sd-shared-llm-key').trim(),
-        model: getCurrentSharedLlmModel(),
-    };
     const characterTags = getSharedCharacterTagsFromForm();
     return await updateSharedDrawSettingsPersistent((settings) => {
-        settings.llmApi = {
-            ...(settings.llmApi || {}),
-            ...llmApi,
-        };
-        settings.useStream = getChecked('sd-shared-use-stream');
         settings.useWorldInfo = getChecked('sd-shared-use-worldinfo');
-        settings.disablePrefill = getChecked('sd-shared-disable-prefill');
         settings.messageFilterRules = collectFilterRules();
         settings.characterTags = characterTags;
         settings.worldbooks = {
@@ -2657,10 +2480,30 @@ function updateStatusText(elementId, state, text) {
 function renderLastLlmRequestPreview() {
     const preview = getSettingsElement('sd-llm-request-preview');
     if (!preview) return;
-    const snapshot = getLastDrawLlmRequestSnapshot();
+    const snapshot = getLastDrawAgentDiagnostic();
     preview.textContent = snapshot
         ? JSON.stringify(snapshot, null, 2)
         : '暂无请求记录，请先触发一次画图分析。';
+}
+
+async function renderSharedAgentStatus() {
+    const status = await getDrawAgentViewModel();
+    const setText = (id, value) => {
+        const element = getSettingsElement(id);
+        if (element) element.textContent = String(value || '—');
+    };
+    setText('sd-agent-preset', status.presetName);
+    setText('sd-agent-provider', status.providerLabel);
+    setText('sd-agent-model', status.model);
+    setText('sd-agent-tool-mode', status.toolModeLabel);
+    setText('sd-agent-reasoning', status.reasoningEnabled ? `已开启 · ${status.reasoningEffort}` : '未开启');
+    setText('sd-agent-compatibility', status.compatibilityNotice);
+    updateStatusText(
+        'sd-agent-status',
+        status.ready ? 'success' : 'error',
+        status.ready ? '共享主预设可用' : status.error?.message,
+    );
+    renderLastLlmRequestPreview();
 }
 
 function renderPromptChainPreview(settings = getSettings()) {
@@ -2675,7 +2518,7 @@ function renderPromptChainPreview(settings = getSettings()) {
         ...promptPreset,
         topSystem: systemInput ? systemInput.value : (promptPreset?.topSystem || ''),
         tagGuideContent: guideInput ? guideInput.value : (promptPreset?.tagGuideContent || ''),
-        userJsonFormat: formatInput ? formatInput.value : (promptPreset?.userJsonFormat || ''),
+        sceneRules: formatInput ? formatInput.value : (promptPreset?.sceneRules || ''),
     };
     const promptConfig = {
         ...SD_SCENE_PROMPTS,
@@ -2686,16 +2529,33 @@ function renderPromptChainPreview(settings = getSettings()) {
     const editableMap = {
         topSystem: 'sd-prompt-system',
         tagGuideContent: 'sd-prompt-guide',
-        userJsonFormat: 'sd-prompt-format',
+        sceneRules: 'sd-prompt-format',
     };
 
     container.replaceChildren();
+
+    const focusPromptEditor = (key) => {
+        const target = getSettingsElement(editableMap[key]);
+        if (!target) return false;
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        target.focus();
+        return true;
+    };
+    const getPreviewContent = (key) => {
+        let content = String(promptConfig[key] || '(内置模板，不可编辑)');
+        if (key === 'assistantDoc') {
+            content = content.replace('{$tagGuide}', promptConfig.tagGuideContent || '');
+        }
+        return content.length > 1200 ? `${content.slice(0, 1200)}\n...(已截断)` : content;
+    };
 
     chain.forEach((item, index) => {
         const row = document.createElement('div');
         row.className = 'chain-item';
         row.dataset.key = item.key;
         row.dataset.editableId = editableMap[item.key] || '';
+        const sections = Array.isArray(item.sections) ? item.sections : [];
+        if (sections.length) row.classList.add('has-sections');
 
         const role = document.createElement('span');
         role.className = `chain-role ${item.role}`;
@@ -2733,28 +2593,70 @@ function renderPromptChainPreview(settings = getSettings()) {
             summary.appendChild(vars);
         }
 
-        const preview = document.createElement('div');
-        preview.className = 'chain-content-preview';
-        summary.appendChild(preview);
+        if (sections.length) {
+            const sectionList = document.createElement('div');
+            sectionList.className = 'chain-sections';
+            sections.forEach((section, sectionIndex) => {
+                const sectionRow = document.createElement('div');
+                sectionRow.className = 'chain-section';
+                sectionRow.dataset.key = section.key;
+
+                const sectionSummary = document.createElement('div');
+                sectionSummary.className = 'chain-section-summary';
+                sectionSummary.textContent = `${sectionIndex + 1}. ${section.summary || ''}`;
+                if (section.label) {
+                    const label = document.createElement('span');
+                    label.className = 'chain-editable';
+                    label.textContent = ` [${section.label}]`;
+                    sectionSummary.appendChild(label);
+                }
+                if (section.editable) {
+                    const edit = document.createElement('span');
+                    edit.className = 'chain-editable';
+                    edit.title = '可在上方编辑';
+                    edit.textContent = ' ✏️';
+                    edit.addEventListener('click', (event) => {
+                        event.stopPropagation();
+                        focusPromptEditor(section.key);
+                    });
+                    sectionSummary.appendChild(edit);
+                }
+                sectionRow.appendChild(sectionSummary);
+
+                if (Array.isArray(section.variables) && section.variables.length) {
+                    const vars = document.createElement('div');
+                    vars.className = 'chain-variables';
+                    section.variables.forEach((value) => {
+                        const span = document.createElement('span');
+                        span.textContent = `📎 ${value}`;
+                        vars.appendChild(span);
+                    });
+                    sectionRow.appendChild(vars);
+                }
+
+                const sectionPreview = document.createElement('div');
+                sectionPreview.className = 'chain-section-content';
+                sectionRow.appendChild(sectionPreview);
+                sectionRow.addEventListener('click', (event) => {
+                    event.stopPropagation();
+                    sectionRow.classList.toggle('expanded');
+                    sectionPreview.textContent = getPreviewContent(section.key);
+                });
+                sectionList.appendChild(sectionRow);
+            });
+            summary.appendChild(sectionList);
+        } else {
+            const preview = document.createElement('div');
+            preview.className = 'chain-content-preview';
+            summary.appendChild(preview);
+            row.addEventListener('click', () => {
+                if (row.dataset.editableId && focusPromptEditor(row.dataset.key)) return;
+                row.classList.toggle('expanded');
+                preview.textContent = getPreviewContent(row.dataset.key);
+            });
+        }
 
         row.append(role, summary);
-        row.addEventListener('click', () => {
-            const editableId = row.dataset.editableId;
-            if (editableId) {
-                const target = getSettingsElement(editableId);
-                if (target) {
-                    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    target.focus();
-                    return;
-                }
-            }
-            row.classList.toggle('expanded');
-            let content = promptConfig[row.dataset.key] || '(内置模板，不可编辑)';
-            if (row.dataset.key === 'assistantDoc') {
-                content = String(content).replace('{$tagGuide}', promptConfig.tagGuideContent || '');
-            }
-            preview.textContent = content.length > 1200 ? `${content.slice(0, 1200)}\n...(已截断)` : content;
-        });
         container.appendChild(row);
     });
 }
@@ -2993,43 +2895,20 @@ async function buildTasksFromMessage({ message, messageId, signal, promptOverrid
         });
     }
 
-    let tasks = [];
-    try {
-        const preset = getActivePreset(getSettings());
-        const promptPreset = getActivePromptPreset(getSettings()) || DEFAULT_PROMPT_CONFIG;
-        tasks = await generateAndParseScenePlan({
-            messageText,
-            presentCharacters,
-            llmApi: sharedDrawSettings.llmApi,
-            useStream: sharedDrawSettings.useStream,
-            useWorldInfo: useWorldbook && sharedDrawSettings.useWorldInfo,
-            customPrompts: promptPreset,
-            promptDefaults: DEFAULT_PROMPT_CONFIG,
-            worldbookEntries,
-            timeout: sharedDrawSettings.timeout || 120000,
-            maxImages: preset.maxImages || 0,
-            maxCharactersPerImage: preset.maxCharactersPerImage || 0,
-            disablePrefill: !!sharedDrawSettings.disablePrefill,
-            signal,
-        });
-    } catch (error) {
-        if (signal.aborted) throw new Error('已取消');
-        if (error instanceof LLMServiceError) {
-            throw new Error(`场景分析失败: ${error.message}`);
-        }
-        throw error;
-    }
-
     const preset = getActivePreset(getSettings());
-    const maxImg = preset.maxImages || 0;
-    const maxChar = preset.maxCharactersPerImage || 0;
-    if (maxImg > 0 && tasks.length > maxImg) tasks = tasks.slice(0, maxImg);
-    if (maxChar > 0) {
-        tasks = tasks.map(task => ({
-            ...task,
-            chars: Array.isArray(task.chars) ? task.chars.slice(0, maxChar) : [],
-        }));
-    }
+    const promptPreset = getActivePromptPreset(getSettings()) || DEFAULT_PROMPT_CONFIG;
+    const tasks = await generateAndParseScenePlan({
+        messageText,
+        presentCharacters,
+        useWorldInfo: useWorldbook && sharedDrawSettings.useWorldInfo,
+        customPrompts: promptPreset,
+        promptDefaults: DEFAULT_PROMPT_CONFIG,
+        worldbookEntries,
+        timeout: sharedDrawSettings.timeout || 120000,
+        maxImages: preset.maxImages || 0,
+        maxCharactersPerImage: preset.maxCharactersPerImage || 0,
+        signal,
+    });
 
     console.log('[SdDraw] LLM plan ready for message %s: %d task(s)', messageId, tasks.length);
     return tasks;

@@ -20,17 +20,19 @@ import {
     getPreviewDisplayUrl, getBase64ImagePayload, preloadPreviewDisplayUrl, warmSlotPreviewNeighbors
 } from '../../shared/gallery-cache.js';
 import {
-    PROVIDER_MAP,
-    LLMServiceError,
+    ScenePlannerError,
     generateAndParseScenePlan,
 } from '../../shared/scene-planner.js';
+import { toSceneCharacterPromptTag } from '../../shared/scene-plan-contract.js';
+import { classifyScenePlannerErrorForUi } from '../../shared/scene-planner-error-ui.js';
 import {
     loadSharedDrawSettings,
     getSharedDrawSettings,
     updateSharedDrawSettingsPersistent,
     normalizeSharedCacheDays,
+    mergeNovelDrawProviderSettingsIntoStorageRoot,
 } from '../../shared/draw-settings.js';
-import { fetchDrawLlmModels, getLastDrawLlmRequestSnapshot, normalizeDrawLlmApi } from '../../shared/draw-llm.js';
+import { getDrawAgentViewModel, getLastDrawAgentDiagnostic, openSharedAgentSettings } from '../../shared/draw-agent.js';
 import { createSerialImageRequestQueue } from '../../shared/serial-image-request-queue.js';
 import {
     NovelImageResponseError,
@@ -44,7 +46,6 @@ import {
     loadPromptTemplates,
     DEFAULT_PROMPT_CONFIG,
     PROMPT_TEMPLATE_VERSION,
-    LEGACY_USER_JSON_FORMAT,
     getLoadedTagGuide,
 } from './novel-prompts.js';
 import { WorldbookProcessor } from '../../shared/worldbook-processor.js';
@@ -178,6 +179,12 @@ const ErrorType = {
     LLM: { code: 'llm', label: 'LLM失败', desc: '场景分析失败' },
     LLM_EMPTY: { code: 'llm_empty', label: '空回', desc: 'LLM 未返回内容' },
     TIMEOUT: { code: 'timeout', label: '超时', desc: '请求超时' },
+    AGENT_CONFIG: { code: 'agent_config', label: 'Agent 配置', desc: '共享 Agent 主预设不可用' },
+    PROMPT_EXPANSION: { code: 'prompt_expansion', label: 'Prompt 展开', desc: 'Prompt 宏展开失败，请检查提示词中的变量宏' },
+    TOOL_PROTOCOL: { code: 'tool_protocol', label: 'Tool 协议', desc: '模型没有按要求调用场景规划 Tool' },
+    SCENE_SCHEMA: { code: 'scene_schema', label: '计划校验', desc: '模型提交的场景计划不符合契约' },
+    PROVIDER: { code: 'provider', label: 'Provider', desc: '模型 Provider 请求失败' },
+    ABORTED: { code: 'aborted', label: '已取消', desc: '请求已取消' },
     UNKNOWN: { code: 'unknown', label: '错误', desc: '未知错误' },
     CACHE_LOST: { code: 'cache_lost', label: '缓存丢失', desc: '图片缓存已过期' },
 };
@@ -222,8 +229,6 @@ const DEFAULT_SETTINGS = {
     paramsPresets: [],
     requestDelay: { min: 15000, max: 30000 },
     timeout: 60000,
-    llmApi: { provider: 'st', url: '', key: '', model: '', modelCache: [] },
-    useStream: false,
     useWorldInfo: false,    
     characterTags: [],
     autoLearnCharacters: false,
@@ -232,7 +237,7 @@ const DEFAULT_SETTINGS = {
     showFloorButton: true,
     showFloatingButton: false,
     advancedMode: true,
-    customPrompts: { topSystem: null, tagGuideContent: null, userJsonFormat: null },
+    customPrompts: { topSystem: null, tagGuideContent: null, sceneRules: null },
     promptPresets: [],
     selectedPromptPresetId: null,
     worldbooks: { enabled: false, uploadedBooks: [], keywordFilterMode: 'auto' },
@@ -254,7 +259,7 @@ let settingsCache = null;
 let settingsLoaded = false;
 let generationJobs = new Map();
 const novelImageRequestQueue = createSerialImageRequestQueue({
-    createAbortError: () => new NovelDrawError('已取消', ErrorType.UNKNOWN),
+    createAbortError: () => new NovelDrawError('已取消', ErrorType.ABORTED),
     getCooldownMs: () => getNovelImageRequestDelay(),
 });
 let ensureNovelDrawPanelRef = null;
@@ -738,20 +743,11 @@ class NovelDrawError extends Error {
 }
 
 function classifyLlmError(e) {
-    const code = String(e?.code || '').toUpperCase();
-    const msg = String(e?.message || '').toLowerCase();
-
-    if (code === 'EMPTY_OUTPUT' || msg.includes('输出为空') || msg.includes('未返回内容')) {
-        return ErrorType.LLM_EMPTY;
-    }
-    if (code === 'PARSE_ERROR' || msg.includes('无法解析') || msg.includes('未解析到图片任务')) {
-        return ErrorType.PARSE;
-    }
-    return ErrorType.LLM;
+    return classifyScenePlannerErrorForUi(e, ErrorType);
 }
 
 function classifyError(e) {
-    if (e instanceof LLMServiceError) return classifyLlmError(e);
+    if (e instanceof ScenePlannerError) return classifyLlmError(e);
     if (e instanceof NovelDrawError && e.errorType) return e.errorType;
     const msg = (e?.message || '').toLowerCase();
     if (msg.includes('network') || msg.includes('fetch') || msg.includes('failed to fetch')) return ErrorType.NETWORK;
@@ -790,17 +786,56 @@ function handleFetchError(e) {
 // 设置管理
 // ═══════════════════════════════════════════════════════════════════════════
 
-function normalizeSettings(saved) {
-    const merged = { ...DEFAULT_SETTINGS, ...(saved || {}) };
-    merged.advancedMode = true;
-    merged.apiBaseUrl = typeof merged.apiBaseUrl === 'string' ? merged.apiBaseUrl.trim() : '';
-    merged.sendMode = merged.sendMode === 'backend' ? 'backend' : 'frontend';
-    merged.insecureTLS = !!merged.insecureTLS;
-    merged.llmApi = normalizeDrawLlmApi({ ...DEFAULT_SETTINGS.llmApi, ...(saved?.llmApi || {}) });
-    merged.customPrompts = { ...DEFAULT_SETTINGS.customPrompts, ...(saved?.customPrompts || {}) };
-    merged.worldbooks = { ...DEFAULT_SETTINGS.worldbooks, ...(saved?.worldbooks || {}) };
-    if (!Array.isArray(merged.worldbooks.uploadedBooks)) merged.worldbooks.uploadedBooks = [];
-    delete merged.worldbooks.selectedBooks; // 迁移：旧格式不兼容，清除
+function normalizeSettings(saved = {}) {
+    const source = saved && typeof saved === 'object' && !Array.isArray(saved) ? saved : {};
+    const rawWorldbooks = source.worldbooks && typeof source.worldbooks === 'object'
+        && !Array.isArray(source.worldbooks)
+        ? source.worldbooks
+        : {};
+    const rawDelay = source.requestDelay && typeof source.requestDelay === 'object'
+        ? source.requestDelay
+        : {};
+    const merged = {
+        configVersion: Number(source.configVersion) || 0,
+        updatedAt: Number(source.updatedAt) || 0,
+        mode: source.mode === 'auto' ? 'auto' : 'manual',
+        apiKey: String(source.apiKey || ''),
+        apiBaseUrl: String(source.apiBaseUrl || '').trim(),
+        sendMode: source.sendMode === 'backend' ? 'backend' : 'frontend',
+        insecureTLS: source.insecureTLS === true,
+        selectedParamsPresetId: source.selectedParamsPresetId == null
+            ? null
+            : String(source.selectedParamsPresetId),
+        paramsPresets: Array.isArray(source.paramsPresets) ? source.paramsPresets : [],
+        requestDelay: {
+            min: Number(rawDelay.min) > 0 ? Number(rawDelay.min) : DEFAULT_SETTINGS.requestDelay.min,
+            max: Number(rawDelay.max) > 0 ? Number(rawDelay.max) : DEFAULT_SETTINGS.requestDelay.max,
+        },
+        timeout: Number(source.timeout) > 0 ? Number(source.timeout) : DEFAULT_SETTINGS.timeout,
+        cacheDays: normalizeSharedCacheDays(source.cacheDays),
+        useWorldInfo: source.useWorldInfo === true,
+        characterTags: Array.isArray(source.characterTags) ? source.characterTags : [],
+        autoLearnCharacters: source.autoLearnCharacters === true,
+        autoLearnMode: source.autoLearnMode,
+        overrideSize: String(source.overrideSize || 'default'),
+        showFloorButton: source.showFloorButton !== false,
+        showFloatingButton: source.showFloatingButton === true,
+        advancedMode: true,
+        promptPresets: Array.isArray(source.promptPresets)
+            ? source.promptPresets.filter((preset) => preset && typeof preset.sceneRules === 'string')
+            : [],
+        selectedPromptPresetId: source.selectedPromptPresetId == null
+            ? null
+            : String(source.selectedPromptPresetId),
+        _promptTemplateVersion: Number(source._promptTemplateVersion) || 0,
+        worldbooks: {
+            enabled: rawWorldbooks.enabled === true,
+            uploadedBooks: Array.isArray(rawWorldbooks.uploadedBooks) ? rawWorldbooks.uploadedBooks : [],
+            keywordFilterMode: rawWorldbooks.keywordFilterMode === 'all_active' ? 'all_active' : 'auto',
+        },
+        danbooruLocalDB: source.danbooruLocalDB === true,
+        messageFilterRules: Array.isArray(source.messageFilterRules) ? source.messageFilterRules : [],
+    };
 
     if (!merged.paramsPresets?.length) {
         const id1 = generateSlotId();
@@ -835,75 +870,73 @@ function normalizeSettings(saved) {
     merged.autoLearnMode = ['new_only', 'auto_update'].includes(merged.autoLearnMode)
         ? merged.autoLearnMode : 'new_only';
 
-    delete merged.llmPresets;
-    delete merged.selectedLlmPresetId;
-
-    // ── 提示词预设迁移 ──
-    // 与参数预设一致：存储实际值，不使用 null-means-default
-    if (!Array.isArray(merged.promptPresets)) merged.promptPresets = [];
+    // 提示词预设存储实际值，不使用 null-means-default。
     if (!merged.promptPresets.length) {
         const id1 = generateSlotId();
         const id2 = generateSlotId();
-        const id3 = generateSlotId();
-        const cp = merged.customPrompts || {};
         merged.promptPresets = [
-            { id: id1, name: '默认-模型要求高',
+            { id: id1, name: '默认-完整规则',
               topSystem: DEFAULT_PROMPT_CONFIG.topSystem,
               tagGuideContent: null,
-              userJsonFormat: DEFAULT_PROMPT_CONFIG.userJsonFormat },
-            { id: id2, name: '默认-第一人称视角',
+              sceneRules: DEFAULT_PROMPT_CONFIG.sceneRules },
+            { id: id2, name: '默认-第一人称完整规则',
               topSystem: DEFAULT_PROMPT_CONFIG.topSystemPov,
               tagGuideContent: null,
-              userJsonFormat: DEFAULT_PROMPT_CONFIG.userJsonFormat },
-            { id: id3, name: '默认-模型要求低',
-              topSystem: cp.topSystem || DEFAULT_PROMPT_CONFIG.topSystem,
-              tagGuideContent: cp.tagGuideContent || null,
-              userJsonFormat: cp.userJsonFormat || LEGACY_USER_JSON_FORMAT },
+              sceneRules: DEFAULT_PROMPT_CONFIG.sceneRules },
         ];
         merged.selectedPromptPresetId = id1;
     }
-    // 迁移旧版预设名称
-    const presetNameMigration = { '默认1': '默认-模型要求高', '默认2': '默认-模型要求低' };
-    for (const p of merged.promptPresets) {
-        if (presetNameMigration[p.name]) p.name = presetNameMigration[p.name];
-    }
-    // 默认预设内容跟随代码更新：当模板版本号变化时，自动更新未被用户手动编辑的默认预设
-    const defaultPresetNames = ['默认-模型要求高', '默认-第一人称视角', '默认-模型要求低'];
+    // 默认预设内容跟随代码模板版本更新。
+    const defaultPresetNames = ['默认-完整规则', '默认-第一人称完整规则'];
     const storedVersion = merged._promptTemplateVersion || 0;
+    if (!merged.promptPresets.some(p => p.name === '默认-第一人称完整规则')) {
+        merged.promptPresets.push({
+            id: generateSlotId(),
+            name: '默认-第一人称完整规则',
+            topSystem: DEFAULT_PROMPT_CONFIG.topSystemPov,
+            tagGuideContent: null,
+            sceneRules: DEFAULT_PROMPT_CONFIG.sceneRules,
+        });
+    }
     if (storedVersion < PROMPT_TEMPLATE_VERSION) {
-        // v3: 注入新的第一人称视角预设（如果不存在）
-        if (!merged.promptPresets.some(p => p.name === '默认-第一人称视角')) {
-            const insertIdx = merged.promptPresets.findIndex(p => p.name === '默认-模型要求低');
-            const povPreset = {
-                id: generateSlotId(), name: '默认-第一人称视角',
-                topSystem: DEFAULT_PROMPT_CONFIG.topSystemPov,
-                tagGuideContent: null,
-                userJsonFormat: DEFAULT_PROMPT_CONFIG.userJsonFormat,
-            };
-            if (insertIdx >= 0) merged.promptPresets.splice(insertIdx, 0, povPreset);
-            else merged.promptPresets.push(povPreset);
-            console.log('[NovelDraw] 已注入新预设 "默认-第一人称视角"');
-        }
         for (const p of merged.promptPresets) {
             if (defaultPresetNames.includes(p.name)) {
-                if (p.name === '默认-第一人称视角') {
+                if (p.name === '默认-第一人称完整规则') {
                     p.topSystem = DEFAULT_PROMPT_CONFIG.topSystemPov;
                 } else {
                     p.topSystem = DEFAULT_PROMPT_CONFIG.topSystem;
                 }
-                p.userJsonFormat = p.name === '默认-模型要求低' ? LEGACY_USER_JSON_FORMAT : DEFAULT_PROMPT_CONFIG.userJsonFormat;
+                p.sceneRules = DEFAULT_PROMPT_CONFIG.sceneRules;
                 p.tagGuideContent = null;
-                console.log(`[NovelDraw] 默认预设 "${p.name}" 已随版本更新 (v${storedVersion} → v${PROMPT_TEMPLATE_VERSION})`);
             }
         }
         merged._promptTemplateVersion = PROMPT_TEMPLATE_VERSION;
     }
-    // 迁移：将旧版 null 字段替换为具体默认值（tagGuideContent 需文件加载后处理）
-    for (const p of merged.promptPresets) {
-        if (p.topSystem == null) p.topSystem = DEFAULT_PROMPT_CONFIG.topSystem;
-        if (p.userJsonFormat == null) p.userJsonFormat = DEFAULT_PROMPT_CONFIG.userJsonFormat;
+    merged.promptPresets = merged.promptPresets.map((preset, index) => {
+        const isPov = preset.name === '默认-第一人称完整规则';
+        return {
+            id: String(preset.id || `prompt-${Date.now()}-${index}`),
+            name: String(preset.name || `提示词预设 ${index + 1}`),
+            topSystem: typeof preset.topSystem === 'string'
+                ? preset.topSystem
+                : (isPov ? DEFAULT_PROMPT_CONFIG.topSystemPov : DEFAULT_PROMPT_CONFIG.topSystem),
+            tagGuideContent: typeof preset.tagGuideContent === 'string' ? preset.tagGuideContent : null,
+            sceneRules: typeof preset.sceneRules === 'string'
+                ? preset.sceneRules
+                : DEFAULT_PROMPT_CONFIG.sceneRules,
+        };
+    });
+    if (!merged.selectedPromptPresetId
+        || !merged.promptPresets.some(preset => preset.id === merged.selectedPromptPresetId)) {
+        merged.selectedPromptPresetId = merged.promptPresets[0]?.id || null;
     }
-    if (!merged.selectedPromptPresetId) merged.selectedPromptPresetId = merged.promptPresets[0]?.id;
+    const activePromptPreset = merged.promptPresets.find(preset => preset.id === merged.selectedPromptPresetId)
+        || merged.promptPresets[0];
+    merged.customPrompts = {
+        topSystem: activePromptPreset?.topSystem || DEFAULT_PROMPT_CONFIG.topSystem,
+        tagGuideContent: activePromptPreset?.tagGuideContent,
+        sceneRules: activePromptPreset?.sceneRules || DEFAULT_PROMPT_CONFIG.sceneRules,
+    };
 
     // ── 消息过滤规则规范化 ──
     if (!Array.isArray(merged.messageFilterRules)) merged.messageFilterRules = [];
@@ -914,8 +947,8 @@ function normalizeSettings(saved) {
     return merged;
 }
 
-/** tagGuideContent 依赖文件异步加载，normalizeSettings 时不可用；在 loadTagGuide 后调一次 */
-function migrateNullTagGuide() {
+/** tagGuideContent 依赖异步资源，在资源加载后补齐内置预设。 */
+function hydratePromptTagGuides() {
     const guide = getLoadedTagGuide();
     if (!guide) return;
     const s = getSettings();
@@ -927,7 +960,6 @@ function migrateNullTagGuide() {
         }
     }
     if (migrated) {
-        console.log('[NovelDraw] migrated null tagGuideContent → concrete default');
         saveSettings(s);
     }
 }
@@ -944,7 +976,8 @@ async function loadSettings() {
         if (!saved || saved.configVersion !== CONFIG_VERSION) {
             settingsCache.configVersion = CONFIG_VERSION;
             settingsCache.updatedAt = Date.now();
-            await NovelDrawStorage.setAndSave(SERVER_FILE_KEY, settingsCache, { silent: true });
+            const storageValue = mergeNovelDrawProviderSettingsIntoStorageRoot(saved, settingsCache);
+            await NovelDrawStorage.setAndSave(SERVER_FILE_KEY, storageValue, { silent: true });
         }
     } catch (e) {
         console.error('[NovelDraw] 加载设置失败:', e);
@@ -965,24 +998,38 @@ function getSettings() {
         console.warn('[NovelDraw] promptPresets 为空，重新创建');
         const id1 = generateSlotId();
         const id2 = generateSlotId();
-        const id3 = generateSlotId();
         settingsCache.promptPresets = [
-            { id: id1, name: '默认-模型要求高',
+            { id: id1, name: '默认-完整规则',
               topSystem: DEFAULT_PROMPT_CONFIG.topSystem,
               tagGuideContent: getLoadedTagGuide() || '',
-              userJsonFormat: DEFAULT_PROMPT_CONFIG.userJsonFormat },
-            { id: id2, name: '默认-第一人称视角',
+              sceneRules: DEFAULT_PROMPT_CONFIG.sceneRules },
+            { id: id2, name: '默认-第一人称完整规则',
               topSystem: DEFAULT_PROMPT_CONFIG.topSystemPov,
               tagGuideContent: getLoadedTagGuide() || '',
-              userJsonFormat: DEFAULT_PROMPT_CONFIG.userJsonFormat },
-            { id: id3, name: '默认-模型要求低',
-              topSystem: DEFAULT_PROMPT_CONFIG.topSystem,
-              tagGuideContent: getLoadedTagGuide() || '',
-              userJsonFormat: LEGACY_USER_JSON_FORMAT },
+              sceneRules: DEFAULT_PROMPT_CONFIG.sceneRules },
         ];
         settingsCache.selectedPromptPresetId = id1;
     }
     return settingsCache;
+}
+
+/**
+ * NovelAI Provider 设置与共享画图设置共用同一存储根对象，但运行时所有共享字段
+ * 必须从 draw-settings 的单一缓存读取，避免其他 Provider 保存后仍使用旧副本。
+ */
+function getRuntimeSettings() {
+    const providerSettings = getSettings();
+    const sharedSettings = getSharedDrawSettings();
+    return {
+        ...providerSettings,
+        timeout: sharedSettings.timeout,
+        cacheDays: sharedSettings.cacheDays,
+        useWorldInfo: sharedSettings.useWorldInfo,
+        characterTags: sharedSettings.characterTags,
+        worldbooks: sharedSettings.worldbooks,
+        danbooruLocalDB: sharedSettings.danbooruLocalDB,
+        messageFilterRules: sharedSettings.messageFilterRules,
+    };
 }
 
 function getGenerationSnapshot() {
@@ -1032,7 +1079,9 @@ async function persistSettings(s, okText = '已保存', { notify = true, silent 
     try {
         // 先切到最新内存态，避免“刚保存立刻生成”仍读到旧 key / 旧参数。
         settingsCache = next;
-        const ok = await NovelDrawStorage.setAndSave(SERVER_FILE_KEY, next, { silent });
+        const latest = await NovelDrawStorage.get(SERVER_FILE_KEY, null);
+        const storageValue = mergeNovelDrawProviderSettingsIntoStorageRoot(latest, next);
+        const ok = await NovelDrawStorage.setAndSave(SERVER_FILE_KEY, storageValue, { silent });
         if (ok !== false) {
             if (notify) {
                 postStatus('success', okText, target);
@@ -1070,6 +1119,18 @@ async function updateSettingsPersistent(mutator, okText = '已保存', options =
         await mutator(draft);
     }
     return persistSettings(draft, okText, options);
+}
+
+async function updateSharedSettingsPersistent(mutator, okText = '已保存', options = {}) {
+    const { notify = true, silent = false, target = '' } = options;
+    const ok = await updateSharedDrawSettingsPersistent(mutator, okText, {
+        notify: false,
+        silent,
+    });
+    if (notify) {
+        postStatus(ok ? 'success' : 'error', ok ? okText : '保存失败', target);
+    }
+    return ok;
 }
 
 async function saveSettingsAndToast(s, okText = '已保存') {
@@ -1188,7 +1249,7 @@ function normalizeCharacterOutfits(outfits = []) {
 
 function buildKnownCharacterBasePrompt(character = {}) {
     const naiTag = character.danbooruTag ? danbooruToNai(character.danbooruTag) : '';
-    return joinTags(naiTag, character.type, character.appearance);
+    return joinTags(naiTag, toSceneCharacterPromptTag(character.type), character.appearance);
 }
 
 function detectPresentCharacters(messageText, characterTags) {
@@ -1237,7 +1298,14 @@ function assembleCharacterPrompts(sceneChars, knownCharacters) {
         } else {
             const naiTag = char.danbooru ? danbooruToNai(char.danbooru) : '';
             return {
-                prompt: joinTags(naiTag, char.type, char.appear, char.costume, char.action, char.interact),
+                prompt: joinTags(
+                    naiTag,
+                    toSceneCharacterPromptTag(char.type),
+                    char.appear,
+                    char.costume,
+                    char.action,
+                    char.interact,
+                ),
                 uc: char.uc || '',
                 center: gridToCoord(char.center) || { x: 0.5, y: 0.5 }
             };
@@ -1422,7 +1490,7 @@ async function generateViaBackend({ apiBaseUrl, apiKey, insecure, payload, signa
 
 async function testApiConnection(apiKey, baseUrl, opts = {}) {
     if (!apiKey) throw new NovelDrawError('请填写 API Key', ErrorType.AUTH);
-    const settings = getSettings();
+    const settings = getRuntimeSettings();
     const sendMode = opts.sendMode || settings.sendMode || 'frontend';
     const insecure = opts.insecure ?? settings.insecureTLS === true;
     const resolvedBase = baseUrl ?? settings.apiBaseUrl;
@@ -1579,7 +1647,7 @@ function buildNovelAIRequestBody({ scene, characterPrompts, negativePrompt, para
 }
 
 async function generateNovelImage({ scene, characterPrompts, negativePrompt, params, generationConfig, signal, onQueueStateChange }) {
-    const requestConfig = snapshotNovelRequestConfig(getSettings(), generationConfig, DEFAULT_SETTINGS.timeout);
+    const requestConfig = snapshotNovelRequestConfig(getRuntimeSettings(), generationConfig, DEFAULT_SETTINGS.timeout);
     if (!requestConfig.apiKey) throw new NovelDrawError('请先配置 API Key', ErrorType.AUTH);
     const queuedParams = { ...params };
 
@@ -1608,7 +1676,7 @@ async function generateNovelImage({ scene, characterPrompts, negativePrompt, par
         const payload = buildNovelAIRequestBody({ scene, characterPrompts, negativePrompt, params: finalParams });
 
         try {
-            if (signal?.aborted) throw new NovelDrawError('已取消', ErrorType.UNKNOWN);
+            if (signal?.aborted) throw new NovelDrawError('已取消', ErrorType.ABORTED);
 
             // 后端发送：交给 SillyTavern server plugin 代发，绕过浏览器 CORS / 自签证书。
             if (requestConfig.sendMode === 'backend') {
@@ -1637,7 +1705,7 @@ async function generateNovelImage({ scene, characterPrompts, negativePrompt, par
             console.log(`[NovelDraw] 完成 ${Date.now() - t0}ms`);
             return base64;
         } catch (e) {
-            if (signal?.aborted) throw new NovelDrawError('已取消', ErrorType.UNKNOWN);
+            if (signal?.aborted) throw new NovelDrawError('已取消', ErrorType.ABORTED);
             throw handleFetchError(e);
         } finally {
             clearTimeout(tid);
@@ -2265,7 +2333,7 @@ async function refreshSingleImage(container) {
 
     try {
         const preset = getActiveParamsPreset();
-        const settings = getSettings();
+        const settings = getRuntimeSettings();
 
         let characterPrompts = null;
         let negativePrompt = preset.negativePrefix || '';
@@ -2426,7 +2494,7 @@ async function retryFailedImage(container) {
 
     try {
         const preset = getActiveParamsPreset();
-        const settings = getSettings();
+        const settings = getRuntimeSettings();
         const scene = tags ? joinTags(preset.positivePrefix, tags) : preset.positivePrefix;
         const negativePrompt = preset.negativePrefix || '';
 
@@ -2611,13 +2679,10 @@ async function maybeAutoLearnFromTasks(tasks = [], settings = {}) {
             if (learnResult.newChars.length) parts.push(`新角色: ${learnResult.newChars.join(', ')}`);
             if (learnResult.updatedChars.length) parts.push(`更新: ${learnResult.updatedChars.join(', ')}`);
             const msg = `已学习 ${parts.join(' | ')}`;
-            updateSettingsPersistent((draft) => {
+            const ok = await updateSharedSettingsPersistent((draft) => {
                 draft.characterTags = tagsCopy;
-            }, msg)
-                .then((ok) => { if (ok && overlayCreated && frameReady) sendInitData(); })
-                .catch(e => {
-                    console.warn('[NovelDraw] 自动学习保存失败:', e);
-                });
+            }, msg);
+            if (ok && overlayCreated && frameReady) sendInitData();
         }
     } catch (e) {
         console.warn('[NovelDraw] 自动学习角色失败:', e);
@@ -2638,11 +2703,9 @@ async function buildTextSourceTasks({ messageText, presentCharacters, settings, 
         });
     }
 
-    let tasks = await generateAndParseScenePlan({
+    return generateAndParseScenePlan({
         messageText,
         presentCharacters,
-        llmApi: settings.llmApi,
-        useStream: settings.useStream,
         useWorldInfo: useWorldbook && settings.useWorldInfo,
         customPrompts,
         promptDefaults: DEFAULT_PROMPT_CONFIG,
@@ -2650,20 +2713,9 @@ async function buildTextSourceTasks({ messageText, presentCharacters, settings, 
         timeout: settings.timeout || 120000,
         maxImages: preset.maxImages || 0,
         maxCharactersPerImage: preset.maxCharactersPerImage || 0,
-        disablePrefill: !!settings.disablePrefill,
         signal,
     });
 
-    const maxImg = preset.maxImages || 0;
-    const maxChar = preset.maxCharactersPerImage || 0;
-    if (maxImg > 0 && tasks.length > maxImg) tasks = tasks.slice(0, maxImg);
-    if (maxChar > 0) {
-        tasks = tasks.map(task => ({
-            ...task,
-            chars: Array.isArray(task.chars) ? task.chars.slice(0, maxChar) : [],
-        }));
-    }
-    return tasks;
 }
 
 async function generateImagesFromText(options = {}) {
@@ -2675,11 +2727,12 @@ async function generateImagesFromText(options = {}) {
 
     try {
         await loadSettings();
+        await loadSharedDrawSettings();
         ensureStyles();
         await openDB();
 
         const signal = options.signal || job.controller.signal;
-        const settings = getSettings();
+        const settings = getRuntimeSettings();
         const preset = getActiveParamsPreset();
         if (!preset) throw new NovelDrawError('无可用的 NovelAI 参数预设', ErrorType.PARSE);
 
@@ -2695,7 +2748,7 @@ async function generateImagesFromText(options = {}) {
 
         const presentCharacters = detectPresentCharacters(messageText, settings.characterTags || []);
         options.onStateChange?.('llm', {});
-        if (signal.aborted) throw new NovelDrawError('已取消', ErrorType.UNKNOWN);
+        if (signal.aborted) throw new NovelDrawError('已取消', ErrorType.ABORTED);
 
         let tasks = [];
         try {
@@ -2709,14 +2762,11 @@ async function generateImagesFromText(options = {}) {
             });
         } catch (e) {
             console.error('[NovelDraw] 文本配图场景分析失败:', e);
-            if (signal.aborted) throw new NovelDrawError('已取消', ErrorType.UNKNOWN);
-            if (e instanceof LLMServiceError) {
-                throw new NovelDrawError(`场景分析失败: ${e.message}`, classifyError(e));
-            }
+            if (signal.aborted) throw new NovelDrawError('已取消', ErrorType.ABORTED);
             throw e;
         }
 
-        if (signal.aborted) throw new NovelDrawError('已取消', ErrorType.UNKNOWN);
+        if (signal.aborted) throw new NovelDrawError('已取消', ErrorType.ABORTED);
         await maybeAutoLearnFromTasks(tasks, settings);
 
         const images = [];
@@ -2834,12 +2884,13 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
 
     try {
         await loadSettings();
+        await loadSharedDrawSettings();
         const ctx = getContext();
         const message = ctx.chat?.[messageId];
         if (!message) throw new NovelDrawError('消息不存在', ErrorType.PARSE);
 
         const signal = job.controller.signal;
-        const settings = getSettings();
+        const settings = getRuntimeSettings();
         const preset = getActiveParamsPreset();
 
         const rawText = String(message.mes || '').replace(PLACEHOLDER_REGEX, '').trim();
@@ -2853,7 +2904,7 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
 
         onStateChange?.('llm', {});
 
-        if (signal.aborted) throw new NovelDrawError('已取消', ErrorType.UNKNOWN);
+        if (signal.aborted) throw new NovelDrawError('已取消', ErrorType.ABORTED);
 
         let tasks = [];
         try {
@@ -2873,8 +2924,6 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
             tasks = await generateAndParseScenePlan({
                 messageText,
                 presentCharacters,
-                llmApi: settings.llmApi,
-                useStream: settings.useStream,
                 useWorldInfo: settings.useWorldInfo,
                 customPrompts,
                 promptDefaults: DEFAULT_PROMPT_CONFIG,
@@ -2882,60 +2931,18 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
                 timeout: settings.timeout || 120000,
                 maxImages: preset.maxImages || 0,
                 maxCharactersPerImage: preset.maxCharactersPerImage || 0,
-                disablePrefill: !!settings.disablePrefill,
                 signal,
             });
         } catch (e) {
             console.error('[NovelDraw] 场景分析原始错误:', e);
             console.error('[NovelDraw] 错误详情:', { message: e?.message, code: e?.code, name: e?.name, stack: e?.stack });
-            if (signal.aborted) throw new NovelDrawError('已取消', ErrorType.UNKNOWN);
-            if (e instanceof LLMServiceError) {
-                throw new NovelDrawError(`场景分析失败: ${e.message}`, classifyError(e));
-            }
+            if (signal.aborted) throw new NovelDrawError('已取消', ErrorType.ABORTED);
             throw e;
         }
 
-        if (signal.aborted) throw new NovelDrawError('已取消', ErrorType.UNKNOWN);
+        if (signal.aborted) throw new NovelDrawError('已取消', ErrorType.ABORTED);
 
-        // 硬上限：截断图片数量和每张图角色数量
-        const maxImg = preset.maxImages || 0;
-        const maxChar = preset.maxCharactersPerImage || 0;
-        if (maxImg > 0 && tasks.length > maxImg) {
-            console.log(`[NovelDraw] 硬上限截断: ${tasks.length} → ${maxImg} 张图`);
-            tasks = tasks.slice(0, maxImg);
-        }
-        if (maxChar > 0) {
-            for (const task of tasks) {
-                if (task.chars && task.chars.length > maxChar) {
-                    task.chars = task.chars.slice(0, maxChar);
-                }
-            }
-        }
-
-        // 自动学习未知角色
-        if (settings.autoLearnCharacters) {
-            try {
-                // 先在副本上操作，保存成功后才写回内存状态
-                const tagsCopy = JSON.parse(JSON.stringify(settings.characterTags || []));
-                const settingsCopy = { ...settings, characterTags: tagsCopy };
-                const learnResult = autoLearnFromTasks(tasks, settingsCopy);
-                if (learnResult.newChars.length || learnResult.updatedChars.length) {
-                    const parts = [];
-                    if (learnResult.newChars.length) parts.push(`新角色: ${learnResult.newChars.join(', ')}`);
-                    if (learnResult.updatedChars.length) parts.push(`更新: ${learnResult.updatedChars.join(', ')}`);
-                    const msg = `已学习 ${parts.join(' | ')}`;
-                    updateSettingsPersistent((draft) => {
-                        draft.characterTags = tagsCopy;
-                    }, msg)
-                        .then((ok) => { if (ok && overlayCreated && frameReady) sendInitData(); })
-                        .catch(e => {
-                            console.warn('[NovelDraw] 自动学习保存失败:', e);
-                        });
-                }
-            } catch (e) {
-                console.warn('[NovelDraw] 自动学习角色失败:', e);
-            }
-        }
+        await maybeAutoLearnFromTasks(tasks, settings);
 
         const initialChatId = ctx.chatId;
         const originalMes = message.mes; // 修改前备份，abort 时可回滚
@@ -3356,7 +3363,7 @@ async function sendInitData() {
     const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
     if (!iframe?.contentWindow) { console.warn('[NovelDraw] sendInitData: no iframe'); return; }
     // Send the usable settings first; cache/gallery IndexedDB work can be slow for upgraded installs.
-    const settings = getSettings();
+    const settings = getRuntimeSettings();
     console.log('[NovelDraw] sendInitData: autoLearn=%s, advancedMode=%s, promptPresets=%d',
         settings.autoLearnCharacters, settings.advancedMode, settings.promptPresets?.length);
     const buildPayload = (stats = { count: 0, sizeMB: 0 }, gallerySummary = {}) => ({
@@ -3373,10 +3380,7 @@ async function sendInitData() {
             cacheDays: getSharedDrawSettings().cacheDays,
             selectedParamsPresetId: settings.selectedParamsPresetId,
             paramsPresets: settings.paramsPresets,
-            llmApi: settings.llmApi,
-            useStream: settings.useStream,
             useWorldInfo: settings.useWorldInfo,
-            disablePrefill: !!settings.disablePrefill,
             characterTags: settings.characterTags,
             autoLearnCharacters: !!settings.autoLearnCharacters,
             autoLearnMode: settings.autoLearnMode || 'new_only',
@@ -3395,10 +3399,8 @@ async function sendInitData() {
             messageFilterRules: settings.messageFilterRules || [],
         },
         defaultPrompts: {
-            topSystem: DEFAULT_PROMPT_CONFIG.topSystem,
-            topSystemPov: DEFAULT_PROMPT_CONFIG.topSystemPov,
+            ...DEFAULT_PROMPT_CONFIG,
             tagGuideContent: getLoadedTagGuide(),
-            userJsonFormat: DEFAULT_PROMPT_CONFIG.userJsonFormat,
         },
         cacheStats: stats,
         gallerySummary,
@@ -3435,7 +3437,7 @@ async function handleFrameMessage(event) {
             frameReady = true;
             sendInitData();
             // 若本地 Danbooru DB 已启用，预加载（失败只警告，不修改用户设置）
-            if (getSettings().danbooruLocalDB) {
+            if (getSharedDrawSettings().danbooruLocalDB) {
                 const datUrl = `${extensionFolderPath}/modules/draw/shared/data/danbooru-chars.dat`;
                 loadLocalDanbooruDB(datUrl).catch(e => {
                     console.warn('[NovelDraw] Eager load of local Danbooru DB failed:', e);
@@ -3489,7 +3491,10 @@ async function handleFrameMessage(event) {
         }
 
         case 'SAVE_API_CONFIG': {
-            await updateSettingsPersistent((settings) => {
+            const nextTimeout = typeof data.timeout === 'number' && data.timeout > 0
+                ? data.timeout
+                : null;
+            const providerOk = await updateSettingsPersistent((settings) => {
                 if (typeof data.apiKey === 'string') {
                     settings.apiKey = data.apiKey.trim();
                 }
@@ -3502,21 +3507,28 @@ async function handleFrameMessage(event) {
                 if (typeof data.insecureTLS === 'boolean') {
                     settings.insecureTLS = data.insecureTLS;
                 }
-                if (typeof data.timeout === 'number' && data.timeout > 0) {
-                    settings.timeout = data.timeout;
-                }
                 if (data.requestDelay?.min > 0 && data.requestDelay?.max > 0) {
                     settings.requestDelay = data.requestDelay;
                 }
-            }, '已保存', { target: 'api' });
+            }, '已保存', { notify: false, silent: false });
+            const sharedOk = nextTimeout == null || await updateSharedSettingsPersistent((settings) => {
+                settings.timeout = nextTimeout;
+            }, '已保存', { notify: false, silent: false });
+            postStatus(providerOk && sharedOk ? 'success' : 'error', providerOk && sharedOk ? '已保存' : '保存失败', 'api');
             break;
         }
 
         case 'SAVE_TIMEOUT': {
-            await updateSettingsPersistent((settings) => {
-                if (typeof data.timeout === 'number' && data.timeout > 0) settings.timeout = data.timeout;
+            const nextTimeout = typeof data.timeout === 'number' && data.timeout > 0
+                ? data.timeout
+                : null;
+            const providerOk = await updateSettingsPersistent((settings) => {
                 if (data.requestDelay?.min > 0 && data.requestDelay?.max > 0) settings.requestDelay = data.requestDelay;
-            }, '已保存', { target: 'api' });
+            }, '已保存', { notify: false, silent: false });
+            const sharedOk = nextTimeout == null || await updateSharedSettingsPersistent((settings) => {
+                settings.timeout = nextTimeout;
+            }, '已保存', { notify: false, silent: false });
+            postStatus(providerOk && sharedOk ? 'success' : 'error', providerOk && sharedOk ? '已保存' : '保存失败', 'api');
             break;
         }
 
@@ -3643,33 +3655,18 @@ async function handleFrameMessage(event) {
 
         // ═══════════════════════════════════════════════════════════════
 
-        case 'SAVE_LLM_API': {
-            const ok = await updateSettingsPersistent((settings) => {
-                if (data.llmApi && typeof data.llmApi === 'object') {
-                    const allowed = ['provider', 'url', 'key', 'model', 'modelCache'];
-                    const clean = Object.fromEntries(allowed.filter(k => k in data.llmApi).map(k => [k, data.llmApi[k]]));
-                    settings.llmApi = normalizeDrawLlmApi({ ...settings.llmApi, ...clean });
-                }
-                if (typeof data.useStream === 'boolean') settings.useStream = data.useStream;
-                if (typeof data.useWorldInfo === 'boolean') settings.useWorldInfo = data.useWorldInfo;
-                if (typeof data.disablePrefill === 'boolean') settings.disablePrefill = data.disablePrefill;
-            }, '已保存', { target: 'llm' });
-            if (ok) sendInitData();
-            break;
-        }
-
         case 'RESET_CUSTOM_PROMPT': {
             const key = data.key;
-            const ALLOWED_PROMPT_KEYS = ['topSystem', 'tagGuideContent', 'userJsonFormat'];
+            const ALLOWED_PROMPT_KEYS = ['topSystem', 'tagGuideContent', 'sceneRules'];
             if (key && ALLOWED_PROMPT_KEYS.includes(key)) {
                 await updateSettingsPersistent((settings) => {
                     const presetId = data.selectedPromptPresetId || settings.selectedPromptPresetId;
                     const active = settings.promptPresets.find(p => p.id === presetId);
-                    const isPov = active?.name === '默认-第一人称视角';
+                    const isPov = active?.name === '默认-第一人称完整规则';
                     const resetDefaults = {
                         topSystem: isPov ? DEFAULT_PROMPT_CONFIG.topSystemPov : DEFAULT_PROMPT_CONFIG.topSystem,
                         tagGuideContent: getLoadedTagGuide() || '',
-                        userJsonFormat: DEFAULT_PROMPT_CONFIG.userJsonFormat,
+                        sceneRules: DEFAULT_PROMPT_CONFIG.sceneRules,
                     };
                     const defaultVal = resetDefaults[key];
                     if (settings.customPrompts) settings.customPrompts[key] = defaultVal;
@@ -3695,7 +3692,7 @@ async function handleFrameMessage(event) {
                         settings.customPrompts = {
                             topSystem: active.topSystem,
                             tagGuideContent: active.tagGuideContent,
-                            userJsonFormat: active.userJsonFormat,
+                            sceneRules: active.sceneRules,
                         };
                     }
                 }, '已切换预设', { target: 'prompt-preset' });
@@ -3715,11 +3712,11 @@ async function handleFrameMessage(event) {
                     name: (typeof data.name === 'string' && data.name.trim()) ? data.name.trim() : `提示词-${settings.promptPresets.length + 1}`,
                     topSystem: current?.topSystem ?? DEFAULT_PROMPT_CONFIG.topSystem,
                     tagGuideContent: current?.tagGuideContent ?? getLoadedTagGuide() ?? '',
-                    userJsonFormat: current?.userJsonFormat ?? DEFAULT_PROMPT_CONFIG.userJsonFormat,
+                    sceneRules: current?.sceneRules ?? DEFAULT_PROMPT_CONFIG.sceneRules,
                 };
                 settings.promptPresets.push(newPreset);
                 settings.selectedPromptPresetId = id;
-                settings.customPrompts = { topSystem: newPreset.topSystem, tagGuideContent: newPreset.tagGuideContent, userJsonFormat: newPreset.userJsonFormat };
+                settings.customPrompts = { topSystem: newPreset.topSystem, tagGuideContent: newPreset.tagGuideContent, sceneRules: newPreset.sceneRules };
             }, '已创建', { target: 'prompt-preset' });
             if (ok) sendInitData();
             break;
@@ -3737,7 +3734,7 @@ async function handleFrameMessage(event) {
                 settings.selectedPromptPresetId = settings.promptPresets[0]?.id || null;
                 const active = settings.promptPresets.find(p => p.id === settings.selectedPromptPresetId);
                 if (active) {
-                    settings.customPrompts = { topSystem: active.topSystem, tagGuideContent: active.tagGuideContent, userJsonFormat: active.userJsonFormat };
+                    settings.customPrompts = { topSystem: active.topSystem, tagGuideContent: active.tagGuideContent, sceneRules: active.sceneRules };
                 }
             }, '已删除', { target: 'prompt-preset' });
             if (ok) sendInitData();
@@ -3769,8 +3766,8 @@ async function handleFrameMessage(event) {
                     const cp = data.customPrompts;
                     if ('topSystem' in cp) current.topSystem = cp.topSystem;
                     if ('tagGuideContent' in cp) current.tagGuideContent = cp.tagGuideContent;
-                    if ('userJsonFormat' in cp) current.userJsonFormat = cp.userJsonFormat;
-                    settings.customPrompts = { topSystem: current.topSystem, tagGuideContent: current.tagGuideContent, userJsonFormat: current.userJsonFormat };
+                    if ('sceneRules' in cp) current.sceneRules = cp.sceneRules;
+                    settings.customPrompts = { topSystem: current.topSystem, tagGuideContent: current.tagGuideContent, sceneRules: current.sceneRules };
                 }, '提示词预设已保存', { target: statusTarget });
             }
             sendInitData();
@@ -3778,7 +3775,7 @@ async function handleFrameMessage(event) {
         }
 
         case 'SAVE_WORLDBOOK_CONFIG': {
-            const ok = await updateSettingsPersistent((settings) => {
+            const ok = await updateSharedSettingsPersistent((settings) => {
                 if (typeof data.useWorldInfo === 'boolean') {
                     settings.useWorldInfo = data.useWorldInfo;
                 }
@@ -3794,28 +3791,13 @@ async function handleFrameMessage(event) {
             break;
         }
 
-        case 'FETCH_LLM_MODELS': {
-            try {
-                postStatus('loading', '连接中...', 'llm-fetch');
-                const apiCfg = normalizeDrawLlmApi(data.llmApi || {});
-                const models = await fetchDrawLlmModels(apiCfg);
-
-                const ok = await updateSettingsPersistent((settings) => {
-                    settings.llmApi.provider = apiCfg.provider;
-                    settings.llmApi.url = apiCfg.url;
-                    settings.llmApi.key = apiCfg.key;
-                    settings.llmApi.modelCache = [...new Set(models)];
-                    if (!settings.llmApi.model && models.length) settings.llmApi.model = models[0];
-                }, `获取 ${models.length} 个模型`, { target: 'llm-fetch' });
-                if (ok) sendInitData();
-            } catch (e) {
-                postStatus('error', '连接失败：' + (e.message || '请检查配置'), 'llm-fetch');
-            }
+        case 'OPEN_SHARED_AGENT_SETTINGS': {
+            if (!openSharedAgentSettings()) postStatus('error', '共享 Agent 设置暂不可用', 'llm');
             break;
         }
 
         case 'SAVE_CHARACTER_TAGS': {
-            await updateSettingsPersistent((settings) => {
+            await updateSharedSettingsPersistent((settings) => {
                 if (Array.isArray(data.characterTags)) settings.characterTags = data.characterTags;
             }, '角色标签已保存');
             break;
@@ -3840,7 +3822,7 @@ async function handleFrameMessage(event) {
                     const datUrl = `${extensionFolderPath}/modules/draw/shared/data/danbooru-chars.dat`;
                     const db = await loadLocalDanbooruDB(datUrl);
                     if (!db) break; // 被并发 OFF toggle 取消
-                    const ok = await updateSettingsPersistent((settings) => {
+                    const ok = await updateSharedSettingsPersistent((settings) => {
                         settings.danbooruLocalDB = true;
                     }, `Danbooru 本地库已加载 (${db.length} 条)`);
                     if (!ok) {
@@ -3848,14 +3830,14 @@ async function handleFrameMessage(event) {
                     }
                 } catch (e) {
                     unloadLocalDanbooruDB();
-                    await updateSettingsPersistent((settings) => {
+                    await updateSharedSettingsPersistent((settings) => {
                         settings.danbooruLocalDB = false;
                     }, 'Danbooru 本地库加载失败');
                     console.warn('[NovelDraw] Failed to load local Danbooru DB:', e);
                 }
             } else {
                 unloadLocalDanbooruDB();
-                await updateSettingsPersistent((settings) => {
+                await updateSharedSettingsPersistent((settings) => {
                     settings.danbooruLocalDB = false;
                 }, 'Danbooru 本地库已关闭');
             }
@@ -3881,7 +3863,7 @@ async function handleFrameMessage(event) {
             break;
 
         case 'SAVE_MESSAGE_FILTER_RULES': {
-            await updateSettingsPersistent((settings) => {
+            await updateSharedSettingsPersistent((settings) => {
                 settings.messageFilterRules = Array.isArray(data.rules) ? data.rules : [];
             }, '过滤规则已保存', { target: 'filter' });
             break;
@@ -3930,7 +3912,17 @@ async function handleFrameMessage(event) {
             if (iframe) {
                 postToIframe(iframe, {
                     type: 'LAST_LLM_REQUEST_DATA',
-                    snapshot: getLastDrawLlmRequestSnapshot(),
+                    snapshot: getLastDrawAgentDiagnostic(),
+                }, 'LittleWhiteBox-NovelDraw');
+            }
+            break;
+        }
+
+        case 'GET_DRAW_AGENT_STATUS': {
+            if (iframe) {
+                postToIframe(iframe, {
+                    type: 'DRAW_AGENT_STATUS_DATA',
+                    status: await getDrawAgentViewModel(),
                 }, 'LittleWhiteBox-NovelDraw');
             }
             break;
@@ -4072,8 +4064,7 @@ export async function initNovelDraw() {
 
     await loadTagGuide();
 
-    // tagGuideContent 依赖文件加载，在此处完成 null → 具体值的迁移
-    migrateNullTagGuide();
+    hydratePromptTagGuides();
 
     setupEventDelegation();
     await openDB().then(() => {
@@ -4269,7 +4260,6 @@ export {
     ensureStyles as ensureNovelDrawStyles,
     classifyError,
     ErrorType,
-    PROVIDER_MAP,
     abortGeneration,
     isGenerating,
 };

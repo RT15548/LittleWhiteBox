@@ -29,3 +29,25 @@ test('assistant manifest excludes developer-local files', () => {
     assert.deepEqual(pluginOverlap, []);
     assert.deepEqual(publicOverlap, []);
 });
+
+test('assistant manifest excludes generated dists and includes draw scene planner sources', () => {
+    const manifest = JSON.parse(readFileSync(manifestUrl, 'utf8'));
+    const pluginPaths = (manifest.files || [])
+        .filter(item => item?.source === 'littlewhitebox')
+        .map(item => String(item?.relativePath || '').replace(/\\/g, '/'));
+
+    assert.deepEqual(pluginPaths.filter(value => value.startsWith('modules/assistant/dist/')), []);
+    assert.deepEqual(pluginPaths.filter(value => value.startsWith('modules/agent-core/dist/')), []);
+
+    for (const expected of [
+        'modules/draw/shared/scene-planner.js',
+        'modules/draw/shared/scene-plan-contract.js',
+        'modules/draw/shared/scene-prompt-expansion.js',
+        'modules/draw/shared/scene-planner-error-ui.js',
+        'modules/draw/shared/draw-agent.js',
+        'modules/agent-core/browser-entry.js',
+        'modules/agent-core/provider-resolution.js',
+    ]) {
+        assert.ok(pluginPaths.includes(expected), `${expected} 必须在 manifest 中`);
+    }
+});

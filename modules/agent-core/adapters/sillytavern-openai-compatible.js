@@ -243,7 +243,10 @@ export class SillyTavernOpenAICompatibleAdapter {
         try {
             return await runWithReasoningEffortFallback(payload);
         } catch (error) {
-            if (isTaggedMode || !hasTools || !isMalformedNativeToolHostError(error)) {
+            if (task.allowToolProtocolFallback === false
+                || isTaggedMode
+                || !hasTools
+                || !isMalformedNativeToolHostError(error)) {
                 throw error;
             }
         }
