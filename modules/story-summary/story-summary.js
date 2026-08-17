@@ -30,9 +30,11 @@ import {
     runWithAbortDeadline,
 } from "../../shared/common/abort-utils.js";
 import {
+    GENERATE_INTERCEPTOR_ORDER,
     registerGenerateInterceptor,
     unregisterGenerateInterceptor,
 } from "../../shared/common/generate-interceptor.js";
+import { scheduleDelayedNotice } from "../../shared/common/delayed-notice.js";
 import {
     fetchHostOpenAICompatibleModels,
     setHostChatCompletionsRequestHeadersProvider,
@@ -73,6 +75,7 @@ import {
     buildVectorPromptText,
     buildNonVectorPromptText,
 } from "./generate/prompt.js";
+import { selectBestStoryMemoryResult } from "./generate/story-memory-result.js";
 
 // summary generation
 import { runSummaryGeneration } from "./generate/generator.js";
@@ -3228,6 +3231,15 @@ function clearExtensionPrompt() {
 // 不能把宿主发送流程无限卡住。30s 为初始护栏值，进入浏览器 E2E 后需结合
 // 真实 p50/p95 与首 token 体感校准。
 const STORY_SUMMARY_RECALL_DEADLINE_MS = 30000;
+const SLOW_RECALL_NOTICE_DELAY_MS = 3000;
+const RECALL_REASONS_THAT_ABORT_GENERATION = new Set([
+    'chat-changed',
+    'disabled',
+    'generation-ended',
+    'generation-stopped',
+    'superseded',
+    'unregistered',
+]);
 let activeRecallRun = null;
 
 function cancelActiveRecall(reason = 'cancelled') {
@@ -3235,6 +3247,9 @@ function cancelActiveRecall(reason = 'cancelled') {
     if (!run) return;
     activeRecallRun = null;
     run.cancelReason = reason;
+    if (RECALL_REASONS_THAT_ABORT_GENERATION.has(reason)) {
+        run.runContext?.abort?.(true);
+    }
     run.controller.abort(createAbortError(`Story Summary recall ${reason}`));
 }
 
@@ -3363,12 +3378,13 @@ async function injectMemoryPrompt(type, signal) {
     }
     timing.writePrompt = Math.round(performance.now() - T_WritePrompt);
     logTiming('injected');
+    return { text, recallLogText: lastRecallLogText };
 }
 
 // generate_interceptor 消费者：宿主在用户消息入楼渲染后、Prompt 组装前 await。
 // 旧实现曾在过早的宿主事件中靠输入框缓存猜测焦点；现在直接读取真实 chat，
 // 普通发送以最后一条用户消息为焦点。
-async function runStorySummaryRecallInterceptor(_interceptorChat, _contextSize, _abort, type) {
+async function runStorySummaryRecallInterceptor(_interceptorChat, _contextSize, _abort, type, runContext) {
     // 新一轮 interceptor 是旧 Prompt 的唯一代际边界；不依赖宿主
     // 生成开始事件与 generate_interceptor 的相对触发顺序。
     cancelRecallAndClearPrompt('superseded');
@@ -3377,10 +3393,22 @@ async function runStorySummaryRecallInterceptor(_interceptorChat, _contextSize, 
     }
 
     const controller = new AbortController();
-    const run = { controller, cancelReason: null };
+    const run = { controller, runContext, cancelReason: null };
+    const dispatchSignal = runContext?.signal;
+    const abortFromDispatch = () => {
+        run.cancelReason ||= 'dispatch-aborted';
+        controller.abort(dispatchSignal?.reason || createAbortError('Story Summary dispatch aborted'));
+    };
+    dispatchSignal?.addEventListener('abort', abortFromDispatch, { once: true });
+    if (dispatchSignal?.aborted) abortFromDispatch();
     activeRecallRun = run;
+    const cancelSlowNotice = scheduleDelayedNotice(
+        () => executeSlashCommand('/echo severity=info 剧情记忆召回仍在处理中，请稍候。'),
+        SLOW_RECALL_NOTICE_DELAY_MS,
+        error => xbLog.warn(MODULE_ID, '显示剧情记忆召回状态失败', error),
+    );
     try {
-        await runWithAbortDeadline(
+        const recallResult = await runWithAbortDeadline(
             signal => injectMemoryPrompt(type, signal),
             {
                 controller,
@@ -3388,6 +3416,10 @@ async function runStorySummaryRecallInterceptor(_interceptorChat, _contextSize, 
                 timeoutMessage: 'Story Summary recall deadline exceeded',
             },
         );
+        if (String(recallResult?.text || '').trim()) {
+            return selectBestStoryMemoryResult(recallResult);
+        }
+        return selectBestStoryMemoryResult(recallResult, getStorySummaryForEna());
     } catch (error) {
         // 截止或失败时 fail-open。显式取消的调用方已经清理 Prompt；旧任务
         // 不能在这里清掉替代它的新任务结果。后台残余任务也受最终写入闸门保护。
@@ -3400,7 +3432,12 @@ async function runStorySummaryRecallInterceptor(_interceptorChat, _contextSize, 
                 error
             );
         }
+        if (!runContext?.signal?.aborted) {
+            return selectBestStoryMemoryResult(undefined, getStorySummaryForEna());
+        }
     } finally {
+        cancelSlowNotice();
+        dispatchSignal?.removeEventListener('abort', abortFromDispatch);
         if (activeRecallRun === run) activeRecallRun = null;
     }
 }
@@ -3523,7 +3560,11 @@ function registerEvents() {
     window.visualViewport?.addEventListener?.("scroll", handleViewportChangeForBackground, { passive: true });
 
     // 注入链路：召回在宿主 generate_interceptor 内执行（先入楼渲染，再召回）
-    registerGenerateInterceptor('story-summary', runStorySummaryRecallInterceptor);
+    registerGenerateInterceptor(
+        'story-summary',
+        runStorySummaryRecallInterceptor,
+        GENERATE_INTERCEPTOR_ORDER.STORY_SUMMARY,
+    );
     events.on(event_types.GENERATION_STOPPED, () => cancelRecallAndClearPrompt('generation-stopped'));
     events.on(event_types.GENERATION_ENDED, (data) => {
         notifyStorySummaryAfterAi(data, "generation_ended");

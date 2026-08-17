@@ -8,6 +8,7 @@ import {
 import { LLMServiceError } from "./scene-planner.js";
 import { createModuleEvents, event_types } from "../../../core/event-manager.js";
 import {
+    GENERATE_INTERCEPTOR_ORDER,
     registerGenerateInterceptor,
     unregisterGenerateInterceptor,
 } from "../../../shared/common/generate-interceptor.js";
@@ -103,7 +104,7 @@ export function setupDrawGenerateInterceptor(options = {}) {
     registerGenerateInterceptor('draw', (chat) => {
         if (!shouldStrip()) return;
         stripDrawArtifactsFromChat(chat);
-    });
+    }, GENERATE_INTERCEPTOR_ORDER.DRAW);
 }
 
 export function cleanupDrawGenerateInterceptor() {
