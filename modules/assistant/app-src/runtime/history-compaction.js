@@ -148,12 +148,14 @@ export function createHistoryCompactionController(deps) {
                 toolChoice: 'none',
                 temperature: Math.min(providerConfig.temperature ?? 0.2, 0.2),
                 maxTokens: resolveHistorySummaryMaxTokens(providerConfig),
-                reasoning: providerConfig.reasoning,
+                reasoning: { mode: 'inherit', output: 'hide' },
                 signal,
             });
             state.historySummary = String(result.text || '').trim() || fallbackSummary;
-        } catch {
+        } catch (error) {
+            if (signal?.aborted || error?.name === 'AbortError') throw error;
             state.historySummary = fallbackSummary;
+            showToast('历史摘要生成失败，已使用本地降级摘要。');
         }
     }
 

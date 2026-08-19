@@ -27,11 +27,11 @@ import {
 import {
     getReasoningEffortOptions,
     getReasoningModeOptions,
+    getReasoningOutputOptions,
     resolveReasoningCapability,
     resolveRuntimeReasoning,
 } from '../reasoning-capabilities.js';
 import {
-    REASONING_OUTPUT_OPTIONS,
     normalizeReasoningConfig,
 } from '../reasoning-config.js';
 import { DEFAULT_TAVILY_BASE_URL, normalizeTavilyBaseUrl } from '../tavily-search.js';
@@ -84,9 +84,8 @@ function buildReasoningDraftFields(provider = '', providerConfig = {}) {
         baseUrl: providerConfig.baseUrl,
         model: providerConfig.model,
     });
-    const mode = capability.modes.includes(reasoning.mode) ? reasoning.mode : 'inherit';
     const fields = {
-        reasoningMode: mode,
+        reasoningMode: reasoning.mode,
         reasoningOutput: reasoning.output,
         reasoningEffort: '',
         reasoningBudgetTokens: undefined,
@@ -108,23 +107,8 @@ function buildReasoningDraftFields(provider = '', providerConfig = {}) {
     return fields;
 }
 
-function normalizeReasoningForContext(provider = '', providerConfig = {}, source = {}) {
-    const reasoning = normalizeReasoningConfig(source);
-    const capability = resolveReasoningCapability({
-        provider,
-        baseUrl: providerConfig.baseUrl,
-        model: providerConfig.model,
-    });
-    return {
-        mode: reasoning.mode,
-        output: reasoning.output,
-        ...(capability.intensity.kind === 'effort' && reasoning.effort
-            ? { effort: reasoning.effort }
-            : {}),
-        ...(capability.intensity.kind === 'budget' && reasoning.budgetTokens !== undefined
-            ? { budgetTokens: reasoning.budgetTokens }
-            : {}),
-    };
+function normalizeReasoningDraft(source = {}) {
+    return normalizeReasoningConfig(source);
 }
 
 function filterModels(models = []) {
@@ -584,27 +568,23 @@ export function createAgentSettingsPanel(deps = {}) {
         const delegateModel = root.querySelector('#xb-assistant-delegate-model')?.value.trim()
             ?? draft.delegateModel
             ?? '';
-        const reasoning = normalizeReasoningForContext(provider, { baseUrl, model }, {
+        const reasoning = normalizeReasoningDraft({
             mode: root.querySelector('#xb-assistant-reasoning-mode')?.value || draft.reasoningMode,
             output: root.querySelector('#xb-assistant-reasoning-output')?.value || draft.reasoningOutput,
             effort: root.querySelector('#xb-assistant-reasoning-effort')?.value || draft.reasoningEffort,
             budgetTokens: root.querySelector('#xb-assistant-reasoning-budget')?.value
                 ?? draft.reasoningBudgetTokens,
         });
-        const delegateReasoning = normalizeReasoningForContext(
-            delegateProvider,
-            { baseUrl: delegateBaseUrl, model: delegateModel },
-            {
-                mode: root.querySelector('#xb-assistant-delegate-reasoning-mode')?.value
-                    || draft.delegateReasoningMode,
-                output: root.querySelector('#xb-assistant-delegate-reasoning-output')?.value
-                    || draft.delegateReasoningOutput,
-                effort: root.querySelector('#xb-assistant-delegate-reasoning-effort')?.value
-                    || draft.delegateReasoningEffort,
-                budgetTokens: root.querySelector('#xb-assistant-delegate-reasoning-budget')?.value
-                    ?? draft.delegateReasoningBudgetTokens,
-            },
-        );
+        const delegateReasoning = normalizeReasoningDraft({
+            mode: root.querySelector('#xb-assistant-delegate-reasoning-mode')?.value
+                || draft.delegateReasoningMode,
+            output: root.querySelector('#xb-assistant-delegate-reasoning-output')?.value
+                || draft.delegateReasoningOutput,
+            effort: root.querySelector('#xb-assistant-delegate-reasoning-effort')?.value
+                || draft.delegateReasoningEffort,
+            budgetTokens: root.querySelector('#xb-assistant-delegate-reasoning-budget')?.value
+                ?? draft.delegateReasoningBudgetTokens,
+        });
         const providerConfig = {
             baseUrl,
             model,
@@ -759,6 +739,7 @@ export function createAgentSettingsPanel(deps = {}) {
                 provider: draft.provider,
                 baseUrl: draft.baseUrl,
                 model: draft.model,
+                maxTokens: normalizeMaxTokens(draft.maxTokens),
             }, {
                 mode: draft.reasoningMode,
                 output: draft.reasoningOutput,
@@ -785,6 +766,7 @@ export function createAgentSettingsPanel(deps = {}) {
                 provider: draft.delegateProvider,
                 baseUrl: draft.delegateBaseUrl,
                 model: draft.delegateModel,
+                maxTokens: normalizeMaxTokens(draft.delegateMaxTokens),
             }, {
                 mode: draft.delegateReasoningMode,
                 output: draft.delegateReasoningOutput,
@@ -794,34 +776,34 @@ export function createAgentSettingsPanel(deps = {}) {
         };
     }
 
-    function getReasoningDraftError(draft = ensureConfigDraft(), scope = 'main') {
-        const target = scope === 'delegate'
-            ? {
-                label: '分身模型：',
-                provider: draft.delegateProvider,
-                baseUrl: draft.delegateBaseUrl,
-                model: draft.delegateModel,
-                reasoning: {
-                    mode: draft.delegateReasoningMode,
-                    output: draft.delegateReasoningOutput,
-                    effort: draft.delegateReasoningEffort,
-                    budgetTokens: draft.delegateReasoningBudgetTokens,
-                },
+    function getConfigReasoningErrors(config = {}) {
+        const errors = [];
+        Object.entries(config.presets || {}).forEach(([name, preset]) => {
+            const provider = preset?.provider || 'openai-compatible';
+            const providerConfig = preset?.modelConfigs?.[provider] || {};
+            const runtime = resolveRuntimeReasoning({
+                provider,
+                baseUrl: providerConfig.baseUrl,
+                model: providerConfig.model,
+                maxTokens: normalizeMaxTokens(providerConfig.maxTokens),
+            }, providerConfig.reasoning);
+            if (runtime.valid === false) {
+                errors.push(`预设“${name}”：${runtime.error}`);
             }
-            : {
-                label: '主模型：',
-                provider: draft.provider,
-                baseUrl: draft.baseUrl,
-                model: draft.model,
-                reasoning: {
-                    mode: draft.reasoningMode,
-                    output: draft.reasoningOutput,
-                    effort: draft.reasoningEffort,
-                    budgetTokens: draft.reasoningBudgetTokens,
-                },
-            };
-        const runtime = resolveRuntimeReasoning(target, target.reasoning);
-        return runtime.valid === false ? `${target.label}${runtime.error}` : '';
+        });
+
+        const delegateProvider = config.delegateConfig?.provider || 'openai-compatible';
+        const delegateProviderConfig = config.delegateConfig?.modelConfigs?.[delegateProvider] || {};
+        const delegateRuntime = resolveRuntimeReasoning({
+            provider: delegateProvider,
+            baseUrl: delegateProviderConfig.baseUrl,
+            model: delegateProviderConfig.model,
+            maxTokens: normalizeMaxTokens(delegateProviderConfig.maxTokens),
+        }, delegateProviderConfig.reasoning);
+        if (delegateRuntime.valid === false) {
+            errors.push(`分身模型：${delegateRuntime.error}`);
+        }
+        return errors;
     }
 
     function getActiveProviderConfig(options = {}) {
@@ -904,23 +886,10 @@ export function createAgentSettingsPanel(deps = {}) {
             model,
             reasoning: source,
         });
-        if (delegate) {
-            Object.assign(draft, {
-                delegateReasoningMode: fields.reasoningMode,
-                delegateReasoningOutput: fields.reasoningOutput,
-                delegateReasoningEffort: fields.reasoningEffort,
-                delegateReasoningBudgetTokens: fields.reasoningBudgetTokens,
-            });
-        } else {
-            Object.assign(draft, fields);
-        }
-
-        const mode = delegate ? draft.delegateReasoningMode : draft.reasoningMode;
-        const output = delegate ? draft.delegateReasoningOutput : draft.reasoningOutput;
-        const effort = delegate ? draft.delegateReasoningEffort : draft.reasoningEffort;
-        const budgetTokens = delegate
-            ? draft.delegateReasoningBudgetTokens
-            : draft.reasoningBudgetTokens;
+        const mode = fields.reasoningMode;
+        const output = fields.reasoningOutput;
+        const effort = fields.reasoningEffort;
+        const budgetTokens = fields.reasoningBudgetTokens;
         const modeSelect = root.querySelector(`${prefix}-mode`);
         const capabilityText = root.querySelector(`${prefix}-capability`);
         const effortWrap = root.querySelector(`${prefix}-effort-wrap`);
@@ -957,7 +926,7 @@ export function createAgentSettingsPanel(deps = {}) {
                 && capability.intensity.kind === 'budget' ? '' : 'none';
         }
         if (outputSelect) {
-            refillSelect(outputSelect, REASONING_OUTPUT_OPTIONS);
+            refillSelect(outputSelect, getReasoningOutputOptions(capability));
             outputSelect.value = output;
         }
     }
@@ -1109,16 +1078,31 @@ export function createAgentSettingsPanel(deps = {}) {
         };
     }
 
+    function validateAndSaveConfig(nextConfig, options = {}) {
+        const normalizedConfig = normalizeAgentConfig(nextConfig);
+        const reasoningErrors = getConfigReasoningErrors(normalizedConfig);
+        if (reasoningErrors.length) {
+            showToast?.(reasoningErrors[0]);
+            return false;
+        }
+
+        state.config = normalizedConfig;
+        const presetName = normalizePresetName(
+            options.presetName || normalizedConfig.currentPresetName || DEFAULT_PRESET_NAME,
+        );
+        const preset = normalizedConfig.presets?.[presetName] || buildDefaultPreset();
+        state.configDraft = buildDraftFromPreset(presetName, preset, normalizedConfig);
+        requestConfigFormSync();
+        postSaveConfig({
+            requestId: createRequestId(options.requestPrefix || 'save-config'),
+            config: normalizedConfig,
+            payload: buildConfigSavePayload(normalizedConfig),
+        });
+        return true;
+    }
+
     function saveConfigFromForm(root, options = {}) {
         const draft = syncConfigDraft(root);
-        const reasoningError = getReasoningDraftError(
-            draft,
-            options.configureDelegate === true ? 'delegate' : 'main',
-        );
-        if (reasoningError) {
-            showToast?.(reasoningError);
-            return;
-        }
         const nextPresetName = normalizePresetName(options.presetName || draft.presetDraftName);
         const currentPresetName = normalizePresetName(draft.currentPresetName || state.config?.currentPresetName || DEFAULT_PRESET_NAME);
         const currentPreset = (state.config?.presets || {})[currentPresetName] || buildDefaultPreset();
@@ -1140,7 +1124,7 @@ export function createAgentSettingsPanel(deps = {}) {
             delete nextPresets[currentPresetName];
         }
         nextPresets[nextPresetName] = nextPreset;
-        state.config = normalizeAgentConfig({
+        const nextConfig = {
             ...state.config,
             jsApiPermission: normalizeJsApiPermission(draft.jsApiPermission),
             tavilyApiKey: String(draft.tavilyApiKey || ''),
@@ -1150,13 +1134,10 @@ export function createAgentSettingsPanel(deps = {}) {
             delegateConfig: buildDelegateConfigFromDraft(draft),
             delegateConfigured: options.configureDelegate === true || state.config?.delegateConfigured === true,
             presets: nextPresets,
-        });
-        state.configDraft = buildDraftFromPreset(nextPresetName, nextPreset, state.config);
-        requestConfigFormSync();
-        postSaveConfig({
-            requestId: createRequestId(options.requestPrefix || 'save-config'),
-            config: state.config,
-            payload: buildConfigSavePayload(state.config),
+        };
+        validateAndSaveConfig(nextConfig, {
+            presetName: nextPresetName,
+            requestPrefix: options.requestPrefix,
         });
     }
 
@@ -1216,9 +1197,7 @@ export function createAgentSettingsPanel(deps = {}) {
         const nextPresets = { ...(state.config?.presets || {}) };
         delete nextPresets[currentPresetName];
         const nextPresetName = Object.keys(nextPresets)[0] || DEFAULT_PRESET_NAME;
-        const nextPreset = nextPresets[nextPresetName] || buildDefaultPreset();
-
-        state.config = normalizeAgentConfig({
+        const nextConfig = {
             ...state.config,
             jsApiPermission: normalizeJsApiPermission(draft.jsApiPermission),
             tavilyApiKey: String(draft.tavilyApiKey || state.config?.tavilyApiKey || ''),
@@ -1227,15 +1206,13 @@ export function createAgentSettingsPanel(deps = {}) {
             delegatePresetName: resolveExistingPresetName(draft.delegatePresetName, nextPresetName),
             delegateConfig: buildDelegateConfigFromDraft(draft),
             presets: nextPresets,
-        });
-        state.configDraft = buildDraftFromPreset(nextPresetName, nextPreset, state.config);
-        requestConfigFormSync();
-        postSaveConfig({
-            requestId: createRequestId('delete-preset'),
-            config: state.config,
-            payload: buildConfigSavePayload(state.config),
-        });
-        render?.();
+        };
+        if (validateAndSaveConfig(nextConfig, {
+            presetName: nextPresetName,
+            requestPrefix: 'delete-preset',
+        })) {
+            render?.();
+        }
     }
 
     function bindSettingsPanelEvents(root) {

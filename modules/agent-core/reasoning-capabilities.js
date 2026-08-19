@@ -17,6 +17,8 @@ function freezeCapability(capability) {
     return Object.freeze({
         ...capability,
         modes: Object.freeze([...(capability.modes || ['inherit'])]),
+        outputModes: Object.freeze([...(capability.outputModes || ['hide', 'show'])]),
+        temperatureOmitModes: Object.freeze([...(capability.temperatureOmitModes || [])]),
         intensity: Object.freeze({
             ...intensity,
             ...(Array.isArray(intensity.values)
@@ -35,7 +37,8 @@ function effortCapability(profileId, modes, values, defaultValue, options = {}) 
             values,
             defaultValue,
         },
-        omitTemperatureWhenOn: options.omitTemperatureWhenOn === true,
+        outputModes: options.outputModes,
+        temperatureOmitModes: options.temperatureOmitModes,
     });
 }
 
@@ -50,7 +53,8 @@ function budgetCapability(profileId, modes, range, options = {}) {
             defaultValue: range.defaultValue,
             allowAuto: range.allowAuto === true,
         },
-        omitTemperatureWhenOn: options.omitTemperatureWhenOn === true,
+        outputModes: options.outputModes,
+        temperatureOmitModes: options.temperatureOmitModes,
     });
 }
 
@@ -59,17 +63,22 @@ function switchCapability(profileId, modes, options = {}) {
         profileId,
         modes,
         intensity: { kind: 'none' },
-        omitTemperatureWhenOn: options.omitTemperatureWhenOn === true,
+        outputModes: options.outputModes,
+        temperatureOmitModes: options.temperatureOmitModes,
     });
 }
 
 const INHERIT_ONLY = freezeCapability({
     profileId: 'unsupported',
     modes: ['inherit'],
+    outputModes: ['hide'],
     intensity: { kind: 'none' },
-    omitTemperatureWhenOn: false,
     unsupportedReason: '当前 Provider、传输方式与模型组合没有已验证的 Reasoning 控制协议。',
 });
+
+const OMIT_TEMPERATURE_WHEN_REASONING = Object.freeze(['on']);
+const OMIT_TEMPERATURE_UNLESS_EXPLICITLY_OFF = Object.freeze(['inherit', 'on']);
+const OMIT_TEMPERATURE_ALWAYS = Object.freeze(['inherit', 'on', 'off']);
 
 const OPENAI_PROFILES = Object.freeze({
     latest: effortCapability(
@@ -77,53 +86,53 @@ const OPENAI_PROFILES = Object.freeze({
         ['inherit', 'on', 'off'],
         ['low', 'medium', 'high', 'xhigh', 'max'],
         'medium',
-        { omitTemperatureWhenOn: true },
+        { temperatureOmitModes: OMIT_TEMPERATURE_ALWAYS },
     ),
     gpt55: effortCapability(
         'openai-gpt-5.5',
         ['inherit', 'on', 'off'],
         ['low', 'medium', 'high', 'xhigh'],
         'medium',
-        { omitTemperatureWhenOn: true },
+        { temperatureOmitModes: OMIT_TEMPERATURE_UNLESS_EXPLICITLY_OFF },
     ),
     gpt52To54: effortCapability(
         'openai-gpt-5.2-5.4',
         ['inherit', 'on', 'off'],
         ['low', 'medium', 'high', 'xhigh'],
         'medium',
-        { omitTemperatureWhenOn: true },
+        { temperatureOmitModes: OMIT_TEMPERATURE_UNLESS_EXPLICITLY_OFF },
     ),
     gpt51: effortCapability(
         'openai-gpt-5.1',
         ['inherit', 'on', 'off'],
         ['low', 'medium', 'high'],
         'medium',
-        { omitTemperatureWhenOn: true },
+        { temperatureOmitModes: OMIT_TEMPERATURE_UNLESS_EXPLICITLY_OFF },
     ),
     fixedMedium: effortCapability(
         'openai-gpt-5.3-chat',
         ['inherit', 'on'],
         ['medium'],
         'medium',
-        { omitTemperatureWhenOn: true },
+        { temperatureOmitModes: OMIT_TEMPERATURE_UNLESS_EXPLICITLY_OFF },
     ),
     gpt5: effortCapability(
         'openai-gpt-5',
         ['inherit', 'on'],
         ['minimal', 'low', 'medium', 'high'],
         'medium',
-        { omitTemperatureWhenOn: true },
+        { temperatureOmitModes: OMIT_TEMPERATURE_UNLESS_EXPLICITLY_OFF },
     ),
     oSeries: effortCapability(
         'openai-o-series',
         ['inherit', 'on'],
         ['low', 'medium', 'high'],
         'medium',
-        { omitTemperatureWhenOn: true },
+        { temperatureOmitModes: OMIT_TEMPERATURE_UNLESS_EXPLICITLY_OFF },
     ),
 });
 
-const ST_OPENAI_REASONING_MODELS = new Set([
+export const ST_OPENAI_REASONING_MODELS = Object.freeze([
     'o1',
     'o3-mini',
     'o3-mini-2025-01-31',
@@ -153,25 +162,37 @@ const ST_OPENAI_REASONING_MODELS = new Set([
     'gpt-5.5',
     'gpt-5.5-2026-04-23',
 ]);
+const ST_OPENAI_REASONING_MODEL_SET = new Set(ST_OPENAI_REASONING_MODELS);
+
+const OPENAI_O_SERIES_REASONING_MODELS = new Set([
+    'o1',
+    'o1-2024-12-17',
+    'o3-mini',
+    'o3-mini-2025-01-31',
+    'o3',
+    'o3-2025-04-16',
+    'o4-mini',
+    'o4-mini-2025-04-16',
+]);
 
 const KIMI_K3 = effortCapability(
     'kimi-k3',
     ['inherit', 'on', 'off'],
     ['low', 'high', 'max'],
     'max',
-    { omitTemperatureWhenOn: true },
+    { temperatureOmitModes: OMIT_TEMPERATURE_WHEN_REASONING },
 );
 const KIMI_K25_K26 = switchCapability(
     'kimi-k2.5-k2.6',
     ['inherit', 'on', 'off'],
-    { omitTemperatureWhenOn: true },
+    { temperatureOmitModes: OMIT_TEMPERATURE_WHEN_REASONING },
 );
 const DEEPSEEK = effortCapability(
     'deepseek-thinking',
     ['inherit', 'on', 'off'],
     ['low', 'high', 'max'],
     'high',
-    { omitTemperatureWhenOn: true },
+    { temperatureOmitModes: OMIT_TEMPERATURE_WHEN_REASONING },
 );
 
 const ANTHROPIC_ADAPTIVE = effortCapability(
@@ -179,40 +200,52 @@ const ANTHROPIC_ADAPTIVE = effortCapability(
     ['inherit', 'on', 'off'],
     ['low', 'medium', 'high', 'xhigh', 'max'],
     'high',
-    { omitTemperatureWhenOn: true },
+    { temperatureOmitModes: OMIT_TEMPERATURE_WHEN_REASONING },
+);
+const ANTHROPIC_ADAPTIVE_NO_SAMPLING = effortCapability(
+    'anthropic-adaptive',
+    ['inherit', 'on', 'off'],
+    ['low', 'medium', 'high', 'xhigh', 'max'],
+    'high',
+    { temperatureOmitModes: OMIT_TEMPERATURE_ALWAYS },
 );
 const ANTHROPIC_MANUAL = budgetCapability(
     'anthropic-manual',
     ['inherit', 'on', 'off'],
     { min: 1024, max: 128000, defaultValue: 8192 },
-    { omitTemperatureWhenOn: true },
+    { temperatureOmitModes: OMIT_TEMPERATURE_WHEN_REASONING },
 );
-const HOST_ANTHROPIC_ADAPTIVE = effortCapability(
+const HOST_ANTHROPIC_ADAPTIVE_NO_SAMPLING = effortCapability(
     'sillytavern-claude-adaptive',
     ['inherit', 'on', 'off'],
     ['low', 'medium', 'high', 'max'],
     'high',
-    { omitTemperatureWhenOn: true },
+    { temperatureOmitModes: OMIT_TEMPERATURE_ALWAYS },
 );
 const HOST_ANTHROPIC_CONDITIONAL = effortCapability(
     'sillytavern-claude-adaptive-conditional',
     ['inherit', 'on', 'off'],
     ['low', 'medium', 'high', 'max'],
     'high',
-    { omitTemperatureWhenOn: true },
+    { temperatureOmitModes: OMIT_TEMPERATURE_WHEN_REASONING },
 );
 const HOST_ANTHROPIC_MANUAL = effortCapability(
     'sillytavern-claude-manual',
     ['inherit', 'on', 'off'],
     ['min', 'low', 'medium', 'high', 'max'],
     'medium',
-    { omitTemperatureWhenOn: true },
+    { temperatureOmitModes: OMIT_TEMPERATURE_WHEN_REASONING },
 );
 
 const GOOGLE_25_FLASH = budgetCapability(
     'google-gemini-2.5-flash',
     ['inherit', 'on', 'off'],
     { min: 1, max: 24576, defaultValue: -1, allowAuto: true },
+);
+const GOOGLE_25_FLASH_LITE = budgetCapability(
+    'google-gemini-2.5-flash-lite',
+    ['inherit', 'on', 'off'],
+    { min: 512, max: 24576, defaultValue: -1, allowAuto: true },
 );
 const GOOGLE_25_PRO = budgetCapability(
     'google-gemini-2.5-pro',
@@ -233,6 +266,12 @@ const GOOGLE_3_PRO = effortCapability(
 );
 const HOST_GOOGLE_25_FLASH = effortCapability(
     'sillytavern-google-2.5-flash',
+    ['inherit', 'on', 'off'],
+    ['low', 'medium', 'high', 'max'],
+    'medium',
+);
+const HOST_GOOGLE_25_FLASH_LITE = effortCapability(
+    'sillytavern-google-2.5-flash-lite',
     ['inherit', 'on', 'off'],
     ['low', 'medium', 'high', 'max'],
     'medium',
@@ -268,7 +307,7 @@ function resolveOpenAIModelCapability(model = '') {
     if (/^gpt-5\.(?:2|4)(?:[-.]|$)/.test(normalized)) return OPENAI_PROFILES.gpt52To54;
     if (/^gpt-5\.1(?:[-.]|$)/.test(normalized)) return OPENAI_PROFILES.gpt51;
     if (/^gpt-5(?:-(?:mini|nano))?(?:-|$)/.test(normalized)) return OPENAI_PROFILES.gpt5;
-    if (/^o(?:1|3|3-mini|4-mini)(?:-|$)/.test(normalized)) return OPENAI_PROFILES.oSeries;
+    if (OPENAI_O_SERIES_REASONING_MODELS.has(normalized)) return OPENAI_PROFILES.oSeries;
     return null;
 }
 
@@ -288,7 +327,7 @@ function resolveOpenAICompatibleCapability(baseUrl = '', model = '') {
 function resolveAnthropicCapability(model = '', hosted = false) {
     const normalized = normalizeModel(model);
     if (/^claude-opus-4-7/.test(normalized)) {
-        return hosted ? HOST_ANTHROPIC_ADAPTIVE : ANTHROPIC_ADAPTIVE;
+        return hosted ? HOST_ANTHROPIC_ADAPTIVE_NO_SAMPLING : ANTHROPIC_ADAPTIVE_NO_SAMPLING;
     }
     if (/^claude-(?:opus-4-6|sonnet-4-6)/.test(normalized)) {
         // SillyTavern can disable adaptive thinking for 4.6 in server config. The
@@ -305,6 +344,9 @@ function resolveAnthropicCapability(model = '', hosted = false) {
 function resolveGoogleCapability(model = '', hosted = false) {
     const normalized = normalizeModel(model);
     if (normalized.includes('image')) return INHERIT_ONLY;
+    if (/^gemini-2\.5-flash-lite/.test(normalized)) {
+        return hosted ? HOST_GOOGLE_25_FLASH_LITE : GOOGLE_25_FLASH_LITE;
+    }
     if (/^gemini-2\.5-flash/.test(normalized)) {
         return hosted ? HOST_GOOGLE_25_FLASH : GOOGLE_25_FLASH;
     }
@@ -329,7 +371,7 @@ export function resolveReasoningCapability(context = {}) {
         case 'openai-compatible':
             return resolveOpenAICompatibleCapability(context.baseUrl, model);
         case 'sillytavern-openai-compatible':
-            return ST_OPENAI_REASONING_MODELS.has(model)
+            return ST_OPENAI_REASONING_MODEL_SET.has(model)
                 ? (resolveOpenAIModelCapability(model) || INHERIT_ONLY)
                 : INHERIT_ONLY;
         case 'anthropic':
@@ -362,12 +404,21 @@ export function getReasoningEffortOptions(capability = INHERIT_ONLY) {
     }));
 }
 
-function buildInvalidRuntime(reasoning, capability, error) {
+export function getReasoningOutputOptions(capability = INHERIT_ONLY) {
+    const supportedOutputs = new Set(capability.outputModes || ['hide']);
+    return [
+        { value: 'hide', label: '隐藏', disabled: !supportedOutputs.has('hide') },
+        { value: 'show', label: '显示', disabled: !supportedOutputs.has('show') },
+    ];
+}
+
+function buildInvalidRuntime(reasoning, capability, error, code = 'REASONING_CAPABILITY_UNSUPPORTED') {
     return {
         ...reasoning,
         profileId: capability.profileId,
         valid: false,
         error,
+        code,
     };
 }
 
@@ -398,6 +449,13 @@ export function resolveRuntimeReasoning(context = {}, source = {}) {
         normalizeReasoningConfig(source),
         capability,
     );
+    if (!capability.outputModes.includes(reasoning.output)) {
+        return buildInvalidRuntime(
+            reasoning,
+            capability,
+            '当前模型不支持返回 Reasoning 内容，请选择“隐藏”。',
+        );
+    }
     if (!capability.modes.includes(reasoning.mode)) {
         return buildInvalidRuntime(
             reasoning,
@@ -423,6 +481,7 @@ export function resolveRuntimeReasoning(context = {}, source = {}) {
                 reasoning,
                 capability,
                 `当前模型不支持 Reasoning 强度“${effort}”。`,
+                'REASONING_CONFIG_INVALID',
             );
         }
         return {
@@ -445,6 +504,19 @@ export function resolveRuntimeReasoning(context = {}, source = {}) {
                 reasoning,
                 capability,
                 `Reasoning Token 预算必须在 ${capability.intensity.min}–${capability.intensity.max} 之间${capability.intensity.allowAuto ? '，或填写 -1 使用自动预算' : ''}。`,
+                'REASONING_CONFIG_INVALID',
+            );
+        }
+        const maxTokens = Number(context.maxTokens);
+        if (capability.profileId === 'anthropic-manual'
+            && Number.isFinite(maxTokens)
+            && maxTokens > 0
+            && budgetTokens >= Math.floor(maxTokens)) {
+            return buildInvalidRuntime(
+                reasoning,
+                capability,
+                'Anthropic 手动 thinking 的 Token 预算必须小于最大输出 Token。',
+                'REASONING_CONFIG_INVALID',
             );
         }
         return {
@@ -466,7 +538,7 @@ export class ReasoningCapabilityError extends Error {
     constructor(runtime = {}) {
         super(runtime.error || '当前模型不支持所选 Reasoning 配置。');
         this.name = 'ReasoningCapabilityError';
-        this.code = 'REASONING_CAPABILITY_UNSUPPORTED';
+        this.code = runtime.code || 'REASONING_CAPABILITY_UNSUPPORTED';
         this.profileId = runtime.profileId || 'unsupported';
         this.reasoning = runtime;
     }
@@ -479,15 +551,16 @@ export function assertRuntimeReasoning(runtime = {}) {
     return runtime;
 }
 
-export function resolveTaskReasoning(provider = '', config = {}, source = {}) {
+export function resolveTaskReasoning(provider = '', config = {}, source = {}, runtimeContext = {}) {
     return assertRuntimeReasoning(resolveRuntimeReasoning({
         provider,
         baseUrl: config.baseUrl,
         model: config.model,
+        maxTokens: runtimeContext.maxTokens ?? config.maxTokens,
     }, source));
 }
 
 export function shouldOmitTemperatureForReasoning(context = {}, reasoning = {}) {
     const capability = resolveReasoningCapability(context);
-    return reasoning.mode === 'on' && capability.omitTemperatureWhenOn === true;
+    return capability.temperatureOmitModes.includes(reasoning.mode);
 }

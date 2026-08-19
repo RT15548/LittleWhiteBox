@@ -572,6 +572,8 @@ export class GoogleAdapter {
                 includeThoughts: isReasoningOutputVisible(reasoning),
                 thinkingLevel: mapThinkingLevel(reasoning.effort),
             };
+        } else if (isReasoningOutputVisible(reasoning)) {
+            config.thinkingConfig = { includeThoughts: true };
         }
 
         if (tools.length) {

@@ -9,6 +9,7 @@ import {
     stripTaggedToolCallsForDisplay,
 } from '../../agent-core/adapters/openai-compatible.js';
 import { OpenAIResponsesAdapter } from '../../agent-core/adapters/openai-responses.js';
+import { redactRequestSecrets } from '../../agent-core/adapters/request-inspection.js';
 import { resolveRuntimeReasoning } from '../../agent-core/reasoning-capabilities.js';
 
 test('tagged-json prompt honors required, named, and none tool choices', () => {
@@ -29,6 +30,28 @@ test('tagged-json prompt honors required, named, and none tool choices', () => {
     assert.match(buildSystem('required'), /本轮必须调用工具，不得只返回正文。/);
     assert.match(buildSystem('Read'), /本轮必须调用工具 Read，不得调用其他工具，也不得只返回正文。/);
     assert.match(buildSystem('none'), /本轮不得调用工具，不得输出 <tool_call> 标签。/);
+});
+
+test('request inspection redacts credentials without hiding token limits', () => {
+    assert.deepEqual(redactRequestSecrets({
+        Authorization: 'Bearer secret',
+        'x-csrf-token': 'csrf-secret',
+        max_tokens: 32000,
+        budget_tokens: 8192,
+        nested: {
+            api_key: 'api-secret',
+            token_count: 123,
+        },
+    }), {
+        Authorization: '[redacted]',
+        'x-csrf-token': '[redacted]',
+        max_tokens: 32000,
+        budget_tokens: 8192,
+        nested: {
+            api_key: '[redacted]',
+            token_count: 123,
+        },
+    });
 });
 
 function createSseResponse(events = [], delimiter = '\n\n') {
@@ -742,7 +765,7 @@ test('openai-compatible adapter omits tool fields for pure text requests', async
     assert.equal(Object.hasOwn(requestBody, 'tool_choice'), false);
 });
 
-test('OpenAI Responses sends exact model effort, explicit off, and no fields for inherit', () => {
+test('OpenAI Responses sends exact model effort, explicit off, and visible inherited output', () => {
     const adapter = new OpenAIResponsesAdapter({
         apiKey: 'test-key',
         baseUrl: 'https://api.openai.com/v1',
@@ -771,8 +794,8 @@ test('OpenAI Responses sends exact model effort, explicit off, and no fields for
     assert.deepEqual(offBody.reasoning, { effort: 'none' });
 
     const inheritBody = adapter.buildRequestBody(buildTask({ mode: 'inherit', output: 'show' }));
-    assert.equal(Object.hasOwn(inheritBody, 'reasoning'), false);
-    assert.equal(Object.hasOwn(inheritBody, 'include'), false);
+    assert.deepEqual(inheritBody.reasoning, { summary: 'auto' });
+    assert.deepEqual(inheritBody.include, ['reasoning.encrypted_content']);
 
     const effective = adapter.inspectRequest(visibleTask, { body: visibleBody }).effectiveConfig;
     assert.equal(effective.reasoningRequestedMode, 'on');
@@ -780,6 +803,33 @@ test('OpenAI Responses sends exact model effort, explicit off, and no fields for
     assert.equal(effective.reasoningEffectiveMode, 'on');
     assert.equal(effective.reasoningEffort, 'max');
     assert.equal(effective.reasoningOutputVisible, true);
+});
+
+test('OpenAI-compatible o-series requests use max_completion_tokens', () => {
+    const messages = [{ role: 'user', content: 'hello' }];
+    const o1MiniBody = new OpenAICompatibleAdapter({
+        apiKey: 'test-key',
+        baseUrl: 'https://api.openai.com/v1',
+        model: 'o1-mini',
+    }).buildRequestBody({
+        messages,
+        maxTokens: 4096,
+        reasoning: { mode: 'inherit', output: 'hide' },
+    });
+    assert.equal(o1MiniBody.max_completion_tokens, 4096);
+    assert.equal(Object.hasOwn(o1MiniBody, 'max_tokens'), false);
+    assert.equal(Object.hasOwn(o1MiniBody, 'reasoning_effort'), false);
+
+    const regularBody = new OpenAICompatibleAdapter({
+        apiKey: 'test-key',
+        baseUrl: 'https://api.openai.com/v1',
+        model: 'gpt-4o-mini',
+    }).buildRequestBody({
+        messages,
+        maxTokens: 4096,
+    });
+    assert.equal(regularBody.max_tokens, 4096);
+    assert.equal(Object.hasOwn(regularBody, 'max_completion_tokens'), false);
 });
 
 test('OpenAI-compatible encodes only verified Kimi and DeepSeek protocols', () => {

@@ -169,8 +169,8 @@ test('hosted adapters encode inherit, on, and off at their own protocol boundary
         messages,
         reasoning: { mode: 'inherit', output: 'show' },
     });
-    assert.equal(Object.hasOwn(claudeInherit, 'reasoning_effort'), false);
-    assert.equal(Object.hasOwn(claudeInherit, 'include_reasoning'), false);
+    assert.equal(claudeInherit.reasoning_effort, 'auto');
+    assert.equal(claudeInherit.include_reasoning, true);
     const claudeOn = claude.buildPayload({
         messages,
         reasoning: { mode: 'on', effort: 'max', output: 'hide' },
@@ -187,8 +187,8 @@ test('hosted adapters encode inherit, on, and off at their own protocol boundary
         messages,
         reasoning: { mode: 'inherit', output: 'show' },
     });
-    assert.equal(Object.hasOwn(googleInherit, 'reasoning_effort'), false);
-    assert.equal(Object.hasOwn(googleInherit, 'include_reasoning'), false);
+    assert.equal(googleInherit.reasoning_effort, 'auto');
+    assert.equal(googleInherit.include_reasoning, true);
     const googleOn = google.buildPayload({
         messages,
         reasoning: { mode: 'on', effort: 'max', output: 'show' },
@@ -291,6 +291,19 @@ test('host OpenAI-compatible payloads use SillyTavern backend fields without lea
     assert.equal(payload.temperature, 0.7);
     assert.equal(payload.tool_choice, 'auto');
     assert.equal(payload.tools.length, 1);
+
+    const oSeriesPayload = buildHostOpenAICompatibleGeneratePayload(
+        {
+            baseUrl: 'https://example.com/v1/',
+            apiKey: 'test-key',
+            model: 'o1-mini',
+        },
+        { maxTokens: 4321 },
+        [{ role: 'user', content: 'hello' }],
+        false,
+    );
+    assert.equal(oSeriesPayload.max_completion_tokens, 4321);
+    assert.equal(Object.hasOwn(oSeriesPayload, 'max_tokens'), false);
 });
 
 test('OpenAI-compatible native messages keep task system prompt in the actual request', async () => {

@@ -8,6 +8,7 @@ import {
     buildAnthropicMessages,
     resolveAnthropicToolChoice,
 } from '../../agent-core/adapters/anthropic.js';
+import { ReasoningCapabilityError } from '../../agent-core/reasoning-capabilities.js';
 
 const readTool = {
     type: 'function',
@@ -119,7 +120,9 @@ test('Anthropic manual reasoning uses a validated token budget', () => {
             ...task,
             reasoning: { ...task.reasoning, budgetTokens: 16000 },
         }),
-        /必须小于最大输出 Token/,
+        (error) => error instanceof ReasoningCapabilityError
+            && error.code === 'REASONING_CONFIG_INVALID'
+            && /必须小于最大输出 Token/.test(error.message),
     );
 });
 
@@ -141,7 +144,7 @@ test('Anthropic manual reasoning yields to a forced tool contract for this reque
         }],
         toolChoice: 'required',
         temperature: 0.4,
-        maxTokens: 16000,
+        maxTokens: 1024,
         reasoning: { mode: 'on', budgetTokens: 8192, output: 'show' },
     };
 

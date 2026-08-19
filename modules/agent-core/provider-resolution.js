@@ -78,6 +78,7 @@ export function resolveActiveProviderConfig(configValue = {}, options = {}) {
             provider,
             baseUrl: String(providerConfig.baseUrl || ''),
             model: String(providerConfig.model || ''),
+            maxTokens: normalizeMaxTokens(providerConfig.maxTokens),
         };
         return {
             currentPresetName: String(config.delegatePresetName || config.currentPresetName || ''),
@@ -112,6 +113,7 @@ export function resolveActiveProviderConfig(configValue = {}, options = {}) {
         provider,
         baseUrl: String(providerConfig.baseUrl || ''),
         model: String(providerConfig.model || ''),
+        maxTokens: normalizeMaxTokens(providerConfig.maxTokens),
     };
     return {
         currentPresetName: String(activePresetName || ''),

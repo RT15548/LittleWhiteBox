@@ -350,6 +350,10 @@ export function isClaudeLikeModel(model = '') {
     return /claude/i.test(String(model || ''));
 }
 
+function usesMaxCompletionTokens(model = '') {
+    return /^o(?:1|3|4)(?:-|$)/i.test(String(model || '').trim());
+}
+
 export function normalizeFinalClaudeLikeMessageRole(messages = [], model = '') {
     if (!isClaudeLikeModel(model)) return messages;
     let finalRoleIndex = -1;
@@ -920,7 +924,11 @@ export class OpenAICompatibleAdapter {
             model: this.config.model,
             messages: isTaggedMode ? buildTaggedMessages(task, this.config.model) : buildNativeMessages(task, this.config.model),
             ...(nativeTools ? { tools: nativeTools, tool_choice: task.toolChoice || 'auto' } : {}),
-            ...(task.maxTokens ? { max_tokens: task.maxTokens } : {}),
+            ...(task.maxTokens
+                ? (usesMaxCompletionTokens(this.config.model)
+                    ? { max_completion_tokens: task.maxTokens }
+                    : { max_tokens: task.maxTokens })
+                : {}),
         };
         if (!shouldOmitTemperatureForReasoning(
             { ...this.config, provider: 'openai-compatible' },

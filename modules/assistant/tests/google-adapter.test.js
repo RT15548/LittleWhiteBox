@@ -49,10 +49,12 @@ test('google reasoning keeps model effort separate from thought output visibilit
         includeThoughts: false,
         thinkingBudget: 0,
     });
-    assert.equal(Object.hasOwn(flash25.buildChatPayload({
+    assert.deepEqual(flash25.buildChatPayload({
         messages: hiddenTask.messages,
         reasoning: { mode: 'inherit', output: 'show' },
-    }).createPayload.config, 'thinkingConfig'), false);
+    }).createPayload.config.thinkingConfig, {
+        includeThoughts: true,
+    });
 });
 
 test('google adapter preserves visible text alongside tool calls in non-streaming responses', async () => {

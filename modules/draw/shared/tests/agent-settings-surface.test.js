@@ -184,9 +184,11 @@ test('shared Agent reasoning controls follow the selected Provider and model wit
         modelInput.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
         assert.equal(modelInput.value, 'unknown-compatible-model');
         assert.equal(modelInput.selectionStart, 7);
-        assert.equal(root.querySelector('#xb-assistant-reasoning-mode').value, 'inherit');
+        assert.equal(root.querySelector('#xb-assistant-reasoning-mode').value, 'on');
         assert.equal(root.querySelector('#xb-assistant-reasoning-mode option[value="on"]').disabled, true);
         assert.equal(root.querySelector('#xb-assistant-reasoning-mode option[value="off"]').disabled, true);
+        assert.equal(root.querySelector('#xb-assistant-reasoning-output').value, 'hide');
+        assert.equal(root.querySelector('#xb-assistant-reasoning-output option[value="show"]').disabled, true);
         assert.deepEqual(
             Array.from(root.querySelector('#xb-assistant-reasoning-effort').options),
             [],
@@ -199,6 +201,9 @@ test('shared Agent reasoning controls follow the selected Provider and model wit
                 .map((option) => option.value),
             ['low', 'medium', 'high', 'xhigh', 'max'],
         );
+        assert.equal(root.querySelector('#xb-assistant-reasoning-mode').value, 'on');
+        assert.equal(root.querySelector('#xb-assistant-reasoning-effort').value, 'max');
+        assert.equal(root.querySelector('#xb-assistant-reasoning-output option[value="show"]').disabled, false);
     } finally {
         dom.restore();
     }
@@ -320,7 +325,160 @@ test('shared Agent settings reject a Reasoning budget outside the selected model
         root.querySelector('#xb-assistant-save').click();
 
         assert.equal(saves.length, 0);
-        assert.match(toasts.at(-1), /主模型.*1–24576.*-1/);
+        assert.match(toasts.at(-1), /预设“主配置”.*1–24576.*-1/);
+    } finally {
+        dom.restore();
+    }
+});
+
+test('shared Agent settings validate hidden preset Reasoning before saving', () => {
+    const dom = installDom();
+    const root = dom.document.querySelector('#root');
+    const stored = buildStoredSettings({
+        presets: {
+            ...buildStoredSettings().presets,
+            隐藏配置: {
+                provider: 'google',
+                modelConfigs: {
+                    google: {
+                        model: 'gemini-2.5-flash',
+                        apiKey: 'google-key',
+                        reasoning: { mode: 'on', budgetTokens: 0, output: 'hide' },
+                    },
+                },
+            },
+        },
+    });
+    const state = {
+        config: normalizeAgentConfig(stored),
+        configDraft: null,
+        configDirty: false,
+        configExternalChangePending: false,
+        configFormSyncPending: true,
+        configPage: 'main',
+        configSave: { status: 'idle', requestId: '', error: '' },
+        modelOptionsByProvider: {},
+        pullStateByProvider: {},
+    };
+    const saves = [];
+    const toasts = [];
+    try {
+        // First-party markup under test.
+        // eslint-disable-next-line no-unsanitized/property
+        root.innerHTML = buildAgentSettingsPanelMarkup();
+        const panel = createAgentSettingsPanel({
+            state,
+            saveConfig: (payload) => saves.push(payload),
+            showToast: (message) => toasts.push(message),
+        });
+        panel.syncConfigToForm(root);
+        panel.bindSettingsPanelEvents(root);
+        root.querySelector('#xb-assistant-save').click();
+
+        assert.equal(saves.length, 0);
+        assert.match(toasts.at(-1), /预设“隐藏配置”.*1–24576/);
+    } finally {
+        dom.restore();
+    }
+});
+
+test('preset deletion runs full Reasoning validation before committing', () => {
+    const dom = installDom();
+    const root = dom.document.querySelector('#root');
+    const stored = buildStoredSettings({
+        presets: {
+            ...buildStoredSettings().presets,
+            隐藏配置: {
+                provider: 'google',
+                modelConfigs: {
+                    google: {
+                        model: 'gemini-2.5-flash',
+                        apiKey: 'google-key',
+                        reasoning: { mode: 'on', budgetTokens: 0, output: 'hide' },
+                    },
+                },
+            },
+        },
+    });
+    const state = {
+        config: normalizeAgentConfig(stored),
+        configDraft: null,
+        configDirty: false,
+        configExternalChangePending: false,
+        configFormSyncPending: true,
+        configPage: 'main',
+        configSave: { status: 'idle', requestId: '', error: '' },
+        modelOptionsByProvider: {},
+        pullStateByProvider: {},
+    };
+    const saves = [];
+    const toasts = [];
+    try {
+        // First-party markup under test.
+        // eslint-disable-next-line no-unsanitized/property
+        root.innerHTML = buildAgentSettingsPanelMarkup();
+        const panel = createAgentSettingsPanel({
+            state,
+            saveConfig: (payload) => saves.push(payload),
+            showToast: (message) => toasts.push(message),
+        });
+        panel.syncConfigToForm(root);
+        panel.bindSettingsPanelEvents(root);
+        root.querySelector('#xb-assistant-delete-preset').click();
+
+        assert.equal(saves.length, 0);
+        assert.equal(state.config.currentPresetName, '主配置');
+        assert.equal(Object.hasOwn(state.config.presets, '主配置'), true);
+        assert.match(toasts.at(-1), /预设“隐藏配置”.*1–24576/);
+    } finally {
+        dom.restore();
+    }
+});
+
+test('shared Agent settings validate delegate Reasoning before saving', () => {
+    const dom = installDom();
+    const root = dom.document.querySelector('#root');
+    const stored = buildStoredSettings({
+        delegateConfig: {
+            provider: 'anthropic',
+            modelConfigs: {
+                anthropic: {
+                    model: 'claude-sonnet-4-5',
+                    apiKey: 'anthropic-key',
+                    maxTokens: 8192,
+                    reasoning: { mode: 'on', budgetTokens: 8192, output: 'hide' },
+                },
+            },
+        },
+    });
+    const state = {
+        config: normalizeAgentConfig(stored),
+        configDraft: null,
+        configDirty: false,
+        configExternalChangePending: false,
+        configFormSyncPending: true,
+        configPage: 'main',
+        configSave: { status: 'idle', requestId: '', error: '' },
+        modelOptionsByProvider: {},
+        pullStateByProvider: {},
+    };
+    const saves = [];
+    const toasts = [];
+    try {
+        // First-party markup under test.
+        // eslint-disable-next-line no-unsanitized/property
+        root.innerHTML = buildAgentSettingsPanelMarkup();
+        const panel = createAgentSettingsPanel({
+            state,
+            saveConfig: (payload) => saves.push(payload),
+            showToast: (message) => toasts.push(message),
+        });
+        panel.syncConfigToForm(root);
+        panel.bindSettingsPanelEvents(root);
+        root.querySelector('#xb-assistant-save').click();
+
+        assert.equal(saves.length, 0);
+        assert.match(toasts.at(-1), /分身模型.*必须小于最大输出 Token/);
     } finally {
         dom.restore();
     }
@@ -522,6 +680,7 @@ test('shared Agent API persistence is atomic and rejects stale revisions', async
 
     assert.equal(success.ok, true);
     assert.equal(cache.anotherFeature.enabled, true);
+    assert.equal(cache.settings.configVersion, 1);
     assert.equal(cache.settings.updatedAt, 5678);
     assert.deepEqual(calls, [{ key: 'settings', options: { silent: false } }]);
 

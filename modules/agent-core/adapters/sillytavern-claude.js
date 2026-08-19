@@ -396,6 +396,10 @@ export class SillyTavernClaudeAdapter {
             payload.include_reasoning = isReasoningOutputVisible(effectiveReasoning);
         } else if (effectiveReasoning.mode === 'off') {
             payload.reasoning_effort = 'auto';
+            payload.include_reasoning = false;
+        } else {
+            payload.reasoning_effort = 'auto';
+            payload.include_reasoning = isReasoningOutputVisible(effectiveReasoning);
         }
         return payload;
     }

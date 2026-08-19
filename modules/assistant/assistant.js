@@ -25,6 +25,7 @@ import {
     normalizeLookupScope,
 } from "./shared/lookup-scope.js";
 import {
+    AGENT_SETTINGS_CONFIG_VERSION,
     DEFAULT_PRESET_NAME,
     buildDefaultPreset,
     cloneDefaultModelConfigs,
@@ -103,7 +104,7 @@ const READ_LINE_TRUNCATION_SUFFIX = `... (line truncated to ${MAX_READ_LINE_CHAR
 const READ_STREAM_HEAD_EXTRA_LINES = 8;
 const READ_STREAM_HEAD_EXTRA_CHARS = MAX_READ_LINE_CHARS * 2;
 const MAX_PATH_SUGGESTIONS = 3;
-const CONFIG_VERSION = 1;
+const CONFIG_VERSION = AGENT_SETTINGS_CONFIG_VERSION;
 
 let hostWindow = null;
 let manifestCache = null;
@@ -244,13 +245,6 @@ async function loadAssistantSettings(options = {}) {
         normalizeWorkspaceName,
     });
     settingsLoaded = true;
-
-    if (settingsCache.configVersion !== CONFIG_VERSION) {
-        await persistAssistantSettings({
-            ...settingsCache,
-            expectedUpdatedAt: Number(settingsCache.updatedAt) || 0,
-        }, { silent: true });
-    }
     return settingsCache;
 }
 

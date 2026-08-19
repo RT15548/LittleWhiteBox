@@ -319,7 +319,7 @@ export function normalizeAgentSettings(saved = {}, options = {}) {
         tavilyApiKey: tavilySettings.tavilyApiKey,
         tavilyBaseUrl: tavilySettings.tavilyBaseUrl,
         updatedAt: Number(saved.updatedAt) || 0,
-        configVersion: Number(saved.configVersion) || 0,
+        configVersion: AGENT_SETTINGS_CONFIG_VERSION,
     };
 }
 

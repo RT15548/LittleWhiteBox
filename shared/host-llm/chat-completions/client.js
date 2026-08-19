@@ -16,6 +16,10 @@ function normalizeBaseUrl(value) {
     return String(value || '').trim().replace(/\/+$/, '');
 }
 
+function usesMaxCompletionTokens(model = '') {
+    return /^o(?:1|3|4)(?:-|$)/i.test(String(model || '').trim());
+}
+
 function normalizeReverseProxyForSource(value, source) {
     const baseUrl = normalizeBaseUrl(value);
     if (source === HOST_CHAT_COMPLETIONS_SOURCE_CLAUDE) {
@@ -197,12 +201,16 @@ export function buildHostChatCompletionsGeneratePayload(
     stream = false,
     source = HOST_CHAT_COMPLETIONS_SOURCE_OPENAI,
 ) {
+    const maxTokens = task.maxTokens;
+    const useCompletionLimit = source === HOST_CHAT_COMPLETIONS_SOURCE_OPENAI
+        && usesMaxCompletionTokens(config.model);
     return cleanPayload({
         ...buildHostChatCompletionsFields(config, source),
         stream: !!stream,
         messages,
         model: config.model,
-        max_tokens: task.maxTokens,
+        max_tokens: useCompletionLimit ? undefined : maxTokens,
+        max_completion_tokens: useCompletionLimit ? maxTokens : undefined,
         temperature: task.temperature,
         tools: Array.isArray(task.tools) && task.tools.length ? task.tools : undefined,
         tool_choice: Array.isArray(task.tools) && task.tools.length ? (task.toolChoice || 'auto') : undefined,

@@ -1,11 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+import { OPENAI_REASONING_EFFORT_MODELS } from '../../../../../../../../src/constants.js';
 import {
+    getReasoningOutputOptions,
     ReasoningCapabilityError,
     resolveReasoningCapability,
     resolveTaskReasoning,
     resolveRuntimeReasoning,
+    shouldOmitTemperatureForReasoning,
+    ST_OPENAI_REASONING_MODELS,
 } from '../../agent-core/reasoning-capabilities.js';
 import { normalizeReasoningConfig } from '../../agent-core/reasoning-config.js';
 
@@ -81,6 +85,13 @@ const CAPABILITY_CASES = [
         intensity: { kind: 'budget' },
     },
     {
+        name: 'Gemini 2.5 Flash-Lite',
+        context: { provider: 'google', model: 'gemini-2.5-flash-lite' },
+        profileId: 'google-gemini-2.5-flash-lite',
+        modes: ['inherit', 'on', 'off'],
+        intensity: { kind: 'budget' },
+    },
+    {
         name: 'Gemini 2.5 Pro',
         context: { provider: 'google', model: 'gemini-2.5-pro' },
         profileId: 'google-gemini-2.5-pro',
@@ -101,7 +112,31 @@ const CAPABILITY_CASES = [
         modes: ['inherit', 'on', 'off'],
         intensity: { kind: 'effort', values: ['low', 'medium', 'high', 'max'] },
     },
+    {
+        name: 'hosted Gemini 2.5 Flash-Lite',
+        context: { provider: 'sillytavern-google', model: 'gemini-2.5-flash-lite' },
+        profileId: 'sillytavern-google-2.5-flash-lite',
+        modes: ['inherit', 'on', 'off'],
+        intensity: { kind: 'effort', values: ['low', 'medium', 'high', 'max'] },
+    },
 ];
+
+test('hosted OpenAI Reasoning model membership matches SillyTavern', () => {
+    const localModels = new Set(ST_OPENAI_REASONING_MODELS);
+    const sillyTavernModels = new Set(OPENAI_REASONING_EFFORT_MODELS);
+
+    assert.deepEqual({
+        missingFromLittleWhiteBox: [...sillyTavernModels]
+            .filter(model => !localModels.has(model))
+            .sort(),
+        noLongerInSillyTavern: [...localModels]
+            .filter(model => !sillyTavernModels.has(model))
+            .sort(),
+    }, {
+        missingFromLittleWhiteBox: [],
+        noLongerInSillyTavern: [],
+    });
+});
 
 test('Reasoning capabilities are resolved by Provider, transport, and model', () => {
     for (const item of CAPABILITY_CASES) {
@@ -122,6 +157,14 @@ test('Reasoning capabilities are resolved by Provider, transport, and model', ()
         provider: 'openai-compatible',
         model: 'unknown-compatible-model',
     }).profileId, 'unsupported');
+    assert.equal(resolveReasoningCapability({
+        provider: 'openai-compatible',
+        model: 'o1-mini',
+    }).profileId, 'unsupported');
+    assert.equal(resolveReasoningCapability({
+        provider: 'sillytavern-openai-compatible',
+        model: 'o1-mini',
+    }).profileId, 'unsupported');
 });
 
 test('Reasoning runtime preserves inherit, validates on, and never degrades off to inherit', () => {
@@ -136,8 +179,15 @@ test('Reasoning runtime preserves inherit, validates on, and never degrades off 
         mode: 'inherit',
         output: 'show',
         profileId: 'unsupported',
-        valid: true,
+        valid: false,
+        error: '当前模型不支持返回 Reasoning 内容，请选择“隐藏”。',
+        code: 'REASONING_CAPABILITY_UNSUPPORTED',
     });
+    assert.equal(
+        getReasoningOutputOptions(resolveReasoningCapability(unknownContext))
+            .find((option) => option.value === 'show').disabled,
+        true,
+    );
 
     const unsupportedOff = resolveRuntimeReasoning(unknownContext, {
         mode: 'off',
@@ -216,6 +266,25 @@ test('Reasoning budgets are model-specific and the former boolean schema is not 
     });
     assert.equal(invalidPro.valid, false);
 
+    const flashLite = resolveRuntimeReasoning({
+        provider: 'google',
+        model: 'gemini-2.5-flash-lite',
+    }, {
+        mode: 'on',
+        budgetTokens: 512,
+        output: 'hide',
+    });
+    assert.equal(flashLite.valid, true);
+    assert.equal(flashLite.profileId, 'google-gemini-2.5-flash-lite');
+    assert.equal(resolveRuntimeReasoning({
+        provider: 'google',
+        model: 'gemini-2.5-flash-lite',
+    }, {
+        mode: 'on',
+        budgetTokens: 511,
+        output: 'hide',
+    }).valid, false);
+
     assert.deepEqual(normalizeReasoningConfig({
         enabled: true,
         includeOutput: true,
@@ -242,4 +311,54 @@ test('Reasoning budgets are model-specific and the former boolean schema is not 
         budgetTokens: 4096,
         output: 'hide',
     }), 'budgetTokens'), false);
+});
+
+test('Anthropic manual Reasoning budget stays below the request output limit', () => {
+    const runtime = resolveRuntimeReasoning({
+        provider: 'anthropic',
+        model: 'claude-sonnet-4-5',
+        maxTokens: 8192,
+    }, {
+        mode: 'on',
+        budgetTokens: 8192,
+        output: 'hide',
+    });
+
+    assert.equal(runtime.valid, false);
+    assert.equal(runtime.code, 'REASONING_CONFIG_INVALID');
+    assert.throws(
+        () => resolveTaskReasoning('anthropic', {
+            model: 'claude-sonnet-4-5',
+            maxTokens: 8192,
+        }, {
+            mode: 'on',
+            budgetTokens: 8192,
+            output: 'hide',
+        }),
+        (error) => error instanceof ReasoningCapabilityError
+            && error.code === 'REASONING_CONFIG_INVALID',
+    );
+});
+
+test('temperature omission follows each model and Reasoning mode contract', () => {
+    const omit = (context, mode) => shouldOmitTemperatureForReasoning(context, { mode });
+    const gpt55 = { provider: 'openai-responses', model: 'gpt-5.5' };
+    assert.equal(omit(gpt55, 'inherit'), true);
+    assert.equal(omit(gpt55, 'on'), true);
+    assert.equal(omit(gpt55, 'off'), false);
+
+    const gpt56 = { provider: 'openai-responses', model: 'gpt-5.6' };
+    assert.equal(omit(gpt56, 'inherit'), true);
+    assert.equal(omit(gpt56, 'on'), true);
+    assert.equal(omit(gpt56, 'off'), true);
+
+    const opus47 = { provider: 'anthropic', model: 'claude-opus-4-7' };
+    assert.equal(omit(opus47, 'inherit'), true);
+    assert.equal(omit(opus47, 'on'), true);
+    assert.equal(omit(opus47, 'off'), true);
+
+    const sonnet45 = { provider: 'anthropic', model: 'claude-sonnet-4-5' };
+    assert.equal(omit(sonnet45, 'inherit'), false);
+    assert.equal(omit(sonnet45, 'on'), true);
+    assert.equal(omit(sonnet45, 'off'), false);
 });

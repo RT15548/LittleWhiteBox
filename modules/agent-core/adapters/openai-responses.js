@@ -352,9 +352,11 @@ export class OpenAIResponsesAdapter {
                     ? { summary: 'auto' }
                     : {}),
             };
-            if (reasoning.mode === 'on') {
-                body.include = ['reasoning.encrypted_content'];
-            }
+        } else if (isReasoningOutputVisible(reasoning)) {
+            body.reasoning = { summary: 'auto' };
+        }
+        if (reasoning.mode !== 'off' && reasoning.profileId.startsWith('openai-')) {
+            body.include = ['reasoning.encrypted_content'];
         }
         return body;
     }
@@ -378,9 +380,7 @@ export class OpenAIResponsesAdapter {
             sdk: stream ? 'client.responses.stream' : 'client.responses.create',
             effectiveConfig: buildEffectiveReasoningConfig(task, {
                 profileId: reasoning.profileId,
-                effectiveMode: body.reasoning?.effort === 'none'
-                    ? 'off'
-                    : (body.reasoning ? 'on' : 'inherit'),
+                effectiveMode: body.reasoning?.effort === 'none' ? 'off' : reasoning.mode,
                 effort: body.reasoning?.effort,
                 controlFields: {
                     ...(body.reasoning ? { reasoning: body.reasoning } : {}),

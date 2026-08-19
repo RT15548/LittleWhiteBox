@@ -4,10 +4,14 @@ import {
     buildSdkRequestInspection,
 } from './request-inspection.js';
 import {
+    resolveReasoningCapability,
     resolveTaskReasoning,
     shouldOmitTemperatureForReasoning,
 } from '../reasoning-capabilities.js';
-import { isReasoningOutputVisible } from '../reasoning-config.js';
+import {
+    isReasoningOutputVisible,
+    normalizeReasoningConfig,
+} from '../reasoning-config.js';
 
 function parseArguments(text) {
     try {
@@ -214,16 +218,27 @@ function resolveAnthropicRequestProtocol(config = {}, task = {}) {
     const toolChoice = sourceTools.length
         ? resolveAnthropicToolChoice(task.toolChoice, sourceTools)
         : undefined;
-    const reasoning = resolveTaskReasoning('anthropic', config, task.reasoning);
-    const reasoningDisabledForForcedTool = reasoning.mode === 'on'
-        && reasoning.profileId === 'anthropic-manual'
+    const requestedReasoning = normalizeReasoningConfig(task.reasoning);
+    const capability = resolveReasoningCapability({
+        provider: 'anthropic',
+        baseUrl: config.baseUrl,
+        model: config.model,
+    });
+    const reasoningDisabledForForcedTool = requestedReasoning.mode === 'on'
+        && capability.profileId === 'anthropic-manual'
         && (toolChoice?.type === 'any' || toolChoice?.type === 'tool');
+    const effectiveReasoning = resolveTaskReasoning('anthropic', config, {
+        ...requestedReasoning,
+        ...(reasoningDisabledForForcedTool ? { mode: 'off' } : {}),
+    }, {
+        maxTokens: task.maxTokens,
+    });
     return {
         toolChoice,
-        reasoning,
-        effectiveReasoning: reasoningDisabledForForcedTool
-            ? { ...reasoning, mode: 'off' }
-            : reasoning,
+        reasoning: reasoningDisabledForForcedTool
+            ? { ...requestedReasoning, profileId: capability.profileId }
+            : effectiveReasoning,
+        effectiveReasoning,
         reasoningDisabledForForcedTool,
     };
 }
@@ -275,10 +290,6 @@ export class AnthropicAdapter {
             };
             body.output_config = { effort: reasoning.effort };
         } else if (reasoning.mode === 'on' && reasoning.profileId === 'anthropic-manual') {
-            if (Number.isFinite(Number(body.max_tokens))
-                && reasoning.budgetTokens >= Number(body.max_tokens)) {
-                throw new Error('Anthropic 手动 thinking 的 Token 预算必须小于最大输出 Token。');
-            }
             body.thinking = {
                 type: 'enabled',
                 budget_tokens: reasoning.budgetTokens,

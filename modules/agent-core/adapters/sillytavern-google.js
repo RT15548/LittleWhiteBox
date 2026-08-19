@@ -321,6 +321,9 @@ export class SillyTavernGoogleAdapter {
         } else if (reasoning.mode === 'off') {
             payload.reasoning_effort = 'min';
             payload.include_reasoning = false;
+        } else {
+            payload.reasoning_effort = 'auto';
+            payload.include_reasoning = isReasoningOutputVisible(reasoning);
         }
         return payload;
     }
