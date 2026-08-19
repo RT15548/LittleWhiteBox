@@ -8,6 +8,7 @@ import {
     createSubmitScenePlanTool,
     parseSubmittedScenePlan,
 } from './scene-plan-contract.js';
+import { createSceneSource, stripScenePointMarkers } from './scene-source.js';
 import {
     applyPromptSlots,
     createPromptSlots,
@@ -174,6 +175,7 @@ async function resolveExpansionRuntime(expansionOptions = {}) {
 async function buildScenePlannerRequest(options = {}) {
     const {
         messageText,
+        sceneSource: providedSceneSource,
         presentCharacters = [],
         useWorldInfo = false,
         customPrompts = null,
@@ -182,7 +184,8 @@ async function buildScenePlannerRequest(options = {}) {
         maxImages = 0,
         maxCharactersPerImage = 0,
     } = options;
-    if (!String(messageText || '').trim()) {
+    const sceneSource = providedSceneSource || createSceneSource(messageText);
+    if (!String(sceneSource.content || '').trim()) {
         throw new ScenePlannerError('消息内容为空。', 'EMPTY_MESSAGE');
     }
 
@@ -193,10 +196,13 @@ async function buildScenePlannerRequest(options = {}) {
     try {
         // Every dynamic value is expanded exactly once, then spliced literally into the
         // already-expanded template. Narrative text never passes through a macro pass twice
-        // and never acts as a `String.replace` replacement string.
-        const expandedMessageText = await expandScenePromptText(messageText, runtime);
+        // and never acts as a `String.replace` replacement string. The numbered content is
+        // expanded as a whole so every model-visible macro resolves before placement numbering
+        // is locked, while the placement map stays anchored to the unexpanded source snapshot.
+        const expandedMessageText = await expandScenePromptText(sceneSource.numberedContent, runtime);
+        const expandedContent = stripScenePointMarkers(expandedMessageText);
         const nativeWorldInfo = useWorldInfo
-            ? await buildNativeWorldInfoForDraw(expandedMessageText, presentCharacters, options.worldInfoResolver)
+            ? await buildNativeWorldInfoForDraw(expandedContent, presentCharacters, options.worldInfoResolver)
             : '';
         const expandedWorldInfo = await expandScenePromptText(
             combineWorldInfoEntries({
@@ -268,7 +274,7 @@ async function buildScenePlannerRequest(options = {}) {
             ...(systemPrompt ? [{ role: 'system', content: systemPrompt }] : []),
             ...task.messages,
         ]);
-        return { task, validationContext: { messageText: expandedMessageText } };
+        return { task, validationContext: { sceneSource } };
     } catch (error) {
         if (error instanceof ScenePlannerError) throw error;
         throw wrapPromptExpansionError(error);
@@ -295,7 +301,7 @@ export async function generateAndParseScenePlan(options = {}) {
     const parseResult = (result, providerConfig = {}) => {
         try {
             return parseSubmittedScenePlan(result, {
-                messageText: request.validationContext.messageText,
+                sceneSource: request.validationContext.sceneSource,
                 presentCharacters: options.presentCharacters,
                 maxImages: options.maxImages,
                 maxCharactersPerImage: options.maxCharactersPerImage,

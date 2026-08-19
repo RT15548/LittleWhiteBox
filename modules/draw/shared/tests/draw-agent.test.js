@@ -105,7 +105,7 @@ function buildValidScenePlanResult() {
                         reasoning: '动作适合定格。',
                         moments: [{
                             moment: '1',
-                            anchor_target: '阿璃推开门。',
+                            insert_after: 1,
                             char_count: '0',
                             known_chars: [],
                             unknown_chars: [],
@@ -115,7 +115,6 @@ function buildValidScenePlanResult() {
                 },
                 images: [{
                     index: 1,
-                    anchor: '阿璃推开门。',
                     scene: 'opening door, indoor',
                     characters: [],
                 }],

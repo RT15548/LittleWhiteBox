@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+import { createSceneSource } from '../scene-source.js';
 import {
     SCENE_CHARACTER_TYPES,
     ScenePlannerError,
@@ -23,7 +24,7 @@ function buildParameters(overrides = {}) {
                 reasoning: '选取情绪与光影最集中的一句。',
                 moments: [{
                     moment: '1',
-                    anchor_target: '她在雨中抱住了阿璃。',
+                    insert_after: 1,
                     char_count: '2 girls',
                     known_chars: ['阿璃'],
                     unknown_chars: ['旅人'],
@@ -33,7 +34,6 @@ function buildParameters(overrides = {}) {
         },
         images: [{
             index: 1,
-            anchor: '她在雨中抱住了阿璃。',
             scene: 'sfw, yuri, duo, rain, backlighting',
             characters: [{
                 name: '小璃',
@@ -72,33 +72,31 @@ function buildResult(parameters = buildParameters(), name = 'submit_scene_plan')
 }
 
 const parseOptions = {
-    messageText: '门忽然打开，她在雨中抱住了阿璃。两人都没有说话。',
+    sceneSource: createSceneSource('门忽然打开，她在雨中抱住了阿璃。两人都没有说话。'),
     presentCharacters: [{ name: '阿璃', aliases: ['小璃'] }],
     maxImages: 1,
     maxCharactersPerImage: 2,
 };
 
-test('scene plan contract normalizes aliases, known character fields, order, and directional interactions', () => {
+test('scene plan contract normalizes aliases, known character fields, placement, and directional interactions', () => {
     const parameters = buildParameters();
     parameters.images.push({
-        index: 3,
-        anchor: '两人都没有说话。',
+        index: 2,
         scene: 'sfw, scenery, rain',
         characters: [],
     });
     parameters.mindful_prelude.visual_plan.moments.push({
         ...parameters.mindful_prelude.visual_plan.moments[0],
         moment: '2',
-        anchor_target: '两人都没有说话。',
+        insert_after: 2,
     });
-    parameters.images[0].index = 2;
     const parsed = parseSubmittedScenePlan(buildResult(parameters), {
         ...parseOptions,
         maxImages: 2,
     });
 
     assert.equal(parsed.tasks.length, 2);
-    assert.deepEqual(parsed.tasks.map((task) => task.index), [2, 3]);
+    assert.deepEqual(parsed.tasks.map((task) => task.index), [1, 2]);
     assert.equal(parsed.tasks[0].chars[0].name, '阿璃');
     assert.equal(parsed.tasks[0].chars[0].type, '');
     assert.equal(parsed.tasks[0].chars[0].appear, '');
@@ -106,6 +104,21 @@ test('scene plan contract normalizes aliases, known character fields, order, and
     assert.equal(parsed.tasks[0].chars[1].interact, 'source#hug, target#comfort');
     assert.deepEqual(parsed.tasks[1].chars, []);
     assert.equal(parsed.mindfulPrelude.visual_plan.moments[0].composition.includes('E5'), true);
+
+    const source = parseOptions.sceneSource;
+    assert.deepEqual(parsed.tasks[0].placement, {
+        mode: 'source',
+        insertAfter: 1,
+        offset: source.points[0].offset,
+        sourceHash: source.sourceHash,
+    });
+    assert.deepEqual(parsed.tasks[1].placement, {
+        mode: 'source',
+        insertAfter: 2,
+        offset: source.points[1].offset,
+        sourceHash: source.sourceHash,
+    });
+    assert.equal(source.sourceText.slice(0, source.points[0].offset).endsWith('她在雨中抱住了阿璃。'), true);
 });
 
 test('scene plan tool schema applies exact image count and character cap', () => {
@@ -222,7 +235,7 @@ test('scene planner correction feedback distinguishes missing, wrong, multiple, 
     );
 });
 
-test('scene plan contract rejects schema, index, anchor, count, and unknown-character violations', () => {
+test('scene plan contract rejects schema, index, placement, count, and unknown-character violations', () => {
     const cases = [
         [() => {
             const value = buildParameters();
@@ -236,7 +249,12 @@ test('scene plan contract rejects schema, index, anchor, count, and unknown-char
         }, 'images[0].index'],
         [() => {
             const value = buildParameters();
-            value.images[0].anchor = '原文里不存在';
+            value.mindful_prelude.visual_plan.moments[0].insert_after = 99;
+            return value;
+        }, 'moments[0].insert_after'],
+        [() => {
+            const value = buildParameters();
+            value.images[0].anchor = '旧契约字段';
             return value;
         }, 'images[0].anchor'],
         [() => {
@@ -268,7 +286,7 @@ test('scene plan contract rejects schema, index, anchor, count, and unknown-char
     assert.throws(
         () => parseSubmittedScenePlan(buildResult(duplicate), { ...parseOptions, maxImages: 2 }),
         (error) => error.code === 'TOOL_ARGUMENTS_SCHEMA_INVALID'
-            && error.message.includes('不得重复'),
+            && error.message.includes('必须从 1 开始连续递增'),
     );
     assert.throws(
         () => parseSubmittedScenePlan(buildResult(buildParameters({ images: [] })), {

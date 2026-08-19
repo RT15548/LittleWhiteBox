@@ -7,6 +7,7 @@ import { SD_SCENE_PROMPTS } from '../../providers/sd-webui/sd-prompts.js';
 import { COMFY_SCENE_PROMPTS } from '../../providers/comfyui/comfy-prompts.js';
 import { getLastDrawAgentDiagnostic } from '../draw-agent.js';
 import { buildScenePlannerTask, generateAndParseScenePlan } from '../scene-planner.js';
+import { createSceneSource, stripScenePointMarkers } from '../scene-source.js';
 
 const NOOP_EXPANSION_OPTIONS = {
     runtime: {
@@ -139,7 +140,10 @@ test('every provider request is user-first and injects each key marker exactly o
             1,
             `${providerDirectory}: Tool 强制指令必须只出现一次`,
         );
-        assert.equal(countOccurrences(userTask, '雨声停了。阿璃推开门，抱住了旅人。'), 1);
+        const unnumberedUserTask = stripScenePointMarkers(userTask);
+        assert.equal(countOccurrences(unnumberedUserTask, '雨声停了。阿璃推开门，抱住了旅人。'), 1);
+        assert.equal(countOccurrences(userTask, '【插图点 1】'), 1);
+        assert.equal(countOccurrences(userTask, '【插图点 2】'), 1);
         assert.equal(countOccurrences(userTask, '旅馆门廊使用暖色灯。'), 1);
         // Placeholders must be consumed, never leaked into the request.
         assert.equal(userTask.includes('{{lastMessage}}'), false);
@@ -170,7 +174,7 @@ test('narrative replacement tokens survive verbatim and side-effecting macros ru
     });
 
     assertSingleUserTask(task);
-    const userTask = task.messages[0].content;
+    const userTask = stripScenePointMarkers(task.messages[0].content);
     assert.equal(countOccurrences(userTask, source), 1);
     assert.equal(countOccurrences(userTask, '暗巷里有 $& 记号。'), 1);
     // messageText, worldInfo, characterInfo, tagGuide, systemPrompt, userTask template.
@@ -240,7 +244,7 @@ test('NovelAI, SD, and Comfy each submit one Tool call and receive the same imag
                                         reasoning: '开门动作适合定格。',
                                         moments: [{
                                             moment: '1',
-                                            anchor_target: '阿璃推开门。',
+                                            insert_after: 1,
                                             char_count: '1 girl',
                                             known_chars: ['阿璃'],
                                             unknown_chars: [],
@@ -250,7 +254,6 @@ test('NovelAI, SD, and Comfy each submit one Tool call and receive the same imag
                                 },
                                 images: [{
                                     index: 1,
-                                    anchor: '阿璃推开门。',
                                     scene: 'solo, opening door, indoor',
                                     characters: [{
                                         name: '小璃',
@@ -272,9 +275,9 @@ test('NovelAI, SD, and Comfy each submit one Tool call and receive the same imag
         });
 
         assert.equal(callCount, 1);
+        const source = createSceneSource('阿璃推开门。');
         assert.deepEqual(tasks, [{
             index: 1,
-            anchor: '阿璃推开门。',
             scene: 'solo, opening door, indoor',
             chars: [{
                 name: '阿璃',
@@ -287,6 +290,12 @@ test('NovelAI, SD, and Comfy each submit one Tool call and receive the same imag
                 uc: '',
                 center: 'C3',
             }],
+            placement: {
+                mode: 'source',
+                insertAfter: 1,
+                offset: source.points[0].offset,
+                sourceHash: source.sourceHash,
+            },
         }]);
         const diagnostic = getLastDrawAgentDiagnostic();
         assert.equal(diagnostic.status, 'success');
@@ -294,15 +303,64 @@ test('NovelAI, SD, and Comfy each submit one Tool call and receive the same imag
     }
 });
 
-test('scene-plan anchor validation follows the same expanded content seen by the model', async () => {
+test('scene placement stays anchored to the unexpanded snapshot while the model sees expanded numbered content', async () => {
+    const sourceText = '{{persona}}推开门。夜色涌进来。';
+    let seenContent = '';
     const tasks = await generateAndParseScenePlan({
-        messageText: '{{persona}}推开门。',
+        messageText: sourceText,
         maxImages: 1,
         expansionOptions: {
             runtime: {
                 substituteParams: (text) => text.replaceAll('{{persona}}', '主人'),
             },
         },
+        agentCaller: async ({ task }) => {
+            seenContent = task.messages[0].content;
+            return {
+                providerConfig: { provider: 'openai-compatible', model: 'test-model' },
+                result: {
+                    toolCalls: [{
+                        name: 'submit_scene_plan',
+                        arguments: JSON.stringify({
+                            mindful_prelude: {
+                                user_insight: '开门动作。',
+                                therapeutic_commitment: '忠实呈现。',
+                                visual_plan: {
+                                    reasoning: '选择动作瞬间。',
+                                    moments: [{
+                                        moment: '1',
+                                        insert_after: 1,
+                                        char_count: '0',
+                                        known_chars: [],
+                                        unknown_chars: [],
+                                        composition: '室内中景。',
+                                    }],
+                                },
+                            },
+                            images: [{
+                                index: 1,
+                                scene: 'opening door, indoor',
+                                characters: [],
+                            }],
+                        }),
+                    }],
+                },
+            };
+        },
+    });
+
+    assert.match(seenContent, /主人推开门。【插图点 1】夜色涌进来。/);
+    const source = createSceneSource(sourceText);
+    assert.equal(tasks[0].placement.sourceHash, source.sourceHash);
+    assert.equal(tasks[0].placement.offset, source.points[0].offset);
+    assert.equal(sourceText.slice(0, tasks[0].placement.offset), '{{persona}}推开门。');
+});
+
+test('scene planner rejects illustration point numbers that do not exist in this request', async () => {
+    await assert.rejects(() => generateAndParseScenePlan({
+        messageText: '阿璃推开门。',
+        maxImages: 1,
+        expansionOptions: NOOP_EXPANSION_OPTIONS,
         agentCaller: async () => ({
             providerConfig: { provider: 'openai-compatible', model: 'test-model' },
             result: {
@@ -316,7 +374,7 @@ test('scene-plan anchor validation follows the same expanded content seen by the
                                 reasoning: '选择动作瞬间。',
                                 moments: [{
                                     moment: '1',
-                                    anchor_target: '主人推开门。',
+                                    insert_after: 42,
                                     char_count: '0',
                                     known_chars: [],
                                     unknown_chars: [],
@@ -326,7 +384,6 @@ test('scene-plan anchor validation follows the same expanded content seen by the
                         },
                         images: [{
                             index: 1,
-                            anchor: '主人推开门。',
                             scene: 'opening door, indoor',
                             characters: [],
                         }],
@@ -334,7 +391,6 @@ test('scene-plan anchor validation follows the same expanded content seen by the
                 }],
             },
         }),
-    });
-
-    assert.equal(tasks[0].anchor, '主人推开门。');
+    }), (error) => error.code === 'TOOL_ARGUMENTS_SCHEMA_INVALID'
+        && error.message.includes('insert_after'));
 });

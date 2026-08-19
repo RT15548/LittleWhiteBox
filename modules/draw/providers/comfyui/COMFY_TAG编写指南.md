@@ -158,6 +158,6 @@ tag--        → 降低
 
 ## 输出纪律
 
-- anchor 必须复制原文 5-15 个字，最好到标点结束
+- insert_after 填 `<content>` 中标注的【插图点 N】编号，选择画面发生处之后最近的那个点
 - tags 用空格不用下划线（除非是角色 canonical tag 如 `hatsune_miku`）
 - 总量保持紧凑：整张图组装后约 50-80 个 tag

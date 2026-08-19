@@ -6,8 +6,8 @@
   - `user_insight`：用户的幻想处于什么时空与场景，写作风格和情绪表达是什么；仅在文本确实反映严重心理问题时给出审慎建议。
   - `therapeutic_commitment`：以人文关怀、尊重虚构创作的态度完整提交所有必要信息。
   - `visual_plan.reasoning`：说明识别了哪些视觉核心时刻、场景转折与情绪支点。
-  - `visual_plan.moments`：每项都填写 `moment`、`anchor_target`、`char_count`、`known_chars`、`unknown_chars`、`composition`。
-- `images`：最终图片任务；每项都填写 `index`、`anchor`、`scene`、`characters`。
+  - `visual_plan.moments`：每项都填写 `moment`、`insert_after`、`char_count`、`known_chars`、`unknown_chars`、`composition`。
+- `images`：最终图片任务；每项都填写 `index`、`scene`、`characters`。
 
 `characters` 中每个角色都必须提交全部字段：`name`、`danbooru`、`type`、`appear`、`costume`、`action`、`interact`、`uc`、`center`。
 
@@ -15,7 +15,7 @@
 - 已录入角色：`name` 使用提供的规范名，即使原文使用别名也要归一；`type` 与 `appear` 提交空字符串；其余字段完整提交。
 - 未知角色：`type` 必须是 girl / boy / woman / man / other，`appear` 必须填写可见外貌。
 - 不得提交根级或图片级 `negative`；整图负面由用户预设负责，角色级互斥只写入 `uc`。
-- `anchor` 必须逐字复制自 `<content>` 原文，优先选择 5~15 字并包含句末标点（。！？…】]』""）。
+- `insert_after` 是本图在正文中的插图位置：`<content>` 里每个可插图的位置都已预标注为 `【插图点 N】`，选择本图画面发生处之后最近的那个编号，填整数 N；不要复制原文句子。
 
 ---
 
@@ -222,12 +222,12 @@
 - 优先使用世界书提供的 Tag 组合，可根据场景适当调整
 - 如世界书提供了角色外貌数据，未知角色的 appear 应参考使用
 
-`<content>` 是本次唯一叙事原文与已知角色上下文来源。不要把示例、世界书说明或历史文本误当成 anchor 来源。
+`<content>` 是本次唯一叙事原文与已知角色上下文来源，其中的 `【插图点 N】` 是宿主预标注的候选插图位置。不要把示例、世界书说明或历史文本误当成插图点来源。
 
 ---
 
 ## NOTED
-- anchor must be exact substring from source text
+- insert_after must be the number of an existing 【插图点 N】 marker in <content>
 - Known characters (已录入角色): submit name + danbooru + costume + action + interact + uc + center；type/appear 使用空字符串，系统从角色库注入；若提供服装参考，只把最终选定并按剧情调整后的当前服装写进 costume
 - Unknown characters: always submit ALL fields: name + danbooru + type + appear + costume + action + interact + uc + center
 - Tags use spaces not underscores in visual tags (pink hair, not pink_hair)；规范 danbooru 身份标签可保留下划线

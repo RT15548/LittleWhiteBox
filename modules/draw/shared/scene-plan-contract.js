@@ -11,10 +11,10 @@ const CHARACTER_FIELDS = Object.freeze([
     'uc',
     'center',
 ]);
-const IMAGE_FIELDS = Object.freeze(['index', 'anchor', 'scene', 'characters']);
+const IMAGE_FIELDS = Object.freeze(['index', 'scene', 'characters']);
 const MOMENT_FIELDS = Object.freeze([
     'moment',
-    'anchor_target',
+    'insert_after',
     'char_count',
     'known_chars',
     'unknown_chars',
@@ -178,7 +178,11 @@ export function createSubmitScenePlanTool(options = {}) {
             required: [...MOMENT_FIELDS],
             properties: {
                 moment: stringSchema({ minLength: 1 }),
-                anchor_target: stringSchema({ minLength: 1 }),
+                insert_after: {
+                    type: 'integer',
+                    minimum: 1,
+                    description: 'The numbered illustration point after which this image belongs.',
+                },
                 char_count: stringSchema({ minLength: 1 }),
                 known_chars: {
                     type: 'array',
@@ -222,7 +226,6 @@ export function createSubmitScenePlanTool(options = {}) {
             required: [...IMAGE_FIELDS],
             properties: {
                 index: { type: 'integer', minimum: 1 },
-                anchor: stringSchema({ minLength: 1 }),
                 scene: stringSchema({ minLength: 1 }),
                 characters: charactersSchema,
             },
@@ -303,6 +306,11 @@ function requireStringArray(value, path) {
     return value.map((item, index) => requireString(item, `${path}[${index}]`));
 }
 
+function requirePositiveInteger(value, path) {
+    if (!Number.isInteger(value) || value < 1) failSchema(path, '必须是大于 0 的整数', value);
+    return value;
+}
+
 function validateMindfulPrelude(value, options = {}) {
     assertExactFields(value, PRELUDE_FIELDS, 'mindful_prelude');
     const visualPlan = value.visual_plan;
@@ -323,7 +331,7 @@ function validateMindfulPrelude(value, options = {}) {
         assertExactFields(moment, MOMENT_FIELDS, path);
         return {
             moment: requireString(moment.moment, `${path}.moment`),
-            anchor_target: requireString(moment.anchor_target, `${path}.anchor_target`),
+            insert_after: requirePositiveInteger(moment.insert_after, `${path}.insert_after`),
             char_count: requireString(moment.char_count, `${path}.char_count`),
             known_chars: requireStringArray(moment.known_chars, `${path}.known_chars`),
             unknown_chars: requireStringArray(moment.unknown_chars, `${path}.unknown_chars`),
@@ -392,21 +400,27 @@ function normalizeImages(images, options = {}) {
     if (maxImages && images.length !== maxImages) {
         failSchema('images', `本次必须恰好包含 ${maxImages} 项`, images.length);
     }
-    const messageText = String(options.messageText || '');
     const knownNameLookup = normalizeCharacterLookup(options.presentCharacters);
-    const seenIndexes = new Set();
+    const sceneSource = options.sceneSource;
+    const sourcePoints = new Map((Array.isArray(sceneSource?.points) ? sceneSource.points : [])
+        .map((point) => [point.number, point]));
+    const moments = Array.isArray(options.moments) ? options.moments : [];
 
     const tasks = images.map((image, imageIndex) => {
         const path = `images[${imageIndex}]`;
         assertExactFields(image, IMAGE_FIELDS, path);
-        if (!Number.isInteger(image.index) || image.index < 1) {
-            failSchema(`${path}.index`, '必须是大于 0 的整数', image.index);
+        requirePositiveInteger(image.index, `${path}.index`);
+        if (image.index !== imageIndex + 1) {
+            failSchema(`${path}.index`, `必须从 1 开始连续递增，当前应为 ${imageIndex + 1}`, image.index);
         }
-        if (seenIndexes.has(image.index)) failSchema(`${path}.index`, '不得重复', image.index);
-        seenIndexes.add(image.index);
-        const anchor = requireString(image.anchor, `${path}.anchor`);
-        if (messageText && !messageText.includes(anchor)) {
-            failSchema(`${path}.anchor`, '必须逐字复制自本次 <content> 原文', anchor);
+        const moment = moments[imageIndex];
+        const sourcePoint = sourcePoints.get(moment?.insert_after);
+        if (!sourcePoint) {
+            failSchema(
+                `mindful_prelude.visual_plan.moments[${imageIndex}].insert_after`,
+                '必须引用本次 <content> 中存在的插图点编号',
+                moment?.insert_after,
+            );
         }
         if (!Array.isArray(image.characters)) failSchema(`${path}.characters`, '必须是 array', image.characters);
         if (maxCharactersPerImage && image.characters.length > maxCharactersPerImage) {
@@ -417,13 +431,18 @@ function normalizeImages(images, options = {}) {
         ));
         return {
             index: image.index,
-            anchor,
             scene: requireString(image.scene, `${path}.scene`),
             chars,
+            placement: {
+                mode: 'source',
+                insertAfter: moment.insert_after,
+                offset: sourcePoint.offset,
+                sourceHash: String(sceneSource?.sourceHash || ''),
+            },
         };
     });
 
-    return tasks.sort((left, right) => left.index - right.index);
+    return tasks;
 }
 
 function parseArguments(rawArguments) {
@@ -482,7 +501,10 @@ export function parseSubmittedScenePlan(result = {}, options = {}) {
     const parameters = parseArguments(toolCall.arguments);
     assertExactFields(parameters, ROOT_FIELDS, 'parameters');
     const mindfulPrelude = validateMindfulPrelude(parameters.mindful_prelude, options);
-    const tasks = normalizeImages(parameters.images, options);
+    const tasks = normalizeImages(parameters.images, {
+        ...options,
+        moments: mindfulPrelude.visual_plan.moments,
+    });
     // The planned moments and the submitted images describe the same shots, so their counts
     // must agree even when no explicit image limit is configured.
     if (mindfulPrelude.visual_plan.moments.length !== tasks.length) {
