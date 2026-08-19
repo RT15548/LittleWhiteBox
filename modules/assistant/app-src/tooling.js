@@ -76,7 +76,7 @@ export const TOOL_DEFINITIONS = [
                 type: 'object',
                 properties: {
                     pattern: { type: 'string', description: 'Glob path pattern without `public/`, for example scripts/extensions/third-party/LittleWhiteBox/modules/**/*.js.' },
-                    path: { type: 'string', description: 'Optional directory scope inside the selected lookup scope. Project paths omit `public/`.' },
+                    path: { type: 'string', description: 'Optional directory or exact file path inside the selected lookup scope. Project paths omit `public/`.' },
                     scope: { type: 'string', enum: ['project', 'local'], description: 'Lookup scope. Default is project. Use local to search only `local/` files.' },
                 },
                 required: ['pattern'],
@@ -100,7 +100,7 @@ export const TOOL_DEFINITIONS = [
                 type: 'object',
                 properties: {
                     pattern: { type: 'string', description: 'grep/rg-style search pattern. Treated as regex by default.' },
-                    path: { type: 'string', description: 'Optional directory scope inside the selected lookup scope. Project paths omit `public/`.' },
+                    path: { type: 'string', description: 'Optional directory or exact file path inside the selected lookup scope. Project paths omit `public/`.' },
                     scope: { type: 'string', enum: ['project', 'local'], description: 'Lookup scope. Default is project. Use local to search only `local/` files.' },
                     include: { type: 'string', description: 'Optional file path glob filter, for example **/*.js or modules/assistant/**/*.js.' },
                     outputMode: {

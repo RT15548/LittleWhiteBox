@@ -13,6 +13,17 @@ export function isLocalLookupTarget(rawPath = '') {
     return normalized === 'local' || normalized.startsWith('local/');
 }
 
+export function filterLookupFilesByPath(files = [], rawPath = '') {
+    const normalizedPath = String(rawPath || '').trim().replace(/\\/g, '/').replace(/^\/+/, '');
+    if (!normalizedPath) return files;
+
+    const exactFile = files.filter((entry) => String(entry?.publicPath || '') === normalizedPath);
+    if (exactFile.length) return exactFile;
+
+    const directoryPath = normalizedPath.endsWith('/') ? normalizedPath : `${normalizedPath}/`;
+    return files.filter((entry) => String(entry?.publicPath || '').startsWith(directoryPath));
+}
+
 export function assertLookupScopePath(rawPath = '', scope = LOOKUP_SCOPE_PROJECT) {
     const normalized = String(rawPath || '').trim();
     if (!normalized) return;

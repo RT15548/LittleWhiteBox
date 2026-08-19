@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, provide, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, provide, ref, shallowRef, watch } from 'vue';
 import {
     getMessageWindow,
     normalizeHiddenOutsideCount,
     normalizeMessageLoadBatchSize,
+    TAVERN_CHAT_MESSAGE_WINDOW_MAX,
 } from './message-window';
 import { normalizeTavernDisplaySettings, type TavernDisplaySettings } from '../shared/settings';
 import { TAVERN_INLINE_IMAGE_PROGRESS_EVENT, useTavernMarkdownTools } from './components/chat/useTavernMarkdownTools';
@@ -15,37 +16,43 @@ import {
     type XbTavernAuthorNote,
     type XbTavernCharacter,
     type XbTavernContext,
-    type XbTavernMessage,
     type XbTavernNativeWorldInfoRuntime,
     type TavernChatPromptPresetBundle,
 } from '../shared/message-assembler';
 import { buildXbTavernBrain } from '../shared/brain';
 import {
+    ensureTavernMemoryDefaultsInitialized,
     getTavernMemoryIndex,
-    getTavernMemoryFile,
     rebuildTavernMemoryDerivedIndex,
+    searchTavernMemoryFileContents,
 } from '../shared/memory-files';
 import {
     appendTavernMessage,
-    appendTavernManagerMessage,
+    appendTavernAssistantChatMessage,
     branchTavernSession,
     createTavernSession,
-    deleteTavernManagerMessages,
-    deleteTavernMessages,
+    clearTavernAssistantChatMessages,
+    deleteTavernAssistantChatMessages,
+    getLatestTavernAssistantChatUserMessageAtOrBefore,
     getLatestTavernUserMessageAtOrBefore,
+    getNextTavernAssistantChatUserOrderAfter,
+    getTavernManagerRun,
     getTavernMessage,
     getTavernSession,
-    listTavernManagerMessages,
-    listTavernManagerRuns,
+    listTavernAssistantChatMessages,
+    listTavernAssistantChatMessageOrdersFrom,
+    listTavernAssistantChatMessageOrdersInRange,
+    listTavernAssistantChatMessagesInRange,
+    listTavernStructuredStatePatches,
     listTavernMessageOrdersFrom,
-    listTavernMessages,
     normalizeTavernSessionState,
-    replaceTavernSessionState,
+    queueAcceptedTurnManagerRetry,
+    replaceTavernAssistantChatMessages,
     updateTavernSessionState,
-    updateTavernManagerMessage,
+    updateTavernAssistantChatMessage,
     updateTavernMessage,
     updateTavernSessionSnapshot,
-    type TavernManagerMessageRecord,
+    type TavernAssistantChatMessageRecord,
     type TavernManagerRunRecord,
     type TavernMemoryFileListEntry,
     type TavernMemoryIndexFileEntry,
@@ -53,13 +60,16 @@ import {
     type TavernMemoryIndexRecord,
     type TavernMessageRecord,
     type TavernStructuredStateDocumentRecord,
-    type TavernStructuredStatePatchRecord,
     type TavernSessionRecord,
-    type TavernTaskRecord,
 } from '../shared/session-db';
-import { getTavernAtlasStateForSession, getTavernMapStateForSession, type TavernMapStateDocumentItem } from '../shared/structured-state';
-import { getTavernStatusStateForSession, type TavernStatusFieldDeltaMap } from '../shared/status-state';
-import { listTavernTasks } from '../shared/tasks';
+import {
+    getTavernAtlasStateForSession,
+    getTavernMapStateForSession,
+    TAVERN_MAP_TIMELINE_PATCH_LIMIT,
+    type TavernMapStateDocumentItem,
+    type TavernStructuredStatePatchDisplay,
+} from '../shared/structured-state';
+import { getTavernStatusProjectionForSession, type TavernStatusFieldDeltaMap } from '../shared/status-state';
 import { saveAcceptedStateSnapshot } from '../shared/accepted-state';
 import {
     exportTavernCharacterArchive,
@@ -80,6 +90,7 @@ import {
     uploadTavernCharacterArchiveManifest,
 } from '../shared/character-archive-server-storage';
 import {
+    CURRENT_TAVERN_CHARACTER_ARCHIVE_VERSION,
     createEmptyTavernCharacterArchiveCounts,
     type TavernCharacterArchiveManifest,
     type TavernCharacterArchiveProgress,
@@ -99,35 +110,60 @@ import {
 import type { TavernApplyRegexItem, TavernApplyRegexResult } from '../shared/regex';
 import type { TavernSubstituteParamsItem, TavernSubstituteParamsOptions, TavernSubstituteParamsResult } from '../shared/substitute-params';
 import {
+    getCurrentTavernTask,
+    listTavernTaskVersionsByActionPrefix,
+} from '../shared/tasks/task-service';
+import type { TavernTaskVersionRecord } from '../shared/tasks/task-types';
+import {
     buildContextHistory,
-    deriveTavernSessionStateFromMessagesAsync,
-    resolveTavernContextWindow,
+    resumeQueuedAcceptedTurnManagers,
     simulateXbTavernRequest,
     type TavernBuildNativeChatPromptRuntime,
 } from './runtime/run-once';
-import {
-    buildManagerChatDisplayItems,
-    createManagerStreamToolDraftState,
-    managerToolTurnPreview,
-    managerToolTurnSummary,
-    type ManagerChatDisplayItem,
-    type ManagerMessageDisplayItem,
-} from './manager-tool-display';
+import { resolveTavernHistoryBoundaryState } from './runtime/history-boundary-state';
 import {
     cancelAndRollbackXbTavernManagersForMessageRange,
-    ensureTavernManagerChatBudget,
-    runXbTavernManagerAfterTurn,
-    runXbTavernManagerChat,
-    type TavernManagerProtocolEvent,
+    type TavernManagerLiveProgress,
 } from './runtime/manager';
 import {
-    cancelAcceptedRollbackManagersBeforeMessage,
+    prepareXbTavernAssistantChatWriteContext,
+    runXbTavernAssistantChat,
+} from './runtime/assistant-chat-runner';
+import {
+    estimateTavernAssistantChatContext,
+    ensureTavernAssistantChatBudget,
+    TAVERN_ASSISTANT_CHAT_MAX_CONTEXT_TOKENS,
+} from './runtime/assistant-chat-context';
+import {
     describeAcceptedStateRollbackImpact,
+    isAcceptedRollbackInProgress,
     rollbackImpactLines,
-    restoreAcceptedStateBeforeMessage,
+    truncateAcceptedStoryMessagesAndRestoreState,
+    updateAcceptedStoryMessageAndRestoreState,
 } from './features/accepted-rollback/accepted-rollback';
+import {
+    useTavernRuntimeDisplayProjection,
+    type TavernRuntimeDisplayRegexRequest,
+    type TavernRuntimeThoughtProjectionInput,
+} from './features/chat-render/useTavernRuntimeDisplayProjection';
 import { createTavernChatRunState, useTavernChatRunController } from './features/chat-run/useTavernChatRunController';
+import {
+    useTavernAssistantChatLiveController,
+    type TavernAssistantChatLiveRun,
+} from './features/assistant-chat/useTavernAssistantChatLiveController';
+import { withTavernAssistantChatRunLock } from './features/assistant-chat/assistant-chat-run-lock';
+import {
+    loadTavernAssistantChatUnitPage,
+    loadTavernAssistantMessageThoughts,
+    projectTavernAssistantChatUnits,
+    TAVERN_ASSISTANT_CHAT_INITIAL_UNIT_LIMIT,
+    TAVERN_ASSISTANT_CHAT_OLDER_UNIT_LIMIT,
+    type TavernAssistantChatMessageUnit,
+    type TavernAssistantChatUnit,
+} from './features/assistant-chat/assistant-chat-projection';
 import { useTavernDrawController } from './features/draw/useTavernDrawController';
+import { useTavernPhoneController } from './features/phone-os/useTavernPhoneController';
+import { useTavernManagerRunSync } from './features/manager/useTavernManagerRunSync';
 import { useTavernHostBridge, type TavernHostMessageData } from './features/host-bridge/useTavernHostBridge';
 import { useMaterialSymbolFont } from './features/material-symbol-font';
 import { createTavernSessionState, useTavernSessionController } from './features/session/useTavernSessionController';
@@ -152,6 +188,8 @@ import {
     type TavernChatContext,
     type TavernDialogOptions,
     type TavernManagerContext,
+    type TavernPendingAssistantUserMessage,
+    type TavernPhoneContext,
     type TavernMemoryContext,
     type TavernSessionContext,
     type TavernChatWorkspacePanelKey,
@@ -276,7 +314,6 @@ const sessionState = createTavernSessionState();
 const {
     chatMessages,
     currentAssistantFloor,
-    latestSessionMessage,
     loadedSessionMessageEndOrder,
     loadedSessionMessageStartOrder,
     loadedSessionMessages,
@@ -284,17 +321,15 @@ const {
     selectedSessionId,
     selectedSessionLatestAssistantOrder,
     selectedSessionMessageTotal,
-    sessionMessageCounts,
+    selectedSessionMessageWindowOffsetFromEnd,
     sessions,
     visibleChatMessages,
 } = sessionState;
-const managerRuns = ref<TavernManagerRunRecord[]>([]);
-const tavernTasks = ref<TavernTaskRecord[]>([]);
+const managerRuns = shallowRef<TavernManagerRunRecord[]>([]);
 const memoryFiles = ref<TavernMemoryIndexFileEntry[]>([]);
-const memoryIndex = ref<TavernMemoryIndexRecord | null>(null);
+const memoryIndexState = shallowRef<Pick<TavernMemoryIndexRecord, 'status' | 'error'> | null>(null);
 const selectedMemoryFilePath = ref('');
 const selectedMemoryFileRecord = ref<TavernMemoryFileRecord | null>(null);
-const stateMemoryFile = ref<TavernMemoryFileRecord | null>(null);
 const memoryEditorDraft = ref('');
 const memoryEditorLoadedPath = ref('');
 const memoryEditorBaseContent = ref('');
@@ -304,35 +339,37 @@ const chatWorkspacePanel = ref<TavernChatWorkspacePanelKey>('map');
 const mapStateDocuments = ref<TavernMapStateDocumentItem[]>([]);
 const activeMapDocId = ref('main');
 const mapStateDocument = ref<TavernStructuredStateDocumentRecord | null>(null);
-const mapStatePatches = ref<TavernStructuredStatePatchRecord[]>([]);
+const mapStatePatches = ref<TavernStructuredStatePatchDisplay[]>([]);
+const mapStatePatchCount = ref(0);
+const mapStateTimelineAvailable = ref(false);
 const atlasStateDocument = ref<TavernStructuredStateDocumentRecord | null>(null);
-const atlasStatePatches = ref<TavernStructuredStatePatchRecord[]>([]);
+const atlasLatestPatchSummary = ref('');
 const atlasActiveLocationKey = ref('');
 const statusStateDocument = ref<TavernStructuredStateDocumentRecord | null>(null);
-const statusStatePatches = ref<TavernStructuredStatePatchRecord[]>([]);
 const statusFieldDeltas = ref<TavernStatusFieldDeltaMap>({});
 const managerActionStatus = ref('');
 const retryingManagerRunId = ref('');
 const managerInputDraft = ref('');
 const managerInputStatus = ref('');
-const managerChatMessages = ref<TavernManagerMessageRecord[]>([]);
-const managerPendingUserMessage = ref<TavernManagerMessageRecord | null>(null);
+const managerChatItems = shallowRef<TavernAssistantChatUnit[]>([]);
+const managerChatHasMore = ref(false);
+const managerChatHasNewer = ref(false);
+const TAVERN_ASSISTANT_CHAT_VISIBLE_UNIT_LIMIT = TAVERN_ASSISTANT_CHAT_INITIAL_UNIT_LIMIT + TAVERN_ASSISTANT_CHAT_OLDER_UNIT_LIMIT;
+const assistantChatBudgetTokens = ref<number | null>(null);
+const assistantChatBudgetPending = ref(false);
+const managerPendingUserMessage = shallowRef<TavernPendingAssistantUserMessage | null>(null);
 const isManagerAssistantRunning = ref(false);
 const isManagerAssistantCancelling = ref(false);
-interface TavernManagerLiveProtocolState {
-    sessionId: string;
-    messages: TavernManagerMessageRecord[];
-    draft: TavernManagerMessageRecord | null;
-    nextOrder: number;
-}
-
-const LIVE_MANAGER_PROTOCOL_ORDER_BASE = 1000000000;
-const managerLiveProtocolState = ref<TavernManagerLiveProtocolState | null>(null);
+const managerAssistantLiveController = useTavernAssistantChatLiveController({});
+const managerLiveProtocolState = managerAssistantLiveController.assistantDraft;
+const managerLiveToolRound = managerAssistantLiveController.toolRound;
 const managerCompactionOverlay = ref<{
     id: string;
     active: boolean;
     resolved: boolean;
     currentTokens: number;
+    fixedTokens: number;
+    historyTokens: number;
     yieldTokens: number;
     triggerTokens: number;
     status: string;
@@ -376,11 +413,6 @@ interface DisplayRegexTextRequest {
 interface DisplayRegexProjection {
     text: string;
     actionCheckEvents: TavernActionCheckRuntimeEvent[];
-}
-interface PendingRuntimeDisplayRegexRequest {
-    timer: number;
-    latest: DisplayRegexTextRequest;
-    inFlight: boolean;
 }
 function normalizedSearchText(value = '') {
     return String(value || '').trim().toLocaleLowerCase();
@@ -437,11 +469,13 @@ const chatScrollPane = useTavernScrollPane({
     totalItems: () => selectedSessionMessageTotal.value,
     defaultLimit: hiddenOutsideCount,
     loadBatchSize,
+    maxWindowLimit: TAVERN_CHAT_MESSAGE_WINDOW_MAX,
+    windowOffsetFromEnd: selectedSessionMessageWindowOffsetFromEnd,
+    isWindowPinned: () => isRoleplayMessageEditing(),
 });
 const managerScrollPane = useTavernScrollPane({
-    totalItems: () => managerChatMessageDisplayItems.value.length,
-    defaultLimit: hiddenOutsideCount,
-    loadBatchSize,
+    totalItems: () => managerChatItems.value.length,
+    managesMessageWindow: false,
 });
 const chatScrollRef = chatScrollPane.scrollRef;
 const chatScrollContentRef = chatScrollPane.contentRef;
@@ -455,8 +489,8 @@ const showManagerScrollTop = managerScrollPane.showScrollTop;
 const showManagerScrollBottom = managerScrollPane.showScrollBottom;
 const managerScrollControlsActive = managerScrollPane.scrollControlsActive;
 const chatMessageWindowLimit = chatScrollPane.messageWindowLimit;
-const managerMessageWindowLimit = managerScrollPane.messageWindowLimit;
 const editingMessageKey = ref('');
+const editingManagerMessageKey = ref('');
 const editingMessageDraft = ref('');
 const showPromptInspector = ref(false);
 const promptInspectorTab = ref<'history' | 'simulate'>('history');
@@ -467,6 +501,7 @@ const simulateRequestError = ref('');
 const messageActionFeedback = ref<Record<string, 'success' | 'error'>>({});
 const displayRegexCache = ref<Record<string, string>>({});
 const managerAssistantController = ref<AbortController | null>(null);
+const managerAssistantControllersBySession = new Map<string, AbortController>();
 const tavernDialog = ref<TavernDialogState | null>(null);
 const tavernDialogInputRef = ref<HTMLInputElement | null>(null);
 const tavernDialogPanelRef = ref<HTMLElement | null>(null);
@@ -687,10 +722,12 @@ const {
     clearMarkdownCache,
     disposeMarkdownTools,
     enhanceChatMarkdown,
-    enhanceLiveChatMarkdown,
     enhanceManagerMarkdown,
+    enhanceMarkdownRoot,
     markdownSignature,
+    releaseMarkdownRootResources,
     renderChatMarkdown,
+    renderUncachedMarkdown,
     stripTavernImageMarkers,
 } = useTavernMarkdownTools({
     chatScrollRef,
@@ -714,16 +751,21 @@ let characterPreviewRequestSequence = 0;
 let characterWorldbookRequestSequence = 0;
 let simulateRequestSequence = 0;
 let managerCompactionOverlayHideTimer: number | null = null;
+const managerMessageFeedbackTimers = new Map<string, number>();
 let tavernToastTimer: number | null = null;
-let managerRecordsPollTimer: number | null = null;
-let managerRecordsPollRunning = false;
+let assistantChatRefreshSerial = 0;
+let assistantChatOlderLoading = false;
+let assistantChatContextRefreshSerial = 0;
+let assistantChatContextRefreshTimer: number | null = null;
+let assistantChatContextAbortController: AbortController | null = null;
+let memoryProjectionRefreshSerial = 0;
+let mapProjectionRefreshSerial = 0;
+let atlasProjectionRefreshSerial = 0;
+let statusProjectionRefreshSerial = 0;
 let sessionContextSyncSequence = 0;
 let initialConfigApplied = false;
 let postReadyStartupStarted = false;
 const inFlightDisplayRegexRequests = new Map<string, Promise<void>>();
-const pendingRuntimeDisplayRegexRequests = new Map<string, PendingRuntimeDisplayRegexRequest>();
-const latestRuntimeDisplayRegexKeys = new Map<string, string>();
-const runtimeDisplayRegexStableProjection = new Map<string, DisplayRegexProjection>();
 let displayRegexCacheGeneration = 0;
 const effectiveContext = computed<XbTavernContext>(() => ({
     ...context.value,
@@ -831,6 +873,7 @@ const sessionController = useTavernSessionController(sessionState, {
     selectedCharacterPreviewKey,
     selectedSessionCharacterError,
     applySessionSnapshotContext,
+    abortAssistantRunForSession: (sessionId) => abortManagerAssistantForSession(sessionId),
     cancelAndRollbackManagersForSession: (sessionId) => cancelAndRollbackXbTavernManagersForMessageRange(sessionId, 0),
     cancelDrawJobsForSession: drawContext.cancelJobsForSession,
     confirmDeleteSession: (title) => confirmTavernDialog({
@@ -844,7 +887,7 @@ const sessionController = useTavernSessionController(sessionState, {
     openCharacterSettingsWorkspace: () => {
         openSettingsWorkspace('characters');
     },
-    refreshManagerRecords,
+    hydrateSessionWorkspace,
     reportStartupProgress,
     resetChatMessageWindowState: () => resetChatMessageWindowState(),
     resetSessionPreviewState,
@@ -1057,10 +1100,9 @@ const {
     formatRunMapLine,
     formatRunMemoryLine,
     formatRunModelLine,
-    formatRunTaskLine,
     hiddenManagerRunCount,
-    isManagerRunLive,
     managerBusy,
+    managerRunDisplayStatus,
     managerRunTone,
     managerStatusClock,
     managerStatusLabel,
@@ -1073,16 +1115,39 @@ const {
     visibleRunLimit: MANAGER_RUN_VISIBLE_LIMIT,
 });
 
-function sessionFloorCount(session?: TavernSessionRecord | null) {
-    return sessionController.sessionFloorCount(session);
+const phoneContext = useTavernPhoneController({
+    selectedSessionId,
+    effectiveContext,
+    memoryFiles,
+    agentConfig,
+    chatRunning: isRunning,
+    chatCancelling: isCancellingRun,
+    memoryEditorMode,
+    characterArchiveBusy: computed(() => characterArchiveSyncState.value.busy),
+    acceptedRollbackBusy: computed(() => isAcceptedRollbackInProgress(selectedSessionId.value)),
+    openApiSettings: () => openSettingsWorkspace('api'),
+    requestHost,
+    refreshContextSnapshot: refreshPhoneContextSnapshot,
+    getNativeWorldInfoRuntime: getNativeWorldbookRuntime,
+    addHostMessageHandler: hostBridge.addMessageHandler,
+    showToast: showTavernToast,
+}) satisfies TavernPhoneContext;
+
+function isPhoneSendingForSession(sessionId = selectedSessionId.value): boolean {
+    const id = String(sessionId || '').trim();
+    return !!id && phoneContext.messages.isSending.value && phoneContext.messages.sendingSessionId.value === id;
+}
+
+function warnPhoneWorkInProgress(message = '手机消息正在等待回复，请稍后再试。'): void {
+    showTavernToast(message, { tone: 'warning', durationMs: 2600 });
 }
 
 function sessionFloorLabel(session?: TavernSessionRecord | null) {
     return sessionController.sessionFloorLabel(session);
 }
 
-async function refreshSessionMessageCountsForSessions(targetSessions: TavernSessionRecord[] = []) {
-    await sessionController.refreshSessionMessageCountsForSessions(targetSessions);
+async function refreshSessionLatestMessageOrdersForSessions(targetSessions: TavernSessionRecord[] = []) {
+    await sessionController.refreshSessionLatestMessageOrdersForSessions(targetSessions);
 }
 
 const activeMemoryFiles = computed(() => memoryFiles.value.filter((file) => file.status !== 'stale'));
@@ -1122,15 +1187,65 @@ function memoryFileSortWeight(path = '') {
 function memoryFileSearchCorpus(file: TavernMemoryIndexFileEntry) {
     const cached = memoryFileSearchCorpusCache.get(file);
     if (cached) {return cached;}
+    // Metadata corpus only: the short index preview stays, full bodies are
+    // scanned on demand and surface through memoryContentSearchMatches.
     const corpus = normalizedSearchText([
         file.path,
         memoryFileDisplayName(file),
         memoryFileKindLabel(file),
         file.status,
-        file.searchText || file.preview || '',
+        file.preview || '',
     ].filter(Boolean).join('\n'));
     memoryFileSearchCorpusCache.set(file, corpus);
     return corpus;
+}
+
+// On-demand body scan behind the memory search box. Only the matched path
+// set is held here; the scan is aborted and the set dropped when the query
+// clears, the session switches, or the app unmounts.
+const memoryContentSearchMatches = shallowRef<Set<string> | null>(null);
+let memoryContentSearchController: AbortController | null = null;
+let memoryContentSearchSerial = 0;
+let memoryContentSearchTimer: number | undefined;
+
+function cancelMemoryContentSearch() {
+    memoryContentSearchSerial += 1;
+    if (memoryContentSearchTimer !== undefined) {
+        window.clearTimeout(memoryContentSearchTimer);
+        memoryContentSearchTimer = undefined;
+    }
+    if (memoryContentSearchController) {
+        memoryContentSearchController.abort();
+        memoryContentSearchController = null;
+    }
+    memoryContentSearchMatches.value = null;
+}
+
+function queueMemoryContentSearch() {
+    const query = normalizedSearchText(memoryFileSearchText.value);
+    const sessionId = String(selectedSessionId.value || '').trim();
+    cancelMemoryContentSearch();
+    if (!query || !sessionId) {return;}
+    const serial = memoryContentSearchSerial;
+    memoryContentSearchTimer = window.setTimeout(() => {
+        memoryContentSearchTimer = undefined;
+        if (serial !== memoryContentSearchSerial) {return;}
+        const controller = new AbortController();
+        memoryContentSearchController = controller;
+        void searchTavernMemoryFileContents(sessionId, query, { signal: controller.signal })
+            .then((paths) => {
+                if (serial !== memoryContentSearchSerial) {return;}
+                if (sessionId !== String(selectedSessionId.value || '').trim()) {return;}
+                memoryContentSearchMatches.value = new Set(paths);
+            })
+            .catch((error) => {
+                if (controller.signal.aborted || (error instanceof Error && error.name === 'AbortError')) {return;}
+                console.warn('[小白酒馆] 搜索记忆正文失败', error);
+            })
+            .finally(() => {
+                if (memoryContentSearchController === controller) {memoryContentSearchController = null;}
+            });
+    }, 200);
 }
 
 function memoryFileVisibleLimitForGroup(groupKey = '') {
@@ -1156,7 +1271,8 @@ const memoryDirectoryGroups = computed(() => {
     const query = normalizedSearchText(memoryFileSearchText.value);
     const selectedPath = String(selectedMemoryFilePath.value || '').trim();
     const filtered = query
-        ? sortedFiles.filter((file) => memoryFileSearchCorpus(file).includes(query))
+        ? sortedFiles.filter((file) => memoryFileSearchCorpus(file).includes(query)
+            || memoryContentSearchMatches.value?.has(file.path) === true)
         : sortedFiles;
     if (!filtered.length && query) {return [];}
     const limit = memoryFileVisibleLimitForGroup('all');
@@ -1174,14 +1290,42 @@ const memoryDirectoryGroups = computed(() => {
         hiddenCount: Math.max(0, filtered.length - files.length),
     }];
 });
+
+function handleManagerRunSaved(
+    sessionId: string,
+    managerRun: TavernManagerRunRecord,
+) {
+    managerRunSync.acceptSavedRun(sessionId, managerRun);
+}
+
+function handleTaskActionsCommitted(sessionId: string, tasks: TavernTaskVersionRecord[]) {
+    if (sessionId !== selectedSessionId.value) {return;}
+    const completed = [...new Map(tasks
+        .filter((task) => task.status === 'completed')
+        .map((task) => [task.taskId, task])).values()];
+    if (!completed.length) {return;}
+    const details = completed.map((task) => task.assignee?.kind === 'player'
+        ? `《${task.title}》，+${task.reward} 小白币`
+        : `《${task.title}》，已支付 ${task.reward} 小白币`);
+    showTavernToast(`任务完成：${details.join('；')}。`, { durationMs: 5200 });
+}
+
+function handleManagerProgress(progress: TavernManagerLiveProgress) {
+    managerRunSync.acceptProgress(progress);
+}
 const memoryEditorDocumentAvailable = computed(() => !!selectedMemoryFileEntry.value || !!memoryEditorLoadedPath.value);
-const memoryEditorReadOnly = computed(() => isRunning.value || managerBusy.value || isManagerAssistantRunning.value);
+const memoryEditorReadOnly = computed(() => (
+    isRunning.value
+    || managerBusy.value
+    || isManagerAssistantRunning.value
+    || isPhoneSendingForSession()
+));
 const memoryEditorDirty = computed(() => (
     !!memoryEditorLoadedPath.value
     && memoryEditorDraft.value !== memoryEditorBaseContent.value
 ));
 const memoryIndexStatusLine = computed(() => {
-    const index = memoryIndex.value;
+    const index = memoryIndexState.value;
     if (!index) {return '还没有可检索记忆';}
     if (index.status === 'ready') {return '记忆可检索';}
     if (index.status === 'failed') {return `记忆整理失败：${index.error || 'memory_index_failed'}`;}
@@ -1221,68 +1365,73 @@ const runtimeActionCheckSignature = computed(() => runtimeActionCheckEvents.valu
         event.success ? 1 : 0,
     ].join(':'))
     .join('|'));
-const managerChatDisplayItems = computed(() => buildManagerChatDisplayItems(managerChatMessages.value));
-const managerChatMessageDisplayItems = computed(() => managerChatDisplayItems.value
-    .filter((item): item is ManagerMessageDisplayItem => item.kind === 'message'));
-const liveManagerProtocolMessages = computed(() => {
+const assistantChatContextLabel = computed(() => assistantChatBudgetPending.value
+    ? `… / ${Math.round(TAVERN_ASSISTANT_CHAT_MAX_CONTEXT_TOKENS / 1000)}k`
+    : assistantChatBudgetTokens.value === null
+        ? `— / ${Math.round(TAVERN_ASSISTANT_CHAT_MAX_CONTEXT_TOKENS / 1000)}k`
+        : `${Math.round(assistantChatBudgetTokens.value / 1000)}k / ${Math.round(TAVERN_ASSISTANT_CHAT_MAX_CONTEXT_TOKENS / 1000)}k`);
+const assistantChatContextUsage = computed(() => assistantChatBudgetTokens.value === null
+    ? null
+    : Math.max(0, Math.min(1, assistantChatBudgetTokens.value / TAVERN_ASSISTANT_CHAT_MAX_CONTEXT_TOKENS)));
+const canClearAssistantChat = computed(() => (
+    (managerChatItems.value.length > 0 || managerChatHasMore.value)
+    && !isManagerAssistantRunning.value
+));
+const liveManagerAssistantDraft = computed(() => {
     const liveState = managerLiveProtocolState.value;
-    if (!liveState || liveState.sessionId !== selectedSessionId.value) {return [];}
-    return liveState.draft ? [...liveState.messages, liveState.draft] : liveState.messages;
+    return liveState?.sessionId === selectedSessionId.value ? liveState : null;
 });
-const liveManagerChatDisplayItems = computed(() => buildManagerChatDisplayItems(liveManagerProtocolMessages.value));
+const visibleManagerLiveToolRound = computed(() => (
+    managerLiveToolRound.value?.sessionId === selectedSessionId.value ? managerLiveToolRound.value : null
+));
 const visibleManagerPendingUserMessage = computed(() => {
     const pending = managerPendingUserMessage.value;
     if (!pending || pending.sessionId !== selectedSessionId.value) {return null;}
     return pending;
 });
-const managerMessageWindow = computed(() => getMessageWindow({
-    uiMessageWindowLimit: managerMessageWindowLimit.value,
-}, managerChatMessageDisplayItems.value.length, { defaultLimit: hiddenOutsideCount.value }));
-const visibleManagerChatItems = computed<ManagerChatDisplayItem[]>(() => managerChatMessageDisplayItems.value.slice(managerMessageWindow.value.startIndex));
-const visibleManagerChatMessages = computed(() => visibleManagerChatItems.value
-    .filter((item): item is ManagerMessageDisplayItem => item.kind === 'message')
-    .map((item) => item.message));
+const visibleManagerChatItems = computed<TavernAssistantChatUnit[]>(() => managerChatItems.value);
 const visibleManagerMarkdownSignature = computed(() => visibleManagerChatItems.value
     .map((item) => item.kind === 'message'
-        ? `${item.message.sessionId}:${item.message.order}:${markdownSignature(item.message.content)}`
-        : `${item.key}:${markdownSignature(item.assistantMessage.content)}:${item.calls.map((call) => `${call.id}:${markdownSignature(call.resultText)}`).join(',')}`)
+        ? `${item.sessionId}:${item.order}:${markdownSignature(item.content)}`
+        : `${item.key}:${item.status}:${markdownSignature(item.summary)}`)
     .concat(htmlRenderEnabled.value ? 'html-render:on' : 'html-render:off')
     .concat(homeThemeDark.value ? 'theme:dark' : 'theme:light')
     .join('|'));
-const liveManagerMarkdownSignature = computed(() => liveManagerChatDisplayItems.value
-    .map((item) => item.kind === 'message'
-        ? `${item.message.sessionId}:${item.message.order}:${markdownSignature(item.message.content)}`
-        : `${item.key}:${markdownSignature(item.assistantMessage.content)}:${item.calls.map((call) => `${call.id}:${markdownSignature(call.resultText)}`).join(',')}`)
-    .concat(htmlRenderEnabled.value ? 'html-render:on' : 'html-render:off')
-    .concat(homeThemeDark.value ? 'theme:dark' : 'theme:light')
-    .join('|'));
+const liveManagerMarkdownSignature = computed(() => {
+    const draft = liveManagerAssistantDraft.value;
+    return draft
+        ? `${draft.sessionId}:${draft.revision}`
+        : '';
+});
 const managerPendingUserMarkdownSignature = computed(() => {
     const pending = visibleManagerPendingUserMessage.value;
     if (!pending) {return '';}
     return `${pending.sessionId}:${pending.createdAt}:${markdownSignature(pending.content)}`;
 });
-const managerWorkMarkdownSignature = computed(() => managerRuns.value
-    .flatMap((run) => {
-        const trace = Array.isArray(run.toolTrace) ? run.toolTrace : [];
-        return trace.map((item, index) => {
-            const record = item && typeof item === 'object' ? item as Record<string, unknown> : {};
-            return [
-                run.id,
-                index,
-                record.id || '',
-                markdownSignature(String(record.preface || '')),
-            ].join(':');
-        });
+const managerWorkMarkdownSignature = computed(() => {
+    const run = currentManagerWorkRun.value;
+    const trace = Array.isArray(run?.toolTrace) ? run.toolTrace : [];
+    return trace.map((item, index) => {
+        const record = item && typeof item === 'object' ? item as Record<string, unknown> : {};
+        return [run?.id || '', index, record.id || '', markdownSignature(String(record.preface || ''))].join(':');
     })
     .concat(htmlRenderEnabled.value ? 'html-render:on' : 'html-render:off')
     .concat(homeThemeDark.value ? 'theme:dark' : 'theme:light')
-    .join('|'));
+    .join('|');
+});
 const chatSubtitle = computed(() => {
+    if (isPhoneSendingForSession()) {return '手机消息正在等待回复，完成后可继续剧情。';}
     if (!selectedSessionId.value) {return '写一句话后会自动创建独立会话。';}
     return sessionFloorLabel(selectedSession.value);
 });
-const canSendMessage = computed(() => !isCancellingRun.value && (isRunning.value || (!selectedSessionCharacterError.value && !!currentUserMessage.value.trim())));
-const canSendManagerMessage = computed(() => !isManagerAssistantCancelling.value && (isManagerAssistantRunning.value || (!!selectedSessionId.value && !!managerInputDraft.value.trim())));
+const canSendMessage = computed(() => !isCancellingRun.value && (
+    isRunning.value
+    || (!isRoleplayMessageEditing() && !isPhoneSendingForSession() && !selectedSessionCharacterError.value && !!currentUserMessage.value.trim())
+));
+const canSendManagerMessage = computed(() => !isManagerAssistantCancelling.value && (
+    isManagerAssistantRunning.value
+    || (!isPhoneSendingForSession() && !!selectedSessionId.value && !!managerInputDraft.value.trim())
+));
 
 watch(characterSearchText, () => {
     characterVisibleLimit.value = CHARACTER_ARCHIVE_BATCH_SIZE;
@@ -1330,14 +1479,15 @@ watch(selectedCharacterGreetingOptions, (options) => {
 
 watch(memoryFileSearchText, () => {
     memoryFileGroupVisibleLimits.value = {};
+    queueMemoryContentSearch();
 });
 
 watch(() => selectedCharacterSessions.value.map((session) => session.id).join('|'), () => {
-    void refreshSessionMessageCountsForSessions(selectedCharacterSessions.value);
+    void refreshSessionLatestMessageOrdersForSessions(selectedCharacterSessions.value);
 }, { immediate: true });
 
 watch(() => currentChatCharacterSessions.value.map((session) => session.id).join('|'), () => {
-    void refreshSessionMessageCountsForSessions(currentChatCharacterSessions.value);
+    void refreshSessionLatestMessageOrdersForSessions(currentChatCharacterSessions.value);
 }, { immediate: true });
 
 function describeError(error: unknown) {
@@ -1390,10 +1540,7 @@ function applyTavernRegexForNativeCharacter(nativeCharacterId = '') {
 }
 
 function clearRuntimeDisplayRegexRequests() {
-    pendingRuntimeDisplayRegexRequests.forEach((request) => window.clearTimeout(request.timer));
-    pendingRuntimeDisplayRegexRequests.clear();
-    latestRuntimeDisplayRegexKeys.clear();
-    runtimeDisplayRegexStableProjection.clear();
+    runtimeDisplayProjectionController.clear();
 }
 
 function clearDisplayRegexCache() {
@@ -1414,11 +1561,7 @@ function rememberDisplayRegexText(key: string, text: string) {
     displayRegexCache.value = next;
     if (activeView.value === 'chat' && chatFocus.value === 'chat') {
         void nextTick(() => {
-            if (isRunning.value) {
-                enhanceLiveChatMarkdown();
-            } else {
-                enhanceChatMarkdown();
-            }
+            enhanceChatMarkdown();
             updateChatScrollButtons();
         });
     }
@@ -1436,10 +1579,25 @@ function toDisplayRegexProjection(text: string, input: Pick<DisplayRegexTextRequ
     };
 }
 
-function rememberRuntimeDisplayRegexProjection(slot: string, key: string, text: string, input: DisplayRegexTextRequest) {
-    rememberDisplayRegexText(key, text);
-    runtimeDisplayRegexStableProjection.set(slot, toDisplayRegexProjection(text, input));
-}
+const runtimeDisplayProjectionController = useTavernRuntimeDisplayProjection({
+    throttleMs: RUNTIME_DISPLAY_REGEX_THROTTLE_MS,
+    resolveText: async (input) => {
+        const result = await applyTavernRegex([{
+            id: input.key,
+            text: input.text,
+            placement: input.placement,
+            options: input.options,
+        }]);
+        const item = result.items.find((candidate) => candidate.id === input.key) || result.items[0];
+        return item?.text ?? input.text;
+    },
+    projectText: toDisplayRegexProjection,
+    onError: (error) => {
+        console.warn('[小白酒馆] 生成中显示正则应用失败', error);
+    },
+});
+const runtimeDisplayRenderProjection = runtimeDisplayProjectionController.messageProjection;
+const runtimeDisplayThoughtBlocks = runtimeDisplayProjectionController.thoughtBlocks;
 
 function messageRegexPlacement(message: TavernMessageRecord): TavernApplyRegexItem['placement'] | null {
     if (message.role === 'user') {return 'userInput';}
@@ -1504,7 +1662,7 @@ function runtimeDisplayRegexCacheKey(
         actionCheckSignature?: string;
     },
 ) {
-    const latestOrder = latestSessionMessage.value?.order ?? -1;
+    const latestOrder = selectedSessionLatestAssistantOrder.value;
     return [
         'runtime',
         kind,
@@ -1575,73 +1733,6 @@ function resolveDisplayRegexText(input: DisplayRegexTextRequest): Promise<void> 
     });
     inFlightDisplayRegexRequests.set(input.key, request);
     return request;
-}
-
-function resolveRuntimeDisplayRegexText(slot: string, input: DisplayRegexTextRequest): Promise<void> {
-    const existing = inFlightDisplayRegexRequests.get(input.key);
-    if (existing) {return existing;}
-    const generation = displayRegexCacheGeneration;
-    const request = (async () => {
-        try {
-            const result = await applyTavernRegex([{
-                id: input.key,
-                text: input.text,
-                placement: input.placement,
-                options: input.options,
-            }]);
-            if (generation !== displayRegexCacheGeneration || latestRuntimeDisplayRegexKeys.get(slot) !== input.key) {return;}
-            const item = result.items.find((candidate) => candidate.id === input.key) || result.items[0];
-            rememberRuntimeDisplayRegexProjection(slot, input.key, item?.text ?? input.text, input);
-        } catch (error) {
-            console.warn('[小白酒馆] 生成中显示正则应用失败', error);
-            if (generation === displayRegexCacheGeneration && latestRuntimeDisplayRegexKeys.get(slot) === input.key) {
-                rememberRuntimeDisplayRegexProjection(slot, input.key, input.text, input);
-            }
-        }
-    })().finally(() => {
-        if (inFlightDisplayRegexRequests.get(input.key) === request) {
-            inFlightDisplayRegexRequests.delete(input.key);
-        }
-    });
-    inFlightDisplayRegexRequests.set(input.key, request);
-    return request;
-}
-
-function runRuntimeDisplayRegexRequest(slot: string) {
-    const pending = pendingRuntimeDisplayRegexRequests.get(slot);
-    if (!pending || pending.inFlight) {return;}
-    const input = pending.latest;
-    pending.inFlight = true;
-    void resolveRuntimeDisplayRegexText(slot, input).finally(() => {
-        const current = pendingRuntimeDisplayRegexRequests.get(slot);
-        if (!current) {return;}
-        current.inFlight = false;
-        if (current.latest.key !== input.key) {
-            runRuntimeDisplayRegexRequest(slot);
-            return;
-        }
-        pendingRuntimeDisplayRegexRequests.delete(slot);
-    });
-}
-
-function scheduleRuntimeDisplayRegexText(slot: string, input: DisplayRegexTextRequest) {
-    latestRuntimeDisplayRegexKeys.set(slot, input.key);
-    const current = pendingRuntimeDisplayRegexRequests.get(slot);
-    if (current) {
-        current.latest = input;
-        return;
-    }
-    const timer = window.setTimeout(() => {
-        const pending = pendingRuntimeDisplayRegexRequests.get(slot);
-        if (!pending) {return;}
-        pending.timer = 0;
-        runRuntimeDisplayRegexRequest(slot);
-    }, RUNTIME_DISPLAY_REGEX_THROTTLE_MS);
-    pendingRuntimeDisplayRegexRequests.set(slot, {
-        timer,
-        latest: input,
-        inFlight: false,
-    });
 }
 
 interface MessageDisplayProjectionSource {
@@ -1762,14 +1853,14 @@ async function prepareAssistantMessageDisplay(message: TavernMessageRecord) {
     )));
 }
 
-function displayRuntimeRenderProjection(
-    textInput = '',
-    events: TavernActionCheckRuntimeEvent[] = [],
-): DisplayRegexProjection {
-    const text = String(textInput || '');
-    const actionCheckEvents = getActionCheckEvents(events);
-    if (!text && !actionCheckEvents.length) {return { text: '', actionCheckEvents: [] };}
-    if (!text) {return { text: '', actionCheckEvents };}
+function runtimeMessageDisplayRequest(): {
+    request: TavernRuntimeDisplayRegexRequest | null;
+    fallback: DisplayRegexProjection;
+} {
+    const text = String(runtimeText.value || '');
+    const actionCheckEvents = getActionCheckEvents(runtimeActionCheckEvents.value);
+    const fallback = { text: '', actionCheckEvents };
+    if (!text) {return { request: null, fallback };}
     const markerPayload = injectActionCheckRegexMarkers(text, actionCheckEvents);
     const depth = 0;
     const characterOverride = String(roleLabel('assistant') || '').trim();
@@ -1780,37 +1871,36 @@ function displayRuntimeRenderProjection(
         characterOverride,
         actionCheckSignature: actionCheckEventsCacheSignature(actionCheckEvents),
     });
-    const request: DisplayRegexTextRequest = {
-        key,
-        text: markerPayload.text,
-        placement: 'aiOutput',
-        options: {
-            isMarkdown: true,
-            depth,
-            characterOverride,
+    return {
+        fallback,
+        request: {
+            key,
+            text: markerPayload.text,
+            placement: 'aiOutput',
+            options: {
+                isMarkdown: true,
+                depth,
+                characterOverride,
+            },
+            actionCheckEvents,
+            actionCheckBoundaries: markerPayload.boundaries,
         },
-        actionCheckEvents,
-        actionCheckBoundaries: markerPayload.boundaries,
     };
-    const cached = displayRegexCache.value[key];
-    if (cached !== undefined) {
-        const projection = toDisplayRegexProjection(cached, request);
-        runtimeDisplayRegexStableProjection.set('runtime:message', projection);
-        return projection;
-    }
-    scheduleRuntimeDisplayRegexText('runtime:message', request);
-    return runtimeDisplayRegexStableProjection.get('runtime:message') ?? { text: '', actionCheckEvents: [] };
 }
 
-function displayRuntimeContent(textInput = ''): string {
-    return displayRuntimeRenderProjection(textInput).text;
-}
-
-function displayRuntimeThoughtBlocks(thoughts: Array<{ label?: string; text?: string }> = []): Array<{ label?: string; text?: string }> {
+function runtimeThoughtDisplayRequests(): TavernRuntimeThoughtProjectionInput[] {
     const depth = 0;
-    return thoughtBlocks(thoughts).map((thought, index) => {
+    return thoughtBlocks(runtimeThoughts.value).map<TavernRuntimeThoughtProjectionInput>((thought, index) => {
         const text = String(thought.text || '');
-        if (!text) {return thought;}
+        const slot = `runtime:reasoning:${index}`;
+        if (!text) {
+            return {
+                slot,
+                label: thought.label,
+                fallbackText: text,
+                request: null,
+            };
+        }
         const key = runtimeDisplayRegexCacheKey('reasoning', {
             placement: 'reasoning',
             text,
@@ -1818,27 +1908,35 @@ function displayRuntimeThoughtBlocks(thoughts: Array<{ label?: string; text?: st
             index,
             label: thought.label,
         });
-        const cached = displayRegexCache.value[key];
-        if (cached !== undefined) {
-            runtimeDisplayRegexStableProjection.set(`runtime:reasoning:${index}`, { text: cached, actionCheckEvents: [] });
-            return { ...thought, text: cached };
-        }
-        const request: DisplayRegexTextRequest = {
-            key,
-            text,
-            placement: 'reasoning',
-            options: {
-                isMarkdown: true,
-                depth,
+        return {
+            slot,
+            label: thought.label,
+            request: {
+                key,
+                text,
+                placement: 'reasoning',
+                options: {
+                    isMarkdown: true,
+                    depth,
+                },
             },
         };
-        const slot = `runtime:reasoning:${index}`;
-        scheduleRuntimeDisplayRegexText(slot, request);
-        return {
-            ...thought,
-            text: runtimeDisplayRegexStableProjection.get(slot)?.text ?? '',
-        };
-    }).filter((thought) => String(thought.text || '').trim());
+    });
+}
+
+function syncRuntimeDisplayProjectionRequests() {
+    if (!isRunning.value || activeView.value !== 'chat' || chatFocus.value !== 'chat') {return;}
+    const message = runtimeMessageDisplayRequest();
+    runtimeDisplayProjectionController.setMessageInput(message.request, message.fallback);
+    runtimeDisplayProjectionController.setThoughtInputs(runtimeThoughtDisplayRequests());
+}
+
+function displayRuntimeRenderProjection(): DisplayRegexProjection {
+    return runtimeDisplayRenderProjection.value;
+}
+
+function displayRuntimeThoughtBlocks(): Array<{ label?: string; text?: string }> {
+    return runtimeDisplayThoughtBlocks.value;
 }
 
 async function applyTavernSubstituteParams(items: TavernSubstituteParamsItem[]): Promise<TavernSubstituteParamsResult> {
@@ -1892,6 +1990,25 @@ async function getHostContext(input: {
         },
     }, options);
     return (response.result || response) as Record<string, unknown>;
+}
+
+async function refreshPhoneContextSnapshot(sessionId: string): Promise<XbTavernContext> {
+    const id = String(sessionId || '').trim();
+    const session = sessions.value.find((item) => item.id === id)
+        || (selectedSession.value?.id === id ? selectedSession.value : null)
+        || await getTavernSession(id);
+    if (!session) {throw new Error('当前私人消息会话不存在。');}
+    const characterKey = sessionCharacterKey(session);
+    if (!characterKey) {throw new Error('当前私人消息会话没有绑定角色。');}
+    const nativeCharacterId = resolveCurrentNativeCharacterId(characterKey);
+    const payload = await getHostContext({
+        nativeCharacterId,
+        includeHistory: false,
+        includeWorldbooks: false,
+    });
+    const nextContext = preserveSessionAuthorNote(payload.context as XbTavernContext || {}, session);
+    assertContextMatchesCharacterKey(nextContext, characterKey);
+    return nextContext;
 }
 
 function currentContextCharacterKey() {
@@ -1966,6 +2083,80 @@ function buildSessionContextSnapshotBase(session: TavernSessionRecord): XbTavern
             name,
         },
     };
+}
+
+function cancelAssistantChatContextMeterRefresh(options: { clear?: boolean } = {}): void {
+    assistantChatContextRefreshSerial += 1;
+    if (assistantChatContextRefreshTimer !== null) {
+        window.clearTimeout(assistantChatContextRefreshTimer);
+        assistantChatContextRefreshTimer = null;
+    }
+    assistantChatContextAbortController?.abort();
+    assistantChatContextAbortController = null;
+    assistantChatBudgetPending.value = false;
+    if (options.clear) {
+        assistantChatBudgetTokens.value = null;
+    }
+}
+
+function refreshAssistantChatContextMeter(options: { immediate?: boolean } = {}): void {
+    cancelAssistantChatContextMeterRefresh();
+    const sessionId = String(selectedSessionId.value || '').trim();
+    if (!sessionId) {
+        assistantChatBudgetTokens.value = null;
+        return;
+    }
+    const requestSerial = assistantChatContextRefreshSerial;
+    const resolve = async () => {
+        if (requestSerial !== assistantChatContextRefreshSerial || selectedSessionId.value !== sessionId) {return;}
+        const controller = new AbortController();
+        assistantChatContextAbortController = controller;
+        assistantChatBudgetTokens.value = null;
+        assistantChatBudgetPending.value = true;
+        const session = selectedSession.value?.id === sessionId
+            ? selectedSession.value
+            : sessions.value.find((item) => item.id === sessionId);
+        try {
+            const tokens = await estimateTavernAssistantChatContext({
+                sessionId,
+                agentConfig: agentConfig.value,
+                assistantPreset: activeAssistantPreset.value,
+                contextSnapshot: session ? buildSessionContextSnapshotBase(session) : {},
+                question: managerInputDraft.value.trim(),
+                signal: controller.signal,
+            });
+            if (
+                requestSerial !== assistantChatContextRefreshSerial
+                || selectedSessionId.value !== sessionId
+                || controller.signal.aborted
+                || !Number.isFinite(tokens)
+            ) {return;}
+            assistantChatBudgetTokens.value = tokens;
+        } catch {
+            // A stale local estimate leaves the meter neutral.
+        } finally {
+            if (requestSerial === assistantChatContextRefreshSerial && assistantChatContextAbortController === controller) {
+                assistantChatContextAbortController = null;
+                assistantChatBudgetPending.value = false;
+            }
+        }
+    };
+    if (options.immediate) {
+        void resolve();
+        return;
+    }
+    assistantChatContextRefreshTimer = window.setTimeout(() => {
+        assistantChatContextRefreshTimer = null;
+        void resolve();
+    }, 220);
+}
+
+function assistantChatContextMeterConfigSignature(value: unknown): string {
+    try {
+        return JSON.stringify(value || {}) || '';
+    } catch {
+        return '';
+    }
 }
 
 async function saveCurrentAuthorNote(note: XbTavernAuthorNote): Promise<void> {
@@ -2410,12 +2601,24 @@ function summarizeArchiveCounts(counts = createEmptyTavernCharacterArchiveCounts
         `${counts.messages} 条消息`,
         `${counts.memoryFiles} 份记忆`,
         `${counts.stateDocuments} 份地图/图鉴`,
-        `${counts.tasks} 个任务`,
+        `${Number(counts.communications) || 0} 条通讯数据`,
+        `${Number(counts.economy) || 0} 条经济数据`,
+        `${Number(counts.tasks) || 0} 条任务数据`,
+        `${Number(counts.shop) || 0} 条商店数据`,
+        `${Number(counts.bank) || 0} 条银行数据`,
     ].join('，');
 }
 
 async function backupSelectedCharacterArchive() {
     if (characterArchiveSyncState.value.busy) {return;}
+    if (managerBusy.value || isManagerAssistantRunning.value) {
+        showTavernToast('档案正在维护，完成后再备份角色档案。', { tone: 'warning', durationMs: 3000 });
+        return;
+    }
+    if (phoneContext.messages.isSending.value) {
+        warnPhoneWorkInProgress('手机消息正在等待回复，稍后再备份角色档案。');
+        return;
+    }
     const character = selectedCharacterPreview.value;
     const characterKey = String(character?.characterKey || '').trim();
     if (!character || !characterKey) {return;}
@@ -2495,7 +2698,7 @@ async function backupSelectedCharacterArchive() {
         });
         const writerResult = await writer.close();
         const manifest: TavernCharacterArchiveManifest = {
-            version: 1,
+            version: CURRENT_TAVERN_CHARACTER_ARCHIVE_VERSION,
             archiveId,
             complete: true,
             exportedAt: summary.exportedAt,
@@ -2533,6 +2736,14 @@ async function backupSelectedCharacterArchive() {
 
 async function restoreSelectedCharacterArchive() {
     if (characterArchiveSyncState.value.busy) {return;}
+    if (managerBusy.value || isManagerAssistantRunning.value) {
+        showTavernToast('档案正在维护，完成后再恢复角色档案。', { tone: 'warning', durationMs: 3000 });
+        return;
+    }
+    if (phoneContext.messages.isSending.value) {
+        warnPhoneWorkInProgress('手机消息正在等待回复，稍后再恢复角色档案。');
+        return;
+    }
     const character = selectedCharacterPreview.value;
     const characterKey = String(character?.characterKey || '').trim();
     if (!character || !characterKey) {return;}
@@ -2551,7 +2762,11 @@ async function restoreSelectedCharacterArchive() {
                 });
             },
         });
-        if (manifest.complete !== true || manifest.version !== 1 || String(manifest.character?.characterKey || '').trim() !== characterKey) {
+        if (
+            manifest.complete !== true
+            || manifest.version !== CURRENT_TAVERN_CHARACTER_ARCHIVE_VERSION
+            || String(manifest.character?.characterKey || '').trim() !== characterKey
+        ) {
             throw new Error('archive_manifest_mismatch');
         }
         const confirmed = await confirmTavernDialog({
@@ -2750,47 +2965,114 @@ async function saveSessionContract(nextContract: Partial<TavernSessionContract> 
     return updated;
 }
 
-async function refreshManagerRecords(sessionId = selectedSessionId.value) {
-    reportStartupProgress(95, 'refreshManagerRecords');
+async function refreshAssistantChat(
+    sessionId = selectedSessionId.value,
+    options: { limit?: number; preserveDetachedWindow?: boolean } = {},
+) {
     const id = String(sessionId || '').trim();
     if (!id) {
-        managerChatMessages.value = [];
-        managerRuns.value = [];
-        tavernTasks.value = [];
+        if (!selectedSessionId.value) {
+            managerChatItems.value = [];
+            managerChatHasMore.value = false;
+            managerChatHasNewer.value = false;
+        }
+        refreshAssistantChatContextMeter({ immediate: true });
+        return;
+    }
+    if (id !== selectedSessionId.value) {return;}
+    const requestSerial = ++assistantChatRefreshSerial;
+    if (options.preserveDetachedWindow && managerChatHasNewer.value) {
+        refreshAssistantChatContextMeter({ immediate: true });
+        return;
+    }
+    const page = await loadTavernAssistantChatUnitPage(id, {
+        limit: Math.max(1, Number(options.limit) || TAVERN_ASSISTANT_CHAT_INITIAL_UNIT_LIMIT),
+    });
+    if (requestSerial !== assistantChatRefreshSerial || id !== selectedSessionId.value) {return;}
+    if (options.preserveDetachedWindow && managerChatHasNewer.value) {
+        refreshAssistantChatContextMeter({ immediate: true });
+        return;
+    }
+    managerChatItems.value = page.items;
+    managerChatHasMore.value = page.hasMore;
+    managerChatHasNewer.value = false;
+    refreshAssistantChatContextMeter({ immediate: true });
+}
+
+function appendAssistantChatMessageProjection(message: TavernAssistantChatMessageRecord) {
+    const [unit] = projectTavernAssistantChatUnits([message]);
+    if (!unit || unit.kind !== 'message') {return;}
+    const nextItems = [...managerChatItems.value.filter((item) => item.key !== unit.key), unit]
+        .sort((left, right) => left.startOrder - right.startOrder);
+    if (nextItems.length > TAVERN_ASSISTANT_CHAT_VISIBLE_UNIT_LIMIT) {
+        managerChatItems.value = nextItems.slice(-TAVERN_ASSISTANT_CHAT_VISIBLE_UNIT_LIMIT);
+        managerChatHasMore.value = true;
+        managerChatHasNewer.value = false;
+        return;
+    }
+    managerChatItems.value = nextItems;
+}
+
+function removeAssistantChatMessageProjections(orders: number[] = []) {
+    const removedOrders = new Set(orders
+        .map((order) => Math.floor(Number(order)))
+        .filter((order) => Number.isInteger(order) && order >= 0));
+    if (!removedOrders.size) {return;}
+    const removedOrderList = [...removedOrders];
+    managerChatItems.value = managerChatItems.value.filter((item) => (
+        !removedOrderList.some((order) => order >= item.startOrder && order <= item.endOrder)
+    ));
+}
+
+function replaceAssistantChatProjectionSuffix(message: TavernAssistantChatMessageRecord) {
+    managerChatItems.value = managerChatItems.value.filter((item) => item.endOrder < message.order);
+    appendAssistantChatMessageProjection(message);
+}
+
+function refreshAssistantChatProjectionNonFatal(sessionId: string, context: string) {
+    void refreshAssistantChat(sessionId).catch((error) => {
+        console.warn(`[小白酒馆] ${context}，助手聊天投影刷新失败`, error);
+    });
+}
+
+function clearManagerWorkspaceProjections() {
+    managerRuns.value = [];
+    memoryFiles.value = [];
+    memoryIndexState.value = null;
+    invalidateMemoryFileRecordLoad();
+    mapStateDocuments.value = [];
+    activeMapDocId.value = 'main';
+    mapStateDocument.value = null;
+    mapStatePatches.value = [];
+    mapStatePatchCount.value = 0;
+    mapStateTimelineAvailable.value = false;
+    atlasStateDocument.value = null;
+    atlasLatestPatchSummary.value = '';
+    atlasActiveLocationKey.value = '';
+    statusStateDocument.value = null;
+    statusFieldDeltas.value = {};
+    selectedMemoryFilePath.value = '';
+}
+
+async function refreshManagerRunHistory(sessionId = selectedSessionId.value) {
+    await managerRunSync.hydrate(sessionId);
+}
+
+async function refreshMemoryProjection(sessionId = selectedSessionId.value) {
+    const id = String(sessionId || '').trim();
+    const requestSerial = ++memoryProjectionRefreshSerial;
+    if (!id) {
         memoryFiles.value = [];
-        memoryIndex.value = null;
+        memoryIndexState.value = null;
         invalidateMemoryFileRecordLoad();
-        stateMemoryFile.value = null;
-        mapStateDocuments.value = [];
-        activeMapDocId.value = 'main';
-        mapStateDocument.value = null;
-        mapStatePatches.value = [];
-        atlasStateDocument.value = null;
-        atlasStatePatches.value = [];
-        atlasActiveLocationKey.value = '';
-        statusStateDocument.value = null;
-        statusStatePatches.value = [];
-        statusFieldDeltas.value = {};
         selectedMemoryFilePath.value = '';
         return;
     }
-    const [managerMessages, runs, tasks, rawIndex, mapState, atlasState, statusState, nextStateFile] = await Promise.all([
-        listTavernManagerMessages(id),
-        listTavernManagerRuns(id, { limit: 18 }),
-        listTavernTasks(id, { includeCompleted: true }),
-        getTavernMemoryIndex(id),
-        getTavernMapStateForSession(id),
-        getTavernAtlasStateForSession(id),
-        getTavernStatusStateForSession(id),
-        getTavernMemoryFile(id, 'memory/state.md'),
-    ]);
+    const rawIndex = await getTavernMemoryIndex(id);
     const index = rawIndex && rawIndex.status === 'ready' && Array.isArray(rawIndex.files)
         ? rawIndex
         : await rebuildTavernMemoryDerivedIndex(id);
-    if (id !== selectedSessionId.value) {return;}
-    managerChatMessages.value = managerMessages;
-    managerRuns.value = runs;
-    tavernTasks.value = tasks;
+    if (requestSerial !== memoryProjectionRefreshSerial || id !== selectedSessionId.value) {return;}
     memoryFiles.value = Array.isArray(index.files) ? index.files.map((file) => ({
         path: String(file.path || ''),
         status: file.status === 'stale' ? 'stale' : 'active',
@@ -2801,20 +3083,8 @@ async function refreshManagerRecords(sessionId = selectedSessionId.value) {
         contentLength: Math.max(0, Number(file.contentLength) || 0),
         title: String(file.title || ''),
         preview: String(file.preview || ''),
-        searchText: String(file.searchText || ''),
     })) : [];
-    memoryIndex.value = index;
-    stateMemoryFile.value = nextStateFile;
-    mapStateDocuments.value = mapState.documents;
-    activeMapDocId.value = mapState.activeDocId;
-    mapStateDocument.value = mapState.activeDocument;
-    mapStatePatches.value = mapState.activePatches;
-    atlasStateDocument.value = atlasState.document;
-    atlasStatePatches.value = atlasState.patches;
-    atlasActiveLocationKey.value = atlasState.activeLocationKey;
-    statusStateDocument.value = statusState.document;
-    statusStatePatches.value = statusState.patches;
-    statusFieldDeltas.value = statusState.fieldDeltas;
+    memoryIndexState.value = { status: index.status, error: index.error };
     if (!memoryFiles.value.some((file) => file.path === selectedMemoryFilePath.value)) {
         if (memoryEditorDirty.value && selectedMemoryFilePath.value) {
             memoryEditorStatus.value = '当前档案已变化，草稿仍保留';
@@ -2824,43 +3094,179 @@ async function refreshManagerRecords(sessionId = selectedSessionId.value) {
     }
 }
 
-async function pollLiveManagerRecords() {
-    managerStatusClock.value = Date.now();
-    if (managerRecordsPollRunning) {return;}
-    if (!selectedSessionId.value) {return;}
-    const hasLiveManagerRun = managerRuns.value.some((run) => isManagerRunLive(run.status));
-    if (!hasLiveManagerRun && !isRunning.value && !isManagerAssistantRunning.value) {return;}
-    managerRecordsPollRunning = true;
-    try {
-        await refreshManagerRecords(selectedSessionId.value);
-    } finally {
-        managerRecordsPollRunning = false;
+async function refreshMapProjection(sessionId = selectedSessionId.value) {
+    const id = String(sessionId || '').trim();
+    const requestSerial = ++mapProjectionRefreshSerial;
+    if (!id) {
+        mapStateDocuments.value = [];
+        activeMapDocId.value = 'main';
+        mapStateDocument.value = null;
+        mapStatePatches.value = [];
+        mapStatePatchCount.value = 0;
+        mapStateTimelineAvailable.value = false;
+        return;
+    }
+    const mapState = await getTavernMapStateForSession(id);
+    if (requestSerial !== mapProjectionRefreshSerial || id !== selectedSessionId.value) {return;}
+    mapStateDocuments.value = mapState.documents;
+    activeMapDocId.value = mapState.activeDocId;
+    mapStateDocument.value = mapState.activeDocument;
+    mapStatePatches.value = mapState.activePatches;
+    mapStatePatchCount.value = mapState.activePatchCount;
+    mapStateTimelineAvailable.value = mapState.activeTimelineAvailable;
+}
+
+async function loadMapTimelinePatches(sessionId = '', docId = '') {
+    const sourceSessionId = String(sessionId || '').trim();
+    const id = String(docId || '').trim();
+    if (!sourceSessionId || !id) {return [];}
+    return await listTavernStructuredStatePatches({
+        sessionId: sourceSessionId,
+        docType: 'tavern.map',
+        docId: id,
+        limit: TAVERN_MAP_TIMELINE_PATCH_LIMIT,
+    });
+}
+
+async function refreshAtlasProjection(sessionId = selectedSessionId.value) {
+    const id = String(sessionId || '').trim();
+    const requestSerial = ++atlasProjectionRefreshSerial;
+    if (!id) {
+        atlasStateDocument.value = null;
+        atlasLatestPatchSummary.value = '';
+        atlasActiveLocationKey.value = '';
+        return;
+    }
+    const atlasState = await getTavernAtlasStateForSession(id);
+    if (requestSerial !== atlasProjectionRefreshSerial || id !== selectedSessionId.value) {return;}
+    atlasStateDocument.value = atlasState.document;
+    atlasLatestPatchSummary.value = atlasState.latestPatchSummary;
+    atlasActiveLocationKey.value = atlasState.activeLocationKey;
+}
+
+async function refreshStatusProjection(sessionId = selectedSessionId.value) {
+    const id = String(sessionId || '').trim();
+    const requestSerial = ++statusProjectionRefreshSerial;
+    if (!id) {
+        statusStateDocument.value = null;
+        statusFieldDeltas.value = {};
+        return;
+    }
+    const statusState = await getTavernStatusProjectionForSession(id);
+    if (requestSerial !== statusProjectionRefreshSerial || id !== selectedSessionId.value) {return;}
+    statusStateDocument.value = statusState.document;
+    statusFieldDeltas.value = statusState.fieldDeltas;
+}
+
+async function refreshAllManagerDomainProjections(sessionId = selectedSessionId.value) {
+    await Promise.all([
+        refreshMemoryProjection(sessionId),
+        refreshMapProjection(sessionId),
+        refreshAtlasProjection(sessionId),
+        refreshStatusProjection(sessionId),
+    ]);
+}
+
+async function refreshSettledManagerDomains(sessionId: string, changes: {
+    id?: string;
+    changedFiles?: string[];
+    changedStates?: string[];
+    status?: string;
+}) {
+    if (sessionId !== selectedSessionId.value) {return;}
+    if (changes.status && changes.status !== 'completed') {
+        await refreshAllManagerDomainProjections(sessionId);
+        return;
+    }
+    const changedStates = (changes.changedStates || []).map((value) => String(value || ''));
+    const refreshes: Promise<unknown>[] = [];
+    if ((changes.changedFiles || []).length) {refreshes.push(refreshMemoryProjection(sessionId));}
+    if (changedStates.some((key) => key.startsWith('tavern.map/'))) {refreshes.push(refreshMapProjection(sessionId));}
+    if (changedStates.some((key) => key.startsWith('tavern.atlas/'))) {refreshes.push(refreshAtlasProjection(sessionId));}
+    if (changedStates.some((key) => key.startsWith('tavern.status/'))) {refreshes.push(refreshStatusProjection(sessionId));}
+    await Promise.all(refreshes);
+    if (
+        changes.status !== 'completed'
+        || !changes.id
+        || sessionId !== selectedSessionId.value
+        || isAcceptedRollbackInProgress(sessionId)
+    ) {return;}
+    const [currentRun, taskVersions] = await Promise.all([
+        getTavernManagerRun(changes.id),
+        listTavernTaskVersionsByActionPrefix(sessionId, `${changes.id}:`),
+    ]);
+    if (
+        currentRun?.status !== 'completed'
+        || sessionId !== selectedSessionId.value
+        || isAcceptedRollbackInProgress(sessionId)
+    ) {return;}
+    const latestByTask = new Map(taskVersions.map((task) => [task.taskId, task]));
+    const [currentTasks, finalRun] = await Promise.all([
+        Promise.all([...latestByTask.keys()].map((taskId) => getCurrentTavernTask(sessionId, taskId))),
+        getTavernManagerRun(changes.id),
+    ]);
+    const committedTasks = currentTasks.filter((task): task is TavernTaskVersionRecord => {
+        if (!task) {return false;}
+        const committed = latestByTask.get(task.taskId);
+        return !!committed
+            && task.status === 'completed'
+            && task.versionId === committed.versionId
+            && task.actionId === committed.actionId;
+    });
+    if (
+        finalRun?.status === 'completed'
+        && sessionId === selectedSessionId.value
+        && !isAcceptedRollbackInProgress(sessionId)
+    ) {
+        handleTaskActionsCommitted(sessionId, committedTasks);
     }
 }
 
-async function rebuildSelectedSessionRuntimeState() {
-    if (!selectedSessionId.value) {return;}
-    const currentSessionState = normalizeTavernSessionState(selectedSession.value?.state || {});
-    const messages = await listTavernMessages(selectedSessionId.value);
-    const runtimeContext = await resolveRuntimeContextForSession(selectedSessionId.value);
-    const state = await deriveTavernSessionStateFromMessagesAsync({
-        messages,
-        contextSnapshot: runtimeContext,
-        chatPreset: runtimeChatPreset.value,
-        historyMode: historyMode.value,
-        diagnostics: diagnostics.value,
-        applySubstituteParams: applyTavernSubstituteParams,
-        getNativeWorldInfoRuntime: getNativeWorldbookRuntime,
+function resumeSelectedSessionManagers(sessionId: string) {
+    resumeQueuedAcceptedTurnManagers({
+        sessionId,
+        agentConfig: agentConfig.value,
+        assistantPreset: activeAssistantPreset.value,
+        sessionContract: sessionContract.value,
+        onManagerRunSaved: handleManagerRunSaved,
+        onManagerProgress: handleManagerProgress,
     });
-    await replaceTavernSessionState(selectedSessionId.value, {
-        ...state,
-        contract: currentSessionState.contract,
-        contextWindowStartOrder: resolveTavernContextWindow({
-            messages,
-            contextWindowStartOrder: currentSessionState.contextWindowStartOrder,
-        }).contextWindowStartOrder,
+}
+
+const managerRunSync = useTavernManagerRunSync({
+    selectedSessionId,
+    managerRuns,
+    managerStatusClock,
+    refreshSettledDomains: refreshSettledManagerDomains,
+    kickWorker: resumeSelectedSessionManagers,
+    onTerminalRefreshFailure: (run, error) => {
+        console.warn('[小白酒馆] manager 终态领域刷新重试失败', run.id, error);
+        if (run.sessionId === selectedSessionId.value) {
+            showTavernToast('后台工作已结束，但页面状态刷新失败；重新进入会话会重新读取。', {
+                tone: 'warning',
+                durationMs: 6500,
+            });
+        }
+    },
+});
+
+async function hydrateSessionWorkspace(sessionId = selectedSessionId.value) {
+    reportStartupProgress(95, 'hydrateSessionWorkspace');
+    const id = String(sessionId || '').trim();
+    if (!id) {
+        clearManagerWorkspaceProjections();
+        await refreshAssistantChat('');
+        return;
+    }
+    await ensureTavernMemoryDefaultsInitialized(id, {
+        characterName: String(selectedSession.value?.characterName || effectiveContext.value.character?.name || ''),
     });
-    await refreshSessions();
+    await Promise.all([
+        refreshManagerRunHistory(id),
+        refreshAllManagerDomainProjections(id),
+        refreshAssistantChat(id),
+    ]);
+    if (id === selectedSessionId.value) {resumeSelectedSessionManagers(id);}
 }
 
 function resetSessionPreviewState() {
@@ -2872,23 +3278,68 @@ function resetSessionPreviewState() {
     simulateRequestError.value = '';
     showPromptInspector.value = false;
     promptInspectorTab.value = 'history';
+    clearManagerCompactionOverlayHideTimer();
     managerCompactionOverlay.value = null;
     resetChatMessageWindowState();
-    resetManagerMessageWindowState();
     clearMarkdownCache();
 }
 
-const resetChatMessageWindowState = chatScrollPane.resetWindowState;
-const resetManagerMessageWindowState = managerScrollPane.resetWindowState;
+function resetChatMessageWindowState() {
+    chatScrollPane.resetWindowState(true);
+}
 const revealOlderChatMessages = chatScrollPane.revealOlderMessages;
-const revealOlderManagerMessages = managerScrollPane.revealOlderMessages;
+const revealNewerChatMessages = chatScrollPane.revealNewerMessages;
 
-function resetChatMessageWindowForUserTurn() {
+async function revealOlderManagerMessages() {
+    const sessionId = String(selectedSessionId.value || '').trim();
+    const beforeOrder = managerChatItems.value[0]?.startOrder;
+    if (!sessionId || !managerChatHasMore.value || beforeOrder === undefined || assistantChatOlderLoading) {return;}
+    assistantChatOlderLoading = true;
+    const requestSerial = assistantChatRefreshSerial;
+    try {
+        const page = await loadTavernAssistantChatUnitPage(sessionId, {
+            beforeOrder,
+            limit: TAVERN_ASSISTANT_CHAT_OLDER_UNIT_LIMIT,
+        });
+        if (requestSerial !== assistantChatRefreshSerial || selectedSessionId.value !== sessionId) {return;}
+        managerAutoScroll.value = false;
+        managerScrollPane.preserveViewportDuringMutation(() => {
+            const seen = new Set(managerChatItems.value.map((item) => item.key));
+            const nextItems = [
+                ...page.items.filter((item) => !seen.has(item.key)),
+                ...managerChatItems.value,
+            ];
+            const trimmed = nextItems.length > TAVERN_ASSISTANT_CHAT_VISIBLE_UNIT_LIMIT;
+            managerChatItems.value = trimmed
+                ? nextItems.slice(0, TAVERN_ASSISTANT_CHAT_VISIBLE_UNIT_LIMIT)
+                : nextItems;
+            managerChatHasMore.value = page.hasMore;
+            managerChatHasNewer.value = managerChatHasNewer.value || trimmed;
+        });
+        void nextTick(() => updateManagerScrollButtons());
+    } finally {
+        assistantChatOlderLoading = false;
+    }
+}
+
+async function revealNewerManagerMessages() {
+    const sessionId = String(selectedSessionId.value || '').trim();
+    if (!sessionId || !managerChatHasNewer.value || assistantChatOlderLoading) {return;}
+    await refreshAssistantChat(sessionId);
+    void nextTick(() => scrollManagerToBottom());
+}
+
+async function resetChatMessageWindowForUserTurn(options: { rerollLatestAssistant?: boolean } = {}) {
     const defaultLimit = normalizeHiddenOutsideCount(hiddenOutsideCount.value);
-    if (chatMessageWindowLimit.value !== defaultLimit) {
+    const windowChanged = chatMessageWindowLimit.value !== defaultLimit
+        || selectedSessionMessageWindowOffsetFromEnd.value !== 0;
+    if (windowChanged) {
         sessionController.suppressNextChatWindowLimitReload();
     }
     resetChatMessageWindowState();
+    if (windowChanged && options.rerollLatestAssistant !== true && selectedSessionId.value) {
+        await loadSelectedSessionMessageWindow({ sessionId: selectedSessionId.value });
+    }
 }
 
 function getCharacterGreetingOptions(character: XbTavernCharacter = {}) {
@@ -2969,6 +3420,7 @@ async function createNewChatSession() {
 function getChatSessionBranchBlockedReason(): string {
     if (!selectedSessionId.value) {return '当前没有会话。';}
     if (isRunning.value || isCancellingRun.value) {return '正在生成回复，稍后再开启对话分支。';}
+    if (isPhoneSendingForSession()) {return '手机消息正在等待回复，稍后再开启对话分支。';}
     if (managerBusy.value || isManagerAssistantRunning.value || isManagerAssistantCancelling.value || retryingManagerRunId.value) {
         return '助手/管理器正在维护档案，稍后再开启对话分支。';
     }
@@ -3040,6 +3492,10 @@ async function finishPendingCharacterSession() {
 }
 
 async function selectCharacterAndCreateSession(characterKey: string) {
+    if (isRunning.value || isCancellingRun.value) {
+        showTavernToast('角色正在回复，完成或停止后再切换会话', { tone: 'info', durationMs: 2600 });
+        return;
+    }
     const targetKey = String(characterKey || '').trim();
     if (!targetKey || pendingCharacterSessionKey.value) {return;}
     const wasPreviewed = targetKey === String(selectedCharacterPreviewKey.value || '').trim();
@@ -3062,11 +3518,20 @@ async function selectCharacterAndCreateSession(characterKey: string) {
 }
 
 async function selectSession(sessionId: string) {
+    if (isRunning.value || isCancellingRun.value) {
+        showTavernToast('角色正在回复，完成或停止后再切换会话', { tone: 'info', durationMs: 2600 });
+        return;
+    }
+    editingMessageKey.value = '';
     await sessionController.selectSession(sessionId);
 }
 
 async function removeSession(sessionId: string, event?: Event) {
     event?.stopPropagation();
+    if (isPhoneSendingForSession(sessionId)) {
+        warnPhoneWorkInProgress('这个会话还有手机消息在等待回复，稍后再删除。');
+        return;
+    }
     await sessionController.removeSession(sessionId);
 }
 
@@ -3174,7 +3639,7 @@ const {
     selectedSessionId,
     commitUserAcceptedState,
     confirmDialog: confirmTavernDialog,
-    refreshRecords: refreshManagerRecords,
+    refreshRecords: refreshMemoryProjection,
 });
 
 watch(memoryEditorReadOnly, (readOnly) => {
@@ -3195,35 +3660,25 @@ async function retryManagerRun(run: TavernManagerRunRecord) {
     retryingManagerRunId.value = runId;
     managerActionStatus.value = '记忆正在重试。';
     try {
-        const [userMessage, assistantMessage] = await Promise.all([
-            getTavernMessage(selectedSessionId.value, run.userOrder),
-            getTavernMessage(selectedSessionId.value, run.assistantOrder),
-        ]);
-        const validUserMessage = userMessage?.role === 'user' ? userMessage : null;
-        const validAssistantMessage = assistantMessage?.role === 'assistant' && !assistantMessage.error ? assistantMessage : null;
-        if (!validUserMessage || !validAssistantMessage) {
-            managerActionStatus.value = '原文楼层不存在，无法重试。';
-            await refreshManagerRecords();
+        const queued = await queueAcceptedTurnManagerRetry(run.id);
+        if (!queued) {
+            managerActionStatus.value = '这次维护无法重新入队。';
             return;
         }
-        const result = await runXbTavernManagerAfterTurn({
+        resumeQueuedAcceptedTurnManagers({
             sessionId: selectedSessionId.value,
             agentConfig: agentConfig.value,
-            userMessage: validUserMessage,
-            assistantMessage: validAssistantMessage,
-            turn: run.turn,
             assistantPreset: activeAssistantPreset.value,
             sessionContract: sessionContract.value,
+            onManagerRunSaved: handleManagerRunSaved,
+            onManagerProgress: handleManagerProgress,
         });
-        managerActionStatus.value = result.ok ? '' : `失败：${result.error || 'manager_retry_failed'}`;
+        managerRunSync.acceptSavedRun(queued.sessionId, queued);
+        managerActionStatus.value = '已加入维护队列。';
     } catch (error) {
         managerActionStatus.value = error instanceof Error ? error.message : String(error || 'manager_retry_failed');
     } finally {
-        try {
-            await refreshManagerRecords();
-        } finally {
-            retryingManagerRunId.value = '';
-        }
+        retryingManagerRunId.value = '';
     }
 }
 
@@ -3281,47 +3736,44 @@ function messageKey(message: TavernMessageRecord) {
     return `${message.sessionId}:${message.order}`;
 }
 
-function managerMessageKey(message: TavernManagerMessageRecord) {
+function managerMessageKey(message: TavernAssistantChatMessageUnit) {
     return `manager:${message.sessionId}:${message.order}`;
 }
 
 function canEditMessage(message: TavernMessageRecord) {
-    return !isRunning.value && !message.error && ['user', 'assistant'].includes(message.role);
+    return !isRunning.value && !isPhoneSendingForSession(message.sessionId) && !message.error && ['user', 'assistant'].includes(message.role);
 }
 
-function canEditManagerMessage(message: TavernManagerMessageRecord) {
-    return !isManagerAssistantRunning.value && !message.error && ['user', 'assistant'].includes(message.role);
+function canEditManagerMessage(message: TavernAssistantChatMessageUnit) {
+    return !isManagerAssistantRunning.value
+        && !isPhoneSendingForSession(message.sessionId)
+        && !message.error
+        && ['user', 'assistant'].includes(message.role);
 }
 
-function canRerunMessage(message: TavernMessageRecord) {
-    if (isRunning.value) {return false;}
-    if (!['user', 'assistant'].includes(message.role)) {return false;}
-    const latest = latestSessionMessage.value;
-    return !!latest
-        && latest.sessionId === message.sessionId
-        && ['user', 'assistant'].includes(latest.role);
+function canRerunLatestAssistant() {
+    if (isRunning.value || isRoleplayMessageEditing() || !selectedSessionId.value) {return false;}
+    return !isPhoneSendingForSession(selectedSessionId.value);
 }
 
-function canRerunManagerMessage(message: TavernManagerMessageRecord) {
-    if (isManagerAssistantRunning.value) {return false;}
-    if (!['user', 'assistant'].includes(message.role)) {return false;}
-    const sorted = [...managerChatMessages.value].sort((left, right) => left.order - right.order);
-    const latest = sorted[sorted.length - 1];
-    return !!latest
-        && latest.sessionId === message.sessionId
-        && ['user', 'assistant'].includes(latest.role)
-        && sorted.some((item) => item.role === 'user' && item.order <= latest.order);
+function canRerunManagerMessage(message: TavernAssistantChatMessageUnit) {
+    if (isManagerAssistantRunning.value || isPhoneSendingForSession(message.sessionId)) {return false;}
+    return ['user', 'assistant'].includes(message.role);
 }
 
 function isEditingMessage(message: TavernMessageRecord) {
     return editingMessageKey.value === messageKey(message);
 }
 
-function isEditingManagerMessage(message: TavernManagerMessageRecord) {
-    return editingMessageKey.value === managerMessageKey(message);
+function isRoleplayMessageEditing() {
+    return !!editingMessageKey.value;
 }
 
-function isEditingManagerMessageDirty(message: TavernManagerMessageRecord) {
+function isEditingManagerMessage(message: TavernAssistantChatMessageUnit) {
+    return editingManagerMessageKey.value === managerMessageKey(message);
+}
+
+function isEditingManagerMessageDirty(message: TavernAssistantChatMessageUnit) {
     return isEditingManagerMessage(message) && editingMessageDraft.value.trim() !== String(message.content || '').trim();
 }
 
@@ -3338,24 +3790,43 @@ function flashMessageAction(message: TavernMessageRecord, action: string, ok: bo
     }, 1100);
 }
 
-function flashManagerMessageAction(message: TavernManagerMessageRecord, action: string, ok: boolean) {
+function flashManagerMessageAction(message: TavernAssistantChatMessageUnit, action: string, ok: boolean) {
     const key = `${managerMessageKey(message)}:${action}`;
+    const previousTimer = managerMessageFeedbackTimers.get(key);
+    if (previousTimer) {
+        window.clearTimeout(previousTimer);
+    }
     messageActionFeedback.value = {
         ...messageActionFeedback.value,
         [key]: ok ? 'success' : 'error',
     };
-    window.setTimeout(() => {
+    const timer = window.setTimeout(() => {
+        managerMessageFeedbackTimers.delete(key);
         const next = { ...messageActionFeedback.value };
         delete next[key];
         messageActionFeedback.value = next;
     }, 1100);
+    managerMessageFeedbackTimers.set(key, timer);
+}
+
+function clearManagerMessageFeedback(sessionId = '') {
+    const prefix = sessionId ? `manager:${sessionId}:` : 'manager:';
+    managerMessageFeedbackTimers.forEach((timer, key) => {
+        if (!key.startsWith(prefix)) {return;}
+        window.clearTimeout(timer);
+        managerMessageFeedbackTimers.delete(key);
+    });
+    messageActionFeedback.value = Object.fromEntries(
+        Object.entries(messageActionFeedback.value)
+            .filter(([key]) => !key.startsWith(prefix)),
+    );
 }
 
 function actionFeedback(message: TavernMessageRecord, action: string) {
     return messageActionFeedback.value[`${messageKey(message)}:${action}`] || '';
 }
 
-function managerActionFeedback(message: TavernManagerMessageRecord, action: string) {
+function managerActionFeedback(message: TavernAssistantChatMessageUnit, action: string) {
     return messageActionFeedback.value[`${managerMessageKey(message)}:${action}`] || '';
 }
 
@@ -3412,19 +3883,26 @@ async function copyMessage(message: TavernMessageRecord) {
     flashMessageAction(message, 'copy', ok);
 }
 
-async function copyManagerMessage(message: TavernManagerMessageRecord) {
+async function copyManagerMessage(message: TavernAssistantChatMessageUnit) {
     const ok = await copyTextWithFallback(message.content || '');
     flashManagerMessageAction(message, 'copy', ok);
 }
 
+async function loadManagerMessageThoughts(message: TavernAssistantChatMessageUnit) {
+    if (!message.thoughtCount) {return [];}
+    return await loadTavernAssistantMessageThoughts(message.sessionId, message.order);
+}
+
 function startEditMessage(message: TavernMessageRecord) {
     if (!canEditMessage(message)) {return;}
+    editingManagerMessageKey.value = '';
     editingMessageKey.value = messageKey(message);
 }
 
-function startEditManagerMessage(message: TavernManagerMessageRecord) {
+function startEditManagerMessage(message: TavernAssistantChatMessageUnit) {
     if (!canEditManagerMessage(message)) {return;}
-    editingMessageKey.value = managerMessageKey(message);
+    editingMessageKey.value = '';
+    editingManagerMessageKey.value = managerMessageKey(message);
     editingMessageDraft.value = message.content || '';
     void nextTick(() => {
         const textarea = managerScrollRef.value?.querySelector<HTMLTextAreaElement>(`[data-manager-message-editor="${managerMessageKey(message)}"]`);
@@ -3436,7 +3914,11 @@ function startEditManagerMessage(message: TavernManagerMessageRecord) {
 }
 
 function cancelEditMessage() {
-    editingMessageKey.value = '';
+    if (editingManagerMessageKey.value) {
+        editingManagerMessageKey.value = '';
+    } else {
+        editingMessageKey.value = '';
+    }
     editingMessageDraft.value = '';
     void nextTick(() => {
         enhanceChatMarkdown();
@@ -3460,7 +3942,7 @@ function resetTextareaHeight(textarea: HTMLTextAreaElement | null) {
     textarea.style.height = '';
 }
 
-function handleManagerEditKeydown(event: KeyboardEvent, message: TavernManagerMessageRecord) {
+function handleManagerEditKeydown(event: KeyboardEvent, message: TavernAssistantChatMessageUnit) {
     if (event.key === 'Escape') {
         event.preventDefault();
         cancelEditMessage();
@@ -3477,11 +3959,44 @@ function handleEditInput(event: Event) {
 }
 
 function handleComposeInput(event: Event) {
-    const textarea = event.target as HTMLTextAreaElement;
-    const isManagerCompose = !!textarea.closest('.manager-compose');
-    autoSizeTextarea(textarea, isManagerCompose
-        ? { minHeight: 48, maxHeight: 180 }
-        : { minHeight: 36, maxHeight: 76 });
+    autoSizeTextarea(event.currentTarget as HTMLTextAreaElement, { minHeight: 36, maxHeight: 76 });
+}
+
+function cssPixelValue(value: string, fallback = 0) {
+    const parsed = Number.parseFloat(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function autoSizeManagerComposeTextarea(textarea: HTMLTextAreaElement | null) {
+    if (!textarea) {return;}
+    const style = window.getComputedStyle(textarea);
+    const fontSize = cssPixelValue(style.fontSize, 16);
+    const lineHeight = cssPixelValue(style.lineHeight, fontSize * 1.4);
+    const verticalPadding = cssPixelValue(style.paddingTop) + cssPixelValue(style.paddingBottom);
+    const verticalBorder = cssPixelValue(style.borderTopWidth) + cssPixelValue(style.borderBottomWidth);
+    const minHeight = lineHeight + verticalPadding + verticalBorder;
+    const maxHeight = lineHeight * 3 + verticalPadding + verticalBorder;
+
+    textarea.style.height = 'auto';
+    const desiredHeight = textarea.scrollHeight + verticalBorder;
+    const nextHeight = Math.min(Math.max(desiredHeight, minHeight), maxHeight);
+    textarea.style.height = `${Math.ceil(nextHeight)}px`;
+    textarea.style.overflowY = desiredHeight > maxHeight + 0.5 ? 'auto' : 'hidden';
+}
+
+function resizeManagerComposeTextarea(textarea = managerComposeTextareaRef.value) {
+    if (!textarea) {return;}
+    const wasAtBottom = managerScrollPane.isNearBottom(4);
+    managerScrollPane.preserveViewportDuringMutation(() => {
+        autoSizeManagerComposeTextarea(textarea);
+    });
+    if (wasAtBottom) {
+        scrollManagerToBottom(true);
+    }
+}
+
+function handleManagerComposeInput(event: Event) {
+    resizeManagerComposeTextarea(event.currentTarget as HTMLTextAreaElement);
 }
 
 async function saveEditMessage(message: TavernMessageRecord, options: { rollbackState?: boolean; content?: string } = {}) {
@@ -3496,7 +4011,9 @@ async function saveEditMessage(message: TavernMessageRecord, options: { rollback
         return;
     }
     if (content === String(message.content || '').trim()) {
-        cancelEditMessage();
+        if (editingMessageKey.value === messageKey(message)) {
+            editingMessageKey.value = '';
+        }
         return;
     }
     if (shouldRollbackState) {
@@ -3516,28 +4033,42 @@ async function saveEditMessage(message: TavernMessageRecord, options: { rollback
     }
     const substitutedContent = await substituteEditedMessageContent(message, content);
     const regexedContent = await applyEditRegexToMessageContent(message, substitutedContent);
-    drawContext.cancelJob(messageKey(message));
-    const updated = await updateTavernMessage(message.sessionId, message.order, {
-        content: regexedContent,
-    });
-    if (updated && shouldRollbackState) {
-        await cancelAcceptedRollbackManagersBeforeMessage(message.sessionId, message.order);
-        await restoreAcceptedStateBeforeMessage(message.sessionId, message.order);
-    }
-    if (updated && selectedSessionId.value) {
-        await loadSelectedSessionMessageWindow({ sessionId: selectedSessionId.value });
+    const applyEdit = async () => {
+        drawContext.cancelJob(messageKey(message));
         if (shouldRollbackState) {
-            await refreshManagerRecords(selectedSessionId.value);
+            return await updateAcceptedStoryMessageAndRestoreState({
+                sessionId: message.sessionId,
+                order: message.order,
+                content: regexedContent,
+            });
+        }
+        return await updateTavernMessage(message.sessionId, message.order, {
+            content: regexedContent,
+        }, {
+            incrementTimelineRevision: true,
+        });
+    };
+    const updated = await applyEdit();
+    if (!updated) {
+        flashMessageAction(message, 'edit', false);
+        return;
+    }
+    if (selectedSessionId.value === message.sessionId) {
+        await loadSelectedSessionMessageWindow({ sessionId: message.sessionId });
+        if (shouldRollbackState) {
+            await Promise.all([
+                refreshManagerRunHistory(message.sessionId),
+                refreshAllManagerDomainProjections(message.sessionId),
+            ]);
         }
     }
-    cancelEditMessage();
-    flashMessageAction(updated || message, 'edit', !!updated);
-    if (updated && shouldRollbackState) {
-        await rebuildSelectedSessionRuntimeState();
+    if (editingMessageKey.value === messageKey(message)) {
+        editingMessageKey.value = '';
     }
+    flashMessageAction(updated, 'edit', true);
 }
 
-async function saveEditManagerMessage(message: TavernManagerMessageRecord, options: { rerun?: boolean } = {}) {
+async function saveEditManagerMessage(message: TavernAssistantChatMessageUnit, options: { rerun?: boolean } = {}) {
     if (!canEditManagerMessage(message)) {return;}
     const content = editingMessageDraft.value.trim();
     if (!content) {
@@ -3553,18 +4084,21 @@ async function saveEditManagerMessage(message: TavernManagerMessageRecord, optio
         await rerunFromManagerMessage(message);
         return;
     }
-    const updated = await updateTavernManagerMessage(message.sessionId, message.order, {
+    if (options.rerun) {
+        const reran = await rerunFromManagerMessage(message, { question: content });
+        flashManagerMessageAction(message, 'edit', reran);
+        if (reran) {cancelEditMessage();}
+        return;
+    }
+    const updated = await updateTavernAssistantChatMessage(message.sessionId, message.order, {
         content,
         clearProtocolPayload: message.role === 'assistant',
     });
     if (updated && selectedSessionId.value === message.sessionId) {
-        managerChatMessages.value = await listTavernManagerMessages(message.sessionId);
+        await refreshAssistantChat(message.sessionId, { limit: Math.max(TAVERN_ASSISTANT_CHAT_INITIAL_UNIT_LIMIT, managerChatItems.value.length) });
     }
     cancelEditMessage();
-    flashManagerMessageAction(updated || message, 'edit', !!updated);
-    if (updated && options.rerun) {
-        await rerunFromManagerMessage(updated);
-    }
+    flashManagerMessageAction(message, 'edit', !!updated);
 }
 
 async function findDeleteOrders(message: TavernMessageRecord) {
@@ -3574,8 +4108,12 @@ async function findDeleteOrders(message: TavernMessageRecord) {
 
 async function deleteMessageTurn(message: TavernMessageRecord) {
     if (isRunning.value) {return;}
+    if (isPhoneSendingForSession(message.sessionId)) {
+        warnPhoneWorkInProgress('手机消息正在等待回复，稍后再删除剧情楼层。');
+        return;
+    }
     const ordersToDelete = await findDeleteOrders(message);
-    const floor = Math.max(1, Number(message.order) + 1);
+    const floor = Math.max(0, Math.floor(Number(message.order) || 0));
     const fromOrder = Math.min(...ordersToDelete);
     const impact = await describeAcceptedStateRollbackImpact(message.sessionId, fromOrder);
     const confirmLines = [
@@ -3590,18 +4128,40 @@ async function deleteMessageTurn(message: TavernMessageRecord) {
         confirmText: '删除',
         tone: 'danger',
     })) {return;}
+    let boundaryState: Awaited<ReturnType<typeof resolveTavernHistoryBoundaryState>>;
+    try {
+        const session = await getTavernSession(message.sessionId);
+        if (!session) {throw new Error('session_missing');}
+        boundaryState = await resolveTavernHistoryBoundaryState({
+            sessionId: message.sessionId,
+            boundaryOrder: fromOrder,
+            currentState: session.state,
+        });
+    } catch (error) {
+        console.error('[小白酒馆] 删除边界状态解析失败', error);
+        showTavernToast('无法读取删除边界，剧情楼层未删除。', {
+            tone: 'warning',
+            durationMs: 7000,
+        });
+        flashMessageAction(message, 'delete', false);
+        return;
+    }
     drawContext.cancelJobsForMessageRange(message.sessionId, fromOrder);
-    await cancelAcceptedRollbackManagersBeforeMessage(message.sessionId, fromOrder);
-    const deleted = await deleteTavernMessages(message.sessionId, ordersToDelete);
-    if (deleted > 0) {
-        await restoreAcceptedStateBeforeMessage(message.sessionId, fromOrder);
-    }
-    if (selectedSessionId.value) {
-        await loadSelectedSessionMessageWindow({ sessionId: selectedSessionId.value });
-        await refreshManagerRecords(selectedSessionId.value);
-    }
-    if (deleted > 0) {
-        await rebuildSelectedSessionRuntimeState();
+    const mutation = await truncateAcceptedStoryMessagesAndRestoreState({
+        sessionId: message.sessionId,
+        fromOrder,
+        state: boundaryState,
+    });
+    if (!mutation.session) {throw new Error('session_missing');}
+    const deleted = mutation.deleted;
+    if (selectedSessionId.value === message.sessionId) {
+        resetChatMessageWindowState();
+        await loadSelectedSessionMessageWindow({ sessionId: message.sessionId });
+        await Promise.all([
+            refreshManagerRunHistory(message.sessionId),
+            refreshAllManagerDomainProjections(message.sessionId),
+        ]);
+        if (deleted > 0) {await refreshSessionRecord(message.sessionId);}
     }
     if (editingMessageKey.value.startsWith(`${message.sessionId}:`)) {
         cancelEditMessage();
@@ -3609,61 +4169,28 @@ async function deleteMessageTurn(message: TavernMessageRecord) {
     flashMessageAction(message, 'delete', deleted > 0);
 }
 
-async function rerunFromMessage(message: TavernMessageRecord) {
-    if (!canRerunMessage(message)) {
-        flashMessageAction(message, 'rerun', false);
-        return;
-    }
-    const latest = latestSessionMessage.value;
-    const userMessage = latest?.role === 'user'
-        ? latest
-        : latest
-            ? await getLatestTavernUserMessageAtOrBefore(latest.sessionId, latest.order)
-            : null;
-    if (!userMessage) {
-        flashMessageAction(message, 'rerun', false);
-        return;
-    }
-    drawContext.cancelJobsForMessageRange(message.sessionId, userMessage.order + 1);
-    flashMessageAction(message, 'rerun', true);
-    await runOnce({
-        messageText: userMessage.content,
-        reuseUserMessageOrder: userMessage.order,
-    });
+async function rerollLatestAssistant() {
+    if (!canRerunLatestAssistant()) {return;}
+    await runOnce({ rerollLatestAssistant: true });
 }
 
-function findManagerDeleteOrders(message: TavernManagerMessageRecord) {
-    const sorted = [...managerChatMessages.value].sort((left, right) => left.order - right.order);
-    const startIndex = sorted.findIndex((item) => item.order === message.order);
-    if (startIndex < 0) {return [message.order];}
-    if (message.role !== 'user') {
-        let turnStartIndex = startIndex;
-        for (let index = startIndex; index >= 0; index -= 1) {
-            if (sorted[index]?.role === 'user') {
-                turnStartIndex = index;
-                break;
-            }
-        }
-        const orders: number[] = [];
-        for (let index = turnStartIndex + 1; index < sorted.length; index += 1) {
-            const item = sorted[index];
-            if (item.role === 'user') {break;}
-            orders.push(item.order);
-        }
-        return orders.length ? orders : [message.order];
-    }
-    const orders: number[] = [];
-    for (let index = startIndex; index < sorted.length; index += 1) {
-        const item = sorted[index];
-        if (index > startIndex && item.role === 'user') {break;}
-        orders.push(item.order);
-    }
-    return orders;
+async function resolveManagerTurnUserMessage(message: TavernAssistantChatMessageUnit) {
+    return await getLatestTavernAssistantChatUserMessageAtOrBefore(message.sessionId, message.order);
 }
 
-async function deleteManagerMessageTurn(message: TavernManagerMessageRecord) {
+async function findManagerDeleteOrders(message: TavernAssistantChatMessageUnit) {
+    const userMessage = await resolveManagerTurnUserMessage(message);
+    if (!userMessage) {return [message.order];}
+    const nextUserOrder = await getNextTavernAssistantChatUserOrderAfter(message.sessionId, userMessage.order);
+    const startOrder = message.role === 'user' ? userMessage.order : userMessage.order + 1;
+    const endOrder = nextUserOrder === null ? Number.POSITIVE_INFINITY : nextUserOrder - 1;
+    const orders = await listTavernAssistantChatMessageOrdersInRange(message.sessionId, startOrder, endOrder);
+    return orders.length ? orders : [message.order];
+}
+
+async function deleteManagerMessageTurn(message: TavernAssistantChatMessageUnit) {
     if (isManagerAssistantRunning.value) {return;}
-    const ordersToDelete = findManagerDeleteOrders(message);
+    const ordersToDelete = await findManagerDeleteOrders(message);
     const confirmText = message.role === 'user'
         ? `删除这轮助手对话？将移除 ${ordersToDelete.length} 条记录。`
         : '删除这条助手回复？';
@@ -3673,34 +4200,31 @@ async function deleteManagerMessageTurn(message: TavernManagerMessageRecord) {
         confirmText: '删除',
         tone: 'danger',
     })) {return;}
-    const deleted = await deleteTavernManagerMessages(message.sessionId, ordersToDelete);
+    const deleted = await deleteTavernAssistantChatMessages(message.sessionId, ordersToDelete);
     if (selectedSessionId.value === message.sessionId) {
-        managerChatMessages.value = await listTavernManagerMessages(message.sessionId);
+        await refreshAssistantChat(message.sessionId, { limit: Math.max(TAVERN_ASSISTANT_CHAT_INITIAL_UNIT_LIMIT, managerChatItems.value.length) });
     }
-    if (editingMessageKey.value.startsWith(`manager:${message.sessionId}:`)) {
+    if (editingManagerMessageKey.value.startsWith(`manager:${message.sessionId}:`)) {
         cancelEditMessage();
     }
     flashManagerMessageAction(message, 'delete', deleted > 0);
 }
 
-async function rerunFromManagerMessage(message: TavernManagerMessageRecord) {
+async function rerunFromManagerMessage(
+    message: TavernAssistantChatMessageUnit,
+    options: { question?: string } = {},
+): Promise<boolean> {
     if (!canRerunManagerMessage(message)) {
         flashManagerMessageAction(message, 'rerun', false);
-        return;
+        return false;
     }
-    const sorted = [...managerChatMessages.value].sort((left, right) => left.order - right.order);
-    const latest = sorted[sorted.length - 1];
-    const userMessage = latest?.role === 'user'
-        ? latest
-        : [...sorted].reverse().find((item) => item.role === 'user' && item.order <= (latest?.order ?? -1));
+    const userMessage = await resolveManagerTurnUserMessage(message);
     if (!userMessage || selectedSessionId.value !== userMessage.sessionId) {
         flashManagerMessageAction(message, 'rerun', false);
-        return;
+        return false;
     }
     const managerSessionId = userMessage.sessionId;
-    const ordersToDelete = sorted
-        .filter((item) => item.order >= userMessage.order)
-        .map((item) => item.order);
+    const ordersToDelete = await listTavernAssistantChatMessageOrdersFrom(managerSessionId, userMessage.order);
     if (ordersToDelete.length > 2) {
         const ok = await confirmTavernDialog({
             title: '重新询问助手',
@@ -3708,18 +4232,18 @@ async function rerunFromManagerMessage(message: TavernManagerMessageRecord) {
             confirmText: '继续',
             tone: 'warning',
         });
-        if (!ok) {return;}
+        if (!ok) {return false;}
     }
     if (selectedSessionId.value !== managerSessionId) {
         flashManagerMessageAction(message, 'rerun', false);
-        return;
+        return false;
     }
-    const historyBeforeTurn = sorted.filter((item) => item.order < userMessage.order);
-    flashManagerMessageAction(message, 'rerun', true);
-    await sendManagerQuestion(managerSessionId, userMessage.content, {
-        historyBeforeTurn,
-        replaceOrdersAfterAppend: ordersToDelete,
+    const reran = await sendManagerQuestion(managerSessionId, String(options.question || userMessage.content), {
+        historyBeforeOrder: userMessage.order,
+        replaceOrders: ordersToDelete,
     });
+    flashManagerMessageAction(message, 'rerun', reran);
+    return reran;
 }
 
 const updateChatScrollButtons = chatScrollPane.updateScrollButtons;
@@ -3741,7 +4265,7 @@ const handleManagerTouchMove = managerScrollPane.handleTouchMove;
 function handleComposeKeydown(event: KeyboardEvent) {
     if (event.key !== 'Enter') {return;}
     if (event.isComposing || event.shiftKey || event.altKey) {return;}
-    if (isRunning.value) {return;}
+    if (isRunning.value || isPhoneSendingForSession()) {return;}
     const shouldSend = event.ctrlKey || event.metaKey || window.innerWidth >= 760;
     if (!shouldSend) {return;}
     event.preventDefault();
@@ -3775,9 +4299,11 @@ function updateManagerCompactionOverlay(patch: Partial<NonNullable<typeof manage
         active: true,
         resolved: false,
         currentTokens: 0,
+        fixedTokens: 0,
+        historyTokens: 0,
         yieldTokens: 0,
         triggerTokens: 0,
-        status: '正在释放较早管理员对话...',
+        status: '正在释放较早助手对话...',
         ...previous,
         ...patch,
         visibleSince,
@@ -3797,42 +4323,6 @@ function scheduleManagerCompactionOverlayHide(delayMs = 3000) {
     }, waitMs);
 }
 
-function createLiveManagerMessage(
-    sessionId: string,
-    patch: Partial<TavernManagerMessageRecord> & Pick<TavernManagerMessageRecord, 'role' | 'content'>,
-): TavernManagerMessageRecord {
-    const liveState = managerLiveProtocolState.value?.sessionId === sessionId
-        ? managerLiveProtocolState.value
-        : {
-            sessionId,
-            messages: [],
-            draft: null,
-            nextOrder: LIVE_MANAGER_PROTOCOL_ORDER_BASE,
-        };
-    const order = liveState.nextOrder;
-    liveState.nextOrder += 1;
-    managerLiveProtocolState.value = liveState;
-    return {
-        sessionId,
-        order,
-        role: patch.role,
-        content: patch.content,
-        name: patch.name,
-        error: patch.error === true,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        provider: patch.provider,
-        model: patch.model,
-        finishReason: patch.finishReason,
-        thoughts: patch.thoughts,
-        providerPayload: patch.providerPayload,
-        toolCalls: patch.toolCalls,
-        toolCallId: patch.toolCallId,
-        toolName: patch.toolName,
-        toolDisplay: patch.toolDisplay,
-    };
-}
-
 function setManagerPendingUserMessage(sessionId: string, content: string) {
     const id = String(sessionId || '').trim();
     const text = String(content || '').trim();
@@ -3843,11 +4333,8 @@ function setManagerPendingUserMessage(sessionId: string, content: string) {
     const now = Date.now();
     managerPendingUserMessage.value = {
         sessionId: id,
-        order: LIVE_MANAGER_PROTOCOL_ORDER_BASE - 1,
-        role: 'user',
         content: text,
         createdAt: now,
-        updatedAt: now,
     };
 }
 
@@ -3858,8 +4345,8 @@ function clearManagerPendingUserMessage(sessionId = '') {
     }
 }
 
-function shouldRunTavernSlashCommand(text: string, options: { reuseUserMessageOrder?: number } = {}) {
-    return !Number.isFinite(Number(options.reuseUserMessageOrder)) && text.trim().startsWith('/');
+function shouldRunTavernSlashCommand(text: string, options: { rerollLatestAssistant?: boolean } = {}) {
+    return options.rerollLatestAssistant !== true && text.trim().startsWith('/');
 }
 
 function isTavernWorldbookCacheResetCommand(text: string): boolean {
@@ -3915,7 +4402,7 @@ function normalizeSlashPipeForMessage(value: unknown): string {
     }
 }
 
-async function resolveSlashCommandMessageText(messageText: string, options: { reuseUserMessageOrder?: number } = {}): Promise<string> {
+async function resolveSlashCommandMessageText(messageText: string, options: { rerollLatestAssistant?: boolean } = {}): Promise<string> {
     if (!shouldRunTavernSlashCommand(messageText, options)) {
         return messageText;
     }
@@ -4001,7 +4488,8 @@ const chatRunController = useTavernChatRunController({
     persistSelectedSessionId: sessionController.persistSelectedSessionId,
     prepareAssistantMessageDisplay,
     pruneLoadedSessionMessagesFromOrder,
-    refreshManagerRecords,
+    onManagerRunSaved: handleManagerRunSaved,
+    onManagerProgress: handleManagerProgress,
     refreshRuntimeChatPresetFromHost,
     refreshSessionRecord,
     preserveDetachedChatScroll: preserveChatViewportDuringMutation,
@@ -4024,10 +4512,26 @@ function cancelActiveRun() {
 }
 
 function handleChatSubmit() {
+    if (!isRunning.value && isRoleplayMessageEditing()) {
+        showTavernToast('先保存或取消当前楼层编辑', { tone: 'info', durationMs: 2200 });
+        return;
+    }
+    if (!isRunning.value && isPhoneSendingForSession()) {
+        warnPhoneWorkInProgress();
+        return;
+    }
     chatRunController.handleChatSubmit();
 }
 
 async function runOnce(options: Parameters<typeof chatRunController.runOnce>[0] = {}) {
+    if (!isRunning.value && isRoleplayMessageEditing()) {
+        showTavernToast('先保存或取消当前楼层编辑', { tone: 'info', durationMs: 2200 });
+        return;
+    }
+    if (!isRunning.value && isPhoneSendingForSession()) {
+        warnPhoneWorkInProgress();
+        return;
+    }
     await chatRunController.runOnce(options);
 }
 
@@ -4035,372 +4539,304 @@ function clearRuntimeAssistantLiveState() {
     chatRunController.clearRuntimeAssistantLiveState();
 }
 
-function ensureManagerLiveProtocolState(sessionId: string) {
-    const id = String(sessionId || '').trim();
-    if (!id) {return null;}
-    if (!managerLiveProtocolState.value || managerLiveProtocolState.value.sessionId !== id) {
-        managerLiveProtocolState.value = {
-            sessionId: id,
-            messages: [],
-            draft: createLiveManagerMessage(id, {
-                role: 'assistant',
-                content: '正在思考...',
-            }),
-            nextOrder: LIVE_MANAGER_PROTOCOL_ORDER_BASE + 1,
-        };
-    }
-    return managerLiveProtocolState.value;
-}
-
 function clearManagerLiveProtocolState(sessionId = '') {
-    const id = String(sessionId || '').trim();
-    if (!id || managerLiveProtocolState.value?.sessionId === id) {
-        managerLiveProtocolState.value = null;
-    }
+    managerAssistantLiveController.clearSession(sessionId);
 }
 
-function setManagerLiveProtocolDraft(
-    sessionId: string,
-    patch: Partial<TavernManagerMessageRecord> & Pick<TavernManagerMessageRecord, 'content'>,
-) {
-    const liveState = ensureManagerLiveProtocolState(sessionId);
-    if (!liveState) {return;}
-    const draft = liveState.draft || createLiveManagerMessage(sessionId, {
-        role: 'assistant',
-        content: patch.content,
-    });
-    liveState.draft = {
-        ...draft,
-        ...patch,
-        role: 'assistant',
-        content: patch.content,
-        updatedAt: Date.now(),
-    };
-}
-
-function normalizeLiveProtocolToolCalls(message: XbTavernMessage): Array<{ id?: string; name?: string; arguments?: string }> {
-    if (Array.isArray(message.toolCalls) && message.toolCalls.length) {
-        return message.toolCalls.map((toolCall) => ({
-            id: typeof toolCall?.id === 'string' ? toolCall.id : '',
-            name: typeof toolCall?.name === 'string' ? toolCall.name : '',
-            arguments: typeof toolCall?.arguments === 'string' ? toolCall.arguments : '{}',
-        }));
-    }
-    if (!Array.isArray(message.tool_calls)) {return [];}
-    return message.tool_calls.map((toolCall) => ({
-        id: typeof toolCall?.id === 'string' ? toolCall.id : '',
-        name: typeof toolCall?.function?.name === 'string' ? toolCall.function.name : '',
-        arguments: typeof toolCall?.function?.arguments === 'string' ? toolCall.function.arguments : '{}',
-    }));
-}
-
-function appendManagerLiveProtocolMessage(sessionId: string, message: XbTavernMessage) {
-    const liveState = ensureManagerLiveProtocolState(sessionId);
-    if (!liveState) {return;}
-    liveState.messages = [...liveState.messages, createLiveManagerMessage(sessionId, {
-        role: message.role,
-        content: String(message.content || ''),
-        name: message.name,
-        thoughts: Array.isArray(message.thoughts) ? thoughtBlocks(message.thoughts) : undefined,
-        providerPayload: message.providerPayload,
-        toolCalls: message.role === 'assistant' ? normalizeLiveProtocolToolCalls(message) : undefined,
-        toolCallId: message.role === 'tool' ? String(message.toolCallId || message.tool_call_id || '') : undefined,
-        toolName: message.role === 'tool' ? String(message.toolName || '') : undefined,
-        toolDisplay: message.role === 'tool' ? message.toolDisplay : undefined,
-    })];
-}
-
-function applyManagerProtocolEvent(sessionId: string, event: TavernManagerProtocolEvent) {
-    const id = String(sessionId || '').trim();
-    if (!id) {return;}
-    if (event.type === 'clear_stream_draft') {
-        const liveState = ensureManagerLiveProtocolState(id);
-        if (liveState) {
-            liveState.draft = null;
-        }
-        return;
-    }
-    appendManagerLiveProtocolMessage(id, event.message);
-}
-
-async function appendManagerProtocolMessages(
-    sessionId: string,
-    messages: XbTavernMessage[],
-    fallbackText: string,
-    patch: Pick<TavernManagerMessageRecord, 'provider' | 'model' | 'finishReason' | 'error'>,
-    options: { skip?: number } = {},
-) {
-    const protocolMessages = (Array.isArray(messages) ? messages : []).filter((message) => (
-        message && ['assistant', 'tool'].includes(message.role)
-    )).slice(Math.max(0, Number(options.skip) || 0));
-    const finalMessages: XbTavernMessage[] = protocolMessages.length
-        ? protocolMessages
-        : [{ role: 'assistant' as const, content: fallbackText }];
-    const finalAssistantIndex = [...finalMessages]
-        .map((message, index) => ({ message, index }))
-        .reverse()
-        .find(({ message }) => {
-            const hasToolCalls = (Array.isArray(message.toolCalls) && message.toolCalls.length)
-                || (Array.isArray(message.tool_calls) && message.tool_calls.length);
-            return message.role === 'assistant' && !hasToolCalls;
-        })?.index ?? -1;
-    if (finalAssistantIndex < 0) {
-        finalMessages.push({ role: 'assistant', content: fallbackText });
-    } else if (!String(finalMessages[finalAssistantIndex]?.content || '').trim()) {
-        finalMessages[finalAssistantIndex] = {
-            ...finalMessages[finalAssistantIndex],
-            content: fallbackText,
-        };
-    }
-    const appended: TavernManagerMessageRecord[] = [];
-    for (let index = 0; index < finalMessages.length; index += 1) {
-        const message = finalMessages[index];
-        const hasToolCalls = (Array.isArray(message.toolCalls) && message.toolCalls.length)
-            || (Array.isArray(message.tool_calls) && message.tool_calls.length);
-        const isFinalAssistant = message.role === 'assistant' && !hasToolCalls && index === finalMessages.length - 1;
-        const appendedMessage = await appendManagerProtocolMessage(sessionId, message, {
-            ...patch,
-            contentFallback: isFinalAssistant ? fallbackText : '',
-            finalAssistant: isFinalAssistant,
-        });
-        appended.push(appendedMessage);
-    }
-    return appended;
-}
-
-async function appendManagerProtocolMessage(
-    sessionId: string,
-    message: XbTavernMessage,
-    patch: Pick<TavernManagerMessageRecord, 'provider' | 'model' | 'finishReason' | 'error'> & {
-        contentFallback?: string;
-        finalAssistant?: boolean;
-    },
-) {
-    const hasToolCalls = (Array.isArray(message.toolCalls) && message.toolCalls.length)
-        || (Array.isArray(message.tool_calls) && message.tool_calls.length);
-    const isFinalAssistant = message.role === 'assistant' && !hasToolCalls && patch.finalAssistant === true;
-    return await appendTavernManagerMessage(sessionId, {
-        role: message.role,
-        content: isFinalAssistant
-            ? (String(message.content || '').trim() || String(patch.contentFallback || ''))
-            : String(message.content || ''),
-        name: message.name,
-        thoughts: message.thoughts,
-        providerPayload: message.providerPayload,
-        toolCalls: message.role === 'assistant' ? normalizeLiveProtocolToolCalls(message) : undefined,
-        toolCallId: message.toolCallId || message.tool_call_id,
-        toolName: message.toolName,
-        toolDisplay: message.toolDisplay,
-        provider: message.role === 'assistant' ? patch.provider : undefined,
-        model: message.role === 'assistant' ? patch.model : undefined,
-        finishReason: isFinalAssistant ? patch.finishReason : undefined,
-        error: isFinalAssistant ? patch.error : false,
-    });
-}
-
-async function sendManagerQuestion(
+async function runManagerQuestion(
     managerSessionId: string,
     text: string,
     options: {
-        historyBeforeTurn?: TavernManagerMessageRecord[];
-        replaceOrdersAfterAppend?: number[];
+        historyBeforeOrder?: number;
+        replaceOrders?: number[];
     } = {},
-) {
+): Promise<boolean> {
     const question = String(text || '').trim();
-    if (!managerSessionId || !question) {return;}
+    if (!managerSessionId || !question) {return false;}
     const managerSession = sessions.value.find((session) => session.id === managerSessionId)
         || (selectedSessionId.value === managerSessionId ? selectedSession.value : null);
-    const managerTurn = Number(normalizeTavernSessionState(managerSession?.state || {}).turn || 0);
-    const managerContextSnapshot = managerSession
+    let managerTurn = Number(normalizeTavernSessionState(managerSession?.state || {}).turn || 0);
+    let managerContextSnapshot = managerSession
         ? buildSessionContextSnapshotBase(managerSession)
         : {};
     const controller = new AbortController();
+    cancelAssistantChatContextMeterRefresh();
+    managerAssistantControllersBySession.set(managerSessionId, controller);
     managerAssistantController.value = controller;
     isManagerAssistantRunning.value = true;
     isManagerAssistantCancelling.value = false;
     managerInputStatus.value = '运行中';
     managerAutoScroll.value = true;
-    resetManagerMessageWindowState();
-    const managerStreamToolDraftState = createManagerStreamToolDraftState();
-    let userAcceptedAnchorOrder = -1;
     let userMessageAppended = false;
+    let liveRun: TavernAssistantChatLiveRun | null = null;
+    let protocolResultPersisted = false;
+    const ownsManagerUi = () => (
+        managerAssistantController.value === controller
+        && selectedSessionId.value === managerSessionId
+    );
     try {
-        userAcceptedAnchorOrder = (await getLatestTavernUserMessageAtOrBefore(managerSessionId, Number.POSITIVE_INFINITY))?.order ?? -1;
-        const budget = await ensureTavernManagerChatBudget({
-            sessionId: managerSessionId,
-            agentConfig: agentConfig.value,
-            assistantPreset: activeAssistantPreset.value,
-            contextSnapshot: managerContextSnapshot,
-            question,
-            history: options.historyBeforeTurn,
-            signal: controller.signal,
-            onCompactionStart: (snapshot) => {
-                updateManagerCompactionOverlay({
-                    id: `manager-compaction-${Date.now()}`,
-                    active: true,
-                    resolved: false,
-                    currentTokens: snapshot.currentTokens,
-                    yieldTokens: snapshot.yieldTokens || 0,
-                    triggerTokens: snapshot.triggerTokens,
-                    status: snapshot.status,
-                });
-            },
-            onCompactionProgress: (snapshot) => {
-                updateManagerCompactionOverlay({
-                    currentTokens: snapshot.currentTokens,
-                    yieldTokens: snapshot.yieldTokens || snapshot.currentTokens,
-                    triggerTokens: snapshot.triggerTokens,
-                    status: snapshot.status,
-                });
-            },
-            onCompactionComplete: (snapshot) => {
-                updateManagerCompactionOverlay({
-                    resolved: true,
-                    currentTokens: snapshot.currentTokens,
-                    yieldTokens: snapshot.yieldTokens || snapshot.currentTokens,
-                    triggerTokens: snapshot.triggerTokens,
-                    status: snapshot.status,
-                });
-                scheduleManagerCompactionOverlayHide();
-                void refreshManagerRecords(managerSessionId);
-            },
-            onCompactionUnable: (snapshot) => {
-                updateManagerCompactionOverlay({
-                    resolved: true,
-                    currentTokens: snapshot.currentTokens,
-                    yieldTokens: snapshot.yieldTokens || snapshot.currentTokens,
-                    triggerTokens: snapshot.triggerTokens,
-                    status: snapshot.status,
-                });
-                scheduleManagerCompactionOverlayHide();
-            },
-        });
-        const historyBeforeTurn = Array.isArray(options.historyBeforeTurn)
-            ? budget.history
-            : await listTavernManagerMessages(managerSessionId);
-        const userMessage = await appendTavernManagerMessage(managerSessionId, {
-            role: 'user',
-            content: question,
-        });
-        userMessageAppended = true;
-        clearManagerPendingUserMessage(managerSessionId);
-        if (selectedSessionId.value === managerSessionId) {
-            managerChatMessages.value = [...managerChatMessages.value, userMessage]
-                .sort((left, right) => left.order - right.order);
-        }
-        ensureManagerLiveProtocolState(managerSessionId);
-        const replaceOrders = [...new Set((options.replaceOrdersAfterAppend || [])
+        const [writeContext, storedSession] = await Promise.all([
+            prepareXbTavernAssistantChatWriteContext(managerSessionId),
+            getTavernSession(managerSessionId),
+        ]);
+        if (!storedSession) {throw new Error('session_missing');}
+        managerTurn = Number(normalizeTavernSessionState(storedSession.state || {}).turn || 0);
+        managerContextSnapshot = buildSessionContextSnapshotBase(storedSession);
+        const historyBeforeOrder = Number(options.historyBeforeOrder);
+        const historyBeforeTurn = Number.isFinite(historyBeforeOrder)
+            ? historyBeforeOrder <= 0
+                ? []
+                : await listTavernAssistantChatMessagesInRange(managerSessionId, 0, Math.floor(historyBeforeOrder) - 1)
+            : await listTavernAssistantChatMessages(managerSessionId);
+        const replaceOrders = [...new Set((options.replaceOrders || [])
             .map((order) => Number(order))
             .filter((order) => Number.isInteger(order) && order >= 0))];
-        if (replaceOrders.length) {
-            await deleteTavernManagerMessages(managerSessionId, replaceOrders);
+        let userMessage: TavernAssistantChatMessageRecord | null = null;
+        if (!replaceOrders.length) {
+            userMessage = await appendTavernAssistantChatMessage(managerSessionId, {
+                role: 'user',
+                content: question,
+            });
+            userMessageAppended = true;
+            clearManagerPendingUserMessage(managerSessionId);
             if (selectedSessionId.value === managerSessionId) {
-                managerChatMessages.value = await listTavernManagerMessages(managerSessionId);
+                appendAssistantChatMessageProjection(userMessage);
             }
         }
-        let persistedProtocolMessages = 0;
-        let protocolPersistFailed = false;
-        let protocolPersistQueue = Promise.resolve();
-        const queueProtocolMessagePersist = (event: TavernManagerProtocolEvent) => {
-            if (event.type !== 'assistant_tool_round' && event.type !== 'tool_result') {return;}
-            protocolPersistQueue = protocolPersistQueue.then(async () => {
-                if (protocolPersistFailed) {return;}
-                try {
-                    await appendManagerProtocolMessage(managerSessionId, event.message, {
-                        provider: '',
-                        model: '',
-                        finishReason: '',
-                        error: false,
-                    });
-                    persistedProtocolMessages += 1;
-                } catch (error) {
-                    protocolPersistFailed = true;
-                    console.warn('[小白酒馆] 管理员工具轮次实时保存失败', error);
-                }
-            });
-        };
-        const result = await runXbTavernManagerChat({
+        const budget = await ensureTavernAssistantChatBudget({
             sessionId: managerSessionId,
             agentConfig: agentConfig.value,
             assistantPreset: activeAssistantPreset.value,
             contextSnapshot: managerContextSnapshot,
             question,
             history: historyBeforeTurn,
-            turn: managerTurn,
             signal: controller.signal,
-            onProtocolEvent: (event) => {
-                managerStreamToolDraftState.reset();
-                applyManagerProtocolEvent(managerSessionId, event);
-                queueProtocolMessagePersist(event);
-            },
-            onStreamProgress: (snapshot) => {
-                const streamPatch = managerStreamToolDraftState.update(snapshot);
-                setManagerLiveProtocolDraft(managerSessionId, {
-                    content: streamPatch.content,
-                    thoughts: Array.isArray(snapshot.thoughts) ? thoughtBlocks(snapshot.thoughts) : undefined,
-                    toolCalls: streamPatch.toolCalls,
+            onCompactionStart: (snapshot) => {
+                if (!ownsManagerUi()) {return;}
+                updateManagerCompactionOverlay({
+                    id: `manager-compaction-${Date.now()}`,
+                    active: true,
+                    resolved: false,
+                    currentTokens: snapshot.currentTokens,
+                    fixedTokens: snapshot.fixedTokens || 0,
+                    historyTokens: snapshot.historyTokens || 0,
+                    yieldTokens: snapshot.yieldTokens || 0,
+                    triggerTokens: snapshot.triggerTokens,
+                    status: snapshot.status,
                 });
             },
+            onCompactionProgress: (snapshot) => {
+                if (!ownsManagerUi()) {return;}
+                updateManagerCompactionOverlay({
+                    currentTokens: snapshot.currentTokens,
+                    fixedTokens: snapshot.fixedTokens || 0,
+                    historyTokens: snapshot.historyTokens || 0,
+                    yieldTokens: snapshot.yieldTokens || snapshot.currentTokens,
+                    triggerTokens: snapshot.triggerTokens,
+                    status: snapshot.status,
+                });
+            },
+            onCompactionComplete: (snapshot) => {
+                if (!ownsManagerUi()) {return;}
+                updateManagerCompactionOverlay({
+                    resolved: true,
+                    currentTokens: snapshot.currentTokens,
+                    fixedTokens: snapshot.fixedTokens || 0,
+                    historyTokens: snapshot.historyTokens || 0,
+                    yieldTokens: snapshot.yieldTokens || snapshot.currentTokens,
+                    triggerTokens: snapshot.triggerTokens,
+                    status: snapshot.status,
+                });
+                scheduleManagerCompactionOverlayHide();
+            },
+            onCompactionUnable: (snapshot) => {
+                if (!ownsManagerUi()) {return;}
+                updateManagerCompactionOverlay({
+                    resolved: true,
+                    currentTokens: snapshot.currentTokens,
+                    fixedTokens: snapshot.fixedTokens || 0,
+                    historyTokens: snapshot.historyTokens || 0,
+                    yieldTokens: snapshot.yieldTokens || snapshot.currentTokens,
+                    triggerTokens: snapshot.triggerTokens,
+                    status: snapshot.status,
+                });
+                scheduleManagerCompactionOverlayHide();
+            },
         });
-        await protocolPersistQueue;
-        const finalText = String(result.text || '').trim() || (controller.signal.aborted ? '已停止。' : '没有返回内容。');
-        await appendManagerProtocolMessages(managerSessionId, result.protocolMessages, finalText, {
+        if (ownsManagerUi()) {
+            assistantChatBudgetTokens.value = budget.currentTokens;
+            assistantChatBudgetPending.value = false;
+        }
+        if (!budget.canProceed) {
+            throw new Error('助手上下文超过 258k，当前请求没有发送。');
+        }
+        const compactedOrders = budget.removedOrders || [];
+        if (replaceOrders.length) {
+            const [replacementUserMessage] = await replaceTavernAssistantChatMessages(
+                managerSessionId,
+                [...new Set([...replaceOrders, ...compactedOrders])],
+                [{ role: 'user', content: question }],
+            );
+            if (!replacementUserMessage) {throw new Error('assistant_chat_replace_failed');}
+            userMessage = replacementUserMessage;
+            userMessageAppended = true;
+            clearManagerPendingUserMessage(managerSessionId);
+            if (selectedSessionId.value === managerSessionId) {
+                replaceAssistantChatProjectionSuffix(replacementUserMessage);
+            }
+        } else if (compactedOrders.length) {
+            await deleteTavernAssistantChatMessages(managerSessionId, compactedOrders);
+            if (selectedSessionId.value === managerSessionId) {
+                removeAssistantChatMessageProjections(compactedOrders);
+            }
+        }
+        if (!userMessage) {throw new Error('assistant_chat_user_message_missing');}
+        if (selectedSessionId.value === managerSessionId) {
+            refreshAssistantChatProjectionNonFatal(managerSessionId, '请求记录已保存');
+        }
+        liveRun = managerAssistantLiveController.startRun(managerSessionId);
+        const result = await runXbTavernAssistantChat({
+            sessionId: managerSessionId,
+            agentConfig: agentConfig.value,
+            assistantPreset: activeAssistantPreset.value,
+            contextSnapshot: managerContextSnapshot,
+            question,
+            history: budget.history,
+            preparedMessages: budget.messages,
+            turn: managerTurn,
+            signal: controller.signal,
+            writeContext,
+            onProtocolEvent: liveRun.onProtocolEvent,
+            onStreamProgress: liveRun.onStreamProgress,
+        });
+        const changedFiles = [...(result.changedFiles || [])];
+        const changedStates = [...(result.changedStates || [])];
+        const finalText = String(result.text || '').trim()
+            || (controller.signal.aborted ? '已停止。' : result.error || '没有返回内容。');
+        await liveRun.persistResult(result.protocolMessages, finalText, {
             provider: result.provider,
             model: result.model,
             finishReason: result.ok ? 'stop' : controller.signal.aborted ? 'aborted' : 'error',
             error: result.ok ? false : true,
-        }, { skip: persistedProtocolMessages });
-        clearManagerLiveProtocolState(managerSessionId);
-        if (selectedSessionId.value === managerSessionId) {
-            managerChatMessages.value = await listTavernManagerMessages(managerSessionId);
+        });
+        protocolResultPersisted = true;
+        const projectionResults = await Promise.allSettled([
+            refreshAssistantChat(managerSessionId, { preserveDetachedWindow: true }),
+            refreshSettledManagerDomains(managerSessionId, { changedFiles, changedStates }),
+        ]);
+        const projectionErrors = projectionResults.filter((item) => item.status === 'rejected');
+        if (projectionErrors.length) {
+            console.error('[小白酒馆] 助手回复已保存，但页面投影刷新失败', projectionErrors);
+            if (ownsManagerUi()) {
+                managerInputStatus.value = '已保存，显示刷新失败';
+                showTavernToast('助手回复已保存，但页面显示刷新失败；重新进入会话会重新读取。', {
+                    tone: 'warning',
+                    durationMs: 7000,
+                });
+            }
+        } else if (ownsManagerUi()) {
+            managerInputStatus.value = result.ok || controller.signal.aborted ? '' : '失败';
         }
-        if ((result.changedFiles || []).length || (result.changedStates || []).length || (result.changedTasks || []).length) {
-            await commitUserAcceptedState(managerSessionId, userAcceptedAnchorOrder);
-        }
-        await refreshManagerRecords(managerSessionId);
-        managerInputStatus.value = '';
+        return true;
     } catch (error) {
-        clearManagerLiveProtocolState(managerSessionId);
         clearManagerPendingUserMessage(managerSessionId);
-        if (!userMessageAppended && selectedSessionId.value === managerSessionId && !managerInputDraft.value.trim()) {
+        if (protocolResultPersisted) {
+            console.error('[小白酒馆] 助手回复已保存，后续处理失败', error);
+            if (ownsManagerUi()) {managerInputStatus.value = '已保存，刷新失败';}
+            return true;
+        }
+        if (!userMessageAppended && !options.replaceOrders?.length && selectedSessionId.value === managerSessionId && !managerInputDraft.value.trim()) {
             managerInputDraft.value = question;
-            void nextTick(() => resetTextareaHeight(managerComposeTextareaRef.value));
+            void nextTick(() => resizeManagerComposeTextarea());
         }
         if (!userMessageAppended) {
-            managerInputStatus.value = controller.signal.aborted ? '' : '失败';
-            return;
+            if (ownsManagerUi()) {managerInputStatus.value = controller.signal.aborted ? '' : '失败';}
+            return false;
         }
-        if (controller.signal.aborted) {
-            await appendTavernManagerMessage(managerSessionId, {
-                role: 'assistant',
-                content: '已停止。',
-                finishReason: 'aborted',
-            });
-            if (selectedSessionId.value === managerSessionId) {
-                managerChatMessages.value = await listTavernManagerMessages(managerSessionId);
+        try {
+            if (controller.signal.aborted) {
+                const stoppedMessage = await appendTavernAssistantChatMessage(managerSessionId, {
+                    role: 'assistant',
+                    content: '已停止。',
+                    finishReason: 'aborted',
+                });
+                if (selectedSessionId.value === managerSessionId) {
+                    appendAssistantChatMessageProjection(stoppedMessage);
+                    refreshAssistantChatProjectionNonFatal(managerSessionId, '停止记录已保存');
+                }
+                if (ownsManagerUi()) {managerInputStatus.value = '';}
+            } else {
+                const errorText = error instanceof Error ? error.message : String(error || 'assistant_failed');
+                const failedMessage = await appendTavernAssistantChatMessage(managerSessionId, {
+                    role: 'assistant',
+                    content: errorText,
+                    error: true,
+                    finishReason: 'error',
+                });
+                if (selectedSessionId.value === managerSessionId) {
+                    appendAssistantChatMessageProjection(failedMessage);
+                    refreshAssistantChatProjectionNonFatal(managerSessionId, '失败记录已保存');
+                }
+                if (ownsManagerUi()) {managerInputStatus.value = '失败';}
             }
-            managerInputStatus.value = '';
-        } else {
-            const errorText = error instanceof Error ? error.message : String(error || 'assistant_failed');
-            await appendTavernManagerMessage(managerSessionId, {
-                role: 'assistant',
-                content: errorText,
-                error: true,
-                finishReason: 'error',
-            });
-            if (selectedSessionId.value === managerSessionId) {
-                managerChatMessages.value = await listTavernManagerMessages(managerSessionId);
+        } catch (persistenceError) {
+            console.error('[小白酒馆] 助手失败终态记录保存失败', persistenceError);
+            if (ownsManagerUi()) {
+                managerInputStatus.value = '失败，记录未保存';
+                showTavernToast('助手运行失败，且失败记录未能保存。', { tone: 'warning', durationMs: 6500 });
             }
-            managerInputStatus.value = '失败';
         }
+        return true;
     } finally {
-        managerStreamToolDraftState.reset();
+        liveRun?.clear();
+        if (managerAssistantControllersBySession.get(managerSessionId) === controller) {
+            managerAssistantControllersBySession.delete(managerSessionId);
+        }
         if (managerAssistantController.value === controller) {
             managerAssistantController.value = null;
+            isManagerAssistantCancelling.value = false;
+            isManagerAssistantRunning.value = false;
         }
-        isManagerAssistantCancelling.value = false;
-        isManagerAssistantRunning.value = false;
     }
+}
+
+async function sendManagerQuestion(
+    managerSessionId: string,
+    text: string,
+    options: {
+        historyBeforeOrder?: number;
+        replaceOrders?: number[];
+    } = {},
+): Promise<boolean> {
+    const question = String(text || '').trim();
+    if (!managerSessionId || !question) {return false;}
+    const locked = await withTavernAssistantChatRunLock(
+        managerSessionId,
+        () => runManagerQuestion(managerSessionId, question, options),
+    );
+    if (locked.acquired) {return locked.value;}
+    clearManagerPendingUserMessage(managerSessionId);
+    if (!options.replaceOrders?.length
+        && selectedSessionId.value === managerSessionId
+        && !managerInputDraft.value.trim()
+    ) {
+        managerInputDraft.value = question;
+        void nextTick(() => resizeManagerComposeTextarea());
+    }
+    managerInputStatus.value = '助手正在处理上一条消息';
+    showTavernToast('这个会话的助手正在运行，请等它完成后再发送。', { tone: 'info', durationMs: 3500 });
+    return false;
+}
+
+function abortManagerAssistantForSession(sessionId = ''): void {
+    const id = String(sessionId || '').trim();
+    const controller = managerAssistantControllersBySession.get(id);
+    if (!controller) {return;}
+    if (managerAssistantController.value === controller) {
+        isManagerAssistantCancelling.value = true;
+        managerInputStatus.value = '正在停止...';
+    }
+    controller.abort();
 }
 
 async function handleManagerSubmit() {
@@ -4412,17 +4848,63 @@ async function handleManagerSubmit() {
         managerAssistantController.value?.abort();
         return;
     }
+    if (isPhoneSendingForSession()) {
+        warnPhoneWorkInProgress('手机消息正在等待回复，稍后再联系助手。');
+        return;
+    }
     const text = managerInputDraft.value.trim();
     if (!text || !selectedSessionId.value) {return;}
     const managerSessionId = selectedSessionId.value;
     managerInputDraft.value = '';
-    void nextTick(() => resetTextareaHeight(managerComposeTextareaRef.value));
+    void nextTick(() => resizeManagerComposeTextarea());
     setManagerPendingUserMessage(managerSessionId, text);
-    isManagerAssistantRunning.value = true;
-    isManagerAssistantCancelling.value = false;
     managerInputStatus.value = '准备中';
     await sendManagerQuestion(managerSessionId, text);
 }
+
+async function clearAssistantChatHistory() {
+    const sessionId = String(selectedSessionId.value || '').trim();
+    if (!sessionId || isManagerAssistantRunning.value || (!managerChatItems.value.length && !managerChatHasMore.value)) {return;}
+    const confirmed = await confirmTavernDialog({
+        title: '清空助手对话',
+        message: '清空当前会话里的全部助手聊天记录？已经写入的记忆、地图、状态和任务不会撤销。',
+        confirmText: '清空对话',
+        tone: 'danger',
+    });
+    if (!confirmed || selectedSessionId.value !== sessionId) {return;}
+
+    await clearTavernAssistantChatMessages(sessionId);
+    if (selectedSessionId.value !== sessionId) {return;}
+    clearManagerCompactionOverlayHideTimer();
+    managerCompactionOverlay.value = null;
+    clearManagerLiveProtocolState(sessionId);
+    clearManagerPendingUserMessage(sessionId);
+    managerChatItems.value = [];
+    managerChatHasMore.value = false;
+    managerChatHasNewer.value = false;
+    refreshAssistantChatContextMeter({ immediate: true });
+    managerInputStatus.value = '';
+    managerAutoScroll.value = true;
+    if (editingManagerMessageKey.value.startsWith(`manager:${sessionId}:`)) {
+        cancelEditMessage();
+    }
+    clearManagerMessageFeedback(sessionId);
+    showTavernToast('助手对话已清空');
+    void nextTick(() => scrollManagerToBottom(true));
+}
+
+watch([
+    () => String(selectedSessionId.value || '').trim(),
+    () => assistantChatContextMeterConfigSignature(agentConfig.value),
+    () => assistantChatContextMeterConfigSignature(activeAssistantPreset.value),
+], () => {
+    refreshAssistantChatContextMeter({ immediate: true });
+}, { immediate: true });
+
+watch(managerInputDraft, () => {
+    if (isManagerAssistantRunning.value) {return;}
+    refreshAssistantChatContextMeter();
+});
 
 watch([
     () => visibleChatMessages.value.length,
@@ -4446,20 +4928,31 @@ watch([
     () => runtimeText.value,
     () => runtimeThoughtsSignature.value,
     () => runtimeActionCheckSignature.value,
+    () => isRunning.value,
+    () => activeView.value,
+    () => chatFocus.value,
+    () => selectedSessionId.value,
+    () => currentNativeCharacterId.value,
+    () => selectedSessionLatestAssistantOrder.value,
+    () => roleLabel('assistant'),
+], () => {
+    syncRuntimeDisplayProjectionRequests();
+}, { immediate: true });
+
+watch([
+    runtimeDisplayRenderProjection,
+    runtimeDisplayThoughtBlocks,
 ], () => {
     if (activeView.value !== 'chat' || chatFocus.value !== 'chat') {return;}
     void nextTick(() => {
-        enhanceLiveChatMarkdown();
         updateChatScrollButtons();
     });
 });
 
 watch([
-    () => visibleManagerChatMessages.value.length,
-    () => managerMessageWindow.value.startIndex,
+    () => visibleManagerChatItems.value.length,
     () => visibleManagerMarkdownSignature.value,
     () => managerPendingUserMarkdownSignature.value,
-    () => liveManagerMarkdownSignature.value,
     () => managerWorkMarkdownSignature.value,
     () => isManagerAssistantRunning.value,
     () => homeThemeDark.value,
@@ -4475,13 +4968,42 @@ watch([
     }
 });
 
-watch(() => chatMessageWindowLimit.value, () => {
-    sessionController.handleChatMessageWindowLimitChanged();
+watch(() => liveManagerMarkdownSignature.value, () => {
+    if (activeView.value !== 'chat' || chatFocus.value !== 'manager') {return;}
+    scrollManagerToBottom();
+    void nextTick(() => updateManagerScrollButtons());
 });
 
-watch(() => selectedSessionId.value, () => {
+watch([
+    () => chatMessageWindowLimit.value,
+    () => selectedSessionMessageWindowOffsetFromEnd.value,
+], () => {
+    sessionController.handleChatMessageWindowStateChanged();
+});
+
+watch(() => selectedSessionId.value, (nextSessionId, previousSessionId) => {
+    assistantChatRefreshSerial += 1;
+    cancelMemoryContentSearch();
+    managerChatItems.value = [];
+    managerChatHasMore.value = false;
+    managerChatHasNewer.value = false;
+    assistantChatBudgetTokens.value = null;
+    if (previousSessionId && previousSessionId !== nextSessionId) {
+        if (editingMessageKey.value.startsWith(`${previousSessionId}:`)) {
+            editingMessageKey.value = '';
+        }
+        abortManagerAssistantForSession(previousSessionId);
+        clearManagerCompactionOverlayHideTimer();
+        managerCompactionOverlay.value = null;
+        clearManagerLiveProtocolState(previousSessionId);
+        clearManagerPendingUserMessage(previousSessionId);
+        clearManagerMessageFeedback(previousSessionId);
+        if (editingManagerMessageKey.value.startsWith(`manager:${previousSessionId}:`)) {
+            cancelEditMessage();
+        }
+        managerInputStatus.value = '';
+    }
     resetChatMessageWindowState();
-    resetManagerMessageWindowState();
     chatAutoScroll.value = true;
     managerAutoScroll.value = true;
     memoryFileSearchText.value = '';
@@ -4599,7 +5121,7 @@ const chatContext = {
     actionFeedback,
     cancelEditMessage,
     canEditMessage,
-    canRerunMessage,
+    canRerunLatestAssistant,
     canSendMessage,
     currentAuthorNote,
     chatAutoScroll,
@@ -4616,11 +5138,11 @@ const chatContext = {
     displayMessageContent,
     displayMessageRenderProjection,
     displayMessageThoughtBlocks,
-    displayRuntimeContent,
     displayRuntimeRenderProjection,
     displayRuntimeThoughtBlocks,
     displayCharacterName,
     displayUserName: userName,
+    enhanceMarkdownRoot,
     formatMessageTime,
     handleChatScroll,
     handleChatSubmit,
@@ -4637,12 +5159,12 @@ const chatContext = {
     messageKey,
     normalizeTavernSessionState,
     renderChatMarkdown,
-    rerunFromMessage,
+    renderUncachedMarkdown,
+    rerollLatestAssistant,
     revealOlderChatMessages,
+    revealNewerChatMessages,
+    releaseMarkdownRootResources,
     roleLabel,
-    runtimeText,
-    runtimeThoughts,
-    runtimeActionCheckEvents,
     runtimeStatusElapsedSeconds,
     runtimeStatusLabel,
     runtimeStatusStartedAt,
@@ -4665,8 +5187,12 @@ const chatContext = {
 
 const managerContext = {
     activeMemoryFiles,
+    assistantChatContextLabel,
+    assistantChatContextUsage,
     archivedManagerRuns,
     canEditManagerMessage,
+    canClearAssistantChat,
+    clearAssistantChatHistory,
     canRerunManagerMessage,
     canSendManagerMessage,
     copyManagerMessage,
@@ -4680,9 +5206,9 @@ const managerContext = {
     formatRunMapLine,
     formatRunMemoryLine,
     formatRunModelLine,
-    formatRunTaskLine,
     handleEditInput,
     handleManagerComposeKeydown,
+    handleManagerComposeInput,
     handleManagerEditKeydown,
     handleManagerScroll,
     handleManagerSubmit,
@@ -4695,7 +5221,9 @@ const managerContext = {
     isManagerRunRetrying,
     isManagerAssistantCancelling,
     isManagerAssistantRunning,
-    liveManagerChatDisplayItems,
+    liveManagerAssistantDraft,
+    liveManagerToolRound: visibleManagerLiveToolRound,
+    loadManagerMessageThoughts,
     managerActionFeedback,
     managerAutoScroll,
     managerBusy,
@@ -4703,9 +5231,11 @@ const managerContext = {
     managerComposeTextareaRef,
     managerInputDraft,
     managerInputStatus,
-    managerMessageWindow,
+    managerChatHasMore,
+    managerChatHasNewer,
     managerPendingUserMessage: visibleManagerPendingUserMessage,
     managerRuns,
+    managerRunDisplayStatus,
     managerRunTone,
     managerScrollControlsActive,
     managerScrollRef,
@@ -4714,14 +5244,15 @@ const managerContext = {
     managerToolStatusLabel,
     managerToolTone,
     managerToolTraceItems,
-    managerToolTurnPreview,
-    managerToolTurnSummary,
     memoryFileDisplayName,
     memoryFiles,
     memoryIndexStatusLine,
     retryManagerRun,
     revealOlderManagerMessages,
-    rerunFromManagerMessage,
+    revealNewerManagerMessages,
+    rerunFromManagerMessage: async (message) => {
+        await rerunFromManagerMessage(message);
+    },
     saveEditManagerMessage,
     scrollManagerToBottom,
     scrollManagerToTop,
@@ -4765,7 +5296,6 @@ const memoryContext = {
     selectedMemoryFile,
     selectedMemoryFilePath,
     selectMemoryFile,
-    stateMemoryFile,
 } satisfies TavernMemoryContext;
 
 const workspaceContext = {
@@ -4773,21 +5303,21 @@ const workspaceContext = {
     activeMapDocId,
     atlasActiveLocationKey,
     atlasStateDocument,
-    atlasStatePatches,
+    atlasLatestPatchSummary,
     chatWorkspacePanel,
     displayUserName: userName,
     mapStateDocuments,
     mapStateDocument,
     mapStatePatches,
+    mapStatePatchCount,
+    mapStateTimelineAvailable,
+    loadMapTimelinePatches,
     materialSymbolFontReady,
     materialSymbolFontStatus,
     statusFieldDeltas,
     statusStateDocument,
-    statusStatePatches,
     saveSessionContract,
     sessionContract,
-    stateMemoryFile,
-    tavernTasks,
     visibleUserAvatar,
 } satisfies TavernWorkspaceContext;
 
@@ -4797,6 +5327,7 @@ const appUiContext = {
     session: sessionContext,
     draw: drawContext,
     chat: chatContext,
+    phone: phoneContext,
     manager: managerContext,
     memory: memoryContext,
     workspace: workspaceContext,
@@ -4854,9 +5385,6 @@ onMounted(async () => {
     hostBridge.mount();
     document.addEventListener('focusin', handleKeyboardViewportFocus, true);
     document.addEventListener('focusout', handleKeyboardViewportFocus, true);
-    managerRecordsPollTimer = window.setInterval(() => {
-        void pollLiveManagerRecords();
-    }, 2000);
     if (activeView.value === 'settings' && activeSettingsWorkspace.value === 'api') {
         void nextTick(renderApiSettingsPanel);
     }
@@ -4869,23 +5397,29 @@ onMounted(async () => {
 onUnmounted(() => {
     document.removeEventListener('focusin', handleKeyboardViewportFocus, true);
     document.removeEventListener('focusout', handleKeyboardViewportFocus, true);
+    cancelMemoryContentSearch();
     hostBridge.dispose(new Error('tavern_unmounted'));
     disposeMarkdownTools();
     clearRuntimeAssistantLiveState();
     drawContext.clearCooldownTimer();
     setHostChatCompletionsRequestHeadersProvider(null);
     chatRunController.abortActiveRun();
-    managerAssistantController.value?.abort();
+    managerAssistantControllersBySession.forEach((controller) => controller.abort());
+    managerAssistantControllersBySession.clear();
+    managerAssistantController.value = null;
+    cancelAssistantChatContextMeterRefresh({ clear: true });
+    clearManagerLiveProtocolState();
+    clearManagerPendingUserMessage();
+    clearManagerMessageFeedback();
+    managerCompactionOverlay.value = null;
+    isManagerAssistantRunning.value = false;
+    isManagerAssistantCancelling.value = false;
     drawContext.abortAllJobs();
     chatScrollPane.cleanup();
     managerScrollPane.cleanup();
     if (tavernToastTimer) {
         window.clearTimeout(tavernToastTimer);
         tavernToastTimer = null;
-    }
-    if (managerRecordsPollTimer) {
-        window.clearInterval(managerRecordsPollTimer);
-        managerRecordsPollTimer = null;
     }
     clearDisplayRegexCache();
     clearManagerCompactionOverlayHideTimer();

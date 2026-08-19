@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, watch } from 'vue';
 import TavernMessageEditPanel from './TavernMessageEditPanel.vue';
-import TavernStreamMarkdown from './TavernStreamMarkdown.vue';
+import TavernMessageMarkdown from './TavernMessageMarkdown.vue';
 import { useTavernChatContext, useTavernDrawContext, useTavernShellContext } from '../tavern-app-context';
 import { useTavernEphemeralDisclosureScope } from '../useTavernEphemeralDisclosureScope';
 import { injectActionCheckRenderMarkers } from '../../../shared/runtime-events';
@@ -30,8 +30,6 @@ const draw = useTavernDrawContext();
 const thoughtDisclosure = useTavernEphemeralDisclosureScope();
 const visibleCharacterAvatar = chat.visibleCharacterAvatar;
 const isRunning = chat.isRunning;
-const thoughtDefaultOpen = ref(props.streaming);
-const hasBeenStreaming = ref(props.streaming);
 
 const isEditing = computed(() => !!props.message && chat.isEditingMessage(props.message));
 const messageKey = computed(() => props.message ? chat.messageKey(props.message) : props.anchorKey);
@@ -40,10 +38,7 @@ const useRuntimePresentation = computed(() => props.streaming || !props.message)
 const renderState = computed<AssistantRenderState>(() => {
     const message = props.message;
     const projection = useRuntimePresentation.value || !message
-        ? chat.displayRuntimeRenderProjection(
-            chat.runtimeText.value,
-            Array.isArray(chat.runtimeActionCheckEvents.value) ? chat.runtimeActionCheckEvents.value : [],
-        )
+        ? chat.displayRuntimeRenderProjection()
         : chat.displayMessageRenderProjection(message);
     const payload = injectActionCheckRenderMarkers(projection.text, projection.actionCheckEvents);
     const actionCheckGroups = payload.groups.length ? JSON.stringify(payload.groups) : '';
@@ -65,10 +60,11 @@ const renderHtml = computed(() => chat.renderChatMarkdown(renderState.value.text
 const displayThoughts = computed(() => {
     const message = props.message;
     return useRuntimePresentation.value || !message
-        ? chat.displayRuntimeThoughtBlocks(chat.thoughtBlocks(chat.runtimeThoughts.value))
+        ? chat.displayRuntimeThoughtBlocks()
         : chat.displayMessageThoughtBlocks(message);
 });
 const contentVisible = computed(() => !!String(renderState.value.text || '').trim());
+const thoughtDefaultOpen = computed(() => props.streaming && !contentVisible.value);
 const statusLabel = computed(() => {
     const label = chat.runtimeStatusLabel.value || '同步状态';
     const elapsedSeconds = Math.max(0, Math.floor(Number(chat.runtimeStatusElapsedSeconds.value) || 0));
@@ -87,12 +83,6 @@ function roleplayMarkdownOptions() {
     };
 }
 
-watch(() => props.streaming, (streaming) => {
-    if (!streaming) {return;}
-    hasBeenStreaming.value = true;
-    thoughtDefaultOpen.value = true;
-});
-
 function thoughtDisclosureId() {
     return `chat:thought:${props.anchorKey}`;
 }
@@ -104,6 +94,25 @@ function isThoughtOpen() {
 function setThoughtOpen(event: Event) {
     thoughtDisclosure.setOpenFromEvent(thoughtDisclosureId(), event);
 }
+
+let thoughtAutoCollapsed = false;
+watch(
+    [() => props.anchorKey, () => props.streaming, contentVisible],
+    ([anchorKey, streaming, hasContent], previous) => {
+        const [previousAnchorKey, wasStreaming = false, hadContent = false] = previous || [];
+        const streamStarted = streaming && !wasStreaming;
+        if (anchorKey !== previousAnchorKey || streamStarted) {
+            thoughtDisclosure.reset();
+            thoughtAutoCollapsed = false;
+        }
+        const contentStarted = hasContent && (!hadContent || streamStarted);
+        const streamFinished = wasStreaming && !streaming;
+        if (thoughtAutoCollapsed || (!contentStarted && !streamFinished)) {return;}
+        thoughtDisclosure.setOpen(thoughtDisclosureId(), false);
+        thoughtAutoCollapsed = true;
+    },
+    { immediate: true, flush: 'sync' },
+);
 
 function actionFeedback(action: string) {
     return props.message ? chat.actionFeedback(props.message, action) : '';
@@ -118,7 +127,7 @@ function canEdit() {
 }
 
 function canRerun() {
-    return !!props.message && chat.canRerunMessage(props.message);
+    return !!props.message && chat.canRerunLatestAssistant();
 }
 
 function isDrawing() {
@@ -148,9 +157,7 @@ function startEdit() {
 }
 
 function rerunMessage() {
-    if (props.message) {
-        void chat.rerunFromMessage(props.message);
-    }
+    void chat.rerollLatestAssistant();
 }
 
 function deleteMessage() {
@@ -189,9 +196,9 @@ function deleteMessage() {
             <span
               v-show="!!message"
               class="message-floor-label"
-              :title="message ? `第 ${String(Number(message.order) + 1)} 楼` : ''"
+              :title="message ? `第 ${String(Math.max(0, Math.floor(Number(message.order) || 0)))} 楼` : ''"
             >
-              {{ message ? `#${Math.max(1, Number(message.order) + 1)}` : '' }}
+              {{ message ? `#${Math.max(0, Math.floor(Number(message.order) || 0))}` : '' }}
             </span>
             <small class="bubble-time-tag">{{ bubbleTimeLabel }}</small>
           </span>
@@ -293,7 +300,7 @@ function deleteMessage() {
     />
 
     <details
-      v-show="displayThoughts.length"
+      v-show="!isEditing && displayThoughts.length"
       class="tavern-thought-details"
       :open="isThoughtOpen()"
       @toggle="setThoughtOpen"
@@ -313,15 +320,15 @@ function deleteMessage() {
       </template>
     </details>
 
-    <TavernStreamMarkdown
-      v-show="contentVisible"
+    <TavernMessageMarkdown
+      v-if="!isEditing && contentVisible"
       :action-check-groups="renderState.actionCheckGroups || undefined"
-      :animated="hasBeenStreaming"
       :html="renderHtml"
+      :phase="streaming ? 'live' : 'settled'"
       :signature="renderState.signature"
     />
     <p
-      v-show="!contentVisible"
+      v-show="!isEditing && !contentVisible"
       class="assistant-thinking-placeholder"
     >
       {{ streaming ? '正在组织回复...' : '' }}

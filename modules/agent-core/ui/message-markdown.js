@@ -1,4 +1,5 @@
 import showdown from 'showdown';
+import { isHtmlStructureLine, preprocessHtmlBoundaryLines } from './markdown-html-boundaries.js';
 
 let markdownConverter = null;
 let showdownPatched = false;
@@ -10,7 +11,6 @@ const htmlBoundaryStore = new Map();
 const HTML_BLOCK_LANGUAGES = new Set(['html', 'htm', 'xhtml', 'xml', 'svg', 'vue', 'svelte']);
 export const HTML_PREVIEW_SANDBOX = 'allow-scripts';
 const STYLE_SCOPE_SELECTORS = ['.xb-tavern-markdown', '.xb-assistant-markdown'];
-const HTML_RAW_TEXT_TAGS = new Set(['script', 'style', 'textarea', 'title']);
 
 function escapeHtml(text) {
     return String(text || '')
@@ -90,25 +90,6 @@ function storeHtmlBoundary(html = '') {
     return `@@XBHTMLRAW:${id}@@`;
 }
 
-function isHtmlStructureLine(line = '') {
-    const trimmed = String(line || '').trim();
-    if (!trimmed || !trimmed.startsWith('<') || !trimmed.endsWith('>')) return false;
-    if (/^<!--[\s\S]*-->$/.test(trimmed) || /^<!doctype\b/i.test(trimmed) || /^<\?xml\b/i.test(trimmed)) return false;
-
-    let hasHtmlTag = false;
-    const tagRegex = /<\/?\s*([a-z][\w:-]*)\b[^>]*>/gi;
-    let match = null;
-    while ((match = tagRegex.exec(trimmed)) !== null) {
-        const tagName = String(match[1] || '').toLowerCase();
-        if (HTML_RAW_TEXT_TAGS.has(tagName)) return false;
-        hasHtmlTag = true;
-    }
-    if (!hasHtmlTag) return false;
-
-    const textOutsideTags = trimmed.replace(/<\/?\s*[a-z][\w:-]*\b[^>]*>/gi, '').trim();
-    return !textOutsideTags || !/(^|\s)(?:#{1,6}\s|[-+*]\s|\d+\.\s|```|~~~|>\s)/.test(textOutsideTags);
-}
-
 function normalizeBlankLikeLine(line = '') {
     const normalized = String(line || '');
     if (!normalized) return normalized;
@@ -121,7 +102,8 @@ function normalizeBlankLikeLine(line = '') {
 function preprocessNonFenceMarkdown(text = '') {
     const normalized = String(text || '');
     if (!normalized.trim()) return normalized;
-    const lines = normalized.split(/\r?\n/).map((line) => normalizeBlankLikeLine(line));
+    const normalizedLines = normalized.split(/\r?\n/).map((line) => normalizeBlankLikeLine(line));
+    const lines = preprocessHtmlBoundaryLines(normalizedLines);
     const protectedLines = [];
     for (let index = 0; index < lines.length; index += 1) {
         const line = lines[index];

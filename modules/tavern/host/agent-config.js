@@ -38,6 +38,7 @@ async function saveTavernAgentConfig(patch = {}, options = {}) {
       patch.delegatePresetName || normalizedCurrent.delegatePresetName || patch.currentPresetName || normalizedCurrent.currentPresetName || ""
     )),
     delegateConfig: patch.delegateConfig && typeof patch.delegateConfig === "object" ? patch.delegateConfig : normalizedCurrent.delegateConfig,
+    delegateConfigured: typeof patch.delegateConfigured === "boolean" ? patch.delegateConfigured : normalizedCurrent.delegateConfigured,
     presets: patch.presets && typeof patch.presets === "object" ? patch.presets : normalizedCurrent.presets,
     updatedAt: Date.now(),
     configVersion: AGENT_SETTINGS_CONFIG_VERSION

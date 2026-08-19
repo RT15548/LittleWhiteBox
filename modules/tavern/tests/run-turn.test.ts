@@ -1,16 +1,20 @@
 import 'fake-indexeddb/auto';
-import test from 'node:test';
+import test, { after, before } from 'node:test';
 import assert from 'node:assert/strict';
 
 import db, {
     appendTavernMessage,
+    createTavernTurnStateSnapshot,
     createTavernManagerRun,
     createTavernSession,
-    deleteTavernMessages,
+    getTavernManagerCandidate,
     getTavernSession,
     listTavernManagerMemorySnapshots,
     listTavernManagerRuns,
     listTavernMessages,
+    tavernPetActionsTable,
+    tavernPetCompanionTable,
+    tavernPetJournalTable,
     updateTavernSessionState,
     updateTavernMessage,
 } from '../shared/session-db';
@@ -19,6 +23,7 @@ import {
     getTavernMemoryFile,
     getTavernMemoryIndex,
     getTavernManagerToolDefinitions,
+    listTavernMemorySnapshots,
     writeTavernMemoryFile,
 } from '../shared/memory-files';
 import { executeTavernStateTool } from '../shared/structured-state';
@@ -44,34 +49,75 @@ import {
     loadTavernPromptHistoryWindow,
     resolveTavernContextWindow,
     runTavernOnce,
-    runXbTavernTurn,
-    simulateXbTavernRequest,
+    runXbTavernTurn as runXbTavernTurnRuntime,
+    simulateXbTavernRequest as simulateXbTavernRequestRuntime,
+    TAVERN_LOCAL_PROMPT_MESSAGES,
     trimFinalAssistantMessageEnd,
-    waitForPendingAcceptedTurnManagers,
+    waitForQueuedAcceptedTurnManagers,
+    type XbTavernRunTurnInput,
+    type XbTavernSimulateRequestInput,
     type XbTavernRunResult,
     type TavernRunOnceOptions,
 } from '../app-src/runtime/run-once';
 import {
     runXbTavernManagerAfterTurn,
-    runXbTavernManagerChat,
     type XbTavernManagerOnceOptions,
 } from '../app-src/runtime/manager';
+import { runXbTavernAssistantChat as runXbTavernManagerChat } from '../app-src/runtime/assistant-chat-runner';
 import { getTavilySearchToolDefinition, TAVILY_TOOL_NAME } from '../../agent-core/tavily-search.js';
-import { executeTavernTaskTool } from '../shared/tasks';
 import { executeTavernStatusTool, TAVERN_STATUS_TOOL_NAMES } from '../shared/status-state';
+import {
+    appendSentTavernCommunicationMessage,
+    completeTavernCommunicationReply,
+    createTavernCommunicationContact,
+} from '../shared/communications';
 import { createXbTavernAgentRuntime, EMPTY_XB_TAVERN_CAPABILITY_REGISTRY } from '../app-src/runtime/agent-runtime';
 import { resolveXbTavernProviderConfig } from '../app-src/runtime/provider';
 import type { TavernApplyRegexItem } from '../shared/regex';
 import type { TavernSubstituteParamsItem } from '../shared/substitute-params';
+import { replaceTavernTaskBoard } from '../shared/tasks/task-board';
+import { acceptTavernTaskListing } from '../shared/tasks/task-service';
+import { TAVERN_TASK_TOOL_NAMES } from '../shared/tasks/task-tools';
+import type { TavernTaskListing, TavernTaskVersionRecord } from '../shared/tasks/task-types';
+import { ensureTavernEconomy } from '../shared/economy/economy-service';
+import { renderTavernPetInterferenceText } from '../shared/pet/pet-copy';
+import {
+    appendTavernPetTransitionInCurrentDbTransaction,
+    getTavernPetCompanionInCurrentDbTransaction,
+} from '../shared/pet/pet-service';
+import {
+    createTavernPetTestState,
+    seedTavernPetForTest,
+} from './pet-test-helpers';
 
 async function resetDb() {
-    await waitForPendingAcceptedTurnManagers();
+    await waitForQueuedAcceptedTurnManagers();
     await db.delete();
     await db.open();
 }
 
+const originalConsoleInfo = console.info.bind(console);
+
+before(() => {
+    console.info = (...args: Parameters<typeof console.info>) => {
+        if (args[0] === '[小白酒馆] turn stage start' || args[0] === '[小白酒馆] turn stage end') {
+            return;
+        }
+        originalConsoleInfo(...args);
+    };
+});
+
+after(async () => {
+    try {
+        await waitForQueuedAcceptedTurnManagers();
+    } finally {
+        console.info = originalConsoleInfo;
+    }
+});
+
 function makeContextWindowMessage(order: number, role: string, content = `message-${order}`) {
     return {
+        messageId: `window-message-${order}`,
         sessionId: 'window-test',
         order,
         role,
@@ -96,6 +142,92 @@ const identityApplySubstituteParams = async (items: TavernSubstituteParamsItem[]
         changed: false,
     })),
     changedCount: 0,
+});
+
+function createLocalTestNativePrompt(): NonNullable<XbTavernRunTurnInput['buildNativeChatPrompt']> {
+    return async (input) => {
+        const messages = input[TAVERN_LOCAL_PROMPT_MESSAGES] || [];
+        return {
+            source: 'test-local-prompt',
+            promptMessageCount: messages.length,
+            messages,
+            currentUserMessageIndex: messages.findIndex((message) => (
+                message.role === 'user' && message.content === input.currentUserMessage
+            )),
+        };
+    };
+}
+
+function withDefaultNativePromptHooks<T extends XbTavernRunTurnInput | XbTavernSimulateRequestInput>(input: T): T {
+    return {
+        applyRegex: identityApplyRegex,
+        applySubstituteParams: identityApplySubstituteParams,
+        buildNativeChatPrompt: createLocalTestNativePrompt(),
+        ...input,
+    };
+}
+
+function runTurnTaskListings(): TavernTaskListing[] {
+    const rows = [
+        ['禁忌', 'B', 150, '易介入', '现在就行'],
+        ['接触', 'C', 60, '易介入', '任意时候'],
+        ['夹缝', 'C', 100, '易介入', '现在就行'],
+        ['窥秘', 'C', 80, '中介入', '任意时候'],
+        ['掠夺', 'C', 100, '中介入', '特定时机：下课后'],
+        ['怪癖', 'D', 25, '深介入', '特定时机：入夜后'],
+    ] as const;
+    return rows.map(([direction, grade, reward, posture, timing], index) => ({
+        id: `runtime-listing-${index + 1}`,
+        grade,
+        tags: [direction, `runtime-tag-${index + 1}`],
+        posture,
+        title: `运行时委托 ${index + 1}`,
+        hook: `异常钩子 ${index + 1}`,
+        objective: `完成运行时目标 ${index + 1}`,
+        requirements: `运行时要求 ${index + 1}`,
+        location: `地点 ${index + 1}`,
+        timing,
+        risk: `风险 ${index + 1}`,
+        reward,
+    }));
+}
+
+async function createRunTurnActiveTask(sessionId: string, suffix: string): Promise<TavernTaskVersionRecord> {
+    const board = await replaceTavernTaskBoard({
+        sessionId,
+        expectedRevision: 0,
+        expectedEpoch: 1,
+        boundary: null,
+        generationId: `runtime-board-${suffix}`,
+        listings: runTurnTaskListings(),
+    });
+    return await acceptTavernTaskListing({
+        sessionId,
+        boardId: board.generationId,
+        boardRevision: board.revision,
+        boardEpoch: board.epoch,
+        listingId: board.listings[2].id,
+        boundary: null,
+        actionId: `runtime-accept-${suffix}`,
+        taskId: `runtime-task-${suffix}`,
+        playerName: '测试玩家',
+    });
+}
+
+function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTavernRunResult> {
+    return runXbTavernTurnRuntime(withDefaultNativePromptHooks(input));
+}
+
+function simulateXbTavernRequest(input: XbTavernSimulateRequestInput) {
+    return simulateXbTavernRequestRuntime(withDefaultNativePromptHooks(input));
+}
+
+test('local native prompt fixtures are symbol keyed and never enter host JSON payloads', () => {
+    const payload = {
+        currentUserMessage: 'hello',
+        [TAVERN_LOCAL_PROMPT_MESSAGES]: [{ role: 'user', content: 'large local prompt' }],
+    };
+    assert.equal(JSON.stringify(payload), '{"currentUserMessage":"hello"}');
 });
 
 function createPromptStatusDocument() {
@@ -446,6 +578,7 @@ test('xb tavern run turn sends the same ST-native prompt shape used by simulatio
                 source: 'test-native-builder',
                 promptMessageCount: 1,
                 messages: [{ role: 'assistant', content: 'NATIVE_MESSAGE \n\t' }],
+                currentUserMessageIndex: null,
             };
         },
         executeRunOnce: async (options: TavernRunOnceOptions) => {
@@ -478,70 +611,7 @@ test('xb tavern run turn sends the same ST-native prompt shape used by simulatio
     assert.equal(getChanceEncounterEvent(result.userMessage.runtimeEvents)?.label, CHANCE_ENCOUNTER_LABEL);
 });
 
-test('xb tavern run turn sends only the latest quest hook first to ST-native memory prompt', async () => {
-    await resetDb();
-    const preset = createDefaultXbTavernPreset();
-    const session = await createTavernSession({
-        title: 'Native quest hook',
-        characterKey: 'char-quest-native',
-        characterName: 'Aster',
-        contextSnapshot: {
-            character: { characterKey: 'char-quest-native', name: 'Aster', description: 'Pilot.' },
-        },
-        state: {
-            contract: mergeTavernSessionContract(undefined, {
-                questOrchestration: true,
-            }),
-        },
-    });
-    await executeTavernTaskTool(session.id, 'EventPatch', {
-        op: 'upsert-vision',
-        eventId: 'old-hook',
-        title: '旧线索',
-        vision: '旧线索远景',
-        doneWhen: '角色当场说出答案。',
-        hookForModel: '旧码头的名字还挂在雨里。',
-    }, { sourceAssistantOrder: 5 });
-    await executeTavernTaskTool(session.id, 'EventPatch', {
-        op: 'upsert-vision',
-        eventId: 'latest-hook',
-        title: '最新线',
-        vision: '最新线索远景',
-        doneWhen: '角色当场说出答案。',
-        hookForModel: '莉娜听见旧码头时短暂停顿。',
-    }, { sourceAssistantOrder: 7 });
-    let memoryPrompt = '';
-
-    await runXbTavernTurn({
-        sessionId: session.id,
-        agentConfig: { provider: 'fake-provider', model: 'fake-model' },
-        contextSnapshot: session.contextSnapshot || {},
-        preset,
-        currentUserMessage: '继续。',
-        applyRegex: identityApplyRegex,
-        applySubstituteParams: identityApplySubstituteParams,
-        buildNativeChatPrompt: async (input) => {
-            memoryPrompt = input.memoryPrompt || '';
-            return {
-                source: 'test-native-builder',
-                promptMessageCount: 1,
-                messages: [{ role: 'assistant', content: 'Native answer.' }],
-            };
-        },
-        executeRunOnce: async (options: TavernRunOnceOptions) => ({
-            text: 'Native answer.',
-            provider: 'fake-provider',
-            model: 'fake-model',
-            requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages),
-        }),
-    });
-
-    assert.equal(memoryPrompt.startsWith('莉娜听见旧码头时短暂停顿。'), true);
-    assert.doesNotMatch(memoryPrompt, /^##/);
-    assert.doesNotMatch(memoryPrompt, /旧码头的名字还挂在雨里/);
-});
-
-test('xb tavern pending accepted-turn manager runs independently from the current send signal', async () => {
+test('xb tavern queued accepted-turn manager runs independently from the current send signal', async () => {
     await resetDb();
     const preset = createDefaultXbTavernPreset();
     const managerContract = mergeTavernSessionContract(undefined, {
@@ -569,9 +639,12 @@ test('xb tavern pending accepted-turn manager runs independently from the curren
             throw new Error('first turn manager must not run yet');
         },
     });
+    assert.deepEqual((await listTavernMessages(first.sessionId)).map((message) => message.role), ['user', 'assistant']);
 
-    assert.equal(first.managerStatus, 'pending');
-    assert.ok(first.managerRunId);
+    assert.equal(first.managerStatus, '');
+    assert.equal(first.managerRunId, '');
+    const firstCandidate = await getTavernManagerCandidate(first.sessionId);
+    assert.ok(firstCandidate);
     const controller = new AbortController();
     let managerCalls = 0;
     let managerSignalAbortedAfterCurrentAbort = false;
@@ -630,15 +703,15 @@ test('xb tavern pending accepted-turn manager runs independently from the curren
 
     assert.equal(result.error, '已停止生成。');
     let runs = await listTavernManagerRuns(first.sessionId);
-    assert.equal(runs.find((run) => run.id === first.managerRunId)?.status, 'running');
+    assert.equal(runs.find((run) => run.id === firstCandidate?.id)?.status, 'running');
     releaseManager();
-    await waitForPendingAcceptedTurnManagers(first.sessionId);
+    await waitForQueuedAcceptedTurnManagers(first.sessionId);
     assert.equal(managerSignalAbortedAfterCurrentAbort, false);
     assert.equal(managerCalls, 1);
     assert.doesNotMatch((await getTavernMemoryFile(first.sessionId, 'memory/state.md'))?.content || '', /pending 维护被当前停止打断/);
     runs = await listTavernManagerRuns(first.sessionId);
-    assert.equal(runs.find((run) => run.id === first.managerRunId)?.status, 'completed');
-    assert.deepEqual(await listTavernManagerMemorySnapshots(first.managerRunId), []);
+    assert.equal(runs.find((run) => run.id === firstCandidate?.id)?.status, 'completed');
+    assert.deepEqual(await listTavernManagerMemorySnapshots(firstCandidate?.id || ''), []);
 
     const next = await runXbTavernTurn({
         sessionId: first.sessionId,
@@ -665,10 +738,91 @@ test('xb tavern pending accepted-turn manager runs independently from the curren
         },
     });
     assert.equal(next.error, undefined);
-    assert.equal(next.managerStatus, 'pending');
+    assert.equal(next.managerStatus, '');
+    assert.equal(next.managerRunId, '');
     runs = await listTavernManagerRuns(first.sessionId);
-    assert.equal(runs.find((run) => run.id === first.managerRunId)?.status, 'completed');
-    assert.equal(runs.find((run) => run.id === next.managerRunId)?.status, 'pending');
+    assert.equal(runs.find((run) => run.id === firstCandidate?.id)?.status, 'completed');
+    const nextCandidate = await getTavernManagerCandidate(first.sessionId);
+    assert.equal(nextCandidate?.userOrder, next.userMessage.order);
+    assert.equal(nextCandidate?.assistantOrder, next.assistantMessage?.order);
+});
+
+test('active formal tasks still create and run an accepted manager when every contract domain is disabled', async () => {
+    await resetDb();
+    const preset = createDefaultXbTavernPreset();
+    const disabledContract = mergeTavernSessionContract(undefined, {
+        memoryArchiving: false,
+        cartographyEngine: false,
+        statusPanel: false,
+        actionChecks: false,
+        randomEncounters: false,
+    });
+    const session = await createTavernSession({
+        title: 'Task-only accepted manager',
+        characterKey: 'char-task-only',
+        characterName: 'Aster',
+        contextSnapshot: {
+            character: { characterKey: 'char-task-only', name: 'Aster', description: 'A courier.' },
+            user: { name: '测试玩家' },
+        },
+        state: { contract: disabledContract },
+    });
+    const task = await createRunTurnActiveTask(session.id, 'task-only-manager');
+    let managerCalls = 0;
+    let managerPrompt = '';
+    let managerToolNames: string[] = [];
+    const executeManagerOnce = async (options: XbTavernManagerOnceOptions) => {
+        managerCalls += 1;
+        managerPrompt = JSON.stringify(options.messages);
+        managerToolNames = (options.tools || [])
+            .map((tool) => String((tool as { function?: { name?: string } }).function?.name || ''))
+            .filter(Boolean);
+        return {
+            text: '本轮任务证据不足，无需改变任务。',
+            provider: 'fake-provider',
+            model: 'fake-model',
+        };
+    };
+    const executeRunOnce = async (options: TavernRunOnceOptions) => ({
+        text: '剧情继续。',
+        provider: 'fake-provider',
+        model: 'fake-model',
+        requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages),
+    });
+
+    const first = await runXbTavernTurn({
+        sessionId: session.id,
+        agentConfig: { provider: 'fake-provider', model: 'fake-model' },
+        contextSnapshot: session.contextSnapshot || {},
+        preset,
+        currentUserMessage: '先观察交付地点。',
+        runManager: true,
+        executeRunOnce,
+        executeManagerOnce,
+    });
+    const candidate = await getTavernManagerCandidate(session.id);
+    assert.ok(candidate);
+    assert.equal(candidate?.assistantOrder, first.assistantMessage?.order);
+    assert.equal(managerCalls, 0);
+
+    await runXbTavernTurn({
+        sessionId: session.id,
+        agentConfig: { provider: 'fake-provider', model: 'fake-model' },
+        contextSnapshot: session.contextSnapshot || {},
+        preset,
+        currentUserMessage: '继续潜入。',
+        runManager: true,
+        executeRunOnce,
+        executeManagerOnce,
+    });
+    await waitForQueuedAcceptedTurnManagers(session.id);
+
+    const completedRun = (await listTavernManagerRuns(session.id)).find((run) => run.id === candidate?.id);
+    const taskToolNames = new Set<string>(Object.values(TAVERN_TASK_TOOL_NAMES));
+    assert.equal(managerCalls, 1);
+    assert.equal(completedRun?.status, 'completed');
+    assert.match(managerPrompt, new RegExp(task.taskId));
+    assert.deepEqual(managerToolNames.filter((name) => taskToolNames.has(name)).sort(), [...taskToolNames].sort());
 });
 
 test('xb tavern session author note reaches native prompt for real and simulated requests', async () => {
@@ -707,6 +861,7 @@ test('xb tavern session author note reaches native prompt for real and simulated
                 source: 'test-native-builder',
                 promptMessageCount: 1,
                 messages: [{ role: 'system', content: String((input.context?.authorNote as { prompt?: string } | undefined)?.prompt || '') }],
+                currentUserMessageIndex: null,
             };
         },
         executeRunOnce: async (options: TavernRunOnceOptions) => {
@@ -745,6 +900,7 @@ test('xb tavern session author note reaches native prompt for real and simulated
             source: 'test-native-builder',
             promptMessageCount: 1,
             messages: [{ role: 'system', content: String((input.context?.authorNote as { prompt?: string } | undefined)?.prompt || '') }],
+            currentUserMessageIndex: null,
         }),
     });
     assert.match(simulated.requestSnapshot.rawMessagesJson || '', /PLAYER_AUTHOR_NOTE/);
@@ -837,7 +993,7 @@ test('xb tavern rerun reuses an existing chance encounter without rerolling', as
         },
         preset,
         currentUserMessage: 'ignored',
-        reuseUserMessageOrder: 0,
+        rerollLatestAssistant: true,
         runtimeState: {
             contract: mergeTavernSessionContract(undefined, {
                 randomEncounters: true,
@@ -976,7 +1132,7 @@ test('xb tavern edited rerun can reroll runtime events on the reused user messag
         },
         preset,
         currentUserMessage: 'ignored',
-        reuseUserMessageOrder: storedUser.order,
+        rerollLatestAssistant: true,
         rerollRuntimeEvents: true,
         runtimeState,
         randomEncounterRoll: () => 0.05,
@@ -1154,6 +1310,7 @@ test('xb tavern run turn injects status panel yaml without exposing status tools
                 { role: 'system', content: input.memoryPrompt || '' },
                 { role: 'user', content: input.currentUserMessage || '' },
             ],
+            currentUserMessageIndex: 1,
         }),
         executeRunOnce: async (options: TavernRunOnceOptions) => {
             rawMessages = JSON.stringify(options.messages);
@@ -1276,6 +1433,7 @@ test('xb tavern action check uses status panel gauge when stat matches', async (
                 { role: 'system', content: [input.memoryPrompt || '', input.actionCheckPrompt || ''].filter(Boolean).join('\n\n') },
                 { role: 'user', content: input.currentUserMessage || '' },
             ],
+            currentUserMessageIndex: 1,
         }),
         executeRunOnce,
     });
@@ -2015,7 +2173,7 @@ test('xb tavern rerun regenerates assistant action checks cleanly instead of reu
         },
         actionCheckRoll: () => 17,
         executeRunOnce: async (options: TavernRunOnceOptions) => {
-            if (!options.toolResponses?.length) {
+            if (!options.messages.some((message) => message.role === 'tool')) {
                 return {
                     text: '她把铁丝探进锁孔。 ',
                     toolCalls: [{
@@ -2036,6 +2194,9 @@ test('xb tavern rerun regenerates assistant action checks cleanly instead of reu
             };
         },
     });
+    const firstMessages = await listTavernMessages(first.sessionId);
+    assert.deepEqual(firstMessages.map((message) => message.role), ['user', 'assistant']);
+    assert.equal(firstMessages[1]?.error, false);
 
     let rerunCalls = 0;
     await runXbTavernTurn({
@@ -2046,7 +2207,7 @@ test('xb tavern rerun regenerates assistant action checks cleanly instead of reu
         },
         preset,
         currentUserMessage: 'ignored',
-        reuseUserMessageOrder: 0,
+        rerollLatestAssistant: true,
         runtimeState: {
             contract: mergeTavernSessionContract(undefined, {
                 actionChecks: true,
@@ -2069,7 +2230,7 @@ test('xb tavern rerun regenerates assistant action checks cleanly instead of reu
     assert.equal(getActionCheckEvents(messages[1]?.runtimeEvents).length, 0);
 });
 
-test('xb tavern run turn starts accepted-turn manager work on the next user send without blocking RP', async () => {
+test('xb tavern run turn does not block RP and completes its fixed pair after the timeline advances', async () => {
     await resetDb();
     const preset = createDefaultXbTavernPreset();
     let managerProvider = '';
@@ -2151,11 +2312,12 @@ test('xb tavern run turn starts accepted-turn manager work on the next user send
     });
 
     const pendingRuns = await listTavernManagerRuns(first.sessionId);
-    assert.equal(first.managerStatus, 'pending', JSON.stringify(pendingRuns[0] || null));
-    assert.ok(first.managerRunId);
+    assert.equal(first.managerStatus, '');
+    assert.equal(first.managerRunId, '');
     assert.equal(managerCalls, 0);
-    assert.equal(pendingRuns[0]?.status, 'pending');
-    assert.equal(pendingRuns[0]?.trigger, 'accepted_turn');
+    assert.deepEqual(pendingRuns, []);
+    const firstCandidate = await getTavernManagerCandidate(first.sessionId);
+    assert.ok(firstCandidate);
 
     let markManagerStarted!: () => void;
     const managerStarted = new Promise<void>((resolve) => {
@@ -2242,22 +2404,19 @@ test('xb tavern run turn starts accepted-turn manager work on the next user send
                 text: '已更新本轮记忆档案。',
             };
         },
-        onManagerRunSaved: async (sessionId, managerRunId) => {
-            const run = (await listTavernManagerRuns(sessionId)).find((item) => item.id === managerRunId);
-            if (run) {
-                managerRunStatuses.push(`${run.id}:${run.status}`);
-            }
+        onManagerRunSaved: async (_sessionId, run) => {
+            managerRunStatuses.push(`${run.id}:${run.status}`);
         },
     });
 
     await managerStarted;
-    const sawRunningStatusBeforeRpCompleted = managerRunStatuses.includes(`${first.managerRunId}:running`);
+    const sawRunningStatusBeforeRpCompleted = managerRunStatuses.includes(`${firstCandidate?.id}:running`);
     const result = await turnPromise;
-    assert.equal(result.managerStatus, 'pending');
-    assert.ok(result.managerRunId);
+    assert.equal(result.managerStatus, 'queued');
+    assert.equal(result.managerRunId, firstCandidate?.id);
     assert.equal(managerCalls, 1);
     releaseManager();
-    await waitForPendingAcceptedTurnManagers(result.sessionId);
+    await waitForQueuedAcceptedTurnManagers(result.sessionId);
     assert.equal(sawRunningStatusBeforeRpCompleted, true);
     assert.equal(managerCalls, 2);
     assert.equal(managerProvider, 'sillytavern-openai-compatible');
@@ -2297,7 +2456,7 @@ test('xb tavern run turn starts accepted-turn manager work on the next user send
     assert.match(managerPrompt, /viewBox is the camera/i);
     assert.doesNotMatch(managerPrompt, /meta \+ add|initialize it with one MapPatch/i);
     assert.match(managerPrompt, /Place text labels 15–25 units beside what they describe/i);
-    assert.match(managerPrompt, /Reply with a short, user-facing summary/i);
+    assert.match(managerPrompt, /Reply with a short maintenance report grouped by affected domain/i);
     assert.doesNotMatch(managerPrompt, /电纸书|ebook file-operation/i);
     assert.match(managerPrompt, /Grep with `path:\\?"memory\/\\?"` to check whether a fact is already stored/is);
     assert.doesNotMatch(managerPrompt, /可派生格式/);
@@ -2306,13 +2465,105 @@ test('xb tavern run turn starts accepted-turn manager work on the next user send
     assert.doesNotMatch(managerPrompt, /MemoryEdit `edits` 必须是真正的非空数组/);
     const memoryFiles = (await getTavernMemoryIndex(result.sessionId))?.files || [];
     assert.equal(memoryFiles.some((file) => file.path === 'memory/state.md'), true);
+    assert.match((await getTavernMemoryFile(result.sessionId, 'memory/state.md'))?.content || '', /两人决定去码头/);
+    const acceptedMemoryFloors = (await listTavernMemorySnapshots(result.sessionId)).map((snapshot) => snapshot.floor);
+    assert.equal(acceptedMemoryFloors.includes(first.assistantMessage?.order || -1), true);
+    assert.equal(acceptedMemoryFloors.includes(result.assistantMessage?.order || -1), false);
     const runs = await listTavernManagerRuns(result.sessionId);
-    const completed = runs.find((run) => run.id === first.managerRunId);
+    const completed = runs.find((run) => run.id === firstCandidate?.id);
     assert.equal(completed?.status, 'completed');
-    assert.equal(completed?.model, 'manager-model');
-    const nextPending = runs.find((run) => run.id === result.managerRunId);
-    assert.equal(nextPending?.status, 'pending');
-    assert.equal(nextPending?.trigger, 'accepted_turn');
+    assert.equal(completed?.error, '');
+    assert.equal(completed?.confirmedByUserOrder, result.userMessage.order);
+    const nextCandidate = await getTavernManagerCandidate(result.sessionId);
+    assert.equal(nextCandidate?.userOrder, result.userMessage.order);
+    assert.equal(nextCandidate?.assistantOrder, result.assistantMessage?.order);
+});
+
+test('rapid RP turns preserve every confirmed manager pair in strict story order', async () => {
+    await resetDb();
+    const preset = createDefaultXbTavernPreset();
+    const managerContract = mergeTavernSessionContract(undefined, { memoryArchiving: true });
+    let managerCalls = 0;
+    let markManagerStarted!: () => void;
+    const managerStarted = new Promise<void>((resolve) => {markManagerStarted = resolve;});
+    let releaseFirstManager!: () => void;
+    const firstManagerGate = new Promise<void>((resolve) => {releaseFirstManager = resolve;});
+    const executeManagerOnce = async () => {
+        managerCalls += 1;
+        if (managerCalls === 1) {
+            markManagerStarted();
+            await firstManagerGate;
+        }
+        return { text: `维护完成 ${managerCalls}。`, provider: 'fake-manager', model: 'manager-model' };
+    };
+    const contextSnapshot = {
+        character: { characterKey: 'char-fast-queue', name: 'Aster' },
+    };
+
+    const first = await runXbTavernTurn({
+        agentConfig: { provider: 'fake-provider', model: 'fake-model' },
+        contextSnapshot,
+        preset,
+        runtimeState: { contract: managerContract },
+        currentUserMessage: 'U0',
+        runManager: true,
+        executeRunOnce: async (options: TavernRunOnceOptions) => ({
+            text: 'A1',
+            requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages),
+        }),
+        executeManagerOnce,
+    });
+    const firstCandidate = await getTavernManagerCandidate(first.sessionId);
+    assert.equal(firstCandidate?.assistantOrder, 1);
+
+    const secondPromise = runXbTavernTurn({
+        sessionId: first.sessionId,
+        agentConfig: { provider: 'fake-provider', model: 'fake-model' },
+        contextSnapshot,
+        preset,
+        currentUserMessage: 'U2',
+        runManager: true,
+        executeRunOnce: async (options: TavernRunOnceOptions) => ({
+            text: 'A3',
+            requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages),
+        }),
+        executeManagerOnce,
+    });
+    await managerStarted;
+    const second = await secondPromise;
+    assert.equal(second.managerRunId, firstCandidate?.id);
+
+    const secondCandidate = await getTavernManagerCandidate(first.sessionId);
+    assert.equal(secondCandidate?.assistantOrder, 3);
+    const third = await runXbTavernTurn({
+        sessionId: first.sessionId,
+        agentConfig: { provider: 'fake-provider', model: 'fake-model' },
+        contextSnapshot,
+        preset,
+        currentUserMessage: 'U4',
+        runManager: true,
+        executeRunOnce: async (options: TavernRunOnceOptions) => ({
+            text: 'A5',
+            requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages),
+        }),
+        executeManagerOnce,
+    });
+    assert.equal(third.managerRunId, secondCandidate?.id);
+
+    let runs = await listTavernManagerRuns(first.sessionId);
+    assert.equal(runs.find((run) => run.assistantOrder === 1)?.status, 'running');
+    assert.equal(runs.find((run) => run.assistantOrder === 3)?.status, 'queued');
+    releaseFirstManager();
+    await waitForQueuedAcceptedTurnManagers(first.sessionId);
+
+    runs = await listTavernManagerRuns(first.sessionId);
+    assert.equal(managerCalls, 2);
+    assert.deepEqual(
+        runs.filter((run) => [1, 3].includes(run.assistantOrder))
+            .sort((left, right) => left.assistantOrder - right.assistantOrder)
+            .map((run) => [run.assistantOrder, run.confirmedByUserOrder, run.status]),
+        [[1, 2, 'completed'], [3, 4, 'completed']],
+    );
 });
 
 test('tavern manager prompt strips unauthorized module rules cleanly', () => {
@@ -2344,23 +2595,9 @@ test('tavern manager prompt strips unauthorized module rules cleanly', () => {
     assert.doesNotMatch(mapOnly, /memory\/session\.md/);
     assert.doesNotMatch(mapOnly, /校正记忆/);
 
-    const questOnly = buildTavernManagerSystemPrompt({}, {
-        includeMemory: false,
-        includeCartography: false,
-        includeQuestOrchestration: true,
-    });
-    assert.match(questOnly, /## Events \(Ambition Palette\)/);
-    assert.match(questOnly, /grand goals they could choose to chase/);
-    assert.match(questOnly, /big, distant END/);
-    assert.match(questOnly, /fuck yes, let's do that/);
-    assert.match(questOnly, /If nothing genuinely grand comes, leave it empty/);
-    assert.doesNotMatch(questOnly, /"op":"upsert-vision"|hookForModel|doneWhen.*objective completion condition/);
-    assert.doesNotMatch(questOnly, /MemoryWrite/);
-    assert.doesNotMatch(questOnly, /## Structured State/);
-    assert.doesNotMatch(questOnly, /## Map/);
 });
 
-test('xb tavern pending accepted-turn manager failure does not block the next RP send', async () => {
+test('xb tavern queued accepted-turn manager failure does not block the next RP send', async () => {
     await resetDb();
     const preset = createDefaultXbTavernPreset();
     let managerCalls = 0;
@@ -2381,8 +2618,10 @@ test('xb tavern pending accepted-turn manager failure does not block the next RP
         },
     });
 
-    assert.equal(first.managerStatus, 'pending');
+    assert.equal(first.managerStatus, '');
     assert.equal(managerCalls, 0);
+    const firstCandidate = await getTavernManagerCandidate(first.sessionId);
+    assert.ok(firstCandidate);
 
     let markManagerStarted!: () => void;
     const managerStarted = new Promise<void>((resolve) => {
@@ -2417,19 +2656,21 @@ test('xb tavern pending accepted-turn manager failure does not block the next RP
     const second = await turnPromise;
     assert.equal(second.error, undefined);
     assert.equal(second.assistantMessage?.content, '她低声说，别让第三个人知道。');
-    assert.equal(second.managerStatus, 'pending');
+    assert.equal(second.managerStatus, 'queued');
+    assert.equal(second.managerRunId, firstCandidate?.id);
     assert.equal(managerCalls, 1);
     releaseManager();
-    await waitForPendingAcceptedTurnManagers(first.sessionId);
+    await waitForQueuedAcceptedTurnManagers(first.sessionId);
     const runs = await listTavernManagerRuns(first.sessionId);
-    const failed = runs.find((run) => run.id === first.managerRunId);
+    const failed = runs.find((run) => run.id === firstCandidate?.id);
     assert.equal(failed?.status, 'failed');
     assert.equal(failed?.error, 'manager_pre_send_failed');
-    const nextPending = runs.find((run) => run.id === second.managerRunId);
-    assert.equal(nextPending?.status, 'pending');
+    const nextCandidate = await getTavernManagerCandidate(first.sessionId);
+    assert.equal(nextCandidate?.userOrder, second.userMessage.order);
+    assert.equal(nextCandidate?.assistantOrder, second.assistantMessage?.order);
 });
 
-test('xb tavern reroll cancels pending accepted-turn manager work without calling the manager API', async () => {
+test('xb tavern reroll replaces the unconfirmed manager candidate without calling the manager API', async () => {
     await resetDb();
     const preset = createDefaultXbTavernPreset();
     let managerCalls = 0;
@@ -2450,7 +2691,9 @@ test('xb tavern reroll cancels pending accepted-turn manager work without callin
             return { text: '不应该维护旧候选。' };
         },
     });
-    assert.equal(first.managerStatus, 'pending');
+    assert.equal(first.managerStatus, '');
+    const firstCandidate = await getTavernManagerCandidate(first.sessionId);
+    assert.ok(firstCandidate);
 
     const rerun = await runXbTavernTurn({
         sessionId: first.sessionId,
@@ -2460,7 +2703,7 @@ test('xb tavern reroll cancels pending accepted-turn manager work without callin
         },
         preset,
         currentUserMessage: 'ignored',
-        reuseUserMessageOrder: first.userMessage.order,
+        rerollLatestAssistant: true,
         runManager: true,
         executeRunOnce: async (options: TavernRunOnceOptions) => ({
             text: '最终保留回复。',
@@ -2472,16 +2715,171 @@ test('xb tavern reroll cancels pending accepted-turn manager work without callin
         },
     });
 
-    assert.equal(rerun.managerStatus, 'pending');
+    assert.equal(rerun.managerStatus, '');
     assert.equal(managerCalls, 0);
     const runs = await listTavernManagerRuns(first.sessionId);
-    const oldPending = runs.find((run) => run.id === first.managerRunId);
-    assert.equal(oldPending?.status, 'cancelled');
-    assert.equal(oldPending?.error, 'manager_source_messages_superseded');
-    assert.equal(runs[0]?.id, rerun.managerRunId);
-    assert.equal(runs[0]?.status, 'pending');
+    assert.deepEqual(runs, []);
+    const rerunCandidate = await getTavernManagerCandidate(first.sessionId);
+    assert.ok(rerunCandidate);
+    assert.notEqual(rerunCandidate?.id, firstCandidate?.id);
+    assert.equal(rerunCandidate?.assistantOrder, rerun.assistantMessage?.order);
     const messages = await listTavernMessages(first.sessionId);
     assert.deepEqual(messages.map((message) => message.content), ['试一次。', '最终保留回复。']);
+});
+
+test('xb tavern reroll uses the latest user checkpoint while preserving the old timeline until commit', async () => {
+    await resetDb();
+    const preset = createDefaultXbTavernPreset();
+    const session = await createTavernSession({
+        title: 'Checkpoint reroll',
+        characterKey: 'char-1',
+        characterName: 'Aster',
+        contextSnapshot: {
+            character: { characterKey: 'char-1', name: 'Aster' },
+        },
+        state: {
+            turn: 7,
+            contextWindowStartOrder: 0,
+            worldEntryStates: {
+                remembered: { stickyUntilTurn: 10 },
+            },
+            nativeWorldInfoTimedState: { sticky: { lore: { end: 9 } }, cooldown: {} },
+        },
+    });
+    const first = await runXbTavernTurn({
+        sessionId: session.id,
+        agentConfig: { provider: 'fake-provider', model: 'fake-model' },
+        contextSnapshot: session.contextSnapshot || {},
+        preset,
+        currentUserMessage: '从这里开始。',
+        executeRunOnce: async (options: TavernRunOnceOptions) => ({
+            text: '第一版回复。',
+            requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages),
+        }),
+    });
+    assert.equal(first.userMessage.runtimeStateSnapshot?.turn, 7);
+    assert.deepEqual(first.userMessage.runtimeStateSnapshot?.worldEntryStates, {
+        remembered: { stickyUntilTurn: 10 },
+    });
+
+    await updateTavernSessionState(session.id, {
+        turn: 99,
+        contextWindowStartOrder: 88,
+        worldEntryStates: { polluted: { stickyUntilTurn: 100 } },
+        nativeWorldInfoTimedState: { sticky: { polluted: { end: 100 } }, cooldown: {} },
+    });
+    let preparedTimeline: string[] = [];
+    const rerun = await runXbTavernTurn({
+        sessionId: session.id,
+        agentConfig: { provider: 'fake-provider', model: 'fake-model' },
+        contextSnapshot: session.contextSnapshot || {},
+        preset,
+        currentUserMessage: 'ignored',
+        rerollLatestAssistant: true,
+        onLatestAssistantRerollPrepared: async () => {
+            preparedTimeline = (await listTavernMessages(session.id)).map((message) => message.content);
+        },
+        executeRunOnce: async (options: TavernRunOnceOptions) => ({
+            text: '第二版回复。',
+            requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages),
+        }),
+    });
+
+    assert.deepEqual(preparedTimeline, ['从这里开始。', '第一版回复。']);
+    assert.equal(rerun.userMessage.order, first.userMessage.order);
+    assert.deepEqual((await listTavernMessages(session.id)).map((message) => message.content), ['从这里开始。', '第二版回复。']);
+    assert.equal((await getTavernSession(session.id))?.state?.turn, 8);
+    assert.equal((await getTavernSession(session.id))?.state?.worldEntryStates?.polluted, undefined);
+});
+
+test('xb tavern reroll keeps the previous AI and candidate when prompt, API, or stop fails', async () => {
+    await resetDb();
+    const preset = createDefaultXbTavernPreset();
+    const session = await createTavernSession({
+        title: 'Checkpoint reroll failure',
+        characterKey: 'char-1',
+        characterName: 'Aster',
+        contextSnapshot: {
+            character: { characterKey: 'char-1', name: 'Aster' },
+        },
+        state: {
+            turn: 7,
+            contract: mergeTavernSessionContract(undefined, { memoryArchiving: true }),
+            worldEntryStates: { remembered: { stickyUntilTurn: 10 } },
+            nativeWorldInfoTimedState: { sticky: {}, cooldown: {} },
+        },
+    });
+    const first = await runXbTavernTurn({
+        sessionId: session.id,
+        agentConfig: { provider: 'fake-provider', model: 'fake-model' },
+        contextSnapshot: session.contextSnapshot || {},
+        preset,
+        currentUserMessage: '从这里重试。',
+        runManager: true,
+        executeRunOnce: async (options: TavernRunOnceOptions) => ({
+            text: '旧回复。',
+            requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages),
+        }),
+    });
+    await updateTavernSessionState(session.id, {
+        turn: 99,
+        worldEntryStates: { polluted: { stickyUntilTurn: 100 } },
+    });
+    const stateBeforeFailedReroll = (await getTavernSession(session.id))?.state;
+
+    await assert.rejects(() => runXbTavernTurn({
+        sessionId: session.id,
+        agentConfig: { provider: 'fake-provider', model: 'fake-model' },
+        contextSnapshot: session.contextSnapshot || {},
+        preset,
+        currentUserMessage: 'ignored',
+        rerollLatestAssistant: true,
+        applyRegex: identityApplyRegex,
+        applySubstituteParams: identityApplySubstituteParams,
+        buildNativeChatPrompt: async () => {
+            throw new Error('reroll_prompt_failed');
+        },
+        executeRunOnce: async () => {
+            throw new Error('provider_should_not_run');
+        },
+    }), /reroll_prompt_failed/);
+
+    await assert.rejects(() => runXbTavernTurn({
+        sessionId: session.id,
+        agentConfig: { provider: 'fake-provider', model: 'fake-model' },
+        contextSnapshot: session.contextSnapshot || {},
+        preset,
+        currentUserMessage: 'ignored',
+        rerollLatestAssistant: true,
+        applyRegex: identityApplyRegex,
+        applySubstituteParams: identityApplySubstituteParams,
+        buildNativeChatPrompt: createLocalTestNativePrompt(),
+        executeRunOnce: async () => {
+            throw new Error('reroll_api_failed');
+        },
+    }), /reroll_api_failed/);
+
+    await assert.rejects(() => runXbTavernTurn({
+        sessionId: session.id,
+        agentConfig: { provider: 'fake-provider', model: 'fake-model' },
+        contextSnapshot: session.contextSnapshot || {},
+        preset,
+        currentUserMessage: 'ignored',
+        rerollLatestAssistant: true,
+        applyRegex: identityApplyRegex,
+        applySubstituteParams: identityApplySubstituteParams,
+        buildNativeChatPrompt: createLocalTestNativePrompt(),
+        executeRunOnce: async (options: TavernRunOnceOptions) => ({
+            text: '未完成的半截回复。',
+            finishReason: 'aborted',
+            requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages),
+        }),
+    }), /已停止重 roll，原回复已保留/);
+
+    assert.deepEqual((await listTavernMessages(session.id)).map((message) => message.content), ['从这里重试。', '旧回复。']);
+    assert.equal((await getTavernManagerCandidate(session.id))?.assistantOrder, first.assistantMessage?.order);
+    const rebuilt = await getTavernSession(session.id);
+    assert.deepEqual(rebuilt?.state, stateBeforeFailedReroll);
 });
 
 test('xb tavern run turn retrieves relevant old memory beyond recent summaries', async () => {
@@ -2922,6 +3320,9 @@ test('xb tavern native prompt build receives prompt-stage regexed history and cu
                 messages,
                 source: 'test-native-prompt',
                 promptMessageCount: messages.length,
+                currentUserMessageIndex: messages.findIndex((message) => (
+                    message.role === 'user' && message.content === input.currentUserMessage
+                )),
             };
         },
     });
@@ -2992,6 +3393,7 @@ test('xb tavern native prompt build fails instead of falling back when native me
                 source: 'test-native-prompt',
                 promptMessageCount: 0,
                 messages: [],
+                currentUserMessageIndex: null,
             }),
         }),
         /native_prompt_builder_returned_empty_messages/,
@@ -3012,7 +3414,7 @@ test('xb tavern native prompt runtime fails before request when regex hook is mi
     let providerCalls = 0;
 
     await assert.rejects(
-        () => runXbTavernTurn({
+        () => runXbTavernTurnRuntime({
             sessionId: session.id,
             agentConfig: { provider: 'fake-provider', model: 'fake-model' },
             contextSnapshot: session.contextSnapshot || {},
@@ -3023,6 +3425,7 @@ test('xb tavern native prompt runtime fails before request when regex hook is mi
                 source: 'test-native-prompt',
                 promptMessageCount: 1,
                 messages: [{ role: 'user', content: 'Should not send.' }],
+                currentUserMessageIndex: 0,
             }),
             executeRunOnce: async () => {
                 providerCalls += 1;
@@ -3048,7 +3451,7 @@ test('xb tavern native prompt runtime fails before request when substitute hook 
     let nativeBuilderCalls = 0;
 
     await assert.rejects(
-        () => simulateXbTavernRequest({
+        () => simulateXbTavernRequestRuntime({
             sessionId: session.id,
             agentConfig: {
                 currentPresetName: '酒馆 OpenAI',
@@ -3073,6 +3476,7 @@ test('xb tavern native prompt runtime fails before request when substitute hook 
                     source: 'test-native-prompt',
                     promptMessageCount: 1,
                     messages: [{ role: 'user', content: 'Should not inspect.' }],
+                    currentUserMessageIndex: 0,
                 };
             },
         }),
@@ -3808,6 +4212,99 @@ test('xb tavern provider resolver reports shared API readiness and request audit
     assert.equal(ready.currentPresetName, '酒馆 Claude');
     assert.equal(ready.providerLabel, '酒馆 Claude');
 
+    const onlyMainConfig = {
+        currentPresetName: '主剧情',
+        presets: {
+            主剧情: {
+                provider: 'sillytavern-claude',
+                modelConfigs: {
+                    'sillytavern-claude': { model: 'ready-main-model' },
+                },
+            },
+        },
+    };
+    const onlyMainDelegate = resolveXbTavernProviderConfig(onlyMainConfig, { role: 'delegate' });
+    assert.equal(onlyMainDelegate.readiness.ok, false);
+    assert.deepEqual(onlyMainDelegate.readiness.missing, ['分身模型']);
+    assert.match(onlyMainDelegate.readiness.message, /配置分身模型/);
+    assert.equal(onlyMainDelegate.provider, '');
+    assert.equal(onlyMainDelegate.model, '');
+
+    const emptyDelegate = resolveXbTavernProviderConfig({
+        ...onlyMainConfig,
+        delegateConfig: {},
+        delegateConfigured: true,
+    }, { role: 'delegate' });
+    assert.equal(emptyDelegate.readiness.ok, false);
+    assert.deepEqual(emptyDelegate.readiness.missing, ['分身模型']);
+    assert.match(emptyDelegate.readiness.message, /配置分身模型/);
+    assert.equal(emptyDelegate.provider, '');
+    assert.equal(emptyDelegate.model, '');
+
+    const delegate = resolveXbTavernProviderConfig({
+        currentPresetName: '主剧情',
+        delegatePresetName: '任务分身',
+        presets: {
+            主剧情: {
+                provider: 'sillytavern-claude',
+                modelConfigs: {
+                    'sillytavern-claude': { model: 'main-story-model' },
+                },
+            },
+            任务分身: {
+                provider: 'sillytavern-google',
+                modelConfigs: {
+                    'sillytavern-google': { model: 'delegate-task-model' },
+                },
+            },
+        },
+        delegateConfig: {
+            provider: 'sillytavern-google',
+            modelConfigs: {
+                'sillytavern-google': { model: 'delegate-task-model' },
+            },
+        },
+    }, { role: 'delegate' });
+    assert.equal(delegate.readiness.ok, true);
+    assert.equal(delegate.currentPresetName, '任务分身');
+    assert.equal(delegate.provider, 'sillytavern-google');
+    assert.equal(delegate.model, 'delegate-task-model');
+    const delegateSnapshot = buildTavernRequestSnapshot({}, [{ role: 'user', content: 'Generate tasks.' }], {
+        resolvedProviderConfig: delegate,
+    });
+    assert.equal(delegateSnapshot.apiPresetName, '任务分身');
+    assert.equal(delegateSnapshot.provider, 'sillytavern-google');
+    assert.equal(delegateSnapshot.model, 'delegate-task-model');
+
+    const incompleteDelegate = resolveXbTavernProviderConfig({
+        currentPresetName: '主剧情',
+        delegatePresetName: '任务分身',
+        presets: {
+            主剧情: {
+                provider: 'sillytavern-claude',
+                modelConfigs: {
+                    'sillytavern-claude': { model: 'ready-main-model' },
+                },
+            },
+            任务分身: {
+                provider: 'openai-compatible',
+                modelConfigs: {
+                    'openai-compatible': { model: '', apiKey: '' },
+                },
+            },
+        },
+        delegateConfig: {
+            provider: 'openai-compatible',
+            modelConfigs: {
+                'openai-compatible': { model: '', apiKey: '' },
+            },
+        },
+    }, { role: 'delegate' });
+    assert.equal(incompleteDelegate.readiness.ok, false);
+    assert.deepEqual(incompleteDelegate.readiness.missing, ['模型', 'API Key']);
+    assert.match(incompleteDelegate.readiness.message, /配置分身模型/);
+    assert.notEqual(incompleteDelegate.model, 'ready-main-model');
+
     const snapshot = buildTavernRequestSnapshot({
         currentPresetName: '酒馆 Claude',
         presets: {
@@ -3878,6 +4375,211 @@ test('xb tavern simulated request builds raw API JSON without saving chat messag
     assert.match(result.requestSnapshot.rawRequestJson, /"stream": true/);
     assert.match(result.requestSnapshot.rawRequestJson, /只模拟，不发送。/);
     assert.deepEqual(await listTavernMessages(session.id), []);
+});
+
+test('formal tasks enter both local and ST-native depth-1 prompts while board candidates stay out', async () => {
+    await resetDb();
+    const preset = createDefaultXbTavernPreset();
+    const session = await createTavernSession({
+        title: 'Formal task prompt',
+        characterKey: 'char-task-prompt',
+        characterName: 'Aster',
+        contextSnapshot: {
+            character: { characterKey: 'char-task-prompt', name: 'Aster', description: 'A careful courier.' },
+            user: { name: '测试玩家' },
+        },
+        presetId: preset.id,
+        presetName: preset.name,
+    });
+    await createRunTurnActiveTask(session.id, 'prompt');
+    let nativeDepthPrompts: Array<{ layer?: string; depth?: number; role?: string; content?: string }> = [];
+    const result = await simulateXbTavernRequest({
+        sessionId: session.id,
+        agentConfig: {
+            currentPresetName: '酒馆 OpenAI',
+            presets: {
+                '酒馆 OpenAI': {
+                    provider: 'sillytavern-openai-compatible',
+                    modelConfigs: {
+                        'sillytavern-openai-compatible': { model: 'gpt-test' },
+                    },
+                },
+            },
+        },
+        contextSnapshot: session.contextSnapshot || {},
+        preset,
+        currentUserMessage: '查看当前目标。',
+        buildNativeChatPrompt: async (input) => {
+            nativeDepthPrompts = input.runtimeDepthPrompts;
+            return {
+                source: 'test-native-task-prompt',
+                promptMessageCount: input[TAVERN_LOCAL_PROMPT_MESSAGES]?.length || 0,
+                messages: input[TAVERN_LOCAL_PROMPT_MESSAGES] || [],
+                currentUserMessageIndex: (input[TAVERN_LOCAL_PROMPT_MESSAGES] || []).findIndex((message) => (
+                    message.role === 'user' && message.content === input.currentUserMessage
+                )),
+            };
+        },
+    });
+
+    const taskDepth = (nativeDepthPrompts || []).find((entry) => entry.layer === 'runtime-task');
+    assert.equal(taskDepth?.depth, 1);
+    assert.equal(taskDepth?.role, 'system');
+    assert.match(String(taskDepth?.content || ''), /《运行时委托 3》/);
+    assert.match(String(taskDepth?.content || ''), /等级：C/);
+    assert.match(String(taskDepth?.content || ''), /标签：夹缝、runtime-tag-3/);
+    assert.doesNotMatch(String(taskDepth?.content || ''), /委托人|发布者|任务终端托管/);
+    assert.match(String(taskDepth?.content || ''), /缘由与线索：异常钩子 3/);
+    assert.match(String(taskDepth?.content || ''), /完成运行时目标 3/);
+    assert.match(String(taskDepth?.content || ''), /要求：运行时要求 3/);
+    assert.match(String(taskDepth?.content || ''), /地点：地点 3/);
+    assert.match(String(taskDepth?.content || ''), /时机：现在就行/);
+    assert.match(String(taskDepth?.content || ''), /风险：风险 3/);
+    assert.match(String(taskDepth?.content || ''), /报酬：100 小白币/);
+    assert.match(String(taskDepth?.content || ''), /此前进展：已接取任务/);
+    assert.match(result.buildSnapshot.rawMessagesJson, /<active_tasks>/);
+    assert.match(result.requestSnapshot.rawRequestJson, /完成运行时目标 3/);
+    assert.doesNotMatch(result.requestSnapshot.rawRequestJson, /完成运行时目标 1|完成运行时目标 2|完成运行时目标 4/);
+});
+
+test('global Pet interference enters ST-native simulation and turn depth prompts only at its source anchor', async () => {
+    await resetDb();
+    const preset = createDefaultXbTavernPreset();
+    const session = await createTavernSession({
+        title: 'Pet native prompt',
+        characterKey: 'char-pet-native-prompt',
+        characterName: 'Aster',
+        contextSnapshot: { character: { characterKey: 'char-pet-native-prompt', name: 'Aster' } },
+        presetId: preset.id,
+        presetName: preset.name,
+    });
+    await ensureTavernEconomy(session.id);
+    for (let order = 0; order <= 5; order += 1) {
+        await appendTavernMessage(session.id, {
+            role: order % 2 === 0 ? 'user' : 'assistant',
+            content: `Pet prompt history ${order}`,
+        });
+    }
+    await seedTavernPetForTest(session.id, createTavernPetTestState('adult'));
+    const injectedText = renderTavernPetInterferenceText('brief-glimpse');
+    const journal = {
+        detail: {
+            kind: 'event' as const,
+            eventId: 'brief-glimpse' as const,
+            renderedText: '它身上沾着一点不属于这个房间的灰。',
+            face: '(◕‿◕)',
+            motion: 'stare' as const,
+            injectedText,
+        },
+        coinDelta: 0,
+    };
+    await db.transaction(
+        'rw',
+        tavernPetCompanionTable,
+        tavernPetActionsTable,
+        tavernPetJournalTable,
+        async () => {
+            const current = await getTavernPetCompanionInCurrentDbTransaction();
+            if (!current) {throw new Error('pet_native_prompt_companion_missing');}
+            const state = structuredClone(current.state);
+            state.petTurn += 1;
+            await appendTavernPetTransitionInCurrentDbTransaction({
+                current,
+                actionId: 'pet-native-prompt-fixture',
+                sourceSessionId: session.id,
+                sourceTurn: 0,
+                sourceAnchorOrder: 5,
+                action: {
+                    kind: 'turn-advance',
+                    context: {
+                        sourceSessionId: session.id,
+                        sourceTurn: 0,
+                        sourceAnchorOrder: 5,
+                        petTurn: state.petTurn,
+                        recentExternalSpend: 0,
+                        playerBalance: 100,
+                        knownTargetName: '',
+                        evolutionRequestId: 'pet-native-prompt-evolution-1',
+                    },
+                    outcome: { eventId: 'brief-glimpse', journal },
+                },
+                state,
+                journal,
+            });
+        },
+    );
+
+    const nativeDepthPromptRuns: Array<Array<{
+        layer?: string;
+        depth?: number;
+        role?: string;
+        content?: string;
+    }>> = [];
+    await simulateXbTavernRequest({
+        sessionId: session.id,
+        agentConfig: {
+            currentPresetName: '酒馆 OpenAI',
+            presets: {
+                '酒馆 OpenAI': {
+                    provider: 'sillytavern-openai-compatible',
+                    modelConfigs: {
+                        'sillytavern-openai-compatible': { model: 'gpt-test' },
+                    },
+                },
+            },
+        },
+        contextSnapshot: session.contextSnapshot || {},
+        preset,
+        currentUserMessage: '继续。',
+        buildNativeChatPrompt: async (input) => {
+            nativeDepthPromptRuns.push(input.runtimeDepthPrompts);
+            return {
+                source: 'test-native-pet-prompt',
+                promptMessageCount: input[TAVERN_LOCAL_PROMPT_MESSAGES]?.length || 0,
+                messages: input[TAVERN_LOCAL_PROMPT_MESSAGES] || [],
+                currentUserMessageIndex: (input[TAVERN_LOCAL_PROMPT_MESSAGES] || []).findIndex((message) => (
+                    message.role === 'user' && message.content === input.currentUserMessage
+                )),
+            };
+        },
+    });
+    await runXbTavernTurn({
+        sessionId: session.id,
+        agentConfig: { provider: 'fake-provider', model: 'fake-model' },
+        contextSnapshot: session.contextSnapshot || {},
+        preset,
+        currentUserMessage: '继续。',
+        buildNativeChatPrompt: async (input) => {
+            nativeDepthPromptRuns.push(input.runtimeDepthPrompts);
+            return {
+                source: 'test-native-pet-turn-prompt',
+                promptMessageCount: input[TAVERN_LOCAL_PROMPT_MESSAGES]?.length || 0,
+                messages: input[TAVERN_LOCAL_PROMPT_MESSAGES] || [],
+                currentUserMessageIndex: (input[TAVERN_LOCAL_PROMPT_MESSAGES] || []).findIndex((message) => (
+                    message.role === 'user' && message.content === input.currentUserMessage
+                )),
+            };
+        },
+        executeRunOnce: async (options: TavernRunOnceOptions) => ({
+            text: '继续。',
+            provider: 'fake-provider',
+            model: 'fake-model',
+            finishReason: 'stop',
+            requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages, {
+                provider: 'fake-provider',
+                model: 'fake-model',
+            }),
+        }),
+    });
+
+    assert.equal(nativeDepthPromptRuns.length, 2);
+    for (const nativeDepthPrompts of nativeDepthPromptRuns) {
+        const petDepth = nativeDepthPrompts.find((entry) => entry.layer === 'runtime-pet-interference');
+        assert.equal(petDepth?.depth, 1);
+        assert.equal(petDepth?.role, 'system');
+        assert.match(String(petDepth?.content || ''), /<pet_interference>/);
+        assert.ok(String(petDepth?.content || '').includes(injectedText));
+    }
 });
 
 test('xb tavern world entry substitution skips null worldbook records', async () => {
@@ -4332,6 +5034,44 @@ test('xb tavern manager web search uses the shared Tavily tool definition', () =
     assert.deepEqual(webSearch, getTavilySearchToolDefinition());
 });
 
+test('assistant manual chat receives formal tasks as read-only context without task mutation tools', async () => {
+    await resetDb();
+    const session = await createTavernSession({
+        title: 'Read-only assistant tasks',
+        contextSnapshot: {
+            character: { characterKey: 'char-task-chat', name: 'Aster' },
+            user: { name: '测试玩家' },
+        },
+    });
+    const task = await createRunTurnActiveTask(session.id, 'manual-chat');
+    let requestMessages = '';
+    let toolNames: string[] = [];
+    const result = await runXbTavernManagerChat({
+        sessionId: session.id,
+        agentConfig: { provider: 'fake-provider', model: 'fake-model' },
+        contextSnapshot: session.contextSnapshot || {},
+        question: '我现在接了什么任务？',
+        executeManagerOnce: async (options) => {
+            requestMessages = JSON.stringify(options.messages);
+            toolNames = (options.tools || [])
+                .map((tool) => String((tool as { function?: { name?: string } }).function?.name || ''))
+                .filter(Boolean);
+            return {
+                text: '你正在处理一项正式委托。',
+                provider: 'fake-provider',
+                model: 'fake-model',
+            };
+        },
+    });
+
+    assert.equal(result.ok, true);
+    assert.match(requestMessages, /formal_phone_tasks_read_only/);
+    assert.match(requestMessages, new RegExp(task.taskId));
+    assert.match(requestMessages, /不得据此执行任务状态变化、托管、付款或退款/);
+    const taskToolNames = new Set<string>(Object.values(TAVERN_TASK_TOOL_NAMES));
+    assert.deepEqual(toolNames.filter((name) => taskToolNames.has(name)), []);
+});
+
 test('xb tavern assistant manual chat exposes and executes web_search from shared API config', async () => {
     await resetDb();
     const session = await createTavernSession({
@@ -4574,6 +5314,29 @@ test('xb tavern direct runtime fails before provider call when shared API config
             messages: [{ role: 'user', content: 'Hello.' }],
         }),
         /请先在 API 配置里选择模型\/填写 Key/,
+    );
+});
+
+test('xb tavern delegate runtime refuses to inherit a configured main provider', async () => {
+    await assert.rejects(
+        () => runTavernOnce({
+            agentConfig: {
+                currentPresetName: '主剧情',
+                presets: {
+                    主剧情: {
+                        provider: 'sillytavern-claude',
+                        modelConfigs: {
+                            'sillytavern-claude': {
+                                model: 'ready-main-model',
+                            },
+                        },
+                    },
+                },
+            },
+            providerRole: 'delegate',
+            messages: [{ role: 'user', content: 'Generate tasks.' }],
+        }),
+        /配置分身模型/,
     );
 });
 
@@ -4843,8 +5606,6 @@ test('xb tavern run turn can rerun from an existing user without duplicating the
             requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages),
         }),
     });
-    assert.equal(await deleteTavernMessages(first.sessionId, [1]), 1);
-
     let rawMessages = '';
     await runXbTavernTurn({
         sessionId: first.sessionId,
@@ -4854,7 +5615,7 @@ test('xb tavern run turn can rerun from an existing user without duplicating the
         },
         preset,
         currentUserMessage: 'ignored because reused order wins',
-        reuseUserMessageOrder: 0,
+        rerollLatestAssistant: true,
         executeRunOnce: async (options: TavernRunOnceOptions) => {
             rawMessages = JSON.stringify(options.messages);
             return {
@@ -4871,6 +5632,137 @@ test('xb tavern run turn can rerun from an existing user without duplicating the
     ]);
     assert.equal((rawMessages.match(/Try again\./g) || []).length, 1);
     assert.doesNotMatch(rawMessages, /ignored because reused order wins/);
+});
+
+test('xb tavern reroll replies to an existing user tail without creating a duplicate user', async () => {
+    await resetDb();
+    const preset = createDefaultXbTavernPreset();
+    const contextSnapshot = {
+        character: { characterKey: 'char-1', name: 'Aster' },
+    };
+    const session = await createTavernSession({
+        title: 'Dangling user reroll',
+        characterKey: 'char-1',
+        characterName: 'Aster',
+        contextSnapshot,
+        state: { turn: 0 },
+    });
+    const user = await appendTavernMessage(session.id, {
+        role: 'user',
+        content: 'Reply to this existing user.',
+        runtimeStateSnapshot: createTavernTurnStateSnapshot((await getTavernSession(session.id))?.state),
+    });
+
+    const result = await runXbTavernTurn({
+        sessionId: session.id,
+        agentConfig: { provider: 'fake-provider', model: 'fake-model' },
+        contextSnapshot,
+        preset,
+        currentUserMessage: 'must not be appended',
+        rerollLatestAssistant: true,
+        executeRunOnce: async (options: TavernRunOnceOptions) => ({
+            text: 'Fresh reply.',
+            requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages),
+        }),
+    });
+
+    assert.equal(result.userMessage.messageId, user.messageId);
+    assert.deepEqual((await listTavernMessages(session.id)).map((message) => `${message.order}:${message.role}:${message.content}`), [
+        '0:user:Reply to this existing user.',
+        '1:assistant:Fresh reply.',
+    ]);
+});
+
+test('xb tavern reroll replaces a failed assistant tail', async () => {
+    await resetDb();
+    const preset = createDefaultXbTavernPreset();
+    const contextSnapshot = {
+        character: { characterKey: 'char-1', name: 'Aster' },
+    };
+    const session = await createTavernSession({
+        title: 'Failed assistant reroll',
+        characterKey: 'char-1',
+        characterName: 'Aster',
+        contextSnapshot,
+        state: { turn: 0 },
+    });
+    await appendTavernMessage(session.id, {
+        role: 'user',
+        content: 'Retry the failed reply.',
+        runtimeStateSnapshot: createTavernTurnStateSnapshot((await getTavernSession(session.id))?.state),
+    });
+    const failedAssistant = await appendTavernMessage(session.id, {
+        role: 'assistant',
+        content: 'provider_failed',
+        error: true,
+        finishReason: 'error',
+    });
+
+    const result = await runXbTavernTurn({
+        sessionId: session.id,
+        agentConfig: { provider: 'fake-provider', model: 'fake-model' },
+        contextSnapshot,
+        preset,
+        currentUserMessage: 'ignored',
+        rerollLatestAssistant: true,
+        executeRunOnce: async (options: TavernRunOnceOptions) => ({
+            text: 'Recovered reply.',
+            requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages),
+        }),
+    });
+
+    assert.notEqual(result.assistantMessage?.messageId, failedAssistant.messageId);
+    assert.deepEqual((await listTavernMessages(session.id)).map((message) => `${message.order}:${message.role}:${message.content}`), [
+        '0:user:Retry the failed reply.',
+        '1:assistant:Recovered reply.',
+    ]);
+});
+
+test('xb tavern discards a late assistant reply when another tab advances the user tail', async () => {
+    await resetDb();
+    const preset = createDefaultXbTavernPreset();
+    const session = await createTavernSession({
+        title: 'Late assistant guard',
+        characterKey: 'char-1',
+        characterName: 'Aster',
+        contextSnapshot: { character: { characterKey: 'char-1', name: 'Aster' } },
+    });
+    let releaseProvider!: () => void;
+    const providerGate = new Promise<void>((resolve) => {
+        releaseProvider = resolve;
+    });
+    let providerStarted!: () => void;
+    const providerStartedPromise = new Promise<void>((resolve) => {
+        providerStarted = resolve;
+    });
+    const runPromise = runXbTavernTurn({
+        sessionId: session.id,
+        agentConfig: { provider: 'fake-provider', model: 'fake-model' },
+        contextSnapshot: session.contextSnapshot || {},
+        preset,
+        currentUserMessage: '原标签页用户消息。',
+        executeRunOnce: async (options: TavernRunOnceOptions) => {
+            providerStarted();
+            await providerGate;
+            return {
+                text: '这条回复已经迟到了。',
+                requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages),
+            };
+        },
+    });
+    await providerStartedPromise;
+    await appendTavernMessage(session.id, {
+        role: 'user',
+        content: '另一标签页抢先发送。',
+        runtimeStateSnapshot: createTavernTurnStateSnapshot((await getTavernSession(session.id))?.state),
+    });
+    releaseProvider();
+
+    await assert.rejects(runPromise, /assistant_timeline_advanced/);
+    assert.deepEqual((await listTavernMessages(session.id)).map((message) => `${message.role}:${message.content}`), [
+        'user:原标签页用户消息。',
+        'user:另一标签页抢先发送。',
+    ]);
 });
 
 test('xb tavern rerun uses regenerate world info trigger', async () => {
@@ -4901,8 +5793,6 @@ test('xb tavern rerun uses regenerate world info trigger', async () => {
             };
         },
     });
-    assert.equal(await deleteTavernMessages(first.sessionId, [1]), 1);
-
     let rerunRawMessages = '';
     await runXbTavernTurn({
         sessionId: first.sessionId,
@@ -4910,7 +5800,7 @@ test('xb tavern rerun uses regenerate world info trigger', async () => {
         contextSnapshot,
         preset,
         currentUserMessage: 'ignored',
-        reuseUserMessageOrder: 0,
+        rerollLatestAssistant: true,
         executeRunOnce: async (options: TavernRunOnceOptions) => {
             rerunRawMessages = JSON.stringify(options.messages);
             return {
@@ -4924,7 +5814,76 @@ test('xb tavern rerun uses regenerate world info trigger', async () => {
     assert.doesNotMatch(rerunRawMessages, /NORMAL_TRIGGER_LORE/);
 });
 
-test('xb tavern rerun rebuilds world entry state with macro-substituted world keys', async () => {
+test('xb tavern rerun rejects a last user that has no saved pre-generation RP state', async () => {
+    await resetDb();
+    const preset = createDefaultXbTavernPreset();
+    const contextSnapshot = {
+        character: { characterKey: 'char-1', name: 'Aster' },
+    };
+    const first = await runXbTavernTurn({
+        agentConfig: { provider: 'fake-provider', model: 'fake-model' },
+        contextSnapshot,
+        preset,
+        currentUserMessage: 'First.',
+        executeRunOnce: async (options: TavernRunOnceOptions) => ({
+            text: 'First answer.',
+            requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages),
+        }),
+    });
+    const second = await runXbTavernTurn({
+        sessionId: first.sessionId,
+        agentConfig: { provider: 'fake-provider', model: 'fake-model' },
+        contextSnapshot,
+        preset,
+        currentUserMessage: 'Legacy target.',
+        executeRunOnce: async (options: TavernRunOnceOptions) => ({
+            text: 'Old second answer.',
+            requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages),
+        }),
+    });
+    const legacyUser = (await listTavernMessages(second.sessionId)).find((message) => message.order === 2);
+    assert.ok(legacyUser);
+    await updateTavernMessage(second.sessionId, legacyUser.order, { runtimeStateSnapshot: undefined });
+    await updateTavernSessionState(second.sessionId, {
+        worldEntryStates: { stale: { stickyUntilTurn: 99 } },
+        nativeWorldInfoTimedState: {
+            sticky: { stale: { start: 1, end: 99 } },
+            cooldown: { stale: { start: 1, end: 99 } },
+        },
+    });
+
+    let nativeWorldInfoCalls = 0;
+    await assert.rejects(() => runXbTavernTurn({
+        sessionId: second.sessionId,
+        agentConfig: { provider: 'fake-provider', model: 'fake-model' },
+        contextSnapshot,
+        preset,
+        currentUserMessage: 'ignored',
+        rerollLatestAssistant: true,
+        getNativeWorldInfoRuntime: async () => {
+            nativeWorldInfoCalls += 1;
+            return {
+                trigger: 'regenerate',
+                worldInfoBefore: '',
+                timedState: { sticky: {}, cooldown: {} },
+            };
+        },
+        executeRunOnce: async (options: TavernRunOnceOptions) => ({
+            text: 'Replacement answer.',
+            requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages),
+        }),
+    }), /reroll_latest_pair_invalid/);
+
+    assert.equal(nativeWorldInfoCalls, 0);
+    assert.deepEqual((await listTavernMessages(second.sessionId)).map((message) => message.content), [
+        'First.',
+        'First answer.',
+        'Legacy target.',
+        'Old second answer.',
+    ]);
+});
+
+test('xb tavern rerun restores the checkpoint created with macro-substituted world keys', async () => {
     await resetDb();
     const preset = createDefaultXbTavernPreset();
     const contextSnapshot = {
@@ -4976,8 +5935,6 @@ test('xb tavern rerun rebuilds world entry state with macro-substituted world ke
             requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages),
         }),
     });
-    await deleteTavernMessages(second.sessionId, [3]);
-
     let rerunRawMessages = '';
     await runXbTavernTurn({
         sessionId: second.sessionId,
@@ -4985,7 +5942,7 @@ test('xb tavern rerun rebuilds world entry state with macro-substituted world ke
         contextSnapshot,
         preset,
         currentUserMessage: 'ignored',
-        reuseUserMessageOrder: 2,
+        rerollLatestAssistant: true,
         applySubstituteParams,
         executeRunOnce: async (options: TavernRunOnceOptions) => {
             rerunRawMessages = JSON.stringify(options.messages);
@@ -4999,7 +5956,7 @@ test('xb tavern rerun rebuilds world entry state with macro-substituted world ke
     assert.match(rerunRawMessages, /MACRO_STICKY_LORE/);
 });
 
-test('xb tavern rerun deletes future messages and rebuilds state from remaining history', async () => {
+test('xb tavern rerun always replaces only the database latest assistant pair', async () => {
     await resetDb();
     const preset = createDefaultXbTavernPreset();
     const contextSnapshot = {
@@ -5047,24 +6004,23 @@ test('xb tavern rerun deletes future messages and rebuilds state from remaining 
         contextSnapshot,
         preset,
         currentUserMessage: 'ignored',
-        reuseUserMessageOrder: 0,
+        rerollLatestAssistant: true,
         executeRunOnce: async (options: TavernRunOnceOptions) => ({
             text: 'Replacement answer.',
             requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages),
         }),
     });
 
-    assert.equal(rerun.nextTurn, 1);
+    assert.equal(rerun.nextTurn, 2);
     const messages = await listTavernMessages(first.sessionId);
     assert.deepEqual(messages.map((message) => `${message.order}:${message.role}:${message.content}`), [
         '0:user:First user.',
-        '1:assistant:Replacement answer.',
+        '1:assistant:First answer.',
+        '2:user:Second user.',
+        '3:assistant:Replacement answer.',
     ]);
     const session = await getTavernSession(first.sessionId);
-    assert.equal(session?.state?.turn, 1);
-    assert.deepEqual(session?.state?.worldEntryStates, {
-        'Lore\u0000sticky-entry': { stickyUntilTurn: 8 },
-    });
+    assert.equal(session?.state?.turn, 2);
 });
 
 test('xb tavern rerun preserves contract and skips automatic manager work when disabled', async () => {
@@ -5099,6 +6055,8 @@ test('xb tavern rerun preserves contract and skips automatic manager work when d
     assert.equal(first.managerRunId, '');
     assert.equal(first.managerStatus, '');
     assert.equal(managerCalls, 0);
+    assert.equal((await getTavernSession(first.sessionId))?.state?.contract?.memoryArchiving, false);
+    let rerollPreparedContract: boolean | undefined;
 
     const rerun = await runXbTavernTurn({
         sessionId: first.sessionId,
@@ -5108,8 +6066,11 @@ test('xb tavern rerun preserves contract and skips automatic manager work when d
         },
         preset,
         currentUserMessage: 'ignored',
-        reuseUserMessageOrder: 0,
+        rerollLatestAssistant: true,
         runManager: true,
+        onLatestAssistantRerollPrepared: async () => {
+            rerollPreparedContract = (await getTavernSession(first.sessionId))?.state?.contract?.memoryArchiving;
+        },
         executeRunOnce: async (options: TavernRunOnceOptions) => ({
             text: 'Rerun answer.',
             requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages),
@@ -5123,13 +6084,14 @@ test('xb tavern rerun preserves contract and skips automatic manager work when d
     assert.equal(rerun.managerRunId, '');
     assert.equal(rerun.managerStatus, '');
     assert.equal(managerCalls, 0);
+    assert.equal(rerollPreparedContract, false);
     assert.equal((await listTavernManagerRuns(first.sessionId)).length, 0);
     const session = await getTavernSession(first.sessionId);
     assert.equal(session?.state?.contract?.memoryArchiving, false);
     assert.equal(session?.state?.contract?.cartographyEngine, false);
 });
 
-test('xb tavern rerun restores state memory to the snapshot before the changed floor', async () => {
+test('xb tavern rerun refuses an already-confirmed pair and never rolls back memory', async () => {
     await resetDb();
     const preset = createDefaultXbTavernPreset();
     const first = await runXbTavernTurn({
@@ -5169,7 +6131,7 @@ test('xb tavern rerun restores state memory to the snapshot before the changed f
     assert.equal(writeResult.ok, true);
     await writeTavernMemoryFile(first.sessionId, 'memory/state.md', '用户手动修正。', { source: 'user' });
 
-    await runXbTavernTurn({
+    await assert.rejects(() => runXbTavernTurn({
         sessionId: first.sessionId,
         agentConfig: { provider: 'fake-provider', model: 'fake-model' },
         contextSnapshot: {
@@ -5177,21 +6139,21 @@ test('xb tavern rerun restores state memory to the snapshot before the changed f
         },
         preset,
         currentUserMessage: 'ignored',
-        reuseUserMessageOrder: userMessage.order,
+        rerollLatestAssistant: true,
         executeRunOnce: async (options: TavernRunOnceOptions) => ({
             text: 'Replacement answer.',
             requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages),
         }),
-    });
+    }), /reroll_latest_pair_already_confirmed/);
 
-    assert.match((await getTavernMemoryFile(first.sessionId, 'memory/state.md'))?.content || '', /# 会话记忆/);
-    assert.doesNotMatch((await getTavernMemoryFile(first.sessionId, 'memory/state.md'))?.content || '', /用户手动修正/);
-    assert.doesNotMatch((await getTavernMemoryIndex(first.sessionId))?.error || '', /rollback_conflict/);
+    assert.equal((await getTavernMemoryFile(first.sessionId, 'memory/state.md'))?.content, '用户手动修正。');
+    assert.equal((await listTavernManagerRuns(first.sessionId)).find((item) => item.id === run.id)?.status, 'completed');
 });
 
 test('xb tavern context history filters saved error messages for preview and runtime', () => {
     const history = buildContextHistory([
         {
+            messageId: 'history-message-0',
             sessionId: 'session',
             order: 0,
             role: 'user',
@@ -5199,6 +6161,7 @@ test('xb tavern context history filters saved error messages for preview and run
             createdAt: 1,
         },
         {
+            messageId: 'history-message-1',
             sessionId: 'session',
             order: 1,
             role: 'assistant',
@@ -5207,6 +6170,7 @@ test('xb tavern context history filters saved error messages for preview and run
             createdAt: 2,
         },
         {
+            messageId: 'history-message-2',
             sessionId: 'session',
             order: 2,
             role: 'assistant',
@@ -5547,6 +6511,136 @@ test('xb tavern simulated request uses the same trimmed API history without savi
     assert.match(result.requestSnapshot.rawRequestJson, /simulate-stored-19/);
     assert.match(result.requestSnapshot.rawRequestJson, /simulate-fresh-user/);
     assert.equal((await listTavernMessages(session.id)).length, 20);
+});
+
+test('phone timeline events stay at their anchor and leave the main prompt with the history window', async () => {
+    await resetDb();
+    const preset = createDefaultXbTavernPreset();
+    const session = await createTavernSession({
+        title: 'Anchored phone prompt',
+        characterName: 'Aster',
+        contextSnapshot: {
+            character: { name: 'Aster', description: 'Aster card.' },
+            user: { name: '沈知意' },
+        },
+        presetId: preset.id,
+        presetName: preset.name,
+    });
+    await appendTavernMessage(session.id, { role: 'user', content: 'main-before-phone-user' });
+    await appendTavernMessage(session.id, { role: 'assistant', content: 'main-before-phone-assistant' });
+    const contact = await createTavernCommunicationContact({
+        sessionId: session.id,
+        name: '艾琳',
+        source: 'manual',
+    });
+    const sent = await appendSentTavernCommunicationMessage({
+        sessionId: session.id,
+        threadId: contact.thread.id,
+        payload: { type: 'text', text: 'ANCHOR_PHONE_USER' },
+    });
+    await completeTavernCommunicationReply({
+        userMessage: sent.message,
+        replyRequestId: sent.replyRequest.id,
+        replies: [{ type: 'text', text: 'ANCHOR_PHONE_REPLY' }],
+    });
+    const agentConfig = {
+        currentPresetName: '酒馆 OpenAI',
+        presets: {
+            '酒馆 OpenAI': {
+                provider: 'sillytavern-openai-compatible',
+                modelConfigs: {
+                    'sillytavern-openai-compatible': { model: 'fake-model' },
+                },
+            },
+        },
+    };
+    const anchored = await simulateXbTavernRequest({
+        sessionId: session.id,
+        agentConfig,
+        contextSnapshot: session.contextSnapshot || {},
+        preset,
+        currentUserMessage: 'first-preview',
+    });
+    assert.match(anchored.requestSnapshot.rawRequestJson, /ANCHOR_PHONE_USER/);
+    assert.match(anchored.requestSnapshot.rawRequestJson, /ANCHOR_PHONE_REPLY/);
+    assert.match(anchored.requestSnapshot.rawRequestJson, /\[沈知意 与 艾琳 发生了信息互动，内容是：\]/);
+    assert.match(anchored.requestSnapshot.rawRequestJson, /沈知意（文字）：ANCHOR_PHONE_USER/);
+    assert.match(anchored.requestSnapshot.rawRequestJson, /艾琳（文字）：ANCHOR_PHONE_REPLY/);
+    assert.match(anchored.requestSnapshot.rawRequestJson, /private_message_rules/);
+    assert.doesNotMatch(anchored.requestSnapshot.rawRequestJson, /参与者：玩家|只有参与者天然知道|消息里的计划、邀请和承诺不表示/);
+
+    for (let index = 2; index < 25; index += 1) {
+        await appendTavernMessage(session.id, {
+            role: index % 2 === 0 ? 'user' : 'assistant',
+            content: `later-main-${index}`,
+        });
+    }
+    const advanced = await simulateXbTavernRequest({
+        sessionId: session.id,
+        agentConfig,
+        contextSnapshot: session.contextSnapshot || {},
+        preset,
+        currentUserMessage: 'advanced-preview',
+    });
+    assert.doesNotMatch(advanced.requestSnapshot.rawRequestJson, /ANCHOR_PHONE_USER/);
+    assert.doesNotMatch(advanced.requestSnapshot.rawRequestJson, /ANCHOR_PHONE_REPLY/);
+    assert.match(advanced.requestSnapshot.rawRequestJson, /later-main-24/);
+});
+
+test('accepted-turn manager receives phone events anchored immediately before the main turn', async () => {
+    await resetDb();
+    const session = await createTavernSession({
+        title: 'Manager phone evidence',
+        contextSnapshot: {
+            character: { name: 'Aster', description: 'Aster card.' },
+            user: { name: '沈知意' },
+        },
+    });
+    await appendTavernMessage(session.id, { role: 'assistant', content: '剧情停在站台。' });
+    const contact = await createTavernCommunicationContact({
+        sessionId: session.id,
+        name: '艾琳',
+        source: 'manual',
+    });
+    const sent = await appendSentTavernCommunicationMessage({
+        sessionId: session.id,
+        threadId: contact.thread.id,
+        payload: { type: 'text', text: 'MANAGER_PHONE_USER' },
+    });
+    await completeTavernCommunicationReply({
+        userMessage: sent.message,
+        replyRequestId: sent.replyRequest.id,
+        replies: [{ type: 'text', text: 'MANAGER_PHONE_REPLY' }],
+    });
+    const userMessage = await appendTavernMessage(session.id, { role: 'user', content: '继续剧情。' });
+    const assistantMessage = await appendTavernMessage(session.id, { role: 'assistant', content: '列车进站。' });
+    let managerPrompt = '';
+    const result = await runXbTavernManagerAfterTurn({
+        sessionId: session.id,
+        agentConfig: { provider: 'fake-provider', model: 'fake-model' },
+        userMessage,
+        assistantMessage,
+        turn: 1,
+        sessionContract: mergeTavernSessionContract(undefined, { memoryArchiving: true }),
+        executeManagerOnce: async (options) => {
+            managerPrompt = JSON.stringify(options.messages);
+            return {
+                text: '本轮无需修改。',
+                provider: 'fake-provider',
+                model: 'fake-model',
+            };
+        },
+    });
+
+    assert.equal(result.ok, true);
+    assert.match(managerPrompt, /MANAGER_PHONE_USER/);
+    assert.match(managerPrompt, /MANAGER_PHONE_REPLY/);
+    assert.match(managerPrompt, /BEGIN UNTRUSTED PHONE EVIDENCE/);
+    assert.match(managerPrompt, /\[沈知意 与 艾琳 发生了信息互动，内容是：\]/);
+    assert.match(managerPrompt, /沈知意（文字）：MANAGER_PHONE_USER/);
+    assert.match(managerPrompt, /艾琳（文字）：MANAGER_PHONE_REPLY/);
+    assert.match(managerPrompt, /Private Message Evidence/);
+    assert.doesNotMatch(managerPrompt, /参与者：玩家|只有参与者天然知道|消息里的计划、邀请和承诺不表示/);
 });
 
 test('xb tavern run turn accepts refreshed live context for the same session character', async () => {

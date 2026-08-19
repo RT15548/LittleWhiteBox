@@ -2,7 +2,60 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { SUMMARY_SYSTEM_PROMPT } from '../app-src/prompts/system-prompt.js';
+import { createContextStatsController } from '../app-src/runtime/context-stats.js';
 import { createHistoryCompactionController } from '../app-src/runtime/history-compaction.js';
+
+test('context meter estimates during render and sends one complete payload only at the exact budget boundary', async () => {
+    const originalFetch = globalThis.fetch;
+    const requests = [];
+    globalThis.fetch = async (url, options) => {
+        requests.push({ url, options });
+        return {
+            ok: true,
+            json: async () => ({ token_count: 47 }),
+        };
+    };
+
+    try {
+        const state = {
+            historySummary: '',
+            contextStats: {
+                usedTokens: 0,
+                budgetTokens: 258000,
+                summaryActive: false,
+            },
+        };
+        const toolDefinitions = [{ type: 'function', function: { name: 'Read' } }];
+        const controller = createContextStatsController({
+            state,
+            getActiveProviderConfig: () => ({ provider: 'openai-compatible', model: 'gpt-4o-mini' }),
+            getToolDefinitions: () => toolDefinitions,
+            TOOL_DEFINITIONS: [],
+            MAX_CONTEXT_TOKENS: 258000,
+        });
+        const messages = [
+            { role: 'system', content: 'Rules.' },
+            { role: 'user', content: 'Inspect the file.' },
+        ];
+
+        controller.updateContextStats(messages);
+        assert.equal(requests.length, 0);
+
+        await controller.forceUpdateContextStats(messages);
+        assert.equal(requests.length, 1);
+        assert.equal(requests[0].url, '/api/tokenizers/openai/count?model=gpt-4o-mini');
+        assert.deepEqual(JSON.parse(requests[0].options.body), [
+            ...messages,
+            {
+                role: 'system',
+                content: `TOOLS\n${JSON.stringify(toolDefinitions)}`,
+            },
+        ]);
+        assert.equal(state.contextStats.usedTokens, 47);
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
 
 test('history summary prompt preserves structured cross-domain memory', () => {
     assert.match(SUMMARY_SYSTEM_PROMPT, /目标是省上下文，不是失忆/);

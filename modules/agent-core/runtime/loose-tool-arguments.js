@@ -137,8 +137,6 @@ const LOOSE_ARGUMENT_KEYS_BY_TOOL = {
     MapDocs: ['docType', 'docId', 'limit', 'offset'],
     MapInspect: ['docType', 'docId', 'mode', 'elementId', 'locationKey', 'actorKey', 'from', 'to', 'kind', 'status', 'query', 'parent', 'limit', 'offset'],
     MapPatch: ['docType', 'docId', 'expectedRevision', 'activate', 'dryRun', 'ops'],
-    EventInspect: ['mode', 'eventId', 'id', 'status', 'limit', 'offset'],
-    EventPatch: ['op', 'eventId', 'id', 'title', 'vision', 'doneWhen', 'hookForModel', 'status'],
     MemoryRead: ['filePath', 'path', 'offset', 'limit', 'tail'],
     MemoryWrite: ['filePath', 'path', 'content'],
     MemoryEdit: ['filePath', 'path', 'edits'],

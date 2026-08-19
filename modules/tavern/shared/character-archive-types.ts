@@ -1,9 +1,9 @@
 import type {
     TavernManagerMemorySnapshotRecord,
-    TavernManagerMessageRecord,
+    TavernAssistantChatMessageRecord,
+    TavernManagerCandidateRecord,
     TavernManagerRunRecord,
     TavernManagerStateSnapshotRecord,
-    TavernManagerTaskSnapshotRecord,
     TavernMemoryFileRecord,
     TavernMemoryIndexRecord,
     TavernMemorySnapshotRecord,
@@ -12,10 +12,26 @@ import type {
     TavernStatusSnapshotRecord,
     TavernStructuredStateDocumentRecord,
     TavernStructuredStatePatchRecord,
-    TavernTaskFingerprintStateRecord,
-    TavernTaskRecord,
-    TavernTaskSnapshotRecord,
+    TavernCommunicationContactRecord,
+    TavernCommunicationMessageRecord,
+    TavernCommunicationSnapshotRecord,
+    TavernCommunicationThreadRecord,
 } from './session-db';
+import type {
+    TavernEconomyAccountRecord,
+    TavernEconomyTransactionRecord,
+} from './economy/economy-types';
+import type {
+    TavernTaskBoardRecord,
+    TavernTaskVersionRecord,
+} from './tasks/task-types';
+import type {
+    TavernShopStateVersionRecord,
+} from './shop/shop-types';
+import type {
+    TavernBankActivityRecord,
+    TavernBankStateVersionRecord,
+} from './bank/bank-types';
 
 export type TavernCharacterArchiveMode = 'backup' | 'restore' | '';
 
@@ -46,7 +62,11 @@ export interface TavernCharacterArchiveCounts {
     messages: number;
     memoryFiles: number;
     stateDocuments: number;
+    communications: number;
+    economy: number;
     tasks: number;
+    shop: number;
+    bank: number;
 }
 
 export interface TavernCharacterArchivePartManifest {
@@ -58,8 +78,10 @@ export interface TavernCharacterArchivePartManifest {
     sha256: string;
 }
 
+export const CURRENT_TAVERN_CHARACTER_ARCHIVE_VERSION = 9 as const;
+
 export interface TavernCharacterArchiveManifest {
-    version: 1;
+    version: typeof CURRENT_TAVERN_CHARACTER_ARCHIVE_VERSION;
     archiveId: string;
     complete: true;
     exportedAt: number;
@@ -89,8 +111,9 @@ export interface TavernCharacterArchiveProgress {
 export const TAVERN_CHARACTER_ARCHIVE_TABLES = [
     'sessions',
     'messages',
-    'managerMessages',
+    'assistantChatMessages',
     'managerRuns',
+    'managerCandidates',
     'memoryFiles',
     'memorySnapshots',
     'memoryIndexes',
@@ -99,10 +122,17 @@ export const TAVERN_CHARACTER_ARCHIVE_TABLES = [
     'statePatches',
     'statusSnapshots',
     'managerStateSnapshots',
-    'tasks',
-    'taskSnapshots',
-    'managerTaskSnapshots',
-    'taskFingerprintStates',
+    'communicationContacts',
+    'communicationThreads',
+    'communicationMessages',
+    'communicationSnapshots',
+    'economyAccounts',
+    'economyTransactions',
+    'taskBoards',
+    'taskVersions',
+    'shopStateVersions',
+    'bankStateVersions',
+    'bankActivities',
 ] as const;
 
 export type TavernCharacterArchiveTable = typeof TAVERN_CHARACTER_ARCHIVE_TABLES[number];
@@ -110,8 +140,9 @@ export type TavernCharacterArchiveTable = typeof TAVERN_CHARACTER_ARCHIVE_TABLES
 export type TavernCharacterArchiveRecordPayload = {
     sessions: TavernSessionRecord;
     messages: TavernMessageRecord;
-    managerMessages: TavernManagerMessageRecord;
+    assistantChatMessages: TavernAssistantChatMessageRecord;
     managerRuns: TavernManagerRunRecord;
+    managerCandidates: TavernManagerCandidateRecord;
     memoryFiles: TavernMemoryFileRecord;
     memorySnapshots: TavernMemorySnapshotRecord;
     memoryIndexes: TavernMemoryIndexRecord;
@@ -120,10 +151,17 @@ export type TavernCharacterArchiveRecordPayload = {
     statePatches: TavernStructuredStatePatchRecord;
     statusSnapshots: TavernStatusSnapshotRecord;
     managerStateSnapshots: TavernManagerStateSnapshotRecord;
-    tasks: TavernTaskRecord;
-    taskSnapshots: TavernTaskSnapshotRecord;
-    managerTaskSnapshots: TavernManagerTaskSnapshotRecord;
-    taskFingerprintStates: TavernTaskFingerprintStateRecord;
+    communicationContacts: TavernCommunicationContactRecord;
+    communicationThreads: TavernCommunicationThreadRecord;
+    communicationMessages: TavernCommunicationMessageRecord;
+    communicationSnapshots: TavernCommunicationSnapshotRecord;
+    economyAccounts: TavernEconomyAccountRecord;
+    economyTransactions: TavernEconomyTransactionRecord;
+    taskBoards: TavernTaskBoardRecord;
+    taskVersions: TavernTaskVersionRecord;
+    shopStateVersions: TavernShopStateVersionRecord;
+    bankStateVersions: TavernBankStateVersionRecord;
+    bankActivities: TavernBankActivityRecord;
 };
 
 export type TavernCharacterArchiveRecord<TTable extends TavernCharacterArchiveTable = TavernCharacterArchiveTable> = {
@@ -155,6 +193,10 @@ export function createEmptyTavernCharacterArchiveCounts(): TavernCharacterArchiv
         messages: 0,
         memoryFiles: 0,
         stateDocuments: 0,
+        communications: 0,
+        economy: 0,
         tasks: 0,
+        shop: 0,
+        bank: 0,
     };
 }

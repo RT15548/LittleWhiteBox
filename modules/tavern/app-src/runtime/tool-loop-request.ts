@@ -1,6 +1,12 @@
 import type { XbTavernMessage } from '../../shared/message-assembler';
 
-export type TavernToolLoopResponse = { id?: string; name?: string; response?: unknown };
+export type TavernToolLoopResponse = {
+    id?: string;
+    /** Explicitly empty for a Google function call whose provider did not send an ID. */
+    providerId?: string;
+    name?: string;
+    response?: unknown;
+};
 
 export type TavernToolLoopRequestMode =
     | 'full_prompt_round'
@@ -82,12 +88,18 @@ export function buildGoogleSessionToolLoopSendPayload(
                 role: 'user',
                 parts: plan.toolResponses
                     .filter((item) => item && item.name)
-                    .map((item) => ({
-                        functionResponse: {
-                            name: String(item.name || ''),
-                            response: item.response || {},
-                        },
-                    })),
+                    .map((item) => {
+                        const responseId = Object.prototype.hasOwnProperty.call(item, 'providerId')
+                            ? String(item.providerId || '').trim()
+                            : String(item.id || '').trim();
+                        return {
+                            functionResponse: {
+                                ...(responseId ? { id: responseId } : {}),
+                                name: String(item.name || ''),
+                                response: item.response || {},
+                            },
+                        };
+                    }),
             },
         };
     }

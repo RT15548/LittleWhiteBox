@@ -1,4 +1,7 @@
+import { createMessageButtonOwnership } from '../core/message-button-ownership.js';
+
 let stylesInjected = false;
+const messageButtonOwnership = createMessageButtonOwnership();
 
 const SELECTORS = {
   chat: '#chat',
@@ -198,6 +201,10 @@ const initButtonCollapse = () => {
   }
 };
 
+const configureButtonCollapseRuntime = ({ ownsMessageButtons = true } = {}) => {
+  messageButtonOwnership.configure(ownsMessageButtons);
+};
+
 const processButtonCollapse = () => {
   processExistingVisible();
 };
@@ -220,7 +227,23 @@ const registerButtonToSubContainer = (messageId, buttonEl) => {
   return true;
 };
 
+const createButtonCollapseCleanup = (message) => {
+  return () => {
+    const collapseBtn = message?.querySelector(SELECTORS.collapse);
+    if (!collapseBtn) return;
+    const sub = collapseBtn.querySelector('.xiaobaix-sub-container');
+    const mesButtons = message.querySelector(SELECTORS.mesButtons);
+    if (sub && mesButtons) {
+      mesButtons.classList.remove('xiaobaix-expanded');
+      while (sub.firstChild) mesButtons.appendChild(sub.firstChild);
+    }
+    collapseBtn.remove();
+    processed.delete(message);
+  };
+};
+
 const cleanup = () => {
+  if (!messageButtonOwnership.ownsButtons()) return;
   io?.disconnect(); io = null;
   mo?.disconnect(); mo = null;
   queue = [];
@@ -256,4 +279,4 @@ if (typeof window !== 'undefined') {
   });
 }
 
-export { initButtonCollapse, cleanup, registerButtonToSubContainer, processButtonCollapse };
+export { initButtonCollapse, cleanup, registerButtonToSubContainer, processButtonCollapse, createButtonCollapseCleanup, configureButtonCollapseRuntime };

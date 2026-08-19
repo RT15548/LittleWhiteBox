@@ -6,6 +6,7 @@ import {
     useTavernCharacterContext,
     useTavernChatContext,
     useTavernManagerContext,
+    useTavernPhoneContext,
     useTavernSessionContext,
     useTavernSettingsContext,
     useTavernShellContext,
@@ -13,6 +14,7 @@ import {
     type TavernChatWorkspacePanelKey,
 } from '../tavern-app-context';
 import TavernCharacterWorkspacePanel from '../TavernCharacterWorkspacePanel.vue';
+import TavernAssistantContextButton from './TavernAssistantContextButton.vue';
 import TavernAssistantPresetSettingsPanel from '../settings/TavernAssistantPresetSettingsPanel.vue';
 import TavernBaseSettingsPanel from '../settings/TavernBaseSettingsPanel.vue';
 import TavernChatPresetSettingsPanel from '../settings/TavernChatPresetSettingsPanel.vue';
@@ -35,11 +37,13 @@ import {
     type XbTavernAuthorNote,
 } from '../../../shared/message-assembler';
 import { useTavernMediaQuery } from '../useTavernMediaQuery';
+import TavernPhoneOsOverlay from '../phone-os/TavernPhoneOsOverlay.vue';
 
 const shell = useTavernShellContext();
 const character = useTavernCharacterContext();
 const chat = useTavernChatContext();
 const manager = useTavernManagerContext();
+const phone = useTavernPhoneContext();
 const session = useTavernSessionContext();
 const settings = useTavernSettingsContext();
 const workspace = useTavernWorkspaceContext();
@@ -60,7 +64,15 @@ const {
     selectedSessionId,
 } = session;
 const {
-    managerMessageWindow,
+    openPhone,
+} = phone;
+const phoneOpen = phone.os.isOpen;
+const {
+    assistantChatContextLabel,
+    assistantChatContextUsage,
+    canClearAssistantChat,
+    clearAssistantChatHistory,
+    isManagerAssistantRunning,
     managerScrollRef,
     updateManagerScrollButtons,
     visibleManagerChatItems,
@@ -115,8 +127,6 @@ const contractDraftDirty = computed(() => JSON.stringify(contractDraft.value) !=
 const shouldMountChatWorkspace = computed(() => !isMobileChatViewport.value || mobileChatPanel.value === 'workspace');
 const managerPaneVisible = computed(() => activeView.value === 'chat' && chatFocus.value === 'manager');
 const managerScrollAnchorSignature = computed(() => [
-    managerMessageWindow.value.startIndex,
-    managerMessageWindow.value.visibleCount,
     ...visibleManagerChatItems.value.map((item) => `${item.kind}:${item.key}`),
 ].join('|'));
 
@@ -131,19 +141,26 @@ const authorNoteRoleOptions = [
     { value: XBTavernPromptRole.ASSISTANT, label: 'Assistant' },
 ];
 const chatAppMenuItems: Array<{ key: ChatQuickWorkspace; label: string; mobileLabel: string }> = [
-    { key: 'characters', label: '角色卡', mobileLabel: '角色卡' },
-    { key: 'api', label: 'API 配置', mobileLabel: 'API 配置' },
     { key: 'chatPreset', label: '聊天预设', mobileLabel: '聊天预设' },
-    { key: 'assistantPreset', label: '助手预设', mobileLabel: '助手预设' },
+    { key: 'api', label: 'API 配置', mobileLabel: 'API 配置' },
     { key: 'worldbooks', label: '世界书', mobileLabel: '世界书' },
     { key: 'regex', label: '正则', mobileLabel: '正则' },
+    { key: 'characters', label: '角色卡', mobileLabel: '角色卡' },
+    { key: 'assistantPreset', label: '助手预设', mobileLabel: '助手预设' },
     { key: 'base', label: '基础设置', mobileLabel: '基础设置' },
 ];
+const chatAppMenuCoreItems = chatAppMenuItems.slice(0, 5);
+const chatAppMenuAppItems = chatAppMenuItems.slice(5);
 
 function closeMobileChatPanel() {
     closeChatAppMenu();
     mobileChatPanel.value = 'none';
     memoryDirectoryOpen.value = false;
+}
+
+async function clearAssistantChatFromTopbar() {
+    closeMobileChatPanel();
+    await clearAssistantChatHistory();
 }
 
 function toggleMobileWorkspacePanel(panel: TavernChatWorkspacePanelKey) {
@@ -390,6 +407,30 @@ onUnmounted(() => {
     >
       <button
         type="button"
+        class="home-icon-button tavern-phone-launch-button"
+        :class="{ 'is-active': phoneOpen }"
+        title="打开手机"
+        aria-label="打开手机"
+        :disabled="!selectedSessionId"
+        @click="openPhone"
+      >
+        <svg
+          viewBox="0 0 24 24"
+          aria-hidden="true"
+        >
+          <rect
+            x="7"
+            y="2.5"
+            width="10"
+            height="19"
+            rx="2.5"
+          />
+          <path d="M10 5h4" />
+          <path d="M11 18.5h2" />
+        </svg>
+      </button>
+      <button
+        type="button"
         class="home-icon-button home-theme-button"
         :title="homeThemeDark ? '切换到白天' : '切换到夜间'"
         :aria-label="homeThemeDark ? '切换到白天' : '切换到夜间'"
@@ -519,6 +560,15 @@ onUnmounted(() => {
             v-if="chatFocus === 'chat'"
             mobile
           />
+          <TavernAssistantContextButton
+            v-else
+            :label="assistantChatContextLabel"
+            :usage="assistantChatContextUsage"
+            :can-clear="canClearAssistantChat"
+            :busy="isManagerAssistantRunning"
+            mobile
+            @clear="clearAssistantChatFromTopbar"
+          />
           <button
             type="button"
             class="chat-mobile-icon-button chat-mobile-utility-button"
@@ -533,48 +583,27 @@ onUnmounted(() => {
           </button>
           <button
             type="button"
-            class="chat-mobile-icon-button chat-mobile-utility-button"
-            :title="homeThemeDark ? '切换到白天' : '切换到夜间'"
-            :aria-label="homeThemeDark ? '切换到白天' : '切换到夜间'"
-            @click="homeThemeDark = !homeThemeDark"
+            class="chat-mobile-icon-button chat-mobile-utility-button tavern-phone-launch-button"
+            :class="{ 'is-active': phoneOpen }"
+            title="打开手机"
+            aria-label="打开手机"
+            :disabled="!selectedSessionId"
+            @click="closeMobileChatPanel(); openPhone()"
           >
             <svg
-              v-if="homeThemeDark"
               class="chat-mobile-svg"
               viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.8"
-              stroke-linecap="round"
-              stroke-linejoin="round"
               aria-hidden="true"
             >
-              <circle
-                cx="12"
-                cy="12"
-                r="4"
+              <rect
+                x="7"
+                y="2.5"
+                width="10"
+                height="19"
+                rx="2.5"
               />
-              <path d="M12 2v2" />
-              <path d="M12 20v2" />
-              <path d="m4.93 4.93 1.41 1.41" />
-              <path d="m17.66 17.66 1.41 1.41" />
-              <path d="M2 12h2" />
-              <path d="M20 12h2" />
-              <path d="m6.34 17.66-1.41 1.41" />
-              <path d="m19.07 4.93-1.41 1.41" />
-            </svg>
-            <svg
-              v-else
-              class="chat-mobile-svg"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.8"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M20.2 14.5A7.3 7.3 0 0 1 9.5 3.8 8.7 8.7 0 1 0 20.2 14.5Z" />
+              <path d="M10 5h4" />
+              <path d="M11 18.5h2" />
             </svg>
           </button>
           <div
@@ -606,7 +635,7 @@ onUnmounted(() => {
               aria-label="酒馆操作"
             >
               <button
-                v-for="item in chatAppMenuItems"
+                v-for="item in chatAppMenuCoreItems"
                 :key="item.key"
                 type="button"
                 class="chat-app-menu-item"
@@ -616,6 +645,34 @@ onUnmounted(() => {
                 <span class="chat-app-menu-label-full">{{ item.label }}</span>
                 <span class="chat-app-menu-label-mobile">{{ item.mobileLabel }}</span>
               </button>
+              <div
+                class="chat-app-menu-divider"
+                role="separator"
+              />
+              <button
+                v-for="item in chatAppMenuAppItems"
+                :key="item.key"
+                type="button"
+                class="chat-app-menu-item"
+                role="menuitem"
+                @click="openChatAppWorkspace(item.key)"
+              >
+                <span class="chat-app-menu-label-full">{{ item.label }}</span>
+                <span class="chat-app-menu-label-mobile">{{ item.mobileLabel }}</span>
+              </button>
+              <button
+                type="button"
+                class="chat-app-menu-item"
+                role="menuitem"
+                @click="homeThemeDark = !homeThemeDark; closeChatAppMenu()"
+              >
+                <span class="chat-app-menu-label-full">{{ homeThemeDark ? '切换到白天' : '切换到夜间' }}</span>
+                <span class="chat-app-menu-label-mobile">{{ homeThemeDark ? '白天模式' : '夜间模式' }}</span>
+              </button>
+              <div
+                class="chat-app-menu-divider"
+                role="separator"
+              />
               <button
                 type="button"
                 class="chat-app-menu-item chat-app-menu-return-home"
@@ -649,16 +706,6 @@ onUnmounted(() => {
           @click="toggleMobileWorkspacePanel('memory')"
         >
           记忆
-        </button>
-        <button
-          type="button"
-          class="chat-mobile-context-button"
-          :class="{ 'is-active': mobileChatPanel === 'workspace' && chatWorkspacePanel === 'event' }"
-          title="事件"
-          aria-label="事件"
-          @click="toggleMobileWorkspacePanel('event')"
-        >
-          事件
         </button>
         <button
           type="button"
@@ -918,5 +965,6 @@ onUnmounted(() => {
         </div>
       </section>
     </div>
+    <TavernPhoneOsOverlay />
   </section>
 </template>

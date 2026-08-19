@@ -1021,6 +1021,11 @@ function buildNativePromptEntries(runtime = {}) {
   });
   return entries;
 }
+function buildActivatedWorldEntriesFromNativeRuntime(runtime = {}) {
+  const activatedEntries = normalizeNativeActivatedEntries(runtime.activatedEntries);
+  const promptEntries = buildNativePromptEntries(runtime);
+  return promptEntries.length ? promptEntries : activatedEntries;
+}
 function insertionTargetForEntry(entry) {
   switch (entry.position) {
     case 0 /* before */:
@@ -1162,11 +1167,7 @@ function buildMemoryBlock(memoryContext = {}) {
   const memoryFiles = Array.isArray(memoryContext.memoryFiles) ? memoryContext.memoryFiles : [];
   const spatialState = normalizeText(memoryContext.spatialState);
   const statusPanelYaml = normalizeText(memoryContext.statusPanelYaml);
-  const questHooks = Array.isArray(memoryContext.questHooks) ? memoryContext.questHooks.map((hook) => normalizeText(hook)).filter(Boolean) : [];
   const sections = [];
-  if (questHooks.length) {
-    sections.push(questHooks.join("\n"));
-  }
   const stateContent = normalizeText(memoryFiles.find((file) => file.path === "memory/state.md")?.content || "");
   if (stateContent) {
     sections.push(`## \u4F1A\u8BDD\u8BB0\u5FC6
@@ -1551,7 +1552,7 @@ function prepareXbTavernMessageBuild(context = {}, chatPreset = {}, runtimeState
     buildAuthorNoteInjectScanText(context, currentUserMessage)
   ].filter(Boolean).join("\n");
   const nativeActivatedEntries = normalizeNativeActivatedEntries(context.nativeWorldInfo?.activatedEntries);
-  const nativePromptEntries = buildNativePromptEntries(context.nativeWorldInfo);
+  const nativePromptEntries = buildActivatedWorldEntriesFromNativeRuntime(context.nativeWorldInfo);
   const worldSettings = {
     ...runtimeWorldSettings,
     scanText,
@@ -1863,6 +1864,7 @@ export {
   XBTavernSelectiveLogic,
   XBTavernWorldPosition,
   activateWorldEntries,
+  buildActivatedWorldEntriesFromNativeRuntime,
   buildAuthorNoteInjectScanText,
   buildScanText,
   buildXbTavernMessages,

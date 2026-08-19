@@ -599,8 +599,20 @@ watch(
                 <dd>{{ characterArchiveSyncState.result.counts.stateDocuments }}</dd>
               </div>
               <div>
+                <dt>经济</dt>
+                <dd>{{ characterArchiveSyncState.result.counts.economy }}</dd>
+              </div>
+              <div>
                 <dt>任务</dt>
                 <dd>{{ characterArchiveSyncState.result.counts.tasks }}</dd>
+              </div>
+              <div>
+                <dt>商店</dt>
+                <dd>{{ characterArchiveSyncState.result.counts.shop }}</dd>
+              </div>
+              <div>
+                <dt>银行</dt>
+                <dd>{{ characterArchiveSyncState.result.counts.bank }}</dd>
               </div>
             </dl>
           </div>

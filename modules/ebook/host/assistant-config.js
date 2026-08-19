@@ -41,6 +41,9 @@ export async function saveEbookAgentConfig(patch = {}, options = {}) {
         delegateConfig: patch.delegateConfig && typeof patch.delegateConfig === 'object'
             ? patch.delegateConfig
             : normalizedCurrent.delegateConfig,
+        delegateConfigured: typeof patch.delegateConfigured === 'boolean'
+            ? patch.delegateConfigured
+            : normalizedCurrent.delegateConfigured,
         presets: patch.presets && typeof patch.presets === 'object'
             ? patch.presets
             : normalizedCurrent.presets,

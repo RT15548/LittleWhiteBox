@@ -20,6 +20,7 @@ import {
     type XbTavernHistoryMessage,
     type XbTavernMessage,
     type XbTavernNativeWorldInfoRuntime,
+    type XbTavernRuntimeDepthEntry,
 } from '../shared/message-assembler.js';
 
 interface TavernNativePromptInput {
@@ -32,10 +33,12 @@ interface TavernNativePromptInput {
     memoryPrompt?: string;
     chancePrompt?: string;
     actionCheckPrompt?: string;
+    runtimeDepthPrompts?: XbTavernRuntimeDepthEntry[];
 }
 
 export interface TavernNativePromptResult {
     messages: XbTavernMessage[];
+    currentUserMessageIndex: number | null;
     source: 'sillytavern-prepareOpenAIMessages';
     promptMessageCount: number;
     diagnostics?: Record<string, unknown>;
@@ -108,6 +111,8 @@ function nativePromptTraceMeta(trace: NativePromptTrace): Record<string, unknown
         memoryChars: normalizeText(trace.input.memoryPrompt || '').length,
         chanceChars: normalizeText(trace.input.chancePrompt || '').length,
         actionCheckChars: normalizeText(trace.input.actionCheckPrompt || '').length,
+        runtimeDepthPromptChars: (Array.isArray(trace.input.runtimeDepthPrompts) ? trace.input.runtimeDepthPrompts : [])
+            .reduce((total, entry) => total + normalizeText(entry?.content).length, 0),
         worldBeforeChars: normalizeText(runtime.worldInfoBefore).length,
         worldAfterChars: normalizeText(runtime.worldInfoAfter).length,
         depthEntries: Array.isArray(runtime.worldInfoDepth) ? runtime.worldInfoDepth.length : 0,
@@ -341,6 +346,15 @@ function buildOpenAiMessages(context: XbTavernContext = {}, currentUserMessage =
     }, []);
 }
 
+/**
+ * ST flattens chat messages and intentionally drops its internal identifiers.
+ * A one-build marker lets this adapter return an explicit boundary index, then
+ * it is removed before the result ever reaches the provider request.
+ */
+function createCurrentUserBoundaryMarker(): string {
+    return `\n__LWB_CURRENT_USER_BOUNDARY_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}__`;
+}
+
 function countMatchedMessages(sourceMessages: XbTavernMessage[] = [], targetMessages: XbTavernMessage[] = []): {
     count: number;
     chars: number;
@@ -403,6 +417,22 @@ function addInChatPrompt(key: string, content: unknown, depth: number, role: unk
         false,
         roleNumber(role),
     );
+}
+
+function addRuntimeDepthPrompts(entries: XbTavernRuntimeDepthEntry[] = []): void {
+    (Array.isArray(entries) ? entries : []).forEach((entry, index) => {
+        const label = normalizeText(entry?.label || entry?.layer || `runtime-${index + 1}`)
+            .toLocaleLowerCase('en')
+            .replace(/[^a-z0-9_-]+/g, '-')
+            .replace(/^-+|-+$/g, '')
+            .slice(0, 48) || `runtime-${index + 1}`;
+        addInChatPrompt(
+            `xb_tavern_runtime_depth_${index}_${label}`,
+            entry?.content,
+            Number.isFinite(Number(entry?.depth)) ? Math.max(0, Number(entry.depth)) : 1,
+            entry?.role || 'system',
+        );
+    });
 }
 
 function getUserPersonaPrompt(context: XbTavernContext = {}): string {
@@ -614,12 +644,18 @@ async function buildNativePromptNow(input: TavernNativePromptInput = {}, queuedA
             addInChatPrompt('xb_tavern_memory_d1', input.memoryPrompt, 1, 'system');
             addInChatPrompt('xb_tavern_chance_d1', input.chancePrompt, 1, 'system');
             addInChatPrompt('xb_tavern_action_check_d0', input.actionCheckPrompt, 0, 'system');
+            addRuntimeDepthPrompts(input.runtimeDepthPrompts);
             addCharacterDepthPrompt(context);
             addNativeWorldInfoDepth(runtime);
             addNativeWorldInfoOutlets(runtime);
             applyAuthorNotePrompt(context, input.currentUserMessage || '', runtime);
         });
-        const messages = await traceNativePromptStep(trace, 'build_chat_messages', () => buildOpenAiMessages(context, input.currentUserMessage || ''));
+        const currentUserMessage = normalizeText(input.currentUserMessage || '');
+        const currentUserBoundaryMarker = currentUserMessage ? createCurrentUserBoundaryMarker() : '';
+        const messages = await traceNativePromptStep(trace, 'build_chat_messages', () => buildOpenAiMessages(
+            context,
+            `${currentUserMessage}${currentUserBoundaryMarker}`,
+        ));
         const messageExamples = await traceNativePromptStep(trace, 'build_examples', () => buildMessageExamples(context));
         const nativeInputHistory = Array.isArray(context.history) ? context.history : [];
         const nativeInputHistoryMessages = nativeInputHistory
@@ -646,16 +682,36 @@ async function buildNativePromptNow(input: TavernNativePromptInput = {}, queuedA
             messages,
             messageExamples,
         }, true));
-        const normalizedMessages = (Array.isArray(prepared) ? prepared : [])
+        const preparedMessages = (Array.isArray(prepared) ? prepared : [])
             .map(toXbMessage)
             .filter(Boolean) as XbTavernMessage[];
+        const currentUserMessageIndex = currentUserBoundaryMarker
+            ? preparedMessages.findIndex((message) => (
+                message.role === 'user' && String(message.content || '').includes(currentUserBoundaryMarker)
+            ))
+            : -1;
+        if (currentUserBoundaryMarker && currentUserMessageIndex < 0) {
+            throw new Error('native_prompt_current_user_boundary_missing');
+        }
+        const normalizedMessages = preparedMessages.map((message, index) => (
+            index === currentUserMessageIndex
+                ? { ...message, content: String(message.content || '').replace(currentUserBoundaryMarker, '') }
+                : message
+        ));
+        const messagesForDiagnostics = currentUserBoundaryMarker
+            ? messages.map((message) => (
+                message.role === 'user' && String(message.content || '').includes(currentUserBoundaryMarker)
+                    ? { ...message, content: String(message.content || '').replace(currentUserBoundaryMarker, '') }
+                    : message
+            ))
+            : messages;
         const matchedHistory = countMatchedMessages(nativeInputHistoryMessages, normalizedMessages);
-        const matchedConversation = countMatchedMessages(messages, normalizedMessages);
+        const matchedConversation = countMatchedMessages(messagesForDiagnostics, normalizedMessages);
         const nativeDiagnostics = {
             nativeInputHistoryCount: nativeInputHistoryMessages.length,
             nativeInputHistoryChars: nativeInputHistoryMessages.reduce((sum, message) => sum + normalizeText(message.content).length, 0),
-            nativeBuiltConversationMessageCount: messages.length,
-            nativeBuiltConversationChars: messages.reduce((sum, message) => sum + normalizeText(message.content).length, 0),
+            nativeBuiltConversationMessageCount: messagesForDiagnostics.length,
+            nativeBuiltConversationChars: messagesForDiagnostics.reduce((sum, message) => sum + normalizeText(message.content).length, 0),
             nativePreparedMessageCount: Array.isArray(prepared) ? prepared.length : 0,
             nativePreparedMessageChars: normalizedMessages.reduce((sum, message) => sum + normalizeText(message.content).length, 0),
             nativeMatchedHistoryCount: matchedHistory.count,
@@ -675,6 +731,7 @@ async function buildNativePromptNow(input: TavernNativePromptInput = {}, queuedA
         });
         return {
             messages: normalizedMessages,
+            currentUserMessageIndex: currentUserMessageIndex >= 0 ? currentUserMessageIndex : null,
             source: 'sillytavern-prepareOpenAIMessages',
             promptMessageCount: normalizedMessages.length,
             diagnostics: nativeDiagnostics,

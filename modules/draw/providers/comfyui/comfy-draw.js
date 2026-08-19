@@ -37,6 +37,8 @@ import {
     normalizeSharedCacheDays,
 } from "../../shared/draw-settings.js";
 import { fetchDrawLlmModels, getLastDrawLlmRequestSnapshot } from "../../shared/draw-llm.js";
+import { createSerialImageRequestQueue } from "../../shared/serial-image-request-queue.js";
+import { hashStableValue } from "../../shared/generation-fingerprint.js";
 import {
     findLastAIMessageId,
     createPlaceholder,
@@ -193,9 +195,9 @@ const generationJobs = new Map();
 const COMFY_DRAW_VIEWS = ['test', 'api', 'workflow', 'params', 'llm', 'prompts', 'worldbook', 'characters', 'gallery'];
 const ImageState = { PREVIEW: 'preview', SAVING: 'saving', SAVED: 'saved', REFRESHING: 'refreshing', FAILED: 'failed' };
 const FIXED_COMFY_REQUEST_DELAY_MS = 1000;
-let activeComfyImageRequest = null;
-let comfyImageRequestQueue = [];
-let comfyImageRequestSeq = 0;
+const comfyImageRequestQueue = createSerialImageRequestQueue({
+    getCooldownMs: () => FIXED_COMFY_REQUEST_DELAY_MS,
+});
 const COMFY_SIZE_PRESETS = [
     { value: '832x1216', width: 832, height: 1216 },
     { value: '1216x832', width: 1216, height: 832 },
@@ -551,6 +553,48 @@ export function getSettings() {
     return settingsCache;
 }
 
+export function getGenerationSnapshot() {
+    const settings = getSettings();
+    const customWorkflow = settings.customWorkflow || {};
+    const workflowMode = String(settings.workflowMode || 'simple');
+    const executionCustomWorkflow = Object.freeze({
+        json: String(customWorkflow.json || ''),
+        nodePositive: String(customWorkflow.nodePositive || ''),
+        nodeNegative: String(customWorkflow.nodeNegative || ''),
+        nodeWidth: String(customWorkflow.nodeWidth || ''),
+        nodeHeight: String(customWorkflow.nodeHeight || ''),
+        nodeSeed: String(customWorkflow.nodeSeed || ''),
+        nodeSaveImage: String(customWorkflow.nodeSaveImage || ''),
+    });
+    const execution = Object.freeze({
+        host: String(settings.host || '').trim(),
+        auth: String(settings.auth || ''),
+        connectionMode: String(settings.connectionMode || 'proxy'),
+        timeout: Number(settings.timeout) || 120000,
+        workflowMode,
+        customWorkflow: executionCustomWorkflow,
+        prepared: true,
+    });
+    return {
+        fingerprint: {
+            version: 1,
+            endpointHash: hashStableValue(execution.host, 'endpoint'),
+            connectionMode: execution.connectionMode,
+            workflowMode,
+            customWorkflow: workflowMode === 'custom' ? {
+                workflowHash: hashStableValue(executionCustomWorkflow.json, 'workflow'),
+                nodePositive: executionCustomWorkflow.nodePositive,
+                nodeNegative: executionCustomWorkflow.nodeNegative,
+                nodeWidth: executionCustomWorkflow.nodeWidth,
+                nodeHeight: executionCustomWorkflow.nodeHeight,
+                nodeSeed: executionCustomWorkflow.nodeSeed,
+                nodeSaveImage: executionCustomWorkflow.nodeSaveImage,
+            } : null,
+        },
+        execution,
+    };
+}
+
 async function persistSettings(nextSettings, okText = '已保存', { notify = true, silent = false } = {}) {
     const next = normalizeSettings(nextSettings);
     const previous = settingsCache ? cloneSettingsObject(settingsCache) : null;
@@ -803,11 +847,11 @@ async function readBlobAsBase64(blob) {
     });
 }
 
-async function requestComfyTransport(path, body = {}, { signal, timeoutMs } = {}) {
-    const settings = getSettings();
+async function requestComfyTransport(path, body = {}, { signal, timeoutMs, generationConfig } = {}) {
+    const settings = generationConfig || getSettings();
     if (!settings.host) throw new Error('请先填写 ComfyUI 地址');
     if (isDirectConnection(settings) && path === 'ping') {
-        await testComfyDirectConnection({ signal, timeoutMs });
+        await testComfyDirectConnection({ signal, timeoutMs, generationConfig: settings });
         return { ok: true, json: async () => ({}) };
     }
     if (isDirectConnection(settings) && path === 'generate') {
@@ -815,6 +859,7 @@ async function requestComfyTransport(path, body = {}, { signal, timeoutMs } = {}
         const data = await fetchComfyDirectImageFromWorkflow(workflow, {
             signal,
             timeoutMs,
+            generationConfig: settings,
             preferredSaveImageNodeId: body?.preferredSaveImageNodeId,
         });
         return { ok: true, json: async () => ({ data }) };
@@ -849,8 +894,8 @@ async function requestComfyTransport(path, body = {}, { signal, timeoutMs } = {}
     }
 }
 
-async function fetchComfyDirectJson(path, { signal, timeoutMs, method = 'GET', body } = {}) {
-    const settings = getSettings();
+async function fetchComfyDirectJson(path, { signal, timeoutMs, method = 'GET', body, generationConfig } = {}) {
+    const settings = generationConfig || getSettings();
     const directSignal = createComfyRequestSignal(signal, timeoutMs ?? settings.timeout ?? 120000);
     try {
         const response = await fetch(createComfyUrl(path, {}, settings), {
@@ -875,8 +920,8 @@ async function fetchComfyDirectJson(path, { signal, timeoutMs, method = 'GET', b
     }
 }
 
-async function fetchComfyDirectBlob(path, query = {}, { signal, timeoutMs } = {}) {
-    const settings = getSettings();
+async function fetchComfyDirectBlob(path, query = {}, { signal, timeoutMs, generationConfig } = {}) {
+    const settings = generationConfig || getSettings();
     const directSignal = createComfyRequestSignal(signal, timeoutMs ?? settings.timeout ?? 120000);
     try {
         const response = await fetch(createComfyUrl(path, query, settings), {
@@ -913,8 +958,8 @@ async function fetchComfyDirectSamplers({ signal, timeoutMs } = {}) {
     };
 }
 
-async function testComfyDirectConnection({ signal, timeoutMs } = {}) {
-    await fetchComfyDirectJson('/system_stats', { signal, timeoutMs });
+async function testComfyDirectConnection({ signal, timeoutMs, generationConfig } = {}) {
+    await fetchComfyDirectJson('/system_stats', { signal, timeoutMs, generationConfig });
 }
 
 function isComfyProxyGenerateFailure(error) {
@@ -934,7 +979,12 @@ function buildComfyProxyGenerateError(message, status = null) {
     return `${prefix}：${raw || '后端返回失败'}`;
 }
 
-async function fetchComfyDirectImageFromWorkflow(workflow, { signal, timeoutMs, preferredSaveImageNodeId } = {}) {
+async function fetchComfyDirectImageFromWorkflow(workflow, {
+    signal,
+    timeoutMs,
+    generationConfig,
+    preferredSaveImageNodeId,
+} = {}) {
     const deadline = createComfyDeadlineSignal(signal, timeoutMs);
     try {
         const data = await fetchComfyDirectJson('/prompt', {
@@ -942,6 +992,7 @@ async function fetchComfyDirectImageFromWorkflow(workflow, { signal, timeoutMs, 
             body: JSON.stringify({ prompt: workflow }),
             signal: deadline.signal,
             timeoutMs,
+            generationConfig,
         });
         const promptId = data?.prompt_id;
         if (!promptId) throw new Error('ComfyUI 未返回任务 ID');
@@ -949,7 +1000,11 @@ async function fetchComfyDirectImageFromWorkflow(workflow, { signal, timeoutMs, 
         let item = null;
         let cachedEmptySince = 0;
         while (!deadline.signal.aborted) {
-            const history = await fetchComfyDirectJson('/history', { signal: deadline.signal, timeoutMs });
+            const history = await fetchComfyDirectJson('/history', {
+                signal: deadline.signal,
+                timeoutMs,
+                generationConfig,
+            });
             item = history?.[promptId];
             if (!item) {
                 await waitWithAbort(deadline.signal, 100);
@@ -994,7 +1049,7 @@ async function fetchComfyDirectImageFromWorkflow(workflow, { signal, timeoutMs, 
             filename: imgInfo.filename,
             subfolder: imgInfo.subfolder,
             type: imgInfo.type,
-        }, { signal: deadline.signal, timeoutMs });
+        }, { signal: deadline.signal, timeoutMs, generationConfig });
         return await readBlobAsBase64(blob);
     } finally {
         deadline.cleanup();
@@ -1282,9 +1337,9 @@ function injectPromptIntoWorkflow(workflow, positive, negative, width, height, n
     return wf;
 }
 
-export async function generateComfyImage({ prompt, negativePrompt = '', params = {}, signal } = {}) {
-    const settings = getSettings();
-    const effective = getEffectiveParams(settings, params);
+async function requestComfyImage({ prompt, negativePrompt = '', params = {}, generationConfig, signal } = {}) {
+    const settings = generationConfig || getSettings();
+    const effective = generationConfig?.prepared === true ? params : getEffectiveParams(settings, params);
 
     const positive = String(prompt || '').trim();
     const negative = String(negativePrompt || '').trim();
@@ -1337,6 +1392,7 @@ export async function generateComfyImage({ prompt, negativePrompt = '', params =
     const response = await requestComfyTransport('generate', requestBody, {
         signal,
         timeoutMs: settings.timeout || 120000,
+        generationConfig: settings,
     });
     const data = await response.json();
     if (!data?.data) throw new Error('ComfyUI 未返回图片数据');
@@ -1358,101 +1414,18 @@ function waitWithAbort(signal, durationMs) {
     });
 }
 
-function notifyQueuedComfyImageRequests() {
-    comfyImageRequestQueue.forEach((item, index) => {
-        const ahead = (activeComfyImageRequest ? 1 : 0) + index;
-        if (ahead > 0) {
-            item.onQueued?.({ ahead, position: ahead + 1 });
-        }
-    });
-}
-
-function pumpComfyImageRequestQueue() {
-    if (activeComfyImageRequest || comfyImageRequestQueue.length === 0) return;
-
-    const item = comfyImageRequestQueue.shift();
-    activeComfyImageRequest = item;
-    notifyQueuedComfyImageRequests();
-
-    void (async () => {
-        let result;
-        let error = null;
-        try {
-            if (item.signal?.aborted) throw new Error('已取消');
-            item.onStart?.();
-            result = await item.run();
-        } catch (caught) {
-            error = caught;
-        } finally {
-            if (item.cooldownMs > 0) {
-                item.onCooldown?.({ duration: item.cooldownMs });
-                await waitWithAbort(item.signal, item.cooldownMs);
-            }
-            if (error) item.reject(error);
-            else item.resolve(result);
-            if (activeComfyImageRequest === item) {
-                activeComfyImageRequest = null;
-            }
-            notifyQueuedComfyImageRequests();
-            pumpComfyImageRequestQueue();
-        }
-    })();
-}
-
-function enqueueComfyRequest(run, {
-    signal,
-    onQueued,
-    onStart,
-    onCooldown,
-    cooldownMs = FIXED_COMFY_REQUEST_DELAY_MS,
-} = {}) {
-    return new Promise((resolve, reject) => {
-        if (signal?.aborted) {
-            reject(new Error('已取消'));
-            return;
-        }
-
-        const item = {
-            id: ++comfyImageRequestSeq,
-            run,
-            signal,
-            onQueued,
-            onStart,
-            onCooldown,
-            cooldownMs,
-            resolve,
-            reject,
-        };
-
-        signal?.addEventListener('abort', () => {
-            if (activeComfyImageRequest === item) return;
-            const idx = comfyImageRequestQueue.indexOf(item);
-            if (idx >= 0) {
-                comfyImageRequestQueue.splice(idx, 1);
-                notifyQueuedComfyImageRequests();
-                reject(new Error('已取消'));
-            }
-        }, { once: true });
-
-        comfyImageRequestQueue.push(item);
-        notifyQueuedComfyImageRequests();
-        pumpComfyImageRequestQueue();
-    });
-}
-
-async function generateComfyImageQueued({
+export async function generateComfyImage({
     prompt,
     negativePrompt = '',
     params = {},
+    generationConfig,
     signal,
     onQueueStateChange,
-    cooldownMs = FIXED_COMFY_REQUEST_DELAY_MS,
 } = {}) {
-    return enqueueComfyRequest(
-        () => generateComfyImage({ prompt, negativePrompt, params, signal }),
+    return comfyImageRequestQueue.enqueue(
+        () => requestComfyImage({ prompt, negativePrompt, params, generationConfig, signal }),
         {
             signal,
-            cooldownMs,
             onQueued: (data) => onQueueStateChange?.('queued', data),
             onStart: () => onQueueStateChange?.('start'),
             onCooldown: (data) => onQueueStateChange?.('cooldown', data),
@@ -4220,7 +4193,7 @@ export async function generateImagesFromText(options = {}) {
 
         options.onStateChange?.('progress', { current: i + 1, total: tasks.length });
         try {
-            const base64 = await generateComfyImageQueued({
+            const base64 = await generateComfyImage({
                 prompt: promptData.positive,
                 negativePrompt: promptData.negative,
                 params,
@@ -4717,7 +4690,7 @@ async function refreshSingleImage(container) {
         setImageState(container, ImageState.REFRESHING);
         const settings = getSettings();
         const params = getEffectiveParams(settings);
-        const base64 = await generateComfyImageQueued({
+        const base64 = await generateComfyImage({
             prompt,
             negativePrompt: promptData.negative || preview?.negativePrompt || params.negativePrefix || '',
             params,
@@ -4768,7 +4741,7 @@ async function retryFailedImage(container) {
         const positive = joinTags(params.positivePrefix || '', tags, charPositive);
         const negative = latestFailed?.negativePrompt || params.negativePrefix || '';
 
-        const base64 = await generateComfyImageQueued({ prompt: positive, negativePrompt: negative, params });
+        const base64 = await generateComfyImage({ prompt: positive, negativePrompt: negative, params });
         const imgId = generateImgId();
         await storePreview({
             imgId, slotId, messageId, base64, tags, positive,
@@ -4963,7 +4936,7 @@ export async function generateAndInsertImages({
 
             let incrementalHtml = '';
             try {
-                const base64 = await generateComfyImageQueued({
+                const base64 = await generateComfyImage({
                     prompt: promptData.positive,
                     negativePrompt: promptData.negative,
                     params,
@@ -4979,7 +4952,6 @@ export async function generateAndInsertImages({
                             onStateChange?.('cooldown', { duration: queueData.duration, nextIndex: i + 2, total: tasks.length });
                         }
                     },
-                    cooldownMs: i < tasks.length - 1 ? FIXED_COMFY_REQUEST_DELAY_MS : 0,
                 });
                 await storePreview({
                     imgId, slotId, messageId: resolvedMessageId, base64,
@@ -5080,7 +5052,7 @@ async function testGenerateFromSettingsPanel() {
     try {
         const settings = getSettings();
         const effective = getEffectiveParams(settings);
-        const base64 = await generateComfyImageQueued({
+        const base64 = await generateComfyImage({
             prompt: composePrompt(effective.positivePrefix, prompt),
             negativePrompt: composePrompt(effective.negativePrefix, getValue('comfy-draw-test-negative')),
             params: effective,
@@ -5161,6 +5133,7 @@ export async function initComfyDraw() {
     window.xiaobaixComfyDraw = {
         openSettings,
         getSettings,
+        getGenerationSnapshot,
         getQuickSettings,
         updateQuickSettings,
         testConnection,
@@ -5184,6 +5157,7 @@ export function cleanupComfyDraw() {
     stopSharedDrawPreviewRuntime();
     abortPendingRequest();
     abortGeneration();
+    comfyImageRequestQueue.clear();
     hideSettings();
     destroyComfyDrawPanelsRef?.();
     ensureComfyDrawPanelRef = null;

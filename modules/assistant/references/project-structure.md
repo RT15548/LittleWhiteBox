@@ -177,14 +177,13 @@ LittleWhiteBox/
 │   │   ├── ena-planner.html                # 剧情规划 UI
 │   │   └── ena-planner.js                  # 剧情规划主逻辑（发送前拦截，用户输入增强）
 │   │
-│   ├── fourth-wall/                       # 四次元壁功能：消息增强、图像、语音、提示词
+│   ├── fourth-wall/                       # 四次元壁产品层：消息增强、媒体协议与提示词
 │   │   ├── fourth-wall.html                # 四次元壁 UI
 │   │   ├── fourth-wall.js                  # 四次元壁主逻辑
-│   │   ├── fw-image.js                     # 图像逻辑
+│   │   ├── fw-image-protocol.js            # `[img:]` 提示协议与 iframe 消息适配；生成能力归 draw
 │   │   ├── fw-message-enhancer.js          # 消息增强逻辑
 │   │   ├── fw-prompt.js                    # 提示词构造
-│   │   ├── fw-voice.js                     # 语音常量/指南
-│   │   └── fw-voice-runtime.js             # 语音运行时（合成/播放互斥）
+│   │   └── fw-voice.js                     # 四次元壁语音输出格式指南；播放能力归 tts
 │   │
 │   ├── ebook/                             # 小白电纸书 App：书架、书本入口、创作台、章节阅读器
 │   │   ├── ebook.html                      # 电纸书 iframe 入口，加载 dist/ebook-app.js
@@ -227,8 +226,11 @@ LittleWhiteBox/
 │   │   │   ├── draw-common.js              # 占位符、锚点、角色 Prompt、图片 DOM 渲染与错误分类
 │   │   │   ├── draw-llm.js                 # 共享 LLM 调用封装
 │   │   │   ├── draw-settings.js            # 共享 LLM/角色/世界书设置读写，不初始化 Provider 专属 Prompt
+│   │   │   ├── generated-image-runtime.js  # 不可变生成计划、参数感知缓存、同请求合并与消费者级取消
+│   │   │   ├── generation-fingerprint.js    # 稳定序列化与非敏感生成配置哈希
 │   │   │   ├── gallery-cache.js            # 共用图库缓存；聊天 `[image:slot]` 与电纸书 `[ebook-image:slot]` 共用 previews
 │   │   │   ├── scene-planner.js            # Provider 无关的 LLM 场景规划调用与解析
+│   │   │   ├── serial-image-request-queue.js # Provider 级串行与安全冷却原语
 │   │   │   └── worldbook-processor.js      # 世界书上下文处理
 │   │   └── providers/                     # 具体画图后端 Provider
 │   │       ├── novelai/                   # NovelAI Provider
@@ -337,12 +339,15 @@ LittleWhiteBox/
 │   │   ├── env.d.ts                        # Tavern 前端环境类型声明
 │   │   ├── app-src/                       # Tavern Vue 应用源码
 │   │   │   ├── App.vue                     # Tavern 主 Vue 单文件组件
-│   │   │   ├── manager-tool-display.ts     # manager 工具调用展示、流式工具草稿与轮次聚合
+│   │   │   ├── features/assistant-chat/    # 助手聊天的有界历史投影、懒加载详情与轻量 live 状态
+│   │   │   ├── features/manager/           # 自动 manager 的轻量运行同步
+│   │   │   ├── features/phone-os/          # Phone OS 注册、路由、领域同步与六款 App Controller
 │   │   │   ├── map-display.ts              # 地图/空间状态展示辅助
 │   │   │   ├── runtime/                   # Tavern manager / run-once / provider 等运行时接线
 │   │   │   ├── components/                # Tavern Vue 子组件
 │   │   │   │   ├── TavernMapPanel.vue      # 地图面板
-│   │   │   │   └── chat/                  # 聊天页相关组件
+│   │   │   │   ├── chat/                  # 聊天页相关组件
+│   │   │   │   └── phone-os/              # Phone 外壳与信息/钱包/任务/商店/银行/不明物页面
 │   │   │   └── styles/                    # Tavern app 样式分片
 │   │   ├── host/                          # 与 SillyTavern 宿主环境桥接
 │   │   │   ├── agent-config.js             # agent 配置解析与默认值
@@ -352,7 +357,13 @@ LittleWhiteBox/
 │   │   │   ├── assistant-presets.ts        # assistant preset 定义与规整
 │   │   │   ├── structured-state.ts         # 结构化状态模型
 │   │   │   ├── map-state-*.ts              # 地图状态内容、操作与种子数据
+│   │   │   ├── economy/                     # Phone 钱包与跨领域余额/流水事实
+│   │   │   ├── tasks/                       # 任务板、发布、应征与结算领域
+│   │   │   ├── shop/                        # 商店目录、库存、效果与时间线领域
+│   │   │   ├── bank/                        # 银行存款、游戏、结算与历史领域
+│   │   │   ├── pet/                         # “不明物”生命周期、事件、聊天、Prompt 与历史领域
 │   │   │   └── message-assembler.ts        # Tavern 消息组装与协议消息转换
+│   │   ├── docs/                           # 银行、商店与“不明物”的目标设计和实施规格
 │   │   └── tests/                         # Tavern 模块测试（session-db、run-turn、map 等）
 │   │
 │   ├── template-editor/                   # 模板编辑器
@@ -366,6 +377,7 @@ LittleWhiteBox/
 │   │   ├── tts-free-provider.js            # 免费通道
 │   │   ├── tts-overlay.html                # TTS iframe 设置页
 │   │   ├── tts-panel.js                    # 浮动面板逻辑
+│   │   ├── tts-playback-runtime.js         # 消息气泡等入口共用的互斥播放、停止与资源回收
 │   │   ├── tts-player.js                   # 播放器
 │   │   ├── tts-text.js                     # 文本处理
 │   │   ├── tts-voices.js                   # 音色数据
@@ -462,6 +474,19 @@ LittleWhiteBox/
 ```
 
 ## 快速定位建议
+
+### 小白酒馆 Phone OS 速记
+
+Phone OS 当前注册六款 APP；`modules/tavern/app-src/features/phone-os/phone-os-app-registry.ts` 是名称、顺序和入口的唯一事实来源：
+
+| APP | 领域职责 | 主要位置 |
+|---|---|---|
+| 信息 | 联系人线程、私聊生成与未读状态 | `app-src/components/phone-os/apps/messages/`、`app-src/features/phone-os/apps/messages/` |
+| 钱包 | 小白币余额与统一 Economy 流水 | `app-src/components/phone-os/apps/wallet/`、`shared/economy/` |
+| 任务 | 委托板、玩家发布、应征与结算 | `app-src/components/phone-os/apps/tasks/`、`shared/tasks/` |
+| 商店 | 商品购买、库存与持续效果 | `app-src/components/phone-os/apps/shop/`、`shared/shop/` |
+| 银行 | 存款、风险游戏、结算与历史 | `app-src/components/phone-os/apps/bank/`、`shared/bank/` |
+| 不明物 | 暗室生物的生命周期、互动、聊天、事件与极低频剧情插曲 | `app-src/components/phone-os/apps/pet/`、`shared/pet/` |
 
 ### 小白助手架构速记
 

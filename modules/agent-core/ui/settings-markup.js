@@ -134,6 +134,10 @@ export function buildAgentSettingsPanelMarkup(options = {}) {
                     <button id="xb-assistant-delegate-pull-models" type="button" class="secondary" ${isBusy ? 'disabled' : ''}>拉取模型</button>
                 </div>
                 <div class="xb-assistant-inline-status" id="xb-assistant-delegate-model-pull-status" aria-live="polite" hidden></div>
+                <label>
+                    <span>最大输出 Token</span>
+                    <input id="xb-assistant-delegate-max-tokens" type="number" min="1" step="1" inputmode="numeric" />
+                </label>
                 <div class="xb-assistant-temperature-row">
                     <label>
                         <span>温度</span>
@@ -217,6 +221,10 @@ export function buildAgentSettingsPanelMarkup(options = {}) {
                 <button id="xb-assistant-pull-models" type="button" class="secondary" ${isBusy ? 'disabled' : ''}>拉取模型</button>
             </div>
             <div class="xb-assistant-inline-status" id="xb-assistant-model-pull-status" aria-live="polite" hidden></div>
+            <label>
+                <span>最大输出 Token</span>
+                <input id="xb-assistant-max-tokens" type="number" min="1" step="1" inputmode="numeric" />
+            </label>
             <div class="xb-assistant-temperature-row">
                 <label>
                     <span>温度</span>

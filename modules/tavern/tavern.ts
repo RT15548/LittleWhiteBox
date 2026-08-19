@@ -56,6 +56,7 @@ interface TavernFacade {
 
 interface DrawProviderSettingsFacade {
     openSettings?: () => void | Promise<void>;
+    getGenerationSnapshot?: (input?: Record<string, unknown>) => Record<string, unknown>;
     getQuickSettings?: () => Record<string, unknown> | Promise<Record<string, unknown>>;
     updateQuickSettings?: (patch: Record<string, unknown>) => Record<string, unknown> | Promise<Record<string, unknown>>;
 }
@@ -68,8 +69,22 @@ declare global {
             getProvider?: () => string;
             isEnabled?: () => boolean;
             buildPromptData?: (input: Record<string, unknown>) => Record<string, unknown>;
+            prepareGeneration?: (input: Record<string, unknown>) => Record<string, unknown>;
             generateImage?: (input: Record<string, unknown>) => Promise<string | Record<string, unknown>>;
+            generateSharedImage?: (input: Record<string, unknown>) => Promise<string>;
             generateImagesFromText?: (input: Record<string, unknown>) => Promise<Record<string, unknown>>;
+        };
+        xiaobaixTts?: {
+            isEnabled?: () => boolean;
+            synthesize?: (text: string, options?: Record<string, unknown>) => Promise<Blob>;
+            playTransient?: (
+                text: string,
+                emotion: string,
+                callbacks: {
+                    requestId?: string;
+                    onState?: (state: string, info?: { duration?: number; message?: string }) => void;
+                },
+            ) => { stop: () => void };
         };
         xiaobaixNovelDraw?: DrawProviderSettingsFacade;
         xiaobaixSdDraw?: DrawProviderSettingsFacade;
@@ -99,6 +114,9 @@ let overlayKeyboardSettleHandler: EventListener | null = null;
 let overlayKeyboardSettleTimers: number[] = [];
 let cachedTavernMobileTopOffset: number | null = null;
 const pendingDrawRequests = new Map<string, AbortController>();
+const pendingInlineImageRequests = new Map<string, AbortController>();
+const pendingVoiceRequests = new Map<string, { stop: () => void }>();
+let activeVoiceRequestId = '';
 let latestStartupProgress: TavernStartupProgressPayload = { percent: 5, action: 'createOverlay' };
 
 async function getDrawGalleryCacheModule(): Promise<{
@@ -154,14 +172,6 @@ async function getDrawCommonModule(): Promise<{
             preview: Record<string, unknown>,
             overrides?: Record<string, unknown>,
         ) => Promise<boolean>;
-    };
-}
-
-async function getFourthWallImageModule(): Promise<{
-    generateImage: (tags: string, onProgress?: (status: string, position?: number, delay?: number) => void) => Promise<string>;
-}> {
-    return await import('../fourth-wall/fw-image.js') as unknown as {
-        generateImage: (tags: string, onProgress?: (status: string, position?: number, delay?: number) => void) => Promise<string>;
     };
 }
 
@@ -617,6 +627,8 @@ async function handleDrawGenerate(payload: Record<string, unknown> = {}): Promis
 
 async function handleInlineImageGenerate(payload: Record<string, unknown> = {}): Promise<void> {
     const requestId = String(payload.requestId || '');
+    const controller = new AbortController();
+    if (requestId) {pendingInlineImageRequests.set(requestId, controller);}
     const source = payload.payload && typeof payload.payload === 'object'
         ? payload.payload as Record<string, unknown>
         : payload;
@@ -627,22 +639,92 @@ async function handleInlineImageGenerate(payload: Record<string, unknown> = {}):
         if (!status.enabled || !status.ready) {
             throw new Error('请开启小白X画图模块');
         }
-        const { generateImage } = await getFourthWallImageModule();
-        const base64 = await generateImage(tags, (state, position, delay) => {
-            postToFrame('xb-tavern:inline-image-progress', {
-                requestId,
-                tags,
-                status: state,
-                position,
-                delay: delay ? Math.round(delay / 1000) : undefined,
-            });
+        const generateSharedImage = window.xiaobaixDraw?.generateSharedImage;
+        if (typeof generateSharedImage !== 'function') {throw new Error('画图共享运行时未初始化');}
+        const base64 = await generateSharedImage({
+            prompt: tags,
+            cacheNamespace: 'tavern',
+            signal: controller.signal,
+            onProgress: (state: string, ahead?: number, delay?: number) => {
+                postToFrame('xb-tavern:inline-image-progress', {
+                    requestId,
+                    tags,
+                    status: state,
+                    ahead,
+                    delay: delay ? Math.round(delay / 1000) : undefined,
+                });
+            },
         });
         replyHostResult(requestId, {
             ok: true,
             result: { base64 },
         });
     } catch (error) {
-        replyHostResult(requestId, hostErrorPayload(error, 'inline_image_failed'));
+        if (!controller.signal.aborted) {
+            replyHostResult(requestId, hostErrorPayload(error, 'inline_image_failed'));
+        }
+    } finally {
+        if (requestId) {pendingInlineImageRequests.delete(requestId);}
+    }
+}
+
+function settleVoiceRequest(requestId: string, payload: Record<string, unknown>): void {
+    if (!pendingVoiceRequests.has(requestId)) {return;}
+    pendingVoiceRequests.delete(requestId);
+    if (activeVoiceRequestId === requestId) {activeVoiceRequestId = '';}
+    replyHostResult(requestId, payload);
+}
+
+function stopVoiceRequest(requestId: string, notify = true): void {
+    const request = pendingVoiceRequests.get(requestId);
+    if (!request) {return;}
+    pendingVoiceRequests.delete(requestId);
+    if (activeVoiceRequestId === requestId) {activeVoiceRequestId = '';}
+    request.stop();
+    if (notify) {replyHostResult(requestId, { ok: true, state: 'stopped' });}
+}
+
+async function handleVoicePlay(payload: Record<string, unknown> = {}): Promise<void> {
+    const requestId = String(payload.requestId || '').trim();
+    const text = String(payload.text || '').trim();
+    const emotion = String(payload.emotion || '').trim();
+    try {
+        if (!requestId) {throw new Error('语音请求缺少标识');}
+        if (!text) {throw new Error('语音内容为空');}
+        if (activeVoiceRequestId) {stopVoiceRequest(activeVoiceRequestId);}
+        activeVoiceRequestId = requestId;
+        pendingVoiceRequests.set(requestId, { stop: () => {} });
+        const playTransient = window.xiaobaixTts?.playTransient;
+        if (typeof playTransient !== 'function') {throw new Error('请先启用 TTS 模块');}
+        if (!pendingVoiceRequests.has(requestId)) {return;}
+        const handle = playTransient(text, emotion, {
+            requestId,
+            onState: (state, info = {}) => {
+                postToFrame('xb-tavern:voice-progress', {
+                    requestId,
+                    status: state,
+                    duration: info.duration,
+                    message: info.message,
+                });
+                if (state === 'ended') {
+                    settleVoiceRequest(requestId, { ok: true, state });
+                } else if (state === 'stopped') {
+                    settleVoiceRequest(requestId, { ok: true, state });
+                } else if (state === 'error') {
+                    settleVoiceRequest(requestId, {
+                        ok: false,
+                        error: info.message || '语音播放失败',
+                    });
+                }
+            },
+        });
+        if (pendingVoiceRequests.has(requestId)) {pendingVoiceRequests.set(requestId, handle);}
+    } catch (error) {
+        if (requestId) {
+            pendingVoiceRequests.delete(requestId);
+            if (activeVoiceRequestId === requestId) {activeVoiceRequestId = '';}
+            replyHostResult(requestId, hostErrorPayload(error, 'voice_play_failed'));
+        }
     }
 }
 
@@ -1084,6 +1166,8 @@ function handleCancelRequest(payload: Record<string, unknown> = {}): void {
     const requestId = String(payload.requestId || '').trim();
     if (!requestId) {return;}
     pendingDrawRequests.get(requestId)?.abort();
+    pendingInlineImageRequests.get(requestId)?.abort();
+    stopVoiceRequest(requestId, false);
     cancelTavernNativeChatPrompt(requestId);
 }
 
@@ -1338,7 +1422,17 @@ async function openTavern(): Promise<void> {
     prepareInitialConfig();
 }
 
+function cancelTavernMediaRequests(): void {
+    pendingDrawRequests.forEach(controller => controller.abort());
+    pendingDrawRequests.clear();
+    pendingInlineImageRequests.forEach(controller => controller.abort());
+    pendingInlineImageRequests.clear();
+    Array.from(pendingVoiceRequests.keys()).forEach(requestId => stopVoiceRequest(requestId, false));
+    activeVoiceRequestId = '';
+}
+
 function closeTavern(): void {
+    cancelTavernMediaRequests();
     removeOverlayResizeHandler();
     const overlay = document.getElementById(OVERLAY_ID);
     if (overlay) {overlay.remove();}
@@ -1403,6 +1497,9 @@ function handleFrameMessage(event: MessageEvent): void {
             break;
         case 'xb-tavern:inline-image-generate':
             void handleInlineImageGenerate(data.payload || {});
+            break;
+        case 'xb-tavern:voice-play':
+            void handleVoicePlay(data.payload || {});
             break;
         case 'xb-tavern:draw-image':
             void handleDrawImage(data.payload || {});

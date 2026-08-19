@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue';
 import TavernScrollControls from '../TavernScrollControls.vue';
 import TavernMessageEditPanel from './TavernMessageEditPanel.vue';
+import TavernMessageMarkdown from './TavernMessageMarkdown.vue';
 import TavernDrawCapsule from './TavernDrawCapsule.vue';
 import TavernAssistantBubble from './TavernAssistantBubble.vue';
 import { buildTavernChatTimeline } from './chat-timeline';
@@ -29,7 +30,7 @@ const {
     actionFeedback,
     cancelEditMessage,
     canEditMessage,
-    canRerunMessage,
+    canRerunLatestAssistant,
     canSendMessage,
     chatComposeTextareaRef,
     chatFocus,
@@ -57,8 +58,9 @@ const {
     htmlRenderEnabled,
     messageKey,
     renderChatMarkdown,
-    rerunFromMessage,
+    rerollLatestAssistant,
     revealOlderChatMessages,
+    revealNewerChatMessages,
     roleLabel,
     runtimePendingUserMessage,
     runtimeAssistantMessageKey,
@@ -136,7 +138,7 @@ function renderRoleplayMarkdown(text = '') {
 }
 
 function messageFloorLabel(message: TavernMessageRecord) {
-    return `#${Math.max(1, Number(message.order) + 1)}`;
+    return `#${Math.max(0, Math.floor(Number(message.order) || 0))}`;
 }
 
 const liveAssistantCanRender = computed(() => (
@@ -475,11 +477,11 @@ watch(isMobileActionTrayViewport, (isMobile) => {
                     </button>
                     <button
                       type="button"
-                      :disabled="!canRerunMessage(message)"
+                      :disabled="!canRerunLatestAssistant()"
                       :class="actionFeedback(message, 'rerun')"
                       title="重 roll 最后一轮"
                       aria-label="重 roll 最后一轮"
-                      @click="rerunFromMessage(message)"
+                      @click="rerollLatestAssistant()"
                     >
                       <svg
                         aria-hidden="true"
@@ -548,11 +550,11 @@ watch(isMobileActionTrayViewport, (isMobile) => {
                       </template>
                     </details>
                   </template>
-                  <div
+                  <TavernMessageMarkdown
                     v-if="!isEditingMessage(message)"
-                    class="xb-tavern-markdown"
-                    :data-markdown-signature="markdownSignature(displayMessageContent(message))"
-                    v-html="renderRoleplayMarkdown(displayMessageContent(message))"
+                    :html="renderRoleplayMarkdown(displayMessageContent(message))"
+                    phase="settled"
+                    :signature="roleplayMarkdownSignature(displayMessageContent(message))"
                   />
                 </div>
                 <div
@@ -598,6 +600,18 @@ watch(isMobileActionTrayViewport, (isMobile) => {
                 v-html="renderRoleplayMarkdown(pendingUserRenderState.text)"
               />
             </div>
+          </div>
+          <div
+            v-if="chatMessageWindow.hiddenAfter"
+            class="chat-history-gate chat-history-gate-newer"
+            :data-chat-anchor-key="`gate:newer:${chatMessageWindow.hiddenAfter}`"
+            role="button"
+            tabindex="0"
+            @click="revealNewerChatMessages(true)"
+            @keydown.enter.prevent="revealNewerChatMessages(true)"
+            @keydown.space.prevent="revealNewerChatMessages(true)"
+          >
+            展开较新记录 {{ chatMessageWindow.hiddenAfter }} 条
           </div>
           <p
             v-if="!chatMessages.length && !isRunning"

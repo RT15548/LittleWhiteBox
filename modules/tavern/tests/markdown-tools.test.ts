@@ -382,3 +382,123 @@ test('tavern html iframe height updates ignore zero probes and apply measured he
         host.window = previousWindow;
     }
 });
+
+test('releasing a markdown root cancels iframe relays and height frames before DOM removal', () => {
+    const host = globalThis as Record<string, unknown>;
+    const previousWindow = host.window;
+    const listeners = new Map<string, Array<(event: Record<string, unknown>) => void>>();
+    const timers = new Map<number, () => void>();
+    const frames = new Map<number, () => void>();
+    const iframeMessages: unknown[] = [];
+    let serial = 0;
+
+    const parentWindow = { postMessage() {} };
+    const fakeWindow = {
+        location: { origin: 'https://tavern.local' },
+        parent: parentWindow,
+        addEventListener(type: string, listener: (event: Record<string, unknown>) => void) {
+            const bucket = listeners.get(type) || [];
+            bucket.push(listener);
+            listeners.set(type, bucket);
+        },
+        removeEventListener(type: string, listener: (event: Record<string, unknown>) => void) {
+            const bucket = listeners.get(type) || [];
+            listeners.set(type, bucket.filter((item) => item !== listener));
+        },
+        setTimeout(callback: () => void) {
+            serial += 1;
+            timers.set(serial, callback);
+            return serial;
+        },
+        clearTimeout(id: number) {
+            timers.delete(id);
+        },
+        requestAnimationFrame(callback: () => void) {
+            serial += 1;
+            frames.set(serial, callback);
+            return serial;
+        },
+        cancelAnimationFrame(id: number) {
+            frames.delete(id);
+        },
+    };
+    const innerWindow = {
+        postMessage(payload: unknown) {
+            iframeMessages.push(payload);
+        },
+    };
+    const iframe = {
+        contentWindow: innerWindow,
+        isConnected: true,
+        style: { height: '' },
+    };
+    const root = {
+        querySelectorAll(selector: string) {
+            if (selector === '.xb-tavern-inline-image') {return [];}
+            assert.equal(selector, 'iframe.xb-tavern-html-iframe');
+            return [iframe];
+        },
+    };
+
+    host.window = fakeWindow;
+    try {
+        const tools = useTavernMarkdownTools({
+            chatScrollRef: makeRef(root as unknown as HTMLElement | null),
+            managerScrollRef: makeRef<HTMLElement | null>(null),
+            htmlRenderEnabled: makeRef(true),
+            htmlThemeDark: makeRef(true),
+            alertDialog: async () => {},
+            confirmDialog: async () => true,
+            requestHost: async () => ({}),
+        });
+        const dispatchMessage = (event: Record<string, unknown>) => {
+            for (const listener of listeners.get('message') || []) {
+                listener(event);
+            }
+        };
+
+        dispatchMessage({
+            source: innerWindow,
+            origin: 'https://preview.example',
+            data: { type: 'generateRequest', id: 'released-relay', options: {} },
+        });
+        dispatchMessage({
+            source: innerWindow,
+            origin: 'https://preview.example',
+            data: { height: 88, force: true },
+        });
+        assert.equal(timers.size, 1);
+        assert.equal(frames.size, 1);
+
+        tools.releaseMarkdownRootResources(root as unknown as HTMLElement);
+
+        assert.equal(timers.size, 0);
+        assert.equal(frames.size, 0);
+        dispatchMessage({
+            source: parentWindow,
+            origin: 'https://tavern.local',
+            data: {
+                source: 'xiaobaix-host',
+                type: 'generateResult',
+                id: 'released-relay',
+                text: 'late',
+            },
+        });
+        dispatchMessage({
+            source: innerWindow,
+            origin: 'https://preview.example',
+            data: { height: 120, force: true },
+        });
+        assert.deepEqual(iframeMessages, []);
+        assert.equal(frames.size, 0);
+        assert.equal(iframe.style.height, '');
+
+        tools.disposeMarkdownTools();
+    } finally {
+        if (previousWindow === undefined) {
+            delete host.window;
+        } else {
+            host.window = previousWindow;
+        }
+    }
+});

@@ -106,26 +106,6 @@
     margin-top: 0.25em;
 }
 
-.xb-tavern-stream-fade .xb-tavern-stream-segment {
-    animation: xb-tavern-stream-fade-in 300ms ease-in-out both;
-}
-
-@keyframes xb-tavern-stream-fade-in {
-    from {
-        opacity: 0;
-    }
-
-    to {
-        opacity: 1;
-    }
-}
-
-@media (prefers-reduced-motion: reduce) {
-    .xb-tavern-stream-fade .xb-tavern-stream-segment {
-        animation: none;
-    }
-}
-
 .xb-tavern-markdown li {
     font-size: inherit;
     line-height: inherit;

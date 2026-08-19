@@ -7,7 +7,14 @@ import type {
     XbTavernAuthorNote,
     TavernChatPromptPresetBundle,
 } from '../../shared/message-assembler';
-import type { ManagerChatDisplayItem } from '../manager-tool-display';
+import type {
+    TavernAssistantChatMessageUnit,
+    TavernAssistantChatUnit,
+} from '../features/assistant-chat/assistant-chat-projection';
+import type {
+    TavernAssistantChatLiveDraft,
+    TavernAssistantChatLiveToolRound,
+} from '../features/assistant-chat/useTavernAssistantChatLiveController';
 import type {
     TavernSessionContract,
 } from '../../shared/session-contract';
@@ -16,7 +23,6 @@ import type {
 } from '../../shared/runtime-events';
 import type {
     TavernAssistantPresetRecord,
-    TavernManagerMessageRecord,
     TavernManagerRunRecord,
     TavernMemoryFileListEntry,
     TavernMemoryFileRecord,
@@ -25,13 +31,50 @@ import type {
     TavernSessionRecord,
     TavernStructuredStateDocumentRecord,
     TavernStructuredStatePatchRecord,
-    TavernTaskRecord,
+    TavernCommunicationContactRecord,
+    TavernCommunicationMessageRecord,
+    TavernCommunicationThreadRecord,
 } from '../../shared/session-db';
 import type { TavernDisplaySettings, TavernUserOption } from '../../shared/settings';
 import type { TavernCharacterArchiveProgress } from '../../shared/character-archive-types';
-import type { TavernMapStateDocumentItem } from '../../shared/structured-state';
+import type {
+    TavernEconomyTransactionCursor,
+    TavernEconomyTransactionRecord,
+} from '../../shared/economy/economy-types';
+import type { TavernMapStateDocumentItem, TavernStructuredStatePatchDisplay } from '../../shared/structured-state';
 import type { TavernStatusFieldDeltaMap } from '../../shared/status-state';
 import type { TavernDrawContext } from '../features/draw/useTavernDrawController';
+import type {
+    TavernPhoneAppDefinition,
+    TavernPhoneOsRoute,
+    TavernPhonePresentationMode,
+} from '../features/phone-os/phone-os-types';
+import type {
+    TavernMessageImageState,
+    TavernMessageVoiceState,
+} from '../features/phone-os/apps/messages/tavern-message-media';
+import type { TavernTaskPublishDraft } from '../features/phone-os/apps/tasks/useTavernTasksController';
+import type {
+    TavernTaskBoardRecord,
+    TavernTaskCandidate,
+    TavernTaskListing,
+    TavernTaskVersionRecord,
+} from '../../shared/tasks/task-types';
+import type {
+    TavernShopActivation,
+    TavernShopItem,
+    TavernShopStateVersionRecord,
+} from '../../shared/shop/shop-types';
+import type {
+    TavernShopActionIntent,
+} from '../features/phone-os/apps/shop/useTavernShopController';
+import type {
+    TavernShopActivationRow,
+    TavernShopInventoryRow,
+    TavernShopShelfRow,
+} from '../features/phone-os/apps/shop/tavern-shop-presentation';
+import type { useTavernBankController } from '../features/phone-os/apps/bank/useTavernBankController';
+import type { useTavernPetController } from '../features/phone-os/apps/pet/useTavernPetController';
 export type { TavernDisplaySettings, TavernUserOption } from '../../shared/settings';
 
 export type TavernReadable<T> = Ref<T> | ComputedRef<T>;
@@ -285,7 +328,14 @@ export interface TavernMemoryDirectoryGroup {
 export interface TavernMessageWindowState {
     startIndex: number;
     hiddenBefore: number;
+    hiddenAfter: number;
     visibleCount: number;
+}
+
+export interface TavernPendingAssistantUserMessage {
+    sessionId: string;
+    content: string;
+    createdAt: number;
 }
 
 export type { TavernDrawQuickSettings } from '../features/draw/useTavernDrawController';
@@ -295,11 +345,14 @@ export interface TavernManagerCompactionOverlay {
     resolved?: boolean;
     status?: string;
     currentTokens?: number;
+    fixedTokens?: number;
+    historyTokens?: number;
     triggerTokens?: number;
     yieldTokens?: number;
 }
 
 export interface TavernManagerToolTraceItem {
+    displayKey: string;
     id: string;
     round: number;
     name: string;
@@ -331,7 +384,7 @@ export interface TavernChatContext {
     actionFeedback: TavernCommand<[message: TavernMessageRecord, action: string], string>;
     cancelEditMessage: TavernCommand;
     canEditMessage: TavernCommand<[message: TavernMessageRecord], boolean>;
-    canRerunMessage: TavernCommand<[message: TavernMessageRecord], boolean>;
+    canRerunLatestAssistant: TavernCommand<[], boolean>;
     canSendMessage: TavernReadable<boolean>;
     currentAuthorNote: TavernReadable<XbTavernAuthorNote>;
     chatAutoScroll: Ref<boolean>;
@@ -348,11 +401,11 @@ export interface TavernChatContext {
     displayMessageContent: TavernCommand<[message: TavernMessageRecord], string>;
     displayMessageRenderProjection: TavernCommand<[message: TavernMessageRecord], { text: string; actionCheckEvents: TavernActionCheckRuntimeEvent[] }>;
     displayMessageThoughtBlocks: TavernCommand<[message: TavernMessageRecord], Array<{ label?: string; text?: string }>>;
-    displayRuntimeContent: TavernCommand<[text?: string], string>;
-    displayRuntimeRenderProjection: TavernCommand<[text?: string, events?: TavernActionCheckRuntimeEvent[]], { text: string; actionCheckEvents: TavernActionCheckRuntimeEvent[] }>;
-    displayRuntimeThoughtBlocks: TavernCommand<[thoughts?: Array<{ label?: string; text?: string }>], Array<{ label?: string; text?: string }>>;
+    displayRuntimeRenderProjection: TavernCommand<[], { text: string; actionCheckEvents: TavernActionCheckRuntimeEvent[] }>;
+    displayRuntimeThoughtBlocks: TavernCommand<[], Array<{ label?: string; text?: string }>>;
     displayCharacterName: TavernReadable<string>;
     displayUserName: TavernReadable<string>;
+    enhanceMarkdownRoot: TavernCommand<[root: HTMLElement, options?: { live?: boolean }]>;
     formatMessageTime: TavernCommand<[value: unknown], string>;
     handleChatScroll: TavernCommand;
     handleChatSubmit: TavernCommand;
@@ -369,18 +422,18 @@ export interface TavernChatContext {
     messageKey: TavernCommand<[message: TavernMessageRecord], string>;
     normalizeTavernSessionState: TavernCommand<[value?: unknown], { turn?: number }>;
     renderChatMarkdown: TavernCommand<[text?: string, options?: { roleplay?: boolean; userName?: string; characterName?: string }], string>;
-    rerunFromMessage: TavernCommand<[message: TavernMessageRecord], Promise<void>>;
+    renderUncachedMarkdown: TavernCommand<[text?: string, options?: { roleplay?: boolean; userName?: string; characterName?: string }], string>;
+    rerollLatestAssistant: TavernCommand<[], Promise<void>>;
     revealOlderChatMessages: TavernCommand<[force?: boolean], boolean>;
+    revealNewerChatMessages: TavernCommand<[force?: boolean], boolean>;
     roleLabel: TavernCommand<[role?: string], string>;
-    runtimeActionCheckEvents: Ref<TavernActionCheckRuntimeEvent[]>;
     runtimePendingUserMessage: Ref<string>;
     runtimeStatusElapsedSeconds: Ref<number>;
     runtimeStatusLabel: Ref<string>;
     runtimeStatusStartedAt: Ref<number>;
-    runtimeText: Ref<string>;
-    runtimeThoughts: Ref<Array<{ label?: string; text?: string }>>;
     runtimeAssistantMessageKey: Ref<string>;
     runtimeUserMessageVisible: Ref<boolean>;
+    releaseMarkdownRootResources: TavernCommand<[root: HTMLElement]>;
     saveEditMessage: TavernCommand<[message: TavernMessageRecord, options?: { rollbackState?: boolean; content?: string }], Promise<void>>;
     jumpChatToBottom: TavernCommand<[options?: { collapseWindow?: boolean; revealHelpers?: boolean }]>;
     scrollChatToTop: TavernCommand;
@@ -395,15 +448,190 @@ export interface TavernChatContext {
     visibleUserAvatar: TavernReadable<string>;
 }
 
+export interface TavernMessagesContext {
+    activeContact: TavernReadable<TavernCommunicationContactRecord | null>;
+    activeContactId: Ref<string>;
+    activeThread: TavernReadable<TavernCommunicationThreadRecord | null>;
+    activeThreadId: Ref<string>;
+    canSend: TavernReadable<boolean>;
+    contacts: Ref<TavernCommunicationContactRecord[]>;
+    conversationSending: TavernReadable<boolean>;
+    draft: Ref<string>;
+    draftsByThread: Ref<Record<string, string>>;
+    filteredContactIds: TavernReadable<string[]>;
+    imageStates: Ref<Record<string, TavernMessageImageState>>;
+    isSending: Ref<boolean>;
+    markActiveThreadRead: TavernCommand<[threadId?: string], Promise<void>>;
+    messages: Ref<TavernCommunicationMessageRecord[]>;
+    openContact: TavernCommand<[contactId: string], Promise<boolean | undefined>>;
+    prepareMessages: TavernCommand<[], Promise<void>>;
+    refreshPhone: TavernCommand<[], Promise<void>>;
+    retryReplyRequest: TavernCommand<[], Promise<void>>;
+    retryImageAsset: TavernCommand<[message: TavernCommunicationMessageRecord], Promise<void>>;
+    cancelImageAsset: TavernCommand<[message: TavernCommunicationMessageRecord], void>;
+    releaseImageAsset: TavernCommand<[message: TavernCommunicationMessageRecord], void>;
+    searchQuery: Ref<string>;
+    sendBlockedReason: TavernReadable<string>;
+    sendMessage: TavernCommand<[contentOverride?: string], Promise<void>>;
+    sendingSessionId: Ref<string>;
+    status: Ref<string>;
+    threadPreviews: Ref<Record<string, TavernCommunicationMessageRecord | null>>;
+    threadSearchText: Ref<Record<string, string>>;
+    threads: Ref<TavernCommunicationThreadRecord[]>;
+    unreadTotal: TavernReadable<number>;
+    ensureImageAsset: TavernCommand<[message: TavernCommunicationMessageRecord, force?: boolean], Promise<void>>;
+    toggleVoicePlayback: TavernCommand<[message: TavernCommunicationMessageRecord], Promise<void>>;
+    voiceStates: Ref<Record<string, TavernMessageVoiceState>>;
+}
+
+export interface TavernPhoneOsContext {
+    activeApp: TavernReadable<TavernPhoneAppDefinition | null>;
+    activeRoute: TavernReadable<TavernPhoneOsRoute>;
+    apps: TavernReadable<TavernPhoneAppDefinition[]>;
+    back: TavernCommand;
+    backOrClose: TavernCommand;
+    closePhone: TavernCommand;
+    home: TavernCommand;
+    isAppRouteVisible: TavernCommand<[sessionId?: string, appId?: string, pathPrefix?: string], boolean>;
+    isHome: TavernReadable<boolean>;
+    isOpen: Ref<boolean>;
+    launchApp: TavernCommand<[appId?: string]>;
+    openPhone: TavernCommand;
+    presentationMode: Ref<TavernPhonePresentationMode>;
+    pushAppRoute: TavernCommand<[appId?: string, path?: string, params?: Record<string, string>]>;
+    replaceAppRoute: TavernCommand<[appId?: string, path?: string, params?: Record<string, string>]>;
+    routeStack: Ref<TavernPhoneOsRoute[]>;
+    transitionDirection: Ref<'forward' | 'back' | 'home'>;
+}
+
+export interface TavernWalletContext {
+    balance: Ref<number>;
+    balanceError: Ref<string>;
+    balanceLoading: Ref<boolean>;
+    balanceReady: Ref<boolean>;
+    error: Ref<string>;
+    hasMore: TavernReadable<boolean>;
+    ledgerLoading: Ref<boolean>;
+    loadMore: TavernCommand<[], Promise<void>>;
+    loadMoreError: Ref<string>;
+    loadingMore: Ref<boolean>;
+    nextCursor: Ref<TavernEconomyTransactionCursor | null>;
+    prepareWallet: TavernCommand<[], Promise<void>>;
+    refreshBalance: TavernCommand<[], Promise<void>>;
+    refreshAfterEconomyDomainChange: TavernCommand<[], Promise<void>>;
+    refreshWallet: TavernCommand<[], Promise<void>>;
+    transactions: Ref<TavernEconomyTransactionRecord[]>;
+}
+
+export interface TavernTasksContext {
+    acceptListing: TavernCommand<[listing: TavernTaskListing], Promise<TavernTaskVersionRecord | null>>;
+    actionError: Ref<string>;
+    actionKey: Ref<string>;
+    activeTasks: TavernReadable<TavernTaskVersionRecord[]>;
+    board: Ref<TavernTaskBoardRecord | null>;
+    boardError: Ref<string>;
+    boardRefreshing: Ref<boolean>;
+    cancelTransientRequests: TavernCommand;
+    candidateError: Ref<string>;
+    candidateTaskId: Ref<string>;
+    dataError: Ref<string>;
+    dataLoading: Ref<boolean>;
+    detailError: Ref<string>;
+    detailLoading: Ref<boolean>;
+    detailResolved: Ref<boolean>;
+    historyError: Ref<string>;
+    historyHasMore: Ref<boolean>;
+    historyLoadingMore: Ref<boolean>;
+    historyTasks: TavernReadable<TavernTaskVersionRecord[]>;
+    interactionBlockedReason: TavernReadable<string>;
+    isListingAccepted: TavernCommand<[listing: TavernTaskListing], boolean>;
+    loadMoreTaskTimeline: TavernCommand<[], Promise<void>>;
+    loadMoreHistory: TavernCommand<[], Promise<void>>;
+    loadTaskDetail: TavernCommand<[taskId?: string, reset?: boolean], Promise<void>>;
+    prepareTasks: TavernCommand<[], Promise<void>>;
+    publishDraft: Ref<TavernTaskPublishDraft>;
+    publishDraftTask: TavernCommand<[], Promise<TavernTaskVersionRecord | null>>;
+    publishedTasks: TavernReadable<TavernTaskVersionRecord[]>;
+    recruitTaskCandidates: TavernCommand<[task: TavernTaskVersionRecord], Promise<TavernTaskVersionRecord | null>>;
+    refreshTaskBoard: TavernCommand<[], Promise<void>>;
+    refreshAfterTaskDomainChange: TavernCommand<[], Promise<void>>;
+    refreshTaskData: TavernCommand<[], Promise<void>>;
+    selectedTask: Ref<TavernTaskVersionRecord | null>;
+    selectCandidate: TavernCommand<[
+        task: TavernTaskVersionRecord,
+        candidate: TavernTaskCandidate,
+    ], Promise<TavernTaskVersionRecord | null>>;
+    taskById: TavernCommand<[taskId?: string], TavernTaskVersionRecord | null>;
+    tasks: Ref<TavernTaskVersionRecord[]>;
+    taskTimeline: Ref<TavernTaskVersionRecord[]>;
+    timelineError: Ref<string>;
+    timelineHasMore: Ref<boolean>;
+    timelineLoading: Ref<boolean>;
+    timelineLoadingMore: Ref<boolean>;
+    withdrawTask: TavernCommand<[task: TavernTaskVersionRecord], Promise<TavernTaskVersionRecord | null>>;
+}
+
+export interface TavernShopContext {
+    actionError: Ref<string>;
+    activeItems: TavernReadable<TavernShopActivationRow[]>;
+    activate: TavernCommand<[intent: TavernShopActionIntent, parameters: Record<string, unknown>], Promise<unknown>>;
+    activationBlockedReason: TavernCommand<[], string>;
+    busyAction: Ref<string>;
+    currentTurn: Ref<number>;
+    currentVersion: Ref<TavernShopStateVersionRecord | null>;
+    deactivate: TavernCommand<[intent: TavernShopActionIntent], Promise<unknown>>;
+    exhaustedItems: TavernReadable<TavernShopInventoryRow[]>;
+    heldItems: TavernReadable<TavernShopInventoryRow[]>;
+    interactionBlockedReason: TavernReadable<string>;
+    knownTargetNames: TavernReadable<string[]>;
+    loadError: Ref<string>;
+    loading: Ref<boolean>;
+    prepareActivation: TavernCommand<[item: TavernShopItem], Promise<TavernShopActionIntent | null>>;
+    prepareDeactivation: TavernCommand<[
+        item: TavernShopItem,
+        activation: TavernShopActivation,
+    ], Promise<TavernShopActionIntent | null>>;
+    preparePurchase: TavernCommand<[item: TavernShopItem], Promise<TavernShopActionIntent | null>>;
+    prepareShop: TavernCommand<[], Promise<void>>;
+    purchase: TavernCommand<[intent: TavernShopActionIntent], Promise<unknown>>;
+    purchaseBlockedReason: TavernCommand<[item: TavernShopItem], string>;
+    refreshAfterShopDomainChange: TavernCommand<[], Promise<void>>;
+    refreshShop: TavernCommand<[], Promise<void>>;
+    shelfItems: TavernReadable<TavernShopShelfRow[]>;
+    status: Ref<string>;
+}
+
+export type TavernBankContext = ReturnType<typeof useTavernBankController>;
+export type TavernPetContext = ReturnType<typeof useTavernPetController>;
+
+export interface TavernPhoneContext {
+    bank: TavernBankContext;
+    isConversationVisible: TavernCommand<[sessionId?: string, threadId?: string], boolean>;
+    messages: TavernMessagesContext;
+    openContact: TavernCommand<[contactId: string], Promise<void>>;
+    openPhone: TavernCommand<[], Promise<void>>;
+    openWallet: TavernCommand;
+    os: TavernPhoneOsContext;
+    pet: TavernPetContext;
+    showMessageThreads: TavernCommand;
+    shop: TavernShopContext;
+    tasks: TavernTasksContext;
+    wallet: TavernWalletContext;
+}
+
 export interface TavernManagerContext {
     activeMemoryFiles: TavernReadable<TavernMemoryIndexFileEntry[]>;
+    assistantChatContextLabel: TavernReadable<string>;
+    assistantChatContextUsage: TavernReadable<number | null>;
+    canClearAssistantChat: TavernReadable<boolean>;
     archivedManagerRuns: TavernReadable<TavernManagerRunRecord[]>;
-    canEditManagerMessage: TavernCommand<[message: TavernManagerMessageRecord], boolean>;
-    canRerunManagerMessage: TavernCommand<[message: TavernManagerMessageRecord], boolean>;
+    canEditManagerMessage: TavernCommand<[message: TavernAssistantChatMessageUnit], boolean>;
+    clearAssistantChatHistory: TavernCommand<[], Promise<void>>;
+    canRerunManagerMessage: TavernCommand<[message: TavernAssistantChatMessageUnit], boolean>;
     canSendManagerMessage: TavernReadable<boolean>;
-    copyManagerMessage: TavernCommand<[message: TavernManagerMessageRecord], Promise<void>>;
+    copyManagerMessage: TavernCommand<[message: TavernAssistantChatMessageUnit], Promise<void>>;
     currentManagerWorkRun: TavernReadable<TavernManagerRunRecord | null>;
-    deleteManagerMessageTurn: TavernCommand<[message: TavernManagerMessageRecord], Promise<void>>;
+    deleteManagerMessageTurn: TavernCommand<[message: TavernAssistantChatMessageUnit], Promise<void>>;
     editingMessageDraft: Ref<string>;
     enhanceManagerMarkdown: TavernCommand;
     formatRunActivityLine: TavernCommand<[run: TavernManagerRunRecord], string>;
@@ -412,58 +640,61 @@ export interface TavernManagerContext {
     formatRunMapLine: TavernCommand<[run: TavernManagerRunRecord], string>;
     formatRunMemoryLine: TavernCommand<[run: TavernManagerRunRecord], string>;
     formatRunModelLine: TavernCommand<[run: TavernManagerRunRecord], string>;
-    formatRunTaskLine: TavernCommand<[run: TavernManagerRunRecord], string>;
     handleManagerComposeKeydown: TavernCommand<[event: KeyboardEvent]>;
+    handleManagerComposeInput: TavernCommand<[event: Event]>;
     handleEditInput: TavernCommand<[event: Event]>;
-    handleManagerEditKeydown: TavernCommand<[event: KeyboardEvent, message: TavernManagerMessageRecord]>;
+    handleManagerEditKeydown: TavernCommand<[event: KeyboardEvent, message: TavernAssistantChatMessageUnit]>;
     handleManagerScroll: TavernCommand;
     handleManagerSubmit: TavernCommand<[], Promise<void>>;
     handleManagerTouchMove: TavernCommand<[event: TouchEvent]>;
     handleManagerTouchStart: TavernCommand<[event: TouchEvent]>;
     handleManagerWheel: TavernCommand<[event: WheelEvent]>;
     hiddenManagerRunCount: TavernReadable<number>;
-    isEditingManagerMessage: TavernCommand<[message: TavernManagerMessageRecord], boolean>;
-    isEditingManagerMessageDirty: TavernCommand<[message: TavernManagerMessageRecord], boolean>;
+    isEditingManagerMessage: TavernCommand<[message: TavernAssistantChatMessageUnit], boolean>;
+    isEditingManagerMessageDirty: TavernCommand<[message: TavernAssistantChatMessageUnit], boolean>;
     isManagerAssistantCancelling: Ref<boolean>;
     isManagerAssistantRunning: Ref<boolean>;
     isManagerRunRetrying: TavernCommand<[run: TavernManagerRunRecord | null | undefined], boolean>;
-    liveManagerChatDisplayItems: TavernReadable<ManagerChatDisplayItem[]>;
-    managerActionFeedback: TavernCommand<[message: TavernManagerMessageRecord, action: string], string>;
+    liveManagerAssistantDraft: TavernReadable<TavernAssistantChatLiveDraft | null>;
+    liveManagerToolRound: TavernReadable<TavernAssistantChatLiveToolRound | null>;
+    loadManagerMessageThoughts: TavernCommand<[message: TavernAssistantChatMessageUnit], Promise<Array<{ label?: string; text: string }>>>;
+    managerActionFeedback: TavernCommand<[message: TavernAssistantChatMessageUnit, action: string], string>;
     managerAutoScroll: Ref<boolean>;
     managerBusy: TavernReadable<boolean>;
     managerCompactionOverlay: Ref<TavernManagerCompactionOverlay | null>;
     managerComposeTextareaRef: Ref<HTMLTextAreaElement | null>;
+    managerChatHasMore: Ref<boolean>;
+    managerChatHasNewer: Ref<boolean>;
     managerInputDraft: Ref<string>;
     managerInputStatus: Ref<string>;
-    managerMessageWindow: TavernReadable<TavernMessageWindowState>;
-    managerPendingUserMessage: TavernReadable<TavernManagerMessageRecord | null>;
+    managerPendingUserMessage: TavernReadable<TavernPendingAssistantUserMessage | null>;
     managerRuns: Ref<TavernManagerRunRecord[]>;
+    managerRunDisplayStatus: TavernCommand<[run: TavernManagerRunRecord], string>;
     managerRunTone: TavernCommand<[runOrStatus: TavernManagerRunRecord | string], string>;
     managerScrollControlsActive: Ref<boolean>;
     managerScrollRef: Ref<HTMLElement | null>;
     managerWorkRef: Ref<HTMLElement | null>;
-    managerStatusLabel: TavernCommand<[status?: string], string>;
-    managerToolStatusLabel: TavernCommand<[item: { status?: string; ok?: boolean }], string>;
-    managerToolTone: TavernCommand<[item: { status?: string; ok?: boolean }], string>;
+    managerStatusLabel: TavernCommand<[runOrStatus?: TavernManagerRunRecord | string], string>;
+    managerToolStatusLabel: TavernCommand<[item: { status?: string; ok?: boolean }, run?: TavernManagerRunRecord], string>;
+    managerToolTone: TavernCommand<[item: { status?: string; ok?: boolean }, run?: TavernManagerRunRecord], string>;
     managerToolTraceItems: TavernCommand<[value: unknown], TavernManagerToolTraceItem[]>;
-    managerToolTurnPreview: TavernCommand<[item: ManagerChatDisplayItem], string>;
-    managerToolTurnSummary: TavernCommand<[item: ManagerChatDisplayItem], string>;
     memoryFileDisplayName: TavernCommand<[fileOrPath?: TavernMemoryFileListEntry | TavernMemoryFileRecord | string | null], string>;
     memoryFiles: Ref<TavernMemoryIndexFileEntry[]>;
     memoryIndexStatusLine: TavernReadable<string>;
     retryManagerRun: TavernCommand<[run: TavernManagerRunRecord], Promise<void>>;
-    revealOlderManagerMessages: TavernCommand<[force?: boolean], boolean>;
-    rerunFromManagerMessage: TavernCommand<[message: TavernManagerMessageRecord], Promise<void>>;
-    saveEditManagerMessage: TavernCommand<[message: TavernManagerMessageRecord, options?: { rerun?: boolean }], Promise<void>>;
+    revealOlderManagerMessages: TavernCommand<[], Promise<void>>;
+    revealNewerManagerMessages: TavernCommand<[], Promise<void>>;
+    rerunFromManagerMessage: TavernCommand<[message: TavernAssistantChatMessageUnit], Promise<void>>;
+    saveEditManagerMessage: TavernCommand<[message: TavernAssistantChatMessageUnit, options?: { rerun?: boolean }], Promise<void>>;
     scrollManagerToBottom: TavernCommand<[force?: boolean, options?: { collapseWindow?: boolean; revealHelpers?: boolean }]>;
     scrollManagerToTop: TavernCommand;
     selectedMemoryFile: TavernReadable<TavernMemoryFileRecord | null>;
     showManagerScrollBottom: Ref<boolean>;
     showManagerScrollTop: Ref<boolean>;
-    startEditManagerMessage: TavernCommand<[message: TavernManagerMessageRecord]>;
-    toolTraceSummary: TavernCommand<[value: unknown], string>;
+    startEditManagerMessage: TavernCommand<[message: TavernAssistantChatMessageUnit]>;
+    toolTraceSummary: TavernCommand<[value: unknown, run?: TavernManagerRunRecord], string>;
     updateManagerScrollButtons: TavernCommand;
-    visibleManagerChatItems: TavernReadable<ManagerChatDisplayItem[]>;
+    visibleManagerChatItems: TavernReadable<TavernAssistantChatUnit[]>;
 }
 
 export interface TavernMemoryContext {
@@ -497,31 +728,30 @@ export interface TavernMemoryContext {
     selectedMemoryFile: TavernReadable<TavernMemoryFileRecord | null>;
     selectedMemoryFilePath: Ref<string>;
     selectMemoryFile: TavernCommand<[path?: string], Promise<boolean>>;
-    stateMemoryFile: Ref<TavernMemoryFileRecord | null>;
 }
 
-export type TavernChatWorkspacePanelKey = 'map' | 'status' | 'memory' | 'event';
+export type TavernChatWorkspacePanelKey = 'map' | 'status' | 'memory';
 
 export interface TavernWorkspaceContext {
     activeMemoryFiles: TavernReadable<TavernMemoryIndexFileEntry[]>;
     activeMapDocId: Ref<string>;
     atlasActiveLocationKey: Ref<string>;
     atlasStateDocument: Ref<TavernStructuredStateDocumentRecord | null>;
-    atlasStatePatches: Ref<TavernStructuredStatePatchRecord[]>;
+    atlasLatestPatchSummary: Ref<string>;
     chatWorkspacePanel: Ref<TavernChatWorkspacePanelKey>;
     displayUserName: TavernReadable<string>;
     mapStateDocuments: Ref<TavernMapStateDocumentItem[]>;
     mapStateDocument: Ref<TavernStructuredStateDocumentRecord | null>;
-    mapStatePatches: Ref<TavernStructuredStatePatchRecord[]>;
+    mapStatePatches: Ref<TavernStructuredStatePatchDisplay[]>;
+    mapStatePatchCount: Ref<number>;
+    mapStateTimelineAvailable: Ref<boolean>;
+    loadMapTimelinePatches: TavernCommand<[sessionId: string, docId: string], Promise<TavernStructuredStatePatchRecord[]>>;
     materialSymbolFontReady: TavernReadable<boolean>;
     materialSymbolFontStatus: TavernReadable<'idle' | 'loading' | 'ready' | 'failed'>;
     statusFieldDeltas: Ref<TavernStatusFieldDeltaMap>;
     statusStateDocument: Ref<TavernStructuredStateDocumentRecord | null>;
-    statusStatePatches: Ref<TavernStructuredStatePatchRecord[]>;
     saveSessionContract: TavernCommand<[nextContract?: Partial<TavernSessionContract>], Promise<TavernSessionRecord | null>>;
     sessionContract: TavernReadable<TavernSessionContract>;
-    stateMemoryFile: Ref<TavernMemoryFileRecord | null>;
-    tavernTasks: Ref<TavernTaskRecord[]>;
     visibleUserAvatar: TavernReadable<string>;
 }
 
@@ -671,6 +901,7 @@ export interface TavernAppUiContext {
     session: TavernSessionContext;
     draw: TavernDrawContext;
     chat: TavernChatContext;
+    phone: TavernPhoneContext;
     manager: TavernManagerContext;
     memory: TavernMemoryContext;
     workspace: TavernWorkspaceContext;
@@ -705,6 +936,10 @@ export function useTavernDrawContext(): TavernDrawContext {
 
 export function useTavernChatContext(): TavernChatContext {
     return useTavernAppUiContext().chat;
+}
+
+export function useTavernPhoneContext(): TavernPhoneContext {
+    return useTavernAppUiContext().phone;
 }
 
 export function useTavernManagerContext(): TavernManagerContext {

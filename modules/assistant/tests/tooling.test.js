@@ -7,6 +7,7 @@ import {
     LOOKUP_SCOPE_PROJECT,
     assertLookupScopePath,
     assertLookupScopePattern,
+    filterLookupFilesByPath,
     isLocalLookupTarget,
     normalizeLookupScope,
 } from '../shared/lookup-scope.js';
@@ -119,6 +120,15 @@ test('lookup scope helpers enforce strict project vs local paths', () => {
     assert.throws(() => assertLookupScopePath('scripts/app.js', LOOKUP_SCOPE_LOCAL), /workspace_scope_local_only/);
     assert.throws(() => assertLookupScopePattern('scripts/**/*.js', LOOKUP_SCOPE_LOCAL), /workspace_scope_local_only/);
     assert.throws(() => normalizeLookupScope('all'), /invalid_lookup_scope/);
+});
+
+test('lookup file scope accepts either a directory or an exact indexed file path', () => {
+    const manager = { publicPath: 'scripts/extensions/third-party/LittleWhiteBox/modules/tavern/app-src/runtime/manager.ts' };
+    const runner = { publicPath: 'scripts/extensions/third-party/LittleWhiteBox/modules/tavern/app-src/runtime/run-once.ts' };
+    const files = [manager, runner];
+
+    assert.deepEqual(filterLookupFilesByPath(files, manager.publicPath), [manager]);
+    assert.deepEqual(filterLookupFilesByPath(files, 'scripts/extensions/third-party/LittleWhiteBox/modules/tavern/app-src/runtime'), files);
 });
 
 test('formatToolResultDisplay shows matchesFound while grep search is incomplete', () => {

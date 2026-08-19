@@ -4,6 +4,7 @@ import type { TavernApplyRegex } from '../../../shared/regex';
 import type { TavernActionCheckRuntimeEvent } from '../../../shared/runtime-events';
 import {
     normalizeTavernSessionState,
+    type TavernManagerRunRecord,
     type TavernMessageRecord,
     type TavernSessionRecord,
 } from '../../../shared/session-db';
@@ -19,10 +20,11 @@ import {
     type TavernBuildNativeChatPromptRuntime,
     type TavernRunStreamSnapshot,
 } from '../../runtime/run-once';
+import type { TavernManagerLiveProgress } from '../../runtime/manager';
 
 export interface TavernChatRunOptions {
     messageText?: string;
-    reuseUserMessageOrder?: number;
+    rerollLatestAssistant?: boolean;
     rerollRuntimeEvents?: boolean;
 }
 
@@ -71,15 +73,16 @@ export interface TavernChatRunControllerOptions {
     persistSelectedSessionId: (sessionId: string) => Promise<unknown>;
     prepareAssistantMessageDisplay: (message: TavernMessageRecord) => Promise<void>;
     pruneLoadedSessionMessagesFromOrder: (sessionId?: string, fromOrder?: number) => number;
-    refreshManagerRecords: (sessionId?: string) => Promise<unknown>;
+    onManagerRunSaved: (sessionId: string, run: TavernManagerRunRecord) => void | Promise<void>;
+    onManagerProgress: (progress: TavernManagerLiveProgress) => void;
     refreshRuntimeChatPresetFromHost: () => Promise<TavernChatPromptPresetBundle>;
     refreshSessionRecord: (sessionId: string) => Promise<unknown>;
     preserveDetachedChatScroll: <T>(mutation: () => T) => T;
     requestUserMessageBottom: () => void;
-    resetChatMessageWindowForUserTurn: () => void;
+    resetChatMessageWindowForUserTurn: (options?: { rerollLatestAssistant?: boolean }) => Promise<void>;
     resetTextareaHeight: (element: HTMLTextAreaElement | null) => void;
     resolveRuntimeContextForSession: (sessionId?: string) => Promise<XbTavernContext>;
-    resolveSlashCommandMessageText: (messageText: string, options?: { reuseUserMessageOrder?: number }) => Promise<string>;
+    resolveSlashCommandMessageText: (messageText: string, options?: { rerollLatestAssistant?: boolean }) => Promise<string>;
     setSelectedSessionId: (sessionId: string) => void;
     showToast: (message: string, options?: { tone?: 'info' | 'warning' | 'danger'; durationMs?: number }) => void;
     thoughtBlocks: (messageOrThoughts: unknown) => Array<{ label?: string; text?: string }>;
@@ -246,8 +249,15 @@ export function useTavernChatRunController(options: TavernChatRunControllerOptio
             cancelActiveRun();
             return;
         }
+        const startingSessionId = String(options.selectedSessionId.value || '').trim();
+        const isRerollRun = runOptions.rerollLatestAssistant === true;
         let messageText = String(runOptions.messageText ?? state.currentUserMessage.value ?? '').trim();
-        if (!messageText) {
+        if (isRerollRun && !startingSessionId) {
+            state.runtimeError.value = '当前没有可重 roll 的会话。';
+            options.showToast(state.runtimeError.value, { tone: 'info', durationMs: 2200 });
+            return;
+        }
+        if (!isRerollRun && !messageText) {
             state.runtimeError.value = '先写一句话。';
             options.showToast('先写一句话。', { tone: 'info', durationMs: 1800 });
             return;
@@ -257,62 +267,64 @@ export function useTavernChatRunController(options: TavernChatRunControllerOptio
             options.showToast(options.selectedSessionCharacterError.value, { tone: 'warning', durationMs: 7000 });
             return;
         }
-        try {
-            messageText = await options.resolveSlashCommandMessageText(messageText, runOptions);
-        } catch (error) {
-            const errorText = options.describeError(error);
-            state.runtimeError.value = errorText;
-            options.showToast(`命令执行失败：${errorText}`, { tone: 'warning', durationMs: 5000 });
+        if (!isRerollRun) {
+            try {
+                messageText = await options.resolveSlashCommandMessageText(messageText, runOptions);
+            } catch (error) {
+                const errorText = options.describeError(error);
+                state.runtimeError.value = errorText;
+                options.showToast(`命令执行失败：${errorText}`, { tone: 'warning', durationMs: 5000 });
+                return;
+            }
+        }
+        if (!isRerollRun && !messageText) {
             return;
         }
-        if (!messageText) {
+        if (String(options.selectedSessionId.value || '').trim() !== startingSessionId) {
+            options.showToast('会话已切换，本次发送已取消。', { tone: 'info', durationMs: 2600 });
             return;
         }
 
         const controller = new AbortController();
-        activeRunController.value = controller;
-        state.isRunning.value = true;
-        state.isCancellingRun.value = false;
-        state.runtimeError.value = '';
-        cancelPendingRuntimeStreamFrame();
-        pendingRuntimeStreamSnapshot = null;
-        state.runtimeAssistantMessageKey.value = '';
-        state.runtimeText.value = '';
-        state.runtimeThoughts.value = [];
-        state.runtimeActionCheckEvents.value = [];
-        state.runtimeUserMessageVisible.value = false;
-        state.runtimePendingUserMessage.value = '';
-        state.runtimeProvider.value = '';
-        state.runtimeModel.value = '';
-        setRuntimeStatusLabel('同步状态');
-        const reusedUserMessageOrder = Number(runOptions.reuseUserMessageOrder);
-        const isReusedUserMessageRun = Number.isFinite(reusedUserMessageOrder);
-        options.resetChatMessageWindowForUserTurn();
-        if (isReusedUserMessageRun && options.selectedSessionId.value) {
-            options.cancelDrawJobsForMessageRange(options.selectedSessionId.value, reusedUserMessageOrder + 1);
-            options.pruneLoadedSessionMessagesFromOrder(options.selectedSessionId.value, reusedUserMessageOrder + 1);
-        }
-        options.compactLoadedSessionMessageWindow(isReusedUserMessageRun ? 1 : 2);
-
-        const shouldShowPendingUserMessage = !isReusedUserMessageRun;
-        if (shouldShowPendingUserMessage) {
-            state.runtimePendingUserMessage.value = messageText;
-            state.currentUserMessage.value = '';
-            void nextTick(() => options.resetTextareaHeight(options.chatComposeTextareaRef.value));
-            options.requestUserMessageBottom();
-            options.updateChatScrollButtons();
-        } else {
-            state.runtimeUserMessageVisible.value = true;
-            options.requestUserMessageBottom();
-            options.updateChatScrollButtons();
-        }
-
         let assistantMessageSaved = false;
+        let rerollPreviousAssistantOrder: number | null = null;
+        activeRunController.value = controller;
         try {
+            state.isRunning.value = true;
+            state.isCancellingRun.value = false;
+            state.runtimeError.value = '';
+            cancelPendingRuntimeStreamFrame();
+            pendingRuntimeStreamSnapshot = null;
+            options.clearRuntimeDisplayRegexRequests();
+            state.runtimeAssistantMessageKey.value = '';
+            state.runtimeText.value = '';
+            state.runtimeThoughts.value = [];
+            state.runtimeActionCheckEvents.value = [];
+            state.runtimeUserMessageVisible.value = false;
+            state.runtimePendingUserMessage.value = '';
+            state.runtimeProvider.value = '';
+            state.runtimeModel.value = '';
+            setRuntimeStatusLabel('同步状态');
+            await options.resetChatMessageWindowForUserTurn({ rerollLatestAssistant: isRerollRun });
+            options.compactLoadedSessionMessageWindow(isRerollRun ? 1 : 2);
+
+            const shouldShowPendingUserMessage = !isRerollRun;
+            if (shouldShowPendingUserMessage) {
+                state.runtimePendingUserMessage.value = messageText;
+                state.currentUserMessage.value = '';
+                void nextTick(() => options.resetTextareaHeight(options.chatComposeTextareaRef.value));
+                options.requestUserMessageBottom();
+                options.updateChatScrollButtons();
+            } else {
+                state.runtimeUserMessageVisible.value = true;
+                options.requestUserMessageBottom();
+                options.updateChatScrollButtons();
+            }
+
             if (controller.signal.aborted) {
                 const pendingUserMessage = state.runtimePendingUserMessage.value;
                 clearRuntimeAssistantLiveState();
-                if (isReusedUserMessageRun && options.selectedSessionId.value) {
+                if (isRerollRun && options.selectedSessionId.value) {
                     await options.loadSelectedSessionMessageWindow({ sessionId: options.selectedSessionId.value });
                 }
                 if (pendingUserMessage && !state.currentUserMessage.value.trim()) {
@@ -330,7 +342,7 @@ export function useTavernChatRunController(options: TavernChatRunControllerOptio
             const runtimeApplyRegex: TavernApplyRegex = (items) => options.applyRegex(items, { nativeCharacterId: runtimeNativeCharacterId });
             if (controller.signal.aborted) {
                 clearRuntimeAssistantLiveState();
-                if (isReusedUserMessageRun && options.selectedSessionId.value) {
+                if (isRerollRun && options.selectedSessionId.value) {
                     await options.loadSelectedSessionMessageWindow({ sessionId: options.selectedSessionId.value });
                 }
                 return;
@@ -338,7 +350,7 @@ export function useTavernChatRunController(options: TavernChatRunControllerOptio
             const runtimePreset = await options.refreshRuntimeChatPresetFromHost();
             if (controller.signal.aborted) {
                 clearRuntimeAssistantLiveState();
-                if (isReusedUserMessageRun && options.selectedSessionId.value) {
+                if (isRerollRun && options.selectedSessionId.value) {
                     await options.loadSelectedSessionMessageWindow({ sessionId: options.selectedSessionId.value });
                 }
                 return;
@@ -354,7 +366,7 @@ export function useTavernChatRunController(options: TavernChatRunControllerOptio
                 diagnostics: options.diagnostics.value,
                 historyMode: options.historyMode.value,
                 signal: controller.signal,
-                reuseUserMessageOrder: runOptions.reuseUserMessageOrder,
+                rerollLatestAssistant: isRerollRun,
                 rerollRuntimeEvents: runOptions.rerollRuntimeEvents,
                 runManager: true,
                 applyRegex: runtimeApplyRegex,
@@ -381,9 +393,23 @@ export function useTavernChatRunController(options: TavernChatRunControllerOptio
                     await options.persistSelectedSessionId(sessionId);
                     options.updateChatScrollButtons();
                 },
+                onLatestAssistantRerollPrepared: async (sessionId, message, previousAssistantMessage) => {
+                    options.setSelectedSessionId(sessionId);
+                    if (previousAssistantMessage) {
+                        rerollPreviousAssistantOrder = previousAssistantMessage.order;
+                        options.pruneLoadedSessionMessagesFromOrder(sessionId, previousAssistantMessage.order);
+                    }
+                    state.runtimeAssistantMessageKey.value = `${message.sessionId}:${Number(message.order) + 1}`;
+                    state.runtimeUserMessageVisible.value = true;
+                    state.runtimePendingUserMessage.value = '';
+                    options.updateChatScrollButtons();
+                },
                 onAssistantMessageSaved: async (sessionId, message) => {
                     assistantMessageSaved = true;
                     options.setSelectedSessionId(sessionId);
+                    if (rerollPreviousAssistantOrder !== null) {
+                        options.cancelDrawJobsForMessageRange(sessionId, rerollPreviousAssistantOrder);
+                    }
                     flushRuntimeStreamSnapshotNow();
                     await options.prepareAssistantMessageDisplay(message);
                     options.touchSessionLocally(sessionId, message.createdAt);
@@ -393,9 +419,8 @@ export function useTavernChatRunController(options: TavernChatRunControllerOptio
                     });
                     options.updateChatScrollButtons();
                 },
-                onManagerRunSaved: async (sessionId) => {
-                    await options.refreshManagerRecords(sessionId);
-                },
+                onManagerRunSaved: options.onManagerRunSaved,
+                onManagerProgress: options.onManagerProgress,
             });
             options.setSelectedSessionId(result.sessionId);
             flushRuntimeStreamSnapshotNow();
@@ -409,8 +434,12 @@ export function useTavernChatRunController(options: TavernChatRunControllerOptio
             console.error('[小白酒馆] turn failed', error);
             const pendingUserMessage = state.runtimePendingUserMessage.value;
             clearRuntimeAssistantLiveState();
-            if (isReusedUserMessageRun && options.selectedSessionId.value) {
-                await options.loadSelectedSessionMessageWindow({ sessionId: options.selectedSessionId.value });
+            if (isRerollRun && options.selectedSessionId.value) {
+                try {
+                    await options.loadSelectedSessionMessageWindow({ sessionId: options.selectedSessionId.value });
+                } catch (reloadError) {
+                    console.warn('[小白酒馆] Failed to restore reroll message window', reloadError);
+                }
             }
             if (pendingUserMessage && !state.currentUserMessage.value.trim()) {
                 state.currentUserMessage.value = pendingUserMessage;

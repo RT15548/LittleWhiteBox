@@ -1,0 +1,72 @@
+.tavern-phone-overlay.is-mobile-fullscreen {
+    position: fixed;
+    width: 100vw;
+    height: 100dvh;
+    min-height: 0;
+    place-items: stretch;
+    background: var(--phone-os-screen, #111214);
+    backdrop-filter: none;
+    padding: 0;
+}
+
+.tavern-phone-device.is-mobile-fullscreen {
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    max-height: none;
+    border: 0;
+    border-radius: 0;
+    background: var(--phone-os-screen);
+    box-shadow: none;
+    padding: 0;
+    transform: none;
+}
+
+.tavern-phone-device.is-mobile-fullscreen .tavern-phone-glass {
+    grid-template-rows: minmax(0, 1fr) auto;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+}
+
+.tavern-phone-device.is-mobile-fullscreen .tavern-phone-glass::after {display: none;}
+
+.tavern-phone-device.is-mobile-fullscreen .tavern-phone-system-navigation {
+    height: calc(58px + env(safe-area-inset-bottom, 0px));
+    align-items: start;
+    padding: 5px 10px calc(5px + env(safe-area-inset-bottom, 0px));
+}
+
+.tavern-phone-device.is-mobile-fullscreen .tavern-phone-dismiss-control::before {
+    width: 28px;
+    height: 28px;
+}
+
+.tavern-phone-device.is-mobile-fullscreen .tavern-phone-dismiss-control svg {
+    width: 15px;
+    height: 15px;
+}
+
+.tavern-phone-device.is-mobile-fullscreen .tavern-phone-home {
+    padding: calc(28px + env(safe-area-inset-top, 0px)) 22px 16px;
+}
+
+.tavern-phone-device.is-mobile-fullscreen .tavern-phone-app {
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: 0;
+}
+.tavern-phone-device.is-mobile-fullscreen .tavern-phone-message-scroll {padding-bottom: 18px;}
+.tavern-phone-device.is-mobile-fullscreen .tavern-phone-composer {padding-bottom: 9px;}
+.tavern-phone-device.is-mobile-fullscreen .tavern-phone-search input,
+.tavern-phone-device.is-mobile-fullscreen .tavern-phone-imessage-field textarea {font-size: 16px;}
+
+@media (max-width: 380px), (max-height: 690px) {
+    .tavern-phone-device.is-mobile-fullscreen .tavern-phone-home {padding-top: calc(22px + env(safe-area-inset-top, 0px));}
+    .tavern-phone-device.is-mobile-fullscreen .tavern-phone-app-grid {gap: 20px 10px;}
+    .tavern-phone-device.is-mobile-fullscreen .tavern-phone-app-icon {width: 54px; height: 54px; border-radius: 17px;}
+    .tavern-phone-device.is-mobile-fullscreen .tavern-phone-app-icon-art {width: 34px; height: 34px;}
+    .tavern-phone-device.is-mobile-fullscreen .tavern-phone-app-head {padding-top: 9px;}
+    .tavern-phone-device.is-mobile-fullscreen .tavern-phone-app-head h2 {font-size: 28px;}
+    .tavern-phone-device.is-mobile-fullscreen .tavern-phone-thread-row {min-height: 70px;}
+    .tavern-phone-device.is-mobile-fullscreen .tavern-phone-contact-avatar {width: 47px; height: 47px; border-radius: 50%;}
+}

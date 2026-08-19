@@ -168,6 +168,33 @@ export async function listBookFiles(bookId = '') {
         .sort((left, right) => left.path.localeCompare(right.path, 'zh-CN'));
 }
 
+export async function listBookFilePaths(bookId = '') {
+    const id = String(bookId || '').trim();
+    if (!id) return [];
+    const keys = await filesTable.where('bookId').equals(id).primaryKeys();
+    return keys
+        .map((key) => Array.isArray(key) ? String(key[1] || '') : '')
+        .filter(Boolean)
+        .sort((left, right) => left.localeCompare(right, 'zh-CN'));
+}
+
+export async function* iterateBookFiles(bookId = '', options = {}) {
+    const id = String(bookId || '').trim();
+    if (!id) return;
+    const pageSize = Math.max(1, Math.min(500, Math.floor(Number(options.pageSize) || 1)));
+    const paths = await listBookFilePaths(id);
+    for (let offset = 0; offset < paths.length; offset += pageSize) {
+        const rows = await filesTable.bulkGet(
+            paths.slice(offset, offset + pageSize).map((path) => [id, path]),
+        );
+        for (const row of rows) {
+            if (!row) continue;
+            const file = cloneFile(row);
+            if (file.path) yield file;
+        }
+    }
+}
+
 export async function getBookFile(bookId = '', path = '') {
     const id = String(bookId || '').trim();
     const normalizedPath = normalizeBookFilePath(path);

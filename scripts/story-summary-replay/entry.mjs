@@ -1,3 +1,5 @@
+/* global Buffer */
+
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { performance } from 'node:perf_hooks';
@@ -11,6 +13,8 @@ import {
     __setExtensionSettings,
     __resetMetadataSaveCount,
     __saveMetadataCallCount,
+    __immediateMetadataSaveCallCount,
+    __debouncedMetadataSaveCallCount,
 } from './shims/extensions.js';
 import { __setChatMetadata, chat_metadata } from './shims/script.js';
 
@@ -1060,6 +1064,302 @@ function renderMarkdownReport(report) {
     }
 
     return lines.join('\n');
+}
+
+export async function runStorySummaryCancellationCheck() {
+    ensureNodeReplayGlobals();
+    const { generateSummary, isSummaryGenerationCancelledError } = await import(
+        '../../modules/story-summary/generate/llm.js'
+    );
+    const previousStreamingModule = globalThis.window.xiaobaixStreamingGeneration;
+    const cancelledSessions = [];
+    globalThis.window.xiaobaixStreamingGeneration = {
+        async xbgenrawCommand() {
+            return 'summary-cancel-check';
+        },
+        getStatus(sessionId) {
+            return { sessionId, isStreaming: true, text: '' };
+        },
+        cancel(sessionId) {
+            cancelledSessions.push(sessionId);
+        },
+    };
+
+    const controller = new AbortController();
+    try {
+        const pending = generateSummary({
+            existingSummary: '',
+            existingFacts: [],
+            newHistoryText: '#1 【用户】\n测试取消',
+            historyRange: '1-1楼',
+            nextEventId: 1,
+            existingEventCount: 0,
+            llmApi: { provider: 'st' },
+            useStream: true,
+            signal: controller.signal,
+        });
+        setTimeout(() => controller.abort(), 0);
+        await pending;
+        return { cancelled: false, cancelledSessions };
+    } catch (error) {
+        return {
+            cancelled: isSummaryGenerationCancelledError(error),
+            cancelledSessions,
+        };
+    } finally {
+        globalThis.window.xiaobaixStreamingGeneration = previousStreamingModule;
+    }
+}
+
+export async function runStorySummaryPostCommitCancellationCheck() {
+    ensureNodeReplayGlobals();
+    const [{ EXT_ID }, { runSummaryGeneration }] = await Promise.all([
+        import('../../core/constants.js'),
+        import('../../modules/story-summary/generate/generator.js'),
+    ]);
+    const chatId = 'summary-post-commit-cancel-check';
+    __setExtensionSettings({ [EXT_ID]: { storySummary: { enabled: true } } });
+    __setChatMetadata({});
+    __resetMetadataSaveCount();
+    __setReplayContext({
+        chatId,
+        chat: [{ is_user: true, name: '用户', mes: '测试提交后的取消' }],
+        name1: '用户',
+        name2: '角色',
+    });
+
+    const previousStreamingModule = globalThis.window.xiaobaixStreamingGeneration;
+    globalThis.window.xiaobaixStreamingGeneration = {
+        async xbgenrawCommand() {
+            return JSON.stringify({
+                mindful_prelude: {},
+                keywords: [],
+                events: [],
+                newCharacters: [],
+                arcUpdates: [],
+                factUpdates: [],
+            });
+        },
+        cancel() {},
+    };
+
+    const controller = new AbortController();
+    let onCompleteCalled = false;
+    try {
+        const result = await runSummaryGeneration(0, {
+            api: { provider: 'st' },
+            gen: {},
+            trigger: { useStream: false, maxPerRun: 100 },
+        }, {
+            onComplete: async () => {
+                onCompleteCalled = true;
+                controller.abort();
+            },
+        }, {
+            signal: controller.signal,
+            targetChatId: chatId,
+        });
+        return {
+            result,
+            onCompleteCalled,
+            immediateMetadataSaveCalls: __immediateMetadataSaveCallCount,
+            debouncedMetadataSaveCalls: __debouncedMetadataSaveCallCount,
+        };
+    } finally {
+        globalThis.window.xiaobaixStreamingGeneration = previousStreamingModule;
+    }
+}
+
+export async function runStorySummaryOwnershipCheck() {
+    ensureNodeReplayGlobals();
+    const [{ EXT_ID }, { runSummaryGeneration }] = await Promise.all([
+        import('../../core/constants.js'),
+        import('../../modules/story-summary/generate/generator.js'),
+    ]);
+    const ownerChatId = 'summary-owner-a';
+    const chat = [{ is_user: true, name: '用户', mes: '测试聊天所有权' }];
+    __setExtensionSettings({ [EXT_ID]: { storySummary: { enabled: true } } });
+    __setChatMetadata({});
+    __resetMetadataSaveCount();
+    __setReplayContext({ chatId: ownerChatId, chat, name1: '用户', name2: '角色' });
+
+    const previousStreamingModule = globalThis.window.xiaobaixStreamingGeneration;
+    globalThis.window.xiaobaixStreamingGeneration = {
+        async xbgenrawCommand() {
+            __setReplayContext({ chatId: 'summary-owner-b' });
+            return JSON.stringify({
+                mindful_prelude: {},
+                keywords: [],
+                events: [],
+                newCharacters: [],
+                arcUpdates: [],
+                factUpdates: [],
+            });
+        },
+        cancel() {},
+    };
+
+    try {
+        const result = await runSummaryGeneration(0, {
+            api: { provider: 'st' },
+            gen: {},
+            trigger: { useStream: false, maxPerRun: 100 },
+        }, {}, { targetChatId: ownerChatId });
+        return {
+            result,
+            metadataSaveCalls: __saveMetadataCallCount,
+            lastSummarizedMesId: chat_metadata?.extensions?.[EXT_ID]?.storySummary?.lastSummarizedMesId,
+        };
+    } finally {
+        globalThis.window.xiaobaixStreamingGeneration = previousStreamingModule;
+    }
+}
+
+export async function runStorySummarySourceMutationCheck() {
+    ensureNodeReplayGlobals();
+    const [{ EXT_ID }, { runSummaryGeneration }] = await Promise.all([
+        import('../../core/constants.js'),
+        import('../../modules/story-summary/generate/generator.js'),
+    ]);
+    const chatId = 'summary-source-mutation-check';
+    const chat = [{ is_user: true, name: '用户', mes: '原始内容' }];
+    __setExtensionSettings({ [EXT_ID]: { storySummary: { enabled: true } } });
+    __setChatMetadata({});
+    __resetMetadataSaveCount();
+    __setReplayContext({ chatId, chat, name1: '用户', name2: '角色' });
+
+    const previousStreamingModule = globalThis.window.xiaobaixStreamingGeneration;
+    globalThis.window.xiaobaixStreamingGeneration = {
+        async xbgenrawCommand() {
+            chat[0].mes = '生成期间已修改';
+            return JSON.stringify({
+                mindful_prelude: {},
+                keywords: [],
+                events: [],
+                newCharacters: [],
+                arcUpdates: [],
+                factUpdates: [],
+            });
+        },
+        cancel() {},
+    };
+
+    try {
+        const result = await runSummaryGeneration(0, {
+            api: { provider: 'st' },
+            gen: {},
+            trigger: { useStream: false, maxPerRun: 100 },
+        }, {}, { targetChatId: chatId });
+        return {
+            result,
+            metadataSaveCalls: __saveMetadataCallCount,
+            lastSummarizedMesId: chat_metadata?.extensions?.[EXT_ID]?.storySummary?.lastSummarizedMesId,
+        };
+    } finally {
+        globalThis.window.xiaobaixStreamingGeneration = previousStreamingModule;
+    }
+}
+
+export async function runStorySummaryRollbackIntegrityCheck() {
+    ensureNodeReplayGlobals();
+    const [{ EXT_ID }, { buildSummaryUndo }, storeModule] = await Promise.all([
+        import('../../core/constants.js'),
+        import('../../modules/story-summary/data/summary-undo.js'),
+        import('../../modules/story-summary/data/store.js'),
+    ]);
+    const {
+        executeRollback,
+        isSummaryConsumable,
+        rollbackSummaryIfNeeded,
+    } = storeModule;
+    __setExtensionSettings({ [EXT_ID]: { storySummary: { enabled: true } } });
+
+    const empty = {
+        keywords: [],
+        events: [],
+        characters: { main: [] },
+        arcs: [],
+        facts: [],
+        characterAliases: [],
+    };
+    const generated = structuredClone(empty);
+    generated.events.push({ id: 'evt-ai', summary: '首批生成事件', participants: [], _addedAt: 10 });
+    const current = structuredClone(generated);
+    current.events.push({ id: 'evt-manual', summary: '人工新增事件', participants: [], _addedAt: 11 });
+    const firstStore = {
+        lastSummarizedMesId: 10,
+        json: current,
+        summaryHistory: [{
+            format: 1,
+            previousEndMesId: -1,
+            endMesId: 10,
+            undo: buildSummaryUndo(empty, generated),
+        }],
+    };
+    const firstMetadata = { extensions: { [EXT_ID]: { storySummary: firstStore } } };
+    __setChatMetadata(firstMetadata);
+    __setReplayContext({
+        chatId: 'summary-first-rollback-check',
+        chat: [],
+        name1: '用户',
+        name2: '角色',
+    });
+    const firstResult = await executeRollback('summary-first-rollback-check', firstStore, -1);
+
+    const touchedJson = structuredClone(generated);
+    touchedJson.events[0].summary = '人工改写生成事件';
+    const touchedStore = {
+        lastSummarizedMesId: 10,
+        json: touchedJson,
+        summaryHistory: [{
+            format: 1,
+            previousEndMesId: -1,
+            endMesId: 10,
+            undo: buildSummaryUndo(empty, generated),
+        }],
+    };
+    __setChatMetadata({ extensions: { [EXT_ID]: { storySummary: touchedStore } } });
+    __setReplayContext({ chatId: 'summary-first-rollback-touched-check', chat: [] });
+    const touchedResult = await executeRollback('summary-first-rollback-touched-check', touchedStore, -1);
+
+    const invalidStore = {
+        lastSummarizedMesId: 10,
+        json: structuredClone(generated),
+        summaryHistory: [{ format: 1, endMesId: 10 }],
+    };
+    const invalidMetadata = {
+        ena_cached_story_summary: '旧的 Ena 派生缓存',
+        extensions: { [EXT_ID]: { storySummary: invalidStore } },
+    };
+    const shortenedChat = Array.from({ length: 5 }, (_, index) => ({
+        is_user: index % 2 === 0,
+        mes: `消息 ${index + 1}`,
+    }));
+    __setChatMetadata(invalidMetadata);
+    __setReplayContext({
+        chatId: 'summary-invalid-rollback-check',
+        chat: shortenedChat,
+        name1: '用户',
+        name2: '角色',
+    });
+    const invalidResult = await rollbackSummaryIfNeeded();
+    shortenedChat.push(...Array.from({ length: 7 }, (_, index) => ({
+        is_user: index % 2 === 0,
+        mes: `重新增长 ${index + 1}`,
+    })));
+
+    return {
+        firstResult,
+        firstEventIds: (firstStore.json?.events || []).map(event => event.id),
+        firstBoundary: firstStore.lastSummarizedMesId,
+        firstPendingBoundary: firstStore.pendingImportBoundary === true,
+        touchedResult,
+        touchedSummary: touchedStore.json?.events?.[0]?.summary || '',
+        invalidResult,
+        summaryInvalid: invalidStore.summaryInvalid === true,
+        consumableAfterRegrowth: isSummaryConsumable(invalidStore, shortenedChat.length),
+        legacyEnaCacheRemoved: !Object.hasOwn(invalidMetadata, 'ena_cached_story_summary'),
+    };
 }
 
 export async function runStorySummaryReplay({ rootDir, config, configPath }) {

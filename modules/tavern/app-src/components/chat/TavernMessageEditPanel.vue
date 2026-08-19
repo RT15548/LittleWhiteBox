@@ -12,10 +12,11 @@ const emit = defineEmits<{
     (event: 'save', options: { content: string; rollbackState?: boolean }): void;
 }>();
 
-const draft = ref(String(props.message.content || ''));
 const textareaRef = ref<HTMLTextAreaElement | null>(null);
 const sizerRef = ref<HTMLDivElement | null>(null);
 let restoreScrollFrame = 0;
+let autoSizeFrame = 0;
+const draft = ref('');
 
 const dirty = computed(() => draft.value.trim() !== String(props.message.content || '').trim());
 
@@ -71,14 +72,28 @@ function focusEditor() {
     });
 }
 
+function scheduleAutoSizeEditor() {
+    if (autoSizeFrame) {return;}
+    autoSizeFrame = requestAnimationFrame(() => {
+        autoSizeFrame = 0;
+        autoSizeEditor();
+    });
+}
+
 function save(options: { rollbackState?: boolean } = {}) {
     if (!dirty.value) {return;}
     emit('save', { content: draft.value, ...options });
 }
 
+function handleInput(event: Event) {
+    draft.value = (event.target as HTMLTextAreaElement).value;
+    scheduleAutoSizeEditor();
+}
+
 function handleKeydown(event: KeyboardEvent) {
     if (event.key === 'Escape') {
         event.preventDefault();
+        event.stopPropagation();
         emit('cancel');
         return;
     }
@@ -94,6 +109,10 @@ watch(() => props.messageKey, () => {
 }, { immediate: true });
 
 onBeforeUnmount(() => {
+    if (autoSizeFrame) {
+        cancelAnimationFrame(autoSizeFrame);
+        autoSizeFrame = 0;
+    }
     if (restoreScrollFrame) {
         cancelAnimationFrame(restoreScrollFrame);
         restoreScrollFrame = 0;
@@ -105,11 +124,11 @@ onBeforeUnmount(() => {
   <div class="message-edit-panel">
     <textarea
       ref="textareaRef"
-      v-model="draft"
+      :value="draft"
       class="message-edit-box"
       rows="6"
       :data-message-editor="messageKey"
-      @input="autoSizeEditor"
+      @input="handleInput"
       @keydown="handleKeydown"
     />
     <div

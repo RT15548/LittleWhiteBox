@@ -1,9 +1,21 @@
 import { extension_settings, getContext } from "../../../../extensions.js";
 import { saveSettingsDebounced, eventSource, event_types } from "../../../../../script.js";
 import { EXT_ID } from "../core/constants.js";
+import { createMessageButtonOwnership } from "../core/message-button-ownership.js";
 
 const C = { MAX_HISTORY: 10, CHECK: 200, DEBOUNCE: 300, CLEAN: 300000, TARGET: "/api/backends/chat-completions/generate", TIMEOUT: 30, ASSOC_DELAY: 1000, REQ_WINDOW: 30000 };
 const S = { active: false, isPreview: false, isLong: false, isHistoryUiBound: false, previewData: null, previewIds: new Set(), interceptedIds: [], history: [], listeners: [], resolve: null, reject: null, sendBtnWasDisabled: false, longPressTimer: null, longPressDelay: 1000, chatLenBefore: 0, restoreLong: null, cleanTimer: null, previewAbort: null, tailAPI: null, genEndedOff: null, cleanupFallback: null, pendingPurge: false };
+const historyButtonOwnership = createMessageButtonOwnership();
+const runtimeOptions = { supportsPreview: true };
+
+function configureMessagePreviewRuntime({ ownsHistoryButtons = true, supportsPreview = true } = {}) {
+  historyButtonOwnership.configure(ownsHistoryButtons);
+  runtimeOptions.supportsPreview = supportsPreview;
+}
+
+function removeOwnedHistoryButtons() {
+  historyButtonOwnership.runOwnedCleanup(() => $(".mes_history_preview").remove());
+}
 
 const $q = (sel) => $(sel);
 const ON = (e, c) => eventSource.on(e, c);
@@ -862,6 +874,7 @@ async function interceptPreview(url, options) {
 }
 
 const addHistoryButtonsDebounced = debounce(() => {
+  if (!historyButtonOwnership.ownsButtons()) return;
   const set = getSettings(); if (!set.recorded.enabled || !geEnabled()) return;
   $(".mes_history_preview").remove();
   $("#chat .mes").each(function () {
@@ -872,6 +885,29 @@ const addHistoryButtonsDebounced = debounce(() => {
     $(this).find(".flex-container.flex1.alignitemscenter").append(btn);
   });
 }, C.DEBOUNCE);
+
+function mountHistoryButton(message, messageId) {
+  const set = getSettings();
+  if (!set.recorded.enabled || !geEnabled() || messageId <= 0 || message.getAttribute('is_user') === 'true') return;
+  if (message.querySelector('.mes_history_preview')) return;
+
+  const button = document.createElement('div');
+  button.className = 'mes_btn mes_history_preview';
+  button.title = '查看历史API请求';
+  const icon = document.createElement('i');
+  icon.className = 'fa-regular fa-note-sticky';
+  button.appendChild(icon);
+  button.addEventListener('click', event => {
+    event.preventDefault();
+    event.stopPropagation();
+    showHistoryPreview(messageId);
+  });
+
+  if (!window.registerButtonToSubContainer?.(messageId, button)) {
+    message.querySelector('.flex-container.flex1.alignitemscenter')?.appendChild(button);
+  }
+  return () => button.remove();
+}
 
 const disableSend = (dis = true) => {
   const $b = $q("#send_but");
@@ -939,7 +975,10 @@ async function showHistoryPreview(messageId) {
 
 const cleanupMemory = () => {
   if (S.history.length > C.MAX_HISTORY) S.history = S.history.slice(0, C.MAX_HISTORY);
-  S.previewIds.clear(); S.previewData = null; $(".mes_history_preview").each(function () { if (!$(this).closest(".mes").length) $(this).remove(); });
+  S.previewIds.clear(); S.previewData = null;
+  historyButtonOwnership.runOwnedCleanup(() => {
+    $(".mes_history_preview").each(function () { if (!$(this).closest(".mes").length) $(this).remove(); });
+  });
   if (!S.isLong) S.interceptedIds = [];
 };
 
@@ -1003,7 +1042,7 @@ const waitIntercept = () => new Promise((resolve, reject) => {
 
 function cleanup() {
   removeEvents(); restoreFetch(); disableSend(false);
-  $(".mes_history_preview").remove(); $("#message_preview_btn").remove(); cleanupMemory();
+  removeOwnedHistoryButtons(); $("#message_preview_btn").remove(); cleanupMemory();
   Object.assign(S, { resolve: null, reject: null, isPreview: false, isLong: false, interceptedIds: [], chatLenBefore: 0, sendBtnWasDisabled: false, pendingPurge: false });
   if (S.cleanTimer) { clearInterval(S.cleanTimer); S.cleanTimer = null; }
   if (S.longPressTimer) { clearTimeout(S.longPressTimer); S.longPressTimer = null; }
@@ -1014,8 +1053,10 @@ function cleanup() {
 
 function initMessagePreview() {
   try {
-    cleanup(); S.tailAPI = installEventSourceTail(eventSource);
+    cleanup();
     const set = getSettings();
+    if (!runtimeOptions.supportsPreview && set.preview.enabled) return;
+    S.tailAPI = installEventSourceTail(eventSource);
     const btn = $(`<div id="message_preview_btn" class="fa-regular fa-note-sticky interactable" title="预览消息"></div>`);
     $("#send_but").before(btn); bindBtn();
     $("#xiaobaix_preview_enabled").prop("checked", set.preview.enabled).on("change", function () {
@@ -1029,7 +1070,7 @@ function initMessagePreview() {
     $("#xiaobaix_recorded_enabled").prop("checked", set.recorded.enabled).on("change", function () {
       if (!geEnabled()) return; set.recorded.enabled = $(this).prop("checked"); saveSettingsDebounced();
       if (set.recorded.enabled) { addEvents(); addHistoryButtonsDebounced(); }
-      else { $(".mes_history_preview").remove(); S.history.length = 0; if (!set.preview.enabled) removeEvents(); }
+      else { removeOwnedHistoryButtons(); S.history.length = 0; if (!set.preview.enabled) removeEvents(); }
       updateFetchState();
     });
     if (!set.preview.enabled) $("#message_preview_btn").hide();
@@ -1043,4 +1084,11 @@ function initMessagePreview() {
 window.addEventListener("beforeunload", cleanup);
 window.messagePreviewCleanup = cleanup;
 
-export { initMessagePreview, addHistoryButtonsDebounced, cleanup };
+export {
+  initMessagePreview,
+  addHistoryButtonsDebounced,
+  cleanup,
+  configureMessagePreviewRuntime,
+  mountHistoryButton,
+  removeOwnedHistoryButtons,
+};

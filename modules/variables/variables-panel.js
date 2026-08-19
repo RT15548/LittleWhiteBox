@@ -3,6 +3,8 @@ import { saveSettingsDebounced, chat_metadata } from "../../../../../../script.j
 import { getLocalVariable, setLocalVariable, getGlobalVariable, setGlobalVariable } from "../../../../../variables.js";
 import { extensionFolderPath } from "../../core/constants.js";
 import { createModuleEvents, event_types } from "../../core/event-manager.js";
+import { createMessageButtonOwnership } from "../../core/message-button-ownership.js";
+import { createVariablesPanelRuntime } from "./variables-panel-runtime.js";
 
 const CONFIG = {
   extensionName: "variables-panel",
@@ -10,6 +12,8 @@ const CONFIG = {
   defaultSettings: { enabled: false },
   watchInterval: 1500, touchTimeout: 4000, longPressDelay: 700,
 };
+
+const messageButtonOwnership = createMessageButtonOwnership();
 
 const EMBEDDED_CSS = `
 .vm-container{color:var(--SmartThemeBodyColor);background:var(--SmartThemeBlurTintColor);flex-direction:column;overflow-y:auto;z-index:3000;position:fixed;display:none}
@@ -184,8 +188,8 @@ class VariablesPanel {
   }
 
   async init(){
-    this.injectUI(); this.bindControlToggle();
-    const s=this.getSettings(); this.state.isEnabled=s.enabled; this.syncCheckbox();
+    this.injectUI();
+    const s=this.getSettings(); this.state.isEnabled=s.enabled;
     if(s.enabled) this.enable();
   }
 
@@ -201,15 +205,15 @@ class VariablesPanel {
 
   enable(){
     this.createContainer(); this.bindEvents();
-    this.loadVariables(); this.installMessageButtons();
+    this.loadVariables();
+    if (messageButtonOwnership.ownsButtons()) this.installMessageButtons();
   }
-  disable(){ this.cleanup(); }
 
   cleanup(){
-    this.stopWatcher(); this.unbindEvents(); this.unbindControlToggle(); this.removeContainer(); this.removeAllMessageButtons();
+    this.stopWatcher(); this.unbindEvents(); this.removeContainer(); this.removeMessageButtons();
     const tm=this.state.timers; if(tm.watcher) clearInterval(tm.watcher); if(tm.longPress) clearTimeout(tm.longPress);
     tm.touch.forEach(x=>clearTimeout(x)); tm.touch.clear();
-    Object.assign(this.state,{isOpen:false,timers:{watcher:null,longPress:null,touch:new Map()},currentInlineForm:null,formState:{},rulesChecksum:''});
+    Object.assign(this.state,{isOpen:false,isEnabled:false,timers:{watcher:null,longPress:null,touch:new Map()},currentInlineForm:null,formState:{},rulesChecksum:''});
     this.variableSnapshot=null; this.savingInProgress=false;
   }
 
@@ -229,23 +233,6 @@ class VariablesPanel {
     this.loadVariables(); this.startWatcher();
   }
   close(){ this.state.isOpen=false; this.stopWatcher(); this.unbindEvents(); this.removeContainer(); }
-
-  bindControlToggle(){
-    const id='xiaobaix_variables_panel_enabled';
-    const bind=()=>{
-      const cb=document.getElementById(id); if(!cb) return false;
-      this.handleCheckboxChange && cb.removeEventListener('change',this.handleCheckboxChange);
-      this.handleCheckboxChange=e=> this.toggleEnabled(e.target instanceof HTMLInputElement ? !!e.target.checked : false);
-      cb.addEventListener('change',this.handleCheckboxChange); if(cb instanceof HTMLInputElement) cb.checked=this.state.isEnabled; return true;
-    };
-    if(!bind()) setTimeout(bind,100);
-  }
-  unbindControlToggle(){
-    const cb=document.getElementById('xiaobaix_variables_panel_enabled');
-    if(cb && this.handleCheckboxChange) cb.removeEventListener('change',this.handleCheckboxChange);
-    this.handleCheckboxChange=null;
-  }
-  syncCheckbox(){ const cb=document.getElementById('xiaobaix_variables_panel_enabled'); if(cb instanceof HTMLInputElement) cb.checked=this.state.isEnabled; }
 
   bindEvents(){
     if(!this.state.container?.length) return;
@@ -609,11 +596,6 @@ class VariablesPanel {
   restoreExpandedStates(t,s){ if(!s?.size) return; setTimeout(()=>{ $(`#${t}-variables-list .vm-item`).each(function(){ const k=$(this).data('key'); if(k!==undefined && s.has(String(k))) $(this).addClass('expanded'); }); },50); }
   restoreAllExpandedStates(st){ Object.entries(st).forEach(([t,s])=> this.restoreExpandedStates(t,s)); }
 
-  toggleEnabled(en){
-    const s=this.getSettings(); s.enabled=this.state.isEnabled=en; saveSettingsDebounced(); this.syncCheckbox();
-    en ? (this.enable(),this.open()) : this.disable();
-  }
-
   createPerMessageBtn(messageId){
     const btn=document.createElement('div');
     btn.className='mes_btn mes_variables_panel';
@@ -636,7 +618,9 @@ class VariablesPanel {
   }
 
   addButtonsToAllMessages(){ $('#chat .mes').each((_,el)=>{ const mid=el.getAttribute('mesid'); if(mid) this.addButtonToMessage(mid); }); }
-  removeAllMessageButtons(){ $('#chat .mes .mes_btn.mes_variables_panel').remove(); }
+  removeAllMessageButtons(){
+    messageButtonOwnership.runOwnedCleanup(() => $('#chat .mes .mes_btn.mes_variables_panel').remove());
+  }
 
   installMessageButtons(){
     const delayedAdd=(id)=> setTimeout(()=>{ if(id!=null) this.addButtonToMessage(id); },120);
@@ -671,15 +655,43 @@ class VariablesPanel {
 
 }
 
-let variablesPanelInstance=null;
+const variablesPanelRuntime=createVariablesPanelRuntime({
+  createPanel:()=>new VariablesPanel(),
+  disposePanel:(instance)=>instance.cleanup(),
+});
+
+export function configureVariablesPanelRuntime({ ownsMessageButtons: nextOwnership = true } = {}) {
+  if (variablesPanelRuntime.getInstance() || variablesPanelRuntime.isInitializing()) {
+    throw new Error('Variables Panel runtime ownership is already active');
+  }
+  messageButtonOwnership.configure(nextOwnership);
+}
+
+export function mountVariablesButton(message, messageId) {
+  if (!extension_settings[EXT_ID]?.variablesPanel?.enabled || message.querySelector('.mes_variables_panel')) return;
+  const button=document.createElement('div');
+  button.className='mes_btn mes_variables_panel';
+  button.title='变量面板';
+  button.dataset.mid=messageId;
+  const icon=document.createElement('i');
+  icon.className='fa-solid fa-database';
+  button.appendChild(icon);
+  button.addEventListener('click',(event)=>{
+    event.preventDefault(); event.stopPropagation();
+    void initVariablesPanel()
+      .then(instance=>instance.open())
+      .catch(error=>console.error(`[${CONFIG.extensionName}] 打开失败:`,error));
+  });
+  if (!window.registerButtonToSubContainer?.(messageId,button)) {
+    message.querySelector('.flex-container.flex1.alignitemscenter')?.appendChild(button);
+  }
+  return ()=>button.remove();
+}
 
 export async function initVariablesPanel(){
+  extension_settings.variables ??= { global:{} };
   try{
-    extension_settings.variables ??= { global:{} };
-    if(variablesPanelInstance) variablesPanelInstance.cleanup();
-    variablesPanelInstance=new VariablesPanel();
-    await variablesPanelInstance.init();
-    return variablesPanelInstance;
+    return await variablesPanelRuntime.init();
   }catch(e){
     console.error(`[${CONFIG.extensionName}] 加载失败:`,e);
     toastr?.error?.('Variables Panel加载失败');
@@ -687,5 +699,5 @@ export async function initVariablesPanel(){
   }
 }
 
-export function getVariablesPanelInstance(){ return variablesPanelInstance; }
-export function cleanupVariablesPanel(){ if(variablesPanelInstance){ variablesPanelInstance.removeMessageButtons(); variablesPanelInstance.cleanup(); variablesPanelInstance=null; } }
+export function getVariablesPanelInstance(){ return variablesPanelRuntime.getInstance(); }
+export function cleanupVariablesPanel(){ variablesPanelRuntime.dispose(); }

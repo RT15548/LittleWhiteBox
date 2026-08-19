@@ -1,3 +1,4 @@
+import 'fake-indexeddb/auto';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -11,10 +12,15 @@ import {
     normalizeHiddenOutsideCount,
     normalizeMessageLoadBatchSize,
     resetMessageWindow,
+    TAVERN_CHAT_MESSAGE_WINDOW_MAX,
 } from '../app-src/message-window';
 import { useTavernScrollPane } from '../app-src/components/chat/useTavernScrollPane';
 import { createTavernSessionState, useTavernSessionController } from '../app-src/features/session/useTavernSessionController';
-import type { TavernMessageRecord } from '../shared/session-db';
+import db, {
+    appendTavernMessage,
+    createTavernSession,
+    type TavernMessageRecord,
+} from '../shared/session-db';
 
 const root = resolve(import.meta.dirname, '../../..');
 
@@ -94,6 +100,7 @@ test('tavern user turn compacts the loaded tail before reserving USER and AI slo
         selectedCharacterPreviewKey: ref(''),
         selectedSessionCharacterError: ref(''),
         abortActiveRun() {},
+        abortAssistantRunForSession() {},
         applySessionSnapshotContext() {},
         async cancelAndRollbackManagersForSession() {},
         cancelDrawJobsForSession() {},
@@ -101,7 +108,7 @@ test('tavern user turn compacts the loaded tail before reserving USER and AI slo
         describeSessionTitle() {return '';},
         invalidateMemoryFileRecordLoad() {},
         openCharacterSettingsWorkspace() {},
-        async refreshManagerRecords() {},
+        async hydrateSessionWorkspace() {},
         reportStartupProgress() {},
         resetChatMessageWindowState() {},
         resetSessionPreviewState() {},
@@ -119,10 +126,118 @@ test('tavern user turn compacts the loaded tail before reserving USER and AI slo
     assert.deepEqual(controller.chatMessageWindow.value, {
         startIndex: 4,
         hiddenBefore: 4,
+        hiddenAfter: 0,
         visibleCount: 3,
         limit: 5,
         total: 7,
     });
+
+    state.selectedSessionMessageTotal.value = 10;
+    state.selectedSessionMessageWindowOffsetFromEnd.value = 3;
+    controller.upsertLoadedSessionMessage({
+        messageId: 'message-10',
+        sessionId: 'session-1',
+        order: 10,
+        role: 'assistant',
+        content: 'new detached tail',
+        createdAt: 20,
+    });
+    assert.deepEqual(state.loadedSessionMessages.value.map((message) => message.order), [4, 5, 6]);
+    assert.equal(state.selectedSessionMessageTotal.value, 11);
+    assert.equal(state.selectedSessionMessageWindowOffsetFromEnd.value, 4);
+    assert.equal(state.loadedSessionMessageStartOrder.value, 4);
+    assert.equal(state.loadedSessionMessageEndOrder.value, 6);
+    assert.equal(state.selectedSessionLatestAssistantOrder.value, 10);
+});
+
+test('tavern historical reroll rebases detached window totals to the retained timeline', () => {
+    const state = createTavernSessionState();
+    state.selectedSessionId.value = 'session-1';
+    state.selectedSessionMessageTotal.value = 100;
+    state.selectedSessionMessageWindowOffsetFromEnd.value = 60;
+    state.loadedSessionMessages.value = Array.from({ length: 20 }, (_, index) => ({
+        sessionId: 'session-1',
+        order: index + 20,
+        role: (index + 20) % 2 ? 'assistant' : 'user',
+        content: `message-${index + 20}`,
+        createdAt: index + 21,
+    })) as TavernMessageRecord[];
+    const controller = useTavernSessionController(state, {
+        activeView: ref<'home' | 'chat' | 'settings' | 'about'>('chat'),
+        chatFocus: ref<'chat' | 'manager'>('chat'),
+        chatMessageWindowLimit: ref(20),
+        hiddenOutsideCount: ref(20),
+        isRunning: ref(false),
+        selectedCharacterPreviewKey: ref(''),
+        selectedSessionCharacterError: ref(''),
+        abortActiveRun() {},
+        abortAssistantRunForSession() {},
+        applySessionSnapshotContext() {},
+        async cancelAndRollbackManagersForSession() {},
+        cancelDrawJobsForSession() {},
+        async confirmDeleteSession() {return true;},
+        describeSessionTitle() {return '';},
+        invalidateMemoryFileRecordLoad() {},
+        openCharacterSettingsWorkspace() {},
+        async hydrateSessionWorkspace() {},
+        reportStartupProgress() {},
+        resetChatMessageWindowState() {},
+        resetSessionPreviewState() {},
+        placeChatAtBottomForNewContext() {},
+        syncCharacterWorldbookState() {},
+        async syncSessionCharacterContextSafely() {},
+    });
+
+    assert.equal(controller.pruneLoadedSessionMessagesFromOrder('session-1', 26), 14);
+    assert.deepEqual(state.loadedSessionMessages.value.map((message) => message.order), [20, 21, 22, 23, 24, 25]);
+    assert.equal(state.selectedSessionMessageTotal.value, 26);
+    assert.equal(state.selectedSessionMessageWindowOffsetFromEnd.value, 0);
+});
+
+test('tavern message loading clamps an offset invalidated by external tail deletion', async () => {
+    await db.delete();
+    await db.open();
+    const session = await createTavernSession({ title: 'Window clamp' });
+    for (let order = 0; order < 5; order += 1) {
+        await appendTavernMessage(session.id, {
+            role: order % 2 ? 'assistant' : 'user',
+            content: `message-${order}`,
+        });
+    }
+    const state = createTavernSessionState();
+    state.selectedSessionId.value = session.id;
+    state.selectedSessionMessageWindowOffsetFromEnd.value = 99;
+    const controller = useTavernSessionController(state, {
+        activeView: ref<'home' | 'chat' | 'settings' | 'about'>('chat'),
+        chatFocus: ref<'chat' | 'manager'>('chat'),
+        chatMessageWindowLimit: ref(3),
+        hiddenOutsideCount: ref(3),
+        isRunning: ref(false),
+        selectedCharacterPreviewKey: ref(''),
+        selectedSessionCharacterError: ref(''),
+        abortActiveRun() {},
+        abortAssistantRunForSession() {},
+        applySessionSnapshotContext() {},
+        async cancelAndRollbackManagersForSession() {},
+        cancelDrawJobsForSession() {},
+        async confirmDeleteSession() {return true;},
+        describeSessionTitle() {return '';},
+        invalidateMemoryFileRecordLoad() {},
+        openCharacterSettingsWorkspace() {},
+        async hydrateSessionWorkspace() {},
+        reportStartupProgress() {},
+        resetChatMessageWindowState() {},
+        resetSessionPreviewState() {},
+        placeChatAtBottomForNewContext() {},
+        syncCharacterWorldbookState() {},
+        async syncSessionCharacterContextSafely() {},
+    });
+
+    await controller.loadSelectedSessionMessageWindow({ sessionId: session.id });
+
+    assert.equal(state.selectedSessionMessageTotal.value, 5);
+    assert.equal(state.selectedSessionMessageWindowOffsetFromEnd.value, 2);
+    assert.deepEqual(state.loadedSessionMessages.value.map((message) => message.order), [0, 1, 2]);
 });
 
 test('tavern scroll handlers collapse expanded message windows when returning to bottom', () => {
@@ -155,7 +270,82 @@ test('tavern scroll handlers collapse expanded message windows when returning to
     assert.match(scrollPaneSource, /function scrollToBottom\([\s\S]*if \(scrollOptions\.collapseWindow\) \{[\s\S]*collapseMessageWindowIfBottom\(true\);/);
     assert.match(scrollPaneSource, /function stickToBottom\(\) \{[\s\S]*runSilently\(\(\) => \{[\s\S]*node\.scrollTop = node\.scrollHeight;[\s\S]*\}\);/);
     assert.doesNotMatch(scrollPaneSource, /scrollOptions\.collapseWindow \|\| autoScroll\.value/);
-    assert.match(scrollPaneSource, /watch\(\(\) => normalizeHiddenOutsideCount[\s\S]*if \(autoScroll\.value === false\) \{return;\}[\s\S]*resetWindowState\(\);/);
+});
+
+test('tavern chat window stays bounded and slides in both directions', () => {
+    const offsetFromEnd = ref(0);
+    const pane = useTavernScrollPane({
+        totalItems: () => 200,
+        loadBatchSize: 20,
+        maxWindowLimit: TAVERN_CHAT_MESSAGE_WINDOW_MAX,
+        windowOffsetFromEnd: offsetFromEnd,
+    });
+    pane.scrollRef.value = {
+        scrollTop: 0,
+        scrollHeight: 1000,
+        clientHeight: 300,
+    } as HTMLElement;
+
+    pane.revealOlderMessages(true);
+    pane.autoScroll.value = true;
+    pane.revealOlderMessages(true);
+    pane.autoScroll.value = true;
+    pane.revealOlderMessages(true);
+    assert.equal(pane.messageWindowLimit.value, TAVERN_CHAT_MESSAGE_WINDOW_MAX);
+    assert.equal(offsetFromEnd.value, 0);
+
+    pane.autoScroll.value = true;
+    pane.revealOlderMessages(true);
+    assert.equal(pane.messageWindowLimit.value, TAVERN_CHAT_MESSAGE_WINDOW_MAX);
+    assert.equal(offsetFromEnd.value, 20);
+
+    pane.autoScroll.value = true;
+    pane.revealNewerMessages(true);
+    assert.equal(offsetFromEnd.value, 0);
+});
+
+test('assistant chat scroll keeps database pagination separate from RP message window state', () => {
+    const pane = useTavernScrollPane({
+        totalItems: () => 200,
+        managesMessageWindow: false,
+    });
+    pane.scrollRef.value = {
+        scrollTop: 0,
+        scrollHeight: 1000,
+        clientHeight: 300,
+    } as HTMLElement;
+    const initialLimit = pane.messageWindowLimit.value;
+
+    assert.equal(pane.revealOlderMessages(true), false);
+    assert.equal(pane.revealNewerMessages(true), false);
+    assert.equal(pane.collapseMessageWindowIfBottom(true), false);
+    assert.equal(pane.messageWindowLimit.value, initialLimit);
+});
+
+test('tavern message editing pins the current window until save or cancel', async () => {
+    const defaultLimit = ref(5);
+    const offsetFromEnd = ref(20);
+    const pinned = ref(true);
+    const pane = useTavernScrollPane({
+        totalItems: () => 200,
+        defaultLimit,
+        windowOffsetFromEnd: offsetFromEnd,
+        isWindowPinned: () => pinned.value,
+    });
+    pane.messageWindowLimit.value = 60;
+
+    assert.equal(pane.resetWindowState(), false);
+    assert.equal(pane.revealOlderMessages(true), false);
+    assert.equal(pane.revealNewerMessages(true), false);
+    defaultLimit.value = 8;
+    await nextTick();
+    assert.equal(pane.messageWindowLimit.value, 60);
+    assert.equal(offsetFromEnd.value, 20);
+
+    pinned.value = false;
+    assert.equal(pane.resetWindowState(), true);
+    assert.equal(pane.messageWindowLimit.value, 8);
+    assert.equal(offsetFromEnd.value, 0);
 });
 
 test('tavern reveal older messages uses isolated delta compensation instead of anchor watchers', () => {

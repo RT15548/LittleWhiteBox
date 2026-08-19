@@ -25,11 +25,15 @@ export function normalizeToolCalls(toolCalls = [], options = {}) {
         : (index) => `${fallbackPrefix}-${Date.now()}-${index + 1}`;
 
     return (Array.isArray(toolCalls) ? toolCalls : [])
-        .map((toolCall, index) => ({
-            id: String(toolCall?.id || createId(index) || `${fallbackPrefix}-${index + 1}`),
-            name: String(toolCall?.name || '').trim(),
-            arguments: normalizeToolCallArguments(toolCall),
-        }))
+        .map((toolCall, index) => {
+            const hasProviderId = Object.prototype.hasOwnProperty.call(toolCall || {}, 'providerId');
+            return {
+                id: String(toolCall?.id || createId(index) || `${fallbackPrefix}-${index + 1}`),
+                name: String(toolCall?.name || '').trim(),
+                arguments: normalizeToolCallArguments(toolCall),
+                ...(hasProviderId ? { providerId: String(toolCall?.providerId || '') } : {}),
+            };
+        })
         .filter((toolCall) => toolCall.name);
 }
 
@@ -79,11 +83,15 @@ export function extractGoogleProviderToolCalls(providerPayload, options = {}) {
         : [];
     return parts
         .filter((part) => part?.functionCall?.name)
-        .map((part, index) => ({
-            id: String(part.functionCall.id || `${options.fallbackPrefix || 'google-tool'}-${index + 1}`),
-            name: String(part.functionCall.name || ''),
-            arguments: JSON.stringify(part.functionCall.args || {}),
-        }))
+        .map((part, index) => {
+            const providerId = String(part.functionCall.id || '').trim();
+            return {
+                id: providerId || `${options.fallbackPrefix || 'google-tool'}-${index + 1}`,
+                name: String(part.functionCall.name || ''),
+                arguments: JSON.stringify(part.functionCall.args || {}),
+                ...(providerId ? {} : { providerId: '' }),
+            };
+        })
         .filter((toolCall) => toolCall.name);
 }
 
@@ -107,6 +115,9 @@ export function buildProviderAssistantToolCallMessage(result = {}, toolCalls = [
         tool_calls: normalizeToolCalls(toolCalls, options).map((toolCall) => ({
             id: toolCall.id,
             type: 'function',
+            ...(Object.prototype.hasOwnProperty.call(toolCall, 'providerId')
+                ? { providerToolCallId: toolCall.providerId }
+                : {}),
             function: {
                 name: toolCall.name,
                 arguments: toolCall.arguments || '{}',

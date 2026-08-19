@@ -117,7 +117,7 @@ test('tavern chat typography follows host SillyTavern font metrics inside the if
     assert.match(appSource, /--xb-host-prose-line-height/);
     assert.match(conversationPanelSource, /copyMessage,/);
     assert.match(conversationPanelSource, /@click="copyMessage\(message\)"[\s\S]*actionFeedback\(message, 'copy'\) === 'success' \? '✓' : actionFeedback\(message, 'copy'\) === 'error' \? '!' : '⧉'/);
-    assert.match(managerPanelSource, /@click="copyManagerMessage\(item\.message\)"[\s\S]*managerActionFeedback\(item\.message, 'copy'\) === 'success' \? '✓' : managerActionFeedback\(item\.message, 'copy'\) === 'error' \? '!' : '⧉'/);
+    assert.match(managerPanelSource, /@click="copyManagerMessage\(item\)"[\s\S]*managerActionFeedback\(item, 'copy'\) === 'success' \? '✓' : managerActionFeedback\(item, 'copy'\) === 'error' \? '!' : '⧉'/);
     assert.match(markdownCss, /font-size: var\(--xb-tavern-reading-font-size, 15px\);/);
     assert.match(markdownCss, /\.xb-tavern-markdown pre \{[\s\S]*background: rgba\(26, 26, 26, 0\.035\);/);
     assert.match(tavernPreRule, /display: block;/);
@@ -546,9 +546,11 @@ test('tavern slash command bridge executes through native SillyTavern STscript',
     assert.match(slashSource, /pipe/);
     assert.match(appSource, /function shouldRunTavernSlashCommand/);
     assert.match(appSource, /async function resolveSlashCommandMessageText/);
-    assert.match(appSource, /reuseUserMessageOrder/);
+    assert.match(appSource, /rerollLatestAssistant/);
     assert.match(chatRunSource, /messageText = await options\.resolveSlashCommandMessageText\(messageText, runOptions\);/);
-    assert.match(chatRunSource, /reuseUserMessageOrder/);
+    assert.match(chatRunSource, /rerollLatestAssistant/);
+    assert.doesNotMatch(appSource, /reuseUserMessageOrder/);
+    assert.doesNotMatch(chatRunSource, /reuseUserMessageOrder/);
 });
 
 test('tavern message assembler can render native worldbook prompt blocks directly', () => {

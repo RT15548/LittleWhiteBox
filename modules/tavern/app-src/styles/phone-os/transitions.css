@@ -1,0 +1,47 @@
+.tavern-phone-reveal-enter-active,
+.tavern-phone-reveal-leave-active {
+    transition: background-color 0.24s ease, backdrop-filter 0.24s ease, opacity 0.24s ease;
+}
+.tavern-phone-reveal-enter-active .tavern-phone-device,
+.tavern-phone-reveal-leave-active .tavern-phone-device {
+    transition: transform 0.42s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.22s ease;
+}
+
+.tavern-phone-reveal-enter-from,
+.tavern-phone-reveal-leave-to {opacity: 0; backdrop-filter: blur(0) saturate(1);}
+.tavern-phone-reveal-enter-from .tavern-phone-device,
+.tavern-phone-reveal-leave-to .tavern-phone-device {opacity: 0; transform: translateY(38%) scale(0.93);}
+
+.tavern-phone-route-forward-enter-active,
+.tavern-phone-route-forward-leave-active,
+.tavern-phone-route-back-enter-active,
+.tavern-phone-route-back-leave-active,
+.tavern-phone-route-home-enter-active,
+.tavern-phone-route-home-leave-active {
+    transition: transform 0.19s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.15s ease;
+}
+
+.tavern-phone-route-forward-enter-from {opacity: 0; transform: translateX(18px) scale(0.985);}
+.tavern-phone-route-forward-leave-to {opacity: 0; transform: translateX(-12px) scale(0.99);}
+.tavern-phone-route-back-enter-from {opacity: 0; transform: translateX(-18px);}
+.tavern-phone-route-back-leave-to {opacity: 0; transform: translateX(12px);}
+.tavern-phone-route-home-enter-from {opacity: 0; transform: scale(0.94);}
+.tavern-phone-route-home-leave-to {opacity: 0; transform: scale(1.04);}
+
+@media (prefers-reduced-motion: reduce) {
+    .tavern-phone-reveal-enter-active,
+    .tavern-phone-reveal-leave-active,
+    .tavern-phone-reveal-enter-active .tavern-phone-device,
+    .tavern-phone-reveal-leave-active .tavern-phone-device,
+    .tavern-phone-route-forward-enter-active,
+    .tavern-phone-route-forward-leave-active,
+    .tavern-phone-route-back-enter-active,
+    .tavern-phone-route-back-leave-active,
+    .tavern-phone-route-home-enter-active,
+    .tavern-phone-route-home-leave-active,
+    .tavern-phone-app-icon {
+        transition-duration: 0.01ms;
+    }
+
+    .tavern-phone-typing-row i {animation: none;}
+}

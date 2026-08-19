@@ -15,8 +15,7 @@ import {
     normalizePresetName,
 } from "../agent-core/config.js";
 
-import { handleCheckCache, handleGenerate, clearExpiredCache } from "./fw-image.js";
-import { synthesizeAndPlay, stopCurrent as stopCurrentVoice } from "./fw-voice-runtime.js";
+import { cancelFourthWallImageRequests, handleCheckCache, handleGenerate } from "./fw-image-protocol.js";
 import {
     buildPrompt,
     buildCommentaryPrompt,
@@ -62,6 +61,7 @@ let lastCommentaryTime = 0;
 let commentaryBubbleEl = null;
 let commentaryBubbleTimer = null;
 let currentVoiceRequestId = null;
+let currentVoiceHandle = null;
 let commentaryAfterAiDispose = null;
 let runtimeActive = false;
 
@@ -248,6 +248,9 @@ async function saveSharedAgentConfig(patch = {}, options = {}) {
         delegateConfig: patch.delegateConfig && typeof patch.delegateConfig === 'object'
             ? patch.delegateConfig
             : normalizedCurrent.delegateConfig,
+        delegateConfigured: typeof patch.delegateConfigured === 'boolean'
+            ? patch.delegateConfigured
+            : normalizedCurrent.delegateConfigured,
         presets: patch.presets && typeof patch.presets === 'object'
             ? patch.presets
             : normalizedCurrent.presets,
@@ -458,6 +461,7 @@ function recoverIframe(reason) {
     frameReady = false;
     pendingFrameMessages = [];
     pendingPingId = null;
+    cancelFourthWallImageRequests();
 
     if (isStreaming) {
         cancelGeneration();
@@ -478,14 +482,18 @@ function handlePlayVoice(data) {
         return;
     }
 
-    // Notify old request as stopped
-    if (currentVoiceRequestId && currentVoiceRequestId !== voiceRequestId) {
-        postToFrame({ type: 'VOICE_STATE', voiceRequestId: currentVoiceRequestId, state: 'stopped' });
-    }
+    currentVoiceHandle?.stop?.();
 
     currentVoiceRequestId = voiceRequestId;
 
-    synthesizeAndPlay(text, emotion, {
+    const playTransient = window.xiaobaixTts?.playTransient;
+    if (typeof playTransient !== 'function') {
+        postToFrame({ type: 'VOICE_STATE', voiceRequestId, state: 'error', message: '请先启用 TTS 模块' });
+        currentVoiceRequestId = null;
+        return;
+    }
+
+    const handle = playTransient(text, emotion, {
         requestId: voiceRequestId,
         onState(state, info) {
             if (currentVoiceRequestId !== voiceRequestId) return;
@@ -496,24 +504,24 @@ function handlePlayVoice(data) {
                 duration: info?.duration,
                 message: info?.message,
             });
+            if (state === 'ended' || state === 'stopped' || state === 'error') {
+                currentVoiceRequestId = null;
+                currentVoiceHandle = null;
+            }
         },
     });
+    currentVoiceHandle = handle;
 }
 
-function handleStopVoice(data) {
-    const targetId = data?.voiceRequestId || currentVoiceRequestId;
-    stopCurrentVoice();
-    if (targetId) {
-        postToFrame({ type: 'VOICE_STATE', voiceRequestId: targetId, state: 'stopped' });
-    }
+function handleStopVoice() {
+    currentVoiceHandle?.stop?.();
+    currentVoiceHandle = null;
     currentVoiceRequestId = null;
 }
 
 function stopVoiceAndNotify() {
-    if (currentVoiceRequestId) {
-        postToFrame({ type: 'VOICE_STATE', voiceRequestId: currentVoiceRequestId, state: 'stopped' });
-    }
-    stopCurrentVoice();
+    currentVoiceHandle?.stop?.();
+    currentVoiceHandle = null;
     currentVoiceRequestId = null;
 }
 
@@ -1088,6 +1096,7 @@ function showOverlay() {
 function hideOverlay() {
     if (document.fullscreenElement) document.exitFullscreen().catch(() => { });
     stopVoiceAndNotify();
+    cancelFourthWallImageRequests();
 
     if (visibilityHandler) {
         document.removeEventListener('visibilitychange', visibilityHandler);
@@ -1258,7 +1267,6 @@ function initFourthWallFloorTools() {
     try { xbLog.info('fourthWall', 'initFourthWallFloorTools'); } catch { }
     getSettings();
     setMessageEnhancerRuntimeActive(true);
-    clearExpiredCache();
     initMessageEnhancer();
 }
 
@@ -1331,7 +1339,6 @@ function fourthWallCleanup() {
     cleanupFourthWallRuntime();
     setMessageEnhancerRuntimeActive(false);
     cleanupMessageEnhancer();
-    stopCurrentVoice();
 }
 
 export { initFourthWall, initFourthWallFloorTools, refreshFourthWallFloorTools, closeFourthWall, fourthWallCleanup, openFourthWall, openFourthWall as showFourthWallPopup };

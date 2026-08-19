@@ -1,14 +1,21 @@
 import db, {
     appendTavernStructuredStatePatch,
+    ensureTavernManagerStateSnapshot,
     ensureSeedStructuredStateDocument,
     getTavernStructuredStateDocument,
+    hashTavernStateDocument,
+    listTavernStructuredStatePatchPage,
     listTavernStructuredStateDocuments,
-    listTavernStructuredStatePatches,
     putTavernStructuredStateDocument,
     tavernMessagesTable,
+    tavernManagerRunsTable,
+    tavernManagerStateSnapshotsTable,
     tavernSessionsTable,
     tavernStateDocumentsTable,
     tavernStatePatchesTable,
+    TAVERN_MANAGER_ACTIVE_MAP_RESOURCE_ID,
+    TAVERN_MANAGER_ACTIVE_MAP_RESOURCE_TYPE,
+    updateTavernManagerStateSnapshotAfter,
     type TavernStructuredStateDocType,
     type TavernStructuredStateDocumentRecord,
     type TavernStructuredStatePatchRecord,
@@ -64,6 +71,9 @@ export const TAVERN_STATE_TOOL_NAMES = {
     READ_SCENE: 'MapSceneRead',
     EDIT_SCENE: 'MapSceneEdit',
 } as const;
+
+/** Maximum complete patch history the map replay UI will load into memory. */
+export const TAVERN_MAP_TIMELINE_PATCH_LIMIT = 80;
 
 const MODEL_FACING_STATE_TOOL_NAMES = new Set<string>([
     TAVERN_STATE_TOOL_NAMES.READ_ATLAS,
@@ -289,6 +299,49 @@ export type TavernMapStateDocumentItem = TavernStructuredStateDocumentRecord & {
     active?: boolean;
 };
 
+/** A transient UI projection; full patches stay in IndexedDB for audit/replay. */
+export interface TavernStructuredStatePatchDisplay {
+    id: string;
+    docType: TavernStructuredStateDocType;
+    docId: string;
+    revision: number;
+    summary: string;
+    createdAt: number;
+    changedIds: string[];
+    removedElements: unknown[];
+    ops: Array<{ op: string; id: string }>;
+}
+
+export function projectTavernStructuredStatePatchForDisplay(
+    patch: TavernStructuredStatePatchRecord,
+): TavernStructuredStatePatchDisplay {
+    const ops = Array.isArray(patch.ops) ? patch.ops : [];
+    return {
+        id: patch.id,
+        docType: patch.docType,
+        docId: patch.docId,
+        revision: patch.revision,
+        summary: patch.summary,
+        createdAt: patch.createdAt,
+        changedIds: Array.isArray(patch.changedIds) ? patch.changedIds.map((id) => String(id || '')).filter(Boolean) : [],
+        // A removal animation needs the removed element shape, but only for
+        // the single latest patch retained by the live UI.
+        removedElements: Array.isArray(patch.removedElements) ? patch.removedElements : [],
+        ops: ops.map((rawOp) => {
+            const op = rawOp && typeof rawOp === 'object' && !Array.isArray(rawOp)
+                ? rawOp as Record<string, unknown>
+                : {};
+            const element = op.element && typeof op.element === 'object' && !Array.isArray(op.element)
+                ? op.element as Record<string, unknown>
+                : {};
+            return {
+                op: String(op.op || ''),
+                id: String(op.id || element.id || ''),
+            };
+        }),
+    };
+}
+
 function now(): number {
     return Date.now();
 }
@@ -350,6 +403,32 @@ async function setActiveMapDocId(sessionId = '', docId = DEFAULT_DOC_ID): Promis
         state,
         updatedAt: now(),
     });
+    return activeMapDocId;
+}
+
+async function setActiveMapDocIdForManager(
+    sessionId = '',
+    docId = DEFAULT_DOC_ID,
+    managerRunId = '',
+): Promise<string> {
+    const runId = String(managerRunId || '').trim();
+    if (runId) {
+        await ensureTavernManagerStateSnapshot({
+            managerRunId: runId,
+            sessionId,
+            docType: TAVERN_MANAGER_ACTIVE_MAP_RESOURCE_TYPE,
+            docId: TAVERN_MANAGER_ACTIVE_MAP_RESOURCE_ID,
+        });
+    }
+    const activeMapDocId = await setActiveMapDocId(sessionId, docId);
+    if (runId) {
+        await updateTavernManagerStateSnapshotAfter({
+            managerRunId: runId,
+            sessionId,
+            docType: TAVERN_MANAGER_ACTIVE_MAP_RESOURCE_TYPE,
+            docId: TAVERN_MANAGER_ACTIVE_MAP_RESOURCE_ID,
+        });
+    }
     return activeMapDocId;
 }
 
@@ -1417,6 +1496,14 @@ async function dedupeActorElementsForSavedDocument(input: {
         if (!next.removedElements.length) {continue;}
         const revision = Math.max(0, Number(row.revision) || 0) + 1;
         const digest = createMapDigest(next.document, revision);
+        if (input.managerRunId) {
+            await ensureTavernManagerStateSnapshot({
+                managerRunId: input.managerRunId,
+                sessionId: input.sessionId,
+                docType: row.docType,
+                docId: row.docId,
+            });
+        }
         await tavernStateDocumentsTable.put({
             ...row,
             data: next.document,
@@ -1440,6 +1527,14 @@ async function dedupeActorElementsForSavedDocument(input: {
             changedIds: next.removedElements.map((element) => element.id),
             removedElements: next.removedElements,
         });
+        if (input.managerRunId) {
+            await updateTavernManagerStateSnapshotAfter({
+                managerRunId: input.managerRunId,
+                sessionId: input.sessionId,
+                docType: row.docType,
+                docId: row.docId,
+            });
+        }
         otherDocumentRemovals.push({
             docId: row.docId,
             revision,
@@ -3269,6 +3364,7 @@ export async function executeTavernStateTool(
         sourceUserOrder?: number;
         sourceAssistantOrder?: number;
         beforeWriteGuard?: () => Promise<void> | void;
+        afterWriteObserver?: () => Promise<void> | void;
     } = {},
 ): Promise<TavernStateToolResult> {
     const id = String(sessionId || '').trim();
@@ -3345,7 +3441,9 @@ export async function executeTavernStateTool(
         }
 
         if (normalizedToolName === TAVERN_STATE_TOOL_NAMES.READ_SCENE) {
-            const atlasRecord = await getSeededAtlasDocumentRecord(id);
+            const atlasRecord = options.managerRunId
+                ? await getTavernStructuredStateDocument(id, ATLAS_DOC_TYPE, DEFAULT_ATLAS_DOC_ID)
+                : await getSeededAtlasDocumentRecord(id);
             const atlas = normalizeAtlasDocumentFromRecord(atlasRecord);
             const target = resolveMapIntentTarget(atlas, args);
             const mode = String(args.mode || 'summary').trim() || 'summary';
@@ -3411,25 +3509,29 @@ export async function executeTavernStateTool(
                 };
             }
             if (mode === 'history') {
-                const patches = await listTavernStructuredStatePatches({ sessionId: id, docType: MAP_DOC_TYPE, docId: target.docId });
                 const tail = Math.max(0, Number(args.tail) || 0);
                 const limit = Math.max(1, Math.min(MAX_STATE_READ_LIMIT, Number(args.limit) || 20));
                 const offset = Math.max(0, Number(args.offset) || 0);
-                const start = tail > 0 ? Math.max(0, patches.length - Math.min(MAX_STATE_READ_LIMIT, tail)) : offset;
-                const page = patches.slice(start, start + (tail > 0 ? Math.min(MAX_STATE_READ_LIMIT, tail) : limit));
-                const nextOffset = start + page.length < patches.length ? start + page.length : 0;
+                const page = await listTavernStructuredStatePatchPage({
+                    sessionId: id,
+                    docType: MAP_DOC_TYPE,
+                    docId: target.docId,
+                    limit: tail > 0 ? Math.min(MAX_STATE_READ_LIMIT, tail) : limit,
+                    offset,
+                    tail: tail > 0 ? Math.min(MAX_STATE_READ_LIMIT, tail) : 0,
+                });
                 return {
                     ok: true,
                     file: target.sceneName,
                     scene: target.sceneName,
-                    summary: `Found ${patches.length} saved scene patch transaction(s); returned ${page.length}.`,
+                    summary: `Found ${page.total} saved scene patch transaction(s); returned ${page.patches.length}.`,
                     docType: MAP_DOC_TYPE,
                     docId: target.docId,
                     revision: record.revision,
-                    count: patches.length,
-                    truncated: nextOffset > 0,
-                    nextOffset,
-                    patches: page,
+                    count: page.total,
+                    truncated: page.truncated,
+                    nextOffset: page.nextOffset,
+                    patches: page.patches,
                 };
             }
             return {
@@ -3448,7 +3550,9 @@ export async function executeTavernStateTool(
         }
 
         if (normalizedToolName === TAVERN_STATE_TOOL_NAMES.EDIT_SCENE) {
-            const atlasRecord = await getSeededAtlasDocumentRecord(id);
+            const atlasRecord = options.managerRunId
+                ? await getTavernStructuredStateDocument(id, ATLAS_DOC_TYPE, DEFAULT_ATLAS_DOC_ID)
+                : await getSeededAtlasDocumentRecord(id);
             const atlas = normalizeAtlasDocumentFromRecord(atlasRecord);
             const target = resolveMapIntentTarget(atlas, args);
             const existing = await getTavernStructuredStateDocument(id, MAP_DOC_TYPE, target.docId);
@@ -3555,7 +3659,6 @@ export async function executeTavernStateTool(
             let atlasResult: TavernStateToolResult;
             const timestamp = now();
             if (compiled.effectiveOps.length || atlasPatch.changed) {
-                await options.beforeWriteGuard?.();
                 const currentRevision = Number(existing?.revision) || 0;
                 const nextRevision = currentRevision + 1;
                 const atlasCurrentRevision = Number(atlasRecord?.revision) || 0;
@@ -3565,8 +3668,23 @@ export async function executeTavernStateTool(
                 let effectiveOps = [...compiled.effectiveOps];
                 let removedElements = [...compiled.removedElements];
                 let changedIds = [...compiled.changedIds];
-                await db.transaction('rw', tavernStateDocumentsTable, tavernStatePatchesTable, tavernSessionsTable, async () => {
+                await db.transaction('rw', tavernStateDocumentsTable, tavernStatePatchesTable, tavernMessagesTable, tavernManagerRunsTable, tavernManagerStateSnapshotsTable, tavernSessionsTable, async () => {
+                    await options.beforeWriteGuard?.();
+                    const liveExisting = await getTavernStructuredStateDocument(id, MAP_DOC_TYPE, target.docId);
+                    const liveAtlasRecord = await getTavernStructuredStateDocument(id, ATLAS_DOC_TYPE, DEFAULT_ATLAS_DOC_ID);
+                    if (hashTavernStateDocument(liveExisting) !== hashTavernStateDocument(existing)
+                        || hashTavernStateDocument(liveAtlasRecord) !== hashTavernStateDocument(atlasRecord)) {
+                        throw new Error('manager_resource_revision_conflict:map-scene');
+                    }
                     if (compiled.effectiveOps.length) {
+                        if (options.managerRunId) {
+                            await ensureTavernManagerStateSnapshot({
+                                managerRunId: options.managerRunId,
+                                sessionId: id,
+                                docType: MAP_DOC_TYPE,
+                                docId: target.docId,
+                            });
+                        }
                         const actorDedupe = await dedupeActorElementsForSavedDocument({
                             sessionId: id,
                             docType: MAP_DOC_TYPE,
@@ -3616,8 +3734,24 @@ export async function executeTavernStateTool(
                             changedIds,
                             removedElements,
                         });
+                        if (options.managerRunId) {
+                            await updateTavernManagerStateSnapshotAfter({
+                                managerRunId: options.managerRunId,
+                                sessionId: id,
+                                docType: MAP_DOC_TYPE,
+                                docId: target.docId,
+                            });
+                        }
                     }
                     if (atlasPatch.changed) {
+                        if (options.managerRunId) {
+                            await ensureTavernManagerStateSnapshot({
+                                managerRunId: options.managerRunId,
+                                sessionId: id,
+                                docType: ATLAS_DOC_TYPE,
+                                docId: DEFAULT_ATLAS_DOC_ID,
+                            });
+                        }
                         await putTavernStructuredStateDocument({
                             sessionId: id,
                             docType: ATLAS_DOC_TYPE,
@@ -3646,7 +3780,16 @@ export async function executeTavernStateTool(
                             changedIds: atlasPatch.changedIds,
                             removedElements: [],
                         });
+                        if (options.managerRunId) {
+                            await updateTavernManagerStateSnapshotAfter({
+                                managerRunId: options.managerRunId,
+                                sessionId: id,
+                                docType: ATLAS_DOC_TYPE,
+                                docId: DEFAULT_ATLAS_DOC_ID,
+                            });
+                        }
                     }
+                    await options.afterWriteObserver?.();
                 });
                 mapResult = {
                     ok: true,
@@ -3888,23 +4031,27 @@ export async function executeTavernStateTool(
                     };
                 }
                 if (mode === 'history') {
-                    const patches = await listTavernStructuredStatePatches({ sessionId: id, docType, docId });
                     const tail = Math.max(0, Number(args.tail) || 0);
                     const limit = Math.max(1, Math.min(MAX_STATE_READ_LIMIT, Number(args.limit) || 20));
                     const offset = Math.max(0, Number(args.offset) || 0);
-                    const start = tail > 0 ? Math.max(0, patches.length - Math.min(MAX_STATE_READ_LIMIT, tail)) : offset;
-                    const page = patches.slice(start, start + (tail > 0 ? Math.min(MAX_STATE_READ_LIMIT, tail) : limit));
-                    const nextOffset = start + page.length < patches.length ? start + page.length : 0;
+                    const page = await listTavernStructuredStatePatchPage({
+                        sessionId: id,
+                        docType,
+                        docId,
+                        limit: tail > 0 ? Math.min(MAX_STATE_READ_LIMIT, tail) : limit,
+                        offset,
+                        tail: tail > 0 ? Math.min(MAX_STATE_READ_LIMIT, tail) : 0,
+                    });
                     return {
                         ok: true,
-                        summary: `Found ${patches.length} saved atlas patch transaction(s); returned ${page.length}.`,
+                        summary: `Found ${page.total} saved atlas patch transaction(s); returned ${page.patches.length}.`,
                         docType,
                         docId,
                         revision: record.revision,
-                        count: patches.length,
-                        truncated: nextOffset > 0,
-                        nextOffset,
-                        patches: page,
+                        count: page.total,
+                        truncated: page.truncated,
+                        nextOffset: page.nextOffset,
+                        patches: page.patches,
                     };
                 }
                 return { ok: false, summary: `Unsupported atlas MapInspect mode: ${mode}`, docType, docId, error: 'state_read_mode_invalid' };
@@ -3970,23 +4117,27 @@ export async function executeTavernStateTool(
                 };
             }
             if (mode === 'history') {
-                const patches = await listTavernStructuredStatePatches({ sessionId: id, docType, docId });
                 const tail = Math.max(0, Number(args.tail) || 0);
                 const limit = Math.max(1, Math.min(MAX_STATE_READ_LIMIT, Number(args.limit) || 20));
                 const offset = Math.max(0, Number(args.offset) || 0);
-                const start = tail > 0 ? Math.max(0, patches.length - Math.min(MAX_STATE_READ_LIMIT, tail)) : offset;
-                const page = patches.slice(start, start + (tail > 0 ? Math.min(MAX_STATE_READ_LIMIT, tail) : limit));
-                const nextOffset = start + page.length < patches.length ? start + page.length : 0;
+                const page = await listTavernStructuredStatePatchPage({
+                    sessionId: id,
+                    docType,
+                    docId,
+                    limit: tail > 0 ? Math.min(MAX_STATE_READ_LIMIT, tail) : limit,
+                    offset,
+                    tail: tail > 0 ? Math.min(MAX_STATE_READ_LIMIT, tail) : 0,
+                });
                 return {
                     ok: true,
-                    summary: `Found ${patches.length} saved patch transaction(s); returned ${page.length}.`,
+                    summary: `Found ${page.total} saved patch transaction(s); returned ${page.patches.length}.`,
                     docType,
                     docId,
                     revision: record.revision,
-                    count: patches.length,
-                    truncated: nextOffset > 0,
-                    nextOffset,
-                    patches: page,
+                    count: page.total,
+                    truncated: page.truncated,
+                    nextOffset: page.nextOffset,
+                    patches: page.patches,
                 };
             }
             return { ok: false, summary: `Unsupported MapInspect mode: ${mode}`, docType, docId, error: 'state_read_mode_invalid' };
@@ -4010,10 +4161,14 @@ export async function executeTavernStateTool(
                     tavernStateDocumentsTable,
                     tavernStatePatchesTable,
                     tavernMessagesTable,
+                    tavernManagerRunsTable,
+                    tavernManagerStateSnapshotsTable,
                     tavernSessionsTable,
                     async () => {
                         await options.beforeWriteGuard?.();
-                        const existing = await getSeededAtlasDocumentRecord(id);
+                        const existing = options.managerRunId
+                            ? await getTavernStructuredStateDocument(id, ATLAS_DOC_TYPE, DEFAULT_ATLAS_DOC_ID)
+                            : await getSeededAtlasDocumentRecord(id);
                         const currentRevision = Number(existing?.revision) || 0;
                         if (Number.isFinite(Number(args.baseRevision)) && Number(args.baseRevision) !== currentRevision) {
                             return {
@@ -4081,6 +4236,14 @@ export async function executeTavernStateTool(
                             };
                         }
                         const timestamp = now();
+                        if (options.managerRunId) {
+                            await ensureTavernManagerStateSnapshot({
+                                managerRunId: options.managerRunId,
+                                sessionId: id,
+                                docType,
+                                docId,
+                            });
+                        }
                         const saved = await putTavernStructuredStateDocument({
                             sessionId: id,
                             docType,
@@ -4109,9 +4272,18 @@ export async function executeTavernStateTool(
                             changedIds: patch.changedIds,
                             removedElements: [],
                         });
-                        if (patch.syncedActiveMapDocId) {
-                            await setActiveMapDocId(id, patch.syncedActiveMapDocId);
+                        if (options.managerRunId) {
+                            await updateTavernManagerStateSnapshotAfter({
+                                managerRunId: options.managerRunId,
+                                sessionId: id,
+                                docType,
+                                docId,
+                            });
                         }
+                        if (patch.syncedActiveMapDocId) {
+                            await setActiveMapDocIdForManager(id, patch.syncedActiveMapDocId, options.managerRunId);
+                        }
+                        await options.afterWriteObserver?.();
                         return {
                             ok: true,
                             summary: `Updated ${docType}/${docId} to revision ${saved.revision} with ${patch.appliedCount} applied op(s).`,
@@ -4137,6 +4309,8 @@ export async function executeTavernStateTool(
                 tavernStateDocumentsTable,
                 tavernStatePatchesTable,
                 tavernMessagesTable,
+                tavernManagerRunsTable,
+                tavernManagerStateSnapshotsTable,
                 tavernSessionsTable,
                 async () => {
                     await options.beforeWriteGuard?.();
@@ -4158,8 +4332,11 @@ export async function executeTavernStateTool(
                             return { ok: false, summary: `${docType}/${docId} does not exist.`, docType, docId, error: 'state_document_not_found' };
                         }
                         const previousActiveDocId = await getActiveMapDocId(id);
-                        const activeDocId = await setActiveMapDocId(id, docId);
+                        const activeDocId = await setActiveMapDocIdForManager(id, docId, options.managerRunId);
                         const warnings = await buildMapAtlasMismatchWarning(id, docId);
+                        if (previousActiveDocId !== activeDocId) {
+                            await options.afterWriteObserver?.();
+                        }
                         return {
                             ok: true,
                             summary: `Activated ${docType}/${docId}.`,
@@ -4203,8 +4380,11 @@ export async function executeTavernStateTool(
                                 return { ok: false, summary: `${docType}/${docId} does not exist.`, docType, docId, error: 'state_document_not_found' };
                             }
                             const previousActiveDocId = await getActiveMapDocId(id);
-                            const activeDocId = await setActiveMapDocId(id, docId);
+                            const activeDocId = await setActiveMapDocIdForManager(id, docId, options.managerRunId);
                             activeChanged = previousActiveDocId !== activeDocId;
+                            if (activeChanged) {
+                                await options.afterWriteObserver?.();
+                            }
                         }
                         const activateWarnings = activate && args.dryRun !== true
                             ? await buildMapAtlasMismatchWarning(id, docId)
@@ -4268,6 +4448,15 @@ export async function executeTavernStateTool(
                     ])];
                     const digest = createMapDigest(nextDocument, nextRevision);
 
+                    if (options.managerRunId) {
+                        await ensureTavernManagerStateSnapshot({
+                            managerRunId: options.managerRunId,
+                            sessionId: id,
+                            docType,
+                            docId,
+                        });
+                    }
+
                     const saved = await putTavernStructuredStateDocument({
                         sessionId: id,
                         docType,
@@ -4296,12 +4485,21 @@ export async function executeTavernStateTool(
                         changedIds,
                         removedElements,
                     });
+                    if (options.managerRunId) {
+                        await updateTavernManagerStateSnapshotAfter({
+                            managerRunId: options.managerRunId,
+                            sessionId: id,
+                            docType,
+                            docId,
+                        });
+                    }
                     if (activate) {
-                        await setActiveMapDocId(id, docId);
+                        await setActiveMapDocIdForManager(id, docId, options.managerRunId);
                     }
                     const activateWarnings = activate
                         ? await buildMapAtlasMismatchWarning(id, docId)
                         : [];
+                    await options.afterWriteObserver?.();
                     return {
                         ok: true,
                         summary: `Updated ${docType}/${docId} to revision ${saved.revision} with ${patch.appliedCount} applied op(s).`,
@@ -4343,7 +4541,9 @@ export async function getTavernMapStateForSession(sessionId = ''): Promise<{
     documents: TavernMapStateDocumentItem[];
     activeDocId: string;
     activeDocument: TavernStructuredStateDocumentRecord | null;
-    activePatches: TavernStructuredStatePatchRecord[];
+    activePatches: TavernStructuredStatePatchDisplay[];
+    activePatchCount: number;
+    activeTimelineAvailable: boolean;
 }> {
     const resolved = await resolveTavernActiveMapDocument(sessionId);
     const activeDocId = resolved.activeDocId;
@@ -4374,11 +4574,36 @@ export async function getTavernMapStateForSession(sessionId = ''): Promise<{
         });
     const record = resolved.record;
     const normalizedDocument = record ? normalizeMapDocumentFromRecord(record) : null;
-    const activePatches = record
-        ? await listTavernStructuredStatePatches({ sessionId, docType: MAP_DOC_TYPE, docId: record.docId, limit: 80 })
-        : [];
+    const [activePatchPage, firstActivePatchPage] = record
+        ? await Promise.all([
+            listTavernStructuredStatePatchPage({
+                sessionId,
+                docType: MAP_DOC_TYPE,
+                docId: record.docId,
+                limit: 1,
+                tail: 1,
+            }),
+            listTavernStructuredStatePatchPage({
+                sessionId,
+                docType: MAP_DOC_TYPE,
+                docId: record.docId,
+                limit: 1,
+            }),
+        ])
+        : [
+            { patches: [] as TavernStructuredStatePatchRecord[], total: 0 },
+            { patches: [] as TavernStructuredStatePatchRecord[], total: 0 },
+        ];
+    const activePatches = activePatchPage.patches.map(projectTavernStructuredStatePatchForDisplay);
     if (!record || !normalizedDocument) {
-        return { documents, activeDocId, activeDocument: null, activePatches: [] };
+        return {
+            documents,
+            activeDocId,
+            activeDocument: null,
+            activePatches: [],
+            activePatchCount: 0,
+            activeTimelineAvailable: false,
+        };
     }
     return {
         documents,
@@ -4390,22 +4615,27 @@ export async function getTavernMapStateForSession(sessionId = ''): Promise<{
             digest: createMapDigest(normalizedDocument, record.revision),
         },
         activePatches,
+        activePatchCount: activePatchPage.total,
+        activeTimelineAvailable: activePatchPage.total > 0
+            && activePatchPage.total <= TAVERN_MAP_TIMELINE_PATCH_LIMIT
+            && Number(firstActivePatchPage.patches[0]?.revision || 0) <= 1,
     };
 }
 
 export async function getTavernAtlasStateForSession(sessionId = ''): Promise<{
     document: TavernStructuredStateDocumentRecord | null;
-    patches: TavernStructuredStatePatchRecord[];
+    latestPatchSummary: string;
     activeLocationKey: string;
 }> {
     const record = await getSeededAtlasDocumentRecord(sessionId);
-    if (!record) {return { document: null, patches: [], activeLocationKey: '' };}
+    if (!record) {return { document: null, latestPatchSummary: '', activeLocationKey: '' };}
     const normalized = normalizeAtlasDocumentFromRecord(record);
-    const patches = await listTavernStructuredStatePatches({
+    const page = await listTavernStructuredStatePatchPage({
         sessionId,
         docType: ATLAS_DOC_TYPE,
         docId: DEFAULT_ATLAS_DOC_ID,
-        limit: 80,
+        limit: 1,
+        tail: 1,
     });
     return {
         document: {
@@ -4414,7 +4644,7 @@ export async function getTavernAtlasStateForSession(sessionId = ''): Promise<{
             title: atlasTitle(normalized),
             digest: createAtlasDigest(normalized),
         },
-        patches,
+        latestPatchSummary: String(page.patches[0]?.summary || ''),
         activeLocationKey: normalized.activeLocationKey || '',
     };
 }

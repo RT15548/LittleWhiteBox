@@ -10,6 +10,7 @@ import {
     isAutoManagerToolAllowed,
     resolveTavernAutoManagerToolPolicy,
 } from '../app-src/runtime/contract-policy';
+import { TAVERN_TASK_TOOL_NAMES } from '../shared/tasks/task-tools';
 
 test('tavern contract runtime resolves module capabilities without leaking reserved toggles', () => {
     const memoryOnly = resolveTavernSessionContractRuntime(mergeTavernSessionContract(undefined, {
@@ -27,7 +28,6 @@ test('tavern contract runtime resolves module capabilities without leaking reser
         includeMemory: true,
         includeCartography: false,
         includeStatus: false,
-        includeQuestOrchestration: false,
     });
 
     const mapOnly = resolveTavernSessionContractRuntime(mergeTavernSessionContract(undefined, {
@@ -45,7 +45,6 @@ test('tavern contract runtime resolves module capabilities without leaking reser
         includeMemory: false,
         includeCartography: true,
         includeStatus: false,
-        includeQuestOrchestration: false,
     });
 
     const statusOnly = resolveTavernSessionContractRuntime(mergeTavernSessionContract(undefined, {
@@ -61,7 +60,6 @@ test('tavern contract runtime resolves module capabilities without leaking reser
         includeMemory: false,
         includeCartography: false,
         includeStatus: true,
-        includeQuestOrchestration: false,
     });
 
     const disabled = resolveTavernSessionContractRuntime(mergeTavernSessionContract(undefined, {
@@ -79,29 +77,6 @@ test('tavern contract runtime resolves module capabilities without leaking reser
         includeMemory: false,
         includeCartography: false,
         includeStatus: false,
-        includeQuestOrchestration: false,
-    });
-
-    const reservedOnly = resolveTavernSessionContractRuntime(mergeTavernSessionContract(undefined, {
-        memoryArchiving: false,
-        cartographyEngine: false,
-        statusPanel: false,
-        actionChecks: true,
-        randomEncounters: true,
-        questOrchestration: true,
-    }));
-    assert.equal(reservedOnly.includeMemoryFiles, false);
-    assert.equal(reservedOnly.includeStructuredStates, false);
-    assert.equal(reservedOnly.includeStatusStates, false);
-    assert.equal(reservedOnly.includeActionChecks, true);
-    assert.equal(reservedOnly.includeRandomEncounters, true);
-    assert.equal(reservedOnly.includeQuestOrchestration, true);
-    assert.equal(reservedOnly.hasAutomaticManagerWork, true);
-    assert.deepEqual(reservedOnly.managerPromptOptions, {
-        includeMemory: false,
-        includeCartography: false,
-        includeStatus: false,
-        includeQuestOrchestration: true,
     });
 });
 
@@ -118,7 +93,6 @@ test('tavern auto manager tool policy keeps read tools and module-specific write
     assert.equal(memoryOnly.allowedToolNames.includes('MapSceneEdit'), false);
     assert.equal(memoryOnly.allowedToolNames.includes('StatusRead'), false);
     assert.equal(memoryOnly.allowedToolNames.includes('StatusPatch'), false);
-    assert.equal(memoryOnly.allowedToolNames.includes('EventPatch'), false);
     assert.equal(memoryOnly.deniedToolNames.includes('MapPatch'), true);
     assert.equal(memoryOnly.deniedToolNames.includes('MapSceneEdit'), true);
 
@@ -135,7 +109,6 @@ test('tavern auto manager tool policy keeps read tools and module-specific write
     assert.equal(mapOnly.allowedToolNames.includes('MapInspect'), false);
     assert.equal(mapOnly.allowedToolNames.includes('MapDocs'), false);
     assert.equal(mapOnly.allowedToolNames.includes('StatusPatch'), false);
-    assert.equal(mapOnly.allowedToolNames.includes('EventPatch'), false);
     assert.equal(mapOnly.allowedToolNames.includes('Write'), false);
     assert.equal(mapOnly.deniedToolNames.includes('Edit'), true);
     assert.equal(mapOnly.deniedToolNames.includes('MapPatch'), true);
@@ -151,31 +124,27 @@ test('tavern auto manager tool policy keeps read tools and module-specific write
     assert.equal(statusOnly.allowedToolNames.includes('Write'), false);
     assert.equal(statusOnly.allowedToolNames.includes('MapSceneEdit'), false);
 
-    const questOnly = resolveTavernAutoManagerToolPolicy(mergeTavernSessionContract(undefined, {
-        memoryArchiving: false,
-        cartographyEngine: false,
-        statusPanel: false,
-        questOrchestration: true,
-    }));
-    assert.equal(questOnly.allowedToolNames.includes('Read'), true);
-    assert.equal(questOnly.allowedToolNames.includes('EventPatch'), true);
-    assert.equal(questOnly.allowedToolNames.includes('Write'), false);
-    assert.equal(questOnly.allowedToolNames.includes('MapPatch'), false);
-    assert.equal(questOnly.allowedToolNames.includes('MapSceneEdit'), false);
-
     const disabled = resolveTavernAutoManagerToolPolicy(mergeTavernSessionContract(undefined, {
         memoryArchiving: false,
         cartographyEngine: false,
         statusPanel: false,
     }));
-    assert.deepEqual(disabled.allowedToolNames, ['LS', 'Grep', 'Read', 'web_search']);
+    assert.deepEqual(disabled.allowedToolNames, [
+        'LS',
+        'Grep',
+        'Read',
+        'web_search',
+        ...Object.values(TAVERN_TASK_TOOL_NAMES),
+    ]);
     assert.equal(isAutoManagerToolAllowed('Write', disabled.runtime.contract), false);
     assert.equal(isAutoManagerToolAllowed('MapPatch', disabled.runtime.contract), false);
     assert.equal(isAutoManagerToolAllowed('MapSceneEdit', disabled.runtime.contract), false);
-    assert.equal(isAutoManagerToolAllowed('EventPatch', disabled.runtime.contract), false);
     assert.equal(isAutoManagerToolAllowed('StatusPatch', disabled.runtime.contract), false);
     assert.equal(isAutoManagerToolAllowed('Read', disabled.runtime.contract), true);
     assert.equal(isAutoManagerToolAllowed('web_search', disabled.runtime.contract), true);
+    Object.values(TAVERN_TASK_TOOL_NAMES).forEach((toolName) => {
+        assert.equal(isAutoManagerToolAllowed(toolName, disabled.runtime.contract), true);
+    });
 
     const memoryDenied = buildDeniedAutoManagerToolResult('Write', disabled.runtime.contract);
     assert.equal(memoryDenied.ok, false);
@@ -184,10 +153,6 @@ test('tavern auto manager tool policy keeps read tools and module-specific write
     const stateDenied = buildDeniedAutoManagerToolResult('MapPatch', disabled.runtime.contract);
     assert.equal(stateDenied.ok, false);
     assert.match(stateDenied.summary, /契约未授权 制图引擎/);
-
-    const taskDenied = buildDeniedAutoManagerToolResult('EventPatch', disabled.runtime.contract);
-    assert.equal(taskDenied.ok, false);
-    assert.match(taskDenied.summary, /契约未授权 织线者/);
 
     const statusDenied = buildDeniedAutoManagerToolResult('StatusPatch', disabled.runtime.contract);
     assert.equal(statusDenied.ok, false);

@@ -1,8 +1,8 @@
-import { computed, ref, watch, type ComputedRef, type Ref } from 'vue';
+import { computed, ref, type ComputedRef, type Ref } from 'vue';
 import {
-    countTavernMessages,
     deleteTavernSession,
     getLatestTavernAssistantOrder,
+    getLatestTavernMessage,
     getSelectedTavernSessionId,
     listTavernSessions,
     loadTavernMessageWindow,
@@ -14,7 +14,6 @@ import {
 export interface TavernSessionState {
     chatMessages: ComputedRef<TavernMessageRecord[]>;
     currentAssistantFloor: ComputedRef<number>;
-    latestSessionMessage: ComputedRef<TavernMessageRecord | null>;
     loadedSessionMessageEndOrder: Ref<number | null>;
     loadedSessionMessageStartOrder: Ref<number | null>;
     loadedSessionMessages: Ref<TavernMessageRecord[]>;
@@ -22,7 +21,8 @@ export interface TavernSessionState {
     selectedSessionId: Ref<string>;
     selectedSessionLatestAssistantOrder: Ref<number>;
     selectedSessionMessageTotal: Ref<number>;
-    sessionMessageCounts: Ref<Record<string, number>>;
+    selectedSessionMessageWindowOffsetFromEnd: Ref<number>;
+    sessionLatestMessageOrders: Ref<Record<string, number>>;
     sessions: Ref<TavernSessionRecord[]>;
     visibleChatMessages: ComputedRef<TavernMessageRecord[]>;
 }
@@ -36,6 +36,7 @@ export interface TavernSessionControllerOptions {
     selectedCharacterPreviewKey: Ref<string>;
     selectedSessionCharacterError: Ref<string>;
     abortActiveRun: () => void;
+    abortAssistantRunForSession: (sessionId: string) => void;
     applySessionSnapshotContext: (session?: TavernSessionRecord | null) => void;
     cancelAndRollbackManagersForSession: (sessionId: string) => Promise<unknown>;
     cancelDrawJobsForSession: (sessionId: string) => void;
@@ -43,7 +44,7 @@ export interface TavernSessionControllerOptions {
     describeSessionTitle: (session?: TavernSessionRecord | null) => string;
     invalidateMemoryFileRecordLoad: () => void;
     openCharacterSettingsWorkspace: () => void;
-    refreshManagerRecords: (sessionId?: string) => Promise<unknown>;
+    hydrateSessionWorkspace: (sessionId?: string) => Promise<unknown>;
     reportStartupProgress: (percent: number, action: string) => void;
     resetChatMessageWindowState: () => void;
     resetSessionPreviewState: () => void;
@@ -60,17 +61,16 @@ export function createTavernSessionState(): TavernSessionState {
     const loadedSessionMessageStartOrder = ref<number | null>(null);
     const loadedSessionMessageEndOrder = ref<number | null>(null);
     const selectedSessionLatestAssistantOrder = ref(-1);
-    const sessionMessageCounts = ref<Record<string, number>>({});
+    const selectedSessionMessageWindowOffsetFromEnd = ref(0);
+    const sessionLatestMessageOrders = ref<Record<string, number>>({});
     const selectedSession = computed(() => sessions.value.find((item) => item.id === selectedSessionId.value) || null);
     const chatMessages = computed(() => loadedSessionMessages.value);
-    const latestSessionMessage = computed(() => latestMessageInMemory(loadedSessionMessages.value));
     const currentAssistantFloor = computed(() => selectedSessionLatestAssistantOrder.value);
     const visibleChatMessages = computed(() => loadedSessionMessages.value);
 
     return {
         chatMessages,
         currentAssistantFloor,
-        latestSessionMessage,
         loadedSessionMessageEndOrder,
         loadedSessionMessageStartOrder,
         loadedSessionMessages,
@@ -78,24 +78,20 @@ export function createTavernSessionState(): TavernSessionState {
         selectedSessionId,
         selectedSessionLatestAssistantOrder,
         selectedSessionMessageTotal,
-        sessionMessageCounts,
+        selectedSessionMessageWindowOffsetFromEnd,
+        sessionLatestMessageOrders,
         sessions,
         visibleChatMessages,
     };
 }
 
-function latestMessageInMemory(messages: TavernMessageRecord[]) {
-    let latest: TavernMessageRecord | null = null;
-    messages.forEach((message) => {
-        if (!latest || message.order > latest.order) {
-            latest = message;
-        }
-    });
-    return latest;
-}
-
 function sessionUpdatedSortValue(session: TavernSessionRecord): number {
     return Number(session.updatedAt) || Number(session.createdAt) || 0;
+}
+
+function normalizeLatestMessageOrder(value: unknown): number {
+    const order = Number(value);
+    return Number.isInteger(order) && order >= 0 ? order : -1;
 }
 
 export function useTavernSessionController(state: TavernSessionState, options: TavernSessionControllerOptions) {
@@ -105,71 +101,71 @@ export function useTavernSessionController(state: TavernSessionState, options: T
     const chatMessageWindow = computed(() => {
         const total = Math.max(0, Math.floor(Number(state.selectedSessionMessageTotal.value) || 0));
         const visibleCount = state.loadedSessionMessages.value.length;
-        const hiddenBefore = Math.max(0, total - visibleCount);
+        const hiddenAfter = Math.min(total, Math.max(0, Math.floor(Number(state.selectedSessionMessageWindowOffsetFromEnd.value) || 0)));
+        const hiddenBefore = Math.max(0, total - hiddenAfter - visibleCount);
         return {
             startIndex: hiddenBefore,
             hiddenBefore,
+            hiddenAfter,
             visibleCount,
             limit: options.chatMessageWindowLimit.value,
             total,
         };
     });
 
-    watch([
-        () => state.selectedSessionId.value,
-        () => state.selectedSessionMessageTotal.value,
-    ], ([sessionId, count]) => {
-        rememberSessionMessageCount(String(sessionId || ''), Number(count) || 0);
-    });
-
-    function rememberSessionMessageCount(sessionId = '', count = 0) {
+    function setSessionLatestMessageOrder(sessionId = '', order = -1) {
         const id = String(sessionId || '').trim();
         if (!id) {return;}
-        const nextCount = Math.max(0, Math.floor(Number(count) || 0));
-        if (state.sessionMessageCounts.value[id] === nextCount) {return;}
-        state.sessionMessageCounts.value = {
-            ...state.sessionMessageCounts.value,
-            [id]: nextCount,
+        const nextOrder = normalizeLatestMessageOrder(order);
+        if (state.sessionLatestMessageOrders.value[id] === nextOrder) {return;}
+        state.sessionLatestMessageOrders.value = {
+            ...state.sessionLatestMessageOrders.value,
+            [id]: nextOrder,
         };
     }
 
-    function forgetSessionMessageCount(sessionId = '') {
+    function noteSessionMessageOrder(sessionId = '', order = -1) {
         const id = String(sessionId || '').trim();
-        if (!id || !(id in state.sessionMessageCounts.value)) {return;}
-        const next = { ...state.sessionMessageCounts.value };
-        delete next[id];
-        state.sessionMessageCounts.value = next;
+        const nextOrder = normalizeLatestMessageOrder(order);
+        const currentOrder = state.sessionLatestMessageOrders.value[id];
+        if (currentOrder !== undefined && currentOrder >= nextOrder) {return;}
+        setSessionLatestMessageOrder(id, nextOrder);
     }
 
-    function sessionFloorCount(session?: TavernSessionRecord | null) {
-        const id = String(session?.id || '').trim();
-        if (!id) {return 0;}
-        if (id === state.selectedSessionId.value) {return state.selectedSessionMessageTotal.value;}
-        return Math.max(0, Number(state.sessionMessageCounts.value[id]) || 0);
+    function forgetSessionLatestMessageOrder(sessionId = '') {
+        const id = String(sessionId || '').trim();
+        if (!id || !(id in state.sessionLatestMessageOrders.value)) {return;}
+        const next = { ...state.sessionLatestMessageOrders.value };
+        delete next[id];
+        state.sessionLatestMessageOrders.value = next;
     }
 
     function sessionFloorLabel(session?: TavernSessionRecord | null) {
         const id = String(session?.id || '').trim();
-        if (id && id !== state.selectedSessionId.value && !(id in state.sessionMessageCounts.value)) {
-            return '统计中';
-        }
-        return `第 ${sessionFloorCount(session)} 楼`;
+        if (!id || !(id in state.sessionLatestMessageOrders.value)) {return '统计中';}
+        const latestOrder = state.sessionLatestMessageOrders.value[id] ?? -1;
+        return latestOrder >= 0 ? `第 ${latestOrder} 楼` : '暂无剧情';
     }
 
-    async function refreshSessionMessageCountsForSessions(targetSessions: TavernSessionRecord[] = []) {
+    async function refreshSessionLatestMessageOrdersForSessions(targetSessions: TavernSessionRecord[] = []) {
         const visibleIds = targetSessions
             .map((session) => String(session.id || '').trim())
             .filter(Boolean);
         const missingIds = [...new Set(visibleIds)]
-            .filter((id) => id !== state.selectedSessionId.value && !(id in state.sessionMessageCounts.value));
+            .filter((id) => !(id in state.sessionLatestMessageOrders.value));
         if (!missingIds.length) {return;}
-        const entries = await Promise.all(missingIds.map(async (id) => [id, await countTavernMessages(id)] as const));
-        const next = { ...state.sessionMessageCounts.value };
-        entries.forEach(([id, count]) => {
-            if (id === state.selectedSessionId.value || id in state.sessionMessageCounts.value) {return;}
-            next[id] = Math.max(0, Math.floor(Number(count) || 0));
+        const entries = await Promise.all(missingIds.map(async (id) => [id, await getLatestTavernMessage(id)] as const));
+        const additions: Record<string, number> = {};
+        entries.forEach(([id, latestMessage]) => {
+            if (id in state.sessionLatestMessageOrders.value) {return;}
+            additions[id] = normalizeLatestMessageOrder(latestMessage?.order);
         });
-        state.sessionMessageCounts.value = next;
+        if (Object.keys(additions).length) {
+            state.sessionLatestMessageOrders.value = {
+                ...state.sessionLatestMessageOrders.value,
+                ...additions,
+            };
+        }
     }
 
     function clearLoadedSessionMessageWindow() {
@@ -178,6 +174,7 @@ export function useTavernSessionController(state: TavernSessionState, options: T
         state.loadedSessionMessageStartOrder.value = null;
         state.loadedSessionMessageEndOrder.value = null;
         state.selectedSessionLatestAssistantOrder.value = -1;
+        state.selectedSessionMessageWindowOffsetFromEnd.value = 0;
     }
 
     function updateLoadedSessionMessageBounds(messages: TavernMessageRecord[]) {
@@ -216,27 +213,45 @@ export function useTavernSessionController(state: TavernSessionState, options: T
             options.resetChatMessageWindowState();
         }
         const limit = Math.max(1, Math.floor(Number(options.chatMessageWindowLimit.value) || options.hiddenOutsideCount.value || 1));
-        const [windowResult, latestAssistantOrder] = await Promise.all([
-            loadTavernMessageWindow(sessionId, limit),
+        const offsetFromEnd = Math.max(0, Math.floor(Number(state.selectedSessionMessageWindowOffsetFromEnd.value) || 0));
+        const [initialWindowResult, latestAssistantOrder, latestMessage] = await Promise.all([
+            loadTavernMessageWindow(sessionId, limit, offsetFromEnd),
             getLatestTavernAssistantOrder(sessionId),
+            getLatestTavernMessage(sessionId),
         ]);
+        let windowResult = initialWindowResult;
+        const maxOffsetFromEnd = Math.max(0, windowResult.total - limit);
+        if (offsetFromEnd > maxOffsetFromEnd) {
+            suppressNextChatWindowLimitReload();
+            state.selectedSessionMessageWindowOffsetFromEnd.value = maxOffsetFromEnd;
+            windowResult = await loadTavernMessageWindow(sessionId, limit, maxOffsetFromEnd);
+        }
         if (sequence !== selectedMessageWindowLoadSequence || sessionId !== state.selectedSessionId.value) {return;}
         state.loadedSessionMessages.value = windowResult.messages;
         state.selectedSessionMessageTotal.value = windowResult.total;
         state.loadedSessionMessageStartOrder.value = windowResult.loadedStartOrder;
         state.loadedSessionMessageEndOrder.value = windowResult.loadedEndOrder;
         state.selectedSessionLatestAssistantOrder.value = latestAssistantOrder ?? -1;
-        rememberSessionMessageCount(sessionId, windowResult.total);
+        setSessionLatestMessageOrder(sessionId, latestMessage?.order ?? -1);
     }
 
     function upsertLoadedSessionMessage(message: TavernMessageRecord) {
         const messageSessionId = String(message.sessionId || '').trim();
         if (!messageSessionId || messageSessionId !== state.selectedSessionId.value) {return;}
+        const offsetFromEnd = Math.max(0, Math.floor(Number(state.selectedSessionMessageWindowOffsetFromEnd.value) || 0));
         const currentMessages = state.loadedSessionMessages.value;
         const existingIndex = currentMessages.findIndex((item) => item.sessionId === message.sessionId && item.order === message.order);
+        let messageIsLoaded = existingIndex >= 0;
         if (existingIndex >= 0) {
             state.loadedSessionMessages.value = currentMessages.map((item, index) => index === existingIndex ? message : item);
+        } else if (offsetFromEnd > 0 && Number(message.order) > Number(currentMessages.at(-1)?.order ?? -1)) {
+            state.selectedSessionMessageTotal.value = Math.max(
+                Math.max(0, Math.floor(Number(state.selectedSessionMessageTotal.value) || 0)) + 1,
+                Number(message.order) + 1,
+            );
+            state.selectedSessionMessageWindowOffsetFromEnd.value = offsetFromEnd + 1;
         } else {
+            messageIsLoaded = true;
             const messageOrder = Number(message.order);
             const tailOrder = Number(currentMessages.at(-1)?.order);
             if (!currentMessages.length || !Number.isFinite(messageOrder) || !Number.isFinite(tailOrder) || messageOrder >= tailOrder) {
@@ -254,17 +269,19 @@ export function useTavernSessionController(state: TavernSessionState, options: T
         }
         const messageOrder = Number(message.order);
         if (Number.isFinite(messageOrder)) {
-            state.loadedSessionMessageStartOrder.value = state.loadedSessionMessageStartOrder.value === null
-                ? messageOrder
-                : Math.min(state.loadedSessionMessageStartOrder.value, messageOrder);
-            state.loadedSessionMessageEndOrder.value = state.loadedSessionMessageEndOrder.value === null
-                ? messageOrder
-                : Math.max(state.loadedSessionMessageEndOrder.value, messageOrder);
+            noteSessionMessageOrder(messageSessionId, messageOrder);
+            if (messageIsLoaded) {
+                state.loadedSessionMessageStartOrder.value = state.loadedSessionMessageStartOrder.value === null
+                    ? messageOrder
+                    : Math.min(state.loadedSessionMessageStartOrder.value, messageOrder);
+                state.loadedSessionMessageEndOrder.value = state.loadedSessionMessageEndOrder.value === null
+                    ? messageOrder
+                    : Math.max(state.loadedSessionMessageEndOrder.value, messageOrder);
+            }
             if (message.role === 'assistant') {
                 state.selectedSessionLatestAssistantOrder.value = Math.max(state.selectedSessionLatestAssistantOrder.value, messageOrder);
             }
         }
-        rememberSessionMessageCount(messageSessionId, state.selectedSessionMessageTotal.value);
     }
 
     function pruneLoadedSessionMessagesFromOrder(sessionId = '', fromOrder = Number.POSITIVE_INFINITY): number {
@@ -276,17 +293,24 @@ export function useTavernSessionController(state: TavernSessionState, options: T
             message.sessionId !== targetSessionId || Number(message.order) < firstRemovedOrder
         ));
         const removedCount = currentMessages.length - remainingMessages.length;
-        if (removedCount <= 0) {return 0;}
         state.loadedSessionMessages.value = remainingMessages;
-        state.selectedSessionMessageTotal.value = Math.max(
-            remainingMessages.length,
-            Math.max(0, Math.floor(Number(state.selectedSessionMessageTotal.value) || 0) - removedCount),
+        const nextTotal = Math.min(
+            Math.max(0, Math.floor(Number(state.selectedSessionMessageTotal.value) || 0)),
+            Math.max(remainingMessages.length, Math.max(0, Math.floor(firstRemovedOrder))),
         );
+        state.selectedSessionMessageTotal.value = nextTotal;
+        const latestLoadedOrder = remainingMessages.reduce(
+            (latest, message) => Math.max(latest, Number(message.order) || 0),
+            -1,
+        );
+        state.selectedSessionMessageWindowOffsetFromEnd.value = latestLoadedOrder >= 0
+            ? Math.max(0, nextTotal - latestLoadedOrder - 1)
+            : 0;
         updateLoadedSessionMessageBounds(remainingMessages);
         state.selectedSessionLatestAssistantOrder.value = remainingMessages
             .filter((message) => message.role === 'assistant' && Number.isFinite(Number(message.order)))
             .reduce((latest, message) => Math.max(latest, Number(message.order)), -1);
-        rememberSessionMessageCount(targetSessionId, state.selectedSessionMessageTotal.value);
+        setSessionLatestMessageOrder(targetSessionId, Math.floor(firstRemovedOrder) - 1);
         return removedCount;
     }
 
@@ -330,7 +354,7 @@ export function useTavernSessionController(state: TavernSessionState, options: T
             await persistSelectedSessionId('');
         }
         if (clearOptions.refreshManager) {
-            await options.refreshManagerRecords('');
+            await options.hydrateSessionWorkspace('');
         }
     }
 
@@ -345,7 +369,7 @@ export function useTavernSessionController(state: TavernSessionState, options: T
             await persistSelectedSessionId('');
         }
         await loadSelectedSessionMessageWindow();
-        await options.refreshManagerRecords(state.selectedSessionId.value);
+        await options.hydrateSessionWorkspace(state.selectedSessionId.value);
         if (state.selectedSessionId.value) {
             void options.syncSessionCharacterContextSafely({ sessionId: state.selectedSessionId.value });
         }
@@ -362,7 +386,7 @@ export function useTavernSessionController(state: TavernSessionState, options: T
         options.applySessionSnapshotContext(session);
         await persistSelectedSessionId(id);
         await loadSelectedSessionMessageWindow({ reset: true, sessionId: id });
-        await options.refreshManagerRecords(id);
+        await options.hydrateSessionWorkspace(id);
         void options.syncSessionCharacterContextSafely({ sessionId: id, force: true });
         options.activeView.value = 'chat';
         options.chatFocus.value = 'chat';
@@ -386,11 +410,12 @@ export function useTavernSessionController(state: TavernSessionState, options: T
         if (isDeletingSelectedSession && options.isRunning.value) {
             options.abortActiveRun();
         }
+        options.abortAssistantRunForSession(id);
         options.cancelDrawJobsForSession(id);
         await options.cancelAndRollbackManagersForSession(id);
         const removed = await deleteTavernSession(id);
         if (!removed) {return;}
-        forgetSessionMessageCount(id);
+        forgetSessionLatestMessageOrder(id);
         if (!isDeletingSelectedSession) {
             await refreshSessions();
             return;
@@ -423,7 +448,7 @@ export function useTavernSessionController(state: TavernSessionState, options: T
         suppressNextChatWindowLimitReloadPending = true;
     }
 
-    function handleChatMessageWindowLimitChanged() {
+    function handleChatMessageWindowStateChanged() {
         if (suppressNextChatWindowLimitReloadPending) {
             suppressNextChatWindowLimitReloadPending = false;
             return;
@@ -439,15 +464,14 @@ export function useTavernSessionController(state: TavernSessionState, options: T
         clearLoadedSessionMessageWindow,
         clearSelectedSession,
         compactLoadedSessionMessageWindow,
-        handleChatMessageWindowLimitChanged,
+        handleChatMessageWindowStateChanged,
         loadSelectedSessionMessageWindow,
         persistSelectedSessionId,
         pruneLoadedSessionMessagesFromOrder,
-        refreshSessionMessageCountsForSessions,
+        refreshSessionLatestMessageOrdersForSessions,
         refreshSessions,
         removeSession,
         selectSession,
-        sessionFloorCount,
         sessionFloorLabel,
         setSelectedSessionId,
         suppressNextChatWindowLimitReload,

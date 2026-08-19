@@ -1,13 +1,20 @@
 import 'fake-indexeddb/auto';
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import Dexie from '../../../libs/dexie.mjs';
 
 import db, {
     appendTavernMessage,
-    appendTavernManagerMessage,
+    appendTavernUserMessageAndConfirmManagerCandidate,
+    appendTavernAssistantChatMessage as appendTavernManagerMessage,
     appendTavernStructuredStatePatch,
     branchTavernSession,
+    clearTavernAssistantChatMessages,
     createTavernSession,
+    createTavernTurnStateSnapshot,
+    claimNextQueuedAcceptedTurnManagerRun,
+    commitTavernLatestAssistantReroll,
+    countCompletedTavernAssistantTurnsBefore,
     countTavernMessagesInRange,
     deleteTavernSession,
     deleteTavernMessages,
@@ -16,12 +23,16 @@ import db, {
     getActiveTavernPresetId,
     getSelectedTavernSessionId,
     getLatestTavernAssistantOrder,
-    getLatestTavernManagerMessage,
+    getLatestTavernAssistantChatMessage as getLatestTavernManagerMessage,
     getLatestTavernMessage,
     getTavernSession,
+    getTavernManagerRun,
+    getTavernManagerCandidate,
+    getAcceptedTurnManagerQueueState,
     getTavernMessage,
+    getTavernTranscriptStats,
     getLatestTavernUserMessageAtOrBefore,
-    listTavernManagerMessages,
+    listTavernAssistantChatMessages as listTavernManagerMessages,
     listTavernManagerMemorySnapshots,
     listLatestTavernMessages,
     listLatestTavernMessagesWithCount,
@@ -30,6 +41,8 @@ import db, {
     listTavernMessageOrdersFrom,
     listUserTavernPresets,
     listTavernMessages,
+    listTavernAssistantChatMessageSummariesBefore,
+    listTavernAssistantChatMessageSummariesInRange,
     listTavernMessagesInRange,
     listTavernMessagesInRangeWithCount,
     loadTavernMessageWindow,
@@ -37,35 +50,44 @@ import db, {
     loadActiveTavernPreset,
     mergeWorldEntryStates,
     normalizeTavernSessionState,
+    replaceTavernAssistantChatMessages,
     replaceTavernSessionState,
+    rollbackManagerRunWrites,
     rollbackManagerRunsForMessageRange,
-    rollbackManagerStateRunsForMessageRange,
     saveTavernPreset,
     setActiveTavernPresetId,
     tavernAssistantPresetsTable,
+    tavernAssistantChatMessageSummariesTable,
     tavernManagerMemorySnapshotsTable,
-    tavernManagerMessagesTable,
+    tavernAssistantChatMessagesTable as tavernManagerMessagesTable,
+    tavernCommunicationSnapshotsTable,
+    tavernEconomyAccountsTable,
+    tavernEconomyTransactionsTable,
     tavernManagerRunsTable,
     tavernManagerStateSnapshotsTable,
-    tavernManagerTaskSnapshotsTable,
     tavernMemoryFilesTable,
     tavernMemoryIndexesTable,
     tavernMemorySnapshotsTable,
+    tavernMessagesTable,
     tavernStateDocumentsTable,
     tavernStatePatchesTable,
     tavernStatusSnapshotsTable,
-    tavernTaskFingerprintStatesTable,
-    tavernTaskSnapshotsTable,
-    tavernTasksTable,
+    tavernSessionsTable,
+    tavernTaskVersionsTable,
     touchRunningTavernManagerRun,
-    updateTavernManagerMessage,
+    truncateTavernMessagesAndReplaceSessionState,
+    updateTavernAssistantChatMessage as updateTavernManagerMessage,
     updateTavernMessage,
     updateTavernManagerRun,
+    transitionTavernManagerRun,
     updateTavernSessionState,
     createTavernManagerRun,
     getTavernStructuredStateDocument,
     listTavernStructuredStatePatches,
     putTavernStructuredStateDocument,
+    putTavernManagerCandidate,
+    prepareTavernLatestAssistantReroll,
+    queueAcceptedTurnManagerRetry,
     type TavernStructuredStateDocumentRecord,
 } from '../shared/session-db';
 import { DEFAULT_XB_TAVERN_PRESET_ID, createDefaultXbTavernPreset } from '../shared/presets';
@@ -74,15 +96,32 @@ import { buildXbTavernMessages, createXbTavernBuildSnapshot } from '../shared/me
 import { createActionCheckEvent, createChanceEncounterEvent } from '../shared/runtime-events';
 import { applyTrustedMapPatchOps } from '../shared/map-state-ops';
 import { createSeedMapDocument } from '../shared/map-state-seed';
+import { grepTextSources } from '../../agent-core/runtime/text-grep.js';
 import {
     MAX_MANAGER_TOOL_ROUNDS,
     cancelAndRollbackXbTavernManagersForMessageRange,
     describeXbTavernManagerRollbackImpactForMessageRange,
-    runXbTavernManagerChat,
     runXbTavernManagerAfterTurn,
-    runPendingAcceptedTurnManager,
+    runNextQueuedAcceptedTurnManager,
+    recoverInterruptedAcceptedTurnManagerRuns,
+    type TavernManagerLiveProgress,
 } from '../app-src/runtime/manager';
+import {
+    resumeQueuedAcceptedTurnManagers,
+    waitForQueuedAcceptedTurnManagers,
+} from '../app-src/runtime/run-once';
+import { runXbTavernAssistantChat as runXbTavernManagerChat } from '../app-src/runtime/assistant-chat-runner';
+import { buildAssistantChatMessages } from '../app-src/runtime/assistant-chat-context';
 import { rollbackImpactLines } from '../app-src/features/accepted-rollback/accepted-rollback';
+import {
+    createTavernSessionState,
+    useTavernSessionController,
+    type TavernSessionControllerOptions,
+} from '../app-src/features/session/useTavernSessionController';
+import {
+    loadTavernAssistantChatUnitPage,
+    loadTavernAssistantToolTurnDetail,
+} from '../app-src/features/assistant-chat/assistant-chat-projection';
 import {
     buildDefaultTavernCharacterMemoryContent,
     buildDefaultTavernMemoryStateContent,
@@ -100,6 +139,7 @@ import {
     rebuildTavernMemoryDerivedIndex,
     restoreTavernMemoryToFloor,
     saveTavernMemorySnapshot,
+    searchTavernMemoryFileContents,
     trimTavernMemorySnapshotsFromFloor,
     writeTavernMemoryFile,
 } from '../shared/memory-files';
@@ -126,23 +166,74 @@ import {
     listTavernStatusSnapshots,
 } from '../shared/status-state';
 import {
-    abandonStaleTavernTasks,
-    describeTavernTaskRestoreImpact,
-    executeTavernTaskTool,
-    getLatestQuestHooksForPrompt,
-    listTavernTasks,
-    listTavernTaskSnapshots,
-    restoreTavernTasksToFloor,
-    saveTavernTaskSnapshot,
-    trimTavernTaskSnapshotsFromFloor,
-} from '../shared/tasks';
-import { saveAcceptedStateSnapshot } from '../shared/accepted-state';
+    captureTavernAssistantAcceptedStateBasis,
+    commitTavernAssistantAcceptedStateWriteInCurrentTransaction,
+    completeAcceptedTurnManagerRunWithSnapshot,
+    resolveTavernAcceptedStateSnapshotDomains,
+    saveAcceptedStateSnapshot,
+} from '../shared/accepted-state';
 import { retrieveXbTavernMemoryContext } from '../shared/memory-retrieval';
+import { replaceTavernTaskBoard } from '../shared/tasks/task-board';
+import {
+    acceptTavernTaskListing,
+    getCurrentTavernTask,
+    getTavernTaskPlayerBalance,
+    listTavernTaskVersionsByActionPrefix,
+    progressTavernTask,
+} from '../shared/tasks/task-service';
+import { TAVERN_TASK_TOOL_NAMES } from '../shared/tasks/task-tools';
+import type { TavernTaskListing, TavernTaskVersionRecord } from '../shared/tasks/task-types';
 import * as looseToolArgumentsModule from '../../agent-core/runtime/loose-tool-arguments.js';
 
 const { repairLooseToolArguments } = looseToolArgumentsModule as unknown as {
     repairLooseToolArguments: (text: string, toolName?: string) => string;
 };
+
+function managerTaskListings(): TavernTaskListing[] {
+    const rows = [
+        ['禁忌', 'B', 150, '易介入', '现在就行'],
+        ['接触', 'C', 60, '易介入', '任意时候'],
+        ['夹缝', 'C', 100, '易介入', '现在就行'],
+        ['窥秘', 'C', 80, '中介入', '任意时候'],
+        ['掠夺', 'C', 100, '中介入', '特定时机：下课后'],
+        ['怪癖', 'D', 25, '深介入', '特定时机：入夜后'],
+    ] as const;
+    return rows.map(([direction, grade, reward, posture, timing], index) => ({
+        id: `manager-listing-${index + 1}`,
+        grade,
+        tags: [direction, `manager-tag-${index + 1}`],
+        posture,
+        title: `自动维护委托 ${index + 1}`,
+        hook: `异常钩子 ${index + 1}`,
+        objective: `完成自动维护目标 ${index + 1}`,
+        location: `地点 ${index + 1}`,
+        timing,
+        risk: `风险 ${index + 1}`,
+        reward,
+    }));
+}
+
+async function createAcceptedManagerTask(sessionId: string, suffix: string): Promise<TavernTaskVersionRecord> {
+    const board = await replaceTavernTaskBoard({
+        sessionId,
+        expectedRevision: 0,
+        expectedEpoch: 1,
+        boundary: null,
+        generationId: `manager-board-${suffix}`,
+        listings: managerTaskListings(),
+    });
+    return await acceptTavernTaskListing({
+        sessionId,
+        boardId: board.generationId,
+        boardRevision: board.revision,
+        boardEpoch: board.epoch,
+        listingId: board.listings[2].id,
+        boundary: null,
+        actionId: `manager-accept-${suffix}`,
+        taskId: `manager-task-${suffix}`,
+        playerName: '测试玩家',
+    });
+}
 
 test('tavern session db stores independent sessions and messages', async () => {
     await db.delete();
@@ -311,47 +402,6 @@ test('branchTavernSession clones a complete archive without selecting the branch
         digest: statusDocument.digest,
         createdAt: timestamp,
     });
-    const task = {
-        id: 'event-door',
-        sessionId: session.id,
-        status: 'active' as const,
-        title: '开门线',
-        vision: '查清门后的地图室。',
-        doneWhen: '确认地图室的用途。',
-        hookForModel: '门后的地图室还在等玩家检查。',
-        fingerprint: 'event-door-fingerprint',
-        createdOrder: user.order,
-        updatedOrder: assistant.order,
-        sourceManagerRunId: run.id,
-        createdAt: timestamp,
-        updatedAt: timestamp,
-    };
-    await tavernTasksTable.put(task);
-    await tavernTaskSnapshotsTable.put({
-        sessionId: session.id,
-        floor: assistant.order,
-        tasks: [task],
-        abandonedFingerprints: ['old-event-fingerprint'],
-        createdAt: timestamp,
-    });
-    await tavernManagerTaskSnapshotsTable.put({
-        managerRunId: run.id,
-        sessionId: session.id,
-        beforeTasks: [task],
-        beforeFingerprints: ['old-event-fingerprint'],
-        beforeHash: 'before-task',
-        afterHash: 'after-task',
-        rollbackStatus: 'pending',
-        error: '',
-        createdAt: timestamp,
-        updatedAt: timestamp,
-    });
-    await tavernTaskFingerprintStatesTable.put({
-        sessionId: session.id,
-        abandonedFingerprints: ['old-event-fingerprint'],
-        updatedAt: timestamp,
-    });
-
     assert.equal(await getSelectedTavernSessionId(), session.id);
     const sourceCounts = await Promise.all([
         listTavernMessages(session.id),
@@ -363,9 +413,6 @@ test('branchTavernSession clones a complete archive without selecting the branch
         tavernStateDocumentsTable.where('sessionId').equals(session.id).toArray(),
         tavernStatePatchesTable.where('sessionId').equals(session.id).toArray(),
         tavernStatusSnapshotsTable.where('sessionId').equals(session.id).toArray(),
-        tavernTasksTable.where('sessionId').equals(session.id).toArray(),
-        tavernTaskSnapshotsTable.where('sessionId').equals(session.id).toArray(),
-        tavernTaskFingerprintStatesTable.where('sessionId').equals(session.id).toArray(),
     ]);
 
     const branch = await branchTavernSession(session.id);
@@ -384,9 +431,6 @@ test('branchTavernSession clones a complete archive without selecting the branch
         tavernStateDocumentsTable.where('sessionId').equals(branch.id).toArray(),
         tavernStatePatchesTable.where('sessionId').equals(branch.id).toArray(),
         tavernStatusSnapshotsTable.where('sessionId').equals(branch.id).toArray(),
-        tavernTasksTable.where('sessionId').equals(branch.id).toArray(),
-        tavernTaskSnapshotsTable.where('sessionId').equals(branch.id).toArray(),
-        tavernTaskFingerprintStatesTable.where('sessionId').equals(branch.id).toArray(),
     ]);
     assert.deepEqual(branchCounts.map((items) => items.length), sourceCounts.map((items) => items.length));
     branchCounts.forEach((items) => {
@@ -400,9 +444,6 @@ test('branchTavernSession clones a complete archive without selecting the branch
     assert.ok(branchPatch);
     assert.notEqual(branchPatch.id, patch.id);
     assert.equal(branchPatch.managerRunId, branchRun.id);
-    const [branchTask] = await tavernTasksTable.where('sessionId').equals(branch.id).toArray();
-    assert.equal(branchTask?.sourceManagerRunId, branchRun.id);
-
     const [branchMemorySnapshot] = await tavernMemorySnapshotsTable.where('sessionId').equals(branch.id).toArray();
     assert.equal(branchMemorySnapshot?.files[0]?.file.sessionId, branch.id);
     const [branchManagerMemorySnapshot] = await tavernManagerMemorySnapshotsTable.where('sessionId').equals(branch.id).toArray();
@@ -413,18 +454,64 @@ test('branchTavernSession clones a complete archive without selecting the branch
     assert.equal(branchManagerStateSnapshot?.beforeDocument?.sessionId, branch.id);
     const [branchStatusSnapshot] = await tavernStatusSnapshotsTable.where('sessionId').equals(branch.id).toArray();
     assert.equal(branchStatusSnapshot?.document?.sessionId, branch.id);
-    const [branchTaskSnapshot] = await tavernTaskSnapshotsTable.where('sessionId').equals(branch.id).toArray();
-    assert.equal(branchTaskSnapshot?.tasks[0]?.sessionId, branch.id);
-    assert.equal(branchTaskSnapshot?.tasks[0]?.sourceManagerRunId, branchRun.id);
-    const [branchManagerTaskSnapshot] = await tavernManagerTaskSnapshotsTable.where('sessionId').equals(branch.id).toArray();
-    assert.equal(branchManagerTaskSnapshot?.managerRunId, branchRun.id);
-    assert.equal(branchManagerTaskSnapshot?.beforeTasks[0]?.sessionId, branch.id);
-    assert.equal(branchManagerTaskSnapshot?.beforeTasks[0]?.sourceManagerRunId, branchRun.id);
-
     assert.ok(await getTavernSession(session.id));
     assert.ok(await tavernManagerRunsTable.get(run.id));
     assert.ok(await tavernStatePatchesTable.get(patch.id));
     assert.equal((await listTavernMessages(session.id)).length, sourceCounts[0].length);
+});
+
+test('branchTavernSession preserves queued work without inventing a live lease', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Queue branch' });
+    const user = await appendTavernMessage(session.id, { role: 'user', content: 'U0' });
+    const assistant = await appendTavernMessage(session.id, { role: 'assistant', content: 'A1' });
+    await putTavernManagerCandidate({
+        sessionId: session.id,
+        turn: 1,
+        userOrder: user.order,
+        assistantOrder: assistant.order,
+    });
+    await createTavernManagerRun({
+        sessionId: session.id,
+        turn: 1,
+        userOrder: user.order,
+        assistantOrder: assistant.order,
+        status: 'queued',
+    });
+    const branch = await branchTavernSession(session.id);
+    assert.ok(branch);
+    const runs = await listTavernManagerRuns(branch.id);
+    assert.equal(runs.find((run) => run.status === 'queued')?.leaseOwnerId, '');
+    assert.equal((await getTavernManagerCandidate(branch.id))?.assistantOrder, assistant.order);
+});
+
+test('branchTavernSession refuses to copy a manager run before its writes are accepted', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Unaccepted branch' });
+    const user = await appendTavernMessage(session.id, { role: 'user', content: 'U0' });
+    const assistant = await appendTavernMessage(session.id, { role: 'assistant', content: 'A1' });
+    await writeTavernMemoryFile(session.id, 'memory/state.md', 'accepted', { source: 'user' });
+    const run = await createTavernManagerRun({
+        sessionId: session.id,
+        turn: 1,
+        userOrder: user.order,
+        assistantOrder: assistant.order,
+        status: 'running',
+        leaseOwnerId: 'other-tab',
+        leaseExpiresAt: Date.now() + 30000,
+    });
+    const partialWrite = await executeTavernMemoryTool(session.id, 'MemoryWrite', {
+        filePath: 'memory/state.md',
+        content: 'unaccepted partial write',
+    }, { caller: 'auto', managerRunId: run.id });
+    assert.equal(partialWrite.ok, true);
+
+    await assert.rejects(branchTavernSession(session.id), /manager_branch_unaccepted_writes/);
+    assert.equal((await getTavernMemoryFile(session.id, 'memory/state.md'))?.content, 'unaccepted partial write');
 });
 
 test('tavern message indexed helpers read latest, direct, recent, and range windows', async () => {
@@ -461,6 +548,885 @@ test('tavern message indexed helpers read latest, direct, recent, and range wind
     assert.deepEqual(rangeWithCount.messages.map((message) => message.order), [2, 3]);
     assert.equal(rangeWithCount.total, 4);
     assert.deepEqual((await listTavernMessagesInRange(session.id, 4, Number.POSITIVE_INFINITY)).map((message) => message.order), [4, 5]);
+});
+
+test('session archive floor label follows the latest stored order when the transcript is sparse', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Sparse floor label' });
+    await appendTavernMessage(session.id, { role: 'user', content: '0' });
+    await appendTavernMessage(session.id, { role: 'assistant', content: '1' });
+    await appendTavernMessage(session.id, { role: 'user', content: '2' });
+    await deleteTavernMessages(session.id, [0]);
+
+    const state = createTavernSessionState();
+    const controller = useTavernSessionController(state, {} as TavernSessionControllerOptions);
+    await controller.refreshSessionLatestMessageOrdersForSessions([session]);
+
+    assert.equal((await getLatestTavernMessage(session.id))?.order, 2);
+    assert.equal(controller.sessionFloorLabel(session), '第 2 楼');
+});
+
+test('manager candidates become fixed queued pairs only when the next user message is atomically stored', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Confirmed manager queue' });
+    const user0 = await appendTavernMessage(session.id, { role: 'user', content: '第 1 楼。' });
+    const assistant1 = await appendTavernMessage(session.id, { role: 'assistant', content: '第 2 楼。' });
+    const firstCandidate = await putTavernManagerCandidate({
+        sessionId: session.id,
+        turn: 1,
+        userOrder: user0.order,
+        assistantOrder: assistant1.order,
+        inputSummary: 'pair 0-1',
+    });
+
+    assert.deepEqual(await listTavernManagerRuns(session.id), []);
+    const firstConfirmation = await appendTavernUserMessageAndConfirmManagerCandidate(session.id, {
+        role: 'user',
+        content: '第 3 楼。',
+    }, { confirmManagerCandidate: true });
+    assert.equal(firstConfirmation.userMessage.order, 2);
+    assert.equal(firstConfirmation.managerRun?.id, firstCandidate.id);
+    assert.equal(firstConfirmation.managerRun?.status, 'queued');
+    assert.equal(firstConfirmation.managerRun?.userOrder, 0);
+    assert.equal(firstConfirmation.managerRun?.assistantOrder, 1);
+    assert.equal(firstConfirmation.managerRun?.confirmedByUserOrder, 2);
+    assert.equal(firstConfirmation.managerRun?.sourceUserMessageId, user0.messageId);
+    assert.equal(firstConfirmation.managerRun?.sourceAssistantMessageId, assistant1.messageId);
+    assert.equal(await getTavernManagerCandidate(session.id), null);
+
+    const assistant3 = await appendTavernMessage(session.id, { role: 'assistant', content: '第 4 楼。' });
+    await putTavernManagerCandidate({
+        sessionId: session.id,
+        turn: 2,
+        userOrder: firstConfirmation.userMessage.order,
+        assistantOrder: assistant3.order,
+        inputSummary: 'pair 2-3',
+    });
+    const editedUser2 = await updateTavernMessage(session.id, firstConfirmation.userMessage.order, {
+        content: '第 3 楼，编辑但不重复发送。',
+    }, { incrementTimelineRevision: true });
+    assert.equal(editedUser2?.timelineRevision, 2);
+
+    const secondConfirmation = await appendTavernUserMessageAndConfirmManagerCandidate(session.id, {
+        role: 'user',
+        content: '第 5 楼。',
+    }, { confirmManagerCandidate: true });
+    assert.equal(secondConfirmation.managerRun?.userOrder, 2);
+    assert.equal(secondConfirmation.managerRun?.assistantOrder, 3);
+    assert.equal(secondConfirmation.managerRun?.confirmedByUserOrder, 4);
+    assert.equal(secondConfirmation.managerRun?.sourceUserRevision, 2);
+    const runs = await listTavernManagerRuns(session.id);
+    assert.deepEqual(runs.map((run) => run.assistantOrder).sort((left, right) => left - right), [1, 3]);
+});
+
+test('accepted-turn queue claims one oldest pair per session and never runs two pairs concurrently', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Serial manager claims' });
+    const user0 = await appendTavernMessage(session.id, { role: 'user', content: 'U0' });
+    const assistant1 = await appendTavernMessage(session.id, { role: 'assistant', content: 'A1' });
+    await putTavernManagerCandidate({ sessionId: session.id, turn: 1, userOrder: user0.order, assistantOrder: assistant1.order });
+    const user2 = (await appendTavernUserMessageAndConfirmManagerCandidate(session.id, {
+        role: 'user',
+        content: 'U2',
+    }, { confirmManagerCandidate: true })).userMessage;
+    const assistant3 = await appendTavernMessage(session.id, { role: 'assistant', content: 'A3' });
+    await putTavernManagerCandidate({ sessionId: session.id, turn: 2, userOrder: user2.order, assistantOrder: assistant3.order });
+    await appendTavernUserMessageAndConfirmManagerCandidate(session.id, {
+        role: 'user',
+        content: 'U4',
+    }, { confirmManagerCandidate: true });
+
+    const firstClaim = await claimNextQueuedAcceptedTurnManagerRun(session.id, { leaseOwnerId: 'worker-a' });
+    assert.equal(firstClaim?.assistantOrder, 1);
+    assert.equal(firstClaim?.status, 'running');
+    assert.equal(await claimNextQueuedAcceptedTurnManagerRun(session.id, { leaseOwnerId: 'worker-b' }), null);
+    await transitionTavernManagerRun(firstClaim?.id || '', { status: 'completed' }, {
+        expectedStatus: 'running',
+        expectedLeaseOwnerId: 'worker-a',
+    });
+    const secondClaim = await claimNextQueuedAcceptedTurnManagerRun(session.id, { leaseOwnerId: 'worker-b' });
+    assert.equal(secondClaim?.assistantOrder, 3);
+    assert.equal(secondClaim?.status, 'running');
+});
+
+test('a non-owner manager worker exits promptly and waits for the lease deadline instead of polling', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Non-owner manager worker' });
+    const running = await createTavernManagerRun({
+        sessionId: session.id,
+        status: 'running',
+        leaseOwnerId: 'other-tab',
+        leaseExpiresAt: Date.now() + 30_000,
+    });
+    const queued = await createTavernManagerRun({
+        sessionId: session.id,
+        status: 'queued',
+        assistantOrder: 3,
+    });
+    let managerCalls = 0;
+    const startedAt = Date.now();
+    resumeQueuedAcceptedTurnManagers({
+        sessionId: session.id,
+        agentConfig: {},
+        sessionContract: DEFAULT_TAVERN_SESSION_CONTRACT,
+        executeManagerOnce: async () => {
+            managerCalls += 1;
+            return { text: '不应执行。' };
+        },
+    });
+    await waitForQueuedAcceptedTurnManagers(session.id);
+
+    assert.equal(managerCalls, 0);
+    assert.ok(Date.now() - startedAt < 1500);
+    assert.deepEqual(await getAcceptedTurnManagerQueueState(session.id), {
+        queued: 1,
+        running: 1,
+        nextLeaseExpiresAt: running.leaseExpiresAt,
+    });
+
+    await transitionTavernManagerRun(running.id, { status: 'completed' }, {
+        expectedStatus: 'running',
+        expectedLeaseOwnerId: String(running.leaseOwnerId || ''),
+    });
+    await transitionTavernManagerRun(queued.id, { status: 'cancelled' }, {
+        expectedStatus: 'queued',
+        expectedLeaseOwnerId: '',
+    });
+    resumeQueuedAcceptedTurnManagers({
+        sessionId: session.id,
+        agentConfig: {},
+        sessionContract: DEFAULT_TAVERN_SESSION_CONTRACT,
+    });
+    await waitForQueuedAcceptedTurnManagers(session.id);
+});
+
+test('concurrent tabs recover one expired accepted-turn lease as exactly one queued replacement', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Lease recovery' });
+    const user = await appendTavernMessage(session.id, { role: 'user', content: 'U0' });
+    const assistant = await appendTavernMessage(session.id, { role: 'assistant', content: 'A1' });
+    const interrupted = await createTavernManagerRun({
+        sessionId: session.id,
+        turn: 1,
+        userOrder: user.order,
+        assistantOrder: assistant.order,
+        sourceUserMessageId: user.messageId,
+        sourceAssistantMessageId: assistant.messageId,
+        sourceUserCreatedAt: user.createdAt,
+        sourceAssistantCreatedAt: assistant.createdAt,
+        sourceUserRevision: user.timelineRevision,
+        sourceAssistantRevision: assistant.timelineRevision,
+        status: 'running',
+        leaseOwnerId: 'dead-worker',
+        leaseExpiresAt: Date.now() - 1,
+    });
+
+    const recoveredByTabs = await Promise.all([
+        recoverInterruptedAcceptedTurnManagerRuns({ sessionId: session.id }),
+        recoverInterruptedAcceptedTurnManagerRuns({ sessionId: session.id }),
+    ]);
+    const replacements = recoveredByTabs.flat();
+    const oldRun = await tavernManagerRunsTable.get(interrupted.id);
+    const queue = await getAcceptedTurnManagerQueueState(session.id);
+
+    assert.equal(oldRun?.status, 'superseded');
+    assert.equal(oldRun?.error, 'manager_worker_recovered');
+    assert.equal(replacements.length, 1);
+    assert.equal(replacements[0]?.status, 'queued');
+    assert.equal(replacements[0]?.assistantOrder, assistant.order);
+    assert.equal((await listTavernManagerRuns(session.id)).filter((run) => run.status === 'queued').length, 1);
+    assert.deepEqual(queue, { queued: 1, running: 0, nextLeaseExpiresAt: 0 });
+
+    const settledUpdatedAt = Number(oldRun?.updatedAt) || 0;
+    const repeatedCallbacks: string[] = [];
+    assert.deepEqual(await recoverInterruptedAcceptedTurnManagerRuns({
+        sessionId: session.id,
+        onManagerRunSaved: (run) => {repeatedCallbacks.push(`${run.id}:${run.status}`);},
+    }), []);
+    assert.deepEqual(repeatedCallbacks, []);
+    assert.equal((await tavernManagerRunsTable.get(interrupted.id))?.updatedAt, settledUpdatedAt);
+});
+
+test('accepted-turn completion snapshots only the run delta and atomically releases its lease', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Atomic accepted snapshot' });
+    const user = await appendTavernMessage(session.id, { role: 'user', content: 'U0' });
+    const assistant = await appendTavernMessage(session.id, { role: 'assistant', content: 'A1' });
+    await writeTavernMemoryFile(session.id, 'memory/state.md', '# 会话记忆\n\n基线。', { source: 'user' });
+    await saveTavernMemorySnapshot(session.id, assistant.order);
+    await createTavernManagerRun({
+        sessionId: session.id,
+        turn: 1,
+        userOrder: user.order,
+        assistantOrder: assistant.order,
+        sourceUserMessageId: user.messageId,
+        sourceAssistantMessageId: assistant.messageId,
+        sourceUserCreatedAt: user.createdAt,
+        sourceAssistantCreatedAt: assistant.createdAt,
+        sourceUserRevision: user.timelineRevision,
+        sourceAssistantRevision: assistant.timelineRevision,
+        status: 'queued',
+    });
+    let round = 0;
+    const result = await runNextQueuedAcceptedTurnManager({
+        sessionId: session.id,
+        agentConfig: {},
+        executeManagerOnce: async () => {
+            round += 1;
+            if (round === 1) {
+                return {
+                    text: '',
+                    toolCalls: [{
+                        id: 'write-state',
+                        name: 'Write',
+                        arguments: {
+                            filePath: 'memory/state.md',
+                            content: '# 会话记忆\n\n本轮维护。',
+                        },
+                    }],
+                };
+            }
+            return { text: '维护完成。' };
+        },
+    });
+    assert.equal(result?.ok, true);
+    assert.equal(result?.managerRun.status, 'running');
+    assert.deepEqual(result?.changedFiles, ['memory/state.md']);
+
+    const laterUser = await appendTavernMessage(session.id, { role: 'user', content: 'U2' });
+    const laterAssistant = await appendTavernMessage(session.id, { role: 'assistant', content: 'A3' });
+    await createTavernManagerRun({
+        sessionId: session.id,
+        turn: 2,
+        userOrder: laterUser.order,
+        assistantOrder: laterAssistant.order,
+        status: 'queued',
+    });
+    assert.equal(await claimNextQueuedAcceptedTurnManagerRun(session.id, { leaseOwnerId: 'other-tab' }), null);
+    await writeTavernMemoryFile(session.id, 'memory/characters/后来者.md', '# 后来者\n\n这是后发生的并发修改。', { source: 'user' });
+    await assert.rejects(completeAcceptedTurnManagerRunWithSnapshot({
+        sessionId: session.id,
+        managerRunId: result?.managerRun.id || '',
+        floor: assistant.order,
+        domains: ['memory'],
+        leaseOwnerId: 'wrong-owner',
+    }), /manager_lease_lost/);
+    assert.equal((await tavernManagerRunsTable.get(result?.managerRun.id || ''))?.status, 'running');
+    const completed = await completeAcceptedTurnManagerRunWithSnapshot({
+        sessionId: session.id,
+        managerRunId: result?.managerRun.id || '',
+        floor: assistant.order,
+        domains: ['memory'],
+        leaseOwnerId: String(result?.managerRun.leaseOwnerId || ''),
+    });
+    const snapshot = (await listTavernMemorySnapshots(session.id)).find((item) => item.floor === assistant.order);
+
+    assert.equal(completed.status, 'completed');
+    assert.equal(completed.leaseOwnerId, '');
+    assert.match(snapshot?.files.find((entry) => entry.path === 'memory/state.md')?.file.content || '', /本轮维护/);
+    assert.equal(snapshot?.files.some((entry) => entry.path === 'memory/characters/后来者.md'), false);
+    assert.ok(await getTavernMemoryFile(session.id, 'memory/characters/后来者.md'));
+    const nextClaim = await claimNextQueuedAcceptedTurnManagerRun(session.id, { leaseOwnerId: 'other-tab' });
+    assert.equal(nextClaim?.assistantOrder, laterAssistant.order);
+    await transitionTavernManagerRun(nextClaim?.id || '', { status: 'failed' }, {
+        expectedStatus: 'running',
+        expectedLeaseOwnerId: 'other-tab',
+    });
+});
+
+test('accepted task completion stays staged until manager acceptance atomically settles the escrow', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Atomic accepted task settlement' });
+    const task = await createAcceptedManagerTask(session.id, 'success');
+    const user = await appendTavernMessage(session.id, { role: 'user', content: '我把目标完整交给了发布者。' });
+    const assistant = await appendTavernMessage(session.id, { role: 'assistant', content: '发布者验收后确认委托完成。' });
+    await createTavernManagerRun({
+        sessionId: session.id,
+        turn: 1,
+        userOrder: user.order,
+        assistantOrder: assistant.order,
+        sourceUserMessageId: user.messageId,
+        sourceAssistantMessageId: assistant.messageId,
+        sourceUserCreatedAt: user.createdAt,
+        sourceAssistantCreatedAt: assistant.createdAt,
+        sourceUserRevision: user.timelineRevision,
+        sourceAssistantRevision: assistant.timelineRevision,
+        status: 'queued',
+    });
+    let round = 0;
+    const result = await runNextQueuedAcceptedTurnManager({
+        sessionId: session.id,
+        agentConfig: {},
+        executeManagerOnce: async (options) => {
+            round += 1;
+            if (round === 1) {
+                assert.equal((options.tools || []).some((tool) => (
+                    (tool as { function?: { name?: string } }).function?.name === TAVERN_TASK_TOOL_NAMES.COMPLETE
+                )), true);
+                return {
+                    text: '',
+                    toolCalls: [{
+                        id: 'complete-formal-task',
+                        name: TAVERN_TASK_TOOL_NAMES.COMPLETE,
+                        arguments: {
+                            taskId: task.taskId,
+                            revision: task.revision,
+                            resultSummary: '发布者已验收目标并确认交付。',
+                        },
+                    }],
+                };
+            }
+            return { text: '正式任务已确认完成。' };
+        },
+    });
+
+    assert.equal(result?.ok, true);
+    assert.equal(result?.managerRun.status, 'running');
+    assert.equal(result?.stagedTaskActions?.length, 1);
+    assert.deepEqual(result?.changedStates, []);
+    assert.deepEqual(result?.managerRun.changedStates, []);
+    assert.equal((await getCurrentTavernTask(session.id, task.taskId))?.status, 'active');
+    assert.equal(await getTavernTaskPlayerBalance(session.id), 100);
+    assert.equal((await tavernEconomyAccountsTable.get([session.id, task.escrowAccountId]))?.balance, task.reward);
+    const transactionCountBefore = await tavernEconomyTransactionsTable.where('sessionId').equals(session.id).count();
+    assert.equal(await tavernTaskVersionsTable.where('sessionId').equals(session.id).count(), 1);
+
+    await tavernSessionsTable.update(session.id, { updatedAt: 1 });
+    const completed = await completeAcceptedTurnManagerRunWithSnapshot({
+        sessionId: session.id,
+        managerRunId: result?.managerRun.id || '',
+        floor: assistant.order,
+        domains: [],
+        stagedTaskActions: result?.stagedTaskActions,
+        leaseOwnerId: String(result?.managerRun.leaseOwnerId || ''),
+    });
+    const settled = await getCurrentTavernTask(session.id, task.taskId);
+
+    assert.equal(completed.status, 'completed');
+    assert.equal(settled?.status, 'completed');
+    assert.equal(settled?.revision, 2);
+    assert.equal(await getTavernTaskPlayerBalance(session.id), 100 + task.reward);
+    assert.equal((await tavernEconomyAccountsTable.get([session.id, task.escrowAccountId]))?.balance, 0);
+    assert.equal(await tavernEconomyTransactionsTable.where('sessionId').equals(session.id).count(), transactionCountBefore + 1);
+    assert.equal(await tavernTaskVersionsTable.where('sessionId').equals(session.id).count(), 2);
+    assert.ok(Number((await getTavernSession(session.id))?.updatedAt) > 1);
+});
+
+test('manager task action ids stay unique when Google reuses a provider tool id across rounds', async () => {
+    await db.delete();
+    await db.open();
+    const session = await createTavernSession({ title: 'Manager tool id rounds' });
+    const task = await createAcceptedManagerTask(session.id, 'google-tool-id');
+    const user = await appendTavernMessage(session.id, { role: 'user', content: '任务出现阶段性进展。' });
+    const assistant = await appendTavernMessage(session.id, { role: 'assistant', content: '随后任务完成并通过验收。' });
+    await createTavernManagerRun({
+        sessionId: session.id,
+        turn: 1,
+        userOrder: user.order,
+        assistantOrder: assistant.order,
+        sourceUserMessageId: user.messageId,
+        sourceAssistantMessageId: assistant.messageId,
+        sourceUserCreatedAt: user.createdAt,
+        sourceAssistantCreatedAt: assistant.createdAt,
+        sourceUserRevision: user.timelineRevision,
+        sourceAssistantRevision: assistant.timelineRevision,
+        status: 'queued',
+    });
+    let round = 0;
+    const liveProgress: TavernManagerLiveProgress[] = [];
+    const result = await runNextQueuedAcceptedTurnManager({
+        sessionId: session.id,
+        agentConfig: { delegateConfigured: true },
+        onManagerProgress: (progress) => {liveProgress.push(progress);},
+        executeManagerOnce: async () => {
+            round += 1;
+            if (round === 1) {
+                return {
+                    text: '',
+                    toolCalls: [{
+                        id: 'google-tool-1',
+                        name: TAVERN_TASK_TOOL_NAMES.PROGRESS,
+                        arguments: {
+                            taskId: task.taskId,
+                            revision: task.revision,
+                            progressSummary: '先完成了阶段目标。',
+                        },
+                    }],
+                };
+            }
+            if (round === 2) {
+                return {
+                    text: '',
+                    toolCalls: [{
+                        id: 'google-tool-1',
+                        name: TAVERN_TASK_TOOL_NAMES.COMPLETE,
+                        arguments: {
+                            taskId: task.taskId,
+                            revision: task.revision + 1,
+                            resultSummary: '最终目标也已完成。',
+                        },
+                    }],
+                };
+            }
+            return { text: '维护完成。' };
+        },
+    });
+    const actions = result?.stagedTaskActions || [];
+    assert.equal(actions.length, 2);
+    assert.equal(new Set(actions.map((action) => action.actionId)).size, 2);
+    assert.match(actions[0].actionId, /:1:0:google-tool-1$/);
+    assert.match(actions[1].actionId, /:2:0:google-tool-1$/);
+    const latestTools = liveProgress.at(-1)?.tools || [];
+    assert.equal(latestTools.length, 2);
+    assert.equal(new Set(latestTools.map((tool) => tool.displayKey)).size, 2);
+    assert.deepEqual(latestTools.map((tool) => tool.id), ['google-tool-1', 'google-tool-1']);
+});
+
+test('manual accepted-turn retry is queued and commits task settlement with a terminal run notification', async () => {
+    await db.delete();
+    await db.open();
+    const session = await createTavernSession({ title: 'Manual manager retry' });
+    const task = await createAcceptedManagerTask(session.id, 'manual-retry');
+    const user = await appendTavernMessage(session.id, { role: 'user', content: '请重试维护。' });
+    const assistant = await appendTavernMessage(session.id, { role: 'assistant', content: '任务已完成。' });
+    const source = await createTavernManagerRun({
+        sessionId: session.id,
+        turn: 1,
+        userOrder: user.order,
+        assistantOrder: assistant.order,
+        sourceUserMessageId: user.messageId,
+        sourceAssistantMessageId: assistant.messageId,
+        sourceUserCreatedAt: user.createdAt,
+        sourceAssistantCreatedAt: assistant.createdAt,
+        sourceUserRevision: user.timelineRevision,
+        sourceAssistantRevision: assistant.timelineRevision,
+        trigger: 'accepted_turn',
+        status: 'failed',
+        error: 'provider_failed',
+    });
+    const queued = await queueAcceptedTurnManagerRetry(source.id);
+    assert.equal(queued?.status, 'queued');
+    assert.equal(queued?.recoverySourceRunId, source.id);
+    let round = 0;
+    const savedRunStatuses: string[] = [];
+    const liveProgress: TavernManagerLiveProgress[] = [];
+    resumeQueuedAcceptedTurnManagers({
+        sessionId: session.id,
+        agentConfig: { delegateConfigured: true },
+        sessionContract: DEFAULT_TAVERN_SESSION_CONTRACT,
+        executeManagerOnce: async () => {
+            round += 1;
+            if (round === 1) {
+                return {
+                    text: '',
+                    toolCalls: [{
+                        id: 'google-tool-1',
+                        name: TAVERN_TASK_TOOL_NAMES.COMPLETE,
+                        arguments: {
+                            taskId: task.taskId,
+                            revision: task.revision,
+                            resultSummary: '重试后完成。',
+                        },
+                    }],
+                };
+            }
+            return { text: '维护完成。' };
+        },
+        onManagerRunSaved: (_sessionId, savedRun) => {
+            savedRunStatuses.push(savedRun.status);
+        },
+        onManagerProgress: (progress) => {
+            liveProgress.push(progress);
+        },
+    });
+    await waitForQueuedAcceptedTurnManagers(session.id);
+
+    const retry = (await listTavernManagerRuns(session.id)).find((run) => run.recoverySourceRunId === source.id);
+    const committedTaskVersions = await listTavernTaskVersionsByActionPrefix(session.id, `${retry?.id}:`);
+    assert.equal(retry?.status, 'completed');
+    assert.equal((await getCurrentTavernTask(session.id, task.taskId))?.status, 'completed');
+    assert.deepEqual(committedTaskVersions.map((item) => item.taskId), [task.taskId]);
+    assert.equal(await getTavernTaskPlayerBalance(session.id), 100 + task.reward);
+    assert.equal(savedRunStatuses.includes('completed'), true);
+    assert.equal(liveProgress.some((progress) => progress.sessionId === session.id && progress.runId === retry?.id), true);
+    assert.equal(liveProgress.some((progress) => progress.tools.some((tool) => tool.status === 'running')), true);
+    assert.equal(liveProgress.some((progress) => progress.tools.some((tool) => tool.status === 'resolved')), true);
+    assert.equal(liveProgress.every((progress) => progress.tools.every((tool) => (
+        !Object.hasOwn(tool, 'args')
+        && !Object.hasOwn(tool, 'result')
+        && !Object.hasOwn(tool, 'providerPayload')
+    ))), true);
+});
+
+test('manual accepted-turn retry failure does not fake task or wallet completion', async () => {
+    await db.delete();
+    await db.open();
+    const session = await createTavernSession({ title: 'Manual manager retry conflict' });
+    const task = await createAcceptedManagerTask(session.id, 'manual-retry-conflict');
+    const user = await appendTavernMessage(session.id, { role: 'user', content: '请重试维护。' });
+    const assistant = await appendTavernMessage(session.id, { role: 'assistant', content: '任务等待再次确认。' });
+    const source = await createTavernManagerRun({
+        sessionId: session.id,
+        turn: 1,
+        userOrder: user.order,
+        assistantOrder: assistant.order,
+        sourceUserMessageId: user.messageId,
+        sourceAssistantMessageId: assistant.messageId,
+        sourceUserCreatedAt: user.createdAt,
+        sourceAssistantCreatedAt: assistant.createdAt,
+        sourceUserRevision: user.timelineRevision,
+        sourceAssistantRevision: assistant.timelineRevision,
+        trigger: 'accepted_turn',
+        status: 'failed',
+        error: 'provider_failed',
+    });
+    await queueAcceptedTurnManagerRetry(source.id);
+    let round = 0;
+    resumeQueuedAcceptedTurnManagers({
+        sessionId: session.id,
+        agentConfig: { delegateConfigured: true },
+        sessionContract: DEFAULT_TAVERN_SESSION_CONTRACT,
+        executeManagerOnce: async () => {
+            round += 1;
+            if (round === 1) {
+                return {
+                    text: '',
+                    toolCalls: [{
+                        id: 'google-tool-1',
+                        name: TAVERN_TASK_TOOL_NAMES.COMPLETE,
+                        arguments: {
+                            taskId: task.taskId,
+                            revision: task.revision,
+                            resultSummary: '这次提交会被并发版本拒绝。',
+                        },
+                    }],
+                };
+            }
+            const current = await getCurrentTavernTask(session.id, task.taskId);
+            await progressTavernTask({
+                sessionId: session.id,
+                taskId: task.taskId,
+                expectedRevision: current?.revision || 0,
+                expectedVersionId: current?.versionId || '',
+                progressSummary: '并发修改先落地。',
+                anchorOrder: assistant.order + 1,
+                actionId: 'concurrent-progress-before-commit',
+            });
+            return { text: '维护完成，但提交前版本已变化。' };
+        },
+    });
+    await waitForQueuedAcceptedTurnManagers(session.id);
+
+    const retry = (await listTavernManagerRuns(session.id)).find((run) => run.recoverySourceRunId === source.id);
+    const current = await getCurrentTavernTask(session.id, task.taskId);
+    assert.equal(retry?.status, 'failed');
+    assert.equal(current?.status, 'active');
+    assert.equal(current?.progressSummary, '并发修改先落地。');
+    assert.equal(await getTavernTaskPlayerBalance(session.id), 100);
+    assert.equal((await tavernEconomyAccountsTable.get([session.id, task.escrowAccountId]))?.balance, task.reward);
+});
+
+test('automatic manager blocks before provider or task tools when the delegate model is not configured', async () => {
+    await db.delete();
+    await db.open();
+    const session = await createTavernSession({ title: 'Manager delegate gate' });
+    const task = await createAcceptedManagerTask(session.id, 'delegate-gate');
+    const user = await appendTavernMessage(session.id, { role: 'user', content: '不要借用主模型维护。' });
+    const assistant = await appendTavernMessage(session.id, { role: 'assistant', content: '任务仍保持进行中。' });
+    const result = await runXbTavernManagerAfterTurn({
+        sessionId: session.id,
+        agentConfig: {
+            currentPresetName: '主剧情',
+            presets: {
+                主剧情: {
+                    provider: 'sillytavern-claude',
+                    modelConfigs: {
+                        'sillytavern-claude': { model: 'main-story-model' },
+                    },
+                },
+            },
+        },
+        userMessage: user,
+        assistantMessage: assistant,
+        turn: 1,
+    });
+    assert.equal(result.ok, false);
+    assert.match(result.error || '', /请先配置分身模型/);
+    assert.equal((await getCurrentTavernTask(session.id, task.taskId))?.status, 'active');
+    assert.equal(await tavernTaskVersionsTable.where('sessionId').equals(session.id).count(), 1);
+    assert.equal(await getTavernTaskPlayerBalance(session.id), 100);
+    assert.equal((await tavernEconomyAccountsTable.get([session.id, task.escrowAccountId]))?.balance, task.reward);
+});
+
+test('accepted snapshot conflict rolls back a staged task settlement and its ledger write', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Rejected accepted task settlement' });
+    const task = await createAcceptedManagerTask(session.id, 'snapshot-conflict');
+    const user = await appendTavernMessage(session.id, { role: 'user', content: '我声称已经完成目标。' });
+    const assistant = await appendTavernMessage(session.id, { role: 'assistant', content: '发布者在现场完成了验收。' });
+    await writeTavernMemoryFile(session.id, 'memory/state.md', '# 会话记忆\n\n验收前。', { source: 'user' });
+    await createTavernManagerRun({
+        sessionId: session.id,
+        turn: 1,
+        userOrder: user.order,
+        assistantOrder: assistant.order,
+        sourceUserMessageId: user.messageId,
+        sourceAssistantMessageId: assistant.messageId,
+        sourceUserCreatedAt: user.createdAt,
+        sourceAssistantCreatedAt: assistant.createdAt,
+        sourceUserRevision: user.timelineRevision,
+        sourceAssistantRevision: assistant.timelineRevision,
+        status: 'queued',
+    });
+    let round = 0;
+    const result = await runNextQueuedAcceptedTurnManager({
+        sessionId: session.id,
+        agentConfig: {},
+        executeManagerOnce: async () => {
+            round += 1;
+            if (round === 1) {
+                return {
+                    text: '',
+                    toolCalls: [{
+                        id: 'complete-before-conflict',
+                        name: TAVERN_TASK_TOOL_NAMES.COMPLETE,
+                        arguments: {
+                            taskId: task.taskId,
+                            revision: task.revision,
+                            resultSummary: '现场验收已经完成。',
+                        },
+                    }, {
+                        id: 'write-before-conflict',
+                        name: 'Write',
+                        arguments: {
+                            filePath: 'memory/state.md',
+                            content: '# 会话记忆\n\n管理员记录了验收。',
+                        },
+                    }],
+                };
+            }
+            return { text: '验收记录与任务结算均已暂存。' };
+        },
+    });
+    assert.equal(result?.ok, true);
+    assert.equal(result?.managerRun.status, 'running');
+    assert.equal(result?.stagedTaskActions?.length, 1);
+    const transactionCountBefore = await tavernEconomyTransactionsTable.where('sessionId').equals(session.id).count();
+
+    await writeTavernMemoryFile(session.id, 'memory/state.md', '# 会话记忆\n\n另一处并发修改。', { source: 'user' });
+    await assert.rejects(completeAcceptedTurnManagerRunWithSnapshot({
+        sessionId: session.id,
+        managerRunId: result?.managerRun.id || '',
+        floor: assistant.order,
+        domains: ['memory'],
+        stagedTaskActions: result?.stagedTaskActions,
+        leaseOwnerId: String(result?.managerRun.leaseOwnerId || ''),
+    }), /manager_resource_revision_conflict:memory\/memory\/state\.md/);
+
+    const current = await getCurrentTavernTask(session.id, task.taskId);
+    assert.equal(current?.status, 'active');
+    assert.equal(current?.revision, 1);
+    assert.equal(await getTavernTaskPlayerBalance(session.id), 100);
+    assert.equal((await tavernEconomyAccountsTable.get([session.id, task.escrowAccountId]))?.balance, task.reward);
+    assert.equal(await tavernEconomyTransactionsTable.where('sessionId').equals(session.id).count(), transactionCountBefore);
+    assert.equal(await tavernTaskVersionsTable.where('sessionId').equals(session.id).count(), 1);
+    assert.equal((await tavernManagerRunsTable.get(result?.managerRun.id || ''))?.status, 'running');
+});
+
+test('a confirmed manager pair refuses an explicit later edit of its own source message', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Manager source revision' });
+    const user0 = await appendTavernMessage(session.id, { role: 'user', content: '原始用户楼。' });
+    const assistant1 = await appendTavernMessage(session.id, { role: 'assistant', content: '原始助手楼。' });
+    await putTavernManagerCandidate({ sessionId: session.id, turn: 1, userOrder: user0.order, assistantOrder: assistant1.order });
+    await appendTavernUserMessageAndConfirmManagerCandidate(session.id, {
+        role: 'user',
+        content: '确认上一对。',
+    }, { confirmManagerCandidate: true });
+    await updateTavernMessage(session.id, assistant1.order, {
+        content: '被明确编辑后的助手楼。',
+    }, { incrementTimelineRevision: true });
+
+    let managerCalls = 0;
+    const result = await runNextQueuedAcceptedTurnManager({
+        sessionId: session.id,
+        agentConfig: {},
+        executeManagerOnce: async () => {
+            managerCalls += 1;
+            return { text: '不应执行。' };
+        },
+    });
+
+    assert.equal(managerCalls, 0);
+    assert.equal(result?.ok, false);
+    assert.equal(result?.managerRun.status, 'superseded');
+    assert.equal(result?.error, 'manager_source_messages_changed');
+});
+
+test('a confirmed manager pair rejects ABA source replacement with identical floor metadata', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Manager source ABA' });
+    const user = await appendTavernMessage(session.id, { role: 'user', content: '原始用户楼。' });
+    const assistant = await appendTavernMessage(session.id, { role: 'assistant', content: '原始助手楼。' });
+    await putTavernManagerCandidate({ sessionId: session.id, turn: 1, userOrder: user.order, assistantOrder: assistant.order });
+    await appendTavernUserMessageAndConfirmManagerCandidate(session.id, {
+        role: 'user',
+        content: '确认上一对。',
+    }, { confirmManagerCandidate: true });
+    await tavernMessagesTable.put({
+        ...user,
+        messageId: 'replacement-user-message',
+        content: '同元数据重建的用户楼。',
+    });
+    await tavernMessagesTable.put({
+        ...assistant,
+        messageId: 'replacement-assistant-message',
+        content: '同元数据重建的助手楼。',
+    });
+
+    let managerCalls = 0;
+    const result = await runNextQueuedAcceptedTurnManager({
+        sessionId: session.id,
+        agentConfig: {},
+        executeManagerOnce: async () => {
+            managerCalls += 1;
+            return { text: '不应执行。' };
+        },
+    });
+
+    assert.equal(managerCalls, 0);
+    assert.equal(result?.managerRun.status, 'superseded');
+    assert.equal(result?.error, 'manager_source_messages_changed');
+});
+
+test('accepted snapshot transaction rejects ABA replacement after manager execution', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Accepted snapshot ABA' });
+    const user = await appendTavernMessage(session.id, { role: 'user', content: '原始用户楼。' });
+    const assistant = await appendTavernMessage(session.id, { role: 'assistant', content: '原始助手楼。' });
+    await createTavernManagerRun({
+        sessionId: session.id,
+        turn: 1,
+        userOrder: user.order,
+        assistantOrder: assistant.order,
+        sourceUserMessageId: user.messageId,
+        sourceAssistantMessageId: assistant.messageId,
+        sourceUserCreatedAt: user.createdAt,
+        sourceAssistantCreatedAt: assistant.createdAt,
+        sourceUserRevision: user.timelineRevision,
+        sourceAssistantRevision: assistant.timelineRevision,
+        status: 'queued',
+    });
+    const result = await runNextQueuedAcceptedTurnManager({
+        sessionId: session.id,
+        agentConfig: {},
+        executeManagerOnce: async () => ({ text: '维护完成。' }),
+    });
+    assert.equal(result?.ok, true);
+    assert.equal(result?.managerRun.status, 'running');
+
+    await tavernMessagesTable.put({ ...user, messageId: 'accepted-replacement-user' });
+    await tavernMessagesTable.put({ ...assistant, messageId: 'accepted-replacement-assistant' });
+    await assert.rejects(completeAcceptedTurnManagerRunWithSnapshot({
+        sessionId: session.id,
+        managerRunId: result?.managerRun.id || '',
+        floor: assistant.order,
+        domains: [],
+        leaseOwnerId: String(result?.managerRun.leaseOwnerId || ''),
+    }), /manager_source_messages_changed/);
+    assert.equal((await tavernManagerRunsTable.get(result?.managerRun.id || ''))?.status, 'running');
+});
+
+test('accepted snapshot source race finishes the queued manager as superseded', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Accepted snapshot source race' });
+    const user = await appendTavernMessage(session.id, { role: 'user', content: '原始用户楼。' });
+    const assistant = await appendTavernMessage(session.id, { role: 'assistant', content: '原始助手楼。' });
+    const run = await createTavernManagerRun({
+        sessionId: session.id,
+        turn: 1,
+        userOrder: user.order,
+        assistantOrder: assistant.order,
+        sourceUserMessageId: user.messageId,
+        sourceAssistantMessageId: assistant.messageId,
+        sourceUserCreatedAt: user.createdAt,
+        sourceAssistantCreatedAt: assistant.createdAt,
+        sourceUserRevision: user.timelineRevision,
+        sourceAssistantRevision: assistant.timelineRevision,
+        status: 'queued',
+    });
+    let managerFinished = false;
+    let sourceChanged = false;
+    const savedStatuses: string[] = [];
+
+    resumeQueuedAcceptedTurnManagers({
+        sessionId: session.id,
+        agentConfig: { delegateConfigured: true },
+        sessionContract: DEFAULT_TAVERN_SESSION_CONTRACT,
+        executeManagerOnce: async () => {
+            managerFinished = true;
+            return { text: '维护完成。' };
+        },
+        onManagerRunSaved: async (_sessionId, savedRun) => {
+            savedStatuses.push(savedRun.status);
+            if (sourceChanged || !managerFinished || savedRun.id !== run.id || savedRun.status !== 'running') {return;}
+            sourceChanged = true;
+            await updateTavernMessage(session.id, assistant.order, {
+                content: 'accepted snapshot 之前被替换的助手楼。',
+            }, { incrementTimelineRevision: true });
+        },
+    });
+    await waitForQueuedAcceptedTurnManagers(session.id);
+
+    const finalRun = await tavernManagerRunsTable.get(run.id);
+    assert.equal(sourceChanged, true);
+    assert.equal(finalRun?.status, 'superseded');
+    assert.equal(finalRun?.leaseOwnerId, '');
+    assert.equal(finalRun?.error, 'manager_accepted_snapshot_failed:manager_source_messages_changed');
+    assert.equal(savedStatuses.includes('superseded'), true);
+});
+
+test('completed assistant turn counting scans structurally before a boundary without loading message arrays', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Structural turn count' });
+    await appendTavernMessage(session.id, { role: 'assistant', content: '角色开场白，不是完成轮次。' });
+    await appendTavernMessage(session.id, { role: 'user', content: '一。' });
+    await appendTavernMessage(session.id, { role: 'assistant', content: '完成一。' });
+    await appendTavernMessage(session.id, { role: 'assistant', content: '重复助手楼，不重复计数。' });
+    await appendTavernMessage(session.id, { role: 'user', content: '二。' });
+    await appendTavernMessage(session.id, { role: 'assistant', content: '失败。', error: true });
+    await appendTavernMessage(session.id, { role: 'assistant', content: '完成二。' });
+    const boundary = await appendTavernMessage(session.id, { role: 'user', content: '边界。' });
+    await appendTavernMessage(session.id, { role: 'assistant', content: '边界之后。' });
+
+    assert.equal(await countCompletedTavernAssistantTurnsBefore(session.id, boundary.order), 2);
+    assert.equal(await countCompletedTavernAssistantTurnsBefore(session.id), 3);
 });
 
 test('tavern latest assistant order ignores non-assistant and error messages', async () => {
@@ -671,6 +1637,18 @@ test('tavern session db deletes sessions with related records', async () => {
     assert.equal((await listTavernStructuredStatePatches({ sessionId: session.id })).length, 0);
     assert.equal((await listTavernMemoryFiles(session.id, { includeStale: true })).length, 0);
     await assert.rejects(() => ensureTavernMemoryDefaults(session.id), /memory_session_missing/);
+    await assert.rejects(
+        appendTavernMessage(session.id, { role: 'assistant', content: '迟到的主剧情回复。' }),
+        /session_missing/,
+    );
+    await assert.rejects(
+        appendTavernUserMessageAndConfirmManagerCandidate(session.id, { role: 'user', content: '迟到的用户消息。' }),
+        /session_missing/,
+    );
+    await assert.rejects(
+        appendTavernManagerMessage(session.id, { role: 'assistant', content: '迟到的助手回复。' }),
+        /session_missing/,
+    );
     assert.equal((await listTavernMemoryFiles(session.id, { includeStale: true })).length, 0);
     assert.equal(await getSelectedTavernSessionId(), other.id);
 });
@@ -700,6 +1678,212 @@ test('tavern session db updates and deletes message records by order', async () 
     assert.deepEqual(messages.map((message) => `${message.order}:${message.content}`), [
         '0:Edited user.',
         '2:Next user.',
+    ]);
+    assert.equal((await getTavernSession(session.id))?.storyTimelineRevision, 7);
+});
+
+test('tavern timeline truncation deletes messages and replaces session state atomically', async () => {
+    await db.delete();
+    await db.open();
+    const session = await createTavernSession({
+        title: 'Atomic timeline truncation',
+        state: {
+            turn: 9,
+            worldEntryStates: { future: { stickyUntilTurn: 99 } },
+            nativeWorldInfoTimedState: { sticky: {}, cooldown: {} },
+        },
+    });
+    for (let order = 0; order < 4; order += 1) {
+        await appendTavernMessage(session.id, {
+            role: order % 2 ? 'assistant' : 'user',
+            content: `message-${order}`,
+        });
+    }
+
+    const result = await truncateTavernMessagesAndReplaceSessionState(session.id, 2, {
+        turn: 1,
+        contextWindowStartOrder: 0,
+        worldEntryStates: { boundary: { cooldownUntilTurn: 3 } },
+        nativeWorldInfoTimedState: { sticky: {}, cooldown: {} },
+    });
+
+    assert.equal(result.deleted, 2);
+    assert.deepEqual((await listTavernMessages(session.id)).map((message) => message.order), [0, 1]);
+    assert.equal(result.session?.state?.turn, 1);
+    assert.deepEqual(result.session?.state?.worldEntryStates, { boundary: { cooldownUntilTurn: 3 } });
+
+    await appendTavernMessage(session.id, { role: 'user', content: 'message-2-again' });
+    await appendTavernMessage(session.id, { role: 'assistant', content: 'message-3-again' });
+    const failSessionUpdate = () => {
+        throw new Error('forced_session_update_failure');
+    };
+    const sessionUpdatingHook = (tavernSessionsTable as unknown as {
+        hook(type: 'updating'): {
+            subscribe(listener: () => void): void;
+            unsubscribe(listener: () => void): void;
+        };
+    }).hook('updating');
+    sessionUpdatingHook.subscribe(failSessionUpdate);
+    try {
+        await assert.rejects(
+            truncateTavernMessagesAndReplaceSessionState(session.id, 2, { turn: 2 }),
+            /forced_session_update_failure/,
+        );
+    } finally {
+        sessionUpdatingHook.unsubscribe(failSessionUpdate);
+    }
+    assert.deepEqual((await listTavernMessages(session.id)).map((message) => message.order), [0, 1, 2, 3]);
+    assert.equal((await getTavernSession(session.id))?.state?.turn, 1);
+
+    const noMessages = await truncateTavernMessagesAndReplaceSessionState(session.id, 99, { turn: 2 });
+    assert.equal(noMessages.deleted, 0);
+    assert.equal(noMessages.session?.state?.turn, 2);
+
+    assert.deepEqual(
+        await truncateTavernMessagesAndReplaceSessionState('missing-session', 0, { turn: 3 }),
+        { deleted: 0, session: null },
+    );
+});
+
+test('latest assistant reroll keeps the old pair until an atomic replacement and rejects ABA reuse', async () => {
+    await db.delete();
+    await db.open();
+    const session = await createTavernSession({
+        title: 'Latest assistant reroll',
+        state: {
+            turn: 4,
+            activeMapDocId: 'scene-old',
+            contract: mergeTavernSessionContract(undefined, {
+                memoryArchiving: true,
+                cartographyEngine: true,
+            }),
+            worldEntryStates: { old: { stickyUntilTurn: 8 } },
+            nativeWorldInfoTimedState: { sticky: {}, cooldown: {} },
+        },
+    });
+    const user = await appendTavernMessage(session.id, {
+        role: 'user',
+        content: '最后一轮用户消息。',
+        runtimeStateSnapshot: {
+            turn: 4,
+            contextWindowStartOrder: 0,
+            worldEntryStates: { checkpoint: { stickyUntilTurn: 7 } },
+            nativeWorldInfoTimedState: { sticky: {}, cooldown: {} },
+        },
+    });
+    const assistant = await appendTavernMessage(session.id, { role: 'assistant', content: '旧回复。' });
+    const oldCandidate = await putTavernManagerCandidate({
+        sessionId: session.id,
+        turn: 5,
+        userOrder: user.order,
+        assistantOrder: assistant.order,
+    });
+    await updateTavernSessionState(session.id, {
+        turn: 99,
+        activeMapDocId: 'scene-new',
+        contract: mergeTavernSessionContract(undefined, { cartographyEngine: false }),
+        worldEntryStates: { polluted: { stickyUntilTurn: 100 } },
+    });
+
+    const prepared = await prepareTavernLatestAssistantReroll(session.id);
+    assert.equal(prepared.userMessage.order, user.order);
+    assert.equal(prepared.previousAssistantMessage.order, assistant.order);
+    assert.equal(prepared.candidate?.id, oldCandidate.id);
+    assert.deepEqual((await listTavernMessages(session.id)).map((message) => message.content), ['最后一轮用户消息。', '旧回复。']);
+    assert.equal((await getTavernManagerCandidate(session.id))?.id, oldCandidate.id);
+    assert.equal((await getTavernSession(session.id))?.state?.turn, 99);
+    assert.equal(prepared.runtimeState.turn, 4);
+    assert.deepEqual(prepared.runtimeState.worldEntryStates, { checkpoint: { stickyUntilTurn: 7 } });
+    assert.equal(prepared.runtimeState.activeMapDocId, 'scene-new');
+    assert.equal(prepared.runtimeState.contract?.cartographyEngine, false);
+
+    const failSessionUpdate = () => {
+        throw new Error('forced_reroll_commit_failure');
+    };
+    const sessionUpdatingHook = (tavernSessionsTable as unknown as {
+        hook(type: 'updating'): {
+            subscribe(listener: () => void): void;
+            unsubscribe(listener: () => void): void;
+        };
+    }).hook('updating');
+    sessionUpdatingHook.subscribe(failSessionUpdate);
+    try {
+        await assert.rejects(
+            commitTavernLatestAssistantReroll(
+                session.id,
+                prepared.userMessage,
+                prepared.previousAssistantMessage,
+                prepared.candidate,
+                { role: 'assistant', content: '不会落库。' },
+                { sessionState: { turn: 5 }, replaceSessionState: true },
+            ),
+            /forced_reroll_commit_failure/,
+        );
+    } finally {
+        sessionUpdatingHook.unsubscribe(failSessionUpdate);
+    }
+    assert.deepEqual((await listTavernMessages(session.id)).map((message) => message.content), ['最后一轮用户消息。', '旧回复。']);
+    assert.equal((await getTavernManagerCandidate(session.id))?.id, oldCandidate.id);
+    assert.equal((await getTavernSession(session.id))?.state?.turn, 99);
+
+    const committed = await commitTavernLatestAssistantReroll(
+        session.id,
+        prepared.userMessage,
+        prepared.previousAssistantMessage,
+        prepared.candidate,
+        { role: 'assistant', content: '新回复。' },
+        {
+            sessionState: {
+                turn: 5,
+                worldEntryStates: { checkpoint: { stickyUntilTurn: 7 } },
+                nativeWorldInfoTimedState: { sticky: {}, cooldown: {} },
+            },
+            replaceSessionState: true,
+            managerCandidate: { turn: 5, inputSummary: 'replacement' },
+        },
+    );
+    assert.equal(committed.assistantMessage.order, assistant.order);
+    assert.notEqual(committed.assistantMessage.messageId, assistant.messageId);
+    assert.notEqual(committed.managerCandidate?.id, oldCandidate.id);
+    assert.equal((await getTavernManagerCandidate(session.id))?.assistantOrder, assistant.order);
+
+    const secondPreparation = await prepareTavernLatestAssistantReroll(session.id);
+    await deleteTavernMessages(session.id, [secondPreparation.userMessage.order, secondPreparation.previousAssistantMessage.order]);
+    const replacementUser = await appendTavernMessage(session.id, {
+        role: 'user',
+        content: '删除后复用相同 order 的新 USER。',
+        runtimeStateSnapshot: createTavernTurnStateSnapshot(secondPreparation.runtimeState),
+    });
+    const replacementAssistant = await appendTavernMessage(session.id, { role: 'assistant', content: '删除后复用相同 order 的新 AI。' });
+    await tavernMessagesTable.update([session.id, replacementUser.order], {
+        createdAt: secondPreparation.userMessage.createdAt,
+    });
+    await tavernMessagesTable.update([session.id, replacementAssistant.order], {
+        createdAt: secondPreparation.previousAssistantMessage.createdAt,
+    });
+    const recreatedUser = await getTavernMessage(session.id, replacementUser.order);
+    const recreatedAssistant = await getTavernMessage(session.id, replacementAssistant.order);
+    assert.equal(recreatedUser?.order, secondPreparation.userMessage.order);
+    assert.equal(recreatedUser?.createdAt, secondPreparation.userMessage.createdAt);
+    assert.equal(recreatedUser?.timelineRevision, secondPreparation.userMessage.timelineRevision);
+    assert.notEqual(recreatedUser?.messageId, secondPreparation.userMessage.messageId);
+    assert.equal(recreatedAssistant?.createdAt, secondPreparation.previousAssistantMessage.createdAt);
+    assert.equal(recreatedAssistant?.timelineRevision, secondPreparation.previousAssistantMessage.timelineRevision);
+    assert.notEqual(recreatedAssistant?.messageId, secondPreparation.previousAssistantMessage.messageId);
+    await assert.rejects(
+        commitTavernLatestAssistantReroll(
+            session.id,
+            secondPreparation.userMessage,
+            secondPreparation.previousAssistantMessage,
+            secondPreparation.candidate,
+            { role: 'assistant', content: '迟到回复。' },
+            { sessionState: { turn: 5 }, replaceSessionState: true },
+        ),
+        /assistant_timeline_advanced/,
+    );
+    assert.deepEqual((await listTavernMessages(session.id)).map((message) => message.content), [
+        '删除后复用相同 order 的新 USER。',
+        '删除后复用相同 order 的新 AI。',
     ]);
 });
 
@@ -877,7 +2061,6 @@ test('replaceTavernSessionState preserves stored contract when runtime rebuild o
                 statusPanel: true,
                 actionChecks: true,
                 randomEncounters: true,
-                questOrchestration: false,
             },
             worldEntryStates: {
                 'Lore\u0000gate': { stickyUntilTurn: 4 },
@@ -903,7 +2086,6 @@ test('replaceTavernSessionState preserves stored contract when runtime rebuild o
             statusPanel: true,
             actionChecks: true,
             randomEncounters: true,
-            questOrchestration: false,
         },
         worldEntryStates: {
             'Lore\u0000gate': { cooldownUntilTurn: 8 },
@@ -931,9 +2113,12 @@ test('tavern memory db tracks state snapshots and manager runs', async () => {
         assistantOrder: assistantMessage.order,
         status: 'queued',
     });
-    await updateTavernManagerRun(run.id, {
+    await transitionTavernManagerRun(run.id, {
         status: 'completed',
         parsedAction: 'create_new_episode',
+    }, {
+        expectedStatus: 'queued',
+        expectedLeaseOwnerId: '',
     });
 
     assert.equal((await getTavernMemoryFile(session.id, 'memory/state.md'))?.content.includes('共同目标'), true);
@@ -952,18 +2137,139 @@ test('tavern manager run heartbeat only touches active running runs', async () =
         userOrder: 0,
         assistantOrder: 1,
         status: 'running',
+        leaseOwnerId: 'heartbeat-worker',
+        leaseExpiresAt: Date.now() + 5000,
     });
+    const sessionBeforeHeartbeat = await getTavernSession(session.id);
     await new Promise((resolve) => setTimeout(resolve, 5));
 
-    const touched = await touchRunningTavernManagerRun(run.id);
+    const touched = await touchRunningTavernManagerRun(run.id, {
+        leaseOwnerId: 'heartbeat-worker',
+        leaseDurationMs: 30000,
+    });
     assert.equal(touched?.status, 'running');
     assert.ok(Number(touched?.updatedAt || 0) >= run.updatedAt);
+    assert.ok(Number(touched?.leaseExpiresAt || 0) > Number(run.leaseExpiresAt || 0));
+    assert.equal((await getTavernSession(session.id))?.updatedAt, sessionBeforeHeartbeat?.updatedAt);
 
-    const completed = await updateTavernManagerRun(run.id, { status: 'completed' });
+    const completed = await transitionTavernManagerRun(run.id, { status: 'completed' }, {
+        expectedStatus: 'running',
+        expectedLeaseOwnerId: 'heartbeat-worker',
+    });
     const afterTerminalHeartbeat = await touchRunningTavernManagerRun(run.id);
     assert.equal(afterTerminalHeartbeat?.status, 'completed');
     assert.equal((await listTavernManagerRuns(session.id))[0]?.status, 'completed');
     assert.equal(completed?.status, 'completed');
+});
+
+test('limited manager history always includes every queued and running record', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Visible active queue' });
+    const running = await createTavernManagerRun({
+        sessionId: session.id,
+        turn: 1,
+        userOrder: 0,
+        assistantOrder: 1,
+        status: 'running',
+        leaseOwnerId: 'old-worker',
+        leaseExpiresAt: Date.now() + 30000,
+    });
+    await tavernManagerRunsTable.update(running.id, { updatedAt: 1 });
+    for (let index = 0; index < 24; index += 1) {
+        const run = await createTavernManagerRun({
+            sessionId: session.id,
+            turn: index + 2,
+            userOrder: index * 2 + 2,
+            assistantOrder: index * 2 + 3,
+            status: index < 3 ? 'queued' : 'completed',
+        });
+        await tavernManagerRunsTable.update(run.id, { updatedAt: index + 2 });
+    }
+
+    const visible = await listTavernManagerRuns(session.id, { limit: 18 });
+    assert.deepEqual(visible.map((run) => run.updatedAt), [
+        25, 24, 23, 22, 21, 20, 19, 18, 17, 16, 15,
+        14, 13, 12, 11, 10, 9, 8, 4, 3, 2, 1,
+    ]);
+    assert.ok(visible.some((run) => run.id === running.id));
+    assert.equal(visible.filter((run) => run.status === 'queued').length, 3);
+});
+
+test('limited structured state patch history filters document and rollback state before taking the tail', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Bounded patch history' });
+    const timestamp = Date.now();
+    const records = [
+        ...[1, 2, 3].map((revision) => ({
+            id: `home-active-${revision}`,
+            sessionId: session.id,
+            docType: 'tavern.map' as const,
+            docId: 'home',
+            revision,
+            status: 'active' as const,
+            createdAt: timestamp + revision,
+            updatedAt: timestamp + revision,
+        })),
+        ...Array.from({ length: 40 }, (_, index) => {
+            const revision = index + 4;
+            return {
+                id: `home-rolled-back-${revision}`,
+                sessionId: session.id,
+                docType: 'tavern.map' as const,
+                docId: 'home',
+                revision,
+                status: 'rolled_back' as const,
+                createdAt: timestamp + revision,
+                updatedAt: timestamp + revision,
+            };
+        }),
+        ...Array.from({ length: 20 }, (_, index) => {
+            const revision = index + 100;
+            return {
+                id: `office-active-${revision}`,
+                sessionId: session.id,
+                docType: 'tavern.map' as const,
+                docId: 'office',
+                revision,
+                status: 'active' as const,
+                createdAt: timestamp + revision,
+                updatedAt: timestamp + revision,
+            };
+        }),
+    ];
+    await tavernStatePatchesTable.bulkPut(records);
+
+    assert.deepEqual((await listTavernStructuredStatePatches({
+        sessionId: session.id,
+        docType: 'tavern.map',
+        docId: 'home',
+        limit: 2,
+    })).map((patch) => patch.revision), [2, 3]);
+    assert.deepEqual((await listTavernStructuredStatePatches({
+        sessionId: session.id,
+        docType: 'tavern.map',
+        docId: 'home',
+        includeRolledBack: true,
+        limit: 2,
+    })).map((patch) => patch.revision), [42, 43]);
+    assert.deepEqual((await listTavernStructuredStatePatches({
+        sessionId: session.id,
+        docType: 'tavern.map',
+        limit: 2,
+    })).map((patch) => patch.revision), [118, 119]);
+    assert.deepEqual((await listTavernStructuredStatePatches({
+        sessionId: session.id,
+        docId: 'office',
+        limit: 2,
+    })).map((patch) => patch.revision), [118, 119]);
+    assert.deepEqual((await listTavernStructuredStatePatches({
+        sessionId: session.id,
+        limit: 2,
+    })).map((patch) => patch.revision), [118, 119]);
 });
 
 test('tavern memory files are scoped markdown sources with derived index', async () => {
@@ -974,6 +2280,7 @@ test('tavern memory files are scoped markdown sources with derived index', async
     const defaults = await ensureTavernMemoryDefaults(session.id, { characterName: 'Aster' });
     assert.deepEqual(defaults.map((file) => file.path).sort(), ['memory/state.md']);
     assert.match(defaults[0]?.content || '', /# 会话记忆/);
+    assert.equal((await getTavernMemoryIndex(session.id))?.status, 'stale');
 
     const blocked = await executeTavernMemoryTool(session.id, 'MemoryWrite', {
         filePath: 'book/state.md',
@@ -1071,7 +2378,11 @@ test('tavern memory files are scoped markdown sources with derived index', async
     const index = await rebuildTavernMemoryDerivedIndex(session.id);
     assert.equal(index.status, 'ready');
     assert.equal((await getTavernMemoryIndex(session.id))?.status, 'ready');
-    assert.equal(index.files?.find((file) => file.path === 'memory/state.md')?.searchText?.includes('Aster 把银钥匙藏在码头钟楼下面'), true);
+    // The derived index keeps only a short preview; full bodies stay in the
+    // memory files table and content search runs on demand.
+    const stateEntry = index.files?.find((file) => file.path === 'memory/state.md');
+    assert.equal(stateEntry?.preview?.includes('Aster 把银钥匙藏在码头钟楼下面'), true);
+    assert.equal('searchText' in (stateEntry || {}), false);
     assert.equal(index.files?.find((file) => file.path === characterPath)?.title, '椎名真昼');
 
     await executeTavernMemoryTool(session.id, 'MemoryWrite', {
@@ -1377,7 +2688,7 @@ test('ChatHistory recent mode reads an indexed latest window in chronological or
     assert.deepEqual(secondPage.messages?.map((message) => message.order), [1, 2]);
 });
 
-test('MemoryRead returns raw content, line numbers, and pagination hints', async () => {
+test('MemoryRead returns one numbered content window and pagination hints', async () => {
     await db.delete();
     await db.open();
 
@@ -1399,8 +2710,8 @@ test('MemoryRead returns raw content, line numbers, and pagination hints', async
     assert.equal(result.totalLines, 5);
     assert.equal(result.truncated, true);
     assert.equal(result.nextOffset, 5);
-    assert.match(result.content || '', /## 当前事实/);
-    assert.match(result.numberedContent || '', /^3: ## 当前事实/m);
+    assert.match(result.content || '', /^3: ## 当前事实/m);
+    assert.equal('numberedContent' in result, false);
 });
 
 test('MemoryGrep supports scope, context, pagination, and output modes', async () => {
@@ -1471,11 +2782,11 @@ test('source file tools read chat, worldbooks, and memory while keeping evidence
     await db.open();
 
     const session = await createTavernSession({ title: 'Source file tools' });
-    await appendTavernMessage(session.id, { role: 'user', content: 'a.b 字面值在第一楼。' });
+    await appendTavernMessage(session.id, { role: 'user', content: 'a.b 字面值在第一楼。全局检索词在聊天里。' });
     await appendTavernMessage(session.id, { role: 'assistant', content: 'axb 只是相似文本。' });
     await executeTavernSourceFileTool(session.id, 'Write', {
         filePath: 'memory/state.md',
-        content: '# 会话记忆\n\n银钥匙在钟楼。',
+        content: '# 会话记忆\n银钥匙在钟楼。\n全局检索词在记忆里。',
     });
     const contextSnapshot = {
         worldBooks: [{
@@ -1485,7 +2796,7 @@ test('source file tools read chat, worldbooks, and memory while keeping evidence
                 uid: 'bell',
                 comment: '钟楼',
                 key: ['钟楼'],
-                content: '钟楼顶层藏着旧铃。',
+                content: '钟楼顶层藏着旧铃。全局检索词在世界书里。',
             }],
         }],
     };
@@ -1495,21 +2806,31 @@ test('source file tools read chat, worldbooks, and memory while keeping evidence
         path: 'chat/',
     }, { contextSnapshot });
     assert.equal(literal.ok, true);
-    assert.deepEqual(literal.matches?.map((match) => match.path), ['chat/messages/0.md']);
+    assert.deepEqual(literal.results?.map((match) => match.path), ['chat/messages/0.md']);
 
     const regex = await executeTavernSourceFileTool(session.id, 'Grep', {
         pattern: 'a.b',
         path: 'chat/',
         useRegex: true,
     }, { contextSnapshot });
-    assert.deepEqual(regex.matches?.map((match) => match.path), ['chat/messages/0.md', 'chat/messages/1.md']);
+    assert.deepEqual(regex.results?.map((match) => match.path), ['chat/messages/0.md', 'chat/messages/1.md']);
+
+    const global = await executeTavernSourceFileTool(session.id, 'Grep', {
+        pattern: '全局检索词',
+        limit: 2,
+    }, { contextSnapshot });
+    assert.equal(global.count, 3);
+    assert.deepEqual(global.results?.map((match) => match.path), [
+        'worldbooks/global/钟楼传说/bell.md',
+        'memory/state.md',
+    ]);
 
     const exactFileRegex = await executeTavernSourceFileTool(session.id, 'Grep', {
         pattern: 'a.b',
         filePath: 'chat/messages/1.md',
         regex: true,
     }, { contextSnapshot });
-    assert.deepEqual(exactFileRegex.matches?.map((match) => match.path), ['chat/messages/1.md']);
+    assert.deepEqual(exactFileRegex.results?.map((match) => match.path), ['chat/messages/1.md']);
 
     const worldbookList = await executeTavernSourceFileTool(session.id, 'LS', {
         path: 'worldbooks/global/钟楼传说/',
@@ -1534,6 +2855,174 @@ test('source file tools read chat, worldbooks, and memory while keeping evidence
     assert.equal(blocked.ok, false);
     assert.equal(blocked.error, 'source_file_read_only');
 });
+
+test('Tavern Grep keeps exact chat pages without duplicating each result payload', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Grep cursor pages' });
+    const createdAt = Date.now();
+    await tavernMessagesTable.bulkPut(Array.from({ length: 705 }, (_, order) => ({
+        messageId: `grep-cursor-${order}`,
+        sessionId: session.id,
+        order,
+        role: order % 2 ? 'assistant' : 'user',
+        content: `needle at floor ${order}`,
+        createdAt: createdAt + order,
+        runtimeEvents: [] as [],
+        timelineRevision: 1,
+    })));
+
+    const exact = await executeTavernSourceFileTool(session.id, 'Grep', {
+        pattern: 'needle',
+        filePath: 'chat/messages/704.md',
+    });
+    assert.equal(exact.count, 1);
+    assert.equal(exact.searchedFileCount, 1);
+    assert.equal(exact.results?.[0]?.path, 'chat/messages/704.md');
+    assert.equal(exact.results?.[0]?.context, undefined);
+    assert.equal('matches' in exact, false);
+
+    const page = await executeTavernSourceFileTool(session.id, 'Grep', {
+        pattern: 'needle',
+        path: 'chat/',
+        offset: 600,
+        limit: 100,
+    });
+    assert.equal(page.count, 705);
+    assert.equal(page.searchedFileCount, 705);
+    assert.equal(page.results?.length, 100);
+    assert.equal(page.results?.[0]?.path, 'chat/messages/600.md');
+    assert.equal(page.results?.at(-1)?.path, 'chat/messages/699.md');
+    assert.equal(page.truncated, true);
+    assert.equal(page.nextOffset, 700);
+
+    const controller = new AbortController();
+    controller.abort();
+    await assert.rejects(
+        () => executeTavernSourceFileTool(session.id, 'Grep', {
+            pattern: 'needle',
+            path: 'chat/',
+        }, { signal: controller.signal }),
+        (error: unknown) => error instanceof Error
+            && error.name === 'AbortError'
+            && error.message === 'manager_aborted',
+    );
+});
+
+test('shared Grep preserves the caller abort code after yielding', async () => {
+    const controller = new AbortController();
+    const search = grepTextSources({
+        pattern: 'needle',
+        signal: controller.signal,
+        abortMessage: 'manager_aborted',
+        timeSliceMs: 1,
+        sources: [{
+            path: 'worldbooks/large.md',
+            content: Array.from({ length: 20_000 }, () => 'needle').join('\n'),
+        }],
+    });
+    setTimeout(() => controller.abort(), 0);
+    await assert.rejects(
+        search,
+        (error: unknown) => error instanceof Error
+            && error.name === 'AbortError'
+            && error.message === 'manager_aborted',
+    );
+});
+
+test('manager cancellation during a yielding Grep reports manager_aborted', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Manager Grep abort' });
+    const controller = new AbortController();
+    const result = await runXbTavernManagerChat({
+        sessionId: session.id,
+        agentConfig: {},
+        question: '搜索后停止。',
+        signal: controller.signal,
+        contextSnapshot: {
+            worldBooks: [{
+                name: '长资料',
+                worldSourceType: 'global',
+                entries: [{
+                    uid: 'large',
+                    content: Array.from({ length: 20_000 }, () => 'needle').join('\n'),
+                }],
+            }],
+        },
+        executeManagerOnce: async () => {
+            setTimeout(() => controller.abort(), 0);
+            return {
+                text: '',
+                toolCalls: [{
+                    id: 'abort-grep',
+                    name: 'Grep',
+                    arguments: { pattern: 'needle', path: 'worldbooks/' },
+                }],
+            };
+        },
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.error, 'manager_aborted');
+});
+
+test('Tavern Grep keeps its Unicode regex dialect and matches a single emoji', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Unicode grep dialect' });
+    await executeTavernSourceFileTool(session.id, 'Write', {
+        filePath: 'memory/state.md',
+        content: '# 会话记忆\n📡',
+    });
+
+    const unicodeAware = await executeTavernSourceFileTool(session.id, 'Grep', {
+        pattern: '^.$',
+        path: 'memory/',
+        useRegex: true,
+    });
+    assert.equal(unicodeAware.ok, true);
+    assert.equal(unicodeAware.count, 1);
+    assert.equal(unicodeAware.results?.[0]?.path, 'memory/state.md');
+    assert.equal(unicodeAware.results?.[0]?.lineNumber, 2);
+
+    // The shared default stays the conservative non-Unicode dialect; an emoji
+    // is two UTF-16 code units there, so `^.$` must not match it.
+    const sharedDefault = await grepTextSources({
+        pattern: '^.$',
+        useRegex: true,
+        sources: [{ path: 'memory/state.md', content: '📡' }],
+    });
+    assert.equal(sharedDefault.count, 0);
+});
+
+test('memory content search scans bodies on demand and honors cancellation', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Memory content search' });
+    await writeTavernMemoryFile(session.id, 'memory/state.md', '# 会话记忆\n深巷标记在钟楼。');
+    await writeTavernMemoryFile(session.id, 'memory/characters/铃铛.md', '# 铃铛\n深巷标记在她口袋。');
+    await writeTavernMemoryFile(session.id, 'memory/characters/路人.md', '# 路人\n无关内容。');
+
+    // Full result set, no hidden cap, only paths leave IndexedDB.
+    const matches = await searchTavernMemoryFileContents(session.id, '深巷标记');
+    assert.deepEqual(matches, ['memory/characters/铃铛.md', 'memory/state.md']);
+
+    const empty = await searchTavernMemoryFileContents(session.id, '');
+    assert.deepEqual(empty, []);
+
+    const controller = new AbortController();
+    controller.abort();
+    await assert.rejects(
+        () => searchTavernMemoryFileContents(session.id, '深巷标记', { signal: controller.signal }),
+        (error: unknown) => error instanceof Error && error.name === 'AbortError',
+    );
+});
+
 test('source file reads do not create default memory files', async () => {
     await db.delete();
     await db.open();
@@ -1600,14 +3089,100 @@ test('loose JSON repair knows tavern manager tool arguments', () => {
     assert.equal(repairedGrep.useRegex, false);
     assert.equal(repairedGrep.contextLines, 1);
 
-    const repairedEventPatch = JSON.parse(repairLooseToolArguments(
-        '{op:"upsert-vision", title:"码头名", vision:"弄清码头名字", doneWhen:"角色当场说出答案。", hookForModel:"码头名字在对话里轻轻擦过。"}',
-        'EventPatch',
-    ));
-    assert.equal(repairedEventPatch.title, '码头名');
-    assert.equal(repairedEventPatch.vision, '弄清码头名字');
-    assert.equal(repairedEventPatch.doneWhen, '角色当场说出答案。');
-    assert.equal(repairedEventPatch.hookForModel, '码头名字在对话里轻轻擦过。');
+});
+
+test('transcript Read uses real text lines, exact totals, and a single result payload', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Transcript line reader' });
+    await appendTavernMessage(session.id, { role: 'user', content: '第一行\n第二行' });
+    await appendTavernMessage(session.id, { role: 'assistant', content: '第三行\n第四行' });
+
+    const page = await executeTavernSourceFileTool(session.id, 'Read', {
+        filePath: 'chat/transcript.md',
+        offset: 3,
+        limit: 3,
+    });
+    assert.equal(page.totalLines, 8);
+    assert.equal(page.lineStart, 3);
+    assert.equal(page.lineEnd, 5);
+    assert.equal(page.nextOffset, 6);
+    assert.match(page.content || '', /^3: 第二行\n4: \n5: ## order 1 assistant$/m);
+    assert.equal('numberedContent' in page, false);
+
+    const tail = await executeTavernSourceFileTool(session.id, 'Read', {
+        filePath: 'chat/transcript.md',
+        tail: 3,
+    });
+    assert.equal(tail.totalLines, 8);
+    assert.equal(tail.lineStart, 6);
+    assert.match(tail.content || '', /^6: 第三行\n7: 第四行\n8: $/m);
+});
+
+test('transcript Read pages by its stored physical-line count without loading the remaining transcript', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Transcript page count' });
+    for (let index = 0; index < 260; index += 1) {
+        await appendTavernMessage(session.id, { role: index % 2 ? 'assistant' : 'user', content: `第 ${index} 条` });
+    }
+
+    const stats = await getTavernTranscriptStats(session.id);
+    assert.equal(stats.totalMessages, 260);
+    assert.equal(stats.totalLines, 780);
+
+    const firstPage = await executeTavernSourceFileTool(session.id, 'Read', {
+        filePath: 'chat/transcript.md',
+        offset: 1,
+        limit: 3,
+    });
+    assert.equal(firstPage.totalLines, 780);
+    assert.equal(firstPage.nextOffset, 4);
+    assert.match(firstPage.content || '', /^1: ## order 0 user\n2: 第 0 条\n3: $/m);
+
+    const tail = await executeTavernSourceFileTool(session.id, 'Read', {
+        filePath: 'chat/transcript.md',
+        tail: 3,
+    });
+    assert.equal(tail.totalLines, 780);
+    assert.equal(tail.lineStart, 778);
+    assert.match(tail.content || '', /^778: ## order 259 assistant\n779: 第 259 条\n780: $/m);
+
+    await updateTavernMessage(session.id, 0, { content: '第一行\n第二行' });
+    assert.equal((await getTavernTranscriptStats(session.id)).totalLines, 781);
+    await deleteTavernMessages(session.id, [0]);
+    assert.equal((await getTavernTranscriptStats(session.id)).totalLines, 777);
+});
+
+test('assistant chat summaries remain complete after branch and do not backfill from protocol rows on reads', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Assistant summary projection' });
+    await appendTavernManagerMessage(session.id, { role: 'user', content: '先查。' });
+    await appendTavernManagerMessage(session.id, {
+        role: 'assistant',
+        content: '我来查。',
+        toolCalls: [{ id: 'tool-1', name: 'Read', arguments: '{}' }],
+    });
+    await appendTavernManagerMessage(session.id, {
+        role: 'tool',
+        toolCallId: 'tool-1',
+        toolName: 'Read',
+        content: '不应出现在列表投影里的大工具结果。'.repeat(80),
+    });
+
+    const branch = await branchTavernSession(session.id);
+    assert.ok(branch);
+    const originalRows = await listTavernAssistantChatMessageSummariesBefore(session.id, Number.POSITIVE_INFINITY, 32);
+    const branchRows = await listTavernAssistantChatMessageSummariesBefore(branch!.id, Number.POSITIVE_INFINITY, 32);
+    assert.deepEqual(branchRows.map((row) => [row.order, row.role, row.content]), originalRows.map((row) => [row.order, row.role, row.content]));
+
+    await (tavernAssistantChatMessageSummariesTable as unknown as { clear(): Promise<void> }).clear();
+    assert.deepEqual(await listTavernAssistantChatMessageSummariesBefore(session.id, Number.POSITIVE_INFINITY, 32), []);
+    assert.deepEqual(await listTavernAssistantChatMessageSummariesInRange(session.id, 0, 2), []);
 });
 
 test('Tavern Grep accepts ebook-style query and scope aliases', async () => {
@@ -1628,7 +3203,7 @@ test('Tavern Grep accepts ebook-style query and scope aliases', async () => {
 
     assert.equal(result.ok, true);
     assert.equal(result.outputMode, 'files_with_matches');
-    assert.deepEqual(result.matches?.map((match) => match.path), ['memory/state.md']);
+    assert.deepEqual(result.results?.map((match) => match.path), ['memory/state.md']);
 });
 
 test('Read tool schema documents filePath and tail semantics', () => {
@@ -3000,40 +4575,6 @@ test('MapPatch dryRun keeps revision stable and legacy reset/init inputs are sti
     assert.deepEqual(ids, ['new-room']);
 });
 
-test('MapPatch manager map writes are not rolled back by message rollback', async () => {
-    await db.delete();
-    await db.open();
-
-    const session = await createTavernSession({ title: 'Map survives rollback' });
-    const userMessage = await appendTavernMessage(session.id, { role: 'user', content: '进北屋。' });
-    const assistantMessage = await appendTavernMessage(session.id, { role: 'assistant', content: '北屋里有一口井。' });
-    const run = await createTavernManagerRun({
-        sessionId: session.id,
-        trigger: 'after_turn',
-        status: 'running',
-        turn: 1,
-        userOrder: userMessage.order,
-        assistantOrder: assistantMessage.order,
-    });
-
-    await executeTavernStateTool(session.id, 'MapPatch', {
-        ops: [{ op: 'add', element: { id: 'north-room', type: 'rect', pos: [10, 10], size: [80, 60], cat: 'wall' } }],
-    }, {
-        caller: 'auto',
-        managerRunId: run.id,
-        sourceUserOrder: userMessage.order,
-        sourceAssistantOrder: assistantMessage.order,
-    });
-
-    const rollback = await rollbackManagerStateRunsForMessageRange(session.id, userMessage.order);
-    assert.deepEqual(rollback, { runIds: [], rolledBack: 0, conflicts: [], skipped: 0 });
-    const map = await getTavernStructuredStateDocument(session.id, 'tavern.map', 'main');
-    const elements = (map?.data as { elements?: Array<{ id?: string }> })?.elements || [];
-    assert.equal(elements.some((element) => element.id === 'north-room'), true);
-    assert.equal((await listTavernStructuredStatePatches({ sessionId: session.id })).length, 1);
-    assert.equal((await listTavernStructuredStatePatches({ sessionId: session.id, includeRolledBack: true }))[0]?.status, 'active');
-});
-
 test('MapPatch serializes concurrent map writes without losing elements', async () => {
     await db.delete();
     await db.open();
@@ -3875,7 +5416,7 @@ test('MapPatch actor dedupe falls back to actor id when actorKey is missing', as
     assert.deepEqual(barActors.map((element) => element.id), ['npc-kai']);
 });
 
-test('manager range cancellation does not roll back map-only writes', async () => {
+test('manager range cancellation rolls back map-only writes from state snapshots', async () => {
     await db.delete();
     await db.open();
 
@@ -3901,19 +5442,17 @@ test('manager range cancellation does not roll back map-only writes', async () =
     });
 
     const rollback = await cancelAndRollbackXbTavernManagersForMessageRange(session.id, assistantMessage.order);
-    assert.equal(rollback.rolledBack, 0);
+    assert.equal(rollback.rolledBack, 1);
     const map = await getTavernStructuredStateDocument(session.id, 'tavern.map', 'main');
     const elements = (map?.data as { elements?: Array<{ id?: string }> })?.elements || [];
-    assert.equal(elements.some((element) => element.id === 'yard'), true);
-    assert.equal((await listTavernManagerRuns(session.id))[0]?.status, 'cancelled');
+    assert.equal(elements.some((element) => element.id === 'yard'), false);
+    assert.equal((await listTavernManagerRuns(session.id))[0]?.status, 'superseded');
 });
 
 test('Map tools are in the unified manager tool schema', () => {
     const names = getTavernManagerToolDefinitions().map((tool) => tool.function.name);
-    assert.deepEqual(names.filter((name) => ['LS', 'Grep', 'Read', 'Edit', 'Write', 'MapDocs', 'MapInspect', 'MapPatch', 'MapAtlasRead', 'MapSceneRead', 'MapSceneEdit', 'EventInspect', 'EventPatch'].includes(name)).sort(), [
+    assert.deepEqual(names.filter((name) => ['LS', 'Grep', 'Read', 'Edit', 'Write', 'MapDocs', 'MapInspect', 'MapPatch', 'MapAtlasRead', 'MapSceneRead', 'MapSceneEdit'].includes(name)).sort(), [
         'Edit',
-        'EventInspect',
-        'EventPatch',
         'Grep',
         'LS',
         'MapAtlasRead',
@@ -3939,377 +5478,9 @@ test('Map tools are in the unified manager tool schema', () => {
     assert.match(mapPatch?.function.description || '', /at:\[x,y\]/);
     assert.match(mapPatch?.function.description || '', /Legacy .*init.*reset.*replace.*still absorbed/i);
 
-    const eventInspect = getTavernManagerToolDefinitions().find((tool) => tool.function.name === 'EventInspect');
-    const eventInspectSchema = JSON.stringify(eventInspect?.function.parameters || {});
-    assert.match(eventInspectSchema, /eventId/);
-    assert.doesNotMatch(eventInspectSchema, /taskId/);
-
-    const eventPatch = getTavernManagerToolDefinitions().find((tool) => tool.function.name === 'EventPatch');
-    const eventPatchText = [
-        eventPatch?.function.description || '',
-        JSON.stringify(eventPatch?.function.parameters || {}),
-    ].join('\n');
-    assert.match(eventPatch?.function.description || '', /Allowed ops: upsert-vision, complete-vision, abandon-vision/);
-    assert.match(eventPatch?.function.description || '', /title, vision, doneWhen, and hookForModel/);
-    assert.match(eventPatch?.function.description || '', /title: short single-line UI title\. Aim for 2-8 characters; hard limit 12/);
-    assert.match(eventPatch?.function.description || '', /hookForModel: one soft in-world sentence/);
-    assert.match(eventPatch?.function.description || '', /"op":"upsert-vision"/);
-    assert.match(eventPatch?.function.description || '', /"op":"complete-vision"/);
-    assert.match(eventPatchText, /upsert-vision/);
-    assert.match(eventPatchText, /eventId/);
-    assert.match(eventPatchText, /title/);
-    assert.doesNotMatch(eventPatchText, /hookForUser|fingerprint|taskId|horizon|"current"|advance-event|upsert-event|complete-event|abandon-event|upsert-task|advance-task|complete-task|abandon-task/);
 });
 
-test('EventPatch maintains active, completed, and abandoned ambitions', async () => {
-    await db.delete();
-    await db.open();
-
-    const session = await createTavernSession({ title: 'Events' });
-    const created = await executeTavernTaskTool(session.id, 'EventPatch', {
-        op: 'upsert-vision',
-        eventId: 'dock-name',
-        title: '莉娜码头',
-        vision: '弄清莉娜避开的码头名字',
-        doneWhen: '角色当场说出答案。',
-        hookForModel: '莉娜似乎在刻意避开某个码头名字。',
-    }, { sourceAssistantOrder: 5 });
-    assert.equal(created.ok, true);
-    assert.equal(created.changed, true);
-    assert.equal((await listTavernTasks(session.id))[0]?.id, 'dock-name');
-    assert.deepEqual(await getLatestQuestHooksForPrompt(session.id), ['莉娜似乎在刻意避开某个码头名字。']);
-
-    const rejectedAdvance = await executeTavernTaskTool(session.id, 'EventPatch', {
-        op: 'advance-event',
-        eventId: 'dock-name',
-        doneWhen: '角色当场说出答案。',
-        hookForModel: '有人提到旧码头时，莉娜的手指短暂收紧。',
-    }, { sourceAssistantOrder: 7 });
-    assert.equal(rejectedAdvance.ok, false);
-    assert.equal(rejectedAdvance.error, 'task_op_invalid');
-
-    const completed = await executeTavernTaskTool(session.id, 'EventPatch', {
-        op: 'complete-vision',
-        eventId: 'dock-name',
-    }, { sourceAssistantOrder: 9 });
-    assert.equal(completed.ok, true);
-    const allTasks = await listTavernTasks(session.id, { includeCompleted: true });
-    assert.equal(allTasks[0]?.status, 'completed');
-    assert.deepEqual(await getLatestQuestHooksForPrompt(session.id), []);
-
-    await executeTavernTaskTool(session.id, 'EventPatch', {
-        op: 'upsert-vision',
-        eventId: 'repeat',
-        title: '重复线',
-        vision: '重复方向',
-        doneWhen: '角色当场说出答案。',
-        hookForModel: '重复方向仍在阴影里。',
-    }, { sourceAssistantOrder: 10 });
-    const abandoned = await executeTavernTaskTool(session.id, 'EventPatch', {
-        op: 'abandon-vision',
-        eventId: 'repeat',
-    }, { sourceAssistantOrder: 11 });
-    assert.equal(abandoned.ok, true);
-    const recreated = await executeTavernTaskTool(session.id, 'EventPatch', {
-        op: 'upsert-vision',
-        eventId: 'repeat-2',
-        title: '重复线',
-        vision: '重复方向',
-        doneWhen: '角色当场说出答案。',
-        hookForModel: '重复方向仍在阴影里。',
-    }, { sourceAssistantOrder: 12 });
-    assert.equal(recreated.ok, false);
-    assert.equal(recreated.error, 'task_fingerprint_abandoned');
-
-    const duplicateSession = await createTavernSession({ title: 'Duplicate active event' });
-    const firstUpsert = await executeTavernTaskTool(duplicateSession.id, 'EventPatch', {
-        op: 'upsert-vision',
-        title: '城东母亲',
-        vision: '莉娜的家庭压力把你们牵进城东旧屋。',
-        doneWhen: '角色亲自到达城东旧屋并见到莉娜的母亲。',
-        hookForModel: '莉娜提过她母亲一个人住在城东，最近似乎想找人帮忙修房子。',
-    }, { sourceAssistantOrder: 13 });
-    const secondUpsert = await executeTavernTaskTool(duplicateSession.id, 'EventPatch', {
-        op: 'upsert-vision',
-        title: '城东母亲',
-        vision: '莉娜的家庭压力把你们牵进城东旧屋。',
-        doneWhen: '角色亲自到达城东旧屋并见到莉娜的母亲。',
-        hookForModel: '莉娜提过她母亲一个人住在城东，最近似乎想找人帮忙修房子。',
-    }, { sourceAssistantOrder: 14 });
-    const duplicateTasks = await listTavernTasks(duplicateSession.id);
-    assert.equal(firstUpsert.ok, true);
-    assert.equal(secondUpsert.ok, true);
-    assert.equal(secondUpsert.eventId, firstUpsert.eventId);
-    assert.equal(duplicateTasks.length, 1);
-    assert.equal(duplicateTasks[0]?.updatedOrder, 14);
-
-    const completedSession = await createTavernSession({ title: 'Duplicate completed event' });
-    const completedCreated = await executeTavernTaskTool(completedSession.id, 'EventPatch', {
-        op: 'upsert-vision',
-        title: '码头名',
-        vision: '弄清码头名字',
-        doneWhen: '角色当场说出答案。',
-        hookForModel: '码头名字在对话里轻轻擦过。',
-    }, { sourceAssistantOrder: 15 });
-    assert.equal(completedCreated.ok, true);
-    const completedOnce = await executeTavernTaskTool(completedSession.id, 'EventPatch', {
-        op: 'complete-vision',
-        eventId: completedCreated.eventId,
-    }, { sourceAssistantOrder: 16 });
-    assert.equal(completedOnce.ok, true);
-    const completedRecreated = await executeTavernTaskTool(completedSession.id, 'EventPatch', {
-        op: 'upsert-vision',
-        title: '码头名',
-        vision: '弄清码头名字',
-        doneWhen: '角色当场说出答案。',
-        hookForModel: '码头名字在对话里轻轻擦过。',
-    }, { sourceAssistantOrder: 17 });
-    const completedTasks = await listTavernTasks(completedSession.id, { includeCompleted: true });
-    assert.equal(completedRecreated.ok, false);
-    assert.equal(completedRecreated.error, 'task_fingerprint_completed');
-    assert.deepEqual(completedTasks.map((task) => task.status), ['completed']);
-
-    const stableSession = await createTavernSession({ title: 'Stable abandoned event' });
-    const stableCreated = await executeTavernTaskTool(stableSession.id, 'EventPatch', {
-        op: 'upsert-vision',
-        title: '旧屋线',
-        vision: '旧屋背后的家庭压力浮出水面。',
-        doneWhen: '角色见到莉娜的母亲。',
-        hookForModel: '莉娜提过她母亲一个人住在城东。',
-    }, { sourceAssistantOrder: 15 });
-    assert.equal(stableCreated.ok, true);
-    const stableUpdated = await executeTavernTaskTool(stableSession.id, 'EventPatch', {
-        op: 'upsert-vision',
-        eventId: stableCreated.eventId,
-        title: '门锁线',
-        vision: '旧屋背后的家庭压力牵出更具体的阻碍。',
-        doneWhen: '角色查清是谁换了旧屋门锁。',
-        hookForModel: '莉娜母亲家的门锁看起来像是最近才被人换过。',
-    }, { sourceAssistantOrder: 16 });
-    assert.equal(stableUpdated.ok, true);
-    const stableAbandoned = await executeTavernTaskTool(stableSession.id, 'EventPatch', {
-        op: 'abandon-vision',
-        eventId: stableCreated.eventId,
-    }, { sourceAssistantOrder: 17 });
-    assert.equal(stableAbandoned.ok, true);
-    const stableRecreated = await executeTavernTaskTool(stableSession.id, 'EventPatch', {
-        op: 'upsert-vision',
-        title: '旧屋线',
-        vision: '旧屋背后的家庭压力浮出水面。',
-        doneWhen: '角色见到莉娜的母亲。',
-        hookForModel: '莉娜提过她母亲一个人住在城东。',
-    }, { sourceAssistantOrder: 18 });
-    assert.equal(stableRecreated.ok, false);
-    assert.equal(stableRecreated.error, 'task_fingerprint_abandoned');
-});
-
-test('EventPatch event ids are scoped by session', async () => {
-    await db.delete();
-    await db.open();
-
-    const left = await createTavernSession({ title: 'Left tasks' });
-    const right = await createTavernSession({ title: 'Right tasks' });
-    const taskArgs = {
-        op: 'upsert-vision',
-        eventId: 'dock-name',
-        title: '码头名',
-        vision: '弄清码头名字',
-        doneWhen: '角色当场说出答案。',
-        hookForModel: '码头名字在对话里轻轻擦过。',
-    };
-
-    const leftCreate = await executeTavernTaskTool(left.id, 'EventPatch', {
-        ...taskArgs,
-    }, { sourceAssistantOrder: 5 });
-    const rightCreate = await executeTavernTaskTool(right.id, 'EventPatch', {
-        ...taskArgs,
-        title: '右侧码头',
-        vision: '追问右侧会话的码头名字',
-    }, { sourceAssistantOrder: 5 });
-
-    assert.equal(leftCreate.ok, true);
-    assert.equal(rightCreate.ok, true);
-    assert.deepEqual((await listTavernTasks(left.id)).map((task) => `${task.id}:${task.vision}`), ['dock-name:弄清码头名字']);
-    assert.deepEqual((await listTavernTasks(right.id)).map((task) => `${task.id}:${task.vision}`), ['dock-name:追问右侧会话的码头名字']);
-});
-
-test('EventPatch enforces auto generation floor, pool cap, and hook wording guards', async () => {
-    await db.delete();
-    await db.open();
-
-    const session = await createTavernSession({ title: 'Event guards' });
-    const early = await executeTavernTaskTool(session.id, 'EventPatch', {
-        op: 'upsert-vision',
-        eventId: 'too-early',
-        title: '过早方向',
-        vision: '过早远景',
-        doneWhen: '角色当场说出答案。',
-        hookForModel: '窗外的雾还没有散。',
-    }, { caller: 'auto', sourceAssistantOrder: 4 });
-    assert.equal(early.ok, false);
-    assert.equal(early.error, 'task_floor_too_early');
-
-    const missingTitle = await executeTavernTaskTool(session.id, 'EventPatch', {
-        op: 'upsert-vision',
-        eventId: 'missing-title',
-        vision: '缺标题远景',
-        doneWhen: '角色当场说出答案。',
-        hookForModel: '门外有人轻轻敲了两下。',
-    }, { caller: 'chat', sourceAssistantOrder: 5 });
-    assert.equal(missingTitle.ok, false);
-    assert.equal(missingTitle.error, 'task_fields_required');
-
-    const shortTitle = await executeTavernTaskTool(session.id, 'EventPatch', {
-        op: 'upsert-vision',
-        eventId: 'short-title',
-        title: '短',
-        vision: '短标题远景',
-        doneWhen: '角色当场说出答案。',
-        hookForModel: '门外的人把一封信塞进缝里。',
-    }, { caller: 'chat', sourceAssistantOrder: 5 });
-    assert.equal(shortTitle.ok, false);
-    assert.equal(shortTitle.error, 'task_title_too_short');
-
-    const naturalTitleSession = await createTavernSession({ title: 'Natural event title length' });
-    const naturalLongTitle = await executeTavernTaskTool(naturalTitleSession.id, 'EventPatch', {
-        op: 'upsert-vision',
-        eventId: 'natural-long-title',
-        title: '城东旧屋门锁真相',
-        vision: '自然长标题远景',
-        doneWhen: '角色当场说出答案。',
-        hookForModel: '门外的人把旧钥匙放在窗台上。',
-    }, { caller: 'chat', sourceAssistantOrder: 5 });
-    assert.equal(naturalLongTitle.ok, true);
-    assert.equal((await listTavernTasks(naturalTitleSession.id)).find((task) => task.id === 'natural-long-title')?.title, '城东旧屋门锁真相');
-
-    const longTitle = await executeTavernTaskTool(session.id, 'EventPatch', {
-        op: 'upsert-vision',
-        eventId: 'long-title',
-        title: '这个标题确实已经明显太长了',
-        vision: '长标题远景',
-        doneWhen: '角色当场说出答案。',
-        hookForModel: '门外的人把第二封信压在花盆下。',
-    }, { caller: 'chat', sourceAssistantOrder: 5 });
-    assert.equal(longTitle.ok, false);
-    assert.equal(longTitle.error, 'task_title_too_long');
-
-    const titleSession = await createTavernSession({ title: 'Event title normalization' });
-    const multilineTitle = await executeTavernTaskTool(titleSession.id, 'EventPatch', {
-        op: 'upsert-vision',
-        eventId: 'multiline-title',
-        title: '城东\n母亲',
-        vision: '换行标题远景',
-        doneWhen: '角色当场说出答案。',
-        hookForModel: '门外的人把第三封信放在窗台上。',
-    }, { caller: 'chat', sourceAssistantOrder: 5 });
-    assert.equal(multilineTitle.ok, true);
-    assert.equal((await listTavernTasks(titleSession.id)).find((task) => task.id === 'multiline-title')?.title, '城东 母亲');
-
-    const metaHook = await executeTavernTaskTool(session.id, 'EventPatch', {
-        op: 'upsert-vision',
-        eventId: 'meta-hook',
-        title: '元词方向',
-        vision: '元词远景',
-        doneWhen: '角色当场说出答案。',
-        hookForModel: '这是下一个任务目标。',
-    }, { caller: 'auto', sourceAssistantOrder: 5 });
-    assert.equal(metaHook.ok, false);
-    assert.equal(metaHook.error, 'task_hook_meta_words');
-
-    for (let index = 1; index <= 2; index += 1) {
-        const created = await executeTavernTaskTool(session.id, 'EventPatch', {
-            op: 'upsert-vision',
-            eventId: `pool-${index}`,
-            title: `池子${index}`,
-            vision: `池子远景 ${index}`,
-            doneWhen: '角色当场说出答案。',
-            hookForModel: `第 ${index} 条暗线在门后轻轻晃动。`,
-        }, { caller: 'auto', sourceAssistantOrder: 5 + index });
-        assert.equal(created.ok, true);
-    }
-    const [firstStored] = await listTavernTasks(session.id);
-    assert.equal(typeof firstStored?.fingerprint, 'string');
-    assert.notEqual(firstStored?.fingerprint, '');
-
-    const autoBlocked = await executeTavernTaskTool(session.id, 'EventPatch', {
-        op: 'upsert-vision',
-        eventId: 'pool-3-auto',
-        title: '第三条',
-        vision: '第三条远景',
-        doneWhen: '角色当场说出答案。',
-        hookForModel: '第三条暗线在远处亮了一下。',
-    }, { caller: 'auto', sourceAssistantOrder: 8 });
-    assert.equal(autoBlocked.ok, false);
-    assert.equal(autoBlocked.error, 'task_auto_create_pool_busy');
-
-    const manual = await executeTavernTaskTool(session.id, 'EventPatch', {
-        op: 'upsert-vision',
-        eventId: 'manual-extra',
-        title: '手动线',
-        vision: '手动远景',
-        doneWhen: '角色当场说出答案。',
-        hookForModel: '额外暗线贴着墙根延伸。',
-    }, { caller: 'chat', sourceAssistantOrder: 10 });
-    assert.equal(manual.ok, true);
-
-    const overflow = await executeTavernTaskTool(session.id, 'EventPatch', {
-        op: 'upsert-vision',
-        eventId: 'pool-4',
-        title: '第四条',
-        vision: '第四条远景',
-        doneWhen: '角色当场说出答案。',
-        hookForModel: '第四条暗线在远处亮了一下。',
-    }, { caller: 'chat', sourceAssistantOrder: 10 });
-    assert.equal(overflow.ok, false);
-    assert.equal(overflow.error, 'task_active_pool_full');
-
-    const badHookUpdate = await executeTavernTaskTool(session.id, 'EventPatch', {
-        op: 'upsert-vision',
-        eventId: 'manual-extra',
-        hookForModel: '这个目标已经完成。',
-    }, { caller: 'chat', sourceAssistantOrder: 11 });
-    assert.equal(badHookUpdate.ok, false);
-    assert.equal(badHookUpdate.error, 'task_hook_meta_words');
-});
-
-test('event snapshots restore covering event pool and trim future snapshots', async () => {
-    await db.delete();
-    await db.open();
-
-    const session = await createTavernSession({ title: 'Task snapshots' });
-    await executeTavernTaskTool(session.id, 'EventPatch', {
-        op: 'upsert-vision',
-        eventId: 'first',
-        title: '第一线',
-        vision: '第一条远景',
-        doneWhen: '角色当场说出答案。',
-        hookForModel: '第一条软句。',
-    }, { sourceAssistantOrder: 5 });
-    await saveTavernTaskSnapshot(session.id, 5);
-    await executeTavernTaskTool(session.id, 'EventPatch', {
-        op: 'upsert-vision',
-        eventId: 'future',
-        title: '未来线',
-        vision: '未来远景',
-        doneWhen: '角色当场说出答案。',
-        hookForModel: '未来软句。',
-    }, { sourceAssistantOrder: 7 });
-    await executeTavernTaskTool(session.id, 'EventPatch', {
-        op: 'complete-vision',
-        eventId: 'first',
-    }, { sourceAssistantOrder: 8 });
-    await saveTavernTaskSnapshot(session.id, 8);
-
-    const restored = await restoreTavernTasksToFloor(session.id, 5);
-    assert.deepEqual(restored.map((task) => `${task.id}:${task.status}`).sort(), ['first:active']);
-    assert.deepEqual((await listTavernTasks(session.id, { includeCompleted: true })).map((task) => task.id), ['first']);
-
-    const trimmed = await trimTavernTaskSnapshotsFromFloor(session.id, 6);
-    assert.equal(trimmed, 1);
-    assert.deepEqual((await listTavernTaskSnapshots(session.id)).map((snapshot) => snapshot.floor), [5]);
-});
-
-test('accepted state snapshot saves memory, tasks, and status on the same floor', async () => {
+test('accepted state snapshot saves memory and status on the same floor', async () => {
     await db.delete();
     await db.open();
 
@@ -4317,14 +5488,6 @@ test('accepted state snapshot saves memory, tasks, and status on the same floor'
     await appendTavernMessage(session.id, { role: 'user', content: '开始。' });
     await appendTavernMessage(session.id, { role: 'assistant', content: '第一个回复。' });
     await ensureTavernMemoryDefaults(session.id);
-    await executeTavernTaskTool(session.id, 'EventPatch', {
-        op: 'upsert-vision',
-        eventId: 'same-floor',
-        title: '同楼线',
-        vision: '同楼层远景',
-        doneWhen: '角色当场说出答案。',
-        hookForModel: '同楼层软句。',
-    }, { sourceAssistantOrder: 1 });
     await executeTavernStatusTool(session.id, TAVERN_STATUS_TOOL_NAMES.INIT, {
         document: {
             meta: { activeSubject: 'user' },
@@ -4348,11 +5511,80 @@ test('accepted state snapshot saves memory, tasks, and status on the same floor'
     const saved = await saveAcceptedStateSnapshot(session.id);
     assert.equal(saved.floor, 1);
     assert.equal(saved.memorySnapshotSaved, true);
-    assert.equal(saved.taskSnapshotSaved, true);
     assert.equal(saved.statusSnapshotSaved, true);
     assert.equal((await listTavernMemorySnapshots(session.id))[0]?.floor, 1);
-    assert.equal((await listTavernTaskSnapshots(session.id))[0]?.floor, 1);
     assert.equal((await listTavernStatusSnapshots(session.id))[0]?.floor, 1);
+});
+
+test('domain-scoped accepted snapshots do not overwrite unrelated phone history', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Scoped accepted snapshot' });
+    await appendTavernMessage(session.id, { role: 'user', content: '继续。' });
+    const assistantMessage = await appendTavernMessage(session.id, { role: 'assistant', content: '剧情继续。' });
+    await tavernCommunicationSnapshotsTable.put({
+        sessionId: session.id,
+        floor: assistantMessage.order,
+        contacts: [{
+            sessionId: session.id,
+            id: 'contact-before-assistant',
+            name: '旧联系人',
+            source: 'manual',
+            createdAt: 10,
+            updatedAt: 10,
+        }],
+        threads: [],
+        messages: [],
+        createdAt: 10,
+    });
+    await writeTavernMemoryFile(session.id, 'memory/state.md', '# 会话记忆\n\n助手只修改了记忆。', { source: 'manager' });
+
+    const domains = resolveTavernAcceptedStateSnapshotDomains({ changedFiles: ['memory/state.md'] });
+    const saved = await saveAcceptedStateSnapshot(session.id, undefined, { domains });
+    const phoneSnapshot = await tavernCommunicationSnapshotsTable.get([session.id, assistantMessage.order]);
+
+    assert.deepEqual(domains, ['memory']);
+    assert.equal(saved.floor, assistantMessage.order);
+    assert.equal(saved.memorySnapshotSaved, true);
+    assert.equal(saved.communicationSnapshotSaved, false);
+    assert.equal(phoneSnapshot?.createdAt, 10);
+    assert.equal(phoneSnapshot?.contacts[0]?.id, 'contact-before-assistant');
+});
+
+test('status writes can verify the current message timeline inside their atomic transaction', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Atomic status timeline guard' });
+    await appendTavernMessage(session.id, { role: 'user', content: '开始。' });
+    const assistantMessage = await appendTavernMessage(session.id, { role: 'assistant', content: '已开始。' });
+    const result = await executeTavernStatusTool(session.id, TAVERN_STATUS_TOOL_NAMES.INIT, {
+        document: {
+            meta: { activeSubject: 'user' },
+            subjects: [{
+                id: 'user',
+                name: '玩家',
+                tabs: [{
+                    id: 'overview',
+                    label: '概览',
+                    blocks: [{
+                        id: 'state',
+                        title: '状态',
+                        form: 'text',
+                        fields: [{ id: 'location', name: '位置', value: '入口' }],
+                    }],
+                }],
+            }],
+        },
+    }, {
+        beforeWriteGuard: async () => {
+            assert.equal(await getLatestTavernAssistantOrder(session.id), assistantMessage.order);
+        },
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.changed, true);
 });
 
 test('accepted state snapshot can explicitly anchor user-confirmed memory edits to the latest user order', async () => {
@@ -4389,13 +5621,13 @@ test('accepted state snapshot can explicitly anchor user-confirmed changes to ba
     assert.deepEqual((await listTavernMemorySnapshots(session.id)).map((snapshot) => snapshot.floor), [-1]);
 });
 
-test('accepted state snapshot can anchor user-initiated manager chat changes to the latest user order', async () => {
+test('assistant chat writes its accepted memory snapshot at the captured story floor', async () => {
     await db.delete();
     await db.open();
 
     const session = await createTavernSession({ title: 'Manager chat accepted snapshot' });
-    const userMessage = await appendTavernMessage(session.id, { role: 'user', content: '请帮我修正记忆。' });
-    await appendTavernMessage(session.id, { role: 'assistant', content: '我来处理。' });
+    await appendTavernMessage(session.id, { role: 'user', content: '请帮我修正记忆。' });
+    const assistantMessage = await appendTavernMessage(session.id, { role: 'assistant', content: '我来处理。' });
     let managerCalls = 0;
 
     const result = await runXbTavernManagerChat({
@@ -4426,16 +5658,461 @@ test('accepted state snapshot can anchor user-initiated manager chat changes to 
             };
         },
     });
-    const latestUser = await getLatestTavernUserMessageAtOrBefore(session.id, Number.POSITIVE_INFINITY);
-    const saved = await saveAcceptedStateSnapshot(session.id, latestUser?.order);
-
     assert.equal(result.ok, true);
     assert.deepEqual(result.changedFiles, ['memory/state.md']);
-    assert.equal(saved.floor, userMessage.order);
-    assert.deepEqual((await listTavernMemorySnapshots(session.id)).map((snapshot) => snapshot.floor), [userMessage.order]);
+    assert.deepEqual(
+        (await listTavernMemorySnapshots(session.id)).map((snapshot) => snapshot.floor),
+        [assistantMessage.order],
+    );
 });
 
-test('accepted state snapshots use floor-aware dedupe for memory, tasks, and status', async () => {
+test('assistant chat commits its status write and accepted floor snapshot together', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Assistant status accepted snapshot' });
+    await appendTavernMessage(session.id, { role: 'user', content: '更新状态。' });
+    const assistantMessage = await appendTavernMessage(session.id, { role: 'assistant', content: '当前剧情锚点。' });
+    await executeTavernStatusTool(session.id, TAVERN_STATUS_TOOL_NAMES.INIT, {
+        document: {
+            meta: { activeSubject: 'user' },
+            subjects: [{
+                id: 'user',
+                name: '玩家',
+                tabs: [{
+                    id: 'overview',
+                    label: '概览',
+                    blocks: [{
+                        id: 'stats',
+                        title: '属性',
+                        form: 'gauge',
+                        fields: [{ id: 'san', name: '理智', value: 40, max: 100 }],
+                    }],
+                }],
+            }],
+        },
+    });
+
+    let managerCalls = 0;
+    const result = await runXbTavernManagerChat({
+        sessionId: session.id,
+        agentConfig: {},
+        question: '把理智更新到 80。',
+        preparedMessages: [{ role: 'user', content: '把理智更新到 80。' }],
+        executeManagerOnce: async () => {
+            managerCalls += 1;
+            return managerCalls === 1
+                ? {
+                    text: '',
+                    toolCalls: [{
+                        id: 'assistant-status-write',
+                        name: TAVERN_STATUS_TOOL_NAMES.PATCH,
+                        arguments: {
+                            ops: [{
+                                op: 'set',
+                                subjectId: 'user',
+                                tabId: 'overview',
+                                blockId: 'stats',
+                                fieldId: 'san',
+                                value: 80,
+                            }],
+                        },
+                    }],
+                }
+                : { text: '已完成。' };
+        },
+    });
+
+    const snapshot = (await listTavernStatusSnapshots(session.id))
+        .find((item) => item.floor === assistantMessage.order);
+    const snapshotDocument = snapshot?.document?.data as {
+        subjects?: Array<{
+            tabs?: Array<{
+                blocks?: Array<{
+                    fields?: Array<{ value?: number }>;
+                }>;
+            }>;
+        }>;
+    } | undefined;
+    const field = snapshotDocument?.subjects?.[0]?.tabs?.[0]?.blocks?.[0]?.fields?.[0];
+    assert.equal(result.ok, true);
+    assert.equal(field?.value, 80);
+});
+
+test('assistant chat snapshots only its written memory file from the captured floor', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Assistant incremental accepted snapshot' });
+    await appendTavernMessage(session.id, { role: 'user', content: '请修正会话记忆。' });
+    const assistantMessage = await appendTavernMessage(session.id, { role: 'assistant', content: '当前剧情锚点。' });
+    await ensureTavernMemoryDefaults(session.id);
+    const unrelatedPath = 'memory/characters/旁观者.md';
+    await writeTavernMemoryFile(session.id, unrelatedPath, '# 旁观者\n\n启动时内容。', { source: 'manager' });
+    await saveAcceptedStateSnapshot(session.id, assistantMessage.order, { domains: ['memory'] });
+
+    let managerCalls = 0;
+    const result = await runXbTavernManagerChat({
+        sessionId: session.id,
+        agentConfig: {},
+        question: '修正会话记忆。',
+        preparedMessages: [{ role: 'user', content: '修正会话记忆。' }],
+        executeManagerOnce: async () => {
+            managerCalls += 1;
+            if (managerCalls === 1) {
+                await writeTavernMemoryFile(session.id, unrelatedPath, '# 旁观者\n\n助手启动后的外部内容。', { source: 'user' });
+                return {
+                    text: '',
+                    toolCalls: [{
+                        id: 'assistant-incremental-write',
+                        name: 'Write',
+                        arguments: {
+                            filePath: 'memory/state.md',
+                            content: '# 会话记忆\n\n助手本轮写入。',
+                        },
+                    }],
+                };
+            }
+            return { text: '已完成。' };
+        },
+    });
+
+    const snapshot = (await listTavernMemorySnapshots(session.id))
+        .find((item) => item.floor === assistantMessage.order);
+    const snapshotFiles = new Map((snapshot?.files || []).map((entry) => [entry.path, entry.file.content]));
+    assert.equal(result.ok, true);
+    assert.match(snapshotFiles.get('memory/state.md') || '', /助手本轮写入/);
+    assert.match(snapshotFiles.get(unrelatedPath) || '', /启动时内容/);
+    assert.match((await getTavernMemoryFile(session.id, unrelatedPath))?.content || '', /助手启动后的外部内容/);
+});
+
+test('assistant accepted writes preserve another accepted writer at the same floor', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Same-floor accepted merge' });
+    await appendTavernMessage(session.id, { role: 'user', content: '开始。' });
+    const assistantMessage = await appendTavernMessage(session.id, { role: 'assistant', content: '当前剧情锚点。' });
+    await ensureTavernMemoryDefaults(session.id);
+    const acceptedByManagerPath = 'memory/characters/维护员.md';
+    await writeTavernMemoryFile(session.id, acceptedByManagerPath, '# 维护员\n\n初始。', { source: 'manager' });
+    await saveAcceptedStateSnapshot(session.id, assistantMessage.order, { domains: ['memory'] });
+    const basis = await captureTavernAssistantAcceptedStateBasis(session.id);
+
+    await writeTavernMemoryFile(session.id, acceptedByManagerPath, '# 维护员\n\n自动维护已接受。', { source: 'manager' });
+    await saveAcceptedStateSnapshot(session.id, assistantMessage.order, { domains: ['memory'] });
+    const result = await executeTavernSourceFileTool(session.id, 'Write', {
+        filePath: 'memory/state.md',
+        content: '# 会话记忆\n\n主动助手已接受。',
+    }, {
+        caller: 'chat',
+        sourceAssistantOrder: assistantMessage.order,
+        afterWriteObserver: async () => {
+            await commitTavernAssistantAcceptedStateWriteInCurrentTransaction(basis, {
+                changedFiles: ['memory/state.md'],
+            });
+        },
+    });
+
+    const snapshot = (await listTavernMemorySnapshots(session.id))
+        .find((item) => item.floor === assistantMessage.order);
+    const snapshotFiles = new Map((snapshot?.files || []).map((entry) => [entry.path, entry.file.content]));
+    assert.equal(result.ok, true);
+    assert.match(snapshotFiles.get(acceptedByManagerPath) || '', /自动维护已接受/);
+    assert.match(snapshotFiles.get('memory/state.md') || '', /主动助手已接受/);
+});
+
+test('accepted snapshot observer failure rolls back both the tool write and its floor snapshot', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Atomic assistant accepted snapshot' });
+    await appendTavernMessage(session.id, { role: 'user', content: '开始。' });
+    const assistantMessage = await appendTavernMessage(session.id, { role: 'assistant', content: '当前剧情锚点。' });
+    await writeTavernMemoryFile(session.id, 'memory/state.md', '# 会话记忆\n\n写入前。', { source: 'manager' });
+    const basis = await captureTavernAssistantAcceptedStateBasis(session.id);
+
+    const result = await executeTavernSourceFileTool(session.id, 'Write', {
+        filePath: 'memory/state.md',
+        content: '# 会话记忆\n\n不应提交。',
+    }, {
+        caller: 'chat',
+        sourceAssistantOrder: assistantMessage.order,
+        afterWriteObserver: async () => {
+            await commitTavernAssistantAcceptedStateWriteInCurrentTransaction(basis, {
+                changedFiles: ['memory/state.md'],
+            });
+            throw new Error('forced_accepted_snapshot_failure');
+        },
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.error, 'forced_accepted_snapshot_failure');
+    assert.match((await getTavernMemoryFile(session.id, 'memory/state.md'))?.content || '', /写入前/);
+    assert.equal((await listTavernMemorySnapshots(session.id)).length, 0);
+});
+
+test('assistant accepted writes reject a main-story edit without changing state or snapshots', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Assistant story timeline guard' });
+    const userMessage = await appendTavernMessage(session.id, { role: 'user', content: '原始剧情。' });
+    const assistantMessage = await appendTavernMessage(session.id, { role: 'assistant', content: '当前剧情锚点。' });
+    await writeTavernMemoryFile(session.id, 'memory/state.md', '# 会话记忆\n\n写入前。', { source: 'manager' });
+    const basis = await captureTavernAssistantAcceptedStateBasis(session.id);
+    await updateTavernMessage(session.id, userMessage.order, { content: '已经编辑的剧情。' }, {
+        incrementTimelineRevision: true,
+    });
+
+    const result = await executeTavernSourceFileTool(session.id, 'Write', {
+        filePath: 'memory/state.md',
+        content: '# 会话记忆\n\n不应提交。',
+    }, {
+        caller: 'chat',
+        sourceAssistantOrder: assistantMessage.order,
+        afterWriteObserver: async () => {
+            await commitTavernAssistantAcceptedStateWriteInCurrentTransaction(basis, {
+                changedFiles: ['memory/state.md'],
+            });
+        },
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.error, 'assistant_timeline_advanced');
+    assert.match((await getTavernMemoryFile(session.id, 'memory/state.md'))?.content || '', /写入前/);
+    assert.equal((await listTavernMemorySnapshots(session.id)).length, 0);
+});
+
+test('assistant chat writes against an unchanged pending user story anchor', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Assistant pending story guard' });
+    await appendTavernMessage(session.id, { role: 'user', content: '第一轮。' });
+    const assistantMessage = await appendTavernMessage(session.id, { role: 'assistant', content: '第一轮回复。' });
+    await executeTavernStatusTool(session.id, TAVERN_STATUS_TOOL_NAMES.INIT, {
+        document: {
+            meta: { activeSubject: 'user' },
+            subjects: [{
+                id: 'user',
+                name: '玩家',
+                tabs: [{
+                    id: 'overview',
+                    label: '概览',
+                    blocks: [{
+                        id: 'stats',
+                        title: '属性',
+                        form: 'gauge',
+                        fields: [{ id: 'san', name: '理智', value: 40, max: 100 }],
+                    }],
+                }],
+            }],
+        },
+    });
+    const pendingUserMessage = await appendTavernMessage(session.id, { role: 'user', content: '正在等待 RP 回复。' });
+    let managerCalls = 0;
+    const result = await runXbTavernManagerChat({
+        sessionId: session.id,
+        agentConfig: {},
+        question: '在等待 RP 回复时修正状态。',
+        preparedMessages: [{ role: 'user', content: '在等待 RP 回复时修正状态。' }],
+        executeManagerOnce: async () => {
+            managerCalls += 1;
+            if (managerCalls === 1) {
+                return {
+                    text: '',
+                    toolCalls: [{
+                        id: 'assistant-pending-user-write',
+                        name: TAVERN_STATUS_TOOL_NAMES.PATCH,
+                        arguments: {
+                            ops: [{
+                                op: 'set',
+                                subjectId: 'user',
+                                tabId: 'overview',
+                                blockId: 'stats',
+                                fieldId: 'san',
+                                value: 80,
+                            }],
+                        },
+                    }],
+                };
+            }
+            return { text: '已完成。' };
+        },
+    });
+
+    const snapshot = (await listTavernStatusSnapshots(session.id))
+        .find((item) => item.floor === pendingUserMessage.order);
+    const snapshotDocument = snapshot?.document?.data as {
+        subjects?: Array<{
+            tabs?: Array<{
+                blocks?: Array<{
+                    fields?: Array<{ value?: number }>;
+                }>;
+            }>;
+        }>;
+    } | undefined;
+    const field = snapshotDocument?.subjects?.[0]?.tabs?.[0]?.blocks?.[0]?.fields?.[0];
+    const patches = await listTavernStructuredStatePatches({
+        sessionId: session.id,
+        docType: 'tavern.status',
+        docId: 'main',
+    });
+    const assistantPatch = patches.at(-1);
+    assert.equal(result.ok, true);
+    assert.equal(field?.value, 80);
+    assert.equal(assistantPatch?.sourceUserOrder, pendingUserMessage.order);
+    assert.equal(assistantPatch?.sourceAssistantOrder, assistantMessage.order);
+});
+
+test('assistant accepted writes reject an edited pending user story anchor', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Assistant pending user edit guard' });
+    await appendTavernMessage(session.id, { role: 'user', content: '第一轮。' });
+    const assistantMessage = await appendTavernMessage(session.id, { role: 'assistant', content: '第一轮回复。' });
+    const pendingUserMessage = await appendTavernMessage(session.id, { role: 'user', content: '原始待回复内容。' });
+    await writeTavernMemoryFile(session.id, 'memory/state.md', '# 会话记忆\n\n写入前。', { source: 'manager' });
+    const basis = await captureTavernAssistantAcceptedStateBasis(session.id);
+    await updateTavernMessage(session.id, pendingUserMessage.order, { content: '已经编辑的待回复内容。' }, {
+        incrementTimelineRevision: true,
+    });
+
+    const result = await executeTavernSourceFileTool(session.id, 'Write', {
+        filePath: 'memory/state.md',
+        content: '# 会话记忆\n\n不应提交。',
+    }, {
+        caller: 'chat',
+        sourceUserOrder: pendingUserMessage.order,
+        sourceAssistantOrder: assistantMessage.order,
+        afterWriteObserver: async () => {
+            await commitTavernAssistantAcceptedStateWriteInCurrentTransaction(basis, {
+                changedFiles: ['memory/state.md'],
+            });
+        },
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.error, 'assistant_timeline_advanced');
+    assert.match((await getTavernMemoryFile(session.id, 'memory/state.md'))?.content || '', /写入前/);
+    assert.equal((await listTavernMemorySnapshots(session.id)).length, 0);
+});
+
+test('assistant chat may answer without tools while the story has a pending user message', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Assistant pending story read-only reply' });
+    await appendTavernMessage(session.id, { role: 'user', content: '第一轮。' });
+    await appendTavernMessage(session.id, { role: 'assistant', content: '第一轮回复。' });
+    await appendTavernMessage(session.id, { role: 'user', content: '正在等待 RP 回复。' });
+
+    const result = await runXbTavernManagerChat({
+        sessionId: session.id,
+        agentConfig: {},
+        question: '只分析，不修改任何状态。',
+        preparedMessages: [{ role: 'user', content: '只分析，不修改任何状态。' }],
+        executeManagerOnce: async () => ({ text: '可以继续分析，但当前不会写入状态。' }),
+    });
+
+    assert.equal(result.ok, true);
+    assert.match(result.text, /不会写入状态/);
+});
+
+test('assistant chat sends the exact budget-approved messages without rebuilding live context', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Prepared assistant context' });
+    const preparedMessages = [
+        { role: 'system' as const, content: '预算校验通过的固定系统上下文。' },
+        { role: 'user' as const, content: '预算校验通过的固定问题。' },
+    ];
+    let sentMessages: unknown[] = [];
+
+    const result = await runXbTavernManagerChat({
+        sessionId: session.id,
+        agentConfig: {},
+        question: '这个文本只负责满足调用参数，不应触发重建。',
+        preparedMessages,
+        executeManagerOnce: async (options) => {
+            sentMessages = structuredClone(options.messages || []);
+            return { text: '已按校验后的上下文执行。' };
+        },
+    });
+
+    assert.equal(result.ok, true);
+    assert.deepEqual(sentMessages, preparedMessages);
+});
+
+test('assistant chat without memory changes leaves the derived memory index untouched', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Assistant index ownership' });
+    await ensureTavernMemoryDefaults(session.id);
+    await tavernMemoryIndexesTable.put({
+        sessionId: session.id,
+        kind: 'markdown-derived',
+        status: 'ready',
+        error: '',
+        sourceFingerprint: 'stable-index',
+        derivedAt: 123,
+        updatedAt: 456,
+        files: [],
+    });
+
+    const result = await runXbTavernManagerChat({
+        sessionId: session.id,
+        agentConfig: {},
+        question: '只回答，不修改记忆。',
+        preparedMessages: [{ role: 'user', content: '只回答，不修改记忆。' }],
+        executeManagerOnce: async () => ({ text: '没有需要修改的内容。' }),
+    });
+    const index = await getTavernMemoryIndex(session.id);
+
+    assert.equal(result.ok, true);
+    assert.equal(index?.sourceFingerprint, 'stable-index');
+    assert.equal(index?.derivedAt, 123);
+    assert.equal(index?.updatedAt, 456);
+});
+
+test('assistant chat rejects a stale memory write after the resource changes externally', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Assistant resource CAS' });
+    await writeTavernMemoryFile(session.id, 'memory/state.md', '# 会话记忆\n\n启动时内容。', { source: 'manager' });
+
+    const result = await runXbTavernManagerChat({
+        sessionId: session.id,
+        agentConfig: {},
+        question: '更新状态。',
+        executeManagerOnce: async () => {
+            await writeTavernMemoryFile(session.id, 'memory/state.md', '# 会话记忆\n\n外部并发更新。', { source: 'user' });
+            return {
+                text: '准备写入旧上下文推导出的内容。',
+                toolCalls: [{
+                    id: 'stale-memory-write',
+                    name: 'Write',
+                    arguments: {
+                        filePath: 'memory/state.md',
+                        content: '# 会话记忆\n\n陈旧助手覆盖。',
+                    },
+                }],
+            };
+        },
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.error, 'manager_resource_revision_conflict:memory/memory/state.md');
+    assert.match((await getTavernMemoryFile(session.id, 'memory/state.md'))?.content || '', /外部并发更新/);
+    assert.doesNotMatch((await getTavernMemoryFile(session.id, 'memory/state.md'))?.content || '', /陈旧助手覆盖/);
+});
+
+test('accepted state snapshots use floor-aware dedupe for memory and status', async () => {
     await db.delete();
     await db.open();
 
@@ -4468,14 +6145,6 @@ test('accepted state snapshots use floor-aware dedupe for memory, tasks, and sta
     await saveAcceptedStateSnapshot(session.id, assistant1.order);
 
     await writeTavernMemoryFile(session.id, 'memory/state.md', '# 会话记忆\n\n用户确认的新状态。', { source: 'user' });
-    await executeTavernTaskTool(session.id, 'EventPatch', {
-        op: 'upsert-vision',
-        eventId: 'user-anchor-task',
-        title: '用户锚点事件',
-        vision: '用户锚点远景',
-        doneWhen: '用户锚点完成。',
-        hookForModel: '用户锚点软句。',
-    }, { sourceAssistantOrder: assistant2.order });
     await executeTavernStatusTool(session.id, TAVERN_STATUS_TOOL_NAMES.PATCH, {
         ops: [
             { op: 'set', subjectId: 'user', tabId: 'overview', blockId: 'stats', fieldId: 'san', value: 80 },
@@ -4487,10 +6156,8 @@ test('accepted state snapshots use floor-aware dedupe for memory, tasks, and sta
 
     assert.equal(userAnchor.floor, user2.order);
     assert.equal(userAnchor.memorySnapshotSaved, true);
-    assert.equal(userAnchor.taskSnapshotSaved, true);
     assert.equal(userAnchor.statusSnapshotSaved, true);
     assert.deepEqual((await listTavernMemorySnapshots(session.id)).map((snapshot) => snapshot.floor), [assistant1.order, user2.order, assistant2.order]);
-    assert.deepEqual((await listTavernTaskSnapshots(session.id)).map((snapshot) => snapshot.floor), [assistant1.order, user2.order, assistant2.order]);
     assert.deepEqual((await listTavernStatusSnapshots(session.id)).map((snapshot) => snapshot.floor), [assistant1.order, user2.order, assistant2.order]);
 });
 
@@ -4521,62 +6188,7 @@ test('accepted state snapshot preserves user memory edits against later rollback
     assert.match((await getTavernMemoryFile(session.id, 'memory/state.md'))?.content || '', /用户手动修正/);
 });
 
-test('manager event snapshot rolls back failed event writes', async () => {
-    await db.delete();
-    await db.open();
-
-    const session = await createTavernSession({ title: 'Manager event rollback' });
-    await appendTavernMessage(session.id, { role: 'user', content: '前情一。' });
-    await appendTavernMessage(session.id, { role: 'assistant', content: '前情二。' });
-    await appendTavernMessage(session.id, { role: 'user', content: '前情三。' });
-    await appendTavernMessage(session.id, { role: 'assistant', content: '前情四。' });
-    const userMessage = await appendTavernMessage(session.id, { role: 'user', content: '继续。' });
-    const assistantMessage = await appendTavernMessage(session.id, { role: 'assistant', content: '她提到了码头。' });
-    let calls = 0;
-
-    const result = await runXbTavernManagerAfterTurn({
-        sessionId: session.id,
-        agentConfig: {},
-        userMessage,
-        assistantMessage,
-        turn: 6,
-        sessionContract: mergeTavernSessionContract(undefined, {
-            memoryArchiving: false,
-            cartographyEngine: false,
-            questOrchestration: true,
-        }),
-        executeManagerOnce: async () => {
-            calls += 1;
-            if (calls === 1) {
-                return {
-                    provider: 'fake-manager',
-                    model: 'event-model',
-                    text: '生成野望。',
-                    toolCalls: [{
-                        id: 'event',
-                        name: 'EventPatch',
-                        arguments: {
-                            op: 'upsert-vision',
-                            eventId: 'rollback-task',
-                            title: '回滚线',
-                            vision: '回滚远景',
-                            doneWhen: '角色当场说出答案。',
-                            hookForModel: '回滚软句。',
-                        },
-                    }],
-                };
-            }
-            throw new Error('manager_failed_after_task');
-        },
-    });
-
-    assert.equal(result.ok, false);
-    assert.deepEqual(await listTavernTasks(session.id, { includeCompleted: true, includeAbandoned: true }), []);
-    const run = (await listTavernManagerRuns(session.id))[0];
-    assert.equal(run?.status, 'rolled_back');
-});
-
-test('manager rollback keeps memory conflict audit when event rollback also succeeds', async () => {
+test('manager rollback keeps memory conflict audit', async () => {
     await db.delete();
     await db.open();
 
@@ -4598,202 +6210,13 @@ test('manager rollback keeps memory conflict audit when event rollback also succ
     }, { caller: 'auto', managerRunId: run.id });
     assert.equal(memoryWrite.ok, true);
 
-    const taskWrite = await executeTavernTaskTool(session.id, 'EventPatch', {
-        op: 'upsert-vision',
-        eventId: 'rollback-audit-task',
-        title: '审计线',
-        vision: '审计远景',
-        doneWhen: '角色当场说出答案。',
-        hookForModel: '审计软句。',
-    }, { caller: 'auto', managerRunId: run.id, sourceAssistantOrder: 5 });
-    assert.equal(taskWrite.ok, true);
-
     await writeTavernMemoryFile(session.id, 'memory/state.md', '# 会话记忆\n\n用户手动改过。', { source: 'manual' });
     const rolledBack = await cancelAndRollbackXbTavernManagersForMessageRange(session.id, userMessage.order);
 
     assert.deepEqual(rolledBack.conflicts, ['memory/state.md']);
-    assert.deepEqual(await listTavernTasks(session.id, { includeCompleted: true, includeAbandoned: true }), []);
     const updatedRun = (await listTavernManagerRuns(session.id))[0];
-    assert.equal(updatedRun?.status, 'rolled_back');
+    assert.equal(updatedRun?.status, 'superseded');
     assert.equal(updatedRun?.error, 'rollback_conflict:memory/state.md');
-});
-
-test('manager rollback marks event-only conflicts as rolled back with audit error', async () => {
-    await db.delete();
-    await db.open();
-
-    const session = await createTavernSession({ title: 'Manager event conflict audit' });
-    const userMessage = await appendTavernMessage(session.id, { role: 'user', content: '继续。' });
-    const assistantMessage = await appendTavernMessage(session.id, { role: 'assistant', content: '码头有新线索。' });
-    const run = await createTavernManagerRun({
-        sessionId: session.id,
-        trigger: 'after_turn',
-        turn: 1,
-        userOrder: userMessage.order,
-        assistantOrder: assistantMessage.order,
-        status: 'running',
-    });
-
-    const taskWrite = await executeTavernTaskTool(session.id, 'EventPatch', {
-        op: 'upsert-vision',
-        eventId: 'task-conflict',
-        title: '冲突线',
-        vision: '冲突远景',
-        doneWhen: '角色当场说出答案。',
-        hookForModel: '冲突软句。',
-    }, { caller: 'auto', managerRunId: run.id, sourceAssistantOrder: 5 });
-    assert.equal(taskWrite.ok, true);
-
-    const userEdit = await executeTavernTaskTool(session.id, 'EventPatch', {
-        op: 'upsert-vision',
-        eventId: 'task-conflict',
-        title: '冲突线',
-        vision: '用户后续手动改过的野望',
-        doneWhen: '角色当场说出答案。',
-        hookForModel: '冲突软句后来变了。',
-    }, { caller: 'chat', sourceAssistantOrder: 6 });
-    assert.equal(userEdit.ok, true);
-
-    const rolledBack = await cancelAndRollbackXbTavernManagersForMessageRange(session.id, userMessage.order);
-
-    assert.deepEqual(rolledBack.conflicts, ['tasks']);
-    const updatedRun = (await listTavernManagerRuns(session.id))[0];
-    assert.equal(updatedRun?.status, 'rolled_back');
-    assert.equal(updatedRun?.error, 'rollback_conflict:tasks');
-    assert.equal((await listTavernTasks(session.id, { includeCompleted: true }))[0]?.vision, '用户后续手动改过的野望');
-});
-
-test('manager EventPatch writes are counted in run summaries', async () => {
-    await db.delete();
-    await db.open();
-
-    const session = await createTavernSession({ title: 'Manager event summary' });
-    await appendTavernMessage(session.id, { role: 'user', content: '前情一。' });
-    await appendTavernMessage(session.id, { role: 'assistant', content: '前情二。' });
-    await appendTavernMessage(session.id, { role: 'user', content: '前情三。' });
-    await appendTavernMessage(session.id, { role: 'assistant', content: '前情四。' });
-    const userMessage = await appendTavernMessage(session.id, { role: 'user', content: '继续。' });
-    const assistantMessage = await appendTavernMessage(session.id, { role: 'assistant', content: '她提到了码头。' });
-    let calls = 0;
-
-    const result = await runXbTavernManagerAfterTurn({
-        sessionId: session.id,
-        agentConfig: {},
-        userMessage,
-        assistantMessage,
-        turn: 6,
-        sessionContract: mergeTavernSessionContract(undefined, {
-            memoryArchiving: false,
-            cartographyEngine: false,
-            questOrchestration: true,
-        }),
-        executeManagerOnce: async () => {
-            calls += 1;
-            if (calls === 1) {
-                return {
-                    provider: 'fake-manager',
-                    model: 'event-model',
-                    text: '创建野望。',
-                    toolCalls: [{
-                        id: 'event',
-                        name: 'EventPatch',
-                        arguments: {
-                            op: 'upsert-vision',
-                            eventId: 'counted-task',
-                            title: '统计线',
-                            vision: '统计远景',
-                            doneWhen: '角色当场说出答案。',
-                            hookForModel: '统计软句。',
-                        },
-                    }],
-                };
-            }
-            return { provider: 'fake-manager', model: 'event-model', text: '' };
-        },
-    });
-
-    assert.equal(result.ok, true);
-    assert.deepEqual(result.changedTasks, ['event/counted-task']);
-    const run = (await listTavernManagerRuns(session.id))[0];
-    assert.deepEqual(run?.changedTasks, ['event/counted-task']);
-    assert.equal(run?.parsedAction, 'manager_state_updated');
-    assert.match(run?.outputText || '', /1 条野望/);
-});
-
-test('manager stale event sweep is counted in run summaries', async () => {
-    await db.delete();
-    await db.open();
-
-    const session = await createTavernSession({ title: 'Manager stale summary' });
-    await executeTavernTaskTool(session.id, 'EventPatch', {
-        op: 'upsert-vision',
-        eventId: 'stale-by-manager',
-        title: '过期线',
-        vision: '过期远景',
-        doneWhen: '角色当场说出答案。',
-        hookForModel: '过期软句。',
-    }, { sourceAssistantOrder: 5 });
-    for (let index = 0; index < 7; index += 1) {
-        await appendTavernMessage(session.id, { role: 'user', content: `铺垫 ${index}。` });
-        await appendTavernMessage(session.id, { role: 'assistant', content: `回应 ${index}。` });
-    }
-    const userMessage = await appendTavernMessage(session.id, { role: 'user', content: '继续。' });
-    const assistantMessage = await appendTavernMessage(session.id, { role: 'assistant', content: '没有推进旧线索。' });
-
-    const result = await runXbTavernManagerAfterTurn({
-        sessionId: session.id,
-        agentConfig: {},
-        userMessage,
-        assistantMessage,
-        turn: 8,
-        sessionContract: mergeTavernSessionContract(undefined, {
-            memoryArchiving: false,
-            cartographyEngine: false,
-            questOrchestration: true,
-        }),
-        executeManagerOnce: async () => ({
-            provider: 'fake-manager',
-            model: 'event-model',
-            text: '',
-        }),
-    });
-
-    assert.equal(result.ok, true);
-    assert.deepEqual(result.changedTasks, ['event/stale-by-manager']);
-    const run = (await listTavernManagerRuns(session.id))[0];
-    assert.deepEqual(run?.changedTasks, ['event/stale-by-manager']);
-    assert.equal(run?.parsedAction, 'manager_state_updated');
-    assert.match(run?.outputText || '', /系统已放弃 1 条过期野望/);
-    const tasks = await listTavernTasks(session.id, { includeAbandoned: true });
-    assert.equal(tasks[0]?.status, 'abandoned');
-});
-
-test('stale active events are abandoned internally with fingerprints', async () => {
-    await db.delete();
-    await db.open();
-
-    const session = await createTavernSession({ title: 'Stale event' });
-    await executeTavernTaskTool(session.id, 'EventPatch', {
-        op: 'upsert-vision',
-        eventId: 'stale',
-        title: '过期线',
-        vision: '过期远景',
-        doneWhen: '角色当场说出答案。',
-        hookForModel: '过期软句。',
-    }, { sourceAssistantOrder: 5 });
-    const abandoned = await abandonStaleTavernTasks(session.id, 12, { threshold: 3 });
-    assert.equal(abandoned.length, 1);
-    const tasks = await listTavernTasks(session.id, { includeAbandoned: true });
-    assert.equal(tasks[0]?.status, 'abandoned');
-    const recreate = await executeTavernTaskTool(session.id, 'EventPatch', {
-        op: 'upsert-vision',
-        eventId: 'stale-again',
-        title: '过期线',
-        vision: '过期远景',
-        doneWhen: '角色当场说出答案。',
-        hookForModel: '过期软句。',
-    }, { sourceAssistantOrder: 13 });
-    assert.equal(recreate.error, 'task_fingerprint_abandoned');
 });
 
 test('tavern manager uses memory tools and records tool trace', async () => {
@@ -4804,6 +6227,7 @@ test('tavern manager uses memory tools and records tool trace', async () => {
     const userMessage = await appendTavernMessage(session.id, { role: 'user', content: '把银钥匙藏好。' });
     const assistantMessage = await appendTavernMessage(session.id, { role: 'assistant', content: '她把银钥匙塞进码头钟楼的砖缝。' });
     let calls = 0;
+    const liveProgress: TavernManagerLiveProgress[] = [];
 
     const result = await runXbTavernManagerAfterTurn({
         sessionId: session.id,
@@ -4843,16 +6267,27 @@ test('tavern manager uses memory tools and records tool trace', async () => {
                 };
             }
             const liveRun = (await listTavernManagerRuns(session.id))[0];
-            const liveTrace = liveRun?.toolTrace as Array<Record<string, unknown>>;
             assert.equal(liveRun?.status, 'running');
-            assert.equal(liveTrace?.[0]?.status, 'resolved');
-            assert.equal(liveTrace?.[0]?.preface, '先记录本轮银钥匙位置。');
-            assert.equal(((liveTrace?.[0]?.thoughts as Array<{ text?: string }>) || [])[0]?.text, '银钥匙位置发生了明确变化，需要写入流水。');
+            assert.equal(liveRun?.toolTrace, undefined);
+            const latestProgress = liveProgress.at(-1);
+            const liveTool = latestProgress?.tools.at(-1);
+            assert.equal(latestProgress?.sessionId, session.id);
+            assert.equal(latestProgress?.runId, liveRun?.id);
+            assert.equal(liveTool?.status, 'resolved');
+            assert.equal(Object.hasOwn(liveTool || {}, 'args'), false);
+            assert.equal(Object.hasOwn(liveTool || {}, 'result'), false);
+            assert.equal(Object.hasOwn(liveTool || {}, 'providerPayload'), false);
+            assert.equal(Object.hasOwn(liveTool || {}, 'thoughts'), false);
+            assert.equal(Object.hasOwn(liveTool || {}, 'preface'), false);
+            assert.doesNotMatch(JSON.stringify(latestProgress), /本轮确认银钥匙被藏进码头钟楼砖缝/);
             return {
                 provider: 'fake-manager',
                 model: 'memory-model',
                 text: '已更新 memory/state.md。',
             };
+        },
+        onManagerProgress: (progress) => {
+            liveProgress.push(progress);
         },
     });
 
@@ -4863,6 +6298,7 @@ test('tavern manager uses memory tools and records tool trace', async () => {
     const run = (await listTavernManagerRuns(session.id))[0];
     assert.equal(run?.status, 'completed');
     assert.equal(Array.isArray(run?.toolTrace), true);
+    assert.equal((run?.toolTrace as Array<{ status?: string }>)[0]?.status, 'resolved');
     assert.equal(run?.changedFiles?.[0], 'memory/state.md');
 });
 
@@ -4931,42 +6367,6 @@ test('tavern auto manager prompt omits unauthorized module instructions from bot
     assert.doesNotMatch(mapPrompt, /memory\/session\.md/);
     assert.doesNotMatch(mapPrompt, /建议流水路径：/);
 
-    const questSession = await createTavernSession({ title: 'Quest prompt' });
-    await executeTavernTaskTool(questSession.id, 'EventPatch', {
-        op: 'upsert-vision',
-        eventId: 'existing-hook',
-        title: '旧码头',
-        vision: '弄清旧码头',
-        doneWhen: '角色当场说出答案。',
-        hookForModel: '莉娜听见旧码头时短暂停顿。',
-    }, { sourceAssistantOrder: 5 });
-    const questUser = await appendTavernMessage(questSession.id, { role: 'user', content: '继续。' });
-    const questAssistant = await appendTavernMessage(questSession.id, { role: 'assistant', content: '莉娜没有接码头这个话题。' });
-    let questPrompt = '';
-    await runXbTavernManagerAfterTurn({
-        sessionId: questSession.id,
-        agentConfig: {},
-        userMessage: questUser,
-        assistantMessage: questAssistant,
-        turn: 6,
-        sessionContract: mergeTavernSessionContract(undefined, {
-            memoryArchiving: false,
-            cartographyEngine: false,
-            questOrchestration: true,
-        }),
-        executeManagerOnce: async (options) => {
-            questPrompt = JSON.stringify(options.messages);
-            return { provider: 'fake-manager', model: 'quest-only', text: '已检查。' };
-        },
-    });
-    assert.match(questPrompt, /\[Current Ambition Palette\]/);
-    assert.match(questPrompt, /id: existing-hook/);
-    assert.match(questPrompt, /title: 旧码头/);
-    assert.match(questPrompt, /vision: 弄清旧码头/);
-    assert.match(questPrompt, /updated floor: 5/);
-    assert.match(questPrompt, /Active count: 1\/3/);
-    assert.doesNotMatch(questPrompt, /user hook|fingerprint|莉娜绕开旧码头名字/);
-    assert.doesNotMatch(questPrompt, /\[Global memory state\.md\]/);
 });
 
 test('tavern auto manager denies unauthorized Write without side effects', async () => {
@@ -5085,67 +6485,6 @@ test('tavern auto manager denies unauthorized MapPatch without side effects', as
     assert.match(JSON.stringify(run?.toolTrace || []), /契约未授权 制图引擎/);
 });
 
-test('tavern auto manager denies unauthorized EventPatch without side effects', async () => {
-    await db.delete();
-    await db.open();
-
-    const session = await createTavernSession({ title: 'Blocked event patch' });
-    const userMessage = await appendTavernMessage(session.id, { role: 'user', content: '别动野望。' });
-    const assistantMessage = await appendTavernMessage(session.id, { role: 'assistant', content: '好的，我只整理记忆。' });
-    let calls = 0;
-
-    const executeManagerOnce = (async (options) => {
-        calls += 1;
-        if (calls === 1) {
-            return {
-                provider: 'fake-manager',
-                model: 'memory-only',
-                text: '我先试着建一个野望。',
-                toolCalls: [{
-                    id: 'blocked-task',
-                    name: 'EventPatch',
-                    arguments: {
-                        op: 'upsert-vision',
-                        title: '城东事',
-                        vision: '某个野望',
-                        doneWhen: '某件事发生',
-                        hookForModel: '莉娜提过她母亲一个人住在城东。',
-                    },
-                }],
-            };
-        }
-        assert.equal(options.toolResponses?.[0]?.name, 'EventPatch');
-        assert.match(JSON.stringify(options.toolResponses?.[0]?.response || {}), /契约未授权 织线者/);
-        return {
-            provider: 'fake-manager',
-            model: 'memory-only',
-            text: '已跳过未授权野望。',
-        };
-    }) as Parameters<typeof runXbTavernManagerAfterTurn>[0]['executeManagerOnce'] & { supportsSessionToolLoop?: boolean };
-    executeManagerOnce.supportsSessionToolLoop = true;
-
-    const result = await runXbTavernManagerAfterTurn({
-        sessionId: session.id,
-        agentConfig: {},
-        userMessage,
-        assistantMessage,
-        turn: 1,
-        sessionContract: mergeTavernSessionContract(undefined, {
-            memoryArchiving: true,
-            cartographyEngine: false,
-            questOrchestration: false,
-        }),
-        executeManagerOnce,
-    });
-
-    assert.equal(result.ok, true);
-    assert.equal(calls, 2);
-    assert.deepEqual(result.changedTasks, []);
-    assert.equal((await listTavernTasks(session.id, { includeCompleted: true, includeAbandoned: true })).length, 0);
-    const run = (await listTavernManagerRuns(session.id))[0];
-    assert.match(JSON.stringify(run?.toolTrace || []), /契约未授权 织线者/);
-});
-
 test('tavern manager chat keeps full tool access even when the stored contract disables auto work', async () => {
     await db.delete();
     await db.open();
@@ -5172,8 +6511,6 @@ test('tavern manager chat keeps full tool access even when the stored contract d
             if (calls === 1) {
                 assert.match(JSON.stringify(options.messages), /Write/);
                 assert.match(managerSystemPrompt, /## How to Work/);
-                assert.match(managerSystemPrompt, /## Events \(Ambition Palette\)/);
-                assert.match(managerSystemPrompt, /Events — maintain a small, stable palette of distant ambitions/);
                 return {
                     provider: 'fake-manager',
                     model: 'chat-tools',
@@ -5300,6 +6637,7 @@ test('tavern manager tool loop follows ebook round budget instead of stopping af
     const userMessage = await appendTavernMessage(session.id, { role: 'user', content: '把这些线索都整理进去。' });
     const assistantMessage = await appendTavernMessage(session.id, { role: 'assistant', content: '她连续列出了九个地点线索。' });
     let calls = 0;
+    const liveProgress: TavernManagerLiveProgress[] = [];
 
     const result = await runXbTavernManagerAfterTurn({
         sessionId: session.id,
@@ -5330,6 +6668,9 @@ test('tavern manager tool loop follows ebook round budget instead of stopping af
                 text: '九条线索已整理。',
             };
         },
+        onManagerProgress: (progress) => {
+            liveProgress.push(progress);
+        },
     });
 
     assert.equal(result.ok, true);
@@ -5337,6 +6678,9 @@ test('tavern manager tool loop follows ebook round budget instead of stopping af
     const run = (await listTavernManagerRuns(session.id))[0];
     assert.equal(run?.status, 'completed');
     assert.equal((run?.toolTrace as unknown[] | undefined)?.length, 9);
+    assert.equal(liveProgress.at(-1)?.tools.length, 8);
+    assert.equal(liveProgress.at(-1)?.tools[0]?.round, 2);
+    assert.equal(liveProgress.at(-1)?.tools[7]?.round, 9);
     assert.equal((await getTavernMemoryFile(session.id, 'memory/state.md'))?.content.includes('第 9 条线索'), true);
 });
 
@@ -5501,7 +6845,7 @@ test('tavern manager chat returns segmented protocol messages and keeps final te
 
     assert.equal(result.ok, true);
     assert.equal(result.text, '结论：北门仍然半开，没有新的异常。');
-    assert.equal(result.managerRun.outputText, '结论：北门仍然半开，没有新的异常。');
+    assert.equal((await listTavernManagerRuns(session.id)).length, 0);
     assert.deepEqual(result.protocolMessages.map((message) => message.role), ['assistant', 'tool', 'assistant', 'tool', 'assistant']);
     assert.equal(result.protocolMessages[0]?.content, '我先读一下记忆档案。');
     assert.equal(result.protocolMessages[2]?.content, '再核对一下地图。');
@@ -5744,7 +7088,7 @@ test('tavern manager uses session toolResponses when runner supports session too
     assert.equal(calls, 2);
 });
 
-test('accepted-turn tavern manager emits segmented protocol events and persists tool protocol for replay', async () => {
+test('accepted-turn tavern manager emits segmented protocol events without polluting assistant chat history', async () => {
     await db.delete();
     await db.open();
 
@@ -5795,10 +7139,7 @@ test('accepted-turn tavern manager emits segmented protocol events and persists 
     assert.equal(result.managerRun.outputText, '已确认北门路线，没有额外冲突需要记录。');
     assert.equal(calls, 2);
     const stored = await listTavernManagerMessages(session.id);
-    assert.deepEqual(stored.map((message) => message.role), ['assistant', 'tool']);
-    assert.equal(stored[0]?.toolCalls?.[0]?.name, 'MapAtlasRead');
-    assert.equal(stored[1]?.toolName, 'MapAtlasRead');
-    assert.match(stored[1]?.content || '', /"ok":\s*true/);
+    assert.deepEqual(stored, []);
     assert.deepEqual(protocolEvents, [
         'clear_stream_draft',
         'assistant_tool_round',
@@ -5808,7 +7149,7 @@ test('accepted-turn tavern manager emits segmented protocol events and persists 
     ]);
 });
 
-test('pending accepted-turn manager persists tool protocol messages for replay', async () => {
+test('queued accepted-turn manager keeps its protocol out of assistant chat history', async () => {
     await db.delete();
     await db.open();
 
@@ -5821,11 +7162,11 @@ test('pending accepted-turn manager persists tool protocol messages for replay',
         userOrder: userMessage.order,
         assistantOrder: assistantMessage.order,
         trigger: 'accepted_turn',
-        status: 'pending',
+        status: 'queued',
     });
     let calls = 0;
     const executeManagerOnce = Object.assign(async (
-        options: Parameters<NonNullable<Parameters<typeof runPendingAcceptedTurnManager>[0]['executeManagerOnce']>>[0],
+        options: Parameters<NonNullable<Parameters<typeof runNextQueuedAcceptedTurnManager>[0]['executeManagerOnce']>>[0],
     ) => {
         calls += 1;
         if (calls === 1) {
@@ -5847,9 +7188,9 @@ test('pending accepted-turn manager persists tool protocol messages for replay',
             model: 'memory-model',
             text: '已确认北门位置。',
         };
-    }, { supportsSessionToolLoop: true }) as Parameters<typeof runPendingAcceptedTurnManager>[0]['executeManagerOnce'];
+    }, { supportsSessionToolLoop: true }) as Parameters<typeof runNextQueuedAcceptedTurnManager>[0]['executeManagerOnce'];
 
-    const result = await runPendingAcceptedTurnManager({
+    const result = await runNextQueuedAcceptedTurnManager({
         sessionId: session.id,
         agentConfig: {},
         executeManagerOnce,
@@ -5858,10 +7199,7 @@ test('pending accepted-turn manager persists tool protocol messages for replay',
 
     assert.equal(result?.ok, true);
     assert.equal(calls, 2);
-    assert.deepEqual(stored.map((message) => message.role), ['assistant', 'tool']);
-    assert.equal(stored[0]?.toolCalls?.[0]?.name, 'MapAtlasRead');
-    assert.equal(stored[1]?.toolName, 'MapAtlasRead');
-    assert.match(stored[1]?.content || '', /"ok":\s*true/);
+    assert.deepEqual(stored, []);
 });
 
 test('accepted-turn tavern manager prompts for global and character memory without turn-note coverage', async () => {
@@ -5896,6 +7234,47 @@ test('accepted-turn tavern manager prompts for global and character memory witho
     assert.doesNotMatch(managerSystemPrompt + managerUserPrompt, /楼层小记覆盖/);
     assert.doesNotMatch(managerSystemPrompt + managerUserPrompt, /建议流水路径/);
     assert.doesNotMatch(managerSystemPrompt + managerUserPrompt, /memory\/turns/);
+});
+
+test('manual and auto manager prompts keep identical state.md and character filename coverage with cold memory reads', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Cold memory reads' });
+    await ensureTavernMemoryDefaults(session.id);
+    await writeTavernMemoryFile(session.id, 'memory/state.md', '# 当前事实\n冷读标记：银钥匙在钟楼。');
+    await writeTavernMemoryFile(session.id, 'memory/characters/铃铛.md', '# 铃铛\n钟楼守卫。');
+    const currentUser = await appendTavernMessage(session.id, { role: 'user', content: '第四轮。' });
+    const currentAssistant = await appendTavernMessage(session.id, { role: 'assistant', content: '第四轮回复。' });
+
+    let autoUserPrompt = '';
+    const autoResult = await runXbTavernManagerAfterTurn({
+        sessionId: session.id,
+        agentConfig: {},
+        userMessage: currentUser,
+        assistantMessage: currentAssistant,
+        turn: 4,
+        executeManagerOnce: async (options) => {
+            autoUserPrompt = String(options.messages?.[1]?.content || '');
+            return { text: '已检查。' };
+        },
+    });
+    assert.equal(autoResult.ok, true);
+    assert.match(autoUserPrompt, /冷读标记：银钥匙在钟楼/);
+    assert.match(autoUserPrompt, /- 铃铛\.md/);
+    // Character file bodies must stay cold in IndexedDB.
+    assert.doesNotMatch(autoUserPrompt, /钟楼守卫/);
+
+    const manualMessages = await buildAssistantChatMessages({
+        sessionId: session.id,
+        question: '现在状态如何？',
+    });
+    const manualUserText = manualMessages
+        .filter((message) => message.role === 'user')
+        .map((message) => String(message.content || ''))
+        .join('\n');
+    assert.match(manualUserText, /冷读标记：银钥匙在钟楼/);
+    assert.doesNotMatch(manualUserText, /钟楼守卫/);
 });
 
 test('tavern manager accepts arbitrary state markdown without schema parsing', async () => {
@@ -6270,7 +7649,7 @@ test('tavern manager rolls back earlier memory writes when a source message is d
     await restoreTavernMemoryToFloor(session.id, assistantMessage.order);
     assert.doesNotMatch((await getTavernMemoryFile(session.id, 'memory/state.md'))?.content || '', /稍后必须回滚/);
     const run = (await listTavernManagerRuns(session.id))[0];
-    assert.equal(run?.status, 'rolled_back');
+    assert.equal(run?.status, 'superseded');
     const snapshots = await listTavernManagerMemorySnapshots(run?.id || '');
     assert.equal(snapshots.length, 1);
     assert.equal(snapshots[0]?.path, 'memory/state.md');
@@ -6300,9 +7679,9 @@ test('tavern manager cancellation aborts an active auto run and rolls back writt
         userOrder: userMessage.order,
         assistantOrder: assistantMessage.order,
         trigger: 'accepted_turn',
-        status: 'pending',
+        status: 'queued',
     });
-    const running = runPendingAcceptedTurnManager({
+    const running = runNextQueuedAcceptedTurnManager({
         sessionId: session.id,
         agentConfig: {},
         executeManagerOnce: async () => {
@@ -6327,8 +7706,7 @@ test('tavern manager cancellation aborts an active auto run and rolls back writt
     });
 
     await secondRoundSeen;
-    const rollback = await cancelAndRollbackXbTavernManagersForMessageRange(session.id, assistantMessage.order);
-    assert.equal(rollback.rolledBack, 1);
+    await cancelAndRollbackXbTavernManagersForMessageRange(session.id, assistantMessage.order);
     assert.doesNotMatch((await getTavernMemoryFile(session.id, 'memory/state.md'))?.content || '', /会被取消/);
     releaseSecondRound();
     const completed = await running;
@@ -6340,7 +7718,7 @@ test('tavern manager cancellation aborts an active auto run and rolls back writt
     await restoreTavernMemoryToFloor(session.id, assistantMessage.order);
     assert.doesNotMatch((await getTavernMemoryFile(session.id, 'memory/state.md'))?.content || '', /会被取消/);
     const run = (await listTavernManagerRuns(session.id)).find((item) => item.id === pending.id);
-    assert.equal(run?.status, 'rolled_back');
+    assert.equal(run?.status, 'superseded');
 });
 
 test('tavern manager rollback uses snapshots even when changedFiles were not finalized', async () => {
@@ -6376,10 +7754,10 @@ test('tavern manager rollback uses snapshots even when changedFiles were not fin
     assert.deepEqual(await listTavernMemorySnapshots(session.id), []);
     await restoreTavernMemoryToFloor(session.id, assistantMessage.order);
     assert.doesNotMatch((await getTavernMemoryFile(session.id, 'memory/state.md'))?.content || '', /尚未 finalize/);
-    assert.equal((await listTavernManagerRuns(session.id))[0]?.status, 'rolled_back');
+    assert.equal((await listTavernManagerRuns(session.id))[0]?.status, 'superseded');
 });
 
-test('tavern manager rollback cancels pending accepted-turn runs without rollback writes', async () => {
+test('tavern manager rollback cancels queued accepted-turn runs without rollback writes', async () => {
     await db.delete();
     await db.open();
 
@@ -6392,7 +7770,7 @@ test('tavern manager rollback cancels pending accepted-turn runs without rollbac
         userOrder: userMessage.order,
         assistantOrder: assistantMessage.order,
         trigger: 'accepted_turn',
-        status: 'pending',
+        status: 'queued',
     });
 
     const rollback = await rollbackManagerRunsForMessageRange(session.id, assistantMessage.order);
@@ -6401,11 +7779,11 @@ test('tavern manager rollback cancels pending accepted-turn runs without rollbac
     assert.equal(rollback.rolledBack, 0);
     assert.deepEqual(rollback.conflicts, []);
     const updated = (await listTavernManagerRuns(session.id)).find((item) => item.id === run.id);
-    assert.equal(updated?.status, 'cancelled');
+    assert.equal(updated?.status, 'superseded');
     assert.equal(updated?.error, 'manager_source_messages_superseded');
 });
 
-test('rollback impact treats pending accepted-turn runs as cancellable work, not state rollback', async () => {
+test('rollback impact treats queued accepted-turn runs as cancellable work, not state rollback', async () => {
     await db.delete();
     await db.open();
 
@@ -6419,17 +7797,15 @@ test('rollback impact treats pending accepted-turn runs as cancellable work, not
         userOrder: userMessage.order,
         assistantOrder: assistantMessage.order,
         trigger: 'accepted_turn',
-        status: 'pending',
+        status: 'queued',
     });
 
-    const [memoryImpact, taskImpact, managerImpact] = await Promise.all([
+    const [memoryImpact, managerImpact] = await Promise.all([
         describeTavernMemoryRestoreImpact(session.id, assistantMessage.order - 1),
-        describeTavernTaskRestoreImpact(session.id, assistantMessage.order - 1),
         describeXbTavernManagerRollbackImpactForMessageRange(session.id, assistantMessage.order),
     ]);
 
     assert.equal(memoryImpact.changed, false);
-    assert.equal(taskImpact.changed, false);
     assert.equal(managerImpact.pendingRuns, 1);
     assert.equal(managerImpact.hasWrittenState, false);
 });
@@ -6451,7 +7827,7 @@ test('memory rollback impact reports same-path content changes in changedPaths',
     assert.deepEqual(impact.changedPaths, ['memory/state.md']);
 });
 
-test('rollback impact ignores old manager writes once current memory and tasks already match the target floor', async () => {
+test('rollback impact ignores old manager writes once current memory already matches the target floor', async () => {
     await db.delete();
     await db.open();
 
@@ -6482,34 +7858,16 @@ test('rollback impact ignores old manager writes once current memory and tasks a
     });
     assert.equal(memoryWrite.ok, true);
 
-    const taskWrite = await executeTavernTaskTool(session.id, 'EventPatch', {
-        op: 'upsert-vision',
-        eventId: 'impact-task',
-        title: '临时线',
-        vision: '临时远景',
-        doneWhen: '临时完成条件。',
-        hookForModel: '临时软句。',
-    }, {
-        caller: 'chat',
-        managerRunId: run.id,
-        sourceAssistantOrder: assistantMessage.order,
-    });
-    assert.equal(taskWrite.ok, true);
-
     await restoreTavernMemoryToFloor(session.id, assistantMessage.order);
-    await restoreTavernTasksToFloor(session.id, assistantMessage.order);
 
-    const [memoryImpact, taskImpact, managerImpact] = await Promise.all([
+    const [memoryImpact, managerImpact] = await Promise.all([
         describeTavernMemoryRestoreImpact(session.id, assistantMessage.order),
-        describeTavernTaskRestoreImpact(session.id, assistantMessage.order),
         describeXbTavernManagerRollbackImpactForMessageRange(session.id, assistantMessage.order),
     ]);
 
     assert.equal(memoryImpact.changed, false);
-    assert.equal(taskImpact.changed, false);
     assert.equal(managerImpact.hasWrittenState, true);
     assert.equal(managerImpact.writtenMemoryFiles, 1);
-    assert.equal(managerImpact.writtenTaskRuns, 1);
 });
 
 test('rollback impact reports status-only manager writes as state rollback', async () => {
@@ -6558,17 +7916,45 @@ test('rollback impact reports status-only manager writes as state rollback', asy
 
     assert.equal(managerImpact.hasWrittenState, true);
     assert.equal(managerImpact.writtenMemoryFiles, 0);
-    assert.equal(managerImpact.writtenTaskRuns, 0);
     assert.equal(managerImpact.writtenStatusPatches, 1);
     assert.deepEqual(rollbackImpactLines({
         targetFloor: assistantMessage.order - 1,
         memory: { changed: false, currentFileCount: 0, targetFileCount: 0, changedPaths: [] },
-        tasks: { changed: false, currentTaskCount: 0, targetTaskCount: 0 },
         status: { changed: true, currentExists: true, targetExists: false },
+        communications: { changed: false, currentMessageCount: 0, targetMessageCount: 0 },
+        tasks: {
+            changed: false,
+            targetFloor: assistantMessage.order - 1,
+            deletedVersionCount: 0,
+            affectedTaskCount: 0,
+            clearedBoard: false,
+        },
+        shop: {
+            changed: false,
+            targetFloor: assistantMessage.order - 1,
+            deletedVersionCount: 0,
+            affectedItemCount: 0,
+        },
+        bank: {
+            changed: false,
+            targetFloor: assistantMessage.order - 1,
+            deletedVersionCount: 0,
+            deletedActivityCount: 0,
+            affectedPositionCount: 0,
+            activeGameAffected: false,
+        },
+        economy: {
+            changed: false,
+            targetFloor: assistantMessage.order - 1,
+            transactionCount: 0,
+            affectedAccountCount: 0,
+            currentPlayerBalance: 0,
+            targetPlayerBalance: 0,
+        },
         managers: managerImpact,
         willRollbackState: true,
         willCancelWork: false,
-    }), [`状态栏会恢复到第 ${assistantMessage.order} 楼后的状态。`]);
+    }), [`状态栏会恢复到第 ${assistantMessage.order - 1} 楼后的状态。`]);
 });
 
 test('tavern manager memory rollback is idempotent', async () => {
@@ -6596,13 +7982,58 @@ test('tavern manager memory rollback is idempotent', async () => {
     });
 
     const first = await rollbackManagerRunsForMessageRange(session.id, assistantMessage.order);
+    const afterFirst = await tavernManagerRunsTable.get(run.id);
+    // Make a repeat write observable even when both calls happen within one clock tick.
+    await tavernManagerRunsTable.update(run.id, { updatedAt: 1 });
     const second = await rollbackManagerRunsForMessageRange(session.id, assistantMessage.order);
+    const afterSecond = await tavernManagerRunsTable.get(run.id);
 
     assert.equal(first.rolledBack, 1);
+    assert.equal(afterFirst?.status, 'superseded');
     assert.equal(second.rolledBack, 0);
     assert.deepEqual(second.conflicts, []);
+    assert.equal(afterSecond?.status, 'superseded');
+    assert.equal(afterSecond?.updatedAt, 1);
     const snapshot = (await listTavernManagerMemorySnapshots(run.id))[0];
     assert.equal(snapshot?.rollbackStatus, 'rolled_back');
+});
+
+test('message-range rollback preserves an already cancelled manager run on repeated calls', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Cancelled manager range rollback' });
+    const userMessage = await appendTavernMessage(session.id, { role: 'user', content: '第一轮。' });
+    const assistantMessage = await appendTavernMessage(session.id, { role: 'assistant', content: '第一轮回复。' });
+    const run = await createTavernManagerRun({
+        sessionId: session.id,
+        turn: 1,
+        userOrder: userMessage.order,
+        assistantOrder: assistantMessage.order,
+        trigger: 'after_turn',
+        status: 'running',
+        leaseOwnerId: 'cancelled-worker',
+        leaseExpiresAt: Date.now() + 30000,
+    });
+    const write = await executeTavernMemoryTool(session.id, 'MemoryWrite', {
+        filePath: 'memory/state.md',
+        content: '# 已取消\n\n这次写入已经在取消路径中回滚。',
+    }, { managerRunId: run.id, caller: 'auto' });
+    assert.equal(write.ok, true);
+    await rollbackManagerRunWrites(run.id, {
+        expectedStatus: 'running',
+        expectedLeaseOwnerId: 'cancelled-worker',
+        finalStatus: 'cancelled',
+        finalError: 'manager_aborted',
+    });
+
+    await rollbackManagerRunsForMessageRange(session.id, assistantMessage.order);
+    await rollbackManagerRunsForMessageRange(session.id, assistantMessage.order);
+
+    const current = await getTavernManagerRun(run.id);
+    assert.equal(current?.status, 'cancelled');
+    assert.equal(current?.error, 'manager_aborted');
+    assert.equal((await listTavernManagerMemorySnapshots(run.id))[0]?.rollbackStatus, 'rolled_back');
 });
 
 test('tavern manager rollback does not overwrite user-edited memory conflicts', async () => {
@@ -6640,7 +8071,7 @@ test('tavern manager rollback does not overwrite user-edited memory conflicts', 
     assert.equal((await getTavernMemoryFile(session.id, 'memory/state.md'))?.content, '用户手动修正。');
     const snapshot = (await listTavernManagerMemorySnapshots(run.id))[0];
     assert.equal(snapshot?.rollbackStatus, 'conflict');
-    assert.equal((await listTavernManagerRuns(session.id))[0]?.status, 'rolled_back');
+    assert.equal((await listTavernManagerRuns(session.id))[0]?.status, 'superseded');
     assert.match((await getTavernMemoryIndex(session.id))?.error || '', /rollback_conflict:memory\/state\.md/);
 });
 
@@ -6728,7 +8159,7 @@ test('tavern manager keeps auto run completed when a non-critical tool call fail
     assert.equal((runs[0]?.toolTrace as Array<{ ok?: boolean }>).some((item) => item.ok === false), true);
 });
 
-test('tavern manager chat carries persisted manager history and can read RP raw text through Read', async () => {
+test('tavern assistant chat carries only its own persisted history and can read RP raw text through Read', async () => {
     await db.delete();
     await db.open();
 
@@ -6778,12 +8209,16 @@ test('tavern manager chat carries persisted manager history and can read RP raw 
     assert.match(firstRoundMessages, /先前答：还在试探阶段/);
     assert.match(firstRoundMessages, /继续看原文，帮我判断/);
     assert.equal(toolNames.includes('Read'), true);
-    const run = (await listTavernManagerRuns(session.id))[0];
-    assert.equal(Array.isArray(run?.toolTrace), true);
-    assert.equal((run?.toolTrace as Array<{ name?: string }>)[0]?.name, 'Read');
+    assert.deepEqual(await listTavernManagerRuns(session.id), []);
+    assert.equal(result.protocolMessages.some((message) => (
+        message.role === 'assistant' && message.toolCalls?.[0]?.name === 'Read'
+    )), true);
+    assert.equal(result.protocolMessages.some((message) => (
+        message.role === 'tool' && message.toolName === 'Read'
+    )), true);
 });
 
-test('tavern manager chat treats local tool failures as recoverable trace items', async () => {
+test('tavern assistant chat keeps local tool failures in chat protocol without creating a work run', async () => {
     await db.delete();
     await db.open();
 
@@ -6815,11 +8250,12 @@ test('tavern manager chat treats local tool failures as recoverable trace items'
     assert.equal(result.ok, true);
     assert.equal(result.error, undefined);
     assert.equal((await listTavernMemoryFiles(session.id)).some((file) => file.path.startsWith('memory/turns/')), false);
-    const run = (await listTavernManagerRuns(session.id))[0];
-    assert.equal(run?.status, 'completed');
-    assert.match(run?.outputText || '', /不能直接写/);
-    assert.equal((run?.toolTrace as Array<{ ok?: boolean; error?: string }>)?.[0]?.ok, false);
-    assert.equal((run?.toolTrace as Array<{ ok?: boolean; error?: string }>)?.[0]?.error, 'memory_path_invalid');
+    assert.deepEqual(await listTavernManagerRuns(session.id), []);
+    const toolResult = JSON.parse(result.protocolMessages.find((message) => message.role === 'tool')?.content || '{}');
+    assert.equal(result.protocolMessages.find((message) => message.role === 'tool')?.error, true);
+    assert.equal(toolResult.ok, false);
+    assert.equal(toolResult.error, 'memory_path_invalid');
+    assert.match(result.text, /不能直接写/);
 });
 
 test('tavern manager chat returns invalid tool arguments without executing the tool', async () => {
@@ -6897,8 +8333,52 @@ test('tavern manager chat keeps protocol messages when aborted after a tool resu
     assert.equal(calls, 1);
     assert.deepEqual(result.protocolMessages.map((message) => message.role), ['assistant', 'tool']);
     assert.equal(result.protocolMessages[0]?.toolCalls?.[0]?.name, 'MapInspect');
-    assert.match(result.protocolMessages[1]?.content || '', /"ok": true/);
-    assert.equal(result.managerRun.status, 'cancelled');
+    assert.equal(JSON.parse(result.protocolMessages[1]?.content || '{}').ok, true);
+    assert.equal((await listTavernManagerRuns(session.id)).length, 0);
+});
+
+test('tavern assistant chat completes an interrupted multi-tool protocol and preserves successful writes', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Manager partial write abort' });
+    const controller = new AbortController();
+    let toolResults = 0;
+    const result = await runXbTavernManagerChat({
+        sessionId: session.id,
+        agentConfig: {},
+        question: '写入后停止。',
+        signal: controller.signal,
+        executeManagerOnce: async () => ({
+            text: '先更新，再读取。',
+            toolCalls: [{
+                id: 'write-before-abort',
+                name: 'Write',
+                arguments: {
+                    filePath: 'memory/state.md',
+                    content: '# 会话记忆\n\n已经真实写入。',
+                },
+            }, {
+                id: 'read-after-abort',
+                name: 'Read',
+                arguments: { filePath: 'memory/state.md' },
+            }],
+        }),
+        onProtocolEvent: (event) => {
+            if (event.type !== 'tool_result') {return;}
+            toolResults += 1;
+            if (toolResults === 1) {controller.abort();}
+        },
+    });
+
+    assert.equal(result.ok, false);
+    assert.deepEqual(result.changedFiles, ['memory/state.md']);
+    assert.deepEqual(result.protocolMessages.map((message) => message.role), ['assistant', 'tool', 'tool']);
+    const interrupted = JSON.parse(result.protocolMessages[2]?.content || '{}');
+    assert.equal(result.protocolMessages[2]?.toolCallId, 'read-after-abort');
+    assert.equal(interrupted.changed, false);
+    assert.match(interrupted.error, /manager_aborted/);
+    assert.match((await getTavernMemoryFile(session.id, 'memory/state.md'))?.content || '', /已经真实写入/);
 });
 
 test('tavern manager chat injects a light brake after repeated MapPatch failures', async () => {
@@ -7002,6 +8482,91 @@ test('tavern manager messages are session-scoped', async () => {
     assert.deepEqual((await listTavernManagerMessages(second.id)).map((message) => message.content), ['B-1']);
 });
 
+test('assistant chat list keeps tool results cold while an expanded tool turn restores its complete assistant detail', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Assistant chat cold tool result' });
+    const preface = '我会先检索现有资料，再给出结论。'.repeat(80);
+    const toolResult = `原始工具结果：${'这段大结果只应在协议库里保存。'.repeat(240)}`;
+    await appendTavernManagerMessage(session.id, { role: 'user', content: '先查一下。' });
+    await appendTavernManagerMessage(session.id, {
+        role: 'assistant',
+        content: preface,
+        thoughts: [{ label: '计划', text: '先查资料。' }],
+        toolCalls: [{ id: 'call-grep', name: 'Grep', providerId: '', arguments: '{"pattern":"资料"}' }],
+    });
+    await appendTavernManagerMessage(session.id, {
+        role: 'tool',
+        toolCallId: 'call-grep',
+        toolName: 'Grep',
+        content: toolResult,
+        toolDisplay: { summary: '找到资料。', status: 'resolved' },
+    });
+
+    const page = await loadTavernAssistantChatUnitPage(session.id, { limit: 5 });
+    const toolTurn = page.items.find((item) => item.kind === 'tool-turn');
+    assert.ok(toolTurn && toolTurn.kind === 'tool-turn');
+    assert.doesNotMatch(JSON.stringify(page), /这段大结果只应在协议库里保存/);
+    assert.equal((await listTavernManagerMessages(session.id)).find((message) => message.role === 'tool')?.content, toolResult);
+
+    const detail = await loadTavernAssistantToolTurnDetail(toolTurn);
+    assert.equal(detail?.rounds[0]?.preface, preface);
+    assert.deepEqual(detail?.rounds[0]?.thoughts, [{ label: '计划', text: '先查资料。' }]);
+});
+
+test('failed or cancelled assistant messages keep their full content and render as plain messages', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Assistant chat failed tool call' });
+    const failedContent = '写到一半被取消的完整正文。'.repeat(75); // 900 chars
+    const abortedContent = '中断时已经生成的部分回复。'.repeat(75);
+    await appendTavernManagerMessage(session.id, { role: 'user', content: '先查一下。' });
+    await appendTavernManagerMessage(session.id, {
+        role: 'assistant',
+        content: failedContent,
+        error: true,
+        finishReason: 'error',
+        toolCalls: [{ id: 'call-grep', name: 'Grep', providerId: '', arguments: '{"pattern":"资料"}' }],
+    });
+    await appendTavernManagerMessage(session.id, {
+        role: 'assistant',
+        content: abortedContent,
+        finishReason: 'aborted',
+        toolCalls: [{ id: 'call-read', name: 'Read', providerId: '', arguments: '{"filePath":"memory/state.md"}' }],
+    });
+
+    const page = await loadTavernAssistantChatUnitPage(session.id, { limit: 5 });
+    assert.equal(page.items.some((item) => item.kind === 'tool-turn'), false);
+    const messages = page.items.filter((item) => item.kind === 'message');
+    assert.deepEqual(
+        messages.map((item) => item.kind === 'message' ? item.content : ''),
+        ['先查一下。', failedContent, abortedContent],
+    );
+});
+
+test('assistant chat replaces an old turn with a new user message in one transaction', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Atomic assistant rerun' });
+    await appendTavernManagerMessage(session.id, { role: 'user', content: '保留轮。' });
+    await appendTavernManagerMessage(session.id, { role: 'assistant', content: '保留回复。' });
+    const oldUser = await appendTavernManagerMessage(session.id, { role: 'user', content: '旧问题。' });
+    const oldAssistant = await appendTavernManagerMessage(session.id, { role: 'assistant', content: '旧回复。' });
+
+    const [replacement] = await replaceTavernAssistantChatMessages(
+        session.id,
+        [oldUser.order, oldAssistant.order],
+        [{ role: 'user', content: '新问题。' }],
+    );
+    const stored = await listTavernManagerMessages(session.id);
+
+    assert.equal(replacement.order, oldUser.order);
+    assert.deepEqual(stored.map((message) => message.content), ['保留轮。', '保留回复。', '新问题。']);
+});
+
 test('tavern manager message update reuses one timestamp for row and session', async () => {
     await db.delete();
     await db.open();
@@ -7098,4 +8663,321 @@ test('tavern manager chat does not replay stale tool drafts from errored history
     assert.equal(result.ok, true);
     assert.equal(!!assistantReplay, true);
     assert.equal(Array.isArray(assistantReplay?.tool_calls) && assistantReplay.tool_calls.length > 0, false);
+});
+
+test('assistant chat clearing is session-scoped and preserves maintenance records and factual memory', async () => {
+    await db.delete();
+    await db.open();
+
+    const first = await createTavernSession({ title: 'Clear assistant chat' });
+    const second = await createTavernSession({ title: 'Keep another assistant chat' });
+    await appendTavernManagerMessage(first.id, { role: 'user', content: '第一轮。' });
+    await appendTavernManagerMessage(first.id, { role: 'assistant', content: '第一轮回复。' });
+    await appendTavernManagerMessage(second.id, { role: 'user', content: '第二个会话。' });
+    await createTavernManagerRun({
+        sessionId: first.id,
+        turn: 1,
+        trigger: 'after_turn',
+        status: 'completed',
+    });
+    await writeTavernMemoryFile(first.id, 'memory/state.md', '# 会话记忆\n\n已经落地的事实。');
+
+    assert.equal(await clearTavernAssistantChatMessages(first.id), 2);
+    assert.deepEqual(await listTavernManagerMessages(first.id), []);
+    assert.deepEqual((await listTavernManagerMessages(second.id)).map((message) => message.content), ['第二个会话。']);
+    assert.equal((await listTavernManagerRuns(first.id)).length, 1);
+    assert.match((await getTavernMemoryFile(first.id, 'memory/state.md'))?.content || '', /已经落地的事实/);
+});
+
+test('maintenance run storage rejects legacy manual-chat triggers', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Maintenance trigger boundary' });
+    await assert.rejects(
+        createTavernManagerRun({
+            sessionId: session.id,
+            trigger: 'manager_chat',
+        } as never),
+        /maintenance_run_trigger_invalid/,
+    );
+    const run = await createTavernManagerRun({
+        sessionId: session.id,
+        trigger: 'after_turn',
+    });
+    await assert.rejects(
+        updateTavernManagerRun(run.id, { trigger: 'manager_chat' } as never),
+        /maintenance_run_trigger_invalid/,
+    );
+    assert.deepEqual((await listTavernManagerRuns(session.id)).map((item) => item.id), [run.id]);
+});
+
+test('database v24 rebuilds transcript totals and assistant summaries across upgrade batches', async () => {
+    await db.delete();
+    const legacyDb = new Dexie('LittleWhiteBox_Tavern');
+    const legacyRuntime = legacyDb as unknown as {
+        table: (name: string) => {
+            put: (record: Record<string, unknown>) => Promise<unknown>;
+            bulkPut: (records: Array<Record<string, unknown>>) => Promise<unknown>;
+        };
+        close: () => void;
+    };
+    legacyDb.version(23).stores({
+        sessions: 'id, updatedAt',
+        messages: '[sessionId+order], sessionId, order',
+        assistantChatMessages: '[sessionId+order], sessionId, order',
+        assistantChatMessageSummaries: '[sessionId+order], sessionId, order',
+    });
+    await legacyDb.open();
+    await legacyRuntime.table('sessions').put({ id: 'v23-session', updatedAt: 1 });
+    await legacyRuntime.table('messages').bulkPut([
+        { sessionId: 'v23-session', order: 0, role: 'user', content: '第一行\n第二行' },
+        { sessionId: 'v23-session', order: 1, role: 'assistant', content: '' },
+        { sessionId: 'v23-session', order: 2, role: 'user', content: ' 单行 ' },
+    ]);
+    await legacyRuntime.table('assistantChatMessages').bulkPut(Array.from({ length: 130 }, (_, order) => ({
+        sessionId: 'v23-session',
+        order,
+        role: order % 2 ? 'assistant' : 'user',
+        content: `助手历史 ${order}`,
+        createdAt: order + 1,
+        updatedAt: order + 1,
+    })));
+    await legacyRuntime.table('assistantChatMessageSummaries').put({
+        sessionId: 'v23-session',
+        order: 999,
+        role: 'assistant',
+        content: 'stale summary',
+    });
+    legacyRuntime.close();
+
+    await db.open();
+    assert.equal((await tavernSessionsTable.get('v23-session'))?.transcriptLineCount, 10);
+    const summaries = await tavernAssistantChatMessageSummariesTable
+        .where('sessionId')
+        .equals('v23-session')
+        .sortBy('order');
+    assert.equal(summaries.length, 130);
+    assert.equal(summaries[0]?.content, '助手历史 0');
+    assert.equal(summaries[129]?.content, '助手历史 129');
+    assert.equal(await tavernAssistantChatMessageSummariesTable.get(['v23-session', 999]), undefined);
+});
+
+test('database v14 resets the test-line maintenance model instead of preserving obsolete runs', async () => {
+    await db.delete();
+    const legacyDb = new Dexie('LittleWhiteBox_Tavern');
+    const legacyRuntime = legacyDb as unknown as {
+        table: (name: string) => {
+            put: (record: Record<string, unknown>) => Promise<unknown>;
+            bulkPut: (records: Array<Record<string, unknown>>) => Promise<unknown>;
+        };
+        close: () => void;
+    };
+    legacyDb.version(12).stores({
+        sessions: 'id, updatedAt',
+        managerMessages: '[sessionId+order], sessionId, order',
+        managerRuns: 'id, sessionId, status, turn, updatedAt',
+        managerMemorySnapshots: '[managerRunId+path], managerRunId, sessionId, path, updatedAt',
+        managerStateSnapshots: '[managerRunId+docType+docId], managerRunId, sessionId, docType, docId, updatedAt',
+        statePatches: 'id, sessionId, managerRunId, updatedAt',
+    });
+    await legacyDb.open();
+    await legacyRuntime.table('sessions').put({ id: 'legacy-session', updatedAt: 1 });
+    await legacyRuntime.table('managerMessages').put({
+        sessionId: 'legacy-session',
+        order: 0,
+        role: 'user',
+        content: '被自动维护污染的旧聊天。',
+    });
+    await legacyRuntime.table('managerRuns').bulkPut([{
+        id: 'maintenance-run',
+        sessionId: 'legacy-session',
+        trigger: 'accepted_turn',
+        status: 'completed',
+        turn: 1,
+        updatedAt: 2,
+    }, {
+        id: 'manual-chat-run',
+        sessionId: 'legacy-session',
+        trigger: 'manager_chat',
+        status: 'completed',
+        turn: 1,
+        updatedAt: 3,
+    }]);
+    await legacyRuntime.table('managerMemorySnapshots').put({
+        managerRunId: 'manual-chat-run',
+        sessionId: 'legacy-session',
+        path: 'memory/state.md',
+        updatedAt: 3,
+    });
+    await legacyRuntime.table('managerStateSnapshots').put({
+        managerRunId: 'manual-chat-run',
+        sessionId: 'legacy-session',
+        docType: 'tavern.map',
+        docId: 'main',
+        updatedAt: 3,
+    });
+    await legacyRuntime.table('statePatches').put({
+        id: 'legacy-patch',
+        sessionId: 'legacy-session',
+        managerRunId: 'manual-chat-run',
+        updatedAt: 3,
+    });
+    legacyRuntime.close();
+
+    await db.open();
+    const runtimeDb = db as unknown as { tables: Array<{ name: string }> };
+    const managerRunSchema = (tavernManagerRunsTable as unknown as {
+        schema: { idxByName: Record<string, unknown> };
+    }).schema;
+    assert.ok(managerRunSchema.idxByName['[sessionId+assistantOrder]']);
+    assert.ok(managerRunSchema.idxByName['[sessionId+status+error+updatedAt]']);
+    assert.equal(runtimeDb.tables.some((table) => table.name === 'managerMessages'), false);
+    assert.deepEqual(await listTavernManagerMessages('legacy-session'), []);
+    assert.deepEqual(await listTavernManagerRuns('legacy-session'), []);
+    assert.equal(await tavernManagerMemorySnapshotsTable.where('managerRunId').equals('manual-chat-run').count(), 0);
+    assert.equal(await tavernManagerStateSnapshotsTable.where('managerRunId').equals('manual-chat-run').count(), 0);
+    assert.equal((await tavernStatePatchesTable.get('legacy-patch'))?.managerRunId, '');
+});
+
+test('database v16 backfills message ids and maintenance source identities', async () => {
+    await db.delete();
+    const legacyDb = new Dexie('LittleWhiteBox_Tavern');
+    const legacyRuntime = legacyDb as unknown as {
+        table: (name: string) => {
+            put: (record: Record<string, unknown>) => Promise<unknown>;
+            bulkPut: (records: Array<Record<string, unknown>>) => Promise<unknown>;
+        };
+        close: () => void;
+    };
+    legacyDb.version(15).stores({
+        sessions: 'id, updatedAt',
+        messages: '[sessionId+order], sessionId, order',
+        managerRuns: 'id, sessionId, status, turn, assistantOrder, [sessionId+assistantOrder], updatedAt',
+    });
+    await legacyDb.open();
+    await legacyRuntime.table('sessions').put({ id: 'v15-session', updatedAt: 1 });
+    await legacyRuntime.table('messages').bulkPut(Array.from({ length: 300 }, (_, order) => ({
+        sessionId: 'v15-session',
+        order,
+        role: order % 2 ? 'assistant' : 'user',
+        content: `旧楼层 ${order}`,
+        createdAt: order + 1,
+        timelineRevision: 1,
+    })));
+    await legacyRuntime.table('managerRuns').put({
+        id: 'v15-run',
+        sessionId: 'v15-session',
+        turn: 1,
+        userOrder: 296,
+        assistantOrder: 297,
+        trigger: 'accepted_turn',
+        status: 'queued',
+        createdAt: 301,
+        updatedAt: 301,
+    });
+    legacyRuntime.close();
+
+    await db.open();
+    const messages = await listTavernMessages('v15-session');
+    const run = await tavernManagerRunsTable.get('v15-run');
+    assert.equal(messages.length, 300);
+    assert.equal(new Set(messages.map((message) => message.messageId)).size, 300);
+    assert.ok(messages.every((message) => !!message.messageId));
+    assert.equal(run?.sourceUserMessageId, messages[296]?.messageId);
+    assert.equal(run?.sourceAssistantMessageId, messages[297]?.messageId);
+});
+
+test('database v17 drops the legacy ambition task domain without compatibility reads', async () => {
+    await db.delete();
+    const legacyDb = new Dexie('LittleWhiteBox_Tavern');
+    const legacyRuntime = legacyDb as unknown as {
+        table: (name: string) => {
+            put: (record: Record<string, unknown>) => Promise<unknown>;
+        };
+        close: () => void;
+    };
+    legacyDb.version(16).stores({
+        sessions: 'id, updatedAt',
+        managerRuns: 'id, sessionId, status, turn, assistantOrder, [sessionId+assistantOrder], updatedAt',
+        tasks: '[sessionId+id], sessionId, status, fingerprint, updatedOrder, updatedAt',
+        taskSnapshots: '[sessionId+floor], sessionId, floor, createdAt',
+        managerTaskSnapshots: 'managerRunId, sessionId, updatedAt',
+        taskFingerprintStates: 'sessionId, updatedAt',
+    });
+    await legacyDb.open();
+    await legacyRuntime.table('sessions').put({
+        id: 'v16-task-session',
+        updatedAt: 1,
+        state: {
+            turn: 7,
+            contract: {
+                memoryArchiving: true,
+                cartographyEngine: false,
+                questOrchestration: true,
+            },
+        },
+    });
+    await legacyRuntime.table('managerRuns').put({
+        id: 'v16-task-run',
+        sessionId: 'v16-task-session',
+        turn: 1,
+        assistantOrder: 1,
+        trigger: 'after_turn',
+        status: 'completed',
+        changedFiles: ['memory/state.md'],
+        changedTasks: ['event/legacy-task'],
+        toolTrace: [
+            { id: 'legacy-inspect', name: 'EventInspect', ok: true },
+            { id: 'current-read', name: 'Read', ok: true, path: 'memory/state.md' },
+            { id: 'legacy-patch', name: 'EventPatch', ok: true },
+        ],
+        createdAt: 2,
+        updatedAt: 2,
+    });
+    await legacyRuntime.table('tasks').put({
+        sessionId: 'v16-task-session',
+        id: 'legacy-task',
+        status: 'active',
+        fingerprint: 'legacy-fingerprint',
+        updatedOrder: 1,
+        updatedAt: 2,
+    });
+    await legacyRuntime.table('taskSnapshots').put({
+        sessionId: 'v16-task-session',
+        floor: 1,
+        tasks: [],
+        abandonedFingerprints: [],
+        createdAt: 2,
+    });
+    await legacyRuntime.table('managerTaskSnapshots').put({
+        managerRunId: 'v16-task-run',
+        sessionId: 'v16-task-session',
+        updatedAt: 2,
+    });
+    await legacyRuntime.table('taskFingerprintStates').put({
+        sessionId: 'v16-task-session',
+        abandonedFingerprints: ['legacy-fingerprint'],
+        updatedAt: 2,
+    });
+    legacyRuntime.close();
+
+    await db.open();
+    const runtimeDb = db as unknown as { tables: Array<{ name: string }> };
+    const tableNames = new Set(runtimeDb.tables.map((table) => table.name));
+    for (const tableName of ['tasks', 'taskSnapshots', 'managerTaskSnapshots', 'taskFingerprintStates']) {
+        assert.equal(tableNames.has(tableName), false);
+    }
+    const session = await tavernSessionsTable.get('v16-task-session');
+    const run = await tavernManagerRunsTable.get('v16-task-run');
+    assert.equal(session?.state?.turn, 7);
+    assert.equal(session?.state?.contract?.memoryArchiving, true);
+    assert.equal(session?.state?.contract?.cartographyEngine, false);
+    assert.equal(Object.hasOwn(session?.state?.contract || {}, 'questOrchestration'), false);
+    assert.ok(run);
+    assert.deepEqual(run.changedFiles, ['memory/state.md']);
+    assert.equal(Object.hasOwn(run, 'changedTasks'), false);
+    assert.deepEqual(run.toolTrace, [
+        { id: 'current-read', name: 'Read', ok: true, path: 'memory/state.md' },
+    ]);
 });

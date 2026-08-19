@@ -37,6 +37,8 @@ import {
     normalizeSharedCacheDays,
 } from "../../shared/draw-settings.js";
 import { fetchDrawLlmModels, getLastDrawLlmRequestSnapshot } from "../../shared/draw-llm.js";
+import { createSerialImageRequestQueue } from "../../shared/serial-image-request-queue.js";
+import { hashStableValue } from "../../shared/generation-fingerprint.js";
 import {
     findLastAIMessageId,
     createPlaceholder,
@@ -137,9 +139,9 @@ const generationJobs = new Map();
 const SD_DRAW_VIEWS = ['test', 'api', 'params', 'llm', 'prompts', 'worldbook', 'characters', 'gallery'];
 const ImageState = { PREVIEW: 'preview', SAVING: 'saving', SAVED: 'saved', REFRESHING: 'refreshing', FAILED: 'failed' };
 const FIXED_SD_REQUEST_DELAY_MS = 1000;
-let activeSdImageRequest = null;
-let sdImageRequestQueue = [];
-let sdImageRequestSeq = 0;
+const sdImageRequestQueue = createSerialImageRequestQueue({
+    getCooldownMs: () => FIXED_SD_REQUEST_DELAY_MS,
+});
 const SD_SIZE_PRESETS = [
     { value: '832x1216', width: 832, height: 1216 },
     { value: '1216x832', width: 1216, height: 832 },
@@ -437,6 +439,24 @@ export function getSettings() {
     return settingsCache;
 }
 
+export function getGenerationSnapshot() {
+    const settings = getSettings();
+    const execution = Object.freeze({
+        host: String(settings.host || '').trim(),
+        auth: String(settings.auth || ''),
+        transport: String(settings.transport || 'st-proxy'),
+        prepared: true,
+    });
+    return {
+        fingerprint: {
+            version: 1,
+            endpointHash: hashStableValue(execution.host, 'endpoint'),
+            transport: execution.transport,
+        },
+        execution,
+    };
+}
+
 async function persistSettings(nextSettings, okText = '已保存', { notify = true, silent = false } = {}) {
     const next = normalizeSettings(nextSettings);
     const previous = settingsCache ? cloneSettingsObject(settingsCache) : null;
@@ -568,8 +588,8 @@ export function getEffectiveParams(settings = getSettings(), overrides = {}) {
     };
 }
 
-function buildSdProxyBody(extra = {}) {
-    const settings = getSettings();
+function buildSdProxyBody(extra = {}, generationConfig = getSettings()) {
+    const settings = generationConfig || getSettings();
     if (!settings.host) {
         throw new Error('请先填写 SD WebUI 地址');
     }
@@ -580,110 +600,11 @@ function buildSdProxyBody(extra = {}) {
     };
 }
 
-function waitWithAbort(signal, durationMs) {
-    return new Promise((resolve) => {
-        if (!durationMs || durationMs <= 0) {
-            resolve();
-            return;
-        }
-
-        const timer = setTimeout(resolve, durationMs);
-        if (!signal) return;
-
-        signal.addEventListener('abort', () => {
-            clearTimeout(timer);
-            resolve();
-        }, { once: true });
-    });
-}
-
-function notifyQueuedSdImageRequests() {
-    sdImageRequestQueue.forEach((item, index) => {
-        const ahead = (activeSdImageRequest ? 1 : 0) + index;
-        if (ahead > 0) {
-            item.onQueued?.({ ahead, position: ahead + 1 });
-        }
-    });
-}
-
-function pumpSdImageRequestQueue() {
-    if (activeSdImageRequest || sdImageRequestQueue.length === 0) return;
-
-    const item = sdImageRequestQueue.shift();
-    activeSdImageRequest = item;
-    notifyQueuedSdImageRequests();
-
-    void (async () => {
-        let result;
-        let error = null;
-        try {
-            if (item.signal?.aborted) throw new Error('已取消');
-            item.onStart?.();
-            result = await item.run();
-        } catch (caught) {
-            error = caught;
-        } finally {
-            if (item.cooldownMs > 0) {
-                item.onCooldown?.({ duration: item.cooldownMs });
-                await waitWithAbort(item.signal, item.cooldownMs);
-            }
-            if (error) item.reject(error);
-            else item.resolve(result);
-            if (activeSdImageRequest === item) {
-                activeSdImageRequest = null;
-            }
-            notifyQueuedSdImageRequests();
-            pumpSdImageRequestQueue();
-        }
-    })();
-}
-
-function enqueueSdImageRequest(run, {
-    signal,
-    onQueued,
-    onStart,
-    onCooldown,
-    cooldownMs = FIXED_SD_REQUEST_DELAY_MS,
-} = {}) {
-    return new Promise((resolve, reject) => {
-        if (signal?.aborted) {
-            reject(new Error('已取消'));
-            return;
-        }
-
-        const item = {
-            id: ++sdImageRequestSeq,
-            run,
-            signal,
-            onQueued,
-            onStart,
-            onCooldown,
-            cooldownMs,
-            resolve,
-            reject,
-        };
-
-        signal?.addEventListener('abort', () => {
-            if (activeSdImageRequest === item) return;
-            const idx = sdImageRequestQueue.indexOf(item);
-            if (idx >= 0) {
-                sdImageRequestQueue.splice(idx, 1);
-                notifyQueuedSdImageRequests();
-                reject(new Error('已取消'));
-            }
-        }, { once: true });
-
-        sdImageRequestQueue.push(item);
-        notifyQueuedSdImageRequests();
-        pumpSdImageRequestQueue();
-    });
-}
-
-async function fetchSdProxy(path, body = {}, { signal } = {}) {
+async function fetchSdProxy(path, body = {}, { signal, generationConfig } = {}) {
     const response = await fetch(`/api/sd/${path}`, {
         method: 'POST',
         headers: getRequestHeaders(),
-        body: JSON.stringify(buildSdProxyBody(body)),
+        body: JSON.stringify(buildSdProxyBody(body, generationConfig)),
         signal,
     });
 
@@ -707,9 +628,9 @@ export async function fetchSdSamplers({ signal } = {}) {
     return Array.isArray(data) ? data : [];
 }
 
-export async function generateSdImage({ prompt, negativePrompt = '', params = {}, signal } = {}) {
+async function requestSdImage({ prompt, negativePrompt = '', params = {}, generationConfig, signal } = {}) {
     const settings = getSettings();
-    const effective = getEffectiveParams(settings, params);
+    const effective = generationConfig?.prepared === true ? params : getEffectiveParams(settings, params);
     const body = {
         prompt: String(prompt || '').trim(),
         negative_prompt: String(negativePrompt || '').trim(),
@@ -750,7 +671,7 @@ export async function generateSdImage({ prompt, negativePrompt = '', params = {}
         throw new Error('Prompt 不能为空');
     }
 
-    const response = await fetchSdProxy('generate', body, { signal });
+    const response = await fetchSdProxy('generate', body, { signal, generationConfig });
     const data = await response.json();
     const firstImage = Array.isArray(data?.images) ? data.images[0] : null;
     if (!firstImage) {
@@ -759,19 +680,18 @@ export async function generateSdImage({ prompt, negativePrompt = '', params = {}
     return String(firstImage).replace(/^data:image\/\w+;base64,/, '');
 }
 
-async function generateSdImageQueued({
+export async function generateSdImage({
     prompt,
     negativePrompt = '',
     params = {},
+    generationConfig,
     signal,
     onQueueStateChange,
-    cooldownMs = FIXED_SD_REQUEST_DELAY_MS,
 } = {}) {
-    return enqueueSdImageRequest(
-        () => generateSdImage({ prompt, negativePrompt, params, signal }),
+    return sdImageRequestQueue.enqueue(
+        () => requestSdImage({ prompt, negativePrompt, params, generationConfig, signal }),
         {
             signal,
-            cooldownMs,
             onQueued: (data) => onQueueStateChange?.('queued', data),
             onStart: () => onQueueStateChange?.('start'),
             onCooldown: (data) => onQueueStateChange?.('cooldown', data),
@@ -3607,7 +3527,7 @@ async function refreshSingleImage(container) {
         setImageState(container, ImageState.REFRESHING);
         const settings = getSettings();
         const params = getEffectiveParams(settings);
-        const base64 = await generateSdImageQueued({
+        const base64 = await generateSdImage({
             prompt,
             negativePrompt: promptData.negative || preview?.negativePrompt || params.negativePrefix || '',
             params,
@@ -3669,7 +3589,7 @@ async function retryFailedImage(container) {
         const positive = joinTags(params.positivePrefix || '', tags, charPositive);
         const negative = latestFailed?.negativePrompt || params.negativePrefix || '';
 
-        const base64 = await generateSdImageQueued({
+        const base64 = await generateSdImage({
             prompt: positive,
             negativePrompt: negative,
             params,
@@ -3932,7 +3852,7 @@ export async function generateImagesFromText(options = {}) {
 
         options.onStateChange?.('progress', { current: i + 1, total: tasks.length });
         try {
-            const base64 = await generateSdImageQueued({
+            const base64 = await generateSdImage({
                 prompt: promptData.positive,
                 negativePrompt: promptData.negative,
                 params,
@@ -3952,7 +3872,6 @@ export async function generateImagesFromText(options = {}) {
                         });
                     }
                 },
-                cooldownMs: i < tasks.length - 1 ? FIXED_SD_REQUEST_DELAY_MS : 0,
             });
             await storePreview({
                 ...galleryMeta,
@@ -4070,7 +3989,7 @@ export async function generateAndInsertImages({
 
             let incrementalHtml = '';
             try {
-                const base64 = await generateSdImageQueued({
+                const base64 = await generateSdImage({
                     prompt: promptData.positive,
                     negativePrompt: promptData.negative,
                     params,
@@ -4090,7 +4009,6 @@ export async function generateAndInsertImages({
                             });
                         }
                     },
-                    cooldownMs: i < tasks.length - 1 ? FIXED_SD_REQUEST_DELAY_MS : 0,
                 });
                 await storePreview({
                     imgId,
@@ -4212,7 +4130,7 @@ async function testGenerateFromSettingsPanel() {
     try {
         const settings = getSettings();
         const effective = getEffectiveParams(settings);
-        const base64 = await generateSdImageQueued({
+        const base64 = await generateSdImage({
             prompt: composePrompt(effective.positivePrefix, prompt),
             negativePrompt: composePrompt(effective.negativePrefix, getValue('sd-draw-test-negative')),
             params: effective,
@@ -4293,6 +4211,7 @@ export async function initSdDraw() {
     window.xiaobaixSdDraw = {
         openSettings,
         getSettings,
+        getGenerationSnapshot,
         getQuickSettings,
         updateQuickSettings,
         testConnection,
@@ -4318,6 +4237,7 @@ export function cleanupSdDraw() {
     stopSharedDrawPreviewRuntime();
     abortPendingRequest();
     abortGeneration();
+    sdImageRequestQueue.clear();
     hideSettings();
     destroySdDrawPanelsRef?.();
     ensureSdDrawPanelRef = null;

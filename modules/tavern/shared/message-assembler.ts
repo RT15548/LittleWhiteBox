@@ -36,11 +36,14 @@ export interface XbTavernMessage {
     role: XbTavernRole;
     content: string;
     name?: string;
+    error?: boolean;
     thoughts?: Array<{ label?: string; text?: string }>;
     providerPayload?: unknown;
     tool_calls?: Array<{
         id?: string;
         type?: string;
+        /** Google functionCall.id is optional; an explicit empty value means omit it on replay. */
+        providerToolCallId?: string;
         function?: {
             name?: string;
             arguments?: string;
@@ -50,6 +53,7 @@ export interface XbTavernMessage {
         id?: string;
         name?: string;
         arguments?: string;
+        providerId?: string;
     }>;
     tool_call_id?: string;
     toolCallId?: string;
@@ -430,7 +434,6 @@ export interface XbTavernMemoryContext {
     structuredStates?: XbTavernStructuredStateSummary[];
     spatialState?: string;
     statusPanelYaml?: string;
-    questHooks?: string[];
 }
 
 export interface XbTavernStructuredStateSummary {
@@ -1549,6 +1552,14 @@ function buildNativePromptEntries(runtime: XbTavernNativeWorldInfoRuntime = {}):
     return entries;
 }
 
+export function buildActivatedWorldEntriesFromNativeRuntime(
+    runtime: XbTavernNativeWorldInfoRuntime = {},
+): ActivatedWorldEntry[] {
+    const activatedEntries = normalizeNativeActivatedEntries(runtime.activatedEntries);
+    const promptEntries = buildNativePromptEntries(runtime);
+    return promptEntries.length ? promptEntries : activatedEntries;
+}
+
 function insertionTargetForEntry(entry: Pick<ActivatedWorldEntry, 'position' | 'depth' | 'outletName' | 'outlet'>): string {
     switch (entry.position) {
         case XBTavernWorldPosition.before:
@@ -1710,13 +1721,7 @@ function buildMemoryBlock(memoryContext: XbTavernMemoryContext = {}): string {
     const memoryFiles = Array.isArray(memoryContext.memoryFiles) ? memoryContext.memoryFiles : [];
     const spatialState = normalizeText(memoryContext.spatialState);
     const statusPanelYaml = normalizeText(memoryContext.statusPanelYaml);
-    const questHooks = Array.isArray(memoryContext.questHooks)
-        ? memoryContext.questHooks.map((hook) => normalizeText(hook)).filter(Boolean)
-        : [];
     const sections: string[] = [];
-    if (questHooks.length) {
-        sections.push(questHooks.join('\n'));
-    }
 
     const stateContent = normalizeText(memoryFiles.find((file) => file.path === 'memory/state.md')?.content || '');
     if (stateContent) {
@@ -2178,7 +2183,7 @@ function prepareXbTavernMessageBuild(
         buildAuthorNoteInjectScanText(context, currentUserMessage),
     ].filter(Boolean).join('\n');
     const nativeActivatedEntries = normalizeNativeActivatedEntries(context.nativeWorldInfo?.activatedEntries);
-    const nativePromptEntries = buildNativePromptEntries(context.nativeWorldInfo);
+    const nativePromptEntries = buildActivatedWorldEntriesFromNativeRuntime(context.nativeWorldInfo);
     const worldSettings = {
         ...runtimeWorldSettings,
         scanText,

@@ -189,6 +189,8 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
     const htmlGenerateRelays = new Map<string, { iframe: HTMLIFrameElement; targetOrigin: string; timeoutId: number }>();
     const htmlIframeHeights = new WeakMap<HTMLIFrameElement, number>();
     const htmlIframeHeightFrames = new WeakMap<HTMLIFrameElement, number>();
+    const htmlIframeProbeTimers = new Map<HTMLIFrameElement, Set<number>>();
+    const releasedHtmlIframes = new WeakSet<HTMLIFrameElement>();
 
     function preserveChatScroll<T>(mutation: () => T): T {
         return options.preserveChatScroll ? options.preserveChatScroll(mutation) : mutation();
@@ -250,6 +252,18 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
         return html;
     }
 
+    /**
+     * Assistant-chat cards own their short-lived cache and release it with
+     * their DOM window. Do not put their historical content in the shared RP
+     * cache, which intentionally outlives a manager-chat page.
+     */
+    function renderUncachedMarkdown(text = '', renderOptions: TavernRoleplayMarkdownOptions = {}) {
+        const raw = renderOptions.roleplay
+            ? preprocessTavernRoleplayMarkdown(text, renderOptions)
+            : String(text || '');
+        return renderMarkdownToHtml(raw, renderOptions.roleplay ? { htmlFenceMode: 'code' } : {});
+    }
+
     function stripTavernImageMarkers(text = '') {
         return String(text || '')
             .replace(TAVERN_IMAGE_MARKER_REGEX, '')
@@ -285,7 +299,12 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
         }
     }
 
+    function isActiveTavernHtmlIframe(iframe: HTMLIFrameElement) {
+        return iframe.isConnected !== false && !releasedHtmlIframes.has(iframe);
+    }
+
     function postToTavernHtmlIframe(iframe: HTMLIFrameElement, payload: Record<string, unknown>, targetOrigin = window.location.origin) {
+        if (!isActiveTavernHtmlIframe(iframe)) {return;}
         postToIframe(iframe, payload, undefined, getTavernHtmlMessageTargetOrigin(targetOrigin));
     }
 
@@ -317,6 +336,24 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
         });
     }
 
+    function clearTavernHtmlIframeProbeTimers(iframe: HTMLIFrameElement) {
+        const timers = htmlIframeProbeTimers.get(iframe);
+        timers?.forEach((timer) => window.clearTimeout(timer));
+        htmlIframeProbeTimers.delete(iframe);
+    }
+
+    function releaseTavernHtmlIframeResources(iframe: HTMLIFrameElement) {
+        releasedHtmlIframes.add(iframe);
+        clearTavernHtmlGenerateRelaysForIframe(iframe);
+        clearTavernHtmlIframeProbeTimers(iframe);
+        const frameId = htmlIframeHeightFrames.get(iframe);
+        if (frameId) {
+            window.cancelAnimationFrame(frameId);
+            htmlIframeHeightFrames.delete(iframe);
+        }
+        htmlIframeHeights.delete(iframe);
+    }
+
     function isTavernGenerateRelayResponse(data: Record<string, unknown>) {
         return data.source === 'xiaobaix-host'
             && typeof data.id === 'string'
@@ -339,6 +376,7 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
     }
 
     function rememberTavernHtmlGenerateRelay(id: string, iframe: HTMLIFrameElement, targetOrigin: string) {
+        if (!isActiveTavernHtmlIframe(iframe)) {return;}
         deleteTavernHtmlGenerateRelay(id);
         const timeoutId = window.setTimeout(() => {
             const relay = htmlGenerateRelays.get(id);
@@ -353,13 +391,7 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
         if (!wrapper?.classList.contains('xb-tavern-html-wrapper')) {return;}
         const iframe = wrapper.querySelector<HTMLIFrameElement>(TAVERN_HTML_IFRAME_SELECTOR);
         if (iframe) {
-            clearTavernHtmlGenerateRelaysForIframe(iframe);
-            const frameId = htmlIframeHeightFrames.get(iframe);
-            if (frameId) {
-                window.cancelAnimationFrame(frameId);
-                htmlIframeHeightFrames.delete(iframe);
-            }
-            htmlIframeHeights.delete(iframe);
+            releaseTavernHtmlIframeResources(iframe);
         }
         preserveChatScroll(() => {
             wrapper.remove();
@@ -367,6 +399,7 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
     }
 
     function applyTavernHtmlIframeHeight(iframe: HTMLIFrameElement, height: unknown, force = false) {
+        if (!isActiveTavernHtmlIframe(iframe)) {return;}
         const next = Math.max(0, Number(height) || 0);
         if (next < 1) {return;}
         const rounded = Math.ceil(next);
@@ -379,7 +412,7 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
         }
         const frameId = window.requestAnimationFrame(() => {
             htmlIframeHeightFrames.delete(iframe);
-            if (!iframe.isConnected) {return;}
+            if (!isActiveTavernHtmlIframe(iframe)) {return;}
             preserveChatScroll(() => {
                 iframe.style.height = `${rounded}px`;
             });
@@ -389,6 +422,7 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
 
     function probeTavernHtmlIframe(iframe: HTMLIFrameElement, delay = 0) {
         const send = () => {
+            if (!isActiveTavernHtmlIframe(iframe)) {return;}
             try {
                 postToIframe(iframe, { type: 'probe' }, undefined, window.location.origin);
             } catch {
@@ -396,7 +430,16 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
             }
         };
         if (delay > 0) {
-            window.setTimeout(send, delay);
+            const timers = htmlIframeProbeTimers.get(iframe) || new Set<number>();
+            const timer = window.setTimeout(() => {
+                timers.delete(timer);
+                if (!timers.size) {
+                    htmlIframeProbeTimers.delete(iframe);
+                }
+                send();
+            }, delay);
+            timers.add(timer);
+            htmlIframeProbeTimers.set(iframe, timers);
             return;
         }
         send();
@@ -503,11 +546,14 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
 
     async function loadTavernExternalHtmlUrl(iframe: HTMLIFrameElement, url: string) {
         try {
+            if (!isActiveTavernHtmlIframe(iframe)) {return;}
             iframe.srcdoc = '<!DOCTYPE html><html><body style="display:flex;justify-content:center;align-items:center;height:100px;color:#888;font-family:sans-serif;background:transparent">加载中...</body></html>';
 
             let html = await fetchTavernExternalHtml(url);
+            if (!isActiveTavernHtmlIframe(iframe)) {return;}
             if (html) {
                 html = await replaceTavernHtmlRenderVariables(html);
+                if (!isActiveTavernHtmlIframe(iframe)) {return;}
                 iframe.srcdoc = buildTavernWrappedHtml(html, options.htmlThemeDark.value);
                 probeTavernHtmlIframe(iframe, 100);
                 return;
@@ -518,6 +564,7 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
             iframe.style.minHeight = '800px';
             iframe.setAttribute('scrolling', 'auto');
         } catch (error) {
+            if (!isActiveTavernHtmlIframe(iframe)) {return;}
             console.error('[LittleWhiteBox Tavern] external HTML preview failed:', error);
             iframe.removeAttribute('srcdoc');
             iframe.src = url;
@@ -527,6 +574,7 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
     }
 
     async function loadTavernHtmlIframeContent(iframe: HTMLIFrameElement, html = '') {
+        if (!isActiveTavernHtmlIframe(iframe)) {return;}
         const source = String(html || '');
         const externalUrl = extractTavernExternalHtmlUrl(source);
         if (externalUrl) {
@@ -534,6 +582,7 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
             return;
         }
         const replaced = await replaceTavernHtmlRenderVariables(source);
+        if (!isActiveTavernHtmlIframe(iframe)) {return;}
         iframe.srcdoc = buildTavernWrappedHtml(replaced, options.htmlThemeDark.value);
         probeTavernHtmlIframe(iframe);
     }
@@ -795,10 +844,9 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
     }
 
     function formatInlineImageProgress(status = '', payload: Record<string, unknown> = {}) {
-        const queuePosition = Math.max(0, Math.floor(Number(payload.position) || 0));
+        const ahead = Math.max(0, Math.floor(Number(payload.ahead) || 0));
         const cooldownSeconds = Math.max(0, Math.floor(Number(payload.delay) || 0));
         if (status === 'queued') {
-            const ahead = Math.max(0, queuePosition - 1);
             return ahead > 0 ? `排队中，前面还有 ${ahead} 张` : '排队中';
         }
         if (status === 'generating') {
@@ -837,8 +885,10 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
             const result = response.result && typeof response.result === 'object'
                 ? response.result as Record<string, unknown>
                 : response;
+            if (!slot.isConnected) {return;}
             renderInlineImageSlot(slot, String(result.base64 || ''));
         } catch (error) {
+            if (!slot.isConnected) {return;}
             renderInlineImageError(slot, normalizedTags, error);
         }
     }
@@ -1147,21 +1197,25 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
         node.dataset[marker] = signature;
     }
 
+    function releaseMarkdownRootResources(root: HTMLElement) {
+        root.querySelectorAll<HTMLElement>('.xb-tavern-inline-image').forEach((slot) => {
+            inlineImageObserver?.unobserve(slot);
+            delete slot.dataset.observed;
+        });
+        root.querySelectorAll<HTMLIFrameElement>(TAVERN_HTML_IFRAME_SELECTOR).forEach((iframe) => {
+            releaseTavernHtmlIframeResources(iframe);
+        });
+    }
+
     function enhanceChatMarkdown() {
         preserveChatScroll(() => {
             const root = options.chatScrollRef.value;
             if (!root?.querySelectorAll) {return;}
             root.querySelectorAll<HTMLElement>('.xb-tavern-markdown').forEach((node) => {
+                if (node.dataset.markdownManaged === 'true') {return;}
+                if (node.closest('[data-chat-streaming="true"]')) {return;}
                 enhanceStableMarkdownNode(node);
             });
-        });
-    }
-
-    function enhanceLiveChatMarkdown() {
-        const root = options.chatScrollRef.value;
-        if (!root?.querySelectorAll) {return;}
-        root.querySelectorAll<HTMLElement>('[data-chat-streaming="true"] .xb-tavern-markdown').forEach((node) => {
-            enhanceStableMarkdownNode(node, { live: true });
         });
     }
 
@@ -1191,6 +1245,9 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
         disposeMarkdownTools() {
             inlineImageObserver?.disconnect();
             inlineImageObserver = null;
+            htmlIframeProbeTimers.forEach((_timers, iframe) => {
+                releaseTavernHtmlIframeResources(iframe);
+            });
             clearAllTavernHtmlGenerateRelays();
             drawImageEnhancer.closeTavernImageGallery();
             if (typeof window !== 'undefined') {
@@ -1199,10 +1256,12 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
             }
         },
         enhanceChatMarkdown,
-        enhanceLiveChatMarkdown,
         enhanceManagerMarkdown,
+        enhanceMarkdownRoot: enhanceStableMarkdownNode,
         markdownSignature,
+        releaseMarkdownRootResources,
         renderChatMarkdown,
+        renderUncachedMarkdown,
         stripTavernImageMarkers,
     };
 }

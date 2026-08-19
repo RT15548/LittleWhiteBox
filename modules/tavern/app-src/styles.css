@@ -12,3 +12,14 @@
 @import './styles/dialog.css';
 @import './styles/settings.css';
 @import './styles/chat/quick-settings.css';
+@import './styles/phone-os/tokens.css';
+@import './styles/phone-os/shell.css';
+@import './styles/phone-os/home.css';
+@import './styles/phone-os/messages.css';
+@import './styles/phone-os/wallet.css';
+@import './styles/phone-os/tasks.css';
+@import './styles/phone-os/shop.css';
+@import './styles/phone-os/bank.css';
+@import './styles/phone-os/pet.css';
+@import './styles/phone-os/transitions.css';
+@import './styles/phone-os/mobile.css';

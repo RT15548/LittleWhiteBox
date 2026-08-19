@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import type { TavernStructuredStateDocumentRecord, TavernStructuredStatePatchRecord } from '../../shared/session-db';
+import type { TavernStructuredStateDocumentRecord } from '../../shared/session-db';
 import type { TavernAtlasActorPosition, TavernAtlasDocument, TavernAtlasLink, TavernAtlasLocation, TavernMapStateDocumentItem } from '../../shared/structured-state';
 import { layoutTavernAtlasDocument } from '../atlas-display';
 import {
@@ -10,7 +10,7 @@ import {
 
 const props = withDefaults(defineProps<{
     document: TavernStructuredStateDocumentRecord | null;
-    patches?: TavernStructuredStatePatchRecord[];
+    latestPatchSummary?: string;
     activeLocationKey?: string;
     activeMapDocId?: string;
     previewMapDocId?: string;
@@ -19,7 +19,7 @@ const props = withDefaults(defineProps<{
     materialSymbolsReady?: boolean;
     materialSymbolsStatus?: 'idle' | 'loading' | 'ready' | 'failed';
 }>(), {
-    patches: () => [],
+    latestPatchSummary: '',
     activeLocationKey: '',
     activeMapDocId: 'main',
     previewMapDocId: '',
@@ -62,7 +62,7 @@ const selectedLocation = computed(() => locationMap.value.get(selectedLocationKe
 const currentLocation = computed(() => locationMap.value.get(atlas.value.activeLocationKey || '') || null);
 const currentMapDocId = computed(() => String(currentLocation.value?.mapDocId || '').trim());
 const mapMismatchWarning = computed(() => !!currentMapDocId.value && !!props.activeMapDocId && currentMapDocId.value !== props.activeMapDocId);
-const latestPatchSummary = computed(() => String(props.patches.at(-1)?.summary || '').trim());
+const latestPatchSummary = computed(() => String(props.latestPatchSummary || '').trim());
 const mapTitleById = computed(() => {
     const table = new Map<string, string>();
     props.mapDocuments.forEach((document) => table.set(document.docId, document.title || document.docId));

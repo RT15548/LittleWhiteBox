@@ -1,12 +1,11 @@
-export type TavernContractTier = 'silent-operations' | 'fate-arbitration' | 'narrative-orchestration';
+export type TavernContractTier = 'silent-operations' | 'fate-arbitration';
 
 export type TavernContractPermissionKey =
     | 'memoryArchiving'
     | 'cartographyEngine'
     | 'statusPanel'
     | 'actionChecks'
-    | 'randomEncounters'
-    | 'questOrchestration';
+    | 'randomEncounters';
 
 export interface TavernSessionContract {
     memoryArchiving: boolean;
@@ -14,14 +13,12 @@ export interface TavernSessionContract {
     statusPanel: boolean;
     actionChecks: boolean;
     randomEncounters: boolean;
-    questOrchestration: boolean;
 }
 
 export interface TavernContractManagerPromptOptions {
     includeMemory: boolean;
     includeCartography: boolean;
     includeStatus: boolean;
-    includeQuestOrchestration: boolean;
 }
 
 export interface TavernContractRuntimeCapability {
@@ -44,7 +41,6 @@ export interface TavernSessionContractRuntime {
     includeStatusStates: boolean;
     includeActionChecks: boolean;
     includeRandomEncounters: boolean;
-    includeQuestOrchestration: boolean;
     hasAutomaticManagerWork: boolean;
     managerPromptOptions: TavernContractManagerPromptOptions;
 }
@@ -64,7 +60,6 @@ export const DEFAULT_TAVERN_SESSION_CONTRACT: TavernSessionContract = {
     statusPanel: true,
     actionChecks: true,
     randomEncounters: true,
-    questOrchestration: false,
 };
 
 export const TAVERN_SESSION_CONTRACT_KEYS: TavernContractPermissionKey[] = [
@@ -73,13 +68,11 @@ export const TAVERN_SESSION_CONTRACT_KEYS: TavernContractPermissionKey[] = [
     'statusPanel',
     'actionChecks',
     'randomEncounters',
-    'questOrchestration',
 ];
 
 export const TAVERN_CONTRACT_TIER_LABELS: Record<TavernContractTier, string> = {
     'silent-operations': '暗中行事',
     'fate-arbitration': '命运仲裁',
-    'narrative-orchestration': '叙事编排',
 };
 
 export const TAVERN_CONTRACT_MANDATES: TavernContractMandateDefinition[] = [
@@ -123,14 +116,6 @@ export const TAVERN_CONTRACT_MANDATES: TavernContractMandateDefinition[] = [
         summary: '',
         description: '允许世界给你意外。每隔一段时间，一颗无形的骰子在暗中滚动。当它落定，意料之外的事降临——路上的伏击、天空中的异兆、门缝下塞进的一封信。',
     },
-    {
-        key: 'questOrchestration',
-        tier: 'narrative-orchestration',
-        icon: '🧭',
-        title: '织线者',
-        summary: '',
-        description: '让代理人感知你故事中的暗流，浮现接下来可能发生的事。当势头停滞，一根线索显现——追随它、忽视它，或任它消散。',
-    },
 ];
 
 export const TAVERN_CONTRACT_RUNTIME_CAPABILITIES: Record<TavernContractPermissionKey, TavernContractRuntimeCapability> = {
@@ -155,9 +140,6 @@ export const TAVERN_CONTRACT_RUNTIME_CAPABILITIES: Record<TavernContractPermissi
     randomEncounters: {
         includeRandomEncounters: true,
     },
-    questOrchestration: {
-        automaticManagerWork: true,
-    },
 };
 
 export function normalizeTavernSessionContract(value: unknown): TavernSessionContract {
@@ -168,7 +150,6 @@ export function normalizeTavernSessionContract(value: unknown): TavernSessionCon
         statusPanel: 'statusPanel' in source ? Boolean(source.statusPanel) : DEFAULT_TAVERN_SESSION_CONTRACT.statusPanel,
         actionChecks: 'actionChecks' in source ? Boolean(source.actionChecks) : DEFAULT_TAVERN_SESSION_CONTRACT.actionChecks,
         randomEncounters: 'randomEncounters' in source ? Boolean(source.randomEncounters) : DEFAULT_TAVERN_SESSION_CONTRACT.randomEncounters,
-        questOrchestration: 'questOrchestration' in source ? Boolean(source.questOrchestration) : DEFAULT_TAVERN_SESSION_CONTRACT.questOrchestration,
     };
 }
 
@@ -211,13 +192,11 @@ export function resolveTavernSessionContractRuntime(
             includeStatusStates: current.includeStatusStates || capability.includeStatusStates === true,
             includeActionChecks: current.includeActionChecks || capability.includeActionChecks === true,
             includeRandomEncounters: current.includeRandomEncounters || capability.includeRandomEncounters === true,
-            includeQuestOrchestration: current.includeQuestOrchestration || key === 'questOrchestration',
             hasAutomaticManagerWork: current.hasAutomaticManagerWork || capability.automaticManagerWork === true,
             managerPromptOptions: {
                 includeMemory: current.managerPromptOptions.includeMemory || capability.managerPromptMemory === true,
                 includeCartography: current.managerPromptOptions.includeCartography || capability.managerPromptCartography === true,
                 includeStatus: current.managerPromptOptions.includeStatus || capability.managerPromptStatus === true,
-                includeQuestOrchestration: current.managerPromptOptions.includeQuestOrchestration || key === 'questOrchestration',
             },
         };
     }, {
@@ -228,13 +207,11 @@ export function resolveTavernSessionContractRuntime(
         includeStatusStates: false,
         includeActionChecks: false,
         includeRandomEncounters: false,
-        includeQuestOrchestration: false,
         hasAutomaticManagerWork: false,
         managerPromptOptions: {
             includeMemory: false,
             includeCartography: false,
             includeStatus: false,
-            includeQuestOrchestration: false,
         },
     });
     return runtime;

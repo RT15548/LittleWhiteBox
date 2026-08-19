@@ -1,0 +1,180 @@
+.tavern-phone-home {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    display: grid;
+    grid-template-rows: minmax(0, 1fr);
+    overflow: hidden;
+    isolation: isolate;
+    background:
+        radial-gradient(circle at 18% 18%, rgba(111, 142, 170, 0.58), transparent 34%),
+        radial-gradient(circle at 84% 78%, rgba(126, 93, 81, 0.46), transparent 38%),
+        linear-gradient(150deg, #26313c 0%, #171d25 48%, #101318 100%);
+    color: #fff;
+    padding: 64px 21px 18px;
+}
+
+.tavern-phone-wallpaper {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    overflow: hidden;
+    pointer-events: none;
+}
+
+.tavern-phone-wallpaper img {
+    width: 100%;
+    height: 100%;
+    display: block;
+    object-fit: cover;
+    object-position: center 24%;
+    filter: blur(15px) saturate(0.76) contrast(0.96) brightness(0.58);
+    opacity: 0.76;
+    transform: scale(1.12);
+}
+
+.tavern-phone-wallpaper::before,
+.tavern-phone-wallpaper::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+}
+
+.tavern-phone-wallpaper::before {
+    background:
+        radial-gradient(circle at 78% 20%, rgba(198, 173, 155, 0.18), transparent 34%),
+        radial-gradient(circle at 16% 74%, rgba(71, 104, 137, 0.32), transparent 40%),
+        linear-gradient(180deg, rgba(5, 7, 10, 0.22) 0%, rgba(5, 7, 10, 0.08) 28%, rgba(5, 7, 10, 0.22) 64%, rgba(5, 7, 10, 0.66) 100%),
+        linear-gradient(105deg, rgba(9, 13, 18, 0.26), transparent 58%);
+}
+
+.tavern-phone-wallpaper::after {
+    opacity: 0.23;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.82' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.22'/%3E%3C/svg%3E");
+    mix-blend-mode: soft-light;
+}
+
+.tavern-phone-wallpaper span {
+    position: absolute;
+    inset: auto -20% -24% 18%;
+    height: 48%;
+    border-radius: 50%;
+    background: rgba(5, 8, 12, 0.58);
+    filter: blur(54px);
+}
+
+.tavern-phone-app-grid {
+    position: relative;
+    z-index: 2;
+    align-self: start;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    align-content: start;
+    gap: 23px 13px;
+}
+
+.tavern-phone-app-icon-button {
+    min-width: 0;
+    display: grid;
+    justify-items: center;
+    gap: 7px;
+    border: 0;
+    background: transparent;
+    color: #fff;
+    padding: 0;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.tavern-phone-app-icon {
+    position: relative;
+    width: 62px;
+    height: 62px;
+    display: grid;
+    place-items: center;
+    overflow: visible;
+    border: 1px solid rgba(255, 255, 255, 0.31);
+    border-radius: 19px;
+    background:
+        radial-gradient(circle at 28% 20%, rgba(255, 255, 255, 0.32), transparent 36%),
+        linear-gradient(155deg, color-mix(in srgb, var(--phone-app-accent) 72%, #91aaff), var(--phone-app-accent) 56%, color-mix(in srgb, var(--phone-app-accent) 76%, #172347));
+    box-shadow:
+        0 12px 25px rgba(3, 6, 10, 0.38),
+        0 3px 8px rgba(3, 6, 10, 0.22),
+        inset 0 0 0 1px rgba(255, 255, 255, 0.11),
+        inset 0 -10px 20px rgba(12, 24, 62, 0.14);
+    transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1), filter 0.2s ease;
+}
+
+.tavern-phone-app-icon::after {
+    content: "";
+    position: absolute;
+    inset: 1px;
+    border-radius: 17px;
+    background: linear-gradient(145deg, rgba(255, 255, 255, 0.15), transparent 38% 72%, rgba(8, 15, 38, 0.10));
+    pointer-events: none;
+}
+
+.tavern-phone-app-icon-art {
+    position: relative;
+    z-index: 1;
+    width: 39px;
+    height: 39px;
+    display: grid;
+    place-items: center;
+    color: #fff;
+    filter: drop-shadow(0 3px 7px rgba(4, 11, 31, 0.24));
+}
+
+.tavern-phone-app-icon-art > *,
+.tavern-phone-app-icon-art svg {width: 100%; height: 100%; display: block;}
+.tavern-phone-messages-icon-shell {fill: rgba(255, 255, 255, 0.96);}
+.tavern-phone-messages-icon-highlight {fill: rgba(255, 255, 255, 0.34);}
+.tavern-phone-messages-icon-line {fill: color-mix(in srgb, var(--phone-app-accent) 88%, #183a8f);}
+.tavern-phone-messages-icon-line.is-short {opacity: 0.76;}
+.tavern-phone-wallet-icon-back {fill: color-mix(in srgb, var(--phone-app-accent) 70%, #6f4316);}
+.tavern-phone-wallet-icon-fold {fill: rgba(255, 248, 229, 0.96);}
+.tavern-phone-wallet-icon-pocket {fill: color-mix(in srgb, var(--phone-app-accent) 88%, #7b4f17);}
+.tavern-phone-wallet-icon-coin {fill: #fff4ce; stroke: rgba(103, 65, 16, 0.32); stroke-width: 1;}
+.tavern-phone-wallet-icon-glint {fill: rgba(255, 255, 255, 0.28);}
+
+.tavern-phone-app-icon-button:hover .tavern-phone-app-icon {
+    transform: translateY(-3px) scale(1.015);
+    filter: saturate(1.05) brightness(1.04);
+}
+
+.tavern-phone-app-icon-button:active .tavern-phone-app-icon {transform: translateY(1px) scale(0.90); filter: brightness(0.96);}
+
+.tavern-phone-device .tavern-phone-app-icon-button:hover:not(:disabled) {
+    border-color: transparent;
+    background: transparent;
+    color: #fff;
+}
+
+.tavern-phone-app-icon-button > strong {
+    max-width: 74px;
+    overflow: hidden;
+    color: #fff;
+    font: 620 12px/1.15 var(--phone-os-font);
+    letter-spacing: 0.01em;
+    text-overflow: ellipsis;
+    text-shadow: 0 1px 4px rgba(0, 0, 0, 0.86), 0 2px 10px rgba(0, 0, 0, 0.44);
+    white-space: nowrap;
+}
+
+.tavern-phone-app-badge {
+    position: absolute;
+    top: -7px;
+    right: -7px;
+    min-width: 22px;
+    height: 22px;
+    display: grid;
+    place-items: center;
+    border: 2px solid rgba(19, 24, 31, 0.92);
+    border-radius: 999px;
+    background: #e14f4b;
+    color: #fff;
+    padding: 0 5px;
+    font: normal 760 10px/1 var(--phone-os-font);
+    box-shadow: 0 3px 8px rgba(0, 0, 0, 0.28);
+}
