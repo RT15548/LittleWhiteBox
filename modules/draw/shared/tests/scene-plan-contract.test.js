@@ -5,8 +5,11 @@ import {
     SCENE_CHARACTER_TYPES,
     ScenePlannerError,
     ScenePlannerErrorCategory,
+    createScenePlannerCorrectionResult,
     createSubmitScenePlanTool,
+    getScenePlannerCorrectionSignature,
     getScenePlannerErrorCategory,
+    isScenePlannerCorrectionError,
     parseSubmittedScenePlan,
     toSceneCharacterPromptTag,
 } from '../scene-plan-contract.js';
@@ -186,6 +189,36 @@ test('scene plan contract distinguishes tool protocol failures', () => {
     assert.throws(
         () => parseSubmittedScenePlan({ toolCalls: [{ name: 'submit_scene_plan', arguments: '{"images":' }] }),
         (error) => error.code === 'TOOL_ARGUMENTS_INVALID_JSON',
+    );
+});
+
+test('scene planner correction feedback distinguishes missing, wrong, multiple, and schema failures', () => {
+    const cases = [
+        [new ScenePlannerError('没有调用', 'TOOL_CALL_MISSING'), /没有调用 Tool/],
+        [new ScenePlannerError('调用错误', 'TOOL_CALL_NAME_INVALID', { name: 'wrong' }), /错误的 Tool/],
+        [new ScenePlannerError('调用过多', 'TOOL_CALL_MULTIPLE', { count: 2 }), /多个 Tool/],
+        [new ScenePlannerError('字段错误', 'TOOL_ARGUMENTS_SCHEMA_INVALID', {
+            path: 'images[0].scene',
+            value: '不会回传给模型',
+        }), /错误位置/],
+    ];
+
+    for (const [error, instructionPattern] of cases) {
+        assert.equal(isScenePlannerCorrectionError(error), true);
+        const feedback = createScenePlannerCorrectionResult(error);
+        assert.equal(feedback.ok, false);
+        assert.equal(feedback.error.code, error.code);
+        assert.match(feedback.instruction, instructionPattern);
+        assert.equal(Object.hasOwn(feedback.error.details || {}, 'value'), false);
+    }
+    assert.equal(isScenePlannerCorrectionError(new ScenePlannerError('超时', 'REQUEST_TIMEOUT')), false);
+    assert.equal(
+        getScenePlannerCorrectionSignature(cases[3][0]),
+        getScenePlannerCorrectionSignature(new ScenePlannerError(
+            '另一个值仍在相同位置错误',
+            'TOOL_ARGUMENTS_SCHEMA_INVALID',
+            { path: 'images[0].scene', value: 'different' },
+        )),
     );
 });
 

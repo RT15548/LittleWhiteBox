@@ -292,6 +292,28 @@ export async function generateAndParseScenePlan(options = {}) {
 
     const task = request.task;
     const agentCaller = options.agentCaller || callDrawScenePlannerAgent;
+    const parseResult = (result, providerConfig = {}) => {
+        try {
+            return parseSubmittedScenePlan(result, {
+                messageText: request.validationContext.messageText,
+                presentCharacters: options.presentCharacters,
+                maxImages: options.maxImages,
+                maxCharactersPerImage: options.maxCharactersPerImage,
+                presetName: providerConfig.currentPresetName,
+                provider: providerConfig.provider,
+                model: providerConfig.model,
+            });
+        } catch (error) {
+            throw error instanceof ScenePlannerError
+                ? error
+                : new ScenePlannerError(
+                    `场景计划校验失败：${error?.message || '未知错误'}`,
+                    'TOOL_ARGUMENTS_SCHEMA_INVALID',
+                    null,
+                    { cause: error },
+                );
+        }
+    };
     let response;
     try {
         response = await agentCaller({
@@ -300,6 +322,7 @@ export async function generateAndParseScenePlan(options = {}) {
             signal: options.signal,
             diagnostic,
             ...(options.agentOptions || {}),
+            validateResult: (result, context = {}) => parseResult(result, context.providerConfig),
         });
     } catch (error) {
         xbLog.error('novelDrawLlm', `Scene Planner 请求失败: ${error?.message || error}`, {
@@ -318,26 +341,10 @@ export async function generateAndParseScenePlan(options = {}) {
 
     let parsed;
     try {
-        parsed = parseSubmittedScenePlan(response.result, {
-            messageText: request.validationContext.messageText,
-            presentCharacters: options.presentCharacters,
-            maxImages: options.maxImages,
-            maxCharactersPerImage: options.maxCharactersPerImage,
-            presetName: response.providerConfig?.currentPresetName,
-            provider: response.providerConfig?.provider,
-            model: response.providerConfig?.model,
-        });
+        parsed = response.parsed || parseResult(response.result, response.providerConfig);
     } catch (error) {
-        const domainError = error instanceof ScenePlannerError
-            ? error
-            : new ScenePlannerError(
-                `场景计划校验失败：${error?.message || '未知错误'}`,
-                'TOOL_ARGUMENTS_SCHEMA_INVALID',
-                null,
-                { cause: error },
-            );
-        diagnostic.fail(domainError, { stage: 'parse' });
-        throw domainError;
+        diagnostic.fail(error, { stage: 'parse' });
+        throw error;
     }
 
     diagnostic.succeed({ stage: 'parse', imageTaskCount: parsed.tasks.length });

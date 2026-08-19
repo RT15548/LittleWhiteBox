@@ -23,4 +23,9 @@ export {
     REASONING_OUTPUT_OPTIONS,
     normalizeReasoningConfig,
 } from './reasoning-config.js';
+export {
+    buildProviderAssistantToolCallMessage,
+    buildProviderToolResultMessage,
+    resolveResultToolCalls,
+} from './runtime/protocol.js';
 export { setHostChatCompletionsRequestHeadersProvider } from '../../shared/host-llm/chat-completions/client.js';

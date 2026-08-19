@@ -72,6 +72,14 @@ const SCHEMA_ERROR_CODES = new Set([
     'TOOL_ARGUMENTS_SCHEMA_INVALID',
     'NO_IMAGE_TASKS',
 ]);
+const CORRECTABLE_ERROR_CODES = new Set([
+    'TOOL_CALL_MISSING',
+    'TOOL_CALL_MULTIPLE',
+    'TOOL_CALL_NAME_INVALID',
+    'TOOL_ARGUMENTS_INVALID_JSON',
+    'TOOL_ARGUMENTS_SCHEMA_INVALID',
+    'NO_IMAGE_TASKS',
+]);
 
 export class ScenePlannerError extends Error {
     constructor(message, code = 'SCENE_PLANNER_ERROR', details = null, options = {}) {
@@ -93,6 +101,56 @@ export function getScenePlannerErrorCategory(error) {
     if (code === 'REQUEST_ABORTED') return ScenePlannerErrorCategory.ABORTED;
     if (code === 'PROVIDER_REQUEST_FAILED') return ScenePlannerErrorCategory.PROVIDER;
     return ScenePlannerErrorCategory.UNKNOWN;
+}
+
+export function isScenePlannerCorrectionError(error) {
+    return error instanceof ScenePlannerError && CORRECTABLE_ERROR_CODES.has(error.code);
+}
+
+function getCorrectionInstruction(code) {
+    switch (code) {
+        case 'TOOL_CALL_MISSING':
+            return '你没有调用 Tool。请只调用一次 submit_scene_plan，并提交完整计划。';
+        case 'TOOL_CALL_MULTIPLE':
+            return '你调用了多个 Tool。请合并为完整计划，并只调用一次 submit_scene_plan。';
+        case 'TOOL_CALL_NAME_INVALID':
+            return '你调用了错误的 Tool。请只调用 submit_scene_plan。';
+        default:
+            return 'submit_scene_plan 参数未通过校验。请按错误位置修正后重新提交完整计划。';
+    }
+}
+
+function normalizeCorrectionDetails(details) {
+    if (!details || typeof details !== 'object' || Array.isArray(details)) return null;
+    const normalized = {};
+    for (const key of ['path', 'name', 'count']) {
+        if (Object.prototype.hasOwnProperty.call(details, key)) normalized[key] = details[key];
+    }
+    return Object.keys(normalized).length ? normalized : null;
+}
+
+export function createScenePlannerCorrectionResult(error) {
+    const code = String(error?.code || 'TOOL_ARGUMENTS_SCHEMA_INVALID');
+    const details = normalizeCorrectionDetails(error?.details);
+    return {
+        ok: false,
+        error: {
+            code,
+            message: String(error?.message || '场景计划校验失败。'),
+            ...(details ? { details } : {}),
+        },
+        instruction: getCorrectionInstruction(code),
+    };
+}
+
+export function getScenePlannerCorrectionSignature(error) {
+    const details = normalizeCorrectionDetails(error?.details) || {};
+    return JSON.stringify({
+        code: String(error?.code || ''),
+        path: String(details.path || ''),
+        name: String(details.name || ''),
+        count: Number.isFinite(Number(details.count)) ? Number(details.count) : null,
+    });
 }
 
 function normalizeLimit(value) {

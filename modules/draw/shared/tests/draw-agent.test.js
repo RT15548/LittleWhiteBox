@@ -92,6 +92,39 @@ function createFakeCore(captured) {
     };
 }
 
+function buildValidScenePlanResult() {
+    return {
+        toolCalls: [{
+            id: 'valid-call',
+            name: 'submit_scene_plan',
+            arguments: JSON.stringify({
+                mindful_prelude: {
+                    user_insight: '开门动作。',
+                    therapeutic_commitment: '忠实呈现。',
+                    visual_plan: {
+                        reasoning: '动作适合定格。',
+                        moments: [{
+                            moment: '1',
+                            anchor_target: '阿璃推开门。',
+                            char_count: '0',
+                            known_chars: [],
+                            unknown_chars: [],
+                            composition: '室内中景。',
+                        }],
+                    },
+                },
+                images: [{
+                    index: 1,
+                    anchor: '阿璃推开门。',
+                    scene: 'opening door, indoor',
+                    characters: [],
+                }],
+            }),
+        }],
+        finishReason: 'tool_calls',
+    };
+}
+
 test('draw agent reads the latest main preset every request and never selects delegate config', async () => {
     resetDrawAgentRuntimeForTests();
     const captured = { providerConfigs: [], tasks: [], headersProvider: null };
@@ -145,6 +178,177 @@ test('draw agent reads the latest main preset every request and never selects de
     // Diagnostics are redacted at the Draw boundary and never persisted.
     assert.equal(diagnostic.request.request.headers.Authorization, '[redacted]');
     assert.equal(diagnostic.request.request.body.api_key, '[redacted]');
+});
+
+test('scene planner corrects schema failures with canonical provider history in one request scope', async () => {
+    resetDrawAgentRuntimeForTests();
+    const tasks = [];
+    let adapterCreateCount = 0;
+    const providerPayload = {
+        openaiCompatibleMessage: {
+            role: 'assistant',
+            tool_calls: [{
+                id: 'invalid-call',
+                type: 'function',
+                function: { name: 'submit_scene_plan', arguments: '{}' },
+            }],
+        },
+    };
+    const responses = [{
+        toolCalls: [{ id: 'invalid-call', name: 'submit_scene_plan', arguments: '{}' }],
+        providerPayload,
+        finishReason: 'tool_calls',
+    }, buildValidScenePlanResult()];
+
+    const result = await generateAndParseScenePlan({
+        messageText: '阿璃推开门。',
+        maxImages: 1,
+        expansionOptions: { runtime: { substituteParams: (text) => text } },
+        agentOptions: {
+            dependencies: { getAgentSettings: async () => buildSettings('correction-model') },
+            loadAgentCore: async () => ({
+                createAgentAdapter: () => {
+                    adapterCreateCount += 1;
+                    return {
+                        chat: async (task) => {
+                            tasks.push(task);
+                            return responses[tasks.length - 1];
+                        },
+                    };
+                },
+            }),
+        },
+    });
+
+    assert.equal(adapterCreateCount, 1);
+    assert.equal(tasks.length, 2);
+    assert.equal(tasks[0].signal, tasks[1].signal);
+    const correctionHistory = tasks[1].messages.slice(-2);
+    assert.equal(correctionHistory[0].role, 'assistant');
+    assert.deepEqual(correctionHistory[0].providerPayload, providerPayload);
+    assert.equal(correctionHistory[0].tool_calls[0].id, 'invalid-call');
+    assert.equal(correctionHistory[1].role, 'tool');
+    assert.equal(correctionHistory[1].tool_call_id, 'invalid-call');
+    assert.equal(JSON.parse(correctionHistory[1].content).error.code, 'TOOL_ARGUMENTS_SCHEMA_INVALID');
+    assert.equal(result[0].scene, 'opening door, indoor');
+    const diagnostic = getLastDrawAgentDiagnostic();
+    assert.equal(diagnostic.status, 'success');
+    assert.equal(diagnostic.attemptCount, 2);
+    assert.equal(diagnostic.correctionCount, 1);
+});
+
+test('Google scene planner corrections stay in the active session and preserve provider call ids', async () => {
+    resetDrawAgentRuntimeForTests();
+    const settings = buildSettings('unused');
+    settings.presets['主预设'].provider = 'google';
+    settings.presets['主预设'].modelConfigs.google = {
+        model: 'gemini-test',
+        apiKey: 'google-key',
+    };
+    const tasks = [];
+    const responses = [{
+        provider: 'google',
+        toolCalls: [{
+            id: 'internal-call',
+            providerId: 'provider-call-7',
+            name: 'wrong_tool',
+            arguments: '{}',
+        }],
+    }, buildValidScenePlanResult()];
+
+    const result = await generateAndParseScenePlan({
+        messageText: '阿璃推开门。',
+        maxImages: 1,
+        expansionOptions: { runtime: { substituteParams: (text) => text } },
+        agentOptions: {
+            dependencies: { getAgentSettings: async () => settings },
+            loadAgentCore: async () => ({
+                createAgentAdapter: () => ({
+                    supportsSessionToolLoop: true,
+                    chat: async (task) => {
+                        tasks.push(task);
+                        return responses[tasks.length - 1];
+                    },
+                }),
+            }),
+        },
+    });
+
+    assert.equal(tasks.length, 2);
+    assert.equal(Object.hasOwn(tasks[1], 'messages'), false);
+    assert.equal(tasks[1].toolResponses.length, 1);
+    assert.equal(tasks[1].toolResponses[0].id, 'internal-call');
+    assert.equal(tasks[1].toolResponses[0].providerId, 'provider-call-7');
+    assert.equal(tasks[1].toolResponses[0].name, 'wrong_tool');
+    assert.equal(tasks[1].toolResponses[0].response.error.code, 'TOOL_CALL_NAME_INVALID');
+    assert.equal(result.length, 1);
+});
+
+test('scene planner stops immediately after the same validation error repeats', async () => {
+    resetDrawAgentRuntimeForTests();
+    let callCount = 0;
+    let adapterCreateCount = 0;
+    await assert.rejects(() => generateAndParseScenePlan({
+        messageText: '阿璃推开门。',
+        maxImages: 1,
+        expansionOptions: { runtime: { substituteParams: (text) => text } },
+        agentOptions: {
+            dependencies: { getAgentSettings: async () => buildSettings('repeated-error-model') },
+            loadAgentCore: async () => ({
+                createAgentAdapter: () => {
+                    adapterCreateCount += 1;
+                    return {
+                        chat: async () => {
+                            callCount += 1;
+                            return {
+                                toolCalls: [{
+                                    id: `invalid-${callCount}`,
+                                    name: 'submit_scene_plan',
+                                    arguments: '{}',
+                                }],
+                            };
+                        },
+                    };
+                },
+            }),
+        },
+    }), (error) => error.code === 'TOOL_ARGUMENTS_SCHEMA_INVALID');
+
+    assert.equal(adapterCreateCount, 1);
+    assert.equal(callCount, 2);
+    const diagnostic = getLastDrawAgentDiagnostic();
+    assert.equal(diagnostic.attemptCount, 2);
+    assert.equal(diagnostic.correctionCount, 2);
+    assert.equal(diagnostic.status, 'error');
+});
+
+test('scene planner performs at most three requests for changing validation failures', async () => {
+    resetDrawAgentRuntimeForTests();
+    const responses = [
+        { toolCalls: [] },
+        { toolCalls: [{ id: 'wrong', name: 'wrong_tool', arguments: '{}' }] },
+        { toolCalls: [{ id: 'invalid', name: 'submit_scene_plan', arguments: '{}' }] },
+    ];
+    let callCount = 0;
+    await assert.rejects(() => generateAndParseScenePlan({
+        messageText: '阿璃推开门。',
+        maxImages: 1,
+        expansionOptions: { runtime: { substituteParams: (text) => text } },
+        agentOptions: {
+            dependencies: { getAgentSettings: async () => buildSettings('attempt-limit-model') },
+            loadAgentCore: async () => ({
+                createAgentAdapter: () => ({
+                    chat: async () => {
+                        const response = responses[callCount];
+                        callCount += 1;
+                        return response;
+                    },
+                }),
+            }),
+        },
+    }), (error) => error.code === 'TOOL_ARGUMENTS_SCHEMA_INVALID');
+    assert.equal(callCount, 3);
+    assert.equal(getLastDrawAgentDiagnostic().correctionCount, 3);
 });
 
 test('draw diagnostics use adapter-effective reasoning and isolate notices by request and provider', async () => {
