@@ -686,8 +686,7 @@ function buildDeletedDrawPlaceholder(slotId, preview = {}, fallback = {}) {
     errorType: TAVERN_DRAW_DELETED_ERROR_TYPE,
     errorMessage: TAVERN_DRAW_DELETED_ERROR_MESSAGE,
     characterPrompts: cloneFramePayload(getDrawPreviewCharacterPrompts(source)),
-    negativePrompt: String(source.negativePrompt || ""),
-    anchor: String(source.anchor || "")
+    negativePrompt: String(source.negativePrompt || "")
   };
 }
 function buildRefreshFailedDrawPlaceholder(slotId, preview = {}, failedInfo = {}, error) {
@@ -708,8 +707,7 @@ function buildRefreshFailedDrawPlaceholder(slotId, preview = {}, failedInfo = {}
     errorType: "\u751F\u6210\u5931\u8D25",
     errorMessage,
     characterPrompts: cloneFramePayload(getDrawPreviewCharacterPrompts(source)),
-    negativePrompt: String(source.negativePrompt || ""),
-    anchor: String(source.anchor || "")
+    negativePrompt: String(source.negativePrompt || "")
   };
 }
 function transferDrawPreview(preview = {}, index = 0, total = 1) {
@@ -948,7 +946,6 @@ async function handleDrawImageRefresh(payload = {}) {
       positive: String(promptData.positive || tags),
       characterPrompts,
       negativePrompt: String(promptData.negativePrompt || negativePrompt || ""),
-      anchor: preview.anchor || "",
       source: "tavern"
     });
     await setSlotSelection(slotId, imgId);

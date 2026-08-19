@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-19T14:42:09.098Z",
+  "generatedAt": "2026-08-19T17:15:04.748Z",
   "version": 2,
   "files": [
     {
@@ -126,7 +126,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/docs/draw-agentcore-scene-planner-migration.md",
       "relativePath": "docs/draw-agentcore-scene-planner-migration.md",
       "extension": ".md",
-      "sizeBytes": 56683
+      "sizeBytes": 58830
     },
     {
       "source": "littlewhitebox",
@@ -378,7 +378,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/agent-core/browser-entry.js",
       "relativePath": "modules/agent-core/browser-entry.js",
       "extension": ".js",
-      "sizeBytes": 827
+      "sizeBytes": 975
     },
     {
       "source": "littlewhitebox",
@@ -1141,7 +1141,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/comfyui/comfy-draw.js",
       "relativePath": "modules/draw/providers/comfyui/comfy-draw.js",
       "extension": ".js",
-      "sizeBytes": 215884
+      "sizeBytes": 216318
     },
     {
       "source": "littlewhitebox",
@@ -1155,7 +1155,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/comfyui/COMFY_TAG编写指南.md",
       "relativePath": "modules/draw/providers/comfyui/COMFY_TAG编写指南.md",
       "extension": ".md",
-      "sizeBytes": 5418
+      "sizeBytes": 5469
     },
     {
       "source": "littlewhitebox",
@@ -1169,7 +1169,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/comfyui/prompts/scene-rules.md",
       "relativePath": "modules/draw/providers/comfyui/prompts/scene-rules.md",
       "extension": ".md",
-      "sizeBytes": 10414
+      "sizeBytes": 10620
     },
     {
       "source": "littlewhitebox",
@@ -1218,7 +1218,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/novel-draw.js",
       "relativePath": "modules/draw/providers/novelai/novel-draw.js",
       "extension": ".js",
-      "sizeBytes": 194305
+      "sizeBytes": 191573
     },
     {
       "source": "littlewhitebox",
@@ -1246,7 +1246,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/prompts/scene-rules.md",
       "relativePath": "modules/draw/providers/novelai/prompts/scene-rules.md",
       "extension": ".md",
-      "sizeBytes": 10625
+      "sizeBytes": 10831
     },
     {
       "source": "littlewhitebox",
@@ -1295,7 +1295,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/sd-webui/prompts/scene-rules.md",
       "relativePath": "modules/draw/providers/sd-webui/prompts/scene-rules.md",
       "extension": ".md",
-      "sizeBytes": 10404
+      "sizeBytes": 10610
     },
     {
       "source": "littlewhitebox",
@@ -1323,7 +1323,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/sd-webui/sd-draw.js",
       "relativePath": "modules/draw/providers/sd-webui/sd-draw.js",
       "extension": ".js",
-      "sizeBytes": 173839
+      "sizeBytes": 174213
     },
     {
       "source": "littlewhitebox",
@@ -1337,7 +1337,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/sd-webui/SD_TAG编写指南.md",
       "relativePath": "modules/draw/providers/sd-webui/SD_TAG编写指南.md",
       "extension": ".md",
-      "sizeBytes": 5447
+      "sizeBytes": 5498
     },
     {
       "source": "littlewhitebox",
@@ -1372,14 +1372,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/draw-agent.js",
       "relativePath": "modules/draw/shared/draw-agent.js",
       "extension": ".js",
-      "sizeBytes": 16799
+      "sizeBytes": 22823
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/draw-common.js",
       "relativePath": "modules/draw/shared/draw-common.js",
       "extension": ".js",
-      "sizeBytes": 46411
+      "sizeBytes": 40683
     },
     {
       "source": "littlewhitebox",
@@ -1393,7 +1393,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/gallery-cache.js",
       "relativePath": "modules/draw/shared/gallery-cache.js",
       "extension": ".js",
-      "sizeBytes": 50678
+      "sizeBytes": 50548
     },
     {
       "source": "littlewhitebox",
@@ -1418,10 +1418,24 @@
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/scene-placement.d.ts",
+      "relativePath": "modules/draw/shared/scene-placement.d.ts",
+      "extension": ".ts",
+      "sizeBytes": 585
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/scene-placement.js",
+      "relativePath": "modules/draw/shared/scene-placement.js",
+      "extension": ".js",
+      "sizeBytes": 2396
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/scene-plan-contract.js",
       "relativePath": "modules/draw/shared/scene-plan-contract.js",
       "extension": ".js",
-      "sizeBytes": 17772
+      "sizeBytes": 20752
     },
     {
       "source": "littlewhitebox",
@@ -1435,7 +1449,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/scene-planner.js",
       "relativePath": "modules/draw/shared/scene-planner.js",
       "extension": ".js",
-      "sizeBytes": 13986
+      "sizeBytes": 14785
     },
     {
       "source": "littlewhitebox",
@@ -1443,6 +1457,13 @@
       "relativePath": "modules/draw/shared/scene-prompt-expansion.js",
       "extension": ".js",
       "sizeBytes": 6504
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/scene-source.js",
+      "relativePath": "modules/draw/shared/scene-source.js",
+      "extension": ".js",
+      "sizeBytes": 5138
     },
     {
       "source": "littlewhitebox",
@@ -1470,7 +1491,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/draw-agent.test.js",
       "relativePath": "modules/draw/shared/tests/draw-agent.test.js",
       "extension": ".js",
-      "sizeBytes": 20395
+      "sizeBytes": 28346
     },
     {
       "source": "littlewhitebox",
@@ -1488,10 +1509,17 @@
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/scene-placement.test.js",
+      "relativePath": "modules/draw/shared/tests/scene-placement.test.js",
+      "extension": ".js",
+      "sizeBytes": 4477
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/scene-plan-contract.test.js",
       "relativePath": "modules/draw/shared/tests/scene-plan-contract.test.js",
       "extension": ".js",
-      "sizeBytes": 10554
+      "sizeBytes": 12818
     },
     {
       "source": "littlewhitebox",
@@ -1505,7 +1533,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/scene-planner.test.js",
       "relativePath": "modules/draw/shared/tests/scene-planner.test.js",
       "extension": ".js",
-      "sizeBytes": 14511
+      "sizeBytes": 17221
     },
     {
       "source": "littlewhitebox",
@@ -1533,7 +1561,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/ebook/app-src/book-controller.js",
       "relativePath": "modules/ebook/app-src/book-controller.js",
       "extension": ".js",
-      "sizeBytes": 39196
+      "sizeBytes": 36044
     },
     {
       "source": "littlewhitebox",
@@ -1722,7 +1750,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/ebook/tests/book-tools.test.js",
       "relativePath": "modules/ebook/tests/book-tools.test.js",
       "extension": ".js",
-      "sizeBytes": 322591
+      "sizeBytes": 325141
     },
     {
       "source": "littlewhitebox",
@@ -3185,7 +3213,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/tavern/app-src/features/draw/useTavernDrawController.ts",
       "relativePath": "modules/tavern/app-src/features/draw/useTavernDrawController.ts",
       "extension": ".ts",
-      "sizeBytes": 36755
+      "sizeBytes": 34321
     },
     {
       "source": "littlewhitebox",
@@ -4725,7 +4753,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/tavern/tavern.ts",
       "relativePath": "modules/tavern/tavern.ts",
       "extension": ".ts",
-      "sizeBytes": 68420
+      "sizeBytes": 68288
     },
     {
       "source": "littlewhitebox",
@@ -4739,7 +4767,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/tavern/tests/architecture-contracts.test.ts",
       "relativePath": "modules/tavern/tests/architecture-contracts.test.ts",
       "extension": ".ts",
-      "sizeBytes": 316113
+      "sizeBytes": 316221
     },
     {
       "source": "littlewhitebox",

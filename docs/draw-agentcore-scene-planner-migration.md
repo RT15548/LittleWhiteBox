@@ -70,7 +70,7 @@ modules/draw/shared/scene-plan-contract.js
             │
             ├── 唯一 Tool / 参数结构 / 领域语义校验
             ├── 角色名与别名归一
-            └── 转换为现有 { index, anchor, scene, chars }
+            └── 转换为 { index, scene, chars, placement }
                     │
                     ▼
 现有各出图 Provider 的 Prompt 拼装、队列、生成、画廊
@@ -311,7 +311,7 @@ Tool 定义使用 AgentCore 已有的 OpenAI 风格：
                                         additionalProperties: false,
                                         required: [
                                             'moment',
-                                            'anchor_target',
+                                            'insert_after',
                                             'char_count',
                                             'known_chars',
                                             'unknown_chars',
@@ -319,7 +319,7 @@ Tool 定义使用 AgentCore 已有的 OpenAI 风格：
                                         ],
                                         properties: {
                                             moment: { type: 'string', minLength: 1 },
-                                            anchor_target: { type: 'string', minLength: 1 },
+                                            insert_after: { type: 'integer', minimum: 1 },
                                             char_count: { type: 'string', minLength: 1 },
                                             known_chars: {
                                                 type: 'array',
@@ -343,10 +343,9 @@ Tool 定义使用 AgentCore 已有的 OpenAI 风格：
                     items: {
                         type: 'object',
                         additionalProperties: false,
-                        required: ['index', 'anchor', 'scene', 'characters'],
+                        required: ['index', 'scene', 'characters'],
                         properties: {
                             index: { type: 'integer', minimum: 1 },
-                            anchor: { type: 'string', minLength: 1 },
                             scene: { type: 'string', minLength: 1 },
                             characters: {
                                 type: 'array',
@@ -436,13 +435,12 @@ Prompt 中仍保留自然语言数量要求，Schema 再做协议约束。两者
 | `mindful_prelude.therapeutic_commitment` | 对完整、尊重地完成视觉规划的承诺。 |
 | `visual_plan.reasoning` | 选取哪些瞬间以及整体视觉安排的理由。 |
 | `moments[].moment` | 候选/选定瞬间的简述。 |
-| `moments[].anchor_target` | 选择哪句原文作为 anchor 以及原因。 |
+| `moments[].insert_after` | 本图插入位置对应的【插图点 N】编号；编号由宿主在原文映射视图上生成并随带编号原文发给模型。 |
 | `moments[].char_count` | 本图人物数量与性别/类型概览。 |
 | `moments[].known_chars` | 命中的角色库角色规范名。 |
 | `moments[].unknown_chars` | 本图需要自行描述的未知角色。 |
 | `moments[].composition` | 镜头、主体位置、遮挡、空间关系与构图安排。 |
 | `images[].index` | 图片顺序，正整数；转换前排序。 |
-| `images[].anchor` | 从 `<content>` 原文精确复制的锚点句，不总结、不改写。 |
 | `images[].scene` | 不含角色专属外貌的整体场景、环境、镜头、光影和画质标签。 |
 | `characters[].costume` | 本图实际穿着；可基于角色服装参考选择并表现破损、敞开、滑落、湿透等剧情状态，不混合多套服装。 |
 | `characters[].action` | 该角色在一个静态瞬间中的姿势、表情和动作。 |
@@ -467,8 +465,13 @@ Prompt 中仍保留自然语言数量要求，Schema 再做协议约束。两者
 ```js
 {
     index,
-    anchor,
     scene,
+    placement: {
+        mode: 'source',
+        insertAfter,
+        offset,
+        sourceHash,
+    },
     chars: [
         {
             name,
@@ -494,6 +497,7 @@ Prompt 中仍保留自然语言数量要求，Schema 再做协议约束。两者
 5. 已知角色按规范名和别名做大小写不敏感匹配，并归一为规范名。
 6. 纯风景任务保留空 `chars`。
 7. 不把 `mindful_prelude` 或未声明字段带入下游。
+8. `moments[].insert_after` 必须引用本次 `SceneSource` 中存在的插图点编号；契约层据此解出原始正文 offset 并与 `sourceHash` 一起写入 `placement`，下游不再做任何文字锚点搜索。
 
 ## 8. Prompt 迁移原则
 
@@ -506,7 +510,7 @@ Prompt 中仍保留自然语言数量要求，Schema 再做协议约束。两者
 - `FICTIONAL_CREATIVE_WORK` 分类与现有合规检查语义。
 - 人文观察、`mindful_prelude`、`user_insight`、`therapeutic_commitment`、`visual_plan` 的含义。
 - 普通视角与第一人称 POV 的全部规则。
-- anchor 必须从原文精确复制，不能概括、改写或创造。
+- 插图位置只能通过 `insert_after` 引用宿主生成的【插图点 N】编号；模型不复制、不概括、不创造锚点文本。
 - 已知角色、未知角色、角色规范名与别名识别。
 - Danbooru 角色标签规则。
 - 已知角色不重复输出预设外貌，但必须完整决定本图服装、动作、互动、负向和位置。
@@ -593,7 +597,7 @@ Prompt 中仍保留自然语言数量要求，Schema 再做协议约束。两者
 
 - 模板中的 `{{lastMessage}}`、`{{characterInfo}}`、`{$worldInfo}`、`{$tagGuide}` 先替换成本次请求唯一的哨兵串，再整体展开模板，最后用 `split/join` 把哨兵串换成已展开的值。
 - 绝不把动态原文交给 `String.replace` 作为 replacement string，否则原文中的 `$&`、`` $` ``、`$'`、`$1`、`$$` 会被 JavaScript 当作替换指令。
-- anchor 校验使用的原文必须与模型看到的原文是同一份展开结果，不允许各自再展开一次。
+- `SceneSource` 快照（映射过滤、插图点编号、hash、offset）基于宏展开前的同一份原文；带编号内容只展开一次后发送，模型看到的原文与 placement 映射同源，不允许各自再展开一次。
 - 展开边界的异常统一包装为 `PROMPT_EXPANSION_FAILED`，并写入本次请求诊断。
 
 ### 8.6 请求形态：system + 单条 user 任务
@@ -1063,7 +1067,7 @@ UI 测试验证可观察 DOM/交互结果，不写读取源码 `includes` 的“
 - 无 Tool、错 Tool、多 Tool、坏参数和空 images 都有不同错误。
 - Prompt 第 8.1 节所有关键语义均进入最终请求。
 - 已知角色、未知角色、别名、服装变体、纯风景、坐标和互动方向行为正确。
-- Scene Planner 不自动重试、不自动切换 Tool 模式、不运行 Tool loop。
+- Scene Planner 不自动切换 Tool 模式；契约失败进入有界自纠循环（同一次规划最多 3 次尝试、连续相同错误第二次即停），网络/配置/Provider/取消错误不重试，纠错记录只存活于本次请求。
 - `mindful_prelude` 与请求诊断均为临时态，没有新增持久化实体。
 - NovelAI、SD WebUI、ComfyUI 后续出图行为无回归。
 - 小白助手、电纸书、小白酒馆、四次元壁的测试与构建通过。
@@ -1125,4 +1129,13 @@ UI 测试验证可观察 DOM/交互结果，不写读取源码 `includes` 的“
 - 能力矩阵下沉到 AgentCore，按 Provider、直连/托管传输与模型解析；不支持的显式开启或关闭在发送前给出能力错误。
 - 七个 Adapter 只编码各自已经确认的协议字段；通用 Host helper 不再注入 Reasoning 参数，也不在 4xx 后删参重试。
 - `output=hide` 同时约束流式进度和最终结果，但保留 Provider 原文、thinking/signature 与 OpenAI Responses output，确保多轮 Tool 回放不损坏。
+
+### 17.7 插图点编号与 placement 迁移（2026-08-20）
+
+- Tool 自纠循环：契约校验失败时把真实 tool_result 反馈给模型重试，同一次规划最多 3 次尝试；连续相同错误签名第二次即停；网络/配置/Provider/取消错误不重试。Google 走 `toolResponses` session，其余 Adapter 走带 `providerPayload` 的规范历史回放；Adapter 与 10 分钟总超时各创建一次。
+- 文字 anchor 契约删除：`moments[].anchor_target` 改为 `insert_after` 插图点编号，`images[].anchor` 退出契约。宿主通过 `scene-source.js` 在保留原始 UTF-16 offset 的映射视图上剔除 `[image:]`/`[ebook-image:]`/`[tavern-image:]` 标记与过滤区段，于句末/段落/末尾生成【插图点 N】，hash 对完整原始快照。
+- placement 落地：`scene-placement.js` 的 `insertScenePlacements` 逆序批量插入（`block` 选项补换行）；写入前精确比较 `sourceHash`，正文变化即抛 `ScenePlacementError`/`SCENE_SOURCE_CHANGED` 并拒写。模糊 anchor 搜索、句末探测与“找不到就追加末尾”兜底全部删除。
+- 楼层流程：规划后一次分配 slot、hash 校验、批量插占位、逐张替换；中止保留成功图并移除未开始的 pending 占位（保留段落空行），零成功恢复原文。
+- 电纸书/小白酒馆写入端：hash 变化即拒写并提示重试；酒馆发送完整原文，重绘不再丢失既有 `[tavern-image:]` 标记；手动 Prompt 使用 `placement: { mode: 'tail' }`。
+- 画廊与 saved-entry 不再持久化 anchor 字段。
 - Draw 诊断记录 requested mode、effective mode、能力 profile 与实际控制字段，托管 Claude 因强制 Tool 关闭本次 Reasoning 时仍给出明确 notice。
