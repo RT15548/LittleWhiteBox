@@ -9,6 +9,11 @@ import {
     redactRequestSecrets,
 } from './request-inspection.js';
 import {
+    resolveTaskReasoning,
+    shouldOmitTemperatureForReasoning,
+} from '../reasoning-capabilities.js';
+import { isReasoningOutputVisible } from '../reasoning-config.js';
+import {
     accumulateStreamedAssistantSnapshot,
     assertSignedToolCallsIntact,
     buildTaggedToolCallDraft,
@@ -23,9 +28,6 @@ import {
     flattenTextContent,
     getStreamedSnapshotText,
     getStreamedSnapshotToolCalls,
-    hasUnsupportedReasoningEffortCapability,
-    isUnsupportedReasoningEffortError,
-    markUnsupportedReasoningEffortCapability,
     stripTaggedToolCallsForDisplay,
 } from './openai-compatible.js';
 
@@ -33,7 +35,9 @@ function emitStreamProgress(task, payload) {
     if (typeof task.onStreamProgress !== 'function') return;
     task.onStreamProgress({
         ...(typeof payload.text === 'string' ? { text: payload.text } : {}),
-        ...(Array.isArray(payload.thoughts) ? { thoughts: payload.thoughts } : {}),
+        ...(Array.isArray(payload.thoughts)
+            ? { thoughts: isReasoningOutputVisible(task.reasoning) ? payload.thoughts : [] }
+            : {}),
         ...(Array.isArray(payload.toolCalls) ? { toolCalls: payload.toolCalls } : {}),
         ...(payload.toolCallDraft ? { toolCallDraft: true } : {}),
     });
@@ -70,23 +74,37 @@ export class SillyTavernOpenAICompatibleAdapter {
     }
 
     buildPayload(task, taggedMode = false) {
+        const reasoning = resolveTaskReasoning(
+            'sillytavern-openai-compatible',
+            this.config,
+            task.reasoning,
+        );
         const messages = taggedMode
             ? buildTaggedMessages(task, this.config.model)
             : buildNativeMessages(task, this.config.model);
+        const effectiveTask = {
+            ...task,
+            temperature: shouldOmitTemperatureForReasoning(
+                { ...this.config, provider: 'sillytavern-openai-compatible' },
+                reasoning,
+            ) ? undefined : task.temperature,
+        };
         const payload = buildHostOpenAICompatibleGeneratePayload(
             this.config,
             taggedMode
                 ? {
-                    ...task,
+                    ...effectiveTask,
                     tools: undefined,
                     toolChoice: undefined,
                 }
-                : task,
+                : effectiveTask,
             messages,
             typeof task.onStreamProgress === 'function',
         );
-        if (task.reasoning?.enabled && hasUnsupportedReasoningEffortCapability(this.config)) {
-            delete payload.reasoning_effort;
+        if (reasoning.mode === 'on') {
+            payload.reasoning_effort = reasoning.effort;
+        } else if (reasoning.mode === 'off') {
+            payload.reasoning_effort = 'none';
         }
         return payload;
     }
@@ -101,11 +119,10 @@ export class SillyTavernOpenAICompatibleAdapter {
     }
 
     buildRequestInspection(request, task = {}) {
-        const suppressedReasoningEffort = !!task.reasoning?.enabled
-            && !Object.prototype.hasOwnProperty.call(request?.body || {}, 'reasoning_effort');
-        const effectiveReasoningEnabled = Object.prototype.hasOwnProperty.call(
-            request?.body || {},
-            'reasoning_effort',
+        const reasoning = resolveTaskReasoning(
+            'sillytavern-openai-compatible',
+            this.config,
+            task.reasoning,
         );
         return {
             provider: 'sillytavern-openai-compatible',
@@ -113,11 +130,13 @@ export class SillyTavernOpenAICompatibleAdapter {
             transport: 'sillytavern-chat-completions',
             request: redactRequestSecrets(request),
             effectiveConfig: buildEffectiveReasoningConfig(task, {
-                enabled: effectiveReasoningEnabled,
+                profileId: reasoning.profileId,
+                effectiveMode: reasoning.mode,
                 effort: request?.body?.reasoning_effort,
-                includeOutput: false,
+                controlFields: Object.hasOwn(request?.body || {}, 'reasoning_effort')
+                    ? { reasoning_effort: request.body.reasoning_effort }
+                    : {},
             }),
-            ...(suppressedReasoningEffort ? { degraded: ['reasoning_effort_unsupported'] } : {}),
         };
     }
 
@@ -147,7 +166,9 @@ export class SillyTavernOpenAICompatibleAdapter {
                 : buildTaggedToolCallDraft(thinkTagged.cleaned);
             emitStreamProgress(task, {
                 text: cleanedText,
-                thoughts: extractThoughtsFromMessage(assistantSnapshot, choice).concat(thinkTagged.thoughts),
+                thoughts: isReasoningOutputVisible(task.reasoning)
+                    ? extractThoughtsFromMessage(assistantSnapshot, choice).concat(thinkTagged.thoughts)
+                    : [],
                 ...(progressToolCalls.length ? { toolCalls: progressToolCalls } : {}),
                 ...(!standardToolCalls.length && progressToolCalls.length ? { toolCallDraft: true } : {}),
             });
@@ -170,7 +191,7 @@ export class SillyTavernOpenAICompatibleAdapter {
         return {
             text: cleanedText,
             toolCalls: [...standardToolCalls, ...taggedToolCalls],
-            thoughts,
+            thoughts: isReasoningOutputVisible(task.reasoning) ? thoughts : [],
             finishReason: lastFinishReason,
             model: lastModel,
             provider: 'sillytavern-openai-compatible',
@@ -194,7 +215,7 @@ export class SillyTavernOpenAICompatibleAdapter {
         return {
             text: cleanedText,
             toolCalls: [...standardToolCalls, ...taggedToolCalls],
-            thoughts,
+            thoughts: isReasoningOutputVisible(task.reasoning) ? thoughts : [],
             finishReason: choice.finish_reason || 'stop',
             model: response.model || this.config.model,
             provider: 'sillytavern-openai-compatible',
@@ -229,31 +250,10 @@ export class SillyTavernOpenAICompatibleAdapter {
                 throw error;
             }
         };
-        const runWithReasoningEffortFallback = async (payload) => {
-            let responseAccepted = false;
-            try {
-                return await run(payload, {
-                    onResponseAccepted: () => {
-                        responseAccepted = true;
-                    },
-                });
-            } catch (error) {
-                if (task.signal?.aborted
-                    || responseAccepted
-                    || !Object.prototype.hasOwnProperty.call(payload, 'reasoning_effort')
-                    || !isUnsupportedReasoningEffortError(error)) {
-                    throw error;
-                }
-                markUnsupportedReasoningEffortCapability(this.config);
-                const fallbackPayload = { ...payload };
-                delete fallbackPayload.reasoning_effort;
-                return await run(fallbackPayload);
-            }
-        };
         const payload = this.buildPayload(task, isTaggedMode);
 
         try {
-            return await runWithReasoningEffortFallback(payload);
+            return await run(payload);
         } catch (error) {
             if (task.allowToolProtocolFallback === false
                 || isTaggedMode
@@ -272,6 +272,6 @@ export class SillyTavernOpenAICompatibleAdapter {
             });
         }
         const fallbackPayload = this.buildPayload(task, true);
-        return await runWithReasoningEffortFallback(fallbackPayload);
+        return await run(fallbackPayload);
     }
 }

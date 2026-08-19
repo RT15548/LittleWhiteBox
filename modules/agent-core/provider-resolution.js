@@ -8,10 +8,8 @@ import {
 } from './config.js';
 import { normalizeTavilyApiKey, normalizeTavilyBaseUrl } from './tavily-search.js';
 import {
-    getReasoningEffortOptions,
-    normalizeReasoningEffort,
     resolveRuntimeReasoning,
-} from './reasoning-config.js';
+} from './reasoning-capabilities.js';
 
 export const AGENT_REQUEST_TIMEOUT_MS = 15 * 60 * 1000;
 
@@ -35,8 +33,6 @@ export function isSillyTavernProvider(provider = '') {
         || provider === 'sillytavern-claude'
         || provider === 'sillytavern-google';
 }
-
-export { getReasoningEffortOptions, normalizeReasoningEffort };
 
 export function normalizeTemperature(value, fallback = 1) {
     const raw = typeof value === 'string' && !value.trim() ? fallback : value;
@@ -78,6 +74,11 @@ export function resolveActiveProviderConfig(configValue = {}, options = {}) {
         const provider = config.delegateConfig.provider || 'openai-compatible';
         const modelConfigs = config.delegateConfig.modelConfigs || cloneDefaultModelConfigs();
         const providerConfig = modelConfigs[provider] || cloneDefaultModelConfigs()[provider] || {};
+        const context = {
+            provider,
+            baseUrl: String(providerConfig.baseUrl || ''),
+            model: String(providerConfig.model || ''),
+        };
         return {
             currentPresetName: String(config.delegatePresetName || config.currentPresetName || ''),
             provider,
@@ -91,7 +92,7 @@ export function resolveActiveProviderConfig(configValue = {}, options = {}) {
             maxTokens: normalizeMaxTokens(providerConfig.maxTokens),
             timeoutMs: Number(options.timeoutMs) || AGENT_REQUEST_TIMEOUT_MS,
             toolMode: providerConfig.toolMode || 'native',
-            ...resolveRuntimeReasoning(provider, providerConfig),
+            reasoning: resolveRuntimeReasoning(context, providerConfig.reasoning),
         };
     }
 
@@ -107,6 +108,11 @@ export function resolveActiveProviderConfig(configValue = {}, options = {}) {
     const provider = currentPreset.provider || config.provider || 'openai-compatible';
     const modelConfigs = currentPreset.modelConfigs || config.modelConfigs || cloneDefaultModelConfigs();
     const providerConfig = modelConfigs[provider] || cloneDefaultModelConfigs()[provider] || {};
+    const context = {
+        provider,
+        baseUrl: String(providerConfig.baseUrl || ''),
+        model: String(providerConfig.model || ''),
+    };
     return {
         currentPresetName: String(activePresetName || ''),
         provider,
@@ -120,6 +126,6 @@ export function resolveActiveProviderConfig(configValue = {}, options = {}) {
         maxTokens: normalizeMaxTokens(providerConfig.maxTokens),
         timeoutMs: Number(options.timeoutMs) || AGENT_REQUEST_TIMEOUT_MS,
         toolMode: providerConfig.toolMode || 'native',
-        ...resolveRuntimeReasoning(provider, providerConfig),
+        reasoning: resolveRuntimeReasoning(context, providerConfig.reasoning),
     };
 }

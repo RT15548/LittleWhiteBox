@@ -3,15 +3,15 @@ import assert from 'node:assert/strict';
 
 import { GoogleAdapter } from '../../agent-core/adapters/google.js';
 
-test('google reasoning keeps minimal effort separate from thought output visibility', () => {
+test('google reasoning keeps model effort separate from thought output visibility', () => {
     const adapter = new GoogleAdapter({
         apiKey: 'test-key',
         baseUrl: 'https://example.com/google',
-        model: 'gemini-test',
+        model: 'gemini-3-flash-preview',
     });
     const hiddenTask = {
         messages: [{ role: 'user', content: 'think' }],
-        reasoning: { enabled: true, effort: 'minimal', includeOutput: false },
+        reasoning: { mode: 'on', effort: 'minimal', output: 'hide' },
     };
     const hiddenPayload = adapter.buildChatPayload(hiddenTask);
     assert.deepEqual(hiddenPayload.createPayload.config.thinkingConfig, {
@@ -19,16 +19,40 @@ test('google reasoning keeps minimal effort separate from thought output visibil
         thinkingLevel: 'MINIMAL',
     });
     assert.deepEqual(adapter.inspectRequest(hiddenTask, { payload: hiddenPayload }).effectiveConfig, {
-        reasoningEnabled: true,
+        reasoningRequestedMode: 'on',
+        reasoningRequestedOutput: 'hide',
+        reasoningProfileId: 'google-gemini-3-flash',
+        reasoningEffectiveMode: 'on',
         reasoningEffort: 'MINIMAL',
-        reasoningIncludeOutput: false,
+        reasoningBudgetTokens: null,
+        reasoningControlFields: {
+            thinkingConfig: { includeThoughts: false, thinkingLevel: 'MINIMAL' },
+        },
+        reasoningOutputVisible: false,
     });
 
     const visiblePayload = adapter.buildChatPayload({
         ...hiddenTask,
-        reasoning: { ...hiddenTask.reasoning, includeOutput: true },
+        reasoning: { ...hiddenTask.reasoning, output: 'show' },
     });
     assert.equal(visiblePayload.createPayload.config.thinkingConfig.includeThoughts, true);
+
+    const flash25 = new GoogleAdapter({
+        apiKey: 'test-key',
+        baseUrl: 'https://example.com/google',
+        model: 'gemini-2.5-flash',
+    });
+    assert.deepEqual(flash25.buildChatPayload({
+        messages: hiddenTask.messages,
+        reasoning: { mode: 'off', output: 'hide' },
+    }).createPayload.config.thinkingConfig, {
+        includeThoughts: false,
+        thinkingBudget: 0,
+    });
+    assert.equal(Object.hasOwn(flash25.buildChatPayload({
+        messages: hiddenTask.messages,
+        reasoning: { mode: 'inherit', output: 'show' },
+    }).createPayload.config, 'thinkingConfig'), false);
 });
 
 test('google adapter preserves visible text alongside tool calls in non-streaming responses', async () => {

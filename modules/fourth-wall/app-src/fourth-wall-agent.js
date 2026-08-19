@@ -61,11 +61,7 @@ export async function generateFourthWallResponse(options = {}) {
         tools: [],
         temperature: providerConfig.temperature,
         maxTokens: providerConfig.maxTokens,
-        reasoning: {
-            enabled: providerConfig.reasoningEnabled,
-            effort: providerConfig.reasoningEffort,
-            includeOutput: providerConfig.reasoningIncludeOutput,
-        },
+        reasoning: providerConfig.reasoning,
         signal: options.signal,
         onStreamProgress: shouldStream ? options.onStreamProgress : undefined,
     });

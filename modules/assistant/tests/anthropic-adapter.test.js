@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 
 import {
+    ANTHROPIC_FORCED_TOOL_REASONING_NOTICE,
     AnthropicAdapter,
     buildAnthropicMessages,
     resolveAnthropicToolChoice,
@@ -51,30 +52,112 @@ test('Anthropic request sends tool_choice only when tools are present', () => {
     assert.equal(Object.hasOwn(withoutTools, 'tool_choice'), false);
 });
 
-test('Anthropic reasoning sends independent effort and output visibility controls', () => {
+test('Anthropic adaptive reasoning keeps mode, effort, and output visibility independent', () => {
     const adapter = new AnthropicAdapter({
         apiKey: 'test-key',
         baseUrl: 'https://anthropic.example',
-        model: 'claude-test',
+        model: 'claude-opus-4-7',
     });
     const hiddenTask = {
         messages: [{ role: 'user', content: 'think' }],
-        reasoning: { enabled: true, effort: 'max', includeOutput: false },
+        reasoning: { mode: 'on', effort: 'max', output: 'hide' },
     };
     const hiddenBody = adapter.buildRequestBody(hiddenTask);
     assert.deepEqual(hiddenBody.thinking, { type: 'adaptive', display: 'omitted' });
     assert.deepEqual(hiddenBody.output_config, { effort: 'max' });
     assert.deepEqual(adapter.inspectRequest(hiddenTask, { body: hiddenBody }).effectiveConfig, {
-        reasoningEnabled: true,
+        reasoningRequestedMode: 'on',
+        reasoningRequestedOutput: 'hide',
+        reasoningProfileId: 'anthropic-adaptive',
+        reasoningEffectiveMode: 'on',
         reasoningEffort: 'max',
-        reasoningIncludeOutput: false,
+        reasoningBudgetTokens: null,
+        reasoningControlFields: {
+            thinking: { type: 'adaptive', display: 'omitted' },
+            output_config: { effort: 'max' },
+        },
+        reasoningOutputVisible: false,
     });
 
     const visibleBody = adapter.buildRequestBody({
         ...hiddenTask,
-        reasoning: { ...hiddenTask.reasoning, includeOutput: true },
+        reasoning: { ...hiddenTask.reasoning, output: 'show' },
     });
     assert.equal(visibleBody.thinking.display, 'summarized');
+
+    const inheritBody = adapter.buildRequestBody({
+        ...hiddenTask,
+        reasoning: { mode: 'inherit', output: 'hide' },
+    });
+    assert.equal(Object.hasOwn(inheritBody, 'thinking'), false);
+
+    const offBody = adapter.buildRequestBody({
+        ...hiddenTask,
+        reasoning: { mode: 'off', output: 'hide' },
+    });
+    assert.deepEqual(offBody.thinking, { type: 'disabled' });
+});
+
+test('Anthropic manual reasoning uses a validated token budget', () => {
+    const adapter = new AnthropicAdapter({
+        apiKey: 'test-key',
+        baseUrl: 'https://anthropic.example',
+        model: 'claude-sonnet-4-5',
+    });
+    const task = {
+        messages: [{ role: 'user', content: 'think' }],
+        maxTokens: 16000,
+        reasoning: { mode: 'on', budgetTokens: 8192, output: 'hide' },
+    };
+    assert.deepEqual(adapter.buildRequestBody(task).thinking, {
+        type: 'enabled',
+        budget_tokens: 8192,
+        display: 'omitted',
+    });
+    assert.throws(
+        () => adapter.buildRequestBody({
+            ...task,
+            reasoning: { ...task.reasoning, budgetTokens: 16000 },
+        }),
+        /必须小于最大输出 Token/,
+    );
+});
+
+test('Anthropic manual reasoning yields to a forced tool contract for this request only', () => {
+    const adapter = new AnthropicAdapter({
+        apiKey: 'test-key',
+        baseUrl: 'https://anthropic.example',
+        model: 'claude-sonnet-4-5',
+    });
+    const task = {
+        messages: [{ role: 'user', content: 'plan' }],
+        tools: [{
+            type: 'function',
+            function: {
+                name: 'submit_scene_plan',
+                description: 'Submit the plan.',
+                parameters: { type: 'object', properties: {} },
+            },
+        }],
+        toolChoice: 'required',
+        temperature: 0.4,
+        maxTokens: 16000,
+        reasoning: { mode: 'on', budgetTokens: 8192, output: 'show' },
+    };
+
+    const body = adapter.buildRequestBody(task);
+    assert.deepEqual(body.tool_choice, { type: 'any' });
+    assert.deepEqual(body.thinking, { type: 'disabled' });
+    assert.equal(body.temperature, 0.4);
+
+    const inspection = adapter.inspectRequest(task, { body });
+    assert.deepEqual(inspection.notices, [ANTHROPIC_FORCED_TOOL_REASONING_NOTICE]);
+    assert.equal(inspection.effectiveConfig.reasoningRequestedMode, 'on');
+    assert.equal(inspection.effectiveConfig.reasoningEffectiveMode, 'off');
+    assert.equal(inspection.effectiveConfig.reasoningOutputVisible, false);
+    assert.deepEqual(inspection.effectiveConfig.reasoningControlFields, {
+        thinking: { type: 'disabled' },
+    });
 });
 
 test('Anthropic adapter groups consecutive tool results into one user message', () => {

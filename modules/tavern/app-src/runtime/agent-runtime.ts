@@ -19,6 +19,7 @@ export interface XbTavernAgentRuntime {
         toolChoice: 'auto' | 'none' | string;
         temperature: number;
         maxTokens: number | null;
+        reasoning: XbTavernResolvedProvider['reasoning'];
         signal?: AbortSignal;
         onStreamProgress?: (snapshot: { text?: string; thoughts?: Array<{ label?: string; text?: string }> }) => void;
     };
@@ -43,6 +44,7 @@ export function createXbTavernAgentRuntime(
                 toolChoice: capabilities.toolChoice,
                 temperature: provider.temperature,
                 maxTokens: provider.maxTokens,
+                reasoning: provider.reasoning,
                 signal: input.signal,
                 onStreamProgress: input.onStreamProgress,
             };

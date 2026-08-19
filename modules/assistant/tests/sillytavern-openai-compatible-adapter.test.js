@@ -103,13 +103,13 @@ test('hosted Claude translates required toolChoice to Anthropic any and guards m
 
     const reasoningTask = {
         ...baseTask,
-        reasoning: { enabled: true, effort: 'high', includeOutput: true },
+        reasoning: { mode: 'on', effort: 'high', output: 'show' },
     };
     // Manual (budgeted) thinking conflicts with a forced tool; the tool contract wins.
     const manual = new SillyTavernClaudeAdapter({ model: 'claude-sonnet-4-5' });
     const manualProtocol = manual.resolveToolProtocol(reasoningTask);
     assert.equal(manualProtocol.reasoningDisabledForForcedTool, true);
-    assert.equal(manual.buildPayload(reasoningTask).reasoning_effort, undefined);
+    assert.equal(manual.buildPayload(reasoningTask).reasoning_effort, 'auto');
     assert.equal(manual.buildPayload(reasoningTask).temperature, 0.5);
     const manualInspection = manual.buildRequestInspection({ url: '/x' }, manualProtocol, reasoningTask);
     assert.deepEqual(
@@ -118,9 +118,14 @@ test('hosted Claude translates required toolChoice to Anthropic any and guards m
     );
     assert.deepEqual(manualInspection.effectiveConfig, {
         toolChoice: 'any',
-        reasoningEnabled: false,
+        reasoningRequestedMode: 'on',
+        reasoningRequestedOutput: 'show',
+        reasoningProfileId: 'sillytavern-claude-manual',
+        reasoningEffectiveMode: 'off',
         reasoningEffort: '',
-        reasoningIncludeOutput: false,
+        reasoningBudgetTokens: null,
+        reasoningControlFields: {},
+        reasoningOutputVisible: false,
     });
     // Claude 4.6 adaptive thinking depends on host config the client cannot observe.
     assert.equal(
@@ -141,15 +146,83 @@ test('hosted Claude translates required toolChoice to Anthropic any and guards m
     assert.equal(adaptiveInspection.notices, undefined);
     assert.deepEqual(adaptiveInspection.effectiveConfig, {
         toolChoice: 'any',
-        reasoningEnabled: true,
+        reasoningRequestedMode: 'on',
+        reasoningRequestedOutput: 'show',
+        reasoningProfileId: 'sillytavern-claude-adaptive',
+        reasoningEffectiveMode: 'on',
         reasoningEffort: 'high',
-        reasoningIncludeOutput: true,
+        reasoningBudgetTokens: null,
+        reasoningControlFields: {},
+        reasoningOutputVisible: true,
     });
     // A non-forced tool choice never touches reasoning.
     assert.equal(
         manual.resolveToolProtocol({ ...reasoningTask, toolChoice: 'auto' }).reasoningDisabledForForcedTool,
         false,
     );
+});
+
+test('hosted adapters encode inherit, on, and off at their own protocol boundary', () => {
+    const messages = [{ role: 'user', content: 'hello' }];
+    const claude = new SillyTavernClaudeAdapter({ model: 'claude-opus-4-7' });
+    const claudeInherit = claude.buildPayload({
+        messages,
+        reasoning: { mode: 'inherit', output: 'show' },
+    });
+    assert.equal(Object.hasOwn(claudeInherit, 'reasoning_effort'), false);
+    assert.equal(Object.hasOwn(claudeInherit, 'include_reasoning'), false);
+    const claudeOn = claude.buildPayload({
+        messages,
+        reasoning: { mode: 'on', effort: 'max', output: 'hide' },
+    });
+    assert.equal(claudeOn.reasoning_effort, 'max');
+    assert.equal(claudeOn.include_reasoning, false);
+    assert.equal(claude.buildPayload({
+        messages,
+        reasoning: { mode: 'off', output: 'show' },
+    }).reasoning_effort, 'auto');
+
+    const google = new SillyTavernGoogleAdapter({ model: 'gemini-2.5-flash' });
+    const googleInherit = google.buildPayload({
+        messages,
+        reasoning: { mode: 'inherit', output: 'show' },
+    });
+    assert.equal(Object.hasOwn(googleInherit, 'reasoning_effort'), false);
+    assert.equal(Object.hasOwn(googleInherit, 'include_reasoning'), false);
+    const googleOn = google.buildPayload({
+        messages,
+        reasoning: { mode: 'on', effort: 'max', output: 'show' },
+    });
+    assert.equal(googleOn.reasoning_effort, 'max');
+    assert.equal(googleOn.include_reasoning, true);
+    assert.deepEqual(
+        {
+            reasoning_effort: google.buildPayload({
+                messages,
+                reasoning: { mode: 'off', output: 'show' },
+            }).reasoning_effort,
+            include_reasoning: google.buildPayload({
+                messages,
+                reasoning: { mode: 'off', output: 'show' },
+            }).include_reasoning,
+        },
+        { reasoning_effort: 'min', include_reasoning: false },
+    );
+
+    const openai = new SillyTavernOpenAICompatibleAdapter({ model: 'gpt-5.2' });
+    const openaiInherit = openai.buildPayload({
+        messages,
+        reasoning: { mode: 'inherit', output: 'show' },
+    });
+    assert.equal(Object.hasOwn(openaiInherit, 'reasoning_effort'), false);
+    assert.equal(openai.buildPayload({
+        messages,
+        reasoning: { mode: 'on', effort: 'xhigh', output: 'hide' },
+    }).reasoning_effort, 'xhigh');
+    assert.equal(openai.buildPayload({
+        messages,
+        reasoning: { mode: 'off', output: 'hide' },
+    }).reasoning_effort, 'none');
 });
 
 function createSseResponse(events = [], delimiter = '\n\n') {
@@ -195,7 +268,7 @@ test('host OpenAI-compatible payloads use SillyTavern backend fields without lea
         {
             maxTokens: 1234,
             temperature: 0.7,
-            reasoning: { enabled: true, effort: 'high' },
+            reasoning: { mode: 'on', effort: 'high', output: 'hide' },
             tools: [{
                 type: 'function',
                 function: {
@@ -214,8 +287,8 @@ test('host OpenAI-compatible payloads use SillyTavern backend fields without lea
     assert.equal(payload.model, 'compat-model');
     assert.equal(payload.stream, true);
     assert.equal(payload.max_tokens, 1234);
-    assert.equal(payload.reasoning_effort, 'high');
-    assert.equal(Object.hasOwn(payload, 'temperature'), false);
+    assert.equal(Object.hasOwn(payload, 'reasoning_effort'), false);
+    assert.equal(payload.temperature, 0.7);
     assert.equal(payload.tool_choice, 'auto');
     assert.equal(payload.tools.length, 1);
 });
@@ -242,11 +315,11 @@ test('OpenAI-compatible native messages keep task system prompt in the actual re
     assert.equal(inspection.request.body.messages[0]?.content, 'You are the background manager.');
 });
 
-test('SillyTavern OpenAI-compatible retries Google unknown reasoning_effort without the field', async () => {
+test('SillyTavern OpenAI-compatible never deletes a rejected reasoning field and retries silently', async () => {
     const config = {
-        baseUrl: 'https://st-google-reasoning-fallback.example/v1beta/openai',
+        baseUrl: 'https://reasoning-rejection.example/v1',
         apiKey: 'test-key',
-        model: 'gemini-st-reasoning-fallback-test',
+        model: 'gpt-5.5',
         toolMode: 'native',
     };
     const adapter = new SillyTavernOpenAICompatibleAdapter(config);
@@ -254,82 +327,22 @@ test('SillyTavern OpenAI-compatible retries Google unknown reasoning_effort with
     const requests = [];
     globalThis.fetch = async (_url, options = {}) => {
         requests.push(JSON.parse(String(options.body || '{}')));
-        if (requests.length === 1) {
-            return createJsonResponse({
-                error: {
-                    code: 400,
-                    message: 'Invalid JSON payload received. Unknown name "reasoning_effort": Cannot find field.',
-                    status: 'INVALID_ARGUMENT',
-                },
-            }, false, 400);
-        }
         return createJsonResponse({
-            model: config.model,
-            choices: [{
-                finish_reason: 'stop',
-                message: { role: 'assistant', content: 'fallback ok' },
-            }],
-        });
+            error: {
+                code: 400,
+                message: 'Invalid value for reasoning_effort.',
+            },
+        }, false, 400);
     };
 
     try {
-        const result = await adapter.chat({
+        await assert.rejects(() => adapter.chat({
             messages: [{ role: 'user', content: 'hello' }],
-            reasoning: { enabled: true, effort: 'high' },
-        });
+            reasoning: { mode: 'on', effort: 'high', output: 'hide' },
+        }), /Invalid value for reasoning_effort/);
 
-        assert.equal(requests.length, 2);
+        assert.equal(requests.length, 1);
         assert.equal(requests[0].reasoning_effort, 'high');
-        assert.equal(Object.hasOwn(requests[1], 'reasoning_effort'), false);
-        assert.deepEqual(result.requestInspection.degraded, ['reasoning_effort_unsupported']);
-    } finally {
-        globalThis.fetch = originalFetch;
-    }
-});
-
-test('SillyTavern OpenAI-compatible retries a rejected reasoning stream before accepting it', async () => {
-    const config = {
-        baseUrl: 'https://st-google-reasoning-stream-fallback.example/v1beta/openai',
-        apiKey: 'test-key',
-        model: 'gemini-st-reasoning-stream-fallback-test',
-        toolMode: 'native',
-    };
-    const adapter = new SillyTavernOpenAICompatibleAdapter(config);
-    const originalFetch = globalThis.fetch;
-    const requests = [];
-    globalThis.fetch = async (_url, options = {}) => {
-        requests.push(JSON.parse(String(options.body || '{}')));
-        if (requests.length === 1) {
-            return createJsonResponse({
-                error: {
-                    code: 400,
-                    message: 'Invalid JSON payload received. Unknown name "reasoning_effort": Cannot find field.',
-                    status: 'INVALID_ARGUMENT',
-                },
-            }, false, 400);
-        }
-        return createSseResponse([{
-            model: config.model,
-            choices: [{
-                index: 0,
-                delta: { role: 'assistant', content: 'stream fallback ok' },
-                finish_reason: 'stop',
-            }],
-        }]);
-    };
-
-    try {
-        const result = await adapter.chat({
-            messages: [{ role: 'user', content: 'hello' }],
-            reasoning: { enabled: true, effort: 'high' },
-            onStreamProgress: () => {},
-        });
-
-        assert.equal(result.text, 'stream fallback ok');
-        assert.equal(requests.length, 2);
-        assert.equal(requests[0].reasoning_effort, 'high');
-        assert.equal(Object.hasOwn(requests[1], 'reasoning_effort'), false);
-        assert.deepEqual(result.requestInspection.degraded, ['reasoning_effort_unsupported']);
     } finally {
         globalThis.fetch = originalFetch;
     }
@@ -337,9 +350,9 @@ test('SillyTavern OpenAI-compatible retries a rejected reasoning stream before a
 
 test('SillyTavern OpenAI-compatible never retries a reasoning stream after accepting it', async () => {
     const config = {
-        baseUrl: 'https://st-google-reasoning-stream-late-error.example/v1beta/openai',
+        baseUrl: 'https://reasoning-stream-late-error.example/v1',
         apiKey: 'test-key',
-        model: 'gemini-st-reasoning-stream-late-error-test',
+        model: 'gpt-5.5',
         toolMode: 'native',
     };
     const adapter = new SillyTavernOpenAICompatibleAdapter(config);
@@ -379,7 +392,7 @@ test('SillyTavern OpenAI-compatible never retries a reasoning stream after accep
     try {
         await assert.rejects(() => adapter.chat({
             messages: [{ role: 'user', content: 'hello' }],
-            reasoning: { enabled: true, effort: 'high' },
+            reasoning: { mode: 'on', effort: 'high', output: 'hide' },
             onStreamProgress: (snapshot) => progress.push(snapshot.text),
         }), /Unknown parameter: reasoning_effort/);
 
@@ -387,8 +400,49 @@ test('SillyTavern OpenAI-compatible never retries a reasoning stream after accep
         assert.deepEqual(progress, ['partial']);
         assert.equal(adapter.buildPayload({
             messages: [{ role: 'user', content: 'hello' }],
-            reasoning: { enabled: true, effort: 'low' },
+            reasoning: { mode: 'on', effort: 'low', output: 'hide' },
         }).reasoning_effort, 'low');
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
+test('SillyTavern OpenAI-compatible hidden reasoning stays out of stream progress and remains replayable', async () => {
+    const adapter = new SillyTavernOpenAICompatibleAdapter({
+        baseUrl: 'https://reasoning.example/v1',
+        apiKey: 'test-key',
+        model: 'gpt-5.5',
+        toolMode: 'native',
+    });
+    const originalFetch = globalThis.fetch;
+    const progress = [];
+    globalThis.fetch = async () => createSseResponse([{
+        model: 'gpt-5.5',
+        choices: [{
+            index: 0,
+            delta: {
+                role: 'assistant',
+                content: '完成。',
+                reasoning_content: '不应展示的内部思考',
+            },
+            finish_reason: 'stop',
+        }],
+    }]);
+
+    try {
+        const result = await adapter.chat({
+            messages: [{ role: 'user', content: '回答。' }],
+            reasoning: { mode: 'on', effort: 'high', output: 'hide' },
+            onStreamProgress: (snapshot) => progress.push(snapshot),
+        });
+
+        assert.equal(progress.length > 0, true);
+        assert.equal(progress.every((snapshot) => snapshot.thoughts?.length === 0), true);
+        assert.deepEqual(result.thoughts, []);
+        assert.equal(
+            result.providerPayload.openaiCompatibleMessage.reasoning_content,
+            '不应展示的内部思考',
+        );
     } finally {
         globalThis.fetch = originalFetch;
     }
@@ -593,7 +647,7 @@ test('host Claude and Google payloads select the matching SillyTavern chat-compl
         {
             maxTokens: 32000,
             temperature: 0.4,
-            reasoning: { enabled: true, effort: 'medium', includeOutput: false },
+            reasoning: { mode: 'on', effort: 'medium', output: 'hide' },
             tools: [{
                 type: 'function',
                 function: {
@@ -629,8 +683,8 @@ test('host Claude and Google payloads select the matching SillyTavern chat-compl
     assert.equal(claudePayload.reverse_proxy, 'https://claude-proxy.example/v1');
     assert.equal(claudePayload.proxy_password, 'claude-key');
     assert.equal(claudePayload.use_sysprompt, true);
-    assert.equal(claudePayload.reasoning_effort, 'medium');
-    assert.equal(claudePayload.include_reasoning, false);
+    assert.equal(Object.hasOwn(claudePayload, 'reasoning_effort'), false);
+    assert.equal(Object.hasOwn(claudePayload, 'include_reasoning'), false);
     assert.equal(claudePayload.tool_choice, 'auto');
     assert.equal(googlePayload.chat_completion_source, 'makersuite');
     assert.equal(googlePayload.reverse_proxy, 'https://google-proxy.example');
@@ -638,13 +692,12 @@ test('host Claude and Google payloads select the matching SillyTavern chat-compl
     assert.equal(googlePayload.use_sysprompt, true);
     assert.equal(googlePayload.tool_choice, 'auto');
 
-    const googleReasoningPayload = buildHostGoogleGeneratePayload(
-        { model: 'gemini-3-pro' },
-        { reasoning: { enabled: true, effort: 'max', includeOutput: false } },
-        [{ role: 'user', content: 'hello' }],
-        false,
-    );
-    assert.equal(googleReasoningPayload.reasoning_effort, 'max');
+    const googleReasoningPayload = new SillyTavernGoogleAdapter({ model: 'gemini-3-pro' })
+        .buildPayload({
+            messages: [{ role: 'user', content: 'hello' }],
+            reasoning: { mode: 'on', effort: 'high', output: 'hide' },
+        });
+    assert.equal(googleReasoningPayload.reasoning_effort, 'high');
     assert.equal(googleReasoningPayload.include_reasoning, false);
 });
 
@@ -844,6 +897,51 @@ test('sillytavern Claude adapter streams tool calls through host generate endpoi
         }]);
         assert.equal(result.provider, 'sillytavern-claude');
         assert.equal(result.providerPayload.anthropicContent[1].type, 'tool_use');
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
+test('sillytavern Claude hides thinking output without dropping its replay signature', async () => {
+    const adapter = new SillyTavernClaudeAdapter({
+        baseUrl: '',
+        apiKey: '',
+        model: 'claude-opus-4-7',
+    });
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => createJsonResponse({
+        content: [
+            {
+                type: 'thinking',
+                thinking: '不应展示的内部思考。',
+                signature: 'anthropic-signature-1',
+            },
+            { type: 'text', text: '可见答复。' },
+        ],
+        stop_reason: 'end_turn',
+        model: 'claude-opus-4-7',
+    });
+
+    try {
+        const result = await adapter.chat({
+            messages: [{ role: 'user', content: '继续' }],
+            reasoning: { mode: 'on', effort: 'high', output: 'hide' },
+        });
+
+        assert.equal(result.text, '可见答复。');
+        assert.deepEqual(result.thoughts, []);
+        assert.deepEqual(result.providerPayload?.anthropicContent?.[0], {
+            type: 'thinking',
+            thinking: '不应展示的内部思考。',
+            signature: 'anthropic-signature-1',
+        });
+        assert.deepEqual(adapter.buildMessages({
+            messages: [{
+                role: 'assistant',
+                content: result.text,
+                providerPayload: result.providerPayload,
+            }],
+        })[0].content[0], result.providerPayload.anthropicContent[0]);
     } finally {
         globalThis.fetch = originalFetch;
     }

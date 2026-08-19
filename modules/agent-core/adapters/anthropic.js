@@ -3,6 +3,11 @@ import {
     buildEffectiveReasoningConfig,
     buildSdkRequestInspection,
 } from './request-inspection.js';
+import {
+    resolveTaskReasoning,
+    shouldOmitTemperatureForReasoning,
+} from '../reasoning-capabilities.js';
+import { isReasoningOutputVisible } from '../reasoning-config.js';
 
 function parseArguments(text) {
     try {
@@ -202,6 +207,27 @@ export function resolveAnthropicToolChoice(toolChoice = 'auto', tools = []) {
     return { type: 'tool', name: normalizedChoice };
 }
 
+export const ANTHROPIC_FORCED_TOOL_REASONING_NOTICE = '当前模型使用手动 thinking，与强制 Tool 调用冲突；本次请求已因强制 Tool 关闭 Reasoning。';
+
+function resolveAnthropicRequestProtocol(config = {}, task = {}) {
+    const sourceTools = Array.isArray(task.tools) ? task.tools : [];
+    const toolChoice = sourceTools.length
+        ? resolveAnthropicToolChoice(task.toolChoice, sourceTools)
+        : undefined;
+    const reasoning = resolveTaskReasoning('anthropic', config, task.reasoning);
+    const reasoningDisabledForForcedTool = reasoning.mode === 'on'
+        && reasoning.profileId === 'anthropic-manual'
+        && (toolChoice?.type === 'any' || toolChoice?.type === 'tool');
+    return {
+        toolChoice,
+        reasoning,
+        effectiveReasoning: reasoningDisabledForForcedTool
+            ? { ...reasoning, mode: 'off' }
+            : reasoning,
+        reasoningDisabledForForcedTool,
+    };
+}
+
 export class AnthropicAdapter {
     constructor(config) {
         this.config = config;
@@ -215,6 +241,8 @@ export class AnthropicAdapter {
     }
 
     buildRequestBody(task) {
+        const protocol = resolveAnthropicRequestProtocol(this.config, task);
+        const reasoning = protocol.effectiveReasoning;
         const sourceTools = Array.isArray(task.tools) ? task.tools : [];
         const tools = sourceTools.map((tool) => ({
             name: tool.function.name,
@@ -228,20 +256,33 @@ export class AnthropicAdapter {
             messages: buildAnthropicMessages(task.messages),
             ...(tools.length ? {
                 tools,
-                tool_choice: resolveAnthropicToolChoice(task.toolChoice, sourceTools),
+                tool_choice: protocol.toolChoice,
             } : {}),
             ...(task.maxTokens ? { max_tokens: task.maxTokens } : {}),
         };
-        if (!task.reasoning?.enabled && typeof task.temperature === 'number') {
+        if (!shouldOmitTemperatureForReasoning(
+            { ...this.config, provider: 'anthropic' },
+            reasoning,
+        ) && typeof task.temperature === 'number') {
             body.temperature = task.temperature;
         }
-        if (task.reasoning?.enabled) {
+        if (reasoning.mode === 'off') {
+            body.thinking = { type: 'disabled' };
+        } else if (reasoning.mode === 'on' && reasoning.profileId === 'anthropic-adaptive') {
             body.thinking = {
                 type: 'adaptive',
-                display: task.reasoning.includeOutput !== false ? 'summarized' : 'omitted',
+                display: isReasoningOutputVisible(reasoning) ? 'summarized' : 'omitted',
             };
-            body.output_config = {
-                effort: task.reasoning.effort,
+            body.output_config = { effort: reasoning.effort };
+        } else if (reasoning.mode === 'on' && reasoning.profileId === 'anthropic-manual') {
+            if (Number.isFinite(Number(body.max_tokens))
+                && reasoning.budgetTokens >= Number(body.max_tokens)) {
+                throw new Error('Anthropic 手动 thinking 的 Token 预算必须小于最大输出 Token。');
+            }
+            body.thinking = {
+                type: 'enabled',
+                budget_tokens: reasoning.budgetTokens,
+                display: isReasoningOutputVisible(reasoning) ? 'summarized' : 'omitted',
             };
         }
         return body;
@@ -251,7 +292,9 @@ export class AnthropicAdapter {
         const stream = typeof task.onStreamProgress === 'function';
         const baseUrl = normalizeAnthropicSdkBaseUrl(this.config.baseUrl);
         const body = options.body || this.buildRequestBody(task);
-        return buildSdkRequestInspection({
+        const protocol = resolveAnthropicRequestProtocol(this.config, task);
+        const reasoning = protocol.effectiveReasoning;
+        const inspection = buildSdkRequestInspection({
             provider: 'anthropic',
             model: this.config.model,
             transport: 'anthropic-sdk',
@@ -263,11 +306,22 @@ export class AnthropicAdapter {
             body,
             sdk: stream ? 'client.messages.stream' : 'client.messages.create',
             effectiveConfig: buildEffectiveReasoningConfig(task, {
-                enabled: !!body.thinking,
+                profileId: protocol.reasoning.profileId,
+                effectiveMode: reasoning.mode,
                 effort: body.output_config?.effort,
-                includeOutput: body.thinking?.display !== 'omitted',
+                budgetTokens: body.thinking?.budget_tokens,
+                controlFields: {
+                    ...(body.thinking ? { thinking: body.thinking } : {}),
+                    ...(body.output_config ? { output_config: body.output_config } : {}),
+                },
             }),
         });
+        return {
+            ...inspection,
+            ...(protocol.reasoningDisabledForForcedTool
+                ? { notices: [ANTHROPIC_FORCED_TOOL_REASONING_NOTICE] }
+                : {}),
+        };
     }
 
     async chat(task) {
@@ -282,15 +336,15 @@ export class AnthropicAdapter {
             const thoughtMap = new Map();
             const toolDraftMap = new Map();
             let streamText = '';
-            const buildThoughts = () => task.reasoning?.includeOutput === false
-                ? []
-                : Array.from(thoughtMap.entries())
+            const buildThoughts = () => isReasoningOutputVisible(task.reasoning)
+                ? Array.from(thoughtMap.entries())
                     .sort(([left], [right]) => left.localeCompare(right))
                     .map(([key, text]) => ({
                         label: key.startsWith('redacted:') ? '已脱敏思考块' : '思考块',
                         text,
                     }))
-                    .filter((item) => item.text);
+                    .filter((item) => item.text)
+                : [];
             const buildToolDrafts = () => Array.from(toolDraftMap.entries())
                 .sort(([left], [right]) => Number(left) - Number(right))
                 .map(([, toolCall]) => ({
@@ -379,15 +433,15 @@ export class AnthropicAdapter {
             .filter((item) => item.type === 'text')
             .map((item) => item.text || '')
             .join('\n');
-        const thoughts = task.reasoning?.includeOutput === false
-            ? []
-            : (response.content || [])
+        const thoughts = isReasoningOutputVisible(task.reasoning)
+            ? (response.content || [])
                 .filter((item) => item.type === 'thinking' || item.type === 'redacted_thinking')
                 .map((item) => ({
                     label: item.type === 'thinking' ? '思考块' : '已脱敏思考块',
                     text: item.type === 'thinking' ? (item.thinking || '') : (item.data || ''),
                 }))
-                .filter((item) => item.text);
+                .filter((item) => item.text)
+            : [];
 
         return {
             text,

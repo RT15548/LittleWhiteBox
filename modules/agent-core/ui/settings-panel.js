@@ -25,11 +25,14 @@ import {
     shouldSendTemperature,
 } from '../provider-resolution.js';
 import {
-    getReasoningCapability,
     getReasoningEffortOptions,
-    normalizeReasoningEffort,
-    normalizeReasoningIncludeOutput,
+    getReasoningModeOptions,
+    resolveReasoningCapability,
     resolveRuntimeReasoning,
+} from '../reasoning-capabilities.js';
+import {
+    REASONING_OUTPUT_OPTIONS,
+    normalizeReasoningConfig,
 } from '../reasoning-config.js';
 import { DEFAULT_TAVILY_BASE_URL, normalizeTavilyBaseUrl } from '../tavily-search.js';
 
@@ -69,8 +72,59 @@ function refillSelect(select, options, placeholderLabel = '') {
         const item = document.createElement('option');
         item.value = option.value;
         item.textContent = option.label;
+        item.disabled = option.disabled === true;
         select.appendChild(item);
     });
+}
+
+function buildReasoningDraftFields(provider = '', providerConfig = {}) {
+    const reasoning = normalizeReasoningConfig(providerConfig.reasoning);
+    const capability = resolveReasoningCapability({
+        provider,
+        baseUrl: providerConfig.baseUrl,
+        model: providerConfig.model,
+    });
+    const mode = capability.modes.includes(reasoning.mode) ? reasoning.mode : 'inherit';
+    const fields = {
+        reasoningMode: mode,
+        reasoningOutput: reasoning.output,
+        reasoningEffort: '',
+        reasoningBudgetTokens: undefined,
+    };
+    if (capability.intensity.kind === 'effort') {
+        fields.reasoningEffort = capability.intensity.values.includes(reasoning.effort)
+            ? reasoning.effort
+            : capability.intensity.defaultValue;
+    } else if (capability.intensity.kind === 'budget') {
+        const budgetTokens = reasoning.budgetTokens;
+        const validAuto = capability.intensity.allowAuto && budgetTokens === -1;
+        const validRange = Number.isInteger(budgetTokens)
+            && budgetTokens >= capability.intensity.min
+            && budgetTokens <= capability.intensity.max;
+        fields.reasoningBudgetTokens = validAuto || validRange
+            ? budgetTokens
+            : capability.intensity.defaultValue;
+    }
+    return fields;
+}
+
+function normalizeReasoningForContext(provider = '', providerConfig = {}, source = {}) {
+    const reasoning = normalizeReasoningConfig(source);
+    const capability = resolveReasoningCapability({
+        provider,
+        baseUrl: providerConfig.baseUrl,
+        model: providerConfig.model,
+    });
+    return {
+        mode: reasoning.mode,
+        output: reasoning.output,
+        ...(capability.intensity.kind === 'effort' && reasoning.effort
+            ? { effort: reasoning.effort }
+            : {}),
+        ...(capability.intensity.kind === 'budget' && reasoning.budgetTokens !== undefined
+            ? { budgetTokens: reasoning.budgetTokens }
+            : {}),
+    };
 }
 
 function filterModels(models = []) {
@@ -425,6 +479,7 @@ export function createAgentSettingsPanel(deps = {}) {
         const delegateProvider = sourcePreset.provider || 'openai-compatible';
         const delegateModelConfigs = normalizeModelConfigs(sourcePreset.modelConfigs || {});
         const delegateProviderConfig = delegateModelConfigs[delegateProvider] || {};
+        const reasoningFields = buildReasoningDraftFields(delegateProvider, delegateProviderConfig);
         return {
             delegatePresetName: normalizedPresetName,
             delegateProvider,
@@ -435,12 +490,10 @@ export function createAgentSettingsPanel(deps = {}) {
             delegateTemperature: normalizeTemperature(delegateProviderConfig.temperature, 1),
             delegateMaxTokens: normalizeMaxTokens(delegateProviderConfig.maxTokens),
             delegateSendTemperature: shouldSendTemperature(delegateProviderConfig),
-            delegateReasoningEnabled: Boolean(delegateProviderConfig.reasoningEnabled),
-            delegateReasoningEffort: normalizeReasoningEffort(delegateProviderConfig.reasoningEffort, delegateProvider),
-            delegateReasoningIncludeOutput: normalizeReasoningIncludeOutput(
-                delegateProviderConfig.reasoningIncludeOutput,
-                delegateProvider,
-            ),
+            delegateReasoningMode: reasoningFields.reasoningMode,
+            delegateReasoningOutput: reasoningFields.reasoningOutput,
+            delegateReasoningEffort: reasoningFields.reasoningEffort,
+            delegateReasoningBudgetTokens: reasoningFields.reasoningBudgetTokens,
             delegateToolMode: delegateProviderConfig.toolMode || 'native',
         };
     }
@@ -448,6 +501,7 @@ export function createAgentSettingsPanel(deps = {}) {
     function buildProviderDraftFields(provider = 'openai-compatible', modelConfigs = {}) {
         const normalizedConfigs = normalizeModelConfigs(modelConfigs || {});
         const providerConfig = normalizedConfigs[provider] || {};
+        const reasoningFields = buildReasoningDraftFields(provider, providerConfig);
         return {
             baseUrl: String(providerConfig.baseUrl || ''),
             model: String(providerConfig.model || ''),
@@ -455,12 +509,7 @@ export function createAgentSettingsPanel(deps = {}) {
             temperature: normalizeTemperature(providerConfig.temperature, 1),
             maxTokens: normalizeMaxTokens(providerConfig.maxTokens),
             sendTemperature: shouldSendTemperature(providerConfig),
-            reasoningEnabled: Boolean(providerConfig.reasoningEnabled),
-            reasoningEffort: normalizeReasoningEffort(providerConfig.reasoningEffort, provider),
-            reasoningIncludeOutput: normalizeReasoningIncludeOutput(
-                providerConfig.reasoningIncludeOutput,
-                provider,
-            ),
+            ...reasoningFields,
             toolMode: providerConfig.toolMode || 'native',
         };
     }
@@ -468,6 +517,7 @@ export function createAgentSettingsPanel(deps = {}) {
     function buildDelegateProviderDraftFields(provider = 'openai-compatible', modelConfigs = {}) {
         const normalizedConfigs = normalizeModelConfigs(modelConfigs || {});
         const providerConfig = normalizedConfigs[provider] || {};
+        const reasoningFields = buildReasoningDraftFields(provider, providerConfig);
         return {
             delegateBaseUrl: String(providerConfig.baseUrl || ''),
             delegateModel: String(providerConfig.model || ''),
@@ -475,12 +525,10 @@ export function createAgentSettingsPanel(deps = {}) {
             delegateTemperature: normalizeTemperature(providerConfig.temperature, 1),
             delegateMaxTokens: normalizeMaxTokens(providerConfig.maxTokens),
             delegateSendTemperature: shouldSendTemperature(providerConfig),
-            delegateReasoningEnabled: Boolean(providerConfig.reasoningEnabled),
-            delegateReasoningEffort: normalizeReasoningEffort(providerConfig.reasoningEffort, provider),
-            delegateReasoningIncludeOutput: normalizeReasoningIncludeOutput(
-                providerConfig.reasoningIncludeOutput,
-                provider,
-            ),
+            delegateReasoningMode: reasoningFields.reasoningMode,
+            delegateReasoningOutput: reasoningFields.reasoningOutput,
+            delegateReasoningEffort: reasoningFields.reasoningEffort,
+            delegateReasoningBudgetTokens: reasoningFields.reasoningBudgetTokens,
             delegateToolMode: providerConfig.toolMode || 'native',
         };
     }
@@ -518,39 +566,65 @@ export function createAgentSettingsPanel(deps = {}) {
         return state.configDraft;
     }
 
-    function readDraftFromForm(root) {
+    function readDraftFromForm(root, providerOverrides = {}) {
         const draft = ensureConfigDraft();
-        const provider = root.querySelector('#xb-assistant-provider')?.value || draft.provider || 'openai-compatible';
-        const delegateProvider = root.querySelector('#xb-assistant-delegate-provider')?.value || draft.delegateProvider || 'openai-compatible';
+        const provider = providerOverrides.provider
+            || root.querySelector('#xb-assistant-provider')?.value
+            || draft.provider
+            || 'openai-compatible';
+        const delegateProvider = providerOverrides.delegateProvider
+            || root.querySelector('#xb-assistant-delegate-provider')?.value
+            || draft.delegateProvider
+            || 'openai-compatible';
+        const baseUrl = root.querySelector('#xb-assistant-base-url')?.value.trim() || '';
+        const model = root.querySelector('#xb-assistant-model')?.value.trim() || '';
+        const delegateBaseUrl = root.querySelector('#xb-assistant-delegate-base-url')?.value.trim()
+            ?? draft.delegateBaseUrl
+            ?? '';
+        const delegateModel = root.querySelector('#xb-assistant-delegate-model')?.value.trim()
+            ?? draft.delegateModel
+            ?? '';
+        const reasoning = normalizeReasoningForContext(provider, { baseUrl, model }, {
+            mode: root.querySelector('#xb-assistant-reasoning-mode')?.value || draft.reasoningMode,
+            output: root.querySelector('#xb-assistant-reasoning-output')?.value || draft.reasoningOutput,
+            effort: root.querySelector('#xb-assistant-reasoning-effort')?.value || draft.reasoningEffort,
+            budgetTokens: root.querySelector('#xb-assistant-reasoning-budget')?.value
+                ?? draft.reasoningBudgetTokens,
+        });
+        const delegateReasoning = normalizeReasoningForContext(
+            delegateProvider,
+            { baseUrl: delegateBaseUrl, model: delegateModel },
+            {
+                mode: root.querySelector('#xb-assistant-delegate-reasoning-mode')?.value
+                    || draft.delegateReasoningMode,
+                output: root.querySelector('#xb-assistant-delegate-reasoning-output')?.value
+                    || draft.delegateReasoningOutput,
+                effort: root.querySelector('#xb-assistant-delegate-reasoning-effort')?.value
+                    || draft.delegateReasoningEffort,
+                budgetTokens: root.querySelector('#xb-assistant-delegate-reasoning-budget')?.value
+                    ?? draft.delegateReasoningBudgetTokens,
+            },
+        );
         const providerConfig = {
-            baseUrl: root.querySelector('#xb-assistant-base-url')?.value.trim() || '',
-            model: root.querySelector('#xb-assistant-model')?.value.trim() || '',
+            baseUrl,
+            model,
             apiKey: root.querySelector('#xb-assistant-api-key')?.value.trim() || '',
             temperature: normalizeTemperature(root.querySelector('#xb-assistant-temperature')?.value, draft.temperature ?? 1),
             maxTokens: normalizeMaxTokens(root.querySelector('#xb-assistant-max-tokens')?.value, draft.maxTokens),
             sendTemperature: root.querySelector('#xb-assistant-send-temperature')?.checked ?? Boolean(draft.sendTemperature ?? true),
-            reasoningEnabled: root.querySelector('#xb-assistant-reasoning-enabled')?.checked || false,
-            reasoningEffort: normalizeReasoningEffort(root.querySelector('#xb-assistant-reasoning-effort')?.value, provider),
-            reasoningIncludeOutput: root.querySelector('#xb-assistant-reasoning-include-output')?.checked
-                ?? Boolean(draft.reasoningIncludeOutput),
+            reasoning,
             toolMode: isToolModeProvider(provider)
                 ? (root.querySelector('#xb-assistant-tool-mode')?.value || draft.toolMode || 'native')
                 : undefined,
         };
         const delegateProviderConfig = {
-            baseUrl: root.querySelector('#xb-assistant-delegate-base-url')?.value.trim() ?? draft.delegateBaseUrl ?? '',
-            model: root.querySelector('#xb-assistant-delegate-model')?.value.trim() ?? draft.delegateModel ?? '',
+            baseUrl: delegateBaseUrl,
+            model: delegateModel,
             apiKey: root.querySelector('#xb-assistant-delegate-api-key')?.value.trim() ?? draft.delegateApiKey ?? '',
             temperature: normalizeTemperature(root.querySelector('#xb-assistant-delegate-temperature')?.value, draft.delegateTemperature ?? 1),
             maxTokens: normalizeMaxTokens(root.querySelector('#xb-assistant-delegate-max-tokens')?.value, draft.delegateMaxTokens),
             sendTemperature: root.querySelector('#xb-assistant-delegate-send-temperature')?.checked ?? Boolean(draft.delegateSendTemperature ?? true),
-            reasoningEnabled: root.querySelector('#xb-assistant-delegate-reasoning-enabled')?.checked ?? Boolean(draft.delegateReasoningEnabled),
-            reasoningEffort: normalizeReasoningEffort(
-                root.querySelector('#xb-assistant-delegate-reasoning-effort')?.value || draft.delegateReasoningEffort,
-                delegateProvider,
-            ),
-            reasoningIncludeOutput: root.querySelector('#xb-assistant-delegate-reasoning-include-output')?.checked
-                ?? Boolean(draft.delegateReasoningIncludeOutput),
+            reasoning: delegateReasoning,
             toolMode: isToolModeProvider(delegateProvider)
                 ? (root.querySelector('#xb-assistant-delegate-tool-mode')?.value || draft.delegateToolMode || 'native')
                 : undefined,
@@ -581,9 +655,10 @@ export function createAgentSettingsPanel(deps = {}) {
             temperature: providerConfig.temperature,
             maxTokens: providerConfig.maxTokens,
             sendTemperature: providerConfig.sendTemperature,
-            reasoningEnabled: providerConfig.reasoningEnabled,
-            reasoningEffort: providerConfig.reasoningEffort,
-            reasoningIncludeOutput: providerConfig.reasoningIncludeOutput,
+            reasoningMode: providerConfig.reasoning.mode,
+            reasoningOutput: providerConfig.reasoning.output,
+            reasoningEffort: providerConfig.reasoning.effort || '',
+            reasoningBudgetTokens: providerConfig.reasoning.budgetTokens,
             toolMode: providerConfig.toolMode || draft.toolMode || 'native',
             tavilyApiKey: root.querySelector('#xb-assistant-tavily-api-key')?.value.trim() || '',
             tavilyBaseUrl: normalizeTavilyBaseUrl(draft.tavilyBaseUrl || DEFAULT_TAVILY_BASE_URL),
@@ -598,15 +673,16 @@ export function createAgentSettingsPanel(deps = {}) {
             delegateTemperature: delegateProviderConfig.temperature,
             delegateMaxTokens: delegateProviderConfig.maxTokens,
             delegateSendTemperature: delegateProviderConfig.sendTemperature,
-            delegateReasoningEnabled: delegateProviderConfig.reasoningEnabled,
-            delegateReasoningEffort: delegateProviderConfig.reasoningEffort,
-            delegateReasoningIncludeOutput: delegateProviderConfig.reasoningIncludeOutput,
+            delegateReasoningMode: delegateProviderConfig.reasoning.mode,
+            delegateReasoningOutput: delegateProviderConfig.reasoning.output,
+            delegateReasoningEffort: delegateProviderConfig.reasoning.effort || '',
+            delegateReasoningBudgetTokens: delegateProviderConfig.reasoning.budgetTokens,
             delegateToolMode: delegateProviderConfig.toolMode || draft.delegateToolMode || 'native',
         };
     }
 
-    function syncConfigDraft(root) {
-        state.configDraft = readDraftFromForm(root);
+    function syncConfigDraft(root, providerOverrides = {}) {
+        state.configDraft = readDraftFromForm(root, providerOverrides);
         state.configDirty = true;
         return state.configDraft;
     }
@@ -619,12 +695,12 @@ export function createAgentSettingsPanel(deps = {}) {
             temperature: normalizeTemperature(draft.temperature, 1),
             maxTokens: normalizeMaxTokens(draft.maxTokens),
             sendTemperature: Boolean(draft.sendTemperature ?? true),
-            reasoningEnabled: Boolean(draft.reasoningEnabled),
-            reasoningEffort: normalizeReasoningEffort(draft.reasoningEffort, draft.provider),
-            reasoningIncludeOutput: normalizeReasoningIncludeOutput(
-                draft.reasoningIncludeOutput,
-                draft.provider,
-            ),
+            reasoning: normalizeReasoningConfig({
+                mode: draft.reasoningMode,
+                output: draft.reasoningOutput,
+                effort: draft.reasoningEffort,
+                budgetTokens: draft.reasoningBudgetTokens,
+            }),
             toolMode: isToolModeProvider(draft.provider)
                 ? (draft.toolMode || 'native')
                 : undefined,
@@ -639,12 +715,12 @@ export function createAgentSettingsPanel(deps = {}) {
             temperature: normalizeTemperature(draft.delegateTemperature, 1),
             maxTokens: normalizeMaxTokens(draft.delegateMaxTokens),
             sendTemperature: Boolean(draft.delegateSendTemperature ?? true),
-            reasoningEnabled: Boolean(draft.delegateReasoningEnabled),
-            reasoningEffort: normalizeReasoningEffort(draft.delegateReasoningEffort, draft.delegateProvider),
-            reasoningIncludeOutput: normalizeReasoningIncludeOutput(
-                draft.delegateReasoningIncludeOutput,
-                draft.delegateProvider,
-            ),
+            reasoning: normalizeReasoningConfig({
+                mode: draft.delegateReasoningMode,
+                output: draft.delegateReasoningOutput,
+                effort: draft.delegateReasoningEffort,
+                budgetTokens: draft.delegateReasoningBudgetTokens,
+            }),
             toolMode: isToolModeProvider(draft.delegateProvider)
                 ? (draft.delegateToolMode || 'native')
                 : undefined,
@@ -679,7 +755,16 @@ export function createAgentSettingsPanel(deps = {}) {
             maxTokens: normalizeMaxTokens(draft.maxTokens),
             timeoutMs: AGENT_REQUEST_TIMEOUT_MS,
             toolMode: draft.toolMode || 'native',
-            ...resolveRuntimeReasoning(draft.provider, draft),
+            reasoning: resolveRuntimeReasoning({
+                provider: draft.provider,
+                baseUrl: draft.baseUrl,
+                model: draft.model,
+            }, {
+                mode: draft.reasoningMode,
+                output: draft.reasoningOutput,
+                effort: draft.reasoningEffort,
+                budgetTokens: draft.reasoningBudgetTokens,
+            }),
         };
     }
 
@@ -696,12 +781,47 @@ export function createAgentSettingsPanel(deps = {}) {
             maxTokens: normalizeMaxTokens(draft.delegateMaxTokens),
             timeoutMs: AGENT_REQUEST_TIMEOUT_MS,
             toolMode: draft.delegateToolMode || 'native',
-            ...resolveRuntimeReasoning(draft.delegateProvider, {
-                reasoningEnabled: draft.delegateReasoningEnabled,
-                reasoningEffort: draft.delegateReasoningEffort,
-                reasoningIncludeOutput: draft.delegateReasoningIncludeOutput,
+            reasoning: resolveRuntimeReasoning({
+                provider: draft.delegateProvider,
+                baseUrl: draft.delegateBaseUrl,
+                model: draft.delegateModel,
+            }, {
+                mode: draft.delegateReasoningMode,
+                output: draft.delegateReasoningOutput,
+                effort: draft.delegateReasoningEffort,
+                budgetTokens: draft.delegateReasoningBudgetTokens,
             }),
         };
+    }
+
+    function getReasoningDraftError(draft = ensureConfigDraft(), scope = 'main') {
+        const target = scope === 'delegate'
+            ? {
+                label: '分身模型：',
+                provider: draft.delegateProvider,
+                baseUrl: draft.delegateBaseUrl,
+                model: draft.delegateModel,
+                reasoning: {
+                    mode: draft.delegateReasoningMode,
+                    output: draft.delegateReasoningOutput,
+                    effort: draft.delegateReasoningEffort,
+                    budgetTokens: draft.delegateReasoningBudgetTokens,
+                },
+            }
+            : {
+                label: '主模型：',
+                provider: draft.provider,
+                baseUrl: draft.baseUrl,
+                model: draft.model,
+                reasoning: {
+                    mode: draft.reasoningMode,
+                    output: draft.reasoningOutput,
+                    effort: draft.reasoningEffort,
+                    budgetTokens: draft.reasoningBudgetTokens,
+                },
+            };
+        const runtime = resolveRuntimeReasoning(target, target.reasoning);
+        return runtime.valid === false ? `${target.label}${runtime.error}` : '';
     }
 
     function getActiveProviderConfig(options = {}) {
@@ -763,6 +883,101 @@ export function createAgentSettingsPanel(deps = {}) {
         root.querySelector('#xb-assistant-delete-preset')?.toggleAttribute('hidden', page === 'delegate');
     }
 
+    function syncReasoningControls(root, scope = 'main') {
+        const draft = ensureConfigDraft();
+        const delegate = scope === 'delegate';
+        const prefix = delegate ? '#xb-assistant-delegate-reasoning' : '#xb-assistant-reasoning';
+        const provider = delegate ? draft.delegateProvider : draft.provider;
+        const baseUrl = delegate ? draft.delegateBaseUrl : draft.baseUrl;
+        const model = delegate ? draft.delegateModel : draft.model;
+        const source = {
+            mode: delegate ? draft.delegateReasoningMode : draft.reasoningMode,
+            output: delegate ? draft.delegateReasoningOutput : draft.reasoningOutput,
+            effort: delegate ? draft.delegateReasoningEffort : draft.reasoningEffort,
+            budgetTokens: delegate
+                ? draft.delegateReasoningBudgetTokens
+                : draft.reasoningBudgetTokens,
+        };
+        const capability = resolveReasoningCapability({ provider, baseUrl, model });
+        const fields = buildReasoningDraftFields(provider, {
+            baseUrl,
+            model,
+            reasoning: source,
+        });
+        if (delegate) {
+            Object.assign(draft, {
+                delegateReasoningMode: fields.reasoningMode,
+                delegateReasoningOutput: fields.reasoningOutput,
+                delegateReasoningEffort: fields.reasoningEffort,
+                delegateReasoningBudgetTokens: fields.reasoningBudgetTokens,
+            });
+        } else {
+            Object.assign(draft, fields);
+        }
+
+        const mode = delegate ? draft.delegateReasoningMode : draft.reasoningMode;
+        const output = delegate ? draft.delegateReasoningOutput : draft.reasoningOutput;
+        const effort = delegate ? draft.delegateReasoningEffort : draft.reasoningEffort;
+        const budgetTokens = delegate
+            ? draft.delegateReasoningBudgetTokens
+            : draft.reasoningBudgetTokens;
+        const modeSelect = root.querySelector(`${prefix}-mode`);
+        const capabilityText = root.querySelector(`${prefix}-capability`);
+        const effortWrap = root.querySelector(`${prefix}-effort-wrap`);
+        const effortSelect = root.querySelector(`${prefix}-effort`);
+        const budgetWrap = root.querySelector(`${prefix}-budget-wrap`);
+        const budgetInput = root.querySelector(`${prefix}-budget`);
+        const outputSelect = root.querySelector(`${prefix}-output`);
+
+        if (modeSelect) {
+            refillSelect(modeSelect, getReasoningModeOptions(capability));
+            modeSelect.value = mode;
+        }
+        if (capabilityText) {
+            capabilityText.textContent = capability.unsupportedReason
+                || `能力配置：${capability.profileId}`;
+        }
+        if (effortSelect) {
+            refillSelect(effortSelect, getReasoningEffortOptions(capability));
+            effortSelect.value = effort;
+        }
+        if (effortWrap) {
+            effortWrap.style.display = mode === 'on'
+                && capability.intensity.kind === 'effort' ? '' : 'none';
+        }
+        if (budgetInput && capability.intensity.kind === 'budget') {
+            budgetInput.min = capability.intensity.allowAuto
+                ? '-1'
+                : String(capability.intensity.min);
+            budgetInput.max = String(capability.intensity.max);
+            budgetInput.value = String(budgetTokens);
+        }
+        if (budgetWrap) {
+            budgetWrap.style.display = mode === 'on'
+                && capability.intensity.kind === 'budget' ? '' : 'none';
+        }
+        if (outputSelect) {
+            refillSelect(outputSelect, REASONING_OUTPUT_OPTIONS);
+            outputSelect.value = output;
+        }
+    }
+
+    function syncRuntimeText(root) {
+        const runtimeEl = root.querySelector('#xb-assistant-runtime');
+        if (!runtimeEl) return;
+        const draft = ensureConfigDraft();
+        const isDelegatePage = state.configPage === 'delegate';
+        const provider = isDelegatePage ? draft.delegateProvider : draft.provider;
+        const runtimeDraft = isDelegatePage
+            ? { ...draft, currentPresetName: '分身', provider }
+            : draft;
+        runtimeEl.textContent = buildRuntimeText(
+            runtimeDraft,
+            provider || 'openai-compatible',
+            isDelegatePage ? 'delegate' : 'main',
+        );
+    }
+
     function syncConfigToForm(root) {
         if (!state.config) return;
         syncConfigPage(root);
@@ -779,11 +994,6 @@ export function createAgentSettingsPanel(deps = {}) {
         const sendTemperatureInput = root.querySelector('#xb-assistant-send-temperature');
         const toolModeWrap = root.querySelector('#xb-assistant-tool-mode-wrap');
         const toolModeSelect = root.querySelector('#xb-assistant-tool-mode');
-        const reasoningEnabledInput = root.querySelector('#xb-assistant-reasoning-enabled');
-        const reasoningEffortWrap = root.querySelector('#xb-assistant-reasoning-effort-wrap');
-        const reasoningEffortSelect = root.querySelector('#xb-assistant-reasoning-effort');
-        const reasoningIncludeOutputWrap = root.querySelector('#xb-assistant-reasoning-include-output-wrap');
-        const reasoningIncludeOutputInput = root.querySelector('#xb-assistant-reasoning-include-output');
         const permissionModeSelect = root.querySelector('#xb-assistant-permission-mode');
         const jsApiPermissionSelect = root.querySelector('#xb-assistant-jsapi-permission');
         const pulledSelect = root.querySelector('#xb-assistant-model-pulled');
@@ -800,11 +1010,6 @@ export function createAgentSettingsPanel(deps = {}) {
         const delegateMaxTokensInput = root.querySelector('#xb-assistant-delegate-max-tokens');
         const delegateToolModeWrap = root.querySelector('#xb-assistant-delegate-tool-mode-wrap');
         const delegateToolModeSelect = root.querySelector('#xb-assistant-delegate-tool-mode');
-        const delegateReasoningEnabledInput = root.querySelector('#xb-assistant-delegate-reasoning-enabled');
-        const delegateReasoningEffortWrap = root.querySelector('#xb-assistant-delegate-reasoning-effort-wrap');
-        const delegateReasoningEffortSelect = root.querySelector('#xb-assistant-delegate-reasoning-effort');
-        const delegateReasoningIncludeOutputWrap = root.querySelector('#xb-assistant-delegate-reasoning-include-output-wrap');
-        const delegateReasoningIncludeOutputInput = root.querySelector('#xb-assistant-delegate-reasoning-include-output');
         if (!presetSelect || !presetNameInput) return;
         const presetOptions = (state.config.presetNames || []).map((name) => ({ value: name, label: name }));
 
@@ -839,22 +1044,7 @@ export function createAgentSettingsPanel(deps = {}) {
             refillSelect(jsApiPermissionSelect, AGENT_JSAPI_PERMISSION_OPTIONS);
             jsApiPermissionSelect.value = normalizeJsApiPermission(draft.jsApiPermission);
         }
-        if (reasoningEffortSelect) {
-            refillSelect(reasoningEffortSelect, getReasoningEffortOptions(provider));
-            reasoningEffortSelect.value = normalizeReasoningEffort(draft.reasoningEffort, provider);
-        }
-        if (reasoningEnabledInput) reasoningEnabledInput.checked = Boolean(draft.reasoningEnabled);
-        if (reasoningEffortWrap) reasoningEffortWrap.style.display = draft.reasoningEnabled ? '' : 'none';
-        if (reasoningIncludeOutputInput) {
-            reasoningIncludeOutputInput.checked = normalizeReasoningIncludeOutput(
-                draft.reasoningIncludeOutput,
-                provider,
-            );
-        }
-        if (reasoningIncludeOutputWrap) {
-            reasoningIncludeOutputWrap.style.display = draft.reasoningEnabled
-                && getReasoningCapability(provider).includeOutput ? '' : 'none';
-        }
+        syncReasoningControls(root);
         if (pulledSelect) {
             refillSelect(pulledSelect, pulledModels.map((model) => ({ value: model, label: model })), '手动填写');
             pulledSelect.value = pulledModels.includes(draft.model) ? draft.model : '';
@@ -875,29 +1065,7 @@ export function createAgentSettingsPanel(deps = {}) {
             refillSelect(delegateToolModeSelect, TOOL_MODE_OPTIONS);
             delegateToolModeSelect.value = draft.delegateToolMode || 'native';
         }
-        if (delegateReasoningEffortSelect) {
-            refillSelect(delegateReasoningEffortSelect, getReasoningEffortOptions(delegateProvider));
-            delegateReasoningEffortSelect.value = normalizeReasoningEffort(
-                draft.delegateReasoningEffort,
-                delegateProvider,
-            );
-        }
-        if (delegateReasoningEnabledInput) {
-            delegateReasoningEnabledInput.checked = Boolean(draft.delegateReasoningEnabled);
-        }
-        if (delegateReasoningEffortWrap) {
-            delegateReasoningEffortWrap.style.display = draft.delegateReasoningEnabled ? '' : 'none';
-        }
-        if (delegateReasoningIncludeOutputInput) {
-            delegateReasoningIncludeOutputInput.checked = normalizeReasoningIncludeOutput(
-                draft.delegateReasoningIncludeOutput,
-                delegateProvider,
-            );
-        }
-        if (delegateReasoningIncludeOutputWrap) {
-            delegateReasoningIncludeOutputWrap.style.display = draft.delegateReasoningEnabled
-                && getReasoningCapability(delegateProvider).includeOutput ? '' : 'none';
-        }
+        syncReasoningControls(root, 'delegate');
         if (delegatePulledSelect) {
             refillSelect(delegatePulledSelect, delegatePulledModels.map((model) => ({ value: model, label: model })), '手动填写');
             delegatePulledSelect.value = delegatePulledModels.includes(draft.delegateModel) ? draft.delegateModel : '';
@@ -905,14 +1073,7 @@ export function createAgentSettingsPanel(deps = {}) {
         syncInlinePullStatus(root, '#xb-assistant-model-pull-status', getPullState(provider));
         syncInlinePullStatus(root, '#xb-assistant-delegate-model-pull-status', getPullState(delegateProvider, 'delegate'));
 
-        const runtimeEl = root.querySelector('#xb-assistant-runtime');
-        if (runtimeEl) {
-            const isDelegatePage = state.configPage === 'delegate';
-            const runtimeDraft = isDelegatePage
-                ? { ...draft, currentPresetName: '分身', provider: delegateProvider }
-                : draft;
-            runtimeEl.textContent = buildRuntimeText(runtimeDraft, isDelegatePage ? delegateProvider : provider, isDelegatePage ? 'delegate' : 'main');
-        }
+        syncRuntimeText(root);
     }
 
     function postSaveConfig(payload) {
@@ -950,6 +1111,14 @@ export function createAgentSettingsPanel(deps = {}) {
 
     function saveConfigFromForm(root, options = {}) {
         const draft = syncConfigDraft(root);
+        const reasoningError = getReasoningDraftError(
+            draft,
+            options.configureDelegate === true ? 'delegate' : 'main',
+        );
+        if (reasoningError) {
+            showToast?.(reasoningError);
+            return;
+        }
         const nextPresetName = normalizePresetName(options.presetName || draft.presetDraftName);
         const currentPresetName = normalizePresetName(draft.currentPresetName || state.config?.currentPresetName || DEFAULT_PRESET_NAME);
         const currentPreset = (state.config?.presets || {})[currentPresetName] || buildDefaultPreset();
@@ -1084,7 +1253,8 @@ export function createAgentSettingsPanel(deps = {}) {
 
         root.querySelector('#xb-assistant-provider')?.addEventListener('change', (event) => {
             const nextProvider = event.currentTarget.value;
-            const draft = syncConfigDraft(root);
+            const previousProvider = ensureConfigDraft().provider;
+            const draft = syncConfigDraft(root, { provider: previousProvider });
             state.configDraft = {
                 ...draft,
                 provider: nextProvider,
@@ -1116,10 +1286,14 @@ export function createAgentSettingsPanel(deps = {}) {
 
         root.querySelector('#xb-assistant-base-url')?.addEventListener('input', () => {
             syncConfigDraft(root);
+            syncReasoningControls(root);
+            syncRuntimeText(root);
         });
 
         root.querySelector('#xb-assistant-model')?.addEventListener('input', () => {
             syncConfigDraft(root);
+            syncReasoningControls(root);
+            syncRuntimeText(root);
         });
 
         root.querySelector('#xb-assistant-api-key')?.addEventListener('input', () => {
@@ -1148,14 +1322,17 @@ export function createAgentSettingsPanel(deps = {}) {
             const modelInput = root.querySelector('#xb-assistant-model');
             if (modelInput) modelInput.value = value;
             syncConfigDraft(root);
+            syncReasoningControls(root);
+            syncRuntimeText(root);
         });
 
         bindInputVisibilityToggle(root, '#xb-assistant-toggle-key', '#xb-assistant-api-key');
         bindInputVisibilityToggle(root, '#xb-assistant-toggle-tavily-key', '#xb-assistant-tavily-api-key');
 
         root.querySelector('#xb-assistant-delegate-provider')?.addEventListener('change', (event) => {
-            const draft = syncConfigDraft(root);
             const nextProvider = event.currentTarget.value;
+            const previousProvider = ensureConfigDraft().delegateProvider;
+            const draft = syncConfigDraft(root, { delegateProvider: previousProvider });
             state.configDraft = {
                 ...draft,
                 delegateProvider: nextProvider,
@@ -1167,10 +1344,14 @@ export function createAgentSettingsPanel(deps = {}) {
 
         root.querySelector('#xb-assistant-delegate-base-url')?.addEventListener('input', () => {
             syncConfigDraft(root);
+            syncReasoningControls(root, 'delegate');
+            syncRuntimeText(root);
         });
 
         root.querySelector('#xb-assistant-delegate-model')?.addEventListener('input', () => {
             syncConfigDraft(root);
+            syncReasoningControls(root, 'delegate');
+            syncRuntimeText(root);
         });
 
         root.querySelector('#xb-assistant-delegate-api-key')?.addEventListener('input', () => {
@@ -1195,21 +1376,27 @@ export function createAgentSettingsPanel(deps = {}) {
             const modelInput = root.querySelector('#xb-assistant-delegate-model');
             if (modelInput) modelInput.value = value;
             syncConfigDraft(root);
+            syncReasoningControls(root, 'delegate');
+            syncRuntimeText(root);
         });
 
         bindInputVisibilityToggle(root, '#xb-assistant-delegate-toggle-key', '#xb-assistant-delegate-api-key');
 
-        root.querySelector('#xb-assistant-reasoning-enabled')?.addEventListener('change', () => {
+        root.querySelector('#xb-assistant-reasoning-mode')?.addEventListener('change', () => {
             syncConfigDraft(root);
-            requestConfigFormSync();
-            render?.();
+            syncReasoningControls(root);
+            syncRuntimeText(root);
         });
 
         root.querySelector('#xb-assistant-reasoning-effort')?.addEventListener('change', () => {
             syncConfigDraft(root);
         });
 
-        root.querySelector('#xb-assistant-reasoning-include-output')?.addEventListener('change', () => {
+        root.querySelector('#xb-assistant-reasoning-budget')?.addEventListener('input', () => {
+            syncConfigDraft(root);
+        });
+
+        root.querySelector('#xb-assistant-reasoning-output')?.addEventListener('change', () => {
             syncConfigDraft(root);
         });
 
@@ -1217,17 +1404,21 @@ export function createAgentSettingsPanel(deps = {}) {
             syncConfigDraft(root);
         });
 
-        root.querySelector('#xb-assistant-delegate-reasoning-enabled')?.addEventListener('change', () => {
+        root.querySelector('#xb-assistant-delegate-reasoning-mode')?.addEventListener('change', () => {
             syncConfigDraft(root);
-            requestConfigFormSync();
-            render?.();
+            syncReasoningControls(root, 'delegate');
+            syncRuntimeText(root);
         });
 
         root.querySelector('#xb-assistant-delegate-reasoning-effort')?.addEventListener('change', () => {
             syncConfigDraft(root);
         });
 
-        root.querySelector('#xb-assistant-delegate-reasoning-include-output')?.addEventListener('change', () => {
+        root.querySelector('#xb-assistant-delegate-reasoning-budget')?.addEventListener('input', () => {
+            syncConfigDraft(root);
+        });
+
+        root.querySelector('#xb-assistant-delegate-reasoning-output')?.addEventListener('change', () => {
             syncConfigDraft(root);
         });
 

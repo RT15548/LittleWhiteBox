@@ -3,6 +3,20 @@ import {
     buildEffectiveReasoningConfig,
     buildSdkRequestInspection,
 } from './request-inspection.js';
+import {
+    resolveTaskReasoning,
+    shouldOmitTemperatureForReasoning,
+} from '../reasoning-capabilities.js';
+import { isReasoningOutputVisible } from '../reasoning-config.js';
+
+function cloneJson(value) {
+    if (value === undefined) return undefined;
+    try {
+        return JSON.parse(JSON.stringify(value));
+    } catch {
+        return undefined;
+    }
+}
 
 function buildUserOrSystemMessage(role, content) {
     return {
@@ -164,6 +178,13 @@ function buildInputMessages(task) {
             continue;
         }
 
+        if (message.role === 'assistant'
+            && Array.isArray(message?.providerPayload?.openAIResponseOutput)
+            && message.providerPayload.openAIResponseOutput.length) {
+            input.push(...(cloneJson(message.providerPayload.openAIResponseOutput) || []));
+            continue;
+        }
+
         if (message.role === 'assistant' && Array.isArray(message.tool_calls) && message.tool_calls.length) {
             if (message.content?.trim()) {
                 input.push(buildAssistantMessage(message.content));
@@ -214,6 +235,13 @@ function buildInputMessagesWithSystem(task) {
                 call_id: message.tool_call_id || 'missing_tool_call_id',
                 output: message.content,
             });
+            continue;
+        }
+
+        if (message.role === 'assistant'
+            && Array.isArray(message?.providerPayload?.openAIResponseOutput)
+            && message.providerPayload.openAIResponseOutput.length) {
+            input.push(...(cloneJson(message.providerPayload.openAIResponseOutput) || []));
             continue;
         }
 
@@ -293,6 +321,7 @@ export class OpenAIResponsesAdapter {
     }
 
     buildRequestBody(task, legacySystemInInput = false) {
+        const reasoning = resolveTaskReasoning('openai-responses', this.config, task.reasoning);
         const body = {
             model: this.config.model,
             instructions: legacySystemInInput ? undefined : (resolveInstructions(task) || undefined),
@@ -310,14 +339,22 @@ export class OpenAIResponsesAdapter {
                 : {}),
             ...(task.maxTokens ? { max_output_tokens: task.maxTokens } : {}),
         };
-        if (!task.reasoning?.enabled && typeof task.temperature === 'number') {
+        if (!shouldOmitTemperatureForReasoning(
+            { ...this.config, provider: 'openai-responses' },
+            reasoning,
+        ) && typeof task.temperature === 'number') {
             body.temperature = task.temperature;
         }
-        if (task.reasoning?.enabled) {
+        if (reasoning.mode === 'on' || reasoning.mode === 'off') {
             body.reasoning = {
-                effort: task.reasoning.effort,
-                ...(task.reasoning.includeOutput !== false ? { summary: 'auto' } : {}),
+                effort: reasoning.mode === 'off' ? 'none' : reasoning.effort,
+                ...(reasoning.mode === 'on' && isReasoningOutputVisible(reasoning)
+                    ? { summary: 'auto' }
+                    : {}),
             };
+            if (reasoning.mode === 'on') {
+                body.include = ['reasoning.encrypted_content'];
+            }
         }
         return body;
     }
@@ -327,6 +364,7 @@ export class OpenAIResponsesAdapter {
         const legacySystemInInput = options.legacySystemInInput === true;
         const baseUrl = String(this.config.baseUrl || 'https://api.openai.com/v1').replace(/\/$/, '');
         const body = options.body || this.buildRequestBody(task, legacySystemInInput);
+        const reasoning = resolveTaskReasoning('openai-responses', this.config, task.reasoning);
         return buildSdkRequestInspection({
             provider: 'openai-responses',
             model: this.config.model,
@@ -339,9 +377,15 @@ export class OpenAIResponsesAdapter {
             body,
             sdk: stream ? 'client.responses.stream' : 'client.responses.create',
             effectiveConfig: buildEffectiveReasoningConfig(task, {
-                enabled: !!body.reasoning,
+                profileId: reasoning.profileId,
+                effectiveMode: body.reasoning?.effort === 'none'
+                    ? 'off'
+                    : (body.reasoning ? 'on' : 'inherit'),
                 effort: body.reasoning?.effort,
-                includeOutput: !!body.reasoning?.summary,
+                controlFields: {
+                    ...(body.reasoning ? { reasoning: body.reasoning } : {}),
+                    ...(body.include ? { include: body.include } : {}),
+                },
             }),
         });
     }
@@ -358,7 +402,7 @@ export class OpenAIResponsesAdapter {
             }
 
             const output = Array.isArray(response.output) ? response.output : [];
-            const thoughts = task.reasoning?.includeOutput === false ? [] : extractThoughts(output);
+            const thoughts = isReasoningOutputVisible(task.reasoning) ? extractThoughts(output) : [];
             const toolCalls = output
                 .filter((item) => item.type === 'function_call' && item.name)
                 .map((item, index) => ({
@@ -390,7 +434,7 @@ export class OpenAIResponsesAdapter {
 
             const emitSnapshot = () => {
                 const thoughts = [];
-                if (task.reasoning?.includeOutput !== false) {
+                if (isReasoningOutputVisible(task.reasoning)) {
                     Array.from(reasoningByPart.entries())
                         .sort(([left], [right]) => comparePartKeys(left, right))
                         .forEach(([, text]) => pushThought(thoughts, '推理文本', text));
@@ -459,6 +503,9 @@ export class OpenAIResponsesAdapter {
             finishReason: response.incomplete_details?.reason || response.status || 'stop',
             model: response.model || this.config.model,
             provider: 'openai-responses',
+            providerPayload: parsed.output.length
+                ? { openAIResponseOutput: cloneJson(parsed.output) || [] }
+                : undefined,
             requestInspection,
         };
     }

@@ -252,11 +252,7 @@ export function createDelegateRunner(deps = {}) {
                 toolChoice: 'auto',
                 temperature: providerConfig.temperature,
                 maxTokens: providerConfig.maxTokens,
-                reasoning: {
-                    enabled: providerConfig.reasoningEnabled,
-                    effort: providerConfig.reasoningEffort,
-                    includeOutput: providerConfig.reasoningIncludeOutput,
-                },
+                reasoning: providerConfig.reasoning,
                 signal: parentRun?.controller?.signal,
                 // 分身不直接渲染 token，但内部走流式可以避免长任务被中转当成无响应请求切断。
                 onStreamProgress: absorbStreamProgress,

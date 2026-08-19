@@ -32,10 +32,9 @@ export function buildHostOpenAICompatibleGeneratePayload(config = {}, task = {},
         messages,
         model: config.model,
         max_tokens: task.maxTokens,
-        temperature: task.reasoning?.enabled ? undefined : task.temperature,
+        temperature: task.temperature,
         tools: Array.isArray(task.tools) && task.tools.length ? task.tools : undefined,
         tool_choice: Array.isArray(task.tools) && task.tools.length ? (task.toolChoice || 'auto') : undefined,
-        reasoning_effort: task.reasoning?.enabled ? task.reasoning.effort : undefined,
     });
 }
 

@@ -9,7 +9,7 @@ import {
     stripTaggedToolCallsForDisplay,
 } from '../../agent-core/adapters/openai-compatible.js';
 import { OpenAIResponsesAdapter } from '../../agent-core/adapters/openai-responses.js';
-import { resolveRuntimeReasoning } from '../../agent-core/reasoning-config.js';
+import { resolveRuntimeReasoning } from '../../agent-core/reasoning-capabilities.js';
 
 test('tagged-json prompt honors required, named, and none tool choices', () => {
     const buildSystem = (toolChoice) => buildTaggedMessages({
@@ -529,46 +529,6 @@ test('openai-compatible streaming validates signed arguments before replay norma
     }
 });
 
-test('openai-compatible adapter falls back when Google rejects reasoning_effort as an unknown name', async () => {
-    const config = {
-        apiKey: 'test-key',
-        baseUrl: 'https://google-unknown-name.example/v1beta/openai',
-        model: 'gemini-3-unknown-name-test',
-    };
-    const adapter = new OpenAICompatibleAdapter(config);
-    const requests = [];
-    adapter.client.chat.completions.create = async (body) => {
-        requests.push(body);
-        if (requests.length === 1) {
-            const error = new Error('[400 Bad Request] Invalid JSON payload received. Unknown name "reasoning_effort": Cannot find field.');
-            error.status = 400;
-            error.error = {
-                code: 400,
-                message: 'Invalid JSON payload received. Unknown name "reasoning_effort": Cannot find field.',
-                status: 'INVALID_ARGUMENT',
-            };
-            throw error;
-        }
-        return {
-            choices: [{
-                finish_reason: 'stop',
-                message: { role: 'assistant', content: 'fallback ok' },
-            }],
-            model: config.model,
-        };
-    };
-
-    const result = await adapter.chat({
-        messages: [{ role: 'user', content: 'hello' }],
-        reasoning: { enabled: true, effort: 'high' },
-    });
-
-    assert.equal(requests.length, 2);
-    assert.equal(requests[0].reasoning_effort, 'high');
-    assert.equal(Object.hasOwn(requests[1], 'reasoning_effort'), false);
-    assert.deepEqual(result.requestInspection.degraded, ['reasoning_effort_unsupported']);
-});
-
 test('openai-compatible tagged replay maps tool results from top-level tool calls without stale id bleed', () => {
     const messages = buildTaggedMessages({
         systemPrompt: '你是测试助手。',
@@ -782,199 +742,141 @@ test('openai-compatible adapter omits tool fields for pure text requests', async
     assert.equal(Object.hasOwn(requestBody, 'tool_choice'), false);
 });
 
-test('OpenAI reasoning maps shared min/max and requests summaries only when enabled', () => {
+test('OpenAI Responses sends exact model effort, explicit off, and no fields for inherit', () => {
     const adapter = new OpenAIResponsesAdapter({
         apiKey: 'test-key',
         baseUrl: 'https://api.openai.com/v1',
-        model: 'gpt-test',
+        model: 'gpt-5.6',
     });
-    const buildTask = (effort, includeOutput) => {
-        const runtime = resolveRuntimeReasoning('openai-responses', {
-            reasoningEnabled: true,
-            reasoningEffort: effort,
-            reasoningIncludeOutput: includeOutput,
-        });
-        return {
-            messages: [{ role: 'user', content: 'hello' }],
-            reasoning: {
-                enabled: runtime.reasoningEnabled,
-                effort: runtime.reasoningEffort,
-                includeOutput: runtime.reasoningIncludeOutput,
-            },
-        };
-    };
+    const buildTask = (reasoning) => ({
+        messages: [{ role: 'user', content: 'hello' }],
+        reasoning: resolveRuntimeReasoning({
+            provider: 'openai-responses',
+            baseUrl: 'https://api.openai.com/v1',
+            model: 'gpt-5.6',
+        }, reasoning),
+    });
 
-    const visibleTask = buildTask('min', true);
+    const visibleTask = buildTask({ mode: 'on', effort: 'max', output: 'show' });
     const visibleBody = adapter.buildRequestBody(visibleTask);
-    assert.deepEqual(visibleBody.reasoning, { effort: 'minimal', summary: 'auto' });
-    assert.deepEqual(adapter.inspectRequest(visibleTask, { body: visibleBody }).effectiveConfig, {
-        reasoningEnabled: true,
-        reasoningEffort: 'minimal',
-        reasoningIncludeOutput: true,
-    });
+    assert.deepEqual(visibleBody.reasoning, { effort: 'max', summary: 'auto' });
+    assert.deepEqual(visibleBody.include, ['reasoning.encrypted_content']);
 
-    const hiddenTask = buildTask('max', false);
+    const hiddenTask = buildTask({ mode: 'on', effort: 'low', output: 'hide' });
     const hiddenBody = adapter.buildRequestBody(hiddenTask);
-    assert.deepEqual(hiddenBody.reasoning, { effort: 'xhigh' });
+    assert.deepEqual(hiddenBody.reasoning, { effort: 'low' });
     assert.equal(Object.hasOwn(hiddenBody.reasoning, 'summary'), false);
-    assert.deepEqual(adapter.inspectRequest(hiddenTask, { body: hiddenBody }).effectiveConfig, {
-        reasoningEnabled: true,
-        reasoningEffort: 'xhigh',
-        reasoningIncludeOutput: false,
-    });
+
+    const offBody = adapter.buildRequestBody(buildTask({ mode: 'off', output: 'hide' }));
+    assert.deepEqual(offBody.reasoning, { effort: 'none' });
+
+    const inheritBody = adapter.buildRequestBody(buildTask({ mode: 'inherit', output: 'show' }));
+    assert.equal(Object.hasOwn(inheritBody, 'reasoning'), false);
+    assert.equal(Object.hasOwn(inheritBody, 'include'), false);
+
+    const effective = adapter.inspectRequest(visibleTask, { body: visibleBody }).effectiveConfig;
+    assert.equal(effective.reasoningRequestedMode, 'on');
+    assert.equal(effective.reasoningProfileId, 'openai-gpt-5.6');
+    assert.equal(effective.reasoningEffectiveMode, 'on');
+    assert.equal(effective.reasoningEffort, 'max');
+    assert.equal(effective.reasoningOutputVisible, true);
 });
 
-test('generic OpenAI-compatible reasoning sends effort without inventing an output-control field', () => {
-    const runtime = resolveRuntimeReasoning('openai-compatible', {
-        reasoningEnabled: true,
-        reasoningEffort: 'max',
-        reasoningIncludeOutput: true,
+test('OpenAI-compatible encodes only verified Kimi and DeepSeek protocols', () => {
+    const messages = [{ role: 'user', content: 'hello' }];
+    const kimiK3 = new OpenAICompatibleAdapter({
+        apiKey: 'test-key',
+        baseUrl: 'https://api.moonshot.ai/v1',
+        model: 'kimi-k3',
+    }).buildRequestBody({
+        messages,
+        reasoning: { mode: 'on', effort: 'max', output: 'hide' },
     });
-    const task = {
-        messages: [{ role: 'user', content: 'hello' }],
-        reasoning: {
-            enabled: runtime.reasoningEnabled,
-            effort: runtime.reasoningEffort,
-            includeOutput: runtime.reasoningIncludeOutput,
-        },
-    };
-    const adapter = new OpenAICompatibleAdapter({
+    assert.equal(kimiK3.reasoning_effort, 'max');
+
+    const kimiK3Off = new OpenAICompatibleAdapter({
+        apiKey: 'test-key',
+        baseUrl: 'https://api.moonshot.ai/v1',
+        model: 'kimi-k3',
+    }).buildRequestBody({
+        messages,
+        reasoning: { mode: 'off', output: 'hide' },
+    });
+    assert.equal(kimiK3Off.reasoning_effort, 'off');
+
+    const kimiK25Off = new OpenAICompatibleAdapter({
+        apiKey: 'test-key',
+        baseUrl: 'https://api.moonshot.ai/v1',
+        model: 'kimi-k2.5',
+    }).buildRequestBody({
+        messages,
+        reasoning: { mode: 'off', output: 'hide' },
+    });
+    assert.deepEqual(kimiK25Off.thinking, { type: 'disabled' });
+
+    const kimiK26On = new OpenAICompatibleAdapter({
+        apiKey: 'test-key',
+        baseUrl: 'https://api.moonshot.ai/v1',
+        model: 'kimi-k2.6',
+    }).buildRequestBody({
+        messages,
+        reasoning: { mode: 'on', output: 'hide' },
+    });
+    assert.deepEqual(kimiK26On.thinking, { type: 'enabled' });
+
+    const deepSeek = new OpenAICompatibleAdapter({
+        apiKey: 'test-key',
+        baseUrl: 'https://api.deepseek.com/v1',
+        model: 'deepseek-reasoner',
+    }).buildRequestBody({
+        messages,
+        reasoning: { mode: 'on', effort: 'max', output: 'hide' },
+    });
+    assert.deepEqual(deepSeek.thinking, { type: 'enabled' });
+    assert.equal(deepSeek.reasoning_effort, 'max');
+
+    const deepSeekOff = new OpenAICompatibleAdapter({
+        apiKey: 'test-key',
+        baseUrl: 'https://api.deepseek.com/v1',
+        model: 'deepseek-reasoner',
+    }).buildRequestBody({
+        messages,
+        reasoning: { mode: 'off', output: 'hide' },
+    });
+    assert.deepEqual(deepSeekOff.thinking, { type: 'disabled' });
+    assert.equal(Object.hasOwn(deepSeekOff, 'reasoning_effort'), false);
+
+    const kimiInherit = new OpenAICompatibleAdapter({
+        apiKey: 'test-key',
+        baseUrl: 'https://api.moonshot.ai/v1',
+        model: 'kimi-k3',
+    }).buildRequestBody({
+        messages,
+        reasoning: { mode: 'inherit', output: 'show' },
+    });
+    assert.equal(Object.hasOwn(kimiInherit, 'reasoning_effort'), false);
+    assert.equal(Object.hasOwn(kimiInherit, 'thinking'), false);
+
+    const unknown = new OpenAICompatibleAdapter({
         apiKey: 'test-key',
         baseUrl: 'https://example.com/v1',
         model: 'compatible-reasoning-model',
     });
-    const body = adapter.buildRequestBody(task);
-
-    assert.equal(body.reasoning_effort, 'xhigh');
-    assert.equal(Object.hasOwn(body, 'include_reasoning'), false);
-    assert.deepEqual(adapter.inspectRequest(task, { body }).effectiveConfig, {
-        reasoningEnabled: true,
-        reasoningEffort: 'xhigh',
-        reasoningIncludeOutput: false,
-    });
-});
-
-test('openai-compatible adapter sends reasoning_effort for Gemini and other reasoning models by default', () => {
-    const task = {
-        messages: [{ role: 'user', content: 'hello' }],
-        reasoning: {
-            enabled: true,
-            effort: 'high',
-        },
-    };
-    const geminiBody = new OpenAICompatibleAdapter({
-        apiKey: 'test-key',
-        baseUrl: 'https://example.com/v1',
-        model: '[v]gemini-3.7-flash',
-    }).buildRequestBody(task);
-    const gptBody = new OpenAICompatibleAdapter({
-        apiKey: 'test-key',
-        baseUrl: 'https://example.com/v1',
-        model: 'gpt-5',
-    }).buildRequestBody(task);
-    const deepSeekBody = new OpenAICompatibleAdapter({
-        apiKey: 'test-key',
-        baseUrl: 'https://example.com/v1',
-        model: 'deepseek-reasoner',
-    }).buildRequestBody(task);
-
-    assert.equal(geminiBody.reasoning_effort, 'high');
-    assert.equal(gptBody.reasoning_effort, 'high');
-    assert.equal(deepSeekBody.reasoning_effort, 'high');
-});
-
-test('openai-compatible adapter retries unsupported reasoning_effort once and caches the capability', async () => {
-    const config = {
-        apiKey: 'test-key',
-        baseUrl: 'https://reasoning-fallback.example/v1',
-        model: 'gemini-fallback-test',
-    };
-    const task = {
-        messages: [{ role: 'user', content: 'hello' }],
-        reasoning: { enabled: true, effort: 'high' },
-    };
-    const requests = [];
-    const adapter = new OpenAICompatibleAdapter(config);
-    adapter.client.chat.completions.create = async (body) => {
-        requests.push(body);
-        if (requests.length === 1) {
-            const error = new Error("Unsupported parameter: 'reasoning_effort'");
-            error.status = 400;
-            error.code = 'unsupported_parameter';
-            error.param = 'reasoning_effort';
-            throw error;
-        }
-        return {
-            choices: [{
-                finish_reason: 'stop',
-                message: { role: 'assistant', content: 'fallback ok' },
-            }],
-            model: config.model,
-        };
-    };
-
-    const result = await adapter.chat(task);
-
-    assert.equal(requests.length, 2);
-    assert.equal(requests[0].reasoning_effort, 'high');
-    assert.equal(Object.hasOwn(requests[1], 'reasoning_effort'), false);
-    assert.equal(Object.hasOwn(result.requestInspection.request.body, 'reasoning_effort'), false);
-
-    const cachedRequests = [];
-    const cachedAdapter = new OpenAICompatibleAdapter(config);
-    cachedAdapter.client.chat.completions.create = async (body) => {
-        cachedRequests.push(body);
-        return {
-            choices: [{
-                finish_reason: 'stop',
-                message: { role: 'assistant', content: 'cached fallback ok' },
-            }],
-            model: config.model,
-        };
-    };
-
-    await cachedAdapter.chat(task);
-    assert.equal(cachedRequests.length, 1);
-    assert.equal(Object.hasOwn(cachedRequests[0], 'reasoning_effort'), false);
-
-    const originalDateNow = Date.now;
-    const expiredRequests = [];
-    try {
-        Date.now = () => originalDateNow() + (60 * 60 * 1000);
-        const expiredAdapter = new OpenAICompatibleAdapter(config);
-        expiredAdapter.client.chat.completions.create = async (requestBody) => {
-            expiredRequests.push(requestBody);
-            return {
-                choices: [{
-                    finish_reason: 'stop',
-                    message: { role: 'assistant', content: 'capability probe restored' },
-                }],
-                model: config.model,
-            };
-        };
-        await expiredAdapter.chat(task);
-    } finally {
-        Date.now = originalDateNow;
-    }
-    assert.equal(expiredRequests[0].reasoning_effort, 'high');
-
-    const otherModelBody = new OpenAICompatibleAdapter({
-        ...config,
-        model: 'gemini-other-model',
-    }).buildRequestBody(task);
-    const otherBaseUrlBody = new OpenAICompatibleAdapter({
-        ...config,
-        baseUrl: 'https://reasoning-fallback-other.example/v1',
-    }).buildRequestBody(task);
-    assert.equal(otherModelBody.reasoning_effort, 'high');
-    assert.equal(otherBaseUrlBody.reasoning_effort, 'high');
+    assert.throws(() => unknown.buildRequestBody({
+        messages,
+        reasoning: { mode: 'on', effort: 'high', output: 'hide' },
+    }), /没有已验证的 Reasoning 控制协议/);
+    assert.throws(() => unknown.buildRequestBody({
+        messages,
+        reasoning: { mode: 'off', output: 'hide' },
+    }), /不支持显式关闭 Reasoning/);
 });
 
 test('openai-compatible adapter does not retry ambiguous reasoning_effort errors', async () => {
     const config = {
         apiKey: 'test-key',
         baseUrl: 'https://reasoning-invalid-value.example/v1',
-        model: 'gemini-invalid-value-test',
+        model: 'gpt-5.6',
     };
     const adapter = new OpenAICompatibleAdapter(config);
     let requestCount = 0;
@@ -989,65 +891,20 @@ test('openai-compatible adapter does not retry ambiguous reasoning_effort errors
 
     await assert.rejects(() => adapter.chat({
         messages: [{ role: 'user', content: 'hello' }],
-        reasoning: { enabled: true, effort: 'high' },
+        reasoning: { mode: 'on', effort: 'high', output: 'hide' },
     }), /Unsupported value for reasoning_effort/);
     assert.equal(requestCount, 1);
     assert.equal(new OpenAICompatibleAdapter(config).buildRequestBody({
         messages: [{ role: 'user', content: 'hello' }],
-        reasoning: { enabled: true, effort: 'low' },
+        reasoning: { mode: 'on', effort: 'low', output: 'hide' },
     }).reasoning_effort, 'low');
-});
-
-test('openai-compatible adapter retries a rejected native stream before consuming events', async () => {
-    const adapter = new OpenAICompatibleAdapter({
-        apiKey: 'test-key',
-        baseUrl: 'https://reasoning-stream-fallback.example/v1',
-        model: 'gemini-stream-fallback-test',
-    });
-    const originalFetch = globalThis.fetch;
-    const requests = [];
-    globalThis.fetch = async (url, options = {}) => {
-        requests.push(JSON.parse(String(options.body || '{}')));
-        if (requests.length === 1) {
-            return {
-                ok: false,
-                status: 400,
-                text: async () => JSON.stringify({
-                    error: { message: 'Unrecognized request argument supplied: reasoning_effort' },
-                }),
-            };
-        }
-        return createSseResponse([{
-            model: 'gemini-stream-fallback-test',
-            choices: [{
-                index: 0,
-                delta: { role: 'assistant', content: 'stream fallback ok' },
-                finish_reason: 'stop',
-            }],
-        }]);
-    };
-
-    try {
-        const result = await adapter.chat({
-            messages: [{ role: 'user', content: 'hello' }],
-            reasoning: { enabled: true, effort: 'high' },
-            onStreamProgress: () => {},
-        });
-
-        assert.equal(result.text, 'stream fallback ok');
-        assert.equal(requests.length, 2);
-        assert.equal(requests[0].reasoning_effort, 'high');
-        assert.equal(Object.hasOwn(requests[1], 'reasoning_effort'), false);
-    } finally {
-        globalThis.fetch = originalFetch;
-    }
 });
 
 test('openai-compatible adapter never retries a native stream after the response is accepted', async () => {
     const config = {
         apiKey: 'test-key',
         baseUrl: 'https://reasoning-stream-late-error.example/v1',
-        model: 'gemini-stream-late-error-test',
+        model: 'gpt-5.6',
     };
     const adapter = new OpenAICompatibleAdapter(config);
     const originalFetch = globalThis.fetch;
@@ -1086,7 +943,7 @@ test('openai-compatible adapter never retries a native stream after the response
     try {
         await assert.rejects(() => adapter.chat({
             messages: [{ role: 'user', content: 'hello' }],
-            reasoning: { enabled: true, effort: 'high' },
+            reasoning: { mode: 'on', effort: 'high', output: 'hide' },
             onStreamProgress: (snapshot) => progress.push(snapshot.text),
         }), /Unknown parameter: reasoning_effort/);
 
@@ -1094,7 +951,7 @@ test('openai-compatible adapter never retries a native stream after the response
         assert.deepEqual(progress, ['partial']);
         assert.equal(new OpenAICompatibleAdapter(config).buildRequestBody({
             messages: [{ role: 'user', content: 'hello' }],
-            reasoning: { enabled: true, effort: 'low' },
+            reasoning: { mode: 'on', effort: 'low', output: 'hide' },
         }).reasoning_effort, 'low');
     } finally {
         globalThis.fetch = originalFetch;
@@ -1171,7 +1028,7 @@ test('openai-compatible adapter keeps streaming enabled in reasoning mode and pr
     const adapter = new OpenAICompatibleAdapter({
         apiKey: 'test-key',
         baseUrl: 'https://example.com/openai-compatible',
-        model: 'compat-test',
+        model: 'deepseek-reasoner',
     });
 
     const originalFetch = globalThis.fetch;
@@ -1226,8 +1083,9 @@ test('openai-compatible adapter keeps streaming enabled in reasoning mode and pr
                 },
             }],
             reasoning: {
-                enabled: true,
+                mode: 'on',
                 effort: 'high',
+                output: 'show',
             },
             onStreamProgress: () => {},
         });
@@ -1672,10 +1530,6 @@ test('openai-compatible adapter replays preserved assistant message on the next 
                 content: JSON.stringify({ ok: true, skillCount: 1 }),
             },
         ],
-        reasoning: {
-            enabled: true,
-            effort: 'high',
-        },
     });
 
     assert.deepEqual(receivedBody.messages[1], preservedMessage);
@@ -1794,10 +1648,6 @@ test('openai-compatible adapter does not replay historical reasoning payloads fr
                 content: JSON.stringify({ ok: true }),
             },
         ],
-        reasoning: {
-            enabled: true,
-            effort: 'high',
-        },
     });
 
     assert.deepEqual(receivedBody.messages[1], {
@@ -1915,10 +1765,6 @@ test('openai-compatible adapter replays a current turn with multiple tool calls 
                 content: JSON.stringify({ ok: true, path: 'LittleWhiteBox_Assistant_Worklog.md' }),
             },
         ],
-        reasoning: {
-            enabled: true,
-            effort: 'high',
-        },
     });
 
     assert.deepEqual(receivedBody.messages, [
@@ -2031,7 +1877,7 @@ test('openai-compatible adapter adds empty reasoning_content for DeepSeek assist
             },
         ],
         reasoning: {
-            enabled: true,
+            mode: 'on',
             effort: 'high',
         },
     });
@@ -2043,7 +1889,7 @@ test('openai-compatible adapter keeps streamed reasoning_content when later chun
     const adapter = new OpenAICompatibleAdapter({
         apiKey: 'test-key',
         baseUrl: 'https://example.com/openai-compatible',
-        model: 'deepseek-v4-pro',
+        model: 'deepseek-reasoner',
     });
 
     const originalFetch = globalThis.fetch;
@@ -2115,7 +1961,7 @@ test('openai-compatible adapter keeps streamed reasoning_content when later chun
                 },
             ],
             reasoning: {
-                enabled: true,
+                mode: 'on',
                 effort: 'high',
             },
             onStreamProgress: () => {},
@@ -2124,6 +1970,46 @@ test('openai-compatible adapter keeps streamed reasoning_content when later chun
         assert.equal(
             result.providerPayload?.openaiCompatibleMessage?.reasoning_content,
             '先读 identity 再继续。',
+        );
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
+test('openai-compatible hidden reasoning never leaks through stream progress but remains replayable', async () => {
+    const adapter = new OpenAICompatibleAdapter({
+        apiKey: 'test-key',
+        baseUrl: 'https://api.deepseek.com/v1',
+        model: 'deepseek-reasoner',
+    });
+    const originalFetch = globalThis.fetch;
+    const progress = [];
+    globalThis.fetch = async () => createSseResponse([{
+        model: 'deepseek-reasoner',
+        choices: [{
+            index: 0,
+            delta: {
+                role: 'assistant',
+                content: '完成。',
+                reasoning_content: '不应展示的内部思考',
+            },
+            finish_reason: 'stop',
+        }],
+    }]);
+
+    try {
+        const result = await adapter.chat({
+            messages: [{ role: 'user', content: '回答。' }],
+            reasoning: { mode: 'on', effort: 'high', output: 'hide' },
+            onStreamProgress: (snapshot) => progress.push(snapshot),
+        });
+
+        assert.equal(progress.length > 0, true);
+        assert.equal(progress.every((snapshot) => snapshot.thoughts?.length === 0), true);
+        assert.deepEqual(result.thoughts, []);
+        assert.equal(
+            result.providerPayload.openaiCompatibleMessage.reasoning_content,
+            '不应展示的内部思考',
         );
     } finally {
         globalThis.fetch = originalFetch;

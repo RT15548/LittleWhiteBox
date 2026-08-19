@@ -126,8 +126,9 @@ modules/draw/shared/scene-plan-contract.js
 - `sendTemperature`
 - `maxTokens`
 - `toolMode`
-- `reasoningEnabled`
-- `reasoningEffort`
+- `reasoning.mode`：`inherit | on | off`
+- `reasoning.output`：`show | hide`
+- `reasoning.effort` 或 `reasoning.budgetTokens`：由 Provider、传输方式和具体模型的能力配置决定
 
 画图自己的 `timeout` 可继续保留。它是“本次场景规划最多等待多久”的功能策略，不是模型身份或凭据；调用时作为 `timeoutMs` 传给共享 Provider 解析/Adapter。
 
@@ -236,10 +237,7 @@ const result = await adapter.chat({
     toolChoice: 'required',
     temperature: providerConfig.temperature,
     maxTokens: providerConfig.maxTokens,
-    reasoning: {
-        enabled: providerConfig.reasoningEnabled,
-        effort: providerConfig.reasoningEffort,
-    },
+    reasoning: providerConfig.reasoning,
     signal,
 });
 ```
@@ -670,6 +668,26 @@ Anthropic 的 manual（预算式）extended thinking 与强制工具选择不兼
 - 只有确认为 adaptive thinking 的模型（`claude-opus-4-7`）保留 reasoning。
 - Claude 4.6 是否 adaptive 取决于宿主 `claude.enableAdaptiveThinking` 配置，客户端无法确认，按 manual 保守处理。
 
+### 9.5 Reasoning 能力与展示边界
+
+持久化层只保存统一形状，不猜协议：
+
+```js
+reasoning: {
+    mode: 'inherit' | 'on' | 'off',
+    output: 'show' | 'hide',
+    effort?: string,
+    budgetTokens?: number,
+}
+```
+
+- `inherit` 不发送控制字段；`off` 必须发送该模型已验证的关闭协议，不能退化成 `inherit`。
+- 能力由 `Provider + 传输方式 + 模型` 共同解析。未知组合只能使用 `inherit`，显式 `on/off` 在请求前失败。
+- Kimi K3、Kimi K2.5/K2.6、DeepSeek、OpenAI、Claude 与 Gemini 各自由 Adapter 编码自己的控制字段，不在通用 Host helper 中映射。
+- Anthropic 直连与托管 Claude 的 manual thinking 遇到强制 Tool 时均以工具契约优先，仅关闭本次请求的 Reasoning 并留下诊断；adaptive thinking 不受影响。
+- `output` 只控制界面展示。`hide` 在流式与非流式结果中都不暴露思考文本，但原始 Provider payload、thinking block、签名和 Responses output 仍保留给本轮 Tool loop 续传。
+- Provider 拒绝 Reasoning 参数时原错误直接返回，不删除参数静默重试。
+
 
 ## 10. 设置与数据清理
 
@@ -923,6 +941,8 @@ AgentCore Adapter 是四个现有 Agent 消费者的共享源码，修改后必�
 - Anthropic 指定不存在的 Tool 名本地失败。
 - 托管 Claude `required → any`、`none`、`auto`；指定 Tool 名本地失败；无 tools 时不发送 `tool_choice`。
 - 托管 Claude manual thinking 在强制 Tool 下关闭 reasoning 并给出诊断标记；确认 adaptive 的模型保留 reasoning；`sillytavern-google` 仍收到 `required`。
+- Reasoning 三态按 Provider、传输方式与模型解析；`inherit` 无控制字段，显式 `off` 不得静默变回默认。
+- `output=hide` 的流式和非流式输出均不展示思考，同时保留可回放的 Provider payload 与签名。
 - OpenAI Compatible Tagged JSON 在 `required` 时明确强制 Tool。
 - Tagged JSON 指定 Tool 名和 `none`。
 - SillyTavern OpenAI Compatible 使用相同规则。
@@ -1098,3 +1118,11 @@ UI 测试验证可观察 DOM/交互结果，不写读取源码 `includes` 的“
 ### 17.5 外部环境冒烟
 
 真实 Provider 的网络调用需要本机共享 Agent 中已配置的模型与凭据，不在仓库自动化中伪造。发布前按第 14 节矩阵分别切换共享主预设，至少验证一次原生 Tool Calling 与一次 Tagged JSON；这项只验证外部模型/供应商兼容性，不再改变运行时架构或增加 fallback。
+
+### 17.6 Reasoning 契约收口
+
+- 共享配置从布尔开关改为 `inherit | on | off` 三态，并把思考强度、Token 预算和输出展示拆成独立字段；测试线旧布尔字段不再进入当前 schema。
+- 能力矩阵下沉到 AgentCore，按 Provider、直连/托管传输与模型解析；不支持的显式开启或关闭在发送前给出能力错误。
+- 七个 Adapter 只编码各自已经确认的协议字段；通用 Host helper 不再注入 Reasoning 参数，也不在 4xx 后删参重试。
+- `output=hide` 同时约束流式进度和最终结果，但保留 Provider 原文、thinking/signature 与 OpenAI Responses output，确保多轮 Tool 回放不损坏。
+- Draw 诊断记录 requested mode、effective mode、能力 profile 与实际控制字段，托管 Claude 因强制 Tool 关闭本次 Reasoning 时仍给出明确 notice。

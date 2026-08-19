@@ -9,6 +9,16 @@ export interface XbTavernProviderResolveOptions {
     timeoutMs?: number;
 }
 
+export interface XbTavernReasoningConfig {
+    mode: 'inherit' | 'on' | 'off';
+    output: 'show' | 'hide';
+    effort?: string;
+    budgetTokens?: number;
+    profileId: string;
+    valid: boolean;
+    error?: string;
+}
+
 export interface XbTavernResolvedProvider {
     currentPresetName: string;
     provider: string;
@@ -20,6 +30,7 @@ export interface XbTavernResolvedProvider {
     maxTokens: number | null;
     timeoutMs: number;
     toolMode: string;
+    reasoning: XbTavernReasoningConfig;
     readiness: {
         ok: boolean;
         missing: string[];
@@ -65,6 +76,12 @@ export function resolveXbTavernProviderConfig(
             maxTokens: null,
             timeoutMs: Number(options.timeoutMs) || 15 * 60 * 1000,
             toolMode: 'native',
+            reasoning: {
+                mode: 'inherit',
+                output: 'hide',
+                profileId: 'unsupported',
+                valid: true,
+            },
             readiness: {
                 ok: false,
                 missing: ['分身模型'],
@@ -100,6 +117,7 @@ export function resolveXbTavernProviderConfig(
             : Number(providerConfig.maxTokens),
         timeoutMs: Number(providerConfig.timeoutMs) || 15 * 60 * 1000,
         toolMode: String(providerConfig.toolMode || 'native'),
+        reasoning: providerConfig.reasoning as XbTavernReasoningConfig,
         readiness: {
             ok: missing.length === 0,
             missing,

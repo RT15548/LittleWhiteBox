@@ -4,6 +4,11 @@ import {
     buildSdkRequestInspection,
 } from './request-inspection.js';
 import {
+    resolveTaskReasoning,
+    shouldOmitTemperatureForReasoning,
+} from '../reasoning-capabilities.js';
+import { isReasoningOutputVisible } from '../reasoning-config.js';
+import {
     extractLooseField,
     findLooseKeyMatch,
     repairLooseToolArguments,
@@ -681,10 +686,16 @@ function emitStreamProgress(task, payload) {
     if (typeof task.onStreamProgress !== 'function') return;
     task.onStreamProgress({
         ...(typeof payload.text === 'string' ? { text: payload.text } : {}),
-        ...(Array.isArray(payload.thoughts) ? { thoughts: payload.thoughts } : {}),
+        ...(Array.isArray(payload.thoughts)
+            ? { thoughts: isReasoningOutputVisible(task.reasoning) ? payload.thoughts : [] }
+            : {}),
         ...(Array.isArray(payload.toolCalls) ? { toolCalls: payload.toolCalls } : {}),
         ...(payload.toolCallDraft ? { toolCallDraft: true } : {}),
     });
+}
+
+function visibleThoughts(task, thoughts = []) {
+    return isReasoningOutputVisible(task.reasoning) ? thoughts : [];
 }
 
 export function summarizeReplayMessageForDebug(message) {
@@ -886,88 +897,6 @@ async function readSseEventsFromResponse(response, onEvent) {
     }
 }
 
-const REASONING_EFFORT_UNSUPPORTED_TTL_MS = 10 * 60 * 1000;
-const unsupportedReasoningEffortCapabilities = new Map();
-
-function getReasoningEffortCapabilityKey(config = {}) {
-    const baseUrl = String(config.baseUrl || 'https://api.openai.com/v1').trim().replace(/\/+$/, '');
-    return `${baseUrl}\u0000${String(config.model || '').trim()}`;
-}
-
-export function hasUnsupportedReasoningEffortCapability(config = {}) {
-    const key = getReasoningEffortCapabilityKey(config);
-    const expiresAt = unsupportedReasoningEffortCapabilities.get(key);
-    if (!Number.isFinite(expiresAt)) return false;
-    if (expiresAt > Date.now()) return true;
-    unsupportedReasoningEffortCapabilities.delete(key);
-    return false;
-}
-
-export function markUnsupportedReasoningEffortCapability(config = {}) {
-    const now = Date.now();
-    unsupportedReasoningEffortCapabilities.forEach((expiresAt, key) => {
-        if (!Number.isFinite(expiresAt) || expiresAt <= now) {
-            unsupportedReasoningEffortCapabilities.delete(key);
-        }
-    });
-    unsupportedReasoningEffortCapabilities.set(
-        getReasoningEffortCapabilityKey(config),
-        now + REASONING_EFFORT_UNSUPPORTED_TTL_MS,
-    );
-}
-
-function collectErrorDetailText(value, output, seen = new Set()) {
-    if (value === undefined || value === null) return;
-    if (typeof value === 'string') {
-        output.push(value);
-        const trimmed = value.trim();
-        if ((trimmed.startsWith('{') && trimmed.endsWith('}'))
-            || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
-            try {
-                collectErrorDetailText(JSON.parse(trimmed), output, seen);
-            } catch {
-                // 普通文本错误体无需结构化解析。
-            }
-        }
-        return;
-    }
-    if (typeof value !== 'object' || seen.has(value)) return;
-    seen.add(value);
-    Object.values(value).forEach((nestedValue) => {
-        collectErrorDetailText(nestedValue, output, seen);
-    });
-}
-
-export function isUnsupportedReasoningEffortError(error) {
-    const status = Number(error?.status ?? error?.response?.status ?? 0);
-    if (status !== 400 && status !== 422) return false;
-
-    const detailParts = [
-        error?.message,
-        error?.code,
-        error?.param,
-    ].filter(Boolean);
-    collectErrorDetailText(error?.error, detailParts);
-    collectErrorDetailText(error?.body, detailParts);
-    const details = detailParts.join(' ').toLowerCase();
-    if (!/reasoning[_ -]?effort/.test(details)) return false;
-
-    const code = String(error?.code || error?.error?.code || '').toLowerCase();
-    const param = String(error?.param || error?.error?.param || '').toLowerCase();
-    if (/reasoning[_ -]?effort/.test(param)
-        && /(unsupported_parameter|unknown_parameter|unrecognized_parameter|extra_forbidden)/.test(code)) {
-        return true;
-    }
-    return /(?:unsupported|unknown|unrecognized|unexpected|invalid)\s+(?:request\s+)?(?:parameter|field|argument)(?:\s+supplied)?\s*:?\s*['"]?reasoning[_ -]?effort/.test(details)
-        || /(?:parameter|field|argument)\s*['"]?reasoning[_ -]?effort['"]?\s+(?:is\s+)?(?:not supported|not allowed|not permitted)/.test(details)
-        || /reasoning[_ -]?effort['"]?\s+(?:is\s+)?(?:an?\s+)?(?:unsupported|unknown|unrecognized|unexpected)\s+(?:parameter|field|argument)/.test(details)
-        || /reasoning[_ -]?effort[\s\S]*extra inputs?[\s\S]*(?:not permitted|forbidden)/.test(details)
-        || /extra inputs?[\s\S]*(?:not permitted|forbidden)[\s\S]*reasoning[_ -]?effort/.test(details)
-        // Google（OpenAI 兼容端点）：Invalid JSON payload received. Unknown name "reasoning_effort": Cannot find field.
-        || /unknown name\s*['"]?reasoning[_ -]?effort['"]?/.test(details)
-        || /reasoning[_ -]?effort['"]?\s*:?\s*cannot find field/.test(details);
-}
-
 export class OpenAICompatibleAdapter {
     constructor(config) {
         this.config = config;
@@ -981,6 +910,7 @@ export class OpenAICompatibleAdapter {
     }
 
     buildRequestBody(task) {
+        const reasoning = resolveTaskReasoning('openai-compatible', this.config, task.reasoning);
         const toolMode = this.config.toolMode || 'native';
         const isTaggedMode = toolMode === 'tagged-json' && Array.isArray(task.tools) && task.tools.length > 0;
         const nativeTools = !isTaggedMode && Array.isArray(task.tools) && task.tools.length
@@ -992,38 +922,25 @@ export class OpenAICompatibleAdapter {
             ...(nativeTools ? { tools: nativeTools, tool_choice: task.toolChoice || 'auto' } : {}),
             ...(task.maxTokens ? { max_tokens: task.maxTokens } : {}),
         };
-        if (!task.reasoning?.enabled && typeof task.temperature === 'number') {
+        if (!shouldOmitTemperatureForReasoning(
+            { ...this.config, provider: 'openai-compatible' },
+            reasoning,
+        ) && typeof task.temperature === 'number') {
             body.temperature = task.temperature;
         }
-        if (task.reasoning?.enabled
-            && !hasUnsupportedReasoningEffortCapability(this.config)) {
-            body.reasoning_effort = task.reasoning.effort;
+        if (reasoning.mode === 'on' || reasoning.mode === 'off') {
+            if (reasoning.profileId.startsWith('openai-') || reasoning.profileId === 'kimi-k3') {
+                body.reasoning_effort = reasoning.mode === 'off'
+                    ? (reasoning.profileId === 'kimi-k3' ? 'off' : 'none')
+                    : reasoning.effort;
+            } else if (reasoning.profileId === 'kimi-k2.5-k2.6') {
+                body.thinking = { type: reasoning.mode === 'off' ? 'disabled' : 'enabled' };
+            } else if (reasoning.profileId === 'deepseek-thinking') {
+                body.thinking = { type: reasoning.mode === 'off' ? 'disabled' : 'enabled' };
+                if (reasoning.mode === 'on') body.reasoning_effort = reasoning.effort;
+            }
         }
         return body;
-    }
-
-    async requestWithReasoningEffortFallback(task, body, createRequest, options = {}) {
-        try {
-            return {
-                result: await createRequest(body),
-                body,
-            };
-        } catch (error) {
-            if (task.signal?.aborted
-                || (typeof options.canRetry === 'function' && !options.canRetry())
-                || !Object.prototype.hasOwnProperty.call(body, 'reasoning_effort')
-                || !isUnsupportedReasoningEffortError(error)) {
-                throw error;
-            }
-
-            markUnsupportedReasoningEffortCapability(this.config);
-            const fallbackBody = { ...body };
-            delete fallbackBody.reasoning_effort;
-            return {
-                result: await createRequest(fallbackBody),
-                body: fallbackBody,
-            };
-        }
     }
 
     inspectRequest(task, options = {}) {
@@ -1033,9 +950,11 @@ export class OpenAICompatibleAdapter {
             ...(stream ? { stream: true } : {}),
         };
         const baseUrl = String(this.config.baseUrl || 'https://api.openai.com/v1').replace(/\/$/, '');
-        const suppressedReasoningEffort = !!task.reasoning?.enabled
-            && !Object.prototype.hasOwnProperty.call(body, 'reasoning_effort');
-        const effectiveReasoningEnabled = Object.prototype.hasOwnProperty.call(body, 'reasoning_effort');
+        const reasoning = resolveTaskReasoning('openai-compatible', this.config, task.reasoning);
+        const controlFields = {
+            ...(Object.hasOwn(body, 'reasoning_effort') ? { reasoning_effort: body.reasoning_effort } : {}),
+            ...(Object.hasOwn(body, 'thinking') ? { thinking: body.thinking } : {}),
+        };
         return {
             ...buildSdkRequestInspection({
                 provider: 'openai-compatible',
@@ -1051,17 +970,16 @@ export class OpenAICompatibleAdapter {
                     ? 'client.chat.completions.create(..., { stream: true })'
                     : 'client.chat.completions.create',
                 effectiveConfig: buildEffectiveReasoningConfig(task, {
-                    enabled: effectiveReasoningEnabled,
+                    profileId: reasoning.profileId,
+                    effectiveMode: reasoning.mode,
                     effort: body.reasoning_effort,
-                    includeOutput: false,
+                    controlFields,
                 }),
             }),
-            // 端点不认 reasoning_effort 时会被静默剥离，这里给调试面板一个结构化降级标记。
-            ...(suppressedReasoningEffort ? { degraded: ['reasoning_effort_unsupported'] } : {}),
         };
     }
 
-    async streamNativeChatCompletions(task, body, options = {}) {
+    async streamNativeChatCompletions(task, body) {
         const url = `${String(this.config.baseUrl || 'https://api.openai.com/v1').replace(/\/$/, '')}/chat/completions`;
         const response = await fetch(url, {
             method: 'POST',
@@ -1082,10 +1000,6 @@ export class OpenAICompatibleAdapter {
             error.status = response.status;
             throw error;
         }
-        if (typeof options.onResponseAccepted === 'function') {
-            options.onResponseAccepted();
-        }
-
         const assistantSnapshot = {
             role: 'assistant',
         };
@@ -1110,7 +1024,10 @@ export class OpenAICompatibleAdapter {
                 : stripTaggedToolCallsForDisplay(thinkTagged.cleaned);
             emitStreamProgress(task, {
                 text: cleanedText,
-                thoughts: extractThoughtsFromMessage(assistantSnapshot, choice).concat(thinkTagged.thoughts),
+                thoughts: visibleThoughts(
+                    task,
+                    extractThoughtsFromMessage(assistantSnapshot, choice).concat(thinkTagged.thoughts),
+                ),
                 ...(progressToolCalls.length ? { toolCalls: progressToolCalls } : {}),
                 ...(!standardToolCalls.length && progressToolCalls.length ? { toolCallDraft: true } : {}),
             });
@@ -1131,7 +1048,7 @@ export class OpenAICompatibleAdapter {
         return {
             text: cleanedText,
             toolCalls,
-            thoughts,
+            thoughts: visibleThoughts(task, thoughts),
             finishReason: lastFinishReason,
             model: lastModel,
             provider: 'openai-compatible',
@@ -1144,24 +1061,22 @@ export class OpenAICompatibleAdapter {
         const isTaggedMode = toolMode === 'tagged-json' && Array.isArray(task.tools) && task.tools.length > 0;
         const shouldUseStreaming = typeof task.onStreamProgress === 'function';
         const body = this.buildRequestBody(task);
-        // 只在请求实际发出后按最终 body 生成一次快照：降级重试会改写 body，提前构建的那份必然过期。
-        let requestInspection = null;
-        const createRequest = async (request, options = {}) => {
-            const outcome = await this.requestWithReasoningEffortFallback(task, body, request, options);
-            requestInspection = this.inspectRequest(task, { body: outcome.body });
-            return outcome.result;
+        const requestInspection = this.inspectRequest(task, { body });
+        const createRequest = async (request) => {
+            try {
+                return await request(body);
+            } catch (error) {
+                if (error && typeof error === 'object') {
+                    error.requestInspection = requestInspection;
+                }
+                throw error;
+            }
         };
         if (shouldUseStreaming) {
             if (!isTaggedMode) {
-                let responseAccepted = false;
-                const result = await createRequest(
-                    (requestBody) => this.streamNativeChatCompletions(task, requestBody, {
-                        onResponseAccepted: () => {
-                            responseAccepted = true;
-                        },
-                    }),
-                    { canRetry: () => !responseAccepted },
-                );
+                const result = await createRequest((requestBody) => (
+                    this.streamNativeChatCompletions(task, requestBody)
+                ));
                 return {
                     ...result,
                     requestInspection,
@@ -1198,7 +1113,10 @@ export class OpenAICompatibleAdapter {
                     : stripTaggedToolCallsForDisplay(thinkTagged.cleaned);
                 emitStreamProgress(task, {
                     text: cleanedText,
-                    thoughts: extractThoughtsFromMessage(assistantSnapshot, choice).concat(thinkTagged.thoughts),
+                    thoughts: visibleThoughts(
+                        task,
+                        extractThoughtsFromMessage(assistantSnapshot, choice).concat(thinkTagged.thoughts),
+                    ),
                     ...(progressToolCalls.length ? { toolCalls: progressToolCalls } : {}),
                     ...(!standardToolCalls.length && progressToolCalls.length ? { toolCallDraft: true } : {}),
                 });
@@ -1228,7 +1146,7 @@ export class OpenAICompatibleAdapter {
             return {
                 text: cleanedText,
                 toolCalls,
-                thoughts,
+                thoughts: visibleThoughts(task, thoughts),
                 finishReason: lastFinishReason,
                 model: lastModel,
                 provider: 'openai-compatible',
@@ -1259,7 +1177,7 @@ export class OpenAICompatibleAdapter {
         return {
             text: cleanedText,
             toolCalls,
-            thoughts,
+            thoughts: visibleThoughts(task, thoughts),
             finishReason: choice.finish_reason || 'stop',
             model: response.model || this.config.model,
             provider: 'openai-compatible',

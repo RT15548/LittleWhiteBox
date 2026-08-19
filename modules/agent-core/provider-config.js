@@ -6,6 +6,7 @@ import { SillyTavernClaudeAdapter } from './adapters/sillytavern-claude.js';
 import { SillyTavernGoogleAdapter } from './adapters/sillytavern-google.js';
 import { SillyTavernOpenAICompatibleAdapter } from './adapters/sillytavern-openai-compatible.js';
 import { isSillyTavernProvider } from './provider-resolution.js';
+import { assertRuntimeReasoning } from './reasoning-capabilities.js';
 
 export * from './provider-resolution.js';
 
@@ -13,6 +14,7 @@ export function createAgentAdapter(providerConfig = {}, options = {}) {
     if (!providerConfig.apiKey && !isSillyTavernProvider(providerConfig.provider)) {
         throw new Error(options.missingApiKeyMessage || '请先填写当前模型配置的 API Key。');
     }
+    assertRuntimeReasoning(providerConfig.reasoning || {});
     switch (providerConfig.provider) {
         case 'sillytavern-openai-compatible':
             return new SillyTavernOpenAICompatibleAdapter(providerConfig);

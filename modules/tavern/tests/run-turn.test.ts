@@ -5007,7 +5007,10 @@ test('xb tavern runtime keeps capability registry empty until agent tools are ad
             默认: {
                 provider: 'sillytavern-claude',
                 modelConfigs: {
-                    'sillytavern-claude': { model: 'claude-sonnet-4-0' },
+                    'sillytavern-claude': {
+                        model: 'claude-sonnet-4-0',
+                        reasoning: { mode: 'on', effort: 'high', output: 'show' },
+                    },
                 },
             },
         },
@@ -5019,6 +5022,13 @@ test('xb tavern runtime keeps capability registry empty until agent tools are ad
     assert.deepEqual(runtime.capabilities, EMPTY_XB_TAVERN_CAPABILITY_REGISTRY);
     assert.deepEqual(task.tools, []);
     assert.equal(task.toolChoice, 'none');
+    assert.deepEqual(task.reasoning, {
+        mode: 'on',
+        output: 'show',
+        effort: 'high',
+        profileId: 'sillytavern-claude-manual',
+        valid: true,
+    });
 });
 
 test('xb tavern manager web search uses the shared Tavily tool definition', () => {

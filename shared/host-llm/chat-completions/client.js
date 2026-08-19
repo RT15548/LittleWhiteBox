@@ -203,14 +203,10 @@ export function buildHostChatCompletionsGeneratePayload(
         messages,
         model: config.model,
         max_tokens: task.maxTokens,
-        temperature: task.reasoning?.enabled ? undefined : task.temperature,
+        temperature: task.temperature,
         tools: Array.isArray(task.tools) && task.tools.length ? task.tools : undefined,
         tool_choice: Array.isArray(task.tools) && task.tools.length ? (task.toolChoice || 'auto') : undefined,
         use_sysprompt: source === HOST_CHAT_COMPLETIONS_SOURCE_OPENAI ? undefined : true,
-        reasoning_effort: task.reasoning?.enabled ? task.reasoning.effort : undefined,
-        include_reasoning: source === HOST_CHAT_COMPLETIONS_SOURCE_OPENAI
-            ? undefined
-            : (task.reasoning?.enabled ? task.reasoning.includeOutput !== false : undefined),
     });
 }
 

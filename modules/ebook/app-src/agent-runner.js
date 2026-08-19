@@ -726,11 +726,7 @@ export function createEbookAgentRunner(deps = {}) {
                         toolChoice: 'auto',
                         temperature: providerConfig.temperature,
                         maxTokens: providerConfig.maxTokens,
-                        reasoning: {
-                            enabled: providerConfig.reasoningEnabled,
-                            effort: providerConfig.reasoningEffort,
-                            includeOutput: providerConfig.reasoningIncludeOutput,
-                        },
+                        reasoning: providerConfig.reasoning,
                         signal: controller.signal,
                         onStreamProgress: updateStreamingAssistantMessage,
                         onToolProtocolFallback: () => {

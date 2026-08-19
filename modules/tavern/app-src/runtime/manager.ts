@@ -437,11 +437,7 @@ async function runManagerOnceWithAdapter(
         toolChoice: options.toolChoice || (options.tools?.length ? 'auto' : 'none'),
         temperature: providerConfig.temperature,
         maxTokens: providerConfig.maxTokens,
-        reasoning: {
-            enabled: providerConfig.reasoningEnabled,
-            effort: providerConfig.reasoningEffort,
-            includeOutput: providerConfig.reasoningIncludeOutput,
-        },
+        reasoning: providerConfig.reasoning,
         signal: options.signal,
         onStreamProgress: (snapshot: TavernManagerStreamSnapshot) => {
             options.onStreamProgress?.({

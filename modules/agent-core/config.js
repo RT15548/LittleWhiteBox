@@ -3,10 +3,7 @@ import {
     normalizeTavilyApiKey,
     normalizeTavilyBaseUrl,
 } from './tavily-search.js';
-import {
-    normalizeReasoningEffort,
-    normalizeReasoningIncludeOutput,
-} from './reasoning-config.js';
+import { normalizeReasoningConfig } from './reasoning-config.js';
 
 export const DEFAULT_PROVIDER = 'openai-compatible';
 export const DEFAULT_PRESET_NAME = '默认';
@@ -134,13 +131,20 @@ export function normalizeModelConfigs(modelConfigs = {}) {
         const source = (modelConfigs && typeof modelConfigs[provider] === 'object')
             ? modelConfigs[provider]
             : {};
+        const defaults = DEFAULT_MODEL_CONFIGS[provider];
         next[provider] = {
-            ...DEFAULT_MODEL_CONFIGS[provider],
-            ...source,
-            maxTokens: normalizeMaxTokens(source.maxTokens),
-            reasoningEnabled: source.reasoningEnabled === true,
-            reasoningEffort: normalizeReasoningEffort(source.reasoningEffort, provider),
-            reasoningIncludeOutput: normalizeReasoningIncludeOutput(source.reasoningIncludeOutput, provider),
+            baseUrl: String(source.baseUrl ?? defaults.baseUrl ?? ''),
+            model: String(source.model ?? defaults.model ?? ''),
+            apiKey: String(source.apiKey ?? defaults.apiKey ?? ''),
+            temperature: source.temperature ?? defaults.temperature,
+            maxTokens: normalizeMaxTokens(source.maxTokens, defaults.maxTokens),
+            sendTemperature: typeof source.sendTemperature === 'boolean'
+                ? source.sendTemperature
+                : defaults.sendTemperature,
+            ...('toolMode' in defaults
+                ? { toolMode: String(source.toolMode || defaults.toolMode || 'native') }
+                : {}),
+            reasoning: normalizeReasoningConfig(source.reasoning),
         };
     });
     return next;

@@ -206,29 +206,24 @@ export function buildAgentSettingsPanelMarkup(options = {}) {
                     <span>Tool 调用格式</span>
                     <select id="xb-assistant-delegate-tool-mode"></select>
                 </label>
-                <label class="xb-assistant-checkbox-row">
-                    <span>
-                        Reasoning 参数
-                        <small>按当前 Provider 的协议发送</small>
-                    </span>
-                    <span class="xb-assistant-checkbox-control">
-                        <input id="xb-assistant-delegate-reasoning-enabled" type="checkbox" />
-                        <span>开启</span>
-                    </span>
+                <label>
+                    <span>Reasoning 模式</span>
+                    <select id="xb-assistant-delegate-reasoning-mode"></select>
+                    <small id="xb-assistant-delegate-reasoning-capability"></small>
                 </label>
                 <label id="xb-assistant-delegate-reasoning-effort-wrap">
                     <span>思考强度</span>
                     <select id="xb-assistant-delegate-reasoning-effort"></select>
                 </label>
-                <label id="xb-assistant-delegate-reasoning-include-output-wrap" class="xb-assistant-checkbox-row">
-                    <span>
-                        回传思考内容
-                        <small>不影响模型是否推理</small>
-                    </span>
-                    <span class="xb-assistant-checkbox-control">
-                        <input id="xb-assistant-delegate-reasoning-include-output" type="checkbox" />
-                        <span>开启</span>
-                    </span>
+                <label id="xb-assistant-delegate-reasoning-budget-wrap">
+                    <span>思考 Token 预算</span>
+                    <input id="xb-assistant-delegate-reasoning-budget" type="number" step="1" inputmode="numeric" />
+                    <small>支持 -1 时表示由模型自动决定</small>
+                </label>
+                <label>
+                    <span>思考内容</span>
+                    <select id="xb-assistant-delegate-reasoning-output"></select>
+                    <small>只控制界面展示；隐藏时仍保留续轮所需签名</small>
                 </label>
             </div>` : '';
 
@@ -320,29 +315,24 @@ export function buildAgentSettingsPanelMarkup(options = {}) {
                 <select id="xb-assistant-tool-mode"></select>
             </label>
             ${assistantPermissionMarkup}
-            <label class="xb-assistant-checkbox-row">
-                <span>
-                    Reasoning 参数
-                    <small>按当前 Provider 的协议发送</small>
-                </span>
-                <span class="xb-assistant-checkbox-control">
-                    <input id="xb-assistant-reasoning-enabled" type="checkbox" />
-                    <span>开启</span>
-                </span>
+            <label>
+                <span>Reasoning 模式</span>
+                <select id="xb-assistant-reasoning-mode"></select>
+                <small id="xb-assistant-reasoning-capability"></small>
             </label>
             <label id="xb-assistant-reasoning-effort-wrap">
                 <span>思考强度</span>
                 <select id="xb-assistant-reasoning-effort"></select>
             </label>
-            <label id="xb-assistant-reasoning-include-output-wrap" class="xb-assistant-checkbox-row">
-                <span>
-                    回传思考内容
-                    <small>不影响模型是否推理</small>
-                </span>
-                <span class="xb-assistant-checkbox-control">
-                    <input id="xb-assistant-reasoning-include-output" type="checkbox" />
-                    <span>开启</span>
-                </span>
+            <label id="xb-assistant-reasoning-budget-wrap">
+                <span>思考 Token 预算</span>
+                <input id="xb-assistant-reasoning-budget" type="number" step="1" inputmode="numeric" />
+                <small>支持 -1 时表示由模型自动决定</small>
+            </label>
+            <label>
+                <span>思考内容</span>
+                <select id="xb-assistant-reasoning-output"></select>
+                <small>只控制界面展示；隐藏时仍保留续轮所需签名</small>
             </label>
             </div>
             ${delegatePageMarkup}

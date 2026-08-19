@@ -32,9 +32,11 @@ function buildSettings(model, apiKey = 'main-key') {
                         temperature: 0.4,
                         maxTokens: 4567,
                         toolMode: 'native',
-                        reasoningEnabled: true,
-                        reasoningEffort: 'high',
-                        reasoningIncludeOutput: false,
+                        reasoning: {
+                            mode: 'on',
+                            effort: 'high',
+                            output: 'hide',
+                        },
                     },
                 },
             },
@@ -73,9 +75,14 @@ function createFakeCore(captured) {
                             },
                             effectiveConfig: {
                                 toolChoice: 'required',
-                                reasoningEnabled: true,
+                                reasoningRequestedMode: 'on',
+                                reasoningRequestedOutput: 'hide',
+                                reasoningProfileId: 'openai-gpt-5.6',
+                                reasoningEffectiveMode: 'on',
                                 reasoningEffort: 'high',
-                                reasoningIncludeOutput: false,
+                                reasoningBudgetTokens: null,
+                                reasoningControlFields: { reasoning_effort: 'high' },
+                                reasoningOutputVisible: false,
                             },
                         },
                     };
@@ -92,7 +99,7 @@ test('draw agent reads the latest main preset every request and never selects de
     const dependencies = {
         getAgentSettings: async () => {
             readCount += 1;
-            return buildSettings(readCount === 1 ? 'main-one' : 'main-two');
+            return buildSettings(readCount === 1 ? 'gpt-5.6' : 'gpt-5.6-2026-08-07');
         },
         requestHeadersProvider: () => ({ 'X-CSRF-Token': 'fresh' }),
     };
@@ -109,7 +116,7 @@ test('draw agent reads the latest main preset every request and never selects de
     await callDrawScenePlannerAgent({ task, dependencies, loadAgentCore, timeout: 5000 });
 
     assert.equal(readCount, 2);
-    assert.deepEqual(captured.providerConfigs.map((config) => config.model), ['main-one', 'main-two']);
+    assert.deepEqual(captured.providerConfigs.map((config) => config.model), ['gpt-5.6', 'gpt-5.6-2026-08-07']);
     assert.equal(captured.providerConfigs.some((config) => config.model === 'delegate-model'), false);
     assert.equal(captured.tasks[0].toolChoice, 'required');
     assert.equal(captured.tasks[0].allowToolProtocolFallback, false);
@@ -117,9 +124,11 @@ test('draw agent reads the latest main preset every request and never selects de
     assert.equal(captured.tasks[0].temperature, 0.4);
     assert.equal(captured.tasks[0].maxTokens, 4567);
     assert.deepEqual(captured.tasks[0].reasoning, {
-        enabled: true,
+        mode: 'on',
+        output: 'hide',
         effort: 'high',
-        includeOutput: false,
+        profileId: 'openai-gpt-5.6',
+        valid: true,
     });
     assert.equal(captured.headersProvider, null);
     const diagnostic = getLastDrawAgentDiagnostic();
@@ -127,9 +136,12 @@ test('draw agent reads the latest main preset every request and never selects de
     assert.equal(diagnostic.stage, 'request');
     assert.equal(diagnostic.status, 'running');
     assert.equal(diagnostic.presetName, '主预设');
-    assert.equal(diagnostic.reasoningEnabled, true);
+    assert.equal(diagnostic.reasoningRequestedMode, 'on');
+    assert.equal(diagnostic.reasoningEffectiveMode, 'on');
+    assert.equal(diagnostic.reasoningProfileId, 'openai-gpt-5.6');
     assert.equal(diagnostic.reasoningEffort, 'high');
-    assert.equal(diagnostic.reasoningIncludeOutput, false);
+    assert.equal(diagnostic.reasoningOutputVisible, false);
+    assert.deepEqual(diagnostic.reasoningControlFields, { reasoning_effort: 'high' });
     // Diagnostics are redacted at the Draw boundary and never persisted.
     assert.equal(diagnostic.request.request.headers.Authorization, '[redacted]');
     assert.equal(diagnostic.request.request.body.api_key, '[redacted]');
@@ -144,8 +156,7 @@ test('draw diagnostics use adapter-effective reasoning and isolate notices by re
         model: 'claude-sonnet-4-5',
         apiKey: '',
         toolMode: 'native',
-        reasoningEnabled: true,
-        reasoningEffort: 'high',
+        reasoning: { mode: 'on', effort: 'high', output: 'hide' },
     };
     const task = {
         messages: [{ role: 'user', content: 'plan' }],
@@ -172,22 +183,29 @@ test('draw diagnostics use adapter-effective reasoning and isolate notices by re
             notices: [notice],
             effectiveConfig: {
                 toolChoice: 'any',
-                reasoningEnabled: false,
+                reasoningRequestedMode: 'on',
+                reasoningRequestedOutput: 'hide',
+                reasoningProfileId: 'sillytavern-claude-manual',
+                reasoningEffectiveMode: 'off',
                 reasoningEffort: '',
-                reasoningIncludeOutput: false,
+                reasoningBudgetTokens: null,
+                reasoningControlFields: { reasoning_effort: 'auto' },
+                reasoningOutputVisible: false,
             },
         }),
     });
 
     const diagnostic = getLastDrawAgentDiagnostic();
     assert.equal(diagnostic.status, 'running');
-    assert.equal(diagnostic.reasoningEnabled, false);
+    assert.equal(diagnostic.reasoningRequestedMode, 'on');
+    assert.equal(diagnostic.reasoningEffectiveMode, 'off');
     assert.equal(diagnostic.reasoningEffort, '');
-    assert.equal(diagnostic.reasoningIncludeOutput, false);
+    assert.equal(diagnostic.reasoningOutputVisible, false);
+    assert.deepEqual(diagnostic.reasoningControlFields, { reasoning_effort: 'auto' });
     assert.equal(diagnostic.toolChoice, 'any');
     assert.deepEqual(diagnostic.notices, [notice]);
 
-    const openAiSettings = buildSettings('openai-current');
+    const openAiSettings = buildSettings('gpt-5.6');
     const openAiDependencies = { getAgentSettings: async () => openAiSettings };
     await callDrawScenePlannerAgent({
         task,
@@ -195,9 +213,14 @@ test('draw diagnostics use adapter-effective reasoning and isolate notices by re
         loadAgentCore: async () => createCore({
             effectiveConfig: {
                 toolChoice: 'required',
-                reasoningEnabled: true,
+                reasoningRequestedMode: 'on',
+                reasoningRequestedOutput: 'hide',
+                reasoningProfileId: 'openai-gpt-5.6',
+                reasoningEffectiveMode: 'on',
                 reasoningEffort: 'high',
-                reasoningIncludeOutput: false,
+                reasoningBudgetTokens: null,
+                reasoningControlFields: { reasoning_effort: 'high' },
+                reasoningOutputVisible: false,
             },
         }),
     });

@@ -148,6 +148,7 @@ export function createHistoryCompactionController(deps) {
                 toolChoice: 'none',
                 temperature: Math.min(providerConfig.temperature ?? 0.2, 0.2),
                 maxTokens: resolveHistorySummaryMaxTokens(providerConfig),
+                reasoning: providerConfig.reasoning,
                 signal,
             });
             state.historySummary = String(result.text || '').trim() || fallbackSummary;

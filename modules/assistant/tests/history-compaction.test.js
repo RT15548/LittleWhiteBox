@@ -112,7 +112,11 @@ test('history compaction source includes full archived tool details', async () =
         persistSession() {},
         showToast() {},
         getActiveProviderConfig() {
-            return { temperature: 0.7, maxTokens: 12000 };
+            return {
+                temperature: 0.7,
+                maxTokens: 12000,
+                reasoning: { mode: 'on', effort: 'high', output: 'hide' },
+            };
         },
         formatToolResultDisplay(message) {
             assert.equal(message.toolName, 'Read');
@@ -154,6 +158,7 @@ test('history compaction source includes full archived tool details', async () =
     }, new AbortController().signal);
 
     assert.equal(summaryRequest?.maxTokens, 10000);
+    assert.deepEqual(summaryRequest?.reasoning, { mode: 'on', effort: 'high', output: 'hide' });
     assert.match(summarySource, /已有历史摘要（当前记忆底稿/);
     assert.match(summarySource, /modules\/old\.js/);
     assert.match(summarySource, /工具输出详情:\n12 export const fragileConfig = true/);

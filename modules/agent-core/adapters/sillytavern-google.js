@@ -8,6 +8,8 @@ import {
     buildEffectiveReasoningConfig,
     redactRequestSecrets,
 } from './request-inspection.js';
+import { resolveTaskReasoning } from '../reasoning-capabilities.js';
+import { isReasoningOutputVisible } from '../reasoning-config.js';
 
 function cloneJson(value) {
     if (value === undefined) return undefined;
@@ -271,7 +273,7 @@ function createGoogleStreamAccumulator(task, config = {}) {
             }
             text = mergeStreamText(text, extractVisibleText(content));
             toolCalls = mergeToolCalls(toolCalls, extractFunctionCalls(content));
-            const nextThoughts = task.reasoning?.includeOutput === false ? [] : extractThoughts(content);
+            const nextThoughts = isReasoningOutputVisible(task.reasoning) ? extractThoughts(content) : [];
             if (nextThoughts.length) {
                 thoughts = nextThoughts;
             }
@@ -309,9 +311,18 @@ export class SillyTavernGoogleAdapter {
     }
 
     buildPayload(task) {
+        const reasoning = resolveTaskReasoning('sillytavern-google', this.config, task.reasoning);
         const stream = typeof task.onStreamProgress === 'function';
         const messages = this.buildMessages(task);
-        return buildHostGoogleGeneratePayload(this.config, task, messages, stream);
+        const payload = buildHostGoogleGeneratePayload(this.config, task, messages, stream);
+        if (reasoning.mode === 'on') {
+            payload.reasoning_effort = reasoning.effort;
+            payload.include_reasoning = isReasoningOutputVisible(reasoning);
+        } else if (reasoning.mode === 'off') {
+            payload.reasoning_effort = 'min';
+            payload.include_reasoning = false;
+        }
+        return payload;
     }
 
     async inspectRequest(task, options = {}) {
@@ -324,19 +335,25 @@ export class SillyTavernGoogleAdapter {
     }
 
     buildRequestInspection(request, task = {}) {
-        const reasoningEnabled = Object.prototype.hasOwnProperty.call(
-            request?.body || {},
-            'reasoning_effort',
-        );
+        const reasoning = resolveTaskReasoning('sillytavern-google', this.config, task.reasoning);
+        const controlFields = {
+            ...(Object.hasOwn(request?.body || {}, 'reasoning_effort')
+                ? { reasoning_effort: request.body.reasoning_effort }
+                : {}),
+            ...(Object.hasOwn(request?.body || {}, 'include_reasoning')
+                ? { include_reasoning: request.body.include_reasoning }
+                : {}),
+        };
         return {
             provider: 'sillytavern-google',
             model: this.config.model,
             transport: 'sillytavern-chat-completions',
             request: redactRequestSecrets(request),
             effectiveConfig: buildEffectiveReasoningConfig(task, {
-                enabled: reasoningEnabled,
+                profileId: reasoning.profileId,
+                effectiveMode: reasoning.mode,
                 effort: request?.body?.reasoning_effort,
-                includeOutput: request?.body?.include_reasoning === true,
+                controlFields,
             }),
         };
     }
@@ -365,7 +382,7 @@ export class SillyTavernGoogleAdapter {
             return {
                 ...parseGoogleResult(response, {
                     model: this.config.model,
-                    includeReasoningOutput: task.reasoning?.includeOutput !== false,
+                    includeReasoningOutput: isReasoningOutputVisible(task.reasoning),
                 }),
                 requestInspection,
             };

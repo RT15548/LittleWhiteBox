@@ -60,14 +60,15 @@ function installDom() {
         window: globalThis.window,
     };
     const { document, window } = parseHTML('<!doctype html><html><body><div id="root"></div></body></html>');
-    const selectValue = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value');
     Object.defineProperty(window.HTMLSelectElement.prototype, 'value', {
         configurable: true,
-        get: selectValue?.get,
+        get() {
+            return this.querySelector('option[selected]')?.value || '';
+        },
         set(value) {
             const requested = String(value ?? '');
             this.querySelectorAll('option').forEach((option) => {
-                option.selected = option.value === requested;
+                option.toggleAttribute('selected', option.value === requested);
             });
         },
     });
@@ -112,9 +113,10 @@ test('draw Agent API surface exposes the shared main-preset controls only', () =
             'xb-assistant-max-tokens',
             'xb-assistant-temperature',
             'xb-assistant-tool-mode',
-            'xb-assistant-reasoning-enabled',
+            'xb-assistant-reasoning-mode',
             'xb-assistant-reasoning-effort',
-            'xb-assistant-reasoning-include-output',
+            'xb-assistant-reasoning-budget',
+            'xb-assistant-reasoning-output',
         ]) {
             assert.ok(root.querySelector(`#${controlId}`));
         }
@@ -126,21 +128,24 @@ test('draw Agent API surface exposes the shared main-preset controls only', () =
     }
 });
 
-test('shared Agent reasoning controls expose only the selected Provider capabilities', () => {
+test('shared Agent reasoning controls follow the selected Provider and model without resetting model input', () => {
     const dom = installDom();
     const root = dom.document.querySelector('#root');
     const stored = buildStoredSettings({
         presets: {
             ...buildStoredSettings().presets,
             主配置: {
-                provider: 'google',
+                provider: 'openai-compatible',
                 modelConfigs: {
-                    google: {
-                        model: 'gemini-test',
-                        apiKey: 'google-key',
-                        reasoningEnabled: true,
-                        reasoningEffort: 'min',
-                        reasoningIncludeOutput: false,
+                    'openai-compatible': {
+                        baseUrl: 'https://api.moonshot.ai/v1',
+                        model: 'kimi-k3',
+                        apiKey: 'kimi-key',
+                        reasoning: {
+                            mode: 'on',
+                            effort: 'max',
+                            output: 'hide',
+                        },
                     },
                 },
             },
@@ -166,9 +171,156 @@ test('shared Agent reasoning controls expose only the selected Provider capabili
 
         const efforts = Array.from(root.querySelector('#xb-assistant-reasoning-effort').options)
             .map((option) => option.value);
-        assert.deepEqual(efforts, ['min', 'low', 'medium', 'high']);
-        assert.equal(root.querySelector('#xb-assistant-reasoning-include-output-wrap').style.display, '');
-        assert.equal(root.querySelector('#xb-assistant-reasoning-include-output').checked, false);
+        assert.deepEqual(efforts, ['low', 'high', 'max']);
+        assert.equal(root.querySelector('#xb-assistant-reasoning-mode').value, 'on');
+        assert.equal(root.querySelector('#xb-assistant-reasoning-mode option[value="off"]').disabled, false);
+        assert.equal(root.querySelector('#xb-assistant-reasoning-output').value, 'hide');
+
+        panel.bindSettingsPanelEvents(root);
+        const modelInput = root.querySelector('#xb-assistant-model');
+        modelInput.value = 'unknown-compatible-model';
+        modelInput.selectionStart = 7;
+        modelInput.selectionEnd = 7;
+        modelInput.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+        assert.equal(modelInput.value, 'unknown-compatible-model');
+        assert.equal(modelInput.selectionStart, 7);
+        assert.equal(root.querySelector('#xb-assistant-reasoning-mode').value, 'inherit');
+        assert.equal(root.querySelector('#xb-assistant-reasoning-mode option[value="on"]').disabled, true);
+        assert.equal(root.querySelector('#xb-assistant-reasoning-mode option[value="off"]').disabled, true);
+        assert.deepEqual(
+            Array.from(root.querySelector('#xb-assistant-reasoning-effort').options),
+            [],
+        );
+
+        modelInput.value = 'gpt-5.6';
+        modelInput.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+        assert.deepEqual(
+            Array.from(root.querySelector('#xb-assistant-reasoning-effort').options)
+                .map((option) => option.value),
+            ['low', 'medium', 'high', 'xhigh', 'max'],
+        );
+    } finally {
+        dom.restore();
+    }
+});
+
+test('shared Agent Provider switching keeps each Provider model and Reasoning draft isolated', () => {
+    const dom = installDom();
+    const root = dom.document.querySelector('#root');
+    const stored = buildStoredSettings({
+        presets: {
+            ...buildStoredSettings().presets,
+            主配置: {
+                provider: 'openai-compatible',
+                modelConfigs: {
+                    'openai-compatible': {
+                        baseUrl: 'https://api.moonshot.ai/v1',
+                        model: 'kimi-k3',
+                        apiKey: 'kimi-key',
+                        reasoning: { mode: 'on', effort: 'max', output: 'hide' },
+                    },
+                    google: {
+                        baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+                        model: 'gemini-3-flash-preview',
+                        apiKey: 'google-key',
+                        reasoning: { mode: 'on', effort: 'minimal', output: 'show' },
+                    },
+                },
+            },
+        },
+    });
+    const state = {
+        config: normalizeAgentConfig(stored),
+        configDraft: null,
+        configDirty: false,
+        configExternalChangePending: false,
+        configFormSyncPending: true,
+        configPage: 'main',
+        configSave: { status: 'idle', requestId: '', error: '' },
+        modelOptionsByProvider: {},
+        pullStateByProvider: {},
+    };
+    let panel;
+    try {
+        // First-party markup under test.
+        // eslint-disable-next-line no-unsanitized/property
+        root.innerHTML = buildAgentSettingsPanelMarkup();
+        panel = createAgentSettingsPanel({
+            state,
+            render: () => panel.syncConfigToForm(root),
+        });
+        panel.syncConfigToForm(root);
+        panel.bindSettingsPanelEvents(root);
+
+        const providerSelect = root.querySelector('#xb-assistant-provider');
+        providerSelect.value = 'google';
+        providerSelect.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+        assert.equal(root.querySelector('#xb-assistant-model').value, 'gemini-3-flash-preview');
+        assert.equal(root.querySelector('#xb-assistant-reasoning-mode').value, 'on');
+        assert.equal(root.querySelector('#xb-assistant-reasoning-effort').value, 'minimal');
+        assert.equal(root.querySelector('#xb-assistant-reasoning-output').value, 'show');
+
+        providerSelect.value = 'openai-compatible';
+        providerSelect.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+        assert.equal(root.querySelector('#xb-assistant-model').value, 'kimi-k3');
+        assert.equal(root.querySelector('#xb-assistant-reasoning-mode').value, 'on');
+        assert.equal(root.querySelector('#xb-assistant-reasoning-effort').value, 'max');
+        assert.equal(root.querySelector('#xb-assistant-reasoning-output').value, 'hide');
+    } finally {
+        dom.restore();
+    }
+});
+
+test('shared Agent settings reject a Reasoning budget outside the selected model contract', () => {
+    const dom = installDom();
+    const root = dom.document.querySelector('#root');
+    const stored = buildStoredSettings({
+        presets: {
+            ...buildStoredSettings().presets,
+            主配置: {
+                provider: 'google',
+                modelConfigs: {
+                    google: {
+                        model: 'gemini-2.5-flash',
+                        apiKey: 'google-key',
+                        reasoning: { mode: 'on', budgetTokens: -1, output: 'hide' },
+                    },
+                },
+            },
+        },
+    });
+    const state = {
+        config: normalizeAgentConfig(stored),
+        configDraft: null,
+        configDirty: false,
+        configExternalChangePending: false,
+        configFormSyncPending: true,
+        configPage: 'main',
+        configSave: { status: 'idle', requestId: '', error: '' },
+        modelOptionsByProvider: {},
+        pullStateByProvider: {},
+    };
+    const saves = [];
+    const toasts = [];
+    try {
+        // First-party markup under test.
+        // eslint-disable-next-line no-unsanitized/property
+        root.innerHTML = buildAgentSettingsPanelMarkup();
+        const panel = createAgentSettingsPanel({
+            state,
+            saveConfig: (payload) => saves.push(payload),
+            showToast: (message) => toasts.push(message),
+        });
+        panel.syncConfigToForm(root);
+        panel.bindSettingsPanelEvents(root);
+
+        const budgetInput = root.querySelector('#xb-assistant-reasoning-budget');
+        budgetInput.value = '0';
+        budgetInput.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+        root.querySelector('#xb-assistant-save').click();
+
+        assert.equal(saves.length, 0);
+        assert.match(toasts.at(-1), /主模型.*1–24576.*-1/);
     } finally {
         dom.restore();
     }
@@ -199,7 +351,7 @@ test('shared Agent API panel disables failed loads, retries, and keeps partial m
         });
         root.querySelector('#xb-assistant-base-url')?.remove();
         root.querySelector('#xb-assistant-tool-mode')?.remove();
-        root.querySelector('#xb-assistant-reasoning-enabled')?.remove();
+        root.querySelector('#xb-assistant-reasoning-mode')?.remove();
         const panel = createAgentSettingsPanel({
             state,
             render: () => { renders += 1; },

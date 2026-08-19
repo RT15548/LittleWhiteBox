@@ -41,13 +41,19 @@ function buildInspectionDiagnosticPatch(inspection) {
         request: cloneJson(inspection),
         notices,
     };
-    if (typeof effectiveConfig?.reasoningEnabled === 'boolean') {
-        patch.reasoningEnabled = effectiveConfig.reasoningEnabled;
-        patch.reasoningEffort = effectiveConfig.reasoningEnabled
-            ? String(effectiveConfig.reasoningEffort || '')
-            : '';
-        patch.reasoningIncludeOutput = effectiveConfig.reasoningEnabled
-            && effectiveConfig.reasoningIncludeOutput === true;
+    if (effectiveConfig?.reasoningRequestedMode) {
+        patch.reasoningRequestedMode = String(effectiveConfig.reasoningRequestedMode);
+        patch.reasoningRequestedOutput = String(effectiveConfig.reasoningRequestedOutput || 'hide');
+        patch.reasoningProfileId = String(effectiveConfig.reasoningProfileId || 'unsupported');
+        patch.reasoningEffectiveMode = String(effectiveConfig.reasoningEffectiveMode || 'inherit');
+        patch.reasoningEffort = String(effectiveConfig.reasoningEffort || '');
+        patch.reasoningBudgetTokens = effectiveConfig.reasoningBudgetTokens !== null
+            && effectiveConfig.reasoningBudgetTokens !== undefined
+            && Number.isFinite(Number(effectiveConfig.reasoningBudgetTokens))
+            ? Number(effectiveConfig.reasoningBudgetTokens)
+            : null;
+        patch.reasoningControlFields = cloneJson(effectiveConfig.reasoningControlFields || {});
+        patch.reasoningOutputVisible = effectiveConfig.reasoningOutputVisible === true;
     }
     if (effectiveConfig?.toolChoice !== undefined) {
         patch.toolChoice = String(effectiveConfig.toolChoice || '');
@@ -240,9 +246,14 @@ export function beginDrawScenePlannerDiagnostic(initial = {}) {
         provider: '',
         model: '',
         toolMode: '',
-        reasoningEnabled: false,
+        reasoningRequestedMode: 'inherit',
+        reasoningRequestedOutput: 'hide',
+        reasoningProfileId: 'unsupported',
+        reasoningEffectiveMode: 'inherit',
         reasoningEffort: '',
-        reasoningIncludeOutput: false,
+        reasoningBudgetTokens: null,
+        reasoningControlFields: {},
+        reasoningOutputVisible: false,
         toolChoice: 'required',
         toolsCount: 1,
         notices: [],
@@ -270,12 +281,18 @@ export function beginDrawScenePlannerDiagnostic(initial = {}) {
                 provider: String(providerConfig.provider || ''),
                 model: String(providerConfig.model || ''),
                 toolMode: String(providerConfig.toolMode || 'native'),
-                reasoningEnabled: providerConfig.reasoningEnabled === true,
-                reasoningEffort: providerConfig.reasoningEnabled === true
-                    ? String(providerConfig.reasoningEffort || '')
-                    : '',
-                reasoningIncludeOutput: providerConfig.reasoningEnabled === true
-                    && providerConfig.reasoningIncludeOutput === true,
+                reasoningRequestedMode: String(providerConfig.reasoning?.mode || 'inherit'),
+                reasoningRequestedOutput: String(providerConfig.reasoning?.output || 'hide'),
+                reasoningProfileId: String(providerConfig.reasoning?.profileId || 'unsupported'),
+                reasoningEffectiveMode: String(providerConfig.reasoning?.mode || 'inherit'),
+                reasoningEffort: String(providerConfig.reasoning?.effort || ''),
+                reasoningBudgetTokens: providerConfig.reasoning?.budgetTokens !== undefined
+                    && Number.isFinite(Number(providerConfig.reasoning.budgetTokens))
+                    ? Number(providerConfig.reasoning.budgetTokens)
+                    : null,
+                reasoningControlFields: {},
+                reasoningOutputVisible: providerConfig.reasoning?.mode !== 'off'
+                    && providerConfig.reasoning?.output === 'show',
                 notices: [],
             });
             publish();
@@ -372,11 +389,7 @@ export async function callDrawScenePlannerAgent(options = {}) {
         toolChoice: 'required',
         temperature: providerConfig.temperature,
         maxTokens: providerConfig.maxTokens,
-        reasoning: {
-            enabled: providerConfig.reasoningEnabled,
-            effort: providerConfig.reasoningEffort,
-            includeOutput: providerConfig.reasoningIncludeOutput,
-        },
+        reasoning: providerConfig.reasoning,
         signal: abortScope.signal,
         allowToolProtocolFallback: false,
     };

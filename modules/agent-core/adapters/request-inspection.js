@@ -15,18 +15,23 @@ export function redactRequestSecrets(value) {
 }
 
 export function buildEffectiveReasoningConfig(task = {}, overrides = {}) {
-    const enabled = typeof overrides.enabled === 'boolean'
-        ? overrides.enabled
-        : task.reasoning?.enabled === true;
-    const includeOutput = enabled && (typeof overrides.includeOutput === 'boolean'
-        ? overrides.includeOutput
-        : task.reasoning?.includeOutput !== false);
+    const requestedMode = String(task.reasoning?.mode || 'inherit');
+    const requestedOutput = task.reasoning?.output === 'show' ? 'show' : 'hide';
+    const effectiveMode = String(overrides.effectiveMode || requestedMode);
     return {
-        reasoningEnabled: enabled,
-        reasoningEffort: enabled
+        reasoningRequestedMode: requestedMode,
+        reasoningRequestedOutput: requestedOutput,
+        reasoningProfileId: String(overrides.profileId || task.reasoning?.profileId || 'unsupported'),
+        reasoningEffectiveMode: effectiveMode,
+        reasoningEffort: effectiveMode === 'on'
             ? String(overrides.effort ?? task.reasoning?.effort ?? '')
             : '',
-        reasoningIncludeOutput: includeOutput,
+        reasoningBudgetTokens: effectiveMode === 'on'
+            && Number.isFinite(Number(overrides.budgetTokens ?? task.reasoning?.budgetTokens))
+            ? Number(overrides.budgetTokens ?? task.reasoning?.budgetTokens)
+            : null,
+        reasoningControlFields: redactRequestSecrets(overrides.controlFields || {}),
+        reasoningOutputVisible: effectiveMode !== 'off' && requestedOutput === 'show',
     };
 }
 

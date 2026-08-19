@@ -4,7 +4,15 @@ import {
     createHostChatCompletion,
     streamHostChatCompletion,
 } from '../../../shared/host-llm/chat-completions/client.js';
-import { redactRequestSecrets } from './request-inspection.js';
+import {
+    buildEffectiveReasoningConfig,
+    redactRequestSecrets,
+} from './request-inspection.js';
+import {
+    resolveTaskReasoning,
+    shouldOmitTemperatureForReasoning,
+} from '../reasoning-capabilities.js';
+import { isReasoningOutputVisible } from '../reasoning-config.js';
 
 function cloneJson(value) {
     if (value === undefined) return undefined;
@@ -30,15 +38,6 @@ export function resolveHostClaudeToolChoice(toolChoice) {
     );
 }
 
-/** Models where SillyTavern may enable Anthropic manual (budgeted) extended thinking. */
-const CLAUDE_THINKING_MODEL_PATTERN = /^claude-(3-7|opus-4|sonnet-4|haiku-4-5|opus-4-5|opus-4-6|sonnet-4-6|opus-4-7)/;
-/**
- * Only these models are guaranteed adaptive thinking, which does support forced tool use.
- * Claude 4.6 depends on the host's `claude.enableAdaptiveThinking` config, which the client
- * cannot observe, so it is treated conservatively as manual thinking.
- */
-const CLAUDE_CONFIRMED_ADAPTIVE_THINKING_PATTERN = /^claude-opus-4-7/;
-
 /**
  * Manual extended thinking is incompatible with a forced tool choice. The tool contract wins:
  * reasoning is dropped for this request only, and the decision is surfaced as a notice.
@@ -47,27 +46,35 @@ export function resolveHostClaudeToolProtocol(config = {}, task = {}) {
     const hasTools = Array.isArray(task.tools) && task.tools.length > 0;
     if (!hasTools) return { toolChoice: undefined, reasoningDisabledForForcedTool: false };
     const toolChoice = resolveHostClaudeToolChoice(task.toolChoice);
-    const model = String(config.model || '').trim();
-    const manualThinking = CLAUDE_THINKING_MODEL_PATTERN.test(model)
-        && !CLAUDE_CONFIRMED_ADAPTIVE_THINKING_PATTERN.test(model);
+    const reasoning = resolveTaskReasoning('sillytavern-claude', config, task.reasoning);
+    const manualThinking = reasoning.profileId === 'sillytavern-claude-manual'
+        || reasoning.profileId === 'sillytavern-claude-adaptive-conditional';
     return {
         toolChoice,
         reasoningDisabledForForcedTool: toolChoice === 'any'
-            && task.reasoning?.enabled === true
+            && reasoning.mode === 'on'
             && manualThinking,
     };
 }
 
 export const HOST_CLAUDE_FORCED_TOOL_REASONING_NOTICE = '当前模型使用手动 thinking，与强制 Tool 调用冲突；本次请求已因强制 Tool 关闭 Reasoning。';
 
-function buildEffectiveConfig(task = {}, protocol = {}) {
-    const reasoningEnabled = task.reasoning?.enabled === true
-        && protocol.reasoningDisabledForForcedTool !== true;
+function buildEffectiveConfig(config = {}, task = {}, protocol = {}) {
+    const reasoning = resolveTaskReasoning('sillytavern-claude', config, task.reasoning);
+    const effectiveMode = protocol.reasoningDisabledForForcedTool
+        ? 'off'
+        : reasoning.mode;
+    return buildEffectiveReasoningConfig(task, {
+        profileId: reasoning.profileId,
+        effectiveMode,
+        effort: effectiveMode === 'on' ? reasoning.effort : '',
+        controlFields: protocol.controlFields || {},
+    });
+}
+
+function buildToolConfig(task = {}, protocol = {}) {
     return {
         toolChoice: String(protocol.toolChoice || ''),
-        reasoningEnabled,
-        reasoningEffort: reasoningEnabled ? String(task.reasoning?.effort || '') : '',
-        reasoningIncludeOutput: reasoningEnabled && task.reasoning?.includeOutput !== false,
     };
 }
 
@@ -181,7 +188,13 @@ function normalizeContentBlocks(content = []) {
                 };
             }
             if (block.type === 'thinking') {
-                return { type: 'thinking', thinking: String(block.thinking || block.text || '') };
+                return {
+                    type: 'thinking',
+                    thinking: String(block.thinking || block.text || ''),
+                    ...(typeof block.signature === 'string'
+                        ? { signature: block.signature }
+                        : {}),
+                };
             }
             if (block.type === 'redacted_thinking') {
                 return { type: 'redacted_thinking', data: String(block.data || '') };
@@ -300,7 +313,7 @@ function createClaudeStreamAccumulator(task, config = {}) {
         const result = buildStreamProgressSnapshot(blocks);
         emitStreamProgress(task, {
             text: result.text,
-            thoughts: task.reasoning?.includeOutput === false ? [] : result.thoughts,
+            thoughts: isReasoningOutputVisible(task.reasoning) ? result.thoughts : [],
             ...(Array.isArray(result.toolCalls) ? { toolCalls: result.toolCalls } : {}),
             ...(result.toolCallDraft ? { toolCallDraft: true } : {}),
         });
@@ -342,7 +355,7 @@ function createClaudeStreamAccumulator(task, config = {}) {
             return parseContentResult(blocks, {
                 finishReason,
                 model,
-                includeReasoningOutput: task.reasoning?.includeOutput !== false,
+                includeReasoningOutput: isReasoningOutputVisible(task.reasoning),
             });
         },
     };
@@ -362,16 +375,29 @@ export class SillyTavernClaudeAdapter {
     }
 
     buildPayload(task, protocol = this.resolveToolProtocol(task)) {
+        const reasoning = resolveTaskReasoning('sillytavern-claude', this.config, task.reasoning);
         const stream = typeof task.onStreamProgress === 'function';
         const messages = this.buildMessages(task);
+        const effectiveReasoning = protocol.reasoningDisabledForForcedTool
+            ? { ...reasoning, mode: 'off' }
+            : reasoning;
         const effectiveTask = {
             ...task,
             toolChoice: protocol.toolChoice,
-            ...(protocol.reasoningDisabledForForcedTool
-                ? { reasoning: { ...(task.reasoning || {}), enabled: false } }
-                : {}),
+            reasoning: effectiveReasoning,
+            temperature: shouldOmitTemperatureForReasoning(
+                { ...this.config, provider: 'sillytavern-claude' },
+                effectiveReasoning,
+            ) ? undefined : task.temperature,
         };
-        return buildHostClaudeGeneratePayload(this.config, effectiveTask, messages, stream);
+        const payload = buildHostClaudeGeneratePayload(this.config, effectiveTask, messages, stream);
+        if (effectiveReasoning.mode === 'on') {
+            payload.reasoning_effort = effectiveReasoning.effort;
+            payload.include_reasoning = isReasoningOutputVisible(effectiveReasoning);
+        } else if (effectiveReasoning.mode === 'off') {
+            payload.reasoning_effort = 'auto';
+        }
+        return payload;
     }
 
     async inspectRequest(task, options = {}) {
@@ -385,12 +411,23 @@ export class SillyTavernClaudeAdapter {
     }
 
     buildRequestInspection(request, protocol = {}, task = {}) {
+        const controlFields = {
+            ...(Object.hasOwn(request?.body || {}, 'reasoning_effort')
+                ? { reasoning_effort: request.body.reasoning_effort }
+                : {}),
+            ...(Object.hasOwn(request?.body || {}, 'include_reasoning')
+                ? { include_reasoning: request.body.include_reasoning }
+                : {}),
+        };
         return {
             provider: 'sillytavern-claude',
             model: this.config.model,
             transport: 'sillytavern-chat-completions',
             request: redactRequestSecrets(request),
-            effectiveConfig: buildEffectiveConfig(task, protocol),
+            effectiveConfig: {
+                ...buildToolConfig(task, protocol),
+                ...buildEffectiveConfig(this.config, task, { ...protocol, controlFields }),
+            },
             ...(protocol.reasoningDisabledForForcedTool
                 ? { notices: [HOST_CLAUDE_FORCED_TOOL_REASONING_NOTICE] }
                 : {}),
@@ -429,7 +466,7 @@ export class SillyTavernClaudeAdapter {
                 ...parseContentResult(content, {
                     finishReason: response?.stop_reason || response?.choices?.[0]?.finish_reason || 'stop',
                     model: response?.model || this.config.model,
-                    includeReasoningOutput: task.reasoning?.includeOutput !== false,
+                    includeReasoningOutput: isReasoningOutputVisible(task.reasoning),
                 }),
                 requestInspection,
             };

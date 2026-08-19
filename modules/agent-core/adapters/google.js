@@ -3,6 +3,8 @@ import {
     buildEffectiveReasoningConfig,
     buildSdkRequestInspection,
 } from './request-inspection.js';
+import { resolveTaskReasoning } from '../reasoning-capabilities.js';
+import { isReasoningOutputVisible } from '../reasoning-config.js';
 
 function parseArguments(text) {
     try {
@@ -546,6 +548,7 @@ export class GoogleAdapter {
     }
 
     buildChatPayload(task) {
+        const reasoning = resolveTaskReasoning('google', this.config, task.reasoning);
         const conversation = buildConversation(task.messages);
         const tools = Array.isArray(task.tools) ? task.tools : [];
         const systemInstruction = resolveSystemInstruction(task);
@@ -554,10 +557,20 @@ export class GoogleAdapter {
             temperature: task.temperature,
             ...(task.maxTokens ? { maxOutputTokens: task.maxTokens } : {}),
         };
-        if (task.reasoning?.enabled) {
+        if (reasoning.mode === 'off') {
             config.thinkingConfig = {
-                includeThoughts: task.reasoning.includeOutput !== false,
-                thinkingLevel: mapThinkingLevel(task.reasoning.effort),
+                includeThoughts: false,
+                thinkingBudget: 0,
+            };
+        } else if (reasoning.mode === 'on' && reasoning.profileId.startsWith('google-gemini-2.5-')) {
+            config.thinkingConfig = {
+                includeThoughts: isReasoningOutputVisible(reasoning),
+                thinkingBudget: reasoning.budgetTokens,
+            };
+        } else if (reasoning.mode === 'on') {
+            config.thinkingConfig = {
+                includeThoughts: isReasoningOutputVisible(reasoning),
+                thinkingLevel: mapThinkingLevel(reasoning.effort),
             };
         }
 
@@ -603,6 +616,7 @@ export class GoogleAdapter {
 
     inspectRequest(task, options = {}) {
         const payload = options.payload || this.buildChatPayload(task);
+        const reasoning = resolveTaskReasoning('google', this.config, task.reasoning);
         const baseUrl = String(this.config.baseUrl || 'https://generativelanguage.googleapis.com/v1beta').replace(/\/$/, '');
         return buildSdkRequestInspection({
             provider: 'google',
@@ -622,14 +636,19 @@ export class GoogleAdapter {
                 ? 'client.chats.create(...).sendMessageStream'
                 : 'client.chats.create(...).sendMessage',
             effectiveConfig: buildEffectiveReasoningConfig(task, {
-                enabled: !!payload.createPayload.config?.thinkingConfig,
+                profileId: reasoning.profileId,
+                effectiveMode: reasoning.mode,
                 effort: payload.createPayload.config?.thinkingConfig?.thinkingLevel,
-                includeOutput: payload.createPayload.config?.thinkingConfig?.includeThoughts === true,
+                budgetTokens: payload.createPayload.config?.thinkingConfig?.thinkingBudget,
+                controlFields: payload.createPayload.config?.thinkingConfig
+                    ? { thinkingConfig: payload.createPayload.config.thinkingConfig }
+                    : {},
             }),
         });
     }
 
     inspectSendRequest(sendPayload, task) {
+        const reasoning = resolveTaskReasoning('google', this.config, task.reasoning);
         const baseUrl = String(this.config.baseUrl || 'https://generativelanguage.googleapis.com/v1beta').replace(/\/$/, '');
         return buildSdkRequestInspection({
             provider: 'google',
@@ -648,9 +667,13 @@ export class GoogleAdapter {
                 ? 'activeChat.sendMessageStream'
                 : 'activeChat.sendMessage',
             effectiveConfig: buildEffectiveReasoningConfig(task, {
-                enabled: !!this.sessionConfig?.thinkingConfig,
+                profileId: reasoning.profileId,
+                effectiveMode: reasoning.mode,
                 effort: this.sessionConfig?.thinkingConfig?.thinkingLevel,
-                includeOutput: this.sessionConfig?.thinkingConfig?.includeThoughts === true,
+                budgetTokens: this.sessionConfig?.thinkingConfig?.thinkingBudget,
+                controlFields: this.sessionConfig?.thinkingConfig
+                    ? { thinkingConfig: this.sessionConfig.thinkingConfig }
+                    : {},
             }),
         });
     }
@@ -704,7 +727,7 @@ export class GoogleAdapter {
                 if (chunkContent?.parts?.length) {
                     streamedContents.push(chunkContent);
                 }
-                if (task.reasoning?.includeOutput !== false) {
+                if (isReasoningOutputVisible(task.reasoning)) {
                     extractThoughts(chunk).forEach((item, index) => {
                         const key = `${item.label}:${index}`;
                         thoughtMap.set(key, mergeStreamText(thoughtMap.get(key) || '', item.text));
@@ -744,7 +767,7 @@ export class GoogleAdapter {
             text = streamedText;
         } else {
             response = await chat.sendMessage(requestPayload);
-            thoughts = task.reasoning?.includeOutput === false ? [] : extractThoughts(response);
+            thoughts = isReasoningOutputVisible(task.reasoning) ? extractThoughts(response) : [];
             text = extractVisibleText(response);
         }
 

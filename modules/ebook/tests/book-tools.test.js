@@ -1463,8 +1463,7 @@ test('Book agent cancel is immediate before provider request starts', async () =
                 provider: 'test',
                 temperature: 0.2,
                 maxTokens: 1000,
-                reasoningEnabled: false,
-                reasoningEffort: 'medium',
+                reasoning: { mode: 'inherit', output: 'hide' },
             };
         },
         createAdapter() {
@@ -1533,8 +1532,7 @@ test('Book agent automatically passes review context into DelegateRun', async ()
                 provider: 'test',
                 temperature: 0.2,
                 maxTokens: 1000,
-                reasoningEnabled: false,
-                reasoningEffort: 'medium',
+                reasoning: { mode: 'inherit', output: 'hide' },
             };
         },
         createAdapter() {
@@ -1633,8 +1631,7 @@ test('Book agent shows DelegateRun dispatch before result and keeps task in hist
                 provider: 'test',
                 temperature: 0.2,
                 maxTokens: 1000,
-                reasoningEnabled: false,
-                reasoningEffort: 'medium',
+                reasoning: { mode: 'inherit', output: 'hide' },
             };
         },
         createAdapter() {
@@ -6724,8 +6721,7 @@ test('Book agent stores a multi-tool batch only after all tool results exist', a
                 provider: 'test',
                 temperature: 0.2,
                 maxTokens: 1000,
-                reasoningEnabled: false,
-                reasoningEffort: 'medium',
+                reasoning: { mode: 'inherit', output: 'hide' },
             };
         },
         createAdapter() {
@@ -6817,8 +6813,7 @@ test('Book agent refreshes file snapshot before first model request', async () =
                 provider: 'test',
                 temperature: 0.2,
                 maxTokens: 1000,
-                reasoningEnabled: false,
-                reasoningEffort: 'medium',
+                reasoning: { mode: 'inherit', output: 'hide' },
             };
         },
         createAdapter() {
@@ -6887,8 +6882,7 @@ test('Book agent refreshes drafted chapter progress after chapter deletion', asy
                 provider: 'test',
                 temperature: 0.2,
                 maxTokens: 1000,
-                reasoningEnabled: false,
-                reasoningEffort: 'medium',
+                reasoning: { mode: 'inherit', output: 'hide' },
             };
         },
         createAdapter() {
@@ -6952,8 +6946,7 @@ test('Book agent keeps the user message if first snapshot refresh fails', async 
                 provider: 'test',
                 temperature: 0.2,
                 maxTokens: 1000,
-                reasoningEnabled: false,
-                reasoningEffort: 'medium',
+                reasoning: { mode: 'inherit', output: 'hide' },
             };
         },
         createAdapter() {
@@ -7033,8 +7026,7 @@ test('Book agent renders read-only tool progress through local surfaces', async 
                 provider: 'test',
                 temperature: 0.2,
                 maxTokens: 1000,
-                reasoningEnabled: false,
-                reasoningEffort: 'medium',
+                reasoning: { mode: 'inherit', output: 'hide' },
             };
         },
         createAdapter() {
@@ -7126,8 +7118,7 @@ test('Book agent streaming updates do not full-render the reader screen', async 
                 provider: 'test',
                 temperature: 0.2,
                 maxTokens: 1000,
-                reasoningEnabled: false,
-                reasoningEffort: 'medium',
+                reasoning: { mode: 'inherit', output: 'hide' },
             };
         },
         createAdapter() {
@@ -7213,8 +7204,7 @@ test('Book agent refreshes file surfaces for write tools without extra full rend
                 provider: 'test',
                 temperature: 0.2,
                 maxTokens: 1000,
-                reasoningEnabled: false,
-                reasoningEffort: 'medium',
+                reasoning: { mode: 'inherit', output: 'hide' },
             };
         },
         createAdapter() {
@@ -7313,8 +7303,7 @@ test('Book agent replays repaired tagged-json Write content after executing malf
                 toolMode: 'tagged-json',
                 temperature: 0.2,
                 maxTokens: 1000,
-                reasoningEnabled: false,
-                reasoningEffort: 'medium',
+                reasoning: { mode: 'inherit', output: 'hide' },
             };
         },
         createAdapter() {
@@ -7435,8 +7424,7 @@ test('Book agent reports invalid tool arguments without executing Edit', async (
                 provider: 'test',
                 temperature: 0.2,
                 maxTokens: 1000,
-                reasoningEnabled: false,
-                reasoningEffort: 'medium',
+                reasoning: { mode: 'inherit', output: 'hide' },
             };
         },
         createAdapter() {
@@ -7521,8 +7509,7 @@ test('Book agent uses Google-style session tool loop without rebuilding replay h
                 provider: 'google',
                 temperature: 0.2,
                 maxTokens: 1000,
-                reasoningEnabled: true,
-                reasoningEffort: 'medium',
+                reasoning: { mode: 'on', effort: 'medium', output: 'show' },
             };
         },
         createAdapter() {
@@ -7638,8 +7625,7 @@ test('Book agent keeps streamed thoughts in the final assistant message', async 
                 provider: 'test',
                 temperature: 0.2,
                 maxTokens: 1000,
-                reasoningEnabled: false,
-                reasoningEffort: 'medium',
+                reasoning: { mode: 'inherit', output: 'hide' },
             };
         },
         createAdapter() {
@@ -7715,8 +7701,7 @@ test('Book agent keeps streamed text when a model request fails', async () => {
                 model: 'test-model',
                 temperature: 0.2,
                 maxTokens: 1000,
-                reasoningEnabled: false,
-                reasoningEffort: 'medium',
+                reasoning: { mode: 'inherit', output: 'hide' },
             };
         },
         createAdapter() {
@@ -7784,8 +7769,7 @@ test('Book agent injects a light brake after repeated tool failures', async () =
                 provider: 'test',
                 temperature: 0.2,
                 maxTokens: 1000,
-                reasoningEnabled: false,
-                reasoningEffort: 'medium',
+                reasoning: { mode: 'inherit', output: 'hide' },
             };
         },
         createAdapter() {
@@ -7874,8 +7858,7 @@ test('Book agent places non-session final answer reminder after history and befo
                 provider: 'test',
                 temperature: 0.2,
                 maxTokens: 1000,
-                reasoningEnabled: false,
-                reasoningEffort: 'medium',
+                reasoning: { mode: 'inherit', output: 'hide' },
             };
         },
         createAdapter() {
@@ -7991,8 +7974,7 @@ test('Book agent reroll trims to the previous user message without duplicating i
                 provider: 'test',
                 temperature: 0.2,
                 maxTokens: 1000,
-                reasoningEnabled: false,
-                reasoningEffort: 'medium',
+                reasoning: { mode: 'inherit', output: 'hide' },
             };
         },
         createAdapter() {
@@ -8064,8 +8046,7 @@ test('Book agent reroll can start directly from an edited user message', async (
                 provider: 'test',
                 temperature: 0.2,
                 maxTokens: 1000,
-                reasoningEnabled: false,
-                reasoningEffort: 'medium',
+                reasoning: { mode: 'inherit', output: 'hide' },
             };
         },
         createAdapter() {
@@ -8238,8 +8219,7 @@ test('Book agent compaction prunes old turns and does not inject creative record
                 provider: 'test',
                 temperature: 0.7,
                 maxTokens: 12000,
-                reasoningEnabled: false,
-                reasoningEffort: 'medium',
+                reasoning: { mode: 'inherit', output: 'hide' },
             };
         },
         createAdapter() {
