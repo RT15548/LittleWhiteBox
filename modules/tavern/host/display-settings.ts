@@ -18,10 +18,8 @@ export async function saveTavernDisplaySettings(patch: Record<string, unknown> =
     const next = normalizeTavernDisplaySettings(patch);
 
     try {
-        const data = await AssistantStorage.load();
-        data[SERVER_FILE_KEY] = next;
-        AssistantStorage._dirtyVersion = (AssistantStorage._dirtyVersion || 0) + 1;
-        await AssistantStorage.saveNow({ silent });
+        const saved = await AssistantStorage.setAndSave(SERVER_FILE_KEY, next, { silent });
+        if (!saved) {throw new Error('小白酒馆显示设置保存失败');}
         return { ok: true, displaySettings: next };
     } catch (error) {
         return {

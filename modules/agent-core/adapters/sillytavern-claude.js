@@ -67,6 +67,7 @@ function buildEffectiveConfig(task = {}, protocol = {}) {
         toolChoice: String(protocol.toolChoice || ''),
         reasoningEnabled,
         reasoningEffort: reasoningEnabled ? String(task.reasoning?.effort || '') : '',
+        reasoningIncludeOutput: reasoningEnabled && task.reasoning?.includeOutput !== false,
     };
 }
 
@@ -249,13 +250,15 @@ function parseContentResult(content = [], options = {}) {
         .filter((block) => block.type === 'text')
         .map((block) => block.text || '')
         .join('\n');
-    const thoughts = normalized
-        .filter((block) => block.type === 'thinking' || block.type === 'redacted_thinking')
-        .map((block) => ({
-            label: block.type === 'thinking' ? '思考块' : '已脱敏思考块',
-            text: block.type === 'thinking' ? (block.thinking || '') : (block.data || ''),
-        }))
-        .filter((item) => item.text);
+    const thoughts = options.includeReasoningOutput === false
+        ? []
+        : normalized
+            .filter((block) => block.type === 'thinking' || block.type === 'redacted_thinking')
+            .map((block) => ({
+                label: block.type === 'thinking' ? '思考块' : '已脱敏思考块',
+                text: block.type === 'thinking' ? (block.thinking || '') : (block.data || ''),
+            }))
+            .filter((item) => item.text);
 
     return {
         text,
@@ -297,7 +300,7 @@ function createClaudeStreamAccumulator(task, config = {}) {
         const result = buildStreamProgressSnapshot(blocks);
         emitStreamProgress(task, {
             text: result.text,
-            thoughts: result.thoughts,
+            thoughts: task.reasoning?.includeOutput === false ? [] : result.thoughts,
             ...(Array.isArray(result.toolCalls) ? { toolCalls: result.toolCalls } : {}),
             ...(result.toolCallDraft ? { toolCallDraft: true } : {}),
         });
@@ -336,7 +339,11 @@ function createClaudeStreamAccumulator(task, config = {}) {
             }
         },
         result() {
-            return parseContentResult(blocks, { finishReason, model });
+            return parseContentResult(blocks, {
+                finishReason,
+                model,
+                includeReasoningOutput: task.reasoning?.includeOutput !== false,
+            });
         },
     };
 }
@@ -422,6 +429,7 @@ export class SillyTavernClaudeAdapter {
                 ...parseContentResult(content, {
                     finishReason: response?.stop_reason || response?.choices?.[0]?.finish_reason || 'stop',
                     model: response?.model || this.config.model,
+                    includeReasoningOutput: task.reasoning?.includeOutput !== false,
                 }),
                 requestInspection,
             };

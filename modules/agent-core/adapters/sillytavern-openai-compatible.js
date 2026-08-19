@@ -4,7 +4,10 @@ import {
     createHostChatCompletion,
     streamHostChatCompletion,
 } from '../../../shared/host-llm/chat-completions/client.js';
-import { redactRequestSecrets } from './request-inspection.js';
+import {
+    buildEffectiveReasoningConfig,
+    redactRequestSecrets,
+} from './request-inspection.js';
 import {
     accumulateStreamedAssistantSnapshot,
     assertSignedToolCallsIntact,
@@ -100,11 +103,20 @@ export class SillyTavernOpenAICompatibleAdapter {
     buildRequestInspection(request, task = {}) {
         const suppressedReasoningEffort = !!task.reasoning?.enabled
             && !Object.prototype.hasOwnProperty.call(request?.body || {}, 'reasoning_effort');
+        const effectiveReasoningEnabled = Object.prototype.hasOwnProperty.call(
+            request?.body || {},
+            'reasoning_effort',
+        );
         return {
             provider: 'sillytavern-openai-compatible',
             model: this.config.model,
             transport: 'sillytavern-chat-completions',
             request: redactRequestSecrets(request),
+            effectiveConfig: buildEffectiveReasoningConfig(task, {
+                enabled: effectiveReasoningEnabled,
+                effort: request?.body?.reasoning_effort,
+                includeOutput: false,
+            }),
             ...(suppressedReasoningEffort ? { degraded: ['reasoning_effort_unsupported'] } : {}),
         };
     }

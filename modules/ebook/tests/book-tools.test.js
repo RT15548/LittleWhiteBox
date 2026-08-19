@@ -3327,8 +3327,8 @@ test('Book controller draws current chapter and inserts ebook image markers by a
     const controller = createBookController({
         state,
         render() {},
-        async requestHost(type, payload) {
-            seenRequests.push({ type, payload });
+        async requestHost(type, payload, options = {}) {
+            seenRequests.push({ type, payload, options });
             if (type === 'xb-ebook:draw-status') {
                 return { ok: true, provider: 'novelai', enabled: true, ready: true };
             }
@@ -3359,6 +3359,8 @@ test('Book controller draws current chapter and inserts ebook image markers by a
     assert.equal(drawPayload.source, 'ebook');
     assert.equal(drawPayload.bookId, book.id);
     assert.equal(drawPayload.chapterPath, 'book/chapters/001.md');
+    const drawOptions = seenRequests.find((item) => item.type === 'xb-ebook:draw-generate')?.options || {};
+    assert.equal(drawOptions.timeoutMs, null);
     assert.equal(state.drawProgressText, '占位符已插入，请去阅读器查看');
 });
 

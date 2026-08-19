@@ -566,7 +566,9 @@ export function getSummaryPanelConfig() {
 export function saveSummaryPanelConfig(config) {
     try {
         const normalized = setSummaryPanelConfigCache(config);
-        CommonSettingStorage.set(SUMMARY_CONFIG_KEY, normalized);
+        CommonSettingStorage.set(SUMMARY_CONFIG_KEY, normalized).catch((e) => {
+            xbLog.error(MODULE_ID, "保存面板配置失败", e);
+        });
         return normalized;
     } catch (e) {
         xbLog.error(MODULE_ID, "保存面板配置失败", e);
@@ -591,7 +593,9 @@ export function saveVectorConfig(vectorCfg) {
         const parsed = ensureSummaryPanelConfigCache();
         parsed.vector = normalizeVectorConfig(vectorCfg || null);
         setSummaryPanelConfigCache(parsed);
-        CommonSettingStorage.set(SUMMARY_CONFIG_KEY, parsed);
+        CommonSettingStorage.set(SUMMARY_CONFIG_KEY, parsed).catch((e) => {
+            xbLog.error(MODULE_ID, "保存向量配置失败", e);
+        });
         return cloneConfig(parsed.vector);
     } catch (e) {
         xbLog.error(MODULE_ID, "保存向量配置失败", e);
@@ -603,7 +607,7 @@ export async function saveSummaryPanelConfigVerified(config) {
     const normalized = normalizeSummaryPanelConfig(config);
     await CommonSettingStorage.setAndSave(SUMMARY_CONFIG_KEY, normalized, { silent: false });
     CommonSettingStorage.clearCache();
-    const savedConfig = await CommonSettingStorage.get(SUMMARY_CONFIG_KEY, null);
+    const savedConfig = await CommonSettingStorage.getStrict(SUMMARY_CONFIG_KEY, null);
     const savedNormalized = normalizeSummaryPanelConfig(savedConfig);
     assertSummaryConfigPersisted(normalized, savedNormalized);
     setSummaryPanelConfigCache(savedNormalized);

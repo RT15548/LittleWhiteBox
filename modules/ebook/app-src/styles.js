@@ -2138,6 +2138,46 @@ export function injectEbookStyles(rootId = 'xb-ebook-root') {
             display: grid;
             gap: 12px;
         }
+        .xb-ebook-settings-body .xb-assistant-config-fields {
+            min-inline-size: 0;
+            display: grid;
+            gap: 12px;
+            margin: 0;
+            padding: 0;
+            border: 0;
+        }
+        .xb-ebook-settings-body .xb-assistant-config-fields:disabled { opacity: 0.56; }
+        .xb-ebook-settings-body .xb-assistant-config-alert {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            padding: 11px 12px;
+            border: 1px solid rgba(250, 204, 21, 0.28);
+            border-radius: 11px;
+            background: rgba(250, 204, 21, 0.08);
+            color: #fde68a;
+            font-size: 12px;
+            line-height: 1.5;
+        }
+        .xb-ebook-settings-body .xb-assistant-config-alert.is-error {
+            border-color: rgba(251, 113, 133, 0.32);
+            background: rgba(251, 113, 133, 0.09);
+            color: #fecdd3;
+        }
+        .xb-ebook-settings-body .xb-assistant-config-alert[hidden] { display: none; }
+        .xb-ebook-settings-body .xb-assistant-config-alert button {
+            flex: 0 0 auto;
+            min-height: 32px;
+            padding: 0 10px;
+            border: 1px solid currentColor;
+            border-radius: 9px;
+            background: rgba(255, 255, 255, 0.06);
+            color: inherit;
+            font: inherit;
+            font-weight: 750;
+            cursor: pointer;
+        }
         .xb-ebook-settings-body .xb-assistant-config-tabs {
             display: grid;
             grid-template-columns: 1fr 1fr;

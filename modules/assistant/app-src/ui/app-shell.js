@@ -21,6 +21,8 @@ export function buildAppMarkup(state) {
                         canDeletePreset: (state.config?.presetNames || []).length > 1,
                         activePage: state.configPage,
                         runtimeText: '',
+                        configLoadError: state.configLoadError,
+                        configExternalChangePending: state.configExternalChangePending,
                     })}
                 </div>
             </aside>

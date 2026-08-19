@@ -56,6 +56,7 @@ interface TavernSettingsControllerOptions {
     activeView: Ref<string>;
     activeSettingsWorkspace: Ref<TavernSettingsWorkspaceKey>;
     agentConfig: Ref<Record<string, unknown>>;
+    agentConfigLoadError?: Ref<string>;
     tavernDisplaySettings: Ref<TavernDisplaySettings>;
     effectiveContext: ComputedRef<XbTavernContext>;
     currentNativeCharacterId: ComputedRef<string>;
@@ -429,6 +430,7 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
     const apiSettingsRootRef = ref<HTMLElement | null>(null);
     const apiConfigSave = ref({ status: 'idle', requestId: '', error: '' });
     const apiConfigStatus = ref('');
+    const agentConfigLoadError = options.agentConfigLoadError || ref('');
     let apiConfigSaveTimeout: number | null = null;
     let apiConfigSaveResetTimer: number | null = null;
     const preset = ref<TavernChatPromptPresetBundle>(initialChatPreset);
@@ -523,6 +525,8 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
     const apiSettingsPanelState: Record<string, unknown> = {
         config: {},
         configDraft: null,
+        configDirty: false,
+        configExternalChangePending: false,
         configFormSyncPending: true,
         configPage: 'main',
         configSave: apiConfigSave.value,
@@ -1946,7 +1950,15 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
     }
     function syncApiSettingsConfigFromAgentConfig() {
         apiSettingsPanelState.config = normalizeAgentConfig(options.agentConfig.value || {});
+        if (apiSettingsPanelState.configDirty === true) {
+            apiSettingsPanelState.configExternalChangePending = true;
+            apiSettingsPanelState.configFormSyncPending = true;
+            apiConfigStatus.value = '共享 API 配置已在其他页面更新；当前未保存编辑已保留。';
+            return;
+        }
         apiSettingsPanelState.configDraft = null;
+        apiSettingsPanelState.configDirty = false;
+        apiSettingsPanelState.configExternalChangePending = false;
         apiSettingsPanelState.configFormSyncPending = true;
     }
     function beginApiConfigSave(requestId = '') {
@@ -2025,6 +2037,9 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
                     apiConfigStatus.value = String(message || '');
                 },
                 saveConfig: handleApiConfigSave,
+                reloadConfig: () => {
+                    options.postToHost('xb-tavern:reload-config');
+                },
                 getRuntimeSummaryText: () => apiRuntimeLine.value,
             });
         }
@@ -2041,6 +2056,8 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
             delegatePresetHint: '记忆整理会复用这里的分身 API；当前聊天仍使用主 API。',
             isBusy: options.isRunning.value,
             canDeletePreset: Object.keys((apiSettingsPanelState.config as Record<string, unknown>)?.presets || {}).length > 1,
+            configLoadError: agentConfigLoadError.value,
+            configExternalChangePending: apiSettingsPanelState.configExternalChangePending === true,
         });
         apiSettingsPanel.syncConfigToForm(root);
         apiSettingsPanel.bindSettingsPanelEvents(root);
@@ -2049,11 +2066,17 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
         const ok = payload.ok === true;
         if (ok) {
             options.agentConfig.value = payload.config as Record<string, unknown> || options.agentConfig.value;
+            agentConfigLoadError.value = '';
+            apiSettingsPanelState.configDirty = false;
+            apiSettingsPanelState.configExternalChangePending = false;
             syncApiSettingsConfigFromAgentConfig();
             completeApiConfigSave(String(payload.requestId || ''), { ok: true });
             return;
         }
-        syncApiSettingsConfigFromAgentConfig();
+        if (payload.conflict === true && payload.config && typeof payload.config === 'object') {
+            options.agentConfig.value = payload.config as Record<string, unknown>;
+            syncApiSettingsConfigFromAgentConfig();
+        }
         completeApiConfigSave(String(payload.requestId || ''), {
             ok: false,
             error: String(payload.error || '保存失败'),

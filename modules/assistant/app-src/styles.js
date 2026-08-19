@@ -136,6 +136,46 @@ export function injectAssistantStyles(rootId) {
             letter-spacing: 0.08em;
         }
         .xb-assistant-config { display: grid; gap: 12px; }
+        .xb-assistant-config-fields {
+            min-inline-size: 0;
+            display: grid;
+            gap: 12px;
+            margin: 0;
+            padding: 0;
+            border: 0;
+        }
+        .xb-assistant-config-fields:disabled { opacity: 0.58; }
+        .xb-assistant-config-alert {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            padding: 10px 11px;
+            border: 1px solid rgba(169, 108, 34, 0.28);
+            border-radius: 11px;
+            background: rgba(169, 108, 34, 0.08);
+            color: #76501f;
+            font-size: 12px;
+            line-height: 1.45;
+        }
+        .xb-assistant-config-alert.is-error {
+            border-color: rgba(154, 61, 42, 0.3);
+            background: rgba(154, 61, 42, 0.08);
+            color: #8a3525;
+        }
+        .xb-assistant-config-alert[hidden] { display: none; }
+        .xb-assistant-config-alert button {
+            flex: 0 0 auto;
+            min-height: 32px;
+            padding: 0 10px;
+            border: 1px solid currentColor;
+            border-radius: 9px;
+            background: rgba(255, 255, 255, 0.72);
+            color: inherit;
+            font: inherit;
+            font-weight: 800;
+            cursor: pointer;
+        }
         .xb-assistant-config-tabs {
             display: grid;
             grid-template-columns: 1fr 1fr;

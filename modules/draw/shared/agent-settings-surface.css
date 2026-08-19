@@ -1,0 +1,360 @@
+.draw-agent-settings-surface {
+    max-width: 920px;
+}
+
+.draw-agent-settings-state {
+    min-height: 180px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 28px;
+    color: var(--text-secondary);
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+}
+
+.draw-agent-settings-state.is-error {
+    color: var(--danger);
+}
+
+.draw-agent-settings-state button {
+    min-height: 34px;
+    padding: 0 12px;
+    color: var(--text-secondary);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font: inherit;
+    cursor: pointer;
+}
+
+.draw-agent-settings-state button:hover,
+.draw-agent-settings-state button:focus-visible {
+    color: var(--accent);
+    border-color: var(--border-focus);
+    outline: none;
+}
+
+.draw-agent-settings-conflict {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 14px;
+    padding: 11px 12px;
+    color: var(--warning);
+    background: color-mix(in srgb, var(--warning) 9%, var(--bg-secondary));
+    border: 1px solid color-mix(in srgb, var(--warning) 42%, var(--border));
+    border-radius: 9px;
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.draw-agent-settings-conflict[hidden] {
+    display: none;
+}
+
+.draw-agent-settings-conflict button {
+    flex: 0 0 auto;
+    min-height: 34px;
+    padding: 0 12px;
+    color: var(--warning);
+    background: var(--bg-tertiary);
+    border: 1px solid color-mix(in srgb, var(--warning) 45%, var(--border));
+    border-radius: 8px;
+    font: inherit;
+    font-weight: 650;
+    cursor: pointer;
+}
+
+.draw-agent-settings-conflict button:hover,
+.draw-agent-settings-conflict button:focus-visible {
+    background: color-mix(in srgb, var(--warning) 12%, var(--bg-tertiary));
+    outline: none;
+}
+
+.draw-agent-settings-surface .xb-assistant-config,
+.draw-agent-settings-surface .xb-assistant-config-fields,
+.draw-agent-settings-surface .xb-assistant-config-page {
+    display: grid;
+    gap: 14px;
+}
+
+.draw-agent-settings-surface .xb-assistant-config-fields {
+    min-inline-size: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+}
+
+.draw-agent-settings-surface .xb-assistant-config-page[hidden] {
+    display: none;
+}
+
+.draw-agent-settings-surface .xb-assistant-preset-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 10px;
+    padding: 14px;
+    background: linear-gradient(135deg, var(--accent-soft), transparent 72%), var(--bg-secondary);
+    border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+    border-radius: 12px;
+}
+
+.draw-agent-settings-surface .xb-assistant-preset-field,
+.draw-agent-settings-surface .xb-assistant-config select.xb-assistant-preset-field {
+    min-width: 0;
+    width: 100%;
+    font-weight: 650;
+}
+
+.draw-agent-settings-surface .xb-assistant-preset-tools {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+}
+
+.draw-agent-settings-surface .xb-assistant-icon-button {
+    width: 36px;
+    height: 36px;
+    min-width: 36px;
+    display: inline-grid;
+    place-items: center;
+    padding: 0;
+    color: var(--text-secondary);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    cursor: pointer;
+    transition: color .16s ease, border-color .16s ease, background .16s ease, transform .16s ease;
+}
+
+.draw-agent-settings-surface .xb-assistant-icon-button svg {
+    width: 17px;
+    height: 17px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.draw-agent-settings-surface .xb-assistant-icon-button:hover:not(:disabled),
+.draw-agent-settings-surface .xb-assistant-icon-button:focus-visible {
+    color: var(--accent);
+    border-color: var(--border-focus);
+    background: var(--accent-soft);
+    transform: translateY(-1px);
+}
+
+.draw-agent-settings-surface .xb-assistant-icon-button:disabled,
+.draw-agent-settings-surface button:disabled {
+    opacity: .42;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.draw-agent-settings-surface .xb-assistant-save-button.is-success {
+    color: var(--success);
+    border-color: color-mix(in srgb, var(--success) 55%, var(--border));
+}
+
+.draw-agent-settings-surface .xb-assistant-save-button.is-error {
+    color: var(--danger);
+    border-color: color-mix(in srgb, var(--danger) 55%, var(--border));
+}
+
+.draw-agent-settings-surface .xb-assistant-save-spinner {
+    transform-origin: 12px 12px;
+    animation: draw-agent-spin .8s linear infinite;
+}
+
+@keyframes draw-agent-spin {
+    to { transform: rotate(360deg); }
+}
+
+.draw-agent-settings-surface .xb-assistant-config label {
+    min-width: 0;
+    display: grid;
+    gap: 6px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.draw-agent-settings-surface .xb-assistant-config label > span:first-child,
+.draw-agent-settings-surface .xb-assistant-config-note {
+    color: var(--text-secondary);
+}
+
+.draw-agent-settings-surface .xb-assistant-config label small {
+    display: block;
+    margin-top: 2px;
+    color: var(--text-muted);
+    font-size: 10px;
+    font-weight: 500;
+}
+
+.draw-agent-settings-surface .xb-assistant-config input:not([type="checkbox"]):not([type="radio"]),
+.draw-agent-settings-surface .xb-assistant-config select {
+    width: 100%;
+    min-height: 42px;
+    padding: 9px 11px;
+    color: var(--text-primary);
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    outline: none;
+    font: inherit;
+    font-weight: 500;
+    transition: border-color .16s ease, box-shadow .16s ease, background .16s ease;
+}
+
+.draw-agent-settings-surface .xb-assistant-config input:focus,
+.draw-agent-settings-surface .xb-assistant-config select:focus {
+    border-color: var(--border-focus);
+    background: var(--bg-secondary);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.draw-agent-settings-surface .xb-assistant-config select option,
+.draw-agent-settings-surface .xb-assistant-config select optgroup {
+    color: var(--text-primary);
+    background: var(--bg-secondary);
+}
+
+.draw-agent-settings-surface .xb-assistant-inline-input,
+.draw-agent-settings-surface .xb-assistant-temperature-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+    gap: 9px;
+}
+
+.draw-agent-settings-surface .xb-assistant-temperature-row {
+    grid-template-columns: minmax(0, 1fr) minmax(150px, .42fr);
+}
+
+.draw-agent-settings-surface .xb-assistant-grow {
+    min-width: 0;
+}
+
+.draw-agent-settings-surface .xb-assistant-inline-input > button,
+.draw-agent-settings-surface .xb-assistant-model-row > button {
+    min-height: 42px;
+    padding: 0 14px;
+    color: var(--text-secondary);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 650;
+    cursor: pointer;
+}
+
+.draw-agent-settings-surface .xb-assistant-inline-input > button:hover:not(:disabled),
+.draw-agent-settings-surface .xb-assistant-model-row > button:hover:not(:disabled) {
+    color: var(--accent);
+    border-color: var(--border-focus);
+    background: var(--accent-soft);
+}
+
+.draw-agent-settings-surface .xb-assistant-checkbox-row {
+    min-height: 42px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    padding: 10px 12px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+}
+
+.draw-agent-settings-surface .xb-assistant-checkbox-control {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    color: var(--text-secondary);
+    font-size: 11px;
+}
+
+.draw-agent-settings-surface .xb-assistant-checkbox-control input {
+    width: 17px;
+    height: 17px;
+    accent-color: var(--accent);
+}
+
+.draw-agent-settings-surface .xb-assistant-inline-status,
+.draw-agent-settings-surface .xb-assistant-runtime,
+.draw-agent-settings-surface .xb-assistant-toast-inline {
+    min-height: 18px;
+    color: var(--text-secondary);
+    font-size: 11px;
+    line-height: 1.5;
+}
+
+.draw-agent-settings-surface .xb-assistant-inline-status.is-loading {
+    color: var(--warning);
+}
+
+.draw-agent-settings-surface .xb-assistant-inline-status.is-success,
+.draw-agent-settings-surface .xb-assistant-save-button.is-success + * {
+    color: var(--success);
+}
+
+.draw-agent-settings-surface .xb-assistant-inline-status.is-error {
+    color: var(--danger);
+}
+
+.draw-agent-settings-surface .xb-assistant-runtime {
+    padding: 11px 12px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+}
+
+.draw-agent-settings-surface .xb-assistant-toast-inline:empty {
+    display: none;
+}
+
+@media (max-width: 560px) {
+    .draw-agent-settings-conflict {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .draw-agent-settings-conflict button {
+        width: 100%;
+    }
+
+    .draw-agent-settings-surface .xb-assistant-preset-row {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .draw-agent-settings-surface .xb-assistant-preset-tools {
+        justify-content: flex-end;
+    }
+
+    .draw-agent-settings-surface .xb-assistant-temperature-row,
+    .draw-agent-settings-surface .xb-assistant-model-row {
+        grid-template-columns: minmax(0, 1fr);
+        align-items: stretch;
+    }
+
+    .draw-agent-settings-surface .xb-assistant-model-row > button {
+        width: 100%;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .draw-agent-settings-surface *,
+    .draw-agent-settings-surface *::before,
+    .draw-agent-settings-surface *::after {
+        transition-duration: .01ms !important;
+        animation-duration: .01ms !important;
+        animation-iteration-count: 1 !important;
+    }
+}

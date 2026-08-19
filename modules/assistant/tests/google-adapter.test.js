@@ -3,6 +3,34 @@ import assert from 'node:assert/strict';
 
 import { GoogleAdapter } from '../../agent-core/adapters/google.js';
 
+test('google reasoning keeps minimal effort separate from thought output visibility', () => {
+    const adapter = new GoogleAdapter({
+        apiKey: 'test-key',
+        baseUrl: 'https://example.com/google',
+        model: 'gemini-test',
+    });
+    const hiddenTask = {
+        messages: [{ role: 'user', content: 'think' }],
+        reasoning: { enabled: true, effort: 'minimal', includeOutput: false },
+    };
+    const hiddenPayload = adapter.buildChatPayload(hiddenTask);
+    assert.deepEqual(hiddenPayload.createPayload.config.thinkingConfig, {
+        includeThoughts: false,
+        thinkingLevel: 'MINIMAL',
+    });
+    assert.deepEqual(adapter.inspectRequest(hiddenTask, { payload: hiddenPayload }).effectiveConfig, {
+        reasoningEnabled: true,
+        reasoningEffort: 'MINIMAL',
+        reasoningIncludeOutput: false,
+    });
+
+    const visiblePayload = adapter.buildChatPayload({
+        ...hiddenTask,
+        reasoning: { ...hiddenTask.reasoning, includeOutput: true },
+    });
+    assert.equal(visiblePayload.createPayload.config.thinkingConfig.includeThoughts, true);
+});
+
 test('google adapter preserves visible text alongside tool calls in non-streaming responses', async () => {
     const adapter = new GoogleAdapter({
         apiKey: 'test-key',

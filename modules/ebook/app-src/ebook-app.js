@@ -441,16 +441,29 @@ export function createEbookApp(options = {}) {
             try {
                 const result = await hostBridge.requestHost('xb-ebook:save-config', payload);
                 state.config = normalizeEbookConfig(result?.config || config || {});
+                state.configLoadError = '';
                 state.configDraft = null;
+                state.configDirty = false;
+                state.configExternalChangePending = false;
                 state.configFormSyncPending = true;
                 completeConfigSave(requestId, { ok: true });
                 showToast('配置已保存');
                 if (!renderSettingsSurface()) render();
                 if (!renderAgentControlsSurface()) renderAgentSurface();
             } catch (error) {
+                if (error?.payload?.conflict === true && error.payload.config && typeof error.payload.config === 'object') {
+                    state.config = normalizeEbookConfig(error.payload.config);
+                    state.configExternalChangePending = true;
+                    state.configFormSyncPending = true;
+                }
                 completeConfigSave(requestId, { ok: false, error: describeError(error) });
                 showToast(describeError(error));
             }
+        },
+        reloadConfig: () => {
+            hostBridge.postToHost('xb-ebook:reload-config', {
+                preserveDraft: state.configDirty === true,
+            });
         },
         getRuntimeSummaryText: ({ providerLabel }) => providerLabel,
     });
@@ -903,8 +916,23 @@ export function createEbookApp(options = {}) {
     });
 
     function handleHostConfig(payload = {}) {
+        state.configLoadError = String(payload?.configLoadError || '');
+        if (!payload?.config || typeof payload.config !== 'object') {
+            render();
+            return;
+        }
+        const preserveDraft = payload?.externalChange === true && state.configDirty === true;
         state.config = normalizeEbookConfig(payload?.config || {});
+        if (preserveDraft) {
+            state.configExternalChangePending = true;
+            state.configFormSyncPending = true;
+            showToast('共享 API 配置已在其他页面更新；当前未保存编辑已保留。');
+            render();
+            return;
+        }
         state.configDraft = null;
+        state.configDirty = false;
+        state.configExternalChangePending = false;
         state.configFormSyncPending = true;
         render();
     }

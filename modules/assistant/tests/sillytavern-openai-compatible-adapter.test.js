@@ -101,7 +101,10 @@ test('hosted Claude translates required toolChoice to Anthropic any and guards m
         'required',
     );
 
-    const reasoningTask = { ...baseTask, reasoning: { enabled: true, effort: 'high' } };
+    const reasoningTask = {
+        ...baseTask,
+        reasoning: { enabled: true, effort: 'high', includeOutput: true },
+    };
     // Manual (budgeted) thinking conflicts with a forced tool; the tool contract wins.
     const manual = new SillyTavernClaudeAdapter({ model: 'claude-sonnet-4-5' });
     const manualProtocol = manual.resolveToolProtocol(reasoningTask);
@@ -117,6 +120,7 @@ test('hosted Claude translates required toolChoice to Anthropic any and guards m
         toolChoice: 'any',
         reasoningEnabled: false,
         reasoningEffort: '',
+        reasoningIncludeOutput: false,
     });
     // Claude 4.6 adaptive thinking depends on host config the client cannot observe.
     assert.equal(
@@ -139,6 +143,7 @@ test('hosted Claude translates required toolChoice to Anthropic any and guards m
         toolChoice: 'any',
         reasoningEnabled: true,
         reasoningEffort: 'high',
+        reasoningIncludeOutput: true,
     });
     // A non-forced tool choice never touches reasoning.
     assert.equal(
@@ -588,7 +593,7 @@ test('host Claude and Google payloads select the matching SillyTavern chat-compl
         {
             maxTokens: 32000,
             temperature: 0.4,
-            reasoning: { enabled: true, effort: 'medium' },
+            reasoning: { enabled: true, effort: 'medium', includeOutput: false },
             tools: [{
                 type: 'function',
                 function: {
@@ -625,13 +630,22 @@ test('host Claude and Google payloads select the matching SillyTavern chat-compl
     assert.equal(claudePayload.proxy_password, 'claude-key');
     assert.equal(claudePayload.use_sysprompt, true);
     assert.equal(claudePayload.reasoning_effort, 'medium');
-    assert.equal(claudePayload.include_reasoning, true);
+    assert.equal(claudePayload.include_reasoning, false);
     assert.equal(claudePayload.tool_choice, 'auto');
     assert.equal(googlePayload.chat_completion_source, 'makersuite');
     assert.equal(googlePayload.reverse_proxy, 'https://google-proxy.example');
     assert.equal(googlePayload.proxy_password, 'google-key');
     assert.equal(googlePayload.use_sysprompt, true);
     assert.equal(googlePayload.tool_choice, 'auto');
+
+    const googleReasoningPayload = buildHostGoogleGeneratePayload(
+        { model: 'gemini-3-pro' },
+        { reasoning: { enabled: true, effort: 'max', includeOutput: false } },
+        [{ role: 'user', content: 'hello' }],
+        false,
+    );
+    assert.equal(googleReasoningPayload.reasoning_effort, 'max');
+    assert.equal(googleReasoningPayload.include_reasoning, false);
 });
 
 test('direct Anthropic adapter strips v1 because the SDK appends it itself', () => {

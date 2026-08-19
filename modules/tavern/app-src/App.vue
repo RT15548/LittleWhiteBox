@@ -247,6 +247,7 @@ const RUNTIME_DISPLAY_REGEX_THROTTLE_MS = 200;
 const context = ref<XbTavernContext>({});
 const diagnostics = ref<TavernDiagnostics>({});
 const agentConfig = ref<Record<string, unknown>>({});
+const agentConfigLoadError = ref('');
 const tavernDisplaySettings = ref<TavernDisplaySettings>(normalizeTavernDisplaySettings({}));
 const htmlRenderEnabled = ref(true);
 const hiddenOutsideCount = computed(() => normalizeHiddenOutsideCount(tavernDisplaySettings.value.hiddenOutsideCount));
@@ -808,6 +809,7 @@ const {
     activeView,
     activeSettingsWorkspace,
     agentConfig,
+    agentConfigLoadError,
     tavernDisplaySettings,
     effectiveContext,
     currentNativeCharacterId,
@@ -2281,8 +2283,11 @@ function applyHostPayload(payload: Record<string, unknown>) {
     hostProseLineHeightPx.value = 'hostProseLineHeightPx' in payload
         ? normalizeHostPx(payload.hostProseLineHeightPx, deriveHostProseLineHeightPx(nextHostMainFontSizePx))
         : deriveHostProseLineHeightPx(nextHostMainFontSizePx);
-    if ('agentConfig' in payload) {
-        agentConfig.value = payload.agentConfig as Record<string, unknown> || agentConfig.value;
+    if ('agentConfigLoadError' in payload) {
+        agentConfigLoadError.value = String(payload.agentConfigLoadError || '');
+    }
+    if (payload.agentConfig && typeof payload.agentConfig === 'object') {
+        agentConfig.value = payload.agentConfig as Record<string, unknown>;
         syncApiSettingsConfigFromAgentConfig();
     }
     if ('tavernDisplaySettings' in payload) {
@@ -2353,6 +2358,10 @@ function handleConfigHostMessage(data: TavernHostMessageData) {
         return true;
     }
     if (data.type === 'xb-tavern:context') {
+        applyHostPayload(hostMessagePayload(data));
+        return true;
+    }
+    if (data.type === 'xb-tavern:agent-config') {
         applyHostPayload(hostMessagePayload(data));
         return true;
     }

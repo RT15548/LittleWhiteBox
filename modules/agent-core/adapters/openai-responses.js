@@ -1,5 +1,8 @@
 import OpenAI from 'openai';
-import { buildSdkRequestInspection } from './request-inspection.js';
+import {
+    buildEffectiveReasoningConfig,
+    buildSdkRequestInspection,
+} from './request-inspection.js';
 
 function buildUserOrSystemMessage(role, content) {
     return {
@@ -313,7 +316,7 @@ export class OpenAIResponsesAdapter {
         if (task.reasoning?.enabled) {
             body.reasoning = {
                 effort: task.reasoning.effort,
-                summary: 'detailed',
+                ...(task.reasoning.includeOutput !== false ? { summary: 'auto' } : {}),
             };
         }
         return body;
@@ -323,6 +326,7 @@ export class OpenAIResponsesAdapter {
         const stream = typeof task.onStreamProgress === 'function';
         const legacySystemInInput = options.legacySystemInInput === true;
         const baseUrl = String(this.config.baseUrl || 'https://api.openai.com/v1').replace(/\/$/, '');
+        const body = options.body || this.buildRequestBody(task, legacySystemInInput);
         return buildSdkRequestInspection({
             provider: 'openai-responses',
             model: this.config.model,
@@ -332,8 +336,13 @@ export class OpenAIResponsesAdapter {
                 'Content-Type': 'application/json',
                 Authorization: this.config.apiKey ? `Bearer ${this.config.apiKey}` : '',
             },
-            body: options.body || this.buildRequestBody(task, legacySystemInInput),
+            body,
             sdk: stream ? 'client.responses.stream' : 'client.responses.create',
+            effectiveConfig: buildEffectiveReasoningConfig(task, {
+                enabled: !!body.reasoning,
+                effort: body.reasoning?.effort,
+                includeOutput: !!body.reasoning?.summary,
+            }),
         });
     }
 
@@ -349,7 +358,7 @@ export class OpenAIResponsesAdapter {
             }
 
             const output = Array.isArray(response.output) ? response.output : [];
-            const thoughts = extractThoughts(output);
+            const thoughts = task.reasoning?.includeOutput === false ? [] : extractThoughts(output);
             const toolCalls = output
                 .filter((item) => item.type === 'function_call' && item.name)
                 .map((item, index) => ({
@@ -381,12 +390,14 @@ export class OpenAIResponsesAdapter {
 
             const emitSnapshot = () => {
                 const thoughts = [];
-                Array.from(reasoningByPart.entries())
-                    .sort(([left], [right]) => comparePartKeys(left, right))
-                    .forEach(([, text]) => pushThought(thoughts, '推理文本', text));
-                Array.from(summaryByPart.entries())
-                    .sort(([left], [right]) => comparePartKeys(left, right))
-                    .forEach(([, text]) => pushThought(thoughts, '推理摘要', text));
+                if (task.reasoning?.includeOutput !== false) {
+                    Array.from(reasoningByPart.entries())
+                        .sort(([left], [right]) => comparePartKeys(left, right))
+                        .forEach(([, text]) => pushThought(thoughts, '推理文本', text));
+                    Array.from(summaryByPart.entries())
+                        .sort(([left], [right]) => comparePartKeys(left, right))
+                        .forEach(([, text]) => pushThought(thoughts, '推理摘要', text));
+                }
                 emitStreamProgress(task, {
                     text: Array.from(textByPart.entries())
                         .sort(([left], [right]) => comparePartKeys(left, right))

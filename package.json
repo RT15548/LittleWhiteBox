@@ -5,6 +5,8 @@
     "scripts": {
         "build:agent-core": "vite build --config vite.agent-core.config.mjs",
         "test:draw-agent": "node --test modules/draw/shared/tests/*.test.js",
+        "test:server-storage": "node --test core/storage-file.test.js",
+        "test:tts": "node --test modules/tts/tests/*.test.js",
         "build:assistant:manifest": "node scripts/build-assistant-file-manifest.mjs",
         "build:assistant:jsapi-manifest": "node scripts/build-assistant-jsapi-manifest.mjs",
         "build:assistant:jsapi-runtime": "node scripts/build-assistant-jsapi-runtime.mjs",
@@ -62,6 +64,7 @@
         "fake-indexeddb": "^6.2.4",
         "https-proxy-agent": "^7.0.6",
         "ignore": "^7.0.6",
+        "linkedom": "^0.18.13",
         "tsx": "^4.22.3",
         "typescript": "^6.0.3",
         "vite": "^8.0.16",

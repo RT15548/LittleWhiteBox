@@ -729,6 +729,7 @@ export function createEbookAgentRunner(deps = {}) {
                         reasoning: {
                             enabled: providerConfig.reasoningEnabled,
                             effort: providerConfig.reasoningEffort,
+                            includeOutput: providerConfig.reasoningIncludeOutput,
                         },
                         signal: controller.signal,
                         onStreamProgress: updateStreamingAssistantMessage,

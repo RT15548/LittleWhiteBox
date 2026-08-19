@@ -7,18 +7,17 @@ import {
     normalizePresetName,
 } from './config.js';
 import { normalizeTavilyApiKey, normalizeTavilyBaseUrl } from './tavily-search.js';
+import {
+    getReasoningEffortOptions,
+    normalizeReasoningEffort,
+    resolveRuntimeReasoning,
+} from './reasoning-config.js';
 
 export const AGENT_REQUEST_TIMEOUT_MS = 15 * 60 * 1000;
 
 export const TOOL_MODE_OPTIONS = Object.freeze([
     { value: 'native', label: '原生 Tool Calling' },
     { value: 'tagged-json', label: 'Tagged JSON 兼容模式' },
-]);
-
-export const REASONING_EFFORT_OPTIONS = Object.freeze([
-    { value: 'low', label: '低' },
-    { value: 'medium', label: '中' },
-    { value: 'high', label: '高' },
 ]);
 
 export const PROVIDER_OPTIONS = Object.freeze([
@@ -37,9 +36,7 @@ export function isSillyTavernProvider(provider = '') {
         || provider === 'sillytavern-google';
 }
 
-export function normalizeReasoningEffort(value = '') {
-    return REASONING_EFFORT_OPTIONS.some((item) => item.value === value) ? value : 'medium';
-}
+export { getReasoningEffortOptions, normalizeReasoningEffort };
 
 export function normalizeTemperature(value, fallback = 1) {
     const raw = typeof value === 'string' && !value.trim() ? fallback : value;
@@ -94,8 +91,7 @@ export function resolveActiveProviderConfig(configValue = {}, options = {}) {
             maxTokens: normalizeMaxTokens(providerConfig.maxTokens),
             timeoutMs: Number(options.timeoutMs) || AGENT_REQUEST_TIMEOUT_MS,
             toolMode: providerConfig.toolMode || 'native',
-            reasoningEnabled: Boolean(providerConfig.reasoningEnabled),
-            reasoningEffort: normalizeReasoningEffort(providerConfig.reasoningEffort),
+            ...resolveRuntimeReasoning(provider, providerConfig),
         };
     }
 
@@ -124,7 +120,6 @@ export function resolveActiveProviderConfig(configValue = {}, options = {}) {
         maxTokens: normalizeMaxTokens(providerConfig.maxTokens),
         timeoutMs: Number(options.timeoutMs) || AGENT_REQUEST_TIMEOUT_MS,
         toolMode: providerConfig.toolMode || 'native',
-        reasoningEnabled: Boolean(providerConfig.reasoningEnabled),
-        reasoningEffort: normalizeReasoningEffort(providerConfig.reasoningEffort),
+        ...resolveRuntimeReasoning(provider, providerConfig),
     };
 }

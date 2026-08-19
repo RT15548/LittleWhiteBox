@@ -153,15 +153,27 @@ declare module '*.js' {
     export function getCurrentPresetName(): string | null;
     export const AssistantStorage: {
         get<T = unknown>(key: string, fallback?: T): Promise<T>;
-        load(): Promise<Record<string, unknown>>;
-        saveNow(options?: Record<string, unknown>): Promise<void>;
-        _dirtyVersion?: number;
+        setAndSave(key: string, value: unknown, options?: Record<string, unknown>): Promise<boolean>;
     };
     export const AGENT_SETTINGS_CONFIG_VERSION: number;
     export function normalizeAgentSettings(settings: Record<string, unknown>): Record<string, unknown>;
     export function normalizeAgentConfig(settings: Record<string, unknown>): Record<string, unknown>;
     export function normalizeJsApiPermission(value: unknown): string;
     export function normalizePresetName(value: unknown): string;
+    export function loadSharedAgentSettings(options?: Record<string, unknown>): Promise<Record<string, unknown>>;
+    export function saveSharedAgentSettings(
+        patch?: Record<string, unknown>,
+        options?: Record<string, unknown>,
+    ): Promise<{
+        ok: boolean;
+        conflict?: boolean;
+        config: Record<string, unknown> | null;
+        error?: string;
+    }>;
+    export function subscribeSharedAgentSettingsChanged(
+        listener: (detail: { source?: string; updatedAt?: number }) => void,
+        options?: Record<string, unknown>,
+    ): () => void;
     export function createFirstPartyIframeOverlay(options: {
         overlayId: string;
         iframeId: string;

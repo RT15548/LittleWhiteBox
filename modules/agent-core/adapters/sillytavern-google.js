@@ -4,7 +4,10 @@ import {
     createHostChatCompletion,
     streamHostChatCompletion,
 } from '../../../shared/host-llm/chat-completions/client.js';
-import { redactRequestSecrets } from './request-inspection.js';
+import {
+    buildEffectiveReasoningConfig,
+    redactRequestSecrets,
+} from './request-inspection.js';
 
 function cloneJson(value) {
     if (value === undefined) return undefined;
@@ -232,7 +235,7 @@ function parseGoogleResult(response = {}, options = {}) {
     return {
         text,
         toolCalls: extractFunctionCalls(content),
-        thoughts: extractThoughts(content),
+        thoughts: options.includeReasoningOutput === false ? [] : extractThoughts(content),
         finishReason: response?.candidates?.[0]?.finishReason || response?.choices?.[0]?.finish_reason || options.finishReason || 'STOP',
         model: response?.model || response?.modelVersion || options.model || '',
         provider: 'sillytavern-google',
@@ -268,7 +271,7 @@ function createGoogleStreamAccumulator(task, config = {}) {
             }
             text = mergeStreamText(text, extractVisibleText(content));
             toolCalls = mergeToolCalls(toolCalls, extractFunctionCalls(content));
-            const nextThoughts = extractThoughts(content);
+            const nextThoughts = task.reasoning?.includeOutput === false ? [] : extractThoughts(content);
             if (nextThoughts.length) {
                 thoughts = nextThoughts;
             }
@@ -317,15 +320,24 @@ export class SillyTavernGoogleAdapter {
             payload,
             typeof task.onStreamProgress === 'function',
         );
-        return this.buildRequestInspection(request);
+        return this.buildRequestInspection(request, task);
     }
 
-    buildRequestInspection(request) {
+    buildRequestInspection(request, task = {}) {
+        const reasoningEnabled = Object.prototype.hasOwnProperty.call(
+            request?.body || {},
+            'reasoning_effort',
+        );
         return {
             provider: 'sillytavern-google',
             model: this.config.model,
             transport: 'sillytavern-chat-completions',
             request: redactRequestSecrets(request),
+            effectiveConfig: buildEffectiveReasoningConfig(task, {
+                enabled: reasoningEnabled,
+                effort: request?.body?.reasoning_effort,
+                includeOutput: request?.body?.include_reasoning === true,
+            }),
         };
     }
 
@@ -334,7 +346,7 @@ export class SillyTavernGoogleAdapter {
         const payload = this.buildPayload(task);
         let requestInspection = null;
         const onRequest = (request) => {
-            requestInspection = this.buildRequestInspection(request);
+            requestInspection = this.buildRequestInspection(request, task);
         };
 
         try {
@@ -351,7 +363,10 @@ export class SillyTavernGoogleAdapter {
 
             const response = await createHostChatCompletion(payload, { signal: task.signal, onRequest });
             return {
-                ...parseGoogleResult(response, { model: this.config.model }),
+                ...parseGoogleResult(response, {
+                    model: this.config.model,
+                    includeReasoningOutput: task.reasoning?.includeOutput !== false,
+                }),
                 requestInspection,
             };
         } catch (error) {

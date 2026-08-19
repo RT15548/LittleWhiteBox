@@ -64,6 +64,7 @@ export async function generateFourthWallResponse(options = {}) {
         reasoning: {
             enabled: providerConfig.reasoningEnabled,
             effort: providerConfig.reasoningEffort,
+            includeOutput: providerConfig.reasoningIncludeOutput,
         },
         signal: options.signal,
         onStreamProgress: shouldStream ? options.onStreamProgress : undefined,

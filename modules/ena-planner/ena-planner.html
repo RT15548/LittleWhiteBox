@@ -923,6 +923,7 @@
           resolvePendingSave(payload?.requestId || '');
           break;
         case 'xb-ena:config-save-error':
+          if (payload?.config) applyConfig(payload.config);
           rejectPendingSave(payload?.requestId || '', payload?.message);
           break;
         case 'xb-ena:test-done': {
@@ -942,6 +943,11 @@
         case 'xb-ena:logs':
           logs = Array.isArray(payload?.logs) ? payload.logs : [];
           renderLogs();
+          break;
+        case 'xb-ena:logs-clear-error':
+          logs = Array.isArray(payload?.logs) ? payload.logs : [];
+          renderLogs();
+          setSaveIndicator('error', payload?.message || '日志清空失败');
           break;
         case 'xb-ena:models': {
           const models = Array.isArray(payload?.models) ? payload.models : [];

@@ -24,6 +24,63 @@
     gap: 16px;
 }
 
+.tavern-api-settings .xb-assistant-config-fields {
+    min-inline-size: 0;
+    display: grid;
+    gap: 16px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+}
+
+.tavern-api-settings .xb-assistant-config-fields:disabled {
+    opacity: 0.54;
+}
+
+.tavern-api-settings .xb-assistant-config-alert {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 11px 13px;
+    color: #f1d48b;
+    background: rgba(194, 139, 39, 0.1);
+    border: 1px solid rgba(194, 139, 39, 0.3);
+    border-radius: 12px;
+    font: 12px/1.5 var(--xb-font-ui);
+}
+
+.tavern-api-settings .xb-assistant-config-alert.is-error {
+    color: #ffc0b6;
+    background: rgba(181, 68, 51, 0.1);
+    border-color: rgba(181, 68, 51, 0.32);
+}
+
+.tavern-api-settings .xb-assistant-config-alert[hidden] {
+    display: none;
+}
+
+.tavern-api-settings .xb-assistant-config-alert button {
+    flex: 0 0 auto;
+    min-height: 32px;
+    padding: 0 11px;
+    color: inherit;
+    background: var(--xb-settings-soft-bg);
+    border: 1px solid currentColor;
+    border-radius: 999px;
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.xb-os-shell.theme-light .tavern-api-settings .xb-assistant-config-alert {
+    color: #735519;
+}
+
+.xb-os-shell.theme-light .tavern-api-settings .xb-assistant-config-alert.is-error {
+    color: #8d3629;
+}
+
 .tavern-api-settings .xb-assistant-config-tabs {
     display: flex;
     gap: 4px;

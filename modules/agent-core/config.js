@@ -3,6 +3,10 @@ import {
     normalizeTavilyApiKey,
     normalizeTavilyBaseUrl,
 } from './tavily-search.js';
+import {
+    normalizeReasoningEffort,
+    normalizeReasoningIncludeOutput,
+} from './reasoning-config.js';
 
 export const DEFAULT_PROVIDER = 'openai-compatible';
 export const DEFAULT_PRESET_NAME = '默认';
@@ -134,6 +138,9 @@ export function normalizeModelConfigs(modelConfigs = {}) {
             ...DEFAULT_MODEL_CONFIGS[provider],
             ...source,
             maxTokens: normalizeMaxTokens(source.maxTokens),
+            reasoningEnabled: source.reasoningEnabled === true,
+            reasoningEffort: normalizeReasoningEffort(source.reasoningEffort, provider),
+            reasoningIncludeOutput: normalizeReasoningIncludeOutput(source.reasoningIncludeOutput, provider),
         };
     });
     return next;
@@ -325,6 +332,7 @@ export function normalizeAgentConfig(config = {}) {
 
     return {
         workspaceFileName: String(config.workspaceFileName || ''),
+        updatedAt: Number(config.updatedAt) || 0,
         jsApiPermission: normalizeJsApiPermission(config.jsApiPermission),
         currentPresetName,
         delegatePresetName,

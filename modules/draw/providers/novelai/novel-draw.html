@@ -7,6 +7,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <title>Novel Draw</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<link rel="stylesheet" href="../../shared/agent-settings-surface.css">
 
 <!-- ═══════════════════════════════════════════════════════════════════════════
      样式
@@ -576,11 +577,13 @@ select.input { cursor: pointer; }
 .auto-learn-mode-row select { max-width: 200px; }
 
 /* 消息链可视化 */
-.prompt-chain-card { margin-top: 16px; }
-.prompt-chain-toggle { cursor: pointer; }
-.chain-toggle-icon { font-size: 12px; color: var(--text-muted); }
-.prompt-chain-container { display: none; margin-top: 8px; }
-.prompt-chain-container.open { display: block; }
+.prompt-advanced-card { margin-top: 16px; }
+.prompt-advanced-card > summary { list-style: none; cursor: pointer; }
+.prompt-advanced-card > summary::-webkit-details-marker { display: none; }
+.prompt-advanced-card .chain-toggle-icon { font-size: 12px; color: var(--text-muted); }
+.prompt-advanced-card .chain-toggle-icon::before { content: '▶ 展开'; }
+.prompt-advanced-card[open] .chain-toggle-icon::before { content: '▼ 收起'; }
+.prompt-chain-container { margin-top: 8px; }
 .chain-item {
     display: flex; align-items: flex-start; gap: 8px;
     padding: 6px 10px; border-radius: 6px; font-size: 12px;
@@ -620,26 +623,6 @@ select.input { cursor: pointer; }
     background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px;
     color: var(--text-secondary); font-family: monospace; font-size: 11px; line-height: 1.45;
     white-space: pre-wrap; word-break: break-word;
-}
-.agent-summary-grid {
-    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px;
-    margin-top: 14px;
-}
-.agent-summary-item {
-    min-width: 0; padding: 11px 12px; background: var(--bg-input);
-    border: 1px solid var(--border); border-radius: 8px;
-}
-.agent-summary-item.wide { grid-column: 1 / -1; }
-.agent-summary-label {
-    display: block; margin-bottom: 4px; color: var(--text-muted);
-    font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
-}
-.agent-summary-value {
-    color: var(--text-primary); font-size: 13px; line-height: 1.4; word-break: break-word;
-}
-@media (max-width: 560px) {
-    .agent-summary-grid { grid-template-columns: 1fr; }
-    .agent-summary-item.wide { grid-column: auto; }
 }
 </style>
 </head>
@@ -968,57 +951,12 @@ select.input { cursor: pointer; }
                  ═══════════════════════════════════════════════════════════════ -->
             <div id="view-llm" class="view">
                 <div class="view-header">
-                    <h2 class="view-title">场景 Agent</h2>
-                    <p class="view-desc">场景规划统一跟随共享 Agent 主预设</p>
-                </div>
-                
-                <div class="card">
-                    <div class="card-title">共享 Agent 主预设</div>
-                    <p class="form-hint">Provider、模型、API Key、温度、Token、Reasoning 与 Tool 模式均由共享 Agent 管理，画图不保存副本。</p>
-                    <div class="agent-summary-grid">
-                        <div class="agent-summary-item"><span class="agent-summary-label">主预设</span><span id="nd_agent_preset" class="agent-summary-value">—</span></div>
-                        <div class="agent-summary-item"><span class="agent-summary-label">Provider</span><span id="nd_agent_provider" class="agent-summary-value">—</span></div>
-                        <div class="agent-summary-item wide"><span class="agent-summary-label">模型</span><span id="nd_agent_model" class="agent-summary-value">—</span></div>
-                        <div class="agent-summary-item"><span class="agent-summary-label">Tool 模式</span><span id="nd_agent_tool_mode" class="agent-summary-value">—</span></div>
-                        <div class="agent-summary-item"><span class="agent-summary-label">Reasoning</span><span id="nd_agent_reasoning" class="agent-summary-value">—</span></div>
-                    </div>
-                    <div id="nd_agent_status" class="status-text"></div>
-                    <div class="tip-box" style="margin-top:12px;">
-                        <i class="fa-solid fa-circle-info"></i>
-                        <div id="nd_agent_compatibility">正在读取共享 Agent 配置…</div>
-                    </div>
-                    <div class="action-status-row">
-                        <div class="btn-group">
-                            <button id="nd_agent_open_settings" class="btn btn-primary"><i class="fa-solid fa-arrow-up-right-from-square"></i> 打开共享 Agent 设置</button>
-                            <button id="nd_agent_refresh" class="btn"><i class="fa-solid fa-rotate"></i> 刷新状态</button>
-                        </div>
-                    </div>
+                    <h2 class="view-title">Agent API 配置</h2>
+                    <p class="view-desc">完整管理小白X共享主预设；画图场景规划会直接使用这里的当前配置</p>
                 </div>
 
-                <div class="card">
-                    <div class="card-title">消息过滤规则</div>
-                    <p class="form-hint" style="margin-bottom:8px;">过滤 RP 消息中的干扰内容（如思考标签），避免影响场景分析。<br>起始和结束之间的内容会被移除。起始留空 = 从消息开头到结束标记；结束留空 = 从起始标记到消息末尾。</p>
-                    <div id="nd_filter_rules_list"></div>
-                    <div class="btn-group" style="margin-top:8px; gap:8px; flex-wrap:wrap;">
-                        <button id="nd_filter_add" class="btn btn-sm">+ 添加规则</button>
-                        <button id="nd_filter_sync" class="btn btn-sm">同步总结的过滤规则</button>
-                        <button id="nd_filter_reset" class="btn btn-sm">恢复默认</button>
-                    </div>
-                    <div class="action-status-row">
-                        <div class="btn-group">
-                            <button id="nd_filter_save" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> 保存规则</button>
-                        </div>
-                        <div id="nd_filter_status" class="status-text"></div>
-                    </div>
-                </div>
-
-                <div class="card">
-                    <div class="card-title">最近一次实际请求</div>
-                    <p class="form-hint">显示最近一次场景分析请求，方便检查提示词和上下文。</p>
-                    <div class="btn-group" style="margin-top:8px;">
-                        <button id="nd_llm_request_refresh" class="btn btn-sm" type="button">刷新最近请求</button>
-                    </div>
-                    <pre id="nd_llm_request_preview" class="llm-request-preview">暂无请求记录，请先触发一次画图分析。</pre>
+                <div id="nd-agent-settings-surface" class="draw-agent-settings-surface">
+                    <div class="draw-agent-settings-state"><i class="fa-solid fa-spinner fa-spin"></i><span>正在读取共享 Agent API 配置…</span></div>
                 </div>
             </div>
 
@@ -1258,15 +1196,46 @@ select.input { cursor: pointer; }
                     <div id="nd_prompts_status" class="status-text"></div>
                 </div>
 
-                <!-- 消息链结构预览 -->
-                <div class="card prompt-chain-card">
-                    <div class="prompt-card-header prompt-chain-toggle" id="nd_chain_toggle">
-                        <div class="card-title"><i class="fa-solid fa-link"></i> 请求结构</div>
-                        <span class="chain-toggle-icon">▶ 展开</span>
+                <details class="card prompt-advanced-card">
+                    <summary class="prompt-card-header">
+                        <div class="card-title"><i class="fa-solid fa-filter"></i> 消息过滤规则</div>
+                        <span class="chain-toggle-icon" aria-hidden="true"></span>
+                    </summary>
+                    <p class="form-hint" style="margin-bottom:8px;">送模前移除 RP 消息中的思考块等干扰内容。起始留空表示从消息开头过滤；结束留空表示过滤到消息末尾。</p>
+                    <div id="nd_filter_rules_list"></div>
+                    <div class="btn-group" style="margin-top:8px; gap:8px; flex-wrap:wrap;">
+                        <button id="nd_filter_add" class="btn btn-sm">+ 添加规则</button>
+                        <button id="nd_filter_sync" class="btn btn-sm">同步总结的过滤规则</button>
+                        <button id="nd_filter_reset" class="btn btn-sm">恢复默认</button>
                     </div>
+                    <div class="action-status-row">
+                        <div class="btn-group">
+                            <button id="nd_filter_save" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> 保存规则</button>
+                        </div>
+                        <div id="nd_filter_status" class="status-text"></div>
+                    </div>
+                </details>
+
+                <details id="nd_prompt_chain_details" class="card prompt-advanced-card">
+                    <summary class="prompt-card-header">
+                        <div class="card-title"><i class="fa-solid fa-link"></i> 请求结构</div>
+                        <span class="chain-toggle-icon" aria-hidden="true"></span>
+                    </summary>
                     <p class="form-hint">实际请求只有 1 条 system 与 1 条 user；下列片段按顺序拼进同一条 user 任务（点击查看模板内容）</p>
                     <div id="nd_prompt_chain" class="prompt-chain-container"></div>
-                </div>
+                </details>
+
+                <details class="card prompt-advanced-card">
+                    <summary class="prompt-card-header">
+                        <div class="card-title"><i class="fa-solid fa-code"></i> 最近一次实际请求</div>
+                        <span class="chain-toggle-icon" aria-hidden="true"></span>
+                    </summary>
+                    <p class="form-hint">查看最近一次场景分析真正发送的请求、Provider 适配结果与诊断信息。</p>
+                    <div class="btn-group" style="margin-top:8px;">
+                        <button id="nd_llm_request_refresh" class="btn btn-sm" type="button">刷新最近请求</button>
+                    </div>
+                    <pre id="nd_llm_request_preview" class="llm-request-preview">暂无请求记录，请先触发一次画图分析。</pre>
+                </details>
             </div>
 
             <!-- ═══════════════════════════════════════════════════════════════
@@ -1422,7 +1391,6 @@ let state = {
     cacheStats: { count: 0, sizeMB: '0' },
     selectedParamsPresetId: null,
     paramsPresets: [],
-    agentStatus: null,
     characterTags: [],
     autoLearnCharacters: false,
     autoLearnMode: 'new_only',
@@ -1542,9 +1510,23 @@ function switchView(viewId) {
     $$(`[data-view="${viewId}"]`).forEach(n => n.classList.add('active'));
     if (viewId === 'gallery') postToParent({ type: 'REFRESH_CACHE_STATS' });
     if (viewId === 'llm') {
-        postToParent({ type: 'GET_DRAW_AGENT_STATUS' });
+        postToParent({ type: 'ENSURE_AGENT_SETTINGS' });
+    }
+    if (viewId === 'prompts') {
+        requestPromptChainPreview();
         postToParent({ type: 'GET_LAST_LLM_REQUEST' });
     }
+}
+
+function requestPromptChainPreview() {
+    postToParent({
+        type: 'GET_PROMPT_CHAIN',
+        customPrompts: {
+            topSystem: $('nd_prompt_system')?.value || '',
+            tagGuideContent: $('nd_prompt_guide')?.value || '',
+            sceneRules: $('nd_prompt_format')?.value || '',
+        },
+    });
 }
 
 function updateModeButtons(mode) {
@@ -2465,26 +2447,6 @@ function renderLastLlmRequest(snapshot) {
         : '暂无请求记录，请先触发一次画图分析。';
 }
 
-function renderDrawAgentStatus(status) {
-    const current = status && typeof status === 'object' ? status : {};
-    state.agentStatus = current;
-    const setText = (id, value) => {
-        const element = $(id);
-        if (element) element.textContent = String(value || '—');
-    };
-    setText('nd_agent_preset', current.presetName);
-    setText('nd_agent_provider', current.providerLabel);
-    setText('nd_agent_model', current.model);
-    setText('nd_agent_tool_mode', current.toolModeLabel);
-    setText('nd_agent_reasoning', current.reasoningEnabled ? `已开启 · ${current.reasoningEffort}` : '未开启');
-    setText('nd_agent_compatibility', current.compatibilityNotice || '请先完成共享 Agent 主预设配置。');
-    updateStatus(
-        $('nd_agent_status'),
-        current.ready ? 'success' : 'error',
-        current.ready ? '共享主预设可用' : current.error?.message || '共享 Agent 配置不可用',
-    );
-}
-
 function renderWorldbookEntriesLocal(book) {
     const container = $('nd_wb_entries');
     const entries = book.entries || [];
@@ -2549,7 +2511,6 @@ function applyStateToUI() {
         ppSel.value = state.selectedPromptPresetId || '';
         applyPromptPreset();
 
-        if (state.agentStatus) renderDrawAgentStatus(state.agentStatus);
         renderCharList();
         renderGalleryView();
         // auto-learn
@@ -2734,8 +2695,6 @@ window.addEventListener('message', event => {
             }
             if (data.target === 'api') {
                 updateStatus($('nd_api_status'), data.state, data.text);
-            } else if (data.target === 'llm') {
-                updateStatus($('nd_agent_status'), data.state, data.text);
             } else if (data.target === 'params') {
                 updateStatus($('nd_params_status'), data.state, data.text);
             } else if (data.target === 'prompt-preset') {
@@ -2806,10 +2765,6 @@ window.addEventListener('message', event => {
 
         case 'LAST_LLM_REQUEST_DATA':
             renderLastLlmRequest(data.snapshot || null);
-            break;
-
-        case 'DRAW_AGENT_STATUS_DATA':
-            renderDrawAgentStatus(data.status || null);
             break;
 
         case 'SYNC_SUMMARY_FILTER_RESULT': {
@@ -3124,15 +3079,6 @@ document.addEventListener('DOMContentLoaded', () => {
         e.target.value = '';
     });
     
-    // ═══════════════════════════════════════════════════════════════════════
-    // 场景 Agent
-    // ═══════════════════════════════════════════════════════════════════════
-    $('nd_agent_open_settings').addEventListener('click', () => {
-        postToParent({ type: 'OPEN_SHARED_AGENT_SETTINGS' });
-    });
-    $('nd_agent_refresh').addEventListener('click', () => {
-        postToParent({ type: 'GET_DRAW_AGENT_STATUS' });
-    });
     $('nd_llm_request_refresh').addEventListener('click', () => {
         postToParent({ type: 'GET_LAST_LLM_REQUEST' });
     });
@@ -3314,16 +3260,13 @@ document.addEventListener('DOMContentLoaded', () => {
         e.target.value = '';
     });
 
-    // 消息链可视化
-    $('nd_chain_toggle').addEventListener('click', () => {
-        const container = $('nd_prompt_chain');
-        const icon = $('nd_chain_toggle').querySelector('.chain-toggle-icon');
-        const isOpen = container.classList.toggle('open');
-        icon.textContent = isOpen ? '▼ 收起' : '▶ 展开';
-        if (isOpen && !container.dataset.loaded) {
-            container.dataset.loaded = '1';
-            postToParent({ type: 'GET_PROMPT_CHAIN' });
-        }
+    $('nd_prompt_chain_details').addEventListener('toggle', (event) => {
+        if (event.currentTarget.open) requestPromptChainPreview();
+    });
+    ['nd_prompt_system', 'nd_prompt_guide', 'nd_prompt_format'].forEach((id) => {
+        $(id).addEventListener('input', () => {
+            if ($('nd_prompt_chain_details').open) requestPromptChainPreview();
+        });
     });
 
     // 世界书上传

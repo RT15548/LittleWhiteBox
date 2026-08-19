@@ -10,7 +10,6 @@ import {
 } from '../../../agent-core/provider-resolution.js';
 import {
     callDrawScenePlannerAgent,
-    getDrawAgentViewModel,
     getLastDrawAgentDiagnostic,
     resetDrawAgentRuntimeForTests,
     resolveDrawAgentContext,
@@ -35,6 +34,7 @@ function buildSettings(model, apiKey = 'main-key') {
                         toolMode: 'native',
                         reasoningEnabled: true,
                         reasoningEffort: 'high',
+                        reasoningIncludeOutput: false,
                     },
                 },
             },
@@ -75,6 +75,7 @@ function createFakeCore(captured) {
                                 toolChoice: 'required',
                                 reasoningEnabled: true,
                                 reasoningEffort: 'high',
+                                reasoningIncludeOutput: false,
                             },
                         },
                     };
@@ -115,7 +116,11 @@ test('draw agent reads the latest main preset every request and never selects de
     assert.equal(Object.hasOwn(captured.tasks[0], 'onStreamProgress'), false);
     assert.equal(captured.tasks[0].temperature, 0.4);
     assert.equal(captured.tasks[0].maxTokens, 4567);
-    assert.deepEqual(captured.tasks[0].reasoning, { enabled: true, effort: 'high' });
+    assert.deepEqual(captured.tasks[0].reasoning, {
+        enabled: true,
+        effort: 'high',
+        includeOutput: false,
+    });
     assert.equal(captured.headersProvider, null);
     const diagnostic = getLastDrawAgentDiagnostic();
     assert.equal(diagnostic.toolCallCount, 1);
@@ -124,6 +129,7 @@ test('draw agent reads the latest main preset every request and never selects de
     assert.equal(diagnostic.presetName, '主预设');
     assert.equal(diagnostic.reasoningEnabled, true);
     assert.equal(diagnostic.reasoningEffort, 'high');
+    assert.equal(diagnostic.reasoningIncludeOutput, false);
     // Diagnostics are redacted at the Draw boundary and never persisted.
     assert.equal(diagnostic.request.request.headers.Authorization, '[redacted]');
     assert.equal(diagnostic.request.request.body.api_key, '[redacted]');
@@ -168,6 +174,7 @@ test('draw diagnostics use adapter-effective reasoning and isolate notices by re
                 toolChoice: 'any',
                 reasoningEnabled: false,
                 reasoningEffort: '',
+                reasoningIncludeOutput: false,
             },
         }),
     });
@@ -176,23 +183,12 @@ test('draw diagnostics use adapter-effective reasoning and isolate notices by re
     assert.equal(diagnostic.status, 'running');
     assert.equal(diagnostic.reasoningEnabled, false);
     assert.equal(diagnostic.reasoningEffort, '');
+    assert.equal(diagnostic.reasoningIncludeOutput, false);
     assert.equal(diagnostic.toolChoice, 'any');
     assert.deepEqual(diagnostic.notices, [notice]);
 
-    const claudeView = await getDrawAgentViewModel({ dependencies: claudeDependencies });
-    assert.equal(claudeView.reasoningEnabled, false);
-    assert.equal(claudeView.reasoningEffort, '');
-    assert.deepEqual(claudeView.runtimeNotices, [notice]);
-    assert.match(claudeView.compatibilityNotice, /已关闭 Reasoning/);
-
     const openAiSettings = buildSettings('openai-current');
     const openAiDependencies = { getAgentSettings: async () => openAiSettings };
-    const switchedView = await getDrawAgentViewModel({ dependencies: openAiDependencies });
-    assert.equal(switchedView.reasoningEnabled, true);
-    assert.deepEqual(switchedView.runtimeNotices, []);
-    assert.doesNotMatch(switchedView.compatibilityNotice, /已关闭 Reasoning/);
-    assert.equal(switchedView.diagnostic, null);
-
     await callDrawScenePlannerAgent({
         task,
         dependencies: openAiDependencies,
@@ -201,6 +197,7 @@ test('draw diagnostics use adapter-effective reasoning and isolate notices by re
                 toolChoice: 'required',
                 reasoningEnabled: true,
                 reasoningEffort: 'high',
+                reasoningIncludeOutput: false,
             },
         }),
     });
@@ -234,26 +231,6 @@ test('draw agent validates missing direct credentials while allowing hosted prov
     assert.equal(context.providerConfig.provider, 'sillytavern-google');
     assert.equal(context.providerConfig.model, 'hosted-model');
     assert.equal(captured.headersProvider()['X-CSRF-Token'], 'fresh');
-});
-
-test('draw agent status resolves from the pure config layer without loading the AgentCore SDK bundle', async () => {
-    resetDrawAgentRuntimeForTests();
-    let bundleLoadCount = 0;
-    const status = await getDrawAgentViewModel({
-        dependencies: {
-            getAgentSettings: async () => buildSettings('status-model'),
-        },
-        loadAgentCore: async () => {
-            bundleLoadCount += 1;
-            throw new Error('status must not load the bundle');
-        },
-    });
-
-    assert.equal(status.ready, true);
-    assert.equal(status.presetName, '主预设');
-    assert.equal(status.model, 'status-model');
-    assert.equal(status.providerLabel, 'OpenAI 兼容');
-    assert.equal(bundleLoadCount, 0);
 });
 
 test('draw agent preserves timeout, cancellation, and provider failure boundaries', async () => {

@@ -14,7 +14,10 @@ function getInitialColorTheme() {
 export function createEbookState() {
     return {
         config: normalizeEbookConfig({}),
+        configLoadError: '',
         configDraft: null,
+        configDirty: false,
+        configExternalChangePending: false,
         books: [],
         book: null,
         files: [],

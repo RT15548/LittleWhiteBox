@@ -1,5 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { buildSdkRequestInspection } from './request-inspection.js';
+import {
+    buildEffectiveReasoningConfig,
+    buildSdkRequestInspection,
+} from './request-inspection.js';
 
 function parseArguments(text) {
     try {
@@ -235,7 +238,10 @@ export class AnthropicAdapter {
         if (task.reasoning?.enabled) {
             body.thinking = {
                 type: 'adaptive',
-                display: 'summarized',
+                display: task.reasoning.includeOutput !== false ? 'summarized' : 'omitted',
+            };
+            body.output_config = {
+                effort: task.reasoning.effort,
             };
         }
         return body;
@@ -244,6 +250,7 @@ export class AnthropicAdapter {
     inspectRequest(task, options = {}) {
         const stream = typeof task.onStreamProgress === 'function';
         const baseUrl = normalizeAnthropicSdkBaseUrl(this.config.baseUrl);
+        const body = options.body || this.buildRequestBody(task);
         return buildSdkRequestInspection({
             provider: 'anthropic',
             model: this.config.model,
@@ -253,8 +260,13 @@ export class AnthropicAdapter {
                 'Content-Type': 'application/json',
                 'x-api-key': this.config.apiKey || '',
             },
-            body: options.body || this.buildRequestBody(task),
+            body,
             sdk: stream ? 'client.messages.stream' : 'client.messages.create',
+            effectiveConfig: buildEffectiveReasoningConfig(task, {
+                enabled: !!body.thinking,
+                effort: body.output_config?.effort,
+                includeOutput: body.thinking?.display !== 'omitted',
+            }),
         });
     }
 
@@ -270,13 +282,15 @@ export class AnthropicAdapter {
             const thoughtMap = new Map();
             const toolDraftMap = new Map();
             let streamText = '';
-            const buildThoughts = () => Array.from(thoughtMap.entries())
-                .sort(([left], [right]) => left.localeCompare(right))
-                .map(([key, text]) => ({
-                    label: key.startsWith('redacted:') ? '已脱敏思考块' : '思考块',
-                    text,
-                }))
-                .filter((item) => item.text);
+            const buildThoughts = () => task.reasoning?.includeOutput === false
+                ? []
+                : Array.from(thoughtMap.entries())
+                    .sort(([left], [right]) => left.localeCompare(right))
+                    .map(([key, text]) => ({
+                        label: key.startsWith('redacted:') ? '已脱敏思考块' : '思考块',
+                        text,
+                    }))
+                    .filter((item) => item.text);
             const buildToolDrafts = () => Array.from(toolDraftMap.entries())
                 .sort(([left], [right]) => Number(left) - Number(right))
                 .map(([, toolCall]) => ({
@@ -365,13 +379,15 @@ export class AnthropicAdapter {
             .filter((item) => item.type === 'text')
             .map((item) => item.text || '')
             .join('\n');
-        const thoughts = (response.content || [])
-            .filter((item) => item.type === 'thinking' || item.type === 'redacted_thinking')
-            .map((item) => ({
-                label: item.type === 'thinking' ? '思考块' : '已脱敏思考块',
-                text: item.type === 'thinking' ? (item.thinking || '') : (item.data || ''),
-            }))
-            .filter((item) => item.text);
+        const thoughts = task.reasoning?.includeOutput === false
+            ? []
+            : (response.content || [])
+                .filter((item) => item.type === 'thinking' || item.type === 'redacted_thinking')
+                .map((item) => ({
+                    label: item.type === 'thinking' ? '思考块' : '已脱敏思考块',
+                    text: item.type === 'thinking' ? (item.thinking || '') : (item.data || ''),
+                }))
+                .filter((item) => item.text);
 
         return {
             text,

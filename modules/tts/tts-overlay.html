@@ -2344,10 +2344,18 @@ window.addEventListener('message', ev => {
             if (pendingSaveRequest?.requestId && payload?.requestId && pendingSaveRequest.requestId !== payload.requestId) break;
             if (pendingSaveRequest?.timer) clearTimeout(pendingSaveRequest.timer);
             pendingSaveRequest = null;
+            if (payload?.config) fillForm(payload.config);
             handleSaveResult(false);
             post('xb-tts:toast', { type: 'error', message: payload?.message || '保存失败' });
             break;
         case 'xb-tts:button-mode-saved':
+            $('showFloorButton').checked = payload?.showFloorButton !== false;
+            $('showFloatingButton').checked = payload?.showFloatingButton === true;
+            break;
+        case 'xb-tts:button-mode-save-error':
+            $('showFloorButton').checked = payload?.showFloorButton !== false;
+            $('showFloatingButton').checked = payload?.showFloatingButton === true;
+            post('xb-tts:toast', { type: 'error', message: payload?.message || '显示设置保存失败' });
             break;
         case 'xb-tts:test-done':
             ['testMyStatus', 'testTrialStatus', 'testAuthStatus'].forEach(id => setTestStatus(id, 'playing', '播放中...'));

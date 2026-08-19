@@ -1,5 +1,8 @@
 import OpenAI from 'openai';
-import { buildSdkRequestInspection } from './request-inspection.js';
+import {
+    buildEffectiveReasoningConfig,
+    buildSdkRequestInspection,
+} from './request-inspection.js';
 import {
     extractLooseField,
     findLooseKeyMatch,
@@ -1032,6 +1035,7 @@ export class OpenAICompatibleAdapter {
         const baseUrl = String(this.config.baseUrl || 'https://api.openai.com/v1').replace(/\/$/, '');
         const suppressedReasoningEffort = !!task.reasoning?.enabled
             && !Object.prototype.hasOwnProperty.call(body, 'reasoning_effort');
+        const effectiveReasoningEnabled = Object.prototype.hasOwnProperty.call(body, 'reasoning_effort');
         return {
             ...buildSdkRequestInspection({
                 provider: 'openai-compatible',
@@ -1046,6 +1050,11 @@ export class OpenAICompatibleAdapter {
                 sdk: stream
                     ? 'client.chat.completions.create(..., { stream: true })'
                     : 'client.chat.completions.create',
+                effectiveConfig: buildEffectiveReasoningConfig(task, {
+                    enabled: effectiveReasoningEnabled,
+                    effort: body.reasoning_effort,
+                    includeOutput: false,
+                }),
             }),
             // 端点不认 reasoning_effort 时会被静默剥离，这里给调试面板一个结构化降级标记。
             ...(suppressedReasoningEffort ? { degraded: ['reasoning_effort_unsupported'] } : {}),

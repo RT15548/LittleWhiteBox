@@ -107,18 +107,23 @@ const state = {
 };
 
 let config = null;
+let configLoaded = false;
 let overlay = null;
 let iframeMessageBound = false;
 let runtimeEvents = null;
+let logsClearBuffer = null;
+let lifecycleEpoch = 0;
+let configSaveQueue = Promise.resolve();
+const STALE_LIFECYCLE = Symbol('stale-lifecycle');
 
 /**
  * -------------------------
  * Helpers
  * --------------------------
  */
-function ensureSettings() {
+function normalizeSettings(value) {
     const d = getDefaultSettings();
-    const s = config || structuredClone(d);
+    const s = value || structuredClone(d);
 
     function deepMerge(target, src) {
         for (const k of Object.keys(src)) {
@@ -151,8 +156,22 @@ function ensureSettings() {
     delete s.historyMessageCount;
     delete s.worldbookActivationMode;
 
-    config = s;
     return s;
+}
+
+const isCurrentLifecycle = (epoch) => epoch === lifecycleEpoch;
+const assertCurrentLifecycle = (epoch) => {
+    if (!isCurrentLifecycle(epoch)) throw STALE_LIFECYCLE;
+};
+const createLifecycleAbortError = () => {
+    const error = new Error('Ena Planner lifecycle changed');
+    error.name = 'AbortError';
+    return error;
+};
+
+function ensureSettings() {
+    config = normalizeSettings(config);
+    return config;
 }
 
 function normalizeResponseKeepTags(tags) {
@@ -169,26 +188,77 @@ function normalizeResponseKeepTags(tags) {
     return cleaned;
 }
 
-async function loadConfig() {
-    const loaded = await EnaPlannerStorage.get('config', null);
-    config = (loaded && typeof loaded === 'object') ? loaded : getDefaultSettings();
-    ensureSettings();
-    state.logs = Array.isArray(await EnaPlannerStorage.get('logs', [])) ? await EnaPlannerStorage.get('logs', []) : [];
+async function loadConfig(epoch = lifecycleEpoch) {
+    try {
+        const data = await EnaPlannerStorage.load({ strict: true });
+        if (!isCurrentLifecycle(epoch)) return false;
+        const loaded = data.config;
+        const loadedConfig = (loaded && typeof loaded === 'object' && !Array.isArray(loaded))
+            ? structuredClone(loaded)
+            : getDefaultSettings();
+        config = normalizeSettings(loadedConfig);
+        state.logs = Array.isArray(data.logs) ? structuredClone(data.logs) : [];
 
-    if (extension_settings?.[EXT_NAME]) {
-        delete extension_settings[EXT_NAME];
-        saveSettingsDebounced?.();
+        if (extension_settings?.[EXT_NAME]) {
+            delete extension_settings[EXT_NAME];
+            saveSettingsDebounced?.();
+        }
+        configLoaded = true;
+        return config;
+    } catch (error) {
+        if (!isCurrentLifecycle(epoch)) return false;
+        config = null;
+        configLoaded = false;
+        state.logs = [];
+        console.error('[EnaPlanner] 配置加载失败:', error);
+        toastErr('无法读取剧情规划配置，已禁止保存，请稍后重试');
+        throw error;
     }
-    return config;
 }
 
-async function saveConfigNow() {
-    ensureSettings();
-    await EnaPlannerStorage.set('config', config);
-    await EnaPlannerStorage.set('logs', state.logs);
+async function saveConfigNow(updateConfig) {
+    const operationEpoch = lifecycleEpoch;
+    const operation = async () => {
+        try {
+            assertCurrentLifecycle(operationEpoch);
+            if (!configLoaded || !config) throw new Error('配置尚未成功加载');
+            let nextConfig = structuredClone(config);
+            const updated = typeof updateConfig === 'function' ? updateConfig(nextConfig) : updateConfig;
+            if (updated !== undefined) nextConfig = updated;
+            const normalizedConfig = normalizeSettings(structuredClone(nextConfig));
+            await EnaPlannerStorage.updateAndSave(draft => {
+                assertCurrentLifecycle(operationEpoch);
+                draft.config = normalizedConfig;
+            }, { silent: false });
+            assertCurrentLifecycle(operationEpoch);
+            config = normalizedConfig;
+            return true;
+        } catch (error) {
+            if (error === STALE_LIFECYCLE || !isCurrentLifecycle(operationEpoch)) return false;
+            console.error('[EnaPlanner] 配置保存失败:', error);
+            return false;
+        }
+    };
+    const pending = configSaveQueue.then(operation, operation);
+    configSaveQueue = pending.then(() => {});
+    return await pending;
+}
+
+async function saveLogsNow(nextLogs) {
+    const operationEpoch = lifecycleEpoch;
     try {
-        return await EnaPlannerStorage.saveNow({ silent: false });
-    } catch {
+        assertCurrentLifecycle(operationEpoch);
+        if (!configLoaded || !config) throw new Error('配置尚未成功加载');
+        const normalizedLogs = Array.isArray(nextLogs) ? structuredClone(nextLogs) : [];
+        await EnaPlannerStorage.updateAndSave(draft => {
+            assertCurrentLifecycle(operationEpoch);
+            draft.logs = normalizedLogs;
+        }, { silent: false });
+        assertCurrentLifecycle(operationEpoch);
+        return true;
+    } catch (error) {
+        if (error === STALE_LIFECYCLE || !isCurrentLifecycle(operationEpoch)) return false;
+        console.error('[EnaPlanner] 日志保存失败:', error);
         return false;
     }
 }
@@ -203,11 +273,25 @@ function clampLogs() {
     if (state.logs.length > s.logsMax) state.logs = state.logs.slice(0, s.logsMax);
 }
 
+function appendLog(log) {
+    if (logsClearBuffer !== null) {
+        logsClearBuffer.unshift(log);
+        const maxLogs = ensureSettings().logsMax;
+        if (logsClearBuffer.length > maxLogs) logsClearBuffer.length = maxLogs;
+        return;
+    }
+
+    state.logs.unshift(log);
+    clampLogs();
+    persistLogsMaybe();
+}
+
 function persistLogsMaybe() {
+    if (!configLoaded) return;
     const s = ensureSettings();
     if (!s.logsPersist) return;
     state.logs = state.logs.slice(0, s.logsMax);
-    EnaPlannerStorage.set('logs', state.logs).catch(() => {});
+    EnaPlannerStorage.set('logs', structuredClone(state.logs)).catch(() => {});
 }
 
 function loadPersistedLogsMaybe() {
@@ -1176,6 +1260,7 @@ async function buildPlannerMessages(rawUserInput, options = {}) {
  * --------------------------
  */
 async function runPlanningOnce(rawUserInput, silent = false, options = {}) {
+    const operationEpoch = lifecycleEpoch;
     const s = ensureSettings();
 
     const log = {
@@ -1197,12 +1282,14 @@ async function runPlanningOnce(rawUserInput, silent = false, options = {}) {
         log.filteredReply = filtered;
         log.ok = true;
 
-        state.logs.unshift(log); clampLogs(); persistLogsMaybe();
+        if (!isCurrentLifecycle(operationEpoch)) throw createLifecycleAbortError();
+        appendLog(log);
         return { rawReply, filtered };
     } catch (e) {
         if (options.signal?.aborted || e?.name === 'AbortError') throw e;
+        if (!isCurrentLifecycle(operationEpoch)) throw createLifecycleAbortError();
         log.error = String(e?.message ?? e);
-        state.logs.unshift(log); clampLogs(); persistLogsMaybe();
+        appendLog(log);
         if (!silent) toastErr(log.error);
         throw e;
     }
@@ -1288,6 +1375,7 @@ async function handleIframeMessage(ev) {
     if (!isTrustedIframeEvent(ev, iframe)) return;
     if (!ev.data?.type?.startsWith('xb-ena:')) return;
 
+    const messageEpoch = lifecycleEpoch;
     const { type, payload } = ev.data;
     switch (type) {
         case 'xb-ena:ready':
@@ -1299,10 +1387,11 @@ async function handleIframeMessage(ev) {
         case 'xb-ena:save-config': {
             const requestId = payload?.requestId || '';
             const patch = (payload && typeof payload.patch === 'object') ? payload.patch : payload;
-            Object.assign(ensureSettings(), patch || {});
-            if (!ensureSettings().enabled) enaPlannerGeneration.cancel('disabled');
-            const ok = await saveConfigNow();
+            const configPatch = structuredClone(patch || {});
+            const ok = await saveConfigNow(nextConfig => Object.assign(nextConfig, configPatch));
+            if (!isCurrentLifecycle(messageEpoch)) return;
             if (ok) {
+                if (!config.enabled) enaPlannerGeneration.cancel('disabled');
                 postToIframe(iframe, {
                     type: 'xb-ena:config-saved',
                     payload: {
@@ -1315,7 +1404,8 @@ async function handleIframeMessage(ev) {
                     type: 'xb-ena:config-save-error',
                     payload: {
                         message: '保存失败',
-                        requestId
+                        requestId,
+                        config: getIframeConfigPayload(),
                     }
                 });
             }
@@ -1323,9 +1413,11 @@ async function handleIframeMessage(ev) {
         }
         case 'xb-ena:reset-prompt-default': {
             const requestId = payload?.requestId || '';
-            const s = ensureSettings();
-            s.promptBlocks = getDefaultSettings().promptBlocks;
-            const ok = await saveConfigNow();
+            const defaultPromptBlocks = structuredClone(getDefaultSettings().promptBlocks);
+            const ok = await saveConfigNow(nextConfig => {
+                nextConfig.promptBlocks = defaultPromptBlocks;
+            });
+            if (!isCurrentLifecycle(messageEpoch)) return;
             if (ok) {
                 postToIframe(iframe, {
                     type: 'xb-ena:config-saved',
@@ -1339,7 +1431,8 @@ async function handleIframeMessage(ev) {
                     type: 'xb-ena:config-save-error',
                     payload: {
                         message: '重置失败',
-                        requestId
+                        requestId,
+                        config: getIframeConfigPayload(),
                     }
                 });
             }
@@ -1349,9 +1442,11 @@ async function handleIframeMessage(ev) {
             try {
                 const fake = payload?.text || '（测试输入）我想让你帮我规划下一步剧情。';
                 await runPlanningOnce(fake, true);
+                if (!isCurrentLifecycle(messageEpoch)) return;
                 postToIframe(iframe, { type: 'xb-ena:test-done' });
                 postToIframe(iframe, { type: 'xb-ena:logs', payload: { logs: state.logs } });
             } catch (err) {
+                if (!isCurrentLifecycle(messageEpoch)) return;
                 postToIframe(iframe, { type: 'xb-ena:test-error', payload: { message: String(err?.message ?? err) } });
             }
             break;
@@ -1359,16 +1454,44 @@ async function handleIframeMessage(ev) {
         case 'xb-ena:logs-request':
             postToIframe(iframe, { type: 'xb-ena:logs', payload: { logs: state.logs } });
             break;
-        case 'xb-ena:logs-clear':
-            state.logs = [];
-            await saveConfigNow();
-            postToIframe(iframe, { type: 'xb-ena:logs', payload: { logs: state.logs } });
+        case 'xb-ena:logs-clear': {
+            if (logsClearBuffer !== null) {
+                postToIframe(iframe, {
+                    type: 'xb-ena:logs-clear-error',
+                    payload: { message: '日志正在清空，请稍候', logs: state.logs },
+                });
+                break;
+            }
+
+            const previousLogs = structuredClone(state.logs);
+            const bufferedLogs = [];
+            logsClearBuffer = bufferedLogs;
+            const ok = await saveLogsNow([]);
+            if (!isCurrentLifecycle(messageEpoch)) return;
+            if (logsClearBuffer === bufferedLogs) logsClearBuffer = null;
+            if (ok) {
+                state.logs = bufferedLogs;
+                clampLogs();
+                if (state.logs.length > 0) persistLogsMaybe();
+                postToIframe(iframe, { type: 'xb-ena:logs', payload: { logs: state.logs } });
+            } else {
+                state.logs = [...bufferedLogs, ...previousLogs];
+                clampLogs();
+                if (bufferedLogs.length > 0) persistLogsMaybe();
+                postToIframe(iframe, {
+                    type: 'xb-ena:logs-clear-error',
+                    payload: { message: '日志清空保存失败', logs: state.logs },
+                });
+            }
             break;
+        }
         case 'xb-ena:fetch-models': {
             try {
                 const models = await fetchModelsForUi();
+                if (!isCurrentLifecycle(messageEpoch)) return;
                 postToIframe(iframe, { type: 'xb-ena:models', payload: { models } });
             } catch (err) {
+                if (!isCurrentLifecycle(messageEpoch)) return;
                 postToIframe(iframe, { type: 'xb-ena:models-error', payload: { message: String(err?.message ?? err) } });
             }
             break;
@@ -1376,8 +1499,10 @@ async function handleIframeMessage(ev) {
         case 'xb-ena:debug-worldbook': {
             try {
                 const output = await debugWorldbookForUi();
+                if (!isCurrentLifecycle(messageEpoch)) return;
                 postToIframe(iframe, { type: 'xb-ena:debug-output', payload: { output } });
             } catch (err) {
+                if (!isCurrentLifecycle(messageEpoch)) return;
                 postToIframe(iframe, { type: 'xb-ena:debug-output', payload: { output: String(err?.message ?? err) } });
             }
             break;
@@ -1391,7 +1516,16 @@ async function handleIframeMessage(ev) {
 }
 
 export async function initEnaPlanner() {
-    await loadConfig();
+    const initEpoch = lifecycleEpoch;
+    try {
+        await configSaveQueue;
+        await EnaPlannerStorage.waitForQueuedWrites();
+        if (!isCurrentLifecycle(initEpoch)) return false;
+        const loaded = await loadConfig(initEpoch);
+        if (!loaded || !isCurrentLifecycle(initEpoch)) return false;
+    } catch {
+        return false;
+    }
     loadPersistedLogsMaybe();
     registerGenerateInterceptor(
         EXT_NAME,
@@ -1405,9 +1539,15 @@ export async function initEnaPlanner() {
         runtimeEvents.on(event_types.GENERATION_ENDED, () => enaPlannerGeneration.cancel('generation-ended'));
     }
     window.xiaobaixEnaPlanner = { openSettings, closeSettings };
+    return true;
 }
 
 export function cleanupEnaPlanner() {
+    lifecycleEpoch++;
+    configLoaded = false;
+    config = null;
+    state.logs = [];
+    logsClearBuffer = null;
     enaPlannerGeneration.cancel('unloaded');
     unregisterGenerateInterceptor(EXT_NAME);
     runtimeEvents?.cleanup();

@@ -20,7 +20,6 @@ import {
 import { normalizeBookFilePath } from '../shared/book-paths.js';
 import {
     EBOOK_BOOK_TRANSFER_REQUEST_TIMEOUT_MS,
-    EBOOK_DRAW_REQUEST_TIMEOUT_MS,
     EBOOK_TTS_REQUEST_TIMEOUT_MS,
 } from './constants.js';
 
@@ -680,7 +679,7 @@ export function createBookController(deps = {}) {
                 chapterPath: drawChapterPath,
                 chapterTitle: drawChapterTitle,
             }, {
-                timeoutMs: EBOOK_DRAW_REQUEST_TIMEOUT_MS,
+                timeoutMs: null,
                 signal: activeDrawController.signal,
             });
             if (activeDrawController.signal.aborted || result?.aborted) {

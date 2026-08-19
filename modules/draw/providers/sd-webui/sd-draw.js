@@ -33,7 +33,8 @@ import {
     updateSharedDrawSettingsPersistent,
     normalizeSharedCacheDays,
 } from "../../shared/draw-settings.js";
-import { getDrawAgentViewModel, getLastDrawAgentDiagnostic, openSharedAgentSettings } from "../../shared/draw-agent.js";
+import { getLastDrawAgentDiagnostic } from "../../shared/draw-agent.js";
+import { attachDrawAgentSettingsSurface } from "../../shared/agent-settings-surface.js";
 import { createSerialImageRequestQueue } from "../../shared/serial-image-request-queue.js";
 import { hashStableValue } from "../../shared/generation-fingerprint.js";
 import {
@@ -126,6 +127,8 @@ let frameReadyPromise = null;
 let pendingController = null;
 let resizeHandler = null;
 let eventsBound = false;
+let agentSettingsSurface = null;
+let promptChainPreviewFrame = 0;
 let ensureSdDrawPanelRef = null;
 let destroySdDrawPanelsRef = null;
 let imageDelegationBound = false;
@@ -362,20 +365,23 @@ export async function loadSettings() {
     if (settingsLoaded && settingsCache) return settingsCache;
 
     try {
-        const saved = await SdDrawStorage.get(SERVER_FILE_KEY, null);
+        const saved = await SdDrawStorage.getStrict(SERVER_FILE_KEY, null);
         if (saved && typeof saved === 'object') {
             settingsCache = normalizeSettings(saved);
         } else {
             settingsCache = normalizeSettings({});
-            await SdDrawStorage.setAndSave(SERVER_FILE_KEY, settingsCache, { silent: true });
+            const savedDefaults = await SdDrawStorage.setAndSave(SERVER_FILE_KEY, settingsCache, { silent: true });
+            if (!savedDefaults) throw new Error('默认设置保存失败');
         }
+        settingsLoaded = true;
+        return settingsCache;
     } catch (error) {
         console.error('[SdDraw] 加载设置失败:', error);
-        settingsCache = normalizeSettings({});
+        settingsCache = null;
+        settingsLoaded = false;
+        toastr.error('无法读取 SD WebUI 配置，已禁止保存，请稍后重试', 'SD WebUI');
+        throw error;
     }
-
-    settingsLoaded = true;
-    return settingsCache;
 }
 
 export function getSettings() {
@@ -408,6 +414,11 @@ export function getGenerationSnapshot() {
 }
 
 async function persistSettings(nextSettings, okText = '已保存', { notify = true, silent = false } = {}) {
+    if (!settingsLoaded) {
+        console.error('[SdDraw] 设置尚未成功加载，拒绝保存');
+        if (notify) toastr.error('配置尚未成功加载，已禁止保存', 'SD WebUI');
+        return false;
+    }
     const next = normalizeSettings(nextSettings);
     const previous = settingsCache ? cloneSettingsObject(settingsCache) : null;
     try {
@@ -713,6 +724,7 @@ async function createOverlay() {
             eventsBound = false;
             bindOverlayEvents();
             fillForm(getSettings());
+            ensureAgentSettingsSurface();
             resolve(overlayElement);
         }, { once: true });
         overlayFrame?.addEventListener('error', () => {
@@ -933,14 +945,8 @@ function bindOverlayEvents() {
     querySettings('#sd-danbooru-local')?.addEventListener('change', async (event) => {
         await setSdDanbooruLocalEnabled(event.target.checked === true);
     });
-    querySettings('#sd-agent-open-settings')?.addEventListener('click', () => {
-        if (!openSharedAgentSettings()) toastr.error('共享 Agent 设置暂不可用', 'SD WebUI');
-    });
-    querySettings('#sd-agent-refresh')?.addEventListener('click', () => {
-        void renderSharedAgentStatus();
-    });
     querySettings('#sd-llm-request-refresh')?.addEventListener('click', () => {
-        void renderSharedAgentStatus();
+        renderLastLlmRequestPreview();
     });
     querySettings('#sd-prompt-preset-select')?.addEventListener('change', async () => {
         const selectedId = getValue('sd-prompt-preset-select');
@@ -1107,19 +1113,12 @@ function bindOverlayEvents() {
             event.target.value = '';
         }
     });
-    querySettings('#sd-chain-toggle')?.addEventListener('click', () => {
-        const container = getSettingsElement('sd-prompt-chain');
-        const icon = querySettings('#sd-chain-toggle .chain-toggle-icon');
-        if (!container) return;
-        const isOpen = container.classList.toggle('open');
-        if (icon) icon.textContent = isOpen ? '▼ 收起' : '▶ 展开';
-        if (isOpen) renderPromptChainPreview();
+    getSettingsElement('sd-prompt-chain')?.closest('details')?.addEventListener('toggle', (event) => {
+        if (event.currentTarget.open) schedulePromptChainPreview();
     });
     ['sd-prompt-system', 'sd-prompt-guide', 'sd-prompt-format'].forEach((id) => {
         querySettings(`#${id}`)?.addEventListener('input', () => {
-            if (getSettingsElement('sd-prompt-chain')?.classList.contains('open')) {
-                renderPromptChainPreview();
-            }
+            schedulePromptChainPreview();
         });
     });
     querySettings('#sd-filter-add')?.addEventListener('click', () => {
@@ -1360,10 +1359,11 @@ function switchSettingsView(viewName = 'test') {
         void renderGalleryManagement();
     }
     if (normalized === 'llm') {
-        renderLastLlmRequestPreview();
+        ensureAgentSettingsSurface();
     }
     if (normalized === 'prompts') {
-        renderPromptChainPreview();
+        schedulePromptChainPreview();
+        renderLastLlmRequestPreview();
     }
 }
 
@@ -2099,7 +2099,6 @@ function fillSharedDrawForm() {
     renderUploadedBooks(sharedDrawSettings.worldbooks?.uploadedBooks || []);
     renderFilterRules(sharedDrawSettings.messageFilterRules || []);
     renderCharacterTagList(sharedDrawSettings.characterTags || []);
-    void renderSharedAgentStatus();
     void ensureSdDanbooruLoadedForForm(sharedDrawSettings);
 }
 
@@ -2388,18 +2387,27 @@ async function refreshSdOptions({ notify = false } = {}) {
 }
 
 export async function openSettings() {
-    await loadSettings();
-    await loadSharedDrawSettings();
+    try {
+        await loadSettings();
+        await loadSharedDrawSettings();
+    } catch {
+        return false;
+    }
     const overlay = await createOverlay();
     fillForm(getSettings());
     switchSettingsView('test');
     syncOverlayHeight();
     overlay.style.display = 'block';
     void refreshSdOptions();
+    return true;
 }
 
 function hideSettings() {
     abortPendingRequest();
+    agentSettingsSurface?.destroy();
+    agentSettingsSurface = null;
+    if (promptChainPreviewFrame) cancelAnimationFrame(promptChainPreviewFrame);
+    promptChainPreviewFrame = 0;
 
     if (resizeHandler) {
         window.removeEventListener('resize', resizeHandler);
@@ -2486,29 +2494,20 @@ function renderLastLlmRequestPreview() {
         : '暂无请求记录，请先触发一次画图分析。';
 }
 
-async function renderSharedAgentStatus() {
-    const status = await getDrawAgentViewModel();
-    const setText = (id, value) => {
-        const element = getSettingsElement(id);
-        if (element) element.textContent = String(value || '—');
-    };
-    setText('sd-agent-preset', status.presetName);
-    setText('sd-agent-provider', status.providerLabel);
-    setText('sd-agent-model', status.model);
-    setText('sd-agent-tool-mode', status.toolModeLabel);
-    setText('sd-agent-reasoning', status.reasoningEnabled ? `已开启 · ${status.reasoningEffort}` : '未开启');
-    setText('sd-agent-compatibility', status.compatibilityNotice);
-    updateStatusText(
-        'sd-agent-status',
-        status.ready ? 'success' : 'error',
-        status.ready ? '共享主预设可用' : status.error?.message,
-    );
-    renderLastLlmRequestPreview();
+function ensureAgentSettingsSurface() {
+    agentSettingsSurface = attachDrawAgentSettingsSurface({
+        surface: agentSettingsSurface,
+        getRoot: () => getSettingsElement('sd-agent-settings-surface'),
+        showToast: (message) => toastr.info(String(message || ''), 'Agent API'),
+        source: 'draw-sd-webui',
+        logPrefix: 'SdDraw',
+    });
+    return agentSettingsSurface;
 }
 
 function renderPromptChainPreview(settings = getSettings()) {
     const container = getSettingsElement('sd-prompt-chain');
-    if (!container) return;
+    if (!container || !container.closest('details')?.open) return;
 
     const promptPreset = getActivePromptPreset(settings);
     const systemInput = getSettingsElement('sd-prompt-system');
@@ -2658,6 +2657,15 @@ function renderPromptChainPreview(settings = getSettings()) {
 
         row.append(role, summary);
         container.appendChild(row);
+    });
+}
+
+function schedulePromptChainPreview() {
+    const container = getSettingsElement('sd-prompt-chain');
+    if (!container?.closest('details')?.open || promptChainPreviewFrame) return;
+    promptChainPreviewFrame = requestAnimationFrame(() => {
+        promptChainPreviewFrame = 0;
+        renderPromptChainPreview();
     });
 }
 
@@ -2904,7 +2912,6 @@ async function buildTasksFromMessage({ message, messageId, signal, promptOverrid
         customPrompts: promptPreset,
         promptDefaults: DEFAULT_PROMPT_CONFIG,
         worldbookEntries,
-        timeout: sharedDrawSettings.timeout || 120000,
         maxImages: preset.maxImages || 0,
         maxCharactersPerImage: preset.maxCharactersPerImage || 0,
         signal,
@@ -4042,11 +4049,16 @@ async function testGenerateFromSettingsPanel() {
 
 export async function initSdDraw() {
     if (moduleInitialized) return;
-    moduleInitialized = true;
     await loadPromptTemplates();
     await loadTagGuide();
-    await loadSettings();
-    const sharedDrawSettings = await loadSharedDrawSettings();
+    let sharedDrawSettings;
+    try {
+        await loadSettings();
+        sharedDrawSettings = await loadSharedDrawSettings();
+    } catch {
+        return false;
+    }
+    moduleInitialized = true;
     ensureDrawImageStyles();
     setupImageDelegation();
     await openDB().then(() => clearExpiredCache(sharedDrawSettings.cacheDays)).catch(() => {});
@@ -4106,6 +4118,7 @@ export async function initSdDraw() {
 
     window.registerModuleCleanup?.(MODULE_KEY, cleanupSdDraw);
     console.log('[SdDraw] 模块已初始化');
+    return true;
 }
 
 export function cleanupSdDraw() {

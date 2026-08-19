@@ -35,6 +35,7 @@ import {
     speedToV3SpeechRate 
 } from './tts-auth-provider.js';
 import { postToIframe, isTrustedIframeEvent } from "../../core/iframe-messaging.js";
+import { createConfigSaveQueue } from "./config-save-queue.js";
 
 // ============ 常量 ============
 
@@ -125,11 +126,14 @@ let player = null;
 let moduleInitialized = false;
 let overlay = null;
 let config = null;
+let configLoaded = false;
+let lifecycleEpoch = 0;
 const messageStateMap = new Map();
 const cacheCounters = { hits: 0, misses: 0 };
 let afterAiGateDispose = null;
 
 const events = createModuleEvents(MODULE_ID);
+const isCurrentLifecycle = (epoch) => epoch === lifecycleEpoch;
 
 // ============ 指令块懒加载 ============
 
@@ -929,6 +933,7 @@ function onCharacterMessageRendered(data) {
 }
 
 function onChatChanged() {
+    const operationEpoch = lifecycleEpoch;
     clearAllFreeQueues();
     if (player) player.clear();
     messageStateMap.clear();
@@ -936,88 +941,114 @@ function onChatChanged() {
     resetFloatingState();
     
     setTimeout(() => {
+        if (!isCurrentLifecycle(operationEpoch)) return;
         renderExistingMessageUIs();
     }, 100);
 }
 
 // ============ 配置管理 ============
 
-async function loadConfig() {
-    config = await TtsStorage.load();
-    config.volc = config.volc || {};
-    
-    let legacyPurged = false;
-    if (Array.isArray(config.volc.mySpeakers)) {
-        const normalized = config.volc.mySpeakers.map(s => ({
-            ...s,
-            source: s.source || getVoiceSource(s.value)
-        }));
-        const filtered = normalized.filter(s => {
-            // Purge legacy free voices that are no longer supported by the current free voice map.
-            if (s.source === 'free' && !FREE_VOICE_KEYS.has(s.value)) {
-                legacyPurged = true;
-                return false;
-            }
-            return true;
-        });
-        config.volc.mySpeakers = filtered;
-    }
+async function loadConfig(epoch = lifecycleEpoch) {
+    try {
+        const storedConfig = await TtsStorage.load({ strict: true });
+        if (!isCurrentLifecycle(epoch)) return false;
+        const nextConfig = structuredClone(storedConfig);
+        nextConfig.volc = nextConfig.volc || {};
 
-    if (config.volc.defaultSpeaker && getVoiceSource(config.volc.defaultSpeaker) === 'free' && !FREE_VOICE_KEYS.has(config.volc.defaultSpeaker)) {
-        config.volc.defaultSpeaker = FREE_DEFAULT_VOICE;
-        legacyPurged = true;
-    }
-    
-    config.volc.disableMarkdownFilter = config.volc.disableMarkdownFilter !== false;
-    config.volc.disableEmojiFilter = config.volc.disableEmojiFilter === true;
-    config.volc.enableLanguageDetector = config.volc.enableLanguageDetector === true;
-    config.volc.explicitLanguage = typeof config.volc.explicitLanguage === 'string' ? config.volc.explicitLanguage : '';
-    config.volc.speechRate = normalizeSpeed(Number.isFinite(config.volc.speechRate) ? config.volc.speechRate : 1.0);
-    config.volc.maxLengthToFilterParenthesis = Number.isFinite(config.volc.maxLengthToFilterParenthesis) ? config.volc.maxLengthToFilterParenthesis : 100;
-    config.volc.postProcessPitch = Number.isFinite(config.volc.postProcessPitch) ? config.volc.postProcessPitch : 0;
-    config.volc.emotionScale = Math.min(5, Math.max(1, Number.isFinite(config.volc.emotionScale) ? config.volc.emotionScale : 5));
-    config.volc.serverCacheEnabled = config.volc.serverCacheEnabled === true;
-    config.volc.localCacheEnabled = true;
-    config.volc.cacheDays = Math.max(1, Number.isFinite(config.volc.cacheDays) ? config.volc.cacheDays : 7);
-    config.volc.cacheMaxEntries = Math.max(10, Number.isFinite(config.volc.cacheMaxEntries) ? config.volc.cacheMaxEntries : 200);
-    config.volc.cacheMaxMB = Math.max(10, Number.isFinite(config.volc.cacheMaxMB) ? config.volc.cacheMaxMB : 200);
-    config.volc.usageReturn = config.volc.usageReturn === true;
-    config.autoSpeak = config.autoSpeak !== false;
-    config.skipTags = config.skipTags || [...DEFAULT_SKIP_TAGS];
-    config.skipCodeBlocks = config.skipCodeBlocks !== false;
-    config.skipRanges = Array.isArray(config.skipRanges) ? config.skipRanges : [];
-    config.readRanges = Array.isArray(config.readRanges) ? config.readRanges : [];
-    config.readRangesEnabled = config.readRangesEnabled === true;
-    config.showFloorButton = config.showFloorButton !== false;
-    config.showFloatingButton = config.showFloatingButton === true;
+        let legacyPurged = false;
+        if (Array.isArray(nextConfig.volc.mySpeakers)) {
+            const normalized = nextConfig.volc.mySpeakers.map(s => ({
+                ...s,
+                source: s.source || getVoiceSource(s.value)
+            }));
+            const filtered = normalized.filter(s => {
+                // Purge legacy free voices that are no longer supported by the current free voice map.
+                if (s.source === 'free' && !FREE_VOICE_KEYS.has(s.value)) {
+                    legacyPurged = true;
+                    return false;
+                }
+                return true;
+            });
+            nextConfig.volc.mySpeakers = filtered;
+        }
 
-    if (legacyPurged) {
-        await TtsStorage.set('volc', config.volc);
-        await TtsStorage.saveNow({ silent: true });
-        console.info('[TTS] Purged legacy free voices from mySpeakers.');
-    }
+        if (nextConfig.volc.defaultSpeaker && getVoiceSource(nextConfig.volc.defaultSpeaker) === 'free' && !FREE_VOICE_KEYS.has(nextConfig.volc.defaultSpeaker)) {
+            nextConfig.volc.defaultSpeaker = FREE_DEFAULT_VOICE;
+            legacyPurged = true;
+        }
 
-    return config;
+        nextConfig.volc.disableMarkdownFilter = nextConfig.volc.disableMarkdownFilter !== false;
+        nextConfig.volc.disableEmojiFilter = nextConfig.volc.disableEmojiFilter === true;
+        nextConfig.volc.enableLanguageDetector = nextConfig.volc.enableLanguageDetector === true;
+        nextConfig.volc.explicitLanguage = typeof nextConfig.volc.explicitLanguage === 'string' ? nextConfig.volc.explicitLanguage : '';
+        nextConfig.volc.speechRate = normalizeSpeed(Number.isFinite(nextConfig.volc.speechRate) ? nextConfig.volc.speechRate : 1.0);
+        nextConfig.volc.maxLengthToFilterParenthesis = Number.isFinite(nextConfig.volc.maxLengthToFilterParenthesis) ? nextConfig.volc.maxLengthToFilterParenthesis : 100;
+        nextConfig.volc.postProcessPitch = Number.isFinite(nextConfig.volc.postProcessPitch) ? nextConfig.volc.postProcessPitch : 0;
+        nextConfig.volc.emotionScale = Math.min(5, Math.max(1, Number.isFinite(nextConfig.volc.emotionScale) ? nextConfig.volc.emotionScale : 5));
+        nextConfig.volc.serverCacheEnabled = nextConfig.volc.serverCacheEnabled === true;
+        nextConfig.volc.localCacheEnabled = true;
+        nextConfig.volc.cacheDays = Math.max(1, Number.isFinite(nextConfig.volc.cacheDays) ? nextConfig.volc.cacheDays : 7);
+        nextConfig.volc.cacheMaxEntries = Math.max(10, Number.isFinite(nextConfig.volc.cacheMaxEntries) ? nextConfig.volc.cacheMaxEntries : 200);
+        nextConfig.volc.cacheMaxMB = Math.max(10, Number.isFinite(nextConfig.volc.cacheMaxMB) ? nextConfig.volc.cacheMaxMB : 200);
+        nextConfig.volc.usageReturn = nextConfig.volc.usageReturn === true;
+        nextConfig.autoSpeak = nextConfig.autoSpeak !== false;
+        nextConfig.skipTags = nextConfig.skipTags || [...DEFAULT_SKIP_TAGS];
+        nextConfig.skipCodeBlocks = nextConfig.skipCodeBlocks !== false;
+        nextConfig.skipRanges = Array.isArray(nextConfig.skipRanges) ? nextConfig.skipRanges : [];
+        nextConfig.readRanges = Array.isArray(nextConfig.readRanges) ? nextConfig.readRanges : [];
+        nextConfig.readRangesEnabled = nextConfig.readRangesEnabled === true;
+        nextConfig.showFloorButton = nextConfig.showFloorButton !== false;
+        nextConfig.showFloatingButton = nextConfig.showFloatingButton === true;
+
+        if (legacyPurged) {
+            if (!isCurrentLifecycle(epoch)) return false;
+            await TtsStorage.replaceAndSave(nextConfig, { silent: false });
+            if (!isCurrentLifecycle(epoch)) return false;
+            console.info('[TTS] Purged legacy free voices from mySpeakers.');
+        }
+
+        if (!isCurrentLifecycle(epoch)) return false;
+        config = nextConfig;
+        configLoaded = true;
+        return config;
+    } catch (error) {
+        if (!isCurrentLifecycle(epoch)) return false;
+        config = null;
+        configLoaded = false;
+        console.error('[TTS] 配置加载失败:', error);
+        toastr?.error?.('无法读取 TTS 配置，已禁止保存，请稍后重试');
+        throw error;
+    }
 }
+
+/**
+ * 保存配置。
+ * @param {Object|Function} updates - 对象补丁，或 (currentConfig) => 补丁 的函数。
+ *        需要基于当前值计算的改动（例如开关翻转）必须传函数：补丁会在保存队列内、
+ *        针对最新已提交配置求值，否则连续两次操作会基于同一份旧配置算出相同结果。
+ * @returns {Promise<boolean>}
+ */
+const configSaveQueue = createConfigSaveQueue({
+    readConfig: () => config,
+    isConfigLoaded: () => configLoaded,
+    commitConfig: (next) => { config = next; },
+    currentEpoch: () => lifecycleEpoch,
+    persist: (next) => TtsStorage.replaceAndSave(next, { silent: false }),
+    mergePatch: (current, patch) => {
+        const next = structuredClone(current);
+        Object.assign(next, patch);
+        if (patch.volc && typeof patch.volc === 'object' && !Array.isArray(patch.volc)) {
+            next.volc = { ...(current.volc || {}), ...patch.volc };
+        }
+        return next;
+    },
+    onError: (error) => console.error('[TTS] 配置保存失败:', error),
+});
 
 async function saveConfig(updates) {
-    Object.assign(config, updates);
-    await TtsStorage.set('volc', config.volc);
-    await TtsStorage.set('autoSpeak', config.autoSpeak);
-    await TtsStorage.set('skipRanges', config.skipRanges || []);
-    await TtsStorage.set('readRanges', config.readRanges || []);
-    await TtsStorage.set('readRangesEnabled', config.readRangesEnabled === true);
-    await TtsStorage.set('skipTags', config.skipTags);
-    await TtsStorage.set('skipCodeBlocks', config.skipCodeBlocks);
-    await TtsStorage.set('showFloorButton', config.showFloorButton);
-    await TtsStorage.set('showFloatingButton', config.showFloatingButton);
-
-    try {
-        return await TtsStorage.saveNow({ silent: false });
-    } catch {
-        return false;
-    }
+    return await configSaveQueue.save(updates);
 }
+
 
 // ============ 设置面板 ============
 
@@ -1096,11 +1127,13 @@ async function handleIframeMessage(ev) {
     if (!isTrustedIframeEvent(ev, iframe)) return;
     if (!ev.data?.type?.startsWith('xb-tts:')) return;
 
+    const messageEpoch = lifecycleEpoch;
     const { type, payload } = ev.data;
 
     switch (type) {
         case 'xb-tts:ready': {
             const cacheStats = await getCacheStatsSafe();
+            if (!isCurrentLifecycle(messageEpoch)) return;
             postToIframe(iframe, { type: 'xb-tts:config', payload: { ...config, cacheStats } });
             break;
         }
@@ -1111,28 +1144,44 @@ async function handleIframeMessage(ev) {
             const requestId = payload?.requestId || '';
             const patch = (payload && typeof payload.patch === 'object') ? payload.patch : payload;
             const ok = await saveConfig(patch);
+            if (!isCurrentLifecycle(messageEpoch)) return;
             if (ok) {
                 const cacheStats = await getCacheStatsSafe();
+                if (!isCurrentLifecycle(messageEpoch)) return;
                 postToIframe(iframe, { type: 'xb-tts:config-saved', payload: { ...config, cacheStats, requestId } });
                 updateAutoSpeakAll();
                 updateSpeedAll();
                 updateVoiceAll();
             } else {
-                postToIframe(iframe, { type: 'xb-tts:config-save-error', payload: { message: '保存失败', requestId } });
+                postToIframe(iframe, { type: 'xb-tts:config-save-error', payload: { message: '保存失败', requestId, config } });
             }
             break;
         }
         case 'xb-tts:save-button-mode': {
             const { showFloorButton, showFloatingButton } = payload;
-            config.showFloorButton = showFloorButton;
-            config.showFloatingButton = showFloatingButton;
             const ok = await saveConfig({ showFloorButton, showFloatingButton });
+            if (!isCurrentLifecycle(messageEpoch)) return;
             if (ok) {
                 updateButtonVisibility(showFloorButton, showFloatingButton);
                 if (showFloorButton) {
                     renderExistingMessageUIs();
                 }
-                postToIframe(iframe, { type: 'xb-tts:button-mode-saved' });
+                postToIframe(iframe, {
+                    type: 'xb-tts:button-mode-saved',
+                    payload: {
+                        showFloorButton: config.showFloorButton,
+                        showFloatingButton: config.showFloatingButton,
+                    },
+                });
+            } else {
+                postToIframe(iframe, {
+                    type: 'xb-tts:button-mode-save-error',
+                    payload: {
+                        message: '显示设置保存失败',
+                        showFloorButton: config.showFloorButton,
+                        showFloatingButton: config.showFloatingButton,
+                    },
+                });
             }
             break;
         }
@@ -1142,26 +1191,31 @@ async function handleIframeMessage(ev) {
             else toastr.info(payload.message);
             break;
         case 'xb-tts:test-speak':
-            await handleTestSpeak(payload, iframe);
+            await handleTestSpeak(payload, iframe, messageEpoch);
             break;
         case 'xb-tts:clear-queue':
             player.clear();
             break;
         case 'xb-tts:cache-refresh': {
             const stats = await getCacheStatsSafe();
+            if (!isCurrentLifecycle(messageEpoch)) return;
             postToIframe(iframe, { type: 'xb-tts:cache-stats', payload: stats });
             break;
         }
         case 'xb-tts:cache-clear-expired': {
             const removed = await clearExpiredCache(config.volc.cacheDays || 7);
+            if (!isCurrentLifecycle(messageEpoch)) return;
             const stats = await getCacheStatsSafe();
+            if (!isCurrentLifecycle(messageEpoch)) return;
             postToIframe(iframe, { type: 'xb-tts:cache-stats', payload: stats });
             postToIframe(iframe, { type: 'xb-tts:toast', payload: { type: 'success', message: `已清理 ${removed} 条` } });
             break;
         }
         case 'xb-tts:cache-clear-all': {
             await clearAllCache();
+            if (!isCurrentLifecycle(messageEpoch)) return;
             const stats = await getCacheStatsSafe();
+            if (!isCurrentLifecycle(messageEpoch)) return;
             postToIframe(iframe, { type: 'xb-tts:cache-stats', payload: stats });
             postToIframe(iframe, { type: 'xb-tts:toast', payload: { type: 'success', message: '已清空全部' } });
             break;
@@ -1169,18 +1223,20 @@ async function handleIframeMessage(ev) {
     }
 }
 
-async function handleTestSpeak(payload, iframe) {
+async function handleTestSpeak(payload, iframe, operationEpoch) {
     try {
         const { text, speaker, source, resourceId } = payload;
         const testText = text || '你好，这是一段测试语音。';
         
         if (source === 'free') {
             const { synthesizeFreeV1 } = await import('./tts-api.js');
+            if (!isCurrentLifecycle(operationEpoch)) return;
             const { audioBase64 } = await synthesizeFreeV1({
                 text: testText,
                 voiceKey: speaker || FREE_DEFAULT_VOICE,
                 speed: normalizeSpeed(config.volc?.speechRate),
             });
+            if (!isCurrentLifecycle(operationEpoch)) return;
             
             const byteString = atob(audioBase64);
             const bytes = new Uint8Array(byteString.length);
@@ -1208,11 +1264,13 @@ async function handleTestSpeak(payload, iframe) {
                 speechRate: speedToV3SpeechRate(config.volc.speechRate),
                 emotionScale: config.volc.emotionScale,
             }, buildV3Headers(rid, config));
+            if (!isCurrentLifecycle(operationEpoch)) return;
             
             player.enqueue({ id: 'test-' + Date.now(), audioBlob: result.audioBlob });
             postToIframe(iframe, { type: 'xb-tts:test-done' });
         }
     } catch (err) {
+        if (!isCurrentLifecycle(operationEpoch)) return;
         postToIframe(iframe, { 
             type: 'xb-tts:test-error', 
             payload: err.message 
@@ -1224,8 +1282,17 @@ async function handleTestSpeak(payload, iframe) {
 
 export async function initTts() {
     if (moduleInitialized) return;
+    const initEpoch = lifecycleEpoch;
 
-    await loadConfig();
+    try {
+        await configSaveQueue.whenIdle();
+        await TtsStorage.waitForQueuedWrites();
+        if (!isCurrentLifecycle(initEpoch)) return false;
+        const loaded = await loadConfig(initEpoch);
+        if (!loaded || !isCurrentLifecycle(initEpoch)) return false;
+    } catch {
+        return false;
+    }
     player = new TtsPlayer();
     initTtsPanelStyles();
     moduleInitialized = true;
@@ -1240,7 +1307,7 @@ export async function initTts() {
 
     setPanelConfigHandlers({
         getConfig: () => config,
-        saveConfig: saveConfig,
+        saveConfig: (updates) => isCurrentLifecycle(initEpoch) ? saveConfig(updates) : Promise.resolve(false),
         openSettings: openSettings,
         clearQueue: (messageId) => {
             clearMessageFromQueue(messageId);
@@ -1421,6 +1488,7 @@ export async function initTts() {
             }
         },
     };
+    return true;
 }
 
 // ============ External synthesis API (no enqueue) ============
@@ -1524,7 +1592,10 @@ async function synthesizeAuthBlob(text, resolved, emotion, signal) {
 }
 
 export function cleanupTts() {
+    lifecycleEpoch++;
     moduleInitialized = false;
+    configLoaded = false;
+    config = null;
     
     events.cleanup();
     afterAiGateDispose?.();

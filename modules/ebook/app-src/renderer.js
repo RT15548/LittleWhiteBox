@@ -1635,6 +1635,8 @@ export function renderSettingsDialog(state = {}) {
                         delegatePresetHint: '电纸书审稿分身会使用这里的独立 API 配置；可以和主助手使用不同 Provider、Base URL、模型和 Tool 调用格式。',
                         isBusy: state.isBusy,
                         canDeletePreset: (state.config?.presetNames || []).length > 1,
+                        configLoadError: state.configLoadError,
+                        configExternalChangePending: state.configExternalChangePending,
                     })}
                 </div>
             </div>

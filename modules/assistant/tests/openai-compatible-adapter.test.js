@@ -8,6 +8,8 @@ import {
     extractTaggedToolCalls,
     stripTaggedToolCallsForDisplay,
 } from '../../agent-core/adapters/openai-compatible.js';
+import { OpenAIResponsesAdapter } from '../../agent-core/adapters/openai-responses.js';
+import { resolveRuntimeReasoning } from '../../agent-core/reasoning-config.js';
 
 test('tagged-json prompt honors required, named, and none tool choices', () => {
     const buildSystem = (toolChoice) => buildTaggedMessages({
@@ -778,6 +780,78 @@ test('openai-compatible adapter omits tool fields for pure text requests', async
     assert.equal(result.text, '纯文本完成。');
     assert.equal(Object.hasOwn(requestBody, 'tools'), false);
     assert.equal(Object.hasOwn(requestBody, 'tool_choice'), false);
+});
+
+test('OpenAI reasoning maps shared min/max and requests summaries only when enabled', () => {
+    const adapter = new OpenAIResponsesAdapter({
+        apiKey: 'test-key',
+        baseUrl: 'https://api.openai.com/v1',
+        model: 'gpt-test',
+    });
+    const buildTask = (effort, includeOutput) => {
+        const runtime = resolveRuntimeReasoning('openai-responses', {
+            reasoningEnabled: true,
+            reasoningEffort: effort,
+            reasoningIncludeOutput: includeOutput,
+        });
+        return {
+            messages: [{ role: 'user', content: 'hello' }],
+            reasoning: {
+                enabled: runtime.reasoningEnabled,
+                effort: runtime.reasoningEffort,
+                includeOutput: runtime.reasoningIncludeOutput,
+            },
+        };
+    };
+
+    const visibleTask = buildTask('min', true);
+    const visibleBody = adapter.buildRequestBody(visibleTask);
+    assert.deepEqual(visibleBody.reasoning, { effort: 'minimal', summary: 'auto' });
+    assert.deepEqual(adapter.inspectRequest(visibleTask, { body: visibleBody }).effectiveConfig, {
+        reasoningEnabled: true,
+        reasoningEffort: 'minimal',
+        reasoningIncludeOutput: true,
+    });
+
+    const hiddenTask = buildTask('max', false);
+    const hiddenBody = adapter.buildRequestBody(hiddenTask);
+    assert.deepEqual(hiddenBody.reasoning, { effort: 'xhigh' });
+    assert.equal(Object.hasOwn(hiddenBody.reasoning, 'summary'), false);
+    assert.deepEqual(adapter.inspectRequest(hiddenTask, { body: hiddenBody }).effectiveConfig, {
+        reasoningEnabled: true,
+        reasoningEffort: 'xhigh',
+        reasoningIncludeOutput: false,
+    });
+});
+
+test('generic OpenAI-compatible reasoning sends effort without inventing an output-control field', () => {
+    const runtime = resolveRuntimeReasoning('openai-compatible', {
+        reasoningEnabled: true,
+        reasoningEffort: 'max',
+        reasoningIncludeOutput: true,
+    });
+    const task = {
+        messages: [{ role: 'user', content: 'hello' }],
+        reasoning: {
+            enabled: runtime.reasoningEnabled,
+            effort: runtime.reasoningEffort,
+            includeOutput: runtime.reasoningIncludeOutput,
+        },
+    };
+    const adapter = new OpenAICompatibleAdapter({
+        apiKey: 'test-key',
+        baseUrl: 'https://example.com/v1',
+        model: 'compatible-reasoning-model',
+    });
+    const body = adapter.buildRequestBody(task);
+
+    assert.equal(body.reasoning_effort, 'xhigh');
+    assert.equal(Object.hasOwn(body, 'include_reasoning'), false);
+    assert.deepEqual(adapter.inspectRequest(task, { body }).effectiveConfig, {
+        reasoningEnabled: true,
+        reasoningEffort: 'xhigh',
+        reasoningIncludeOutput: false,
+    });
 });
 
 test('openai-compatible adapter sends reasoning_effort for Gemini and other reasoning models by default', () => {

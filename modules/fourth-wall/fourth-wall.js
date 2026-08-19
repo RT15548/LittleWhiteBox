@@ -9,11 +9,10 @@ import { createModuleEvents, event_types } from "../../core/event-manager.js";
 import { xbLog } from "../../core/debug-core.js";
 import { initAfterAiGate, notifyAfterAiHint, registerAfterAiHandler } from "../../core/after-ai-gate.js";
 import {
-    AGENT_SETTINGS_CONFIG_VERSION,
-    normalizeAgentSettings,
-    normalizeJsApiPermission,
-    normalizePresetName,
-} from "../agent-core/config.js";
+    loadSharedAgentSettings,
+    saveSharedAgentSettings,
+    subscribeSharedAgentSettingsChanged,
+} from "../agent-core/settings-repository.js";
 
 import { cancelFourthWallImageRequests, handleCheckCache, handleGenerate } from "./fw-image-protocol.js";
 import {
@@ -34,7 +33,6 @@ import { postToIframe, isTrustedMessage, getTrustedOrigin } from "../../core/ifr
 const events = createModuleEvents('fourthWall');
 const iframePath = `${extensionFolderPath}/modules/fourth-wall/fourth-wall.html`;
 const agentBridgePath = toRootedBrowserPath(`${extensionFolderPath}/modules/fourth-wall/dist/fourth-wall-agent.js`);
-const AGENT_SETTINGS_FILE_KEY = 'settings';
 const COMMENTARY_COOLDOWN = 180000;
 const IFRAME_PING_TIMEOUT = 800;
 
@@ -52,6 +50,7 @@ function toRootedBrowserPath(path) {
 
 let overlayCreated = false;
 let frameReady = false;
+let unsubscribeSharedAgentSettingsChanged = null;
 let pendingFrameMessages = [];
 let isStreaming = false;
 let floatBtnResizeHandler = null;
@@ -220,59 +219,29 @@ function stopHostThemeObserver() {
 }
 
 async function loadSharedAgentConfig() {
+    return await loadSharedAgentSettings({ storage: AssistantStorage });
+}
+
+async function loadSharedAgentConfigPayload() {
     try {
-        const saved = await AssistantStorage.get(AGENT_SETTINGS_FILE_KEY, {});
-        return normalizeAgentSettings(saved || {});
-    } catch {
-        return normalizeAgentSettings({});
+        return {
+            agentConfig: await loadSharedAgentConfig(),
+            agentConfigLoadError: '',
+        };
+    } catch (error) {
+        return {
+            agentConfig: null,
+            agentConfigLoadError: `共享 Agent API 配置读取失败：${error instanceof Error ? error.message : String(error || 'unknown_error')}`,
+        };
     }
 }
 
 async function saveSharedAgentConfig(patch = {}, options = {}) {
-    const silent = options.silent !== false;
-    let current = null;
-    try {
-        current = await AssistantStorage.get(AGENT_SETTINGS_FILE_KEY, null);
-    } catch {
-        current = null;
-    }
-    const normalizedCurrent = normalizeAgentSettings(current || {});
-    const next = normalizeAgentSettings({
-        ...normalizedCurrent,
-        workspaceFileName: normalizedCurrent.workspaceFileName || '',
-        jsApiPermission: normalizeJsApiPermission(patch.jsApiPermission ?? normalizedCurrent.jsApiPermission),
-        tavilyApiKey: patch.tavilyApiKey ?? normalizedCurrent.tavilyApiKey,
-        tavilyBaseUrl: patch.tavilyBaseUrl ?? normalizedCurrent.tavilyBaseUrl,
-        currentPresetName: normalizePresetName(patch.currentPresetName || normalizedCurrent.currentPresetName),
-        delegatePresetName: normalizePresetName(patch.delegatePresetName || normalizedCurrent.delegatePresetName || patch.currentPresetName || normalizedCurrent.currentPresetName),
-        delegateConfig: patch.delegateConfig && typeof patch.delegateConfig === 'object'
-            ? patch.delegateConfig
-            : normalizedCurrent.delegateConfig,
-        delegateConfigured: typeof patch.delegateConfigured === 'boolean'
-            ? patch.delegateConfigured
-            : normalizedCurrent.delegateConfigured,
-        presets: patch.presets && typeof patch.presets === 'object'
-            ? patch.presets
-            : normalizedCurrent.presets,
-        updatedAt: Date.now(),
-        configVersion: AGENT_SETTINGS_CONFIG_VERSION,
+    return await saveSharedAgentSettings(patch, {
+        storage: AssistantStorage,
+        silent: options.silent !== false,
+        source: 'fourth-wall',
     });
-
-    try {
-        const data = await AssistantStorage.load();
-        data[AGENT_SETTINGS_FILE_KEY] = next;
-        AssistantStorage._dirtyVersion = (AssistantStorage._dirtyVersion || 0) + 1;
-        await AssistantStorage.saveNow({ silent });
-        window.xiaobaixAssistant?.refreshConfig?.();
-        window.xiaobaixEbook?.refreshConfig?.();
-        return { ok: true, config: next };
-    } catch (error) {
-        return {
-            ok: false,
-            config: next,
-            error: error instanceof Error ? error.message : String(error || '保存失败'),
-        };
-    }
 }
 
 async function getFourthWallAgentBridge() {
@@ -390,7 +359,7 @@ async function sendInitData() {
     const settings = getSettings();
     const session = getActiveSession();
     const avatars = getAvatarUrls();
-    const agentConfig = await loadSharedAgentConfig();
+    const agentConfigPayload = await loadSharedAgentConfigPayload();
 
     postToFrame({
         type: 'INIT_DATA',
@@ -402,7 +371,7 @@ async function sendInitData() {
         voiceSettings: settings.fourthWallVoice || {},
         commentarySettings: settings.fourthWallCommentary || {},
         promptTemplates: settings.fourthWallPromptTemplates || {},
-        agentConfig,
+        ...agentConfigPayload,
         hostRequestHeaders: getRequestHeaders?.() || {},
         theme: getHostTheme(),
         avatars
@@ -579,8 +548,16 @@ function handleFrameMessage(event) {
                     requestId,
                     ok: result.ok,
                     config: result.config,
+                    conflict: result.conflict === true,
                     error: result.error || '',
                 });
+            });
+            break;
+        }
+
+        case 'RELOAD_AGENT_CONFIG': {
+            void loadSharedAgentConfigPayload().then((payload) => {
+                postToFrame({ type: 'AGENT_CONFIG_CHANGED', ...payload });
             });
             break;
         }
@@ -1320,9 +1297,21 @@ function initFourthWall() {
     activateFourthWall();
 }
 
+function ensureSharedAgentSettingsSubscription() {
+    if (unsubscribeSharedAgentSettingsChanged) return;
+    unsubscribeSharedAgentSettingsChanged = subscribeSharedAgentSettingsChanged((detail) => {
+        if (String(detail?.source || '') === 'fourth-wall') return;
+        if (!frameReady) return;
+        void loadSharedAgentConfigPayload().then((payload) => {
+            postToFrame({ type: 'AGENT_CONFIG_CHANGED', ...payload });
+        });
+    });
+}
+
 function openFourthWall() {
     try { xbLog.info('fourthWall', 'openFourthWall'); } catch { }
     activateFourthWall();
+    ensureSharedAgentSettingsSubscription();
     showOverlay();
 }
 
@@ -1339,6 +1328,8 @@ function fourthWallCleanup() {
     cleanupFourthWallRuntime();
     setMessageEnhancerRuntimeActive(false);
     cleanupMessageEnhancer();
+    unsubscribeSharedAgentSettingsChanged?.();
+    unsubscribeSharedAgentSettingsChanged = null;
 }
 
 export { initFourthWall, initFourthWallFloorTools, refreshFourthWallFloorTools, closeFourthWall, fourthWallCleanup, openFourthWall, openFourthWall as showFourthWallPopup };

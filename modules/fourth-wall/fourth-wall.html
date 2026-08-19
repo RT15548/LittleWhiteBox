@@ -837,6 +837,56 @@ body {
     gap: 14px;
 }
 
+.fw-agent-settings-body .xb-assistant-config-fields {
+    min-inline-size: 0;
+    display: grid;
+    gap: 14px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+}
+
+.fw-agent-settings-body .xb-assistant-config-fields:disabled {
+    opacity: 0.56;
+}
+
+.fw-agent-settings-body .xb-assistant-config-alert {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 12px;
+    color: #745414;
+    background: rgba(193, 139, 30, 0.09);
+    border: 1px solid rgba(193, 139, 30, 0.28);
+    border-radius: 10px;
+    font-size: 0.78rem;
+    line-height: 1.5;
+}
+
+.fw-agent-settings-body .xb-assistant-config-alert.is-error {
+    color: #913f31;
+    background: rgba(172, 67, 49, 0.08);
+    border-color: rgba(172, 67, 49, 0.28);
+}
+
+.fw-agent-settings-body .xb-assistant-config-alert[hidden] {
+    display: none;
+}
+
+.fw-agent-settings-body .xb-assistant-config-alert button {
+    flex: 0 0 auto;
+    min-height: 32px;
+    padding: 0 10px;
+    color: inherit;
+    background: rgba(255, 255, 255, 0.72);
+    border: 1px solid currentColor;
+    border-radius: 8px;
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
+}
+
 .fw-agent-settings-body .xb-assistant-config-page {
     display: grid;
     gap: 12px;
@@ -2332,7 +2382,10 @@ let state = {
     commentarySettings: { enabled: false, probability: 30 },
     promptTemplates: {},
     config: {},
+    configLoadError: '',
     configDraft: null,
+    configDirty: false,
+    configExternalChangePending: false,
     configFormSyncPending: true,
     configPage: 'main',
     configSave: { status: 'idle', requestId: '', error: '' },
@@ -2447,6 +2500,9 @@ async function loadAgentSettingsUi() {
                 postToParent({ type: 'SAVE_AGENT_CONFIG', requestId, payload });
             });
         },
+        reloadConfig: () => {
+            postToParent({ type: 'RELOAD_AGENT_CONFIG' });
+        },
         getRuntimeSummaryText: ({ providerLabel }) => providerLabel,
     });
     return agentUiBridge;
@@ -2498,6 +2554,8 @@ function renderAgentSettingsDialog() {
                         activePage: 'main',
                         isBusy: state.isStreaming,
                         canDeletePreset,
+                        configLoadError: state.configLoadError,
+                        configExternalChangePending: state.configExternalChangePending,
                     })}
                 </div>
             </div>
@@ -3042,7 +3100,10 @@ window.addEventListener('message', event => {
             state.voiceSettings = data.voiceSettings || state.voiceSettings;
             state.promptTemplates = data.promptTemplates || state.promptTemplates;
             state.commentarySettings = data.commentarySettings || state.commentarySettings;
-            state.config = agentUiBridge?.normalizeAgentConfig?.(data.agentConfig || {}) || data.agentConfig || state.config;
+            state.configLoadError = String(data.agentConfigLoadError || '');
+            if (data.agentConfig && typeof data.agentConfig === 'object') {
+                state.config = agentUiBridge?.normalizeAgentConfig?.(data.agentConfig) || data.agentConfig;
+            }
             state.hostRequestHeaders = data.hostRequestHeaders || state.hostRequestHeaders || {};
             agentUiBridge?.configureFourthWallAgent?.({
                 requestHeadersProvider: () => state.hostRequestHeaders || {},
@@ -3070,6 +3131,29 @@ window.addEventListener('message', event => {
             renderMessages();
             renderAgentSettingsDialog();
             break;
+
+        case 'AGENT_CONFIG_CHANGED': {
+            state.configLoadError = String(data.agentConfigLoadError || '');
+            if (!data.agentConfig || typeof data.agentConfig !== 'object') {
+                renderAgentSettingsDialog();
+                break;
+            }
+            const nextConfig = agentUiBridge?.normalizeAgentConfig?.(data.agentConfig) || data.agentConfig;
+            state.config = nextConfig;
+            if (state.configDirty) {
+                state.configExternalChangePending = true;
+                state.configFormSyncPending = true;
+                showToast('共享 API 配置已在其他页面更新；当前未保存编辑已保留。');
+                renderAgentSettingsDialog();
+                break;
+            }
+            state.configDraft = null;
+            state.configDirty = false;
+            state.configExternalChangePending = false;
+            state.configFormSyncPending = true;
+            renderAgentSettingsDialog();
+            break;
+        }
 
         case 'THEME_UPDATE':
             applyTheme(data.theme);
@@ -3122,12 +3206,21 @@ window.addEventListener('message', event => {
             if (pending?.timer) clearTimeout(pending.timer);
             if (data.ok === false) {
                 const error = data.error || '保存失败';
+                if (data.conflict === true && data.config && typeof data.config === 'object') {
+                    state.config = agentUiBridge?.normalizeAgentConfig?.(data.config) || data.config;
+                    state.configExternalChangePending = true;
+                    state.configFormSyncPending = true;
+                    renderAgentSettingsDialog();
+                }
                 completeConfigSave(requestId, { ok: false, error });
                 pending?.reject?.(new Error(error));
                 break;
             }
             state.config = agentUiBridge?.normalizeAgentConfig?.(data.config || pending?.config || {}) || data.config || pending?.config || state.config;
+            state.configLoadError = '';
             state.configDraft = null;
+            state.configDirty = false;
+            state.configExternalChangePending = false;
             state.configFormSyncPending = true;
             completeConfigSave(requestId, { ok: true });
             showToast('配置已保存');

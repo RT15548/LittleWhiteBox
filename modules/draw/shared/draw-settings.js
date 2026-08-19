@@ -136,11 +136,14 @@ export async function loadSharedDrawSettings() {
 
     try {
         const storage = await getStorage();
-        const saved = await storage.get(SERVER_FILE_KEY, null);
+        const saved = await storage.getStrict(SERVER_FILE_KEY, null);
         settingsCache = normalizeSharedDrawSettings(saved || {});
     } catch (error) {
         console.error('[DrawSettings] 加载共享画图设置失败:', error);
-        settingsCache = normalizeSharedDrawSettings({});
+        settingsCache = null;
+        settingsLoaded = false;
+        if (window.toastr) toastr.error('无法读取共享画图配置，已禁止保存，请稍后重试');
+        throw error;
     }
 
     settingsLoaded = true;
@@ -156,20 +159,25 @@ export function getSharedDrawSettings() {
 
 export async function updateSharedDrawSettingsPersistent(mutator, okText = '已保存', options = {}) {
     const { notify = false, silent = true } = options;
-    const storage = await getStorage();
-    const saved = await storage.get(SERVER_FILE_KEY, null);
-    const current = normalizeSharedDrawSettings(saved || settingsCache || {});
-    const draft = cloneSettingsObject(current);
-
-    if (typeof mutator === 'function') {
-        await mutator(draft);
+    if (!settingsLoaded || !settingsCache) {
+        console.error('[DrawSettings] 配置尚未成功加载，拒绝保存');
+        if (window.toastr) toastr.error('共享画图配置尚未成功加载，已禁止保存');
+        return false;
     }
-
-    const next = normalizeSharedDrawSettings(draft);
-    next.updatedAt = Date.now();
-    const previous = settingsCache ? cloneSettingsObject(settingsCache) : null;
+    const previous = cloneSettingsObject(settingsCache);
 
     try {
+        const storage = await getStorage();
+        const saved = await storage.getStrict(SERVER_FILE_KEY, null);
+        const current = normalizeSharedDrawSettings(saved || settingsCache);
+        const draft = cloneSettingsObject(current);
+
+        if (typeof mutator === 'function') {
+            await mutator(draft);
+        }
+
+        const next = normalizeSharedDrawSettings(draft);
+        next.updatedAt = Date.now();
         settingsCache = next;
         const storageValue = mergeSharedDrawSettingsIntoStorageRoot(saved, next);
         const ok = await storage.setAndSave(SERVER_FILE_KEY, storageValue, { silent });

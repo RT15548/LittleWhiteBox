@@ -652,6 +652,7 @@ export function createAssistantRuntime(deps) {
                     reasoning: {
                         enabled: providerConfig.reasoningEnabled,
                         effort: providerConfig.reasoningEffort,
+                        includeOutput: providerConfig.reasoningIncludeOutput,
                     },
                     signal: run.controller.signal,
                     onStreamProgress: handleStreamProgress,

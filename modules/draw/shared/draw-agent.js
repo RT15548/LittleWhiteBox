@@ -2,14 +2,12 @@ import { SUBMIT_SCENE_PLAN_TOOL_NAME, ScenePlannerError } from './scene-plan-con
 import { normalizeAgentConfig } from '../../agent-core/config.js';
 import { redactRequestSecrets } from '../../agent-core/adapters/request-inspection.js';
 import {
-    getProviderLabel,
-    getToolModeLabel,
     isSillyTavernProvider,
     resolveActiveProviderConfig,
 } from '../../agent-core/provider-resolution.js';
 
 const AGENT_SETTINGS_FILE_KEY = 'settings';
-const DEFAULT_SCENE_PLANNER_TIMEOUT_MS = 120000;
+const DEFAULT_SCENE_PLANNER_TIMEOUT_MS = 10 * 60 * 1000;
 
 let agentCoreModulePromise = null;
 let agentSettingsReaderPromise = null;
@@ -48,18 +46,13 @@ function buildInspectionDiagnosticPatch(inspection) {
         patch.reasoningEffort = effectiveConfig.reasoningEnabled
             ? String(effectiveConfig.reasoningEffort || '')
             : '';
+        patch.reasoningIncludeOutput = effectiveConfig.reasoningEnabled
+            && effectiveConfig.reasoningIncludeOutput === true;
     }
     if (effectiveConfig?.toolChoice !== undefined) {
         patch.toolChoice = String(effectiveConfig.toolChoice || '');
     }
     return patch;
-}
-
-function diagnosticMatchesProviderConfig(diagnostic, providerConfig) {
-    if (!diagnostic || !providerConfig) return false;
-    return String(diagnostic.presetName || '') === String(providerConfig.currentPresetName || '')
-        && String(diagnostic.provider || '') === String(providerConfig.provider || '')
-        && String(diagnostic.model || '') === String(providerConfig.model || '');
 }
 
 async function loadDefaultAgentSettingsReader() {
@@ -249,6 +242,7 @@ export function beginDrawScenePlannerDiagnostic(initial = {}) {
         toolMode: '',
         reasoningEnabled: false,
         reasoningEffort: '',
+        reasoningIncludeOutput: false,
         toolChoice: 'required',
         toolsCount: 1,
         notices: [],
@@ -280,6 +274,8 @@ export function beginDrawScenePlannerDiagnostic(initial = {}) {
                 reasoningEffort: providerConfig.reasoningEnabled === true
                     ? String(providerConfig.reasoningEffort || '')
                     : '',
+                reasoningIncludeOutput: providerConfig.reasoningEnabled === true
+                    && providerConfig.reasoningIncludeOutput === true,
                 notices: [],
             });
             publish();
@@ -379,6 +375,7 @@ export async function callDrawScenePlannerAgent(options = {}) {
         reasoning: {
             enabled: providerConfig.reasoningEnabled,
             effort: providerConfig.reasoningEffort,
+            includeOutput: providerConfig.reasoningIncludeOutput,
         },
         signal: abortScope.signal,
         allowToolProtocolFallback: false,
@@ -415,72 +412,6 @@ export async function callDrawScenePlannerAgent(options = {}) {
 
 export function getLastDrawAgentDiagnostic() {
     return cloneJson(lastDrawAgentDiagnostic);
-}
-
-export async function getDrawAgentViewModel(options = {}) {
-    const diagnostic = getLastDrawAgentDiagnostic();
-    try {
-        const rawSettings = await readAgentSettings(options.dependencies || {});
-        const { providerConfig } = resolveDrawProviderConfig(rawSettings, options.timeout);
-        const currentDiagnostic = diagnosticMatchesProviderConfig(diagnostic, providerConfig)
-            ? diagnostic
-            : null;
-        const runtimeNotices = Array.isArray(currentDiagnostic?.notices)
-            ? currentDiagnostic.notices
-            : [];
-        const reasoningEnabled = currentDiagnostic
-            ? currentDiagnostic.reasoningEnabled === true
-            : providerConfig.reasoningEnabled === true;
-        return {
-            ready: true,
-            presetName: providerConfig.currentPresetName,
-            provider: providerConfig.provider,
-            providerLabel: getProviderLabel(providerConfig.provider),
-            model: providerConfig.model,
-            toolMode: providerConfig.toolMode,
-            toolModeLabel: getToolModeLabel(providerConfig),
-            reasoningEnabled,
-            reasoningEffort: reasoningEnabled
-                ? String(currentDiagnostic?.reasoningEffort || providerConfig.reasoningEffort || '')
-                : '',
-            compatibilityNotice: [
-                providerConfig.toolMode === 'tagged-json'
-                    ? '当前使用 Tagged JSON 兼容模式；模型仍会通过 submit_scene_plan 提交结构化结果。'
-                    : '当前模型必须支持 Tool Calling；若不支持，请在共享 Agent API 配置中切换为 Tagged JSON 兼容模式。',
-                ...runtimeNotices,
-            ].join('\n'),
-            runtimeNotices,
-            diagnostic: currentDiagnostic,
-            error: null,
-        };
-    } catch (error) {
-        return {
-            ready: false,
-            presetName: '',
-            provider: '',
-            providerLabel: '未配置',
-            model: '',
-            toolMode: '',
-            toolModeLabel: '不可用',
-            reasoningEnabled: false,
-            reasoningEffort: '',
-            compatibilityNotice: '请先完成共享 Agent 主预设配置。',
-            runtimeNotices: [],
-            diagnostic: null,
-            error: {
-                code: String(error?.code || 'AGENT_PRESET_INVALID'),
-                message: String(error?.message || '共享 Agent 配置不可用'),
-            },
-        };
-    }
-}
-
-export function openSharedAgentSettings() {
-    if (typeof window?.xiaobaixAssistant?.openSettings === 'function') {
-        window.xiaobaixAssistant.openSettings();
-        return true;
-    }
-    return false;
 }
 
 export function resetDrawAgentRuntimeForTests() {

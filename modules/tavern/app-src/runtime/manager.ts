@@ -440,6 +440,7 @@ async function runManagerOnceWithAdapter(
         reasoning: {
             enabled: providerConfig.reasoningEnabled,
             effort: providerConfig.reasoningEffort,
+            includeOutput: providerConfig.reasoningIncludeOutput,
         },
         signal: options.signal,
         onStreamProgress: (snapshot: TavernManagerStreamSnapshot) => {

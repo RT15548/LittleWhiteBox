@@ -19,13 +19,18 @@ import {
 } from '../config.js';
 import {
     AGENT_REQUEST_TIMEOUT_MS,
-    REASONING_EFFORT_OPTIONS,
     TOOL_MODE_OPTIONS,
     getProviderLabel,
-    normalizeReasoningEffort,
     normalizeTemperature,
     shouldSendTemperature,
-} from '../provider-config.js';
+} from '../provider-resolution.js';
+import {
+    getReasoningCapability,
+    getReasoningEffortOptions,
+    normalizeReasoningEffort,
+    normalizeReasoningIncludeOutput,
+    resolveRuntimeReasoning,
+} from '../reasoning-config.js';
 import { DEFAULT_TAVILY_BASE_URL, normalizeTavilyBaseUrl } from '../tavily-search.js';
 
 const MODEL_FILTERS = {
@@ -369,6 +374,7 @@ export function createAgentSettingsPanel(deps = {}) {
         showToast,
         createRequestId = (prefix = 'req') => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         saveConfig,
+        reloadConfig,
         describeError = defaultDescribeError,
         getRuntimeSummaryText,
     } = deps;
@@ -430,7 +436,11 @@ export function createAgentSettingsPanel(deps = {}) {
             delegateMaxTokens: normalizeMaxTokens(delegateProviderConfig.maxTokens),
             delegateSendTemperature: shouldSendTemperature(delegateProviderConfig),
             delegateReasoningEnabled: Boolean(delegateProviderConfig.reasoningEnabled),
-            delegateReasoningEffort: normalizeReasoningEffort(delegateProviderConfig.reasoningEffort),
+            delegateReasoningEffort: normalizeReasoningEffort(delegateProviderConfig.reasoningEffort, delegateProvider),
+            delegateReasoningIncludeOutput: normalizeReasoningIncludeOutput(
+                delegateProviderConfig.reasoningIncludeOutput,
+                delegateProvider,
+            ),
             delegateToolMode: delegateProviderConfig.toolMode || 'native',
         };
     }
@@ -446,7 +456,11 @@ export function createAgentSettingsPanel(deps = {}) {
             maxTokens: normalizeMaxTokens(providerConfig.maxTokens),
             sendTemperature: shouldSendTemperature(providerConfig),
             reasoningEnabled: Boolean(providerConfig.reasoningEnabled),
-            reasoningEffort: normalizeReasoningEffort(providerConfig.reasoningEffort),
+            reasoningEffort: normalizeReasoningEffort(providerConfig.reasoningEffort, provider),
+            reasoningIncludeOutput: normalizeReasoningIncludeOutput(
+                providerConfig.reasoningIncludeOutput,
+                provider,
+            ),
             toolMode: providerConfig.toolMode || 'native',
         };
     }
@@ -462,7 +476,11 @@ export function createAgentSettingsPanel(deps = {}) {
             delegateMaxTokens: normalizeMaxTokens(providerConfig.maxTokens),
             delegateSendTemperature: shouldSendTemperature(providerConfig),
             delegateReasoningEnabled: Boolean(providerConfig.reasoningEnabled),
-            delegateReasoningEffort: normalizeReasoningEffort(providerConfig.reasoningEffort),
+            delegateReasoningEffort: normalizeReasoningEffort(providerConfig.reasoningEffort, provider),
+            delegateReasoningIncludeOutput: normalizeReasoningIncludeOutput(
+                providerConfig.reasoningIncludeOutput,
+                provider,
+            ),
             delegateToolMode: providerConfig.toolMode || 'native',
         };
     }
@@ -512,7 +530,9 @@ export function createAgentSettingsPanel(deps = {}) {
             maxTokens: normalizeMaxTokens(root.querySelector('#xb-assistant-max-tokens')?.value, draft.maxTokens),
             sendTemperature: root.querySelector('#xb-assistant-send-temperature')?.checked ?? Boolean(draft.sendTemperature ?? true),
             reasoningEnabled: root.querySelector('#xb-assistant-reasoning-enabled')?.checked || false,
-            reasoningEffort: normalizeReasoningEffort(root.querySelector('#xb-assistant-reasoning-effort')?.value),
+            reasoningEffort: normalizeReasoningEffort(root.querySelector('#xb-assistant-reasoning-effort')?.value, provider),
+            reasoningIncludeOutput: root.querySelector('#xb-assistant-reasoning-include-output')?.checked
+                ?? Boolean(draft.reasoningIncludeOutput),
             toolMode: isToolModeProvider(provider)
                 ? (root.querySelector('#xb-assistant-tool-mode')?.value || draft.toolMode || 'native')
                 : undefined,
@@ -525,7 +545,12 @@ export function createAgentSettingsPanel(deps = {}) {
             maxTokens: normalizeMaxTokens(root.querySelector('#xb-assistant-delegate-max-tokens')?.value, draft.delegateMaxTokens),
             sendTemperature: root.querySelector('#xb-assistant-delegate-send-temperature')?.checked ?? Boolean(draft.delegateSendTemperature ?? true),
             reasoningEnabled: root.querySelector('#xb-assistant-delegate-reasoning-enabled')?.checked ?? Boolean(draft.delegateReasoningEnabled),
-            reasoningEffort: normalizeReasoningEffort(root.querySelector('#xb-assistant-delegate-reasoning-effort')?.value || draft.delegateReasoningEffort),
+            reasoningEffort: normalizeReasoningEffort(
+                root.querySelector('#xb-assistant-delegate-reasoning-effort')?.value || draft.delegateReasoningEffort,
+                delegateProvider,
+            ),
+            reasoningIncludeOutput: root.querySelector('#xb-assistant-delegate-reasoning-include-output')?.checked
+                ?? Boolean(draft.delegateReasoningIncludeOutput),
             toolMode: isToolModeProvider(delegateProvider)
                 ? (root.querySelector('#xb-assistant-delegate-tool-mode')?.value || draft.delegateToolMode || 'native')
                 : undefined,
@@ -558,6 +583,7 @@ export function createAgentSettingsPanel(deps = {}) {
             sendTemperature: providerConfig.sendTemperature,
             reasoningEnabled: providerConfig.reasoningEnabled,
             reasoningEffort: providerConfig.reasoningEffort,
+            reasoningIncludeOutput: providerConfig.reasoningIncludeOutput,
             toolMode: providerConfig.toolMode || draft.toolMode || 'native',
             tavilyApiKey: root.querySelector('#xb-assistant-tavily-api-key')?.value.trim() || '',
             tavilyBaseUrl: normalizeTavilyBaseUrl(draft.tavilyBaseUrl || DEFAULT_TAVILY_BASE_URL),
@@ -574,12 +600,14 @@ export function createAgentSettingsPanel(deps = {}) {
             delegateSendTemperature: delegateProviderConfig.sendTemperature,
             delegateReasoningEnabled: delegateProviderConfig.reasoningEnabled,
             delegateReasoningEffort: delegateProviderConfig.reasoningEffort,
+            delegateReasoningIncludeOutput: delegateProviderConfig.reasoningIncludeOutput,
             delegateToolMode: delegateProviderConfig.toolMode || draft.delegateToolMode || 'native',
         };
     }
 
     function syncConfigDraft(root) {
         state.configDraft = readDraftFromForm(root);
+        state.configDirty = true;
         return state.configDraft;
     }
 
@@ -592,7 +620,11 @@ export function createAgentSettingsPanel(deps = {}) {
             maxTokens: normalizeMaxTokens(draft.maxTokens),
             sendTemperature: Boolean(draft.sendTemperature ?? true),
             reasoningEnabled: Boolean(draft.reasoningEnabled),
-            reasoningEffort: normalizeReasoningEffort(draft.reasoningEffort),
+            reasoningEffort: normalizeReasoningEffort(draft.reasoningEffort, draft.provider),
+            reasoningIncludeOutput: normalizeReasoningIncludeOutput(
+                draft.reasoningIncludeOutput,
+                draft.provider,
+            ),
             toolMode: isToolModeProvider(draft.provider)
                 ? (draft.toolMode || 'native')
                 : undefined,
@@ -608,7 +640,11 @@ export function createAgentSettingsPanel(deps = {}) {
             maxTokens: normalizeMaxTokens(draft.delegateMaxTokens),
             sendTemperature: Boolean(draft.delegateSendTemperature ?? true),
             reasoningEnabled: Boolean(draft.delegateReasoningEnabled),
-            reasoningEffort: normalizeReasoningEffort(draft.delegateReasoningEffort),
+            reasoningEffort: normalizeReasoningEffort(draft.delegateReasoningEffort, draft.delegateProvider),
+            reasoningIncludeOutput: normalizeReasoningIncludeOutput(
+                draft.delegateReasoningIncludeOutput,
+                draft.delegateProvider,
+            ),
             toolMode: isToolModeProvider(draft.delegateProvider)
                 ? (draft.delegateToolMode || 'native')
                 : undefined,
@@ -643,8 +679,7 @@ export function createAgentSettingsPanel(deps = {}) {
             maxTokens: normalizeMaxTokens(draft.maxTokens),
             timeoutMs: AGENT_REQUEST_TIMEOUT_MS,
             toolMode: draft.toolMode || 'native',
-            reasoningEnabled: Boolean(draft.reasoningEnabled),
-            reasoningEffort: normalizeReasoningEffort(draft.reasoningEffort),
+            ...resolveRuntimeReasoning(draft.provider, draft),
         };
     }
 
@@ -661,8 +696,11 @@ export function createAgentSettingsPanel(deps = {}) {
             maxTokens: normalizeMaxTokens(draft.delegateMaxTokens),
             timeoutMs: AGENT_REQUEST_TIMEOUT_MS,
             toolMode: draft.delegateToolMode || 'native',
-            reasoningEnabled: Boolean(draft.delegateReasoningEnabled),
-            reasoningEffort: normalizeReasoningEffort(draft.delegateReasoningEffort),
+            ...resolveRuntimeReasoning(draft.delegateProvider, {
+                reasoningEnabled: draft.delegateReasoningEnabled,
+                reasoningEffort: draft.delegateReasoningEffort,
+                reasoningIncludeOutput: draft.delegateReasoningIncludeOutput,
+            }),
         };
     }
 
@@ -733,11 +771,19 @@ export function createAgentSettingsPanel(deps = {}) {
         const pulledModels = getProviderModels(provider);
         const delegateProvider = draft.delegateProvider || 'openai-compatible';
         const delegatePulledModels = getProviderModels(delegateProvider, 'delegate');
+        const providerSelect = root.querySelector('#xb-assistant-provider');
+        const baseUrlInput = root.querySelector('#xb-assistant-base-url');
+        const modelInput = root.querySelector('#xb-assistant-model');
+        const apiKeyInput = root.querySelector('#xb-assistant-api-key');
+        const temperatureInput = root.querySelector('#xb-assistant-temperature');
+        const sendTemperatureInput = root.querySelector('#xb-assistant-send-temperature');
         const toolModeWrap = root.querySelector('#xb-assistant-tool-mode-wrap');
         const toolModeSelect = root.querySelector('#xb-assistant-tool-mode');
         const reasoningEnabledInput = root.querySelector('#xb-assistant-reasoning-enabled');
         const reasoningEffortWrap = root.querySelector('#xb-assistant-reasoning-effort-wrap');
         const reasoningEffortSelect = root.querySelector('#xb-assistant-reasoning-effort');
+        const reasoningIncludeOutputWrap = root.querySelector('#xb-assistant-reasoning-include-output-wrap');
+        const reasoningIncludeOutputInput = root.querySelector('#xb-assistant-reasoning-include-output');
         const permissionModeSelect = root.querySelector('#xb-assistant-permission-mode');
         const jsApiPermissionSelect = root.querySelector('#xb-assistant-jsapi-permission');
         const pulledSelect = root.querySelector('#xb-assistant-model-pulled');
@@ -757,6 +803,8 @@ export function createAgentSettingsPanel(deps = {}) {
         const delegateReasoningEnabledInput = root.querySelector('#xb-assistant-delegate-reasoning-enabled');
         const delegateReasoningEffortWrap = root.querySelector('#xb-assistant-delegate-reasoning-effort-wrap');
         const delegateReasoningEffortSelect = root.querySelector('#xb-assistant-delegate-reasoning-effort');
+        const delegateReasoningIncludeOutputWrap = root.querySelector('#xb-assistant-delegate-reasoning-include-output-wrap');
+        const delegateReasoningIncludeOutputInput = root.querySelector('#xb-assistant-delegate-reasoning-include-output');
         if (!presetSelect || !presetNameInput) return;
         const presetOptions = (state.config.presetNames || []).map((name) => ({ value: name, label: name }));
 
@@ -770,17 +818,19 @@ export function createAgentSettingsPanel(deps = {}) {
             delegatePresetSelect.value = resolveExistingPresetName(draft.delegatePresetName, draft.currentPresetName);
         }
         presetNameInput.value = draft.presetDraftName || draft.currentPresetName || DEFAULT_PRESET_NAME;
-        root.querySelector('#xb-assistant-provider').value = provider;
-        root.querySelector('#xb-assistant-base-url').value = draft.baseUrl || '';
-        root.querySelector('#xb-assistant-model').value = draft.model || '';
-        root.querySelector('#xb-assistant-api-key').value = draft.apiKey || '';
+        if (providerSelect) providerSelect.value = provider;
+        if (baseUrlInput) baseUrlInput.value = draft.baseUrl || '';
+        if (modelInput) modelInput.value = draft.model || '';
+        if (apiKeyInput) apiKeyInput.value = draft.apiKey || '';
         if (maxTokensInput) maxTokensInput.value = String(normalizeMaxTokens(draft.maxTokens));
-        root.querySelector('#xb-assistant-temperature').value = String(normalizeTemperature(draft.temperature, 1));
-        root.querySelector('#xb-assistant-send-temperature').checked = Boolean(draft.sendTemperature ?? true);
+        if (temperatureInput) temperatureInput.value = String(normalizeTemperature(draft.temperature, 1));
+        if (sendTemperatureInput) sendTemperatureInput.checked = Boolean(draft.sendTemperature ?? true);
         if (tavilyApiKeyInput) tavilyApiKeyInput.value = draft.tavilyApiKey || '';
-        toolModeWrap.style.display = isToolModeProvider(provider) ? '' : 'none';
-        refillSelect(toolModeSelect, TOOL_MODE_OPTIONS);
-        toolModeSelect.value = draft.toolMode || 'native';
+        if (toolModeWrap) toolModeWrap.style.display = isToolModeProvider(provider) ? '' : 'none';
+        if (toolModeSelect) {
+            refillSelect(toolModeSelect, TOOL_MODE_OPTIONS);
+            toolModeSelect.value = draft.toolMode || 'native';
+        }
         if (permissionModeSelect) {
             refillSelect(permissionModeSelect, AGENT_PERMISSION_MODE_OPTIONS);
             permissionModeSelect.value = normalizePermissionMode(draft.permissionMode);
@@ -789,12 +839,26 @@ export function createAgentSettingsPanel(deps = {}) {
             refillSelect(jsApiPermissionSelect, AGENT_JSAPI_PERMISSION_OPTIONS);
             jsApiPermissionSelect.value = normalizeJsApiPermission(draft.jsApiPermission);
         }
-        refillSelect(reasoningEffortSelect, REASONING_EFFORT_OPTIONS);
-        reasoningEnabledInput.checked = Boolean(draft.reasoningEnabled);
-        reasoningEffortSelect.value = normalizeReasoningEffort(draft.reasoningEffort);
-        reasoningEffortWrap.style.display = reasoningEnabledInput.checked ? '' : 'none';
-        refillSelect(pulledSelect, pulledModels.map((model) => ({ value: model, label: model })), '手动填写');
-        pulledSelect.value = pulledModels.includes(draft.model) ? draft.model : '';
+        if (reasoningEffortSelect) {
+            refillSelect(reasoningEffortSelect, getReasoningEffortOptions(provider));
+            reasoningEffortSelect.value = normalizeReasoningEffort(draft.reasoningEffort, provider);
+        }
+        if (reasoningEnabledInput) reasoningEnabledInput.checked = Boolean(draft.reasoningEnabled);
+        if (reasoningEffortWrap) reasoningEffortWrap.style.display = draft.reasoningEnabled ? '' : 'none';
+        if (reasoningIncludeOutputInput) {
+            reasoningIncludeOutputInput.checked = normalizeReasoningIncludeOutput(
+                draft.reasoningIncludeOutput,
+                provider,
+            );
+        }
+        if (reasoningIncludeOutputWrap) {
+            reasoningIncludeOutputWrap.style.display = draft.reasoningEnabled
+                && getReasoningCapability(provider).includeOutput ? '' : 'none';
+        }
+        if (pulledSelect) {
+            refillSelect(pulledSelect, pulledModels.map((model) => ({ value: model, label: model })), '手动填写');
+            pulledSelect.value = pulledModels.includes(draft.model) ? draft.model : '';
+        }
         if (delegateProviderSelect) delegateProviderSelect.value = delegateProvider;
         if (delegateBaseUrlInput) delegateBaseUrlInput.value = draft.delegateBaseUrl || '';
         if (delegateModelInput) delegateModelInput.value = draft.delegateModel || '';
@@ -812,14 +876,27 @@ export function createAgentSettingsPanel(deps = {}) {
             delegateToolModeSelect.value = draft.delegateToolMode || 'native';
         }
         if (delegateReasoningEffortSelect) {
-            refillSelect(delegateReasoningEffortSelect, REASONING_EFFORT_OPTIONS);
-            delegateReasoningEffortSelect.value = normalizeReasoningEffort(draft.delegateReasoningEffort);
+            refillSelect(delegateReasoningEffortSelect, getReasoningEffortOptions(delegateProvider));
+            delegateReasoningEffortSelect.value = normalizeReasoningEffort(
+                draft.delegateReasoningEffort,
+                delegateProvider,
+            );
         }
         if (delegateReasoningEnabledInput) {
             delegateReasoningEnabledInput.checked = Boolean(draft.delegateReasoningEnabled);
         }
         if (delegateReasoningEffortWrap) {
             delegateReasoningEffortWrap.style.display = draft.delegateReasoningEnabled ? '' : 'none';
+        }
+        if (delegateReasoningIncludeOutputInput) {
+            delegateReasoningIncludeOutputInput.checked = normalizeReasoningIncludeOutput(
+                draft.delegateReasoningIncludeOutput,
+                delegateProvider,
+            );
+        }
+        if (delegateReasoningIncludeOutputWrap) {
+            delegateReasoningIncludeOutputWrap.style.display = draft.delegateReasoningEnabled
+                && getReasoningCapability(delegateProvider).includeOutput ? '' : 'none';
         }
         if (delegatePulledSelect) {
             refillSelect(delegatePulledSelect, delegatePulledModels.map((model) => ({ value: model, label: model })), '手动填写');
@@ -858,6 +935,7 @@ export function createAgentSettingsPanel(deps = {}) {
 
     function buildConfigSavePayload(config) {
         return {
+            expectedUpdatedAt: Number(config?.updatedAt) || 0,
             workspaceFileName: config?.workspaceFileName || '',
             jsApiPermission: normalizeJsApiPermission(config?.jsApiPermission),
             tavilyApiKey: String(config?.tavilyApiKey || ''),
@@ -929,7 +1007,9 @@ export function createAgentSettingsPanel(deps = {}) {
             showToast?.('预设名称不能为空');
             return;
         }
-        root.querySelector('#xb-assistant-preset-name').value = nextPresetName;
+        const presetNameInput = root.querySelector('#xb-assistant-preset-name');
+        if (!presetNameInput) return;
+        presetNameInput.value = nextPresetName;
         saveConfigFromForm(root, {
             presetName: nextPresetName,
             requestPrefix: 'create-preset',
@@ -945,7 +1025,9 @@ export function createAgentSettingsPanel(deps = {}) {
             return;
         }
         if (nextPresetName === currentPresetName) {return;}
-        root.querySelector('#xb-assistant-preset-name').value = nextPresetName;
+        const presetNameInput = root.querySelector('#xb-assistant-preset-name');
+        if (!presetNameInput) return;
+        presetNameInput.value = nextPresetName;
         saveConfigFromForm(root, {
             presetName: nextPresetName,
             renameCurrentPreset: true,
@@ -988,9 +1070,19 @@ export function createAgentSettingsPanel(deps = {}) {
     }
 
     function bindSettingsPanelEvents(root) {
+        root?.querySelector?.('[data-xb-agent-config-retry]')?.addEventListener('click', () => {
+            reloadConfig?.();
+        });
+        root?.querySelector?.('[data-xb-agent-config-reload]')?.addEventListener('click', () => {
+            state.configDraft = null;
+            state.configDirty = false;
+            state.configExternalChangePending = false;
+            requestConfigFormSync();
+            render?.();
+        });
         if (!root?.querySelector?.('#xb-assistant-provider')) return;
 
-        root.querySelector('#xb-assistant-provider').addEventListener('change', (event) => {
+        root.querySelector('#xb-assistant-provider')?.addEventListener('change', (event) => {
             const nextProvider = event.currentTarget.value;
             const draft = syncConfigDraft(root);
             state.configDraft = {
@@ -1002,7 +1094,7 @@ export function createAgentSettingsPanel(deps = {}) {
             render?.();
         });
 
-        root.querySelector('#xb-assistant-preset-select').addEventListener('change', (event) => {
+        root.querySelector('#xb-assistant-preset-select')?.addEventListener('change', (event) => {
             const nextPresetName = normalizePresetName(event.currentTarget.value);
             const nextPreset = (state.config?.presets || {})[nextPresetName] || buildDefaultPreset();
             const draft = syncConfigDraft(root);
@@ -1022,15 +1114,15 @@ export function createAgentSettingsPanel(deps = {}) {
             syncPresetDraftName(root);
         });
 
-        root.querySelector('#xb-assistant-base-url').addEventListener('input', () => {
+        root.querySelector('#xb-assistant-base-url')?.addEventListener('input', () => {
             syncConfigDraft(root);
         });
 
-        root.querySelector('#xb-assistant-model').addEventListener('input', () => {
+        root.querySelector('#xb-assistant-model')?.addEventListener('input', () => {
             syncConfigDraft(root);
         });
 
-        root.querySelector('#xb-assistant-api-key').addEventListener('input', () => {
+        root.querySelector('#xb-assistant-api-key')?.addEventListener('input', () => {
             syncConfigDraft(root);
         });
 
@@ -1050,10 +1142,11 @@ export function createAgentSettingsPanel(deps = {}) {
             syncConfigDraft(root);
         });
 
-        root.querySelector('#xb-assistant-model-pulled').addEventListener('change', (event) => {
+        root.querySelector('#xb-assistant-model-pulled')?.addEventListener('change', (event) => {
             const value = event.currentTarget.value;
             if (!value) return;
-            root.querySelector('#xb-assistant-model').value = value;
+            const modelInput = root.querySelector('#xb-assistant-model');
+            if (modelInput) modelInput.value = value;
             syncConfigDraft(root);
         });
 
@@ -1106,17 +1199,21 @@ export function createAgentSettingsPanel(deps = {}) {
 
         bindInputVisibilityToggle(root, '#xb-assistant-delegate-toggle-key', '#xb-assistant-delegate-api-key');
 
-        root.querySelector('#xb-assistant-reasoning-enabled').addEventListener('change', () => {
+        root.querySelector('#xb-assistant-reasoning-enabled')?.addEventListener('change', () => {
             syncConfigDraft(root);
             requestConfigFormSync();
             render?.();
         });
 
-        root.querySelector('#xb-assistant-reasoning-effort').addEventListener('change', () => {
+        root.querySelector('#xb-assistant-reasoning-effort')?.addEventListener('change', () => {
             syncConfigDraft(root);
         });
 
-        root.querySelector('#xb-assistant-tool-mode').addEventListener('change', () => {
+        root.querySelector('#xb-assistant-reasoning-include-output')?.addEventListener('change', () => {
+            syncConfigDraft(root);
+        });
+
+        root.querySelector('#xb-assistant-tool-mode')?.addEventListener('change', () => {
             syncConfigDraft(root);
         });
 
@@ -1127,6 +1224,10 @@ export function createAgentSettingsPanel(deps = {}) {
         });
 
         root.querySelector('#xb-assistant-delegate-reasoning-effort')?.addEventListener('change', () => {
+            syncConfigDraft(root);
+        });
+
+        root.querySelector('#xb-assistant-delegate-reasoning-include-output')?.addEventListener('change', () => {
             syncConfigDraft(root);
         });
 
@@ -1166,7 +1267,7 @@ export function createAgentSettingsPanel(deps = {}) {
             });
         });
 
-        root.querySelector('#xb-assistant-pull-models').addEventListener('click', async () => {
+        root.querySelector('#xb-assistant-pull-models')?.addEventListener('click', async () => {
             syncConfigDraft(root);
             requestConfigFormSync();
             const providerConfig = getActiveProviderConfig();
@@ -1222,7 +1323,7 @@ export function createAgentSettingsPanel(deps = {}) {
             renameCurrentPreset(root);
         });
 
-        root.querySelector('#xb-assistant-save').addEventListener('click', () => {
+        root.querySelector('#xb-assistant-save')?.addEventListener('click', () => {
             saveConfigFromForm(root);
         });
 
@@ -1233,7 +1334,7 @@ export function createAgentSettingsPanel(deps = {}) {
             });
         });
 
-        root.querySelector('#xb-assistant-delete-preset').addEventListener('click', () => {
+        root.querySelector('#xb-assistant-delete-preset')?.addEventListener('click', () => {
             deleteCurrentPreset(root);
         });
     }

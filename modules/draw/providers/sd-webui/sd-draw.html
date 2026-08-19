@@ -7,6 +7,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <title>SD Draw</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<link rel="stylesheet" href="../../shared/agent-settings-surface.css">
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 :root {
@@ -195,26 +196,6 @@ select.input { cursor: pointer; }
     color: var(--text-secondary); font-family: monospace; font-size: 11px; line-height: 1.45;
     white-space: pre-wrap; word-break: break-word;
 }
-.agent-summary-grid {
-    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px;
-    margin-top: 14px;
-}
-.agent-summary-item {
-    min-width: 0; padding: 11px 12px; background: var(--bg-input);
-    border: 1px solid var(--border); border-radius: 8px;
-}
-.agent-summary-item.wide { grid-column: 1 / -1; }
-.agent-summary-label {
-    display: block; margin-bottom: 4px; color: var(--text-muted);
-    font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
-}
-.agent-summary-value {
-    color: var(--text-primary); font-size: 13px; line-height: 1.4; word-break: break-word;
-}
-@media (max-width: 560px) {
-    .agent-summary-grid { grid-template-columns: 1fr; }
-    .agent-summary-item.wide { grid-column: auto; }
-}
 .sd-advanced-only { display: flex !important; }
 .prompt-textarea {
     width: 100%; min-height: 180px; max-height: 400px;
@@ -230,11 +211,13 @@ select.input { cursor: pointer; }
     gap: 12px; margin-bottom: 8px; flex-wrap: wrap;
 }
 .prompt-card-header .card-title { margin-bottom: 0; }
-.prompt-chain-card { margin-top: 16px; }
-.prompt-chain-toggle { cursor: pointer; }
-.chain-toggle-icon { font-size: 12px; color: var(--text-muted); }
-.prompt-chain-container { display: none; margin-top: 8px; }
-.prompt-chain-container.open { display: block; }
+.prompt-advanced-card { margin-top: 16px; }
+.prompt-advanced-card > summary { list-style: none; cursor: pointer; }
+.prompt-advanced-card > summary::-webkit-details-marker { display: none; }
+.prompt-advanced-card .chain-toggle-icon { font-size: 12px; color: var(--text-muted); }
+.prompt-advanced-card .chain-toggle-icon::before { content: '▶ 展开'; }
+.prompt-advanced-card[open] .chain-toggle-icon::before { content: '▼ 收起'; }
+.prompt-chain-container { margin-top: 8px; }
 .chain-item {
     display: flex; align-items: flex-start; gap: 8px;
     padding: 10px 0; border-top: 1px solid var(--border);
@@ -703,56 +686,12 @@ select.input { cursor: pointer; }
 
             <section class="view" data-sd-view-panel="llm">
                 <div class="view-header">
-                    <h2 class="view-title">场景 Agent</h2>
-                    <p class="view-desc">场景规划统一跟随共享 Agent 主预设</p>
+                    <h2 class="view-title">Agent API 配置</h2>
+                    <p class="view-desc">完整管理小白X共享主预设；画图场景规划会直接使用这里的当前配置</p>
                 </div>
 
-                <div class="card">
-                    <div class="card-title">共享 Agent 主预设</div>
-                    <p class="form-hint">Provider、模型、API Key、温度、Token、Reasoning 与 Tool 模式均由共享 Agent 管理，画图不保存副本。</p>
-                    <div class="agent-summary-grid">
-                        <div class="agent-summary-item"><span class="agent-summary-label">主预设</span><span id="sd-agent-preset" class="agent-summary-value">—</span></div>
-                        <div class="agent-summary-item"><span class="agent-summary-label">Provider</span><span id="sd-agent-provider" class="agent-summary-value">—</span></div>
-                        <div class="agent-summary-item wide"><span class="agent-summary-label">模型</span><span id="sd-agent-model" class="agent-summary-value">—</span></div>
-                        <div class="agent-summary-item"><span class="agent-summary-label">Tool 模式</span><span id="sd-agent-tool-mode" class="agent-summary-value">—</span></div>
-                        <div class="agent-summary-item"><span class="agent-summary-label">Reasoning</span><span id="sd-agent-reasoning" class="agent-summary-value">—</span></div>
-                    </div>
-                    <div id="sd-agent-status" class="status-text"></div>
-                    <div class="tip-box" style="margin-top:12px;">
-                        <i class="fa-solid fa-circle-info"></i>
-                        <div id="sd-agent-compatibility">正在读取共享 Agent 配置…</div>
-                    </div>
-                    <div class="action-status-row">
-                        <div class="btn-group">
-                            <button id="sd-agent-open-settings" class="btn btn-primary" type="button"><i class="fa-solid fa-arrow-up-right-from-square"></i> 打开共享 Agent 设置</button>
-                            <button id="sd-agent-refresh" class="btn" type="button"><i class="fa-solid fa-rotate"></i> 刷新状态</button>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="card">
-                    <div class="card-title">消息过滤规则</div>
-                    <p class="form-hint" style="margin-bottom:8px;">过滤 RP 消息里的思考块或其他干扰内容，避免影响场景分析。起始和结束之间的内容会被移除。</p>
-                    <div id="sd-filter-rules-list"></div>
-                    <div class="btn-group" style="margin-top:8px;">
-                        <button id="sd-filter-add" class="btn btn-sm">+ 添加规则</button>
-                        <button id="sd-filter-reset" class="btn btn-sm">恢复默认</button>
-                    </div>
-                    <div class="action-status-row">
-                        <div class="btn-group">
-                            <button id="sd-filter-save" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> 保存规则</button>
-                        </div>
-                        <div id="sd-filter-status" class="status-text"></div>
-                    </div>
-                </div>
-
-                <div class="card">
-                    <div class="card-title">最近一次实际请求</div>
-                    <p class="form-hint">显示最近一次场景分析请求，方便检查提示词和上下文。</p>
-                    <div class="btn-group" style="margin-top:8px;">
-                        <button id="sd-llm-request-refresh" class="btn btn-sm" type="button">刷新最近请求</button>
-                    </div>
-                    <pre id="sd-llm-request-preview" class="llm-request-preview">暂无请求记录，请先触发一次画图分析。</pre>
+                <div id="sd-agent-settings-surface" class="draw-agent-settings-surface">
+                    <div class="draw-agent-settings-state"><i class="fa-solid fa-spinner fa-spin"></i><span>正在读取共享 Agent API 配置…</span></div>
                 </div>
             </section>
 
@@ -810,14 +749,45 @@ select.input { cursor: pointer; }
                     <div id="sd-prompts-status" class="status-text"></div>
                 </div>
 
-                <div class="card prompt-chain-card">
-                    <div class="prompt-card-header prompt-chain-toggle" id="sd-chain-toggle">
-                        <div class="card-title"><i class="fa-solid fa-link"></i> 请求结构</div>
-                        <span class="chain-toggle-icon">▶ 展开</span>
+                <details class="card prompt-advanced-card">
+                    <summary class="prompt-card-header">
+                        <div class="card-title"><i class="fa-solid fa-filter"></i> 消息过滤规则</div>
+                        <span class="chain-toggle-icon" aria-hidden="true"></span>
+                    </summary>
+                    <p class="form-hint" style="margin-bottom:8px;">送模前移除 RP 消息里的思考块等干扰内容，避免污染场景分析。</p>
+                    <div id="sd-filter-rules-list"></div>
+                    <div class="btn-group" style="margin-top:8px;">
+                        <button id="sd-filter-add" class="btn btn-sm">+ 添加规则</button>
+                        <button id="sd-filter-reset" class="btn btn-sm">恢复默认</button>
                     </div>
+                    <div class="action-status-row">
+                        <div class="btn-group">
+                            <button id="sd-filter-save" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> 保存规则</button>
+                        </div>
+                        <div id="sd-filter-status" class="status-text"></div>
+                    </div>
+                </details>
+
+                <details class="card prompt-advanced-card">
+                    <summary class="prompt-card-header">
+                        <div class="card-title"><i class="fa-solid fa-link"></i> 请求结构</div>
+                        <span class="chain-toggle-icon" aria-hidden="true"></span>
+                    </summary>
                     <p class="form-hint">实际请求只有 1 条 system 与 1 条 user；下列片段按顺序拼进同一条 user 任务。</p>
                     <div id="sd-prompt-chain" class="prompt-chain-container"></div>
-                </div>
+                </details>
+
+                <details class="card prompt-advanced-card">
+                    <summary class="prompt-card-header">
+                        <div class="card-title"><i class="fa-solid fa-code"></i> 最近一次实际请求</div>
+                        <span class="chain-toggle-icon" aria-hidden="true"></span>
+                    </summary>
+                    <p class="form-hint">查看最近一次场景分析真正发送的请求、Provider 适配结果与诊断信息。</p>
+                    <div class="btn-group" style="margin-top:8px;">
+                        <button id="sd-llm-request-refresh" class="btn btn-sm" type="button">刷新最近请求</button>
+                    </div>
+                    <pre id="sd-llm-request-preview" class="llm-request-preview">暂无请求记录，请先触发一次画图分析。</pre>
+                </details>
             </section>
 
             <section class="view" data-sd-view-panel="worldbook">

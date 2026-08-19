@@ -793,18 +793,21 @@ function cachePanelDOM(el) {
 function bindCommonEvents($cache, parentEl = null) {
     $cache.autoToggle?.addEventListener('click', async (e) => {
         e.stopPropagation();
-        const config = getConfigFn?.();
-        if (!config) return;
-        const newValue = config.autoSpeak === false;
-        config.autoSpeak = newValue;
-        await saveConfigFn?.({ autoSpeak: newValue });
+        if (!getConfigFn?.()) return;
+        const saveConfig = saveConfigFn;
+        // 翻转在保存队列内基于最新配置计算：连点两次若都读保存前的旧值会算出同一个
+        // 结果，第二次点击的意图就丢了。
+        await saveConfig?.(current => ({ autoSpeak: current?.autoSpeak === false }));
+        if (saveConfig !== saveConfigFn) return;
         updateAutoSpeakAll();
     });
     $cache.voiceSelect?.addEventListener('change', async (e) => {
         const config = getConfigFn?.();
         if (config?.volc) {
-            config.volc.defaultSpeaker = e.target.value;
-            await saveConfigFn?.({ volc: config.volc });
+            const saveConfig = saveConfigFn;
+            await saveConfig?.({ volc: { defaultSpeaker: e.target.value } });
+            if (saveConfig !== saveConfigFn) return;
+            updateVoiceAll();
         }
     });
     $cache.speedSlider?.addEventListener('input', (e) => {
@@ -817,8 +820,10 @@ function bindCommonEvents($cache, parentEl = null) {
     $cache.speedSlider?.addEventListener('change', async (e) => {
         const config = getConfigFn?.();
         if (config?.volc) {
-            config.volc.speechRate = Number(e.target.value);
-            await saveConfigFn?.({ volc: config.volc });
+            const saveConfig = saveConfigFn;
+            const saved = await saveConfig?.({ volc: { speechRate: Number(e.target.value) } });
+            if (saveConfig !== saveConfigFn) return;
+            if (!saved) setPlaybackRateFn?.(getConfigFn?.()?.volc?.speechRate ?? config.volc.speechRate);
             updateSpeedAll();
         }
     });

@@ -51,6 +51,32 @@ test('Anthropic request sends tool_choice only when tools are present', () => {
     assert.equal(Object.hasOwn(withoutTools, 'tool_choice'), false);
 });
 
+test('Anthropic reasoning sends independent effort and output visibility controls', () => {
+    const adapter = new AnthropicAdapter({
+        apiKey: 'test-key',
+        baseUrl: 'https://anthropic.example',
+        model: 'claude-test',
+    });
+    const hiddenTask = {
+        messages: [{ role: 'user', content: 'think' }],
+        reasoning: { enabled: true, effort: 'max', includeOutput: false },
+    };
+    const hiddenBody = adapter.buildRequestBody(hiddenTask);
+    assert.deepEqual(hiddenBody.thinking, { type: 'adaptive', display: 'omitted' });
+    assert.deepEqual(hiddenBody.output_config, { effort: 'max' });
+    assert.deepEqual(adapter.inspectRequest(hiddenTask, { body: hiddenBody }).effectiveConfig, {
+        reasoningEnabled: true,
+        reasoningEffort: 'max',
+        reasoningIncludeOutput: false,
+    });
+
+    const visibleBody = adapter.buildRequestBody({
+        ...hiddenTask,
+        reasoning: { ...hiddenTask.reasoning, includeOutput: true },
+    });
+    assert.equal(visibleBody.thinking.display, 'summarized');
+});
+
 test('Anthropic adapter groups consecutive tool results into one user message', () => {
     const messages = buildAnthropicMessages([
         { role: 'user', content: 'read two files' },

@@ -32,7 +32,8 @@ import {
     normalizeSharedCacheDays,
     mergeNovelDrawProviderSettingsIntoStorageRoot,
 } from '../../shared/draw-settings.js';
-import { getDrawAgentViewModel, getLastDrawAgentDiagnostic, openSharedAgentSettings } from '../../shared/draw-agent.js';
+import { getLastDrawAgentDiagnostic } from '../../shared/draw-agent.js';
+import { attachDrawAgentSettingsSurface } from '../../shared/agent-settings-surface.js';
 import { createSerialImageRequestQueue } from '../../shared/serial-image-request-queue.js';
 import {
     NovelImageResponseError,
@@ -265,6 +266,7 @@ const novelImageRequestQueue = createSerialImageRequestQueue({
 let ensureNovelDrawPanelRef = null;
 let overlayResizeHandler = null;
 let afterAiGateDispose = null;
+let agentSettingsSurface = null;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 样式
@@ -968,7 +970,7 @@ async function loadSettings() {
     if (settingsLoaded && settingsCache) return settingsCache;
 
     try {
-        const saved = await NovelDrawStorage.get(SERVER_FILE_KEY, null);
+        const saved = await NovelDrawStorage.getStrict(SERVER_FILE_KEY, null);
         console.log('[NovelDraw] loadSettings from server: autoLearn=%s, advMode=%s',
             saved?.autoLearnCharacters, saved?.advancedMode);
         settingsCache = normalizeSettings(saved || {});
@@ -977,15 +979,18 @@ async function loadSettings() {
             settingsCache.configVersion = CONFIG_VERSION;
             settingsCache.updatedAt = Date.now();
             const storageValue = mergeNovelDrawProviderSettingsIntoStorageRoot(saved, settingsCache);
-            await NovelDrawStorage.setAndSave(SERVER_FILE_KEY, storageValue, { silent: true });
+            const savedMigration = await NovelDrawStorage.setAndSave(SERVER_FILE_KEY, storageValue, { silent: true });
+            if (!savedMigration) throw new Error('默认设置保存失败');
         }
+        settingsLoaded = true;
+        return settingsCache;
     } catch (e) {
         console.error('[NovelDraw] 加载设置失败:', e);
-        settingsCache = normalizeSettings({});
+        settingsCache = null;
+        settingsLoaded = false;
+        showToast('无法读取 NovelAI 配置，已禁止保存，请稍后重试', 'error', 5000);
+        throw e;
     }
-
-    settingsLoaded = true;
-    return settingsCache;
 }
 
 function getSettings() {
@@ -1060,6 +1065,11 @@ function saveSettings(s) {
 }
 
 async function persistSettings(s, okText = '已保存', { notify = true, silent = false, target = '' } = {}) {
+    if (!settingsLoaded) {
+        console.error('[NovelDraw] 设置尚未成功加载，拒绝保存');
+        if (notify) postStatus('error', '配置尚未成功加载，已禁止保存', target);
+        return false;
+    }
     const next = normalizeSettings(s);
     next.updatedAt = Date.now();
     next.configVersion = CONFIG_VERSION;
@@ -1079,7 +1089,7 @@ async function persistSettings(s, okText = '已保存', { notify = true, silent 
     try {
         // 先切到最新内存态，避免“刚保存立刻生成”仍读到旧 key / 旧参数。
         settingsCache = next;
-        const latest = await NovelDrawStorage.get(SERVER_FILE_KEY, null);
+        const latest = await NovelDrawStorage.getStrict(SERVER_FILE_KEY, null);
         const storageValue = mergeNovelDrawProviderSettingsIntoStorageRoot(latest, next);
         const ok = await NovelDrawStorage.setAndSave(SERVER_FILE_KEY, storageValue, { silent });
         if (ok !== false) {
@@ -1107,13 +1117,22 @@ async function persistSettings(s, okText = '已保存', { notify = true, silent 
 }
 
 async function updateSettingsPersistent(mutator, okText = '已保存', options = {}) {
+    if (!settingsLoaded) {
+        console.error('[NovelDraw] 设置尚未成功加载，拒绝保存');
+        if (options.notify !== false) postStatus('error', '配置尚未成功加载，已禁止保存', options.target || '');
+        return false;
+    }
     let base = getSettings();
     try {
-        const latest = await NovelDrawStorage.get(SERVER_FILE_KEY, null);
+        const latest = await NovelDrawStorage.getStrict(SERVER_FILE_KEY, null);
         if (latest && typeof latest === 'object') {
             base = normalizeSettings(latest);
         }
-    } catch {}
+    } catch (error) {
+        console.error('[NovelDraw] 刷新设置失败，拒绝保存:', error);
+        if (options.notify !== false) postStatus('error', `保存失败：${error?.message || '配置读取失败'}`, options.target || '');
+        return false;
+    }
     const draft = cloneSettingsObject(base);
     if (typeof mutator === 'function') {
         await mutator(draft);
@@ -2710,7 +2729,6 @@ async function buildTextSourceTasks({ messageText, presentCharacters, settings, 
         customPrompts,
         promptDefaults: DEFAULT_PROMPT_CONFIG,
         worldbookEntries,
-        timeout: settings.timeout || 120000,
         maxImages: preset.maxImages || 0,
         maxCharactersPerImage: preset.maxCharactersPerImage || 0,
         signal,
@@ -2928,7 +2946,6 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
                 customPrompts,
                 promptDefaults: DEFAULT_PROMPT_CONFIG,
                 worldbookEntries,
-                timeout: settings.timeout || 120000,
                 maxImages: preset.maxImages || 0,
                 maxCharactersPerImage: preset.maxCharactersPerImage || 0,
                 signal,
@@ -3344,6 +3361,8 @@ function showOverlay() {
 }
 
 function hideOverlay() {
+    agentSettingsSurface?.destroy();
+    agentSettingsSurface = null;
     const overlay = document.getElementById('xiaobaix-novel-draw-overlay');
     if (overlay) overlay.remove();
     overlayCreated = false;
@@ -3426,6 +3445,23 @@ function postStatus(state, text, target = '') {
     if (iframe) postToIframe(iframe, { type: 'STATUS', state, text, target }, 'LittleWhiteBox-NovelDraw');
 }
 
+function getAgentSettingsSurfaceRoot() {
+    return document.getElementById('xiaobaix-novel-draw-iframe')
+        ?.contentDocument
+        ?.getElementById('nd-agent-settings-surface') || null;
+}
+
+function ensureAgentSettingsSurface() {
+    agentSettingsSurface = attachDrawAgentSettingsSurface({
+        surface: agentSettingsSurface,
+        getRoot: getAgentSettingsSurfaceRoot,
+        showToast: (message) => toastr.info(String(message || ''), 'Agent API'),
+        source: 'draw-novelai',
+        logPrefix: 'NovelDraw',
+    });
+    return agentSettingsSurface;
+}
+
 async function handleFrameMessage(event) {
     const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
     if (!isTrustedMessage(event, iframe, 'NovelDraw-Frame')) return;
@@ -3436,6 +3472,7 @@ async function handleFrameMessage(event) {
         case 'FRAME_READY':
             frameReady = true;
             sendInitData();
+            ensureAgentSettingsSurface();
             // 若本地 Danbooru DB 已启用，预加载（失败只警告，不修改用户设置）
             if (getSharedDrawSettings().danbooruLocalDB) {
                 const datUrl = `${extensionFolderPath}/modules/draw/shared/data/danbooru-chars.dat`;
@@ -3791,8 +3828,8 @@ async function handleFrameMessage(event) {
             break;
         }
 
-        case 'OPEN_SHARED_AGENT_SETTINGS': {
-            if (!openSharedAgentSettings()) postStatus('error', '共享 Agent 设置暂不可用', 'llm');
+        case 'ENSURE_AGENT_SETTINGS': {
+            ensureAgentSettingsSurface();
             break;
         }
 
@@ -3902,7 +3939,16 @@ async function handleFrameMessage(event) {
 
         case 'GET_PROMPT_CHAIN': {
             const { getPromptChainPreview } = await import('./novel-prompts.js');
-            const chain = getPromptChainPreview(getSettings().customPrompts);
+            const currentPrompts = getSettings().customPrompts || {};
+            const promptDraft = data.customPrompts && typeof data.customPrompts === 'object'
+                ? {
+                    ...currentPrompts,
+                    topSystem: String(data.customPrompts.topSystem ?? currentPrompts.topSystem ?? ''),
+                    tagGuideContent: String(data.customPrompts.tagGuideContent ?? currentPrompts.tagGuideContent ?? ''),
+                    sceneRules: String(data.customPrompts.sceneRules ?? currentPrompts.sceneRules ?? ''),
+                }
+                : currentPrompts;
+            const chain = getPromptChainPreview(promptDraft);
             const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
             if (iframe) postToIframe(iframe, { type: 'PROMPT_CHAIN_DATA', chain }, 'LittleWhiteBox-NovelDraw');
             break;
@@ -3913,16 +3959,6 @@ async function handleFrameMessage(event) {
                 postToIframe(iframe, {
                     type: 'LAST_LLM_REQUEST_DATA',
                     snapshot: getLastDrawAgentDiagnostic(),
-                }, 'LittleWhiteBox-NovelDraw');
-            }
-            break;
-        }
-
-        case 'GET_DRAW_AGENT_STATUS': {
-            if (iframe) {
-                postToIframe(iframe, {
-                    type: 'DRAW_AGENT_STATUS_DATA',
-                    status: await getDrawAgentViewModel(),
                 }, 'LittleWhiteBox-NovelDraw');
             }
             break;
@@ -4041,9 +4077,14 @@ async function handleFrameMessage(event) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export async function openNovelDrawSettings() {
-    await loadSettings();
-    await loadSharedDrawSettings();
+    try {
+        await loadSettings();
+        await loadSharedDrawSettings();
+    } catch {
+        return false;
+    }
     showOverlay();
+    return true;
 }
 
 export async function initNovelDraw() {
@@ -4051,8 +4092,13 @@ export async function initNovelDraw() {
     if (moduleInitialized) return;
 
     await loadPromptTemplates();
-    await loadSettings();
-    const sharedDrawSettings = await loadSharedDrawSettings();
+    let sharedDrawSettings;
+    try {
+        await loadSettings();
+        sharedDrawSettings = await loadSharedDrawSettings();
+    } catch {
+        return false;
+    }
     moduleInitialized = true;
     initAfterAiGate();
     afterAiGateDispose?.();
@@ -4182,6 +4228,7 @@ export async function initNovelDraw() {
 
     window.registerModuleCleanup?.(MODULE_KEY, cleanupNovelDraw);
     console.log('[NovelDraw] 模块已初始化');
+    return true;
 }
 
 export async function cleanupNovelDraw() {

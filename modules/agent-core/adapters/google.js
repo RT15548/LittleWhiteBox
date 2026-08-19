@@ -1,5 +1,8 @@
 import { FunctionCallingConfigMode, GoogleGenAI, ThinkingLevel } from '@google/genai';
-import { buildSdkRequestInspection } from './request-inspection.js';
+import {
+    buildEffectiveReasoningConfig,
+    buildSdkRequestInspection,
+} from './request-inspection.js';
 
 function parseArguments(text) {
     try {
@@ -313,6 +316,8 @@ function buildToolResponseMessage(toolResponses = []) {
 
 function mapThinkingLevel(effort) {
     switch (effort) {
+        case 'minimal':
+            return ThinkingLevel.MINIMAL;
         case 'high':
             return ThinkingLevel.HIGH;
         case 'medium':
@@ -551,7 +556,7 @@ export class GoogleAdapter {
         };
         if (task.reasoning?.enabled) {
             config.thinkingConfig = {
-                includeThoughts: true,
+                includeThoughts: task.reasoning.includeOutput !== false,
                 thinkingLevel: mapThinkingLevel(task.reasoning.effort),
             };
         }
@@ -616,6 +621,11 @@ export class GoogleAdapter {
             sdk: typeof task.onStreamProgress === 'function'
                 ? 'client.chats.create(...).sendMessageStream'
                 : 'client.chats.create(...).sendMessage',
+            effectiveConfig: buildEffectiveReasoningConfig(task, {
+                enabled: !!payload.createPayload.config?.thinkingConfig,
+                effort: payload.createPayload.config?.thinkingConfig?.thinkingLevel,
+                includeOutput: payload.createPayload.config?.thinkingConfig?.includeThoughts === true,
+            }),
         });
     }
 
@@ -637,6 +647,11 @@ export class GoogleAdapter {
             sdk: typeof task.onStreamProgress === 'function'
                 ? 'activeChat.sendMessageStream'
                 : 'activeChat.sendMessage',
+            effectiveConfig: buildEffectiveReasoningConfig(task, {
+                enabled: !!this.sessionConfig?.thinkingConfig,
+                effort: this.sessionConfig?.thinkingConfig?.thinkingLevel,
+                includeOutput: this.sessionConfig?.thinkingConfig?.includeThoughts === true,
+            }),
         });
     }
 
@@ -689,10 +704,12 @@ export class GoogleAdapter {
                 if (chunkContent?.parts?.length) {
                     streamedContents.push(chunkContent);
                 }
-                extractThoughts(chunk).forEach((item, index) => {
-                    const key = `${item.label}:${index}`;
-                    thoughtMap.set(key, mergeStreamText(thoughtMap.get(key) || '', item.text));
-                });
+                if (task.reasoning?.includeOutput !== false) {
+                    extractThoughts(chunk).forEach((item, index) => {
+                        const key = `${item.label}:${index}`;
+                        thoughtMap.set(key, mergeStreamText(thoughtMap.get(key) || '', item.text));
+                    });
+                }
 
                 finalFunctionCalls = streamFunctionCalls.append(chunk);
 
@@ -727,7 +744,7 @@ export class GoogleAdapter {
             text = streamedText;
         } else {
             response = await chat.sendMessage(requestPayload);
-            thoughts = extractThoughts(response);
+            thoughts = task.reasoning?.includeOutput === false ? [] : extractThoughts(response);
             text = extractVisibleText(response);
         }
 

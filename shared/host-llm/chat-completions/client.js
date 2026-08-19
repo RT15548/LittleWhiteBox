@@ -210,7 +210,7 @@ export function buildHostChatCompletionsGeneratePayload(
         reasoning_effort: task.reasoning?.enabled ? task.reasoning.effort : undefined,
         include_reasoning: source === HOST_CHAT_COMPLETIONS_SOURCE_OPENAI
             ? undefined
-            : (task.reasoning?.enabled ? true : undefined),
+            : (task.reasoning?.enabled ? task.reasoning.includeOutput !== false : undefined),
     });
 }
 

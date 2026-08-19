@@ -28,19 +28,23 @@ export function createEbookHostBridge(options = {}) {
         const requestId = createRequestId('host');
         postToHost(type, { ...payload, requestId });
         return new Promise((resolve, reject) => {
-            const requestTimeoutMs = Number(requestOptions.timeoutMs) || timeoutMs;
+            const requestTimeoutMs = requestOptions.timeoutMs === null
+                ? null
+                : (Number(requestOptions.timeoutMs) || timeoutMs);
             const signal = requestOptions.signal;
             let settled = false;
-            const timer = setTimeout(() => {
-                settled = true;
-                pendingRequests.delete(requestId);
-                signal?.removeEventListener?.('abort', abortRequest);
-                reject(new Error('host_request_timeout'));
-            }, requestTimeoutMs);
+            const timer = requestTimeoutMs === null
+                ? null
+                : setTimeout(() => {
+                    settled = true;
+                    pendingRequests.delete(requestId);
+                    signal?.removeEventListener?.('abort', abortRequest);
+                    reject(new Error('host_request_timeout'));
+                }, requestTimeoutMs);
             const settle = (callback, value) => {
                 if (settled) return;
                 settled = true;
-                clearTimeout(timer);
+                if (timer !== null) clearTimeout(timer);
                 signal?.removeEventListener?.('abort', abortRequest);
                 pendingRequests.delete(requestId);
                 callback(value);
@@ -67,7 +71,9 @@ export function createEbookHostBridge(options = {}) {
         const pending = pendingRequests.get(requestId);
         if (!pending) return;
         if (payload?.ok === false) {
-            pending.reject(new Error(payload?.error || 'host_request_failed'));
+            const error = new Error(payload?.error || 'host_request_failed');
+            error.payload = payload;
+            pending.reject(error);
         } else {
             pending.resolve(payload);
         }

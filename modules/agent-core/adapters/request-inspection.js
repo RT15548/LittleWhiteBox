@@ -14,6 +14,22 @@ export function redactRequestSecrets(value) {
     return redacted;
 }
 
+export function buildEffectiveReasoningConfig(task = {}, overrides = {}) {
+    const enabled = typeof overrides.enabled === 'boolean'
+        ? overrides.enabled
+        : task.reasoning?.enabled === true;
+    const includeOutput = enabled && (typeof overrides.includeOutput === 'boolean'
+        ? overrides.includeOutput
+        : task.reasoning?.includeOutput !== false);
+    return {
+        reasoningEnabled: enabled,
+        reasoningEffort: enabled
+            ? String(overrides.effort ?? task.reasoning?.effort ?? '')
+            : '',
+        reasoningIncludeOutput: includeOutput,
+    };
+}
+
 export function buildSdkRequestInspection(input = {}) {
     return {
         provider: input.provider || '',
@@ -26,5 +42,6 @@ export function buildSdkRequestInspection(input = {}) {
             body: input.body || {},
             sdk: input.sdk || undefined,
         }),
+        ...(input.effectiveConfig ? { effectiveConfig: input.effectiveConfig } : {}),
     };
 }
