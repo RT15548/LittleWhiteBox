@@ -26,6 +26,8 @@ import {
     warmSlotPreviewNeighbors,
 } from "../../shared/gallery-cache.js";
 import { generateAndParseScenePlan } from "../../shared/scene-planner.js";
+import { createSceneSource } from "../../shared/scene-source.js";
+import { assertSceneSourceUnchanged, insertScenePlacements } from "../../shared/scene-placement.js";
 import { WorldbookProcessor } from "../../shared/worldbook-processor.js";
 import {
     loadSharedDrawSettings,
@@ -43,11 +45,8 @@ import {
     renderPreviewsForMessage,
     buildImageHtml,
     insertPreviewIntoRenderedMessage,
-    findAnchorPosition,
-    findNearestSentenceEnd,
     detectPresentCharacters,
     assembleCharacterPrompts,
-    applyMessageFilterRules,
     DEFAULT_MESSAGE_FILTER_RULES,
     joinTags,
     ensureDrawImageStyles,
@@ -3920,25 +3919,27 @@ async function autoGenerateForLastAI() {
     }
 }
 
-async function buildTasksFromMessage({ message, messageId, signal, promptOverride = '', negativePromptOverride = '', useWorldbook = true }) {
+async function buildTasksFromMessage({ message, messageId, signal, promptOverride = '', negativePromptOverride = '', useWorldbook = true, stripImageMarkers = true }) {
     if (promptOverride.trim()) {
-        return [{ scene: promptOverride.trim(), chars: [], characterPrompts: [], anchor: '' }];
+        return {
+            tasks: [{ scene: promptOverride.trim(), chars: [], characterPrompts: [], placement: { mode: 'tail' } }],
+            sceneSource: null,
+        };
     }
 
     await loadSharedDrawSettings();
 
     const sharedDrawSettings = getSharedDrawSettings();
-    const rawText = String(message.mes || '')
-        .replace(/\[image:[a-z0-9\-_]+\]/gi, '')
-        .replace(/\[ebook-image:[a-z0-9\-_]+\]/gi, '')
-        .trim();
+    const sourceText = stripImageMarkers
+        ? String(message.mes || '').replace(/\[image:[a-z0-9\-_]+\]/gi, '')
+        : String(message.mes || '');
     const filterRules = sharedDrawSettings.messageFilterRules?.length
         ? sharedDrawSettings.messageFilterRules
         : DEFAULT_MESSAGE_FILTER_RULES;
-    const messageText = applyMessageFilterRules(rawText, filterRules);
-    if (!messageText) throw new Error('消息内容为空（可能被过滤规则清空）');
+    const sceneSource = createSceneSource(sourceText, { filterRules });
+    if (!sceneSource.content) throw new Error('消息内容为空（可能被过滤规则清空）');
 
-    const presentCharacters = detectPresentCharacters(messageText, sharedDrawSettings.characterTags || []);
+    const presentCharacters = detectPresentCharacters(sceneSource.content, sharedDrawSettings.characterTags || []);
     let worldbookEntries = null;
 
     if (useWorldbook && sharedDrawSettings.worldbooks?.enabled && sharedDrawSettings.worldbooks.uploadedBooks?.length) {
@@ -3947,7 +3948,7 @@ async function buildTasksFromMessage({ message, messageId, signal, promptOverrid
         const allEntries = sharedDrawSettings.worldbooks.uploadedBooks.flatMap(b => b.entries || []);
         worldbookEntries = processor.processFromEntries({
             entries: allEntries,
-            contextText: `${messageText} ${charNames}`,
+            contextText: `${sceneSource.content} ${charNames}`,
             keywordFilterMode: sharedDrawSettings.worldbooks.keywordFilterMode || 'auto',
         });
     }
@@ -3955,7 +3956,7 @@ async function buildTasksFromMessage({ message, messageId, signal, promptOverrid
     const preset = getActivePreset(getSettings());
     const promptPreset = getActivePromptPreset(getSettings()) || DEFAULT_PROMPT_CONFIG;
     const tasks = await generateAndParseScenePlan({
-        messageText,
+        sceneSource,
         presentCharacters,
         useWorldInfo: useWorldbook && sharedDrawSettings.useWorldInfo,
         customPrompts: promptPreset,
@@ -3967,7 +3968,7 @@ async function buildTasksFromMessage({ message, messageId, signal, promptOverrid
     });
 
     console.log('[ComfyDraw] LLM plan ready for message %s: %d task(s)', messageId, tasks.length);
-    return tasks;
+    return { tasks, sceneSource };
 }
 
 function buildPromptForTask(task, sharedDrawSettings, comfySettings, promptOverride = '', negativePromptOverride = '') {
@@ -4031,8 +4032,8 @@ function buildTextSourceGalleryMeta(options = {}) {
 }
 
 export async function generateImagesFromText(options = {}) {
-    const text = String(options.text || '').trim();
-    if (!text) throw new Error('正文内容为空，无法配图');
+    const text = String(options.text || '');
+    if (!text.trim()) throw new Error('正文内容为空，无法配图');
     const signal = options.signal || new AbortController().signal;
     const galleryMeta = buildTextSourceGalleryMeta(options);
     const messageId = String(options.messageId || galleryMeta.messageId || `text:${Date.now()}`);
@@ -4045,13 +4046,14 @@ export async function generateImagesFromText(options = {}) {
     ensureDrawImageStyles();
     await openDB();
     options.onStateChange?.('llm', {});
-    const tasks = await buildTasksFromMessage({
+    const { tasks, sceneSource } = await buildTasksFromMessage({
         message,
         messageId,
         signal,
         promptOverride: options.promptOverride || '',
         negativePromptOverride: options.negativePromptOverride || '',
         useWorldbook: false,
+        stripImageMarkers: false,
     });
     if (signal.aborted) throw new Error('已取消');
 
@@ -4104,14 +4106,13 @@ export async function generateImagesFromText(options = {}) {
                 positive: promptData.positive,
                 characterPrompts: promptData.characterPrompts,
                 negativePrompt: promptData.negative,
-                anchor: task.anchor || '',
             });
             await setSlotSelection(slotId, imgId);
             successCount++;
             images.push({
                 slotId,
                 imgId,
-                anchor: task.anchor || '',
+                placement: task.placement,
                 tags: task.scene || options.promptOverride || '',
                 positive: promptData.positive,
                 negativePrompt: promptData.negative,
@@ -4131,11 +4132,10 @@ export async function generateImagesFromText(options = {}) {
                 errorMessage: errorType.desc,
                 characterPrompts: promptData.characterPrompts,
                 negativePrompt: promptData.negative,
-                anchor: task.anchor || '',
             });
             images.push({
                 slotId,
-                anchor: task.anchor || '',
+                placement: task.placement,
                 tags: task.scene || options.promptOverride || '',
                 positive: promptData.positive,
                 negativePrompt: promptData.negative,
@@ -4146,7 +4146,14 @@ export async function generateImagesFromText(options = {}) {
     }
 
     options.onStateChange?.('success', { success: successCount, total: tasks.length });
-    return { ok: true, source: options.source || 'text', success: successCount, total: tasks.length, images };
+    return {
+        ok: true,
+        source: options.source || 'text',
+        success: successCount,
+        total: tasks.length,
+        images,
+        sourceHash: sceneSource?.sourceHash || '',
+    };
 }
 
 async function persistChatSilently() {
@@ -4587,7 +4594,7 @@ async function refreshSingleImage(container) {
             imgId, slotId, messageId, base64,
             tags: container.dataset.tags || prompt, positive: prompt,
             characterPrompts: preview?.characterPrompts || [],
-            negativePrompt: promptData.negative || preview?.negativePrompt || params.negativePrefix || '', anchor: '',
+            negativePrompt: promptData.negative || preview?.negativePrompt || params.negativePrefix || '',
         });
         await setSlotSelection(slotId, imgId);
         void clearDrawSavedEntry(messageId, slotId).catch(() => {});
@@ -4633,7 +4640,7 @@ async function retryFailedImage(container) {
         await storePreview({
             imgId, slotId, messageId, base64, tags, positive,
             characterPrompts: latestFailed?.characterPrompts || [],
-            negativePrompt: negative, anchor: latestFailed?.anchor || '',
+            negativePrompt: negative,
         });
         await deleteFailedRecordsForSlot(slotId);
         await setSlotSelection(slotId, imgId);
@@ -4652,7 +4659,6 @@ async function retryFailedImage(container) {
             errorType: classified.code, errorMessage: classified.desc,
             characterPrompts: latestFailed?.characterPrompts || [],
             negativePrompt: latestFailed?.negativePrompt || '',
-            anchor: latestFailed?.anchor || '',
         }).catch(() => {});
 
         // eslint-disable-next-line no-unsanitized/property
@@ -4788,7 +4794,7 @@ export async function generateAndInsertImages({
         if (!message || message.is_user) throw new Error('消息不存在或不是 AI 消息');
 
         onStateChange?.('llm', {});
-        const tasks = await buildTasksFromMessage({
+        const { tasks, sceneSource } = await buildTasksFromMessage({
             message, messageId: resolvedMessageId, signal, promptOverride, negativePromptOverride,
         });
         if (signal.aborted) throw new Error('已取消');
@@ -4796,10 +4802,22 @@ export async function generateAndInsertImages({
         const comfySettings = getSettings();
         const sharedDrawSettings = getSharedDrawSettings();
         const originalMes = message.mes;
-        message.mes = String(message.mes || '').replace(/\[image:[a-z0-9\-_]+\]/gi, '');
+        const slotIds = tasks.map(() => generateSlotId());
+        const strippedNow = String(message.mes || '').replace(/\[image:[a-z0-9\-_]+\]/gi, '');
+        if (sceneSource) assertSceneSourceUnchanged(strippedNow, sceneSource.sourceHash);
+        message.mes = insertScenePlacements(strippedNow, tasks.map((task, index) => ({
+            placement: task.placement,
+            content: createPlaceholder(slotIds[index]),
+        })), { block: true });
+
+        const { messageFormatting } = await import('../../../../../../../../script.js');
+        const syncRenderedMessage = () => {
+            const formatted = messageFormatting(message.mes, message.name, message.is_system, message.is_user, resolvedMessageId);
+            $(`[mesid="${resolvedMessageId}"] .mes_text`).html(formatted);
+        };
+        syncRenderedMessage();
 
         onStateChange?.('gen', { current: 0, total: tasks.length });
-        const { messageFormatting } = await import('../../../../../../../../script.js');
         const results = [];
         let successCount = 0;
         let requiresFinalDomSync = false;
@@ -4810,14 +4828,13 @@ export async function generateAndInsertImages({
             if (currentCtx.chatId !== initialChatId || currentCtx.chat?.[resolvedMessageId] !== message) break;
 
             const task = tasks[i];
-            const slotId = generateSlotId();
+            const slotId = slotIds[i];
             const imgId = generateImgId();
             const params = getEffectiveParams(comfySettings, paramsOverride);
             const promptData = buildPromptForTask(task, sharedDrawSettings, {
                 positivePrefix: params.positivePrefix,
                 negativePrefix: params.negativePrefix,
             }, promptOverride, negativePromptOverride);
-            let position = findAnchorPosition(message.mes, task.anchor);
 
             onStateChange?.('progress', { current: i + 1, total: tasks.length });
 
@@ -4844,7 +4861,7 @@ export async function generateAndInsertImages({
                     imgId, slotId, messageId: resolvedMessageId, base64,
                     tags: task.scene || promptOverride, positive: promptData.positive,
                     characterPrompts: promptData.characterPrompts,
-                    negativePrompt: promptData.negative, anchor: task.anchor || '',
+                    negativePrompt: promptData.negative,
                 });
                 await setSlotSelection(slotId, imgId);
                 successCount++;
@@ -4862,7 +4879,7 @@ export async function generateAndInsertImages({
                     tags: task.scene || promptOverride, positive: promptData.positive,
                     errorType: errorType.code, errorMessage: errorType.desc,
                     characterPrompts: promptData.characterPrompts,
-                    negativePrompt: promptData.negative, anchor: task.anchor || '',
+                    negativePrompt: promptData.negative,
                 });
                 results.push({ slotId, success: false, error: errorType });
                 incrementalHtml = buildFailedPlaceholderHtml({
@@ -4874,33 +4891,34 @@ export async function generateAndInsertImages({
 
             if (signal.aborted) break;
 
-            const placeholder = createPlaceholder(slotId);
-            if (position >= 0) {
-                position = findNearestSentenceEnd(message.mes, position);
-                const before = message.mes.slice(0, position);
-                const after = message.mes.slice(position);
-                let insertText = placeholder;
-                if (before.length > 0 && !before.endsWith('\n')) insertText = `\n${insertText}`;
-                if (after.length > 0 && !after.startsWith('\n')) insertText = `${insertText}\n`;
-                message.mes = before + insertText + after;
-            } else {
-                const needNewline = message.mes.length > 0 && !message.mes.endsWith('\n');
-                message.mes += `${needNewline ? '\n' : ''}${placeholder}`;
-            }
-
             const inserted = insertPreviewIntoRenderedMessage({
-                messageId: resolvedMessageId, slotId, html: incrementalHtml, anchor: task.anchor || '',
+                messageId: resolvedMessageId, slotId, html: incrementalHtml,
             });
             if (!inserted) {
                 requiresFinalDomSync = true;
-                const formatted = messageFormatting(message.mes, message.name, message.is_system, message.is_user, resolvedMessageId);
-                $(`[mesid="${resolvedMessageId}"] .mes_text`).html(formatted);
+                syncRenderedMessage();
                 await renderPreviewsForMessage(resolvedMessageId);
             }
         }
 
         if (signal.aborted) {
-            if (successCount === 0) message.mes = originalMes;
+            if (successCount === 0) {
+                message.mes = originalMes;
+            } else {
+                const attemptedSlots = new Set(results.map(item => item.slotId));
+                slotIds.filter(id => !attemptedSlots.has(id)).forEach(id => {
+                    // block 插入可能在占位符两侧补过换行；两侧都吃到换行时保留一个，避免吞掉段落空行
+                    message.mes = message.mes.replace(
+                        new RegExp(`(\\n?)\\[image:${id}\\](\\n?)`),
+                        (match, before, after) => (before && after ? '\n' : ''),
+                    );
+                });
+            }
+            const abortCtx = getContext();
+            if (abortCtx.chatId === initialChatId && abortCtx.chat?.[resolvedMessageId] === message) {
+                syncRenderedMessage();
+                await renderPreviewsForMessage(resolvedMessageId);
+            }
             onStateChange?.('success', { success: successCount, total: tasks.length, aborted: true });
             return { success: successCount, total: tasks.length, results, aborted: true };
         }
@@ -4908,8 +4926,7 @@ export async function generateAndInsertImages({
         const finalCtx = getContext();
         const shouldUpdateDom = finalCtx.chatId === initialChatId && finalCtx.chat?.[resolvedMessageId] === message;
         if (shouldUpdateDom && requiresFinalDomSync) {
-            const formatted = messageFormatting(message.mes, message.name, message.is_system, message.is_user, resolvedMessageId);
-            $(`[mesid="${resolvedMessageId}"] .mes_text`).html(formatted);
+            syncRenderedMessage();
             await renderPreviewsForMessage(resolvedMessageId);
         }
         if (shouldUpdateDom) {

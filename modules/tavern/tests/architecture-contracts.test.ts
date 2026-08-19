@@ -2213,7 +2213,8 @@ test('tavern draw jobs are message-queued and route progress by host request', (
     assert.doesNotMatch(canDrawSource, /isRunning\.value|drawingMessageKey/);
 
     assert.ok(insertMarkersSource);
-    assert.match(insertMarkersSource, /if \(!image\.slotId\) \{return;\}/);
+    assert.match(insertMarkersSource, /\.filter\(\(image\) => image\.slotId\)/);
+    assert.match(insertMarkersSource, /insertScenePlacements\(text, insertions, \{ block: true \}\)/);
     assert.doesNotMatch(insertMarkersSource, /success === false/);
 
     assert.match(drawSource, /let drawCooldownTimer: number \| null = null;/);

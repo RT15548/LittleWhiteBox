@@ -810,7 +810,6 @@ function buildDeletedDrawPlaceholder(
         errorMessage: TAVERN_DRAW_DELETED_ERROR_MESSAGE,
         characterPrompts: cloneFramePayload(getDrawPreviewCharacterPrompts(source)),
         negativePrompt: String(source.negativePrompt || ''),
-        anchor: String(source.anchor || ''),
     };
 }
 
@@ -844,7 +843,6 @@ function buildRefreshFailedDrawPlaceholder(
         errorMessage,
         characterPrompts: cloneFramePayload(getDrawPreviewCharacterPrompts(source)),
         negativePrompt: String(source.negativePrompt || ''),
-        anchor: String(source.anchor || ''),
     };
 }
 
@@ -1081,7 +1079,6 @@ async function handleDrawImageRefresh(payload: Record<string, unknown> = {}): Pr
             positive: String(promptData.positive || tags),
             characterPrompts,
             negativePrompt: String(promptData.negativePrompt || negativePrompt || ''),
-            anchor: preview.anchor || '',
             source: 'tavern',
         });
         await setSlotSelection(slotId, imgId);

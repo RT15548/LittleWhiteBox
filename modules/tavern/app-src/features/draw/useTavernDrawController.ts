@@ -1,4 +1,9 @@
 import { computed, ref, type ComputedRef, type Ref } from 'vue';
+import {
+    ScenePlacementError,
+    insertScenePlacements,
+    type ScenePlacement,
+} from '../../../../draw/shared/scene-placement.js';
 import type { TavernMessageRecord } from '../../../shared/session-db';
 
 type TavernToastTone = 'info' | 'warning' | 'danger';
@@ -106,101 +111,20 @@ const DEFAULT_TAVERN_DRAW_QUICK_SETTINGS: TavernDrawQuickSettings = {
     selectedSize: '',
 };
 
-function findAnchorPosition(content = '', anchor = '') {
-    const text = String(content || '');
-    const target = String(anchor || '').trim();
-    if (!target) {return -1;}
-    const direct = text.indexOf(target);
-    if (direct >= 0) {return direct + target.length;}
-    const compactTarget = target.replace(/\s+/g, '');
-    if (!compactTarget) {return -1;}
-    const compactText = text.replace(/\s+/g, '');
-    const compactIndex = compactText.indexOf(compactTarget);
-    if (compactIndex < 0) {return -1;}
-    let compactSeen = 0;
-    for (let index = 0; index < text.length; index += 1) {
-        if (/\s/.test(text[index])) {continue;}
-        compactSeen += 1;
-        if (compactSeen >= compactIndex + compactTarget.length) {
-            return index + 1;
-        }
-    }
-    return -1;
-}
-
-function findNearestSentenceEnd(content = '', startPos = -1) {
-    const text = String(content || '');
-    if (startPos < 0 || !text) {return startPos;}
-    if (startPos >= text.length) {return text.length;}
-    const maxLookAhead = 80;
-    const endLimit = Math.min(text.length, startPos + maxLookAhead);
-    const basicEnders = new Set(['。', '！', '？', '!', '?', '…']);
-    const closingMarks = new Set(['”', '“', '’', '‘', '」', '』', '】', '）', ')', '"', "'", '*', '~', '～', ']']);
-    const eatClosingMarks = (position: number) => {
-        let next = position;
-        while (next < text.length && closingMarks.has(text[next])) {
-            next += 1;
-        }
-        return next;
-    };
-    if (startPos > 0 && basicEnders.has(text[startPos - 1])) {
-        return eatClosingMarks(startPos);
-    }
-    for (let offset = 0; offset < maxLookAhead && startPos + offset < endLimit; offset += 1) {
-        const position = startPos + offset;
-        const char = text[position];
-        if (char === '\n') {return position + 1;}
-        if (basicEnders.has(char)) {return eatClosingMarks(position + 1);}
-        if (char === '.' && text.slice(position, position + 3) === '...') {
-            return eatClosingMarks(position + 3);
-        }
-    }
-    return startPos;
-}
-
-function insertTavernImageMarker(content = '', image: Record<string, unknown> = {}) {
-    const slotId = String(image.slotId || '').trim();
-    if (!slotId) {return { content, inserted: false, appended: false };}
-    const marker = `[tavern-image:${slotId}]`;
-    const text = String(content || '');
-    if (text.includes(marker)) {return { content: text, inserted: false, appended: false };}
-    let position = findAnchorPosition(text, String(image.anchor || ''));
-    if (position >= 0) {
-        position = findNearestSentenceEnd(text, position);
-    }
-    if (position >= 0) {
-        const before = text.slice(0, position);
-        const after = text.slice(position);
-        let insertText = marker;
-        if (before.length > 0 && !before.endsWith('\n')) {insertText = `\n${insertText}`;}
-        if (after.length > 0 && !after.startsWith('\n')) {insertText = `${insertText}\n`;}
-        return {
-            content: `${before}${insertText}${after}`,
-            inserted: true,
-            appended: false,
-        };
-    }
-    const needNewline = text.length > 0 && !text.endsWith('\n');
-    return {
-        content: `${text}${needNewline ? '\n' : ''}${marker}`,
-        inserted: true,
-        appended: true,
-    };
-}
-
 function insertTavernImageMarkers(content = '', images: unknown[] = []) {
-    let nextContent = String(content || '');
-    let inserted = 0;
-    let appended = 0;
-    (Array.isArray(images) ? images : []).forEach((rawImage) => {
-        const image = rawImage && typeof rawImage === 'object' ? rawImage as Record<string, unknown> : {};
-        if (!image.slotId) {return;}
-        const result = insertTavernImageMarker(nextContent, image);
-        nextContent = result.content;
-        if (result.inserted) {inserted += 1;}
-        if (result.appended) {appended += 1;}
-    });
-    return { content: nextContent, inserted, appended };
+    const text = String(content || '');
+    const insertions = (Array.isArray(images) ? images : [])
+        .map((rawImage) => (rawImage && typeof rawImage === 'object' ? rawImage as Record<string, unknown> : {}))
+        .filter((image) => image.slotId)
+        .map((image) => ({
+            placement: image.placement as ScenePlacement | undefined,
+            content: `[tavern-image:${String(image.slotId).trim()}]`,
+        }));
+    if (!insertions.length) {return { content: text, inserted: 0 };}
+    return {
+        content: insertScenePlacements(text, insertions, { block: true }),
+        inserted: insertions.length,
+    };
 }
 
 function formatDrawProgress(stateName = '', data: Record<string, unknown> = {}) {
@@ -694,7 +618,9 @@ export function useTavernDrawController(options: TavernDrawControllerOptions): T
             const resultPayload = await options.requestHost('xb-tavern:draw-generate', {
                 payload: {
                     source: 'tavern',
-                    text: cleanText,
+                    // 发送完整原文：placement 的 offset/hash 以含旧 [tavern-image:] 标记的快照为准，
+                    // 写入时直接作用于原文，已有插图标记才能保留。
+                    text: currentMessage!.content || '',
                     title: options.roleLabel(currentMessage!.role),
                     sessionId: currentMessage!.sessionId,
                     messageOrder: currentMessage!.order,
@@ -743,7 +669,21 @@ export function useTavernDrawController(options: TavernDrawControllerOptions): T
             }
             const result = (resultPayload.result || resultPayload) as Record<string, unknown>;
             const images = Array.isArray(result.images) ? result.images : [];
-            const insertion = insertTavernImageMarkers(latestMessage!.content || '', images);
+            let insertion: ReturnType<typeof insertTavernImageMarkers>;
+            try {
+                insertion = insertTavernImageMarkers(latestMessage!.content || '', images);
+            } catch (error) {
+                if (error instanceof ScenePlacementError) {
+                    finishDrawJobStatus(jobKey, {
+                        status: 'cancelled',
+                        statusKind: 'error',
+                        progressText: '源楼层已变化',
+                    }, 2600);
+                    options.flashMessageAction(latestMessage!, 'draw', false);
+                    return;
+                }
+                throw error;
+            }
             if (!insertion.inserted) {
                 const success = Number(result.success) || 0;
                 const total = Number(result.total) || images.length;
@@ -767,12 +707,11 @@ export function useTavernDrawController(options: TavernDrawControllerOptions): T
             const success = Number(result.success) || 0;
             const total = Number(result.total) || images.length;
             const allFailed = total > 0 && success === 0;
-            const fallbackText = insertion.appended ? `，${insertion.appended} 张追加到末尾` : '';
             const failureText = total > 0 ? `配图失败：${total} 张都失败了` : '配图失败';
             finishDrawJobStatus(jobKey, {
                 status: allFailed ? 'failed' : 'success',
                 statusKind: allFailed ? 'error' : 'success',
-                progressText: allFailed ? failureText : `${DRAW_COMPLETION_NOTICE_TEXT}${fallbackText}`,
+                progressText: allFailed ? failureText : DRAW_COMPLETION_NOTICE_TEXT,
             }, allFailed ? 4200 : 2600);
             options.flashMessageAction(updated || latestMessage!, 'draw', !allFailed && !!updated);
             void options.nextTick(options.enhanceChatMarkdown);

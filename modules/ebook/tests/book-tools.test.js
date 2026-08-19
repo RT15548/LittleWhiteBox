@@ -20,6 +20,20 @@ const lightBrakeModule = await import('../../agent-core/runtime/light-brake.js')
 const textEditModule = await import('../../agent-core/tools/text-edit.js');
 const openAICompatibleAdapterModule = await import('../../agent-core/adapters/openai-compatible.js');
 const looseToolArgumentsModule = await import('../../agent-core/runtime/loose-tool-arguments.js');
+const sceneSourceModule = await import('../../draw/shared/scene-source.js');
+
+const { createSceneSource } = sceneSourceModule;
+
+function sourcePlacementFor(text, pointNumber) {
+    const source = createSceneSource(text);
+    const point = source.points[pointNumber - 1];
+    return {
+        mode: 'source',
+        insertAfter: point.number,
+        offset: point.offset,
+        sourceHash: source.sourceHash,
+    };
+}
 
 const {
     default: db,
@@ -3300,7 +3314,7 @@ test('Book editor surface keeps focused textarea draft while patching progress',
     }
 });
 
-test('Book controller draws current chapter and inserts ebook image markers by anchor', async () => {
+test('Book controller draws current chapter and inserts ebook image markers by numbered placement', async () => {
     await resetDb();
     const book = await createBook('章节配图测试');
     const originalContent = '她推开门。\n\n夜色涌进来。';
@@ -3335,8 +3349,8 @@ test('Book controller draws current chapter and inserts ebook image markers by a
                     success: 2,
                     total: 2,
                     images: [
-                        { slotId: 'slot-anchor', anchor: '她推开门', success: true },
-                        { slotId: 'slot-tail', anchor: '不存在的锚点', success: true },
+                        { slotId: 'slot-anchor', placement: sourcePlacementFor(originalContent, 1), success: true },
+                        { slotId: 'slot-tail', placement: sourcePlacementFor(originalContent, 2), success: true },
                     ],
                 };
             }
@@ -3403,7 +3417,7 @@ test('Book drawing can be cancelled by clicking the chapter draw button again', 
                         ok: true,
                         success: 1,
                         total: 1,
-                        images: [{ slotId: 'slot-should-not-write', anchor: '她推开门', success: true }],
+                        images: [{ slotId: 'slot-should-not-write', placement: sourcePlacementFor(originalContent, 1), success: true }],
                     }), 1000).unref?.();
                 });
             }
@@ -3466,7 +3480,7 @@ test('Book drawing saves the original chapter if the user switches files while g
                     ok: true,
                     success: 1,
                     total: 1,
-                    images: [{ slotId: 'slot-switch', anchor: '她推开门', success: true }],
+                    images: [{ slotId: 'slot-switch', placement: sourcePlacementFor(chapterContent, 1), success: true }],
                 };
             }
             throw new Error('unexpected_request');
@@ -3481,6 +3495,58 @@ test('Book drawing saves the original chapter if the user switches files while g
     assert.equal(state.selectedPath, 'book/outline.md');
     assert.equal(state.editorContent, '未保存的新大纲');
     assert.equal(state.savedContent, '旧大纲');
+});
+
+test('Book drawing refuses to write when the chapter content changed during generation', async () => {
+    await resetDb();
+    const book = await createBook('正文变化拒写测试');
+    const originalContent = '她推开门。';
+    await upsertBookFile(book.id, 'book/chapters/001.md', originalContent);
+    const state = {
+        book,
+        books: [book],
+        files: await listBookFiles(book.id),
+        selectedPath: 'book/chapters/001.md',
+        readerPath: 'book/chapters/001.md',
+        viewMode: 'studio',
+        editorContent: originalContent,
+        savedContent: originalContent,
+        isBusy: false,
+        isDrawingChapter: false,
+        drawStatus: { provider: 'novelai', enabled: true, ready: true },
+        drawProgressText: '',
+        toast: '',
+    };
+    const toasts = [];
+    const controller = createBookController({
+        state,
+        render() {},
+        async requestHost(type) {
+            if (type === 'xb-ebook:draw-status') {
+                return { ok: true, provider: 'novelai', enabled: true, ready: true };
+            }
+            if (type === 'xb-ebook:draw-generate') {
+                state.editorContent = '她推开门。又回头看了看。';
+                return {
+                    ok: true,
+                    success: 1,
+                    total: 1,
+                    images: [{ slotId: 'slot-stale', placement: sourcePlacementFor(originalContent, 1), success: true }],
+                };
+            }
+            throw new Error('unexpected_request');
+        },
+        showToast(message) {
+            toasts.push(message);
+        },
+    });
+
+    await controller.drawCurrentChapter();
+
+    const updated = await getBookFile(book.id, 'book/chapters/001.md');
+    assert.equal(updated.content, originalContent);
+    assert.equal(state.editorContent, '她推开门。又回头看了看。');
+    assert.equal(toasts.at(-1), '章节正文在配图期间已变化，已拒绝写入，请重试');
 });
 
 test('Book drawing does not recreate files when the original book is deleted mid-generation', async () => {
@@ -3517,7 +3583,7 @@ test('Book drawing does not recreate files when the original book is deleted mid
                     ok: true,
                     success: 1,
                     total: 1,
-                    images: [{ slotId: 'slot-deleted-book', anchor: '她推开门', success: true }],
+                    images: [{ slotId: 'slot-deleted-book', placement: sourcePlacementFor('她推开门。', 1), success: true }],
                 };
             }
             throw new Error('unexpected_request');

@@ -69,7 +69,13 @@ import {
     stopSharedDrawPreviewRuntime,
     renderAllDrawPreviews,
     renderPreviewsForMessage as renderSharedPreviewsForMessage,
+    DEFAULT_MESSAGE_FILTER_RULES,
 } from '../../shared/draw-common.js';
+import { createSceneSource } from '../../shared/scene-source.js';
+import {
+    assertSceneSourceUnchanged,
+    insertScenePlacements,
+} from '../../shared/scene-placement.js';
 // ═══════════════════════════════════════════════════════════════════════════
 // 常量
 // ═══════════════════════════════════════════════════════════════════════════
@@ -132,40 +138,6 @@ function resolveNovelAIImageApi(baseUrl) {
 }
 const MAX_SEED = 0xFFFFFFFF;
 const PLACEHOLDER_REGEX = /\[image:([a-z0-9\-_]+)\]/gi;
-
-// ── 消息文本过滤 ──────────────────────────────────────────────────
-const DEFAULT_MESSAGE_FILTER_RULES = [
-    { start: '<think>',    end: '</think>' },
-    { start: '<thinking>', end: '</thinking>' },
-    { start: '<system>',   end: '</system>' },
-    { start: '<meta>',     end: '</meta>' },
-    { start: '<options>',  end: '</options>' },
-    { start: '<WorldState>', end: '</WorldState>' },
-    { start: '<state>',    end: '</state>' },
-    { start: '<UpdateVariable>', end: '</UpdateVariable>' },
-    { start: '<—',         end: '—>' },
-    { start: '',           end: '</think>' },   // 孤立闭合标签：从开头到 </think>
-];
-
-function applyMessageFilterRules(text, rules) {
-    if (!Array.isArray(rules) || !rules.length) return text;
-    const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    let result = String(text);
-    for (const { start, end } of rules) {
-        const s = (start || '').trim(), e = (end || '').trim();
-        if (!s && !e) continue;
-        if (s && e) {
-            result = result.replace(new RegExp(esc(s) + '[\\s\\S]*?' + esc(e), 'gi'), '');
-        } else if (s) {
-            const idx = result.toLowerCase().indexOf(s.toLowerCase());
-            if (idx >= 0) result = result.slice(0, idx);
-        } else {
-            const idx = result.toLowerCase().indexOf(e.toLowerCase());
-            if (idx >= 0) result = result.slice(idx + e.length);
-        }
-    }
-    return result.trim();
-}
 
 const events = createModuleEvents(MODULE_KEY);
 
@@ -487,16 +459,6 @@ function findTopLevelFlowContainer(root, node) {
     return current && current.parentElement === root ? current : null;
 }
 
-function insertAfterFlowContainer(target, node) {
-    if (!target?.parentElement || !node) return false;
-    let ref = target;
-    while (ref.nextElementSibling?.classList?.contains('xb-nd-img')) {
-        ref = ref.nextElementSibling;
-    }
-    ref.insertAdjacentElement('afterend', node);
-    return true;
-}
-
 function removeIfEmptyFlowContainer(container) {
     if (!(container instanceof HTMLElement)) return;
     if (!['P', 'DIV', 'BLOCKQUOTE', 'LI'].includes(container.tagName)) return;
@@ -593,61 +555,6 @@ function replacePlaceholdersInDomBatch(root, replacements) {
     return resolvedSlotIds;
 }
 
-function collectRenderedTextSegments(root) {
-    const segments = [];
-    let text = '';
-
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
-        acceptNode(node) {
-            if (node.nodeType === Node.ELEMENT_NODE) {
-                const el = node;
-                if (el.classList?.contains('xb-nd-img')) return NodeFilter.FILTER_REJECT;
-                if (el.tagName === 'SCRIPT' || el.tagName === 'STYLE') return NodeFilter.FILTER_REJECT;
-                if (el.tagName === 'BR') return NodeFilter.FILTER_ACCEPT;
-                return NodeFilter.FILTER_SKIP;
-            }
-            return node.parentElement?.closest('.xb-nd-img')
-                ? NodeFilter.FILTER_REJECT
-                : NodeFilter.FILTER_ACCEPT;
-        }
-    });
-
-    let node;
-    while ((node = walker.nextNode())) {
-        const chunk = node.nodeType === Node.TEXT_NODE ? node.nodeValue : '\n';
-        if (!chunk) continue;
-        const start = text.length;
-        text += chunk;
-        segments.push({ node, start, end: text.length, text: chunk });
-    }
-
-    return { text, segments };
-}
-
-function insertPreviewByAnchor(root, slotId, anchor, html) {
-    if (!root || !slotId || !anchor) return false;
-    if (root.querySelector(`.xb-nd-img[data-slot-id="${slotId}"]`)) return true;
-
-    const { text, segments } = collectRenderedTextSegments(root);
-    if (!text || !segments.length) return false;
-
-    let position = findAnchorPosition(text, anchor);
-    if (position < 0) return false;
-    position = findNearestSentenceEnd(text, position);
-
-    const segment = segments.find(item => item.end >= position) || segments[segments.length - 1];
-    const replacementNode = createNodeFromHtml(html);
-    if (!segment || !replacementNode) return false;
-
-    const topLevelContainer = findTopLevelFlowContainer(root, segment.node);
-    if (topLevelContainer) {
-        return insertAfterFlowContainer(topLevelContainer, replacementNode);
-    }
-
-    root.appendChild(replacementNode);
-    return true;
-}
-
 function insertPreviewBatchIntoRenderedMessage({ messageId, patches }) {
     const mesTextEl = getMesTextElement(messageId);
     if (!mesTextEl || !Array.isArray(patches) || patches.length === 0) return false;
@@ -659,21 +566,16 @@ function insertPreviewBatchIntoRenderedMessage({ messageId, patches }) {
         if (!patch?.slotId || !patch?.html || insertedSlotIds.has(patch.slotId)) return;
         if (mesTextEl.querySelector(`.xb-nd-img[data-slot-id="${patch.slotId}"]`)) {
             inserted = true;
-            return;
-        }
-
-        if (insertPreviewByAnchor(mesTextEl, patch.slotId, patch.anchor || '', patch.html)) {
-            inserted = true;
         }
     });
 
     return inserted;
 }
 
-function insertPreviewIntoRenderedMessage({ messageId, slotId, html, anchor = '' }) {
+function insertPreviewIntoRenderedMessage({ messageId, slotId, html }) {
     return insertPreviewBatchIntoRenderedMessage({
         messageId,
-        patches: [{ slotId, html, anchor }],
+        patches: [{ slotId, html }],
     });
 
 }
@@ -1738,67 +1640,6 @@ async function generateNovelImage({ scene, characterPrompts, negativePrompt, par
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 锚点定位
-// ═══════════════════════════════════════════════════════════════════════════
-
-function findAnchorPosition(mes, anchor) {
-    if (!anchor || !mes) return -1;
-    const a = anchor.trim();
-    let idx = mes.indexOf(a);
-    if (idx !== -1) return idx + a.length;
-    if (a.length > 8) {
-        const short = a.slice(-10);
-        idx = mes.indexOf(short);
-        if (idx !== -1) return idx + short.length;
-    }
-    const norm = s => s.replace(/[\s，。！？、""''：；…\-\n\r]/g, '');
-    const normMes = norm(mes);
-    const normA = norm(a);
-    if (normA.length >= 4) {
-        const key = normA.slice(-6);
-        const normIdx = normMes.indexOf(key);
-        if (normIdx !== -1) {
-            let origIdx = 0, nIdx = 0;
-            while (origIdx < mes.length && nIdx < normIdx + key.length) {
-                if (norm(mes[origIdx]) === normMes[nIdx]) nIdx++;
-                origIdx++;
-            }
-            return origIdx;
-        }
-    }
-    return -1;
-}
-
-function findNearestSentenceEnd(mes, startPos) {
-    if (startPos < 0 || !mes) return startPos;
-    if (startPos >= mes.length) return mes.length;
-
-    const maxLookAhead = 80;
-    const endLimit = Math.min(mes.length, startPos + maxLookAhead);
-    const basicEnders = new Set(['\u3002', '\uFF01', '\uFF1F', '!', '?', '\u2026']);
-    const closingMarks = new Set(['\u201D', '\u201C', '\u2019', '\u2018', '\u300D', '\u300F', '\u3011', '\uFF09', ')', '"', "'", '*', '~', '\uFF5E', ']']);
-
-    const eatClosingMarks = (pos) => {
-        while (pos < mes.length && closingMarks.has(mes[pos])) pos++;
-        return pos;
-    };
-
-    if (startPos > 0 && basicEnders.has(mes[startPos - 1])) {
-        return eatClosingMarks(startPos);
-    }
-
-    for (let i = 0; i < maxLookAhead && startPos + i < endLimit; i++) {
-        const pos = startPos + i;
-        const char = mes[pos];
-        if (char === '\n') return pos + 1;
-        if (basicEnders.has(char)) return eatClosingMarks(pos + 1);
-        if (char === '.' && mes.slice(pos, pos + 3) === '...') return eatClosingMarks(pos + 3);
-    }
-
-    return startPos;
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
 // 图片渲染
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -2319,7 +2160,6 @@ async function saveEditedTags(container) {
             savedUrl: originalPreview.savedUrl,
             characterPrompts: newCharPrompts || originalPreview.characterPrompts,
             negativePrompt: originalPreview.negativePrompt,
-            anchor: originalPreview.anchor || '',
         });
 
         if (originalPreview.savedUrl) {
@@ -2356,7 +2196,6 @@ async function refreshSingleImage(container) {
 
         let characterPrompts = null;
         let negativePrompt = preset.negativePrefix || '';
-        let anchor = '';
 
         if (currentImgId) {
             const existingPreview = await getPreview(currentImgId);
@@ -2366,7 +2205,6 @@ async function refreshSingleImage(container) {
             if (existingPreview?.negativePrompt) {
                 negativePrompt = existingPreview.negativePrompt;
             }
-            anchor = existingPreview?.anchor || '';
         }
 
         if (!characterPrompts) {
@@ -2399,7 +2237,6 @@ async function refreshSingleImage(container) {
             positive: scene,
             characterPrompts,
             negativePrompt,
-            anchor,
         });
         await setSlotSelection(slotId, newImgId);
         await clearNovelDrawSavedEntry(messageId, slotId).catch(() => {});
@@ -2552,7 +2389,6 @@ async function retryFailedImage(container) {
             positive: scene,
             characterPrompts,
             negativePrompt,
-            anchor: latestFailed?.anchor || '',
         });
         await deleteFailedRecordsForSlot(slotId);
         await setSlotSelection(slotId, newImgId);
@@ -2581,7 +2417,6 @@ async function retryFailedImage(container) {
             tags: tags || '',
             positive: container.dataset.positive || '',
             errorType: errorType.code,
-            anchor: latestFailed?.anchor || '',
             errorMessage: errorType.desc
         });
         // Template-only UI markup built locally.
@@ -2708,7 +2543,7 @@ async function maybeAutoLearnFromTasks(tasks = [], settings = {}) {
     }
 }
 
-async function buildTextSourceTasks({ messageText, presentCharacters, settings, preset, signal, useWorldbook = false }) {
+async function buildTextSourceTasks({ sceneSource, presentCharacters, settings, preset, signal, useWorldbook = false }) {
     let worldbookEntries = null;
     const customPrompts = getActivePromptPreset() || DEFAULT_PROMPT_CONFIG;
     if (useWorldbook && settings.worldbooks?.enabled && settings.worldbooks.uploadedBooks?.length) {
@@ -2717,13 +2552,13 @@ async function buildTextSourceTasks({ messageText, presentCharacters, settings, 
         const allEntries = settings.worldbooks.uploadedBooks.flatMap(b => b.entries || []);
         worldbookEntries = processor.processFromEntries({
             entries: allEntries,
-            contextText: `${messageText} ${charNames}`,
+            contextText: `${sceneSource.content} ${charNames}`,
             keywordFilterMode: settings.worldbooks.keywordFilterMode || 'auto',
         });
     }
 
     return generateAndParseScenePlan({
-        messageText,
+        sceneSource,
         presentCharacters,
         useWorldInfo: useWorldbook && settings.useWorldInfo,
         customPrompts,
@@ -2737,8 +2572,8 @@ async function buildTextSourceTasks({ messageText, presentCharacters, settings, 
 }
 
 async function generateImagesFromText(options = {}) {
-    const text = String(options.text || '').trim();
-    if (!text) throw new NovelDrawError('正文内容为空，无法配图', ErrorType.PARSE);
+    const text = String(options.text || '');
+    if (!text.trim()) throw new NovelDrawError('正文内容为空，无法配图', ErrorType.PARSE);
     const galleryMeta = buildTextSourceGalleryMeta(options);
     const messageId = String(options.messageId || galleryMeta.messageId || `text:${Date.now()}`);
     const job = createGenerationJob(messageId);
@@ -2754,24 +2589,20 @@ async function generateImagesFromText(options = {}) {
         const preset = getActiveParamsPreset();
         if (!preset) throw new NovelDrawError('无可用的 NovelAI 参数预设', ErrorType.PARSE);
 
-        const rawText = text
-            .replace(PLACEHOLDER_REGEX, '')
-            .replace(/\[ebook-image:[a-z0-9\-_]+\]/gi, '')
-            .trim();
         const filterRules = settings.messageFilterRules?.length
             ? settings.messageFilterRules
             : DEFAULT_MESSAGE_FILTER_RULES;
-        const messageText = applyMessageFilterRules(rawText, filterRules);
-        if (!messageText) throw new NovelDrawError('正文内容为空（可能被过滤规则清空）', ErrorType.PARSE);
+        const sceneSource = createSceneSource(text, { filterRules });
+        if (!sceneSource.content) throw new NovelDrawError('正文内容为空（可能被过滤规则清空）', ErrorType.PARSE);
 
-        const presentCharacters = detectPresentCharacters(messageText, settings.characterTags || []);
+        const presentCharacters = detectPresentCharacters(sceneSource.content, settings.characterTags || []);
         options.onStateChange?.('llm', {});
         if (signal.aborted) throw new NovelDrawError('已取消', ErrorType.ABORTED);
 
         let tasks = [];
         try {
             tasks = await buildTextSourceTasks({
-                messageText,
+                sceneSource,
                 presentCharacters,
                 settings,
                 preset,
@@ -2836,14 +2667,13 @@ async function generateImagesFromText(options = {}) {
                     positive: scene,
                     characterPrompts,
                     negativePrompt,
-                    anchor: task.anchor || '',
                 });
                 await setSlotSelection(slotId, imgId);
                 successCount++;
                 images.push({
                     slotId,
                     imgId,
-                    anchor: task.anchor || '',
+                    placement: task.placement,
                     tags: tagsForStore,
                     positive: scene,
                     negativePrompt,
@@ -2864,11 +2694,10 @@ async function generateImagesFromText(options = {}) {
                     errorMessage: errorType.desc,
                     characterPrompts,
                     negativePrompt,
-                    anchor: task.anchor || '',
                 });
                 images.push({
                     slotId,
-                    anchor: task.anchor || '',
+                    placement: task.placement,
                     tags: tagsForStore,
                     positive: scene,
                     negativePrompt,
@@ -2886,6 +2715,7 @@ async function generateImagesFromText(options = {}) {
             success: successCount,
             total: tasks.length,
             images,
+            sourceHash: sceneSource.sourceHash,
             aborted: signal.aborted,
         };
     } finally {
@@ -2911,14 +2741,16 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
         const settings = getRuntimeSettings();
         const preset = getActiveParamsPreset();
 
-        const rawText = String(message.mes || '').replace(PLACEHOLDER_REGEX, '').trim();
         const filterRules = settings.messageFilterRules?.length
             ? settings.messageFilterRules
             : DEFAULT_MESSAGE_FILTER_RULES;
-        const messageText = applyMessageFilterRules(rawText, filterRules);
-        if (!messageText) throw new NovelDrawError('消息内容为空（可能被过滤规则清空）', ErrorType.PARSE);
+        const sceneSource = createSceneSource(
+            String(message.mes || '').replace(PLACEHOLDER_REGEX, ''),
+            { filterRules },
+        );
+        if (!sceneSource.content) throw new NovelDrawError('消息内容为空（可能被过滤规则清空）', ErrorType.PARSE);
 
-        const presentCharacters = detectPresentCharacters(messageText, settings.characterTags || []);
+        const presentCharacters = detectPresentCharacters(sceneSource.content, settings.characterTags || []);
 
         onStateChange?.('llm', {});
 
@@ -2934,13 +2766,13 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
                 const allEntries = settings.worldbooks.uploadedBooks.flatMap(b => b.entries || []);
                 worldbookEntries = processor.processFromEntries({
                     entries: allEntries,
-                    contextText: messageText + ' ' + charNames,
+                    contextText: sceneSource.content + ' ' + charNames,
                     keywordFilterMode: settings.worldbooks.keywordFilterMode || 'auto',
                 });
             }
 
             tasks = await generateAndParseScenePlan({
-                messageText,
+                sceneSource,
                 presentCharacters,
                 useWorldInfo: settings.useWorldInfo,
                 customPrompts,
@@ -2963,12 +2795,25 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
 
         const initialChatId = ctx.chatId;
         const originalMes = message.mes; // 修改前备份，abort 时可回滚
-        message.mes = message.mes.replace(PLACEHOLDER_REGEX, '');
+        const slotIds = tasks.map(() => generateSlotId());
+        const strippedNow = String(message.mes || '').replace(PLACEHOLDER_REGEX, '');
+        assertSceneSourceUnchanged(strippedNow, sceneSource.sourceHash);
+        message.mes = insertScenePlacements(strippedNow, tasks.map((task, index) => ({
+            placement: task.placement,
+            content: createPlaceholder(slotIds[index]),
+        })), { block: true });
+
+        const { messageFormatting } = await import('../../../../../../../../script.js');
+        const syncRenderedMessage = async () => {
+            if (isMessageBeingEdited(messageId)) return;
+            const formatted = messageFormatting(message.mes, message.name, message.is_system, message.is_user, messageId);
+            $(`[mesid="${messageId}"] .mes_text`).html(formatted);
+        };
+        await syncRenderedMessage();
 
         onStateChange?.('gen', { current: 0, total: tasks.length });
 
         const results = [];
-        const { messageFormatting } = await import('../../../../../../../../script.js');
         let successCount = 0;
         let requiresFinalDomSync = false;
 
@@ -2990,11 +2835,9 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
             }
 
             const task = tasks[i];
-            const slotId = generateSlotId();
+            const slotId = slotIds[i];
 
             onStateChange?.('progress', { current: i + 1, total: tasks.length });
-
-            let position = findAnchorPosition(message.mes, task.anchor);
 
             const scene = joinTags(preset.positivePrefix, task.scene);
             const characterPrompts = assembleCharacterPrompts(task.chars, settings.characterTags || []);
@@ -3034,7 +2877,6 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
                     positive: scene,
                     characterPrompts,
                     negativePrompt: preset.negativePrefix,
-                    anchor: task.anchor,
                 });
                 await setSlotSelection(slotId, imgId);
                 results.push({ slotId, imgId, tags: tagsForStore, success: true });
@@ -3066,7 +2908,6 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
                     errorMessage: errorType.desc,
                     characterPrompts,
                     negativePrompt: preset.negativePrefix,
-                    anchor: task.anchor,
                 });
                 results.push({ slotId, tags: tagsForStore, success: false, error: errorType });
                 incrementalHtml = buildFailedPlaceholderHtml({
@@ -3087,23 +2928,7 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
                 break;
             }
 
-            const placeholder = createPlaceholder(slotId);
-
-            if (position >= 0) {
-                position = findNearestSentenceEnd(message.mes, position);
-                const before = message.mes.slice(0, position);
-                const after = message.mes.slice(position);
-                let insertText = placeholder;
-                if (before.length > 0 && !before.endsWith('\n')) insertText = '\n' + insertText;
-                if (after.length > 0 && !after.startsWith('\n')) insertText = insertText + '\n';
-                message.mes = before + insertText + after;
-            } else {
-                const needNewline = message.mes.length > 0 && !message.mes.endsWith('\n');
-                message.mes += (needNewline ? '\n' : '') + placeholder;
-            }
-
-
-            // ── 增量渲染：每张图完成后立即显示 ──
+            // ── 增量渲染：占位符已在规划后批量写入正文，这里只把 DOM 里的标记换成图片 ──
             try {
                 const incCtx = getContext();
                 const incMsg = incCtx.chat?.[messageId];
@@ -3112,13 +2937,11 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
                         messageId,
                         slotId,
                         html: incrementalHtml,
-                        anchor: task.anchor,
                     });
 
                     if (!inserted) {
                         requiresFinalDomSync = true;
-                        const formatted = messageFormatting(message.mes, message.name, message.is_system, message.is_user, messageId);
-                        $(`[mesid="${messageId}"] .mes_text`).html(formatted);
+                        await syncRenderedMessage();
                         await renderSharedPreviewsForMessage(messageId);
                     }
                 }
@@ -3136,15 +2959,22 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
             if (successCount === 0) {
                 // 没有任何成功的图 → 完全回滚到原始内容
                 message.mes = originalMes;
+            } else {
+                // 保留已完成的图片，只移除从未开始生成的 pending 占位符
+                const attemptedSlots = new Set(results.map(item => item.slotId));
+                slotIds.filter(id => !attemptedSlots.has(id)).forEach(id => {
+                    // block 插入可能在占位符两侧补过换行；两侧都吃到换行时保留一个，避免吞掉段落空行
+                    message.mes = message.mes.replace(
+                        new RegExp(`(\\n?)\\[image:${id}\\](\\n?)`),
+                        (match, before, after) => (before && after ? '\n' : ''),
+                    );
+                });
             }
 
             if (abortMsgValid && !isMessageBeingEdited(messageId)) {
                 try {
-                    if (successCount === 0 || requiresFinalDomSync) {
-                        const formatted = messageFormatting(message.mes, message.name, message.is_system, message.is_user, messageId);
-                        $(`[mesid="${messageId}"] .mes_text`).html(formatted);
-                        await renderSharedPreviewsForMessage(messageId);
-                    }
+                    await syncRenderedMessage();
+                    await renderSharedPreviewsForMessage(messageId);
                 } catch (e) {
                     console.warn('[NovelDraw] abort DOM 同步失败:', e);
                 }
@@ -4297,12 +4127,8 @@ export {
     renderSharedPreviewsForMessage as renderPreviewsForMessage,
     buildImageHtml,
     insertPreviewIntoRenderedMessage,
-    findAnchorPosition,
-    findNearestSentenceEnd,
     detectPresentCharacters,
     assembleCharacterPrompts,
-    applyMessageFilterRules,
-    DEFAULT_MESSAGE_FILTER_RULES,
     joinTags,
     ensureStyles as ensureNovelDrawStyles,
     classifyError,

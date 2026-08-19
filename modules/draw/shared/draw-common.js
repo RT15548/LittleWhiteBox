@@ -142,26 +142,6 @@ function escapeRegexChars(str) {
     return String(str || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-export function applyMessageFilterRules(text, rules) {
-    if (!Array.isArray(rules) || !rules.length) return text;
-    let result = String(text);
-    for (const { start, end } of rules) {
-        const s = (start || '').trim();
-        const e = (end || '').trim();
-        if (!s && !e) continue;
-        if (s && e) {
-            result = result.replace(new RegExp(escapeRegexChars(s) + '[\\s\\S]*?' + escapeRegexChars(e), 'gi'), '');
-        } else if (s) {
-            const idx = result.toLowerCase().indexOf(s.toLowerCase());
-            if (idx >= 0) result = result.slice(0, idx);
-        } else {
-            const idx = result.toLowerCase().indexOf(e.toLowerCase());
-            if (idx >= 0) result = result.slice(idx + e.length);
-        }
-    }
-    return result.trim();
-}
-
 function normalizeCharacterOutfits(outfits = []) {
     return (Array.isArray(outfits) ? outfits : [])
         .map(outfit => ({
@@ -259,64 +239,6 @@ export function findLastAIMessageId() {
     let id = chat.length - 1;
     while (id >= 0 && chat[id]?.is_user) id--;
     return id;
-}
-
-export function findAnchorPosition(mes, anchor) {
-    if (!anchor || !mes) return -1;
-    const a = anchor.trim();
-    let idx = mes.indexOf(a);
-    if (idx !== -1) return idx + a.length;
-    if (a.length > 8) {
-        const short = a.slice(-10);
-        idx = mes.indexOf(short);
-        if (idx !== -1) return idx + short.length;
-    }
-    const norm = s => String(s || '').replace(/[\s，。！？、""''：；…\-\n\r]/g, '');
-    const normMes = norm(mes);
-    const normA = norm(a);
-    if (normA.length >= 4) {
-        const key = normA.slice(-6);
-        const normIdx = normMes.indexOf(key);
-        if (normIdx !== -1) {
-            let origIdx = 0;
-            let nIdx = 0;
-            while (origIdx < mes.length && nIdx < normIdx + key.length) {
-                if (norm(mes[origIdx]) === normMes[nIdx]) nIdx++;
-                origIdx++;
-            }
-            return origIdx;
-        }
-    }
-    return -1;
-}
-
-export function findNearestSentenceEnd(mes, startPos) {
-    if (startPos < 0 || !mes) return startPos;
-    if (startPos >= mes.length) return mes.length;
-
-    const maxLookAhead = 80;
-    const endLimit = Math.min(mes.length, startPos + maxLookAhead);
-    const basicEnders = new Set(['\u3002', '\uFF01', '\uFF1F', '!', '?', '\u2026']);
-    const closingMarks = new Set(['\u201D', '\u201C', '\u2019', '\u2018', '\u300D', '\u300F', '\u3011', '\uFF09', ')', '"', "'", '*', '~', '\uFF5E', ']']);
-
-    const eatClosingMarks = (pos) => {
-        while (pos < mes.length && closingMarks.has(mes[pos])) pos++;
-        return pos;
-    };
-
-    if (startPos > 0 && basicEnders.has(mes[startPos - 1])) {
-        return eatClosingMarks(startPos);
-    }
-
-    for (let i = 0; i < maxLookAhead && startPos + i < endLimit; i++) {
-        const pos = startPos + i;
-        const char = mes[pos];
-        if (char === '\n') return pos + 1;
-        if (basicEnders.has(char)) return eatClosingMarks(pos + 1);
-        if (char === '.' && mes.slice(pos, pos + 3) === '...') return eatClosingMarks(pos + 3);
-    }
-
-    return startPos;
 }
 
 export function classifyError(error) {
@@ -505,7 +427,6 @@ function normalizeDrawSavedEntry(slotId, data = {}) {
         savedUrl: data.savedUrl,
         tags: data.tags || '',
         positive: data.positive || '',
-        anchor: data.anchor || '',
         updatedAt: Number.isFinite(data.updatedAt) ? data.updatedAt : Date.now(),
     };
 }
@@ -531,8 +452,7 @@ export async function setDrawSavedEntry(messageId, slotId, data) {
         previous.imgId === entry.imgId &&
         previous.savedUrl === entry.savedUrl &&
         previous.tags === entry.tags &&
-        previous.positive === entry.positive &&
-        previous.anchor === entry.anchor;
+        previous.positive === entry.positive;
     const legacyMap = getSavedMap(message, LEGACY_NOVEL_SAVED_EXTRA_KEY);
     const hasLegacyEntry = !!legacyMap?.[slotId];
     if (unchanged && !hasLegacyEntry) return true;
@@ -576,7 +496,6 @@ export async function syncDrawSavedFromPreview(messageId, preview, overrides = {
         savedUrl: overrides.savedUrl || preview?.savedUrl,
         tags: overrides.tags ?? preview?.tags ?? '',
         positive: overrides.positive ?? preview?.positive ?? '',
-        anchor: overrides.anchor ?? preview?.anchor ?? '',
     });
 }
 
@@ -679,66 +598,12 @@ function replacePlaceholdersInDomBatch(root, replacements) {
     return resolvedSlotIds;
 }
 
-function collectRenderedTextSegments(root) {
-    const segments = [];
-    let text = '';
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
-        acceptNode(node) {
-            if (node.nodeType === Node.ELEMENT_NODE) {
-                const el = node;
-                if (el.classList?.contains('xb-nd-img')) return NodeFilter.FILTER_REJECT;
-                if (el.tagName === 'SCRIPT' || el.tagName === 'STYLE') return NodeFilter.FILTER_REJECT;
-                if (el.tagName === 'BR') return NodeFilter.FILTER_ACCEPT;
-                return NodeFilter.FILTER_SKIP;
-            }
-            return node.parentElement?.closest('.xb-nd-img')
-                ? NodeFilter.FILTER_REJECT
-                : NodeFilter.FILTER_ACCEPT;
-        },
-    });
-
-    let node;
-    while ((node = walker.nextNode())) {
-        const chunk = node.nodeType === Node.TEXT_NODE ? node.nodeValue : '\n';
-        if (!chunk) continue;
-        const start = text.length;
-        text += chunk;
-        segments.push({ node, start, end: text.length, text: chunk });
-    }
-    return { text, segments };
-}
-
-function insertPreviewByAnchor(root, slotId, anchor, html) {
-    if (!root || !slotId || !anchor) return false;
-    if (root.querySelector(`.xb-nd-img[data-slot-id="${slotId}"]`)) return true;
-    const { text, segments } = collectRenderedTextSegments(root);
-    if (!text || !segments.length) return false;
-    let position = findAnchorPosition(text, anchor);
-    if (position < 0) return false;
-    position = findNearestSentenceEnd(text, position);
-    const segment = segments.find(item => item.end >= position) || segments[segments.length - 1];
-    const replacementNode = createNodeFromHtml(html);
-    if (!segment || !replacementNode) return false;
-    const topLevelContainer = findTopLevelFlowContainer(root, segment.node);
-    if (topLevelContainer) {
-        let ref = topLevelContainer;
-        while (ref.nextElementSibling?.classList?.contains('xb-nd-img')) {
-            ref = ref.nextElementSibling;
-        }
-        ref.insertAdjacentElement('afterend', replacementNode);
-        return true;
-    }
-    root.appendChild(replacementNode);
-    return true;
-}
-
-export function insertPreviewIntoRenderedMessage({ messageId, slotId, html, anchor = '' }) {
+export function insertPreviewIntoRenderedMessage({ messageId, slotId, html }) {
     const mesTextEl = getMesTextElement(messageId);
     if (!mesTextEl || !slotId || !html) return false;
-    const insertedSlotIds = replacePlaceholdersInDomBatch(mesTextEl, [{ slotId, html, anchor }]);
+    const insertedSlotIds = replacePlaceholdersInDomBatch(mesTextEl, [{ slotId, html }]);
     if (insertedSlotIds.has(slotId)) return true;
-    if (mesTextEl.querySelector(`.xb-nd-img[data-slot-id="${slotId}"]`)) return true;
-    return insertPreviewByAnchor(mesTextEl, slotId, anchor, html);
+    return mesTextEl.querySelector(`.xb-nd-img[data-slot-id="${slotId}"]`) !== null;
 }
 
 async function resolveRenderPreviewForSlot(message, messageId, slotId) {
@@ -757,7 +622,6 @@ async function resolveRenderPreviewForSlot(message, messageId, slotId) {
                 savedUrl: savedEntry.savedUrl,
                 tags: savedEntry.tags ?? matchedPreview?.tags ?? '',
                 positive: savedEntry.positive ?? matchedPreview?.positive ?? '',
-                anchor: savedEntry.anchor ?? matchedPreview?.anchor ?? '',
                 messageId,
             },
             historyCount: selectedIndex >= 0 ? successPreviews.length : 1,
@@ -809,10 +673,8 @@ export async function renderPreviewsForMessage(messageId) {
     for (const slotId of slotIds) {
         if (mesTextEl.querySelector(`.xb-nd-img[data-slot-id="${slotId}"]`)) continue;
         let replacementHtml;
-        let anchor = '';
         try {
             const displayData = await resolveRenderPreviewForSlot(message, messageId, slotId);
-            anchor = displayData.preview?.anchor || '';
             if (displayData.isFailed) {
                 replacementHtml = buildFailedPlaceholderHtml({
                     slotId,
@@ -857,7 +719,7 @@ export async function renderPreviewsForMessage(messageId) {
                 errorMessage: error?.message || '未知错误',
             });
         }
-        replacements.push({ slotId, html: replacementHtml, anchor });
+        replacements.push({ slotId, html: replacementHtml });
     }
 
     if (replacements.length === 0) return;
@@ -875,16 +737,7 @@ export async function renderPreviewsForMessage(messageId) {
         fallbackReplaced = true;
     }
 
-    let anchorInserted = false;
-    if (!fallbackReplaced) {
-        pendingFallback.forEach(item => {
-            if (insertPreviewByAnchor(mesTextEl, item.slotId, item.anchor || '', item.html)) {
-                anchorInserted = true;
-            }
-        });
-    }
-
-    if (fallbackReplaced && !anchorInserted && !isMessageBeingEdited(messageId)) {
+    if (fallbackReplaced && !isMessageBeingEdited(messageId)) {
         // Template-only UI markup built locally.
         // eslint-disable-next-line no-unsanitized/property
         mesTextEl.innerHTML = html;

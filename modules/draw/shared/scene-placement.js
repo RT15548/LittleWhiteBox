@@ -31,14 +31,25 @@ function resolvePlacementOffset(sourceText, placement, sourceHash) {
     return offset;
 }
 
-export function insertScenePlacements(sourceText, insertions = []) {
+function wrapBlockContent(source, offset, content) {
+    let wrapped = content;
+    if (offset > 0 && source[offset - 1] !== '\n') wrapped = `\n${wrapped}`;
+    if (offset < source.length && source[offset] !== '\n') wrapped = `${wrapped}\n`;
+    return wrapped;
+}
+
+export function insertScenePlacements(sourceText, insertions = [], options = {}) {
     const source = String(sourceText ?? '');
     const sourceHash = hashSceneSource(source);
-    const ordered = (Array.isArray(insertions) ? insertions : []).map((insertion, order) => ({
-        content: String(insertion?.content ?? ''),
-        offset: resolvePlacementOffset(source, insertion?.placement, sourceHash),
-        order,
-    })).sort((left, right) => right.offset - left.offset || right.order - left.order);
+    const ordered = (Array.isArray(insertions) ? insertions : []).map((insertion, order) => {
+        const offset = resolvePlacementOffset(source, insertion?.placement, sourceHash);
+        const content = String(insertion?.content ?? '');
+        return {
+            content: options.block ? wrapBlockContent(source, offset, content) : content,
+            offset,
+            order,
+        };
+    }).sort((left, right) => right.offset - left.offset || right.order - left.order);
 
     let result = source;
     for (const insertion of ordered) {

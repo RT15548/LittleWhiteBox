@@ -438,7 +438,6 @@ export async function exportPortablePreviewsForSlots(slotIds = []) {
             errorMessage: preview.errorMessage || null,
             characterPrompts: preview.characterPrompts || null,
             negativePrompt: preview.negativePrompt || null,
-            anchor: String(preview.anchor || ''),
             timestamp: Number(preview.timestamp) || Date.now(),
         });
         selections.push({ slotId, selectedImgId: imgId });
@@ -528,7 +527,6 @@ export async function storePreview(opts) {
         errorMessage = null,
         characterPrompts = null,
         negativePrompt = null,
-        anchor = '',
         source = '',
         chatId = '',
         characterName = '',
@@ -566,7 +564,6 @@ export async function storePreview(opts) {
                 errorMessage,
                 characterPrompts,
                 negativePrompt,
-                anchor,
                 timestamp: Date.now()
             });
             tx.oncomplete = () => { invalidateCache(resolvedSlotId); resolve(); };
@@ -597,7 +594,6 @@ export async function storeFailedPlaceholder(opts) {
         errorMessage: opts.errorMessage,
         characterPrompts: opts.characterPrompts || null,
         negativePrompt: opts.negativePrompt || null,
-        anchor: opts.anchor || '',
     });
 }
 

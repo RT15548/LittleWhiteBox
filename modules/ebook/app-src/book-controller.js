@@ -22,6 +22,10 @@ import {
     EBOOK_BOOK_TRANSFER_REQUEST_TIMEOUT_MS,
     EBOOK_TTS_REQUEST_TIMEOUT_MS,
 } from './constants.js';
+import {
+    ScenePlacementError,
+    insertScenePlacements,
+} from '../../draw/shared/scene-placement.js';
 
 const DEFAULT_DRAFT_PATH = 'book/chapters/001.md';
 const CHAPTER_PATH_REGEX = /^book\/chapters\/.+\.md$/;
@@ -109,105 +113,19 @@ function formatChapterTitle(path = '') {
     return raw || '章节';
 }
 
-function findAnchorPosition(content = '', anchor = '') {
-    const text = String(content || '');
-    const value = String(anchor || '').trim();
-    if (!text || !value) return -1;
-    let index = text.indexOf(value);
-    if (index !== -1) return index + value.length;
-    if (value.length > 8) {
-        const short = value.slice(-10);
-        index = text.indexOf(short);
-        if (index !== -1) return index + short.length;
-    }
-
-    const normalize = (input) => String(input || '').replace(/[\s，。！？、""''：；…\-\n\r]/g, '');
-    const normalizedText = normalize(text);
-    const normalizedAnchor = normalize(value);
-    if (normalizedAnchor.length < 4) return -1;
-    const key = normalizedAnchor.slice(-6);
-    const normalizedIndex = normalizedText.indexOf(key);
-    if (normalizedIndex === -1) return -1;
-    let originalIndex = 0;
-    let walkIndex = 0;
-    while (originalIndex < text.length && walkIndex < normalizedIndex + key.length) {
-        if (normalize(text[originalIndex]) === normalizedText[walkIndex]) walkIndex += 1;
-        originalIndex += 1;
-    }
-    return originalIndex;
-}
-
-function findNearestSentenceEnd(content = '', startPos = -1) {
-    const text = String(content || '');
-    if (startPos < 0 || !text) return startPos;
-    if (startPos >= text.length) return text.length;
-
-    const maxLookAhead = 80;
-    const endLimit = Math.min(text.length, startPos + maxLookAhead);
-    const basicEnders = new Set(['。', '！', '？', '!', '?', '…']);
-    const closingMarks = new Set(['”', '“', '’', '‘', '」', '』', '】', '）', ')', '"', "'", '*', '~', '～', ']']);
-    const eatClosingMarks = (position) => {
-        let next = position;
-        while (next < text.length && closingMarks.has(text[next])) next += 1;
-        return next;
-    };
-
-    if (startPos > 0 && basicEnders.has(text[startPos - 1])) return eatClosingMarks(startPos);
-    for (let offset = 0; offset < maxLookAhead && startPos + offset < endLimit; offset += 1) {
-        const position = startPos + offset;
-        const char = text[position];
-        if (char === '\n') return position + 1;
-        if (basicEnders.has(char)) return eatClosingMarks(position + 1);
-        if (char === '.' && text.slice(position, position + 3) === '...') return eatClosingMarks(position + 3);
-    }
-    return startPos;
-}
-
-function insertEbookImageMarker(content = '', image = {}) {
-    const slotId = String(image?.slotId || '').trim();
-    if (!slotId) return { content, inserted: false, appended: false };
-    const marker = `[ebook-image:${slotId}]`;
-    const text = String(content || '');
-    if (text.includes(marker)) return { content: text, inserted: false, appended: false };
-
-    let position = findAnchorPosition(text, image.anchor || '');
-    if (position >= 0) position = findNearestSentenceEnd(text, position);
-    if (position >= 0) {
-        const before = text.slice(0, position);
-        const after = text.slice(position);
-        let insertText = marker;
-        if (before.length > 0 && !before.endsWith('\n')) insertText = `\n${insertText}`;
-        if (after.length > 0 && !after.startsWith('\n')) insertText = `${insertText}\n`;
-        return {
-            content: `${before}${insertText}${after}`,
-            inserted: true,
-            appended: false,
-        };
-    }
-
-    const needNewline = text.length > 0 && !text.endsWith('\n');
-    return {
-        content: `${text}${needNewline ? '\n' : ''}${marker}`,
-        inserted: true,
-        appended: true,
-    };
-}
-
 function insertEbookImageMarkers(content = '', images = []) {
-    let nextContent = String(content || '');
-    let inserted = 0;
-    let appended = 0;
-    (Array.isArray(images) ? images : []).forEach((image) => {
-        if (!image?.slotId || image.success === false) return;
-        const result = insertEbookImageMarker(nextContent, image);
-        nextContent = result.content;
-        if (result.inserted) inserted += 1;
-        if (result.appended) appended += 1;
-    });
+    const text = String(content || '');
+    const insertions = (Array.isArray(images) ? images : [])
+        .filter((image) => image?.slotId && image.success !== false)
+        .map((image) => ({
+            placement: image.placement,
+            content: `[ebook-image:${String(image.slotId).trim()}]`,
+        }));
+    if (!insertions.length) return { content: text, inserted: 0 };
+    const nextContent = insertScenePlacements(text, insertions, { block: true });
     return {
         content: nextContent,
-        inserted,
-        appended,
+        inserted: insertions.length,
     };
 }
 
@@ -691,7 +609,16 @@ export function createBookController(deps = {}) {
             const targetContent = stillEditingTarget
                 ? state.editorContent
                 : (storedTarget?.content ?? drawSourceText);
-            const insertion = insertEbookImageMarkers(targetContent, result?.images || []);
+            let insertion;
+            try {
+                insertion = insertEbookImageMarkers(targetContent, result?.images || []);
+            } catch (error) {
+                if (error instanceof ScenePlacementError) {
+                    showToast?.('章节正文在配图期间已变化，已拒绝写入，请重试');
+                    return;
+                }
+                throw error;
+            }
             if (!insertion.inserted) {
                 showToast?.(`配图完成，但没有成功图片可插入（${result?.success || 0}/${result?.total || 0}）`);
                 return;
@@ -717,9 +644,8 @@ export function createBookController(deps = {}) {
                 }
             }
             state.drawProgressText = '';
-            const fallbackText = insertion.appended ? `，${insertion.appended} 张追加到章末` : '';
             completionNotice = DRAW_COMPLETION_NOTICE_TEXT;
-            showToast?.(`${DRAW_COMPLETION_NOTICE_TEXT}${fallbackText}`);
+            showToast?.(DRAW_COMPLETION_NOTICE_TEXT);
         } catch (error) {
             if (activeDrawController.signal.aborted || /已取消|abort/i.test(String(error?.message || error || ''))) {
                 showToast?.('配图已取消');
