@@ -223,6 +223,42 @@ export async function upsertBookFile(bookId = '', path = '', content = '', optio
     return cloneFile(file);
 }
 
+export async function updateBookFileContentIfMatches(
+    bookId = '',
+    path = '',
+    expectedContent = '',
+    nextContent = '',
+) {
+    const id = String(bookId || '').trim();
+    const normalizedPath = normalizeBookFilePath(path);
+    if (!id || !normalizedPath) throw new Error('book_path_required');
+    const expected = typeof expectedContent === 'string' ? expectedContent : String(expectedContent ?? '');
+    const content = typeof nextContent === 'string' ? nextContent : String(nextContent ?? '');
+
+    return await db.transaction('rw', filesTable, booksTable, async () => {
+        const [previous, book] = await Promise.all([
+            filesTable.get([id, normalizedPath]),
+            booksTable.get(id),
+        ]);
+        if (!previous || !book) {
+            return { ok: false, reason: 'missing', current: previous ? cloneFile(previous) : null };
+        }
+        if (String(previous.content || '') !== expected) {
+            return { ok: false, reason: 'conflict', current: cloneFile(previous) };
+        }
+
+        const timestamp = now();
+        const file = {
+            ...previous,
+            content,
+            updatedAt: timestamp,
+        };
+        await filesTable.put(file);
+        await booksTable.update(id, { updatedAt: timestamp });
+        return { ok: true, reason: '', file: cloneFile(file) };
+    });
+}
+
 export async function deleteBookPath(bookId = '', path = '') {
     const id = String(bookId || '').trim();
     if (!id) throw new Error('bookId_required');

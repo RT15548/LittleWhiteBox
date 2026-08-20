@@ -82,27 +82,32 @@ function resolveValidationToolCalls(result, providerConfig, attempt) {
 }
 
 function buildCorrectionTurn({ result, providerConfig, error, attempt, sessionLoop }) {
-    const normalizedToolCalls = resolveResultToolCalls(result, providerConfig, {
+    const toolCalls = resolveResultToolCalls(result, providerConfig, {
         fallbackPrefix: `scene-planner-attempt-${attempt}`,
         createId: (index) => `scene-planner-attempt-${attempt}-${index + 1}`,
     });
-    const usesSyntheticToolCall = normalizedToolCalls.length === 0;
-    const toolCalls = usesSyntheticToolCall
-        ? [{
-            id: `scene-planner-correction-${attempt}`,
-            name: SUBMIT_SCENE_PLAN_TOOL_NAME,
-            arguments: '{}',
-            ...(sessionLoop ? { providerId: '' } : {}),
-        }]
-        : normalizedToolCalls;
     const feedback = createScenePlannerCorrectionResult(error);
     const content = JSON.stringify(feedback);
-    const replayResult = usesSyntheticToolCall
-        ? { text: String(result?.text || '') }
-        : result;
+    if (!toolCalls.length) {
+        const reminderText = `场景规划协议纠错：${content}`;
+        return {
+            messages: sessionLoop
+                ? []
+                : [
+                    {
+                        role: 'assistant',
+                        content: String(result?.text || ''),
+                        providerPayload: result?.providerPayload,
+                    },
+                    { role: 'user', content: reminderText },
+                ],
+            toolResponses: [],
+            finalAnswerReminderText: sessionLoop ? reminderText : '',
+        };
+    }
     return {
         messages: [
-            buildProviderAssistantToolCallMessage(replayResult, toolCalls, {
+            buildProviderAssistantToolCallMessage(result, toolCalls, {
                 fallbackPrefix: `scene-planner-attempt-${attempt}`,
             }),
             ...toolCalls.map((toolCall) => buildProviderToolResultMessage({
@@ -119,14 +124,22 @@ function buildCorrectionTurn({ result, providerConfig, error, attempt, sessionLo
                 ? { providerId: String(toolCall.providerId || '') }
                 : {}),
         })),
-        record: {
-            attempt,
-            errorCode: String(error.code || ''),
-            errorPath: String(error.details?.path || ''),
-            toolCallCount: Array.isArray(result?.toolCalls) ? result.toolCalls.length : 0,
-            toolNames: (Array.isArray(result?.toolCalls) ? result.toolCalls : [])
-                .map((toolCall) => String(toolCall?.name || '')),
-        },
+        finalAnswerReminderText: '',
+    };
+}
+
+function buildValidationFailureRecord({ result, error, attempt, feedbackSent = false }) {
+    return {
+        attempt,
+        errorCode: String(error?.code || ''),
+        errorPath: String(error?.details?.path || ''),
+        errorRule: String(error?.details?.rule || ''),
+        received: cloneJson(error?.details?.received),
+        expected: cloneJson(error?.details?.expected),
+        toolCallCount: Array.isArray(result?.toolCalls) ? result.toolCalls.length : 0,
+        toolNames: (Array.isArray(result?.toolCalls) ? result.toolCalls : [])
+            .map((toolCall) => String(toolCall?.name || '')),
+        feedbackSent,
     };
 }
 
@@ -328,6 +341,9 @@ export function beginDrawScenePlannerDiagnostic(initial = {}) {
         attemptCount: 0,
         correctionCount: 0,
         corrections: [],
+        validationFailures: [],
+        attempts: [],
+        terminationReason: '',
         notices: [],
         ...initial,
     };
@@ -470,7 +486,10 @@ export async function callDrawScenePlannerAgent(options = {}) {
 
     const messages = Array.isArray(task.messages) ? [...task.messages] : [];
     const corrections = [];
+    const validationFailures = [];
+    const attempts = [];
     let pendingToolResponses = null;
+    let pendingFinalAnswerReminderText = '';
     let previousCorrectionSignature = '';
     try {
         for (let attempt = 1; attempt <= MAX_SCENE_PLANNER_ATTEMPTS; attempt += 1) {
@@ -478,6 +497,10 @@ export async function callDrawScenePlannerAgent(options = {}) {
             if (pendingToolResponses?.length && adapter?.supportsSessionToolLoop) {
                 delete agentTask.messages;
                 agentTask.toolResponses = pendingToolResponses;
+            } else if (pendingFinalAnswerReminderText && adapter?.supportsSessionToolLoop) {
+                delete agentTask.messages;
+                agentTask.finalAnswerReminderText = pendingFinalAnswerReminderText;
+                pendingFinalAnswerReminderText = '';
             } else {
                 agentTask.messages = messages;
                 delete agentTask.toolResponses;
@@ -498,6 +521,11 @@ export async function callDrawScenePlannerAgent(options = {}) {
                 const inspection = cloneJson(rawError?.requestInspection);
                 diagnostic.fail(error, {
                     stage: 'request',
+                    terminationReason: error.code === 'REQUEST_TIMEOUT'
+                        ? 'timeout'
+                        : error.code === 'REQUEST_ABORTED'
+                            ? 'abort'
+                            : 'provider_error',
                     ...buildInspectionDiagnosticPatch(inspection),
                 });
                 throw error;
@@ -508,6 +536,13 @@ export async function callDrawScenePlannerAgent(options = {}) {
                 ? result
                 : { ...result, toolCalls: validationToolCalls };
             const inspection = cloneJson(result?.requestInspection);
+            const attemptRecord = {
+                attempt,
+                toolCallCount: validationToolCalls.length,
+                toolNames: validationToolCalls.map((toolCall) => String(toolCall?.name || '')).filter(Boolean),
+                finishReason: String(result?.finishReason || ''),
+            };
+            attempts.push(attemptRecord);
             diagnostic.update({
                 stage: 'request',
                 ...buildInspectionDiagnosticPatch(inspection),
@@ -517,6 +552,7 @@ export async function callDrawScenePlannerAgent(options = {}) {
                     .map((toolCall) => String(toolCall?.name || ''))
                     .filter(Boolean),
                 finishReason: String(result?.finishReason || ''),
+                attempts,
             });
 
             if (typeof options.validateResult !== 'function') {
@@ -529,11 +565,36 @@ export async function callDrawScenePlannerAgent(options = {}) {
                     stage: 'parse',
                     correctionCount: corrections.length,
                     corrections,
+                    validationFailures,
+                    terminationReason: 'success',
                 });
                 return { result: validationResult, providerConfig, diagnostic, parsed };
             } catch (error) {
                 if (!isScenePlannerCorrectionError(error)) {
-                    diagnostic.fail(error, { stage: 'parse' });
+                    diagnostic.fail(error, { stage: 'parse', terminationReason: 'validation_error' });
+                    throw error;
+                }
+
+                const signature = getScenePlannerCorrectionSignature(error);
+                const repeated = signature === previousCorrectionSignature;
+                const failureRecord = buildValidationFailureRecord({
+                    result: validationResult,
+                    error,
+                    attempt,
+                });
+                validationFailures.push(failureRecord);
+                diagnostic.update({
+                    stage: 'correction',
+                    correctionCount: corrections.length,
+                    corrections,
+                    validationFailures,
+                    lastValidationErrorCode: String(error.code || ''),
+                });
+                if (repeated || attempt >= MAX_SCENE_PLANNER_ATTEMPTS) {
+                    diagnostic.fail(error, {
+                        stage: 'parse',
+                        terminationReason: repeated ? 'repeated_error' : 'max_attempts',
+                    });
                     throw error;
                 }
 
@@ -544,26 +605,14 @@ export async function callDrawScenePlannerAgent(options = {}) {
                     attempt,
                     sessionLoop: adapter?.supportsSessionToolLoop === true,
                 });
-                corrections.push(correction.record);
-                const signature = getScenePlannerCorrectionSignature(error);
-                const repeated = signature === previousCorrectionSignature;
-                diagnostic.update({
-                    stage: 'correction',
-                    correctionCount: corrections.length,
-                    corrections,
-                    lastValidationErrorCode: String(error.code || ''),
-                });
-                if (repeated || attempt >= MAX_SCENE_PLANNER_ATTEMPTS) {
-                    diagnostic.fail(error, { stage: 'parse' });
-                    throw error;
-                }
-
                 messages.push(...correction.messages);
                 pendingToolResponses = correction.toolResponses;
+                pendingFinalAnswerReminderText = correction.finalAnswerReminderText;
+                failureRecord.feedbackSent = true;
+                corrections.push({ ...failureRecord });
                 previousCorrectionSignature = signature;
             }
         }
-        throw new ScenePlannerError('场景规划未能在请求上限内完成。', 'TOOL_ARGUMENTS_SCHEMA_INVALID');
     } finally {
         abortScope.cleanup();
     }

@@ -21,3 +21,17 @@ export declare function insertScenePlacements(
     insertions: ScenePlacementInsertion[],
     options?: { block?: boolean },
 ): string;
+
+export declare function removeSceneSlotPlaceholders(
+    sourceText: string,
+    slotIds?: string[],
+    markerName?: string,
+): string;
+
+export declare function settleSceneSlotPlaceholders(options?: {
+    currentText?: string;
+    originalText?: string;
+    allSlotIds?: string[];
+    completedSlotIds?: string[];
+    successCount?: number;
+}): string;

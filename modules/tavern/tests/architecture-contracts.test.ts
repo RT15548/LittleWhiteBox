@@ -2168,7 +2168,7 @@ test('tavern draw jobs are message-queued and route progress by host request', (
     const chatRunSource = readRepoFile('modules/tavern/app-src/features/chat-run/useTavernChatRunController.ts');
     const sessionSource = readRepoFile('modules/tavern/app-src/features/session/useTavernSessionController.ts');
     const canDrawSource = drawSource.match(/function canDrawMessage\(message: TavernMessageRecord\) \{[\s\S]*?\n {4}\}/)?.[0] || '';
-    const insertMarkersSource = drawSource.match(/function insertTavernImageMarkers\(content = '', images: unknown\[] = \[]\) \{[\s\S]*?\n\}\n\nfunction formatDrawProgress/)?.[0] || '';
+    const insertMarkersSource = drawSource.match(/function insertTavernImageMarkers\(content = '', images: unknown\[] = \[]\) \{[\s\S]*?\n\}\n\nfunction insertTavernImageMarkersAtTail/)?.[0] || '';
 
     assert.match(appSource, /const drawContext = useTavernDrawController\(\{/);
     assert.match(appSource, /draw: drawContext,/);
@@ -2179,7 +2179,6 @@ test('tavern draw jobs are message-queued and route progress by host request', (
     assert.match(drawSource, /const drawQueue = ref<string\[]>\(\[]\);/);
     assert.match(drawSource, /const drawRequestJobKeys = new Map<string, string>\(\);/);
     assert.doesNotMatch(appSource, /drawProgressText/);
-    assert.match(drawSource, /type TavernDrawJobStatus = 'queued' \| 'running' \| 'success' \| 'failed' \| 'cancelled';/);
     assert.match(drawSource, /sourceTextHash: string;/);
     assert.match(drawSource, /finishId: number;/);
     assert.doesNotMatch(appSource, /drawingMessageKey|drawStatusMessageKey/);
@@ -2192,8 +2191,6 @@ test('tavern draw jobs are message-queued and route progress by host request', (
     assert.match(drawSource, /function finishDrawJobStatus\(jobKey = '', patch: Partial<TavernDrawJob>, durationMs = 0\): void \{[\s\S]*const finishId = drawFinishSerial \+= 1;[\s\S]*current\.finishId !== finishId/);
     assert.match(drawSource, /function enqueueDrawMessageJob\(message: TavernMessageRecord\): void \{[\s\S]*status: 'queued'[\s\S]*drawQueue\.value = \[\.\.\.drawQueue\.value\.filter/);
     assert.match(drawSource, /async function processNextDrawJob\(\): Promise<void> \{[\s\S]*if \(runningDrawJobKey\(\)\) \{return;\}[\s\S]*await runDrawJob\(nextKey\);/);
-    assert.match(drawSource, /async function runDrawJob\(jobKey = ''\): Promise<void> \{[\s\S]*const currentMessage = await options\.getTavernMessage\(job\.sessionId, job\.order\);[\s\S]*const sourceTextHash = options\.markdownSignature\(cleanText\);[\s\S]*setDrawJob\(jobKey, \{ sourceTextHash \}\);[\s\S]*const latestMessage = await options\.getTavernMessage\(job\.sessionId, job\.order\);[\s\S]*insertTavernImageMarkers\(latestMessage!\.content \|\| '', images\);/);
-    assert.match(drawSource, /const latestMessage = await options\.getTavernMessage\(job\.sessionId, job\.order\);[\s\S]*if \(controller\.signal\.aborted\) \{[\s\S]*progressText: '配图已取消'[\s\S]*return;[\s\S]*const latestSourceTextHash = drawSourceTextHash\(latestMessage!\.content \|\| ''\);[\s\S]*progressText: '源楼层已变化'[\s\S]*const result = \(resultPayload\.result \|\| resultPayload\)/);
     assert.match(drawSource, /options\.flashMessageAction\(updated \|\| latestMessage!, 'draw', !allFailed && !!updated\);/);
 
     assert.match(drawSource, /function cancelJob\(jobKey = ''\): void \{[\s\S]*job\.controller\?\.abort\(\);[\s\S]*clearCooldownTimer\(\);/);

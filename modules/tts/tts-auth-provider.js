@@ -6,6 +6,7 @@
 
 import { synthesizeV3, synthesizeV3Stream } from './tts-api.js';
 import { normalizeEmotion } from './tts-text.js';
+import { inferResourceIdBySpeaker } from './tts-voices.js';
 import { getRequestHeaders } from "../../../../../../script.js";
 
 // ============ 工具函数（内部） ============
@@ -38,21 +39,6 @@ function resolveContextTexts(context, resourceId) {
 
 export function speedToV3SpeechRate(speed) {
     return Math.round((normalizeSpeed(speed) - 1) * 100);
-}
-
-export function inferResourceIdBySpeaker(value, explicitResourceId = null) {
-    if (explicitResourceId) {
-        return explicitResourceId;
-    }
-    const v = (value || '').trim();
-    const lower = v.toLowerCase();
-    if (lower.startsWith('icl_') || lower.startsWith('s_')) {
-        return 'seed-icl-2.0';
-    }
-    if (v.includes('_uranus_') || v.includes('_saturn_') || v.includes('_moon_')) {
-        return 'seed-tts-2.0';
-    }
-    return 'seed-tts-1.0';
 }
 
 export function buildV3Headers(resourceId, config) {

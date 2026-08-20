@@ -112,6 +112,79 @@ test('final NovelAI scene-planner task preserves the complete domain prompt and 
     assert.doesNotMatch(text, /YAML|<meta_protocol>|assistant prefill/i);
 });
 
+test('scene planner clamps an exact image request to the available illustration points', async () => {
+    const task = await buildScenePlannerTask({
+        messageText: '短句。',
+        maxImages: 3,
+        promptDefaults: NOVEL_SCENE_PROMPTS,
+        expansionOptions: NOOP_EXPANSION_OPTIONS,
+    });
+    const parameters = task.tools[0].function.parameters;
+    const images = parameters.properties.images;
+    const moments = parameters.properties.mindful_prelude.properties.visual_plan.properties.moments;
+    const text = flattenTaskText(task);
+
+    assert.equal(images.minItems, 1);
+    assert.equal(images.maxItems, 1);
+    assert.equal(moments.minItems, 1);
+    assert.equal(moments.maxItems, 1);
+    assert.equal(moments.items.properties.insert_after.maximum, 1);
+    assert.match(text, /本次正文共有 1 个可用插图点/);
+    assert.match(text, /images 必须恰好包含 1 项/);
+});
+
+test('scene planner reports an image-limit adjustment once before the provider request', async () => {
+    const sequence = [];
+    const adjustments = [];
+    await generateAndParseScenePlan({
+        messageText: '短句。',
+        maxImages: 3,
+        promptDefaults: NOVEL_SCENE_PROMPTS,
+        expansionOptions: NOOP_EXPANSION_OPTIONS,
+        onImageLimitAdjusted(adjustment) {
+            sequence.push('adjusted');
+            adjustments.push(adjustment);
+        },
+        agentCaller: async () => {
+            sequence.push('provider');
+            return {
+                providerConfig: { provider: 'openai-compatible', model: 'test-model' },
+                result: {
+                    toolCalls: [{
+                        name: 'submit_scene_plan',
+                        arguments: JSON.stringify({
+                            mindful_prelude: {
+                                user_insight: '短句画面。',
+                                therapeutic_commitment: '忠实呈现。',
+                                visual_plan: {
+                                    reasoning: '唯一可用位置。',
+                                    moments: [{
+                                        moment: '1',
+                                        insert_after: 1,
+                                        char_count: '0',
+                                        known_chars: [],
+                                        unknown_chars: [],
+                                        composition: '中景。',
+                                    }],
+                                },
+                            },
+                            images: [{ index: 1, scene: 'short scene', characters: [] }],
+                        }),
+                    }],
+                },
+            };
+        },
+    });
+
+    assert.deepEqual(sequence, ['adjusted', 'provider']);
+    assert.deepEqual(adjustments, [{
+        requested: 3,
+        effective: 1,
+        insertPointCount: 1,
+        message: '本次正文只有 1 个可用插图点，图片数量已从 3 张调整为 1 张。',
+    }]);
+});
+
 test('every provider request is user-first and injects each key marker exactly once', async () => {
     const providers = [
         ['novelai', NOVEL_SCENE_PROMPTS],
@@ -391,6 +464,20 @@ test('scene planner rejects illustration point numbers that do not exist in this
                 }],
             },
         }),
-    }), (error) => error.code === 'TOOL_ARGUMENTS_SCHEMA_INVALID'
+    }), (error) => error.code === 'INSERT_POINT_INVALID'
         && error.message.includes('insert_after'));
+});
+
+test('scene planner rejects punctuation-only content before making a provider request', async () => {
+    let callCount = 0;
+    await assert.rejects(() => generateAndParseScenePlan({
+        messageText: '……。！？',
+        maxImages: 3,
+        expansionOptions: NOOP_EXPANSION_OPTIONS,
+        agentCaller: async () => {
+            callCount += 1;
+            return {};
+        },
+    }), (error) => error.code === 'NO_INSERT_POINTS');
+    assert.equal(callCount, 0);
 });

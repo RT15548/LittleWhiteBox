@@ -9,6 +9,7 @@ import {
     ScenePlannerError,
     toSceneCharacterPromptTag,
 } from "./scene-plan-contract.js";
+import { ScenePlacementError } from './scene-placement.js';
 import { classifyScenePlannerErrorForUi } from "./scene-planner-error-ui.js";
 import { createModuleEvents, event_types } from "../../../core/event-manager.js";
 import {
@@ -38,6 +39,7 @@ export const ImageState = {
 };
 
 export const ErrorType = {
+    INPUT: { code: 'input', label: '正文输入', desc: '正文没有可用的配图内容' },
     NETWORK: { code: 'network', label: '网络', desc: '连接超时或网络不稳定' },
     AUTH: { code: 'auth', label: '认证', desc: '认证信息无效或过期' },
     QUOTA: { code: 'quota', label: '额度', desc: '额度不足' },
@@ -51,6 +53,7 @@ export const ErrorType = {
     TOOL_PROTOCOL: { code: 'tool_protocol', label: 'Tool 协议', desc: '模型没有按要求调用场景规划 Tool' },
     SCENE_SCHEMA: { code: 'scene_schema', label: '计划校验', desc: '模型提交的场景计划不符合契约' },
     PROVIDER: { code: 'provider', label: 'Provider', desc: '模型 Provider 请求失败' },
+    SCENE_PLACEMENT: { code: 'scene_placement', label: '插图位置', desc: '正文位置已变化，未写入图片' },
     ABORTED: { code: 'aborted', label: '已取消', desc: '场景规划已取消' },
     UNKNOWN: { code: 'unknown', label: '错误', desc: '未知错误' },
     CACHE_LOST: { code: 'cache_lost', label: '缓存丢失', desc: '图片缓存已过期' },
@@ -245,6 +248,9 @@ export function classifyError(error) {
     if (error instanceof ScenePlannerError) {
         return classifyScenePlannerErrorForUi(error, ErrorType);
     }
+    if (error instanceof ScenePlacementError) {
+        return { ...ErrorType.SCENE_PLACEMENT, desc: error.message || ErrorType.SCENE_PLACEMENT.desc };
+    }
     if (error?.errorType) return error.errorType;
     const msg = String(error?.message || error || '').toLowerCase();
     if (msg.includes('network') || msg.includes('fetch') || msg.includes('failed to fetch')) return ErrorType.NETWORK;
@@ -267,6 +273,7 @@ export function ensureDrawImageStyles() {
 .xb-nd-img{margin:0.8em 0;text-align:center;position:relative;display:block;width:100%;border-radius:14px;padding:4px}
 .xb-nd-img[data-state="preview"]{border:1px dashed rgba(255,152,0,0.35)}
 .xb-nd-img[data-state="failed"]{border:1px dashed rgba(248,113,113,0.5);background:rgba(248,113,113,0.05);padding:20px}
+.xb-nd-img[data-state="pending"]{border:1px dashed rgba(212,165,116,0.4);background:rgba(212,165,116,0.06);padding:18px;color:inherit}
 .xb-nd-img.busy img{opacity:0.5}
 .xb-nd-img-wrap{position:relative;overflow:hidden;border-radius:10px;touch-action:pan-y pinch-zoom}
 .xb-nd-img img{width:auto;height:auto;max-width:100%;border-radius:10px;cursor:pointer;box-shadow:0 3px 15px rgba(0,0,0,0.25);display:block;user-select:none;-webkit-user-drag:none;transition:transform 0.25s ease,opacity 0.2s ease}
@@ -358,16 +365,34 @@ ${menuHtml}
 </div>`;
 }
 
+export function buildPendingImageHtml({ slotId, messageId, index = 0, total = 0 }) {
+    const progress = total > 0 ? `${Math.max(1, Number(index) || 1)} / ${total}` : '';
+    return `<div class="xb-nd-img" data-slot-id="${escapeHtml(slotId)}" data-mesid="${escapeHtml(messageId)}" data-state="pending" style="margin:0.8em 0;text-align:center;position:relative;display:block;width:100%;border:1px dashed rgba(212,165,116,0.4);border-radius:14px;padding:18px;background:rgba(212,165,116,0.06);color:inherit;">
+<div class="xb-nd-indicator" style="position:static;transform:none;display:inline-block;">🎨 等待生成${progress ? ` · ${progress}` : ''}</div>
+</div>`;
+}
+
 function getMesTextElement(messageId) {
     if (!Number.isFinite(messageId)) return null;
     return document.querySelector(`#chat .mes[mesid="${messageId}"] .mes_text`);
 }
 
-function isMessageBeingEdited(messageId) {
+export function isMessageBeingEdited(messageId) {
     if (!Number.isFinite(messageId)) return false;
     const mesElement = document.querySelector(`.mes[mesid="${messageId}"]`);
     if (!mesElement) return false;
     return mesElement.querySelector('textarea.edit_textarea') !== null || mesElement.classList.contains('editing');
+}
+
+export function buildDrawSlotSelector(slotId) {
+    const escaped = Array.from(String(slotId ?? '')).map((char) => {
+        const code = char.codePointAt(0);
+        if (char === '\0') return '\\fffd ';
+        if ((code >= 1 && code <= 31) || code === 127) return `\\${code.toString(16)} `;
+        if (char === '"' || char === '\\') return `\\${char}`;
+        return char;
+    }).join('');
+    return `.xb-nd-img[data-slot-id="${escaped}"]`;
 }
 
 function createNodeFromHtml(html) {
@@ -527,16 +552,26 @@ function removeIfEmptyFlowContainer(container) {
 }
 
 function replacePlaceholdersInDomBatch(root, replacements) {
+    const resolvedSlotIds = new Set();
+    for (const item of replacements) {
+        if (!item?.slotId || !item?.html) continue;
+        const existing = root.querySelector(buildDrawSlotSelector(item.slotId));
+        if (existing?.dataset?.state !== 'pending') continue;
+        const replacement = createNodeFromHtml(item.html);
+        if (!replacement) continue;
+        existing.replaceWith(replacement);
+        resolvedSlotIds.add(item.slotId);
+    }
     const pending = replacements.filter(item =>
         item?.slotId &&
         item?.html &&
-        !root.querySelector(`.xb-nd-img[data-slot-id="${item.slotId}"]`)
+        !resolvedSlotIds.has(item.slotId) &&
+        !root.querySelector(buildDrawSlotSelector(item.slotId))
     );
-    if (pending.length === 0) return new Set();
+    if (pending.length === 0) return resolvedSlotIds;
 
     const placeholderMap = new Map(pending.map(item => [createPlaceholder(item.slotId), item]));
     const placeholderRegex = new RegExp(Array.from(placeholderMap.keys()).map(escapeRegexChars).join('|'), 'g');
-    const resolvedSlotIds = new Set();
     const nodePlans = new Map();
     const groupedByContainer = new Map();
     const orderedContainers = [];
@@ -603,7 +638,7 @@ export function insertPreviewIntoRenderedMessage({ messageId, slotId, html }) {
     if (!mesTextEl || !slotId || !html) return false;
     const insertedSlotIds = replacePlaceholdersInDomBatch(mesTextEl, [{ slotId, html }]);
     if (insertedSlotIds.has(slotId)) return true;
-    return mesTextEl.querySelector(`.xb-nd-img[data-slot-id="${slotId}"]`) !== null;
+    return mesTextEl.querySelector(buildDrawSlotSelector(slotId)) !== null;
 }
 
 async function resolveRenderPreviewForSlot(message, messageId, slotId) {
@@ -671,7 +706,7 @@ export async function renderPreviewsForMessage(messageId) {
 
     const replacements = [];
     for (const slotId of slotIds) {
-        if (mesTextEl.querySelector(`.xb-nd-img[data-slot-id="${slotId}"]`)) continue;
+        if (mesTextEl.querySelector(buildDrawSlotSelector(slotId))) continue;
         let replacementHtml;
         try {
             const displayData = await resolveRenderPreviewForSlot(message, messageId, slotId);

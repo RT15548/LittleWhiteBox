@@ -78,6 +78,7 @@ import db, {
     truncateTavernMessagesAndReplaceSessionState,
     updateTavernAssistantChatMessage as updateTavernManagerMessage,
     updateTavernMessage,
+    updateTavernMessageContentIfMatches,
     updateTavernManagerRun,
     transitionTavernManagerRun,
     updateTavernSessionState,
@@ -1573,6 +1574,21 @@ test('tavern session db preserves runtime events and lets user edits clear them'
 
     assert.equal(updated?.content, 'Roll the road again.');
     assert.deepEqual(updated?.runtimeEvents, []);
+});
+
+test('tavern message content updates reject a stale writer atomically', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Conditional message update' });
+    const message = await appendTavernMessage(session.id, { role: 'assistant', content: '原始正文' });
+    const results = await Promise.all([
+        updateTavernMessageContentIfMatches(session.id, message.order, '原始正文', '写入 A'),
+        updateTavernMessageContentIfMatches(session.id, message.order, '原始正文', '写入 B'),
+    ]);
+
+    assert.deepEqual(results.map((result) => result.status).sort(), ['conflict', 'updated']);
+    assert.match((await getTavernMessage(session.id, message.order))?.content || '', /^写入 [AB]$/);
 });
 
 test('tavern session db preserves multiple assistant action-check events without collapsing them by type', async () => {

@@ -133,15 +133,26 @@ function combineWorldInfoEntries({ uploadedEntries = '', nativeEntries = '' } = 
     return sections.join('\n\n').trim();
 }
 
-function buildSessionLimitsLine(maxImages, maxCharactersPerImage) {
+function buildSessionLimitsLine(maxImages, maxCharactersPerImage, insertPointCount) {
     const imageLimit = Number(maxImages) > 0 ? Math.floor(Number(maxImages)) : 0;
     const characterLimit = Number(maxCharactersPerImage) > 0
         ? Math.floor(Number(maxCharactersPerImage))
         : 0;
     const clauses = [];
+    if (insertPointCount > 0) clauses.push(`本次正文共有 ${insertPointCount} 个可用插图点，编号范围为 1～${insertPointCount}`);
     if (imageLimit) clauses.push(`images 必须恰好包含 ${imageLimit} 项`);
     if (characterLimit) clauses.push(`每项 characters 最多 ${characterLimit} 人`);
     return clauses.length ? `本次提交数量约束：${clauses.join('；')}。` : '';
+}
+
+function resolveRequestedMaxImages(maxImages) {
+    const requested = Number(maxImages) > 0 ? Math.floor(Number(maxImages)) : 0;
+    return Math.max(0, requested);
+}
+
+function resolveEffectiveMaxImages(requested, insertPointCount) {
+    if (!requested) return 0;
+    return Math.min(requested, Math.max(0, Number(insertPointCount) || 0));
 }
 
 const TRAILING_CLOSING_TAG = /\n?(<\/[A-Za-z][\w-]*>)\s*$/;
@@ -188,6 +199,20 @@ async function buildScenePlannerRequest(options = {}) {
     if (!String(sceneSource.content || '').trim()) {
         throw new ScenePlannerError('消息内容为空。', 'EMPTY_MESSAGE');
     }
+    const insertPointCount = Array.isArray(sceneSource.points) ? sceneSource.points.length : 0;
+    if (!insertPointCount) {
+        throw new ScenePlannerError('正文中没有可用的插图位置。', 'NO_INSERT_POINTS');
+    }
+    const requestedMaxImages = resolveRequestedMaxImages(maxImages);
+    const effectiveMaxImages = resolveEffectiveMaxImages(requestedMaxImages, insertPointCount);
+    const imageLimitAdjustment = requestedMaxImages > effectiveMaxImages
+        ? {
+            requested: requestedMaxImages,
+            effective: effectiveMaxImages,
+            insertPointCount,
+            message: `本次正文只有 ${insertPointCount} 个可用插图点，图片数量已从 ${requestedMaxImages} 张调整为 ${effectiveMaxImages} 张。`,
+        }
+        : null;
 
     const promptConfig = getEffectivePromptConfig(customPrompts, promptDefaults);
     const runtime = await resolveExpansionRuntime(options.expansionOptions);
@@ -232,7 +257,7 @@ async function buildScenePlannerRequest(options = {}) {
             slots.lastMessage,
         );
         const finalInstruction = appendInstruction(promptConfig.userConfirm, [
-            buildSessionLimitsLine(maxImages, maxCharactersPerImage),
+            buildSessionLimitsLine(effectiveMaxImages, maxCharactersPerImage, insertPointCount),
             '完成 mindful_prelude 与全部 images 后，必须且只能调用一次 submit_scene_plan；不要只返回正文。',
         ]);
 
@@ -267,14 +292,25 @@ async function buildScenePlannerRequest(options = {}) {
         const task = {
             systemPrompt,
             messages: [{ role: 'user', content: userTask }],
-            tools: [createSubmitScenePlanTool({ maxImages, maxCharactersPerImage })],
+            tools: [createSubmitScenePlanTool({
+                maxImages: effectiveMaxImages,
+                maxCharactersPerImage,
+                insertPointCount,
+            })],
             toolChoice: 'required',
         };
         await emitScenePromptReady(runtime, [
             ...(systemPrompt ? [{ role: 'system', content: systemPrompt }] : []),
             ...task.messages,
         ]);
-        return { task, validationContext: { sceneSource } };
+        return {
+            task,
+            validationContext: {
+                sceneSource,
+                effectiveMaxImages,
+                imageLimitAdjustment,
+            },
+        };
     } catch (error) {
         if (error instanceof ScenePlannerError) throw error;
         throw wrapPromptExpansionError(error);
@@ -297,13 +333,22 @@ export async function generateAndParseScenePlan(options = {}) {
     }
 
     const task = request.task;
+    const limitAdjustment = request.validationContext.imageLimitAdjustment;
+    if (limitAdjustment) {
+        xbLog.info('novelDrawLlm', limitAdjustment.message, limitAdjustment);
+        try {
+            options.onImageLimitAdjusted?.(limitAdjustment);
+        } catch (error) {
+            console.warn('[Draw Scene Planner] 图片数量调整提示失败:', error);
+        }
+    }
     const agentCaller = options.agentCaller || callDrawScenePlannerAgent;
     const parseResult = (result, providerConfig = {}) => {
         try {
             return parseSubmittedScenePlan(result, {
                 sceneSource: request.validationContext.sceneSource,
                 presentCharacters: options.presentCharacters,
-                maxImages: options.maxImages,
+                maxImages: request.validationContext.effectiveMaxImages,
                 maxCharactersPerImage: options.maxCharactersPerImage,
                 presetName: providerConfig.currentPresetName,
                 provider: providerConfig.provider,

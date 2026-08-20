@@ -236,6 +236,88 @@ test('scene planner corrects schema failures with canonical provider history in 
     assert.equal(diagnostic.correctionCount, 1);
 });
 
+test('scene planner corrects a missing Tool call without inventing Tool history', async () => {
+    resetDrawAgentRuntimeForTests();
+    const tasks = [];
+    const providerPayload = {
+        openaiCompatibleMessage: {
+            role: 'assistant',
+            content: 'I returned prose by mistake.',
+        },
+    };
+    const responses = [{
+        text: 'I returned prose by mistake.',
+        providerPayload,
+        toolCalls: [],
+        finishReason: 'stop',
+    }, buildValidScenePlanResult()];
+
+    const result = await generateAndParseScenePlan({
+        messageText: '阿璃推开门。',
+        maxImages: 1,
+        expansionOptions: { runtime: { substituteParams: (text) => text } },
+        agentOptions: {
+            dependencies: { getAgentSettings: async () => buildSettings('missing-tool-model') },
+            loadAgentCore: async () => ({
+                createAgentAdapter: () => ({
+                    chat: async (task) => {
+                        tasks.push(task);
+                        return responses[tasks.length - 1];
+                    },
+                }),
+            }),
+        },
+    });
+
+    const correctionHistory = tasks[1].messages.slice(-2);
+    assert.deepEqual(correctionHistory[0], {
+        role: 'assistant',
+        content: 'I returned prose by mistake.',
+        providerPayload,
+    });
+    assert.equal(correctionHistory[1].role, 'user');
+    assert.match(correctionHistory[1].content, /没有调用 Tool/);
+    assert.equal(tasks[1].messages.some((message) => message.role === 'tool'), false);
+    assert.equal(result.length, 1);
+    const diagnostic = getLastDrawAgentDiagnostic();
+    assert.equal(diagnostic.validationFailures[0].feedbackSent, true);
+    assert.equal(diagnostic.terminationReason, 'success');
+});
+
+test('Google session correction sends a plain reminder when no Tool was called', async () => {
+    resetDrawAgentRuntimeForTests();
+    const settings = buildSettings('unused');
+    settings.presets['主预设'].provider = 'google';
+    settings.presets['主预设'].modelConfigs.google = {
+        model: 'gemini-test',
+        apiKey: 'google-key',
+    };
+    const tasks = [];
+    const responses = [{ text: 'plain answer', toolCalls: [] }, buildValidScenePlanResult()];
+
+    await generateAndParseScenePlan({
+        messageText: '阿璃推开门。',
+        maxImages: 1,
+        expansionOptions: { runtime: { substituteParams: (text) => text } },
+        agentOptions: {
+            dependencies: { getAgentSettings: async () => settings },
+            loadAgentCore: async () => ({
+                createAgentAdapter: () => ({
+                    supportsSessionToolLoop: true,
+                    chat: async (task) => {
+                        tasks.push(task);
+                        return responses[tasks.length - 1];
+                    },
+                }),
+            }),
+        },
+    });
+
+    assert.equal(Object.hasOwn(tasks[1], 'messages'), false);
+    assert.equal(Object.hasOwn(tasks[1], 'toolResponses'), false);
+    assert.match(tasks[1].finalAnswerReminderText, /没有调用 Tool/);
+});
+
 test('Google scene planner corrections stay in the active session and preserve provider call ids', async () => {
     resetDrawAgentRuntimeForTests();
     const settings = buildSettings('unused');
@@ -317,7 +399,11 @@ test('scene planner stops immediately after the same validation error repeats', 
     assert.equal(callCount, 2);
     const diagnostic = getLastDrawAgentDiagnostic();
     assert.equal(diagnostic.attemptCount, 2);
-    assert.equal(diagnostic.correctionCount, 2);
+    assert.equal(diagnostic.correctionCount, 1);
+    assert.equal(diagnostic.validationFailures.length, 2);
+    assert.equal(diagnostic.validationFailures[0].feedbackSent, true);
+    assert.equal(diagnostic.validationFailures[1].feedbackSent, false);
+    assert.equal(diagnostic.terminationReason, 'repeated_error');
     assert.equal(diagnostic.status, 'error');
 });
 
@@ -347,7 +433,11 @@ test('scene planner performs at most three requests for changing validation fail
         },
     }), (error) => error.code === 'TOOL_ARGUMENTS_SCHEMA_INVALID');
     assert.equal(callCount, 3);
-    assert.equal(getLastDrawAgentDiagnostic().correctionCount, 3);
+    const diagnostic = getLastDrawAgentDiagnostic();
+    assert.equal(diagnostic.correctionCount, 2);
+    assert.equal(diagnostic.validationFailures.length, 3);
+    assert.equal(diagnostic.validationFailures[2].feedbackSent, false);
+    assert.equal(diagnostic.terminationReason, 'max_attempts');
 });
 
 test('draw diagnostics use adapter-effective reasoning and isolate notices by request and provider', async () => {

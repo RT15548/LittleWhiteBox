@@ -17,7 +17,7 @@ const workspaceEditorTheme = EditorView.theme({
     '&': {
         height: '100%',
         backgroundColor: 'transparent',
-        color: '#1c314d',
+        color: '#3a352f',
         fontFamily: '"Cascadia Code", "Consolas", monospace',
         fontSize: '12px',
     },
@@ -36,19 +36,19 @@ const workspaceEditorTheme = EditorView.theme({
     '.cm-gutters': {
         backgroundColor: 'transparent',
         border: 'none',
-        color: '#8a97aa',
+        color: '#9a9084',
     },
     '.cm-activeLineGutter': {
-        backgroundColor: 'rgba(27, 55, 88, 0.06)',
+        backgroundColor: 'rgba(167, 95, 67, 0.08)',
     },
     '.cm-activeLine': {
-        backgroundColor: 'rgba(27, 55, 88, 0.04)',
+        backgroundColor: 'rgba(167, 95, 67, 0.05)',
     },
     '.cm-cursor': {
-        borderLeftColor: '#1b3758',
+        borderLeftColor: '#814733',
     },
     '.cm-selectionBackground, .cm-content ::selection': {
-        backgroundColor: 'rgba(72, 120, 184, 0.22)',
+        backgroundColor: 'rgba(196, 122, 88, 0.22)',
     },
     '&.cm-focused': {
         outline: 'none',

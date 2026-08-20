@@ -2,8 +2,15 @@ import { hashStableValue } from './generation-fingerprint.js';
 
 const IMAGE_MARKER_REGEX = /\[(?:image|ebook-image|tavern-image)\s*:\s*[a-z0-9_-]+\]/gi;
 const SCENE_POINT_MARKER_REGEX = /【插图点\s+\d+】/g;
-const SENTENCE_END_REGEX = /[。！？.!?…]/;
+const USER_SCENE_POINT_MARKER_REGEX = /【插图点\s+(\d+)】/g;
+const SENTENCE_END_REGEX = /[。！？!?…]/;
 const SENTENCE_CLOSER_REGEX = /[”’」』】）》〉〕\]})"'*_~～]/;
+const ATTRIBUTION_CLOSER_REGEX = /[”’」』】）》〉〕\]})"']/;
+const COMMON_PERIOD_ABBREVIATIONS = new Set([
+    'mr', 'mrs', 'ms', 'dr', 'prof', 'sr', 'jr', 'st', 'vs', 'etc', 'no', 'fig',
+    'inc', 'ltd', 'co', 'corp', 'jan', 'feb', 'mar', 'apr', 'jun', 'jul', 'aug',
+    'sep', 'sept', 'oct', 'nov', 'dec', 'e.g', 'i.e',
+]);
 
 function escapeRegex(value) {
     return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -73,6 +80,48 @@ function trimMappedText(mapped) {
     return mapped.slice(start, end);
 }
 
+function isAsciiLetterOrDigit(char = '') {
+    return /[A-Za-z0-9]/.test(char);
+}
+
+function isSentencePeriod(mapped, index) {
+    if (mapped[index]?.char !== '.') return false;
+    const previous = mapped[index - 1]?.char || '';
+    const next = mapped[index + 1]?.char || '';
+    if (isAsciiLetterOrDigit(previous) && isAsciiLetterOrDigit(next)) return false;
+
+    let token = '';
+    for (let cursor = index - 1; cursor >= 0 && token.length < 24; cursor -= 1) {
+        const char = mapped[cursor]?.char || '';
+        if (/\s/.test(char)) break;
+        token = char + token;
+    }
+    const normalizedWord = token.replace(/^[^A-Za-z]+|[^A-Za-z.]+$/g, '').toLowerCase();
+    if (COMMON_PERIOD_ABBREVIATIONS.has(normalizedWord) || /^[A-Za-z]$/.test(normalizedWord)) return false;
+    return true;
+}
+
+function isSentenceEnd(mapped, index) {
+    const char = mapped[index]?.char || '';
+    return char === '.' ? isSentencePeriod(mapped, index) : SENTENCE_END_REGEX.test(char);
+}
+
+function hasSameLineQuoteContinuation(mapped, closerEnd) {
+    let cursor = closerEnd;
+    while (cursor < mapped.length && /[ \t\u00a0]/.test(mapped[cursor].char)) cursor += 1;
+    if (cursor >= mapped.length || /[\r\n]/.test(mapped[cursor].char)) return false;
+
+    // A new quoted or Markdown-emphasized span is a separate narrative beat,
+    // not an attribution such as `”她问。` that belongs to the quotation.
+    return !/[*_~“‘「『《〈（(【[]/.test(mapped[cursor].char);
+}
+
+function skipHorizontalWhitespace(mapped, start) {
+    let cursor = start;
+    while (cursor < mapped.length && /[ \t\u00a0]/.test(mapped[cursor].char)) cursor += 1;
+    return cursor;
+}
+
 function collectScenePoints(mapped) {
     const points = [];
     let hasContent = false;
@@ -96,12 +145,21 @@ function collectScenePoints(mapped) {
             index = end - 1;
             continue;
         }
-        if (SENTENCE_END_REGEX.test(char)) {
+        if (isSentenceEnd(mapped, index)) {
             let end = index + 1;
-            while (end < mapped.length && SENTENCE_END_REGEX.test(mapped[end].char)) end += 1;
-            while (end < mapped.length && SENTENCE_CLOSER_REGEX.test(mapped[end].char)) end += 1;
-            addPoint(end);
-            index = end - 1;
+            while (end < mapped.length && isSentenceEnd(mapped, end)) end += 1;
+            const punctuationEnd = end;
+            let hasAttributionCloser = false;
+            while (end < mapped.length && SENTENCE_CLOSER_REGEX.test(mapped[end].char)) {
+                if (ATTRIBUTION_CLOSER_REGEX.test(mapped[end].char)) hasAttributionCloser = true;
+                end += 1;
+            }
+            const pointEnd = skipHorizontalWhitespace(mapped, end);
+            const closedQuotedSentence = end > punctuationEnd && hasAttributionCloser;
+            if (hasContent && !(closedQuotedSentence && hasSameLineQuoteContinuation(mapped, end))) {
+                addPoint(pointEnd);
+            }
+            index = (closedQuotedSentence ? end : pointEnd) - 1;
             continue;
         }
         if (!/\s/.test(char)) hasContent = true;
@@ -111,15 +169,29 @@ function collectScenePoints(mapped) {
     return points;
 }
 
+function escapeUserScenePointMarkers(content) {
+    return String(content || '').replace(
+        USER_SCENE_POINT_MARKER_REGEX,
+        (_match, number) => `【原文中的“插图点 ${number}”字样】`,
+    );
+}
+
+function restoreUserScenePointMarkers(content) {
+    return String(content || '').replace(
+        /【原文中的“插图点\s+(\d+)”字样】/g,
+        (_match, number) => `【插图点 ${number}】`,
+    );
+}
+
 function buildNumberedContent(content, points) {
     let cursor = 0;
     let result = '';
     for (const point of points) {
-        result += content.slice(cursor, point.contentOffset);
+        result += escapeUserScenePointMarkers(content.slice(cursor, point.contentOffset));
         result += `【插图点 ${point.number}】`;
         cursor = point.contentOffset;
     }
-    return result + content.slice(cursor);
+    return result + escapeUserScenePointMarkers(content.slice(cursor));
 }
 
 export function hashSceneSource(sourceText) {
@@ -127,7 +199,7 @@ export function hashSceneSource(sourceText) {
 }
 
 export function stripScenePointMarkers(text) {
-    return String(text || '').replace(SCENE_POINT_MARKER_REGEX, '');
+    return restoreUserScenePointMarkers(String(text || '').replace(SCENE_POINT_MARKER_REGEX, ''));
 }
 
 export function createSceneSource(sourceText, options = {}) {

@@ -27,10 +27,10 @@ import {
 } from "./tts-panel.js";
 import { getCacheEntry, setCacheEntry, getCacheStats, clearExpiredCache, clearAllCache, pruneCache } from './tts-cache.js';
 import { speakMessageFree, clearAllFreeQueues, clearFreeQueueForMessage } from './tts-free-provider.js';
+import { inferResourceIdBySpeaker } from './tts-voices.js';
 import { 
     speakMessageAuth, 
     speakSegmentAuth, 
-    inferResourceIdBySpeaker, 
     buildV3Headers, 
     speedToV3SpeechRate 
 } from './tts-auth-provider.js';
@@ -1503,7 +1503,7 @@ async function synthesizeForExternal(text, options = {}) {
         throw new Error('合成文本为空');
     }
 
-    const { emotion, speaker, signal } = options;
+    const { emotion, speaker, signal, resourceId } = options;
 
     const mySpeakers = config.volc?.mySpeakers || [];
     const defaultSpeaker = config.volc?.defaultSpeaker || FREE_DEFAULT_VOICE;
@@ -1521,7 +1521,7 @@ async function synthesizeForExternal(text, options = {}) {
         throw new Error('鉴权音色需要配置 API');
     }
 
-    return await synthesizeAuthBlob(trimmed, resolved, normalizedEmotion, signal);
+    return await synthesizeAuthBlob(trimmed, resolved, normalizedEmotion, signal, resourceId);
 }
 
 async function synthesizeFreeBlob(text, voiceKey, emotion, signal) {
@@ -1552,8 +1552,8 @@ async function synthesizeFreeBlob(text, voiceKey, emotion, signal) {
     return blob;
 }
 
-async function synthesizeAuthBlob(text, resolved, emotion, signal) {
-    const resourceId = resolved.resourceId || inferResourceIdBySpeaker(resolved.value);
+async function synthesizeAuthBlob(text, resolved, emotion, signal, explicitResourceId) {
+    const resourceId = inferResourceIdBySpeaker(resolved.value, explicitResourceId || resolved.resourceId);
     const params = {
         providerMode: 'auth',
         appId: config.volc.appId,

@@ -49,6 +49,7 @@ const {
     ebookMessagesTable,
     ebookSessionsTable,
     setSelectedBookId,
+    updateBookFileContentIfMatches,
     upsertBookFile,
 } = dbModule;
 const {
@@ -233,6 +234,22 @@ test('Library book list reports drafted chapter counts without counting the star
     const [listed] = await listBooks();
     assert.equal(listed.title, '章节统计书');
     assert.equal(listed.chapterCount, 2);
+});
+
+test('Ebook chapter content updates reject a stale writer atomically', async () => {
+    await resetDb();
+    const book = await createBook('章节条件写测试');
+    const path = 'book/chapters/001.md';
+    await upsertBookFile(book.id, path, '原始正文');
+
+    const results = await Promise.all([
+        updateBookFileContentIfMatches(book.id, path, '原始正文', '写入 A'),
+        updateBookFileContentIfMatches(book.id, path, '原始正文', '写入 B'),
+    ]);
+
+    assert.deepEqual(results.map((result) => result.ok).sort(), [false, true]);
+    assert.equal(results.find((result) => !result.ok)?.reason, 'conflict');
+    assert.match((await getBookFile(book.id, path)).content, /^写入 [AB]$/);
 });
 
 test('Library book list counts chapter 001 and high chapter numbers without off-by-one', async () => {
@@ -3375,6 +3392,63 @@ test('Book controller draws current chapter and inserts ebook image markers by n
     assert.equal(state.drawProgressText, '占位符已插入，请去阅读器查看');
 });
 
+test('Book drawing keeps pre-existing unsaved edits in the editor instead of silently saving them', async () => {
+    await resetDb();
+    const book = await createBook('未保存正文配图测试');
+    const savedContent = '她推开门。';
+    const editorContent = '她推开门。她又补了一句。';
+    const chapterPath = 'book/chapters/001.md';
+    await upsertBookFile(book.id, chapterPath, savedContent);
+    const state = {
+        book,
+        books: [book],
+        files: await listBookFiles(book.id),
+        selectedPath: chapterPath,
+        readerPath: chapterPath,
+        viewMode: 'studio',
+        editorContent,
+        savedContent,
+        isBusy: false,
+        isDrawingChapter: false,
+        drawStatus: { provider: 'novelai', enabled: true, ready: true },
+        drawProgressText: '',
+        toast: '',
+    };
+    const toasts = [];
+    const controller = createBookController({
+        state,
+        render() {},
+        async requestHost(type) {
+            if (type === 'xb-ebook:draw-status') {
+                return { ok: true, provider: 'novelai', enabled: true, ready: true };
+            }
+            if (type === 'xb-ebook:draw-generate') {
+                return {
+                    ok: true,
+                    success: 1,
+                    total: 1,
+                    images: [{
+                        slotId: 'slot-unsaved',
+                        placement: sourcePlacementFor(editorContent, 2),
+                        success: true,
+                    }],
+                };
+            }
+            throw new Error('unexpected_request');
+        },
+        showToast(message) {
+            toasts.push(message);
+        },
+    });
+
+    await controller.drawCurrentChapter();
+
+    assert.equal((await getBookFile(book.id, chapterPath)).content, savedContent);
+    assert.equal(state.savedContent, savedContent);
+    assert.equal(state.editorContent, `${editorContent}\n[ebook-image:slot-unsaved]`);
+    assert.equal(toasts.at(-1), '图片占位符已插入，请保存章节');
+});
+
 test('Book drawing can be cancelled by clicking the chapter draw button again', async () => {
     await resetDb();
     const book = await createBook('取消配图测试');
@@ -3497,7 +3571,7 @@ test('Book drawing saves the original chapter if the user switches files while g
     assert.equal(state.savedContent, '旧大纲');
 });
 
-test('Book drawing refuses to write when the chapter content changed during generation', async () => {
+test('Book drawing keeps a changed chapter dirty when appending already generated images', async () => {
     await resetDb();
     const book = await createBook('正文变化拒写测试');
     const originalContent = '她推开门。';
@@ -3518,6 +3592,13 @@ test('Book drawing refuses to write when the chapter content changed during gene
         toast: '',
     };
     const toasts = [];
+    const previousConfirm = globalThis.confirm;
+    let confirmCount = 0;
+    globalThis.confirm = () => {
+        confirmCount += 1;
+        return true;
+    };
+    let drawRequestCount = 0;
     const controller = createBookController({
         state,
         render() {},
@@ -3526,6 +3607,7 @@ test('Book drawing refuses to write when the chapter content changed during gene
                 return { ok: true, provider: 'novelai', enabled: true, ready: true };
             }
             if (type === 'xb-ebook:draw-generate') {
+                drawRequestCount += 1;
                 state.editorContent = '她推开门。又回头看了看。';
                 return {
                     ok: true,
@@ -3541,12 +3623,19 @@ test('Book drawing refuses to write when the chapter content changed during gene
         },
     });
 
-    await controller.drawCurrentChapter();
+    try {
+        await controller.drawCurrentChapter();
 
-    const updated = await getBookFile(book.id, 'book/chapters/001.md');
-    assert.equal(updated.content, originalContent);
-    assert.equal(state.editorContent, '她推开门。又回头看了看。');
-    assert.equal(toasts.at(-1), '章节正文在配图期间已变化，已拒绝写入，请重试');
+        const updated = await getBookFile(book.id, 'book/chapters/001.md');
+        assert.equal(updated.content, originalContent);
+        assert.equal(state.editorContent, '她推开门。又回头看了看。\n[ebook-image:slot-stale]');
+        assert.equal(state.savedContent, originalContent);
+        assert.equal(confirmCount, 1);
+        assert.equal(drawRequestCount, 1);
+        assert.equal(toasts.at(-1), '图片占位符已插入，请保存章节');
+    } finally {
+        globalThis.confirm = previousConfirm;
+    }
 });
 
 test('Book drawing does not recreate files when the original book is deleted mid-generation', async () => {

@@ -38,6 +38,40 @@ function wrapBlockContent(source, offset, content) {
     return wrapped;
 }
 
+function escapeRegex(value) {
+    return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+export function removeSceneSlotPlaceholders(sourceText, slotIds = [], markerName = 'image') {
+    const ids = new Set((Array.isArray(slotIds) ? slotIds : [])
+        .map((slotId) => String(slotId || '').trim())
+        .filter(Boolean));
+    if (!ids.size) return String(sourceText ?? '');
+    const marker = escapeRegex(markerName);
+    const idPattern = [...ids].map(escapeRegex).join('|');
+    const regex = new RegExp(`(\\n?)\\[${marker}\\s*:\\s*(?:${idPattern})\\](\\n?)`, 'gi');
+    return String(sourceText ?? '').replace(
+        regex,
+        (_match, before, after) => (before && after ? '\n' : ''),
+    );
+}
+
+export function settleSceneSlotPlaceholders({
+    currentText = '',
+    originalText = '',
+    allSlotIds = [],
+    completedSlotIds = [],
+    successCount = 0,
+} = {}) {
+    if (Number(successCount) <= 0) return String(originalText ?? '');
+    const completed = new Set((Array.isArray(completedSlotIds) ? completedSlotIds : [])
+        .map((slotId) => String(slotId || '').trim())
+        .filter(Boolean));
+    const pending = (Array.isArray(allSlotIds) ? allSlotIds : [])
+        .filter((slotId) => !completed.has(String(slotId || '').trim()));
+    return removeSceneSlotPlaceholders(currentText, pending);
+}
+
 export function insertScenePlacements(sourceText, insertions = [], options = {}) {
     const source = String(sourceText ?? '');
     const sourceHash = hashSceneSource(source);

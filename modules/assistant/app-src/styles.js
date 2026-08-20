@@ -7,15 +7,29 @@ export function injectAssistantStyles(rootId) {
     const style = document.createElement('style');
     style.setAttribute(STYLE_DATA_ATTRIBUTE, 'true');
     style.textContent = `
-        :root { color-scheme: light; font-family: "Noto Sans SC", "Microsoft YaHei", sans-serif; }
+        :root {
+            color-scheme: light;
+            font-family: "Noto Sans SC", "Microsoft YaHei", sans-serif;
+            --xb-assistant-bg: #f5f0e8;
+            --xb-assistant-surface: #fffdf8;
+            --xb-assistant-surface-soft: #faf7f1;
+            --xb-assistant-surface-muted: #efe8dd;
+            --xb-assistant-text: #2f2b26;
+            --xb-assistant-text-soft: #6f675d;
+            --xb-assistant-text-muted: #8a8175;
+            --xb-assistant-border: rgba(91, 73, 55, 0.12);
+            --xb-assistant-accent: #a75f43;
+            --xb-assistant-accent-strong: #814733;
+            --xb-assistant-accent-soft: rgba(167, 95, 67, 0.1);
+            --xb-assistant-shadow: rgba(67, 55, 43, 0.12);
+        }
         html, body { height: 100%; width: 100%; overflow: hidden; }
         body {
             margin: 0;
             background:
-                radial-gradient(circle at top left, rgba(255, 223, 178, 0.72), transparent 34%),
-                radial-gradient(circle at top right, rgba(154, 210, 255, 0.58), transparent 28%),
-                linear-gradient(180deg, #f6f8fb 0%, #eef3f8 100%);
-            color: #142033;
+                radial-gradient(circle at top left, rgba(255, 252, 245, 0.82), transparent 34%),
+                linear-gradient(180deg, var(--xb-assistant-bg) 0%, #f1ebe2 100%);
+            color: var(--xb-assistant-text);
             overflow-x: hidden;
         }
         #${rootId} { width: 100%; height: 100%; overflow: hidden; box-sizing: border-box; }
@@ -35,9 +49,9 @@ export function injectAssistantStyles(rootId) {
             position: relative;
             display: grid;
             grid-template-rows: auto minmax(0, 1fr);
-            padding: 24px 20px;
-            background: rgba(255, 255, 255, 0.82);
-            border-right: 1px solid rgba(20, 32, 51, 0.08);
+            padding: 22px 18px;
+            background: #f1ebe2;
+            border-right: none;
             backdrop-filter: blur(14px);
             overflow: hidden;
             box-sizing: border-box;
@@ -66,16 +80,16 @@ export function injectAssistantStyles(rootId) {
             min-height: 36px;
             padding: 0 10px;
             border: none;
-            border-radius: 12px;
-            background: rgba(20, 32, 51, 0.88);
-            color: #fff6e9;
+            border-radius: 999px;
+            background: var(--xb-assistant-surface);
+            color: var(--xb-assistant-accent-strong);
             cursor: pointer;
-            box-shadow: 0 10px 24px rgba(17, 31, 51, 0.12);
-            transition: transform 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
+            box-shadow: 0 1px 2px rgba(67, 55, 43, 0.06);
+            transition: background 0.16s ease, color 0.16s ease, transform 0.16s ease;
         }
         .xb-assistant-sidebar-toggle:hover {
+            background: var(--xb-assistant-accent-soft);
             transform: translateY(-1px);
-            box-shadow: 0 14px 28px rgba(17, 31, 51, 0.16);
         }
         .xb-assistant-sidebar-toggle-icon {
             display: inline-flex;
@@ -124,16 +138,17 @@ export function injectAssistantStyles(rootId) {
             padding: 0;
         }
         .xb-assistant-brand h1 { margin: 12px 0 8px; font-size: 30px; }
-        .xb-assistant-brand p { margin: 0 0 18px; color: #4b5a70; line-height: 1.55; }
+        .xb-assistant-brand p { margin: 0 0 18px; color: #766d62; line-height: 1.55; }
         .xb-assistant-badge {
             display: inline-flex;
             align-items: center;
             padding: 6px 12px;
             border-radius: 999px;
-            background: #142033;
-            color: #fff6e9;
-            font-size: 13px;
-            letter-spacing: 0.08em;
+            background: var(--xb-assistant-accent-soft);
+            color: var(--xb-assistant-accent-strong);
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 0.04em;
         }
         .xb-assistant-config { display: grid; gap: 12px; }
         .xb-assistant-config-fields {
@@ -179,24 +194,24 @@ export function injectAssistantStyles(rootId) {
         .xb-assistant-config-tabs {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 6px;
+            gap: 4px;
             padding: 4px;
-            border-radius: 14px;
-            background: rgba(27, 55, 88, 0.08);
+            border-radius: 999px;
+            background: var(--xb-assistant-surface-muted);
         }
         .xb-assistant-config-tab {
             min-height: 34px;
             border: 0;
-            border-radius: 10px;
+            border-radius: 999px;
             background: transparent;
-            color: #41526a;
-            font-weight: 800;
+            color: var(--xb-assistant-text-soft);
+            font-weight: 700;
             cursor: pointer;
         }
         .xb-assistant-config-tab.is-active {
-            background: rgba(255, 255, 255, 0.92);
-            color: #142033;
-            box-shadow: 0 6px 18px rgba(20, 32, 51, 0.08);
+            background: var(--xb-assistant-surface);
+            color: var(--xb-assistant-text);
+            box-shadow: 0 1px 3px rgba(67, 55, 43, 0.08);
         }
         .xb-assistant-config-page {
             display: grid;
@@ -207,14 +222,14 @@ export function injectAssistantStyles(rootId) {
         }
         .xb-assistant-config-note {
             margin: 0;
-            color: #65758a;
+            color: #7d7468;
             font-size: 12px;
             line-height: 1.55;
         }
         .xb-assistant-inline-status {
             min-height: 18px;
             margin-top: -6px;
-            color: #65758a;
+            color: #7d7468;
             font-size: 12px;
             line-height: 1.5;
         }
@@ -225,9 +240,9 @@ export function injectAssistantStyles(rootId) {
             color: #9a3d2a;
         }
         .xb-assistant-inline-status.is-loading {
-            color: #41526a;
+            color: #6d6459;
         }
-        .xb-assistant-config label { display: grid; gap: 6px; font-size: 13px; color: #41526a; }
+        .xb-assistant-config label { display: grid; gap: 6px; font-size: 13px; color: #6d6459; }
         .xb-assistant-preset-row {
             display: grid;
             grid-template-columns: minmax(0, 1fr) auto;
@@ -263,10 +278,10 @@ export function injectAssistantStyles(rootId) {
             min-width: 40px;
             height: 40px;
             min-height: 40px;
-            border: 1px solid rgba(27, 55, 88, 0.14);
-            border-radius: 10px;
-            background: rgba(255, 255, 255, 0.9);
-            color: #41526a;
+            border: 1px solid transparent;
+            border-radius: 12px;
+            background: var(--xb-assistant-surface);
+            color: var(--xb-assistant-text-soft);
             padding: 0;
             line-height: 1;
             box-shadow: none;
@@ -284,15 +299,15 @@ export function injectAssistantStyles(rootId) {
         .xb-assistant-icon-button:hover:not(:disabled),
         .xb-assistant-icon-button:focus-visible {
             outline: none;
-            border-color: rgba(27, 55, 88, 0.26);
-            background: rgba(27, 55, 88, 0.06);
-            color: #142033;
+            border-color: rgba(122, 76, 54, 0.26);
+            background: rgba(122, 76, 54, 0.06);
+            color: #2f2b26;
         }
         .xb-assistant-icon-button.xb-assistant-save-button.is-success,
         .xb-assistant-icon-button.xb-assistant-save-button.is-error {
             background: rgba(255, 255, 255, 0.9);
-            color: #41526a;
-            border-color: rgba(27, 55, 88, 0.14);
+            color: #6d6459;
+            border-color: rgba(122, 76, 54, 0.14);
         }
         .xb-assistant-icon-button.xb-assistant-save-button.is-success {
             background: rgba(63, 143, 90, 0.10);
@@ -309,11 +324,21 @@ export function injectAssistantStyles(rootId) {
         .xb-assistant-compose textarea {
             width: 100%;
             box-sizing: border-box;
-            border: 1px solid rgba(27, 55, 88, 0.14);
+            border: 1px solid var(--xb-assistant-border);
             border-radius: 14px;
             padding: 12px 14px;
             font: inherit;
-            background: rgba(255, 255, 255, 0.9);
+            background: var(--xb-assistant-surface-soft);
+            color: var(--xb-assistant-text);
+            transition: border-color 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
+        }
+        .xb-assistant-config input:focus,
+        .xb-assistant-config select:focus,
+        .xb-assistant-compose textarea:focus {
+            outline: none;
+            border-color: rgba(167, 95, 67, 0.42);
+            background: var(--xb-assistant-surface);
+            box-shadow: 0 0 0 3px rgba(167, 95, 67, 0.1);
         }
         .xb-assistant-inline-input {
             display: grid;
@@ -346,7 +371,7 @@ export function injectAssistantStyles(rootId) {
             display: inline-flex;
             align-items: center;
             gap: 8px;
-            color: #1b3758;
+            color: #814733;
             font-size: 14px;
         }
         .xb-assistant-checkbox-control input {
@@ -357,34 +382,38 @@ export function injectAssistantStyles(rootId) {
             margin-top: -2px;
             padding: 10px 12px;
             border-radius: 14px;
-            background: rgba(27, 55, 88, 0.05);
-            color: #52637a;
+            background: rgba(122, 76, 54, 0.05);
+            color: #776d61;
             font-size: 12px;
             line-height: 1.65;
         }
         .xb-assistant-help code {
             padding: 0.08em 0.34em;
             border-radius: 8px;
-            background: rgba(20, 32, 51, 0.08);
+            background: rgba(67, 55, 43, 0.08);
             font-family: "Cascadia Code", "Consolas", monospace;
         }
         .xb-assistant-checkbox-control input {
             width: 16px;
             height: 16px;
-            accent-color: #1b3758;
+            accent-color: #814733;
         }
         .xb-assistant-toolbar {
             display: flex;
             flex-wrap: wrap;
-            gap: 10px;
+            gap: 6px;
             align-items: center;
             justify-content: flex-start;
             min-width: 0;
+            padding: 6px;
+            border-radius: 18px;
+            background: rgba(255, 253, 248, 0.72);
+            box-shadow: 0 8px 28px rgba(67, 55, 43, 0.06);
         }
         .xb-assistant-toolbar-cluster {
             display: inline-flex;
             flex-wrap: wrap;
-            gap: 8px;
+            gap: 4px;
             align-items: center;
             flex: 1 1 auto;
             min-width: 0;
@@ -394,16 +423,16 @@ export function injectAssistantStyles(rootId) {
             border: none;
             border-radius: 999px;
             min-height: 40px;
-            padding: 0 16px;
-            background: #1b3758;
-            color: #fff;
+            padding: 0 14px;
+            background: var(--xb-assistant-accent-strong);
+            color: #fffaf3;
             cursor: pointer;
             font: inherit;
             font-size: 13px;
             font-weight: 600;
             letter-spacing: 0.01em;
-            box-shadow: 0 10px 24px rgba(27, 55, 88, 0.12);
-            transition: transform 0.16s ease, box-shadow 0.16s ease, background 0.16s ease, color 0.16s ease;
+            box-shadow: none;
+            transition: background 0.16s ease, color 0.16s ease, transform 0.16s ease;
         }
         .xb-assistant-save-button.is-saving,
         .xb-assistant-save-button.is-success,
@@ -430,26 +459,37 @@ export function injectAssistantStyles(rootId) {
         }
         .xb-assistant-toolbar button:hover,
         .xb-assistant-compose button:hover {
+            background: var(--xb-assistant-accent);
             transform: translateY(-1px);
-            box-shadow: 0 14px 28px rgba(27, 55, 88, 0.16);
         }
         .xb-assistant-toolbar button.is-active {
-            background: #1b3758;
-            color: #fff;
+            background: var(--xb-assistant-accent-soft);
+            color: var(--xb-assistant-accent-strong);
         }
         .xb-assistant-toolbar button.secondary,
         .xb-assistant-compose button.secondary {
-            background: rgba(255, 255, 255, 0.9);
-            color: #1b3758;
-            box-shadow: inset 0 0 0 1px rgba(27, 55, 88, 0.12);
+            background: var(--xb-assistant-surface-muted);
+            color: var(--xb-assistant-accent-strong);
+            box-shadow: none;
         }
         .xb-assistant-toolbar button.ghost,
         .xb-assistant-compose button.ghost,
         .xb-assistant-inline-input button.ghost {
-            padding-inline: 14px;
-            background: rgba(255, 255, 255, 0.74);
-            color: #1b3758;
-            box-shadow: inset 0 0 0 1px rgba(27, 55, 88, 0.1);
+            padding-inline: 12px;
+            background: transparent;
+            color: var(--xb-assistant-text-soft);
+            box-shadow: none;
+        }
+        .xb-assistant-toolbar button.secondary:hover,
+        .xb-assistant-compose button.secondary:hover {
+            background: var(--xb-assistant-accent-soft);
+            color: var(--xb-assistant-accent-strong);
+        }
+        .xb-assistant-toolbar button.ghost:hover,
+        .xb-assistant-compose button.ghost:hover,
+        .xb-assistant-inline-input button.ghost:hover {
+            background: var(--xb-assistant-accent-soft);
+            color: var(--xb-assistant-accent-strong);
         }
         .xb-assistant-toolbar button:disabled,
         .xb-assistant-compose button:disabled {
@@ -460,15 +500,15 @@ export function injectAssistantStyles(rootId) {
         }
         .xb-assistant-runtime {
             font-size: 12px;
-            color: #5a6a81;
+            color: #7d7468;
             min-height: 18px;
             line-height: 1.6;
         }
         .xb-assistant-main {
             display: grid;
             grid-template-rows: auto minmax(0, 1fr);
-            padding: 20px;
-            gap: 16px;
+            padding: 18px 20px 20px;
+            gap: 12px;
             min-height: 0;
             height: 100%;
             min-width: 0;
@@ -491,34 +531,37 @@ export function injectAssistantStyles(rootId) {
         .xb-assistant-conversation {
             display: grid;
             grid-template-rows: minmax(0, 1fr) auto auto;
-            gap: 16px;
+            gap: 0;
             min-width: 0;
             min-height: 0;
             overflow: hidden;
+            border-radius: 26px;
+            background: var(--xb-assistant-surface);
+            box-shadow: 0 18px 48px rgba(67, 55, 43, 0.08);
         }
         .xb-assistant-status {
             display: inline-flex;
             align-items: center;
-            min-height: 20px;
-            padding: 9px 14px;
+            min-height: 26px;
+            padding: 0 10px;
             border-radius: 999px;
-            background: rgba(255, 255, 255, 0.84);
-            color: #41526a;
+            background: transparent;
+            color: var(--xb-assistant-text-soft);
             font-size: 12px;
             font-weight: 600;
-            box-shadow: 0 10px 24px rgba(17, 31, 51, 0.06);
+            box-shadow: none;
         }
         .xb-assistant-context-meter {
             display: inline-flex;
             align-items: center;
-            min-height: 20px;
-            padding: 9px 14px;
+            min-height: 26px;
+            padding: 0 10px;
             border-radius: 999px;
-            background: rgba(27, 55, 88, 0.09);
-            color: #1b3758;
+            background: var(--xb-assistant-accent-soft);
+            color: var(--xb-assistant-accent-strong);
             font-size: 12px;
             font-weight: 600;
-            box-shadow: inset 0 0 0 1px rgba(27, 55, 88, 0.08);
+            box-shadow: none;
         }
         .xb-assistant-context-meter.summary-active {
             background: rgba(201, 107, 51, 0.12);
@@ -558,10 +601,10 @@ export function injectAssistantStyles(rootId) {
             position: relative;
             height: 100%;
             min-height: 0;
-            border-radius: 20px;
-            background: rgba(255, 255, 255, 0.84);
-            border: 1px solid rgba(27, 55, 88, 0.1);
-            box-shadow: 0 20px 40px rgba(17, 31, 51, 0.08);
+            border-radius: 26px;
+            background: var(--xb-assistant-surface);
+            border: none;
+            box-shadow: 0 18px 48px rgba(67, 55, 43, 0.08);
             backdrop-filter: blur(14px);
             overflow: hidden;
             user-select: none;
@@ -574,8 +617,8 @@ export function injectAssistantStyles(rootId) {
             align-items: center;
             justify-content: space-between;
             gap: 12px;
-            padding: 14px 16px;
-            border-bottom: 1px solid rgba(27, 55, 88, 0.08);
+            padding: 15px 18px 11px;
+            border-bottom: none;
         }
         .xb-assistant-workspace-header-info {
             display: grid;
@@ -584,10 +627,10 @@ export function injectAssistantStyles(rootId) {
         }
         .xb-assistant-workspace-header-info strong {
             font-size: 14px;
-            color: #1b3758;
+            color: #814733;
         }
         .xb-assistant-workspace-header-info span {
-            color: #586a82;
+            color: #7d7468;
             font-size: 12px;
         }
         .xb-assistant-workspace-header-actions,
@@ -606,7 +649,7 @@ export function injectAssistantStyles(rootId) {
             min-height: 24px;
             padding: 0 10px;
             background: transparent;
-            color: #4a5c75;
+            color: #6f675d;
             cursor: pointer;
             font: inherit;
             font-size: 12px;
@@ -616,8 +659,8 @@ export function injectAssistantStyles(rootId) {
         .xb-assistant-workspace-header-button:hover,
         .xb-assistant-workspace-viewer-button:hover,
         .xb-assistant-workspace-mode-button:hover {
-            background: rgba(27, 55, 88, 0.06);
-            color: #17304d;
+            background: rgba(122, 76, 54, 0.06);
+            color: #3a352f;
         }
         .xb-assistant-workspace-header-button.is-icon {
             min-width: 28px;
@@ -630,8 +673,8 @@ export function injectAssistantStyles(rootId) {
             justify-content: center;
         }
         .xb-assistant-workspace-mode-button.is-active {
-            background: rgba(27, 55, 88, 0.1);
-            color: #17304d;
+            background: rgba(122, 76, 54, 0.1);
+            color: #3a352f;
             box-shadow: 0 1px 2px rgba(0,0,0,0.05);
         }
         .xb-assistant-workspace-body {
@@ -645,14 +688,14 @@ export function injectAssistantStyles(rootId) {
             grid-template-rows: auto auto minmax(0, 1fr);
             min-width: 0;
             min-height: 0;
-            border-right: 1px solid rgba(27, 55, 88, 0.08);
-            background: rgba(247, 249, 252, 0.82);
+            border-right: none;
+            background: var(--xb-assistant-surface-soft);
         }
         .xb-assistant-workspace-filters {
             display: grid;
             gap: 10px;
-            padding: 14px;
-            border-bottom: 1px solid rgba(27, 55, 88, 0.08);
+            padding: 12px 14px 14px;
+            border-bottom: none;
         }
         .xb-assistant-workspace-nav-header {
             display: flex;
@@ -662,7 +705,7 @@ export function injectAssistantStyles(rootId) {
         }
         .xb-assistant-workspace-nav-title {
             min-width: 0;
-            color: #1b3758;
+            color: #814733;
             font-size: 14px;
         }
         .xb-assistant-workspace-nav-header-actions {
@@ -674,17 +717,24 @@ export function injectAssistantStyles(rootId) {
         .xb-assistant-workspace-search {
             width: 100%;
             box-sizing: border-box;
-            border: 1px solid rgba(27, 55, 88, 0.14);
+            border: 1px solid transparent;
             border-radius: 12px;
             padding: 10px 12px;
             font: inherit;
-            background: rgba(255, 255, 255, 0.92);
+            background: var(--xb-assistant-surface);
+            color: var(--xb-assistant-text);
+        }
+        .xb-assistant-workspace-select:focus,
+        .xb-assistant-workspace-search:focus {
+            outline: none;
+            border-color: rgba(167, 95, 67, 0.36);
+            box-shadow: 0 0 0 3px rgba(167, 95, 67, 0.1);
         }
         .xb-assistant-workspace-modified-toggle {
             display: inline-flex;
             align-items: center;
             gap: 8px;
-            color: #41526a;
+            color: #6d6459;
             font-size: 12px;
             font-weight: 600;
         }
@@ -692,8 +742,8 @@ export function injectAssistantStyles(rootId) {
             display: grid;
             gap: 10px;
             padding: 12px 14px;
-            border-bottom: 1px solid rgba(27, 55, 88, 0.08);
-            background: rgba(242, 246, 250, 0.9);
+            border-bottom: none;
+            background: var(--xb-assistant-surface-soft);
         }
         .xb-assistant-workspace-tree-actions-context {
             display: grid;
@@ -701,12 +751,12 @@ export function injectAssistantStyles(rootId) {
             min-width: 0;
         }
         .xb-assistant-workspace-tree-actions-title {
-            color: #1b3758;
+            color: #814733;
             font-size: 12px;
         }
         .xb-assistant-workspace-tree-actions-path {
             min-width: 0;
-            color: #5a6b82;
+            color: #81776b;
             font-size: 11px;
             line-height: 1.5;
             overflow: hidden;
@@ -736,23 +786,23 @@ export function injectAssistantStyles(rootId) {
             border: none;
             border-radius: 10px;
             background: transparent;
-            color: #2a425f;
+            color: #453f37;
             cursor: pointer;
             font: inherit;
             font-size: 12px;
             text-align: left;
         }
         .xb-assistant-workspace-tree-row.is-selected .xb-assistant-workspace-tree-button {
-            background: rgba(27, 55, 88, 0.12);
-            color: #1b3758;
+            background: rgba(122, 76, 54, 0.12);
+            color: #814733;
             font-weight: 700;
         }
         .xb-assistant-workspace-tree-button:hover {
-            background: rgba(27, 55, 88, 0.08);
+            background: rgba(122, 76, 54, 0.08);
         }
         .xb-assistant-workspace-tree-caret {
             width: 12px;
-            color: #667990;
+            color: #8a8175;
             flex: 0 0 12px;
         }
         .xb-assistant-workspace-tree-label {
@@ -773,28 +823,28 @@ export function injectAssistantStyles(rootId) {
             gap: 8px;
             place-items: center;
             padding: 28px;
-            color: #5d6f87;
+            color: #7d7468;
             text-align: center;
             line-height: 1.6;
         }
         .xb-assistant-workspace-empty strong {
-            color: #1b3758;
+            color: #814733;
         }
         .xb-assistant-workspace-viewer {
             display: grid;
             grid-template-rows: auto minmax(0, 1fr);
             min-width: 0;
             min-height: 0;
-            background: rgba(255, 255, 255, 0.78);
+            background: var(--xb-assistant-surface);
         }
         .xb-assistant-workspace-viewer-header {
             display: flex;
             align-items: center;
             justify-content: space-between;
             gap: 12px;
-            padding: 8px 12px;
-            border-bottom: 1px solid rgba(27, 55, 88, 0.08);
-            background: rgba(255, 255, 255, 0.9);
+            padding: 10px 14px;
+            border-bottom: none;
+            background: var(--xb-assistant-surface);
             backdrop-filter: blur(10px);
             z-index: 10;
         }
@@ -802,7 +852,7 @@ export function injectAssistantStyles(rootId) {
             display: none;
             background: transparent;
             border: none;
-            color: #1b3758;
+            color: #814733;
             cursor: pointer;
             padding: 0;
             margin-right: 8px;
@@ -828,11 +878,11 @@ export function injectAssistantStyles(rootId) {
             white-space: nowrap;
         }
         .xb-assistant-workspace-viewer-info-text strong {
-            color: #17304d;
+            color: #3a352f;
             font-size: 13px;
         }
         .xb-assistant-workspace-viewer-info-text span {
-            color: #5e6f84;
+            color: #81776b;
             font-size: 12px;
         }
         .xb-assistant-workspace-code-wrap {
@@ -873,7 +923,7 @@ export function injectAssistantStyles(rootId) {
         .xb-assistant-workspace-code-num,
         .xb-assistant-workspace-code-marker {
             padding: 0 10px;
-            color: #8a97aa;
+            color: #9a9084;
             user-select: none;
             text-align: right;
         }
@@ -883,7 +933,7 @@ export function injectAssistantStyles(rootId) {
         .xb-assistant-workspace-code-text {
             padding: 0 14px 0 0;
             white-space: pre;
-            color: #1c314d;
+            color: #3a352f;
             user-select: text;
         }
         .xb-assistant-workspace-code-marker.add,
@@ -917,9 +967,9 @@ export function injectAssistantStyles(rootId) {
             min-height: 0;
             overflow: auto;
             overflow-x: hidden;
-            padding: 4px;
+            padding: 18px 18px 8px;
             display: grid;
-            gap: 12px;
+            gap: 14px;
             align-content: start;
             justify-items: start;
             grid-auto-rows: max-content;
@@ -946,16 +996,16 @@ export function injectAssistantStyles(rootId) {
         .xb-assistant-scroll-btn {
             width: 32px;
             height: 32px;
-            border: 1px solid rgba(27, 55, 88, 0.14);
+            border: none;
             border-radius: 999px;
-            background: rgba(244, 248, 252, 0.92);
-            color: #1b3758;
+            background: var(--xb-assistant-surface-soft);
+            color: var(--xb-assistant-accent-strong);
             cursor: pointer;
             pointer-events: none;
             opacity: 0;
             transform: scale(0.8) translateX(8px);
             transition: all 0.2s ease;
-            box-shadow: 0 10px 24px rgba(17, 31, 51, 0.08);
+            box-shadow: 0 8px 20px rgba(67, 55, 43, 0.08);
             font: inherit;
             font-size: 12px;
             font-weight: 700;
@@ -993,44 +1043,53 @@ export function injectAssistantStyles(rootId) {
             max-width: 720px;
             padding: 24px 28px;
             border-radius: 24px;
-            background: rgba(255, 255, 255, 0.82);
-            box-shadow: 0 18px 48px rgba(17, 31, 51, 0.08);
+            background: var(--xb-assistant-surface-soft);
+            box-shadow: none;
         }
         .xb-assistant-empty h2 { margin: 0 0 10px; font-size: 24px; }
-        .xb-assistant-empty p { margin: 0; color: #4b5a70; line-height: 1.7; }
+        .xb-assistant-empty p { margin: 0; color: #766d62; line-height: 1.7; }
         .xb-assistant-empty p + p { margin-top: 8px; }
         .xb-assistant-history-gate {
             align-self: center;
-            color: rgba(75, 90, 112, 0.72);
+            color: rgba(111, 103, 93, 0.72);
             font-size: 12px;
             line-height: 1;
             padding: 4px 0;
         }
         .xb-assistant-bubble {
-            width: calc(100% - 20px);
+            width: min(100%, calc(100% - 20px));
             max-width: calc(100% - 20px);
             min-width: 0;
             box-sizing: border-box;
             border-radius: 18px;
-            padding: 14px 16px;
-            box-shadow: 0 12px 30px rgba(17, 31, 51, 0.07);
+            padding: 10px 12px;
+            box-shadow: none;
             align-self: start;
             overflow-wrap: anywhere;
         }
         .xb-assistant-bubble.role-user {
             justify-self: end;
-            background: linear-gradient(135deg, #1b3758 0%, #285786 100%);
-            color: white;
+            width: fit-content;
+            max-width: min(78%, 720px);
+            padding: 12px 15px;
+            border-radius: 18px 18px 6px 18px;
+            background: #eadfd1;
+            color: var(--xb-assistant-text);
         }
-        .xb-assistant-bubble.role-assistant { background: rgba(255, 255, 255, 0.9); }
+        .xb-assistant-bubble.role-assistant {
+            width: 100%;
+            background: transparent;
+            padding-inline: 4px;
+        }
         .xb-assistant-bubble.role-assistant.is-tool-call {
             background: transparent;
             border: none;
             box-shadow: none;
         }
         .xb-assistant-bubble.role-tool {
-            background: transparent;
-            border: 1px dashed rgba(27, 55, 88, 0.18);
+            background: var(--xb-assistant-surface-soft);
+            border: none;
+            border-radius: 14px;
         }
         @supports (content-visibility: auto) {
             .xb-assistant-bubble,
@@ -1054,8 +1113,11 @@ export function injectAssistantStyles(rootId) {
         .xb-assistant-meta {
             flex: 1 1 auto;
             min-width: 0;
+            color: var(--xb-assistant-text-muted);
             font-size: 12px;
-            opacity: 0.78;
+        }
+        .xb-assistant-bubble.role-user .xb-assistant-meta {
+            color: var(--xb-assistant-text);
         }
         .xb-assistant-bubble.is-tool-call .xb-assistant-meta { margin-bottom: 0; }
         .xb-assistant-message-actions {
@@ -1071,19 +1133,18 @@ export function injectAssistantStyles(rootId) {
             justify-content: center;
             min-width: 0;
             padding: 4px 9px;
-            border: 1px solid rgba(27, 55, 88, 0.12);
+            border: none;
             border-radius: 999px;
-            background: rgba(247, 250, 253, 0.96);
-            color: #304862;
+            background: var(--xb-assistant-surface-muted);
+            color: var(--xb-assistant-text-soft);
             font-size: 12px;
             line-height: 1.1;
             cursor: pointer;
-            transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+            transition: background 0.16s ease, color 0.16s ease;
         }
         .xb-assistant-message-action:hover:not(:disabled) {
-            background: rgba(230, 238, 247, 0.98);
-            border-color: rgba(27, 55, 88, 0.22);
-            color: #203249;
+            background: var(--xb-assistant-accent-soft);
+            color: var(--xb-assistant-accent-strong);
         }
         .xb-assistant-chat.is-busy .xb-assistant-message-action:not([data-message-action="cancel-edit"]) {
             opacity: 0.5;
@@ -1103,17 +1164,17 @@ export function injectAssistantStyles(rootId) {
             box-sizing: border-box;
             resize: vertical;
             padding: 12px 14px;
-            border: 1px solid rgba(27, 55, 88, 0.14);
+            border: 1px solid var(--xb-assistant-border);
             border-radius: 14px;
-            background: rgba(252, 253, 255, 0.96);
-            color: #203249;
+            background: var(--xb-assistant-surface-soft);
+            color: var(--xb-assistant-text);
             font: inherit;
             line-height: 1.7;
         }
         .xb-assistant-message-editor:focus {
             outline: none;
-            border-color: rgba(40, 87, 134, 0.48);
-            box-shadow: 0 0 0 3px rgba(40, 87, 134, 0.12);
+            border-color: rgba(167, 95, 67, 0.48);
+            box-shadow: 0 0 0 3px rgba(167, 95, 67, 0.12);
         }
         .xb-assistant-content {
             margin: 0;
@@ -1159,7 +1220,7 @@ export function injectAssistantStyles(rootId) {
         .xb-assistant-markdown h4,
         .xb-assistant-markdown h5,
         .xb-assistant-markdown h6 {
-            color: #203249;
+            color: #332f29;
             font: inherit;
             font-weight: 700;
             line-height: inherit;
@@ -1167,7 +1228,7 @@ export function injectAssistantStyles(rootId) {
         .xb-assistant-markdown code {
             padding: 0.12em 0.38em;
             border-radius: 8px;
-            background: rgba(20, 32, 51, 0.08);
+            background: rgba(67, 55, 43, 0.08);
             font-family: "Cascadia Code", "Consolas", monospace;
             font-size: 0.95em;
         }
@@ -1179,7 +1240,7 @@ export function injectAssistantStyles(rootId) {
             box-sizing: border-box;
             padding: 12px 14px;
             border-radius: 12px;
-            background: rgba(20, 32, 51, 0.06);
+            background: rgba(67, 55, 43, 0.06);
             white-space: pre-wrap;
             word-wrap: break-word;
             word-break: break-all;
@@ -1197,8 +1258,8 @@ export function injectAssistantStyles(rootId) {
             height: 24px;
             border: none;
             border-radius: 8px;
-            background: rgba(20, 32, 51, 0.14);
-            color: #36567b;
+            background: rgba(67, 55, 43, 0.14);
+            color: #8a5a41;
             cursor: pointer;
             font: 600 12px/1 "Segoe UI Emoji", "Apple Color Emoji", sans-serif;
             display: inline-flex;
@@ -1207,7 +1268,7 @@ export function injectAssistantStyles(rootId) {
             opacity: 0.8;
         }
         .xb-assistant-codeblock .xb-assistant-code-copy:hover {
-            background: rgba(20, 32, 51, 0.22);
+            background: rgba(67, 55, 43, 0.22);
             opacity: 1;
         }
         .xb-assistant-codeblock .xb-assistant-code-copy.is-copied {
@@ -1228,9 +1289,9 @@ export function injectAssistantStyles(rootId) {
             gap: 10px;
             margin: 0 0 0.8em;
             padding: 12px;
-            border: 1px solid rgba(27, 55, 88, 0.16);
-            border-radius: 12px;
-            background: rgba(247, 250, 253, 0.88);
+            border: none;
+            border-radius: 14px;
+            background: var(--xb-assistant-surface-soft);
         }
         .xb-markdown-html-head {
             display: flex;
@@ -1241,12 +1302,12 @@ export function injectAssistantStyles(rootId) {
         .xb-markdown-html-title {
             display: grid;
             gap: 2px;
-            color: #203249;
+            color: #332f29;
             font-size: 12px;
             font-weight: 700;
         }
         .xb-markdown-html-title span {
-            color: #68778a;
+            color: #8a8175;
             font-size: 11px;
             font-weight: 500;
         }
@@ -1258,16 +1319,16 @@ export function injectAssistantStyles(rootId) {
         }
         .xb-markdown-html-actions button {
             padding: 5px 9px;
-            border: 1px solid rgba(27, 55, 88, 0.14);
+            border: 1px solid rgba(122, 76, 54, 0.14);
             border-radius: 999px;
             background: rgba(255, 255, 255, 0.9);
-            color: #304862;
+            color: #675d52;
             font: 600 12px/1.1 "Microsoft YaHei", sans-serif;
             cursor: pointer;
         }
         .xb-markdown-html-actions button.is-active {
-            background: rgba(27, 55, 88, 0.10);
-            color: #203249;
+            background: rgba(122, 76, 54, 0.10);
+            color: #332f29;
         }
         .xb-markdown-html-body {
             min-width: 0;
@@ -1278,7 +1339,7 @@ export function injectAssistantStyles(rootId) {
             margin: 0;
             padding: 12px 14px;
             border-radius: 10px;
-            background: rgba(20, 32, 51, 0.06);
+            background: rgba(67, 55, 43, 0.06);
             white-space: pre-wrap;
             word-break: break-all;
             font: 12px/1.55 "Cascadia Code", "Consolas", monospace;
@@ -1287,7 +1348,7 @@ export function injectAssistantStyles(rootId) {
             width: 100%;
             height: 320px;
             box-sizing: border-box;
-            border: 1px solid rgba(27, 55, 88, 0.14);
+            border: 1px solid rgba(122, 76, 54, 0.14);
             border-radius: 10px;
             background: #fff;
         }
@@ -1297,8 +1358,8 @@ export function injectAssistantStyles(rootId) {
         }
         .xb-assistant-markdown blockquote {
             padding-left: 12px;
-            border-left: 3px solid rgba(27, 55, 88, 0.24);
-            color: #4b5a70;
+            border-left: 3px solid rgba(122, 76, 54, 0.24);
+            color: #766d62;
         }
         .xb-assistant-markdown table {
             width: 100%;
@@ -1307,18 +1368,22 @@ export function injectAssistantStyles(rootId) {
         }
         .xb-assistant-markdown th,
         .xb-assistant-markdown td {
-            border: 1px solid rgba(27, 55, 88, 0.18);
+            border: 1px solid rgba(122, 76, 54, 0.18);
             padding: 6px 10px;
             text-align: left;
             vertical-align: top;
         }
         .xb-assistant-markdown th {
-            background: rgba(20, 32, 51, 0.06);
+            background: rgba(67, 55, 43, 0.06);
             font-weight: 600;
         }
         .xb-assistant-markdown a {
-            color: #285786;
+            color: #9a5a40;
             text-decoration: underline;
+        }
+        .xb-assistant-bubble.role-user .xb-assistant-markdown a,
+        .xb-assistant-bubble.role-user .xb-assistant-local-path-link {
+            color: var(--xb-assistant-accent-strong);
         }
         .xb-assistant-markdown ul,
         .xb-assistant-markdown ol {
@@ -1335,7 +1400,7 @@ export function injectAssistantStyles(rootId) {
             border: none;
             padding: 0;
             background: none;
-            color: #285786;
+            color: #9a5a40;
             font: inherit;
             text-decoration: underline;
             cursor: pointer;
@@ -1345,12 +1410,12 @@ export function injectAssistantStyles(rootId) {
             width: 132px;
             padding: 8px;
             border-radius: 14px;
-            background: rgba(255, 255, 255, 0.9);
-            box-shadow: inset 0 0 0 1px rgba(27, 55, 88, 0.12);
+            background: var(--xb-assistant-surface-soft);
+            box-shadow: none;
         }
         .xb-assistant-attachment-card.compact {
-            background: rgba(255, 255, 255, 0.18);
-            box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+            background: rgba(255, 253, 248, 0.58);
+            box-shadow: none;
         }
         .xb-assistant-attachment-image,
         .xb-assistant-attachment-placeholder {
@@ -1359,12 +1424,12 @@ export function injectAssistantStyles(rootId) {
             border-radius: 10px;
             object-fit: cover;
             display: block;
-            background: rgba(20, 32, 51, 0.08);
+            background: rgba(67, 55, 43, 0.08);
         }
         .xb-assistant-attachment-placeholder {
             display: grid;
             place-items: center;
-            color: #41526a;
+            color: #6d6459;
             font-size: 13px;
         }
         .xb-assistant-attachment-name {
@@ -1381,15 +1446,15 @@ export function injectAssistantStyles(rootId) {
             height: 24px;
             border: none;
             border-radius: 999px;
-            background: rgba(20, 32, 51, 0.72);
+            background: rgba(67, 55, 43, 0.72);
             color: #fff;
             cursor: pointer;
             font: inherit;
         }
         .xb-assistant-tool-details {
             margin-top: 10px;
-            border-top: 1px dashed rgba(27, 55, 88, 0.12);
-            padding-top: 10px;
+            border-top: none;
+            padding-top: 0;
         }
         .xb-assistant-tool-run {
             width: min(100%, calc(100% - 20px));
@@ -1407,17 +1472,19 @@ export function injectAssistantStyles(rootId) {
             width: 100%;
             max-width: 100%;
             padding: 12px 14px;
-            box-shadow: 0 8px 22px rgba(17, 31, 51, 0.05);
+            background: var(--xb-assistant-surface-soft);
+            border-radius: 16px;
+            box-shadow: none;
         }
         .xb-assistant-tool-batch {
             width: 100%;
             margin-left: 0;
             margin-right: auto;
-            border-radius: 14px;
-            background: rgba(244, 248, 252, 0.96);
-            border: 1px solid rgba(27, 55, 88, 0.08);
-            box-shadow: 0 8px 20px rgba(17, 31, 51, 0.045);
-            padding: 7px 11px;
+            border-radius: 16px;
+            background: var(--xb-assistant-surface-soft);
+            border: none;
+            box-shadow: none;
+            padding: 8px 12px;
             box-sizing: border-box;
         }
         .xb-assistant-tool-batch + .xb-assistant-tool-batch {
@@ -1425,7 +1492,7 @@ export function injectAssistantStyles(rootId) {
         }
         .xb-assistant-tool-batch-summary {
             cursor: pointer;
-            color: #56677e;
+            color: #766d62;
             font-size: 12px;
             font-weight: 700;
             letter-spacing: 0.02em;
@@ -1442,7 +1509,7 @@ export function injectAssistantStyles(rootId) {
         }
         .xb-assistant-tool-batch-summary::after {
             content: '>';
-            color: #36567b;
+            color: #8a5a41;
             font-size: 14px;
             transition: transform 0.16s ease;
             transform-origin: center;
@@ -1454,16 +1521,16 @@ export function injectAssistantStyles(rootId) {
             display: grid;
             gap: 7px;
             margin-top: 8px;
-            padding-top: 8px;
-            border-top: 1px dashed rgba(27, 55, 88, 0.12);
+            padding-top: 0;
+            border-top: none;
         }
         .xb-assistant-tool-batch-note {
             padding: 12px 14px;
             border-radius: 14px;
-            background: rgba(255, 255, 255, 0.84);
-            border: 1px solid rgba(27, 55, 88, 0.08);
+            background: var(--xb-assistant-surface);
+            border: none;
             line-height: 1.65;
-            color: #1e2f44;
+            color: #3a352f;
         }
         .xb-assistant-approval {
             display: grid;
@@ -1474,16 +1541,16 @@ export function injectAssistantStyles(rootId) {
             max-height: min(760px, calc(100dvh - 36px));
             min-height: 0;
             padding: 16px;
-            border-radius: 16px;
-            background: rgba(244, 248, 252, 0.98);
-            border: 1px solid rgba(27, 55, 88, 0.14);
-            box-shadow: 0 28px 80px rgba(17, 31, 51, 0.28);
+            border-radius: 20px;
+            background: var(--xb-assistant-surface);
+            border: none;
+            box-shadow: 0 28px 80px rgba(67, 55, 43, 0.24);
             box-sizing: border-box;
             overflow: hidden;
         }
         .xb-assistant-approval-title {
             margin: 0;
-            color: #1b3758;
+            color: #814733;
             font-size: 12px;
             font-weight: 700;
             letter-spacing: 0.02em;
@@ -1494,14 +1561,14 @@ export function injectAssistantStyles(rootId) {
             margin: 0;
             padding: 12px;
             border-radius: 12px;
-            background: rgba(255, 255, 255, 0.92);
-            border: 1px solid rgba(27, 55, 88, 0.1);
+            background: var(--xb-assistant-surface-soft);
+            border: none;
             overflow: auto;
             overscroll-behavior: contain;
             -webkit-overflow-scrolling: touch;
         }
         .xb-assistant-approval-note {
-            color: #4b5a70;
+            color: #766d62;
             font-size: 13px;
             line-height: 1.6;
         }
@@ -1511,15 +1578,15 @@ export function injectAssistantStyles(rootId) {
             margin: 2px -16px -16px;
             padding: 12px 16px 16px;
             flex-wrap: wrap;
-            background: linear-gradient(180deg, rgba(244, 248, 252, 0.78), rgba(244, 248, 252, 0.98) 36%);
-            border-top: 1px solid rgba(27, 55, 88, 0.1);
+            background: linear-gradient(180deg, rgba(255, 253, 248, 0.72), var(--xb-assistant-surface) 36%);
+            border-top: none;
         }
         .xb-assistant-approval-button {
             border: none;
             border-radius: 999px;
             min-height: 36px;
             padding: 0 14px;
-            background: #1b3758;
+            background: #814733;
             color: #fff;
             cursor: pointer;
             font: inherit;
@@ -1528,23 +1595,23 @@ export function injectAssistantStyles(rootId) {
         }
         .xb-assistant-approval-button.secondary {
             background: rgba(255, 255, 255, 0.92);
-            color: #1b3758;
-            box-shadow: inset 0 0 0 1px rgba(27, 55, 88, 0.12);
+            color: #814733;
+            box-shadow: inset 0 0 0 1px rgba(122, 76, 54, 0.12);
         }
         .xb-assistant-thought-details {
             margin-top: 10px;
-            border-top: 1px dashed rgba(27, 55, 88, 0.12);
-            padding-top: 10px;
+            border-top: none;
+            padding-top: 0;
         }
         .xb-assistant-tool-details summary {
             cursor: pointer;
-            color: #36567b;
+            color: #8a5a41;
             font-size: 13px;
             list-style: none;
         }
         .xb-assistant-thought-details summary {
             cursor: pointer;
-            color: #36567b;
+            color: #8a5a41;
             font-size: 13px;
             list-style: none;
         }
@@ -1559,13 +1626,13 @@ export function injectAssistantStyles(rootId) {
         .xb-assistant-tool-details summary::after {
             content: '（默认折叠）';
             margin-left: 6px;
-            color: #5a6a81;
+            color: #7d7468;
             font-size: 12px;
         }
         .xb-assistant-thought-details summary::after {
             content: '（默认折叠）';
             margin-left: 6px;
-            color: #5a6a81;
+            color: #7d7468;
             font-size: 12px;
         }
         .xb-assistant-tool-details[open] summary::after {
@@ -1599,24 +1666,24 @@ export function injectAssistantStyles(rootId) {
         .xb-assistant-thought-label {
             margin-top: 10px;
             margin-bottom: 8px;
-            color: #5a6a81;
+            color: #7d7468;
             font-size: 12px;
         }
         .xb-assistant-thought-content {
             margin-top: 0;
             padding: 12px;
             border-radius: 12px;
-            background: rgba(245, 247, 250, 0.96);
-            border: 1px solid rgba(27, 55, 88, 0.1);
+            background: var(--xb-assistant-surface-soft);
+            border: none;
             line-height: 1.65;
         }
         .xb-assistant-compose {
             display: grid;
-            gap: 12px;
-            background: rgba(255, 255, 255, 0.78);
-            border-radius: 22px;
-            padding: 14px;
-            box-shadow: 0 16px 40px rgba(17, 31, 51, 0.08);
+            gap: 10px;
+            background: var(--xb-assistant-surface);
+            border-radius: 0;
+            padding: 8px 18px 16px;
+            box-shadow: none;
             width: 100%;
             max-width: 100%;
             box-sizing: border-box;
@@ -1682,8 +1749,8 @@ export function injectAssistantStyles(rootId) {
             padding: 8px;
             border-radius: 16px;
             background: rgba(255, 255, 255, 0.98);
-            border: 1px solid rgba(20, 32, 51, 0.10);
-            box-shadow: 0 18px 36px rgba(17, 31, 51, 0.16);
+            border: 1px solid rgba(67, 55, 43, 0.10);
+            box-shadow: 0 18px 36px rgba(67, 55, 43, 0.16);
             backdrop-filter: blur(12px);
             display: grid;
             gap: 4px;
@@ -1702,7 +1769,7 @@ export function injectAssistantStyles(rootId) {
             border: none;
             border-radius: 12px;
             background: transparent;
-            color: #1f334d;
+            color: #3a352f;
             cursor: pointer;
             font: inherit;
             font-size: 13px;
@@ -1710,7 +1777,7 @@ export function injectAssistantStyles(rootId) {
             text-align: left;
         }
         .xb-assistant-compose-menu-item:hover:not(:disabled) {
-            background: rgba(40, 87, 134, 0.10);
+            background: rgba(167, 95, 67, 0.10);
         }
         .xb-assistant-compose-menu-item:disabled {
             opacity: 0.5;
@@ -1730,6 +1797,8 @@ export function injectAssistantStyles(rootId) {
             resize: vertical;
             max-width: 100%;
             overflow-x: hidden;
+            border-radius: 16px;
+            background: var(--xb-assistant-surface-soft);
         }
         .xb-assistant-context-hint {
             display: flex;
@@ -1743,10 +1812,10 @@ export function injectAssistantStyles(rootId) {
         .xb-assistant-context-hint-item {
             max-width: 100%;
             padding: 6px 10px;
-            border: 1px solid rgba(40, 87, 134, 0.14);
+            border: none;
             border-radius: 999px;
-            background: rgba(237, 244, 251, 0.9);
-            color: #36567b;
+            background: var(--xb-assistant-accent-soft);
+            color: var(--xb-assistant-accent-strong);
             font-size: 12px;
             font-weight: 600;
             line-height: 1.4;
@@ -1759,10 +1828,10 @@ export function injectAssistantStyles(rootId) {
             gap: 6px;
             margin-bottom: 10px;
             padding: 10px 12px;
-            border: 1px solid rgba(40, 87, 134, 0.18);
+            border: none;
             border-radius: 14px;
-            background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(237, 244, 251, 0.96));
-            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75);
+            background: var(--xb-assistant-surface-soft);
+            box-shadow: none;
         }
         .xb-assistant-import-progress[hidden] {
             display: none;
@@ -1772,7 +1841,7 @@ export function injectAssistantStyles(rootId) {
             align-items: center;
             justify-content: space-between;
             gap: 12px;
-            color: #203956;
+            color: #3a352f;
         }
         .xb-assistant-import-progress-title {
             font-size: 13px;
@@ -1781,11 +1850,11 @@ export function injectAssistantStyles(rootId) {
         .xb-assistant-import-progress-percent {
             font-size: 12px;
             font-weight: 700;
-            color: #36567b;
+            color: #8a5a41;
         }
         .xb-assistant-import-progress-detail {
             min-width: 0;
-            color: #4b6888;
+            color: #766d62;
             font-size: 12px;
             white-space: nowrap;
             overflow: hidden;
@@ -1796,18 +1865,18 @@ export function injectAssistantStyles(rootId) {
             overflow: hidden;
             height: 8px;
             border-radius: 999px;
-            background: rgba(40, 87, 134, 0.12);
+            background: rgba(167, 95, 67, 0.12);
         }
         .xb-assistant-import-progress-fill {
             height: 100%;
             border-radius: inherit;
-            background: linear-gradient(90deg, #4f8cc9, #2f6eaf);
+            background: linear-gradient(90deg, #c47a58, #9a5a40);
             transition: width 0.12s ease;
         }
         .xb-assistant-compose button.is-busy { background: #8d442b; }
         .xb-assistant-toast {
             min-height: 22px;
-            color: #36567b;
+            color: #8a5a41;
             font-size: 12px;
             font-weight: 600;
             opacity: 0;
@@ -1843,9 +1912,9 @@ export function injectAssistantStyles(rootId) {
                 z-index: 30;
                 padding: 16px;
                 grid-template-rows: auto minmax(0, 1fr);
-                border: 1px solid rgba(20, 32, 51, 0.08);
+                border: 1px solid rgba(67, 55, 43, 0.08);
                 border-radius: 24px;
-                box-shadow: 0 24px 60px rgba(17, 31, 51, 0.16);
+                box-shadow: 0 24px 60px rgba(67, 55, 43, 0.16);
                 max-height: none;
                 overflow: hidden;
                 transition: opacity 0.2s ease, transform 0.2s ease;
@@ -1868,7 +1937,7 @@ export function injectAssistantStyles(rootId) {
                 min-width: 116px;
                 padding: 8px 14px;
                 justify-content: space-between;
-                background: linear-gradient(135deg, rgba(27, 55, 88, 0.92), rgba(40, 87, 134, 0.92));
+                background: linear-gradient(135deg, rgba(122, 76, 54, 0.92), rgba(167, 95, 67, 0.92));
                 font-size: 14px;
             }
             .xb-assistant-mobile-backdrop {
@@ -1947,14 +2016,14 @@ export function injectAssistantStyles(rootId) {
                 border: none;
                 border-radius: 999px;
                 background: rgba(255, 255, 255, 0.74);
-                color: #1b3758;
+                color: #814733;
                 font-size: 12px;
                 font-weight: 600;
-                box-shadow: inset 0 0 0 1px rgba(27, 55, 88, 0.1);
+                box-shadow: inset 0 0 0 1px rgba(122, 76, 54, 0.1);
                 white-space: nowrap;
             }
             .xb-assistant-compose {
-                padding: 12px;
+                padding: 8px 12px;
                 padding-bottom: calc(12px + env(safe-area-inset-bottom));
             }
             .xb-assistant-compose-row {
@@ -2001,8 +2070,9 @@ export function injectAssistantStyles(rootId) {
                 overflow: hidden;
                 text-overflow: ellipsis;
             }
-            .xb-assistant-chat { padding-inline: 0; min-height: 0; }
-            .xb-assistant-bubble { width: 100%; }
+            .xb-assistant-chat { padding: 14px 12px 6px; min-height: 0; }
+            .xb-assistant-bubble { width: 100%; max-width: 100%; }
+            .xb-assistant-bubble.role-user { width: fit-content; max-width: 92%; }
             .xb-assistant-empty {
                 width: 100%;
                 padding: 18px;

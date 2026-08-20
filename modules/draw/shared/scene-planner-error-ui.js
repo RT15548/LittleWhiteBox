@@ -4,6 +4,7 @@ import {
 } from './scene-plan-contract.js';
 
 const ERROR_TYPE_KEYS_BY_CATEGORY = Object.freeze({
+    [ScenePlannerErrorCategory.INPUT]: 'INPUT',
     [ScenePlannerErrorCategory.AGENT_CONFIG]: 'AGENT_CONFIG',
     [ScenePlannerErrorCategory.PROMPT]: 'PROMPT_EXPANSION',
     [ScenePlannerErrorCategory.TOOL_PROTOCOL]: 'TOOL_PROTOCOL',

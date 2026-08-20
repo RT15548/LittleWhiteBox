@@ -69,12 +69,17 @@ import {
     stopSharedDrawPreviewRuntime,
     renderAllDrawPreviews,
     renderPreviewsForMessage as renderSharedPreviewsForMessage,
+    buildPendingImageHtml,
+    buildDrawSlotSelector,
+    isMessageBeingEdited,
     DEFAULT_MESSAGE_FILTER_RULES,
 } from '../../shared/draw-common.js';
 import { createSceneSource } from '../../shared/scene-source.js';
 import {
+    ScenePlacementError,
     assertSceneSourceUnchanged,
     insertScenePlacements,
+    settleSceneSlotPlaceholders,
 } from '../../shared/scene-placement.js';
 // ═══════════════════════════════════════════════════════════════════════════
 // 常量
@@ -144,6 +149,7 @@ const events = createModuleEvents(MODULE_KEY);
 const ImageState = { PREVIEW: 'preview', SAVING: 'saving', SAVED: 'saved', REFRESHING: 'refreshing', FAILED: 'failed' };
 
 const ErrorType = {
+    INPUT: { code: 'input', label: '正文输入', desc: '正文没有可用的配图内容' },
     NETWORK: { code: 'network', label: '网络', desc: '连接超时或网络不稳定' },
     AUTH: { code: 'auth', label: '认证', desc: 'API Key 无效或过期' },
     QUOTA: { code: 'quota', label: '额度', desc: 'Anlas 点数不足' },
@@ -157,6 +163,7 @@ const ErrorType = {
     TOOL_PROTOCOL: { code: 'tool_protocol', label: 'Tool 协议', desc: '模型没有按要求调用场景规划 Tool' },
     SCENE_SCHEMA: { code: 'scene_schema', label: '计划校验', desc: '模型提交的场景计划不符合契约' },
     PROVIDER: { code: 'provider', label: 'Provider', desc: '模型 Provider 请求失败' },
+    SCENE_PLACEMENT: { code: 'scene_placement', label: '插图位置', desc: '正文位置已变化，未写入图片' },
     ABORTED: { code: 'aborted', label: '已取消', desc: '请求已取消' },
     UNKNOWN: { code: 'unknown', label: '错误', desc: '未知错误' },
     CACHE_LOST: { code: 'cache_lost', label: '缓存丢失', desc: '图片缓存已过期' },
@@ -252,6 +259,7 @@ function ensureStyles() {
 .xb-nd-img{margin:0.8em 0;text-align:center;position:relative;display:block;width:100%;border-radius:14px;padding:4px}
 .xb-nd-img[data-state="preview"]{border:1px dashed rgba(255,152,0,0.35)}
 .xb-nd-img[data-state="failed"]{border:1px dashed rgba(248,113,113,0.5);background:rgba(248,113,113,0.05);padding:20px}
+.xb-nd-img[data-state="pending"]{border:1px dashed rgba(212,165,116,0.4);background:rgba(212,165,116,0.06);padding:18px;color:inherit}
 .xb-nd-img.busy img{opacity:0.5}
 .xb-nd-img-wrap{position:relative;overflow:hidden;border-radius:10px;touch-action:pan-y pinch-zoom}
 .xb-nd-img img{width:auto;height:auto;max-width:100%;border-radius:10px;cursor:pointer;box-shadow:0 3px 15px rgba(0,0,0,0.25);display:block;user-select:none;-webkit-user-drag:none;transition:transform 0.25s ease,opacity 0.2s ease}
@@ -427,13 +435,6 @@ function showToast(message, type = 'success', duration = 2500) {
     setTimeout(() => toast.remove(), duration);
 }
 
-function isMessageBeingEdited(messageId) {
-    if (!Number.isFinite(messageId)) return false;
-    const mesElement = document.querySelector(`.mes[mesid="${messageId}"]`);
-    if (!mesElement) return false;
-    return mesElement.querySelector('textarea.edit_textarea') !== null || mesElement.classList.contains('editing');
-}
-
 function getMesTextElement(messageId) {
     if (!Number.isFinite(messageId)) return null;
     return document.querySelector(`#chat .mes[mesid="${messageId}"] .mes_text`);
@@ -470,19 +471,29 @@ function removeIfEmptyFlowContainer(container) {
 function replacePlaceholdersInDomBatch(root, replacements) {
     if (!root || !Array.isArray(replacements) || replacements.length === 0) return new Set();
 
+    const resolvedSlotIds = new Set();
+    for (const item of replacements) {
+        if (!item?.slotId || !item?.html) continue;
+        const existing = root.querySelector(buildDrawSlotSelector(item.slotId));
+        if (existing?.dataset?.state !== 'pending') continue;
+        const replacement = createNodeFromHtml(item.html);
+        if (!replacement) continue;
+        existing.replaceWith(replacement);
+        resolvedSlotIds.add(item.slotId);
+    }
     const pending = replacements.filter(item =>
         item?.slotId &&
         item?.html &&
-        !root.querySelector(`.xb-nd-img[data-slot-id="${item.slotId}"]`)
+        !resolvedSlotIds.has(item.slotId) &&
+        !root.querySelector(buildDrawSlotSelector(item.slotId))
     );
-    if (pending.length === 0) return new Set();
+    if (pending.length === 0) return resolvedSlotIds;
 
     const placeholderMap = new Map(pending.map(item => [createPlaceholder(item.slotId), item]));
     const placeholderRegex = new RegExp(
         Array.from(placeholderMap.keys()).map(escapeRegexChars).join('|'),
         'g'
     );
-    const resolvedSlotIds = new Set();
     const nodePlans = new Map();
     const groupedByContainer = new Map();
     const orderedContainers = [];
@@ -564,7 +575,7 @@ function insertPreviewBatchIntoRenderedMessage({ messageId, patches }) {
 
     patches.forEach(patch => {
         if (!patch?.slotId || !patch?.html || insertedSlotIds.has(patch.slotId)) return;
-        if (mesTextEl.querySelector(`.xb-nd-img[data-slot-id="${patch.slotId}"]`)) {
+        if (mesTextEl.querySelector(buildDrawSlotSelector(patch.slotId))) {
             inserted = true;
         }
     });
@@ -652,6 +663,9 @@ function classifyLlmError(e) {
 
 function classifyError(e) {
     if (e instanceof ScenePlannerError) return classifyLlmError(e);
+    if (e instanceof ScenePlacementError) {
+        return { ...ErrorType.SCENE_PLACEMENT, desc: e.message || ErrorType.SCENE_PLACEMENT.desc };
+    }
     if (e instanceof NovelDrawError && e.errorType) return e.errorType;
     const msg = (e?.message || '').toLowerCase();
     if (msg.includes('network') || msg.includes('fetch') || msg.includes('failed to fetch')) return ErrorType.NETWORK;
@@ -2543,6 +2557,17 @@ async function maybeAutoLearnFromTasks(tasks = [], settings = {}) {
     }
 }
 
+function notifySceneImageLimitAdjusted(adjustment) {
+    if (adjustment?.message) toastr.info(adjustment.message, '小白X画图');
+}
+
+function notifyDetachedGeneration(successCount) {
+    const count = Math.max(0, Number(successCount) || 0);
+    if (count > 0) {
+        toastr.info(`聊天或楼层已经变化，已生成 ${count} 张图片但未写入原楼层；可在画图设置的图片管理中查看。`, '小白X画图');
+    }
+}
+
 async function buildTextSourceTasks({ sceneSource, presentCharacters, settings, preset, signal, useWorldbook = false }) {
     let worldbookEntries = null;
     const customPrompts = getActivePromptPreset() || DEFAULT_PROMPT_CONFIG;
@@ -2566,6 +2591,7 @@ async function buildTextSourceTasks({ sceneSource, presentCharacters, settings, 
         worldbookEntries,
         maxImages: preset.maxImages || 0,
         maxCharactersPerImage: preset.maxCharactersPerImage || 0,
+        onImageLimitAdjusted: notifySceneImageLimitAdjusted,
         signal,
     });
 
@@ -2729,6 +2755,7 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
     }
 
     const job = createGenerationJob(messageId);
+    let placementLifecycle = null;
 
     try {
         await loadSettings();
@@ -2780,6 +2807,7 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
                 worldbookEntries,
                 maxImages: preset.maxImages || 0,
                 maxCharactersPerImage: preset.maxCharactersPerImage || 0,
+                onImageLimitAdjusted: notifySceneImageLimitAdjusted,
                 signal,
             });
         } catch (e) {
@@ -2794,43 +2822,93 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
         await maybeAutoLearnFromTasks(tasks, settings);
 
         const initialChatId = ctx.chatId;
-        const originalMes = message.mes; // 修改前备份，abort 时可回滚
+        if (isMessageBeingEdited(messageId)) {
+            throw new ScenePlacementError('该楼层正在编辑，请保存或取消编辑后再配图。', 'SCENE_MESSAGE_EDITING');
+        }
+        const originalMes = message.mes;
         const slotIds = tasks.map(() => generateSlotId());
+        const results = [];
+        let successCount = 0;
         const strippedNow = String(message.mes || '').replace(PLACEHOLDER_REGEX, '');
         assertSceneSourceUnchanged(strippedNow, sceneSource.sourceHash);
-        message.mes = insertScenePlacements(strippedNow, tasks.map((task, index) => ({
+        const plannedMes = insertScenePlacements(strippedNow, tasks.map((task, index) => ({
             placement: task.placement,
             content: createPlaceholder(slotIds[index]),
         })), { block: true });
 
+        placementLifecycle = {
+            message,
+            originalMes,
+            slotIds,
+            results,
+            getSuccessCount: () => successCount,
+            initialChatId,
+            plannedMes,
+            syncRenderedMessage: null,
+            settled: false,
+        };
+
         const { messageFormatting } = await import('../../../../../../../../script.js');
-        const syncRenderedMessage = async () => {
+        const syncRenderedMessage = async (sourceText = plannedMes) => {
             if (isMessageBeingEdited(messageId)) return;
-            const formatted = messageFormatting(message.mes, message.name, message.is_system, message.is_user, messageId);
+            const formatted = messageFormatting(sourceText, message.name, message.is_system, message.is_user, messageId);
             $(`[mesid="${messageId}"] .mes_text`).html(formatted);
         };
+        const renderPendingSlots = () => {
+            const settledSlotIds = new Set(results.map((item) => item.slotId));
+            slotIds.forEach((slotId, index) => {
+                if (settledSlotIds.has(slotId)) return;
+                insertPreviewIntoRenderedMessage({
+                    messageId,
+                    slotId,
+                    html: buildPendingImageHtml({
+                        slotId,
+                        messageId,
+                        index: index + 1,
+                        total: slotIds.length,
+                    }),
+                });
+            });
+        };
+        const recoverRenderedSlots = async () => {
+            await syncRenderedMessage();
+            renderPendingSlots();
+            await renderSharedPreviewsForMessage(messageId);
+        };
+        placementLifecycle.syncRenderedMessage = syncRenderedMessage;
+        if (message.mes !== originalMes) {
+            throw new ScenePlacementError('正文在准备插图位置时发生变化，未写入图片。', 'SCENE_SOURCE_CHANGED');
+        }
         await syncRenderedMessage();
+        renderPendingSlots();
 
         onStateChange?.('gen', { current: 0, total: tasks.length });
 
-        const results = [];
-        let successCount = 0;
         let requiresFinalDomSync = false;
+        let terminationReason = '';
 
         for (let i = 0; i < tasks.length; i++) {
             if (signal.aborted) {
                 console.log('[NovelDraw] 用户中止，停止生成');
+                terminationReason = 'aborted';
                 break;
             }
 
             const currentCtx = getContext();
             if (currentCtx.chatId !== initialChatId) {
                 console.warn('[NovelDraw] 聊天已切换，中止生成');
+                terminationReason = 'detached';
                 break;
             }
             const currentMsg = currentCtx.chat?.[messageId];
             if (!currentMsg || currentMsg !== message) {
                 console.warn('[NovelDraw] 消息已删除或被替换，中止生成');
+                terminationReason = 'detached';
+                break;
+            }
+            if (message.mes !== originalMes || isMessageBeingEdited(messageId)) {
+                console.warn('[NovelDraw] 正文已变化或正在编辑，中止生成');
+                terminationReason = 'source_changed';
                 break;
             }
 
@@ -2922,9 +3000,15 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
 
             if (signal.aborted) break;
 
-            const msgCheck = getContext().chat?.[messageId];
-            if (!msgCheck || msgCheck !== message) {
+            const renderCtx = getContext();
+            const msgCheck = renderCtx.chat?.[messageId];
+            if (renderCtx.chatId !== initialChatId || !msgCheck || msgCheck !== message) {
                 console.warn('[NovelDraw] 消息已删除或被替换（swipe/重新生成），停止生图');
+                terminationReason = 'detached';
+                break;
+            }
+            if (message.mes !== originalMes || isMessageBeingEdited(messageId)) {
+                terminationReason = 'source_changed';
                 break;
             }
 
@@ -2941,8 +3025,7 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
 
                     if (!inserted) {
                         requiresFinalDomSync = true;
-                        await syncRenderedMessage();
-                        await renderSharedPreviewsForMessage(messageId);
+                        await recoverRenderedSlots();
                     }
                 }
             } catch (e) {
@@ -2951,29 +3034,25 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
             }
         }
 
-        if (signal.aborted) {
-            // ── abort 清理：恢复内容 / 同步 DOM / 保存 ──
+        if (signal.aborted || terminationReason) {
             const abortCtx = getContext();
             const abortMsgValid = abortCtx.chatId === initialChatId && abortCtx.chat?.[messageId] === message;
-
-            if (successCount === 0) {
-                // 没有任何成功的图 → 完全回滚到原始内容
-                message.mes = originalMes;
-            } else {
-                // 保留已完成的图片，只移除从未开始生成的 pending 占位符
-                const attemptedSlots = new Set(results.map(item => item.slotId));
-                slotIds.filter(id => !attemptedSlots.has(id)).forEach(id => {
-                    // block 插入可能在占位符两侧补过换行；两侧都吃到换行时保留一个，避免吞掉段落空行
-                    message.mes = message.mes.replace(
-                        new RegExp(`(\\n?)\\[image:${id}\\](\\n?)`),
-                        (match, before, after) => (before && after ? '\n' : ''),
-                    );
+            const canCommit = abortMsgValid
+                && message.mes === originalMes
+                && !isMessageBeingEdited(messageId);
+            if (canCommit) {
+                message.mes = settleSceneSlotPlaceholders({
+                    currentText: plannedMes,
+                    originalText: originalMes,
+                    allSlotIds: slotIds,
+                    completedSlotIds: results.map(item => item.slotId),
+                    successCount,
                 });
             }
 
-            if (abortMsgValid && !isMessageBeingEdited(messageId)) {
+            if (canCommit) {
                 try {
-                    await syncRenderedMessage();
+                    await syncRenderedMessage(message.mes);
                     await renderSharedPreviewsForMessage(messageId);
                 } catch (e) {
                     console.warn('[NovelDraw] abort DOM 同步失败:', e);
@@ -2981,31 +3060,59 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
                 persistChatSilently().catch(() => {});
             }
 
-            onStateChange?.('success', { success: successCount, total: tasks.length, aborted: true });
-            return { success: successCount, total: tasks.length, results, aborted: true };
+            placementLifecycle.settled = true;
+            if (terminationReason === 'source_changed') {
+                throw new ScenePlacementError(
+                    '正文在配图期间发生变化或正在编辑；已生成图片保留在画廊中，未写入楼层。',
+                    'SCENE_SOURCE_CHANGED',
+                );
+            }
+            const aborted = signal.aborted || terminationReason === 'aborted';
+            if (!aborted) notifyDetachedGeneration(successCount);
+            onStateChange?.('success', { success: successCount, total: tasks.length, aborted, detached: !aborted });
+            return {
+                success: successCount,
+                total: tasks.length,
+                results,
+                aborted,
+                terminationReason: aborted ? 'aborted' : 'detached',
+            };
         }
 
         const finalCtx = getContext();
-        const shouldUpdateDom = finalCtx.chatId === initialChatId &&
-            finalCtx.chat?.[messageId] === message &&
-            !isMessageBeingEdited(messageId);
+        const messageAttached = finalCtx.chatId === initialChatId && finalCtx.chat?.[messageId] === message;
+        if (!messageAttached) {
+            placementLifecycle.settled = true;
+            notifyDetachedGeneration(successCount);
+            onStateChange?.('success', { success: successCount, total: tasks.length, detached: true });
+            return { success: successCount, total: tasks.length, results, aborted: false, terminationReason: 'detached' };
+        }
+        const shouldUpdateDom = message.mes === originalMes && !isMessageBeingEdited(messageId);
+        if (!shouldUpdateDom) {
+            placementLifecycle.settled = true;
+            throw new ScenePlacementError(
+                '正文在配图期间发生变化或正在编辑；已生成图片保留在画廊中，未写入楼层。',
+                'SCENE_SOURCE_CHANGED',
+            );
+        }
+        message.mes = plannedMes;
 
         if (shouldUpdateDom && requiresFinalDomSync) {
-            const formatted = messageFormatting(
-                message.mes,
-                message.name,
-                message.is_system,
-                message.is_user,
-                messageId
-            );
-            $('[mesid="' + messageId + '"] .mes_text').html(formatted);
-
-            await renderSharedPreviewsForMessage(messageId);
-
             try {
+                const formatted = messageFormatting(
+                    message.mes,
+                    message.name,
+                    message.is_system,
+                    message.is_user,
+                    messageId
+                );
+                $('[mesid="' + messageId + '"] .mes_text').html(formatted);
+                await renderSharedPreviewsForMessage(messageId);
                 const { processMessageById } = await import('../../../iframe-renderer.js');
                 processMessageById(messageId, true);
-            } catch {}
+            } catch (error) {
+                console.warn('[NovelDraw] 最终 DOM 同步失败:', error);
+            }
         } else if (shouldUpdateDom) {
             console.log('[NovelDraw] 已跳过最终 full rerender，仅后台保存正文与局部 DOM patch');
         }
@@ -3023,9 +3130,39 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
             });
         }
 
+        placementLifecycle.settled = true;
         return { success: successCount, total: tasks.length, results };
 
     } finally {
+        if (placementLifecycle && !placementLifecycle.settled) {
+            const {
+                message,
+                originalMes,
+                slotIds,
+                results,
+                getSuccessCount,
+                initialChatId,
+                plannedMes,
+                syncRenderedMessage,
+            } = placementLifecycle;
+            const currentCtx = getContext();
+            const canCommit = currentCtx.chatId === initialChatId
+                && currentCtx.chat?.[messageId] === message
+                && message.mes === originalMes
+                && !isMessageBeingEdited(messageId);
+            if (canCommit) {
+                message.mes = settleSceneSlotPlaceholders({
+                    currentText: plannedMes,
+                    originalText: originalMes,
+                    allSlotIds: slotIds,
+                    completedSlotIds: results.map(item => item.slotId),
+                    successCount: getSuccessCount(),
+                });
+                if (syncRenderedMessage) await syncRenderedMessage(message.mes).catch(() => {});
+                await renderSharedPreviewsForMessage(messageId).catch(() => {});
+                await persistChatSilently().catch(() => {});
+            }
+        }
         releaseGenerationJob(job);
     }
 }

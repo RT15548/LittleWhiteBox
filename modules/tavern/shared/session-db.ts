@@ -2652,6 +2652,40 @@ export async function updateTavernMessage(
     ));
 }
 
+export type TavernMessageContentUpdateResult =
+    | { status: 'updated'; message: TavernMessageRecord }
+    | { status: 'conflict'; message: TavernMessageRecord }
+    | { status: 'missing'; message: null };
+
+export async function updateTavernMessageContentIfMatches(
+    sessionId = '',
+    order = -1,
+    expectedContent = '',
+    nextContent = '',
+): Promise<TavernMessageContentUpdateResult> {
+    const id = String(sessionId || '').trim();
+    const messageOrder = Number(order);
+    if (!id || !Number.isInteger(messageOrder) || messageOrder < 0) {
+        return { status: 'missing', message: null };
+    }
+    const expected = String(expectedContent ?? '');
+    return await db.transaction('rw', tavernMessagesTable, tavernSessionsTable, async () => {
+        const existing = await tavernMessagesTable.get([id, messageOrder]);
+        if (!existing) {return { status: 'missing', message: null };}
+        if (String(existing.content || '') !== expected) {
+            return { status: 'conflict', message: normalizeStoredTavernMessageRecord(existing) };
+        }
+        const updated = await updateTavernMessageInCurrentDbTransaction(
+            id,
+            messageOrder,
+            { content: String(nextContent ?? '') },
+        );
+        return updated
+            ? { status: 'updated', message: updated }
+            : { status: 'missing', message: null };
+    });
+}
+
 /** Caller must include messages and sessions in the active transaction. */
 export async function updateTavernMessageInCurrentDbTransaction(
     sessionId: string,

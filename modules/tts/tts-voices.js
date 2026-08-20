@@ -1,22 +1,5 @@
-// tts-voices.js
-// 已移除所有 _tob 企业音色
-
-window.XB_TTS_TTS2_VOICE_INFO = [
-  { "value": "zh_female_vv_uranus_bigtts", "name": "Vivi 2.0", "scene": "通用场景" },
-  { "value": "zh_female_xiaohe_uranus_bigtts", "name": "小何", "scene": "通用场景" },
-  { "value": "zh_male_m191_uranus_bigtts", "name": "云舟", "scene": "通用场景" },
-  { "value": "zh_male_taocheng_uranus_bigtts", "name": "小天", "scene": "通用场景" },
-  { "value": "zh_male_dayi_saturn_bigtts", "name": "大壹", "scene": "视频配音" },
-  { "value": "zh_female_mizai_saturn_bigtts", "name": "黑猫侦探社咪仔", "scene": "视频配音" },
-  { "value": "zh_female_jitangnv_saturn_bigtts", "name": "鸡汤女", "scene": "视频配音" },
-  { "value": "zh_female_meilinvyou_saturn_bigtts", "name": "魅力女友", "scene": "视频配音" },
-  { "value": "zh_female_santongyongns_saturn_bigtts", "name": "流畅女声", "scene": "视频配音" },
-  { "value": "zh_male_ruyayichen_saturn_bigtts", "name": "儒雅逸辰", "scene": "视频配音" },
-  { "value": "zh_female_xueayi_saturn_bigtts", "name": "儿童绘本", "scene": "有声阅读" }
-];
-
-window.XB_TTS_VOICE_DATA = [
-  // ========== TTS 2.0 ==========
+// 火山引擎公共音色目录。企业专属的 _tob 音色不在这里注册。
+export const TTS2_VOICE_INFO = [
   { "value": "zh_female_vv_uranus_bigtts", "name": "Vivi 2.0", "scene": "通用场景" },
   { "value": "zh_female_xiaohe_uranus_bigtts", "name": "小何", "scene": "通用场景" },
   { "value": "zh_male_m191_uranus_bigtts", "name": "云舟", "scene": "通用场景" },
@@ -28,7 +11,51 @@ window.XB_TTS_VOICE_DATA = [
   { "value": "zh_female_santongyongns_saturn_bigtts", "name": "流畅女声", "scene": "视频配音" },
   { "value": "zh_male_ruyayichen_saturn_bigtts", "name": "儒雅逸辰", "scene": "视频配音" },
   { "value": "zh_female_xueayi_saturn_bigtts", "name": "儿童绘本", "scene": "有声阅读" },
-  
+  { "value": "zh_female_sophie_uranus_bigtts", "name": "魅力苏菲", "scene": "多语种" },
+  { "value": "zh_female_jiaochuannv_uranus_bigtts", "name": "娇喘女声", "scene": "角色扮演" },
+  { "value": "zh_female_nvleishen_uranus_bigtts", "name": "女雷神", "scene": "趣味口音" },
+  { "value": "zh_female_wenroushunv_uranus_bigtts", "name": "温柔淑女", "scene": "有声阅读" },
+  { "value": "zh_female_wuzetian_uranus_bigtts", "name": "武则天", "scene": "角色扮演" },
+  { "value": "zh_female_chanmeinv_uranus_bigtts", "name": "谄媚女声", "scene": "角色扮演" },
+  { "value": "zh_female_jitangmei_uranus_bigtts", "name": "鸡汤妹妹/Hope", "scene": "播报解说" },
+  { "value": "zh_female_wenrouxiaoya_uranus_bigtts", "name": "温柔小雅", "scene": "角色扮演" },
+  { "value": "zh_female_tianmeitaozi_uranus_bigtts", "name": "甜美桃子", "scene": "通用场景" },
+  { "value": "zh_female_tianmeixiaoyuan_uranus_bigtts", "name": "甜美小源", "scene": "通用场景" },
+  { "value": "zh_female_mengyatou_uranus_bigtts", "name": "萌丫头/Cutey", "scene": "角色扮演" },
+  { "value": "zh_female_lingling_uranus_bigtts", "name": "玲玲姐姐", "scene": "趣味口音" },
+  { "value": "zh_female_linxiao_uranus_bigtts", "name": "林潇", "scene": "趣味口音" },
+  { "value": "zh_female_qinqienv_uranus_bigtts", "name": "亲切女声", "scene": "通用场景" },
+  { "value": "zh_female_tianmeiyueyue_uranus_bigtts", "name": "甜美悦悦", "scene": "通用场景" },
+  { "value": "zh_female_tiexinnvsheng_uranus_bigtts", "name": "贴心女声/Candy", "scene": "通用场景" },
+  { "value": "zh_female_roumeinvyou_uranus_bigtts", "name": "柔美女友", "scene": "角色扮演" },
+  { "value": "zh_female_qingchezizi_uranus_bigtts", "name": "清澈梓梓", "scene": "通用场景" },
+  { "value": "zh_female_qiaopinv_uranus_bigtts", "name": "俏皮女声", "scene": "角色扮演" },
+  { "value": "zh_female_shaoergushi_uranus_bigtts", "name": "少儿故事", "scene": "角色扮演" },
+  { "value": "zh_female_gujie_uranus_bigtts", "name": "顾姐", "scene": "角色扮演" },
+  { "value": "zh_female_xinlingjitang_uranus_bigtts", "name": "心灵鸡汤", "scene": "通用场景" },
+  { "value": "zh_female_zhixingnv_uranus_bigtts", "name": "知性女声", "scene": "通用场景" },
+  { "value": "zh_female_wenjingmaomao_uranus_bigtts", "name": "文静毛毛", "scene": "通用场景" },
+  { "value": "zh_female_kailangjiejie_uranus_bigtts", "name": "开朗姐姐", "scene": "通用场景" },
+  { "value": "zh_female_gufengshaoyu_uranus_bigtts", "name": "古风少御", "scene": "有声阅读" },
+  { "value": "zh_female_linjianvhai_uranus_bigtts", "name": "邻家女孩", "scene": "通用场景" },
+  { "value": "zh_female_kefunvsheng_uranus_bigtts", "name": "暖阳女声", "scene": "通用场景" },
+  { "value": "zh_female_cancan_uranus_bigtts", "name": "知性灿灿", "scene": "通用场景" },
+  { "value": "zh_female_yingyujiaoxue_uranus_bigtts", "name": "Tina老师", "scene": "教育场景" },
+  { "value": "zh_female_qingxinnvsheng_uranus_bigtts", "name": "清新女声", "scene": "通用场景" },
+  { "value": "zh_female_shuangkuaisisi_uranus_bigtts", "name": "爽快思思", "scene": "通用场景" },
+  { "value": "zh_female_wenroumama_uranus_bigtts", "name": "温柔妈妈", "scene": "角色扮演" },
+  { "value": "zh_female_gaolengyujie_uranus_bigtts", "name": "高冷御姐", "scene": "角色扮演" },
+  { "value": "zh_female_popo_uranus_bigtts", "name": "婆婆", "scene": "角色扮演" },
+  { "value": "zh_female_chunribu_uranus_bigtts", "name": "春日部姐姐", "scene": "趣味口音" },
+  { "value": "zh_female_ganmaodianyin_uranus_bigtts", "name": "感冒电音姐姐", "scene": "趣味口音" },
+  { "value": "zh_female_peiqi_uranus_bigtts", "name": "佩奇猪", "scene": "角色扮演" },
+  { "value": "zh_female_yingtaowanzi_uranus_bigtts", "name": "樱桃丸子", "scene": "角色扮演" },
+  { "value": "zh_female_zhishuaiyingzi_uranus_bigtts", "name": "直率英子", "scene": "趣味口音" },
+  { "value": "zh_female_tvbnv_uranus_bigtts", "name": "TVB女声", "scene": "趣味口音" },
+  { "value": "zh_female_sajiaoxuemei_uranus_bigtts", "name": "撒娇学妹", "scene": "角色扮演" }
+];
+
+const TTS1_VOICE_INFO = [
   // ========== TTS 1.0 方言 ==========
   { "value": "zh_female_wanqudashu_moon_bigtts", "name": "湾区大叔", "scene": "趣味方言" },
   { "value": "zh_female_daimengchuanmei_moon_bigtts", "name": "呆萌川妹", "scene": "趣味方言" },
@@ -195,3 +222,22 @@ window.XB_TTS_VOICE_DATA = [
   { "value": "en_male_sylus_emo_v2_mars_bigtts", "name": "Sylus", "scene": "多语种" },
   { "value": "en_female_skye_emo_v2_mars_bigtts", "name": "Serena", "scene": "多语种" }
 ];
+
+export const VOICE_DATA = [...TTS2_VOICE_INFO, ...TTS1_VOICE_INFO];
+
+const TTS2_VOICE_IDS = new Set(TTS2_VOICE_INFO.map(item => item.value.toLowerCase()));
+
+export function isTts2Voice(value) {
+  return TTS2_VOICE_IDS.has(String(value || '').trim().toLowerCase());
+}
+
+export function inferResourceIdBySpeaker(value, explicitResourceId = null) {
+  if (explicitResourceId) return explicitResourceId;
+
+  const speaker = String(value || '').trim().toLowerCase();
+  if (speaker.startsWith('icl_') || speaker.startsWith('s_')) return 'seed-icl-2.0';
+  if (isTts2Voice(speaker) || speaker.includes('_uranus_') || speaker.includes('_saturn_')) {
+    return 'seed-tts-2.0';
+  }
+  return 'seed-tts-1.0';
+}

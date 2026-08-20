@@ -1701,8 +1701,9 @@ select.input { cursor: pointer; }
 
 </div>
 
-<script src="tts-voices.js"></script>
-<script>
+<script type="module">
+import { VOICE_DATA, inferResourceIdBySpeaker, isTts2Voice } from './tts-voices.js';
+
 // ═══════════════════════════════════════════════════════════════════════════
 // 常量与状态
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1746,8 +1747,7 @@ const TRIAL_VOICES = [
 ];
 const TRIAL_VOICE_KEYS = new Set(TRIAL_VOICES.map(v => v.key));
 
-const AUTH_VOICE_DATA = Array.isArray(window.XB_TTS_VOICE_DATA) ? window.XB_TTS_VOICE_DATA : [];
-const TTS2_VOICES = new Set((window.XB_TTS_TTS2_VOICE_INFO || []).map(item => item.value));
+const AUTH_VOICE_DATA = VOICE_DATA;
 
 let authVoiceList = [];
 
@@ -1895,7 +1895,7 @@ function detectGenderByValue(value) {
     return 'other';
 }
 
-function detectModel(value) { return TTS2_VOICES.has(String(value).trim()) ? 'tts2' : 'tts1'; }
+function detectModel(value) { return isTts2Voice(value) ? 'tts2' : 'tts1'; }
 
 function detectTags(value, model) {
     const tags = [];
@@ -2249,22 +2249,16 @@ function fillForm(cfg) {
     updateCurrentVoiceDisplay();
 }
 
-function inferResourceIdBySpeaker(value) {
-    const v = (value || '').trim().toLowerCase();
-    if (v.startsWith('icl_') || v.startsWith('s_')) return 'seed-icl-2.0';
-    if (TTS2_VOICES.has(value)) return 'seed-tts-2.0';
-    return 'seed-tts-1.0';
-}
-
 function collectForm() {
     const speaker = selectedVoiceValue;
     const source = getVoiceSource(speaker);
+    const speakerItem = mySpeakers.find(item => item.value === speaker);
     
     return {
         volc: {
             appId: $('appId').value.trim(),
             accessKey: $('accessKey').value.trim(),
-            defaultResourceId: source === 'auth' ? inferResourceIdBySpeaker(speaker) : '',
+            defaultResourceId: source === 'auth' ? inferResourceIdBySpeaker(speaker, speakerItem?.resourceId) : '',
             defaultSpeaker: speaker,
             mySpeakers: mySpeakers,
             usageReturn: $('usageReturn').checked,

@@ -27,7 +27,12 @@ import {
 } from "../../shared/gallery-cache.js";
 import { generateAndParseScenePlan } from "../../shared/scene-planner.js";
 import { createSceneSource } from "../../shared/scene-source.js";
-import { assertSceneSourceUnchanged, insertScenePlacements } from "../../shared/scene-placement.js";
+import {
+    ScenePlacementError,
+    assertSceneSourceUnchanged,
+    insertScenePlacements,
+    settleSceneSlotPlaceholders,
+} from "../../shared/scene-placement.js";
 import { WorldbookProcessor } from "../../shared/worldbook-processor.js";
 import {
     loadSharedDrawSettings,
@@ -44,7 +49,9 @@ import {
     createPlaceholder,
     renderPreviewsForMessage,
     buildImageHtml,
+    buildPendingImageHtml,
     insertPreviewIntoRenderedMessage,
+    isMessageBeingEdited,
     detectPresentCharacters,
     assembleCharacterPrompts,
     DEFAULT_MESSAGE_FILTER_RULES,
@@ -3919,6 +3926,17 @@ async function autoGenerateForLastAI() {
     }
 }
 
+function notifySceneImageLimitAdjusted(adjustment) {
+    if (adjustment?.message) toastr.info(adjustment.message, '小白X画图');
+}
+
+function notifyDetachedGeneration(successCount) {
+    const count = Math.max(0, Number(successCount) || 0);
+    if (count > 0) {
+        toastr.info(`聊天或楼层已经变化，已生成 ${count} 张图片但未写入原楼层；可在画图设置的图片管理中查看。`, '小白X画图');
+    }
+}
+
 async function buildTasksFromMessage({ message, messageId, signal, promptOverride = '', negativePromptOverride = '', useWorldbook = true, stripImageMarkers = true }) {
     if (promptOverride.trim()) {
         return {
@@ -3964,6 +3982,7 @@ async function buildTasksFromMessage({ message, messageId, signal, promptOverrid
         worldbookEntries,
         maxImages: preset.maxImages || 0,
         maxCharactersPerImage: preset.maxCharactersPerImage || 0,
+        onImageLimitAdjusted: notifySceneImageLimitAdjusted,
         signal,
     });
 
@@ -4784,6 +4803,7 @@ export async function generateAndInsertImages({
 
     const job = createGenerationJob(resolvedMessageId);
     const signal = job.controller.signal;
+    let placementLifecycle = null;
 
     try {
         ensureDrawImageStyles();
@@ -4801,31 +4821,84 @@ export async function generateAndInsertImages({
 
         const comfySettings = getSettings();
         const sharedDrawSettings = getSharedDrawSettings();
+        if (isMessageBeingEdited(resolvedMessageId)) {
+            throw new ScenePlacementError('该楼层正在编辑，请保存或取消编辑后再配图。', 'SCENE_MESSAGE_EDITING');
+        }
         const originalMes = message.mes;
         const slotIds = tasks.map(() => generateSlotId());
+        const results = [];
+        let successCount = 0;
         const strippedNow = String(message.mes || '').replace(/\[image:[a-z0-9\-_]+\]/gi, '');
         if (sceneSource) assertSceneSourceUnchanged(strippedNow, sceneSource.sourceHash);
-        message.mes = insertScenePlacements(strippedNow, tasks.map((task, index) => ({
+        const plannedMes = insertScenePlacements(strippedNow, tasks.map((task, index) => ({
             placement: task.placement,
             content: createPlaceholder(slotIds[index]),
         })), { block: true });
 
+        placementLifecycle = {
+            message,
+            originalMes,
+            slotIds,
+            results,
+            getSuccessCount: () => successCount,
+            initialChatId,
+            plannedMes,
+            syncRenderedMessage: null,
+            settled: false,
+        };
+
         const { messageFormatting } = await import('../../../../../../../../script.js');
-        const syncRenderedMessage = () => {
-            const formatted = messageFormatting(message.mes, message.name, message.is_system, message.is_user, resolvedMessageId);
+        const syncRenderedMessage = (sourceText = plannedMes) => {
+            if (isMessageBeingEdited(resolvedMessageId)) return;
+            const formatted = messageFormatting(sourceText, message.name, message.is_system, message.is_user, resolvedMessageId);
             $(`[mesid="${resolvedMessageId}"] .mes_text`).html(formatted);
         };
+        const renderPendingSlots = () => {
+            const settledSlotIds = new Set(results.map((item) => item.slotId));
+            slotIds.forEach((slotId, index) => {
+                if (settledSlotIds.has(slotId)) return;
+                insertPreviewIntoRenderedMessage({
+                    messageId: resolvedMessageId,
+                    slotId,
+                    html: buildPendingImageHtml({
+                        slotId,
+                        messageId: resolvedMessageId,
+                        index: index + 1,
+                        total: slotIds.length,
+                    }),
+                });
+            });
+        };
+        const recoverRenderedSlots = async () => {
+            syncRenderedMessage();
+            renderPendingSlots();
+            await renderPreviewsForMessage(resolvedMessageId);
+        };
+        placementLifecycle.syncRenderedMessage = syncRenderedMessage;
+        if (message.mes !== originalMes) {
+            throw new ScenePlacementError('正文在准备插图位置时发生变化，未写入图片。', 'SCENE_SOURCE_CHANGED');
+        }
         syncRenderedMessage();
+        renderPendingSlots();
 
         onStateChange?.('gen', { current: 0, total: tasks.length });
-        const results = [];
-        let successCount = 0;
         let requiresFinalDomSync = false;
+        let terminationReason = '';
 
         for (let i = 0; i < tasks.length; i++) {
-            if (signal.aborted) break;
+            if (signal.aborted) {
+                terminationReason = 'aborted';
+                break;
+            }
             const currentCtx = getContext();
-            if (currentCtx.chatId !== initialChatId || currentCtx.chat?.[resolvedMessageId] !== message) break;
+            if (currentCtx.chatId !== initialChatId || currentCtx.chat?.[resolvedMessageId] !== message) {
+                terminationReason = 'detached';
+                break;
+            }
+            if (message.mes !== originalMes || isMessageBeingEdited(resolvedMessageId)) {
+                terminationReason = 'source_changed';
+                break;
+            }
 
             const task = tasks[i];
             const slotId = slotIds[i];
@@ -4889,53 +4962,134 @@ export async function generateAndInsertImages({
                 });
             }
 
-            if (signal.aborted) break;
+            if (signal.aborted) {
+                terminationReason = 'aborted';
+                break;
+            }
+            const renderCtx = getContext();
+            if (renderCtx.chatId !== initialChatId || renderCtx.chat?.[resolvedMessageId] !== message) {
+                terminationReason = 'detached';
+                break;
+            }
+            if (message.mes !== originalMes || isMessageBeingEdited(resolvedMessageId)) {
+                terminationReason = 'source_changed';
+                break;
+            }
 
-            const inserted = insertPreviewIntoRenderedMessage({
-                messageId: resolvedMessageId, slotId, html: incrementalHtml,
-            });
-            if (!inserted) {
-                requiresFinalDomSync = true;
-                syncRenderedMessage();
-                await renderPreviewsForMessage(resolvedMessageId);
+            if (!isMessageBeingEdited(resolvedMessageId)) {
+                const inserted = insertPreviewIntoRenderedMessage({
+                    messageId: resolvedMessageId, slotId, html: incrementalHtml,
+                });
+                if (!inserted) {
+                    requiresFinalDomSync = true;
+                    try {
+                        await recoverRenderedSlots();
+                    } catch (error) {
+                        console.warn('[ComfyDraw] 增量渲染恢复失败，继续生成:', error);
+                    }
+                }
             }
         }
 
-        if (signal.aborted) {
-            if (successCount === 0) {
-                message.mes = originalMes;
-            } else {
-                const attemptedSlots = new Set(results.map(item => item.slotId));
-                slotIds.filter(id => !attemptedSlots.has(id)).forEach(id => {
-                    // block 插入可能在占位符两侧补过换行；两侧都吃到换行时保留一个，避免吞掉段落空行
-                    message.mes = message.mes.replace(
-                        new RegExp(`(\\n?)\\[image:${id}\\](\\n?)`),
-                        (match, before, after) => (before && after ? '\n' : ''),
-                    );
-                });
-            }
+        if (signal.aborted || terminationReason) {
             const abortCtx = getContext();
-            if (abortCtx.chatId === initialChatId && abortCtx.chat?.[resolvedMessageId] === message) {
-                syncRenderedMessage();
-                await renderPreviewsForMessage(resolvedMessageId);
+            const canCommit = abortCtx.chatId === initialChatId
+                && abortCtx.chat?.[resolvedMessageId] === message
+                && message.mes === originalMes
+                && !isMessageBeingEdited(resolvedMessageId);
+            if (canCommit) {
+                message.mes = settleSceneSlotPlaceholders({
+                    currentText: plannedMes,
+                    originalText: originalMes,
+                    allSlotIds: slotIds,
+                    completedSlotIds: results.map((item) => item.slotId),
+                    successCount,
+                });
+                try {
+                    syncRenderedMessage(message.mes);
+                    await renderPreviewsForMessage(resolvedMessageId);
+                } catch (error) {
+                    console.warn('[ComfyDraw] 取消结算后的 DOM 同步失败:', error);
+                }
+                await persistChatSilently().catch(() => {});
             }
-            onStateChange?.('success', { success: successCount, total: tasks.length, aborted: true });
-            return { success: successCount, total: tasks.length, results, aborted: true };
+            placementLifecycle.settled = true;
+            if (terminationReason === 'source_changed') {
+                throw new ScenePlacementError(
+                    '正文在配图期间发生变化或正在编辑；已生成图片保留在画廊中，未写入楼层。',
+                    'SCENE_SOURCE_CHANGED',
+                );
+            }
+            const aborted = signal.aborted || terminationReason === 'aborted';
+            if (!aborted) notifyDetachedGeneration(successCount);
+            onStateChange?.('success', { success: successCount, total: tasks.length, aborted, detached: !aborted });
+            return { success: successCount, total: tasks.length, results, aborted, terminationReason: aborted ? 'aborted' : 'detached' };
         }
 
         const finalCtx = getContext();
-        const shouldUpdateDom = finalCtx.chatId === initialChatId && finalCtx.chat?.[resolvedMessageId] === message;
+        const messageAttached = finalCtx.chatId === initialChatId && finalCtx.chat?.[resolvedMessageId] === message;
+        if (!messageAttached) {
+            placementLifecycle.settled = true;
+            notifyDetachedGeneration(successCount);
+            onStateChange?.('success', { success: successCount, total: tasks.length, detached: true });
+            return { success: successCount, total: tasks.length, results, aborted: false, terminationReason: 'detached' };
+        }
+        const shouldUpdateDom = message.mes === originalMes && !isMessageBeingEdited(resolvedMessageId);
+        if (!shouldUpdateDom) {
+            placementLifecycle.settled = true;
+            throw new ScenePlacementError(
+                '正文在配图期间发生变化或正在编辑；已生成图片保留在画廊中，未写入楼层。',
+                'SCENE_SOURCE_CHANGED',
+            );
+        }
+        message.mes = plannedMes;
         if (shouldUpdateDom && requiresFinalDomSync) {
-            syncRenderedMessage();
-            await renderPreviewsForMessage(resolvedMessageId);
+            try {
+                syncRenderedMessage(message.mes);
+                await renderPreviewsForMessage(resolvedMessageId);
+            } catch (error) {
+                console.warn('[ComfyDraw] 最终 DOM 同步失败:', error);
+            }
         }
         if (shouldUpdateDom) {
             await persistChatSilently().catch(() => {});
         }
 
         onStateChange?.('success', { success: successCount, total: tasks.length });
+        placementLifecycle.settled = true;
         return { success: successCount, total: tasks.length, results };
     } finally {
+        if (placementLifecycle && !placementLifecycle.settled) {
+            const {
+                message,
+                originalMes,
+                slotIds,
+                results,
+                getSuccessCount,
+                initialChatId,
+                plannedMes,
+                syncRenderedMessage,
+            } = placementLifecycle;
+            const currentCtx = getContext();
+            const canCommit = currentCtx.chatId === initialChatId
+                && currentCtx.chat?.[resolvedMessageId] === message
+                && message.mes === originalMes
+                && !isMessageBeingEdited(resolvedMessageId);
+            if (canCommit) {
+                message.mes = settleSceneSlotPlaceholders({
+                    currentText: plannedMes,
+                    originalText: originalMes,
+                    allSlotIds: slotIds,
+                    completedSlotIds: results.map((item) => item.slotId),
+                    successCount: getSuccessCount(),
+                });
+                try {
+                    syncRenderedMessage?.(message.mes);
+                } catch {}
+                await renderPreviewsForMessage(resolvedMessageId).catch(() => {});
+                await persistChatSilently().catch(() => {});
+            }
+        }
         generationJobs.delete(String(resolvedMessageId));
     }
 }

@@ -138,6 +138,14 @@ test('scene plan tool schema applies exact image count and character cap', () =>
         schema.items.properties.characters.items.properties.type.enum,
         ['', ...SCENE_CHARACTER_TYPES],
     );
+
+    const boundedTool = createSubmitScenePlanTool({ insertPointCount: 2 });
+    const boundedImages = boundedTool.function.parameters.properties.images;
+    const boundedMoments = boundedTool.function.parameters.properties.mindful_prelude
+        .properties.visual_plan.properties.moments;
+    assert.equal(boundedImages.minItems, 1);
+    assert.equal(boundedImages.maxItems, 2);
+    assert.equal(boundedMoments.items.properties.insert_after.maximum, 2);
 });
 
 test('scene plan contract keeps no_humans canonical and maps it to the downstream image tag', () => {
@@ -167,6 +175,8 @@ test('scene plan contract keeps no_humans canonical and maps it to the downstrea
 
 test('scene planner errors expose stable failure categories', () => {
     const cases = [
+        ['EMPTY_MESSAGE', ScenePlannerErrorCategory.INPUT],
+        ['NO_INSERT_POINTS', ScenePlannerErrorCategory.INPUT],
         ['MODEL_MISSING', ScenePlannerErrorCategory.AGENT_CONFIG],
         ['HOST_REQUEST_HEADERS_LOAD_FAILED', ScenePlannerErrorCategory.AGENT_CONFIG],
         ['TOOL_CALL_MISSING', ScenePlannerErrorCategory.TOOL_PROTOCOL],
@@ -212,7 +222,8 @@ test('scene planner correction feedback distinguishes missing, wrong, multiple, 
         [new ScenePlannerError('调用过多', 'TOOL_CALL_MULTIPLE', { count: 2 }), /多个 Tool/],
         [new ScenePlannerError('字段错误', 'TOOL_ARGUMENTS_SCHEMA_INVALID', {
             path: 'images[0].scene',
-            value: '不会回传给模型',
+            rule: '不能为空',
+            received: '不会影响失败签名',
         }), /错误位置/],
     ];
 
@@ -230,7 +241,15 @@ test('scene planner correction feedback distinguishes missing, wrong, multiple, 
         getScenePlannerCorrectionSignature(new ScenePlannerError(
             '另一个值仍在相同位置错误',
             'TOOL_ARGUMENTS_SCHEMA_INVALID',
-            { path: 'images[0].scene', value: 'different' },
+            { path: 'images[0].scene', rule: '不能为空', received: 'different' },
+        )),
+    );
+    assert.notEqual(
+        getScenePlannerCorrectionSignature(cases[3][0]),
+        getScenePlannerCorrectionSignature(new ScenePlannerError(
+            '相同位置但违反另一条规则',
+            'TOOL_ARGUMENTS_SCHEMA_INVALID',
+            { path: 'images[0].scene', rule: '必须是 string' },
         )),
     );
 });
@@ -251,7 +270,7 @@ test('scene plan contract rejects schema, index, placement, count, and unknown-c
             const value = buildParameters();
             value.mindful_prelude.visual_plan.moments[0].insert_after = 99;
             return value;
-        }, 'moments[0].insert_after'],
+        }, 'moments[0].insert_after', 'INSERT_POINT_INVALID'],
         [() => {
             const value = buildParameters();
             value.images[0].anchor = '旧契约字段';
@@ -269,11 +288,26 @@ test('scene plan contract rejects schema, index, placement, count, and unknown-c
         }, 'images[0].characters[1].center'],
     ];
 
-    for (const [build, expectedPath] of cases) {
+    for (const [build, expectedPath, expectedCode = 'TOOL_ARGUMENTS_SCHEMA_INVALID'] of cases) {
         assert.throws(
             () => parseSubmittedScenePlan(buildResult(build()), parseOptions),
-            (error) => error.code === 'TOOL_ARGUMENTS_SCHEMA_INVALID'
+            (error) => error.code === expectedCode
                 && error.message.includes(expectedPath),
+        );
+    }
+
+    for (const insertAfter of [[2, 1], [1, 1]]) {
+        const value = buildParameters();
+        value.images.push({ ...value.images[0], index: 2 });
+        value.mindful_prelude.visual_plan.moments = insertAfter.map((point, index) => ({
+            ...value.mindful_prelude.visual_plan.moments[0],
+            moment: String(index + 1),
+            insert_after: point,
+        }));
+        assert.throws(
+            () => parseSubmittedScenePlan(buildResult(value), { ...parseOptions, maxImages: 2 }),
+            (error) => error.code === 'TOOL_ARGUMENTS_SCHEMA_INVALID'
+                && error.details?.rule === '必须按图片顺序严格递增且不得重复',
         );
     }
 

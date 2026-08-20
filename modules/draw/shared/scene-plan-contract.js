@@ -39,6 +39,7 @@ export function toSceneCharacterPromptTag(value) {
 }
 
 export const ScenePlannerErrorCategory = Object.freeze({
+    INPUT: 'input',
     AGENT_CONFIG: 'agent-config',
     PROMPT: 'prompt',
     TOOL_PROTOCOL: 'tool-protocol',
@@ -60,6 +61,10 @@ const AGENT_CONFIG_ERROR_CODES = new Set([
 const PROMPT_ERROR_CODES = new Set([
     'PROMPT_EXPANSION_FAILED',
 ]);
+const INPUT_ERROR_CODES = new Set([
+    'EMPTY_MESSAGE',
+    'NO_INSERT_POINTS',
+]);
 const TOOL_PROTOCOL_ERROR_CODES = new Set([
     'TOOL_CONTRACT_INVALID',
     'TOOL_CALL_MISSING',
@@ -67,10 +72,10 @@ const TOOL_PROTOCOL_ERROR_CODES = new Set([
     'TOOL_CALL_NAME_INVALID',
 ]);
 const SCHEMA_ERROR_CODES = new Set([
-    'EMPTY_MESSAGE',
     'TOOL_ARGUMENTS_INVALID_JSON',
     'TOOL_ARGUMENTS_SCHEMA_INVALID',
     'NO_IMAGE_TASKS',
+    'INSERT_POINT_INVALID',
 ]);
 const CORRECTABLE_ERROR_CODES = new Set([
     'TOOL_CALL_MISSING',
@@ -79,6 +84,7 @@ const CORRECTABLE_ERROR_CODES = new Set([
     'TOOL_ARGUMENTS_INVALID_JSON',
     'TOOL_ARGUMENTS_SCHEMA_INVALID',
     'NO_IMAGE_TASKS',
+    'INSERT_POINT_INVALID',
 ]);
 
 export class ScenePlannerError extends Error {
@@ -93,6 +99,7 @@ export class ScenePlannerError extends Error {
 export function getScenePlannerErrorCategory(error) {
     if (!(error instanceof ScenePlannerError)) return null;
     const code = String(error.code || '').toUpperCase();
+    if (INPUT_ERROR_CODES.has(code)) return ScenePlannerErrorCategory.INPUT;
     if (AGENT_CONFIG_ERROR_CODES.has(code)) return ScenePlannerErrorCategory.AGENT_CONFIG;
     if (PROMPT_ERROR_CODES.has(code)) return ScenePlannerErrorCategory.PROMPT;
     if (TOOL_PROTOCOL_ERROR_CODES.has(code)) return ScenePlannerErrorCategory.TOOL_PROTOCOL;
@@ -123,7 +130,7 @@ function getCorrectionInstruction(code) {
 function normalizeCorrectionDetails(details) {
     if (!details || typeof details !== 'object' || Array.isArray(details)) return null;
     const normalized = {};
-    for (const key of ['path', 'name', 'count']) {
+    for (const key of ['path', 'rule', 'received', 'expected']) {
         if (Object.prototype.hasOwnProperty.call(details, key)) normalized[key] = details[key];
     }
     return Object.keys(normalized).length ? normalized : null;
@@ -148,8 +155,7 @@ export function getScenePlannerCorrectionSignature(error) {
     return JSON.stringify({
         code: String(error?.code || ''),
         path: String(details.path || ''),
-        name: String(details.name || ''),
-        count: Number.isFinite(Number(details.count)) ? Number(details.count) : null,
+        rule: String(details.rule || ''),
     });
 }
 
@@ -168,10 +174,12 @@ function stringSchema({ minLength = 0 } = {}) {
 export function createSubmitScenePlanTool(options = {}) {
     const maxImages = normalizeLimit(options.maxImages);
     const maxCharactersPerImage = normalizeLimit(options.maxCharactersPerImage);
+    const insertPointCount = normalizeLimit(options.insertPointCount);
+    const maxPlanItems = maxImages || insertPointCount;
     const momentsSchema = {
         type: 'array',
         minItems: maxImages || 1,
-        ...(maxImages ? { maxItems: maxImages } : {}),
+        ...(maxPlanItems ? { maxItems: maxPlanItems } : {}),
         items: {
             type: 'object',
             additionalProperties: false,
@@ -181,6 +189,7 @@ export function createSubmitScenePlanTool(options = {}) {
                 insert_after: {
                     type: 'integer',
                     minimum: 1,
+                    ...(insertPointCount ? { maximum: insertPointCount } : {}),
                     description: 'The numbered illustration point after which this image belongs.',
                 },
                 char_count: stringSchema({ minLength: 1 }),
@@ -219,7 +228,7 @@ export function createSubmitScenePlanTool(options = {}) {
     const imagesSchema = {
         type: 'array',
         minItems: maxImages || 1,
-        ...(maxImages ? { maxItems: maxImages } : {}),
+        ...(maxPlanItems ? { maxItems: maxPlanItems } : {}),
         items: {
             type: 'object',
             additionalProperties: false,
@@ -267,11 +276,11 @@ export function createSubmitScenePlanTool(options = {}) {
     };
 }
 
-function failSchema(path, message, value) {
+function failSchema(path, message, value, expected = message) {
     throw new ScenePlannerError(
         `场景计划参数无效：${path} ${message}`,
         'TOOL_ARGUMENTS_SCHEMA_INVALID',
-        { path, value },
+        { path, rule: message, received: value, expected },
     );
 }
 
@@ -393,7 +402,16 @@ function normalizeCharacter(value, path, knownNameLookup) {
 function normalizeImages(images, options = {}) {
     if (!Array.isArray(images)) failSchema('images', '必须是 array', images);
     if (!images.length) {
-        throw new ScenePlannerError('场景计划没有图片任务。', 'NO_IMAGE_TASKS');
+        throw new ScenePlannerError(
+            '场景计划没有图片任务。',
+            'NO_IMAGE_TASKS',
+            {
+                path: 'images',
+                rule: '必须至少提交一个图片任务',
+                received: 0,
+                expected: '非空 images 数组',
+            },
+        );
     }
     const maxImages = normalizeLimit(options.maxImages);
     const maxCharactersPerImage = normalizeLimit(options.maxCharactersPerImage);
@@ -406,6 +424,7 @@ function normalizeImages(images, options = {}) {
         .map((point) => [point.number, point]));
     const moments = Array.isArray(options.moments) ? options.moments : [];
 
+    let previousInsertAfter = 0;
     const tasks = images.map((image, imageIndex) => {
         const path = `images[${imageIndex}]`;
         assertExactFields(image, IMAGE_FIELDS, path);
@@ -416,12 +435,27 @@ function normalizeImages(images, options = {}) {
         const moment = moments[imageIndex];
         const sourcePoint = sourcePoints.get(moment?.insert_after);
         if (!sourcePoint) {
-            failSchema(
-                `mindful_prelude.visual_plan.moments[${imageIndex}].insert_after`,
-                '必须引用本次 <content> 中存在的插图点编号',
-                moment?.insert_after,
+            const path = `mindful_prelude.visual_plan.moments[${imageIndex}].insert_after`;
+            throw new ScenePlannerError(
+                `场景计划参数无效：${path} 必须引用本次 <content> 中存在的插图点编号`,
+                'INSERT_POINT_INVALID',
+                {
+                    path,
+                    rule: '必须引用本次正文中存在的插图点编号',
+                    received: moment?.insert_after,
+                    expected: sourcePoints.size ? `1～${sourcePoints.size}` : '本次正文没有可用插图点',
+                },
             );
         }
+        if (moment.insert_after <= previousInsertAfter) {
+            failSchema(
+                `mindful_prelude.visual_plan.moments[${imageIndex}].insert_after`,
+                '必须按图片顺序严格递增且不得重复',
+                moment.insert_after,
+                `大于 ${previousInsertAfter} 的有效插图点编号`,
+            );
+        }
+        previousInsertAfter = moment.insert_after;
         if (!Array.isArray(image.characters)) failSchema(`${path}.characters`, '必须是 array', image.characters);
         if (maxCharactersPerImage && image.characters.length > maxCharactersPerImage) {
             failSchema(`${path}.characters`, `最多包含 ${maxCharactersPerImage} 人`, image.characters.length);
@@ -450,7 +484,16 @@ function parseArguments(rawArguments) {
         return rawArguments;
     }
     if (typeof rawArguments !== 'string') {
-        throw new ScenePlannerError('submit_scene_plan 参数不是 JSON object。', 'TOOL_ARGUMENTS_INVALID_JSON');
+        throw new ScenePlannerError(
+            'submit_scene_plan 参数不是 JSON object。',
+            'TOOL_ARGUMENTS_INVALID_JSON',
+            {
+                path: 'toolCalls[0].arguments',
+                rule: '必须是合法 JSON object',
+                received: typeof rawArguments,
+                expected: 'JSON object 字符串',
+            },
+        );
     }
     try {
         const parsed = JSON.parse(rawArguments);
@@ -462,7 +505,12 @@ function parseArguments(rawArguments) {
         throw new ScenePlannerError(
             `submit_scene_plan 参数 JSON 损坏或截断：${error?.message || '无法解析'}`,
             'TOOL_ARGUMENTS_INVALID_JSON',
-            null,
+            {
+                path: 'toolCalls[0].arguments',
+                rule: '必须是合法且完整的 JSON object',
+                received: String(rawArguments).slice(0, 160),
+                expected: '完整 JSON object',
+            },
             { cause: error },
         );
     }
@@ -481,13 +529,24 @@ export function parseSubmittedScenePlan(result = {}, options = {}) {
         throw new ScenePlannerError(
             `当前模型没有返回 Tool Call${context ? `（${context}）` : ''}。${compatibilityHint}`,
             'TOOL_CALL_MISSING',
+            {
+                path: 'toolCalls',
+                rule: '必须且只能调用一次 submit_scene_plan',
+                received: 0,
+                expected: '1 个 submit_scene_plan Tool Call',
+            },
         );
     }
     if (toolCalls.length > 1) {
         throw new ScenePlannerError(
             `场景规划必须只提交一次，但模型返回了 ${toolCalls.length} 个 Tool Call。`,
             'TOOL_CALL_MULTIPLE',
-            { count: toolCalls.length },
+            {
+                path: 'toolCalls',
+                rule: '必须且只能调用一次 submit_scene_plan',
+                received: toolCalls.length,
+                expected: '1 个 submit_scene_plan Tool Call',
+            },
         );
     }
     const toolCall = toolCalls[0] || {};
@@ -495,7 +554,12 @@ export function parseSubmittedScenePlan(result = {}, options = {}) {
         throw new ScenePlannerError(
             `模型调用了错误的 Tool：${toolCall.name || '未命名'}。`,
             'TOOL_CALL_NAME_INVALID',
-            { name: toolCall.name || '' },
+            {
+                path: 'toolCalls[0].name',
+                rule: '必须调用 submit_scene_plan',
+                received: toolCall.name || '',
+                expected: SUBMIT_SCENE_PLAN_TOOL_NAME,
+            },
         );
     }
     const parameters = parseArguments(toolCall.arguments);
