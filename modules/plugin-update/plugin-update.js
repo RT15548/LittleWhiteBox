@@ -6,6 +6,7 @@ import { createPluginUpdateService, PLUGIN_UPDATE_STATUS } from './update-servic
 const UPDATE_BUTTON_ID = 'littlewhitebox-update-extension';
 const UPDATE_NOTICE_CLASS = 'littlewhitebox-update-text';
 const UPDATE_STYLESHEET_ID = 'littlewhitebox-plugin-update-style';
+const NATIVE_UPDATE_BRIDGE_CLASS = 'littlewhitebox-native-update-bridge';
 
 const updateService = createPluginUpdateService({
     extensionFolderId: EXT_FOLDER_ID,
@@ -35,58 +36,37 @@ function stopRenderObserver() {
 function hideUpdateNotice() {
     shouldShowUpdate = false;
     stopRenderObserver();
-    document.querySelectorAll(`.${UPDATE_NOTICE_CLASS}, #${UPDATE_BUTTON_ID}`).forEach(element => element.remove());
+    document.querySelectorAll(`.${UPDATE_NOTICE_CLASS}, .${NATIVE_UPDATE_BRIDGE_CLASS}`)
+        .forEach(element => element.remove());
 }
 
-function scheduleReload(delay) {
-    setTimeout(() => window.location.reload(), delay);
-}
+/**
+ * SillyTavern owns extension installation and binds its updater through this DOM contract.
+ * Keep the LittleWhiteBox surface as a presentation-only bridge so scope detection,
+ * permissions, Git pulling, hooks, and result messages remain entirely host-owned.
+ */
+function createNativeUpdateBridge() {
+    const bridge = document.createElement('span');
+    bridge.className = `extensions_info ${NATIVE_UPDATE_BRIDGE_CLASS}`;
 
-async function handleUpdateClick(button) {
-    button.disabled = true;
-    button.classList.add('updating');
-    try {
-        const result = await updateService.install();
-        if (result.status === PLUGIN_UPDATE_STATUS.UPDATED) {
-            hideUpdateNotice();
-            toastr.success('LittleWhiteBox 更新完成，页面即将刷新', '正在应用更新');
-            scheduleReload(1000);
-            return;
-        }
-        if (result.status === PLUGIN_UPDATE_STATUS.CURRENT) {
-            hideUpdateNotice();
-            if (result.reloadRequired) {
-                toastr.success('LittleWhiteBox 当前已是最新，页面即将刷新应用');
-                scheduleReload(1000);
-            } else {
-                toastr.success('LittleWhiteBox 已是最新版本');
-            }
-            return;
-        }
-        if (result.status === PLUGIN_UPDATE_STATUS.UNCONFIRMED) {
-            hideUpdateNotice();
-            toastr.warning('服务器未能确认更新结果，页面即将刷新核对', 'LittleWhiteBox 更新结果待确认');
-            scheduleReload(1500);
-            return;
-        }
-        toastr.error(result.errorText || '更新失败，请稍后重试', 'LittleWhiteBox 更新失败', { timeOut: 5000 });
-    } finally {
-        if (button.isConnected) {
-            button.disabled = false;
-            button.classList.remove('updating');
-        }
-    }
-}
+    const extensionBlock = document.createElement('span');
+    extensionBlock.className = 'extension_block';
+    extensionBlock.dataset.name = `/${EXT_FOLDER_ID}`;
 
-function createUpdateButton() {
     const button = document.createElement('button');
     button.id = UPDATE_BUTTON_ID;
     button.type = 'button';
-    button.className = 'menu_button fa-solid fa-cloud-arrow-down interactable has-update';
+    button.className = 'btn_update menu_button interactable has-update';
+    button.dataset.name = `/${EXT_FOLDER_ID}`;
     button.title = '下载并安装小白X的更新';
     button.setAttribute('aria-label', button.title);
-    button.addEventListener('click', () => void handleUpdateClick(button));
-    return button;
+
+    const icon = document.createElement('i');
+    icon.className = 'fa-solid fa-cloud-arrow-down fa-fw';
+    button.appendChild(icon);
+    extensionBlock.appendChild(button);
+    bridge.appendChild(extensionBlock);
+    return bridge;
 }
 
 function renderUpdateNotice() {
@@ -103,7 +83,7 @@ function renderUpdateNotice() {
         header.appendChild(notice);
     }
     if (divider && !document.getElementById(UPDATE_BUTTON_ID)) {
-        divider.appendChild(createUpdateButton());
+        divider.appendChild(createNativeUpdateBridge());
     }
 
     if (header && divider) {
