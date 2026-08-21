@@ -1,8 +1,9 @@
 // L2 事件的归属/DIRECT 分类：语义相关性、人物归属、证据触发三者解耦。
 //
-// - 归属（ownership）：focus（事件参与者∩查询焦点人物）/ other（明确谈别人）/
-//   unknown（当前消息没有可解析参与者，或事件无参与者）。仅描述人物事实，不做准入。
-// - DIRECT 分类只表达归属：focus → DIRECT；other/unknown → RELATED。
+// - 归属（ownership）：focus（事件参与者∩查询窗口人物）/ other（明确谈别人）/
+//   unknown（查询窗口没有可解析参与者，或事件无参与者）。仅描述人物事实，不做准入。
+// - DIRECT 分类只表达归属：focus → DIRECT；other/unknown → RELATED。进入本分类前，
+//   事件仍须先通过 recall.js 的 EVENT_MIN_SIMILARITY（0.60）候选门槛。
 // - 语义分数只负责上游候选准入，不能把 unknown 偷换成 DIRECT。
 // - evidenceEligible 是独立的证据扩展决策：focus 总是允许；unknown 只有
 //   达到明确语义阈值才允许。它不会改变 RELATED 预算或伪造人物归属。
@@ -20,22 +21,22 @@ function normalizeName(value) {
 }
 
 /**
- * Resolve explicit names from the focus message against canonical story data.
- * Pronouns and host names never create focus ownership on their own.
+ * Resolve names explicitly found in the recent query window against the
+ * trusted character pool. Pronouns and host names never create ownership.
  */
 export function resolveFocusCharacters(
     explicitCharacters = [],
-    confirmedCharacters = new Set(),
+    trustedCharacters = new Set(),
     excludedCharacters = [],
 ) {
-    const confirmed = new Set([...confirmedCharacters].map(normalizeName).filter(Boolean));
+    const trusted = new Set([...trustedCharacters].map(normalizeName).filter(Boolean));
     const excluded = new Set((excludedCharacters || []).map(normalizeUserIdentityKey).filter(Boolean));
     const resolved = new Map();
     const add = value => {
         const display = String(value || '').trim();
         const key = normalizeName(display);
         const identityKey = normalizeUserIdentityKey(display);
-        if (key && confirmed.has(key) && !excluded.has(identityKey) && !resolved.has(key)) {
+        if (key && trusted.has(key) && !excluded.has(identityKey) && !resolved.has(key)) {
             resolved.set(key, display);
         }
     };

@@ -44,26 +44,22 @@ test('unknown 保持 RELATED，语义分数不能替代人物归属', () => {
     );
 });
 
-test('焦点人物只接受当前消息显式提到且已由剧情确认的角色', () => {
-    const confirmed = new Set(['林月', '小周']);
+test('最近查询窗口命中的可信人物都会进入焦点人物', () => {
+    const trusted = new Set(['林月', '小周']);
 
     assert.deepEqual(
-        resolveFocusCharacters(['小周', '陌生人'], confirmed, ['玩家']),
-        ['小周'],
-    );
-    assert.deepEqual(
-        resolveFocusCharacters(['林月'], confirmed, ['玩家']),
-        ['林月'],
+        resolveFocusCharacters(['林月', '小周', '陌生人'], trusted, ['玩家']),
+        ['林月', '小周'],
     );
 });
 
 test('代词不会自动加入 USER 名或角色卡名', () => {
-    const confirmed = new Set(['林月']);
-    assert.deepEqual(resolveFocusCharacters([], confirmed, ['玩家']), []);
-    assert.deepEqual(resolveFocusCharacters(['我', '你', '我们'], confirmed, ['玩家']), []);
+    const trusted = new Set(['林月']);
+    assert.deepEqual(resolveFocusCharacters([], trusted, ['玩家']), []);
+    assert.deepEqual(resolveFocusCharacters(['我', '你', '我们'], trusted, ['玩家']), []);
 });
 
-test('name2 只有已被剧情确认且被显式提到时才进入焦点人物', () => {
+test('name2 属于可信人物且在查询窗口被显式提到时进入焦点人物', () => {
     const cardName = '跨服饲养';
 
     assert.deepEqual(resolveFocusCharacters([cardName], new Set(), ['蓝袖']), []);
@@ -74,8 +70,8 @@ test('name2 只有已被剧情确认且被显式提到时才进入焦点人物',
 });
 
 test('USER 名即使出现在确认集合中也永不进入焦点人物', () => {
-    const confirmed = new Set(['蓝袖', '林月']);
-    const focusCharacters = resolveFocusCharacters(['蓝袖', '林月'], confirmed, ['蓝袖']);
+    const trusted = new Set(['蓝袖', '林月']);
+    const focusCharacters = resolveFocusCharacters(['蓝袖', '林月'], trusted, ['蓝袖']);
 
     assert.deepEqual(focusCharacters, ['林月']);
     assert.equal(classifyEventRecall(eventWithParticipants('蓝袖'), new Set(focusCharacters), 0.9).recallType, 'RELATED');

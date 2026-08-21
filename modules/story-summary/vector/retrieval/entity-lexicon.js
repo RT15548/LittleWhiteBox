@@ -88,30 +88,6 @@ function collectTrustedCharacters(store, context) {
 }
 
 /**
- * Build the character set confirmed by canonical story data.
- * Unlike the broader entity lexicon, the current card name and L0 candidates
- * are not sufficient evidence by themselves.
- */
-export function buildConfirmedStoryCharacters(store, context) {
-    const confirmed = new Set();
-    const aliasResolver = buildAliasResolver(store?.json?.characterAliases || []);
-    const addConfirmed = raw => addPersonTerm(confirmed, aliasResolver.resolveName(raw));
-
-    for (const item of (store?.json?.characters?.main || [])) {
-        addConfirmed(typeof item === 'string' ? item : item?.name);
-    }
-    for (const arc of (store?.json?.arcs || [])) {
-        addConfirmed(arc?.name);
-    }
-    for (const event of (store?.json?.events || [])) {
-        for (const participant of (event?.participants || [])) addConfirmed(participant);
-    }
-    removeUserIdentityTerms(confirmed, context, aliasResolver);
-
-    return confirmed;
-}
-
-/**
  * Build trusted character pool only (without scanning L0 candidate atoms).
  * trustedCharacters: main/arcs/name2/L2 participants, excludes name1.
  *

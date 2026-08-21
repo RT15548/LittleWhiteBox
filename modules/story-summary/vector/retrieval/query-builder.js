@@ -21,7 +21,6 @@
 import { getContext } from '../../../../../../../extensions.js';
 import {
     buildCharacterPools,
-    buildConfirmedStoryCharacters,
     buildDisplayNameMap,
     buildEntityLexicon,
     extractEntitiesFromText,
@@ -146,7 +145,7 @@ export function describeQueryFocusOwnership(bundle) {
     const focusTerms = extractEntitiesFromText(focusText, bundle?._lexicon, bundle?._displayMap);
     const focusCharacters = resolveFocusCharacters(
         focusTerms,
-        bundle?._confirmedStoryCharacters,
+        bundle?.trustedCharacters,
         [bundle?._context?.name1],
     );
     const focusLexicalTerms = Array.from(new Set([
@@ -187,7 +186,7 @@ export function describeQueryFocusOwnership(bundle) {
  * @property {string}   rerankQuery     - rerank 用的纯自然语言查询（焦点在前）
  * @property {string[]} lexicalTerms    - MiniSearch 查询词
  * @property {string[]} focusTerms      - 焦点词（原 focusEntities）
- * @property {string[]} focusCharacters - 当前焦点消息的专名 + 我/你解析结果（不含近期上下文人物）
+ * @property {string[]} focusCharacters - 最近查询窗口显式命中的可信人物（不含 name1）
  * @property {string[]} focusEntities   - Deprecated alias of focusTerms
  * @property {Set<string>} allEntities         - Full entity lexicon (includes non-character entities)
  * @property {Set<string>} allCharacters       - Union of trusted and candidate character pools
@@ -262,7 +261,6 @@ export function buildQueryBundle(lastMessages, pendingUserMessage, store = null,
     const lexicon = buildEntityLexicon(store, context);
     const displayMap = buildDisplayNameMap(store, context);
     const { trustedCharacters, candidateCharacters, allCharacters } = buildCharacterPools(store, context);
-    const confirmedStoryCharacters = buildConfirmedStoryCharacters(store, context);
 
     // 2. 分离焦点与上下文
     const contextEntries = [];
@@ -313,17 +311,17 @@ export function buildQueryBundle(lastMessages, pendingUserMessage, store = null,
         }
     }
 
-    // 3. 提取语义词与当前轮人物归属
-    // 语义/词法召回可以使用近期上下文；人物归属只能读取当前焦点消息。
+    // 3. 从同一个最近消息窗口提取语义词与可信人物。
+    // focusCharacters 在这里表示“查询窗口人物”，并非只来自 focusEntry；
+    // name1 在匹配阶段与人物筛选阶段均被硬排除。
     const combinedText = allCleanTexts.join(' ');
     const blockedUserTerms = context?.name1
         ? [context.name1, String(context.name1).replace(/\s+/gu, '')]
         : [];
     const focusTerms = extractEntitiesFromText(combinedText, lexicon, displayMap, blockedUserTerms);
-    const focusOnlyTerms = extractEntitiesFromText(focusQuery, lexicon, displayMap, blockedUserTerms);
     const focusCharacters = resolveFocusCharacters(
-        focusOnlyTerms,
-        confirmedStoryCharacters,
+        focusTerms,
+        trustedCharacters,
         [context?.name1],
     );
 
@@ -377,7 +375,6 @@ export function buildQueryBundle(lastMessages, pendingUserMessage, store = null,
         candidateCharacters,
         _lexicon: lexicon,
         _displayMap: displayMap,
-        _confirmedStoryCharacters: confirmedStoryCharacters,
         _context: { name1: context?.name1 || '', name2: context?.name2 || '' },
     };
 }

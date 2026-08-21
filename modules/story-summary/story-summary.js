@@ -34,7 +34,6 @@ import {
     registerGenerateInterceptor,
     unregisterGenerateInterceptor,
 } from "../../shared/common/generate-interceptor.js";
-import { scheduleDelayedNotice } from "../../shared/common/delayed-notice.js";
 import {
     fetchHostOpenAICompatibleModels,
     setHostChatCompletionsRequestHeadersProvider,
@@ -3877,7 +3876,6 @@ function clearExtensionPrompt() {
 // 不能把宿主发送流程无限卡住。30s 为初始护栏值，进入浏览器 E2E 后需结合
 // 真实 p50/p95 与首 token 体感校准。
 const STORY_SUMMARY_RECALL_DEADLINE_MS = 30000;
-const SLOW_RECALL_NOTICE_DELAY_MS = 3000;
 const RECALL_WARNING_COOLDOWN_MS = 10000;
 const RECALL_REASONS_THAT_ABORT_GENERATION = new Set([
     'chat-changed',
@@ -4121,11 +4119,6 @@ async function runStorySummaryRecallInterceptor(_interceptorChat, _contextSize, 
     });
     const waitStartedAt = performance.now();
     let joinStatus = 'pending';
-    const cancelSlowNotice = scheduleDelayedNotice(
-        () => executeSlashCommand('/echo severity=info 剧情记忆召回仍在处理中，请稍候。'),
-        SLOW_RECALL_NOTICE_DELAY_MS,
-        error => xbLog.warn(MODULE_ID, '显示剧情记忆召回状态失败', error),
-    );
     try {
         const outcome = await runWithAbortDeadline(
             () => run.outcome,
@@ -4182,7 +4175,6 @@ async function runStorySummaryRecallInterceptor(_interceptorChat, _contextSize, 
             return selectBestStoryMemoryResult(undefined, getStorySummaryForEna());
         }
     } finally {
-        cancelSlowNotice();
         xbLog.info(
             MODULE_ID,
             `Recall join: path=${path} status=${joinStatus} `
