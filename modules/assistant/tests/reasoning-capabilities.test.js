@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-    getReasoningOutputOptions,
     resolveModelFamily,
     resolveReasoningCapability,
     resolveTaskReasoning,
@@ -153,18 +152,23 @@ test('Reasoning runtime keeps custom OpenAI-compatible models usable with the co
         profileId: 'openai-compatible-default',
         valid: true,
     });
-    assert.equal(
-        getReasoningOutputOptions(resolveReasoningCapability(unknownContext))
-            .find((option) => option.value === 'show').disabled,
-        false,
-    );
+    assert.equal(resolveRuntimeReasoning(unknownContext, { mode: 'inherit' }).output, 'show');
+    assert.equal(resolveRuntimeReasoning({ provider: 'unknown' }, { mode: 'inherit' }).output, 'hide');
 
     const customOff = resolveRuntimeReasoning(unknownContext, {
         mode: 'off',
-        output: 'hide',
+        output: 'show',
     });
     assert.equal(customOff.mode, 'off');
+    assert.equal(customOff.output, 'hide');
     assert.equal(customOff.valid, true);
+
+    const unsupportedOff = resolveRuntimeReasoning({ provider: 'unknown' }, {
+        mode: 'off',
+        output: 'show',
+    });
+    assert.equal(unsupportedOff.output, 'hide');
+    assert.equal(unsupportedOff.valid, false);
 
     const customOn = resolveTaskReasoning(unknownContext.provider, unknownContext, {
         mode: 'on',
@@ -255,11 +259,12 @@ test('older family members use the latest family effort contract', () => {
     assert.equal(aliasedDeepSeek.profileId, 'deepseek-thinking');
 
     assert.deepEqual(normalizeReasoningConfig({
-        enabled: true,
-        includeOutput: true,
+        mode: 'on',
+        effort: 'high',
+        output: 'show',
     }), {
-        mode: 'inherit',
-        output: 'hide',
+        mode: 'on',
+        effort: 'high',
     });
 
     assert.equal(Object.hasOwn(resolveRuntimeReasoning({

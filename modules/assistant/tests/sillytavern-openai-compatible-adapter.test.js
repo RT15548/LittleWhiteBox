@@ -173,6 +173,10 @@ test('hosted adapters encode inherit, on, and off at their own protocol boundary
         messages,
         reasoning: { mode: 'off', output: 'show' },
     }).reasoning_effort, 'auto');
+    assert.equal(claude.buildPayload({
+        messages,
+        reasoning: { mode: 'off', output: 'show' },
+    }).include_reasoning, false);
 
     const google = new SillyTavernGoogleAdapter({ model: 'gemini-2.5-flash' });
     const googleInherit = google.buildPayload({
@@ -259,6 +263,62 @@ function createJsonResponse(data, ok = true, status = 200) {
         text: async () => JSON.stringify(data),
     };
 }
+
+test('hosted Claude and Google use visible reasoning consistently when output is omitted', async () => {
+    const originalFetch = globalThis.fetch;
+    const requests = [];
+    globalThis.fetch = async (_url, options = {}) => {
+        const body = JSON.parse(String(options.body || '{}'));
+        requests.push(body);
+        if (body.chat_completion_source === 'claude') {
+            return createJsonResponse({
+                content: [
+                    { type: 'thinking', thinking: 'Claude 默认可见思考。' },
+                    { type: 'text', text: '完成。' },
+                ],
+                stop_reason: 'end_turn',
+                model: 'claude-opus-4-7',
+            });
+        }
+        return createJsonResponse({
+            candidates: [{
+                finishReason: 'STOP',
+                content: {
+                    role: 'model',
+                    parts: [
+                        { thought: true, text: 'Google 默认可见思考。' },
+                        { text: '完成。' },
+                    ],
+                },
+            }],
+            model: 'gemini-3-flash',
+        });
+    };
+
+    try {
+        const task = {
+            messages: [{ role: 'user', content: 'think' }],
+            reasoning: { mode: 'on', effort: 'high' },
+        };
+        const claudeResult = await new SillyTavernClaudeAdapter({
+            model: 'claude-opus-4-7',
+        }).chat(task);
+        const googleResult = await new SillyTavernGoogleAdapter({
+            model: 'gemini-3-flash',
+        }).chat(task);
+
+        assert.equal(requests[0].include_reasoning, true);
+        assert.deepEqual(claudeResult.thoughts, [{ label: '思考块', text: 'Claude 默认可见思考。' }]);
+        assert.equal(claudeResult.requestInspection.effectiveConfig.reasoningRequestedOutput, 'show');
+        assert.equal(claudeResult.requestInspection.effectiveConfig.reasoningOutputVisible, true);
+        assert.equal(requests[1].include_reasoning, true);
+        assert.deepEqual(googleResult.thoughts, [{ label: '思考块 1', text: 'Google 默认可见思考。' }]);
+        assert.equal(googleResult.requestInspection.effectiveConfig.reasoningRequestedOutput, 'show');
+        assert.equal(googleResult.requestInspection.effectiveConfig.reasoningOutputVisible, true);
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
 
 test('host OpenAI-compatible payloads use SillyTavern backend fields without leaking direct-provider shape', () => {
     assert.deepEqual(buildHostOpenAICompatibleStatusPayload({
@@ -1918,6 +1978,10 @@ test('sillytavern OpenAI-compatible adapter streams native tool calls through ho
         assert.equal(requests[0].body.tools.length, 1);
         assert.equal(requests[0].body.tool_choice, 'auto');
         assert.equal(result.text, '我先读文件。');
+        assert.equal(progress.some((snapshot) => snapshot.thoughts?.[0]?.text === '先读取一个轻量文件确认工具链。'), true);
+        assert.deepEqual(result.thoughts, [{ label: '推理文本', text: '先读取一个轻量文件确认工具链。' }]);
+        assert.equal(result.requestInspection.effectiveConfig.reasoningRequestedOutput, 'show');
+        assert.equal(result.requestInspection.effectiveConfig.reasoningOutputVisible, true);
         assert.deepEqual(result.toolCalls, [{
             id: 'openai-tool-1',
             name: 'Read',

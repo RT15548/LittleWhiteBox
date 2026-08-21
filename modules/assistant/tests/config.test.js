@@ -107,9 +107,9 @@ test('repository loads current v1 settings without writing storage', async () =>
     assert.equal(loaded.updatedAt, stored.updatedAt);
     assert.deepEqual(loaded.presets['主助手'].modelConfigs['openai-responses'].reasoning, {
         mode: 'on',
-        output: 'hide',
         effort: 'high',
     });
+    assert.equal(resolveActiveProviderConfig(loaded).reasoning.output, 'show');
     assert.equal(writes, 0);
 });
 

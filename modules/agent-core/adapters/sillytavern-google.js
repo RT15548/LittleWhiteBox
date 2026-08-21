@@ -255,7 +255,7 @@ function emitStreamProgress(task, payload) {
     });
 }
 
-function createGoogleStreamAccumulator(task, config = {}) {
+function createGoogleStreamAccumulator(task, effectiveReasoning, config = {}) {
     let text = '';
     let toolCalls = [];
     let thoughts = [];
@@ -273,7 +273,7 @@ function createGoogleStreamAccumulator(task, config = {}) {
             }
             text = mergeStreamText(text, extractVisibleText(content));
             toolCalls = mergeToolCalls(toolCalls, extractFunctionCalls(content));
-            const nextThoughts = isReasoningOutputVisible(task.reasoning) ? extractThoughts(content) : [];
+            const nextThoughts = isReasoningOutputVisible(effectiveReasoning) ? extractThoughts(content) : [];
             if (nextThoughts.length) {
                 thoughts = nextThoughts;
             }
@@ -310,8 +310,11 @@ export class SillyTavernGoogleAdapter {
         return buildHostGoogleMessages(task);
     }
 
-    buildPayload(task) {
-        const reasoning = resolveTaskReasoning('sillytavern-google', this.config, task.reasoning);
+    buildPayload(
+        task,
+        effectiveReasoning = resolveTaskReasoning('sillytavern-google', this.config, task.reasoning),
+    ) {
+        const reasoning = effectiveReasoning;
         const stream = typeof task.onStreamProgress === 'function';
         const messages = this.buildMessages(task);
         const payload = buildHostGoogleGeneratePayload(this.config, task, messages, stream);
@@ -329,16 +332,21 @@ export class SillyTavernGoogleAdapter {
     }
 
     async inspectRequest(task, options = {}) {
-        const payload = options.payload || this.buildPayload(task);
+        const effectiveReasoning = options.effectiveReasoning
+            || resolveTaskReasoning('sillytavern-google', this.config, task.reasoning);
+        const payload = options.payload || this.buildPayload(task, effectiveReasoning);
         const request = await buildHostChatCompletionGenerateRequest(
             payload,
             typeof task.onStreamProgress === 'function',
         );
-        return this.buildRequestInspection(request, task);
+        return this.buildRequestInspection(request, task, effectiveReasoning);
     }
 
-    buildRequestInspection(request, task = {}) {
-        const reasoning = resolveTaskReasoning('sillytavern-google', this.config, task.reasoning);
+    buildRequestInspection(
+        request,
+        task = {},
+        effectiveReasoning = resolveTaskReasoning('sillytavern-google', this.config, task.reasoning),
+    ) {
         const controlFields = {
             ...(Object.hasOwn(request?.body || {}, 'reasoning_effort')
                 ? { reasoning_effort: request.body.reasoning_effort }
@@ -353,8 +361,7 @@ export class SillyTavernGoogleAdapter {
             transport: 'sillytavern-chat-completions',
             request: redactRequestSecrets(request),
             effectiveConfig: buildEffectiveReasoningConfig(task, {
-                profileId: reasoning.profileId,
-                effectiveMode: reasoning.mode,
+                reasoning: effectiveReasoning,
                 effort: request?.body?.reasoning_effort,
                 controlFields,
             }),
@@ -362,16 +369,21 @@ export class SillyTavernGoogleAdapter {
     }
 
     async chat(task) {
+        const effectiveReasoning = resolveTaskReasoning(
+            'sillytavern-google',
+            this.config,
+            task.reasoning,
+        );
         const stream = typeof task.onStreamProgress === 'function';
-        const payload = this.buildPayload(task);
+        const payload = this.buildPayload(task, effectiveReasoning);
         let requestInspection = null;
         const onRequest = (request) => {
-            requestInspection = this.buildRequestInspection(request, task);
+            requestInspection = this.buildRequestInspection(request, task, effectiveReasoning);
         };
 
         try {
             if (stream) {
-                const accumulator = createGoogleStreamAccumulator(task, this.config);
+                const accumulator = createGoogleStreamAccumulator(task, effectiveReasoning, this.config);
                 await streamHostChatCompletion(payload, (event) => {
                     accumulator.accept(event);
                 }, { signal: task.signal, onRequest });
@@ -385,7 +397,7 @@ export class SillyTavernGoogleAdapter {
             return {
                 ...parseGoogleResult(response, {
                     model: this.config.model,
-                    includeReasoningOutput: isReasoningOutputVisible(task.reasoning),
+                    includeReasoningOutput: isReasoningOutputVisible(effectiveReasoning),
                 }),
                 requestInspection,
             };

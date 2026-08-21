@@ -61,6 +61,43 @@ test('google reasoning keeps model effort separate from thought output visibilit
     }), /不支持显式关闭 Reasoning/);
 });
 
+test('google uses visible reasoning consistently when output is omitted', async () => {
+    const adapter = new GoogleAdapter({
+        apiKey: 'test-key',
+        baseUrl: 'https://example.com/google',
+        model: 'gemini-3-flash-preview',
+    });
+    let createPayload;
+    adapter.client.chats.create = (payload) => {
+        createPayload = payload;
+        return {
+            sendMessage: async () => ({
+                candidates: [{
+                    finishReason: 'STOP',
+                    content: {
+                        role: 'model',
+                        parts: [
+                            { thought: true, text: '默认可见的思考。' },
+                            { text: '完成。' },
+                        ],
+                    },
+                }],
+                modelVersion: 'gemini-3-flash-preview',
+            }),
+        };
+    };
+
+    const result = await adapter.chat({
+        messages: [{ role: 'user', content: 'think' }],
+        reasoning: { mode: 'on', effort: 'high' },
+    });
+
+    assert.equal(createPayload.config.thinkingConfig.includeThoughts, true);
+    assert.deepEqual(result.thoughts, [{ label: '思考块 1', text: '默认可见的思考。' }]);
+    assert.equal(result.requestInspection.effectiveConfig.reasoningRequestedOutput, 'show');
+    assert.equal(result.requestInspection.effectiveConfig.reasoningOutputVisible, true);
+});
+
 test('google adapter preserves visible text alongside tool calls in non-streaming responses', async () => {
     const adapter = new GoogleAdapter({
         apiKey: 'test-key',

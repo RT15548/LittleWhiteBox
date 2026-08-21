@@ -15,23 +15,41 @@ export function redactRequestSecrets(value) {
 }
 
 export function buildEffectiveReasoningConfig(task = {}, overrides = {}) {
+    const effectiveReasoning = overrides.reasoning && typeof overrides.reasoning === 'object'
+        ? overrides.reasoning
+        : {};
     const requestedMode = String(task.reasoning?.mode || 'inherit');
-    const requestedOutput = task.reasoning?.output === 'show' ? 'show' : 'hide';
-    const effectiveMode = String(overrides.effectiveMode || requestedMode);
+    const requestedOutput = task.reasoning?.output === 'show' || task.reasoning?.output === 'hide'
+        ? task.reasoning.output
+        : (effectiveReasoning.output === 'show' ? 'show' : 'hide');
+    const effectiveMode = String(effectiveReasoning.mode || overrides.effectiveMode || requestedMode);
     return {
         reasoningRequestedMode: requestedMode,
         reasoningRequestedOutput: requestedOutput,
-        reasoningProfileId: String(overrides.profileId || task.reasoning?.profileId || 'unsupported'),
+        reasoningProfileId: String(
+            effectiveReasoning.profileId
+            || overrides.profileId
+            || task.reasoning?.profileId
+            || 'unsupported',
+        ),
         reasoningEffectiveMode: effectiveMode,
         reasoningEffort: effectiveMode === 'on'
-            ? String(overrides.effort ?? task.reasoning?.effort ?? '')
+            ? String(overrides.effort ?? effectiveReasoning.effort ?? task.reasoning?.effort ?? '')
             : '',
         reasoningBudgetTokens: effectiveMode === 'on'
-            && Number.isFinite(Number(overrides.budgetTokens ?? task.reasoning?.budgetTokens))
-            ? Number(overrides.budgetTokens ?? task.reasoning?.budgetTokens)
+            && Number.isFinite(Number(
+                overrides.budgetTokens
+                ?? effectiveReasoning.budgetTokens
+                ?? task.reasoning?.budgetTokens,
+            ))
+            ? Number(
+                overrides.budgetTokens
+                ?? effectiveReasoning.budgetTokens
+                ?? task.reasoning?.budgetTokens,
+            )
             : null,
         reasoningControlFields: redactRequestSecrets(overrides.controlFields || {}),
-        reasoningOutputVisible: effectiveMode !== 'off' && requestedOutput === 'show',
+        reasoningOutputVisible: effectiveMode !== 'off' && effectiveReasoning.output === 'show',
     };
 }
 

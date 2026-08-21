@@ -35,7 +35,6 @@ function buildSettings(model, apiKey = 'main-key') {
                         reasoning: {
                             mode: 'on',
                             effort: 'high',
-                            output: 'hide',
                         },
                     },
                 },
@@ -449,7 +448,7 @@ test('draw diagnostics use adapter-effective reasoning and isolate notices by re
         model: 'claude-sonnet-4-5',
         apiKey: '',
         toolMode: 'native',
-        reasoning: { mode: 'on', effort: 'high', output: 'hide' },
+        reasoning: { mode: 'on', effort: 'high' },
     };
     const task = {
         messages: [{ role: 'user', content: 'plan' }],
@@ -483,7 +482,7 @@ test('draw diagnostics use adapter-effective reasoning and isolate notices by re
                 reasoningEffort: 'high',
                 reasoningBudgetTokens: null,
                 reasoningControlFields: { reasoning_effort: 'auto' },
-                reasoningOutputVisible: true,
+                reasoningOutputVisible: false,
             },
         }),
     });
@@ -493,7 +492,7 @@ test('draw diagnostics use adapter-effective reasoning and isolate notices by re
     assert.equal(diagnostic.reasoningRequestedMode, 'on');
     assert.equal(diagnostic.reasoningEffectiveMode, 'on');
     assert.equal(diagnostic.reasoningEffort, 'high');
-    assert.equal(diagnostic.reasoningOutputVisible, true);
+    assert.equal(diagnostic.reasoningOutputVisible, false);
     assert.deepEqual(diagnostic.reasoningControlFields, { reasoning_effort: 'auto' });
     assert.equal(diagnostic.toolChoice, 'any');
     assert.deepEqual(diagnostic.notices, [notice]);

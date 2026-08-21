@@ -20,7 +20,6 @@ export {
 } from './reasoning-capabilities.js';
 export {
     REASONING_MODE_OPTIONS,
-    REASONING_OUTPUT_OPTIONS,
     normalizeReasoningConfig,
 } from './reasoning-config.js';
 export {

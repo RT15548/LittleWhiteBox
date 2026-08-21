@@ -705,20 +705,20 @@ export function buildTaggedMessages(task, model = '') {
     return normalizeFinalClaudeLikeMessageRole(messages, model);
 }
 
-function emitStreamProgress(task, payload) {
+function emitStreamProgress(task, payload, effectiveReasoning) {
     if (typeof task.onStreamProgress !== 'function') return;
     task.onStreamProgress({
         ...(typeof payload.text === 'string' ? { text: payload.text } : {}),
         ...(Array.isArray(payload.thoughts)
-            ? { thoughts: isReasoningOutputVisible(task.reasoning) ? payload.thoughts : [] }
+            ? { thoughts: isReasoningOutputVisible(effectiveReasoning) ? payload.thoughts : [] }
             : {}),
         ...(Array.isArray(payload.toolCalls) ? { toolCalls: payload.toolCalls } : {}),
         ...(payload.toolCallDraft ? { toolCallDraft: true } : {}),
     });
 }
 
-function visibleThoughts(task, thoughts = []) {
-    return isReasoningOutputVisible(task.reasoning) ? thoughts : [];
+function visibleThoughts(effectiveReasoning, thoughts = []) {
+    return isReasoningOutputVisible(effectiveReasoning) ? thoughts : [];
 }
 
 export function summarizeReplayMessageForDebug(message) {
@@ -932,8 +932,11 @@ export class OpenAICompatibleAdapter {
         });
     }
 
-    buildRequestBody(task) {
-        const reasoning = resolveTaskReasoning('openai-compatible', this.config, task.reasoning);
+    buildRequestBody(
+        task,
+        effectiveReasoning = resolveTaskReasoning('openai-compatible', this.config, task.reasoning),
+    ) {
+        const reasoning = effectiveReasoning;
         const toolMode = this.config.toolMode || 'native';
         const isTaggedMode = toolMode === 'tagged-json' && Array.isArray(task.tools) && task.tools.length > 0;
         const nativeTools = !isTaggedMode && Array.isArray(task.tools) && task.tools.length
@@ -960,12 +963,13 @@ export class OpenAICompatibleAdapter {
 
     inspectRequest(task, options = {}) {
         const stream = typeof task.onStreamProgress === 'function';
+        const effectiveReasoning = options.effectiveReasoning
+            || resolveTaskReasoning('openai-compatible', this.config, task.reasoning);
         const body = {
-            ...(options.body || this.buildRequestBody(task)),
+            ...(options.body || this.buildRequestBody(task, effectiveReasoning)),
             ...(stream ? { stream: true } : {}),
         };
         const baseUrl = String(this.config.baseUrl || 'https://api.openai.com/v1').replace(/\/$/, '');
-        const reasoning = resolveTaskReasoning('openai-compatible', this.config, task.reasoning);
         const controlFields = {
             ...(Object.hasOwn(body, 'reasoning_effort') ? { reasoning_effort: body.reasoning_effort } : {}),
             ...(Object.hasOwn(body, 'thinking') ? { thinking: body.thinking } : {}),
@@ -985,8 +989,7 @@ export class OpenAICompatibleAdapter {
                     ? 'client.chat.completions.create(..., { stream: true })'
                     : 'client.chat.completions.create',
                 effectiveConfig: buildEffectiveReasoningConfig(task, {
-                    profileId: reasoning.profileId,
-                    effectiveMode: reasoning.mode,
+                    reasoning: effectiveReasoning,
                     effort: body.reasoning_effort,
                     controlFields,
                 }),
@@ -994,7 +997,7 @@ export class OpenAICompatibleAdapter {
         };
     }
 
-    async streamNativeChatCompletions(task, body) {
+    async streamNativeChatCompletions(task, body, effectiveReasoning) {
         const url = `${String(this.config.baseUrl || 'https://api.openai.com/v1').replace(/\/$/, '')}/chat/completions`;
         const response = await fetch(url, {
             method: 'POST',
@@ -1040,12 +1043,12 @@ export class OpenAICompatibleAdapter {
             emitStreamProgress(task, {
                 text: cleanedText,
                 thoughts: visibleThoughts(
-                    task,
+                    effectiveReasoning,
                     extractThoughtsFromMessage(assistantSnapshot, choice).concat(thinkTagged.thoughts),
                 ),
                 ...(progressToolCalls.length ? { toolCalls: progressToolCalls } : {}),
                 ...(!standardToolCalls.length && progressToolCalls.length ? { toolCallDraft: true } : {}),
-            });
+            }, effectiveReasoning);
         });
 
         assertSignedToolCallsIntact(assistantSnapshot);
@@ -1063,7 +1066,7 @@ export class OpenAICompatibleAdapter {
         return {
             text: cleanedText,
             toolCalls,
-            thoughts: visibleThoughts(task, thoughts),
+            thoughts: visibleThoughts(effectiveReasoning, thoughts),
             finishReason: lastFinishReason,
             model: lastModel,
             provider: 'openai-compatible',
@@ -1072,11 +1075,12 @@ export class OpenAICompatibleAdapter {
     }
 
     async chat(task) {
+        const effectiveReasoning = resolveTaskReasoning('openai-compatible', this.config, task.reasoning);
         const toolMode = this.config.toolMode || 'native';
         const isTaggedMode = toolMode === 'tagged-json' && Array.isArray(task.tools) && task.tools.length > 0;
         const shouldUseStreaming = typeof task.onStreamProgress === 'function';
-        const body = this.buildRequestBody(task);
-        const requestInspection = this.inspectRequest(task, { body });
+        const body = this.buildRequestBody(task, effectiveReasoning);
+        const requestInspection = this.inspectRequest(task, { body, effectiveReasoning });
         const createRequest = async (request) => {
             try {
                 return await request(body);
@@ -1090,7 +1094,7 @@ export class OpenAICompatibleAdapter {
         if (shouldUseStreaming) {
             if (!isTaggedMode) {
                 const result = await createRequest((requestBody) => (
-                    this.streamNativeChatCompletions(task, requestBody)
+                    this.streamNativeChatCompletions(task, requestBody, effectiveReasoning)
                 ));
                 return {
                     ...result,
@@ -1129,12 +1133,12 @@ export class OpenAICompatibleAdapter {
                 emitStreamProgress(task, {
                     text: cleanedText,
                     thoughts: visibleThoughts(
-                        task,
+                        effectiveReasoning,
                         extractThoughtsFromMessage(assistantSnapshot, choice).concat(thinkTagged.thoughts),
                     ),
                     ...(progressToolCalls.length ? { toolCalls: progressToolCalls } : {}),
                     ...(!standardToolCalls.length && progressToolCalls.length ? { toolCallDraft: true } : {}),
-                });
+                }, effectiveReasoning);
             }
             const finalCompletion = typeof stream.finalChatCompletion === 'function'
                 ? await stream.finalChatCompletion()
@@ -1161,7 +1165,7 @@ export class OpenAICompatibleAdapter {
             return {
                 text: cleanedText,
                 toolCalls,
-                thoughts: visibleThoughts(task, thoughts),
+                thoughts: visibleThoughts(effectiveReasoning, thoughts),
                 finishReason: lastFinishReason,
                 model: lastModel,
                 provider: 'openai-compatible',
@@ -1192,7 +1196,7 @@ export class OpenAICompatibleAdapter {
         return {
             text: cleanedText,
             toolCalls,
-            thoughts: visibleThoughts(task, thoughts),
+            thoughts: visibleThoughts(effectiveReasoning, thoughts),
             finishReason: choice.finish_reason || 'stop',
             model: response.model || this.config.model,
             provider: 'openai-compatible',

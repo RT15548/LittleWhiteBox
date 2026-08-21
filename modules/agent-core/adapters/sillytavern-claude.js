@@ -42,11 +42,14 @@ export function resolveHostClaudeToolChoice(toolChoice) {
  * Manual extended thinking is incompatible with a forced tool choice. The tool contract wins:
  * reasoning is dropped for this request only, and the decision is surfaced as a notice.
  */
-export function resolveHostClaudeToolProtocol(config = {}, task = {}) {
+export function resolveHostClaudeToolProtocol(
+    config = {},
+    task = {},
+    reasoning = resolveTaskReasoning('sillytavern-claude', config, task.reasoning),
+) {
     const hasTools = Array.isArray(task.tools) && task.tools.length > 0;
     if (!hasTools) return { toolChoice: undefined, reasoningDisabledForForcedTool: false };
     const toolChoice = resolveHostClaudeToolChoice(task.toolChoice);
-    const reasoning = resolveTaskReasoning('sillytavern-claude', config, task.reasoning);
     const manualThinking = reasoning.profileId === 'sillytavern-claude-manual'
         || reasoning.profileId === 'sillytavern-claude-adaptive-conditional';
     return {
@@ -59,15 +62,18 @@ export function resolveHostClaudeToolProtocol(config = {}, task = {}) {
 
 export const HOST_CLAUDE_FORCED_TOOL_REASONING_NOTICE = '当前模型使用手动 thinking，与强制 Tool 调用冲突；本次请求已因强制 Tool 关闭 Reasoning。';
 
-function buildEffectiveConfig(config = {}, task = {}, protocol = {}) {
-    const reasoning = resolveTaskReasoning('sillytavern-claude', config, task.reasoning);
-    const effectiveMode = protocol.reasoningDisabledForForcedTool
-        ? 'off'
-        : reasoning.mode;
+function resolveEffectiveReasoning(config = {}, task = {}, protocol = {}, reasoning) {
+    const requestedReasoning = reasoning
+        || resolveTaskReasoning('sillytavern-claude', config, task.reasoning);
+    return protocol.reasoningDisabledForForcedTool
+        ? { ...requestedReasoning, mode: 'off', output: 'hide' }
+        : requestedReasoning;
+}
+
+function buildEffectiveConfig(task = {}, protocol = {}, effectiveReasoning = {}) {
     return buildEffectiveReasoningConfig(task, {
-        profileId: reasoning.profileId,
-        effectiveMode,
-        effort: effectiveMode === 'on' ? reasoning.effort : '',
+        reasoning: effectiveReasoning,
+        effort: effectiveReasoning.mode === 'on' ? effectiveReasoning.effort : '',
         controlFields: protocol.controlFields || {},
     });
 }
@@ -294,7 +300,7 @@ function emitStreamProgress(task, payload) {
     });
 }
 
-function createClaudeStreamAccumulator(task, config = {}) {
+function createClaudeStreamAccumulator(task, effectiveReasoning, config = {}) {
     const blocks = [];
     let finishReason = 'stop';
     let model = config.model || '';
@@ -313,7 +319,7 @@ function createClaudeStreamAccumulator(task, config = {}) {
         const result = buildStreamProgressSnapshot(blocks);
         emitStreamProgress(task, {
             text: result.text,
-            thoughts: isReasoningOutputVisible(task.reasoning) ? result.thoughts : [],
+            thoughts: isReasoningOutputVisible(effectiveReasoning) ? result.thoughts : [],
             ...(Array.isArray(result.toolCalls) ? { toolCalls: result.toolCalls } : {}),
             ...(result.toolCallDraft ? { toolCallDraft: true } : {}),
         });
@@ -355,7 +361,7 @@ function createClaudeStreamAccumulator(task, config = {}) {
             return parseContentResult(blocks, {
                 finishReason,
                 model,
-                includeReasoningOutput: isReasoningOutputVisible(task.reasoning),
+                includeReasoningOutput: isReasoningOutputVisible(effectiveReasoning),
             });
         },
     };
@@ -370,17 +376,17 @@ export class SillyTavernClaudeAdapter {
         return buildHostClaudeMessages(task);
     }
 
-    resolveToolProtocol(task) {
-        return resolveHostClaudeToolProtocol(this.config, task);
+    resolveToolProtocol(task, reasoning) {
+        return resolveHostClaudeToolProtocol(this.config, task, reasoning);
     }
 
-    buildPayload(task, protocol = this.resolveToolProtocol(task)) {
-        const reasoning = resolveTaskReasoning('sillytavern-claude', this.config, task.reasoning);
+    buildPayload(
+        task,
+        protocol = this.resolveToolProtocol(task),
+        effectiveReasoning = resolveEffectiveReasoning(this.config, task, protocol),
+    ) {
         const stream = typeof task.onStreamProgress === 'function';
         const messages = this.buildMessages(task);
-        const effectiveReasoning = protocol.reasoningDisabledForForcedTool
-            ? { ...reasoning, mode: 'off' }
-            : reasoning;
         const effectiveTask = {
             ...task,
             toolChoice: protocol.toolChoice,
@@ -405,16 +411,24 @@ export class SillyTavernClaudeAdapter {
     }
 
     async inspectRequest(task, options = {}) {
-        const protocol = this.resolveToolProtocol(task);
-        const payload = options.payload || this.buildPayload(task, protocol);
+        const requestedReasoning = resolveTaskReasoning('sillytavern-claude', this.config, task.reasoning);
+        const protocol = options.protocol || this.resolveToolProtocol(task, requestedReasoning);
+        const effectiveReasoning = options.effectiveReasoning
+            || resolveEffectiveReasoning(this.config, task, protocol, requestedReasoning);
+        const payload = options.payload || this.buildPayload(task, protocol, effectiveReasoning);
         const request = await buildHostChatCompletionGenerateRequest(
             payload,
             typeof task.onStreamProgress === 'function',
         );
-        return this.buildRequestInspection(request, protocol, task);
+        return this.buildRequestInspection(request, protocol, task, effectiveReasoning);
     }
 
-    buildRequestInspection(request, protocol = {}, task = {}) {
+    buildRequestInspection(
+        request,
+        protocol = {},
+        task = {},
+        effectiveReasoning = resolveEffectiveReasoning(this.config, task, protocol),
+    ) {
         const controlFields = {
             ...(Object.hasOwn(request?.body || {}, 'reasoning_effort')
                 ? { reasoning_effort: request.body.reasoning_effort }
@@ -430,7 +444,7 @@ export class SillyTavernClaudeAdapter {
             request: redactRequestSecrets(request),
             effectiveConfig: {
                 ...buildToolConfig(task, protocol),
-                ...buildEffectiveConfig(this.config, task, { ...protocol, controlFields }),
+                ...buildEffectiveConfig(task, { ...protocol, controlFields }, effectiveReasoning),
             },
             ...(protocol.reasoningDisabledForForcedTool
                 ? { notices: [HOST_CLAUDE_FORCED_TOOL_REASONING_NOTICE] }
@@ -439,17 +453,33 @@ export class SillyTavernClaudeAdapter {
     }
 
     async chat(task) {
+        const requestedReasoning = resolveTaskReasoning('sillytavern-claude', this.config, task.reasoning);
         const stream = typeof task.onStreamProgress === 'function';
-        const protocol = this.resolveToolProtocol(task);
-        const payload = this.buildPayload(task, protocol);
+        const protocol = this.resolveToolProtocol(task, requestedReasoning);
+        const effectiveReasoning = resolveEffectiveReasoning(
+            this.config,
+            task,
+            protocol,
+            requestedReasoning,
+        );
+        const payload = this.buildPayload(task, protocol, effectiveReasoning);
         let requestInspection = null;
         const onRequest = (request) => {
-            requestInspection = this.buildRequestInspection(request, protocol, task);
+            requestInspection = this.buildRequestInspection(
+                request,
+                protocol,
+                task,
+                effectiveReasoning,
+            );
         };
 
         try {
             if (stream) {
-                const accumulator = createClaudeStreamAccumulator(task, this.config);
+                const accumulator = createClaudeStreamAccumulator(
+                    task,
+                    effectiveReasoning,
+                    this.config,
+                );
                 await streamHostChatCompletion(payload, (event) => {
                     accumulator.accept(event);
                 }, { signal: task.signal, onRequest });
@@ -470,7 +500,7 @@ export class SillyTavernClaudeAdapter {
                 ...parseContentResult(content, {
                     finishReason: response?.stop_reason || response?.choices?.[0]?.finish_reason || 'stop',
                     model: response?.model || this.config.model,
-                    includeReasoningOutput: isReasoningOutputVisible(task.reasoning),
+                    includeReasoningOutput: isReasoningOutputVisible(effectiveReasoning),
                 }),
                 requestInspection,
             };

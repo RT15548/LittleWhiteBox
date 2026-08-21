@@ -537,6 +537,7 @@ export class GoogleAdapter {
         this.config = config;
         this.supportsSessionToolLoop = true;
         this.activeChat = null;
+        this.sessionReasoning = null;
         this.toolCallResponseSequence = 0;
         this.client = new GoogleGenAI({
             apiKey: config.apiKey,
@@ -547,8 +548,11 @@ export class GoogleAdapter {
         });
     }
 
-    buildChatPayload(task) {
-        const reasoning = resolveTaskReasoning('google', this.config, task.reasoning);
+    buildChatPayload(
+        task,
+        effectiveReasoning = resolveTaskReasoning('google', this.config, task.reasoning),
+    ) {
+        const reasoning = effectiveReasoning;
         const conversation = buildConversation(task.messages);
         const tools = Array.isArray(task.tools) ? task.tools : [];
         const systemInstruction = resolveSystemInstruction(task);
@@ -617,8 +621,9 @@ export class GoogleAdapter {
     }
 
     inspectRequest(task, options = {}) {
-        const payload = options.payload || this.buildChatPayload(task);
-        const reasoning = resolveTaskReasoning('google', this.config, task.reasoning);
+        const effectiveReasoning = options.effectiveReasoning
+            || resolveTaskReasoning('google', this.config, task.reasoning);
+        const payload = options.payload || this.buildChatPayload(task, effectiveReasoning);
         const baseUrl = String(this.config.baseUrl || 'https://generativelanguage.googleapis.com/v1beta').replace(/\/$/, '');
         return buildSdkRequestInspection({
             provider: 'google',
@@ -638,8 +643,7 @@ export class GoogleAdapter {
                 ? 'client.chats.create(...).sendMessageStream'
                 : 'client.chats.create(...).sendMessage',
             effectiveConfig: buildEffectiveReasoningConfig(task, {
-                profileId: reasoning.profileId,
-                effectiveMode: reasoning.mode,
+                reasoning: effectiveReasoning,
                 effort: payload.createPayload.config?.thinkingConfig?.thinkingLevel,
                 budgetTokens: payload.createPayload.config?.thinkingConfig?.thinkingBudget,
                 controlFields: payload.createPayload.config?.thinkingConfig
@@ -649,8 +653,7 @@ export class GoogleAdapter {
         });
     }
 
-    inspectSendRequest(sendPayload, task) {
-        const reasoning = resolveTaskReasoning('google', this.config, task.reasoning);
+    inspectSendRequest(sendPayload, task, effectiveReasoning) {
         const baseUrl = String(this.config.baseUrl || 'https://generativelanguage.googleapis.com/v1beta').replace(/\/$/, '');
         return buildSdkRequestInspection({
             provider: 'google',
@@ -669,8 +672,7 @@ export class GoogleAdapter {
                 ? 'activeChat.sendMessageStream'
                 : 'activeChat.sendMessage',
             effectiveConfig: buildEffectiveReasoningConfig(task, {
-                profileId: reasoning.profileId,
-                effectiveMode: reasoning.mode,
+                reasoning: effectiveReasoning,
                 effort: this.sessionConfig?.thinkingConfig?.thinkingLevel,
                 budgetTokens: this.sessionConfig?.thinkingConfig?.thinkingBudget,
                 controlFields: this.sessionConfig?.thinkingConfig
@@ -680,18 +682,18 @@ export class GoogleAdapter {
         });
     }
 
-    createChat(task) {
-        const payload = this.buildChatPayload(task);
+    createChat(task, effectiveReasoning) {
+        const payload = this.buildChatPayload(task, effectiveReasoning);
         const chat = this.client.chats.create(payload.createPayload);
         return {
             chat,
             sessionConfig: payload.createPayload.config,
             sendPayload: payload.sendPayload,
-            requestInspection: this.inspectRequest(task, { payload }),
+            requestInspection: this.inspectRequest(task, { payload, effectiveReasoning }),
         };
     }
 
-    async sendThroughChat(chat, sendPayload, task) {
+    async sendThroughChat(chat, sendPayload, task, effectiveReasoning) {
         let response;
         let thoughts;
         let text;
@@ -729,7 +731,7 @@ export class GoogleAdapter {
                 if (chunkContent?.parts?.length) {
                     streamedContents.push(chunkContent);
                 }
-                if (isReasoningOutputVisible(task.reasoning)) {
+                if (isReasoningOutputVisible(effectiveReasoning)) {
                     extractThoughts(chunk).forEach((item, index) => {
                         const key = `${item.label}:${index}`;
                         thoughtMap.set(key, mergeStreamText(thoughtMap.get(key) || '', item.text));
@@ -769,7 +771,7 @@ export class GoogleAdapter {
             text = streamedText;
         } else {
             response = await chat.sendMessage(requestPayload);
-            thoughts = isReasoningOutputVisible(task.reasoning) ? extractThoughts(response) : [];
+            thoughts = isReasoningOutputVisible(effectiveReasoning) ? extractThoughts(response) : [];
             text = extractVisibleText(response);
         }
 
@@ -792,6 +794,12 @@ export class GoogleAdapter {
     }
 
     async chat(task) {
+        const requestedReasoning = resolveTaskReasoning('google', this.config, task.reasoning);
+        const continuingSession = (Array.isArray(task.toolResponses) && task.toolResponses.length)
+            || String(task.finalAnswerReminderText || '').trim();
+        const effectiveReasoning = continuingSession && this.sessionReasoning
+            ? this.sessionReasoning
+            : requestedReasoning;
         if (Array.isArray(task.toolResponses) && task.toolResponses.length) {
             if (!this.activeChat) {
                 throw new Error('google_chat_session_missing');
@@ -800,8 +808,8 @@ export class GoogleAdapter {
                 message: buildToolResponseMessage(task.toolResponses),
             };
             return {
-                ...await this.sendThroughChat(this.activeChat, sendPayload, task),
-                requestInspection: this.inspectSendRequest(sendPayload, task),
+                ...await this.sendThroughChat(this.activeChat, sendPayload, task, effectiveReasoning),
+                requestInspection: this.inspectSendRequest(sendPayload, task, effectiveReasoning),
             };
         }
 
@@ -814,16 +822,17 @@ export class GoogleAdapter {
                 message: [buildTextPart(finalAnswerReminderText)],
             };
             return {
-                ...await this.sendThroughChat(this.activeChat, sendPayload, task),
-                requestInspection: this.inspectSendRequest(sendPayload, task),
+                ...await this.sendThroughChat(this.activeChat, sendPayload, task, effectiveReasoning),
+                requestInspection: this.inspectSendRequest(sendPayload, task, effectiveReasoning),
             };
         }
 
-        const created = this.createChat(task);
+        const created = this.createChat(task, effectiveReasoning);
         this.activeChat = created.chat;
         this.sessionConfig = created.sessionConfig;
+        this.sessionReasoning = effectiveReasoning;
         return {
-            ...await this.sendThroughChat(this.activeChat, created.sendPayload, task),
+            ...await this.sendThroughChat(this.activeChat, created.sendPayload, task, effectiveReasoning),
             requestInspection: created.requestInspection,
         };
     }

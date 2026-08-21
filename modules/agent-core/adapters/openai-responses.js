@@ -320,8 +320,12 @@ export class OpenAIResponsesAdapter {
         });
     }
 
-    buildRequestBody(task, legacySystemInInput = false) {
-        const reasoning = resolveTaskReasoning('openai-responses', this.config, task.reasoning);
+    buildRequestBody(
+        task,
+        legacySystemInInput = false,
+        effectiveReasoning = resolveTaskReasoning('openai-responses', this.config, task.reasoning),
+    ) {
+        const reasoning = effectiveReasoning;
         const body = {
             model: this.config.model,
             instructions: legacySystemInInput ? undefined : (resolveInstructions(task) || undefined),
@@ -365,8 +369,9 @@ export class OpenAIResponsesAdapter {
         const stream = typeof task.onStreamProgress === 'function';
         const legacySystemInInput = options.legacySystemInInput === true;
         const baseUrl = String(this.config.baseUrl || 'https://api.openai.com/v1').replace(/\/$/, '');
-        const body = options.body || this.buildRequestBody(task, legacySystemInInput);
-        const reasoning = resolveTaskReasoning('openai-responses', this.config, task.reasoning);
+        const effectiveReasoning = options.effectiveReasoning
+            || resolveTaskReasoning('openai-responses', this.config, task.reasoning);
+        const body = options.body || this.buildRequestBody(task, legacySystemInInput, effectiveReasoning);
         return buildSdkRequestInspection({
             provider: 'openai-responses',
             model: this.config.model,
@@ -379,8 +384,7 @@ export class OpenAIResponsesAdapter {
             body,
             sdk: stream ? 'client.responses.stream' : 'client.responses.create',
             effectiveConfig: buildEffectiveReasoningConfig(task, {
-                profileId: reasoning.profileId,
-                effectiveMode: body.reasoning?.effort === 'none' ? 'off' : reasoning.mode,
+                reasoning: effectiveReasoning,
                 effort: body.reasoning?.effort,
                 controlFields: {
                     ...(body.reasoning ? { reasoning: body.reasoning } : {}),
@@ -391,7 +395,8 @@ export class OpenAIResponsesAdapter {
     }
 
     async chat(task) {
-        let requestInspection = this.inspectRequest(task);
+        const effectiveReasoning = resolveTaskReasoning('openai-responses', this.config, task.reasoning);
+        let requestInspection = this.inspectRequest(task, { effectiveReasoning });
         const parseResponse = (response) => {
             const proxyError = detectProxyEndpointError(response);
             if (proxyError) {
@@ -402,7 +407,7 @@ export class OpenAIResponsesAdapter {
             }
 
             const output = Array.isArray(response.output) ? response.output : [];
-            const thoughts = isReasoningOutputVisible(task.reasoning) ? extractThoughts(output) : [];
+            const thoughts = isReasoningOutputVisible(effectiveReasoning) ? extractThoughts(output) : [];
             const toolCalls = output
                 .filter((item) => item.type === 'function_call' && item.name)
                 .map((item, index) => ({
@@ -415,16 +420,24 @@ export class OpenAIResponsesAdapter {
         };
 
         const createRequest = async (legacySystemInInput = false) => {
-            const body = this.buildRequestBody(task, legacySystemInInput);
-            requestInspection = this.inspectRequest(task, { body, legacySystemInInput });
+            const body = this.buildRequestBody(task, legacySystemInInput, effectiveReasoning);
+            requestInspection = this.inspectRequest(task, {
+                body,
+                legacySystemInInput,
+                effectiveReasoning,
+            });
             return await this.client.responses.create(body, {
                 signal: task.signal,
             });
         };
 
         const createStreamRequest = async (legacySystemInInput = false) => {
-            const body = this.buildRequestBody(task, legacySystemInInput);
-            requestInspection = this.inspectRequest(task, { body, legacySystemInInput });
+            const body = this.buildRequestBody(task, legacySystemInInput, effectiveReasoning);
+            requestInspection = this.inspectRequest(task, {
+                body,
+                legacySystemInInput,
+                effectiveReasoning,
+            });
             const stream = this.client.responses.stream(body, {
                 signal: task.signal,
             });
@@ -434,7 +447,7 @@ export class OpenAIResponsesAdapter {
 
             const emitSnapshot = () => {
                 const thoughts = [];
-                if (isReasoningOutputVisible(task.reasoning)) {
+                if (isReasoningOutputVisible(effectiveReasoning)) {
                     Array.from(reasoningByPart.entries())
                         .sort(([left], [right]) => comparePartKeys(left, right))
                         .forEach(([, text]) => pushThought(thoughts, '推理文本', text));

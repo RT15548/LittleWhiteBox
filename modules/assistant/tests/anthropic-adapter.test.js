@@ -97,6 +97,48 @@ test('Anthropic adaptive reasoning keeps mode, effort, and output visibility ind
     assert.deepEqual(offBody.thinking, { type: 'disabled' });
 });
 
+test('Anthropic uses visible reasoning consistently when output is omitted', async () => {
+    const adapter = new AnthropicAdapter({
+        apiKey: 'test-key',
+        baseUrl: 'https://anthropic.example',
+        model: 'claude-opus-4-7',
+    });
+    let requestBody;
+    adapter.client.messages.create = async (body) => {
+        requestBody = body;
+        return {
+            model: 'claude-opus-4-7',
+            stop_reason: 'end_turn',
+            content: [
+                { type: 'thinking', thinking: '默认可见的思考。' },
+                { type: 'text', text: '完成。' },
+            ],
+        };
+    };
+
+    const result = await adapter.chat({
+        messages: [{ role: 'user', content: 'think' }],
+        reasoning: { mode: 'on', effort: 'high' },
+    });
+
+    assert.deepEqual(requestBody.thinking, { type: 'adaptive', display: 'summarized' });
+    assert.deepEqual(result.thoughts, [{ label: '思考块', text: '默认可见的思考。' }]);
+    assert.equal(result.requestInspection.effectiveConfig.reasoningRequestedOutput, 'show');
+    assert.equal(result.requestInspection.effectiveConfig.reasoningOutputVisible, true);
+
+    const offTask = {
+        messages: [{ role: 'user', content: 'do not think' }],
+        reasoning: { mode: 'off', output: 'show' },
+    };
+    const offBody = adapter.buildRequestBody(offTask);
+    const offInspection = adapter.inspectRequest(offTask, { body: offBody });
+    assert.deepEqual(offBody.thinking, { type: 'disabled' });
+    assert.equal(offInspection.effectiveConfig.reasoningRequestedOutput, 'show');
+    assert.equal(offInspection.effectiveConfig.reasoningOutputVisible, false);
+    const offResult = await adapter.chat(offTask);
+    assert.deepEqual(offResult.thoughts, []);
+});
+
 test('older Claude names use the latest adaptive reasoning contract', () => {
     const adapter = new AnthropicAdapter({
         apiKey: 'test-key',

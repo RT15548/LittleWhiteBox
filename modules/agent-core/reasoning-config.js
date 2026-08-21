@@ -4,17 +4,8 @@ export const REASONING_MODE_OPTIONS = Object.freeze([
     Object.freeze({ value: 'off', label: '关闭' }),
 ]);
 
-export const REASONING_OUTPUT_OPTIONS = Object.freeze([
-    Object.freeze({ value: 'hide', label: '隐藏' }),
-    Object.freeze({ value: 'show', label: '显示' }),
-]);
-
 export function normalizeReasoningMode(value = '') {
     return value === 'on' || value === 'off' ? value : 'inherit';
-}
-
-export function normalizeReasoningOutput(value = '') {
-    return value === 'show' ? 'show' : 'hide';
 }
 
 function normalizeOptionalEffort(value) {
@@ -34,12 +25,11 @@ export function normalizeReasoningConfig(source = {}) {
     const budgetTokens = normalizeOptionalBudget(normalizedSource.budgetTokens);
     return {
         mode: normalizeReasoningMode(normalizedSource.mode),
-        output: normalizeReasoningOutput(normalizedSource.output),
         ...(effort ? { effort } : {}),
         ...(budgetTokens !== undefined ? { budgetTokens } : {}),
     };
 }
 
 export function isReasoningOutputVisible(reasoning = {}) {
-    return normalizeReasoningOutput(reasoning?.output) === 'show';
+    return reasoning?.mode !== 'off' && reasoning?.output === 'show';
 }

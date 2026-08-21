@@ -261,6 +261,13 @@ function resolveDrawProviderConfig(rawSettings, timeout) {
         providerConfig = resolveActiveProviderConfig(settings, {
             timeoutMs: normalizeTimeout(timeout),
         });
+        providerConfig = {
+            ...providerConfig,
+            reasoning: {
+                ...providerConfig.reasoning,
+                output: 'hide',
+            },
+        };
     } catch (error) {
         if (error instanceof ScenePlannerError) throw error;
         throw new ScenePlannerError(

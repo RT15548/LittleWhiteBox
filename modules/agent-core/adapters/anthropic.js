@@ -218,7 +218,13 @@ function resolveAnthropicRequestProtocol(config = {}, task = {}) {
     const toolChoice = sourceTools.length
         ? resolveAnthropicToolChoice(task.toolChoice, sourceTools)
         : undefined;
-    const requestedReasoning = normalizeReasoningConfig(task.reasoning);
+    const requestedOutput = task.reasoning?.output;
+    const requestedReasoning = {
+        ...normalizeReasoningConfig(task.reasoning),
+        ...(requestedOutput === 'show' || requestedOutput === 'hide'
+            ? { output: requestedOutput }
+            : {}),
+    };
     const capability = resolveReasoningCapability({
         provider: 'anthropic',
         baseUrl: config.baseUrl,
@@ -235,9 +241,6 @@ function resolveAnthropicRequestProtocol(config = {}, task = {}) {
     });
     return {
         toolChoice,
-        reasoning: reasoningDisabledForForcedTool
-            ? { ...requestedReasoning, profileId: capability.profileId }
-            : effectiveReasoning,
         effectiveReasoning,
         reasoningDisabledForForcedTool,
     };
@@ -255,8 +258,7 @@ export class AnthropicAdapter {
         });
     }
 
-    buildRequestBody(task) {
-        const protocol = resolveAnthropicRequestProtocol(this.config, task);
+    buildRequestBody(task, protocol = resolveAnthropicRequestProtocol(this.config, task)) {
         const reasoning = protocol.effectiveReasoning;
         const sourceTools = Array.isArray(task.tools) ? task.tools : [];
         const tools = sourceTools.map((tool) => ({
@@ -302,8 +304,8 @@ export class AnthropicAdapter {
     inspectRequest(task, options = {}) {
         const stream = typeof task.onStreamProgress === 'function';
         const baseUrl = normalizeAnthropicSdkBaseUrl(this.config.baseUrl);
-        const body = options.body || this.buildRequestBody(task);
-        const protocol = resolveAnthropicRequestProtocol(this.config, task);
+        const protocol = options.protocol || resolveAnthropicRequestProtocol(this.config, task);
+        const body = options.body || this.buildRequestBody(task, protocol);
         const reasoning = protocol.effectiveReasoning;
         const inspection = buildSdkRequestInspection({
             provider: 'anthropic',
@@ -317,8 +319,7 @@ export class AnthropicAdapter {
             body,
             sdk: stream ? 'client.messages.stream' : 'client.messages.create',
             effectiveConfig: buildEffectiveReasoningConfig(task, {
-                profileId: protocol.reasoning.profileId,
-                effectiveMode: reasoning.mode,
+                reasoning,
                 effort: body.output_config?.effort,
                 budgetTokens: body.thinking?.budget_tokens,
                 controlFields: {
@@ -336,8 +337,10 @@ export class AnthropicAdapter {
     }
 
     async chat(task) {
-        const body = this.buildRequestBody(task);
-        const requestInspection = this.inspectRequest(task, { body });
+        const protocol = resolveAnthropicRequestProtocol(this.config, task);
+        const effectiveReasoning = protocol.effectiveReasoning;
+        const body = this.buildRequestBody(task, protocol);
+        const requestInspection = this.inspectRequest(task, { body, protocol });
         let response;
 
         if (typeof task.onStreamProgress === 'function') {
@@ -347,7 +350,7 @@ export class AnthropicAdapter {
             const thoughtMap = new Map();
             const toolDraftMap = new Map();
             let streamText = '';
-            const buildThoughts = () => isReasoningOutputVisible(task.reasoning)
+            const buildThoughts = () => isReasoningOutputVisible(effectiveReasoning)
                 ? Array.from(thoughtMap.entries())
                     .sort(([left], [right]) => left.localeCompare(right))
                     .map(([key, text]) => ({
@@ -444,7 +447,7 @@ export class AnthropicAdapter {
             .filter((item) => item.type === 'text')
             .map((item) => item.text || '')
             .join('\n');
-        const thoughts = isReasoningOutputVisible(task.reasoning)
+        const thoughts = isReasoningOutputVisible(effectiveReasoning)
             ? (response.content || [])
                 .filter((item) => item.type === 'thinking' || item.type === 'redacted_thinking')
                 .map((item) => ({

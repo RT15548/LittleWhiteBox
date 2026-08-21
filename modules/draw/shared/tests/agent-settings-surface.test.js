@@ -116,13 +116,13 @@ test('draw Agent API surface exposes the shared main-preset controls only', () =
             'xb-assistant-reasoning-mode',
             'xb-assistant-reasoning-effort',
             'xb-assistant-reasoning-budget',
-            'xb-assistant-reasoning-output',
         ]) {
             assert.ok(root.querySelector(`#${controlId}`));
         }
         assert.equal(root.querySelector('#xb-assistant-config-tab-delegate'), null);
         assert.equal(root.querySelector('#xb-assistant-permission-mode'), null);
         assert.equal(root.querySelector('#xb-assistant-jsapi-permission'), null);
+        assert.equal(root.querySelector('#xb-assistant-reasoning-output'), null);
     } finally {
         dom.restore();
     }
@@ -144,7 +144,6 @@ test('shared Agent reasoning controls follow the selected Provider and model wit
                         reasoning: {
                             mode: 'on',
                             effort: 'max',
-                            output: 'hide',
                         },
                     },
                 },
@@ -166,6 +165,7 @@ test('shared Agent reasoning controls follow the selected Provider and model wit
         // First-party markup under test.
         // eslint-disable-next-line no-unsanitized/property
         root.innerHTML = buildAgentSettingsPanelMarkup();
+        assert.equal(root.querySelector('#xb-assistant-delegate-reasoning-output'), null);
         const panel = createAgentSettingsPanel({ state });
         panel.syncConfigToForm(root);
 
@@ -174,8 +174,6 @@ test('shared Agent reasoning controls follow the selected Provider and model wit
         assert.deepEqual(efforts, ['low', 'high', 'max']);
         assert.equal(root.querySelector('#xb-assistant-reasoning-mode').value, 'on');
         assert.equal(root.querySelector('#xb-assistant-reasoning-mode option[value="off"]').disabled, false);
-        assert.equal(root.querySelector('#xb-assistant-reasoning-output').value, 'hide');
-
         panel.bindSettingsPanelEvents(root);
         const modelInput = root.querySelector('#xb-assistant-model');
         modelInput.value = 'unknown-compatible-model';
@@ -187,8 +185,6 @@ test('shared Agent reasoning controls follow the selected Provider and model wit
         assert.equal(root.querySelector('#xb-assistant-reasoning-mode').value, 'on');
         assert.equal(root.querySelector('#xb-assistant-reasoning-mode option[value="on"]').disabled, false);
         assert.equal(root.querySelector('#xb-assistant-reasoning-mode option[value="off"]').disabled, false);
-        assert.equal(root.querySelector('#xb-assistant-reasoning-output').value, 'hide');
-        assert.equal(root.querySelector('#xb-assistant-reasoning-output option[value="show"]').disabled, false);
         assert.deepEqual(
             Array.from(root.querySelector('#xb-assistant-reasoning-effort').options)
                 .map((option) => option.value),
@@ -205,7 +201,6 @@ test('shared Agent reasoning controls follow the selected Provider and model wit
         );
         assert.equal(root.querySelector('#xb-assistant-reasoning-mode').value, 'on');
         assert.equal(root.querySelector('#xb-assistant-reasoning-effort').value, 'medium');
-        assert.equal(root.querySelector('#xb-assistant-reasoning-output option[value="show"]').disabled, false);
     } finally {
         dom.restore();
     }
@@ -224,13 +219,13 @@ test('shared Agent Provider switching keeps each Provider model and Reasoning dr
                         baseUrl: 'https://api.moonshot.ai/v1',
                         model: 'kimi-k3',
                         apiKey: 'kimi-key',
-                        reasoning: { mode: 'on', effort: 'max', output: 'hide' },
+                        reasoning: { mode: 'on', effort: 'max' },
                     },
                     google: {
                         baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
                         model: 'gemini-3-flash-preview',
                         apiKey: 'google-key',
-                        reasoning: { mode: 'on', effort: 'minimal', output: 'show' },
+                        reasoning: { mode: 'on', effort: 'minimal' },
                     },
                 },
             },
@@ -265,14 +260,11 @@ test('shared Agent Provider switching keeps each Provider model and Reasoning dr
         assert.equal(root.querySelector('#xb-assistant-model').value, 'gemini-3-flash-preview');
         assert.equal(root.querySelector('#xb-assistant-reasoning-mode').value, 'on');
         assert.equal(root.querySelector('#xb-assistant-reasoning-effort').value, 'minimal');
-        assert.equal(root.querySelector('#xb-assistant-reasoning-output').value, 'show');
-
         providerSelect.value = 'openai-compatible';
         providerSelect.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
         assert.equal(root.querySelector('#xb-assistant-model').value, 'kimi-k3');
         assert.equal(root.querySelector('#xb-assistant-reasoning-mode').value, 'on');
         assert.equal(root.querySelector('#xb-assistant-reasoning-effort').value, 'max');
-        assert.equal(root.querySelector('#xb-assistant-reasoning-output').value, 'hide');
     } finally {
         dom.restore();
     }
@@ -290,7 +282,7 @@ test('shared Agent settings keep explicit Reasoning usable for a custom OpenAI-c
                     'openai-compatible': {
                         model: 'relay/gpt-custom',
                         apiKey: 'compatible-key',
-                        reasoning: { mode: 'on', effort: 'high', output: 'hide' },
+                        reasoning: { mode: 'on', effort: 'high' },
                     },
                 },
             },
@@ -349,7 +341,7 @@ test('shared Agent settings validate hidden preset Reasoning before saving', () 
                     google: {
                         model: 'private-google-model-alias',
                         apiKey: 'google-key',
-                        reasoning: { mode: 'off', output: 'hide' },
+                        reasoning: { mode: 'off' },
                     },
                 },
             },
@@ -400,7 +392,7 @@ test('preset deletion runs full Reasoning validation before committing', () => {
                     google: {
                         model: 'private-google-model-alias',
                         apiKey: 'google-key',
-                        reasoning: { mode: 'off', output: 'hide' },
+                        reasoning: { mode: 'off' },
                     },
                 },
             },
@@ -452,7 +444,7 @@ test('shared Agent settings validate delegate Reasoning before saving', () => {
                     model: 'private-google-model-alias',
                     apiKey: 'google-key',
                     maxTokens: 8192,
-                    reasoning: { mode: 'off', output: 'hide' },
+                    reasoning: { mode: 'off' },
                 },
             },
         },

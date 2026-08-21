@@ -220,11 +220,6 @@ export function buildAgentSettingsPanelMarkup(options = {}) {
                     <input id="xb-assistant-delegate-reasoning-budget" type="number" step="1" inputmode="numeric" />
                     <small>支持 -1 时表示由模型自动决定</small>
                 </label>
-                <label>
-                    <span>思考内容</span>
-                    <select id="xb-assistant-delegate-reasoning-output"></select>
-                    <small>只控制界面展示；隐藏时仍保留续轮所需签名</small>
-                </label>
             </div>` : '';
 
     return `
@@ -328,11 +323,6 @@ export function buildAgentSettingsPanelMarkup(options = {}) {
                 <span>思考 Token 预算</span>
                 <input id="xb-assistant-reasoning-budget" type="number" step="1" inputmode="numeric" />
                 <small>支持 -1 时表示由模型自动决定</small>
-            </label>
-            <label>
-                <span>思考内容</span>
-                <select id="xb-assistant-reasoning-output"></select>
-                <small>只控制界面展示；隐藏时仍保留续轮所需签名</small>
             </label>
             </div>
             ${delegatePageMarkup}

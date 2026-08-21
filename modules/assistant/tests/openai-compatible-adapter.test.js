@@ -805,6 +805,49 @@ test('OpenAI Responses sends exact model effort, explicit off, and visible inher
     assert.equal(effective.reasoningOutputVisible, true);
 });
 
+test('OpenAI Responses uses one visible default for request, response, and diagnostics', async () => {
+    const adapter = new OpenAIResponsesAdapter({
+        apiKey: 'test-key',
+        baseUrl: 'https://api.openai.com/v1',
+        model: 'gpt-5.6',
+    });
+    let requestBody;
+    adapter.client.responses.create = async (body) => {
+        requestBody = body;
+        return {
+            model: 'gpt-5.6',
+            status: 'completed',
+            output_text: '完成。',
+            output: [{
+                type: 'reasoning',
+                content: [{ type: 'reasoning_text', text: '默认可见的推理。' }],
+            }],
+        };
+    };
+
+    const result = await adapter.chat({
+        messages: [{ role: 'user', content: 'think' }],
+        reasoning: { mode: 'on', effort: 'high' },
+    });
+
+    assert.deepEqual(requestBody.reasoning, { effort: 'high', summary: 'auto' });
+    assert.deepEqual(result.thoughts, [{ label: '推理文本', text: '默认可见的推理。' }]);
+    assert.equal(result.requestInspection.effectiveConfig.reasoningRequestedOutput, 'show');
+    assert.equal(result.requestInspection.effectiveConfig.reasoningOutputVisible, true);
+
+    const offTask = {
+        messages: [{ role: 'user', content: 'do not think' }],
+        reasoning: { mode: 'off', output: 'show' },
+    };
+    const offBody = adapter.buildRequestBody(offTask);
+    const offInspection = adapter.inspectRequest(offTask, { body: offBody });
+    assert.deepEqual(offBody.reasoning, { effort: 'none' });
+    assert.equal(offInspection.effectiveConfig.reasoningRequestedOutput, 'show');
+    assert.equal(offInspection.effectiveConfig.reasoningOutputVisible, false);
+    const offResult = await adapter.chat(offTask);
+    assert.deepEqual(offResult.thoughts, []);
+});
+
 test('OpenAI-compatible OpenAI family requests use the latest max_completion_tokens field', () => {
     const messages = [{ role: 'user', content: 'hello' }];
     const o1MiniBody = new OpenAICompatibleAdapter({
@@ -1128,6 +1171,7 @@ test('openai-compatible adapter keeps streaming enabled in reasoning mode and pr
 
     const originalFetch = globalThis.fetch;
     const requests = [];
+    const progress = [];
     globalThis.fetch = async (url, options = {}) => {
         requests.push({
             url: String(url),
@@ -1180,14 +1224,17 @@ test('openai-compatible adapter keeps streaming enabled in reasoning mode and pr
             reasoning: {
                 mode: 'on',
                 effort: 'high',
-                output: 'show',
             },
-            onStreamProgress: () => {},
+            onStreamProgress: (snapshot) => progress.push(snapshot),
         });
 
         assert.equal(requests.length, 1);
         assert.equal(requests[0].body.stream, true);
         assert.equal(result.text, '我先读取技能目录。');
+        assert.equal(progress.some((snapshot) => snapshot.thoughts?.[0]?.text === '先确认可用技能，再决定下一步。'), true);
+        assert.deepEqual(result.thoughts, [{ label: '推理文本', text: '先确认可用技能，再决定下一步。' }]);
+        assert.equal(result.requestInspection.effectiveConfig.reasoningRequestedOutput, 'show');
+        assert.equal(result.requestInspection.effectiveConfig.reasoningOutputVisible, true);
         assert.deepEqual(result.toolCalls, [{
             id: 'call-1',
             name: 'ReadSkillsCatalog',

@@ -175,14 +175,6 @@ export function getReasoningEffortOptions(capability = INHERIT_ONLY) {
     }));
 }
 
-export function getReasoningOutputOptions(capability = INHERIT_ONLY) {
-    const supportedOutputs = new Set(capability.outputModes || ['hide']);
-    return [
-        { value: 'hide', label: '隐藏', disabled: !supportedOutputs.has('hide') },
-        { value: 'show', label: '显示', disabled: !supportedOutputs.has('show') },
-    ];
-}
-
 function buildInvalidRuntime(reasoning, capability, error, code = 'REASONING_CAPABILITY_UNSUPPORTED') {
     return {
         ...reasoning,
@@ -208,15 +200,25 @@ function selectCapabilityIntensity(reasoning, capability) {
 
 export function resolveRuntimeReasoning(context = {}, source = {}) {
     const capability = resolveReasoningCapability(context);
+    const normalized = normalizeReasoningConfig(source);
+    const requestedOutput = source?.output === 'show' || source?.output === 'hide'
+        ? source.output
+        : null;
     const reasoning = selectCapabilityIntensity(
-        normalizeReasoningConfig(source),
+        {
+            ...normalized,
+            output: normalized.mode === 'off'
+                ? 'hide'
+                : (requestedOutput
+                    || (capability.outputModes.includes('show') ? 'show' : 'hide')),
+        },
         capability,
     );
     if (!capability.outputModes.includes(reasoning.output)) {
         return buildInvalidRuntime(
             reasoning,
             capability,
-            '当前模型不支持返回 Reasoning 内容，请选择“隐藏”。',
+            '当前任务要求返回 Reasoning 内容，但所选模型不支持。',
         );
     }
     if (!capability.modes.includes(reasoning.mode)) {

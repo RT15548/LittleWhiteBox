@@ -32,12 +32,12 @@ import {
     stripTaggedToolCallsForDisplay,
 } from './openai-compatible.js';
 
-function emitStreamProgress(task, payload) {
+function emitStreamProgress(task, payload, effectiveReasoning) {
     if (typeof task.onStreamProgress !== 'function') return;
     task.onStreamProgress({
         ...(typeof payload.text === 'string' ? { text: payload.text } : {}),
         ...(Array.isArray(payload.thoughts)
-            ? { thoughts: isReasoningOutputVisible(task.reasoning) ? payload.thoughts : [] }
+            ? { thoughts: isReasoningOutputVisible(effectiveReasoning) ? payload.thoughts : [] }
             : {}),
         ...(Array.isArray(payload.toolCalls) ? { toolCalls: payload.toolCalls } : {}),
         ...(payload.toolCallDraft ? { toolCallDraft: true } : {}),
@@ -74,12 +74,16 @@ export class SillyTavernOpenAICompatibleAdapter {
             : buildNativeMessages(task, this.config.model);
     }
 
-    buildPayload(task, taggedMode = false) {
-        const reasoning = resolveTaskReasoning(
+    buildPayload(
+        task,
+        taggedMode = false,
+        effectiveReasoning = resolveTaskReasoning(
             'sillytavern-openai-compatible',
             this.config,
             task.reasoning,
-        );
+        ),
+    ) {
+        const reasoning = effectiveReasoning;
         const messages = taggedMode
             ? buildTaggedMessages(task, this.config.model)
             : buildNativeMessages(task, this.config.model);
@@ -106,20 +110,29 @@ export class SillyTavernOpenAICompatibleAdapter {
     }
 
     async inspectRequest(task, options = {}) {
-        const payload = options.payload || this.buildPayload(task, !!options.taggedMode);
-        const request = await buildHostChatCompletionGenerateRequest(
-            payload,
-            typeof task.onStreamProgress === 'function',
-        );
-        return this.buildRequestInspection(request, task);
-    }
-
-    buildRequestInspection(request, task = {}) {
-        const reasoning = resolveTaskReasoning(
+        const effectiveReasoning = options.effectiveReasoning || resolveTaskReasoning(
             'sillytavern-openai-compatible',
             this.config,
             task.reasoning,
         );
+        const payload = options.payload
+            || this.buildPayload(task, !!options.taggedMode, effectiveReasoning);
+        const request = await buildHostChatCompletionGenerateRequest(
+            payload,
+            typeof task.onStreamProgress === 'function',
+        );
+        return this.buildRequestInspection(request, task, effectiveReasoning);
+    }
+
+    buildRequestInspection(
+        request,
+        task = {},
+        effectiveReasoning = resolveTaskReasoning(
+            'sillytavern-openai-compatible',
+            this.config,
+            task.reasoning,
+        ),
+    ) {
         const controlFields = {
             ...(Object.hasOwn(request?.body || {}, 'reasoning_effort')
                 ? { reasoning_effort: request.body.reasoning_effort }
@@ -134,15 +147,14 @@ export class SillyTavernOpenAICompatibleAdapter {
             transport: 'sillytavern-chat-completions',
             request: redactRequestSecrets(request),
             effectiveConfig: buildEffectiveReasoningConfig(task, {
-                profileId: reasoning.profileId,
-                effectiveMode: reasoning.mode,
+                reasoning: effectiveReasoning,
                 effort: request?.body?.reasoning_effort,
                 controlFields,
             }),
         };
     }
 
-    async streamChat(task, payload, options = {}) {
+    async streamChat(task, payload, effectiveReasoning, options = {}) {
         const assistantSnapshot = {
             role: 'assistant',
         };
@@ -168,12 +180,12 @@ export class SillyTavernOpenAICompatibleAdapter {
                 : buildTaggedToolCallDraft(thinkTagged.cleaned);
             emitStreamProgress(task, {
                 text: cleanedText,
-                thoughts: isReasoningOutputVisible(task.reasoning)
+                thoughts: isReasoningOutputVisible(effectiveReasoning)
                     ? extractThoughtsFromMessage(assistantSnapshot, choice).concat(thinkTagged.thoughts)
                     : [],
                 ...(progressToolCalls.length ? { toolCalls: progressToolCalls } : {}),
                 ...(!standardToolCalls.length && progressToolCalls.length ? { toolCallDraft: true } : {}),
-            });
+            }, effectiveReasoning);
         }, {
             signal: task.signal,
             onRequest: options.onRequest,
@@ -193,7 +205,7 @@ export class SillyTavernOpenAICompatibleAdapter {
         return {
             text: cleanedText,
             toolCalls: [...standardToolCalls, ...taggedToolCalls],
-            thoughts: isReasoningOutputVisible(task.reasoning) ? thoughts : [],
+            thoughts: isReasoningOutputVisible(effectiveReasoning) ? thoughts : [],
             finishReason: lastFinishReason,
             model: lastModel,
             provider: 'sillytavern-openai-compatible',
@@ -201,7 +213,7 @@ export class SillyTavernOpenAICompatibleAdapter {
         };
     }
 
-    async nonStreamingChat(task, payload, options = {}) {
+    async nonStreamingChat(task, payload, effectiveReasoning, options = {}) {
         const response = await createHostChatCompletion(payload, { signal: task.signal, onRequest: options.onRequest });
         const choice = response.choices?.[0] || {};
         const message = choice.message || {};
@@ -217,7 +229,7 @@ export class SillyTavernOpenAICompatibleAdapter {
         return {
             text: cleanedText,
             toolCalls: [...standardToolCalls, ...taggedToolCalls],
-            thoughts: isReasoningOutputVisible(task.reasoning) ? thoughts : [],
+            thoughts: isReasoningOutputVisible(effectiveReasoning) ? thoughts : [],
             finishReason: choice.finish_reason || 'stop',
             model: response.model || this.config.model,
             provider: 'sillytavern-openai-compatible',
@@ -226,21 +238,26 @@ export class SillyTavernOpenAICompatibleAdapter {
     }
 
     async chat(task) {
+        const effectiveReasoning = resolveTaskReasoning(
+            'sillytavern-openai-compatible',
+            this.config,
+            task.reasoning,
+        );
         const toolMode = this.config.toolMode || 'native';
         const isTaggedMode = toolMode === 'tagged-json' && Array.isArray(task.tools) && task.tools.length > 0;
         const hasTools = Array.isArray(task.tools) && task.tools.length > 0;
         const run = async (payload, options = {}) => {
             let requestInspection = null;
             const onRequest = (request) => {
-                requestInspection = this.buildRequestInspection(request, task);
+                requestInspection = this.buildRequestInspection(request, task, effectiveReasoning);
             };
             try {
                 const result = typeof task.onStreamProgress === 'function'
-                    ? await this.streamChat(task, payload, {
+                    ? await this.streamChat(task, payload, effectiveReasoning, {
                         onRequest,
                         onResponseAccepted: options.onResponseAccepted,
                     })
-                    : await this.nonStreamingChat(task, payload, { onRequest });
+                    : await this.nonStreamingChat(task, payload, effectiveReasoning, { onRequest });
                 return {
                     ...result,
                     requestInspection,
@@ -252,7 +269,7 @@ export class SillyTavernOpenAICompatibleAdapter {
                 throw error;
             }
         };
-        const payload = this.buildPayload(task, isTaggedMode);
+        const payload = this.buildPayload(task, isTaggedMode, effectiveReasoning);
 
         try {
             return await run(payload);
@@ -273,7 +290,7 @@ export class SillyTavernOpenAICompatibleAdapter {
                 reason: 'malformed_native_tool_host_error',
             });
         }
-        const fallbackPayload = this.buildPayload(task, true);
+        const fallbackPayload = this.buildPayload(task, true, effectiveReasoning);
         return await run(fallbackPayload);
     }
 }

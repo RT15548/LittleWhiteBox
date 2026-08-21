@@ -27,7 +27,6 @@ import {
 import {
     getReasoningEffortOptions,
     getReasoningModeOptions,
-    getReasoningOutputOptions,
     resolveReasoningCapability,
     resolveRuntimeReasoning,
 } from '../reasoning-capabilities.js';
@@ -86,7 +85,6 @@ function buildReasoningDraftFields(provider = '', providerConfig = {}) {
     });
     const fields = {
         reasoningMode: reasoning.mode,
-        reasoningOutput: reasoning.output,
         reasoningEffort: '',
         reasoningBudgetTokens: undefined,
     };
@@ -475,7 +473,6 @@ export function createAgentSettingsPanel(deps = {}) {
             delegateMaxTokens: normalizeMaxTokens(delegateProviderConfig.maxTokens),
             delegateSendTemperature: shouldSendTemperature(delegateProviderConfig),
             delegateReasoningMode: reasoningFields.reasoningMode,
-            delegateReasoningOutput: reasoningFields.reasoningOutput,
             delegateReasoningEffort: reasoningFields.reasoningEffort,
             delegateReasoningBudgetTokens: reasoningFields.reasoningBudgetTokens,
             delegateToolMode: delegateProviderConfig.toolMode || 'native',
@@ -510,7 +507,6 @@ export function createAgentSettingsPanel(deps = {}) {
             delegateMaxTokens: normalizeMaxTokens(providerConfig.maxTokens),
             delegateSendTemperature: shouldSendTemperature(providerConfig),
             delegateReasoningMode: reasoningFields.reasoningMode,
-            delegateReasoningOutput: reasoningFields.reasoningOutput,
             delegateReasoningEffort: reasoningFields.reasoningEffort,
             delegateReasoningBudgetTokens: reasoningFields.reasoningBudgetTokens,
             delegateToolMode: providerConfig.toolMode || 'native',
@@ -570,7 +566,6 @@ export function createAgentSettingsPanel(deps = {}) {
             ?? '';
         const reasoning = normalizeReasoningDraft({
             mode: root.querySelector('#xb-assistant-reasoning-mode')?.value || draft.reasoningMode,
-            output: root.querySelector('#xb-assistant-reasoning-output')?.value || draft.reasoningOutput,
             effort: root.querySelector('#xb-assistant-reasoning-effort')?.value || draft.reasoningEffort,
             budgetTokens: root.querySelector('#xb-assistant-reasoning-budget')?.value
                 ?? draft.reasoningBudgetTokens,
@@ -578,8 +573,6 @@ export function createAgentSettingsPanel(deps = {}) {
         const delegateReasoning = normalizeReasoningDraft({
             mode: root.querySelector('#xb-assistant-delegate-reasoning-mode')?.value
                 || draft.delegateReasoningMode,
-            output: root.querySelector('#xb-assistant-delegate-reasoning-output')?.value
-                || draft.delegateReasoningOutput,
             effort: root.querySelector('#xb-assistant-delegate-reasoning-effort')?.value
                 || draft.delegateReasoningEffort,
             budgetTokens: root.querySelector('#xb-assistant-delegate-reasoning-budget')?.value
@@ -636,7 +629,6 @@ export function createAgentSettingsPanel(deps = {}) {
             maxTokens: providerConfig.maxTokens,
             sendTemperature: providerConfig.sendTemperature,
             reasoningMode: providerConfig.reasoning.mode,
-            reasoningOutput: providerConfig.reasoning.output,
             reasoningEffort: providerConfig.reasoning.effort || '',
             reasoningBudgetTokens: providerConfig.reasoning.budgetTokens,
             toolMode: providerConfig.toolMode || draft.toolMode || 'native',
@@ -654,7 +646,6 @@ export function createAgentSettingsPanel(deps = {}) {
             delegateMaxTokens: delegateProviderConfig.maxTokens,
             delegateSendTemperature: delegateProviderConfig.sendTemperature,
             delegateReasoningMode: delegateProviderConfig.reasoning.mode,
-            delegateReasoningOutput: delegateProviderConfig.reasoning.output,
             delegateReasoningEffort: delegateProviderConfig.reasoning.effort || '',
             delegateReasoningBudgetTokens: delegateProviderConfig.reasoning.budgetTokens,
             delegateToolMode: delegateProviderConfig.toolMode || draft.delegateToolMode || 'native',
@@ -677,7 +668,6 @@ export function createAgentSettingsPanel(deps = {}) {
             sendTemperature: Boolean(draft.sendTemperature ?? true),
             reasoning: normalizeReasoningConfig({
                 mode: draft.reasoningMode,
-                output: draft.reasoningOutput,
                 effort: draft.reasoningEffort,
                 budgetTokens: draft.reasoningBudgetTokens,
             }),
@@ -697,7 +687,6 @@ export function createAgentSettingsPanel(deps = {}) {
             sendTemperature: Boolean(draft.delegateSendTemperature ?? true),
             reasoning: normalizeReasoningConfig({
                 mode: draft.delegateReasoningMode,
-                output: draft.delegateReasoningOutput,
                 effort: draft.delegateReasoningEffort,
                 budgetTokens: draft.delegateReasoningBudgetTokens,
             }),
@@ -742,7 +731,6 @@ export function createAgentSettingsPanel(deps = {}) {
                 maxTokens: normalizeMaxTokens(draft.maxTokens),
             }, {
                 mode: draft.reasoningMode,
-                output: draft.reasoningOutput,
                 effort: draft.reasoningEffort,
                 budgetTokens: draft.reasoningBudgetTokens,
             }),
@@ -769,7 +757,6 @@ export function createAgentSettingsPanel(deps = {}) {
                 maxTokens: normalizeMaxTokens(draft.delegateMaxTokens),
             }, {
                 mode: draft.delegateReasoningMode,
-                output: draft.delegateReasoningOutput,
                 effort: draft.delegateReasoningEffort,
                 budgetTokens: draft.delegateReasoningBudgetTokens,
             }),
@@ -874,7 +861,6 @@ export function createAgentSettingsPanel(deps = {}) {
         const model = delegate ? draft.delegateModel : draft.model;
         const source = {
             mode: delegate ? draft.delegateReasoningMode : draft.reasoningMode,
-            output: delegate ? draft.delegateReasoningOutput : draft.reasoningOutput,
             effort: delegate ? draft.delegateReasoningEffort : draft.reasoningEffort,
             budgetTokens: delegate
                 ? draft.delegateReasoningBudgetTokens
@@ -887,7 +873,6 @@ export function createAgentSettingsPanel(deps = {}) {
             reasoning: source,
         });
         const mode = fields.reasoningMode;
-        const output = fields.reasoningOutput;
         const effort = fields.reasoningEffort;
         const budgetTokens = fields.reasoningBudgetTokens;
         const modeSelect = root.querySelector(`${prefix}-mode`);
@@ -896,7 +881,6 @@ export function createAgentSettingsPanel(deps = {}) {
         const effortSelect = root.querySelector(`${prefix}-effort`);
         const budgetWrap = root.querySelector(`${prefix}-budget-wrap`);
         const budgetInput = root.querySelector(`${prefix}-budget`);
-        const outputSelect = root.querySelector(`${prefix}-output`);
 
         if (modeSelect) {
             refillSelect(modeSelect, getReasoningModeOptions(capability));
@@ -924,10 +908,6 @@ export function createAgentSettingsPanel(deps = {}) {
         if (budgetWrap) {
             budgetWrap.style.display = mode === 'on'
                 && capability.intensity.kind === 'budget' ? '' : 'none';
-        }
-        if (outputSelect) {
-            refillSelect(outputSelect, getReasoningOutputOptions(capability));
-            outputSelect.value = output;
         }
     }
 
@@ -1373,10 +1353,6 @@ export function createAgentSettingsPanel(deps = {}) {
             syncConfigDraft(root);
         });
 
-        root.querySelector('#xb-assistant-reasoning-output')?.addEventListener('change', () => {
-            syncConfigDraft(root);
-        });
-
         root.querySelector('#xb-assistant-tool-mode')?.addEventListener('change', () => {
             syncConfigDraft(root);
         });
@@ -1392,10 +1368,6 @@ export function createAgentSettingsPanel(deps = {}) {
         });
 
         root.querySelector('#xb-assistant-delegate-reasoning-budget')?.addEventListener('input', () => {
-            syncConfigDraft(root);
-        });
-
-        root.querySelector('#xb-assistant-delegate-reasoning-output')?.addEventListener('change', () => {
             syncConfigDraft(root);
         });
 
