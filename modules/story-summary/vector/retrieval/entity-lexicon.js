@@ -9,7 +9,14 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 import { getStateAtoms } from '../storage/state-store.js';
-import { buildAliasResolver, normalizeCharacterAliases, normalizeAliasNameKey } from '../../data/character-aliases.js';
+import {
+    buildAliasResolver,
+    normalizeCharacterAliases,
+    normalizeUserIdentityKey,
+} from '../../data/character-aliases.js';
+import { normalizeEntityTerm } from './entity-matcher.js';
+
+export { extractEntitiesFromText, normalizeEntityTerm } from './entity-matcher.js';
 
 // 人名词典黑名单：代词、标签词、明显非人物词
 const PERSON_LEXICON_BLACKLIST = new Set([
@@ -20,15 +27,6 @@ const PERSON_LEXICON_BLACKLIST = new Set([
     '电脑', '电脑屏幕', '手机', '监控画面', '摄像头', '阳光', '折叠床', '书房', '卫生间隔间',
 ]);
 
-/**
- * 标准化字符串（用于实体匹配）
- * @param {string} s
- * @returns {string}
- */
-export function normalizeEntityTerm(s) {
-    return normalizeAliasNameKey(s);
-}
-
 function isBlacklistedPersonTerm(raw) {
     return PERSON_LEXICON_BLACKLIST.has(normalizeEntityTerm(raw));
 }
@@ -38,6 +36,20 @@ function addPersonTerm(set, raw) {
     if (!n || n.length < 2) return;
     if (isBlacklistedPersonTerm(n)) return;
     set.add(n);
+}
+
+function buildUserIdentityKeys(context, aliasResolver = null) {
+    return new Set([context?.name1, aliasResolver?.resolveName?.(context?.name1)]
+        .map(normalizeUserIdentityKey)
+        .filter(Boolean));
+}
+
+function removeUserIdentityTerms(set, context, aliasResolver = null) {
+    const userKeys = buildUserIdentityKeys(context, aliasResolver);
+    if (!userKeys.size) return;
+    for (const term of [...set]) {
+        if (userKeys.has(normalizeUserIdentityKey(term))) set.delete(term);
+    }
 }
 
 function collectTrustedCharacters(store, context) {
@@ -70,11 +82,33 @@ function collectTrustedCharacters(store, context) {
         addPersonTerm(trusted, aliasResolver.resolveName(alias.to));
     }
 
-    if (context?.name1) {
-        trusted.delete(normalizeEntityTerm(context.name1));
-    }
+    removeUserIdentityTerms(trusted, context, aliasResolver);
 
     return trusted;
+}
+
+/**
+ * Build the character set confirmed by canonical story data.
+ * Unlike the broader entity lexicon, the current card name and L0 candidates
+ * are not sufficient evidence by themselves.
+ */
+export function buildConfirmedStoryCharacters(store, context) {
+    const confirmed = new Set();
+    const aliasResolver = buildAliasResolver(store?.json?.characterAliases || []);
+    const addConfirmed = raw => addPersonTerm(confirmed, aliasResolver.resolveName(raw));
+
+    for (const item of (store?.json?.characters?.main || [])) {
+        addConfirmed(typeof item === 'string' ? item : item?.name);
+    }
+    for (const arc of (store?.json?.arcs || [])) {
+        addConfirmed(arc?.name);
+    }
+    for (const event of (store?.json?.events || [])) {
+        for (const participant of (event?.participants || [])) addConfirmed(participant);
+    }
+    removeUserIdentityTerms(confirmed, context, aliasResolver);
+
+    return confirmed;
 }
 
 /**
@@ -98,9 +132,7 @@ function collectCandidateCharactersFromL0(context) {
             addPersonTerm(candidate, e?.t);
         }
     }
-    if (context?.name1) {
-        candidate.delete(normalizeEntityTerm(context.name1));
-    }
+    removeUserIdentityTerms(candidate, context);
     return candidate;
 }
 
@@ -118,6 +150,8 @@ export function buildCharacterPools(store, context) {
         addPersonTerm(aliasTerms, alias.to);
     }
     const allCharacters = new Set([...trustedCharacters, ...candidateCharacters, ...aliasTerms]);
+    const aliasResolver = buildAliasResolver(store?.json?.characterAliases || []);
+    removeUserIdentityTerms(allCharacters, context, aliasResolver);
     return { trustedCharacters, candidateCharacters, allCharacters };
 }
 
@@ -199,43 +233,10 @@ export function buildDisplayNameMap(store, context) {
     }
 
     // ★ 硬约束：删除 name1
-    if (context?.name1) {
-        map.delete(normalizeEntityTerm(context.name1));
+    const userKeys = buildUserIdentityKeys(context, aliasResolver);
+    for (const key of [...map.keys()]) {
+        if (userKeys.has(normalizeUserIdentityKey(key))) map.delete(key);
     }
 
     return map;
-}
-
-/**
- * 从文本中提取命中的实体
- *
- * 逻辑：遍历词典，检查文本中是否包含（不区分大小写）
- * 返回命中的实体原词形（去重）
- *
- * @param {string} text - 清洗后的文本
- * @param {Set<string>} lexicon - 标准化后的实体集合
- * @param {Map<string, string>} displayMap - normalize → 原词形
- * @returns {string[]} 命中的实体（原词形）
- */
-export function extractEntitiesFromText(text, lexicon, displayMap) {
-    if (!text || !lexicon?.size) return [];
-
-    const textNorm = normalizeEntityTerm(text);
-    const hits = [];
-    const seen = new Set();
-    const seenDisplay = new Set();
-
-    for (const entity of lexicon) {
-        if (textNorm.includes(entity) && !seen.has(entity)) {
-            seen.add(entity);
-            // 优先返回原词形
-            const display = displayMap?.get(entity) || entity;
-            const displayKey = normalizeEntityTerm(display);
-            if (displayKey && seenDisplay.has(displayKey)) continue;
-            if (displayKey) seenDisplay.add(displayKey);
-            hits.push(display);
-        }
-    }
-
-    return hits;
 }

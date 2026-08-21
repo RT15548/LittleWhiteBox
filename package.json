@@ -5,6 +5,7 @@
     "scripts": {
         "build:agent-core": "vite build --config vite.agent-core.config.mjs",
         "test:draw-agent": "node --test modules/draw/shared/tests/*.test.js",
+        "test:plugin-update": "node --test modules/plugin-update/tests/*.test.js",
         "test:server-storage": "node --test core/storage-file.test.js",
         "test:tts": "node --test modules/tts/tests/*.test.js",
         "build:assistant:manifest": "node scripts/build-assistant-file-manifest.mjs",

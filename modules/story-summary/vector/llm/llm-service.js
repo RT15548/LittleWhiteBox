@@ -9,7 +9,6 @@ const MODULE_ID = 'vector-llm-service';
 const DEFAULT_L0_MODEL = 'Qwen/Qwen3-8B';
 const DEFAULT_L0_API_URL = 'https://api.siliconflow.cn/v1';
 
-const activeL0Controllers = new Set();
 let l0KeyIndex = 0;
 
 function getL0ApiConfig() {
@@ -149,7 +148,6 @@ export async function callLLM(messages, options = {}) {
     }, timeout);
 
     try {
-        activeL0Controllers.add(timeoutController);
         const response = await fetch(`${baseUrl}/chat/completions`, {
             method: 'POST',
             headers: {
@@ -205,7 +203,6 @@ export async function callLLM(messages, options = {}) {
         throw e;
     } finally {
         clearTimeout(timeoutId);
-        activeL0Controllers.delete(timeoutController);
     }
 }
 
@@ -225,11 +222,4 @@ export async function testL0Service(apiConfig = {}) {
     const text = String(result || '').trim();
     if (!text) throw new Error('返回为空');
     return { success: true, message: `连接成功：${text.slice(0, 60)}` };
-}
-
-export function cancelAllL0Requests() {
-    for (const controller of activeL0Controllers) {
-        try { controller.abort(); } catch {}
-    }
-    activeL0Controllers.clear();
 }

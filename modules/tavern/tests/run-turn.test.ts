@@ -5026,7 +5026,7 @@ test('xb tavern runtime keeps capability registry empty until agent tools are ad
         mode: 'on',
         output: 'show',
         effort: 'high',
-        profileId: 'sillytavern-claude-manual',
+        profileId: 'sillytavern-claude-adaptive',
         valid: true,
     });
 });

@@ -614,16 +614,25 @@ export async function saveSummaryPanelConfigVerified(config) {
     return cloneConfig(savedNormalized);
 }
 
-export async function loadConfigFromServer() {
+export async function readSummaryPanelConfigFromServer() {
     try {
         const savedConfig = await CommonSettingStorage.get(SUMMARY_CONFIG_KEY, null);
         if (savedConfig) {
-            const normalized = setSummaryPanelConfigCache(savedConfig);
-            xbLog.info(MODULE_ID, "已从服务端加载面板配置");
-            return cloneConfig(normalized);
+            return cloneConfig(normalizeSummaryPanelConfig(savedConfig));
         }
     } catch (e) {
         xbLog.warn(MODULE_ID, "加载面板配置失败", e);
     }
     return getSummaryPanelConfig();
+}
+
+export function applySummaryPanelConfigSnapshot(config) {
+    return cloneConfig(setSummaryPanelConfigCache(config));
+}
+
+export async function loadConfigFromServer() {
+    const loaded = await readSummaryPanelConfigFromServer();
+    const applied = applySummaryPanelConfigSnapshot(loaded);
+    xbLog.info(MODULE_ID, "已从服务端加载面板配置");
+    return applied;
 }

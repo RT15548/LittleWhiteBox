@@ -21,6 +21,15 @@ export function normalizeAliasNameKey(name) {
         .toLowerCase();
 }
 
+export function normalizeUserIdentityKey(name) {
+    return String(name || '')
+        .normalize('NFKC')
+        .replace(/[\u200B-\u200D\uFEFF]/g, '')
+        .trim()
+        .replace(/\s+/gu, '')
+        .toLowerCase();
+}
+
 function cleanName(name) {
     return String(name || '').normalize('NFKC').trim();
 }

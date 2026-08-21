@@ -541,25 +541,6 @@
   .littlewhitebox .has-tooltip:hover::after {
     opacity: 1
   }
-  .littlewhitebox-update-text {
-    color: green;
-    margin-left: 5px
-  }
-  #littlewhitebox-update-extension {
-    color: #28a745;
-    cursor: pointer;
-    margin: 0 0 0 5px;
-    transition: .2s
-  }
-  #littlewhitebox-update-extension:hover {
-    background-color: rgba(40, 167, 69, .1);
-    transform: scale(1.1)
-  }
-  #littlewhitebox-update-extension.updating {
-    color: #007bff;
-    background-color: transparent;
-    transform: scale(1)
-  }
   @media (max-width: 700px) {
     .littlewhitebox-agent-actions {
       width: 100%;
@@ -579,33 +560,6 @@
     'use strict';
     const $ = s => document.querySelector(s), $$ = s => document.querySelectorAll(s), $id = id => document.getElementById(id);
     const onReady = fn => { if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', fn, { once: true }); else fn(); };
-    function setupUpdateButtonHandlers() {
-      const btn = $id('littlewhitebox-update-extension'); if (!btn) return;
-      const b = btn.cloneNode(true); btn.parentNode.replaceChild(b, btn);
-      b.addEventListener('mouseenter', function () { if (!this.classList.contains('updating')) { this.style.backgroundColor = 'rgba(40,167,69,.1)'; this.style.transform = 'scale(1.1)'; } });
-      b.addEventListener('mouseleave', function () { if (!this.classList.contains('updating')) { this.style.backgroundColor = 'transparent'; this.style.transform = 'scale(1)'; } });
-      b.addEventListener('click', async function (e) {
-        e.preventDefault(); e.stopPropagation();
-        const originalTitle = this.title || '下载并安装小白X的更新';
-        this.classList.add('updating');
-        this.style.pointerEvents = 'none';
-        this.style.opacity = '.7';
-        try {
-          let ok = false;
-          if (window.updateLittleWhiteBoxExtension) ok = await window.updateLittleWhiteBoxExtension();
-          else console.error('[小白X] 更新函数不可用');
-          if (!ok) this.title = originalTitle;
-        } catch {
-          this.title = originalTitle;
-        } finally {
-          this.classList.remove('updating');
-          this.style.pointerEvents = '';
-          this.style.opacity = '';
-        }
-      });
-    }
-    window.setupUpdateButtonInSettings = setupUpdateButtonHandlers;
-
     function setupXBtnPositionButton() {
       const KEY = 'xiaobaix_x_btn_position';
       const LABEL = { 'edit-right': 'X按钮:左', 'name-left': 'X按钮:右' };

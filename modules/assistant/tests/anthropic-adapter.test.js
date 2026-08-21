@@ -3,12 +3,10 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 
 import {
-    ANTHROPIC_FORCED_TOOL_REASONING_NOTICE,
     AnthropicAdapter,
     buildAnthropicMessages,
     resolveAnthropicToolChoice,
 } from '../../agent-core/adapters/anthropic.js';
-import { ReasoningCapabilityError } from '../../agent-core/reasoning-capabilities.js';
 
 const readTool = {
     type: 'function',
@@ -99,7 +97,7 @@ test('Anthropic adaptive reasoning keeps mode, effort, and output visibility ind
     assert.deepEqual(offBody.thinking, { type: 'disabled' });
 });
 
-test('Anthropic manual reasoning uses a validated token budget', () => {
+test('older Claude names use the latest adaptive reasoning contract', () => {
     const adapter = new AnthropicAdapter({
         apiKey: 'test-key',
         baseUrl: 'https://anthropic.example',
@@ -108,25 +106,16 @@ test('Anthropic manual reasoning uses a validated token budget', () => {
     const task = {
         messages: [{ role: 'user', content: 'think' }],
         maxTokens: 16000,
-        reasoning: { mode: 'on', budgetTokens: 8192, output: 'hide' },
+        reasoning: { mode: 'on', effort: 'high', budgetTokens: 8192, output: 'hide' },
     };
     assert.deepEqual(adapter.buildRequestBody(task).thinking, {
-        type: 'enabled',
-        budget_tokens: 8192,
+        type: 'adaptive',
         display: 'omitted',
     });
-    assert.throws(
-        () => adapter.buildRequestBody({
-            ...task,
-            reasoning: { ...task.reasoning, budgetTokens: 16000 },
-        }),
-        (error) => error instanceof ReasoningCapabilityError
-            && error.code === 'REASONING_CONFIG_INVALID'
-            && /必须小于最大输出 Token/.test(error.message),
-    );
+    assert.deepEqual(adapter.buildRequestBody(task).output_config, { effort: 'high' });
 });
 
-test('Anthropic manual reasoning yields to a forced tool contract for this request only', () => {
+test('Anthropic latest adaptive reasoning remains enabled with a forced tool contract', () => {
     const adapter = new AnthropicAdapter({
         apiKey: 'test-key',
         baseUrl: 'https://anthropic.example',
@@ -145,21 +134,23 @@ test('Anthropic manual reasoning yields to a forced tool contract for this reque
         toolChoice: 'required',
         temperature: 0.4,
         maxTokens: 1024,
-        reasoning: { mode: 'on', budgetTokens: 8192, output: 'show' },
+        reasoning: { mode: 'on', effort: 'high', output: 'show' },
     };
 
     const body = adapter.buildRequestBody(task);
     assert.deepEqual(body.tool_choice, { type: 'any' });
-    assert.deepEqual(body.thinking, { type: 'disabled' });
-    assert.equal(body.temperature, 0.4);
+    assert.deepEqual(body.thinking, { type: 'adaptive', display: 'summarized' });
+    assert.deepEqual(body.output_config, { effort: 'high' });
+    assert.equal(Object.hasOwn(body, 'temperature'), false);
 
     const inspection = adapter.inspectRequest(task, { body });
-    assert.deepEqual(inspection.notices, [ANTHROPIC_FORCED_TOOL_REASONING_NOTICE]);
+    assert.equal(inspection.notices, undefined);
     assert.equal(inspection.effectiveConfig.reasoningRequestedMode, 'on');
-    assert.equal(inspection.effectiveConfig.reasoningEffectiveMode, 'off');
-    assert.equal(inspection.effectiveConfig.reasoningOutputVisible, false);
+    assert.equal(inspection.effectiveConfig.reasoningEffectiveMode, 'on');
+    assert.equal(inspection.effectiveConfig.reasoningOutputVisible, true);
     assert.deepEqual(inspection.effectiveConfig.reasoningControlFields, {
-        thinking: { type: 'disabled' },
+        thinking: { type: 'adaptive', display: 'summarized' },
+        output_config: { effort: 'high' },
     });
 });
 

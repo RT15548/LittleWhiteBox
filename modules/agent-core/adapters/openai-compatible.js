@@ -4,6 +4,7 @@ import {
     buildSdkRequestInspection,
 } from './request-inspection.js';
 import {
+    resolveModelFamily,
     resolveTaskReasoning,
     shouldOmitTemperatureForReasoning,
 } from '../reasoning-capabilities.js';
@@ -351,7 +352,25 @@ export function isClaudeLikeModel(model = '') {
 }
 
 function usesMaxCompletionTokens(model = '') {
-    return /^o(?:1|3|4)(?:-|$)/i.test(String(model || '').trim());
+    return resolveModelFamily(model) === 'openai';
+}
+
+export function applyOpenAICompatibleReasoningControls(body = {}, reasoning = {}) {
+    if (reasoning.mode !== 'on' && reasoning.mode !== 'off') return body;
+
+    if (reasoning.profileId === 'kimi-k3') {
+        body.reasoning_effort = reasoning.mode === 'off' ? 'off' : reasoning.effort;
+        return body;
+    }
+    if (reasoning.profileId === 'deepseek-thinking') {
+        body.thinking = { type: reasoning.mode === 'off' ? 'disabled' : 'enabled' };
+        if (reasoning.mode === 'on') body.reasoning_effort = reasoning.effort;
+        return body;
+    }
+    if (String(reasoning.profileId || '').startsWith('openai-')) {
+        body.reasoning_effort = reasoning.mode === 'off' ? 'none' : reasoning.effort;
+    }
+    return body;
 }
 
 export function normalizeFinalClaudeLikeMessageRole(messages = [], model = '') {
@@ -936,19 +955,7 @@ export class OpenAICompatibleAdapter {
         ) && typeof task.temperature === 'number') {
             body.temperature = task.temperature;
         }
-        if (reasoning.mode === 'on' || reasoning.mode === 'off') {
-            if (reasoning.profileId.startsWith('openai-') || reasoning.profileId === 'kimi-k3') {
-                body.reasoning_effort = reasoning.mode === 'off'
-                    ? (reasoning.profileId === 'kimi-k3' ? 'off' : 'none')
-                    : reasoning.effort;
-            } else if (reasoning.profileId === 'kimi-k2.5-k2.6') {
-                body.thinking = { type: reasoning.mode === 'off' ? 'disabled' : 'enabled' };
-            } else if (reasoning.profileId === 'deepseek-thinking') {
-                body.thinking = { type: reasoning.mode === 'off' ? 'disabled' : 'enabled' };
-                if (reasoning.mode === 'on') body.reasoning_effort = reasoning.effort;
-            }
-        }
-        return body;
+        return applyOpenAICompatibleReasoningControls(body, reasoning);
     }
 
     inspectRequest(task, options = {}) {

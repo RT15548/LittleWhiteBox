@@ -70,6 +70,7 @@ async function main() {
         diffuseRecallRuntimeL0,
         getRecallRuntimeStats,
         clearRecallRuntime,
+        shutdownRecallRuntime,
     } = runtimeModule;
     const {
         scoreAnchorsFromStateVectors,
@@ -113,6 +114,12 @@ async function main() {
     runtimeModule.markRecallRuntimeDirty(chatId, 'runtime-check-during-session');
     const endStats = await endRecallRuntimeSession(lease);
     const dirtyStats = getRecallRuntimeStats().find((item) => item.chatId === chatId) || {};
+    const shutdownLease = await beginRecallRuntimeSession(chatId, { reason: 'runtime-shutdown-check' });
+    await shutdownRecallRuntime();
+    await endRecallRuntimeSession(shutdownLease);
+    const shutdownStats = getRecallRuntimeStats()[0] || {};
+    const restartedLease = await beginRecallRuntimeSession(chatId, { reason: 'runtime-restart-check' });
+    const restartEndStats = await endRecallRuntimeSession(restartedLease);
     const offenders = await assertNoBusinessVectorCacheImports();
 
     const l1Stats = l1._stats || {};
@@ -134,6 +141,8 @@ async function main() {
         ['retainClearProtectActiveSession', top?.chunkId === 'c-1-0' && anchors?.scores?.length > 0 && events?.scores?.length > 0],
         ['sessionReleased', endStats?.status === 'session-cache idle' && !endStats.chunkVectors && !endStats.eventVectors && !endStats.stateVectors],
         ['dirtyRetainedDuringSession', dirtyStats.dirtyReason === 'runtime-check-during-session'],
+        ['runtimeShutdown', !!shutdownLease?.ready && shutdownStats.backend === 'uninitialized' && !shutdownStats.chunkVectors && !shutdownStats.eventVectors && !shutdownStats.stateVectors],
+        ['runtimeRestart', !!restartedLease?.ready && restartEndStats?.status === 'session-cache idle'],
         ['cacheOwner', ['worker', 'runtime-main'].includes(String(stats.owner || l1Stats.cacheOwner || ''))],
         ['noBusinessVectorCacheImports', offenders.length === 0],
     ];
@@ -151,10 +160,11 @@ async function main() {
     console.log(`promptParity=${promptParity}`);
     console.log(`sessionRelease=${endStats?.status === 'session-cache idle' ? 'PASS' : 'FAIL'}`);
     console.log(`dirtyDuringSession=${dirtyStats.dirtyReason === 'runtime-check-during-session' ? 'PASS' : 'FAIL'}`);
+    console.log(`runtimeRestart=${restartedLease?.ready && restartEndStats?.status === 'session-cache idle' ? 'PASS' : 'FAIL'}`);
     console.log(`vectorCacheImports=${offenders.length ? `FAIL ${offenders.join(', ')}` : 'PASS'}`);
     console.log(`result=${failed.length ? 'FAIL' : 'PASS'}`);
 
-    await clearRecallRuntime(chatId);
+    await shutdownRecallRuntime();
 
     if (failed.length) {
         console.error('failed checks:');

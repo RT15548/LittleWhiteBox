@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { SillyTavernClaudeAdapter, HOST_CLAUDE_FORCED_TOOL_REASONING_NOTICE } from '../../agent-core/adapters/sillytavern-claude.js';
+import { SillyTavernClaudeAdapter } from '../../agent-core/adapters/sillytavern-claude.js';
 import { SillyTavernGoogleAdapter } from '../../agent-core/adapters/sillytavern-google.js';
 import { SillyTavernOpenAICompatibleAdapter } from '../../agent-core/adapters/sillytavern-openai-compatible.js';
 import { normalizeAnthropicSdkBaseUrl } from '../../agent-core/adapters/anthropic.js';
@@ -56,7 +56,7 @@ test('SillyTavern hosted Claude and Google always include and deduplicate system
     }
 });
 
-test('hosted Claude translates required toolChoice to Anthropic any and guards manual thinking', () => {
+test('hosted Claude translates required toolChoice and uses the latest adaptive family contract', () => {
     const tools = [{ type: 'function', function: { name: 'submit_scene_plan', parameters: {} } }];
     const baseTask = {
         systemPrompt: 'Scene Planner',
@@ -105,38 +105,28 @@ test('hosted Claude translates required toolChoice to Anthropic any and guards m
         ...baseTask,
         reasoning: { mode: 'on', effort: 'high', output: 'show' },
     };
-    // Manual (budgeted) thinking conflicts with a forced tool; the tool contract wins.
-    const manual = new SillyTavernClaudeAdapter({ model: 'claude-sonnet-4-5' });
-    const manualProtocol = manual.resolveToolProtocol(reasoningTask);
-    assert.equal(manualProtocol.reasoningDisabledForForcedTool, true);
-    assert.equal(manual.buildPayload(reasoningTask).reasoning_effort, 'auto');
-    assert.equal(manual.buildPayload(reasoningTask).temperature, 0.5);
-    const manualInspection = manual.buildRequestInspection({ url: '/x' }, manualProtocol, reasoningTask);
-    assert.deepEqual(
-        manualInspection.notices,
-        [HOST_CLAUDE_FORCED_TOOL_REASONING_NOTICE],
-    );
-    assert.deepEqual(manualInspection.effectiveConfig, {
+    const olderClaude = new SillyTavernClaudeAdapter({ model: 'claude-sonnet-4-5' });
+    const olderProtocol = olderClaude.resolveToolProtocol(reasoningTask);
+    assert.deepEqual(olderProtocol, {
+        toolChoice: 'any',
+        reasoningDisabledForForcedTool: false,
+    });
+    assert.equal(olderClaude.buildPayload(reasoningTask).reasoning_effort, 'high');
+    assert.equal(Object.hasOwn(olderClaude.buildPayload(reasoningTask), 'temperature'), false);
+    const olderInspection = olderClaude.buildRequestInspection({ url: '/x' }, olderProtocol, reasoningTask);
+    assert.equal(olderInspection.notices, undefined);
+    assert.deepEqual(olderInspection.effectiveConfig, {
         toolChoice: 'any',
         reasoningRequestedMode: 'on',
         reasoningRequestedOutput: 'show',
-        reasoningProfileId: 'sillytavern-claude-manual',
-        reasoningEffectiveMode: 'off',
-        reasoningEffort: '',
+        reasoningProfileId: 'sillytavern-claude-adaptive',
+        reasoningEffectiveMode: 'on',
+        reasoningEffort: 'high',
         reasoningBudgetTokens: null,
         reasoningControlFields: {},
-        reasoningOutputVisible: false,
+        reasoningOutputVisible: true,
     });
-    // Claude 4.6 adaptive thinking depends on host config the client cannot observe.
-    assert.equal(
-        new SillyTavernClaudeAdapter({ model: 'claude-opus-4-6' })
-            .resolveToolProtocol(reasoningTask).reasoningDisabledForForcedTool,
-        true,
-    );
-
-    // Confirmed adaptive thinking supports forced tool use, so reasoning is preserved.
     const adaptive = new SillyTavernClaudeAdapter({ model: 'claude-opus-4-7' });
-    assert.equal(adaptive.resolveToolProtocol(reasoningTask).reasoningDisabledForForcedTool, false);
     assert.equal(adaptive.buildPayload(reasoningTask).reasoning_effort, 'high');
     const adaptiveInspection = adaptive.buildRequestInspection(
         { url: '/x' },
@@ -155,10 +145,12 @@ test('hosted Claude translates required toolChoice to Anthropic any and guards m
         reasoningControlFields: {},
         reasoningOutputVisible: true,
     });
-    // A non-forced tool choice never touches reasoning.
-    assert.equal(
-        manual.resolveToolProtocol({ ...reasoningTask, toolChoice: 'auto' }).reasoningDisabledForForcedTool,
-        false,
+    assert.deepEqual(
+        olderClaude.resolveToolProtocol({ ...reasoningTask, toolChoice: 'auto' }),
+        {
+            toolChoice: 'auto',
+            reasoningDisabledForForcedTool: false,
+        },
     );
 });
 
@@ -191,23 +183,14 @@ test('hosted adapters encode inherit, on, and off at their own protocol boundary
     assert.equal(googleInherit.include_reasoning, true);
     const googleOn = google.buildPayload({
         messages,
-        reasoning: { mode: 'on', effort: 'max', output: 'show' },
+        reasoning: { mode: 'on', effort: 'high', output: 'show' },
     });
-    assert.equal(googleOn.reasoning_effort, 'max');
+    assert.equal(googleOn.reasoning_effort, 'high');
     assert.equal(googleOn.include_reasoning, true);
-    assert.deepEqual(
-        {
-            reasoning_effort: google.buildPayload({
-                messages,
-                reasoning: { mode: 'off', output: 'show' },
-            }).reasoning_effort,
-            include_reasoning: google.buildPayload({
-                messages,
-                reasoning: { mode: 'off', output: 'show' },
-            }).include_reasoning,
-        },
-        { reasoning_effort: 'min', include_reasoning: false },
-    );
+    assert.throws(() => google.buildPayload({
+        messages,
+        reasoning: { mode: 'off', output: 'show' },
+    }), /不支持显式关闭 Reasoning/);
 
     const openai = new SillyTavernOpenAICompatibleAdapter({ model: 'gpt-5.2' });
     const openaiInherit = openai.buildPayload({
@@ -223,6 +206,34 @@ test('hosted adapters encode inherit, on, and off at their own protocol boundary
         messages,
         reasoning: { mode: 'off', output: 'hide' },
     }).reasoning_effort, 'none');
+
+    const kimi = new SillyTavernOpenAICompatibleAdapter({ model: 'relay/kimi-k2.6' });
+    assert.equal(kimi.buildPayload({
+        messages,
+        reasoning: { mode: 'off', output: 'hide' },
+    }).reasoning_effort, 'off');
+
+    const deepSeek = new SillyTavernOpenAICompatibleAdapter({ model: 'relay/DeepSeek-custom' });
+    assert.deepEqual(deepSeek.buildPayload({
+        messages,
+        reasoning: { mode: 'off', output: 'hide' },
+    }).thinking, { type: 'disabled' });
+
+    const localModel = new SillyTavernOpenAICompatibleAdapter({
+        model: 'TheBloke/Llama-2-7B-GPTQ',
+    });
+    const localPayload = localModel.buildPayload({
+        messages,
+        tools: [{ type: 'function', function: { name: 'submit_scene_plan', parameters: {} } }],
+        toolChoice: 'required',
+        maxTokens: 2048,
+        reasoning: { mode: 'on', effort: 'high', output: 'hide' },
+    });
+    assert.equal(localPayload.tool_choice, 'required');
+    assert.equal(localPayload.tools[0].function.name, 'submit_scene_plan');
+    assert.equal(localPayload.reasoning_effort, 'high');
+    assert.equal(localPayload.max_tokens, 2048);
+    assert.equal(Object.hasOwn(localPayload, 'max_completion_tokens'), false);
 });
 
 function createSseResponse(events = [], delimiter = '\n\n') {
@@ -304,6 +315,33 @@ test('host OpenAI-compatible payloads use SillyTavern backend fields without lea
     );
     assert.equal(oSeriesPayload.max_completion_tokens, 4321);
     assert.equal(Object.hasOwn(oSeriesPayload, 'max_tokens'), false);
+
+    const olderGptPayload = buildHostOpenAICompatibleGeneratePayload(
+        { model: 'relay/gpt-4o-mini' },
+        { maxTokens: 2048 },
+        [{ role: 'user', content: 'hello' }],
+        false,
+    );
+    assert.equal(olderGptPayload.max_completion_tokens, 2048);
+    assert.equal(Object.hasOwn(olderGptPayload, 'max_tokens'), false);
+
+    const localGptqPayload = buildHostOpenAICompatibleGeneratePayload(
+        { model: 'TheBloke/Llama-2-7B-GPTQ' },
+        { maxTokens: 2048 },
+        [{ role: 'user', content: 'hello' }],
+        false,
+    );
+    assert.equal(localGptqPayload.max_tokens, 2048);
+    assert.equal(Object.hasOwn(localGptqPayload, 'max_completion_tokens'), false);
+
+    const prefixedDeepSeekPayload = buildHostOpenAICompatibleGeneratePayload(
+        { model: 'openai/relay/DeepSeek-custom' },
+        { maxTokens: 2048 },
+        [{ role: 'user', content: 'hello' }],
+        false,
+    );
+    assert.equal(prefixedDeepSeekPayload.max_tokens, 2048);
+    assert.equal(Object.hasOwn(prefixedDeepSeekPayload, 'max_completion_tokens'), false);
 });
 
 test('OpenAI-compatible native messages keep task system prompt in the actual request', async () => {

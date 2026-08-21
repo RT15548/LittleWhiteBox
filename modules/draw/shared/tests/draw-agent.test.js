@@ -151,7 +151,7 @@ test('draw agent reads the latest main preset every request and never selects de
     assert.deepEqual(captured.providerConfigs.map((config) => config.model), ['gpt-5.6', 'gpt-5.6-2026-08-07']);
     assert.equal(captured.providerConfigs.some((config) => config.model === 'delegate-model'), false);
     assert.equal(captured.tasks[0].toolChoice, 'required');
-    assert.equal(captured.tasks[0].allowToolProtocolFallback, false);
+    assert.equal(Object.hasOwn(captured.tasks[0], 'allowToolProtocolFallback'), false);
     assert.equal(Object.hasOwn(captured.tasks[0], 'onStreamProgress'), false);
     assert.equal(captured.tasks[0].temperature, 0.4);
     assert.equal(captured.tasks[0].maxTokens, 4567);
@@ -478,12 +478,12 @@ test('draw diagnostics use adapter-effective reasoning and isolate notices by re
                 toolChoice: 'any',
                 reasoningRequestedMode: 'on',
                 reasoningRequestedOutput: 'hide',
-                reasoningProfileId: 'sillytavern-claude-manual',
-                reasoningEffectiveMode: 'off',
-                reasoningEffort: '',
+                reasoningProfileId: 'sillytavern-claude-adaptive',
+                reasoningEffectiveMode: 'on',
+                reasoningEffort: 'high',
                 reasoningBudgetTokens: null,
                 reasoningControlFields: { reasoning_effort: 'auto' },
-                reasoningOutputVisible: false,
+                reasoningOutputVisible: true,
             },
         }),
     });
@@ -491,9 +491,9 @@ test('draw diagnostics use adapter-effective reasoning and isolate notices by re
     const diagnostic = getLastDrawAgentDiagnostic();
     assert.equal(diagnostic.status, 'running');
     assert.equal(diagnostic.reasoningRequestedMode, 'on');
-    assert.equal(diagnostic.reasoningEffectiveMode, 'off');
-    assert.equal(diagnostic.reasoningEffort, '');
-    assert.equal(diagnostic.reasoningOutputVisible, false);
+    assert.equal(diagnostic.reasoningEffectiveMode, 'on');
+    assert.equal(diagnostic.reasoningEffort, 'high');
+    assert.equal(diagnostic.reasoningOutputVisible, true);
     assert.deepEqual(diagnostic.reasoningControlFields, { reasoning_effort: 'auto' });
     assert.equal(diagnostic.toolChoice, 'any');
     assert.deepEqual(diagnostic.notices, [notice]);

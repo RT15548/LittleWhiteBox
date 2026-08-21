@@ -185,14 +185,16 @@ test('shared Agent reasoning controls follow the selected Provider and model wit
         assert.equal(modelInput.value, 'unknown-compatible-model');
         assert.equal(modelInput.selectionStart, 7);
         assert.equal(root.querySelector('#xb-assistant-reasoning-mode').value, 'on');
-        assert.equal(root.querySelector('#xb-assistant-reasoning-mode option[value="on"]').disabled, true);
-        assert.equal(root.querySelector('#xb-assistant-reasoning-mode option[value="off"]').disabled, true);
+        assert.equal(root.querySelector('#xb-assistant-reasoning-mode option[value="on"]').disabled, false);
+        assert.equal(root.querySelector('#xb-assistant-reasoning-mode option[value="off"]').disabled, false);
         assert.equal(root.querySelector('#xb-assistant-reasoning-output').value, 'hide');
-        assert.equal(root.querySelector('#xb-assistant-reasoning-output option[value="show"]').disabled, true);
+        assert.equal(root.querySelector('#xb-assistant-reasoning-output option[value="show"]').disabled, false);
         assert.deepEqual(
-            Array.from(root.querySelector('#xb-assistant-reasoning-effort').options),
-            [],
+            Array.from(root.querySelector('#xb-assistant-reasoning-effort').options)
+                .map((option) => option.value),
+            ['low', 'medium', 'high'],
         );
+        assert.equal(root.querySelector('#xb-assistant-reasoning-effort').value, 'medium');
 
         modelInput.value = 'gpt-5.6';
         modelInput.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
@@ -202,7 +204,7 @@ test('shared Agent reasoning controls follow the selected Provider and model wit
             ['low', 'medium', 'high', 'xhigh', 'max'],
         );
         assert.equal(root.querySelector('#xb-assistant-reasoning-mode').value, 'on');
-        assert.equal(root.querySelector('#xb-assistant-reasoning-effort').value, 'max');
+        assert.equal(root.querySelector('#xb-assistant-reasoning-effort').value, 'medium');
         assert.equal(root.querySelector('#xb-assistant-reasoning-output option[value="show"]').disabled, false);
     } finally {
         dom.restore();
@@ -276,19 +278,19 @@ test('shared Agent Provider switching keeps each Provider model and Reasoning dr
     }
 });
 
-test('shared Agent settings reject a Reasoning budget outside the selected model contract', () => {
+test('shared Agent settings keep explicit Reasoning usable for a custom OpenAI-compatible model name', () => {
     const dom = installDom();
     const root = dom.document.querySelector('#root');
     const stored = buildStoredSettings({
         presets: {
             ...buildStoredSettings().presets,
             主配置: {
-                provider: 'google',
+                provider: 'openai-compatible',
                 modelConfigs: {
-                    google: {
-                        model: 'gemini-2.5-flash',
-                        apiKey: 'google-key',
-                        reasoning: { mode: 'on', budgetTokens: -1, output: 'hide' },
+                    'openai-compatible': {
+                        model: 'relay/gpt-custom',
+                        apiKey: 'compatible-key',
+                        reasoning: { mode: 'on', effort: 'high', output: 'hide' },
                     },
                 },
             },
@@ -319,13 +321,17 @@ test('shared Agent settings reject a Reasoning budget outside the selected model
         panel.syncConfigToForm(root);
         panel.bindSettingsPanelEvents(root);
 
-        const budgetInput = root.querySelector('#xb-assistant-reasoning-budget');
-        budgetInput.value = '0';
-        budgetInput.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+        const modelInput = root.querySelector('#xb-assistant-model');
+        modelInput.value = 'custom-model-without-family-name';
+        modelInput.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
         root.querySelector('#xb-assistant-save').click();
 
-        assert.equal(saves.length, 0);
-        assert.match(toasts.at(-1), /预设“主配置”.*1–24576.*-1/);
+        assert.equal(saves.length, 1);
+        assert.equal(toasts.length, 0);
+        assert.equal(
+            saves[0]?.config?.presets?.主配置?.modelConfigs?.['openai-compatible']?.model,
+            'custom-model-without-family-name',
+        );
     } finally {
         dom.restore();
     }
@@ -341,9 +347,9 @@ test('shared Agent settings validate hidden preset Reasoning before saving', () 
                 provider: 'google',
                 modelConfigs: {
                     google: {
-                        model: 'gemini-2.5-flash',
+                        model: 'private-google-model-alias',
                         apiKey: 'google-key',
-                        reasoning: { mode: 'on', budgetTokens: 0, output: 'hide' },
+                        reasoning: { mode: 'off', output: 'hide' },
                     },
                 },
             },
@@ -376,7 +382,7 @@ test('shared Agent settings validate hidden preset Reasoning before saving', () 
         root.querySelector('#xb-assistant-save').click();
 
         assert.equal(saves.length, 0);
-        assert.match(toasts.at(-1), /预设“隐藏配置”.*1–24576/);
+        assert.match(toasts.at(-1), /预设“隐藏配置”.*不支持显式关闭 Reasoning/);
     } finally {
         dom.restore();
     }
@@ -392,9 +398,9 @@ test('preset deletion runs full Reasoning validation before committing', () => {
                 provider: 'google',
                 modelConfigs: {
                     google: {
-                        model: 'gemini-2.5-flash',
+                        model: 'private-google-model-alias',
                         apiKey: 'google-key',
-                        reasoning: { mode: 'on', budgetTokens: 0, output: 'hide' },
+                        reasoning: { mode: 'off', output: 'hide' },
                     },
                 },
             },
@@ -429,7 +435,7 @@ test('preset deletion runs full Reasoning validation before committing', () => {
         assert.equal(saves.length, 0);
         assert.equal(state.config.currentPresetName, '主配置');
         assert.equal(Object.hasOwn(state.config.presets, '主配置'), true);
-        assert.match(toasts.at(-1), /预设“隐藏配置”.*1–24576/);
+        assert.match(toasts.at(-1), /预设“隐藏配置”.*不支持显式关闭 Reasoning/);
     } finally {
         dom.restore();
     }
@@ -440,13 +446,13 @@ test('shared Agent settings validate delegate Reasoning before saving', () => {
     const root = dom.document.querySelector('#root');
     const stored = buildStoredSettings({
         delegateConfig: {
-            provider: 'anthropic',
+            provider: 'google',
             modelConfigs: {
-                anthropic: {
-                    model: 'claude-sonnet-4-5',
-                    apiKey: 'anthropic-key',
+                google: {
+                    model: 'private-google-model-alias',
+                    apiKey: 'google-key',
                     maxTokens: 8192,
-                    reasoning: { mode: 'on', budgetTokens: 8192, output: 'hide' },
+                    reasoning: { mode: 'off', output: 'hide' },
                 },
             },
         },
@@ -478,7 +484,7 @@ test('shared Agent settings validate delegate Reasoning before saving', () => {
         root.querySelector('#xb-assistant-save').click();
 
         assert.equal(saves.length, 0);
-        assert.match(toasts.at(-1), /分身模型.*必须小于最大输出 Token/);
+        assert.match(toasts.at(-1), /分身模型.*不支持显式关闭 Reasoning/);
     } finally {
         dom.restore();
     }

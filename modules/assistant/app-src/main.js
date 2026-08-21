@@ -1794,13 +1794,11 @@ function bindEvents(root) {
 
     root.querySelector('#xb-assistant-sidebar-toggle')?.addEventListener('click', () => {
         state.sidebarCollapsed = !state.sidebarCollapsed;
-        persistSession();
         render();
     });
 
     root.querySelector('#xb-assistant-mobile-settings')?.addEventListener('click', () => {
         state.sidebarCollapsed = !state.sidebarCollapsed;
-        persistSession();
         render();
     });
 
@@ -1834,7 +1832,6 @@ function bindEvents(root) {
     root.querySelector('#xb-assistant-mobile-backdrop')?.addEventListener('click', () => {
         if (state.sidebarCollapsed) return;
         state.sidebarCollapsed = true;
-        persistSession();
         render();
     });
 

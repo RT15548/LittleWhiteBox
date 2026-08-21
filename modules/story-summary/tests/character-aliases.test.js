@@ -8,6 +8,7 @@ import {
     canonicalizeIncrementalSummaryData,
     formatCharacterAliasTableForAI,
     mergeCharacterAliasEdges,
+    normalizeUserIdentityKey,
 } from '../data/character-aliases.js';
 
 function baseSummary() {
@@ -193,4 +194,12 @@ test('alias table formats canonical groups for prompt context', () => {
     });
 
     assert.equal(text, '- 李玄清：道长、某某先生');
+});
+
+test('USER identity normalization ignores internal whitespace and invisible characters', () => {
+    const expected = normalizeUserIdentityKey('蓝袖');
+
+    assert.equal(normalizeUserIdentityKey(' 蓝  袖 '), expected);
+    assert.equal(normalizeUserIdentityKey('蓝\u200B袖'), expected);
+    assert.equal(normalizeUserIdentityKey('ＢＬＵＥ'), normalizeUserIdentityKey('blue'));
 });

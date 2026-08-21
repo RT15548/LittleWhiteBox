@@ -18,7 +18,7 @@
 - `toolChoice` 固定为 `required`。
 - 单次请求、单次 Tool Call、收到参数即终止；不运行 Agent 多轮工具循环，不回传 Tool result。
 - 不流式生成，不使用 assistant prefill，不保存会话或规划状态。
-- 原生 Tool Calling 不可用时，由用户在共享 Agent API 配置中选择 `Tagged JSON 兼容模式`；画图不自动切换模式，也不偷偷重试第二种协议。
+- Tool 协议完全复用 AgentCore：共享预设选择原生或 Tagged JSON，托管 OpenAI 兼容路径保留 AgentCore 已有的协议回退；画图层不另写 Tool 能力判断、请求器或解析器。
 - Tool 参数通过契约校验后直接转换为现有图片任务，后续 NovelAI、SD WebUI、ComfyUI 出图链路保持不变。
 - YAML、Markdown fence、截断猜测、清洗解析和解析失败后整轮重试全部退出画图 Scene Planner。
 
@@ -666,11 +666,7 @@ Prompt 中仍保留自然语言数量要求，Schema 再做协议约束。两者
 | `none` | `none` |
 | 指定 Tool 名 | 宿主传输无法表达，本地报错 |
 
-Anthropic 的 manual（预算式）extended thinking 与强制工具选择不兼容。Tool 契约优先：
-
-- 命中酒馆 thinking 模型正则且不能确认是 adaptive 时，本次请求关闭 reasoning，并在 requestInspection / 诊断 / UI 上标记「因强制 Tool 关闭」。
-- 只有确认为 adaptive thinking 的模型（`claude-opus-4-7`）保留 reasoning。
-- Claude 4.6 是否 adaptive 取决于宿主 `claude.enableAdaptiveThinking` 配置，客户端无法确认，按 manual 保守处理。
+Claude 全族按当前最新 adaptive thinking 契约处理，不再按具体版本拆成 manual/adaptive 分支。强制 Tool 仍使用合法的 `any`，Reasoning 不因型号字符串被静默关闭。
 
 ### 9.5 Reasoning 能力与展示边界
 
@@ -686,11 +682,18 @@ reasoning: {
 ```
 
 - `inherit` 不发送控制字段；`off` 必须发送该模型已验证的关闭协议，不能退化成 `inherit`。
-- 能力由 `Provider + 传输方式 + 模型` 共同解析。未知组合只能使用 `inherit`，显式 `on/off` 在请求前失败。
-- Kimi K3、Kimi K2.5/K2.6、DeepSeek、OpenAI、Claude 与 Gemini 各自由 Adapter 编码自己的控制字段，不在通用 Host helper 中映射。
-- Anthropic 直连与托管 Claude 的 manual thinking 遇到强制 Tool 时均以工具契约优先，仅关闭本次请求的 Reasoning 并留下诊断；adaptive thinking 不受影响。
+- 能力以 Provider/传输的通用协议为默认值，不设模型支持白名单：OpenAI-compatible 的本地模型、自定义名和未识别别名均可正常使用 Tool，并以通用 `reasoning_effort` 契约处理 Reasoning。模型名只做不区分大小写的族名包含匹配，命中 Kimi、DeepSeek、Gemini、Claude、GPT 等特殊族时才覆盖控制字段；绝不根据 Base URL 推断能力。限制只来自所选 Provider 协议本身，例如当前 Google 最新协议不提供显式 `off`，不能由模型名称猜测。
+- 同一模型族统一采用该族的最新控制协议：Kimi 全族按 K3，GPT/O 系列按 GPT 5.6，DeepSeek、Claude 与 Gemini 也不再按具体版本号拆分。GPT 只按独立族名 token 识别，不能把本地量化格式 `GPTQ` 误判成 GPT 模型。
+- 控制字段只在对应 Adapter 边界编码。直连与 SillyTavern 托管的 OpenAI-compatible 路径共用同一份族协议翻译，避免 Kimi、DeepSeek 等模型在两条路径发出不同字段。
+- Claude 全族按 adaptive thinking 处理，强制 Tool 不再触发旧 manual thinking 降级分支。
 - `output` 只控制界面展示。`hide` 在流式与非流式结果中都不暴露思考文本，但原始 Provider payload、thinking block、签名和 Responses output 仍保留给本轮 Tool loop 续传。
 - Provider 拒绝 Reasoning 参数时原错误直接返回，不删除参数静默重试。
+
+### 9.6 OpenAI Compatible Tool 返回解析
+
+原生 Tool 请求始终发送 `tools + tool_choice`，Tool 能力不由模型白名单判定。响应解析、流式累积、Tool Call ID、参数修复、签名保留和回放完全沿用 AgentCore 现有实现；Draw 不扩展返回协议形状，也不维护自己的解析器。
+
+`TOOL_CALL_MISSING` 只表示本次响应没有解析出 Tool Call，不能据此宣称模型不支持 Tool，也不能直接要求用户切换 Tagged JSON。画图不覆盖 AgentCore 的协议处理，也不自行增加第二套 Tool 兼容逻辑。
 
 
 ## 10. 设置与数据清理
@@ -760,7 +763,7 @@ NovelAI、SD WebUI、ComfyUI 原有 Scene Planner LLM 页面删除：
 
 原生 Tool Calling 模式显示固定说明：
 
-> 当前模型必须支持 Tool Calling；若不支持，请在共享 Agent API 配置中切换为 Tagged JSON 兼容模式。
+> 原生模式会直接发送 Tool Schema；是否成功以本次 Provider 返回为准，不使用本地模型白名单预判。
 
 页面每次打开及每次规划前刷新摘要，不保存摘要副本。
 
@@ -805,9 +808,9 @@ NovelAI、SD WebUI、ComfyUI 原有 Scene Planner LLM 页面删除：
 | `TOOL_ARGUMENTS_SCHEMA_INVALID` | 参数不满足 Schema/领域语义。 |
 | `NO_IMAGE_TASKS` | `images` 为空。 |
 
-原生 OpenAI 兼容模式没有返回 Tool Call 时，固定提示：
+原生 OpenAI 兼容模式没有解析到 Tool Call 时，固定提示：
 
-> 当前模型没有返回 Tool Call。请在共享 Agent API 配置中切换为 Tagged JSON 兼容模式，或更换支持 Tool Calling 的模型。
+> 本次响应没有解析到 `submit_scene_plan` Tool Call。这不代表模型不支持 Tool Calling，请根据最近一次实际请求核对返回协议。
 
 其他 Provider 的 `TOOL_CALL_MISSING` 也要说明当前共享主预设与模型，不能笼统显示“解析失败”。
 
@@ -815,13 +818,11 @@ NovelAI、SD WebUI、ComfyUI 原有 Scene Planner LLM 页面删除：
 
 ### 11.1 重试策略
 
-- 删除 Scene Planner 当前的 YAML 解析失败自动重试。
-- 不因未调用 Tool 自动切换到 Tagged JSON 后再发一次请求。
-- 不因 Tool 参数无效自动要求模型“修复 JSON”。
-- 用户可在看见明确错误后手动重试。
-- Provider Adapter 自身的网络重试策略保持 AgentCore 现状，不在 Draw 叠加第二层重试。
-
-这样避免一次点击产生不可见的双倍调用和不同协议结果。
+- Scene Planner 对 Tool 缺失、Tool 名错误、重复调用和契约校验失败返回结构化纠错结果，要求模型重新提交完整计划。
+- 连续两次相同错误立即停止；错误持续变化时最多三次模型请求。
+- Provider、网络、配置、超时和用户取消不交给模型重试；整个循环共用同一个请求超时。
+- 不因未调用 Tool 自动宣称模型不支持，也不把“切换 Tagged JSON”当作错误结论。
+- Provider Adapter 自身的宿主协议兼容回退保持 AgentCore 现状，Draw 不复制第二套协议判断。
 
 ## 12. 文件级改造清单
 
@@ -1080,12 +1081,12 @@ UI 测试验证可观察 DOM/交互结果，不写读取源码 `includes` 的“
 ### 17.1 已落地终态
 
 - Draw 每次规划都读取 `LittleWhiteBox_Assistant.json/settings`，只解析 `currentPresetName` 主预设。
-- Draw 固定发送一个 `submit_scene_plan`，固定 `toolChoice: 'required'`、非流式、无 prefill、无 Tool loop，并显式设置 `allowToolProtocolFallback: false`。
-- OpenAI Compatible 的 Tagged JSON 模式由共享预设显式选择；Draw 不自动切换协议、不做第二次隐藏请求。
+- Draw 固定发送一个 `submit_scene_plan`，固定 `toolChoice: 'required'`、非流式、无 prefill、无 Tool loop；Tool 协议交给 AgentCore，不覆盖其兼容行为。
+- OpenAI Compatible 的原生/Tagged JSON 选择及托管协议回退由 AgentCore 统一负责，Draw 不维护分叉实现。
 - `draw-llm.js`、三套 `output-format.md`、三套 `output-format-legacy.md`、YAML 清洗/解析/截断恢复与独立画图 LLM 设置已经退出运行时。
 - 三套 Provider 只保留 `默认-完整规则` 与 `默认-第一人称完整规则`，并统一使用 `sceneRules`。
 - Prompt 中的 mindful prelude、anchor、已知/未知角色、服装状态、方向互动、A1~E5、Tag 配额、物理限制、世界书、NSFW 与 Provider 权重语法均保留。
-- AgentCore 已补齐 Anthropic `toolChoice`、Tagged JSON required/named/none、SillyTavern Claude/Google system Prompt 与 Draw 禁止托管协议自动回退的边界。
+- AgentCore 已补齐 Anthropic `toolChoice`、Tagged JSON required/named/none 与 SillyTavern Claude/Google system Prompt；Draw 直接复用这些边界。
 - AgentCore 浏览器入口是无 Draw 反向依赖的单文件 ESM；Draw 仅在实际规划时懒加载。
 - 三套设置页已删除独立场景 LLM Provider、URL、Key、模型、模型缓存、流式与 prefill 控件，改为共享主预设摘要、兼容模式提示和内存诊断。
 

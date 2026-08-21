@@ -13,6 +13,10 @@ import {
     toFloat32,
 } from './scoring.js';
 import { diffuseFromSeeds } from '../retrieval/diffusion.js';
+import {
+    createSessionLeaseRegistry,
+    DEFAULT_SESSION_LEASE_TTL_MS,
+} from './session-lease-registry.js';
 
 const MODULE_ID = 'recall-runtime-worker';
 
@@ -110,7 +114,13 @@ function createEntry(chatId) {
 }
 
 const entries = new Map();
-const sessionsByChatId = new Map();
+const sessionLeases = createSessionLeaseRegistry({
+    ttlMs: DEFAULT_SESSION_LEASE_TTL_MS,
+    onExpire({ chatId, leaseId, activeSessions }) {
+        if (!activeSessions) entries.delete(chatId);
+        logWarn('session expired', `chat=${chatId} lease=${leaseId} active=${activeSessions}`);
+    },
+});
 
 function createIdleStats(chatId, overrides = {}) {
     return {
@@ -297,7 +307,7 @@ function entryStats(entry) {
         chunkVectors: entry.chunkVectorsById.size,
         eventVectors: entry.eventVectorsById.size,
         stateVectors: entry.stateVectorsById.size,
-        activeSessions: sessionsByChatId.get(entry.chatId)?.leases?.size || 0,
+        activeSessions: sessionLeases.count(entry.chatId),
         timings: entry.timings || {},
     };
 }
@@ -357,6 +367,11 @@ async function refresh(chatId, reason = 'manual') {
             loadFromDBMs,
             buildEntryMs,
         };
+        if (!sessionLeases.hasChat(entry.chatId)) {
+            const expiredResult = { ready: false, stale: true, expired: true, reason, stats: createIdleStats(entry.chatId) };
+            logWarn('refresh discarded without active session', `chat=${entry.chatId} reason=${reason}`);
+            return expiredResult;
+        }
         entries.set(entry.chatId, next);
         const success = { ready: true, stale: false, reason, stats: entryStats(next) };
         logInfo('refresh success', `chat=${entry.chatId} reason=${reason} after=${compactStats(success)}`);
@@ -382,6 +397,7 @@ async function ensureReady(chatId) {
     if (entry.ready) return entry;
     logInfo('ensureReady trigger refresh', `chat=${entry.chatId} status=${entry.status} ready=${entry.ready ? 1 : 0}`);
     const result = await refresh(chatId, 'ensure-ready');
+    if (result?.expired) return null;
     if (!result?.ready) {
         logWarn('ensureReady retry', `chat=${entry.chatId} first=${compactStats(result)}`);
         await refresh(chatId, 'ensure-ready-retry');
@@ -393,29 +409,24 @@ async function beginSession(chatId, reason = 'recall') {
     const key = normalizeChatId(chatId);
     if (!key) return null;
     const startedAt = performance.now();
-    const sessionStartedAt = Date.now();
     const leaseId = createLeaseId();
-    let session = sessionsByChatId.get(key);
-    if (!session) {
-        session = { count: 0, leases: new Set(), startedAt: Date.now() };
-        sessionsByChatId.set(key, session);
-    }
-    session.count++;
-    session.leases.add(leaseId);
+    const lease = sessionLeases.add(key, leaseId);
     try {
         const entry = await ensureReady(key);
+        if (!sessionLeases.hasLease(key, leaseId)) {
+            throw new Error(`RecallRuntime session expired while loading: ${key}`);
+        }
         if (entry) {
             entry.timings = {
                 ...(entry.timings || {}),
                 beginSessionTotalMs: Math.round(performance.now() - startedAt),
             };
         }
-        logInfo('begin session', `chat=${key} lease=${leaseId} reason=${reason} active=${session.leases.size}`);
-        return { chatId: key, leaseId, ready: !!entry?.ready, startedAt: sessionStartedAt, stats: entryStats(entry) };
+        logInfo('begin session', `chat=${key} lease=${leaseId} reason=${reason} active=${sessionLeases.count(key)}`);
+        return { ...lease, ready: !!entry?.ready, stats: entryStats(entry) };
     } catch (error) {
-        session.leases.delete(leaseId);
-        session.count = Math.max(0, session.count - 1);
-        if (!session.count || !session.leases.size) sessionsByChatId.delete(key);
+        const released = sessionLeases.release(key, leaseId);
+        if (!released.activeSessions) entries.delete(key);
         throw error;
     }
 }
@@ -425,15 +436,12 @@ function endSession(lease = {}) {
     const leaseId = lease.leaseId;
     if (!key || !leaseId) return createIdleStats(key, { endSessionClearMs: 0 });
     const startedAt = performance.now();
-    const session = sessionsByChatId.get(key);
-    if (!session || !session.leases.has(leaseId)) {
+    const released = sessionLeases.release(key, leaseId);
+    if (!released.released) {
         logWarn('end session ignored', `chat=${key} lease=${leaseId}`);
         return entries.has(key) ? entryStats(entries.get(key)) : createIdleStats(key, { endSessionClearMs: 0 });
     }
-    session.leases.delete(leaseId);
-    session.count = Math.max(0, session.count - 1);
-    if (!session.count || !session.leases.size) {
-        sessionsByChatId.delete(key);
+    if (!released.activeSessions) {
         entries.delete(key);
         const endSessionClearMs = Math.round(performance.now() - startedAt);
         logInfo('end session cleared', `chat=${key} lease=${leaseId} clear=${endSessionClearMs}ms`);
@@ -446,7 +454,7 @@ function endSession(lease = {}) {
             endSessionClearMs: Math.round(performance.now() - startedAt),
         };
     }
-    logInfo('end session retained', `chat=${key} lease=${leaseId} active=${session.leases.size}`);
+    logInfo('end session retained', `chat=${key} lease=${leaseId} active=${released.activeSessions}`);
     return entry ? entryStats(entry) : createIdleStats(key);
 }
 
@@ -545,7 +553,7 @@ async function handle(type, payload = {}) {
             logInfo('retainOnly request', `keep=${keep || '*'}`);
             for (const key of [...entries.keys()]) {
                 if (keep && key === keep) continue;
-                if (sessionsByChatId.get(key)?.leases?.size) continue;
+                if (sessionLeases.hasChat(key)) continue;
                 entries.delete(key);
             }
             return [...entries.values()].map(entryStats);
@@ -554,14 +562,14 @@ async function handle(type, payload = {}) {
             logInfo('clear request', `chat=${payload.chatId || '*'} domain=${payload.domain || 'all'}`);
             if (payload.chatId) {
                 const key = String(payload.chatId || '');
-                if (!sessionsByChatId.get(key)?.leases?.size) {
+                if (!sessionLeases.hasChat(key)) {
                     const entry = getEntry(payload.chatId);
                     clearDomain(entry, payload.domain || 'all');
                     logInfo('clear result', compactStats(entryStats(entry)));
                 }
             } else {
                 for (const key of [...entries.keys()]) {
-                    if (sessionsByChatId.get(key)?.leases?.size) continue;
+                    if (sessionLeases.hasChat(key)) continue;
                     entries.delete(key);
                 }
                 logInfo('clear result', 'all entries removed');

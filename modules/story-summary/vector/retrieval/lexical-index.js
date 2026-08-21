@@ -11,8 +11,8 @@ const MODULE_ID = 'lexical-index';
 let cachedIndex = null;
 let cachedChatId = null;
 let cachedFingerprint = null;
-let building = false;
-let buildPromise = null;
+let buildGeneration = 0;
+let activeBuild = null;
 
 // floor -> chunk doc ids (L1 only)
 let floorDocIds = new Map();
@@ -165,6 +165,7 @@ function buildEventDoc(ev) {
 
 function collectDocuments(chunks, events) {
     const docs = [];
+    const nextFloorDocIds = new Map();
 
     for (const chunk of chunks || []) {
         if (!chunk?.chunkId || !chunk.text) continue;
@@ -178,8 +179,8 @@ function collectDocuments(chunks, events) {
         });
 
         if (floor >= 0) {
-            if (!floorDocIds.has(floor)) floorDocIds.set(floor, []);
-            floorDocIds.get(floor).push(chunk.chunkId);
+            if (!nextFloorDocIds.has(floor)) nextFloorDocIds.set(floor, []);
+            nextFloorDocIds.get(floor).push(chunk.chunkId);
         }
     }
 
@@ -188,7 +189,7 @@ function collectDocuments(chunks, events) {
         if (doc) docs.push(doc);
     }
 
-    return docs;
+    return { docs, floorDocIds: nextFloorDocIds };
 }
 
 async function buildIndexAsync(docs) {
@@ -376,8 +377,6 @@ export function searchLexicalIndex(index, terms) {
 }
 
 async function collectAndBuild(chatId) {
-    floorDocIds = new Map();
-
     const store = getSummaryStore();
     const events = store?.json?.events || [];
 
@@ -388,17 +387,17 @@ async function collectAndBuild(chatId) {
         xbLog.warn(MODULE_ID, 'Failed to load chunks', e);
     }
 
-    const docs = collectDocuments(chunks, events);
+    const collected = collectDocuments(chunks, events);
+    const { docs } = collected;
     const fp = computeFingerprintFromDocs(docs);
 
     if (cachedIndex && cachedChatId === chatId && cachedFingerprint === fp) {
-        return { index: cachedIndex, fingerprint: fp };
+        return { index: cachedIndex, fingerprint: fp, docs, floorDocIds: collected.floorDocIds };
     }
 
-    rebuildIdfFromDocs(docs);
     const index = await buildIndexAsync(docs);
 
-    return { index, fingerprint: fp };
+    return { index, fingerprint: fp, docs, floorDocIds: collected.floorDocIds };
 }
 
 /**
@@ -423,40 +422,51 @@ export async function getLexicalIndex() {
         return cachedIndex;
     }
 
-    if (building && buildPromise) {
+    const existingBuild = activeBuild;
+    if (existingBuild?.chatId === chatId && existingBuild.generation === buildGeneration) {
         try {
-            await buildPromise;
+            await existingBuild.promise;
             if (cachedIndex && cachedChatId === chatId && cachedFingerprint) {
                 return cachedIndex;
             }
         } catch {
             // Continue to rebuild below.
         }
+        if (buildGeneration !== existingBuild.generation || (activeBuild && activeBuild !== existingBuild)) {
+            return null;
+        }
     }
 
     xbLog.info(MODULE_ID, `Lexical cache miss; rebuilding (chatId=${chatId.slice(0, 8)})`);
 
-    building = true;
-    buildPromise = collectAndBuild(chatId);
+    const generation = buildGeneration;
+    const build = {
+        chatId,
+        generation,
+        promise: collectAndBuild(chatId),
+    };
+    activeBuild = build;
 
     try {
-        const { index, fingerprint } = await buildPromise;
+        const { index, fingerprint, docs, floorDocIds: nextFloorDocIds } = await build.promise;
+        if (activeBuild !== build || buildGeneration !== generation) return null;
         cachedIndex = index;
         cachedChatId = chatId;
         cachedFingerprint = fingerprint;
+        floorDocIds = nextFloorDocIds;
+        rebuildIdfFromDocs(docs);
         return index;
     } catch (e) {
         xbLog.error(MODULE_ID, 'Index build failed', e);
         return null;
     } finally {
-        building = false;
-        buildPromise = null;
+        if (activeBuild === build) activeBuild = null;
     }
 }
 
 export function warmupIndex() {
     const { chatId } = getContext();
-    if (!chatId || building) return;
+    if (!chatId) return;
 
     getLexicalIndex().catch(e => {
         xbLog.warn(MODULE_ID, 'Warmup failed', e);
@@ -470,6 +480,8 @@ export function invalidateLexicalIndex() {
     cachedIndex = null;
     cachedChatId = null;
     cachedFingerprint = null;
+    buildGeneration++;
+    activeBuild = null;
     floorDocIds = new Map();
     clearIdfState();
 }

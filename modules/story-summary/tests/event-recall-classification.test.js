@@ -44,33 +44,40 @@ test('unknown 保持 RELATED，语义分数不能替代人物归属', () => {
     );
 });
 
-test('人物归属只读取当前消息，并把我/你解析为当前双方', () => {
+test('焦点人物只接受当前消息显式提到且已由剧情确认的角色', () => {
+    const confirmed = new Set(['林月', '小周']);
+
     assert.deepEqual(
-        resolveFocusCharacters('我亲了你。', [], { name1: '玩家', name2: '林月' }),
-        ['玩家', '林月'],
-    );
-    assert.deepEqual(
-        resolveFocusCharacters('小周刚才做了什么？', ['小周'], { name1: '玩家', name2: '林月' }),
+        resolveFocusCharacters(['小周', '陌生人'], confirmed, ['玩家']),
         ['小周'],
     );
-});
-
-test('continue 的 AI 焦点反转我/你归属，并保持事件分类一致', () => {
-    const context = { name1: '玩家', name2: '林月' };
-
-    assert.deepEqual(resolveFocusCharacters('我会继续。', [], context, true), ['玩家']);
-    assert.deepEqual(resolveFocusCharacters('你听见了吗？', [], context, true), ['林月']);
-    assert.deepEqual(resolveFocusCharacters('我会继续。', [], context, false), ['林月']);
-    assert.deepEqual(resolveFocusCharacters('你听见了吗？', [], context, false), ['玩家']);
-
-    const continueFocus = new Set(resolveFocusCharacters('我会继续。', [], context, false));
-    assert.equal(classifyEventRecall(eventWithParticipants('林月'), continueFocus, 0.1).recallType, 'DIRECT');
-    assert.equal(classifyEventRecall(eventWithParticipants('玩家'), continueFocus, 0.9).recallType, 'RELATED');
-});
-
-test('AI 焦点中双方代词按 AI 在前的视角去重', () => {
     assert.deepEqual(
-        resolveFocusCharacters('我亲了你。', [], { name1: '玩家', name2: '林月' }, false),
-        ['林月', '玩家'],
+        resolveFocusCharacters(['林月'], confirmed, ['玩家']),
+        ['林月'],
     );
+});
+
+test('代词不会自动加入 USER 名或角色卡名', () => {
+    const confirmed = new Set(['林月']);
+    assert.deepEqual(resolveFocusCharacters([], confirmed, ['玩家']), []);
+    assert.deepEqual(resolveFocusCharacters(['我', '你', '我们'], confirmed, ['玩家']), []);
+});
+
+test('name2 只有已被剧情确认且被显式提到时才进入焦点人物', () => {
+    const cardName = '跨服饲养';
+
+    assert.deepEqual(resolveFocusCharacters([cardName], new Set(), ['蓝袖']), []);
+    assert.deepEqual(
+        resolveFocusCharacters([cardName], new Set([cardName]), ['蓝袖']),
+        [cardName],
+    );
+});
+
+test('USER 名即使出现在确认集合中也永不进入焦点人物', () => {
+    const confirmed = new Set(['蓝袖', '林月']);
+    const focusCharacters = resolveFocusCharacters(['蓝袖', '林月'], confirmed, ['蓝袖']);
+
+    assert.deepEqual(focusCharacters, ['林月']);
+    assert.equal(classifyEventRecall(eventWithParticipants('蓝袖'), new Set(focusCharacters), 0.9).recallType, 'RELATED');
+    assert.equal(classifyEventRecall(eventWithParticipants('林月'), new Set(focusCharacters), 0.1).recallType, 'DIRECT');
 });

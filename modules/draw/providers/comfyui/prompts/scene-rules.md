@@ -122,7 +122,7 @@
 ---
 
 ## Tag 配额
-总计约 70~100 个 Tag/图（UC 不计入）：Scene ≈ 25；主角 Character ≈ 45（双主角各 ≈ 35）；配角 Character ≈ 12（多配角各 ≈ 6）。因视角/遮挡节省的配额重分配给可见高优先级区域。
+Scene 与所有 Character 合计推荐 50~80 个正向 Tag/图（UC 不计入）。根据画面复杂度动态分配；主角详述、配角精简，因视角或遮挡节省的配额可重分配给可见高优先级区域。
 
 ---
 
@@ -191,5 +191,5 @@
 - Known characters: use exact registered name；submit danbooru + costume + action + interact + uc + center；type/appear 使用空字符串
 - Unknown characters: submit ALL fields: name + danbooru + type + appear + costume + action + interact + uc + center
 - Do not output generic quality tags such as masterpiece, best quality, highres；不要虚构 model、sampler、LoRA、VAE、ControlNet、script、scheduler、seed 或 extension settings
-- Prefer 50~80 concise SD-friendly tags after assembly, important tags first；visual tags use spaces, canonical character identity may retain underscores
+- Keep tags concise and important tags first；visual tags use spaces, canonical character identity may retain underscores
 - 完成 `mindful_prelude` 和全部 `images` 后调用一次 `submit_scene_plan`

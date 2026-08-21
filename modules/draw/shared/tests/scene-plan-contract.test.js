@@ -196,7 +196,7 @@ test('scene plan contract distinguishes tool protocol failures', () => {
         () => parseSubmittedScenePlan({ toolCalls: [] }, { provider: 'openai-compatible', model: 'test-model' }),
         (error) => error instanceof ScenePlannerError
             && error.code === 'TOOL_CALL_MISSING'
-            && error.message.includes('Tagged JSON 兼容模式'),
+            && error.message.includes('不代表模型不支持 Tool Calling'),
     );
     assert.throws(
         () => parseSubmittedScenePlan({ toolCalls: [{ name: 'wrong', arguments: '{}' }] }),

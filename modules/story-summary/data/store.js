@@ -19,6 +19,7 @@ import {
     isLegacySummaryHistoryEntry,
     normalizeSummaryUndo,
 } from "./summary-undo.js";
+import { isRelationFact, parseRelationTarget } from "./fact-predicates.js";
 
 const MODULE_ID = 'summaryStore';
 const FACTS_LIMIT_PER_SUBJECT = 10;
@@ -432,17 +433,6 @@ export function isSummaryConsumable(store, currentLength) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Fact 工具函数
-// ═══════════════════════════════════════════════════════════════════════════
-
-/**
- * 判断是否为关系类 fact
- */
-export function isRelationFact(f) {
-    return /^对.+的/.test(f.p);
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
 // 从 facts 提取关系（供关系图 UI 使用）
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -450,8 +440,7 @@ export function extractRelationshipsFromFacts(facts) {
     return (facts || [])
         .filter(f => !f.retracted && isRelationFact(f))
         .map(f => {
-            const match = f.p.match(/^对(.+)的/);
-            const to = match ? match[1] : '';
+            const to = parseRelationTarget(f.p);
             if (!to) return null;
             return {
                 from: f.s,

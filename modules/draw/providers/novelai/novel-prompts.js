@@ -4,7 +4,7 @@ const TAG_GUIDE_PATH = `${extensionFolderPath}/modules/draw/providers/novelai/TA
 const PROMPTS_DIR = `${extensionFolderPath}/modules/draw/providers/novelai/prompts`;
 
 /** 每次修改 LLM_PROMPT_CONFIG 内容时递增此版本号，触发默认预设自动更新 */
-const PROMPT_TEMPLATE_VERSION = 5;
+const PROMPT_TEMPLATE_VERSION = 6;
 
 let LLM_PROMPT_CONFIG = {
     topSystem: '',

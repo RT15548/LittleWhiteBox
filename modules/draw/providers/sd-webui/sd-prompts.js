@@ -4,7 +4,7 @@ const TAG_GUIDE_PATH = `${extensionFolderPath}/modules/draw/providers/sd-webui/S
 const PROMPTS_DIR = `${extensionFolderPath}/modules/draw/providers/sd-webui/prompts`;
 
 /** 每次修改 SD 默认提示词内容时递增，方便后续做预设/缓存刷新判断。 */
-export const PROMPT_TEMPLATE_VERSION = 5;
+export const PROMPT_TEMPLATE_VERSION = 6;
 
 export const SD_SCENE_PROMPTS = {
     topSystem: `[Visual Scene Planning - Stable Diffusion WebUI txt2img]

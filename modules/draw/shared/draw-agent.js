@@ -479,7 +479,6 @@ export async function callDrawScenePlannerAgent(options = {}) {
         maxTokens: providerConfig.maxTokens,
         reasoning: providerConfig.reasoning,
         signal: abortScope.signal,
-        allowToolProtocolFallback: false,
     };
     delete baseAgentTask.onStreamProgress;
     delete baseAgentTask.onToolProtocolFallback;

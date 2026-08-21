@@ -1,4 +1,5 @@
 import { readSseEventsFromResponse } from './sse.js';
+import { resolveModelFamily } from '../model-family.js';
 
 export const HOST_CHAT_COMPLETIONS_SOURCE_OPENAI = 'openai';
 export const HOST_CHAT_COMPLETIONS_SOURCE_CLAUDE = 'claude';
@@ -17,7 +18,7 @@ function normalizeBaseUrl(value) {
 }
 
 function usesMaxCompletionTokens(model = '') {
-    return /^o(?:1|3|4)(?:-|$)/i.test(String(model || '').trim());
+    return resolveModelFamily(model) === 'openai';
 }
 
 function normalizeReverseProxyForSource(value, source) {

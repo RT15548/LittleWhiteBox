@@ -1,8 +1,9 @@
-import { extension_settings, extensionTypes } from "../../../extensions.js";
-import { saveSettingsDebounced, eventSource, event_types, getRequestHeaders } from "../../../../script.js";
-import { EXT_FOLDER_ID, EXT_ID, extensionFolderPath } from "./core/constants.js";
+import { extension_settings } from "../../../extensions.js";
+import { saveSettingsDebounced } from "../../../../script.js";
+import { EXT_ID, extensionFolderPath } from "./core/constants.js";
 import { executeSlashCommand } from "./core/slash-command.js";
 import { EventCenter } from "./core/event-manager.js";
+import { initPluginUpdate } from "./modules/plugin-update/plugin-update.js";
 import { initTasks } from "./modules/scheduled-tasks/scheduled-tasks.js";
 import { initMessagePreview, addHistoryButtonsDebounced, configureMessagePreviewRuntime, removeOwnedHistoryButtons } from "./modules/message-preview.js";
 import { initImmersiveMode } from "./modules/immersive-mode.js";
@@ -458,281 +459,9 @@ function cleanupDeprecatedData() {
 
 let isXiaobaixEnabled = settings.enabled;
 let moduleCleanupFunctions = new Map();
-let updateCheckPerformed = false;
-
-const DEFAULT_UPDATE_REPO_INFO = Object.freeze({
-    owner: 'RT15548',
-    repo: 'LittleWhiteBox',
-    homePage: 'https://github.com/RT15548/LittleWhiteBox',
-});
-
-function parseGitHubRepoInfo(homePage = '') {
-    const match = String(homePage || '').match(/github\.com\/([^/]+)\/([^/#?]+)/i);
-    if (!match) return null;
-    const owner = match[1];
-    const repo = match[2].replace(/\.git$/i, '');
-    return {
-        owner,
-        repo,
-        homePage: `https://github.com/${owner}/${repo}`,
-    };
-}
-
-function decodeBase64Utf8(value = '') {
-    const normalized = String(value || '').replace(/\s+/g, '');
-    if (!normalized) return '';
-    try {
-        const binary = atob(normalized);
-        const bytes = Uint8Array.from(binary, (ch) => ch.charCodeAt(0));
-        return new TextDecoder().decode(bytes);
-    } catch {
-        return '';
-    }
-}
-
-async function detectLittleWhiteBoxGlobalFlag() {
-    const extensionKey = `third-party/${EXT_FOLDER_ID}`;
-
-    try {
-        const response = await fetch('/api/extensions/discover', {
-            method: 'GET',
-            headers: getRequestHeaders(),
-        });
-
-        if (response.ok) {
-            const extensions = await response.json();
-            const match = Array.isArray(extensions)
-                ? extensions.find((ext) => ext?.name === extensionKey)
-                : null;
-
-            if (match?.type === 'global') return true;
-            if (match?.type === 'local') return false;
-        }
-    } catch {}
-
-    const cachedType = extensionTypes?.[extensionKey];
-    if (cachedType === 'global') return true;
-    if (cachedType === 'local') return false;
-
-    return null;
-}
-
-async function requestLittleWhiteBoxUpdate(globalFlag) {
-    return fetch('/api/extensions/update', {
-        method: 'POST',
-        headers: getRequestHeaders(),
-        body: JSON.stringify({ extensionName: EXT_FOLDER_ID, global: globalFlag }),
-    });
-}
-
-async function requestLittleWhiteBoxVersion(globalFlag) {
-    return fetch('/api/extensions/version', {
-        method: 'POST',
-        headers: getRequestHeaders(),
-        body: JSON.stringify({ extensionName: EXT_FOLDER_ID, global: globalFlag }),
-    });
-}
-
-async function checkLittleWhiteBoxUpdate() {
-    const checkByManifestVersion = async () => {
-        try {
-            const timestamp = Date.now();
-            const localRes = await fetch(`${extensionFolderPath}/manifest.json?t=${timestamp}`, { cache: 'no-cache' });
-            if (!localRes.ok) return null;
-            const localManifest = await localRes.json();
-            const localVersion = localManifest.version;
-            const repoInfo = parseGitHubRepoInfo(localManifest?.homePage) || DEFAULT_UPDATE_REPO_INFO;
-            const remoteRes = await fetch(
-                `https://api.github.com/repos/${repoInfo.owner}/${repoInfo.repo}/contents/manifest.json?t=${timestamp}`,
-                { cache: 'no-cache' },
-            );
-            if (!remoteRes.ok) return null;
-            const remoteData = await remoteRes.json();
-            const remoteManifest = JSON.parse(decodeBase64Utf8(remoteData.content));
-            const remoteVersion = remoteManifest.version;
-            return localVersion !== remoteVersion
-                ? { isUpToDate: false, localVersion, remoteVersion }
-                : { isUpToDate: true, localVersion, remoteVersion };
-        } catch {
-            return null;
-        }
-    };
-
-    try {
-        const detectedGlobal = await detectLittleWhiteBoxGlobalFlag();
-        const tryOrder = detectedGlobal === null ? [false, true] : [detectedGlobal, !detectedGlobal];
-
-        for (let i = 0; i < tryOrder.length; i++) {
-            const response = await requestLittleWhiteBoxVersion(tryOrder[i]);
-
-            if (response.ok) {
-                const data = await response.json();
-                if (typeof data?.isUpToDate === 'boolean') {
-                    return { ...data, source: 'git' };
-                }
-                break;
-            }
-
-            const text = await response.text();
-            const shouldRetry = i === 0 && (
-                response.status === 404
-                || response.status === 403
-                || /Directory does not exist|Forbidden|permission/i.test(text)
-            );
-
-            if (!shouldRetry) break;
-        }
-    } catch {}
-
-    return checkByManifestVersion();
-}
-
-async function updateLittleWhiteBoxExtension() {
-    try {
-        const detectedGlobal = await detectLittleWhiteBoxGlobalFlag();
-        const tryOrder = detectedGlobal === null ? [false, true] : [detectedGlobal, !detectedGlobal];
-        let response = null;
-
-        for (let i = 0; i < tryOrder.length; i++) {
-            const candidate = tryOrder[i];
-            response = await requestLittleWhiteBoxUpdate(candidate);
-
-            if (response.ok) break;
-
-            const text = await response.text();
-            const shouldRetry = i === 0 && (
-                response.status === 404
-                || response.status === 403
-                || /Directory does not exist|Forbidden|permission/i.test(text)
-            );
-
-            if (!shouldRetry) {
-                toastr.error(text || response.statusText, 'LittleWhiteBox update failed', { timeOut: 5000 });
-                return false;
-            }
-        }
-
-        if (!response.ok) {
-            const text = await response.text();
-            toastr.error(text || response.statusText, 'LittleWhiteBox update failed', { timeOut: 5000 });
-            return false;
-        }
-
-        const data = await response.json();
-        if (data.isUpToDate) {
-            toastr.success('LittleWhiteBox is up to date');
-            return true;
-        }
-
-        toastr.success('LittleWhiteBox updated，页面即将刷新', '正在应用更新');
-        setTimeout(() => window.location.reload(), 1000);
-        return true;
-    } catch {
-        toastr.error('Error during update', 'LittleWhiteBox update failed');
-        return false;
-    }
-}
-
-function updateExtensionHeaderWithUpdateNotice() {
-    addUpdateTextNotice();
-    addUpdateDownloadButton();
-}
-
-function addUpdateTextNotice() {
-    const selectors = [
-        '.inline-drawer-toggle.inline-drawer-header b',
-        '.inline-drawer-header b',
-        '.littlewhitebox .inline-drawer-header b',
-        'div[class*="inline-drawer"] b',
-    ];
-    let headerElement = null;
-    for (const selector of selectors) {
-        const elements = document.querySelectorAll(selector);
-        for (const element of elements) {
-            if (element.textContent && element.textContent.includes('小白X')) {
-                headerElement = element;
-                break;
-            }
-        }
-        if (headerElement) break;
-    }
-    if (!headerElement) {
-        setTimeout(() => addUpdateTextNotice(), 1000);
-        return;
-    }
-    if (headerElement.querySelector('.littlewhitebox-update-text')) return;
-    const updateTextSmall = document.createElement('small');
-    updateTextSmall.className = 'littlewhitebox-update-text';
-    updateTextSmall.textContent = '(有可用更新)';
-    headerElement.appendChild(updateTextSmall);
-}
-
-function addUpdateDownloadButton() {
-    const sectionDividers = document.querySelectorAll('.section-divider');
-    let totalSwitchDivider = null;
-    for (const divider of sectionDividers) {
-        if (divider.textContent && divider.textContent.includes('总开关')) {
-            totalSwitchDivider = divider;
-            break;
-        }
-    }
-    if (!totalSwitchDivider) {
-        setTimeout(() => addUpdateDownloadButton(), 1000);
-        return;
-    }
-    if (document.querySelector('#littlewhitebox-update-extension')) return;
-    const updateButton = document.createElement('div');
-    updateButton.id = 'littlewhitebox-update-extension';
-    updateButton.className = 'menu_button fa-solid fa-cloud-arrow-down interactable has-update';
-    updateButton.title = '下载并安装小白X的更新';
-    updateButton.tabIndex = 0;
-    try {
-        totalSwitchDivider.style.display = 'flex';
-        totalSwitchDivider.style.alignItems = 'center';
-        totalSwitchDivider.style.justifyContent = 'flex-start';
-    } catch (e) { }
-    totalSwitchDivider.appendChild(updateButton);
-    try {
-        if (window.setupUpdateButtonInSettings) {
-            window.setupUpdateButtonInSettings();
-        }
-    } catch (e) { }
-}
-
-function removeAllUpdateNotices() {
-    const textNotice = document.querySelector('.littlewhitebox-update-text');
-    const downloadButton = document.querySelector('#littlewhitebox-update-extension');
-    if (textNotice) textNotice.remove();
-    if (downloadButton) downloadButton.remove();
-}
-
-function resetLittleWhiteBoxUpdateCheck() {
-    updateCheckPerformed = false;
-}
-
-async function performExtensionUpdateCheck() {
-    if (updateCheckPerformed) return;
-    updateCheckPerformed = true;
-    try {
-        const versionData = await checkLittleWhiteBoxUpdate();
-        if (versionData && versionData.isUpToDate === false) {
-            updateExtensionHeaderWithUpdateNotice();
-        }
-    } catch (error) { }
-}
 
 window.isXiaobaixEnabled = isXiaobaixEnabled;
 setupDrawGenerateInterceptor({ shouldStrip: () => isXiaobaixEnabled });
-window.testLittleWhiteBoxUpdate = async () => {
-    await resetLittleWhiteBoxUpdateCheck();
-    await performExtensionUpdateCheck();
-};
-window.testUpdateUI = async () => {
-    await updateExtensionHeaderWithUpdateNotice();
-};
-window.testRemoveUpdateUI = async () => {
-    await removeAllUpdateNotices();
-};
 
 function registerModuleCleanup(moduleName, cleanupFunction) {
     moduleCleanupFunctions.set(moduleName, cleanupFunction);
@@ -1247,8 +976,6 @@ if (!CHAT_SURFACE_MANAGED) {
     window.renderHtmlInIframe = renderHtmlInIframe;
 }
 window.registerModuleCleanup = registerModuleCleanup;
-window.updateLittleWhiteBoxExtension = updateLittleWhiteBoxExtension;
-window.removeAllUpdateNotices = removeAllUpdateNotices;
 
 jQuery(async () => {
     try {
@@ -1269,6 +996,7 @@ jQuery(async () => {
         document.head.appendChild(styleElement);
 
         await setupSettings();
+        initPluginUpdate();
         setupMenuTabs();
 
         try { initControlAudio(); } catch (e) { }
@@ -1291,10 +1019,6 @@ jQuery(async () => {
             if (isXiaobaixEnabled && !document.getElementById('xb-contextbridge'))
                 document.head.appendChild(Object.assign(document.createElement('script'), { id: 'xb-contextbridge', type: 'module', src: `${extensionFolderPath}/bridges/context-bridge.js` }));
         } catch (e) { }
-
-        eventSource.on(event_types.APP_READY, () => {
-            setTimeout(performExtensionUpdateCheck, 2000);
-        });
 
         if (isXiaobaixEnabled) {
             try { initVarCommands(); } catch (e) { }

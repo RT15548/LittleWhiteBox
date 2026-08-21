@@ -1348,26 +1348,9 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
         signal = null,
     } = options;
     const captureStages = typeof stageObserver === 'function';
+    const events = Array.isArray(allEvents) ? allEvents : [];
 
     const metrics = createMetrics();
-
-    if (!allEvents?.length) {
-        metrics.anchor.needRecall = false;
-        metrics.timing.total = Math.round(performance.now() - T0);
-        return {
-            events: [],
-            l0Selected: [],
-            l1ByFloor: new Map(),
-            causalChain: [],
-            focusEntities: [],
-            focusTerms: [],
-            focusCharacters: [],
-            mustKeepFloors: [],
-            elapsed: metrics.timing.total,
-            logText: 'No events.',
-            metrics,
-        };
-    }
 
     metrics.anchor.needRecall = true;
 
@@ -1450,16 +1433,11 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
             xbLog.error(MODULE_ID, 'Round 1 向量化重试仍失败', e2);
             metrics.timing.round1Embed = Math.round(performance.now() - T_R1_Embed_Start);
             finalizeRecallTiming(metrics, T0);
-            return {
-                events: [], l0Selected: [], l1ByFloor: new Map(), causalChain: [],
-                focusEntities: focusTerms,
-                focusTerms,
-                focusCharacters,
-                mustKeepFloors: [],
-                elapsed: metrics.timing.total,
-                logText: 'Embedding failed (round 1, after retry).',
-                metrics,
-            };
+            const error = new Error('Embedding request failed after retry', { cause: e2 });
+            error.code = 'RECALL_EMBEDDING_FAILED';
+            error.stage = 'round1-embed';
+            error.attempts = 2;
+            throw error;
         }
     }
     metrics.timing.round1Embed = Math.round(performance.now() - T_R1_Embed_Start);
@@ -1467,16 +1445,10 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
     if (!r1Vectors?.length || r1Vectors.some(v => !v?.length)) {
         recordExternalFailure(metrics, { stage: 'round1-embed', kind: 'invalid-vector', attempt: 1 });
         finalizeRecallTiming(metrics, T0);
-        return {
-            events: [], l0Selected: [], l1ByFloor: new Map(), causalChain: [],
-            focusEntities: focusTerms,
-            focusTerms,
-            focusCharacters,
-            mustKeepFloors: [],
-            elapsed: metrics.timing.total,
-            logText: 'Empty query vectors (round 1).',
-            metrics,
-        };
+        const error = new Error('Embedding API returned an empty query vector');
+        error.code = 'RECALL_EMBEDDING_INVALID_RESPONSE';
+        error.stage = 'round1-embed';
+        throw error;
     }
 
     const r1Weights = computeSegmentWeights(bundle.querySegments);
@@ -1523,7 +1495,7 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
     const T_R1_Event_Start = performance.now();
     const { events: eventHits_v0 } = await recallEvents(
         queryVector_v0,
-        allEvents,
+        events,
         vectorConfig,
         focusCharacters,
         null,
@@ -1622,7 +1594,7 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
     const T_R2_Event_Start = performance.now();
     let { events: eventHits, scoreMap: eventScoreMap } = await recallEvents(
         queryVector_v1,
-        allEvents,
+        events,
         vectorConfig,
         focusCharacters,
         metrics,
@@ -1688,7 +1660,7 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
     // 合并 L2 events（lexical 命中但 dense 未命中的 events）
     // ★ Dense 门槛：验证 event 向量与 queryVector_v1 的 cosine similarity
     const existingEventIds = new Set(eventHits.map(e => e.event?.id).filter(Boolean));
-    const eventIndex = buildEventIndex(allEvents);
+    const eventIndex = buildEventIndex(events);
     let lexicalEventCount = 0;
     let lexicalEventFilteredByDense = 0;
     let l0LinkedCount = 0;
@@ -1808,7 +1780,7 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
 
     const recalledL0Floors = new Set(l0Selected.map(x => x.floor));
 
-    for (const event of allEvents) {
+    for (const event of events) {
         if (existingEventIds.has(event.id)) continue;
 
         const range = parseEventRange(event.summary);

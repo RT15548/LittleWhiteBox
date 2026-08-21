@@ -77,6 +77,22 @@ test('session store keeps legacy default session on first restore', async () => 
     assert.equal(state.messages[0].content, 'hello');
 });
 
+test('session store always restores API settings as collapsed', async () => {
+    await resetDb();
+    await sessionsTable.put({
+        id: 'default',
+        updatedAt: 1,
+        historySummary: 'legacy summary',
+        sidebarCollapsed: false,
+    });
+
+    const state = createState();
+    const store = createStore(state);
+    await store.restoreSession();
+
+    assert.equal(state.sidebarCollapsed, true);
+});
+
 test('session store keeps the explicit empty Google provider tool id across reload', async () => {
     await resetDb();
     const state = createState();

@@ -3,6 +3,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 import {
+    db,
     metaTable,
     chunksTable,
     chunkVectorsTable,
@@ -43,23 +44,25 @@ export function hashText(text) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export async function getMeta(chatId) {
-    let meta = await metaTable.get(chatId);
-    if (!meta) {
-        meta = {
-            chatId,
-            fingerprint: null,
-            lastChunkFloor: -1,
-            updatedAt: Date.now(),
-        };
-        await metaTable.put(meta);
-    }
-    return meta;
+    return await metaTable.get(chatId) || {
+        chatId,
+        fingerprint: null,
+        lastChunkFloor: -1,
+        updatedAt: 0,
+    };
 }
 
 export async function updateMeta(chatId, updates) {
-    await metaTable.update(chatId, {
-        ...updates,
-        updatedAt: Date.now(),
+    await db.transaction('rw', metaTable, async () => {
+        const current = await metaTable.get(chatId);
+        await metaTable.put({
+            chatId,
+            fingerprint: null,
+            lastChunkFloor: -1,
+            ...(current || {}),
+            ...updates,
+            updatedAt: Date.now(),
+        });
     });
     applyRecallRuntimeMutationBestEffort(chatId, {
         type: 'meta',
@@ -280,26 +283,6 @@ export async function clearChatData(chatId) {
         eventVectorsTable.where('chatId').equals(chatId).delete(),
     ]);
     await clearRecallRuntime(chatId);
-}
-
-export async function ensureFingerprintMatch(chatId, newFingerprint) {
-    const meta = await getMeta(chatId);
-    if (meta.fingerprint && meta.fingerprint !== newFingerprint) {
-        await Promise.all([
-            chunkVectorsTable.where('chatId').equals(chatId).delete(),
-            eventVectorsTable.where('chatId').equals(chatId).delete(),
-        ]);
-        await updateMeta(chatId, {
-            fingerprint: newFingerprint,
-            lastChunkFloor: -1,
-        });
-        await clearRecallRuntime(chatId);
-        return false;
-    }
-    if (!meta.fingerprint) {
-        await updateMeta(chatId, { fingerprint: newFingerprint });
-    }
-    return true;
 }
 
 export { CHUNK_MAX_TOKENS };

@@ -1,6 +1,9 @@
 import {
     normalizeReasoningConfig,
 } from './reasoning-config.js';
+import { resolveModelFamily } from '../../shared/host-llm/model-family.js';
+
+export { resolveModelFamily } from '../../shared/host-llm/model-family.js';
 
 const EFFORT_LABELS = Object.freeze({
     minimal: '最小',
@@ -42,32 +45,6 @@ function effortCapability(profileId, modes, values, defaultValue, options = {}) 
     });
 }
 
-function budgetCapability(profileId, modes, range, options = {}) {
-    return freezeCapability({
-        profileId,
-        modes,
-        intensity: {
-            kind: 'budget',
-            min: range.min,
-            max: range.max,
-            defaultValue: range.defaultValue,
-            allowAuto: range.allowAuto === true,
-        },
-        outputModes: options.outputModes,
-        temperatureOmitModes: options.temperatureOmitModes,
-    });
-}
-
-function switchCapability(profileId, modes, options = {}) {
-    return freezeCapability({
-        profileId,
-        modes,
-        intensity: { kind: 'none' },
-        outputModes: options.outputModes,
-        temperatureOmitModes: options.temperatureOmitModes,
-    });
-}
-
 const INHERIT_ONLY = freezeCapability({
     profileId: 'unsupported',
     modes: ['inherit'],
@@ -77,117 +54,23 @@ const INHERIT_ONLY = freezeCapability({
 });
 
 const OMIT_TEMPERATURE_WHEN_REASONING = Object.freeze(['on']);
-const OMIT_TEMPERATURE_UNLESS_EXPLICITLY_OFF = Object.freeze(['inherit', 'on']);
 const OMIT_TEMPERATURE_ALWAYS = Object.freeze(['inherit', 'on', 'off']);
 
-const OPENAI_PROFILES = Object.freeze({
-    latest: effortCapability(
-        'openai-gpt-5.6',
-        ['inherit', 'on', 'off'],
-        ['low', 'medium', 'high', 'xhigh', 'max'],
-        'medium',
-        { temperatureOmitModes: OMIT_TEMPERATURE_ALWAYS },
-    ),
-    gpt55: effortCapability(
-        'openai-gpt-5.5',
-        ['inherit', 'on', 'off'],
-        ['low', 'medium', 'high', 'xhigh'],
-        'medium',
-        { temperatureOmitModes: OMIT_TEMPERATURE_UNLESS_EXPLICITLY_OFF },
-    ),
-    gpt52To54: effortCapability(
-        'openai-gpt-5.2-5.4',
-        ['inherit', 'on', 'off'],
-        ['low', 'medium', 'high', 'xhigh'],
-        'medium',
-        { temperatureOmitModes: OMIT_TEMPERATURE_UNLESS_EXPLICITLY_OFF },
-    ),
-    gpt51: effortCapability(
-        'openai-gpt-5.1',
-        ['inherit', 'on', 'off'],
-        ['low', 'medium', 'high'],
-        'medium',
-        { temperatureOmitModes: OMIT_TEMPERATURE_UNLESS_EXPLICITLY_OFF },
-    ),
-    fixedMedium: effortCapability(
-        'openai-gpt-5.3-chat',
-        ['inherit', 'on'],
-        ['medium'],
-        'medium',
-        { temperatureOmitModes: OMIT_TEMPERATURE_UNLESS_EXPLICITLY_OFF },
-    ),
-    gpt5: effortCapability(
-        'openai-gpt-5',
-        ['inherit', 'on'],
-        ['minimal', 'low', 'medium', 'high'],
-        'medium',
-        { temperatureOmitModes: OMIT_TEMPERATURE_UNLESS_EXPLICITLY_OFF },
-    ),
-    oSeries: effortCapability(
-        'openai-o-series',
-        ['inherit', 'on'],
-        ['low', 'medium', 'high'],
-        'medium',
-        { temperatureOmitModes: OMIT_TEMPERATURE_UNLESS_EXPLICITLY_OFF },
-    ),
-});
-
-export const ST_OPENAI_REASONING_MODELS = Object.freeze([
-    'o1',
-    'o3-mini',
-    'o3-mini-2025-01-31',
-    'o4-mini',
-    'o4-mini-2025-04-16',
-    'o3',
-    'o3-2025-04-16',
-    'gpt-5',
-    'gpt-5-2025-08-07',
-    'gpt-5-mini',
-    'gpt-5-mini-2025-08-07',
-    'gpt-5-nano',
-    'gpt-5-nano-2025-08-07',
-    'gpt-5.1',
-    'gpt-5.1-2025-11-13',
-    'gpt-5.1-chat-latest',
-    'gpt-5.2',
-    'gpt-5.2-2025-12-11',
-    'gpt-5.2-chat-latest',
-    'gpt-5.3-chat-latest',
-    'gpt-5.4',
-    'gpt-5.4-2026-03-05',
-    'gpt-5.4-mini',
-    'gpt-5.4-mini-2026-03-17',
-    'gpt-5.4-nano',
-    'gpt-5.4-nano-2026-03-17',
-    'gpt-5.5',
-    'gpt-5.5-2026-04-23',
-]);
-const ST_OPENAI_REASONING_MODEL_SET = new Set(ST_OPENAI_REASONING_MODELS);
-
-const OPENAI_O_SERIES_REASONING_MODELS = new Set([
-    'o1',
-    'o1-2024-12-17',
-    'o3-mini',
-    'o3-mini-2025-01-31',
-    'o3',
-    'o3-2025-04-16',
-    'o4-mini',
-    'o4-mini-2025-04-16',
-]);
-
-const KIMI_K3 = effortCapability(
+const OPENAI_LATEST = effortCapability(
+    'openai-gpt-5.6',
+    ['inherit', 'on', 'off'],
+    ['low', 'medium', 'high', 'xhigh', 'max'],
+    'medium',
+    { temperatureOmitModes: OMIT_TEMPERATURE_ALWAYS },
+);
+const KIMI_LATEST = effortCapability(
     'kimi-k3',
     ['inherit', 'on', 'off'],
     ['low', 'high', 'max'],
     'max',
     { temperatureOmitModes: OMIT_TEMPERATURE_WHEN_REASONING },
 );
-const KIMI_K25_K26 = switchCapability(
-    'kimi-k2.5-k2.6',
-    ['inherit', 'on', 'off'],
-    { temperatureOmitModes: OMIT_TEMPERATURE_WHEN_REASONING },
-);
-const DEEPSEEK = effortCapability(
+const DEEPSEEK_LATEST = effortCapability(
     'deepseek-thinking',
     ['inherit', 'on', 'off'],
     ['low', 'high', 'max'],
@@ -195,193 +78,81 @@ const DEEPSEEK = effortCapability(
     { temperatureOmitModes: OMIT_TEMPERATURE_WHEN_REASONING },
 );
 
-const ANTHROPIC_ADAPTIVE = effortCapability(
-    'anthropic-adaptive',
+const OPENAI_COMPATIBLE_GEMINI_LATEST = effortCapability(
+    'openai-compatible-gemini-latest',
+    ['inherit', 'on', 'off'],
+    ['minimal', 'low', 'medium', 'high'],
+    'high',
+    { temperatureOmitModes: OMIT_TEMPERATURE_WHEN_REASONING },
+);
+const OPENAI_COMPATIBLE_CLAUDE_LATEST = effortCapability(
+    'openai-compatible-claude-latest',
     ['inherit', 'on', 'off'],
     ['low', 'medium', 'high', 'xhigh', 'max'],
     'high',
     { temperatureOmitModes: OMIT_TEMPERATURE_WHEN_REASONING },
 );
-const ANTHROPIC_ADAPTIVE_NO_SAMPLING = effortCapability(
+const OPENAI_COMPATIBLE_DEFAULT = effortCapability(
+    'openai-compatible-default',
+    ['inherit', 'on', 'off'],
+    ['low', 'medium', 'high'],
+    'medium',
+    { temperatureOmitModes: OMIT_TEMPERATURE_WHEN_REASONING },
+);
+const ANTHROPIC_LATEST = effortCapability(
     'anthropic-adaptive',
     ['inherit', 'on', 'off'],
     ['low', 'medium', 'high', 'xhigh', 'max'],
     'high',
     { temperatureOmitModes: OMIT_TEMPERATURE_ALWAYS },
 );
-const ANTHROPIC_MANUAL = budgetCapability(
-    'anthropic-manual',
-    ['inherit', 'on', 'off'],
-    { min: 1024, max: 128000, defaultValue: 8192 },
-    { temperatureOmitModes: OMIT_TEMPERATURE_WHEN_REASONING },
-);
-const HOST_ANTHROPIC_ADAPTIVE_NO_SAMPLING = effortCapability(
+const HOST_ANTHROPIC_LATEST = effortCapability(
     'sillytavern-claude-adaptive',
     ['inherit', 'on', 'off'],
     ['low', 'medium', 'high', 'max'],
     'high',
     { temperatureOmitModes: OMIT_TEMPERATURE_ALWAYS },
 );
-const HOST_ANTHROPIC_CONDITIONAL = effortCapability(
-    'sillytavern-claude-adaptive-conditional',
-    ['inherit', 'on', 'off'],
-    ['low', 'medium', 'high', 'max'],
-    'high',
-    { temperatureOmitModes: OMIT_TEMPERATURE_WHEN_REASONING },
-);
-const HOST_ANTHROPIC_MANUAL = effortCapability(
-    'sillytavern-claude-manual',
-    ['inherit', 'on', 'off'],
-    ['min', 'low', 'medium', 'high', 'max'],
-    'medium',
-    { temperatureOmitModes: OMIT_TEMPERATURE_WHEN_REASONING },
-);
-
-const GOOGLE_25_FLASH = budgetCapability(
-    'google-gemini-2.5-flash',
-    ['inherit', 'on', 'off'],
-    { min: 1, max: 24576, defaultValue: -1, allowAuto: true },
-);
-const GOOGLE_25_FLASH_LITE = budgetCapability(
-    'google-gemini-2.5-flash-lite',
-    ['inherit', 'on', 'off'],
-    { min: 512, max: 24576, defaultValue: -1, allowAuto: true },
-);
-const GOOGLE_25_PRO = budgetCapability(
-    'google-gemini-2.5-pro',
-    ['inherit', 'on'],
-    { min: 128, max: 32768, defaultValue: -1, allowAuto: true },
-);
-const GOOGLE_3_FLASH = effortCapability(
+const GOOGLE_LATEST = effortCapability(
     'google-gemini-3-flash',
     ['inherit', 'on'],
     ['minimal', 'low', 'medium', 'high'],
     'high',
 );
-const GOOGLE_3_PRO = effortCapability(
-    'google-gemini-3-pro',
-    ['inherit', 'on'],
-    ['low', 'high'],
-    'high',
-);
-const HOST_GOOGLE_25_FLASH = effortCapability(
-    'sillytavern-google-2.5-flash',
-    ['inherit', 'on', 'off'],
-    ['low', 'medium', 'high', 'max'],
-    'medium',
-);
-const HOST_GOOGLE_25_FLASH_LITE = effortCapability(
-    'sillytavern-google-2.5-flash-lite',
-    ['inherit', 'on', 'off'],
-    ['low', 'medium', 'high', 'max'],
-    'medium',
-);
-const HOST_GOOGLE_25_PRO = effortCapability(
-    'sillytavern-google-2.5-pro',
-    ['inherit', 'on'],
-    ['min', 'low', 'medium', 'high', 'max'],
-    'medium',
-);
-const HOST_GOOGLE_3_FLASH = effortCapability(
+const HOST_GOOGLE_LATEST = effortCapability(
     'sillytavern-google-3-flash',
     ['inherit', 'on'],
     ['min', 'low', 'medium', 'high'],
     'high',
 );
-const HOST_GOOGLE_3_PRO = effortCapability(
-    'sillytavern-google-3-pro',
-    ['inherit', 'on'],
-    ['low', 'high'],
-    'high',
-);
-
-function normalizeModel(model = '') {
-    return String(model || '').trim().toLowerCase();
-}
-
-function resolveOpenAIModelCapability(model = '') {
-    const normalized = normalizeModel(model);
-    if (/^gpt-5\.6(?:[-.]|$)/.test(normalized)) return OPENAI_PROFILES.latest;
-    if (/^gpt-5\.5(?:[-.]|$)/.test(normalized)) return OPENAI_PROFILES.gpt55;
-    if (/^gpt-5\.3-chat-latest(?:[-.]|$)/.test(normalized)) return OPENAI_PROFILES.fixedMedium;
-    if (/^gpt-5\.(?:2|4)(?:[-.]|$)/.test(normalized)) return OPENAI_PROFILES.gpt52To54;
-    if (/^gpt-5\.1(?:[-.]|$)/.test(normalized)) return OPENAI_PROFILES.gpt51;
-    if (/^gpt-5(?:-(?:mini|nano))?(?:-|$)/.test(normalized)) return OPENAI_PROFILES.gpt5;
-    if (OPENAI_O_SERIES_REASONING_MODELS.has(normalized)) return OPENAI_PROFILES.oSeries;
-    return null;
-}
-
-function resolveOpenAICompatibleCapability(baseUrl = '', model = '') {
-    const normalizedModel = normalizeModel(model);
-    const normalizedBaseUrl = String(baseUrl || '').trim().toLowerCase();
-    if (/^kimi-k3(?:[.-]|$)/.test(normalizedModel)) return KIMI_K3;
-    if (/^kimi-k2[.-](?:5|6)(?:[.-]|$)/.test(normalizedModel)) return KIMI_K25_K26;
-    if (/^kimi-k2[.-]7(?:[.-]|$)/.test(normalizedModel)) return INHERIT_ONLY;
-    if (/^deepseek-(?:chat|reasoner|v3)/.test(normalizedModel)
-        || (normalizedBaseUrl.includes('api.deepseek.com') && normalizedModel.startsWith('deepseek-'))) {
-        return DEEPSEEK;
+function resolveOpenAICompatibleCapability(model = '') {
+    switch (resolveModelFamily(model)) {
+        case 'deepseek': return DEEPSEEK_LATEST;
+        case 'kimi': return KIMI_LATEST;
+        case 'gemini': return OPENAI_COMPATIBLE_GEMINI_LATEST;
+        case 'claude': return OPENAI_COMPATIBLE_CLAUDE_LATEST;
+        case 'openai': return OPENAI_LATEST;
+        default: return OPENAI_COMPATIBLE_DEFAULT;
     }
-    return resolveOpenAIModelCapability(normalizedModel) || INHERIT_ONLY;
-}
-
-function resolveAnthropicCapability(model = '', hosted = false) {
-    const normalized = normalizeModel(model);
-    if (/^claude-opus-4-7/.test(normalized)) {
-        return hosted ? HOST_ANTHROPIC_ADAPTIVE_NO_SAMPLING : ANTHROPIC_ADAPTIVE_NO_SAMPLING;
-    }
-    if (/^claude-(?:opus-4-6|sonnet-4-6)/.test(normalized)) {
-        // SillyTavern can disable adaptive thinking for 4.6 in server config. The
-        // browser cannot observe that switch, so this profile exposes only the
-        // common effort vocabulary and is treated conservatively for forced tools.
-        return hosted ? HOST_ANTHROPIC_CONDITIONAL : ANTHROPIC_ADAPTIVE;
-    }
-    if (/^claude-(?:3-7|opus-4|sonnet-4|haiku-4-5)/.test(normalized)) {
-        return hosted ? HOST_ANTHROPIC_MANUAL : ANTHROPIC_MANUAL;
-    }
-    return INHERIT_ONLY;
-}
-
-function resolveGoogleCapability(model = '', hosted = false) {
-    const normalized = normalizeModel(model);
-    if (normalized.includes('image')) return INHERIT_ONLY;
-    if (/^gemini-2\.5-flash-lite/.test(normalized)) {
-        return hosted ? HOST_GOOGLE_25_FLASH_LITE : GOOGLE_25_FLASH_LITE;
-    }
-    if (/^gemini-2\.5-flash/.test(normalized)) {
-        return hosted ? HOST_GOOGLE_25_FLASH : GOOGLE_25_FLASH;
-    }
-    if (/^gemini-2\.5-pro/.test(normalized)) {
-        return hosted ? HOST_GOOGLE_25_PRO : GOOGLE_25_PRO;
-    }
-    if (/^gemini-3(?:[.\d]*)?-flash/.test(normalized)) {
-        return hosted ? HOST_GOOGLE_3_FLASH : GOOGLE_3_FLASH;
-    }
-    if (/^gemini-3(?:[.\d]*)?-pro/.test(normalized)) {
-        return hosted ? HOST_GOOGLE_3_PRO : GOOGLE_3_PRO;
-    }
-    return INHERIT_ONLY;
 }
 
 export function resolveReasoningCapability(context = {}) {
     const provider = String(context.provider || '').trim();
-    const model = normalizeModel(context.model);
+    const model = String(context.model || '').trim().toLowerCase();
     switch (provider) {
         case 'openai-responses':
-            return resolveOpenAIModelCapability(model) || INHERIT_ONLY;
+            return OPENAI_LATEST;
         case 'openai-compatible':
-            return resolveOpenAICompatibleCapability(context.baseUrl, model);
         case 'sillytavern-openai-compatible':
-            return ST_OPENAI_REASONING_MODEL_SET.has(model)
-                ? (resolveOpenAIModelCapability(model) || INHERIT_ONLY)
-                : INHERIT_ONLY;
+            return resolveOpenAICompatibleCapability(model);
         case 'anthropic':
-            return resolveAnthropicCapability(model, false);
+            return ANTHROPIC_LATEST;
         case 'sillytavern-claude':
-            return resolveAnthropicCapability(model, true);
+            return HOST_ANTHROPIC_LATEST;
         case 'google':
-            return resolveGoogleCapability(model, false);
+            return GOOGLE_LATEST;
         case 'sillytavern-google':
-            return resolveGoogleCapability(model, true);
+            return HOST_GOOGLE_LATEST;
         default:
             return INHERIT_ONLY;
     }
@@ -432,14 +203,6 @@ function selectCapabilityIntensity(reasoning, capability) {
             ...(reasoning.effort ? { effort: reasoning.effort } : {}),
         };
     }
-    if (capability.intensity?.kind === 'budget') {
-        return {
-            ...base,
-            ...(reasoning.budgetTokens !== undefined
-                ? { budgetTokens: reasoning.budgetTokens }
-                : {}),
-        };
-    }
     return base;
 }
 
@@ -487,41 +250,6 @@ export function resolveRuntimeReasoning(context = {}, source = {}) {
         return {
             ...reasoning,
             effort,
-            profileId: capability.profileId,
-            valid: true,
-        };
-    }
-
-    if (capability.intensity.kind === 'budget') {
-        const budgetTokens = reasoning.budgetTokens ?? capability.intensity.defaultValue;
-        const isAuto = capability.intensity.allowAuto && budgetTokens === -1;
-        if (!isAuto && (
-            !Number.isInteger(budgetTokens)
-            || budgetTokens < capability.intensity.min
-            || budgetTokens > capability.intensity.max
-        )) {
-            return buildInvalidRuntime(
-                reasoning,
-                capability,
-                `Reasoning Token 预算必须在 ${capability.intensity.min}–${capability.intensity.max} 之间${capability.intensity.allowAuto ? '，或填写 -1 使用自动预算' : ''}。`,
-                'REASONING_CONFIG_INVALID',
-            );
-        }
-        const maxTokens = Number(context.maxTokens);
-        if (capability.profileId === 'anthropic-manual'
-            && Number.isFinite(maxTokens)
-            && maxTokens > 0
-            && budgetTokens >= Math.floor(maxTokens)) {
-            return buildInvalidRuntime(
-                reasoning,
-                capability,
-                'Anthropic 手动 thinking 的 Token 预算必须小于最大输出 Token。',
-                'REASONING_CONFIG_INVALID',
-            );
-        }
-        return {
-            ...reasoning,
-            budgetTokens,
             profileId: capability.profileId,
             valid: true,
         };

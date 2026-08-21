@@ -7,6 +7,8 @@
 // - evidenceEligible 是独立的证据扩展决策：focus 总是允许；unknown 只有
 //   达到明确语义阈值才允许。它不会改变 RELATED 预算或伪造人物归属。
 
+import { normalizeUserIdentityKey } from '../../data/character-aliases.js';
+
 const DEFAULT_EVIDENCE_MIN_SIMILARITY = 0.70;
 
 function normalizeName(value) {
@@ -18,32 +20,26 @@ function normalizeName(value) {
 }
 
 /**
- * Resolve only the current focus message's participants for event ownership.
- * The caller supplies explicit names from the focus message, never context.
+ * Resolve explicit names from the focus message against canonical story data.
+ * Pronouns and host names never create focus ownership on their own.
  */
 export function resolveFocusCharacters(
-    focusText,
     explicitCharacters = [],
-    context = null,
-    focusIsUser = true,
+    confirmedCharacters = new Set(),
+    excludedCharacters = [],
 ) {
+    const confirmed = new Set([...confirmedCharacters].map(normalizeName).filter(Boolean));
+    const excluded = new Set((excludedCharacters || []).map(normalizeUserIdentityKey).filter(Boolean));
     const resolved = new Map();
     const add = value => {
         const display = String(value || '').trim();
         const key = normalizeName(display);
-        if (key && !resolved.has(key)) resolved.set(key, display);
+        const identityKey = normalizeUserIdentityKey(display);
+        if (key && confirmed.has(key) && !excluded.has(identityKey) && !resolved.has(key)) {
+            resolved.set(key, display);
+        }
     };
     for (const character of explicitCharacters || []) add(character);
-
-    const text = String(focusText || '').normalize('NFKC');
-    const firstPerson = /我|咱|\b(?:i|me|my|mine)\b/i.test(text);
-    const inclusiveFirstPerson = /我们|咱|\b(?:we|us|our|ours)\b/i.test(text);
-    const secondPerson = /你|您|妳|\b(?:you|your|yours)\b/i.test(text);
-
-    const firstPersonName = focusIsUser === false ? context?.name2 : context?.name1;
-    const secondPersonName = focusIsUser === false ? context?.name1 : context?.name2;
-    if (firstPerson || inclusiveFirstPerson) add(firstPersonName);
-    if (secondPerson || inclusiveFirstPerson) add(secondPersonName);
     return [...resolved.values()];
 }
 

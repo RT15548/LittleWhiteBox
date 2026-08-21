@@ -29,6 +29,10 @@ import {
 } from './state-store.js';
 import { getEngineFingerprint } from '../utils/embedder.js';
 import { getVectorConfig } from '../../data/config.js';
+import {
+    assertVectorPackageChunkCounts,
+    orderCompleteChunkVectors,
+} from './vector-package-policy.js';
 
 const MODULE_ID = 'vector-io';
 const EXPORT_VERSION = 2;
@@ -131,7 +135,7 @@ export async function exportVectors(onProgress) {
 
     // 构建 chunk 索引（按 chunkId 排序保证顺序一致）
     const sortedChunks = [...chunks].sort((a, b) => a.chunkId.localeCompare(b.chunkId));
-    const chunkVectorMap = new Map(chunkVectors.map(cv => [cv.chunkId, cv.vector]));
+    const chunkVectorsOrdered = orderCompleteChunkVectors(sortedChunks, chunkVectors);
 
     // chunks.jsonl
     const chunksJsonl = sortedChunks.map(c => JSON.stringify({
@@ -143,9 +147,6 @@ export async function exportVectors(onProgress) {
         text: c.text,
         textHash: c.textHash,
     })).join('\n');
-
-    // chunk_vectors.bin（按 sortedChunks 顺序）
-    const chunkVectorsOrdered = sortedChunks.map(c => chunkVectorMap.get(c.chunkId) || new Array(dims).fill(0));
 
     onProgress?.('压缩向量...');
 
@@ -232,15 +233,34 @@ export async function exportVectors(onProgress) {
 // 导入
 // ═══════════════════════════════════════════════════════════════════════════
 
-export async function importVectors(file, onProgress) {
-    const { chatId } = getContext();
+function assertActiveChat(chatId) {
+    if (!chatId || getContext()?.chatId !== chatId) {
+        throw new Error('聊天已切换，已取消向量数据写入');
+    }
+}
+
+function assertWriteActive(chatId, options = {}) {
+    assertActiveChat(chatId);
+    if (options.signal?.aborted || options.isCurrent?.() === false) {
+        const error = options.signal?.reason instanceof Error
+            ? options.signal.reason
+            : new Error('向量写入代际已失效');
+        error.name ||= 'AbortError';
+        throw error;
+    }
+}
+
+export async function importVectors(file, onProgress, options = {}) {
+    const chatId = options.targetChatId || getContext()?.chatId;
     if (!chatId) {
         throw new Error('未打开聊天');
     }
+    assertWriteActive(chatId, options);
 
     onProgress?.('读取文件...');
 
     const arrayBuffer = await file.arrayBuffer();
+    assertWriteActive(chatId, options);
     const zipData = new Uint8Array(arrayBuffer);
 
     onProgress?.('解压文件...');
@@ -321,6 +341,7 @@ export async function importVectors(file, onProgress) {
     const hasRVectorMeta = stateVectorMetas.some(m => typeof m.hasRVector === 'boolean');
 
     // 校验数量
+    assertVectorPackageChunkCounts(manifest, chunkMetas.length, chunkVectors.length);
     if (chunkMetas.length !== chunkVectors.length) {
         throw new Error(`chunk 数量不匹配: 元数据 ${chunkMetas.length}, 向量 ${chunkVectors.length}`);
     }
@@ -337,9 +358,15 @@ export async function importVectors(file, onProgress) {
     onProgress?.('清空旧数据...');
 
     // 清空当前数据
+    assertWriteActive(chatId, options);
+    await updateMeta(chatId, { fingerprint: manifest.fingerprint, lastChunkFloor: -1 });
+    assertWriteActive(chatId, options);
     await clearAllChunks(chatId);
+    assertWriteActive(chatId, options);
     await clearEventVectors(chatId);
+    assertWriteActive(chatId, options);
     await clearStateVectors(chatId);
+    assertWriteActive(chatId, options);
     clearStateAtoms();
 
     onProgress?.('写入数据...');
@@ -356,6 +383,7 @@ export async function importVectors(file, onProgress) {
             textHash: meta.textHash,
         }));
         await saveChunks(chatId, chunksToSave);
+        assertWriteActive(chatId, options);
 
         // 写入 chunk vectors
         const chunkVectorItems = chunkMetas.map((meta, idx) => ({
@@ -363,6 +391,7 @@ export async function importVectors(file, onProgress) {
             vector: chunkVectors[idx],
         }));
         await saveChunkVectors(chatId, chunkVectorItems, manifest.fingerprint);
+        assertWriteActive(chatId, options);
     }
 
     // 写入 event vectors
@@ -372,10 +401,12 @@ export async function importVectors(file, onProgress) {
             vector: eventVectors[idx],
         }));
         await saveEventVectors(chatId, eventVectorItems, manifest.fingerprint);
+        assertWriteActive(chatId, options);
     }
 
     // 写入 state atoms
     if (stateAtoms.length > 0) {
+        assertWriteActive(chatId, options);
         saveStateAtoms(stateAtoms);
     }
 
@@ -388,13 +419,16 @@ export async function importVectors(file, onProgress) {
             rVector: (stateRVectors[idx] && (!hasRVectorMeta || meta.hasRVector)) ? stateRVectors[idx] : null,
         }));
         await saveStateVectors(chatId, stateVectorItems, manifest.fingerprint);
+        assertWriteActive(chatId, options);
     }
 
     // 更新 meta
+    assertWriteActive(chatId, options);
     await updateMeta(chatId, {
         fingerprint: manifest.fingerprint,
         lastChunkFloor: manifest.lastChunkFloor,
     });
+    assertWriteActive(chatId, options);
 
     xbLog.info(MODULE_ID, `导入完成: ${chunkMetas.length} chunks, ${eventMetas.length} events, ${stateAtoms.length} state atoms`);
 
@@ -439,7 +473,7 @@ export async function backupToServer(onProgress) {
     onProgress?.('构建索引...');
 
     const sortedChunks = [...chunks].sort((a, b) => a.chunkId.localeCompare(b.chunkId));
-    const chunkVectorMap = new Map(chunkVectors.map(cv => [cv.chunkId, cv.vector]));
+    const chunkVectorsOrdered = orderCompleteChunkVectors(sortedChunks, chunkVectors);
 
     const chunksJsonl = sortedChunks.map(c => JSON.stringify({
         chunkId: c.chunkId,
@@ -450,8 +484,6 @@ export async function backupToServer(onProgress) {
         text: c.text,
         textHash: c.textHash,
     })).join('\n');
-
-    const chunkVectorsOrdered = sortedChunks.map(c => chunkVectorMap.get(c.chunkId) || new Array(dims).fill(0));
 
     onProgress?.('压缩向量...');
 
@@ -557,11 +589,12 @@ export async function backupToServer(onProgress) {
 // 从服务器恢复
 // ═══════════════════════════════════════════════════════════════════════════
 
-export async function restoreFromServer(onProgress) {
-    const { chatId } = getContext();
+export async function restoreFromServer(onProgress, options = {}) {
+    const chatId = options.targetChatId || getContext()?.chatId;
     if (!chatId) {
         throw new Error('未打开聊天');
     }
+    assertWriteActive(chatId, options);
 
     onProgress?.('从服务器下载...');
 
@@ -569,6 +602,7 @@ export async function restoreFromServer(onProgress) {
     const res = await fetch(`/user/files/${filename}`, {
         headers: getRequestHeaders(),
         cache: 'no-cache',
+        signal: options.signal,
     });
 
     if (!res.ok) {
@@ -579,6 +613,7 @@ export async function restoreFromServer(onProgress) {
     }
 
     const arrayBuffer = await res.arrayBuffer();
+    assertWriteActive(chatId, options);
     if (!arrayBuffer || arrayBuffer.byteLength === 0) {
         throw new Error('服务器上没有找到此聊天的备份');
     }
@@ -650,6 +685,7 @@ export async function restoreFromServer(onProgress) {
         : [];
     const hasRVectorMeta = stateVectorMetas.some(m => typeof m.hasRVector === 'boolean');
 
+    assertVectorPackageChunkCounts(manifest, chunkMetas.length, chunkVectors.length);
     if (chunkMetas.length !== chunkVectors.length) {
         throw new Error(`chunk 数量不匹配: 元数据 ${chunkMetas.length}, 向量 ${chunkVectors.length}`);
     }
@@ -665,9 +701,15 @@ export async function restoreFromServer(onProgress) {
 
     onProgress?.('清空旧数据...');
 
+    assertWriteActive(chatId, options);
+    await updateMeta(chatId, { fingerprint: manifest.fingerprint, lastChunkFloor: -1 });
+    assertWriteActive(chatId, options);
     await clearAllChunks(chatId);
+    assertWriteActive(chatId, options);
     await clearEventVectors(chatId);
+    assertWriteActive(chatId, options);
     await clearStateVectors(chatId);
+    assertWriteActive(chatId, options);
     clearStateAtoms();
 
     onProgress?.('写入数据...');
@@ -683,12 +725,14 @@ export async function restoreFromServer(onProgress) {
             textHash: meta.textHash,
         }));
         await saveChunks(chatId, chunksToSave);
+        assertWriteActive(chatId, options);
 
         const chunkVectorItems = chunkMetas.map((meta, idx) => ({
             chunkId: meta.chunkId,
             vector: chunkVectors[idx],
         }));
         await saveChunkVectors(chatId, chunkVectorItems, manifest.fingerprint);
+        assertWriteActive(chatId, options);
     }
 
     if (eventMetas.length > 0) {
@@ -697,9 +741,11 @@ export async function restoreFromServer(onProgress) {
             vector: eventVectors[idx],
         }));
         await saveEventVectors(chatId, eventVectorItems, manifest.fingerprint);
+        assertWriteActive(chatId, options);
     }
 
     if (stateAtoms.length > 0) {
+        assertWriteActive(chatId, options);
         saveStateAtoms(stateAtoms);
     }
 
@@ -711,12 +757,15 @@ export async function restoreFromServer(onProgress) {
             rVector: (stateRVectors[idx] && (!hasRVectorMeta || meta.hasRVector)) ? stateRVectors[idx] : null,
         }));
         await saveStateVectors(chatId, stateVectorItems, manifest.fingerprint);
+        assertWriteActive(chatId, options);
     }
 
+    assertWriteActive(chatId, options);
     await updateMeta(chatId, {
         fingerprint: manifest.fingerprint,
         lastChunkFloor: manifest.lastChunkFloor,
     });
+    assertWriteActive(chatId, options);
 
     xbLog.info(MODULE_ID, `从服务器恢复完成: ${chunkMetas.length} chunks, ${eventMetas.length} events, ${stateAtoms.length} state atoms`);
 

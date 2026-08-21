@@ -144,7 +144,6 @@ export function createSessionStore(deps) {
         return {
             sessionId,
             historySummary: String(state.historySummary || ''),
-            sidebarCollapsed: state.sidebarCollapsed !== undefined ? !!state.sidebarCollapsed : true,
             localSources: normalizeLocalSources(state.localSources),
             isWorkspaceOpen: !!state.isWorkspaceOpen,
             workspaceWidth: Number.isFinite(Number(state.workspaceWidth)) ? Number(state.workspaceWidth) : 520,
@@ -169,7 +168,6 @@ export function createSessionStore(deps) {
                 id: snapshot.sessionId,
                 updatedAt: Date.now(),
                 historySummary: snapshot.historySummary,
-                sidebarCollapsed: snapshot.sidebarCollapsed,
                 localSources: snapshot.localSources,
                 isWorkspaceOpen: snapshot.isWorkspaceOpen,
                 workspaceWidth: snapshot.workspaceWidth,
@@ -294,7 +292,7 @@ export function createSessionStore(deps) {
             state.historySummary = String(session.historySummary || '');
             state.archivedTurnCount = 0;
             resetMessageWindow(state);
-            state.sidebarCollapsed = session.sidebarCollapsed !== undefined ? !!session.sidebarCollapsed : true;
+            state.sidebarCollapsed = true;
             state.localSources = normalizeLocalSources(session.localSources);
             state.isWorkspaceOpen = !!session.isWorkspaceOpen;
             state.workspaceWidth = Number.isFinite(Number(session.workspaceWidth)) ? Number(session.workspaceWidth) : 520;

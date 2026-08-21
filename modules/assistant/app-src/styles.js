@@ -967,7 +967,7 @@ export function injectAssistantStyles(rootId) {
             min-height: 0;
             overflow: auto;
             overflow-x: hidden;
-            padding: 18px 18px 8px;
+            padding: 18px 18px 12px;
             display: grid;
             gap: 14px;
             align-content: start;
@@ -1680,9 +1680,10 @@ export function injectAssistantStyles(rootId) {
         .xb-assistant-compose {
             display: grid;
             gap: 10px;
+            margin-top: 2px;
             background: var(--xb-assistant-surface);
             border-radius: 0;
-            padding: 8px 18px 16px;
+            padding: 0 18px 16px;
             box-shadow: none;
             width: 100%;
             max-width: 100%;
@@ -1693,8 +1694,8 @@ export function injectAssistantStyles(rootId) {
         .xb-assistant-compose-row {
             display: grid;
             grid-template-columns: minmax(0, 1fr) auto;
-            gap: 12px;
-            align-items: stretch;
+            gap: 8px;
+            align-items: end;
         }
         .xb-assistant-compose-main {
             min-width: 0;
@@ -1708,11 +1709,10 @@ export function injectAssistantStyles(rootId) {
         }
         .xb-assistant-compose-actions {
             display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
+            align-items: flex-end;
+            justify-content: flex-end;
             gap: 6px;
-            width: 36px;
+            width: auto;
             overflow: visible;
         }
         .xb-assistant-compose-more {
@@ -1721,24 +1721,21 @@ export function injectAssistantStyles(rootId) {
         }
         .xb-assistant-compose-actions > button,
         .xb-assistant-compose .xb-assistant-compose-menu-toggle {
-            width: 36px;
-            min-width: 36px;
-            height: 30px;
-            min-height: 30px;
+            width: 34px;
+            min-width: 34px;
+            height: 34px;
+            min-height: 34px;
             padding: 0;
-            border-radius: 10px;
+            border-radius: 999px;
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            font-size: 18px;
+            font-size: 17px;
             line-height: 1;
             font-weight: 600;
         }
-        .xb-assistant-compose-actions > button {
-            min-width: 36px;
-        }
         #xb-assistant-send {
-            font-size: 16px;
+            font-size: 15px;
         }
         .xb-assistant-compose-menu {
             position: absolute;
@@ -2023,7 +2020,7 @@ export function injectAssistantStyles(rootId) {
                 white-space: nowrap;
             }
             .xb-assistant-compose {
-                padding: 8px 12px;
+                padding: 0 12px;
                 padding-bottom: calc(12px + env(safe-area-inset-bottom));
             }
             .xb-assistant-compose-row {
@@ -2070,7 +2067,7 @@ export function injectAssistantStyles(rootId) {
                 overflow: hidden;
                 text-overflow: ellipsis;
             }
-            .xb-assistant-chat { padding: 14px 12px 6px; min-height: 0; }
+            .xb-assistant-chat { padding: 14px 12px 10px; min-height: 0; }
             .xb-assistant-bubble { width: 100%; max-width: 100%; }
             .xb-assistant-bubble.role-user { width: fit-content; max-width: 92%; }
             .xb-assistant-empty {

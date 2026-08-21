@@ -523,11 +523,8 @@ export function parseSubmittedScenePlan(result = {}, options = {}) {
         const provider = String(options.provider || '').trim();
         const model = String(options.model || '').trim();
         const context = [presetName, provider, model].filter(Boolean).join(' / ');
-        const compatibilityHint = provider === 'openai-compatible' || provider === 'sillytavern-openai-compatible'
-            ? '请在共享 Agent API 配置中切换为 Tagged JSON 兼容模式，或更换支持 Tool Calling 的模型。'
-            : '请检查当前共享主预设是否使用了支持 Tool Calling 的模型。';
         throw new ScenePlannerError(
-            `当前模型没有返回 Tool Call${context ? `（${context}）` : ''}。${compatibilityHint}`,
+            `本次响应没有解析到 submit_scene_plan Tool Call${context ? `（${context}）` : ''}。这不代表模型不支持 Tool Calling，请根据最近一次实际请求核对返回协议。`,
             'TOOL_CALL_MISSING',
             {
                 path: 'toolCalls',

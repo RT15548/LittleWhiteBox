@@ -15,6 +15,7 @@ import {
 import { isReasoningOutputVisible } from '../reasoning-config.js';
 import {
     accumulateStreamedAssistantSnapshot,
+    applyOpenAICompatibleReasoningControls,
     assertSignedToolCallsIntact,
     buildTaggedToolCallDraft,
     buildToolCallResultsFromOpenAI,
@@ -101,12 +102,7 @@ export class SillyTavernOpenAICompatibleAdapter {
             messages,
             typeof task.onStreamProgress === 'function',
         );
-        if (reasoning.mode === 'on') {
-            payload.reasoning_effort = reasoning.effort;
-        } else if (reasoning.mode === 'off') {
-            payload.reasoning_effort = 'none';
-        }
-        return payload;
+        return applyOpenAICompatibleReasoningControls(payload, reasoning);
     }
 
     async inspectRequest(task, options = {}) {
@@ -124,6 +120,14 @@ export class SillyTavernOpenAICompatibleAdapter {
             this.config,
             task.reasoning,
         );
+        const controlFields = {
+            ...(Object.hasOwn(request?.body || {}, 'reasoning_effort')
+                ? { reasoning_effort: request.body.reasoning_effort }
+                : {}),
+            ...(Object.hasOwn(request?.body || {}, 'thinking')
+                ? { thinking: request.body.thinking }
+                : {}),
+        };
         return {
             provider: 'sillytavern-openai-compatible',
             model: this.config.model,
@@ -133,9 +137,7 @@ export class SillyTavernOpenAICompatibleAdapter {
                 profileId: reasoning.profileId,
                 effectiveMode: reasoning.mode,
                 effort: request?.body?.reasoning_effort,
-                controlFields: Object.hasOwn(request?.body || {}, 'reasoning_effort')
-                    ? { reasoning_effort: request.body.reasoning_effort }
-                    : {},
+                controlFields,
             }),
         };
     }

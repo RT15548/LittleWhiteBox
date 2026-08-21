@@ -174,7 +174,8 @@ export async function getChunkBuildStatus() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export async function buildAllChunks(options = {}) {
-    const { onProgress, shouldCancel, vectorConfig } = options;
+    const { onProgress, shouldCancel, vectorConfig, signal = null } = options;
+    const isCancelled = () => signal?.aborted || shouldCancel?.() === true;
 
     const { chat, chatId } = getContext();
     if (!chatId || !chat?.length) {
@@ -208,12 +209,13 @@ export async function buildAllChunks(options = {}) {
     const allVectors = [];
 
     for (let i = 0; i < texts.length; i += batchSize) {
-        if (shouldCancel?.()) break;
+        if (isCancelled()) break;
 
         const batch = texts.slice(i, i + batchSize);
 
         try {
-            const vectors = await embed(batch, vectorConfig);
+            const vectors = await embed(batch, vectorConfig, { signal });
+            if (isCancelled()) break;
             allVectors.push(...vectors);
             completed += batch.length;
             onProgress?.(completed, texts.length);
@@ -224,7 +226,7 @@ export async function buildAllChunks(options = {}) {
         }
     }
 
-    if (shouldCancel?.()) {
+    if (isCancelled()) {
         return { built: completed, errors };
     }
 
@@ -233,9 +235,11 @@ export async function buildAllChunks(options = {}) {
         .filter(Boolean);
 
     if (vectorItems.length > 0) {
+        if (isCancelled()) return { built: completed, errors };
         await saveChunkVectors(chatId, vectorItems, fingerprint);
     }
 
+    if (isCancelled()) return { built: completed, errors };
     await updateMeta(chatId, { lastChunkFloor: chat.length - 1 });
 
     xbLog.info(MODULE_ID, `构建完成：${vectorItems.length} 个向量，${errors} 个错误`);
@@ -248,11 +252,28 @@ export async function buildAllChunks(options = {}) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export async function buildIncrementalChunks(options = {}) {
-    const { vectorConfig } = options;
+    const {
+        vectorConfig,
+        targetChatId = '',
+        chatSnapshot = null,
+        signal = null,
+        shouldCancel = null,
+    } = options;
+    const isCancelled = () => signal?.aborted || shouldCancel?.() === true;
+    const cancelledResult = (startFloor = null, endFloor = null) => ({
+        success: false,
+        status: 'cancelled',
+        code: 'vector_config_changed',
+        built: 0,
+        startFloor,
+        endFloor,
+    });
 
-    const { chat, chatId } = getContext();
+    const context = getContext();
+    const chat = Array.isArray(chatSnapshot) ? chatSnapshot : context.chat;
+    const chatId = targetChatId || context.chatId;
     if (!chatId || !chat?.length) {
-        return { built: 0 };
+        return { success: false, status: 'failed', code: 'no_active_chat', built: 0 };
     }
 
     const meta = await getMeta(chatId);
@@ -260,44 +281,81 @@ export async function buildIncrementalChunks(options = {}) {
 
     if (meta.fingerprint && meta.fingerprint !== fingerprint) {
         xbLog.warn(MODULE_ID, '引擎指纹不匹配，跳过增量构建');
-        return { built: 0 };
+        return { success: false, status: 'failed', code: 'fingerprint_mismatch', built: 0 };
     }
 
     const startFloor = meta.lastChunkFloor + 1;
-    if (startFloor >= chat.length) {
-        return { built: 0 };
+    const endFloor = chat.length - 1;
+    if (isCancelled()) return cancelledResult(startFloor, endFloor);
+    if (startFloor > endFloor) {
+        return { success: true, status: 'up_to_date', built: 0, startFloor, endFloor };
     }
 
-    xbLog.info(MODULE_ID, `增量构建 ${startFloor} - ${chat.length - 1} 层`);
+    xbLog.info(MODULE_ID, `增量构建 ${startFloor} - ${endFloor} 层`);
 
     const newChunks = [];
-    for (let floor = startFloor; floor < chat.length; floor++) {
+    for (let floor = startFloor; floor <= endFloor; floor++) {
         const chunks = chunkMessage(floor, chat[floor]);
         newChunks.push(...chunks);
     }
 
     if (newChunks.length === 0) {
-        await updateMeta(chatId, { lastChunkFloor: chat.length - 1 });
-        return { built: 0 };
+        await updateMeta(chatId, { lastChunkFloor: endFloor, fingerprint });
+        return { success: true, status: 'empty', built: 0, startFloor, endFloor };
     }
-
-    await saveChunks(chatId, newChunks);
 
     const texts = newChunks.map(c => c.text);
 
     try {
-        const vectors = await embed(texts, vectorConfig);
+        const vectors = await embed(texts, vectorConfig, { signal });
+        if (isCancelled()) return cancelledResult(startFloor, endFloor);
+        if (!Array.isArray(vectors) || vectors.length < newChunks.length || vectors.some(vector => !vector?.length)) {
+            return {
+                success: false,
+                status: 'failed',
+                code: 'invalid_embedding_response',
+                built: 0,
+                startFloor,
+                endFloor,
+            };
+        }
         const vectorItems = newChunks.map((chunk, idx) => ({
             chunkId: chunk.chunkId,
             vector: vectors[idx],
         }));
+        await saveChunks(chatId, newChunks);
+        if (isCancelled()) {
+            await deleteChunksFromFloor(chatId, startFloor);
+            return cancelledResult(startFloor, endFloor);
+        }
         await saveChunkVectors(chatId, vectorItems, fingerprint);
-        await updateMeta(chatId, { lastChunkFloor: chat.length - 1 });
+        if (isCancelled()) {
+            await deleteChunksFromFloor(chatId, startFloor);
+            return cancelledResult(startFloor, endFloor);
+        }
+        await updateMeta(chatId, { lastChunkFloor: endFloor, fingerprint });
 
-        return { built: vectorItems.length };
+        return { success: true, status: 'built', built: vectorItems.length, startFloor, endFloor };
     } catch (e) {
-        xbLog.error(MODULE_ID, '增量向量化失败', e);
-        return { built: 0 };
+        // 只以本次写入会话是否失效判定“取消”。embed() 内部的请求超时同样抛 AbortError，
+        // 但那是失败而非取消，必须走 failed 分支让上层保留待维护记录并退避重试。
+        const cancelled = isCancelled();
+        if (!cancelled) xbLog.error(MODULE_ID, '增量向量化失败', e);
+        try {
+            await deleteChunksFromFloor(chatId, startFloor);
+        } catch (rollbackError) {
+            xbLog.warn(MODULE_ID, '增量构建失败后的片段回滚失败', rollbackError);
+        }
+        if (cancelled) return cancelledResult(startFloor, endFloor);
+        return {
+            success: false,
+            status: 'failed',
+            code: 'embedding_or_write_failed',
+            built: 0,
+            startFloor,
+            endFloor,
+            error: e,
+        };
     }
 }
 
@@ -313,7 +371,8 @@ export async function syncOnMessageDeleted(chatId, newLength) {
     if (!chatId || newLength < 0) return;
 
     await deleteChunksFromFloor(chatId, newLength);
-    await updateMeta(chatId, { lastChunkFloor: newLength - 1 });
+    const meta = await getMeta(chatId);
+    await updateMeta(chatId, { lastChunkFloor: Math.min(meta.lastChunkFloor, newLength - 1) });
 
     xbLog.info(MODULE_ID, `消息删除同步：删除 floor >= ${newLength}`);
 }
@@ -325,7 +384,8 @@ export async function syncOnMessageSwiped(chatId, lastFloor) {
     if (!chatId || lastFloor < 0) return;
 
     await deleteChunksAtFloor(chatId, lastFloor);
-    await updateMeta(chatId, { lastChunkFloor: lastFloor - 1 });
+    const meta = await getMeta(chatId);
+    await updateMeta(chatId, { lastChunkFloor: Math.min(meta.lastChunkFloor, lastFloor - 1) });
 
     xbLog.info(MODULE_ID, `swipe 同步：删除 floor ${lastFloor}`);
 }

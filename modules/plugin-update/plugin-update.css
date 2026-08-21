@@ -1,0 +1,30 @@
+.littlewhitebox-section-divider-top {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+}
+
+.littlewhitebox-update-text {
+    color: #28a745;
+    margin-left: 5px;
+}
+
+#littlewhitebox-update-extension {
+    color: #28a745;
+    cursor: pointer;
+    margin: 0 0 0 5px;
+    transition: background-color .2s, color .2s, transform .2s;
+}
+
+#littlewhitebox-update-extension:not(:disabled):hover {
+    background-color: rgba(40, 167, 69, .1);
+    transform: scale(1.1);
+}
+
+#littlewhitebox-update-extension:disabled,
+#littlewhitebox-update-extension.updating {
+    color: #007bff;
+    cursor: wait;
+    opacity: .7;
+    transform: none;
+}

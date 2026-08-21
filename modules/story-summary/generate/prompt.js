@@ -14,7 +14,8 @@
 
 import { getContext } from "../../../../../../extensions.js";
 import { xbLog } from "../../../core/debug-core.js";
-import { getSummaryStore, getFacts, isRelationFact } from "../data/store.js";
+import { getSummaryStore, getFacts } from "../data/store.js";
+import { isRelationFact } from "../data/fact-predicates.js";
 import { getVectorConfig, getSummaryPanelConfig, getSettings, DEFAULT_MEMORY_PROMPT_TEMPLATE } from "../data/config.js";
 import {
     hydrateSelectedDirectEvidence,
@@ -25,6 +26,7 @@ import { getMeta } from "../vector/storage/chunk-store.js";
 import { getStateAtoms } from "../vector/storage/state-store.js";
 import { getEngineFingerprint } from "../vector/utils/embedder.js";
 import { buildTrustedCharacters } from "../vector/retrieval/entity-lexicon.js";
+import { filterConstraintsByRelevance } from "./constraint-filter.js";
 import {
     getTemporalProtectionLimit,
     parseEventRange,
@@ -40,20 +42,6 @@ import { buildTemporalEventPackingOrder } from "./temporal-event-packing.js";
 import { formatMetricsLog, detectIssues } from "../vector/retrieval/metrics.js";
 
 const MODULE_ID = "summaryPrompt";
-
-// ─────────────────────────────────────────────────────────────────────────────
-// 召回失败提示节流
-// ─────────────────────────────────────────────────────────────────────────────
-
-let lastRecallFailAt = 0;
-const RECALL_FAIL_COOLDOWN_MS = 10_000;
-
-function canNotifyRecallFail() {
-    const now = Date.now();
-    if (now - lastRecallFailAt < RECALL_FAIL_COOLDOWN_MS) return false;
-    lastRecallFailAt = now;
-    return true;
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 预算常量
@@ -239,44 +227,6 @@ function getKnownCharacters(store) {
  * @param {string} predicate - 谓词
  * @returns {string|null} 目标名称
  */
-function parseRelationTarget(predicate) {
-    const match = String(predicate || '').match(/^对(.+)的/);
-    return match ? match[1] : null;
-}
-
-/**
- * 按相关性过滤 facts
- * @param {object[]} facts - 所有 facts
- * @param {string[]} focusCharacters - 焦点人物
- * @param {Set<string>} knownCharacters - 已知角色
- * @returns {object[]} 过滤后的 facts
- */
-function filterConstraintsByRelevance(facts, focusCharacters, knownCharacters) {
-    if (!facts?.length) return [];
-
-    const focusSet = new Set((focusCharacters || []).map(normalize));
-
-    return facts.filter(f => {
-        if (f._isState === true) return true;
-
-        if (isRelationFact(f)) {
-            const from = normalize(f.s);
-            const target = parseRelationTarget(f.p);
-            const to = target ? normalize(target) : '';
-
-            if (focusSet.has(from) || focusSet.has(to)) return true;
-            return false;
-        }
-
-        const subjectNorm = normalize(f.s);
-        if (knownCharacters.has(subjectNorm)) {
-            return focusSet.has(subjectNorm);
-        }
-
-        return true;
-    });
-}
-
 /**
  * Build people dictionary for constraints display.
  * Primary source: selected event participants; fallback: focus characters.
@@ -884,7 +834,8 @@ function buildNonVectorPrompt(store) {
     const filteredConstraints = filterConstraintsByRelevance(
         allFacts,
         nonVectorFocus,
-        nonVectorKnownCharacters
+        nonVectorKnownCharacters,
+        getContext().name1,
     );
     const groupedConstraints = groupConstraintsForDisplay(filteredConstraints, nonVectorPeopleDict);
     const constraintLines = formatConstraintsStructured(groupedConstraints, 'asc');
@@ -1108,7 +1059,12 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
 
     const allFacts = getFacts();
     const knownCharacters = getKnownCharacters(store);
-    const filteredConstraints = filterConstraintsByRelevance(allFacts, focusCharacters, knownCharacters);
+    const filteredConstraints = filterConstraintsByRelevance(
+        allFacts,
+        focusCharacters,
+        knownCharacters,
+        getContext().name1,
+    );
     const constraintPeopleDict = buildConstraintPeopleDict(recallResult, focusCharacters);
     const groupedConstraints = groupConstraintsForDisplay(filteredConstraints, constraintPeopleDict);
     if (evidenceTrace) {
@@ -1732,23 +1688,24 @@ export async function buildVectorPromptForReplay(store, recallResult, causalById
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * 构建向量模式注入文本（公开接口）
+ * 构建向量模式注入文本。这里只计算，不发布 UI 日志、警告或 extension prompt。
+ * 所有可观察副作用都由 generate interceptor 在认领本轮结果后提交。
  * @param {boolean} excludeLastAi - 是否排除最后的 AI 消息
- * @param {object} hooks - 钩子函数
- * @returns {Promise<{text: string, logText: string}>}
+ * @param {object} options - 计算选项
+ * @returns {Promise<{text: string, logText: string, notice: object|null}>}
  */
-export async function buildVectorPromptText(excludeLastAi = false, hooks = {}) {
-    const { postToFrame = null, echo = null, pendingUserMessage = null, signal = null } = hooks;
+export async function buildVectorPromptText(excludeLastAi = false, options = {}) {
+    const { pendingUserMessage = null, signal = null } = options;
 
     if (!getSettings().storySummary?.enabled) {
-        return { text: "", logText: "" };
+        return { text: "", logText: "", notice: null };
     }
 
     const { chat } = getContext();
     const store = getSummaryStore();
 
     if (!store?.json) {
-        return { text: "", logText: "" };
+        return { text: "", logText: "", notice: null };
     }
 
     const allEvents = store.json.events || [];
@@ -1756,12 +1713,12 @@ export async function buildVectorPromptText(excludeLastAi = false, hooks = {}) {
     const length = chat?.length || 0;
 
     if (lastIdx >= length) {
-        return { text: "", logText: "" };
+        return { text: "", logText: "", notice: null };
     }
 
     const vectorCfg = getVectorConfig();
     if (!vectorCfg?.enabled) {
-        return { text: "", logText: "" };
+        return { text: "", logText: "", notice: null };
     }
 
     const { chatId } = getContext();
@@ -1802,23 +1759,10 @@ export async function buildVectorPromptText(excludeLastAi = false, hooks = {}) {
         }
         if (recallResult?.directEvidenceContext) recallResult.directEvidenceContext = null;
         if (signal?.aborted) {
-            return { text: "", logText: "" };
+            return { text: "", logText: "", notice: null };
         }
         xbLog.error(MODULE_ID, "向量召回失败", e);
-
-        if (echo && canNotifyRecallFail()) {
-            const msg = String(e?.message || "未知错误").replace(/\s+/g, " ").slice(0, 200);
-            await echo(`/echo severity=warning 嵌入 API 请求失败：${msg}（本次跳过记忆召回）`);
-        }
-
-        if (postToFrame) {
-            postToFrame({
-                type: "RECALL_LOG",
-                text: `\n[Vector Recall Failed]\n${String(e?.stack || e?.message || e)}\n`,
-            });
-        }
-
-        return { text: "", logText: `\n[Vector Recall Failed]\n${String(e?.stack || e?.message || e)}\n` };
+        throw e;
     }
 
     if (signal?.aborted) {
@@ -1826,36 +1770,36 @@ export async function buildVectorPromptText(excludeLastAi = false, hooks = {}) {
             await releaseDirectEvidenceContext(recallResult.directEvidenceContext, recallResult?.metrics);
             recallResult.directEvidenceContext = null;
         }
-        return { text: "", logText: "" };
+        return { text: "", logText: "", notice: null };
     }
 
-    const hasUseful =
+    const hasRecallEvidence =
         (recallResult?.events?.length || 0) > 0 ||
         (recallResult?.l0Selected?.length || 0) > 0 ||
         (recallResult?.causalChain?.length || 0) > 0;
 
-    if (!hasUseful) {
+    let notice = null;
+    if (!hasRecallEvidence) {
         const noVectorsGenerated = !meta?.fingerprint || (meta?.lastChunkFloor ?? -1) < 0;
         const fpMismatch = meta?.fingerprint && meta.fingerprint !== getEngineFingerprint(vectorCfg);
 
         if (fpMismatch) {
-            if (echo && canNotifyRecallFail()) {
-                await echo("/echo severity=warning 向量引擎已变更，请重新生成向量");
-            }
+            notice = {
+                issueCode: 'fingerprint_mismatch',
+                message: '向量引擎已变更，请重新生成向量',
+            };
         } else if (noVectorsGenerated) {
-            if (echo && canNotifyRecallFail()) {
-                await echo("/echo severity=warning 没有可用向量，请在剧情总结面板中生成向量");
-            }
+            notice = {
+                issueCode: 'vectors_not_generated',
+                message: '没有可用向量，请在剧情总结面板中生成向量',
+            };
         }
         // 向量存在但本次未命中 → 静默跳过，不打扰用户
-
-        if (postToFrame && (noVectorsGenerated || fpMismatch)) {
-            postToFrame({
-                type: "RECALL_LOG",
-                text: "\n[Vector Recall Empty]\nNo recall candidates / vectors not ready.\n",
-            });
-        }
-        return { text: "", logText: "\n[Vector Recall Empty]\nNo recall candidates / vectors not ready.\n" };
+        return {
+            text: "",
+            logText: "\n[Vector Recall Empty]\nNo recall candidates / vectors not ready.\n",
+            notice,
+        };
     }
 
     const { promptText, metrics: promptMetrics } = await buildVectorPrompt(
@@ -1867,7 +1811,7 @@ export async function buildVectorPromptText(excludeLastAi = false, hooks = {}) {
         recallResult?.metrics || null
     );
     if (signal?.aborted) {
-        return { text: "", logText: "" };
+        return { text: "", logText: "", notice: null };
     }
 
     const cfg = getSummaryPanelConfig();
@@ -1877,9 +1821,9 @@ export async function buildVectorPromptText(excludeLastAi = false, hooks = {}) {
 
     const metricsLogText = promptMetrics ? formatMetricsLog(promptMetrics) : '';
 
-    if (postToFrame) {
-        postToFrame({ type: "RECALL_LOG", text: metricsLogText });
-    }
-
-    return { text: finalText, logText: metricsLogText };
+    return {
+        text: finalText,
+        logText: metricsLogText,
+        notice,
+    };
 }

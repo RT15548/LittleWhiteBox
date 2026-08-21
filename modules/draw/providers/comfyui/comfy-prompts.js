@@ -4,7 +4,7 @@ const TAG_GUIDE_PATH = `${extensionFolderPath}/modules/draw/providers/comfyui/CO
 const PROMPTS_DIR = `${extensionFolderPath}/modules/draw/providers/comfyui/prompts`;
 
 /** 每次修改 ComfyUI 默认提示词内容时递增，方便后续做预设/缓存刷新判断。 */
-export const PROMPT_TEMPLATE_VERSION = 6;
+export const PROMPT_TEMPLATE_VERSION = 7;
 
 export const COMFY_SCENE_PROMPTS = {
     topSystem: `[Visual Scene Planning - ComfyUI txt2img]

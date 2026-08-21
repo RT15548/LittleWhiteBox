@@ -1,141 +1,109 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { OPENAI_REASONING_EFFORT_MODELS } from '../../../../../../../../src/constants.js';
 import {
     getReasoningOutputOptions,
-    ReasoningCapabilityError,
+    resolveModelFamily,
     resolveReasoningCapability,
     resolveTaskReasoning,
     resolveRuntimeReasoning,
     shouldOmitTemperatureForReasoning,
-    ST_OPENAI_REASONING_MODELS,
 } from '../../agent-core/reasoning-capabilities.js';
 import { normalizeReasoningConfig } from '../../agent-core/reasoning-config.js';
 
 const CAPABILITY_CASES = [
     {
-        name: 'OpenAI GPT-5.6',
-        context: { provider: 'openai-responses', model: 'gpt-5.6' },
+        name: 'OpenAI family uses the latest GPT contract',
+        context: { provider: 'openai-responses', model: 'vendor/gpt-4o-custom' },
         profileId: 'openai-gpt-5.6',
         modes: ['inherit', 'on', 'off'],
         intensity: { kind: 'effort', values: ['low', 'medium', 'high', 'xhigh', 'max'] },
     },
     {
-        name: 'OpenAI GPT-5.1',
-        context: { provider: 'openai-responses', model: 'gpt-5.1' },
-        profileId: 'openai-gpt-5.1',
+        name: 'hosted OpenAI aliases use the latest GPT contract',
+        context: { provider: 'sillytavern-openai-compatible', model: 'relay/GPT-5.1-chat-latest' },
+        profileId: 'openai-gpt-5.6',
         modes: ['inherit', 'on', 'off'],
-        intensity: { kind: 'effort', values: ['low', 'medium', 'high'] },
+        intensity: { kind: 'effort', values: ['low', 'medium', 'high', 'xhigh', 'max'] },
     },
     {
-        name: 'OpenAI GPT-5.2',
-        context: { provider: 'openai-responses', model: 'gpt-5.2' },
-        profileId: 'openai-gpt-5.2-5.4',
-        modes: ['inherit', 'on', 'off'],
-        intensity: { kind: 'effort', values: ['low', 'medium', 'high', 'xhigh'] },
-    },
-    {
-        name: 'Kimi K3',
-        context: { provider: 'openai-compatible', baseUrl: 'https://api.moonshot.ai/v1', model: 'kimi-k3' },
+        name: 'Kimi old versions use the latest K3 contract',
+        context: { provider: 'openai-compatible', model: 'vendor/KIMI-K2.6-thinking' },
         profileId: 'kimi-k3',
         modes: ['inherit', 'on', 'off'],
         intensity: { kind: 'effort', values: ['low', 'high', 'max'] },
     },
     {
-        name: 'Kimi K2.6',
-        context: { provider: 'openai-compatible', baseUrl: 'https://api.moonshot.ai/v1', model: 'kimi-k2.6' },
-        profileId: 'kimi-k2.5-k2.6',
-        modes: ['inherit', 'on', 'off'],
-        intensity: { kind: 'none' },
-    },
-    {
-        name: 'DeepSeek',
-        context: { provider: 'openai-compatible', baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-reasoner' },
+        name: 'DeepSeek aliases are matched by family name only',
+        context: { provider: 'openai-compatible', model: 'relay/Experimental-DeepSeek-R1-0528' },
         profileId: 'deepseek-thinking',
         modes: ['inherit', 'on', 'off'],
         intensity: { kind: 'effort', values: ['low', 'high', 'max'] },
     },
     {
-        name: 'Anthropic adaptive',
-        context: { provider: 'anthropic', model: 'claude-opus-4-7' },
+        name: 'Gemini over OpenAI-compatible uses the latest family contract',
+        context: { provider: 'openai-compatible', model: 'proxy/google-gemini-2.5-pro-preview' },
+        profileId: 'openai-compatible-gemini-latest',
+        modes: ['inherit', 'on', 'off'],
+        intensity: { kind: 'effort', values: ['minimal', 'low', 'medium', 'high'] },
+    },
+    {
+        name: 'Claude over OpenAI-compatible uses the latest family contract',
+        context: { provider: 'openai-compatible', model: 'anthropic/claude-sonnet-4-5' },
+        profileId: 'openai-compatible-claude-latest',
+        modes: ['inherit', 'on', 'off'],
+        intensity: { kind: 'effort', values: ['low', 'medium', 'high', 'xhigh', 'max'] },
+    },
+    {
+        name: 'unrecognized OpenAI-compatible names use the conventional default contract',
+        context: { provider: 'openai-compatible', model: 'my-local-model' },
+        profileId: 'openai-compatible-default',
+        modes: ['inherit', 'on', 'off'],
+        intensity: { kind: 'effort', values: ['low', 'medium', 'high'] },
+    },
+    {
+        name: 'Anthropic models use the latest adaptive contract',
+        context: { provider: 'anthropic', model: 'legacy-prefix/claude-sonnet-4-5' },
         profileId: 'anthropic-adaptive',
         modes: ['inherit', 'on', 'off'],
         intensity: { kind: 'effort', values: ['low', 'medium', 'high', 'xhigh', 'max'] },
     },
     {
-        name: 'Anthropic manual',
-        context: { provider: 'anthropic', model: 'claude-sonnet-4-5' },
-        profileId: 'anthropic-manual',
-        modes: ['inherit', 'on', 'off'],
-        intensity: { kind: 'budget' },
-    },
-    {
-        name: 'hosted Claude 4.6 conditional adaptive',
-        context: { provider: 'sillytavern-claude', model: 'claude-sonnet-4-6' },
-        profileId: 'sillytavern-claude-adaptive-conditional',
+        name: 'hosted Claude models use the latest adaptive contract',
+        context: { provider: 'sillytavern-claude', model: 'claude-sonnet-4-0' },
+        profileId: 'sillytavern-claude-adaptive',
         modes: ['inherit', 'on', 'off'],
         intensity: { kind: 'effort', values: ['low', 'medium', 'high', 'max'] },
     },
     {
-        name: 'Gemini 2.5 Flash',
-        context: { provider: 'google', model: 'gemini-2.5-flash' },
-        profileId: 'google-gemini-2.5-flash',
-        modes: ['inherit', 'on', 'off'],
-        intensity: { kind: 'budget' },
-    },
-    {
-        name: 'Gemini 2.5 Flash-Lite',
-        context: { provider: 'google', model: 'gemini-2.5-flash-lite' },
-        profileId: 'google-gemini-2.5-flash-lite',
-        modes: ['inherit', 'on', 'off'],
-        intensity: { kind: 'budget' },
-    },
-    {
-        name: 'Gemini 2.5 Pro',
-        context: { provider: 'google', model: 'gemini-2.5-pro' },
-        profileId: 'google-gemini-2.5-pro',
-        modes: ['inherit', 'on'],
-        intensity: { kind: 'budget' },
-    },
-    {
-        name: 'Gemini 3 Flash',
-        context: { provider: 'google', model: 'gemini-3-flash-preview' },
+        name: 'Google models use the latest Gemini contract',
+        context: { provider: 'google', model: 'publisher/gemini-2.5-flash-lite' },
         profileId: 'google-gemini-3-flash',
         modes: ['inherit', 'on'],
         intensity: { kind: 'effort', values: ['minimal', 'low', 'medium', 'high'] },
     },
     {
-        name: 'hosted Gemini 2.5 Flash',
-        context: { provider: 'sillytavern-google', model: 'gemini-2.5-flash' },
-        profileId: 'sillytavern-google-2.5-flash',
-        modes: ['inherit', 'on', 'off'],
-        intensity: { kind: 'effort', values: ['low', 'medium', 'high', 'max'] },
-    },
-    {
-        name: 'hosted Gemini 2.5 Flash-Lite',
-        context: { provider: 'sillytavern-google', model: 'gemini-2.5-flash-lite' },
-        profileId: 'sillytavern-google-2.5-flash-lite',
-        modes: ['inherit', 'on', 'off'],
-        intensity: { kind: 'effort', values: ['low', 'medium', 'high', 'max'] },
+        name: 'hosted Google models use the latest Gemini contract',
+        context: { provider: 'sillytavern-google', model: 'gemini-2.0-flash' },
+        profileId: 'sillytavern-google-3-flash',
+        modes: ['inherit', 'on'],
+        intensity: { kind: 'effort', values: ['min', 'low', 'medium', 'high'] },
     },
 ];
 
-test('hosted OpenAI Reasoning model membership matches SillyTavern', () => {
-    const localModels = new Set(ST_OPENAI_REASONING_MODELS);
-    const sillyTavernModels = new Set(OPENAI_REASONING_EFFORT_MODELS);
-
-    assert.deepEqual({
-        missingFromLittleWhiteBox: [...sillyTavernModels]
-            .filter(model => !localModels.has(model))
-            .sort(),
-        noLongerInSillyTavern: [...localModels]
-            .filter(model => !sillyTavernModels.has(model))
-            .sort(),
-    }, {
-        missingFromLittleWhiteBox: [],
-        noLongerInSillyTavern: [],
-    });
+test('model families are resolved by broad names instead of exact versions or endpoint URLs', () => {
+    assert.equal(resolveModelFamily('prefix/DeepSeek-anything'), 'deepseek');
+    assert.equal(resolveModelFamily('vendor/KIMI-K2.5'), 'kimi');
+    assert.equal(resolveModelFamily('google/gemini-custom'), 'gemini');
+    assert.equal(resolveModelFamily('anthropic/claude-custom'), 'claude');
+    assert.equal(resolveModelFamily('openai/gpt-custom'), 'openai');
+    assert.equal(resolveModelFamily('relay/gpt5.6-custom'), 'openai');
+    assert.equal(resolveModelFamily('vendor/o1-mini'), 'openai');
+    assert.equal(resolveModelFamily('deepseek-name-with-no-matching-url'), 'deepseek');
+    assert.equal(resolveModelFamily('openai/relay/deepseek-custom'), 'deepseek');
+    assert.equal(resolveModelFamily('openai/my-local-model'), '');
+    assert.equal(resolveModelFamily('vendor/qwen3-max'), '');
+    assert.equal(resolveModelFamily('TheBloke/Llama-2-7B-GPTQ'), '');
 });
 
 test('Reasoning capabilities are resolved by Provider, transport, and model', () => {
@@ -151,55 +119,59 @@ test('Reasoning capabilities are resolved by Provider, transport, and model', ()
 
     assert.equal(resolveReasoningCapability({
         provider: 'google',
-        model: 'gemini-2.5-flash-image-preview',
-    }).profileId, 'unsupported');
+        model: 'private-google-model-alias',
+    }).profileId, 'google-gemini-3-flash');
     assert.equal(resolveReasoningCapability({
         provider: 'openai-compatible',
         model: 'unknown-compatible-model',
-    }).profileId, 'unsupported');
+    }).profileId, 'openai-compatible-default');
     assert.equal(resolveReasoningCapability({
         provider: 'openai-compatible',
         model: 'o1-mini',
-    }).profileId, 'unsupported');
+    }).profileId, 'openai-gpt-5.6');
     assert.equal(resolveReasoningCapability({
         provider: 'sillytavern-openai-compatible',
         model: 'o1-mini',
-    }).profileId, 'unsupported');
+    }).profileId, 'openai-gpt-5.6');
+    assert.equal(resolveReasoningCapability({
+        provider: 'openai-responses',
+        model: 'custom-model-without-family-name',
+    }).profileId, 'openai-gpt-5.6');
 });
 
-test('Reasoning runtime preserves inherit, validates on, and never degrades off to inherit', () => {
+test('Reasoning runtime keeps custom OpenAI-compatible models usable with the conventional protocol', () => {
     const unknownContext = {
         provider: 'openai-compatible',
         model: 'unknown-compatible-model',
     };
     assert.deepEqual(resolveRuntimeReasoning(unknownContext, {
         mode: 'inherit',
-        output: 'show',
+        output: 'hide',
     }), {
         mode: 'inherit',
-        output: 'show',
-        profileId: 'unsupported',
-        valid: false,
-        error: '当前模型不支持返回 Reasoning 内容，请选择“隐藏”。',
-        code: 'REASONING_CAPABILITY_UNSUPPORTED',
+        output: 'hide',
+        profileId: 'openai-compatible-default',
+        valid: true,
     });
     assert.equal(
         getReasoningOutputOptions(resolveReasoningCapability(unknownContext))
             .find((option) => option.value === 'show').disabled,
-        true,
+        false,
     );
 
-    const unsupportedOff = resolveRuntimeReasoning(unknownContext, {
+    const customOff = resolveRuntimeReasoning(unknownContext, {
         mode: 'off',
         output: 'hide',
     });
-    assert.equal(unsupportedOff.mode, 'off');
-    assert.equal(unsupportedOff.valid, false);
-    assert.throws(
-        () => resolveTaskReasoning(unknownContext.provider, unknownContext, unsupportedOff),
-        (error) => error instanceof ReasoningCapabilityError
-            && error.code === 'REASONING_CAPABILITY_UNSUPPORTED',
-    );
+    assert.equal(customOff.mode, 'off');
+    assert.equal(customOff.valid, true);
+
+    const customOn = resolveTaskReasoning(unknownContext.provider, unknownContext, {
+        mode: 'on',
+        output: 'show',
+    });
+    assert.equal(customOn.profileId, 'openai-compatible-default');
+    assert.equal(customOn.effort, 'medium');
 
     const kimi = resolveRuntimeReasoning({
         provider: 'openai-compatible',
@@ -222,15 +194,16 @@ test('Reasoning runtime preserves inherit, validates on, and never degrades off 
     });
     assert.equal(invalidKimiEffort.valid, false);
 
-    const gpt51Xhigh = resolveRuntimeReasoning({
+    const olderGptUsesLatestMax = resolveRuntimeReasoning({
         provider: 'openai-responses',
         model: 'gpt-5.1',
     }, {
         mode: 'on',
-        effort: 'xhigh',
+        effort: 'max',
         output: 'hide',
     });
-    assert.equal(gpt51Xhigh.valid, false);
+    assert.equal(olderGptUsesLatestMax.valid, true);
+    assert.equal(olderGptUsesLatestMax.effort, 'max');
 
     const gpt52Xhigh = resolveRuntimeReasoning({
         provider: 'openai-responses',
@@ -244,46 +217,42 @@ test('Reasoning runtime preserves inherit, validates on, and never degrades off 
     assert.equal(gpt52Xhigh.effort, 'xhigh');
 });
 
-test('Reasoning budgets are model-specific and the former boolean schema is not revived', () => {
+test('older family members use the latest family effort contract', () => {
     const flash = resolveRuntimeReasoning({
         provider: 'google',
         model: 'gemini-2.5-flash',
     }, {
         mode: 'on',
-        budgetTokens: -1,
+        effort: 'high',
+        budgetTokens: 4096,
         output: 'show',
     });
     assert.equal(flash.valid, true);
-    assert.equal(flash.budgetTokens, -1);
+    assert.equal(flash.effort, 'high');
+    assert.equal(Object.hasOwn(flash, 'budgetTokens'), false);
 
-    const invalidPro = resolveRuntimeReasoning({
-        provider: 'google',
-        model: 'gemini-2.5-pro',
+    const legacyClaude = resolveRuntimeReasoning({
+        provider: 'anthropic',
+        model: 'claude-sonnet-4-0',
     }, {
         mode: 'on',
-        budgetTokens: 0,
+        effort: 'max',
         output: 'hide',
     });
-    assert.equal(invalidPro.valid, false);
+    assert.equal(legacyClaude.valid, true);
+    assert.equal(legacyClaude.profileId, 'anthropic-adaptive');
+    assert.equal(legacyClaude.effort, 'max');
 
-    const flashLite = resolveRuntimeReasoning({
-        provider: 'google',
-        model: 'gemini-2.5-flash-lite',
+    const aliasedDeepSeek = resolveRuntimeReasoning({
+        provider: 'openai-compatible',
+        model: 'relay/DeepSeek-custom-build',
     }, {
         mode: 'on',
-        budgetTokens: 512,
+        effort: 'high',
         output: 'hide',
     });
-    assert.equal(flashLite.valid, true);
-    assert.equal(flashLite.profileId, 'google-gemini-2.5-flash-lite');
-    assert.equal(resolveRuntimeReasoning({
-        provider: 'google',
-        model: 'gemini-2.5-flash-lite',
-    }, {
-        mode: 'on',
-        budgetTokens: 511,
-        output: 'hide',
-    }).valid, false);
+    assert.equal(aliasedDeepSeek.valid, true);
+    assert.equal(aliasedDeepSeek.profileId, 'deepseek-thinking');
 
     assert.deepEqual(normalizeReasoningConfig({
         enabled: true,
@@ -293,15 +262,6 @@ test('Reasoning budgets are model-specific and the former boolean schema is not 
         output: 'hide',
     });
 
-    assert.equal(Object.hasOwn(resolveRuntimeReasoning({
-        provider: 'google',
-        model: 'gemini-2.5-flash',
-    }, {
-        mode: 'on',
-        effort: 'high',
-        budgetTokens: 4096,
-        output: 'hide',
-    }), 'effort'), false);
     assert.equal(Object.hasOwn(resolveRuntimeReasoning({
         provider: 'openai-responses',
         model: 'gpt-5.6',
@@ -313,39 +273,12 @@ test('Reasoning budgets are model-specific and the former boolean schema is not 
     }), 'budgetTokens'), false);
 });
 
-test('Anthropic manual Reasoning budget stays below the request output limit', () => {
-    const runtime = resolveRuntimeReasoning({
-        provider: 'anthropic',
-        model: 'claude-sonnet-4-5',
-        maxTokens: 8192,
-    }, {
-        mode: 'on',
-        budgetTokens: 8192,
-        output: 'hide',
-    });
-
-    assert.equal(runtime.valid, false);
-    assert.equal(runtime.code, 'REASONING_CONFIG_INVALID');
-    assert.throws(
-        () => resolveTaskReasoning('anthropic', {
-            model: 'claude-sonnet-4-5',
-            maxTokens: 8192,
-        }, {
-            mode: 'on',
-            budgetTokens: 8192,
-            output: 'hide',
-        }),
-        (error) => error instanceof ReasoningCapabilityError
-            && error.code === 'REASONING_CONFIG_INVALID',
-    );
-});
-
-test('temperature omission follows each model and Reasoning mode contract', () => {
+test('temperature omission follows each latest family contract', () => {
     const omit = (context, mode) => shouldOmitTemperatureForReasoning(context, { mode });
     const gpt55 = { provider: 'openai-responses', model: 'gpt-5.5' };
     assert.equal(omit(gpt55, 'inherit'), true);
     assert.equal(omit(gpt55, 'on'), true);
-    assert.equal(omit(gpt55, 'off'), false);
+    assert.equal(omit(gpt55, 'off'), true);
 
     const gpt56 = { provider: 'openai-responses', model: 'gpt-5.6' };
     assert.equal(omit(gpt56, 'inherit'), true);
@@ -357,8 +290,13 @@ test('temperature omission follows each model and Reasoning mode contract', () =
     assert.equal(omit(opus47, 'on'), true);
     assert.equal(omit(opus47, 'off'), true);
 
-    const sonnet45 = { provider: 'anthropic', model: 'claude-sonnet-4-5' };
-    assert.equal(omit(sonnet45, 'inherit'), false);
-    assert.equal(omit(sonnet45, 'on'), true);
-    assert.equal(omit(sonnet45, 'off'), false);
+    const sonnet40 = { provider: 'anthropic', model: 'claude-sonnet-4-0' };
+    assert.equal(omit(sonnet40, 'inherit'), true);
+    assert.equal(omit(sonnet40, 'on'), true);
+    assert.equal(omit(sonnet40, 'off'), true);
+
+    const kimi = { provider: 'openai-compatible', model: 'relay/kimi-k2.5' };
+    assert.equal(omit(kimi, 'inherit'), false);
+    assert.equal(omit(kimi, 'on'), true);
+    assert.equal(omit(kimi, 'off'), false);
 });

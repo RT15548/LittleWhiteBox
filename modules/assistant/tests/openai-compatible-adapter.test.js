@@ -805,7 +805,7 @@ test('OpenAI Responses sends exact model effort, explicit off, and visible inher
     assert.equal(effective.reasoningOutputVisible, true);
 });
 
-test('OpenAI-compatible o-series requests use max_completion_tokens', () => {
+test('OpenAI-compatible OpenAI family requests use the latest max_completion_tokens field', () => {
     const messages = [{ role: 'user', content: 'hello' }];
     const o1MiniBody = new OpenAICompatibleAdapter({
         apiKey: 'test-key',
@@ -828,11 +828,11 @@ test('OpenAI-compatible o-series requests use max_completion_tokens', () => {
         messages,
         maxTokens: 4096,
     });
-    assert.equal(regularBody.max_tokens, 4096);
-    assert.equal(Object.hasOwn(regularBody, 'max_completion_tokens'), false);
+    assert.equal(regularBody.max_completion_tokens, 4096);
+    assert.equal(Object.hasOwn(regularBody, 'max_tokens'), false);
 });
 
-test('OpenAI-compatible encodes only verified Kimi and DeepSeek protocols', () => {
+test('OpenAI-compatible matches model families broadly and encodes their latest protocols', () => {
     const messages = [{ role: 'user', content: 'hello' }];
     const kimiK3 = new OpenAICompatibleAdapter({
         apiKey: 'test-key',
@@ -862,7 +862,8 @@ test('OpenAI-compatible encodes only verified Kimi and DeepSeek protocols', () =
         messages,
         reasoning: { mode: 'off', output: 'hide' },
     });
-    assert.deepEqual(kimiK25Off.thinking, { type: 'disabled' });
+    assert.equal(kimiK25Off.reasoning_effort, 'off');
+    assert.equal(Object.hasOwn(kimiK25Off, 'thinking'), false);
 
     const kimiK26On = new OpenAICompatibleAdapter({
         apiKey: 'test-key',
@@ -872,12 +873,13 @@ test('OpenAI-compatible encodes only verified Kimi and DeepSeek protocols', () =
         messages,
         reasoning: { mode: 'on', output: 'hide' },
     });
-    assert.deepEqual(kimiK26On.thinking, { type: 'enabled' });
+    assert.equal(kimiK26On.reasoning_effort, 'max');
+    assert.equal(Object.hasOwn(kimiK26On, 'thinking'), false);
 
     const deepSeek = new OpenAICompatibleAdapter({
         apiKey: 'test-key',
-        baseUrl: 'https://api.deepseek.com/v1',
-        model: 'deepseek-reasoner',
+        baseUrl: 'https://unrelated-relay.example/v1',
+        model: 'relay/Experimental-DeepSeek-R1',
     }).buildRequestBody({
         messages,
         reasoning: { mode: 'on', effort: 'max', output: 'hide' },
@@ -896,6 +898,36 @@ test('OpenAI-compatible encodes only verified Kimi and DeepSeek protocols', () =
     assert.deepEqual(deepSeekOff.thinking, { type: 'disabled' });
     assert.equal(Object.hasOwn(deepSeekOff, 'reasoning_effort'), false);
 
+    const gemini = new OpenAICompatibleAdapter({
+        apiKey: 'test-key',
+        baseUrl: 'https://unrelated-relay.example/v1',
+        model: 'relay/Gemini-2.5-Pro',
+    }).buildRequestBody({
+        messages,
+        reasoning: { mode: 'on', effort: 'high', output: 'hide' },
+    });
+    assert.equal(gemini.reasoning_effort, 'high');
+
+    const claudeOff = new OpenAICompatibleAdapter({
+        apiKey: 'test-key',
+        baseUrl: 'https://unrelated-relay.example/v1',
+        model: 'relay/Claude-Sonnet-4',
+    }).buildRequestBody({
+        messages,
+        reasoning: { mode: 'off', output: 'hide' },
+    });
+    assert.equal(claudeOff.reasoning_effort, 'none');
+
+    const qwen = new OpenAICompatibleAdapter({
+        apiKey: 'test-key',
+        baseUrl: 'https://unrelated-relay.example/v1',
+        model: 'relay/Qwen3-Max',
+    }).buildRequestBody({
+        messages,
+        reasoning: { mode: 'on', effort: 'high', output: 'hide' },
+    });
+    assert.equal(qwen.reasoning_effort, 'high');
+
     const kimiInherit = new OpenAICompatibleAdapter({
         apiKey: 'test-key',
         baseUrl: 'https://api.moonshot.ai/v1',
@@ -907,19 +939,32 @@ test('OpenAI-compatible encodes only verified Kimi and DeepSeek protocols', () =
     assert.equal(Object.hasOwn(kimiInherit, 'reasoning_effort'), false);
     assert.equal(Object.hasOwn(kimiInherit, 'thinking'), false);
 
-    const unknown = new OpenAICompatibleAdapter({
+    const custom = new OpenAICompatibleAdapter({
         apiKey: 'test-key',
         baseUrl: 'https://example.com/v1',
-        model: 'compatible-reasoning-model',
-    });
-    assert.throws(() => unknown.buildRequestBody({
+        model: 'TheBloke/Llama-2-7B-GPTQ',
+    }).buildRequestBody({
         messages,
+        tools: [{ type: 'function', function: { name: 'submit_scene_plan', parameters: {} } }],
+        toolChoice: 'required',
+        maxTokens: 2048,
         reasoning: { mode: 'on', effort: 'high', output: 'hide' },
-    }), /没有已验证的 Reasoning 控制协议/);
-    assert.throws(() => unknown.buildRequestBody({
+    });
+    assert.equal(custom.reasoning_effort, 'high');
+    assert.equal(custom.tool_choice, 'required');
+    assert.equal(custom.tools[0].function.name, 'submit_scene_plan');
+    assert.equal(custom.max_tokens, 2048);
+    assert.equal(Object.hasOwn(custom, 'max_completion_tokens'), false);
+
+    const customOff = new OpenAICompatibleAdapter({
+        apiKey: 'test-key',
+        baseUrl: 'https://example.com/v1',
+        model: 'another-private-alias',
+    }).buildRequestBody({
         messages,
         reasoning: { mode: 'off', output: 'hide' },
-    }), /不支持显式关闭 Reasoning/);
+    });
+    assert.equal(customOff.reasoning_effort, 'none');
 });
 
 test('openai-compatible adapter does not retry ambiguous reasoning_effort errors', async () => {
