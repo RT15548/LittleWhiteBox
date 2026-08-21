@@ -463,8 +463,9 @@ function buildManifest(entries) {
         callablePaths.add(prefix);
     });
 
+    // Deliberately free of a build timestamp: the manifest is a pure function of the
+    // scanned sources, so rebuilding without source changes must produce no diff.
     const manifest = {
-        generatedAt: new Date().toISOString(),
         version: 1,
         sourceEntryCount: entries.length,
         namespaces: {

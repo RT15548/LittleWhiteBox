@@ -1,5 +1,4 @@
 {
-  "generatedAt": "2026-08-21T18:38:58.744Z",
   "version": 2,
   "files": [
     {
@@ -816,13 +815,6 @@
     },
     {
       "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/assistant-file-manifest.json",
-      "relativePath": "modules/assistant/assistant-file-manifest.json",
-      "extension": ".json",
-      "sizeBytes": 360399
-    },
-    {
-      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/assistant-host-window.js",
       "relativePath": "modules/assistant/assistant-host-window.js",
       "extension": ".js",
@@ -952,7 +944,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/st-jsapi-manifest.json",
       "relativePath": "modules/assistant/st-jsapi-manifest.json",
       "extension": ".json",
-      "sizeBytes": 29500
+      "sizeBytes": 29455
     },
     {
       "source": "littlewhitebox",
@@ -5719,14 +5711,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/build-assistant-file-manifest.mjs",
       "relativePath": "scripts/build-assistant-file-manifest.mjs",
       "extension": ".mjs",
-      "sizeBytes": 5082
+      "sizeBytes": 5574
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/build-assistant-jsapi-manifest.mjs",
       "relativePath": "scripts/build-assistant-jsapi-manifest.mjs",
       "extension": ".mjs",
-      "sizeBytes": 19267
+      "sizeBytes": 19389
     },
     {
       "source": "littlewhitebox",

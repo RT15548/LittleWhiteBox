@@ -7,7 +7,8 @@ import ignore from 'ignore';
 const pluginRoot = process.cwd();
 const stRoot = path.resolve(pluginRoot, '../../../../..');
 const publicRoot = path.join(stRoot, 'public');
-const outputPath = path.join(pluginRoot, 'modules/assistant/assistant-file-manifest.json');
+const MANIFEST_RELATIVE_PATH = 'modules/assistant/assistant-file-manifest.json';
+const outputPath = path.join(pluginRoot, MANIFEST_RELATIVE_PATH);
 
 const TEXT_EXTENSIONS = new Set(['.js', '.mjs', '.cjs', '.ts', '.tsx', '.vue', '.html', '.css', '.json', '.md', '.txt']);
 const INCLUDED_BINARY_TEXT_RESOURCES = new Set([
@@ -85,7 +86,13 @@ function getIgnoredFiles(ignoreRoot, fullPaths) {
 
 function buildPluginEntries() {
     const candidates = walkDirectory(pluginRoot)
-        .filter(fullPath => !toPosix(path.relative(pluginRoot, fullPath)).startsWith('modules/assistant/dist/'));
+        .filter((fullPath) => {
+            const relativePath = toPosix(path.relative(pluginRoot, fullPath));
+            // The manifest cannot describe itself: recording its own sizeBytes changes
+            // that size, so the entry would always report the previous build.
+            if (relativePath === MANIFEST_RELATIVE_PATH) return false;
+            return !relativePath.startsWith('modules/assistant/dist/');
+        });
     const ignoredFiles = getIgnoredFiles(pluginRoot, candidates);
     return candidates
         .filter(fullPath => !ignoredFiles.has(fullPath))
@@ -124,8 +131,9 @@ function buildPublicEntries() {
         });
 }
 
+// Deliberately free of a build timestamp: the manifest is a pure function of the
+// scanned sources, so rebuilding without source changes must produce no diff.
 const manifest = {
-    generatedAt: new Date().toISOString(),
     version: 2,
     files: [...buildPluginEntries(), ...buildPublicEntries()],
 };
