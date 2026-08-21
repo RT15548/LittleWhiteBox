@@ -18,6 +18,7 @@ function normalizeCooldown(value) {
  *
  * 请求结果会立即交还调用者，但下一个供应商请求必须等待本体冷却结束；
  * 消费者取消只能撤销自己的排队请求，不能跳过已经开始的安全冷却。
+ * batchKey 是单次批量生成的临时身份，仅用于区分“同批冷却”和“其他任务排队”。
  */
 export function createSerialImageRequestQueue({
     createAbortError = defaultAbortError,
@@ -46,7 +47,22 @@ export function createSerialImageRequestQueue({
     function notifyQueued() {
         pending.forEach((item, index) => {
             const ahead = (active ? 1 : 0) + index;
-            if (ahead > 0) notify(item.onQueued, { ahead, position: ahead + 1 });
+            const waitingForOwnCooldown = index === 0
+                && active?.phase === 'cooldown'
+                && item.batchKey !== undefined
+                && item.batchKey === active.batchKey;
+            if (waitingForOwnCooldown) {
+                const remaining = active.cooldownUntil - Date.now();
+                if (item.queuePhase === 'queued' && remaining > 0) {
+                    item.queuePhase = 'cooldown';
+                    notify(item.onCooldown, { duration: remaining });
+                }
+                return;
+            }
+            if (ahead > 0) {
+                item.queuePhase = 'queued';
+                notify(item.onQueued, { ahead, position: ahead + 1 });
+            }
         });
     }
 
@@ -55,6 +71,8 @@ export function createSerialImageRequestQueue({
 
         const item = pending.shift();
         active = item;
+        item.phase = 'running';
+        item.queuePhase = null;
         detachAbort(item);
         notifyQueued();
 
@@ -72,20 +90,28 @@ export function createSerialImageRequestQueue({
             }
 
             const cooldown = started ? normalizeCooldown(getCooldownMs()) : 0;
-            if (cooldown > 0) notify(item.onCooldown, { duration: cooldown });
+            if (cooldown > 0) {
+                item.phase = 'cooldown';
+                item.cooldownUntil = Date.now() + cooldown;
+                notify(item.onCooldown, { duration: cooldown });
+            }
 
             if (error) item.reject(error);
             else item.resolve(result);
 
             if (cooldown > 0) await waitForCooldown(cooldown);
 
-            if (active === item) active = null;
+            if (active === item) {
+                item.phase = 'complete';
+                item.cooldownUntil = 0;
+                active = null;
+            }
             notifyQueued();
             pump();
         })();
     }
 
-    function enqueue(run, { signal, onQueued, onStart, onCooldown } = {}) {
+    function enqueue(run, { signal, batchKey, onQueued, onStart, onCooldown } = {}) {
         return new Promise((resolve, reject) => {
             if (signal?.aborted) {
                 reject(createAbortError());
@@ -96,12 +122,16 @@ export function createSerialImageRequestQueue({
                 id: ++sequence,
                 run,
                 signal,
+                batchKey,
                 onQueued,
                 onStart,
                 onCooldown,
                 resolve,
                 reject,
                 abortHandler: null,
+                phase: 'pending',
+                queuePhase: null,
+                cooldownUntil: 0,
             };
 
             item.abortHandler = () => {
@@ -110,6 +140,8 @@ export function createSerialImageRequestQueue({
                 if (index < 0) return;
                 pending.splice(index, 1);
                 detachAbort(item);
+                item.phase = 'cancelled';
+                item.queuePhase = null;
                 notifyQueued();
                 reject(createAbortError());
             };
@@ -125,6 +157,8 @@ export function createSerialImageRequestQueue({
         const queued = pending.splice(0);
         queued.forEach((item) => {
             detachAbort(item);
+            item.phase = 'cancelled';
+            item.queuePhase = null;
             item.reject(createAbortError());
         });
     }

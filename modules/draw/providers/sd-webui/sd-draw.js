@@ -43,6 +43,10 @@ import {
 import { getLastDrawAgentDiagnostic } from "../../shared/draw-agent.js";
 import { attachDrawAgentSettingsSurface } from "../../shared/agent-settings-surface.js";
 import { createSerialImageRequestQueue } from "../../shared/serial-image-request-queue.js";
+import {
+    createCharacterEnabledControl,
+    getCharacterEnabledFromCard,
+} from "../../shared/character-enabled-control.js";
 import { hashStableValue } from "../../shared/generation-fingerprint.js";
 import {
     findLastAIMessageId,
@@ -653,12 +657,14 @@ export async function generateSdImage({
     params = {},
     generationConfig,
     signal,
+    queueBatch,
     onQueueStateChange,
 } = {}) {
     return sdImageRequestQueue.enqueue(
         () => requestSdImage({ prompt, negativePrompt, params, generationConfig, signal }),
         {
             signal,
+            batchKey: queueBatch,
             onQueued: (data) => onQueueStateChange?.('queued', data),
             onStart: () => onQueueStateChange?.('start'),
             onCooldown: (data) => onQueueStateChange?.('cooldown', data),
@@ -1477,6 +1483,7 @@ function getSharedCharacterTagsFromForm() {
     return querySettingsAll('.sd-char-card').map((card, index) => ({
         ...(existingById.get(String(card.dataset.characterId || '')) || {}),
         id: card.dataset.characterId || `sd-char-${Date.now()}-${index}`,
+        enabled: getCharacterEnabledFromCard(card),
         name: String(card.querySelector('[data-sd-char-field="name"]')?.value || '').trim(),
         aliases: String(card.querySelector('[data-sd-char-field="aliases"]')?.value || '')
             .split(',')
@@ -1547,7 +1554,11 @@ function renderCharacterTagList(tags = []) {
 
         const actions = document.createElement('div');
         actions.className = 'btn-group';
-        actions.append(danbooruButton, delButton);
+        const enabledControl = createCharacterEnabledControl(document, card, {
+            enabled: tag.enabled !== false,
+            label: `角色 ${index + 1}${tag.name ? ` ${tag.name}` : ''}`,
+        });
+        actions.append(enabledControl, danbooruButton, delButton);
         top.append(title, actions);
 
         const grid = document.createElement('div');
@@ -2185,6 +2196,7 @@ function addCharacterTagDraft() {
     const current = getSharedCharacterTagsFromForm();
     current.push({
         id: `sd-char-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        enabled: true,
         name: '',
         aliases: [],
         type: 'girl',
@@ -2242,9 +2254,13 @@ async function importSharedCharacterTags(input) {
         const merged = [...getSharedCharacterTagsFromForm()];
         for (const char of data.characters) {
             if (!char?.name) continue;
-            const existingIndex = merged.findIndex((item) => item.name === char.name);
+            const importedId = String(char.id || '').trim();
+            const existingIndex = importedId
+                ? merged.findIndex((item) => String(item.id || '') === importedId)
+                : -1;
             const nextChar = {
-                id: char.id || `sd-char-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                id: importedId || `sd-char-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                enabled: char.enabled !== false,
                 name: char.name || '',
                 aliases: Array.isArray(char.aliases) ? char.aliases : [],
                 type: char.type || 'girl',
@@ -3733,6 +3749,7 @@ export async function generateImagesFromText(options = {}) {
 
     const sdSettings = getSettings();
     const sharedDrawSettings = getSharedDrawSettings();
+    const queueBatch = {};
     const images = [];
     let successCount = 0;
 
@@ -3754,13 +3771,13 @@ export async function generateImagesFromText(options = {}) {
             options.negativePromptOverride || '',
         );
 
-        options.onStateChange?.('progress', { current: i + 1, total: tasks.length });
         try {
             const base64 = await generateSdImage({
                 prompt: promptData.positive,
                 negativePrompt: promptData.negative,
                 params,
                 signal,
+                queueBatch,
                 onQueueStateChange: (queueState, queueData) => {
                     if (queueState === 'queued') {
                         options.onStateChange?.('queued', { current: i + 1, total: tasks.length, ...queueData });
@@ -3959,8 +3976,6 @@ export async function generateAndInsertImages({
                 negativePrefix: params.negativePrefix,
             }, promptOverride, negativePromptOverride);
 
-            onStateChange?.('progress', { current: i + 1, total: tasks.length });
-
             let incrementalHtml = '';
             try {
                 const base64 = await generateSdImage({
@@ -3968,6 +3983,7 @@ export async function generateAndInsertImages({
                     negativePrompt: promptData.negative,
                     params,
                     signal,
+                    queueBatch: job,
                     onQueueStateChange: (queueState, queueData) => {
                         if (queueState === 'queued') {
                             onStateChange?.('queued', { current: i + 1, total: tasks.length, ...queueData });

@@ -11,6 +11,7 @@ import {
 } from "./scene-plan-contract.js";
 import { ScenePlacementError } from './scene-placement.js';
 import { classifyScenePlannerErrorForUi } from "./scene-planner-error-ui.js";
+import { findEnabledCharacterByName, isCharacterEnabled } from './character-selection.js';
 import { createModuleEvents, event_types } from "../../../core/event-manager.js";
 import {
     GENERATE_INTERCEPTOR_ORDER,
@@ -180,7 +181,7 @@ export function detectPresentCharacters(messageText, characterTags) {
     const present = [];
 
     for (const char of characterTags) {
-        if (!char.name) continue;
+        if (!isCharacterEnabled(char) || !char.name) continue;
         const names = [char.name, ...(char.aliases || [])].filter(Boolean);
         const isPresent = names.some(name => {
             const lowerName = String(name).toLowerCase();
@@ -204,11 +205,7 @@ export function detectPresentCharacters(messageText, characterTags) {
 
 export function assembleCharacterPrompts(sceneChars, knownCharacters, options = {}) {
     return sceneChars.map(char => {
-        const charLower = String(char.name || '').toLowerCase();
-        const known = knownCharacters.find(k =>
-            String(k.name || '').toLowerCase() === charLower
-            || (k.aliases || []).some(a => String(a || '').toLowerCase() === charLower)
-        );
+        const known = findEnabledCharacterByName(char.name, knownCharacters);
 
         if (known) {
             return {

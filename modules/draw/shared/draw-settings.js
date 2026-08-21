@@ -80,6 +80,7 @@ export function normalizeSharedDrawSettings(saved = {}) {
         .filter(char => char && typeof char === 'object')
         .map(char => ({
             id: String(char.id || `char-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`),
+            enabled: char.enabled !== false,
             name: String(char.name || ''),
             aliases: (Array.isArray(char.aliases) ? char.aliases : [])
                 .map(alias => String(alias || '').trim())

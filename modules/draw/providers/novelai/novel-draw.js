@@ -35,6 +35,8 @@ import {
 import { getLastDrawAgentDiagnostic } from '../../shared/draw-agent.js';
 import { attachDrawAgentSettingsSurface } from '../../shared/agent-settings-surface.js';
 import { createSerialImageRequestQueue } from '../../shared/serial-image-request-queue.js';
+import { findEnabledCharacterByName, isCharacterEnabled } from '../../shared/character-selection.js';
+import { resolveAutoLearnCharacter } from './novel-character-learning.js';
 import {
     NovelImageResponseError,
     extractImageFromResponse,
@@ -774,6 +776,7 @@ function normalizeSettings(saved = {}) {
 
     merged.characterTags = (merged.characterTags || []).map(char => ({
         id: char.id || generateSlotId(),
+        enabled: char.enabled !== false,
         name: char.name || '',
         aliases: char.aliases || [],
         type: char.type || 'girl',
@@ -1193,7 +1196,7 @@ function detectPresentCharacters(messageText, characterTags) {
     const present = [];
 
     for (const char of characterTags) {
-        if (!char.name) continue;
+        if (!isCharacterEnabled(char) || !char.name) continue;
         const names = [char.name, ...(char.aliases || [])].filter(Boolean);
         const isPresent = names.some(name => {
             const lowerName = name.toLowerCase();
@@ -1217,11 +1220,7 @@ function detectPresentCharacters(messageText, characterTags) {
 
 function assembleCharacterPrompts(sceneChars, knownCharacters) {
     return sceneChars.map(char => {
-        const charLower = char.name.toLowerCase();
-        const known = knownCharacters.find(k =>
-            k.name.toLowerCase() === charLower
-            || (k.aliases || []).some(a => a.toLowerCase() === charLower)
-        );
+        const known = findEnabledCharacterByName(char.name, knownCharacters);
 
         if (known) {
             const defaultCenter = { x: 0.5, y: 0.5 };
@@ -1304,14 +1303,14 @@ function autoLearnFromTasks(tasks, settings) {
     const mode = settings.autoLearnMode || 'new_only';
 
     for (const [, char] of charMap) {
-        const found = knownTags.find(k =>
-            k.name.toLowerCase() === char.name.toLowerCase()
-            || (k.aliases || []).some(a => a.toLowerCase() === char.name.toLowerCase())
-        );
+        const match = resolveAutoLearnCharacter(char.name, knownTags);
+        if (match.action === 'skip') continue;
+        const found = match.character;
 
-        if (!found) {
+        if (match.action === 'create') {
             const newChar = {
                 id: generateSlotId(),
+                enabled: true,
                 name: char.name,
                 aliases: [],
                 type: char.type || 'girl',
@@ -1581,7 +1580,7 @@ function buildNovelAIRequestBody({ scene, characterPrompts, negativePrompt, para
     };
 }
 
-async function generateNovelImage({ scene, characterPrompts, negativePrompt, params, generationConfig, signal, onQueueStateChange }) {
+async function generateNovelImage({ scene, characterPrompts, negativePrompt, params, generationConfig, signal, queueBatch, onQueueStateChange }) {
     const requestConfig = snapshotNovelRequestConfig(getRuntimeSettings(), generationConfig, DEFAULT_SETTINGS.timeout);
     if (!requestConfig.apiKey) throw new NovelDrawError('请先配置 API Key', ErrorType.AUTH);
     const queuedParams = { ...params };
@@ -1647,6 +1646,7 @@ async function generateNovelImage({ scene, characterPrompts, negativePrompt, par
         }
     }, {
         signal,
+        batchKey: queueBatch,
         onQueued: (data) => onQueueStateChange?.('queued', data),
         onStart: () => onQueueStateChange?.('start'),
         onCooldown: (data) => onQueueStateChange?.('cooldown', data),
@@ -2657,8 +2657,6 @@ async function generateImagesFromText(options = {}) {
             const tagsForStore = task.scene || '';
             const negativePrompt = preset.negativePrefix || '';
 
-            options.onStateChange?.('progress', { current: i + 1, total: tasks.length });
-
             try {
                 const base64 = await generateNovelImage({
                     scene,
@@ -2666,6 +2664,7 @@ async function generateImagesFromText(options = {}) {
                     negativePrompt,
                     params: preset.params || {},
                     signal,
+                    queueBatch: job,
                     onQueueStateChange: (queueState, queueData) => {
                         if (queueState === 'queued') {
                             options.onStateChange?.('queued', { current: i + 1, total: tasks.length, ...queueData });
@@ -2915,8 +2914,6 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
             const task = tasks[i];
             const slotId = slotIds[i];
 
-            onStateChange?.('progress', { current: i + 1, total: tasks.length });
-
             const scene = joinTags(preset.positivePrefix, task.scene);
             const characterPrompts = assembleCharacterPrompts(task.chars, settings.characterTags || []);
             const tagsForStore = task.scene;
@@ -2929,6 +2926,7 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
                     negativePrompt: preset.negativePrefix || '',
                     params: preset.params || {},
                     signal,
+                    queueBatch: job,
                     onQueueStateChange: (queueState, queueData) => {
                         if (queueState === 'queued') {
                             onStateChange?.('queued', { current: i + 1, total: tasks.length, ...queueData });
@@ -3801,9 +3799,10 @@ async function handleFrameMessage(event) {
         }
 
         case 'SAVE_CHARACTER_TAGS': {
-            await updateSharedSettingsPersistent((settings) => {
+            const ok = await updateSharedSettingsPersistent((settings) => {
                 if (Array.isArray(data.characterTags)) settings.characterTags = data.characterTags;
             }, '角色标签已保存');
+            if (!ok) await sendInitData();
             break;
         }
 

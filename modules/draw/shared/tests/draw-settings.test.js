@@ -40,6 +40,7 @@ test('shared draw settings retain current domain data and discard former LLM con
     assert.equal(normalized.useWorldInfo, true);
     assert.equal(normalized.worldbooks.keywordFilterMode, 'all_active');
     assert.deepEqual(normalized.characterTags[0].aliases, ['小璃']);
+    assert.equal(normalized.characterTags[0].enabled, true);
     assert.equal(Object.hasOwn(normalized, 'llmApi'), false);
     assert.equal(Object.hasOwn(normalized, 'useStream'), false);
     assert.equal(Object.hasOwn(normalized, 'disablePrefill'), false);
@@ -67,6 +68,7 @@ test('shared and NovelAI provider saves preserve the other owner without revivin
     assert.equal(providerSave.apiKey, 'new-image-key');
     assert.deepEqual(providerSave.characterTags, [{
         id: 'new',
+        enabled: true,
         name: '新角色',
         aliases: [],
         type: 'girl',
@@ -85,4 +87,16 @@ test('shared and NovelAI provider saves preserve the other owner without revivin
     assert.equal(sharedSave.apiKey, 'new-image-key');
     assert.equal(sharedSave.paramsPresets[0].id, 'new-image-preset');
     assert.equal(sharedSave.characterTags[0].name, '最新角色');
+});
+
+test('shared character settings preserve explicit disabled state and default older records to enabled', () => {
+    const normalized = normalizeSharedDrawSettings({
+        characterTags: [
+            { id: 'disabled', name: '同名角色', enabled: false },
+            { id: 'legacy', name: '同名角色' },
+        ],
+    });
+
+    assert.equal(normalized.characterTags[0].enabled, false);
+    assert.equal(normalized.characterTags[1].enabled, true);
 });

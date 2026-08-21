@@ -233,31 +233,39 @@ select.input { cursor: pointer; }
 .filter-rule-row .btn-del-rule:hover { color: var(--danger); background: rgba(255,0,0,.1); }
 .filter-rule-row input:focus { outline: none; border-color: var(--border-focus); }
 .char-card {
-    display: flex; align-items: center; padding: 6px 10px; gap: 8px;
-    border-bottom: 1px solid rgba(255,255,255,.06); min-height: 34px; transition: background 0.15s;
+    display: block; padding: 6px 8px;
+    border-bottom: 1px solid rgba(255,255,255,.06); transition: background 0.15s;
 }
 .char-card:hover { background: rgba(255,255,255,.04); }
-.char-emoji { font-size: 14px; flex-shrink: 0; }
-.char-name { font-weight: 600; font-size: 13px; white-space: nowrap; }
+.char-card-summary { display: flex; align-items: center; gap: 8px; min-height: 36px; }
+.char-identity { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.char-name { font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .char-type-badge {
     font-size: 10px; padding: 1px 5px; border-radius: 3px;
     background: rgba(255,255,255,.08); color: var(--text-secondary); white-space: nowrap;
 }
 .char-status { flex: 1; font-size: 11px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.char-actions { display: flex; gap: 2px; flex-shrink: 0; }
-.char-actions button {
-    padding: 3px 5px; font-size: 12px; background: none; border: none;
-    cursor: pointer; opacity: 0; transition: opacity .15s; color: var(--text-secondary); border-radius: 4px;
+.char-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; margin-left: auto; }
+.char-action-button {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 34px; height: 34px; padding: 0; box-sizing: border-box;
+    background: var(--bg-input); border: 1px solid var(--border); border-radius: 7px;
+    color: var(--text-secondary); cursor: pointer;
 }
-.char-actions button:hover { background: rgba(255,255,255,.08); color: var(--text-primary); }
-.char-card:hover .char-actions button { opacity: 1; }
-.char-actions button.btn-danger { color: var(--danger); }
+.char-action-button:hover { background: rgba(255,255,255,.08); color: var(--text-primary); border-color: var(--border-focus); }
+.char-action-button svg {
+    width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8;
+    stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke;
+}
+.char-action-button.active { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.char-card.disabled .char-identity,
+.char-card.disabled .char-status { opacity: .45; }
 .char-empty { text-align: center; padding: 40px 20px; color: var(--text-muted); }
 .char-empty i { font-size: 32px; margin-bottom: 12px; opacity: 0.5; display: block; }
 .char-edit-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 /* ── Inline edit mode ── */
 .char-card.editing {
-    flex-direction: column; align-items: stretch; padding: 12px;
+    padding: 12px;
     background: var(--accent-soft); border: 1px solid var(--accent); border-radius: 10px;
 }
 .char-edit-form { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
@@ -463,6 +471,7 @@ select.input { cursor: pointer; }
     .input { min-height: 44px; padding: 12px; }
     .nav-item { min-height: 44px; }
     .header-close { width: 44px; height: 44px; min-width: 44px; }
+    .char-action-button { width: 44px; height: 44px; }
     .gallery-slot-overlay { opacity: 1; background: linear-gradient(to bottom, transparent 60%, rgba(0,0,0,0.7)); }
 }
 ::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -1772,6 +1781,16 @@ function collectOutfitEditorValues(card) {
     })).filter(outfit => outfit.name || outfit.tags);
 }
 
+function renderCharacterActionIcon(name) {
+    const paths = {
+        enabled: '<rect x="3" y="3" width="18" height="18" rx="4" /><path d="m8 12 3 3 5-6" />',
+        disabled: '<rect x="3" y="3" width="18" height="18" rx="4" />',
+        edit: '<path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />',
+        delete: '<path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6l-1 14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1L5 6" /><path d="M10 11v6" /><path d="M14 11v6" />',
+    };
+    return `<svg viewBox="0 0 24 24" aria-hidden="true">${paths[name] || ''}</svg>`;
+}
+
 function renderCharList() {
     const list = $('nd_char_list');
     const empty = $('nd_char_empty');
@@ -1812,10 +1831,33 @@ function renderCharList() {
     
     list.innerHTML = filteredChars.map(c => {
         const isEditing = editingCharId === c.id;
+        const isEnabled = c.enabled !== false;
+        const charId = escapeHtml(c.id);
+        const charName = escapeHtml(c.name || '新角色');
         const typeLabel = CHARACTER_TYPES.find(t => t.value === c.type)?.label || c.type || 'girl';
         const typeShort = typeLabel.split(' ')[0];
         const appearance = c.appearance || '';
         const outfits = normalizeCharacterOutfitsForUI(c.outfits);
+        const statusParts = [];
+        if (!isEnabled) statusParts.push('停用');
+        if (appearance) statusParts.push('外貌');
+        if (c.negativeTags) statusParts.push('负向');
+        if (c.danbooruTag) statusParts.push('DB');
+        if (outfits.length) statusParts.push('服装');
+        const toggleTitle = isEnabled ? '停用角色' : '启用角色';
+        const summary = `
+            <div class="char-card-summary">
+                <div class="char-identity">
+                    <span class="char-name">${charName}</span>
+                    <span class="char-type-badge">${escapeHtml(typeShort)}</span>
+                </div>
+                <span class="char-status">${statusParts.join(' · ')}</span>
+                <div class="char-actions" aria-label="角色操作">
+                    <button type="button" class="char-action-button char-enabled-control${isEnabled ? ' active' : ''}" data-action="toggle-enabled" data-id="${charId}" title="${toggleTitle}" aria-label="${toggleTitle} ${charName}" aria-pressed="${isEnabled}">${renderCharacterActionIcon(isEnabled ? 'enabled' : 'disabled')}</button>
+                    <button type="button" class="char-action-button${isEditing ? ' active' : ''}" data-action="edit" data-id="${charId}" title="编辑" aria-label="编辑 ${charName}">${renderCharacterActionIcon('edit')}</button>
+                    <button type="button" class="char-action-button" data-action="delete" data-id="${charId}" title="删除" aria-label="删除 ${charName}">${renderCharacterActionIcon('delete')}</button>
+                </div>
+            </div>`;
 
         if (isEditing) {
             const typeOptions = CHARACTER_TYPES.map(t =>
@@ -1823,11 +1865,8 @@ function renderCharList() {
             ).join('');
 
             return `
-            <div class="char-card editing" data-id="${c.id}">
-                <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
-                    <span class="char-emoji">${getCharEmoji(c.name)}</span>
-                    <span class="char-name">${escapeHtml(c.name || '新角色')}</span>
-                </div>
+            <div class="char-card editing${isEnabled ? '' : ' disabled'}" data-id="${charId}">
+                ${summary}
                 <div class="char-edit-form">
                     <div class="char-edit-row">
                         <div class="form-group">
@@ -1847,13 +1886,13 @@ function renderCharList() {
                     <div class="form-group">
                         <label class="form-label" style="display:flex;align-items:center;gap:8px;">
                             外貌标签 (appearance)
-                            <button class="btn" data-action="search-danbooru" data-id="${c.id}" style="padding:2px 8px;font-size:10px;"${!state.danbooruLocalDB ? ' disabled style="opacity:0.3"' : ''}>
+                            <button class="btn" data-action="search-danbooru" data-id="${charId}" style="padding:2px 8px;font-size:10px;"${!state.danbooruLocalDB ? ' disabled style="opacity:0.3"' : ''}>
                                 <i class="fa-solid fa-magnifying-glass"></i> Danbooru
                             </button>
                         </label>
                         <textarea class="input char-edit-appearance" placeholder="long hair, blue eyes, white dress">${escapeHtml(appearance)}</textarea>
                         ${c.danbooruTag ? `<div class="form-hint" style="font-size:10px;color:var(--text-muted);margin:2px 0;">Danbooru: ${escapeHtml(c.danbooruTag.replace(/_/g, ' '))}</div>` : ''}
-                        <div class="danbooru-panel hidden" data-char-id="${c.id}"></div>
+                        <div class="danbooru-panel hidden" data-char-id="${charId}"></div>
                         <p class="form-hint">静态外貌描述，LLM 只需补充动作</p>
                     </div>
                     <div class="form-group">
@@ -1863,7 +1902,7 @@ function renderCharList() {
                     <div class="form-group">
                         <label class="form-label" style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
                             <span>服装列表（可选）</span>
-                            <button class="btn btn-sm" type="button" data-action="add-outfit" data-id="${c.id}"><i class="fa-solid fa-plus"></i> 添加服装</button>
+                            <button class="btn btn-sm" type="button" data-action="add-outfit" data-id="${charId}"><i class="fa-solid fa-plus"></i> 添加服装</button>
                         </label>
                         <div class="char-outfit-editor-list">
                             <div class="char-outfit-editor-empty"${outfits.length ? ' style="display:none;"' : ''}>未配置服装时可留空；添加后会在生图规划时作为服装参考发送给 AI，由 AI 自行选择并按剧情改写当前服装 TAG。</div>
@@ -1872,32 +1911,16 @@ function renderCharList() {
                         <p class="form-hint">示例：常服 / white shirt, pleated skirt；礼服 / evening dress, lace gloves</p>
                     </div>
                     <div class="btn-group" style="margin-top:12px;">
-                        <button class="btn btn-primary" data-action="save" data-id="${c.id}"><i class="fa-solid fa-check"></i> 保存</button>
-                        <button class="btn" data-action="cancel" data-id="${c.id}">取消</button>
+                        <button class="btn btn-primary" data-action="save" data-id="${charId}"><i class="fa-solid fa-check"></i> 保存</button>
+                        <button class="btn" data-action="cancel" data-id="${charId}">取消</button>
                     </div>
                 </div>
             </div>`;
         }
 
-        const statusParts = [];
-        if (appearance) statusParts.push('✅外貌');
-        else statusParts.push('⚠️未设置');
-        if (c.negativeTags) statusParts.push('❌neg');
-        if (c.danbooruTag) statusParts.push('🏷️db');
-        if (outfits.length) statusParts.push(`👗${outfits.length}套`);
-
         return `
-        <div class="char-card" data-id="${c.id}">
-            <span class="char-emoji">${getCharEmoji(c.name)}</span>
-            <span class="char-name">${escapeHtml(c.name)}</span>
-            <span class="char-type-badge">${escapeHtml(typeShort)}</span>
-            <span class="char-status">${statusParts.join(' ')}</span>
-            <div class="char-actions">
-                <button data-action="fix-danbooru" data-id="${c.id}" title="Danbooru 修正"${!state.danbooruLocalDB ? ' disabled style="opacity:0.3"' : ''}>🔧</button>
-                <button data-action="search" data-id="${c.id}" title="Danbooru 标签搜索"${!state.danbooruLocalDB ? ' disabled style="opacity:0.3"' : ''}>🔍</button>
-                <button data-action="edit" data-id="${c.id}" title="编辑">✏️</button>
-                <button class="btn-danger" data-action="delete" data-id="${c.id}" title="删除">🗑️</button>
-            </div>
+        <div class="char-card${isEnabled ? '' : ' disabled'}" data-id="${charId}">
+            ${summary}
         </div>`;
     }).join('');
     
@@ -1912,11 +1935,26 @@ function renderCharList() {
 }
 
 function handleCharAction(action, id, card, trigger) {
-    if (action === 'fix-danbooru' || action === 'search') {
-        if (!state.danbooruLocalDB) { alert('请先启用 Danbooru 本地资源库'); return; }
-        editingCharId = id;
-        renderCharList();
-        requestAnimationFrame(() => requestAnimationFrame(() => showLocalDanbooruFix(id)));
+    if (action === 'toggle-enabled') {
+        const char = state.characterTags.find(c => c.id === id);
+        if (!char) return;
+        char.enabled = char.enabled === false;
+        postToParent({ type: 'SAVE_CHARACTER_TAGS', characterTags: state.characterTags });
+        card?.classList.toggle('disabled', !char.enabled);
+        const status = card?.querySelector('.char-status');
+        if (status) {
+            const parts = status.textContent.split(' · ').filter(part => part && part !== '停用');
+            if (!char.enabled) parts.unshift('停用');
+            status.textContent = parts.join(' · ');
+        }
+        if (trigger) {
+            const toggleTitle = char.enabled ? '停用角色' : '启用角色';
+            trigger.classList.toggle('active', char.enabled);
+            trigger.title = toggleTitle;
+            trigger.setAttribute('aria-label', `${toggleTitle} ${char.name || '新角色'}`);
+            trigger.setAttribute('aria-pressed', String(char.enabled));
+            trigger.innerHTML = renderCharacterActionIcon(char.enabled ? 'enabled' : 'disabled');
+        }
     } else if (action === 'add-outfit') {
         const list = card?.querySelector('.char-outfit-editor-list');
         if (!list) return;
@@ -1931,6 +1969,7 @@ function handleCharAction(action, id, card, trigger) {
         if (!state.danbooruLocalDB) { alert('请先启用 Danbooru 本地资源库'); return; }
         showLocalDanbooruFix(id);
     } else if (action === 'edit') {
+        if (editingCharId === id) return;
         editingCharId = id;
         renderCharList();
     } else if (action === 'cancel') {
@@ -1959,6 +1998,8 @@ function handleCharAction(action, id, card, trigger) {
         postToParent({ type: 'SAVE_CHARACTER_TAGS', characterTags: state.characterTags });
         renderCharList();
     } else if (action === 'delete') {
+        const char = state.characterTags.find(c => c.id === id);
+        if (!confirm(`确定删除角色“${char?.name || '未命名角色'}”？此操作不可撤销。`)) return;
         state.characterTags = state.characterTags.filter(c => c.id !== id);
         postToParent({ type: 'SAVE_CHARACTER_TAGS', characterTags: state.characterTags });
         renderCharList();
@@ -2995,7 +3036,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     
     $('nd_char_add').addEventListener('click', () => {
-        const nc = { id: `char-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, name: '', aliases: [], type: 'girl', appearance: '', negativeTags: '', outfits: [] };
+        const nc = { id: `char-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, enabled: true, name: '', aliases: [], type: 'girl', appearance: '', negativeTags: '', outfits: [] };
         state.characterTags.push(nc);
         editingCharId = nc.id;
         resetCharacterFilters(false);
@@ -3063,12 +3104,19 @@ document.addEventListener('DOMContentLoaded', () => {
             if (d.type !== 'novel-draw-characters' || !Array.isArray(d.characters)) throw new Error('无效文件');
             for (const char of d.characters) {
                 if (!char.name) continue;
-                if (char.tags && !char.appearance) char.appearance = char.tags;
-                if (!char.type) char.type = 'girl';
-                
-                const ex = state.characterTags.find(c => c.name === char.name);
-                if (ex) Object.assign(ex, char, { id: ex.id });
-                else state.characterTags.push({ ...char, id: `char-${Date.now()}-${Math.random().toString(36).slice(2, 6)}` });
+                const importedId = String(char.id || '').trim();
+                const imported = {
+                    ...char,
+                    id: importedId || `char-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                    enabled: char.enabled !== false,
+                    type: char.type || 'girl',
+                    appearance: char.appearance || char.tags || '',
+                };
+                const existing = importedId
+                    ? state.characterTags.find(item => String(item.id || '') === importedId)
+                    : null;
+                if (existing) Object.assign(existing, imported, { id: existing.id });
+                else state.characterTags.push(imported);
             }
             postToParent({ type: 'SAVE_CHARACTER_TAGS', characterTags: state.characterTags });
             renderCharList();

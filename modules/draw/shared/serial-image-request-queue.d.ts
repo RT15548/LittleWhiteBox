@@ -9,6 +9,8 @@ export type ImageRequestCooldownState = {
 
 export type ImageRequestQueueCallbacks = {
     signal?: AbortSignal;
+    /** 单次批量生成的临时身份；相同身份的连续请求共享冷却显示。 */
+    batchKey?: unknown;
     onQueued?: (state: ImageRequestQueueState) => void;
     onStart?: () => void;
     onCooldown?: (state: ImageRequestCooldownState) => void;

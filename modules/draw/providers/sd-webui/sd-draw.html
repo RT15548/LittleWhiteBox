@@ -296,6 +296,8 @@ select.input { cursor: pointer; }
     background: var(--bg-tertiary); border: 1px solid var(--border);
     border-radius: 12px; padding: 14px; margin: 0;
 }
+.sd-char-card.character-disabled { border-color: rgba(248, 81, 73, 0.3); }
+.sd-char-card.character-disabled .sd-char-card-title { color: var(--text-muted); }
 .sd-char-card-header {
     display: flex; align-items: center; justify-content: space-between;
     gap: 10px; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--border);
@@ -303,6 +305,7 @@ select.input { cursor: pointer; }
 .sd-char-card-title {
     display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13px;
 }
+.character-enabled-control { min-height: 32px; padding: 6px 10px; font-size: 12px; white-space: nowrap; }
 .gallery-grid { display: grid; gap: 14px; }
 .gallery-char-card {
     padding: 14px; border-radius: 12px; border: 1px solid var(--border);
