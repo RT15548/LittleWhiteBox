@@ -289,7 +289,7 @@
             enabled: false,
             engine: 'online',
             l0Concurrency: 10,
-            eventRerankEnabled: false,
+            eventRerankEnabled: true,
             summarizedEvidenceBudget: 4000,
             l0Api: {
                 provider: 'siliconflow', url: 'https://api.siliconflow.cn/v1', key: '', model: 'Qwen/Qwen3-8B', modelCache: [],
@@ -402,7 +402,7 @@
             base.enabled = !!raw.enabled;
             base.engine = 'online';
             base.l0Concurrency = Math.max(1, Math.min(50, Number(raw.l0Concurrency) || 10));
-            base.eventRerankEnabled = raw.eventRerankEnabled === true;
+            base.eventRerankEnabled = raw.eventRerankEnabled !== false;
             base.summarizedEvidenceBudget = Math.max(3000, Math.min(5000, Math.round(Number(raw.summarizedEvidenceBudget) || 4000)));
             Object.assign(base.l0Api, {
                 provider: raw.l0Api?.provider || legacyOnline.provider || base.l0Api.provider,
@@ -603,7 +603,7 @@
                     enabled: false,
                     engine: 'online',
                     l0Concurrency: 10,
-                    eventRerankEnabled: false,
+                    eventRerankEnabled: true,
                     summarizedEvidenceBudget: 4000,
                     l0Api: { provider: 'siliconflow', url: 'https://api.siliconflow.cn/v1', key: '', model: 'Qwen/Qwen3-8B', modelCache: [] },
                     embeddingApi: { provider: 'siliconflow', url: 'https://api.siliconflow.cn/v1', key: '', model: 'BAAI/bge-m3', modelCache: [] },
@@ -816,7 +816,7 @@
         $('vector-config-area').classList.toggle('hidden', !cfg.enabled);
         syncVectorBoundaryControl(cfg.enabled, config.ui.hideSummarized);
         $('vector-l0-concurrency').value = String(Math.max(1, Math.min(50, Number(cfg.l0Concurrency) || 10)));
-        $('vector-event-rerank-enabled').checked = cfg.eventRerankEnabled === true;
+        $('vector-event-rerank-enabled').checked = cfg.eventRerankEnabled !== false;
         $('vector-summarized-evidence-budget').value = String(Math.max(3000, Math.min(5000, Math.round(Number(cfg.summarizedEvidenceBudget) || 4000))));
         loadVectorApiConfig('l0', cfg.l0Api || {});
         loadVectorApiConfig('embedding', cfg.embeddingApi || {});

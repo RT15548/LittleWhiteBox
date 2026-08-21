@@ -25,9 +25,16 @@ test('all provider previews expose the real system plus single-user request shap
         const preview = getPreview({ tagGuideContent: 'loaded guide' });
         assert.deepEqual(preview.map(item => item.role), ['system', 'user'], `${provider} 顶层必须只有两个消息节点`);
         assert.equal(preview[1].key, 'userTask');
+        const expectedSections = provider === 'NovelAI'
+            ? [
+                ...EXPECTED_SECTION_KEYS.slice(0, 6),
+                'modelContract',
+                ...EXPECTED_SECTION_KEYS.slice(6),
+            ]
+            : EXPECTED_SECTION_KEYS;
         assert.deepEqual(
             preview[1].sections.map(section => section.key),
-            EXPECTED_SECTION_KEYS,
+            expectedSections,
             `${provider} 必须在单条 user 节点内保留全部顺序段落`,
         );
     }

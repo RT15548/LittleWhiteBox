@@ -385,7 +385,7 @@ function normalizeVectorConfig(rawVector = null) {
     const sharedProvider = String(legacyOnline.provider || DEFAULT_VECTOR_PROVIDER).toLowerCase();
     const sharedUrl = String(legacyOnline.url || (sharedProvider === "openrouter" ? DEFAULT_OPENROUTER_URL : DEFAULT_L0_URL)).trim();
     const sharedKey = String(legacyOnline.key || "").trim();
-    const eventRerankEnabled = rawVector?.eventRerankEnabled === true;
+    const eventRerankEnabled = rawVector?.eventRerankEnabled !== false;
     const summarizedEvidenceBudgetValue = rawVector?.summarizedEvidenceBudget;
     const summarizedEvidenceBudgetRaw = summarizedEvidenceBudgetValue == null
         || summarizedEvidenceBudgetValue === ""

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 import { DEFAULT_PROMPT_CONFIG as NOVEL_SCENE_PROMPTS } from '../../providers/novelai/novel-prompts.js';
+import { getNovelScenePlannerContract } from '../../providers/novelai/novel-model-capabilities.js';
 import { SD_SCENE_PROMPTS } from '../../providers/sd-webui/sd-prompts.js';
 import { COMFY_SCENE_PROMPTS } from '../../providers/comfyui/comfy-prompts.js';
 import { getLastDrawAgentDiagnostic } from '../draw-agent.js';
@@ -22,7 +23,7 @@ async function loadPromptConfig(providerDirectory, baseConfig, { pov = false } =
         readFile(new URL('top-system-pov.md', promptDirectory), 'utf8'),
         readFile(new URL('scene-rules.md', promptDirectory), 'utf8'),
     ]);
-    const guideFile = providerDirectory === 'novelai' ? 'TAG编写指南.md'
+    const guideFile = providerDirectory === 'novelai' ? 'TAG编写指南-V4.5.md'
         : providerDirectory === 'sd-webui' ? 'SD_TAG编写指南.md'
             : 'COMFY_TAG编写指南.md';
     const tagGuideContent = await readFile(
@@ -74,6 +75,9 @@ async function buildProviderTask(providerDirectory, baseConfig, options = {}) {
         promptDefaults,
         maxImages: 2,
         maxCharactersPerImage: 3,
+        modelContract: providerDirectory === 'novelai'
+            ? getNovelScenePlannerContract('nai-diffusion-4-5-full')
+            : '',
         expansionOptions: NOOP_EXPANSION_OPTIONS,
     });
 }
@@ -110,6 +114,46 @@ test('final NovelAI scene-planner task preserves the complete domain prompt and 
     assert.match(text, /images 必须恰好包含 2 项/);
     assert.match(text, /characters 最多 3 人/);
     assert.doesNotMatch(text, /YAML|<meta_protocol>|assistant prefill/i);
+});
+
+test('NovelAI V5 injects its own guide and normalized coordinate Tool contract', async () => {
+    const promptDefaults = await loadPromptConfig('novelai', NOVEL_SCENE_PROMPTS);
+    const modelGuide = await readFile(
+        new URL('../../providers/novelai/提示词编写指南-V5.md', import.meta.url),
+        'utf8',
+    );
+    const task = await buildScenePlannerTask({
+        messageText: '阿璃站在窗前。',
+        promptDefaults,
+        modelGuide,
+        modelContract: getNovelScenePlannerContract('nai-diffusion-5-full'),
+        centerMode: 'normalized',
+        maxImages: 1,
+        maxCharactersPerImage: 30,
+        absoluteMaxCharactersPerImage: 22,
+        expansionOptions: NOOP_EXPANSION_OPTIONS,
+    });
+    const text = flattenTaskText(task);
+    const center = task.tools[0].function.parameters.properties.images
+        .items.properties.characters.items.properties.center;
+
+    assert.match(text, /V5 同时理解自然语言与标签/);
+    assert.match(text, /归一化坐标对象/);
+    assert.doesNotMatch(text, /V4\.5 短语化描述/);
+    assert.deepEqual(center, {
+        type: 'object',
+        additionalProperties: false,
+        required: ['x', 'y'],
+        properties: {
+            x: { type: 'number', minimum: 0, maximum: 1 },
+            y: { type: 'number', minimum: 0, maximum: 1 },
+        },
+    });
+    assert.equal(
+        task.tools[0].function.parameters.properties.images
+            .items.properties.characters.maxItems,
+        22,
+    );
 });
 
 test('scene planner clamps an exact image request to the available illustration points', async () => {
@@ -361,7 +405,7 @@ test('NovelAI, SD, and Comfy each submit one Tool call and receive the same imag
                 action: 'opening door',
                 interact: '',
                 uc: '',
-                center: 'C3',
+                center: { x: 0.5, y: 0.5 },
             }],
             placement: {
                 mode: 'source',

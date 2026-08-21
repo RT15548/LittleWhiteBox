@@ -29,7 +29,6 @@ const NOVEL_DRAW_PROVIDER_SETTING_KEYS = new Set([
     'showFloorButton',
     'showFloatingButton',
     'advancedMode',
-    'customPrompts',
     'promptPresets',
     'selectedPromptPresetId',
     '_promptTemplateVersion',

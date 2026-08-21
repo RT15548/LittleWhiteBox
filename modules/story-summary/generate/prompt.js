@@ -1602,8 +1602,8 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
         if (assembled.recentEvidence.lines.length) metrics.formatting.sectionsIncluded.push('recent_evidence');
         if (assembled.arcs.lines.length) metrics.formatting.sectionsIncluded.push('arcs');
 
-        metrics.formatting.time = Math.round(performance.now() - T_Format_Start);
-        metrics.timing.formatting = metrics.formatting.time;
+        const formattingTime = Math.round(performance.now() - T_Format_Start);
+        metrics.timing.formatting = formattingTime;
 
         const effectiveTotal = total.used
             + summarizedEvidenceBudget.used
@@ -1626,18 +1626,14 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
         metrics.evidence.tokens = injectionStats.directEvidence.tokens
             + injectionStats.distantEvidence.tokens
             + injectionStats.recentEvidence.tokens;
-        metrics.evidence.recentSource = 'all_l0_window';
-        metrics.evidence.recentL1Attached = 0;
-        metrics.evidence.assemblyTime = Math.round(
-            performance.now() - T_Start - (metrics.timing.constraintFilter || 0) - metrics.formatting.time
+        metrics.timing.evidenceAssembly = Math.round(
+            performance.now() - T_Start - (metrics.timing.constraintFilter || 0) - formattingTime
         );
-        metrics.timing.evidenceAssembly = metrics.evidence.assemblyTime;
 
         const relevantFacts = Math.max(0, allFacts.length - (metrics.constraint.filtered || 0));
         metrics.quality.constraintCoverage = relevantFacts > 0
             ? Math.round((metrics.constraint.injected || 0) / relevantFacts * 100)
             : 100;
-        metrics.quality.eventPrecisionProxy = metrics.event?.similarityDistribution?.mean || 0;
 
         // l1AttachRate：有 L1 挂载的唯一楼层占所有 L0 覆盖楼层的比例
         const l0Floors = new Set(l0Selected.map(l0 => l0.floor));

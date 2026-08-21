@@ -327,6 +327,14 @@ test('replay observer 将显式诊断阶段与评分阶段隔离保存', () => {
     ]);
     collector.observe({ stage: 'queryFocusOwnership', value: { usesFocusOnlyCandidate: true } });
     assert.deepEqual(collector.build().diagnosticValues.queryFocusOwnership, { usesFocusOnlyCandidate: true });
+    collector.observe({
+        stage: 'semanticQuery',
+        value: { query: '三消息语义', temporalQuery: '当前用户消息' },
+    });
+    assert.deepEqual(collector.build().diagnosticValues.semanticQuery, {
+        query: '三消息语义',
+        temporalQuery: '当前用户消息',
+    });
 });
 
 test('replay observer 保留同一单元的共享 rank 与 unitId', () => {

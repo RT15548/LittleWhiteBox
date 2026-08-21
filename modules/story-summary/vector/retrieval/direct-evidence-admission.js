@@ -8,8 +8,8 @@ import {
     TEMPORAL_PROTECTION_POLICY,
 } from './temporal-turn-carrier.js';
 
-const DEFAULT_PARENT_LIMIT = 20;
-const DEFAULT_CANDIDATE_LIMIT = 60;
+const DIRECT_EVIDENCE_PARENT_MAX = 20;
+const DIRECT_EVIDENCE_CANDIDATE_MAX = 60;
 
 function uniqueBy(items, getId) {
     const seen = new Set();
@@ -21,31 +21,24 @@ function uniqueBy(items, getId) {
     });
 }
 
-export function selectDirectEvidenceParents(selectedDirect, options = {}) {
-    const limit = Number.isInteger(options.limit) && options.limit > 0
-        ? options.limit
-        : DEFAULT_PARENT_LIMIT;
-    const maxExtraTemporalParents = Number.isInteger(options.maxExtraTemporalParents)
-        && options.maxExtraTemporalParents >= 0
-        ? options.maxExtraTemporalParents
-        : TEMPORAL_PROTECTION_POLICY.maxExtraDirectEvidenceParents;
-    const temporalFloors = [...new Set((options.temporalFloors || []).filter(Number.isInteger))];
+export function selectDirectEvidenceParents(selectedDirect, { temporalFloors = [] } = {}) {
+    const normalizedTemporalFloors = [...new Set(temporalFloors.filter(Number.isInteger))];
     const source = uniqueBy(
         (selectedDirect || []).filter(item => item?.event?.id && item?.event?.summary),
         item => item.event.id,
     );
-    const selected = source.slice(0, limit);
+    const selected = source.slice(0, DIRECT_EVIDENCE_PARENT_MAX);
     const selectedIds = new Set(selected.map(item => item.event.id));
     const temporalWinners = selectTemporalFloorWinners(
         source,
-        item => matchingEventTemporalFloors(item.event, temporalFloors),
+        item => matchingEventTemporalFloors(item.event, normalizedTemporalFloors),
     );
     let addedTemporalParents = 0;
     for (const item of temporalWinners) {
         // A winner already present in the ordinary top-N still owns its floors;
         // never promote a runner-up merely to fill the extra-parent allowance.
         if (selectedIds.has(item.event.id)) continue;
-        if (addedTemporalParents >= maxExtraTemporalParents) break;
+        if (addedTemporalParents >= TEMPORAL_PROTECTION_POLICY.maxExtraDirectEvidenceParents) break;
         selected.push(item);
         selectedIds.add(item.event.id);
         addedTemporalParents++;
@@ -67,15 +60,11 @@ function exactTimeMatch(text, marker) {
     return !!marker && normalizeTimeText(text).includes(normalizeTimeText(marker));
 }
 
-export function selectDirectEvidenceAdmission(scoredChunks, options = {}) {
-    const limit = Number.isInteger(options.limit) && options.limit > 0
-        ? options.limit
-        : DEFAULT_CANDIDATE_LIMIT;
-    const maxTemporalCandidateShare = Number.isFinite(Number(options.maxTemporalCandidateShare))
-        ? Number(options.maxTemporalCandidateShare)
-        : TEMPORAL_PROTECTION_POLICY.maxCandidateShare;
-    const marker = options.timeMarker || null;
-    const temporalCarrier = options.temporalCarrier || null;
+export function selectDirectEvidenceAdmission(scoredChunks, {
+    timeMarker = null,
+    temporalCarrier = null,
+} = {}) {
+    const marker = timeMarker || null;
     const ranked = uniqueBy(
         (scoredChunks || []).filter(chunk => chunk?.chunkId && chunk?._vectorPresent !== false
             && String(chunk?.text || '').trim()),
@@ -83,13 +72,13 @@ export function selectDirectEvidenceAdmission(scoredChunks, options = {}) {
     ).map((chunk, sourceIndex) => ({
         chunk,
         sourceIndex,
-        focusScore: Number(chunk?._cosineScore || 0),
+        queryScore: Number(chunk?._cosineScore || 0),
         exact: exactTimeMatch(chunk?.text, marker),
         temporal: temporalCarrier
             ? chunkMatchesTemporalCarrier(chunk, temporalCarrier)
             : exactTimeMatch(chunk?.text, marker),
     })).sort((left, right) => (
-        right.focusScore - left.focusScore || left.sourceIndex - right.sourceIndex
+        right.queryScore - left.queryScore || left.sourceIndex - right.sourceIndex
     ));
 
     const temporal = ranked.filter(row => row.temporal);
@@ -97,11 +86,14 @@ export function selectDirectEvidenceAdmission(scoredChunks, options = {}) {
         temporal,
         row => Number.isInteger(Number(row.chunk.floor)) ? [Number(row.chunk.floor)] : [],
     );
-    const temporalProtectionCap = getTemporalProtectionLimit(limit, maxTemporalCandidateShare);
+    const temporalProtectionCap = getTemporalProtectionLimit(
+        DIRECT_EVIDENCE_CANDIDATE_MAX,
+        TEMPORAL_PROTECTION_POLICY.maxCandidateShare,
+    );
     const temporalProtected = temporalWinners.slice(0, temporalProtectionCap);
     const temporalIds = new Set(temporalProtected.map(row => row.chunk.chunkId));
     const temporalProtectedFloors = new Set(temporalProtected.map(row => Number(row.chunk.floor)));
-    const selected = ranked.slice(0, limit);
+    const selected = ranked.slice(0, DIRECT_EVIDENCE_CANDIDATE_MAX);
     const selectedIds = new Set(selected.map(row => row.chunk.chunkId));
     let temporalForcedCount = 0;
     for (const row of temporalProtected) {
@@ -116,13 +108,12 @@ export function selectDirectEvidenceAdmission(scoredChunks, options = {}) {
         temporalForcedCount++;
     }
     selected.sort((left, right) => (
-        right.focusScore - left.focusScore || left.sourceIndex - right.sourceIndex
+        right.queryScore - left.queryScore || left.sourceIndex - right.sourceIndex
     ));
 
     return {
         candidates: selected.map(row => ({
             ...row.chunk,
-            _directEvidenceFocusScore: row.focusScore,
             _directEvidenceTemporalExact: row.exact,
             _directEvidenceTemporalCarrier: temporalIds.has(row.chunk.chunkId),
             _directEvidenceTemporalMatch: row.temporal,

@@ -27,7 +27,7 @@ function chunk(index, score, text = `chunk ${index}`) {
 
 test('DIRECT evidence parents stay bounded while retaining temporal events', () => {
     const source = Array.from({ length: 25 }, (_, index) => event(index, index * 2 + 1, index * 2 + 2));
-    const selected = selectDirectEvidenceParents(source, { limit: 20, temporalFloors: [44] });
+    const selected = selectDirectEvidenceParents(source, { temporalFloors: [44] });
 
     assert.equal(selected.length, 21);
     assert.deepEqual(selected.slice(0, 20).map(item => item.event.id), source.slice(0, 20).map(item => item.event.id));
@@ -37,25 +37,28 @@ test('DIRECT evidence parents stay bounded while retaining temporal events', () 
 });
 
 test('an ordinary parent winner does not promote a temporal runner-up', () => {
-    const selected = selectDirectEvidenceParents([
+    const ordinary = [
         event(0, 10),
+        ...Array.from({ length: 19 }, (_, index) => event(index + 2, index + 30)),
+    ];
+    const selected = selectDirectEvidenceParents([
+        ...ordinary,
         event(1, 10),
-        event(2, 30),
-    ], { limit: 1, temporalFloors: [9], maxExtraTemporalParents: 5 });
+    ], { temporalFloors: [9] });
 
-    assert.deepEqual(selected.map(item => item.event.id), ['evt-0']);
+    assert.deepEqual(selected.map(item => item.event.id), ordinary.map(item => item.event.id));
 });
 
 test('extra temporal parents are globally capped at five', () => {
-    const source = Array.from({ length: 12 }, (_, index) => event(index, index + 1));
+    const ordinary = Array.from({ length: 20 }, (_, index) => event(index, index + 101));
+    const temporal = Array.from({ length: 12 }, (_, index) => event(index + 20, index + 1));
+    const source = [...ordinary, ...temporal];
     const selected = selectDirectEvidenceParents(source, {
-        limit: 2,
         temporalFloors: Array.from({ length: 12 }, (_, index) => index),
-        maxExtraTemporalParents: 5,
     });
 
-    assert.equal(selected.length, 7);
-    assert.deepEqual(selected.map(item => item.event.id), source.slice(0, 7).map(item => item.event.id));
+    assert.equal(selected.length, 25);
+    assert.deepEqual(selected.map(item => item.event.id), source.slice(0, 25).map(item => item.event.id));
 });
 
 test('DIRECT evidence admission keeps an exact-time chunk inside 60 candidates', () => {
@@ -65,7 +68,6 @@ test('DIRECT evidence admission keeps an exact-time chunk inside 60 candidates',
         index === 64 ? '<time>113年 11月20日 03:48</time>' : `chunk ${index}`,
     ));
     const admission = selectDirectEvidenceAdmission(source, {
-        limit: 60,
         timeMarker: '113年11月20日03:48',
     });
 
@@ -82,7 +84,6 @@ test('DIRECT evidence admission keeps the requested side of a temporal turn', ()
         isUser: index === 64,
     }));
     const admission = selectDirectEvidenceAdmission(source, {
-        limit: 60,
         timeMarker: '113年11月20日03:38',
         temporalCarrier: {
             marker: '113年11月20日03:38',
@@ -99,14 +100,13 @@ test('DIRECT evidence admission keeps the requested side of a temporal turn', ()
     assert.equal(admission.candidates.find(item => item.chunkId === 'c-64')._directEvidenceTemporalCarrier, true);
 });
 
-test('a temporal turn protects only its highest-focus chunk', () => {
+test('a temporal turn protects only its highest-query-score chunk', () => {
     const source = [
         { ...chunk(1, 0.9), floor: 8, isUser: true },
         { ...chunk(2, 0.8), floor: 8, isUser: true },
         { ...chunk(3, 0.7), floor: 8, isUser: true },
     ];
     const admission = selectDirectEvidenceAdmission(source, {
-        limit: 3,
         timeMarker: '113年11月20日03:38',
         temporalCarrier: {
             marker: '113年11月20日03:38',
@@ -126,45 +126,14 @@ test('a temporal turn protects only its highest-focus chunk', () => {
 });
 
 test('temporal candidate privilege is capped at forty percent without excluding ordinary matches', () => {
-    const source = [
-        ...Array.from({ length: 8 }, (_, index) => ({
-            ...chunk(index, 100 - index),
-            floor: index,
-            isUser: true,
-        })),
-        chunk(8, 92),
-        chunk(9, 91),
-    ];
-    const admission = selectDirectEvidenceAdmission(source, {
-        limit: 10,
-        maxTemporalCandidateShare: 0.40,
-        timeMarker: '113年11月20日03:38',
-        temporalCarrier: {
-            marker: '113年11月20日03:38',
-            exactFloors: Array.from({ length: 8 }, (_, index) => index),
-            userFloors: Array.from({ length: 8 }, (_, index) => index),
-            assistantFloors: [],
-            querySpeaker: 'user',
-        },
-    });
-
-    assert.equal(admission.temporalProtectionCap, 4);
-    assert.equal(admission.temporalProtectedCount, 4);
-    assert.equal(admission.temporalOverflowCount, 4);
-    assert.equal(admission.candidates.filter(item => item._directEvidenceTemporalCarrier).length, 4);
-    assert.equal(admission.candidates.filter(item => item._directEvidenceTemporalMatch).length, 8);
-});
-
-test('only protected temporal winners are forced into the candidate set', () => {
-    const regular = Array.from({ length: 10 }, (_, index) => chunk(index, 100 - index));
-    const temporal = Array.from({ length: 8 }, (_, index) => ({
-        ...chunk(10 + index, 10 - index),
-        floor: 20 + index,
+    const temporal = Array.from({ length: 48 }, (_, index) => ({
+        ...chunk(index, 100 - index),
+        floor: index,
         isUser: true,
     }));
-    const admission = selectDirectEvidenceAdmission([...regular, ...temporal], {
-        limit: 10,
-        maxTemporalCandidateShare: 0.40,
+    const ordinary = Array.from({ length: 12 }, (_, index) => chunk(48 + index, 52 - index));
+    const admission = selectDirectEvidenceAdmission([...temporal, ...ordinary], {
+        timeMarker: '113年11月20日03:38',
         temporalCarrier: {
             marker: '113年11月20日03:38',
             exactFloors: temporal.map(item => item.floor),
@@ -174,9 +143,33 @@ test('only protected temporal winners are forced into the candidate set', () => 
         },
     });
 
-    assert.equal(admission.temporalForcedCount, 4);
-    assert.equal(admission.candidates.filter(item => item._directEvidenceTemporalCarrier).length, 4);
-    assert.equal(admission.candidates.some(item => item.chunkId === 'c-14'), false);
+    assert.equal(admission.temporalProtectionCap, 24);
+    assert.equal(admission.temporalProtectedCount, 24);
+    assert.equal(admission.temporalOverflowCount, 24);
+    assert.equal(admission.candidates.filter(item => item._directEvidenceTemporalCarrier).length, 24);
+    assert.equal(admission.candidates.filter(item => item._directEvidenceTemporalMatch).length, 48);
+});
+
+test('only protected temporal winners are forced into the candidate set', () => {
+    const regular = Array.from({ length: 60 }, (_, index) => chunk(index, 100 - index));
+    const temporal = Array.from({ length: 30 }, (_, index) => ({
+        ...chunk(60 + index, 30 - index),
+        floor: 100 + index,
+        isUser: true,
+    }));
+    const admission = selectDirectEvidenceAdmission([...regular, ...temporal], {
+        temporalCarrier: {
+            marker: '113年11月20日03:38',
+            exactFloors: temporal.map(item => item.floor),
+            userFloors: temporal.map(item => item.floor),
+            assistantFloors: [],
+            querySpeaker: 'user',
+        },
+    });
+
+    assert.equal(admission.temporalForcedCount, 24);
+    assert.equal(admission.candidates.filter(item => item._directEvidenceTemporalCarrier).length, 24);
+    assert.equal(admission.candidates.some(item => item.chunkId === 'c-84'), false);
 });
 
 test('marker-only matches protect one winner on each actual chunk floor', () => {
@@ -187,8 +180,6 @@ test('marker-only matches protect one winner on each actual chunk floor', () => 
         chunk(4, 0.7),
         chunk(5, 0.6),
     ], {
-        limit: 5,
-        maxTemporalCandidateShare: 0.40,
         timeMarker: '113年11月20日03:38',
     });
 

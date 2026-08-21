@@ -155,6 +155,13 @@ function resolveEffectiveMaxImages(requested, insertPointCount) {
     return Math.min(requested, Math.max(0, Number(insertPointCount) || 0));
 }
 
+function resolveEffectiveMaxCharacters(requestedLimit, absoluteLimit) {
+    const requested = Number(requestedLimit) > 0 ? Math.floor(Number(requestedLimit)) : 0;
+    const absolute = Number(absoluteLimit) > 0 ? Math.floor(Number(absoluteLimit)) : 0;
+    if (!absolute) return requested;
+    return requested ? Math.min(requested, absolute) : absolute;
+}
+
 const TRAILING_CLOSING_TAG = /\n?(<\/[A-Za-z][\w-]*>)\s*$/;
 
 /**
@@ -194,6 +201,10 @@ async function buildScenePlannerRequest(options = {}) {
         worldbookEntries = null,
         maxImages = 0,
         maxCharactersPerImage = 0,
+        absoluteMaxCharactersPerImage = 0,
+        modelGuide = null,
+        modelContract = '',
+        centerMode = 'grid',
     } = options;
     const sceneSource = providedSceneSource || createSceneSource(messageText);
     if (!String(sceneSource.content || '').trim()) {
@@ -205,6 +216,10 @@ async function buildScenePlannerRequest(options = {}) {
     }
     const requestedMaxImages = resolveRequestedMaxImages(maxImages);
     const effectiveMaxImages = resolveEffectiveMaxImages(requestedMaxImages, insertPointCount);
+    const effectiveMaxCharactersPerImage = resolveEffectiveMaxCharacters(
+        maxCharactersPerImage,
+        absoluteMaxCharactersPerImage,
+    );
     const imageLimitAdjustment = requestedMaxImages > effectiveMaxImages
         ? {
             requested: requestedMaxImages,
@@ -241,9 +256,14 @@ async function buildScenePlannerRequest(options = {}) {
             runtime,
         );
         const expandedTagGuide = await expandScenePromptText(
-            getEffectiveTagGuide(promptConfig.tagGuideContent),
+            typeof modelGuide === 'string'
+                ? modelGuide
+                : getEffectiveTagGuide(promptConfig.tagGuideContent),
             runtime,
         );
+        const expandedModelContract = modelContract
+            ? await expandScenePromptText(modelContract, runtime)
+            : '';
 
         const guideTemplate = expandedTagGuide
             ? spliceLiteral(promptConfig.assistantDoc, '{$tagGuide}', slots.tagGuide)
@@ -257,7 +277,7 @@ async function buildScenePlannerRequest(options = {}) {
             slots.lastMessage,
         );
         const finalInstruction = appendInstruction(promptConfig.userConfirm, [
-            buildSessionLimitsLine(effectiveMaxImages, maxCharactersPerImage, insertPointCount),
+            buildSessionLimitsLine(effectiveMaxImages, effectiveMaxCharactersPerImage, insertPointCount),
             '完成 mindful_prelude 与全部 images 后，必须且只能调用一次 submit_scene_plan；不要只返回正文。',
         ]);
 
@@ -270,6 +290,7 @@ async function buildScenePlannerRequest(options = {}) {
             promptConfig.assistantAskContent,
             contentTemplate,
             promptConfig.sceneRules,
+            expandedModelContract,
             promptConfig.assistantCheck,
             finalInstruction,
         ]);
@@ -294,8 +315,9 @@ async function buildScenePlannerRequest(options = {}) {
             messages: [{ role: 'user', content: userTask }],
             tools: [createSubmitScenePlanTool({
                 maxImages: effectiveMaxImages,
-                maxCharactersPerImage,
+                maxCharactersPerImage: effectiveMaxCharactersPerImage,
                 insertPointCount,
+                centerMode,
             })],
             toolChoice: 'required',
         };
@@ -308,7 +330,9 @@ async function buildScenePlannerRequest(options = {}) {
             validationContext: {
                 sceneSource,
                 effectiveMaxImages,
+                effectiveMaxCharactersPerImage,
                 imageLimitAdjustment,
+                centerMode,
             },
         };
     } catch (error) {
@@ -349,7 +373,8 @@ export async function generateAndParseScenePlan(options = {}) {
                 sceneSource: request.validationContext.sceneSource,
                 presentCharacters: options.presentCharacters,
                 maxImages: request.validationContext.effectiveMaxImages,
-                maxCharactersPerImage: options.maxCharactersPerImage,
+                maxCharactersPerImage: request.validationContext.effectiveMaxCharactersPerImage,
+                centerMode: request.validationContext.centerMode,
                 presetName: providerConfig.currentPresetName,
                 provider: providerConfig.provider,
                 model: providerConfig.model,

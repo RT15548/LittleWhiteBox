@@ -171,10 +171,23 @@ function stringSchema({ minLength = 0 } = {}) {
     };
 }
 
+function normalizedCenterSchema() {
+    return {
+        type: 'object',
+        additionalProperties: false,
+        required: ['x', 'y'],
+        properties: {
+            x: { type: 'number', minimum: 0, maximum: 1 },
+            y: { type: 'number', minimum: 0, maximum: 1 },
+        },
+    };
+}
+
 export function createSubmitScenePlanTool(options = {}) {
     const maxImages = normalizeLimit(options.maxImages);
     const maxCharactersPerImage = normalizeLimit(options.maxCharactersPerImage);
     const insertPointCount = normalizeLimit(options.insertPointCount);
+    const centerMode = options.centerMode === 'normalized' ? 'normalized' : 'grid';
     const maxPlanItems = maxImages || insertPointCount;
     const momentsSchema = {
         type: 'array',
@@ -221,7 +234,9 @@ export function createSubmitScenePlanTool(options = {}) {
                 action: stringSchema({ minLength: 1 }),
                 interact: stringSchema(),
                 uc: stringSchema(),
-                center: { type: 'string', pattern: '^[A-E][1-5]$' },
+                center: centerMode === 'normalized'
+                    ? normalizedCenterSchema()
+                    : { type: 'string', pattern: '^[A-E][1-5]$' },
             },
         },
     };
@@ -371,7 +386,25 @@ function normalizeCharacterLookup(presentCharacters = []) {
     return lookup;
 }
 
-function normalizeCharacter(value, path, knownNameLookup) {
+const GRID_COL = Object.freeze({ A: 0.1, B: 0.3, C: 0.5, D: 0.7, E: 0.9 });
+const GRID_ROW = Object.freeze({ 1: 0.1, 2: 0.3, 3: 0.5, 4: 0.7, 5: 0.9 });
+
+function normalizeCenter(value, path, centerMode) {
+    if (centerMode === 'normalized') {
+        assertExactFields(value, ['x', 'y'], path);
+        const x = Number(value.x);
+        const y = Number(value.y);
+        if (!Number.isFinite(x) || x < 0 || x > 1) failSchema(`${path}.x`, '必须是 0～1 的数字', value.x);
+        if (!Number.isFinite(y) || y < 0 || y > 1) failSchema(`${path}.y`, '必须是 0～1 的数字', value.y);
+        return { x, y };
+    }
+    const grid = requireString(value, path).toUpperCase();
+    const match = grid.match(/^([A-E])([1-5])$/);
+    if (!match) failSchema(path, '必须是 A1～E5 坐标', value);
+    return { x: GRID_COL[match[1]], y: GRID_ROW[match[2]] };
+}
+
+function normalizeCharacter(value, path, knownNameLookup, centerMode) {
     assertExactFields(value, CHARACTER_FIELDS, path);
     const returnedName = requireString(value.name, `${path}.name`);
     const canonicalName = knownNameLookup.get(returnedName.toLocaleLowerCase()) || '';
@@ -383,8 +416,7 @@ function normalizeCharacter(value, path, knownNameLookup) {
         }
         if (!appear) failSchema(`${path}.appear`, '未知角色必须填写外貌', value.appear);
     }
-    const center = requireString(value.center, `${path}.center`).toUpperCase();
-    if (!/^[A-E][1-5]$/.test(center)) failSchema(`${path}.center`, '必须是 A1~E5 坐标', value.center);
+    const center = normalizeCenter(value.center, `${path}.center`, centerMode);
 
     return {
         name: canonicalName || returnedName,
@@ -415,6 +447,7 @@ function normalizeImages(images, options = {}) {
     }
     const maxImages = normalizeLimit(options.maxImages);
     const maxCharactersPerImage = normalizeLimit(options.maxCharactersPerImage);
+    const centerMode = options.centerMode === 'normalized' ? 'normalized' : 'grid';
     if (maxImages && images.length !== maxImages) {
         failSchema('images', `本次必须恰好包含 ${maxImages} 项`, images.length);
     }
@@ -461,7 +494,7 @@ function normalizeImages(images, options = {}) {
             failSchema(`${path}.characters`, `最多包含 ${maxCharactersPerImage} 人`, image.characters.length);
         }
         const chars = image.characters.map((character, characterIndex) => (
-            normalizeCharacter(character, `${path}.characters[${characterIndex}]`, knownNameLookup)
+            normalizeCharacter(character, `${path}.characters[${characterIndex}]`, knownNameLookup, centerMode)
         ));
         return {
             index: image.index,

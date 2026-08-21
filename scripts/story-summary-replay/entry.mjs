@@ -2052,23 +2052,17 @@ export async function runStorySummaryReplay({ rootDir, config, configPath }) {
         const gateStartedAt = performance.now();
         eventRerankGateResult = await runEventRerankGate({
             plan: eventRerankGatePlan,
-            executeCase: async ({ goldCase, promptInput, snapshot }) => {
+            executeCase: async ({ goldCase, promptInput, semanticQuery, snapshot }) => {
                 replayMessages = sample.messages.slice(0, goldCase.atFloor);
                 __setReplayContext({ chat: replayMessages });
                 await restoreReplaySnapshot(modules, chatId, snapshot);
 
                 const recallResult = deserializePromptRecallInput(promptInput?.production?.recallResult || {});
-                const enrichment = recallResult.enrichmentContext || {};
-                if (!Array.isArray(enrichment.focusVector) || !enrichment.focusVector.length) {
-                    throw new Error(`冻结输入缺少 focusVector: ${goldCase.id}`);
-                }
                 const beforeEvents = recallResult.events || [];
-                const counted = await withExternalCallTrace(() => modules.rerankEventsForPrompt(
+                const counted = await withExternalCallTrace(() => modules.rerankRecalledEvents(
                     beforeEvents,
                     {
-                        query: String(goldCase?.query?.text || goldCase?.queryText || ''),
-                        focusVector: enrichment.focusVector,
-                        chatId,
+                        ...semanticQuery,
                         chat: replayMessages,
                     },
                 ));

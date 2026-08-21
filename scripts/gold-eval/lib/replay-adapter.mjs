@@ -18,6 +18,7 @@ const DIAGNOSTIC_STAGE_KEYS = Object.freeze([
 ]);
 const DIAGNOSTIC_VALUE_STAGE_KEYS = Object.freeze([
     'queryFocusOwnership',
+    'semanticQuery',
 ]);
 
 function normalizeRanked(items = []) {

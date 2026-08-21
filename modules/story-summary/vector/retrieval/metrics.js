@@ -1,18 +1,5 @@
-// ═══════════════════════════════════════════════════════════════════════════
-// Story Summary - Metrics Collector (v6 - Dense-Gated Lexical)
-//
-// v5 → v6 变更：
-// - lexical: 新增 eventFilteredByDense / floorFilteredByDense
-// - event: entityFilter bypass 阈值改为 CONFIG 驱动（0.80）
-// - 其余结构不变
-//
-// v4 → v5 变更：
-// - query: 新增 segmentWeights / r2Weights（加权向量诊断）
-// - fusion: 新增 denseAggMethod / lexDensityBonus（聚合策略可观测）
-// - quality: 新增 rerankRetentionRate（粗排-精排一致性）
-// - 移除 timing 中从未写入的死字段（queryBuild/queryRefine/lexicalSearch/fusion）
-// - 移除从未写入的 arc 区块
-// ═══════════════════════════════════════════════════════════════════════════
+// Story Summary per-run recall diagnostics.
+// Every collected field must have a runtime log, issue detector, or replay/gold consumer.
 
 /**
  * 创建空的指标对象
@@ -42,10 +29,8 @@ export function createMetrics() {
             needRecall: false,
             focusTerms: [],
             focusCharacters: [],
-            focusEntities: [],
             matched: 0,
             floorsHit: 0,
-            topHits: [],
         },
 
         // Lexical (MiniSearch) - 词法检索
@@ -62,7 +47,6 @@ export function createMetrics() {
             termSearches: 0,
             eventFilteredByDense: 0,
             floorFilteredByDense: 0,
-            eventCandidateVectorsMissing: 0,
         },
 
         // Fusion (W-RRF, floor-level) - 多路融合
@@ -72,7 +56,6 @@ export function createMetrics() {
             totalUnique: 0,
             afterCap: 0,
             time: 0,
-            denseAggMethod: '',    // 聚合方法描述（如 "max×0.6+mean×0.4"）
             lexDensityBonus: 0,    // 密度加成系数
         },
 
@@ -105,6 +88,24 @@ export function createMetrics() {
             temporalWinners: 0,
             temporalProtectionCap: 0,
             temporalOverflow: 0,
+            candidateVectorsMissing: 0,
+            rerank: {
+                status: '',
+                sourceCandidates: 0,
+                candidates: 0,
+                tailCandidates: 0,
+                exactTime: {
+                    marker: '',
+                    floors: 0,
+                    candidates: 0,
+                    winners: 0,
+                    reserved: 0,
+                    overflow: 0,
+                    forced: 0,
+                },
+                batchTotal: 0,
+                batchFailed: 0,
+            },
             budgetTruncated: null,
         },
 
@@ -123,17 +124,14 @@ export function createMetrics() {
             rerankFailed: false,
             rerankBatchTotal: 0,
             rerankBatchFailed: 0,
-            rerankFailures: [],
             beforeRerank: 0,
             afterRerank: 0,
-            rerankTime: 0,
             rerankScores: null,
             rerankDocAvgLength: 0,
 
             // Stage 2: L1
             l1PrefetchAiFloors: 0,
             l1PrefetchWithContextFloors: 0,
-            l1PrefetchTrimmed: 0,
             l1Pulled: 0,
             l1Attached: 0,
             l1CosineTime: 0,
@@ -158,7 +156,6 @@ export function createMetrics() {
             directEvidenceSourceCandidates: 0,
             directEvidenceCandidates: 0,
             directEvidenceRelevantItems: 0,
-            directEvidenceDocumentChars: 0,
             directEvidenceTemporalCandidates: 0,
             directEvidenceTemporalFloorWinners: 0,
             directEvidenceTemporalProtectionCap: 0,
@@ -186,15 +183,10 @@ export function createMetrics() {
             distantEvidenceDroppedByBudget: 0,
             directEvidenceRerankBatchTotal: 0,
             directEvidenceRerankBatchFailed: 0,
-            directEvidenceRerankFailures: [],
-            directEvidenceFocusScoreTime: 0,
-            directEvidenceRerankTime: 0,
-            directEvidenceTime: 0,
 
             // 装配
             contextPairsAdded: 0,
             tokens: 0,
-            assemblyTime: 0,
         },
 
         // Diffusion (PPR Spreading Activation) - 图扩散
@@ -234,7 +226,6 @@ export function createMetrics() {
         // Formatting - 格式化
         formatting: {
             sectionsIncluded: [],
-            time: 0,
         },
 
         // Budget Summary - 预算
@@ -271,9 +262,10 @@ export function createMetrics() {
             anchorSearch: 0,
             constraintFilter: 0,
             eventRetrieval: 0,
+            eventRerank: 0,
             evidenceRetrieval: 0,
             evidenceRerank: 0,
-            directEvidenceFocusScore: 0,
+            directEvidenceVectorScore: 0,
             directEvidenceRerank: 0,
             directEvidenceRetrieval: 0,
             evidenceAssembly: 0,
@@ -288,7 +280,6 @@ export function createMetrics() {
         // Quality Indicators - 质量指标
         quality: {
             constraintCoverage: 100,
-            eventPrecisionProxy: 0,
             l1AttachRate: 0,
             rerankRetentionRate: 0,
             diffusionEffectiveRate: 0,
@@ -339,7 +330,7 @@ export function formatMetricsLog(metrics) {
 
     lines.push('');
     lines.push('════════════════════════════════════════');
-    lines.push('        Recall Metrics Report (v5)      ');
+    lines.push('          Recall Metrics Report         ');
     lines.push('════════════════════════════════════════');
     lines.push('');
 
@@ -366,7 +357,7 @@ export function formatMetricsLog(metrics) {
     lines.push('[Anchor] L0 StateAtoms - 语义锚点');
     lines.push(`├─ need_recall: ${m.anchor.needRecall}`);
     if (m.anchor.needRecall) {
-        lines.push(`├─ focus_terms: [${(m.anchor.focusTerms || m.anchor.focusEntities || []).join(', ')}]`);
+        lines.push(`├─ focus_terms: [${(m.anchor.focusTerms || []).join(', ')}]`);
         lines.push(`├─ focus_characters: [${(m.anchor.focusCharacters || []).join(', ')}]`);
         lines.push(`├─ matched: ${m.anchor.matched || 0}`);
         lines.push(`└─ floors_hit: ${m.anchor.floorsHit || 0}`);
@@ -447,11 +438,14 @@ export function formatMetricsLog(metrics) {
     lines.push('[Event] L2 Events - 事件摘要');
     lines.push(`├─ in_store: ${m.event.inStore}`);
     lines.push(`├─ considered: ${m.event.considered}`);
+    if ((m.event.candidateVectorsMissing || 0) > 0) {
+        lines.push(`├─ candidate_vectors_missing: ${m.event.candidateVectorsMissing}`);
+    }
 
     if (m.event.entityFilter) {
         const ef = m.event.entityFilter;
         lines.push(`├─ entity_filter:`);
-        lines.push(`│   ├─ focus_characters: [${(ef.focusCharacters || ef.focusEntities || []).join(', ')}]`);
+        lines.push(`│   ├─ focus_characters: [${(ef.focusCharacters || []).join(', ')}]`);
         lines.push(`│   ├─ before: ${ef.before}`);
         lines.push(`│   ├─ after: ${ef.after}`);
         lines.push(`│   └─ filtered: ${ef.filtered}`);
@@ -478,14 +472,16 @@ export function formatMetricsLog(metrics) {
         lines.push(`│   └─ median: ${sim.median}`);
     }
 
-    if (m.event.rerankStatus) {
-        lines.push(`├─ event_rerank: ${m.event.rerankStatus}`);
-        lines.push(`│   ├─ candidates: ${m.event.rerankCandidates || 0}/${m.event.rerankSourceCandidates || 0}`);
-        lines.push(`│   ├─ tail: ${m.event.rerankTailCandidates || 0}`);
-        if (m.event.rerankExactTimeMarker) {
-            lines.push(`│   ├─ exact_time: ${m.event.rerankExactTimeMarker}, floors=${m.event.rerankExactTimeFloors || 0}, candidates=${m.event.rerankExactTimeCandidates || 0}, forced=${m.event.rerankExactTimeForced || 0}`);
+    if (m.event.rerank.status) {
+        const rerank = m.event.rerank;
+        const exactTime = rerank.exactTime;
+        lines.push(`├─ event_rerank: ${rerank.status}`);
+        lines.push(`│   ├─ candidates: ${rerank.candidates || 0}/${rerank.sourceCandidates || 0}`);
+        lines.push(`│   ├─ tail: ${rerank.tailCandidates || 0}`);
+        if (exactTime.marker) {
+            lines.push(`│   ├─ exact_time: ${exactTime.marker}, floors=${exactTime.floors || 0}, candidates=${exactTime.candidates || 0}, winners=${exactTime.winners || 0}, reserved=${exactTime.reserved || 0}, forced=${exactTime.forced || 0}, overflow=${exactTime.overflow || 0}`);
         }
-        lines.push(`│   └─ batches: ${m.event.rerankBatchTotal || 0}, failed=${m.event.rerankBatchFailed || 0}`);
+        lines.push(`│   └─ batches: ${rerank.batchTotal || 0}, failed=${rerank.batchFailed || 0}`);
     }
 
     lines.push(`├─ causal_chain: depth=${m.event.causalChainDepth}, count=${m.event.causalCount}`);
@@ -498,7 +494,7 @@ export function formatMetricsLog(metrics) {
         lines.push(`├─ budget_truncation: selected=${bt.selected}/${bt.candidates}, dropped=${bt.dropped}, event_budget=${bt.budgetRejected || 0}, related_budget=${bt.relatedBudgetRejected || 0}`);
     }
     if ((m.event.temporalFloorsProtected || 0) > 0) {
-        lines.push(`├─ temporal_protection: floors=${m.event.temporalFloorsProtected}, protected=${m.event.temporalProtected || 0}, dropped=${m.event.temporalDropped || 0}`);
+        lines.push(`├─ temporal_protection: floors=${m.event.temporalFloorsProtected}, winners=${m.event.temporalWinners || 0}, protected=${m.event.temporalProtected || 0}, overflow=${m.event.temporalOverflow || 0}, dropped=${m.event.temporalDropped || 0}, cap=${m.event.temporalProtectionCap || 0}`);
     }
     lines.push(`└─ focus_characters_used: ${m.event.entitiesUsed} [${(m.event.entityNames || []).join(', ')}], focus_terms_count=${m.event.focusTermsCount || 0}`);
     lines.push('');
@@ -515,7 +511,8 @@ export function formatMetricsLog(metrics) {
         }
         lines.push(`│   │   ├─ before: ${m.evidence.beforeRerank} floors`);
         lines.push(`│   │   ├─ after: ${m.evidence.afterRerank} floors`);
-        lines.push(`│   │   └─ time: ${m.evidence.rerankTime}ms`);
+        lines.push(`│   │   ├─ batches: ${m.evidence.rerankBatchTotal || 0}, failed=${m.evidence.rerankBatchFailed || 0}`);
+        lines.push(`│   │   └─ time: ${m.timing.evidenceRerank || 0}ms`);
         if ((m.evidence.droppedByRerankCount || 0) > 0) {
             lines.push(`│   ├─ dropped_normal: ${m.evidence.droppedByRerankCount}`);
         }
@@ -535,9 +532,6 @@ export function formatMetricsLog(metrics) {
     lines.push(`├─ Stage 2 (L1):`);
     lines.push(`│   ├─ prefetched_ai_floors: ${m.evidence.l1PrefetchAiFloors}`);
     lines.push(`│   ├─ prefetched_total_floors: ${m.evidence.l1PrefetchWithContextFloors}`);
-    if ((m.evidence.l1PrefetchTrimmed || 0) > 0) {
-        lines.push(`│   ├─ prefetch_trimmed: ${m.evidence.l1PrefetchTrimmed}`);
-    }
     lines.push(`│   ├─ pulled: ${m.evidence.l1Pulled}`);
     lines.push(`│   ├─ vector_hits: ${m.evidence.l1VectorHits}`);
     if ((m.evidence.l1MissingVectors || 0) > 0) {
@@ -557,13 +551,14 @@ export function formatMetricsLog(metrics) {
             lines.push(`│   ├─ temporal_protected_in_prompt: items=${m.evidence.directEvidenceTemporalProtectedItems}, tokens=${m.evidence.directEvidenceTemporalProtectedTokens || 0}`);
         }
         lines.push(`│   ├─ rerank_batches: ${m.evidence.directEvidenceRerankBatchTotal || 0}, failed=${m.evidence.directEvidenceRerankBatchFailed || 0}`);
-        lines.push(`│   ├─ temporal_candidate_protection: candidates=${m.evidence.directEvidenceTemporalCandidates || 0}, protected=${m.evidence.directEvidenceTemporalProtectedCandidates || 0}, cap=${m.evidence.directEvidenceTemporalProtectionCap || 0}`);
+        lines.push(`│   ├─ vector_coverage: hits=${m.evidence.directEvidenceVectorHits || 0}, missing=${m.evidence.directEvidenceMissingVectors || 0}`);
+        lines.push(`│   ├─ temporal_candidate_protection: candidates=${m.evidence.directEvidenceTemporalCandidates || 0}, floor_winners=${m.evidence.directEvidenceTemporalFloorWinners || 0}, protected=${m.evidence.directEvidenceTemporalProtectedCandidates || 0}, forced=${m.evidence.directEvidenceTemporalForced || 0}, overflow=${m.evidence.directEvidenceTemporalOverflow || 0}, same_floor_non_winners=${m.evidence.directEvidenceTemporalSameFloorNonWinners || 0}, cap=${m.evidence.directEvidenceTemporalProtectionCap || 0}`);
         lines.push(`│   ├─ ranked/prompt: ${m.evidence.directEvidenceItems || 0}/${m.evidence.directEvidencePromptItems || 0} in ${m.evidence.directEvidencePromptGroups || 0} groups`);
         lines.push(`│   ├─ prompt_tokens: ${m.evidence.directEvidencePromptTokens || 0}`);
-        lines.push(`│   └─ summarized_budget: direct=${m.evidence.summarizedBudgetUsedByDirectEvidence || 0}, final=${m.evidence.summarizedBudgetUsedFinal || 0}/${m.evidence.summarizedBudgetMax || 0}${m.evidence.distantEvidenceStarved ? ' ⚠ distant starved' : ''}${m.evidence.distantEvidenceStarvedByTemporalProtection ? ' (temporal protection)' : ''}`);
+        lines.push(`│   └─ summarized_budget: direct=${m.evidence.summarizedBudgetUsedByDirectEvidence || 0}, final=${m.evidence.summarizedBudgetUsedFinal || 0}/${m.evidence.summarizedBudgetMax || 0}, distant_dropped=${m.evidence.distantEvidenceDroppedByBudget || 0}${m.evidence.distantEvidenceStarved ? ' ⚠ distant starved' : ''}${m.evidence.distantEvidenceStarvedByTemporalProtection ? ' (temporal protection)' : ''}`);
     }
     lines.push(`├─ tokens: ${m.evidence.tokens}`);
-    lines.push(`└─ assembly_time: ${m.evidence.assemblyTime}ms`);
+    lines.push(`└─ assembly_time: ${m.timing.evidenceAssembly || 0}ms`);
     lines.push('');
 
     // Diffusion (PPR)
@@ -603,7 +598,7 @@ export function formatMetricsLog(metrics) {
     // Formatting
     lines.push('[Formatting] 格式化');
     lines.push(`├─ sections: [${(m.formatting.sectionsIncluded || []).join(', ')}]`);
-    lines.push(`└─ time: ${m.formatting.time}ms`);
+    lines.push(`└─ time: ${m.timing.formatting || 0}ms`);
     lines.push('');
 
     // Budget Summary
@@ -646,12 +641,12 @@ export function formatMetricsLog(metrics) {
     lines.push(`│   └─ runtime_get_event_vectors: ${m.timing.runtimeGetEventVectors || 0}ms`);
     lines.push(`├─ evidence_retrieval: ${m.timing.evidenceRetrieval}ms`);
     lines.push(`├─ floor_rerank: ${m.timing.evidenceRerank || 0}ms`);
-    if (m.event.rerankStatus) {
-        lines.push(`├─ event_rerank: ${m.timing.eventRerank || 0}ms (admission=${m.timing.eventRerankAdmission || 0}ms)`);
+    if (m.event.rerank.status) {
+        lines.push(`├─ event_rerank: ${m.timing.eventRerank || 0}ms`);
     }
     if (m.evidence.directEvidenceStatus) {
         lines.push(`├─ direct_evidence_retrieval: ${m.timing.directEvidenceRetrieval || 0}ms`);
-        lines.push(`│   ├─ focus_score: ${m.timing.directEvidenceFocusScore || 0}ms`);
+        lines.push(`│   ├─ vector_score: ${m.timing.directEvidenceVectorScore || 0}ms`);
         lines.push(`│   └─ rerank: ${m.timing.directEvidenceRerank || 0}ms`);
     }
     lines.push(`├─ l1_cosine: ${m.evidence.l1CosineTime}ms`);
@@ -681,7 +676,6 @@ export function formatMetricsLog(metrics) {
     // Quality Indicators
     lines.push('[Quality] 质量指标');
     lines.push(`├─ constraint_coverage: ${m.quality.constraintCoverage}%`);
-    lines.push(`├─ event_precision_proxy: ${m.quality.eventPrecisionProxy}`);
     lines.push(`├─ l1_attach_rate: ${m.quality.l1AttachRate}%`);
     lines.push(`├─ rerank_retention_rate: ${m.quality.rerankRetentionRate}%`);
     lines.push(`├─ diffusion_effective_rate: ${m.quality.diffusionEffectiveRate}%`);
@@ -716,7 +710,7 @@ export function detectIssues(metrics) {
     // 查询构建问题
     // ─────────────────────────────────────────────────────────────────
 
-    if ((m.anchor.focusTerms || m.anchor.focusEntities || []).length === 0) {
+    if ((m.anchor.focusTerms || []).length === 0) {
         issues.push('No focus entities extracted - entity lexicon may be empty or messages too short');
     }
 
@@ -820,8 +814,8 @@ export function detectIssues(metrics) {
             }
         }
 
-        if (m.evidence.rerankTime > 3000) {
-            issues.push(`Slow floor rerank (${m.evidence.rerankTime}ms) - may affect response time`);
+        if ((m.timing.evidenceRerank || 0) > 3000) {
+            issues.push(`Slow floor rerank (${m.timing.evidenceRerank}ms) - may affect response time`);
         }
 
         if (m.evidence.rerankDocAvgLength > 3000) {

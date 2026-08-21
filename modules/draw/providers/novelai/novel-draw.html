@@ -742,7 +742,7 @@ select.input { cursor: pointer; }
                             <input id="nd_api_base_url" type="text" class="input" placeholder="https://image.novelai.net">
                             <button id="nd_reset_base_url" class="btn btn-icon" title="重置为官方地址"><i class="fa-solid fa-rotate-left"></i></button>
                         </div>
-                        <p class="form-hint">留空使用官方端点。填写中转/反代地址时只需填根地址（如 https://xxx.com），会自动追加 /ai/generate-image；点重置按钮可恢复为官方地址。</p>
+                        <p class="form-hint">留空使用官方端点。推荐只填根地址（如 https://xxx.com）；插件会按当前模型选择 /ai/generate-image 或 /ai/generate-image-stream。</p>
                     </div>
                     <div class="form-group">
                         <label class="form-label">发送方式</label>
@@ -831,6 +831,8 @@ select.input { cursor: pointer; }
                         <div class="form-group">
                             <label class="form-label">模型</label>
                             <select id="nd_model_sel" class="input">
+                                <option value="nai-diffusion-5-full">NAI V5 Full</option>
+                                <option value="nai-diffusion-5-curated">NAI V5 Curated</option>
                                 <option value="nai-diffusion-4-5-full">NAI V4.5 Full</option>
                                 <option value="nai-diffusion-4-5-curated">NAI V4.5 Curated</option>
                                 <option value="nai-diffusion-4-full">NAI V4 Full</option>
@@ -911,7 +913,7 @@ select.input { cursor: pointer; }
 
                 <div class="card">
                     <div class="card-title">增强选项</div>
-                    <div class="form-row">
+                    <div id="nd_legacy_enhancement" class="form-row">
                         <div class="form-group">
                             <label class="form-label">质量增强</label>
                             <select id="nd_quality_toggle" class="input">
@@ -929,8 +931,36 @@ select.input { cursor: pointer; }
                             </select>
                         </div>
                     </div>
+                    <div id="nd_v5_enhancement" class="hidden">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label">V5 Quality</label>
+                                <select id="nd_v5_quality" class="input">
+                                    <option value="standard">Standard</option>
+                                    <option value="light">Light</option>
+                                    <option value="none">None</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">V5 UC Preset</label>
+                                <select id="nd_v5_uc" class="input">
+                                    <option value="heavy">Heavy</option>
+                                    <option value="light">Light</option>
+                                    <option value="humanFocus">Human Focus</option>
+                                    <option value="furryFocus">Furry Focus</option>
+                                    <option value="none">None</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div id="nd_transparent_background_group">
+                            <label class="check-row" style="margin-top:10px;">
+                                <input type="checkbox" id="nd_transparent_background"> Transparent BG
+                            </label>
+                            <p class="form-hint">开启后追加 transparent background，并请求 V5 透明背景输出。PNG alpha 通道始终保留。</p>
+                        </div>
+                    </div>
                     <div class="form-row">
-                        <div class="form-group">
+                        <div id="nd_auto_smea_group" class="form-group">
                             <label class="form-label">自动 SMEA</label>
                             <select id="nd_auto_smea" class="input">
                                 <option value="false">关闭</option>
@@ -942,7 +972,7 @@ select.input { cursor: pointer; }
                             <input id="nd_cfg_rescale" type="number" class="input" value="0" min="0" max="1" step="0.05">
                         </div>
                     </div>
-                    <div class="form-group" style="margin-top:12px;">
+                    <div id="nd_variety_boost_group" class="form-group" style="margin-top:12px;">
                         <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
                             <input type="checkbox" id="nd_variety_boost"> 多样性增强 (V4.5)
                         </label>
@@ -1179,11 +1209,10 @@ select.input { cursor: pointer; }
 
                 <div class="card">
                     <div class="prompt-card-header">
-                        <div class="card-title">TAG 编写指南</div>
-                        <button class="btn btn-sm" id="nd_prompt_reset_guide"><i class="fa-solid fa-rotate-left"></i> 恢复默认</button>
+                        <div class="card-title">当前模型提示词指南</div>
                     </div>
-                    <p class="form-hint">注入给 LLM 的 TAG 编写规范参考</p>
-                    <textarea id="nd_prompt_guide" class="prompt-textarea" rows="8"></textarea>
+                    <p class="form-hint">由插件根据当前参数预设中的模型自动选择；不属于用户提示词预设。</p>
+                    <textarea id="nd_prompt_guide" class="prompt-textarea" rows="8" readonly></textarea>
                 </div>
 
                 <div class="card">
@@ -1366,6 +1395,9 @@ const DEFAULTS = {
         autoSmea: false,
         ucPreset: 0,
         cfg_rescale: 0,
+        v5QualityPresetId: 'standard',
+        v5UcPresetId: 'heavy',
+        transparentBackground: false,
         variety_boost: false,
         sm: false,
         sm_dyn: false,
@@ -1408,6 +1440,10 @@ let state = {
     showFloatingButton: false,
     promptPresets: [],
     selectedPromptPresetId: null,
+    modelGuideContent: '',
+    modelContractContent: '',
+    modelCapabilities: {},
+    backendPluginStatus: null,
     messageFilterRules: [],
 };
 
@@ -1415,6 +1451,7 @@ let gallerySummary = {};
 let loadedCharPreviews = {};
 let editingCharId = null;
 const saveBtnStates = new WeakMap();
+let promptChainRequestId = 0;
 let charFilters = { query: '', type: 'all', status: 'all' };
 let modalData = { slotId: null, images: [], currentIndex: 0, charName: null };
 
@@ -1528,11 +1565,14 @@ function switchView(viewId) {
 }
 
 function requestPromptChainPreview() {
+    const model = $('nd_model_sel')?.value === 'custom' ? $('nd_model')?.value : $('nd_model_sel')?.value;
+    const requestId = ++promptChainRequestId;
     postToParent({
         type: 'GET_PROMPT_CHAIN',
-        customPrompts: {
+        requestId,
+        model: model || '',
+        promptDraft: {
             topSystem: $('nd_prompt_system')?.value || '',
-            tagGuideContent: $('nd_prompt_guide')?.value || '',
             sceneRules: $('nd_prompt_format')?.value || '',
         },
     });
@@ -1572,9 +1612,53 @@ function setBackendStatusUI(state, text) {
     if (guide) guide.classList.toggle('hidden', state !== 'bad');
 }
 
+function isVersionAtLeast(version, minimum) {
+    const current = String(version || '').split('.').map(part => Number.parseInt(part, 10) || 0);
+    const required = String(minimum || '').split('.').map(part => Number.parseInt(part, 10) || 0);
+    for (let index = 0; index < Math.max(current.length, required.length); index++) {
+        if ((current[index] || 0) !== (required[index] || 0)) return (current[index] || 0) > (required[index] || 0);
+    }
+    return true;
+}
+
+function renderBackendPluginStatus() {
+    const st = state.backendPluginStatus;
+    if (!st) return;
+    if (!st.ready) {
+        const reasonText = st.reason === 'outdated'
+            ? `后端插件版本过旧（当前 v${st.version || '未知'}，需要 v${st.minimumVersion}+）`
+            : st.reason === 'unreachable'
+                ? '无法连接后端（可能未开启 enableServerPlugins）'
+                : st.reason === 'not_installed'
+                    ? '后端插件未安装'
+                    : '后端插件未就绪';
+        setBackendStatusUI('bad', reasonText);
+        return;
+    }
+    const model = $('nd_model_sel')?.value === 'custom' ? $('nd_model')?.value : $('nd_model_sel')?.value;
+    const isV5 = getModelCapability(model).family === 'v5';
+    const supportsV5 = isVersionAtLeast(st.version, '1.1.0')
+        && Array.isArray(st.capabilities)
+        && st.capabilities.includes('v5-msgpack-stream');
+    if (isV5 && !supportsV5) {
+        setBackendStatusUI('bad', `当前 V5 模型需要后端插件 v1.1.0+ 并支持 v5-msgpack-stream（当前 v${st.version || '未知'}）`);
+        return;
+    }
+    setBackendStatusUI('ok', `后端插件已就绪${st.version ? '（v' + st.version + '）' : ''}`);
+}
+
 function getSendMode() {
     const active = $('nd_send_mode_group')?.querySelector('.nd-mode-btn.mode-active');
     return active?.dataset?.sendMode === 'backend' ? 'backend' : 'frontend';
+}
+
+function getModelCapability(model) {
+    return state.modelCapabilities?.[String(model || '').trim()] || {
+        family: 'legacy',
+        maxCharactersPerImage: 10,
+        supportsV5Presets: false,
+        supportsTransparentBackground: false,
+    };
 }
 
 function updateBadge(enabled) {
@@ -2119,12 +2203,13 @@ function renderPromptChain(chain) {
         const promptConfig = {
             ...defaults,
             topSystem: $('nd_prompt_system')?.value || defaults.topSystem || '',
-            tagGuideContent: $('nd_prompt_guide')?.value || defaults.tagGuideContent || '',
             sceneRules: $('nd_prompt_format')?.value || defaults.sceneRules || '',
         };
         let content = String(promptConfig[key] || '(内置模板，不可编辑)');
         if (key === 'assistantDoc') {
-            content = content.replace('{$tagGuide}', promptConfig.tagGuideContent || '');
+            content = content.replace('{$tagGuide}', state.modelGuideContent || '');
+        } else if (key === 'modelContract') {
+            content = state.modelContractContent || '(当前模型契约未加载)';
         }
         return content.length > 1200 ? `${content.slice(0, 1200)}\n...(已截断)` : content;
     };
@@ -2597,6 +2682,9 @@ function applyParamsPreset() {
     updateSizePreset();
     
     $('nd_quality_toggle').value = (pm.qualityToggle ?? dp.qualityToggle) ? 'true' : 'false';
+    $('nd_v5_quality').value = pm.v5QualityPresetId || dp.v5QualityPresetId;
+    $('nd_v5_uc').value = pm.v5UcPresetId || dp.v5UcPresetId;
+    $('nd_transparent_background').checked = pm.transparentBackground === true;
     $('nd_auto_smea').value = (pm.autoSmea ?? dp.autoSmea) ? 'true' : 'false';
     $('nd_uc_preset').value = pm.ucPreset ?? dp.ucPreset;
     $('nd_cfg_rescale').value = pm.cfg_rescale ?? dp.cfg_rescale;
@@ -2613,7 +2701,7 @@ function applyPromptPreset() {
     const presets = state.promptPresets || [];
     const active = presets.find(p => p.id === state.selectedPromptPresetId) || presets[0] || {};
     $('nd_prompt_system').value = active.topSystem ?? '';
-    $('nd_prompt_guide').value = active.tagGuideContent ?? '';
+    $('nd_prompt_guide').value = state.modelGuideContent || '';
     $('nd_prompt_format').value = active.sceneRules ?? '';
 }
 
@@ -2638,8 +2726,25 @@ function updateSizePreset() {
 
 function updateModelOptions() {
     const model = $('nd_model_sel').value === 'custom' ? $('nd_model').value : $('nd_model_sel').value;
+    const capability = getModelCapability(model);
     const isV3 = model.includes('nai-diffusion-3') || model.includes('furry-3');
+    const isV5 = capability.family === 'v5';
     $('nd_v3_opts').classList.toggle('hidden', !isV3);
+    $('nd_legacy_enhancement').classList.toggle('hidden', isV5);
+    $('nd_v5_enhancement').classList.toggle('hidden', capability.supportsV5Presets !== true);
+    $('nd_transparent_background_group').classList.toggle(
+        'hidden',
+        capability.supportsTransparentBackground !== true,
+    );
+    $('nd_auto_smea_group').classList.toggle('hidden', isV5);
+    $('nd_variety_boost_group').classList.toggle('hidden', isV5);
+    const characterLimit = capability.maxCharactersPerImage || 10;
+    $('nd_max_chars').max = String(characterLimit);
+    if (Number($('nd_max_chars').value) > characterLimit) {
+        $('nd_max_chars').value = String(characterLimit);
+    }
+    requestPromptChainPreview();
+    renderBackendPluginStatus();
 }
 
 function collectParamsPreset() {
@@ -2649,9 +2754,11 @@ function collectParamsPreset() {
     p.positivePrefix = $('nd_positive').value;
     p.negativePrefix = $('nd_negative').value;
     p.maxImages = Math.max(0, Number($('nd_max_images').value) || 0);
-    p.maxCharactersPerImage = Math.max(0, Number($('nd_max_chars').value) || 0);
+    const model = $('nd_model_sel').value === 'custom' ? $('nd_model').value : $('nd_model_sel').value;
+    const characterLimit = getModelCapability(model).maxCharactersPerImage || 10;
+    p.maxCharactersPerImage = Math.min(characterLimit, Math.max(0, Number($('nd_max_chars').value) || 0));
     p.params = p.params || {};
-    p.params.model = $('nd_model_sel').value === 'custom' ? $('nd_model').value : $('nd_model_sel').value;
+    p.params.model = model.trim();
     p.params.sampler = $('nd_sampler_sel').value === 'custom' ? $('nd_sampler').value : $('nd_sampler_sel').value;
     p.params.scheduler = $('nd_scheduler_sel').value === 'custom' ? $('nd_scheduler').value : $('nd_scheduler_sel').value;
     p.params.steps = Number($('nd_steps').value) || 23;
@@ -2660,6 +2767,9 @@ function collectParamsPreset() {
     p.params.width = Number($('nd_width').value) || 832;
     p.params.height = Number($('nd_height').value) || 1216;
     p.params.qualityToggle = $('nd_quality_toggle').value === 'true';
+    p.params.v5QualityPresetId = $('nd_v5_quality').value;
+    p.params.v5UcPresetId = $('nd_v5_uc').value;
+    p.params.transparentBackground = $('nd_transparent_background').checked;
     p.params.autoSmea = $('nd_auto_smea').value === 'true';
     p.params.ucPreset = Number($('nd_uc_preset').value) || 0;
     p.params.cfg_rescale = Number($('nd_cfg_rescale').value) || 0;
@@ -2711,19 +2821,8 @@ window.addEventListener('message', event => {
             break;
 
         case 'BACKEND_PLUGIN_STATUS': {
-            const st = data.status || {};
-            if (st.ready) {
-                setBackendStatusUI('ok', `后端插件已就绪${st.version ? '（v' + st.version + '）' : ''}`);
-            } else {
-                const reasonText = st.reason === 'outdated'
-                    ? `后端插件版本过旧（当前 v${st.version || '未知'}，需要 v${st.minimumVersion}+）`
-                    : st.reason === 'unreachable'
-                    ? '无法连接后端（可能未开启 enableServerPlugins）'
-                    : st.reason === 'not_installed'
-                        ? '后端插件未安装'
-                        : '后端插件未就绪';
-                setBackendStatusUI('bad', reasonText);
-            }
+            state.backendPluginStatus = data.status || {};
+            renderBackendPluginStatus();
             break;
         }
 
@@ -2801,6 +2900,14 @@ window.addEventListener('message', event => {
             break;
 
         case 'PROMPT_CHAIN_DATA':
+            if (Number(data.requestId) !== promptChainRequestId) break;
+            if (typeof data.modelGuideContent === 'string') {
+                state.modelGuideContent = data.modelGuideContent;
+                $('nd_prompt_guide').value = data.modelGuideContent;
+            }
+            if (typeof data.modelContractContent === 'string') {
+                state.modelContractContent = data.modelContractContent;
+            }
             renderPromptChain(data.chain || []);
             break;
 
@@ -2944,7 +3051,15 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
     
-    $('nd_test_api').addEventListener('click', () => postToParent({ type: 'TEST_API', apiKey: $('nd_api_key').value.trim(), apiBaseUrl: $('nd_api_base_url').value.trim(), sendMode: getSendMode(), insecureTLS: $('nd_insecure_tls').checked, timeout: Number($('nd_timeout').value) * 1000 || DEFAULTS.timeout }));
+    $('nd_test_api').addEventListener('click', () => postToParent({
+        type: 'TEST_API',
+        apiKey: $('nd_api_key').value.trim(),
+        apiBaseUrl: $('nd_api_base_url').value.trim(),
+        sendMode: getSendMode(),
+        insecureTLS: $('nd_insecure_tls').checked,
+        timeout: Number($('nd_timeout').value) * 1000 || DEFAULTS.timeout,
+        model: $('nd_model_sel').value === 'custom' ? $('nd_model').value : $('nd_model_sel').value,
+    }));
     
     $('nd_test_single').addEventListener('click', () => postToParent({ type: 'TEST_SINGLE', tags: $('nd_test_tags').value }));
     
@@ -3210,9 +3325,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     $('nd_prompt_preset_save').addEventListener('click', () => {
         setSavingState($('nd_prompt_preset_save'));
-        postToParent({ type: 'SAVE_PROMPT_PRESET', selectedPromptPresetId: state.selectedPromptPresetId, customPrompts: {
+        postToParent({ type: 'SAVE_PROMPT_PRESET', selectedPromptPresetId: state.selectedPromptPresetId, promptDraft: {
             topSystem: $('nd_prompt_system').value,
-            tagGuideContent: $('nd_prompt_guide').value,
             sceneRules: $('nd_prompt_format').value,
         }, statusTarget: 'prompt-preset' });
     });
@@ -3235,9 +3349,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // 提示词模板保存（底部按钮，等同于预设栏保存）
     $('nd_prompts_save').addEventListener('click', () => {
         setSavingState($('nd_prompts_save'));
-        postToParent({ type: 'SAVE_PROMPT_PRESET', selectedPromptPresetId: state.selectedPromptPresetId, customPrompts: {
+        postToParent({ type: 'SAVE_PROMPT_PRESET', selectedPromptPresetId: state.selectedPromptPresetId, promptDraft: {
             topSystem: $('nd_prompt_system').value,
-            tagGuideContent: $('nd_prompt_guide').value,
             sceneRules: $('nd_prompt_format').value,
         }, statusTarget: 'prompts' });
     });
@@ -3248,10 +3361,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const defaultTopSystem = isPov ? (state._defaultPrompts?.topSystemPov || '') : (state._defaultPrompts?.topSystem || '');
         $('nd_prompt_system').value = defaultTopSystem;
         postToParent({ type: 'RESET_CUSTOM_PROMPT', key: 'topSystem', selectedPromptPresetId: state.selectedPromptPresetId });
-    });
-    $('nd_prompt_reset_guide').addEventListener('click', () => {
-        $('nd_prompt_guide').value = state._defaultPrompts?.tagGuideContent || '';
-        postToParent({ type: 'RESET_CUSTOM_PROMPT', key: 'tagGuideContent', selectedPromptPresetId: state.selectedPromptPresetId });
     });
     $('nd_prompt_reset_format').addEventListener('click', () => {
         $('nd_prompt_format').value = state._defaultPrompts?.sceneRules || '';
@@ -3264,11 +3373,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const isPov = activePreset?.name === '默认-第一人称完整规则';
         const topSystemVal = isPov ? (defaults.topSystemPov || '') : (defaults.topSystem || '');
         $('nd_prompt_system').value = topSystemVal;
-        $('nd_prompt_guide').value = defaults.tagGuideContent || '';
         $('nd_prompt_format').value = defaults.sceneRules || '';
-        postToParent({ type: 'SAVE_PROMPT_PRESET', selectedPromptPresetId: state.selectedPromptPresetId, customPrompts: {
+        postToParent({ type: 'SAVE_PROMPT_PRESET', selectedPromptPresetId: state.selectedPromptPresetId, promptDraft: {
             topSystem: topSystemVal,
-            tagGuideContent: defaults.tagGuideContent || '',
             sceneRules: defaults.sceneRules || '',
         }, statusTarget: 'prompts' });
     });
@@ -3276,9 +3383,8 @@ document.addEventListener('DOMContentLoaded', () => {
     $('nd_prompts_export').addEventListener('click', () => {
         const data = {
             _type: 'novel-draw-prompt-template',
-            _version: 1,
+            _version: 2,
             topSystem: $('nd_prompt_system').value,
-            tagGuideContent: $('nd_prompt_guide').value,
             sceneRules: $('nd_prompt_format').value,
         };
         const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -3298,10 +3404,18 @@ document.addEventListener('DOMContentLoaded', () => {
             if (data._type !== 'novel-draw-prompt-template') {
                 throw new Error('不是有效的提示词模板文件');
             }
-            if (typeof data.topSystem === 'string') $('nd_prompt_system').value = data.topSystem;
-            if (typeof data.tagGuideContent === 'string') $('nd_prompt_guide').value = data.tagGuideContent;
-            if (typeof data.sceneRules === 'string') $('nd_prompt_format').value = data.sceneRules;
-            alert('导入成功，请点击「保存」以生效');
+            const version = Number(data._version);
+            if (version !== 1 && version !== 2) {
+                throw new Error(`不支持的提示词模板版本：${data._version ?? '缺失'}`);
+            }
+            if (typeof data.topSystem !== 'string' || typeof data.sceneRules !== 'string') {
+                throw new Error('提示词模板缺少 topSystem 或 sceneRules');
+            }
+            $('nd_prompt_system').value = data.topSystem;
+            $('nd_prompt_format').value = data.sceneRules;
+            alert(version === 1
+                ? '导入成功；模型指南现由插件按模型提供，旧 TAG 指南未导入。请点击「保存」以生效'
+                : '导入成功，请点击「保存」以生效');
         } catch (err) {
             alert('导入失败: ' + err.message);
         }
@@ -3311,7 +3425,7 @@ document.addEventListener('DOMContentLoaded', () => {
     $('nd_prompt_chain_details').addEventListener('toggle', (event) => {
         if (event.currentTarget.open) requestPromptChainPreview();
     });
-    ['nd_prompt_system', 'nd_prompt_guide', 'nd_prompt_format'].forEach((id) => {
+    ['nd_prompt_system', 'nd_prompt_format'].forEach((id) => {
         $(id).addEventListener('input', () => {
             if ($('nd_prompt_chain_details').open) requestPromptChainPreview();
         });

@@ -1,0 +1,32 @@
+{
+  "type": "novel-draw-preset",
+  "version": 1,
+  "exportDate": "2026-08-01T12:00:00.000Z",
+  "name": "旧预设",
+  "author": "fixture",
+  "简介": "V5 字段发布前导出的参数预设",
+  "preset": {
+    "positivePrefix": "best quality",
+    "negativePrefix": "bad anatomy",
+    "maxImages": 3,
+    "maxCharactersPerImage": 4,
+    "params": {
+      "model": "nai-diffusion-4-5-full",
+      "sampler": "k_euler_ancestral",
+      "scheduler": "karras",
+      "steps": 28,
+      "scale": 6,
+      "width": 1216,
+      "height": 832,
+      "seed": -1,
+      "qualityToggle": false,
+      "autoSmea": false,
+      "ucPreset": 2,
+      "cfg_rescale": 0,
+      "variety_boost": false,
+      "sm": false,
+      "sm_dyn": false,
+      "decrisper": false
+    }
+  }
+}

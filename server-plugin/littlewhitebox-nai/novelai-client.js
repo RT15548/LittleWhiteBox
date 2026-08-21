@@ -3,21 +3,27 @@
 const http = require('node:http');
 const https = require('node:https');
 const zlib = require('node:zlib');
+const { randomBytes } = require('node:crypto');
 
 const NOVELAI_DEFAULT_BASE_URL = 'https://image.novelai.net';
 const MAX_RESPONSE_BYTES = 128 * 1024 * 1024;
 const MAX_DECOMPRESSED_BYTES = 128 * 1024 * 1024;
+const MAX_ERROR_BYTES = 1024 * 1024;
 const MAX_REDIRECTS = 5;
 const ZIP_LOCAL_FILE_HEADER = 0x04034b50;
 const ZIP_CENTRAL_DIRECTORY_HEADER = 0x02014b50;
 const ZIP_END_OF_CENTRAL_DIRECTORY = 0x06054b50;
 
-function resolveImageApi(baseUrl) {
+function resolveImageApi(baseUrl, stream = false) {
+    const endpoint = stream ? 'generate-image-stream' : 'generate-image';
     const raw = String(baseUrl || '').trim();
-    if (!raw) return `${NOVELAI_DEFAULT_BASE_URL}/ai/generate-image`;
-    const trimmed = raw.replace(/\/+$/, '');
-    if (/\/ai\/generate-image$/i.test(trimmed)) return trimmed;
-    return `${trimmed}/ai/generate-image`;
+    if (!raw) return `${NOVELAI_DEFAULT_BASE_URL}/ai/${endpoint}`;
+    const url = new URL(raw);
+    const pathname = url.pathname.replace(/\/+$/, '');
+    url.pathname = /\/ai\/generate-image(?:-stream)?$/i.test(pathname)
+        ? pathname.replace(/\/ai\/generate-image(?:-stream)?$/i, `/ai/${endpoint}`)
+        : `${pathname}/ai/${endpoint}`;
+    return url.toString();
 }
 
 function createAbortError() {
@@ -26,7 +32,7 @@ function createAbortError() {
     return error;
 }
 
-function requestUpstream({ url, key, body, method, insecure, signal, accept, sendAuthorization }) {
+function requestUpstream({ url, key, body, method, insecure, signal, accept, sendAuthorization, contentType }) {
     return new Promise((resolve, reject) => {
         const target = new URL(url);
         if (target.protocol !== 'http:' && target.protocol !== 'https:') {
@@ -41,8 +47,8 @@ function requestUpstream({ url, key, body, method, insecure, signal, accept, sen
             ...(sendAuthorization ? { 'Authorization': `Bearer ${key}` } : {}),
         };
         if (body !== null) {
-            headers['Content-Type'] = 'application/json';
-            headers['Content-Length'] = Buffer.byteLength(body);
+            headers['Content-Type'] = contentType || 'application/json';
+            headers['Content-Length'] = Buffer.isBuffer(body) ? body.length : Buffer.byteLength(body);
         }
         const requestOptions = {
             method,
@@ -65,10 +71,10 @@ function isRedirect(response) {
     return [301, 302, 303, 307, 308].includes(responseStatus(response));
 }
 
-async function openUpstreamResponse({ url, key, payload, insecure, signal, accept }) {
+async function openUpstreamResponse({ url, key, payload, rawBody, contentType, insecure, signal, accept }) {
     let target = new URL(url);
     let method = 'POST';
-    let body = JSON.stringify(payload);
+    let body = rawBody ?? JSON.stringify(payload);
     let sendAuthorization = true;
 
     for (let redirectCount = 0; ; redirectCount++) {
@@ -81,6 +87,7 @@ async function openUpstreamResponse({ url, key, payload, insecure, signal, accep
             signal,
             accept,
             sendAuthorization,
+            contentType,
         });
         const location = response.headers.location;
         if (!isRedirect(response) || !location) return response;
@@ -101,6 +108,21 @@ async function openUpstreamResponse({ url, key, payload, insecure, signal, accep
     }
 }
 
+function createMultipartRequest(payload) {
+    const boundary = `----LittleWhiteBox${randomBytes(12).toString('hex')}`;
+    const json = JSON.stringify(payload);
+    const head = Buffer.from(
+        `--${boundary}\r\nContent-Disposition: form-data; name="request"; filename="blob"\r\n`
+        + 'Content-Type: application/json\r\n\r\n',
+        'utf8',
+    );
+    const tail = Buffer.from(`\r\n--${boundary}--\r\n`, 'utf8');
+    return {
+        body: Buffer.concat([head, Buffer.from(json, 'utf8'), tail]),
+        contentType: `multipart/form-data; boundary=${boundary}`,
+    };
+}
+
 function readContentLength(response) {
     const value = Array.isArray(response.headers['content-length'])
         ? response.headers['content-length'][0]
@@ -110,7 +132,7 @@ function readContentLength(response) {
     return Number.isSafeInteger(length) && length >= 0 ? length : null;
 }
 
-function decodeContentEncoding(response, buffer) {
+function decodeContentEncoding(response, buffer, maxOutputBytes = MAX_RESPONSE_BYTES) {
     const encoding = String(response.headers['content-encoding'] || '').trim().toLowerCase();
     if (!encoding || encoding === 'identity') return Promise.resolve(buffer);
 
@@ -124,7 +146,7 @@ function decodeContentEncoding(response, buffer) {
     if (!operation) return Promise.reject(new Error(`Unsupported upstream content encoding: ${encoding}`));
 
     return new Promise((resolve, reject) => {
-        operation(buffer, { maxOutputLength: MAX_RESPONSE_BYTES }, (error, decoded) => {
+        operation(buffer, { maxOutputLength: maxOutputBytes }, (error, decoded) => {
             if (error) {
                 reject(new Error(`Invalid ${encoding} NovelAI response: ${error.message}`));
                 return;
@@ -134,11 +156,11 @@ function decodeContentEncoding(response, buffer) {
     });
 }
 
-async function readResponseBuffer(response, signal) {
+async function readResponseBuffer(response, signal, maxBytes = MAX_RESPONSE_BYTES) {
     const declaredLength = readContentLength(response);
-    if (declaredLength !== null && declaredLength > MAX_RESPONSE_BYTES) {
+    if (declaredLength !== null && declaredLength > maxBytes) {
         response.destroy();
-        throw new Error('NovelAI response exceeds the 128 MiB limit');
+        throw new Error(`NovelAI response exceeds the ${maxBytes} byte limit`);
     }
 
     const abort = () => response.destroy(createAbortError());
@@ -154,14 +176,14 @@ async function readResponseBuffer(response, signal) {
         for await (const chunk of response) {
             const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
             total += buffer.length;
-            if (total > MAX_RESPONSE_BYTES) {
+            if (total > maxBytes) {
                 response.destroy();
-                throw new Error('NovelAI response exceeds the 128 MiB limit');
+                throw new Error(`NovelAI response exceeds the ${maxBytes} byte limit`);
             }
             chunks.push(buffer);
         }
         const buffer = Buffer.concat(chunks, total);
-        const decoded = await decodeContentEncoding(response, buffer);
+        const decoded = await decodeContentEncoding(response, buffer, maxBytes);
         if (signal?.aborted) throw createAbortError();
         return decoded;
     } finally {
@@ -179,8 +201,14 @@ function responseIsSuccessful(response) {
 }
 
 async function readError(response, signal) {
-    const body = await readResponseBuffer(response, signal);
-    return body.toString('utf8') || `HTTP ${responseStatus(response)}`;
+    const status = responseStatus(response);
+    try {
+        const body = await readResponseBuffer(response, signal, MAX_ERROR_BYTES);
+        return body.toString('utf8') || `HTTP ${status}`;
+    } catch (error) {
+        if (signal?.aborted) throw error;
+        return `HTTP ${status}（错误响应超过 1 MiB 限制）`;
+    }
 }
 
 function findEndOfCentralDirectory(buffer) {
@@ -320,18 +348,68 @@ async function generateImage({ baseUrl, key, payload, insecure, signal }) {
     return { ok: true, ...extractImageBase64(body) };
 }
 
-async function testConnection({ baseUrl, key, insecure, signal }) {
+async function openImageStream({ url, key, payload, insecure, signal }) {
+    const multipart = createMultipartRequest(payload);
     const response = await openUpstreamResponse({
-        url: resolveImageApi(baseUrl),
+        url,
         key,
+        rawBody: multipart.body,
+        contentType: multipart.contentType,
         insecure,
         signal,
-        payload: {
+        accept: 'application/octet-stream, */*',
+    });
+    if (!responseIsSuccessful(response)) {
+        return {
+            ok: false,
+            status: responseStatus(response),
+            error: await readError(response, signal),
+        };
+    }
+    return { ok: true, response };
+}
+
+async function testConnection({ baseUrl, key, insecure, signal, transport, model }) {
+    const isV5 = transport === 'msgpack-stream';
+    const payload = isV5
+        ? {
+            input: 'test',
+            model: String(model || 'nai-diffusion-5-full').trim(),
+            action: 'generate',
+            parameters: {
+                params_version: 4,
+                width: 64,
+                height: 64,
+                scale: 7,
+                sampler: 'k_euler_ancestral',
+                steps: 1,
+                n_samples: 1,
+                qualityPresetId: 'none',
+                ucPresetId: 'none',
+                seed: 1,
+                characterPrompts: [],
+                v4_prompt: { caption: { base_caption: 'test', char_captions: [] }, use_coords: true, use_order: true },
+                v4_negative_prompt: { caption: { base_caption: '', char_captions: [] }, legacy_uc: false },
+                negative_prompt: '',
+                image_format: 'png',
+                stream: 'msgpack',
+            },
+            use_new_shared_trial: true,
+        }
+        : {
             input: 'test',
             model: 'nai-diffusion-3',
             action: 'generate',
             parameters: { width: 64, height: 64, steps: 1, n_samples: 1 },
-        },
+        };
+    const multipart = isV5 ? createMultipartRequest(payload) : null;
+    const response = await openUpstreamResponse({
+        url: resolveImageApi(baseUrl, isV5),
+        key,
+        insecure,
+        signal,
+        payload,
+        ...(multipart ? { rawBody: multipart.body, contentType: multipart.contentType } : {}),
     });
     const status = responseStatus(response);
 
@@ -347,4 +425,4 @@ async function testConnection({ baseUrl, key, insecure, signal }) {
     return { ok: false, status, error: await readError(response, signal) };
 }
 
-module.exports = { generateImage, testConnection };
+module.exports = { generateImage, openImageStream, testConnection };

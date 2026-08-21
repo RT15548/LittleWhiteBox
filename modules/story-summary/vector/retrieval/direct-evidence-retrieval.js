@@ -25,16 +25,22 @@ function isCompleteRerank(reranked, candidates) {
     return seen.size === expected.size;
 }
 
+/**
+ * Expand selected L2 parents into Direct L1 evidence.
+ * This is a detail pass over those parents, not a new current-message query:
+ * dense admission reuses the final retrieval vector (three messages plus
+ * optional memory hints), while reranking uses only the bounded three-message
+ * text query.
+ */
 export async function rankSelectedDirectEvidence(selectedDirect, context) {
     const parents = selectDirectEvidenceParents(selectedDirect, {
-        limit: context?.parentLimit,
         temporalFloors: context?.temporalFloors,
     });
     const floors = floorsForDirectEvidenceParents(parents);
     if (!context?.runtimeLease
         || !context?.chatId
-        || !context?.focusQuery?.trim()
-        || !context?.focusVector?.length
+        || !context?.query?.trim()
+        || !context?.queryVector?.length
         || !floors.length) {
         return {
             items: [],
@@ -44,17 +50,16 @@ export async function rankSelectedDirectEvidence(selectedDirect, context) {
         };
     }
 
-    const focusStartedAt = performance.now();
+    const vectorStartedAt = performance.now();
     const scoredByFloor = await scoreRecallRuntimeL1(
         context.chatId,
         floors,
-        context.focusVector,
+        context.queryVector,
         { signal: context?.signal || null },
     );
-    const focusScoreMs = Math.round(performance.now() - focusStartedAt);
+    const vectorScoreMs = Math.round(performance.now() - vectorStartedAt);
     const scoredChunks = floors.flatMap(floor => scoredByFloor.get(floor) || []);
     const admission = selectDirectEvidenceAdmission(scoredChunks, {
-        limit: context.candidateLimit,
         timeMarker: context.timeMarker,
         temporalCarrier: context.temporalCarrier,
     });
@@ -69,7 +74,6 @@ export async function rankSelectedDirectEvidence(selectedDirect, context) {
         floors: floors.length,
         sourceCandidates: admission.sourceCount,
         candidates: candidates.length,
-        documentChars: candidates.reduce((sum, item) => sum + item.text.length, 0),
         temporalCandidates: admission.temporalCandidateCount,
         temporalFloorWinners: admission.temporalFloorWinnerCount,
         temporalProtectionCap: admission.temporalProtectionCap,
@@ -79,7 +83,7 @@ export async function rankSelectedDirectEvidence(selectedDirect, context) {
         temporalSameFloorNonWinners: admission.temporalSameFloorNonWinnerCount,
         vectorHits: Number(scoredByFloor._stats?.vectorHits || 0),
         missingVectors,
-        focusScoreMs,
+        vectorScoreMs,
         rerankMs: 0,
         relevantItems: 0,
     };
@@ -93,7 +97,7 @@ export async function rankSelectedDirectEvidence(selectedDirect, context) {
     }
 
     const rerankStartedAt = performance.now();
-    const reranked = await rerankChunks(context.focusQuery, candidates, {
+    const reranked = await rerankChunks(context.query, candidates, {
         topN: candidates.length,
         minScore: Number.NEGATIVE_INFINITY,
         signal: context?.signal || null,
@@ -125,7 +129,6 @@ export async function rankSelectedDirectEvidence(selectedDirect, context) {
         isUser: item.chunk.isUser === true,
         text: String(item.chunk.text || '').trim(),
         score: Number(item._rerankScore || 0),
-        focusScore: Number(item.chunk._directEvidenceFocusScore || 0),
         _directEvidenceTemporalExact: item.chunk._directEvidenceTemporalExact === true,
         _directEvidenceTemporalMatch: item.chunk._directEvidenceTemporalMatch === true,
         _directEvidenceTemporalCarrier: temporalWinnerIds.has(item.chunk.chunkId),

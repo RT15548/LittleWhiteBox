@@ -43,7 +43,7 @@ import {
     formatImageBase64,
     readImageResponse,
 } from './novel-image-response.js';
-import { snapshotNovelRequestConfig } from './novel-request-config.js';
+import { resolveNovelAIImageApi, snapshotNovelRequestConfig } from './novel-request-config.js';
 import {
     loadTagGuide,
     loadPromptTemplates,
@@ -51,6 +51,21 @@ import {
     PROMPT_TEMPLATE_VERSION,
     getLoadedTagGuide,
 } from './novel-prompts.js';
+import {
+    getNovelModelCapability,
+    getNovelModelCapabilitiesForUi,
+    getNovelScenePlannerContract,
+    isNovelV5Model,
+    NOVEL_MODEL_IDS,
+} from './novel-model-capabilities.js';
+import { buildNovelV5RequestBody, V5_QUALITY_IDS, V5_UC_IDS } from './novel-v5-request.js';
+import {
+    readNovelV5ErrorText,
+    readNovelV5FinalImage,
+    NovelV5StreamError,
+} from './novel-v5-stream.js';
+import { decode as decodeMessagePack } from '../../../../libs/msgpack.mjs';
+import { migrateLegacyNovelPromptSettings } from './novel-prompt-migration.js';
 import { WorldbookProcessor } from '../../shared/worldbook-processor.js';
 import {
     openCloudPresetsModal,
@@ -90,14 +105,15 @@ import {
 const MODULE_KEY = 'novelDraw';
 const SERVER_FILE_KEY = 'settings';
 const HTML_PATH = `${extensionFolderPath}/modules/draw/providers/novelai/novel-draw.html`;
-const NOVELAI_IMAGE_API = 'https://image.novelai.net/ai/generate-image';
 // 后端发送模式走 SillyTavern server plugin 转发（需安装 plugins/littlewhitebox-nai 并开启 enableServerPlugins），
 // 用于绕过浏览器 CORS / 自签证书限制。
 const NAI_BACKEND_GENERATE = '/api/plugins/littlewhitebox-nai/v1/generate-image';
+const NAI_BACKEND_GENERATE_STREAM = '/api/plugins/littlewhitebox-nai/v1/generate-image-stream';
 const NAI_BACKEND_TEST = '/api/plugins/littlewhitebox-nai/v1/test';
 const NAI_BACKEND_STATUS = '/api/plugins/littlewhitebox-nai/status';
 const NAI_BACKEND_MIN_VERSION = '1.0.1';
-const CONFIG_VERSION = 7;
+const NAI_BACKEND_V5_MIN_VERSION = '1.1.0';
+const CONFIG_VERSION = 8;
 
 function isVersionAtLeast(version, minimum) {
     const parse = value => String(value || '').split('.').map(part => Number.parseInt(part, 10) || 0);
@@ -112,9 +128,13 @@ function isVersionAtLeast(version, minimum) {
 }
 
 // 探测后端 server plugin 是否已安装并就绪。返回 { ready, version?, reason }。
-async function checkBackendPluginStatus() {
+async function checkBackendPluginStatus({ signal } = {}) {
     try {
-        const res = await fetch(NAI_BACKEND_STATUS, { method: 'GET', headers: getRequestHeaders() });
+        const res = await fetch(NAI_BACKEND_STATUS, {
+            method: 'GET',
+            headers: getRequestHeaders(),
+            signal,
+        });
         if (res.status === 404) return { ready: false, reason: 'not_installed' };
         if (!res.ok) return { ready: false, reason: `http_${res.status}` };
         const data = await res.json().catch(() => null);
@@ -123,26 +143,42 @@ async function checkBackendPluginStatus() {
             if (!isVersionAtLeast(version, NAI_BACKEND_MIN_VERSION)) {
                 return { ready: false, version, reason: 'outdated', minimumVersion: NAI_BACKEND_MIN_VERSION };
             }
-            return { ready: true, version };
+            return {
+                ready: true,
+                version,
+                capabilities: Array.isArray(data.capabilities) ? data.capabilities.map(String) : [],
+            };
         }
         return { ready: false, reason: 'bad_response' };
     } catch (e) {
+        if (e?.name === 'AbortError') throw e;
         return { ready: false, reason: 'unreachable' };
     }
 }
 
-// 将用户填写的第三方 base_url 规范化为 NovelAI 生成图片端点。
-// 兼容三种写法：
-//   1) 官方/中转根地址（如 https://image.novelai.net 或 https://xxx.com） → 追加 /ai/generate-image
-//   2) 已含 /ai/generate-image 的完整端点 → 原样使用
-//   3) 空 → 回退官方端点
-function resolveNovelAIImageApi(baseUrl) {
-    const raw = String(baseUrl || '').trim();
-    if (!raw) return NOVELAI_IMAGE_API;
-    const trimmed = raw.replace(/\/+$/, '');
-    if (/\/ai\/generate-image$/i.test(trimmed)) return trimmed;
-    return `${trimmed}/ai/generate-image`;
+async function assertV5BackendCapability(signal) {
+    const status = await checkBackendPluginStatus({ signal });
+    if (!status.ready) {
+        const reason = status.reason === 'not_installed'
+            ? '未安装'
+            : status.reason === 'outdated'
+                ? `版本过旧（当前 v${status.version || '未知'}）`
+                : '未就绪';
+        throw new NovelDrawError(
+            `NovelAI V5 后端插件${reason}，请安装或升级 littlewhitebox-nai 至 v${NAI_BACKEND_V5_MIN_VERSION}+`,
+            ErrorType.NETWORK,
+        );
+    }
+    if (!isVersionAtLeast(status.version, NAI_BACKEND_V5_MIN_VERSION)
+        || !status.capabilities?.includes('v5-msgpack-stream')) {
+        throw new NovelDrawError(
+            `当前后端插件不支持 NovelAI V5 流协议，请升级 littlewhitebox-nai 至 v${NAI_BACKEND_V5_MIN_VERSION}+`,
+            ErrorType.NETWORK,
+        );
+    }
+    return status;
 }
+
 const MAX_SEED = 0xFFFFFFFF;
 const PLACEHOLDER_REGEX = /\[image:([a-z0-9\-_]+)\]/gi;
 
@@ -199,6 +235,22 @@ const DEFAULT_PARAMS_PRESET_2 = {
     },
 };
 
+const DEFAULT_PARAMS_PRESET_V5 = {
+    id: '', name: '默认 (V5 Full)',
+    positivePrefix: '',
+    negativePrefix: '',
+    maxImages: 0,
+    maxCharactersPerImage: 0,
+    params: {
+        model: NOVEL_MODEL_IDS.V5_FULL,
+        sampler: 'k_euler_ancestral', scheduler: 'karras',
+        steps: 23, scale: 7, width: 832, height: 1216, seed: -1,
+        qualityToggle: true, autoSmea: false, ucPreset: 0, cfg_rescale: 0,
+        v5QualityPresetId: 'standard', v5UcPresetId: 'heavy', transparentBackground: false,
+        variety_boost: false, sm: false, sm_dyn: false, decrisper: false,
+    },
+};
+
 const DEFAULT_SETTINGS = {
     configVersion: CONFIG_VERSION,
     updatedAt: 0,
@@ -219,7 +271,6 @@ const DEFAULT_SETTINGS = {
     showFloorButton: true,
     showFloatingButton: false,
     advancedMode: true,
-    customPrompts: { topSystem: null, tagGuideContent: null, sceneRules: null },
     promptPresets: [],
     selectedPromptPresetId: null,
     worldbooks: { enabled: false, uploadedBooks: [], keywordFilterMode: 'auto' },
@@ -668,7 +719,9 @@ function classifyError(e) {
     if (e instanceof ScenePlacementError) {
         return { ...ErrorType.SCENE_PLACEMENT, desc: e.message || ErrorType.SCENE_PLACEMENT.desc };
     }
-    if (e instanceof NovelDrawError && e.errorType) return e.errorType;
+    if (e instanceof NovelDrawError && e.errorType) {
+        return { ...e.errorType, desc: e.message || e.errorType.desc };
+    }
     const msg = (e?.message || '').toLowerCase();
     if (msg.includes('network') || msg.includes('fetch') || msg.includes('failed to fetch')) return ErrorType.NETWORK;
     if (msg.includes('401') || msg.includes('key') || msg.includes('auth')) return ErrorType.AUTH;
@@ -682,21 +735,31 @@ function classifyError(e) {
     return { ...ErrorType.UNKNOWN, desc: e?.message || '未知错误' };
 }
 
-function parseApiError(status, text) {
+function parseApiError(status, text, fallbackType = ErrorType.UNKNOWN) {
     switch (status) {
         case 401: return new NovelDrawError('API Key 无效', ErrorType.AUTH);
         case 402: return new NovelDrawError('Anlas 不足', ErrorType.QUOTA);
+        case 408:
+        case 504: return new NovelDrawError('请求超时', ErrorType.TIMEOUT);
         case 429: return new NovelDrawError('当前并发繁忙，请稍后重试', ErrorType.BUSY);
         case 500:
         case 502:
         case 503: return new NovelDrawError('服务不可用', ErrorType.NETWORK);
-        default: return new NovelDrawError(`失败: ${text || status}`, ErrorType.UNKNOWN);
+        default: return new NovelDrawError(`失败: ${text || status}`, fallbackType);
     }
 }
 
 function handleFetchError(e) {
     if (e.name === 'AbortError') return new NovelDrawError('超时', ErrorType.TIMEOUT);
     if (e instanceof NovelImageResponseError) return new NovelDrawError(e.message, ErrorType.PARSE);
+    if (e instanceof NovelV5StreamError) {
+        const type = e.code === 'V5_PROVIDER_ERROR'
+            ? ErrorType.PROVIDER
+            : e.code === 'V5_STREAM_READ_FAILED'
+                ? ErrorType.NETWORK
+                : ErrorType.PARSE;
+        return new NovelDrawError(e.message, type);
+    }
     if (e.message?.includes('Failed to fetch')) return new NovelDrawError('网络错误', ErrorType.NETWORK);
     if (e instanceof NovelDrawError) return e;
     return new NovelDrawError(e.message || '未知错误', ErrorType.UNKNOWN);
@@ -705,6 +768,56 @@ function handleFetchError(e) {
 // ═══════════════════════════════════════════════════════════════════════════
 // 设置管理
 // ═══════════════════════════════════════════════════════════════════════════
+
+function normalizeV5QualityPresetId(value, qualityToggle) {
+    const id = String(value || '');
+    if (V5_QUALITY_IDS.includes(id)) return id;
+    return qualityToggle === false ? 'none' : 'standard';
+}
+
+function normalizeV5UcPresetId(value, legacyPreset) {
+    const id = String(value || '');
+    if (V5_UC_IDS.includes(id)) return id;
+    return ({ 0: 'heavy', 1: 'light', 2: 'humanFocus', 3: 'none' })[Number(legacyPreset)] || 'heavy';
+}
+
+function normalizeParamsPreset(preset, index) {
+    const source = preset && typeof preset === 'object' && !Array.isArray(preset) ? preset : {};
+    const params = source.params && typeof source.params === 'object' && !Array.isArray(source.params)
+        ? source.params
+        : {};
+    const qualityToggle = params.qualityToggle !== false;
+    const ucPreset = [0, 1, 2, 3].includes(Number(params.ucPreset)) ? Number(params.ucPreset) : 0;
+    return {
+        id: String(source.id || `params-${Date.now()}-${index}`),
+        name: String(source.name || `配置-${index + 1}`),
+        positivePrefix: String(source.positivePrefix || ''),
+        negativePrefix: String(source.negativePrefix || ''),
+        maxImages: Math.max(0, Number(source.maxImages) || 0),
+        maxCharactersPerImage: Math.max(0, Number(source.maxCharactersPerImage) || 0),
+        params: {
+            model: String(params.model || DEFAULT_PARAMS_PRESET.params.model).trim(),
+            sampler: String(params.sampler || DEFAULT_PARAMS_PRESET.params.sampler),
+            scheduler: String(params.scheduler || DEFAULT_PARAMS_PRESET.params.scheduler),
+            steps: Number(params.steps) > 0 ? Number(params.steps) : DEFAULT_PARAMS_PRESET.params.steps,
+            scale: Number.isFinite(Number(params.scale)) ? Number(params.scale) : DEFAULT_PARAMS_PRESET.params.scale,
+            width: Number(params.width) > 0 ? Number(params.width) : DEFAULT_PARAMS_PRESET.params.width,
+            height: Number(params.height) > 0 ? Number(params.height) : DEFAULT_PARAMS_PRESET.params.height,
+            seed: Number.isFinite(Number(params.seed)) ? Number(params.seed) : -1,
+            qualityToggle,
+            autoSmea: params.autoSmea === true,
+            ucPreset,
+            cfg_rescale: Number.isFinite(Number(params.cfg_rescale)) ? Number(params.cfg_rescale) : 0,
+            v5QualityPresetId: normalizeV5QualityPresetId(params.v5QualityPresetId, qualityToggle),
+            v5UcPresetId: normalizeV5UcPresetId(params.v5UcPresetId, ucPreset),
+            transparentBackground: params.transparentBackground === true,
+            variety_boost: params.variety_boost === true,
+            sm: params.sm === true,
+            sm_dyn: params.sm_dyn === true,
+            decrisper: params.decrisper === true,
+        },
+    };
+}
 
 function normalizeSettings(saved = {}) {
     const source = saved && typeof saved === 'object' && !Array.isArray(saved) ? saved : {};
@@ -726,7 +839,9 @@ function normalizeSettings(saved = {}) {
         selectedParamsPresetId: source.selectedParamsPresetId == null
             ? null
             : String(source.selectedParamsPresetId),
-        paramsPresets: Array.isArray(source.paramsPresets) ? source.paramsPresets : [],
+        paramsPresets: Array.isArray(source.paramsPresets)
+            ? source.paramsPresets.map(normalizeParamsPreset)
+            : [],
         requestDelay: {
             min: Number(rawDelay.min) > 0 ? Number(rawDelay.min) : DEFAULT_SETTINGS.requestDelay.min,
             max: Number(rawDelay.max) > 0 ? Number(rawDelay.max) : DEFAULT_SETTINGS.requestDelay.max,
@@ -742,7 +857,7 @@ function normalizeSettings(saved = {}) {
         showFloatingButton: source.showFloatingButton === true,
         advancedMode: true,
         promptPresets: Array.isArray(source.promptPresets)
-            ? source.promptPresets.filter((preset) => preset && typeof preset.sceneRules === 'string')
+            ? source.promptPresets.filter((preset) => preset && typeof preset === 'object')
             : [],
         selectedPromptPresetId: source.selectedPromptPresetId == null
             ? null
@@ -761,15 +876,18 @@ function normalizeSettings(saved = {}) {
         const id1 = generateSlotId();
         const id2 = generateSlotId();
         merged.paramsPresets = [
-            { ...JSON.parse(JSON.stringify(DEFAULT_PARAMS_PRESET)), id: id1 },
-            { ...JSON.parse(JSON.stringify(DEFAULT_PARAMS_PRESET_2)), id: id2 },
+            normalizeParamsPreset({ ...cloneSettingsObject(DEFAULT_PARAMS_PRESET), id: id1 }, 0),
+            normalizeParamsPreset({ ...cloneSettingsObject(DEFAULT_PARAMS_PRESET_2), id: id2 }, 1),
+            normalizeParamsPreset({ ...cloneSettingsObject(DEFAULT_PARAMS_PRESET_V5), id: generateSlotId() }, 2),
         ];
         merged.selectedParamsPresetId = id1;
     }
-    // 确保每个 paramsPreset 都有 maxImages / maxCharactersPerImage
-    for (const p of merged.paramsPresets) {
-        if (typeof p.maxImages !== 'number') p.maxImages = 0;
-        if (typeof p.maxCharactersPerImage !== 'number') p.maxCharactersPerImage = 0;
+    if (Number(source.configVersion) < CONFIG_VERSION
+        && !merged.paramsPresets.some((preset) => isNovelV5Model(preset.params?.model))) {
+        merged.paramsPresets.push(normalizeParamsPreset({
+            ...cloneSettingsObject(DEFAULT_PARAMS_PRESET_V5),
+            id: generateSlotId(),
+        }, merged.paramsPresets.length));
     }
     if (!merged.selectedParamsPresetId) merged.selectedParamsPresetId = merged.paramsPresets[0]?.id;
     if (!Number.isFinite(Number(merged.updatedAt))) merged.updatedAt = 0;
@@ -798,41 +916,14 @@ function normalizeSettings(saved = {}) {
         merged.promptPresets = [
             { id: id1, name: '默认-完整规则',
               topSystem: DEFAULT_PROMPT_CONFIG.topSystem,
-              tagGuideContent: null,
               sceneRules: DEFAULT_PROMPT_CONFIG.sceneRules },
             { id: id2, name: '默认-第一人称完整规则',
               topSystem: DEFAULT_PROMPT_CONFIG.topSystemPov,
-              tagGuideContent: null,
               sceneRules: DEFAULT_PROMPT_CONFIG.sceneRules },
         ];
         merged.selectedPromptPresetId = id1;
     }
-    // 默认预设内容跟随代码模板版本更新。
-    const defaultPresetNames = ['默认-完整规则', '默认-第一人称完整规则'];
-    const storedVersion = merged._promptTemplateVersion || 0;
-    if (!merged.promptPresets.some(p => p.name === '默认-第一人称完整规则')) {
-        merged.promptPresets.push({
-            id: generateSlotId(),
-            name: '默认-第一人称完整规则',
-            topSystem: DEFAULT_PROMPT_CONFIG.topSystemPov,
-            tagGuideContent: null,
-            sceneRules: DEFAULT_PROMPT_CONFIG.sceneRules,
-        });
-    }
-    if (storedVersion < PROMPT_TEMPLATE_VERSION) {
-        for (const p of merged.promptPresets) {
-            if (defaultPresetNames.includes(p.name)) {
-                if (p.name === '默认-第一人称完整规则') {
-                    p.topSystem = DEFAULT_PROMPT_CONFIG.topSystemPov;
-                } else {
-                    p.topSystem = DEFAULT_PROMPT_CONFIG.topSystem;
-                }
-                p.sceneRules = DEFAULT_PROMPT_CONFIG.sceneRules;
-                p.tagGuideContent = null;
-            }
-        }
-        merged._promptTemplateVersion = PROMPT_TEMPLATE_VERSION;
-    }
+    merged._promptTemplateVersion = PROMPT_TEMPLATE_VERSION;
     merged.promptPresets = merged.promptPresets.map((preset, index) => {
         const isPov = preset.name === '默认-第一人称完整规则';
         return {
@@ -841,7 +932,6 @@ function normalizeSettings(saved = {}) {
             topSystem: typeof preset.topSystem === 'string'
                 ? preset.topSystem
                 : (isPov ? DEFAULT_PROMPT_CONFIG.topSystemPov : DEFAULT_PROMPT_CONFIG.topSystem),
-            tagGuideContent: typeof preset.tagGuideContent === 'string' ? preset.tagGuideContent : null,
             sceneRules: typeof preset.sceneRules === 'string'
                 ? preset.sceneRules
                 : DEFAULT_PROMPT_CONFIG.sceneRules,
@@ -851,14 +941,6 @@ function normalizeSettings(saved = {}) {
         || !merged.promptPresets.some(preset => preset.id === merged.selectedPromptPresetId)) {
         merged.selectedPromptPresetId = merged.promptPresets[0]?.id || null;
     }
-    const activePromptPreset = merged.promptPresets.find(preset => preset.id === merged.selectedPromptPresetId)
-        || merged.promptPresets[0];
-    merged.customPrompts = {
-        topSystem: activePromptPreset?.topSystem || DEFAULT_PROMPT_CONFIG.topSystem,
-        tagGuideContent: activePromptPreset?.tagGuideContent,
-        sceneRules: activePromptPreset?.sceneRules || DEFAULT_PROMPT_CONFIG.sceneRules,
-    };
-
     // ── 消息过滤规则规范化 ──
     if (!Array.isArray(merged.messageFilterRules)) merged.messageFilterRules = [];
     merged.messageFilterRules = merged.messageFilterRules
@@ -868,23 +950,6 @@ function normalizeSettings(saved = {}) {
     return merged;
 }
 
-/** tagGuideContent 依赖异步资源，在资源加载后补齐内置预设。 */
-function hydratePromptTagGuides() {
-    const guide = getLoadedTagGuide();
-    if (!guide) return;
-    const s = getSettings();
-    let migrated = false;
-    for (const p of s.promptPresets) {
-        if (p.tagGuideContent == null) {
-            p.tagGuideContent = guide;
-            migrated = true;
-        }
-    }
-    if (migrated) {
-        saveSettings(s);
-    }
-}
-
 async function loadSettings() {
     if (settingsLoaded && settingsCache) return settingsCache;
 
@@ -892,9 +957,13 @@ async function loadSettings() {
         const saved = await NovelDrawStorage.getStrict(SERVER_FILE_KEY, null);
         console.log('[NovelDraw] loadSettings from server: autoLearn=%s, advMode=%s',
             saved?.autoLearnCharacters, saved?.advancedMode);
-        settingsCache = normalizeSettings(saved || {});
+        const promptUpgrade = migrateLegacyNovelPromptSettings(saved || {}, DEFAULT_PROMPT_CONFIG);
+        settingsCache = normalizeSettings(promptUpgrade.settings);
 
-        if (!saved || saved.configVersion !== CONFIG_VERSION) {
+        if (!saved
+            || saved.configVersion !== CONFIG_VERSION
+            || Number(saved._promptTemplateVersion) !== PROMPT_TEMPLATE_VERSION
+            || promptUpgrade.migrated) {
             settingsCache.configVersion = CONFIG_VERSION;
             settingsCache.updatedAt = Date.now();
             const storageValue = mergeNovelDrawProviderSettingsIntoStorageRoot(saved, settingsCache);
@@ -902,6 +971,12 @@ async function loadSettings() {
             if (!savedMigration) throw new Error('默认设置保存失败');
         }
         settingsLoaded = true;
+        if (promptUpgrade.upstreamPresetCount > 0) {
+            const customNotice = promptUpgrade.customPresetCount > 0
+                ? `；其中 ${promptUpgrade.customPresetCount} 个自定义预设的旧规则已保留，请在提示词设置中检查`
+                : '';
+            showToast(`已升级 ${promptUpgrade.upstreamPresetCount} 个旧版 NovelAI 提示词预设${customNotice}`, 'info', 7000);
+        }
         return settingsCache;
     } catch (e) {
         console.error('[NovelDraw] 加载设置失败:', e);
@@ -925,11 +1000,9 @@ function getSettings() {
         settingsCache.promptPresets = [
             { id: id1, name: '默认-完整规则',
               topSystem: DEFAULT_PROMPT_CONFIG.topSystem,
-              tagGuideContent: getLoadedTagGuide() || '',
               sceneRules: DEFAULT_PROMPT_CONFIG.sceneRules },
             { id: id2, name: '默认-第一人称完整规则',
               topSystem: DEFAULT_PROMPT_CONFIG.topSystemPov,
-              tagGuideContent: getLoadedTagGuide() || '',
               sceneRules: DEFAULT_PROMPT_CONFIG.sceneRules },
         ];
         settingsCache.selectedPromptPresetId = id1;
@@ -1223,11 +1296,10 @@ function assembleCharacterPrompts(sceneChars, knownCharacters) {
         const known = findEnabledCharacterByName(char.name, knownCharacters);
 
         if (known) {
-            const defaultCenter = { x: 0.5, y: 0.5 };
             return {
                 prompt: joinTags(buildKnownCharacterBasePrompt(known), char.costume, char.action, char.interact),
                 uc: joinTags(known.negativeTags, char.uc),
-                center: gridToCoord(char.center) || defaultCenter
+                center: normalizeSceneCenter(char.center),
             };
         } else {
             const naiTag = char.danbooru ? danbooruToNai(char.danbooru) : '';
@@ -1241,7 +1313,7 @@ function assembleCharacterPrompts(sceneChars, knownCharacters) {
                     char.interact,
                 ),
                 uc: char.uc || '',
-                center: gridToCoord(char.center) || { x: 0.5, y: 0.5 }
+                center: normalizeSceneCenter(char.center),
             };
         }
     });
@@ -1354,18 +1426,13 @@ function autoLearnFromTasks(tasks, settings) {
     return result;
 }
 
-// ── 5x5 网格坐标 → NAI 浮点映射 ──────────────────────────────────
-const GRID_COL = { A: 0.1, B: 0.3, C: 0.5, D: 0.7, E: 0.9 };
-const GRID_ROW = { 1: 0.1, 2: 0.3, 3: 0.5, 4: 0.7, 5: 0.9 };
-
-function gridToCoord(grid) {
-    if (!grid || typeof grid !== 'string') return null;
-    const m = grid.trim().toUpperCase().match(/^([A-E])([1-5])$/);
-    if (!m) {
-        console.warn(`[NovelDraw] 无效坐标 "${grid}"，使用默认中心位置`);
-        return null;
+function normalizeSceneCenter(center) {
+    const x = Number(center?.x);
+    const y = Number(center?.y);
+    if (Number.isFinite(x) && x >= 0 && x <= 1 && Number.isFinite(y) && y >= 0 && y <= 1) {
+        return { x, y };
     }
-    return { x: GRID_COL[m[1]], y: GRID_ROW[m[2]] };
+    return { x: 0.5, y: 0.5 };
 }
 
 function countFields(char) {
@@ -1422,6 +1489,40 @@ async function generateViaBackend({ apiBaseUrl, apiKey, insecure, payload, signa
     return formatImageBase64(data.base64, data.mime);
 }
 
+async function generateV5ViaBackend({ upstreamUrl, apiKey, insecure, payload, signal, timeout }) {
+    let response;
+    try {
+        response = await fetch(NAI_BACKEND_GENERATE_STREAM, {
+            method: 'POST',
+            headers: getRequestHeaders(),
+            signal,
+            body: JSON.stringify({ upstreamUrl, key: apiKey, insecure: !!insecure, payload, timeout }),
+        });
+    } catch (error) {
+        if (error?.name === 'AbortError') throw error;
+        throw new NovelDrawError('V5 后端代发失败，请检查 littlewhitebox-nai 插件', ErrorType.NETWORK);
+    }
+    if (response.status === 404) {
+        throw new NovelDrawError(
+            `V5 后端端点不存在：请升级 littlewhitebox-nai 至 ${NAI_BACKEND_V5_MIN_VERSION} 或更高版本`,
+            ErrorType.NETWORK,
+        );
+    }
+    if (!response.ok) {
+        throw parseApiError(response.status, await readNovelV5ErrorText(response), ErrorType.PROVIDER);
+    }
+    return response;
+}
+
+function imageBytesToBase64(bytes) {
+    let binary = '';
+    const chunkSize = 0x8000;
+    for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+        binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+    }
+    return formatImageBase64(btoa(binary), 'image/png');
+}
+
 async function testApiConnection(apiKey, baseUrl, opts = {}) {
     if (!apiKey) throw new NovelDrawError('请填写 API Key', ErrorType.AUTH);
     const settings = getRuntimeSettings();
@@ -1431,17 +1532,31 @@ async function testApiConnection(apiKey, baseUrl, opts = {}) {
     const timeout = (opts.timeout > 0)
         ? opts.timeout
         : (settings.timeout > 0 ? settings.timeout : DEFAULT_SETTINGS.timeout);
+    const model = String(
+        opts.model || getActiveParamsPreset()?.params?.model || DEFAULT_PARAMS_PRESET.params.model,
+    ).trim();
+    const capability = getNovelModelCapability(model);
     const controller = new AbortController();
     const tid = setTimeout(() => controller.abort(), timeout);
 
     // 后端发送模式：走 server plugin 的 /test。
     if (sendMode === 'backend') {
         try {
+            if (capability.transport === 'msgpack-stream') {
+                await assertV5BackendCapability(controller.signal);
+            }
             const res = await fetch(NAI_BACKEND_TEST, {
                 method: 'POST',
                 headers: getRequestHeaders(),
                 signal: controller.signal,
-                body: JSON.stringify({ url: resolvedBase || '', key: apiKey, insecure: !!insecure, timeout }),
+                body: JSON.stringify({
+                    url: resolvedBase || '',
+                    key: apiKey,
+                    insecure: !!insecure,
+                    timeout,
+                    transport: capability.transport,
+                    model,
+                }),
             });
             clearTimeout(tid);
             if (res.status === 404) throw new NovelDrawError('后端端点不存在：请安装 plugins/littlewhitebox-nai 并开启 enableServerPlugins 后重启酒馆', ErrorType.NETWORK);
@@ -1458,17 +1573,49 @@ async function testApiConnection(apiKey, baseUrl, opts = {}) {
     }
 
     // 前端直连模式。
-    const apiUrl = resolveNovelAIImageApi(resolvedBase);
+    const isV5 = capability.transport === 'msgpack-stream';
+    const apiUrl = resolveNovelAIImageApi(resolvedBase, capability.transport);
     try {
+        const payload = isV5
+            ? buildNovelV5RequestBody({
+                scene: 'test',
+                characterPrompts: [],
+                negativePrompt: '',
+                params: {
+                    model,
+                    width: 64,
+                    height: 64,
+                    steps: 1,
+                    v5QualityPresetId: 'none',
+                    v5UcPresetId: 'none',
+                },
+                seed: 1,
+            })
+            : {
+                input: 'test',
+                model: 'nai-diffusion-3',
+                action: 'generate',
+                parameters: { width: 64, height: 64, steps: 1 },
+            };
+        const body = isV5 ? new FormData() : JSON.stringify(payload);
+        if (isV5) {
+            body.append('request', new Blob([JSON.stringify(payload)], { type: 'application/json' }), 'blob');
+        }
         const res = await fetch(apiUrl, {
             method: 'POST',
-            headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ input: 'test', model: 'nai-diffusion-3', action: 'generate', parameters: { width: 64, height: 64, steps: 1 } }),
+            headers: {
+                'Authorization': `Bearer ${apiKey}`,
+                ...(!isV5 ? { 'Content-Type': 'application/json' } : {}),
+            },
+            body,
             signal: controller.signal,
         });
         clearTimeout(tid);
         if (res.status === 401) throw new NovelDrawError('API Key 无效', ErrorType.AUTH);
-        if (res.status === 400 || res.status === 402 || res.ok) return { success: true };
+        if (res.status === 400 || res.status === 402 || res.ok) {
+            await res.body?.cancel?.().catch(() => {});
+            return { success: true };
+        }
         throw new NovelDrawError(`返回: ${res.status}`, ErrorType.NETWORK);
     } catch (e) {
         clearTimeout(tid);
@@ -1481,7 +1628,16 @@ function buildNovelAIRequestBody({ scene, characterPrompts, negativePrompt, para
     const width = params?.width ?? dp.width;
     const height = params?.height ?? dp.height;
     const seed = (params?.seed >= 0) ? params.seed : Math.floor(Math.random() * (MAX_SEED + 1));
-    const modelName = params?.model ?? dp.model;
+    const modelName = String(params?.model ?? dp.model).trim();
+    if (isNovelV5Model(modelName)) {
+        return buildNovelV5RequestBody({
+            scene,
+            characterPrompts,
+            negativePrompt,
+            params: { ...params, model: modelName, width, height },
+            seed,
+        });
+    }
     const isV3 = modelName.includes('nai-diffusion-3') || modelName.includes('furry-3');
     const isV45 = modelName.includes('nai-diffusion-4-5');
 
@@ -1598,7 +1754,8 @@ async function generateNovelImage({ scene, characterPrompts, negativePrompt, par
             }
         }
 
-        const apiUrl = resolveNovelAIImageApi(requestConfig.apiBaseUrl);
+        const capability = getNovelModelCapability(finalParams.model);
+        const apiUrl = resolveNovelAIImageApi(requestConfig.apiBaseUrl, capability.transport);
         const controller = new AbortController();
         const tid = setTimeout(() => controller.abort(), requestConfig.timeout);
 
@@ -1614,6 +1771,23 @@ async function generateNovelImage({ scene, characterPrompts, negativePrompt, par
 
             // 后端发送：交给 SillyTavern server plugin 代发，绕过浏览器 CORS / 自签证书。
             if (requestConfig.sendMode === 'backend') {
+                if (capability.transport === 'msgpack-stream') {
+                    await assertV5BackendCapability(controller.signal);
+                    const response = await generateV5ViaBackend({
+                        upstreamUrl: apiUrl,
+                        apiKey: requestConfig.apiKey,
+                        insecure: requestConfig.insecureTLS,
+                        payload,
+                        signal: controller.signal,
+                        timeout: requestConfig.timeout,
+                    });
+                    const image = await readNovelV5FinalImage(response, {
+                        decode: decodeMessagePack,
+                        signal: controller.signal,
+                    });
+                    console.log(`[NovelDraw] V5 完成(后端) ${Date.now() - t0}ms`);
+                    return imageBytesToBase64(image);
+                }
                 const base64 = await generateViaBackend({
                     apiBaseUrl: requestConfig.apiBaseUrl,
                     apiKey: requestConfig.apiKey,
@@ -1627,13 +1801,34 @@ async function generateNovelImage({ scene, characterPrompts, negativePrompt, par
             }
 
             // 前端直连：浏览器直接请求 NovelAI / 第三方端点。
+            const isV5 = capability.transport === 'msgpack-stream';
+            const body = isV5 ? new FormData() : JSON.stringify(payload);
+            if (isV5) {
+                body.append('request', new Blob([JSON.stringify(payload)], { type: 'application/json' }), 'blob');
+            }
             const res = await fetch(apiUrl, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${requestConfig.apiKey}` },
+                headers: {
+                    'Authorization': `Bearer ${requestConfig.apiKey}`,
+                    ...(!isV5 ? { 'Content-Type': 'application/json' } : {}),
+                },
                 signal: controller.signal,
-                body: JSON.stringify(payload),
+                body,
             });
-            if (!res.ok) throw parseApiError(res.status, await res.text().catch(() => ''));
+            if (!res.ok) {
+                const errorText = isV5
+                    ? await readNovelV5ErrorText(res)
+                    : await res.text().catch(() => '');
+                throw parseApiError(res.status, errorText, isV5 ? ErrorType.PROVIDER : ErrorType.UNKNOWN);
+            }
+            if (isV5) {
+                const image = await readNovelV5FinalImage(res, {
+                    decode: decodeMessagePack,
+                    signal: controller.signal,
+                });
+                console.log(`[NovelDraw] V5 完成 ${Date.now() - t0}ms`);
+                return imageBytesToBase64(image);
+            }
             const responseData = await readImageResponse(res, controller.signal);
             const base64 = await extractImageFromResponse(responseData, ensureJSZip, controller.signal);
             console.log(`[NovelDraw] 完成 ${Date.now() - t0}ms`);
@@ -2571,6 +2766,8 @@ function notifyDetachedGeneration(successCount) {
 async function buildTextSourceTasks({ sceneSource, presentCharacters, settings, preset, signal, useWorldbook = false }) {
     let worldbookEntries = null;
     const customPrompts = getActivePromptPreset() || DEFAULT_PROMPT_CONFIG;
+    const model = preset.params?.model || DEFAULT_PARAMS_PRESET.params.model;
+    const capability = getNovelModelCapability(model);
     if (useWorldbook && settings.worldbooks?.enabled && settings.worldbooks.uploadedBooks?.length) {
         const processor = new WorldbookProcessor();
         const charNames = presentCharacters.map(c => c.name).join(' ');
@@ -2591,6 +2788,10 @@ async function buildTextSourceTasks({ sceneSource, presentCharacters, settings, 
         worldbookEntries,
         maxImages: preset.maxImages || 0,
         maxCharactersPerImage: preset.maxCharactersPerImage || 0,
+        absoluteMaxCharactersPerImage: capability.maxCharactersPerImage,
+        modelGuide: getLoadedTagGuide(model),
+        modelContract: getNovelScenePlannerContract(model),
+        centerMode: capability.centerMode,
         onImageLimitAdjusted: notifySceneImageLimitAdjusted,
         signal,
     });
@@ -2785,7 +2986,9 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
         let tasks = [];
         try {
             let worldbookEntries = null;
-            let customPrompts = getActivePromptPreset() || DEFAULT_PROMPT_CONFIG;
+            const customPrompts = getActivePromptPreset() || DEFAULT_PROMPT_CONFIG;
+            const model = preset.params?.model || DEFAULT_PARAMS_PRESET.params.model;
+            const capability = getNovelModelCapability(model);
             if (settings.worldbooks?.enabled && settings.worldbooks.uploadedBooks?.length) {
                 const processor = new WorldbookProcessor();
                 const charNames = presentCharacters.map(c => c.name).join(' ');
@@ -2806,6 +3009,10 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
                 worldbookEntries,
                 maxImages: preset.maxImages || 0,
                 maxCharactersPerImage: preset.maxCharactersPerImage || 0,
+                absoluteMaxCharactersPerImage: capability.maxCharactersPerImage,
+                modelGuide: getLoadedTagGuide(model),
+                modelContract: getNovelScenePlannerContract(model),
+                centerMode: capability.centerMode,
                 onImageLimitAdjusted: notifySceneImageLimitAdjusted,
                 signal,
             });
@@ -3373,19 +3580,14 @@ async function sendInitData() {
             showFloorButton: settings.showFloorButton !== false,
             showFloatingButton: settings.showFloatingButton === true,
             advancedMode: !!settings.advancedMode,
-            customPrompts: settings.customPrompts || DEFAULT_SETTINGS.customPrompts,
-            // 安全网：确保 tagGuideContent 在发送时已解析为具体值
-            promptPresets: (settings.promptPresets || []).map(p =>
-                p.tagGuideContent != null ? p : { ...p, tagGuideContent: getLoadedTagGuide() || '' }
-            ),
+            promptPresets: settings.promptPresets || [],
             selectedPromptPresetId: settings.selectedPromptPresetId || null,
+            modelGuideContent: getLoadedTagGuide(getActiveParamsPreset()?.params?.model),
+            modelCapabilities: getNovelModelCapabilitiesForUi(),
             worldbooks: settings.worldbooks || DEFAULT_SETTINGS.worldbooks,
             messageFilterRules: settings.messageFilterRules || [],
         },
-        defaultPrompts: {
-            ...DEFAULT_PROMPT_CONFIG,
-            tagGuideContent: getLoadedTagGuide(),
-        },
+        defaultPrompts: { ...DEFAULT_PROMPT_CONFIG },
         cacheStats: stats,
         gallerySummary,
     });
@@ -3551,6 +3753,7 @@ async function handleFrameMessage(event) {
                     sendMode: data.sendMode,
                     insecure: data.insecureTLS,
                     timeout: data.timeout,
+                    model: data.model,
                 });
                 postStatus('success', '连接成功', 'api');
             } catch (e) {
@@ -3630,7 +3833,7 @@ async function handleFrameMessage(event) {
         // ═══════════════════════════════════════════════════════════════
         case 'OPEN_CLOUD_PRESETS': {
             openCloudPresetsModal(async (presetData) => {
-                const newPreset = parsePresetData(presetData, generateSlotId);
+                const { preset: newPreset, warnings: importWarnings } = parsePresetData(presetData, generateSlotId);
                 const ok = await updateSettingsPersistent((settings) => {
                     settings.paramsPresets.push(newPreset);
                     settings.selectedParamsPresetId = newPreset.id;
@@ -3638,6 +3841,7 @@ async function handleFrameMessage(event) {
                 if (ok) {
                     await notifySettingsUpdated();
                     sendInitData();
+                    if (importWarnings.length) showToast(importWarnings.join('；'), 'info', 5000);
                 }
             });
             break;
@@ -3659,7 +3863,7 @@ async function handleFrameMessage(event) {
 
         case 'RESET_CUSTOM_PROMPT': {
             const key = data.key;
-            const ALLOWED_PROMPT_KEYS = ['topSystem', 'tagGuideContent', 'sceneRules'];
+            const ALLOWED_PROMPT_KEYS = ['topSystem', 'sceneRules'];
             if (key && ALLOWED_PROMPT_KEYS.includes(key)) {
                 await updateSettingsPersistent((settings) => {
                     const presetId = data.selectedPromptPresetId || settings.selectedPromptPresetId;
@@ -3667,11 +3871,9 @@ async function handleFrameMessage(event) {
                     const isPov = active?.name === '默认-第一人称完整规则';
                     const resetDefaults = {
                         topSystem: isPov ? DEFAULT_PROMPT_CONFIG.topSystemPov : DEFAULT_PROMPT_CONFIG.topSystem,
-                        tagGuideContent: getLoadedTagGuide() || '',
                         sceneRules: DEFAULT_PROMPT_CONFIG.sceneRules,
                     };
                     const defaultVal = resetDefaults[key];
-                    if (settings.customPrompts) settings.customPrompts[key] = defaultVal;
                     if (active) active[key] = defaultVal;
                 }, '已恢复默认', { target: 'prompts' });
             }
@@ -3689,14 +3891,6 @@ async function handleFrameMessage(event) {
                 // 避免 sendInitData 的异步延迟导致下拉框 innerHTML 全量重建引起状态闪烁
                 const ok = await updateSettingsPersistent((settings) => {
                     settings.selectedPromptPresetId = data.id;
-                    const active = settings.promptPresets.find(p => p.id === data.id);
-                    if (active) {
-                        settings.customPrompts = {
-                            topSystem: active.topSystem,
-                            tagGuideContent: active.tagGuideContent,
-                            sceneRules: active.sceneRules,
-                        };
-                    }
                 }, '已切换预设', { target: 'prompt-preset' });
                 if (!ok) {
                     sendInitData();
@@ -3713,12 +3907,10 @@ async function handleFrameMessage(event) {
                     id,
                     name: (typeof data.name === 'string' && data.name.trim()) ? data.name.trim() : `提示词-${settings.promptPresets.length + 1}`,
                     topSystem: current?.topSystem ?? DEFAULT_PROMPT_CONFIG.topSystem,
-                    tagGuideContent: current?.tagGuideContent ?? getLoadedTagGuide() ?? '',
                     sceneRules: current?.sceneRules ?? DEFAULT_PROMPT_CONFIG.sceneRules,
                 };
                 settings.promptPresets.push(newPreset);
                 settings.selectedPromptPresetId = id;
-                settings.customPrompts = { topSystem: newPreset.topSystem, tagGuideContent: newPreset.tagGuideContent, sceneRules: newPreset.sceneRules };
             }, '已创建', { target: 'prompt-preset' });
             if (ok) sendInitData();
             break;
@@ -3734,10 +3926,6 @@ async function handleFrameMessage(event) {
                 const idx = settings.promptPresets.findIndex(p => p.id === settings.selectedPromptPresetId);
                 if (idx >= 0) settings.promptPresets.splice(idx, 1);
                 settings.selectedPromptPresetId = settings.promptPresets[0]?.id || null;
-                const active = settings.promptPresets.find(p => p.id === settings.selectedPromptPresetId);
-                if (active) {
-                    settings.customPrompts = { topSystem: active.topSystem, tagGuideContent: active.tagGuideContent, sceneRules: active.sceneRules };
-                }
             }, '已删除', { target: 'prompt-preset' });
             if (ok) sendInitData();
             break;
@@ -3757,7 +3945,7 @@ async function handleFrameMessage(event) {
 
         case 'SAVE_PROMPT_PRESET': {
             const active = getSettings().promptPresets.find(p => p.id === (data.selectedPromptPresetId || getSettings().selectedPromptPresetId));
-            if (active && data.customPrompts && typeof data.customPrompts === 'object') {
+            if (active && data.promptDraft && typeof data.promptDraft === 'object') {
                 const statusTarget = data.statusTarget === 'prompt-preset' ? 'prompt-preset' : 'prompts';
                 await updateSettingsPersistent((settings) => {
                     if (data.selectedPromptPresetId && settings.promptPresets.some(p => p.id === data.selectedPromptPresetId)) {
@@ -3765,11 +3953,9 @@ async function handleFrameMessage(event) {
                     }
                     const current = settings.promptPresets.find(p => p.id === settings.selectedPromptPresetId);
                     if (!current) return;
-                    const cp = data.customPrompts;
+                    const cp = data.promptDraft;
                     if ('topSystem' in cp) current.topSystem = cp.topSystem;
-                    if ('tagGuideContent' in cp) current.tagGuideContent = cp.tagGuideContent;
                     if ('sceneRules' in cp) current.sceneRules = cp.sceneRules;
-                    settings.customPrompts = { topSystem: current.topSystem, tagGuideContent: current.tagGuideContent, sceneRules: current.sceneRules };
                 }, '提示词预设已保存', { target: statusTarget });
             }
             sendInitData();
@@ -3905,18 +4091,24 @@ async function handleFrameMessage(event) {
 
         case 'GET_PROMPT_CHAIN': {
             const { getPromptChainPreview } = await import('./novel-prompts.js');
-            const currentPrompts = getSettings().customPrompts || {};
-            const promptDraft = data.customPrompts && typeof data.customPrompts === 'object'
+            const currentPrompts = getActivePromptPreset() || {};
+            const model = String(data.model || getActiveParamsPreset()?.params?.model || '');
+            const promptDraft = data.promptDraft && typeof data.promptDraft === 'object'
                 ? {
                     ...currentPrompts,
-                    topSystem: String(data.customPrompts.topSystem ?? currentPrompts.topSystem ?? ''),
-                    tagGuideContent: String(data.customPrompts.tagGuideContent ?? currentPrompts.tagGuideContent ?? ''),
-                    sceneRules: String(data.customPrompts.sceneRules ?? currentPrompts.sceneRules ?? ''),
+                    topSystem: String(data.promptDraft.topSystem ?? currentPrompts.topSystem ?? ''),
+                    sceneRules: String(data.promptDraft.sceneRules ?? currentPrompts.sceneRules ?? ''),
                 }
                 : currentPrompts;
-            const chain = getPromptChainPreview(promptDraft);
+            const chain = getPromptChainPreview(promptDraft, model);
             const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
-            if (iframe) postToIframe(iframe, { type: 'PROMPT_CHAIN_DATA', chain }, 'LittleWhiteBox-NovelDraw');
+            if (iframe) postToIframe(iframe, {
+                type: 'PROMPT_CHAIN_DATA',
+                requestId: data.requestId,
+                chain,
+                modelGuideContent: getLoadedTagGuide(model),
+                modelContractContent: getNovelScenePlannerContract(model),
+            }, 'LittleWhiteBox-NovelDraw');
             break;
         }
 
@@ -4057,7 +4249,14 @@ export async function initNovelDraw() {
     if (window?.isXiaobaixEnabled === false) return;
     if (moduleInitialized) return;
 
-    await loadPromptTemplates();
+    const [templatesOk, guidesOk] = await Promise.all([
+        loadPromptTemplates(),
+        loadTagGuide(),
+    ]);
+    if (!templatesOk || !guidesOk) {
+        showToast('NovelAI 提示词资源加载失败，已停止初始化', 'error', 5000);
+        return false;
+    }
     let sharedDrawSettings;
     try {
         await loadSettings();
@@ -4073,10 +4272,6 @@ export async function initNovelDraw() {
         void renderSharedPreviewsForMessage(messageId);
     });
     ensureStyles();
-
-    await loadTagGuide();
-
-    hydratePromptTagGuides();
 
     setupEventDelegation();
     await openDB().then(() => {

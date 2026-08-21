@@ -7,9 +7,11 @@
  *       在 config.yaml 中开启 enableServerPlugins: true ，然后重启 SillyTavern。
  */
 
-const { generateImage, testConnection } = require('./novelai-client.js');
+const { pipeline } = require('node:stream/promises');
+const { generateImage, openImageStream, testConnection } = require('./novelai-client.js');
 
-const PLUGIN_VERSION = '1.0.1';
+const PLUGIN_VERSION = '1.1.0';
+const PLUGIN_CAPABILITIES = Object.freeze(['v5-msgpack-stream']);
 
 const info = {
     id: 'littlewhitebox-nai',
@@ -79,7 +81,12 @@ function sendRequestError(scope, res, error, label) {
  */
 async function init(router) {
     router.get('/status', (_req, res) => {
-        res.status(200).send({ ok: true, id: info.id, version: PLUGIN_VERSION });
+        res.status(200).send({
+            ok: true,
+            id: info.id,
+            version: PLUGIN_VERSION,
+            capabilities: [...PLUGIN_CAPABILITIES],
+        });
     });
 
     router.post('/v1/generate-image', async (req, res) => {
@@ -116,6 +123,53 @@ async function init(router) {
         }
     });
 
+    router.post('/v1/generate-image-stream', async (req, res) => {
+        const scope = createRequestAbortScope(req, res);
+        try {
+            if (scope.signal.aborted) return;
+            const body = req.body || {};
+            const key = String(body.key || '').trim();
+            const upstreamUrl = String(body.upstreamUrl || '').trim();
+            const payload = body.payload;
+            const timeout = parseTimeout(body.timeout);
+            if (!key) return res.status(400).send('API key is required');
+            if (!upstreamUrl) return res.status(400).send('upstreamUrl is required');
+            if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+                return res.status(400).send('payload is required');
+            }
+            if (timeout === null) return res.status(400).send('timeout must be a positive number');
+            scope.setDeadline(timeout);
+
+            const result = await openImageStream({
+                url: upstreamUrl,
+                key,
+                payload,
+                insecure: body.insecure === true,
+                signal: scope.signal,
+            });
+            if (!result.ok) {
+                return res.status(result.status || 502).type('text/plain').send(result.error || 'NovelAI V5 request failed');
+            }
+
+            res.status(200);
+            res.setHeader('Content-Type', 'application/octet-stream');
+            res.setHeader('Cache-Control', 'no-store');
+            await pipeline(result.response, res, { signal: scope.signal });
+        } catch (error) {
+            if (scope.cause === 'client') return;
+            if (scope.cause === 'timeout') {
+                if (!res.headersSent) res.status(504).type('text/plain').send('NovelAI request timed out');
+                else res.destroy();
+                return;
+            }
+            console.error('[littlewhitebox-nai] generate-image-stream error:', error);
+            if (!res.headersSent) res.status(502).type('text/plain').send(errorMessage(error));
+            else res.destroy(error);
+        } finally {
+            scope.dispose();
+        }
+    });
+
     router.post('/v1/test', async (req, res) => {
         const scope = createRequestAbortScope(req, res);
         try {
@@ -132,6 +186,8 @@ async function init(router) {
                 key,
                 insecure: body.insecure === true,
                 signal: scope.signal,
+                transport: body.transport,
+                model: body.model,
             });
             return res.status(200).send(result);
         } catch (error) {

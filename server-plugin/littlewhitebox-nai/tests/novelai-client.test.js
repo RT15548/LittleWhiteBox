@@ -4,10 +4,11 @@ const assert = require('node:assert/strict');
 const http = require('node:http');
 const zlib = require('node:zlib');
 const { EventEmitter } = require('node:events');
+const { PassThrough } = require('node:stream');
 const { after, before, test } = require('node:test');
 
 const { init } = require('../index.js');
-const { generateImage } = require('../novelai-client.js');
+const { generateImage, openImageStream, testConnection } = require('../novelai-client.js');
 
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64');
 
@@ -16,10 +17,35 @@ let origin;
 let upstreamRequests = 0;
 let slowRequestHooks = null;
 let crossOriginTarget = '';
+let lastStreamRequest = null;
 
 before(async () => {
     server = http.createServer((req, res) => {
         upstreamRequests++;
+        if (req.url === '/v5/ai/generate-image-stream') {
+            const chunks = [];
+            req.on('data', chunk => chunks.push(Buffer.from(chunk)));
+            req.on('end', () => {
+                lastStreamRequest = {
+                    authorization: req.headers.authorization || '',
+                    contentType: req.headers['content-type'] || '',
+                    body: Buffer.concat(chunks).toString('utf8'),
+                };
+                res.writeHead(200, { 'Content-Type': 'application/octet-stream' });
+                res.write(Buffer.from([0, 0, 0, 2]));
+                res.end(Buffer.from([0x81, 0xA0]));
+            });
+            return;
+        }
+        if (req.url === '/huge-error/ai/generate-image-stream') {
+            const body = Buffer.alloc(1024 * 1024 + 1, 0x78);
+            res.writeHead(422, {
+                'Content-Length': body.length,
+                'Content-Type': 'text/plain',
+            });
+            res.end(body);
+            return;
+        }
         req.resume();
         if (req.url === '/redirect/ai/generate-image') {
             res.writeHead(307, { 'Location': '/image/ai/generate-image' });
@@ -109,6 +135,121 @@ test('decodes deflate responses from non-compliant upstreams', async () => {
     assert.equal(result.ok, true);
     assert.equal(result.mime, 'image/png');
     assert.equal(result.base64, PNG.toString('base64'));
+});
+
+test('sends V5 as multipart request JSON and exposes the upstream stream unchanged', async () => {
+    const payload = {
+        input: '1girl, happy',
+        model: 'nai-diffusion-5-full',
+        parameters: { params_version: 4, stream: 'msgpack' },
+    };
+    const result = await openImageStream({
+        url: `${origin}/v5/ai/generate-image-stream`,
+        key: 'v5-key',
+        payload,
+        insecure: false,
+    });
+    assert.equal(result.ok, true);
+    const chunks = [];
+    for await (const chunk of result.response) chunks.push(Buffer.from(chunk));
+
+    assert.equal(lastStreamRequest.authorization, 'Bearer v5-key');
+    const boundary = /boundary=([^;]+)/i.exec(lastStreamRequest.contentType)?.[1];
+    assert.ok(boundary);
+    assert.match(lastStreamRequest.body, /name="request"; filename="blob"/);
+    assert.match(lastStreamRequest.body, /Content-Type: application\/json/);
+    assert.match(lastStreamRequest.body, new RegExp(`--${boundary.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}--`));
+    assert.ok(lastStreamRequest.body.includes(JSON.stringify(payload)));
+    assert.deepEqual(Buffer.concat(chunks), Buffer.from([0, 0, 0, 2, 0x81, 0xA0]));
+});
+
+test('tests the selected V5 transport instead of falling back to the V3 JSON endpoint', async () => {
+    const result = await testConnection({
+        baseUrl: `${origin}/v5`,
+        key: 'v5-test-key',
+        insecure: false,
+        transport: 'msgpack-stream',
+        model: '  nai-diffusion-5-curated  ',
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(lastStreamRequest.authorization, 'Bearer v5-test-key');
+    assert.match(lastStreamRequest.contentType, /^multipart\/form-data; boundary=/);
+    assert.match(lastStreamRequest.body, /"model":"nai-diffusion-5-curated"/);
+    assert.match(lastStreamRequest.body, /"params_version":4/);
+});
+
+test('bounds upstream V5 error bodies to 1 MiB', async () => {
+    const result = await openImageStream({
+        url: `${origin}/huge-error/ai/generate-image-stream`,
+        key: 'v5-key',
+        payload: { model: 'nai-diffusion-5-full' },
+        insecure: false,
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.status, 422);
+    assert.match(result.error, /1 MiB/);
+});
+
+test('advertises and proxies the V5 MessagePack stream route', async () => {
+    let statusHandler;
+    let streamHandler;
+    await init({
+        get(path, routeHandler) {
+            if (path === '/status') statusHandler = routeHandler;
+        },
+        post(path, routeHandler) {
+            if (path === '/v1/generate-image-stream') streamHandler = routeHandler;
+        },
+    });
+
+    const statusResponse = {
+        status(code) {
+            this.statusCode = code;
+            return this;
+        },
+        send(body) {
+            this.body = body;
+            return this;
+        },
+    };
+    statusHandler({}, statusResponse);
+    assert.equal(statusResponse.statusCode, 200);
+    assert.deepEqual(statusResponse.body.capabilities, ['v5-msgpack-stream']);
+
+    const req = new EventEmitter();
+    req.aborted = false;
+    req.destroyed = false;
+    req.body = {
+        upstreamUrl: `${origin}/v5/ai/generate-image-stream`,
+        key: 'v5-key',
+        payload: { input: 'test', model: 'nai-diffusion-5-full' },
+        timeout: 1000,
+    };
+    const res = new PassThrough();
+    const output = [];
+    const headers = new Map();
+    res.on('data', chunk => output.push(Buffer.from(chunk)));
+    res.setHeader = (name, value) => headers.set(String(name).toLowerCase(), value);
+    res.getHeader = name => headers.get(String(name).toLowerCase());
+    res.status = code => {
+        res.statusCode = code;
+        return res;
+    };
+    res.type = value => {
+        res.setHeader('Content-Type', value);
+        return res;
+    };
+    res.send = body => {
+        res.end(body);
+        return res;
+    };
+
+    await streamHandler(req, res);
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.getHeader('Content-Type'), 'application/octet-stream');
+    assert.deepEqual(Buffer.concat(output), Buffer.from([0, 0, 0, 2, 0x81, 0xA0]));
 });
 
 test('does not forward the API key across origins', async () => {

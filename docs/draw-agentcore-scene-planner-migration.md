@@ -553,8 +553,8 @@ Prompt 中仍保留自然语言数量要求，Schema 再做协议约束。两者
 | --- | --- |
 | `topSystem` | 保留并去除 YAML 输出措辞。 |
 | `topSystemPov` | 保留全部 POV 语义并去除 YAML 输出措辞。 |
-| `assistantDoc` | 保留 TAG 指南确认。 |
-| `tagGuideContent` | 保留。 |
+| `assistantDoc` | 保留当前模型提示词指南确认。 |
+| `tagGuideContent` | SD/Comfy 预设继续保留；NovelAI 自 V5 接入起迁出预设，改由 Provider 按模型注入只读静态指南。 |
 | `assistantAskBackground` | 保留。 |
 | `userWorldInfo` | 保留。 |
 | `assistantAskContent` | 保留。 |

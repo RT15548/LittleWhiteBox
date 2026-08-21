@@ -5,6 +5,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+import { EVENT_RERANK_CANDIDATE_MAX } from '../../modules/story-summary/vector/retrieval/event-rerank-admission.js';
 import {
     loadGoldCapture,
     sha256File,
@@ -13,7 +14,6 @@ import { assertSuccessfulExternalTrace } from './lib/transport-cassette.mjs';
 
 const DEFAULT_INTERVAL_MIN_MS = 12000;
 const DEFAULT_INTERVAL_MAX_MS = 15000;
-const EVENT_RERANK_CANDIDATE_MAX = 60;
 const RERANK_BATCH_SIZE = 20;
 
 function resolveFromRoot(rootDir, value) {
@@ -56,6 +56,23 @@ function assertSameEventMembership(before, after, caseId) {
     if (new Set(right).size !== right.length) {
         throw new Error(`事件 Rerank 产生重复候选: ${caseId}`);
     }
+}
+
+/**
+ * Read the exact production queries frozen by the source recall run.
+ * Older captures did not record this contract and must be regenerated rather
+ * than reconstructed from a gold question or a removed enrichment field.
+ */
+export function readCapturedSemanticQuery(promptInput, caseId = 'unknown') {
+    const value = promptInput?.observationBase?.diagnosticValues?.semanticQuery;
+    if (typeof value?.query !== 'string' || typeof value?.temporalQuery !== 'string') {
+        throw new Error(`source capture 缺少 semanticQuery，请重新生成: ${caseId}`);
+    }
+    const query = value.query.trim();
+    if (!query) {
+        throw new Error(`source capture 的 semanticQuery.query 为空: ${caseId}`);
+    }
+    return { query, temporalQuery: value.temporalQuery.trim() };
 }
 
 function targetEventIds(sourcePrompt, goldCase) {
@@ -115,11 +132,14 @@ export async function prepareEventRerankGate({ rootDir, config, samplePath }) {
     const selected = [];
     for (const [index, goldCase] of source.cases.entries()) {
         if (!selectedIds.has(String(goldCase.id))) continue;
+        const promptInput = source.promptInputs[index];
+        const semanticQuery = readCapturedSemanticQuery(promptInput, goldCase.id);
         selected.push({
             index,
             goldCase,
             sourcePrompt: source.prompts[index],
-            promptInput: source.promptInputs[index],
+            promptInput,
+            semanticQuery,
         });
     }
     const foundIds = new Set(selected.map(item => String(item.goldCase.id)));

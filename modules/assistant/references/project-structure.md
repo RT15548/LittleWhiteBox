@@ -240,12 +240,16 @@ LittleWhiteBox/
 │   │   │   └── worldbook-processor.js      # 世界书上下文处理
 │   │   └── providers/                     # 具体画图后端 Provider
 │   │       ├── novelai/                   # NovelAI Provider
-│   │       │   ├── TAG编写指南.md          # NovelAI 专属 TAG 指南
+│   │       │   ├── TAG编写指南-V4.5.md     # NovelAI V4.5 TAG 指南
+│   │       │   ├── 提示词编写指南-V5.md    # NovelAI V5 提示词指南
 │   │       │   ├── cloud-presets.js        # NovelAI 云端预设
 │   │       │   ├── floating-panel.js       # NovelAI 楼层/悬浮画图面板
+│   │       │   ├── novel-model-capabilities.js # NovelAI 模型能力与 Tool 契约
 │   │       │   ├── novel-draw.html         # NovelAI 设置 UI
 │   │       │   ├── novel-draw.js           # NovelAI 生命周期、设置、楼层出图与文本源出图 `generateImagesFromText`
 │   │       │   ├── novel-prompts.js        # NovelAI 提示词模板加载与默认配置
+│   │       │   ├── novel-v5-request.js      # V5 请求负载构造
+│   │       │   ├── novel-v5-stream.js       # V5 MessagePack 流解析
 │   │       │   └── prompts/               # NovelAI 提示词模板
 │   │       │       ├── scene-rules.md
 │   │       │       ├── top-system-pov.md

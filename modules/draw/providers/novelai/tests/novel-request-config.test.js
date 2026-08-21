@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { snapshotNovelRequestConfig } from '../novel-request-config.js';
+import { resolveNovelAIImageApi, snapshotNovelRequestConfig } from '../novel-request-config.js';
 
 test('freezes request settings when a generation is submitted', () => {
     const settings = {
@@ -41,4 +41,38 @@ test('uses the request override and default timeout at submission time', () => {
     assert.equal(snapshot.apiKey, 'key');
     assert.equal(snapshot.timeout, 60000);
     assert.equal(snapshot.overrideSize, '1024x1024');
+});
+
+test('resolves legacy and V5 endpoints from an origin or either explicit image endpoint', () => {
+    for (const baseUrl of [
+        'https://image.novelai.net',
+        'https://image.novelai.net/ai/generate-image',
+        'https://image.novelai.net/ai/generate-image-stream',
+    ]) {
+        assert.equal(
+            resolveNovelAIImageApi(baseUrl, 'image'),
+            'https://image.novelai.net/ai/generate-image',
+        );
+        assert.equal(
+            resolveNovelAIImageApi(baseUrl, 'msgpack-stream'),
+            'https://image.novelai.net/ai/generate-image-stream',
+        );
+    }
+
+    assert.equal(
+        resolveNovelAIImageApi('https://proxy.example/base/ai/generate-image?token=abc', 'msgpack-stream'),
+        'https://proxy.example/base/ai/generate-image-stream?token=abc',
+    );
+    assert.equal(
+        resolveNovelAIImageApi('https://proxy.example/base?token=abc', 'image'),
+        'https://proxy.example/base/ai/generate-image?token=abc',
+    );
+    assert.equal(
+        resolveNovelAIImageApi('/proxy/novelai', 'image'),
+        '/proxy/novelai/ai/generate-image',
+    );
+    assert.equal(
+        resolveNovelAIImageApi('/proxy/novelai/ai/generate-image?token=abc', 'msgpack-stream'),
+        '/proxy/novelai/ai/generate-image-stream?token=abc',
+    );
 });

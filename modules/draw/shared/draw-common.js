@@ -169,6 +169,13 @@ const GRID_COL = { A: 0.1, B: 0.3, C: 0.5, D: 0.7, E: 0.9 };
 const GRID_ROW = { 1: 0.1, 2: 0.3, 3: 0.5, 4: 0.7, 5: 0.9 };
 
 function gridToCoord(grid) {
+    if (grid && typeof grid === 'object') {
+        const x = Number(grid.x);
+        const y = Number(grid.y);
+        if (Number.isFinite(x) && Number.isFinite(y) && x >= 0 && x <= 1 && y >= 0 && y <= 1) {
+            return { x, y };
+        }
+    }
     if (!grid || typeof grid !== 'string') return null;
     const match = grid.trim().toUpperCase().match(/^([A-E])([1-5])$/);
     if (!match) return null;

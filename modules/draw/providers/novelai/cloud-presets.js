@@ -1,6 +1,8 @@
 // cloud-presets.js
 // 云端预设管理模块 (保持大尺寸 + 分页搜索)
 
+import { V5_QUALITY_IDS, V5_UC_IDS } from './novel-v5-request.js';
+
 // ═══════════════════════════════════════════════════════════════════════════
 // 常量
 // ═══════════════════════════════════════════════════════════════════════════
@@ -8,6 +10,35 @@
 const CLOUD_PRESETS_API = 'https://draw.velure.top/';
 const PLUGIN_KEY = 'xbaix';
 const ITEMS_PER_PAGE = 8;
+const PRESET_TYPE = 'novel-draw-preset';
+const CURRENT_PRESET_VERSION = 2;
+const LEGACY_UC_TO_V5 = Object.freeze({
+    0: 'heavy',
+    1: 'light',
+    2: 'humanFocus',
+    3: 'none',
+});
+const DEFAULT_PARAMS = Object.freeze({
+    model: 'nai-diffusion-4-5-full',
+    sampler: 'k_euler_ancestral',
+    scheduler: 'karras',
+    steps: 28,
+    scale: 6,
+    width: 1216,
+    height: 832,
+    seed: -1,
+    qualityToggle: true,
+    autoSmea: false,
+    ucPreset: 0,
+    cfg_rescale: 0,
+    v5QualityPresetId: 'standard',
+    v5UcPresetId: 'heavy',
+    transparentBackground: false,
+    variety_boost: false,
+    sm: false,
+    sm_dyn: false,
+    decrisper: false,
+});
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 状态
@@ -46,10 +77,6 @@ export async function downloadPreset(url) {
     
     const data = await response.json();
     
-    if (data.type !== 'novel-draw-preset' || !data.preset) {
-        throw new Error('无效的预设文件格式');
-    }
-    
     return data;
 }
 
@@ -57,22 +84,66 @@ export async function downloadPreset(url) {
 // 预设处理
 // ═══════════════════════════════════════════════════════════════════════════
 
+function requirePresetEnvelope(data) {
+    if (!data || typeof data !== 'object' || Array.isArray(data)
+        || data.type !== PRESET_TYPE
+        || !data.preset || typeof data.preset !== 'object' || Array.isArray(data.preset)) {
+        throw new Error('无效的预设文件格式');
+    }
+    const version = Number(data.version);
+    if (version !== 1 && version !== CURRENT_PRESET_VERSION) {
+        throw new Error(`不支持的参数预设版本：${data.version ?? '缺失'}`);
+    }
+    return version;
+}
+
+function normalizeImportedParams(rawParams, version, warnings) {
+    const importedParams = rawParams && typeof rawParams === 'object' && !Array.isArray(rawParams)
+        ? { ...rawParams }
+        : {};
+    const qualityToggle = importedParams.qualityToggle !== false;
+    const legacyUcPreset = [0, 1, 2, 3].includes(Number(importedParams.ucPreset))
+        ? Number(importedParams.ucPreset)
+        : 0;
+
+    if (version === 1) {
+        importedParams.v5QualityPresetId = qualityToggle ? 'standard' : 'none';
+        importedParams.v5UcPresetId = LEGACY_UC_TO_V5[legacyUcPreset];
+        importedParams.transparentBackground = false;
+        return { ...DEFAULT_PARAMS, ...importedParams };
+    }
+
+    if (importedParams.v5QualityPresetId != null
+        && !V5_QUALITY_IDS.includes(importedParams.v5QualityPresetId)) {
+        warnings.push('无法识别 V5 Quality，已使用 Standard');
+        importedParams.v5QualityPresetId = 'standard';
+    }
+    if (importedParams.v5UcPresetId != null
+        && !V5_UC_IDS.includes(importedParams.v5UcPresetId)) {
+        warnings.push('无法识别 V5 UC，已使用 Heavy');
+        importedParams.v5UcPresetId = 'heavy';
+    }
+    return { ...DEFAULT_PARAMS, ...importedParams };
+}
+
 export function parsePresetData(data, generateId) {
-    const DEFAULT_PARAMS = {
-        model: 'nai-diffusion-4-5-full',
-        sampler: 'k_euler_ancestral',
-        scheduler: 'karras',
-        steps: 28, scale: 6, width: 1216, height: 832, seed: -1,
-        qualityToggle: true, autoSmea: false, ucPreset: 0, cfg_rescale: 0,
-        variety_boost: false, sm: false, sm_dyn: false, decrisper: false,
-    };
-    
+    const version = requirePresetEnvelope(data);
+    if (typeof generateId !== 'function') throw new TypeError('generateId must be a function');
+    const warnings = [];
+    const importedParams = normalizeImportedParams(data.preset.params, version, warnings);
     return {
-        id: generateId(),
-        name: data.name || data.preset.name || '云端预设',
-        positivePrefix: data.preset.positivePrefix || '',
-        negativePrefix: data.preset.negativePrefix || '',
-        params: { ...DEFAULT_PARAMS, ...(data.preset.params || {}) }
+        preset: {
+            id: generateId(),
+            name: String(data.name || data.preset.name || '云端预设'),
+            positivePrefix: String(data.preset.positivePrefix || ''),
+            negativePrefix: String(data.preset.negativePrefix || ''),
+            maxImages: version === 1 ? 0 : Math.max(0, Number(data.preset.maxImages) || 0),
+            maxCharactersPerImage: version === 1
+                ? 0
+                : Math.max(0, Number(data.preset.maxCharactersPerImage) || 0),
+            params: importedParams,
+        },
+        warnings,
     };
 }
 
@@ -81,8 +152,8 @@ export function exportPreset(preset) {
     const description = prompt("简介 (画风介绍):", "") || "";
     
     return {
-        type: 'novel-draw-preset',
-        version: 1,
+        type: PRESET_TYPE,
+        version: CURRENT_PRESET_VERSION,
         exportDate: new Date().toISOString(),
         name: preset.name,
         author: author,
@@ -90,6 +161,8 @@ export function exportPreset(preset) {
         preset: {
             positivePrefix: preset.positivePrefix,
             negativePrefix: preset.negativePrefix,
+            maxImages: preset.maxImages || 0,
+            maxCharactersPerImage: preset.maxCharactersPerImage || 0,
             params: { ...preset.params }
         }
     };
@@ -633,6 +706,11 @@ function renderPage() {
                 }, 2000);
             } catch (err) {
                 console.error('[CloudPresets]', err);
+                const message = String(err?.message || '未知错误');
+                const errorElement = modalElement.querySelector('.cp-error');
+                errorElement.textContent = `导入失败：${message}`;
+                errorElement.style.display = 'block';
+                btn.title = message;
                 btn.classList.add('error');
                 // Template-only UI markup.
                 // eslint-disable-next-line no-unsanitized/property

@@ -105,36 +105,6 @@
 
 ---
 
-## 5×5 网格坐标 (center)
-画面分为 5×5 网格，列 A-E（左→右），行 1-5（上→下）：
-
-```text
-     A    B    C    D    E
-1   A1   B1   C1   D1   E1  ← 上
-2   A2   B2   C2   D2   E2
-3   A3   B3   C3   D3   E3  ← 中
-4   A4   B4   C4   D4   E4
-5   A5   B5   C5   D5   E5  ← 下
-```
-
-- C3 = 画面中心（默认/单人位置）
-- 坐标可重叠（如拥抱/亲吻）
-- 坐标应反映角色在画面中的实际位置
-- 仅在角色位置偏离中心时填写非 C3 坐标
-- 配角≤2: 各自独立 Character 条目，分别配置坐标
-- 配角＞2: 相邻位置分组合并，共用一个 Character 条目和坐标
-
----
-
-## Tag 配额
-Scene 与所有 Character 合计推荐 40~60 个正向 Tag/图（UC 不计入）：
-- Scene 通常分配 12~18 个
-- 单主角 Character 通常分配 22~32 个；双主角各约 12~18 个
-- 配角从剩余预算中精简分配，只保留可见且影响画面的特征
-- 因视角/遮挡节省的配额可重分配给可见高优先级区域，但总量仍须保持在 40~60 个
-
----
-
 ## 画面规范 & 物理约束
 
 ### 基本原则
@@ -168,19 +138,18 @@ Scene 与所有 Character 合计推荐 40~60 个正向 Tag/图（UC 不计入）
 
 ---
 
-## Tag 优化规则
+## Prompt 优化规则
+
+### 表达方式
+- 以当前模型提示词指南为准：静态身份、外貌、服装与画风可使用简洁 Tag；复杂动作、空间关系和多人互动可使用自然语言短句。
+- 不得为了追求 Tag 数量而重复同义内容，也不得把清晰的自然语言关系强制拆成失去主体归属的碎片。
+- 使用视觉 Tag 时以空格分词（pink hair，不写 pink_hair）；规范 danbooru 身份标签可保留下划线。
 
 ### 排序
-关联 Tag 相邻，按画面占比/重要性降序。顺序优先为：角色数量与身份、外貌、服装状态、动作/表情、互动、背景、光影、相机。
-
-### 碎片化拆解
-复合概念须拆为多个细分 Tag：
-- 月下 → moonlit, night, starry sky
-- 持剑战斗 → holding sword, drawing sword, dynamic pose, battle, fighting stance
-- 害羞 → shy, full face blush, wavy mouth, sweat, steam
+关联内容相邻，按画面占比/重要性降序。顺序优先为：角色数量与身份、外貌、服装状态、动作/表情、互动、背景、光影、相机。
 
 ### 权重调节
-格式: n::Tag::（NovelAI weight syntax）
+仅在使用 Tag 时按需采用 `n::Tag::`（NovelAI weight syntax）：
 - 强调（n=1.1~2）: 同人角色姓名/核心动作/低频/易忽略元素
 - 降低（n=0.4~0.9）: 次要/远景元素
 - 通用原则: 视觉占比/特征大小/累积状态/动作幅度/近大远小
@@ -198,8 +167,8 @@ Scene 与所有 Character 合计推荐 40~60 个正向 Tag/图（UC 不计入）
 ---
 
 ## 覆盖指令
-- 原创角色差异化（在 40~60 总预算内分配 4~8 个 Tag）: 差异化发型/身体/配饰配件
-- 增强表现力 & 微细节（在 40~60 总预算内分配 4~8 个 Tag）: 生理反应/粒子特效/环境元素/意境元素/拟声词
+- 原创角色差异化：使用足够辨识角色的发型、身体与配饰特征
+- 增强表现力与微细节：按画面需要补充生理反应、粒子特效、环境元素、意境元素或拟声词
 
 ---
 
@@ -230,5 +199,5 @@ Scene 与所有 Character 合计推荐 40~60 个正向 Tag/图（UC 不计入）
 - insert_after must be the number of an existing 【插图点 N】 marker in <content>
 - Known characters (已录入角色): submit name + danbooru + costume + action + interact + uc + center；type/appear 使用空字符串，系统从角色库注入；若提供服装参考，只把最终选定并按剧情调整后的当前服装写进 costume
 - Unknown characters: always submit ALL fields: name + danbooru + type + appear + costume + action + interact + uc + center
-- Tags use spaces not underscores in visual tags (pink hair, not pink_hair)；规范 danbooru 身份标签可保留下划线
+- Prompt 表达方式服从当前模型指南；使用视觉 Tag 时以空格分词，规范 danbooru 身份标签可保留下划线
 - 完成 `mindful_prelude` 和全部 `images` 后调用一次 `submit_scene_plan`

@@ -1,18 +1,26 @@
 import { extensionFolderPath } from "../../../../core/constants.js";
+import {
+    getNovelModelCapability,
+    getNovelScenePlannerContract,
+    NOVEL_PROMPT_GUIDES,
+} from './novel-model-capabilities.js';
 
-const TAG_GUIDE_PATH = `${extensionFolderPath}/modules/draw/providers/novelai/TAG编写指南.md`;
+const GUIDE_PATHS = Object.freeze({
+    [NOVEL_PROMPT_GUIDES.V45]: `${extensionFolderPath}/modules/draw/providers/novelai/TAG编写指南-V4.5.md`,
+    [NOVEL_PROMPT_GUIDES.V5]: `${extensionFolderPath}/modules/draw/providers/novelai/提示词编写指南-V5.md`,
+});
 const PROMPTS_DIR = `${extensionFolderPath}/modules/draw/providers/novelai/prompts`;
 
 /** 每次修改 LLM_PROMPT_CONFIG 内容时递增此版本号，触发默认预设自动更新 */
-const PROMPT_TEMPLATE_VERSION = 6;
+const PROMPT_TEMPLATE_VERSION = 7;
 
 let LLM_PROMPT_CONFIG = {
     topSystem: '',
     topSystemPov: '',
 
     assistantDoc: `
-Scene Planner:    
-Acknowledged. Now reviewing the following TAG writing specifications:
+Scene Planner:
+Acknowledged. Now reviewing the following guide for the currently selected image model:
 {$tagGuide}`,
 
     assistantAskBackground: `
@@ -62,31 +70,25 @@ I will complete mindful_prelude and all ordered images before submitting exactly
 
     userConfirm: `请依据全部规则完成观察与画面计划，并通过 submit_scene_plan 一次性提交。
 </Chat_History>`,
-
-    tagGuideContent: '',
 };
 
-let tagGuideContent = '';
+const promptGuides = new Map();
 
 /** 导出默认提示词配置（供 UI 显示默认值 / 重置） */
 export { LLM_PROMPT_CONFIG as DEFAULT_PROMPT_CONFIG, PROMPT_TEMPLATE_VERSION };
 
-export function getEffectiveTagGuide(customGuide) {
-    if (typeof customGuide === 'string' && customGuide.trim()) return customGuide;
-    return tagGuideContent;
-}
-
-/** 获取当前加载的默认 TAG 指南文本（供 UI 展示） */
-export function getLoadedTagGuide() {
-    return tagGuideContent;
+/** 获取当前模型的 Provider 指南。指南不是用户提示词预设的一部分。 */
+export function getLoadedTagGuide(model) {
+    const guideId = getNovelModelCapability(model).promptGuide;
+    return promptGuides.get(guideId) || '';
 }
 
 /**
  * 获取完整消息链的结构预览（只读，不替换变量）
  * 供 UI 展示实际请求结构：1 条 system + 1 条 user 任务；user 节点内部保留各顺序片段。
  */
-export function getPromptChainPreview(customPrompts) {
-    const hasTagGuide = !!getEffectiveTagGuide(customPrompts?.tagGuideContent);
+export function getPromptChainPreview(customPrompts, model) {
+    const hasTagGuide = !!getLoadedTagGuide(model);
     return [
         { role: 'system', key: 'topSystem', editable: true,
           summary: 'VSPF 框架 + Creative Director 角色定义（system）' },
@@ -95,7 +97,7 @@ export function getPromptChainPreview(customPrompts) {
             key: 'userTask',
             summary: '单条 user 任务（以下 Prompt sections 按顺序拼接）',
             sections: [
-                { key: 'assistantDoc', summary: 'TAG 编写指南确认' + (hasTagGuide ? ' (已注入)' : ' (未加载)') },
+                { key: 'assistantDoc', summary: '当前模型提示词指南' + (hasTagGuide ? ' (已注入)' : ' (未加载)') },
                 { key: 'assistantAskBackground', summary: '背景知识设定说明' },
                 {
                     key: 'userWorldInfo',
@@ -110,6 +112,11 @@ export function getPromptChainPreview(customPrompts) {
                     variables: ['{{characterInfo}} — 已知角色列表', '{{lastMessage}} — 小说原文'],
                 },
                 { key: 'sceneRules', editable: true, summary: '场景规划领域规则 + submit_scene_plan 字段语义' },
+                {
+                    key: 'modelContract',
+                    summary: '当前模型的坐标与角色数量契约（插件自动注入）',
+                    content: getNovelScenePlannerContract(model),
+                },
                 { key: 'assistantCheck', summary: '合规检查 + FICTIONAL_CREATIVE_WORK 确认' },
                 { key: 'userConfirm', summary: '强制一次 Tool 提交，并动态追加本次 images/characters 数量限制' },
             ],
@@ -118,20 +125,23 @@ export function getPromptChainPreview(customPrompts) {
 }
 
 export async function loadTagGuide() {
-    try {
-        const response = await fetch(TAG_GUIDE_PATH, { cache: 'no-cache' });
-        if (response.ok) {
-            tagGuideContent = await response.text();
-            LLM_PROMPT_CONFIG.tagGuideContent = tagGuideContent;
-            console.log('[NovelDraw Prompts] TAG编写指南已加载');
-            return true;
+    const results = await Promise.allSettled(Object.entries(GUIDE_PATHS).map(async ([guideId, path]) => {
+        const response = await fetch(path, { cache: 'no-cache' });
+        if (!response.ok) throw new Error(`${path}: ${response.status} ${response.statusText}`);
+        return [guideId, await response.text()];
+    }));
+    promptGuides.clear();
+    let allOk = true;
+    for (const result of results) {
+        if (result.status === 'fulfilled') {
+            promptGuides.set(result.value[0], result.value[1]);
+        } else {
+            allOk = false;
+            console.error('[NovelDraw Prompts] 模型提示词指南加载失败:', result.reason);
         }
-        console.warn('[NovelDraw Prompts] TAG编写指南加载失败:', response.status);
-        return false;
-    } catch (e) {
-        console.warn('[NovelDraw Prompts] 无法加载TAG编写指南:', e);
-        return false;
     }
+    if (allOk) console.log('[NovelDraw Prompts] V4.5 / V5 模型提示词指南已加载');
+    return allOk;
 }
 
 /**
