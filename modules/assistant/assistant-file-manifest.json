@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-21T18:23:58.942Z",
+  "generatedAt": "2026-08-21T18:38:58.744Z",
   "version": 2,
   "files": [
     {
@@ -7,7 +7,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/bridges/call-generate-service.js",
       "relativePath": "bridges/call-generate-service.js",
       "extension": ".js",
-      "sizeBytes": 80532
+      "sizeBytes": 78818
     },
     {
       "source": "littlewhitebox",
@@ -21,14 +21,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/bridges/worldbook-bridge.js",
       "relativePath": "bridges/worldbook-bridge.js",
       "extension": ".js",
-      "sizeBytes": 39150
+      "sizeBytes": 38247
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/bridges/wrapper-iframe.js",
       "relativePath": "bridges/wrapper-iframe.js",
       "extension": ".js",
-      "sizeBytes": 5360
+      "sizeBytes": 5276
     },
     {
       "source": "littlewhitebox",
@@ -42,7 +42,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/core/constants.js",
       "relativePath": "core/constants.js",
       "extension": ".js",
-      "sizeBytes": 506
+      "sizeBytes": 502
     },
     {
       "source": "littlewhitebox",
@@ -91,7 +91,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/core/slash-command.js",
       "relativePath": "core/slash-command.js",
       "extension": ".js",
-      "sizeBytes": 1251
+      "sizeBytes": 1221
     },
     {
       "source": "littlewhitebox",
@@ -819,7 +819,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/assistant-file-manifest.json",
       "relativePath": "modules/assistant/assistant-file-manifest.json",
       "extension": ".json",
-      "sizeBytes": 360400
+      "sizeBytes": 360399
     },
     {
       "source": "littlewhitebox",
@@ -6363,7 +6363,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/settings.html",
       "relativePath": "settings.html",
       "extension": ".html",
-      "sizeBytes": 37706
+      "sizeBytes": 37351
     },
     {
       "source": "littlewhitebox",
@@ -6419,7 +6419,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/style.css",
       "relativePath": "style.css",
       "extension": ".css",
-      "sizeBytes": 10175
+      "sizeBytes": 9776
     },
     {
       "source": "littlewhitebox",
