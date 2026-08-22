@@ -10,8 +10,21 @@ import {
     buildAgentSettingsPanelMarkup,
     syncAgentSettingsPanelFeedback,
 } from '../../agent-core/ui/settings-markup.js';
+import { setHostChatCompletionsRequestHeadersProvider } from '../../../shared/host-llm/chat-completions/client.js';
 
 const SAVE_STATE_RESET_MS = 1800;
+let hostModulePromise = null;
+
+async function getHostRequestHeaders() {
+    hostModulePromise ||= import('../../../../../../../script.js');
+    try {
+        const hostModule = await hostModulePromise;
+        return hostModule.getRequestHeaders();
+    } catch (error) {
+        hostModulePromise = null;
+        throw error;
+    }
+}
 
 function describeError(error) {
     return error instanceof Error ? error.message : String(error || 'unknown_error');
@@ -60,6 +73,9 @@ export function buildDrawAgentSettingsSurfaceMarkup(state = {}) {
 export function createDrawAgentSettingsSurface(options = {}) {
     const getRoot = options.getRoot;
     const source = String(options.source || 'draw-agent-settings');
+    setHostChatCompletionsRequestHeadersProvider(
+        options.requestHeadersProvider || getHostRequestHeaders,
+    );
     const saveStateResetMs = Number.isFinite(Number(options.saveStateResetMs))
         ? Math.max(0, Number(options.saveStateResetMs))
         : SAVE_STATE_RESET_MS;

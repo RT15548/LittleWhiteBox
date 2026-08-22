@@ -11,8 +11,12 @@ const GUIDE_PATHS = Object.freeze({
 });
 const PROMPTS_DIR = `${extensionFolderPath}/modules/draw/providers/novelai/prompts`;
 
-/** 每次修改 LLM_PROMPT_CONFIG 内容时递增此版本号，触发默认预设自动更新 */
-const PROMPT_TEMPLATE_VERSION = 7;
+/**
+ * 每次修改 prompts/ 下的模板内容时递增此版本号，触发未被用户编辑的默认预设自动更新。
+ * 递增前必须先算出旧内容的指纹，并加进 novel-prompt-migration.js 的
+ * RELEASED_DEFAULT_FINGERPRINTS —— 只 bump 不记指纹会让该版本用户永远停在旧提示词。
+ */
+const PROMPT_TEMPLATE_VERSION = 8;
 
 let LLM_PROMPT_CONFIG = {
     topSystem: '',

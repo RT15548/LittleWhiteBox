@@ -14,7 +14,7 @@
 - 纯风景、物体或建筑主体：使用 `characters: []`，不要虚构人物。
 - 已录入角色：`name` 使用提供的规范名，即使原文使用别名也要归一；`type` 与 `appear` 提交空字符串；其余字段完整提交。
 - 未知角色：`type` 必须是 girl / boy / woman / man / other，`appear` 必须填写可见外貌。
-- 不得提交根级或图片级 `negative`；整图负面由用户预设负责，角色级互斥只写入 `uc`。
+- 不得提交根级或图片级 `negative`；角色级互斥只写入 `uc`。
 - `insert_after` 是本图在正文中的插图位置：`<content>` 里每个可插图的位置都已预标注为 `【插图点 N】`，选择本图画面发生处之后最近的那个编号，填整数 N；多张图必须按阅读顺序选择严格递增且不重复的编号；不要复制原文句子。
 
 ---
@@ -197,7 +197,7 @@
 
 ## NOTED
 - insert_after must be the number of an existing 【插图点 N】 marker in <content>
-- Known characters (已录入角色): submit name + danbooru + costume + action + interact + uc + center；type/appear 使用空字符串，系统从角色库注入；若提供服装参考，只把最终选定并按剧情调整后的当前服装写进 costume
+- Known characters (已录入角色): submit name + danbooru + costume + action + interact + uc + center；type/appear 使用空字符串——该角色的外貌已在【已录入角色】中给出；若提供服装参考，只把最终选定并按剧情调整后的当前服装写进 costume
 - Unknown characters: always submit ALL fields: name + danbooru + type + appear + costume + action + interact + uc + center
 - Prompt 表达方式服从当前模型指南；使用视觉 Tag 时以空格分词，规范 danbooru 身份标签可保留下划线
 - 完成 `mindful_prelude` 和全部 `images` 后调用一次 `submit_scene_plan`

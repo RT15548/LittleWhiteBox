@@ -73,6 +73,25 @@ export const DEFAULT_MESSAGE_FILTER_RULES = [
     { start: '',           end: '</think>' },
 ];
 
+export function toScenePlannerProgress(diagnostic = {}) {
+    const progress = diagnostic?.progress && typeof diagnostic.progress === 'object'
+        ? diagnostic.progress
+        : {};
+    const total = Math.max(1, Math.floor(Number(progress.total) || 3));
+    const current = Math.min(total, Math.max(1, Math.floor(Number(progress.current) || 1)));
+    return {
+        phase: progress.phase === 'correction' ? 'correction' : 'analysis',
+        current,
+        total,
+    };
+}
+
+export function formatScenePlannerProgress(progress = {}) {
+    const normalized = toScenePlannerProgress({ progress });
+    const label = normalized.phase === 'correction' ? '纠错' : '分析';
+    return `${label} ${normalized.current}/${normalized.total}`;
+}
+
 export function createPlaceholder(slotId) {
     return `[image:${slotId}]`;
 }

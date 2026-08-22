@@ -24,6 +24,14 @@ import { resolveResultToolCalls } from '../../agent-core/runtime/protocol.js';
 import { pullModelsForProvider } from '../../agent-core/ui/settings-panel.js';
 import { buildNativeMessages } from '../../agent-core/adapters/openai-compatible.js';
 
+test.beforeEach(() => {
+    setHostChatCompletionsRequestHeadersProvider(() => ({}));
+});
+
+test.afterEach(() => {
+    setHostChatCompletionsRequestHeadersProvider(null);
+});
+
 test('SillyTavern hosted Claude and Google always include and deduplicate systemPrompt', () => {
     for (const Adapter of [SillyTavernClaudeAdapter, SillyTavernGoogleAdapter]) {
         const adapter = new Adapter({ model: 'hosted-model' });
@@ -1753,6 +1761,26 @@ test('host OpenAI-compatible requests include injected SillyTavern CSRF headers'
         }]);
     } finally {
         setHostChatCompletionsRequestHeadersProvider(null);
+        globalThis.fetch = originalFetch;
+    }
+});
+
+test('host OpenAI-compatible requests fail before fetch when request headers are not registered', async () => {
+    const originalFetch = globalThis.fetch;
+    let fetchCalled = false;
+    setHostChatCompletionsRequestHeadersProvider(null);
+    globalThis.fetch = async () => {
+        fetchCalled = true;
+        return createJsonResponse({ data: [] });
+    };
+
+    try {
+        await assert.rejects(
+            () => fetchHostOpenAICompatibleModels({}),
+            /宿主请求头未注册，无法调用酒馆后端。/,
+        );
+        assert.equal(fetchCalled, false);
+    } finally {
         globalThis.fetch = originalFetch;
     }
 });

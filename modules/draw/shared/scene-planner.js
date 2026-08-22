@@ -347,7 +347,8 @@ export async function buildScenePlannerTask(options = {}) {
 }
 
 export async function generateAndParseScenePlan(options = {}) {
-    const diagnostic = options.diagnostic || beginDrawScenePlannerDiagnostic();
+    const diagnostic = options.diagnostic
+        || beginDrawScenePlannerDiagnostic({}, options.onDiagnosticUpdate);
     let request;
     try {
         request = await buildScenePlannerRequest(options);

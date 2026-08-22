@@ -1,7 +1,7 @@
 {
     "id": "littlewhitebox-nai",
     "name": "LittleWhiteBox NovelAI Backend Proxy",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "author": "LittleWhiteBox",
     "description": "SillyTavern 后端转发插件：为 LittleWhiteBox 绘图模块的 NovelAI 图片生成提供后端代发，绕过浏览器 CORS 与自签证书限制。"
 }

@@ -54,15 +54,15 @@ export function getNovelModelCapabilitiesForUi() {
 export function getNovelScenePlannerContract(model) {
     const capability = getNovelModelCapability(model);
     if (capability.centerMode === 'normalized') {
-        return `## 当前模型提交契约（插件注入，不属于用户预设）
+        return `## 角色坐标契约
 
 - characters[].center 必须提交归一化坐标对象 { "x": 0..1, "y": 0..1 }。
 - 左上角是 (0, 0)，右下角是 (1, 1)，画面中心是 (0.5, 0.5)。
-- 坐标应表达角色在最终画面中的实际中心，可重叠；不要输出 A1-E5 网格字符串。
-- 每个实际可见角色必须对应一个独立的 characters[] 条目；不得沿用旧版网格规则合并多个角色。
+- 坐标应表达角色在最终画面中的实际中心，可重叠。
+- 每个实际可见角色必须对应一个独立的 characters[] 条目。
 - 每张图最多 ${capability.maxCharactersPerImage} 个角色条目；不要为了填满上限而虚构角色。`;
     }
-    return `## 当前模型提交契约（插件注入，不属于用户预设）
+    return `## 角色坐标契约
 
 - characters[].center 必须提交 A1-E5 的 5×5 网格字符串。
 - 列 A-E 从左到右，行 1-5 从上到下；C3 是画面中心。

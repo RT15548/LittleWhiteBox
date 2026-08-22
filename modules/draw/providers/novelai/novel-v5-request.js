@@ -20,6 +20,64 @@ export const V5_UC_PRESETS = Object.freeze({
 export const V5_QUALITY_IDS = Object.freeze(Object.keys(V5_QUALITY_PRESETS));
 export const V5_UC_IDS = Object.freeze(Object.keys(V5_UC_PRESETS));
 
+const MAX_SEED = 0xFFFFFFFF;
+
+export class NovelV5RequestError extends Error {
+    constructor(message, code = 'V5_REQUEST_INVALID') {
+        super(message);
+        this.name = 'NovelV5RequestError';
+        this.code = code;
+    }
+}
+
+function normalizeNumber(value, name, fallback, {
+    integer = false,
+    min = -Infinity,
+    max = Infinity,
+} = {}) {
+    if (value === undefined) return fallback;
+    if (value === null || (typeof value === 'string' && !value.trim())) {
+        throw new NovelV5RequestError(`NovelAI V5 ${name} 不能为空`);
+    }
+    const normalized = Number(value);
+    if (!Number.isFinite(normalized)
+        || (integer && !Number.isInteger(normalized))
+        || normalized < min
+        || normalized > max) {
+        const range = Number.isFinite(min) || Number.isFinite(max)
+            ? `，范围 ${Number.isFinite(min) ? min : '-∞'}～${Number.isFinite(max) ? max : '+∞'}`
+            : '';
+        throw new NovelV5RequestError(
+            `NovelAI V5 ${name} 必须是${integer ? '整数' : '有限数字'}${range}`,
+        );
+    }
+    return normalized;
+}
+
+function normalizeRequiredText(value, name, fallback) {
+    const normalized = value === undefined ? fallback : String(value).trim();
+    if (!normalized) throw new NovelV5RequestError(`NovelAI V5 ${name} 不能为空`);
+    return normalized;
+}
+
+function normalizeCharacterCenter(center, index) {
+    if (center === undefined || center === null) return { x: 0.5, y: 0.5 };
+    if (typeof center !== 'object' || Array.isArray(center)) {
+        throw new NovelV5RequestError(`NovelAI V5 第 ${index + 1} 个角色的 center 必须是坐标对象`);
+    }
+    if (center.x === null || center.y === null
+        || (typeof center.x === 'string' && !center.x.trim())
+        || (typeof center.y === 'string' && !center.y.trim())) {
+        throw new NovelV5RequestError(`NovelAI V5 第 ${index + 1} 个角色的 center.x/y 不能为空`);
+    }
+    const x = Number(center.x);
+    const y = Number(center.y);
+    if (!Number.isFinite(x) || x < 0 || x > 1 || !Number.isFinite(y) || y < 0 || y > 1) {
+        throw new NovelV5RequestError(`NovelAI V5 第 ${index + 1} 个角色的 center.x/y 必须在 0～1`);
+    }
+    return { x, y };
+}
+
 function normalizePresetId(value, allowed, fallback) {
     const id = String(value || '');
     return allowed.includes(id) ? id : fallback;
@@ -52,17 +110,43 @@ export function appendV5AutomaticPrompt(scene, suffixes = []) {
 }
 
 export function buildNovelV5RequestBody({ scene, characterPrompts = [], negativePrompt, params = {}, seed }) {
-    const model = String(params.model || NOVEL_MODEL_IDS.V5_FULL).trim();
+    if (!params || typeof params !== 'object' || Array.isArray(params)) {
+        throw new NovelV5RequestError('NovelAI V5 params 必须是对象');
+    }
+    const model = normalizeRequiredText(params.model, 'model', NOVEL_MODEL_IDS.V5_FULL);
     const capability = getNovelModelCapability(model);
     if (capability.family !== 'v5') {
-        throw new TypeError(`NovelAI V5 请求不支持模型：${model}`);
+        throw new NovelV5RequestError(`NovelAI V5 请求不支持模型：${model}`, 'V5_MODEL_UNSUPPORTED');
     }
     if (!Array.isArray(characterPrompts)) {
-        throw new TypeError('NovelAI V5 characterPrompts 必须是数组');
+        throw new NovelV5RequestError('NovelAI V5 characterPrompts 必须是数组');
     }
     if (characterPrompts.length > capability.maxCharactersPerImage) {
-        throw new RangeError(`NovelAI V5 每张图最多支持 ${capability.maxCharactersPerImage} 个角色提示词`);
+        throw new NovelV5RequestError(
+            `NovelAI V5 每张图最多支持 ${capability.maxCharactersPerImage} 个角色提示词`,
+            'V5_CHARACTER_LIMIT_EXCEEDED',
+        );
     }
+    characterPrompts.forEach((character, index) => {
+        if (!character || typeof character !== 'object' || Array.isArray(character)) {
+            throw new NovelV5RequestError(`NovelAI V5 第 ${index + 1} 个角色提示词必须是对象`);
+        }
+    });
+    const width = normalizeNumber(params.width, 'width', 832, { integer: true, min: 1 });
+    const height = normalizeNumber(params.height, 'height', 1216, { integer: true, min: 1 });
+    const scale = normalizeNumber(params.scale, 'scale', 7, { min: 0 });
+    const steps = normalizeNumber(params.steps, 'steps', 23, { integer: true, min: 1 });
+    const cfgRescale = normalizeNumber(params.cfg_rescale, 'cfg_rescale', 0, { min: 0, max: 1 });
+    const normalizedSeed = normalizeNumber(seed, 'seed', undefined, {
+        integer: true,
+        min: 0,
+        max: MAX_SEED,
+    });
+    if (normalizedSeed === undefined) {
+        throw new NovelV5RequestError('NovelAI V5 seed 不能为空');
+    }
+    const sampler = normalizeRequiredText(params.sampler, 'sampler', 'k_euler_ancestral');
+    const scheduler = normalizeRequiredText(params.scheduler, 'scheduler', 'karras');
     const qualityPresetId = normalizePresetId(
         params.v5QualityPresetId,
         V5_QUALITY_IDS,
@@ -82,7 +166,7 @@ export function buildNovelV5RequestBody({ scene, characterPrompts = [], negative
         V5_UC_PRESETS[ucPresetId],
         negativePrompt,
     );
-    const centers = characterPrompts.map((character) => character?.center || { x: 0.5, y: 0.5 });
+    const centers = characterPrompts.map((character, index) => normalizeCharacterCenter(character.center, index));
     const charCaptions = characterPrompts.map((character, index) => ({
         char_caption: String(character?.prompt || ''),
         centers: [centers[index]],
@@ -98,11 +182,11 @@ export function buildNovelV5RequestBody({ scene, characterPrompts = [], negative
         action: 'generate',
         parameters: {
             params_version: 4,
-            width: Number(params.width) || 832,
-            height: Number(params.height) || 1216,
-            scale: Number.isFinite(Number(params.scale)) ? Number(params.scale) : 7,
-            sampler: String(params.sampler || 'k_euler_ancestral'),
-            steps: Number(params.steps) > 0 ? Math.floor(Number(params.steps)) : 23,
+            width,
+            height,
+            scale,
+            sampler,
+            steps,
             n_samples: 1,
             ucPresetId,
             qualityPresetId,
@@ -111,13 +195,13 @@ export function buildNovelV5RequestBody({ scene, characterPrompts = [], negative
             controlnet_strength: 1,
             legacy: false,
             add_original_image: true,
-            cfg_rescale: Number.isFinite(Number(params.cfg_rescale)) ? Number(params.cfg_rescale) : 0,
+            cfg_rescale: cfgRescale,
             legacy_v3_extend: false,
             use_coords: true,
             legacy_uc: false,
             normalize_reference_strength_multiple: true,
             inpaintImg2ImgStrength: 1,
-            seed,
+            seed: normalizedSeed,
             characterPrompts: characterPrompts.map((character, index) => ({
                 prompt: String(character?.prompt || ''),
                 uc: String(character?.uc || ''),
@@ -144,10 +228,27 @@ export function buildNovelV5RequestBody({ scene, characterPrompts = [], negative
             negative_prompt: fullNegativePrompt,
             deliberate_euler_ancestral_bug: false,
             prefer_brownian: true,
-            noise_schedule: String(params.scheduler || 'karras'),
+            noise_schedule: scheduler,
             image_format: 'png',
             stream: 'msgpack',
         },
         use_new_shared_trial: true,
     };
+}
+
+export function buildNovelV5ProbeRequest(model) {
+    return buildNovelV5RequestBody({
+        scene: 'test',
+        characterPrompts: [],
+        negativePrompt: '',
+        params: {
+            model,
+            width: 64,
+            height: 64,
+            steps: 1,
+            v5QualityPresetId: 'none',
+            v5UcPresetId: 'none',
+        },
+        seed: 1,
+    });
 }

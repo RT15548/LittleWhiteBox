@@ -1,6 +1,6 @@
 // Upgrade boundary for prompt formats that have actually shipped.
 // - upstream config v7 / prompt template v4: YAML-era preset fields.
-// - test-line prompt template v6: Tool-era defaults before model-aware guides.
+// - prompt template v6 and v7: Tool-era defaults, refreshed by content fingerprint.
 // Remove the corresponding branch when that released input version is no longer supported.
 const UPSTREAM_V4_PROMPT_FINGERPRINTS = Object.freeze({
     topSystem: '1280:7fa69e8a:fea74076',
@@ -10,11 +10,29 @@ const UPSTREAM_V4_PROMPT_FINGERPRINTS = Object.freeze({
     legacyUserJsonFormat: '2280:fbc8792d:9d385adb',
 });
 
-const TEST_LINE_V6_PROMPT_FINGERPRINTS = Object.freeze({
-    topSystem: '1335:95ec8984:6cb7d872',
-    topSystemPov: '2728:5de1f375:aa983a63',
-    sceneRules: '6694:22e2f5a9:3182133f',
+// Fingerprints of every prompt template that has shipped as a system default.
+// A stored preset whose text matches one of these was never edited by the user,
+// so it is safe to replace with the current template. Add a new entry whenever
+// PROMPT_TEMPLATE_VERSION is raised; drop one only when that release is no
+// longer supported as an upgrade source.
+const RELEASED_DEFAULT_FINGERPRINTS = Object.freeze({
+    v6: Object.freeze({
+        topSystem: '1335:95ec8984:6cb7d872',
+        topSystemPov: '2728:5de1f375:aa983a63',
+        sceneRules: '6694:22e2f5a9:3182133f',
+    }),
+    v7: Object.freeze({
+        topSystem: '1282:6c808dfd:a5791513',
+        topSystemPov: '2675:92ce74f2:2b4942b4',
+        sceneRules: '6018:8b967159:baab550f',
+    }),
 });
+
+const RELEASED_DEFAULT_SETS = Object.freeze(Object.values(RELEASED_DEFAULT_FINGERPRINTS));
+
+function isReleasedDefault(fingerprint, field) {
+    return RELEASED_DEFAULT_SETS.some((released) => released[field] === fingerprint);
+}
 
 const UPSTREAM_MANAGED_PRESETS = Object.freeze({
     '默认-模型要求高': { name: '默认-完整规则', pov: false },
@@ -100,8 +118,8 @@ function convertUpstreamV4Preset(preset, currentDefaults) {
     };
 }
 
-function migrateTestLineV6Defaults(presets, storedTemplateVersion, currentDefaults) {
-    if (Number(storedTemplateVersion) >= 7) {
+function refreshReleasedDefaultPresets(presets, storedTemplateVersion, targetVersion, currentDefaults) {
+    if (Number(storedTemplateVersion) >= targetVersion) {
         return { presets, migrated: false };
     }
 
@@ -110,14 +128,14 @@ function migrateTestLineV6Defaults(presets, storedTemplateVersion, currentDefaul
         if (!preset || typeof preset !== 'object') return preset;
         const copy = { ...preset };
         const topFingerprint = promptFingerprint(copy.topSystem);
-        if (topFingerprint === TEST_LINE_V6_PROMPT_FINGERPRINTS.topSystem) {
+        if (isReleasedDefault(topFingerprint, 'topSystem')) {
             copy.topSystem = currentDefaults.topSystem;
             migrated = true;
-        } else if (topFingerprint === TEST_LINE_V6_PROMPT_FINGERPRINTS.topSystemPov) {
+        } else if (isReleasedDefault(topFingerprint, 'topSystemPov')) {
             copy.topSystem = currentDefaults.topSystemPov;
             migrated = true;
         }
-        if (promptFingerprint(copy.sceneRules) === TEST_LINE_V6_PROMPT_FINGERPRINTS.sceneRules) {
+        if (isReleasedDefault(promptFingerprint(copy.sceneRules), 'sceneRules')) {
             copy.sceneRules = currentDefaults.sceneRules;
             migrated = true;
         }
@@ -132,8 +150,11 @@ function migrateTestLineV6Defaults(presets, storedTemplateVersion, currentDefaul
  */
 export function migrateLegacyNovelPromptPresets(
     presets,
-    { configVersion = 0, templateVersion = 0, currentDefaults } = {},
+    { configVersion = 0, templateVersion = 0, targetVersion, currentDefaults } = {},
 ) {
+    if (!Number.isInteger(targetVersion) || targetVersion <= 0) {
+        throw new TypeError('targetVersion is required');
+    }
     if (!Array.isArray(presets)) {
         return {
             presets,
@@ -160,26 +181,28 @@ export function migrateLegacyNovelPromptPresets(
         });
     }
 
-    const testLineMigration = migrateTestLineV6Defaults(
+    const defaultRefresh = refreshReleasedDefaultPresets(
         converted,
         templateVersion,
+        targetVersion,
         currentDefaults,
     );
-    const migrated = upstreamPresetCount > 0 || testLineMigration.migrated;
+    const migrated = upstreamPresetCount > 0 || defaultRefresh.migrated;
     return {
-        presets: testLineMigration.presets,
-        templateVersion: 7,
+        presets: defaultRefresh.presets,
+        templateVersion: targetVersion,
         migrated,
         upstreamPresetCount,
         customPresetCount,
     };
 }
 
-export function migrateLegacyNovelPromptSettings(saved, currentDefaults) {
+export function migrateLegacyNovelPromptSettings(saved, currentDefaults, targetVersion) {
     const source = saved && typeof saved === 'object' && !Array.isArray(saved) ? saved : {};
     const result = migrateLegacyNovelPromptPresets(source.promptPresets, {
         configVersion: source.configVersion,
         templateVersion: source._promptTemplateVersion,
+        targetVersion,
         currentDefaults,
     });
     if (!result.migrated && result.templateVersion === (Number(source._promptTemplateVersion) || 0)) {

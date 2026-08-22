@@ -19,6 +19,10 @@ import {
     publishSharedAgentSettingsChanged,
     saveSharedAgentSettings,
 } from '../../../agent-core/settings-repository.js';
+import {
+    fetchHostOpenAICompatibleModels,
+    setHostChatCompletionsRequestHeadersProvider,
+} from '../../../../shared/host-llm/chat-completions/client.js';
 
 function buildStoredSettings(overrides = {}) {
     return {
@@ -602,6 +606,31 @@ test('draw Agent API performs a real DOM mount, edit, save, and local feedback r
     } finally {
         surface.destroy();
         dom.restore();
+    }
+});
+
+test('draw Agent API registers host request headers for its model pull client', async () => {
+    const originalFetch = globalThis.fetch;
+    const requests = [];
+    globalThis.fetch = async (_url, options = {}) => {
+        requests.push(options.headers);
+        return {
+            ok: true,
+            status: 200,
+            text: async () => JSON.stringify({ data: [] }),
+        };
+    };
+    const surface = createDrawAgentSettingsSurface({
+        requestHeadersProvider: () => ({ 'X-CSRF-Token': 'draw-settings-token' }),
+    });
+
+    try {
+        await fetchHostOpenAICompatibleModels({});
+        assert.equal(requests[0]['X-CSRF-Token'], 'draw-settings-token');
+    } finally {
+        surface.destroy();
+        setHostChatCompletionsRequestHeadersProvider(null);
+        globalThis.fetch = originalFetch;
     }
 });
 

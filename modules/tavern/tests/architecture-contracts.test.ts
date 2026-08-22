@@ -1568,7 +1568,7 @@ test('tavern user host bridge stays separate from context assembly', () => {
     assert.match(appSource, /const hostBridge = useTavernHostBridge\(\{/);
     assert.doesNotMatch(appSource, /const pendingHostRequests|function requestHost|function postToHost|function resolveHostRequest/);
     assert.match(hostBridgeSource, /const pendingHostRequests = new Map<string, PendingHostRequest>\(\);/);
-    assert.match(hostBridgeSource, /function requestHost\(type: string, payload: Record<string, unknown> = \{\}, requestOptions: \{ signal\?: AbortSignal; requestId\?: string \} = \{\}\)/);
+    assert.match(hostBridgeSource, /function requestHost\(type: string, payload: Record<string, unknown> = \{\}, requestOptions: \{ signal\?: AbortSignal; requestId\?: string; timeoutMs\?: number \| null \} = \{\}\)/);
     assert.match(hostBridgeSource, /function onHostMessage\(event: MessageEvent\) \{[\s\S]*if \(event\.origin !== window\.location\.origin\) \{return;\}[\s\S]*if \(data\.source !== SOURCE_HOST\) \{return;\}/);
     assert.match(hostBridgeSource, /if \(data\.type === 'xb-tavern:host-result'\) \{[\s\S]*resolveHostRequest\(data\.payload \|\| \{\}\);[\s\S]*return;/);
     assert.match(hostBridgeSource, /for \(const handler of messageHandlers\) \{[\s\S]*if \(handler\(data\)\) \{return;\}/);
@@ -2184,7 +2184,7 @@ test('tavern draw jobs are message-queued and route progress by host request', (
     assert.doesNotMatch(appSource, /drawingMessageKey|drawStatusMessageKey/);
 
     const hostBridgeSource = readRepoFile('modules/tavern/app-src/features/host-bridge/useTavernHostBridge.ts');
-    assert.match(hostBridgeSource, /function requestHost\(type: string, payload: Record<string, unknown> = \{\}, requestOptions: \{ signal\?: AbortSignal; requestId\?: string \} = \{\}\)/);
+    assert.match(hostBridgeSource, /function requestHost\(type: string, payload: Record<string, unknown> = \{\}, requestOptions: \{ signal\?: AbortSignal; requestId\?: string; timeoutMs\?: number \| null \} = \{\}\)/);
     assert.match(hostBridgeSource, /const requestId = String\(requestOptions\.requestId \|\| ''\)\.trim\(\) \|\| createHostRequestId\(\);/);
     assert.match(drawSource, /const requestId = options\.createHostRequestId\('draw'\);[\s\S]*drawRequestJobKeys\.set\(requestId, jobKey\);[\s\S]*options\.requestHost\('xb-tavern:draw-generate'[\s\S]*\{ signal: controller\.signal, requestId \}/);
 

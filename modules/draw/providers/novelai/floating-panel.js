@@ -12,6 +12,7 @@ import {
     classifyError,
 } from './novel-draw.js';
 import { registerToToolbar, removeFromToolbar } from '../../../../widgets/message-toolbar.js';
+import { formatScenePlannerProgress } from '../../shared/draw-common.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 常量
@@ -664,9 +665,9 @@ function setFloorState(messageId, state, data = {}) {
             break;
         case FloatState.LLM:
             el.classList.add('working');
-            panelData.result.startTime = Date.now();
+            if (!panelData.result.startTime) panelData.result.startTime = Date.now();
             if (statusIcon) { statusIcon.textContent = '⏳'; statusIcon.className = 'nd-status-icon nd-spin'; }
-            if (statusText) statusText.textContent = '分析';
+            if (statusText) statusText.textContent = formatScenePlannerProgress(data);
             break;
         case FloatState.GEN:
             el.classList.add('working');
@@ -769,7 +770,7 @@ async function handleFloorDrawClick(messageId) {
             onStateChange: (state, data) => {
                 switch (state) {
                     case 'queued': setFloorState(messageId, FloatState.QUEUED, data); break;
-                    case 'llm': setFloorState(messageId, FloatState.LLM); break;
+                    case 'llm': setFloorState(messageId, FloatState.LLM, data); break;
                     case 'gen': setFloorState(messageId, FloatState.GEN, data); break;
                     case 'progress': setFloorState(messageId, FloatState.GEN, data); break;
                     case 'cooldown': setFloorState(messageId, FloatState.COOLDOWN, data); break;
@@ -1121,10 +1122,10 @@ function setFloatingState(state, data = {}) {
             break;
         case FloatState.LLM:
             floatingEl.classList.add('working');
-            floatingResult.startTime = Date.now();
+            if (!floatingResult.startTime) floatingResult.startTime = Date.now();
             statusIcon.textContent = '⏳';
             statusIcon.className = 'nd-status-icon nd-spin';
-            statusText.textContent = '分析';
+            statusText.textContent = formatScenePlannerProgress(data);
             break;
         case FloatState.GEN:
             floatingEl.classList.add('working');
@@ -1282,7 +1283,7 @@ async function handleFloatingDrawClick() {
             onStateChange: (state, data) => {
                 switch (state) {
                     case 'queued': setFloatingState(FloatState.QUEUED, data); break;
-                    case 'llm': setFloatingState(FloatState.LLM); break;
+                    case 'llm': setFloatingState(FloatState.LLM, data); break;
                     case 'gen': setFloatingState(FloatState.GEN, data); break;
                     case 'progress': setFloatingState(FloatState.GEN, data); break;
                     case 'cooldown': setFloatingState(FloatState.COOLDOWN, data); break;

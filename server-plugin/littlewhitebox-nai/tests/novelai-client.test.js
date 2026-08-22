@@ -19,6 +19,27 @@ let slowRequestHooks = null;
 let crossOriginTarget = '';
 let lastStreamRequest = null;
 
+async function invokeRoute(handler, body) {
+    const req = new EventEmitter();
+    req.aborted = false;
+    req.destroyed = false;
+    req.body = body;
+    const res = new EventEmitter();
+    res.destroyed = false;
+    res.writableEnded = false;
+    res.status = status => {
+        res.statusCode = status;
+        return res;
+    };
+    res.send = responseBody => {
+        res.writableEnded = true;
+        res.body = responseBody;
+        return res;
+    };
+    await handler(req, res);
+    return res;
+}
+
 before(async () => {
     server = http.createServer((req, res) => {
         upstreamRequests++;
@@ -100,7 +121,7 @@ after(async () => {
 
 test('follows bounded same-origin redirects and preserves image MIME', async () => {
     const result = await generateImage({
-        baseUrl: `${origin}/redirect`,
+        url: `${origin}/redirect/ai/generate-image`,
         key: 'key',
         payload: {},
         insecure: false,
@@ -113,7 +134,7 @@ test('follows bounded same-origin redirects and preserves image MIME', async () 
 
 test('decodes gzip responses from non-compliant upstreams', async () => {
     const result = await generateImage({
-        baseUrl: `${origin}/gzip`,
+        url: `${origin}/gzip/ai/generate-image`,
         key: 'key',
         payload: {},
         insecure: false,
@@ -126,7 +147,7 @@ test('decodes gzip responses from non-compliant upstreams', async () => {
 
 test('decodes deflate responses from non-compliant upstreams', async () => {
     const result = await generateImage({
-        baseUrl: `${origin}/deflate`,
+        url: `${origin}/deflate/ai/generate-image`,
         key: 'key',
         payload: {},
         insecure: false,
@@ -164,12 +185,17 @@ test('sends V5 as multipart request JSON and exposes the upstream stream unchang
 });
 
 test('tests the selected V5 transport instead of falling back to the V3 JSON endpoint', async () => {
+    const payload = {
+        input: 'test',
+        model: 'nai-diffusion-5-curated',
+        parameters: { params_version: 4, stream: 'msgpack' },
+    };
     const result = await testConnection({
-        baseUrl: `${origin}/v5`,
+        url: `${origin}/v5/ai/generate-image-stream`,
         key: 'v5-test-key',
         insecure: false,
-        transport: 'msgpack-stream',
-        model: '  nai-diffusion-5-curated  ',
+        payload,
+        multipart: true,
     });
 
     assert.equal(result.ok, true);
@@ -222,7 +248,7 @@ test('advertises and proxies the V5 MessagePack stream route', async () => {
     req.aborted = false;
     req.destroyed = false;
     req.body = {
-        upstreamUrl: `${origin}/v5/ai/generate-image-stream`,
+        url: `${origin}/v5/ai/generate-image-stream`,
         key: 'v5-key',
         payload: { input: 'test', model: 'nai-diffusion-5-full' },
         timeout: 1000,
@@ -265,7 +291,7 @@ test('does not forward the API key across origins', async () => {
 
     try {
         const result = await generateImage({
-            baseUrl: `${origin}/cross-origin`,
+            url: `${origin}/cross-origin/ai/generate-image`,
             key: 'secret-key',
             payload: {},
             insecure: false,
@@ -281,7 +307,7 @@ test('does not forward the API key across origins', async () => {
 test('rejects redirect loops after five hops', async () => {
     await assert.rejects(
         generateImage({
-            baseUrl: `${origin}/redirect-loop`,
+            url: `${origin}/redirect-loop/ai/generate-image`,
             key: 'key',
             payload: {},
             insecure: false,
@@ -315,6 +341,84 @@ test('does not start an upstream request after the client already disconnected',
     assert.equal(upstreamRequests, beforeCount);
 });
 
+test('keeps the v1.0.1 validation order ahead of legacy URL resolution', async () => {
+    let generateHandler;
+    let testHandler;
+    await init({
+        get() {},
+        post(path, routeHandler) {
+            if (path === '/v1/generate-image') generateHandler = routeHandler;
+            if (path === '/v1/test') testHandler = routeHandler;
+        },
+    });
+
+    const missingKey = await invokeRoute(generateHandler, {
+        url: 'not a url',
+        payload: {},
+        timeout: 1000,
+    });
+    assert.equal(missingKey.statusCode, 400);
+    assert.equal(missingKey.body.error, 'API key is required');
+
+    const missingPayload = await invokeRoute(generateHandler, {
+        url: 'not a url',
+        key: 'key',
+        timeout: 1000,
+    });
+    assert.equal(missingPayload.statusCode, 400);
+    assert.equal(missingPayload.body.error, 'payload is required');
+
+    const invalidTimeout = await invokeRoute(generateHandler, {
+        url: 'not a url',
+        key: 'key',
+        payload: {},
+        timeout: 0,
+    });
+    assert.equal(invalidTimeout.statusCode, 400);
+    assert.equal(invalidTimeout.body.error, 'timeout must be a positive number');
+
+    const testMissingKey = await invokeRoute(testHandler, {
+        url: 'not a url',
+        timeout: 1000,
+    });
+    assert.equal(testMissingKey.statusCode, 400);
+    assert.equal(testMissingKey.body.error, 'API key is required');
+});
+
+test('rejects unresolved backend URLs before starting an upstream request', async () => {
+    let handler;
+    await init({
+        get() {},
+        post(path, routeHandler) {
+            if (path === '/v2/generate-image') handler = routeHandler;
+        },
+    });
+
+    const req = new EventEmitter();
+    req.aborted = false;
+    req.destroyed = false;
+    req.body = { url: '/relative/ai/generate-image', key: 'key', payload: {}, timeout: 1000 };
+    const res = new EventEmitter();
+    res.destroyed = false;
+    res.writableEnded = false;
+    res.status = status => {
+        res.statusCode = status;
+        return res;
+    };
+    res.send = body => {
+        res.writableEnded = true;
+        res.body = body;
+        return res;
+    };
+    const beforeCount = upstreamRequests;
+
+    await handler(req, res);
+
+    assert.equal(res.statusCode, 400);
+    assert.match(res.body.error, /complete HTTP\(S\) url/);
+    assert.equal(upstreamRequests, beforeCount);
+});
+
 test('aborts an active upstream request', async () => {
     let markStarted;
     let markClosed;
@@ -323,7 +427,7 @@ test('aborts an active upstream request', async () => {
     slowRequestHooks = { started: markStarted, closed: markClosed };
     const controller = new AbortController();
     const pending = generateImage({
-        baseUrl: `${origin}/slow`,
+        url: `${origin}/slow/ai/generate-image`,
         key: 'key',
         payload: {},
         insecure: false,

@@ -321,7 +321,7 @@ function createAbortScope(timeout, upstreamSignal) {
  * or configuration work, so prompt-expansion, preset, credential and bundle failures are all
  * observable. The request id keeps a slow older request from overwriting a newer one.
  */
-export function beginDrawScenePlannerDiagnostic(initial = {}) {
+export function beginDrawScenePlannerDiagnostic(initial = {}, onDiagnosticUpdate = null) {
     diagnosticSequence += 1;
     const id = diagnosticSequence;
     activeDiagnosticId = id;
@@ -346,6 +346,11 @@ export function beginDrawScenePlannerDiagnostic(initial = {}) {
         toolChoice: 'required',
         toolsCount: 1,
         attemptCount: 0,
+        progress: {
+            phase: 'analysis',
+            current: 1,
+            total: MAX_SCENE_PLANNER_ATTEMPTS,
+        },
         correctionCount: 0,
         corrections: [],
         validationFailures: [],
@@ -356,11 +361,18 @@ export function beginDrawScenePlannerDiagnostic(initial = {}) {
     };
 
     const publish = () => {
-        if (id !== activeDiagnosticId) return;
-        lastDrawAgentDiagnostic = redactRequestSecrets({
+        const snapshot = redactRequestSecrets({
             ...record,
             durationMs: Math.max(0, Date.now() - record.timestamp),
         });
+        if (id === activeDiagnosticId) {
+            lastDrawAgentDiagnostic = snapshot;
+        }
+        try {
+            onDiagnosticUpdate?.(cloneJson(snapshot));
+        } catch (error) {
+            console.warn('[Draw Scene Planner] 诊断进度回调失败:', error);
+        }
     };
     publish();
 
@@ -439,7 +451,7 @@ function mapProviderError(error, abortScope, upstreamSignal) {
 
 export async function callDrawScenePlannerAgent(options = {}) {
     const task = options.task || {};
-    const diagnostic = options.diagnostic || beginDrawScenePlannerDiagnostic();
+    const diagnostic = options.diagnostic || beginDrawScenePlannerDiagnostic({}, options.onDiagnosticUpdate);
     if (!Array.isArray(task.tools)
         || task.tools.length !== 1
         || task.tools[0]?.function?.name !== SUBMIT_SCENE_PLAN_TOOL_NAME) {
@@ -515,6 +527,11 @@ export async function callDrawScenePlannerAgent(options = {}) {
             diagnostic.update({
                 stage: attempt === 1 ? 'request' : 'correction',
                 attemptCount: attempt,
+                progress: {
+                    phase: attempt === 1 ? 'analysis' : 'correction',
+                    current: attempt,
+                    total: MAX_SCENE_PLANNER_ATTEMPTS,
+                },
                 correctionCount: corrections.length,
                 corrections,
             });

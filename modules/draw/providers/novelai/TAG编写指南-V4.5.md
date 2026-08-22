@@ -5,7 +5,7 @@
 > **核心原则**：V4.5 采用 **混合式写法 (Hybrid Prompting)**。
 > - **静态特征**（外貌、固有属性）使用 **Danbooru Tags** 以确保精准。
 > - **动态行为**（动作、互动、空间关系）使用 **自然语言短语 (Phrases)** 以增强连贯性。
-> - **禁止输出质量词**（如 `best quality`, `masterpiece`, `highres`），这些由系统自动添加。
+> - **禁止输出质量词**（如 `best quality`, `masterpiece`, `highres`）。
 > - **格式**：所有 Tag 使用**英文**，元素之间用英文逗号 `,` 分隔。
 
 ## 总量预算

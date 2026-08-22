@@ -20,6 +20,18 @@ function isPng(bytes) {
         && PNG_SIGNATURE.every((value, index) => bytes[index] === value);
 }
 
+function formatByteLimit(bytes) {
+    const units = [
+        ['GiB', 1024 ** 3],
+        ['MiB', 1024 ** 2],
+        ['KiB', 1024],
+    ];
+    for (const [unit, size] of units) {
+        if (bytes >= size && bytes % size === 0) return `${bytes / size} ${unit}`;
+    }
+    return `${bytes} 字节`;
+}
+
 function createAbortError() {
     if (typeof DOMException === 'function') return new DOMException('Aborted', 'AbortError');
     const error = new Error('Aborted');
@@ -111,7 +123,9 @@ export async function readNovelV5FinalImage(response, {
             if (done) break;
             const chunk = value instanceof Uint8Array ? value : new Uint8Array(value || 0);
             total += chunk.length;
-            if (total > maxTotalBytes) throw new NovelV5StreamError('NovelAI V5 响应超过 128 MiB 限制');
+            if (total > maxTotalBytes) {
+                throw new NovelV5StreamError(`NovelAI V5 响应超过 ${formatByteLimit(maxTotalBytes)} 限制`);
+            }
 
             let chunkOffset = 0;
             while (chunkOffset < chunk.length) {
@@ -146,17 +160,17 @@ export async function readNovelV5FinalImage(response, {
                 frame = null;
                 frameOffset = 0;
                 const eventType = String(eventField(event, 'event_type') || '');
-                const sampleIndex = Number(eventField(event, 'samp_ix'));
-                if (sampleIndex !== 0) {
-                    throw new NovelV5StreamError(`NovelAI V5 返回了意外的样本编号：${sampleIndex}`);
-                }
-                if (eventType === 'intermediate') continue;
                 if (eventType === 'error') {
                     throw new NovelV5StreamError(
                         String(eventField(event, 'message') || 'NovelAI V5 生成失败'),
                         'V5_PROVIDER_ERROR',
                     );
                 }
+                const sampleIndex = Number(eventField(event, 'samp_ix'));
+                if (sampleIndex !== 0) {
+                    throw new NovelV5StreamError(`NovelAI V5 返回了意外的样本编号：${sampleIndex}`);
+                }
+                if (eventType === 'intermediate') continue;
                 if (eventType !== 'final') {
                     throw new NovelV5StreamError(`NovelAI V5 返回了未知事件：${eventType || '(empty)'}`);
                 }

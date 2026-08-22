@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ignore from 'ignore';
@@ -50,4 +50,25 @@ test('assistant manifest excludes generated dists and includes draw scene planne
     ]) {
         assert.ok(pluginPaths.includes(expected), `${expected} 必须在 manifest 中`);
     }
+});
+
+test('assistant manifest reports the current sizes of indexed plugin files', () => {
+    const manifest = JSON.parse(readFileSync(manifestUrl, 'utf8'));
+    const mismatches = [];
+
+    for (const item of manifest.files || []) {
+        if (item?.source !== 'littlewhitebox') continue;
+        const relativePath = String(item.relativePath || '').replace(/\\/g, '/');
+        const fullPath = path.resolve(pluginRoot, relativePath);
+        if (!existsSync(fullPath)) {
+            mismatches.push(`${relativePath}: missing`);
+            continue;
+        }
+        const actualSize = statSync(fullPath).size;
+        if (actualSize !== item.sizeBytes) {
+            mismatches.push(`${relativePath}: manifest=${item.sizeBytes}, actual=${actualSize}`);
+        }
+    }
+
+    assert.deepEqual(mismatches, []);
 });

@@ -5,8 +5,6 @@ interface PendingHostRequest {
     resolve: (value: Record<string, unknown>) => void;
     reject: (error: Error) => void;
     type: string;
-    abort?: () => void;
-    signal?: AbortSignal;
 }
 
 export type TavernHostMessageData = {
@@ -20,7 +18,7 @@ export type TavernHostMessageHandler = (data: TavernHostMessageData) => boolean 
 export type TavernHostRequest = (
     type: string,
     payload?: Record<string, unknown>,
-    requestOptions?: { signal?: AbortSignal; requestId?: string },
+    requestOptions?: { signal?: AbortSignal; requestId?: string; timeoutMs?: number | null },
 ) => Promise<Record<string, unknown>>;
 
 export interface TavernHostBridgeOptions {
@@ -69,35 +67,50 @@ export function useTavernHostBridge(options: TavernHostBridgeOptions = {}) {
         return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     }
 
-    function requestHost(type: string, payload: Record<string, unknown> = {}, requestOptions: { signal?: AbortSignal; requestId?: string } = {}) {
+    function requestHost(type: string, payload: Record<string, unknown> = {}, requestOptions: { signal?: AbortSignal; requestId?: string; timeoutMs?: number | null } = {}) {
         const requestId = String(requestOptions.requestId || '').trim() || createHostRequestId();
-        if (requestOptions.signal?.aborted) {
+        const signal = requestOptions.signal;
+        if (signal?.aborted) {
             return Promise.reject(createAbortError());
         }
-        postToHost(type, { ...payload, requestId });
         return new Promise<Record<string, unknown>>((resolve, reject) => {
+            const requestedTimeoutMs = Number(requestOptions.timeoutMs);
+            const timeoutMs = requestOptions.timeoutMs === null || requestOptions.timeoutMs === undefined
+                ? null
+                : (Number.isFinite(requestedTimeoutMs) && requestedTimeoutMs > 0 ? requestedTimeoutMs : null);
+            let settled = false;
+            let timer: ReturnType<typeof setTimeout> | null = null;
             const cleanup = () => {
-                const pending = pendingHostRequests.get(requestId);
-                if (pending?.abort && requestOptions.signal) {
-                    requestOptions.signal.removeEventListener('abort', pending.abort);
-                }
+                if (timer !== null) {clearTimeout(timer);}
+                signal?.removeEventListener('abort', abort);
                 pendingHostRequests.delete(requestId);
             };
-            const abort = () => {
+            const settle = <T>(callback: (value: T) => void, value: T) => {
+                if (settled) {return;}
+                settled = true;
                 cleanup();
-                postToHost('xb-tavern:cancel-request', { requestId });
-                reject(createAbortError());
+                callback(value);
             };
-            if (requestOptions.signal) {
-                requestOptions.signal.addEventListener('abort', abort, { once: true });
-            }
+            const abort = () => {
+                postToHost('xb-tavern:cancel-request', { requestId });
+                settle(reject, createAbortError());
+            };
             pendingHostRequests.set(requestId, {
-                resolve,
-                reject,
+                resolve: (value) => settle(resolve, value),
+                reject: (error) => settle(reject, error),
                 type,
-                abort: requestOptions.signal ? abort : undefined,
-                signal: requestOptions.signal,
             });
+            signal?.addEventListener('abort', abort, { once: true });
+            if (timeoutMs !== null) {
+                timer = setTimeout(() => {
+                    settle(reject, new Error(`${type}: host_request_timeout`));
+                }, timeoutMs);
+            }
+            try {
+                postToHost(type, { ...payload, requestId });
+            } catch (error) {
+                settle(reject, error instanceof Error ? error : new Error(String(error)));
+            }
         });
     }
 
@@ -105,10 +118,6 @@ export function useTavernHostBridge(options: TavernHostBridgeOptions = {}) {
         const requestId = String(payload.requestId || '');
         const pending = pendingHostRequests.get(requestId);
         if (!pending) {return;}
-        if (pending.abort && pending.signal) {
-            pending.signal.removeEventListener('abort', pending.abort);
-        }
-        pendingHostRequests.delete(requestId);
         if (payload.ok === false) {
             const errorText = String(payload.error || 'host_request_failed');
             const error = new Error(`${pending.type}: ${errorText}`);
@@ -166,12 +175,8 @@ export function useTavernHostBridge(options: TavernHostBridgeOptions = {}) {
             mounted = false;
         }
         pendingHostRequests.forEach((request) => {
-            if (request.abort && request.signal) {
-                request.signal.removeEventListener('abort', request.abort);
-            }
             request.reject(error);
         });
-        pendingHostRequests.clear();
         messageHandlers.length = 0;
     }
 

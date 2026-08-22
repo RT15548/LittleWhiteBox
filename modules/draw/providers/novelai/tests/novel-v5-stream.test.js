@@ -64,6 +64,15 @@ test('surfaces provider errors and rejects invalid sample or image data', async 
 
     await assert.rejects(
         readNovelV5FinalImage(responseFromChunks([
+            frame({ event_type: 'error', message: 'provider detail without sample index' }),
+        ]), { decode }),
+        error => error instanceof NovelV5StreamError
+            && error.code === 'V5_PROVIDER_ERROR'
+            && error.message === 'provider detail without sample index',
+    );
+
+    await assert.rejects(
+        readNovelV5FinalImage(responseFromChunks([
             frame({ event_type: 'final', image: PNG, samp_ix: 1 }),
         ]), { decode }),
         /意外的样本编号：1/,
@@ -99,6 +108,13 @@ test('rejects truncated, oversized, and final-less V5 streams', async () => {
             frame({ event_type: 'intermediate', image: PNG, samp_ix: 0, step_ix: 1 }),
         ]), { decode }),
         /没有 final 图片/,
+    );
+
+    await assert.rejects(
+        readNovelV5FinalImage(responseFromChunks([
+            frame({ event_type: 'final', image: PNG, samp_ix: 0 }),
+        ]), { decode, maxTotalBytes: 4 }),
+        /超过 4 字节.*限制/,
     );
 });
 

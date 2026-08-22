@@ -43,7 +43,12 @@ import {
     formatImageBase64,
     readImageResponse,
 } from './novel-image-response.js';
-import { resolveNovelAIImageApi, snapshotNovelRequestConfig } from './novel-request-config.js';
+import {
+    buildNovelAIConnectionProbe,
+    resolveNovelAIBackendImageApi,
+    resolveNovelAIImageApi,
+    snapshotNovelRequestConfig,
+} from './novel-request-config.js';
 import {
     loadTagGuide,
     loadPromptTemplates,
@@ -56,15 +61,18 @@ import {
     getNovelModelCapabilitiesForUi,
     getNovelScenePlannerContract,
     isNovelV5Model,
-    NOVEL_MODEL_IDS,
 } from './novel-model-capabilities.js';
-import { buildNovelV5RequestBody, V5_QUALITY_IDS, V5_UC_IDS } from './novel-v5-request.js';
+import {
+    buildNovelV5RequestBody,
+    NovelV5RequestError,
+    V5_QUALITY_IDS,
+    V5_UC_IDS,
+} from './novel-v5-request.js';
 import {
     readNovelV5ErrorText,
     readNovelV5FinalImage,
     NovelV5StreamError,
 } from './novel-v5-stream.js';
-import { decode as decodeMessagePack } from '../../../../libs/msgpack.mjs';
 import { migrateLegacyNovelPromptSettings } from './novel-prompt-migration.js';
 import { WorldbookProcessor } from '../../shared/worldbook-processor.js';
 import {
@@ -88,6 +96,7 @@ import {
     renderPreviewsForMessage as renderSharedPreviewsForMessage,
     buildPendingImageHtml,
     buildDrawSlotSelector,
+    toScenePlannerProgress,
     isMessageBeingEdited,
     DEFAULT_MESSAGE_FILTER_RULES,
 } from '../../shared/draw-common.js';
@@ -108,11 +117,13 @@ const HTML_PATH = `${extensionFolderPath}/modules/draw/providers/novelai/novel-d
 // 后端发送模式走 SillyTavern server plugin 转发（需安装 plugins/littlewhitebox-nai 并开启 enableServerPlugins），
 // 用于绕过浏览器 CORS / 自签证书限制。
 const NAI_BACKEND_GENERATE = '/api/plugins/littlewhitebox-nai/v1/generate-image';
+const NAI_BACKEND_GENERATE_V2 = '/api/plugins/littlewhitebox-nai/v2/generate-image';
 const NAI_BACKEND_GENERATE_STREAM = '/api/plugins/littlewhitebox-nai/v1/generate-image-stream';
 const NAI_BACKEND_TEST = '/api/plugins/littlewhitebox-nai/v1/test';
+const NAI_BACKEND_TEST_V2 = '/api/plugins/littlewhitebox-nai/v2/test';
 const NAI_BACKEND_STATUS = '/api/plugins/littlewhitebox-nai/status';
 const NAI_BACKEND_MIN_VERSION = '1.0.1';
-const NAI_BACKEND_V5_MIN_VERSION = '1.1.0';
+const NAI_BACKEND_V5_MIN_VERSION = '1.2.0';
 const CONFIG_VERSION = 8;
 
 function isVersionAtLeast(version, minimum) {
@@ -201,6 +212,7 @@ const ErrorType = {
     TOOL_PROTOCOL: { code: 'tool_protocol', label: 'Tool 协议', desc: '模型没有按要求调用场景规划 Tool' },
     SCENE_SCHEMA: { code: 'scene_schema', label: '计划校验', desc: '模型提交的场景计划不符合契约' },
     PROVIDER: { code: 'provider', label: 'Provider', desc: '模型 Provider 请求失败' },
+    REQUEST_CONFIG: { code: 'request_config', label: '生图参数', desc: 'NovelAI 请求参数无效' },
     SCENE_PLACEMENT: { code: 'scene_placement', label: '插图位置', desc: '正文位置已变化，未写入图片' },
     ABORTED: { code: 'aborted', label: '已取消', desc: '请求已取消' },
     UNKNOWN: { code: 'unknown', label: '错误', desc: '未知错误' },
@@ -231,22 +243,6 @@ const DEFAULT_PARAMS_PRESET_2 = {
         model: 'nai-diffusion-4-5-full', sampler: 'k_euler_ancestral', scheduler: 'karras',
         steps: 28, scale: 6, width: 1216, height: 832, seed: -1,
         qualityToggle: true, autoSmea: false, ucPreset: 0, cfg_rescale: 0,
-        variety_boost: false, sm: false, sm_dyn: false, decrisper: false,
-    },
-};
-
-const DEFAULT_PARAMS_PRESET_V5 = {
-    id: '', name: '默认 (V5 Full)',
-    positivePrefix: '',
-    negativePrefix: '',
-    maxImages: 0,
-    maxCharactersPerImage: 0,
-    params: {
-        model: NOVEL_MODEL_IDS.V5_FULL,
-        sampler: 'k_euler_ancestral', scheduler: 'karras',
-        steps: 23, scale: 7, width: 832, height: 1216, seed: -1,
-        qualityToggle: true, autoSmea: false, ucPreset: 0, cfg_rescale: 0,
-        v5QualityPresetId: 'standard', v5UcPresetId: 'heavy', transparentBackground: false,
         variety_boost: false, sm: false, sm_dyn: false, decrisper: false,
     },
 };
@@ -286,6 +282,7 @@ let autoBusy = false;
 let overlayCreated = false;
 let frameReady = false;
 let jsZipLoaded = false;
+let messagePackDecoderPromise = null;
 let moduleInitialized = false;
 let touchState = null;
 let settingsCache = null;
@@ -751,6 +748,7 @@ function parseApiError(status, text, fallbackType = ErrorType.UNKNOWN) {
 
 function handleFetchError(e) {
     if (e.name === 'AbortError') return new NovelDrawError('超时', ErrorType.TIMEOUT);
+    if (e instanceof NovelV5RequestError) return new NovelDrawError(e.message, ErrorType.REQUEST_CONFIG);
     if (e instanceof NovelImageResponseError) return new NovelDrawError(e.message, ErrorType.PARSE);
     if (e instanceof NovelV5StreamError) {
         const type = e.code === 'V5_PROVIDER_ERROR'
@@ -788,6 +786,8 @@ function normalizeParamsPreset(preset, index) {
         : {};
     const qualityToggle = params.qualityToggle !== false;
     const ucPreset = [0, 1, 2, 3].includes(Number(params.ucPreset)) ? Number(params.ucPreset) : 0;
+    const rawSeed = params.seed;
+    const seed = rawSeed == null || String(rawSeed).trim() === '' ? -1 : Number(rawSeed);
     return {
         id: String(source.id || `params-${Date.now()}-${index}`),
         name: String(source.name || `配置-${index + 1}`),
@@ -803,7 +803,7 @@ function normalizeParamsPreset(preset, index) {
             scale: Number.isFinite(Number(params.scale)) ? Number(params.scale) : DEFAULT_PARAMS_PRESET.params.scale,
             width: Number(params.width) > 0 ? Number(params.width) : DEFAULT_PARAMS_PRESET.params.width,
             height: Number(params.height) > 0 ? Number(params.height) : DEFAULT_PARAMS_PRESET.params.height,
-            seed: Number.isFinite(Number(params.seed)) ? Number(params.seed) : -1,
+            seed: Number.isFinite(seed) ? seed : -1,
             qualityToggle,
             autoSmea: params.autoSmea === true,
             ucPreset,
@@ -878,16 +878,8 @@ function normalizeSettings(saved = {}) {
         merged.paramsPresets = [
             normalizeParamsPreset({ ...cloneSettingsObject(DEFAULT_PARAMS_PRESET), id: id1 }, 0),
             normalizeParamsPreset({ ...cloneSettingsObject(DEFAULT_PARAMS_PRESET_2), id: id2 }, 1),
-            normalizeParamsPreset({ ...cloneSettingsObject(DEFAULT_PARAMS_PRESET_V5), id: generateSlotId() }, 2),
         ];
         merged.selectedParamsPresetId = id1;
-    }
-    if (Number(source.configVersion) < CONFIG_VERSION
-        && !merged.paramsPresets.some((preset) => isNovelV5Model(preset.params?.model))) {
-        merged.paramsPresets.push(normalizeParamsPreset({
-            ...cloneSettingsObject(DEFAULT_PARAMS_PRESET_V5),
-            id: generateSlotId(),
-        }, merged.paramsPresets.length));
     }
     if (!merged.selectedParamsPresetId) merged.selectedParamsPresetId = merged.paramsPresets[0]?.id;
     if (!Number.isFinite(Number(merged.updatedAt))) merged.updatedAt = 0;
@@ -957,7 +949,7 @@ async function loadSettings() {
         const saved = await NovelDrawStorage.getStrict(SERVER_FILE_KEY, null);
         console.log('[NovelDraw] loadSettings from server: autoLearn=%s, advMode=%s',
             saved?.autoLearnCharacters, saved?.advancedMode);
-        const promptUpgrade = migrateLegacyNovelPromptSettings(saved || {}, DEFAULT_PROMPT_CONFIG);
+        const promptUpgrade = migrateLegacyNovelPromptSettings(saved || {}, DEFAULT_PROMPT_CONFIG, PROMPT_TEMPLATE_VERSION);
         settingsCache = normalizeSettings(promptUpgrade.settings);
 
         if (!saved
@@ -1221,6 +1213,33 @@ async function notifySettingsUpdated() {
 // JSZip
 // ═══════════════════════════════════════════════════════════════════════════
 
+async function loadMessagePackDecoder() {
+    if (!messagePackDecoderPromise) {
+        messagePackDecoderPromise = import('../../../../libs/msgpack.mjs')
+            .then(module => {
+                if (typeof module.decode !== 'function') {
+                    throw new TypeError('MessagePack vendor 未导出 decode');
+                }
+                return module.decode;
+            })
+            .catch(error => {
+                messagePackDecoderPromise = null;
+                throw error;
+            });
+    }
+    return messagePackDecoderPromise;
+}
+
+async function loadMessagePackDecoderForResponse(response, controller) {
+    try {
+        return await loadMessagePackDecoder();
+    } catch (error) {
+        await response.body?.cancel?.().catch(() => {});
+        controller.abort();
+        throw error;
+    }
+}
+
 async function ensureJSZip() {
     if (window.JSZip) return window.JSZip;
     if (jsZipLoaded) {
@@ -1452,16 +1471,29 @@ function danbooruToNai(tag) {
 // NovelAI API
 // ═══════════════════════════════════════════════════════════════════════════
 
-// 后端发送：把 payload + 第三方 url + key 交给 ST server plugin，Node 端代发并返回 base64。
-async function generateViaBackend({ apiBaseUrl, apiKey, insecure, payload, signal, timeout }) {
+// 后端发送：前端负责解析完整端点，ST server plugin 只代发并返回 base64。
+async function generateViaBackend({ url, legacyBaseUrl, apiKey, insecure, payload, signal, timeout }) {
     let res;
     try {
-        res = await fetch(NAI_BACKEND_GENERATE, {
+        const request = endpoint => fetch(endpoint, {
             method: 'POST',
             headers: getRequestHeaders(),
             signal,
-            body: JSON.stringify({ url: apiBaseUrl || '', key: apiKey, insecure: !!insecure, payload, timeout }),
+            body: JSON.stringify({
+                url: endpoint === NAI_BACKEND_GENERATE ? legacyBaseUrl : url,
+                key: apiKey,
+                insecure: !!insecure,
+                payload,
+                timeout,
+            }),
         });
+        res = await request(NAI_BACKEND_GENERATE_V2);
+        // Compatibility with the upstream-released v1.0.1 server plugin.
+        // Remove this fallback when that public backend API is retired.
+        if (res.status === 404) {
+            await res.body?.cancel?.().catch(() => {});
+            res = await request(NAI_BACKEND_GENERATE);
+        }
     } catch (e) {
         if (e?.name === 'AbortError') throw e;
         throw new NovelDrawError('后端代发失败（未安装 littlewhitebox-nai 插件或 SillyTavern 未开启 server plugins）', ErrorType.NETWORK);
@@ -1489,14 +1521,14 @@ async function generateViaBackend({ apiBaseUrl, apiKey, insecure, payload, signa
     return formatImageBase64(data.base64, data.mime);
 }
 
-async function generateV5ViaBackend({ upstreamUrl, apiKey, insecure, payload, signal, timeout }) {
+async function generateV5ViaBackend({ url, apiKey, insecure, payload, signal, timeout }) {
     let response;
     try {
         response = await fetch(NAI_BACKEND_GENERATE_STREAM, {
             method: 'POST',
             headers: getRequestHeaders(),
             signal,
-            body: JSON.stringify({ upstreamUrl, key: apiKey, insecure: !!insecure, payload, timeout }),
+            body: JSON.stringify({ url, key: apiKey, insecure: !!insecure, payload, timeout }),
         });
     } catch (error) {
         if (error?.name === 'AbortError') throw error;
@@ -1535,91 +1567,77 @@ async function testApiConnection(apiKey, baseUrl, opts = {}) {
     const model = String(
         opts.model || getActiveParamsPreset()?.params?.model || DEFAULT_PARAMS_PRESET.params.model,
     ).trim();
-    const capability = getNovelModelCapability(model);
+    let probe;
+    let apiUrl;
+    try {
+        probe = buildNovelAIConnectionProbe(resolvedBase, model);
+        apiUrl = sendMode === 'backend'
+            ? resolveNovelAIBackendImageApi(resolvedBase, probe.transport, globalThis.location?.href)
+            : probe.url;
+    } catch (error) {
+        throw handleFetchError(error);
+    }
     const controller = new AbortController();
     const tid = setTimeout(() => controller.abort(), timeout);
 
-    // 后端发送模式：走 server plugin 的 /test。
-    if (sendMode === 'backend') {
-        try {
-            if (capability.transport === 'msgpack-stream') {
+    try {
+        // 后端发送模式：前端提供最终端点与探针报文，server plugin 只负责传输。
+        if (sendMode === 'backend') {
+            if (probe.multipart) {
                 await assertV5BackendCapability(controller.signal);
             }
-            const res = await fetch(NAI_BACKEND_TEST, {
+            const request = endpoint => fetch(endpoint, {
                 method: 'POST',
                 headers: getRequestHeaders(),
                 signal: controller.signal,
                 body: JSON.stringify({
-                    url: resolvedBase || '',
+                    url: endpoint === NAI_BACKEND_TEST ? (resolvedBase || '') : apiUrl,
                     key: apiKey,
                     insecure: !!insecure,
                     timeout,
-                    transport: capability.transport,
-                    model,
+                    payload: probe.payload,
+                    multipart: probe.multipart,
                 }),
             });
-            clearTimeout(tid);
+            let res = await request(NAI_BACKEND_TEST_V2);
+            // V5 never falls back to the test-line v1.1 protocol. Legacy models retain
+            // the released v1.0.1 connection probe until that backend API is retired.
+            if (!probe.multipart && res.status === 404) {
+                await res.body?.cancel?.().catch(() => {});
+                res = await request(NAI_BACKEND_TEST);
+            }
             if (res.status === 404) throw new NovelDrawError('后端端点不存在：请安装 plugins/littlewhitebox-nai 并开启 enableServerPlugins 后重启酒馆', ErrorType.NETWORK);
             const data = await res.json().catch(() => null);
             if (data?.ok === true) return { success: true };
             if (data?.status === 401) throw new NovelDrawError('API Key 无效', ErrorType.AUTH);
             if (data?.code === 'timeout') throw new NovelDrawError('请求超时', ErrorType.TIMEOUT);
             throw new NovelDrawError(data?.error || `返回: ${res.status}`, ErrorType.NETWORK);
-        } catch (e) {
-            clearTimeout(tid);
-            if (e instanceof NovelDrawError) throw e;
-            throw handleFetchError(e);
         }
-    }
 
-    // 前端直连模式。
-    const isV5 = capability.transport === 'msgpack-stream';
-    const apiUrl = resolveNovelAIImageApi(resolvedBase, capability.transport);
-    try {
-        const payload = isV5
-            ? buildNovelV5RequestBody({
-                scene: 'test',
-                characterPrompts: [],
-                negativePrompt: '',
-                params: {
-                    model,
-                    width: 64,
-                    height: 64,
-                    steps: 1,
-                    v5QualityPresetId: 'none',
-                    v5UcPresetId: 'none',
-                },
-                seed: 1,
-            })
-            : {
-                input: 'test',
-                model: 'nai-diffusion-3',
-                action: 'generate',
-                parameters: { width: 64, height: 64, steps: 1 },
-            };
-        const body = isV5 ? new FormData() : JSON.stringify(payload);
-        if (isV5) {
-            body.append('request', new Blob([JSON.stringify(payload)], { type: 'application/json' }), 'blob');
+        // 前端直连模式。
+        const body = probe.multipart ? new FormData() : JSON.stringify(probe.payload);
+        if (probe.multipart) {
+            body.append('request', new Blob([JSON.stringify(probe.payload)], { type: 'application/json' }), 'blob');
         }
         const res = await fetch(apiUrl, {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${apiKey}`,
-                ...(!isV5 ? { 'Content-Type': 'application/json' } : {}),
+                ...(!probe.multipart ? { 'Content-Type': 'application/json' } : {}),
             },
             body,
             signal: controller.signal,
         });
-        clearTimeout(tid);
         if (res.status === 401) throw new NovelDrawError('API Key 无效', ErrorType.AUTH);
         if (res.status === 400 || res.status === 402 || res.ok) {
             await res.body?.cancel?.().catch(() => {});
             return { success: true };
         }
         throw new NovelDrawError(`返回: ${res.status}`, ErrorType.NETWORK);
-    } catch (e) {
+    } catch (error) {
+        throw handleFetchError(error);
+    } finally {
         clearTimeout(tid);
-        throw handleFetchError(e);
     }
 }
 
@@ -1627,14 +1645,19 @@ function buildNovelAIRequestBody({ scene, characterPrompts, negativePrompt, para
     const dp = DEFAULT_PARAMS_PRESET.params;
     const width = params?.width ?? dp.width;
     const height = params?.height ?? dp.height;
-    const seed = (params?.seed >= 0) ? params.seed : Math.floor(Math.random() * (MAX_SEED + 1));
     const modelName = String(params?.model ?? dp.model).trim();
-    if (isNovelV5Model(modelName)) {
+    const isV5 = isNovelV5Model(modelName);
+    const seed = isV5
+        ? (params?.seed === undefined || Number(params.seed) === -1
+            ? Math.floor(Math.random() * (MAX_SEED + 1))
+            : params.seed)
+        : (params?.seed >= 0 ? params.seed : Math.floor(Math.random() * (MAX_SEED + 1)));
+    if (isV5) {
         return buildNovelV5RequestBody({
             scene,
             characterPrompts,
             negativePrompt,
-            params: { ...params, model: modelName, width, height },
+            params: { ...params, model: modelName },
             seed,
         });
     }
@@ -1754,33 +1777,48 @@ async function generateNovelImage({ scene, characterPrompts, negativePrompt, par
             }
         }
 
-        const capability = getNovelModelCapability(finalParams.model);
-        const apiUrl = resolveNovelAIImageApi(requestConfig.apiBaseUrl, capability.transport);
-        const controller = new AbortController();
-        const tid = setTimeout(() => controller.abort(), requestConfig.timeout);
+        if (signal?.aborted) throw new NovelDrawError('已取消', ErrorType.ABORTED);
 
-        if (signal) {
-            signal.addEventListener('abort', () => controller.abort(), { once: true });
+        const capability = getNovelModelCapability(finalParams.model);
+        const isV5 = capability.transport === 'msgpack-stream';
+        let apiUrl;
+        let payload;
+        try {
+            apiUrl = requestConfig.sendMode === 'backend'
+                ? resolveNovelAIBackendImageApi(
+                    requestConfig.apiBaseUrl,
+                    capability.transport,
+                    globalThis.location?.href,
+                )
+                : resolveNovelAIImageApi(requestConfig.apiBaseUrl, capability.transport);
+            payload = buildNovelAIRequestBody({ scene, characterPrompts, negativePrompt, params: finalParams });
+        } catch (error) {
+            throw handleFetchError(error);
         }
 
+        const controller = new AbortController();
+        const forwardAbort = () => controller.abort();
+        signal?.addEventListener('abort', forwardAbort, { once: true });
+        if (signal?.aborted) forwardAbort();
+        const tid = setTimeout(() => controller.abort(), requestConfig.timeout);
         const t0 = Date.now();
-        const payload = buildNovelAIRequestBody({ scene, characterPrompts, negativePrompt, params: finalParams });
 
         try {
             if (signal?.aborted) throw new NovelDrawError('已取消', ErrorType.ABORTED);
 
             // 后端发送：交给 SillyTavern server plugin 代发，绕过浏览器 CORS / 自签证书。
             if (requestConfig.sendMode === 'backend') {
-                if (capability.transport === 'msgpack-stream') {
+                if (isV5) {
                     await assertV5BackendCapability(controller.signal);
                     const response = await generateV5ViaBackend({
-                        upstreamUrl: apiUrl,
+                        url: apiUrl,
                         apiKey: requestConfig.apiKey,
                         insecure: requestConfig.insecureTLS,
                         payload,
                         signal: controller.signal,
                         timeout: requestConfig.timeout,
                     });
+                    const decodeMessagePack = await loadMessagePackDecoderForResponse(response, controller);
                     const image = await readNovelV5FinalImage(response, {
                         decode: decodeMessagePack,
                         signal: controller.signal,
@@ -1789,7 +1827,8 @@ async function generateNovelImage({ scene, characterPrompts, negativePrompt, par
                     return imageBytesToBase64(image);
                 }
                 const base64 = await generateViaBackend({
-                    apiBaseUrl: requestConfig.apiBaseUrl,
+                    url: apiUrl,
+                    legacyBaseUrl: requestConfig.apiBaseUrl,
                     apiKey: requestConfig.apiKey,
                     insecure: requestConfig.insecureTLS,
                     payload,
@@ -1801,7 +1840,6 @@ async function generateNovelImage({ scene, characterPrompts, negativePrompt, par
             }
 
             // 前端直连：浏览器直接请求 NovelAI / 第三方端点。
-            const isV5 = capability.transport === 'msgpack-stream';
             const body = isV5 ? new FormData() : JSON.stringify(payload);
             if (isV5) {
                 body.append('request', new Blob([JSON.stringify(payload)], { type: 'application/json' }), 'blob');
@@ -1822,6 +1860,7 @@ async function generateNovelImage({ scene, characterPrompts, negativePrompt, par
                 throw parseApiError(res.status, errorText, isV5 ? ErrorType.PROVIDER : ErrorType.UNKNOWN);
             }
             if (isV5) {
+                const decodeMessagePack = await loadMessagePackDecoderForResponse(res, controller);
                 const image = await readNovelV5FinalImage(res, {
                     decode: decodeMessagePack,
                     signal: controller.signal,
@@ -1838,6 +1877,7 @@ async function generateNovelImage({ scene, characterPrompts, negativePrompt, par
             throw handleFetchError(e);
         } finally {
             clearTimeout(tid);
+            signal?.removeEventListener('abort', forwardAbort);
         }
     }, {
         signal,
@@ -2763,7 +2803,7 @@ function notifyDetachedGeneration(successCount) {
     }
 }
 
-async function buildTextSourceTasks({ sceneSource, presentCharacters, settings, preset, signal, useWorldbook = false }) {
+async function buildTextSourceTasks({ sceneSource, presentCharacters, settings, preset, signal, useWorldbook = false, onStateChange }) {
     let worldbookEntries = null;
     const customPrompts = getActivePromptPreset() || DEFAULT_PROMPT_CONFIG;
     const model = preset.params?.model || DEFAULT_PARAMS_PRESET.params.model;
@@ -2793,6 +2833,7 @@ async function buildTextSourceTasks({ sceneSource, presentCharacters, settings, 
         modelContract: getNovelScenePlannerContract(model),
         centerMode: capability.centerMode,
         onImageLimitAdjusted: notifySceneImageLimitAdjusted,
+        onDiagnosticUpdate: diagnostic => onStateChange?.('llm', toScenePlannerProgress(diagnostic)),
         signal,
     });
 
@@ -2823,7 +2864,7 @@ async function generateImagesFromText(options = {}) {
         if (!sceneSource.content) throw new NovelDrawError('正文内容为空（可能被过滤规则清空）', ErrorType.PARSE);
 
         const presentCharacters = detectPresentCharacters(sceneSource.content, settings.characterTags || []);
-        options.onStateChange?.('llm', {});
+        options.onStateChange?.('llm', toScenePlannerProgress());
         if (signal.aborted) throw new NovelDrawError('已取消', ErrorType.ABORTED);
 
         let tasks = [];
@@ -2835,6 +2876,7 @@ async function generateImagesFromText(options = {}) {
                 preset,
                 signal,
                 useWorldbook: !!options.useWorldbook,
+                onStateChange: options.onStateChange,
             });
         } catch (e) {
             console.error('[NovelDraw] 文本配图场景分析失败:', e);
@@ -2979,7 +3021,7 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
 
         const presentCharacters = detectPresentCharacters(sceneSource.content, settings.characterTags || []);
 
-        onStateChange?.('llm', {});
+        onStateChange?.('llm', toScenePlannerProgress());
 
         if (signal.aborted) throw new NovelDrawError('已取消', ErrorType.ABORTED);
 
@@ -3014,6 +3056,7 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
                 modelContract: getNovelScenePlannerContract(model),
                 centerMode: capability.centerMode,
                 onImageLimitAdjusted: notifySceneImageLimitAdjusted,
+                onDiagnosticUpdate: diagnostic => onStateChange?.('llm', toScenePlannerProgress(diagnostic)),
                 signal,
             });
         } catch (e) {

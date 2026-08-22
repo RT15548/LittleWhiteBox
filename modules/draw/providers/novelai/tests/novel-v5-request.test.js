@@ -4,6 +4,7 @@ import test from 'node:test';
 import { NOVEL_MODEL_IDS } from '../novel-model-capabilities.js';
 import {
     buildNovelV5RequestBody,
+    NovelV5RequestError,
     V5_QUALITY_PRESETS,
     V5_UC_PRESETS,
 } from '../novel-v5-request.js';
@@ -123,4 +124,46 @@ test('rejects a direct or refresh request that exceeds the V5 character limit', 
         }),
         /最多支持 22 个角色提示词/,
     );
+});
+
+test('rejects explicit invalid V5 numeric and coordinate inputs at the request boundary', () => {
+    const build = ({ params = {}, seed = 1, characterPrompts = [] } = {}) => buildNovelV5RequestBody({
+        scene: 'test',
+        characterPrompts,
+        params: { model: NOVEL_MODEL_IDS.V5_FULL, ...params },
+        seed,
+    });
+
+    for (const invalid of [
+        { params: { width: 0 } },
+        { params: { width: null } },
+        { params: { height: 832.5 } },
+        { params: { scale: Number.NaN } },
+        { params: { steps: 1.5 } },
+        { params: { cfg_rescale: 1.1 } },
+        { seed: -1 },
+        { seed: null },
+        { seed: 0x100000000 },
+        { characterPrompts: [{ prompt: 'girl', center: { x: -0.1, y: 0.5 } }] },
+        { characterPrompts: [{ prompt: 'girl', center: { x: 0.5 } }] },
+        { characterPrompts: [{ prompt: 'girl', center: { x: null, y: 0.5 } }] },
+    ]) {
+        assert.throws(() => build(invalid), error => error instanceof NovelV5RequestError);
+    }
+});
+
+test('uses request defaults only when optional V5 parameters are absent', () => {
+    const body = buildNovelV5RequestBody({
+        scene: 'test',
+        characterPrompts: [{ prompt: 'girl' }],
+        params: { model: NOVEL_MODEL_IDS.V5_FULL },
+        seed: 0,
+    });
+
+    assert.equal(body.parameters.width, 832);
+    assert.equal(body.parameters.height, 1216);
+    assert.equal(body.parameters.scale, 7);
+    assert.equal(body.parameters.steps, 23);
+    assert.equal(body.parameters.seed, 0);
+    assert.deepEqual(body.parameters.characterPrompts[0].center, { x: 0.5, y: 0.5 });
 });

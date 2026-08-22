@@ -68,6 +68,7 @@ import {
     clearDrawSavedEntry,
     startSharedDrawPreviewRuntime,
     stopSharedDrawPreviewRuntime,
+    toScenePlannerProgress,
 } from "../../shared/draw-common.js";
 import {
     loadLocalDanbooruDB,
@@ -2899,7 +2900,7 @@ function notifyDetachedGeneration(successCount) {
     }
 }
 
-async function buildTasksFromMessage({ message, messageId, signal, promptOverride = '', negativePromptOverride = '', useWorldbook = true, stripImageMarkers = true }) {
+async function buildTasksFromMessage({ message, messageId, signal, promptOverride = '', negativePromptOverride = '', useWorldbook = true, stripImageMarkers = true, onStateChange }) {
     if (promptOverride.trim()) {
         return {
             tasks: [{
@@ -2950,6 +2951,7 @@ async function buildTasksFromMessage({ message, messageId, signal, promptOverrid
         maxImages: preset.maxImages || 0,
         maxCharactersPerImage: preset.maxCharactersPerImage || 0,
         onImageLimitAdjusted: notifySceneImageLimitAdjusted,
+        onDiagnosticUpdate: diagnostic => onStateChange?.('llm', toScenePlannerProgress(diagnostic)),
         signal,
     });
 
@@ -3735,7 +3737,7 @@ export async function generateImagesFromText(options = {}) {
 
     ensureDrawImageStyles();
     await openDB();
-    options.onStateChange?.('llm', {});
+    options.onStateChange?.('llm', toScenePlannerProgress());
     const { tasks, sceneSource } = await buildTasksFromMessage({
         message,
         messageId,
@@ -3744,6 +3746,7 @@ export async function generateImagesFromText(options = {}) {
         negativePromptOverride: options.negativePromptOverride || '',
         useWorldbook: false,
         stripImageMarkers: false,
+        onStateChange: options.onStateChange,
     });
     if (signal.aborted) throw new Error('已取消');
 
@@ -3876,13 +3879,14 @@ export async function generateAndInsertImages({
         const message = ctx.chat?.[resolvedMessageId];
         if (!message || message.is_user) throw new Error('消息不存在或不是 AI 消息');
 
-        onStateChange?.('llm', {});
+        onStateChange?.('llm', toScenePlannerProgress());
         const { tasks, sceneSource } = await buildTasksFromMessage({
             message,
             messageId: resolvedMessageId,
             signal,
             promptOverride,
             negativePromptOverride,
+            onStateChange,
         });
         if (signal.aborted) throw new Error('已取消');
 

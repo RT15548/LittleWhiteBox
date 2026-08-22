@@ -16,7 +16,7 @@
 NovelAI V5 作为新增能力接入，不替代 V4.5，也不改变现有默认选择。
 
 - 默认参数预设仍为 `默认 (V4.5 Full)`。
-- 新增一个可编辑、可删除的 `默认 (V5 Full)` 参数预设。
+- 不自动创建、追加或删除任何参数预设。用户在现有参数预设中把模型切到 V5，或自行新建预设。
 - 模型下拉新增 V5 Full 和 V5 Curated；用户可在任意参数预设中修改模型。
 - 参数预设仍由用户手动选择，不根据 Prompt、聊天或场景自动切换。
 - 提示词预设仍由用户独立手动选择，可新增、修改、删除；切换参数预设不得自动切换提示词预设。
@@ -24,7 +24,7 @@ NovelAI V5 作为新增能力接入，不替代 V4.5，也不改变现有默认�
 - V5 使用独立的请求构造、stream 传输和 MessagePack 响应解析；V3/V4/V4.5 保持现有链路。
 - 选择 V5 后应实际使用其自然语言、自由角色定位、更多角色、交互和文字描述能力，而不只是换一个模型 ID。
 - V5 参数区新增 `Transparent BG` 勾选项；启用时自动追加 `transparent background`，并发送透明背景协议参数。该开关属于参数预设，不属于提示词预设。
-- `默认 (V5 Full)` 的 `positivePrefix` 与 `negativePrefix` 初始值都为空，由官方 Quality Standard 与 UC Heavy 提供默认质量词，避免重复 V4.5 词表。
+- V5 的默认质量词由官方 Quality Standard 与 UC Heavy 提供。`positivePrefix` 与 `negativePrefix` 属于用户预设内容，代码不会因切换模型而改写；把 V4.5 预设切到 V5 的用户如果保留了原有 V4.5 质量词表，需要自行清空以免与官方预设重复。
 - 本期同时在 V5 UI 开放 Quality `standard / light / none` 与 UC `heavy / light / humanFocus / furryFocus / none`。
 - 提示词预设不再保存或编辑 `tagGuideContent`；V4.5 与 V5 分别使用 Provider 内明确命名的静态指南。旧持久化副本在一次性迁移中退出当前数据模型，不建立长期备份或兼容壳。
 
@@ -32,7 +32,7 @@ NovelAI V5 作为新增能力接入，不替代 V4.5，也不改变现有默认�
 
 | 概念 | 当前存储 | 所有者 | 选择方式 | V5 规则 |
 | --- | --- | --- | --- | --- |
-| 参数预设 | `paramsPresets[]` | 用户 | 用户手动选择 | 新增一个 V5 Full 初始预设；内容仍可编辑、复制、导入、导出和删除 |
+| 参数预设 | `paramsPresets[]` | 用户 | 用户手动选择 | 不新增初始预设；用户在自己的预设中切换模型，内容仍可编辑、复制、导入、导出和删除 |
 | 提示词预设 | `promptPresets[]` | 用户 | 用户独立手动选择 | 不与参数预设绑定，不因模型变化自动切换 |
 | 当前画图模型 | 当前参数预设的 `params.model` | 用户选择，代码解释 | 随参数预设或模型下拉变化 | 决定请求协议、参数版本、模型指南和坐标契约 |
 | 模型能力 | 代码中的静态定义 | NovelAI Provider | 不持久化选择副本 | 按精确模型 ID 查表，不能由可删除的用户预设承载 |
@@ -440,27 +440,23 @@ V5 模型指南应覆盖：
 
 1. `默认 (V4.5 Full)`，继续默认选中。
 2. `3D 风格 (V4.5 Full)`。
-3. `默认 (V5 Full)`。
 
-升级用户只执行一次 V5 预设补充：
+V5 不引入任何初始参数预设：
 
-- 如果尚无任何 V5 Full/Curated 参数预设，则追加 `默认 (V5 Full)`。
-- 如果用户已经创建 V5 参数预设，则不重复追加。
-- 用户升级后删除 V5 预设，不得在之后每次启动重新创建。
+- 首次安装与升级都不追加 V5 预设，也不改写现有预设的字段。
+- 用户要用 V5，就在现有参数预设中把模型切到 V5 Full 或 V5 Curated，或者自己新建一个预设。
+- 因此不存在“用户删掉 V5 预设后被重新创建”的问题，也不需要“是否已有 V5 预设”的一次性检测。
 
-V5 预设与现有预设一样可以改名、复制、编辑和删除。
+切到 V5 模型后，该预设需要用户自行确认的字段：
 
-`默认 (V5 Full)` 的关键初值：
-
-| 字段 | 初值 |
+| 字段 | 说明 |
 | --- | --- |
-| `positivePrefix` | 空字符串 |
-| `negativePrefix` | 空字符串 |
-| `params.model` | `nai-diffusion-5-full` |
-| `params.v5QualityPresetId` | `standard` |
-| `params.v5UcPresetId` | `heavy` |
-| `params.transparentBackground` | `false` |
-| `params.qualityToggle` / `params.ucPreset` | `true` / `0`，供该预设切换回旧模型时使用 |
+| `positivePrefix` / `negativePrefix` | 沿用预设中已有的值；若原为 V4.5 质量词表，建议清空 |
+| `params.model` | `nai-diffusion-5-full` 或 `nai-diffusion-5-curated` |
+| `params.v5QualityPresetId` | 未设置时由 `qualityToggle` 推导：`false` → `none`，否则 `standard` |
+| `params.v5UcPresetId` | 未设置时由 `ucPreset` 推导：`0/1/2/3` → `heavy/light/humanFocus/none`，无法识别则 `heavy` |
+| `params.transparentBackground` | 未显式为 `true` 时一律 `false` |
+| `params.qualityToggle` / `params.ucPreset` | 保留原值，供该预设切换回旧模型时使用 |
 | 尺寸 / Steps / CFG / Sampler / Scheduler | 832×1216 / 23 / 7 / Euler Ancestral / Karras |
 
 ### 7.2 模型下拉
@@ -603,7 +599,7 @@ V5 的最终角色上限先在 Provider 计算：用户值为 `0` 时取 22，�
 | `https://host/ai/generate-image` | 原样 | 将末尾精确替换为 `/ai/generate-image-stream` |
 | `https://host/ai/generate-image-stream` | 将末尾精确替换为 `/ai/generate-image` | 原样 |
 
-只替换 URL pathname 末尾的精确端点，不对域名、查询参数或中间路径做字符串猜测。前端负责把最终 `upstreamUrl` 传给新版后端接口，后端按该完整 URL 请求，不再二次追加路径。旧 `/v1/generate-image` 的请求格式和解析行为保持不变。
+只替换 URL pathname 末尾的精确端点，不对域名、查询参数或中间路径做字符串猜测。前端是当前端点与请求协议的唯一所有者：直连使用解析结果，后端发送则先把相对地址解析为完整 HTTP(S) URL。`/v2/generate-image`、`/v2/test` 与 V5 stream 入口只接收最终 URL 和前端构造的 payload，后端不再追加路径或识别模型协议。正式线已发布的 `/v1/generate-image` 与 `/v1/test` 冻结为 v1.0.1 兼容入口；新前端只在 v2 返回 404 时为旧模型回退一次，停止支持 v1.0.1 后整组删除。
 
 ### 10.2 前端直连
 
@@ -620,20 +616,15 @@ V5：
 
 目标样本固定为 `samp_ix === 0`。`final.image` 必须是非空 `Uint8Array`、不超过图片大小上限，并通过 PNG 文件签名校验；缺失字段、错误样本或非 PNG 字节都明确失败。首个合法 `final` 即为终态，成功取得后立即取消并释放 reader，不继续读取后续事件。
 
-MessagePack 解码使用锁定版本的成熟浏览器 ESM 依赖（`@msgpack/msgpack`），以本地模块随扩展分发并保留许可证，不从 CDN 运行时加载，也不为本协议手写不完整 decoder。包装层只暴露本功能需要的 `decode(frame)`，将 MessagePack map 统一成普通字段读取，并要求 `bin` 解码为 `Uint8Array`；测试直接使用真实编码帧而非伪造已解码对象。
+MessagePack 解码使用锁定版本的成熟浏览器 ESM 依赖（`@msgpack/msgpack`），以本地 decode-only 模块随扩展分发并保留许可证，不从 CDN 运行时加载，也不为本协议手写不完整 decoder。该模块只在 V5 上游接受请求并开始返回流后动态加载，V4.5 不下载它；包装层只暴露本功能需要的 `decode(frame)`，将 MessagePack map 统一成普通字段读取，并要求 `bin` 解码为 `Uint8Array`；测试直接使用真实编码帧而非伪造已解码对象。
 
 ### 10.3 后端转发与版本门槛
 
-发布 V5 stream 能力时，`server-plugin/littlewhitebox-nai` 的 `index.js`、`package.json`、`manifest.json` 和 README 版本同步提升到 `1.1.0`，新增 `/v1/generate-image-stream`。
-
-- `1.0.1` 继续满足 V3/V4/V4.5 的 `/v1/generate-image`，不能因 V5 接入被整体判为不可用。
-- V5 后端发送要求版本至少 `1.1.0`，且 `/status` 的 `capabilities` 明确包含 `v5-msgpack-stream`。
-- 前端分别保留 `NAI_BACKEND_MIN_VERSION = 1.0.1` 和 `NAI_BACKEND_V5_MIN_VERSION = 1.1.0`；选中 V5 + 后端发送时执行能力检查。
-- 旧插件缺少 capability 或版本不足时，在发请求前显示“V5 后端插件需升级到 1.1.0”，不得把旧插件误判为 V5 ready；前端直连不受此限制。
+`1.1.0` 首次加入 V5 stream；`1.2.0` 新增 `/v2/generate-image` 与 `/v2/test`，将当前端点解析和连接探针构造收回前端，移除后端的第二份 V5 报文与 URL 规则。V3/V4/V4.5 后端发送仍可通过冻结的 v1 入口兼容 `1.0.1`；V5 要求插件至少为 `1.2.0`，且 `/status` 的 `capabilities` 明确包含 `v5-msgpack-stream`。版本或能力不足时在请求前明确提示升级，前端直连不受此限制。
 
 后端插件负责：
 
-- 接收本地 JSON 包装中的 key、已解析的完整 `upstreamUrl` 和 V5 payload。
+- 接收本地 JSON 包装中的 key、已解析的完整 `url` 和前端构造的 payload。
 - 在服务端构造官方 multipart 请求。
 - 将上游二进制流原样转发给浏览器。
 - 上游非 2xx 时保留 HTTP status，并在响应大小上限内转发 JSON/文本错误；不得包装成伪 MessagePack 200 响应。
@@ -666,7 +657,7 @@ MessagePack 解码使用锁定版本的成熟浏览器 ESM 依赖（`@msgpack/ms
 | `scene-rules.md` | 新默认内容移除模型绑定的固定 5x5、角色合并和 Tag 配额协议 |
 | `novel-image-response.js` 或相邻模块 | 长度帧读取、MessagePack 解码、final/error 处理 |
 | `package.json` / `package-lock.json` / 本地 `libs` | 锁定并分发 `@msgpack/msgpack` 浏览器 ESM 与许可证，不使用 CDN |
-| `server-plugin/littlewhitebox-nai` | 升级至 1.1.0，声明 capability，新增 V5 stream 转发入口与取消/超时处理 |
+| `server-plugin/littlewhitebox-nai` | 升级至 1.2.0，声明 capability；v2 仅传输完整 URL 与请求报文，v1 冻结为正式线兼容入口 |
 | `cloud-presets.js` | 参数预设格式升级为 V2，完整往返数量限制与 V5 字段；V1 只在导入边界转换 |
 | Assistant file manifest | 源码完成后最后重建 |
 
@@ -680,9 +671,9 @@ V5 领域代码留在 `modules/draw/providers/novelai/`。共享 Scene Planner �
 
 - 保留所有现有参数预设及其顺序、ID、名称和修改内容。
 - 保留 `selectedParamsPresetId`，不能把升级用户切到 V5。
-- 仅在不存在任何 V5 参数预设时追加新的 V5 Full 预设。
+- 不追加、不删除任何参数预设。
 - 所有旧预设缺少 V5 专属字段时，按 §5.3 从旧 Quality/UC 值一次性派生 `v5QualityPresetId` / `v5UcPresetId`，并将 `transparentBackground` 规范化为 `false`；不得根据 Prompt 文本反推。
-- 迁移完成后写入新版本；用户之后删除 V5 预设不再自动恢复。
+- 迁移完成后写入新版本。
 
 参数预设导入导出格式升级为 `novel-draw-preset` V2，必须完整保存 `positivePrefix`、`negativePrefix`、`maxImages`、`maxCharactersPerImage` 与全部当前 `params`。冻结的 V1 格式只在导入边界转换；缺少的数量限制取 `0`，V5 专属字段按 §5.3 确定迁移，未知版本明确拒绝。云端预设和本地文件共用同一解析器，不得各自维护一套默认值。
 
@@ -695,7 +686,7 @@ V5 领域代码留在 `modules/draw/providers/novelai/`。共享 Scene Planner �
 - 为所有仍支持直接升级的已发布 Prompt 模板版本保存完整真实 settings fixture，其中冻结对应 `topSystem`、`topSystemPov` 与 `sceneRules`；不能只保存 V5 发布前最后一版孤立文本。
 - 只统一 CRLF/LF 后与任一受支持 fixture 完全相等的 `topSystem` / `sceneRules`，一次性替换为新的模型无关默认内容。
 - 任一处不同都视为用户内容，原样保留；不得通过正则删除 A1-E5、角色合并或 Tag 配额段落。
-- 不再用 `PROMPT_TEMPLATE_VERSION` 按“默认-完整规则”等名称批量覆盖现有用户预设。显式点击“恢复默认”才采用当前模板。
+- 不再用 `PROMPT_TEMPLATE_VERSION` 按“默认-完整规则”等名称批量覆盖现有用户预设。精确命中已发布默认内容的字段由版本迁移采用当前模板；用户编辑过的字段只有显式点击“恢复默认”才会被替换。
 - 运行时总在用户 `sceneRules` 之后注入 §8 的模型提交契约，因此保留下来的旧指令不能改变 Tool Schema 或 V5 center 类型。
 
 现有 `tagGuideContent` 无论内容为何都不再属于提示词预设：迁移保存成功后删除该字段，运行时只认两份 Provider 静态指南，不保留 fallback、备份或双读。迁移保存失败时继续使用完整旧设置并禁止进入半迁移运行态，不能先改内存缓存再报告成功。
@@ -720,8 +711,8 @@ V5 领域代码留在 `modules/draw/providers/novelai/`。共享 Scene Planner �
 ### 13.1 稳定契约
 
 - 默认选中仍为 V4.5 Full。
-- 新增 V5 Full 预设的正负固定词为空，V5 Quality/UC 使用 `standard` / `heavy`。
-- 升级后 V5 参数预设只追加一次，且不改变当前选中项。
+- 首次安装与升级都不产生 V5 参数预设，预设数量与当前选中项不变。
+- 旧预设切到 V5 模型时，V5 Quality/UC 由旧 `qualityToggle` / `ucPreset` 派生，`transparentBackground` 为 `false`。
 - 参数预设与提示词预设继续独立手动选择。
 - 相同提示词预设下，V4.5 模型注入 V4.5 指南，V5 模型注入 V5 指南。
 - 删除或改名任意用户预设不影响模型能力解析。
@@ -764,8 +755,8 @@ V5 领域代码留在 `modules/draw/providers/novelai/`。共享 Scene Planner �
 
 - 根 URL、旧完整端点、新完整端点分别解析到当前模型需要的唯一端点，且不改写存储值。
 - 前端直连与后端发送使用相同的已解析 URL 结果。
-- 插件 `1.0.1`、无 capability 时对 V4.5 仍实际走通原 `/v1/generate-image` 包装与图片返回，对 V5 明确报版本过低。
-- 插件 `1.1.0` 还必须声明 `v5-msgpack-stream` capability 才能走 V5 后端。
+- 插件 `1.0.1` 仍可通过一次明确的 v2→v1 fallback 承载 V3/V4/V4.5 后端发送；V5 不走该兼容入口，并在低于 `1.2.0` 时明确报版本过低。
+- 插件 `1.2.0` 还必须声明 `v5-msgpack-stream` capability 才能走 V5 后端。
 - V5 后端透传的 chunk 边界不影响前端公共帧解析器，取消会终止上游请求。
 - 上游非 2xx 响应不进入 MessagePack parser，并保留可用于 401/402/429 分类的 status 与错误文本。
 - 后端同源重定向保留 Authorization，跨源重定向移除 Authorization，超过 5 次失败；前端直连不实现自定义重定向重放。

@@ -137,9 +137,9 @@ test('NovelAI V5 injects its own guide and normalized coordinate Tool contract',
     const center = task.tools[0].function.parameters.properties.images
         .items.properties.characters.items.properties.center;
 
-    assert.match(text, /V5 同时理解自然语言与标签/);
+    assert.match(text, /# NovelAI 图像生成 V5 提示词编写指南/);
     assert.match(text, /归一化坐标对象/);
-    assert.doesNotMatch(text, /V4\.5 短语化描述/);
+    assert.doesNotMatch(text, /V4\.5 图像生成 Tag 编写指南/);
     assert.deepEqual(center, {
         type: 'object',
         additionalProperties: false,

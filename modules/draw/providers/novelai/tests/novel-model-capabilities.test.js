@@ -31,10 +31,14 @@ test('enables the V5 transport only for the two confirmed NovelAI model IDs', ()
 
 test('describes each model family center contract', () => {
     assert.match(getNovelScenePlannerContract(NOVEL_MODEL_IDS.V5_FULL), /归一化坐标对象/);
-    assert.match(getNovelScenePlannerContract(NOVEL_MODEL_IDS.V5_FULL), /不要输出 A1-E5/);
     assert.match(getNovelScenePlannerContract(NOVEL_MODEL_IDS.V5_FULL), /每个实际可见角色.*独立/);
-    assert.match(getNovelScenePlannerContract(NOVEL_MODEL_IDS.V5_FULL), /不得.*合并多个角色/);
     assert.match(getNovelScenePlannerContract('custom-model'), /A1-E5/);
+});
+
+// Naming the grid inside the V5 contract introduces a coordinate system the model
+// would otherwise never consider, so its absence is the contract being guarded.
+test('keeps the grid coordinate system out of the V5 contract', () => {
+    assert.doesNotMatch(getNovelScenePlannerContract(NOVEL_MODEL_IDS.V5_FULL), /A1-E5|网格/);
 });
 
 test('publishes the same V5 capability facts to the settings UI', () => {

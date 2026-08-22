@@ -114,11 +114,6 @@ function resolveInstructions(task) {
 }
 
 function extractResponseText(response) {
-    const legacyChoiceContent = response?.choices?.[0]?.message?.content;
-    if (typeof legacyChoiceContent === 'string' && legacyChoiceContent.trim()) {
-        return legacyChoiceContent.trim();
-    }
-
     if (typeof response?.output_text === 'string' && response.output_text.trim()) {
         return response.output_text.trim();
     }
@@ -148,17 +143,17 @@ function extractResponseText(response) {
     return chunks.join('\n').trim();
 }
 
-function detectProxyEndpointError(response) {
-    const choice = response?.choices?.[0];
-    const content = choice?.message?.content;
-    const finishReason = String(choice?.finish_reason || '');
-    if (typeof content !== 'string' || !content.trim()) return null;
-
-    const normalized = content.toLowerCase();
-    if (!normalized.includes('proxy error')) return null;
-    if (!normalized.includes('/responses') && !finishReason.toLowerCase().includes('proxy error')) return null;
-
-    return content.trim();
+function assertResponsesResponseShape(response) {
+    if (response && typeof response === 'object'
+        && !Array.isArray(response)
+        && !Object.prototype.hasOwnProperty.call(response, 'choices')
+        && Array.isArray(response.output)) {
+        return;
+    }
+    const error = new Error('当前端点返回的不是 Responses API，请改用 OpenAI 兼容。');
+    error.name = 'OpenAIResponsesEndpointMismatchError';
+    error.code = 'OPENAI_RESPONSES_ENDPOINT_MISMATCH';
+    throw error;
 }
 
 function buildInputMessages(task) {
@@ -396,17 +391,30 @@ export class OpenAIResponsesAdapter {
 
     async chat(task) {
         const effectiveReasoning = resolveTaskReasoning('openai-responses', this.config, task.reasoning);
-        let requestInspection = this.inspectRequest(task, { effectiveReasoning });
-        const parseResponse = (response) => {
-            const proxyError = detectProxyEndpointError(response);
-            if (proxyError) {
-                const error = new Error(proxyError);
-                error.name = 'ProxyEndpointError';
-                error.rawDisplay = proxyError;
-                throw error;
+        const requestAttempts = [];
+        const buildRequestInspection = () => {
+            const latest = requestAttempts.at(-1)?.inspection || {};
+            return {
+                ...latest,
+                requestCount: requestAttempts.length,
+                fallbackCount: Math.max(0, requestAttempts.length - 1),
+                requests: requestAttempts.map(({ reason, inspection }, index) => ({
+                    index: index + 1,
+                    reason,
+                    request: inspection.request,
+                    effectiveConfig: inspection.effectiveConfig,
+                })),
+            };
+        };
+        const attachRequestInspection = (error) => {
+            if (error && typeof error === 'object') {
+                error.requestInspection = buildRequestInspection();
             }
-
-            const output = Array.isArray(response.output) ? response.output : [];
+            return error;
+        };
+        const parseResponse = (response) => {
+            assertResponsesResponseShape(response);
+            const output = response.output;
             const thoughts = isReasoningOutputVisible(effectiveReasoning) ? extractThoughts(output) : [];
             const toolCalls = output
                 .filter((item) => item.type === 'function_call' && item.name)
@@ -419,94 +427,112 @@ export class OpenAIResponsesAdapter {
             return { output, thoughts, toolCalls, text };
         };
 
-        const createRequest = async (legacySystemInInput = false) => {
-            const body = this.buildRequestBody(task, legacySystemInInput, effectiveReasoning);
-            requestInspection = this.inspectRequest(task, {
+        const recordRequest = (body, legacySystemInInput, reason) => {
+            const inspection = this.inspectRequest(task, {
                 body,
                 legacySystemInInput,
                 effectiveReasoning,
             });
-            return await this.client.responses.create(body, {
-                signal: task.signal,
-            });
+            requestAttempts.push({ reason, inspection });
         };
 
-        const createStreamRequest = async (legacySystemInInput = false) => {
+        const createRequest = async (legacySystemInInput = false, reason = 'initial') => {
             const body = this.buildRequestBody(task, legacySystemInInput, effectiveReasoning);
-            requestInspection = this.inspectRequest(task, {
-                body,
-                legacySystemInInput,
-                effectiveReasoning,
-            });
-            const stream = this.client.responses.stream(body, {
-                signal: task.signal,
-            });
-            const textByPart = new Map();
-            const reasoningByPart = new Map();
-            const summaryByPart = new Map();
-
-            const emitSnapshot = () => {
-                const thoughts = [];
-                if (isReasoningOutputVisible(effectiveReasoning)) {
-                    Array.from(reasoningByPart.entries())
-                        .sort(([left], [right]) => comparePartKeys(left, right))
-                        .forEach(([, text]) => pushThought(thoughts, '推理文本', text));
-                    Array.from(summaryByPart.entries())
-                        .sort(([left], [right]) => comparePartKeys(left, right))
-                        .forEach(([, text]) => pushThought(thoughts, '推理摘要', text));
-                }
-                emitStreamProgress(task, {
-                    text: Array.from(textByPart.entries())
-                        .sort(([left], [right]) => comparePartKeys(left, right))
-                        .map(([, text]) => text)
-                        .join('\n')
-                        .trim(),
-                    thoughts,
+            recordRequest(body, legacySystemInInput, reason);
+            try {
+                return await this.client.responses.create(body, {
+                    signal: task.signal,
                 });
-            };
+            } catch (error) {
+                throw attachRequestInspection(error);
+            }
+        };
 
-            stream.on('response.output_text.delta', (event) => {
-                const key = `${event.output_index}:${event.content_index}`;
-                textByPart.set(key, `${textByPart.get(key) || ''}${event.delta}`);
-                emitSnapshot();
-            });
-            stream.on('response.reasoning_text.delta', (event) => {
-                const key = `${event.output_index}:${event.content_index}`;
-                reasoningByPart.set(key, `${reasoningByPart.get(key) || ''}${event.delta}`);
-                emitSnapshot();
-            });
-            stream.on('response.reasoning_summary_text.delta', (event) => {
-                const key = `${event.output_index}:${event.summary_index}`;
-                summaryByPart.set(key, `${summaryByPart.get(key) || ''}${event.delta}`);
-                emitSnapshot();
-            });
+        const createStreamRequest = async (legacySystemInInput = false, reason = 'initial') => {
+            const body = this.buildRequestBody(task, legacySystemInInput, effectiveReasoning);
+            recordRequest(body, legacySystemInInput, reason);
+            try {
+                const stream = this.client.responses.stream(body, {
+                    signal: task.signal,
+                });
+                const textByPart = new Map();
+                const reasoningByPart = new Map();
+                const summaryByPart = new Map();
 
-            return await stream.finalResponse();
+                const emitSnapshot = () => {
+                    const thoughts = [];
+                    if (isReasoningOutputVisible(effectiveReasoning)) {
+                        Array.from(reasoningByPart.entries())
+                            .sort(([left], [right]) => comparePartKeys(left, right))
+                            .forEach(([, text]) => pushThought(thoughts, '推理文本', text));
+                        Array.from(summaryByPart.entries())
+                            .sort(([left], [right]) => comparePartKeys(left, right))
+                            .forEach(([, text]) => pushThought(thoughts, '推理摘要', text));
+                    }
+                    emitStreamProgress(task, {
+                        text: Array.from(textByPart.entries())
+                            .sort(([left], [right]) => comparePartKeys(left, right))
+                            .map(([, text]) => text)
+                            .join('\n')
+                            .trim(),
+                        thoughts,
+                    });
+                };
+
+                stream.on('response.output_text.delta', (event) => {
+                    const key = `${event.output_index}:${event.content_index}`;
+                    textByPart.set(key, `${textByPart.get(key) || ''}${event.delta}`);
+                    emitSnapshot();
+                });
+                stream.on('response.reasoning_text.delta', (event) => {
+                    const key = `${event.output_index}:${event.content_index}`;
+                    reasoningByPart.set(key, `${reasoningByPart.get(key) || ''}${event.delta}`);
+                    emitSnapshot();
+                });
+                stream.on('response.reasoning_summary_text.delta', (event) => {
+                    const key = `${event.output_index}:${event.summary_index}`;
+                    summaryByPart.set(key, `${summaryByPart.get(key) || ''}${event.delta}`);
+                    emitSnapshot();
+                });
+
+                return await stream.finalResponse();
+            } catch (error) {
+                throw attachRequestInspection(error);
+            }
         };
 
         const allowCompatibilityFallback = !isOfficialOpenAIBaseUrl(this.config.baseUrl);
+        const sendRequest = typeof task.onStreamProgress === 'function'
+            ? createStreamRequest
+            : createRequest;
         let response;
         let parsed;
 
         try {
-            response = typeof task.onStreamProgress === 'function'
-                ? await createStreamRequest(false)
-                : await createRequest(false);
+            response = await sendRequest(false, 'initial');
             parsed = parseResponse(response);
-            if (allowCompatibilityFallback && !parsed.text && !parsed.toolCalls.length) {
-                response = typeof task.onStreamProgress === 'function'
-                    ? await createStreamRequest(true)
-                    : await createRequest(true);
-                parsed = parseResponse(response);
-            }
         } catch (error) {
             if (!allowCompatibilityFallback || !shouldRetryWithLegacySystem(error)) {
-                throw error;
+                throw attachRequestInspection(error);
             }
-            response = typeof task.onStreamProgress === 'function'
-                ? await createStreamRequest(true)
-                : await createRequest(true);
-            parsed = parseResponse(response);
+            response = await sendRequest(true, 'legacy_system_error');
+            try {
+                parsed = parseResponse(response);
+            } catch (retryError) {
+                throw attachRequestInspection(retryError);
+            }
+        }
+
+        if (allowCompatibilityFallback
+            && requestAttempts.length < 2
+            && !parsed.text
+            && !parsed.toolCalls.length) {
+            response = await sendRequest(true, 'empty_response');
+            try {
+                parsed = parseResponse(response);
+            } catch (retryError) {
+                throw attachRequestInspection(retryError);
+            }
         }
 
         return {
@@ -519,7 +545,7 @@ export class OpenAIResponsesAdapter {
             providerPayload: parsed.output.length
                 ? { openAIResponseOutput: cloneJson(parsed.output) || [] }
                 : undefined,
-            requestInspection,
+            requestInspection: buildRequestInspection(),
         };
     }
 }

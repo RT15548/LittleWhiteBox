@@ -33,7 +33,7 @@ enableServerPlugins: true
 重启后，启动日志里应出现：
 
 ```
-[littlewhitebox-nai] server plugin initialized (v1.1.0)
+[littlewhitebox-nai] server plugin initialized (v1.2.0)
 ```
 
 回到 LittleWhiteBox 的 NovelAI 绘图设置 →「API 配置」→「发送方式」点「后端发送」，
@@ -48,18 +48,26 @@ enableServerPlugins: true
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/status` | 前端检测插件是否就绪 |
-| POST | `/v1/generate-image` | 代发 NovelAI 生图请求，返回图片 base64 与 MIME |
+| POST | `/v1/generate-image` | 冻结的 v1.0.1 兼容入口：接收根地址并代发旧图片协议 |
+| POST | `/v2/generate-image` | 接收完整图片端点和 payload，返回图片 base64 与 MIME |
 | POST | `/v1/generate-image-stream` | 代发 NovelAI V5 multipart 请求并透传 MessagePack 流 |
-| POST | `/v1/test` | 测试第三方端点连通性 |
+| POST | `/v1/test` | 冻结的 v1.0.1 兼容连接测试 |
+| POST | `/v2/test` | 使用前端提供的完整端点与探针 payload 测试连接 |
 
 `v1/generate-image` 请求体：`{ url?, key, payload, insecure?, timeout }`
 
-`v1/test` 请求体：`{ url?, key, insecure?, timeout, transport?, model? }`。当 `transport` 为 `msgpack-stream` 时，测试会使用当前 V5 模型和流式端点；否则测试旧 JSON 端点。
+`v2/generate-image` 请求体：`{ url, key, payload, insecure?, timeout }`
 
-`v1/generate-image-stream` 请求体：`{ upstreamUrl, key, payload, insecure?, timeout }`
+`v1/test` 请求体：`{ url?, key, insecure?, timeout }`
 
-- `url`：第三方端点根地址（留空 = 官方 `https://image.novelai.net`）
-- `upstreamUrl`：前端根据当前模型解析好的完整 V5 地址（例如 `https://image.novelai.net/ai/generate-image-stream`）
+`v2/test` 请求体：`{ url, key, payload, multipart?, insecure?, timeout }`
+
+`v1/generate-image-stream` 请求体：`{ url, key, payload, insecure?, timeout }`
+
+- v2 与 stream 请求的 `url`：前端根据当前模型解析好的完整 HTTP(S) 图片端点
+- v1 请求的 `url`：正式线 v1.0.1 保存的根地址或旧完整端点
+- `payload`：前端按当前模型构造的生成或连接测试报文；后端不解释模型协议
+- `multipart`：连接测试是否使用 V5 multipart 传输
 - `key`：NovelAI API Key
 - `insecure`：为 `true` 时后端忽略 TLS 证书校验（仅连接自签证书端点时使用）
 - `timeout`：沿用前端设置的请求超时，单位为毫秒
@@ -67,6 +75,6 @@ enableServerPlugins: true
 ---
 
 ## 安全说明
-- 本插件只做「把前端给定的 payload + key 转发到 NovelAI/第三方端点并回传图片」，不落盘、不改配置。
+- v2 与 stream 入口只做「把前端给定的完整 URL、payload 和 key 转发到 NovelAI/第三方端点并回传图片」，不落盘、不改配置；v1 入口仅为正式线 v1.0.1 客户端保留旧端点解析规则。
 - `insecure` 只会关闭当前这一笔上游 HTTPS 请求的证书校验，请仅在信任的自签证书端点上使用。
 - 浏览器取消请求或断开连接时，上游请求会同步终止；正常响应和单张图片解压结果各有 128 MiB 上限，错误响应读取上限为 1 MiB。

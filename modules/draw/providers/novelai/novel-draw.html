@@ -1637,11 +1637,11 @@ function renderBackendPluginStatus() {
     }
     const model = $('nd_model_sel')?.value === 'custom' ? $('nd_model')?.value : $('nd_model_sel')?.value;
     const isV5 = getModelCapability(model).family === 'v5';
-    const supportsV5 = isVersionAtLeast(st.version, '1.1.0')
+    const supportsV5 = isVersionAtLeast(st.version, '1.2.0')
         && Array.isArray(st.capabilities)
         && st.capabilities.includes('v5-msgpack-stream');
     if (isV5 && !supportsV5) {
-        setBackendStatusUI('bad', `当前 V5 模型需要后端插件 v1.1.0+ 并支持 v5-msgpack-stream（当前 v${st.version || '未知'}）`);
+        setBackendStatusUI('bad', `当前 V5 模型需要后端插件 v1.2.0+ 并支持 v5-msgpack-stream（当前 v${st.version || '未知'}）`);
         return;
     }
     setBackendStatusUI('ok', `后端插件已就绪${st.version ? '（v' + st.version + '）' : ''}`);
@@ -2740,9 +2740,6 @@ function updateModelOptions() {
     $('nd_variety_boost_group').classList.toggle('hidden', isV5);
     const characterLimit = capability.maxCharactersPerImage || 10;
     $('nd_max_chars').max = String(characterLimit);
-    if (Number($('nd_max_chars').value) > characterLimit) {
-        $('nd_max_chars').value = String(characterLimit);
-    }
     requestPromptChainPreview();
     renderBackendPluginStatus();
 }
@@ -2763,7 +2760,8 @@ function collectParamsPreset() {
     p.params.scheduler = $('nd_scheduler_sel').value === 'custom' ? $('nd_scheduler').value : $('nd_scheduler_sel').value;
     p.params.steps = Number($('nd_steps').value) || 23;
     p.params.scale = Number($('nd_scale').value) || 5;
-    p.params.seed = Number($('nd_seed').value);
+    const seed = $('nd_seed').value.trim();
+    p.params.seed = seed === '' ? -1 : Number(seed);
     p.params.width = Number($('nd_width').value) || 832;
     p.params.height = Number($('nd_height').value) || 1216;
     p.params.qualityToggle = $('nd_quality_toggle').value === 'true';

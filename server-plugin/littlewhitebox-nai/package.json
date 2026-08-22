@@ -1,6 +1,6 @@
 {
     "name": "littlewhitebox-nai",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "type": "commonjs",
     "main": "index.js",
     "description": "Backend passthrough for LittleWhiteBox NovelAI image generation (bypass CORS / self-signed cert).",

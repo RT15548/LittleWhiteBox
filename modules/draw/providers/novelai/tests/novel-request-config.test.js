@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { resolveNovelAIImageApi, snapshotNovelRequestConfig } from '../novel-request-config.js';
+import {
+    buildNovelAIConnectionProbe,
+    resolveNovelAIBackendImageApi,
+    resolveNovelAIImageApi,
+    snapshotNovelRequestConfig,
+} from '../novel-request-config.js';
 
 test('freezes request settings when a generation is submitted', () => {
     const settings = {
@@ -75,4 +80,32 @@ test('resolves legacy and V5 endpoints from an origin or either explicit image e
         resolveNovelAIImageApi('/proxy/novelai/ai/generate-image?token=abc', 'msgpack-stream'),
         '/proxy/novelai/ai/generate-image-stream?token=abc',
     );
+});
+
+test('resolves relative endpoints to an absolute URL before backend transport', () => {
+    assert.equal(
+        resolveNovelAIBackendImageApi('/proxy/novelai', 'msgpack-stream', 'https://tavern.example/chat/1'),
+        'https://tavern.example/proxy/novelai/ai/generate-image-stream',
+    );
+    assert.throws(
+        () => resolveNovelAIBackendImageApi('/proxy/novelai', 'image'),
+        /完整 HTTP\(S\)/,
+    );
+});
+
+test('builds connection probes on the frontend for each selected transport', () => {
+    const legacy = buildNovelAIConnectionProbe('https://proxy.example', 'nai-diffusion-4-5-full');
+    assert.equal(legacy.url, 'https://proxy.example/ai/generate-image');
+    assert.equal(legacy.multipart, false);
+    assert.equal(legacy.payload.model, 'nai-diffusion-3');
+
+    const v5 = buildNovelAIConnectionProbe(
+        'https://proxy.example/ai/generate-image',
+        'nai-diffusion-5-curated',
+    );
+    assert.equal(v5.url, 'https://proxy.example/ai/generate-image-stream');
+    assert.equal(v5.multipart, true);
+    assert.equal(v5.payload.model, 'nai-diffusion-5-curated');
+    assert.equal(v5.payload.parameters.params_version, 4);
+    assert.equal(v5.payload.parameters.straight_alpha, true);
 });

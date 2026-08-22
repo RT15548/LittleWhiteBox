@@ -89,6 +89,7 @@ import {
     createTavernPetTestState,
     seedTavernPetForTest,
 } from './pet-test-helpers';
+import { setHostChatCompletionsRequestHeadersProvider } from '../../../shared/host-llm/chat-completions/client.js';
 
 async function resetDb() {
     await waitForQueuedAcceptedTurnManagers();
@@ -99,6 +100,7 @@ async function resetDb() {
 const originalConsoleInfo = console.info.bind(console);
 
 before(() => {
+    setHostChatCompletionsRequestHeadersProvider(() => ({}));
     console.info = (...args: Parameters<typeof console.info>) => {
         if (args[0] === '[小白酒馆] turn stage start' || args[0] === '[小白酒馆] turn stage end') {
             return;
@@ -111,6 +113,7 @@ after(async () => {
     try {
         await waitForQueuedAcceptedTurnManagers();
     } finally {
+        setHostChatCompletionsRequestHeadersProvider(null);
         console.info = originalConsoleInfo;
     }
 });

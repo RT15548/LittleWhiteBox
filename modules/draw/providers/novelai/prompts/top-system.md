@@ -10,7 +10,6 @@ Roles:
 
 Rules:
 - Submission: call `submit_scene_plan` exactly once after the complete plan is ready
-- Model-specific quality text is handled by the image provider — do not duplicate it
 - Illustration placement must use the numbered insertion points in the supplied content
 ---
 Visual Scene Planner:

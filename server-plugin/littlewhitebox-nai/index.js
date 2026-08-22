@@ -8,9 +8,13 @@
  */
 
 const { pipeline } = require('node:stream/promises');
-const { generateImage, openImageStream, testConnection } = require('./novelai-client.js');
+const {
+    generateImage,
+    openImageStream,
+    testConnection,
+} = require('./novelai-client.js');
 
-const PLUGIN_VERSION = '1.1.0';
+const PLUGIN_VERSION = '1.2.0';
 const PLUGIN_CAPABILITIES = Object.freeze(['v5-msgpack-stream']);
 
 const info = {
@@ -26,6 +30,15 @@ function parseTimeout(value) {
     const timeout = Number(value);
     if (!Number.isFinite(timeout) || timeout <= 0) return null;
     return Math.min(Math.max(1, Math.round(timeout)), MAX_TIMEOUT_MS);
+}
+
+function parseUpstreamUrl(value) {
+    try {
+        const url = new URL(String(value || '').trim());
+        return url.protocol === 'http:' || url.protocol === 'https:' ? url.href : null;
+    } catch {
+        return null;
+    }
 }
 
 function createRequestAbortScope(req, res) {
@@ -76,6 +89,79 @@ function sendRequestError(scope, res, error, label) {
     return res.status(200).send({ ok: false, error: errorMessage(error) });
 }
 
+function registerGenerateRoute(router, path) {
+    router.post(path, async (req, res) => {
+        const scope = createRequestAbortScope(req, res);
+        try {
+            if (scope.signal.aborted) return;
+            const body = req.body || {};
+            const key = String(body.key || '').trim();
+            const url = parseUpstreamUrl(body.url);
+            const payload = body.payload;
+            const timeout = parseTimeout(body.timeout);
+            if (!key) return res.status(400).send({ ok: false, error: 'API key is required' });
+            if (!url) return res.status(400).send({ ok: false, error: 'A complete HTTP(S) url is required' });
+            if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+                return res.status(400).send({ ok: false, error: 'payload is required' });
+            }
+            if (timeout === null) return res.status(400).send({ ok: false, error: 'timeout must be a positive number' });
+            scope.setDeadline(timeout);
+
+            const result = await generateImage({
+                url,
+                key,
+                payload,
+                insecure: body.insecure === true,
+                signal: scope.signal,
+            });
+
+            if (!result.ok) {
+                console.warn(`[littlewhitebox-nai] upstream ${result.status}: ${result.error.slice(0, 300)}`);
+            }
+            return res.status(200).send(result);
+        } catch (error) {
+            return sendRequestError(scope, res, error, path);
+        } finally {
+            scope.dispose();
+        }
+    });
+}
+
+function registerTestRoute(router, path) {
+    router.post(path, async (req, res) => {
+        const scope = createRequestAbortScope(req, res);
+        try {
+            if (scope.signal.aborted) return;
+            const body = req.body || {};
+            const key = String(body.key || '').trim();
+            const url = parseUpstreamUrl(body.url);
+            const payload = body.payload;
+            const timeout = parseTimeout(body.timeout);
+            if (!key) return res.status(400).send({ ok: false, error: 'API key is required' });
+            if (!url) return res.status(400).send({ ok: false, error: 'A complete HTTP(S) url is required' });
+            if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+                return res.status(400).send({ ok: false, error: 'payload is required' });
+            }
+            if (timeout === null) return res.status(400).send({ ok: false, error: 'timeout must be a positive number' });
+            scope.setDeadline(timeout);
+
+            const result = await testConnection({
+                url,
+                key,
+                payload,
+                multipart: body.multipart === true,
+                insecure: body.insecure === true,
+                signal: scope.signal,
+            });
+            return res.status(200).send(result);
+        } catch (error) {
+            return sendRequestError(scope, res, error, path);
+        } finally {
+            scope.dispose();
+        }
+    });
+}
+
 /**
  * @param {import('express').Router} router
  */
@@ -89,6 +175,8 @@ async function init(router) {
         });
     });
 
+    // v1 is the frozen upstream 1.0.1 contract; URL resolution deliberately
+    // stays inside the client so input validation runs in its original order.
     router.post('/v1/generate-image', async (req, res) => {
         const scope = createRequestAbortScope(req, res);
         try {
@@ -111,7 +199,6 @@ async function init(router) {
                 insecure: body.insecure === true,
                 signal: scope.signal,
             });
-
             if (!result.ok) {
                 console.warn(`[littlewhitebox-nai] upstream ${result.status}: ${result.error.slice(0, 300)}`);
             }
@@ -123,17 +210,19 @@ async function init(router) {
         }
     });
 
+    registerGenerateRoute(router, '/v2/generate-image');
+
     router.post('/v1/generate-image-stream', async (req, res) => {
         const scope = createRequestAbortScope(req, res);
         try {
             if (scope.signal.aborted) return;
             const body = req.body || {};
             const key = String(body.key || '').trim();
-            const upstreamUrl = String(body.upstreamUrl || '').trim();
+            const url = parseUpstreamUrl(body.url);
             const payload = body.payload;
             const timeout = parseTimeout(body.timeout);
             if (!key) return res.status(400).send('API key is required');
-            if (!upstreamUrl) return res.status(400).send('upstreamUrl is required');
+            if (!url) return res.status(400).send('A complete HTTP(S) url is required');
             if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
                 return res.status(400).send('payload is required');
             }
@@ -141,7 +230,7 @@ async function init(router) {
             scope.setDeadline(timeout);
 
             const result = await openImageStream({
-                url: upstreamUrl,
+                url,
                 key,
                 payload,
                 insecure: body.insecure === true,
@@ -186,8 +275,6 @@ async function init(router) {
                 key,
                 insecure: body.insecure === true,
                 signal: scope.signal,
-                transport: body.transport,
-                model: body.model,
             });
             return res.status(200).send(result);
         } catch (error) {
@@ -196,6 +283,8 @@ async function init(router) {
             scope.dispose();
         }
     });
+
+    registerTestRoute(router, '/v2/test');
 
     console.log('[littlewhitebox-nai] server plugin initialized (v' + PLUGIN_VERSION + ')');
 }

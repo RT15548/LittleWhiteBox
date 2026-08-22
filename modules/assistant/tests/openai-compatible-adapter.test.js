@@ -848,6 +848,93 @@ test('OpenAI Responses uses one visible default for request, response, and diagn
     assert.deepEqual(offResult.thoughts, []);
 });
 
+test('OpenAI Responses performs only one empty-response fallback and records both requests', async () => {
+    const adapter = new OpenAIResponsesAdapter({
+        apiKey: 'test-key',
+        baseUrl: 'https://responses-relay.example/v1',
+        model: 'gpt-5.6',
+    });
+    const bodies = [];
+    adapter.client.responses.create = async (body) => {
+        bodies.push(body);
+        return bodies.length === 1
+            ? { model: 'gpt-5.6', status: 'completed', output: [] }
+            : { model: 'gpt-5.6', status: 'completed', output: [], output_text: '' };
+    };
+
+    const result = await adapter.chat({
+        systemPrompt: 'system rules',
+        messages: [{ role: 'user', content: 'hello' }],
+    });
+
+    assert.equal(bodies.length, 2);
+    assert.equal(bodies[0].instructions, 'system rules');
+    assert.equal(Object.hasOwn(bodies[1], 'instructions'), true);
+    assert.equal(bodies[1].instructions, undefined);
+    assert.equal(result.requestInspection.requestCount, 2);
+    assert.equal(result.requestInspection.fallbackCount, 1);
+    assert.deepEqual(
+        result.requestInspection.requests.map(request => request.reason),
+        ['initial', 'empty_response'],
+    );
+});
+
+test('OpenAI Responses performs at most one compatibility-error fallback', async () => {
+    const adapter = new OpenAIResponsesAdapter({
+        apiKey: 'test-key',
+        baseUrl: 'https://responses-relay.example/v1',
+        model: 'gpt-5.6',
+    });
+    let requestCount = 0;
+    adapter.client.responses.create = async () => {
+        requestCount += 1;
+        throw new Error('unsupported instructions');
+    };
+
+    await assert.rejects(() => adapter.chat({
+        systemPrompt: 'system rules',
+        messages: [{ role: 'user', content: 'hello' }],
+    }), (error) => {
+        assert.equal(requestCount, 2);
+        assert.equal(error.requestInspection.requestCount, 2);
+        assert.equal(error.requestInspection.fallbackCount, 1);
+        assert.deepEqual(
+            error.requestInspection.requests.map(request => request.reason),
+            ['initial', 'legacy_system_error'],
+        );
+        return true;
+    });
+});
+
+test('OpenAI Responses rejects Chat Completions and malformed response shapes without retrying', async () => {
+    for (const response of [
+        { choices: [{ message: { content: 'wrong endpoint' } }] },
+        { output_text: 'missing output' },
+        { output: {} },
+    ]) {
+        const adapter = new OpenAIResponsesAdapter({
+            apiKey: 'test-key',
+            baseUrl: 'https://responses-relay.example/v1',
+            model: 'gpt-5.6',
+        });
+        let requestCount = 0;
+        adapter.client.responses.create = async () => {
+            requestCount += 1;
+            return response;
+        };
+
+        await assert.rejects(() => adapter.chat({
+            messages: [{ role: 'user', content: 'hello' }],
+        }), (error) => {
+            assert.equal(error.code, 'OPENAI_RESPONSES_ENDPOINT_MISMATCH');
+            assert.match(error.message, /不是 Responses API，请改用 OpenAI 兼容/);
+            assert.equal(error.requestInspection.requestCount, 1);
+            return true;
+        });
+        assert.equal(requestCount, 1);
+    }
+});
+
 test('OpenAI-compatible OpenAI family requests use the latest max_completion_tokens field', () => {
     const messages = [{ role: 'user', content: 'hello' }];
     const o1MiniBody = new OpenAICompatibleAdapter({

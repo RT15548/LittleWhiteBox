@@ -14,16 +14,14 @@ const ZIP_LOCAL_FILE_HEADER = 0x04034b50;
 const ZIP_CENTRAL_DIRECTORY_HEADER = 0x02014b50;
 const ZIP_END_OF_CENTRAL_DIRECTORY = 0x06054b50;
 
-function resolveImageApi(baseUrl, stream = false) {
-    const endpoint = stream ? 'generate-image-stream' : 'generate-image';
+// Compatibility boundary for the upstream-released v1.0.1 server API.
+// Remove together with the /v1 generate/test routes once that public API is retired.
+function resolveLegacyImageApi(baseUrl) {
     const raw = String(baseUrl || '').trim();
-    if (!raw) return `${NOVELAI_DEFAULT_BASE_URL}/ai/${endpoint}`;
-    const url = new URL(raw);
-    const pathname = url.pathname.replace(/\/+$/, '');
-    url.pathname = /\/ai\/generate-image(?:-stream)?$/i.test(pathname)
-        ? pathname.replace(/\/ai\/generate-image(?:-stream)?$/i, `/ai/${endpoint}`)
-        : `${pathname}/ai/${endpoint}`;
-    return url.toString();
+    if (!raw) return `${NOVELAI_DEFAULT_BASE_URL}/ai/generate-image`;
+    const trimmed = raw.replace(/\/+$/, '');
+    if (/\/ai\/generate-image$/i.test(trimmed)) return trimmed;
+    return `${trimmed}/ai/generate-image`;
 }
 
 function createAbortError() {
@@ -327,9 +325,9 @@ function extractImageBase64(buffer) {
     return { base64: image.toString('base64'), mime };
 }
 
-async function generateImage({ baseUrl, key, payload, insecure, signal }) {
+async function generateImage({ url, baseUrl, key, payload, insecure, signal }) {
     const response = await openUpstreamResponse({
-        url: resolveImageApi(baseUrl),
+        url: url ?? resolveLegacyImageApi(baseUrl),
         key,
         payload,
         insecure,
@@ -369,47 +367,27 @@ async function openImageStream({ url, key, payload, insecure, signal }) {
     return { ok: true, response };
 }
 
-async function testConnection({ baseUrl, key, insecure, signal, transport, model }) {
-    const isV5 = transport === 'msgpack-stream';
-    const payload = isV5
+async function testConnection({ url, baseUrl, key, payload, multipart, insecure, signal }) {
+    const legacy = url === undefined;
+    const requestPayload = legacy
         ? {
-            input: 'test',
-            model: String(model || 'nai-diffusion-5-full').trim(),
-            action: 'generate',
-            parameters: {
-                params_version: 4,
-                width: 64,
-                height: 64,
-                scale: 7,
-                sampler: 'k_euler_ancestral',
-                steps: 1,
-                n_samples: 1,
-                qualityPresetId: 'none',
-                ucPresetId: 'none',
-                seed: 1,
-                characterPrompts: [],
-                v4_prompt: { caption: { base_caption: 'test', char_captions: [] }, use_coords: true, use_order: true },
-                v4_negative_prompt: { caption: { base_caption: '', char_captions: [] }, legacy_uc: false },
-                negative_prompt: '',
-                image_format: 'png',
-                stream: 'msgpack',
-            },
-            use_new_shared_trial: true,
-        }
-        : {
             input: 'test',
             model: 'nai-diffusion-3',
             action: 'generate',
             parameters: { width: 64, height: 64, steps: 1, n_samples: 1 },
-        };
-    const multipart = isV5 ? createMultipartRequest(payload) : null;
+        }
+        : payload;
+    const multipartRequest = !legacy && multipart ? createMultipartRequest(requestPayload) : null;
     const response = await openUpstreamResponse({
-        url: resolveImageApi(baseUrl, isV5),
+        url: legacy ? resolveLegacyImageApi(baseUrl) : url,
         key,
         insecure,
         signal,
-        payload,
-        ...(multipart ? { rawBody: multipart.body, contentType: multipart.contentType } : {}),
+        payload: requestPayload,
+        ...(multipartRequest ? {
+            rawBody: multipartRequest.body,
+            contentType: multipartRequest.contentType,
+        } : {}),
     });
     const status = responseStatus(response);
 
@@ -425,4 +403,4 @@ async function testConnection({ baseUrl, key, insecure, signal, transport, model
     return { ok: false, status, error: await readError(response, signal) };
 }
 
-module.exports = { generateImage, openImageStream, testConnection };
+module.exports = { generateImage, openImageStream, resolveLegacyImageApi, testConnection };

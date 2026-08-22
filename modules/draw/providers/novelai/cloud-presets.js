@@ -509,7 +509,7 @@ function ensureStyles() {
 /* ═══════════════════════════════════════════════════════════════════════════
    状态提示
    ═══════════════════════════════════════════════════════════════════════════ */
-.cp-loading, .cp-error, .cp-empty {
+.cp-loading, .cp-load-error, .cp-empty {
     text-align: center;
     padding: 60px 20px;
     color: #8b949e;
@@ -535,8 +535,16 @@ function ensureStyles() {
     opacity: 0.6;
 }
 
-.cp-error {
+.cp-load-error, .cp-import-error {
     color: #f85149;
+}
+
+.cp-import-error {
+    margin: 12px 20px 0;
+    padding: 10px 12px;
+    border: 1px solid rgba(248, 81, 73, 0.35);
+    border-radius: 8px;
+    background: rgba(248, 81, 73, 0.08);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -583,7 +591,8 @@ function createModal() {
                     <i class="fa-solid fa-spinner fa-spin"></i>
                     <div>正在获取云端数据...</div>
                 </div>
-                <div class="cp-error" style="display:none"></div>
+                <div class="cp-load-error" style="display:none"></div>
+                <div class="cp-import-error" style="display:none"></div>
                 <div class="cp-empty" style="display:none">
                     <i class="fa-solid fa-box-open"></i>
                     <div>没有找到相关预设</div>
@@ -640,8 +649,10 @@ function renderPage() {
     const pagination = modalElement.querySelector('.cp-pagination');
     const empty = modalElement.querySelector('.cp-empty');
     const loading = modalElement.querySelector('.cp-loading');
+    const importError = modalElement.querySelector('.cp-import-error');
     
     loading.style.display = 'none';
+    importError.style.display = 'none';
     
     if (filteredPresets.length === 0) {
         grid.style.display = 'none';
@@ -685,6 +696,9 @@ function renderPage() {
             if (!url || btn.disabled) return;
             
             btn.disabled = true;
+            const errorElement = modalElement.querySelector('.cp-import-error');
+            errorElement.style.display = 'none';
+            errorElement.textContent = '';
             const origHtml = btn.innerHTML;
             // Template-only UI markup.
             // eslint-disable-next-line no-unsanitized/property
@@ -707,7 +721,6 @@ function renderPage() {
             } catch (err) {
                 console.error('[CloudPresets]', err);
                 const message = String(err?.message || '未知错误');
-                const errorElement = modalElement.querySelector('.cp-error');
                 errorElement.textContent = `导入失败：${message}`;
                 errorElement.style.display = 'block';
                 btn.title = message;
@@ -744,21 +757,31 @@ export async function openCloudPresetsModal(importCallback) {
     
     // 重置状态
     currentPage = 1;
+    allPresets = [];
+    filteredPresets = [];
     modalElement.querySelector('.cp-loading').style.display = 'block';
     modalElement.querySelector('.cp-grid').style.display = 'none';
     modalElement.querySelector('.cp-pagination').style.display = 'none';
     modalElement.querySelector('.cp-empty').style.display = 'none';
-    modalElement.querySelector('.cp-error').style.display = 'none';
-    modalElement.querySelector('.cp-search-input').value = '';
+    const loadError = modalElement.querySelector('.cp-load-error');
+    const importError = modalElement.querySelector('.cp-import-error');
+    const searchInput = modalElement.querySelector('.cp-search-input');
+    loadError.style.display = 'none';
+    loadError.textContent = '';
+    importError.style.display = 'none';
+    importError.textContent = '';
+    searchInput.value = '';
+    searchInput.disabled = true;
     
     try {
         allPresets = await fetchCloudPresets();
         filteredPresets = [...allPresets];
+        searchInput.disabled = false;
         renderPage();
     } catch (e) {
         console.error('[CloudPresets]', e);
         modalElement.querySelector('.cp-loading').style.display = 'none';
-        const errEl = modalElement.querySelector('.cp-error');
+        const errEl = modalElement.querySelector('.cp-load-error');
         errEl.style.display = 'block';
         errEl.textContent = '加载失败: ' + e.message;
     }

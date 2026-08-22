@@ -181,6 +181,7 @@ test('draw agent reads the latest main preset every request and never selects de
 test('scene planner corrects schema failures with canonical provider history in one request scope', async () => {
     resetDrawAgentRuntimeForTests();
     const tasks = [];
+    const progress = [];
     let adapterCreateCount = 0;
     const providerPayload = {
         openaiCompatibleMessage: {
@@ -201,6 +202,7 @@ test('scene planner corrects schema failures with canonical provider history in 
     const result = await generateAndParseScenePlan({
         messageText: '阿璃推开门。',
         maxImages: 1,
+        onDiagnosticUpdate: diagnostic => progress.push(diagnostic.progress),
         expansionOptions: { runtime: { substituteParams: (text) => text } },
         agentOptions: {
             dependencies: { getAgentSettings: async () => buildSettings('correction-model') },
@@ -233,6 +235,8 @@ test('scene planner corrects schema failures with canonical provider history in 
     assert.equal(diagnostic.status, 'success');
     assert.equal(diagnostic.attemptCount, 2);
     assert.equal(diagnostic.correctionCount, 1);
+    assert.ok(progress.some(item => item.phase === 'analysis' && item.current === 1 && item.total === 3));
+    assert.ok(progress.some(item => item.phase === 'correction' && item.current === 2 && item.total === 3));
 });
 
 test('scene planner corrects a missing Tool call without inventing Tool history', async () => {

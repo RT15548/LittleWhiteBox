@@ -2263,7 +2263,7 @@ function installHostRequestHeadersProvider(payload: Record<string, unknown> = {}
     hostRequestHeaders.value = fallbackHeaders || {};
     setHostChatCompletionsRequestHeadersProvider(async () => {
         try {
-            const result = await requestHost('xb-tavern:get-host-request-headers');
+            const result = await requestHost('xb-tavern:get-host-request-headers', {}, { timeoutMs: 5000 });
             return result.hostRequestHeaders && typeof result.hostRequestHeaders === 'object'
                 ? result.hostRequestHeaders as Record<string, unknown>
                 : hostRequestHeaders.value;
@@ -2603,7 +2603,7 @@ function failCharacterArchiveSync(error: unknown) {
 
 async function getTavernArchiveRequestHeaders(): Promise<Record<string, unknown>> {
     try {
-        const result = await requestHost('xb-tavern:get-host-request-headers');
+        const result = await requestHost('xb-tavern:get-host-request-headers', {}, { timeoutMs: 5000 });
         return result.hostRequestHeaders && typeof result.hostRequestHeaders === 'object'
             ? result.hostRequestHeaders as Record<string, unknown>
             : hostRequestHeaders.value;
