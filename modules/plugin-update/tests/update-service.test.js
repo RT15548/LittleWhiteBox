@@ -62,3 +62,31 @@ test('an up-to-date local repository resolves to current', async () => {
 
     assert.equal(result.status, PLUGIN_UPDATE_STATUS.CURRENT);
 });
+
+test('installation uses the native update protocol and reports a pulled revision', async () => {
+    let request = null;
+    const service = createService(async (path, options) => {
+        request = { path, body: JSON.parse(options.body) };
+        return jsonResponse({ isUpToDate: false, shortCommitHash: 'abc1234' });
+    }, 'local');
+
+    const result = await service.install();
+
+    assert.equal(result.status, PLUGIN_UPDATE_STATUS.UPDATED);
+    assert.deepEqual(request, {
+        path: '/api/extensions/update',
+        body: { extensionName: '/LittleWhiteBox', global: false },
+    });
+});
+
+test('installation preserves native update failures for the plugin UI', async () => {
+    const service = createService(
+        async () => jsonResponse(null, { status: 403, text: 'Forbidden' }),
+        'global',
+    );
+
+    const result = await service.install();
+
+    assert.equal(result.status, PLUGIN_UPDATE_STATUS.FAILED);
+    assert.equal(result.errorText, 'Forbidden');
+});

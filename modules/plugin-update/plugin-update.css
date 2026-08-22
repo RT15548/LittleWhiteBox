@@ -16,12 +16,15 @@
     transition: background-color .2s, color .2s, transform .2s;
 }
 
-.littlewhitebox-native-update-bridge,
-.littlewhitebox-native-update-bridge > .extension_block {
-    display: contents;
-}
-
-#littlewhitebox-update-extension:hover {
+#littlewhitebox-update-extension:not(:disabled):hover {
     background-color: rgba(40, 167, 69, .1);
     transform: scale(1.1);
+}
+
+#littlewhitebox-update-extension:disabled,
+#littlewhitebox-update-extension.updating {
+    color: #007bff;
+    cursor: wait;
+    opacity: .7;
+    transform: none;
 }
