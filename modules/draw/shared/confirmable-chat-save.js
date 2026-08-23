@@ -16,7 +16,7 @@ function isPresent(value) {
     return value !== undefined && value !== null && String(value).length > 0;
 }
 
-function captureReadbackTarget(ctx) {
+export function createConfirmableChatTarget(ctx) {
     if (!ctx || typeof ctx.saveChat !== 'function' || typeof ctx.getRequestHeaders !== 'function') {
         throw new ConfirmableChatSaveUncertainError(
             'target_unavailable',
@@ -123,7 +123,7 @@ export async function saveChatAndConfirm({
     if (typeof fetchImpl !== 'function') throw new TypeError('fetchImpl must be a function');
     if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw new TypeError('timeoutMs must be positive');
 
-    const target = captureReadbackTarget(ctx);
+    const target = createConfirmableChatTarget(ctx);
     let saveError;
     try {
         await saveWithinTimeout(ctx, timeoutMs);
@@ -161,4 +161,23 @@ export async function saveChatAndConfirm({
     }
 
     return { target };
+}
+
+// 只读确认入口。恢复器可凭 journal 中冻结的 target 检查原聊天，即使用户当前已切到别处；
+// 它绝不保存当前内存聊天，因此不能用陈旧标签页覆盖服务端正文。
+export async function readChatAndConfirm({
+    ctx,
+    target = createConfirmableChatTarget(ctx),
+    verify,
+    fetchImpl = globalThis.fetch,
+    timeoutMs = CONFIRMABLE_CHAT_PHASE_TIMEOUT_MS,
+} = {}) {
+    if (!ctx || typeof ctx.getRequestHeaders !== 'function') throw new TypeError('ctx must provide request headers');
+    if (!target?.endpoint || !target?.body) throw new TypeError('target must describe a persisted chat');
+    if (typeof verify !== 'function') throw new TypeError('verify must be a function');
+    if (typeof fetchImpl !== 'function') throw new TypeError('fetchImpl must be a function');
+    if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw new TypeError('timeoutMs must be positive');
+    const persistedChat = await readPersistedChat(ctx, target, fetchImpl, timeoutMs);
+    const confirmed = await verify(persistedChat, target);
+    return { target, persistedChat, confirmed: confirmed === true };
 }

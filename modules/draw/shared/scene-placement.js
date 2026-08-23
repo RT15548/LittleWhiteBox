@@ -1,4 +1,5 @@
 import { hashSceneSource } from './scene-source.js';
+import { createDrawImageSlotRegex } from './image-marker-syntax.js';
 
 export class ScenePlacementError extends Error {
     constructor(message, code = 'SCENE_PLACEMENT_INVALID') {
@@ -42,11 +43,9 @@ function escapeRegex(value) {
     return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-const SCENE_SLOT_REGEX = /\[image\s*:\s*([a-z0-9\-_]+)\]/gi;
-
 export function getSceneSlotIds(sourceText) {
     const ids = [];
-    const regex = new RegExp(SCENE_SLOT_REGEX.source, 'gi');
+    const regex = createDrawImageSlotRegex();
     let match;
     while ((match = regex.exec(String(sourceText ?? ''))) !== null) ids.push(match[1]);
     return [...new Set(ids)];
@@ -63,13 +62,19 @@ export function setActiveMessageText(message, text) {
     return value;
 }
 
+// 只认 image-marker-syntax 定义的规范 slotId；非规范 id 从来不是合法槽位。
 // 交付前必须逐槽位确认它还在正文里。用户删掉的槽位是他对这张图的最终意见，
 // 交付流程重建它就是在跟用户对抗——刷新后的接回流程尤其容易犯这个错，
 // 因为它手里的恢复记录是提交那一刻的事实，不知道用户后来删过什么。
 export function isSceneSlotAlive(currentText, slotId) {
     const id = String(slotId || '').trim();
     if (!id) return false;
-    return new RegExp(`\\[image\\s*:\\s*${escapeRegex(id)}\\]`, 'i').test(String(currentText ?? ''));
+    const regex = createDrawImageSlotRegex();
+    let match;
+    while ((match = regex.exec(String(currentText ?? ''))) !== null) {
+        if (match[1].toLowerCase() === id.toLowerCase()) return true;
+    }
+    return false;
 }
 
 export function removeSceneSlotPlaceholders(sourceText, slotIds = [], markerName = 'image') {
@@ -222,14 +227,14 @@ export function insertScenePlacements(sourceText, insertions = [], options = {})
 export function insertScenePlacementsPreservingSlots(sourceText, insertions = [], options = {}) {
     const source = String(sourceText ?? '');
     const markerRanges = [];
-    const regex = new RegExp(SCENE_SLOT_REGEX.source, 'gi');
+    const regex = createDrawImageSlotRegex();
     let match;
     while ((match = regex.exec(source)) !== null) {
         markerRanges.push({ start: match.index, end: match.index + match[0].length });
     }
     if (markerRanges.length === 0) return insertScenePlacements(source, insertions, options);
 
-    const cleanSource = source.replace(new RegExp(SCENE_SLOT_REGEX.source, 'gi'), '');
+    const cleanSource = source.replace(createDrawImageSlotRegex(), '');
     const sourceHash = hashSceneSource(cleanSource);
     const mapOffset = (cleanOffset) => {
         let removedLength = 0;

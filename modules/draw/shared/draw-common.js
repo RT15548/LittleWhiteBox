@@ -11,6 +11,7 @@ import {
 } from "./scene-plan-contract.js";
 import { ScenePlacementError } from './scene-placement.js';
 import { getPendingImageJobSlots, PendingJobState } from './pending-image-jobs.js';
+import { createDrawImageSlotRegex } from './image-marker-syntax.js';
 import { classifyScenePlannerErrorForUi } from "./scene-planner-error-ui.js";
 import { isCharacterEnabled } from './character-selection.js';
 import { joinTags } from './character-prompts.js';
@@ -21,7 +22,6 @@ import {
     unregisterGenerateInterceptor,
 } from "../../../shared/common/generate-interceptor.js";
 
-const PLACEHOLDER_REGEX = /\[image\s*:\s*([a-z0-9\-_]+)\]/gi;
 const DRAW_IMAGE_HTML_REGEX = /<div\b[^>]*class=(["'])[^"']*\bxb-nd-img\b[^"']*\1[^>]*>[\s\S]*?<\/div>/gi;
 const DRAW_SAVED_EXTRA_KEY = 'xiaobaixDrawSaved';
 const LEGACY_NOVEL_SAVED_EXTRA_KEY = 'novelDrawSaved';
@@ -105,7 +105,7 @@ function stripDrawImageHtml(text) {
 }
 
 export function stripDrawArtifactsFromMessage(text) {
-    return stripDrawImageHtml(text).replace(PLACEHOLDER_REGEX, '');
+    return stripDrawImageHtml(text).replace(createDrawImageSlotRegex(), '');
 }
 
 export function stripDrawArtifactsFromChat(chat) {
@@ -377,7 +377,7 @@ export function extractSlotIds(mes) {
     const ids = new Set();
     if (!mes) return ids;
     let match;
-    const regex = new RegExp(PLACEHOLDER_REGEX.source, 'gi');
+    const regex = createDrawImageSlotRegex();
     while ((match = regex.exec(mes)) !== null) ids.add(match[1]);
     return ids;
 }
@@ -770,6 +770,33 @@ export async function renderPreviewsForMessage(messageId, { refreshSlotIds = [] 
         // eslint-disable-next-line no-unsanitized/property
         mesTextEl.innerHTML = html;
     }
+}
+
+// Draw Run adoption 会在酒馆完成楼层渲染之后才把 slots 写进 message.mes。
+// 仅替换已有 DOM 锚点不够，必须先按宿主规则重建活动楼层，再把 slots 渲染成 pending/图片卡。
+export async function syncRenderedMessageFromState(messageId, { chatId, expectedMessage } = {}) {
+    const ctx = getContext();
+    const message = ctx.chat?.[messageId];
+    if (!message || (chatId !== undefined && String(ctx.chatId || '') !== String(chatId || ''))
+        || (expectedMessage && message !== expectedMessage) || isMessageBeingEdited(messageId)) return false;
+    const { messageFormatting } = await import('../../../../../../../script.js');
+    const live = getContext();
+    if (String(live.chatId || '') !== String(ctx.chatId || '')
+        || live.chat?.[messageId] !== message || isMessageBeingEdited(messageId)) return false;
+    const mesTextEl = getMesTextElement(messageId);
+    if (!mesTextEl) return false;
+    const formatted = messageFormatting(
+        message.mes,
+        message.name,
+        message.is_system,
+        message.is_user,
+        messageId,
+    );
+    // Host-generated message markup.
+    // eslint-disable-next-line no-unsanitized/property
+    mesTextEl.innerHTML = formatted;
+    await renderPreviewsForMessage(messageId);
+    return true;
 }
 
 function initDrawPreviewMessageObserver() {

@@ -52,6 +52,9 @@ export function planImageJobReattach({ records = [], backendJobs = [], now = Dat
         if (!record?.jobId) continue;
         const job = jobsById.get(record.jobId) || null;
         if (job) claimed.add(job.id);
+        // adopting 的 child 已由 Draw Run 创建，但正文槽位是否真正落盘尚未确认。
+        // 第一刀恢复器对它零动作，租约过期后也不能越权收图；只有 Draw Run 恢复器能推进。
+        if (record.state === PendingJobState.ADOPTING) continue;
         plan.push({ record, job, action: resolveReattachAction(record, job, now) });
     }
     // 后端有、本地没有记录的任务一律不动：同一浏览器的其他标签页共享同一份日志，

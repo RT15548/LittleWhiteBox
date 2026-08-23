@@ -1,7 +1,7 @@
 import { hashStableValue } from './generation-fingerprint.js';
+import { stripDrawImageSlots } from './image-marker-syntax.js';
 
 const IMAGE_MARKER_REGEX = /\[(?:image|ebook-image|tavern-image)\s*:\s*[a-z0-9_-]+\]/gi;
-const MESSAGE_IMAGE_MARKER_REGEX = /\[image:[a-z0-9_-]+\]/gi;
 const SCENE_POINT_MARKER_REGEX = /【插图点\s+\d+】/g;
 const USER_SCENE_POINT_MARKER_REGEX = /【插图点\s+(\d+)】/g;
 const SENTENCE_END_REGEX = /[。！？!?…]/;
@@ -200,7 +200,7 @@ export function hashSceneSource(sourceText) {
 }
 
 export function normalizeMessageSceneSourceText(sourceText) {
-    return String(sourceText ?? '').replace(MESSAGE_IMAGE_MARKER_REGEX, '');
+    return stripDrawImageSlots(sourceText);
 }
 
 export function stripScenePointMarkers(text) {

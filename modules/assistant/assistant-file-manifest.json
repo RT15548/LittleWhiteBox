@@ -125,7 +125,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/docs/backend-draw-runs.md",
       "relativePath": "docs/backend-draw-runs.md",
       "extension": ".md",
-      "sizeBytes": 30145
+      "sizeBytes": 32262
     },
     {
       "source": "littlewhitebox",
@@ -1182,7 +1182,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/comfyui/comfy-draw.js",
       "relativePath": "modules/draw/providers/comfyui/comfy-draw.js",
       "extension": ".js",
-      "sizeBytes": 230923
+      "sizeBytes": 231142
     },
     {
       "source": "littlewhitebox",
@@ -1280,7 +1280,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/novel-draw.js",
       "relativePath": "modules/draw/providers/novelai/novel-draw.js",
       "extension": ".js",
-      "sizeBytes": 231633
+      "sizeBytes": 231823
     },
     {
       "source": "littlewhitebox",
@@ -1497,7 +1497,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/sd-webui/sd-draw.js",
       "relativePath": "modules/draw/providers/sd-webui/sd-draw.js",
       "extension": ".js",
-      "sizeBytes": 195914
+      "sizeBytes": 196133
     },
     {
       "source": "littlewhitebox",
@@ -1560,7 +1560,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/confirmable-chat-save.js",
       "relativePath": "modules/draw/shared/confirmable-chat-save.js",
       "extension": ".js",
-      "sizeBytes": 5317
+      "sizeBytes": 6488
     },
     {
       "source": "littlewhitebox",
@@ -1595,14 +1595,28 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/draw-common.js",
       "relativePath": "modules/draw/shared/draw-common.js",
       "extension": ".js",
-      "sizeBytes": 44732
+      "sizeBytes": 46046
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/draw-run-adoption.js",
+      "relativePath": "modules/draw/shared/draw-run-adoption.js",
+      "extension": ".js",
+      "sizeBytes": 11563
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/draw-run-client.js",
+      "relativePath": "modules/draw/shared/draw-run-client.js",
+      "extension": ".js",
+      "sizeBytes": 5326
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/draw-run-coordinator.js",
       "relativePath": "modules/draw/shared/draw-run-coordinator.js",
       "extension": ".js",
-      "sizeBytes": 10902
+      "sizeBytes": 10943
     },
     {
       "source": "littlewhitebox",
@@ -1616,7 +1630,21 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/draw-run-markers.js",
       "relativePath": "modules/draw/shared/draw-run-markers.js",
       "extension": ".js",
-      "sizeBytes": 6783
+      "sizeBytes": 11018
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/draw-run-recovery-runtime.js",
+      "relativePath": "modules/draw/shared/draw-run-recovery-runtime.js",
+      "extension": ".js",
+      "sizeBytes": 19567
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/draw-run-recovery.js",
+      "relativePath": "modules/draw/shared/draw-run-recovery.js",
+      "extension": ".js",
+      "sizeBytes": 7538
     },
     {
       "source": "littlewhitebox",
@@ -1665,35 +1693,42 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/image-job-reattach.js",
       "relativePath": "modules/draw/shared/image-job-reattach.js",
       "extension": ".js",
-      "sizeBytes": 3591
+      "sizeBytes": 3884
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/image-job-recovery-executor.js",
       "relativePath": "modules/draw/shared/image-job-recovery-executor.js",
       "extension": ".js",
-      "sizeBytes": 4928
+      "sizeBytes": 5221
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/image-job-recovery-runtime.js",
       "relativePath": "modules/draw/shared/image-job-recovery-runtime.js",
       "extension": ".js",
-      "sizeBytes": 12663
+      "sizeBytes": 16122
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/image-marker-syntax.js",
+      "relativePath": "modules/draw/shared/image-marker-syntax.js",
+      "extension": ".js",
+      "sizeBytes": 445
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/pending-image-jobs.js",
       "relativePath": "modules/draw/shared/pending-image-jobs.js",
       "extension": ".js",
-      "sizeBytes": 17256
+      "sizeBytes": 25504
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/recoverable-image-jobs.js",
       "relativePath": "modules/draw/shared/recoverable-image-jobs.js",
       "extension": ".js",
-      "sizeBytes": 13903
+      "sizeBytes": 14254
     },
     {
       "source": "littlewhitebox",
@@ -1707,7 +1742,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/scene-placement.js",
       "relativePath": "modules/draw/shared/scene-placement.js",
       "extension": ".js",
-      "sizeBytes": 10593
+      "sizeBytes": 10775
     },
     {
       "source": "littlewhitebox",
@@ -1749,7 +1784,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/scene-source.js",
       "relativePath": "modules/draw/shared/scene-source.js",
       "extension": ".js",
-      "sizeBytes": 8453
+      "sizeBytes": 8422
     },
     {
       "source": "littlewhitebox",
@@ -1809,10 +1844,38 @@
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/draw-run-adoption.test.js",
+      "relativePath": "modules/draw/shared/tests/draw-run-adoption.test.js",
+      "extension": ".js",
+      "sizeBytes": 9077
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/draw-run-client.test.js",
+      "relativePath": "modules/draw/shared/tests/draw-run-client.test.js",
+      "extension": ".js",
+      "sizeBytes": 2439
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/draw-run-coordinator.test.js",
       "relativePath": "modules/draw/shared/tests/draw-run-coordinator.test.js",
       "extension": ".js",
       "sizeBytes": 11645
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/draw-run-markers.test.js",
+      "relativePath": "modules/draw/shared/tests/draw-run-markers.test.js",
+      "extension": ".js",
+      "sizeBytes": 690
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/draw-run-recovery.test.js",
+      "relativePath": "modules/draw/shared/tests/draw-run-recovery.test.js",
+      "extension": ".js",
+      "sizeBytes": 10544
     },
     {
       "source": "littlewhitebox",
@@ -1833,21 +1896,21 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/image-job-reattach.test.js",
       "relativePath": "modules/draw/shared/tests/image-job-reattach.test.js",
       "extension": ".js",
-      "sizeBytes": 5717
+      "sizeBytes": 6327
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/image-job-recovery-executor.test.js",
       "relativePath": "modules/draw/shared/tests/image-job-recovery-executor.test.js",
       "extension": ".js",
-      "sizeBytes": 8151
+      "sizeBytes": 9455
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/pending-image-jobs.test.js",
       "relativePath": "modules/draw/shared/tests/pending-image-jobs.test.js",
       "extension": ".js",
-      "sizeBytes": 4061
+      "sizeBytes": 7230
     },
     {
       "source": "littlewhitebox",
@@ -1875,7 +1938,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/scene-placement.test.js",
       "relativePath": "modules/draw/shared/tests/scene-placement.test.js",
       "extension": ".js",
-      "sizeBytes": 14878
+      "sizeBytes": 15051
     },
     {
       "source": "littlewhitebox",
@@ -6586,7 +6649,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/server-plugin/littlewhitebox-image-jobs/draw-runs/vendor/draw-run-runtime.cjs",
       "relativePath": "server-plugin/littlewhitebox-image-jobs/draw-runs/vendor/draw-run-runtime.cjs",
       "extension": ".cjs",
-      "sizeBytes": 58481
+      "sizeBytes": 58530
     },
     {
       "source": "littlewhitebox",
@@ -6677,7 +6740,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/server-plugin/littlewhitebox-image-jobs/README.md",
       "relativePath": "server-plugin/littlewhitebox-image-jobs/README.md",
       "extension": ".md",
-      "sizeBytes": 5941
+      "sizeBytes": 5966
     },
     {
       "source": "littlewhitebox",

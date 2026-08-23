@@ -365,6 +365,7 @@ extra.xbDrawRuns[runId] = { version: 1, provider, sourceHash, createdAt }
 
 ```js
 originRunId,        // adoption journal 必带：marker 已删、ACK 响应丢失时凭它补 ACK
+originRunAckReady,  // marker 已确认持久化删除后才为 true；图片结算不得越过此闸门 ACK
 delivery: { mode: 'slots', chatId, messageId }
 // 或
 delivery: { mode: 'gallery' }
@@ -374,14 +375,16 @@ delivery: { mode: 'gallery' }
 
 ### `adopting` 状态与第一刀恢复器隔离
 
-事实（已核实）：第一刀 reattach 决策在租约过期后只要后端 job 存在就返回 `ATTACH`（`image-job-reattach.js:41`），不区分 journal 状态；journal 创建使用 `store.put()` 盲写（`pending-image-jobs.js:200`）。这两点在第一刀是安全的（slots 先于提交落盘、创建者唯一），但 adoption 场景下 child 由服务端创建、slots 尚未落盘、多标签页竞争创建，两点都不再成立——若刷新发生在 slots 落盘前，第一刀恢复器会开始收图并把不存在的 slot 当已删除目标幂等丢弃。
+改造前事实（已核实）：第一刀 reattach 决策在租约过期后只要后端 job 存在就返回 `ATTACH`，不区分 journal 状态；journal 创建使用 `store.put()` 盲写。这两点在第一刀是安全的（slots 先于提交落盘、创建者唯一），但 adoption 场景下 child 由服务端创建、slots 尚未落盘、多标签页竞争创建，两点都不再成立——若刷新发生在 slots 落盘前，第一刀恢复器会开始收图并把不存在的 slot 当已删除目标幂等丢弃。
 
 契约：
 
-- journal 新增真实状态：`adopting → active`。
+- journal 新增真实状态：`adopting/pending → adopting/placing → adopting/ready → active`。
 - `adopting` 只能由 Draw Run 恢复器处理；第一刀 Image Job 恢复器必须忽略它（`planImageJobReattach` 对 `adopting` 不产生任何动作）。
-- 写 slots 或判定 gallery-only 并经读回确认保存后，才转 `active`。
+- 写 slots 或判定 gallery-only 并经读回确认后只转 `adopting/ready`；marker 已确认从服务端聊天删除、`originRunAckReady` 已打开后，才转 `active`。
+- `active/cancelling` 且带 `originRunId` 的记录本身即证明 marker 已从服务端删除。其他标签页若仍有本地陈旧 marker，只清内存，不得保存陈旧聊天快照。
 - adoption journal 创建必须用 IndexedDB 原子 `add` / 单事务 CAS，禁止 `put` 盲写，两标签页只允许一个成功。
+- `adopting/pending` 尚未写过正文；若后端 run 消失，先受 120 秒提交不确定窗口保护，超窗仍不存在则持 adoption 租约清除 marker、删除 journal，并明确提示用户重新画图。禁止把它留在无 manifest 可执行的永久恢复循环里。`placing/ready` 已有独立恢复事实，不依赖 run 仍然存在。
 
 ### adoptExistingJobFromDrawRun
 
@@ -390,26 +393,32 @@ delivery: { mode: 'gallery' }
 接管顺序：
 
 ```text
-原子创建 child job 本地 journal（adopting，含 originRunId）
+原子创建 child job 本地 journal（adopting/pending，含 originRunId）
 → 校验目标 swipe 与 sourceHash
+→ 写正文前转 adopting/placing（刷新后若槽位不在持久化正文中，绝不复活，改走 gallery-only）
 → 写入真实图片 slots（或判定 gallery-only）
 → confirmable save：保存并读回验证
-→ journal 转 active
+→ journal 转 adopting/ready
+→ 持同一 adoption lease，读回确认目标正文未被其他标签页改写
 → 删除 draw-run marker 并保存
-→ ACK Draw Run（响应丢失时凭 journal.originRunId 补发）
-→ 交给第一刀 attachJob()
+→ journal.originRunAckReady = true
+→ 单事务转 active/cancelling 且释放 adoption lease
+→ 交给第一刀 attachJob()；图片落库与正文结算成功后 ACK Draw Run
+→ 删除 journal（ACK 响应丢失时凭 originRunId 重试，404 视为已完成）
 ```
 
 刷新卡在任何一步都能继续；不允许出现"child job 已存在但本地无任何恢复依据"的窗口（marker 删除与 ACK 之间崩溃时，journal 即恢复依据）。
 
 正文变了：不覆盖正文、不强插 slots，journal 转 `delivery.mode = 'gallery'`，图片继续收进画廊，提示"正文已变化，图片已保留在画廊"。gallery 模式的结算边界：全部图片落画廊（IndexedDB 写入成功）后才 ACK；不写 selection、不写失败卡、不改正文。
 
+恢复调度：租约仍有效时精确等待租约到期；marker 冲突、保存不确定等稳定阻塞固定 15 秒退避。无论 slots 还是 gallery，adoption 的目标聊天一律取冻结的 `chatTarget.chatId`；目标聊天未激活时不设周期轮询 timer，只由 `CHAT_CHANGED`、网络恢复或页面重新可见事件唤醒。pending adoption 找不到后端 run 时，120 秒不确定窗口仍从原 marker/journal 的 `createdAt` 起算，并不会在每次恢复时重新获得宽限；因此老 journal 对应的 run 事后消失会立即放弃 adoption，窗口只保护刚提交时“请求是否到达后端”这一不确定性。
+
 楼层正在编辑：延迟接管，不覆盖编辑器草稿。
 
 ## 11. 多标签页与 unclaimed run
 
 - 同源多标签页沿用 IndexedDB lease；创建 child journal 时只允许一个标签页 CAS 成功接管。
-- 后端存在、当前聊天找不到 marker：不自动取消、不自动删除、不猜楼层，标记 `unclaimed`；用户回到原聊天后接回；超过后端生命周期自然失效。
+- 后端存在且没有 marker/journal：不自动取消、不自动删除、不猜楼层，保持 `unclaimed`。已有 adoption journal 可按冻结的 chat target 跨聊天只读确认；无论 delivery 是 slots 还是 gallery，目标聊天未激活时都只等待，不能把“当前看不到 marker”误判成目标消失。回到目标聊天后再完成对应的占位符或 gallery 接回与 marker 清理。
 
 ## 12. 施工顺序
 
@@ -423,8 +432,8 @@ delivery: { mode: 'gallery' }
 → 6. 三家纯 compiler 提取，浏览器链路切换（已完成；行为不变）
 → 7. DrawRunManager / 状态机 / API / per-run Host Client / Agent executor / compiler registry / child 创建（经共享 normalize/validate service）/ 敏感数据清理 / 生命周期与取消（已完成；不发布 capability）
 → 8. 前端提交与 marker（已完成共享 draw-run-coordinator：preflight、marker CAS、幂等提交、提交不确定窗口、"正在提交/后台已接管"状态事件；在 adoption 可用前不注册三家生产入口）
-→ 9. journal 重整：delivery 判别模型 + adopting 状态 + 原子创建 + originRunId（fixture 迁移）
-→ 10. child adoption（marker 扫描、reconcile、adoptExistingJobFromDrawRun、source_changed → gallery、marker 清理与补 ACK、多标签页竞争）
+→ 9. journal 重整：delivery 判别模型 + adopting 状态 + 原子创建 + originRunId（已完成；旧测试线 schema 在升级入口一次性删除）
+→ 10. child adoption（已完成：marker 扫描、reconcile、adoptExistingJobFromDrawRun、source_changed → gallery、marker 清理与补 ACK、多标签页竞争、取消与 child_expired 收口）
 → 11. 注册三家 Provider 生产入口与对应 UI 状态，并开放 draw-runs-v1 capability（三家全部通过后；缺 capability 时明确要求更新后端，不悄悄退化）
 ```
 

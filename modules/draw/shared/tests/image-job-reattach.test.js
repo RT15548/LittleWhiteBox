@@ -12,8 +12,7 @@ function record(overrides = {}) {
         jobId: 'job-1',
         provider: 'novelai',
         leaseId: 'lease-dead',
-        chatId: 'chat-1',
-        messageId: '4',
+        delivery: { mode: 'slots', chatId: 'chat-1', messageId: '4' },
         sourceHash: 'hash-1',
         state: PendingJobState.ACTIVE,
         leaseExpiresAt: NOW - 1,
@@ -67,7 +66,7 @@ test('a preparing entry is reattached when the backend already holds the job', (
 // 否则两个流程会同时交付同一批图、同时改同一段正文。
 test('any entry whose lease is still held is left alone regardless of state or backend job', () => {
     const alive = { leaseExpiresAt: NOW + 1 };
-    for (const state of Object.values(PendingJobState)) {
+    for (const state of Object.values(PendingJobState).filter(value => value !== PendingJobState.ADOPTING)) {
         assert.deepEqual(
             actionsFor({
                 records: [record({ state, ...alive })],
@@ -110,6 +109,22 @@ test('a settling entry finishes its cleanup whether or not the backend job survi
         [ReattachAction.SETTLE],
     );
     assert.deepEqual(actionsFor({ records: [settling], backendJobs: [] }), [ReattachAction.SETTLE]);
+});
+
+test('an adopting child is claimed by Draw Run recovery but not by the image-job recovery layer', () => {
+    const adopting = record({
+        state: PendingJobState.ADOPTING,
+        originRunId: 'run-1',
+        adoptionPhase: 'pending',
+    });
+    const backendJob = { id: 'job-1', state: 'running', items: [] };
+    const { plan, unclaimed } = planImageJobReattach({
+        now: NOW,
+        records: [adopting],
+        backendJobs: [backendJob],
+    });
+    assert.deepEqual(plan, []);
+    assert.deepEqual(unclaimed, []);
 });
 
 test('backend jobs without a local journal entry are reported but never touched', () => {

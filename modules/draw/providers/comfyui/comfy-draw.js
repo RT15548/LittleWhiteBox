@@ -27,6 +27,7 @@ import {
 } from "../../shared/gallery-cache.js";
 import { generateAndParseScenePlan } from "../../shared/scene-planner.js";
 import { createSceneSource, normalizeMessageSceneSourceText } from "../../shared/scene-source.js";
+import { stripDrawImageSlots } from "../../shared/image-marker-syntax.js";
 import {
     commitRecoverableScenePlacements,
     commitSceneSlotDelivery,
@@ -3771,7 +3772,7 @@ async function autoGenerateForLastAI() {
     const lastMessage = chat[lastIdx];
     if (!lastMessage || lastMessage.is_user) return;
 
-    const content = String(lastMessage.mes || '').replace(/\[image:[a-z0-9\-_]+\]/gi, '').trim();
+    const content = stripDrawImageSlots(lastMessage.mes).trim();
     if (content.length < 50) return;
 
     lastMessage.extra ||= {};
@@ -4837,10 +4838,17 @@ export async function generateAndInsertImages({
             };
         });
         const recoverablePlan = {
-            chatId: String(initialChatId || ''),
-            messageId: String(resolvedMessageId),
+            delivery: {
+                mode: 'slots',
+                chatId: String(initialChatId || ''),
+                messageId: String(resolvedMessageId),
+            },
             replacedSlotIds,
-            gallery: { chatId: String(initialChatId || ''), characterName: String(message.name || '') },
+            gallery: {
+                chatId: String(initialChatId || ''),
+                characterName: String(message.name || ''),
+                messageId: String(resolvedMessageId),
+            },
             items: batchRequests.map((request, index) => ({
                 index,
                 slotId: request.slotId,

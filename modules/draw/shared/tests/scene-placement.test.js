@@ -59,6 +59,8 @@ test('message Scene Source normalization removes only provider image placeholder
         normalizeMessageSceneSourceText('正文。[image:slot-1][ebook-image:keep][tavern-image:keep]'),
         '正文。[ebook-image:keep][tavern-image:keep]',
     );
+    assert.equal(normalizeMessageSceneSourceText('正文。[image : slot-1]'), '正文。');
+    assert.deepEqual(getSceneSlotIds('正文。[image : slot-1]'), ['slot-1']);
 });
 
 test('scene source ignores punctuation that is not a safe illustration boundary', () => {

@@ -68,8 +68,7 @@ function createJournal() {
 
 function plan() {
     return {
-        chatId: 'chat-1',
-        messageId: '7',
+        delivery: { mode: 'slots', chatId: 'chat-1', messageId: '7' },
         sourceHash: 'hash-1',
         gallery: {},
         items: [{
@@ -180,6 +179,37 @@ test('a persisted settling mode is replayed after another frontend crash', async
 
     assert.deepEqual(modes, ['discard']);
     assert.equal(journal.store.size, 0);
+});
+
+test('a Draw Run ACK gate must open before a settling image journal can be forgotten', async () => {
+    const journal = createJournal();
+    const created = await journal.record({ ...plan(), jobId: 'job-ack-gate', provider: 'novelai' });
+    created.state = PendingJobState.SETTLING;
+    created.settlement = { mode: 'complete', errorType: {} };
+    created.leaseExpiresAt = 0;
+    let gateOpen = false;
+    const delivery = {
+        settle() {},
+        beforeForget() {
+            if (!gateOpen) throw new Error('marker is still persisted');
+        },
+    };
+
+    const firstEntry = planImageJobReattach({ records: [created], backendJobs: [] }).plan[0];
+    await assert.rejects(
+        executeImageJobReattachEntry({ entry: firstEntry, client: {}, delivery, journal }),
+        /marker is still persisted/,
+    );
+    assert.equal(journal.store.get(created.jobId).state, PendingJobState.SETTLING);
+
+    journal.store.get(created.jobId).leaseExpiresAt = 0;
+    gateOpen = true;
+    const retryEntry = planImageJobReattach({
+        records: [journal.store.get(created.jobId)],
+        backendJobs: [],
+    }).plan[0];
+    await executeImageJobReattachEntry({ entry: retryEntry, client: {}, delivery, journal });
+    assert.equal(journal.store.has(created.jobId), false);
 });
 
 test('reattachment acknowledges but never restores a slot the user deleted', async () => {

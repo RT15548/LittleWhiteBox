@@ -59,7 +59,7 @@ node server-plugin/littlewhitebox-image-jobs/tests/loopback-deployment-matrix.js
 
 Scene Planner 后台运行接口位于 `/v1/draw-runs`，包含创建、当前用户列表、单项查询、取消与接管 ACK。它与 `/v1/jobs` 经过同一个图片任务校验/创建 service，图片执行仍完全服从现有单用户串行队列。
 
-当前版本暂不在 `/status` 发布 `draw-runs-v1` capability，前端三家 Provider 也不会调用这些接口。等本地 journal adoption 与刷新接回闭环完成后，才会同时注册生产入口并开放 capability；因此当前用户行为不变，前端也不会制造任务已经提交但尚不能接回的半成品状态。
+当前版本暂不在 `/status` 发布 `draw-runs-v1` capability，前端三家 Provider 也不会调用这些接口。journal adoption 与刷新接回闭环已经完成，但仍要等三家 Provider 的生产入口在步骤 11 同时注册后才开放 capability；因此当前用户行为不变，前端不会提前进入尚未对用户开放的后台规划路径。
 
 ## Agent Core Node 产物
 

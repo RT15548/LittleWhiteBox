@@ -122,6 +122,7 @@ import {
     DEFAULT_MESSAGE_FILTER_RULES,
 } from '../../shared/draw-common.js';
 import { createSceneSource, normalizeMessageSceneSourceText } from '../../shared/scene-source.js';
+import { createDrawImageSlotRegex, stripDrawImageSlots } from '../../shared/image-marker-syntax.js';
 import {
     commitRecoverableScenePlacements,
     commitSceneSlotDelivery,
@@ -258,7 +259,7 @@ async function assertV5BackendCapability(signal) {
 }
 
 const MAX_SEED = 0xFFFFFFFF;
-const PLACEHOLDER_REGEX = /\[image:([a-z0-9\-_]+)\]/gi;
+const PLACEHOLDER_REGEX = createDrawImageSlotRegex();
 
 const events = createModuleEvents(MODULE_KEY);
 
@@ -3509,10 +3510,13 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
         // 后台链路的恢复记录：只记「槽位事实」，不记密钥、不记排版。
         // 排版是当前正文的属性，刷新后必须重新观察，把它冻在记录里只会覆盖用户后来的编辑。
         const recoverablePlan = {
-            chatId: String(initialChatId || ''),
-            messageId: String(messageId),
+            delivery: {
+                mode: 'slots',
+                chatId: String(initialChatId || ''),
+                messageId: String(messageId),
+            },
             replacedSlotIds,
-            gallery: galleryMeta,
+            gallery: { ...galleryMeta, messageId: String(messageId) },
             items: batchItems.map((item, index) => ({
                 index,
                 slotId: item.slotId,
@@ -3926,7 +3930,7 @@ async function autoGenerateForLastAI() {
     const lastMessage = chat[lastIdx];
     if (!lastMessage || lastMessage.is_user) return;
     
-    const content = String(lastMessage.mes || '').replace(PLACEHOLDER_REGEX, '').trim();
+    const content = stripDrawImageSlots(lastMessage.mes).trim();
     if (content.length < 50) return;
     
     lastMessage.extra ||= {};

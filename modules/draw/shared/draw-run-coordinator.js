@@ -121,7 +121,7 @@ async function persistMarker({ ctx, runId, marker, saveAndConfirm, fetchImpl }) 
     });
 }
 
-async function clearMarker({
+export async function clearDrawRunMarkerAndConfirm({
     ctx,
     message,
     messageId,
@@ -273,7 +273,7 @@ export async function submitDrawRun({
 
     if (response.status >= 400 && response.status < 500) {
         try {
-            await clearMarker({
+            await clearDrawRunMarkerAndConfirm({
                 ctx,
                 message,
                 messageId,

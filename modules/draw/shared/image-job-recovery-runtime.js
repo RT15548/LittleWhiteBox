@@ -5,6 +5,8 @@ import {
     createImageBackendJobsClient,
     readImageBackendResultBase64,
 } from './backend-image-jobs.js';
+import { createDrawRunClient } from './draw-run-client.js';
+import { runDrawRunRecoveryPass } from './draw-run-recovery-runtime.js';
 import {
     clearSlotSelection,
     deletePreview,
@@ -15,9 +17,15 @@ import {
 } from './gallery-cache.js';
 import { executeImageJobReattachEntry } from './image-job-recovery-executor.js';
 import { planImageJobReattach, ReattachAction } from './image-job-reattach.js';
-import { listPendingImageJobs, PendingJobState } from './pending-image-jobs.js';
+import { getPendingImageJob, listPendingImageJobs, PendingJobState } from './pending-image-jobs.js';
 import { commitSceneSlotDelivery } from './scene-placement.js';
-import { classifyError, ErrorType, isAnyMessageBeingEdited, isMessageBeingEdited, renderPreviewsForMessage } from './draw-common.js';
+import {
+    classifyError,
+    ErrorType,
+    isAnyMessageBeingEdited,
+    isMessageBeingEdited,
+    renderPreviewsForMessage,
+} from './draw-common.js';
 import {
     classifyImageJobDeliveryTarget,
     commitImageJobDeliverySlotRemoval,
@@ -27,6 +35,7 @@ import {
 
 const RETRY_DELAY_MS = 15_000;
 const backendClient = createImageBackendJobsClient({ getHeaders: getRequestHeaders });
+const drawRunClient = createDrawRunClient({ getHeaders: getRequestHeaders });
 const resultDecoders = new Map([
     ['sd-webui', ({ response }) => readImageBackendResultBase64(response)],
     ['comfyui', ({ response }) => readImageBackendResultBase64(response)],
@@ -38,16 +47,20 @@ let recoveryTimerAt = 0;
 let recoveryRunning = null;
 let recoveryQueued = false;
 let runtimeClient = backendClient;
+let runtimeDrawRunClient = drawRunClient;
 
 function handleRecoveryVisibilityChange() {
     if (document.visibilityState === 'visible') scheduleRecovery();
 }
 
 function recordTarget(record, item = null) {
+    if (record.delivery?.mode !== 'slots') {
+        return { state: ImageJobDeliveryTargetState.REMOVED, message: null, messageId: null, swipe: null, ctx: getContext() };
+    }
     const ctx = getContext();
     const target = classifyImageJobDeliveryTarget({
         currentChatId: ctx?.chatId,
-        targetChatId: record.chatId,
+        targetChatId: record.delivery.chatId,
         chat: ctx?.chat,
         slotId: item?.slotId,
     });
@@ -55,10 +68,11 @@ function recordTarget(record, item = null) {
 }
 
 function requireAvailableTarget(record, item = null) {
+    if (record.delivery?.mode !== 'slots') return null;
     const ctx = getContext();
     return requireImageJobDeliveryTarget({
         currentChatId: ctx?.chatId,
-        targetChatId: record.chatId,
+        targetChatId: record.delivery.chatId,
         chat: ctx?.chat,
         slotId: item?.slotId,
     });
@@ -67,8 +81,8 @@ function requireAvailableTarget(record, item = null) {
 function previewOptions(record, item, target) {
     return {
         ...record.gallery,
-        chatId: record.gallery?.chatId || record.chatId,
-        messageId: target?.messageId ?? record.messageId,
+        chatId: record.gallery?.chatId || record.delivery?.chatId || '',
+        messageId: target?.messageId ?? record.gallery?.messageId ?? record.delivery?.messageId ?? '',
         slotId: item.slotId,
         imgId: item.imgId,
         tags: item.previewMetadata?.tags || '',
@@ -79,6 +93,7 @@ function previewOptions(record, item, target) {
 }
 
 async function renderRecord(record, { final = false } = {}) {
+    if (record.delivery?.mode !== 'slots') return;
     const slotsByMessage = new Map();
     for (const item of record.items) {
         const target = recordTarget(record, item);
@@ -115,6 +130,10 @@ function createDeliveryAdapter() {
             if (!decode) throw new Error(`不支持接回图片 Provider: ${record.provider}`);
             const base64 = await decode(payload);
             await guard();
+            if (record.delivery?.mode === 'gallery') {
+                await storePreview({ ...previewOptions(record, item, null), base64 });
+                return;
+            }
             const committed = await commitSceneSlotDelivery({
                 committedEarly: true,
                 resolveTarget: () => requireAvailableTarget(record, item),
@@ -124,9 +143,17 @@ function createDeliveryAdapter() {
                 select: () => setSlotSelection(item.slotId, item.imgId),
                 rollbackSelection: () => clearSlotSelection(item.slotId),
             });
-            if (committed) await renderRecord(record);
+            if (committed) {
+                await renderRecord(record);
+            } else {
+                // 用户在结果到达前删除了这个槽位：尊重正文，但已付费的图片仍必须落进画廊。
+                await guard();
+                await storePreview({ ...previewOptions(record, item, null), base64 });
+            }
         },
         async failItem(record, item, error, guard) {
+            // gallery-only 没有正文槽位，也不伪造一张失败卡；后端失败项本身就是终态。
+            if (record.delivery?.mode === 'gallery') return;
             const errorType = error?.label ? error : classifyError(error);
             const failedImgId = `failed-${item.imgId}`;
             const committed = await commitSceneSlotDelivery({
@@ -146,6 +173,10 @@ function createDeliveryAdapter() {
             if (committed) await renderRecord(record);
         },
         async settle(record, settlement, _details, guard) {
+            if (record.delivery?.mode === 'gallery') {
+                await guard();
+                return;
+            }
             const slotsToRemove = [];
             if (settlement.mode === 'discard') {
                 for (const item of record.items) {
@@ -194,6 +225,20 @@ function createDeliveryAdapter() {
                 { refreshSlotIds: slotsToRemove },
             )));
         },
+        async beforeForget(record, _settlement, _details, guard) {
+            if (!record.originRunId) return;
+            await guard();
+            const current = await getPendingImageJob(record.jobId);
+            // 非 adopting 的 Draw Run journal 按 normalize 契约必然已经打开 ACK gate；
+            // 这里是删除前的最后一道不变量断言，不是正常等待分支。
+            if (!current?.originRunAckReady) {
+                const error = new Error('Draw Run marker 尚未确认清理，暂缓 ACK');
+                error.code = 'DRAW_RUN_MARKER_NOT_CLEARED';
+                throw error;
+            }
+            await runtimeDrawRunClient.acknowledgeRun(record.originRunId);
+            await guard();
+        },
         async afterForget(record) {
             await renderRecord(record, { final: true });
         },
@@ -223,13 +268,38 @@ async function runRecoveryPass() {
     const ctx = getContext();
     const chatId = String(ctx?.chatId || '');
     if (!chatId) return;
-    let records;
+    let allRecords;
     try {
-        records = (await listPendingImageJobs()).filter(record => record.chatId === chatId);
+        allRecords = await listPendingImageJobs();
     } catch (error) {
         console.warn('[ImageJobs] 暂时无法读取后台任务恢复记录，稍后重试:', error);
+        scheduleRecovery(RETRY_DELAY_MS);
         return;
     }
+    try {
+        await runDrawRunRecoveryPass({
+            ctx,
+            records: allRecords,
+            client: runtimeDrawRunClient,
+            scheduleRecovery,
+        });
+    } catch (error) {
+        // 第二刀恢复失败不能阻断同一轮第一刀任务交付，也不能失去后续唤醒。
+        console.warn('[Draw Run] 后台规划任务恢复异常，稍后重试:', error);
+        scheduleRecovery(RETRY_DELAY_MS);
+    }
+    // adoption 可能刚创建或激活 journal，必须重新读取当前事实再交给第一刀。
+    try {
+        allRecords = await listPendingImageJobs();
+    } catch (error) {
+        console.warn('[ImageJobs] 暂时无法刷新后台任务恢复记录，稍后重试:', error);
+        scheduleRecovery(RETRY_DELAY_MS);
+        return;
+    }
+    const records = allRecords.filter(record => (
+        record.state !== PendingJobState.ADOPTING
+        && (record.delivery?.mode === 'gallery' || record.delivery?.chatId === chatId)
+    ));
     if (records.length === 0) return;
 
     let backendJobs;
@@ -266,6 +336,9 @@ async function runRecoveryPass() {
         if (result.status === 'rejected' && result.reason?.code !== 'PENDING_JOB_LEASE_LOST') {
             console.warn('[ImageJobs] 后台任务接回未完成，保留记录稍后重试:', result.reason);
             scheduleRecovery(RETRY_DELAY_MS);
+        } else if (result.status === 'fulfilled' && result.value === false) {
+            // plan 与 claim 之间被其他标签页抢先接管；若对方随后退出，仍需在租约后重试。
+            scheduleRecovery(RETRY_DELAY_MS);
         }
     }
 }
@@ -286,15 +359,15 @@ export async function reconcilePendingImageJobs() {
         await recoveryRunning;
     } finally {
         recoveryRunning = null;
-        if (runtimeEvents) scheduleRecovery(RETRY_DELAY_MS);
     }
 }
 
-export function startImageJobRecovery({ decoders = {}, client } = {}) {
+export function startImageJobRecovery({ decoders = {}, client, drawRunsClient } = {}) {
     for (const [provider, decode] of Object.entries(decoders)) {
         if (typeof decode === 'function') resultDecoders.set(provider, decode);
     }
     if (client) runtimeClient = client;
+    if (drawRunsClient) runtimeDrawRunClient = drawRunsClient;
     if (runtimeEvents) {
         scheduleRecovery();
         return;

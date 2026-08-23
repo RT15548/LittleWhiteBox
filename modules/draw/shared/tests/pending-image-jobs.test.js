@@ -6,13 +6,18 @@ import { indexedDB } from 'fake-indexeddb';
 globalThis.indexedDB = indexedDB;
 
 const {
+    activateAdoptingPendingImageJob,
+    createAdoptingPendingImageJob,
     claimPendingImageJob,
     fencePendingImageJobLease,
     forgetPendingImageJob,
     getPendingImageJob,
     markPendingImageJobActive,
+    markPendingImageJobAdoptionReady,
     markPendingImageJobCancelling,
     markPendingImageJobSettling,
+    markPendingImageJobOriginRunAckReady,
+    PendingJobAdoptionPhase,
     PendingImageJobLostError,
     PendingJobState,
     PENDING_JOB_LEASE_MS,
@@ -24,14 +29,77 @@ function newRecord(jobId) {
     return {
         jobId,
         provider: 'novelai',
-        chatId: 'chat-1',
-        messageId: '4',
+        delivery: { mode: 'slots', chatId: 'chat-1', messageId: '4' },
         sourceHash: 'obsolete-hash',
         replacedSlotIds: ['old-a', 'old-a', 'old-b'],
         gallery: {},
         items: [{ index: 0, slotId: `slot-${jobId}`, imgId: `img-${jobId}`, previewMetadata: {} }],
     };
 }
+
+function drawRunRecord(jobId) {
+    return {
+        ...newRecord(jobId),
+        delivery: { mode: 'slots', chatId: 'chat-1', messageId: '4', swipeIndex: 0 },
+        originRunId: `run-${jobId}`,
+        sourceHash: `hash-${jobId}`,
+        chatTarget: {
+            kind: 'character',
+            chatId: 'chat-1',
+            endpoint: '/api/chats/get',
+            body: { ch_name: 'Alice', file_name: 'chat-1', avatar_url: 'alice.png' },
+        },
+    };
+}
+
+test('adoption journal creation is atomic across competing tabs', async () => {
+    const jobId = `atomic-adoption-${Date.now()}`;
+    const candidate = drawRunRecord(jobId);
+    const [left, right] = await Promise.all([
+        createAdoptingPendingImageJob(candidate),
+        createAdoptingPendingImageJob(candidate),
+    ]);
+    const winner = left || right;
+    assert.ok(winner);
+    assert.equal(Boolean(left) + Boolean(right), 1);
+    assert.equal(winner.state, PendingJobState.ADOPTING);
+    assert.deepEqual(winner.delivery, {
+        mode: 'slots', chatId: 'chat-1', messageId: '4', swipeIndex: 0,
+    });
+    await forgetPendingImageJob(jobId, winner.leaseId);
+});
+
+test('Draw Run adoption cannot become active before placement and marker cleanup are confirmed', async () => {
+    const jobId = `adoption-gate-${Date.now()}`;
+    let record = await createAdoptingPendingImageJob(drawRunRecord(jobId));
+    await assert.rejects(
+        activateAdoptingPendingImageJob(jobId, record.leaseId),
+        error => error instanceof PendingImageJobLostError,
+    );
+    record = await markPendingImageJobAdoptionReady(jobId, record.leaseId, record.delivery);
+    assert.equal(record.adoptionPhase, PendingJobAdoptionPhase.READY);
+    await assert.rejects(
+        activateAdoptingPendingImageJob(jobId, record.leaseId),
+        error => error instanceof PendingImageJobLostError,
+    );
+    record = await markPendingImageJobOriginRunAckReady(jobId, record.leaseId, record.originRunId);
+    record = await activateAdoptingPendingImageJob(jobId, record.leaseId);
+    assert.equal(record.state, PendingJobState.ACTIVE);
+    assert.equal(record.originRunAckReady, true);
+    assert.equal(record.leaseExpiresAt, 0, '激活与释放 adoption lease 必须原子完成');
+    await forgetPendingImageJob(jobId, record.leaseId);
+});
+
+test('late Draw Run cancellation is persisted when adoption activates', async () => {
+    const jobId = `adoption-cancel-${Date.now()}`;
+    let record = await createAdoptingPendingImageJob(drawRunRecord(jobId));
+    record = await markPendingImageJobAdoptionReady(jobId, record.leaseId, record.delivery);
+    record = await markPendingImageJobOriginRunAckReady(jobId, record.leaseId, record.originRunId);
+    record = await activateAdoptingPendingImageJob(jobId, record.leaseId, { cancelling: true });
+    assert.equal(record.state, PendingJobState.CANCELLING);
+    assert.equal(record.cancelRequested, true);
+    await forgetPendingImageJob(jobId, record.leaseId);
+});
 
 test('journal keeps replacement ownership but drops unused source snapshots', async () => {
     const jobId = `normalized-fields-${Date.now()}`;

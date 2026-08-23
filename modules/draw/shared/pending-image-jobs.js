@@ -22,7 +22,7 @@
 // 光看状态或时间戳都不足以区分「我还持有」和「已经易主」。
 
 const DB_NAME = 'xb_image_backend_jobs';
-const DB_VERSION = 1;
+const DB_VERSION = 3;
 const DB_STORE = 'jobs';
 
 // 事务状态机：
@@ -31,6 +31,8 @@ const DB_STORE = 'jobs';
 //                  ↑
 //              cancelling
 //
+//   adopting/pending → adopting/placing → adopting/ready → active
+//
 // preparing 存在的唯一理由是「记录已落盘、POST 还没确认」这个真实窗口：此时后端查不到
 // 这个 jobId，但提交上下文可能还在重试。如果把 404 直接当成「任务不存在」而删掉记录并清槽，
 // 原页面随后完成 POST，任务就成了没人认领的孤儿。所以必须等租约过期才允许作废。
@@ -38,9 +40,16 @@ const DB_STORE = 'jobs';
 // 否则刷新后正文里会永久留下失效占位卡。
 export const PendingJobState = {
     PREPARING: 'preparing',
+    ADOPTING: 'adopting',
     ACTIVE: 'active',
     CANCELLING: 'cancelling',
     SETTLING: 'settling',
+};
+
+export const PendingJobAdoptionPhase = {
+    PENDING: 'pending',
+    PLACING: 'placing',
+    READY: 'ready',
 };
 
 // 租约时长，也是「原持有者已经没了」的检测延迟上限。
@@ -55,7 +64,9 @@ export const PendingJobState = {
 export const PENDING_JOB_LEASE_MS = 120 * 1000;
 
 const PENDING_JOB_STATES = new Set(Object.values(PendingJobState));
+const ADOPTION_PHASES = new Set(Object.values(PendingJobAdoptionPhase));
 const SETTLEMENT_MODES = new Set(['complete', 'discard', 'fail']);
+const GALLERY_DELIVERY_REASONS = new Set(['', 'source_changed', 'slots_missing', 'target_missing']);
 
 // 记录已经不属于当前流程：被别的页面接管，或已被清理。持有者遇到它必须立刻停手，
 // 既不能继续向后端提交，也不能再动正文或删记录——那些都归新持有者负责。
@@ -66,6 +77,15 @@ export class PendingImageJobLostError extends Error {
         this.code = 'PENDING_JOB_LEASE_LOST';
         this.jobId = jobId;
         this.reason = reason;
+    }
+}
+
+export class PendingImageJobConflictError extends Error {
+    constructor(jobId) {
+        super(`后台生图恢复记录 ${jobId} 已存在`);
+        this.name = 'PendingImageJobConflictError';
+        this.code = 'PENDING_JOB_CONFLICT';
+        this.jobId = jobId;
     }
 }
 
@@ -87,9 +107,10 @@ function openPendingJobsDB() {
         };
         request.onupgradeneeded = (event) => {
             const database = event.target.result;
-            if (!database.objectStoreNames.contains(DB_STORE)) {
-                database.createObjectStore(DB_STORE, { keyPath: 'jobId' });
-            }
+            // 测试线旧 journal 从未进入正式线。schema 3 把 marker 清理纳入 adoption
+            // 所有权，并冻结跨聊天读回目标；旧状态无法安全推导，升级入口一次性丢弃。
+            if (database.objectStoreNames.contains(DB_STORE)) database.deleteObjectStore(DB_STORE);
+            database.createObjectStore(DB_STORE, { keyPath: 'jobId' });
         };
     });
     return dbOpening;
@@ -156,6 +177,45 @@ function normalizeSettlement(source) {
     };
 }
 
+function normalizeDelivery(source) {
+    const mode = normalizeText(source?.mode).trim();
+    if (mode === 'gallery') {
+        const reason = normalizeText(source?.reason).trim();
+        return { mode: 'gallery', ...(GALLERY_DELIVERY_REASONS.has(reason) && reason ? { reason } : {}) };
+    }
+    if (mode !== 'slots') return null;
+    const chatId = normalizeText(source?.chatId).trim();
+    const messageId = normalizeText(source?.messageId).trim();
+    if (!chatId || !messageId) return null;
+    const swipeIndex = Number(source?.swipeIndex);
+    return {
+        mode: 'slots',
+        chatId,
+        messageId,
+        ...(Number.isSafeInteger(swipeIndex) && swipeIndex >= 0 ? { swipeIndex } : {}),
+    };
+}
+
+function normalizeChatTarget(source) {
+    const kind = normalizeText(source?.kind).trim();
+    const chatId = normalizeText(source?.chatId).trim();
+    const body = source?.body;
+    if (!chatId || !body || typeof body !== 'object' || Array.isArray(body)) return null;
+    if (kind === 'group' && normalizeText(body.id) === chatId) {
+        return { kind, chatId, endpoint: '/api/chats/group/get', body: { id: chatId } };
+    }
+    if (kind !== 'character' || normalizeText(body.file_name) !== chatId) return null;
+    const chName = normalizeText(body.ch_name);
+    const avatarUrl = normalizeText(body.avatar_url);
+    if (!avatarUrl) return null;
+    return {
+        kind,
+        chatId,
+        endpoint: '/api/chats/get',
+        body: { ch_name: chName, file_name: chatId, avatar_url: avatarUrl },
+    };
+}
+
 // 任何字段缺失的记录都无法安全恢复，直接当脏数据丢弃，绝不让它进入 reconcile。
 // 没有 leaseId 的记录同样是脏数据：所有权无法判定，就没法安全地决定谁来推进它。
 export function normalizePendingImageJob(source) {
@@ -165,14 +225,35 @@ export function normalizePendingImageJob(source) {
     if (!jobId || !provider || !leaseId) return null;
     const items = (Array.isArray(source?.items) ? source.items : []).map(normalizeItem).filter(Boolean);
     if (items.length === 0) return null;
-    const state = PENDING_JOB_STATES.has(source?.state) ? source.state : PendingJobState.PREPARING;
+    const state = PENDING_JOB_STATES.has(source?.state) ? source.state : '';
+    const delivery = normalizeDelivery(source?.delivery);
+    if (!state || !delivery) return null;
+    const originRunId = normalizeText(source?.originRunId).trim();
+    if (state === PendingJobState.ADOPTING && !originRunId) return null;
+    if (originRunId && delivery.mode === 'slots' && !Number.isSafeInteger(delivery.swipeIndex)) return null;
+    const chatTarget = normalizeChatTarget(source?.chatTarget);
+    if (originRunId && !chatTarget) return null;
+    const sourceHash = normalizeText(source?.sourceHash).trim();
+    if (originRunId && !sourceHash) return null;
+    const originRunAckReady = source?.originRunAckReady === true;
+    if (originRunId && state !== PendingJobState.ADOPTING && !originRunAckReady) return null;
+    const adoptionPhase = state === PendingJobState.ADOPTING
+        ? (ADOPTION_PHASES.has(source?.adoptionPhase) ? source.adoptionPhase : PendingJobAdoptionPhase.PENDING)
+        : null;
     const lease = Number(source?.leaseExpiresAt);
     return {
         jobId,
         provider,
         leaseId,
-        chatId: normalizeText(source?.chatId),
-        messageId: normalizeText(source?.messageId),
+        originRunId,
+        originRunAckReady,
+        ...(originRunId ? {
+            chatTarget,
+            sourceHash,
+            cancelRequested: source?.cancelRequested === true,
+        } : {}),
+        delivery,
+        adoptionPhase,
         replacedSlotIds: [...new Set((Array.isArray(source?.replacedSlotIds) ? source.replacedSlotIds : [])
             .map(value => normalizeText(value).trim())
             .filter(Boolean))],
@@ -192,13 +273,36 @@ function createLeaseId() {
 // 必须在向后端提交任务之前调用：requestId 就是 jobId，先落盘才不会出现
 // 「后端已创建、本地没有归属」的窗口。落盘即 preparing，POST 确认后才转 active。
 // 返回的记录带 leaseId，调用方必须全程持有它：之后每一次跨 await 的推进都要凭它复核所有权。
-export async function recordPendingImageJob(record) {
-    const normalized = normalizePendingImageJob({ ...record, leaseId: createLeaseId() });
+async function addPendingImageJob(record, state, { conflictIsNull = false } = {}) {
+    const normalized = normalizePendingImageJob({
+        ...record,
+        state,
+        adoptionPhase: state === PendingJobState.ADOPTING ? PendingJobAdoptionPhase.PENDING : null,
+        leaseId: createLeaseId(),
+    });
     if (!normalized) throw new Error('后台生图恢复记录不完整，拒绝落盘');
-    normalized.state = PendingJobState.PREPARING;
     normalized.leaseExpiresAt = Date.now() + PENDING_JOB_LEASE_MS;
-    await runTransaction('readwrite', store => store.put(normalized));
-    return normalized;
+    return runTransaction('readwrite', (store, setOutput, fail) => {
+        const request = store.get(normalized.jobId);
+        request.onsuccess = () => {
+            if (normalizePendingImageJob(request.result)) {
+                if (conflictIsNull) return setOutput(null);
+                return fail(new PendingImageJobConflictError(normalized.jobId));
+            }
+            const add = store.add(normalized);
+            add.onsuccess = () => setOutput(normalized);
+        };
+    });
+}
+
+export async function recordPendingImageJob(record) {
+    return addPendingImageJob(record, PendingJobState.PREPARING);
+}
+
+// Draw Run childJobId 是确定性的；多标签页只能有一个页面原子创建 adoption journal。
+// 返回 null 表示另一页面已经先取得所有权，调用方不得覆盖或接管它。
+export async function createAdoptingPendingImageJob(record) {
+    return addPendingImageJob(record, PendingJobState.ADOPTING, { conflictIsNull: true });
 }
 
 // 接管一条租约已过期的记录，换发新 leaseId。返回 null 表示不该接管：记录已消失，
@@ -294,6 +398,62 @@ export async function markPendingImageJobActive(jobId, leaseId) {
     return setPendingImageJobState(jobId, leaseId, PendingJobState.ACTIVE);
 }
 
+// 写正文之前先把 adoption 推进到 placing。之后即使保存结果不确定或页面死亡，恢复器也
+// 不会在槽位已被用户删光时把它们重新插回；无槽位的 placing 记录只会转 gallery。
+export async function markPendingImageJobAdoptionPlacing(jobId, leaseId) {
+    return setPendingImageJobState(jobId, leaseId, PendingJobState.ADOPTING, {
+        adoptionPhase: PendingJobAdoptionPhase.PLACING,
+    }, {
+        requireState: PendingJobState.ADOPTING,
+        requireAdoptionPhase: PendingJobAdoptionPhase.PENDING,
+    });
+}
+
+export async function markPendingImageJobAdoptionReady(jobId, leaseId, delivery) {
+    const normalizedDelivery = normalizeDelivery(delivery);
+    if (!normalizedDelivery) throw new TypeError('Draw Run adoption 缺少有效 delivery');
+    return setPendingImageJobState(jobId, leaseId, PendingJobState.ADOPTING, {
+        delivery: normalizedDelivery,
+        adoptionPhase: PendingJobAdoptionPhase.READY,
+    }, {
+        requireState: PendingJobState.ADOPTING,
+    });
+}
+
+export async function markPendingImageJobOriginRunAckReady(jobId, leaseId, originRunId) {
+    const origin = normalizeText(originRunId).trim();
+    if (!origin) throw new TypeError('Draw Run ACK gate 缺少 originRunId');
+    return patchPendingImageJob(jobId, leaseId, record => ({
+        ...record,
+        originRunAckReady: true,
+        leaseExpiresAt: Date.now() + PENDING_JOB_LEASE_MS,
+    }), {
+        requireState: PendingJobState.ADOPTING,
+        requireAdoptionPhase: PendingJobAdoptionPhase.READY,
+        requireOriginRunId: origin,
+    });
+}
+
+export async function activateAdoptingPendingImageJob(jobId, leaseId, { cancelling = false } = {}) {
+    return patchPendingImageJob(jobId, leaseId, record => ({
+        ...record,
+        state: cancelling ? PendingJobState.CANCELLING : PendingJobState.ACTIVE,
+        cancelRequested: cancelling || record.cancelRequested,
+        adoptionPhase: null,
+        // 激活与释放必须是同一个 IndexedDB 写；否则页面死在两写之间会平白阻塞接回 120 秒。
+        leaseExpiresAt: 0,
+    }), {
+        requireState: PendingJobState.ADOPTING,
+        requireAdoptionPhase: PendingJobAdoptionPhase.READY,
+        requireOriginRunAckReady: true,
+    });
+}
+
+// adoption 暂缓或失败时主动让出租约；成功激活由 activateAdoptingPendingImageJob 原子释放。
+export async function releasePendingImageJobLease(jobId, leaseId) {
+    return patchPendingImageJob(jobId, leaseId, record => ({ ...record, leaseExpiresAt: 0 }));
+}
+
 // 结果都处理完但槽位清理或后端删除还没落盘时调用。
 export async function markPendingImageJobSettling(jobId, leaseId, settlement = null) {
     return setPendingImageJobState(jobId, leaseId, PendingJobState.SETTLING, {
@@ -301,7 +461,12 @@ export async function markPendingImageJobSettling(jobId, leaseId, settlement = n
     });
 }
 
-async function setPendingImageJobState(jobId, leaseId, state, patch = {}) {
+async function patchPendingImageJob(jobId, leaseId, update, {
+    requireState = '',
+    requireAdoptionPhase = '',
+    requireOriginRunId = '',
+    requireOriginRunAckReady = false,
+} = {}) {
     const key = normalizeText(jobId).trim();
     return runTransaction('readwrite', (store, setOutput, fail) => {
         const request = store.get(key);
@@ -311,23 +476,42 @@ async function setPendingImageJobState(jobId, leaseId, state, patch = {}) {
             if (record.leaseId !== leaseId) {
                 return fail(new PendingImageJobLostError(key, '记录已被其他页面接管'));
             }
-            // 迁移状态本身就是一次推进，顺带续租：正常运行的记录不该因为跑得久而变成可接管。
-            const statePatch = { ...patch };
-            if (state === PendingJobState.SETTLING && !statePatch.settlement && record.state === PendingJobState.CANCELLING) {
-                statePatch.settlement = normalizeSettlement({ mode: 'discard' });
+            if (requireState && record.state !== requireState) {
+                return fail(new PendingImageJobLostError(key, `记录状态已变为 ${record.state}`));
             }
-            let nextState = state;
-            // Late async notifications must never move the journal backwards. In particular, a delayed
-            // 'created' response cannot erase a cancellation intent, and a late abort cannot reopen settling.
-            if (record.state === PendingJobState.SETTLING) nextState = PendingJobState.SETTLING;
-            if (record.state === PendingJobState.CANCELLING && state === PendingJobState.ACTIVE) {
-                nextState = PendingJobState.CANCELLING;
+            if (requireAdoptionPhase && record.adoptionPhase !== requireAdoptionPhase) {
+                return fail(new PendingImageJobLostError(key, `adoption 阶段已变为 ${record.adoptionPhase || 'none'}`));
             }
-            const updated = { ...record, ...statePatch, state: nextState, leaseExpiresAt: Date.now() + PENDING_JOB_LEASE_MS };
+            if (requireOriginRunId && record.originRunId !== requireOriginRunId) {
+                return fail(new PendingImageJobLostError(key, 'Draw Run 来源已经变化'));
+            }
+            if (requireOriginRunAckReady && record.originRunAckReady !== true) {
+                return fail(new PendingImageJobLostError(key, 'Draw Run ACK gate 尚未打开'));
+            }
+            const updated = normalizePendingImageJob(update(record));
+            if (!updated) return fail(new Error(`后台生图恢复记录 ${key} 更新后无效`));
             store.put(updated);
             setOutput(updated);
         };
     });
+}
+
+async function setPendingImageJobState(jobId, leaseId, state, patch = {}, options = {}) {
+    return patchPendingImageJob(jobId, leaseId, (record) => {
+        // 迁移状态本身就是一次推进，顺带续租：正常运行的记录不该因为跑得久而变成可接管。
+        const statePatch = { ...patch };
+        if (state === PendingJobState.SETTLING && !statePatch.settlement && record.state === PendingJobState.CANCELLING) {
+            statePatch.settlement = normalizeSettlement({ mode: 'discard' });
+        }
+        let nextState = state;
+        // Late async notifications must never move the journal backwards. In particular, a delayed
+        // 'created' response cannot erase a cancellation intent, and a late abort cannot reopen settling.
+        if (record.state === PendingJobState.SETTLING) nextState = PendingJobState.SETTLING;
+        if (record.state === PendingJobState.CANCELLING && state === PendingJobState.ACTIVE) {
+            nextState = PendingJobState.CANCELLING;
+        }
+        return { ...record, ...statePatch, state: nextState, leaseExpiresAt: Date.now() + PENDING_JOB_LEASE_MS };
+    }, options);
 }
 
 export async function forgetPendingImageJob(jobId, leaseId) {

@@ -122,6 +122,7 @@ export async function submitRecoverableImageJob({
     onItemSettled,
     settlePlacements,
     resolveSettlement,
+    beforeForget,
     afterForget,
 } = {}) {
     if (!client) throw new Error('缺少后台生图客户端');
@@ -188,7 +189,7 @@ export async function submitRecoverableImageJob({
         // 这时绝不能进入 settling 或删 journal；下一次 reconcile 必须还能按同一 jobId 重试。
         preserveUndeliveredResults(result, jobId);
         await finishRecoverableImageJob({
-            journal, jobId, leaseId, settlePlacements, resolveSettlement, afterForget, result,
+            journal, jobId, leaseId, settlePlacements, resolveSettlement, beforeForget, afterForget, result,
         });
         return { ...result, jobId, leaseId };
     } catch (error) {
@@ -200,7 +201,7 @@ export async function submitRecoverableImageJob({
         // 保留日志和槽位：它还在跑，图还会出来，交给下一次 reconcile 接回。
         if (error?.detached === true) throw error;
         await finishRecoverableImageJob({
-            journal, jobId, leaseId, settlePlacements, resolveSettlement, afterForget, result: null, error,
+            journal, jobId, leaseId, settlePlacements, resolveSettlement, beforeForget, afterForget, result: null, error,
         });
         throw error;
     } finally {
@@ -219,6 +220,7 @@ async function finishRecoverableImageJob({
     leaseId,
     settlePlacements,
     resolveSettlement,
+    beforeForget,
     afterForget,
     result,
     error,
@@ -232,6 +234,11 @@ async function finishRecoverableImageJob({
             const guard = () => journal.fenceLease(jobId, leaseId);
             await guard();
             await settlePlacements({ jobId, leaseId, result, error, guard });
+        }
+        if (typeof beforeForget === 'function') {
+            const guard = () => journal.fenceLease(jobId, leaseId);
+            await guard();
+            await beforeForget({ jobId, leaseId, result, error, settlement, guard });
         }
         await journal.forget(jobId, leaseId);
         try {
@@ -259,6 +266,7 @@ export async function reattachRecoverableImageJob({
     onItemSettled,
     settlePlacements,
     resolveSettlement,
+    beforeForget,
     afterForget,
 } = {}) {
     if (!client) throw new Error('缺少后台生图客户端');
@@ -290,14 +298,14 @@ export async function reattachRecoverableImageJob({
         });
         preserveUndeliveredResults(result, jobId);
         await finishRecoverableImageJob({
-            journal, jobId, leaseId, settlePlacements, resolveSettlement, afterForget, result,
+            journal, jobId, leaseId, settlePlacements, resolveSettlement, beforeForget, afterForget, result,
         });
         return { ...result, jobId, leaseId };
     } catch (error) {
         if (isPendingJobLeaseLost(error)) throw error;
         if (error?.detached === true) throw error;
         await finishRecoverableImageJob({
-            journal, jobId, leaseId, settlePlacements, resolveSettlement, afterForget, result: null, error,
+            journal, jobId, leaseId, settlePlacements, resolveSettlement, beforeForget, afterForget, result: null, error,
         });
         throw error;
     }

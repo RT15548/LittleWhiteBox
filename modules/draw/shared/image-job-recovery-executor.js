@@ -75,6 +75,10 @@ async function runAttachment({ client, record, journal, delivery, cancelled }) {
             await guard();
             await delivery.settle(record, settlement || { mode: 'complete' }, details, guard);
         },
+        beforeForget: async (details) => {
+            await guard();
+            await delivery.beforeForget?.(record, settlement || { mode: 'complete' }, details, guard);
+        },
         afterForget: () => delivery.afterForget?.(record, settlement || { mode: 'complete' }),
     });
 }
@@ -118,6 +122,8 @@ export async function executeImageJobReattachEntry({
     }
     await guard();
     await delivery.settle(record, settlement || { mode: 'complete' }, {}, guard);
+    await guard();
+    await delivery.beforeForget?.(record, settlement || { mode: 'complete' }, {}, guard);
     await journal.forget(record.jobId, record.leaseId);
     try {
         await delivery.afterForget?.(record, settlement || { mode: 'complete' });

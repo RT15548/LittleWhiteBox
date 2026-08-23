@@ -1,4 +1,5 @@
 import { assertDrawRunId } from './draw-run-identifiers.js';
+import { isSceneSlotAlive } from './scene-placement.js';
 
 export const DRAW_RUN_MARKER_VERSION = 1;
 
@@ -164,6 +165,91 @@ export function listDrawRunMarkers(message) {
         });
     }
     return results;
+}
+
+export function findDrawRunMarker(chat, runId) {
+    const id = assertDrawRunId(runId);
+    for (const [messageId, message] of (Array.isArray(chat) ? chat : []).entries()) {
+        if (!message || typeof message !== 'object') continue;
+        const entry = listDrawRunMarkers(message).find(candidate => candidate.runId === id);
+        if (entry) return { ...entry, message, messageId };
+    }
+    return null;
+}
+
+export function getDrawRunMarkerText(target) {
+    const message = target?.message;
+    const swipeIndex = Number(target?.swipeIndex);
+    if (!message || !Number.isSafeInteger(swipeIndex) || swipeIndex < 0) return null;
+    const activeIndex = Number.isInteger(message.swipe_id) ? message.swipe_id : 0;
+    if (swipeIndex === activeIndex) return typeof message.mes === 'string' ? message.mes : null;
+    return Array.isArray(message.swipes) && typeof message.swipes[swipeIndex] === 'string'
+        ? message.swipes[swipeIndex]
+        : null;
+}
+
+export function setDrawRunMarkerText(target, text) {
+    const message = target?.message;
+    const swipeIndex = Number(target?.swipeIndex);
+    const value = String(text ?? '');
+    if (!message || !Number.isSafeInteger(swipeIndex) || swipeIndex < 0) return false;
+    const activeIndex = Number.isInteger(message.swipe_id) ? message.swipe_id : 0;
+    if (swipeIndex === activeIndex) {
+        message.mes = value;
+        if (Array.isArray(message.swipes) && swipeIndex < message.swipes.length) {
+            message.swipes[swipeIndex] = value;
+        }
+        return true;
+    }
+    if (!Array.isArray(message.swipes) || swipeIndex >= message.swipes.length) return false;
+    message.swipes[swipeIndex] = value;
+    return true;
+}
+
+export function persistedChatHasDrawRunSlots(persistedChat, runId, slotIds = []) {
+    const target = findDrawRunMarker(persistedChat, runId);
+    const text = getDrawRunMarkerText(target);
+    const expected = [...new Set((Array.isArray(slotIds) ? slotIds : [])
+        .map(value => String(value || '').trim())
+        .filter(Boolean))];
+    if (typeof text !== 'string' || expected.length === 0) return false;
+    return expected.every(slotId => isSceneSlotAlive(text, slotId));
+}
+
+export function findPersistedDrawRunDeliveryTarget(persistedChat, delivery) {
+    const messageId = Number(delivery?.messageId);
+    const swipeIndex = Number(delivery?.swipeIndex);
+    if (!Number.isSafeInteger(messageId) || messageId < 0
+        || !Number.isSafeInteger(swipeIndex) || swipeIndex < 0) return null;
+    if (!Array.isArray(persistedChat)) return null;
+    // SillyTavern 的聊天文件第 0 项是 { chat_metadata }，ctx.chat 则只含消息。
+    // journal 冻结的是 ctx.chat 下标，因此读回文件时必须跨过元数据头。
+    const hasMetadataHeader = persistedChat[0]?.chat_metadata
+        && typeof persistedChat[0].chat_metadata === 'object';
+    const message = persistedChat[messageId + (hasMetadataHeader ? 1 : 0)];
+    if (!message || typeof message !== 'object') return null;
+    return { message, messageId, swipeIndex };
+}
+
+export function persistedChatHasDeliverySlots(persistedChat, delivery, slotIds = []) {
+    const target = findPersistedDrawRunDeliveryTarget(persistedChat, delivery);
+    const text = getDrawRunMarkerText(target);
+    const expected = [...new Set((Array.isArray(slotIds) ? slotIds : [])
+        .map(value => String(value || '').trim())
+        .filter(Boolean))];
+    return typeof text === 'string'
+        && expected.length > 0
+        && expected.every(slotId => isSceneSlotAlive(text, slotId));
+}
+
+export function persistedDrawRunTargetMatches(persistedChat, runId, expectedText, expectedMarker = {}) {
+    const target = findDrawRunMarker(persistedChat, runId);
+    if (!target || getDrawRunMarkerText(target) !== String(expectedText ?? '')) return false;
+    const marker = target.marker;
+    return marker.version === DRAW_RUN_MARKER_VERSION
+        && (!expectedMarker.provider || marker.provider === expectedMarker.provider)
+        && (!expectedMarker.sourceHash || marker.sourceHash === expectedMarker.sourceHash)
+        && (!expectedMarker.createdAt || marker.createdAt === expectedMarker.createdAt);
 }
 
 export function persistedChatHasDrawRunMarker(persistedChat, runId, expectedMarker = {}) {
