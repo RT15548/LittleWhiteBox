@@ -3,16 +3,25 @@ import test from 'node:test';
 
 import {
     buildNovelAIConnectionProbe,
+    resolveNovelImageTransport,
     resolveNovelAIBackendImageApi,
     resolveNovelAIImageApi,
     snapshotNovelRequestConfig,
 } from '../novel-request-config.js';
+
+test('background jobs are independent from the direct versus backend send mode', () => {
+    assert.equal(resolveNovelImageTransport({ sendMode: 'frontend', useImageBackendJobs: false }), 'frontend');
+    assert.equal(resolveNovelImageTransport({ sendMode: 'backend', useImageBackendJobs: false }), 'backend');
+    assert.equal(resolveNovelImageTransport({ sendMode: 'frontend', useImageBackendJobs: true }), 'backend-job');
+    assert.equal(resolveNovelImageTransport({ sendMode: 'backend', useImageBackendJobs: true }), 'backend-job');
+});
 
 test('freezes request settings when a generation is submitted', () => {
     const settings = {
         apiBaseUrl: 'https://first.example',
         apiKey: 'first-key',
         sendMode: 'backend',
+        useImageBackendJobs: true,
         insecureTLS: true,
         timeout: 120000,
         overrideSize: '832x1216',
@@ -22,6 +31,7 @@ test('freezes request settings when a generation is submitted', () => {
     settings.apiBaseUrl = 'https://second.example';
     settings.apiKey = 'second-key';
     settings.sendMode = 'frontend';
+    settings.useImageBackendJobs = false;
     settings.insecureTLS = false;
     settings.timeout = 5000;
 
@@ -29,6 +39,7 @@ test('freezes request settings when a generation is submitted', () => {
         apiBaseUrl: 'https://first.example',
         apiKey: 'first-key',
         sendMode: 'backend',
+        useImageBackendJobs: true,
         insecureTLS: true,
         timeout: 120000,
         overrideSize: '832x1216',

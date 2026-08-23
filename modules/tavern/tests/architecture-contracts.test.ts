@@ -2316,7 +2316,7 @@ test('tavern draw capsule mirrors native capsule structure with in-app quick set
     assert.match(tavernHostSource, /xiaobaixComfyDraw\?: DrawProviderSettingsFacade;/);
     assert.match(tavernHostSource, /key === 'sdwebui' \|\| key === 'sd-webui' \|\| key === 'sd' \|\| key === 'stable-diffusion'/);
     assert.match(indexSource, /function notifyTavernDrawStatusChanged\(\) \{[\s\S]*window\.xiaobaixTavern\?\.refreshDrawStatus\?\.\(\);[\s\S]*\}/);
-    assert.match(indexSource, /await cleanupDrawProvider\(prev\);[\s\S]*settings\.drawProvider = next;[\s\S]*try \{[\s\S]*await initActiveDrawProvider\(\);[\s\S]*\} finally \{[\s\S]*notifyTavernDrawStatusChanged\(\);[\s\S]*\}/);
+    assert.match(indexSource, /const transitionGeneration = \+\+drawProviderTransitionGeneration;[\s\S]*settings\.drawProvider = next;[\s\S]*await cleanupDrawProvider\(prev\);[\s\S]*if \(transitionGeneration !== drawProviderTransitionGeneration\) return;[\s\S]*try \{[\s\S]*await initActiveDrawProvider\(\);[\s\S]*\} finally \{[\s\S]*notifyTavernDrawStatusChanged\(\);[\s\S]*\}/);
     assert.match(indexSource, /settings\.drawProvider = 'disabled';[\s\S]*extension_settings\[EXT_ID\]\.drawProvider = 'disabled';[\s\S]*notifyTavernDrawStatusChanged\(\);/);
 
     [novelDrawSource, sdDrawSource, comfyDrawSource].forEach((source) => {

@@ -1,0 +1,8 @@
+{
+    "name": "littlewhitebox-image-jobs",
+    "version": "2.0.0",
+    "type": "commonjs",
+    "main": "index.js",
+    "description": "Background image jobs for LittleWhiteBox providers.",
+    "private": true
+}

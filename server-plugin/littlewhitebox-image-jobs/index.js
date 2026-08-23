@@ -1,10 +1,15 @@
 'use strict';
 
 /**
- * LittleWhiteBox NovelAI 后端转发插件 (SillyTavern Server Plugin)
+ * LittleWhiteBox background image jobs server plugin.
  *
- * 安装：把本文件夹整个放到 SillyTavern/plugins/littlewhitebox-nai/ ，
+ * 安装：把本文件夹整个放到 SillyTavern/plugins/littlewhitebox-image-jobs/ ，
  *       在 config.yaml 中开启 enableServerPlugins: true ，然后重启 SillyTavern。
+ *
+ * 本插件的身份（目录、info.id、路由命名空间）都是 littlewhitebox-image-jobs，
+ * 与历史插件 littlewhitebox-nai 完全独立：ID 不同，不会互相顶掉，可以并存。
+ * 小白盒前端只请求本插件的命名空间，不探测、不回退旧插件；旧目录留着也不会被使用，
+ * 建议直接删除 plugins/littlewhitebox-nai/，避免维护两份不再使用的代码。
  */
 
 const { pipeline } = require('node:stream/promises');
@@ -12,25 +17,32 @@ const {
     generateImage,
     openImageStream,
     testConnection,
-} = require('./novelai-client.js');
+} = require('./providers/novelai/client.js');
+const { createAsyncImageJobManager } = require('./image-jobs/job-manager.js');
+const { registerImageJobRoutes } = require('./image-jobs/routes.js');
+const { parseTimeout } = require('./providers/upstream.js');
+const novelai = require('./providers/novelai/adapter.js');
+const sdWebUi = require('./providers/sd-webui/adapter.js');
+const comfyui = require('./providers/comfyui/adapter.js');
 
-const PLUGIN_VERSION = '1.2.0';
-const PLUGIN_CAPABILITIES = Object.freeze(['v5-msgpack-stream']);
+const PLUGIN_VERSION = '2.0.0';
+const PLUGIN_CAPABILITIES = Object.freeze(['v5-msgpack-stream', 'image-batch-jobs-v1']);
+const LOG_PREFIX = '[littlewhitebox-image-jobs]';
 
 const info = {
-    id: 'littlewhitebox-nai',
-    name: 'LittleWhiteBox NovelAI Backend Proxy',
+    id: 'littlewhitebox-image-jobs',
+    name: 'LittleWhiteBox Image Jobs',
     version: PLUGIN_VERSION,
-    description: 'Backend passthrough for LittleWhiteBox NovelAI image generation (bypass CORS / self-signed cert).',
+    description: 'Background image job runner for LittleWhiteBox providers; also serves the NovelAI proxy routes.',
 };
 
-const MAX_TIMEOUT_MS = 0x7FFFFFFF;
-
-function parseTimeout(value) {
-    const timeout = Number(value);
-    if (!Number.isFinite(timeout) || timeout <= 0) return null;
-    return Math.min(Math.max(1, Math.round(timeout)), MAX_TIMEOUT_MS);
-}
+const jobManager = createAsyncImageJobManager({
+    adapters: {
+        novelai,
+        'sd-webui': sdWebUi,
+        comfyui,
+    },
+});
 
 function parseUpstreamUrl(value) {
     try {
@@ -85,7 +97,7 @@ function sendRequestError(scope, res, error, label) {
     if (scope.cause === 'timeout') {
         return res.status(200).send({ ok: false, code: 'timeout', error: 'NovelAI request timed out' });
     }
-    console.error(`[littlewhitebox-nai] ${label} error:`, error);
+    console.error(`${LOG_PREFIX} ${label} error:`, error);
     return res.status(200).send({ ok: false, error: errorMessage(error) });
 }
 
@@ -116,7 +128,7 @@ function registerGenerateRoute(router, path) {
             });
 
             if (!result.ok) {
-                console.warn(`[littlewhitebox-nai] upstream ${result.status}: ${result.error.slice(0, 300)}`);
+                console.warn(`${LOG_PREFIX} upstream ${result.status}: ${result.error.slice(0, 300)}`);
             }
             return res.status(200).send(result);
         } catch (error) {
@@ -175,6 +187,11 @@ async function init(router) {
         });
     });
 
+    registerImageJobRoutes(router, {
+        manager: jobManager,
+        adapters: { novelai, 'sd-webui': sdWebUi, comfyui },
+    });
+
     // v1 is the frozen upstream 1.0.1 contract; URL resolution deliberately
     // stays inside the client so input validation runs in its original order.
     router.post('/v1/generate-image', async (req, res) => {
@@ -200,7 +217,7 @@ async function init(router) {
                 signal: scope.signal,
             });
             if (!result.ok) {
-                console.warn(`[littlewhitebox-nai] upstream ${result.status}: ${result.error.slice(0, 300)}`);
+                console.warn(`${LOG_PREFIX} upstream ${result.status}: ${result.error.slice(0, 300)}`);
             }
             return res.status(200).send(result);
         } catch (error) {
@@ -251,7 +268,7 @@ async function init(router) {
                 else res.destroy();
                 return;
             }
-            console.error('[littlewhitebox-nai] generate-image-stream error:', error);
+            console.error(`${LOG_PREFIX} generate-image-stream error:`, error);
             if (!res.headersSent) res.status(502).type('text/plain').send(errorMessage(error));
             else res.destroy(error);
         } finally {
@@ -286,7 +303,11 @@ async function init(router) {
 
     registerTestRoute(router, '/v2/test');
 
-    console.log('[littlewhitebox-nai] server plugin initialized (v' + PLUGIN_VERSION + ')');
+    console.log(`${LOG_PREFIX} server plugin initialized (v${PLUGIN_VERSION})`);
 }
 
-module.exports = { info, init };
+async function exit() {
+    jobManager.close();
+}
+
+module.exports = { exit, info, init };

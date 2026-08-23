@@ -8,7 +8,13 @@ const { PassThrough } = require('node:stream');
 const { after, before, test } = require('node:test');
 
 const { init } = require('../index.js');
-const { generateImage, openImageStream, testConnection } = require('../novelai-client.js');
+const {
+    generateImage,
+    generateImageBuffer,
+    openImageStream,
+    readImageStreamBuffer,
+    testConnection,
+} = require('../providers/novelai/client.js');
 
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64');
 
@@ -158,6 +164,19 @@ test('decodes deflate responses from non-compliant upstreams', async () => {
     assert.equal(result.base64, PNG.toString('base64'));
 });
 
+test('exposes decoded legacy images as buffers for background jobs', async () => {
+    const result = await generateImageBuffer({
+        url: `${origin}/image/ai/generate-image`,
+        key: 'key',
+        payload: {},
+        insecure: false,
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.mime, 'image/png');
+    assert.deepEqual(result.buffer, PNG);
+});
+
 test('sends V5 as multipart request JSON and exposes the upstream stream unchanged', async () => {
     const payload = {
         input: '1girl, happy',
@@ -182,6 +201,18 @@ test('sends V5 as multipart request JSON and exposes the upstream stream unchang
     assert.match(lastStreamRequest.body, new RegExp(`--${boundary.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}--`));
     assert.ok(lastStreamRequest.body.includes(JSON.stringify(payload)));
     assert.deepEqual(Buffer.concat(chunks), Buffer.from([0, 0, 0, 2, 0x81, 0xA0]));
+});
+
+test('reads the complete V5 stream for background jobs without interpreting MessagePack', async () => {
+    const result = await readImageStreamBuffer({
+        url: `${origin}/v5/ai/generate-image-stream`,
+        key: 'v5-key',
+        payload: { input: 'test', model: 'nai-diffusion-5-full' },
+        insecure: false,
+    });
+
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.buffer, Buffer.from([0, 0, 0, 2, 0x81, 0xA0]));
 });
 
 test('tests the selected V5 transport instead of falling back to the V3 JSON endpoint', async () => {
@@ -215,7 +246,9 @@ test('bounds upstream V5 error bodies to 1 MiB', async () => {
 
     assert.equal(result.ok, false);
     assert.equal(result.status, 422);
-    assert.match(result.error, /1 MiB/);
+    // 超限的错误体不得被原样带出：摘要必须短小，并说明是读取失败而不是真实的上游文案。
+    assert.ok(result.error.length < 1024);
+    assert.match(result.error, /1048576/);
 });
 
 test('advertises and proxies the V5 MessagePack stream route', async () => {
@@ -228,6 +261,7 @@ test('advertises and proxies the V5 MessagePack stream route', async () => {
         post(path, routeHandler) {
             if (path === '/v1/generate-image-stream') streamHandler = routeHandler;
         },
+        delete() {},
     });
 
     const statusResponse = {
@@ -242,7 +276,7 @@ test('advertises and proxies the V5 MessagePack stream route', async () => {
     };
     statusHandler({}, statusResponse);
     assert.equal(statusResponse.statusCode, 200);
-    assert.deepEqual(statusResponse.body.capabilities, ['v5-msgpack-stream']);
+    assert.deepEqual(statusResponse.body.capabilities, ['v5-msgpack-stream', 'image-batch-jobs-v1']);
 
     const req = new EventEmitter();
     req.aborted = false;
@@ -323,6 +357,7 @@ test('does not start an upstream request after the client already disconnected',
         post(path, routeHandler) {
             if (path === '/v1/generate-image') handler = routeHandler;
         },
+        delete() {},
     });
 
     const req = new EventEmitter();
@@ -350,6 +385,7 @@ test('keeps the v1.0.1 validation order ahead of legacy URL resolution', async (
             if (path === '/v1/generate-image') generateHandler = routeHandler;
             if (path === '/v1/test') testHandler = routeHandler;
         },
+        delete() {},
     });
 
     const missingKey = await invokeRoute(generateHandler, {
@@ -392,6 +428,7 @@ test('rejects unresolved backend URLs before starting an upstream request', asyn
         post(path, routeHandler) {
             if (path === '/v2/generate-image') handler = routeHandler;
         },
+        delete() {},
     });
 
     const req = new EventEmitter();
@@ -448,6 +485,7 @@ test('enforces the request timeout inside the backend plugin', async () => {
         post(path, routeHandler) {
             if (path === '/v1/generate-image') handler = routeHandler;
         },
+        delete() {},
     });
 
     const req = new EventEmitter();

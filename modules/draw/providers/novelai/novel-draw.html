@@ -751,6 +751,8 @@ select.input { cursor: pointer; }
                             <button type="button" class="btn nd-mode-btn" data-send-mode="backend"><i class="fa-solid fa-server"></i> 后端发送</button>
                         </div>
                         <label class="check-row" style="margin-top:8px;"><input type="checkbox" id="nd_insecure_tls"> 忽略证书验证（仅后端发送模式、连接自签证书端点时勾选）</label>
+                        <label class="check-row" style="margin-top:8px;"><input type="checkbox" id="nd_use_backend_jobs"> 使用小白盒后台批量任务</label>
+                        <p class="form-hint">开启后任务由小白盒服务端独立执行，刷新或断网后可自动接回；插件不可用时会直接报错，不会静默回退。</p>
                         <p class="form-hint">前端直连：浏览器直接请求（需对方支持 CORS + 有效证书）。后端发送：由酒馆后端代发，可绕过 CORS 与自签证书。</p>
 
                         <!-- 后端插件状态栏（仅后端发送模式显示） -->
@@ -763,11 +765,12 @@ select.input { cursor: pointer; }
                             <div id="nd_backend_guide" class="nd-backend-guide hidden">
                                 <p class="form-hint" style="margin-top:4px;">后端插件未就绪。插件文件已随 LittleWhiteBox 一起下载，只需手动搬到酒馆的后端插件目录并重启：</p>
                                 <ol class="nd-guide-steps">
-                                    <li>找到插件文件夹（在本扩展目录下）：<br><code>SillyTavern/public/scripts/extensions/third-party/LittleWhiteBox/server-plugin/littlewhitebox-nai/</code></li>
-                                    <li>把整个 <code>littlewhitebox-nai</code> 文件夹（含 <code>index.js</code> / <code>novelai-client.js</code> / <code>package.json</code> / <code>manifest.json</code>）剪切或复制到：<br><code>SillyTavern/plugins/littlewhitebox-nai/</code></li>
+                                    <li>找到插件文件夹（在本扩展目录下）：<br><code>SillyTavern/public/scripts/extensions/third-party/LittleWhiteBox/server-plugin/littlewhitebox-image-jobs/</code></li>
+                                    <li>把整个 <code>littlewhitebox-image-jobs</code> 文件夹（包括其中的所有子目录）复制到：<br><code>SillyTavern/plugins/littlewhitebox-image-jobs/</code></li>
                                     <li>用文本编辑器打开 <code>SillyTavern/config.yaml</code>，找到 <code>enableServerPlugins</code> 一行改为 <code>enableServerPlugins: true</code>（若没有这一行就新增）</li>
                                     <li>完全关闭并重启 SillyTavern，回到这里点“重新检测”</li>
                                 </ol>
+                                <p class="form-hint" style="margin-top:6px;">装过旧的 <code>SillyTavern/plugins/littlewhitebox-nai/</code> 可以顺手删掉。它是独立插件，不会冲突，但小白盒已不再请求它。</p>
                             </div>
                         </div>
                     </div>
@@ -991,11 +994,11 @@ select.input { cursor: pointer; }
             <div id="view-llm" class="view">
                 <div class="view-header">
                     <h2 class="view-title">Agent API 配置</h2>
-                    <p class="view-desc">完整管理小白X共享主预设；画图场景规划会直接使用这里的当前配置</p>
+                    <p class="view-desc">共享 Agent 主预设</p>
                 </div>
 
                 <div id="nd-agent-settings-surface" class="draw-agent-settings-surface">
-                    <div class="draw-agent-settings-state"><i class="fa-solid fa-spinner fa-spin"></i><span>正在读取共享 Agent API 配置…</span></div>
+                    <div class="draw-agent-settings-state"><i class="fa-solid fa-spinner fa-spin"></i><span>正在读取共享 Agent 主预设…</span></div>
                 </div>
             </div>
 
@@ -1425,6 +1428,7 @@ let state = {
     apiKey: '',
     apiBaseUrl: '',
     sendMode: 'frontend',
+    useImageBackendJobs: false,
     insecureTLS: false,
     timeout: DEFAULTS.timeout,
     requestDelay: { ...DEFAULTS.requestDelay },
@@ -1593,8 +1597,9 @@ function updateSendModeUI(mode) {
     state.sendMode = m;
     const panel = $('nd_backend_panel');
     if (panel) {
-        panel.classList.toggle('hidden', m !== 'backend');
-        if (m === 'backend') requestBackendPluginCheck();
+        const usesBackend = m === 'backend' || $('nd_use_backend_jobs')?.checked === true;
+        panel.classList.toggle('hidden', !usesBackend);
+        if (usesBackend) requestBackendPluginCheck();
     }
 }
 
@@ -2614,6 +2619,7 @@ function applyStateToUI() {
 
         $('nd_api_key').value = state.apiKey || '';
         $('nd_api_base_url').value = state.apiBaseUrl || '';
+        $('nd_use_backend_jobs').checked = state.useImageBackendJobs === true;
         updateSendModeUI(state.sendMode === 'backend' ? 'backend' : 'frontend');
         $('nd_insecure_tls').checked = state.insecureTLS === true;
         $('nd_timeout').value = Math.round((state.timeout > 0 ? state.timeout : DEFAULTS.timeout) / 1000);
@@ -3000,6 +3006,7 @@ document.addEventListener('DOMContentLoaded', () => {
             apiKey: $('nd_api_key').value.trim(),
             apiBaseUrl: '',
             sendMode: getSendMode(),
+            useImageBackendJobs: $('nd_use_backend_jobs').checked,
             insecureTLS: $('nd_insecure_tls').checked,
             timeout: Number($('nd_timeout').value) * 1000 || 180000,
             requestDelay: parseDelay($('nd_delay').value)
@@ -3015,6 +3022,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 apiKey: $('nd_api_key').value.trim(),
                 apiBaseUrl: $('nd_api_base_url').value.trim(),
                 sendMode: mode,
+                useImageBackendJobs: $('nd_use_backend_jobs').checked,
                 insecureTLS: $('nd_insecure_tls').checked,
                 timeout: Number($('nd_timeout').value) * 1000 || 180000,
                 requestDelay: parseDelay($('nd_delay').value)
@@ -3028,6 +3036,21 @@ document.addEventListener('DOMContentLoaded', () => {
             apiKey: $('nd_api_key').value.trim(),
             apiBaseUrl: $('nd_api_base_url').value.trim(),
             sendMode: getSendMode(),
+            useImageBackendJobs: $('nd_use_backend_jobs').checked,
+            insecureTLS: $('nd_insecure_tls').checked,
+            timeout: Number($('nd_timeout').value) * 1000 || 180000,
+            requestDelay: parseDelay($('nd_delay').value)
+        });
+    });
+
+    $('nd_use_backend_jobs').addEventListener('change', () => {
+        updateSendModeUI(getSendMode());
+        postToParent({
+            type: 'SAVE_API_CONFIG',
+            apiKey: $('nd_api_key').value.trim(),
+            apiBaseUrl: $('nd_api_base_url').value.trim(),
+            sendMode: getSendMode(),
+            useImageBackendJobs: $('nd_use_backend_jobs').checked,
             insecureTLS: $('nd_insecure_tls').checked,
             timeout: Number($('nd_timeout').value) * 1000 || 180000,
             requestDelay: parseDelay($('nd_delay').value)
@@ -3043,6 +3066,7 @@ document.addEventListener('DOMContentLoaded', () => {
             apiKey: $('nd_api_key').value.trim(),
             apiBaseUrl: $('nd_api_base_url').value.trim(),
             sendMode: getSendMode(),
+            useImageBackendJobs: $('nd_use_backend_jobs').checked,
             insecureTLS: $('nd_insecure_tls').checked,
             timeout: Number($('nd_timeout').value) * 1000 || 180000,
             requestDelay: parseDelay($('nd_delay').value)

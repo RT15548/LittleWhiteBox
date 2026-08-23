@@ -45,6 +45,7 @@ import {
 } from './novel-image-response.js';
 import {
     buildNovelAIConnectionProbe,
+    resolveNovelImageTransport,
     resolveNovelAIBackendImageApi,
     resolveNovelAIImageApi,
     snapshotNovelRequestConfig,
@@ -73,6 +74,20 @@ import {
     readNovelV5FinalImage,
     NovelV5StreamError,
 } from './novel-v5-stream.js';
+import {
+    createImageBackendJobMonitorRegistry,
+    createImageBackendJobsClient,
+    hasImageBackendJobsCapability,
+    ImageBackendJobsError,
+    reportImageBackendJobState,
+} from '../../shared/backend-image-jobs.js';
+import {
+    classifyImageJobDeliveryTarget,
+    commitImageJobDeliverySlotRemoval,
+    ImageJobDeliveryTargetState,
+    requireImageJobDeliveryTarget,
+} from '../../shared/image-job-delivery-target.js';
+import { submitRecoverableImageJob } from '../../shared/recoverable-image-jobs.js';
 import { migrateLegacyNovelPromptSettings } from './novel-prompt-migration.js';
 import { WorldbookProcessor } from '../../shared/worldbook-processor.js';
 import {
@@ -97,15 +112,22 @@ import {
     buildPendingImageHtml,
     buildDrawSlotSelector,
     toScenePlannerProgress,
+    isAnyMessageBeingEdited,
     isMessageBeingEdited,
     DEFAULT_MESSAGE_FILTER_RULES,
 } from '../../shared/draw-common.js';
 import { createSceneSource } from '../../shared/scene-source.js';
 import {
+    commitRecoverableScenePlacements,
+    commitSceneSlotDelivery,
+    commitSceneSlotReplacement,
+    getSceneSlotIds,
     ScenePlacementError,
     assertSceneSourceUnchanged,
-    insertScenePlacements,
-    settleSceneSlotPlaceholders,
+    commitSettledScenePlacements,
+    insertScenePlacementsPreservingSlots,
+    removeSceneSlotPlaceholders,
+    setActiveMessageText,
 } from '../../shared/scene-placement.js';
 // ═══════════════════════════════════════════════════════════════════════════
 // 常量
@@ -114,16 +136,20 @@ import {
 const MODULE_KEY = 'novelDraw';
 const SERVER_FILE_KEY = 'settings';
 const HTML_PATH = `${extensionFolderPath}/modules/draw/providers/novelai/novel-draw.html`;
-// 后端发送模式走 SillyTavern server plugin 转发（需安装 plugins/littlewhitebox-nai 并开启 enableServerPlugins），
-// 用于绕过浏览器 CORS / 自签证书限制。
-const NAI_BACKEND_GENERATE = '/api/plugins/littlewhitebox-nai/v1/generate-image';
-const NAI_BACKEND_GENERATE_V2 = '/api/plugins/littlewhitebox-nai/v2/generate-image';
-const NAI_BACKEND_GENERATE_STREAM = '/api/plugins/littlewhitebox-nai/v1/generate-image-stream';
-const NAI_BACKEND_TEST = '/api/plugins/littlewhitebox-nai/v1/test';
-const NAI_BACKEND_TEST_V2 = '/api/plugins/littlewhitebox-nai/v2/test';
-const NAI_BACKEND_STATUS = '/api/plugins/littlewhitebox-nai/status';
+// 后端发送模式走 SillyTavern server plugin 转发（需安装 plugins/littlewhitebox-image-jobs 并开启 enableServerPlugins），
+// 用于绕过浏览器 CORS / 自签证书限制。历史插件 littlewhitebox-nai 是独立 ID，这里不探测、不回退。
+const NAI_BACKEND_BASE = '/api/plugins/littlewhitebox-image-jobs';
+const NAI_BACKEND_GENERATE = `${NAI_BACKEND_BASE}/v1/generate-image`;
+const NAI_BACKEND_GENERATE_V2 = `${NAI_BACKEND_BASE}/v2/generate-image`;
+const NAI_BACKEND_GENERATE_STREAM = `${NAI_BACKEND_BASE}/v1/generate-image-stream`;
+const NAI_BACKEND_TEST = `${NAI_BACKEND_BASE}/v1/test`;
+const NAI_BACKEND_TEST_V2 = `${NAI_BACKEND_BASE}/v2/test`;
+const NAI_BACKEND_STATUS = `${NAI_BACKEND_BASE}/status`;
 const NAI_BACKEND_MIN_VERSION = '1.0.1';
 const NAI_BACKEND_V5_MIN_VERSION = '1.2.0';
+const NAI_BACKEND_STATUS_TIMEOUT = 5000;
+const NAI_BACKEND_STATUS_ATTEMPTS = 2;
+const NAI_BACKEND_STATUS_RETRY_DELAY_MS = 1000;
 const CONFIG_VERSION = 8;
 
 function isVersionAtLeast(version, minimum) {
@@ -138,13 +164,21 @@ function isVersionAtLeast(version, minimum) {
     return true;
 }
 
-// 探测后端 server plugin 是否已安装并就绪。返回 { ready, version?, reason }。
-async function checkBackendPluginStatus({ signal } = {}) {
+async function fetchBackendPluginStatus(signal) {
+    if (signal?.aborted) {
+        const error = new Error('The operation was aborted');
+        error.name = 'AbortError';
+        throw error;
+    }
+    const controller = new AbortController();
+    const forwardAbort = () => controller.abort();
+    const timeoutId = setTimeout(() => controller.abort(), NAI_BACKEND_STATUS_TIMEOUT);
+    signal?.addEventListener('abort', forwardAbort, { once: true });
     try {
         const res = await fetch(NAI_BACKEND_STATUS, {
             method: 'GET',
             headers: getRequestHeaders(),
-            signal,
+            signal: controller.signal,
         });
         if (res.status === 404) return { ready: false, reason: 'not_installed' };
         if (!res.ok) return { ready: false, reason: `http_${res.status}` };
@@ -162,9 +196,37 @@ async function checkBackendPluginStatus({ signal } = {}) {
         }
         return { ready: false, reason: 'bad_response' };
     } catch (e) {
-        if (e?.name === 'AbortError') throw e;
+        if (signal?.aborted) throw e;
         return { ready: false, reason: 'unreachable' };
+    } finally {
+        clearTimeout(timeoutId);
+        signal?.removeEventListener('abort', forwardAbort);
     }
+}
+
+// 探测后端 server plugin 是否已安装并就绪。短暂故障重试，调用方取消则立即退出。
+function waitBeforeStatusRetry(signal, duration) {
+    return new Promise((resolve) => {
+        const finish = () => {
+            clearTimeout(timer);
+            signal?.removeEventListener('abort', finish);
+            resolve();
+        };
+        const timer = setTimeout(finish, duration);
+        signal?.addEventListener('abort', finish, { once: true });
+        if (signal?.aborted) finish();
+    });
+}
+
+async function checkBackendPluginStatus({ signal } = {}) {
+    let status;
+    for (let attempt = 0; attempt < NAI_BACKEND_STATUS_ATTEMPTS; attempt++) {
+        if (attempt > 0) await waitBeforeStatusRetry(signal, NAI_BACKEND_STATUS_RETRY_DELAY_MS);
+        status = await fetchBackendPluginStatus(signal);
+        const transient = status.reason === 'unreachable' || /^http_5\d\d$/.test(status.reason);
+        if (!transient) return status;
+    }
+    return status;
 }
 
 async function assertV5BackendCapability(signal) {
@@ -176,14 +238,14 @@ async function assertV5BackendCapability(signal) {
                 ? `版本过旧（当前 v${status.version || '未知'}）`
                 : '未就绪';
         throw new NovelDrawError(
-            `NovelAI V5 后端插件${reason}，请安装或升级 littlewhitebox-nai 至 v${NAI_BACKEND_V5_MIN_VERSION}+`,
+            `NovelAI V5 后端插件${reason}，请安装当前 littlewhitebox-image-jobs（兼容后端最低 v${NAI_BACKEND_V5_MIN_VERSION}）`,
             ErrorType.NETWORK,
         );
     }
     if (!isVersionAtLeast(status.version, NAI_BACKEND_V5_MIN_VERSION)
         || !status.capabilities?.includes('v5-msgpack-stream')) {
         throw new NovelDrawError(
-            `当前后端插件不支持 NovelAI V5 流协议，请升级 littlewhitebox-nai 至 v${NAI_BACKEND_V5_MIN_VERSION}+`,
+            `当前后端插件不支持 NovelAI V5 流协议，请安装当前 littlewhitebox-image-jobs（兼容后端最低 v${NAI_BACKEND_V5_MIN_VERSION}）`,
             ErrorType.NETWORK,
         );
     }
@@ -254,6 +316,7 @@ const DEFAULT_SETTINGS = {
     apiKey: '',
     apiBaseUrl: '',
     sendMode: 'frontend',
+    useImageBackendJobs: false,
     insecureTLS: false,
     selectedParamsPresetId: null,
     paramsPresets: [],
@@ -284,14 +347,18 @@ let frameReady = false;
 let jsZipLoaded = false;
 let messagePackDecoderPromise = null;
 let moduleInitialized = false;
+let moduleLifecycleGeneration = 0;
 let touchState = null;
 let settingsCache = null;
 let settingsLoaded = false;
 let generationJobs = new Map();
+const generationJobSignals = new WeakMap();
+const backendJobMonitors = createImageBackendJobMonitorRegistry({ active: false });
 const novelImageRequestQueue = createSerialImageRequestQueue({
     createAbortError: () => new NovelDrawError('已取消', ErrorType.ABORTED),
     getCooldownMs: () => getNovelImageRequestDelay(),
 });
+const imageBackendJobsClient = createImageBackendJobsClient({ getHeaders: getRequestHeaders });
 let ensureNovelDrawPanelRef = null;
 let overlayResizeHandler = null;
 let afterAiGateDispose = null;
@@ -645,16 +712,25 @@ function insertPreviewIntoRenderedMessage({ messageId, slotId, html }) {
 // 中止控制
 // ═══════════════════════════════════════════════════════════════════════════
 
-function abortGeneration(messageId = null) {
+// 中止分两种，绝不能混为一谈：
+// - reason 'user'：用户亲手停的（停止键、Escape、面板取消）。只有这一种才允许把取消
+//   传导到后端，删掉一个已经付过钱的任务。
+// - 其它 reason：模块卸载、聊天切换这类生命周期中止。前端必须停手，但后端任务要留着，
+//   靠恢复记录在下次打开时接回——否则「重载一次扩展」就等于烧掉一批图。
+function abortGeneration(messageId = null, { reason = 'user' } = {}) {
     if (messageId !== null && messageId !== undefined) {
         const job = generationJobs.get(String(messageId));
         if (!job) return false;
+        job.abortReason ||= reason;
+        if (reason === 'user') job.backendCancel.abort();
         job.controller.abort();
         return true;
     }
 
     let aborted = false;
     generationJobs.forEach((job) => {
+        job.abortReason ||= reason;
+        if (reason === 'user') job.backendCancel.abort();
         job.controller.abort();
         aborted = true;
     });
@@ -679,9 +755,12 @@ function createGenerationJob(messageId) {
         key,
         messageId,
         controller: new AbortController(),
+        backendCancel: new AbortController(),
+        abortReason: null,
         createdAt: Date.now(),
     };
     generationJobs.set(key, job);
+    generationJobSignals.set(job.controller.signal, job);
     return job;
 }
 
@@ -835,6 +914,7 @@ function normalizeSettings(saved = {}) {
         apiKey: String(source.apiKey || ''),
         apiBaseUrl: String(source.apiBaseUrl || '').trim(),
         sendMode: source.sendMode === 'backend' ? 'backend' : 'frontend',
+        useImageBackendJobs: source.useImageBackendJobs === true,
         insecureTLS: source.insecureTLS === true,
         selectedParamsPresetId: source.selectedParamsPresetId == null
             ? null
@@ -1496,10 +1576,10 @@ async function generateViaBackend({ url, legacyBaseUrl, apiKey, insecure, payloa
         }
     } catch (e) {
         if (e?.name === 'AbortError') throw e;
-        throw new NovelDrawError('后端代发失败（未安装 littlewhitebox-nai 插件或 SillyTavern 未开启 server plugins）', ErrorType.NETWORK);
+        throw new NovelDrawError('后端代发失败（未安装 littlewhitebox-image-jobs 插件或 SillyTavern 未开启 server plugins）', ErrorType.NETWORK);
     }
     if (res.status === 404) {
-        throw new NovelDrawError('后端端点不存在：请安装 plugins/littlewhitebox-nai 并在 config.yaml 开启 enableServerPlugins 后重启酒馆', ErrorType.NETWORK);
+        throw new NovelDrawError('后端端点不存在：请安装 plugins/littlewhitebox-image-jobs 并在 config.yaml 开启 enableServerPlugins 后重启酒馆', ErrorType.NETWORK);
     }
     if (!res.ok) {
         throw parseApiError(res.status, await res.text().catch(() => ''));
@@ -1532,11 +1612,11 @@ async function generateV5ViaBackend({ url, apiKey, insecure, payload, signal, ti
         });
     } catch (error) {
         if (error?.name === 'AbortError') throw error;
-        throw new NovelDrawError('V5 后端代发失败，请检查 littlewhitebox-nai 插件', ErrorType.NETWORK);
+        throw new NovelDrawError('V5 后端代发失败，请检查 littlewhitebox-image-jobs 插件', ErrorType.NETWORK);
     }
     if (response.status === 404) {
         throw new NovelDrawError(
-            `V5 后端端点不存在：请升级 littlewhitebox-nai 至 ${NAI_BACKEND_V5_MIN_VERSION} 或更高版本`,
+            `V5 后端端点不存在：请安装当前 littlewhitebox-image-jobs（兼容后端最低 v${NAI_BACKEND_V5_MIN_VERSION}）`,
             ErrorType.NETWORK,
         );
     }
@@ -1606,7 +1686,7 @@ async function testApiConnection(apiKey, baseUrl, opts = {}) {
                 await res.body?.cancel?.().catch(() => {});
                 res = await request(NAI_BACKEND_TEST);
             }
-            if (res.status === 404) throw new NovelDrawError('后端端点不存在：请安装 plugins/littlewhitebox-nai 并开启 enableServerPlugins 后重启酒馆', ErrorType.NETWORK);
+            if (res.status === 404) throw new NovelDrawError('后端端点不存在：请安装 plugins/littlewhitebox-image-jobs 并开启 enableServerPlugins 后重启酒馆', ErrorType.NETWORK);
             const data = await res.json().catch(() => null);
             if (data?.ok === true) return { success: true };
             if (data?.status === 401) throw new NovelDrawError('API Key 无效', ErrorType.AUTH);
@@ -1759,133 +1839,362 @@ function buildNovelAIRequestBody({ scene, characterPrompts, negativePrompt, para
     };
 }
 
-async function generateNovelImage({ scene, characterPrompts, negativePrompt, params, generationConfig, signal, queueBatch, onQueueStateChange }) {
-    const requestConfig = snapshotNovelRequestConfig(getRuntimeSettings(), generationConfig, DEFAULT_SETTINGS.timeout);
-    if (!requestConfig.apiKey) throw new NovelDrawError('请先配置 API Key', ErrorType.AUTH);
-    const queuedParams = { ...params };
-
-    return await enqueueImageRequest(async () => {
-        const finalParams = { ...queuedParams };
-
-        const overrideSize = requestConfig.overrideSize;
-        if (overrideSize !== 'default') {
-            const { SIZE_OPTIONS } = await import('./floating-panel.js');
-            const sizeOpt = SIZE_OPTIONS.find(o => o.value === overrideSize);
-            if (sizeOpt && sizeOpt.width && sizeOpt.height) {
-                finalParams.width = sizeOpt.width;
-                finalParams.height = sizeOpt.height;
-            }
+async function prepareNovelImageRequest(request, requestConfig) {
+    const finalParams = { ...(request.params || {}) };
+    if (requestConfig.overrideSize !== 'default') {
+        const { SIZE_OPTIONS } = await import('./floating-panel.js');
+        const size = SIZE_OPTIONS.find(option => option.value === requestConfig.overrideSize);
+        if (size?.width && size?.height) {
+            finalParams.width = size.width;
+            finalParams.height = size.height;
         }
+    }
 
-        if (signal?.aborted) throw new NovelDrawError('已取消', ErrorType.ABORTED);
-
-        const capability = getNovelModelCapability(finalParams.model);
-        const isV5 = capability.transport === 'msgpack-stream';
-        let apiUrl;
-        let payload;
-        try {
-            apiUrl = requestConfig.sendMode === 'backend'
+    const capability = getNovelModelCapability(finalParams.model);
+    try {
+        return {
+            apiUrl: resolveNovelImageTransport(requestConfig) !== 'frontend'
                 ? resolveNovelAIBackendImageApi(
                     requestConfig.apiBaseUrl,
                     capability.transport,
                     globalThis.location?.href,
                 )
-                : resolveNovelAIImageApi(requestConfig.apiBaseUrl, capability.transport);
-            payload = buildNovelAIRequestBody({ scene, characterPrompts, negativePrompt, params: finalParams });
-        } catch (error) {
-            throw handleFetchError(error);
-        }
+                : resolveNovelAIImageApi(requestConfig.apiBaseUrl, capability.transport),
+            legacyBaseUrl: requestConfig.apiBaseUrl,
+            payload: buildNovelAIRequestBody({
+                scene: request.scene,
+                characterPrompts: request.characterPrompts || [],
+                negativePrompt: request.negativePrompt,
+                params: finalParams,
+            }),
+            isV5: capability.transport === 'msgpack-stream',
+            transport: capability.transport === 'msgpack-stream' ? 'msgpack-stream' : 'legacy-image',
+        };
+    } catch (error) {
+        throw handleFetchError(error);
+    }
+}
 
-        const controller = new AbortController();
-        const forwardAbort = () => controller.abort();
-        signal?.addEventListener('abort', forwardAbort, { once: true });
-        if (signal?.aborted) forwardAbort();
-        const tid = setTimeout(() => controller.abort(), requestConfig.timeout);
-        const t0 = Date.now();
+async function executePreparedNovelRequest(prepared, requestConfig, signal) {
+    const controller = new AbortController();
+    const forwardAbort = () => controller.abort();
+    signal?.addEventListener('abort', forwardAbort, { once: true });
+    if (signal?.aborted) forwardAbort();
+    const timeoutId = setTimeout(() => controller.abort(), requestConfig.timeout);
+    const startedAt = Date.now();
 
-        try {
-            if (signal?.aborted) throw new NovelDrawError('已取消', ErrorType.ABORTED);
-
-            // 后端发送：交给 SillyTavern server plugin 代发，绕过浏览器 CORS / 自签证书。
-            if (requestConfig.sendMode === 'backend') {
-                if (isV5) {
-                    await assertV5BackendCapability(controller.signal);
-                    const response = await generateV5ViaBackend({
-                        url: apiUrl,
-                        apiKey: requestConfig.apiKey,
-                        insecure: requestConfig.insecureTLS,
-                        payload,
-                        signal: controller.signal,
-                        timeout: requestConfig.timeout,
-                    });
-                    const decodeMessagePack = await loadMessagePackDecoderForResponse(response, controller);
-                    const image = await readNovelV5FinalImage(response, {
-                        decode: decodeMessagePack,
-                        signal: controller.signal,
-                    });
-                    console.log(`[NovelDraw] V5 完成(后端) ${Date.now() - t0}ms`);
-                    return imageBytesToBase64(image);
-                }
-                const base64 = await generateViaBackend({
-                    url: apiUrl,
-                    legacyBaseUrl: requestConfig.apiBaseUrl,
+    try {
+        if (signal?.aborted) throw new NovelDrawError('已取消', ErrorType.ABORTED);
+        if (requestConfig.sendMode === 'backend') {
+            if (prepared.isV5) {
+                await assertV5BackendCapability(controller.signal);
+                const response = await generateV5ViaBackend({
+                    url: prepared.apiUrl,
                     apiKey: requestConfig.apiKey,
                     insecure: requestConfig.insecureTLS,
-                    payload,
+                    payload: prepared.payload,
                     signal: controller.signal,
                     timeout: requestConfig.timeout,
                 });
-                console.log(`[NovelDraw] 完成(后端) ${Date.now() - t0}ms`);
-                return base64;
-            }
-
-            // 前端直连：浏览器直接请求 NovelAI / 第三方端点。
-            const body = isV5 ? new FormData() : JSON.stringify(payload);
-            if (isV5) {
-                body.append('request', new Blob([JSON.stringify(payload)], { type: 'application/json' }), 'blob');
-            }
-            const res = await fetch(apiUrl, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${requestConfig.apiKey}`,
-                    ...(!isV5 ? { 'Content-Type': 'application/json' } : {}),
-                },
-                signal: controller.signal,
-                body,
-            });
-            if (!res.ok) {
-                const errorText = isV5
-                    ? await readNovelV5ErrorText(res)
-                    : await res.text().catch(() => '');
-                throw parseApiError(res.status, errorText, isV5 ? ErrorType.PROVIDER : ErrorType.UNKNOWN);
-            }
-            if (isV5) {
-                const decodeMessagePack = await loadMessagePackDecoderForResponse(res, controller);
-                const image = await readNovelV5FinalImage(res, {
+                const decodeMessagePack = await loadMessagePackDecoderForResponse(response, controller);
+                const image = await readNovelV5FinalImage(response, {
                     decode: decodeMessagePack,
                     signal: controller.signal,
                 });
-                console.log(`[NovelDraw] V5 完成 ${Date.now() - t0}ms`);
+                console.log(`[NovelDraw] V5 完成(后端) ${Date.now() - startedAt}ms`);
                 return imageBytesToBase64(image);
             }
-            const responseData = await readImageResponse(res, controller.signal);
-            const base64 = await extractImageFromResponse(responseData, ensureJSZip, controller.signal);
-            console.log(`[NovelDraw] 完成 ${Date.now() - t0}ms`);
+            const base64 = await generateViaBackend({
+                url: prepared.apiUrl,
+                legacyBaseUrl: prepared.legacyBaseUrl,
+                apiKey: requestConfig.apiKey,
+                insecure: requestConfig.insecureTLS,
+                payload: prepared.payload,
+                signal: controller.signal,
+                timeout: requestConfig.timeout,
+            });
+            console.log(`[NovelDraw] 完成(后端) ${Date.now() - startedAt}ms`);
             return base64;
-        } catch (e) {
-            if (signal?.aborted) throw new NovelDrawError('已取消', ErrorType.ABORTED);
-            throw handleFetchError(e);
-        } finally {
-            clearTimeout(tid);
-            signal?.removeEventListener('abort', forwardAbort);
         }
-    }, {
+
+        const body = prepared.isV5 ? new FormData() : JSON.stringify(prepared.payload);
+        if (prepared.isV5) {
+            body.append('request', new Blob([JSON.stringify(prepared.payload)], { type: 'application/json' }), 'blob');
+        }
+        const response = await fetch(prepared.apiUrl, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${requestConfig.apiKey}`,
+                ...(!prepared.isV5 ? { 'Content-Type': 'application/json' } : {}),
+            },
+            signal: controller.signal,
+            body,
+        });
+        if (!response.ok) {
+            const errorText = prepared.isV5
+                ? await readNovelV5ErrorText(response)
+                : await response.text().catch(() => '');
+            throw parseApiError(response.status, errorText, prepared.isV5 ? ErrorType.PROVIDER : ErrorType.UNKNOWN);
+        }
+        if (prepared.isV5) {
+            const decodeMessagePack = await loadMessagePackDecoderForResponse(response, controller);
+            const image = await readNovelV5FinalImage(response, {
+                decode: decodeMessagePack,
+                signal: controller.signal,
+            });
+            console.log(`[NovelDraw] V5 完成 ${Date.now() - startedAt}ms`);
+            return imageBytesToBase64(image);
+        }
+        const responseData = await readImageResponse(response, controller.signal);
+        const base64 = await extractImageFromResponse(responseData, ensureJSZip, controller.signal);
+        console.log(`[NovelDraw] 完成 ${Date.now() - startedAt}ms`);
+        return base64;
+    } catch (error) {
+        if (signal?.aborted) throw new NovelDrawError('已取消', ErrorType.ABORTED);
+        throw handleFetchError(error);
+    } finally {
+        clearTimeout(timeoutId);
+        signal?.removeEventListener('abort', forwardAbort);
+    }
+}
+
+export async function decodeNovelBackendJobResult({ response, kind: transport }) {
+    try {
+        if (transport === 'msgpack-stream') {
+            const decodeMessagePack = await loadMessagePackDecoder();
+            const image = await readNovelV5FinalImage(response, { decode: decodeMessagePack });
+            return imageBytesToBase64(image);
+        }
+        const responseData = await readImageResponse(response);
+        return await extractImageFromResponse(responseData, ensureJSZip);
+    } catch (error) {
+        if (error instanceof NovelV5StreamError && error.code === 'V5_STREAM_READ_FAILED') {
+            throw new ImageBackendJobsError(error.message, { code: error.code, retriable: true, cause: error });
+        }
+        if (error instanceof TypeError || error?.name === 'AbortError') {
+            throw new ImageBackendJobsError('后端图片结果读取中断', {
+                code: 'backend_result_interrupted',
+                retriable: true,
+                cause: error,
+            });
+        }
+        throw error;
+    }
+}
+
+function backendItemError(item) {
+    // alreadyDelivered 的项是成功事实（早先已交付并 ACK 过），必须从画廊恢复而不是报错。
+    if (item.alreadyDelivered === true) return null;
+    if (item.state === 'cancelled') return new NovelDrawError('已取消', ErrorType.ABORTED);
+    if (item.error?.code === 'timeout') return new NovelDrawError('请求超时', ErrorType.TIMEOUT);
+    if (Number.isInteger(item.error?.status)) {
+        return parseApiError(item.error.status, item.error.message || '');
+    }
+    return new NovelDrawError(item.error?.message || '后端生图失败', ErrorType.UNKNOWN);
+}
+
+async function runNovelImageBatch({
+    requests,
+    generationConfig,
+    signal,
+    backendCancelSignal,
+    recoverable,
+    monitorGeneration,
+    queueBatch,
+    onStateChange,
+    onItemReady,
+    onItemSettled,
+}) {
+    if (!Array.isArray(requests) || requests.length === 0) return { mode: 'empty', outcomes: [] };
+    const settings = getRuntimeSettings();
+    const requestConfig = snapshotNovelRequestConfig(settings, generationConfig, DEFAULT_SETTINGS.timeout);
+    const transportMode = recoverable ? resolveNovelImageTransport(requestConfig) : requestConfig.sendMode;
+    if (!requestConfig.apiKey) throw new NovelDrawError('请先配置 API Key', ErrorType.AUTH);
+    if (signal?.aborted) throw new NovelDrawError('已取消', ErrorType.ABORTED);
+    const prepared = await Promise.all(requests.map(request => prepareNovelImageRequest(request, requestConfig)));
+    const outcomes = new Array(prepared.length);
+    const signalOwner = generationJobSignals.get(signal);
+    const effectiveCancelSignal = backendCancelSignal || signalOwner?.backendCancel.signal || signal;
+    const detachScope = transportMode === 'backend-job'
+        ? backendJobMonitors.createScope(
+            effectiveCancelSignal === signal ? null : signal,
+            monitorGeneration ?? backendJobMonitors.captureGeneration(),
+        )
+        : null;
+
+    if (transportMode !== 'frontend') {
+        let backendStatus;
+        try {
+            backendStatus = await checkBackendPluginStatus({ signal });
+        } catch (error) {
+            detachScope?.dispose();
+            if (signal?.aborted || error?.name === 'AbortError') {
+                throw new NovelDrawError('已取消', ErrorType.ABORTED);
+            }
+            throw handleFetchError(error);
+        }
+        if (!backendStatus.ready) {
+            detachScope?.dispose();
+            throw new NovelDrawError('NovelAI 后端插件状态探测失败，请检查插件安装和网络连接', ErrorType.NETWORK);
+        }
+        if (transportMode === 'backend-job') {
+            if (!hasImageBackendJobsCapability(backendStatus)) {
+                detachScope.dispose();
+                throw new NovelDrawError(
+                    '小白盒后台批量任务不可用。请安装并启动当前 littlewhitebox-image-jobs，或关闭此选项后继续使用逐张后端发送。',
+                    ErrorType.NETWORK,
+                );
+            }
+            const backendRequest = {
+                provider: 'novelai',
+                context: {
+                    key: requestConfig.apiKey,
+                    insecure: requestConfig.insecureTLS,
+                },
+                delay: {
+                    min: Number(settings.requestDelay?.min) || DEFAULT_SETTINGS.requestDelay.min,
+                    max: Number(settings.requestDelay?.max) || DEFAULT_SETTINGS.requestDelay.max,
+                },
+                items: prepared.map(item => ({
+                    request: {
+                        transport: item.transport,
+                        url: item.apiUrl,
+                        payload: item.payload,
+                    },
+                    timeout: requestConfig.timeout,
+                })),
+            };
+            const backendHandlers = {
+                // 只有用户亲手取消才允许传导到后端；前端的其它停手理由都不能删掉
+                // 一个已经在跑、已经付过钱的任务。没提供就退回本地信号（画廊等一次性调用）。
+                cancelSignal: effectiveCancelSignal,
+                detachSignal: detachScope.signal,
+                onStateChange: (state, data) => reportImageBackendJobState(onStateChange, state, data),
+                onItemReady: async ({ index, kind, response }) => {
+                    let base64;
+                    try {
+                        base64 = await decodeNovelBackendJobResult({ response, kind });
+                    } catch (error) {
+                        const decodeError = error instanceof Error ? error : new Error(String(error));
+                        decodeError.discardBackendResult = true;
+                        throw decodeError;
+                    }
+                    await onItemReady?.({ index, base64 });
+                    outcomes[index] = { state: 'ready', base64 };
+                },
+                onItemSettled: async (item) => {
+                    // 早先已交付并 ACK 过的项是成功事实，绝不能触发失败 UI；
+                    // 它由恢复流程按记录的 imgId 从画廊还原。
+                    if (item.alreadyDelivered === true) {
+                        outcomes[item.index] = { state: 'consumed' };
+                        return;
+                    }
+                    const error = item.source === 'frontend' ? item.error : backendItemError(item);
+                    outcomes[item.index] = { state: item.state, error };
+                    await onItemSettled?.({ ...item, error });
+                },
+            };
+            let runResult;
+            try {
+                // 提供了恢复计划就走可恢复提交：先落交付日志、再 CAS 持久化占位符、
+                // 复核租约、最后才 POST。缺了这套顺序，刷新回来就再也认不回这批图。
+                runResult = await submitRecoverableImageJob({
+                    client: imageBackendJobsClient,
+                    provider: 'novelai',
+                    request: backendRequest,
+                    plan: recoverable.plan,
+                    commitPlacements: recoverable.commitPlacements,
+                    settlePlacements: recoverable.settlePlacements,
+                    resolveSettlement: recoverable.resolveSettlement,
+                    afterForget: recoverable.afterForget,
+                    ...backendHandlers,
+                });
+            } catch (error) {
+                if (error?.detached === true || error?.code === 'PENDING_JOB_LEASE_LOST') throw error;
+                if (signal?.aborted) throw new NovelDrawError('已取消', ErrorType.ABORTED);
+                if (error instanceof ImageBackendJobsError) {
+                    const normalized = new NovelDrawError(
+                        error.message,
+                        error.status === 429 ? ErrorType.BUSY : ErrorType.NETWORK,
+                    );
+                    normalized.cause = error;
+                    normalized.status = error.status;
+                    normalized.code = error.code;
+                    normalized.detached = error.detached === true;
+                    throw normalized;
+                }
+                throw handleFetchError(error);
+            } finally {
+                detachScope.dispose();
+            }
+            return { mode: 'backend-job', outcomes, job: runResult.job, aborted: runResult.abortRequested };
+        }
+
+        const message = '当前使用逐张后端发送（后台批量任务未开启）';
+        onStateChange?.('backend_legacy', { message });
+    }
+
+    for (let index = 0; index < prepared.length; index++) {
+        if (signal?.aborted) {
+            for (let pending = index; pending < prepared.length; pending++) {
+                const error = new NovelDrawError('已取消', ErrorType.ABORTED);
+                outcomes[pending] = { state: 'cancelled', error };
+                await onItemSettled?.({ index: pending, state: 'cancelled', error, source: 'frontend' });
+            }
+            break;
+        }
+        try {
+            const base64 = await enqueueImageRequest(
+                () => executePreparedNovelRequest(prepared[index], requestConfig, signal),
+                {
+                    signal,
+                    batchKey: queueBatch,
+                    onQueued: data => onStateChange?.('queued', { current: index + 1, total: prepared.length, ...data }),
+                    onStart: () => onStateChange?.('progress', { current: index + 1, total: prepared.length }),
+                    onCooldown: data => {
+                        if (index + 1 >= prepared.length) return;
+                        onStateChange?.('cooldown', {
+                            duration: data.duration,
+                            cooldownUntil: Date.now() + data.duration,
+                            nextIndex: index + 2,
+                            total: prepared.length,
+                        });
+                    },
+                },
+            );
+            await onItemReady?.({ index, base64 });
+            outcomes[index] = { state: 'ready', base64 };
+        } catch (error) {
+            const normalized = signal?.aborted
+                ? new NovelDrawError('已取消', ErrorType.ABORTED)
+                : handleFetchError(error);
+            const state = signal?.aborted ? 'cancelled' : 'failed';
+            outcomes[index] = { state, error: normalized };
+            await onItemSettled?.({ index, state, error: normalized, source: 'frontend' });
+        }
+    }
+    return { mode: requestConfig.sendMode, outcomes, aborted: signal?.aborted === true };
+}
+
+async function generateNovelImage({ scene, characterPrompts, negativePrompt, params, generationConfig, signal, queueBatch, onQueueStateChange }) {
+    let image = null;
+    let failure = null;
+    const monitorGeneration = backendJobMonitors.captureGeneration();
+    await runNovelImageBatch({
+        requests: [{ scene, characterPrompts, negativePrompt, params }],
+        generationConfig,
         signal,
-        batchKey: queueBatch,
-        onQueued: (data) => onQueueStateChange?.('queued', data),
-        onStart: () => onQueueStateChange?.('start'),
-        onCooldown: (data) => onQueueStateChange?.('cooldown', data),
+        monitorGeneration,
+        queueBatch,
+        onStateChange: (state, data) => {
+            if (state === 'progress') onQueueStateChange?.('start', data);
+            else onQueueStateChange?.(state, data);
+        },
+        onItemReady: ({ base64 }) => { image = base64; },
+        onItemSettled: ({ error }) => { failure = error; },
     });
+    if (image) return image;
+    throw failure || new NovelDrawError('NovelAI 未返回图片', ErrorType.UNKNOWN);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -2433,6 +2742,13 @@ async function refreshSingleImage(container) {
     const slotId = container.dataset.slotId;
     const messageId = parseInt(container.dataset.mesid);
     const currentImgId = container.dataset.imgId;
+    const sourceContext = getContext();
+    const galleryMeta = {
+        chatId: String(sourceContext.chatId || sourceContext.characterId || 'unknown'),
+        characterName: getChatCharacterName(),
+    };
+    const sourceMessage = sourceContext.chat?.[messageId];
+    let job = null;
 
     if (!tags || currentState === ImageState.SAVING || currentState === ImageState.REFRESHING || !slotId) return;
 
@@ -2440,6 +2756,7 @@ async function refreshSingleImage(container) {
     setImageState(container, ImageState.REFRESHING);
 
     try {
+        job = createGenerationJob(`slot:${slotId}`);
         const preset = getActiveParamsPreset();
         const settings = getRuntimeSettings();
 
@@ -2448,6 +2765,8 @@ async function refreshSingleImage(container) {
 
         if (currentImgId) {
             const existingPreview = await getPreview(currentImgId);
+            if (existingPreview?.chatId) galleryMeta.chatId = existingPreview.chatId;
+            if (existingPreview?.characterName) galleryMeta.characterName = existingPreview.characterName;
             if (existingPreview?.characterPrompts?.length) {
                 characterPrompts = existingPreview.characterPrompts;
             }
@@ -2457,8 +2776,7 @@ async function refreshSingleImage(container) {
         }
 
         if (!characterPrompts) {
-            const ctx = getContext();
-            const message = ctx.chat?.[messageId];
+            const message = sourceContext.chat?.[messageId];
             const presentCharacters = detectPresentCharacters(String(message?.mes || ''), settings.characterTags || []);
             characterPrompts = presentCharacters.map(c => ({
                 prompt: buildKnownCharacterBasePrompt(c),
@@ -2473,11 +2791,13 @@ async function refreshSingleImage(container) {
             scene,
             characterPrompts,
             negativePrompt,
-            params: preset.params || {}
+            params: preset.params || {},
+            signal: job.controller.signal,
         });
 
         const newImgId = generateImgId();
         await storePreview({
+            ...galleryMeta,
             imgId: newImgId,
             slotId,
             messageId,
@@ -2488,24 +2808,41 @@ async function refreshSingleImage(container) {
             negativePrompt,
         });
         await setSlotSelection(slotId, newImgId);
+        const currentContext = getContext();
+        const stillAttached = currentContext.chatId === sourceContext.chatId
+            && currentContext.chat?.[messageId] === sourceMessage;
+        if (!stillAttached) {
+            showToast('聊天已切换，新图片已保留在画廊中', 'info', 5000);
+            return;
+        }
         await clearNovelDrawSavedEntry(messageId, slotId).catch(() => {});
-
-        container.querySelector('img').src = getPreviewDisplayUrl({ imgId: newImgId, base64 });
-        container.dataset.imgId = newImgId;
-        container.dataset.positive = escapeHtml(scene);
-        container.dataset.currentIndex = '0';
-        setImageState(container, ImageState.PREVIEW);
 
         const previews = await getPreviewsBySlot(slotId);
         const successPreviews = previews.filter(p => p.status !== 'failed' && (p.base64 || p.savedUrl));
-        container.dataset.historyCount = String(successPreviews.length);
-        updateNavControls(container, 0, successPreviews.length);
+        const activeContainer = getMesTextElement(messageId)?.querySelector(buildDrawSlotSelector(slotId));
+        if (activeContainer) {
+            activeContainer.querySelector('img').src = getPreviewDisplayUrl({ imgId: newImgId, base64 });
+            activeContainer.dataset.imgId = newImgId;
+            activeContainer.dataset.positive = escapeHtml(scene);
+            activeContainer.dataset.currentIndex = '0';
+            activeContainer.dataset.historyCount = String(successPreviews.length);
+            setImageState(activeContainer, ImageState.PREVIEW);
+            updateNavControls(activeContainer, 0, successPreviews.length);
+        }
 
         showToast(`图片已刷新（共 ${successPreviews.length} 个版本）`);
     } catch (e) {
         console.error('[NovelDraw] 刷新失败:', e);
-        alert('刷新失败: ' + e.message);
-        setImageState(container, ImageState.PREVIEW);
+        const currentContext = getContext();
+        const stillAttached = currentContext.chatId === sourceContext.chatId
+            && currentContext.chat?.[messageId] === sourceMessage;
+        if (stillAttached) {
+            alert('刷新失败: ' + e.message);
+            const activeContainer = getMesTextElement(messageId)?.querySelector(buildDrawSlotSelector(slotId));
+            if (activeContainer) setImageState(activeContainer, ImageState.PREVIEW);
+        }
+    } finally {
+        releaseGenerationJob(job);
     }
 }
 
@@ -2591,6 +2928,13 @@ async function retryFailedImage(container) {
     const messageId = parseInt(container.dataset.mesid);
     const tags = container.dataset.tags;
     let latestFailed = null;
+    const sourceContext = getContext();
+    const sourceMessage = sourceContext.chat?.[messageId];
+    const galleryMeta = {
+        chatId: String(sourceContext.chatId || sourceContext.characterId || 'unknown'),
+        characterName: getChatCharacterName(),
+    };
+    let job = null;
     if (!slotId) return;
 
     // Template-only UI markup.
@@ -2598,6 +2942,7 @@ async function retryFailedImage(container) {
     container.innerHTML = `<div style="padding:30px;text-align:center;color:rgba(255,255,255,0.6);"><div style="font-size:24px;margin-bottom:8px;">🎨</div><div>生成中...</div></div>`;
 
     try {
+        job = createGenerationJob(`slot:${slotId}`);
         const preset = getActiveParamsPreset();
         const settings = getRuntimeSettings();
         const scene = tags ? joinTags(preset.positivePrefix, tags) : preset.positivePrefix;
@@ -2606,13 +2951,14 @@ async function retryFailedImage(container) {
         let characterPrompts = null;
         const failedPreviews = await getPreviewsBySlot(slotId);
         latestFailed = failedPreviews.find(p => p.status === 'failed');
+        if (latestFailed?.chatId) galleryMeta.chatId = latestFailed.chatId;
+        if (latestFailed?.characterName) galleryMeta.characterName = latestFailed.characterName;
         if (latestFailed?.characterPrompts?.length) {
             characterPrompts = latestFailed.characterPrompts;
         }
 
         if (!characterPrompts) {
-            const ctx = getContext();
-            const message = ctx.chat?.[messageId];
+            const message = sourceContext.chat?.[messageId];
             const presentCharacters = detectPresentCharacters(String(message?.mes || ''), settings.characterTags || []);
             characterPrompts = presentCharacters.map(c => ({
                 prompt: buildKnownCharacterBasePrompt(c),
@@ -2625,11 +2971,13 @@ async function retryFailedImage(container) {
             scene,
             characterPrompts,
             negativePrompt,
-            params: preset.params || {}
+            params: preset.params || {},
+            signal: job.controller.signal,
         });
 
         const newImgId = generateImgId();
         await storePreview({
+            ...galleryMeta,
             imgId: newImgId,
             slotId,
             messageId,
@@ -2642,6 +2990,14 @@ async function retryFailedImage(container) {
         await deleteFailedRecordsForSlot(slotId);
         await setSlotSelection(slotId, newImgId);
 
+        const currentContext = getContext();
+        const stillAttached = currentContext.chatId === sourceContext.chatId
+            && currentContext.chat?.[messageId] === sourceMessage;
+        if (!stillAttached) {
+            showToast('聊天已切换，新图片已保留在画廊中', 'info', 5000);
+            return;
+        }
+
         const imgHtml = buildImageHtml({
             slotId,
             imgId: newImgId,
@@ -2653,14 +3009,16 @@ async function retryFailedImage(container) {
             historyCount: 1,
             currentIndex: 0
         });
+        const activeContainer = getMesTextElement(messageId)?.querySelector(buildDrawSlotSelector(slotId));
         // Template-only UI markup built locally.
         // eslint-disable-next-line no-unsanitized/property
-        container.outerHTML = imgHtml;
+        if (activeContainer) activeContainer.outerHTML = imgHtml;
         showToast('图片生成成功！');
     } catch (e) {
         console.error('[NovelDraw] 重试失败:', e);
         const errorType = classifyError(e);
         await storeFailedPlaceholder({
+            ...galleryMeta,
             slotId,
             messageId,
             tags: tags || '',
@@ -2668,9 +3026,14 @@ async function retryFailedImage(container) {
             errorType: errorType.code,
             errorMessage: errorType.desc
         });
+        const currentContext = getContext();
+        const stillAttached = currentContext.chatId === sourceContext.chatId
+            && currentContext.chat?.[messageId] === sourceMessage;
+        if (!stillAttached) return;
+        const activeContainer = getMesTextElement(messageId)?.querySelector(buildDrawSlotSelector(slotId));
         // Template-only UI markup built locally.
         // eslint-disable-next-line no-unsanitized/property
-        container.outerHTML = buildFailedPlaceholderHtml({
+        if (activeContainer) activeContainer.outerHTML = buildFailedPlaceholderHtml({
             slotId,
             messageId,
             tags: tags || '',
@@ -2679,6 +3042,8 @@ async function retryFailedImage(container) {
             errorMessage: errorType.desc
         });
         showToast(`重试失败: ${errorType.desc}`, 'error');
+    } finally {
+        releaseGenerationJob(job);
     }
 }
 
@@ -2703,7 +3068,7 @@ async function removePlaceholder(container) {
     await clearNovelDrawSavedEntry(messageId, slotId);
     const ctx = getContext();
     const message = ctx.chat?.[messageId];
-    if (message) message.mes = message.mes.replace(createPlaceholder(slotId), '');
+    if (message) message.mes = removeSceneSlotPlaceholders(message.mes, [slotId]);
     container.remove();
     await persistChatSilently();
     showToast('占位符已移除');
@@ -2768,7 +3133,11 @@ function buildTextSourceGalleryMeta(options = {}) {
                 : `tavern:${messageOrder ?? role}`,
         };
     }
-    return {};
+    const context = getContext();
+    return {
+        chatId: String(options.chatId || context.chatId || context.characterId || 'unknown'),
+        characterName: String(options.characterName || getChatCharacterName()),
+    };
 }
 
 async function maybeAutoLearnFromTasks(tasks = [], settings = {}) {
@@ -2840,11 +3209,19 @@ async function buildTextSourceTasks({ sceneSource, presentCharacters, settings, 
 }
 
 async function generateImagesFromText(options = {}) {
+    const monitorGeneration = backendJobMonitors.captureGeneration();
     const text = String(options.text || '');
     if (!text.trim()) throw new NovelDrawError('正文内容为空，无法配图', ErrorType.PARSE);
     const galleryMeta = buildTextSourceGalleryMeta(options);
     const messageId = String(options.messageId || galleryMeta.messageId || `text:${Date.now()}`);
     const job = createGenerationJob(messageId);
+    const forwardExternalAbort = () => {
+        job.abortReason ||= 'user';
+        job.backendCancel.abort();
+        job.controller.abort();
+    };
+    options.signal?.addEventListener('abort', forwardExternalAbort, { once: true });
+    if (options.signal?.aborted) forwardExternalAbort();
 
     try {
         await loadSettings();
@@ -2852,7 +3229,7 @@ async function generateImagesFromText(options = {}) {
         ensureStyles();
         await openDB();
 
-        const signal = options.signal || job.controller.signal;
+        const signal = job.controller.signal;
         const settings = getRuntimeSettings();
         const preset = getActiveParamsPreset();
         if (!preset) throw new NovelDrawError('无可用的 NovelAI 参数预设', ErrorType.PARSE);
@@ -2887,111 +3264,108 @@ async function generateImagesFromText(options = {}) {
         if (signal.aborted) throw new NovelDrawError('已取消', ErrorType.ABORTED);
         await maybeAutoLearnFromTasks(tasks, settings);
 
-        const images = [];
+        const images = new Array(tasks.length);
         let successCount = 0;
         options.onStateChange?.('gen', { current: 0, total: tasks.length });
 
-        for (let i = 0; i < tasks.length; i++) {
-            if (signal.aborted) break;
-            const task = tasks[i];
-            const slotId = generateSlotId();
+        const batchItems = tasks.map(task => {
             const scene = joinTags(preset.positivePrefix, task.scene);
             const characterPrompts = assembleCharacterPrompts(task.chars || [], settings.characterTags || []);
-            const tagsForStore = task.scene || '';
-            const negativePrompt = preset.negativePrefix || '';
-
-            try {
-                const base64 = await generateNovelImage({
+            return {
+                task,
+                slotId: generateSlotId(),
+                scene,
+                characterPrompts,
+                tagsForStore: task.scene || '',
+                negativePrompt: preset.negativePrefix || '',
+                request: {
                     scene,
                     characterPrompts,
-                    negativePrompt,
+                    negativePrompt: preset.negativePrefix || '',
                     params: preset.params || {},
-                    signal,
-                    queueBatch: job,
-                    onQueueStateChange: (queueState, queueData) => {
-                        if (queueState === 'queued') {
-                            options.onStateChange?.('queued', { current: i + 1, total: tasks.length, ...queueData });
-                        }
-                        if (queueState === 'start') {
-                            options.onStateChange?.('progress', { current: i + 1, total: tasks.length });
-                        }
-                        if (queueState === 'cooldown' && i < tasks.length - 1) {
-                            options.onStateChange?.('cooldown', {
-                                duration: queueData.duration,
-                                nextIndex: i + 2,
-                                total: tasks.length,
-                            });
-                        }
-                    },
-                });
+                },
+            };
+        });
+        const batchResult = await runNovelImageBatch({
+            requests: batchItems.map(item => item.request),
+            signal,
+            monitorGeneration,
+            queueBatch: job,
+            onStateChange: options.onStateChange,
+            onItemReady: async ({ index, base64 }) => {
+                const item = batchItems[index];
                 const imgId = generateImgId();
                 await storePreview({
                     ...galleryMeta,
                     imgId,
-                    slotId,
+                    slotId: item.slotId,
                     messageId,
                     base64,
-                    tags: tagsForStore,
-                    positive: scene,
-                    characterPrompts,
-                    negativePrompt,
+                    tags: item.tagsForStore,
+                    positive: item.scene,
+                    characterPrompts: item.characterPrompts,
+                    negativePrompt: item.negativePrompt,
                 });
-                await setSlotSelection(slotId, imgId);
+                await setSlotSelection(item.slotId, imgId);
                 successCount++;
-                images.push({
-                    slotId,
+                images[index] = {
+                    slotId: item.slotId,
                     imgId,
-                    placement: task.placement,
-                    tags: tagsForStore,
-                    positive: scene,
-                    negativePrompt,
+                    placement: item.task.placement,
+                    tags: item.tagsForStore,
+                    positive: item.scene,
+                    negativePrompt: item.negativePrompt,
                     displayUrl: getPreviewDisplayUrl({ imgId, base64 }),
                     success: true,
-                });
-            } catch (e) {
-                if (signal.aborted) break;
-                console.error(`[NovelDraw] 文本配图 ${i + 1} 失败:`, e);
-                const errorType = classifyError(e);
+                };
+            },
+            onItemSettled: async ({ index, state, error }) => {
+                if (state === 'cancelled') return;
+                const item = batchItems[index];
+                console.error(`[NovelDraw] 文本配图 ${index + 1} 失败:`, error);
+                const errorType = classifyError(error);
                 await storeFailedPlaceholder({
                     ...galleryMeta,
-                    slotId,
+                    slotId: item.slotId,
                     messageId,
-                    tags: tagsForStore,
-                    positive: scene,
+                    tags: item.tagsForStore,
+                    positive: item.scene,
                     errorType: errorType.code,
                     errorMessage: errorType.desc,
-                    characterPrompts,
-                    negativePrompt,
+                    characterPrompts: item.characterPrompts,
+                    negativePrompt: item.negativePrompt,
                 });
-                images.push({
-                    slotId,
-                    placement: task.placement,
-                    tags: tagsForStore,
-                    positive: scene,
-                    negativePrompt,
+                images[index] = {
+                    slotId: item.slotId,
+                    placement: item.task.placement,
+                    tags: item.tagsForStore,
+                    positive: item.scene,
+                    negativePrompt: item.negativePrompt,
                     success: false,
                     error: errorType,
-                });
-            }
-            if (signal.aborted) break;
-        }
+                };
+            },
+        });
 
-        options.onStateChange?.('success', { success: successCount, total: tasks.length, aborted: signal.aborted });
+        const aborted = signal.aborted || batchResult.aborted === true;
+        options.onStateChange?.('success', { success: successCount, total: tasks.length, aborted });
         return {
             ok: true,
             source: options.source || 'text',
             success: successCount,
             total: tasks.length,
-            images,
+            images: images.filter(Boolean),
             sourceHash: sceneSource.sourceHash,
-            aborted: signal.aborted,
+            aborted,
         };
     } finally {
+        options.signal?.removeEventListener('abort', forwardExternalAbort);
         releaseGenerationJob(job);
     }
 }
 
 async function generateAndInsertImages({ messageId, onStateChange, skipLock = false }) {
+    const monitorGeneration = backendJobMonitors.captureGeneration();
     if (skipLock) {
         // 兼容旧调用：当前改为 message 级去重 + 图片请求队列，不再使用全局生成锁
     }
@@ -3071,16 +3445,21 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
         await maybeAutoLearnFromTasks(tasks, settings);
 
         const initialChatId = ctx.chatId;
+        const galleryMeta = {
+            chatId: String(ctx.chatId || ctx.characterId || 'unknown'),
+            characterName: getChatCharacterName(),
+        };
         if (isMessageBeingEdited(messageId)) {
             throw new ScenePlacementError('该楼层正在编辑，请保存或取消编辑后再配图。', 'SCENE_MESSAGE_EDITING');
         }
         const originalMes = message.mes;
+        const replacedSlotIds = getSceneSlotIds(originalMes);
         const slotIds = tasks.map(() => generateSlotId());
-        const results = [];
+        const results = new Array(tasks.length);
         let successCount = 0;
         const strippedNow = String(message.mes || '').replace(PLACEHOLDER_REGEX, '');
         assertSceneSourceUnchanged(strippedNow, sceneSource.sourceHash);
-        const plannedMes = insertScenePlacements(strippedNow, tasks.map((task, index) => ({
+        const plannedMes = insertScenePlacementsPreservingSlots(originalMes, tasks.map((task, index) => ({
             placement: task.placement,
             content: createPlaceholder(slotIds[index]),
         })), { block: true });
@@ -3095,8 +3474,14 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
             plannedMes,
             syncRenderedMessage: null,
             settled: false,
+            // 占位符是否已经提前持久化进正文。只有后台链路会置位：它必须在 POST 之前
+            // 把槽位落盘，否则刷新回来图有了却无处安放。本地链路一直到最后才写正文。
+            committedEarly: false,
         };
 
+        // 前端停手 ≠ 取消后端任务。job.controller 一旦 abort，本地循环、DOM 更新全部停下；
+        // 但只有用户亲手取消才允许把取消传导到后端，因为那一步会连带删掉已经生成好的结果。
+        // 聊天切换、正文变化、扩展卸载都只是「这个页面不再照看它了」，任务要继续跑。
         const { messageFormatting } = await import('../../../../../../../../script.js');
         const syncRenderedMessage = async (sourceText = plannedMes) => {
             if (isMessageBeingEdited(messageId)) return;
@@ -3104,7 +3489,7 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
             $(`[mesid="${messageId}"] .mes_text`).html(formatted);
         };
         const renderPendingSlots = () => {
-            const settledSlotIds = new Set(results.map((item) => item.slotId));
+            const settledSlotIds = new Set(results.filter(Boolean).map((item) => item.slotId));
             slotIds.forEach((slotId, index) => {
                 if (settledSlotIds.has(slotId)) return;
                 insertPreviewIntoRenderedMessage({
@@ -3135,176 +3520,375 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
 
         let requiresFinalDomSync = false;
         let terminationReason = '';
-
-        for (let i = 0; i < tasks.length; i++) {
-            if (signal.aborted) {
-                console.log('[NovelDraw] 用户中止，停止生成');
-                terminationReason = 'aborted';
-                break;
+        const checkPlacementContext = () => {
+            if (terminationReason) return false;
+            if (!moduleInitialized) {
+                terminationReason = 'detached';
+                job.controller.abort();
+                return false;
             }
-
             const currentCtx = getContext();
             if (currentCtx.chatId !== initialChatId) {
                 console.warn('[NovelDraw] 聊天已切换，中止生成');
                 terminationReason = 'detached';
-                break;
+                job.controller.abort();
+                return false;
             }
             const currentMsg = currentCtx.chat?.[messageId];
-            if (!currentMsg || currentMsg !== message) {
+            if (!placementLifecycle.committedEarly && (!currentMsg || currentMsg !== message)) {
                 console.warn('[NovelDraw] 消息已删除或被替换，中止生成');
                 terminationReason = 'detached';
-                break;
+                job.controller.abort();
+                return false;
             }
-            if (message.mes !== originalMes || isMessageBeingEdited(messageId)) {
-                console.warn('[NovelDraw] 正文已变化或正在编辑，中止生成');
+            // 正文变化在两条链路上的后果完全不同，所以判断也必须不同。
+            //
+            // 本地链路的占位符还没落盘，最终要拿 originalMes 当基准一次性写进去，正文一变
+            // 这个基准就失效了，只能停手。
+            //
+            // 后台链路的占位符早已落盘：正文里那些槽位是真实存在的，图回来就有地方放。
+            // 此时用户改正文只说明「分析结果和新正文对不上」，不代表他不要这些图；为此
+            // 中止一批已经付过钱的任务是在替他做主。每张图交付前会单独确认自己的槽位还在，
+            // 用户删掉的槽位自然不会被交付，这比整批停手精确得多。
+            if (isMessageBeingEdited(messageId)) {
+                if (!placementLifecycle.committedEarly) {
+                    console.warn('[NovelDraw] 楼层正在编辑，中止生成');
+                    terminationReason = 'source_changed';
+                    job.controller.abort();
+                }
+                return false;
+            }
+            if (!placementLifecycle.committedEarly && message.mes !== originalMes) {
+                console.warn('[NovelDraw] 正文已变化，中止生成');
                 terminationReason = 'source_changed';
-                break;
+                job.controller.abort();
+                return false;
             }
-
-            const task = tasks[i];
-            const slotId = slotIds[i];
-
+            return true;
+        };
+        const renderSettledSlot = async (slotId, createHtml) => {
+            if (!checkPlacementContext()) return;
+            const target = placementLifecycle.committedEarly
+                ? resolveDeliveryTarget(slotId)
+                : { messageId, isActiveSwipe: true };
+            if (!target?.isActiveSwipe) return;
+            const html = typeof createHtml === 'function' ? createHtml(target.messageId) : createHtml;
+            try {
+                const inserted = insertPreviewIntoRenderedMessage({ messageId: target.messageId, slotId, html });
+                if (!inserted) {
+                    requiresFinalDomSync = true;
+                    if (!placementLifecycle.committedEarly) await recoverRenderedSlots();
+                }
+            } catch (error) {
+                requiresFinalDomSync = true;
+                console.warn('[NovelDraw] 增量渲染失败, 继续生成:', error);
+            }
+        };
+        const batchItems = tasks.map((task, index) => {
             const scene = joinTags(preset.positivePrefix, task.scene);
             const characterPrompts = assembleCharacterPrompts(task.chars, settings.characterTags || []);
-            const tagsForStore = task.scene;
-            let incrementalHtml = '';
-
-            try {
-                const base64 = await generateNovelImage({
+            return {
+                task,
+                slotId: slotIds[index],
+                // imgId 必须在提交之前就分配好：接回时按同一个 imgId 落库，重复交付天然幂等，
+                // 不会因为「已经落过一次」而在画廊里留下两张同样的图。
+                imgId: generateImgId(),
+                scene,
+                characterPrompts,
+                tagsForStore: task.scene,
+                negativePrompt: preset.negativePrefix || '',
+                request: {
                     scene,
                     characterPrompts,
                     negativePrompt: preset.negativePrefix || '',
                     params: preset.params || {},
-                    signal,
-                    queueBatch: job,
-                    onQueueStateChange: (queueState, queueData) => {
-                        if (queueState === 'queued') {
-                            onStateChange?.('queued', { current: i + 1, total: tasks.length, ...queueData });
-                        }
-                        if (queueState === 'start') {
-                            onStateChange?.('progress', { current: i + 1, total: tasks.length });
-                        }
-                        if (queueState === 'cooldown' && i < tasks.length - 1) {
-                            onStateChange?.('cooldown', {
-                                duration: queueData.duration,
-                                nextIndex: i + 2,
-                                total: tasks.length,
-                            });
-                        }
-                    }
-                });
-                const imgId = generateImgId();
-                await storePreview({
-                    imgId,
+                },
+            };
+        });
+
+        // 后台链路的恢复记录：只记「槽位事实」，不记密钥、不记排版。
+        // 排版是当前正文的属性，刷新后必须重新观察，把它冻在记录里只会覆盖用户后来的编辑。
+        const recoverablePlan = {
+            chatId: String(initialChatId || ''),
+            messageId: String(messageId),
+            replacedSlotIds,
+            gallery: galleryMeta,
+            items: batchItems.map((item, index) => ({
+                index,
+                slotId: item.slotId,
+                imgId: item.imgId,
+                previewMetadata: {
+                    tags: item.tagsForStore,
+                    positive: item.scene,
+                    characterPrompts: item.characterPrompts,
+                    negativePrompt: item.negativePrompt,
+                },
+            })),
+        };
+
+        // 后台链路提交前的唯一一次正文写入。
+        //
+        // 读取、比对、赋值三步之间不得出现 await：一旦中间让出执行权，用户的编辑就会插在
+        // 「比对通过」和「写入」之间，被我们连带覆盖掉。所以严格 CAS 必须发生在真正持久化
+        // 的这一刻，而不是写之前某个更早的检查点。
+        const commitPlannedPlacements = async () => {
+            const committed = await commitRecoverableScenePlacements({
+                getCurrentChatId: () => getContext().chatId,
+                getCurrentMessage: id => getContext().chat?.[id],
+                expectedChatId: initialChatId,
+                messageId,
+                message,
+                originalText: originalMes,
+                plannedText: plannedMes,
+                slotIds,
+                isEditing: isMessageBeingEdited,
+                persist: persistChatSilently,
+                syncAfterRollback: async (sourceText) => {
+                    await syncRenderedMessage(sourceText);
+                    await renderSharedPreviewsForMessage(messageId);
+                },
+            });
+            if (committed) placementLifecycle.committedEarly = true;
+            return committed;
+        };
+
+        const resolveDeliveryTarget = (slotId) => {
+            const currentCtx = getContext();
+            return requireImageJobDeliveryTarget({
+                currentChatId: currentCtx.chatId,
+                targetChatId: initialChatId,
+                chat: currentCtx.chat,
+                slotId,
+            });
+        };
+        const renderBatchPreviews = async ({ final = false } = {}) => {
+            const currentCtx = getContext();
+            if (String(currentCtx.chatId || '') !== String(initialChatId || '')) return;
+            const messageIds = new Set();
+            for (const slotId of slotIds) {
+                const target = classifyImageJobDeliveryTarget({
+                    currentChatId: currentCtx.chatId,
+                    targetChatId: initialChatId,
+                    chat: currentCtx.chat,
                     slotId,
-                    messageId,
-                    base64,
-                    tags: tagsForStore,
-                    positive: scene,
-                    characterPrompts,
-                    negativePrompt: preset.negativePrefix,
                 });
-                await setSlotSelection(slotId, imgId);
-                results.push({ slotId, imgId, tags: tagsForStore, success: true });
-                incrementalHtml = buildImageHtml({
-                    slotId,
+                if (target.state === ImageJobDeliveryTargetState.ALIVE && target.isActiveSwipe) {
+                    messageIds.add(target.messageId);
+                }
+            }
+            if (messageIds.size === 0) {
+                const currentMessageId = currentCtx.chat?.indexOf(message) ?? -1;
+                if (currentMessageId >= 0) messageIds.add(currentMessageId);
+            }
+            await Promise.all([...messageIds].map(currentMessageId => renderSharedPreviewsForMessage(
+                currentMessageId,
+                final ? { refreshSlotIds: [...new Set([...slotIds, ...replacedSlotIds])] } : undefined,
+            )));
+        };
+        const renderRemovedTargets = async (targets, removedSlotIds) => {
+            const messageIds = new Set((Array.isArray(targets) ? targets : [])
+                .filter(target => target?.isActiveSwipe)
+                .map(target => target.messageId));
+            await Promise.all([...messageIds].map(targetMessageId => renderSharedPreviewsForMessage(
+                targetMessageId,
+                { refreshSlotIds: removedSlotIds },
+            )));
+        };
+
+        const recordSlotFailure = async (index, error, guard = async () => {}) => {
+            const item = batchItems[index];
+            if (!item || results[index]) return null;
+            console.error(`[NovelDraw] 图${index + 1} 失败:`, error?.message || error);
+            const errorType = classifyError(error);
+            const failedImgId = `failed-${item.imgId}`;
+            const committed = await commitSceneSlotDelivery({
+                committedEarly: placementLifecycle.committedEarly,
+                resolveTarget: () => resolveDeliveryTarget(item.slotId),
+                guard,
+                persist: target => storeFailedPlaceholder({
+                    ...galleryMeta,
+                    imgId: failedImgId,
+                    slotId: item.slotId,
+                    messageId: target?.messageId ?? messageId,
+                    tags: item.tagsForStore,
+                    positive: item.scene,
+                    errorType: errorType.code,
+                    errorMessage: errorType.desc,
+                    characterPrompts: item.characterPrompts,
+                    negativePrompt: item.negativePrompt,
+                }),
+                rollbackPersisted: () => deletePreview(failedImgId),
+                select: () => setSlotSelection(item.slotId, failedImgId),
+                rollbackSelection: () => clearSlotSelection(item.slotId),
+            });
+            if (!committed) return null;
+            results[index] = { slotId: item.slotId, tags: item.tagsForStore, success: false, error: errorType };
+            return errorType;
+        };
+
+        // 后台链路的结算。只有一种情况允许删除槽位：用户亲手取消。
+        //
+        // 失败的槽位要留下可重试的失败卡，还在后台跑的槽位要留着等接回。把它们一起删掉
+        // 才是最糟的选择——用户既看不到失败原因，也再也接不回那些已经付过钱的图。
+        const settleBackendPlacements = async ({ error, guard = async () => {} } = {}) => {
+            const unfinished = slotIds.filter((slotId, index) => !results[index]);
+            if (job.abortReason === 'user') {
+                let removedTargets = [];
+                if (unfinished.length > 0) {
+                    removedTargets = await commitImageJobDeliverySlotRemoval({
+                        slotIds: unfinished,
+                        resolveTarget: resolveDeliveryTarget,
+                        isEditing: isMessageBeingEdited,
+                        isAnyEditing: isAnyMessageBeingEdited,
+                        guard,
+                        persist: persistChatSilently,
+                    });
+                }
+                await renderRemovedTargets(removedTargets, unfinished).catch(() => {});
+                await renderBatchPreviews().catch(() => {});
+                return;
+            }
+
+            if (error) {
+                // 整批失败（比如后端连接断了）：单项 settled 通知根本没来过，
+                // 这里补齐每个槽位的失败记录，槽位一律保留。
+                for (const index of slotIds.keys()) {
+                    if (results[index]) continue;
+                    const errorType = await recordSlotFailure(index, error, guard);
+                    if (!errorType) continue;
+                    const item = batchItems[index];
+                    await renderSettledSlot(item.slotId, targetMessageId => buildFailedPlaceholderHtml({
+                        slotId: item.slotId,
+                        messageId: targetMessageId,
+                        tags: item.tagsForStore,
+                        positive: item.scene,
+                        errorType: errorType.label,
+                        errorMessage: errorType.desc,
+                    }));
+                }
+            }
+            if (replacedSlotIds.length > 0) {
+                const removedTargets = await commitImageJobDeliverySlotRemoval({
+                    slotIds: replacedSlotIds,
+                    resolveTarget: resolveDeliveryTarget,
+                    isEditing: isMessageBeingEdited,
+                    isAnyEditing: isAnyMessageBeingEdited,
+                    guard,
+                    persist: persistChatSilently,
+                });
+                await renderRemovedTargets(removedTargets, replacedSlotIds).catch(() => {});
+            }
+        };
+        const resolveBackendSettlement = ({ error } = {}) => {
+            if (job.abortReason === 'user') return { mode: 'discard' };
+            if (!error) return { mode: 'complete' };
+            const errorType = classifyError(error);
+            return { mode: 'fail', errorType };
+        };
+
+        const batchResult = await runNovelImageBatch({
+            requests: batchItems.map(item => item.request),
+            signal,
+            backendCancelSignal: job.backendCancel.signal,
+            monitorGeneration,
+            recoverable: {
+                plan: recoverablePlan,
+                commitPlacements: commitPlannedPlacements,
+                settlePlacements: settleBackendPlacements,
+                resolveSettlement: resolveBackendSettlement,
+                afterForget: () => renderBatchPreviews({ final: true }),
+            },
+            queueBatch: job,
+            onStateChange: (state, data) => {
+                checkPlacementContext();
+                onStateChange?.(state, data);
+            },
+            onItemReady: async ({ index, base64, guard = async () => {} }) => {
+                const item = batchItems[index];
+                const imgId = item.imgId;
+                // 落库与选中先做完，再谈渲染：这两步是这张图唯一的持久事实，
+                // 而后端只有在它们都落定之后才会收到 ACK 并丢掉结果。
+                const committed = await commitSceneSlotDelivery({
+                    committedEarly: placementLifecycle.committedEarly,
+                    resolveTarget: () => resolveDeliveryTarget(item.slotId),
+                    guard,
+                    persist: target => storePreview({
+                        ...galleryMeta,
+                        imgId,
+                        slotId: item.slotId,
+                        messageId: target?.messageId ?? messageId,
+                        base64,
+                        tags: item.tagsForStore,
+                        positive: item.scene,
+                        characterPrompts: item.characterPrompts,
+                        negativePrompt: item.negativePrompt,
+                    }),
+                    rollbackPersisted: () => deletePreview(imgId),
+                    select: () => setSlotSelection(item.slotId, imgId),
+                    rollbackSelection: () => clearSlotSelection(item.slotId),
+                });
+                if (!committed) return;
+                results[index] = { slotId: item.slotId, imgId, tags: item.tagsForStore, success: true };
+                successCount++;
+                await renderSettledSlot(item.slotId, targetMessageId => buildImageHtml({
+                    slotId: item.slotId,
                     imgId,
                     url: getPreviewDisplayUrl({ imgId, base64 }),
-                    tags: tagsForStore,
-                    positive: scene,
-                    messageId,
+                    tags: item.tagsForStore,
+                    positive: item.scene,
+                    messageId: targetMessageId,
                     state: ImageState.PREVIEW,
                     historyCount: 1,
                     currentIndex: 0,
-                });
-                successCount++;
-            } catch (e) {
-                if (signal.aborted) {
-                    console.log('[NovelDraw] 图片生成被中止');
-                    break;
-                }
-                console.error(`[NovelDraw] 图${i + 1} 失败:`, e.message);
-                const errorType = classifyError(e);
-                await storeFailedPlaceholder({
-                    slotId,
-                    messageId,
-                    tags: tagsForStore,
-                    positive: scene,
-                    errorType: errorType.code,
-                    errorMessage: errorType.desc,
-                    characterPrompts,
-                    negativePrompt: preset.negativePrefix,
-                });
-                results.push({ slotId, tags: tagsForStore, success: false, error: errorType });
-                incrementalHtml = buildFailedPlaceholderHtml({
-                    slotId,
-                    messageId,
-                    tags: tagsForStore,
-                    positive: scene,
+                }));
+            },
+            onItemSettled: async ({ index, state, error, guard = async () => {} }) => {
+                if (state === 'cancelled') return;
+                // 失败记录是持久事实，不能被渲染守卫挡掉：聊天切走了、楼层正在编辑，
+                // 都不改变「这张图失败了」，用户回来时必须看到失败卡而不是一个空占位符。
+                const errorType = await recordSlotFailure(index, error, guard);
+                if (!errorType) return;
+                const item = batchItems[index];
+                await renderSettledSlot(item.slotId, targetMessageId => buildFailedPlaceholderHtml({
+                    slotId: item.slotId,
+                    messageId: targetMessageId,
+                    tags: item.tagsForStore,
+                    positive: item.scene,
                     errorType: errorType.label,
-                    errorMessage: errorType.desc
-                });
-            }
-
-            if (signal.aborted) break;
-
-            const renderCtx = getContext();
-            const msgCheck = renderCtx.chat?.[messageId];
-            if (renderCtx.chatId !== initialChatId || !msgCheck || msgCheck !== message) {
-                console.warn('[NovelDraw] 消息已删除或被替换（swipe/重新生成），停止生图');
-                terminationReason = 'detached';
-                break;
-            }
-            if (message.mes !== originalMes || isMessageBeingEdited(messageId)) {
-                terminationReason = 'source_changed';
-                break;
-            }
-
-            // ── 增量渲染：占位符已在规划后批量写入正文，这里只把 DOM 里的标记换成图片 ──
-            try {
-                const incCtx = getContext();
-                const incMsg = incCtx.chat?.[messageId];
-                if (incCtx.chatId === initialChatId && incMsg === message && !isMessageBeingEdited(messageId)) {
-                    const inserted = insertPreviewIntoRenderedMessage({
-                        messageId,
-                        slotId,
-                        html: incrementalHtml,
-                    });
-
-                    if (!inserted) {
-                        requiresFinalDomSync = true;
-                        await recoverRenderedSlots();
-                    }
-                }
-            } catch (e) {
-                requiresFinalDomSync = true;
-                console.warn('[NovelDraw] 增量渲染失败, 继续生成:', e);
-            }
+                    errorMessage: errorType.desc,
+                }));
+            },
+        });
+        if (batchResult.aborted && !terminationReason) {
+            terminationReason = job.abortReason === 'user' ? 'aborted' : 'detached';
         }
 
         if (signal.aborted || terminationReason) {
             const abortCtx = getContext();
             const abortMsgValid = abortCtx.chatId === initialChatId && abortCtx.chat?.[messageId] === message;
-            const canCommit = abortMsgValid
+            const canCommit = !placementLifecycle.committedEarly
+                && abortMsgValid
                 && message.mes === originalMes
                 && !isMessageBeingEdited(messageId);
+            const canSync = abortMsgValid
+                && !isMessageBeingEdited(messageId)
+                && (placementLifecycle.committedEarly || canCommit);
             if (canCommit) {
-                message.mes = settleSceneSlotPlaceholders({
-                    currentText: plannedMes,
-                    originalText: originalMes,
+                setActiveMessageText(message, commitSettledScenePlacements(plannedMes, {
                     allSlotIds: slotIds,
-                    completedSlotIds: results.map(item => item.slotId),
-                    successCount,
-                });
+                    settledSlotIds: results.filter(Boolean).map(item => item.slotId),
+                }));
             }
 
-            if (canCommit) {
+            if (canSync) {
                 try {
                     await syncRenderedMessage(message.mes);
                     await renderSharedPreviewsForMessage(messageId);
                 } catch (e) {
                     console.warn('[NovelDraw] abort DOM 同步失败:', e);
                 }
+            }
+            if (canCommit) {
                 persistChatSilently().catch(() => {});
             }
 
@@ -3315,16 +3899,22 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
                     'SCENE_SOURCE_CHANGED',
                 );
             }
-            const aborted = signal.aborted || terminationReason === 'aborted';
+            const aborted = terminationReason === 'aborted' || (signal.aborted && !terminationReason);
             if (!aborted) notifyDetachedGeneration(successCount);
             onStateChange?.('success', { success: successCount, total: tasks.length, aborted, detached: !aborted });
             return {
                 success: successCount,
                 total: tasks.length,
-                results,
+                results: results.filter(Boolean),
                 aborted,
                 terminationReason: aborted ? 'aborted' : 'detached',
             };
+        }
+
+        if (placementLifecycle.committedEarly) {
+            placementLifecycle.settled = true;
+            onStateChange?.('success', { success: successCount, total: tasks.length });
+            return { success: successCount, total: tasks.length, results: results.filter(Boolean) };
         }
 
         const finalCtx = getContext();
@@ -3333,17 +3923,31 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
             placementLifecycle.settled = true;
             notifyDetachedGeneration(successCount);
             onStateChange?.('success', { success: successCount, total: tasks.length, detached: true });
-            return { success: successCount, total: tasks.length, results, aborted: false, terminationReason: 'detached' };
+            return { success: successCount, total: tasks.length, results: results.filter(Boolean), aborted: false, terminationReason: 'detached' };
         }
-        const shouldUpdateDom = message.mes === originalMes && !isMessageBeingEdited(messageId);
-        if (!shouldUpdateDom) {
+        const shouldUpdateDom = !isMessageBeingEdited(messageId)
+            && (placementLifecycle.committedEarly || message.mes === originalMes);
+        if (!placementLifecycle.committedEarly && !shouldUpdateDom) {
             placementLifecycle.settled = true;
             throw new ScenePlacementError(
                 '正文在配图期间发生变化或正在编辑；已生成图片保留在画廊中，未写入楼层。',
                 'SCENE_SOURCE_CHANGED',
             );
         }
-        message.mes = plannedMes;
+        if (!placementLifecycle.committedEarly) {
+            try {
+                await commitSceneSlotReplacement({
+                    message,
+                    stagedText: plannedMes,
+                    replacedSlotIds,
+                    persist: persistChatSilently,
+                });
+                if (replacedSlotIds.length > 0) requiresFinalDomSync = true;
+            } catch (error) {
+                requiresFinalDomSync = true;
+                console.warn('[NovelDraw] 替换旧图片槽位的保存未确认，已保留旧槽位:', error);
+            }
+        }
 
         if (shouldUpdateDom && requiresFinalDomSync) {
             try {
@@ -3370,16 +3974,8 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
 
         onStateChange?.('success', { success: successCount, total: tasks.length });
 
-        if (shouldUpdateDom) {
-            persistChatSilently().then(() => {
-                console.log('[NovelDraw] 聊天已保存');
-            }).catch(e => {
-                console.warn('[NovelDraw] 保存聊天失败:', e);
-            });
-        }
-
         placementLifecycle.settled = true;
-        return { success: successCount, total: tasks.length, results };
+        return { success: successCount, total: tasks.length, results: results.filter(Boolean) };
 
     } finally {
         if (placementLifecycle && !placementLifecycle.settled) {
@@ -3388,24 +3984,22 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
                 originalMes,
                 slotIds,
                 results,
-                getSuccessCount,
                 initialChatId,
                 plannedMes,
                 syncRenderedMessage,
+                committedEarly,
             } = placementLifecycle;
             const currentCtx = getContext();
-            const canCommit = currentCtx.chatId === initialChatId
+            const canCommit = !committedEarly
+                && currentCtx.chatId === initialChatId
                 && currentCtx.chat?.[messageId] === message
                 && message.mes === originalMes
                 && !isMessageBeingEdited(messageId);
             if (canCommit) {
-                message.mes = settleSceneSlotPlaceholders({
-                    currentText: plannedMes,
-                    originalText: originalMes,
+                setActiveMessageText(message, commitSettledScenePlacements(plannedMes, {
                     allSlotIds: slotIds,
-                    completedSlotIds: results.map(item => item.slotId),
-                    successCount: getSuccessCount(),
-                });
+                    settledSlotIds: results.filter(Boolean).map(item => item.slotId),
+                }));
                 if (syncRenderedMessage) await syncRenderedMessage(message.mes).catch(() => {});
                 await renderSharedPreviewsForMessage(messageId).catch(() => {});
                 await persistChatSilently().catch(() => {});
@@ -3482,6 +4076,15 @@ async function autoGenerateForLastAI() {
                         break;
                     case 'cooldown': 
                         updateState(FloatState.COOLDOWN, data); 
+                        break;
+                    case 'reconnecting':
+                        updateState(FloatState.RECONNECTING, data);
+                        break;
+                    case 'cancelling':
+                        updateState(FloatState.CANCELLING, data);
+                        break;
+                    case 'backend_legacy':
+                        updateState(FloatState.BACKEND_LEGACY, data);
                         break;
                     case 'success': 
                         updateState(
@@ -3608,6 +4211,7 @@ async function sendInitData() {
             apiKey: settings.apiKey,
             apiBaseUrl: settings.apiBaseUrl || '',
             sendMode: settings.sendMode || 'frontend',
+            useImageBackendJobs: settings.useImageBackendJobs === true,
             insecureTLS: settings.insecureTLS === true,
             timeout: settings.timeout,
             requestDelay: settings.requestDelay,
@@ -3750,6 +4354,9 @@ async function handleFrameMessage(event) {
                 }
                 if (data.sendMode === 'frontend' || data.sendMode === 'backend') {
                     settings.sendMode = data.sendMode;
+                }
+                if (typeof data.useImageBackendJobs === 'boolean') {
+                    settings.useImageBackendJobs = data.useImageBackendJobs;
                 }
                 if (typeof data.insecureTLS === 'boolean') {
                     settings.insecureTLS = data.insecureTLS;
@@ -4243,6 +4850,10 @@ async function handleFrameMessage(event) {
                     onStateChange: (state, d) => {
                         if (state === 'progress') postStatus('loading', `${d.current}/${d.total}`);
                         if (state === 'queued') postStatus('loading', d.ahead > 0 ? `排队中·前方 ${d.ahead}` : '排队中');
+                        if (state === 'cooldown') postStatus('loading', `冷却中 ${Math.max(0, (Number(d.cooldownUntil) - Date.now()) / 1000).toFixed(1)}s`);
+                        if (state === 'reconnecting') postStatus('loading', '后端重连中...');
+                        if (state === 'cancelling') postStatus('loading', '取消中...');
+                        if (state === 'backend_legacy') postStatus('loading', '后端兼容模式');
                     }
                 });
                 postStatus('success', `完成! ${result.success} 张`);
@@ -4290,12 +4901,14 @@ export async function openNovelDrawSettings() {
 
 export async function initNovelDraw() {
     if (window?.isXiaobaixEnabled === false) return;
-    if (moduleInitialized) return;
+    if (moduleInitialized) return true;
+    const initGeneration = ++moduleLifecycleGeneration;
 
     const [templatesOk, guidesOk] = await Promise.all([
         loadPromptTemplates(),
         loadTagGuide(),
     ]);
+    if (initGeneration !== moduleLifecycleGeneration || window?.isXiaobaixEnabled === false) return false;
     if (!templatesOk || !guidesOk) {
         showToast('NovelAI 提示词资源加载失败，已停止初始化', 'error', 5000);
         return false;
@@ -4307,7 +4920,14 @@ export async function initNovelDraw() {
     } catch {
         return false;
     }
+    const [floatingPanel] = await Promise.all([
+        import('./floating-panel.js'),
+        openDB().then(() => clearExpiredCache(sharedDrawSettings.cacheDays)).catch(() => {}),
+    ]);
+    if (initGeneration !== moduleLifecycleGeneration || window?.isXiaobaixEnabled === false) return false;
+
     moduleInitialized = true;
+    backendJobMonitors.activate();
     initAfterAiGate();
     afterAiGateDispose?.();
     afterAiGateDispose = registerAfterAiHandler(MODULE_KEY, ({ chatId, messageId }) => {
@@ -4317,18 +4937,14 @@ export async function initNovelDraw() {
     ensureStyles();
 
     setupEventDelegation();
-    await openDB().then(() => {
-        clearExpiredCache(sharedDrawSettings.cacheDays);
-    }).catch(() => {});
     startSharedDrawPreviewRuntime();
 
     // ════════════════════════════════════════════════════════════════════
     // 动态导入 floating-panel（避免循环依赖）
     // ════════════════════════════════════════════════════════════════════
-    
-    const { ensureNovelDrawPanel: ensureNovelDrawPanelFn, initFloatingPanel } = await import('./floating-panel.js');
-    ensureNovelDrawPanelRef = ensureNovelDrawPanelFn;
-    initFloatingPanel?.();
+
+    ensureNovelDrawPanelRef = floatingPanel.ensureNovelDrawPanel;
+    floatingPanel.initFloatingPanel?.();
 
     // 为现有消息创建画图面板
     const renderExistingPanels = () => {
@@ -4436,6 +5052,7 @@ export async function initNovelDraw() {
 }
 
 export async function cleanupNovelDraw() {
+    const cleanupGeneration = ++moduleLifecycleGeneration;
     moduleInitialized = false;
     settingsCache = null;
     settingsLoaded = false;
@@ -4449,8 +5066,9 @@ export async function cleanupNovelDraw() {
     overlayCreated = false;
     frameReady = false;
 
-    abortGeneration();
-    generationJobs.clear();
+    backendJobMonitors.deactivate();
+    abortGeneration(null, { reason: 'teardown' });
+    generationJobs = new Map();
     novelImageRequestQueue.clear();
 
     window.removeEventListener('message', handleFrameMessage);
@@ -4466,15 +5084,14 @@ export async function cleanupNovelDraw() {
         overlayResizeHandler = null;
     }
     document.getElementById('xiaobaix-novel-draw-overlay')?.remove();
+    delete window.xiaobaixNovelDraw;
+    delete window._xbNovelEventsBound;
 
     // 动态导入并清理
     try {
         const { destroyFloatingPanel } = await import('./floating-panel.js');
-        destroyFloatingPanel();
+        if (cleanupGeneration === moduleLifecycleGeneration) destroyFloatingPanel();
     } catch {}
-
-    delete window.xiaobaixNovelDraw;
-    delete window._xbNovelEventsBound;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

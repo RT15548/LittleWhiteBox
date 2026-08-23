@@ -536,6 +536,10 @@ select.input { cursor: pointer; }
                             <input id="sd-draw-timeout" class="input" type="number" min="10000" step="1000">
                         </div>
                     </div>
+                    <div class="form-group">
+                        <label class="check-row"><input id="sd-use-image-backend-jobs" type="checkbox"> 使用小白盒后台批量任务</label>
+                        <p class="form-hint">独立于酒馆原生连接方式。启用后由已安装的 LittleWhiteBox 服务端插件排队执行批量出图；酒馆服务器必须能访问上方 SD WebUI 地址。</p>
+                    </div>
                     <div class="btn-group" style="margin-top:16px;">
                         <button id="sd-draw-save" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> 保存</button>
                         <button id="sd-draw-refresh-options" class="btn"><i class="fa-solid fa-rotate"></i> 拉取模型 / 采样器</button>
@@ -690,11 +694,11 @@ select.input { cursor: pointer; }
             <section class="view" data-sd-view-panel="llm">
                 <div class="view-header">
                     <h2 class="view-title">Agent API 配置</h2>
-                    <p class="view-desc">完整管理小白X共享主预设；画图场景规划会直接使用这里的当前配置</p>
+                    <p class="view-desc">共享 Agent 主预设</p>
                 </div>
 
                 <div id="sd-agent-settings-surface" class="draw-agent-settings-surface">
-                    <div class="draw-agent-settings-state"><i class="fa-solid fa-spinner fa-spin"></i><span>正在读取共享 Agent API 配置…</span></div>
+                    <div class="draw-agent-settings-state"><i class="fa-solid fa-spinner fa-spin"></i><span>正在读取共享 Agent 主预设…</span></div>
                 </div>
             </section>
 
@@ -849,7 +853,7 @@ select.input { cursor: pointer; }
             <section class="view wide" data-sd-view-panel="characters">
                 <div class="view-header">
                     <h2 class="view-title">角色标签</h2>
-                    <p class="view-desc">这里直接维护小白X共用角色库，SD 出图会使用这里的角色外貌、服装参考和角色负向标签</p>
+                    <p class="view-desc">小白X共用角色库</p>
                 </div>
 
                 <div class="char-management-layout">
@@ -894,7 +898,7 @@ select.input { cursor: pointer; }
                             <div class="char-list-card-header">
                                 <div>
                                     <div class="card-title">👥 角色列表</div>
-                                    <p class="form-hint" style="margin-top:6px;">先在这里把角色底稿定稳，出图时只需要补当前动作、表情和互动</p>
+                                    <p class="form-hint" style="margin-top:6px;">角色底稿定好后，出图只需补当前动作、表情和互动</p>
                                 </div>
                                 <div id="sd-draw-character-result-count" class="char-list-count">0 / 0</div>
                             </div>
@@ -909,7 +913,7 @@ select.input { cursor: pointer; }
             <section class="view wide" data-sd-view-panel="gallery">
                 <div class="view-header">
                     <h2 class="view-title">图片管理</h2>
-                    <p class="view-desc">这里直接查看小白X共用图库，所有楼层配图都会保存在同一份缓存里。</p>
+                    <p class="view-desc">小白X共用图库，所有楼层配图共用同一份缓存</p>
                 </div>
 
                 <div class="card" style="margin-bottom:20px;">

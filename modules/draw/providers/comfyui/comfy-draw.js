@@ -28,10 +28,16 @@ import {
 import { generateAndParseScenePlan } from "../../shared/scene-planner.js";
 import { createSceneSource } from "../../shared/scene-source.js";
 import {
+    commitRecoverableScenePlacements,
+    commitSceneSlotDelivery,
+    commitSceneSlotReplacement,
+    getSceneSlotIds,
     ScenePlacementError,
     assertSceneSourceUnchanged,
-    insertScenePlacements,
-    settleSceneSlotPlaceholders,
+    insertScenePlacementsPreservingSlots,
+    commitSettledScenePlacements,
+    removeSceneSlotPlaceholders,
+    setActiveMessageText,
 } from "../../shared/scene-placement.js";
 import { WorldbookProcessor } from "../../shared/worldbook-processor.js";
 import {
@@ -44,6 +50,23 @@ import { getLastDrawAgentDiagnostic } from "../../shared/draw-agent.js";
 import { attachDrawAgentSettingsSurface } from "../../shared/agent-settings-surface.js";
 import { createSerialImageRequestQueue } from "../../shared/serial-image-request-queue.js";
 import {
+    createBackendItemError,
+    createImageBackendJobMonitorRegistry,
+    createImageBackendJobsClient,
+    fetchImageBackendJobsStatus,
+    hasImageBackendJobsCapability,
+    readImageBackendResultBase64,
+    readImageBlobBase64,
+    reportImageBackendJobState,
+} from '../../shared/backend-image-jobs.js';
+import {
+    classifyImageJobDeliveryTarget,
+    commitImageJobDeliverySlotRemoval,
+    ImageJobDeliveryTargetState,
+    requireImageJobDeliveryTarget,
+} from '../../shared/image-job-delivery-target.js';
+import { submitRecoverableImageJob } from '../../shared/recoverable-image-jobs.js';
+import {
     createCharacterEnabledControl,
     getCharacterEnabledFromCard,
 } from "../../shared/character-enabled-control.js";
@@ -55,6 +78,7 @@ import {
     buildImageHtml,
     buildPendingImageHtml,
     insertPreviewIntoRenderedMessage,
+    isAnyMessageBeingEdited,
     isMessageBeingEdited,
     detectPresentCharacters,
     assembleCharacterPrompts,
@@ -143,6 +167,7 @@ const DEFAULT_COMFY_DRAW_SETTINGS = {
     connectionMode: 'proxy',
     auth: '',
     timeout: 120000,
+    useImageBackendJobs: false,
     mode: 'manual',
     overrideSize: 'default',
     showFloorButton: true,
@@ -186,6 +211,7 @@ const DEFAULT_COMFY_DRAW_SETTINGS = {
 };
 
 let moduleInitialized = false;
+let moduleLifecycleGeneration = 0;
 let settingsCache = null;
 let settingsLoaded = false;
 let overlayElement = null;
@@ -201,13 +227,15 @@ let destroyComfyDrawPanelsRef = null;
 let imageDelegationBound = false;
 let autoBusy = false;
 const events = createModuleEvents(MODULE_KEY);
-const generationJobs = new Map();
+let generationJobs = new Map();
+const backendJobMonitors = createImageBackendJobMonitorRegistry({ active: false });
 const COMFY_DRAW_VIEWS = ['test', 'api', 'workflow', 'params', 'llm', 'prompts', 'worldbook', 'characters', 'gallery'];
 const ImageState = { PREVIEW: 'preview', SAVING: 'saving', SAVED: 'saved', REFRESHING: 'refreshing', FAILED: 'failed' };
 const FIXED_COMFY_REQUEST_DELAY_MS = 1000;
 const comfyImageRequestQueue = createSerialImageRequestQueue({
     getCooldownMs: () => FIXED_COMFY_REQUEST_DELAY_MS,
 });
+const comfyBackendJobsClient = createImageBackendJobsClient({ getHeaders: getRequestHeaders });
 const COMFY_SIZE_PRESETS = [
     { value: '832x1216', width: 832, height: 1216 },
     { value: '1216x832', width: 1216, height: 832 },
@@ -401,6 +429,7 @@ function normalizeSettings(raw = {}) {
         connectionMode: raw.connectionMode === 'direct' ? 'direct' : 'proxy',
         auth: String(raw.auth ?? ''),
         timeout: normalizeNumber(raw.timeout, DEFAULT_COMFY_DRAW_SETTINGS.timeout, 10000, 600000),
+        useImageBackendJobs: raw.useImageBackendJobs === true,
         selectedPresetId,
         selectedWorkflowPresetId,
         builtinWorkflowId,
@@ -798,20 +827,15 @@ function isDirectConnection(settings = getSettings()) {
 function createComfyUrl(path, query = {}, settings = getSettings()) {
     const base = String(settings.host || '').trim();
     if (!base) throw new Error('请先填写 ComfyUI 地址');
-    const url = new URL(path, base.endsWith('/') ? base : `${base}/`);
+    // 直接用 new URL(path, base) 会在 base 同时带路径和 query 时把补的 '/' 拼进 query，
+    // 导致反代基础路径丢失；改为显式拼 pathname，同时保留 base 上的 query 参数。
+    const url = new URL(base);
+    const basePath = url.pathname.replace(/\/+$/, '');
+    url.pathname = `${basePath}/${String(path || '').replace(/^\/+/, '')}`;
     Object.entries(query || {}).forEach(([key, value]) => {
         if (value !== undefined && value !== null) url.searchParams.set(key, String(value));
     });
     return url;
-}
-
-async function readBlobAsBase64(blob) {
-    return await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result || '').split(',')[1] || '');
-        reader.onerror = () => reject(reader.error || new Error('图片读取失败'));
-        reader.readAsDataURL(blob);
-    });
 }
 
 async function requestComfyTransport(path, body = {}, { signal, timeoutMs, generationConfig } = {}) {
@@ -1017,7 +1041,7 @@ async function fetchComfyDirectImageFromWorkflow(workflow, {
             subfolder: imgInfo.subfolder,
             type: imgInfo.type,
         }, { signal: deadline.signal, timeoutMs, generationConfig });
-        return await readBlobAsBase64(blob);
+        return await readImageBlobBase64(blob);
     } finally {
         deadline.cleanup();
     }
@@ -1304,7 +1328,7 @@ function injectPromptIntoWorkflow(workflow, positive, negative, width, height, n
     return wf;
 }
 
-async function requestComfyImage({ prompt, negativePrompt = '', params = {}, generationConfig, signal } = {}) {
+function buildComfyImageRequest({ prompt, negativePrompt = '', params = {}, generationConfig } = {}) {
     const settings = generationConfig || getSettings();
     const effective = generationConfig?.prepared === true ? params : getEffectiveParams(settings, params);
 
@@ -1349,12 +1373,19 @@ async function requestComfyImage({ prompt, negativePrompt = '', params = {}, gen
         });
     }
 
-    const requestBody = {
-        prompt: JSON.stringify({ prompt: injected }),
+    return {
+        workflow: injected,
+        preferredSaveImageNodeId: settings.workflowMode === 'custom'
+            ? String(settings.customWorkflow?.nodeSaveImage || '').trim()
+            : '',
     };
-    if (isDirectConnection(settings) && settings.workflowMode === 'custom') {
-        requestBody.preferredSaveImageNodeId = String(settings.customWorkflow?.nodeSaveImage || '').trim();
-    }
+}
+
+async function requestComfyImage({ prompt, negativePrompt = '', params = {}, generationConfig, signal } = {}) {
+    const settings = generationConfig || getSettings();
+    const prepared = buildComfyImageRequest({ prompt, negativePrompt, params, generationConfig: settings });
+    const requestBody = { prompt: JSON.stringify({ prompt: prepared.workflow }) };
+    if (isDirectConnection(settings) && prepared.preferredSaveImageNodeId) requestBody.preferredSaveImageNodeId = prepared.preferredSaveImageNodeId;
 
     const response = await requestComfyTransport('generate', requestBody, {
         signal,
@@ -1364,6 +1395,108 @@ async function requestComfyImage({ prompt, negativePrompt = '', params = {}, gen
     const data = await response.json();
     if (!data?.data) throw new Error('ComfyUI 未返回图片数据');
     return String(data.data || '');
+}
+
+async function runComfyImageBatch({
+    requests,
+    generationConfig,
+    signal,
+    backendCancelSignal,
+    recoverable,
+    monitorGeneration,
+    queueBatch,
+    onStateChange,
+    onItemReady,
+    onItemSettled,
+}) {
+    if (!requests.length) return { mode: 'empty' };
+    const settings = generationConfig || getSettings();
+    const prepared = requests.map(request => buildComfyImageRequest({ ...request, generationConfig: settings }));
+    if (settings.useImageBackendJobs && recoverable) {
+        let status;
+        const detachScope = backendJobMonitors.createScope(
+            backendCancelSignal ? signal : null,
+            monitorGeneration ?? backendJobMonitors.captureGeneration(),
+        );
+        try {
+            status = await fetchImageBackendJobsStatus({ getHeaders: getRequestHeaders, signal });
+        } catch (error) {
+            detachScope.dispose();
+            if (signal?.aborted) throw new Error('已取消');
+            throw error;
+        }
+        if (!hasImageBackendJobsCapability(status)) {
+            detachScope.dispose();
+            throw new Error('小白盒后台批量任务不可用。请安装并启动 littlewhitebox-image-jobs，或关闭此选项后继续使用当前连接方式。');
+        }
+        try {
+            const backendRequest = {
+                provider: 'comfyui',
+                context: {
+                    url: settings.host,
+                    auth: settings.auth || '',
+                },
+                delay: { min: FIXED_COMFY_REQUEST_DELAY_MS, max: FIXED_COMFY_REQUEST_DELAY_MS },
+                items: prepared.map(request => ({ request, timeout: settings.timeout || 120000 })),
+            };
+            const backendHandlers = {
+                cancelSignal: backendCancelSignal || signal,
+                detachSignal: detachScope.signal,
+                onStateChange: (state, data) => reportImageBackendJobState(onStateChange, state, data),
+                onItemReady: async ({ index, response }) => onItemReady?.({ index, base64: await readImageBackendResultBase64(response) }),
+                onItemSettled: async (item) => {
+                    // 早先已交付并 ACK 过的项是成功事实，绝不能触发失败 UI；
+                    // 它由恢复流程按记录的 imgId 从画廊还原。
+                    if (item.alreadyDelivered === true) return;
+                    await onItemSettled?.({
+                        ...item,
+                        error: item.source === 'frontend' ? item.error : createBackendItemError(item),
+                    });
+                },
+            };
+            const result = await submitRecoverableImageJob({
+                client: comfyBackendJobsClient,
+                provider: 'comfyui',
+                request: backendRequest,
+                plan: recoverable.plan,
+                commitPlacements: recoverable.commitPlacements,
+                settlePlacements: recoverable.settlePlacements,
+                resolveSettlement: recoverable.resolveSettlement,
+                afterForget: recoverable.afterForget,
+                ...backendHandlers,
+            });
+            return { mode: 'backend-job', ...result };
+        } catch (error) {
+            if (error?.detached === true || error?.code === 'PENDING_JOB_LEASE_LOST') throw error;
+            if (signal?.aborted) throw new Error('已取消');
+            throw error;
+        } finally {
+            detachScope.dispose();
+        }
+    }
+    for (let index = 0; index < requests.length; index++) {
+        if (signal?.aborted) {
+            for (let pending = index; pending < requests.length; pending++) {
+                await onItemSettled?.({ index: pending, state: 'cancelled', error: new Error('已取消'), source: 'frontend' });
+            }
+            break;
+        }
+        try {
+            const base64 = await generateComfyImage({ ...requests[index], generationConfig: settings, signal, queueBatch, onQueueStateChange: (state, data) => {
+                if (state === 'start') return onStateChange?.('progress', { current: index + 1, total: requests.length });
+                if (state === 'cooldown') {
+                    if (index + 1 >= requests.length) return;
+                    return onStateChange?.('cooldown', { ...data, nextIndex: index + 2, total: requests.length });
+                }
+                onStateChange?.(state, { current: index + 1, total: requests.length, ...data });
+            } });
+            await onItemReady?.({ index, base64 });
+        } catch (error) {
+            await onItemSettled?.({ index, state: signal?.aborted ? 'cancelled' : 'failed', error, source: 'frontend' });
+            if (signal?.aborted) break;
+        }
+    }
+    return { mode: 'frontend' };
 }
 
 function waitWithAbort(signal, durationMs) {
@@ -1400,6 +1533,15 @@ export async function generateComfyImage({
             onCooldown: (data) => onQueueStateChange?.('cooldown', data),
         },
     );
+}
+
+async function generateSingleComfyImage(request, {
+    signal,
+    generationConfig,
+    onQueueStateChange,
+} = {}) {
+    const settings = generationConfig || getSettings();
+    return generateComfyImage({ ...request, generationConfig: settings, signal, onQueueStateChange });
 }
 
 function ensureStyles() {
@@ -1580,6 +1722,9 @@ function bindOverlayEvents() {
         if (ok) fillForm(getSettings());
     });
     querySettings('#comfy-connection-mode')?.addEventListener('change', () => {
+        updateConnectionModeUI(getValue('comfy-connection-mode'));
+    });
+    querySettings('#comfy-use-image-backend-jobs')?.addEventListener('change', () => {
         updateConnectionModeUI(getValue('comfy-connection-mode'));
     });
     querySettings('#comfy-draw-test')?.addEventListener('click', async () => {
@@ -2181,7 +2326,8 @@ function fillForm(settings) {
     });
     setValue('comfy-connection-mode', settings.connectionMode || 'proxy');
     setValue('comfy-draw-auth', settings.auth || '');
-    updateConnectionModeUI(settings.connectionMode || 'proxy');
+    setChecked('comfy-use-image-backend-jobs', settings.useImageBackendJobs === true);
+    updateConnectionModeUI(settings.connectionMode || 'proxy', settings.useImageBackendJobs === true);
     setValue('comfy-draw-host', settings.host);
     setValue('comfy-draw-timeout', settings.timeout);
     setValue('comfy-draw-width', preset.width);
@@ -2250,6 +2396,7 @@ function readForm() {
         connectionMode: getValue('comfy-connection-mode') === 'direct' ? 'direct' : 'proxy',
         auth: getValue('comfy-draw-auth').trim(),
         timeout: normalizeNumber(getValue('comfy-draw-timeout'), current.timeout, 10000, 600000),
+        useImageBackendJobs: getChecked('comfy-use-image-backend-jobs'),
         builtinWorkflowId: getValue('comfy-builtin-workflow') || current.builtinWorkflowId || DEFAULT_COMFY_DRAW_SETTINGS.builtinWorkflowId,
         presets: current.presets.map(item => item.id === current.selectedPresetId ? { ...preset, id: item.id, name: item.name } : item),
     };
@@ -2371,32 +2518,42 @@ function readPromptPresetFromForm(basePreset = getActivePromptPreset(getSettings
     };
 }
 
-function updateConnectionModeUI(mode = getSettings().connectionMode) {
+function updateConnectionModeUI(
+    mode = getSettings().connectionMode,
+    useImageBackendJobs = getChecked('comfy-use-image-backend-jobs'),
+) {
     const isDirect = mode === 'direct';
+    const usesServerJobs = useImageBackendJobs === true;
     const authRow = getSettingsElement('comfy-auth-row');
     const connectionHint = getSettingsElement('comfy-connection-hint');
     const connectionModeNote = getSettingsElement('comfy-connection-mode-note');
     const hostHint = getSettingsElement('comfy-host-hint');
     const status = getSettingsElement('comfy-draw-api-status');
     const workflowStatus = getSettingsElement('comfy-draw-workflow-status');
-    const statusText = isDirect
-        ? '当前使用浏览器直连 ComfyUI。'
-        : '当前使用酒馆后端代理连接 ComfyUI。';
-    authRow?.classList.toggle('hidden', !isDirect);
+    const statusText = usesServerJobs
+        ? '批量出图将由小白盒后台任务连接 ComfyUI。'
+        : isDirect
+            ? '当前使用浏览器直连 ComfyUI。'
+            : '当前使用酒馆后端代理连接 ComfyUI。';
+    authRow?.classList.toggle('hidden', !isDirect && !usesServerJobs);
     if (connectionHint) {
-        connectionHint.textContent = isDirect
-            ? '浏览器直连会从当前浏览器访问 ComfyUI；需要登录时可在这里填写认证信息。'
-            : '酒馆代理会通过 SillyTavern 转发请求；这里不填写 ComfyUI 认证信息。';
+        connectionHint.textContent = usesServerJobs
+            ? '后台批量任务会从酒馆服务器访问 ComfyUI；需要登录时可在这里填写认证信息。'
+            : isDirect
+                ? '浏览器直连会从当前浏览器访问 ComfyUI；需要登录时可在这里填写认证信息。'
+                : '酒馆代理会通过 SillyTavern 转发请求；这里不填写 ComfyUI 认证信息。';
     }
     if (connectionModeNote) {
-        connectionModeNote.textContent = isDirect
-            ? '如果直连偶发连接失败，可以先换酒馆代理对照。'
-            : '如果代理偶发拿不到图，可以先检查 ComfyUI 输出目录，或换浏览器直连对照。';
+        connectionModeNote.textContent = usesServerJobs
+            ? '后台任务由酒馆服务器直接访问上方地址，地址里的反代基础路径和 query 都会保留，与连接模式无关。'
+            : isDirect
+                ? '如果直连偶发连接失败，可以先换酒馆代理对照。'
+                : '如果代理偶发拿不到图，可以先检查 ComfyUI 输出目录，或换浏览器直连对照。';
     }
     if (hostHint) {
-        hostHint.textContent = isDirect
-            ? '填写当前浏览器能访问到的 ComfyUI 地址。'
-            : '填写酒馆服务器能访问到的 ComfyUI 地址。';
+        hostHint.textContent = usesServerJobs || !isDirect
+            ? '填写酒馆服务器能访问到的 ComfyUI 地址。'
+            : '填写当前浏览器能访问到的 ComfyUI 地址。';
     }
     if (status) {
         status.textContent = statusText;
@@ -3831,26 +3988,38 @@ function createGenerationJob(messageId) {
     if (generationJobs.has(key)) {
         throw new Error('该楼层已有任务进行中');
     }
-    const job = { controller: new AbortController(), messageId };
+    const job = {
+        key,
+        controller: new AbortController(),
+        backendCancel: new AbortController(),
+        messageId,
+        abortReason: null,
+    };
     generationJobs.set(key, job);
     return job;
 }
 
-export function abortGeneration(messageId = null) {
+function releaseGenerationJob(job) {
+    if (job && generationJobs.get(job.key) === job) generationJobs.delete(job.key);
+}
+
+export function abortGeneration(messageId = null, { reason = 'user' } = {}) {
     if (messageId !== null && messageId !== undefined) {
         const job = generationJobs.get(String(messageId));
         if (!job) return false;
+        job.abortReason ||= reason;
+        if (reason === 'user') job.backendCancel.abort();
         job.controller.abort();
-        generationJobs.delete(String(messageId));
         return true;
     }
     let aborted = false;
     for (const job of generationJobs.values()) {
+        job.abortReason ||= reason;
+        if (reason === 'user') job.backendCancel.abort();
         job.controller.abort();
         aborted = true;
     }
-    generationJobs.clear();
-    abortPendingRequest();
+    if (reason === 'user') abortPendingRequest();
     return aborted;
 }
 
@@ -3910,6 +4079,8 @@ async function autoGenerateForLastAI() {
                     case 'gen':
                     case 'progress': updateState(fp.FloatState?.GEN, data); break;
                     case 'cooldown': updateState(fp.FloatState?.COOLDOWN, data); break;
+                    case 'reconnecting': updateState(fp.FloatState?.RECONNECTING, data); break;
+                    case 'cancelling': updateState(fp.FloatState?.CANCELLING, data); break;
                     case 'success':
                         updateState(
                             (data.aborted && data.success === 0) ? fp.FloatState?.IDLE
@@ -4068,6 +4239,7 @@ function buildTextSourceGalleryMeta(options = {}) {
 }
 
 export async function generateImagesFromText(options = {}) {
+    const monitorGeneration = backendJobMonitors.captureGeneration();
     const text = String(options.text || '');
     if (!text.trim()) throw new Error('正文内容为空，无法配图');
     const signal = options.signal || new AbortController().signal;
@@ -4096,51 +4268,31 @@ export async function generateImagesFromText(options = {}) {
 
     const comfySettings = getSettings();
     const sharedDrawSettings = getSharedDrawSettings();
-    const queueBatch = {};
     const images = [];
     let successCount = 0;
-
-    options.onStateChange?.('gen', { current: 0, total: tasks.length });
-    for (let i = 0; i < tasks.length; i++) {
-        if (signal.aborted) break;
-        const task = tasks[i];
+    const requests = tasks.map((task) => {
         const slotId = generateSlotId();
         const imgId = generateImgId();
         const params = getEffectiveParams(comfySettings, options.paramsOverride || {});
         const promptData = buildPromptForTask(
             task,
             sharedDrawSettings,
-            {
-                positivePrefix: params.positivePrefix,
-                negativePrefix: params.negativePrefix,
-            },
+            { positivePrefix: params.positivePrefix, negativePrefix: params.negativePrefix },
             options.promptOverride || '',
             options.negativePromptOverride || '',
         );
+        return { task, slotId, imgId, params, promptData, prompt: promptData.positive, negativePrompt: promptData.negative };
+    });
 
-        try {
-            const base64 = await generateComfyImage({
-                prompt: promptData.positive,
-                negativePrompt: promptData.negative,
-                params,
-                signal,
-                queueBatch,
-                onQueueStateChange: (queueState, queueData) => {
-                    if (queueState === 'queued') {
-                        options.onStateChange?.('queued', { current: i + 1, total: tasks.length, ...queueData });
-                    }
-                    if (queueState === 'start') {
-                        options.onStateChange?.('progress', { current: i + 1, total: tasks.length });
-                    }
-                    if (queueState === 'cooldown' && i < tasks.length - 1) {
-                        options.onStateChange?.('cooldown', {
-                            duration: queueData.duration,
-                            nextIndex: i + 2,
-                            total: tasks.length,
-                        });
-                    }
-                },
-            });
+    options.onStateChange?.('gen', { current: 0, total: tasks.length });
+    await runComfyImageBatch({
+        requests,
+        signal,
+        monitorGeneration,
+        queueBatch: {},
+        onStateChange: options.onStateChange,
+        onItemReady: async ({ index, base64 }) => {
+            const { task, slotId, imgId, promptData } = requests[index];
             await storePreview({
                 ...galleryMeta,
                 imgId,
@@ -4164,8 +4316,10 @@ export async function generateImagesFromText(options = {}) {
                 displayUrl: getPreviewDisplayUrl({ imgId, base64 }),
                 success: true,
             });
-        } catch (error) {
-            if (signal.aborted) break;
+        },
+        onItemSettled: async ({ index, state, error }) => {
+            if (state === 'ready' || signal.aborted) return;
+            const { task, slotId, promptData } = requests[index];
             const errorType = classifyError(error) || ErrorType.UNKNOWN;
             await storeFailedPlaceholder({
                 ...galleryMeta,
@@ -4187,8 +4341,8 @@ export async function generateImagesFromText(options = {}) {
                 success: false,
                 error: errorType,
             });
-        }
-    }
+        },
+    });
 
     options.onStateChange?.('success', { success: successCount, total: tasks.length });
     return {
@@ -4616,6 +4770,7 @@ async function saveEditedTags(container) {
 }
 
 async function refreshSingleImage(container) {
+    const monitorGeneration = backendJobMonitors.captureGeneration();
     const slotId = container.dataset.slotId;
     const messageId = Number(container.dataset.mesid);
     const preview = await getPreviewByImageId(container);
@@ -4629,11 +4784,11 @@ async function refreshSingleImage(container) {
         setImageState(container, ImageState.REFRESHING);
         const settings = getSettings();
         const params = getEffectiveParams(settings);
-        const base64 = await generateComfyImage({
+        const base64 = await generateSingleComfyImage({
             prompt,
             negativePrompt: promptData.negative || preview?.negativePrompt || params.negativePrefix || '',
             params,
-        });
+        }, { monitorGeneration });
         const imgId = generateImgId();
         await storePreview({
             imgId, slotId, messageId, base64,
@@ -4662,6 +4817,7 @@ async function refreshSingleImage(container) {
 }
 
 async function retryFailedImage(container) {
+    const monitorGeneration = backendJobMonitors.captureGeneration();
     const slotId = container.dataset.slotId;
     const messageId = Number(container.dataset.mesid);
     const tags = String(container.dataset.tags || '').trim();
@@ -4680,7 +4836,10 @@ async function retryFailedImage(container) {
         const positive = joinTags(params.positivePrefix || '', tags, charPositive);
         const negative = latestFailed?.negativePrompt || params.negativePrefix || '';
 
-        const base64 = await generateComfyImage({ prompt: positive, negativePrompt: negative, params });
+        const base64 = await generateSingleComfyImage(
+            { prompt: positive, negativePrompt: negative, params },
+            { monitorGeneration },
+        );
         const imgId = generateImgId();
         await storePreview({
             imgId, slotId, messageId, base64, tags, positive,
@@ -4737,7 +4896,7 @@ async function removePlaceholder(container) {
     const ctx = getContext();
     const message = ctx.chat?.[messageId];
     if (message?.mes) {
-        message.mes = String(message.mes || '').replace(createPlaceholder(slotId), '').replace(/\n{3,}/g, '\n\n');
+        message.mes = removeSceneSlotPlaceholders(message.mes, [slotId]);
         await persistChatSilently().catch(() => {});
     }
     container.remove();
@@ -4765,7 +4924,7 @@ async function deleteCurrentImage(container) {
         const ctx = getContext();
         const message = ctx.chat?.[messageId];
         if (message?.mes) {
-            message.mes = message.mes.replace(createPlaceholder(slotId), '').replace(/\n{3,}/g, '\n\n');
+            message.mes = removeSceneSlotPlaceholders(message.mes, [slotId]);
             await persistChatSilently().catch(() => {});
         }
     }
@@ -4851,12 +5010,13 @@ export async function generateAndInsertImages({
             throw new ScenePlacementError('该楼层正在编辑，请保存或取消编辑后再配图。', 'SCENE_MESSAGE_EDITING');
         }
         const originalMes = message.mes;
+        const replacedSlotIds = getSceneSlotIds(originalMes);
         const slotIds = tasks.map(() => generateSlotId());
-        const results = [];
+        const results = new Array(tasks.length);
         let successCount = 0;
         const strippedNow = String(message.mes || '').replace(/\[image:[a-z0-9\-_]+\]/gi, '');
         if (sceneSource) assertSceneSourceUnchanged(strippedNow, sceneSource.sourceHash);
-        const plannedMes = insertScenePlacements(strippedNow, tasks.map((task, index) => ({
+        const plannedMes = insertScenePlacementsPreservingSlots(originalMes, tasks.map((task, index) => ({
             placement: task.placement,
             content: createPlaceholder(slotIds[index]),
         })), { block: true });
@@ -4871,6 +5031,7 @@ export async function generateAndInsertImages({
             plannedMes,
             syncRenderedMessage: null,
             settled: false,
+            committedEarly: false,
         };
 
         const { messageFormatting } = await import('../../../../../../../../script.js');
@@ -4880,7 +5041,7 @@ export async function generateAndInsertImages({
             $(`[mesid="${resolvedMessageId}"] .mes_text`).html(formatted);
         };
         const renderPendingSlots = () => {
-            const settledSlotIds = new Set(results.map((item) => item.slotId));
+            const settledSlotIds = new Set(results.filter(Boolean).map((item) => item.slotId));
             slotIds.forEach((slotId, index) => {
                 if (settledSlotIds.has(slotId)) return;
                 insertPreviewIntoRenderedMessage({
@@ -4895,11 +5056,6 @@ export async function generateAndInsertImages({
                 });
             });
         };
-        const recoverRenderedSlots = async () => {
-            syncRenderedMessage();
-            renderPendingSlots();
-            await renderPreviewsForMessage(resolvedMessageId);
-        };
         placementLifecycle.syncRenderedMessage = syncRenderedMessage;
         if (message.mes !== originalMes) {
             throw new ScenePlacementError('正文在准备插图位置时发生变化，未写入图片。', 'SCENE_SOURCE_CHANGED');
@@ -4910,134 +5066,308 @@ export async function generateAndInsertImages({
         onStateChange?.('gen', { current: 0, total: tasks.length });
         let requiresFinalDomSync = false;
         let terminationReason = '';
-
-        for (let i = 0; i < tasks.length; i++) {
-            if (signal.aborted) {
-                terminationReason = 'aborted';
-                break;
+        const checkPlacementContext = () => {
+            if (terminationReason) return false;
+            if (!moduleInitialized) {
+                terminationReason = 'detached';
+                job.controller.abort();
+                return false;
             }
             const currentCtx = getContext();
-            if (currentCtx.chatId !== initialChatId || currentCtx.chat?.[resolvedMessageId] !== message) {
+            if (currentCtx.chatId !== initialChatId
+                || (!placementLifecycle.committedEarly && currentCtx.chat?.[resolvedMessageId] !== message)) {
+                console.warn('[ComfyDraw] 聊天已切换或消息已被替换，中止生成');
                 terminationReason = 'detached';
-                break;
+                job.controller.abort();
+                return false;
             }
-            if (message.mes !== originalMes || isMessageBeingEdited(resolvedMessageId)) {
+            if (isMessageBeingEdited(resolvedMessageId)) {
+                if (!placementLifecycle.committedEarly) {
+                    console.warn('[ComfyDraw] 楼层正在编辑，中止生成');
+                    terminationReason = 'source_changed';
+                    job.controller.abort();
+                }
+                return false;
+            }
+            if (!placementLifecycle.committedEarly && message.mes !== originalMes) {
+                console.warn('[ComfyDraw] 正文已变化，中止生成');
                 terminationReason = 'source_changed';
-                break;
+                job.controller.abort();
+                return false;
             }
-
-            const task = tasks[i];
-            const slotId = slotIds[i];
-            const imgId = generateImgId();
+            return true;
+        };
+        const batchRequests = tasks.map((task, index) => {
             const params = getEffectiveParams(comfySettings, paramsOverride);
             const promptData = buildPromptForTask(task, sharedDrawSettings, {
                 positivePrefix: params.positivePrefix,
                 negativePrefix: params.negativePrefix,
             }, promptOverride, negativePromptOverride);
+            return {
+                task,
+                slotId: slotIds[index],
+                imgId: generateImgId(),
+                params,
+                promptData,
+                prompt: promptData.positive,
+                negativePrompt: promptData.negative,
+            };
+        });
+        const recoverablePlan = {
+            chatId: String(initialChatId || ''),
+            messageId: String(resolvedMessageId),
+            replacedSlotIds,
+            gallery: { chatId: String(initialChatId || ''), characterName: String(message.name || '') },
+            items: batchRequests.map((request, index) => ({
+                index,
+                slotId: request.slotId,
+                imgId: request.imgId,
+                previewMetadata: {
+                    tags: request.task.scene || promptOverride,
+                    positive: request.promptData.positive,
+                    characterPrompts: request.promptData.characterPrompts,
+                    negativePrompt: request.promptData.negative,
+                },
+            })),
+        };
+        const commitPlannedPlacements = async () => {
+            const committed = await commitRecoverableScenePlacements({
+                getCurrentChatId: () => getContext().chatId,
+                getCurrentMessage: id => getContext().chat?.[id],
+                expectedChatId: initialChatId,
+                messageId: resolvedMessageId,
+                message,
+                originalText: originalMes,
+                plannedText: plannedMes,
+                slotIds,
+                isEditing: isMessageBeingEdited,
+                persist: persistChatSilently,
+                syncAfterRollback: async (sourceText) => {
+                    syncRenderedMessage(sourceText);
+                    await renderPreviewsForMessage(resolvedMessageId);
+                },
+            });
+            if (committed) placementLifecycle.committedEarly = true;
+            return committed;
+        };
 
-            let incrementalHtml = '';
-            try {
-                const base64 = await generateComfyImage({
-                    prompt: promptData.positive,
-                    negativePrompt: promptData.negative,
-                    params,
-                    signal,
-                    queueBatch: job,
-                    onQueueStateChange: (queueState, queueData) => {
-                        if (queueState === 'queued') {
-                            onStateChange?.('queued', { current: i + 1, total: tasks.length, ...queueData });
-                        }
-                        if (queueState === 'start') {
-                            onStateChange?.('progress', { current: i + 1, total: tasks.length });
-                        }
-                        if (queueState === 'cooldown' && i < tasks.length - 1) {
-                            onStateChange?.('cooldown', { duration: queueData.duration, nextIndex: i + 2, total: tasks.length });
-                        }
-                    },
+        const resolveDeliveryTarget = (slotId) => {
+            const currentCtx = getContext();
+            return requireImageJobDeliveryTarget({
+                currentChatId: currentCtx.chatId,
+                targetChatId: initialChatId,
+                chat: currentCtx.chat,
+                slotId,
+            });
+        };
+        const renderBatchPreviews = async ({ final = false } = {}) => {
+            const currentCtx = getContext();
+            if (String(currentCtx.chatId || '') !== String(initialChatId || '')) return;
+            const messageIds = new Set();
+            for (const slotId of slotIds) {
+                const target = classifyImageJobDeliveryTarget({
+                    currentChatId: currentCtx.chatId,
+                    targetChatId: initialChatId,
+                    chat: currentCtx.chat,
+                    slotId,
                 });
-                await storePreview({
-                    imgId, slotId, messageId: resolvedMessageId, base64,
-                    tags: task.scene || promptOverride, positive: promptData.positive,
-                    characterPrompts: promptData.characterPrompts,
-                    negativePrompt: promptData.negative,
-                });
-                await setSlotSelection(slotId, imgId);
-                successCount++;
-                results.push({ slotId, imgId, success: true });
-                incrementalHtml = buildImageHtml({
-                    slotId, imgId, url: getPreviewDisplayUrl({ imgId, base64 }),
-                    tags: task.scene || promptOverride, positive: promptData.positive,
-                    messageId: resolvedMessageId, state: ImageState.PREVIEW, historyCount: 1, currentIndex: 0,
-                });
-            } catch (error) {
-                if (signal.aborted) break;
-                const errorType = classifyError(error) || ErrorType.UNKNOWN;
-                await storeFailedPlaceholder({
-                    slotId, messageId: resolvedMessageId,
-                    tags: task.scene || promptOverride, positive: promptData.positive,
-                    errorType: errorType.code, errorMessage: errorType.desc,
-                    characterPrompts: promptData.characterPrompts,
-                    negativePrompt: promptData.negative,
-                });
-                results.push({ slotId, success: false, error: errorType });
-                incrementalHtml = buildFailedPlaceholderHtml({
-                    slotId, messageId: resolvedMessageId,
-                    tags: task.scene || promptOverride, positive: promptData.positive,
-                    errorType: errorType.label, errorMessage: errorType.desc,
-                });
-            }
-
-            if (signal.aborted) {
-                terminationReason = 'aborted';
-                break;
-            }
-            const renderCtx = getContext();
-            if (renderCtx.chatId !== initialChatId || renderCtx.chat?.[resolvedMessageId] !== message) {
-                terminationReason = 'detached';
-                break;
-            }
-            if (message.mes !== originalMes || isMessageBeingEdited(resolvedMessageId)) {
-                terminationReason = 'source_changed';
-                break;
-            }
-
-            if (!isMessageBeingEdited(resolvedMessageId)) {
-                const inserted = insertPreviewIntoRenderedMessage({
-                    messageId: resolvedMessageId, slotId, html: incrementalHtml,
-                });
-                if (!inserted) {
-                    requiresFinalDomSync = true;
-                    try {
-                        await recoverRenderedSlots();
-                    } catch (error) {
-                        console.warn('[ComfyDraw] 增量渲染恢复失败，继续生成:', error);
-                    }
+                if (target.state === ImageJobDeliveryTargetState.ALIVE && target.isActiveSwipe) {
+                    messageIds.add(target.messageId);
                 }
             }
-        }
+            if (messageIds.size === 0) {
+                const currentMessageId = currentCtx.chat?.indexOf(message) ?? -1;
+                if (currentMessageId >= 0) messageIds.add(currentMessageId);
+            }
+            await Promise.all([...messageIds].map(currentMessageId => renderPreviewsForMessage(
+                currentMessageId,
+                final ? { refreshSlotIds: [...new Set([...slotIds, ...replacedSlotIds])] } : undefined,
+            )));
+        };
+        const renderRemovedTargets = async (targets, removedSlotIds) => {
+            const messageIds = new Set((Array.isArray(targets) ? targets : [])
+                .filter(target => target?.isActiveSwipe)
+                .map(target => target.messageId));
+            await Promise.all([...messageIds].map(targetMessageId => renderPreviewsForMessage(
+                targetMessageId,
+                { refreshSlotIds: removedSlotIds },
+            )));
+        };
+        const renderSettledSlot = async (slotId, createHtml) => {
+            if (!checkPlacementContext()) return;
+            const target = placementLifecycle.committedEarly
+                ? resolveDeliveryTarget(slotId)
+                : { messageId: resolvedMessageId, isActiveSwipe: true };
+            if (!target?.isActiveSwipe) return;
+            const html = typeof createHtml === 'function' ? createHtml(target.messageId) : createHtml;
+            const inserted = insertPreviewIntoRenderedMessage({ messageId: target.messageId, slotId, html });
+            if (!inserted) requiresFinalDomSync = true;
+        };
+        const recordSlotFailure = async (index, error, guard = async () => {}) => {
+            const request = batchRequests[index];
+            if (!request || results[index]) return null;
+            const errorType = classifyError(error) || ErrorType.UNKNOWN;
+            const failedImgId = `failed-${request.imgId}`;
+            const committed = await commitSceneSlotDelivery({
+                committedEarly: placementLifecycle.committedEarly,
+                resolveTarget: () => resolveDeliveryTarget(request.slotId),
+                guard,
+                persist: target => storeFailedPlaceholder({
+                    ...recoverablePlan.gallery,
+                    imgId: failedImgId,
+                    slotId: request.slotId,
+                    messageId: target?.messageId ?? resolvedMessageId,
+                    tags: request.task.scene || promptOverride,
+                    positive: request.promptData.positive,
+                    errorType: errorType.code,
+                    errorMessage: errorType.desc,
+                    characterPrompts: request.promptData.characterPrompts,
+                    negativePrompt: request.promptData.negative,
+                }),
+                rollbackPersisted: () => deletePreview(failedImgId),
+                select: () => setSlotSelection(request.slotId, failedImgId),
+                rollbackSelection: () => clearSlotSelection(request.slotId),
+            });
+            if (!committed) return null;
+            results[index] = { slotId: request.slotId, success: false, error: errorType };
+            return errorType;
+        };
+        const settleBackendPlacements = async ({ error, guard = async () => {} } = {}) => {
+            const unfinished = slotIds.filter((_slotId, index) => !results[index]);
+            if (job.abortReason === 'user') {
+                let removedTargets = [];
+                if (unfinished.length > 0) {
+                    removedTargets = await commitImageJobDeliverySlotRemoval({
+                        slotIds: unfinished,
+                        resolveTarget: resolveDeliveryTarget,
+                        isEditing: isMessageBeingEdited,
+                        isAnyEditing: isAnyMessageBeingEdited,
+                        guard,
+                        persist: persistChatSilently,
+                    });
+                }
+                await renderRemovedTargets(removedTargets, unfinished).catch(() => {});
+                await renderBatchPreviews().catch(() => {});
+                return;
+            }
+            if (error) {
+                for (const index of slotIds.keys()) {
+                    if (results[index]) continue;
+                    const errorType = await recordSlotFailure(index, error, guard);
+                    if (!errorType) continue;
+                    const request = batchRequests[index];
+                    await renderSettledSlot(request.slotId, targetMessageId => buildFailedPlaceholderHtml({
+                        slotId: request.slotId,
+                        messageId: targetMessageId,
+                        tags: request.task.scene || promptOverride,
+                        positive: request.promptData.positive,
+                        errorType: errorType.label,
+                        errorMessage: errorType.desc,
+                    }));
+                }
+            }
+            if (replacedSlotIds.length > 0) {
+                const removedTargets = await commitImageJobDeliverySlotRemoval({
+                    slotIds: replacedSlotIds,
+                    resolveTarget: resolveDeliveryTarget,
+                    isEditing: isMessageBeingEdited,
+                    isAnyEditing: isAnyMessageBeingEdited,
+                    guard,
+                    persist: persistChatSilently,
+                });
+                await renderRemovedTargets(removedTargets, replacedSlotIds).catch(() => {});
+            }
+        };
+        const resolveBackendSettlement = ({ error } = {}) => {
+            if (job.abortReason === 'user') return { mode: 'discard' };
+            if (!error) return { mode: 'complete' };
+            return { mode: 'fail', errorType: classifyError(error) || ErrorType.UNKNOWN };
+        };
+        await runComfyImageBatch({
+            requests: batchRequests,
+            signal,
+            backendCancelSignal: job.backendCancel.signal,
+            recoverable: {
+                plan: recoverablePlan,
+                commitPlacements: commitPlannedPlacements,
+                settlePlacements: settleBackendPlacements,
+                resolveSettlement: resolveBackendSettlement,
+                afterForget: () => renderBatchPreviews({ final: true }),
+            },
+            queueBatch: job,
+            onStateChange: (state, data) => {
+                checkPlacementContext();
+                onStateChange?.(state, data);
+            },
+            onItemReady: async ({ index, base64, guard = async () => {} }) => {
+                const request = batchRequests[index];
+                const { slotId, imgId } = request;
+                const { task, promptData } = request;
+                const committed = await commitSceneSlotDelivery({
+                    committedEarly: placementLifecycle.committedEarly,
+                    resolveTarget: () => resolveDeliveryTarget(slotId),
+                    guard,
+                    persist: target => storePreview({
+                        ...recoverablePlan.gallery,
+                        imgId, slotId, messageId: target?.messageId ?? resolvedMessageId, base64,
+                        tags: task.scene || promptOverride, positive: promptData.positive,
+                        characterPrompts: promptData.characterPrompts, negativePrompt: promptData.negative,
+                    }),
+                    rollbackPersisted: () => deletePreview(imgId),
+                    select: () => setSlotSelection(slotId, imgId),
+                    rollbackSelection: () => clearSlotSelection(slotId),
+                });
+                if (!committed) return;
+                successCount++;
+                results[index] = { slotId, imgId, success: true };
+                await renderSettledSlot(slotId, targetMessageId => buildImageHtml({
+                        slotId, imgId, url: getPreviewDisplayUrl({ imgId, base64 }),
+                        tags: task.scene || promptOverride, positive: promptData.positive,
+                        messageId: targetMessageId, state: ImageState.PREVIEW, historyCount: 1, currentIndex: 0,
+                    }));
+            },
+            onItemSettled: async ({ index, state, error, guard = async () => {} }) => {
+                if (state === 'ready' || state === 'cancelled') return;
+                const errorType = await recordSlotFailure(index, error, guard);
+                if (!errorType) return;
+                const request = batchRequests[index];
+                await renderSettledSlot(request.slotId, targetMessageId => buildFailedPlaceholderHtml({
+                    slotId: request.slotId,
+                    messageId: targetMessageId,
+                    tags: request.task.scene || promptOverride,
+                    positive: request.promptData.positive,
+                    errorType: errorType.label,
+                    errorMessage: errorType.desc,
+                }));
+            },
+        });
 
         if (signal.aborted || terminationReason) {
             const abortCtx = getContext();
-            const canCommit = abortCtx.chatId === initialChatId
-                && abortCtx.chat?.[resolvedMessageId] === message
+            const messageValid = abortCtx.chatId === initialChatId
+                && abortCtx.chat?.[resolvedMessageId] === message;
+            const canCommit = !placementLifecycle.committedEarly
+                && messageValid
                 && message.mes === originalMes
                 && !isMessageBeingEdited(resolvedMessageId);
+            const canSync = messageValid
+                && !isMessageBeingEdited(resolvedMessageId)
+                && (placementLifecycle.committedEarly || canCommit);
             if (canCommit) {
-                message.mes = settleSceneSlotPlaceholders({
-                    currentText: plannedMes,
-                    originalText: originalMes,
+                setActiveMessageText(message, commitSettledScenePlacements(plannedMes, {
                     allSlotIds: slotIds,
-                    completedSlotIds: results.map((item) => item.slotId),
-                    successCount,
-                });
+                    settledSlotIds: results.filter(Boolean).map((item) => item.slotId),
+                }));
+            }
+            if (canSync) {
                 try {
                     syncRenderedMessage(message.mes);
                     await renderPreviewsForMessage(resolvedMessageId);
                 } catch (error) {
                     console.warn('[ComfyDraw] 取消结算后的 DOM 同步失败:', error);
                 }
-                await persistChatSilently().catch(() => {});
             }
+            if (canCommit) await persistChatSilently().catch(() => {});
             placementLifecycle.settled = true;
             if (terminationReason === 'source_changed') {
                 throw new ScenePlacementError(
@@ -5045,10 +5375,16 @@ export async function generateAndInsertImages({
                     'SCENE_SOURCE_CHANGED',
                 );
             }
-            const aborted = signal.aborted || terminationReason === 'aborted';
+            const aborted = terminationReason === 'aborted' || (signal.aborted && !terminationReason && job.abortReason === 'user');
             if (!aborted) notifyDetachedGeneration(successCount);
             onStateChange?.('success', { success: successCount, total: tasks.length, aborted, detached: !aborted });
             return { success: successCount, total: tasks.length, results, aborted, terminationReason: aborted ? 'aborted' : 'detached' };
+        }
+
+        if (placementLifecycle.committedEarly) {
+            placementLifecycle.settled = true;
+            onStateChange?.('success', { success: successCount, total: tasks.length });
+            return { success: successCount, total: tasks.length, results };
         }
 
         const finalCtx = getContext();
@@ -5059,15 +5395,29 @@ export async function generateAndInsertImages({
             onStateChange?.('success', { success: successCount, total: tasks.length, detached: true });
             return { success: successCount, total: tasks.length, results, aborted: false, terminationReason: 'detached' };
         }
-        const shouldUpdateDom = message.mes === originalMes && !isMessageBeingEdited(resolvedMessageId);
-        if (!shouldUpdateDom) {
+        const shouldUpdateDom = !isMessageBeingEdited(resolvedMessageId)
+            && (placementLifecycle.committedEarly || message.mes === originalMes);
+        if (!placementLifecycle.committedEarly && !shouldUpdateDom) {
             placementLifecycle.settled = true;
             throw new ScenePlacementError(
                 '正文在配图期间发生变化或正在编辑；已生成图片保留在画廊中，未写入楼层。',
                 'SCENE_SOURCE_CHANGED',
             );
         }
-        message.mes = plannedMes;
+        if (!placementLifecycle.committedEarly) {
+            try {
+                await commitSceneSlotReplacement({
+                    message,
+                    stagedText: plannedMes,
+                    replacedSlotIds,
+                    persist: persistChatSilently,
+                });
+                if (replacedSlotIds.length > 0) requiresFinalDomSync = true;
+            } catch (error) {
+                requiresFinalDomSync = true;
+                console.warn('[ComfyDraw] 替换旧图片槽位的保存未确认，已保留旧槽位:', error);
+            }
+        }
         if (shouldUpdateDom && requiresFinalDomSync) {
             try {
                 syncRenderedMessage(message.mes);
@@ -5076,10 +5426,6 @@ export async function generateAndInsertImages({
                 console.warn('[ComfyDraw] 最终 DOM 同步失败:', error);
             }
         }
-        if (shouldUpdateDom) {
-            await persistChatSilently().catch(() => {});
-        }
-
         onStateChange?.('success', { success: successCount, total: tasks.length });
         placementLifecycle.settled = true;
         return { success: successCount, total: tasks.length, results };
@@ -5090,24 +5436,22 @@ export async function generateAndInsertImages({
                 originalMes,
                 slotIds,
                 results,
-                getSuccessCount,
                 initialChatId,
                 plannedMes,
                 syncRenderedMessage,
+                committedEarly,
             } = placementLifecycle;
             const currentCtx = getContext();
-            const canCommit = currentCtx.chatId === initialChatId
+            const canCommit = !committedEarly
+                && currentCtx.chatId === initialChatId
                 && currentCtx.chat?.[resolvedMessageId] === message
                 && message.mes === originalMes
                 && !isMessageBeingEdited(resolvedMessageId);
             if (canCommit) {
-                message.mes = settleSceneSlotPlaceholders({
-                    currentText: plannedMes,
-                    originalText: originalMes,
+                setActiveMessageText(message, commitSettledScenePlacements(plannedMes, {
                     allSlotIds: slotIds,
-                    completedSlotIds: results.map((item) => item.slotId),
-                    successCount: getSuccessCount(),
-                });
+                    settledSlotIds: results.filter(Boolean).map((item) => item.slotId),
+                }));
                 try {
                     syncRenderedMessage?.(message.mes);
                 } catch {}
@@ -5115,7 +5459,7 @@ export async function generateAndInsertImages({
                 await persistChatSilently().catch(() => {});
             }
         }
-        generationJobs.delete(String(resolvedMessageId));
+        releaseGenerationJob(job);
     }
 }
 
@@ -5135,11 +5479,13 @@ async function testGenerateFromSettingsPanel() {
     try {
         const settings = getSettings();
         const effective = getEffectiveParams(settings);
-        const base64 = await generateComfyImage({
+        const base64 = await generateSingleComfyImage({
             prompt: composePrompt(effective.positivePrefix, prompt),
             negativePrompt: composePrompt(effective.negativePrefix, getValue('comfy-draw-test-negative')),
             params: effective,
+        }, {
             signal: pendingController.signal,
+            generationConfig: settings,
             onQueueStateChange: (state, data) => {
                 if (!resultEl) return;
                 if (state === 'queued') {
@@ -5167,7 +5513,8 @@ async function testGenerateFromSettingsPanel() {
 }
 
 export async function initComfyDraw() {
-    if (moduleInitialized) return;
+    if (moduleInitialized) return true;
+    const initGeneration = ++moduleLifecycleGeneration;
     await loadPromptTemplates();
     await loadTagGuide();
     let sharedDrawSettings;
@@ -5177,12 +5524,16 @@ export async function initComfyDraw() {
     } catch {
         return false;
     }
+    const [floatingPanel] = await Promise.all([
+        import('./floating-panel.js'),
+        openDB().then(() => clearExpiredCache(sharedDrawSettings.cacheDays)).catch(() => {}),
+    ]);
+    if (initGeneration !== moduleLifecycleGeneration || window?.isXiaobaixEnabled === false) return false;
+
     moduleInitialized = true;
+    backendJobMonitors.activate();
     ensureDrawImageStyles();
     setupImageDelegation();
-    await openDB().then(() => clearExpiredCache(sharedDrawSettings.cacheDays)).catch(() => {});
-
-    const floatingPanel = await import('./floating-panel.js');
     ensureComfyDrawPanelRef = floatingPanel.ensureComfyDrawPanel;
     destroyComfyDrawPanelsRef = floatingPanel.destroyComfyDrawPanels;
     floatingPanel.initFloatingPanel?.();
@@ -5239,13 +5590,15 @@ export async function initComfyDraw() {
 }
 
 export function cleanupComfyDraw() {
-    if (!moduleInitialized && !overlayElement) return;
+    moduleLifecycleGeneration++;
     moduleInitialized = false;
     events.cleanup();
     cleanupImageDelegation();
     stopSharedDrawPreviewRuntime();
+    backendJobMonitors.deactivate();
     abortPendingRequest();
-    abortGeneration();
+    abortGeneration(null, { reason: 'teardown' });
+    generationJobs = new Map();
     comfyImageRequestQueue.clear();
     hideSettings();
     destroyComfyDrawPanelsRef?.();

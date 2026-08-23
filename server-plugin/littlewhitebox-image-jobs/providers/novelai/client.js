@@ -205,7 +205,7 @@ async function readError(response, signal) {
         return body.toString('utf8') || `HTTP ${status}`;
     } catch (error) {
         if (signal?.aborted) throw error;
-        return `HTTP ${status}（错误响应超过 1 MiB 限制）`;
+        return `HTTP ${status}（错误响应读取失败：${String(error?.message || error).slice(0, 200)}）`;
     }
 }
 
@@ -367,6 +367,25 @@ async function openImageStream({ url, key, payload, insecure, signal }) {
     return { ok: true, response };
 }
 
+async function generateImageBuffer(options) {
+    const result = await generateImage(options);
+    if (!result.ok) return result;
+    return {
+        ok: true,
+        buffer: Buffer.from(result.base64, 'base64'),
+        mime: result.mime,
+    };
+}
+
+async function readImageStreamBuffer(options) {
+    const result = await openImageStream(options);
+    if (!result.ok) return result;
+    return {
+        ok: true,
+        buffer: await readResponseBuffer(result.response, options.signal),
+    };
+}
+
 async function testConnection({ url, baseUrl, key, payload, multipart, insecure, signal }) {
     const legacy = url === undefined;
     const requestPayload = legacy
@@ -403,4 +422,11 @@ async function testConnection({ url, baseUrl, key, payload, multipart, insecure,
     return { ok: false, status, error: await readError(response, signal) };
 }
 
-module.exports = { generateImage, openImageStream, resolveLegacyImageApi, testConnection };
+module.exports = {
+    generateImage,
+    generateImageBuffer,
+    openImageStream,
+    readImageStreamBuffer,
+    resolveLegacyImageApi,
+    testConnection,
+};

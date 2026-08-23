@@ -27,6 +27,9 @@ const FloatState = {
     LLM: 'llm',
     GEN: 'gen',
     COOLDOWN: 'cooldown',
+    RECONNECTING: 'reconnecting',
+    CANCELLING: 'cancelling',
+    BACKEND_LEGACY: 'backend_legacy',
     SUCCESS: 'success',
     PARTIAL: 'partial',
     ERROR: 'error',
@@ -651,6 +654,7 @@ function setFloorState(messageId, state, data = {}) {
     el.classList.remove('working', 'cooldown', 'success', 'partial', 'error', 'show-detail');
 
     const { statusIcon, statusText } = panelData.$cache;
+    if (statusText) statusText.className = 'nd-status-text';
 
     switch (state) {
         case FloatState.IDLE:
@@ -678,7 +682,22 @@ function setFloorState(messageId, state, data = {}) {
         case FloatState.COOLDOWN:
             el.classList.add('cooldown');
             if (statusIcon) { statusIcon.textContent = '⏳'; statusIcon.className = 'nd-status-icon nd-spin'; }
-            startFloorCooldownTimer(panelData, data.duration);
+            startFloorCooldownTimer(panelData, data);
+            break;
+        case FloatState.RECONNECTING:
+            el.classList.add('working');
+            if (statusIcon) { statusIcon.textContent = '↻'; statusIcon.className = 'nd-status-icon nd-spin'; }
+            if (statusText) statusText.textContent = '重连';
+            break;
+        case FloatState.CANCELLING:
+            el.classList.add('working');
+            if (statusIcon) { statusIcon.textContent = '⏳'; statusIcon.className = 'nd-status-icon nd-spin'; }
+            if (statusText) statusText.textContent = '取消中';
+            break;
+        case FloatState.BACKEND_LEGACY:
+            el.classList.add('working');
+            if (statusIcon) { statusIcon.textContent = '↪'; statusIcon.className = 'nd-status-icon'; }
+            if (statusText) statusText.textContent = '兼容模式';
             break;
         case FloatState.SUCCESS:
             el.classList.add('success');
@@ -706,8 +725,15 @@ function setFloorState(messageId, state, data = {}) {
     }
 }
 
-function startFloorCooldownTimer(panelData, duration) {
-    panelData.cooldownEndTime = Date.now() + duration;
+function resolveCooldownEndTime({ cooldownUntil, duration } = {}) {
+    const absolute = Number(cooldownUntil);
+    if (Number.isFinite(absolute) && absolute > 0) return absolute;
+    return Date.now() + Math.max(0, Number(duration) || 0);
+}
+
+function startFloorCooldownTimer(panelData, data) {
+    if (panelData.cooldownRafId) cancelAnimationFrame(panelData.cooldownRafId);
+    panelData.cooldownEndTime = resolveCooldownEndTime(data);
 
     function tick() {
         if (!panelData.cooldownEndTime) return;
@@ -774,6 +800,9 @@ async function handleFloorDrawClick(messageId) {
                     case 'gen': setFloorState(messageId, FloatState.GEN, data); break;
                     case 'progress': setFloorState(messageId, FloatState.GEN, data); break;
                     case 'cooldown': setFloorState(messageId, FloatState.COOLDOWN, data); break;
+                    case 'reconnecting': setFloorState(messageId, FloatState.RECONNECTING, data); break;
+                    case 'cancelling': setFloorState(messageId, FloatState.CANCELLING, data); break;
+                    case 'backend_legacy': setFloorState(messageId, FloatState.BACKEND_LEGACY, data); break;
                     case 'success':
                         if (data.aborted && data.success === 0) {
                             setFloorState(messageId, FloatState.IDLE);
@@ -801,8 +830,8 @@ async function handleFloorAbort(messageId) {
     try {
         const { abortGeneration } = await import('./novel-draw.js');
         if (abortGeneration(messageId)) {
-            setFloorState(messageId, FloatState.IDLE);
-            toastr?.info?.('已中止');
+            setFloorState(messageId, FloatState.CANCELLING);
+            toastr?.info?.('正在中止');
         }
     } catch (e) {
         console.error('[NovelDraw] 中止失败:', e);
@@ -830,7 +859,7 @@ function bindFloorPanelEvents(panelData) {
     el.querySelector('.nd-layer-active')?.addEventListener('click', (e) => {
         e.stopPropagation();
         const state = panelData.state;
-        if ([FloatState.QUEUED, FloatState.LLM, FloatState.GEN, FloatState.COOLDOWN].includes(state)) {
+        if ([FloatState.QUEUED, FloatState.LLM, FloatState.GEN, FloatState.COOLDOWN, FloatState.RECONNECTING, FloatState.BACKEND_LEGACY].includes(state)) {
             handleFloorAbort(messageId);
         } else if ([FloatState.SUCCESS, FloatState.PARTIAL, FloatState.ERROR].includes(state)) {
             updateFloorDetailPopup(messageId);
@@ -865,6 +894,11 @@ function bindFloorPanelEvents(panelData) {
 
     panelData._cleanup = () => {
         document.removeEventListener('click', closeMenu);
+        if (panelData.autoResetTimer) clearTimeout(panelData.autoResetTimer);
+        panelData.autoResetTimer = null;
+        if (panelData.cooldownRafId) cancelAnimationFrame(panelData.cooldownRafId);
+        panelData.cooldownRafId = null;
+        panelData.cooldownEndTime = null;
     };
 }
 
@@ -1067,9 +1101,9 @@ function clearFloatingCooldownTimer() {
     floatingCooldownEndTime = 0;
 }
 
-function startFloatingCooldownTimer(duration) {
+function startFloatingCooldownTimer(data) {
     clearFloatingCooldownTimer();
-    floatingCooldownEndTime = Date.now() + duration;
+    floatingCooldownEndTime = resolveCooldownEndTime(data);
 
     function tick() {
         if (!floatingCooldownEndTime) return;
@@ -1107,6 +1141,7 @@ function setFloatingState(state, data = {}) {
 
     const { statusIcon, statusText } = $floatingCache;
     if (!statusIcon || !statusText) return;
+    statusText.className = 'nd-status-text';
 
     switch (state) {
         case FloatState.IDLE:
@@ -1138,7 +1173,25 @@ function setFloatingState(state, data = {}) {
             floatingEl.classList.add('cooldown');
             statusIcon.textContent = '⏳';
             statusIcon.className = 'nd-status-icon nd-spin';
-            startFloatingCooldownTimer(data.duration);
+            startFloatingCooldownTimer(data);
+            break;
+        case FloatState.RECONNECTING:
+            floatingEl.classList.add('working');
+            statusIcon.textContent = '↻';
+            statusIcon.className = 'nd-status-icon nd-spin';
+            statusText.textContent = '重连';
+            break;
+        case FloatState.CANCELLING:
+            floatingEl.classList.add('working');
+            statusIcon.textContent = '⏳';
+            statusIcon.className = 'nd-status-icon nd-spin';
+            statusText.textContent = '取消中';
+            break;
+        case FloatState.BACKEND_LEGACY:
+            floatingEl.classList.add('working');
+            statusIcon.textContent = '↪';
+            statusIcon.className = 'nd-status-icon';
+            statusText.textContent = '兼容模式';
             break;
         case FloatState.SUCCESS:
             floatingEl.classList.add('success');
@@ -1257,7 +1310,7 @@ function routeFloatingClick(target) {
         }
         floatingEl.classList.toggle('expanded');
     } else if (target.closest('.nd-layer-active')) {
-        if ([FloatState.QUEUED, FloatState.LLM, FloatState.GEN, FloatState.COOLDOWN].includes(floatingState)) {
+        if ([FloatState.QUEUED, FloatState.LLM, FloatState.GEN, FloatState.COOLDOWN, FloatState.RECONNECTING, FloatState.BACKEND_LEGACY].includes(floatingState)) {
             handleFloatingAbort();
         } else if ([FloatState.SUCCESS, FloatState.PARTIAL, FloatState.ERROR].includes(floatingState)) {
             updateFloatingDetailPopup();
@@ -1287,6 +1340,9 @@ async function handleFloatingDrawClick() {
                     case 'gen': setFloatingState(FloatState.GEN, data); break;
                     case 'progress': setFloatingState(FloatState.GEN, data); break;
                     case 'cooldown': setFloatingState(FloatState.COOLDOWN, data); break;
+                    case 'reconnecting': setFloatingState(FloatState.RECONNECTING, data); break;
+                    case 'cancelling': setFloatingState(FloatState.CANCELLING, data); break;
+                    case 'backend_legacy': setFloatingState(FloatState.BACKEND_LEGACY, data); break;
                     case 'success':
                         if (data.aborted && data.success === 0) {
                             setFloatingState(FloatState.IDLE);
@@ -1315,8 +1371,8 @@ async function handleFloatingAbort() {
         const { abortGeneration } = await import('./novel-draw.js');
         const messageId = floatingMessageId;
         if (messageId >= 0 && abortGeneration(messageId)) {
-            setFloatingState(FloatState.IDLE);
-            toastr?.info?.('已中止');
+            setFloatingState(FloatState.CANCELLING);
+            toastr?.info?.('正在中止');
         }
     } catch (e) {
         console.error('[NovelDraw] 中止失败:', e);

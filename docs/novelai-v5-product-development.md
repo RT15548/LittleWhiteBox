@@ -657,7 +657,7 @@ MessagePack 解码使用锁定版本的成熟浏览器 ESM 依赖（`@msgpack/ms
 | `scene-rules.md` | 新默认内容移除模型绑定的固定 5x5、角色合并和 Tag 配额协议 |
 | `novel-image-response.js` 或相邻模块 | 长度帧读取、MessagePack 解码、final/error 处理 |
 | `package.json` / `package-lock.json` / 本地 `libs` | 锁定并分发 `@msgpack/msgpack` 浏览器 ESM 与许可证，不使用 CDN |
-| `server-plugin/littlewhitebox-nai` | 升级至 1.2.0，声明 capability；v2 仅传输完整 URL 与请求报文，v1 冻结为正式线兼容入口 |
+| `server-plugin/littlewhitebox-image-jobs/providers/novelai` | NovelAI transport 由通用图片任务插件所有；v2 仅传输完整 URL 与请求报文，v1 冻结为正式线兼容入口 |
 | `cloud-presets.js` | 参数预设格式升级为 V2，完整往返数量限制与 V5 字段；V1 只在导入边界转换 |
 | Assistant file manifest | 源码完成后最后重建 |
 

@@ -7,10 +7,16 @@ export function snapshotNovelRequestConfig(settings, generationConfig, defaultTi
         apiBaseUrl: String(settings?.apiBaseUrl || '').trim(),
         apiKey: String(settings?.apiKey || '').trim(),
         sendMode: settings?.sendMode === 'backend' ? 'backend' : 'frontend',
+        useImageBackendJobs: settings?.useImageBackendJobs === true,
         insecureTLS: settings?.insecureTLS === true,
         timeout: Number.isFinite(timeout) && timeout > 0 ? timeout : defaultTimeout,
         overrideSize: String(generationConfig?.overrideSize ?? settings?.overrideSize ?? 'default'),
     });
+}
+
+export function resolveNovelImageTransport({ sendMode, useImageBackendJobs } = {}) {
+    if (useImageBackendJobs === true) return 'backend-job';
+    return sendMode === 'backend' ? 'backend' : 'frontend';
 }
 
 const DEFAULT_IMAGE_ORIGIN = 'https://image.novelai.net';

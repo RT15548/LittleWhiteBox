@@ -28,10 +28,16 @@ import {
 import { generateAndParseScenePlan } from "../../shared/scene-planner.js";
 import { createSceneSource } from "../../shared/scene-source.js";
 import {
+    commitRecoverableScenePlacements,
+    commitSceneSlotDelivery,
+    commitSceneSlotReplacement,
+    getSceneSlotIds,
     ScenePlacementError,
     assertSceneSourceUnchanged,
-    insertScenePlacements,
-    settleSceneSlotPlaceholders,
+    insertScenePlacementsPreservingSlots,
+    commitSettledScenePlacements,
+    removeSceneSlotPlaceholders,
+    setActiveMessageText,
 } from "../../shared/scene-placement.js";
 import { WorldbookProcessor } from "../../shared/worldbook-processor.js";
 import {
@@ -44,6 +50,22 @@ import { getLastDrawAgentDiagnostic } from "../../shared/draw-agent.js";
 import { attachDrawAgentSettingsSurface } from "../../shared/agent-settings-surface.js";
 import { createSerialImageRequestQueue } from "../../shared/serial-image-request-queue.js";
 import {
+    createBackendItemError,
+    createImageBackendJobMonitorRegistry,
+    createImageBackendJobsClient,
+    fetchImageBackendJobsStatus,
+    hasImageBackendJobsCapability,
+    readImageBackendResultBase64,
+    reportImageBackendJobState,
+} from '../../shared/backend-image-jobs.js';
+import {
+    classifyImageJobDeliveryTarget,
+    commitImageJobDeliverySlotRemoval,
+    ImageJobDeliveryTargetState,
+    requireImageJobDeliveryTarget,
+} from '../../shared/image-job-delivery-target.js';
+import { submitRecoverableImageJob } from '../../shared/recoverable-image-jobs.js';
+import {
     createCharacterEnabledControl,
     getCharacterEnabledFromCard,
 } from "../../shared/character-enabled-control.js";
@@ -55,6 +77,7 @@ import {
     buildImageHtml,
     buildPendingImageHtml,
     insertPreviewIntoRenderedMessage,
+    isAnyMessageBeingEdited,
     isMessageBeingEdited,
     detectPresentCharacters,
     assembleCharacterPrompts,
@@ -96,6 +119,7 @@ const DEFAULT_SD_DRAW_SETTINGS = {
     auth: '',
     timeout: 120000,
     transport: 'st-proxy',
+    useImageBackendJobs: false,
     mode: 'manual',
     overrideSize: 'default',
     showFloorButton: true,
@@ -130,6 +154,7 @@ const DEFAULT_SD_DRAW_SETTINGS = {
 };
 
 let moduleInitialized = false;
+let moduleLifecycleGeneration = 0;
 let settingsCache = null;
 let settingsLoaded = false;
 let overlayElement = null;
@@ -145,13 +170,15 @@ let destroySdDrawPanelsRef = null;
 let imageDelegationBound = false;
 let autoBusy = false;
 const events = createModuleEvents(MODULE_KEY);
-const generationJobs = new Map();
+let generationJobs = new Map();
+const backendJobMonitors = createImageBackendJobMonitorRegistry({ active: false });
 const SD_DRAW_VIEWS = ['test', 'api', 'params', 'llm', 'prompts', 'worldbook', 'characters', 'gallery'];
 const ImageState = { PREVIEW: 'preview', SAVING: 'saving', SAVED: 'saved', REFRESHING: 'refreshing', FAILED: 'failed' };
 const FIXED_SD_REQUEST_DELAY_MS = 1000;
 const sdImageRequestQueue = createSerialImageRequestQueue({
     getCooldownMs: () => FIXED_SD_REQUEST_DELAY_MS,
 });
+const sdBackendJobsClient = createImageBackendJobsClient({ getHeaders: getRequestHeaders });
 const SD_SIZE_PRESETS = [
     { value: '832x1216', width: 832, height: 1216 },
     { value: '1216x832', width: 1216, height: 832 },
@@ -231,6 +258,7 @@ function normalizeSettings(raw = {}) {
         host: String(raw.host || ''),
         auth: String(raw.auth || ''),
         transport: 'st-proxy',
+        useImageBackendJobs: raw.useImageBackendJobs === true,
         mode: raw.mode === 'auto' ? 'auto' : 'manual',
         overrideSize: String(raw.overrideSize || 'default'),
         showFloorButton: raw.showFloorButton !== false,
@@ -600,7 +628,7 @@ export async function fetchSdSamplers({ signal } = {}) {
     return Array.isArray(data) ? data : [];
 }
 
-async function requestSdImage({ prompt, negativePrompt = '', params = {}, generationConfig, signal } = {}) {
+function buildSdImageRequest({ prompt, negativePrompt = '', params = {}, generationConfig } = {}) {
     const settings = getSettings();
     const effective = generationConfig?.prepared === true ? params : getEffectiveParams(settings, params);
     const body = {
@@ -643,6 +671,11 @@ async function requestSdImage({ prompt, negativePrompt = '', params = {}, genera
         throw new Error('Prompt 不能为空');
     }
 
+    return body;
+}
+
+async function requestSdImage({ prompt, negativePrompt = '', params = {}, generationConfig, signal } = {}) {
+    const body = buildSdImageRequest({ prompt, negativePrompt, params, generationConfig });
     const response = await fetchSdProxy('generate', body, { signal, generationConfig });
     const data = await response.json();
     const firstImage = Array.isArray(data?.images) ? data.images[0] : null;
@@ -650,6 +683,105 @@ async function requestSdImage({ prompt, negativePrompt = '', params = {}, genera
         throw new Error('SD WebUI 没有返回图片');
     }
     return String(firstImage).replace(/^data:image\/\w+;base64,/, '');
+}
+
+async function runSdImageBatch({
+    requests,
+    generationConfig,
+    signal,
+    backendCancelSignal,
+    recoverable,
+    monitorGeneration,
+    queueBatch,
+    onStateChange,
+    onItemReady,
+    onItemSettled,
+}) {
+    if (!requests.length) return { mode: 'empty' };
+    const settings = generationConfig || getSettings();
+    const prepared = requests.map(request => buildSdImageRequest({ ...request, generationConfig: settings }));
+    if (settings.useImageBackendJobs && recoverable) {
+        let status;
+        const detachScope = backendJobMonitors.createScope(
+            backendCancelSignal ? signal : null,
+            monitorGeneration ?? backendJobMonitors.captureGeneration(),
+        );
+        try {
+            status = await fetchImageBackendJobsStatus({ getHeaders: getRequestHeaders, signal });
+        } catch (error) {
+            detachScope.dispose();
+            if (signal?.aborted) throw new Error('已取消');
+            throw error;
+        }
+        if (!hasImageBackendJobsCapability(status)) {
+            detachScope.dispose();
+            throw new Error('小白盒后台批量任务不可用。请安装并启动 littlewhitebox-image-jobs，或关闭此选项后继续使用酒馆原生连接。');
+        }
+        try {
+            const backendRequest = {
+                provider: 'sd-webui',
+                context: { url: settings.host, auth: settings.auth || '' },
+                delay: { min: FIXED_SD_REQUEST_DELAY_MS, max: FIXED_SD_REQUEST_DELAY_MS },
+                items: prepared.map(payload => ({ request: { payload }, timeout: settings.timeout || 120000 })),
+            };
+            const backendHandlers = {
+                cancelSignal: backendCancelSignal || signal,
+                detachSignal: detachScope.signal,
+                onStateChange: (state, data) => reportImageBackendJobState(onStateChange, state, data),
+                onItemReady: async ({ index, response }) => onItemReady?.({ index, base64: await readImageBackendResultBase64(response) }),
+                onItemSettled: async (item) => {
+                    // 早先已交付并 ACK 过的项是成功事实，绝不能触发失败 UI；
+                    // 它由恢复流程按记录的 imgId 从画廊还原。
+                    if (item.alreadyDelivered === true) return;
+                    await onItemSettled?.({
+                        ...item,
+                        error: item.source === 'frontend' ? item.error : createBackendItemError(item),
+                    });
+                },
+            };
+            const result = await submitRecoverableImageJob({
+                client: sdBackendJobsClient,
+                provider: 'sd-webui',
+                request: backendRequest,
+                plan: recoverable.plan,
+                commitPlacements: recoverable.commitPlacements,
+                settlePlacements: recoverable.settlePlacements,
+                resolveSettlement: recoverable.resolveSettlement,
+                afterForget: recoverable.afterForget,
+                ...backendHandlers,
+            });
+            return { mode: 'backend-job', ...result };
+        } catch (error) {
+            if (error?.detached === true || error?.code === 'PENDING_JOB_LEASE_LOST') throw error;
+            if (signal?.aborted) throw new Error('已取消');
+            throw error;
+        } finally {
+            detachScope.dispose();
+        }
+    }
+    for (let index = 0; index < requests.length; index++) {
+        if (signal?.aborted) {
+            for (let pending = index; pending < requests.length; pending++) {
+                await onItemSettled?.({ index: pending, state: 'cancelled', error: new Error('已取消'), source: 'frontend' });
+            }
+            break;
+        }
+        try {
+            const base64 = await generateSdImage({ ...requests[index], generationConfig: settings, signal, queueBatch, onQueueStateChange: (state, data) => {
+                if (state === 'start') return onStateChange?.('progress', { current: index + 1, total: requests.length });
+                if (state === 'cooldown') {
+                    if (index + 1 >= requests.length) return;
+                    return onStateChange?.('cooldown', { ...data, nextIndex: index + 2, total: requests.length });
+                }
+                onStateChange?.(state, { current: index + 1, total: requests.length, ...data });
+            } });
+            await onItemReady?.({ index, base64 });
+        } catch (error) {
+            await onItemSettled?.({ index, state: signal?.aborted ? 'cancelled' : 'failed', error, source: 'frontend' });
+            if (signal?.aborted) break;
+        }
+    }
+    return { mode: 'frontend' };
 }
 
 export async function generateSdImage({
@@ -1183,6 +1315,7 @@ function fillForm(settings) {
     setValue('sd-draw-host', settings.host);
     setValue('sd-draw-auth', settings.auth);
     setValue('sd-draw-timeout', settings.timeout);
+    setChecked('sd-use-image-backend-jobs', settings.useImageBackendJobs === true);
     setValue('sd-draw-steps', preset.steps ?? '');
     setValue('sd-draw-cfg', preset.cfg_scale ?? '');
     setValue('sd-draw-seed', Number.isFinite(Number(preset.seed)) ? preset.seed : -1);
@@ -1219,6 +1352,7 @@ function readForm() {
         host: getValue('sd-draw-host').trim(),
         auth: getValue('sd-draw-auth').trim(),
         timeout: normalizeNumber(getValue('sd-draw-timeout'), current.timeout, 10000, 600000),
+        useImageBackendJobs: getChecked('sd-use-image-backend-jobs'),
         defaultParams: {
             ...(current.defaultParams || {}),
             steps: preset.steps,
@@ -2778,26 +2912,38 @@ function createGenerationJob(messageId) {
     if (generationJobs.has(key)) {
         throw new Error('该楼层已有任务进行中');
     }
-    const job = { controller: new AbortController(), messageId };
+    const job = {
+        key,
+        controller: new AbortController(),
+        backendCancel: new AbortController(),
+        messageId,
+        abortReason: null,
+    };
     generationJobs.set(key, job);
     return job;
 }
 
-export function abortGeneration(messageId = null) {
+function releaseGenerationJob(job) {
+    if (job && generationJobs.get(job.key) === job) generationJobs.delete(job.key);
+}
+
+export function abortGeneration(messageId = null, { reason = 'user' } = {}) {
     if (messageId !== null && messageId !== undefined) {
         const job = generationJobs.get(String(messageId));
         if (!job) return false;
+        job.abortReason ||= reason;
+        if (reason === 'user') job.backendCancel.abort();
         job.controller.abort();
-        generationJobs.delete(String(messageId));
         return true;
     }
     let aborted = false;
     for (const job of generationJobs.values()) {
+        job.abortReason ||= reason;
+        if (reason === 'user') job.backendCancel.abort();
         job.controller.abort();
         aborted = true;
     }
-    generationJobs.clear();
-    abortPendingRequest();
+    if (reason === 'user') abortPendingRequest();
     return aborted;
 }
 
@@ -2857,6 +3003,8 @@ async function autoGenerateForLastAI() {
                     case 'gen':
                     case 'progress': updateState(fp.FloatState?.GEN, data); break;
                     case 'cooldown': updateState(fp.FloatState?.COOLDOWN, data); break;
+                    case 'reconnecting': updateState(fp.FloatState?.RECONNECTING, data); break;
+                    case 'cancelling': updateState(fp.FloatState?.CANCELLING, data); break;
                     case 'success':
                         updateState(
                             (data.aborted && data.success === 0) ? fp.FloatState?.IDLE
@@ -3598,7 +3746,7 @@ async function removePlaceholder(container) {
     const ctx = getContext();
     const message = ctx.chat?.[messageId];
     if (message?.mes) {
-        message.mes = String(message.mes || '').replace(createPlaceholder(slotId), '').replace(/\n{3,}/g, '\n\n');
+        message.mes = removeSceneSlotPlaceholders(message.mes, [slotId]);
         await persistChatSilently().catch(() => {});
     }
     container.remove();
@@ -3629,7 +3777,7 @@ async function deleteCurrentImage(container) {
         const ctx = getContext();
         const message = ctx.chat?.[messageId];
         if (message?.mes) {
-            message.mes = message.mes.replace(createPlaceholder(slotId), '').replace(/\n{3,}/g, '\n\n');
+            message.mes = removeSceneSlotPlaceholders(message.mes, [slotId]);
             await persistChatSilently().catch(() => {});
         }
     }
@@ -3724,6 +3872,7 @@ function buildTextSourceGalleryMeta(options = {}) {
 }
 
 export async function generateImagesFromText(options = {}) {
+    const monitorGeneration = backendJobMonitors.captureGeneration();
     const text = String(options.text || '');
     if (!text.trim()) throw new Error('正文内容为空，无法配图');
     const signal = options.signal || new AbortController().signal;
@@ -3752,51 +3901,31 @@ export async function generateImagesFromText(options = {}) {
 
     const sdSettings = getSettings();
     const sharedDrawSettings = getSharedDrawSettings();
-    const queueBatch = {};
     const images = [];
     let successCount = 0;
-
-    options.onStateChange?.('gen', { current: 0, total: tasks.length });
-    for (let i = 0; i < tasks.length; i++) {
-        if (signal.aborted) break;
-        const task = tasks[i];
+    const requests = tasks.map((task) => {
         const slotId = generateSlotId();
         const imgId = generateImgId();
         const params = getEffectiveParams(sdSettings, options.paramsOverride || {});
         const promptData = buildPromptForTask(
             task,
             sharedDrawSettings,
-            {
-                positivePrefix: params.positivePrefix,
-                negativePrefix: params.negativePrefix,
-            },
+            { positivePrefix: params.positivePrefix, negativePrefix: params.negativePrefix },
             options.promptOverride || '',
             options.negativePromptOverride || '',
         );
+        return { task, slotId, imgId, params, promptData, prompt: promptData.positive, negativePrompt: promptData.negative };
+    });
 
-        try {
-            const base64 = await generateSdImage({
-                prompt: promptData.positive,
-                negativePrompt: promptData.negative,
-                params,
-                signal,
-                queueBatch,
-                onQueueStateChange: (queueState, queueData) => {
-                    if (queueState === 'queued') {
-                        options.onStateChange?.('queued', { current: i + 1, total: tasks.length, ...queueData });
-                    }
-                    if (queueState === 'start') {
-                        options.onStateChange?.('progress', { current: i + 1, total: tasks.length });
-                    }
-                    if (queueState === 'cooldown' && i < tasks.length - 1) {
-                        options.onStateChange?.('cooldown', {
-                            duration: queueData.duration,
-                            nextIndex: i + 2,
-                            total: tasks.length,
-                        });
-                    }
-                },
-            });
+    options.onStateChange?.('gen', { current: 0, total: tasks.length });
+    await runSdImageBatch({
+        requests,
+        signal,
+        monitorGeneration,
+        queueBatch: {},
+        onStateChange: options.onStateChange,
+        onItemReady: async ({ index, base64 }) => {
+            const { task, slotId, imgId, promptData } = requests[index];
             await storePreview({
                 ...galleryMeta,
                 imgId,
@@ -3820,8 +3949,10 @@ export async function generateImagesFromText(options = {}) {
                 displayUrl: getPreviewDisplayUrl({ imgId, base64 }),
                 success: true,
             });
-        } catch (error) {
-            if (signal.aborted) break;
+        },
+        onItemSettled: async ({ index, state, error }) => {
+            if (state === 'ready' || signal.aborted) return;
+            const { task, slotId, promptData } = requests[index];
             const errorType = classifyError(error) || ErrorType.UNKNOWN;
             await storeFailedPlaceholder({
                 ...galleryMeta,
@@ -3843,8 +3974,8 @@ export async function generateImagesFromText(options = {}) {
                 success: false,
                 error: errorType,
             });
-        }
-    }
+        },
+    });
 
     options.onStateChange?.('success', { success: successCount, total: tasks.length });
     return {
@@ -3896,12 +4027,13 @@ export async function generateAndInsertImages({
             throw new ScenePlacementError('该楼层正在编辑，请保存或取消编辑后再配图。', 'SCENE_MESSAGE_EDITING');
         }
         const originalMes = message.mes;
+        const replacedSlotIds = getSceneSlotIds(originalMes);
         const slotIds = tasks.map(() => generateSlotId());
-        const results = [];
+        const results = new Array(tasks.length);
         let successCount = 0;
         const strippedNow = String(message.mes || '').replace(/\[image:[a-z0-9\-_]+\]/gi, '');
         if (sceneSource) assertSceneSourceUnchanged(strippedNow, sceneSource.sourceHash);
-        const plannedMes = insertScenePlacements(strippedNow, tasks.map((task, index) => ({
+        const plannedMes = insertScenePlacementsPreservingSlots(originalMes, tasks.map((task, index) => ({
             placement: task.placement,
             content: createPlaceholder(slotIds[index]),
         })), { block: true });
@@ -3916,6 +4048,7 @@ export async function generateAndInsertImages({
             plannedMes,
             syncRenderedMessage: null,
             settled: false,
+            committedEarly: false,
         };
 
         const { messageFormatting } = await import('../../../../../../../../script.js');
@@ -3925,7 +4058,7 @@ export async function generateAndInsertImages({
             $(`[mesid="${resolvedMessageId}"] .mes_text`).html(formatted);
         };
         const renderPendingSlots = () => {
-            const settledSlotIds = new Set(results.map((item) => item.slotId));
+            const settledSlotIds = new Set(results.filter(Boolean).map((item) => item.slotId));
             slotIds.forEach((slotId, index) => {
                 if (settledSlotIds.has(slotId)) return;
                 insertPreviewIntoRenderedMessage({
@@ -3940,11 +4073,6 @@ export async function generateAndInsertImages({
                 });
             });
         };
-        const recoverRenderedSlots = async () => {
-            syncRenderedMessage();
-            renderPendingSlots();
-            await renderPreviewsForMessage(resolvedMessageId);
-        };
         placementLifecycle.syncRenderedMessage = syncRenderedMessage;
         if (message.mes !== originalMes) {
             throw new ScenePlacementError('正文在准备插图位置时发生变化，未写入图片。', 'SCENE_SOURCE_CHANGED');
@@ -3955,156 +4083,308 @@ export async function generateAndInsertImages({
         onStateChange?.('gen', { current: 0, total: tasks.length });
         let requiresFinalDomSync = false;
         let terminationReason = '';
-
-        for (let i = 0; i < tasks.length; i++) {
-            if (signal.aborted) {
-                terminationReason = 'aborted';
-                break;
+        const checkPlacementContext = () => {
+            if (terminationReason) return false;
+            if (!moduleInitialized) {
+                terminationReason = 'detached';
+                job.controller.abort();
+                return false;
             }
             const currentCtx = getContext();
-            if (currentCtx.chatId !== initialChatId || currentCtx.chat?.[resolvedMessageId] !== message) {
+            if (currentCtx.chatId !== initialChatId
+                || (!placementLifecycle.committedEarly && currentCtx.chat?.[resolvedMessageId] !== message)) {
+                console.warn('[SdDraw] 聊天已切换或消息已被替换，中止生成');
                 terminationReason = 'detached';
-                break;
+                job.controller.abort();
+                return false;
             }
-            if (message.mes !== originalMes || isMessageBeingEdited(resolvedMessageId)) {
+            if (isMessageBeingEdited(resolvedMessageId)) {
+                if (!placementLifecycle.committedEarly) {
+                    console.warn('[SdDraw] 楼层正在编辑，中止生成');
+                    terminationReason = 'source_changed';
+                    job.controller.abort();
+                }
+                return false;
+            }
+            if (!placementLifecycle.committedEarly && message.mes !== originalMes) {
+                console.warn('[SdDraw] 正文已变化，中止生成');
                 terminationReason = 'source_changed';
-                break;
+                job.controller.abort();
+                return false;
             }
-
-            const task = tasks[i];
-            const slotId = slotIds[i];
-            const imgId = generateImgId();
+            return true;
+        };
+        const batchRequests = tasks.map((task, index) => {
             const params = getEffectiveParams(sdSettings, paramsOverride);
             const promptData = buildPromptForTask(task, sharedDrawSettings, {
                 positivePrefix: params.positivePrefix,
                 negativePrefix: params.negativePrefix,
             }, promptOverride, negativePromptOverride);
+            return {
+                task,
+                slotId: slotIds[index],
+                imgId: generateImgId(),
+                params,
+                promptData,
+                prompt: promptData.positive,
+                negativePrompt: promptData.negative,
+            };
+        });
+        const recoverablePlan = {
+            chatId: String(initialChatId || ''),
+            messageId: String(resolvedMessageId),
+            replacedSlotIds,
+            gallery: { chatId: String(initialChatId || ''), characterName: String(message.name || '') },
+            items: batchRequests.map((request, index) => ({
+                index,
+                slotId: request.slotId,
+                imgId: request.imgId,
+                previewMetadata: {
+                    tags: request.task.scene || promptOverride,
+                    positive: request.promptData.positive,
+                    characterPrompts: request.promptData.characterPrompts,
+                    negativePrompt: request.promptData.negative,
+                },
+            })),
+        };
+        const commitPlannedPlacements = async () => {
+            const committed = await commitRecoverableScenePlacements({
+                getCurrentChatId: () => getContext().chatId,
+                getCurrentMessage: id => getContext().chat?.[id],
+                expectedChatId: initialChatId,
+                messageId: resolvedMessageId,
+                message,
+                originalText: originalMes,
+                plannedText: plannedMes,
+                slotIds,
+                isEditing: isMessageBeingEdited,
+                persist: persistChatSilently,
+                syncAfterRollback: async (sourceText) => {
+                    syncRenderedMessage(sourceText);
+                    await renderPreviewsForMessage(resolvedMessageId);
+                },
+            });
+            if (committed) placementLifecycle.committedEarly = true;
+            return committed;
+        };
 
-            let incrementalHtml = '';
-            try {
-                const base64 = await generateSdImage({
-                    prompt: promptData.positive,
-                    negativePrompt: promptData.negative,
-                    params,
-                    signal,
-                    queueBatch: job,
-                    onQueueStateChange: (queueState, queueData) => {
-                        if (queueState === 'queued') {
-                            onStateChange?.('queued', { current: i + 1, total: tasks.length, ...queueData });
-                        }
-                        if (queueState === 'start') {
-                            onStateChange?.('progress', { current: i + 1, total: tasks.length });
-                        }
-                        if (queueState === 'cooldown' && i < tasks.length - 1) {
-                            onStateChange?.('cooldown', {
-                                duration: queueData.duration,
-                                nextIndex: i + 2,
-                                total: tasks.length,
-                            });
-                        }
-                    },
-                });
-                await storePreview({
-                    imgId,
+        const resolveDeliveryTarget = (slotId) => {
+            const currentCtx = getContext();
+            return requireImageJobDeliveryTarget({
+                currentChatId: currentCtx.chatId,
+                targetChatId: initialChatId,
+                chat: currentCtx.chat,
+                slotId,
+            });
+        };
+        const renderBatchPreviews = async ({ final = false } = {}) => {
+            const currentCtx = getContext();
+            if (String(currentCtx.chatId || '') !== String(initialChatId || '')) return;
+            const messageIds = new Set();
+            for (const slotId of slotIds) {
+                const target = classifyImageJobDeliveryTarget({
+                    currentChatId: currentCtx.chatId,
+                    targetChatId: initialChatId,
+                    chat: currentCtx.chat,
                     slotId,
-                    messageId: resolvedMessageId,
-                    base64,
-                    tags: task.scene || promptOverride,
-                    positive: promptData.positive,
-                    characterPrompts: promptData.characterPrompts,
-                    negativePrompt: promptData.negative,
                 });
-                await setSlotSelection(slotId, imgId);
-                successCount++;
-                results.push({ slotId, imgId, success: true });
-                incrementalHtml = buildImageHtml({
-                    slotId,
-                    imgId,
-                    url: getPreviewDisplayUrl({ imgId, base64 }),
-                    tags: task.scene || promptOverride,
-                    positive: promptData.positive,
-                    messageId: resolvedMessageId,
-                    state: ImageState.PREVIEW,
-                    historyCount: 1,
-                    currentIndex: 0,
-                });
-            } catch (error) {
-                if (signal.aborted) break;
-                const errorType = classifyError(error) || ErrorType.UNKNOWN;
-                await storeFailedPlaceholder({
-                    slotId,
-                    messageId: resolvedMessageId,
-                    tags: task.scene || promptOverride,
-                    positive: promptData.positive,
-                    errorType: errorType.code,
-                    errorMessage: errorType.desc,
-                    characterPrompts: promptData.characterPrompts,
-                    negativePrompt: promptData.negative,
-                });
-                results.push({ slotId, success: false, error: errorType });
-                incrementalHtml = buildFailedPlaceholderHtml({
-                    slotId,
-                    messageId: resolvedMessageId,
-                    tags: task.scene || promptOverride,
-                    positive: promptData.positive,
-                    errorType: errorType.label,
-                    errorMessage: errorType.desc,
-                });
-            }
-
-            if (signal.aborted) {
-                terminationReason = 'aborted';
-                break;
-            }
-            const renderCtx = getContext();
-            if (renderCtx.chatId !== initialChatId || renderCtx.chat?.[resolvedMessageId] !== message) {
-                terminationReason = 'detached';
-                break;
-            }
-            if (message.mes !== originalMes || isMessageBeingEdited(resolvedMessageId)) {
-                terminationReason = 'source_changed';
-                break;
-            }
-
-            if (!isMessageBeingEdited(resolvedMessageId)) {
-                const inserted = insertPreviewIntoRenderedMessage({
-                    messageId: resolvedMessageId,
-                    slotId,
-                    html: incrementalHtml,
-                });
-                if (!inserted) {
-                    requiresFinalDomSync = true;
-                    try {
-                        await recoverRenderedSlots();
-                    } catch (error) {
-                        console.warn('[SD Draw] 增量渲染恢复失败，继续生成:', error);
-                    }
+                if (target.state === ImageJobDeliveryTargetState.ALIVE && target.isActiveSwipe) {
+                    messageIds.add(target.messageId);
                 }
             }
-        }
+            if (messageIds.size === 0) {
+                const currentMessageId = currentCtx.chat?.indexOf(message) ?? -1;
+                if (currentMessageId >= 0) messageIds.add(currentMessageId);
+            }
+            await Promise.all([...messageIds].map(currentMessageId => renderPreviewsForMessage(
+                currentMessageId,
+                final ? { refreshSlotIds: [...new Set([...slotIds, ...replacedSlotIds])] } : undefined,
+            )));
+        };
+        const renderRemovedTargets = async (targets, removedSlotIds) => {
+            const messageIds = new Set((Array.isArray(targets) ? targets : [])
+                .filter(target => target?.isActiveSwipe)
+                .map(target => target.messageId));
+            await Promise.all([...messageIds].map(targetMessageId => renderPreviewsForMessage(
+                targetMessageId,
+                { refreshSlotIds: removedSlotIds },
+            )));
+        };
+        const renderSettledSlot = async (slotId, createHtml) => {
+            if (!checkPlacementContext()) return;
+            const target = placementLifecycle.committedEarly
+                ? resolveDeliveryTarget(slotId)
+                : { messageId: resolvedMessageId, isActiveSwipe: true };
+            if (!target?.isActiveSwipe) return;
+            const html = typeof createHtml === 'function' ? createHtml(target.messageId) : createHtml;
+            const inserted = insertPreviewIntoRenderedMessage({ messageId: target.messageId, slotId, html });
+            if (!inserted) requiresFinalDomSync = true;
+        };
+        const recordSlotFailure = async (index, error, guard = async () => {}) => {
+            const request = batchRequests[index];
+            if (!request || results[index]) return null;
+            const errorType = classifyError(error) || ErrorType.UNKNOWN;
+            const failedImgId = `failed-${request.imgId}`;
+            const committed = await commitSceneSlotDelivery({
+                committedEarly: placementLifecycle.committedEarly,
+                resolveTarget: () => resolveDeliveryTarget(request.slotId),
+                guard,
+                persist: target => storeFailedPlaceholder({
+                    ...recoverablePlan.gallery,
+                    imgId: failedImgId,
+                    slotId: request.slotId,
+                    messageId: target?.messageId ?? resolvedMessageId,
+                    tags: request.task.scene || promptOverride,
+                    positive: request.promptData.positive,
+                    errorType: errorType.code,
+                    errorMessage: errorType.desc,
+                    characterPrompts: request.promptData.characterPrompts,
+                    negativePrompt: request.promptData.negative,
+                }),
+                rollbackPersisted: () => deletePreview(failedImgId),
+                select: () => setSlotSelection(request.slotId, failedImgId),
+                rollbackSelection: () => clearSlotSelection(request.slotId),
+            });
+            if (!committed) return null;
+            results[index] = { slotId: request.slotId, success: false, error: errorType };
+            return errorType;
+        };
+        const settleBackendPlacements = async ({ error, guard = async () => {} } = {}) => {
+            const unfinished = slotIds.filter((_slotId, index) => !results[index]);
+            if (job.abortReason === 'user') {
+                let removedTargets = [];
+                if (unfinished.length > 0) {
+                    removedTargets = await commitImageJobDeliverySlotRemoval({
+                        slotIds: unfinished,
+                        resolveTarget: resolveDeliveryTarget,
+                        isEditing: isMessageBeingEdited,
+                        isAnyEditing: isAnyMessageBeingEdited,
+                        guard,
+                        persist: persistChatSilently,
+                    });
+                }
+                await renderRemovedTargets(removedTargets, unfinished).catch(() => {});
+                await renderBatchPreviews().catch(() => {});
+                return;
+            }
+            if (error) {
+                for (const index of slotIds.keys()) {
+                    if (results[index]) continue;
+                    const errorType = await recordSlotFailure(index, error, guard);
+                    if (!errorType) continue;
+                    const request = batchRequests[index];
+                    await renderSettledSlot(request.slotId, targetMessageId => buildFailedPlaceholderHtml({
+                        slotId: request.slotId,
+                        messageId: targetMessageId,
+                        tags: request.task.scene || promptOverride,
+                        positive: request.promptData.positive,
+                        errorType: errorType.label,
+                        errorMessage: errorType.desc,
+                    }));
+                }
+            }
+            if (replacedSlotIds.length > 0) {
+                const removedTargets = await commitImageJobDeliverySlotRemoval({
+                    slotIds: replacedSlotIds,
+                    resolveTarget: resolveDeliveryTarget,
+                    isEditing: isMessageBeingEdited,
+                    isAnyEditing: isAnyMessageBeingEdited,
+                    guard,
+                    persist: persistChatSilently,
+                });
+                await renderRemovedTargets(removedTargets, replacedSlotIds).catch(() => {});
+            }
+        };
+        const resolveBackendSettlement = ({ error } = {}) => {
+            if (job.abortReason === 'user') return { mode: 'discard' };
+            if (!error) return { mode: 'complete' };
+            return { mode: 'fail', errorType: classifyError(error) || ErrorType.UNKNOWN };
+        };
+        await runSdImageBatch({
+            requests: batchRequests,
+            signal,
+            backendCancelSignal: job.backendCancel.signal,
+            recoverable: {
+                plan: recoverablePlan,
+                commitPlacements: commitPlannedPlacements,
+                settlePlacements: settleBackendPlacements,
+                resolveSettlement: resolveBackendSettlement,
+                afterForget: () => renderBatchPreviews({ final: true }),
+            },
+            queueBatch: job,
+            onStateChange: (state, data) => {
+                checkPlacementContext();
+                onStateChange?.(state, data);
+            },
+            onItemReady: async ({ index, base64, guard = async () => {} }) => {
+                const request = batchRequests[index];
+                const { slotId, imgId } = request;
+                const { task, promptData } = request;
+                const committed = await commitSceneSlotDelivery({
+                    committedEarly: placementLifecycle.committedEarly,
+                    resolveTarget: () => resolveDeliveryTarget(slotId),
+                    guard,
+                    persist: target => storePreview({
+                        ...recoverablePlan.gallery,
+                        imgId, slotId, messageId: target?.messageId ?? resolvedMessageId, base64,
+                        tags: task.scene || promptOverride, positive: promptData.positive,
+                        characterPrompts: promptData.characterPrompts, negativePrompt: promptData.negative,
+                    }),
+                    rollbackPersisted: () => deletePreview(imgId),
+                    select: () => setSlotSelection(slotId, imgId),
+                    rollbackSelection: () => clearSlotSelection(slotId),
+                });
+                if (!committed) return;
+                successCount++;
+                results[index] = { slotId, imgId, success: true };
+                await renderSettledSlot(slotId, targetMessageId => buildImageHtml({
+                        slotId, imgId, url: getPreviewDisplayUrl({ imgId, base64 }),
+                        tags: task.scene || promptOverride, positive: promptData.positive,
+                        messageId: targetMessageId, state: ImageState.PREVIEW, historyCount: 1, currentIndex: 0,
+                    }));
+            },
+            onItemSettled: async ({ index, state, error, guard = async () => {} }) => {
+                if (state === 'ready' || state === 'cancelled') return;
+                const errorType = await recordSlotFailure(index, error, guard);
+                if (!errorType) return;
+                const request = batchRequests[index];
+                await renderSettledSlot(request.slotId, targetMessageId => buildFailedPlaceholderHtml({
+                    slotId: request.slotId,
+                    messageId: targetMessageId,
+                    tags: request.task.scene || promptOverride,
+                    positive: request.promptData.positive,
+                    errorType: errorType.label,
+                    errorMessage: errorType.desc,
+                }));
+            },
+        });
 
         if (signal.aborted || terminationReason) {
             const abortCtx = getContext();
-            const canCommit = abortCtx.chatId === initialChatId
-                && abortCtx.chat?.[resolvedMessageId] === message
+            const messageValid = abortCtx.chatId === initialChatId
+                && abortCtx.chat?.[resolvedMessageId] === message;
+            const canCommit = !placementLifecycle.committedEarly
+                && messageValid
                 && message.mes === originalMes
                 && !isMessageBeingEdited(resolvedMessageId);
+            const canSync = messageValid
+                && !isMessageBeingEdited(resolvedMessageId)
+                && (placementLifecycle.committedEarly || canCommit);
             if (canCommit) {
-                message.mes = settleSceneSlotPlaceholders({
-                    currentText: plannedMes,
-                    originalText: originalMes,
+                setActiveMessageText(message, commitSettledScenePlacements(plannedMes, {
                     allSlotIds: slotIds,
-                    completedSlotIds: results.map((item) => item.slotId),
-                    successCount,
-                });
+                    settledSlotIds: results.filter(Boolean).map((item) => item.slotId),
+                }));
+            }
+            if (canSync) {
                 try {
                     syncRenderedMessage(message.mes);
                     await renderPreviewsForMessage(resolvedMessageId);
                 } catch (error) {
                     console.warn('[SD Draw] 取消结算后的 DOM 同步失败:', error);
                 }
-                await persistChatSilently().catch(() => {});
             }
+            if (canCommit) await persistChatSilently().catch(() => {});
             placementLifecycle.settled = true;
             if (terminationReason === 'source_changed') {
                 throw new ScenePlacementError(
@@ -4112,10 +4392,16 @@ export async function generateAndInsertImages({
                     'SCENE_SOURCE_CHANGED',
                 );
             }
-            const aborted = signal.aborted || terminationReason === 'aborted';
+            const aborted = terminationReason === 'aborted' || (signal.aborted && !terminationReason && job.abortReason === 'user');
             if (!aborted) notifyDetachedGeneration(successCount);
             onStateChange?.('success', { success: successCount, total: tasks.length, aborted, detached: !aborted });
             return { success: successCount, total: tasks.length, results, aborted, terminationReason: aborted ? 'aborted' : 'detached' };
+        }
+
+        if (placementLifecycle.committedEarly) {
+            placementLifecycle.settled = true;
+            onStateChange?.('success', { success: successCount, total: tasks.length });
+            return { success: successCount, total: tasks.length, results };
         }
 
         const finalCtx = getContext();
@@ -4126,15 +4412,29 @@ export async function generateAndInsertImages({
             onStateChange?.('success', { success: successCount, total: tasks.length, detached: true });
             return { success: successCount, total: tasks.length, results, aborted: false, terminationReason: 'detached' };
         }
-        const shouldUpdateDom = message.mes === originalMes && !isMessageBeingEdited(resolvedMessageId);
-        if (!shouldUpdateDom) {
+        const shouldUpdateDom = !isMessageBeingEdited(resolvedMessageId)
+            && (placementLifecycle.committedEarly || message.mes === originalMes);
+        if (!placementLifecycle.committedEarly && !shouldUpdateDom) {
             placementLifecycle.settled = true;
             throw new ScenePlacementError(
                 '正文在配图期间发生变化或正在编辑；已生成图片保留在画廊中，未写入楼层。',
                 'SCENE_SOURCE_CHANGED',
             );
         }
-        message.mes = plannedMes;
+        if (!placementLifecycle.committedEarly) {
+            try {
+                await commitSceneSlotReplacement({
+                    message,
+                    stagedText: plannedMes,
+                    replacedSlotIds,
+                    persist: persistChatSilently,
+                });
+                if (replacedSlotIds.length > 0) requiresFinalDomSync = true;
+            } catch (error) {
+                requiresFinalDomSync = true;
+                console.warn('[SD Draw] 替换旧图片槽位的保存未确认，已保留旧槽位:', error);
+            }
+        }
         if (shouldUpdateDom && requiresFinalDomSync) {
             try {
                 syncRenderedMessage(message.mes);
@@ -4143,10 +4443,6 @@ export async function generateAndInsertImages({
                 console.warn('[SD Draw] 最终 DOM 同步失败:', error);
             }
         }
-        if (shouldUpdateDom) {
-            await persistChatSilently().catch(() => {});
-        }
-
         onStateChange?.('success', { success: successCount, total: tasks.length });
         placementLifecycle.settled = true;
         return { success: successCount, total: tasks.length, results };
@@ -4157,24 +4453,22 @@ export async function generateAndInsertImages({
                 originalMes,
                 slotIds,
                 results,
-                getSuccessCount,
                 initialChatId,
                 plannedMes,
                 syncRenderedMessage,
+                committedEarly,
             } = placementLifecycle;
             const currentCtx = getContext();
-            const canCommit = currentCtx.chatId === initialChatId
+            const canCommit = !committedEarly
+                && currentCtx.chatId === initialChatId
                 && currentCtx.chat?.[resolvedMessageId] === message
                 && message.mes === originalMes
                 && !isMessageBeingEdited(resolvedMessageId);
             if (canCommit) {
-                message.mes = settleSceneSlotPlaceholders({
-                    currentText: plannedMes,
-                    originalText: originalMes,
+                setActiveMessageText(message, commitSettledScenePlacements(plannedMes, {
                     allSlotIds: slotIds,
-                    completedSlotIds: results.map((item) => item.slotId),
-                    successCount: getSuccessCount(),
-                });
+                    settledSlotIds: results.filter(Boolean).map((item) => item.slotId),
+                }));
                 try {
                     syncRenderedMessage?.(message.mes);
                 } catch {}
@@ -4182,7 +4476,7 @@ export async function generateAndInsertImages({
                 await persistChatSilently().catch(() => {});
             }
         }
-        generationJobs.delete(String(resolvedMessageId));
+        releaseGenerationJob(job);
     }
 }
 
@@ -4234,7 +4528,8 @@ async function testGenerateFromSettingsPanel() {
 }
 
 export async function initSdDraw() {
-    if (moduleInitialized) return;
+    if (moduleInitialized) return true;
+    const initGeneration = ++moduleLifecycleGeneration;
     await loadPromptTemplates();
     await loadTagGuide();
     let sharedDrawSettings;
@@ -4244,12 +4539,16 @@ export async function initSdDraw() {
     } catch {
         return false;
     }
+    const [floatingPanel] = await Promise.all([
+        import('./floating-panel.js'),
+        openDB().then(() => clearExpiredCache(sharedDrawSettings.cacheDays)).catch(() => {}),
+    ]);
+    if (initGeneration !== moduleLifecycleGeneration || window?.isXiaobaixEnabled === false) return false;
+
     moduleInitialized = true;
+    backendJobMonitors.activate();
     ensureDrawImageStyles();
     setupImageDelegation();
-    await openDB().then(() => clearExpiredCache(sharedDrawSettings.cacheDays)).catch(() => {});
-
-    const floatingPanel = await import('./floating-panel.js');
     ensureSdDrawPanelRef = floatingPanel.ensureSdDrawPanel;
     destroySdDrawPanelsRef = floatingPanel.destroySdDrawPanels;
     floatingPanel.initFloatingPanel?.();
@@ -4308,13 +4607,15 @@ export async function initSdDraw() {
 }
 
 export function cleanupSdDraw() {
-    if (!moduleInitialized && !overlayElement) return;
+    moduleLifecycleGeneration++;
     moduleInitialized = false;
     events.cleanup();
     cleanupImageDelegation();
     stopSharedDrawPreviewRuntime();
+    backendJobMonitors.deactivate();
     abortPendingRequest();
-    abortGeneration();
+    abortGeneration(null, { reason: 'teardown' });
+    generationJobs = new Map();
     sdImageRequestQueue.clear();
     hideSettings();
     destroySdDrawPanelsRef?.();

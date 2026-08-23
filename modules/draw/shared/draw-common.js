@@ -3,6 +3,7 @@ import {
     getDisplayPreviewForSlot,
     getPreviewsBySlot,
     getPreviewDisplayUrl,
+    subscribeGalleryCacheChanges,
     warmSlotPreviewNeighbors,
 } from "./gallery-cache.js";
 import {
@@ -10,6 +11,7 @@ import {
     toSceneCharacterPromptTag,
 } from "./scene-plan-contract.js";
 import { ScenePlacementError } from './scene-placement.js';
+import { getPendingImageJobSlots, PendingJobState } from './pending-image-jobs.js';
 import { classifyScenePlannerErrorForUi } from "./scene-planner-error-ui.js";
 import { findEnabledCharacterByName, isCharacterEnabled } from './character-selection.js';
 import { createModuleEvents, event_types } from "../../../core/event-manager.js";
@@ -29,6 +31,7 @@ let drawPreviewRuntimeEvents = null;
 let drawPreviewRuntimeRefs = 0;
 let drawPreviewMessageObserver = null;
 let drawPreviewRuntimeGeneration = 0;
+let drawPreviewCacheSyncCleanup = null;
 const drawPreviewPendingTimers = new Set();
 
 export const ImageState = {
@@ -58,6 +61,8 @@ export const ErrorType = {
     ABORTED: { code: 'aborted', label: '已取消', desc: '场景规划已取消' },
     UNKNOWN: { code: 'unknown', label: '错误', desc: '未知错误' },
     CACHE_LOST: { code: 'cache_lost', label: '缓存丢失', desc: '图片缓存已过期' },
+    JOB_EXPIRED: { code: 'job_expired', label: '后台任务已失效', desc: '后台任务已过期或被清理，可重新生成' },
+    JOB_NOT_SUBMITTED: { code: 'job_not_submitted', label: '任务未提交', desc: '后台任务未提交成功，可重新生成' },
 };
 
 export const DEFAULT_MESSAGE_FILTER_RULES = [
@@ -74,22 +79,12 @@ export const DEFAULT_MESSAGE_FILTER_RULES = [
 ];
 
 export function toScenePlannerProgress(diagnostic = {}) {
-    const progress = diagnostic?.progress && typeof diagnostic.progress === 'object'
-        ? diagnostic.progress
-        : {};
-    const total = Math.max(1, Math.floor(Number(progress.total) || 3));
-    const current = Math.min(total, Math.max(1, Math.floor(Number(progress.current) || 1)));
-    return {
-        phase: progress.phase === 'correction' ? 'correction' : 'analysis',
-        current,
-        total,
-    };
+    const phase = diagnostic?.progress?.phase;
+    return { phase: phase === 'correction' ? 'correction' : 'analysis' };
 }
 
 export function formatScenePlannerProgress(progress = {}) {
-    const normalized = toScenePlannerProgress({ progress });
-    const label = normalized.phase === 'correction' ? '纠错' : '分析';
-    return `${label} ${normalized.current}/${normalized.total}`;
+    return toScenePlannerProgress({ progress }).phase === 'correction' ? '纠错' : '分析';
 }
 
 export function createPlaceholder(slotId) {
@@ -275,6 +270,12 @@ export function classifyError(error) {
         return { ...ErrorType.SCENE_PLACEMENT, desc: error.message || ErrorType.SCENE_PLACEMENT.desc };
     }
     if (error?.errorType) return error.errorType;
+    // 带 HTTP status 的后端错误优先按 status 分类：上游正文常常不写数字，靠 message 匹配会退化成未知错误。
+    const status = Number(error?.status) || 0;
+    if (status === 401 || status === 403) return ErrorType.AUTH;
+    if (status === 402) return ErrorType.QUOTA;
+    if (status === 429) return ErrorType.BUSY;
+    if (status === 408 || status === 504) return ErrorType.TIMEOUT;
     const msg = String(error?.message || error || '').toLowerCase();
     if (msg.includes('network') || msg.includes('fetch') || msg.includes('failed to fetch')) return ErrorType.NETWORK;
     if (msg.includes('401') || msg.includes('key') || msg.includes('auth')) return ErrorType.AUTH;
@@ -388,23 +389,32 @@ ${menuHtml}
 </div>`;
 }
 
-export function buildPendingImageHtml({ slotId, messageId, index = 0, total = 0 }) {
+// 未完成槽位的统一占位卡。label 由调用方按真实状态给出（等待生成 / 接回后台任务 /
+// 等待重新连接…），绝不伪造进度：chat 正文里只持久化 [image:slotId] 这个排版事实，
+// 状态文案永远是当前运行时和后端状态动态渲染出来的。
+export function buildPendingImageHtml({ slotId, messageId, index = 0, total = 0, label = '等待生成' }) {
     const progress = total > 0 ? `${Math.max(1, Number(index) || 1)} / ${total}` : '';
     return `<div class="xb-nd-img" data-slot-id="${escapeHtml(slotId)}" data-mesid="${escapeHtml(messageId)}" data-state="pending" style="margin:0.8em 0;text-align:center;position:relative;display:block;width:100%;border:1px dashed rgba(212,165,116,0.4);border-radius:14px;padding:18px;background:rgba(212,165,116,0.06);color:inherit;">
-<div class="xb-nd-indicator" style="position:static;transform:none;display:inline-block;">🎨 等待生成${progress ? ` · ${progress}` : ''}</div>
+<div class="xb-nd-indicator" style="position:static;transform:none;display:inline-block;">🎨 ${escapeHtml(label)}${progress ? ` · ${progress}` : ''}</div>
 </div>`;
 }
 
 function getMesTextElement(messageId) {
-    if (!Number.isFinite(messageId)) return null;
-    return document.querySelector(`#chat .mes[mesid="${messageId}"] .mes_text`);
+    const id = Number(messageId);
+    if (!Number.isInteger(id) || id < 0) return null;
+    return document.querySelector(`#chat .mes[mesid="${id}"] .mes_text`);
 }
 
 export function isMessageBeingEdited(messageId) {
-    if (!Number.isFinite(messageId)) return false;
-    const mesElement = document.querySelector(`.mes[mesid="${messageId}"]`);
+    const id = Number(messageId);
+    if (!Number.isInteger(id) || id < 0) return false;
+    const mesElement = document.querySelector(`.mes[mesid="${id}"]`);
     if (!mesElement) return false;
     return mesElement.querySelector('textarea.edit_textarea') !== null || mesElement.classList.contains('editing');
+}
+
+export function isAnyMessageBeingEdited() {
+    return document.querySelector('#chat .mes.editing, #chat .mes textarea.edit_textarea') !== null;
 }
 
 export function buildDrawSlotSelector(slotId) {
@@ -716,24 +726,47 @@ function buildFailedPlaceholderHtml({ slotId, messageId, tags, positive, errorTy
 </div>`;
 }
 
-export async function renderPreviewsForMessage(messageId) {
+export async function renderPreviewsForMessage(messageId, { refreshSlotIds = [] } = {}) {
     const ctx = getContext();
     const message = ctx.chat?.[messageId];
     if (!message?.mes) return;
 
     const slotIds = extractSlotIds(message.mes);
-    if (slotIds.size === 0) return;
-
     const mesTextEl = getMesTextElement(messageId);
     if (!mesTextEl) return;
+    const refreshSlots = new Set((Array.isArray(refreshSlotIds) ? refreshSlotIds : [])
+        .map(slotId => String(slotId || '').trim())
+        .filter(Boolean));
+    for (const slotId of refreshSlots) {
+        if (!slotIds.has(slotId)) mesTextEl.querySelector(buildDrawSlotSelector(slotId))?.remove();
+    }
+    if (slotIds.size === 0) return;
 
     const replacements = [];
+    // 待接回的后台任务槽位：只在真的需要判定时读一次，避免每条消息都白跑一次 IndexedDB。
+    let pendingSlotsPromise = null;
+    const resolvePendingSlot = async (slotId) => {
+        pendingSlotsPromise ??= getPendingImageJobSlots().catch(() => new Map());
+        return (await pendingSlotsPromise).get(slotId) || null;
+    };
     for (const slotId of slotIds) {
-        if (mesTextEl.querySelector(buildDrawSlotSelector(slotId))) continue;
+        if (!refreshSlots.has(slotId) && mesTextEl.querySelector(buildDrawSlotSelector(slotId))) continue;
         let replacementHtml;
         try {
             const displayData = await resolveRenderPreviewForSlot(message, messageId, slotId);
-            if (displayData.isFailed) {
+            const hasImage = displayData.hasData && !displayData.isFailed && displayData.preview;
+            // 后台任务仍在等待接回时，占位卡必须压过陈旧的失败卡和「缓存丢失」；
+            // 只有真的已经有图，才不必再问恢复记录。
+            const pendingSlot = hasImage ? null : await resolvePendingSlot(slotId);
+            if (pendingSlot) {
+                replacementHtml = buildPendingImageHtml({
+                    slotId,
+                    messageId,
+                    index: pendingSlot.index + 1,
+                    total: pendingSlot.total,
+                    label: pendingSlot.state === PendingJobState.CANCELLING ? '正在取消后台任务' : '正在接回后台任务',
+                });
+            } else if (displayData.isFailed) {
                 replacementHtml = buildFailedPlaceholderHtml({
                     slotId,
                     messageId,
@@ -893,6 +926,21 @@ function handleDrawPreviewMessageModified(data) {
     }, 100);
 }
 
+function handleGalleryCacheChanged({ slotIds } = {}) {
+    const changedSlots = slotIds === null ? null : new Set(Array.isArray(slotIds) ? slotIds : []);
+    if (changedSlots && changedSlots.size === 0) return;
+    const chat = getContext().chat || [];
+    for (let messageId = 0; messageId < chat.length; messageId++) {
+        const messageSlots = extractSlotIds(chat[messageId]?.mes);
+        const refreshSlotIds = changedSlots
+            ? [...messageSlots].filter(slotId => changedSlots.has(slotId))
+            : [...messageSlots];
+        if (refreshSlotIds.length > 0) {
+            void renderPreviewsForMessage(messageId, { refreshSlotIds });
+        }
+    }
+}
+
 export function startSharedDrawPreviewRuntime() {
     drawPreviewRuntimeRefs++;
     if (drawPreviewRuntimeEvents) return;
@@ -906,6 +954,7 @@ export function startSharedDrawPreviewRuntime() {
     drawPreviewRuntimeEvents.on(event_types.MESSAGE_EDITED, handleDrawPreviewMessageModified);
     drawPreviewRuntimeEvents.on(event_types.MESSAGE_UPDATED, handleDrawPreviewMessageModified);
     drawPreviewRuntimeEvents.on(event_types.MESSAGE_SWIPED, handleDrawPreviewMessageModified);
+    drawPreviewCacheSyncCleanup = subscribeGalleryCacheChanges(handleGalleryCacheChanged);
 
     setTimeout(() => {
         if (!drawPreviewRuntimeEvents) return;
@@ -919,6 +968,8 @@ export function stopSharedDrawPreviewRuntime() {
 
     drawPreviewRuntimeEvents?.cleanup();
     drawPreviewRuntimeEvents = null;
+    drawPreviewCacheSyncCleanup?.();
+    drawPreviewCacheSyncCleanup = null;
     drawPreviewRuntimeGeneration++;
     clearPendingDrawPreviewTimers();
     cleanupDrawPreviewMessageObserver();

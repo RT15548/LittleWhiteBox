@@ -24,10 +24,11 @@ import {
 } from "./modules/iframe-renderer.js";
 import { initVarCommands, cleanupVarCommands } from "./modules/variables/var-commands.js";
 import { initVareventEditor, cleanupVareventEditor } from "./modules/variables/varevent-editor.js";
-import { initNovelDraw, cleanupNovelDraw } from "./modules/draw/providers/novelai/novel-draw.js";
+import { cleanupNovelDraw, decodeNovelBackendJobResult, initNovelDraw } from "./modules/draw/providers/novelai/novel-draw.js";
 import { initSdDraw, cleanupSdDraw } from "./modules/draw/providers/sd-webui/sd-draw.js";
 import { initComfyDraw, cleanupComfyDraw } from "./modules/draw/providers/comfyui/comfy-draw.js";
 import { setupDrawGenerateInterceptor } from "./modules/draw/shared/draw-common.js";
+import { startImageJobRecovery, stopImageJobRecovery } from "./modules/draw/shared/image-job-recovery-runtime.js";
 import {
     checkGeneratedImageCache as checkGeneratedImageCacheRuntime,
     clearExpiredGeneratedImageCache as clearExpiredGeneratedImageCacheRuntime,
@@ -458,6 +459,7 @@ function cleanupDeprecatedData() {
 }
 
 let isXiaobaixEnabled = settings.enabled;
+let drawProviderTransitionGeneration = 0;
 let moduleCleanupFunctions = new Map();
 
 window.isXiaobaixEnabled = isXiaobaixEnabled;
@@ -465,6 +467,11 @@ setupDrawGenerateInterceptor({ shouldStrip: () => isXiaobaixEnabled });
 
 function registerModuleCleanup(moduleName, cleanupFunction) {
     moduleCleanupFunctions.set(moduleName, cleanupFunction);
+}
+
+function initImageJobRecoveryRuntime() {
+    startImageJobRecovery({ decoders: { novelai: decodeNovelBackendJobResult } });
+    registerModuleCleanup('imageJobRecovery', stopImageJobRecovery);
 }
 
 function removeSkeletonStyles() {
@@ -604,6 +611,7 @@ async function toggleAllFeatures(enabled) {
             } catch (e) {
                 console.error('[LittleWhiteBox] 初始化画图 provider 失败:', e);
             }
+            initImageJobRecoveryRuntime();
             try { initFourthWallFloorTools(); } catch (e) { }
             if (extension_settings[EXT_ID].fourthWall?.enabled) {
                 try { initFourthWall(); } catch (e) { }
@@ -639,6 +647,7 @@ async function toggleAllFeatures(enabled) {
         try { cleanupVariablesCore(); } catch (e) { }
         try { cleanupVarCommands(); } catch (e) { }
         try { cleanupVareventEditor(); } catch (e) { }
+        drawProviderTransitionGeneration++;
         await cleanupDrawProvider(settings.drawProvider);
         try { cleanupTts(); } catch (e) { }
         try { cleanupEnaPlanner(); } catch (e) { }
@@ -736,10 +745,12 @@ async function setupSettings() {
                 if (next !== $(this).val()) $(this).val(next);
                 if (prev === next) return;
 
-                await cleanupDrawProvider(prev);
+                const transitionGeneration = ++drawProviderTransitionGeneration;
                 settings.drawProvider = next;
                 extension_settings[EXT_ID].drawProvider = next;
                 saveSettingsDebounced();
+                await cleanupDrawProvider(prev);
+                if (transitionGeneration !== drawProviderTransitionGeneration) return;
 
                 try {
                     await initActiveDrawProvider();
@@ -905,10 +916,12 @@ async function setupSettings() {
             settings.fourthWall.enabled = false;
             extension_settings[EXT_ID].fourthWall = settings.fourthWall;
             try { closeFourthWall(); } catch { }
-            await cleanupDrawProvider(settings.drawProvider);
+            const previousDrawProvider = settings.drawProvider;
+            drawProviderTransitionGeneration++;
             settings.drawProvider = 'disabled';
             extension_settings[EXT_ID].drawProvider = 'disabled';
             $('#xiaobaix_draw_provider').val('disabled');
+            await cleanupDrawProvider(previousDrawProvider);
             notifyTavernDrawStatusChanged();
             syncFeatureActionButtons();
             setChecked('xiaobaix_use_blob', false);
@@ -1047,6 +1060,7 @@ jQuery(async () => {
                 } catch (e) {
                     console.error('[LittleWhiteBox] 初始化画图 provider 失败:', e);
                 }
+                initImageJobRecoveryRuntime();
                 try { initFourthWallFloorTools(); } catch (e) { }
                 if (settings.fourthWall?.enabled) {
                     try { initFourthWall(); } catch (e) { }

@@ -9,8 +9,15 @@ import {
 import {
     ScenePlacementError,
     assertSceneSourceUnchanged,
+    commitRecoverableScenePlacements,
+    commitSceneSlotReplacement,
+    commitSceneSlotDelivery,
+    commitSettledScenePlacements,
+    getSceneSlotIds,
     insertScenePlacements,
-    settleSceneSlotPlaceholders,
+    insertScenePlacementsPreservingSlots,
+    isSceneSlotAlive,
+    removeSceneSlotPlaceholders,
 } from '../scene-placement.js';
 
 test('scene source keeps original offsets while hiding image markers and filtered sections', () => {
@@ -111,6 +118,22 @@ test('scene placement inserts all markers in one batch at original offsets', () 
     assert.equal(shared, '第一段。第二段。[image:first][image:second]第三段。');
 });
 
+test('recoverable placement stages new slots without removing existing image slots', () => {
+    const source = createSceneSource('第一段。第二段。');
+    const original = '第一段。[image:old-slot]第二段。';
+    const result = insertScenePlacementsPreservingSlots(original, [{
+        placement: {
+            mode: 'source',
+            offset: source.points[1].offset,
+            sourceHash: source.sourceHash,
+        },
+        content: '[image:new-slot]',
+    }], { block: true });
+
+    assert.equal(result, '第一段。[image:old-slot]第二段。\n[image:new-slot]');
+    assert.deepEqual(getSceneSlotIds(result), ['old-slot', 'new-slot']);
+});
+
 test('scene placement rejects changed text and foreign placements without a tail fallback', () => {
     const source = createSceneSource('原始正文。');
     const placement = {
@@ -140,21 +163,157 @@ test('scene placement rejects changed text and foreign placements without a tail
     assert.equal(tail, '手动正文。[image:manual]');
 });
 
-test('scene placement cleanup restores an untouched message or keeps only completed slots', () => {
-    const original = '第一段。第二段。';
-    const withSlots = '第一段。\n[image:a]\n第二段。\n[image:b]';
-    assert.equal(settleSceneSlotPlaceholders({
-        currentText: withSlots,
-        originalText: original,
+// 本地链路的排版提交：基准是规划文本，只剔掉没有任何结果的槽位。
+// 失败也算有结果（要留下可重试的失败卡），所以只有从未产出的槽位才会被剔除。
+// 注意结果不是「原文逐字复原」：block 插入时补的换行与正文原有的换行在文本上完全同形，
+// 删除时只能折叠成一个换行，否则当占位符原本就位于两段之间时会把两段粘在一起。
+test('local placement commit keeps every slot that produced a result and drops the rest', () => {
+    const planned = '第一段。\n[image:a]\n第二段。\n[image:b]';
+    assert.equal(commitSettledScenePlacements(planned, {
         allSlotIds: ['a', 'b'],
-        completedSlotIds: ['a'],
-        successCount: 0,
-    }), original);
-    assert.equal(settleSceneSlotPlaceholders({
-        currentText: withSlots,
-        originalText: original,
+        settledSlotIds: [],
+    }), '第一段。\n第二段。');
+    assert.equal(commitSettledScenePlacements(planned, {
         allSlotIds: ['a', 'b'],
-        completedSlotIds: ['a'],
-        successCount: 1,
+        settledSlotIds: ['a'],
     }), '第一段。\n[image:a]\n第二段。');
+    assert.equal(commitSettledScenePlacements(planned, {
+        allSlotIds: ['a', 'b'],
+        settledSlotIds: ['a', 'b'],
+    }), planned);
+});
+
+// 后台链路的结算跑在当前活着的正文上，用的就是这个原语。结算期间用户可能改过正文、
+// 也可能有别的任务插入了自己的槽位，删除必须严格限定在指定的槽位上。
+test('slot removal on live text never touches edits or slots that belong to someone else', () => {
+    const edited = '用户改过的第一段。\n[image:a]\n用户新加的一句。\n[image:other-job]\n第二段。\n[image:b]';
+    assert.equal(
+        removeSceneSlotPlaceholders(edited, ['b']),
+        '用户改过的第一段。\n[image:a]\n用户新加的一句。\n[image:other-job]\n第二段。',
+    );
+});
+
+// 用户在生成期间手动删掉了某个槽位：任何清理都不得把它加回来，也不得影响同批其他槽位。
+test('slot removal on live text does not resurrect a slot the user deleted', () => {
+    const userDeletedB = '第一段。\n[image:a]\n第二段。';
+    assert.equal(removeSceneSlotPlaceholders(userDeletedB, ['b']), userDeletedB);
+});
+
+// 交付前必须逐槽位确认它还在正文里：用户删掉的槽位是他对这张图的最终意见，
+// 交付流程重建它就是在跟用户对抗。
+test('slot liveness is checked per slot and never matches a different id', () => {
+    const text = '第一段。\n[image:slot-a]\n第二段。';
+    assert.equal(isSceneSlotAlive(text, 'slot-a'), true);
+    assert.equal(isSceneSlotAlive(text, 'slot-b'), false);
+    // 前缀不得误命中：slot-a 存在不代表 slot-a2 存在。
+    assert.equal(isSceneSlotAlive(text, 'slot-a2'), false);
+    assert.equal(isSceneSlotAlive('第一段。\n[image:slot-a2]', 'slot-a'), false);
+    assert.equal(isSceneSlotAlive(text, ''), false);
+});
+
+test('recoverable placement save failure removes only this batch slots and preserves concurrent edits', async () => {
+    const message = { mes: 'story\n[image:old-slot]' };
+    const saveError = new Error('save failed');
+
+    await assert.rejects(commitRecoverableScenePlacements({
+        getCurrentChatId: () => 'chat-1',
+        getCurrentMessage: () => message,
+        expectedChatId: 'chat-1',
+        messageId: 3,
+        message,
+        originalText: 'story\n[image:old-slot]',
+        plannedText: 'story\n[image:old-slot]\n[image:ours]\n[image:other]',
+        slotIds: ['ours'],
+        persist() {
+            message.mes += '\nuser edit';
+            throw saveError;
+        },
+    }), error => error === saveError);
+
+    assert.equal(message.mes, 'story\n[image:old-slot]\n[image:other]\nuser edit');
+});
+
+test('recoverable placement keeps the active swipe synchronized during commit and rollback', async () => {
+    const message = { mes: 'story', swipe_id: 1, swipes: ['other', 'story'] };
+    await assert.rejects(commitRecoverableScenePlacements({
+        getCurrentChatId: () => 'chat-1',
+        getCurrentMessage: () => message,
+        expectedChatId: 'chat-1',
+        messageId: 0,
+        message,
+        originalText: 'story',
+        plannedText: 'story\n[image:ours]',
+        slotIds: ['ours'],
+        persist: async () => { throw new Error('save failed'); },
+    }));
+
+    assert.equal(message.mes, 'story');
+    assert.deepEqual(message.swipes, ['other', 'story']);
+});
+
+test('local replacement persists the safe superset before deleting old slots', async () => {
+    const message = { mes: 'story\n[image:old]' };
+    const snapshots = [];
+    await commitSceneSlotReplacement({
+        message,
+        stagedText: 'story\n[image:old]\n[image:new]',
+        replacedSlotIds: ['old'],
+        persist: () => { snapshots.push(message.mes); },
+    });
+
+    assert.deepEqual(snapshots, [
+        'story\n[image:old]\n[image:new]',
+        'story\n[image:new]',
+    ]);
+    assert.equal(message.mes, 'story\n[image:new]');
+});
+
+test('local replacement restores the safe superset when deleting old slots has an uncertain save result', async () => {
+    const message = { mes: 'story\n[image:old]' };
+    let saves = 0;
+    await assert.rejects(commitSceneSlotReplacement({
+        message,
+        stagedText: 'story\n[image:old]\n[image:new]',
+        replacedSlotIds: ['old'],
+        persist: () => {
+            if (++saves === 2) throw new Error('response lost');
+        },
+    }));
+
+    assert.equal(message.mes, 'story\n[image:old]\n[image:new]');
+});
+
+test('scene slot delivery rolls back only its own facts when the slot is deleted mid-write', async () => {
+    const order = [];
+    let livenessChecks = 0;
+    const committed = await commitSceneSlotDelivery({
+        committedEarly: true,
+        resolveTarget: () => ++livenessChecks === 1 ? {} : null,
+        guard: async () => { order.push('fence'); },
+        persist: async () => { order.push('store'); },
+        rollbackPersisted: async () => { order.push('delete-image'); },
+        select: async () => { order.push('select'); },
+    });
+
+    assert.equal(committed, false);
+    assert.deepEqual(order, ['fence', 'store', 'fence', 'delete-image']);
+});
+
+test('scene slot delivery clears selection and image when deletion races with selection', async () => {
+    const order = [];
+    let livenessChecks = 0;
+    const committed = await commitSceneSlotDelivery({
+        committedEarly: true,
+        resolveTarget: () => ++livenessChecks < 3 ? {} : null,
+        guard: async () => { order.push('fence'); },
+        persist: async () => { order.push('store'); },
+        rollbackPersisted: async () => { order.push('delete-image'); },
+        select: async () => { order.push('select'); },
+        rollbackSelection: async () => { order.push('clear-selection'); },
+    });
+
+    assert.equal(committed, false);
+    assert.deepEqual(order, [
+        'fence', 'store', 'fence', 'select', 'fence', 'clear-selection', 'fence', 'delete-image',
+    ]);
 });
