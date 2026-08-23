@@ -47,7 +47,7 @@
 Agent 渠道分两类传输：
 
 - 非酒馆渠道（`openai-compatible` / `openai-responses` / `anthropic` / `google`）：Node Agent Core 直接请求供应商。浏览器提交当前预设快照（模型、Base URL、API Key、Reasoning、Tool 模式等），只存在 Draw Run 内存，Planner 结束立即清除。
-- 酒馆渠道（`sillytavern-openai-compatible` / `sillytavern-claude` / `sillytavern-google`）：继续请求酒馆 `/api/backends/chat-completions/generate`，每个 run 使用独立 Cookie/CSRF Host Client，通过本机回环。
+- 酒馆渠道（`sillytavern-openai-compatible` / `sillytavern-claude` / `sillytavern-google`）：继续请求酒馆 `/api/backends/chat-completions/generate`，每个 run 使用独立 Cookie/CSRF Host Client，通过本机回环。Cookie、CSRF 与 SillyTavern Basic Auth 来自当前请求；用户预设中的 `apiKey` 是反代 `proxy_password`，必须随 run 临时传递，不能和回环凭证混为一类。
 
 ## 2. 开工前八项
 
@@ -117,7 +117,7 @@ Draw Run 保存：
 
 凭证生命周期：
 
-1. 创建 Draw Run 时从当前请求捕获 Cookie、CSRF、必要的 Authorization。
+1. 创建 Draw Run 时从当前请求捕获 Cookie、CSRF、必要的 Authorization；酒馆渠道同时接收当前预设的反代 `proxy_password`。
 2. 每个 run 创建独立 Host Client；服务端缺少实例 client 时直接拒绝，禁止回退全局单例。
 3. Planner 结束立即销毁 Agent 凭证与 transcript。
 4. child Image Job 创建后，清除 generationRecipe 和图片密钥副本。
@@ -259,7 +259,7 @@ Node 发布边界：
   },
   agent: {
     channel,                   // 7 渠道之一
-    providerConfig             // 直接渠道含密钥；酒馆渠道不含密钥（凭证走请求捕获）
+    providerConfig             // 直接渠道含供应商密钥；酒馆渠道可含反代 proxy_password
   },
   generationRecipe             // provider recipe 快照（含自定义 Comfy workflow）
 }
@@ -274,7 +274,7 @@ Node 发布边界：
 - `maxImages` ≤ 第一刀单 job items 上限（20）。
 - `planner.prompt` 只接受预处理后的 system prompt 与单条 user message；原始世界书、Prompt 模板或宏运行时对象不得进入 envelope。
 - `generationRecipe` 交给对应 provider 的 recipe validator。
-- 酒馆渠道 envelope 携带密钥字段 → 400。
+- 酒馆渠道只允许携带用户预设中的反代 `proxy_password`（沿用 `providerConfig.apiKey` 字段）；Cookie、CSRF 与 Basic Auth 不进入 envelope，由当前请求捕获。
 
 浏览器普通模式改为组合这两个函数——前后端运行同一份 Planner，不产生两套协议。
 
@@ -341,7 +341,7 @@ extra.xbDrawRuns[runId] = { version: 1, provider, sourceHash, createdAt }
 ```text
 完成全部预处理
 → 生成 runId（slotId/imgId 由 runId + index 确定性派生）
-→ 精确 CAS 确认正文没变（且楼层不在编辑中）
+→ 内部锁定当前活动 swipe，并按 Provider 的正文归一化规则重算 sourceHash，精确 CAS 确认正文没变（且楼层不在编辑中）
 → 写 swipe extra marker（唯一 accessor）
 → confirmable save：保存并读回验证 marker 在场
 → POST Draw Run

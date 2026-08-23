@@ -89,6 +89,10 @@ function redactError(error, secrets) {
     };
 }
 
+function mergeSecrets(...groups) {
+    return new Set(groups.flatMap(group => [...(group || [])]));
+}
+
 function buildDisplayMetadata(artifact = {}) {
     const promptData = artifact.promptData || {};
     return {
@@ -228,7 +232,8 @@ class DrawRunManager {
             },
             generationRecipe: envelope.generationRecipe,
             inputBytes,
-            secrets: collectSecrets(envelope),
+            agentSecrets: collectSecrets(envelope.agent),
+            generationSecrets: collectSecrets(envelope.generationRecipe),
             hostSession,
             abortController: null,
             childJobId: null,
@@ -421,7 +426,7 @@ class DrawRunManager {
             if (run.cancelRequestedAt !== null && !run.childJobId) {
                 this.#finishTerminal(run, 'cancelled');
             } else {
-                run.error = redactError(error, run.secrets);
+                run.error = redactError(error, mergeSecrets(run.agentSecrets, run.generationSecrets));
                 this.#finishTerminal(run, 'failed');
             }
         } finally {
@@ -435,12 +440,13 @@ class DrawRunManager {
         if (run.plannerInput) {
             run.plannerInput = null;
         }
+        run.agentSecrets.clear();
     }
 
     #releaseSensitiveInput(run) {
         this.#releasePlannerInput(run);
         run.generationRecipe = null;
-        run.secrets.clear();
+        run.generationSecrets.clear();
         if (run.inputBytes) {
             this.storedEnvelopeBytes = Math.max(0, this.storedEnvelopeBytes - run.inputBytes);
             run.inputBytes = 0;

@@ -1,5 +1,6 @@
 import { saveChatAndConfirm } from './confirmable-chat-save.js';
 import { createDrawRunId } from './draw-run-identifiers.js';
+import { hashSceneSource, normalizeMessageSceneSourceText } from './scene-source.js';
 import {
     createDrawRunMarker,
     persistedChatHasDrawRunMarker,
@@ -9,12 +10,6 @@ import {
 
 export const DRAW_RUNS_ENDPOINT = '/api/plugins/littlewhitebox-image-jobs/v1/draw-runs';
 export const SUBMISSION_UNCERTAINTY_WINDOW_MS = 120_000;
-
-const HOSTED_AGENT_CHANNELS = new Set([
-    'sillytavern-openai-compatible',
-    'sillytavern-claude',
-    'sillytavern-google',
-]);
 
 export class DrawRunSubmissionError extends Error {
     constructor(message, code, options = {}) {
@@ -49,15 +44,11 @@ function emit(onStateChange, phase, detail = {}) {
 
 function sanitizePreparedAgent(agent) {
     const snapshot = cloneJson(agent || {});
-    const channel = String(snapshot.channel || snapshot.providerConfig?.provider || '');
     if (!snapshot.providerConfig || typeof snapshot.providerConfig !== 'object') {
         throw new TypeError('Scene Planner 缺少可提交的 Agent Provider 配置');
     }
     delete snapshot.providerConfig.tavilyApiKey;
     delete snapshot.providerConfig.tavilyBaseUrl;
-    if (HOSTED_AGENT_CHANNELS.has(channel)) {
-        delete snapshot.providerConfig.apiKey;
-    }
     return snapshot;
 }
 
@@ -97,7 +88,15 @@ async function parseResponse(response) {
     }
 }
 
-function assertSubmissionContext({ ctx, currentCtx, message, messageId, originalMes, isMessageBeingEdited }) {
+function getActiveSwipeIndex(message) {
+    const index = Number.isInteger(message?.swipe_id) ? message.swipe_id : 0;
+    if (!Number.isSafeInteger(index) || index < 0) {
+        throw new DrawRunSubmissionError('当前 swipe 不可用，无法提交后台画图。', 'DRAW_RUN_TARGET_INVALID');
+    }
+    return index;
+}
+
+function assertSubmissionContext({ ctx, currentCtx, message, messageId, sourceHash, isMessageBeingEdited }) {
     if (!ctx || !message || !Number.isSafeInteger(messageId) || messageId < 0) {
         throw new DrawRunSubmissionError('当前楼层不可用，无法提交后台画图。', 'DRAW_RUN_TARGET_INVALID');
     }
@@ -105,10 +104,11 @@ function assertSubmissionContext({ ctx, currentCtx, message, messageId, original
         || currentCtx?.chat?.[messageId] !== message) {
         throw new DrawRunSubmissionError('聊天或楼层已切换，未提交后台画图。', 'DRAW_RUN_TARGET_CHANGED');
     }
-    if (message.mes !== originalMes) {
+    const currentSourceHash = hashSceneSource(normalizeMessageSceneSourceText(message.mes));
+    if (currentSourceHash !== sourceHash) {
         throw new DrawRunSubmissionError('楼层正文已变化，未提交后台画图。', 'DRAW_RUN_SOURCE_CHANGED');
     }
-    if (isMessageBeingEdited?.(messageId) === true) {
+    if (isMessageBeingEdited(messageId) === true) {
         throw new DrawRunSubmissionError('请先结束楼层编辑，再提交后台画图。', 'DRAW_RUN_MESSAGE_EDITING');
     }
 }
@@ -176,11 +176,9 @@ async function querySubmittedRun({ fetchImpl, headers, runId, signal }) {
  */
 export async function submitDrawRun({
     ctx,
-    getCurrentContext = () => ctx,
+    getCurrentContext,
     message,
     messageId,
-    swipeIndex,
-    originalMes,
     prepared,
     imageProvider,
     generationRecipe,
@@ -196,6 +194,8 @@ export async function submitDrawRun({
 } = {}) {
     if (typeof fetchImpl !== 'function') throw new TypeError('Draw Run 提交需要 fetch');
     if (typeof saveAndConfirm !== 'function') throw new TypeError('Draw Run 提交需要可确认保存');
+    if (typeof getCurrentContext !== 'function') throw new TypeError('Draw Run 提交需要当前聊天上下文读取器');
+    if (typeof isMessageBeingEdited !== 'function') throw new TypeError('Draw Run 提交需要楼层编辑状态读取器');
     const runId = suppliedRunId || createDrawRunId(cryptoImpl);
     const envelope = createScenePlannerEnvelope({ runId, imageProvider, prepared, generationRecipe });
     const marker = createDrawRunMarker({
@@ -204,12 +204,13 @@ export async function submitDrawRun({
         createdAt: now(),
     });
     const currentCtx = getCurrentContext();
+    const swipeIndex = getActiveSwipeIndex(message);
     assertSubmissionContext({
         ctx,
         currentCtx,
         message,
         messageId,
-        originalMes,
+        sourceHash: envelope.sourceHash,
         isMessageBeingEdited,
     });
     emit(onStateChange, 'submitting', { runId });

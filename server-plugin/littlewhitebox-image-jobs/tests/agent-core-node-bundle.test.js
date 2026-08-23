@@ -82,3 +82,31 @@ test('Node entry rejects every hosted adapter without a request-scoped Host Clie
         );
     }
 });
+
+test('hosted adapters translate the run-scoped preset key to proxy_password', () => {
+    const agentCore = require(bundlePath);
+    const hostClient = agentCore.createHostChatCompletionsClient({
+        requestHeadersProvider: () => ({ Cookie: 'session=test' }),
+        fetch: async () => {
+            throw new Error('Payload construction must not send requests');
+        },
+    });
+    for (const provider of [
+        'sillytavern-openai-compatible',
+        'sillytavern-claude',
+        'sillytavern-google',
+    ]) {
+        const adapter = agentCore.createAgentAdapter({
+            provider,
+            model: 'test-model',
+            apiKey: `${provider}-proxy-password`,
+            reasoning: { mode: 'off', output: 'hide' },
+        }, { hostClient });
+        const payload = adapter.buildPayload({
+            messages: [{ role: 'user', content: 'test' }],
+            maxTokens: 100,
+            temperature: 0,
+        });
+        assert.equal(payload.proxy_password, `${provider}-proxy-password`, provider);
+    }
+});

@@ -26,7 +26,7 @@ import {
     warmSlotPreviewNeighbors,
 } from "../../shared/gallery-cache.js";
 import { generateAndParseScenePlan } from "../../shared/scene-planner.js";
-import { createSceneSource } from "../../shared/scene-source.js";
+import { createSceneSource, normalizeMessageSceneSourceText } from "../../shared/scene-source.js";
 import {
     commitRecoverableScenePlacements,
     commitSceneSlotDelivery,
@@ -3069,7 +3069,7 @@ async function buildTasksFromMessage({ message, messageId, signal, promptOverrid
 
     const sharedDrawSettings = getSharedDrawSettings();
     const sourceText = stripImageMarkers
-        ? String(message.mes || '').replace(/\[image:[a-z0-9\-_]+\]/gi, '')
+        ? normalizeMessageSceneSourceText(message.mes)
         : String(message.mes || '');
     const filterRules = sharedDrawSettings.messageFilterRules?.length
         ? sharedDrawSettings.messageFilterRules
@@ -4021,7 +4021,7 @@ export async function generateAndInsertImages({
         const slotIds = tasks.map(() => generateSlotId());
         const results = new Array(tasks.length);
         let successCount = 0;
-        const strippedNow = String(message.mes || '').replace(/\[image:[a-z0-9\-_]+\]/gi, '');
+        const strippedNow = normalizeMessageSceneSourceText(message.mes);
         if (sceneSource) assertSceneSourceUnchanged(strippedNow, sceneSource.sourceHash);
         const plannedMes = insertScenePlacementsPreservingSlots(originalMes, tasks.map((task, index) => ({
             placement: task.placement,

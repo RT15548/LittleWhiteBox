@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
     createSceneSource,
     hashSceneSource,
+    normalizeMessageSceneSourceText,
     stripScenePointMarkers,
 } from '../scene-source.js';
 import {
@@ -51,6 +52,13 @@ test('scene source hash follows the full snapshot including existing image marke
     const withoutMarker = createSceneSource('正文。');
     assert.notEqual(withMarker.sourceHash, withoutMarker.sourceHash);
     assert.equal(withMarker.sourceHash, hashSceneSource('正文。[image:slot-1]'));
+});
+
+test('message Scene Source normalization removes only provider image placeholders', () => {
+    assert.equal(
+        normalizeMessageSceneSourceText('正文。[image:slot-1][ebook-image:keep][tavern-image:keep]'),
+        '正文。[ebook-image:keep][tavern-image:keep]',
+    );
 });
 
 test('scene source ignores punctuation that is not a safe illustration boundary', () => {

@@ -125,7 +125,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/docs/backend-draw-runs.md",
       "relativePath": "docs/backend-draw-runs.md",
       "extension": ".md",
-      "sizeBytes": 29669
+      "sizeBytes": 30145
     },
     {
       "source": "littlewhitebox",
@@ -1182,7 +1182,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/comfyui/comfy-draw.js",
       "relativePath": "modules/draw/providers/comfyui/comfy-draw.js",
       "extension": ".js",
-      "sizeBytes": 230932
+      "sizeBytes": 230923
     },
     {
       "source": "littlewhitebox",
@@ -1280,7 +1280,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/novel-draw.js",
       "relativePath": "modules/draw/providers/novelai/novel-draw.js",
       "extension": ".js",
-      "sizeBytes": 231624
+      "sizeBytes": 231633
     },
     {
       "source": "littlewhitebox",
@@ -1497,7 +1497,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/sd-webui/sd-draw.js",
       "relativePath": "modules/draw/providers/sd-webui/sd-draw.js",
       "extension": ".js",
-      "sizeBytes": 195923
+      "sizeBytes": 195914
     },
     {
       "source": "littlewhitebox",
@@ -1602,7 +1602,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/draw-run-coordinator.js",
       "relativePath": "modules/draw/shared/draw-run-coordinator.js",
       "extension": ".js",
-      "sizeBytes": 10442
+      "sizeBytes": 10902
     },
     {
       "source": "littlewhitebox",
@@ -1749,7 +1749,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/scene-source.js",
       "relativePath": "modules/draw/shared/scene-source.js",
       "extension": ".js",
-      "sizeBytes": 8249
+      "sizeBytes": 8453
     },
     {
       "source": "littlewhitebox",
@@ -1812,7 +1812,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/draw-run-coordinator.test.js",
       "relativePath": "modules/draw/shared/tests/draw-run-coordinator.test.js",
       "extension": ".js",
-      "sizeBytes": 8960
+      "sizeBytes": 11645
     },
     {
       "source": "littlewhitebox",
@@ -1875,7 +1875,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/scene-placement.test.js",
       "relativePath": "modules/draw/shared/tests/scene-placement.test.js",
       "extension": ".js",
-      "sizeBytes": 14556
+      "sizeBytes": 14878
     },
     {
       "source": "littlewhitebox",
@@ -6544,14 +6544,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/server-plugin/littlewhitebox-image-jobs/draw-runs/draw-run-manager.js",
       "relativePath": "server-plugin/littlewhitebox-image-jobs/draw-runs/draw-run-manager.js",
       "extension": ".js",
-      "sizeBytes": 19753
+      "sizeBytes": 20027
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/server-plugin/littlewhitebox-image-jobs/draw-runs/envelope.js",
       "relativePath": "server-plugin/littlewhitebox-image-jobs/draw-runs/envelope.js",
       "extension": ".js",
-      "sizeBytes": 17275
+      "sizeBytes": 17079
     },
     {
       "source": "littlewhitebox",
@@ -6684,7 +6684,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/server-plugin/littlewhitebox-image-jobs/tests/agent-core-node-bundle.test.js",
       "relativePath": "server-plugin/littlewhitebox-image-jobs/tests/agent-core-node-bundle.test.js",
       "extension": ".js",
-      "sizeBytes": 3500
+      "sizeBytes": 4542
     },
     {
       "source": "littlewhitebox",
@@ -6698,7 +6698,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/server-plugin/littlewhitebox-image-jobs/tests/draw-run-manager.test.js",
       "relativePath": "server-plugin/littlewhitebox-image-jobs/tests/draw-run-manager.test.js",
       "extension": ".js",
-      "sizeBytes": 10374
+      "sizeBytes": 12211
     },
     {
       "source": "littlewhitebox",

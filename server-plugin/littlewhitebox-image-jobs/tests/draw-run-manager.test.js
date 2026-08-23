@@ -107,6 +107,7 @@ function createRuntime(overrides = {}) {
 function createManager({
     runtime = createRuntime(),
     imageJobService = createImageJobService(),
+    createHostClient = () => { throw new Error('host client must not be created for a direct channel'); },
     managerOptions = {},
 } = {}) {
     return {
@@ -115,7 +116,7 @@ function createManager({
             agentCore: { createAgentAdapter() {} },
             envelopeValidator: createEnvelopeValidator(drawRuntime),
             imageJobService,
-            createHostClient() { throw new Error('host client must not be created for a direct channel'); },
+            createHostClient,
             errorRetentionMs: 10_000,
             ...managerOptions,
         }),
@@ -168,9 +169,10 @@ test('Draw Run dispatch is idempotent and hands off a deterministic child manife
     );
 });
 
-test('pre-child cancellation aborts planning without creating an image job', async (t) => {
+test('pre-child cancellation aborts planning, disposes hosted credentials, and creates no image job', async (t) => {
     let planningStarted;
     const started = new Promise(resolve => { planningStarted = resolve; });
+    let disposed = false;
     const runtime = createRuntime({
         async executePreparedScenePlanner(_prepared, { signal }) {
             planningStarted();
@@ -179,14 +181,25 @@ test('pre-child cancellation aborts planning without creating an image job', asy
             });
         },
     });
-    const { manager, imageJobService } = createManager({ runtime });
+    const { manager, imageJobService } = createManager({
+        runtime,
+        createHostClient: () => ({
+            client: {},
+            dispose() { disposed = true; },
+        }),
+    });
     t.after(() => manager.close());
-    manager.create('alice', createEnvelope('run-test-002'), {});
+    const envelope = createEnvelope('run-test-002');
+    envelope.agent.channel = 'sillytavern-openai-compatible';
+    envelope.agent.providerConfig.provider = 'sillytavern-openai-compatible';
+    envelope.agent.providerConfig.apiKey = 'cancelled-proxy-password';
+    manager.create('alice', envelope, {});
     await started;
 
     assert.equal(manager.cancel('alice', 'run-test-002').state, 'cancelling');
     const cancelled = await waitFor(() => manager.get('alice', 'run-test-002')?.state === 'cancelled');
     assert.equal(cancelled, true);
+    assert.equal(disposed, true);
     assert.equal(imageJobService.jobs.size, 0);
 });
 
@@ -203,15 +216,24 @@ test('post-child cancellation preserves the dispatched manifest and forwards can
     assert.deepEqual(imageJobService.cancellations, [{ owner: 'alice', jobId: 'draw-run:run-test-003' }]);
 });
 
-test('retained Draw Run failures redact Agent and image provider credentials', async (t) => {
+test('retained compiler failures redact the image provider credentials still owned by that phase', async (t) => {
+    let disposed = false;
     const runtime = createRuntime({
         compileDrawRunImages() {
-            throw new Error('agent-secret, image-secret, pa%24%24word, and pa$$word must not escape');
+            throw new Error('image-secret, pa%24%24word, and pa$$word must not escape');
         },
     });
-    const { manager } = createManager({ runtime });
+    const { manager } = createManager({
+        runtime,
+        createHostClient: () => ({
+            client: {},
+            dispose() { disposed = true; },
+        }),
+    });
     t.after(() => manager.close());
     const envelope = createEnvelope('run-test-004');
+    envelope.agent.channel = 'sillytavern-openai-compatible';
+    envelope.agent.providerConfig.provider = 'sillytavern-openai-compatible';
     envelope.generationRecipe.host = 'https://user:pa%24%24word@sd.example.test';
     manager.create('alice', envelope, {});
     const failed = await waitFor(() => {
@@ -219,18 +241,46 @@ test('retained Draw Run failures redact Agent and image provider credentials', a
         return run?.state === 'failed' ? run : null;
     });
 
+    assert.equal(disposed, true);
     assert.match(failed.error.message, /\[redacted\]/);
-    assert.doesNotMatch(JSON.stringify(failed), /agent-secret|image-secret|pa%24%24word|pa\$\$word/);
+    assert.doesNotMatch(JSON.stringify(failed), /image-secret|pa%24%24word|pa\$\$word/);
 });
 
-test('hosted Agent envelopes reject browser-carried API keys', () => {
+test('hosted Agent proxy passwords remain available only for the request-scoped Planner', async (t) => {
     const envelope = createEnvelope('run-test-005');
     envelope.agent.channel = 'sillytavern-openai-compatible';
     envelope.agent.providerConfig.provider = 'sillytavern-openai-compatible';
-    assert.throws(
-        () => createEnvelopeValidator(drawRuntime)(envelope),
-        error => error?.status === 400 && /must not include API keys/.test(error.message),
-    );
+    envelope.agent.providerConfig.apiKey = 'proxy-password';
+    const hostClient = { name: 'request-scoped-host-client' };
+    let plannerApiKey = null;
+    let plannerHostClient = null;
+    let disposed = false;
+    const runtime = createRuntime({
+        async executePreparedScenePlanner(prepared, options) {
+            plannerApiKey = prepared.agent.providerConfig.apiKey;
+            plannerHostClient = options.hostClient;
+            return [{ scene: 'portrait', chars: [], placement: { insertAfter: 1 } }];
+        },
+    });
+    const { manager } = createManager({
+        runtime,
+        createHostClient: () => ({
+            client: hostClient,
+            dispose() { disposed = true; },
+        }),
+    });
+    t.after(() => manager.close());
+
+    manager.create('alice', envelope, {});
+    const dispatched = await waitFor(() => {
+        const run = manager.get('alice', 'run-test-005');
+        return run?.state === 'dispatched' ? run : null;
+    });
+
+    assert.equal(plannerApiKey, 'proxy-password');
+    assert.equal(plannerHostClient, hostClient);
+    assert.equal(disposed, true);
+    assert.doesNotMatch(JSON.stringify(dispatched), /proxy-password/);
 });
 
 test('closing the manager while planning prevents a late child job from being created', async () => {

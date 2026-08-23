@@ -1,6 +1,7 @@
 import { hashStableValue } from './generation-fingerprint.js';
 
 const IMAGE_MARKER_REGEX = /\[(?:image|ebook-image|tavern-image)\s*:\s*[a-z0-9_-]+\]/gi;
+const MESSAGE_IMAGE_MARKER_REGEX = /\[image:[a-z0-9_-]+\]/gi;
 const SCENE_POINT_MARKER_REGEX = /【插图点\s+\d+】/g;
 const USER_SCENE_POINT_MARKER_REGEX = /【插图点\s+(\d+)】/g;
 const SENTENCE_END_REGEX = /[。！？!?…]/;
@@ -196,6 +197,10 @@ function buildNumberedContent(content, points) {
 
 export function hashSceneSource(sourceText) {
     return hashStableValue(String(sourceText ?? ''), 'scene-source');
+}
+
+export function normalizeMessageSceneSourceText(sourceText) {
+    return String(sourceText ?? '').replace(MESSAGE_IMAGE_MARKER_REGEX, '');
 }
 
 export function stripScenePointMarkers(text) {

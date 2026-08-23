@@ -209,11 +209,7 @@ function validateAgent(value) {
     }
     assertPlainObject(config.reasoning, 'agent.providerConfig.reasoning');
     assertSafeJson(config.reasoning, 'agent.providerConfig.reasoning');
-    if (HOSTED_AGENT_CHANNELS.has(channel)) {
-        if (String(config.apiKey || '').trim() || String(config.tavilyApiKey || '').trim()) {
-            throw invalid('hosted agent channels must not include API keys');
-        }
-    } else if (!String(config.apiKey || '').trim()) {
+    if (!HOSTED_AGENT_CHANNELS.has(channel) && !String(config.apiKey || '').trim()) {
         throw invalid('direct agent channels require agent.providerConfig.apiKey');
     }
     return { channel, providerConfig: cloneJson(config) };

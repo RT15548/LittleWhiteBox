@@ -12,6 +12,7 @@ import {
     setDrawRunMarker,
 } from '../draw-run-markers.js';
 import { createDrawRunId } from '../draw-run-identifiers.js';
+import { createSceneSource } from '../scene-source.js';
 
 function createMessage() {
     return {
@@ -30,19 +31,14 @@ function syncMessage(message) {
     };
 }
 
-function createPrepared(channel = 'sillytavern-openai-compatible') {
+function createPrepared(channel = 'sillytavern-openai-compatible', sourceText = 'Hello.') {
+    const sceneSource = createSceneSource(sourceText);
     return {
         version: 1,
         planner: {
             prompt: { systemPrompt: 'system', messages: [{ role: 'user', content: 'content' }] },
             validationContext: {
-                sceneSource: {
-                    sourceText: 'Hello.',
-                    sourceHash: 'scene-source-test',
-                    content: 'Hello.',
-                    numberedContent: 'Hello.',
-                    points: [{ number: 1, offset: 6 }],
-                },
+                sceneSource,
                 effectiveMaxImages: 1,
                 effectiveMaxCharactersPerImage: 1,
                 centerMode: 'normalized',
@@ -55,7 +51,7 @@ function createPrepared(channel = 'sillytavern-openai-compatible') {
                 provider: channel,
                 baseUrl: '',
                 model: 'test-model',
-                apiKey: 'must-not-leave-browser',
+                apiKey: 'proxy-password',
                 tavilyApiKey: 'also-secret',
                 maxTokens: 1000,
                 timeoutMs: 5000,
@@ -136,7 +132,7 @@ test('a message without swipe_id treats only swipe zero as the active working co
     assert.equal(message.swipe_info[1].extra.xbDrawRuns['run-test-106'].sourceHash, 'hash-2');
 });
 
-test('frontend submission confirms the marker before POST and strips hosted-channel secrets', async () => {
+test('frontend submission confirms the marker before POST and retains the hosted proxy password', async () => {
     const message = createMessage();
     const ctx = {
         chatId: 'chat-1',
@@ -146,9 +142,9 @@ test('frontend submission confirms the marker before POST and strips hosted-chan
     const order = [];
     const result = await submitDrawRun({
         ctx,
+        getCurrentContext: () => ctx,
         message,
         messageId: 0,
-        originalMes: 'Hello.',
         prepared: createPrepared(),
         imageProvider: 'sd-webui',
         generationRecipe: { host: 'http://sd', auth: '', timeout: 1000 },
@@ -162,7 +158,7 @@ test('frontend submission confirms the marker before POST and strips hosted-chan
         fetchImpl: async (_url, options) => {
             order.push('post');
             const envelope = JSON.parse(options.body);
-            assert.equal(Object.hasOwn(envelope.agent.providerConfig, 'apiKey'), false);
+            assert.equal(envelope.agent.providerConfig.apiKey, 'proxy-password');
             assert.equal(Object.hasOwn(envelope.agent.providerConfig, 'tavilyApiKey'), false);
             return response(202, { ok: true, run: { id: envelope.runId, state: 'queued' } });
         },
@@ -179,9 +175,9 @@ test('an unconfirmed marker never posts a Draw Run and remains recoverable', asy
     let fetchCount = 0;
     await assert.rejects(submitDrawRun({
         ctx,
+        getCurrentContext: () => ctx,
         message,
         messageId: 0,
-        originalMes: 'Hello.',
         prepared: createPrepared(),
         imageProvider: 'sd-webui',
         generationRecipe: {},
@@ -202,9 +198,9 @@ test('an explicit 4xx rejection removes and confirms removal of the marker', asy
     let saveCount = 0;
     await assert.rejects(submitDrawRun({
         ctx,
+        getCurrentContext: () => ctx,
         message,
         messageId: 0,
-        originalMes: 'Hello.',
         prepared: createPrepared(),
         imageProvider: 'sd-webui',
         generationRecipe: {},
@@ -237,9 +233,9 @@ test('request-header acquisition failure remains a recoverable uncertain submiss
     let fetchCount = 0;
     const result = await submitDrawRun({
         ctx,
+        getCurrentContext: () => ctx,
         message,
         messageId: 0,
-        originalMes: 'Hello.',
         prepared: createPrepared(),
         imageProvider: 'sd-webui',
         generationRecipe: {},
@@ -255,4 +251,83 @@ test('request-header acquisition failure remains a recoverable uncertain submiss
     assert.equal(result.status, 'uncertain');
     assert.equal(fetchCount, 0);
     assert.ok(getDrawRunMarker(message, 0, 'run-test-107'));
+});
+
+test('submission derives the active swipe and rejects a plan prepared from another swipe', async () => {
+    const message = createMessage();
+    const ctx = { chatId: 'chat-1', chat: [message], getRequestHeaders: () => ({}) };
+    let saveCount = 0;
+    let fetchCount = 0;
+
+    await assert.rejects(submitDrawRun({
+        ctx,
+        getCurrentContext: () => ctx,
+        message,
+        messageId: 0,
+        swipeIndex: 1,
+        prepared: createPrepared(undefined, 'Other.'),
+        imageProvider: 'sd-webui',
+        generationRecipe: {},
+        runId: 'run-test-108',
+        syncActiveSwipe: syncMessage(message),
+        isMessageBeingEdited: () => false,
+        saveAndConfirm: async () => { saveCount += 1; },
+        fetchImpl: async () => { fetchCount += 1; },
+    }), error => error?.code === 'DRAW_RUN_SOURCE_CHANGED');
+
+    assert.equal(saveCount, 0);
+    assert.equal(fetchCount, 0);
+    assert.equal(listDrawRunMarkers(message).length, 0);
+});
+
+test('submission writes the marker to the active swipe without accepting a target index', async () => {
+    const message = createMessage();
+    message.swipe_id = 1;
+    message.mes = 'Other.';
+    const ctx = { chatId: 'chat-1', chat: [message], getRequestHeaders: () => ({}) };
+
+    await submitDrawRun({
+        ctx,
+        getCurrentContext: () => ctx,
+        message,
+        messageId: 0,
+        prepared: createPrepared(undefined, 'Other.'),
+        imageProvider: 'sd-webui',
+        generationRecipe: {},
+        runId: 'run-test-109',
+        syncActiveSwipe: syncMessage(message),
+        isMessageBeingEdited: () => false,
+        saveAndConfirm: async ({ verify }) => {
+            assert.equal(await verify([{}, structuredClone(message)]), true);
+        },
+        fetchImpl: async () => response(202, { ok: true, run: { id: 'run-test-109', state: 'queued' } }),
+    });
+
+    assert.equal(getDrawRunMarker(message, 0, 'run-test-109'), null);
+    assert.ok(getDrawRunMarker(message, 1, 'run-test-109'));
+});
+
+test('submission requires live context and editing-state dependencies', async () => {
+    const message = createMessage();
+    const ctx = { chatId: 'chat-1', chat: [message], getRequestHeaders: () => ({}) };
+    const base = {
+        ctx,
+        message,
+        messageId: 0,
+        prepared: createPrepared(),
+        imageProvider: 'sd-webui',
+        generationRecipe: {},
+        runId: 'run-test-110',
+        fetchImpl: async () => response(202, {}),
+        saveAndConfirm: async () => {},
+    };
+
+    await assert.rejects(submitDrawRun({
+        ...base,
+        isMessageBeingEdited: () => false,
+    }), /当前聊天上下文读取器/);
+    await assert.rejects(submitDrawRun({
+        ...base,
+        getCurrentContext: () => ctx,
+    }), /楼层编辑状态读取器/);
 });

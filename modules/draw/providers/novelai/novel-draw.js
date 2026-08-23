@@ -121,7 +121,7 @@ import {
     isMessageBeingEdited,
     DEFAULT_MESSAGE_FILTER_RULES,
 } from '../../shared/draw-common.js';
-import { createSceneSource } from '../../shared/scene-source.js';
+import { createSceneSource, normalizeMessageSceneSourceText } from '../../shared/scene-source.js';
 import {
     commitRecoverableScenePlacements,
     commitSceneSlotDelivery,
@@ -3280,7 +3280,7 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
             ? settings.messageFilterRules
             : DEFAULT_MESSAGE_FILTER_RULES;
         const sceneSource = createSceneSource(
-            String(message.mes || '').replace(PLACEHOLDER_REGEX, ''),
+            normalizeMessageSceneSourceText(message.mes),
             { filterRules },
         );
         if (!sceneSource.content) throw new NovelDrawError('消息内容为空（可能被过滤规则清空）', ErrorType.PARSE);
@@ -3349,7 +3349,7 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
         const slotIds = tasks.map(() => generateSlotId());
         const results = new Array(tasks.length);
         let successCount = 0;
-        const strippedNow = String(message.mes || '').replace(PLACEHOLDER_REGEX, '');
+        const strippedNow = normalizeMessageSceneSourceText(message.mes);
         assertSceneSourceUnchanged(strippedNow, sceneSource.sourceHash);
         const plannedMes = insertScenePlacementsPreservingSlots(originalMes, tasks.map((task, index) => ({
             placement: task.placement,
