@@ -1,8 +1,7 @@
 import {
-    buildHostChatCompletionGenerateRequest,
+    assertHostChatCompletionsClient,
+    browserHostChatCompletionsClient,
     buildHostGoogleGeneratePayload,
-    createHostChatCompletion,
-    streamHostChatCompletion,
 } from '../../../shared/host-llm/chat-completions/client.js';
 import {
     buildEffectiveReasoningConfig,
@@ -302,8 +301,9 @@ function createGoogleStreamAccumulator(task, effectiveReasoning, config = {}) {
 }
 
 export class SillyTavernGoogleAdapter {
-    constructor(config) {
+    constructor(config, hostClient = browserHostChatCompletionsClient) {
         this.config = config;
+        this.hostClient = assertHostChatCompletionsClient(hostClient);
     }
 
     buildMessages(task) {
@@ -335,7 +335,7 @@ export class SillyTavernGoogleAdapter {
         const effectiveReasoning = options.effectiveReasoning
             || resolveTaskReasoning('sillytavern-google', this.config, task.reasoning);
         const payload = options.payload || this.buildPayload(task, effectiveReasoning);
-        const request = await buildHostChatCompletionGenerateRequest(
+        const request = await this.hostClient.buildHostChatCompletionGenerateRequest(
             payload,
             typeof task.onStreamProgress === 'function',
         );
@@ -384,7 +384,7 @@ export class SillyTavernGoogleAdapter {
         try {
             if (stream) {
                 const accumulator = createGoogleStreamAccumulator(task, effectiveReasoning, this.config);
-                await streamHostChatCompletion(payload, (event) => {
+                await this.hostClient.streamHostChatCompletion(payload, (event) => {
                     accumulator.accept(event);
                 }, { signal: task.signal, onRequest });
                 return {
@@ -393,7 +393,10 @@ export class SillyTavernGoogleAdapter {
                 };
             }
 
-            const response = await createHostChatCompletion(payload, { signal: task.signal, onRequest });
+            const response = await this.hostClient.createHostChatCompletion(
+                payload,
+                { signal: task.signal, onRequest },
+            );
             return {
                 ...parseGoogleResult(response, {
                     model: this.config.model,

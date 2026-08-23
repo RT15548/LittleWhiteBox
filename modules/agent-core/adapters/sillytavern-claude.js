@@ -1,8 +1,7 @@
 import {
-    buildHostChatCompletionGenerateRequest,
+    assertHostChatCompletionsClient,
+    browserHostChatCompletionsClient,
     buildHostClaudeGeneratePayload,
-    createHostChatCompletion,
-    streamHostChatCompletion,
 } from '../../../shared/host-llm/chat-completions/client.js';
 import {
     buildEffectiveReasoningConfig,
@@ -368,8 +367,9 @@ function createClaudeStreamAccumulator(task, effectiveReasoning, config = {}) {
 }
 
 export class SillyTavernClaudeAdapter {
-    constructor(config) {
+    constructor(config, hostClient = browserHostChatCompletionsClient) {
         this.config = config;
+        this.hostClient = assertHostChatCompletionsClient(hostClient);
     }
 
     buildMessages(task) {
@@ -416,7 +416,7 @@ export class SillyTavernClaudeAdapter {
         const effectiveReasoning = options.effectiveReasoning
             || resolveEffectiveReasoning(this.config, task, protocol, requestedReasoning);
         const payload = options.payload || this.buildPayload(task, protocol, effectiveReasoning);
-        const request = await buildHostChatCompletionGenerateRequest(
+        const request = await this.hostClient.buildHostChatCompletionGenerateRequest(
             payload,
             typeof task.onStreamProgress === 'function',
         );
@@ -480,7 +480,7 @@ export class SillyTavernClaudeAdapter {
                     effectiveReasoning,
                     this.config,
                 );
-                await streamHostChatCompletion(payload, (event) => {
+                await this.hostClient.streamHostChatCompletion(payload, (event) => {
                     accumulator.accept(event);
                 }, { signal: task.signal, onRequest });
                 return {
@@ -489,7 +489,10 @@ export class SillyTavernClaudeAdapter {
                 };
             }
 
-            const response = await createHostChatCompletion(payload, { signal: task.signal, onRequest });
+            const response = await this.hostClient.createHostChatCompletion(
+                payload,
+                { signal: task.signal, onRequest },
+            );
             const content = Array.isArray(response?.content)
                 ? response.content
                 : [{

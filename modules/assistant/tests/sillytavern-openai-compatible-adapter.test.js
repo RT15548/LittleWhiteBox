@@ -13,6 +13,7 @@ import {
     buildHostGoogleGeneratePayload,
     buildHostOpenAICompatibleGeneratePayload,
     buildHostOpenAICompatibleStatusPayload,
+    createHostChatCompletionsClient,
     createHostChatCompletion,
     fetchHostChatCompletionsModels,
     fetchHostOpenAICompatibleModels,
@@ -1547,6 +1548,195 @@ test('agent factory allows SillyTavern Claude and Google without direct API keys
         model: 'gemini-2.5-pro',
         apiKey: '',
     }) instanceof SillyTavernGoogleAdapter, true);
+});
+
+test('host clients keep request identity isolated per instance', async () => {
+    const requests = [];
+    const createClient = (owner) => createHostChatCompletionsClient({
+        requestHeadersProvider: () => ({
+            Cookie: `session=${owner}`,
+            'X-CSRF-Token': `csrf-${owner}`,
+        }),
+        fetch: async (url, options = {}) => {
+            requests.push({
+                owner,
+                url: String(url),
+                headers: options.headers,
+            });
+            return createJsonResponse({ data: [{ id: `${owner}-model` }] });
+        },
+    });
+    const aliceClient = createClient('alice');
+    const bobClient = createClient('bob');
+    const inspectedRequest = await aliceClient.buildHostChatCompletionGenerateRequest({ messages: [] });
+
+    const [aliceModels, bobModels] = await Promise.all([
+        aliceClient.fetchHostOpenAICompatibleModels({}),
+        bobClient.fetchHostOpenAICompatibleModels({}),
+    ]);
+
+    assert.deepEqual(aliceModels, ['alice-model']);
+    assert.deepEqual(bobModels, ['bob-model']);
+    assert.equal(inspectedRequest.headers.Cookie, '[redacted]');
+    assert.equal(inspectedRequest.headers['X-CSRF-Token'], '[redacted]');
+    assert.equal(inspectedRequest.rawHeaders.Cookie, 'session=alice');
+    assert.deepEqual(requests, [
+        {
+            owner: 'alice',
+            url: HOST_CHAT_COMPLETIONS_STATUS_ENDPOINT,
+            headers: {
+                'Content-Type': 'application/json',
+                Cookie: 'session=alice',
+                'X-CSRF-Token': 'csrf-alice',
+                Accept: 'application/json',
+            },
+        },
+        {
+            owner: 'bob',
+            url: HOST_CHAT_COMPLETIONS_STATUS_ENDPOINT,
+            headers: {
+                'Content-Type': 'application/json',
+                Cookie: 'session=bob',
+                'X-CSRF-Token': 'csrf-bob',
+                Accept: 'application/json',
+            },
+        },
+    ]);
+});
+
+test('injected Host Clients isolate concurrent streaming and non-streaming chats', async () => {
+    const requests = [];
+    const createClient = (owner) => createHostChatCompletionsClient({
+        requestHeadersProvider: () => ({
+            Cookie: `session=${owner}`,
+            'X-CSRF-Token': `csrf-${owner}`,
+        }),
+        fetch: async (_url, options = {}) => {
+            const body = JSON.parse(String(options.body || '{}'));
+            requests.push({ owner, headers: options.headers, stream: body.stream });
+            return body.stream
+                ? createSseResponse([{
+                    model: `${owner}-model`,
+                    choices: [{ delta: { content: `${owner}-stream` }, finish_reason: 'stop' }],
+                }])
+                : createJsonResponse({
+                    model: `${owner}-model`,
+                    choices: [{ message: { content: `${owner}-text` }, finish_reason: 'stop' }],
+                });
+        },
+    });
+    const aliceAdapter = createAgentAdapter(
+        { provider: 'sillytavern-openai-compatible', model: 'hosted-model' },
+        { hostClient: createClient('alice') },
+    );
+    const bobAdapter = createAgentAdapter(
+        { provider: 'sillytavern-openai-compatible', model: 'hosted-model' },
+        { hostClient: createClient('bob') },
+    );
+
+    const [aliceResult, bobResult] = await Promise.all([
+        aliceAdapter.chat({ messages: [] }),
+        bobAdapter.chat({ messages: [], onStreamProgress: () => {} }),
+    ]);
+
+    assert.equal(aliceResult.text, 'alice-text');
+    assert.equal(bobResult.text, 'bob-stream');
+    assert.equal(aliceResult.requestInspection.request.headers.Cookie, '[redacted]');
+    assert.equal(bobResult.requestInspection.request.headers.Cookie, '[redacted]');
+    assert.deepEqual(requests, [
+        {
+            owner: 'alice',
+            headers: {
+                'Content-Type': 'application/json',
+                Cookie: 'session=alice',
+                'X-CSRF-Token': 'csrf-alice',
+                Accept: 'application/json',
+            },
+            stream: false,
+        },
+        {
+            owner: 'bob',
+            headers: {
+                'Content-Type': 'application/json',
+                Cookie: 'session=bob',
+                'X-CSRF-Token': 'csrf-bob',
+                Accept: 'application/json',
+            },
+            stream: true,
+        },
+    ]);
+});
+
+test('every SillyTavern adapter chat uses the injected Host Client', async () => {
+    const sources = [];
+    setHostChatCompletionsRequestHeadersProvider(() => {
+        throw new Error('browser Host Client must not be used');
+    });
+    const hostClient = {
+        async buildHostChatCompletionGenerateRequest() {
+            throw new Error('not used');
+        },
+        async createHostChatCompletion(payload, options = {}) {
+            const source = payload.chat_completion_source;
+            sources.push(source);
+            options.onRequest?.({
+                url: HOST_CHAT_COMPLETIONS_GENERATE_ENDPOINT,
+                method: 'POST',
+                headers: {},
+                body: payload,
+            });
+            if (source === 'claude') {
+                return {
+                    model: 'hosted-model',
+                    content: [{ type: 'text', text: 'claude-ok' }],
+                    stop_reason: 'end_turn',
+                };
+            }
+            if (source === 'makersuite') {
+                return {
+                    model: 'hosted-model',
+                    candidates: [{
+                        finishReason: 'STOP',
+                        content: { role: 'model', parts: [{ text: 'google-ok' }] },
+                    }],
+                };
+            }
+            return {
+                model: 'hosted-model',
+                choices: [{ message: { content: 'openai-ok' }, finish_reason: 'stop' }],
+            };
+        },
+        async streamHostChatCompletion() {
+            throw new Error('not used');
+        },
+    };
+    const cases = [
+        ['sillytavern-openai-compatible', 'openai-ok'],
+        ['sillytavern-claude', 'claude-ok'],
+        ['sillytavern-google', 'google-ok'],
+    ];
+    const results = [];
+
+    for (const [provider] of cases) {
+        const adapter = createAgentAdapter({ provider, model: 'hosted-model' }, { hostClient });
+        results.push(await adapter.chat({ messages: [{ role: 'user', content: 'hello' }] }));
+    }
+
+    assert.deepEqual(sources, ['openai', 'claude', 'makersuite']);
+    assert.deepEqual(results.map(result => result.text), cases.map(([, text]) => text));
+});
+
+test('agent factory rejects an explicitly missing Host Client for SillyTavern providers', () => {
+    for (const provider of [
+        'sillytavern-openai-compatible',
+        'sillytavern-claude',
+        'sillytavern-google',
+    ]) {
+        assert.throws(
+            () => createAgentAdapter({ provider, model: 'hosted-model' }, { hostClient: undefined }),
+            /必须注入有效的 Host Client/,
+        );
+    }
 });
 
 test('host OpenAI-compatible model pull posts to SillyTavern status endpoint', async () => {

@@ -20,6 +20,7 @@ const {
 } = require('./providers/novelai/client.js');
 const { createAsyncImageJobManager } = require('./image-jobs/job-manager.js');
 const { registerImageJobRoutes } = require('./image-jobs/routes.js');
+const { registerLoopbackProbeRoutes } = require('./draw-runs/loopback-probe.js');
 const { parseTimeout } = require('./providers/upstream.js');
 const novelai = require('./providers/novelai/adapter.js');
 const sdWebUi = require('./providers/sd-webui/adapter.js');
@@ -191,6 +192,7 @@ async function init(router) {
         manager: jobManager,
         adapters: { novelai, 'sd-webui': sdWebUi, comfyui },
     });
+    registerLoopbackProbeRoutes(router);
 
     // v1 is the frozen upstream 1.0.1 contract; URL resolution deliberately
     // stays inside the client so input validation runs in its original order.

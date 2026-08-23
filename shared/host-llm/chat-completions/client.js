@@ -37,11 +37,11 @@ export function setHostChatCompletionsRequestHeadersProvider(provider) {
     requestHeadersProvider = typeof provider === 'function' ? provider : null;
 }
 
-async function buildHeaders() {
-    if (!requestHeadersProvider) {
+async function buildHeaders(provider = requestHeadersProvider) {
+    if (typeof provider !== 'function') {
         throw new Error('宿主请求头未注册，无法调用酒馆后端。');
     }
-    const providedHeaders = await Promise.resolve(requestHeadersProvider() || {});
+    const providedHeaders = await Promise.resolve(provider() || {});
     return {
         'Content-Type': 'application/json',
         ...providedHeaders,
@@ -52,15 +52,15 @@ async function buildHeaders() {
 function redactHeaders(headers = {}) {
     const redacted = {};
     Object.entries(headers || {}).forEach(([key, value]) => {
-        redacted[key] = /authorization|csrf|token|api[-_]?key/i.test(key)
+        redacted[key] = /authorization|cookie|csrf|token|api[-_]?key/i.test(key)
             ? '[redacted]'
             : value;
     });
     return redacted;
 }
 
-export async function buildHostChatCompletionGenerateRequest(payload = {}, stream = false) {
-    const rawHeaders = await buildHeaders();
+async function buildGenerateRequest(payload = {}, stream = false, headersProvider = requestHeadersProvider) {
+    const rawHeaders = await buildHeaders(headersProvider);
     const request = {
         url: HOST_CHAT_COMPLETIONS_GENERATE_ENDPOINT,
         method: 'POST',
@@ -75,6 +75,10 @@ export async function buildHostChatCompletionGenerateRequest(payload = {}, strea
         enumerable: false,
     });
     return request;
+}
+
+export async function buildHostChatCompletionGenerateRequest(payload = {}, stream = false) {
+    return await buildGenerateRequest(payload, stream);
 }
 
 function looksLikeHtmlDocument(text = '') {
@@ -252,14 +256,24 @@ export function buildHostGoogleGeneratePayload(config = {}, task = {}, messages 
     );
 }
 
-export async function fetchHostChatCompletionsModels(
+function resolveFetch(fetchImplementation) {
+    const effectiveFetch = fetchImplementation || globalThis.fetch;
+    if (typeof effectiveFetch !== 'function') {
+        throw new Error('当前运行环境没有可用的 fetch，无法调用酒馆后端。');
+    }
+    return effectiveFetch;
+}
+
+async function fetchModels(
     config = {},
     source = HOST_CHAT_COMPLETIONS_SOURCE_OPENAI,
     options = {},
+    dependencies = {},
 ) {
-    const response = await fetch(HOST_CHAT_COMPLETIONS_STATUS_ENDPOINT, {
+    const fetchImplementation = resolveFetch(dependencies.fetch);
+    const response = await fetchImplementation(HOST_CHAT_COMPLETIONS_STATUS_ENDPOINT, {
         method: 'POST',
-        headers: await buildHeaders(),
+        headers: await buildHeaders(dependencies.requestHeadersProvider),
         body: JSON.stringify(buildHostChatCompletionsStatusPayload(config, source)),
         signal: options.signal,
     });
@@ -286,16 +300,27 @@ export async function fetchHostChatCompletionsModels(
     return [...new Set(models)];
 }
 
+export async function fetchHostChatCompletionsModels(
+    config = {},
+    source = HOST_CHAT_COMPLETIONS_SOURCE_OPENAI,
+    options = {},
+) {
+    return await fetchModels(config, source, options, {
+        requestHeadersProvider,
+    });
+}
+
 export async function fetchHostOpenAICompatibleModels(config = {}, options = {}) {
     return await fetchHostChatCompletionsModels(config, HOST_CHAT_COMPLETIONS_SOURCE_OPENAI, options);
 }
 
-export async function createHostChatCompletion(payload = {}, options = {}) {
-    const request = await buildHostChatCompletionGenerateRequest(payload, false);
+async function createCompletion(payload = {}, options = {}, dependencies = {}) {
+    const request = await buildGenerateRequest(payload, false, dependencies.requestHeadersProvider);
     if (typeof options.onRequest === 'function') {
         options.onRequest(request);
     }
-    const response = await fetch(request.url, {
+    const fetchImplementation = resolveFetch(dependencies.fetch);
+    const response = await fetchImplementation(request.url, {
         method: request.method,
         headers: request.rawHeaders || request.headers,
         body: JSON.stringify(request.body),
@@ -328,12 +353,19 @@ export async function createHostChatCompletion(payload = {}, options = {}) {
     return data;
 }
 
-export async function streamHostChatCompletion(payload = {}, onEvent, options = {}) {
-    const request = await buildHostChatCompletionGenerateRequest(payload, true);
+export async function createHostChatCompletion(payload = {}, options = {}) {
+    return await createCompletion(payload, options, {
+        requestHeadersProvider,
+    });
+}
+
+async function streamCompletion(payload = {}, onEvent, options = {}, dependencies = {}) {
+    const request = await buildGenerateRequest(payload, true, dependencies.requestHeadersProvider);
     if (typeof options.onRequest === 'function') {
         options.onRequest(request);
     }
-    const response = await fetch(request.url, {
+    const fetchImplementation = resolveFetch(dependencies.fetch);
+    const response = await fetchImplementation(request.url, {
         method: request.method,
         headers: request.rawHeaders || request.headers,
         body: JSON.stringify(request.body),
@@ -366,3 +398,68 @@ export async function streamHostChatCompletion(payload = {}, onEvent, options = 
         onEvent(event);
     });
 }
+
+export async function streamHostChatCompletion(payload = {}, onEvent, options = {}) {
+    return await streamCompletion(payload, onEvent, options, {
+        requestHeadersProvider,
+    });
+}
+
+const HOST_CHAT_COMPLETION_CLIENT_METHODS = Object.freeze([
+    'buildHostChatCompletionGenerateRequest',
+    'createHostChatCompletion',
+    'streamHostChatCompletion',
+]);
+
+export function assertHostChatCompletionsClient(client) {
+    if (!client || !HOST_CHAT_COMPLETION_CLIENT_METHODS.every((method) => typeof client[method] === 'function')) {
+        throw new TypeError('酒馆渠道必须注入有效的 Host Client。');
+    }
+    return client;
+}
+
+export function createHostChatCompletionsClient(options = {}) {
+    const headersProvider = options.requestHeadersProvider;
+    if (typeof headersProvider !== 'function') {
+        throw new TypeError('创建 Host Client 时必须提供 requestHeadersProvider。');
+    }
+    if (options.fetch !== undefined && typeof options.fetch !== 'function') {
+        throw new TypeError('创建 Host Client 时 fetch 必须是函数。');
+    }
+    const dependencies = Object.freeze({
+        requestHeadersProvider: headersProvider,
+        fetch: options.fetch,
+    });
+    return Object.freeze({
+        buildHostChatCompletionGenerateRequest: async (payload = {}, stream = false) => (
+            await buildGenerateRequest(payload, stream, dependencies.requestHeadersProvider)
+        ),
+        fetchHostChatCompletionsModels: async (
+            config = {},
+            source = HOST_CHAT_COMPLETIONS_SOURCE_OPENAI,
+            requestOptions = {},
+        ) => await fetchModels(config, source, requestOptions, dependencies),
+        fetchHostOpenAICompatibleModels: async (config = {}, requestOptions = {}) => (
+            await fetchModels(
+                config,
+                HOST_CHAT_COMPLETIONS_SOURCE_OPENAI,
+                requestOptions,
+                dependencies,
+            )
+        ),
+        createHostChatCompletion: async (payload = {}, requestOptions = {}) => (
+            await createCompletion(payload, requestOptions, dependencies)
+        ),
+        streamHostChatCompletion: async (payload = {}, onEvent, requestOptions = {}) => (
+            await streamCompletion(payload, onEvent, requestOptions, dependencies)
+        ),
+    });
+}
+
+export const browserHostChatCompletionsClient = Object.freeze({
+    buildHostChatCompletionGenerateRequest,
+    fetchHostChatCompletionsModels,
+    fetchHostOpenAICompatibleModels,
+    createHostChatCompletion,
+    streamHostChatCompletion,
+});

@@ -1,8 +1,7 @@
 import {
-    buildHostChatCompletionGenerateRequest,
+    assertHostChatCompletionsClient,
+    browserHostChatCompletionsClient,
     buildHostOpenAICompatibleGeneratePayload,
-    createHostChatCompletion,
-    streamHostChatCompletion,
 } from '../../../shared/host-llm/chat-completions/client.js';
 import {
     buildEffectiveReasoningConfig,
@@ -62,8 +61,9 @@ function isMalformedNativeToolHostError(error) {
 }
 
 export class SillyTavernOpenAICompatibleAdapter {
-    constructor(config) {
+    constructor(config, hostClient = browserHostChatCompletionsClient) {
         this.config = config;
+        this.hostClient = assertHostChatCompletionsClient(hostClient);
     }
 
     buildMessages(task) {
@@ -117,7 +117,7 @@ export class SillyTavernOpenAICompatibleAdapter {
         );
         const payload = options.payload
             || this.buildPayload(task, !!options.taggedMode, effectiveReasoning);
-        const request = await buildHostChatCompletionGenerateRequest(
+        const request = await this.hostClient.buildHostChatCompletionGenerateRequest(
             payload,
             typeof task.onStreamProgress === 'function',
         );
@@ -161,7 +161,7 @@ export class SillyTavernOpenAICompatibleAdapter {
         let lastFinishReason = 'stop';
         let lastModel = this.config.model;
 
-        await streamHostChatCompletion(payload, (event) => {
+        await this.hostClient.streamHostChatCompletion(payload, (event) => {
             lastModel = event?.model || lastModel;
             const choice = event?.choices?.[0] || {};
             accumulateStreamedAssistantSnapshot(assistantSnapshot, choice);
@@ -214,7 +214,10 @@ export class SillyTavernOpenAICompatibleAdapter {
     }
 
     async nonStreamingChat(task, payload, effectiveReasoning, options = {}) {
-        const response = await createHostChatCompletion(payload, { signal: task.signal, onRequest: options.onRequest });
+        const response = await this.hostClient.createHostChatCompletion(
+            payload,
+            { signal: task.signal, onRequest: options.onRequest },
+        );
         const choice = response.choices?.[0] || {};
         const message = choice.message || {};
         assertSignedToolCallsIntact(message);

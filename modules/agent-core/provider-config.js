@@ -7,8 +7,19 @@ import { SillyTavernGoogleAdapter } from './adapters/sillytavern-google.js';
 import { SillyTavernOpenAICompatibleAdapter } from './adapters/sillytavern-openai-compatible.js';
 import { isSillyTavernProvider } from './provider-resolution.js';
 import { assertRuntimeReasoning } from './reasoning-capabilities.js';
+import { assertHostChatCompletionsClient } from '../../shared/host-llm/chat-completions/client.js';
 
 export * from './provider-resolution.js';
+
+function createSillyTavernAdapter(Adapter, providerConfig, options) {
+    if (!Object.hasOwn(options, 'hostClient')) {
+        return new Adapter(providerConfig);
+    }
+    return new Adapter(
+        providerConfig,
+        assertHostChatCompletionsClient(options.hostClient),
+    );
+}
 
 export function createAgentAdapter(providerConfig = {}, options = {}) {
     if (!providerConfig.apiKey && !isSillyTavernProvider(providerConfig.provider)) {
@@ -17,11 +28,11 @@ export function createAgentAdapter(providerConfig = {}, options = {}) {
     assertRuntimeReasoning(providerConfig.reasoning || {});
     switch (providerConfig.provider) {
         case 'sillytavern-openai-compatible':
-            return new SillyTavernOpenAICompatibleAdapter(providerConfig);
+            return createSillyTavernAdapter(SillyTavernOpenAICompatibleAdapter, providerConfig, options);
         case 'sillytavern-claude':
-            return new SillyTavernClaudeAdapter(providerConfig);
+            return createSillyTavernAdapter(SillyTavernClaudeAdapter, providerConfig, options);
         case 'sillytavern-google':
-            return new SillyTavernGoogleAdapter(providerConfig);
+            return createSillyTavernAdapter(SillyTavernGoogleAdapter, providerConfig, options);
         case 'openai-responses':
             return new OpenAIResponsesAdapter(providerConfig);
         case 'anthropic':
