@@ -6,7 +6,8 @@ const http = require('node:http');
 const { tmpdir } = require('node:os');
 const path = require('node:path');
 
-const bundlePath = path.resolve(__dirname, '../draw-runs/vendor/agent-core-node.cjs');
+const agentCoreBundlePath = path.resolve(__dirname, '../draw-runs/vendor/agent-core-node.cjs');
+const drawRunBundlePath = path.resolve(__dirname, '../draw-runs/vendor/draw-run-runtime.cjs');
 
 function listen(server) {
     return new Promise((resolve, reject) => {
@@ -68,9 +69,33 @@ async function main() {
         await listen(server);
         const address = server.address();
         assert.ok(address && typeof address === 'object');
-        const isolatedBundlePath = path.join(tempDirectory, 'agent-core-node.cjs');
-        await copyFile(bundlePath, isolatedBundlePath);
-        const agentCore = require(isolatedBundlePath);
+        const isolatedAgentCorePath = path.join(tempDirectory, 'agent-core-node.cjs');
+        const isolatedDrawRunPath = path.join(tempDirectory, 'draw-run-runtime.cjs');
+        await Promise.all([
+            copyFile(agentCoreBundlePath, isolatedAgentCorePath),
+            copyFile(drawRunBundlePath, isolatedDrawRunPath),
+        ]);
+        const agentCore = require(isolatedAgentCorePath);
+        const drawRunRuntime = require(isolatedDrawRunPath);
+        const compiled = drawRunRuntime.compileDrawRunImages('sd-webui', [{
+            scene: 'portrait',
+            chars: [],
+            placement: { insertAfter: 1 },
+        }], {
+            host: 'http://127.0.0.1:7860',
+            auth: '',
+            timeout: 5_000,
+            delayMs: 1_000,
+            params: { width: 512, height: 512, steps: 20 },
+            positivePrefix: '',
+            negativePrefix: '',
+            knownCharacters: [],
+            promptOverride: '',
+            negativePromptOverride: '',
+        });
+        assert.equal(compiled.provider, 'sd-webui');
+        assert.equal(compiled.items.length, 1);
+        assert.equal(compiled.items[0].request.payload.prompt, 'portrait');
         const hostClient = agentCore.createHostChatCompletionsClient({
             requestHeadersProvider: () => ({ Cookie: 'session=test' }),
             fetch: async () => {
@@ -118,7 +143,7 @@ async function main() {
         await rm(tempDirectory, { recursive: true, force: true });
     }
 
-    console.log(`Agent Core Node bundle passed on Node.js ${process.versions.node}`);
+    console.log(`Agent Core and Draw Run Node bundles passed on Node.js ${process.versions.node}`);
 }
 
 main().catch((error) => {

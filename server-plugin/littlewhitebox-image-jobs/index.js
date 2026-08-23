@@ -20,11 +20,24 @@ const {
 } = require('./providers/novelai/client.js');
 const { createAsyncImageJobManager } = require('./image-jobs/job-manager.js');
 const { registerImageJobRoutes } = require('./image-jobs/routes.js');
+const { createImageJobService } = require('./image-jobs/service.js');
+const { createDrawRunManager } = require('./draw-runs/draw-run-manager.js');
+const { createEnvelopeValidator } = require('./draw-runs/envelope.js');
+const { createPerRunHostClient } = require('./draw-runs/loopback-host-client.js');
 const { registerLoopbackProbeRoutes } = require('./draw-runs/loopback-probe.js');
+const { registerDrawRunRoutes } = require('./draw-runs/routes.js');
+const agentCore = require('./draw-runs/vendor/agent-core-node.cjs');
+const drawRunRuntime = require('./draw-runs/vendor/draw-run-runtime.cjs');
 const { parseTimeout } = require('./providers/upstream.js');
 const novelai = require('./providers/novelai/adapter.js');
 const sdWebUi = require('./providers/sd-webui/adapter.js');
 const comfyui = require('./providers/comfyui/adapter.js');
+
+const providerAdapters = Object.freeze({
+    novelai,
+    'sd-webui': sdWebUi,
+    comfyui,
+});
 
 const PLUGIN_VERSION = '2.0.0';
 const PLUGIN_CAPABILITIES = Object.freeze(['v5-msgpack-stream', 'image-batch-jobs-v1']);
@@ -38,11 +51,18 @@ const info = {
 };
 
 const jobManager = createAsyncImageJobManager({
-    adapters: {
-        novelai,
-        'sd-webui': sdWebUi,
-        comfyui,
-    },
+    adapters: providerAdapters,
+});
+const imageJobService = createImageJobService({
+    manager: jobManager,
+    adapters: providerAdapters,
+});
+const drawRunManager = createDrawRunManager({
+    runtime: drawRunRuntime,
+    agentCore,
+    envelopeValidator: createEnvelopeValidator(drawRunRuntime),
+    imageJobService,
+    createHostClient: req => createPerRunHostClient(req, agentCore),
 });
 
 function parseUpstreamUrl(value) {
@@ -190,9 +210,11 @@ async function init(router) {
 
     registerImageJobRoutes(router, {
         manager: jobManager,
-        adapters: { novelai, 'sd-webui': sdWebUi, comfyui },
+        adapters: providerAdapters,
+        service: imageJobService,
     });
     registerLoopbackProbeRoutes(router);
+    registerDrawRunRoutes(router, { manager: drawRunManager });
 
     // v1 is the frozen upstream 1.0.1 contract; URL resolution deliberately
     // stays inside the client so input validation runs in its original order.
@@ -309,6 +331,7 @@ async function init(router) {
 }
 
 async function exit() {
+    drawRunManager.close();
     jobManager.close();
 }
 

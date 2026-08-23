@@ -55,9 +55,15 @@ node server-plugin/littlewhitebox-image-jobs/tests/loopback-deployment-matrix.js
 
 该脚本从 SillyTavern 1.18.0 源码建立隔离运行副本并启动真实进程，验证 HTTP/IPv4 双用户会话并发探针、Cookie/CSRF、原生自签 HTTPS、IPv6、内置 Basic Auth、HTTPS 反向代理到 HTTP SillyTavern，以及明确绑定地址旁路的同端口凭证诱饵。临时配置、数据和目录联接会在正常完成或可处理错误后清理，不加载现用 server plugin，也不读取或修改现用数据。
 
+## Draw Run API（施工期）
+
+Scene Planner 后台运行接口位于 `/v1/draw-runs`，包含创建、当前用户列表、单项查询、取消与接管 ACK。它与 `/v1/jobs` 经过同一个图片任务校验/创建 service，图片执行仍完全服从现有单用户串行队列。
+
+当前版本暂不在 `/status` 发布 `draw-runs-v1` capability，前端三家 Provider 也不会调用这些接口。等本地 journal adoption 与刷新接回闭环完成后，才会同时注册生产入口并开放 capability；因此当前用户行为不变，前端也不会制造任务已经提交但尚不能接回的半成品状态。
+
 ## Agent Core Node 产物
 
-后台 Draw Run 使用已提交的 `draw-runs/vendor/agent-core-node.cjs`。产物包含 Agent Core 及 OpenAI、Anthropic、Google SDK，复制插件后无需也不允许在运行环境执行 `npm install`。实际进入 bundle 的所有第三方包及其许可证位于 `draw-runs/vendor/THIRD_PARTY_LICENSES.txt`。
+后台 Draw Run 使用已提交的 `draw-runs/vendor/agent-core-node.cjs` 与 `draw-runs/vendor/draw-run-runtime.cjs`。前者包含 Agent Core 及 OpenAI、Anthropic、Google SDK，后者包含环境无关的 Scene Planner executor、三家图片 compiler 与确定性标识符。复制插件后无需也不允许在运行环境执行 `npm install`。实际进入两个 bundle 的所有第三方包及其许可证位于 `draw-runs/vendor/THIRD_PARTY_LICENSES.txt`。
 
 仓库开发者在 Agent Core 或相关 SDK 升级后运行：
 
@@ -67,4 +73,4 @@ npm run build:agent-core:node
 
 `npm run check:agent-core:node` 会先核对实际入包依赖与 `package-lock.json` 的锁定版本，再在不改文件的情况下重建并比对两个已提交产物，用于阻止源码、依赖锁文件与 bundle/许可证清单脱节。若依赖未附带 LICENSE/NOTICE/COPYING 文件，构建会提取 README 的 License 段；两处都没有许可证正文时直接失败。正式构建在同目录完成 staging，并以整个 `vendor` 目录为发布单元切换；失败时恢复上一份完整产物。
 
-`npm run check:agent-core:node18` 使用固定 Node.js 18.20.8 隔离加载 bundle，创建七类 Adapter，并让打包后的 Google SDK 向本机模拟端点发出一次真实 `generateContent` 请求。当前 `@google/genai` 虽声明 Node.js 20，但本插件锁定并打包的调用路径支持 Node.js 18；升级 SDK 后必须通过此检查。
+`npm run check:agent-core:node18` 使用固定 Node.js 18.20.8 隔离加载两个 bundle，创建七类 Adapter、调用一次 Draw Run compiler，并让打包后的 Google SDK 向本机模拟端点发出一次真实 `generateContent` 请求。当前 `@google/genai` 虽声明 Node.js 20，但本插件锁定并打包的调用路径支持 Node.js 18；升级 SDK 后必须通过此检查。

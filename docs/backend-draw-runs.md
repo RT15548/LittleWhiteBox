@@ -1,6 +1,6 @@
 # 后端 Draw Run（第二刀）方案定稿
 
-状态：施工中；第 1、2、4、5、6 步完成，第 3 步实现已通过代码复核，真实 SillyTavern 写盘/读盘手测待验收。
+状态：施工中；第 1、2、4～8 步完成，第 3 步实现已通过代码复核，真实 SillyTavern 写盘/读盘手测待验收。第 7～8 步尚未发布 capability，也未注册三家 Provider 生产入口。
 前置：第一刀已封板于 `95526dd feat(draw): add provider-neutral backend image jobs`。
 权威文档关系：本文件是第二刀的开工单与终态契约；第一刀契约见 `docs/image-backend-batch-jobs.md`，第二刀不修改第一刀的进程内存边界。
 
@@ -158,6 +158,7 @@ Draw Run 保存：
 | `MAX_TOTAL_ENVELOPE_BYTES` | 32 MiB | 全部未完成 run 的 envelope 常驻内存上限 |
 | `SUBMISSION_UNCERTAINTY_WINDOW_MS` | 120 000 | marker 落盘后至可判定"未提交"的等待窗口（与第一刀 `PENDING_JOB_LEASE_MS` 对齐） |
 | `RUN_ERROR_RETENTION_MS` | 3 600 000 | `failed` / `cancelled` / `child_expired` 的展示保留期（与第一刀 child retention 对齐） |
+| `CHILD_SWEEP_INTERVAL_MS` | 30 000 | Draw Run 主动查询 child 是否仍存在；timer 使用 `unref`，插件退出时清理 |
 
 （与第一刀 `MAX_JOBS_PER_OWNER=20` 相互独立。）
 
@@ -420,14 +421,14 @@ delivery: { mode: 'gallery' }
 → 4. Node bundle 管线（已完成；esbuild：Node entry + 三个 SDK + Agent Core → 提交进 server-plugin 的可复制产物；零运行时安装依赖；生成第三方许可证清单）
 → 5. Planner prepare/execute 拆分（已完成；浏览器行为不变）
 → 6. 三家纯 compiler 提取，浏览器链路切换（已完成；行为不变）
-→ 7. DrawRunManager / 状态机 / API / per-run Host Client / Agent executor / compiler registry / child 创建（经共享 normalize/validate service）/ 敏感数据清理 / 生命周期与取消（不发布 capability）
-→ 8. 前端提交与 marker（draw-run-coordinator：preflight、marker CAS、幂等提交、提交不确定窗口、"正在提交/后台已接管"、Planner 阶段 DOM 卡）
+→ 7. DrawRunManager / 状态机 / API / per-run Host Client / Agent executor / compiler registry / child 创建（经共享 normalize/validate service）/ 敏感数据清理 / 生命周期与取消（已完成；不发布 capability）
+→ 8. 前端提交与 marker（已完成共享 draw-run-coordinator：preflight、marker CAS、幂等提交、提交不确定窗口、"正在提交/后台已接管"状态事件；在 adoption 可用前不注册三家生产入口）
 → 9. journal 重整：delivery 判别模型 + adopting 状态 + 原子创建 + originRunId（fixture 迁移）
 → 10. child adoption（marker 扫描、reconcile、adoptExistingJobFromDrawRun、source_changed → gallery、marker 清理与补 ACK、多标签页竞争）
-→ 11. 开放 draw-runs-v1 capability（三家 Provider 全部通过后；缺 capability 时明确要求更新后端，不悄悄退化）
+→ 11. 注册三家 Provider 生产入口与对应 UI 状态，并开放 draw-runs-v1 capability（三家全部通过后；缺 capability 时明确要求更新后端，不悄悄退化）
 ```
 
-阶段 1–6 用户行为完全不变。
+阶段 1–8 用户行为完全不变：第 7～8 步只建立后端 API 与共享提交边界，未发布 capability、未注册 Provider 入口。这样前端不会进入一个能提交却不能 adoption 的半成品路径；第 11 步只在第 9～10 步接回闭环完成后一次性注册并开放。
 
 ## 13. 最低必要测试
 
