@@ -3339,10 +3339,11 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     
     // ═══════════════════════════════════════════════════════════════════════
-    // 提示词预设管理 — 纯本地切换，与参数预设一致
+    // 提示词预设管理 — 切换立即持久化，模板正文仍由保存按钮提交
     $('nd_prompt_preset').addEventListener('change', () => {
         state.selectedPromptPresetId = $('nd_prompt_preset').value;
         applyPromptPreset();
+        postToParent({ type: 'SELECT_PROMPT_PRESET', id: state.selectedPromptPresetId });
     });
 
     $('nd_prompt_preset_save').addEventListener('click', () => {
