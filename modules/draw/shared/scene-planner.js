@@ -2,12 +2,15 @@ import { xbLog } from '../../../core/debug-core.js';
 import {
     beginDrawScenePlannerDiagnostic,
     callDrawScenePlannerAgent,
+    resolveDrawAgentProviderConfig,
 } from './draw-agent.js';
 import {
     ScenePlannerError,
-    createSubmitScenePlanTool,
-    parseSubmittedScenePlan,
 } from './scene-plan-contract.js';
+import {
+    createPreparedScenePlannerTask,
+    executePreparedScenePlanner,
+} from './scene-planner-executor.js';
 import { createSceneSource, stripScenePointMarkers } from './scene-source.js';
 import {
     applyPromptSlots,
@@ -46,7 +49,23 @@ const EMPTY_PROMPT_CONFIG = {
     userConfirm: '',
 };
 
+function createSerializableSnapshot(value) {
+    try {
+        const serialized = JSON.stringify(value);
+        if (serialized === undefined) throw new TypeError('结果为空');
+        return JSON.parse(serialized);
+    } catch (error) {
+        throw new ScenePlannerError(
+            `Scene Planner 预处理结果无法序列化：${error?.message || '未知错误'}`,
+            'PREPARED_INPUT_INVALID',
+            null,
+            { cause: error },
+        );
+    }
+}
+
 export { ScenePlannerError };
+export { executePreparedScenePlanner };
 
 export function getEffectivePromptConfig(custom, defaults = EMPTY_PROMPT_CONFIG) {
     const base = defaults && typeof defaults === 'object'
@@ -310,28 +329,21 @@ async function buildScenePlannerRequest(options = {}) {
             slotValues,
         ).trim();
 
-        const task = {
+        const prompt = {
             systemPrompt,
             messages: [{ role: 'user', content: userTask }],
-            tools: [createSubmitScenePlanTool({
-                maxImages: effectiveMaxImages,
-                maxCharactersPerImage: effectiveMaxCharactersPerImage,
-                insertPointCount,
-                centerMode,
-            })],
-            toolChoice: 'required',
         };
         await emitScenePromptReady(runtime, [
             ...(systemPrompt ? [{ role: 'system', content: systemPrompt }] : []),
-            ...task.messages,
+            ...prompt.messages,
         ]);
         return {
-            task,
+            prompt,
+            imageLimitAdjustment,
             validationContext: {
                 sceneSource,
                 effectiveMaxImages,
                 effectiveMaxCharactersPerImage,
-                imageLimitAdjustment,
                 centerMode,
             },
         };
@@ -343,91 +355,80 @@ async function buildScenePlannerRequest(options = {}) {
 
 export async function buildScenePlannerTask(options = {}) {
     const request = await buildScenePlannerRequest(options);
-    return request.task;
+    return createPreparedScenePlannerTask({
+        version: 1,
+        planner: {
+            prompt: request.prompt,
+            validationContext: request.validationContext,
+            presentCharacters: Array.isArray(options.presentCharacters) ? options.presentCharacters : [],
+        },
+        agent: { channel: '', providerConfig: null },
+    });
+}
+
+export async function prepareScenePlannerInput(options = {}) {
+    const diagnostic = options.diagnostic;
+    let request;
+    try {
+        request = await buildScenePlannerRequest(options);
+    } catch (error) {
+        diagnostic?.fail(error, { stage: 'prompt' });
+        throw error;
+    }
+
+    if (request.imageLimitAdjustment) {
+        xbLog.info(
+            'novelDrawLlm',
+            request.imageLimitAdjustment.message,
+            request.imageLimitAdjustment,
+        );
+        try {
+            options.onImageLimitAdjusted?.(request.imageLimitAdjustment);
+        } catch (error) {
+            console.warn('[Draw Scene Planner] 图片数量调整提示失败:', error);
+        }
+    }
+
+    let providerConfig = options.agentOptions?.providerConfig || null;
+    if (!providerConfig && !options.agentCaller) {
+        try {
+            ({ providerConfig } = await resolveDrawAgentProviderConfig({
+                timeout: options.timeout,
+                ...(options.agentOptions || {}),
+            }));
+        } catch (error) {
+            diagnostic?.fail(error, { stage: 'config' });
+            throw error;
+        }
+    }
+
+    return createSerializableSnapshot({
+        version: 1,
+        planner: {
+            prompt: request.prompt,
+            validationContext: request.validationContext,
+            presentCharacters: Array.isArray(options.presentCharacters) ? options.presentCharacters : [],
+        },
+        agent: {
+            channel: String(providerConfig?.provider || ''),
+            providerConfig,
+        },
+    });
 }
 
 export async function generateAndParseScenePlan(options = {}) {
     const diagnostic = options.diagnostic
         || beginDrawScenePlannerDiagnostic({}, options.onDiagnosticUpdate);
-    let request;
-    try {
-        request = await buildScenePlannerRequest(options);
-    } catch (error) {
-        diagnostic.fail(error, { stage: 'prompt' });
-        throw error;
-    }
-
-    const task = request.task;
-    const limitAdjustment = request.validationContext.imageLimitAdjustment;
-    if (limitAdjustment) {
-        xbLog.info('novelDrawLlm', limitAdjustment.message, limitAdjustment);
-        try {
-            options.onImageLimitAdjusted?.(limitAdjustment);
-        } catch (error) {
-            console.warn('[Draw Scene Planner] 图片数量调整提示失败:', error);
-        }
-    }
-    const agentCaller = options.agentCaller || callDrawScenePlannerAgent;
-    const parseResult = (result, providerConfig = {}) => {
-        try {
-            return parseSubmittedScenePlan(result, {
-                sceneSource: request.validationContext.sceneSource,
-                presentCharacters: options.presentCharacters,
-                maxImages: request.validationContext.effectiveMaxImages,
-                maxCharactersPerImage: request.validationContext.effectiveMaxCharactersPerImage,
-                centerMode: request.validationContext.centerMode,
-                presetName: providerConfig.currentPresetName,
-                provider: providerConfig.provider,
-                model: providerConfig.model,
-            });
-        } catch (error) {
-            throw error instanceof ScenePlannerError
-                ? error
-                : new ScenePlannerError(
-                    `场景计划校验失败：${error?.message || '未知错误'}`,
-                    'TOOL_ARGUMENTS_SCHEMA_INVALID',
-                    null,
-                    { cause: error },
-                );
-        }
-    };
-    let response;
-    try {
-        response = await agentCaller({
-            task,
-            timeout: options.timeout,
-            signal: options.signal,
-            diagnostic,
-            ...(options.agentOptions || {}),
-            validateResult: (result, context = {}) => parseResult(result, context.providerConfig),
-        });
-    } catch (error) {
-        xbLog.error('novelDrawLlm', `Scene Planner 请求失败: ${error?.message || error}`, {
-            code: error?.code,
-        });
-        if (error instanceof ScenePlannerError) throw error;
-        const wrapped = new ScenePlannerError(
-            `Scene Planner 请求失败：${error?.message || '未知错误'}`,
-            'PROVIDER_REQUEST_FAILED',
-            null,
-            { cause: error },
-        );
-        diagnostic.fail(wrapped, { stage: 'request' });
-        throw wrapped;
-    }
-
-    let parsed;
-    try {
-        parsed = response.parsed || parseResult(response.result, response.providerConfig);
-    } catch (error) {
-        diagnostic.fail(error, { stage: 'parse' });
-        throw error;
-    }
-
-    diagnostic.succeed({ stage: 'parse', imageTaskCount: parsed.tasks.length });
-    xbLog.info('novelDrawLlm', `submit_scene_plan 已接收 ${parsed.tasks.length} 个图片任务`, {
-        provider: response.providerConfig?.provider,
-        model: response.providerConfig?.model,
+    const prepared = await prepareScenePlannerInput({ ...options, diagnostic });
+    return executePreparedScenePlanner(prepared, {
+        timeout: options.timeout,
+        signal: options.signal,
+        diagnostic,
+        onDiagnosticUpdate: options.onDiagnosticUpdate,
+        agentCaller: options.agentCaller || callDrawScenePlannerAgent,
+        agentOptions: options.agentOptions,
+        agentCore: options.agentCore,
+        logger: options.logger || xbLog,
+        ...(Object.hasOwn(options, 'hostClient') ? { hostClient: options.hostClient } : {}),
     });
-    return parsed.tasks;
 }

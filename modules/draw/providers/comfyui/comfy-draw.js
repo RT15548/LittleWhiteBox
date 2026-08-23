@@ -50,6 +50,15 @@ import { getLastDrawAgentDiagnostic } from "../../shared/draw-agent.js";
 import { attachDrawAgentSettingsSurface } from "../../shared/agent-settings-surface.js";
 import { createSerialImageRequestQueue } from "../../shared/serial-image-request-queue.js";
 import {
+    buildComfyImageRequest,
+    buildSimpleWorkflow,
+    compile as compileComfyScenePlan,
+    COMFY_REQUEST_DELAY_MS,
+    parseComfyApiWorkflowJson,
+    resolveComfyDirectOutputImage,
+    validateComfyWorkflowNodeMap,
+} from './compiler.js';
+import {
     createBackendItemError,
     createImageBackendJobMonitorRegistry,
     createImageBackendJobsClient,
@@ -81,7 +90,6 @@ import {
     isAnyMessageBeingEdited,
     isMessageBeingEdited,
     detectPresentCharacters,
-    assembleCharacterPrompts,
     DEFAULT_MESSAGE_FILTER_RULES,
     joinTags,
     ensureDrawImageStyles,
@@ -115,53 +123,6 @@ const HTML_PATH = `${extensionFolderPath}/modules/draw/providers/comfyui/comfy-d
 const DANBOORU_DATA_PATH = `${extensionFolderPath}/modules/draw/shared/data/danbooru-chars.dat`;
 const SERVER_FILE_KEY = 'config';
 
-// 简单模式只使用 ComfyUI 最基础的“整包模型文生图”链路。
-// SillyTavern 原生 Comfy 后端从 history.outputs[*].images/gifs 取图，因此末端必须有 SaveImage。
-// 节点 ID 固定：3=KSampler, 4=模型加载, 5=画布, 6=正向提示词, 7=负向提示词, 8=解码, 9=保存输出
-const BUILTIN_WORKFLOW_TEMPLATE = {
-    "3": {
-        "inputs": {
-            "seed": 0,
-            "steps": 20,
-            "cfg": 7,
-            "sampler_name": "euler",
-            "scheduler": "normal",
-            "denoise": 1,
-            "model": ["4", 0],
-            "positive": ["6", 0],
-            "negative": ["7", 0],
-            "latent_image": ["5", 0]
-        },
-        "class_type": "KSampler"
-    },
-    "4": {
-        "inputs": { "ckpt_name": "" },
-        "class_type": "CheckpointLoaderSimple"
-    },
-    "5": {
-        "inputs": { "width": 1024, "height": 1024, "batch_size": 1 },
-        "class_type": "EmptyLatentImage"
-    },
-    "6": {
-        "inputs": { "text": "", "clip": ["4", 1] },
-        "class_type": "CLIPTextEncode"
-    },
-    "7": {
-        "inputs": { "text": "", "clip": ["4", 1] },
-        "class_type": "CLIPTextEncode"
-    },
-    "8": {
-        "inputs": { "samples": ["3", 0], "vae": ["4", 2] },
-        "class_type": "VAEDecode"
-    },
-    "9": {
-        "inputs": {
-            "filename_prefix": "LittleWhiteBox_Comfy",
-            "images": ["8", 0]
-        },
-        "class_type": "SaveImage"
-    }
-};
 const DEFAULT_COMFY_DRAW_SETTINGS = {
     host: '',
     connectionMode: 'proxy',
@@ -231,9 +192,8 @@ let generationJobs = new Map();
 const backendJobMonitors = createImageBackendJobMonitorRegistry({ active: false });
 const COMFY_DRAW_VIEWS = ['test', 'api', 'workflow', 'params', 'llm', 'prompts', 'worldbook', 'characters', 'gallery'];
 const ImageState = { PREVIEW: 'preview', SAVING: 'saving', SAVED: 'saved', REFRESHING: 'refreshing', FAILED: 'failed' };
-const FIXED_COMFY_REQUEST_DELAY_MS = 1000;
 const comfyImageRequestQueue = createSerialImageRequestQueue({
-    getCooldownMs: () => FIXED_COMFY_REQUEST_DELAY_MS,
+    getCooldownMs: () => COMFY_REQUEST_DELAY_MS,
 });
 const comfyBackendJobsClient = createImageBackendJobsClient({ getHeaders: getRequestHeaders });
 const COMFY_SIZE_PRESETS = [
@@ -730,7 +690,6 @@ function getEffectiveParams(settings = getSettings(), overrides = {}) {
         height: overrides.height ?? sizeOverride?.height ?? preset.height,
         positivePrefix: overrides.positivePrefix ?? preset.positivePrefix ?? '',
         negativePrefix: overrides.negativePrefix ?? preset.negativePrefix ?? '',
-        // 新增
         model: overrides.model ?? preset.model ?? settings.selectedModel ?? '',
         sampler: overrides.sampler ?? preset.sampler ?? settings.sampler ?? 'euler',
         scheduler: overrides.scheduler ?? preset.scheduler ?? settings.scheduler ?? 'normal',
@@ -739,22 +698,58 @@ function getEffectiveParams(settings = getSettings(), overrides = {}) {
     };
 }
 
+export function createComfyGenerationRecipe({
+    settings = getSettings(),
+    characterTags = getSharedDrawSettings().characterTags || [],
+    paramsOverride = {},
+    promptOverride = '',
+    negativePromptOverride = '',
+    itemCount = 0,
+} = {}) {
+    const params = getEffectiveParams(settings, paramsOverride);
+    const customWorkflow = settings.customWorkflow || {};
+    return {
+        host: String(settings.host || '').trim(),
+        auth: String(settings.auth || ''),
+        timeout: Number(settings.timeout) || 120000,
+        delayMs: COMFY_REQUEST_DELAY_MS,
+        workflowMode: settings.workflowMode === 'custom' ? 'custom' : 'simple',
+        customWorkflow: {
+            json: String(customWorkflow.json || ''),
+            nodePositive: String(customWorkflow.nodePositive || ''),
+            nodeNegative: String(customWorkflow.nodeNegative || ''),
+            nodeWidth: String(customWorkflow.nodeWidth || ''),
+            nodeHeight: String(customWorkflow.nodeHeight || ''),
+            nodeSeed: String(customWorkflow.nodeSeed || ''),
+            nodeSaveImage: String(customWorkflow.nodeSaveImage || ''),
+        },
+        params: cloneSettingsObject(params),
+        positivePrefix: params.positivePrefix,
+        negativePrefix: params.negativePrefix,
+        knownCharacters: cloneSettingsObject(characterTags),
+        promptOverride: String(promptOverride || ''),
+        negativePromptOverride: String(negativePromptOverride || ''),
+        seeds: Array.from({ length: Math.max(0, Math.floor(Number(itemCount) || 0)) }, createComfySeed),
+    };
+}
+
 function getBuiltinWorkflowDefinition(id) {
     return BUILTIN_WORKFLOWS.find((item) => item.id === id) || BUILTIN_WORKFLOWS[0];
 }
 
 function createBuiltinWorkflowPreview({ model, width, height, steps, cfg, sampler, scheduler }) {
-    const workflow = JSON.parse(JSON.stringify(BUILTIN_WORKFLOW_TEMPLATE));
-    workflow["4"].inputs.ckpt_name = String(model || "<selected-model>");
-    workflow["3"].inputs.seed = "<random-seed>";
-    workflow["3"].inputs.steps = steps;
-    workflow["3"].inputs.cfg = cfg;
-    workflow["3"].inputs.sampler_name = sampler;
-    workflow["3"].inputs.scheduler = scheduler;
-    workflow["5"].inputs.width = width;
-    workflow["5"].inputs.height = height;
-    workflow["6"].inputs.text = "<positive-prompt>";
-    workflow["7"].inputs.text = "<negative-prompt>";
+    const workflow = buildSimpleWorkflow({
+        model: String(model || '<selected-model>'),
+        sampler,
+        scheduler,
+        steps,
+        cfg,
+        width,
+        height,
+        positive: '<positive-prompt>',
+        negative: '<negative-prompt>',
+        seed: '<random-seed>',
+    });
     return JSON.stringify(workflow, null, 2);
 }
 
@@ -1080,312 +1075,22 @@ async function fetchComfySamplers({ signal, timeoutMs } = {}) {
     };
 }
 
-// 构建简单模式工作流
-function buildSimpleWorkflow({ model, sampler, scheduler, steps, cfg, width, height, positive, negative }) {
-    const wf = JSON.parse(JSON.stringify(BUILTIN_WORKFLOW_TEMPLATE));
-    wf["4"].inputs.ckpt_name = model;
-    wf["3"].inputs.sampler_name = sampler;
-    wf["3"].inputs.scheduler = scheduler;
-    wf["3"].inputs.steps = steps;
-    wf["3"].inputs.cfg = cfg;
-    wf["3"].inputs.seed = Math.floor(Math.random() * 2 ** 32);
-    wf["5"].inputs.width = width;
-    wf["5"].inputs.height = height;
-    wf["6"].inputs.text = positive;
-    wf["7"].inputs.text = negative;
-    return wf;
+function createComfySeed() {
+    return Math.floor(Math.random() * 2 ** 32);
 }
 
-function parseComfyApiWorkflowJson(text) {
-    let workflow;
-    try {
-        workflow = JSON.parse(String(text || '').replace(/^\uFEFF/, ''));
-    } catch (error) {
-        throw new Error(`JSON 格式错误：${error.message}`);
-    }
-    if (!workflow || Array.isArray(workflow) || typeof workflow !== 'object') {
-        throw new Error('工作流格式错误：请导入 API Format workflow JSON。');
-    }
-
-    const hasApiNode = Object.values(workflow).some((node) => (
-        node
-        && typeof node === 'object'
-        && !Array.isArray(node)
-        && typeof node.class_type === 'string'
-        && node.inputs
-        && typeof node.inputs === 'object'
-        && !Array.isArray(node.inputs)
-    ));
-    if (!hasApiNode) {
-        throw new Error('工作流格式错误：需要 API Format workflow JSON，请在 ComfyUI 使用 Save (API Format) 导出。');
-    }
-
-    return workflow;
-}
-
-function requireComfyNode(workflow, nodeId, label) {
-    const id = String(nodeId || '').trim();
-    if (!id) return null;
-    const node = workflow?.[id];
-    if (!node || typeof node !== 'object' || !node.inputs || typeof node.inputs !== 'object') {
-        throw new Error(`${label}不存在：${id}`);
-    }
-    return node;
-}
-
-function getComfyTextFieldCandidates(role) {
-    if (role === 'negative') return ['text', 'negative', 'prompt'];
-    return ['text', 'prompt', 'positive'];
-}
-
-function validateComfyTextNode(workflow, nodeId, label, { required = false, role = 'positive' } = {}) {
-    const id = String(nodeId || '').trim();
-    if (!id) {
-        if (required) throw new Error(`请填写${label}`);
-        return;
-    }
-    const node = requireComfyNode(workflow, id, label);
-    const fields = getComfyTextFieldCandidates(role);
-    const hasTextField = fields.some(k => k in node.inputs);
-    if (!hasTextField) {
-        throw new Error(`${label}需要填带 ${fields.join('/')} 输入的节点：${id}`);
-    }
-}
-
-function validateComfyInputNode(workflow, nodeId, label, inputName, { required = false } = {}) {
-    const id = String(nodeId || '').trim();
-    if (!id) {
-        if (required) throw new Error(`请填写${label}`);
-        return;
-    }
-    const node = requireComfyNode(workflow, id, label);
-    if (!(inputName in node.inputs)) {
-        throw new Error(`${label}节点没有 ${inputName} 输入：${id}`);
-    }
-}
-
-function validateComfySeedNode(workflow, nodeId, { required = false } = {}) {
-    const id = String(nodeId || '').trim();
-    if (!id) {
-        if (required) throw new Error('请填写Seed 节点');
-        return;
-    }
-    const node = requireComfyNode(workflow, id, 'Seed 节点');
-    if (!('seed' in node.inputs) && !('noise_seed' in node.inputs)) {
-        throw new Error(`Seed 节点需要带 seed 或 noise_seed 输入：${id}`);
-    }
-}
-
-function validateComfySaveImageNode(workflow, nodeId, { required = false } = {}) {
-    const id = String(nodeId || '').trim();
-    if (!id) {
-        if (required) throw new Error('请填写SaveImage 节点');
-        return;
-    }
-    const node = requireComfyNode(workflow, id, 'SaveImage 节点');
-    if (normalizeComfyClassType(node.class_type) !== 'saveimage') {
-        throw new Error(`SaveImage 节点 ID 需要指向 SaveImage 节点：${id}`);
-    }
-}
-
-function validateComfyWorkflowNodeMap(workflow, nodeMap) {
-    validateComfyTextNode(workflow, nodeMap.positive, '正向提示词节点', { required: true, role: 'positive' });
-    validateComfyTextNode(workflow, nodeMap.negative, '负向提示词节点', { role: 'negative' });
-    validateComfyInputNode(workflow, nodeMap.width, '宽度节点', 'width');
-    validateComfyInputNode(workflow, nodeMap.height, '高度节点', 'height');
-    validateComfySeedNode(workflow, nodeMap.seed);
-    validateComfySaveImageNode(workflow, nodeMap.saveImage, { required: true });
-}
-
-function isComfyLink(value) {
-    return Array.isArray(value) && value.length >= 2 && value[0] !== undefined && value[1] !== undefined;
-}
-
-function normalizeComfyClassType(value) {
-    return String(value || '').replace(/\s+/g, '').toLowerCase();
-}
-
-function getComfyNodeTitle(node) {
-    return String(node?._meta?.title || node?.title || '').trim().toLowerCase();
-}
-
-function getComfyOutputTitleScore(title) {
-    if (/final|最终/i.test(title)) return 50;
-    if (/output|result|输出|结果/i.test(title)) return 40;
-    if (/save|保存/i.test(title)) return 35;
-    return 0;
-}
-
-function extractComfyOutputAssets(output) {
-    if (!output || typeof output !== 'object') return [];
-    return [
-        ...(Array.isArray(output.images) ? output.images : []),
-        ...(Array.isArray(output.gifs) ? output.gifs : []),
-    ];
-}
-
-function getReferencedComfyNodeIds(workflow) {
-    const refs = new Set();
-    Object.values(workflow || {}).forEach((node) => {
-        const inputs = node?.inputs || {};
-        Object.values(inputs).forEach((value) => {
-            if (isComfyLink(value)) {
-                refs.add(String(value[0]));
-            }
-        });
-    });
-    return refs;
-}
-
-function pruneComfyOutputNodes(workflow, preferredSaveImageNodeId = '') {
-    const preferredId = String(preferredSaveImageNodeId || '').trim();
-    const hasSaveImage = getPreferredComfySaveImageNodeIds(workflow).length > 0;
-    if (!preferredId && !hasSaveImage) return workflow;
-
-    const refs = getReferencedComfyNodeIds(workflow);
-    Object.entries(workflow || {}).forEach(([id, node]) => {
-        if (refs.has(String(id))) return;
-        const type = normalizeComfyClassType(node?.class_type);
-        const isOutputNode = type === 'previewimage' || type === 'saveimage';
-        if (!isOutputNode) return;
-
-        if (preferredId) {
-            if (String(id) !== preferredId) delete workflow[id];
-            return;
-        }
-        if (type === 'previewimage') delete workflow[id];
-    });
-    return workflow;
-}
-
-function pickComfyOutputAssetByNodeIds(item, nodeIds = []) {
-    const outputs = item?.outputs || {};
-    for (const nodeId of nodeIds) {
-        const assets = extractComfyOutputAssets(outputs[String(nodeId)]);
-        if (assets.length) return assets[0];
-    }
-    return null;
-}
-
-function getPreferredComfySaveImageNodeIds(workflow) {
-    return Object.entries(workflow || {})
-        .filter(([, node]) => normalizeComfyClassType(node?.class_type) === 'saveimage')
-        .map(([id, node]) => ({
-            id: String(id),
-            score: getComfyOutputTitleScore(getComfyNodeTitle(node)),
-        }))
-        .sort((a, b) => b.score - a.score || Number(b.id) - Number(a.id))
-        .map((item) => item.id);
-}
-
-function resolveComfyDirectOutputImage(item, workflow, preferredSaveImageNodeId = '') {
-    const preferredNodeId = String(preferredSaveImageNodeId || '').trim();
-    if (preferredNodeId) {
-        const preferredAsset = pickComfyOutputAssetByNodeIds(item, [preferredNodeId]);
-        if (preferredAsset) return preferredAsset;
-    }
-
-    const saveImageAsset = pickComfyOutputAssetByNodeIds(item, getPreferredComfySaveImageNodeIds(workflow));
-    return saveImageAsset || null;
-}
-
-function injectTextFieldIntoNode(nodeInputs, value, role) {
-    for (const key of getComfyTextFieldCandidates(role)) {
-        if (key in nodeInputs && typeof nodeInputs[key] === 'string') {
-            nodeInputs[key] = value;
-            return;
-        }
-    }
-    nodeInputs.text = value;
-}
-
-function injectPromptIntoWorkflow(workflow, positive, negative, width, height, nodeMap) {
-    const wf = JSON.parse(JSON.stringify(workflow));
-    validateComfyWorkflowNodeMap(wf, nodeMap);
-    if (nodeMap.positive && wf[nodeMap.positive]) {
-        injectTextFieldIntoNode(wf[nodeMap.positive].inputs, positive, 'positive');
-    }
-    if (nodeMap.negative && wf[nodeMap.negative]) {
-        injectTextFieldIntoNode(wf[nodeMap.negative].inputs, negative, 'negative');
-    }
-    if (nodeMap.width && width && wf[nodeMap.width]) {
-        const widthNode = wf[nodeMap.width].inputs;
-        if ('width' in widthNode) widthNode.width = width;
-    }
-    if (nodeMap.height && height && wf[nodeMap.height]) {
-        const heightNode = wf[nodeMap.height].inputs;
-        if ('height' in heightNode) heightNode.height = height;
-    }
-    if (nodeMap.seed && wf[nodeMap.seed]) {
-        const seedNode = wf[nodeMap.seed].inputs;
-        if ('seed' in seedNode) {
-            seedNode.seed = Math.floor(Math.random() * 2 ** 32);
-        } else if ('noise_seed' in seedNode) {
-            seedNode.noise_seed = Math.floor(Math.random() * 2 ** 32);
-        }
-    }
-    pruneComfyOutputNodes(wf, nodeMap.saveImage);
-    return wf;
-}
-
-function buildComfyImageRequest({ prompt, negativePrompt = '', params = {}, generationConfig } = {}) {
+async function requestComfyImage({ prompt, negativePrompt = '', params = {}, prepared, seed, generationConfig, signal } = {}) {
     const settings = generationConfig || getSettings();
     const effective = generationConfig?.prepared === true ? params : getEffectiveParams(settings, params);
-
-    const positive = String(prompt || '').trim();
-    const negative = String(negativePrompt || '').trim();
-
-    if (!positive) throw new Error('Prompt 不能为空');
-
-    const width = normalizeNumber(effective.width, 1024, 64, 2048);
-    const height = normalizeNumber(effective.height, 1024, 64, 2048);
-
-    let injected;
-
-    if (settings.workflowMode === 'custom' && settings.customWorkflow?.json) {
-        // 自定义工作流模式
-        const workflow = parseComfyApiWorkflowJson(settings.customWorkflow.json);
-        const nodeMap = {
-            positive: settings.customWorkflow.nodePositive || '',
-            negative: settings.customWorkflow.nodeNegative || '',
-            width: settings.customWorkflow.nodeWidth || '',
-            height: settings.customWorkflow.nodeHeight || '',
-            seed: settings.customWorkflow.nodeSeed || '',
-            saveImage: settings.customWorkflow.nodeSaveImage || '',
-        };
-        injected = injectPromptIntoWorkflow(workflow, positive, negative, width, height, nodeMap);
-    } else {
-        // 简单模式：使用内置模板 + 用户选择的模型和参数
-        const model = effective.model;
-        if (!model) {
-            throw new Error('请先在「模型配置」中选择模型');
-        }
-        injected = buildSimpleWorkflow({
-            model,
-            sampler: effective.sampler || 'euler',
-            scheduler: effective.scheduler || 'normal',
-            steps: effective.steps || 20,
-            cfg: effective.cfg || 7,
-            width,
-            height,
-            positive,
-            negative,
-        });
-    }
-
-    return {
-        workflow: injected,
-        preferredSaveImageNodeId: settings.workflowMode === 'custom'
-            ? String(settings.customWorkflow?.nodeSaveImage || '').trim()
-            : '',
-    };
-}
-
-async function requestComfyImage({ prompt, negativePrompt = '', params = {}, generationConfig, signal } = {}) {
-    const settings = generationConfig || getSettings();
-    const prepared = buildComfyImageRequest({ prompt, negativePrompt, params, generationConfig: settings });
-    const requestBody = { prompt: JSON.stringify({ prompt: prepared.workflow }) };
-    if (isDirectConnection(settings) && prepared.preferredSaveImageNodeId) requestBody.preferredSaveImageNodeId = prepared.preferredSaveImageNodeId;
+    const request = prepared || buildComfyImageRequest({
+        prompt,
+        negativePrompt,
+        params: effective,
+        recipe: settings,
+        seed: seed ?? createComfySeed(),
+    });
+    const requestBody = { prompt: JSON.stringify({ prompt: request.workflow }) };
+    if (isDirectConnection(settings) && request.preferredSaveImageNodeId) requestBody.preferredSaveImageNodeId = request.preferredSaveImageNodeId;
 
     const response = await requestComfyTransport('generate', requestBody, {
         signal,
@@ -1399,6 +1104,7 @@ async function requestComfyImage({ prompt, negativePrompt = '', params = {}, gen
 
 async function runComfyImageBatch({
     requests,
+    compiledBatch,
     generationConfig,
     signal,
     backendCancelSignal,
@@ -1411,7 +1117,19 @@ async function runComfyImageBatch({
 }) {
     if (!requests.length) return { mode: 'empty' };
     const settings = generationConfig || getSettings();
-    const prepared = requests.map(request => buildComfyImageRequest({ ...request, generationConfig: settings }));
+    const prepared = compiledBatch
+        ? compiledBatch.items.map(item => item.request)
+        : requests.map((request) => {
+            const effective = settings.prepared === true
+                ? request.params
+                : getEffectiveParams(settings, request.params);
+            return request.prepared || buildComfyImageRequest({
+                ...request,
+                params: effective,
+                recipe: settings,
+                seed: request.seed ?? createComfySeed(),
+            });
+        });
     if (settings.useImageBackendJobs && recoverable) {
         let status;
         const detachScope = backendJobMonitors.createScope(
@@ -1430,15 +1148,19 @@ async function runComfyImageBatch({
             throw new Error('小白盒后台批量任务不可用。请安装并启动 littlewhitebox-image-jobs，或关闭此选项后继续使用当前连接方式。');
         }
         try {
-            const backendRequest = {
-                provider: 'comfyui',
-                context: {
-                    url: settings.host,
-                    auth: settings.auth || '',
-                },
-                delay: { min: FIXED_COMFY_REQUEST_DELAY_MS, max: FIXED_COMFY_REQUEST_DELAY_MS },
-                items: prepared.map(request => ({ request, timeout: settings.timeout || 120000 })),
-            };
+            const backendRequest = compiledBatch
+                ? {
+                    provider: compiledBatch.provider,
+                    context: compiledBatch.context,
+                    delay: compiledBatch.delay,
+                    items: compiledBatch.items,
+                }
+                : {
+                    provider: 'comfyui',
+                    context: { url: settings.host, auth: settings.auth || '' },
+                    delay: { min: COMFY_REQUEST_DELAY_MS, max: COMFY_REQUEST_DELAY_MS },
+                    items: prepared.map(request => ({ request, timeout: settings.timeout || 120000 })),
+                };
             const backendHandlers = {
                 cancelSignal: backendCancelSignal || signal,
                 detachSignal: detachScope.signal,
@@ -1482,14 +1204,21 @@ async function runComfyImageBatch({
             break;
         }
         try {
-            const base64 = await generateComfyImage({ ...requests[index], generationConfig: settings, signal, queueBatch, onQueueStateChange: (state, data) => {
+            const base64 = await generateComfyImage({
+                ...requests[index],
+                prepared: prepared[index],
+                generationConfig: settings,
+                signal,
+                queueBatch,
+                onQueueStateChange: (state, data) => {
                 if (state === 'start') return onStateChange?.('progress', { current: index + 1, total: requests.length });
                 if (state === 'cooldown') {
                     if (index + 1 >= requests.length) return;
                     return onStateChange?.('cooldown', { ...data, nextIndex: index + 2, total: requests.length });
                 }
                 onStateChange?.(state, { current: index + 1, total: requests.length, ...data });
-            } });
+                },
+            });
             await onItemReady?.({ index, base64 });
         } catch (error) {
             await onItemSettled?.({ index, state: signal?.aborted ? 'cancelled' : 'failed', error, source: 'frontend' });
@@ -1518,13 +1247,15 @@ export async function generateComfyImage({
     prompt,
     negativePrompt = '',
     params = {},
+    prepared,
+    seed,
     generationConfig,
     signal,
     queueBatch,
     onQueueStateChange,
 } = {}) {
     return comfyImageRequestQueue.enqueue(
-        () => requestComfyImage({ prompt, negativePrompt, params, generationConfig, signal }),
+        () => requestComfyImage({ prompt, negativePrompt, params, prepared, seed, generationConfig, signal }),
         {
             signal,
             batchKey: queueBatch,
@@ -4178,30 +3909,6 @@ async function buildTasksFromMessage({ message, messageId, signal, promptOverrid
     return { tasks, sceneSource };
 }
 
-function buildPromptForTask(task, sharedDrawSettings, comfySettings, promptOverride = '', negativePromptOverride = '') {
-    const characterPrompts = Array.isArray(task?.characterPrompts)
-        ? task.characterPrompts.filter(Boolean)
-        : assembleCharacterPrompts(task.chars || [], sharedDrawSettings.characterTags || [], {
-            preserveDanbooruCanonical: true,
-        });
-
-    if (promptOverride.trim()) {
-        return {
-            positive: composePrompt(comfySettings.positivePrefix, promptOverride),
-            negative: composePrompt(comfySettings.negativePrefix, negativePromptOverride),
-            characterPrompts,
-        };
-    }
-
-    const charPositive = characterPrompts.map(item => item.prompt).filter(Boolean).join(', ');
-    const charNegative = characterPrompts.map(item => item.uc).filter(Boolean).join(', ');
-    return {
-        positive: joinTags(comfySettings.positivePrefix, task.scene, charPositive),
-        negative: joinTags(comfySettings.negativePrefix, negativePromptOverride, charNegative),
-        characterPrompts,
-    };
-}
-
 function buildTextSourceGalleryMeta(options = {}) {
     const source = String(options.source || '').trim();
     if (source === 'ebook') {
@@ -4270,23 +3977,34 @@ export async function generateImagesFromText(options = {}) {
     const sharedDrawSettings = getSharedDrawSettings();
     const images = [];
     let successCount = 0;
-    const requests = tasks.map((task) => {
+    const generationRecipe = createComfyGenerationRecipe({
+        settings: comfySettings,
+        characterTags: sharedDrawSettings.characterTags || [],
+        paramsOverride: options.paramsOverride || {},
+        promptOverride: options.promptOverride || '',
+        negativePromptOverride: options.negativePromptOverride || '',
+        itemCount: tasks.length,
+    });
+    const params = generationRecipe.params;
+    const compiledBatch = compileComfyScenePlan(tasks, generationRecipe);
+    const requests = compiledBatch.artifacts.map(({ task, promptData }) => {
         const slotId = generateSlotId();
         const imgId = generateImgId();
-        const params = getEffectiveParams(comfySettings, options.paramsOverride || {});
-        const promptData = buildPromptForTask(
+        return {
             task,
-            sharedDrawSettings,
-            { positivePrefix: params.positivePrefix, negativePrefix: params.negativePrefix },
-            options.promptOverride || '',
-            options.negativePromptOverride || '',
-        );
-        return { task, slotId, imgId, params, promptData, prompt: promptData.positive, negativePrompt: promptData.negative };
+            slotId,
+            imgId,
+            params,
+            promptData,
+            prompt: promptData.positive,
+            negativePrompt: promptData.negative,
+        };
     });
 
     options.onStateChange?.('gen', { current: 0, total: tasks.length });
     await runComfyImageBatch({
         requests,
+        compiledBatch,
         signal,
         monitorGeneration,
         queueBatch: {},
@@ -5097,12 +4815,17 @@ export async function generateAndInsertImages({
             }
             return true;
         };
-        const batchRequests = tasks.map((task, index) => {
-            const params = getEffectiveParams(comfySettings, paramsOverride);
-            const promptData = buildPromptForTask(task, sharedDrawSettings, {
-                positivePrefix: params.positivePrefix,
-                negativePrefix: params.negativePrefix,
-            }, promptOverride, negativePromptOverride);
+        const generationRecipe = createComfyGenerationRecipe({
+            settings: comfySettings,
+            characterTags: sharedDrawSettings.characterTags || [],
+            paramsOverride,
+            promptOverride,
+            negativePromptOverride,
+            itemCount: tasks.length,
+        });
+        const params = generationRecipe.params;
+        const compiledBatch = compileComfyScenePlan(tasks, generationRecipe);
+        const batchRequests = compiledBatch.artifacts.map(({ task, promptData }, index) => {
             return {
                 task,
                 slotId: slotIds[index],
@@ -5285,6 +5008,7 @@ export async function generateAndInsertImages({
         };
         await runComfyImageBatch({
             requests: batchRequests,
+            compiledBatch,
             signal,
             backendCancelSignal: job.backendCancel.signal,
             recoverable: {

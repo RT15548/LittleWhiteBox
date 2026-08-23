@@ -8,12 +8,12 @@ import {
 } from "./gallery-cache.js";
 import {
     ScenePlannerError,
-    toSceneCharacterPromptTag,
 } from "./scene-plan-contract.js";
 import { ScenePlacementError } from './scene-placement.js';
 import { getPendingImageJobSlots, PendingJobState } from './pending-image-jobs.js';
 import { classifyScenePlannerErrorForUi } from "./scene-planner-error-ui.js";
-import { findEnabledCharacterByName, isCharacterEnabled } from './character-selection.js';
+import { isCharacterEnabled } from './character-selection.js';
+import { joinTags } from './character-prompts.js';
 import { createModuleEvents, event_types } from "../../../core/event-manager.js";
 import {
     GENERATE_INTERCEPTOR_ORDER,
@@ -139,13 +139,7 @@ export function cleanupDrawGenerateInterceptor() {
     unregisterGenerateInterceptor('draw');
 }
 
-export function joinTags(...parts) {
-    return parts
-        .filter(Boolean)
-        .map(p => String(p).trim().replace(/[，、]/g, ',').replace(/^,+|,+$/g, ''))
-        .filter(p => p.length > 0)
-        .join(', ');
-}
+export { joinTags };
 
 export function escapeHtml(str) {
     return String(str || '')
@@ -167,33 +161,6 @@ function normalizeCharacterOutfits(outfits = []) {
             tags: String(outfit?.tags || '').trim(),
         }))
         .filter(outfit => outfit.name || outfit.tags);
-}
-
-function formatDanbooruTag(tag, options = {}) {
-    const value = String(tag || '').trim();
-    return options.preserveDanbooruCanonical ? value : value.replace(/_/g, ' ');
-}
-
-function buildKnownCharacterBasePrompt(character = {}, options = {}) {
-    const danbooruTag = character.danbooruTag ? formatDanbooruTag(character.danbooruTag, options) : '';
-    return joinTags(danbooruTag, toSceneCharacterPromptTag(character.type), character.appearance);
-}
-
-const GRID_COL = { A: 0.1, B: 0.3, C: 0.5, D: 0.7, E: 0.9 };
-const GRID_ROW = { 1: 0.1, 2: 0.3, 3: 0.5, 4: 0.7, 5: 0.9 };
-
-function gridToCoord(grid) {
-    if (grid && typeof grid === 'object') {
-        const x = Number(grid.x);
-        const y = Number(grid.y);
-        if (Number.isFinite(x) && Number.isFinite(y) && x >= 0 && x <= 1 && y >= 0 && y <= 1) {
-            return { x, y };
-        }
-    }
-    if (!grid || typeof grid !== 'string') return null;
-    const match = grid.trim().toUpperCase().match(/^([A-E])([1-5])$/);
-    if (!match) return null;
-    return { x: GRID_COL[match[1]], y: GRID_ROW[match[2]] };
 }
 
 export function detectPresentCharacters(messageText, characterTags) {
@@ -222,36 +189,6 @@ export function detectPresentCharacters(messageText, characterTags) {
         }
     }
     return present;
-}
-
-export function assembleCharacterPrompts(sceneChars, knownCharacters, options = {}) {
-    return sceneChars.map(char => {
-        const known = findEnabledCharacterByName(char.name, knownCharacters);
-
-        if (known) {
-            return {
-                name: known.name || char.name,
-                prompt: joinTags(buildKnownCharacterBasePrompt(known, options), char.costume, char.action, char.interact),
-                uc: joinTags(known.negativeTags, char.uc),
-                center: gridToCoord(char.center) || { x: 0.5, y: 0.5 },
-            };
-        }
-
-        const danbooruTag = char.danbooru ? formatDanbooruTag(char.danbooru, options) : '';
-        return {
-            name: char.name,
-            prompt: joinTags(
-                danbooruTag,
-                toSceneCharacterPromptTag(char.type),
-                char.appear,
-                char.costume,
-                char.action,
-                char.interact,
-            ),
-            uc: char.uc || '',
-            center: gridToCoord(char.center) || { x: 0.5, y: 0.5 },
-        };
-    });
 }
 
 export function findLastAIMessageId() {

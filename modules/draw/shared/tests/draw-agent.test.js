@@ -178,6 +178,39 @@ test('draw agent reads the latest main preset every request and never selects de
     assert.equal(diagnostic.request.request.body.api_key, '[redacted]');
 });
 
+test('draw agent forwards the per-run Host Client to an injected Node Agent Core', async () => {
+    const hostClient = { create() {} };
+    let adapterOptions;
+    const providerConfig = {
+        provider: 'sillytavern-openai-compatible',
+        model: 'hosted-model',
+        reasoning: { mode: 'off', output: 'hide' },
+    };
+    const task = {
+        systemPrompt: 'system',
+        messages: [{ role: 'user', content: 'plan' }],
+        tools: [createSubmitScenePlanTool()],
+    };
+    const agentCore = {
+        createAgentAdapter(_config, options) {
+            adapterOptions = options;
+            return {
+                chat: async () => buildValidScenePlanResult(),
+            };
+        },
+    };
+
+    await callDrawScenePlannerAgent({
+        task,
+        providerConfig,
+        agentCore,
+        hostClient,
+        validateResult: () => ({ tasks: [] }),
+    });
+
+    assert.equal(adapterOptions.hostClient, hostClient);
+});
+
 test('scene planner corrects schema failures with canonical provider history in one request scope', async () => {
     resetDrawAgentRuntimeForTests();
     const tasks = [];

@@ -7,7 +7,12 @@ import { getNovelScenePlannerContract } from '../../providers/novelai/novel-mode
 import { SD_SCENE_PROMPTS } from '../../providers/sd-webui/sd-prompts.js';
 import { COMFY_SCENE_PROMPTS } from '../../providers/comfyui/comfy-prompts.js';
 import { getLastDrawAgentDiagnostic } from '../draw-agent.js';
-import { buildScenePlannerTask, generateAndParseScenePlan } from '../scene-planner.js';
+import {
+    buildScenePlannerTask,
+    executePreparedScenePlanner,
+    generateAndParseScenePlan,
+    prepareScenePlannerInput,
+} from '../scene-planner.js';
 import { createSceneSource, stripScenePointMarkers } from '../scene-source.js';
 
 const NOOP_EXPANSION_OPTIONS = {
@@ -524,4 +529,63 @@ test('scene planner rejects punctuation-only content before making a provider re
         },
     }), (error) => error.code === 'NO_INSERT_POINTS');
     assert.equal(callCount, 0);
+});
+
+test('prepared scene planner input is serializable and executes without browser preparation dependencies', async () => {
+    const providerConfig = { provider: 'openai-compatible', model: 'prepared-model', apiKey: 'secret' };
+    const prepared = await prepareScenePlannerInput({
+        messageText: '阿璃推开门。',
+        maxImages: 1,
+        promptDefaults: NOVEL_SCENE_PROMPTS,
+        expansionOptions: NOOP_EXPANSION_OPTIONS,
+        agentCaller: async () => {},
+        agentOptions: { providerConfig },
+    });
+    const transferred = JSON.parse(JSON.stringify(prepared));
+    assert.equal(transferred.version, 1);
+    assert.equal(transferred.agent.channel, providerConfig.provider);
+    assert.deepEqual(transferred.agent.providerConfig, providerConfig);
+    assert.equal(Object.hasOwn(transferred, 'task'), false);
+    assert.equal(Object.hasOwn(transferred.planner.prompt, 'tools'), false);
+    assert.deepEqual(Object.keys(transferred.planner.validationContext).sort(), [
+        'centerMode',
+        'effectiveMaxCharactersPerImage',
+        'effectiveMaxImages',
+        'sceneSource',
+    ]);
+
+    const tasks = await executePreparedScenePlanner(transferred, {
+        agentCaller: async ({ task, providerConfig: receivedProviderConfig }) => {
+            assert.deepEqual(receivedProviderConfig, providerConfig);
+            assert.equal(task.tools[0].function.name, 'submit_scene_plan');
+            return {
+                providerConfig: receivedProviderConfig,
+                result: {
+                    toolCalls: [{
+                        name: 'submit_scene_plan',
+                        arguments: JSON.stringify({
+                            mindful_prelude: {
+                                user_insight: '推门动作。',
+                                therapeutic_commitment: '忠实呈现。',
+                                visual_plan: {
+                                    reasoning: '动作适合定格。',
+                                    moments: [{
+                                        moment: '1',
+                                        insert_after: 1,
+                                        char_count: '0',
+                                        known_chars: [],
+                                        unknown_chars: [],
+                                        composition: '室内中景。',
+                                    }],
+                                },
+                            },
+                            images: [{ index: 1, scene: 'opening door, indoor', characters: [] }],
+                        }),
+                    }],
+                },
+            };
+        },
+    });
+    assert.equal(tasks.length, 1);
+    assert.equal(tasks[0].scene, 'opening door, indoor');
 });

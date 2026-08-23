@@ -1,6 +1,6 @@
 # 后端 Draw Run（第二刀）方案定稿
 
-状态：施工中；第 1、2、4 步完成，第 3 步实现已通过代码复核，真实 SillyTavern 写盘/读盘手测待验收。
+状态：施工中；第 1、2、4、5、6 步完成，第 3 步实现已通过代码复核，真实 SillyTavern 写盘/读盘手测待验收。
 前置：第一刀已封板于 `95526dd feat(draw): add provider-neutral backend image jobs`。
 权威文档关系：本文件是第二刀的开工单与终态契约；第一刀契约见 `docs/image-backend-batch-jobs.md`，第二刀不修改第一刀的进程内存边界。
 
@@ -236,7 +236,7 @@ Node 发布边界：
 
 调研事实（已核实）：`scene-planner.js` 输入已是数据入参；4 处浏览器 fallback（宏展开 runtime、`worldInfoResolver`、`dependencies.getAgentSettings`、`dependencies.requestHeadersProvider` / `loadAgentCore`）注入口全部已存在。宏展开（`substituteParams`、chat 历史）是唯一必须在浏览器侧先算好的数据。
 
-浏览器预处理 `prepareScenePlannerInput()`：Scene Source、插图点、宏展开、世界书、角色资料、Prompt 模板、当前 Agent providerConfig、Tool 校验上下文、sourceHash。输出可序列化的 `ScenePlannerEnvelopeV1`。
+浏览器预处理 `prepareScenePlannerInput()`：Scene Source、插图点、宏展开、世界书、角色资料、Prompt 模板、当前 Agent providerConfig、Tool 校验上下文、sourceHash。输出可序列化的 Planner 部分；第 8 步的协调器只负责在外层补齐 run 与图片生成字段，不能再次解释 Prompt。
 
 后台执行 `executePreparedScenePlanner()`：创建唯一 `submit_scene_plan` Tool、调用 Agent、Tool 回放、最多三次纠错、重复错误提前终止、契约校验、输出规范 Scene Plan。
 
@@ -249,11 +249,13 @@ Node 发布边界：
   sourceHash,                  // 冻结正文字符串的哈希（placement contract 见第 3 节）
   imageProvider,               // 'novelai' | 'sd-webui' | 'comfyui'
   planner: {
-    messageText, sceneSource, presentCharacters,
-    worldbookEntries, customPrompts, promptDefaults,
-    maxImages, maxCharactersPerImage,
-    modelGuide, modelContract, centerMode
-  },                           // 宏已在浏览器展开完毕
+    prompt: { systemPrompt, messages }, // 宏、世界书与模板已在浏览器展开完毕
+    validationContext: {
+      sceneSource, effectiveMaxImages,
+      effectiveMaxCharactersPerImage, centerMode
+    },
+    presentCharacters
+  },
   agent: {
     channel,                   // 7 渠道之一
     providerConfig             // 直接渠道含密钥；酒馆渠道不含密钥（凭证走请求捕获）
@@ -262,12 +264,14 @@ Node 发布边界：
 }
 ```
 
+`planner` 中不携带 Tool schema。`executePreparedScenePlanner()` 必须根据冻结的 `validationContext` 在执行端重建唯一的 `submit_scene_plan` Tool，服务端不信任浏览器提交的 Tool 契约。
+
 服务端验证边界：
 
 - JSON 形状与类型校验，未知字段拒绝。
 - `imageProvider` / `agent.channel` 白名单。
 - `maxImages` ≤ 第一刀单 job items 上限（20）。
-- `worldbookEntries` / `customPrompts` 计数与字节上限。
+- `planner.prompt` 只接受预处理后的 system prompt 与单条 user message；原始世界书、Prompt 模板或宏运行时对象不得进入 envelope。
 - `generationRecipe` 交给对应 provider 的 recipe validator。
 - 酒馆渠道 envelope 携带密钥字段 → 400。
 
@@ -283,7 +287,7 @@ providers/sd-webui/compiler
 providers/comfyui/compiler
 ```
 
-统一签名 `compile(scenePlan, generationRecipe)` → `{ provider, context, delay, items }`。
+统一签名 `compile(scenePlan, generationRecipe)` → `{ provider, context, delay, items, artifacts }`。`items` 严格就是可原样交给 Image Job 的 `{ request, timeout }[]`；`artifacts` 保存按同一索引对齐的场景计划与画廊展示元数据，不进入 Image Job 协议。
 
 - NovelAI compiler：V4.5/V5 请求体、角色坐标、负向和模型参数。
 - SD compiler：prompt、override settings 和请求参数。
@@ -414,8 +418,8 @@ delivery: { mode: 'gallery' }
 → 2. 本地回环探针通过真实 SillyTavern 部署矩阵（已完成；可复现脚本及覆盖项见第 5 节）
 → 3. confirmable save 读回验证封装并独立证明（实现与 mock 行为测试完成；真实 SillyTavern 写盘后读盘由人工验收，尚未标独立证明完成；见第 9 节；marker 与 adoption 的前置）
 → 4. Node bundle 管线（已完成；esbuild：Node entry + 三个 SDK + Agent Core → 提交进 server-plugin 的可复制产物；零运行时安装依赖；生成第三方许可证清单）
-→ 5. Planner prepare/execute 拆分（浏览器行为不变）
-→ 6. 三家纯 compiler 提取，浏览器链路切换（行为不变）
+→ 5. Planner prepare/execute 拆分（已完成；浏览器行为不变）
+→ 6. 三家纯 compiler 提取，浏览器链路切换（已完成；行为不变）
 → 7. DrawRunManager / 状态机 / API / per-run Host Client / Agent executor / compiler registry / child 创建（经共享 normalize/validate service）/ 敏感数据清理 / 生命周期与取消（不发布 capability）
 → 8. 前端提交与 marker（draw-run-coordinator：preflight、marker CAS、幂等提交、提交不确定窗口、"正在提交/后台已接管"、Planner 阶段 DOM 卡）
 → 9. journal 重整：delivery 判别模型 + adopting 状态 + 原子创建 + originRunId（fixture 迁移）

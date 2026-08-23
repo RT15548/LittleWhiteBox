@@ -50,6 +50,11 @@ import { getLastDrawAgentDiagnostic } from "../../shared/draw-agent.js";
 import { attachDrawAgentSettingsSurface } from "../../shared/agent-settings-surface.js";
 import { createSerialImageRequestQueue } from "../../shared/serial-image-request-queue.js";
 import {
+    buildSdImageRequest,
+    compile as compileSdScenePlan,
+    SD_REQUEST_DELAY_MS,
+} from './compiler.js';
+import {
     createBackendItemError,
     createImageBackendJobMonitorRegistry,
     createImageBackendJobsClient,
@@ -80,7 +85,6 @@ import {
     isAnyMessageBeingEdited,
     isMessageBeingEdited,
     detectPresentCharacters,
-    assembleCharacterPrompts,
     DEFAULT_MESSAGE_FILTER_RULES,
     joinTags,
     ensureDrawImageStyles,
@@ -174,9 +178,8 @@ let generationJobs = new Map();
 const backendJobMonitors = createImageBackendJobMonitorRegistry({ active: false });
 const SD_DRAW_VIEWS = ['test', 'api', 'params', 'llm', 'prompts', 'worldbook', 'characters', 'gallery'];
 const ImageState = { PREVIEW: 'preview', SAVING: 'saving', SAVED: 'saved', REFRESHING: 'refreshing', FAILED: 'failed' };
-const FIXED_SD_REQUEST_DELAY_MS = 1000;
 const sdImageRequestQueue = createSerialImageRequestQueue({
-    getCooldownMs: () => FIXED_SD_REQUEST_DELAY_MS,
+    getCooldownMs: () => SD_REQUEST_DELAY_MS,
 });
 const sdBackendJobsClient = createImageBackendJobsClient({ getHeaders: getRequestHeaders });
 const SD_SIZE_PRESETS = [
@@ -567,7 +570,7 @@ export function getEffectiveParams(settings = getSettings(), overrides = {}) {
         }
     }
     return {
-        model: overrides.model ?? preset.model ?? settings.selectedModel ?? '',
+        model: overrides.selectedModel ?? overrides.model ?? preset.model ?? settings.selectedModel ?? '',
         sampler_name: overrides.sampler_name ?? preset.sampler_name ?? settings.defaultParams?.sampler_name ?? '',
         width: overrides.width ?? sizeOverride?.width ?? preset.width ?? settings.defaultParams?.width,
         height: overrides.height ?? sizeOverride?.height ?? preset.height ?? settings.defaultParams?.height,
@@ -585,6 +588,28 @@ export function getEffectiveParams(settings = getSettings(), overrides = {}) {
         clip_skip: overrides.clip_skip ?? preset.clip_skip ?? settings.defaultParams?.clip_skip,
         positivePrefix: overrides.positivePrefix ?? preset.positivePrefix ?? settings.positivePrefix ?? '',
         negativePrefix: overrides.negativePrefix ?? preset.negativePrefix ?? settings.negativePrefix ?? '',
+    };
+}
+
+export function createSdGenerationRecipe({
+    settings = getSettings(),
+    characterTags = getSharedDrawSettings().characterTags || [],
+    paramsOverride = {},
+    promptOverride = '',
+    negativePromptOverride = '',
+} = {}) {
+    const params = getEffectiveParams(settings, paramsOverride);
+    return {
+        host: String(settings.host || '').trim(),
+        auth: String(settings.auth || ''),
+        timeout: Number(settings.timeout) || 120000,
+        delayMs: SD_REQUEST_DELAY_MS,
+        params: cloneSettingsObject(params),
+        positivePrefix: params.positivePrefix,
+        negativePrefix: params.negativePrefix,
+        knownCharacters: cloneSettingsObject(characterTags),
+        promptOverride: String(promptOverride || ''),
+        negativePromptOverride: String(negativePromptOverride || ''),
     };
 }
 
@@ -628,54 +653,10 @@ export async function fetchSdSamplers({ signal } = {}) {
     return Array.isArray(data) ? data : [];
 }
 
-function buildSdImageRequest({ prompt, negativePrompt = '', params = {}, generationConfig } = {}) {
-    const settings = getSettings();
+async function requestSdImage({ prompt, negativePrompt = '', params = {}, payload, generationConfig, signal } = {}) {
+    const settings = generationConfig || getSettings();
     const effective = generationConfig?.prepared === true ? params : getEffectiveParams(settings, params);
-    const body = {
-        prompt: String(prompt || '').trim(),
-        negative_prompt: String(negativePrompt || '').trim(),
-    };
-
-    if (Number.isFinite(Number(effective.width))) body.width = normalizeNumber(effective.width, 512, 64, 2048);
-    if (Number.isFinite(Number(effective.height))) body.height = normalizeNumber(effective.height, 512, 64, 2048);
-    if (Number.isFinite(Number(effective.steps))) body.steps = normalizeNumber(effective.steps, 20, 1, 150);
-    if (Number.isFinite(Number(effective.cfg_scale))) body.cfg_scale = normalizeNumber(effective.cfg_scale, 7, 1, 30);
-    if (effective.sampler_name) body.sampler_name = String(effective.sampler_name);
-    if (Number.isFinite(Number(effective.seed))) body.seed = Number(effective.seed);
-    if (Number.isFinite(Number(effective.batch_size))) body.batch_size = normalizeNumber(effective.batch_size, 1, 1, 16);
-    if (Number.isFinite(Number(effective.n_iter))) body.n_iter = normalizeNumber(effective.n_iter, 1, 1, 16);
-    body.restore_faces = effective.restore_faces === true;
-    body.tiling = effective.tiling === true;
-    body.enable_hr = effective.enable_hr === true;
-    if (body.enable_hr) {
-        if (Number.isFinite(Number(effective.hr_scale))) body.hr_scale = normalizeNumber(effective.hr_scale, 1.5, 1, 4);
-        if (effective.hr_upscaler) body.hr_upscaler = String(effective.hr_upscaler);
-        if (Number.isFinite(Number(effective.denoising_strength))) {
-            body.denoising_strength = normalizeNumber(effective.denoising_strength, 0.45, 0, 1);
-        }
-    }
-
-    const model = params.selectedModel ?? effective.model;
-    const overrideSettings = {};
-    if (model) {
-        overrideSettings.sd_model_checkpoint = model;
-    }
-    if (Number.isFinite(Number(effective.clip_skip))) {
-        overrideSettings.CLIP_stop_at_last_layers = normalizeNumber(effective.clip_skip, 1, 1, 12);
-    }
-    if (Object.keys(overrideSettings).length) {
-        body.override_settings = overrideSettings;
-    }
-
-    if (!body.prompt) {
-        throw new Error('Prompt 不能为空');
-    }
-
-    return body;
-}
-
-async function requestSdImage({ prompt, negativePrompt = '', params = {}, generationConfig, signal } = {}) {
-    const body = buildSdImageRequest({ prompt, negativePrompt, params, generationConfig });
+    const body = payload || buildSdImageRequest({ prompt, negativePrompt, params: effective });
     const response = await fetchSdProxy('generate', body, { signal, generationConfig });
     const data = await response.json();
     const firstImage = Array.isArray(data?.images) ? data.images[0] : null;
@@ -687,6 +668,7 @@ async function requestSdImage({ prompt, negativePrompt = '', params = {}, genera
 
 async function runSdImageBatch({
     requests,
+    compiledBatch,
     generationConfig,
     signal,
     backendCancelSignal,
@@ -699,7 +681,14 @@ async function runSdImageBatch({
 }) {
     if (!requests.length) return { mode: 'empty' };
     const settings = generationConfig || getSettings();
-    const prepared = requests.map(request => buildSdImageRequest({ ...request, generationConfig: settings }));
+    const prepared = compiledBatch
+        ? compiledBatch.items.map(item => item.request.payload)
+        : requests.map((request) => {
+            const effective = settings.prepared === true
+                ? request.params
+                : getEffectiveParams(settings, request.params);
+            return buildSdImageRequest({ ...request, params: effective });
+        });
     if (settings.useImageBackendJobs && recoverable) {
         let status;
         const detachScope = backendJobMonitors.createScope(
@@ -718,12 +707,19 @@ async function runSdImageBatch({
             throw new Error('小白盒后台批量任务不可用。请安装并启动 littlewhitebox-image-jobs，或关闭此选项后继续使用酒馆原生连接。');
         }
         try {
-            const backendRequest = {
-                provider: 'sd-webui',
-                context: { url: settings.host, auth: settings.auth || '' },
-                delay: { min: FIXED_SD_REQUEST_DELAY_MS, max: FIXED_SD_REQUEST_DELAY_MS },
-                items: prepared.map(payload => ({ request: { payload }, timeout: settings.timeout || 120000 })),
-            };
+            const backendRequest = compiledBatch
+                ? {
+                    provider: compiledBatch.provider,
+                    context: compiledBatch.context,
+                    delay: compiledBatch.delay,
+                    items: compiledBatch.items,
+                }
+                : {
+                    provider: 'sd-webui',
+                    context: { url: settings.host, auth: settings.auth || '' },
+                    delay: { min: SD_REQUEST_DELAY_MS, max: SD_REQUEST_DELAY_MS },
+                    items: prepared.map(payload => ({ request: { payload }, timeout: settings.timeout || 120000 })),
+                };
             const backendHandlers = {
                 cancelSignal: backendCancelSignal || signal,
                 detachSignal: detachScope.signal,
@@ -767,14 +763,21 @@ async function runSdImageBatch({
             break;
         }
         try {
-            const base64 = await generateSdImage({ ...requests[index], generationConfig: settings, signal, queueBatch, onQueueStateChange: (state, data) => {
+            const base64 = await generateSdImage({
+                ...requests[index],
+                payload: prepared[index],
+                generationConfig: settings,
+                signal,
+                queueBatch,
+                onQueueStateChange: (state, data) => {
                 if (state === 'start') return onStateChange?.('progress', { current: index + 1, total: requests.length });
                 if (state === 'cooldown') {
                     if (index + 1 >= requests.length) return;
                     return onStateChange?.('cooldown', { ...data, nextIndex: index + 2, total: requests.length });
                 }
                 onStateChange?.(state, { current: index + 1, total: requests.length, ...data });
-            } });
+                },
+            });
             await onItemReady?.({ index, base64 });
         } catch (error) {
             await onItemSettled?.({ index, state: signal?.aborted ? 'cancelled' : 'failed', error, source: 'frontend' });
@@ -788,13 +791,14 @@ export async function generateSdImage({
     prompt,
     negativePrompt = '',
     params = {},
+    payload,
     generationConfig,
     signal,
     queueBatch,
     onQueueStateChange,
 } = {}) {
     return sdImageRequestQueue.enqueue(
-        () => requestSdImage({ prompt, negativePrompt, params, generationConfig, signal }),
+        () => requestSdImage({ prompt, negativePrompt, params, payload, generationConfig, signal }),
         {
             signal,
             batchKey: queueBatch,
@@ -3107,30 +3111,6 @@ async function buildTasksFromMessage({ message, messageId, signal, promptOverrid
     return { tasks, sceneSource };
 }
 
-function buildPromptForTask(task, sharedDrawSettings, sdSettings, promptOverride = '', negativePromptOverride = '') {
-    const characterPrompts = Array.isArray(task?.characterPrompts)
-        ? task.characterPrompts.filter(Boolean)
-        : assembleCharacterPrompts(task.chars || [], sharedDrawSettings.characterTags || [], {
-            preserveDanbooruCanonical: true,
-        });
-
-    if (promptOverride.trim()) {
-        return {
-            positive: composePrompt(sdSettings.positivePrefix, promptOverride),
-            negative: composePrompt(sdSettings.negativePrefix, negativePromptOverride),
-            characterPrompts,
-        };
-    }
-
-    const charPositive = characterPrompts.map(item => item.prompt).filter(Boolean).join(', ');
-    const charNegative = characterPrompts.map(item => item.uc).filter(Boolean).join(', ');
-    return {
-        positive: joinTags(sdSettings.positivePrefix, task.scene, charPositive),
-        negative: joinTags(sdSettings.negativePrefix, negativePromptOverride, charNegative),
-        characterPrompts,
-    };
-}
-
 async function persistChatSilently() {
     const ctx = getContext();
     if (ctx?.saveChat) await Promise.resolve(ctx.saveChat());
@@ -3903,23 +3883,33 @@ export async function generateImagesFromText(options = {}) {
     const sharedDrawSettings = getSharedDrawSettings();
     const images = [];
     let successCount = 0;
-    const requests = tasks.map((task) => {
+    const generationRecipe = createSdGenerationRecipe({
+        settings: sdSettings,
+        characterTags: sharedDrawSettings.characterTags || [],
+        paramsOverride: options.paramsOverride || {},
+        promptOverride: options.promptOverride || '',
+        negativePromptOverride: options.negativePromptOverride || '',
+    });
+    const params = generationRecipe.params;
+    const compiledBatch = compileSdScenePlan(tasks, generationRecipe);
+    const requests = compiledBatch.artifacts.map(({ task, promptData }) => {
         const slotId = generateSlotId();
         const imgId = generateImgId();
-        const params = getEffectiveParams(sdSettings, options.paramsOverride || {});
-        const promptData = buildPromptForTask(
+        return {
             task,
-            sharedDrawSettings,
-            { positivePrefix: params.positivePrefix, negativePrefix: params.negativePrefix },
-            options.promptOverride || '',
-            options.negativePromptOverride || '',
-        );
-        return { task, slotId, imgId, params, promptData, prompt: promptData.positive, negativePrompt: promptData.negative };
+            slotId,
+            imgId,
+            params,
+            promptData,
+            prompt: promptData.positive,
+            negativePrompt: promptData.negative,
+        };
     });
 
     options.onStateChange?.('gen', { current: 0, total: tasks.length });
     await runSdImageBatch({
         requests,
+        compiledBatch,
         signal,
         monitorGeneration,
         queueBatch: {},
@@ -4114,12 +4104,16 @@ export async function generateAndInsertImages({
             }
             return true;
         };
-        const batchRequests = tasks.map((task, index) => {
-            const params = getEffectiveParams(sdSettings, paramsOverride);
-            const promptData = buildPromptForTask(task, sharedDrawSettings, {
-                positivePrefix: params.positivePrefix,
-                negativePrefix: params.negativePrefix,
-            }, promptOverride, negativePromptOverride);
+        const generationRecipe = createSdGenerationRecipe({
+            settings: sdSettings,
+            characterTags: sharedDrawSettings.characterTags || [],
+            paramsOverride,
+            promptOverride,
+            negativePromptOverride,
+        });
+        const params = generationRecipe.params;
+        const compiledBatch = compileSdScenePlan(tasks, generationRecipe);
+        const batchRequests = compiledBatch.artifacts.map(({ task, promptData }, index) => {
             return {
                 task,
                 slotId: slotIds[index],
@@ -4302,6 +4296,7 @@ export async function generateAndInsertImages({
         };
         await runSdImageBatch({
             requests: batchRequests,
+            compiledBatch,
             signal,
             backendCancelSignal: job.backendCancel.signal,
             recoverable: {

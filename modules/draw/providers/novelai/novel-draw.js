@@ -23,7 +23,6 @@ import {
     ScenePlannerError,
     generateAndParseScenePlan,
 } from '../../shared/scene-planner.js';
-import { toSceneCharacterPromptTag } from '../../shared/scene-plan-contract.js';
 import { classifyScenePlannerErrorForUi } from '../../shared/scene-planner-error-ui.js';
 import {
     loadSharedDrawSettings,
@@ -35,7 +34,11 @@ import {
 import { getLastDrawAgentDiagnostic } from '../../shared/draw-agent.js';
 import { attachDrawAgentSettingsSurface } from '../../shared/agent-settings-surface.js';
 import { createSerialImageRequestQueue } from '../../shared/serial-image-request-queue.js';
-import { findEnabledCharacterByName, isCharacterEnabled } from '../../shared/character-selection.js';
+import { isCharacterEnabled } from '../../shared/character-selection.js';
+import {
+    buildKnownCharacterPrompt,
+    joinTags,
+} from '../../shared/character-prompts.js';
 import { resolveAutoLearnCharacter } from './novel-character-learning.js';
 import {
     NovelImageResponseError,
@@ -47,7 +50,6 @@ import {
     buildNovelAIConnectionProbe,
     resolveNovelImageTransport,
     resolveNovelAIBackendImageApi,
-    resolveNovelAIImageApi,
     snapshotNovelRequestConfig,
 } from './novel-request-config.js';
 import {
@@ -64,11 +66,14 @@ import {
     isNovelV5Model,
 } from './novel-model-capabilities.js';
 import {
-    buildNovelV5RequestBody,
     NovelV5RequestError,
     V5_QUALITY_IDS,
     V5_UC_IDS,
 } from './novel-v5-request.js';
+import {
+    compile as compileNovelScenePlan,
+    compileNovelImageRequest,
+} from './compiler.js';
 import {
     readNovelV5ErrorText,
     readNovelV5FinalImage,
@@ -497,14 +502,6 @@ function isModuleEnabled() { return moduleInitialized; }
 function generateSlotId() { return `slot-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`; }
 
 function generateImgId() { return `img-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`; }
-
-function joinTags(...parts) {
-    return parts
-        .filter(Boolean)
-        .map(p => String(p).trim().replace(/[，、]/g, ',').replace(/^,+|,+$/g, ''))
-        .filter(p => p.length > 0)
-        .join(', ');
-}
 
 function escapeHtml(str) { return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
 
@@ -1357,11 +1354,6 @@ function normalizeCharacterOutfits(outfits = []) {
         .filter(outfit => outfit.name || outfit.tags);
 }
 
-function buildKnownCharacterBasePrompt(character = {}) {
-    const naiTag = character.danbooruTag ? danbooruToNai(character.danbooruTag) : '';
-    return joinTags(naiTag, toSceneCharacterPromptTag(character.type), character.appearance);
-}
-
 function detectPresentCharacters(messageText, characterTags) {
     if (!messageText || !characterTags?.length) return [];
     const text = messageText.toLowerCase();
@@ -1388,34 +1380,6 @@ function detectPresentCharacters(messageText, characterTags) {
         }
     }
     return present;
-}
-
-function assembleCharacterPrompts(sceneChars, knownCharacters) {
-    return sceneChars.map(char => {
-        const known = findEnabledCharacterByName(char.name, knownCharacters);
-
-        if (known) {
-            return {
-                prompt: joinTags(buildKnownCharacterBasePrompt(known), char.costume, char.action, char.interact),
-                uc: joinTags(known.negativeTags, char.uc),
-                center: normalizeSceneCenter(char.center),
-            };
-        } else {
-            const naiTag = char.danbooru ? danbooruToNai(char.danbooru) : '';
-            return {
-                prompt: joinTags(
-                    naiTag,
-                    toSceneCharacterPromptTag(char.type),
-                    char.appear,
-                    char.costume,
-                    char.action,
-                    char.interact,
-                ),
-                uc: char.uc || '',
-                center: normalizeSceneCenter(char.center),
-            };
-        }
-    });
 }
 
 // ── 角色自动学习 ─────────────────────────────────────────────
@@ -1525,15 +1489,6 @@ function autoLearnFromTasks(tasks, settings) {
     return result;
 }
 
-function normalizeSceneCenter(center) {
-    const x = Number(center?.x);
-    const y = Number(center?.y);
-    if (Number.isFinite(x) && x >= 0 && x <= 1 && Number.isFinite(y) && y >= 0 && y <= 1) {
-        return { x, y };
-    }
-    return { x: 0.5, y: 0.5 };
-}
-
 function countFields(char) {
     return ['type', 'appear', 'costume', 'action', 'interact', 'danbooru']
         .filter(f => char[f]).length;
@@ -1542,10 +1497,6 @@ function countFields(char) {
 // ═══════════════════════════════════════════════════════════════════════════
 // Danbooru 工具函数
 // ═══════════════════════════════════════════════════════════════════════════
-
-function danbooruToNai(tag) {
-    return tag.replace(/_/g, ' ');
-}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // NovelAI API
@@ -1721,155 +1672,64 @@ async function testApiConnection(apiKey, baseUrl, opts = {}) {
     }
 }
 
-function buildNovelAIRequestBody({ scene, characterPrompts, negativePrompt, params }) {
-    const dp = DEFAULT_PARAMS_PRESET.params;
-    const width = params?.width ?? dp.width;
-    const height = params?.height ?? dp.height;
-    const modelName = String(params?.model ?? dp.model).trim();
-    const isV5 = isNovelV5Model(modelName);
-    const seed = isV5
-        ? (params?.seed === undefined || Number(params.seed) === -1
-            ? Math.floor(Math.random() * (MAX_SEED + 1))
-            : params.seed)
-        : (params?.seed >= 0 ? params.seed : Math.floor(Math.random() * (MAX_SEED + 1)));
-    if (isV5) {
-        return buildNovelV5RequestBody({
-            scene,
-            characterPrompts,
-            negativePrompt,
-            params: { ...params, model: modelName },
-            seed,
-        });
+function createNovelRequestSeed(params = {}) {
+    const model = String(params.model ?? DEFAULT_PARAMS_PRESET.params.model).trim();
+    const rawSeed = params.seed;
+    if (isNovelV5Model(model)) {
+        if (rawSeed !== undefined && Number(rawSeed) !== -1) return rawSeed;
+    } else if (Number(rawSeed) >= 0) {
+        return rawSeed;
     }
-    const isV3 = modelName.includes('nai-diffusion-3') || modelName.includes('furry-3');
-    const isV45 = modelName.includes('nai-diffusion-4-5');
+    return Math.floor(Math.random() * (MAX_SEED + 1));
+}
 
-    if (isV3) {
-        const allCharPrompts = characterPrompts.map(cp => cp.prompt).filter(Boolean).join(', ');
-        const fullPrompt = scene ? `${scene}, ${allCharPrompts}` : allCharPrompts;
-        const allNegative = [negativePrompt, ...characterPrompts.map(cp => cp.uc)].filter(Boolean).join(', ');
-
-        return {
-            action: 'generate',
-            input: String(fullPrompt || ''),
-            model: modelName,
-            parameters: {
-                width, height,
-                scale: params?.scale ?? dp.scale,
-                seed,
-                sampler: params?.sampler ?? dp.sampler,
-                noise_schedule: params?.scheduler ?? dp.scheduler,
-                steps: params?.steps ?? dp.steps,
-                n_samples: 1,
-                negative_prompt: String(allNegative || ''),
-                ucPreset: params?.ucPreset ?? dp.ucPreset,
-                sm: params?.sm ?? dp.sm,
-                sm_dyn: params?.sm_dyn ?? dp.sm_dyn,
-                dynamic_thresholding: params?.decrisper ?? dp.decrisper,
-            },
-        };
+export function createNovelGenerationRecipe({
+    settings = getSettings(),
+    preset = getActiveParamsPreset(),
+    itemCount = 0,
+    resolveForBackend,
+} = {}) {
+    if (typeof resolveForBackend !== 'boolean') {
+        throw new TypeError('NovelAI generationRecipe 必须明确指定请求由浏览器还是后端发送');
     }
-
-    let skipCfgAboveSigma = null;
-    if (isV45 && params?.variety_boost) {
-        skipCfgAboveSigma = Math.pow((width * height) / 1011712, 0.5) * 58;
-    }
-
-    const charCaptions = characterPrompts.map(cp => ({
-        char_caption: cp.prompt || '',
-        centers: [cp.center || { x: 0.5, y: 0.5 }]
-    }));
-
-    const negativeCharCaptions = characterPrompts.map(cp => ({
-        char_caption: cp.uc || '',
-        centers: [cp.center || { x: 0.5, y: 0.5 }]
-    }));
-
+    const params = { ...DEFAULT_PARAMS_PRESET.params, ...(preset?.params || {}) };
     return {
-        action: 'generate',
-        input: String(scene || ''),
-        model: modelName,
-        parameters: {
-            params_version: 3,
-            width, height,
-            scale: params?.scale ?? dp.scale,
-            seed,
-            sampler: params?.sampler ?? dp.sampler,
-            noise_schedule: params?.scheduler ?? dp.scheduler,
-            steps: params?.steps ?? dp.steps,
-            n_samples: 1,
-            ucPreset: params?.ucPreset ?? dp.ucPreset,
-            qualityToggle: params?.qualityToggle ?? dp.qualityToggle,
-            autoSmea: params?.autoSmea ?? dp.autoSmea,
-            cfg_rescale: params?.cfg_rescale ?? dp.cfg_rescale,
-            dynamic_thresholding: false,
-            controlnet_strength: 1,
-            legacy: false,
-            legacy_v3_extend: false,
-            use_coords: characterPrompts.some(cp => cp.center && (cp.center.x !== 0.5 || cp.center.y !== 0.5)),
-            legacy_uc: false,
-            normalize_reference_strength_multiple: true,
-            deliberate_euler_ancestral_bug: false,
-            prefer_brownian: true,
-            image_format: 'png',
-            skip_cfg_above_sigma: skipCfgAboveSigma,
-            characterPrompts: characterPrompts.map(cp => ({
-                prompt: cp.prompt || '',
-                uc: cp.uc || '',
-                center: cp.center || { x: 0.5, y: 0.5 },
-                enabled: true
-            })),
-            v4_prompt: {
-                caption: {
-                    base_caption: String(scene || ''),
-                    char_captions: charCaptions
-                },
-                use_coords: characterPrompts.some(cp => cp.center && (cp.center.x !== 0.5 || cp.center.y !== 0.5)),
-                use_order: true
-            },
-            v4_negative_prompt: {
-                caption: {
-                    base_caption: String(negativePrompt || ''),
-                    char_captions: negativeCharCaptions
-                },
-                legacy_uc: false
-            },
-            negative_prompt: String(negativePrompt || ''),
+        apiBaseUrl: String(settings.apiBaseUrl || '').trim(),
+        apiKey: String(settings.apiKey || '').trim(),
+        insecureTLS: settings.insecureTLS === true,
+        timeout: Number(settings.timeout) || DEFAULT_SETTINGS.timeout,
+        requestDelay: {
+            min: Number(settings.requestDelay?.min) || DEFAULT_SETTINGS.requestDelay.min,
+            max: Number(settings.requestDelay?.max) || DEFAULT_SETTINGS.requestDelay.max,
         },
+        overrideSize: String(settings.overrideSize || 'default'),
+        baseHref: globalThis.location?.href,
+        resolveForBackend: resolveForBackend === true,
+        params: cloneSettingsObject(params),
+        positivePrefix: preset?.positivePrefix || '',
+        negativePrefix: preset?.negativePrefix || '',
+        knownCharacters: cloneSettingsObject(settings.characterTags || []),
+        seeds: Array.from(
+            { length: Math.max(0, Math.floor(Number(itemCount) || 0)) },
+            () => createNovelRequestSeed(params),
+        ),
     };
 }
 
-async function prepareNovelImageRequest(request, requestConfig) {
-    const finalParams = { ...(request.params || {}) };
-    if (requestConfig.overrideSize !== 'default') {
-        const { SIZE_OPTIONS } = await import('./floating-panel.js');
-        const size = SIZE_OPTIONS.find(option => option.value === requestConfig.overrideSize);
-        if (size?.width && size?.height) {
-            finalParams.width = size.width;
-            finalParams.height = size.height;
-        }
-    }
-
-    const capability = getNovelModelCapability(finalParams.model);
+function prepareNovelImageRequest(
+    request,
+    requestConfig,
+    seed = createNovelRequestSeed(request.params),
+    resolveForBackend = requestConfig.sendMode === 'backend',
+) {
     try {
-        return {
-            apiUrl: resolveNovelImageTransport(requestConfig) !== 'frontend'
-                ? resolveNovelAIBackendImageApi(
-                    requestConfig.apiBaseUrl,
-                    capability.transport,
-                    globalThis.location?.href,
-                )
-                : resolveNovelAIImageApi(requestConfig.apiBaseUrl, capability.transport),
-            legacyBaseUrl: requestConfig.apiBaseUrl,
-            payload: buildNovelAIRequestBody({
-                scene: request.scene,
-                characterPrompts: request.characterPrompts || [],
-                negativePrompt: request.negativePrompt,
-                params: finalParams,
-            }),
-            isV5: capability.transport === 'msgpack-stream',
-            transport: capability.transport === 'msgpack-stream' ? 'msgpack-stream' : 'legacy-image',
-        };
+        return compileNovelImageRequest(request, {
+            apiBaseUrl: requestConfig.apiBaseUrl,
+            overrideSize: requestConfig.overrideSize,
+            defaultParams: DEFAULT_PARAMS_PRESET.params,
+            resolveForBackend,
+            baseHref: globalThis.location?.href,
+        }, seed);
     } catch (error) {
         throw handleFetchError(error);
     }
@@ -1995,6 +1855,7 @@ function backendItemError(item) {
 
 async function runNovelImageBatch({
     requests,
+    compiledBatch,
     generationConfig,
     signal,
     backendCancelSignal,
@@ -2011,7 +1872,22 @@ async function runNovelImageBatch({
     const transportMode = recoverable ? resolveNovelImageTransport(requestConfig) : requestConfig.sendMode;
     if (!requestConfig.apiKey) throw new NovelDrawError('请先配置 API Key', ErrorType.AUTH);
     if (signal?.aborted) throw new NovelDrawError('已取消', ErrorType.ABORTED);
-    const prepared = await Promise.all(requests.map(request => prepareNovelImageRequest(request, requestConfig)));
+    const prepared = compiledBatch
+        ? compiledBatch.items.map(item => ({
+            apiUrl: item.request.url,
+            legacyBaseUrl: requestConfig.apiBaseUrl,
+            payload: item.request.payload,
+            transport: item.request.transport,
+            isV5: item.request.transport === 'msgpack-stream',
+        }))
+        : requests.map(request => (
+            prepareNovelImageRequest(
+                request,
+                requestConfig,
+                request.seed,
+                transportMode !== 'frontend',
+            )
+        ));
     const outcomes = new Array(prepared.length);
     const signalOwner = generationJobSignals.get(signal);
     const effectiveCancelSignal = backendCancelSignal || signalOwner?.backendCancel.signal || signal;
@@ -2045,25 +1921,32 @@ async function runNovelImageBatch({
                     ErrorType.NETWORK,
                 );
             }
-            const backendRequest = {
-                provider: 'novelai',
-                context: {
-                    key: requestConfig.apiKey,
-                    insecure: requestConfig.insecureTLS,
-                },
-                delay: {
-                    min: Number(settings.requestDelay?.min) || DEFAULT_SETTINGS.requestDelay.min,
-                    max: Number(settings.requestDelay?.max) || DEFAULT_SETTINGS.requestDelay.max,
-                },
-                items: prepared.map(item => ({
-                    request: {
-                        transport: item.transport,
-                        url: item.apiUrl,
-                        payload: item.payload,
+            const backendRequest = compiledBatch
+                ? {
+                    provider: compiledBatch.provider,
+                    context: compiledBatch.context,
+                    delay: compiledBatch.delay,
+                    items: compiledBatch.items,
+                }
+                : {
+                    provider: 'novelai',
+                    context: {
+                        key: requestConfig.apiKey,
+                        insecure: requestConfig.insecureTLS,
                     },
-                    timeout: requestConfig.timeout,
-                })),
-            };
+                    delay: {
+                        min: Number(settings.requestDelay?.min) || DEFAULT_SETTINGS.requestDelay.min,
+                        max: Number(settings.requestDelay?.max) || DEFAULT_SETTINGS.requestDelay.max,
+                    },
+                    items: prepared.map(item => ({
+                        request: {
+                            transport: item.transport,
+                            url: item.apiUrl,
+                            payload: item.payload,
+                        },
+                        timeout: requestConfig.timeout,
+                    })),
+                };
             const backendHandlers = {
                 // 只有用户亲手取消才允许传导到后端；前端的其它停手理由都不能删掉
                 // 一个已经在跑、已经付过钱的任务。没提供就退回本地信号（画廊等一次性调用）。
@@ -2779,7 +2662,7 @@ async function refreshSingleImage(container) {
             const message = sourceContext.chat?.[messageId];
             const presentCharacters = detectPresentCharacters(String(message?.mes || ''), settings.characterTags || []);
             characterPrompts = presentCharacters.map(c => ({
-                prompt: buildKnownCharacterBasePrompt(c),
+                prompt: buildKnownCharacterPrompt(c),
                 uc: c.negativeTags || '',
                 center: { x: 0.5, y: 0.5 }
             }));
@@ -2961,7 +2844,7 @@ async function retryFailedImage(container) {
             const message = sourceContext.chat?.[messageId];
             const presentCharacters = detectPresentCharacters(String(message?.mes || ''), settings.characterTags || []);
             characterPrompts = presentCharacters.map(c => ({
-                prompt: buildKnownCharacterBasePrompt(c),
+                prompt: buildKnownCharacterPrompt(c),
                 uc: c.negativeTags || '',
                 center: { x: 0.5, y: 0.5 }
             }));
@@ -3268,26 +3151,35 @@ async function generateImagesFromText(options = {}) {
         let successCount = 0;
         options.onStateChange?.('gen', { current: 0, total: tasks.length });
 
-        const batchItems = tasks.map(task => {
-            const scene = joinTags(preset.positivePrefix, task.scene);
-            const characterPrompts = assembleCharacterPrompts(task.chars || [], settings.characterTags || []);
+        const compiledBatch = compileNovelScenePlan(
+            tasks,
+            createNovelGenerationRecipe({
+                settings,
+                preset,
+                itemCount: tasks.length,
+                resolveForBackend: settings.sendMode === 'backend',
+            }),
+        );
+        const batchItems = compiledBatch.artifacts.map(({ task, promptData }) => {
+            const { scene, characterPrompts, negativePrompt } = promptData;
             return {
                 task,
                 slotId: generateSlotId(),
                 scene,
                 characterPrompts,
                 tagsForStore: task.scene || '',
-                negativePrompt: preset.negativePrefix || '',
+                negativePrompt,
                 request: {
                     scene,
                     characterPrompts,
-                    negativePrompt: preset.negativePrefix || '',
+                    negativePrompt,
                     params: preset.params || {},
                 },
             };
         });
         const batchResult = await runNovelImageBatch({
             requests: batchItems.map(item => item.request),
+            compiledBatch,
             signal,
             monitorGeneration,
             queueBatch: job,
@@ -3584,9 +3476,17 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
                 console.warn('[NovelDraw] 增量渲染失败, 继续生成:', error);
             }
         };
-        const batchItems = tasks.map((task, index) => {
-            const scene = joinTags(preset.positivePrefix, task.scene);
-            const characterPrompts = assembleCharacterPrompts(task.chars, settings.characterTags || []);
+        const compiledBatch = compileNovelScenePlan(
+            tasks,
+            createNovelGenerationRecipe({
+                settings,
+                preset,
+                itemCount: tasks.length,
+                resolveForBackend: resolveNovelImageTransport(settings) !== 'frontend',
+            }),
+        );
+        const batchItems = compiledBatch.artifacts.map(({ task, promptData }, index) => {
+            const { scene, characterPrompts, negativePrompt } = promptData;
             return {
                 task,
                 slotId: slotIds[index],
@@ -3596,11 +3496,11 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
                 scene,
                 characterPrompts,
                 tagsForStore: task.scene,
-                negativePrompt: preset.negativePrefix || '',
+                negativePrompt,
                 request: {
                     scene,
                     characterPrompts,
-                    negativePrompt: preset.negativePrefix || '',
+                    negativePrompt,
                     params: preset.params || {},
                 },
             };
@@ -3788,6 +3688,7 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
 
         const batchResult = await runNovelImageBatch({
             requests: batchItems.map(item => item.request),
+            compiledBatch,
             signal,
             backendCancelSignal: job.backendCancel.signal,
             monitorGeneration,
@@ -5037,7 +4938,6 @@ export async function initNovelDraw() {
         clearExpiredCache,
         clearAllCache,
         detectPresentCharacters,
-        assembleCharacterPrompts,
         getPreviewsBySlot,
         getDisplayPreviewForSlot,
         openGallery,
@@ -5119,7 +5019,6 @@ export {
     buildImageHtml,
     insertPreviewIntoRenderedMessage,
     detectPresentCharacters,
-    assembleCharacterPrompts,
     joinTags,
     ensureStyles as ensureNovelDrawStyles,
     classifyError,
