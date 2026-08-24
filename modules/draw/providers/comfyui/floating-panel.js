@@ -833,10 +833,14 @@ function resolvePanelMessageId(panelData) {
 async function handleFloorAbort(messageId) {
     try {
         const aborted = abortGeneration(messageId);
-        const cancelledChild = await cancelPendingChildDrawRuns(messageId);
-        if (aborted || cancelledChild) {
+        if (aborted) {
             setFloorState(messageId, FloatState.CANCELLING);
             toastr?.info?.('正在中止');
+        }
+        const cancelledChild = await cancelPendingChildDrawRuns(messageId);
+        if (!aborted && cancelledChild) {
+            toastr?.info?.('正在中止');
+            void syncDrawRunPanelState(messageId, { messageId, phase: 'cancelling' });
         }
     } catch (error) {
         console.error('[ComfyDraw] 中止失败:', error);
@@ -1319,10 +1323,14 @@ async function handleFloatingAbort() {
     try {
         const messageId = floatingMessageId;
         const aborted = messageId >= 0 && abortGeneration(messageId);
-        const cancelledChild = messageId >= 0 && await cancelPendingChildDrawRuns(messageId);
-        if (aborted || cancelledChild) {
+        if (aborted) {
             setFloatingState(FloatState.CANCELLING);
             toastr?.info?.('正在中止');
+        }
+        const cancelledChild = messageId >= 0 && await cancelPendingChildDrawRuns(messageId);
+        if (!aborted && cancelledChild) {
+            toastr?.info?.('正在中止');
+            void syncDrawRunPanelState(messageId, { messageId, phase: 'cancelling' });
         }
     } catch (error) {
         console.error('[ComfyDraw] 中止失败:', error);

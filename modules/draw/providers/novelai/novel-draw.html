@@ -1456,6 +1456,7 @@ let gallerySummary = {};
 let loadedCharPreviews = {};
 let editingCharId = null;
 const saveBtnStates = new WeakMap();
+const modelGuideDraftsByPreset = new Map();
 let promptChainRequestId = 0;
 let charFilters = { query: '', type: 'all', status: 'all' };
 let modalData = { slotId: null, images: [], currentIndex: 0, charName: null };
@@ -2781,17 +2782,36 @@ function collectModelGuideOverridesFromForm() {
         ? active.modelGuideOverrides
         : {};
     const overrides = { ...source };
+    const defaults = state.modelGuideDefaults && typeof state.modelGuideDefaults === 'object'
+        ? state.modelGuideDefaults
+        : {};
+    const drafts = active?.id ? modelGuideDraftsByPreset.get(active.id) : null;
+    const applyDraft = (guideId, content) => {
+        if (typeof defaults[guideId] === 'string' && content === defaults[guideId]) {
+            delete overrides[guideId];
+        } else {
+            overrides[guideId] = content;
+        }
+    };
+    drafts?.forEach((content, guideId) => applyDraft(guideId, content));
+
     const guideId = getCurrentModelGuideId();
     const textarea = $('nd_prompt_guide');
     if (textarea) {
-        const defaultContent = state.modelGuideDefaults?.[guideId];
-        if (typeof defaultContent === 'string' && textarea.value === defaultContent) {
-            delete overrides[guideId];
-        } else {
-            overrides[guideId] = textarea.value;
-        }
+        applyDraft(guideId, textarea.value);
     }
     return overrides;
+}
+
+function setCurrentModelGuideDraft(content) {
+    const active = getActivePromptPresetForForm();
+    if (!active?.id) return;
+    let drafts = modelGuideDraftsByPreset.get(active.id);
+    if (!drafts) {
+        drafts = new Map();
+        modelGuideDraftsByPreset.set(active.id, drafts);
+    }
+    drafts.set(getCurrentModelGuideId(), String(content ?? ''));
 }
 
 function getCurrentModelGuideId() {
@@ -2811,10 +2831,13 @@ function applyModelGuideForCurrentModel() {
     const overrides = active.modelGuideOverrides && typeof active.modelGuideOverrides === 'object'
         ? active.modelGuideOverrides
         : {};
-    const content = Object.prototype.hasOwnProperty.call(overrides, guideId)
-        && typeof overrides[guideId] === 'string'
-        ? overrides[guideId]
-        : defaultContent;
+    const drafts = active.id ? modelGuideDraftsByPreset.get(active.id) : null;
+    const content = drafts?.has(guideId)
+        ? drafts.get(guideId)
+        : Object.prototype.hasOwnProperty.call(overrides, guideId)
+            && typeof overrides[guideId] === 'string'
+            ? overrides[guideId]
+            : defaultContent;
 
     $('nd_prompt_guide').value = content;
 }
@@ -3501,13 +3524,10 @@ document.addEventListener('DOMContentLoaded', () => {
         postToParent({ type: 'RESET_CUSTOM_PROMPT', key: 'sceneRules', selectedPromptPresetId: state.selectedPromptPresetId });
     });
     $('nd_prompt_reset_guide').addEventListener('click', () => {
-        const activePreset = getActivePromptPresetForForm();
         const guideId = getCurrentModelGuideId();
-        if (activePreset?.modelGuideOverrides && typeof activePreset.modelGuideOverrides === 'object') {
-            delete activePreset.modelGuideOverrides[guideId];
-        }
         const defaultContent = state.modelGuideDefaults?.[guideId] ?? '';
         $('nd_prompt_guide').value = defaultContent;
+        setCurrentModelGuideDraft(defaultContent);
         postToParent({
             type: 'RESET_CUSTOM_PROMPT',
             key: 'modelGuide',
@@ -3527,7 +3547,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const topSystemVal = isPov ? (defaults.topSystemPov || '') : (defaults.topSystem || '');
         $('nd_prompt_system').value = topSystemVal;
         $('nd_prompt_format').value = defaults.sceneRules || '';
-        activePreset.modelGuideOverrides = {};
+        const guideDrafts = new Map(
+            Object.entries(state.modelGuideDefaults || {})
+                .filter(([, content]) => typeof content === 'string'),
+        );
+        modelGuideDraftsByPreset.set(activePreset.id, guideDrafts);
         applyModelGuideForCurrentModel();
         postToParent({ type: 'SAVE_PROMPT_PRESET', selectedPromptPresetId: state.selectedPromptPresetId, promptDraft: {
             topSystem: topSystemVal,
@@ -3581,6 +3605,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
     $('nd_prompt_guide').addEventListener('input', () => {
+        setCurrentModelGuideDraft($('nd_prompt_guide').value);
         if ($('nd_prompt_chain_details').open) requestPromptChainPreview();
         else promptChainRequestId += 1;
     });

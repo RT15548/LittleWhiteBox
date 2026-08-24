@@ -1210,7 +1210,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/comfyui/floating-panel.js",
       "relativePath": "modules/draw/providers/comfyui/floating-panel.js",
       "extension": ".js",
-      "sizeBytes": 58999
+      "sizeBytes": 59329
     },
     {
       "source": "littlewhitebox",
@@ -1259,7 +1259,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/floating-panel.js",
       "relativePath": "modules/draw/providers/novelai/floating-panel.js",
       "extension": ".js",
-      "sizeBytes": 68561
+      "sizeBytes": 68891
     },
     {
       "source": "littlewhitebox",
@@ -1273,7 +1273,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/novel-draw.html",
       "relativePath": "modules/draw/providers/novelai/novel-draw.html",
       "extension": ".html",
-      "sizeBytes": 197228
+      "sizeBytes": 198181
     },
     {
       "source": "littlewhitebox",
@@ -1483,7 +1483,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/sd-webui/floating-panel.js",
       "relativePath": "modules/draw/providers/sd-webui/floating-panel.js",
       "extension": ".js",
-      "sizeBytes": 58955
+      "sizeBytes": 59285
     },
     {
       "source": "littlewhitebox",

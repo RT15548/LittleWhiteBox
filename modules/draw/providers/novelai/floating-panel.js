@@ -932,10 +932,14 @@ async function handleFloorAbort(messageId) {
     try {
         const { abortGeneration } = await import('./novel-draw.js');
         const aborted = abortGeneration(messageId);
-        const cancelledChild = await cancelPendingChildDrawRuns(messageId);
-        if (aborted || cancelledChild) {
+        if (aborted) {
             setFloorState(messageId, FloatState.CANCELLING);
             toastr?.info?.('正在中止');
+        }
+        const cancelledChild = await cancelPendingChildDrawRuns(messageId);
+        if (!aborted && cancelledChild) {
+            toastr?.info?.('正在中止');
+            void syncDrawRunPanelState(messageId, { messageId, phase: 'cancelling' });
         }
     } catch (e) {
         console.error('[NovelDraw] 中止失败:', e);
@@ -1510,10 +1514,14 @@ async function handleFloatingAbort() {
         const { abortGeneration } = await import('./novel-draw.js');
         const messageId = floatingMessageId;
         const aborted = messageId >= 0 && abortGeneration(messageId);
-        const cancelledChild = messageId >= 0 && await cancelPendingChildDrawRuns(messageId);
-        if (aborted || cancelledChild) {
+        if (aborted) {
             setFloatingState(FloatState.CANCELLING);
             toastr?.info?.('正在中止');
+        }
+        const cancelledChild = messageId >= 0 && await cancelPendingChildDrawRuns(messageId);
+        if (!aborted && cancelledChild) {
+            toastr?.info?.('正在中止');
+            void syncDrawRunPanelState(messageId, { messageId, phase: 'cancelling' });
         }
     } catch (e) {
         console.error('[NovelDraw] 中止失败:', e);
