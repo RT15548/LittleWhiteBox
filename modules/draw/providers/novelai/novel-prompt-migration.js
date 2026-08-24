@@ -1,3 +1,5 @@
+import { NOVEL_PROMPT_GUIDES } from './novel-model-capabilities.js';
+
 // Upgrade boundary for prompt formats that have actually shipped.
 // - upstream config v7 / prompt template v4: YAML-era preset fields.
 // - prompt template v6 and v7: Tool-era defaults, refreshed by content fingerprint.
@@ -59,6 +61,19 @@ function promptFingerprint(value) {
     return `${text.length}:${fnv1a(text, 2166136261)}:${fnv1a(reversed, 2246822507)}`;
 }
 
+/**
+ * Converts the frozen V1/upstream tag guide field into the current override map.
+ * A released default remains linked to the bundled guide; an edited value,
+ * including an intentional empty string, becomes a V4.5 override.
+ */
+export function migrateLegacyNovelTagGuide(value) {
+    if (typeof value !== 'string'
+        || promptFingerprint(value) === UPSTREAM_V4_PROMPT_FINGERPRINTS.tagGuide) {
+        return {};
+    }
+    return { [NOVEL_PROMPT_GUIDES.V45]: value };
+}
+
 function hasUpstreamV4Shape(preset) {
     return preset && typeof preset === 'object'
         && typeof preset.sceneRules !== 'string'
@@ -85,10 +100,8 @@ function convertUpstreamV4Preset(preset, currentDefaults) {
     let customContentPreserved = topFingerprint !== UPSTREAM_V4_PROMPT_FINGERPRINTS.topSystem
         && topFingerprint !== UPSTREAM_V4_PROMPT_FINGERPRINTS.topSystemPov;
 
-    const rawGuide = String(preset.tagGuideContent || '');
-    const guide = rawGuide.trim();
-    if (guide && promptFingerprint(rawGuide) !== UPSTREAM_V4_PROMPT_FINGERPRINTS.tagGuide) {
-        appendMigratedSection(sections, '从旧版预设迁移的自定义模型规则', guide);
+    const modelGuideOverrides = migrateLegacyNovelTagGuide(preset.tagGuideContent);
+    if (Object.prototype.hasOwnProperty.call(modelGuideOverrides, NOVEL_PROMPT_GUIDES.V45)) {
         customContentPreserved = true;
     }
 
@@ -113,9 +126,50 @@ function convertUpstreamV4Preset(preset, currentDefaults) {
             name: managed?.name || preset.name,
             topSystem,
             sceneRules: sections.join('\n\n'),
+            modelGuideOverrides,
         },
         customContentPreserved,
     };
+}
+
+/**
+ * `tagGuideContent` also existed in the released Tool-era preset shape.  It is
+ * an obsolete field regardless of the surrounding template version, so remove
+ * it at this upgrade boundary after the older YAML shape has been converted.
+ * Current overrides win per guide key; the legacy V4.5 value only fills a
+ * missing V4.5 override and never replaces another model's guide.
+ */
+function migrateLegacyTagGuideFields(presets) {
+    let migrated = false;
+    const next = presets.map((preset) => {
+        if (!preset || typeof preset !== 'object'
+            || !Object.prototype.hasOwnProperty.call(preset, 'tagGuideContent')) {
+            return preset;
+        }
+
+        migrated = true;
+        const copy = { ...preset };
+        const existingOverrides = copy.modelGuideOverrides;
+        const hasCurrentV45Override = existingOverrides
+            && typeof existingOverrides === 'object'
+            && !Array.isArray(existingOverrides)
+            && Object.prototype.hasOwnProperty.call(existingOverrides, NOVEL_PROMPT_GUIDES.V45)
+            && typeof existingOverrides[NOVEL_PROMPT_GUIDES.V45] === 'string';
+        delete copy.tagGuideContent;
+        if (!hasCurrentV45Override) {
+            const currentOverrides = existingOverrides
+                && typeof existingOverrides === 'object'
+                && !Array.isArray(existingOverrides)
+                ? existingOverrides
+                : {};
+            copy.modelGuideOverrides = {
+                ...currentOverrides,
+                ...migrateLegacyNovelTagGuide(preset.tagGuideContent),
+            };
+        }
+        return copy;
+    });
+    return { presets: next, migrated };
 }
 
 function refreshReleasedDefaultPresets(presets, storedTemplateVersion, targetVersion, currentDefaults) {
@@ -181,13 +235,14 @@ export function migrateLegacyNovelPromptPresets(
         });
     }
 
+    const legacyGuideMigration = migrateLegacyTagGuideFields(converted);
     const defaultRefresh = refreshReleasedDefaultPresets(
-        converted,
+        legacyGuideMigration.presets,
         templateVersion,
         targetVersion,
         currentDefaults,
     );
-    const migrated = upstreamPresetCount > 0 || defaultRefresh.migrated;
+    const migrated = upstreamPresetCount > 0 || legacyGuideMigration.migrated || defaultRefresh.migrated;
     return {
         presets: defaultRefresh.presets,
         templateVersion: targetVersion,

@@ -69,6 +69,7 @@ async function buildProviderTask(providerDirectory, baseConfig, options = {}) {
             danbooruTag: 'ali_(original)',
             appearance: 'silver hair, blue eyes',
             outfits: [{ name: '白裙', tags: 'white dress' }],
+            dynamicStates: [{ name: '害羞', tags: 'blush, embarrassed' }],
         }],
         useWorldInfo: true,
         worldInfoResolver: async () => ({
@@ -116,6 +117,7 @@ test('final NovelAI scene-planner task preserves the complete domain prompt and 
     assert.match(text, /阿璃/);
     assert.match(text, /小璃/);
     assert.match(text, /white dress/);
+    assert.match(text, /blush, embarrassed/);
     assert.match(text, /images 必须恰好包含 2 项/);
     assert.match(text, /characters 最多 3 人/);
     assert.doesNotMatch(text, /YAML|<meta_protocol>|assistant prefill/i);

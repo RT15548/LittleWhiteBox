@@ -51,13 +51,13 @@ function cloneSettingsObject(obj) {
     return JSON.parse(JSON.stringify(obj));
 }
 
-function normalizeCharacterOutfits(outfits = []) {
-    return (Array.isArray(outfits) ? outfits : [])
-        .map(outfit => ({
-            name: String(outfit?.name || '').trim(),
-            tags: String(outfit?.tags || '').trim(),
+function normalizeNamedTagList(list = []) {
+    return (Array.isArray(list) ? list : [])
+        .map(item => ({
+            name: String(item?.name || '').trim(),
+            tags: String(item?.tags || '').trim(),
         }))
-        .filter(outfit => outfit.name || outfit.tags);
+        .filter(item => item.name || item.tags);
 }
 
 export function normalizeSharedCacheDays(value, fallback = DEFAULT_SHARED_GALLERY_CACHE_DAYS) {
@@ -88,7 +88,8 @@ export function normalizeSharedDrawSettings(saved = {}) {
             appearance: String(char.appearance || char.tags || ''),
             negativeTags: String(char.negativeTags || ''),
             danbooruTag: String(char.danbooruTag || ''),
-            outfits: normalizeCharacterOutfits(char.outfits || char.costumes || char.clothes || []),
+            outfits: normalizeNamedTagList(char.outfits || char.costumes || char.clothes || []),
+            dynamicStates: normalizeNamedTagList(char.dynamicStates || []),
         }));
     const timeout = Number(source.timeout);
 

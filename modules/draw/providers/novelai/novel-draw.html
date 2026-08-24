@@ -273,22 +273,22 @@ select.input { cursor: pointer; }
 .char-edit-form .form-label { font-size: 11px; margin-bottom: 4px; }
 .char-edit-form .input { padding: 8px 10px; font-size: 12px; }
 .char-edit-form textarea.input { min-height: 60px; }
-.char-outfit-editor-list { display: flex; flex-direction: column; gap: 10px; }
-.char-outfit-editor-empty {
+.char-outfit-editor-list, .char-dynstate-editor-list { display: flex; flex-direction: column; gap: 10px; }
+.char-outfit-editor-empty, .char-dynstate-editor-empty {
     padding: 10px 12px; border-radius: 8px; border: 1px dashed var(--border);
     background: rgba(255,255,255,.02); color: var(--text-muted); font-size: 11px;
 }
-.char-outfit-editor-item {
+.char-outfit-editor-item, .char-dynstate-editor-item {
     padding: 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,.08);
     background: rgba(255,255,255,.03);
 }
-.char-outfit-editor-header {
+.char-outfit-editor-header, .char-dynstate-editor-header {
     display: flex; align-items: center; justify-content: space-between;
     gap: 10px; margin-bottom: 10px;
 }
-.char-outfit-editor-title { font-size: 12px; font-weight: 600; color: var(--text-primary); }
-.char-outfit-editor-item .form-group:last-child { margin-bottom: 0; }
-.char-outfit-tags { min-height: 72px; }
+.char-outfit-editor-title, .char-dynstate-editor-title { font-size: 12px; font-weight: 600; color: var(--text-primary); }
+.char-outfit-editor-item .form-group:last-child, .char-dynstate-editor-item .form-group:last-child { margin-bottom: 0; }
+.char-outfit-tags, .char-dynstate-tags { min-height: 72px; }
 /* ── Toggle switch ── */
 .toggle-switch { position: relative; display: inline-block; width: 36px; height: 20px; flex-shrink: 0; }
 .toggle-switch input { opacity: 0; width: 0; height: 0; }
@@ -1008,7 +1008,7 @@ select.input { cursor: pointer; }
             <div id="view-characters" class="view">
                 <div class="view-header">
                     <h2 class="view-title">角色标签</h2>
-                    <p class="view-desc">集中管理角色外貌标签、自动学习与 Danbooru 资源库，PC 端支持双栏管理</p>
+                    <p class="view-desc">集中管理角色固定外貌、服装与动态外貌，自动学习与 Danbooru 资源库，PC 端支持双栏管理</p>
                 </div>
 
                 <div class="char-management-layout">
@@ -1196,6 +1196,8 @@ select.input { cursor: pointer; }
                         <button id="nd_prompt_add" class="btn btn-icon" title="新建"><i class="fa-solid fa-plus"></i></button>
                         <button id="nd_prompt_rename" class="btn btn-icon" title="重命名"><i class="fa-solid fa-pen"></i></button>
                         <button id="nd_prompt_preset_save" class="btn btn-primary" title="保存"><i class="fa-solid fa-floppy-disk"></i></button>
+                        <label class="btn btn-icon" title="导入为新预设" style="cursor:pointer;"><i class="fa-solid fa-upload"></i><input type="file" id="nd_prompt_preset_import" accept=".json" style="display:none;"></label>
+                        <button id="nd_prompt_preset_export" class="btn btn-icon" title="导出当前预设"><i class="fa-solid fa-download"></i></button>
                         <button id="nd_prompt_del" class="btn btn-danger btn-icon" title="删除"><i class="fa-solid fa-trash"></i></button>
                     </div>
                     <div id="nd_prompt_preset_status" class="status-text inline-status"></div>
@@ -1213,9 +1215,10 @@ select.input { cursor: pointer; }
                 <div class="card">
                     <div class="prompt-card-header">
                         <div class="card-title">当前模型提示词指南</div>
+                        <button class="btn btn-sm" id="nd_prompt_reset_guide"><i class="fa-solid fa-rotate-left"></i> 恢复当前模型默认</button>
                     </div>
-                    <p class="form-hint">由插件根据当前参数预设中的模型自动选择；不属于用户提示词预设。</p>
-                    <textarea id="nd_prompt_guide" class="prompt-textarea" rows="8" readonly></textarea>
+                    <p class="form-hint">根据当前参数预设中的模型自动切换 V4.5 / V5 指南；修改内容保存到当前提示词预设。</p>
+                    <textarea id="nd_prompt_guide" class="prompt-textarea" rows="8"></textarea>
                 </div>
 
                 <div class="card">
@@ -1231,8 +1234,6 @@ select.input { cursor: pointer; }
                     <div class="btn-group" style="display:flex;gap:12px;flex-wrap:wrap;">
                         <button id="nd_prompts_save" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> 保存到当前预设</button>
                         <button id="nd_prompts_reset_all" class="btn btn-danger"><i class="fa-solid fa-rotate-left"></i> 全部恢复默认</button>
-                        <button id="nd_prompts_export" class="btn"><i class="fa-solid fa-download"></i> 导出模板</button>
-                        <label class="btn" style="cursor:pointer;"><i class="fa-solid fa-upload"></i> 导入模板<input type="file" id="nd_prompts_import" accept=".json" style="display:none;"></label>
                     </div>
                     <div id="nd_prompts_status" class="status-text"></div>
                 </div>
@@ -1444,7 +1445,7 @@ let state = {
     showFloatingButton: false,
     promptPresets: [],
     selectedPromptPresetId: null,
-    modelGuideContent: '',
+    modelGuideDefaults: {},
     modelContractContent: '',
     modelCapabilities: {},
     backendPluginStatus: null,
@@ -1578,6 +1579,7 @@ function requestPromptChainPreview() {
         promptDraft: {
             topSystem: $('nd_prompt_system')?.value || '',
             sceneRules: $('nd_prompt_format')?.value || '',
+            modelGuideOverrides: collectModelGuideOverridesFromForm(),
         },
     });
 }
@@ -1660,6 +1662,7 @@ function getSendMode() {
 function getModelCapability(model) {
     return state.modelCapabilities?.[String(model || '').trim()] || {
         family: 'legacy',
+        promptGuide: 'v4.5',
         maxCharactersPerImage: 10,
         supportsV5Presets: false,
         supportsTransparentBackground: false,
@@ -1781,6 +1784,7 @@ function getFilteredCharacters(chars = []) {
                 char.negativeTags,
                 char.danbooruTag,
                 ...((char.outfits || []).flatMap(outfit => [outfit?.name, outfit?.tags])),
+                ...((char.dynamicStates || []).flatMap(item => [item?.name, item?.tags])),
             ].filter(Boolean).join(' ').toLowerCase();
 
             if (!haystack.includes(query)) return false;
@@ -1823,51 +1827,75 @@ function resetCharacterFilters(render = true) {
     if (render) renderCharList();
 }
 
-function normalizeCharacterOutfitsForUI(outfits = []) {
-    return (Array.isArray(outfits) ? outfits : [])
-        .map(outfit => ({
-            name: String(outfit?.name || '').trim(),
-            tags: String(outfit?.tags || '').trim(),
+function normalizeNamedTagListForUI(list = []) {
+    return (Array.isArray(list) ? list : [])
+        .map(item => ({
+            name: String(item?.name || '').trim(),
+            tags: String(item?.tags || '').trim(),
         }))
-        .filter(outfit => outfit.name || outfit.tags);
+        .filter(item => item.name || item.tags);
 }
 
-function renderOutfitEditorItem(outfit = {}, index = 0) {
+const NAMED_TAG_EDITOR_KINDS = {
+    outfit: {
+        classPrefix: 'char-outfit',
+        title: '服装',
+        nameLabel: '服装名称',
+        namePlaceholder: '如：常服、礼服、战斗服',
+        tagsLabel: '服装 TAG',
+        tagsPlaceholder: 'white shirt, black skirt, ribbon...',
+        removeAction: 'remove-outfit',
+    },
+    dynstate: {
+        classPrefix: 'char-dynstate',
+        title: '状态',
+        nameLabel: '状态名称',
+        namePlaceholder: '如：睡觉、淋雨、害羞',
+        tagsLabel: '状态 TAG',
+        tagsPlaceholder: 'closed eyes, sleeping...',
+        removeAction: 'remove-dynstate',
+    },
+};
+
+function renderNamedTagEditorItem(item = {}, index = 0, kind = 'outfit') {
+    const meta = NAMED_TAG_EDITOR_KINDS[kind] || NAMED_TAG_EDITOR_KINDS.outfit;
     return `
-    <div class="char-outfit-editor-item" data-index="${index}">
-        <div class="char-outfit-editor-header">
-            <div class="char-outfit-editor-title">服装 ${index + 1}</div>
-            <button class="btn btn-danger btn-sm" type="button" data-action="remove-outfit" data-index="${index}"><i class="fa-solid fa-trash"></i> 删除</button>
+    <div class="${meta.classPrefix}-editor-item" data-index="${index}">
+        <div class="${meta.classPrefix}-editor-header">
+            <div class="${meta.classPrefix}-editor-title">${meta.title} ${index + 1}</div>
+            <button class="btn btn-danger btn-sm" type="button" data-action="${meta.removeAction}" data-index="${index}"><i class="fa-solid fa-trash"></i> 删除</button>
         </div>
         <div class="form-group">
-            <label class="form-label">服装名称</label>
-            <input type="text" class="input char-outfit-name" value="${escapeHtml(outfit.name || '')}" placeholder="如：常服、礼服、战斗服">
+            <label class="form-label">${meta.nameLabel}</label>
+            <input type="text" class="input ${meta.classPrefix}-name" value="${escapeHtml(item.name || '')}" placeholder="${meta.namePlaceholder}">
         </div>
         <div class="form-group">
-            <label class="form-label">服装 TAG</label>
-            <textarea class="input char-outfit-tags" placeholder="white shirt, black skirt, ribbon...">${escapeHtml(outfit.tags || '')}</textarea>
+            <label class="form-label">${meta.tagsLabel}</label>
+            <textarea class="input ${meta.classPrefix}-tags" placeholder="${meta.tagsPlaceholder}">${escapeHtml(item.tags || '')}</textarea>
         </div>
     </div>`;
 }
 
-function syncOutfitEditorList(list) {
+function syncNamedTagEditorList(list, kind = 'outfit') {
     if (!list) return;
-    const rows = Array.from(list.querySelectorAll('.char-outfit-editor-item'));
-    const empty = list.querySelector('.char-outfit-editor-empty');
+    const meta = NAMED_TAG_EDITOR_KINDS[kind] || NAMED_TAG_EDITOR_KINDS.outfit;
+    const rows = Array.from(list.querySelectorAll(`.${meta.classPrefix}-editor-item`));
+    const empty = list.querySelector(`.${meta.classPrefix}-editor-empty`);
     if (empty) empty.style.display = rows.length ? 'none' : 'block';
     rows.forEach((row, index) => {
         row.dataset.index = String(index);
-        row.querySelector('.char-outfit-editor-title').textContent = `服装 ${index + 1}`;
-        const removeBtn = row.querySelector('[data-action="remove-outfit"]');
+        row.querySelector(`.${meta.classPrefix}-editor-title`).textContent = `${meta.title} ${index + 1}`;
+        const removeBtn = row.querySelector(`[data-action="${meta.removeAction}"]`);
         if (removeBtn) removeBtn.dataset.index = String(index);
     });
 }
 
-function collectOutfitEditorValues(card) {
-    return Array.from(card.querySelectorAll('.char-outfit-editor-item')).map(row => ({
-        name: row.querySelector('.char-outfit-name')?.value?.trim() || '',
-        tags: row.querySelector('.char-outfit-tags')?.value?.trim() || '',
-    })).filter(outfit => outfit.name || outfit.tags);
+function collectNamedTagEditorValues(card, kind = 'outfit') {
+    const meta = NAMED_TAG_EDITOR_KINDS[kind] || NAMED_TAG_EDITOR_KINDS.outfit;
+    return Array.from(card.querySelectorAll(`.${meta.classPrefix}-editor-item`)).map(row => ({
+        name: row.querySelector(`.${meta.classPrefix}-name`)?.value?.trim() || '',
+        tags: row.querySelector(`.${meta.classPrefix}-tags`)?.value?.trim() || '',
+    })).filter(item => item.name || item.tags);
 }
 
 function renderCharacterActionIcon(name) {
@@ -1926,13 +1954,15 @@ function renderCharList() {
         const typeLabel = CHARACTER_TYPES.find(t => t.value === c.type)?.label || c.type || 'girl';
         const typeShort = typeLabel.split(' ')[0];
         const appearance = c.appearance || '';
-        const outfits = normalizeCharacterOutfitsForUI(c.outfits);
+        const outfits = normalizeNamedTagListForUI(c.outfits);
+        const dynamicStates = normalizeNamedTagListForUI(c.dynamicStates);
         const statusParts = [];
         if (!isEnabled) statusParts.push('停用');
-        if (appearance) statusParts.push('外貌');
+        if (appearance) statusParts.push('固定外貌');
         if (c.negativeTags) statusParts.push('负向');
         if (c.danbooruTag) statusParts.push('DB');
         if (outfits.length) statusParts.push('服装');
+        if (dynamicStates.length) statusParts.push('动态外貌');
         const toggleTitle = isEnabled ? '停用角色' : '启用角色';
         const summary = `
             <div class="char-card-summary">
@@ -1974,7 +2004,7 @@ function renderCharList() {
                     </div>
                     <div class="form-group">
                         <label class="form-label" style="display:flex;align-items:center;gap:8px;">
-                            外貌标签 (appearance)
+                            固定外貌 (appearance)
                             <button class="btn" data-action="search-danbooru" data-id="${charId}" style="padding:2px 8px;font-size:10px;"${!state.danbooruLocalDB ? ' disabled style="opacity:0.3"' : ''}>
                                 <i class="fa-solid fa-magnifying-glass"></i> Danbooru
                             </button>
@@ -1995,9 +2025,20 @@ function renderCharList() {
                         </label>
                         <div class="char-outfit-editor-list">
                             <div class="char-outfit-editor-empty"${outfits.length ? ' style="display:none;"' : ''}>未配置服装时可留空；添加后会在生图规划时作为服装参考发送给 AI，由 AI 自行选择并按剧情改写当前服装 TAG。</div>
-                            ${outfits.map((outfit, index) => renderOutfitEditorItem(outfit, index)).join('')}
+                            ${outfits.map((outfit, index) => renderNamedTagEditorItem(outfit, index, 'outfit')).join('')}
                         </div>
                         <p class="form-hint">示例：常服 / white shirt, pleated skirt；礼服 / evening dress, lace gloves</p>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+                            <span>动态外貌（可选）</span>
+                            <button class="btn btn-sm" type="button" data-action="add-dynstate" data-id="${charId}"><i class="fa-solid fa-plus"></i> 添加状态</button>
+                        </label>
+                        <div class="char-dynstate-editor-list">
+                            <div class="char-dynstate-editor-empty"${dynamicStates.length ? ' style="display:none;"' : ''}>同服装，会随剧情变化的外观状态（如眼睛颜色——闭眼时不应出现），供 AI 参考按场景选用。</div>
+                            ${dynamicStates.map((item, index) => renderNamedTagEditorItem(item, index, 'dynstate')).join('')}
+                        </div>
+                        <p class="form-hint">示例：睡觉 / closed eyes, sleeping；害羞 / blush, embarrassed, looking away</p>
                     </div>
                     <div class="btn-group" style="margin-top:12px;">
                         <button class="btn btn-primary" data-action="save" data-id="${charId}"><i class="fa-solid fa-check"></i> 保存</button>
@@ -2020,7 +2061,8 @@ function renderCharList() {
         });
     });
 
-    list.querySelectorAll('.char-outfit-editor-list').forEach(syncOutfitEditorList);
+    list.querySelectorAll('.char-outfit-editor-list').forEach(item => syncNamedTagEditorList(item, 'outfit'));
+    list.querySelectorAll('.char-dynstate-editor-list').forEach(item => syncNamedTagEditorList(item, 'dynstate'));
 }
 
 function handleCharAction(action, id, card, trigger) {
@@ -2044,16 +2086,20 @@ function handleCharAction(action, id, card, trigger) {
             trigger.setAttribute('aria-pressed', String(char.enabled));
             trigger.innerHTML = renderCharacterActionIcon(char.enabled ? 'enabled' : 'disabled');
         }
-    } else if (action === 'add-outfit') {
-        const list = card?.querySelector('.char-outfit-editor-list');
+    } else if (action === 'add-outfit' || action === 'add-dynstate') {
+        const kind = action === 'add-outfit' ? 'outfit' : 'dynstate';
+        const meta = NAMED_TAG_EDITOR_KINDS[kind];
+        const list = card?.querySelector(`.${meta.classPrefix}-editor-list`);
         if (!list) return;
-        list.insertAdjacentHTML('beforeend', renderOutfitEditorItem({}, list.querySelectorAll('.char-outfit-editor-item').length));
-        syncOutfitEditorList(list);
-    } else if (action === 'remove-outfit') {
-        const row = trigger?.closest('.char-outfit-editor-item');
-        const list = row?.closest('.char-outfit-editor-list');
+        list.insertAdjacentHTML('beforeend', renderNamedTagEditorItem({}, list.querySelectorAll(`.${meta.classPrefix}-editor-item`).length, kind));
+        syncNamedTagEditorList(list, kind);
+    } else if (action === 'remove-outfit' || action === 'remove-dynstate') {
+        const kind = action === 'remove-outfit' ? 'outfit' : 'dynstate';
+        const meta = NAMED_TAG_EDITOR_KINDS[kind];
+        const row = trigger?.closest(`.${meta.classPrefix}-editor-item`);
+        const list = row?.closest(`.${meta.classPrefix}-editor-list`);
         row?.remove();
-        syncOutfitEditorList(list);
+        syncNamedTagEditorList(list, kind);
     } else if (action === 'search-danbooru') {
         if (!state.danbooruLocalDB) { alert('请先启用 Danbooru 本地资源库'); return; }
         showLocalDanbooruFix(id);
@@ -2081,7 +2127,8 @@ function handleCharAction(action, id, card, trigger) {
         char.aliases = (card.querySelector('.char-edit-aliases')?.value || '').split(/[,，]/).map(s => s.trim()).filter(Boolean);
         char.appearance = card.querySelector('.char-edit-appearance')?.value?.trim() || '';
         char.negativeTags = card.querySelector('.char-edit-neg')?.value?.trim() || '';
-        char.outfits = collectOutfitEditorValues(card);
+        char.outfits = collectNamedTagEditorValues(card, 'outfit');
+        char.dynamicStates = collectNamedTagEditorValues(card, 'dynstate');
 
         editingCharId = null;
         postToParent({ type: 'SAVE_CHARACTER_TAGS', characterTags: state.characterTags });
@@ -2202,7 +2249,11 @@ function renderPromptChain(chain) {
     const container = $('nd_prompt_chain');
     if (!container) return;
 
-    const editableMap = { topSystem: 'nd_prompt_system', sceneRules: 'nd_prompt_format' };
+    const editableMap = {
+        topSystem: 'nd_prompt_system',
+        assistantDoc: 'nd_prompt_guide',
+        sceneRules: 'nd_prompt_format',
+    };
     const getPreviewContent = (key) => {
         const defaults = state._defaultPrompts || {};
         const promptConfig = {
@@ -2212,7 +2263,7 @@ function renderPromptChain(chain) {
         };
         let content = String(promptConfig[key] || '(内置模板，不可编辑)');
         if (key === 'assistantDoc') {
-            content = content.replace('{$tagGuide}', state.modelGuideContent || '');
+            content = content.replace('{$tagGuide}', $('nd_prompt_guide')?.value || '');
         } else if (key === 'modelContract') {
             content = state.modelContractContent || '(当前模型契约未加载)';
         }
@@ -2704,11 +2755,68 @@ function applyParamsPreset() {
 
 /** 纯本地：从当前选中的提示词预设加载 textarea 内容（对标 applyParamsPreset） */
 function applyPromptPreset() {
-    const presets = state.promptPresets || [];
-    const active = presets.find(p => p.id === state.selectedPromptPresetId) || presets[0] || {};
+    const active = getActivePromptPresetForForm() || {};
     $('nd_prompt_system').value = active.topSystem ?? '';
-    $('nd_prompt_guide').value = state.modelGuideContent || '';
     $('nd_prompt_format').value = active.sceneRules ?? '';
+    applyModelGuideForCurrentModel();
+}
+
+function getActivePromptPresetForForm() {
+    const presets = state.promptPresets || [];
+    const active = presets.find(preset => preset.id === state.selectedPromptPresetId)
+        || presets[0]
+        || null;
+    if (active && state.selectedPromptPresetId !== active.id) {
+        state.selectedPromptPresetId = active.id;
+        if ($('nd_prompt_preset')) $('nd_prompt_preset').value = active.id;
+    }
+    return active;
+}
+
+/** 当前指南以用户眼前的 textarea 为准；其他模型草稿沿用本页临时状态。 */
+function collectModelGuideOverridesFromForm() {
+    const active = getActivePromptPresetForForm();
+    const source = active?.modelGuideOverrides && typeof active.modelGuideOverrides === 'object'
+        && !Array.isArray(active.modelGuideOverrides)
+        ? active.modelGuideOverrides
+        : {};
+    const overrides = { ...source };
+    const guideId = getCurrentModelGuideId();
+    const textarea = $('nd_prompt_guide');
+    if (textarea) {
+        const defaultContent = state.modelGuideDefaults?.[guideId];
+        if (typeof defaultContent === 'string' && textarea.value === defaultContent) {
+            delete overrides[guideId];
+        } else {
+            overrides[guideId] = textarea.value;
+        }
+    }
+    return overrides;
+}
+
+function getCurrentModelGuideId() {
+    const model = $('nd_model_sel')?.value === 'custom' ? $('nd_model')?.value : $('nd_model_sel')?.value;
+    return getModelCapability(model).promptGuide || 'v4.5';
+}
+
+function applyModelGuideForCurrentModel() {
+    const guideId = getCurrentModelGuideId();
+    const defaults = state.modelGuideDefaults && typeof state.modelGuideDefaults === 'object'
+        ? state.modelGuideDefaults
+        : {};
+    const defaultContent = typeof defaults[guideId] === 'string'
+        ? defaults[guideId]
+        : '';
+    const active = getActivePromptPresetForForm() || {};
+    const overrides = active.modelGuideOverrides && typeof active.modelGuideOverrides === 'object'
+        ? active.modelGuideOverrides
+        : {};
+    const content = Object.prototype.hasOwnProperty.call(overrides, guideId)
+        && typeof overrides[guideId] === 'string'
+        ? overrides[guideId]
+        : defaultContent;
+
+    $('nd_prompt_guide').value = content;
 }
 
 function setSelectOrCustom(kind, value) {
@@ -2746,6 +2854,7 @@ function updateModelOptions() {
     $('nd_variety_boost_group').classList.toggle('hidden', isV5);
     const characterLimit = capability.maxCharactersPerImage || 10;
     $('nd_max_chars').max = String(characterLimit);
+    applyModelGuideForCurrentModel();
     requestPromptChainPreview();
     renderBackendPluginStatus();
 }
@@ -2905,10 +3014,6 @@ window.addEventListener('message', event => {
 
         case 'PROMPT_CHAIN_DATA':
             if (Number(data.requestId) !== promptChainRequestId) break;
-            if (typeof data.modelGuideContent === 'string') {
-                state.modelGuideContent = data.modelGuideContent;
-                $('nd_prompt_guide').value = data.modelGuideContent;
-            }
             if (typeof data.modelContractContent === 'string') {
                 state.modelContractContent = data.modelContractContent;
             }
@@ -3094,6 +3199,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (k === 'model') updateModelOptions();
         });
     });
+    $('nd_model').addEventListener('change', updateModelOptions);
     
     // ═══════════════════════════════════════════════════════════════════════
     // 尺寸预设
@@ -3173,7 +3279,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     
     $('nd_char_add').addEventListener('click', () => {
-        const nc = { id: `char-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, enabled: true, name: '', aliases: [], type: 'girl', appearance: '', negativeTags: '', outfits: [] };
+        const nc = { id: `char-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, enabled: true, name: '', aliases: [], type: 'girl', appearance: '', negativeTags: '', outfits: [], dynamicStates: [] };
         state.characterTags.push(nc);
         editingCharId = nc.id;
         resetCharacterFilters(false);
@@ -3343,14 +3449,17 @@ document.addEventListener('DOMContentLoaded', () => {
     $('nd_prompt_preset').addEventListener('change', () => {
         state.selectedPromptPresetId = $('nd_prompt_preset').value;
         applyPromptPreset();
+        requestPromptChainPreview();
         postToParent({ type: 'SELECT_PROMPT_PRESET', id: state.selectedPromptPresetId });
     });
 
     $('nd_prompt_preset_save').addEventListener('click', () => {
         setSavingState($('nd_prompt_preset_save'));
+        getActivePromptPresetForForm();
         postToParent({ type: 'SAVE_PROMPT_PRESET', selectedPromptPresetId: state.selectedPromptPresetId, promptDraft: {
             topSystem: $('nd_prompt_system').value,
             sceneRules: $('nd_prompt_format').value,
+            modelGuideOverrides: collectModelGuideOverridesFromForm(),
         }, statusTarget: 'prompt-preset' });
     });
 
@@ -3372,9 +3481,11 @@ document.addEventListener('DOMContentLoaded', () => {
     // 提示词模板保存（底部按钮，等同于预设栏保存）
     $('nd_prompts_save').addEventListener('click', () => {
         setSavingState($('nd_prompts_save'));
+        getActivePromptPresetForForm();
         postToParent({ type: 'SAVE_PROMPT_PRESET', selectedPromptPresetId: state.selectedPromptPresetId, promptDraft: {
             topSystem: $('nd_prompt_system').value,
             sceneRules: $('nd_prompt_format').value,
+            modelGuideOverrides: collectModelGuideOverridesFromForm(),
         }, statusTarget: 'prompts' });
     });
 
@@ -3389,56 +3500,72 @@ document.addEventListener('DOMContentLoaded', () => {
         $('nd_prompt_format').value = state._defaultPrompts?.sceneRules || '';
         postToParent({ type: 'RESET_CUSTOM_PROMPT', key: 'sceneRules', selectedPromptPresetId: state.selectedPromptPresetId });
     });
+    $('nd_prompt_reset_guide').addEventListener('click', () => {
+        const activePreset = getActivePromptPresetForForm();
+        const guideId = getCurrentModelGuideId();
+        if (activePreset?.modelGuideOverrides && typeof activePreset.modelGuideOverrides === 'object') {
+            delete activePreset.modelGuideOverrides[guideId];
+        }
+        const defaultContent = state.modelGuideDefaults?.[guideId] ?? '';
+        $('nd_prompt_guide').value = defaultContent;
+        postToParent({
+            type: 'RESET_CUSTOM_PROMPT',
+            key: 'modelGuide',
+            guideId,
+            selectedPromptPresetId: state.selectedPromptPresetId,
+        });
+    });
     $('nd_prompts_reset_all').addEventListener('click', () => {
         if (!confirm('确认恢复全部提示词为默认值？')) return;
         const defaults = state._defaultPrompts || {};
-        const activePreset = (state.promptPresets || []).find(p => p.id === state.selectedPromptPresetId);
-        const isPov = activePreset?.name === '默认-第一人称完整规则';
+        const activePreset = getActivePromptPresetForForm();
+        if (!activePreset) {
+            alert('没有可恢复的提示词预设');
+            return;
+        }
+        const isPov = activePreset.name === '默认-第一人称完整规则';
         const topSystemVal = isPov ? (defaults.topSystemPov || '') : (defaults.topSystem || '');
         $('nd_prompt_system').value = topSystemVal;
         $('nd_prompt_format').value = defaults.sceneRules || '';
+        activePreset.modelGuideOverrides = {};
+        applyModelGuideForCurrentModel();
         postToParent({ type: 'SAVE_PROMPT_PRESET', selectedPromptPresetId: state.selectedPromptPresetId, promptDraft: {
             topSystem: topSystemVal,
             sceneRules: defaults.sceneRules || '',
+            modelGuideOverrides: {},
         }, statusTarget: 'prompts' });
     });
 
-    $('nd_prompts_export').addEventListener('click', () => {
+    $('nd_prompt_preset_export').addEventListener('click', () => {
+        const activePreset = getActivePromptPresetForForm() || {};
         const data = {
             _type: 'novel-draw-prompt-template',
             _version: 2,
+            name: activePreset.name || '',
             topSystem: $('nd_prompt_system').value,
             sceneRules: $('nd_prompt_format').value,
+            modelGuideOverrides: collectModelGuideOverridesFromForm(),
         };
         const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
-        a.download = 'novel-draw-prompts.json';
+        a.download = `${activePreset.name || '提示词预设'}.json`;
         a.click();
         URL.revokeObjectURL(a.href);
     });
 
-    $('nd_prompts_import').addEventListener('change', async (e) => {
+    $('nd_prompt_preset_import').addEventListener('change', async (e) => {
         const file = e.target.files?.[0];
         if (!file) return;
         try {
             const text = await file.text();
             const data = JSON.parse(text);
-            if (data._type !== 'novel-draw-prompt-template') {
-                throw new Error('不是有效的提示词模板文件');
-            }
-            const version = Number(data._version);
-            if (version !== 1 && version !== 2) {
-                throw new Error(`不支持的提示词模板版本：${data._version ?? '缺失'}`);
-            }
-            if (typeof data.topSystem !== 'string' || typeof data.sceneRules !== 'string') {
-                throw new Error('提示词模板缺少 topSystem 或 sceneRules');
-            }
-            $('nd_prompt_system').value = data.topSystem;
-            $('nd_prompt_format').value = data.sceneRules;
-            alert(version === 1
-                ? '导入成功；模型指南现由插件按模型提供，旧 TAG 指南未导入。请点击「保存」以生效'
-                : '导入成功，请点击「保存」以生效');
+            postToParent({
+                type: 'IMPORT_PROMPT_PRESET',
+                payload: data,
+                fallbackName: file.name.replace(/\.json$/i, '').trim()
+                    || `导入的预设-${(state.promptPresets || []).length + 1}`,
+            });
         } catch (err) {
             alert('导入失败: ' + err.message);
         }
@@ -3452,6 +3579,10 @@ document.addEventListener('DOMContentLoaded', () => {
         $(id).addEventListener('input', () => {
             if ($('nd_prompt_chain_details').open) requestPromptChainPreview();
         });
+    });
+    $('nd_prompt_guide').addEventListener('input', () => {
+        if ($('nd_prompt_chain_details').open) requestPromptChainPreview();
+        else promptChainRequestId += 1;
     });
 
     // 世界书上传

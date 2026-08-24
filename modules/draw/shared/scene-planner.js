@@ -100,7 +100,13 @@ export function buildCharacterInfoForLLM(presentCharacters) {
                 .map((outfit) => `${outfit.name || '服装'}=${outfit.tags || '未填写tag'}`)
                 .join('； ')}`
             : '';
-        return `- ${character.name}${aliases} [${type}]${danbooru}: 外貌已预设；提交该角色时必须使用规范 name，并将 type/appear 设为空字符串；danbooru/costume/action/interact/uc/center 仍须提交，costume 只描述本图实际穿着${appear}${outfits}`;
+        const dynamicStates = Array.isArray(character.dynamicStates) && character.dynamicStates.length
+            ? `\n  动态外貌参考（会随剧情变化的外观状态，仅供参考；请结合当前场景选用最贴切的一条或其变体融入 action 等本图状态描述；不要同时堆叠多条互斥状态）: ${character.dynamicStates
+                .filter((state) => state?.name || state?.tags)
+                .map((state) => `${state.name || '状态'}=${state.tags || '未填写tag'}`)
+                .join('； ')}`
+            : '';
+        return `- ${character.name}${aliases} [${type}]${danbooru}: 外貌已预设；提交该角色时必须使用规范 name，并将 type/appear 设为空字符串；danbooru/costume/action/interact/uc/center 仍须提交，costume 只描述本图实际穿着${appear}${outfits}${dynamicStates}`;
     });
 
     return `【已录入角色】（别名只用于识别，提交时改回规范名；type/appear 必须为空字符串）:

@@ -22,6 +22,7 @@ test('shared draw settings retain current domain data and discard former LLM con
             negativeTags: 'bad hands',
             danbooruTag: 'ali_(original)',
             outfits: [{ name: '常服', tags: 'white dress' }],
+            dynamicStates: [{ name: '害羞', tags: 'blush' }],
         }],
         messageFilterRules: [{ start: '<think>', end: '</think>' }],
         worldbooks: {
@@ -40,6 +41,7 @@ test('shared draw settings retain current domain data and discard former LLM con
     assert.equal(normalized.useWorldInfo, true);
     assert.equal(normalized.worldbooks.keywordFilterMode, 'all_active');
     assert.deepEqual(normalized.characterTags[0].aliases, ['小璃']);
+    assert.deepEqual(normalized.characterTags[0].dynamicStates, [{ name: '害羞', tags: 'blush' }]);
     assert.equal(normalized.characterTags[0].enabled, true);
     assert.equal(Object.hasOwn(normalized, 'llmApi'), false);
     assert.equal(Object.hasOwn(normalized, 'useStream'), false);
@@ -76,6 +78,7 @@ test('shared and NovelAI provider saves preserve the other owner without revivin
         negativeTags: '',
         danbooruTag: '',
         outfits: [],
+        dynamicStates: [],
     }]);
     assert.equal(providerSave.worldbooks.enabled, true);
     assert.equal(Object.hasOwn(providerSave, 'llmApi'), false);

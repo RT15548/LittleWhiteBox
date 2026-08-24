@@ -515,6 +515,7 @@ Prompt 中仍保留自然语言数量要求，Schema 再做协议约束。两者
 - Danbooru 角色标签规则。
 - 已知角色不重复输出预设外貌，但必须完整决定本图服装、动作、互动、负向和位置。
 - 服装参考只能选择合适的一套或其剧情变体；保留破损、敞开、滑落、湿透等状态词，禁止把多套服装拼接。
+- 动态外貌参考只在对应剧情状态下选用，不同时堆叠互斥状态。
 - `scene`、`costume`、`action`、`interact`、`uc`、`center` 的职责边界。
 - `source#`、`target#`、`mutual#` 互动方向协议。
 - A1～E5 的 5×5 坐标定义。
@@ -554,7 +555,7 @@ Prompt 中仍保留自然语言数量要求，Schema 再做协议约束。两者
 | `topSystem` | 保留并去除 YAML 输出措辞。 |
 | `topSystemPov` | 保留全部 POV 语义并去除 YAML 输出措辞。 |
 | `assistantDoc` | 保留当前模型提示词指南确认。 |
-| `tagGuideContent` | SD/Comfy 预设继续保留；NovelAI 自 V5 接入起迁出预设，改由 Provider 按模型注入只读静态指南。 |
+| `tagGuideContent` | SD/Comfy 预设继续保留；NovelAI 转为按模型选择内置默认，并在提示词预设中保存可选的 V4.5 / V5 用户覆盖。 |
 | `assistantAskBackground` | 保留。 |
 | `userWorldInfo` | 保留。 |
 | `assistantAskContent` | 保留。 |
@@ -724,7 +725,7 @@ reasoning: {
 
 以下数据不属于模型配置，不得因本次迁移丢失：
 
-- 角色库、别名、类型、外貌、Danbooru、负向标签、服装参考。
+- 角色库、别名、类型、固定外貌、Danbooru、负向标签、服装参考、动态外貌参考。
 - 世界书启用状态、上传书目和过滤规则。
 - `useWorldInfo`。
 - `advancedMode`。
@@ -934,7 +935,7 @@ AgentCore Adapter 是四个现有 Agent 消费者的共享源码，修改后必�
 - NovelAI 请求包含 `n::tag::` 规则。
 - SD/Comfy 请求包含 `(tag:1.2)` 规则。
 - 普通与 POV Prompt 都保留各自完整规则。
-- 已知角色、别名、服装参考和破损/敞开/滑落/湿透变体进入最终消息。
+- 已知角色、别名、服装参考、动态外貌参考和破损/敞开/滑落/湿透变体进入最终消息。
 - 动态图片/角色数量同时进入 Prompt 与 Tool Schema。
 - 所有宏按既定顺序展开。
 - `CHAT_COMPLETION_PROMPT_READY` 收到展开后的快照，但监听器不能改写实际 task。

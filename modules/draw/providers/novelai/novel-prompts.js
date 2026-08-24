@@ -77,14 +77,44 @@ I will complete mindful_prelude and all ordered images before submitting exactly
 };
 
 const promptGuides = new Map();
+const PROMPT_GUIDE_IDS = Object.freeze(Object.values(NOVEL_PROMPT_GUIDES));
 
 /** 导出默认提示词配置（供 UI 显示默认值 / 重置） */
 export { LLM_PROMPT_CONFIG as DEFAULT_PROMPT_CONFIG, PROMPT_TEMPLATE_VERSION };
 
-/** 获取当前模型的 Provider 指南。指南不是用户提示词预设的一部分。 */
-export function getLoadedTagGuide(model) {
-    const guideId = getNovelModelCapability(model).promptGuide;
+/** 获取当前模型对应的指南键。 */
+export function getNovelPromptGuideId(model) {
+    return getNovelModelCapability(model).promptGuide;
+}
+
+/**
+ * 只保留当前数据模型支持的用户指南覆盖。
+ * 字段缺失表示跟随插件内置 MD；空字符串表示用户明确不注入指南。
+ */
+export function normalizeNovelPromptGuideOverrides(value) {
+    const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+    const normalized = {};
+    for (const guideId of PROMPT_GUIDE_IDS) {
+        if (Object.prototype.hasOwnProperty.call(source, guideId)
+            && typeof source[guideId] === 'string') {
+            normalized[guideId] = source[guideId];
+        }
+    }
+    return normalized;
+}
+
+/** 获取指定指南键的插件内置 MD。 */
+export function getLoadedTagGuideById(guideId) {
     return promptGuides.get(guideId) || '';
+}
+
+/** 当前提示词预设有覆盖时使用覆盖，否则跟随对应的内置 MD。 */
+export function getEffectiveNovelModelGuide(model, promptPreset) {
+    const guideId = getNovelPromptGuideId(model);
+    const overrides = normalizeNovelPromptGuideOverrides(promptPreset?.modelGuideOverrides);
+    return Object.prototype.hasOwnProperty.call(overrides, guideId)
+        ? overrides[guideId]
+        : getLoadedTagGuideById(guideId);
 }
 
 /**
@@ -92,7 +122,7 @@ export function getLoadedTagGuide(model) {
  * 供 UI 展示实际请求结构：1 条 system + 1 条 user 任务；user 节点内部保留各顺序片段。
  */
 export function getPromptChainPreview(customPrompts, model) {
-    const hasTagGuide = !!getLoadedTagGuide(model);
+    const hasTagGuide = !!getEffectiveNovelModelGuide(model, customPrompts);
     return [
         { role: 'system', key: 'topSystem', editable: true,
           summary: 'VSPF 框架 + Creative Director 角色定义（system）' },
@@ -101,7 +131,7 @@ export function getPromptChainPreview(customPrompts, model) {
             key: 'userTask',
             summary: '单条 user 任务（以下 Prompt sections 按顺序拼接）',
             sections: [
-                { key: 'assistantDoc', summary: '当前模型提示词指南' + (hasTagGuide ? ' (已注入)' : ' (未加载)') },
+                { key: 'assistantDoc', editable: true, summary: '当前模型提示词指南' + (hasTagGuide ? ' (已注入)' : ' (未加载)') },
                 { key: 'assistantAskBackground', summary: '背景知识设定说明' },
                 {
                     key: 'userWorldInfo',

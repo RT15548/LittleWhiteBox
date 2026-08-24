@@ -1237,10 +1237,12 @@ function bindOverlayEvents() {
         setValue('sd-prompt-format', defaults.sceneRules);
         renderPromptChainPreview();
     });
-    querySettings('#sd-prompts-export')?.addEventListener('click', () => {
+    querySettings('#sd-prompt-preset-export')?.addEventListener('click', () => {
+        const preset = getActivePromptPreset(getSettings());
         const payload = {
             _type: 'sd-draw-prompt-template',
             _version: 1,
+            name: preset.name,
             topSystem: getValue('sd-prompt-system'),
             tagGuideContent: getValue('sd-prompt-guide'),
             sceneRules: getValue('sd-prompt-format'),
@@ -1249,24 +1251,37 @@ function bindOverlayEvents() {
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
-        link.download = 'sd-draw-prompts.json';
+        link.download = `${preset.name || '提示词预设'}.json`;
         link.click();
         URL.revokeObjectURL(url);
     });
-    querySettings('#sd-prompts-import')?.addEventListener('change', async (event) => {
+    querySettings('#sd-prompt-preset-import')?.addEventListener('change', async (event) => {
         const file = event.target.files?.[0];
         if (!file) return;
         try {
             const text = await file.text();
             const payload = JSON.parse(text);
+            if (payload?._type !== 'sd-draw-prompt-template' || payload?._version !== 1) {
+                throw new Error('不是有效的 SD WebUI 提示词预设文件');
+            }
             if (typeof payload.topSystem !== 'string' || typeof payload.tagGuideContent !== 'string' || typeof payload.sceneRules !== 'string') {
                 throw new Error('不是有效的提示词模板文件');
             }
-            setValue('sd-prompt-system', payload.topSystem);
-            setValue('sd-prompt-guide', payload.tagGuideContent);
-            setValue('sd-prompt-format', payload.sceneRules);
-            renderPromptChainPreview();
-            toastr.success('导入成功，请点击保存以生效', 'SD WebUI');
+            const name = (typeof payload.name === 'string' && payload.name.trim())
+                ? payload.name.trim()
+                : (file.name.replace(/\.json$/i, '').trim() || `导入的预设-${(getSettings().promptPresets || []).length + 1}`);
+            const preset = {
+                id: `prompt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                name,
+                topSystem: payload.topSystem,
+                tagGuideContent: payload.tagGuideContent,
+                sceneRules: payload.sceneRules,
+            };
+            const ok = await withSaveTimeout(updateSettingsPersistent((settings) => {
+                settings.promptPresets = [...settings.promptPresets, preset];
+                settings.selectedPromptPresetId = preset.id;
+            }, `已导入为新预设「${name}」`, { notify: true, silent: false }));
+            if (ok) fillForm(getSettings());
         } catch (error) {
             toastr.error(error?.message || '导入失败', 'SD WebUI');
         } finally {
@@ -1643,8 +1658,9 @@ function getSharedCharacterTagsFromForm() {
         appearance: String(card.querySelector('[data-sd-char-field="appearance"]')?.value || '').trim(),
         negativeTags: String(card.querySelector('[data-sd-char-field="negativeTags"]')?.value || '').trim(),
         danbooruTag: String(card.querySelector('[data-sd-char-field="danbooruTag"]')?.value || '').trim(),
-        outfits: parseCharacterOutfits(card.querySelector('[data-sd-char-field="outfits"]')?.value || ''),
-    })).filter((item) => item.name || item.appearance || item.danbooruTag || item.negativeTags || item.aliases.length || item.outfits?.length);
+        outfits: parseNamedTagLines(card.querySelector('[data-sd-char-field="outfits"]')?.value || ''),
+        dynamicStates: parseNamedTagLines(card.querySelector('[data-sd-char-field="dynamicStates"]')?.value || ''),
+    })).filter((item) => item.name || item.appearance || item.danbooruTag || item.negativeTags || item.aliases.length || item.outfits?.length || item.dynamicStates?.length);
 }
 
 function renderCharacterTagList(tags = []) {
@@ -1722,10 +1738,11 @@ function renderCharacterTagList(tags = []) {
             top,
             grid,
             createCharacterField('别名（逗号分隔）', 'aliases', (tag.aliases || []).join(', '), '例如 小芙, Freya'),
-            createCharacterField('外观标签', 'appearance', tag.appearance || '', '会拼进角色外观提示词', { multiline: true }),
+            createCharacterField('固定外貌', 'appearance', tag.appearance || '', '会拼进角色外观提示词', { multiline: true }),
             createCharacterField('负向标签', 'negativeTags', tag.negativeTags || '', '角色专属 negative / uc 标签', { multiline: true }),
             createCharacterField('Danbooru Tag', 'danbooruTag', tag.danbooruTag || '', '可选，用于兼容原有角色提示逻辑'),
-            createCharacterField('服装参考（每行一套）', 'outfits', serializeCharacterOutfits(tag.outfits || []), '校服 = white shirt, pleated skirt', { multiline: true }),
+            createCharacterField('服装参考（每行一套）', 'outfits', serializeNamedTagLines(tag.outfits || []), '校服 = white shirt, pleated skirt', { multiline: true }),
+            createCharacterField('动态外貌（每行一条）', 'dynamicStates', serializeNamedTagLines(tag.dynamicStates || []), '害羞 = blush, embarrassed', { multiline: true }),
         );
         const panel = document.createElement('div');
         panel.className = 'danbooru-panel hidden';
@@ -1759,8 +1776,8 @@ function createCharacterField(labelText, fieldName, value, placeholder, options 
     return field;
 }
 
-function serializeCharacterOutfits(outfits = []) {
-    return (Array.isArray(outfits) ? outfits : [])
+function serializeNamedTagLines(list = []) {
+    return (Array.isArray(list) ? list : [])
         .map((outfit) => {
             const name = String(outfit?.name || '').trim();
             const tags = String(outfit?.tags || '').trim();
@@ -1771,7 +1788,7 @@ function serializeCharacterOutfits(outfits = []) {
         .join('\n');
 }
 
-function parseCharacterOutfits(value = '') {
+function parseNamedTagLines(value = '') {
     return String(value || '')
         .split(/\r?\n/)
         .map((line) => line.trim())
@@ -2354,6 +2371,7 @@ function addCharacterTagDraft() {
         negativeTags: '',
         danbooruTag: '',
         outfits: [],
+        dynamicStates: [],
     });
     renderCharacterTagList(current);
     refreshSettingsSummary();
@@ -2418,6 +2436,7 @@ async function importSharedCharacterTags(input) {
                 negativeTags: char.negativeTags || '',
                 danbooruTag: char.danbooruTag || '',
                 outfits: Array.isArray(char.outfits) ? char.outfits : [],
+                dynamicStates: Array.isArray(char.dynamicStates) ? char.dynamicStates : [],
             };
             if (existingIndex >= 0) {
                 merged[existingIndex] = { ...merged[existingIndex], ...nextChar, id: merged[existingIndex].id };

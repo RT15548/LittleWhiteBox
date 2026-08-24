@@ -20,13 +20,13 @@ NovelAI V5 作为新增能力接入，不替代 V4.5，也不改变现有默认�
 - 模型下拉新增 V5 Full 和 V5 Curated；用户可在任意参数预设中修改模型。
 - 参数预设仍由用户手动选择，不根据 Prompt、聊天或场景自动切换。
 - 提示词预设仍由用户独立手动选择，可新增、修改、删除；切换参数预设不得自动切换提示词预设。
-- 当前画图模型是模型能力的唯一事实来源。`{$tagGuide}` 根据当前参数预设的 `params.model` 自动解析，不由提示词预设决定。
+- 当前画图模型是指南类型的唯一事实来源。`{$tagGuide}` 根据当前参数预设的 `params.model` 自动选择 V4.5 或 V5；当前提示词预设可覆盖所选指南的内容。
 - V5 使用独立的请求构造、stream 传输和 MessagePack 响应解析；V3/V4/V4.5 保持现有链路。
 - 选择 V5 后应实际使用其自然语言、自由角色定位、更多角色、交互和文字描述能力，而不只是换一个模型 ID。
 - V5 参数区新增 `Transparent BG` 勾选项；启用时自动追加 `transparent background`，并发送透明背景协议参数。该开关属于参数预设，不属于提示词预设。
 - V5 的默认质量词由官方 Quality Standard 与 UC Heavy 提供。`positivePrefix` 与 `negativePrefix` 属于用户预设内容，代码不会因切换模型而改写；把 V4.5 预设切到 V5 的用户如果保留了原有 V4.5 质量词表，需要自行清空以免与官方预设重复。
 - 本期同时在 V5 UI 开放 Quality `standard / light / none` 与 UC `heavy / light / humanFocus / furryFocus / none`。
-- 提示词预设不再保存或编辑 `tagGuideContent`；V4.5 与 V5 分别使用 Provider 内明确命名的静态指南。旧持久化副本在一次性迁移中退出当前数据模型，不建立长期备份或兼容壳。
+- V4.5 与 V5 分别使用 Provider 内明确命名的静态指南作为默认值；提示词预设只保存用户实际编辑过的对应模型指南覆盖。
 
 ## 2. 名词与所有权
 
@@ -36,7 +36,7 @@ NovelAI V5 作为新增能力接入，不替代 V4.5，也不改变现有默认�
 | 提示词预设 | `promptPresets[]` | 用户 | 用户独立手动选择 | 不与参数预设绑定，不因模型变化自动切换 |
 | 当前画图模型 | 当前参数预设的 `params.model` | 用户选择，代码解释 | 随参数预设或模型下拉变化 | 决定请求协议、参数版本、模型指南和坐标契约 |
 | 模型能力 | 代码中的静态定义 | NovelAI Provider | 不持久化选择副本 | 按精确模型 ID 查表，不能由可删除的用户预设承载 |
-| 模型提示词指南 | `TAG编写指南-V4.5.md` / `提示词编写指南-V5.md` | NovelAI Provider | 自动 | `{$tagGuide}` 按当前模型解析为 V4.5 或 V5 指南 |
+| 模型提示词指南 | Provider 内置 MD + `promptPresets[].modelGuideOverrides` | NovelAI Provider / 用户 | 模型自动选类型，用户可编辑内容 | 未覆盖时跟随对应 MD；覆盖随提示词预设保存、切换、导入、导出和删除 |
 | 模型提交契约 | Provider 静态资源 + 共享 Tool Schema | NovelAI Provider / Scene Planner | 自动 | 位于用户规则之后，声明当前模型的 center 类型、角色上限等不可覆盖的协议 |
 | 用户场景规则 | 提示词预设 | 用户 | 随提示词预设手动切换 | 原样保留并继续生效，但不能覆盖当前模型提交契约或 Tool Schema |
 | Transparent BG | 当前参数预设的 `params.transparentBackground` | 用户 | 用户手动勾选 | 仅精确 V5 模型启用；决定透明后缀和请求参数 |
@@ -486,17 +486,17 @@ V5 模型下，同一区域同时显示三态 Quality 和五态 UC。切换到�
 - 参数预设和提示词预设不建立联动关系。
 - 用户可以为同一个 V5 参数预设选择任意 System Prompt/场景规则预设。
 - 用户可以删除任何提示词预设，只保留现有“至少一个”的约束。
-- `{$tagGuide}` 的实际模型指南由当前 `params.model` 决定，不随提示词预设切换。
+- `{$tagGuide}` 的指南类型由当前 `params.model` 决定；同一类型的自定义内容随提示词预设切换。
 
 ### 7.5 模型指南显示
 
-当前“TAG 编写指南”编辑区混合了模型内置规则和用户预设数据，实施时删除这个编辑入口并拆清来源。
+“当前模型提示词指南”编辑区显示当前模型自动选中的 V4.5 或 V5 指南。
 
 终态实现约束：
 
-- 页面只读显示当前模型自动选中的指南，明确标注文件名与 `V4.5` 或 `V5`。
-- 内置模型指南只读，避免用户误以为它属于可删除预设。
-- 用户可编辑的创作要求继续放在提示词预设的 System Prompt 与场景规则中；内置模型指南不再提供自定义覆盖入口。
+- 页面允许编辑当前模型指南；修改内容保存为当前提示词预设对应指南类型的覆盖。
+- 两份内置 MD 只提供默认值；“恢复当前模型默认”删除该覆盖，使其重新跟随对应 MD。
+- V4.5 与 V5 覆盖彼此独立，切换模型不会覆盖另一份内容。
 - 切换参数预设或修改模型下拉后，指南预览立即更新；提示词预设选择保持不变。
 - 模型提交契约与 Tool Schema 不作为可编辑预设展示；它们属于运行时协议。
 
@@ -506,20 +506,21 @@ V5 模型下，同一区域同时显示三态 Quality 和五态 UC。切换到�
 用户手动选择的提示词预设
         │
         ├── System Prompt
-        └── 用户场景规则
+        ├── 用户场景规则
+        └── 可选的 V4.5 / V5 模型指南覆盖
 
 当前参数预设 params.model
         │
         ▼
 代码持有的模型能力表
         │
-        ├── {$tagGuide} 的内置模型指南（两份明确命名的 Provider 静态文件）
+        ├── {$tagGuide} 的指南类型与内置默认（两份明确命名的 Provider 静态文件）
         ├── 用户规则之后的内置模型提交契约
         └── submit_scene_plan center Schema / 角色硬上限
 
 最终顺序
         │
-        ├── 内置模型指南
+        ├── 当前提示词预设覆盖或对应内置模型指南
         ├── 用户场景规则
         ├── 内置模型提交契约（后出现，冲突时优先）
         └── Tool Schema（最终校验）
@@ -529,8 +530,8 @@ V5 模型下，同一区域同时显示三态 Quality 和五态 UC。切换到�
 
 1. 读取当前参数预设，取得精确 `params.model`。
 2. 读取用户当前手动选择的提示词预设。
-3. 根据模型能力表选择内置 TAG 指南、模型提交契约、center Schema 和角色绝对上限。
-4. 将模型指南注入固定的 `{$tagGuide}` 槽位。
+3. 根据模型能力表选择 V4.5 / V5 指南类型、模型提交契约、center Schema 和角色绝对上限。
+4. 优先读取当前提示词预设的该类型覆盖；不存在时读取对应内置 MD，并注入固定的 `{$tagGuide}` 槽位。
 5. 注入用户的 System Prompt、场景规则、世界书、角色和正文。
 6. 在用户场景规则之后追加不可编辑的当前模型提交契约，明确它覆盖用户规则中的旧坐标或角色合并指令。
 7. 构造对应模型的 `submit_scene_plan` Tool Schema。
@@ -646,8 +647,8 @@ MessagePack 解码使用锁定版本的成熟浏览器 ESM 依赖（`@msgpack/ms
 | 文件/区域 | 改动 |
 | --- | --- |
 | `novel-draw.js` | V5 参数预设、Quality/UC 与旧指南迁移、模型能力解析、V5 payload、Transparent BG、transport 分流、端点解析、后端能力检查 |
-| `novel-draw.html` | V5 模型选项、V5 Quality/UC、Transparent BG、旧指南只读备份、角色数上限提示、模型指南预览 |
-| `novel-prompts.js` | 按模型解析 `{$tagGuide}`，追加不可编辑模型提交契约，不改变提示词预设选择 |
+| `novel-draw.html` | V5 模型选项、V5 Quality/UC、Transparent BG、角色数上限提示、可编辑模型指南 |
+| `novel-prompts.js` | 按模型解析 `{$tagGuide}` 的预设覆盖或内置默认，追加不可编辑模型提交契约，不改变提示词预设选择 |
 | `TAG编写指南-V4.5.md` | 由现有指南明确改名，保留 V4.5 TAG 规则 |
 | `提示词编写指南-V5.md` | V5 自然语言、坐标、多人、文字和新标签规范 |
 | `top-system.md` / `top-system-pov.md` | 改为模型无关默认 System Prompt，删除版本、严格 TAG 和旧 anchor 表述 |
@@ -679,7 +680,7 @@ V5 领域代码留在 `modules/draw/providers/novelai/`。共享 Scene Planner �
 
 ### 12.2 提示词预设
 
-终态不再把内置模型指南或模型提交契约当作提示词预设的数据。提示词预设只持久化 ID、名称、`topSystem`、`sceneRules`；现有 ID、名称、选中项和删除能力保持不变。重复的根级 `customPrompts` 同期退出持久模型。
+内置模型指南和模型提交契约不复制进提示词预设。提示词预设持久化 ID、名称、`topSystem`、`sceneRules`，以及用户实际编辑过的 `modelGuideOverrides`；覆盖字段缺失表示继续跟随对应内置 MD，空字符串表示用户明确不注入该指南。现有 ID、名称、选中项和删除能力保持不变。重复的根级 `customPrompts` 同期退出持久模型。
 
 `topSystem` 与 `sceneRules` 迁移采用冻结旧格式的精确比较，不看预设名称、不做自然语言清洗：
 
@@ -689,9 +690,9 @@ V5 领域代码留在 `modules/draw/providers/novelai/`。共享 Scene Planner �
 - 不再用 `PROMPT_TEMPLATE_VERSION` 按“默认-完整规则”等名称批量覆盖现有用户预设。精确命中已发布默认内容的字段由版本迁移采用当前模板；用户编辑过的字段只有显式点击“恢复默认”才会被替换。
 - 运行时总在用户 `sceneRules` 之后注入 §8 的模型提交契约，因此保留下来的旧指令不能改变 Tool Schema 或 V5 center 类型。
 
-现有 `tagGuideContent` 无论内容为何都不再属于提示词预设：迁移保存成功后删除该字段，运行时只认两份 Provider 静态指南，不保留 fallback、备份或双读。迁移保存失败时继续使用完整旧设置并禁止进入半迁移运行态，不能先改内存缓存再报告成功。
+旧 `tagGuideContent` 在升级边界一次性转换：命中已发布默认指南时不保存覆盖；用户编辑过的内容迁移到 V4.5 `modelGuideOverrides`。转换后删除旧字段，不建立运行时双读。迁移保存失败时继续使用完整旧设置并禁止进入半迁移运行态。
 
-`{$tagGuide}` 从此只来自当前模型能力表：V4.5 和未知模型使用内置 V4.5 指南，两个精确 V5 模型使用内置 V5 指南。
+`{$tagGuide}` 的类型只来自当前模型能力表：V4.5 和未知模型选择 V4.5，两个精确 V5 模型选择 V5；内容优先使用当前提示词预设的同类型覆盖，否则使用内置 MD。
 
 提示词模板导入/导出在边界升级为当前格式 `_version: 2`：
 
@@ -700,11 +701,15 @@ V5 领域代码留在 `modules/draw/providers/novelai/`。共享 Scene Planner �
   "_type": "novel-draw-prompt-template",
   "_version": 2,
   "topSystem": "...",
-  "sceneRules": "..."
+  "sceneRules": "...",
+  "modelGuideOverrides": {
+    "v4.5": "...",
+    "v5": "..."
+  }
 }
 ```
 
-冻结的 `_version: 1` 格式包含 `tagGuideContent`。导入 V1 时忽略该字段并明确提示“模型指南现由插件按模型提供，旧 TAG 指南未导入”；不得重新填入当前模型指南。V2 只接受上述当前字段，未知版本明确拒绝。
+冻结的 `_version: 1` 格式包含 `tagGuideContent`。导入 V1 时，已发布默认文本继续跟随内置 V4.5 指南，用户编辑值（包括明确的空字符串）转换为 V4.5 覆盖；V2 接受上述当前字段，未知版本明确拒绝。
 
 ## 13. 最少必要测试
 
@@ -717,8 +722,8 @@ V5 领域代码留在 `modules/draw/providers/novelai/`。共享 Scene Planner �
 - 相同提示词预设下，V4.5 模型注入 V4.5 指南，V5 模型注入 V5 指南。
 - 删除或改名任意用户预设不影响模型能力解析。
 - 只有与受支持真实 fixture 完全相同的旧 `topSystem` / `sceneRules` 会升级；任意用户修改都原样保留，且模型提交契约位于其后。
-- 旧 `tagGuideContent` 与重复 `customPrompts` 在迁移成功后退出数据模型；迁移保存失败时完整旧设置仍可重试，不出现半迁移缓存。
-- 提示词模板 V1 的 `tagGuideContent` 被忽略并产生明确提示，V2 无损往返当前字段，未知版本拒绝。
+- 旧 `tagGuideContent` 的默认文本不形成覆盖，用户编辑文本迁入 V4.5 覆盖；重复 `customPrompts` 在迁移成功后退出数据模型。
+- 提示词模板 V1 的 `tagGuideContent` 转换为 V4.5 覆盖，V2 无损往返两类可选覆盖，未知版本拒绝。
 - 参数预设 V1 通过冻结转换器进入 V2；V2 完整往返图片数、角色数和全部 V5 字段，未知版本拒绝。
 - V5 与旧模型的 Quality/UC 字段独立往返；切换模型、复制和导入导出不会覆盖隐藏字段，非法导入值产生明确提示。
 - 旧网格坐标仍映射为 `0.1 / 0.3 / 0.5 / 0.7 / 0.9`，SD WebUI 与 ComfyUI 的可观察 Prompt 行为不变。

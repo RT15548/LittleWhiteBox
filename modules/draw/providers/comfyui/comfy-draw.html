@@ -870,6 +870,8 @@ select.input { cursor: pointer; }
                         <button id="comfy-prompt-preset-add" class="btn btn-icon" type="button" title="新建"><i class="fa-solid fa-plus"></i></button>
                         <button id="comfy-prompt-preset-rename" class="btn btn-icon" type="button" title="重命名"><i class="fa-solid fa-pen"></i></button>
                         <button id="comfy-prompt-preset-save" class="btn btn-primary" type="button" title="保存"><i class="fa-solid fa-floppy-disk"></i></button>
+                        <label class="btn btn-icon" title="导入为新预设" style="cursor:pointer;"><i class="fa-solid fa-upload"></i><input type="file" id="comfy-prompt-preset-import" accept=".json" style="display:none;"></label>
+                        <button id="comfy-prompt-preset-export" class="btn btn-icon" type="button" title="导出当前预设"><i class="fa-solid fa-download"></i></button>
                         <button id="comfy-prompt-preset-delete" class="btn btn-danger btn-icon" type="button" title="删除"><i class="fa-solid fa-trash"></i></button>
                     </div>
                     <div id="comfy-prompt-preset-status" class="status-text inline-status"></div>
@@ -906,8 +908,6 @@ select.input { cursor: pointer; }
                     <div class="btn-group">
                         <button id="comfy-prompts-save" class="btn btn-primary" type="button"><i class="fa-solid fa-floppy-disk"></i> 保存到当前预设</button>
                         <button id="comfy-prompts-reset-all" class="btn btn-danger" type="button"><i class="fa-solid fa-rotate-left"></i> 全部恢复默认</button>
-                        <button id="comfy-prompts-export" class="btn" type="button"><i class="fa-solid fa-download"></i> 导出模板</button>
-                        <label class="btn" style="cursor:pointer;"><i class="fa-solid fa-upload"></i> 导入模板<input type="file" id="comfy-prompts-import" accept=".json" style="display:none;"></label>
                     </div>
                     <div id="comfy-prompts-status" class="status-text"></div>
                 </div>
@@ -1036,7 +1036,7 @@ select.input { cursor: pointer; }
                                 <label class="btn btn-sm" style="cursor:pointer;"><i class="fa-solid fa-upload"></i> 导入<input type="file" id="comfy-shared-char-import" accept=".json" style="display:none;"></label>
                                 <button class="btn btn-sm" type="button" data-comfy-save-shared><i class="fa-solid fa-floppy-disk"></i> 保存角色</button>
                             </div>
-                            <p class="form-hint" style="margin-top:10px;">角色名、别名、外观、服装参考、角色负向标签都会被画图流程直接使用。</p>
+                            <p class="form-hint" style="margin-top:10px;">角色名、别名、外观、服装参考、动态外貌、角色负向标签都会被画图流程直接使用。</p>
                         </div>
                         <div class="card">
                             <div class="card-title">🔎 Danbooru 资源库</div>
@@ -1045,7 +1045,7 @@ select.input { cursor: pointer; }
                                 <span>启用本地角色库</span>
                             </label>
                             <div id="comfy-danbooru-local-status" class="status-text">未加载</div>
-                            <p class="form-hint">启用后可离线搜索角色官方 tag，并自动填入外观标签。</p>
+                            <p class="form-hint">启用后可离线搜索角色官方 tag，并自动填入固定外貌。</p>
                         </div>
                     </aside>
 

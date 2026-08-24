@@ -154,13 +154,13 @@ function escapeRegexChars(str) {
     return String(str || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function normalizeCharacterOutfits(outfits = []) {
-    return (Array.isArray(outfits) ? outfits : [])
-        .map(outfit => ({
-            name: String(outfit?.name || '').trim(),
-            tags: String(outfit?.tags || '').trim(),
+function normalizeNamedTagList(list = []) {
+    return (Array.isArray(list) ? list : [])
+        .map(item => ({
+            name: String(item?.name || '').trim(),
+            tags: String(item?.tags || '').trim(),
         }))
-        .filter(outfit => outfit.name || outfit.tags);
+        .filter(item => item.name || item.tags);
 }
 
 export function detectPresentCharacters(messageText, characterTags) {
@@ -184,7 +184,8 @@ export function detectPresentCharacters(messageText, characterTags) {
                 appearance: char.appearance || '',
                 danbooruTag: char.danbooruTag || '',
                 negativeTags: char.negativeTags || '',
-                outfits: normalizeCharacterOutfits(char.outfits),
+                outfits: normalizeNamedTagList(char.outfits),
+                dynamicStates: normalizeNamedTagList(char.dynamicStates),
             });
         }
     }

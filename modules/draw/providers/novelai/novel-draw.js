@@ -58,13 +58,17 @@ import {
     loadPromptTemplates,
     DEFAULT_PROMPT_CONFIG,
     PROMPT_TEMPLATE_VERSION,
-    getLoadedTagGuide,
+    getEffectiveNovelModelGuide,
+    getLoadedTagGuideById,
+    normalizeNovelPromptGuideOverrides,
 } from './novel-prompts.js';
+import { parseNovelPromptPresetImport } from './novel-prompt-import.js';
 import {
     getNovelModelCapability,
     getNovelModelCapabilitiesForUi,
     getNovelScenePlannerContract,
     isNovelV5Model,
+    NOVEL_PROMPT_GUIDES,
 } from './novel-model-capabilities.js';
 import {
     NovelV5RequestError,
@@ -1009,7 +1013,8 @@ function normalizeSettings(saved = {}) {
         appearance: char.appearance || char.tags || '',
         negativeTags: char.negativeTags || '',
         danbooruTag: char.danbooruTag || '',
-        outfits: normalizeCharacterOutfits(char.outfits || char.costumes || char.clothes || []),
+        outfits: normalizeNamedTagList(char.outfits || char.costumes || char.clothes || []),
+        dynamicStates: normalizeNamedTagList(char.dynamicStates || []),
     }));
 
     merged.autoLearnCharacters = !!merged.autoLearnCharacters;
@@ -1043,6 +1048,7 @@ function normalizeSettings(saved = {}) {
             sceneRules: typeof preset.sceneRules === 'string'
                 ? preset.sceneRules
                 : DEFAULT_PROMPT_CONFIG.sceneRules,
+            modelGuideOverrides: normalizeNovelPromptGuideOverrides(preset.modelGuideOverrides),
         };
     });
     if (!merged.selectedPromptPresetId
@@ -1265,6 +1271,14 @@ function getActivePromptPreset(s = getSettings()) {
     return s.promptPresets.find(p => p.id === s.selectedPromptPresetId) || s.promptPresets[0] || null;
 }
 
+function compactPromptGuideOverrides(value) {
+    const overrides = normalizeNovelPromptGuideOverrides(value);
+    for (const [guideId, content] of Object.entries(overrides)) {
+        if (content === getLoadedTagGuideById(guideId)) delete overrides[guideId];
+    }
+    return overrides;
+}
+
 const NOVEL_QUICK_SIZE_OPTIONS = [
     { value: 'default', label: '跟随预设' },
     { value: '832x1216', label: '832 x 1216 竖图' },
@@ -1383,13 +1397,13 @@ async function ensureJSZip() {
 // 角色检测与标签组装
 // ═══════════════════════════════════════════════════════════════════════════
 
-function normalizeCharacterOutfits(outfits = []) {
-    return (Array.isArray(outfits) ? outfits : [])
-        .map(outfit => ({
-            name: String(outfit?.name || '').trim(),
-            tags: String(outfit?.tags || '').trim(),
+function normalizeNamedTagList(list = []) {
+    return (Array.isArray(list) ? list : [])
+        .map(item => ({
+            name: String(item?.name || '').trim(),
+            tags: String(item?.tags || '').trim(),
         }))
-        .filter(outfit => outfit.name || outfit.tags);
+        .filter(item => item.name || item.tags);
 }
 
 function detectPresentCharacters(messageText, characterTags) {
@@ -1413,7 +1427,8 @@ function detectPresentCharacters(messageText, characterTags) {
                 appearance: char.appearance || '',
                 danbooruTag: char.danbooruTag || '',
                 negativeTags: char.negativeTags || '',
-                outfits: normalizeCharacterOutfits(char.outfits),
+                outfits: normalizeNamedTagList(char.outfits),
+                dynamicStates: normalizeNamedTagList(char.dynamicStates),
             });
         }
     }
@@ -1491,6 +1506,7 @@ function autoLearnFromTasks(tasks, settings) {
                 negativeTags: '',
                 danbooruTag: char.danbooru || '',
                 outfits: [],
+                dynamicStates: [],
             };
             // 本地 DB 自动匹配 danbooruTag
             if (isDanbooruDBLoaded() && !newChar.danbooruTag) {
@@ -3161,7 +3177,7 @@ async function buildNovelScenePlannerOptions({
         maxImages: preset.maxImages || 0,
         maxCharactersPerImage: preset.maxCharactersPerImage || 0,
         absoluteMaxCharactersPerImage: capability.maxCharactersPerImage,
-        modelGuide: getLoadedTagGuide(model),
+        modelGuide: getEffectiveNovelModelGuide(model, customPrompts),
         modelContract: getNovelScenePlannerContract(model),
         centerMode: capability.centerMode,
         onImageLimitAdjusted: notifySceneImageLimitAdjusted,
@@ -4272,7 +4288,10 @@ async function sendInitData() {
             advancedMode: !!settings.advancedMode,
             promptPresets: settings.promptPresets || [],
             selectedPromptPresetId: settings.selectedPromptPresetId || null,
-            modelGuideContent: getLoadedTagGuide(getActiveParamsPreset()?.params?.model),
+            modelGuideDefaults: Object.fromEntries(
+                Object.values(NOVEL_PROMPT_GUIDES)
+                    .map(guideId => [guideId, getLoadedTagGuideById(guideId)]),
+            ),
             modelCapabilities: getNovelModelCapabilitiesForUi(),
             worldbooks: settings.worldbooks || DEFAULT_SETTINGS.worldbooks,
             messageFilterRules: settings.messageFilterRules || [],
@@ -4557,17 +4576,27 @@ async function handleFrameMessage(event) {
         case 'RESET_CUSTOM_PROMPT': {
             const key = data.key;
             const ALLOWED_PROMPT_KEYS = ['topSystem', 'sceneRules'];
-            if (key && ALLOWED_PROMPT_KEYS.includes(key)) {
+            const guideId = String(data.guideId || '');
+            const isGuideReset = key === 'modelGuide'
+                && Object.values(NOVEL_PROMPT_GUIDES).includes(guideId);
+            if (isGuideReset || (key && ALLOWED_PROMPT_KEYS.includes(key))) {
                 await updateSettingsPersistent((settings) => {
                     const presetId = data.selectedPromptPresetId || settings.selectedPromptPresetId;
                     const active = settings.promptPresets.find(p => p.id === presetId);
+                    if (!active) return;
+                    if (isGuideReset) {
+                        const overrides = normalizeNovelPromptGuideOverrides(active.modelGuideOverrides);
+                        delete overrides[guideId];
+                        active.modelGuideOverrides = overrides;
+                        return;
+                    }
                     const isPov = active?.name === '默认-第一人称完整规则';
                     const resetDefaults = {
                         topSystem: isPov ? DEFAULT_PROMPT_CONFIG.topSystemPov : DEFAULT_PROMPT_CONFIG.topSystem,
                         sceneRules: DEFAULT_PROMPT_CONFIG.sceneRules,
                     };
                     const defaultVal = resetDefaults[key];
-                    if (active) active[key] = defaultVal;
+                    active[key] = defaultVal;
                 }, '已恢复默认', { target: 'prompts' });
             }
             sendInitData();
@@ -4601,10 +4630,34 @@ async function handleFrameMessage(event) {
                     name: (typeof data.name === 'string' && data.name.trim()) ? data.name.trim() : `提示词-${settings.promptPresets.length + 1}`,
                     topSystem: current?.topSystem ?? DEFAULT_PROMPT_CONFIG.topSystem,
                     sceneRules: current?.sceneRules ?? DEFAULT_PROMPT_CONFIG.sceneRules,
+                    modelGuideOverrides: normalizeNovelPromptGuideOverrides(current?.modelGuideOverrides),
                 };
                 settings.promptPresets.push(newPreset);
                 settings.selectedPromptPresetId = id;
             }, '已创建', { target: 'prompt-preset' });
+            if (ok) sendInitData();
+            break;
+        }
+
+        case 'IMPORT_PROMPT_PRESET': {
+            let imported;
+            try {
+                imported = parseNovelPromptPresetImport(data.payload, {
+                    fallbackName: data.fallbackName,
+                });
+            } catch (error) {
+                postStatus('error', `导入失败：${error?.message || '模板格式无效'}`, 'prompt-preset');
+                break;
+            }
+            const id = generateSlotId();
+            const ok = await updateSettingsPersistent((settings) => {
+                settings.promptPresets.push({
+                    id,
+                    ...imported,
+                    modelGuideOverrides: compactPromptGuideOverrides(imported.modelGuideOverrides),
+                });
+                settings.selectedPromptPresetId = id;
+            }, '已导入为新预设', { target: 'prompt-preset' });
             if (ok) sendInitData();
             break;
         }
@@ -4649,6 +4702,9 @@ async function handleFrameMessage(event) {
                     const cp = data.promptDraft;
                     if ('topSystem' in cp) current.topSystem = cp.topSystem;
                     if ('sceneRules' in cp) current.sceneRules = cp.sceneRules;
+                    if ('modelGuideOverrides' in cp) {
+                        current.modelGuideOverrides = compactPromptGuideOverrides(cp.modelGuideOverrides);
+                    }
                 }, '提示词预设已保存', { target: statusTarget });
             }
             sendInitData();
@@ -4791,6 +4847,9 @@ async function handleFrameMessage(event) {
                     ...currentPrompts,
                     topSystem: String(data.promptDraft.topSystem ?? currentPrompts.topSystem ?? ''),
                     sceneRules: String(data.promptDraft.sceneRules ?? currentPrompts.sceneRules ?? ''),
+                    modelGuideOverrides: normalizeNovelPromptGuideOverrides(
+                        data.promptDraft.modelGuideOverrides ?? currentPrompts.modelGuideOverrides,
+                    ),
                 }
                 : currentPrompts;
             const chain = getPromptChainPreview(promptDraft, model);
@@ -4799,7 +4858,6 @@ async function handleFrameMessage(event) {
                 type: 'PROMPT_CHAIN_DATA',
                 requestId: data.requestId,
                 chain,
-                modelGuideContent: getLoadedTagGuide(model),
                 modelContractContent: getNovelScenePlannerContract(model),
             }, 'LittleWhiteBox-NovelDraw');
             break;
