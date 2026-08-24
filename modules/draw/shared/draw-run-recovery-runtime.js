@@ -1,16 +1,19 @@
 import { getContext } from '../../../../../../extensions.js';
 import { syncMesToSwipe } from '../../../../../../../script.js';
 import { adoptExistingJobFromDrawRun } from './draw-run-adoption.js';
+import { publishDrawRunActivity } from './draw-run-activity.js';
 import { clearDrawRunMarkerAndConfirm } from './draw-run-coordinator.js';
 import {
     findDrawRunMarker,
     getDrawRunMarkerText,
+    persistedChatHasDrawRunAutomaticCompletion,
     listDrawRunMarkers,
     persistedChatHasDeliverySlots,
     persistedChatHasDrawRunMarker,
     persistedChatHasDrawRunSlots,
     persistedDrawRunTargetMatches,
     removeDrawRunMarker,
+    setDrawRunAutomaticCompletion,
     setDrawRunMarkerText,
 } from './draw-run-markers.js';
 import {
@@ -25,8 +28,10 @@ import {
 } from './draw-run-recovery.js';
 import {
     createConfirmableChatTarget,
+    persistedChatMatchesSnapshot,
     readChatAndConfirm,
     saveChatAndConfirm,
+    withConfirmableChatMutation,
 } from './confirmable-chat-save.js';
 import {
     activateAdoptingPendingImageJob,
@@ -58,10 +63,10 @@ function collectCurrentDrawRunMarkers(ctx) {
 function resolveCurrentDrawRunTarget(runId) {
     const ctx = getContext();
     const found = findDrawRunMarker(ctx?.chat, runId);
-    return found ? { ...found, chatId: String(ctx?.chatId || '') } : null;
+    return found ? { ...found, chat: ctx.chat, chatId: String(ctx?.chatId || '') } : null;
 }
 
-async function confirmAdoptedSlots({ ctx, runId, slotIds, target }) {
+async function confirmAdoptedSlots({ ctx, runId, slotIds, target, snapshot }) {
     const live = resolveCurrentDrawRunTarget(runId);
     if (!live || live.chatId !== String(ctx?.chatId || '') || live.message !== target?.message) {
         const error = new Error('Draw Run 目标聊天已切换，暂缓保存占位符');
@@ -70,6 +75,7 @@ async function confirmAdoptedSlots({ ctx, runId, slotIds, target }) {
     }
     await saveChatAndConfirm({
         ctx,
+        precondition: persistedChat => persistedChatMatchesSnapshot(persistedChat, snapshot),
         verify: persistedChat => persistedChatHasDrawRunSlots(persistedChat, runId, slotIds),
     });
 }
@@ -123,26 +129,53 @@ async function readMarkerPersistenceState({ ctx, markerEntry, chatTarget }) {
         verify: () => true,
     });
     const persistedTarget = findDrawRunMarker(result.persistedChat, markerEntry.runId);
-    if (!persistedTarget) return 'absent';
-    return persistedDrawRunTargetMatches(
+    if (!persistedTarget) return { state: 'absent', persistedChat: result.persistedChat };
+    const matches = persistedDrawRunTargetMatches(
         result.persistedChat,
         markerEntry.runId,
         getDrawRunMarkerText(markerEntry),
         markerEntry.marker,
-    ) ? 'matching' : 'conflict';
+    );
+    return {
+        state: matches ? 'matching' : 'conflict',
+        persistedChat: result.persistedChat,
+    };
 }
 
-async function clearRecoveredDrawRunMarker({ ctx, markerEntry }) {
-    const current = resolveCurrentDrawRunTarget(markerEntry.runId);
+async function clearRecoveredDrawRunMarker({ ctx, markerEntry, completeAutomatic = false }) {
+    let current = resolveCurrentDrawRunTarget(markerEntry.runId);
     if (!current || current.chatId !== String(ctx?.chatId || '')
         || isMessageBeingEdited(current.messageId)) return false;
-    const persistenceState = await readMarkerPersistenceState({
+    const persistence = await readMarkerPersistenceState({
         ctx,
         markerEntry: current,
         chatTarget: createConfirmableChatTarget(ctx),
     });
-    if (persistenceState === 'conflict') return false;
-    if (persistenceState === 'absent') {
+    // 读回期间用户可能切换聊天或 swipe；此后不能再用旧 ctx 修改或保存。
+    const live = resolveCurrentDrawRunTarget(markerEntry.runId);
+    if (!live || live.chatId !== String(ctx?.chatId || '')
+        || live.message !== current.message || isMessageBeingEdited(live.messageId)) return false;
+    current = live;
+    if (persistence.state === 'conflict') return false;
+    if (persistence.state === 'absent') {
+        // 另一个标签页可能已经完成了同一个自动任务。marker 与 auto_done 在
+        // 同一次 chat save 中写入；把读回的完成事实同步到本页，避免后续普通
+        // saveChat 用陈旧内存把它擦掉。
+        if (completeAutomatic === true && current.marker?.automatic === true
+            && persistedChatHasDrawRunAutomaticCompletion(persistence.persistedChat, {
+                messageId: current.messageId,
+                swipeIndex: current.swipeIndex,
+                provider: current.marker.provider,
+            })) {
+            setDrawRunAutomaticCompletion({
+                message: current.message,
+                messageId: current.messageId,
+                swipeIndex: current.swipeIndex,
+                provider: current.marker.provider,
+                completed: true,
+                syncActiveSwipe: () => syncCurrentMarkerSwipe(current),
+            });
+        }
         dropLocalDrawRunMarker(current);
         return true;
     }
@@ -156,12 +189,20 @@ async function clearRecoveredDrawRunMarker({ ctx, markerEntry }) {
         syncActiveSwipe: () => syncCurrentMarkerSwipe(current),
         saveAndConfirm: saveChatAndConfirm,
         fetchImpl: globalThis.fetch,
+        completeAutomatic,
     });
     return true;
 }
 
-async function ensureRecoveredMarkerAbsent({ ctx, markerEntry, record }) {
-    if (markerEntry) return clearRecoveredDrawRunMarker({ ctx, markerEntry });
+async function ensureRecoveredMarkerAbsent({
+    ctx,
+    markerEntry,
+    record,
+    completeAutomatic = false,
+}) {
+    if (markerEntry) {
+        return clearRecoveredDrawRunMarker({ ctx, markerEntry, completeAutomatic });
+    }
     const readback = await readChatAndConfirm({
         ctx,
         target: record.chatTarget,
@@ -201,7 +242,13 @@ async function claimAdoptingRecord(record) {
     };
 }
 
-async function finalizeAdoptingRecord({ ctx, markerEntry, record, run = null }) {
+async function finalizeAdoptingRecord({
+    ctx,
+    markerEntry,
+    record,
+    run = null,
+    onAdoptionReady,
+}) {
     let owned = record;
     try {
         owned = await fencePendingImageJobLease(owned.jobId, owned.leaseId);
@@ -209,6 +256,7 @@ async function finalizeAdoptingRecord({ ctx, markerEntry, record, run = null }) 
             ctx,
             markerEntry,
             record: owned,
+            completeAutomatic: true,
         });
         if (!markerAbsent) {
             await releasePendingImageJobLease(owned.jobId, owned.leaseId);
@@ -220,6 +268,9 @@ async function finalizeAdoptingRecord({ ctx, markerEntry, record, run = null }) 
             owned.leaseId,
             owned.originRunId,
         );
+        // Provider 的接管副作用必须幂等：页面可能在副作用完成后、状态迁移前退出。
+        // NovelAI 的角色自动学习属于这种现有行为，不参与图片交付真相。
+        await onAdoptionReady?.(owned);
         // journal 创建后的取消由本轮最新 Draw Run 快照补入；激活完成后再发生的取消
         // 由后端直接传播给 child，第一刀会从 child 终态完成结算。
         owned = await activateAdoptingPendingImageJob(owned.jobId, owned.leaseId, {
@@ -238,7 +289,13 @@ async function finalizeAdoptingRecord({ ctx, markerEntry, record, run = null }) 
     }
 }
 
-async function recoverAdoptingRecord({ ctx, markerEntry, record, run = null }) {
+async function recoverAdoptingRecord({
+    ctx,
+    markerEntry,
+    record,
+    run = null,
+    onAdoptionReady,
+}) {
     const claimed = await claimAdoptingRecord(record);
     if (!claimed.owned) return claimed.outcome;
     let { owned } = claimed;
@@ -279,7 +336,17 @@ async function recoverAdoptingRecord({ ctx, markerEntry, record, run = null }) {
                     owned.items.map(item => item.slotId),
                 ),
             });
-            if (readback.confirmed && markerEntry) {
+            // 槽位是一整批原子写入的；只要任意一个确定性 slotId 仍在持久化正文，
+            // 就能证明那次写入曾成功。用户后来删掉的单个槽位不得被复活，也不应
+            // 让同批其余仍存槽位全部降级到画廊。
+            const hasPersistedSlot = readback.confirmed || owned.items.some(item => (
+                persistedChatHasDeliverySlots(
+                    readback.persistedChat,
+                    owned.delivery,
+                    [item.slotId],
+                )
+            ));
+            if (hasPersistedSlot && markerEntry) {
                 const current = resolveCurrentDrawRunTarget(owned.originRunId);
                 const persisted = findDrawRunMarker(readback.persistedChat, owned.originRunId);
                 const persistedText = getDrawRunMarkerText(persisted);
@@ -304,12 +371,18 @@ async function recoverAdoptingRecord({ ctx, markerEntry, record, run = null }) {
             owned = await markPendingImageJobAdoptionReady(
                 owned.jobId,
                 owned.leaseId,
-                readback.confirmed
+                hasPersistedSlot
                     ? owned.delivery
                     : { mode: 'gallery', reason: 'slots_missing' },
             );
         }
-        return await finalizeAdoptingRecord({ ctx, markerEntry, record: owned, run });
+        return await finalizeAdoptingRecord({
+            ctx,
+            markerEntry,
+            record: owned,
+            run,
+            onAdoptionReady,
+        });
     } catch (error) {
         await releasePendingImageJobLease(owned.jobId, owned.leaseId).catch(() => {});
         throw error;
@@ -345,8 +418,16 @@ function scheduleAdoptionOutcome(outcome, scheduleRecovery) {
     if (delay !== null) scheduleRecovery(delay);
 }
 
-export async function runDrawRunRecoveryPass({ ctx, records = [], client, scheduleRecovery } = {}) {
-    if (!client || typeof client.listRuns !== 'function' || typeof client.acknowledgeRun !== 'function') {
+export async function runDrawRunRecoveryPass({
+    ctx,
+    records = [],
+    client,
+    scheduleRecovery,
+    onAdoptionReady,
+} = {}) {
+    if (!client || typeof client.listRuns !== 'function'
+        || typeof client.cancelRun !== 'function'
+        || typeof client.acknowledgeRun !== 'function') {
         throw new TypeError('Draw Run recovery 缺少后端客户端');
     }
     if (typeof scheduleRecovery !== 'function') {
@@ -375,7 +456,40 @@ export async function runDrawRunRecoveryPass({ ctx, records = [], client, schedu
 
     for (const entry of plan) {
         try {
-            if (entry.action === DrawRunRecoveryAction.WAIT) continue;
+            if (entry.markerEntry && entry.run
+                && entry.action !== DrawRunRecoveryAction.REQUEST_CANCEL) {
+                publishDrawRunActivity({
+                    provider: entry.markerEntry.marker?.provider,
+                    messageId: entry.markerEntry.messageId,
+                    phase: Number(entry.markerEntry.marker?.cancelRequestedAt) > 0
+                        || Number(entry.run.cancelRequestedAt) > 0
+                        ? 'cancelling'
+                        : 'active',
+                    runId: entry.run.id,
+                });
+            }
+            if (entry.action === DrawRunRecoveryAction.WAIT) {
+                if (entry.reason === 'missing_run_uncertain' && entry.markerEntry) {
+                    publishDrawRunActivity({
+                        provider: entry.markerEntry.marker?.provider,
+                        messageId: entry.markerEntry.messageId,
+                        phase: 'uncertain',
+                        runId: entry.markerEntry.runId,
+                    });
+                }
+                continue;
+            }
+            if (entry.action === DrawRunRecoveryAction.REQUEST_CANCEL) {
+                publishDrawRunActivity({
+                    provider: entry.markerEntry?.marker?.provider,
+                    messageId: entry.markerEntry?.messageId,
+                    phase: 'cancelling',
+                    runId: entry.run?.id,
+                });
+                await client.cancelRun(entry.run.id);
+                scheduleRecovery(100);
+                continue;
+            }
             if (entry.action === DrawRunRecoveryAction.CLEAR_MISSING_MARKER) {
                 const cleared = await clearRecoveredDrawRunMarker({ ctx, markerEntry: entry.markerEntry });
                 if (cleared) {
@@ -397,6 +511,7 @@ export async function runDrawRunRecoveryPass({ ctx, records = [], client, schedu
                     markerEntry: entry.markerEntry,
                     record: entry.record,
                     run: entry.run,
+                    onAdoptionReady,
                 });
                 scheduleAdoptionOutcome(outcome, scheduleRecovery);
                 continue;
@@ -426,7 +541,7 @@ export async function runDrawRunRecoveryPass({ ctx, records = [], client, schedu
             }
             if (entry.action !== DrawRunRecoveryAction.ADOPT) continue;
 
-            const result = await adoptExistingJobFromDrawRun({
+            const result = await withConfirmableChatMutation(ctx, () => adoptExistingJobFromDrawRun({
                 run: entry.run,
                 marker: entry.markerEntry.marker,
                 resolveTarget: resolveCurrentDrawRunTarget,
@@ -444,7 +559,7 @@ export async function runDrawRunRecoveryPass({ ctx, records = [], client, schedu
                         });
                     }
                 },
-            });
+            }));
             if (result.status === 'active') {
                 dropLocalDrawRunMarker(entry.markerEntry);
                 continue;
@@ -471,6 +586,7 @@ export async function runDrawRunRecoveryPass({ ctx, records = [], client, schedu
                 markerEntry: entry.markerEntry,
                 record: result.record,
                 run: entry.run,
+                onAdoptionReady,
             });
             scheduleAdoptionOutcome(outcome, scheduleRecovery);
         } catch (error) {
@@ -479,4 +595,5 @@ export async function runDrawRunRecoveryPass({ ctx, records = [], client, schedu
             scheduleRecovery(DRAW_RUN_BLOCKED_RETRY_MS);
         }
     }
+    publishDrawRunActivity({ phase: 'reconciled' });
 }

@@ -34,6 +34,7 @@ export function createPreparedScenePlannerTask(prepared) {
         messages: input.planner.prompt.messages,
         tools: [createSubmitScenePlanTool({
             maxImages: validationContext.effectiveMaxImages,
+            maxPlanImages: validationContext.maxPlanImages,
             maxCharactersPerImage: validationContext.effectiveMaxCharactersPerImage,
             insertPointCount: validationContext.sceneSource.points?.length || 0,
             centerMode: validationContext.centerMode,
@@ -57,6 +58,7 @@ export async function executePreparedScenePlanner(prepared, options = {}) {
                 sceneSource: validationContext.sceneSource,
                 presentCharacters: input.planner.presentCharacters,
                 maxImages: validationContext.effectiveMaxImages,
+                maxPlanImages: validationContext.maxPlanImages,
                 maxCharactersPerImage: validationContext.effectiveMaxCharactersPerImage,
                 centerMode: validationContext.centerMode,
                 presetName: providerConfig.currentPresetName,

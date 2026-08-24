@@ -40,7 +40,11 @@ const providerAdapters = Object.freeze({
 });
 
 const PLUGIN_VERSION = '2.0.0';
-const PLUGIN_CAPABILITIES = Object.freeze(['v5-msgpack-stream', 'image-batch-jobs-v1']);
+const PLUGIN_CAPABILITIES = Object.freeze([
+    'v5-msgpack-stream',
+    'image-batch-jobs-v1',
+    'draw-runs-v1',
+]);
 const LOG_PREFIX = '[littlewhitebox-image-jobs]';
 
 const info = {

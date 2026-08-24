@@ -24,7 +24,12 @@ import {
 } from "./modules/iframe-renderer.js";
 import { initVarCommands, cleanupVarCommands } from "./modules/variables/var-commands.js";
 import { initVareventEditor, cleanupVareventEditor } from "./modules/variables/varevent-editor.js";
-import { cleanupNovelDraw, decodeNovelBackendJobResult, initNovelDraw } from "./modules/draw/providers/novelai/novel-draw.js";
+import {
+    applyNovelDrawRunAutoLearn,
+    cleanupNovelDraw,
+    decodeNovelBackendJobResult,
+    initNovelDraw,
+} from "./modules/draw/providers/novelai/novel-draw.js";
 import { initSdDraw, cleanupSdDraw } from "./modules/draw/providers/sd-webui/sd-draw.js";
 import { initComfyDraw, cleanupComfyDraw } from "./modules/draw/providers/comfyui/comfy-draw.js";
 import { setupDrawGenerateInterceptor } from "./modules/draw/shared/draw-common.js";
@@ -470,7 +475,10 @@ function registerModuleCleanup(moduleName, cleanupFunction) {
 }
 
 function initImageJobRecoveryRuntime() {
-    startImageJobRecovery({ decoders: { novelai: decodeNovelBackendJobResult } });
+    startImageJobRecovery({
+        decoders: { novelai: decodeNovelBackendJobResult },
+        providerAdoptionEffects: { novelai: applyNovelDrawRunAutoLearn },
+    });
     registerModuleCleanup('imageJobRecovery', stopImageJobRecovery);
 }
 

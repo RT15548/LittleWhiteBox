@@ -8,9 +8,15 @@ import {
     PendingJobAdoptionPhase,
     PendingJobState,
     releasePendingImageJobLease,
+    resetPendingImageJobAdoptionPlacement,
 } from './pending-image-jobs.js';
 import { deriveDrawRunChildJobId, deriveDrawRunItemIds } from './draw-run-identifiers.js';
-import { DRAW_RUN_MARKER_VERSION, getDrawRunMarkerText, setDrawRunMarkerText } from './draw-run-markers.js';
+import { createConfirmableChatSnapshot } from './confirmable-chat-save.js';
+import {
+    DRAW_RUN_MARKER_VERSION,
+    getDrawRunMarkerText,
+    setDrawRunMarkerText,
+} from './draw-run-markers.js';
 import { getSceneSlotIds, insertScenePlacementsPreservingSlots, isSceneSlotAlive } from './scene-placement.js';
 import { hashSceneSource, normalizeMessageSceneSourceText } from './scene-source.js';
 
@@ -22,6 +28,7 @@ const defaultJournal = {
     markReady: markPendingImageJobAdoptionReady,
     markPlacing: markPendingImageJobAdoptionPlacing,
     release: releasePendingImageJobLease,
+    resetPlacing: resetPendingImageJobAdoptionPlacement,
 };
 
 export class DrawRunAdoptionError extends Error {
@@ -37,11 +44,17 @@ function text(value) {
 }
 
 function normalizeMetadata(source) {
+    const providerMetadata = source?.providerMetadata
+        && typeof source.providerMetadata === 'object'
+        && !Array.isArray(source.providerMetadata)
+        ? JSON.parse(JSON.stringify(source.providerMetadata))
+        : null;
     return {
         tags: text(source?.tags),
         positive: text(source?.positive),
         characterPrompts: source?.characterPrompts ?? null,
         negativePrompt: source?.negativePrompt ?? null,
+        providerMetadata,
     };
 }
 
@@ -49,9 +62,10 @@ export function normalizeDrawRunHandoff(run, marker) {
     const runId = text(run?.id).trim();
     const provider = text(run?.provider).trim();
     const sourceHash = text(run?.sourceHash).trim();
+    const targetHash = text(marker?.targetHash).trim();
     const manifest = run?.handoffManifest;
     if (!runId || !['dispatched', 'child_expired'].includes(run?.state)
-        || !provider || !sourceHash || !manifest) {
+        || !provider || !sourceHash || !targetHash || !manifest) {
         throw new DrawRunAdoptionError('Draw Run 尚未产生可接管的图片任务');
     }
     if (marker?.version !== DRAW_RUN_MARKER_VERSION
@@ -91,6 +105,7 @@ export function normalizeDrawRunHandoff(run, marker) {
         childJobId,
         provider,
         sourceHash,
+        targetHash,
         items,
         cancelling: Number(run.cancelRequestedAt) > 0,
     };
@@ -100,7 +115,8 @@ function currentTarget(resolveTarget, runId, marker) {
     const target = resolveTarget?.(runId) || null;
     if (!target || target.runId !== runId
         || target.marker?.provider !== marker.provider
-        || target.marker?.sourceHash !== marker.sourceHash) return null;
+        || target.marker?.sourceHash !== marker.sourceHash
+        || target.marker?.targetHash !== marker.targetHash) return null;
     const sourceText = getDrawRunMarkerText(target);
     return typeof sourceText === 'string' ? { ...target, sourceText } : null;
 }
@@ -191,8 +207,9 @@ export async function adoptExistingJobFromDrawRun({
 
         const alive = livingSlots(target.sourceText, handoff.items);
         if (alive.length > 0) {
+            const snapshot = createConfirmableChatSnapshot({ chat: target.chat });
             await guard();
-            await confirmSlots({ runId: handoff.runId, slotIds: alive, target });
+            await confirmSlots({ runId: handoff.runId, slotIds: alive, target, snapshot });
             await guard();
             await syncSlots({ target, slotIds: alive });
             await guard();
@@ -210,7 +227,8 @@ export async function adoptExistingJobFromDrawRun({
         }
 
         const currentSourceHash = hashSceneSource(normalizeMessageSceneSourceText(target.sourceText));
-        if (currentSourceHash !== handoff.sourceHash) {
+        if (currentSourceHash !== handoff.sourceHash
+            || hashSceneSource(target.sourceText) !== handoff.targetHash) {
             record = await journal.markReady(record.jobId, record.leaseId, {
                 mode: 'gallery',
                 reason: 'source_changed',
@@ -222,10 +240,15 @@ export async function adoptExistingJobFromDrawRun({
         await guard();
         target = currentTarget(resolveTarget, handoff.runId, marker);
         if (!target || isMessageBeingEdited(target.messageId)) {
+            // placing 只是“下一步可能写正文”的意图；此处尚未修改任何文本。
+            // 目标在两个 await 之间切走或进入编辑态时可确定地退回 pending，
+            // 不能让恢复器把这个零写入窗口误判成槽位丢失并永久降级画廊。
+            record = await journal.resetPlacing(record.jobId, record.leaseId);
             await releaseOwned();
             return { status: 'wait', reason: 'target_changed', record, owned: false };
         }
-        if (hashSceneSource(normalizeMessageSceneSourceText(target.sourceText)) !== handoff.sourceHash) {
+        if (hashSceneSource(normalizeMessageSceneSourceText(target.sourceText)) !== handoff.sourceHash
+            || hashSceneSource(target.sourceText) !== handoff.targetHash) {
             record = await journal.markReady(record.jobId, record.leaseId, {
                 mode: 'gallery',
                 reason: 'source_changed',
@@ -241,12 +264,38 @@ export async function adoptExistingJobFromDrawRun({
             })),
             { block: true },
         );
+        const originalText = target.sourceText;
+        const snapshot = createConfirmableChatSnapshot({ chat: target.chat });
         if (!setDrawRunMarkerText(target, plannedText)) {
             await releaseOwned();
             return { status: 'wait', reason: 'target_changed', record, owned: false };
         }
-        await guard();
-        await confirmSlots({ runId: handoff.runId, slotIds: handoff.items.map(item => item.slotId), target });
+        try {
+            await guard();
+        } catch (error) {
+            // 页面可能在内存写入后冻结到租约失效。此时保存尚未开始，旧持有者
+            // 只能撤销自己的本地文本，不能再推进已经由其他页面接管的 journal。
+            if (getDrawRunMarkerText(target) === plannedText) {
+                setDrawRunMarkerText(target, originalText);
+            }
+            throw error;
+        }
+        try {
+            await confirmSlots({
+                runId: handoff.runId,
+                slotIds: handoff.items.map(item => item.slotId),
+                target,
+                snapshot,
+            });
+        } catch (error) {
+            // 写前核对失败意味着 saveChat 根本没有执行，恢复内存中的原文是确定安全的；
+            // 保存后读回不确定时则保留 plannedText，交给 PLACING 恢复判定。
+            if (error?.saveAttempted === false && getDrawRunMarkerText(target) === plannedText) {
+                setDrawRunMarkerText(target, originalText);
+                record = await journal.resetPlacing(record.jobId, record.leaseId);
+            }
+            throw error;
+        }
         await guard();
         await syncSlots({ target, slotIds: handoff.items.map(item => item.slotId) });
         await guard();

@@ -1,6 +1,6 @@
 # LittleWhiteBox Image Jobs
 
-LittleWhiteBox 的可选 SillyTavern server plugin。它在 Node 进程中执行整批图片任务，因此浏览器切后台、短暂断网或 WebView 冻结只会影响前端进度和结果收取，不会暂停已创建的任务。
+LittleWhiteBox 的可选 SillyTavern server plugin。开启小白盒后台任务后，Scene Planner 与整批图片任务都在 Node 进程中执行；前端收到“后台已接管”后，切后台、断网、刷新、WebView 冻结或关闭浏览器都不会暂停已创建的任务，重新打开后会自动接回。
 
 ## 安装
 
@@ -27,6 +27,7 @@ LittleWhiteBox 的可选 SillyTavern server plugin。它在 Node 进程中执行
 
 ```text
 image-batch-jobs-v1
+draw-runs-v1
 ```
 
 通用任务接口位于 `/v1/jobs`：
@@ -55,11 +56,13 @@ node server-plugin/littlewhitebox-image-jobs/tests/loopback-deployment-matrix.js
 
 该脚本从 SillyTavern 1.18.0 源码建立隔离运行副本并启动真实进程，验证 HTTP/IPv4 双用户会话并发探针、Cookie/CSRF、原生自签 HTTPS、IPv6、内置 Basic Auth、HTTPS 反向代理到 HTTP SillyTavern，以及明确绑定地址旁路的同端口凭证诱饵。临时配置、数据和目录联接会在正常完成或可处理错误后清理，不加载现用 server plugin，也不读取或修改现用数据。
 
-## Draw Run API（施工期）
+## Draw Run API
 
 Scene Planner 后台运行接口位于 `/v1/draw-runs`，包含创建、当前用户列表、单项查询、取消与接管 ACK。它与 `/v1/jobs` 经过同一个图片任务校验/创建 service，图片执行仍完全服从现有单用户串行队列。
 
-当前版本暂不在 `/status` 发布 `draw-runs-v1` capability，前端三家 Provider 也不会调用这些接口。journal adoption 与刷新接回闭环已经完成，但仍要等三家 Provider 的生产入口在步骤 11 同时注册后才开放 capability；因此当前用户行为不变，前端不会提前进入尚未对用户开放的后台规划路径。
+`/status` 已发布 `draw-runs-v1` capability。NovelAI、SD WebUI 与 ComfyUI 的楼层配图在各自开启“小白盒后台任务”后，会把场景分析与批量出图一并提交到这些接口；缺少 capability 时明确要求更新后端，不会退回浏览器执行 Planner。
+
+直接连接 OpenAI compatible、OpenAI Responses、Anthropic 或 Google 的 Agent 配置会由 Node 访问所填 Base URL；其中 `127.0.0.1` 指 SillyTavern 服务器本机。任务内凭证只保存在进程内存且不写入恢复 journal：Agent 凭证在 Planner 结束后释放；图片凭证会转交 child job，保留到该图片任务终态后释放。
 
 ## Agent Core Node 产物
 

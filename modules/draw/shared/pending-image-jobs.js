@@ -150,6 +150,11 @@ function normalizeItem(source) {
     const imgId = normalizeText(source?.imgId).trim();
     if (!Number.isSafeInteger(index) || index < 0 || !slotId || !imgId) return null;
     const metadata = source?.previewMetadata || {};
+    const providerMetadata = metadata.providerMetadata
+        && typeof metadata.providerMetadata === 'object'
+        && !Array.isArray(metadata.providerMetadata)
+        ? JSON.parse(JSON.stringify(metadata.providerMetadata))
+        : null;
     return {
         index,
         slotId,
@@ -159,6 +164,7 @@ function normalizeItem(source) {
             positive: normalizeText(metadata.positive),
             characterPrompts: metadata.characterPrompts ?? null,
             negativePrompt: metadata.negativePrompt ?? null,
+            providerMetadata,
         },
     };
 }
@@ -393,6 +399,38 @@ export async function markPendingImageJobCancelling(jobId, leaseId) {
     return setPendingImageJobState(jobId, leaseId, PendingJobState.CANCELLING);
 }
 
+// 用户取消是独立于当前接管租约的持久事实：按钮所在页面不一定是正在交付图片的
+// lease owner。事务会在最新记录上追加取消意图；现有 owner 随后的状态写入仍会通过
+// setPendingImageJobState 保留 cancelling，恢复器也能在页面退出后继续补发取消。
+export async function requestPendingImageJobCancellation(jobId) {
+    const key = normalizeText(jobId).trim();
+    if (!key) throw new TypeError('后台生图取消缺少 jobId');
+    return runTransaction('readwrite', (store, setOutput, fail) => {
+        const request = store.get(key);
+        request.onsuccess = () => {
+            const record = normalizePendingImageJob(request.result);
+            if (!record) return fail(new PendingImageJobLostError(key, '记录已被清理'));
+            if (!record.originRunId) {
+                return fail(new Error(`后台生图任务 ${key} 不属于 Draw Run`));
+            }
+            if (![PendingJobState.ADOPTING, PendingJobState.ACTIVE, PendingJobState.CANCELLING]
+                .includes(record.state)) {
+                return fail(new PendingImageJobLostError(key, `记录状态已变为 ${record.state}`));
+            }
+            const updated = normalizePendingImageJob({
+                ...record,
+                cancelRequested: true,
+                state: record.state === PendingJobState.ACTIVE
+                    ? PendingJobState.CANCELLING
+                    : record.state,
+            });
+            if (!updated) return fail(new Error(`后台生图任务 ${key} 无法记录取消意图`));
+            store.put(updated);
+            setOutput(updated);
+        };
+    });
+}
+
 // POST 得到确认后调用：此后后端查不到这个 jobId 就确实等于任务已消失。
 export async function markPendingImageJobActive(jobId, leaseId) {
     return setPendingImageJobState(jobId, leaseId, PendingJobState.ACTIVE);
@@ -406,6 +444,17 @@ export async function markPendingImageJobAdoptionPlacing(jobId, leaseId) {
     }, {
         requireState: PendingJobState.ADOPTING,
         requireAdoptionPhase: PendingJobAdoptionPhase.PENDING,
+    });
+}
+
+// 仅用于写前 CAS 明确阻止 saveChat 的路径：既然保存从未尝试，placing 的
+// “正文可能已落盘”含义不成立，可以在同一租约内安全退回 pending 重新接管。
+export async function resetPendingImageJobAdoptionPlacement(jobId, leaseId) {
+    return setPendingImageJobState(jobId, leaseId, PendingJobState.ADOPTING, {
+        adoptionPhase: PendingJobAdoptionPhase.PENDING,
+    }, {
+        requireState: PendingJobState.ADOPTING,
+        requireAdoptionPhase: PendingJobAdoptionPhase.PLACING,
     });
 }
 
@@ -435,14 +484,17 @@ export async function markPendingImageJobOriginRunAckReady(jobId, leaseId, origi
 }
 
 export async function activateAdoptingPendingImageJob(jobId, leaseId, { cancelling = false } = {}) {
-    return patchPendingImageJob(jobId, leaseId, record => ({
-        ...record,
-        state: cancelling ? PendingJobState.CANCELLING : PendingJobState.ACTIVE,
-        cancelRequested: cancelling || record.cancelRequested,
-        adoptionPhase: null,
-        // 激活与释放必须是同一个 IndexedDB 写；否则页面死在两写之间会平白阻塞接回 120 秒。
-        leaseExpiresAt: 0,
-    }), {
+    return patchPendingImageJob(jobId, leaseId, (record) => {
+        const shouldCancel = cancelling || record.cancelRequested;
+        return {
+            ...record,
+            state: shouldCancel ? PendingJobState.CANCELLING : PendingJobState.ACTIVE,
+            cancelRequested: shouldCancel,
+            adoptionPhase: null,
+            // 激活与释放必须是同一个 IndexedDB 写；否则页面死在两写之间会平白阻塞接回 120 秒。
+            leaseExpiresAt: 0,
+        };
+    }, {
         requireState: PendingJobState.ADOPTING,
         requireAdoptionPhase: PendingJobAdoptionPhase.READY,
         requireOriginRunAckReady: true,
@@ -500,7 +552,9 @@ async function setPendingImageJobState(jobId, leaseId, state, patch = {}, option
     return patchPendingImageJob(jobId, leaseId, (record) => {
         // 迁移状态本身就是一次推进，顺带续租：正常运行的记录不该因为跑得久而变成可接管。
         const statePatch = { ...patch };
-        if (state === PendingJobState.SETTLING && !statePatch.settlement && record.state === PendingJobState.CANCELLING) {
+        // 取消可能在 attachment 计算 settlement 与本事务之间到达。事务读取的
+        // cancelling 才是最终事实，必须压过调用方基于旧快照算出的 complete/fail。
+        if (state === PendingJobState.SETTLING && record.state === PendingJobState.CANCELLING) {
             statePatch.settlement = normalizeSettlement({ mode: 'discard' });
         }
         let nextState = state;

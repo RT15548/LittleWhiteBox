@@ -2,6 +2,14 @@ import { DRAW_RUNS_ENDPOINT } from './draw-run-coordinator.js';
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 
+export const DRAW_RUNS_CAPABILITY = 'draw-runs-v1';
+
+export function hasDrawRunsCapability(status) {
+    return status?.ready === true
+        && Array.isArray(status.capabilities)
+        && status.capabilities.includes(DRAW_RUNS_CAPABILITY);
+}
+
 export class DrawRunClientError extends Error {
     constructor(message, { code = 'draw_run_request_failed', status = 0, retriable = false, cause } = {}) {
         super(message);
@@ -117,9 +125,21 @@ export function createDrawRunClient({
             return body.runs;
         },
         async getRun(runId, options = {}) {
-            const body = await request(`/${encodeURIComponent(String(runId || ''))}`, options);
-            if (!body.run || typeof body.run !== 'object' || typeof body.run.id !== 'string') {
+            const expectedRunId = String(runId || '');
+            const body = await request(`/${encodeURIComponent(expectedRunId)}`, options);
+            if (!body.run || typeof body.run !== 'object' || body.run.id !== expectedRunId) {
                 throw new DrawRunClientError('后台 Draw Run 详情格式无效', { code: 'draw_run_invalid_response' });
+            }
+            return body.run;
+        },
+        async cancelRun(runId, options = {}) {
+            const expectedRunId = String(runId || '');
+            const body = await request(`/${encodeURIComponent(expectedRunId)}/cancel`, {
+                ...options,
+                method: 'POST',
+            });
+            if (!body.run || typeof body.run !== 'object' || body.run.id !== expectedRunId) {
+                throw new DrawRunClientError('后台 Draw Run 取消响应格式无效', { code: 'draw_run_invalid_response' });
             }
             return body.run;
         },

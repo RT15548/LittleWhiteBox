@@ -2,7 +2,7 @@
 
 import { getContext } from "../../../../../../../extensions.js";
 import { saveBase64AsFile } from "../../../../../../../utils.js";
-import { getRequestHeaders } from "../../../../../../../../script.js";
+import { getRequestHeaders, syncMesToSwipe } from "../../../../../../../../script.js";
 import { extensionFolderPath } from "../../../../core/constants.js";
 import { createModuleEvents, event_types } from "../../../../core/event-manager.js";
 import { SdDrawStorage } from "../../../../core/server-storage.js";
@@ -25,7 +25,7 @@ import {
     preloadPreviewDisplayUrl,
     warmSlotPreviewNeighbors,
 } from "../../shared/gallery-cache.js";
-import { generateAndParseScenePlan } from "../../shared/scene-planner.js";
+import { generateAndParseScenePlan, prepareScenePlannerInput } from "../../shared/scene-planner.js";
 import { createSceneSource, normalizeMessageSceneSourceText } from "../../shared/scene-source.js";
 import { stripDrawImageSlots } from "../../shared/image-marker-syntax.js";
 import {
@@ -72,6 +72,15 @@ import {
 } from '../../shared/image-job-delivery-target.js';
 import { submitRecoverableImageJob } from '../../shared/recoverable-image-jobs.js';
 import {
+    isDrawRunCancelledError,
+    isDrawRunPendingError,
+    submitProviderDrawRun,
+} from '../../shared/draw-run-production.js';
+import {
+    cancelPendingDrawRuns,
+    hasPendingDrawRun,
+} from '../../shared/draw-run-controls.js';
+import {
     createCharacterEnabledControl,
     getCharacterEnabledFromCard,
 } from "../../shared/character-enabled-control.js";
@@ -115,6 +124,7 @@ import {
 } from "./sd-prompts.js";
 
 const MODULE_KEY = 'sdDraw';
+const DRAW_RUN_PROVIDER = 'sd-webui';
 const HTML_PATH = `${extensionFolderPath}/modules/draw/providers/sd-webui/sd-draw.html`;
 const DANBOORU_DATA_PATH = `${extensionFolderPath}/modules/draw/shared/data/danbooru-chars.dat`;
 const SERVER_FILE_KEY = 'config';
@@ -2919,6 +2929,8 @@ function createGenerationJob(messageId) {
     }
     const job = {
         key,
+        chatId: String(getContext()?.chatId || ''),
+        phase: 'starting',
         controller: new AbortController(),
         backendCancel: new AbortController(),
         messageId,
@@ -2932,14 +2944,29 @@ function releaseGenerationJob(job) {
     if (job && generationJobs.get(job.key) === job) generationJobs.delete(job.key);
 }
 
+function cancelPendingDrawRun(messageId) {
+    // Draw Run 归属于当前 swipe。用户在任务期间切换图片 Provider 后，
+    // 新 Provider 的按钮仍要能取消这一个既有任务。
+    if (!hasPendingDrawRun(messageId)) return false;
+    void cancelPendingDrawRuns(messageId).catch((error) => {
+        console.error('[SdDraw] 后台 Draw Run 取消失败:', error);
+        toastr.error(error?.message || '后台画图取消失败，请稍后重试', '小白X画图');
+    });
+    return true;
+}
+
 export function abortGeneration(messageId = null, { reason = 'user' } = {}) {
     if (messageId !== null && messageId !== undefined) {
         const job = generationJobs.get(String(messageId));
-        if (!job) return false;
-        job.abortReason ||= reason;
-        if (reason === 'user') job.backendCancel.abort();
-        job.controller.abort();
-        return true;
+        let aborted = false;
+        if (job) {
+            job.abortReason ||= reason;
+            if (reason === 'user') job.backendCancel.abort();
+            job.controller.abort();
+            aborted = true;
+        }
+        if (reason === 'user' && cancelPendingDrawRun(messageId)) aborted = true;
+        return aborted;
     }
     let aborted = false;
     for (const job of generationJobs.values()) {
@@ -2948,13 +2975,24 @@ export function abortGeneration(messageId = null, { reason = 'user' } = {}) {
         job.controller.abort();
         aborted = true;
     }
-    if (reason === 'user') abortPendingRequest();
+    if (reason === 'user') {
+        abortPendingRequest();
+    }
     return aborted;
 }
 
 export function isGenerating(messageId = null) {
-    if (messageId !== null && messageId !== undefined) return generationJobs.has(String(messageId));
+    if (messageId !== null && messageId !== undefined) {
+        const job = generationJobs.get(String(messageId));
+        return Boolean(job && job.chatId === String(getContext()?.chatId || ''));
+    }
     return generationJobs.size > 0;
+}
+
+export function getGenerationPhase(messageId) {
+    const job = generationJobs.get(String(messageId));
+    if (!job || job.chatId !== String(getContext()?.chatId || '')) return null;
+    return job.phase;
 }
 
 async function autoGenerateForLastAI() {
@@ -2972,8 +3010,7 @@ async function autoGenerateForLastAI() {
     const content = stripDrawImageSlots(lastMessage.mes).trim();
     if (content.length < 50) return;
 
-    lastMessage.extra ||= {};
-    if (lastMessage.extra.xb_sd_auto_done) return;
+    if (lastMessage.extra?.xb_sd_auto_done) return;
     if (autoBusy || isGenerating(lastIdx)) return;
 
     autoBusy = true;
@@ -2999,10 +3036,14 @@ async function autoGenerateForLastAI() {
             }
         }
 
-        await generateAndInsertImages({
+        const result = await generateAndInsertImages({
             messageId: lastIdx,
+            automatic: true,
             onStateChange: (state, data) => {
                 switch (state) {
+                    case 'submitting': updateState(fp.FloatState?.SUBMITTING, data); break;
+                    case 'accepted': updateState(fp.FloatState?.ACCEPTED, data); break;
+                    case 'uncertain': updateState(fp.FloatState?.UNCERTAIN, data); break;
                     case 'queued': updateState(fp.FloatState?.QUEUED, data); break;
                     case 'llm': updateState(fp.FloatState?.LLM); break;
                     case 'gen':
@@ -3022,7 +3063,10 @@ async function autoGenerateForLastAI() {
             },
         });
 
-        lastMessage.extra.xb_sd_auto_done = true;
+        if (!['accepted', 'uncertain'].includes(result?.status)) {
+            lastMessage.extra ||= {};
+            lastMessage.extra.xb_sd_auto_done = true;
+        }
     } catch (error) {
         console.error('[SdDraw] 自动配图失败:', error);
         try {
@@ -3031,6 +3075,26 @@ async function autoGenerateForLastAI() {
             const floatingOn = settings.showFloatingButton !== false;
             const floorOn = settings.showFloorButton !== false;
             const useFloatingOnly = floatingOn && floorOn;
+            if (error?.uncertain === true) {
+                if (useFloatingOnly || (floatingOn && !floorOn)) {
+                    fp.setFloatingState?.(fp.FloatState?.UNCERTAIN);
+                } else if (floorOn) {
+                    fp.setStateForMessage?.(lastIdx, fp.FloatState?.UNCERTAIN);
+                }
+                return;
+            }
+            if (isDrawRunPendingError(error)) {
+                toastr?.info?.(error.message);
+                return;
+            }
+            if (isDrawRunCancelledError(error)) {
+                if (useFloatingOnly || (floatingOn && !floorOn)) {
+                    fp.setFloatingState?.(fp.FloatState?.IDLE);
+                } else if (floorOn) {
+                    fp.setStateForMessage?.(lastIdx, fp.FloatState?.IDLE);
+                }
+                return;
+            }
             if (useFloatingOnly || (floatingOn && !floorOn)) {
                 fp.setFloatingState?.(fp.FloatState?.ERROR, { error: classified });
             } else if (floorOn) {
@@ -3053,22 +3117,19 @@ function notifyDetachedGeneration(successCount) {
     }
 }
 
-async function buildTasksFromMessage({ message, messageId, signal, promptOverride = '', negativePromptOverride = '', useWorldbook = true, stripImageMarkers = true, onStateChange }) {
-    if (promptOverride.trim()) {
-        return {
-            tasks: [{
-                scene: promptOverride.trim(),
-                chars: [],
-                characterPrompts: [],
-                placement: { mode: 'tail' },
-            }],
-            sceneSource: null,
-        };
-    }
-
+async function buildSdScenePlannerOptions({
+    message,
+    signal,
+    useWorldbook = true,
+    stripImageMarkers = true,
+    onStateChange,
+    providerSettings,
+    sharedSettings,
+}) {
     await loadSharedDrawSettings();
 
-    const sharedDrawSettings = getSharedDrawSettings();
+    const sharedDrawSettings = sharedSettings || getSharedDrawSettings();
+    const sdSettings = providerSettings || getSettings();
     const sourceText = stripImageMarkers
         ? normalizeMessageSceneSourceText(message.mes)
         : String(message.mes || '');
@@ -3092,21 +3153,47 @@ async function buildTasksFromMessage({ message, messageId, signal, promptOverrid
         });
     }
 
-    const preset = getActivePreset(getSettings());
-    const promptPreset = getActivePromptPreset(getSettings()) || DEFAULT_PROMPT_CONFIG;
-    const tasks = await generateAndParseScenePlan({
+    const preset = getActivePreset(sdSettings);
+    const promptPreset = getActivePromptPreset(sdSettings) || DEFAULT_PROMPT_CONFIG;
+    return {
         sceneSource,
-        presentCharacters,
-        useWorldInfo: useWorldbook && sharedDrawSettings.useWorldInfo,
-        customPrompts: promptPreset,
-        promptDefaults: DEFAULT_PROMPT_CONFIG,
-        worldbookEntries,
-        maxImages: preset.maxImages || 0,
-        maxCharactersPerImage: preset.maxCharactersPerImage || 0,
-        onImageLimitAdjusted: notifySceneImageLimitAdjusted,
-        onDiagnosticUpdate: diagnostic => onStateChange?.('llm', toScenePlannerProgress(diagnostic)),
+        plannerOptions: {
+            sceneSource,
+            presentCharacters,
+            useWorldInfo: useWorldbook && sharedDrawSettings.useWorldInfo,
+            customPrompts: promptPreset,
+            promptDefaults: DEFAULT_PROMPT_CONFIG,
+            worldbookEntries,
+            maxImages: preset.maxImages || 0,
+            maxCharactersPerImage: preset.maxCharactersPerImage || 0,
+            onImageLimitAdjusted: notifySceneImageLimitAdjusted,
+            onDiagnosticUpdate: diagnostic => onStateChange?.('llm', toScenePlannerProgress(diagnostic)),
+            signal,
+        },
+    };
+}
+
+async function buildTasksFromMessage({ message, messageId, signal, promptOverride = '', useWorldbook = true, stripImageMarkers = true, onStateChange }) {
+    if (promptOverride.trim()) {
+        return {
+            tasks: [{
+                scene: promptOverride.trim(),
+                chars: [],
+                characterPrompts: [],
+                placement: { mode: 'tail' },
+            }],
+            sceneSource: null,
+        };
+    }
+
+    const { sceneSource, plannerOptions } = await buildSdScenePlannerOptions({
+        message,
         signal,
+        useWorldbook,
+        stripImageMarkers,
+        onStateChange,
     });
+    const tasks = await generateAndParseScenePlan(plannerOptions);
 
     console.log('[SdDraw] LLM plan ready for message %s: %d task(s)', messageId, tasks.length);
     return { tasks, sceneSource };
@@ -3985,6 +4072,7 @@ export async function generateAndInsertImages({
     negativePromptOverride = '',
     paramsOverride = {},
     onStateChange,
+    automatic = false,
 } = {}) {
     const resolvedMessageId = Number.isFinite(Number(messageId)) ? Number(messageId) : findLastAIMessageId();
     if (resolvedMessageId < 0) throw new Error('未找到可出图的 AI 消息');
@@ -3996,11 +4084,50 @@ export async function generateAndInsertImages({
     try {
         ensureDrawImageStyles();
         await openDB();
+        await loadSettings();
+        await loadSharedDrawSettings();
         const ctx = getContext();
         const initialChatId = ctx.chatId;
         const message = ctx.chat?.[resolvedMessageId];
         if (!message || message.is_user) throw new Error('消息不存在或不是 AI 消息');
 
+        const sdSettings = cloneSettingsObject(getSettings());
+        const sharedSettingsSnapshot = cloneSettingsObject(getSharedDrawSettings());
+        if (sdSettings.useImageBackendJobs === true && !promptOverride.trim()) {
+            job.phase = 'submitting';
+            return await submitProviderDrawRun({
+                ctx,
+                message,
+                messageId: resolvedMessageId,
+                provider: DRAW_RUN_PROVIDER,
+                signal,
+                preparePlanner: async ({ maxPlanImages }) => {
+                    job.phase = 'llm';
+                    const { plannerOptions } = await buildSdScenePlannerOptions({
+                        message,
+                        signal,
+                        onStateChange,
+                        providerSettings: sdSettings,
+                        sharedSettings: sharedSettingsSnapshot,
+                    });
+                    return prepareScenePlannerInput({ ...plannerOptions, maxPlanImages });
+                },
+                createGenerationRecipe: () => createSdGenerationRecipe({
+                    settings: sdSettings,
+                    characterTags: sharedSettingsSnapshot.characterTags || [],
+                    paramsOverride,
+                    promptOverride,
+                    negativePromptOverride,
+                }),
+                automatic,
+                getCurrentContext: getContext,
+                syncActiveSwipe: syncMesToSwipe,
+                isMessageBeingEdited,
+                onStateChange,
+            });
+        }
+
+        job.phase = 'llm';
         onStateChange?.('llm', toScenePlannerProgress());
         const { tasks, sceneSource } = await buildTasksFromMessage({
             message,
@@ -4012,7 +4139,6 @@ export async function generateAndInsertImages({
         });
         if (signal.aborted) throw new Error('已取消');
 
-        const sdSettings = getSettings();
         const sharedDrawSettings = getSharedDrawSettings();
         if (isMessageBeingEdited(resolvedMessageId)) {
             throw new ScenePlacementError('该楼层正在编辑，请保存或取消编辑后再配图。', 'SCENE_MESSAGE_EDITING');
@@ -4071,6 +4197,7 @@ export async function generateAndInsertImages({
         syncRenderedMessage();
         renderPendingSlots();
 
+        job.phase = 'gen';
         onStateChange?.('gen', { current: 0, total: tasks.length });
         let requiresFinalDomSync = false;
         let terminationReason = '';
@@ -4568,9 +4695,8 @@ export async function initSdDraw() {
     });
 
     events.on(event_types.CHAT_CHANGED, () => {
-        setTimeout(() => {
-            renderExistingPanels();
-        }, 150);
+        floatingPanel.refreshDrawRunUiState?.();
+        setTimeout(renderExistingPanels, 150);
     });
     events.on(event_types.GENERATION_ENDED, async () => {
         try {

@@ -7,6 +7,7 @@ import {
     findImageJobDeliverySlot,
     ImageJobDeliveryDeferredError,
     ImageJobDeliveryTargetState,
+    removeImageJobDeliverySlotsFromChat,
     requireImageJobDeliveryTarget,
     setImageJobDeliveryTargetText,
 } from '../image-job-delivery-target.js';
@@ -121,4 +122,36 @@ test('slot removal defers without mutating while any floor is being edited', asy
 
     assert.equal(message.mes, 'story\n[image:slot-a]');
     assert.equal(saves, 0);
+});
+
+test('a save blocked before writing restores removed slots in memory', async () => {
+    const message = { mes: 'story\n[image:slot-a]' };
+    await assert.rejects(commitImageJobDeliverySlotRemoval({
+        slotIds: ['slot-a'],
+        resolveTarget: slotId => findImageJobDeliverySlot([message], slotId),
+        persist: async ({ changes }) => {
+            assert.equal(changes.length, 1);
+            const error = new Error('persisted chat changed');
+            error.saveAttempted = false;
+            throw error;
+        },
+    }), /persisted chat changed/);
+
+    assert.equal(message.mes, 'story\n[image:slot-a]');
+});
+
+test('persisted slot cleanup can be compared without mutating the read-back payload', () => {
+    const persisted = [
+        { chat_metadata: {} },
+        {
+            mes: 'story\n[image:slot-a]',
+            swipe_id: 0,
+            swipes: ['story\n[image:slot-a]', 'old\n[image:slot-a]'],
+        },
+    ];
+    const cleaned = removeImageJobDeliverySlotsFromChat(persisted, ['slot-a']);
+
+    assert.equal(cleaned[1].mes, 'story');
+    assert.deepEqual(cleaned[1].swipes, ['story', 'old']);
+    assert.match(persisted[1].mes, /slot-a/);
 });

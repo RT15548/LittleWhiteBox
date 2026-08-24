@@ -7,6 +7,7 @@ export const DrawRunRecoveryAction = Object.freeze({
     RECOVER_ADOPTION: 'recover_adoption',
     ABANDON_ADOPTION: 'abandon_adoption',
     DROP_STALE_LOCAL_MARKER: 'drop_stale_local_marker',
+    REQUEST_CANCEL: 'request_cancel',
     CLEAR_MISSING_MARKER: 'clear_missing_marker',
     SETTLE_TERMINAL: 'settle_terminal',
 });
@@ -78,6 +79,14 @@ export function planDrawRunRecovery({
         const run = runsById.get(runId) || null;
         const record = recordsByOrigin.get(runId) || null;
         if (run) claimedRuns.add(runId);
+
+        const cancellationRequested = Number(markerEntry.marker?.cancelRequestedAt) > 0;
+        const cancellationReachedBackend = Number(run?.cancelRequestedAt) > 0;
+        if (cancellationRequested && run && !cancellationReachedBackend
+            && !TERMINAL_STATES.has(run.state) && run.state !== 'child_expired') {
+            plan.push({ action: DrawRunRecoveryAction.REQUEST_CANCEL, markerEntry, run, record });
+            continue;
+        }
 
         if (record && record.state !== PendingJobState.ADOPTING) {
             plan.push({ action: DrawRunRecoveryAction.DROP_STALE_LOCAL_MARKER, markerEntry, run, record });

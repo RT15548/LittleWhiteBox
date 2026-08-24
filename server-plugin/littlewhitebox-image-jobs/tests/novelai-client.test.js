@@ -276,7 +276,7 @@ test('advertises and proxies the V5 MessagePack stream route', async () => {
     };
     statusHandler({}, statusResponse);
     assert.equal(statusResponse.statusCode, 200);
-    assert.deepEqual(statusResponse.body.capabilities, ['v5-msgpack-stream', 'image-batch-jobs-v1']);
+    assert.deepEqual(statusResponse.body.capabilities, ['v5-msgpack-stream', 'image-batch-jobs-v1', 'draw-runs-v1']);
 
     const req = new EventEmitter();
     req.aborted = false;

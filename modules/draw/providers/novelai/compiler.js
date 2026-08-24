@@ -198,8 +198,8 @@ export function compile(scenePlan, generationRecipe) {
     const recipe = requireObject(generationRecipe, 'NovelAI generationRecipe');
     const tasks = Array.isArray(scenePlan) ? scenePlan : scenePlan?.tasks;
     if (!Array.isArray(tasks) || tasks.length === 0) throw new TypeError('NovelAI scenePlan 必须包含图片任务');
-    if (!Array.isArray(recipe.seeds) || recipe.seeds.length !== tasks.length) {
-        throw new TypeError('NovelAI generationRecipe.seeds 必须与图片任务一一对应');
+    if (!Array.isArray(recipe.seeds) || recipe.seeds.length < tasks.length) {
+        throw new TypeError('NovelAI generationRecipe.seeds 不足以覆盖全部图片任务');
     }
     const timeout = requireFiniteNumber(recipe.timeout, 'NovelAI generationRecipe.timeout', { allowZero: false });
     const minDelay = requireFiniteNumber(recipe.requestDelay?.min, 'NovelAI generationRecipe.requestDelay.min');
@@ -207,9 +207,25 @@ export function compile(scenePlan, generationRecipe) {
     if (maxDelay < minDelay) {
         throw new TypeError('NovelAI generationRecipe.requestDelay.max 不得小于 min');
     }
+    if (typeof recipe.autoLearnEnabled !== 'boolean') {
+        throw new TypeError('NovelAI generationRecipe.autoLearnEnabled 必须是布尔值');
+    }
+    if (!['new_only', 'auto_update'].includes(recipe.autoLearnMode)) {
+        throw new TypeError('NovelAI generationRecipe.autoLearnMode 无效');
+    }
     const artifacts = tasks.map((task) => {
         const promptData = compileNovelPromptForTask(task, recipe);
-        return { task, promptData, tags: task?.scene || '' };
+        return {
+            task,
+            promptData,
+            tags: task?.scene || '',
+            providerMetadata: {
+                autoLearnCharacters: recipe.autoLearnEnabled && Array.isArray(task?.chars)
+                    ? task.chars
+                    : [],
+                autoLearnMode: recipe.autoLearnMode,
+            },
+        };
     });
     return {
         provider: 'novelai',

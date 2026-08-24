@@ -95,12 +95,16 @@ function mergeSecrets(...groups) {
 
 function buildDisplayMetadata(artifact = {}) {
     const promptData = artifact.promptData || {};
-    return {
+    const metadata = {
         tags: String(artifact.tags || artifact.task?.scene || ''),
         positive: String(promptData.positive || promptData.scene || ''),
         characterPrompts: cloneJson(promptData.characterPrompts || []),
         negativePrompt: String(promptData.negative || promptData.negativePrompt || ''),
     };
+    if (artifact.providerMetadata && typeof artifact.providerMetadata === 'object') {
+        metadata.providerMetadata = cloneJson(artifact.providerMetadata);
+    }
+    return metadata;
 }
 
 function createProgressDiagnostic(onUpdate) {

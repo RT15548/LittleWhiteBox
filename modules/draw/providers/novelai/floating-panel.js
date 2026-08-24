@@ -3,6 +3,7 @@
  * NovelDraw 画图按钮面板 - 支持楼层按钮和悬浮按钮双模式
  */
 
+import { getContext } from '../../../../../../../extensions.js';
 import {
     openNovelDrawSettings,
     generateAndInsertImages,
@@ -10,9 +11,17 @@ import {
     updateSettingsPersistent,
     findLastAIMessageId,
     classifyError,
+    getGenerationPhase,
 } from './novel-draw.js';
 import { registerToToolbar, removeFromToolbar } from '../../../../widgets/message-toolbar.js';
 import { formatScenePlannerProgress } from '../../shared/draw-common.js';
+import { subscribeDrawRunActivity } from '../../shared/draw-run-activity.js';
+import {
+    cancelPendingChildDrawRuns,
+    getPendingDrawWorkState,
+} from '../../shared/draw-run-controls.js';
+import { isDrawRunCancelledError, isDrawRunPendingError } from '../../shared/draw-run-production.js';
+import { resolveDrawRunUiState } from '../../shared/draw-run-ui-state.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 常量
@@ -20,9 +29,13 @@ import { formatScenePlannerProgress } from '../../shared/draw-common.js';
 
 const FLOAT_POS_KEY = 'xb_novel_float_pos';
 const AUTO_RESET_DELAY = 8000;
+const DRAW_RUN_PROVIDER = 'novelai';
 
 const FloatState = {
     IDLE: 'idle',
+    SUBMITTING: 'submitting',
+    ACCEPTED: 'accepted',
+    UNCERTAIN: 'uncertain',
     QUEUED: 'queued',
     LLM: 'llm',
     GEN: 'gen',
@@ -66,6 +79,7 @@ let $floatingCache = {};
 
 // 通用状态
 let stylesInjected = false;
+let drawRunActivityDispose = null;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 样式 - 统一样式（楼层+悬浮共用）
@@ -660,6 +674,24 @@ function setFloorState(messageId, state, data = {}) {
         case FloatState.IDLE:
             panelData.result = { success: 0, total: 0, error: null, startTime: 0 };
             break;
+        case FloatState.SUBMITTING:
+            el.classList.add('working');
+            if (!panelData.result.startTime) panelData.result.startTime = Date.now();
+            if (statusIcon) { statusIcon.textContent = '↥'; statusIcon.className = 'nd-status-icon nd-spin'; }
+            if (statusText) statusText.textContent = '正在提交';
+            break;
+        case FloatState.ACCEPTED:
+            el.classList.add('working');
+            if (!panelData.result.startTime) panelData.result.startTime = Date.now();
+            if (statusIcon) { statusIcon.textContent = '✓'; statusIcon.className = 'nd-status-icon'; }
+            if (statusText) statusText.textContent = '后台已接管';
+            break;
+        case FloatState.UNCERTAIN:
+            el.classList.add('working');
+            if (!panelData.result.startTime) panelData.result.startTime = Date.now();
+            if (statusIcon) { statusIcon.textContent = '↻'; statusIcon.className = 'nd-status-icon nd-spin'; }
+            if (statusText) statusText.textContent = '确认中';
+            break;
         case FloatState.QUEUED:
             el.classList.add('working');
             if (!panelData.result.startTime) panelData.result.startTime = Date.now();
@@ -723,6 +755,66 @@ function setFloorState(messageId, state, data = {}) {
             panelData.autoResetTimer = setTimeout(() => setFloorState(messageId, FloatState.IDLE), AUTO_RESET_DELAY);
             break;
     }
+}
+
+async function syncDrawRunPanelState(messageId, detail = {}) {
+    // 当前 swipe 最多只有一个 Draw Run；即使用户切换了图片 Provider，
+    // 活动任务仍应在新面板可见并可取消。
+    const markerState = await getPendingDrawWorkState(messageId).catch(() => null);
+    if (!markerState) return;
+    const effectiveDetail = markerState.cancelling
+        ? { ...detail, provider: undefined, phase: 'cancelling' }
+        : markerState.backendAccepted
+            ? { ...detail, provider: undefined, phase: 'active' }
+            : detail;
+    const panelData = panelMap.get(messageId);
+    if (panelData) {
+        const next = resolveDrawRunUiState({
+            currentState: panelData.state,
+            pending: markerState.pending,
+            detail: effectiveDetail,
+            messageId,
+            provider: markerState.provider || DRAW_RUN_PROVIDER,
+        });
+        if (next !== panelData.state) setFloorState(messageId, next);
+    }
+    if (floatingEl && Number(messageId) === findLastAIMessageId()) {
+        const next = resolveDrawRunUiState({
+            currentState: floatingState,
+            pending: markerState.pending,
+            detail: effectiveDetail,
+            messageId,
+            provider: markerState.provider || DRAW_RUN_PROVIDER,
+        });
+        if (markerState.pending) floatingMessageId = Number(messageId);
+        if (next !== floatingState) setFloatingState(next);
+    }
+}
+
+function syncAllDrawRunPanelStates(detail = {}) {
+    panelMap.forEach((_panel, messageId) => { void syncDrawRunPanelState(messageId, detail); });
+    const lastMessageId = findLastAIMessageId();
+    if (lastMessageId >= 0 && !panelMap.has(lastMessageId)) {
+        void syncDrawRunPanelState(lastMessageId, detail);
+    }
+}
+
+export function refreshDrawRunUiState() {
+    const messageId = findLastAIMessageId();
+    if (floatingEl) {
+        const generationPhase = messageId >= 0 ? getGenerationPhase(messageId) : null;
+        if (generationPhase) {
+            floatingMessageId = messageId;
+            setFloatingState(generationPhase === 'llm'
+                ? FloatState.LLM
+                : generationPhase === 'submitting'
+                    ? FloatState.SUBMITTING
+                    : FloatState.GEN);
+        } else {
+            setFloatingState(FloatState.IDLE);
+        }
+    }
+    if (messageId >= 0) void syncDrawRunPanelState(messageId);
 }
 
 function resolveCooldownEndTime({ cooldownUntil, duration } = {}) {
@@ -789,12 +881,17 @@ function updateFloorDetailPopup(messageId) {
 async function handleFloorDrawClick(messageId) {
     const panelData = panelMap.get(messageId);
     if (!panelData || panelData.state !== FloatState.IDLE) return;
+    const targetChatId = String(getContext()?.chatId || '');
 
     try {
         await generateAndInsertImages({
             messageId,
             onStateChange: (state, data) => {
+                if (String(getContext()?.chatId || '') !== targetChatId) return;
                 switch (state) {
+                    case 'submitting': setFloorState(messageId, FloatState.SUBMITTING, data); break;
+                    case 'accepted': setFloorState(messageId, FloatState.ACCEPTED, data); break;
+                    case 'uncertain': setFloorState(messageId, FloatState.UNCERTAIN, data); break;
                     case 'queued': setFloorState(messageId, FloatState.QUEUED, data); break;
                     case 'llm': setFloorState(messageId, FloatState.LLM, data); break;
                     case 'gen': setFloorState(messageId, FloatState.GEN, data); break;
@@ -817,7 +914,12 @@ async function handleFloorDrawClick(messageId) {
         });
     } catch (e) {
         console.error('[NovelDraw]', e);
-        if (e.message === '已取消' || e.message?.includes('已有任务进行中') || e.message?.includes('该楼层已有任务进行中')) {
+        if (String(getContext()?.chatId || '') !== targetChatId) return;
+        if (e?.uncertain === true) {
+            setFloorState(messageId, FloatState.UNCERTAIN);
+        } else if (isDrawRunPendingError(e)) {
+            toastr?.info?.(e.message);
+        } else if (isDrawRunCancelledError(e) || e.message?.includes('已有任务进行中') || e.message?.includes('该楼层已有任务进行中')) {
             setFloorState(messageId, FloatState.IDLE);
             if (e.message?.includes('任务进行中')) toastr?.info?.(e.message);
         } else {
@@ -829,7 +931,9 @@ async function handleFloorDrawClick(messageId) {
 async function handleFloorAbort(messageId) {
     try {
         const { abortGeneration } = await import('./novel-draw.js');
-        if (abortGeneration(messageId)) {
+        const aborted = abortGeneration(messageId);
+        const cancelledChild = await cancelPendingChildDrawRuns(messageId);
+        if (aborted || cancelledChild) {
             setFloorState(messageId, FloatState.CANCELLING);
             toastr?.info?.('正在中止');
         }
@@ -859,7 +963,7 @@ function bindFloorPanelEvents(panelData) {
     el.querySelector('.nd-layer-active')?.addEventListener('click', (e) => {
         e.stopPropagation();
         const state = panelData.state;
-        if ([FloatState.QUEUED, FloatState.LLM, FloatState.GEN, FloatState.COOLDOWN, FloatState.RECONNECTING, FloatState.BACKEND_LEGACY].includes(state)) {
+        if ([FloatState.SUBMITTING, FloatState.ACCEPTED, FloatState.UNCERTAIN, FloatState.QUEUED, FloatState.LLM, FloatState.GEN, FloatState.COOLDOWN, FloatState.RECONNECTING, FloatState.BACKEND_LEGACY].includes(state)) {
             handleFloorAbort(messageId);
         } else if ([FloatState.SUCCESS, FloatState.PARTIAL, FloatState.ERROR].includes(state)) {
             updateFloorDetailPopup(messageId);
@@ -951,7 +1055,10 @@ async function toggleQuickAutoMode() {
 function mountFloorPanel(messageEl, messageId) {
     if (panelMap.has(messageId)) {
         const existing = panelMap.get(messageId);
-        if (existing.root?.isConnected) return existing;
+        if (existing.root?.isConnected) {
+            void syncDrawRunPanelState(messageId);
+            return existing;
+        }
         existing._cleanup?.();
         panelMap.delete(messageId);
     }
@@ -973,6 +1080,7 @@ function mountFloorPanel(messageEl, messageId) {
     bindFloorPanelEvents(panelData);
 
     panelMap.set(messageId, panelData);
+    void syncDrawRunPanelState(messageId);
     return panelData;
 }
 
@@ -1148,6 +1256,27 @@ function setFloatingState(state, data = {}) {
             floatingMessageId = null;
             floatingResult = { success: 0, total: 0, error: null, startTime: 0 };
             break;
+        case FloatState.SUBMITTING:
+            floatingEl.classList.add('working');
+            if (!floatingResult.startTime) floatingResult.startTime = Date.now();
+            statusIcon.textContent = '↥';
+            statusIcon.className = 'nd-status-icon nd-spin';
+            statusText.textContent = '正在提交';
+            break;
+        case FloatState.ACCEPTED:
+            floatingEl.classList.add('working');
+            if (!floatingResult.startTime) floatingResult.startTime = Date.now();
+            statusIcon.textContent = '✓';
+            statusIcon.className = 'nd-status-icon';
+            statusText.textContent = '后台已接管';
+            break;
+        case FloatState.UNCERTAIN:
+            floatingEl.classList.add('working');
+            if (!floatingResult.startTime) floatingResult.startTime = Date.now();
+            statusIcon.textContent = '↻';
+            statusIcon.className = 'nd-status-icon nd-spin';
+            statusText.textContent = '确认中';
+            break;
         case FloatState.QUEUED:
             floatingEl.classList.add('working');
             if (!floatingResult.startTime) floatingResult.startTime = Date.now();
@@ -1310,7 +1439,7 @@ function routeFloatingClick(target) {
         }
         floatingEl.classList.toggle('expanded');
     } else if (target.closest('.nd-layer-active')) {
-        if ([FloatState.QUEUED, FloatState.LLM, FloatState.GEN, FloatState.COOLDOWN, FloatState.RECONNECTING, FloatState.BACKEND_LEGACY].includes(floatingState)) {
+        if ([FloatState.SUBMITTING, FloatState.ACCEPTED, FloatState.UNCERTAIN, FloatState.QUEUED, FloatState.LLM, FloatState.GEN, FloatState.COOLDOWN, FloatState.RECONNECTING, FloatState.BACKEND_LEGACY].includes(floatingState)) {
             handleFloatingAbort();
         } else if ([FloatState.SUCCESS, FloatState.PARTIAL, FloatState.ERROR].includes(floatingState)) {
             updateFloatingDetailPopup();
@@ -1329,12 +1458,17 @@ async function handleFloatingDrawClick() {
     }
 
     floatingMessageId = messageId;
+    const targetChatId = String(getContext()?.chatId || '');
 
     try {
         await generateAndInsertImages({
             messageId,
             onStateChange: (state, data) => {
+                if (String(getContext()?.chatId || '') !== targetChatId) return;
                 switch (state) {
+                    case 'submitting': setFloatingState(FloatState.SUBMITTING, data); break;
+                    case 'accepted': setFloatingState(FloatState.ACCEPTED, data); break;
+                    case 'uncertain': setFloatingState(FloatState.UNCERTAIN, data); break;
                     case 'queued': setFloatingState(FloatState.QUEUED, data); break;
                     case 'llm': setFloatingState(FloatState.LLM, data); break;
                     case 'gen': setFloatingState(FloatState.GEN, data); break;
@@ -1357,7 +1491,12 @@ async function handleFloatingDrawClick() {
         });
     } catch (e) {
         console.error('[NovelDraw]', e);
-        if (e.message === '已取消' || e.message?.includes('已有任务进行中') || e.message?.includes('该楼层已有任务进行中')) {
+        if (String(getContext()?.chatId || '') !== targetChatId) return;
+        if (e?.uncertain === true) {
+            setFloatingState(FloatState.UNCERTAIN);
+        } else if (isDrawRunPendingError(e)) {
+            toastr?.info?.(e.message);
+        } else if (isDrawRunCancelledError(e) || e.message?.includes('已有任务进行中') || e.message?.includes('该楼层已有任务进行中')) {
             setFloatingState(FloatState.IDLE);
             if (e.message?.includes('任务进行中')) toastr?.info?.(e.message);
         } else {
@@ -1370,7 +1509,9 @@ async function handleFloatingAbort() {
     try {
         const { abortGeneration } = await import('./novel-draw.js');
         const messageId = floatingMessageId;
-        if (messageId >= 0 && abortGeneration(messageId)) {
+        const aborted = messageId >= 0 && abortGeneration(messageId);
+        const cancelledChild = messageId >= 0 && await cancelPendingChildDrawRuns(messageId);
+        if (aborted || cancelledChild) {
             setFloatingState(FloatState.CANCELLING);
             toastr?.info?.('正在中止');
         }
@@ -1524,6 +1665,7 @@ function createFloatingButton() {
 
     document.addEventListener('click', handleFloatingOutsideClick, { passive: true });
     window.addEventListener('resize', applyFloatingPosition);
+    syncAllDrawRunPanelStates();
 }
 
 function destroyFloatingButton() {
@@ -1613,12 +1755,16 @@ export function updateButtonVisibility(showFloor, showFloating) {
 export function initFloatingPanel() {
     const settings = getSettings();
 
+    drawRunActivityDispose ??= subscribeDrawRunActivity(syncAllDrawRunPanelStates);
+
     if (settings.showFloatingButton === true) {
         createFloatingButton();
     }
 }
 
 export function destroyFloatingPanel() {
+    drawRunActivityDispose?.();
+    drawRunActivityDispose = null;
     panelMap.forEach((data, messageId) => {
         if (data.autoResetTimer) clearTimeout(data.autoResetTimer);
         if (data.cooldownRafId) cancelAnimationFrame(data.cooldownRafId);

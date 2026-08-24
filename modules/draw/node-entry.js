@@ -1,5 +1,6 @@
 import { compile as compileComfyUi } from './providers/comfyui/compiler.js';
 import { compile as compileNovelAi } from './providers/novelai/compiler.js';
+import { getNovelModelCapability } from './providers/novelai/novel-model-capabilities.js';
 import { compile as compileSdWebUi } from './providers/sd-webui/compiler.js';
 import {
     assertDrawRunId,
@@ -28,5 +29,6 @@ export {
     deriveDrawRunChildJobId,
     deriveDrawRunItemIds,
     executePreparedScenePlanner,
+    getNovelModelCapability,
     hashSceneSource,
 };

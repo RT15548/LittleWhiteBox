@@ -6,7 +6,7 @@
 
 import { getContext } from "../../../../../../../extensions.js";
 import { saveBase64AsFile } from "../../../../../../../utils.js";
-import { getRequestHeaders } from "../../../../../../../../script.js";
+import { getRequestHeaders, syncMesToSwipe } from "../../../../../../../../script.js";
 import { extensionFolderPath } from "../../../../core/constants.js";
 import { createModuleEvents, event_types } from "../../../../core/event-manager.js";
 import { NovelDrawStorage } from "../../../../core/server-storage.js";
@@ -22,6 +22,7 @@ import {
 import {
     ScenePlannerError,
     generateAndParseScenePlan,
+    prepareScenePlannerInput,
 } from '../../shared/scene-planner.js';
 import { classifyScenePlannerErrorForUi } from '../../shared/scene-planner-error-ui.js';
 import {
@@ -93,6 +94,15 @@ import {
     requireImageJobDeliveryTarget,
 } from '../../shared/image-job-delivery-target.js';
 import { submitRecoverableImageJob } from '../../shared/recoverable-image-jobs.js';
+import {
+    isDrawRunCancelledError,
+    isDrawRunPendingError,
+    submitProviderDrawRun,
+} from '../../shared/draw-run-production.js';
+import {
+    cancelPendingDrawRuns,
+    hasPendingDrawRun,
+} from '../../shared/draw-run-controls.js';
 import { migrateLegacyNovelPromptSettings } from './novel-prompt-migration.js';
 import { WorldbookProcessor } from '../../shared/worldbook-processor.js';
 import {
@@ -140,6 +150,7 @@ import {
 // ═══════════════════════════════════════════════════════════════════════════
 
 const MODULE_KEY = 'novelDraw';
+const DRAW_RUN_PROVIDER = 'novelai';
 const SERVER_FILE_KEY = 'settings';
 const HTML_PATH = `${extensionFolderPath}/modules/draw/providers/novelai/novel-draw.html`;
 // 后端发送模式走 SillyTavern server plugin 转发（需安装 plugins/littlewhitebox-image-jobs 并开启 enableServerPlugins），
@@ -715,14 +726,29 @@ function insertPreviewIntoRenderedMessage({ messageId, slotId, html }) {
 //   传导到后端，删掉一个已经付过钱的任务。
 // - 其它 reason：模块卸载、聊天切换这类生命周期中止。前端必须停手，但后端任务要留着，
 //   靠恢复记录在下次打开时接回——否则「重载一次扩展」就等于烧掉一批图。
+function cancelPendingDrawRun(messageId) {
+    // Draw Run 归属于当前 swipe。用户在任务期间切换图片 Provider 后，
+    // 新 Provider 的按钮仍要能取消这一个既有任务。
+    if (!hasPendingDrawRun(messageId)) return false;
+    void cancelPendingDrawRuns(messageId).catch((error) => {
+        console.error('[NovelDraw] 后台 Draw Run 取消失败:', error);
+        toastr.error(error?.message || '后台画图取消失败，请稍后重试', '小白X画图');
+    });
+    return true;
+}
+
 function abortGeneration(messageId = null, { reason = 'user' } = {}) {
     if (messageId !== null && messageId !== undefined) {
         const job = generationJobs.get(String(messageId));
-        if (!job) return false;
-        job.abortReason ||= reason;
-        if (reason === 'user') job.backendCancel.abort();
-        job.controller.abort();
-        return true;
+        let aborted = false;
+        if (job) {
+            job.abortReason ||= reason;
+            if (reason === 'user') job.backendCancel.abort();
+            job.controller.abort();
+            aborted = true;
+        }
+        if (reason === 'user' && cancelPendingDrawRun(messageId)) aborted = true;
+        return aborted;
     }
 
     let aborted = false;
@@ -735,12 +761,22 @@ function abortGeneration(messageId = null, { reason = 'user' } = {}) {
     return aborted;
 }
 
-function isGenerating() {
+function isGenerating(messageId = null) {
+    if (messageId !== null && messageId !== undefined) {
+        const job = generationJobs.get(String(messageId));
+        return Boolean(job && job.chatId === String(getContext()?.chatId || ''));
+    }
     return autoBusy || generationJobs.size > 0;
 }
 
+export function getGenerationPhase(messageId) {
+    const job = generationJobs.get(String(messageId));
+    if (!job || job.chatId !== String(getContext()?.chatId || '')) return null;
+    return job.phase;
+}
+
 function hasGenerationJob(messageId) {
-    return generationJobs.has(String(messageId));
+    return isGenerating(messageId);
 }
 
 function createGenerationJob(messageId) {
@@ -751,6 +787,8 @@ function createGenerationJob(messageId) {
 
     const job = {
         key,
+        chatId: String(getContext()?.chatId || ''),
+        phase: 'starting',
         messageId,
         controller: new AbortController(),
         backendCancel: new AbortController(),
@@ -1223,8 +1261,7 @@ function getActiveParamsPreset() {
     return s.paramsPresets.find(p => p.id === s.selectedParamsPresetId) || s.paramsPresets[0];
 }
 
-function getActivePromptPreset() {
-    const s = getSettings();
+function getActivePromptPreset(s = getSettings()) {
     return s.promptPresets.find(p => p.id === s.selectedPromptPresetId) || s.promptPresets[0] || null;
 }
 
@@ -1710,6 +1747,10 @@ export function createNovelGenerationRecipe({
         positivePrefix: preset?.positivePrefix || '',
         negativePrefix: preset?.negativePrefix || '',
         knownCharacters: cloneSettingsObject(settings.characterTags || []),
+        autoLearnEnabled: settings.autoLearnCharacters === true,
+        autoLearnMode: ['new_only', 'auto_update'].includes(settings.autoLearnMode)
+            ? settings.autoLearnMode
+            : 'new_only',
         seeds: Array.from(
             { length: Math.max(0, Math.floor(Number(itemCount) || 0)) },
             () => createNovelRequestSeed(params),
@@ -3045,6 +3086,36 @@ async function maybeAutoLearnFromTasks(tasks = [], settings = {}) {
     }
 }
 
+// 后台 Planner 的角色事实随 handoff 进入短生命周期 journal。接管转 active 前
+// 在浏览器侧复用原有学习逻辑；该逻辑只新增角色/补空字段，重复执行保持幂等。
+export async function applyNovelDrawRunAutoLearn(record = {}) {
+    const metadata = (Array.isArray(record.items) ? record.items : [])
+        .map(item => item.previewMetadata?.providerMetadata)
+        .find(value => Array.isArray(value?.autoLearnCharacters)
+            && value.autoLearnCharacters.length > 0);
+    if (!metadata) return;
+    const tasks = (Array.isArray(record.items) ? record.items : []).map(item => ({
+        chars: JSON.parse(JSON.stringify(
+            Array.isArray(item.previewMetadata?.providerMetadata?.autoLearnCharacters)
+                ? item.previewMetadata.providerMetadata.autoLearnCharacters
+                : [],
+        )),
+    })).filter(task => task.chars.length > 0);
+    if (tasks.length === 0) return;
+    try {
+        await loadSettings();
+        await loadSharedDrawSettings();
+        await maybeAutoLearnFromTasks(tasks, {
+            ...getRuntimeSettings(),
+            autoLearnCharacters: true,
+            autoLearnMode: metadata.autoLearnMode,
+        });
+    } catch (error) {
+        // 自动学习是已有的 best-effort 辅助行为，不能阻断已付费图片的接管。
+        console.warn('[NovelDraw] 后台规划角色自动学习失败:', error);
+    }
+}
+
 function notifySceneImageLimitAdjusted(adjustment) {
     if (adjustment?.message) toastr.info(adjustment.message, '小白X画图');
 }
@@ -3056,9 +3127,17 @@ function notifyDetachedGeneration(successCount) {
     }
 }
 
-async function buildTextSourceTasks({ sceneSource, presentCharacters, settings, preset, signal, useWorldbook = false, onStateChange }) {
+async function buildNovelScenePlannerOptions({
+    sceneSource,
+    presentCharacters,
+    settings,
+    preset,
+    signal,
+    useWorldbook = true,
+    onStateChange,
+}) {
     let worldbookEntries = null;
-    const customPrompts = getActivePromptPreset() || DEFAULT_PROMPT_CONFIG;
+    const customPrompts = getActivePromptPreset(settings) || DEFAULT_PROMPT_CONFIG;
     const model = preset.params?.model || DEFAULT_PARAMS_PRESET.params.model;
     const capability = getNovelModelCapability(model);
     if (useWorldbook && settings.worldbooks?.enabled && settings.worldbooks.uploadedBooks?.length) {
@@ -3072,7 +3151,7 @@ async function buildTextSourceTasks({ sceneSource, presentCharacters, settings, 
         });
     }
 
-    return generateAndParseScenePlan({
+    return {
         sceneSource,
         presentCharacters,
         useWorldInfo: useWorldbook && settings.useWorldInfo,
@@ -3088,8 +3167,11 @@ async function buildTextSourceTasks({ sceneSource, presentCharacters, settings, 
         onImageLimitAdjusted: notifySceneImageLimitAdjusted,
         onDiagnosticUpdate: diagnostic => onStateChange?.('llm', toScenePlannerProgress(diagnostic)),
         signal,
-    });
+    };
+}
 
+async function buildTextSourceTasks(options) {
+    return generateAndParseScenePlan(await buildNovelScenePlannerOptions(options));
 }
 
 async function generateImagesFromText(options = {}) {
@@ -3114,8 +3196,8 @@ async function generateImagesFromText(options = {}) {
         await openDB();
 
         const signal = job.controller.signal;
-        const settings = getRuntimeSettings();
-        const preset = getActiveParamsPreset();
+        const settings = cloneSettingsObject(getRuntimeSettings());
+        const preset = cloneSettingsObject(getActiveParamsPreset());
         if (!preset) throw new NovelDrawError('无可用的 NovelAI 参数预设', ErrorType.PARSE);
 
         const filterRules = settings.messageFilterRules?.length
@@ -3125,6 +3207,7 @@ async function generateImagesFromText(options = {}) {
         if (!sceneSource.content) throw new NovelDrawError('正文内容为空（可能被过滤规则清空）', ErrorType.PARSE);
 
         const presentCharacters = detectPresentCharacters(sceneSource.content, settings.characterTags || []);
+        job.phase = 'llm';
         options.onStateChange?.('llm', toScenePlannerProgress());
         if (signal.aborted) throw new NovelDrawError('已取消', ErrorType.ABORTED);
 
@@ -3150,6 +3233,7 @@ async function generateImagesFromText(options = {}) {
 
         const images = new Array(tasks.length);
         let successCount = 0;
+        job.phase = 'gen';
         options.onStateChange?.('gen', { current: 0, total: tasks.length });
 
         const compiledBatch = compileNovelScenePlan(
@@ -3257,7 +3341,12 @@ async function generateImagesFromText(options = {}) {
     }
 }
 
-async function generateAndInsertImages({ messageId, onStateChange, skipLock = false }) {
+async function generateAndInsertImages({
+    messageId,
+    onStateChange,
+    skipLock = false,
+    automatic = false,
+}) {
     const monitorGeneration = backendJobMonitors.captureGeneration();
     if (skipLock) {
         // 兼容旧调用：当前改为 message 级去重 + 图片请求队列，不再使用全局生成锁
@@ -3274,8 +3363,8 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
         if (!message) throw new NovelDrawError('消息不存在', ErrorType.PARSE);
 
         const signal = job.controller.signal;
-        const settings = getRuntimeSettings();
-        const preset = getActiveParamsPreset();
+        const settings = cloneSettingsObject(getRuntimeSettings());
+        const preset = cloneSettingsObject(getActiveParamsPreset());
 
         const filterRules = settings.messageFilterRules?.length
             ? settings.messageFilterRules
@@ -3288,44 +3377,57 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
 
         const presentCharacters = detectPresentCharacters(sceneSource.content, settings.characterTags || []);
 
+        if (settings.useImageBackendJobs === true) {
+            job.phase = 'submitting';
+            return await submitProviderDrawRun({
+                ctx,
+                message,
+                messageId,
+                provider: DRAW_RUN_PROVIDER,
+                signal,
+                preparePlanner: async ({ maxPlanImages }) => {
+                    job.phase = 'llm';
+                    return prepareScenePlannerInput({
+                        ...await buildNovelScenePlannerOptions({
+                            sceneSource,
+                            presentCharacters,
+                            settings,
+                            preset,
+                            signal,
+                            onStateChange,
+                        }),
+                        maxPlanImages,
+                    });
+                },
+                createGenerationRecipe: prepared => createNovelGenerationRecipe({
+                    settings,
+                    preset,
+                    itemCount: prepared.planner.validationContext.maxPlanImages,
+                    resolveForBackend: true,
+                }),
+                automatic,
+                getCurrentContext: getContext,
+                syncActiveSwipe: syncMesToSwipe,
+                isMessageBeingEdited,
+                onStateChange,
+            });
+        }
+
+        job.phase = 'llm';
         onStateChange?.('llm', toScenePlannerProgress());
 
         if (signal.aborted) throw new NovelDrawError('已取消', ErrorType.ABORTED);
 
         let tasks = [];
         try {
-            let worldbookEntries = null;
-            const customPrompts = getActivePromptPreset() || DEFAULT_PROMPT_CONFIG;
-            const model = preset.params?.model || DEFAULT_PARAMS_PRESET.params.model;
-            const capability = getNovelModelCapability(model);
-            if (settings.worldbooks?.enabled && settings.worldbooks.uploadedBooks?.length) {
-                const processor = new WorldbookProcessor();
-                const charNames = presentCharacters.map(c => c.name).join(' ');
-                const allEntries = settings.worldbooks.uploadedBooks.flatMap(b => b.entries || []);
-                worldbookEntries = processor.processFromEntries({
-                    entries: allEntries,
-                    contextText: sceneSource.content + ' ' + charNames,
-                    keywordFilterMode: settings.worldbooks.keywordFilterMode || 'auto',
-                });
-            }
-
-            tasks = await generateAndParseScenePlan({
+            tasks = await generateAndParseScenePlan(await buildNovelScenePlannerOptions({
                 sceneSource,
                 presentCharacters,
-                useWorldInfo: settings.useWorldInfo,
-                customPrompts,
-                promptDefaults: DEFAULT_PROMPT_CONFIG,
-                worldbookEntries,
-                maxImages: preset.maxImages || 0,
-                maxCharactersPerImage: preset.maxCharactersPerImage || 0,
-                absoluteMaxCharactersPerImage: capability.maxCharactersPerImage,
-                modelGuide: getLoadedTagGuide(model),
-                modelContract: getNovelScenePlannerContract(model),
-                centerMode: capability.centerMode,
-                onImageLimitAdjusted: notifySceneImageLimitAdjusted,
-                onDiagnosticUpdate: diagnostic => onStateChange?.('llm', toScenePlannerProgress(diagnostic)),
+                settings,
+                preset,
                 signal,
-            });
+                onStateChange,
+            }));
         } catch (e) {
             console.error('[NovelDraw] 场景分析原始错误:', e);
             console.error('[NovelDraw] 错误详情:', { message: e?.message, code: e?.code, name: e?.name, stack: e?.stack });
@@ -3409,6 +3511,7 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
         await syncRenderedMessage();
         renderPendingSlots();
 
+        job.phase = 'gen';
         onStateChange?.('gen', { current: 0, total: tasks.length });
 
         let requiresFinalDomSync = false;
@@ -3933,8 +4036,7 @@ async function autoGenerateForLastAI() {
     const content = stripDrawImageSlots(lastMessage.mes).trim();
     if (content.length < 50) return;
     
-    lastMessage.extra ||= {};
-    if (lastMessage.extra.xb_novel_auto_done) return;
+    if (lastMessage.extra?.xb_novel_auto_done) return;
 
     if (autoBusy || hasGenerationJob(lastIdx)) {
         console.log('[NovelDraw] 自动模式：当前楼层已有任务进行中，跳过');
@@ -3964,11 +4066,21 @@ async function autoGenerateForLastAI() {
             }
         }
         
-        await generateAndInsertImages({
+        const result = await generateAndInsertImages({
             messageId: lastIdx,
             skipLock: true,
+            automatic: true,
             onStateChange: (state, data) => {
                 switch (state) {
+                    case 'submitting':
+                        updateState(FloatState.SUBMITTING, data);
+                        break;
+                    case 'accepted':
+                        updateState(FloatState.ACCEPTED, data);
+                        break;
+                    case 'uncertain':
+                        updateState(FloatState.UNCERTAIN, data);
+                        break;
                     case 'queued':
                         updateState(FloatState.QUEUED, data);
                         break;
@@ -4003,7 +4115,12 @@ async function autoGenerateForLastAI() {
             }
         });
         
-        lastMessage.extra.xb_novel_auto_done = true;
+        // 后台流程由 automatic marker 在成功 handoff 时原子转成 auto_done；
+        // 浏览器流程仍沿用原有完成标记。
+        if (!['accepted', 'uncertain'].includes(result?.status)) {
+            lastMessage.extra ||= {};
+            lastMessage.extra.xb_novel_auto_done = true;
+        }
         
     } catch (e) {
         console.error('[NovelDraw] 自动配图失败:', e);
@@ -4012,6 +4129,27 @@ async function autoGenerateForLastAI() {
             const floatingOn = s.showFloatingButton === true;
             const floorOn = s.showFloorButton !== false;
             const useFloatingOnly = floatingOn && floorOn;
+
+            if (e?.uncertain === true) {
+                if (useFloatingOnly || (floatingOn && !floorOn)) {
+                    setFloatingState?.(FloatState.UNCERTAIN);
+                } else if (floorOn) {
+                    setStateForMessage(lastIdx, FloatState.UNCERTAIN);
+                }
+                return;
+            }
+            if (isDrawRunPendingError(e)) {
+                toastr?.info?.(e.message);
+                return;
+            }
+            if (isDrawRunCancelledError(e)) {
+                if (useFloatingOnly || (floatingOn && !floorOn)) {
+                    setFloatingState?.(FloatState.IDLE);
+                } else if (floorOn) {
+                    setStateForMessage(lastIdx, FloatState.IDLE);
+                }
+                return;
+            }
 
             if (useFloatingOnly || (floatingOn && !floorOn)) {
                 setFloatingState?.(FloatState.ERROR, { error: classifyError(e) });
@@ -4753,6 +4891,9 @@ async function handleFrameMessage(event) {
                 const result = await generateAndInsertImages({
                     messageId,
                     onStateChange: (state, d) => {
+                        if (state === 'submitting') postStatus('loading', '正在提交后台任务...');
+                        if (state === 'accepted') postStatus('loading', '后台已接管，可关闭页面');
+                        if (state === 'uncertain') postStatus('loading', '后台任务确认中...');
                         if (state === 'progress') postStatus('loading', `${d.current}/${d.total}`);
                         if (state === 'queued') postStatus('loading', d.ahead > 0 ? `排队中·前方 ${d.ahead}` : '排队中');
                         if (state === 'cooldown') postStatus('loading', `冷却中 ${Math.max(0, (Number(d.cooldownUntil) - Date.now()) / 1000).toFixed(1)}s`);
@@ -4761,7 +4902,13 @@ async function handleFrameMessage(event) {
                         if (state === 'backend_legacy') postStatus('loading', '后端兼容模式');
                     }
                 });
-                postStatus('success', `完成! ${result.success} 张`);
+                if (result?.status === 'accepted') {
+                    postStatus('success', '后台已接管，可关闭页面');
+                } else if (result?.status === 'uncertain') {
+                    postStatus('loading', '后台任务确认中，请勿重复提交');
+                } else {
+                    postStatus('success', `完成! ${result.success} 张`);
+                }
             } catch (e) {
                 postStatus('error', e?.message);
             }
@@ -4899,14 +5046,13 @@ export async function initNovelDraw() {
 
     // ST 停止键 / Escape → 同时中止 novel-draw 生成
     events.on(event_types.GENERATION_STOPPED, () => {
-        if (isGenerating()) {
-            console.log('[NovelDraw] ST 停止信号，中止图片生成');
-            abortGeneration();
-        }
+        console.log('[NovelDraw] ST 停止信号，中止图片生成');
+        abortGeneration();
     });
 
     // 聊天切换时重新创建面板
     events.on(event_types.CHAT_CHANGED, () => {
+        floatingPanel.refreshDrawRunUiState?.();
         setTimeout(renderExistingPanels, 200);
     });
 

@@ -152,7 +152,7 @@ function combineWorldInfoEntries({ uploadedEntries = '', nativeEntries = '' } = 
     return sections.join('\n\n').trim();
 }
 
-function buildSessionLimitsLine(maxImages, maxCharactersPerImage, insertPointCount) {
+function buildSessionLimitsLine(maxImages, maxCharactersPerImage, insertPointCount, maxPlanImages) {
     const imageLimit = Number(maxImages) > 0 ? Math.floor(Number(maxImages)) : 0;
     const characterLimit = Number(maxCharactersPerImage) > 0
         ? Math.floor(Number(maxCharactersPerImage))
@@ -160,6 +160,7 @@ function buildSessionLimitsLine(maxImages, maxCharactersPerImage, insertPointCou
     const clauses = [];
     if (insertPointCount > 0) clauses.push(`本次正文共有 ${insertPointCount} 个可用插图点，编号范围为 1～${insertPointCount}`);
     if (imageLimit) clauses.push(`images 必须恰好包含 ${imageLimit} 项`);
+    else if (maxPlanImages > 0 && maxPlanImages < insertPointCount) clauses.push(`images 最多包含 ${maxPlanImages} 项`);
     if (characterLimit) clauses.push(`每项 characters 最多 ${characterLimit} 人`);
     return clauses.length ? `本次提交数量约束：${clauses.join('；')}。` : '';
 }
@@ -219,6 +220,7 @@ async function buildScenePlannerRequest(options = {}) {
         promptDefaults = EMPTY_PROMPT_CONFIG,
         worldbookEntries = null,
         maxImages = 0,
+        maxPlanImages = 0,
         maxCharactersPerImage = 0,
         absoluteMaxCharactersPerImage = 0,
         modelGuide = null,
@@ -234,7 +236,18 @@ async function buildScenePlannerRequest(options = {}) {
         throw new ScenePlannerError('正文中没有可用的插图位置。', 'NO_INSERT_POINTS');
     }
     const requestedMaxImages = resolveRequestedMaxImages(maxImages);
+    const requestedPlanCapacity = resolveRequestedMaxImages(maxPlanImages);
     const effectiveMaxImages = resolveEffectiveMaxImages(requestedMaxImages, insertPointCount);
+    if (requestedPlanCapacity && effectiveMaxImages > requestedPlanCapacity) {
+        throw new ScenePlannerError(
+            `后台画图单批最多支持 ${requestedPlanCapacity} 张；请把本次图片数调低后重试。`,
+            'IMAGE_LIMIT_EXCEEDED',
+        );
+    }
+    const effectiveMaxPlanImages = effectiveMaxImages || Math.min(
+        insertPointCount,
+        requestedPlanCapacity || insertPointCount,
+    );
     const effectiveMaxCharactersPerImage = resolveEffectiveMaxCharacters(
         maxCharactersPerImage,
         absoluteMaxCharactersPerImage,
@@ -296,7 +309,12 @@ async function buildScenePlannerRequest(options = {}) {
             slots.lastMessage,
         );
         const finalInstruction = appendInstruction(promptConfig.userConfirm, [
-            buildSessionLimitsLine(effectiveMaxImages, effectiveMaxCharactersPerImage, insertPointCount),
+            buildSessionLimitsLine(
+                effectiveMaxImages,
+                effectiveMaxCharactersPerImage,
+                insertPointCount,
+                effectiveMaxPlanImages,
+            ),
             '完成 mindful_prelude 与全部 images 后，必须且只能调用一次 submit_scene_plan；不要只返回正文。',
         ]);
 
@@ -343,6 +361,7 @@ async function buildScenePlannerRequest(options = {}) {
             validationContext: {
                 sceneSource,
                 effectiveMaxImages,
+                maxPlanImages: effectiveMaxPlanImages,
                 effectiveMaxCharactersPerImage,
                 centerMode,
             },

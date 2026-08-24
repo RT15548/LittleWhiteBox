@@ -13,6 +13,7 @@ const {
     forgetPendingImageJob,
     getPendingImageJob,
     markPendingImageJobActive,
+    markPendingImageJobAdoptionPlacing,
     markPendingImageJobAdoptionReady,
     markPendingImageJobCancelling,
     markPendingImageJobSettling,
@@ -22,6 +23,8 @@ const {
     PendingJobState,
     PENDING_JOB_LEASE_MS,
     recordPendingImageJob,
+    requestPendingImageJobCancellation,
+    resetPendingImageJobAdoptionPlacement,
     renewPendingImageJobLease,
 } = await import('../pending-image-jobs.js');
 
@@ -90,6 +93,33 @@ test('Draw Run adoption cannot become active before placement and marker cleanup
     await forgetPendingImageJob(jobId, record.leaseId);
 });
 
+test('a definitely blocked adoption save can rewind placing to pending only under the same lease', async () => {
+    const jobId = `adoption-rewind-${Date.now()}`;
+    let record = await createAdoptingPendingImageJob(drawRunRecord(jobId));
+    const staleLeaseId = record.leaseId;
+    record = await markPendingImageJobAdoptionPlacing(jobId, record.leaseId);
+    assert.equal(record.adoptionPhase, PendingJobAdoptionPhase.PLACING);
+
+    record = await resetPendingImageJobAdoptionPlacement(jobId, record.leaseId);
+    assert.equal(record.adoptionPhase, PendingJobAdoptionPhase.PENDING);
+    await assert.rejects(
+        resetPendingImageJobAdoptionPlacement(jobId, record.leaseId),
+        error => error instanceof PendingImageJobLostError,
+        'pending records cannot be rewound a second time',
+    );
+
+    record = await markPendingImageJobAdoptionPlacing(jobId, record.leaseId);
+    await renewPendingImageJobLease(jobId, record.leaseId, { now: 0 });
+    const claimed = await claimPendingImageJob(jobId, { now: PENDING_JOB_LEASE_MS + 1 });
+    assert.ok(claimed);
+    await assert.rejects(
+        resetPendingImageJobAdoptionPlacement(jobId, staleLeaseId),
+        error => error instanceof PendingImageJobLostError,
+        'a stale tab cannot rewind the new owner state',
+    );
+    await forgetPendingImageJob(jobId, claimed.leaseId);
+});
+
 test('late Draw Run cancellation is persisted when adoption activates', async () => {
     const jobId = `adoption-cancel-${Date.now()}`;
     let record = await createAdoptingPendingImageJob(drawRunRecord(jobId));
@@ -99,6 +129,22 @@ test('late Draw Run cancellation is persisted when adoption activates', async ()
     assert.equal(record.state, PendingJobState.CANCELLING);
     assert.equal(record.cancelRequested, true);
     await forgetPendingImageJob(jobId, record.leaseId);
+});
+
+test('a control page can persist Draw Run child cancellation without owning the adoption lease', async () => {
+    const jobId = `adoption-control-cancel-${Date.now()}`;
+    let record = await createAdoptingPendingImageJob(drawRunRecord(jobId));
+    const adoptionLeaseId = record.leaseId;
+    record = await requestPendingImageJobCancellation(jobId);
+    assert.equal(record.state, PendingJobState.ADOPTING);
+    assert.equal(record.cancelRequested, true);
+    assert.equal(record.leaseId, adoptionLeaseId);
+
+    record = await markPendingImageJobAdoptionReady(jobId, adoptionLeaseId, record.delivery);
+    record = await markPendingImageJobOriginRunAckReady(jobId, adoptionLeaseId, record.originRunId);
+    record = await activateAdoptingPendingImageJob(jobId, adoptionLeaseId);
+    assert.equal(record.state, PendingJobState.CANCELLING);
+    await forgetPendingImageJob(jobId, adoptionLeaseId);
 });
 
 test('journal keeps replacement ownership but drops unused source snapshots', async () => {
@@ -144,7 +190,7 @@ test('late create and cancel notifications cannot move the journal state backwar
     await markPendingImageJobActive(jobId, record.leaseId);
     assert.equal((await getPendingImageJob(jobId)).state, PendingJobState.CANCELLING);
 
-    await markPendingImageJobSettling(jobId, record.leaseId, { mode: 'discard' });
+    await markPendingImageJobSettling(jobId, record.leaseId, { mode: 'complete' });
     await markPendingImageJobCancelling(jobId, record.leaseId);
     const settling = await getPendingImageJob(jobId);
     assert.equal(settling.state, PendingJobState.SETTLING);

@@ -6,7 +6,14 @@ import {
     readImageBackendResultBase64,
 } from './backend-image-jobs.js';
 import { createDrawRunClient } from './draw-run-client.js';
+import { publishDrawRunActivity, subscribeDrawRunActivity } from './draw-run-activity.js';
 import { runDrawRunRecoveryPass } from './draw-run-recovery-runtime.js';
+import {
+    createConfirmableChatSnapshot,
+    persistedChatMatchesSnapshot,
+    saveChatAndConfirm,
+    withConfirmableChatMutation,
+} from './confirmable-chat-save.js';
 import {
     clearSlotSelection,
     deletePreview,
@@ -30,6 +37,7 @@ import {
     classifyImageJobDeliveryTarget,
     commitImageJobDeliverySlotRemoval,
     ImageJobDeliveryTargetState,
+    removeImageJobDeliverySlotsFromChat,
     requireImageJobDeliveryTarget,
 } from './image-job-delivery-target.js';
 
@@ -40,6 +48,7 @@ const resultDecoders = new Map([
     ['sd-webui', ({ response }) => readImageBackendResultBase64(response)],
     ['comfyui', ({ response }) => readImageBackendResultBase64(response)],
 ]);
+const adoptionEffects = new Map();
 
 let runtimeEvents = null;
 let recoveryTimer = null;
@@ -48,6 +57,7 @@ let recoveryRunning = null;
 let recoveryQueued = false;
 let runtimeClient = backendClient;
 let runtimeDrawRunClient = drawRunClient;
+let drawRunActivityDispose = null;
 
 function handleRecoveryVisibilityChange() {
     if (document.visibilityState === 'visible') scheduleRecovery();
@@ -203,16 +213,39 @@ function createDeliveryAdapter() {
             if (settlement.mode !== 'discard') slotsToRemove.push(...(record.replacedSlotIds || []));
             let removedTargets = [];
             if (slotsToRemove.length > 0) {
-                removedTargets = await commitImageJobDeliverySlotRemoval({
-                    slotIds: slotsToRemove,
-                    resolveTarget: slotId => requireAvailableTarget(record, { slotId }),
-                    isEditing: isMessageBeingEdited,
-                    isAnyEditing: isAnyMessageBeingEdited,
-                    guard,
-                    persist: async () => {
-                        const target = recordTarget(record, record.items[0]);
-                        if (target.ctx?.saveChat) await Promise.resolve(target.ctx.saveChat());
-                    },
+                const saveContext = getContext();
+                removedTargets = await withConfirmableChatMutation(saveContext, async () => {
+                    const beforeSaveSnapshot = String(saveContext?.chatId || '') === String(record.delivery?.chatId || '')
+                        && Array.isArray(saveContext?.chat)
+                        ? createConfirmableChatSnapshot(saveContext)
+                        : null;
+                    return commitImageJobDeliverySlotRemoval({
+                        slotIds: slotsToRemove,
+                        resolveTarget: slotId => requireAvailableTarget(record, { slotId }),
+                        isEditing: isMessageBeingEdited,
+                        isAnyEditing: isAnyMessageBeingEdited,
+                        guard,
+                        persist: async ({ changes = [] } = {}) => {
+                            if (!saveContext?.saveChat) return;
+                            const afterSaveSnapshot = createConfirmableChatSnapshot(saveContext);
+                            await saveChatAndConfirm({
+                                ctx: saveContext,
+                                precondition: persistedChat => (
+                                    beforeSaveSnapshot
+                                    && (changes.length > 0
+                                        ? persistedChatMatchesSnapshot(persistedChat, beforeSaveSnapshot)
+                                        : persistedChatMatchesSnapshot(
+                                            removeImageJobDeliverySlotsFromChat(persistedChat, slotsToRemove),
+                                            afterSaveSnapshot,
+                                        ))
+                                ),
+                                verify: persistedChat => persistedChatMatchesSnapshot(
+                                    persistedChat,
+                                    afterSaveSnapshot,
+                                ),
+                            });
+                        },
+                    });
                 });
             }
             await guard();
@@ -282,6 +315,9 @@ async function runRecoveryPass() {
             records: allRecords,
             client: runtimeDrawRunClient,
             scheduleRecovery,
+            onAdoptionReady: async (record) => {
+                await adoptionEffects.get(record.provider)?.(record);
+            },
         });
     } catch (error) {
         // 第二刀恢复失败不能阻断同一轮第一刀任务交付，也不能失去后续唤醒。
@@ -341,6 +377,9 @@ async function runRecoveryPass() {
             scheduleRecovery(RETRY_DELAY_MS);
         }
     }
+    // attachment 可能刚删除最后一条 Draw Run child journal。面板不缓存任务
+    // 进度，只收到这次失效通知后重新读取 marker + journal 的当前事实。
+    publishDrawRunActivity({ phase: 'reconciled' });
 }
 
 export async function reconcilePendingImageJobs() {
@@ -362,9 +401,17 @@ export async function reconcilePendingImageJobs() {
     }
 }
 
-export function startImageJobRecovery({ decoders = {}, client, drawRunsClient } = {}) {
+export function startImageJobRecovery({
+    decoders = {},
+    providerAdoptionEffects = {},
+    client,
+    drawRunsClient,
+} = {}) {
     for (const [provider, decode] of Object.entries(decoders)) {
         if (typeof decode === 'function') resultDecoders.set(provider, decode);
+    }
+    for (const [provider, effect] of Object.entries(providerAdoptionEffects)) {
+        if (typeof effect === 'function') adoptionEffects.set(provider, effect);
     }
     if (client) runtimeClient = client;
     if (drawRunsClient) runtimeDrawRunClient = drawRunsClient;
@@ -375,6 +422,9 @@ export function startImageJobRecovery({ decoders = {}, client, drawRunsClient } 
 
     runtimeEvents = createModuleEvents('imageJobRecovery');
     runtimeEvents.on(event_types.CHAT_CHANGED, () => scheduleRecovery(200));
+    drawRunActivityDispose = subscribeDrawRunActivity((detail) => {
+        if (detail?.wakeRecovery === true) scheduleRecovery();
+    });
     window.addEventListener('online', reconcilePendingImageJobs);
     document.addEventListener('visibilitychange', handleRecoveryVisibilityChange);
     scheduleRecovery();
@@ -384,6 +434,8 @@ export function stopImageJobRecovery() {
     if (!runtimeEvents) return;
     runtimeEvents.cleanup();
     runtimeEvents = null;
+    drawRunActivityDispose?.();
+    drawRunActivityDispose = null;
     clearRecoveryTimer();
     window.removeEventListener('online', reconcilePendingImageJobs);
     document.removeEventListener('visibilitychange', handleRecoveryVisibilityChange);

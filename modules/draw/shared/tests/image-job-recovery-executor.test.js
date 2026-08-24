@@ -34,6 +34,9 @@ function createJournal() {
             store.set(jobId, claimed);
             return claimed;
         },
+        async get(jobId) {
+            return store.get(jobId) || null;
+        },
         async fenceLease(jobId, leaseId) {
             const entry = store.get(jobId);
             if (!entry || entry.leaseId !== leaseId) throw new PendingImageJobLostError(jobId, '所有权已变化');
@@ -178,6 +181,65 @@ test('a persisted settling mode is replayed after another frontend crash', async
     });
 
     assert.deepEqual(modes, ['discard']);
+    assert.equal(journal.store.size, 0);
+});
+
+test('settlement uses the mode committed by the journal transaction', async () => {
+    const journal = createJournal();
+    const created = await journal.record({ ...plan(), jobId: 'job-settlement-race', provider: 'novelai' });
+    created.state = PendingJobState.ACTIVE;
+    created.leaseExpiresAt = 0;
+    const entry = planImageJobReattach({ records: [created], backendJobs: [] }).plan[0];
+    const originalMarkSettling = journal.markSettling;
+    journal.markSettling = (jobId, leaseId) => originalMarkSettling(
+        jobId,
+        leaseId,
+        { mode: 'discard' },
+    );
+    const modes = [];
+
+    await executeImageJobReattachEntry({
+        entry,
+        client: {},
+        journal,
+        delivery: {
+            settle(_record, settlement) { modes.push(settlement.mode); },
+            describeMissingJob() { return { label: 'missing' }; },
+        },
+    });
+
+    assert.deepEqual(modes, ['discard']);
+});
+
+test('a cancellation persisted while attachment is running settles unfinished slots as discard', async () => {
+    const journal = createJournal();
+    const created = await journal.record({ ...plan(), jobId: 'job-late-cancel', provider: 'novelai' });
+    created.state = PendingJobState.ACTIVE;
+    created.leaseExpiresAt = 0;
+    const entry = planImageJobReattach({
+        records: [created],
+        backendJobs: [{ id: created.jobId, state: 'running', items: [] }],
+    }).plan[0];
+    const settlements = [];
+
+    await executeImageJobReattachEntry({
+        entry,
+        journal,
+        client: {
+            async attachJob() {
+                const live = journal.store.get(created.jobId);
+                live.state = PendingJobState.CANCELLING;
+                live.cancelRequested = true;
+                return { job: { state: 'cancelled', items: [] }, preserved: new Set(), deliveryErrors: new Map() };
+            },
+        },
+        delivery: {
+            settle(_record, settlement) { settlements.push(settlement.mode); },
+            describeError() { return null; },
+        },
+    });
+
+    assert.deepEqual(settlements, ['discard']);
     assert.equal(journal.store.size, 0);
 });
 

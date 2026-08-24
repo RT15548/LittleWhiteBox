@@ -27,7 +27,7 @@ test('scene planner UI classification keeps prompt expansion distinct from LLM f
 });
 
 test('scene planner UI classification treats missing source content as an input failure', () => {
-    for (const code of ['EMPTY_MESSAGE', 'NO_INSERT_POINTS']) {
+    for (const code of ['EMPTY_MESSAGE', 'NO_INSERT_POINTS', 'IMAGE_LIMIT_EXCEEDED']) {
         const classified = classifyScenePlannerErrorForUi(
             new ScenePlannerError('正文没有可用插图位置', code),
             errorTypes,

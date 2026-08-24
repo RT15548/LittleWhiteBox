@@ -234,6 +234,36 @@ test('scene planner reports an image-limit adjustment once before the provider r
     }]);
 });
 
+test('backend planning capacity rejects an explicit oversized batch before calling the provider', async () => {
+    let providerCalls = 0;
+    await assert.rejects(prepareScenePlannerInput({
+        messageText: '一。'.repeat(21),
+        maxImages: 21,
+        maxPlanImages: 20,
+        promptDefaults: NOVEL_SCENE_PROMPTS,
+        expansionOptions: NOOP_EXPANSION_OPTIONS,
+        agentCaller: async () => { providerCalls += 1; },
+        agentOptions: {
+            providerConfig: { provider: 'openai-compatible', model: 'test', apiKey: 'secret' },
+        },
+    }), error => error?.code === 'IMAGE_LIMIT_EXCEEDED');
+    assert.equal(providerCalls, 0);
+});
+
+test('backend planning capacity applies after the request is clamped to available points', async () => {
+    const prepared = await prepareScenePlannerInput({
+        messageText: '她推开门。',
+        maxImages: 25,
+        maxPlanImages: 20,
+        promptDefaults: NOVEL_SCENE_PROMPTS,
+        expansionOptions: NOOP_EXPANSION_OPTIONS,
+        agentCaller: async () => { throw new Error('prepare must not call the provider'); },
+    });
+
+    assert.equal(prepared.planner.validationContext.effectiveMaxImages, 1);
+    assert.equal(prepared.planner.validationContext.maxPlanImages, 1);
+});
+
 test('every provider request is user-first and injects each key marker exactly once', async () => {
     const providers = [
         ['novelai', NOVEL_SCENE_PROMPTS],
@@ -551,6 +581,7 @@ test('prepared scene planner input is serializable and executes without browser 
         'centerMode',
         'effectiveMaxCharactersPerImage',
         'effectiveMaxImages',
+        'maxPlanImages',
         'sceneSource',
     ]);
 

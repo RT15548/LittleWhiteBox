@@ -1,6 +1,6 @@
 # 后端 Draw Run（第二刀）方案定稿
 
-状态：施工中；第 1、2、4～8 步完成，第 3 步实现已通过代码复核，真实 SillyTavern 写盘/读盘手测待验收。第 7～8 步尚未发布 capability，也未注册三家 Provider 生产入口。
+状态：第 1～11 步代码完成；`draw-runs-v1` capability 与三家 Provider 生产入口已经开放。自动化契约验证通过后，仍需在真实 SillyTavern 中完成人工写盘/读回、关闭浏览器接回与三家 Provider 实盘验收。
 前置：第一刀已封板于 `95526dd feat(draw): add provider-neutral backend image jobs`。
 权威文档关系：本文件是第二刀的开工单与终态契约；第一刀契约见 `docs/image-backend-batch-jobs.md`，第二刀不修改第一刀的进程内存边界。
 
@@ -13,6 +13,8 @@
 - 点击后先显示"正在提交"。
 - 收到 202 后显示"后台已接管"。
 - 看到"后台已接管"后即可关闭页面。
+- 图片 Provider 仍是现有的单值设置；任一时刻只有当前 Provider 的一套面板与提交入口，不引入多 Provider 同时点击或并发执行。
+- 同一 owner 的图片任务继续由第一刀严格串行执行；第二刀只把 Planner 前移到后端，不放宽 NovelAI、SD WebUI 或 ComfyUI 的执行并发。
 
 明确不承诺：
 
@@ -111,7 +113,7 @@ Draw Run 保存：
 }
 ```
 
-`insertOffset` 是相对冻结正文字符串（即 `sourceHash` 所哈希的那份 UTF-16 串）的 UTF-16 code unit 偏移。adoption 仅在当前正文与 sourceHash 精确匹配时使用 offsets，否则一律 gallery-only，不做任何模糊重定位。`placementContract` 版本固定，偏移语义变更必须升版本。
+`insertOffset` 是相对剥除既有图片槽位后的冻结正文字符串（即 `sourceHash` 所哈希的那份 UTF-16 串）的 UTF-16 code unit 偏移。`sourceHash` 负责恢复期正文事实；marker 里的 `targetHash` 另行哈希点击瞬间的完整 swipe，负责首次写入占位符前的严格 CAS。二者任一不匹配都转 gallery-only，不做任何模糊重定位。`placementContract` 版本固定，偏移语义变更必须升版本。
 
 不返回、不记录到诊断接口：Cookie、CSRF token、Basic Auth、Agent API Key、图片 API Key、原始请求头、完整 LLM transcript、原始图片 payload。错误对象统一脱敏（供应商响应文本可能含密钥回显）。
 
@@ -122,6 +124,8 @@ Draw Run 保存：
 3. Planner 结束立即销毁 Agent 凭证与 transcript。
 4. child Image Job 创建后，清除 generationRecipe 和图片密钥副本。
 5. 失败、取消同样立即清除。
+
+第 4 条只清除 Draw Run 自己的副本；转交给 child Image Job 的图片凭证由 child 持有到任务终态后释放，不写入浏览器 journal 或聊天文件。
 
 ## 4. 后端 API
 
@@ -142,6 +146,7 @@ Draw Run 保存：
 - 编译所有图片成功后，才能一次性创建 child Image Job。
 - childJobId 从 runId 确定性派生。第一刀创建接口已满足幂等（`requestId` 即 jobId，同签名重放返回原任务、异签名 409，`job-manager.js:87-95`），重试不重复扣费。
 - child 创建必须经过与第一刀 HTTP 路由同一个 normalize/validate service（从 `routes.js` 提取共享服务，路由与 DrawRunManager 都走它），禁止绕过校验直接调用 manager。
+- 浏览器创建 Draw Run、提交响应丢失后的确定性查询，以及后续 list/get/cancel/ACK 请求均有 15 秒单请求上限；超时只进入不确定/重试语义，不得把未知结果当成任务不存在。
 - Planner 前取消：中止 LLM，不创建图片任务。
 - Planner 与 child 创建竞态必须串行化。
 - child 已创建后取消：转发给第一刀 Image Job，保留已 ready 的结果（Draw Run 状态语义见第 3 节）。
@@ -252,7 +257,7 @@ Node 发布边界：
   planner: {
     prompt: { systemPrompt, messages }, // 宏、世界书与模板已在浏览器展开完毕
     validationContext: {
-      sceneSource, effectiveMaxImages,
+      sceneSource, effectiveMaxImages, maxPlanImages,
       effectiveMaxCharactersPerImage, centerMode
     },
     presentCharacters
@@ -271,7 +276,7 @@ Node 发布边界：
 
 - JSON 形状与类型校验，未知字段拒绝。
 - `imageProvider` / `agent.channel` 白名单。
-- `maxImages` ≤ 第一刀单 job items 上限（20）。
+- `effectiveMaxImages = 0` 保留用户“不指定精确张数”的语义；`maxPlanImages` 是本次执行容量且 ≤ 第一刀单 job items 上限（20）。显式设置超过容量时在写 marker、调用 Planner 前拒绝。
 - `planner.prompt` 只接受预处理后的 system prompt 与单条 user message；原始世界书、Prompt 模板或宏运行时对象不得进入 envelope。
 - `generationRecipe` 交给对应 provider 的 recipe validator。
 - 酒馆渠道只允许携带用户预设中的反代 `proxy_password`（沿用 `providerConfig.apiKey` 字段）；Cookie、CSRF 与 Basic Auth 不进入 envelope，由当前请求捕获。
@@ -319,29 +324,52 @@ Provider registry 只做 `provider → recipe validator → compiler → Image J
 契约：确认边界不建立在调用返回上，而建立在读回验证上——
 
 ```text
-saveChatConditional() 等待宿主锁并尝试保存
+冻结当前页面的整份消息快照
+→ 读取持久化聊天，确认其仍等于该快照
+→ 若不一致，每约 250ms 重新读取一次，最多等待 3 秒；插件不主动推平当前内存聊天
+→ 到期仍不一致则拒绝提交，不写 marker、不 POST Draw Run
+→ 在内存中写入 marker，并按 chatId 获取同源 Web Lock
+→ 锁内重新读取持久化聊天，以原快照作为写前条件
+→ saveChatConditional() 等待宿主锁并尝试保存
 → 重新读取持久化聊天（服务端文件）
 → 验证目标 marker/slots 确实存在
 ```
 
+- 写前快照不只比较目标楼层：SillyTavern 保存的是整份聊天，只比较单楼层会让另一个陈旧标签页从其他楼层覆盖新正文。锁按聊天粒度，前置条件按整份消息数组；同源多标签页只有第一个仍基于最新版本的写入能进入 `saveChatConditional()`。
+- 首次写 marker 前只读核对当前内存快照。若编辑、删楼层或切 swipe 的宿主防抖保存尚未落盘，以约 250ms 间隔复查并最多等待 3 秒；插件本身不主动保存这份无 marker 的快照。确认失败时尚未创建 marker，也不提交 Draw Run。确认后再以该快照作为 marker 写入的前置条件，跨标签页并发写仍会被拦下。
+- 第三方扩展若修改 `ctx.chat`（包括 `message.extra`）却从不触发宿主保存，内存与持久化聊天会持续不一致，本入口按 fail-closed 拒绝提交。用户需先触发一次宿主保存（例如切换 swipe）再重试；插件不替第三方猜测其持久化意图。
+- 同一页面内另有一层非持久化 mutation queue，把“修改共享 `ctx.chat` → 保存并确认”整体串行；否则用户在首次 marker 保存途中点击取消，取消意图可能被前一条保存顺手写入后又被后一条回滚。跨标签页仍由 Web Lock 与持久化快照裁决。
+- 写前读取失败或快照不符时，保存尚未尝试，属于确定阻断：不 POST，并安全恢复本页尚未落盘的 marker/槽位修改。
 - 读回失败或内容不符都属于"不确定"：不 POST、不回滚可能已成功的远端写入，保留 marker 等恢复清理。
 - 封装冻结调用时的聊天身份：单人聊天读 `/api/chats/get`，群聊读 `/api/chats/group/get`；保存期间切换聊天不能改变读回目标。
 - 保存等待和读回各有 15 秒上限。保存超时或抛错后仍继续读回：读回验证通过即确认，未通过才判定"不确定"；不取消仍可能完成的宿主保存。
 - 该封装在施工顺序中作为独立前置验证证明（见第 12 节），通过后 marker 与 adoption 才能开工。
-- 后续项（不在本刀强制）：第一刀 journal 关键保存路径同样使用 `ctx.saveChat`，本封装落地后回头替换加固。
+- Draw Run adoption 激活后的第一刀恢复结算同样经过这条写前快照与读回验证边界；被写前条件拦下时恢复内存槽位，不让陈旧标签页整份覆盖聊天。
 
 ### marker 内容与严格顺序
 
 目标 swipe 只保存身份，不保存进度、正文、Prompt、密钥或计划：
 
 ```js
-extra.xbDrawRuns[runId] = { version: 1, provider, sourceHash, createdAt }
+extra.xbDrawRuns[runId] = {
+  version: 1,
+  provider,
+  sourceHash,
+  targetHash,
+  createdAt,
+  // 自动模式才有
+  automatic: true,
+  // 用户请求取消后才有
+  cancelRequestedAt,
+}
 ```
 
 ```text
-完成全部预处理
+点击时冻结活动 swipe index 与完整正文
+→ 查询第一刀 journal；当前 swipe 仍有活跃图片槽位时在进入 Planner 前拒绝第二批，gallery-only 或用户已删除的槽位不锁正文
+→ 查询 capability 并完成全部 Planner 预处理
 → 生成 runId（slotId/imgId 由 runId + index 确定性派生）
-→ 内部锁定当前活动 swipe，并按 Provider 的正文归一化规则重算 sourceHash，精确 CAS 确认正文没变（且楼层不在编辑中）
+→ 保存 marker 前再次核对仍是点击时的同一 swipe；重算剥槽正文的 sourceHash，并以冻结的完整 swipe targetHash 做严格 CAS（且楼层不在编辑中）
 → 写 swipe extra marker（唯一 accessor）
 → confirmable save：保存并读回验证 marker 在场
 → POST Draw Run
@@ -354,8 +382,10 @@ extra.xbDrawRuns[runId] = { version: 1, provider, sourceHash, createdAt }
 - marker 存在、GET run 404：受 `SUBMISSION_UNCERTAINTY_WINDOW_MS` 约束——窗口内只能 WAIT（另一页面的 POST 可能尚未到达服务端，立即清 marker 会制造孤儿任务）；超窗仍 404 才判定"未提交 / Node 已重启"，清 marker 并提示。发起提交的活页面收到明确 4xx 时可立即清理。
 - POST 已到、响应丢失：相同 runId 查询或重发，接回既有任务。
 - Planner 失败：删除 marker，不往正文写失败卡。
+- 自动模式不在预处理或 202 时提前写完成标记。只有 child handoff 已建立、marker 可以确认删除时，才在同一次 chat save 中把 `automatic: true` 原子转成该 Provider 现有的 `xb_*_auto_done`；明确拒绝、Planner 失败或 handoff 前取消均不写完成标记，可以再次触发。多标签页恢复以服务端读回的 `auto_done` 为准同步本页内存，不能由陈旧页面后续保存擦除。
 - 切聊天：不取消，只停止当前页面监控。
 - swipe 重排、消息前移：runId 随 swipe extra 移动，不依赖楼层下标。
+- adoption journal 中的 `messageId` 只是写入时定位提示；恢复以确定性 `slotId` 扫描全部正文与非活动 swipe。删除更早楼层导致消息下标变化时，不得把仍存在的已付费图片槽位误判为丢失。
 
 ## 10. adoption 与 gallery-only journal 重整
 
@@ -388,24 +418,28 @@ delivery: { mode: 'gallery' }
 
 ### adoptExistingJobFromDrawRun
 
-第二刀唯一特许入口，不破坏第一刀普通任务的 `journal → slots → POST`。只接受：当前 owner 可见的 Draw Run、runId marker、后端返回的 childJobId 与 manifest、sourceHash 校验。
+第二刀唯一特许入口，不破坏第一刀普通任务的 `journal → slots → POST`。只接受：当前 owner 可见的 Draw Run、runId marker、后端返回的 childJobId 与 manifest、sourceHash 与 marker targetHash 双重校验。
 
 接管顺序：
 
 ```text
 原子创建 child job 本地 journal（adopting/pending，含 originRunId）
-→ 校验目标 swipe 与 sourceHash
+→ 校验目标 swipe 的 sourceHash 与完整文本 targetHash
 → 写正文前转 adopting/placing（刷新后若槽位不在持久化正文中，绝不复活，改走 gallery-only）
 → 写入真实图片 slots（或判定 gallery-only）
 → confirmable save：保存并读回验证
 → journal 转 adopting/ready
 → 持同一 adoption lease，读回确认目标正文未被其他标签页改写
-→ 删除 draw-run marker 并保存
+→ 删除 draw-run marker 并保存；自动任务在同一次保存中写入现有 Provider auto_done
 → journal.originRunAckReady = true
 → 单事务转 active/cancelling 且释放 adoption lease
 → 交给第一刀 attachJob()；图片落库与正文结算成功后 ACK Draw Run
 → 删除 journal（ACK 响应丢失时凭 originRunId 重试，404 视为已完成）
 ```
+
+marker 清理后，面板控制权改读同一条第一刀 journal，不另建 UI 状态：child 仍在排队/生成时继续显示“后台已接管”并可取消；取消意图先原子写入 journal，再同时请求 Draw Run 与 child 取消，恢复器最终以 journal 的 `cancelling` 事实做 discard 结算。journal 删除后面板重新读取事实并回到空闲。
+
+酒馆停止键 / Escape 只中止仍在浏览器调用栈里的前台生成，不取消已经由后端接管的 Draw Run。后台任务只能从对应楼层或悬浮画图胶囊显式取消，避免用户停止文本生成时误伤早前楼层已经付费的后台批。
 
 刷新卡在任何一步都能继续；不允许出现"child job 已存在但本地无任何恢复依据"的窗口（marker 删除与 ACK 之间崩溃时，journal 即恢复依据）。
 
@@ -418,6 +452,7 @@ delivery: { mode: 'gallery' }
 ## 11. 多标签页与 unclaimed run
 
 - 同源多标签页沿用 IndexedDB lease；创建 child journal 时只允许一个标签页 CAS 成功接管。
+- 所有 Draw Run marker、取消、adoption 槽位和恢复结算写入按聊天持有同源 Web Lock，并在保存前比较整份持久化消息快照；同页共享内存修改另由 mutation queue 串行，两类锁都只活在运行期，不新增持久状态。恢复重试若内存中已没有待删槽位，只允许在“持久化聊天定点删除本批 slot 后恰好等于当前快照”时补保存，禁止绕过 CAS 直接整份落盘。其他标签页已经推进正文时，陈旧页只能让位，不能凭旧 `ctx.chat` 覆盖磁盘。
 - 后端存在且没有 marker/journal：不自动取消、不自动删除、不猜楼层，保持 `unclaimed`。已有 adoption journal 可按冻结的 chat target 跨聊天只读确认；无论 delivery 是 slots 还是 gallery，目标聊天未激活时都只等待，不能把“当前看不到 marker”误判成目标消失。回到目标聊天后再完成对应的占位符或 gallery 接回与 marker 清理。
 
 ## 12. 施工顺序
@@ -430,14 +465,14 @@ delivery: { mode: 'gallery' }
 → 4. Node bundle 管线（已完成；esbuild：Node entry + 三个 SDK + Agent Core → 提交进 server-plugin 的可复制产物；零运行时安装依赖；生成第三方许可证清单）
 → 5. Planner prepare/execute 拆分（已完成；浏览器行为不变）
 → 6. 三家纯 compiler 提取，浏览器链路切换（已完成；行为不变）
-→ 7. DrawRunManager / 状态机 / API / per-run Host Client / Agent executor / compiler registry / child 创建（经共享 normalize/validate service）/ 敏感数据清理 / 生命周期与取消（已完成；不发布 capability）
-→ 8. 前端提交与 marker（已完成共享 draw-run-coordinator：preflight、marker CAS、幂等提交、提交不确定窗口、"正在提交/后台已接管"状态事件；在 adoption 可用前不注册三家生产入口）
+→ 7. DrawRunManager / 状态机 / API / per-run Host Client / Agent executor / compiler registry / child 创建（经共享 normalize/validate service）/ 敏感数据清理 / 生命周期与取消（已完成；该阶段未单独发布 capability）
+→ 8. 前端提交与 marker（已完成共享 draw-run-coordinator：preflight、marker CAS、幂等提交、提交不确定窗口、"正在提交/后台已接管"状态事件；该阶段未单独注册三家生产入口）
 → 9. journal 重整：delivery 判别模型 + adopting 状态 + 原子创建 + originRunId（已完成；旧测试线 schema 在升级入口一次性删除）
 → 10. child adoption（已完成：marker 扫描、reconcile、adoptExistingJobFromDrawRun、source_changed → gallery、marker 清理与补 ACK、多标签页竞争、取消与 child_expired 收口）
-→ 11. 注册三家 Provider 生产入口与对应 UI 状态，并开放 draw-runs-v1 capability（三家全部通过后；缺 capability 时明确要求更新后端，不悄悄退化）
+→ 11. 注册三家 Provider 生产入口与对应 UI 状态，并开放 draw-runs-v1 capability（已完成；缺 capability 时明确要求更新后端，不悄悄退化）
 ```
 
-阶段 1–8 用户行为完全不变：第 7～8 步只建立后端 API 与共享提交边界，未发布 capability、未注册 Provider 入口。这样前端不会进入一个能提交却不能 adoption 的半成品路径；第 11 步只在第 9～10 步接回闭环完成后一次性注册并开放。
+施工期间阶段 1–8 用户行为保持不变：第 7～8 步只建立后端 API 与共享提交边界，当时未发布 capability、未注册 Provider 入口，避免前端进入一个能提交却不能 adoption 的半成品路径。现在第 9～10 步接回闭环与第 11 步生产入口已经一并完成并开放。
 
 ## 13. 最低必要测试
 
@@ -462,7 +497,8 @@ delivery: { mode: 'gallery' }
 - adoption journal 并发创建只有一个标签页成功（原子 add/CAS）。
 - child 创建后取消：Draw Run 保持 `dispatched` + manifest，adoption 仍能收取已 ready 结果。
 - marker 已删、ACK 响应丢失后，凭 `originRunId` 补 ACK。
-- sourceHash 变化时只进画廊；gallery 模式落库成功后才 ACK。
+- sourceHash 或首次写占位符前的完整 swipe targetHash 变化时只进画廊；gallery 模式落库成功后才 ACK。
+- adoption 已落盘后，用户只删除部分槽位时不复活被删槽位，其余仍存槽位继续接图；当前 swipe 的第一刀 journal 清理前不得启动会替换它的第二批。
 - 消息移动、swipe 切换后仍能按 marker 找回（含活动/非活动/无 swipe 结构三形态）。
 - 两标签页只能有一个接管者。
 - 显式取消传播；关闭页面不传播取消。

@@ -143,6 +143,28 @@ test('a missing submission waits for the uncertainty window before clearing its 
     ]);
 });
 
+test('a persisted cancellation intent is forwarded once the uncertain run appears', () => {
+    const cancellationMarker = marker();
+    cancellationMarker.marker.cancelRequestedAt = NOW - 500;
+    const pendingRun = run();
+    const needsCancel = planDrawRunRecovery({
+        markers: [cancellationMarker],
+        runs: [pendingRun],
+        records: [],
+        now: NOW,
+    });
+    assert.equal(needsCancel.plan[0].action, DrawRunRecoveryAction.REQUEST_CANCEL);
+
+    pendingRun.cancelRequestedAt = NOW - 100;
+    const alreadyForwarded = planDrawRunRecovery({
+        markers: [cancellationMarker],
+        runs: [pendingRun],
+        records: [],
+        now: NOW,
+    });
+    assert.equal(alreadyForwarded.plan[0].action, DrawRunRecoveryAction.ADOPT);
+});
+
 test('backend Draw Runs without a marker or journal remain unclaimed and untouched', () => {
     const orphan = run('run-test-304');
     const result = planDrawRunRecovery({ markers: [], runs: [orphan], records: [], now: NOW });

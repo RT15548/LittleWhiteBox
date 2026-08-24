@@ -95,7 +95,8 @@ test('Comfy compiler freezes the seed and custom workflow output selection', () 
         positivePrefix: 'best quality',
         negativePrefix: 'bad quality',
         knownCharacters: KNOWN_CHARACTERS,
-        seeds: [123456],
+        // Draw Run 在 Planner 前按最大张数冻结种子；实际计划可以少于上限。
+        seeds: [123456, 654321],
     });
 
     const request = compiled.items[0].request;
@@ -134,7 +135,9 @@ test('NovelAI compiler emits deterministic V5 stream requests without browser gl
         positivePrefix: 'depthness',
         negativePrefix: 'bad',
         knownCharacters: KNOWN_CHARACTERS,
-        seeds: [987654321],
+        autoLearnEnabled: true,
+        autoLearnMode: 'auto_update',
+        seeds: [987654321, 123456789],
     });
 
     const item = compiled.items[0];
@@ -147,6 +150,8 @@ test('NovelAI compiler emits deterministic V5 stream requests without browser gl
     assert.equal(item.request.payload.parameters.params_version, 4);
     assert.match(item.request.payload.input, /depthness/);
     assert.match(item.request.payload.parameters.negative_prompt, /bad/);
+    assert.deepEqual(compiled.artifacts[0].providerMetadata.autoLearnCharacters, SCENE_PLAN[0].chars);
+    assert.equal(compiled.artifacts[0].providerMetadata.autoLearnMode, 'auto_update');
 });
 
 test('NovelAI compiler keeps the released V4.5 JSON payload contract', () => {
@@ -171,6 +176,8 @@ test('NovelAI compiler keeps the released V4.5 JSON payload contract', () => {
         positivePrefix: 'masterpiece',
         negativePrefix: 'bad quality',
         knownCharacters: KNOWN_CHARACTERS,
+        autoLearnEnabled: false,
+        autoLearnMode: 'new_only',
         seeds: [123456789],
     });
 
@@ -183,6 +190,7 @@ test('NovelAI compiler keeps the released V4.5 JSON payload contract', () => {
     assert.match(item.request.payload.input, /masterpiece/);
     assert.match(item.request.payload.parameters.characterPrompts[0].prompt, /ali \(original\)/);
     assert.match(item.request.payload.parameters.negative_prompt, /bad quality/);
+    assert.deepEqual(compiled.artifacts[0].providerMetadata.autoLearnCharacters, []);
 });
 
 test('NovelAI single-request compiler resolves transport and payload from the same merged params', () => {
@@ -216,6 +224,8 @@ test('NovelAI compiler preserves relative URLs for browser-direct delivery', () 
         resolveForBackend: false,
         timeout: 60000,
         requestDelay: { min: 15000, max: 30000 },
+        autoLearnEnabled: false,
+        autoLearnMode: 'new_only',
         params: {
             model: 'nai-diffusion-4-5-full',
             width: 832,

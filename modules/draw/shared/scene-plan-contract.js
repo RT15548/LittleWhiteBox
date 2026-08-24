@@ -64,6 +64,7 @@ const PROMPT_ERROR_CODES = new Set([
 const INPUT_ERROR_CODES = new Set([
     'EMPTY_MESSAGE',
     'NO_INSERT_POINTS',
+    'IMAGE_LIMIT_EXCEEDED',
 ]);
 const TOOL_PROTOCOL_ERROR_CODES = new Set([
     'TOOL_CONTRACT_INVALID',
@@ -185,10 +186,11 @@ function normalizedCenterSchema() {
 
 export function createSubmitScenePlanTool(options = {}) {
     const maxImages = normalizeLimit(options.maxImages);
+    const maxPlanImages = normalizeLimit(options.maxPlanImages);
     const maxCharactersPerImage = normalizeLimit(options.maxCharactersPerImage);
     const insertPointCount = normalizeLimit(options.insertPointCount);
     const centerMode = options.centerMode === 'normalized' ? 'normalized' : 'grid';
-    const maxPlanItems = maxImages || insertPointCount;
+    const maxPlanItems = maxImages || maxPlanImages || insertPointCount;
     const momentsSchema = {
         type: 'array',
         minItems: maxImages || 1,
@@ -343,10 +345,18 @@ function validateMindfulPrelude(value, options = {}) {
         failSchema('mindful_prelude.visual_plan.moments', '必须是非空 array', visualPlan.moments);
     }
     const maxImages = normalizeLimit(options.maxImages);
+    const maxPlanImages = normalizeLimit(options.maxPlanImages);
     if (maxImages && visualPlan.moments.length !== maxImages) {
         failSchema(
             'mindful_prelude.visual_plan.moments',
             `本次必须恰好包含 ${maxImages} 项`,
+            visualPlan.moments.length,
+        );
+    }
+    if (!maxImages && maxPlanImages && visualPlan.moments.length > maxPlanImages) {
+        failSchema(
+            'mindful_prelude.visual_plan.moments',
+            `本次最多包含 ${maxPlanImages} 项`,
             visualPlan.moments.length,
         );
     }
@@ -446,10 +456,14 @@ function normalizeImages(images, options = {}) {
         );
     }
     const maxImages = normalizeLimit(options.maxImages);
+    const maxPlanImages = normalizeLimit(options.maxPlanImages);
     const maxCharactersPerImage = normalizeLimit(options.maxCharactersPerImage);
     const centerMode = options.centerMode === 'normalized' ? 'normalized' : 'grid';
     if (maxImages && images.length !== maxImages) {
         failSchema('images', `本次必须恰好包含 ${maxImages} 项`, images.length);
+    }
+    if (!maxImages && maxPlanImages && images.length > maxPlanImages) {
+        failSchema('images', `本次最多包含 ${maxPlanImages} 项`, images.length);
     }
     const knownNameLookup = normalizeCharacterLookup(options.presentCharacters);
     const sceneSource = options.sceneSource;

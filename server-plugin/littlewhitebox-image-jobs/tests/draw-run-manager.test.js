@@ -26,6 +26,7 @@ function createEnvelope(runId, overrides = {}) {
                     points: [{ number: 1, offset: sourceText.length }],
                 },
                 effectiveMaxImages: 1,
+                maxPlanImages: 1,
                 effectiveMaxCharactersPerImage: 1,
                 centerMode: 'normalized',
             },
@@ -103,6 +104,74 @@ function createRuntime(overrides = {}) {
         ...overrides,
     };
 }
+
+test('NovelAI Draw Run accepts the empty API base used for the official image endpoint', () => {
+    const envelope = createEnvelope('run-test-novel-official', {
+        imageProvider: 'novelai',
+        generationRecipe: {
+            apiBaseUrl: '',
+            apiKey: 'novel-secret',
+            insecureTLS: false,
+            timeout: 60_000,
+            requestDelay: { min: 15_000, max: 30_000 },
+            overrideSize: 'default',
+            resolveForBackend: true,
+            params: {},
+            positivePrefix: '',
+            negativePrefix: '',
+            knownCharacters: [],
+            autoLearnEnabled: false,
+            autoLearnMode: 'new_only',
+            seeds: [1],
+        },
+    });
+    assert.doesNotThrow(() => createEnvelopeValidator(drawRuntime)(envelope));
+});
+
+test('Draw Run accepts unspecified browser limits but rejects zero image delay before Planner execution', () => {
+    const validate = createEnvelopeValidator(drawRuntime);
+    const envelope = createEnvelope('run-test-default-limits');
+    envelope.planner.validationContext.effectiveMaxImages = 0;
+    envelope.planner.validationContext.effectiveMaxCharactersPerImage = 0;
+    assert.doesNotThrow(() => validate(envelope));
+
+    envelope.generationRecipe.delayMs = 0;
+    assert.throws(() => validate(envelope), /generationRecipe\.delayMs must round to an integer/);
+    envelope.generationRecipe.delayMs = 0.4;
+    assert.throws(() => validate(envelope), /generationRecipe\.delayMs must round to an integer/);
+    envelope.generationRecipe.delayMs = 0x80000000;
+    assert.throws(() => validate(envelope), /generationRecipe\.delayMs must round to an integer/);
+});
+
+test('NovelAI V5 character limits are enforced at the Draw Run envelope boundary', () => {
+    const validate = createEnvelopeValidator(drawRuntime);
+    const envelope = createEnvelope('run-test-novel-v5-limit', {
+        imageProvider: 'novelai',
+        generationRecipe: {
+            apiBaseUrl: '',
+            apiKey: 'novel-secret',
+            insecureTLS: false,
+            timeout: 60_000,
+            requestDelay: { min: 15_000, max: 30_000 },
+            overrideSize: 'default',
+            resolveForBackend: true,
+            params: { model: 'nai-diffusion-5-full' },
+            positivePrefix: '',
+            negativePrefix: '',
+            knownCharacters: [],
+            autoLearnEnabled: false,
+            autoLearnMode: 'new_only',
+            seeds: [1],
+        },
+    });
+
+    envelope.planner.validationContext.effectiveMaxCharactersPerImage = 22;
+    assert.doesNotThrow(() => validate(envelope));
+    envelope.planner.validationContext.effectiveMaxCharactersPerImage = 23;
+    assert.throws(() => validate(envelope), /must be between 1 and 22/);
+    envelope.planner.validationContext.effectiveMaxCharactersPerImage = 0;
+    assert.throws(() => validate(envelope), /must be between 1 and 22/);
+});
 
 function createManager({
     runtime = createRuntime(),
@@ -316,7 +385,7 @@ test('a disappeared child is retired without waiting for another API request', a
     await waitFor(() => manager.get('alice', 'run-test-007')?.state === 'dispatched');
 
     imageJobService.jobs.delete('alice\0draw-run:run-test-007');
-    await new Promise(resolve => setTimeout(resolve, 30));
+    await waitFor(() => manager.get('alice', 'run-test-007') === null);
 
     assert.equal(manager.get('alice', 'run-test-007'), null);
 });

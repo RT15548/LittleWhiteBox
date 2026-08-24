@@ -143,6 +143,14 @@ test('scene plan tool schema applies exact image count and character cap', () =>
     const boundedImages = boundedTool.function.parameters.properties.images;
     const boundedMoments = boundedTool.function.parameters.properties.mindful_prelude
         .properties.visual_plan.properties.moments;
+    const backendBounded = createSubmitScenePlanTool({
+        maxImages: 0,
+        maxPlanImages: 20,
+        insertPointCount: 30,
+    }).function.parameters.properties;
+    assert.equal(backendBounded.images.minItems, 1);
+    assert.equal(backendBounded.images.maxItems, 20);
+    assert.equal(backendBounded.mindful_prelude.properties.visual_plan.properties.moments.maxItems, 20);
     assert.equal(boundedImages.minItems, 1);
     assert.equal(boundedImages.maxItems, 2);
     assert.equal(boundedMoments.items.properties.insert_after.maximum, 2);
@@ -177,6 +185,7 @@ test('scene planner errors expose stable failure categories', () => {
     const cases = [
         ['EMPTY_MESSAGE', ScenePlannerErrorCategory.INPUT],
         ['NO_INSERT_POINTS', ScenePlannerErrorCategory.INPUT],
+        ['IMAGE_LIMIT_EXCEEDED', ScenePlannerErrorCategory.INPUT],
         ['MODEL_MISSING', ScenePlannerErrorCategory.AGENT_CONFIG],
         ['HOST_REQUEST_HEADERS_LOAD_FAILED', ScenePlannerErrorCategory.AGENT_CONFIG],
         ['TOOL_CALL_MISSING', ScenePlannerErrorCategory.TOOL_PROTOCOL],

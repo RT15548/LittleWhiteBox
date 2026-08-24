@@ -87,6 +87,26 @@ export function requireImageJobDeliveryTarget(options) {
     return target.state === ImageJobDeliveryTargetState.ALIVE ? target : null;
 }
 
+export function removeImageJobDeliverySlotsFromChat(chat, slotIds = []) {
+    const ids = [...new Set((Array.isArray(slotIds) ? slotIds : [])
+        .map(value => String(value || '').trim())
+        .filter(Boolean))];
+    const clone = JSON.parse(JSON.stringify(Array.isArray(chat) ? chat : []));
+    if (ids.length === 0) return clone;
+    for (const message of clone) {
+        if (!message || typeof message !== 'object') continue;
+        if (typeof message.mes === 'string') {
+            message.mes = removeSceneSlotPlaceholders(message.mes, ids);
+        }
+        if (Array.isArray(message.swipes)) {
+            message.swipes = message.swipes.map(value => (
+                typeof value === 'string' ? removeSceneSlotPlaceholders(value, ids) : value
+            ));
+        }
+    }
+    return clone;
+}
+
 export async function commitImageJobDeliverySlotRemoval({
     slotIds = [],
     resolveTarget,
@@ -119,13 +139,31 @@ export async function commitImageJobDeliverySlotRemoval({
         group.slotIds.push(slotId);
         bySwipe.set(swipeKey, group);
     }
+    const changes = [];
     for (const bySwipe of grouped.values()) {
         for (const { target, slotIds: targetSlotIds } of bySwipe.values()) {
-            setImageJobDeliveryTargetText(target, removeSceneSlotPlaceholders(target.text, targetSlotIds));
+            const beforeText = target.text;
+            const afterText = removeSceneSlotPlaceholders(beforeText, targetSlotIds);
+            if (afterText === beforeText) continue;
+            setImageJobDeliveryTargetText(target, afterText);
+            changes.push({ target, beforeText, afterText });
         }
     }
 
     // 即使本轮已找不到 slot 也要保存：这可能是上一次内存删除成功、saveChat 响应失败后的重试。
-    await persist?.();
+    try {
+        await persist?.({ targets, changes });
+    } catch (error) {
+        // 写前核对明确阻止了保存时，内存修改尚未离开本页，可以安全恢复；
+        // 保存已尝试但读回不确定时则保持现状，交给下一轮持久化事实判定。
+        if (error?.saveAttempted === false) {
+            for (const change of [...changes].reverse()) {
+                if (change.target.text === change.afterText) {
+                    setImageJobDeliveryTargetText(change.target, change.beforeText);
+                }
+            }
+        }
+        throw error;
+    }
     return targets.map(entry => entry.target);
 }

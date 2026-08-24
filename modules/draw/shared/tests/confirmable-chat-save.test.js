@@ -1,9 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { setImmediate } from 'node:timers';
 
 import {
+    ConfirmableChatSaveBlockedError,
     ConfirmableChatSaveUncertainError,
+    createConfirmableChatSnapshot,
+    persistedChatMatchesSnapshot,
     saveChatAndConfirm,
+    withConfirmableChatMutation,
 } from '../confirmable-chat-save.js';
 
 function jsonResponse(body, status = 200) {
@@ -60,7 +65,7 @@ test('character chat save is confirmed only after reading its persisted file', a
             return persistedChat[1]?.extra?.xbDrawRuns?.['run-1']?.version === 1;
         },
     });
-    await Promise.resolve();
+    while (!releaseSave) await new Promise(resolve => setImmediate(resolve));
     assert.deepEqual(order, ['save-started']);
     ctx.chatId = 'chat-b';
     ctx.characterId = 1;
@@ -151,6 +156,63 @@ test('a missing marker is reported as uncertain without rolling back memory', as
     });
     assert.strictEqual(ctx.chat, chatReference);
     assert.deepEqual(ctx.chat, chatSnapshot);
+});
+
+test('concurrent stale writers serialize and only the first may save', async () => {
+    const originalMessages = [{ mes: 'first' }, { mes: 'second' }];
+    const originalSnapshot = createConfirmableChatSnapshot({ chat: originalMessages });
+    let persistedChat = [{ chat_metadata: {} }, ...structuredClone(originalMessages)];
+    let saves = 0;
+    const makeWrite = (runId, messageId) => {
+        const nextMessages = structuredClone(originalMessages);
+        nextMessages[messageId].extra = { xbDrawRuns: { [runId]: { version: 1 } } };
+        const nextChat = [{ chat_metadata: {} }, ...nextMessages];
+        return saveChatAndConfirm({
+            ctx: characterContext({
+                chat: nextMessages,
+                saveChat: async () => {
+                    saves += 1;
+                    persistedChat = structuredClone(nextChat);
+                },
+            }),
+            fetchImpl: async () => jsonResponse(structuredClone(persistedChat)),
+            precondition: chat => persistedChatMatchesSnapshot(chat, originalSnapshot),
+            verify: chat => chat[messageId + 1]?.extra?.xbDrawRuns?.[runId]?.version === 1,
+        });
+    };
+
+    const results = await Promise.allSettled([makeWrite('run-a', 0), makeWrite('run-b', 1)]);
+
+    assert.equal(results.filter(result => result.status === 'fulfilled').length, 1);
+    assert.equal(saves, 1);
+    const rejected = results.find(result => result.status === 'rejected');
+    assert.ok(rejected?.reason instanceof ConfirmableChatSaveBlockedError);
+    assert.equal(rejected.reason.reason, 'precondition_failed');
+    assert.equal(rejected.reason.saveAttempted, false);
+});
+
+test('same-page chat mutations remain serialized until their confirmed save finishes', async () => {
+    const ctx = characterContext({ chat: [{ mes: 'story' }] });
+    const order = [];
+    let releaseFirst;
+    const first = withConfirmableChatMutation(ctx, async () => {
+        order.push('first-mutate');
+        ctx.chat[0].extra = { first: true };
+        await new Promise(resolve => { releaseFirst = resolve; });
+        order.push('first-confirmed');
+    });
+    while (!releaseFirst) await new Promise(resolve => setImmediate(resolve));
+
+    const second = withConfirmableChatMutation(ctx, async () => {
+        order.push('second-mutate');
+        assert.equal(ctx.chat[0].extra?.first, true);
+    });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(order, ['first-mutate']);
+
+    releaseFirst();
+    await Promise.all([first, second]);
+    assert.deepEqual(order, ['first-mutate', 'first-confirmed', 'second-mutate']);
 });
 
 test('a read-back timeout is reported as uncertain', { timeout: 500 }, async () => {

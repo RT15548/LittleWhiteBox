@@ -751,8 +751,8 @@ select.input { cursor: pointer; }
                             <button type="button" class="btn nd-mode-btn" data-send-mode="backend"><i class="fa-solid fa-server"></i> 后端发送</button>
                         </div>
                         <label class="check-row" style="margin-top:8px;"><input type="checkbox" id="nd_insecure_tls"> 忽略证书验证（仅后端发送模式、连接自签证书端点时勾选）</label>
-                        <label class="check-row" style="margin-top:8px;"><input type="checkbox" id="nd_use_backend_jobs"> 使用小白盒后台批量任务</label>
-                        <p class="form-hint">开启后任务由小白盒服务端独立执行，刷新或断网后可自动接回；插件不可用时会直接报错，不会静默回退。</p>
+                        <label class="check-row" style="margin-top:8px;"><input type="checkbox" id="nd_use_backend_jobs"> 使用小白盒后台任务（场景分析 + 批量出图）</label>
+                        <p class="form-hint">开启后，楼层配图的场景分析与批量出图都由酒馆服务器接管。看到“后台已接管”后，刷新、断网或关闭浏览器都可自动接回。非酒馆 Agent 渠道的 Base URL 必须能从酒馆服务器访问，其中 127.0.0.1 指酒馆服务器本机；失败不会退回浏览器执行。</p>
                         <p class="form-hint">前端直连：浏览器直接请求（需对方支持 CORS + 有效证书）。后端发送：由酒馆后端代发，可绕过 CORS 与自签证书。</p>
 
                         <!-- 后端插件状态栏（仅后端发送模式显示） -->

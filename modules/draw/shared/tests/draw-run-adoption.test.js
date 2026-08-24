@@ -17,8 +17,15 @@ const CHAT_TARGET = {
 
 function fixture() {
     const sourceHash = hashSceneSource(normalizeMessageSceneSourceText(SOURCE));
+    const targetHash = hashSceneSource(SOURCE);
     const ids = deriveDrawRunItemIds(RUN_ID, 0);
-    const marker = { version: 1, provider: 'novelai', sourceHash, createdAt: 100 };
+    const marker = {
+        version: 1,
+        provider: 'novelai',
+        sourceHash,
+        targetHash,
+        createdAt: 100,
+    };
     const run = {
         id: RUN_ID,
         state: 'dispatched',
@@ -29,7 +36,17 @@ function fixture() {
             provider: 'novelai',
             sourceHash,
             placementContract: 1,
-            items: [{ index: 0, ...ids, insertOffset: 6, displayMetadata: { tags: 'scene' } }],
+            items: [{
+                index: 0,
+                ...ids,
+                insertOffset: 6,
+                displayMetadata: {
+                    tags: 'scene',
+                    providerMetadata: {
+                        autoLearnCharacters: [{ name: 'Alice', type: 'girl', appear: 'blue hair' }],
+                    },
+                },
+            }],
         },
     };
     const message = {
@@ -45,6 +62,7 @@ function fixture() {
         messageId: 4,
         swipeIndex: 0,
         chatId: 'chat-1',
+        chat: [message],
     };
     return { ids, marker, message, run, target };
 }
@@ -98,6 +116,12 @@ function createJournal(initialRecord = null) {
             store.set(jobId, updated);
             return updated;
         },
+        async resetPlacing(jobId, leaseId) {
+            const current = await journal.fence(jobId, leaseId);
+            const updated = { ...current, adoptionPhase: PendingJobAdoptionPhase.PENDING };
+            store.set(jobId, updated);
+            return updated;
+        },
         async release(jobId, leaseId) {
             const current = await journal.fence(jobId, leaseId);
             const updated = { ...current, leaseExpiresAt: 0 };
@@ -134,7 +158,90 @@ test('a dispatched child persists its slots before becoming an active image jour
         mode: 'slots', chatId: 'chat-1', messageId: '4', swipeIndex: 0,
     });
     assert.equal(result.record.adoptionPhase, PendingJobAdoptionPhase.READY);
+    assert.equal(
+        result.record.items[0].previewMetadata.providerMetadata.autoLearnCharacters[0].name,
+        'Alice',
+    );
     assert.equal(renderedAfterSave, true);
+});
+
+test('a pre-save chat conflict restores the local text and leaves adoption recoverable', async () => {
+    const { marker, message, run, target } = fixture();
+    const journal = createJournal();
+    await assert.rejects(adoptExistingJobFromDrawRun({
+        run,
+        marker,
+        journal,
+        chatTarget: CHAT_TARGET,
+        now: () => 0,
+        resolveTarget: () => target,
+        confirmSlots() {
+            const error = new Error('stale chat');
+            error.saveAttempted = false;
+            throw error;
+        },
+    }), /stale chat/);
+
+    assert.equal(message.mes, SOURCE);
+    const record = journal.store.get(deriveDrawRunChildJobId(RUN_ID));
+    assert.equal(record.adoptionPhase, PendingJobAdoptionPhase.PENDING);
+    assert.equal(record.leaseExpiresAt, 0);
+});
+
+test('losing the adoption lease after a local slot write restores the unsaved text', async () => {
+    const { marker, message, run, target } = fixture();
+    const journal = createJournal();
+    const originalFence = journal.fence;
+    let fenceCount = 0;
+    journal.fence = async (jobId, leaseId) => {
+        fenceCount += 1;
+        if (fenceCount === 3) {
+            const current = journal.store.get(jobId);
+            journal.store.set(jobId, { ...current, leaseId: 'lease-new-owner' });
+            throw new PendingImageJobLostError(jobId, '页面冻结后已被接管');
+        }
+        return originalFence(jobId, leaseId);
+    };
+    let confirmCalled = false;
+
+    await assert.rejects(adoptExistingJobFromDrawRun({
+        run,
+        marker,
+        journal,
+        chatTarget: CHAT_TARGET,
+        now: () => 0,
+        resolveTarget: () => target,
+        confirmSlots() { confirmCalled = true; },
+    }), error => error?.code === 'PENDING_JOB_LEASE_LOST');
+
+    assert.equal(message.mes, SOURCE);
+    assert.equal(confirmCalled, false);
+    assert.equal(journal.store.get(deriveDrawRunChildJobId(RUN_ID)).leaseId, 'lease-new-owner');
+});
+
+test('a target lost before any text mutation rewinds placing instead of degrading to gallery', async () => {
+    const { marker, message, run, target } = fixture();
+    const journal = createJournal();
+    let resolutions = 0;
+    const result = await adoptExistingJobFromDrawRun({
+        run,
+        marker,
+        journal,
+        chatTarget: CHAT_TARGET,
+        now: () => 0,
+        resolveTarget: () => {
+            resolutions += 1;
+            return resolutions < 4 ? target : null;
+        },
+        confirmSlots() { throw new Error('target loss must happen before saving'); },
+    });
+
+    assert.equal(result.status, 'wait');
+    assert.equal(result.reason, 'target_changed');
+    assert.equal(message.mes, SOURCE);
+    const record = journal.store.get(deriveDrawRunChildJobId(RUN_ID));
+    assert.equal(record.adoptionPhase, PendingJobAdoptionPhase.PENDING);
+    assert.equal(record.leaseExpiresAt, 0);
 });
 
 test('source edits switch child delivery to gallery without touching the edited message', async () => {
@@ -157,6 +264,35 @@ test('source edits switch child delivery to gallery without touching the edited 
     assert.equal(result.delivery, 'gallery');
     assert.deepEqual(result.record.delivery, { mode: 'gallery', reason: 'source_changed' });
     assert.equal(message.mes, 'User edited this text.');
+    assert.equal(confirmCalled, false);
+});
+
+test('image-slot-only edits fail the exact target CAS and never overwrite the active swipe', async () => {
+    const { marker, message, run, target } = fixture();
+    const editedText = `${SOURCE}[image:user-added-slot]`;
+    assert.equal(
+        hashSceneSource(normalizeMessageSceneSourceText(editedText)),
+        run.sourceHash,
+        'the stripped source intentionally cannot detect this edit',
+    );
+    message.mes = editedText;
+    message.swipes[0] = editedText;
+    let confirmCalled = false;
+
+    const result = await adoptExistingJobFromDrawRun({
+        run,
+        marker,
+        journal: createJournal(),
+        chatTarget: CHAT_TARGET,
+        now: () => 0,
+        resolveTarget: () => target,
+        confirmSlots() { confirmCalled = true; },
+    });
+
+    assert.equal(result.status, 'ready');
+    assert.equal(result.delivery, 'gallery');
+    assert.deepEqual(result.record.delivery, { mode: 'gallery', reason: 'source_changed' });
+    assert.equal(message.mes, editedText);
     assert.equal(confirmCalled, false);
 });
 

@@ -373,8 +373,8 @@ export function compile(scenePlan, generationRecipe) {
     const recipe = requireObject(generationRecipe, 'ComfyUI generationRecipe');
     const tasks = Array.isArray(scenePlan) ? scenePlan : scenePlan?.tasks;
     if (!Array.isArray(tasks) || tasks.length === 0) throw new TypeError('ComfyUI scenePlan 必须包含图片任务');
-    if (!Array.isArray(recipe.seeds) || recipe.seeds.length !== tasks.length) {
-        throw new TypeError('ComfyUI generationRecipe.seeds 必须与图片任务一一对应');
+    if (!Array.isArray(recipe.seeds) || recipe.seeds.length < tasks.length) {
+        throw new TypeError('ComfyUI generationRecipe.seeds 不足以覆盖全部图片任务');
     }
     const params = requireObject(recipe.params, 'ComfyUI generationRecipe.params');
     const timeout = requireFiniteNumber(recipe.timeout, 'ComfyUI generationRecipe.timeout', { allowZero: false });

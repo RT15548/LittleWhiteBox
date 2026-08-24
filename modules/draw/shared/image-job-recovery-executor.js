@@ -3,9 +3,11 @@ import {
     claimPendingImageJob,
     fencePendingImageJobLease,
     forgetPendingImageJob,
+    getPendingImageJob,
     markPendingImageJobActive,
     markPendingImageJobCancelling,
     markPendingImageJobSettling,
+    PendingJobState,
     renewPendingImageJobLease,
 } from './pending-image-jobs.js';
 import { ReattachAction } from './image-job-reattach.js';
@@ -15,6 +17,7 @@ const defaultJournal = {
     fenceLease: fencePendingImageJobLease,
     claim: claimPendingImageJob,
     forget: forgetPendingImageJob,
+    get: getPendingImageJob,
     markActive: markPendingImageJobActive,
     markCancelling: markPendingImageJobCancelling,
     markSettling: markPendingImageJobSettling,
@@ -64,10 +67,16 @@ async function runAttachment({ client, record, journal, delivery, cancelled }) {
             await guard();
             await delivery.failItem(record, item, error, guard);
         },
-        resolveSettlement: ({ error }) => {
+        resolveSettlement: async ({ error }) => {
+            const current = typeof journal.get === 'function'
+                ? await journal.get(record.jobId).catch(() => null)
+                : null;
+            const cancellationRequested = cancelled
+                || current?.state === PendingJobState.CANCELLING
+                || current?.cancelRequested === true;
             settlement = describeSettlement(delivery, record, {
                 error,
-                mode: cancelled ? 'discard' : '',
+                mode: cancellationRequested ? 'discard' : '',
             });
             return settlement;
         },
@@ -96,7 +105,7 @@ export async function executeImageJobReattachEntry({
     if (!client) throw new Error('缺少后台生图客户端');
     if (!delivery) throw new Error('缺少后台生图交付适配器');
 
-    const record = await claimEntry(entry, journal);
+    let record = await claimEntry(entry, journal);
     if (!record) return false;
     const guard = () => journal.fenceLease(record.jobId, record.leaseId);
 
@@ -118,7 +127,8 @@ export async function executeImageJobReattachEntry({
         };
     }
     if (entry.action !== ReattachAction.SETTLE) {
-        await journal.markSettling(record.jobId, record.leaseId, settlement);
+        record = await journal.markSettling(record.jobId, record.leaseId, settlement);
+        settlement = record.settlement;
     }
     await guard();
     await delivery.settle(record, settlement || { mode: 'complete' }, {}, guard);

@@ -1,8 +1,10 @@
 'use strict';
 
+const { MAX_TIMEOUT_MS } = require('../providers/upstream.js');
+
 const MAX_ENVELOPE_BYTES = 2 * 1024 * 1024;
 const MAX_IMAGE_ITEMS = 20;
-const MAX_CHARACTERS_PER_IMAGE = 22;
+const MAX_CONFIGURED_CHARACTERS_PER_IMAGE = 999;
 const IMAGE_PROVIDERS = new Set(['novelai', 'sd-webui', 'comfyui']);
 const AGENT_CHANNELS = new Set([
     'openai-compatible',
@@ -63,6 +65,15 @@ function requirePositiveNumber(value, path, { allowZero = false } = {}) {
         throw invalid(`${path} must be ${allowZero ? 'non-negative' : 'positive'}`);
     }
     return value;
+}
+
+function requireImageDelay(value, path) {
+    const normalized = Math.round(value);
+    if (typeof value !== 'number' || !Number.isFinite(value)
+        || normalized < 1 || normalized > MAX_TIMEOUT_MS) {
+        throw invalid(`${path} must round to an integer between 1 and ${MAX_TIMEOUT_MS}`);
+    }
+    return normalized;
 }
 
 function requireBoolean(value, path) {
@@ -137,24 +148,29 @@ function validatePlanner(value, runtime) {
 
     const context = assertExactKeys(
         planner.validationContext,
-        ['sceneSource', 'effectiveMaxImages', 'effectiveMaxCharactersPerImage', 'centerMode'],
+        ['sceneSource', 'effectiveMaxImages', 'maxPlanImages', 'effectiveMaxCharactersPerImage', 'centerMode'],
         'planner.validationContext',
     );
     const sceneSource = validateSceneSource(context.sceneSource, runtime);
     const effectiveMaxImages = requireInteger(
         context.effectiveMaxImages,
         'planner.validationContext.effectiveMaxImages',
+        0,
+        MAX_IMAGE_ITEMS,
+    );
+    const maxPlanImages = requireInteger(
+        context.maxPlanImages,
+        'planner.validationContext.maxPlanImages',
         1,
         MAX_IMAGE_ITEMS,
     );
-    if (effectiveMaxImages > sceneSource.points.length) {
-        throw invalid('effectiveMaxImages exceeds available scene points');
-    }
+    if (effectiveMaxImages > maxPlanImages) throw invalid('effectiveMaxImages exceeds maxPlanImages');
+    if (maxPlanImages > sceneSource.points.length) throw invalid('maxPlanImages exceeds available scene points');
     const effectiveMaxCharactersPerImage = requireInteger(
         context.effectiveMaxCharactersPerImage,
         'planner.validationContext.effectiveMaxCharactersPerImage',
-        1,
-        MAX_CHARACTERS_PER_IMAGE,
+        0,
+        MAX_CONFIGURED_CHARACTERS_PER_IMAGE,
     );
     if (context.centerMode !== 'grid' && context.centerMode !== 'normalized') {
         throw invalid('planner.validationContext.centerMode is invalid');
@@ -168,6 +184,7 @@ function validatePlanner(value, runtime) {
         validationContext: {
             sceneSource,
             effectiveMaxImages,
+            maxPlanImages,
             effectiveMaxCharactersPerImage,
             centerMode: context.centerMode,
         },
@@ -232,13 +249,15 @@ function validateGenerationRecipe(provider, value, imageCount) {
         recipe = assertExactKeys(value, [
             'apiBaseUrl', 'apiKey', 'insecureTLS', 'timeout', 'requestDelay', 'overrideSize',
             'baseHref', 'resolveForBackend', 'params', 'positivePrefix', 'negativePrefix',
-            'knownCharacters', 'seeds',
+            'knownCharacters', 'autoLearnEnabled', 'autoLearnMode', 'seeds',
         ], path, [
             'apiBaseUrl', 'apiKey', 'insecureTLS', 'timeout', 'requestDelay', 'overrideSize',
-            'resolveForBackend', 'params', 'positivePrefix', 'negativePrefix', 'knownCharacters', 'seeds',
+            'resolveForBackend', 'params', 'positivePrefix', 'negativePrefix', 'knownCharacters',
+            'autoLearnEnabled', 'autoLearnMode', 'seeds',
         ]);
         validateCommonRecipe(recipe, path);
-        requireString(recipe.apiBaseUrl, `${path}.apiBaseUrl`);
+        // 空值是 NovelAI 官方图片域名的现行设置语义；compiler 会在服务端解析为官方端点。
+        requireString(recipe.apiBaseUrl, `${path}.apiBaseUrl`, { allowEmpty: true });
         requireString(recipe.apiKey, `${path}.apiKey`);
         requireBoolean(recipe.insecureTLS, `${path}.insecureTLS`);
         if (recipe.resolveForBackend !== true) throw invalid(`${path}.resolveForBackend must be true`);
@@ -247,12 +266,16 @@ function validateGenerationRecipe(provider, value, imageCount) {
             requireString(recipe.baseHref, `${path}.baseHref`, { allowEmpty: true });
         }
         const delay = assertExactKeys(recipe.requestDelay, ['min', 'max'], `${path}.requestDelay`);
-        const min = requirePositiveNumber(delay.min, `${path}.requestDelay.min`);
-        const max = requirePositiveNumber(delay.max, `${path}.requestDelay.max`);
+        const min = requireImageDelay(delay.min, `${path}.requestDelay.min`);
+        const max = requireImageDelay(delay.max, `${path}.requestDelay.max`);
         if (min > max) throw invalid(`${path}.requestDelay.min must not exceed max`);
         assertPlainObject(recipe.params, `${path}.params`);
+        requireBoolean(recipe.autoLearnEnabled, `${path}.autoLearnEnabled`);
+        if (!['new_only', 'auto_update'].includes(recipe.autoLearnMode)) {
+            throw invalid(`${path}.autoLearnMode must be new_only or auto_update`);
+        }
         if (!Array.isArray(recipe.seeds) || recipe.seeds.length !== imageCount) {
-            throw invalid(`${path}.seeds must match effectiveMaxImages`);
+            throw invalid(`${path}.seeds must match maxPlanImages`);
         }
         recipe.seeds.forEach((seed, index) => requireInteger(
             seed,
@@ -268,7 +291,7 @@ function validateGenerationRecipe(provider, value, imageCount) {
         validateCommonRecipe(recipe, path);
         requireString(recipe.host, `${path}.host`);
         requireString(recipe.auth, `${path}.auth`, { allowEmpty: true });
-        requirePositiveNumber(recipe.delayMs, `${path}.delayMs`, { allowZero: true });
+        requireImageDelay(recipe.delayMs, `${path}.delayMs`);
         assertPlainObject(recipe.params, `${path}.params`);
         requireString(recipe.promptOverride, `${path}.promptOverride`, { allowEmpty: true });
         requireString(recipe.negativePromptOverride, `${path}.negativePromptOverride`, { allowEmpty: true });
@@ -281,7 +304,7 @@ function validateGenerationRecipe(provider, value, imageCount) {
         validateCommonRecipe(recipe, path);
         requireString(recipe.host, `${path}.host`);
         requireString(recipe.auth, `${path}.auth`, { allowEmpty: true });
-        requirePositiveNumber(recipe.delayMs, `${path}.delayMs`, { allowZero: true });
+        requireImageDelay(recipe.delayMs, `${path}.delayMs`);
         if (recipe.workflowMode !== 'simple' && recipe.workflowMode !== 'custom') {
             throw invalid(`${path}.workflowMode is invalid`);
         }
@@ -297,7 +320,7 @@ function validateGenerationRecipe(provider, value, imageCount) {
         requireString(recipe.promptOverride, `${path}.promptOverride`, { allowEmpty: true });
         requireString(recipe.negativePromptOverride, `${path}.negativePromptOverride`, { allowEmpty: true });
         if (!Array.isArray(recipe.seeds) || recipe.seeds.length !== imageCount) {
-            throw invalid(`${path}.seeds must match effectiveMaxImages`);
+            throw invalid(`${path}.seeds must match maxPlanImages`);
         }
         recipe.seeds.forEach((seed, index) => requireInteger(
             seed,
@@ -311,7 +334,9 @@ function validateGenerationRecipe(provider, value, imageCount) {
 }
 
 function createEnvelopeValidator(runtime) {
-    if (!runtime || typeof runtime.hashSceneSource !== 'function' || typeof runtime.assertDrawRunId !== 'function') {
+    if (!runtime || typeof runtime.hashSceneSource !== 'function'
+        || typeof runtime.assertDrawRunId !== 'function'
+        || typeof runtime.getNovelModelCapability !== 'function') {
         throw new TypeError('Draw Run envelope validator requires the Node runtime');
     }
     return function validateEnvelope(raw) {
@@ -348,8 +373,20 @@ function createEnvelopeValidator(runtime) {
         const generationRecipe = validateGenerationRecipe(
             imageProvider,
             envelope.generationRecipe,
-            planner.validationContext.effectiveMaxImages,
+            planner.validationContext.maxPlanImages,
         );
+        if (imageProvider === 'novelai') {
+            const capability = runtime.getNovelModelCapability(generationRecipe.params?.model);
+            const characterLimit = Number(capability?.maxCharactersPerImage) || 0;
+            if (characterLimit > 0 && (
+                planner.validationContext.effectiveMaxCharactersPerImage < 1
+                || planner.validationContext.effectiveMaxCharactersPerImage > characterLimit
+            )) {
+                throw invalid(
+                    `planner.validationContext.effectiveMaxCharactersPerImage must be between 1 and ${characterLimit} for this NovelAI model`,
+                );
+            }
+        }
         return {
             envelope: {
                 version: 1,
