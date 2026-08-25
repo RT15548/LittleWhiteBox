@@ -16,7 +16,7 @@ function Si(e = "") {
 function Qn(e = "") {
   return String(e || "").trim().replace(/\/+$/, "") || "https://api.tavily.com";
 }
-var Y0 = Object.freeze([
+var X0 = Object.freeze([
   Object.freeze({
     value: "inherit",
     label: "跟随模型默认"
@@ -53,13 +53,13 @@ function K(e = {}) {
   return e?.mode !== "off" && e?.output === "show";
 }
 var Bc = "openai-compatible", Es = "默认", qc = "default", Nm = "deny", tt = 32e3;
-var X0 = Object.freeze([{
+var Q0 = Object.freeze([{
   value: "default",
   label: "默认权限"
 }, {
   value: "full",
   label: "完全权限"
-}]), Q0 = Object.freeze([{
+}]), Z0 = Object.freeze([{
   value: "deny",
   label: "禁止"
 }, {
@@ -263,7 +263,7 @@ function Xc(e = {}, t, n) {
     tavilyBaseUrl: Dm(e, t, n)
   };
 }
-function Z0(e = {}, t = {}) {
+function j0(e = {}, t = {}) {
   const { defaultWorkspaceFileName: n = "", normalizeWorkspaceName: o = (p) => String(p || "") } = t, r = ot(e.currentPresetName || e.presetName || "默认"), i = Kc(e, r), s = Wc(i, e.currentPresetName), u = zc(i, e.delegatePresetName, s), c = i[u] || i[s] || _t(), d = bs(e.delegateConfig, c), f = Yc(e, i, s, u), h = Xc(e, r, s);
   return {
     enabled: !!e.enabled,
@@ -471,7 +471,7 @@ function xs(e = {}) {
       return Ps;
   }
 }
-function j0(e = Ps) {
+function eb(e = Ps) {
   const t = new Set(e.modes || ["inherit"]);
   return [
     {
@@ -491,7 +491,7 @@ function j0(e = Ps) {
     }
   ];
 }
-function eb(e = Ps) {
+function tb(e = Ps) {
   return e.intensity?.kind !== "effort" ? [] : e.intensity.values.map((t) => ({
     value: t,
     label: Um[t] || t
@@ -560,7 +560,7 @@ function Q(e = "", t = {}, n = {}, o = {}) {
 function fo(e = {}, t = {}) {
   return xs(e).temperatureOmitModes.includes(t.mode);
 }
-var tb = 900 * 1e3, nb = Object.freeze([{
+var nb = 900 * 1e3, ob = Object.freeze([{
   value: "native",
   label: "原生 Tool Calling"
 }, {
@@ -609,14 +609,14 @@ function wi(e = {}) {
 function xa(e = {}) {
   return wi(e) ? ed(e.temperature, 1) : void 0;
 }
-function ob(e = "", t = {}) {
+function rb(e = "", t = {}) {
   return t && typeof t == "object" && t[e] ? t[e] : Xm.find((n) => n.value === e)?.label || e || "未配置";
 }
-function rb(e = {}) {
+function ib(e = {}) {
   const t = String(e.provider || "").trim();
   return t === "openai-compatible" || t === "sillytavern-openai-compatible" ? e.toolMode === "tagged-json" ? "Tagged JSON 兼容模式" : "原生 Tool Calling" : "Provider 原生工具";
 }
-function ib(e = {}, t = {}) {
+function sb(e = {}, t = {}) {
   const n = $m(e || {});
   if (t.role === "delegate" && n.delegateConfig) {
     const d = n.delegateConfig.provider || "openai-compatible", f = (n.delegateConfig.modelConfigs || zt())[d] || zt()[d] || {}, h = {
@@ -19905,7 +19905,7 @@ var $I = class {
     };
   }
 };
-function wa(e) {
+function LI(e) {
   if (e !== void 0)
     try {
       return JSON.parse(JSON.stringify(e));
@@ -19913,11 +19913,19 @@ function wa(e) {
       return;
     }
 }
+function wa(e) {
+  const t = LI(Array.isArray(e) ? e : []);
+  return Array.isArray(t) ? (t.forEach((n) => {
+    !n || typeof n != "object" || Array.isArray(n) || (n.type === "function_call" && delete n.parsed_arguments, n.type === "message" && Array.isArray(n.content) && n.content.forEach((o) => {
+      !o || typeof o != "object" || Array.isArray(o) || delete o.parsed;
+    }));
+  }), t) : [];
+}
 function lm(e, t) {
   return {
     type: "message",
     role: e,
-    content: LI(t)
+    content: UI(t)
   };
 }
 function br(e) {
@@ -19926,7 +19934,7 @@ function br(e) {
     content: typeof e == "string" ? e : ""
   };
 }
-function LI(e) {
+function UI(e) {
   if (typeof e == "string") return [{
     type: "input_text",
     text: e
@@ -19965,7 +19973,7 @@ function Uc(e, t = [], n = {}) {
     }
   });
 }
-function UI(e = []) {
+function FI(e = []) {
   const t = [];
   return (e || []).forEach((n) => {
     !n || typeof n != "object" || n.type === "reasoning" && (Uc(t, n.content, {
@@ -19977,13 +19985,13 @@ function UI(e = []) {
     }));
   }), t;
 }
-function FI(e) {
+function OI(e) {
   const t = [String(e.systemPrompt || "").trim(), ...(e.messages || []).filter((n) => n.role === "system").map((n) => String(n.content || "").trim())].filter(Boolean);
   return t.length ? [...new Set(t)].join(`
 
 `) : "";
 }
-function OI(e) {
+function GI(e) {
   if (typeof e?.output_text == "string" && e.output_text.trim()) return e.output_text.trim();
   const t = [];
   return (Array.isArray(e?.output) ? e.output : []).forEach((n) => {
@@ -20005,12 +20013,12 @@ function OI(e) {
   }), t.join(`
 `).trim();
 }
-function GI(e) {
+function BI(e) {
   if (e && typeof e == "object" && !Array.isArray(e) && !Object.prototype.hasOwnProperty.call(e, "choices") && Array.isArray(e.output)) return;
   const t = /* @__PURE__ */ new Error("当前端点返回的不是 Responses API，请改用 OpenAI 兼容。");
   throw t.name = "OpenAIResponsesEndpointMismatchError", t.code = "OPENAI_RESPONSES_ENDPOINT_MISMATCH", t;
 }
-function BI(e) {
+function qI(e) {
   const t = [];
   for (const n of e.messages || [])
     if (n.role !== "system") {
@@ -20023,7 +20031,7 @@ function BI(e) {
         continue;
       }
       if (n.role === "assistant" && Array.isArray(n?.providerPayload?.openAIResponseOutput) && n.providerPayload.openAIResponseOutput.length) {
-        t.push(...wa(n.providerPayload.openAIResponseOutput) || []);
+        t.push(...wa(n.providerPayload.openAIResponseOutput));
         continue;
       }
       if (n.role === "assistant" && Array.isArray(n.tool_calls) && n.tool_calls.length) {
@@ -20049,7 +20057,7 @@ function BI(e) {
     }
   return t;
 }
-function qI(e) {
+function HI(e) {
   const t = [];
   for (const n of e.messages || []) {
     if (n.role === "system") {
@@ -20068,7 +20076,7 @@ function qI(e) {
       continue;
     }
     if (n.role === "assistant" && Array.isArray(n?.providerPayload?.openAIResponseOutput) && n.providerPayload.openAIResponseOutput.length) {
-      t.push(...wa(n.providerPayload.openAIResponseOutput) || []);
+      t.push(...wa(n.providerPayload.openAIResponseOutput));
       continue;
     }
     if (n.role === "assistant" && Array.isArray(n.tool_calls) && n.tool_calls.length) {
@@ -20094,18 +20102,18 @@ function qI(e) {
   }
   return t;
 }
-function HI(e) {
+function VI(e) {
   try {
     return new URL(String(e || "https://api.openai.com/v1")).hostname === "api.openai.com";
   } catch {
     return !1;
   }
 }
-function VI(e) {
+function JI(e) {
   const t = String(e?.message || e || "").toLowerCase();
   return t.includes("instructions") || t.includes("unsupported") || t.includes("unknown parameter") || t.includes("invalid input");
 }
-function JI(e, t) {
+function KI(e, t) {
   typeof e.onStreamProgress == "function" && e.onStreamProgress({
     ...typeof t.text == "string" ? { text: t.text } : {},
     ...Array.isArray(t.thoughts) ? { thoughts: t.thoughts } : {}
@@ -20115,7 +20123,7 @@ function vi(e, t) {
   const [n = "0", o = "0"] = String(e || "").split(":"), [r = "0", i = "0"] = String(t || "").split(":");
   return Number(n) - Number(r) || Number(o) - Number(i);
 }
-var KI = class {
+var WI = class {
   constructor(e) {
     this.config = e, this.client = new q({
       apiKey: e.apiKey,
@@ -20128,8 +20136,8 @@ var KI = class {
   buildRequestBody(e, t = !1, n = Q("openai-responses", this.config, e.reasoning)) {
     const o = n, r = {
       model: this.config.model,
-      instructions: t ? void 0 : FI(e) || void 0,
-      input: t ? qI(e) : BI(e),
+      instructions: t ? void 0 : OI(e) || void 0,
+      input: t ? HI(e) : qI(e),
       ...Array.isArray(e.tools) && e.tools.length ? {
         tools: e.tools.map((i) => ({
           type: "function",
@@ -20184,17 +20192,17 @@ var KI = class {
         effectiveConfig: g.effectiveConfig
       }))
     }), r = (m) => (m && typeof m == "object" && (m.requestInspection = o()), m), i = (m) => {
-      GI(m);
+      BI(m);
       const g = m.output;
       return {
         output: g,
-        thoughts: K(t) ? UI(g) : [],
+        thoughts: K(t) ? FI(g) : [],
         toolCalls: g.filter((_) => _.type === "function_call" && _.name).map((_, y) => ({
           id: _.call_id || `response-tool-${y + 1}`,
           name: _.name || "",
           arguments: _.arguments || "{}"
         })),
-        text: OI(m)
+        text: GI(m)
       };
     }, s = (m, g, _) => {
       const y = this.inspectRequest(e, {
@@ -20220,7 +20228,7 @@ var KI = class {
       try {
         const y = this.client.responses.stream(_, { signal: e.signal }), E = /* @__PURE__ */ new Map(), C = /* @__PURE__ */ new Map(), w = /* @__PURE__ */ new Map(), P = () => {
           const M = [];
-          K(t) && (Array.from(C.entries()).sort(([A], [$]) => vi(A, $)).forEach(([, A]) => Rr(M, "推理文本", A)), Array.from(w.entries()).sort(([A], [$]) => vi(A, $)).forEach(([, A]) => Rr(M, "推理摘要", A))), JI(e, {
+          K(t) && (Array.from(C.entries()).sort(([A], [$]) => vi(A, $)).forEach(([, A]) => Rr(M, "推理文本", A)), Array.from(w.entries()).sort(([A], [$]) => vi(A, $)).forEach(([, A]) => Rr(M, "推理摘要", A))), KI(e, {
             text: Array.from(E.entries()).sort(([A], [$]) => vi(A, $)).map(([, A]) => A).join(`
 `).trim(),
             thoughts: M
@@ -20239,12 +20247,12 @@ var KI = class {
       } catch (y) {
         throw r(y);
       }
-    }, d = !HI(this.config.baseUrl), f = typeof e.onStreamProgress == "function" ? c : u;
+    }, d = !VI(this.config.baseUrl), f = typeof e.onStreamProgress == "function" ? c : u;
     let h, p;
     try {
       h = await f(!1, "initial"), p = i(h);
     } catch (m) {
-      if (!d || !VI(m)) throw r(m);
+      if (!d || !JI(m)) throw r(m);
       h = await f(!0, "legacy_system_error");
       try {
         p = i(h);
@@ -20267,12 +20275,12 @@ var KI = class {
       finishReason: h.incomplete_details?.reason || h.status || "stop",
       model: h.model || this.config.model,
       provider: "openai-responses",
-      providerPayload: p.output.length ? { openAIResponseOutput: wa(p.output) || [] } : void 0,
+      providerPayload: p.output.length ? { openAIResponseOutput: wa(p.output) } : void 0,
       requestInspection: o()
     };
   }
 };
-async function WI(e, t) {
+async function zI(e, t) {
   const n = e.body?.getReader?.();
   if (!n) throw new Error("host_chat_completions_stream_missing_body");
   const o = new TextDecoder();
@@ -20295,21 +20303,21 @@ async function WI(e, t) {
   const u = r.trim();
   u && s(u);
 }
-var Ut = "openai", um = "claude", cm = "makersuite", zI = "/api/backends/chat-completions/status", YI = "/api/backends/chat-completions/generate", XI = Object.freeze({
+var Ut = "openai", um = "claude", cm = "makersuite", YI = "/api/backends/chat-completions/status", XI = "/api/backends/chat-completions/generate", QI = Object.freeze({
   [um]: "https://api.anthropic.com/v1",
   [cm]: "https://generativelanguage.googleapis.com"
 }), pn = null;
-function QI(e) {
+function ZI(e) {
   return String(e || "").trim().replace(/\/+$/, "");
 }
-function ZI(e = "") {
+function jI(e = "") {
   return Rs(e) === "openai";
 }
-function jI(e, t) {
-  const n = QI(e);
+function e0(e, t) {
+  const n = ZI(e);
   return t === "claude" ? !n || /\/v\d[\w.-]*$/i.test(n) ? n : `${n}/v1` : t === "makersuite" ? n.replace(/\/v\d[\w.-]*$/i, "") : n;
 }
-function sb(e) {
+function ab(e) {
   pn = typeof e == "function" ? e : null;
 }
 async function dm(e = pn) {
@@ -20320,7 +20328,7 @@ async function dm(e = pn) {
     Accept: "application/json"
   };
 }
-function e0(e = {}) {
+function t0(e = {}) {
   const t = {};
   return Object.entries(e || {}).forEach(([n, o]) => {
     t[n] = /authorization|cookie|csrf|token|api[-_]?key/i.test(n) ? "[redacted]" : o;
@@ -20328,9 +20336,9 @@ function e0(e = {}) {
 }
 async function Ia(e = {}, t = !1, n = pn) {
   const o = await dm(n), r = {
-    url: YI,
+    url: XI,
     method: "POST",
-    headers: e0(o),
+    headers: t0(o),
     body: {
       ...e,
       stream: !!t
@@ -20341,16 +20349,16 @@ async function Ia(e = {}, t = !1, n = pn) {
     enumerable: !1
   }), r;
 }
-async function t0(e = {}, t = !1) {
+async function n0(e = {}, t = !1) {
   return await Ia(e, t);
 }
-function n0(e = "") {
+function o0(e = "") {
   return /^\s*(?:<!DOCTYPE\s+html\b|<html\b)/i.test(String(e || ""));
 }
-function o0(e = "") {
+function r0(e = "") {
   return /invalid csrf token/i.test(String(e || ""));
 }
-function r0() {
+function i0() {
   return "酒馆当前页面的 CSRF token 已失效，请按 F5 刷新并重新进入酒馆后再试。";
 }
 function Fc(e = "", t = 10) {
@@ -20360,11 +20368,11 @@ function Fc(e = "", t = 10) {
 function Oc(e = "") {
   return String(e || "").replace(/&nbsp;|&#160;/gi, " ").replace(/&amp;/gi, "&").replace(/&lt;/gi, "<").replace(/&gt;/gi, ">").replace(/&quot;/gi, '"').replace(/&#39;|&apos;/gi, "'").replace(/&#x([0-9a-f]+);?/gi, (t, n) => Fc(n, 16)).replace(/&#([0-9]+);?/g, (t, n) => Fc(n));
 }
-function i0(e = "") {
+function s0(e = "") {
   const t = String(e || ""), n = Oc((t.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i) || [])[1] || "").replace(/\s+/g, " ").trim(), o = Oc(t.replace(/<script\b[\s\S]*?<\/script>/gi, " ").replace(/<style\b[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim(), r = n || o;
   return r.length > 240 ? `${r.slice(0, 237)}...` : r;
 }
-function s0(e = null) {
+function a0(e = null) {
   const t = Number(e?.status), n = String(e?.statusText || "").trim();
   let o = "";
   try {
@@ -20378,14 +20386,14 @@ function s0(e = null) {
     contentType: o
   };
 }
-function a0(e = {}) {
+function l0(e = {}) {
   return e.status ? `HTTP ${e.status}${e.statusText ? ` ${e.statusText}` : ""}` : "";
 }
 function sn(e = "", t = "", n = null) {
-  if (o0(e)) return r0();
-  const o = s0(n);
-  if (n0(e) || /\btext\/html\b/i.test(o.contentType)) {
-    const r = a0(o), i = i0(e);
+  if (r0(e)) return i0();
+  const o = a0(n);
+  if (o0(e) || /\btext\/html\b/i.test(o.contentType)) {
+    const r = l0(o), i = s0(e);
     return [
       "酒馆后端返回了非 JSON 的 HTML 页面",
       r ? `（${r}）` : "",
@@ -20395,20 +20403,20 @@ function sn(e = "", t = "", n = null) {
   return String(e || t || "").trim();
 }
 function fm(e = {}, t = Ut) {
-  const n = jI(e.baseUrl, t), o = String(e.apiKey || "").trim(), r = XI[t] || "", i = n || (o ? r : ""), s = { chat_completion_source: t || "openai" };
+  const n = e0(e.baseUrl, t), o = String(e.apiKey || "").trim(), r = QI[t] || "", i = n || (o ? r : ""), s = { chat_completion_source: t || "openai" };
   return i && (s.reverse_proxy = i), o && (s.proxy_password = o), s;
 }
-function l0(e = {}) {
+function u0(e = {}) {
   return Object.keys(e).forEach((t) => {
     (e[t] === void 0 || e[t] === "") && delete e[t];
   }), e;
 }
-function u0(e = {}, t = Ut) {
+function c0(e = {}, t = Ut) {
   return fm(e, t);
 }
 function ba(e = {}, t = {}, n = [], o = !1, r = Ut) {
-  const i = t.maxTokens, s = r === "openai" && ZI(e.model);
-  return l0({
+  const i = t.maxTokens, s = r === "openai" && jI(e.model);
+  return u0({
     ...fm(e, r),
     stream: !!o,
     messages: n,
@@ -20421,13 +20429,13 @@ function ba(e = {}, t = {}, n = [], o = !1, r = Ut) {
     use_sysprompt: r === "openai" ? void 0 : !0
   });
 }
-function c0(e = {}, t = {}, n = [], o = !1) {
+function d0(e = {}, t = {}, n = [], o = !1) {
   return ba(e, t, n, o, Ut);
 }
-function d0(e = {}, t = {}, n = [], o = !1) {
+function f0(e = {}, t = {}, n = [], o = !1) {
   return ba(e, t, n, o, um);
 }
-function f0(e = {}, t = {}, n = [], o = !1) {
+function h0(e = {}, t = {}, n = [], o = !1) {
   return ba(e, t, n, o, cm);
 }
 function Ra(e) {
@@ -20435,11 +20443,11 @@ function Ra(e) {
   if (typeof t != "function") throw new Error("当前运行环境没有可用的 fetch，无法调用酒馆后端。");
   return t;
 }
-async function h0(e = {}, t = Ut, n = {}, o = {}) {
-  const r = await Ra(o.fetch)(zI, {
+async function p0(e = {}, t = Ut, n = {}, o = {}) {
+  const r = await Ra(o.fetch)(YI, {
     method: "POST",
     headers: await dm(o.requestHeadersProvider),
-    body: JSON.stringify(u0(e, t)),
+    body: JSON.stringify(c0(e, t)),
     signal: n.signal
   }), i = await r.text();
   let s = null;
@@ -20456,12 +20464,12 @@ async function h0(e = {}, t = Ut, n = {}, o = {}) {
   return [...new Set(u)];
 }
 async function hm(e = {}, t = Ut, n = {}) {
-  return await h0(e, t, n, { requestHeadersProvider: pn });
+  return await p0(e, t, n, { requestHeadersProvider: pn });
 }
-async function p0(e = {}, t = {}) {
+async function m0(e = {}, t = {}) {
   return await hm(e, Ut, t);
 }
-async function m0(e = {}, t = {}, n = {}) {
+async function g0(e = {}, t = {}, n = {}) {
   const o = await Ia(e, !1, n.requestHeadersProvider);
   typeof t.onRequest == "function" && t.onRequest(o);
   const r = await Ra(n.fetch)(o.url, {
@@ -20483,10 +20491,10 @@ async function m0(e = {}, t = {}, n = {}) {
   }
   return s;
 }
-async function g0(e = {}, t = {}) {
-  return await m0(e, t, { requestHeadersProvider: pn });
+async function _0(e = {}, t = {}) {
+  return await g0(e, t, { requestHeadersProvider: pn });
 }
-async function _0(e = {}, t, n = {}, o = {}) {
+async function y0(e = {}, t, n = {}, o = {}) {
   const r = await Ia(e, !0, o.requestHeadersProvider);
   typeof n.onRequest == "function" && n.onRequest(r);
   const i = await Ra(o.fetch)(r.url, {
@@ -20499,7 +20507,7 @@ async function _0(e = {}, t, n = {}, o = {}) {
     const s = await i.text().catch(() => ""), u = new Error(sn(s, `酒馆后端流式生成失败：HTTP ${i.status}`, i));
     throw u.status = i.status, u.body = s, u;
   }
-  typeof n.onResponseAccepted == "function" && n.onResponseAccepted(), await WI(i, (s) => {
+  typeof n.onResponseAccepted == "function" && n.onResponseAccepted(), await zI(i, (s) => {
     if (s?.error) {
       const u = sn(s.error?.message || s.message || JSON.stringify(s.error), "酒馆后端流式生成失败");
       throw new Error(u);
@@ -20507,24 +20515,24 @@ async function _0(e = {}, t, n = {}, o = {}) {
     t(s);
   });
 }
-async function y0(e = {}, t, n = {}) {
-  return await _0(e, t, n, { requestHeadersProvider: pn });
+async function v0(e = {}, t, n = {}) {
+  return await y0(e, t, n, { requestHeadersProvider: pn });
 }
-var v0 = Object.freeze([
+var A0 = Object.freeze([
   "buildHostChatCompletionGenerateRequest",
   "createHostChatCompletion",
   "streamHostChatCompletion"
 ]);
 function Yr(e) {
-  if (!e || !v0.every((t) => typeof e[t] == "function")) throw new TypeError("酒馆渠道必须注入有效的 Host Client。");
+  if (!e || !A0.every((t) => typeof e[t] == "function")) throw new TypeError("酒馆渠道必须注入有效的 Host Client。");
   return e;
 }
 var Pa = Object.freeze({
-  buildHostChatCompletionGenerateRequest: t0,
+  buildHostChatCompletionGenerateRequest: n0,
   fetchHostChatCompletionsModels: hm,
-  fetchHostOpenAICompatibleModels: p0,
-  createHostChatCompletion: g0,
-  streamHostChatCompletion: y0
+  fetchHostOpenAICompatibleModels: m0,
+  createHostChatCompletion: _0,
+  streamHostChatCompletion: v0
 });
 function $t(e) {
   if (e !== void 0)
@@ -20534,25 +20542,25 @@ function $t(e) {
       return;
     }
 }
-function A0(e) {
+function T0(e) {
   const t = String(e || "").trim();
   if (!t || t === "auto") return "auto";
   if (t === "required") return "any";
   if (t === "none") return "none";
   throw new Error(`酒馆托管 Claude 不支持 tool_choice：${t}。仅支持 auto/required/none。`);
 }
-function T0(e = {}, t = {}, n = Q("sillytavern-claude", e, t.reasoning)) {
+function S0(e = {}, t = {}, n = Q("sillytavern-claude", e, t.reasoning)) {
   if (!(Array.isArray(t.tools) && t.tools.length > 0)) return {
     toolChoice: void 0,
     reasoningDisabledForForcedTool: !1
   };
-  const o = A0(t.toolChoice), r = n.profileId === "sillytavern-claude-manual" || n.profileId === "sillytavern-claude-adaptive-conditional";
+  const o = T0(t.toolChoice), r = n.profileId === "sillytavern-claude-manual" || n.profileId === "sillytavern-claude-adaptive-conditional";
   return {
     toolChoice: o,
     reasoningDisabledForForcedTool: o === "any" && n.mode === "on" && r
   };
 }
-var S0 = "当前模型使用手动 thinking，与强制 Tool 调用冲突；本次请求已因强制 Tool 关闭 Reasoning。";
+var E0 = "当前模型使用手动 thinking，与强制 Tool 调用冲突；本次请求已因强制 Tool 关闭 Reasoning。";
 function Xo(e = {}, t = {}, n = {}, o) {
   const r = o || Q("sillytavern-claude", e, t.reasoning);
   return n.reasoningDisabledForForcedTool ? {
@@ -20561,14 +20569,14 @@ function Xo(e = {}, t = {}, n = {}, o) {
     output: "hide"
   } : r;
 }
-function E0(e = {}, t = {}, n = {}) {
+function C0(e = {}, t = {}, n = {}) {
   return yt(e, {
     reasoning: n,
     effort: n.mode === "on" ? n.effort : "",
     controlFields: t.controlFields || {}
   });
 }
-function C0(e = {}, t = {}) {
+function w0(e = {}, t = {}) {
   return { toolChoice: String(t.toolChoice || "") };
 }
 function pm(e = "") {
@@ -20586,7 +20594,7 @@ function pm(e = "") {
     };
   }
 }
-function w0(e = []) {
+function I0(e = []) {
   return (Array.isArray(e) ? e : []).map((t) => {
     const n = String(t?.function?.name || "").trim();
     if (!n) return null;
@@ -20603,15 +20611,15 @@ function w0(e = []) {
     };
   }).filter(Boolean);
 }
-function I0(e = []) {
+function b0(e = []) {
   const t = Array.isArray(e) ? $t(e) : null;
   return Array.isArray(t) && t.length ? t : null;
 }
-function b0(e = {}) {
+function R0(e = {}) {
   const t = Array.isArray(e.messages) ? e.messages : [], n = [];
   t.forEach((r) => {
     if (!r || typeof r != "object") return;
-    const i = $t(r) || {}, s = I0(i?.providerPayload?.anthropicContent), u = w0(i.tool_calls);
+    const i = $t(r) || {}, s = b0(i?.providerPayload?.anthropicContent), u = I0(i.tool_calls);
     delete i.providerPayload, i.role === "assistant" && s && u.length ? (delete i.tool_calls, i.content = s.filter((c) => c?.type !== "tool_use").concat(u)) : i.role === "assistant" && s && (delete i.tool_calls, i.content = s), n.push(i);
   });
   const o = typeof e.systemPrompt == "string" ? e.systemPrompt : "";
@@ -20620,7 +20628,7 @@ function b0(e = {}) {
     content: o
   }), n;
 }
-function R0(e = []) {
+function P0(e = []) {
   return (Array.isArray(e) ? e : []).map((t) => {
     if (!t || typeof t != "object") return null;
     if (t.type === "text") return {
@@ -20664,7 +20672,7 @@ function R0(e = []) {
     } : $t(t) || null;
   }).filter(Boolean);
 }
-function P0(e = []) {
+function M0(e = []) {
   return e.map((t) => !t || typeof t != "object" ? null : t.type === "tool_use" && t.name ? {
     type: "tool_use",
     id: t.id,
@@ -20672,7 +20680,7 @@ function P0(e = []) {
     input: $t(t.input) || {}
   } : $t(t) || null).filter(Boolean);
 }
-function M0(e = []) {
+function x0(e = []) {
   const t = Array.isArray(e) ? e : [], n = t.filter((i) => i?.type === "text").map((i) => i.text || "").join(`
 `), o = t.filter((i) => i?.type === "thinking" || i?.type === "redacted_thinking").map((i) => ({
     label: i.type === "thinking" ? "思考块" : "已脱敏思考块",
@@ -20692,7 +20700,7 @@ function M0(e = []) {
   };
 }
 function mm(e = [], t = {}) {
-  const n = R0(e), o = n.filter((r) => r.type === "tool_use" && r.name).map((r, i) => ({
+  const n = P0(e), o = n.filter((r) => r.type === "tool_use" && r.name).map((r, i) => ({
     id: r.id || `st-claude-tool-${i + 1}`,
     name: r.name,
     arguments: r.invalidInputJson !== void 0 ? r.invalidInputJson : JSON.stringify(r.input || {})
@@ -20708,10 +20716,10 @@ function mm(e = [], t = {}) {
     finishReason: t.finishReason || "stop",
     model: t.model || "",
     provider: "sillytavern-claude",
-    providerPayload: n.length ? { anthropicContent: P0(n) } : void 0
+    providerPayload: n.length ? { anthropicContent: M0(n) } : void 0
   };
 }
-function x0(e, t) {
+function N0(e, t) {
   typeof e.onStreamProgress == "function" && e.onStreamProgress({
     ...typeof t.text == "string" ? { text: t.text } : {},
     ...Array.isArray(t.thoughts) ? { thoughts: t.thoughts } : {},
@@ -20719,7 +20727,7 @@ function x0(e, t) {
     ...t.toolCallDraft ? { toolCallDraft: !0 } : {}
   });
 }
-function N0(e, t, n = {}) {
+function k0(e, t, n = {}) {
   const o = [];
   let r = "stop", i = n.model || "";
   const s = (c, d = {}) => {
@@ -20729,8 +20737,8 @@ function N0(e, t, n = {}) {
       ...d
     } : o[f] = { ...d }, o[f];
   }, u = () => {
-    const c = M0(o);
-    x0(e, {
+    const c = x0(o);
+    N0(e, {
       text: c.text,
       thoughts: K(t) ? c.thoughts : [],
       ...Array.isArray(c.toolCalls) ? { toolCalls: c.toolCalls } : {},
@@ -20759,15 +20767,15 @@ function N0(e, t, n = {}) {
     }
   };
 }
-var k0 = class {
+var D0 = class {
   constructor(e, t = Pa) {
     this.config = e, this.hostClient = Yr(t);
   }
   buildMessages(e) {
-    return b0(e);
+    return R0(e);
   }
   resolveToolProtocol(e, t) {
-    return T0(this.config, e, t);
+    return S0(this.config, e, t);
   }
   buildPayload(e, t = this.resolveToolProtocol(e), n = Xo(this.config, e, t)) {
     const o = typeof e.onStreamProgress == "function", r = this.buildMessages(e), i = {
@@ -20778,7 +20786,7 @@ var k0 = class {
         ...this.config,
         provider: "sillytavern-claude"
       }, n) ? void 0 : e.temperature
-    }, s = d0(this.config, i, r, o);
+    }, s = f0(this.config, i, r, o);
     return n.mode === "on" ? (s.reasoning_effort = n.effort, s.include_reasoning = K(n)) : n.mode === "off" ? (s.reasoning_effort = "auto", s.include_reasoning = !1) : (s.reasoning_effort = "auto", s.include_reasoning = K(n)), s;
   }
   async inspectRequest(e, t = {}) {
@@ -20796,13 +20804,13 @@ var k0 = class {
       transport: "sillytavern-chat-completions",
       request: Dt(e),
       effectiveConfig: {
-        ...C0(n, t),
-        ...E0(n, {
+        ...w0(n, t),
+        ...C0(n, {
           ...t,
           controlFields: r
         }, o)
       },
-      ...t.reasoningDisabledForForcedTool ? { notices: [S0] } : {}
+      ...t.reasoningDisabledForForcedTool ? { notices: [E0] } : {}
     };
   }
   async chat(e) {
@@ -20813,7 +20821,7 @@ var k0 = class {
     };
     try {
       if (n) {
-        const d = N0(e, r, this.config);
+        const d = k0(e, r, this.config);
         return await this.hostClient.streamHostChatCompletion(i, (f) => {
           d.accept(f);
         }, {
@@ -20864,13 +20872,13 @@ function an(e) {
   const t = Ma(e) || {};
   return t.role = t.role || "model", t.parts = Array.isArray(t.parts) ? t.parts : [], t;
 }
-function D0(e) {
+function $0(e) {
   const t = Array.isArray(e?.providerPayload?.googleContents) ? e.providerPayload.googleContents : [];
   if (t.length) return t.map((r) => an(r)).filter((r) => Array.isArray(r.parts) && r.parts.length);
   const n = e?.providerPayload?.googleContent, o = an(n);
   return o.parts.length ? [o] : [];
 }
-function $0(e = {}) {
+function L0(e = {}) {
   const t = String(e?.mimeType || "").trim(), n = String(e?.data || "").trim();
   if (!t || !n) return null;
   const o = `data:${t};base64,${n}`;
@@ -20885,7 +20893,7 @@ function $0(e = {}) {
     audio_url: { url: o }
   } : null;
 }
-function L0(e = {}, t = 0) {
+function U0(e = {}, t = 0) {
   const n = an(e);
   if (!n.parts.length) return null;
   const o = {
@@ -20913,21 +20921,21 @@ function L0(e = {}, t = 0) {
       });
       return;
     }
-    const u = $0(s.inlineData);
+    const u = L0(s.inlineData);
     u && o.content.push(u);
   }), i.length && o.content.push({
     type: "tool_calls",
     tool_calls: i
   }), r && o.content.some((s) => s?.type === "text") && (o.signature = r), o.content.length ? o : null;
 }
-function U0(e = {}) {
+function F0(e = {}) {
   const t = Array.isArray(e.messages) ? e.messages : [], n = [];
   t.forEach((r) => {
     if (!r || typeof r != "object") return;
-    const i = D0(r);
+    const i = $0(r);
     if (r.role === "assistant" && i.length) {
       i.forEach((u, c) => {
-        const d = L0(u, c);
+        const d = U0(u, c);
         d && n.push(d);
       });
       return;
@@ -20961,11 +20969,11 @@ function vm(e = {}) {
     arguments: JSON.stringify(t.args || {})
   }));
 }
-function F0(e, t) {
+function O0(e, t) {
   const n = String(t || ""), o = String(e || "");
   return n ? !o || n.startsWith(o) ? n : o.endsWith(n) ? o : `${o}${n}` : o;
 }
-function O0(e = [], t = []) {
+function G0(e = [], t = []) {
   const n = Array.isArray(e) ? [...e] : [];
   return t.forEach((o) => {
     const r = [
@@ -20987,7 +20995,7 @@ function Am(e) {
     googleContents: [t]
   } : void 0;
 }
-function G0(e = {}, t = {}) {
+function B0(e = {}, t = {}) {
   const n = gm(e), o = e?.choices?.[0]?.message?.content || "";
   return {
     text: _m(n) || o,
@@ -20999,7 +21007,7 @@ function G0(e = {}, t = {}) {
     providerPayload: Am(n)
   };
 }
-function B0(e, t) {
+function q0(e, t) {
   typeof e.onStreamProgress == "function" && e.onStreamProgress({
     ...typeof t.text == "string" ? { text: t.text } : {},
     ...Array.isArray(t.thoughts) ? { thoughts: t.thoughts } : {},
@@ -21007,16 +21015,16 @@ function B0(e, t) {
     ...t.toolCallDraft ? { toolCallDraft: !0 } : {}
   });
 }
-function q0(e, t, n = {}) {
+function H0(e, t, n = {}) {
   let o = "", r = [], i = [], s = "STOP", u = n.model || "";
   const c = [];
   return {
     accept(d = {}) {
       u = d.model || d.modelVersion || u, s = d?.candidates?.[0]?.finishReason || s;
       const f = gm(d);
-      f.parts.length && c.push(...Ma(f.parts) || []), o = F0(o, _m(f)), r = O0(r, vm(f));
+      f.parts.length && c.push(...Ma(f.parts) || []), o = O0(o, _m(f)), r = G0(r, vm(f));
       const h = K(t) ? ym(f) : [];
-      h.length && (i = h), B0(e, {
+      h.length && (i = h), q0(e, {
         text: o,
         thoughts: i,
         ...r.length ? {
@@ -21042,15 +21050,15 @@ function q0(e, t, n = {}) {
     }
   };
 }
-var H0 = class {
+var V0 = class {
   constructor(e, t = Pa) {
     this.config = e, this.hostClient = Yr(t);
   }
   buildMessages(e) {
-    return U0(e);
+    return F0(e);
   }
   buildPayload(e, t = Q("sillytavern-google", this.config, e.reasoning)) {
-    const n = t, o = typeof e.onStreamProgress == "function", r = this.buildMessages(e), i = f0(this.config, e, r, o);
+    const n = t, o = typeof e.onStreamProgress == "function", r = this.buildMessages(e), i = h0(this.config, e, r, o);
     return n.mode === "on" ? (i.reasoning_effort = n.effort, i.include_reasoning = K(n)) : n.mode === "off" ? (i.reasoning_effort = "min", i.include_reasoning = !1) : (i.reasoning_effort = "auto", i.include_reasoning = K(n)), i;
   }
   async inspectRequest(e, t = {}) {
@@ -21082,7 +21090,7 @@ var H0 = class {
     };
     try {
       if (n) {
-        const s = q0(e, t, this.config);
+        const s = H0(e, t, this.config);
         return await this.hostClient.streamHostChatCompletion(o, (u) => {
           s.accept(u);
         }, {
@@ -21094,7 +21102,7 @@ var H0 = class {
         };
       }
       return {
-        ...G0(await this.hostClient.createHostChatCompletion(o, {
+        ...B0(await this.hostClient.createHostChatCompletion(o, {
           signal: e.signal,
           onRequest: i
         }), {
@@ -21108,7 +21116,7 @@ var H0 = class {
     }
   }
 };
-function V0(e, t, n) {
+function J0(e, t, n) {
   typeof e.onStreamProgress == "function" && e.onStreamProgress({
     ...typeof t.text == "string" ? { text: t.text } : {},
     ...Array.isArray(t.thoughts) ? { thoughts: K(n) ? t.thoughts : [] } : {},
@@ -21123,11 +21131,11 @@ function Ai(e, t = []) {
     cleanedText: t.length ? n.cleaned : Mt(n.cleaned)
   };
 }
-function J0(e) {
+function K0(e) {
   const t = String(e?.message || e || "");
   return /Cannot read properties of null \(reading ['"]function['"]\)/i.test(t) || /reading ['"]function['"]/i.test(t) || /badresponsestatuscode/i.test(t);
 }
-var K0 = class {
+var W0 = class {
   constructor(e, t = Pa) {
     this.config = e, this.hostClient = Yr(t);
   }
@@ -21142,7 +21150,7 @@ var K0 = class {
         provider: "sillytavern-openai-compatible"
       }, o) ? void 0 : e.temperature
     };
-    return rm(c0(this.config, t ? {
+    return rm(d0(this.config, t ? {
       ...i,
       tools: void 0,
       toolChoice: void 0
@@ -21177,7 +21185,7 @@ var K0 = class {
       const m = p?.choices?.[0] || {};
       As(r, m), m.finish_reason && (i = m.finish_reason);
       const g = en(r), { thinkTagged: _, cleanedText: y } = Ai(jt(r), g), E = g.length ? g : gs(_.cleaned);
-      V0(e, {
+      J0(e, {
         text: y,
         thoughts: K(n) ? pt(r, m).concat(_.thoughts) : [],
         ...E.length ? { toolCalls: E } : {},
@@ -21241,7 +21249,7 @@ var K0 = class {
     try {
       return await r(i);
     } catch (s) {
-      if (e.allowToolProtocolFallback === !1 || n || !o || !J0(s)) throw s;
+      if (e.allowToolProtocolFallback === !1 || n || !o || !K0(s)) throw s;
     }
     return typeof e.onToolProtocolFallback == "function" && e.onToolProtocolFallback({
       provider: "sillytavern-openai-compatible",
@@ -21254,17 +21262,17 @@ var K0 = class {
 function Ti(e, t, n) {
   return Object.hasOwn(n, "hostClient") ? new e(t, Yr(n.hostClient)) : new e(t);
 }
-function ab(e = {}, t = {}) {
+function lb(e = {}, t = {}) {
   if (!e.apiKey && !Qm(e.provider)) throw new Error(t.missingApiKeyMessage || "请先填写当前模型配置的 API Key。");
   switch (jc(e.reasoning || {}), e.provider) {
     case "sillytavern-openai-compatible":
-      return Ti(K0, e, t);
+      return Ti(W0, e, t);
     case "sillytavern-claude":
-      return Ti(k0, e, t);
+      return Ti(D0, e, t);
     case "sillytavern-google":
-      return Ti(H0, e, t);
+      return Ti(V0, e, t);
     case "openai-responses":
-      return new KI(e);
+      return new WI(e);
     case "anthropic":
       return new jg(e);
     case "google":
@@ -21273,7 +21281,7 @@ function ab(e = {}, t = {}) {
       return new $I(e);
   }
 }
-function W0(e = {}) {
+function z0(e = {}) {
   const t = String(e?.name || "").trim();
   if (typeof e?.arguments == "string") {
     const n = e.arguments;
@@ -21296,12 +21304,12 @@ function Ts(e = [], t = {}) {
     return {
       id: String(r?.id || o(i) || `${n}-${i + 1}`),
       name: String(r?.name || "").trim(),
-      arguments: W0(r),
+      arguments: z0(r),
       ...s ? { providerId: String(r?.providerId || "") } : {}
     };
   }).filter((r) => r.name);
 }
-function z0(e, t = {}) {
+function Y0(e, t = {}) {
   return (Array.isArray(e?.googleContent?.parts) ? e.googleContent.parts : []).filter((n) => n?.functionCall?.name).map((n, o) => {
     const r = String(n.functionCall.id || "").trim();
     return {
@@ -21312,11 +21320,11 @@ function z0(e, t = {}) {
     };
   }).filter((n) => n.name);
 }
-function lb(e = {}, t = {}, n = {}) {
+function ub(e = {}, t = {}, n = {}) {
   const o = Ts(e?.toolCalls, n);
-  return o.length ? o : String(e?.provider || t?.provider || "").toLowerCase() !== "google" ? [] : Ts(z0(e?.providerPayload, n), n);
+  return o.length ? o : String(e?.provider || t?.provider || "").toLowerCase() !== "google" ? [] : Ts(Y0(e?.providerPayload, n), n);
 }
-function ub(e = {}, t = [], n = {}) {
+function cb(e = {}, t = [], n = {}) {
   return {
     role: "assistant",
     content: Object.prototype.hasOwnProperty.call(n, "content") ? String(n.content || "") : String(e.text || ""),
@@ -21332,7 +21340,7 @@ function ub(e = {}, t = [], n = {}) {
     }))
   };
 }
-function cb(e = {}) {
+function db(e = {}) {
   const t = String(e.toolName || e.tool_name || "").trim();
   return {
     role: "tool",
@@ -21342,24 +21350,24 @@ function cb(e = {}) {
   };
 }
 export {
-  tb as AGENT_REQUEST_TIMEOUT_MS,
+  nb as AGENT_REQUEST_TIMEOUT_MS,
   Xm as PROVIDER_OPTIONS,
-  Y0 as REASONING_MODE_OPTIONS,
-  ub as buildProviderAssistantToolCallMessage,
-  cb as buildProviderToolResultMessage,
-  ab as createAgentAdapter,
-  ob as getProviderLabel,
-  eb as getReasoningEffortOptions,
-  j0 as getReasoningModeOptions,
-  rb as getToolModeLabel,
+  X0 as REASONING_MODE_OPTIONS,
+  cb as buildProviderAssistantToolCallMessage,
+  db as buildProviderToolResultMessage,
+  lb as createAgentAdapter,
+  rb as getProviderLabel,
+  tb as getReasoningEffortOptions,
+  eb as getReasoningModeOptions,
+  ib as getToolModeLabel,
   Qm as isSillyTavernProvider,
   $m as normalizeAgentConfig,
-  Z0 as normalizeAgentSettings,
+  j0 as normalizeAgentSettings,
   Ss as normalizeReasoningConfig,
   Dt as redactRequestSecrets,
-  ib as resolveActiveProviderConfig,
+  sb as resolveActiveProviderConfig,
   xs as resolveReasoningCapability,
-  lb as resolveResultToolCalls,
+  ub as resolveResultToolCalls,
   Ci as resolveRuntimeReasoning,
-  sb as setHostChatCompletionsRequestHeadersProvider
+  ab as setHostChatCompletionsRequestHeadersProvider
 };

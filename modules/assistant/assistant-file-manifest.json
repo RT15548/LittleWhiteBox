@@ -377,7 +377,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/agent-core/adapters/openai-responses.js",
       "relativePath": "modules/agent-core/adapters/openai-responses.js",
       "extension": ".js",
-      "sizeBytes": 20623
+      "sizeBytes": 21486
     },
     {
       "source": "littlewhitebox",
@@ -1098,7 +1098,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/tests/openai-compatible-adapter.test.js",
       "relativePath": "modules/assistant/tests/openai-compatible-adapter.test.js",
       "extension": ".js",
-      "sizeBytes": 77586
+      "sizeBytes": 80265
     },
     {
       "source": "littlewhitebox",
@@ -1308,14 +1308,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/novel-prompt-migration.js",
       "relativePath": "modules/draw/providers/novelai/novel-prompt-migration.js",
       "extension": ".js",
-      "sizeBytes": 11042
+      "sizeBytes": 11213
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/novel-prompts.js",
       "relativePath": "modules/draw/providers/novelai/novel-prompts.js",
       "extension": ".js",
-      "sizeBytes": 9626
+      "sizeBytes": 9627
     },
     {
       "source": "littlewhitebox",
@@ -1343,7 +1343,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/prompts/scene-rules.md",
       "relativePath": "modules/draw/providers/novelai/prompts/scene-rules.md",
       "extension": ".md",
-      "sizeBytes": 10859
+      "sizeBytes": 11267
     },
     {
       "source": "littlewhitebox",
@@ -1386,6 +1386,13 @@
       "relativePath": "modules/draw/providers/novelai/tests/fixtures/novel-scene-rules-template-v8.md",
       "extension": ".md",
       "sizeBytes": 10226
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/tests/fixtures/novel-scene-rules-template-v9.md",
+      "relativePath": "modules/draw/providers/novelai/tests/fixtures/novel-scene-rules-template-v9.md",
+      "extension": ".md",
+      "sizeBytes": 10859
     },
     {
       "source": "littlewhitebox",
@@ -1448,7 +1455,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/tests/novel-prompt-migration.test.js",
       "relativePath": "modules/draw/providers/novelai/tests/novel-prompt-migration.test.js",
       "extension": ".js",
-      "sizeBytes": 9796
+      "sizeBytes": 10610
     },
     {
       "source": "littlewhitebox",
@@ -6761,7 +6768,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/server-plugin/littlewhitebox-image-jobs/draw-runs/vendor/agent-core-node.cjs",
       "relativePath": "server-plugin/littlewhitebox-image-jobs/draw-runs/vendor/agent-core-node.cjs",
       "extension": ".cjs",
-      "sizeBytes": 934827
+      "sizeBytes": 935133
     },
     {
       "source": "littlewhitebox",

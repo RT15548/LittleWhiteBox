@@ -95,15 +95,9 @@
 - 嘴: smile, open mouth, drooling
 
 ### 互动标签 (interact) — 仅有互动时
-多角色间发生互动时，把同一个核心动作分别写入每位参与角色自己的 `interact` 字段，并用方向前缀标明该角色在互动中的身份：
-- 发起者使用 `source#动作`
-- 承受者使用 `target#动作`
-- 共同参与者使用 `mutual#动作`
-
-示例：
-- 角色1亲吻角色2：角色1 的 `interact` 填 `source#kissing`；角色2 的 `interact` 填 `target#kissing`
-- 角色3与角色4拥抱：角色3 和角色4 的 `interact` 都填 `mutual#hugging`
-- 同一角色参与多个互动时，多个带前缀标签用逗号并列（如 `source#kissing, target#hugging`）
+多角色关键互动须添加前缀明确施动者/受动者，字段内容原样使用以下方向标记：
+- source#动作（发起方）→ target#动作（接受方）
+- mutual#动作（互相）
 
 ---
 

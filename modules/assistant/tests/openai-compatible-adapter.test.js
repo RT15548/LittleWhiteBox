@@ -848,6 +848,85 @@ test('OpenAI Responses uses one visible default for request, response, and diagn
     assert.deepEqual(offResult.thoughts, []);
 });
 
+test('OpenAI Responses strips SDK parsed projections before storing and replaying tool output', async () => {
+    const adapter = new OpenAIResponsesAdapter({
+        apiKey: 'test-key',
+        baseUrl: 'https://api.openai.com/v1',
+        model: 'gpt-5.6',
+    });
+    const rawOutput = [{
+        type: 'reasoning',
+        id: 'reasoning-1',
+        encrypted_content: 'encrypted-reasoning',
+        summary: [],
+    }, {
+        type: 'message',
+        id: 'message-1',
+        role: 'assistant',
+        status: 'completed',
+        content: [{
+            type: 'output_text',
+            text: '先读取文件。',
+            annotations: [],
+            parsed: null,
+        }],
+    }, {
+        type: 'function_call',
+        id: 'function-call-item-1',
+        call_id: 'call-1',
+        name: 'Read',
+        arguments: '{"filePath":"book/chapter.md"}',
+        status: 'completed',
+        parsed_arguments: { filePath: 'book/chapter.md' },
+    }];
+    adapter.client.responses.stream = () => ({
+        on() {},
+        finalResponse: async () => ({
+            model: 'gpt-5.6',
+            status: 'completed',
+            output: rawOutput,
+        }),
+    });
+
+    const firstResult = await adapter.chat({
+        messages: [{ role: 'user', content: '读取章节。' }],
+        tools: [{
+            type: 'function',
+            function: {
+                name: 'Read',
+                description: 'Read file.',
+                parameters: { type: 'object', properties: {} },
+            },
+        }],
+        onStreamProgress() {},
+    });
+
+    assert.equal(firstResult.providerPayload.openAIResponseOutput[1].content[0].parsed, undefined);
+    assert.equal(firstResult.providerPayload.openAIResponseOutput[2].parsed_arguments, undefined);
+    assert.equal(firstResult.providerPayload.openAIResponseOutput[0].encrypted_content, 'encrypted-reasoning');
+
+    const replayBody = adapter.buildRequestBody({
+        messages: [{ role: 'user', content: '读取章节。' }, {
+            role: 'assistant',
+            content: '先读取文件。',
+            providerPayload: { openAIResponseOutput: rawOutput },
+        }, {
+            role: 'tool',
+            tool_call_id: 'call-1',
+            content: '{"ok":true,"content":"chapter"}',
+        }],
+    });
+
+    assert.equal(replayBody.input[2].content[0].parsed, undefined);
+    assert.equal(replayBody.input[3].parsed_arguments, undefined);
+    assert.equal(replayBody.input[1].encrypted_content, 'encrypted-reasoning');
+    assert.deepEqual(replayBody.input[4], {
+        type: 'function_call_output',
+        call_id: 'call-1',
+        output: '{"ok":true,"content":"chapter"}',
+    });
+});
+
 test('OpenAI Responses performs only one empty-response fallback and records both requests', async () => {
     const adapter = new OpenAIResponsesAdapter({
         apiKey: 'test-key',

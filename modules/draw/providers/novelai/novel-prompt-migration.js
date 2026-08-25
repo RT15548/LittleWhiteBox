@@ -33,6 +33,11 @@ const RELEASED_DEFAULT_FINGERPRINTS = Object.freeze({
         topSystemPov: '2590:6d6d4d27:e6e8f9b1',
         sceneRules: '6017:839b14d0:2661f222',
     }),
+    v9: Object.freeze({
+        topSystem: '1197:4f5dc6ba:c8bf2f9c',
+        topSystemPov: '2590:6d6d4d27:e6e8f9b1',
+        sceneRules: '6254:7f3e7262:02951222',
+    }),
 });
 
 const RELEASED_DEFAULT_SETS = Object.freeze(Object.values(RELEASED_DEFAULT_FINGERPRINTS));

@@ -17,7 +17,7 @@ const PROMPTS_DIR = `${extensionFolderPath}/modules/draw/providers/novelai/promp
  * 递增前必须先算出旧内容的指纹，并加进 novel-prompt-migration.js 的
  * RELEASED_DEFAULT_FINGERPRINTS —— 只 bump 不记指纹会让该版本用户永远停在旧提示词。
  */
-const PROMPT_TEMPLATE_VERSION = 9;
+const PROMPT_TEMPLATE_VERSION = 10;
 
 let LLM_PROMPT_CONFIG = {
     topSystem: '',

@@ -18,6 +18,29 @@ function cloneJson(value) {
     }
 }
 
+function buildReplayableResponseOutput(output) {
+    const cloned = cloneJson(Array.isArray(output) ? output : []);
+    if (!Array.isArray(cloned)) return [];
+
+    cloned.forEach((item) => {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) return;
+
+        // OpenAI's streaming SDK adds parsed projections to finalResponse().
+        // They are useful to SDK consumers but are not legal Responses input fields.
+        if (item.type === 'function_call') {
+            delete item.parsed_arguments;
+        }
+        if (item.type === 'message' && Array.isArray(item.content)) {
+            item.content.forEach((part) => {
+                if (!part || typeof part !== 'object' || Array.isArray(part)) return;
+                delete part.parsed;
+            });
+        }
+    });
+
+    return cloned;
+}
+
 function buildUserOrSystemMessage(role, content) {
     return {
         type: 'message',
@@ -176,7 +199,7 @@ function buildInputMessages(task) {
         if (message.role === 'assistant'
             && Array.isArray(message?.providerPayload?.openAIResponseOutput)
             && message.providerPayload.openAIResponseOutput.length) {
-            input.push(...(cloneJson(message.providerPayload.openAIResponseOutput) || []));
+            input.push(...buildReplayableResponseOutput(message.providerPayload.openAIResponseOutput));
             continue;
         }
 
@@ -236,7 +259,7 @@ function buildInputMessagesWithSystem(task) {
         if (message.role === 'assistant'
             && Array.isArray(message?.providerPayload?.openAIResponseOutput)
             && message.providerPayload.openAIResponseOutput.length) {
-            input.push(...(cloneJson(message.providerPayload.openAIResponseOutput) || []));
+            input.push(...buildReplayableResponseOutput(message.providerPayload.openAIResponseOutput));
             continue;
         }
 
@@ -543,7 +566,7 @@ export class OpenAIResponsesAdapter {
             model: response.model || this.config.model,
             provider: 'openai-responses',
             providerPayload: parsed.output.length
-                ? { openAIResponseOutput: cloneJson(parsed.output) || [] }
+                ? { openAIResponseOutput: buildReplayableResponseOutput(parsed.output) }
                 : undefined,
             requestInspection: buildRequestInspection(),
         };
