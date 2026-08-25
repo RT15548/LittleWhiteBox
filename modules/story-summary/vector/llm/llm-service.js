@@ -4,6 +4,7 @@
 import { xbLog } from '../../../../core/debug-core.js';
 import { getVectorConfig } from '../../data/config.js';
 import { getDefaultApiPrefix, resolveApiBaseUrl } from '../../../../shared/common/openai-url-utils.js';
+import { createL0FailureError } from './l0-retry-policy.js';
 
 const MODULE_ID = 'vector-llm-service';
 const DEFAULT_L0_MODEL = 'Qwen/Qwen3-8B';
@@ -93,12 +94,6 @@ function extractMessageText(data) {
     return '';
 }
 
-function createL0RequestError(message, failure, cause = null) {
-    const error = new Error(message, cause ? { cause } : undefined);
-    error.l0Failure = failure;
-    return error;
-}
-
 /**
  * 统一 L0 调用 - 浏览器直连 OpenAI-compatible Chat Completions（非流式）
  */
@@ -114,12 +109,12 @@ export async function callLLM(messages, options = {}) {
     const apiCfg = normalizeL0ApiConfig(apiConfig);
     const apiKey = getNextKey(apiCfg.key);
     if (!apiKey) {
-        throw new Error('L0 requires siliconflow API key');
+        throw createL0FailureError('L0 requires API key', { kind: 'configuration' });
     }
 
     const normalizedMessages = normalizeMessages(messages);
     if (!normalizedMessages.length) {
-        throw new Error('L0 requires at least one valid message');
+        throw createL0FailureError('L0 requires at least one valid message', { kind: 'protocol' });
     }
 
     const model = String(apiCfg.model || DEFAULT_L0_MODEL).trim();
@@ -165,10 +160,10 @@ export async function callLLM(messages, options = {}) {
             } catch (error) {
                 if (error?.name === 'AbortError') throw error;
                 if (error instanceof TypeError) {
-                    throw createL0RequestError(`L0 network error: ${error.message}`, { kind: 'network' }, error);
+                    throw createL0FailureError(`L0 network error: ${error.message}`, { kind: 'network' }, error);
                 }
             }
-            throw createL0RequestError(
+            throw createL0FailureError(
                 `L0 API ${response.status}: ${errorText.slice(0, 200)}`,
                 { kind: 'http', status: response.status },
             );
@@ -180,24 +175,24 @@ export async function callLLM(messages, options = {}) {
         } catch (error) {
             if (error?.name === 'AbortError') throw error;
             if (error instanceof TypeError) {
-                throw createL0RequestError(`L0 network error: ${error.message}`, { kind: 'network' }, error);
+                throw createL0FailureError(`L0 network error: ${error.message}`, { kind: 'network' }, error);
             }
-            throw createL0RequestError('L0 API 响应不是有效 JSON', { kind: 'invalid_json' }, error);
+            throw createL0FailureError('L0 API 响应不是有效 JSON', { kind: 'invalid_json' }, error);
         }
         return String(extractMessageText(data) ?? '');
     } catch (e) {
         if (e?.name === 'AbortError' && timedOut) {
-            throw createL0RequestError(
+            throw createL0FailureError(
                 `L0 request timeout after ${timeout}ms`,
                 { kind: 'timeout' },
                 e,
             );
         }
         if (e?.name === 'AbortError') {
-            throw createL0RequestError('L0 request cancelled', { kind: 'cancelled' }, e);
+            throw createL0FailureError('L0 request cancelled', { kind: 'cancelled' }, e);
         }
         if (!e?.l0Failure && e instanceof TypeError) {
-            throw createL0RequestError(`L0 network error: ${e.message}`, { kind: 'network' }, e);
+            throw createL0FailureError(`L0 network error: ${e.message}`, { kind: 'network' }, e);
         }
         xbLog.error(MODULE_ID, 'LLM调用失败', e);
         throw e;

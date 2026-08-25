@@ -2,6 +2,7 @@ import { extensionFolderPath } from "../../../../core/constants.js";
 import {
     getNovelModelCapability,
     getNovelScenePlannerContract,
+    NOVEL_MODEL_IDS,
     NOVEL_PROMPT_GUIDES,
 } from './novel-model-capabilities.js';
 
@@ -16,7 +17,7 @@ const PROMPTS_DIR = `${extensionFolderPath}/modules/draw/providers/novelai/promp
  * 递增前必须先算出旧内容的指纹，并加进 novel-prompt-migration.js 的
  * RELEASED_DEFAULT_FINGERPRINTS —— 只 bump 不记指纹会让该版本用户永远停在旧提示词。
  */
-const PROMPT_TEMPLATE_VERSION = 8;
+const PROMPT_TEMPLATE_VERSION = 9;
 
 let LLM_PROMPT_CONFIG = {
     topSystem: '',
@@ -103,6 +104,27 @@ export function normalizeNovelPromptGuideOverrides(value) {
     return normalized;
 }
 
+/** 只保留当前模型家族支持的场景规划契约覆盖。 */
+export function normalizeNovelModelContractOverrides(value) {
+    return normalizeNovelPromptGuideOverrides(value);
+}
+
+/** 获取指定模型家族的插件内置场景规划契约。 */
+export function getDefaultNovelModelContractByGuideId(guideId) {
+    return getNovelScenePlannerContract(
+        guideId === NOVEL_PROMPT_GUIDES.V5 ? NOVEL_MODEL_IDS.V5_FULL : '',
+    );
+}
+
+/** 当前提示词预设有覆盖时使用覆盖，否则跟随代码生成的模型契约。 */
+export function getEffectiveNovelModelContract(model, promptPreset) {
+    const guideId = getNovelPromptGuideId(model);
+    const overrides = normalizeNovelModelContractOverrides(promptPreset?.modelContractOverrides);
+    return Object.prototype.hasOwnProperty.call(overrides, guideId)
+        ? overrides[guideId]
+        : getNovelScenePlannerContract(model);
+}
+
 /** 获取指定指南键的插件内置 MD。 */
 export function getLoadedTagGuideById(guideId) {
     return promptGuides.get(guideId) || '';
@@ -148,8 +170,9 @@ export function getPromptChainPreview(customPrompts, model) {
                 { key: 'sceneRules', editable: true, summary: '场景规划领域规则 + submit_scene_plan 字段语义' },
                 {
                     key: 'modelContract',
-                    summary: '当前模型的坐标与角色数量契约（插件自动注入）',
-                    content: getNovelScenePlannerContract(model),
+                    editable: true,
+                    summary: '当前模型的坐标与角色数量契约（高级覆盖）',
+                    content: getEffectiveNovelModelContract(model, customPrompts),
                 },
                 { key: 'assistantCheck', summary: '合规检查 + FICTIONAL_CREATIVE_WORK 确认' },
                 { key: 'userConfirm', summary: '强制一次 Tool 提交，并动态追加本次 images/characters 数量限制' },

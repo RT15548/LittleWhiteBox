@@ -14,6 +14,7 @@ import {
     applyRecallRuntimeMutationBestEffort,
     clearRecallRuntime,
 } from '../runtime/runtime.js';
+import { assertFiniteVector } from './vector-validation.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 工具函数
@@ -165,13 +166,18 @@ export async function clearAllChunks(chatId) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export async function saveChunkVectors(chatId, items, fingerprint) {
-    const records = items.map(item => ({
-        chatId,
-        chunkId: item.chunkId,
-        vector: float32ToBuffer(new Float32Array(item.vector)),
-        dims: item.vector.length,
-        fingerprint,
-    }));
+    let expectedDimensions = null;
+    const records = items.map((item, index) => {
+        const dims = assertFiniteVector(item.vector, `chunk vector ${index}`, expectedDimensions);
+        expectedDimensions ??= dims;
+        return {
+            chatId,
+            chunkId: item.chunkId,
+            vector: float32ToBuffer(new Float32Array(item.vector)),
+            dims,
+            fingerprint,
+        };
+    });
     await chunkVectorsTable.bulkPut(records);
     applyRecallRuntimeMutationBestEffort(chatId, {
         type: 'upsertChunkVectors',
@@ -214,13 +220,18 @@ export async function getChunkVectorsByIds(chatId, chunkIds, options = {}) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export async function saveEventVectors(chatId, items, fingerprint) {
-    const records = items.map(item => ({
-        chatId,
-        eventId: item.eventId,
-        vector: float32ToBuffer(new Float32Array(item.vector)),
-        dims: item.vector.length,
-        fingerprint,
-    }));
+    let expectedDimensions = null;
+    const records = items.map((item, index) => {
+        const dims = assertFiniteVector(item.vector, `event vector ${index}`, expectedDimensions);
+        expectedDimensions ??= dims;
+        return {
+            chatId,
+            eventId: item.eventId,
+            vector: float32ToBuffer(new Float32Array(item.vector)),
+            dims,
+            fingerprint,
+        };
+    });
     await eventVectorsTable.bulkPut(records);
     applyRecallRuntimeMutationBestEffort(chatId, {
         type: 'upsertEventVectors',

@@ -10,21 +10,34 @@ function requirePromptFields(payload) {
     }
 }
 
-function parseV2GuideOverrides(value) {
+function parseGuideOverrides(value, version) {
     if (value == null) return {};
     if (typeof value !== 'object' || Array.isArray(value)) {
-        throw new TypeError('V2 提示词模板的 modelGuideOverrides 格式无效');
+        throw new TypeError(`V${version} 提示词模板的 modelGuideOverrides 格式无效`);
     }
     const entries = Object.entries(value);
     if (entries.some(([guideId, content]) =>
         !SUPPORTED_GUIDE_IDS.has(guideId) || typeof content !== 'string')) {
-        throw new TypeError('V2 提示词模板包含无效的模型指南覆盖');
+        throw new TypeError(`V${version} 提示词模板包含无效的模型指南覆盖`);
+    }
+    return Object.fromEntries(entries);
+}
+
+function parseV3ContractOverrides(value) {
+    if (value == null) return {};
+    if (typeof value !== 'object' || Array.isArray(value)) {
+        throw new TypeError('V3 提示词模板的 modelContractOverrides 格式无效');
+    }
+    const entries = Object.entries(value);
+    if (entries.some(([guideId, content]) =>
+        !SUPPORTED_GUIDE_IDS.has(guideId) || typeof content !== 'string')) {
+        throw new TypeError('V3 提示词模板包含无效的模型契约覆盖');
     }
     return Object.fromEntries(entries);
 }
 
 /**
- * Parses the two released NovelAI prompt-template formats at the import boundary.
+ * Parses the released NovelAI prompt-template formats at the import boundary.
  * The runtime only receives the current prompt preset shape.
  */
 export function parseNovelPromptPresetImport(payload, { fallbackName = '' } = {}) {
@@ -32,7 +45,7 @@ export function parseNovelPromptPresetImport(payload, { fallbackName = '' } = {}
         || payload._type !== PROMPT_TEMPLATE_TYPE) {
         throw new TypeError('不是有效的提示词模板文件');
     }
-    if (payload._version !== 1 && payload._version !== 2) {
+    if (![1, 2, 3].includes(payload._version)) {
         throw new TypeError(`不支持的提示词模板版本：${payload._version ?? '缺失'}`);
     }
     requirePromptFields(payload);
@@ -44,7 +57,7 @@ export function parseNovelPromptPresetImport(payload, { fallbackName = '' } = {}
         }
         modelGuideOverrides = migrateLegacyNovelTagGuide(payload.tagGuideContent);
     } else {
-        modelGuideOverrides = parseV2GuideOverrides(payload.modelGuideOverrides);
+        modelGuideOverrides = parseGuideOverrides(payload.modelGuideOverrides, payload._version);
     }
 
     const importedName = typeof payload.name === 'string' ? payload.name.trim() : '';
@@ -53,5 +66,8 @@ export function parseNovelPromptPresetImport(payload, { fallbackName = '' } = {}
         topSystem: payload.topSystem,
         sceneRules: payload.sceneRules,
         modelGuideOverrides,
+        modelContractOverrides: payload._version === 3
+            ? parseV3ContractOverrides(payload.modelContractOverrides)
+            : {},
     };
 }

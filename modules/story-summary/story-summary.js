@@ -91,6 +91,7 @@ import { createSummaryGenerationCancelledError } from "./generate/llm.js";
 import { embed, getEngineFingerprint, testOnlineService } from "./vector/utils/embedder.js";
 import { testL0Service } from "./vector/llm/llm-service.js";
 import { testRerankService } from "./vector/llm/reranker.js";
+import { isRetryableEmbeddingFailure } from "./vector/llm/embedding-failure.js";
 import { buildVectorIntegrityIssues } from "./vector/integrity-policy.js";
 
 // tokenizer
@@ -119,8 +120,11 @@ import {
     syncOnMessageDeleted,
     syncOnMessageSwiped,
 } from "./vector/pipeline/chunk-builder.js";
+import { runAnchorPreparation } from "./vector/pipeline/anchor-workflow.js";
 import {
     incrementalExtractAtoms,
+    getL0VectorBuildStatus,
+    vectorizeMissingStateAtoms,
     clearAllAtomsAndVectors,
     getAnchorStats,
     initStateIntegration,
@@ -409,9 +413,8 @@ const HIDE_APPLY_DEBOUNCE_MS = 250;
 let lexicalWarmupTimer = null;
 let autoL0BackfillTimer = null;
 let vectorIntegrityTimer = null;
-// 完整性检查 / 延迟维护连续失败时的退避间隔（纯内存态，切聊天/停用/卸载即清零）。
+// 完整性检查连续失败时的退避间隔（纯内存态，切聊天/停用/卸载即清零）。
 let vectorIntegrityRetryDelayMs = 0;
-let vectorMaintenanceRetryDelayMs = 0;
 const pendingVectorMaintenanceByChat = new Map();
 const autoSummaryTimers = new Map();
 const LEXICAL_WARMUP_DEBOUNCE_MS = 3000;
@@ -482,7 +485,6 @@ function finishVectorMaintenance(chatId, { forceIntegrityCheck = false } = {}) {
     const entry = pendingVectorMaintenanceByChat.get(chatId);
     const shouldCheckIntegrity = forceIntegrityCheck || entry?.reasons?.has('integrity-check');
     clearVectorMaintenance(chatId);
-    vectorMaintenanceRetryDelayMs = 0;
     if (shouldCheckIntegrity && !isChatStale(chatId)) {
         scheduleVectorIntegrityCheck();
     }
@@ -499,16 +501,14 @@ function retryVectorMaintenanceAfterCancel(chatId) {
 }
 
 /**
- * 维护任务因外部失败没做完时的收尾（embedding 请求超时、接口报错、写库异常）。
- * 与取消的区别只在退避：这里同样必须保留待维护记录，否则"没写成"会被当成"已写完"——
- * L1 缺口不足 L1_GAP_WARNING_THRESHOLD 层时完整性检查并不告警，数据就永久漏了。
- * 记录里补挂 'integrity-check'，等重试真正成功后由 finishVectorMaintenance 兑现那次检查。
+ * 真实失败不在后台自循环。事实/派生数据本身就是下一次工作的唯一来源；清掉临时维护记录
+ * 后立即恢复完整性检查，让缺失告警和其他层修复继续运行。下一条 AI 消息或用户手动操作
+ * 会重新触发一次维护，而不会在 API 配置错误时无限占用队列。
  */
-function retryVectorMaintenanceAfterFailure(chatId) {
+function stopVectorMaintenanceAfterFailure(chatId) {
     if (!isBackgroundWorkLive(chatId)) return;
-    rememberVectorMaintenance(chatId, null, 'integrity-check');
-    vectorMaintenanceRetryDelayMs = nextBackoffDelayMs(vectorMaintenanceRetryDelayMs);
-    scheduleAutoL0Backfill(vectorMaintenanceRetryDelayMs, chatId);
+    clearVectorMaintenance(chatId);
+    scheduleVectorIntegrityCheck(0);
 }
 
 const VECTOR_WARNING_COOLDOWN_MS = 120000; // 2分钟内不重复提醒
@@ -530,6 +530,37 @@ function buildRAggregateText(atom) {
     const joined = [...uniq].join(" ; ");
     if (!joined) return String(atom?.semantic || "").trim();
     return joined.length > R_AGG_MAX_CHARS ? joined.slice(0, R_AGG_MAX_CHARS) : joined;
+}
+
+function formatSafeFailure(code, httpStatus = null) {
+    const safeCode = String(code || 'unknown').replace(/[^a-z0-9_:-]/gi, '').slice(0, 80) || 'unknown';
+    const status = Number(httpStatus);
+    return Number.isInteger(status) && status >= 100 && status <= 599
+        ? `${safeCode}（HTTP ${status}）`
+        : safeCode;
+}
+
+function getL0FailureAdvice(code) {
+    if (code === 'l0_config_missing') {
+        return '请先配置 L0 API Key，再点击“生成/补齐”继续；成功楼层不会重复生成。';
+    }
+    return '请检查 L0 API、模型和网络后，再点击“生成/补齐”继续；成功楼层不会重复生成。';
+}
+
+function getVectorFailureAdvice(code) {
+    if (code === 'fingerprint_mismatch') {
+        return '向量配置已经变化，请点击“完整重建”重新生成全部向量。';
+    }
+    if (code === 'embedding_config_missing') {
+        return '请先配置 Embedding API Key，再点击“生成/补齐”继续。';
+    }
+    if (code === 'embedding_url_invalid') {
+        return '请检查 Embedding API URL，应为完整的 http:// 或 https:// 地址。';
+    }
+    if (['state_vector_read_failed', 'state_vector_write_failed', 'chunk_write_failed', 'vector_write_failed', 'metadata_write_failed'].includes(code)) {
+        return '请确认浏览器存储可用且空间充足，刷新页面后再点击“生成/补齐”继续。';
+    }
+    return '请检查 Embedding API、Key、额度和网络后，再点击“生成/补齐”继续。';
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -753,36 +784,103 @@ async function handleAnchorGenerateNow(targetChatId, writeSession) {
             return;
         }
 
-        if (!vectorCfg.l0Api?.key) {
-            postToFrame({ type: "VECTOR_ONLINE_STATUS", status: "error", message: "请配置 L0 API Key" });
-            return;
-        }
-
         const { chatId, chat } = getContext();
         if (!chatId || !chat?.length) return;
         const chatSnapshot = [...chat];
+        const initialStats = await getAnchorStats();
+        const incompleteFloors = Math.max(0, Number(initialStats.total || 0) - Number(initialStats.extracted || 0));
+        const preparation = await runAnchorPreparation({
+            extract: async () => {
+                if (incompleteFloors > 0 && !vectorCfg.l0Api?.key) {
+                    postToFrame({
+                        type: "VECTOR_ONLINE_STATUS",
+                        target: "l0",
+                        status: "error",
+                        message: "请配置 L0 API Key",
+                    });
+                    return {
+                        built: 0,
+                        failed: incompleteFloors,
+                        llmFailed: incompleteFloors,
+                        failureCode: 'l0_config_missing',
+                        httpStatus: null,
+                        cancelled: false,
+                    };
+                }
+                if (incompleteFloors <= 0) {
+                    postToFrame({ type: "ANCHOR_GEN_PROGRESS", current: 1, total: 1, message: "锚点已完整" });
+                    return { built: 0, failed: 0, llmFailed: 0, cancelled: false };
+                }
 
-        postToFrame({ type: "ANCHOR_GEN_PROGRESS", current: 0, total: 1, message: "分析中..." });
-
-        const l0Result = await incrementalExtractAtoms(
-            chatId,
-            chatSnapshot,
-            (message, current, total) => {
-                postToFrame({ type: "ANCHOR_GEN_PROGRESS", current, total, message });
+                postToFrame({ type: "ANCHOR_GEN_PROGRESS", current: 0, total: 1, message: "分析锚点..." });
+                return await incrementalExtractAtoms(
+                    chatId,
+                    chatSnapshot,
+                    (message, current, total) => {
+                        postToFrame({ type: "ANCHOR_GEN_PROGRESS", current, total, message });
+                    },
+                    {
+                        signal: writeSession.signal,
+                        shouldCancel: () => !isVectorWriteSessionCurrent(writeSession),
+                        // 用户显式触发时，连后台已放弃的失败楼层也一并重试。
+                        retryFailedFloors: true,
+                    },
+                );
             },
-            {
-                signal: writeSession.signal,
-                shouldCancel: () => !isVectorWriteSessionCurrent(writeSession),
-                // 用户显式点了生成：连后台已放弃的失败楼层也一并重试。
-                retryFailedFloors: true,
+            vectorize: async () => {
+                postToFrame({ type: "ANCHOR_GEN_PROGRESS", current: 0, total: 1, message: "补齐 L0 向量..." });
+                return await vectorizeMissingStateAtoms(
+                    chatId,
+                    (current, total) => {
+                        postToFrame({
+                            type: "ANCHOR_GEN_PROGRESS",
+                            current,
+                            total,
+                            message: `向量化 L0: ${current}/${total}`,
+                        });
+                    },
+                    {
+                        vectorConfig: vectorCfg,
+                        signal: writeSession.signal,
+                        shouldCancel: () => !isVectorWriteSessionCurrent(writeSession),
+                    },
+                );
             },
-        );
+            inspect: getAnchorStats,
+            isCancelled: () => (
+                getContext()?.chatId !== targetChatId
+                || !isVectorWriteSessionCurrent(writeSession)
+            ),
+        });
+        const { l0Result, l0VectorResult, llmFailed } = preparation;
+        const l0Failure = formatSafeFailure(l0Result?.failureCode || 'l0_llm_failed', l0Result?.httpStatus);
 
-        if (getContext()?.chatId !== targetChatId || !isVectorWriteSessionCurrent(writeSession)) return;
-        if (l0Result?.cancelled) {
+        if (preparation.cancelled) {
             await sendAnchorStatsToFrame();
             await sendVectorStatsToFrame();
-            xbLog.info(MODULE_ID, "记忆锚点生成已取消");
+            xbLog.info(MODULE_ID, "锚点准备已取消");
+            return;
+        }
+        if (!l0VectorResult?.success) {
+            await sendAnchorStatsToFrame();
+            await sendVectorStatsToFrame();
+            const failure = formatSafeFailure(l0VectorResult?.code, l0VectorResult?.httpStatus);
+            xbLog.warn(MODULE_ID, `L0 向量补齐失败 code=${failure}`);
+            const retryNote = l0VectorResult?.code === 'fingerprint_mismatch'
+                ? ''
+                : ' 已保存的锚点不会重新调用 L0 LLM。';
+            const l0StatusText = llmFailed > 0
+                ? `成功提取的锚点已保存，但仍有 ${llmFailed} 个楼层待处理（${l0Failure}）`
+                : 'L0 锚点提取已完成并保存';
+            await executeSlashCommand(`/echo severity=error ${l0StatusText}；L0 向量未完成（${failure}）。${getVectorFailureAdvice(l0VectorResult?.code)}${retryNote}`);
+            return;
+        }
+
+        if (!preparation.canBuildL1) {
+            await sendAnchorStatsToFrame();
+            await sendVectorStatsToFrame();
+            xbLog.warn(MODULE_ID, `L0 锚点提取未完成 failed=${llmFailed} code=${l0Failure}`);
+            await executeSlashCommand(`/echo severity=error L0 未全部完成：成功锚点已保存且对应 L0 向量已补齐；仍有 ${llmFailed} 个楼层待处理（${l0Failure}），L1 未启动。${getL0FailureAdvice(l0Result?.failureCode)}`);
             return;
         }
 
@@ -806,12 +904,23 @@ async function handleAnchorGenerateNow(targetChatId, writeSession) {
             chatSnapshot,
             signal: writeSession.signal,
             shouldCancel: () => !isVectorWriteSessionCurrent(writeSession),
+            onRetry: ({ batchIndex, batchCount, secondsRemaining }) => {
+                postToFrame({
+                    type: "ANCHOR_GEN_PROGRESS",
+                    current: batchIndex - 1,
+                    total: batchCount,
+                    message: `L1 批次 ${batchIndex}/${batchCount} 失败，${secondsRemaining}s 后重试`,
+                });
+            },
         });
         if (getContext()?.chatId !== targetChatId || !isVectorWriteSessionCurrent(writeSession)) return;
         if (chunkResult.status === 'cancelled') return;
         if (!chunkResult.success) {
             scheduleVectorIntegrityCheck(0);
-            throw new Error(`L1 增量构建失败：${chunkResult.code || 'unknown'}`);
+            const failure = formatSafeFailure(chunkResult.code, chunkResult.httpStatus);
+            xbLog.warn(MODULE_ID, `L1 增量构建失败 code=${failure}`);
+            await executeSlashCommand(`/echo severity=error 锚点和 L0 向量已完成；L1 原文向量未完成（${failure}）。${getVectorFailureAdvice(chunkResult.code)} 已完成步骤不会重复执行。`);
+            return;
         }
 
         // L1 rebuild only if new chunks were added (usually 0 in normal chat)
@@ -827,7 +936,7 @@ async function handleAnchorGenerateNow(targetChatId, writeSession) {
     } catch (e) {
         if (e?.name === 'AbortError' || !isVectorWriteSessionCurrent(writeSession)) return;
         xbLog.error(MODULE_ID, "记忆锚点生成失败", e);
-        await executeSlashCommand(`/echo severity=error 记忆锚点生成失败：${e.message}`);
+        await executeSlashCommand('/echo severity=error 记忆锚点生成失败：internal_error');
     } finally {
         postToFrame({ type: "ANCHOR_GEN_PROGRESS", current: -1, total: 0 });
     }
@@ -952,7 +1061,7 @@ async function generateVectorsNow(vectorCfg, targetChatId, writeSession) {
                 } catch (e) {
                     if (e?.name === "AbortError" || isCancelled() || !isTargetActive()) return null;
                     xbLog.error(MODULE_ID, `${phase} 向量化单次失败`, e);
-                    if (attempt === 3) throw e;
+                    if (attempt === 3 || !isRetryableEmbeddingFailure(e)) throw e;
 
                     // 等待 60 秒重试
                     const waitSec = 60;
@@ -1146,7 +1255,7 @@ async function handleClearVectors() {
     );
     if (getContext()?.chatId !== targetChatId) return;
     await sendVectorStatsToFrame();
-    await executeSlashCommand('/echo severity=info 向量数据已清除。如需恢复召回功能，请重新点击"生成向量"。');
+    await executeSlashCommand('/echo severity=info 向量数据已清除。如需恢复召回功能，请点击“完整重建”。');
     xbLog.info(MODULE_ID, "向量数据已清除");
 }
 
@@ -1187,23 +1296,30 @@ async function maybeRunDelayedVectorMaintenance(scheduledChatId = null) {
 
     let stats;
     let chunkStatus;
+    let l0VectorStatus;
     try {
         stats = await getAnchorStats();
         chunkStatus = await getChunkBuildStatus();
+        l0VectorStatus = await getL0VectorBuildStatus(chatId);
     } catch (e) {
         xbLog.error(MODULE_ID, "延迟向量维护状态检查失败", e);
-        retryVectorMaintenanceAfterFailure(chatId);
+        stopVectorMaintenanceAfterFailure(chatId);
         return;
     }
-    const hasL0Work = stats.pending > 0;
+    const hasL0LlmWork = stats.pending > 0;
+    const hasL0VectorWork = l0VectorStatus.success && l0VectorStatus.missing > 0;
     const hasL1Work = chunkStatus.pending > 0;
 
-    if (!hasL0Work && !hasL1Work) {
+    if (!hasL0LlmWork && !hasL0VectorWork && !hasL1Work) {
+        if (stats.incomplete > 0) {
+            stopVectorMaintenanceAfterFailure(chatId);
+            return;
+        }
         finishVectorMaintenance(chatId);
         return;
     }
 
-    if (!pendingEntry && hasL0Work) {
+    if (!pendingEntry && (hasL0LlmWork || hasL0VectorWork)) {
         rememberVectorMaintenance(chatId, null, 'backfill');
     }
 
@@ -1215,7 +1331,7 @@ async function maybeRunDelayedVectorMaintenance(scheduledChatId = null) {
 
     try {
         const floorsText = pendingEntry?.floors?.size ? [...pendingEntry.floors].sort((a, b) => a - b).join(',') : '-';
-        xbLog.info(MODULE_ID, `延迟向量维护开始 chat=${chatId} floors=${floorsText} l0Pending=${stats.pending} l1Pending=${chunkStatus.pending}`);
+        xbLog.info(MODULE_ID, `延迟向量维护开始 chat=${chatId} floors=${floorsText} l0Pending=${stats.pending} l0VectorMissing=${l0VectorStatus.missing || 0} l1Pending=${chunkStatus.pending}`);
 
         const writeResult = await runVectorWriteTask({
             chatId,
@@ -1229,6 +1345,7 @@ async function maybeRunDelayedVectorMaintenance(scheduledChatId = null) {
                 return {
                     chunkResult: { success: true, status: 'disabled', built: 0 },
                     l0Result: null,
+                    l0VectorResult: null,
                     deferred: false,
                     stale: false,
                     cancelled: false,
@@ -1239,55 +1356,79 @@ async function maybeRunDelayedVectorMaintenance(scheduledChatId = null) {
                 return {
                     chunkResult: { success: false, status: 'failed', code: 'stale_chat', built: 0 },
                     l0Result: null,
+                    l0VectorResult: null,
                     deferred: false,
                     stale: true,
                     cancelled: false,
                 };
             }
             if (!isVectorWriteSessionCurrent(writeSession)) {
-                return { chunkResult: null, l0Result: null, deferred: false, stale: false, cancelled: true };
+                return { chunkResult: null, l0Result: null, l0VectorResult: null, deferred: false, stale: false, cancelled: true };
             }
-            const chunkResult = hasL1Work
-                ? await buildIncrementalChunks({
-                    vectorConfig: vectorCfg,
-                    targetChatId: chatId,
-                    chatSnapshot,
-                    signal: writeSession.signal,
-                    shouldCancel: () => !isVectorWriteSessionCurrent(writeSession),
-                })
-                : { success: true, status: 'up_to_date', built: 0 };
-
-            if (!isVectorWriteSessionCurrent(writeSession)) {
-                return { chunkResult, l0Result: null, deferred: false, stale: false, cancelled: true };
-            }
-
-            let l0Result = null;
-            if (hasL0Work) {
+            let chunkResult = { success: true, status: 'up_to_date', built: 0 };
+            if (hasL0LlmWork || hasL0VectorWork || hasL1Work) {
                 if (isHostGenerating() || isChatStale(chatId)) {
                     return {
                         chunkResult,
-                        l0Result,
+                        l0Result: null,
+                        l0VectorResult: null,
                         deferred: !isChatStale(chatId),
                         stale: isChatStale(chatId),
                         cancelled: false,
                     };
                 }
-                const preferredFloors = pendingEntry?.floors ? [...pendingEntry.floors] : [];
-                l0Result = await incrementalExtractAtoms(chatId, chatSnapshot, null, {
-                    maxFloors: 20,
-                    preferredFloors,
+            }
+            const preparation = await runAnchorPreparation({
+                extract: async () => {
+                    if (!hasL0LlmWork) return { built: 0, failed: 0, llmFailed: 0, cancelled: false };
+                    const preferredFloors = pendingEntry?.floors ? [...pendingEntry.floors] : [];
+                    return await incrementalExtractAtoms(chatId, chatSnapshot, null, {
+                        maxFloors: 20,
+                        preferredFloors,
+                        signal: writeSession.signal,
+                        shouldCancel: () => !isVectorWriteSessionCurrent(writeSession),
+                    });
+                },
+                vectorize: async (l0Result) => {
+                    if (!l0VectorStatus.success) {
+                        return { ...l0VectorStatus, success: false, status: 'failed' };
+                    }
+                    if (!hasL0VectorWork && Number(l0Result?.built || 0) <= 0) {
+                        return { success: true, status: 'up_to_date', vectorized: 0 };
+                    }
+                    return await vectorizeMissingStateAtoms(chatId, null, {
+                        vectorConfig: vectorCfg,
+                        signal: writeSession.signal,
+                        shouldCancel: () => !isVectorWriteSessionCurrent(writeSession),
+                    });
+                },
+                inspect: getAnchorStats,
+                isCancelled: () => !isVectorWriteSessionCurrent(writeSession),
+            });
+            const { l0Result, l0VectorResult, l0Status } = preparation;
+            if (preparation.cancelled) {
+                return { chunkResult, l0Result, l0VectorResult, l0Status, deferred: false, stale: false, cancelled: true };
+            }
+
+            if (hasL1Work && preparation.canBuildL1) {
+                chunkResult = await buildIncrementalChunks({
+                    vectorConfig: vectorCfg,
+                    targetChatId: chatId,
+                    chatSnapshot,
                     signal: writeSession.signal,
                     shouldCancel: () => !isVectorWriteSessionCurrent(writeSession),
                 });
+            } else if (hasL1Work) {
+                chunkResult = { success: true, status: 'blocked_by_l0', built: 0 };
             }
-            return { chunkResult, l0Result, deferred: false, stale: false, cancelled: false };
+            return { chunkResult, l0Result, l0VectorResult, l0Status, deferred: false, stale: false, cancelled: false };
         });
         // writeResult 为空 = 任务在出队前就被取消（配置切换 / 取消生成 / 卸载）。
-        if (!writeResult || writeResult.cancelled || writeResult.l0Result?.cancelled) {
+        if (!writeResult || writeResult.cancelled || writeResult.l0Result?.cancelled || writeResult.l0VectorResult?.cancelled) {
             retryVectorMaintenanceAfterCancel(chatId);
             return;
         }
-        const { chunkResult, l0Result, deferred, stale, disabled } = writeResult;
+        const { chunkResult, l0Result, l0VectorResult, l0Status, deferred, stale, disabled } = writeResult;
 
         if (disabled || stale) {
             clearVectorMaintenance(chatId);
@@ -1310,12 +1451,23 @@ async function maybeRunDelayedVectorMaintenance(scheduledChatId = null) {
 
         await sendAnchorStatsToFrame();
         await sendVectorStatsToFrame();
-        const l0Failed = Number(l0Result?.failed || 0);
-        if (chunkResult.success === false || l0Failed > 0) {
+        const l0Failed = Number(l0Result?.llmFailed ?? l0Result?.failed ?? 0);
+        const l0VectorFailed = Boolean(l0VectorResult && !l0VectorResult.success);
+        if (chunkResult.success === false || l0Failed > 0 || l0VectorFailed) {
             // 真取消已在上面的 cancelled 分支返回，走到这里就是实打实的失败。
-            // L0 失败同样要保留记录：失败楼层已标 fail，只有重跑维护才会被重新排进提取队列。
-            retryVectorMaintenanceAfterFailure(chatId);
-            xbLog.warn(MODULE_ID, `延迟向量维护未完成 l1=${chunkResult.success === false ? (chunkResult.code || 'unknown') : 'ok'} l0Failed=${l0Failed}，已保留待维护记录并退避重试`);
+            // LLM 失败楼层与缺失 StateVector 都保留为可推导数据；本轮停止，避免后台循环扰民。
+            stopVectorMaintenanceAfterFailure(chatId);
+            xbLog.warn(MODULE_ID, `延迟向量维护未完成 l1=${chunkResult.success === false ? (chunkResult.code || 'unknown') : 'ok'} l0Failed=${l0Failed} l0Vector=${l0VectorResult?.code || 'ok'}，已停止自动重试并恢复完整性检查`);
+            return;
+        }
+        if (Number(l0Status?.incomplete || 0) > 0) {
+            if (Number(l0Status?.pending || 0) > 0) {
+                scheduleAutoL0Backfill(AUTO_L0_BACKFILL_DELAY_MS, chatId);
+                xbLog.info(MODULE_ID, `延迟向量维护完成一批，剩余 L0 楼层=${l0Status.incomplete}`);
+            } else {
+                stopVectorMaintenanceAfterFailure(chatId);
+                xbLog.warn(MODULE_ID, `L0 仍有 ${l0Status.incomplete} 个终态失败楼层，已停止自动重试`);
+            }
             return;
         }
         finishVectorMaintenance(chatId);
@@ -1327,7 +1479,7 @@ async function maybeRunDelayedVectorMaintenance(scheduledChatId = null) {
             return;
         }
         xbLog.error(MODULE_ID, "延迟向量维护失败", e);
-        retryVectorMaintenanceAfterFailure(chatId);
+        stopVectorMaintenanceAfterFailure(chatId);
     } finally {
         release();
     }
@@ -1809,6 +1961,7 @@ async function checkVectorIntegrityAndWarn({ allowEventRepair = true } = {}) {
 
     const store = getSummaryStore();
     const totalFloors = chat.length;
+    const anchorStats = await getAnchorStats();
     const sourceEvents = (store?.json?.events || []).map(event => ({
         id: event?.id,
         title: event?.title,
@@ -1828,6 +1981,14 @@ async function checkVectorIntegrityAndWarn({ allowEventRepair = true } = {}) {
     const fingerprintMismatch = Boolean(meta.fingerprint && meta.fingerprint !== fingerprint);
     const chunkFloorGap = totalFloors - 1 - (meta.lastChunkFloor ?? -1);
 
+    const l0VectorStatus = await getL0VectorBuildStatus(chatId, { vectorConfig: vectorCfg });
+    if (
+        getContext()?.chatId !== chatId
+        || !isMaintenanceSnapshotCurrent(snapshot)
+    ) {
+        scheduleVectorIntegrityCheck(BACKGROUND_VISIBLE_GRACE_MS);
+        return;
+    }
     let missingEventPairs = [];
     if (!meta.fingerprint || meta.fingerprint === fingerprint) {
         missingEventPairs = await collectMissingEventVectorPairs(chatId, sourceEvents, fingerprint);
@@ -1848,6 +2009,8 @@ async function checkVectorIntegrityAndWarn({ allowEventRepair = true } = {}) {
     const issues = buildVectorIntegrityIssues({
         fingerprintMismatch,
         chunkFloorGap,
+        incompleteL0FloorCount: Number(anchorStats.incomplete || 0)
+            + (l0VectorStatus.success ? Number(l0VectorStatus.missingFloors || 0) : 0),
         missingEventVectorCount: missingEventPairs.length,
     });
 
@@ -1864,7 +2027,7 @@ async function checkVectorIntegrityAndWarn({ allowEventRepair = true } = {}) {
             VECTOR_WARNING_COOLDOWN_MS,
         ));
         if (!eligible.length) return;
-        await executeSlashCommand(`/echo severity=warning 向量数据不完整：${eligible.map(issue => issue.message).join('、')}。请打开剧情总结面板点击"生成向量"。`);
+        await executeSlashCommand(`/echo severity=warning 向量数据不完整：${eligible.map(issue => issue.message).join('、')}。请打开剧情总结面板补齐锚点或完整重建向量。`);
     }
 }
 
@@ -2792,7 +2955,7 @@ function scheduleAutoL0Backfill(delayMs = AUTO_L0_BACKFILL_DELAY_MS, chatIdOverr
     }, delayMs);
 }
 
-/** 连续失败时 6s → 12s → 24s … 封顶 5min；成功后由调用方清零。 */
+/** 完整性读取连续失败时 6s → 12s → 24s … 封顶 5min；成功后由调用方清零。 */
 function nextBackoffDelayMs(currentMs) {
     return currentMs ? Math.min(currentMs * 2, VECTOR_RETRY_MAX_MS) : BACKGROUND_VISIBLE_GRACE_MS;
 }
@@ -2828,7 +2991,6 @@ function clearDeferredBackgroundTasks() {
     clearTimeout(vectorIntegrityTimer);
     vectorIntegrityTimer = null;
     vectorIntegrityRetryDelayMs = 0;
-    vectorMaintenanceRetryDelayMs = 0;
     clearVectorMaintenance();
     for (const timer of autoSummaryTimers.values()) clearTimeout(timer);
     autoSummaryTimers.clear();

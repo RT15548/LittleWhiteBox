@@ -10,10 +10,12 @@
 
 import { callLLM } from './llm-service.js';
 import {
+    createL0FailureError,
     getL0RetryDelayMs,
     getL0ResponseSchemaFailure,
     isRetryableL0Failure,
     L0_MAX_ATTEMPTS,
+    L0_MIN_SCENE_LENGTH,
 } from './l0-retry-policy.js';
 import { parseJsonResponse } from './json-response.js';
 import { xbLog } from '../../../../core/debug-core.js';
@@ -176,11 +178,12 @@ function sanitizeEdges(raw) {
  * @returns {object|null} atom 对象
  */
 function anchorToAtom(anchor, aiFloor, idx) {
+    if (!anchor || typeof anchor !== 'object' || Array.isArray(anchor)) return null;
     const scene = String(anchor.scene || '').trim();
     if (!scene) return null;
 
     // scene 过短（< 15 字）可能是噪音
-    if (scene.length < 15) return null;
+    if (scene.length < L0_MIN_SCENE_LENGTH) return null;
     const edges = sanitizeEdges(anchor.edges);
     const where = String(anchor.where || '').trim();
     const quality = calcAtomQuality(scene, edges, where);
@@ -248,7 +251,7 @@ export async function extractAtomsForRound(userMessage, aiMessage, aiFloor, opti
                     if (isCancelled()) return [];
                     continue;
                 }
-                return null;
+                throw createL0FailureError('L0 API 返回空响应', { kind: 'empty' });
             }
 
             xbLog.info(MODULE_ID, `floor ${aiFloor} attempt ${attempt} parseSource(len=${rawText.length}): ${previewText(rawText)}`);
@@ -260,7 +263,7 @@ export async function extractAtomsForRound(userMessage, aiMessage, aiFloor, opti
                     if (isCancelled()) return [];
                     continue;
                 }
-                return null;
+                throw createL0FailureError('L0 API 响应无法解析为 JSON', { kind: 'invalid_json' });
             }
             const parsed = parsedResponse.value;
             if (parsedResponse.repair) {
@@ -274,7 +277,7 @@ export async function extractAtomsForRound(userMessage, aiMessage, aiFloor, opti
                     if (isCancelled()) return [];
                     continue;
                 }
-                return null;
+                throw createL0FailureError('L0 API 响应缺少 anchors 数组', schemaFailure);
             }
             const rawAnchors = parsed.anchors;
 
@@ -300,9 +303,9 @@ export async function extractAtomsForRound(userMessage, aiMessage, aiFloor, opti
                 continue;
             }
             xbLog.error(MODULE_ID, `floor ${aiFloor} 失败`, e);
-            return null;
+            throw e;
         }
     }
 
-    return null;
+    throw createL0FailureError('L0 extraction exhausted retries', { kind: 'unknown' });
 }

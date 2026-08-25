@@ -402,10 +402,17 @@ const GRID_ROW = Object.freeze({ 1: 0.1, 2: 0.3, 3: 0.5, 4: 0.7, 5: 0.9 });
 function normalizeCenter(value, path, centerMode) {
     if (centerMode === 'normalized') {
         assertExactFields(value, ['x', 'y'], path);
-        const x = Number(value.x);
-        const y = Number(value.y);
-        if (!Number.isFinite(x) || x < 0 || x > 1) failSchema(`${path}.x`, '必须是 0～1 的数字', value.x);
-        if (!Number.isFinite(y) || y < 0 || y > 1) failSchema(`${path}.y`, '必须是 0～1 的数字', value.y);
+        const parseCoordinate = (coordinate, coordinatePath) => {
+            const isNumber = typeof coordinate === 'number';
+            const isNumericString = typeof coordinate === 'string' && coordinate.trim() !== '';
+            const number = isNumber || isNumericString ? Number(coordinate) : Number.NaN;
+            if (!Number.isFinite(number) || number < 0 || number > 1) {
+                failSchema(coordinatePath, '必须是 0～1 的数字', coordinate);
+            }
+            return number;
+        };
+        const x = parseCoordinate(value.x, `${path}.x`);
+        const y = parseCoordinate(value.y, `${path}.y`);
         return { x, y };
     }
     const grid = requireString(value, path).toUpperCase();

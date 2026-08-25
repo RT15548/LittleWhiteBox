@@ -181,6 +181,31 @@ test('scene plan contract keeps no_humans canonical and maps it to the downstrea
     );
 });
 
+test('normalized centers accept numeric strings without coercing unrelated JSON types', () => {
+    const numericStringParameters = buildParameters();
+    numericStringParameters.images[0].characters[0].center = { x: '0.25', y: '1' };
+    numericStringParameters.images[0].characters[1].center = { x: 0, y: 0.75 };
+    const parsed = parseSubmittedScenePlan(buildResult(numericStringParameters), {
+        ...parseOptions,
+        centerMode: 'normalized',
+    });
+    assert.deepEqual(parsed.tasks[0].chars[0].center, { x: 0.25, y: 1 });
+
+    for (const invalidCoordinate of [null, true, false, '', 'Infinity', -0.1, 1.1]) {
+        const parameters = buildParameters();
+        parameters.images[0].characters[0].center = { x: invalidCoordinate, y: 0.5 };
+        parameters.images[0].characters[1].center = { x: 0.5, y: 0.5 };
+        assert.throws(
+            () => parseSubmittedScenePlan(buildResult(parameters), {
+                ...parseOptions,
+                centerMode: 'normalized',
+            }),
+            (error) => error.code === 'TOOL_ARGUMENTS_SCHEMA_INVALID'
+                && error.message.includes('images[0].characters[0].center.x'),
+        );
+    }
+});
+
 test('scene planner errors expose stable failure categories', () => {
     const cases = [
         ['EMPTY_MESSAGE', ScenePlannerErrorCategory.INPUT],

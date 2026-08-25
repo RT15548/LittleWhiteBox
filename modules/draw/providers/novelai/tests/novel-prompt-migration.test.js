@@ -13,7 +13,7 @@ const CURRENT = Object.freeze({
     sceneRules: 'current model-independent scene rules',
 });
 
-const TARGET = 8;
+const TARGET = 9;
 
 async function loadFixture(name) {
     const text = await readFile(new URL(`./fixtures/${name}`, import.meta.url), 'utf8');
@@ -23,6 +23,10 @@ async function loadFixture(name) {
 const loadTemplateV6Fixture = () => loadFixture('novel-settings-template-v6.json');
 const loadTemplateV7Fixture = () => loadFixture('novel-settings-template-v7.json');
 const loadUpstreamV7Fixture = () => loadFixture('novel-settings-upstream-v7.json');
+const loadTemplateV8SceneRules = () => readFile(
+    new URL('./fixtures/novel-scene-rules-template-v8.md', import.meta.url),
+    'utf8',
+);
 
 test('refreshes the frozen template v6 defaults without relying on preset names', async () => {
     const fixture = await loadTemplateV6Fixture();
@@ -95,6 +99,22 @@ test('refreshes the frozen template v7 defaults without relying on preset names'
     assert.equal(result.presets[0].sceneRules, CURRENT.sceneRules);
     assert.equal(result.presets[1].topSystem, CURRENT.topSystemPov);
     assert.equal(result.presets[1].sceneRules, CURRENT.sceneRules);
+});
+
+test('refreshes frozen template v8 scene rules without overwriting an edited copy', async () => {
+    const sceneRules = await loadTemplateV8SceneRules();
+    const editedSceneRules = `${sceneRules}\nuser edit`;
+    const result = migrateLegacyNovelPromptPresets([
+        { id: 'default', topSystem: 'custom system', sceneRules },
+        { id: 'edited', topSystem: 'custom system', sceneRules: editedSceneRules },
+    ], {
+        templateVersion: 8,
+        targetVersion: TARGET,
+        currentDefaults: CURRENT,
+    });
+
+    assert.equal(result.presets[0].sceneRules, CURRENT.sceneRules);
+    assert.equal(result.presets[1].sceneRules, editedSceneRules);
 });
 
 test('preserves any user-edited prompt field even when its preset keeps a default name', async () => {

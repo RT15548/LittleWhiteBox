@@ -29,3 +29,15 @@ test('fingerprint and unrepaired event-vector failures still warn immediately', 
         ],
     );
 });
+
+test('temporary L0 gaps below five floors stay silent', () => {
+    assert.deepEqual(buildVectorIntegrityIssues({ incompleteL0FloorCount: 1 }), []);
+    assert.deepEqual(buildVectorIntegrityIssues({ incompleteL0FloorCount: 4 }), []);
+});
+
+test('an L0 gap of five floors warns', () => {
+    assert.deepEqual(
+        buildVectorIntegrityIssues({ incompleteL0FloorCount: 5 }),
+        [{ code: 'l0_gap', message: '5 个楼层的锚点或基础向量未完成' }],
+    );
+});

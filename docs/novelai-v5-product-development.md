@@ -680,7 +680,7 @@ V5 领域代码留在 `modules/draw/providers/novelai/`。共享 Scene Planner �
 
 ### 12.2 提示词预设
 
-内置模型指南和模型提交契约不复制进提示词预设。提示词预设持久化 ID、名称、`topSystem`、`sceneRules`，以及用户实际编辑过的 `modelGuideOverrides`；覆盖字段缺失表示继续跟随对应内置 MD，空字符串表示用户明确不注入该指南。现有 ID、名称、选中项和删除能力保持不变。重复的根级 `customPrompts` 同期退出持久模型。
+内置模型指南和模型提交契约不复制进提示词预设。提示词预设持久化 ID、名称、`topSystem`、`sceneRules`，以及用户实际编辑过的 `modelGuideOverrides` / `modelContractOverrides`；覆盖字段缺失表示继续跟随对应内置 MD，空字符串表示用户明确不注入该内容。现有 ID、名称、选中项和删除能力保持不变。重复的根级 `customPrompts` 同期退出持久模型。
 
 `topSystem` 与 `sceneRules` 迁移采用冻结旧格式的精确比较，不看预设名称、不做自然语言清洗：
 
@@ -694,22 +694,26 @@ V5 领域代码留在 `modules/draw/providers/novelai/`。共享 Scene Planner �
 
 `{$tagGuide}` 的类型只来自当前模型能力表：V4.5 和未知模型选择 V4.5，两个精确 V5 模型选择 V5；内容优先使用当前提示词预设的同类型覆盖，否则使用内置 MD。
 
-提示词模板导入/导出在边界升级为当前格式 `_version: 2`：
+提示词模板导入/导出在边界升级为当前格式 `_version: 3`：
 
 ```json
 {
   "_type": "novel-draw-prompt-template",
-  "_version": 2,
+  "_version": 3,
   "topSystem": "...",
   "sceneRules": "...",
   "modelGuideOverrides": {
+    "v4.5": "...",
+    "v5": "..."
+  },
+  "modelContractOverrides": {
     "v4.5": "...",
     "v5": "..."
   }
 }
 ```
 
-冻结的 `_version: 1` 格式包含 `tagGuideContent`。导入 V1 时，已发布默认文本继续跟随内置 V4.5 指南，用户编辑值（包括明确的空字符串）转换为 V4.5 覆盖；V2 接受上述当前字段，未知版本明确拒绝。
+冻结的 `_version: 1` 格式包含 `tagGuideContent`。导入 V1 时，已发布默认文本继续跟随内置 V4.5 指南，用户编辑值（包括明确的空字符串）转换为 V4.5 覆盖；冻结的 V2 格式支持 `modelGuideOverrides`，导入时补空的 `modelContractOverrides`；V3 接受上述当前字段，未知版本明确拒绝。
 
 ## 13. 最少必要测试
 
@@ -723,7 +727,7 @@ V5 领域代码留在 `modules/draw/providers/novelai/`。共享 Scene Planner �
 - 删除或改名任意用户预设不影响模型能力解析。
 - 只有与受支持真实 fixture 完全相同的旧 `topSystem` / `sceneRules` 会升级；任意用户修改都原样保留，且模型提交契约位于其后。
 - 旧 `tagGuideContent` 的默认文本不形成覆盖，用户编辑文本迁入 V4.5 覆盖；重复 `customPrompts` 在迁移成功后退出数据模型。
-- 提示词模板 V1 的 `tagGuideContent` 转换为 V4.5 覆盖，V2 无损往返两类可选覆盖，未知版本拒绝。
+- 提示词模板 V1 的 `tagGuideContent` 转换为 V4.5 指南覆盖，V2 无损往返指南覆盖并补空契约覆盖，V3 无损往返两类可选覆盖，未知版本拒绝。
 - 参数预设 V1 通过冻结转换器进入 V2；V2 完整往返图片数、角色数和全部 V5 字段，未知版本拒绝。
 - V5 与旧模型的 Quality/UC 字段独立往返；切换模型、复制和导入导出不会覆盖隐藏字段，非法导入值产生明确提示。
 - 旧网格坐标仍映射为 `0.1 / 0.3 / 0.5 / 0.7 / 0.9`，SD WebUI 与 ComfyUI 的可观察 Prompt 行为不变。

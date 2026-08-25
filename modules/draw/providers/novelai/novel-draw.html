@@ -1230,6 +1230,15 @@ select.input { cursor: pointer; }
                     <textarea id="nd_prompt_format" class="prompt-textarea" rows="8"></textarea>
                 </div>
 
+                <div class="card">
+                    <div class="prompt-card-header">
+                        <div class="card-title">当前模型 Tool 契约（高级修改）</div>
+                        <button class="btn btn-sm" id="nd_prompt_reset_contract"><i class="fa-solid fa-rotate-left"></i> 恢复当前模型默认</button>
+                    </div>
+                    <p class="form-hint">根据当前参数预设中的模型自动切换 V4.5 / V5 契约；修改内容保存到当前提示词预设，并直接注入实际请求。字段结构仍由 Tool Schema 校验。</p>
+                    <textarea id="nd_prompt_model_contract" class="prompt-textarea" rows="6" placeholder="正在加载当前模型契约..."></textarea>
+                </div>
+
                 <div class="action-status-row">
                     <div class="btn-group" style="display:flex;gap:12px;flex-wrap:wrap;">
                         <button id="nd_prompts_save" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> 保存到当前预设</button>
@@ -1446,6 +1455,7 @@ let state = {
     promptPresets: [],
     selectedPromptPresetId: null,
     modelGuideDefaults: {},
+    modelContractDefaults: {},
     modelContractContent: '',
     modelCapabilities: {},
     backendPluginStatus: null,
@@ -1456,7 +1466,12 @@ let gallerySummary = {};
 let loadedCharPreviews = {};
 let editingCharId = null;
 const saveBtnStates = new WeakMap();
+const promptTextDraftsByPreset = new Map();
 const modelGuideDraftsByPreset = new Map();
+const modelContractDraftsByPreset = new Map();
+const promptDraftRevisions = new Map();
+const promptPresetDraftRevisions = new Map();
+let promptDraftRevision = 0;
 let promptChainRequestId = 0;
 let charFilters = { query: '', type: 'all', status: 'all' };
 let modalData = { slotId: null, images: [], currentIndex: 0, charName: null };
@@ -1581,6 +1596,7 @@ function requestPromptChainPreview() {
             topSystem: $('nd_prompt_system')?.value || '',
             sceneRules: $('nd_prompt_format')?.value || '',
             modelGuideOverrides: collectModelGuideOverridesFromForm(),
+            modelContractOverrides: collectModelContractOverridesFromForm(),
         },
     });
 }
@@ -2254,6 +2270,7 @@ function renderPromptChain(chain) {
         topSystem: 'nd_prompt_system',
         assistantDoc: 'nd_prompt_guide',
         sceneRules: 'nd_prompt_format',
+        modelContract: 'nd_prompt_model_contract',
     };
     const getPreviewContent = (key) => {
         const defaults = state._defaultPrompts || {};
@@ -2266,7 +2283,7 @@ function renderPromptChain(chain) {
         if (key === 'assistantDoc') {
             content = content.replace('{$tagGuide}', $('nd_prompt_guide')?.value || '');
         } else if (key === 'modelContract') {
-            content = state.modelContractContent || '(当前模型契约未加载)';
+            content = state.modelContractContent;
         }
         return content.length > 1200 ? `${content.slice(0, 1200)}\n...(已截断)` : content;
     };
@@ -2757,9 +2774,15 @@ function applyParamsPreset() {
 /** 纯本地：从当前选中的提示词预设加载 textarea 内容（对标 applyParamsPreset） */
 function applyPromptPreset() {
     const active = getActivePromptPresetForForm() || {};
-    $('nd_prompt_system').value = active.topSystem ?? '';
-    $('nd_prompt_format').value = active.sceneRules ?? '';
+    const drafts = active.id ? promptTextDraftsByPreset.get(active.id) : null;
+    $('nd_prompt_system').value = drafts?.has('topSystem')
+        ? drafts.get('topSystem')
+        : active.topSystem ?? '';
+    $('nd_prompt_format').value = drafts?.has('sceneRules')
+        ? drafts.get('sceneRules')
+        : active.sceneRules ?? '';
     applyModelGuideForCurrentModel();
+    applyModelContractForCurrentModel();
 }
 
 function getActivePromptPresetForForm() {
@@ -2772,6 +2795,34 @@ function getActivePromptPresetForForm() {
         if ($('nd_prompt_preset')) $('nd_prompt_preset').value = active.id;
     }
     return active;
+}
+
+function markPromptDraftRevision(presetId, key) {
+    promptDraftRevision += 1;
+    promptDraftRevisions.set(`${presetId}\u0000${key}`, promptDraftRevision);
+    promptPresetDraftRevisions.set(presetId, promptDraftRevision);
+    return promptDraftRevision;
+}
+
+function markPromptPresetDraftRevision(presetId) {
+    promptDraftRevision += 1;
+    for (const key of promptDraftRevisions.keys()) {
+        if (key.startsWith(`${presetId}\u0000`)) promptDraftRevisions.delete(key);
+    }
+    promptPresetDraftRevisions.set(presetId, promptDraftRevision);
+    return promptDraftRevision;
+}
+
+function setCurrentPromptTextDraft(key, content) {
+    const active = getActivePromptPresetForForm();
+    if (!active?.id) return;
+    let drafts = promptTextDraftsByPreset.get(active.id);
+    if (!drafts) {
+        drafts = new Map();
+        promptTextDraftsByPreset.set(active.id, drafts);
+    }
+    drafts.set(key, String(content ?? ''));
+    return markPromptDraftRevision(active.id, key);
 }
 
 /** 当前指南以用户眼前的 textarea 为准；其他模型草稿沿用本页临时状态。 */
@@ -2806,12 +2857,48 @@ function collectModelGuideOverridesFromForm() {
 function setCurrentModelGuideDraft(content) {
     const active = getActivePromptPresetForForm();
     if (!active?.id) return;
+    const guideId = getCurrentModelGuideId();
     let drafts = modelGuideDraftsByPreset.get(active.id);
     if (!drafts) {
         drafts = new Map();
         modelGuideDraftsByPreset.set(active.id, drafts);
     }
-    drafts.set(getCurrentModelGuideId(), String(content ?? ''));
+    drafts.set(guideId, String(content ?? ''));
+    return markPromptDraftRevision(active.id, `modelGuide:${guideId}`);
+}
+
+function collectModelContractOverridesFromForm() {
+    const active = getActivePromptPresetForForm();
+    const source = active?.modelContractOverrides && typeof active.modelContractOverrides === 'object'
+        && !Array.isArray(active.modelContractOverrides)
+        ? active.modelContractOverrides
+        : {};
+    const overrides = { ...source };
+    const defaults = state.modelContractDefaults && typeof state.modelContractDefaults === 'object'
+        ? state.modelContractDefaults
+        : {};
+    const drafts = active?.id ? modelContractDraftsByPreset.get(active.id) : null;
+    drafts?.forEach((content, guideId) => {
+        if (typeof defaults[guideId] === 'string' && content === defaults[guideId]) {
+            delete overrides[guideId];
+        } else {
+            overrides[guideId] = content;
+        }
+    });
+    return overrides;
+}
+
+function setCurrentModelContractDraft(content) {
+    const active = getActivePromptPresetForForm();
+    if (!active?.id) return;
+    const guideId = getCurrentModelGuideId();
+    let drafts = modelContractDraftsByPreset.get(active.id);
+    if (!drafts) {
+        drafts = new Map();
+        modelContractDraftsByPreset.set(active.id, drafts);
+    }
+    drafts.set(guideId, String(content ?? ''));
+    return markPromptDraftRevision(active.id, `modelContract:${guideId}`);
 }
 
 function getCurrentModelGuideId() {
@@ -2840,6 +2927,29 @@ function applyModelGuideForCurrentModel() {
             : defaultContent;
 
     $('nd_prompt_guide').value = content;
+}
+
+function applyModelContractForCurrentModel() {
+    const guideId = getCurrentModelGuideId();
+    const defaults = state.modelContractDefaults && typeof state.modelContractDefaults === 'object'
+        ? state.modelContractDefaults
+        : {};
+    const defaultContent = typeof defaults[guideId] === 'string'
+        ? defaults[guideId]
+        : '';
+    const active = getActivePromptPresetForForm() || {};
+    const overrides = active.modelContractOverrides && typeof active.modelContractOverrides === 'object'
+        ? active.modelContractOverrides
+        : {};
+    const drafts = active.id ? modelContractDraftsByPreset.get(active.id) : null;
+    const textarea = $('nd_prompt_model_contract');
+    if (!textarea) return;
+    textarea.value = drafts?.has(guideId)
+        ? drafts.get(guideId)
+        : Object.prototype.hasOwnProperty.call(overrides, guideId)
+            && typeof overrides[guideId] === 'string'
+            ? overrides[guideId]
+            : defaultContent;
 }
 
 function setSelectOrCustom(kind, value) {
@@ -2878,6 +2988,7 @@ function updateModelOptions() {
     const characterLimit = capability.maxCharactersPerImage || 10;
     $('nd_max_chars').max = String(characterLimit);
     applyModelGuideForCurrentModel();
+    applyModelContractForCurrentModel();
     requestPromptChainPreview();
     renderBackendPluginStatus();
 }
@@ -3042,6 +3153,49 @@ window.addEventListener('message', event => {
             }
             renderPromptChain(data.chain || []);
             break;
+
+        case 'PROMPT_RESET_RESULT': {
+            if (data.ok !== true) break;
+            const presetId = String(data.presetId || state.selectedPromptPresetId || '');
+            const guideId = String(data.guideId || '');
+            const isText = data.key === 'topSystem' || data.key === 'sceneRules';
+            const isGuide = data.key === 'modelGuide';
+            const draftsByPreset = isText
+                ? promptTextDraftsByPreset
+                : isGuide ? modelGuideDraftsByPreset : modelContractDraftsByPreset;
+            const drafts = draftsByPreset.get(presetId);
+            const draftKey = isText ? data.key : guideId;
+            const revisionKey = `${presetId}\u0000${isText ? data.key : `${data.key}:${guideId}`}`;
+            if (promptDraftRevisions.get(revisionKey) === Number(data.draftRevision)) {
+                drafts?.delete(draftKey);
+                if (drafts && !drafts.size) draftsByPreset.delete(presetId);
+                promptDraftRevisions.delete(revisionKey);
+            }
+            break;
+        }
+
+        case 'PROMPT_RESET_ALL_RESULT': {
+            if (data.ok !== true) break;
+            const presetId = String(data.presetId || '');
+            if (promptPresetDraftRevisions.get(presetId) !== Number(data.draftRevision)) break;
+            const active = (state.promptPresets || []).find(preset => preset.id === presetId);
+            if (active) {
+                const textDrafts = promptTextDraftsByPreset.get(presetId);
+                active.topSystem = textDrafts?.get('topSystem') ?? active.topSystem;
+                active.sceneRules = textDrafts?.get('sceneRules') ?? active.sceneRules;
+                active.modelGuideOverrides = {};
+                active.modelContractOverrides = {};
+            }
+            promptTextDraftsByPreset.delete(presetId);
+            modelGuideDraftsByPreset.delete(presetId);
+            modelContractDraftsByPreset.delete(presetId);
+            promptPresetDraftRevisions.delete(presetId);
+            for (const key of promptDraftRevisions.keys()) {
+                if (key.startsWith(`${presetId}\u0000`)) promptDraftRevisions.delete(key);
+            }
+            if (state.selectedPromptPresetId === presetId) applyPromptPreset();
+            break;
+        }
 
         case 'LAST_LLM_REQUEST_DATA':
             renderLastLlmRequest(data.snapshot || null);
@@ -3483,13 +3637,19 @@ document.addEventListener('DOMContentLoaded', () => {
             topSystem: $('nd_prompt_system').value,
             sceneRules: $('nd_prompt_format').value,
             modelGuideOverrides: collectModelGuideOverridesFromForm(),
+            modelContractOverrides: collectModelContractOverridesFromForm(),
         }, statusTarget: 'prompt-preset' });
     });
 
-    $('nd_prompt_add').addEventListener('click', () => postToParent({ type: 'ADD_PROMPT_PRESET' }));
+    $('nd_prompt_add').addEventListener('click', () => postToParent({
+        type: 'ADD_PROMPT_PRESET',
+        sourcePresetId: state.selectedPromptPresetId,
+    }));
 
     $('nd_prompt_del').addEventListener('click', () => {
-        if (confirm('确定删除当前提示词预设？')) postToParent({ type: 'DEL_PROMPT_PRESET' });
+        if (confirm('确定删除当前提示词预设？')) {
+            postToParent({ type: 'DEL_PROMPT_PRESET', id: state.selectedPromptPresetId });
+        }
     });
 
     $('nd_prompt_rename').addEventListener('click', () => {
@@ -3497,7 +3657,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!p) return;
         const name = prompt('输入新名称：', p.name || '');
         if (name && name.trim()) {
-            postToParent({ type: 'RENAME_PROMPT_PRESET', name: name.trim() });
+            postToParent({ type: 'RENAME_PROMPT_PRESET', id: state.selectedPromptPresetId, name: name.trim() });
         }
     });
 
@@ -3509,6 +3669,7 @@ document.addEventListener('DOMContentLoaded', () => {
             topSystem: $('nd_prompt_system').value,
             sceneRules: $('nd_prompt_format').value,
             modelGuideOverrides: collectModelGuideOverridesFromForm(),
+            modelContractOverrides: collectModelContractOverridesFromForm(),
         }, statusTarget: 'prompts' });
     });
 
@@ -3517,22 +3678,49 @@ document.addEventListener('DOMContentLoaded', () => {
         const isPov = activePreset?.name === '默认-第一人称完整规则';
         const defaultTopSystem = isPov ? (state._defaultPrompts?.topSystemPov || '') : (state._defaultPrompts?.topSystem || '');
         $('nd_prompt_system').value = defaultTopSystem;
-        postToParent({ type: 'RESET_CUSTOM_PROMPT', key: 'topSystem', selectedPromptPresetId: state.selectedPromptPresetId });
+        const draftRevision = setCurrentPromptTextDraft('topSystem', defaultTopSystem);
+        postToParent({
+            type: 'RESET_CUSTOM_PROMPT',
+            key: 'topSystem',
+            selectedPromptPresetId: state.selectedPromptPresetId,
+            draftRevision,
+        });
     });
     $('nd_prompt_reset_format').addEventListener('click', () => {
-        $('nd_prompt_format').value = state._defaultPrompts?.sceneRules || '';
-        postToParent({ type: 'RESET_CUSTOM_PROMPT', key: 'sceneRules', selectedPromptPresetId: state.selectedPromptPresetId });
+        const defaultSceneRules = state._defaultPrompts?.sceneRules || '';
+        $('nd_prompt_format').value = defaultSceneRules;
+        const draftRevision = setCurrentPromptTextDraft('sceneRules', defaultSceneRules);
+        postToParent({
+            type: 'RESET_CUSTOM_PROMPT',
+            key: 'sceneRules',
+            selectedPromptPresetId: state.selectedPromptPresetId,
+            draftRevision,
+        });
     });
     $('nd_prompt_reset_guide').addEventListener('click', () => {
         const guideId = getCurrentModelGuideId();
         const defaultContent = state.modelGuideDefaults?.[guideId] ?? '';
         $('nd_prompt_guide').value = defaultContent;
-        setCurrentModelGuideDraft(defaultContent);
+        const draftRevision = setCurrentModelGuideDraft(defaultContent);
         postToParent({
             type: 'RESET_CUSTOM_PROMPT',
             key: 'modelGuide',
             guideId,
             selectedPromptPresetId: state.selectedPromptPresetId,
+            draftRevision,
+        });
+    });
+    $('nd_prompt_reset_contract').addEventListener('click', () => {
+        const guideId = getCurrentModelGuideId();
+        const defaultContent = state.modelContractDefaults?.[guideId] ?? '';
+        $('nd_prompt_model_contract').value = defaultContent;
+        const draftRevision = setCurrentModelContractDraft(defaultContent);
+        postToParent({
+            type: 'RESET_CUSTOM_PROMPT',
+            key: 'modelContract',
+            guideId,
+            selectedPromptPresetId: state.selectedPromptPresetId,
+            draftRevision,
         });
     });
     $('nd_prompts_reset_all').addEventListener('click', () => {
@@ -3545,30 +3733,43 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         const isPov = activePreset.name === '默认-第一人称完整规则';
         const topSystemVal = isPov ? (defaults.topSystemPov || '') : (defaults.topSystem || '');
+        const sceneRulesVal = defaults.sceneRules || '';
         $('nd_prompt_system').value = topSystemVal;
-        $('nd_prompt_format').value = defaults.sceneRules || '';
+        $('nd_prompt_format').value = sceneRulesVal;
+        promptTextDraftsByPreset.set(activePreset.id, new Map([
+            ['topSystem', topSystemVal],
+            ['sceneRules', sceneRulesVal],
+        ]));
         const guideDrafts = new Map(
             Object.entries(state.modelGuideDefaults || {})
                 .filter(([, content]) => typeof content === 'string'),
         );
         modelGuideDraftsByPreset.set(activePreset.id, guideDrafts);
+        modelContractDraftsByPreset.set(activePreset.id, new Map(
+            Object.entries(state.modelContractDefaults || {})
+                .filter(([, content]) => typeof content === 'string'),
+        ));
+        const draftRevision = markPromptPresetDraftRevision(activePreset.id);
         applyModelGuideForCurrentModel();
+        applyModelContractForCurrentModel();
         postToParent({ type: 'SAVE_PROMPT_PRESET', selectedPromptPresetId: state.selectedPromptPresetId, promptDraft: {
             topSystem: topSystemVal,
-            sceneRules: defaults.sceneRules || '',
+            sceneRules: sceneRulesVal,
             modelGuideOverrides: {},
-        }, statusTarget: 'prompts' });
+            modelContractOverrides: {},
+        }, statusTarget: 'prompts', resetAll: true, draftRevision });
     });
 
     $('nd_prompt_preset_export').addEventListener('click', () => {
         const activePreset = getActivePromptPresetForForm() || {};
         const data = {
             _type: 'novel-draw-prompt-template',
-            _version: 2,
+            _version: 3,
             name: activePreset.name || '',
             topSystem: $('nd_prompt_system').value,
             sceneRules: $('nd_prompt_format').value,
             modelGuideOverrides: collectModelGuideOverridesFromForm(),
+            modelContractOverrides: collectModelContractOverridesFromForm(),
         };
         const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
         const a = document.createElement('a');
@@ -3601,11 +3802,17 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     ['nd_prompt_system', 'nd_prompt_format'].forEach((id) => {
         $(id).addEventListener('input', () => {
+            setCurrentPromptTextDraft(id === 'nd_prompt_system' ? 'topSystem' : 'sceneRules', $(id).value);
             if ($('nd_prompt_chain_details').open) requestPromptChainPreview();
         });
     });
     $('nd_prompt_guide').addEventListener('input', () => {
         setCurrentModelGuideDraft($('nd_prompt_guide').value);
+        if ($('nd_prompt_chain_details').open) requestPromptChainPreview();
+        else promptChainRequestId += 1;
+    });
+    $('nd_prompt_model_contract').addEventListener('input', () => {
+        setCurrentModelContractDraft($('nd_prompt_model_contract').value);
         if ($('nd_prompt_chain_details').open) requestPromptChainPreview();
         else promptChainRequestId += 1;
     });

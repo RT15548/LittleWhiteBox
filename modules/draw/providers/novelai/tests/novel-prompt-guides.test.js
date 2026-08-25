@@ -2,8 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+    getDefaultNovelModelContractByGuideId,
+    getEffectiveNovelModelContract,
     getEffectiveNovelModelGuide,
     getNovelPromptGuideId,
+    normalizeNovelModelContractOverrides,
     normalizeNovelPromptGuideOverrides,
 } from '../novel-prompts.js';
 
@@ -29,5 +32,30 @@ test('preserves an intentional empty guide while dropping unsupported override k
     }), {
         'v4.5': '',
         v5: 'V5 guide',
+    });
+});
+
+test('selects editable model-contract overrides without mixing model families', () => {
+    const preset = {
+        modelContractOverrides: {
+            'v4.5': 'custom grid contract',
+            v5: 'custom normalized contract',
+        },
+    };
+
+    assert.equal(getEffectiveNovelModelContract('nai-diffusion-4-5-full', preset), 'custom grid contract');
+    assert.equal(getEffectiveNovelModelContract('nai-diffusion-5-full', preset), 'custom normalized contract');
+    assert.equal(getEffectiveNovelModelContract('nai-diffusion-5-full', {
+        modelContractOverrides: { v5: '' },
+    }), '');
+    assert.match(getDefaultNovelModelContractByGuideId('v4.5'), /A1-E5/);
+    assert.match(getDefaultNovelModelContractByGuideId('v5'), /归一化坐标对象/);
+    assert.deepEqual(normalizeNovelModelContractOverrides({
+        'v4.5': 'grid',
+        v5: 'normalized',
+        future: 'unsupported',
+    }), {
+        'v4.5': 'grid',
+        v5: 'normalized',
     });
 });

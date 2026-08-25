@@ -53,6 +53,7 @@ test('shared and NovelAI provider saves preserve the other owner without revivin
     const currentRoot = {
         configVersion: 6,
         apiKey: 'old-image-key',
+        useImageBackendJobs: false,
         paramsPresets: [{ id: 'current-image-preset' }],
         characterTags: [{ id: 'new', name: '新角色' }],
         worldbooks: { enabled: true, uploadedBooks: [{ name: '新设定' }] },
@@ -61,6 +62,7 @@ test('shared and NovelAI provider saves preserve the other owner without revivin
     const providerSave = mergeNovelDrawProviderSettingsIntoStorageRoot(currentRoot, {
         configVersion: 7,
         apiKey: 'new-image-key',
+        useImageBackendJobs: true,
         paramsPresets: [{ id: 'new-image-preset' }],
         characterTags: [{ id: 'stale', name: '旧角色' }],
         worldbooks: { enabled: false, uploadedBooks: [] },
@@ -68,6 +70,7 @@ test('shared and NovelAI provider saves preserve the other owner without revivin
     });
 
     assert.equal(providerSave.apiKey, 'new-image-key');
+    assert.equal(providerSave.useImageBackendJobs, true);
     assert.deepEqual(providerSave.characterTags, [{
         id: 'new',
         enabled: true,
@@ -88,6 +91,7 @@ test('shared and NovelAI provider saves preserve the other owner without revivin
         characterTags: [{ id: 'latest', name: '最新角色' }],
     });
     assert.equal(sharedSave.apiKey, 'new-image-key');
+    assert.equal(sharedSave.useImageBackendJobs, true);
     assert.equal(sharedSave.paramsPresets[0].id, 'new-image-preset');
     assert.equal(sharedSave.characterTags[0].name, '最新角色');
 });

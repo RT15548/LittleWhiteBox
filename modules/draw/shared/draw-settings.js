@@ -19,6 +19,7 @@ const NOVEL_DRAW_PROVIDER_SETTING_KEYS = new Set([
     'apiKey',
     'apiBaseUrl',
     'sendMode',
+    'useImageBackendJobs',
     'insecureTLS',
     'selectedParamsPresetId',
     'paramsPresets',
@@ -169,19 +170,18 @@ export async function updateSharedDrawSettingsPersistent(mutator, okText = 'å·²ä
 
     try {
         const storage = await getStorage();
-        const saved = await storage.getStrict(SERVER_FILE_KEY, null);
-        const current = normalizeSharedDrawSettings(saved || settingsCache);
-        const draft = cloneSettingsObject(current);
-
-        if (typeof mutator === 'function') {
-            await mutator(draft);
-        }
-
-        const next = normalizeSharedDrawSettings(draft);
-        next.updatedAt = Date.now();
-        settingsCache = next;
-        const storageValue = mergeSharedDrawSettingsIntoStorageRoot(saved, next);
-        const ok = await storage.setAndSave(SERVER_FILE_KEY, storageValue, { silent });
+        const ok = await storage.updateAndSave(async (storageRoot) => {
+            const saved = storageRoot[SERVER_FILE_KEY];
+            const current = normalizeSharedDrawSettings(saved || settingsCache);
+            const draft = cloneSettingsObject(current);
+            if (typeof mutator === 'function') {
+                await mutator(draft);
+            }
+            const next = normalizeSharedDrawSettings(draft);
+            next.updatedAt = Date.now();
+            settingsCache = next;
+            storageRoot[SERVER_FILE_KEY] = mergeSharedDrawSettingsIntoStorageRoot(saved, next);
+        }, { silent });
         if (ok !== false) {
             if (notify && window.toastr) toastr.success(okText);
             return true;

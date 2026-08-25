@@ -14,6 +14,7 @@ import {
     applyRecallRuntimeMutationBestEffort,
     clearRecallRuntime,
 } from '../runtime/runtime.js';
+import { assertFiniteVector } from './vector-validation.js';
 
 const MODULE_ID = 'state-store';
 const L0_METADATA_FAST_RETRY_MS = 1000;
@@ -392,16 +393,24 @@ export function replaceStateAtoms(atoms) {
 export async function saveStateVectors(chatId, items, fingerprint) {
     if (!chatId || !items?.length) return;
 
-    const records = items.map(item => ({
-        chatId,
-        atomId: item.atomId,
-        floor: item.floor,
-        vector: float32ToBuffer(new Float32Array(item.vector)),
-        dims: item.vector.length,
-        rVector: item.rVector?.length ? float32ToBuffer(new Float32Array(item.rVector)) : null,
-        rDims: item.rVector?.length ? item.rVector.length : 0,
-        fingerprint,
-    }));
+    let expectedDimensions = null;
+    const records = items.map((item, index) => {
+        const dims = assertFiniteVector(item.vector, `state vector ${index}`, expectedDimensions);
+        expectedDimensions ??= dims;
+        const rDims = item.rVector?.length
+            ? assertFiniteVector(item.rVector, `state relation vector ${index}`, dims)
+            : 0;
+        return {
+            chatId,
+            atomId: item.atomId,
+            floor: item.floor,
+            vector: float32ToBuffer(new Float32Array(item.vector)),
+            dims,
+            rVector: rDims ? float32ToBuffer(new Float32Array(item.rVector)) : null,
+            rDims,
+            fingerprint,
+        };
+    });
 
     await stateVectorsTable.bulkPut(records);
     applyRecallRuntimeMutationBestEffort(chatId, {
@@ -423,6 +432,30 @@ export async function getAllStateVectors(chatId) {
         vector: bufferToFloat32(r.vector),
         rVector: r.rVector ? bufferToFloat32(r.rVector) : null,
     }));
+}
+
+/**
+ * 获取完整性检查所需的轻量描述，不把整张 L0 向量表解码成 Float32Array。
+ */
+export async function getStateVectorDescriptors(chatId) {
+    if (!chatId) return [];
+
+    const descriptors = [];
+    await stateVectorsTable.where('chatId').equals(chatId).each(record => {
+        const dims = Number(record?.dims);
+        const rDims = Number(record?.rDims);
+        const dimensionsValid = Number.isInteger(dims) && dims > 0;
+        const relationDimensionsValid = Number.isInteger(rDims) && rDims === dims;
+        descriptors.push({
+            atomId: record?.atomId,
+            fingerprint: record?.fingerprint,
+            vectorValid: dimensionsValid
+                && Number(record?.vector?.byteLength || 0) === dims * Float32Array.BYTES_PER_ELEMENT,
+            rVectorValid: relationDimensionsValid
+                && Number(record?.rVector?.byteLength || 0) === rDims * Float32Array.BYTES_PER_ELEMENT,
+        });
+    });
+    return descriptors;
 }
 
 /**

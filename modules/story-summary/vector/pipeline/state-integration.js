@@ -1,7 +1,6 @@
 // ============================================================================
 // state-integration.js - L0 状态层集成
-// Phase 1: 批量 LLM 提取（只存文本）
-// Phase 2: 统一向量化（提取完成后）
+// StateAtoms 是 LLM 提取的事实数据；StateVectors 是可独立重建的派生数据。
 // ============================================================================
 
 import { getContext } from '../../../../../../../extensions.js';
@@ -9,6 +8,8 @@ import { xbLog } from '../../../../core/debug-core.js';
 import {
     saveStateAtoms,
     saveStateVectors,
+    getStateAtoms,
+    getStateVectorDescriptors,
     deleteStateAtomsFromFloor,
     deleteStateVectorsFromFloor,
     clearStateAtoms,
@@ -23,9 +24,19 @@ import {
 } from '../storage/state-store.js';
 import { embed } from '../llm/siliconflow.js';
 import { extractAtomsForRound } from '../llm/atom-extraction.js';
+import { getL0FailureDetails } from '../llm/l0-retry-policy.js';
+import {
+    createInvalidEmbeddingResponseError,
+    getEmbeddingFailureDetails,
+} from '../llm/embedding-failure.js';
 import { getVectorConfig } from '../../data/config.js';
 import { getEngineFingerprint } from '../utils/embedder.js';
 import { filterText } from '../utils/text-filter.js';
+import { getMeta } from '../storage/chunk-store.js';
+import {
+    canRepairStateVectors,
+    selectMissingStateVectorAtoms,
+} from './state-vector-policy.js';
 
 const MODULE_ID = 'state-integration';
 
@@ -57,7 +68,7 @@ export function initStateIntegration() {
 export async function getAnchorStats() {
     const { chat } = getContext();
     if (!chat?.length) {
-        return { extracted: 0, total: 0, pending: 0, empty: 0, fail: 0 };
+        return { extracted: 0, total: 0, pending: 0, incomplete: 0, empty: 0, fail: 0, terminalFail: 0 };
     }
 
     // 统计 AI 楼层
@@ -86,18 +97,21 @@ export async function getAnchorStats() {
     // 未处理楼层 + 还会被重试的 fail = 真实待办。fail 必须算进来，否则上层会误以为
     // L0 已经做完；但已达尝试上限的 fail 是终态、不再入队，算进去会让统计永远停在"没做完"。
     const pending = Math.max(0, total - ok - empty - (fail - retriableFail));
+    const incomplete = Math.max(0, total - ok - empty);
 
     return {
         extracted: ok + empty,
         total,
         pending,
+        incomplete,
         empty,
-        fail
+        fail,
+        terminalFail: fail - retriableFail,
     };
 }
 
 // ============================================================================
-// 增量提取 - Phase 1 提取文本，Phase 2 统一向量化
+// 增量提取：只负责 LLM 与 StateAtoms，不以 StateVector 成败决定锚点结果。
 // ============================================================================
 
 function buildL0InputText(userMessage, aiMessage) {
@@ -150,16 +164,22 @@ async function incrementalExtractAtomsInner(chatId, chat, onProgress, options = 
         signal?.aborted
         || shouldCancel?.() === true
     );
-    if (!chatId || !chat?.length) return { built: 0, failed: 0, cancelled: false };
+    if (!chatId || !chat?.length) {
+        return { built: 0, failed: 0, llmFailed: 0, vectorFailed: 0, cancelled: false };
+    }
     const isTargetChatActive = () => getContext()?.chatId === chatId;
     let targetStale = !isTargetChatActive();
-    if (targetStale) return { built: 0, failed: 0, cancelled: true, stale: true };
+    if (targetStale) {
+        return { built: 0, failed: 0, llmFailed: 0, vectorFailed: 0, cancelled: true, stale: true };
+    }
 
     const vectorCfg = getVectorConfig();
-    if (!vectorCfg?.enabled) return { built: 0, failed: 0, cancelled: false };
+    if (!vectorCfg?.enabled) {
+        return { built: 0, failed: 0, llmFailed: 0, vectorFailed: 0, cancelled: false };
+    }
 
     if (isCancelled()) {
-        return { built: 0, failed: 0, cancelled: true, stale: false };
+        return { built: 0, failed: 0, llmFailed: 0, vectorFailed: 0, cancelled: true, stale: false };
     }
 
     const pendingPairs = [];
@@ -210,7 +230,7 @@ async function incrementalExtractAtomsInner(chatId, chat, onProgress, options = 
 
     if (!pendingPairs.length) {
         onProgress?.('已全部提取', 0, 0);
-        return { built: 0, failed: 0, cancelled: false };
+        return { built: 0, failed: 0, llmFailed: 0, vectorFailed: 0, cancelled: false };
     }
 
     const concurrency = Math.max(1, Math.min(50, Number(vectorCfg?.l0Concurrency) || DEFAULT_CONCURRENCY));
@@ -218,16 +238,17 @@ async function incrementalExtractAtomsInner(chatId, chat, onProgress, options = 
     xbLog.info(MODULE_ID, `增量 L0 提取：pending=${pendingPairs.length}, concurrency=${concurrency}`);
 
     let completed = 0;
-    let failed = 0;
+    let llmFailed = 0;
+    let firstFailure = null;
     const total = pendingPairs.length;
     let builtAtoms = 0;
     let active = 0;
     let peakActive = 0;
     const tStart = performance.now();
 
-    // ★ Phase 1: 收集所有新提取的 atoms（不向量化）
+    // 收集本轮成功提取的 atoms，全部 LLM 结束后统一提交到当前聊天 metadata。
     const allNewAtoms = [];
-    // floor -> atoms 数量。只有 StateVector 提交成功后，这些楼层才会落库并标 ok。
+    // floor -> atoms 数量。楼层 ok 只代表 LLM 提取完成，与派生向量无关。
     const pendingFloors = new Map();
 
     // ★ 通用处理单个 pair 的逻辑（复用于正常模式和降速模式）
@@ -264,9 +285,6 @@ async function incrementalExtractAtomsInner(chatId, chat, onProgress, options = 
             } else {
                 if (isCancelled()) return;
                 atoms.forEach(a => a.chatId = chatId);
-                // 这里只收集，不落库也不标 ok：atoms 要等 Phase 2 的 StateVector 提交成功
-                // 之后才一起提交。否则取消或向量化失败会留下"有 atom、标 ok、无向量"的
-                // 死楼层，重试时又被 tryQueueFloor 当作已完成跳过，永久缺向量。
                 allNewAtoms.push(...atoms);
                 pendingFloors.set(floor, atoms.length);
             }
@@ -278,12 +296,14 @@ async function incrementalExtractAtomsInner(chatId, chat, onProgress, options = 
                 return;
             }
 
+            const failure = getL0FailureDetails(e);
+            firstFailure ||= failure;
             setL0FloorStatus(floor, {
                 status: 'fail',
                 attempts: (prev?.attempts || 0) + 1,
-                reason: String(e?.message || e).replace(/\s+/g, ' ').slice(0, 120),
+                reason: failure.httpStatus ? `${failure.code}:http_${failure.httpStatus}` : failure.code,
             });
-            failed++;
+            llmFailed++;
         } finally {
             active--;
             if (!isCancelled() && !targetStale) {
@@ -322,100 +342,167 @@ async function incrementalExtractAtomsInner(chatId, chat, onProgress, options = 
     await Promise.all(Array.from({ length: poolSize }, (_, i) => runWorker(i)));
     if (DEBUG_CONCURRENCY) {
         const elapsed = Math.max(1, Math.round(performance.now() - tStart));
-        xbLog.info(MODULE_ID, `L0 pool done completed=${completed}/${total} failed=${failed} peakActive=${peakActive} elapsedMs=${elapsed}`);
-    }
-
-    // ★ Phase 2: 统一向量化所有新提取的 atoms
-    let committed = allNewAtoms.length === 0;
-    if (allNewAtoms.length > 0 && !isCancelled() && !targetStale && isTargetChatActive()) {
-        onProgress?.(`向量化 L0: 0/${allNewAtoms.length}`, 0, allNewAtoms.length);
-        ({ committed } = await vectorizeAtoms(chatId, allNewAtoms, (current, total) => {
-            onProgress?.(`向量化 L0: ${current}/${total}`, current, total);
-        }, {
-            vectorConfig: vectorCfg,
-            signal,
-            shouldCancel,
-        }));
+        xbLog.info(MODULE_ID, `L0 pool done completed=${completed}/${total} failed=${llmFailed} peakActive=${peakActive} elapsedMs=${elapsed}`);
     }
 
     targetStale ||= !isTargetChatActive();
     const aborted = isCancelled() || targetStale;
 
-    // ★ Phase 3: 提交。向量真正落库才认账并标 ok；向量化失败标 fail，让 getAnchorStats
-    // 与上层维护看得见并重试。
-    // aborted 时一个字都不写：saveStateAtoms/setL0FloorStatus 直写当前 chat_metadata，
-    // 切聊天后再写会污染新聊天。此时 atoms 和楼层状态都没落，下次回来原样重跑；
-    // atomId 由 floor+idx 决定，重跑会覆盖同一批 StateVector，幂等。
+    // StateAtoms 是 LLM 阶段的事实成果。只要目标聊天仍有效，就先提交事实并将楼层标为 ok；
+    // StateVector 是可重建派生数据，不能反过来决定这批锚点是否成功。
+    // 切聊天后不能写 chat_metadata，因此 stale/cancelled 时不提交尚未落下的成功结果。
     if (pendingFloors.size > 0 && !aborted) {
-        // 外层 incrementalExtractAtoms 已经开了 L0 metadata batch，这里直接写即可，
-        // 由它在 endL0MetadataBatch 时统一落盘。
-        if (committed) {
-            saveStateAtoms(allNewAtoms);
-            for (const [floor, count] of pendingFloors) {
-                setL0FloorStatus(floor, { status: 'ok', atoms: count });
-                builtAtoms += count;
-            }
-        } else {
-            for (const floor of pendingFloors.keys()) {
-                const prev = getL0FloorStatus(floor);
-                setL0FloorStatus(floor, {
-                    status: 'fail',
-                    attempts: (prev?.attempts || 0) + 1,
-                    reason: 'vectorize_failed',
-                });
-                failed++;
-            }
+        saveStateAtoms(allNewAtoms);
+        for (const [floor, count] of pendingFloors) {
+            setL0FloorStatus(floor, { status: 'ok', atoms: count });
+            builtAtoms += count;
         }
     }
 
-    xbLog.info(MODULE_ID, `L0 ${aborted ? '已取消' : '完成'}：atoms=${builtAtoms}, completed=${completed}/${total}, failed=${failed}`);
-    return { built: builtAtoms, failed, cancelled: aborted, stale: targetStale };
+    xbLog.info(MODULE_ID, `L0 ${aborted ? '已取消' : '完成'}：atoms=${builtAtoms}, completed=${completed}/${total}, llmFailed=${llmFailed}`);
+    return {
+        built: builtAtoms,
+        failed: llmFailed,
+        llmFailed,
+        vectorFailed: 0,
+        failureCode: firstFailure?.code || null,
+        httpStatus: firstFailure?.httpStatus || null,
+        cancelled: aborted,
+        stale: targetStale,
+    };
 }
 
 // ============================================================================
-// 向量化（支持进度回调）
+// StateVector 派生数据维护
 // ============================================================================
 
-/**
- * 向量化 atoms 并整批提交。
- * 提交是全有或全无：任何一批 embed 失败都不写 StateVector，避免出现"部分楼层有向量"
- * 的中间态。返回 { committed } 让调用方决定这些楼层标 ok 还是 fail。
- */
-async function vectorizeAtoms(chatId, atoms, onProgress, options = {}) {
-    if (!atoms?.length) return { committed: true };
+async function collectL0VectorBuildState(chatId, options = {}) {
+    const {
+        vectorConfig = getVectorConfig(),
+    } = options;
+    if (!chatId || getContext()?.chatId !== chatId) {
+        return { success: false, missing: 0, total: 0, code: 'stale_chat', stale: true };
+    }
+    if (!vectorConfig?.enabled) {
+        return { success: false, missing: 0, total: 0, code: 'disabled' };
+    }
 
+    const fingerprint = getEngineFingerprint(vectorConfig);
+    const atoms = [...getStateAtoms()];
+    const [stateVectors, meta] = await Promise.all([
+        getStateVectorDescriptors(chatId),
+        getMeta(chatId),
+    ]);
+    if (getContext()?.chatId !== chatId) {
+        return { success: false, missing: 0, total: atoms.length, code: 'stale_chat', stale: true };
+    }
+    if (!canRepairStateVectors(meta?.fingerprint, fingerprint)) {
+        return {
+            success: false,
+            missing: 0,
+            total: atoms.length,
+            code: 'fingerprint_mismatch',
+            fingerprintMismatch: true,
+        };
+    }
+
+    const missingAtoms = selectMissingStateVectorAtoms(atoms, stateVectors, fingerprint);
+    return {
+        success: true,
+        missing: missingAtoms.length,
+        missingFloors: new Set(missingAtoms
+            .map(atom => Number(atom?.floor))
+            .filter(Number.isFinite)).size,
+        total: atoms.length,
+        fingerprint,
+        missingAtoms,
+    };
+}
+
+export async function getL0VectorBuildStatus(chatId, options = {}) {
+    const status = { ...await collectL0VectorBuildState(chatId, options) };
+    delete status.missingAtoms;
+    return status;
+}
+
+/**
+ * 仅补齐缺失或无效的 StateVector。StateAtoms 是唯一事实来源；本函数不会修改锚点或
+ * 楼层提取状态。所有 Embedding 批次成功后才整批写库，失败时下轮仍可从事实数据重建。
+ */
+export async function vectorizeMissingStateAtoms(chatId, onProgress, options = {}) {
     const {
         vectorConfig = getVectorConfig(),
         signal = null,
         shouldCancel = null,
     } = options;
-    const vectorCfg = vectorConfig;
-    const isCancelled = () => (
-        signal?.aborted
-        || shouldCancel?.() === true
-    );
-    if (!vectorCfg?.enabled) return { committed: false };
+    const isCancelled = () => signal?.aborted || shouldCancel?.() === true;
+    const cancelledResult = () => ({
+        success: false,
+        status: 'cancelled',
+        vectorized: 0,
+        failed: 0,
+        vectorFailed: 0,
+        code: 'cancelled',
+        cancelled: true,
+    });
+    if (isCancelled()) return cancelledResult();
 
-    const semanticTexts = atoms.map(a => a.semantic);
-    const rTexts = atoms.map(a => buildRAggregateText(a));
-    const fingerprint = getEngineFingerprint(vectorCfg);
+    let status;
+    try {
+        status = await collectL0VectorBuildState(chatId, { vectorConfig });
+    } catch (error) {
+        xbLog.error(MODULE_ID, '读取 L0 向量状态失败', error);
+        return {
+            success: false,
+            status: 'failed',
+            vectorized: 0,
+            failed: 0,
+            vectorFailed: 0,
+            code: 'state_vector_read_failed',
+            error,
+        };
+    }
+    if (isCancelled()) return cancelledResult();
+    if (!status.success) {
+        return {
+            ...status,
+            status: 'failed',
+            vectorized: 0,
+            failed: 0,
+            vectorFailed: 0,
+        };
+    }
+
+    const atoms = status.missingAtoms;
+    if (!atoms.length) {
+        return {
+            success: true,
+            status: 'up_to_date',
+            vectorized: 0,
+            failed: 0,
+            vectorFailed: 0,
+        };
+    }
+
+    const fingerprint = status.fingerprint;
     const batchSize = 20;
+    const allItems = [];
 
     try {
-        const allVectors = [];
+        onProgress?.(0, atoms.length);
+        for (let i = 0; i < atoms.length; i += batchSize) {
+            if (isCancelled()) return cancelledResult();
 
-        for (let i = 0; i < semanticTexts.length; i += batchSize) {
-            if (isCancelled()) return { committed: false };
-
-            const semBatch = semanticTexts.slice(i, i + batchSize);
-            const rBatch = rTexts.slice(i, i + batchSize);
+            const atomBatch = atoms.slice(i, i + batchSize);
+            const semBatch = atomBatch.map(atom => atom.semantic);
+            const rBatch = atomBatch.map(buildRAggregateText);
             const payload = semBatch.concat(rBatch);
             const vectors = await embed(payload, {
-                apiConfig: vectorCfg.embeddingApi,
+                apiConfig: vectorConfig.embeddingApi,
                 timeout: 30000,
                 signal,
             });
-            if (isCancelled()) return { committed: false };
+            if (isCancelled()) return cancelledResult();
             const split = semBatch.length;
             const expectedVectorCount = split * 2;
             if (
@@ -423,41 +510,70 @@ async function vectorizeAtoms(chatId, atoms, onProgress, options = {}) {
                 || vectors.length < expectedVectorCount
                 || vectors.slice(0, expectedVectorCount).some(vector => !vector?.length)
             ) {
-                throw new Error(`invalid embedding response: expect>=${expectedVectorCount} non-empty vectors, got=${vectors?.length || 0}`);
+                throw createInvalidEmbeddingResponseError(expectedVectorCount, vectors?.length || 0);
             }
             const semVectors = vectors.slice(0, split);
             const rVectors = vectors.slice(split, split + split);
 
             for (let j = 0; j < split; j++) {
-                allVectors.push({
+                const atom = atomBatch[j];
+                allItems.push({
+                    atomId: atom.atomId,
+                    floor: atom.floor,
                     vector: semVectors[j],
                     rVector: rVectors[j] || semVectors[j],
                 });
             }
 
-            onProgress?.(allVectors.length, semanticTexts.length);
+            onProgress?.(allItems.length, atoms.length);
         }
 
-        if (isCancelled()) return { committed: false };
-
-        const items = atoms.slice(0, allVectors.length).map((a, i) => ({
-            atomId: a.atomId,
-            floor: a.floor,
-            vector: allVectors[i].vector,
-            rVector: allVectors[i].rVector,
-        }));
-
-        if (isCancelled()) return { committed: false };
-        await saveStateVectors(chatId, items, fingerprint);
-        xbLog.info(MODULE_ID, `L0 向量化完成: ${items.length} 条`);
-        return { committed: true };
-    } catch (e) {
-        // 请求内部超时同样抛 AbortError，但那是失败：必须让调用方标 fail 并重试，
-        // 不能当取消放过，否则这些楼层会永久没有 StateVector。
-        if (isCancelled()) return { committed: false };
-        xbLog.error(MODULE_ID, 'L0 向量化失败', e);
-        return { committed: false };
+        if (isCancelled()) return cancelledResult();
+        if (
+            getContext()?.chatId !== chatId
+            || getEngineFingerprint(getVectorConfig()) !== fingerprint
+        ) return cancelledResult();
+    } catch (error) {
+        if (isCancelled()) return cancelledResult();
+        const failure = getEmbeddingFailureDetails(error);
+        xbLog.error(MODULE_ID, `L0 Embedding 失败: ${failure.code}`, error);
+        return {
+            success: false,
+            status: 'failed',
+            vectorized: 0,
+            failed: atoms.length,
+            vectorFailed: atoms.length,
+            code: failure.code,
+            httpStatus: failure.httpStatus,
+            error,
+        };
     }
+
+    try {
+        if (isCancelled()) return cancelledResult();
+        await saveStateVectors(chatId, allItems, fingerprint);
+    } catch (error) {
+        if (isCancelled()) return cancelledResult();
+        xbLog.error(MODULE_ID, 'L0 StateVector 写入失败', error);
+        return {
+            success: false,
+            status: 'failed',
+            vectorized: 0,
+            failed: atoms.length,
+            vectorFailed: atoms.length,
+            code: 'state_vector_write_failed',
+            error,
+        };
+    }
+
+    xbLog.info(MODULE_ID, `L0 向量补齐完成: ${allItems.length} 条`);
+    return {
+        success: true,
+        status: 'built',
+        vectorized: allItems.length,
+        failed: 0,
+        vectorFailed: 0,
+    };
 }
 
 // ============================================================================

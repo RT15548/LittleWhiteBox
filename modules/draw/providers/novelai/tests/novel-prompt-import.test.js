@@ -65,12 +65,33 @@ test('round-trips the current V2 optional model guide overrides', () => {
             'v4.5': '',
             v5: 'custom V5 guide',
         },
+        modelContractOverrides: {},
+    });
+});
+
+test('round-trips V3 model-contract overrides', () => {
+    const result = parseNovelPromptPresetImport({
+        _type: TYPE,
+        _version: 3,
+        name: 'advanced preset',
+        topSystem: 'system',
+        sceneRules: 'rules',
+        modelGuideOverrides: { v5: 'custom V5 guide' },
+        modelContractOverrides: {
+            'v4.5': 'custom grid contract',
+            v5: '',
+        },
+    });
+
+    assert.deepEqual(result.modelContractOverrides, {
+        'v4.5': 'custom grid contract',
+        v5: '',
     });
 });
 
 test('rejects unknown formats instead of leaking old fields into runtime data', () => {
     assert.throws(
-        () => parseNovelPromptPresetImport({ ...v1('guide'), _version: 3 }),
+        () => parseNovelPromptPresetImport({ ...v1('guide'), _version: 4 }),
         /不支持的提示词模板版本/,
     );
     assert.throws(
@@ -96,5 +117,25 @@ test('rejects unknown formats instead of leaking old fields into runtime data', 
             modelGuideOverrides: { v5: 5 },
         }),
         /无效的模型指南覆盖/,
+    );
+    assert.throws(
+        () => parseNovelPromptPresetImport({
+            _type: TYPE,
+            _version: 3,
+            topSystem: 'system',
+            sceneRules: 'rules',
+            modelContractOverrides: { future: 'unsupported' },
+        }),
+        /无效的模型契约覆盖/,
+    );
+    assert.throws(
+        () => parseNovelPromptPresetImport({
+            _type: TYPE,
+            _version: 3,
+            topSystem: 'system',
+            sceneRules: 'rules',
+            modelGuideOverrides: [],
+        }),
+        /V3 提示词模板的 modelGuideOverrides 格式无效/,
     );
 });

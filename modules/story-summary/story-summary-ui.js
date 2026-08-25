@@ -2492,7 +2492,7 @@
                 $('btn-import-summary').disabled = false;
                 if (d.success) {
                     const c = d.counts || {};
-                    $('summary-io-status').textContent = `导入成功: ${c.events || 0} 条事件, ${c.facts || 0} 条世界状态，已覆盖当前总结资料并清空向量/锚点，请重新生成向量。`;
+                    $('summary-io-status').textContent = `导入成功: ${c.events || 0} 条事件, ${c.facts || 0} 条世界状态，已覆盖当前总结资料并清空向量/锚点，请点击“完整重建”。`;
                     postMsg('REQUEST_VECTOR_STATS');
                     postMsg('REQUEST_ANCHOR_STATS');
                 } else {

@@ -58,15 +58,17 @@ import {
     loadPromptTemplates,
     DEFAULT_PROMPT_CONFIG,
     PROMPT_TEMPLATE_VERSION,
+    getDefaultNovelModelContractByGuideId,
     getEffectiveNovelModelGuide,
+    getEffectiveNovelModelContract,
     getLoadedTagGuideById,
+    normalizeNovelModelContractOverrides,
     normalizeNovelPromptGuideOverrides,
 } from './novel-prompts.js';
 import { parseNovelPromptPresetImport } from './novel-prompt-import.js';
 import {
     getNovelModelCapability,
     getNovelModelCapabilitiesForUi,
-    getNovelScenePlannerContract,
     isNovelV5Model,
     NOVEL_PROMPT_GUIDES,
 } from './novel-model-capabilities.js';
@@ -1049,6 +1051,7 @@ function normalizeSettings(saved = {}) {
                 ? preset.sceneRules
                 : DEFAULT_PROMPT_CONFIG.sceneRules,
             modelGuideOverrides: normalizeNovelPromptGuideOverrides(preset.modelGuideOverrides),
+            modelContractOverrides: normalizeNovelModelContractOverrides(preset.modelContractOverrides),
         };
     });
     if (!merged.selectedPromptPresetId
@@ -1170,7 +1173,9 @@ function saveSettings(s) {
     return next;
 }
 
-async function persistSettings(s, okText = '已保存', { notify = true, silent = false, target = '' } = {}) {
+let settingsUpdateQueue = Promise.resolve();
+
+async function persistSettingsNow(s, okText = '已保存', { notify = true, silent = false, target = '' } = {}) {
     if (!settingsLoaded) {
         console.error('[NovelDraw] 设置尚未成功加载，拒绝保存');
         if (notify) postStatus('error', '配置尚未成功加载，已禁止保存', target);
@@ -1195,9 +1200,10 @@ async function persistSettings(s, okText = '已保存', { notify = true, silent 
     try {
         // 先切到最新内存态，避免“刚保存立刻生成”仍读到旧 key / 旧参数。
         settingsCache = next;
-        const latest = await NovelDrawStorage.getStrict(SERVER_FILE_KEY, null);
-        const storageValue = mergeNovelDrawProviderSettingsIntoStorageRoot(latest, next);
-        const ok = await NovelDrawStorage.setAndSave(SERVER_FILE_KEY, storageValue, { silent });
+        const ok = await NovelDrawStorage.updateAndSave((storageRoot) => {
+            const latest = storageRoot[SERVER_FILE_KEY];
+            storageRoot[SERVER_FILE_KEY] = mergeNovelDrawProviderSettingsIntoStorageRoot(latest, next);
+        }, { silent });
         if (ok !== false) {
             if (notify) {
                 postStatus('success', okText, target);
@@ -1222,28 +1228,55 @@ async function persistSettings(s, okText = '已保存', { notify = true, silent 
     }
 }
 
-async function updateSettingsPersistent(mutator, okText = '已保存', options = {}) {
+function persistSettings(s, okText = '已保存', options = {}) {
+    const update = () => persistSettingsNow(s, okText, options);
+    const result = settingsUpdateQueue.then(update, update);
+    settingsUpdateQueue = result.catch(() => {});
+    return result;
+}
+
+async function runSettingsPersistentUpdate(mutator, okText, options) {
     if (!settingsLoaded) {
         console.error('[NovelDraw] 设置尚未成功加载，拒绝保存');
         if (options.notify !== false) postStatus('error', '配置尚未成功加载，已禁止保存', options.target || '');
         return false;
     }
-    let base = getSettings();
+    const { notify = true, silent = false, target = '' } = options;
+    const previous = settingsCache ? cloneSettingsObject(settingsCache) : null;
     try {
-        const latest = await NovelDrawStorage.getStrict(SERVER_FILE_KEY, null);
-        if (latest && typeof latest === 'object') {
-            base = normalizeSettings(latest);
+        const ok = await NovelDrawStorage.updateAndSave(async (storageRoot) => {
+            const latest = storageRoot[SERVER_FILE_KEY];
+            const base = normalizeSettings(latest || getSettings());
+            const draft = cloneSettingsObject(base);
+            if (typeof mutator === 'function') {
+                await mutator(draft);
+            }
+            const next = normalizeSettings(draft);
+            next.updatedAt = Date.now();
+            next.configVersion = CONFIG_VERSION;
+            settingsCache = next;
+            storageRoot[SERVER_FILE_KEY] = mergeNovelDrawProviderSettingsIntoStorageRoot(latest, next);
+        }, { silent });
+        if (ok !== false) {
+            if (notify) postStatus('success', okText, target);
+            return true;
         }
+        settingsCache = previous;
+        if (notify) postStatus('error', '保存失败', target);
+        return false;
     } catch (error) {
-        console.error('[NovelDraw] 刷新设置失败，拒绝保存:', error);
-        if (options.notify !== false) postStatus('error', `保存失败：${error?.message || '配置读取失败'}`, options.target || '');
+        settingsCache = previous;
+        console.error('[NovelDraw] 更新设置失败:', error);
+        if (notify) postStatus('error', `保存失败：${error?.message || '配置写入失败'}`, target);
         return false;
     }
-    const draft = cloneSettingsObject(base);
-    if (typeof mutator === 'function') {
-        await mutator(draft);
-    }
-    return persistSettings(draft, okText, options);
+}
+
+function updateSettingsPersistent(mutator, okText = '已保存', options = {}) {
+    const update = () => runSettingsPersistentUpdate(mutator, okText, options);
+    const result = settingsUpdateQueue.then(update, update);
+    settingsUpdateQueue = result.catch(() => {});
+    return result;
 }
 
 async function updateSharedSettingsPersistent(mutator, okText = '已保存', options = {}) {
@@ -1275,6 +1308,14 @@ function compactPromptGuideOverrides(value) {
     const overrides = normalizeNovelPromptGuideOverrides(value);
     for (const [guideId, content] of Object.entries(overrides)) {
         if (content === getLoadedTagGuideById(guideId)) delete overrides[guideId];
+    }
+    return overrides;
+}
+
+function compactPromptContractOverrides(value) {
+    const overrides = normalizeNovelModelContractOverrides(value);
+    for (const [guideId, content] of Object.entries(overrides)) {
+        if (content === getDefaultNovelModelContractByGuideId(guideId)) delete overrides[guideId];
     }
     return overrides;
 }
@@ -3178,7 +3219,7 @@ async function buildNovelScenePlannerOptions({
         maxCharactersPerImage: preset.maxCharactersPerImage || 0,
         absoluteMaxCharactersPerImage: capability.maxCharactersPerImage,
         modelGuide: getEffectiveNovelModelGuide(model, customPrompts),
-        modelContract: getNovelScenePlannerContract(model),
+        modelContract: getEffectiveNovelModelContract(model, customPrompts),
         centerMode: capability.centerMode,
         onImageLimitAdjusted: notifySceneImageLimitAdjusted,
         onDiagnosticUpdate: diagnostic => onStateChange?.('llm', toScenePlannerProgress(diagnostic)),
@@ -4292,6 +4333,10 @@ async function sendInitData() {
                 Object.values(NOVEL_PROMPT_GUIDES)
                     .map(guideId => [guideId, getLoadedTagGuideById(guideId)]),
             ),
+            modelContractDefaults: Object.fromEntries(
+                Object.values(NOVEL_PROMPT_GUIDES)
+                    .map(guideId => [guideId, getDefaultNovelModelContractByGuideId(guideId)]),
+            ),
             modelCapabilities: getNovelModelCapabilitiesForUi(),
             worldbooks: settings.worldbooks || DEFAULT_SETTINGS.worldbooks,
             messageFilterRules: settings.messageFilterRules || [],
@@ -4577,17 +4622,28 @@ async function handleFrameMessage(event) {
             const key = data.key;
             const ALLOWED_PROMPT_KEYS = ['topSystem', 'sceneRules'];
             const guideId = String(data.guideId || '');
+            const presetId = String(data.selectedPromptPresetId || '');
             const isGuideReset = key === 'modelGuide'
                 && Object.values(NOVEL_PROMPT_GUIDES).includes(guideId);
-            if (isGuideReset || (key && ALLOWED_PROMPT_KEYS.includes(key))) {
-                await updateSettingsPersistent((settings) => {
-                    const presetId = data.selectedPromptPresetId || settings.selectedPromptPresetId;
-                    const active = settings.promptPresets.find(p => p.id === presetId);
+            const isContractReset = key === 'modelContract'
+                && Object.values(NOVEL_PROMPT_GUIDES).includes(guideId);
+            if (isGuideReset || isContractReset || (key && ALLOWED_PROMPT_KEYS.includes(key))) {
+                let presetFound = false;
+                const ok = await updateSettingsPersistent((settings) => {
+                    const targetPresetId = presetId || settings.selectedPromptPresetId;
+                    const active = settings.promptPresets.find(p => p.id === targetPresetId);
                     if (!active) return;
+                    presetFound = true;
                     if (isGuideReset) {
                         const overrides = normalizeNovelPromptGuideOverrides(active.modelGuideOverrides);
                         delete overrides[guideId];
                         active.modelGuideOverrides = overrides;
+                        return;
+                    }
+                    if (isContractReset) {
+                        const overrides = normalizeNovelModelContractOverrides(active.modelContractOverrides);
+                        delete overrides[guideId];
+                        active.modelContractOverrides = overrides;
                         return;
                     }
                     const isPov = active?.name === '默认-第一人称完整规则';
@@ -4597,7 +4653,21 @@ async function handleFrameMessage(event) {
                     };
                     const defaultVal = resetDefaults[key];
                     active[key] = defaultVal;
-                }, '已恢复默认', { target: 'prompts' });
+                }, '已恢复默认', { target: 'prompts', notify: false });
+                const reset = ok && presetFound;
+                postStatus(
+                    reset ? 'success' : 'error',
+                    reset ? '已恢复默认' : ok ? '目标提示词预设已不存在' : '保存失败',
+                    'prompts',
+                );
+                postToIframe(iframe, {
+                    type: 'PROMPT_RESET_RESULT',
+                    key,
+                    guideId,
+                    presetId,
+                    draftRevision: data.draftRevision,
+                    ok: reset,
+                }, 'LittleWhiteBox-NovelDraw');
             }
             sendInitData();
             break;
@@ -4608,13 +4678,22 @@ async function handleFrameMessage(event) {
         // ═══════════════════════════════════════════════════════════════
 
         case 'SELECT_PROMPT_PRESET': {
-            if (data.id && getSettings().promptPresets.some(p => p.id === data.id)) {
+            if (data.id) {
                 // 仅持久化，不回传 INIT_DATA — iframe 已在 change handler 中完成 UI 更新
                 // 避免 sendInitData 的异步延迟导致下拉框 innerHTML 全量重建引起状态闪烁
+                let presetFound = false;
                 const ok = await updateSettingsPersistent((settings) => {
+                    if (!settings.promptPresets.some(p => p.id === data.id)) return;
+                    presetFound = true;
                     settings.selectedPromptPresetId = data.id;
-                }, '已切换预设', { target: 'prompt-preset' });
-                if (!ok) {
+                }, '已切换预设', { target: 'prompt-preset', notify: false });
+                const selected = ok && presetFound;
+                postStatus(
+                    selected ? 'success' : 'error',
+                    selected ? '已切换预设' : ok ? '目标提示词预设已不存在' : '保存失败',
+                    'prompt-preset',
+                );
+                if (!selected) {
                     sendInitData();
                 }
             }
@@ -4623,19 +4702,29 @@ async function handleFrameMessage(event) {
 
         case 'ADD_PROMPT_PRESET': {
             const id = generateSlotId();
-            const current = getActivePromptPreset();
+            const sourcePresetId = String(data.sourcePresetId || getSettings().selectedPromptPresetId || '');
+            let sourceFound = false;
             const ok = await updateSettingsPersistent((settings) => {
+                const current = settings.promptPresets.find(p => p.id === sourcePresetId);
+                if (!current) return;
+                sourceFound = true;
                 const newPreset = {
                     id,
                     name: (typeof data.name === 'string' && data.name.trim()) ? data.name.trim() : `提示词-${settings.promptPresets.length + 1}`,
                     topSystem: current?.topSystem ?? DEFAULT_PROMPT_CONFIG.topSystem,
                     sceneRules: current?.sceneRules ?? DEFAULT_PROMPT_CONFIG.sceneRules,
                     modelGuideOverrides: normalizeNovelPromptGuideOverrides(current?.modelGuideOverrides),
+                    modelContractOverrides: normalizeNovelModelContractOverrides(current?.modelContractOverrides),
                 };
                 settings.promptPresets.push(newPreset);
                 settings.selectedPromptPresetId = id;
-            }, '已创建', { target: 'prompt-preset' });
-            if (ok) sendInitData();
+            }, '已创建', { target: 'prompt-preset', notify: false });
+            postStatus(
+                ok && sourceFound ? 'success' : 'error',
+                ok && sourceFound ? '已创建' : ok ? '源提示词预设已不存在' : '保存失败',
+                'prompt-preset',
+            );
+            if (ok && sourceFound) sendInitData();
             break;
         }
 
@@ -4655,6 +4744,7 @@ async function handleFrameMessage(event) {
                     id,
                     ...imported,
                     modelGuideOverrides: compactPromptGuideOverrides(imported.modelGuideOverrides),
+                    modelContractOverrides: compactPromptContractOverrides(imported.modelContractOverrides),
                 });
                 settings.selectedPromptPresetId = id;
             }, '已导入为新预设', { target: 'prompt-preset' });
@@ -4664,48 +4754,88 @@ async function handleFrameMessage(event) {
 
         case 'DEL_PROMPT_PRESET': {
             const s = getSettings();
-            if (s.promptPresets.length <= 1) {
-                postStatus('error', '至少保留一个预设', 'prompt-preset');
-                break;
-            }
+            const presetId = String(data.id || s.selectedPromptPresetId || '');
+            let deleteResult = 'missing';
             const ok = await updateSettingsPersistent((settings) => {
-                const idx = settings.promptPresets.findIndex(p => p.id === settings.selectedPromptPresetId);
-                if (idx >= 0) settings.promptPresets.splice(idx, 1);
+                if (settings.promptPresets.length <= 1) {
+                    deleteResult = 'last';
+                    return;
+                }
+                const idx = settings.promptPresets.findIndex(p => p.id === presetId);
+                if (idx < 0) return;
+                settings.promptPresets.splice(idx, 1);
                 settings.selectedPromptPresetId = settings.promptPresets[0]?.id || null;
-            }, '已删除', { target: 'prompt-preset' });
+                deleteResult = 'deleted';
+            }, '已删除', { target: 'prompt-preset', notify: false });
+            if (!ok) {
+                postStatus('error', '保存失败', 'prompt-preset');
+            } else if (deleteResult === 'last') {
+                postStatus('error', '至少保留一个预设', 'prompt-preset');
+            } else if (deleteResult === 'missing') {
+                postStatus('error', '要删除的预设已不存在', 'prompt-preset');
+            } else {
+                postStatus('success', '已删除', 'prompt-preset');
+            }
             if (ok) sendInitData();
             break;
         }
 
         case 'RENAME_PROMPT_PRESET': {
-            const active = getSettings().promptPresets.find(p => p.id === getSettings().selectedPromptPresetId);
+            const presetId = String(data.id || getSettings().selectedPromptPresetId || '');
+            const active = getSettings().promptPresets.find(p => p.id === presetId);
             if (active && typeof data.name === 'string' && data.name.trim()) {
-                await updateSettingsPersistent((settings) => {
-                    const preset = settings.promptPresets.find(p => p.id === settings.selectedPromptPresetId);
-                    if (preset) preset.name = data.name.trim();
-                }, '已重命名', { target: 'prompt-preset' });
+                let presetFound = false;
+                const ok = await updateSettingsPersistent((settings) => {
+                    const preset = settings.promptPresets.find(p => p.id === presetId);
+                    if (!preset) return;
+                    presetFound = true;
+                    preset.name = data.name.trim();
+                }, '已重命名', { target: 'prompt-preset', notify: false });
+                postStatus(
+                    ok && presetFound ? 'success' : 'error',
+                    ok && presetFound ? '已重命名' : ok ? '目标提示词预设已不存在' : '保存失败',
+                    'prompt-preset',
+                );
                 sendInitData();
             }
             break;
         }
 
         case 'SAVE_PROMPT_PRESET': {
-            const active = getSettings().promptPresets.find(p => p.id === (data.selectedPromptPresetId || getSettings().selectedPromptPresetId));
-            if (active && data.promptDraft && typeof data.promptDraft === 'object') {
+            const presetId = String(data.selectedPromptPresetId || getSettings().selectedPromptPresetId || '');
+            let saved = false;
+            if (data.promptDraft && typeof data.promptDraft === 'object') {
                 const statusTarget = data.statusTarget === 'prompt-preset' ? 'prompt-preset' : 'prompts';
-                await updateSettingsPersistent((settings) => {
-                    if (data.selectedPromptPresetId && settings.promptPresets.some(p => p.id === data.selectedPromptPresetId)) {
-                        settings.selectedPromptPresetId = data.selectedPromptPresetId;
-                    }
-                    const current = settings.promptPresets.find(p => p.id === settings.selectedPromptPresetId);
+                let presetFound = false;
+                const ok = await updateSettingsPersistent((settings) => {
+                    const current = settings.promptPresets.find(p => p.id === presetId);
                     if (!current) return;
+                    presetFound = true;
+                    settings.selectedPromptPresetId = presetId;
                     const cp = data.promptDraft;
                     if ('topSystem' in cp) current.topSystem = cp.topSystem;
                     if ('sceneRules' in cp) current.sceneRules = cp.sceneRules;
                     if ('modelGuideOverrides' in cp) {
                         current.modelGuideOverrides = compactPromptGuideOverrides(cp.modelGuideOverrides);
                     }
-                }, '提示词预设已保存', { target: statusTarget });
+                    if ('modelContractOverrides' in cp) {
+                        current.modelContractOverrides = compactPromptContractOverrides(cp.modelContractOverrides);
+                    }
+                }, '提示词预设已保存', { target: statusTarget, notify: false });
+                saved = ok && presetFound;
+                postStatus(
+                    saved ? 'success' : 'error',
+                    saved ? '提示词预设已保存' : ok ? '目标提示词预设已不存在' : '保存失败',
+                    statusTarget,
+                );
+            }
+            if (data.resetAll === true) {
+                postToIframe(iframe, {
+                    type: 'PROMPT_RESET_ALL_RESULT',
+                    presetId,
+                    draftRevision: data.draftRevision,
+                    ok: saved,
+                }, 'LittleWhiteBox-NovelDraw');
             }
             sendInitData();
             break;
@@ -4850,15 +4980,18 @@ async function handleFrameMessage(event) {
                     modelGuideOverrides: normalizeNovelPromptGuideOverrides(
                         data.promptDraft.modelGuideOverrides ?? currentPrompts.modelGuideOverrides,
                     ),
+                    modelContractOverrides: normalizeNovelModelContractOverrides(
+                        data.promptDraft.modelContractOverrides ?? currentPrompts.modelContractOverrides,
+                    ),
                 }
                 : currentPrompts;
             const chain = getPromptChainPreview(promptDraft, model);
-            const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
-            if (iframe) postToIframe(iframe, {
+            const modelContractContent = getEffectiveNovelModelContract(model, promptDraft);
+            if (iframe?.isConnected) postToIframe(iframe, {
                 type: 'PROMPT_CHAIN_DATA',
                 requestId: data.requestId,
                 chain,
-                modelContractContent: getNovelScenePlannerContract(model),
+                modelContractContent,
             }, 'LittleWhiteBox-NovelDraw');
             break;
         }

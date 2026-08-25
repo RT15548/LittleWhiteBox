@@ -10,6 +10,10 @@ import { getVectorConfig } from '../../data/config.js';
 import { getDefaultApiPrefix, resolveApiBaseUrl } from '../../../../shared/common/openai-url-utils.js';
 import { mergeAbortSignals } from '../../../../shared/common/abort-utils.js';
 import { xbLog } from '../../../../core/debug-core.js';
+import {
+    createEmbeddingFailureError,
+    readEmbeddingVectors,
+} from './embedding-failure.js';
 
 const BASE_URL = 'https://api.siliconflow.cn';
 const EMBEDDING_MODEL = 'BAAI/bge-m3';
@@ -76,11 +80,20 @@ export async function embed(texts, options = {}) {
 
     const apiCfg = options.apiConfig || getEmbeddingApiConfig();
     const key = getApiKey(apiCfg.key);
-    if (!key) throw new Error('未配置 Embedding API Key');
+    if (!key) {
+        throw createEmbeddingFailureError(
+            '未配置 Embedding API Key',
+            { kind: 'configuration' },
+        );
+    }
 
     const { timeout = 30000, signal } = options;
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeout);
+    let timedOut = false;
+    const timeoutId = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+    }, timeout);
     const requestSignal = mergeAbortSignals(signal, controller.signal);
 
     try {
@@ -88,7 +101,18 @@ export async function embed(texts, options = {}) {
             String(apiCfg.url || `${BASE_URL}/v1`),
             getDefaultApiPrefix(apiCfg.provider || 'siliconflow')
         );
-        const response = await fetch(`${baseUrl}/embeddings`, {
+        let endpoint;
+        try {
+            endpoint = new URL(`${baseUrl}/embeddings`);
+            if (endpoint.protocol !== 'http:' && endpoint.protocol !== 'https:') throw new TypeError('unsupported protocol');
+        } catch (error) {
+            throw createEmbeddingFailureError(
+                'Embedding API URL 无效',
+                { kind: 'configuration_url' },
+                error,
+            );
+        }
+        const response = await fetch(endpoint.href, {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${key}`,
@@ -101,17 +125,44 @@ export async function embed(texts, options = {}) {
             signal: requestSignal,
         });
 
-        clearTimeout(timeoutId);
-
         if (!response.ok) {
-            const errorText = await response.text().catch(() => '');
-            throw new Error(`Embedding ${response.status}: ${errorText.slice(0, 200)}`);
+            throw createEmbeddingFailureError(
+                `Embedding HTTP ${response.status}`,
+                { kind: 'http', status: response.status },
+            );
         }
 
-        const data = await response.json();
-        return (data.data || [])
-            .sort((a, b) => a.index - b.index)
-            .map(item => Array.isArray(item.embedding) ? item.embedding : Array.from(item.embedding));
+        let data;
+        try {
+            data = await response.json();
+        } catch (error) {
+            if (error?.name === 'AbortError') throw error;
+            if (error instanceof TypeError) throw error;
+            throw createEmbeddingFailureError(
+                'Embedding API 响应不是有效 JSON',
+                { kind: 'invalid_response' },
+                error,
+            );
+        }
+        return readEmbeddingVectors(data, texts.length);
+    } catch (error) {
+        if (signal?.aborted) throw error;
+        if (error?.embeddingFailure) throw error;
+        if (error?.name === 'AbortError' && timedOut) {
+            throw createEmbeddingFailureError(
+                `Embedding request timeout after ${timeout}ms`,
+                { kind: 'timeout' },
+                error,
+            );
+        }
+        if (error instanceof TypeError) {
+            throw createEmbeddingFailureError(
+                `Embedding network error: ${error.message}`,
+                { kind: 'network' },
+                error,
+            );
+        }
+        throw error;
     } finally {
         clearTimeout(timeoutId);
     }

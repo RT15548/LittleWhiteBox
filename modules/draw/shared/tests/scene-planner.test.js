@@ -163,6 +163,27 @@ test('NovelAI V5 injects its own guide and normalized coordinate Tool contract',
     );
 });
 
+test('scene planner honors a custom or intentionally empty model contract', async () => {
+    const promptDefaults = await loadPromptConfig('novelai', NOVEL_SCENE_PROMPTS);
+    const baseOptions = {
+        messageText: '阿璃站在窗前。',
+        promptDefaults,
+        maxImages: 1,
+        expansionOptions: NOOP_EXPANSION_OPTIONS,
+    };
+    const customTask = await buildScenePlannerTask({
+        ...baseOptions,
+        modelContract: 'CUSTOM_MODEL_CONTRACT',
+    });
+    const emptyTask = await buildScenePlannerTask({
+        ...baseOptions,
+        modelContract: '',
+    });
+
+    assert.match(flattenTaskText(customTask), /CUSTOM_MODEL_CONTRACT/);
+    assert.doesNotMatch(flattenTaskText(emptyTask), /CUSTOM_MODEL_CONTRACT|角色坐标契约/);
+});
+
 test('scene planner clamps an exact image request to the available illustration points', async () => {
     const task = await buildScenePlannerTask({
         messageText: '短句。',
