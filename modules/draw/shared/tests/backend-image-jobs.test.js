@@ -7,6 +7,7 @@ import {
     fetchImageBackendJobsStatus,
     hasImageBackendJobsCapability,
     IMAGE_BATCH_JOBS_CAPABILITY,
+    reportImageBackendJobState,
 } from '../backend-image-jobs.js';
 
 function jsonResponse(body, status = 200) {
@@ -47,6 +48,22 @@ test('recognizes the batch jobs capability without guessing from version', () =>
     }), true);
     assert.equal(hasImageBackendJobsCapability({ ready: true, version: '1.3.0', capabilities: [] }), false);
     assert.equal(hasImageBackendJobsCapability({ ready: false, capabilities: [IMAGE_BATCH_JOBS_CAPABILITY] }), false);
+});
+
+test('reports backend delivery, reconnecting, and cancellation as distinct observable states', () => {
+    const states = [];
+    reportImageBackendJobState((state, data) => states.push({ state, data }), 'status', {
+        job: jobStatus('completed', [{ index: 0, state: 'ready' }]).job,
+    });
+    reportImageBackendJobState((state, data) => states.push({ state, data }), 'reconnecting');
+    reportImageBackendJobState((state, data) => states.push({ state, data }), 'status', {
+        abortRequested: true,
+    });
+    assert.deepEqual(states, [
+        { state: 'delivering', data: { total: 1 } },
+        { state: 'reconnecting', data: {} },
+        { state: 'cancelling', data: { abortRequested: true } },
+    ]);
 });
 
 test('one create request delivers and acknowledges every ready item', async () => {

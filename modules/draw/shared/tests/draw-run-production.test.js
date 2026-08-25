@@ -7,7 +7,7 @@ import {
     submitProviderDrawRun,
 } from '../draw-run-production.js';
 import { subscribeDrawRunActivity } from '../draw-run-activity.js';
-import { resolveDrawRunUiState } from '../draw-run-ui-state.js';
+import { formatDrawRunProgress, resolveDrawRunUiState } from '../draw-run-ui-state.js';
 import { hashSceneSource } from '../scene-source.js';
 
 function baseOptions(overrides = {}) {
@@ -26,6 +26,17 @@ function baseOptions(overrides = {}) {
         ...overrides,
     };
 }
+
+test('Draw Run progress labels use real backend stages and item positions', () => {
+    assert.equal(formatDrawRunProgress({ run: { progress: { stage: 'queued' } } }), '排队');
+    assert.equal(formatDrawRunProgress({ stage: 'planning' }), '分析中');
+    assert.equal(formatDrawRunProgress({ stage: 'queued', current: 1, total: 2 }), '排队');
+    assert.equal(formatDrawRunProgress({ stage: 'progress', current: 1, total: 2 }), '1/2');
+    assert.equal(formatDrawRunProgress({ stage: 'dispatched' }), '接回中');
+    assert.equal(formatDrawRunProgress({ stage: 'delivering' }), '接回中');
+    assert.equal(formatDrawRunProgress({ stage: 'reconnecting' }), '重连');
+    assert.equal(formatDrawRunProgress({}), '生成中');
+});
 
 test('production entry refuses an old backend without running Planner or silently falling back', async () => {
     let prepared = 0;

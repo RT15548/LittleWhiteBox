@@ -21,7 +21,12 @@ import {
     getPendingDrawWorkState,
 } from '../../shared/draw-run-controls.js';
 import { isDrawRunCancelledError, isDrawRunPendingError } from '../../shared/draw-run-production.js';
-import { resolveDrawRunUiState } from '../../shared/draw-run-ui-state.js';
+import {
+    formatDrawRunProgress,
+    hasDrawRunProgressDetail,
+    matchesDrawRunActivityDetail,
+    resolveDrawRunUiState,
+} from '../../shared/draw-run-ui-state.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 常量
@@ -683,8 +688,8 @@ function setFloorState(messageId, state, data = {}) {
         case FloatState.ACCEPTED:
             el.classList.add('working');
             if (!panelData.result.startTime) panelData.result.startTime = Date.now();
-            if (statusIcon) { statusIcon.textContent = '✓'; statusIcon.className = 'nd-status-icon'; }
-            if (statusText) statusText.textContent = '后台已接管';
+            if (statusIcon) { statusIcon.textContent = '🎨'; statusIcon.className = 'nd-status-icon nd-spin'; }
+            if (statusText) statusText.textContent = formatDrawRunProgress(data);
             break;
         case FloatState.UNCERTAIN:
             el.classList.add('working');
@@ -762,11 +767,17 @@ async function syncDrawRunPanelState(messageId, detail = {}) {
     // 活动任务仍应在新面板可见并可取消。
     const markerState = await getPendingDrawWorkState(messageId).catch(() => null);
     if (!markerState) return;
+    const provider = markerState.provider || DRAW_RUN_PROVIDER;
+    const detailMatches = matchesDrawRunActivityDetail(detail, { messageId, provider });
+    const matchedDetail = detailMatches ? detail : {};
+    const progressDetail = markerState.backendAccepted && !hasDrawRunProgressDetail(matchedDetail)
+        ? { ...matchedDetail, stage: 'reattaching' }
+        : matchedDetail;
     const effectiveDetail = markerState.cancelling
-        ? { ...detail, provider: undefined, phase: 'cancelling' }
+        ? { ...progressDetail, provider: undefined, phase: 'cancelling' }
         : markerState.backendAccepted
-            ? { ...detail, provider: undefined, phase: 'active' }
-            : detail;
+            ? { ...progressDetail, provider: undefined, phase: 'active' }
+            : progressDetail;
     const panelData = panelMap.get(messageId);
     if (panelData) {
         const next = resolveDrawRunUiState({
@@ -774,9 +785,12 @@ async function syncDrawRunPanelState(messageId, detail = {}) {
             pending: markerState.pending,
             detail: effectiveDetail,
             messageId,
-            provider: markerState.provider || DRAW_RUN_PROVIDER,
+            provider,
         });
-        if (next !== panelData.state) setFloorState(messageId, next);
+        if (next !== panelData.state
+            || (next === FloatState.ACCEPTED && detailMatches && hasDrawRunProgressDetail(detail))) {
+            setFloorState(messageId, next, effectiveDetail);
+        }
     }
     if (floatingEl && Number(messageId) === findLastAIMessageId()) {
         const next = resolveDrawRunUiState({
@@ -784,10 +798,13 @@ async function syncDrawRunPanelState(messageId, detail = {}) {
             pending: markerState.pending,
             detail: effectiveDetail,
             messageId,
-            provider: markerState.provider || DRAW_RUN_PROVIDER,
+            provider,
         });
         if (markerState.pending) floatingMessageId = Number(messageId);
-        if (next !== floatingState) setFloatingState(next);
+        if (next !== floatingState
+            || (next === FloatState.ACCEPTED && detailMatches && hasDrawRunProgressDetail(detail))) {
+            setFloatingState(next, effectiveDetail);
+        }
     }
 }
 
@@ -1270,9 +1287,9 @@ function setFloatingState(state, data = {}) {
         case FloatState.ACCEPTED:
             floatingEl.classList.add('working');
             if (!floatingResult.startTime) floatingResult.startTime = Date.now();
-            statusIcon.textContent = '✓';
-            statusIcon.className = 'nd-status-icon';
-            statusText.textContent = '后台已接管';
+            statusIcon.textContent = '🎨';
+            statusIcon.className = 'nd-status-icon nd-spin';
+            statusText.textContent = formatDrawRunProgress(data);
             break;
         case FloatState.UNCERTAIN:
             floatingEl.classList.add('working');

@@ -136,6 +136,8 @@ export function reportImageBackendJobState(onStateChange, state, data = {}) {
             ahead: job.queueAhead,
             position: Number(job.queueAhead || 0) + 1,
         });
+    } else if (isTerminalJob(job)) {
+        onStateChange?.('delivering', { total: job.total });
     }
 }
 

@@ -1,4 +1,8 @@
 import { PendingJobState } from './pending-image-jobs.js';
+import {
+    findJobPageFarewell,
+    PAGE_FAREWELL_PREPARING_GRACE_MS,
+} from './page-farewell.js';
 
 // 重连恢复的决策核心。
 //
@@ -24,25 +28,34 @@ export const ReattachAction = {
     WAIT: 'wait',
 };
 
-function resolveReattachAction(record, job, now) {
+function resolveReattachDecision(record, job, now, farewell) {
     // 租约是唯一的所有权凭证，因此它先于一切状态判断。
     //
     // 租约未过期就说明另一个流程还在推进这条记录：可能它刚写完日志正在提交（此时后端还
     // 查不到 jobId，按「任务已消失」清槽会在它提交成功后留下无人认领的孤儿任务），也可能
     // 它已经接回并在逐张交付（此时抢着接管会让两个流程同时交付、同时改同一段正文）。
     // 两种情况都只有一个正确动作：不动。
-    if (now < record.leaseExpiresAt) return ReattachAction.WAIT;
-    // 以下都是租约已过期、原持有者已不可能存活的记录，可以安全接管。
-    // 清理没做完的记录优先收尾，与后端任务是否还在无关。
-    if (record.state === PendingJobState.SETTLING) return ReattachAction.SETTLE;
-    if (record.state === PendingJobState.CANCELLING) {
-        return job ? ReattachAction.CANCEL : ReattachAction.DISCARD;
+    if (now < record.leaseExpiresAt && !farewell) return { action: ReattachAction.WAIT };
+    if (farewell && record.state === PendingJobState.PREPARING && !job) {
+        const retryAt = farewell.at + PAGE_FAREWELL_PREPARING_GRACE_MS;
+        if (now < retryAt) return { action: ReattachAction.WAIT, retryAt };
     }
-    if (job) return ReattachAction.ATTACH;
-    return ReattachAction.FAIL;
+    // 以下记录要么租约已过期，要么原页面留下了与当前 leaseId 精确匹配的遗言，可以安全接管。
+    // 清理没做完的记录优先收尾，与后端任务是否还在无关。
+    if (record.state === PendingJobState.SETTLING) return { action: ReattachAction.SETTLE };
+    if (record.state === PendingJobState.CANCELLING) {
+        return { action: job ? ReattachAction.CANCEL : ReattachAction.DISCARD };
+    }
+    if (job) return { action: ReattachAction.ATTACH };
+    return { action: ReattachAction.FAIL };
 }
 
-export function planImageJobReattach({ records = [], backendJobs = [], now = Date.now() } = {}) {
+export function planImageJobReattach({
+    records = [],
+    backendJobs = [],
+    farewells = [],
+    now = Date.now(),
+} = {}) {
     const jobsById = new Map((Array.isArray(backendJobs) ? backendJobs : [])
         .filter(job => typeof job?.id === 'string' && job.id.length > 0)
         .map(job => [job.id, job]));
@@ -55,7 +68,9 @@ export function planImageJobReattach({ records = [], backendJobs = [], now = Dat
         // adopting 的 child 已由 Draw Run 创建，但正文槽位是否真正落盘尚未确认。
         // 第一刀恢复器对它零动作，租约过期后也不能越权收图；只有 Draw Run 恢复器能推进。
         if (record.state === PendingJobState.ADOPTING) continue;
-        plan.push({ record, job, action: resolveReattachAction(record, job, now) });
+        const farewell = findJobPageFarewell(farewells, record.jobId, record.leaseId);
+        const decision = resolveReattachDecision(record, job, now, farewell);
+        plan.push({ record, job, farewell, ...decision });
     }
     // 后端有、本地没有记录的任务一律不动：同一浏览器的其他标签页共享同一份日志，
     // 所以这类任务只可能来自别的设备或别的浏览器配置，替它们取消或删除等于破坏别人的任务。

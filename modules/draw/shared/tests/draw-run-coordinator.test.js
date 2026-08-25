@@ -447,6 +447,13 @@ test('missing Draw Runs stay uncertain for 120 seconds before marker cleanup', (
     assert.equal(classifyMissingDrawRun(1_000, 121_000), 'clear');
 });
 
+test('a page farewell narrows only its interrupted Draw Run submission window to 20 seconds', () => {
+    const farewell = { kind: 'run', id: 'run-test-farewell', at: 100_000 };
+    assert.equal(classifyMissingDrawRun(1_000, 119_999, farewell), 'wait');
+    assert.equal(classifyMissingDrawRun(1_000, 120_000, farewell), 'clear');
+    assert.equal(classifyMissingDrawRun(1_000, 120_000), 'wait');
+});
+
 test('request-header acquisition failure remains a recoverable uncertain submission', async () => {
     const message = createMessage();
     const ctx = {

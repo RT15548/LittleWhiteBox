@@ -131,6 +131,10 @@ test('a new frontend instance reattaches a submitted job and ACK follows image p
         },
     };
     const delivery = {
+        onStateChange(_record, state, data) {
+            const itemState = data?.job?.items?.[0]?.state;
+            order.push(`state:${state}${itemState ? `:${itemState}` : ''}`);
+        },
         async deliver(_record, item, payload) {
             order.push('store-image');
             gallery.set(item.imgId, payload.response.bytes);
@@ -158,7 +162,14 @@ test('a new frontend instance reattaches a submitted job and ACK follows image p
     assert.equal(message, 'story\n[image:slot-a]');
     assert.equal(gallery.get('img-a'), 'image-data');
     assert.equal(selections.get('slot-a'), 'img-a');
-    assert.deepEqual(order, ['store-image', 'store-selection', 'ack', 'settle:complete', 'final-render']);
+    assert.deepEqual(order, [
+        'state:status:ready',
+        'store-image',
+        'store-selection',
+        'ack',
+        'settle:complete',
+        'final-render',
+    ]);
     assert.equal(journal.store.size, 0, '全部交付和结算完成后才删除恢复记录');
 });
 

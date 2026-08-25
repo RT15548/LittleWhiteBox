@@ -94,7 +94,10 @@ function createRequestAbortScope(req, res) {
 
     req.once('aborted', abortForClient);
     res.once('close', abortIfIncomplete);
-    if (req.aborted || req.destroyed || res.destroyed) abortForClient();
+    // SillyTavern's global middleware may finish and destroy an already complete
+    // request body while the response socket is still alive. That is not a
+    // client disconnect and must not suppress the route response.
+    if (req.aborted || (!req.complete && req.destroyed) || res.destroyed) abortForClient();
 
     return {
         signal: controller.signal,

@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
     DRAW_RUN_BLOCKED_RETRY_MS,
+    DRAW_RUN_PROGRESS_POLL_MS,
     DrawRunAdoptionRecoveryStatus,
     DrawRunPendingAdoptionAction,
     DrawRunRecoveryAction,
@@ -141,6 +142,30 @@ test('a missing submission waits for the uncertainty window before clearing its 
         DrawRunRecoveryAction.WAIT,
         DrawRunRecoveryAction.CLEAR_MISSING_MARKER,
     ]);
+});
+
+test('a dead submitting page shortens only its matching missing-run uncertainty window', () => {
+    const interrupted = marker('run-test-farewell', NOW - 120_000);
+    const farewell = { kind: 'run', id: interrupted.runId, at: NOW - 19_999 };
+    const waiting = planDrawRunRecovery({
+        markers: [interrupted],
+        runs: [],
+        records: [],
+        farewells: [farewell],
+        now: NOW,
+    });
+    assert.equal(waiting.plan[0].action, DrawRunRecoveryAction.WAIT);
+    assert.equal(waiting.plan[0].runFarewell, farewell);
+    assert.equal(planDrawRunPollDelay(waiting.plan, { now: NOW }), 100);
+
+    const expired = planDrawRunRecovery({
+        markers: [interrupted],
+        runs: [],
+        records: [],
+        farewells: [{ ...farewell, at: NOW - 20_000 }],
+        now: NOW,
+    });
+    assert.equal(expired.plan[0].action, DrawRunRecoveryAction.CLEAR_MISSING_MARKER);
 });
 
 test('a persisted cancellation intent is forwarded once the uncertain run appears', () => {
@@ -322,5 +347,19 @@ test('adoption retry distinguishes an active lease from a stable blocked state',
 
     assert.equal(planDrawRunPollDelay([
         { action: DrawRunRecoveryAction.WAIT, reason: 'run_in_progress' },
+    ]), DRAW_RUN_PROGRESS_POLL_MS);
+});
+
+test('an active Planner is polled for visible progress without accelerating blocked retries', () => {
+    const active = planDrawRunRecovery({
+        markers: [marker()],
+        runs: [run('run-test-301', 'planning')],
+        records: [],
+        now: NOW,
+    });
+    assert.equal(active.plan[0].reason, 'run_in_progress');
+    assert.equal(planDrawRunPollDelay(active.plan), DRAW_RUN_PROGRESS_POLL_MS);
+    assert.equal(planDrawRunPollDelay([
+        { action: DrawRunRecoveryAction.WAIT, reason: 'missing_run_uncertain' },
     ]), DRAW_RUN_BLOCKED_RETRY_MS);
 });

@@ -6,6 +6,11 @@ import {
     withConfirmableChatMutation,
 } from './confirmable-chat-save.js';
 import { createDrawRunId } from './draw-run-identifiers.js';
+import {
+    PAGE_FAREWELL_PREPARING_GRACE_MS,
+    trackPageDrawRun,
+    untrackPageDrawRun,
+} from './page-farewell.js';
 import { hashSceneSource, normalizeMessageSceneSourceText } from './scene-source.js';
 import {
     createDrawRunMarker,
@@ -115,7 +120,12 @@ export function createScenePlannerEnvelope({
     });
 }
 
-export function classifyMissingDrawRun(markerCreatedAt, now = Date.now()) {
+export function classifyMissingDrawRun(markerCreatedAt, now = Date.now(), farewell = null) {
+    if (farewell?.kind === 'run' && Number.isFinite(Number(farewell.at))) {
+        return Number(now) - Number(farewell.at) < PAGE_FAREWELL_PREPARING_GRACE_MS
+            ? 'wait'
+            : 'clear';
+    }
     const age = Math.max(0, Number(now) - Number(markerCreatedAt));
     return age < SUBMISSION_UNCERTAINTY_WINDOW_MS ? 'wait' : 'clear';
 }
@@ -507,33 +517,40 @@ export async function submitDrawRun({
             throw new TypeError('当前酒馆上下文无法提供请求头');
         }
         headers = ctx.getRequestHeaders();
+        trackPageDrawRun(runId);
         ({ response, body } = await requestWithTimeout(fetchImpl, DRAW_RUNS_ENDPOINT, {
             method: 'POST',
             headers,
             body: JSON.stringify(envelope),
             cache: 'no-store',
         }, signal, requestTimeoutMs));
-    } catch (error) {
-        if (headers) {
-            try {
-                const queried = await querySubmittedRun({
-                    fetchImpl,
-                    headers,
-                    runId,
-                    signal,
-                    timeoutMs: requestTimeoutMs,
-                });
-                if (queried.response.ok && queried.body?.run?.id === runId) {
-                    emit(onStateChange, 'accepted', { runId, run: queried.body.run, recovered: true });
-                    return { status: 'accepted', runId, run: queried.body.run, recovered: true };
+    } catch {
+        try {
+            if (headers) {
+                try {
+                    const queried = await querySubmittedRun({
+                        fetchImpl,
+                        headers,
+                        runId,
+                        signal,
+                        timeoutMs: requestTimeoutMs,
+                    });
+                    if (queried.response.ok && queried.body?.run?.id === runId) {
+                        emit(onStateChange, 'accepted', { runId, run: queried.body.run, recovered: true });
+                        return { status: 'accepted', runId, run: queried.body.run, recovered: true };
+                    }
+                } catch {
+                    // Both requests are indeterminate; the persisted marker owns later reconciliation.
                 }
-            } catch {
-                // Both requests are indeterminate; the persisted marker owns later reconciliation.
             }
+            emit(onStateChange, 'uncertain', { runId, reason: 'submission_response_lost' });
+            return { status: 'uncertain', runId, marker };
+        } finally {
+            // 查询完成前 POST 的结果仍不确定；页面若在这段时间退出，必须留下 run 遗言。
+            untrackPageDrawRun(runId);
         }
-        emit(onStateChange, 'uncertain', { runId, reason: 'submission_response_lost' });
-        return { status: 'uncertain', runId, marker };
     }
+    untrackPageDrawRun(runId);
 
     if (response.status === 202 && body?.run?.id === runId) {
         emit(onStateChange, 'accepted', { runId, run: body.run });
@@ -575,10 +592,11 @@ export async function submitDrawRun({
 
 export async function reconcileMissingDrawRunMarker({
     marker,
+    farewell = null,
     clear,
     now = Date.now,
 } = {}) {
-    if (classifyMissingDrawRun(marker?.createdAt, now()) === 'wait') return { action: 'wait' };
+    if (classifyMissingDrawRun(marker?.createdAt, now(), farewell) === 'wait') return { action: 'wait' };
     await clear();
     return { action: 'cleared' };
 }

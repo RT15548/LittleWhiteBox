@@ -1,3 +1,9 @@
+import {
+    consumePageFarewell,
+    trackPageJobLease,
+    untrackPageJobLease,
+} from './page-farewell.js';
+
 // 后台生图任务的交付日志。
 //
 // 唯一职责：让「后端任务已经存在、浏览器却没了」这件事可恢复。后端任务的生命周期独立于
@@ -288,7 +294,7 @@ async function addPendingImageJob(record, state, { conflictIsNull = false } = {}
     });
     if (!normalized) throw new Error('后台生图恢复记录不完整，拒绝落盘');
     normalized.leaseExpiresAt = Date.now() + PENDING_JOB_LEASE_MS;
-    return runTransaction('readwrite', (store, setOutput, fail) => {
+    const added = await runTransaction('readwrite', (store, setOutput, fail) => {
         const request = store.get(normalized.jobId);
         request.onsuccess = () => {
             if (normalizePendingImageJob(request.result)) {
@@ -299,6 +305,8 @@ async function addPendingImageJob(record, state, { conflictIsNull = false } = {}
             add.onsuccess = () => setOutput(normalized);
         };
     });
+    if (added) trackPageJobLease(added.jobId, added.leaseId);
+    return added;
 }
 
 export async function recordPendingImageJob(record) {
@@ -313,22 +321,44 @@ export async function createAdoptingPendingImageJob(record) {
 
 // 接管一条租约已过期的记录，换发新 leaseId。返回 null 表示不该接管：记录已消失，
 // 或它的租约仍然有效（另一个流程正在推进，重复接管会让两边同时交付、同时改正文）。
-export async function claimPendingImageJob(jobId, { now = Date.now() } = {}) {
+export async function claimPendingImageJob(jobId, { now = Date.now(), farewell = null } = {}) {
     const key = normalizeText(jobId).trim();
     if (!key) return null;
-    return runTransaction('readwrite', (store, setOutput) => {
+    const farewellLeaseId = farewell?.kind === 'job'
+        && normalizeText(farewell?.id).trim() === key
+        ? normalizeText(farewell?.leaseId).trim()
+        : '';
+    const outcome = await runTransaction('readwrite', (store, setOutput) => {
         const request = store.get(key);
         request.onsuccess = () => {
             const record = normalizePendingImageJob(request.result);
-            if (!record || record.leaseExpiresAt > now) {
-                setOutput(null);
+            if (!record) {
+                setOutput({ record: null, farewellResolved: Boolean(farewellLeaseId) });
+                return;
+            }
+            const farewellMatches = Boolean(farewellLeaseId && record.leaseId === farewellLeaseId);
+            if (record.leaseExpiresAt > now && !farewellMatches) {
+                setOutput({
+                    record: null,
+                    farewellResolved: Boolean(farewellLeaseId && record.leaseId !== farewellLeaseId),
+                });
                 return;
             }
             const claimed = { ...record, leaseId: createLeaseId(), leaseExpiresAt: now + PENDING_JOB_LEASE_MS };
             store.put(claimed);
-            setOutput(claimed);
+            setOutput({
+                record: claimed,
+                previousLeaseId: record.leaseId,
+                farewellResolved: Boolean(farewellLeaseId),
+            });
         };
     });
+    if (outcome?.farewellResolved) consumePageFarewell(farewell);
+    if (outcome?.record) {
+        untrackPageJobLease(outcome.record.jobId, outcome.previousLeaseId);
+        trackPageJobLease(outcome.record.jobId, outcome.record.leaseId);
+    }
+    return outcome?.record || null;
 }
 
 // 跨过任何 await 之后、尤其在向后端提交之前必须调用。
@@ -346,7 +376,7 @@ export async function assertPendingImageJobLease(jobId, leaseId) {
 export async function renewPendingImageJobLease(jobId, leaseId, { now = Date.now() } = {}) {
     const key = normalizeText(jobId).trim();
     if (!key) return null;
-    return runTransaction('readwrite', (store, setOutput) => {
+    const renewed = await runTransaction('readwrite', (store, setOutput) => {
         const request = store.get(key);
         request.onsuccess = () => {
             const record = normalizePendingImageJob(request.result);
@@ -359,6 +389,8 @@ export async function renewPendingImageJobLease(jobId, leaseId, { now = Date.now
             setOutput(renewed);
         };
     });
+    if (!renewed) untrackPageJobLease(key, leaseId);
+    return renewed;
 }
 
 // 不可逆操作前的所有权栅栏。续租和 claim 共用同一类 readwrite 事务，因此两者并发时
@@ -484,7 +516,7 @@ export async function markPendingImageJobOriginRunAckReady(jobId, leaseId, origi
 }
 
 export async function activateAdoptingPendingImageJob(jobId, leaseId, { cancelling = false } = {}) {
-    return patchPendingImageJob(jobId, leaseId, (record) => {
+    const activated = await patchPendingImageJob(jobId, leaseId, (record) => {
         const shouldCancel = cancelling || record.cancelRequested;
         return {
             ...record,
@@ -499,11 +531,19 @@ export async function activateAdoptingPendingImageJob(jobId, leaseId, { cancelli
         requireAdoptionPhase: PendingJobAdoptionPhase.READY,
         requireOriginRunAckReady: true,
     });
+    untrackPageJobLease(jobId, leaseId);
+    return activated;
 }
 
 // adoption 暂缓或失败时主动让出租约；成功激活由 activateAdoptingPendingImageJob 原子释放。
 export async function releasePendingImageJobLease(jobId, leaseId) {
-    return patchPendingImageJob(jobId, leaseId, record => ({ ...record, leaseExpiresAt: 0 }));
+    const released = await patchPendingImageJob(
+        jobId,
+        leaseId,
+        record => ({ ...record, leaseExpiresAt: 0 }),
+    );
+    untrackPageJobLease(jobId, leaseId);
+    return released;
 }
 
 // 结果都处理完但槽位清理或后端删除还没落盘时调用。
@@ -520,32 +560,37 @@ async function patchPendingImageJob(jobId, leaseId, update, {
     requireOriginRunAckReady = false,
 } = {}) {
     const key = normalizeText(jobId).trim();
-    return runTransaction('readwrite', (store, setOutput, fail) => {
-        const request = store.get(key);
-        request.onsuccess = () => {
-            const record = normalizePendingImageJob(request.result);
-            if (!record) return fail(new PendingImageJobLostError(key, '记录已被清理'));
-            if (record.leaseId !== leaseId) {
-                return fail(new PendingImageJobLostError(key, '记录已被其他页面接管'));
-            }
-            if (requireState && record.state !== requireState) {
-                return fail(new PendingImageJobLostError(key, `记录状态已变为 ${record.state}`));
-            }
-            if (requireAdoptionPhase && record.adoptionPhase !== requireAdoptionPhase) {
-                return fail(new PendingImageJobLostError(key, `adoption 阶段已变为 ${record.adoptionPhase || 'none'}`));
-            }
-            if (requireOriginRunId && record.originRunId !== requireOriginRunId) {
-                return fail(new PendingImageJobLostError(key, 'Draw Run 来源已经变化'));
-            }
-            if (requireOriginRunAckReady && record.originRunAckReady !== true) {
-                return fail(new PendingImageJobLostError(key, 'Draw Run ACK gate 尚未打开'));
-            }
-            const updated = normalizePendingImageJob(update(record));
-            if (!updated) return fail(new Error(`后台生图恢复记录 ${key} 更新后无效`));
-            store.put(updated);
-            setOutput(updated);
-        };
-    });
+    try {
+        return await runTransaction('readwrite', (store, setOutput, fail) => {
+            const request = store.get(key);
+            request.onsuccess = () => {
+                const record = normalizePendingImageJob(request.result);
+                if (!record) return fail(new PendingImageJobLostError(key, '记录已被清理'));
+                if (record.leaseId !== leaseId) {
+                    return fail(new PendingImageJobLostError(key, '记录已被其他页面接管'));
+                }
+                if (requireState && record.state !== requireState) {
+                    return fail(new PendingImageJobLostError(key, `记录状态已变为 ${record.state}`));
+                }
+                if (requireAdoptionPhase && record.adoptionPhase !== requireAdoptionPhase) {
+                    return fail(new PendingImageJobLostError(key, `adoption 阶段已变为 ${record.adoptionPhase || 'none'}`));
+                }
+                if (requireOriginRunId && record.originRunId !== requireOriginRunId) {
+                    return fail(new PendingImageJobLostError(key, 'Draw Run 来源已经变化'));
+                }
+                if (requireOriginRunAckReady && record.originRunAckReady !== true) {
+                    return fail(new PendingImageJobLostError(key, 'Draw Run ACK gate 尚未打开'));
+                }
+                const updated = normalizePendingImageJob(update(record));
+                if (!updated) return fail(new Error(`后台生图恢复记录 ${key} 更新后无效`));
+                store.put(updated);
+                setOutput(updated);
+            };
+        });
+    } catch (error) {
+        if (error?.code === 'PENDING_JOB_LEASE_LOST') untrackPageJobLease(key, leaseId);
+        throw error;
+    }
 }
 
 async function setPendingImageJobState(jobId, leaseId, state, patch = {}, options = {}) {
@@ -571,18 +616,25 @@ async function setPendingImageJobState(jobId, leaseId, state, patch = {}, option
 export async function forgetPendingImageJob(jobId, leaseId) {
     const key = normalizeText(jobId).trim();
     if (!key) return false;
-    return runTransaction('readwrite', (store, setOutput, fail) => {
-        const request = store.get(key);
-        request.onsuccess = () => {
-            const record = normalizePendingImageJob(request.result);
-            if (!record) return fail(new PendingImageJobLostError(key, '记录已被清理'));
-            if (record.leaseId !== leaseId) {
-                return fail(new PendingImageJobLostError(key, '记录已被其他页面接管'));
-            }
-            store.delete(key);
-            setOutput(true);
-        };
-    });
+    try {
+        const forgotten = await runTransaction('readwrite', (store, setOutput, fail) => {
+            const request = store.get(key);
+            request.onsuccess = () => {
+                const record = normalizePendingImageJob(request.result);
+                if (!record) return fail(new PendingImageJobLostError(key, '记录已被清理'));
+                if (record.leaseId !== leaseId) {
+                    return fail(new PendingImageJobLostError(key, '记录已被其他页面接管'));
+                }
+                store.delete(key);
+                setOutput(true);
+            };
+        });
+        untrackPageJobLease(key, leaseId);
+        return forgotten;
+    } catch (error) {
+        if (error?.code === 'PENDING_JOB_LEASE_LOST') untrackPageJobLease(key, leaseId);
+        throw error;
+    }
 }
 
 // 渲染层用来区分「后台还在生成」和「画廊缓存真的丢了」。

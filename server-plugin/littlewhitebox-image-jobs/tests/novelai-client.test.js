@@ -376,6 +376,45 @@ test('does not start an upstream request after the client already disconnected',
     assert.equal(upstreamRequests, beforeCount);
 });
 
+test('responds after SillyTavern middleware destroys an already complete request body', async () => {
+    let handler;
+    await init({
+        get() {},
+        post(path, routeHandler) {
+            if (path === '/v2/test') handler = routeHandler;
+        },
+        delete() {},
+    });
+
+    const req = new EventEmitter();
+    req.aborted = false;
+    req.complete = true;
+    req.destroyed = true;
+    req.body = {
+        url: `${origin}/image/ai/generate-image`,
+        key: 'key',
+        payload: { input: 'test' },
+        timeout: 1000,
+    };
+    const res = new EventEmitter();
+    res.destroyed = false;
+    res.writableEnded = false;
+    res.status = status => {
+        res.statusCode = status;
+        return res;
+    };
+    res.send = body => {
+        res.writableEnded = true;
+        res.body = body;
+        return res;
+    };
+
+    await handler(req, res);
+
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(res.body, { ok: true });
+});
+
 test('keeps the v1.0.1 validation order ahead of legacy URL resolution', async () => {
     let generateHandler;
     let testHandler;

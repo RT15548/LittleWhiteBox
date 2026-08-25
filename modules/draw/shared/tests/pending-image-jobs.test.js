@@ -182,6 +182,35 @@ test('claim changes ownership once and stale owners cannot mutate or delete the 
     await forgetPendingImageJob(jobId, claimed.leaseId);
 });
 
+test('an exact page farewell atomically replaces a live lease without weakening lease ownership', async () => {
+    const jobId = `farewell-claim-${Date.now()}`;
+    const original = await recordPendingImageJob(newRecord(jobId));
+    const now = Date.now();
+
+    assert.equal(await claimPendingImageJob(jobId, { now }), null);
+    assert.equal(await claimPendingImageJob(jobId, {
+        now,
+        farewell: { kind: 'job', id: 'another-job', leaseId: original.leaseId, at: now },
+    }), null);
+    assert.equal(await claimPendingImageJob(jobId, {
+        now,
+        farewell: { kind: 'job', id: jobId, leaseId: 'another-lease', at: now },
+    }), null);
+
+    const claimed = await claimPendingImageJob(jobId, {
+        now,
+        farewell: { kind: 'job', id: jobId, leaseId: original.leaseId, at: now },
+    });
+    assert.ok(claimed);
+    assert.notEqual(claimed.leaseId, original.leaseId);
+    assert.equal(claimed.leaseExpiresAt, now + PENDING_JOB_LEASE_MS);
+    await assert.rejects(
+        markPendingImageJobActive(jobId, original.leaseId),
+        error => error instanceof PendingImageJobLostError,
+    );
+    await forgetPendingImageJob(jobId, claimed.leaseId);
+});
+
 test('late create and cancel notifications cannot move the journal state backwards', async () => {
     const jobId = `monotonic-state-${Date.now()}`;
     const record = await recordPendingImageJob(newRecord(jobId));

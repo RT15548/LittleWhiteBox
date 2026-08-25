@@ -11,8 +11,8 @@
 产品承诺：
 
 - 点击后先显示"正在提交"。
-- 收到 202 后显示"后台已接管"。
-- 看到"后台已接管"后即可关闭页面。
+- 收到 202 后确认后台已经接管，此后即可关闭页面。
+- 接管后的画图胶囊不固定占用整句"后台已接管"，而是持续显示排队、分析、准备、生成张数、等待、重连或接回等真实阶段；接管确认通知仍明确告知用户可以离开页面。
 - 图片 Provider 仍是现有的单值设置；任一时刻只有当前 Provider 的一套面板与提交入口，不引入多 Provider 同时点击或并发执行。
 - 同一 owner 的图片任务继续由第一刀严格串行执行；第二刀只把 Planner 前移到后端，不放宽 NovelAI、SD WebUI 或 ComfyUI 的执行并发。
 
@@ -373,7 +373,7 @@ extra.xbDrawRuns[runId] = {
 → 写 swipe extra marker（唯一 accessor）
 → confirmable save：保存并读回验证 marker 在场
 → POST Draw Run
-→ 收到 202 后显示"后台已接管"
+→ 收到 202 后确认后台接管；胶囊开始显示后端真实阶段
 ```
 
 故障语义：
@@ -414,7 +414,7 @@ delivery: { mode: 'gallery' }
 - 写 slots 或判定 gallery-only 并经读回确认后只转 `adopting/ready`；marker 已确认从服务端聊天删除、`originRunAckReady` 已打开后，才转 `active`。
 - `active/cancelling` 且带 `originRunId` 的记录本身即证明 marker 已从服务端删除。其他标签页若仍有本地陈旧 marker，只清内存，不得保存陈旧聊天快照。
 - adoption journal 创建必须用 IndexedDB 原子 `add` / 单事务 CAS，禁止 `put` 盲写，两标签页只允许一个成功。
-- `adopting/pending` 尚未写过正文；若后端 run 消失，先受 120 秒提交不确定窗口保护，超窗仍不存在则持 adoption 租约清除 marker、删除 journal，并明确提示用户重新画图。禁止把它留在无 manifest 可执行的永久恢复循环里。`placing/ready` 已有独立恢复事实，不依赖 run 仍然存在。
+- `adopting/pending` 尚未写过正文；若后端 run 消失，默认受从 marker/journal `createdAt` 起算的 120 秒窗口保护。只有 Draw Run 提交请求仍不确定时留下的 run 遗言，才把这一窗口缩短为从遗言时间起 20 秒；adoption 页面留下的 `{jobId, leaseId}` 遗言只证明当前 adoption 租约持有者已经离开，允许新页面立即换租，不改变 missing-run 的判定窗口。超窗仍不存在时持 adoption 租约清除 marker、删除 journal，并明确提示用户重新画图。禁止把它留在无 manifest 可执行的永久恢复循环里。`placing/ready` 已有独立恢复事实，不依赖 run 仍然存在。
 
 ### adoptExistingJobFromDrawRun
 
@@ -437,7 +437,7 @@ delivery: { mode: 'gallery' }
 → 删除 journal（ACK 响应丢失时凭 originRunId 重试，404 视为已完成）
 ```
 
-marker 清理后，面板控制权改读同一条第一刀 journal，不另建 UI 状态：child 仍在排队/生成时继续显示“后台已接管”并可取消；取消意图先原子写入 journal，再同时请求 Draw Run 与 child 取消，恢复器最终以 journal 的 `cancelling` 事实做 discard 结算。journal 删除后面板重新读取事实并回到空闲。
+marker 清理后，面板控制权改读同一条第一刀 journal，不另建 UI 状态：child 仍在排队/生成时继续显示实际阶段与张数并可取消；取消意图先原子写入 journal，再同时请求 Draw Run 与 child 取消，恢复器最终以 journal 的 `cancelling` 事实做 discard 结算。journal 删除后面板重新读取事实并回到空闲。
 
 酒馆停止键 / Escape 只中止仍在浏览器调用栈里的前台生成，不取消已经由后端接管的 Draw Run。后台任务只能从对应楼层或悬浮画图胶囊显式取消，避免用户停止文本生成时误伤早前楼层已经付费的后台批。
 
@@ -445,7 +445,7 @@ marker 清理后，面板控制权改读同一条第一刀 journal，不另建 U
 
 正文变了：不覆盖正文、不强插 slots，journal 转 `delivery.mode = 'gallery'`，图片继续收进画廊，提示"正文已变化，图片已保留在画廊"。gallery 模式的结算边界：全部图片落画廊（IndexedDB 写入成功）后才 ACK；不写 selection、不写失败卡、不改正文。
 
-恢复调度：租约仍有效时精确等待租约到期；marker 冲突、保存不确定等稳定阻塞固定 15 秒退避。无论 slots 还是 gallery，adoption 的目标聊天一律取冻结的 `chatTarget.chatId`；目标聊天未激活时不设周期轮询 timer，只由 `CHAT_CHANGED`、网络恢复或页面重新可见事件唤醒。pending adoption 找不到后端 run 时，120 秒不确定窗口仍从原 marker/journal 的 `createdAt` 起算，并不会在每次恢复时重新获得宽限；因此老 journal 对应的 run 事后消失会立即放弃 adoption，窗口只保护刚提交时“请求是否到达后端”这一不确定性。
+恢复调度：租约仍有效且没有精确页面遗言时等待租约到期；正在运行的 Draw Run 每 3 秒刷新一次阶段，marker 冲突、保存不确定等稳定阻塞固定 15 秒退避。阶段刷新复用恢复循环，因此不追求动画级频率，避免 Planner 运行期间持续高频扫描 IndexedDB 和后端任务列表。无论 slots 还是 gallery，adoption 的目标聊天一律取冻结的 `chatTarget.chatId`；目标聊天未激活时不设周期轮询 timer，只由 `CHAT_CHANGED`、网络恢复或页面重新可见事件唤醒。pending adoption 找不到后端 run 时，无 run 遗言仍从原 marker/journal 的 `createdAt` 起算 120 秒，不会在每次恢复时重新获得宽限；正常刷新/关闭在 Draw Run POST 仍不确定时留下 run 遗言，恢复器才精确调度到遗言后的 20 秒边界。adoption 的 job 遗言只提前换租，不缩短 missing-run 窗口。遗言由同步 localStorage 承载，只证明旧页面已经死亡；BFCache 不写，系统强杀或写入失败完整退回原租约与不确定窗口。
 
 楼层正在编辑：延迟接管，不覆盖编辑器草稿。
 

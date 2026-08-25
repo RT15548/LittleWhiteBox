@@ -4,6 +4,7 @@ import { createModuleEvents, event_types } from '../../../core/event-manager.js'
 import {
     createImageBackendJobsClient,
     readImageBackendResultBase64,
+    reportImageBackendJobState,
 } from './backend-image-jobs.js';
 import { createDrawRunClient } from './draw-run-client.js';
 import { publishDrawRunActivity, subscribeDrawRunActivity } from './draw-run-activity.js';
@@ -24,6 +25,7 @@ import {
 } from './gallery-cache.js';
 import { executeImageJobReattachEntry } from './image-job-recovery-executor.js';
 import { planImageJobReattach, ReattachAction } from './image-job-reattach.js';
+import { readPageFarewells } from './page-farewell.js';
 import { getPendingImageJob, listPendingImageJobs, PendingJobState } from './pending-image-jobs.js';
 import { commitSceneSlotDelivery } from './scene-placement.js';
 import {
@@ -130,6 +132,18 @@ function describeMissingJob(record) {
 
 function createDeliveryAdapter() {
     return {
+        onStateChange(record, state, data) {
+            if (!record.originRunId) return;
+            reportImageBackendJobState((stage, progress = {}) => {
+                publishDrawRunActivity({
+                    provider: record.provider,
+                    messageId: Number(record.gallery?.messageId ?? record.delivery?.messageId),
+                    phase: stage === 'cancelling' ? 'cancelling' : 'active',
+                    stage,
+                    ...progress,
+                });
+            }, state, data);
+        },
         describeError(error, record) {
             if (error?.code === 'job_not_found') return describeMissingJob(record);
             return classifyError(error);
@@ -313,6 +327,7 @@ async function runRecoveryPass() {
         await runDrawRunRecoveryPass({
             ctx,
             records: allRecords,
+            farewells: readPageFarewells(),
             client: runtimeDrawRunClient,
             scheduleRecovery,
             onAdoptionReady: async (record) => {
@@ -347,14 +362,20 @@ async function runRecoveryPass() {
         return;
     }
 
-    const { plan, unclaimed } = planImageJobReattach({ records, backendJobs });
+    const { plan, unclaimed } = planImageJobReattach({
+        records,
+        backendJobs,
+        farewells: readPageFarewells(),
+    });
     if (unclaimed.length > 0) {
         console.info(`[ImageJobs] 后端有 ${unclaimed.length} 个不属于当前浏览器日志的任务，保持不动`);
     }
 
     const waits = plan.filter(entry => entry.action === ReattachAction.WAIT);
     if (waits.length > 0) {
-        const nextExpiry = Math.min(...waits.map(entry => entry.record.leaseExpiresAt));
+        const nextExpiry = Math.min(...waits.map(entry => (
+            Number(entry.retryAt) || entry.record.leaseExpiresAt
+        )));
         scheduleRecovery(Math.max(100, nextExpiry - Date.now() + 10));
     }
 

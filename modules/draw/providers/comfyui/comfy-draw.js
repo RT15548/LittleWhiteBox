@@ -4206,7 +4206,7 @@ function setImageState(container, state) {
     }
     container.querySelector('.xb-nd-indicator')?.remove();
     if (state === ImageState.SAVING) container.insertAdjacentHTML('afterbegin', '<div class="xb-nd-indicator">💾 保存中...</div>');
-    else if (state === ImageState.REFRESHING) container.insertAdjacentHTML('afterbegin', '<div class="xb-nd-indicator">🔄 生成中...</div>');
+    else if (state === ImageState.REFRESHING) container.insertAdjacentHTML('afterbegin', '<div class="xb-nd-indicator"><i class="fa-solid fa-rotate" aria-hidden="true"></i> 生成中...</div>');
 }
 
 function updateNavControls(container, currentIndex, total) {

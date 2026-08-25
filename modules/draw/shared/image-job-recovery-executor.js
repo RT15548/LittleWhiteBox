@@ -38,7 +38,7 @@ function describeSettlement(delivery, record, { error, mode } = {}) {
 }
 
 async function claimEntry(entry, journal) {
-    const claimed = await journal.claim(entry.record.jobId);
+    const claimed = await journal.claim(entry.record.jobId, { farewell: entry.farewell });
     return claimed?.leaseId ? claimed : null;
 }
 
@@ -53,6 +53,7 @@ async function runAttachment({ client, record, journal, delivery, cancelled }) {
         record,
         journal,
         cancelSignal: controller?.signal,
+        onStateChange: (state, data) => delivery.onStateChange?.(record, state, data),
         onItemReady: async ({ index, ...payload }) => {
             const item = getRecordItem(record, index);
             if (!item) throw new Error(`后台任务返回了未知图片索引 ${index}`);

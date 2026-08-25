@@ -45,6 +45,7 @@ import {
     PendingJobState,
     releasePendingImageJobLease,
 } from './pending-image-jobs.js';
+import { consumePageFarewell } from './page-farewell.js';
 import { hashSceneSource, normalizeMessageSceneSourceText } from './scene-source.js';
 import { isMessageBeingEdited, syncRenderedMessageFromState } from './draw-common.js';
 
@@ -214,8 +215,8 @@ async function ensureRecoveredMarkerAbsent({
     return readback.confirmed;
 }
 
-async function claimAdoptingRecord(record) {
-    const owned = await claimPendingImageJob(record.jobId);
+async function claimAdoptingRecord(record, farewell = null) {
+    const owned = await claimPendingImageJob(record.jobId, { farewell });
     if (owned) return { owned, outcome: null };
     const current = await getPendingImageJob(record.jobId);
     if (!current || current.state !== PendingJobState.ADOPTING) {
@@ -294,9 +295,10 @@ async function recoverAdoptingRecord({
     markerEntry,
     record,
     run = null,
+    farewell = null,
     onAdoptionReady,
 }) {
-    const claimed = await claimAdoptingRecord(record);
+    const claimed = await claimAdoptingRecord(record, farewell);
     if (!claimed.owned) return claimed.outcome;
     let { owned } = claimed;
     try {
@@ -389,8 +391,8 @@ async function recoverAdoptingRecord({
     }
 }
 
-async function abandonPendingAdoption({ ctx, markerEntry, record }) {
-    const claimed = await claimAdoptingRecord(record);
+async function abandonPendingAdoption({ ctx, markerEntry, record, farewell = null }) {
+    const claimed = await claimAdoptingRecord(record, farewell);
     if (!claimed.owned) return claimed.outcome;
     let { owned } = claimed;
     try {
@@ -421,6 +423,7 @@ function scheduleAdoptionOutcome(outcome, scheduleRecovery) {
 export async function runDrawRunRecoveryPass({
     ctx,
     records = [],
+    farewells = [],
     client,
     scheduleRecovery,
     onAdoptionReady,
@@ -449,6 +452,7 @@ export async function runDrawRunRecoveryPass({
         markers,
         runs,
         records: originRecords,
+        farewells,
         currentChatId: String(ctx?.chatId || ''),
     });
     const pollDelay = planDrawRunPollDelay(plan);
@@ -456,6 +460,7 @@ export async function runDrawRunRecoveryPass({
 
     for (const entry of plan) {
         try {
+            if (entry.run && entry.runFarewell) consumePageFarewell(entry.runFarewell);
             if (entry.markerEntry && entry.run
                 && entry.action !== DrawRunRecoveryAction.REQUEST_CANCEL) {
                 publishDrawRunActivity({
@@ -466,6 +471,7 @@ export async function runDrawRunRecoveryPass({
                         ? 'cancelling'
                         : 'active',
                     runId: entry.run.id,
+                    stage: entry.run.progress?.stage || entry.run.state,
                 });
             }
             if (entry.action === DrawRunRecoveryAction.WAIT) {
@@ -493,6 +499,7 @@ export async function runDrawRunRecoveryPass({
             if (entry.action === DrawRunRecoveryAction.CLEAR_MISSING_MARKER) {
                 const cleared = await clearRecoveredDrawRunMarker({ ctx, markerEntry: entry.markerEntry });
                 if (cleared) {
+                    if (entry.runFarewell) consumePageFarewell(entry.runFarewell);
                     notifyDrawRun('warning', '后台没有找到这次画图任务，已清理失效标记。');
                 } else {
                     scheduleRecovery(DRAW_RUN_BLOCKED_RETRY_MS);
@@ -511,6 +518,7 @@ export async function runDrawRunRecoveryPass({
                     markerEntry: entry.markerEntry,
                     record: entry.record,
                     run: entry.run,
+                    farewell: entry.jobFarewell,
                     onAdoptionReady,
                 });
                 scheduleAdoptionOutcome(outcome, scheduleRecovery);
@@ -521,10 +529,12 @@ export async function runDrawRunRecoveryPass({
                     ctx,
                     markerEntry: entry.markerEntry,
                     record: entry.record,
+                    farewell: entry.jobFarewell,
                 });
                 scheduleAdoptionOutcome(outcome, scheduleRecovery);
                 if (outcome.status !== DrawRunAdoptionRecoveryStatus.COMPLETED
                     || outcome.reason !== 'abandoned') continue;
+                if (entry.runFarewell) consumePageFarewell(entry.runFarewell);
                 notifyTerminalDrawRun(entry.run);
                 if (entry.run) await client.acknowledgeRun(entry.run.id);
                 continue;
@@ -547,6 +557,7 @@ export async function runDrawRunRecoveryPass({
                 resolveTarget: resolveCurrentDrawRunTarget,
                 isMessageBeingEdited,
                 chatTarget: createConfirmableChatTarget(ctx),
+                farewell: entry.jobFarewell,
                 confirmSlots: details => confirmAdoptedSlots({ ctx, ...details }),
                 syncSlots: async ({ target }) => {
                     const activeSwipe = Number.isInteger(target.message?.swipe_id)

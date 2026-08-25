@@ -247,11 +247,13 @@ export function ensureDrawImageStyles() {
 @keyframes ndSlideOutRight{from{transform:translateX(0);opacity:1}to{transform:translateX(30%);opacity:0}}
 @keyframes ndSlideInLeft{from{transform:translateX(30%);opacity:0}to{transform:translateX(0);opacity:1}}
 @keyframes ndSlideInRight{from{transform:translateX(-30%);opacity:0}to{transform:translateX(0);opacity:1}}
-.xb-nd-nav-pill{position:absolute;bottom:10px;left:10px;display:inline-flex;align-items:center;gap:2px;background:rgba(0,0,0,0.75);border-radius:20px;padding:4px 6px;font-size:12px;color:rgba(255,255,255,0.9);font-weight:500;user-select:none;z-index:5;opacity:0.85;transition:opacity 0.2s}
+.xb-nd-nav-pill{position:absolute;bottom:10px;left:10px;display:inline-flex;align-items:center;gap:2px;background:rgba(0,0,0,0.75);border-radius:20px;padding:4px 6px;font-size:12px;color:rgba(255,255,255,0.9);font-weight:500;user-select:none;z-index:5;opacity:0.72;transition:opacity 0.2s}
+.xb-nd-nav-pill:hover{opacity:0.92}
 .xb-nd-nav-arrow{width:24px;height:24px;border:none;background:transparent;color:rgba(255,255,255,0.8);cursor:pointer;display:flex;align-items:center;justify-content:center;border-radius:50%;font-size:14px;transition:background 0.15s,color 0.15s;padding:0}
 .xb-nd-nav-arrow:hover{background:rgba(255,255,255,0.15);color:#fff}
 .xb-nd-nav-arrow:disabled{opacity:0.3;cursor:not-allowed}
 .xb-nd-nav-text{min-width:36px;text-align:center;font-variant-numeric:tabular-nums;padding:0 2px}
+@media(hover:none),(pointer:coarse){.xb-nd-nav-pill{opacity:0.78;padding:5px 8px}}
 .xb-nd-menu-wrap{position:absolute;top:8px;right:8px;z-index:10}
 .xb-nd-menu-wrap.busy{pointer-events:none;opacity:0.3}
 .xb-nd-menu-trigger{width:32px;height:32px;border-radius:50%;border:none;background:rgba(0,0,0,0.75);color:rgba(255,255,255,0.85);cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;transition:all 0.15s;opacity:0.85}
@@ -288,7 +290,7 @@ export function buildImageHtml({ slotId, imgId, url, tags, positive, messageId, 
     const isBusy = state === ImageState.SAVING || state === ImageState.REFRESHING;
     let indicator = '';
     if (state === ImageState.SAVING) indicator = '<div class="xb-nd-indicator">💾 保存中...</div>';
-    else if (state === ImageState.REFRESHING) indicator = '<div class="xb-nd-indicator">🔄 生成中...</div>';
+    else if (state === ImageState.REFRESHING) indicator = '<div class="xb-nd-indicator"><i class="fa-solid fa-rotate" aria-hidden="true"></i> 生成中...</div>';
 
     const border = isPreview ? 'border:1px dashed rgba(255,152,0,0.35);' : '';
     const lazyAttr = String(url || '').startsWith('data:') ? '' : 'loading="lazy"';

@@ -125,6 +125,10 @@ preparing -> active -> settling -> 删除
 
 每条记录由 `leaseId + leaseExpiresAt` 独占。接管、fence、状态迁移和删除都在单个 IndexedDB readwrite 事务中做 CAS；`fenceLease` 同时验证所有权并续租，是 POST、ACK、cancel 和交付持久化前的唯一执行许可。旧页面冻结后恢复也无法覆盖新持有者。120 秒租约覆盖最坏轮询与请求间隔，租约未过期时其他页面只能等待。
 
+正常刷新或关闭页面时，`pagehide`（BFCache 的 `persisted=true` 除外）会把当前页面实际持有的 `{jobId, leaseId}` 作为同步 localStorage 遗言写下。新页面只在遗言与 journal 当前 `jobId + leaseId` 精确匹配时，才允许在同一个 IndexedDB 事务里提前换发租约；错任务、旧 lease 或已经由其他标签页换发的新 lease 都不能被遗言抢占。遗言只负责证明旧页面已经离开，不改 journal，不复制业务状态，消费成功或超过 120 秒即删除；浏览器来不及触发 `pagehide`、存储被禁用或写入失败时，完整退回原 120 秒租约语义。
+
+遗言接管到 `preparing` 且后端暂时返回 404 时，从遗言时间起保留 20 秒短宽限，以覆盖页面销毁时唯一可能仍在途的创建请求；宽限结束仍不存在才判定“任务未提交”。`active`、`cancelling`、`settling` 已经证明创建完成，不需要这段宽限，按原状态立即接回或结算。
+
 `recoverable-image-jobs.js` 是提交顺序唯一所有者：先写 journal，再持久化本批全部占位符，重新 fence 后才允许 POST。严格 CAS 未通过时删除 journal；一旦已经发起正文保存却未获确认，只从当前内存正文移除本批新 slot，保留 `preparing` journal 且绝不 POST，等待租约到期后按“任务未提交”恢复，不能把一次不确定保存伪装成确定失败。结果完成时先持久化 `settlement.mode`（`complete` / `discard` / `fail`），再保存槽位结算，最后删除 journal；因此结算中途刷新仍能继续原动作。
 
 `image-job-recovery-runtime.js` 在扩展启动、切换聊天、浏览器恢复前台和 `online` 时立即执行 reconcile，并保留低频周期唤醒以接回没有触发浏览器事件的任务：
@@ -134,7 +138,7 @@ preparing -> active -> settling -> 删除
 - `SETTLE`：继续上次未完成的成功、取消或失败结算。
 - `DISCARD`：只有用户显式取消且 job 已消失时删除未完成槽位。
 - `FAIL`：未提交成功显示“任务未提交”；active job 被 TTL 清理显示“后台任务已失效”。槽位保留为可重试失败卡。
-- `WAIT`：租约仍归其他流程，绝不接管。
+- `WAIT`：租约仍归其他流程且没有与当前 lease 精确匹配的页面遗言，绝不接管。
 
 后端存在但本地无 journal 的 job 只上报，不自动取消或删除。slotId 是交付身份：定位时扫描当前 chat 的全部消息和全部 swipes，楼层下标变化或用户切换 swipe 都不会改变归属。交付目标分为三态：当前聊天未加载是 `unavailable`，必须保留后端结果和 journal；全 chat 确认找不到 slot 才是 `removed`，可以幂等丢弃该项；找到 slot 是 `alive`，只写拥有它的 message/swipe。恢复只处理当前打开聊天的记录；切回原聊天会立即重试，避免把未加载误判成已删除。每项落库都会强制刷新现有 pending/failed 节点；画廊缓存写入通过 `BroadcastChannel` 向其他标签页广播 slot 失效，避免接管页完成交付后旧页面继续显示陈旧缓存。
 
@@ -220,4 +224,4 @@ image-batch-jobs-v1
 
 ## 验收
 
-后台任务模式规划 4 张、间隔 20 秒；第一张开始后关闭或刷新页面。重新进入原聊天并等待旧 lease 到期后，应自动查询原 job，四张图落入原 slot，journal 在全部落库和 ACK 后消失。随后分别验证临时断网恢复、显式 active cancel、删除单个 slot、多标签页竞争、多楼层轮转，以及关闭任务开关仍走原链路。
+后台任务模式规划 4 张、间隔 20 秒；第一张开始后关闭或刷新页面。正常 `pagehide` 写下遗言时，重新进入原聊天应立即接管原 job；模拟系统强杀或禁用 localStorage 时仍等待旧 lease 到期。两种路径最终都应让四张图落入原 slot，journal 在全部落库和 ACK 后消失。随后分别验证临时断网恢复、显式 active cancel、删除单个 slot、多标签页竞争、多楼层轮转，以及关闭任务开关仍走原链路。

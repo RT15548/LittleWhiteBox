@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { planImageJobReattach, ReattachAction } from '../image-job-reattach.js';
+import { PAGE_FAREWELL_PREPARING_GRACE_MS } from '../page-farewell.js';
 import { PendingJobState, PENDING_JOB_LEASE_MS } from '../pending-image-jobs.js';
 
 const NOW = 1_000_000;
@@ -60,6 +61,49 @@ test('a preparing entry is reattached when the backend already holds the job', (
         actionsFor({ records: [preparing], backendJobs: [{ id: 'job-1', state: 'queued', items: [] }] }),
         [ReattachAction.ATTACH],
     );
+});
+
+test('a page farewell bypasses only its exact lease and keeps a short preparing grace', () => {
+    const preparing = record({
+        state: PendingJobState.PREPARING,
+        leaseId: 'lease-live',
+        leaseExpiresAt: NOW + PENDING_JOB_LEASE_MS,
+    });
+    const recentFarewell = {
+        kind: 'job',
+        id: preparing.jobId,
+        leaseId: preparing.leaseId,
+        at: NOW - PAGE_FAREWELL_PREPARING_GRACE_MS + 1,
+    };
+    const waiting = planImageJobReattach({
+        now: NOW,
+        records: [preparing],
+        backendJobs: [],
+        farewells: [recentFarewell],
+    }).plan[0];
+    assert.equal(waiting.action, ReattachAction.WAIT);
+    assert.equal(waiting.retryAt, recentFarewell.at + PAGE_FAREWELL_PREPARING_GRACE_MS);
+
+    assert.deepEqual(actionsFor({
+        records: [preparing],
+        backendJobs: [],
+        farewells: [{ ...recentFarewell, at: NOW - PAGE_FAREWELL_PREPARING_GRACE_MS }],
+    }), [ReattachAction.FAIL]);
+    assert.deepEqual(actionsFor({
+        records: [preparing],
+        backendJobs: [{ id: preparing.jobId, state: 'queued', items: [] }],
+        farewells: [recentFarewell],
+    }), [ReattachAction.ATTACH]);
+    assert.deepEqual(actionsFor({
+        records: [{ ...preparing, state: PendingJobState.ACTIVE }],
+        backendJobs: [],
+        farewells: [recentFarewell],
+    }), [ReattachAction.FAIL]);
+    assert.deepEqual(actionsFor({
+        records: [preparing],
+        backendJobs: [{ id: preparing.jobId, state: 'queued', items: [] }],
+        farewells: [{ ...recentFarewell, leaseId: 'lease-other' }],
+    }), [ReattachAction.WAIT]);
 });
 
 // 租约是所有权凭证，优先于一切状态判断：另一个流程正在推进的记录一律不许碰，

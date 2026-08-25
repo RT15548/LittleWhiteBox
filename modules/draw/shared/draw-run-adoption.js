@@ -125,15 +125,18 @@ function livingSlots(sourceText, items) {
     return items.filter(item => isSceneSlotAlive(sourceText, item.slotId)).map(item => item.slotId);
 }
 
-async function acquireRecord({ handoff, marker, resolveTarget, chatTarget, journal, now }) {
+async function acquireRecord({ handoff, marker, resolveTarget, chatTarget, journal, farewell, now }) {
     let record = await journal.get(handoff.childJobId);
     if (record) {
         if (record.originRunId !== handoff.runId || record.provider !== handoff.provider) {
             throw new DrawRunAdoptionError('图片任务已被另一条恢复记录占用', 'DRAW_RUN_CHILD_CONFLICT');
         }
         if (record.state !== PendingJobState.ADOPTING) return { record, owned: false };
-        if (record.leaseExpiresAt > now()) return { record, owned: false };
-        record = await journal.claim(record.jobId, { now: now() });
+        const farewellMatches = farewell?.kind === 'job'
+            && farewell.id === record.jobId
+            && farewell.leaseId === record.leaseId;
+        if (record.leaseExpiresAt > now() && !farewellMatches) return { record, owned: false };
+        record = await journal.claim(record.jobId, { now: now(), farewell });
         return { record, owned: Boolean(record) };
     }
 
@@ -174,6 +177,7 @@ export async function adoptExistingJobFromDrawRun({
     chatTarget,
     confirmSlots,
     syncSlots = async () => {},
+    farewell = null,
     journal = defaultJournal,
     now = Date.now,
 } = {}) {
@@ -187,7 +191,15 @@ export async function adoptExistingJobFromDrawRun({
     if (isMessageBeingEdited(initialTarget.messageId)) {
         return { status: 'wait', reason: 'message_editing', owned: false };
     }
-    const acquired = await acquireRecord({ handoff, marker, resolveTarget, chatTarget, journal, now });
+    const acquired = await acquireRecord({
+        handoff,
+        marker,
+        resolveTarget,
+        chatTarget,
+        journal,
+        farewell,
+        now,
+    });
     let { record } = acquired;
     if (!record) return { status: 'wait', reason: 'owned_elsewhere', owned: false };
     if (record.state !== PendingJobState.ADOPTING) return { status: 'active', record, owned: false };
