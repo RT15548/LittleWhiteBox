@@ -4,8 +4,42 @@ function defaultAbortError() {
     return error;
 }
 
-function defaultWaitForCooldown(duration) {
-    return new Promise(resolve => setTimeout(resolve, duration));
+function defaultWaitForCooldown(duration, {
+    deadline,
+    documentRef = globalThis.document,
+    now = Date.now,
+} = {}) {
+    const cooldownDeadline = Number.isFinite(deadline)
+        ? deadline
+        : now() + normalizeCooldown(duration);
+    return new Promise((resolve) => {
+        let timerId = null;
+        let settled = false;
+
+        const finish = () => {
+            if (settled) return;
+            settled = true;
+            if (timerId !== null) clearTimeout(timerId);
+            documentRef?.removeEventListener?.('visibilitychange', handleVisibilityChange);
+            resolve();
+        };
+        const schedule = () => {
+            if (settled) return;
+            if (timerId !== null) clearTimeout(timerId);
+            const remaining = cooldownDeadline - now();
+            if (remaining <= 0) {
+                finish();
+                return;
+            }
+            timerId = setTimeout(schedule, remaining);
+        };
+        const handleVisibilityChange = () => {
+            if (documentRef?.visibilityState === 'visible') schedule();
+        };
+
+        documentRef?.addEventListener?.('visibilitychange', handleVisibilityChange);
+        schedule();
+    });
 }
 
 function normalizeCooldown(value) {
@@ -22,7 +56,9 @@ function normalizeCooldown(value) {
  */
 export function createSerialImageRequestQueue({
     createAbortError = defaultAbortError,
+    documentRef = globalThis.document,
     getCooldownMs = () => 0,
+    now = Date.now,
     waitForCooldown = defaultWaitForCooldown,
 } = {}) {
     const pending = [];
@@ -52,7 +88,7 @@ export function createSerialImageRequestQueue({
                 && item.batchKey !== undefined
                 && item.batchKey === active.batchKey;
             if (waitingForOwnCooldown) {
-                const remaining = active.cooldownUntil - Date.now();
+                const remaining = active.cooldownUntil - now();
                 if (item.queuePhase === 'queued' && remaining > 0) {
                     item.queuePhase = 'cooldown';
                     notify(item.onCooldown, { duration: remaining });
@@ -92,14 +128,20 @@ export function createSerialImageRequestQueue({
             const cooldown = started ? normalizeCooldown(getCooldownMs()) : 0;
             if (cooldown > 0) {
                 item.phase = 'cooldown';
-                item.cooldownUntil = Date.now() + cooldown;
+                item.cooldownUntil = now() + cooldown;
                 notify(item.onCooldown, { duration: cooldown });
             }
 
             if (error) item.reject(error);
             else item.resolve(result);
 
-            if (cooldown > 0) await waitForCooldown(cooldown);
+            if (cooldown > 0) {
+                await waitForCooldown(cooldown, {
+                    deadline: item.cooldownUntil,
+                    documentRef,
+                    now,
+                });
+            }
 
             if (active === item) {
                 item.phase = 'complete';

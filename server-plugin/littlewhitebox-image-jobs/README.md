@@ -1,13 +1,13 @@
 # LittleWhiteBox Image Jobs
 
-LittleWhiteBox 的可选 SillyTavern server plugin。开启小白盒后台任务后，Scene Planner 与整批图片任务都在 Node 进程中执行；前端收到“后台已接管”后，切后台、断网、刷新、WebView 冻结或关闭浏览器都不会暂停已创建的任务，重新打开后会自动接回。
+LittleWhiteBox 的可选 SillyTavern server plugin。开启小白X后台任务后，Scene Planner 与整批图片任务都在 Node 进程中执行；前端收到“后台已接管”后，切后台、断网、刷新、WebView 冻结或关闭浏览器都不会暂停已创建的任务，重新打开后会自动接回。
 
 ## 安装
 
 1. 确认 SillyTavern 使用 Node.js 18 或更新版本。
 2. 将本目录完整复制为 `SillyTavern/plugins/littlewhitebox-image-jobs/`。
 3. 在 `config.yaml` 开启 `enableServerPlugins: true`，然后重启 SillyTavern。
-4. 如果装过旧的 `SillyTavern/plugins/littlewhitebox-nai/`，建议一并删除。它是独立插件 ID，不会和本插件冲突，但小白盒已完全不再请求它。
+4. 如果装过旧的 `SillyTavern/plugins/littlewhitebox-nai/`，建议一并删除。它是独立插件 ID，不会和本插件冲突，但小白X已完全不再请求它。
 
 插件挂载在自己的命名空间：
 
@@ -48,7 +48,7 @@ draw-runs-v1
 
 `POST /v1/draw-runs/probe` 验证服务器能否用当前请求的登录身份回环访问 SillyTavern。它覆盖 Cookie session、CSRF、内置 Basic Auth、IPv4/IPv6 与原生 HTTPS，不调用模型，也不会产生费用。响应只报告凭证是否通过验证，不回显凭证内容。
 
-可从小白盒目录运行真实部署矩阵（默认自动定位同一 SillyTavern 安装，也可把安装根目录作为参数传入）：
+可从小白X目录运行真实部署矩阵（默认自动定位同一 SillyTavern 安装，也可把安装根目录作为参数传入）：
 
 ```sh
 node server-plugin/littlewhitebox-image-jobs/tests/loopback-deployment-matrix.js
@@ -60,7 +60,7 @@ node server-plugin/littlewhitebox-image-jobs/tests/loopback-deployment-matrix.js
 
 Scene Planner 后台运行接口位于 `/v1/draw-runs`，包含创建、当前用户列表、单项查询、取消与接管 ACK。它与 `/v1/jobs` 经过同一个图片任务校验/创建 service，图片执行仍完全服从现有单用户串行队列。
 
-`/status` 已发布 `draw-runs-v1` capability。NovelAI、SD WebUI 与 ComfyUI 的楼层配图在各自开启“小白盒后台任务”后，会把场景分析与批量出图一并提交到这些接口；缺少 capability 时明确要求更新后端，不会退回浏览器执行 Planner。
+`/status` 已发布 `draw-runs-v1` capability。NovelAI、SD WebUI 与 ComfyUI 的楼层配图在各自开启“小白X后台任务”后，会把场景分析与批量出图一并提交到这些接口；缺少 capability 时明确要求更新后端，不会退回浏览器执行 Planner。
 
 直接连接 OpenAI compatible、OpenAI Responses、Anthropic 或 Google 的 Agent 配置会由 Node 访问所填 Base URL；其中 `127.0.0.1` 指 SillyTavern 服务器本机。任务内凭证只保存在进程内存且不写入恢复 journal：Agent 凭证在 Planner 结束后释放；图片凭证会转交 child job，保留到该图片任务终态后释放。
 

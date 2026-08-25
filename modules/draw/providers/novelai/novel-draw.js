@@ -49,6 +49,7 @@ import {
 } from './novel-image-response.js';
 import {
     buildNovelAIConnectionProbe,
+    isNovelImageBackendJobEnabled,
     resolveNovelImageTransport,
     resolveNovelAIBackendImageApi,
     snapshotNovelRequestConfig,
@@ -2018,7 +2019,7 @@ async function runNovelImageBatch({
             if (!hasImageBackendJobsCapability(backendStatus)) {
                 detachScope.dispose();
                 throw new NovelDrawError(
-                    '小白盒后台批量任务不可用。请安装并启动当前 littlewhitebox-image-jobs，或关闭此选项后继续使用逐张后端发送。',
+                    '小白X后台批量任务不可用。请安装并启动当前 littlewhitebox-image-jobs，或关闭此选项后继续使用逐张后端发送。',
                     ErrorType.NETWORK,
                 );
             }
@@ -3436,7 +3437,7 @@ async function generateAndInsertImages({
 
         const presentCharacters = detectPresentCharacters(sceneSource.content, settings.characterTags || []);
 
-        if (settings.useImageBackendJobs === true) {
+        if (isNovelImageBackendJobEnabled(settings)) {
             job.phase = 'submitting';
             return await submitProviderDrawRun({
                 ctx,

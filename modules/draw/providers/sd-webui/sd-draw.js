@@ -715,7 +715,7 @@ async function runSdImageBatch({
         }
         if (!hasImageBackendJobsCapability(status)) {
             detachScope.dispose();
-            throw new Error('小白盒后台批量任务不可用。请安装并启动 littlewhitebox-image-jobs，或关闭此选项后继续使用酒馆原生连接。');
+            throw new Error('小白X后台批量任务不可用。请安装并启动 littlewhitebox-image-jobs，或关闭此选项后继续使用酒馆原生连接。');
         }
         try {
             const backendRequest = compiledBatch

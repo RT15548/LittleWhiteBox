@@ -18,8 +18,17 @@ export type ImageRequestQueueCallbacks = {
 
 export type SerialImageRequestQueueOptions = {
     createAbortError?: () => Error;
+    documentRef?: Pick<Document, 'visibilityState' | 'addEventListener' | 'removeEventListener'>;
     getCooldownMs?: () => number;
-    waitForCooldown?: (duration: number) => Promise<void>;
+    now?: () => number;
+    waitForCooldown?: (
+        duration: number,
+        context?: {
+            deadline: number;
+            documentRef?: Pick<Document, 'visibilityState' | 'addEventListener' | 'removeEventListener'>;
+            now: () => number;
+        },
+    ) => Promise<void>;
 };
 
 export type SerialImageRequestQueue = {

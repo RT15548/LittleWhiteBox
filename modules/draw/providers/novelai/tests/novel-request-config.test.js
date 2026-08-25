@@ -9,10 +9,10 @@ import {
     snapshotNovelRequestConfig,
 } from '../novel-request-config.js';
 
-test('background jobs are independent from the direct versus backend send mode', () => {
+test('background jobs are available only in backend send mode', () => {
     assert.equal(resolveNovelImageTransport({ sendMode: 'frontend', useImageBackendJobs: false }), 'frontend');
     assert.equal(resolveNovelImageTransport({ sendMode: 'backend', useImageBackendJobs: false }), 'backend');
-    assert.equal(resolveNovelImageTransport({ sendMode: 'frontend', useImageBackendJobs: true }), 'backend-job');
+    assert.equal(resolveNovelImageTransport({ sendMode: 'frontend', useImageBackendJobs: true }), 'frontend');
     assert.equal(resolveNovelImageTransport({ sendMode: 'backend', useImageBackendJobs: true }), 'backend-job');
 });
 

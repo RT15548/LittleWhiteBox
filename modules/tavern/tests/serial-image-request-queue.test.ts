@@ -65,6 +65,40 @@ test('provider queue returns the completed image immediately but blocks the next
     assert.equal(maxActive, 1);
 });
 
+test('returning to the foreground releases an overdue cooldown even when its timer was throttled', async () => {
+    const documentRef = new EventTarget() as EventTarget & { visibilityState: DocumentVisibilityState };
+    documentRef.visibilityState = 'hidden';
+    let now = 1000;
+    let cooldownCount = 0;
+    const starts: string[] = [];
+    const batch = {};
+    const queue = createSerialImageRequestQueue({
+        documentRef,
+        getCooldownMs: () => (cooldownCount++ === 0 ? 60000 : 0),
+        now: () => now,
+    });
+
+    const first = queue.enqueue(async () => {
+        starts.push('first');
+        return 'first-image';
+    }, { batchKey: batch });
+    assert.equal(await first, 'first-image');
+
+    const second = queue.enqueue(async () => {
+        starts.push('second');
+        return 'second-image';
+    }, { batchKey: batch });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.deepEqual(starts, ['first']);
+
+    now += 60001;
+    documentRef.visibilityState = 'visible';
+    documentRef.dispatchEvent(new Event('visibilitychange'));
+
+    assert.equal(await second, 'second-image');
+    assert.deepEqual(starts, ['first', 'second']);
+});
+
 test('aborting a completed consumer cannot skip the provider safety cooldown', async () => {
     const cooldownGate = deferred<void>();
     const firstController = new AbortController();

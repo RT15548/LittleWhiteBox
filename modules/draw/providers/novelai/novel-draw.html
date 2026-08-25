@@ -750,29 +750,31 @@ select.input { cursor: pointer; }
                             <button type="button" class="btn nd-mode-btn" data-send-mode="frontend"><i class="fa-solid fa-globe"></i> 前端直连</button>
                             <button type="button" class="btn nd-mode-btn" data-send-mode="backend"><i class="fa-solid fa-server"></i> 后端发送</button>
                         </div>
-                        <label class="check-row" style="margin-top:8px;"><input type="checkbox" id="nd_insecure_tls"> 忽略证书验证（仅后端发送模式、连接自签证书端点时勾选）</label>
-                        <label class="check-row" style="margin-top:8px;"><input type="checkbox" id="nd_use_backend_jobs"> 使用小白盒后台任务（场景分析 + 批量出图）</label>
-                        <p class="form-hint">开启后，楼层配图的场景分析与批量出图都由酒馆服务器接管。看到“后台已接管”后，刷新、断网或关闭浏览器都可自动接回。非酒馆 Agent 渠道的 Base URL 必须能从酒馆服务器访问，其中 127.0.0.1 指酒馆服务器本机；失败不会退回浏览器执行。</p>
-                        <p class="form-hint">前端直连：浏览器直接请求（需对方支持 CORS + 有效证书）。后端发送：由酒馆后端代发，可绕过 CORS 与自签证书。</p>
+                        <div id="nd_backend_options" class="hidden">
+                            <label class="check-row" style="margin-top:8px;"><input type="checkbox" id="nd_insecure_tls"> 忽略证书验证（连接自签证书端点时勾选）</label>
+                            <label class="check-row" style="margin-top:8px;"><input type="checkbox" id="nd_use_backend_jobs"> 使用小白X后台任务（场景分析 + 批量出图）</label>
+                            <p class="form-hint">开启后，楼层配图的场景分析与批量出图都由酒馆服务器接管。看到“后台已接管”后，刷新、断网或关闭浏览器都可自动接回。非酒馆 Agent 渠道的 Base URL 必须能从酒馆服务器访问，其中 127.0.0.1 指酒馆服务器本机；失败不会退回浏览器执行。</p>
 
-                        <!-- 后端插件状态栏（仅后端发送模式显示） -->
-                        <div id="nd_backend_panel" class="nd-backend-panel hidden">
-                            <div class="nd-backend-status-row">
-                                <span id="nd_backend_dot" class="nd-status-dot"></span>
-                                <span id="nd_backend_status_text" class="nd-status-txt">检测中...</span>
-                                <button id="nd_backend_recheck" class="btn btn-sm" type="button"><i class="fa-solid fa-rotate"></i> 重新检测</button>
-                            </div>
-                            <div id="nd_backend_guide" class="nd-backend-guide hidden">
-                                <p class="form-hint" style="margin-top:4px;">后端插件未就绪。插件文件已随 LittleWhiteBox 一起下载，只需手动搬到酒馆的后端插件目录并重启：</p>
-                                <ol class="nd-guide-steps">
-                                    <li>找到插件文件夹（在本扩展目录下）：<br><code>SillyTavern/public/scripts/extensions/third-party/LittleWhiteBox/server-plugin/littlewhitebox-image-jobs/</code></li>
-                                    <li>把整个 <code>littlewhitebox-image-jobs</code> 文件夹（包括其中的所有子目录）复制到：<br><code>SillyTavern/plugins/littlewhitebox-image-jobs/</code></li>
-                                    <li>用文本编辑器打开 <code>SillyTavern/config.yaml</code>，找到 <code>enableServerPlugins</code> 一行改为 <code>enableServerPlugins: true</code>（若没有这一行就新增）</li>
-                                    <li>完全关闭并重启 SillyTavern，回到这里点“重新检测”</li>
-                                </ol>
-                                <p class="form-hint" style="margin-top:6px;">装过旧的 <code>SillyTavern/plugins/littlewhitebox-nai/</code> 可以顺手删掉。它是独立插件，不会冲突，但小白盒已不再请求它。</p>
+                            <!-- 后端插件状态栏（仅后端发送模式显示） -->
+                            <div id="nd_backend_panel" class="nd-backend-panel hidden">
+                                <div class="nd-backend-status-row">
+                                    <span id="nd_backend_dot" class="nd-status-dot"></span>
+                                    <span id="nd_backend_status_text" class="nd-status-txt">检测中...</span>
+                                    <button id="nd_backend_recheck" class="btn btn-sm" type="button"><i class="fa-solid fa-rotate"></i> 重新检测</button>
+                                </div>
+                                <div id="nd_backend_guide" class="nd-backend-guide hidden">
+                                    <p class="form-hint" style="margin-top:4px;">后端插件未就绪。插件文件已随 LittleWhiteBox 一起下载，只需手动搬到酒馆的后端插件目录并重启：</p>
+                                    <ol class="nd-guide-steps">
+                                        <li>找到插件文件夹（在本扩展目录下）：<br><code>SillyTavern/public/scripts/extensions/third-party/LittleWhiteBox/server-plugin/littlewhitebox-image-jobs/</code></li>
+                                        <li>把整个 <code>littlewhitebox-image-jobs</code> 文件夹（包括其中的所有子目录）复制到：<br><code>SillyTavern/plugins/littlewhitebox-image-jobs/</code></li>
+                                        <li>用文本编辑器打开 <code>SillyTavern/config.yaml</code>，找到 <code>enableServerPlugins</code> 一行改为 <code>enableServerPlugins: true</code>（若没有这一行就新增）</li>
+                                        <li>完全关闭并重启 SillyTavern，回到这里点“重新检测”</li>
+                                    </ol>
+                                    <p class="form-hint" style="margin-top:6px;">装过旧的 <code>SillyTavern/plugins/littlewhitebox-nai/</code> 可以顺手删掉。它是独立插件，不会冲突，但小白X已不再请求它。</p>
+                                </div>
                             </div>
                         </div>
+                        <p class="form-hint">前端直连：浏览器直接请求（需对方支持 CORS + 有效证书）。后端发送：由酒馆后端代发，可绕过 CORS 与自签证书。</p>
                     </div>
                     <div class="form-row">
                         <div class="form-group">
@@ -1614,9 +1616,10 @@ function updateSendModeUI(mode) {
         });
     }
     state.sendMode = m;
+    const usesBackend = m === 'backend';
+    $('nd_backend_options')?.classList.toggle('hidden', !usesBackend);
     const panel = $('nd_backend_panel');
     if (panel) {
-        const usesBackend = m === 'backend' || $('nd_use_backend_jobs')?.checked === true;
         panel.classList.toggle('hidden', !usesBackend);
         if (usesBackend) requestBackendPluginCheck();
     }

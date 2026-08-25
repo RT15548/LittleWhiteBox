@@ -431,7 +431,7 @@ test('NovelAI adapter validates the per-item transport and tags stream results w
             item: normalized.items[1],
             signal: new AbortController().signal,
         });
-        // V5 流式结果必须带小白盒专属 MIME，前端据此判断要走 msgpack 解码。
+        // V5 流式结果必须带小白X专属 MIME，前端据此判断要走 msgpack 解码。
         assert.equal(streamed.mime, 'application/vnd.littlewhitebox.novelai-msgpack');
         assert.equal(legacy.mime, 'image/png');
     } finally {

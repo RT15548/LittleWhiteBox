@@ -4,7 +4,7 @@
 
 支持后端任务的 provider 在 Scene Planner 完成后一次提交整批请求。SillyTavern 后端进程独立完成上游请求、图片间隔与结果暂存；浏览器后台节流、JavaScript 暂停或短暂断网只影响进度同步，不影响已经创建的任务。
 
-本方案不合并或移植 #84 的前端 Worker 计时器。SD WebUI 与 ComfyUI 默认继续使用各自已有的酒馆代理或浏览器直连链路；只有用户显式启用小白盒后台批量任务时，才改由本插件执行。
+本方案不合并或移植 #84 的前端 Worker 计时器。SD WebUI 与 ComfyUI 默认继续使用各自已有的酒馆代理或浏览器直连链路；只有用户显式启用小白X后台批量任务时，才改由本插件执行。
 
 ## 终态边界
 
@@ -77,7 +77,7 @@ A1 -> cooldown(A) -> B1 -> cooldown(B) -> A2
 
 ## 后端 API
 
-基础路径：`/api/plugins/littlewhitebox-image-jobs/v1/jobs`。插件 ID 与目录名一致，都是 `littlewhitebox-image-jobs`。历史插件 `littlewhitebox-nai` 是另一个独立 ID，可以并存；小白盒前端不请求、不探测、不回退到它。
+基础路径：`/api/plugins/littlewhitebox-image-jobs/v1/jobs`。插件 ID 与目录名一致，都是 `littlewhitebox-image-jobs`。历史插件 `littlewhitebox-nai` 是另一个独立 ID，可以并存；小白X前端不请求、不探测、不回退到它。
 
 | 方法 | 路径 | 语义 |
 |---|---|---|
@@ -109,7 +109,7 @@ NovelAI、SD WebUI 与 ComfyUI 都传入完整 HTTP(S) URL；不新增域名、�
 - 关闭：不探测、不调用本插件，继续当前 provider 的原生连接方式。
 - 开启且 capability 包含 `image-batch-jobs-v1`：一次创建后端 job，逐个收取 ready 结果。
 - 开启但插件不可用或 capability 缺失：明确报配置错误，不静默回退到其他连接链路。
-- NovelAI 的 `sendMode` 仍只表示浏览器直连或酒馆后端传输；关闭任务开关时，后端传输继续使用原逐张代理。
+- NovelAI 只在后端发送模式展示并启用任务开关；前端直连即使保留过勾选值也不会提交后台任务。后端发送关闭任务开关时继续使用原逐张代理。
 - ComfyUI 即使选择浏览器直连也可以显式开启；此时楼层批量任务实际从酒馆服务器发起，因此该服务器必须能够访问所填地址。单张重绘、失败重试、设置页测试生成以及文本源/ebook 没有可恢复的楼层 journal，继续走原连接链路，不创建无法接回的裸后端任务。
 
 批量调用方在提交前为全部 task 建立稳定的 `{index, slotId, imgId, request}` 映射。结果可以晚到或一次补收，但必须按 index 找回原 slot；预分配的 imgId 让重复落库天然幂等。只有图片与 slot selection 都成功写入 IndexedDB 后才 ACK；任一步失败都保留后端结果和本地恢复记录。

@@ -15,8 +15,12 @@ export function snapshotNovelRequestConfig(settings, generationConfig, defaultTi
 }
 
 export function resolveNovelImageTransport({ sendMode, useImageBackendJobs } = {}) {
-    if (useImageBackendJobs === true) return 'backend-job';
+    if (isNovelImageBackendJobEnabled({ sendMode, useImageBackendJobs })) return 'backend-job';
     return sendMode === 'backend' ? 'backend' : 'frontend';
+}
+
+export function isNovelImageBackendJobEnabled({ sendMode, useImageBackendJobs } = {}) {
+    return sendMode === 'backend' && useImageBackendJobs === true;
 }
 
 const DEFAULT_IMAGE_ORIGIN = 'https://image.novelai.net';

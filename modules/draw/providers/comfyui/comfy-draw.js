@@ -1156,7 +1156,7 @@ async function runComfyImageBatch({
         }
         if (!hasImageBackendJobsCapability(status)) {
             detachScope.dispose();
-            throw new Error('小白盒后台批量任务不可用。请安装并启动 littlewhitebox-image-jobs，或关闭此选项后继续使用当前连接方式。');
+            throw new Error('小白X后台批量任务不可用。请安装并启动 littlewhitebox-image-jobs，或关闭此选项后继续使用当前连接方式。');
         }
         try {
             const backendRequest = compiledBatch
@@ -2288,7 +2288,7 @@ function updateConnectionModeUI(
     const status = getSettingsElement('comfy-draw-api-status');
     const workflowStatus = getSettingsElement('comfy-draw-workflow-status');
     const statusText = usesServerJobs
-        ? '批量出图将由小白盒后台任务连接 ComfyUI。'
+        ? '批量出图将由小白X后台任务连接 ComfyUI。'
         : isDirect
             ? '当前使用浏览器直连 ComfyUI。'
             : '当前使用酒馆后端代理连接 ComfyUI。';
