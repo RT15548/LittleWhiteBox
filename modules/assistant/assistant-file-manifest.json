@@ -1280,7 +1280,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/novel-draw.js",
       "relativePath": "modules/draw/providers/novelai/novel-draw.js",
       "extension": ".js",
-      "sizeBytes": 246395
+      "sizeBytes": 246450
     },
     {
       "source": "littlewhitebox",

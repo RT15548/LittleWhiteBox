@@ -308,7 +308,7 @@ const DEFAULT_PARAMS_PRESET = {
     id: '', name: '默认 (V4.5 Full)',
     positivePrefix: 'best quality, amazing quality, very aesthetic, absurdres,',
     negativePrefix: 'lowres, bad anatomy, bad hands, missing fingers, extra digits, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry',
-    maxImages: 0,
+    maxImages: 2,
     maxCharactersPerImage: 0,
     params: {
         model: 'nai-diffusion-4-5-full', sampler: 'k_euler_ancestral', scheduler: 'karras',
@@ -322,7 +322,7 @@ const DEFAULT_PARAMS_PRESET_2 = {
     id: '', name: '3D 风格 (V4.5 Full)',
     positivePrefix: '3::3D::artist :ningen_mame,:meion, artist:nixeu, year 2025, artist:cc_lin, artist:kuroida, artist:mame_(hyeon5117), artist:nihnfinite8, artist:laevan, 4k, 10::best quality, absurdres, very aesthetic, detailed, masterpiece::,',
     negativePrefix: 'easynegative, bad, bad anatomy, bad composition, bad feet, bad hands, blurry, cropped, deformed, digit, error, extra digit, extra limb, extra missing fingers, fewer digits, imperfect eyes, inaccurate eyes, inaccurate limb, jpeg artifacts, low quality, lowres, negative_hand, missing limbs, normal quality, painting by bad-artist, signature, skewed eyes, text, ugly, ugly body, unnatural body, unnatural face, username, watermark, worst quality, missing fingers',
-    maxImages: 0,
+    maxImages: 2,
     maxCharactersPerImage: 0,
     params: {
         model: 'nai-diffusion-4-5-full', sampler: 'k_euler_ancestral', scheduler: 'karras',
@@ -914,7 +914,9 @@ function normalizeParamsPreset(preset, index) {
         name: String(source.name || `配置-${index + 1}`),
         positivePrefix: String(source.positivePrefix || ''),
         negativePrefix: String(source.negativePrefix || ''),
-        maxImages: Math.max(0, Number(source.maxImages) || 0),
+        maxImages: source.maxImages == null
+            ? 2
+            : Math.max(0, Number(source.maxImages) || 0),
         maxCharactersPerImage: Math.max(0, Number(source.maxCharactersPerImage) || 0),
         params: {
             model: String(params.model || DEFAULT_PARAMS_PRESET.params.model).trim(),

@@ -264,7 +264,7 @@ function createDefaultPreset() {
         scheduler: 'normal',
         steps: 20,
         cfg: 7,
-        maxImages: 0,
+        maxImages: 2,
         maxCharactersPerImage: 0,
     };
 }
@@ -373,7 +373,7 @@ function normalizePresets(rawPresets, rawSettings = {}) {
         scheduler: String(preset.scheduler || 'normal'),
         steps: normalizeNumber(preset.steps, 20, 1, 150),
         cfg: normalizeNumber(preset.cfg, 7, 1, 30),
-        maxImages: normalizeNumber(preset.maxImages, 0, 0, 999),
+        maxImages: normalizeNumber(preset.maxImages, 2, 0, 999),
         maxCharactersPerImage: normalizeNumber(preset.maxCharactersPerImage, 0, 0, 999),
     }));
 }

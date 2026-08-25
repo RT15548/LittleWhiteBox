@@ -224,7 +224,7 @@ function createDefaultPreset() {
         clip_skip: 1,
         positivePrefix: '',
         negativePrefix: '',
-        maxImages: 0,
+        maxImages: 2,
         maxCharactersPerImage: 0,
     };
 }
@@ -409,7 +409,7 @@ function normalizePresets(rawPresets, rawSettings = {}) {
         clip_skip: normalizeNumber(preset.clip_skip, DEFAULT_SD_DRAW_SETTINGS.defaultParams.clip_skip, 1, 12),
         positivePrefix: String(preset.positivePrefix ?? ''),
         negativePrefix: String(preset.negativePrefix ?? ''),
-        maxImages: normalizeNumber(preset.maxImages, 0, 0, 999),
+        maxImages: normalizeNumber(preset.maxImages, 2, 0, 999),
         maxCharactersPerImage: normalizeNumber(preset.maxCharactersPerImage, 0, 0, 999),
     }));
 }
