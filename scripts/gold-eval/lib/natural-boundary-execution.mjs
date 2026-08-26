@@ -10,6 +10,7 @@ import {
 import { GOLD_CAPTURE_SCHEMA_VERSION, sha256Text } from './run-store.mjs';
 import { scoreCase } from './scorer.mjs';
 import { assertSuccessfulExternalTrace } from './transport-cassette.mjs';
+import { withProductRecallTurn } from './product-recall-turn.mjs';
 import { assertGoldExternalStagesHealthy } from '../replay-session.mjs';
 
 export function emptyNaturalPreparation() {
@@ -29,6 +30,7 @@ export async function executeNaturalBoundaryCase({
     modules,
     goldCase,
     visibleMessages,
+    focusMessage,
     snapshotRef,
     preparation = emptyNaturalPreparation(),
     executeRecallCase,
@@ -44,12 +46,22 @@ export async function executeNaturalBoundaryCase({
         events: store?.json?.events || [],
         facts: store?.json?.facts || [],
     });
+    const expectedQuery = queryText(goldCase);
+    if (String(focusMessage?.mes || '') !== expectedQuery) {
+        throw new Error(`natural recall query 与真实 USER 楼层不一致: ${goldCase.id}`);
+    }
     const collector = createReplayObservationCollector();
-    const execution = await executeRecallCase({
+    const execution = await withProductRecallTurn({
+        modules,
+        historyMessages: visibleMessages,
+        focusMessage,
         label: goldCase.id,
-        pendingUserMessage: queryText(goldCase),
-        excludeLastAi: false,
-    }, collector.observe, transportCassette);
+        execute: () => executeRecallCase({
+            label: goldCase.id,
+            querySource: 'natural-chat-floor',
+            excludeLastAi: false,
+        }, collector.observe, transportCassette),
+    });
     try {
         assertGoldExternalStagesHealthy(execution, goldCase.id);
         assertSuccessfulExternalTrace(execution.transportTrace || [], {
@@ -149,6 +161,7 @@ export async function executeNaturalBoundaryCase({
     const replayCase = {
         ...execution.reportCase,
         goldCaseId: goldCase.id,
+        querySource: 'natural-chat-floor',
         queryFloor: goldCase.atFloor,
         historyThroughFloor: goldCase.historyThroughFloor,
         preparation: preparation.steps || [],

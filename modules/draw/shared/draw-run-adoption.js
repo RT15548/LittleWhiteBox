@@ -11,7 +11,6 @@ import {
     resetPendingImageJobAdoptionPlacement,
 } from './pending-image-jobs.js';
 import { deriveDrawRunChildJobId, deriveDrawRunItemIds } from './draw-run-identifiers.js';
-import { createConfirmableChatSnapshot } from './confirmable-chat-save.js';
 import {
     DRAW_RUN_MARKER_VERSION,
     getDrawRunMarkerText,
@@ -219,9 +218,13 @@ export async function adoptExistingJobFromDrawRun({
 
         const alive = livingSlots(target.sourceText, handoff.items);
         if (alive.length > 0) {
-            const snapshot = createConfirmableChatSnapshot({ chat: target.chat });
             await guard();
-            await confirmSlots({ runId: handoff.runId, slotIds: alive, target, snapshot });
+            await confirmSlots({
+                runId: handoff.runId,
+                slotIds: alive,
+                target,
+                expectedText: target.sourceText,
+            });
             await guard();
             await syncSlots({ target, slotIds: alive });
             await guard();
@@ -277,7 +280,6 @@ export async function adoptExistingJobFromDrawRun({
             { block: true },
         );
         const originalText = target.sourceText;
-        const snapshot = createConfirmableChatSnapshot({ chat: target.chat });
         if (!setDrawRunMarkerText(target, plannedText)) {
             await releaseOwned();
             return { status: 'wait', reason: 'target_changed', record, owned: false };
@@ -297,7 +299,7 @@ export async function adoptExistingJobFromDrawRun({
                 runId: handoff.runId,
                 slotIds: handoff.items.map(item => item.slotId),
                 target,
-                snapshot,
+                expectedText: originalText,
             });
         } catch (error) {
             // 写前核对失败意味着 saveChat 根本没有执行，恢复内存中的原文是确定安全的；

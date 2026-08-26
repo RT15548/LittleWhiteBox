@@ -1691,7 +1691,7 @@ export async function buildVectorPromptForReplay(store, recallResult, causalById
  * @returns {Promise<{text: string, logText: string, notice: object|null}>}
  */
 export async function buildVectorPromptText(excludeLastAi = false, options = {}) {
-    const { pendingUserMessage = null, signal = null } = options;
+    const { signal = null } = options;
 
     if (!getSettings().storySummary?.enabled) {
         return { text: "", logText: "", notice: null };
@@ -1726,7 +1726,6 @@ export async function buildVectorPromptText(excludeLastAi = false, options = {})
     try {
         recallResult = await recallMemory(allEvents, vectorCfg, {
             excludeLastAi,
-            pendingUserMessage,
             signal,
             deferRuntimeRelease: true,
         });

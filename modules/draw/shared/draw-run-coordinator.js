@@ -1,6 +1,4 @@
 import {
-    createConfirmableChatSnapshot,
-    persistedChatMatchesSnapshot,
     saveChatAndConfirm,
     withConfirmableChatMutation,
 } from './confirmable-chat-save.js';
@@ -13,9 +11,11 @@ import {
 import { hashSceneSource, normalizeMessageSceneSourceText } from './scene-source.js';
 import {
     createDrawRunMarker,
+    getDrawRunMarkerText,
     getDrawRunAutomaticCompletion,
     persistedChatHasDrawRunAutomaticCompletion,
     persistedChatHasDrawRunMarker,
+    persistedDrawRunTargetMatches,
     removeDrawRunMarker,
     setDrawRunAutomaticCompletion,
     setDrawRunMarker,
@@ -177,7 +177,7 @@ export async function clearDrawRunMarkerAndConfirm({
     completeAutomatic = false,
 }) {
     return withConfirmableChatMutation(ctx, async () => {
-        const snapshot = createConfirmableChatSnapshot(ctx);
+        const expectedText = getDrawRunMarkerText({ message, swipeIndex });
         const shouldCompleteAutomatic = completeAutomatic === true && marker?.automatic === true;
         const automaticWasComplete = shouldCompleteAutomatic
             ? getDrawRunAutomaticCompletion(message, swipeIndex, marker.provider)
@@ -224,7 +224,12 @@ export async function clearDrawRunMarkerAndConfirm({
             await saveAndConfirm({
                 ctx,
                 fetchImpl,
-                precondition: persistedChat => persistedChatMatchesSnapshot(persistedChat, snapshot),
+                precondition: persistedChat => persistedDrawRunTargetMatches(
+                    persistedChat,
+                    runId,
+                    expectedText,
+                    marker,
+                ),
                 verify: persistedChat => !persistedChatHasDrawRunMarker(persistedChat, runId)
                     && (!shouldCompleteAutomatic || persistedChatHasDrawRunAutomaticCompletion(
                         persistedChat,

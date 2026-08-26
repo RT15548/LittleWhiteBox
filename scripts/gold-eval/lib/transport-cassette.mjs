@@ -133,7 +133,7 @@ export function createStrictTransportCassette(rows, { caseId = null } = {}) {
                 throw cassetteFailure({
                     caseId,
                     kind: 'miss',
-                    message: `Cassette miss，必须建立新的 production capture: case=${caseId || 'unknown'} endpoint=${request?.endpoint || 'unknown'} host=${request?.host || 'unknown'} path=${request?.path || 'unknown'} requestHash=${request?.requestHash || 'unknown'}`,
+                    message: `Cassette miss，必须建立新的同轨 source capture: case=${caseId || 'unknown'} endpoint=${request?.endpoint || 'unknown'} host=${request?.host || 'unknown'} path=${request?.path || 'unknown'} requestHash=${request?.requestHash || 'unknown'}`,
                 });
             }
             remaining -= 1;
@@ -144,7 +144,7 @@ export function createStrictTransportCassette(rows, { caseId = null } = {}) {
             throw cassetteFailure({
                 caseId,
                 kind: 'unused-source-requests',
-                message: `Cassette 请求集合已变化，必须建立新的 production capture: case=${caseId || 'unknown'} unused=${remaining}`,
+                message: `Cassette 请求集合已变化，必须建立新的同轨 source capture: case=${caseId || 'unknown'} unused=${remaining}`,
             });
         },
     };

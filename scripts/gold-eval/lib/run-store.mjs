@@ -728,15 +728,15 @@ export async function loadGoldCapture(runDir) {
     };
 }
 
-export function assertProductionGoldCapture(source) {
-    if (source?.manifest?.mode !== 'story-summary-replay-gold-capture') {
-        throw new Error(`Gold capture 不是 production capture: ${source?.manifest?.mode || 'unknown'}`);
+export function assertSyntheticProbeCapture(source) {
+    if (source?.manifest?.mode !== 'story-summary-replay-synthetic-probe-capture') {
+        throw new Error(`Gold capture 不是 synthetic probe capture: ${source?.manifest?.mode || 'unknown'}`);
     }
 }
 
 export function assertReaderSourceCapture(source) {
     const mode = source?.manifest?.mode;
-    if (mode === 'story-summary-replay-gold-capture') return;
+    if (mode === 'story-summary-replay-synthetic-probe-capture') return;
     if (mode !== 'gold-prompt-only-paired') {
         throw new Error(`reader source 类型无效: ${mode || 'unknown'}`);
     }

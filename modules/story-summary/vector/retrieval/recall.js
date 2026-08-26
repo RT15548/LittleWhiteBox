@@ -100,9 +100,8 @@ function recordExternalFailure(metrics, failure) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 const CONFIG = {
-    // 窗口：取 3 条消息（对齐 L0 对结构），pending 存在时取 2 条上下文
+    // 固定读取 chat 末尾 3 条；普通发送时末条是真实入列的当前 USER 消息。
     LAST_MESSAGES_K: 3,
-    LAST_MESSAGES_K_WITH_PENDING: 2,
 
     // Anchor (L0 StateAtoms)
     ANCHOR_MIN_SIMILARITY: 0.58,
@@ -1325,7 +1324,6 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
     const T0 = performance.now();
     const { chat, chatId, name1 } = getContext();
     const {
-        pendingUserMessage = null,
         excludeLastAi = false,
         stageObserver = null,
         deferRuntimeRelease = false,
@@ -1346,10 +1344,7 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
 
     const T_Build_Start = performance.now();
 
-    const lastMessagesCount = pendingUserMessage
-        ? CONFIG.LAST_MESSAGES_K_WITH_PENDING
-        : CONFIG.LAST_MESSAGES_K;
-    const lastMessages = getLastMessages(chat, lastMessagesCount, excludeLastAi);
+    const lastMessages = getLastMessages(chat, CONFIG.LAST_MESSAGES_K, excludeLastAi);
 
     // Non-blocking preload: keep recall latency stable.
     // If not ready yet, query-builder will gracefully fall back to TF terms.
@@ -1357,7 +1352,7 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
         xbLog.warn(MODULE_ID, 'Preload lexical index failed; continue with TF fallback', e);
     });
 
-    const bundle = buildQueryBundle(lastMessages, pendingUserMessage);
+    const bundle = buildQueryBundle(lastMessages);
     if (captureStages) {
         observeRecallStage(stageObserver, 'queryFocusOwnership', [], describeQueryFocusOwnership(bundle));
     }

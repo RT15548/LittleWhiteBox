@@ -144,9 +144,10 @@ test('a dispatched child persists its slots before becoming an active image jour
         chatTarget: CHAT_TARGET,
         now: () => 0,
         resolveTarget: () => target,
-        confirmSlots({ slotIds }) {
+        confirmSlots({ slotIds, expectedText }) {
             confirmedText = message.mes;
             assert.deepEqual(slotIds, [ids.slotId]);
+            assert.equal(expectedText, SOURCE);
         },
         syncSlots() { renderedAfterSave = Boolean(confirmedText); },
     });

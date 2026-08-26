@@ -1,5 +1,3 @@
-import { stableSerialize } from './generation-fingerprint.js';
-
 export const CONFIRMABLE_CHAT_PHASE_TIMEOUT_MS = 15_000;
 
 export class ConfirmableChatSaveUncertainError extends Error {
@@ -28,19 +26,6 @@ const localSaveQueues = new Map();
 
 function isPresent(value) {
     return value !== undefined && value !== null && String(value).length > 0;
-}
-
-export function createConfirmableChatSnapshot(ctx) {
-    if (!Array.isArray(ctx?.chat)) throw new TypeError('ctx must provide the current chat messages');
-    return Object.freeze({ messages: stableSerialize(ctx.chat) });
-}
-
-export function persistedChatMatchesSnapshot(persistedChat, snapshot) {
-    if (!Array.isArray(persistedChat) || typeof snapshot?.messages !== 'string') return false;
-    const hasMetadataHeader = persistedChat[0]?.chat_metadata
-        && typeof persistedChat[0].chat_metadata === 'object';
-    const messages = hasMetadataHeader ? persistedChat.slice(1) : persistedChat;
-    return stableSerialize(messages) === snapshot.messages;
 }
 
 export function createConfirmableChatTarget(ctx) {
@@ -160,8 +145,8 @@ async function withChatSaveLock(target, task, lockManager) {
 
 // ctx.chat 是同一页面内所有画图流程共享的可变对象。同一页面必须把“修改内存
 // → 保存并确认”整个区间串行，否则取消 marker 可能被另一条正在保存的流程顺手写入或回滚。
-// 跨标签页的同源保存另由 saveChatAndConfirm 的 Web Lock 串行；只有基于已读取持久化
-// 快照做修改的恢复路径才叠加写前快照条件，首次提交以保存后 marker 读回为准。
+// 跨标签页的同源保存另由 saveChatAndConfirm 的 Web Lock 串行；恢复路径只对自己
+// 实际修改的 marker / swipe / slot 叠加写前条件，首次提交以保存后 marker 读回为准。
 export async function withConfirmableChatMutation(ctx, task) {
     if (typeof task !== 'function') throw new TypeError('chat mutation task must be a function');
     if (!isPresent(ctx?.chatId)) throw new TypeError('chat mutation requires a persistent chat id');

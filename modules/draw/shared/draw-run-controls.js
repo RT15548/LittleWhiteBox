@@ -4,14 +4,14 @@ import { publishDrawRunActivity } from './draw-run-activity.js';
 import { createImageBackendJobsClient } from './backend-image-jobs.js';
 import { createDrawRunClient } from './draw-run-client.js';
 import {
-    createConfirmableChatSnapshot,
-    persistedChatMatchesSnapshot,
     saveChatAndConfirm,
     withConfirmableChatMutation,
 } from './confirmable-chat-save.js';
 import {
+    getDrawRunMarkerText,
     listActiveSwipeDrawRunMarkers,
     persistedChatHasDrawRunMarker,
+    persistedDrawRunTargetMatches,
     setDrawRunMarker,
 } from './draw-run-markers.js';
 import {
@@ -112,16 +112,19 @@ export async function cancelPendingDrawRuns(messageId, {
     // 先把用户取消意图写进 marker。提交 POST 与取消 POST 可能交错：取消先到会
     // 暂时得到 404，只有这个持久事实才能让刷新后的恢复器在 run 出现时补发取消。
     const cancellationTime = Math.max(1, Math.floor(Number(now()) || Date.now()));
-    const originalMarkers = new Map(entries.map(entry => [entry.runId, { ...entry.marker }]));
+    const targetMessage = ctx?.chat?.[Number(messageId)];
+    const originalTargets = new Map(entries.map(entry => [entry.runId, {
+        marker: { ...entry.marker },
+        text: getDrawRunMarkerText({ message: targetMessage, swipeIndex: entry.swipeIndex }),
+    }]));
     let persistenceError = null;
     try {
         await withConfirmableChatMutation(ctx, async () => {
             const message = ctx?.chat?.[Number(messageId)];
             if (!message) throw new Error('后台画图目标楼层已经不可用');
             const liveEntries = getPendingDrawRuns(messageId, ctx)
-                .filter(entry => originalMarkers.has(entry.runId));
+                .filter(entry => originalTargets.has(entry.runId));
             if (liveEntries.length === 0) return;
-            const snapshot = createConfirmableChatSnapshot(ctx);
             for (const entry of liveEntries) {
                 entry.marker = setDrawRunMarker({
                     message,
@@ -136,7 +139,15 @@ export async function cancelPendingDrawRuns(messageId, {
             }
             await saveAndConfirm({
                 ctx,
-                precondition: persistedChat => persistedChatMatchesSnapshot(persistedChat, snapshot),
+                precondition: persistedChat => liveEntries.every((entry) => {
+                    const original = originalTargets.get(entry.runId);
+                    return persistedDrawRunTargetMatches(
+                        persistedChat,
+                        entry.runId,
+                        original?.text,
+                        original?.marker,
+                    );
+                }),
                 verify: persistedChat => liveEntries.every(entry => persistedChatHasDrawRunMarker(
                     persistedChat,
                     entry.runId,
@@ -155,7 +166,7 @@ export async function cancelPendingDrawRuns(messageId, {
                         messageId: Number(messageId),
                         swipeIndex: entry.swipeIndex,
                         runId: entry.runId,
-                        marker: originalMarkers.get(entry.runId),
+                        marker: originalTargets.get(entry.runId)?.marker,
                         syncActiveSwipe,
                     });
                 } catch (rollbackError) {

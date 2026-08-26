@@ -16,6 +16,7 @@ import {
     loadGoldCasesFromText,
     selectEvidenceCatalogForCase,
 } from './lib/replay-adapter.mjs';
+import { withProductRecallTurn } from './lib/product-recall-turn.mjs';
 import {
     buildRunId,
     renderGoldEvalReport,
@@ -23,7 +24,7 @@ import {
 import {
     GOLD_CAPTURE_SCHEMA_VERSION,
     assertGoldCaptureInputs,
-    assertProductionGoldCapture,
+    assertSyntheticProbeCapture,
     beginGoldRun,
     invalidateGoldRun,
     loadGoldCapture,
@@ -501,14 +502,14 @@ export async function runGoldEvalCases({
         ? await loadGoldCapture(goldPlan.captureRunDir)
         : null;
     if (cassetteSource) {
-        assertProductionGoldCapture(cassetteSource);
+        assertSyntheticProbeCapture(cassetteSource);
         assertGoldCaptureInputs(cassetteSource, {
             sampleHash,
             snapshotHash,
             cases: goldPlan.cases,
         });
         if (!cassetteSource.manifest.capture?.containsTransportCassette) {
-            throw new Error('source capture 不含完整 transport cassette；必须重新运行 production capture');
+            throw new Error('source capture 不含完整 transport cassette；必须重新运行 synthetic probe capture');
         }
     }
     const sourceTransportByCaseId = cassetteSource
@@ -519,7 +520,7 @@ export async function runGoldEvalCases({
         generatedAt: new Date().toISOString(),
         mode: cassetteMode
             ? 'story-summary-replay-gold-recall-cassette'
-            : 'story-summary-replay-gold-capture',
+            : 'story-summary-replay-synthetic-probe-capture',
         ...(cassetteSource ? {
             sourceCapture: {
                 runId: cassetteSource.manifest.runId,
@@ -628,11 +629,22 @@ export async function runGoldEvalCases({
                     { caseId: goldCase.id },
                 )
                 : null;
-            const execution = await executeRecallCase({
+            const focusMessage = {
+                is_user: true,
+                name: String(sample?.names?.name1 || '用户'),
+                mes: String(goldCase.query || ''),
+            };
+            const execution = await withProductRecallTurn({
+                modules,
+                historyMessages: sample.messages,
+                focusMessage,
                 label: goldCase.id,
-                pendingUserMessage: goldCase.query,
-                excludeLastAi: false,
-            }, collector.observe, transportCassette);
+                execute: () => executeRecallCase({
+                    label: goldCase.id,
+                    querySource: 'synthetic-probe-chat-tail',
+                    excludeLastAi: false,
+                }, collector.observe, transportCassette),
+            });
             activeExecution = execution;
             assertGoldExternalStagesHealthy(execution, goldCase.id);
             if (!cassetteMode) {
@@ -717,7 +729,13 @@ export async function runGoldEvalCases({
                 reader: readerResult.transport,
                 readerUsage: readerResult.usage,
             };
-            const replayCase = { ...execution.reportCase, goldCaseId: goldCase.id };
+            const replayCase = {
+                ...execution.reportCase,
+                goldCaseId: goldCase.id,
+                querySource: 'synthetic-probe-chat-tail',
+                historyThroughFloor: goldCase.atFloor,
+                queryFloor: goldCase.atFloor + 1,
+            };
             const capture = {
                 schemaVersion: GOLD_CAPTURE_SCHEMA_VERSION,
                 caseId: goldCase.id,
@@ -758,8 +776,9 @@ export async function runGoldEvalCases({
                     : '本次只评分 retrieval 与 Prompt 证据链；阅读答案尚未运行。',
                 cassetteMode
                     ? 'recall-cassette 执行正式召回代码，但 Embedding/Rerank 严格复放 source capture；production network=0。'
-                    : 'production capture 使用 live Embedding/Rerank，并保存可验证的完整 transport cassette。',
+                    : 'synthetic probe capture 使用 live Embedding/Rerank，并保存可验证的完整 transport cassette。',
                 '所有用例 atFloor 必须等于冻结 snapshot 边界，防止未来信息泄漏。',
+                '本轨问题是追加在冻结聊天末尾的synthetic probe；执行时按产品chat.push进入内存，但不属于自然用户主指标。',
                 '无法携带精确楼层来源的短文本不参与自动 Prompt 归因。',
                 `相邻 case 起点按可复现抖动间隔 ${goldPlan.caseIntervalMinMs ?? DEFAULT_CASE_INTERVAL_MIN_MS}–${goldPlan.caseIntervalMaxMs ?? DEFAULT_CASE_INTERVAL_MAX_MS}ms 调度；题内生产并发保持不变。`,
             ],

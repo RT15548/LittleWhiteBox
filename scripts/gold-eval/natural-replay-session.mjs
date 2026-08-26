@@ -1,6 +1,7 @@
 // Gold Eval - chronological capture for schema-v2 verbatim user queries.
 // The conversation is replayed once. At query floor q the plugin can see only
-// floors 0..q-1; q is supplied exclusively as pendingUserMessage.
+// floors 0..q-1 own persistent history; the real q USER object is pushed only
+// into the in-memory chat during recall, exactly like the product send path.
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -197,7 +198,7 @@ export async function runNaturalCaptureCases({
         },
         config: {
             fingerprint: buildReplayConfigFingerprint(config),
-            historyPolicy: 'at query q expose exactly floors 0..q-1; q is pendingUserMessage only',
+            historyPolicy: 'persist floors 0..q-1; push the real USER object q into in-memory chat only for recall',
             minEvidenceDistanceFloors: plan.minEvidenceDistanceFloors,
             turnPacing: {
                 minMs: plan.turnIntervalMinMs,
@@ -352,6 +353,7 @@ export async function runNaturalCaptureCases({
                             modules,
                             goldCase: activeCase,
                             visibleMessages,
+                            focusMessage: message,
                             snapshotRef,
                             preparation,
                             executeRecallCase,
@@ -408,7 +410,7 @@ export async function runNaturalCaptureCases({
             failures,
             stageTraces,
             limitations: [
-                '主轨只使用真实用户逐字原话；query floor 本身不进入历史、总结或索引。',
+                '主轨只使用真实用户逐字原话；query floor不进入持久历史、Summary或L0/L1，但召回时以原始USER对象临时进入内存chat。',
                 `只运行与最新可接受证据相距至少 ${plan.minEvidenceDistanceFloors} 楼的 aged-memory cases。`,
                 '一次按时间顺序回放整段聊天；每个查询边界保存不可变 snapshot，后续候选必须复用同一边界状态。',
                 '本轨 expectedAnswer=evidence-only，只判断必要记忆是否进入实际 Prompt，不运行 reader。',

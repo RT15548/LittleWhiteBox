@@ -44,6 +44,7 @@ import {
 } from '../gold-eval/event-rerank-gate.mjs';
 import { withExternalCallTrace } from '../gold-eval/lib/transport-cassette.mjs';
 import { assertBootstrapHealthy } from '../gold-eval/baseline/bootstrap-health.mjs';
+import { withProductRecallTurn } from '../gold-eval/lib/product-recall-turn.mjs';
 
 class MemoryStorage {
     #map = new Map();
@@ -944,7 +945,7 @@ async function executeRecallCase(
     const store = modules.getSummaryStore();
     const allEvents = store?.json?.events || [];
     const label = String(recallCase?.label || 'recall-case');
-    const pendingUserMessage = recallCase?.pendingUserMessage ? String(recallCase.pendingUserMessage) : null;
+    const querySource = String(recallCase?.querySource || 'chat-tail');
     const excludeLastAi = !!recallCase?.excludeLastAi;
     const recallStartedAt = performance.now();
     const meta = await modules.getMeta(modules.getContext().chatId);
@@ -953,7 +954,6 @@ async function executeRecallCase(
             let recallResult = null;
             try {
                 recallResult = await modules.recallMemory(allEvents, vectorConfig, {
-                    pendingUserMessage,
                     excludeLastAi,
                     stageObserver,
                     deferRuntimeRelease: true,
@@ -1027,7 +1027,7 @@ async function executeRecallCase(
         reportCase: {
             label,
             excludeLastAi,
-            pendingUserMessagePreview: previewText(pendingUserMessage, 100),
+            querySource,
             promptChars: promptText.length,
             externalCalls: countedExecution.calls,
             externalRequests: countedExecution.requestCount ?? countedExecution.calls,
@@ -1170,9 +1170,7 @@ function renderMarkdownReport(report) {
         lines.push(`- diffusion_breakdown: graph ${recallCase.metrics?.diffusion?.buildTime ?? 0}ms, ppr ${recallCase.metrics?.diffusion?.pprTime ?? 0}ms, post ${recallCase.metrics?.diffusion?.postVerifyTime ?? 0}ms, vector_map ${recallCase.metrics?.diffusion?.vectorMapTime ?? 0}ms, yield ${recallCase.metrics?.diffusion?.yieldCount ?? 0}/${recallCase.metrics?.diffusion?.yieldTime ?? 0}ms`);
         lines.push(`- l1_attach_rate: ${recallCase.metrics?.quality?.l1AttachRate ?? 0}%`);
         lines.push(`- rerank_retention_rate: ${recallCase.metrics?.quality?.rerankRetentionRate ?? 0}%`);
-        if (recallCase.pendingUserMessagePreview) {
-            lines.push(`- pendingUserMessage: ${recallCase.pendingUserMessagePreview}`);
-        }
+        lines.push(`- querySource: ${recallCase.querySource || 'chat-tail'}`);
         const potentialIssues = recallCase.metrics?.quality?.potentialIssues || [];
         if (potentialIssues.length) {
             lines.push('- issues:');
@@ -2059,13 +2057,19 @@ export async function runStorySummaryReplay({ rootDir, config, configPath }) {
 
                 const recallResult = deserializePromptRecallInput(promptInput?.production?.recallResult || {});
                 const beforeEvents = recallResult.events || [];
-                const counted = await withExternalCallTrace(() => modules.rerankRecalledEvents(
-                    beforeEvents,
-                    {
-                        ...semanticQuery,
-                        chat: replayMessages,
-                    },
-                ));
+                const counted = await withProductRecallTurn({
+                    modules,
+                    historyMessages: replayMessages,
+                    focusMessage: sample.messages[goldCase.atFloor],
+                    label: goldCase.id,
+                    execute: () => withExternalCallTrace(() => modules.rerankRecalledEvents(
+                        beforeEvents,
+                        {
+                            ...semanticQuery,
+                            chat: replayMessages,
+                        },
+                    )),
+                });
                 const rerank = counted.value;
                 const afterEvents = rerank?.events || beforeEvents;
                 const rerankedRecall = { ...recallResult, events: afterEvents };

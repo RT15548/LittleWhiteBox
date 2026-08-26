@@ -10,11 +10,11 @@ import { createDrawRunClient } from './draw-run-client.js';
 import { publishDrawRunActivity, subscribeDrawRunActivity } from './draw-run-activity.js';
 import { runDrawRunRecoveryPass } from './draw-run-recovery-runtime.js';
 import {
-    createConfirmableChatSnapshot,
-    persistedChatMatchesSnapshot,
+    readChatAndConfirm,
     saveChatAndConfirm,
     withConfirmableChatMutation,
 } from './confirmable-chat-save.js';
+import { persistedChatHasDeliverySlots } from './draw-run-markers.js';
 import {
     clearSlotSelection,
     deletePreview,
@@ -27,7 +27,7 @@ import { executeImageJobReattachEntry } from './image-job-recovery-executor.js';
 import { planImageJobReattach, ReattachAction } from './image-job-reattach.js';
 import { readPageFarewells } from './page-farewell.js';
 import { getPendingImageJob, listPendingImageJobs, PendingJobState } from './pending-image-jobs.js';
-import { commitSceneSlotDelivery } from './scene-placement.js';
+import { commitSceneSlotDelivery, removeSceneSlotPlaceholders } from './scene-placement.js';
 import {
     classifyError,
     ErrorType,
@@ -38,8 +38,9 @@ import {
 import {
     classifyImageJobDeliveryTarget,
     commitImageJobDeliverySlotRemoval,
+    getImageJobDeliveryTextAt,
     ImageJobDeliveryTargetState,
-    removeImageJobDeliverySlotsFromChat,
+    persistedImageJobDeliveryChangesMatch,
     requireImageJobDeliveryTarget,
 } from './image-job-delivery-target.js';
 
@@ -229,10 +230,6 @@ function createDeliveryAdapter() {
             if (slotsToRemove.length > 0) {
                 const saveContext = getContext();
                 removedTargets = await withConfirmableChatMutation(saveContext, async () => {
-                    const beforeSaveSnapshot = String(saveContext?.chatId || '') === String(record.delivery?.chatId || '')
-                        && Array.isArray(saveContext?.chat)
-                        ? createConfirmableChatSnapshot(saveContext)
-                        : null;
                     return commitImageJobDeliverySlotRemoval({
                         slotIds: slotsToRemove,
                         resolveTarget: slotId => requireAvailableTarget(record, { slotId }),
@@ -241,21 +238,58 @@ function createDeliveryAdapter() {
                         guard,
                         persist: async ({ changes = [] } = {}) => {
                             if (!saveContext?.saveChat) return;
-                            const afterSaveSnapshot = createConfirmableChatSnapshot(saveContext);
+                            if (changes.length === 0) {
+                                const localText = getImageJobDeliveryTextAt(saveContext.chat, record.delivery);
+                                if (typeof localText !== 'string') {
+                                    const readback = await readChatAndConfirm({
+                                        ctx: saveContext,
+                                        verify: persistedChat => slotsToRemove.every(slotId => (
+                                            !persistedChatHasDeliverySlots(
+                                                persistedChat,
+                                                record.delivery,
+                                                [slotId],
+                                            )
+                                        )),
+                                    });
+                                    if (!readback.confirmed) {
+                                        throw new Error('后台生图目标槽位仍在持久化聊天中，暂缓结算');
+                                    }
+                                    return;
+                                }
+                                await saveChatAndConfirm({
+                                    ctx: saveContext,
+                                    precondition: (persistedChat) => {
+                                        const persistedText = getImageJobDeliveryTextAt(
+                                            persistedChat,
+                                            record.delivery,
+                                        );
+                                        return typeof persistedText === 'string'
+                                            && removeSceneSlotPlaceholders(persistedText, slotsToRemove) === localText;
+                                    },
+                                    // delivery.messageId 是 adoption 时的定位提示，用户删除更早楼层后
+                                    // 可能已经失效。保存后的唯一终态事实是本批 slot 在整份聊天里
+                                    // 都不存在，不能只核对旧下标指向的那一条消息。
+                                    verify: persistedChat => slotsToRemove.every(slotId => (
+                                        !persistedChatHasDeliverySlots(
+                                            persistedChat,
+                                            record.delivery,
+                                            [slotId],
+                                        )
+                                    )),
+                                });
+                                return;
+                            }
                             await saveChatAndConfirm({
                                 ctx: saveContext,
-                                precondition: persistedChat => (
-                                    beforeSaveSnapshot
-                                    && (changes.length > 0
-                                        ? persistedChatMatchesSnapshot(persistedChat, beforeSaveSnapshot)
-                                        : persistedChatMatchesSnapshot(
-                                            removeImageJobDeliverySlotsFromChat(persistedChat, slotsToRemove),
-                                            afterSaveSnapshot,
-                                        ))
-                                ),
-                                verify: persistedChat => persistedChatMatchesSnapshot(
+                                precondition: persistedChat => persistedImageJobDeliveryChangesMatch(
                                     persistedChat,
-                                    afterSaveSnapshot,
+                                    changes,
+                                    'beforeText',
+                                ),
+                                verify: persistedChat => persistedImageJobDeliveryChangesMatch(
+                                    persistedChat,
+                                    changes,
+                                    'afterText',
                                 ),
                             });
                         },

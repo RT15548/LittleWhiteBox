@@ -78,7 +78,7 @@ async function createCapture(rootDir, { productionTransport = [], caseCount = 1 
         runId: 'source-capture',
         manifest: {
             runId: 'source-capture',
-            mode: 'story-summary-replay-gold-capture',
+            mode: 'story-summary-replay-synthetic-probe-capture',
             data: { casesHash: 'cases-hash', sampleHash, snapshotHash },
             code: { bundleHash },
             capture: {
@@ -311,7 +311,7 @@ test('strict cassette miss 立即失败且不会回退网络', async () => {
             error => error?.goldFailure?.kind === 'miss'
                 && error?.externalCalls === 0
                 && error?.externalTrace?.[0]?.requestHash === changedRequest.requestHash
-                && /新的 production capture/.test(error.message),
+                && /新的同轨 source capture/.test(error.message),
         );
         assert.equal(networkCalls, 0);
     } finally {

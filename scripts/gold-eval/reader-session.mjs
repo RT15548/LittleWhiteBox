@@ -1,4 +1,4 @@
-// Gold Eval - reader-only consumer for a valid production capture.
+// Gold Eval - reader-only consumer for a valid frozen source capture.
 
 import path from 'node:path';
 

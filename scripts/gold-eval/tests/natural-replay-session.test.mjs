@@ -363,7 +363,7 @@ async function createInvalidCaptureWithRecovery(fixtureState) {
     return path.join(tempDir, runDirs[0].name);
 }
 
-test('natural capture 单次顺序回放，并在每题严格排除 query 与未来历史', async t => {
+test('natural capture冻结q-1持久态，并以真实q对象入列执行召回', async t => {
     const { samplePath, sample, config, plan } = await fixture(t);
     let visibleMessages = [];
     const visibleAtRecall = [];
@@ -404,9 +404,10 @@ test('natural capture 单次顺序回放，并在每题严格排除 query 与未
         },
         executeRecallCase: async recallCase => {
             visibleAtRecall.push({
-                pending: recallCase.pendingUserMessage,
+                querySource: recallCase.querySource,
                 visibleCount: visibleMessages.length,
                 visibleTail: visibleMessages.at(-1)?.mes || null,
+                isRealObject: visibleMessages.at(-1) === sample.messages[visibleMessages.length - 1],
             });
             return successfulExecution();
         },
@@ -417,8 +418,8 @@ test('natural capture 单次顺序回放，并在每题严格排除 query 与未
     });
 
     assert.deepEqual(visibleAtRecall, [
-        { pending: '用户问题 2', visibleCount: 2, visibleTail: '角色回答 1' },
-        { pending: '用户问题 6', visibleCount: 6, visibleTail: '角色回答 5' },
+        { querySource: 'natural-chat-floor', visibleCount: 3, visibleTail: '用户问题 2', isRealObject: true },
+        { querySource: 'natural-chat-floor', visibleCount: 7, visibleTail: '用户问题 6', isRealObject: true },
     ]);
     assert.deepEqual(maintenanceFloors, [1, 3, 5]);
     assert.deepEqual(result.boundarySnapshots.map(item => item.messageCount), [2, 6]);
@@ -841,7 +842,11 @@ test('natural resume导入原子前缀并只从最后boundary之后继续维护'
             }), 'utf8');
         },
         executeRecallCase: async recallCase => {
-            recalled.push({ pending: recallCase.pendingUserMessage, visible: visibleMessages.length });
+            recalled.push({
+                querySource: recallCase.querySource,
+                visible: visibleMessages.length,
+                tail: visibleMessages.at(-1)?.mes,
+            });
             return successfulExecution();
         },
         clock: () => now,
@@ -850,7 +855,7 @@ test('natural resume导入原子前缀并只从最后boundary之后继续维护'
 
     assert.deepEqual(restored, [{ floor: 2, visible: 2 }]);
     assert.deepEqual(maintained, [3, 5]);
-    assert.deepEqual(recalled, [{ pending: '用户问题 6', visible: 6 }]);
+    assert.deepEqual(recalled, [{ querySource: 'natural-chat-floor', visible: 7, tail: '用户问题 6' }]);
     assert.equal(result.manifest.status, 'valid');
     assert.equal(result.manifest.mode, 'story-summary-replay-natural-resume');
     assert.equal(result.manifest.progress.completedCases, 2);
@@ -1061,7 +1066,7 @@ test('natural recall 只消费同一valid capture的逐题边界且不重建历�
         executeRecallCase: async (recallCase, _observer, cassette) => {
             assert.equal(cassette.sourceRequestCount, 1);
             observed.push({
-                pending: recallCase.pendingUserMessage,
+                querySource: recallCase.querySource,
                 visibleCount: visibleMessages.length,
                 visibleTail: visibleMessages.at(-1)?.mes || null,
             });
@@ -1078,8 +1083,8 @@ test('natural recall 只消费同一valid capture的逐题边界且不重建历�
         { floor: 6, snapshotCount: 6, visibleCount: 6 },
     ]);
     assert.deepEqual(observed, [
-        { pending: '用户问题 2', visibleCount: 2, visibleTail: '角色回答 1' },
-        { pending: '用户问题 6', visibleCount: 6, visibleTail: '角色回答 5' },
+        { querySource: 'natural-chat-floor', visibleCount: 3, visibleTail: '用户问题 2' },
+        { querySource: 'natural-chat-floor', visibleCount: 7, visibleTail: '用户问题 6' },
     ]);
     assert.equal(result.manifest.status, 'valid');
     assert.equal(result.manifest.mode, 'story-summary-replay-natural-recall');

@@ -105,7 +105,7 @@ export async function prepareNaturalRecallPlan({ rootDir, config, sample, sample
     }
     if (!source.manifest.capture?.containsTransportCassette
         || source.manifest.capture?.transportMode !== 'live-production') {
-        throw new Error('natural-recall source 必须是可复放的 live production capture');
+        throw new Error('natural-recall source 必须是可复放的 product-aligned Natural capture');
     }
     const sampleHash = await sha256File(samplePath);
     if (source.manifest.data?.sampleHash !== sampleHash) {
@@ -199,7 +199,7 @@ export async function runNaturalRecallCases({
         },
         config: {
             fingerprint: buildReplayConfigFingerprint(config),
-            historyPolicy: 'restore source boundary q with exactly floors 0..q-1; q is pendingUserMessage only',
+            historyPolicy: 'restore source boundary q at floors 0..q-1; push the real USER object q into in-memory chat only for recall',
             casePacing: {
                 minMs: plan.caseIntervalMinMs,
                 maxMs: plan.caseIntervalMaxMs,
@@ -279,6 +279,7 @@ export async function runNaturalRecallCases({
                     modules,
                     goldCase: activeCase,
                     visibleMessages,
+                    focusMessage: sample.messages[activeCase.atFloor],
                     snapshotRef,
                     preparation: emptyNaturalPreparation(),
                     executeRecallCase,
@@ -317,7 +318,7 @@ export async function runNaturalRecallCases({
                 '每题只恢复同一valid natural-capture冻结的boundary snapshot；不重建历史。',
                 'Summary、L0与历史Embedding调用为零；core recall 严格复放 source cassette，只有 enrichment 使用真实网络。',
                 '每题 candidate core Prompt 必须与 source baseline Prompt 逐字一致，否则整轮立即作废。',
-                'query floor本身不进入历史或索引，只作为pendingUserMessage。',
+                'query floor不进入Summary、L0/L1或boundary snapshot；召回时将真实USER对象临时push进内存chat。',
                 '只允许同请求、有限次数且最终成功的retryable transient；未恢复Embedding/Rerank失败或fallback立即作废。',
             ],
         });

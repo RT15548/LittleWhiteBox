@@ -66,6 +66,34 @@ export function setImageJobDeliveryTargetText(target, text) {
     return true;
 }
 
+export function getImageJobDeliveryTextAt(chat, { messageId, swipeIndex } = {}) {
+    const index = Number(messageId);
+    if (!Array.isArray(chat) || !Number.isSafeInteger(index) || index < 0) return null;
+    const hasMetadataHeader = chat[0]?.chat_metadata && typeof chat[0].chat_metadata === 'object';
+    const message = chat[index + (hasMetadataHeader ? 1 : 0)];
+    if (!message || typeof message !== 'object') return null;
+    const swipe = Number(swipeIndex);
+    if (!Number.isSafeInteger(swipe) || swipe < 0) {
+        return typeof message.mes === 'string' ? message.mes : null;
+    }
+    const activeSwipe = Number.isInteger(message.swipe_id) ? message.swipe_id : 0;
+    if (swipe === activeSwipe) return typeof message.mes === 'string' ? message.mes : null;
+    return Array.isArray(message.swipes) && typeof message.swipes[swipe] === 'string'
+        ? message.swipes[swipe]
+        : null;
+}
+
+export function persistedImageJobDeliveryChangesMatch(persistedChat, changes = [], textKey = 'beforeText') {
+    const expected = Array.isArray(changes) ? changes : [];
+    if (expected.length === 0 || !['beforeText', 'afterText'].includes(textKey)) return false;
+    return expected.every(change => getImageJobDeliveryTextAt(persistedChat, {
+        messageId: change?.target?.messageId,
+        swipeIndex: Number.isInteger(change?.target?.swipe)
+            ? change.target.swipe
+            : change?.target?.message?.swipe_id,
+    }) === String(change?.[textKey] ?? ''));
+}
+
 export function classifyImageJobDeliveryTarget({
     currentChatId,
     targetChatId,
@@ -85,26 +113,6 @@ export function requireImageJobDeliveryTarget(options) {
         throw new ImageJobDeliveryDeferredError();
     }
     return target.state === ImageJobDeliveryTargetState.ALIVE ? target : null;
-}
-
-export function removeImageJobDeliverySlotsFromChat(chat, slotIds = []) {
-    const ids = [...new Set((Array.isArray(slotIds) ? slotIds : [])
-        .map(value => String(value || '').trim())
-        .filter(Boolean))];
-    const clone = JSON.parse(JSON.stringify(Array.isArray(chat) ? chat : []));
-    if (ids.length === 0) return clone;
-    for (const message of clone) {
-        if (!message || typeof message !== 'object') continue;
-        if (typeof message.mes === 'string') {
-            message.mes = removeSceneSlotPlaceholders(message.mes, ids);
-        }
-        if (Array.isArray(message.swipes)) {
-            message.swipes = message.swipes.map(value => (
-                typeof value === 'string' ? removeSceneSlotPlaceholders(value, ids) : value
-            ));
-        }
-    }
-    return clone;
 }
 
 export async function commitImageJobDeliverySlotRemoval({

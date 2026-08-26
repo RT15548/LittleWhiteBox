@@ -5,9 +5,10 @@ import {
     classifyImageJobDeliveryTarget,
     commitImageJobDeliverySlotRemoval,
     findImageJobDeliverySlot,
+    getImageJobDeliveryTextAt,
     ImageJobDeliveryDeferredError,
     ImageJobDeliveryTargetState,
-    removeImageJobDeliverySlotsFromChat,
+    persistedImageJobDeliveryChangesMatch,
     requireImageJobDeliveryTarget,
     setImageJobDeliveryTargetText,
 } from '../image-job-delivery-target.js';
@@ -140,18 +141,30 @@ test('a save blocked before writing restores removed slots in memory', async () 
     assert.equal(message.mes, 'story\n[image:slot-a]');
 });
 
-test('persisted slot cleanup can be compared without mutating the read-back payload', () => {
-    const persisted = [
+test('slot settlement CAS compares only the changed swipe and ignores unrelated chat drift', () => {
+    const target = {
+        messageId: 0,
+        swipe: 0,
+        message: { swipe_id: 0 },
+    };
+    const changes = [{
+        target,
+        beforeText: 'story\n[image:slot-a]',
+        afterText: 'story',
+    }];
+    const before = [
         { chat_metadata: {} },
-        {
-            mes: 'story\n[image:slot-a]',
-            swipe_id: 0,
-            swipes: ['story\n[image:slot-a]', 'old\n[image:slot-a]'],
-        },
+        { mes: 'story\n[image:slot-a]', swipe_id: 0, swipes: ['story\n[image:slot-a]'] },
+        { mes: 'Persisted unrelated value.' },
     ];
-    const cleaned = removeImageJobDeliverySlotsFromChat(persisted, ['slot-a']);
+    const after = [
+        { chat_metadata: {} },
+        { mes: 'story', swipe_id: 0, swipes: ['story'] },
+        { mes: 'Another unrelated value.' },
+    ];
 
-    assert.equal(cleaned[1].mes, 'story');
-    assert.deepEqual(cleaned[1].swipes, ['story', 'old']);
-    assert.match(persisted[1].mes, /slot-a/);
+    assert.equal(getImageJobDeliveryTextAt(before, { messageId: 0, swipeIndex: 0 }), changes[0].beforeText);
+    assert.equal(persistedImageJobDeliveryChangesMatch(before, changes, 'beforeText'), true);
+    assert.equal(persistedImageJobDeliveryChangesMatch(after, changes, 'afterText'), true);
+    assert.equal(persistedImageJobDeliveryChangesMatch(after, changes, 'beforeText'), false);
 });

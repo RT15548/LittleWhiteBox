@@ -11,9 +11,7 @@
 // - 短消息通过 lengthFactor 自动降权（下限 35%）
 // - recall.js 负责 embed + 归一化 + 加权平均
 //
-// 焦点确定：
-// - pendingUserMessage 存在 → 它是焦点
-// - 否则 → lastMessages 最后一条是焦点
+// 焦点确定：lastMessages 最后一条是真实入列的当前 USER 消息
 //
 // 不负责：向量化、检索、rerank
 // ═══════════════════════════════════════════════════════════════════════════
@@ -240,17 +238,12 @@ function buildMessageEntry(message, context) {
  *   msg[1] = AI(#N-1)    上下文    baseWeight = 0.30
  *   msg[2] = USER(#N)    焦点      baseWeight = 0.55
  *
- * 焦点确定：
- *   pendingUserMessage 存在 → 焦点，所有 lastMessages 为上下文
- *   pendingUserMessage 不存在 → lastMessages[-1] 为焦点，其余为上下文
- *
  * @param {object[]} lastMessages - 最近 K 条消息（由 recall.js 传入）
- * @param {string|null} pendingUserMessage - 用户刚输入但未进 chat 的消息
  * @param {object|null} store
  * @param {object|null} context - { name1, name2 }
  * @returns {QueryBundle}
  */
-export function buildQueryBundle(lastMessages, pendingUserMessage, store = null, context = null) {
+export function buildQueryBundle(lastMessages, store = null, context = null) {
     if (!store) store = getSummaryStore();
     if (!context) {
         const ctx = getContext();
@@ -268,46 +261,23 @@ export function buildQueryBundle(lastMessages, pendingUserMessage, store = null,
     let focusQuery = '';
     const allCleanTexts = [];
 
-    if (pendingUserMessage) {
-        // pending 是焦点，所有 lastMessages 是上下文
-        const pendingClean = cleanMessageText(pendingUserMessage);
-        if (pendingClean) {
-            const speaker = context.name1 || '用户';
-            focusQuery = pendingClean;
-            focusEntry = {
-                text: `${speaker}：${pendingClean}`,
-                charCount: pendingClean.length,
-            };
-            allCleanTexts.push(pendingClean);
-        }
+    const msgs = lastMessages || [];
 
-        for (const m of (lastMessages || [])) {
-            const entry = buildMessageEntry(m, context);
-            if (entry) {
-                contextEntries.push(entry);
-                allCleanTexts.push(cleanMessageText(m.mes));
-            }
+    if (msgs.length > 0) {
+        const lastMsg = msgs[msgs.length - 1];
+        const entry = buildMessageEntry(lastMsg, context);
+        if (entry) {
+            focusQuery = cleanMessageText(lastMsg.mes);
+            focusEntry = entry;
+            allCleanTexts.push(cleanMessageText(lastMsg.mes));
         }
-    } else {
-        // 无 pending → lastMessages[-1] 是焦点
-        const msgs = lastMessages || [];
+    }
 
-        if (msgs.length > 0) {
-            const lastMsg = msgs[msgs.length - 1];
-            const entry = buildMessageEntry(lastMsg, context);
-            if (entry) {
-                focusQuery = cleanMessageText(lastMsg.mes);
-                focusEntry = entry;
-                allCleanTexts.push(cleanMessageText(lastMsg.mes));
-            }
-        }
-
-        for (let i = 0; i < msgs.length - 1; i++) {
-            const entry = buildMessageEntry(msgs[i], context);
-            if (entry) {
-                contextEntries.push(entry);
-                allCleanTexts.push(cleanMessageText(msgs[i].mes));
-            }
+    for (let i = 0; i < msgs.length - 1; i++) {
+        const entry = buildMessageEntry(msgs[i], context);
+        if (entry) {
+            contextEntries.push(entry);
+            allCleanTexts.push(cleanMessageText(msgs[i].mes));
         }
     }
 

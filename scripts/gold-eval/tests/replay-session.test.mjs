@@ -6,6 +6,7 @@ import path from 'node:path';
 
 import { prepareGoldEvalPlan, runGoldEvalCases } from '../replay-session.mjs';
 import { validateCase } from '../lib/cases.mjs';
+import { withProductRecallTurn } from '../lib/product-recall-turn.mjs';
 import { beginGoldRun, sha256File, sha256Text } from '../lib/run-store.mjs';
 import { summarizeExternalRequest, withExternalCallTrace } from '../lib/transport-cassette.mjs';
 
@@ -29,6 +30,30 @@ function makeCase(id) {
     assert.equal(checked.ok, true, checked.errors.join('; '));
     return checked.case;
 }
+
+test('产品召回边界使用真实USER对象，并在漂移后恢复q-1历史', async () => {
+    const history = [
+        { is_user: true, mes: '上一条用户消息' },
+        { is_user: false, mes: '上一条角色回复' },
+    ];
+    const originalRefs = history.slice();
+    const focusMessage = { is_user: true, mes: '当前真实用户消息' };
+
+    await assert.rejects(() => withProductRecallTurn({
+        modules: { getContext: () => ({ chat: history }) },
+        historyMessages: history,
+        focusMessage,
+        label: 'fixture-product-turn',
+        execute: async () => {
+            assert.equal(history.at(-1), focusMessage);
+            history[0] = { is_user: true, mes: '非法改写' };
+        },
+    }), /mutated the in-memory chat turn/);
+
+    assert.deepEqual(history, originalRefs);
+    assert.equal(history[0], originalRefs[0]);
+    assert.equal(history[1], originalRefs[1]);
+});
 
 test('goldEval.caseIds 在 limit 前精确选择 case，未知 id 在执行前拒绝', async t => {
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lwb-gold-case-ids-'));
@@ -62,10 +87,10 @@ test('goldEval.caseIds 在 limit 前精确选择 case，未知 id 在执行前�
     );
 });
 
-function modulesFixture() {
+function modulesFixture(chat) {
     return {
         getSummaryStore: () => ({ json: { events: [], facts: [] } }),
-        getContext: () => ({ chatId: 'fixture-chat' }),
+        getContext: () => ({ chatId: 'fixture-chat', chat }),
         getAllChunks: async () => [],
         getStateAtoms: () => [],
     };
@@ -117,14 +142,21 @@ test('Gold Eval 用可复现的用户回合抖动控制 case 启动节奏，且�
     let now = 0;
     const starts = [];
     const waits = [];
+    const messages = [{ is_user: false, name: '角色', mes: '答案' }];
     const executeRecallCase = async () => {
+        assert.equal(messages.length, 2);
+        assert.deepEqual(messages.at(-1), {
+            is_user: true,
+            name: '用户',
+            mes: '答案是什么？',
+        });
         starts.push(now);
         now += 1000;
         return successfulExecution(5);
     };
 
     const result = await runGoldEvalCases({
-        modules: modulesFixture(),
+        modules: modulesFixture(messages),
         goldPlan: {
             cases: [
                 makeCase('fixture-pacing-001'),
@@ -138,7 +170,7 @@ test('Gold Eval 用可复现的用户回合抖动控制 case 启动节奏，且�
             caseIntervalMinMs: 12000,
             caseIntervalMaxMs: 15000,
         },
-        sample: { messages: [{ mes: '答案' }] },
+        sample: { messages, names: { name1: '用户', name2: '角色' } },
         samplePath,
         snapshotPath,
         config: {
@@ -157,6 +189,12 @@ test('Gold Eval 用可复现的用户回合抖动控制 case 启动节奏，且�
     assert.ok(startIntervals.every(interval => interval >= 12000 && interval <= 15000));
     assert.equal(new Set(startIntervals).size, 2);
     assert.ok(waits.every(delay => delay >= 11000 && delay <= 14000));
+    assert.equal(messages.length, 1);
+    assert.ok(result.replayCases.every(item => (
+        item.querySource === 'synthetic-probe-chat-tail'
+        && item.historyThroughFloor === 0
+        && item.queryFloor === 1
+    )));
     assert.deepEqual(result.manifest.config.pacing, {
         caseIntervalMinMs: 12000,
         caseIntervalMaxMs: 15000,
@@ -187,8 +225,9 @@ test('Gold Eval 首个外部错误立即终止并自动落盘 invalid，不执�
         batchIndex: 0,
     });
 
+    const messages = [{ is_user: false, name: '角色', mes: '答案' }];
     await assert.rejects(() => runGoldEvalCases({
-        modules: modulesFixture(),
+        modules: modulesFixture(messages),
         goldPlan: {
             cases: [makeCase('fixture-stop-001'), makeCase('fixture-stop-002')],
             casesPath: samplePath,
@@ -198,7 +237,7 @@ test('Gold Eval 首个外部错误立即终止并自动落盘 invalid，不执�
             caseIntervalMinMs: 12000,
             caseIntervalMaxMs: 15000,
         },
-        sample: { messages: [{ mes: '答案' }] },
+        sample: { messages, names: { name1: '用户', name2: '角色' } },
         samplePath,
         snapshotPath,
         config: { goldEval: { reader: { enabled: false } } },
@@ -214,6 +253,7 @@ test('Gold Eval 首个外部错误立即终止并自动落盘 invalid，不执�
 
     assert.equal(executeCount, 1);
     assert.equal(waitCount, 0);
+    assert.equal(messages.length, 1);
     const runDirs = (await fs.readdir(tempDir, { withFileTypes: true }))
         .filter(entry => entry.isDirectory())
         .map(entry => path.join(tempDir, entry.name));
@@ -255,7 +295,7 @@ test('recall-cassette 按 case id 复放 source 子集、跳过节奏等待且 p
         runId: 'source-capture',
         manifest: {
             runId: 'source-capture',
-            mode: 'story-summary-replay-gold-capture',
+            mode: 'story-summary-replay-synthetic-probe-capture',
             data: { sampleHash, snapshotHash },
             capture: {
                 containsFullPrompts: true,
@@ -310,8 +350,9 @@ test('recall-cassette 按 case id 复放 source 子集、跳过节奏等待且 p
         throw new Error('recall-cassette 不得联网');
     };
     try {
+        const messages = [{ is_user: false, name: '角色', mes: '答案' }];
         const result = await runGoldEvalCases({
-            modules: modulesFixture(),
+            modules: modulesFixture(messages),
             goldPlan: {
                 cases: [selectedCase],
                 casesPath: samplePath,
@@ -322,7 +363,7 @@ test('recall-cassette 按 case id 复放 source 子集、跳过节奏等待且 p
                 caseIntervalMaxMs: 15000,
                 captureRunDir: source.runDir,
             },
-            sample: { messages: [{ mes: '答案' }] },
+            sample: { messages, names: { name1: '用户', name2: '角色' } },
             samplePath,
             snapshotPath,
             config: {

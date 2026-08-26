@@ -369,6 +369,55 @@ test('successful automatic handoff replaces its marker with the existing provide
     assert.equal(message.swipe_info[0].extra.xb_sd_auto_done, true);
 });
 
+test('marker cleanup ignores unrelated chat drift but still rejects a changed target swipe', async () => {
+    const message = createMessage();
+    const unrelated = { mes: 'Local runtime-only value.', extra: { localOnly: true } };
+    const ctx = { chatId: 'chat-1', chat: [message, unrelated], getRequestHeaders: () => ({}) };
+    const syncActiveSwipe = syncMessage(message);
+    const marker = setDrawRunMarker({
+        message,
+        messageId: 0,
+        runId: 'run-test-117',
+        marker: {
+            provider: 'novelai',
+            sourceHash: 'hash-1',
+            targetHash: 'target-1',
+            createdAt: 100,
+        },
+        syncActiveSwipe,
+    });
+    const persistedTarget = structuredClone(message);
+
+    await clearDrawRunMarkerAndConfirm({
+        ctx,
+        message,
+        messageId: 0,
+        swipeIndex: 0,
+        runId: 'run-test-117',
+        marker,
+        syncActiveSwipe,
+        saveAndConfirm: async ({ precondition, verify }) => {
+            assert.equal(await precondition([
+                { chat_metadata: {} },
+                persistedTarget,
+                { mes: 'Different persisted value.', extra: {} },
+            ]), true);
+            assert.equal(await precondition([
+                { chat_metadata: {} },
+                { ...persistedTarget, mes: 'The target was edited elsewhere.' },
+                { mes: 'Different persisted value.', extra: {} },
+            ]), false);
+            assert.equal(await verify([
+                { chat_metadata: {} },
+                structuredClone(message),
+                { mes: 'Different persisted value.', extra: {} },
+            ]), true);
+        },
+    });
+
+    assert.equal(getDrawRunMarker(message, 0, 'run-test-117'), null);
+});
+
 test('missing Draw Runs stay uncertain for 120 seconds before marker cleanup', () => {
     assert.equal(classifyMissingDrawRun(1_000, 120_999), 'wait');
     assert.equal(classifyMissingDrawRun(1_000, 121_000), 'clear');

@@ -7,7 +7,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
-import { assertProductionGoldCapture, loadGoldCapture, sha256File } from '../lib/run-store.mjs';
+import { assertSyntheticProbeCapture, loadGoldCapture, sha256File } from '../lib/run-store.mjs';
 import { auditStudy, loadStudy } from '../study/store.mjs';
 
 const OBSERVATION_MODE = 'story-summary-replay-gold-recall-cassette';
@@ -159,7 +159,7 @@ function summarizeRows(rows) {
 
 async function analyzeSource({ id, sourceDir, observerDir }) {
     const [source, observer] = await Promise.all([loadGoldCapture(sourceDir), loadGoldCapture(observerDir)]);
-    assertProductionGoldCapture(source);
+    assertSyntheticProbeCapture(source);
     const provenance = assertObserverProvenance(source, observer);
     const rows = observer.cases.map((goldCase, index) => ({
         caseId: goldCase.id,

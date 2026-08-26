@@ -28,7 +28,6 @@ import {
 } from './draw-run-recovery.js';
 import {
     createConfirmableChatTarget,
-    persistedChatMatchesSnapshot,
     readChatAndConfirm,
     saveChatAndConfirm,
     withConfirmableChatMutation,
@@ -67,7 +66,7 @@ function resolveCurrentDrawRunTarget(runId) {
     return found ? { ...found, chat: ctx.chat, chatId: String(ctx?.chatId || '') } : null;
 }
 
-async function confirmAdoptedSlots({ ctx, runId, slotIds, target, snapshot }) {
+async function confirmAdoptedSlots({ ctx, runId, slotIds, target, expectedText }) {
     const live = resolveCurrentDrawRunTarget(runId);
     if (!live || live.chatId !== String(ctx?.chatId || '') || live.message !== target?.message) {
         const error = new Error('Draw Run 目标聊天已切换，暂缓保存占位符');
@@ -76,7 +75,12 @@ async function confirmAdoptedSlots({ ctx, runId, slotIds, target, snapshot }) {
     }
     await saveChatAndConfirm({
         ctx,
-        precondition: persistedChat => persistedChatMatchesSnapshot(persistedChat, snapshot),
+        precondition: persistedChat => persistedDrawRunTargetMatches(
+            persistedChat,
+            runId,
+            expectedText,
+            target.marker,
+        ),
         verify: persistedChat => persistedChatHasDrawRunSlots(persistedChat, runId, slotIds),
     });
 }

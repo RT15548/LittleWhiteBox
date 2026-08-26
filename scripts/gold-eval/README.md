@@ -1,8 +1,25 @@
 # Gold Eval 评测工具
 
-这里拥有 Gold case、评分、production capture 与其离线消费者。生产召回仍由
+这里拥有 Gold case、评分、Natural product-aligned capture、synthetic probe capture 与各自消费者。生产召回仍由
 `story-summary-replay` 调用正式 `recallMemory()`；Gold Eval 只负责编排、观测、冻结和判分，
 不另造一套召回或向量世界。
+
+## 产品对齐不变量
+
+评测不得向生产召回传递专用 query 参数。唯一允许的执行边界与 SillyTavern 普通发送一致：
+
+```text
+冻结 Summary / L0 / L1 / L2 到 q-1
+→ 将 USER 消息对象 q push 到当前内存 chat
+→ 调用正式 recallMemory()（它从 chat 读取最近三条）
+→ 完成正式 Prompt 装配
+→ 从评测内存 chat 移除 q，保持下一题隔离
+```
+
+`track=natural` 必须 push 原聊天在 query floor 的同一个真实 USER 对象，并校验其文本与 Gold
+逐字一致。query 不进入 boundary snapshot、Summary、L0/L1 或向量库。经典末尾问答则只能创建
+`synthetic-probe-chat-tail` USER 对象；它可以测长记忆压力和机制完整性，但不是自然用户主指标，
+不得用于证明线上语义策略。
 
 ## 自检
 
@@ -59,7 +76,7 @@ r1Dense / r2Dense / lexical / fusion / rerank / graph / final / prompt
 - `lib/report.mjs`：标准运行产物与 Markdown 报告。
 - `lib/run-store.mjs`：版本化 run、逐题 checkpoint、完整性校验和 valid/invalid 生命周期。
 - `lib/transport-cassette.mjs`：捕获并严格复放 Embedding/Rerank 请求与响应；cassette miss 禁止联网。
-- `replay-session.mjs`：live production capture 与 recall-cassette 编排。
+- `replay-session.mjs`：synthetic probe live capture 与 recall-cassette 编排。
 - `prompt-session.mjs`：复用同一 normalized recall 的 Prompt 配对轨道。
 - `reader-session.mjs`：只读取冻结完整 Prompt 的固定 reader 轨道。
 - `tests/`：评分层公开输入输出契约。
@@ -164,15 +181,16 @@ case 内按 5 秒、10 秒退避重试；400/401/403/404 等配置错误不重�
 不会跳到下一题，也不会用 fallback 把错误洗成答案。reader-only 默认 4 题并发；同一批出现错误时，
 不会启动下一批，并记录批次内所有已发请求。
 
-启用 Gold Eval 后，普通 `recallCases` 不再额外执行，避免重复 API 调用。每个 case 的 `atFloor`
-必须等于当前 replay 的最后楼层；需要测试其他时间点时，应为对应前缀建立独立 snapshot。
+启用经典 Gold Eval 后，普通 `recallCases` 不再额外执行，避免重复 API 调用。经典 case 的
+`atFloor` 表示冻结历史的最后楼层；合成 USER 会作为下一楼临时入列。需要产品质量结论时必须使用
+Natural 轨：在真实 query floor 建立 q-1 boundary，并把原始 USER 对象 q 临时入列。
 Gold Eval 默认用冻结 cases hash 与 case id 生成可复现的 12–15 秒用户回合间隔；题内 Embedding、
 Rerank 并发保持正式插件行为不变。同一 cases 文件重跑得到相同节奏，避免不可审计的随机运行。
 运行产物写入配置的 `runsRoot/<run-id>/`，不把私有样本路径或 API Key 写入仓库配置。
 
-## Production capture 与三个消费者
+## Synthetic probe capture 与三个消费者
 
-一次合格的新版 production capture 会逐题 checkpoint，并在完整成功后原子生成：
+一次合格的新版 synthetic probe capture 会逐题 checkpoint，并在完整成功后原子生成：
 
 ```text
 manifest / cases / prompts / prompt-inputs / transport-trace /
@@ -183,7 +201,8 @@ stage-trace / metrics / failures / report / code archive
 请求身份与完整 JSON 响应，用于严格离线复放，因此整个 run 属于私有敏感数据。所有者是评测工作区
 的用户，生命周期只跟随该次 run；删除对应 run 目录即可完整清理，不存在数据库、缓存或兼容副本。
 
-消费者只能读取 `status=valid`、schema/hash 完整且模式为 production capture 的 source：
+这些离线消费者只处理 `status=valid`、schema/hash 完整的 synthetic probe source；它们用于机制、
+压力和受控反例，不会升级为 Natural 产品证据：
 
 - `reader-only`：只把冻结 `Prompt + query` 发给 reader；production network 永远为 0。
 - `prompt-only`：复用同一 normalized recall 重建 Prompt；所有外部调用必须为 0，并校验当前 sample/snapshot hash。
@@ -192,7 +211,7 @@ stage-trace / metrics / failures / report / code archive
   响应缺失或篡改都会立即 invalid，绝不回退 live API。
 
 `recall-cassette` 只适合请求身份不变的召回后处理改动。Query、Embedding 输入、Rerank 文档/参数
-发生变化时，miss 正是在说明实验变量已经越过冻结边界，必须建立新的 production capture。
+发生变化时，miss 正是在说明实验变量已经越过冻结边界，必须建立新的同轨 source capture。
 
 离线复放命令：
 
@@ -203,14 +222,14 @@ node scripts/story-summary-replay-runner.mjs recall-cassette `
   --gold-cases="C:\path\to\cases.jsonl" `
   --gold-runs-root="C:\path\to\runs" `
   --gold-run-name=recall-cassette-v1 `
-  --gold-capture-run="C:\path\to\runs\production-capture"
+  --gold-capture-run="C:\path\to\runs\synthetic-probe-capture"
 
 node scripts/story-summary-replay-runner.mjs prompt-only `
   --sample="C:\path\to\chat.jsonl" `
   --snapshot="C:\path\to\snapshot.json" `
   --gold-runs-root="C:\path\to\runs" `
   --gold-run-name=prompt-only-v1 `
-  --gold-capture-run="C:\path\to\runs\production-capture"
+  --gold-capture-run="C:\path\to\runs\synthetic-probe-capture"
 ```
 
 固定 reader 是独立 API 轨道，运行前仍须经过 API 闸门：
@@ -219,7 +238,7 @@ node scripts/story-summary-replay-runner.mjs prompt-only `
 node scripts/story-summary-replay-runner.mjs reader-only `
   --gold-runs-root="C:\path\to\runs" `
   --gold-run-name=reader-only-v1 `
-  --gold-capture-run="C:\path\to\runs\production-capture" `
+  --gold-capture-run="C:\path\to\runs\synthetic-probe-capture" `
   --gold-reader=true `
   --gold-reader-max-tokens=30000
 ```
@@ -228,7 +247,7 @@ node scripts/story-summary-replay-runner.mjs reader-only `
 模型、参数、Prompt、代码 bundle 与 cases 不变时，可用 `--gold-reader-resume-run=<invalid-run>`
 创建新 run 并复用成功 checkpoint；配置 fingerprint 或 bundle 不一致会在 API 前拒绝。
 
-旧 `real-800-tpm-safe-baseline-v1` 仍是可信历史观察结果，但生成于新版 schema 之前，不能作为 source。
-当前新版 source 是 `real-800-production-capture-v1`；它已通过三个消费者的完整性验证。后续若 Query、
+旧 `real-800-tpm-safe-baseline-v1` 与旧名 `production capture` 产物只保留为历史观察，不能作为新工具 source。
+后续若 Query、
 Embedding 输入、Rerank 文档/参数或 Prompt 装配变量越过当前冻结边界，必须按 `RUNBOOK.md` 重新申请
-对应 production capture；reader 仍需单独披露 74 次评测 API。
+对应 product-aligned Natural capture；reader 仍需单独披露评测 API。

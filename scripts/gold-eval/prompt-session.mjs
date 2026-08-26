@@ -1,4 +1,4 @@
-// Gold Eval - prompt-only paired consumer for a valid production capture.
+// Gold Eval - prompt-only paired consumer for a valid synthetic probe capture.
 
 import { aggregateMetrics } from './lib/metrics.mjs';
 import { renderGoldEvalReport, buildRunId } from './lib/report.mjs';
@@ -6,7 +6,7 @@ import { scoreCase } from './lib/scorer.mjs';
 import {
     GOLD_CAPTURE_SCHEMA_VERSION,
     assertGoldCaptureInputs,
-    assertProductionGoldCapture,
+    assertSyntheticProbeCapture,
     beginGoldRun,
     invalidateGoldRun,
     loadGoldCapture,
@@ -56,7 +56,7 @@ export async function runGoldPromptOnly({
         throw new Error('prompt-only 需要当前 samplePath 与 snapshotPath 做来源校验');
     }
     const source = await loadGoldCapture(captureRunDir);
-    assertProductionGoldCapture(source);
+    assertSyntheticProbeCapture(source);
     const [sampleHash, snapshotHash] = await Promise.all([
         sha256File(samplePath),
         sha256File(snapshotPath),
@@ -176,7 +176,7 @@ export async function runGoldPromptOnly({
             limitations: [
                 'prompt-only 复用 source capture 的同一份 normalized recall；productionExternalCalls=0。',
                 `Prompt 文本变化 ${changedPrompts}/${prompts.length} 题。`,
-                '本轨道只允许比较 Prompt 装配；Query、Embedding、Rerank 或召回候选变化必须建立新的 production capture。',
+                '本轨道只允许比较 Prompt 装配；Query、Embedding、Rerank 或召回候选变化必须建立新的同轨 source capture。',
             ],
         });
         await runStore.complete({
