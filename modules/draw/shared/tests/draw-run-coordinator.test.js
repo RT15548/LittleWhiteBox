@@ -35,15 +35,6 @@ function syncMessage(message) {
     };
 }
 
-function confirmPersistedMessage(message, onRead) {
-    return async ({ verify }) => {
-        onRead?.();
-        return {
-            confirmed: await verify([{ chat_metadata: {} }, structuredClone(message)]),
-        };
-    };
-}
-
 function createPrepared(channel = 'sillytavern-openai-compatible', sourceText = 'Hello.') {
     const sceneSource = createSceneSource(sourceText);
     return {
@@ -189,7 +180,6 @@ test('frontend submission confirms the marker before POST and retains the hosted
         runId: 'run-test-103',
         syncActiveSwipe: syncMessage(message),
         isMessageBeingEdited: () => false,
-        readAndConfirm: confirmPersistedMessage(message, () => order.push('read')),
         saveAndConfirm: async ({ verify }) => {
             order.push('save');
             assert.equal(await verify([{ chat_metadata: {} }, structuredClone(message)]), true);
@@ -203,17 +193,21 @@ test('frontend submission confirms the marker before POST and retains the hosted
         },
     });
 
-    assert.deepEqual(order, ['read', 'save', 'post']);
+    assert.deepEqual(order, ['save', 'post']);
     assert.equal(result.status, 'accepted');
     assert.ok(getDrawRunMarker(message, 0, 'run-test-103'));
 });
 
-test('submission waits for a pending host save without overwriting the persisted chat itself', async () => {
+test('submission confirms only its marker and is not blocked by unrelated persisted chat differences', async () => {
     const message = createMessage();
-    const ctx = { chatId: 'chat-1', chat: [message], getRequestHeaders: () => ({}) };
-    let reads = 0;
-    let waits = 0;
-    let saves = 0;
+    const unrelatedMessage = { mes: 'Unrelated message.', extra: { runtimeOnly: true } };
+    const ctx = { chatId: 'chat-1', chat: [message, unrelatedMessage], getRequestHeaders: () => ({}) };
+    let persistedChat = [
+        { chat_metadata: {} },
+        structuredClone(message),
+        { mes: 'Unrelated message.', extra: {} },
+    ];
+    let posts = 0;
 
     const result = await submitDrawRun({
         ctx,
@@ -227,54 +221,23 @@ test('submission waits for a pending host save without overwriting the persisted
         runId: 'run-test-local-save',
         syncActiveSwipe: syncMessage(message),
         isMessageBeingEdited: () => false,
-        readAndConfirm: async ({ verify }) => {
-            reads += 1;
-            const persisted = reads < 3 ? { ...structuredClone(message), mes: 'older' } : structuredClone(message);
-            return { confirmed: await verify([{ chat_metadata: {} }, persisted]) };
+        saveAndConfirm: async ({ precondition, verify }) => {
+            if (precondition && await precondition(persistedChat) !== true) {
+                const error = new Error('persisted chat precondition failed');
+                error.saveAttempted = false;
+                throw error;
+            }
+            persistedChat = [{ chat_metadata: {} }, ...structuredClone(ctx.chat)];
+            assert.equal(await verify(persistedChat), true);
         },
-        waitForLocalSave: async () => { waits += 1; },
-        saveAndConfirm: async ({ verify }) => {
-            saves += 1;
-            assert.equal(await verify([{ chat_metadata: {} }, structuredClone(message)]), true);
+        fetchImpl: async () => {
+            posts += 1;
+            return response(202, { run: { id: 'run-test-local-save' } });
         },
-        fetchImpl: async () => response(202, { run: { id: 'run-test-local-save' } }),
     });
 
     assert.equal(result.status, 'accepted');
-    assert.equal(reads, 3);
-    assert.equal(waits, 2);
-    assert.equal(saves, 1);
-});
-
-test('submission never saves over a persisted chat that remains different after host settling', async () => {
-    const message = createMessage();
-    const ctx = { chatId: 'chat-1', chat: [message], getRequestHeaders: () => ({}) };
-    let saves = 0;
-    let posts = 0;
-
-    await assert.rejects(submitDrawRun({
-        ctx,
-        getCurrentContext: () => ctx,
-        message,
-        messageId: 0,
-        targetHash: hashSceneSource(message.mes),
-        prepared: createPrepared(),
-        imageProvider: 'sd-webui',
-        generationRecipe: {},
-        runId: 'run-test-remote-change',
-        syncActiveSwipe: syncMessage(message),
-        isMessageBeingEdited: () => false,
-        readAndConfirm: async ({ verify }) => ({
-            confirmed: await verify([{ chat_metadata: {} }, { ...structuredClone(message), mes: 'remote edit' }]),
-        }),
-        waitForLocalSave: async () => {},
-        saveAndConfirm: async () => { saves += 1; },
-        fetchImpl: async () => { posts += 1; },
-    }), error => error?.code === 'DRAW_RUN_TARGET_CHANGED');
-
-    assert.equal(saves, 0);
-    assert.equal(posts, 0);
-    assert.equal(listDrawRunMarkers(message).length, 0);
+    assert.equal(posts, 1);
 });
 
 test('an unconfirmed marker never posts a Draw Run and remains recoverable', async () => {
@@ -294,7 +257,6 @@ test('an unconfirmed marker never posts a Draw Run and remains recoverable', asy
         runId: 'run-test-104',
         syncActiveSwipe: syncMessage(message),
         isMessageBeingEdited: () => false,
-        readAndConfirm: confirmPersistedMessage(message),
         saveAndConfirm: async ({ verify }) => {
             saveCount += 1;
             assert.equal(await verify([{ chat_metadata: {} }, structuredClone(message)]), true);
@@ -306,40 +268,6 @@ test('an unconfirmed marker never posts a Draw Run and remains recoverable', asy
     assert.equal(saveCount, 1);
     assert.equal(fetchCount, 0);
     assert.ok(getDrawRunMarker(message, 0, 'run-test-104'));
-});
-
-test('a write precondition conflict never posts and removes its unsaved local marker', async () => {
-    const message = createMessage();
-    const ctx = { chatId: 'chat-1', chat: [message], getRequestHeaders: () => ({}) };
-    let fetchCount = 0;
-    let saveCount = 0;
-    await assert.rejects(submitDrawRun({
-        ctx,
-        getCurrentContext: () => ctx,
-        message,
-        messageId: 0,
-        targetHash: hashSceneSource(message.mes),
-        prepared: createPrepared(),
-        imageProvider: 'sd-webui',
-        generationRecipe: {},
-        runId: 'run-test-114',
-        syncActiveSwipe: syncMessage(message),
-        isMessageBeingEdited: () => false,
-        readAndConfirm: confirmPersistedMessage(message),
-        saveAndConfirm: async ({ verify }) => {
-            saveCount += 1;
-            assert.equal(await verify([{ chat_metadata: {} }, structuredClone(message)]), true);
-            const error = new Error('stale chat');
-            error.reason = 'precondition_failed';
-            error.saveAttempted = false;
-            throw error;
-        },
-        fetchImpl: async () => { fetchCount += 1; },
-    }), error => error?.code === 'DRAW_RUN_TARGET_CHANGED' && error.uncertain === false);
-
-    assert.equal(saveCount, 1);
-    assert.equal(fetchCount, 0);
-    assert.equal(getDrawRunMarker(message, 0, 'run-test-114'), null);
 });
 
 test('an explicit 4xx rejection removes and confirms removal of the marker', async () => {
@@ -358,7 +286,6 @@ test('an explicit 4xx rejection removes and confirms removal of the marker', asy
         runId: 'run-test-105',
         syncActiveSwipe: syncMessage(message),
         isMessageBeingEdited: () => false,
-        readAndConfirm: confirmPersistedMessage(message),
         saveAndConfirm: async ({ verify }) => {
             saveCount += 1;
             assert.equal(await verify([{ chat_metadata: {} }, structuredClone(message)]), true);
@@ -474,7 +401,6 @@ test('request-header acquisition failure remains a recoverable uncertain submiss
         runId: 'run-test-107',
         syncActiveSwipe: syncMessage(message),
         isMessageBeingEdited: () => false,
-        readAndConfirm: confirmPersistedMessage(message),
         saveAndConfirm: async ({ verify }) => {
             assert.equal(await verify([{ chat_metadata: {} }, structuredClone(message)]), true);
         },
@@ -502,7 +428,6 @@ test('a timed-out submission queries the deterministic run instead of hanging or
         runId: 'run-test-116',
         syncActiveSwipe: syncMessage(message),
         isMessageBeingEdited: () => false,
-        readAndConfirm: confirmPersistedMessage(message),
         saveAndConfirm: async ({ verify }) => {
             assert.equal(await verify([{ chat_metadata: {} }, structuredClone(message)]), true);
         },
@@ -599,7 +524,6 @@ test('submission writes the marker to the active swipe without accepting a targe
         runId: 'run-test-109',
         syncActiveSwipe: syncMessage(message),
         isMessageBeingEdited: () => false,
-        readAndConfirm: confirmPersistedMessage(message),
         saveAndConfirm: async ({ verify }) => {
             assert.equal(await verify([{ chat_metadata: {} }, structuredClone(message)]), true);
         },
@@ -658,7 +582,6 @@ test('concurrent submissions recheck duplicate ownership inside the chat mutatio
         generationRecipe: {},
         syncActiveSwipe: syncMessage(message),
         isMessageBeingEdited: () => false,
-        readAndConfirm: confirmPersistedMessage(message),
         saveAndConfirm: async ({ verify }) => assert.equal(
             await verify([{ chat_metadata: {} }, structuredClone(message)]),
             true,

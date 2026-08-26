@@ -1,7 +1,6 @@
 import {
     createConfirmableChatSnapshot,
     persistedChatMatchesSnapshot,
-    readChatAndConfirm,
     saveChatAndConfirm,
     withConfirmableChatMutation,
 } from './confirmable-chat-save.js';
@@ -26,8 +25,6 @@ import {
 export const DRAW_RUNS_ENDPOINT = '/api/plugins/littlewhitebox-image-jobs/v1/draw-runs';
 export const SUBMISSION_UNCERTAINTY_WINDOW_MS = 120_000;
 export const DRAW_RUN_REQUEST_TIMEOUT_MS = 15_000;
-export const LOCAL_CHAT_SAVE_POLL_INTERVAL_MS = 250;
-export const LOCAL_CHAT_SAVE_WAIT_TIMEOUT_MS = 3_000;
 
 export class DrawRunSubmissionError extends Error {
     constructor(message, code, options = {}) {
@@ -63,30 +60,6 @@ function emit(onStateChange, phase, detail = {}) {
 function throwIfSubmissionAborted(signal) {
     if (!signal?.aborted) return;
     throw new DrawRunSubmissionError('已取消', 'DRAW_RUN_CANCELLED');
-}
-
-function waitForLocalChatSave(delayMs, signal) {
-    throwIfSubmissionAborted(signal);
-    return new Promise((resolve, reject) => {
-        const onAbort = () => {
-            clearTimeout(timer);
-            reject(new DrawRunSubmissionError('已取消', 'DRAW_RUN_CANCELLED'));
-        };
-        const timer = setTimeout(() => {
-            signal?.removeEventListener('abort', onAbort);
-            resolve();
-        }, delayMs);
-        signal?.addEventListener('abort', onAbort, { once: true });
-    });
-}
-
-async function persistedSnapshotMatches({ ctx, snapshot, fetchImpl, readAndConfirm }) {
-    const result = await readAndConfirm({
-        ctx,
-        fetchImpl,
-        verify: persistedChat => persistedChatMatchesSnapshot(persistedChat, snapshot),
-    });
-    return result?.confirmed === true;
 }
 
 function sanitizePreparedAgent(agent) {
@@ -180,11 +153,13 @@ function assertSubmissionContext({
     }
 }
 
-async function persistMarker({ ctx, runId, marker, snapshot, saveAndConfirm, fetchImpl }) {
+async function persistMarker({ ctx, runId, marker, saveAndConfirm, fetchImpl }) {
+    // 首次提交的事实源是用户正在操作的活 ctx.chat。不能用整份持久化聊天做写前条件：
+    // ST 的防抖保存和运行时内存归一化都可能让两份数据合法不同。目标楼层精确校验
+    // 已在写 marker 前完成；这里只以保存后读回 marker 作为能否 POST Draw Run 的闸门。
     await saveAndConfirm({
         ctx,
         fetchImpl,
-        precondition: persistedChat => persistedChatMatchesSnapshot(persistedChat, snapshot),
         verify: persistedChat => persistedChatHasDrawRunMarker(persistedChat, runId, marker),
     });
 }
@@ -321,10 +296,6 @@ export async function submitDrawRun({
     isMessageBeingEdited,
     fetchImpl = globalThis.fetch,
     saveAndConfirm = saveChatAndConfirm,
-    readAndConfirm = readChatAndConfirm,
-    waitForLocalSave = waitForLocalChatSave,
-    localSavePollIntervalMs = LOCAL_CHAT_SAVE_POLL_INTERVAL_MS,
-    localSaveWaitTimeoutMs = LOCAL_CHAT_SAVE_WAIT_TIMEOUT_MS,
     signal,
     now = Date.now,
     onStateChange,
@@ -332,14 +303,6 @@ export async function submitDrawRun({
 } = {}) {
     if (typeof fetchImpl !== 'function') throw new TypeError('Draw Run 提交需要 fetch');
     if (typeof saveAndConfirm !== 'function') throw new TypeError('Draw Run 提交需要可确认保存');
-    if (typeof readAndConfirm !== 'function') throw new TypeError('Draw Run 提交需要持久化聊天读取器');
-    if (typeof waitForLocalSave !== 'function') throw new TypeError('Draw Run 提交需要本地保存等待器');
-    if (!Number.isFinite(localSavePollIntervalMs) || localSavePollIntervalMs <= 0) {
-        throw new TypeError('Draw Run 本地保存轮询间隔必须是正数');
-    }
-    if (!Number.isFinite(localSaveWaitTimeoutMs) || localSaveWaitTimeoutMs < localSavePollIntervalMs) {
-        throw new TypeError('Draw Run 本地保存等待上限不能小于轮询间隔');
-    }
     if (typeof getCurrentContext !== 'function') throw new TypeError('Draw Run 提交需要当前聊天上下文读取器');
     if (typeof isMessageBeingEdited !== 'function') throw new TypeError('Draw Run 提交需要楼层编辑状态读取器');
     const frozenSwipeIndex = targetSwipeIndex === undefined
@@ -402,59 +365,6 @@ export async function submitDrawRun({
                     'DRAW_RUN_ALREADY_PENDING',
                 );
             }
-            const markerSaveSnapshot = createConfirmableChatSnapshot(ctx);
-            // ST 的编辑、删楼层和切 swipe 使用约 1 秒防抖保存。磁盘与本页不一致时
-            // 只等待宿主自己的保存落地后再读一次；这里绝不能主动保存当前 ctx.chat，
-            // 否则陈旧标签页会在冲突检查前先覆盖另一页的新内容。
-            try {
-                let matches = await persistedSnapshotMatches({
-                    ctx, snapshot: markerSaveSnapshot, fetchImpl, readAndConfirm,
-                });
-                const maxPolls = Math.ceil(localSaveWaitTimeoutMs / localSavePollIntervalMs);
-                for (let poll = 0; !matches && poll < maxPolls; poll += 1) {
-                    await waitForLocalSave(localSavePollIntervalMs, signal);
-                    throwIfSubmissionAborted(signal);
-                    if (createConfirmableChatSnapshot(ctx).messages !== markerSaveSnapshot.messages) {
-                        throw new DrawRunSubmissionError(
-                            '等待聊天自动保存时内容再次变化，后台画图没有提交。',
-                            'DRAW_RUN_TARGET_CHANGED',
-                        );
-                    }
-                    matches = await persistedSnapshotMatches({
-                        ctx, snapshot: markerSaveSnapshot, fetchImpl, readAndConfirm,
-                    });
-                }
-                if (!matches) {
-                    throw new DrawRunSubmissionError(
-                        '聊天持久化内容与当前页面不一致，后台画图没有提交。请等待自动保存后重试。',
-                        'DRAW_RUN_TARGET_CHANGED',
-                    );
-                }
-            } catch (error) {
-                if (error instanceof DrawRunSubmissionError) throw error;
-                throw new DrawRunSubmissionError(
-                    '暂时无法核对聊天的持久化状态，后台画图没有提交。请稍后重试。',
-                    'DRAW_RUN_CHAT_SYNC_FAILED',
-                    { cause: error },
-                );
-            }
-            throwIfSubmissionAborted(signal);
-            assertSubmissionContext({
-                ctx,
-                currentCtx: getCurrentContext(),
-                message,
-                messageId,
-                targetSwipeIndex: frozenSwipeIndex,
-                sourceHash: envelope.sourceHash,
-                targetHash,
-                isMessageBeingEdited,
-            });
-            if (listActiveSwipeDrawRunMarkers(message).length > 0) {
-                throw new DrawRunSubmissionError(
-                    '该楼层当前版本已有后台画图任务，请等待完成或先取消。',
-                    'DRAW_RUN_ALREADY_PENDING',
-                );
-            }
             setDrawRunMarker({
                 message,
                 messageId,
@@ -463,43 +373,18 @@ export async function submitDrawRun({
                 marker,
                 syncActiveSwipe,
             });
-            try {
-                await persistMarker({
-                    ctx,
-                    runId,
-                    marker,
-                    snapshot: markerSaveSnapshot,
-                    saveAndConfirm,
-                    fetchImpl,
-                });
-            } catch (error) {
-                if (error?.saveAttempted === false) {
-                    removeDrawRunMarker({
-                        message,
-                        messageId,
-                        swipeIndex,
-                        runId,
-                        syncActiveSwipe,
-                    });
-                }
-                throw error;
-            }
+            await persistMarker({
+                ctx,
+                runId,
+                marker,
+                saveAndConfirm,
+                fetchImpl,
+            });
         });
     } catch (error) {
         if (error instanceof DrawRunSubmissionError) {
             emit(onStateChange, 'failed', { runId, reason: error.code });
             throw error;
-        }
-        if (error?.saveAttempted === false) {
-            emit(onStateChange, 'failed', { runId, reason: error.reason });
-            const conflict = error.reason === 'precondition_failed';
-            throw new DrawRunSubmissionError(
-                conflict
-                    ? '楼层已在其他页面更新，后台画图没有提交。请刷新后重试。'
-                    : '暂时无法核对楼层的持久化状态，后台画图没有提交。请稍后重试。',
-                conflict ? 'DRAW_RUN_TARGET_CHANGED' : 'DRAW_RUN_MARKER_SAVE_BLOCKED',
-                { cause: error },
-            );
         }
         emit(onStateChange, 'uncertain', { runId, reason: 'marker_save_uncertain' });
         throw new DrawRunSubmissionError(

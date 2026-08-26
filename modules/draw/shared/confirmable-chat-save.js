@@ -158,9 +158,10 @@ async function withChatSaveLock(target, task, lockManager) {
     return withLocalSaveLock(name, task);
 }
 
-// ctx.chat 是同一页面内所有画图流程共享的可变对象。跨标签页由 Web Lock +
-// 写前快照负责；同一页面还必须把“修改内存 → 保存并确认”整个区间串行，
-// 否则取消 marker 可能被另一条正在保存的流程顺手写入或回滚。
+// ctx.chat 是同一页面内所有画图流程共享的可变对象。同一页面必须把“修改内存
+// → 保存并确认”整个区间串行，否则取消 marker 可能被另一条正在保存的流程顺手写入或回滚。
+// 跨标签页的同源保存另由 saveChatAndConfirm 的 Web Lock 串行；只有基于已读取持久化
+// 快照做修改的恢复路径才叠加写前快照条件，首次提交以保存后 marker 读回为准。
 export async function withConfirmableChatMutation(ctx, task) {
     if (typeof task !== 'function') throw new TypeError('chat mutation task must be a function');
     if (!isPresent(ctx?.chatId)) throw new TypeError('chat mutation requires a persistent chat id');
