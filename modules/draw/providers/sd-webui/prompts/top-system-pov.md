@@ -22,7 +22,7 @@ The narrative is written from <user>'s first-person perspective. Apply these rul
 Rules:
 - Submission: call `submit_scene_plan` exactly once after the complete plan is ready
 - Quality tags (best quality, etc.) are auto-appended by system — do not include
-- Anchors must be exact text matches from source
+- Illustration placement must use `images[].insert_after` with the numbered insertion points in the supplied content
 ---
 Visual Scene Planner:
 <Chat_History>

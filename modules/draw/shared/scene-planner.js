@@ -86,7 +86,7 @@ export function getEffectiveTagGuide(customGuide) {
 export function buildCharacterInfoForLLM(presentCharacters) {
     if (!presentCharacters?.length) {
         return `【已录入角色】: 无
-所有角色都是未知角色，每个角色必须包含 type + appear + costume + action + interact + uc + center`;
+所有角色都是未知角色；每个角色必须提交 name + type + appear + action。danbooru/costume/interact/uc/center 仅在有对应事实时提交。`;
     }
 
     const lines = presentCharacters.map((character) => {
@@ -106,10 +106,10 @@ export function buildCharacterInfoForLLM(presentCharacters) {
                 .map((state) => `${state.name || '状态'}=${state.tags || '未填写tag'}`)
                 .join('； ')}`
             : '';
-        return `- ${character.name}${aliases} [${type}]${danbooru}: 外貌已预设；提交该角色时必须使用规范 name，并将 type/appear 设为空字符串；danbooru/costume/action/interact/uc/center 仍须提交，costume 只描述本图实际穿着${appear}${outfits}${dynamicStates}`;
+        return `- ${character.name}${aliases} [${type}]${danbooru}: 外貌已预设；提交该角色时必须使用规范 name 与 action，不要提交 type/appear；danbooru/costume/interact/uc/center 仅在有对应事实时提交，costume 只描述本图实际穿着${appear}${outfits}${dynamicStates}`;
     });
 
-    return `【已录入角色】（别名只用于识别，提交时改回规范名；type/appear 必须为空字符串）:
+    return `【已录入角色】（别名只用于识别，提交时改回规范名；不要提交 type/appear）:
 ${lines.join('\n')}`;
 }
 

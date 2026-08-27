@@ -13,7 +13,7 @@ const CURRENT = Object.freeze({
     sceneRules: 'current model-independent scene rules',
 });
 
-const TARGET = 10;
+const TARGET = 11;
 
 async function loadFixture(name) {
     const text = await readFile(new URL(`./fixtures/${name}`, import.meta.url), 'utf8');
@@ -29,6 +29,10 @@ const loadTemplateV8SceneRules = () => readFile(
 );
 const loadTemplateV9SceneRules = () => readFile(
     new URL('./fixtures/novel-scene-rules-template-v9.md', import.meta.url),
+    'utf8',
+);
+const loadTemplateV10SceneRules = () => readFile(
+    new URL('./fixtures/novel-scene-rules-template-v10.md', import.meta.url),
     'utf8',
 );
 
@@ -129,6 +133,22 @@ test('refreshes frozen template v9 interaction rules without overwriting an edit
         { id: 'edited', topSystem: 'custom system', sceneRules: editedSceneRules },
     ], {
         templateVersion: 9,
+        targetVersion: TARGET,
+        currentDefaults: CURRENT,
+    });
+
+    assert.equal(result.presets[0].sceneRules, CURRENT.sceneRules);
+    assert.equal(result.presets[1].sceneRules, editedSceneRules);
+});
+
+test('refreshes frozen template v10 execution rules without overwriting an edited copy', async () => {
+    const sceneRules = await loadTemplateV10SceneRules();
+    const editedSceneRules = `${sceneRules}\nuser edit`;
+    const result = migrateLegacyNovelPromptPresets([
+        { id: 'default', topSystem: 'custom system', sceneRules },
+        { id: 'edited', topSystem: 'custom system', sceneRules: editedSceneRules },
+    ], {
+        templateVersion: 10,
         targetVersion: TARGET,
         currentDefaults: CURRENT,
     });

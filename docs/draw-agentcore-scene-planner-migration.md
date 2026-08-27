@@ -293,16 +293,14 @@ Tool 定义使用 AgentCore 已有的 OpenAI 风格：
                 mindful_prelude: {
                     type: 'object',
                     additionalProperties: false,
-                    required: ['user_insight', 'therapeutic_commitment', 'visual_plan'],
+                    required: ['user_insight', 'visual_plan'],
                     properties: {
                         user_insight: { type: 'string', minLength: 1 },
-                        therapeutic_commitment: { type: 'string', minLength: 1 },
                         visual_plan: {
                             type: 'object',
                             additionalProperties: false,
-                            required: ['reasoning', 'moments'],
+                            required: ['moments'],
                             properties: {
-                                reasoning: { type: 'string', minLength: 1 },
                                 moments: {
                                     type: 'array',
                                     minItems: 1,
@@ -343,26 +341,17 @@ Tool 定义使用 AgentCore 已有的 OpenAI 风格：
                     items: {
                         type: 'object',
                         additionalProperties: false,
-                        required: ['index', 'scene', 'characters'],
+                        required: ['index', 'insert_after', 'scene', 'characters'],
                         properties: {
                             index: { type: 'integer', minimum: 1 },
+                            insert_after: { type: 'integer', minimum: 1 },
                             scene: { type: 'string', minLength: 1 },
                             characters: {
                                 type: 'array',
                                 items: {
                                     type: 'object',
                                     additionalProperties: false,
-                                    required: [
-                                        'name',
-                                        'danbooru',
-                                        'type',
-                                        'appear',
-                                        'costume',
-                                        'action',
-                                        'interact',
-                                        'uc',
-                                        'center',
-                                    ],
+                                    required: ['name', 'action'],
                                     properties: {
                                         name: { type: 'string', minLength: 1 },
                                         danbooru: { type: 'string' },
@@ -397,28 +386,27 @@ Tool Schema 每次根据当前画图参数生成：
 - `maxImages > 0`：`images.minItems` 与 `images.maxItems` 都设为 `maxImages`，表示本轮恰好生成该数量。
 - `maxImages === 0`：只设 `images.minItems = 1`。
 - `maxCharactersPerImage > 0`：每个 `characters.maxItems` 设为该值。
-- `visual_plan.moments` 使用与 `images` 相同的数量约束。
+- 模型侧的 `visual_plan.moments` 使用与 `images` 相同的数量约束以引导完整规划；执行解析不依赖 moments，合法 `images` 不因规划区缺失或损坏而失败。
 
 Prompt 中仍保留自然语言数量要求，Schema 再做协议约束。两者来源必须是同一组本次调用参数，不能各自计算。
 
 ### 7.3 Character 统一结构
 
-所有角色使用同一个 Character Schema，不再让“已知角色”和“未知角色”产生两种对象形状。
+所有角色使用同一个 Character Schema；模型可以省略没有事实的可选字段，转换后仍得到完整统一的内部对象。
 
 已知角色：
 
 - `name` 输出角色库中的规范名；模型若使用别名，转换层归一为规范名。
-- `danbooru` 可输出角色专属 Danbooru 名；为空时由现有角色库处理。
-- `type` 必须为空字符串。
-- `appear` 必须为空字符串。
-- `costume`、`action`、`interact`、`uc`、`center` 按本图完整输出。
+- `action` 必须有实际内容。
+- 不提交 `type`、`appear`，由角色库处理。
+- `danbooru`、`costume`、`interact`、`uc`、`center` 有对应事实时才提交。
 - 真实 `type`、外貌、角色负向标签和已存 Danbooru 信息继续由现有角色库与 `assembleCharacterPrompts` 注入。
 
 未知角色：
 
-- `name`、`type`、`appear`、`action`、`center` 必须有实际内容。
-- `danbooru` 没有可靠标签时可为空。
-- `costume`、`interact`、`uc` 按场景填写；无对应内容使用空字符串，字段本身不能缺失。
+- `name`、`type`、`appear`、`action` 必须有实际内容。
+- `danbooru`、`costume`、`interact`、`uc`、`center` 有对应事实时才提交。
+- 缺失的可选字符串归一为空字符串，缺失的 center 归一为画面中央；显式 null 或错误类型仍失败。
 
 纯风景、建筑、物品图：
 
@@ -432,15 +420,14 @@ Prompt 中仍保留自然语言数量要求，Schema 再做协议约束。两者
 | 字段 | 语义 |
 | --- | --- |
 | `mindful_prelude.user_insight` | 对用户创作表达、时空和场景的克制人文观察；不擅自诊断。 |
-| `mindful_prelude.therapeutic_commitment` | 对完整、尊重地完成视觉规划的承诺。 |
-| `visual_plan.reasoning` | 选取哪些瞬间以及整体视觉安排的理由。 |
 | `moments[].moment` | 候选/选定瞬间的简述。 |
-| `moments[].insert_after` | 本图插入位置对应的【插图点 N】编号；编号由宿主在原文映射视图上生成并随带编号原文发给模型。 |
+| `moments[].insert_after` | 规划阶段认为合适的【插图点 N】编号，仅用于思考，不参与执行。 |
 | `moments[].char_count` | 本图人物数量与性别/类型概览。 |
 | `moments[].known_chars` | 命中的角色库角色规范名。 |
 | `moments[].unknown_chars` | 本图需要自行描述的未知角色。 |
 | `moments[].composition` | 镜头、主体位置、遮挡、空间关系与构图安排。 |
-| `images[].index` | 图片顺序，正整数；转换前排序。 |
+| `images[].index` | 图片顺序，必须与数组顺序一致并从 1 连续递增。 |
+| `images[].insert_after` | 本图唯一的正文插入位置事实，必须引用宿主生成的有效【插图点 N】编号。 |
 | `images[].scene` | 不含角色专属外貌的整体场景、环境、镜头、光影和画质标签。 |
 | `characters[].costume` | 本图实际穿着；可基于角色服装参考选择并表现破损、敞开、滑落、湿透等剧情状态，不混合多套服装。 |
 | `characters[].action` | 该角色在一个静态瞬间中的姿势、表情和动作。 |
@@ -491,13 +478,13 @@ Prompt 中仍保留自然语言数量要求，Schema 再做协议约束。两者
 转换时：
 
 1. 拒绝非正整数、重复 `index`。
-2. 按 `index` 升序排序，不依赖模型返回顺序。
+2. 按数组顺序接收，`index` 必须从 1 连续递增，不静默重排模型结果。
 3. 不再通过“最后一个 action 长度”猜测是否截断。
 4. 不静默丢弃无效图片或角色；契约失败就返回明确错误。
 5. 已知角色按规范名和别名做大小写不敏感匹配，并归一为规范名。
 6. 纯风景任务保留空 `chars`。
 7. 不把 `mindful_prelude` 或未声明字段带入下游。
-8. `moments[].insert_after` 必须引用本次 `SceneSource` 中存在的插图点编号；契约层据此解出原始正文 offset 并与 `sourceHash` 一起写入 `placement`，下游不再做任何文字锚点搜索。
+8. `images[].insert_after` 必须引用本次 `SceneSource` 中存在的插图点编号；契约层据此解出原始正文 offset 并与 `sourceHash` 一起写入 `placement`，下游不再做任何文字锚点搜索。规划区与 images 不按下标绑定，冲突时只认 images。
 
 ## 8. Prompt 迁移原则
 
@@ -508,12 +495,12 @@ Prompt 中仍保留自然语言数量要求，Schema 再做协议约束。两者
 三套 Provider Prompt 都必须保留下列内容：
 
 - `FICTIONAL_CREATIVE_WORK` 分类与现有合规检查语义。
-- 人文观察、`mindful_prelude`、`user_insight`、`therapeutic_commitment`、`visual_plan` 的含义。
+- 人文观察、`mindful_prelude`、`user_insight`、`visual_plan` 的含义。
 - 普通视角与第一人称 POV 的全部规则。
 - 插图位置只能通过 `insert_after` 引用宿主生成的【插图点 N】编号；模型不复制、不概括、不创造锚点文本。
 - 已知角色、未知角色、角色规范名与别名识别。
 - Danbooru 角色标签规则。
-- 已知角色不重复输出预设外貌，但必须完整决定本图服装、动作、互动、负向和位置。
+- 已知角色不重复输出预设外貌；动作必填，服装、互动、负向和位置只在有对应事实时提交。
 - 服装参考只能选择合适的一套或其剧情变体；保留破损、敞开、滑落、湿透等状态词，禁止把多套服装拼接。
 - 动态外貌参考只在对应剧情状态下选用，不同时堆叠互斥状态。
 - `scene`、`costume`、`action`、`interact`、`uc`、`center` 的职责边界。
@@ -918,7 +905,7 @@ AgentCore Adapter 是四个现有 Agent 消费者的共享源码，修改后必�
 - A1、C3、E5 等坐标；非法坐标失败。
 - `source#` / `target#` / `mutual#` 字段原样保留。
 - 精确图片数量与每图角色上限。
-- `moments` 与 `images` 数量必须一致，`maxImages = 0` 时也不例外。
+- `images[].insert_after` 缺失、越界、重复或倒序时失败；`mindful_prelude` 缺失、损坏或与 `images` 冲突时，合法图片任务仍按 `images` 执行。
 - `images` 为空。
 - 无 Tool、错 Tool、重复 Tool。
 - 参数 JSON 损坏或截断。
@@ -1086,7 +1073,7 @@ UI 测试验证可观察 DOM/交互结果，不写读取源码 `includes` 的“
 - OpenAI Compatible 的原生/Tagged JSON 选择及托管协议回退由 AgentCore 统一负责，Draw 不维护分叉实现。
 - `draw-llm.js`、三套 `output-format.md`、三套 `output-format-legacy.md`、YAML 清洗/解析/截断恢复与独立画图 LLM 设置已经退出运行时。
 - 三套 Provider 只保留 `默认-完整规则` 与 `默认-第一人称完整规则`，并统一使用 `sceneRules`。
-- Prompt 中的 mindful prelude、anchor、已知/未知角色、服装状态、方向互动、A1~E5、Tag 配额、物理限制、世界书、NSFW 与 Provider 权重语法均保留。
+- Prompt 中的 mindful prelude、编号插图点、已知/未知角色、服装状态、方向互动、A1~E5、Tag 配额、物理限制、世界书、NSFW 与 Provider 权重语法均保留。
 - AgentCore 已补齐 Anthropic `toolChoice`、Tagged JSON required/named/none 与 SillyTavern Claude/Google system Prompt；Draw 直接复用这些边界。
 - AgentCore 浏览器入口是无 Draw 反向依赖的单文件 ESM；Draw 仅在实际规划时懒加载。
 - 三套设置页已删除独立场景 LLM Provider、URL、Key、模型、模型缓存、流式与 prefill 控件，改为共享主预设摘要、兼容模式提示和内存诊断。
@@ -1104,13 +1091,13 @@ UI 测试验证可观察 DOM/交互结果，不写读取源码 `includes` 的“
 - 请求形态改为 `system + 单条 user 任务`。旧链以连续 `assistant` 开头且存在连续同角色消息，直连 Anthropic / Google 会直接拒绝；现在所有段落按原顺序拼进同一条 user 任务，三套 Prompt 结构预览同步更新。
 - 托管 Claude 在 Adapter 边界把 `required` 译为 Anthropic `any`（`none`/`auto` 直通，指定 Tool 名本地报错）。共享 Host/OpenAI helper 未改动，`sillytavern-google` 仍收到 `required`。
 - 托管 Claude 的 manual thinking 与强制 `any` 冲突时按 Tool 契约优先关闭本次 reasoning，并在 requestInspection、诊断与设置页摘要上标记；`claude-opus-4-7` 等确认 adaptive 的路径保留 reasoning，4.6 因宿主配置不可知按 manual 保守处理。
-- 原文、世界书、角色列表、TAG 指南各只展开一次，通过一次性哨兵串字面拼接进已展开模板；模型看到的原文与 anchor 校验文本是同一份结果，原文中的 `$&`、`` $` ``、`$'`、`$1`、`$$` 原样保留。
+- 原文、世界书、角色列表、TAG 指南各只展开一次，通过一次性哨兵串字面拼接进已展开模板；模型看到的编号原文与 placement 映射来自同一份结果，原文中的 `$&`、`` $` ``、`$'`、`$1`、`$$` 原样保留。
 - 宏加载与展开异常统一包装为 `PROMPT_EXPANSION_FAILED`，拥有独立错误分类与 UI 文案，并写入本次请求诊断。
 - Prompt runtime 只缓存模块引用，`chat`/`name1`/`name2` 每次实时读取；删除没有正式来源的 `window.STscript` 分支，官方变量宏交给 `substituteParams`。
 - 错误分类顺序固定为「已有 `ScenePlannerError` → 用户取消 → 内部超时标记 → Provider 明确超时 → 普通 Provider 错误」。
 - 诊断句柄在 Scene Planner 入口、Prompt 构建前创建，覆盖 prompt/config/request/parse 四个阶段并带请求 ID，慢的旧请求不再覆盖新请求。
 - 删除 SD/Comfy 中不存在的 `*-shared-status` 兜底 ID；角色保存改用现有 toast，世界书只更新真实的 `*-worldbook-status`。
-- 契约层始终校验 `moments.length === images.length`，`maxImages = 0` 时也不放行。
+- 契约层只以合法 `images[]` 生成执行任务；规划区继续由 Tool Schema 引导完整输出，但其缺失、损坏或与图片冲突不再阻断出图。
 - Assistant manifest 生成器排除生成的 `dist/`，同时完整收录 Scene Planner 源码。
 
 ### 17.4 本地验收证据
@@ -1135,9 +1122,16 @@ UI 测试验证可观察 DOM/交互结果，不写读取源码 `includes` 的“
 ### 17.7 插图点编号与 placement 迁移（2026-08-20）
 
 - Tool 自纠循环：契约校验失败时把真实 tool_result 反馈给模型重试，同一次规划最多 3 次尝试；连续相同错误签名第二次即停；网络/配置/Provider/取消错误不重试。Google 走 `toolResponses` session，其余 Adapter 走带 `providerPayload` 的规范历史回放；Adapter 与 10 分钟总超时各创建一次。
-- 文字 anchor 契约删除：`moments[].anchor_target` 改为 `insert_after` 插图点编号，`images[].anchor` 退出契约。宿主通过 `scene-source.js` 在保留原始 UTF-16 offset 的映射视图上剔除 `[image:]`/`[ebook-image:]`/`[tavern-image:]` 标记与过滤区段，于句末/段落/末尾生成【插图点 N】，hash 对完整原始快照。
+- 文字 anchor 契约删除：`images[].anchor` 退出契约，`images[].insert_after` 成为唯一执行位置；`moments[].insert_after` 仅保留为规划草稿。宿主通过 `scene-source.js` 在保留原始 UTF-16 offset 的映射视图上剔除 `[image:]`/`[ebook-image:]`/`[tavern-image:]` 标记与过滤区段，于句末/段落/末尾生成【插图点 N】，hash 对完整原始快照。
 - placement 落地：`scene-placement.js` 的 `insertScenePlacements` 逆序批量插入（`block` 选项补换行）；写入前精确比较 `sourceHash`，正文变化即抛 `ScenePlacementError`/`SCENE_SOURCE_CHANGED` 并拒写。模糊 anchor 搜索、句末探测与“找不到就追加末尾”兜底全部删除。
 - 楼层流程：规划后一次分配 slot、hash 校验、批量插占位、逐张替换；中止保留成功图并移除未开始的 pending 占位（保留段落空行），零成功恢复原文。
 - 电纸书/小白酒馆写入端：hash 变化即拒写并提示重试；酒馆发送完整原文，重绘不再丢失既有 `[tavern-image:]` 标记；手动 Prompt 使用 `placement: { mode: 'tail' }`。
 - 画廊与 saved-entry 不再持久化 anchor 字段。
 - Draw 诊断记录 requested mode、effective mode、能力 profile 与实际控制字段，托管 Claude 因强制 Tool 关闭本次 Reasoning 时仍给出明确 notice。
+
+### 17.8 规划协议减负（2026-08-27）
+
+- `mindful_prelude` 保留 `user_insight` 与 `visual_plan.moments` 作为模型规划过程，删除无执行价值的 `therapeutic_commitment` 与 `visual_plan.reasoning`；运行时只以合法 `images[]` 生成任务。
+- `images[].insert_after` 是唯一插图位置事实；缺失、越界、重复或倒序会失败，规划区缺失、损坏或与图片冲突不会覆盖合法图片任务。
+- 角色只固定要求 `name + action`，未知角色另要求 `type + appear`；其余字段省略后在契约边界归一为空字符串或中央坐标，显式 `null` 或错误类型仍拒绝。
+- NovelAI / SD WebUI / ComfyUI 的默认模板版本分别升级为 11 / 7 / 8。仅精确命中已发布默认指纹的字段会刷新，用户编辑内容保持不变。

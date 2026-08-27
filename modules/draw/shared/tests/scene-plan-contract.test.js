@@ -19,9 +19,7 @@ function buildParameters(overrides = {}) {
     return {
         mindful_prelude: {
             user_insight: '用户在描写雨夜重逢。',
-            therapeutic_commitment: '以尊重创作表达的方式选择可见瞬间。',
             visual_plan: {
-                reasoning: '选取情绪与光影最集中的一句。',
                 moments: [{
                     moment: '1',
                     insert_after: 1,
@@ -34,6 +32,7 @@ function buildParameters(overrides = {}) {
         },
         images: [{
             index: 1,
+            insert_after: 1,
             scene: 'sfw, yuri, duo, rain, backlighting',
             characters: [{
                 name: '小璃',
@@ -82,6 +81,7 @@ test('scene plan contract normalizes aliases, known character fields, placement,
     const parameters = buildParameters();
     parameters.images.push({
         index: 2,
+        insert_after: 2,
         scene: 'sfw, scenery, rain',
         characters: [],
     });
@@ -122,8 +122,9 @@ test('scene plan contract normalizes aliases, known character fields, placement,
 });
 
 test('scene plan tool schema applies exact image count and character cap', () => {
-    const schema = createSubmitScenePlanTool({ maxImages: 3, maxCharactersPerImage: 2 })
-        .function.parameters.properties.images;
+    const tool = createSubmitScenePlanTool({ maxImages: 3, maxCharactersPerImage: 2 });
+    const schema = tool.function.parameters.properties.images;
+    assert.deepEqual(tool.function.parameters.required, ['mindful_prelude', 'images']);
     assert.equal(schema.minItems, 3);
     assert.equal(schema.maxItems, 3);
     const momentsSchema = createSubmitScenePlanTool({ maxImages: 3 })
@@ -131,13 +132,15 @@ test('scene plan tool schema applies exact image count and character cap', () =>
     assert.equal(momentsSchema.minItems, 3);
     assert.equal(momentsSchema.maxItems, 3);
     assert.equal(schema.items.properties.characters.maxItems, 2);
-    assert.deepEqual(schema.items.properties.characters.items.required, [
-        'name', 'danbooru', 'type', 'appear', 'costume', 'action', 'interact', 'uc', 'center',
-    ]);
+    assert.deepEqual(schema.items.properties.characters.items.required, ['name', 'action']);
     assert.deepEqual(
         schema.items.properties.characters.items.properties.type.enum,
         ['', ...SCENE_CHARACTER_TYPES],
     );
+    const preludeProperties = createSubmitScenePlanTool().function.parameters
+        .properties.mindful_prelude.properties;
+    assert.equal(Object.hasOwn(preludeProperties, 'therapeutic_commitment'), false);
+    assert.equal(Object.hasOwn(preludeProperties.visual_plan.properties, 'reasoning'), false);
 
     const boundedTool = createSubmitScenePlanTool({ insertPointCount: 2 });
     const boundedImages = boundedTool.function.parameters.properties.images;
@@ -153,7 +156,86 @@ test('scene plan tool schema applies exact image count and character cap', () =>
     assert.equal(backendBounded.mindful_prelude.properties.visual_plan.properties.moments.maxItems, 20);
     assert.equal(boundedImages.minItems, 1);
     assert.equal(boundedImages.maxItems, 2);
+    assert.equal(boundedImages.items.properties.insert_after.maximum, 2);
     assert.equal(boundedMoments.items.properties.insert_after.maximum, 2);
+});
+
+test('scene plan contract defaults optional character facts while keeping unknown identity requirements', () => {
+    const knownParameters = buildParameters();
+    knownParameters.images[0].characters = [{ name: '小璃', action: 'standing, looking at viewer' }];
+    const known = parseSubmittedScenePlan(buildResult(knownParameters), parseOptions).tasks[0].chars[0];
+    assert.deepEqual(known, {
+        name: '阿璃',
+        danbooru: '',
+        type: '',
+        appear: '',
+        costume: '',
+        action: 'standing, looking at viewer',
+        interact: '',
+        uc: '',
+        center: { x: 0.5, y: 0.5 },
+    });
+
+    const unknownParameters = buildParameters();
+    unknownParameters.images[0].characters = [{
+        name: '旅人',
+        type: 'woman',
+        appear: 'long black hair, brown eyes',
+        action: 'standing in rain',
+    }];
+    const unknown = parseSubmittedScenePlan(buildResult(unknownParameters), parseOptions).tasks[0].chars[0];
+    assert.equal(unknown.danbooru, '');
+    assert.equal(unknown.costume, '');
+    assert.equal(unknown.interact, '');
+    assert.equal(unknown.uc, '');
+    assert.deepEqual(unknown.center, { x: 0.5, y: 0.5 });
+
+    for (const missingField of ['type', 'appear']) {
+        const parameters = buildParameters();
+        const character = {
+            name: '旅人',
+            type: 'woman',
+            appear: 'long black hair',
+            action: 'standing in rain',
+        };
+        delete character[missingField];
+        parameters.images[0].characters = [character];
+        assert.throws(
+            () => parseSubmittedScenePlan(buildResult(parameters), parseOptions),
+            (error) => error.code === 'TOOL_ARGUMENTS_SCHEMA_INVALID'
+                && error.message.includes(`images[0].characters[0].${missingField}`),
+        );
+    }
+
+    const invalidOptional = buildParameters();
+    invalidOptional.images[0].characters = [{ name: '小璃', action: 'standing', uc: null }];
+    assert.throws(
+        () => parseSubmittedScenePlan(buildResult(invalidOptional), parseOptions),
+        (error) => error.code === 'TOOL_ARGUMENTS_SCHEMA_INVALID'
+            && error.message.includes('images[0].characters[0].uc'),
+    );
+});
+
+test('scene plan execution accepts absent or invalid planning notes and trusts images placement', () => {
+    const withoutPrelude = buildParameters();
+    delete withoutPrelude.mindful_prelude;
+    assert.equal(
+        parseSubmittedScenePlan(buildResult(withoutPrelude), parseOptions).tasks[0].placement.insertAfter,
+        1,
+    );
+
+    const invalidPrelude = buildParameters();
+    invalidPrelude.mindful_prelude = { obsolete: true };
+    const parsed = parseSubmittedScenePlan(buildResult(invalidPrelude), parseOptions);
+    assert.equal(parsed.mindfulPrelude, null);
+    assert.equal(parsed.tasks[0].placement.insertAfter, 1);
+
+    const conflictingPrelude = buildParameters();
+    conflictingPrelude.mindful_prelude.visual_plan.moments[0].insert_after = 2;
+    assert.equal(
+        parseSubmittedScenePlan(buildResult(conflictingPrelude), parseOptions).tasks[0].placement.insertAfter,
+        1,
+    );
 });
 
 test('scene plan contract keeps no_humans canonical and maps it to the downstream image tag', () => {
@@ -302,14 +384,24 @@ test('scene plan contract rejects schema, index, placement, count, and unknown-c
         }, 'images[0].index'],
         [() => {
             const value = buildParameters();
-            value.mindful_prelude.visual_plan.moments[0].insert_after = 99;
+            value.images[0].insert_after = 99;
             return value;
-        }, 'moments[0].insert_after', 'INSERT_POINT_INVALID'],
+        }, 'images[0].insert_after', 'INSERT_POINT_INVALID'],
+        [() => {
+            const value = buildParameters();
+            delete value.images[0].insert_after;
+            return value;
+        }, 'images[0].insert_after'],
         [() => {
             const value = buildParameters();
             value.images[0].anchor = '旧契约字段';
             return value;
         }, 'images[0].anchor'],
+        [() => {
+            const value = buildParameters();
+            value.images[0].characters[0].nickname = '额外字段';
+            return value;
+        }, 'images[0].characters[0].nickname'],
         [() => {
             const value = buildParameters();
             value.images[0].characters[1].appear = '';
@@ -332,10 +424,9 @@ test('scene plan contract rejects schema, index, placement, count, and unknown-c
 
     for (const insertAfter of [[2, 1], [1, 1]]) {
         const value = buildParameters();
-        value.images.push({ ...value.images[0], index: 2 });
-        value.mindful_prelude.visual_plan.moments = insertAfter.map((point, index) => ({
-            ...value.mindful_prelude.visual_plan.moments[0],
-            moment: String(index + 1),
+        value.images = insertAfter.map((point, index) => ({
+            ...value.images[0],
+            index: index + 1,
             insert_after: point,
         }));
         assert.throws(
@@ -346,7 +437,7 @@ test('scene plan contract rejects schema, index, placement, count, and unknown-c
     }
 
     const duplicate = buildParameters();
-    duplicate.images.push({ ...duplicate.images[0] });
+    duplicate.images.push({ ...duplicate.images[0], insert_after: 2 });
     duplicate.mindful_prelude.visual_plan.moments.push({
         ...duplicate.mindful_prelude.visual_plan.moments[0],
         moment: '2',
@@ -364,22 +455,6 @@ test('scene plan contract rejects schema, index, placement, count, and unknown-c
         (error) => error.code === 'NO_IMAGE_TASKS',
     );
 
-    const wrongMomentCount = buildParameters();
-    wrongMomentCount.mindful_prelude.visual_plan.moments.push({
-        ...wrongMomentCount.mindful_prelude.visual_plan.moments[0],
-    });
-    assert.throws(
-        () => parseSubmittedScenePlan(buildResult(wrongMomentCount), parseOptions),
-        (error) => error.code === 'TOOL_ARGUMENTS_SCHEMA_INVALID'
-            && error.message.includes('visual_plan.moments'),
-    );
-
-    // Without an explicit image limit, moments and images must still describe the same shots.
-    assert.throws(
-        () => parseSubmittedScenePlan(buildResult(wrongMomentCount), { ...parseOptions, maxImages: 0 }),
-        (error) => error.code === 'TOOL_ARGUMENTS_SCHEMA_INVALID'
-            && error.message.includes('数量必须与 images 一致'),
-    );
 });
 
 test('scene planner reports prompt expansion failures as their own category', () => {

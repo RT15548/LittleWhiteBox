@@ -3,8 +3,44 @@ import { extensionFolderPath } from "../../../../core/constants.js";
 const TAG_GUIDE_PATH = `${extensionFolderPath}/modules/draw/providers/comfyui/COMFY_TAG编写指南.md`;
 const PROMPTS_DIR = `${extensionFolderPath}/modules/draw/providers/comfyui/prompts`;
 
-/** 每次修改 ComfyUI 默认提示词内容时递增，方便后续做预设/缓存刷新判断。 */
-export const PROMPT_TEMPLATE_VERSION = 7;
+/** 修改默认提示词前先登记旧指纹，再递增此版本。 */
+export const PROMPT_TEMPLATE_VERSION = 8;
+
+/**
+ * Shipped AgentCore-era ComfyUI defaults (v6-v7), frozen before the v8
+ * protocol upgrade. Multiple v6 values exist because prompt fixes shipped
+ * without a template-version bump; all of them remain valid unedited defaults.
+ */
+export const COMFY_RELEASED_PROMPT_DEFAULT_FINGERPRINTS = Object.freeze({
+    '默认-完整规则': Object.freeze({
+        topSystem: '1338:11e4ec18:7ccb9f00',
+        tagGuideContent: Object.freeze([
+            '3788:0fba1038:8d0ee540',
+            '3815:e10b90a0:fba1796a',
+            '3832:9ba2c38e:fe2f2b62',
+        ]),
+        sceneRules: Object.freeze([
+            '6537:cf43b6b2:88340a88',
+            '6615:3b5e87fb:03c9f089',
+            '6639:7ac1f9d9:e15a080f',
+            '6584:894e47d7:1f5aa1b1',
+        ]),
+    }),
+    '默认-第一人称完整规则': Object.freeze({
+        topSystem: '2694:94908ce4:dd0aebd0',
+        tagGuideContent: Object.freeze([
+            '3788:0fba1038:8d0ee540',
+            '3815:e10b90a0:fba1796a',
+            '3832:9ba2c38e:fe2f2b62',
+        ]),
+        sceneRules: Object.freeze([
+            '6537:cf43b6b2:88340a88',
+            '6615:3b5e87fb:03c9f089',
+            '6639:7ac1f9d9:e15a080f',
+            '6584:894e47d7:1f5aa1b1',
+        ]),
+    }),
+});
 
 export const COMFY_SCENE_PROMPTS = {
     topSystem: `[Visual Scene Planning - ComfyUI txt2img]
@@ -19,7 +55,7 @@ Core rules:
 - Focus only on visible image content.
 - Do not output WebUI runtime settings such as model, sampler, VAE, LoRA, ControlNet, scripts, scheduler, or seed.
 - Do not add generic quality tags; those belong in the user's positive fixed tags.
-- Anchors must be exact substrings copied from the source narrative.
+- Illustration placement must use images[].insert_after with the numbered insertion points in the supplied content.
 - Tag order matters: subject count, identity/features, clothing, action/expression, interaction, background, lighting, camera.
 ---
 ComfyUI Scene Planner:

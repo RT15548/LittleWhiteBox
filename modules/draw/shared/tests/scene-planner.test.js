@@ -227,9 +227,7 @@ test('scene planner reports an image-limit adjustment once before the provider r
                         arguments: JSON.stringify({
                             mindful_prelude: {
                                 user_insight: '短句画面。',
-                                therapeutic_commitment: '忠实呈现。',
                                 visual_plan: {
-                                    reasoning: '唯一可用位置。',
                                     moments: [{
                                         moment: '1',
                                         insert_after: 1,
@@ -240,7 +238,7 @@ test('scene planner reports an image-limit adjustment once before the provider r
                                     }],
                                 },
                             },
-                            images: [{ index: 1, scene: 'short scene', characters: [] }],
+                            images: [{ index: 1, insert_after: 1, scene: 'short scene', characters: [] }],
                         }),
                     }],
                 },
@@ -414,9 +412,7 @@ test('NovelAI, SD, and Comfy each submit one Tool call and receive the same imag
                             arguments: JSON.stringify({
                                 mindful_prelude: {
                                     user_insight: '重逢前的动作。',
-                                    therapeutic_commitment: '忠实呈现可见内容。',
                                     visual_plan: {
-                                        reasoning: '开门动作适合定格。',
                                         moments: [{
                                             moment: '1',
                                             insert_after: 1,
@@ -429,6 +425,7 @@ test('NovelAI, SD, and Comfy each submit one Tool call and receive the same imag
                                 },
                                 images: [{
                                     index: 1,
+                                    insert_after: 1,
                                     scene: 'solo, opening door, indoor',
                                     characters: [{
                                         name: '小璃',
@@ -499,9 +496,7 @@ test('scene placement stays anchored to the unexpanded snapshot while the model 
                         arguments: JSON.stringify({
                             mindful_prelude: {
                                 user_insight: '开门动作。',
-                                therapeutic_commitment: '忠实呈现。',
                                 visual_plan: {
-                                    reasoning: '选择动作瞬间。',
                                     moments: [{
                                         moment: '1',
                                         insert_after: 1,
@@ -514,6 +509,7 @@ test('scene placement stays anchored to the unexpanded snapshot while the model 
                             },
                             images: [{
                                 index: 1,
+                                insert_after: 1,
                                 scene: 'opening door, indoor',
                                 characters: [],
                             }],
@@ -544,9 +540,7 @@ test('scene planner rejects illustration point numbers that do not exist in this
                     arguments: JSON.stringify({
                         mindful_prelude: {
                             user_insight: '开门动作。',
-                            therapeutic_commitment: '忠实呈现。',
                             visual_plan: {
-                                reasoning: '选择动作瞬间。',
                                 moments: [{
                                     moment: '1',
                                     insert_after: 42,
@@ -559,6 +553,7 @@ test('scene planner rejects illustration point numbers that do not exist in this
                         },
                         images: [{
                             index: 1,
+                            insert_after: 42,
                             scene: 'opening door, indoor',
                             characters: [],
                         }],
@@ -620,9 +615,7 @@ test('prepared scene planner input is serializable and executes without browser 
                         arguments: JSON.stringify({
                             mindful_prelude: {
                                 user_insight: '推门动作。',
-                                therapeutic_commitment: '忠实呈现。',
                                 visual_plan: {
-                                    reasoning: '动作适合定格。',
                                     moments: [{
                                         moment: '1',
                                         insert_after: 1,
@@ -633,7 +626,7 @@ test('prepared scene planner input is serializable and executes without browser 
                                     }],
                                 },
                             },
-                            images: [{ index: 1, scene: 'opening door, indoor', characters: [] }],
+                            images: [{ index: 1, insert_after: 1, scene: 'opening door, indoor', characters: [] }],
                         }),
                     }],
                 },

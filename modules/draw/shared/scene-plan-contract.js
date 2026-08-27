@@ -11,7 +11,8 @@ const CHARACTER_FIELDS = Object.freeze([
     'uc',
     'center',
 ]);
-const IMAGE_FIELDS = Object.freeze(['index', 'scene', 'characters']);
+const REQUIRED_CHARACTER_FIELDS = Object.freeze(['name', 'action']);
+const IMAGE_FIELDS = Object.freeze(['index', 'insert_after', 'scene', 'characters']);
 const MOMENT_FIELDS = Object.freeze([
     'moment',
     'insert_after',
@@ -20,8 +21,8 @@ const MOMENT_FIELDS = Object.freeze([
     'unknown_chars',
     'composition',
 ]);
-const PRELUDE_FIELDS = Object.freeze(['user_insight', 'therapeutic_commitment', 'visual_plan']);
-const VISUAL_PLAN_FIELDS = Object.freeze(['reasoning', 'moments']);
+const PRELUDE_FIELDS = Object.freeze(['user_insight', 'visual_plan']);
+const VISUAL_PLAN_FIELDS = Object.freeze(['moments']);
 const ROOT_FIELDS = Object.freeze(['mindful_prelude', 'images']);
 export const SCENE_CHARACTER_TYPES = Object.freeze([
     'girl',
@@ -226,7 +227,7 @@ export function createSubmitScenePlanTool(options = {}) {
         items: {
             type: 'object',
             additionalProperties: false,
-            required: [...CHARACTER_FIELDS],
+            required: [...REQUIRED_CHARACTER_FIELDS],
             properties: {
                 name: stringSchema({ minLength: 1 }),
                 danbooru: stringSchema(),
@@ -252,6 +253,12 @@ export function createSubmitScenePlanTool(options = {}) {
             required: [...IMAGE_FIELDS],
             properties: {
                 index: { type: 'integer', minimum: 1 },
+                insert_after: {
+                    type: 'integer',
+                    minimum: 1,
+                    ...(insertPointCount ? { maximum: insertPointCount } : {}),
+                    description: 'The numbered illustration point after which this image belongs.',
+                },
                 scene: stringSchema({ minLength: 1 }),
                 characters: charactersSchema,
             },
@@ -262,7 +269,7 @@ export function createSubmitScenePlanTool(options = {}) {
         type: 'function',
         function: {
             name: SUBMIT_SCENE_PLAN_TOOL_NAME,
-            description: 'Submit the complete mindful scene analysis and final ordered image plans for this request. Call exactly once.',
+            description: 'Submit planning notes and the final ordered image tasks. mindful_prelude guides planning; only images[] defines execution and placement. Call exactly once.',
             parameters: {
                 type: 'object',
                 additionalProperties: false,
@@ -274,13 +281,11 @@ export function createSubmitScenePlanTool(options = {}) {
                         required: [...PRELUDE_FIELDS],
                         properties: {
                             user_insight: stringSchema({ minLength: 1 }),
-                            therapeutic_commitment: stringSchema({ minLength: 1 }),
                             visual_plan: {
                                 type: 'object',
                                 additionalProperties: false,
                                 required: [...VISUAL_PLAN_FIELDS],
                                 properties: {
-                                    reasoning: stringSchema({ minLength: 1 }),
                                     moments: momentsSchema,
                                 },
                             },
@@ -308,12 +313,16 @@ function assertObject(value, path) {
 }
 
 function assertExactFields(value, fields, path) {
+    assertFields(value, fields, fields, path);
+}
+
+function assertFields(value, allowedFields, requiredFields, path) {
     assertObject(value, path);
-    const expected = new Set(fields);
+    const expected = new Set(allowedFields);
     for (const key of Object.keys(value)) {
         if (!expected.has(key)) failSchema(`${path}.${key}`, '是不允许的字段', value[key]);
     }
-    for (const key of fields) {
+    for (const key of requiredFields) {
         if (!Object.prototype.hasOwnProperty.call(value, key)) {
             failSchema(`${path}.${key}`, '是必填字段', undefined);
         }
@@ -325,6 +334,11 @@ function requireString(value, path, { allowEmpty = false } = {}) {
     const normalized = value.trim();
     if (!allowEmpty && !normalized) failSchema(path, '不能为空', value);
     return normalized;
+}
+
+function optionalString(value, key, path) {
+    if (!Object.prototype.hasOwnProperty.call(value, key)) return '';
+    return requireString(value[key], `${path}.${key}`, { allowEmpty: true });
 }
 
 function requireStringArray(value, path) {
@@ -374,9 +388,7 @@ function validateMindfulPrelude(value, options = {}) {
     });
     return {
         user_insight: requireString(value.user_insight, 'mindful_prelude.user_insight'),
-        therapeutic_commitment: requireString(value.therapeutic_commitment, 'mindful_prelude.therapeutic_commitment'),
         visual_plan: {
-            reasoning: requireString(visualPlan.reasoning, 'mindful_prelude.visual_plan.reasoning'),
             moments,
         },
     };
@@ -400,6 +412,7 @@ const GRID_COL = Object.freeze({ A: 0.1, B: 0.3, C: 0.5, D: 0.7, E: 0.9 });
 const GRID_ROW = Object.freeze({ 1: 0.1, 2: 0.3, 3: 0.5, 4: 0.7, 5: 0.9 });
 
 function normalizeCenter(value, path, centerMode) {
+    if (value === undefined) return { x: 0.5, y: 0.5 };
     if (centerMode === 'normalized') {
         assertExactFields(value, ['x', 'y'], path);
         const parseCoordinate = (coordinate, coordinatePath) => {
@@ -422,11 +435,11 @@ function normalizeCenter(value, path, centerMode) {
 }
 
 function normalizeCharacter(value, path, knownNameLookup, centerMode) {
-    assertExactFields(value, CHARACTER_FIELDS, path);
+    assertFields(value, CHARACTER_FIELDS, REQUIRED_CHARACTER_FIELDS, path);
     const returnedName = requireString(value.name, `${path}.name`);
     const canonicalName = knownNameLookup.get(returnedName.toLocaleLowerCase()) || '';
-    const type = requireString(value.type, `${path}.type`, { allowEmpty: true }).toLowerCase();
-    const appear = requireString(value.appear, `${path}.appear`, { allowEmpty: true });
+    const type = optionalString(value, 'type', path).toLowerCase();
+    const appear = optionalString(value, 'appear', path);
     if (!canonicalName) {
         if (!CHARACTER_TYPES.has(type)) {
             failSchema(`${path}.type`, `未知角色必须是 ${SCENE_CHARACTER_TYPES.join('、')}`, value.type);
@@ -437,13 +450,13 @@ function normalizeCharacter(value, path, knownNameLookup, centerMode) {
 
     return {
         name: canonicalName || returnedName,
-        danbooru: requireString(value.danbooru, `${path}.danbooru`, { allowEmpty: true }),
+        danbooru: optionalString(value, 'danbooru', path),
         type: canonicalName ? '' : type,
         appear: canonicalName ? '' : appear,
-        costume: requireString(value.costume, `${path}.costume`, { allowEmpty: true }),
+        costume: optionalString(value, 'costume', path),
         action: requireString(value.action, `${path}.action`),
-        interact: requireString(value.interact, `${path}.interact`, { allowEmpty: true }),
-        uc: requireString(value.uc, `${path}.uc`, { allowEmpty: true }),
+        interact: optionalString(value, 'interact', path),
+        uc: optionalString(value, 'uc', path),
         center,
     };
 }
@@ -476,8 +489,6 @@ function normalizeImages(images, options = {}) {
     const sceneSource = options.sceneSource;
     const sourcePoints = new Map((Array.isArray(sceneSource?.points) ? sceneSource.points : [])
         .map((point) => [point.number, point]));
-    const moments = Array.isArray(options.moments) ? options.moments : [];
-
     let previousInsertAfter = 0;
     const tasks = images.map((image, imageIndex) => {
         const path = `images[${imageIndex}]`;
@@ -486,30 +497,30 @@ function normalizeImages(images, options = {}) {
         if (image.index !== imageIndex + 1) {
             failSchema(`${path}.index`, `必须从 1 开始连续递增，当前应为 ${imageIndex + 1}`, image.index);
         }
-        const moment = moments[imageIndex];
-        const sourcePoint = sourcePoints.get(moment?.insert_after);
+        const insertAfter = requirePositiveInteger(image.insert_after, `${path}.insert_after`);
+        const sourcePoint = sourcePoints.get(insertAfter);
         if (!sourcePoint) {
-            const path = `mindful_prelude.visual_plan.moments[${imageIndex}].insert_after`;
+            const insertPath = `${path}.insert_after`;
             throw new ScenePlannerError(
-                `场景计划参数无效：${path} 必须引用本次 <content> 中存在的插图点编号`,
+                `场景计划参数无效：${insertPath} 必须引用本次 <content> 中存在的插图点编号`,
                 'INSERT_POINT_INVALID',
                 {
-                    path,
+                    path: insertPath,
                     rule: '必须引用本次正文中存在的插图点编号',
-                    received: moment?.insert_after,
+                    received: insertAfter,
                     expected: sourcePoints.size ? `1～${sourcePoints.size}` : '本次正文没有可用插图点',
                 },
             );
         }
-        if (moment.insert_after <= previousInsertAfter) {
+        if (insertAfter <= previousInsertAfter) {
             failSchema(
-                `mindful_prelude.visual_plan.moments[${imageIndex}].insert_after`,
+                `${path}.insert_after`,
                 '必须按图片顺序严格递增且不得重复',
-                moment.insert_after,
+                insertAfter,
                 `大于 ${previousInsertAfter} 的有效插图点编号`,
             );
         }
-        previousInsertAfter = moment.insert_after;
+        previousInsertAfter = insertAfter;
         if (!Array.isArray(image.characters)) failSchema(`${path}.characters`, '必须是 array', image.characters);
         if (maxCharactersPerImage && image.characters.length > maxCharactersPerImage) {
             failSchema(`${path}.characters`, `最多包含 ${maxCharactersPerImage} 人`, image.characters.length);
@@ -523,7 +534,7 @@ function normalizeImages(images, options = {}) {
             chars,
             placement: {
                 mode: 'source',
-                insertAfter: moment.insert_after,
+                insertAfter,
                 offset: sourcePoint.offset,
                 sourceHash: String(sceneSource?.sourceHash || ''),
             },
@@ -614,20 +625,15 @@ export function parseSubmittedScenePlan(result = {}, options = {}) {
         );
     }
     const parameters = parseArguments(toolCall.arguments);
-    assertExactFields(parameters, ROOT_FIELDS, 'parameters');
-    const mindfulPrelude = validateMindfulPrelude(parameters.mindful_prelude, options);
-    const tasks = normalizeImages(parameters.images, {
-        ...options,
-        moments: mindfulPrelude.visual_plan.moments,
-    });
-    // The planned moments and the submitted images describe the same shots, so their counts
-    // must agree even when no explicit image limit is configured.
-    if (mindfulPrelude.visual_plan.moments.length !== tasks.length) {
-        failSchema(
-            'mindful_prelude.visual_plan.moments',
-            `数量必须与 images 一致（moments ${mindfulPrelude.visual_plan.moments.length} / images ${tasks.length}）`,
-            mindfulPrelude.visual_plan.moments.length,
-        );
+    assertFields(parameters, ROOT_FIELDS, ['images'], 'parameters');
+    let mindfulPrelude = null;
+    if (Object.prototype.hasOwnProperty.call(parameters, 'mindful_prelude')) {
+        try {
+            mindfulPrelude = validateMindfulPrelude(parameters.mindful_prelude, options);
+        } catch (error) {
+            if (!(error instanceof ScenePlannerError)) throw error;
+        }
     }
+    const tasks = normalizeImages(parameters.images, options);
     return { mindfulPrelude, tasks };
 }

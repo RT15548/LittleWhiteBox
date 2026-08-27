@@ -3,8 +3,44 @@ import { extensionFolderPath } from "../../../../core/constants.js";
 const TAG_GUIDE_PATH = `${extensionFolderPath}/modules/draw/providers/sd-webui/SD_TAG编写指南.md`;
 const PROMPTS_DIR = `${extensionFolderPath}/modules/draw/providers/sd-webui/prompts`;
 
-/** 每次修改 SD 默认提示词内容时递增，方便后续做预设/缓存刷新判断。 */
-export const PROMPT_TEMPLATE_VERSION = 6;
+/** 修改默认提示词前先登记旧指纹，再递增此版本。 */
+export const PROMPT_TEMPLATE_VERSION = 7;
+
+/**
+ * Shipped AgentCore-era SD defaults (v5-v6), frozen before the v7 protocol
+ * upgrade. Multiple v5 values exist because prompt fixes shipped without a
+ * template-version bump; all of them remain valid unedited defaults.
+ */
+export const SD_RELEASED_PROMPT_DEFAULT_FINGERPRINTS = Object.freeze({
+    '默认-完整规则': Object.freeze({
+        topSystem: '1336:6fa08446:73885312',
+        tagGuideContent: Object.freeze([
+            '3829:41e93018:ed1e2e3a',
+            '3856:1cb0dd00:0c70927c',
+            '3873:8ba055ae:a164b8c4',
+        ]),
+        sceneRules: Object.freeze([
+            '6527:81366c4b:d139afed',
+            '6605:b7e644b6:be9d8e04',
+            '6629:f1e674c4:d007b3d2',
+            '6574:761ce122:50a72216',
+        ]),
+    }),
+    '默认-第一人称完整规则': Object.freeze({
+        topSystem: '2692:753438ea:a7cc7c5a',
+        tagGuideContent: Object.freeze([
+            '3829:41e93018:ed1e2e3a',
+            '3856:1cb0dd00:0c70927c',
+            '3873:8ba055ae:a164b8c4',
+        ]),
+        sceneRules: Object.freeze([
+            '6527:81366c4b:d139afed',
+            '6605:b7e644b6:be9d8e04',
+            '6629:f1e674c4:d007b3d2',
+            '6574:761ce122:50a72216',
+        ]),
+    }),
+});
 
 export const SD_SCENE_PROMPTS = {
     topSystem: `[Visual Scene Planning - Stable Diffusion WebUI txt2img]
@@ -19,7 +55,7 @@ Core rules:
 - Focus only on visible image content.
 - Do not output WebUI runtime settings such as model, sampler, VAE, LoRA, ControlNet, scripts, scheduler, or seed.
 - Do not add generic quality tags; those belong in the user's positive fixed tags.
-- Anchors must be exact substrings copied from the source narrative.
+- Illustration placement must use images[].insert_after with the numbered insertion points in the supplied content.
 - Tag order matters: subject count, identity/features, clothing, action/expression, interaction, background, lighting, camera.
 ---
 Stable Diffusion Scene Planner:

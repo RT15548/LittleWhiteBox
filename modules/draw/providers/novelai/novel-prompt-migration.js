@@ -1,8 +1,9 @@
 import { NOVEL_PROMPT_GUIDES } from './novel-model-capabilities.js';
+import { promptTemplateFingerprint } from '../../shared/prompt-template-migration.js';
 
 // Upgrade boundary for prompt formats that have actually shipped.
 // - upstream config v7 / prompt template v4: YAML-era preset fields.
-// - prompt template v6 and v7: Tool-era defaults, refreshed by content fingerprint.
+// - prompt template v6 through v10: Tool-era defaults, refreshed by content fingerprint.
 // Remove the corresponding branch when that released input version is no longer supported.
 const UPSTREAM_V4_PROMPT_FINGERPRINTS = Object.freeze({
     topSystem: '1280:7fa69e8a:fea74076',
@@ -38,6 +39,11 @@ const RELEASED_DEFAULT_FINGERPRINTS = Object.freeze({
         topSystemPov: '2590:6d6d4d27:e6e8f9b1',
         sceneRules: '6254:7f3e7262:02951222',
     }),
+    v10: Object.freeze({
+        topSystem: '1197:4f5dc6ba:c8bf2f9c',
+        topSystemPov: '2590:6d6d4d27:e6e8f9b1',
+        sceneRules: '6500:03affbbe:867cbc92',
+    }),
 });
 
 const RELEASED_DEFAULT_SETS = Object.freeze(Object.values(RELEASED_DEFAULT_FINGERPRINTS));
@@ -52,25 +58,6 @@ const UPSTREAM_MANAGED_PRESETS = Object.freeze({
     '默认-模型要求低': { name: '旧版-模型要求低（已升级）', pov: false },
 });
 
-function normalizeLineEndings(value) {
-    return String(value || '').replace(/\r\n?/g, '\n');
-}
-
-function fnv1a(text, seed) {
-    let hash = seed >>> 0;
-    for (let index = 0; index < text.length; index++) {
-        hash ^= text.charCodeAt(index);
-        hash = Math.imul(hash, 16777619);
-    }
-    return (hash >>> 0).toString(16).padStart(8, '0');
-}
-
-function promptFingerprint(value) {
-    const text = normalizeLineEndings(value);
-    const reversed = Array.from(text).reverse().join('');
-    return `${text.length}:${fnv1a(text, 2166136261)}:${fnv1a(reversed, 2246822507)}`;
-}
-
 /**
  * Converts the frozen V1/upstream tag guide field into the current override map.
  * A released default remains linked to the bundled guide; an edited value,
@@ -78,7 +65,7 @@ function promptFingerprint(value) {
  */
 export function migrateLegacyNovelTagGuide(value) {
     if (typeof value !== 'string'
-        || promptFingerprint(value) === UPSTREAM_V4_PROMPT_FINGERPRINTS.tagGuide) {
+        || promptTemplateFingerprint(value) === UPSTREAM_V4_PROMPT_FINGERPRINTS.tagGuide) {
         return {};
     }
     return { [NOVEL_PROMPT_GUIDES.V45]: value };
@@ -98,7 +85,7 @@ function appendMigratedSection(sections, title, value, suffix = '') {
 
 function convertUpstreamV4Preset(preset, currentDefaults) {
     const managed = UPSTREAM_MANAGED_PRESETS[String(preset.name || '')];
-    const topFingerprint = promptFingerprint(preset.topSystem);
+    const topFingerprint = promptTemplateFingerprint(preset.topSystem);
     const topSystem = topFingerprint === UPSTREAM_V4_PROMPT_FINGERPRINTS.topSystem
         ? currentDefaults.topSystem
         : topFingerprint === UPSTREAM_V4_PROMPT_FINGERPRINTS.topSystemPov
@@ -117,7 +104,7 @@ function convertUpstreamV4Preset(preset, currentDefaults) {
 
     const rawFormat = String(preset.userJsonFormat || '');
     const format = rawFormat.trim();
-    const formatFingerprint = promptFingerprint(rawFormat);
+    const formatFingerprint = promptTemplateFingerprint(rawFormat);
     if (format
         && formatFingerprint !== UPSTREAM_V4_PROMPT_FINGERPRINTS.userJsonFormat
         && formatFingerprint !== UPSTREAM_V4_PROMPT_FINGERPRINTS.legacyUserJsonFormat) {
@@ -191,7 +178,7 @@ function refreshReleasedDefaultPresets(presets, storedTemplateVersion, targetVer
     const next = presets.map((preset) => {
         if (!preset || typeof preset !== 'object') return preset;
         const copy = { ...preset };
-        const topFingerprint = promptFingerprint(copy.topSystem);
+        const topFingerprint = promptTemplateFingerprint(copy.topSystem);
         if (isReleasedDefault(topFingerprint, 'topSystem')) {
             copy.topSystem = currentDefaults.topSystem;
             migrated = true;
@@ -199,7 +186,7 @@ function refreshReleasedDefaultPresets(presets, storedTemplateVersion, targetVer
             copy.topSystem = currentDefaults.topSystemPov;
             migrated = true;
         }
-        if (isReleasedDefault(promptFingerprint(copy.sceneRules), 'sceneRules')) {
+        if (isReleasedDefault(promptTemplateFingerprint(copy.sceneRules), 'sceneRules')) {
             copy.sceneRules = currentDefaults.sceneRules;
             migrated = true;
         }

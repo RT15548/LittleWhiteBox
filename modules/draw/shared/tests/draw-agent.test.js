@@ -99,9 +99,7 @@ function buildValidScenePlanResult() {
             arguments: JSON.stringify({
                 mindful_prelude: {
                     user_insight: '开门动作。',
-                    therapeutic_commitment: '忠实呈现。',
                     visual_plan: {
-                        reasoning: '动作适合定格。',
                         moments: [{
                             moment: '1',
                             insert_after: 1,
@@ -114,6 +112,7 @@ function buildValidScenePlanResult() {
                 },
                 images: [{
                     index: 1,
+                    insert_after: 1,
                     scene: 'opening door, indoor',
                     characters: [],
                 }],

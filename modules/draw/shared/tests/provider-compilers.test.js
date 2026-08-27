@@ -1,12 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { compile as compileComfy } from '../../providers/comfyui/compiler.js';
+import {
+    compile as compileComfy,
+    compileComfyPromptForTask,
+} from '../../providers/comfyui/compiler.js';
 import {
     compile as compileNovel,
     compileNovelImageRequest,
+    compileNovelPromptForTask,
 } from '../../providers/novelai/compiler.js';
-import { compile as compileSd } from '../../providers/sd-webui/compiler.js';
+import {
+    compile as compileSd,
+    compileSdPromptForTask,
+} from '../../providers/sd-webui/compiler.js';
 
 const SCENE_PLAN = [{
     scene: 'rainy street, reunion',
@@ -31,6 +38,27 @@ const KNOWN_CHARACTERS = [{
     appearance: 'silver hair',
     negativeTags: 'wrong hair',
 }];
+
+test('all provider compilers keep an unregistered character Danbooru identity tag', () => {
+    const task = {
+        scene: 'solo, outdoors',
+        chars: [{
+            name: '初音未来',
+            danbooru: 'hatsune_miku_(vocaloid)',
+            type: 'girl',
+            appear: 'aqua hair, twintails',
+            costume: '',
+            action: 'singing',
+            interact: '',
+            uc: '',
+            center: { x: 0.5, y: 0.5 },
+        }],
+    };
+
+    assert.match(compileNovelPromptForTask(task).characterPrompts[0].prompt, /hatsune miku \(vocaloid\)/);
+    assert.match(compileSdPromptForTask(task).positive, /hatsune_miku_\(vocaloid\)/);
+    assert.match(compileComfyPromptForTask(task).positive, /hatsune_miku_\(vocaloid\)/);
+});
 
 test('SD compiler turns a scene plan and recipe into the complete backend image-job payload', () => {
     const compiled = compileSd(SCENE_PLAN, {

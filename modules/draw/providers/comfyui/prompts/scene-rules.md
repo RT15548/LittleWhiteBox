@@ -4,18 +4,17 @@
 
 - `mindful_prelude`：人文观察与视觉规划。
   - `user_insight`：用户的幻想处于什么时空与场景，写作风格和情绪表达是什么；仅在文本确实反映严重心理问题时给出审慎建议。
-  - `therapeutic_commitment`：以人文关怀、尊重虚构创作的态度完整提交所有必要信息。
-  - `visual_plan.reasoning`：说明识别了哪些视觉核心时刻、场景转折与情绪支点。
   - `visual_plan.moments`：每项都填写 `moment`、`insert_after`、`char_count`、`known_chars`、`unknown_chars`、`composition`。
-- `images`：最终图片任务；每项都填写 `index`、`scene`、`characters`。
+- `images`：最终图片任务；每项都填写 `index`、`insert_after`、`scene`、`characters`。
 
-`characters` 中每个角色都必须提交全部字段：`name`、`danbooru`、`type`、`appear`、`costume`、`action`、`interact`、`uc`、`center`。
+`characters` 中每个角色必须提交 `name` 与 `action`。未知角色还必须提交 `type` 与 `appear`。`danbooru`、`costume`、`interact`、`uc`、`center` 只在有对应事实时提交；不要为了凑字段输出空字符串。
 
 - 纯风景、物体或建筑主体：使用 `characters: []`，不要虚构人物。
-- 已录入角色：`name` 使用提供的规范名，即使原文使用别名也要归一；`type` 与 `appear` 提交空字符串；其余字段完整提交。
+- 已录入角色：`name` 使用提供的规范名，即使原文使用别名也要归一；不要提交 `type` 与 `appear`，角色库会自动注入。
 - 未知角色：`type` 必须是 girl / boy / woman / man / other，`appear` 必须填写可见外貌。
 - 不得提交根级或图片级 `negative`；整图负面由用户预设负责，角色级互斥只写入 `uc`。
-- `insert_after` 是本图在正文中的插图位置：`<content>` 里每个可插图的位置都已预标注为 `【插图点 N】`，选择本图画面发生处之后最近的那个编号，填整数 N；多张图必须按阅读顺序选择严格递增且不重复的编号；不要复制原文句子。
+- `images[].insert_after` 是本图唯一的正文插入位置事实：`<content>` 里每个可插图的位置都已预标注为 `【插图点 N】`，选择本图画面发生处之后最近的那个编号，填整数 N；多张图必须按阅读顺序选择严格递增且不重复的编号；不要复制原文句子。
+- `visual_plan.moments` 只用于规划。它与 `images` 不按下标绑定；发生差异时以 `images[].insert_after` 为准。
 
 ---
 
@@ -57,9 +56,9 @@
 - 无角色时，物品/服装/建筑等作为主体详述，且 `characters` 保持空数组
 - 默认无名配角: type=boy
 
-### 身份 (name + danbooru + type)
+### 身份 (name + 可选 danbooru + type)
 - name: 角色名（中文原名）
-- danbooru: 下划线格式；同人角色 character_name_(series)，原创角色 中文名_(original)，无名配角为空字符串
+- danbooru: 仅在确定规范身份标签时提交，使用下划线格式；同人角色 character_name_(series)，原创角色 中文名_(original)；无名配角或无法确定规范标签时省略
 - type（仅未知角色）: girl / boy / woman / man / other / no_humans
 - 种族判定: 人形度≥60%→girl/boy（含精灵/兽耳/天使/魅魔）；人形<50%→no_humans
 
@@ -67,7 +66,7 @@
 - 核心: 发长, 发色, 瞳色, 罩杯
 - 修饰（可选）: 年龄/职业/彩妆/印记/纹身/晒痕/瞳孔/非人特征
 
-### 服装/配饰 (costume) — 每张图完整提交
+### 服装/配饰 (costume) — 有明确服装事实时提交，无则省略
 - 主要: 款式 + 颜色 + 细节（材质/形状/图案/装饰/开口）+ 穿着状态
 - 次要: 款式 + 颜色
 - 若已提供角色服装参考列表：从中选择最适合当前剧情的一套或其变体作为基础，再按画面状态补充/改写，如破损、敞开、掀起、滑落、湿透、解开；不要把多套服装直接拼接混合
@@ -187,9 +186,9 @@ Scene 与所有 Character 合计推荐 50~80 个正向 Tag/图（UC 不计入）
 ---
 
 ## NOTED
-- insert_after must be the number of an existing 【插图点 N】 marker in <content>
-- Known characters: use exact registered name；submit danbooru + costume + action + interact + uc + center；type/appear 使用空字符串
-- Unknown characters: submit ALL fields: name + danbooru + type + appear + costume + action + interact + uc + center
+- images[].insert_after must be the number of an existing 【插图点 N】 marker in <content>
+- Known characters: always submit exact registered name + action；不要提交 type/appear；danbooru/costume/interact/uc/center 仅在有内容时提交
+- Unknown characters: always submit name + type + appear + action；danbooru/costume/interact/uc/center 仅在有内容时提交
 - Do not output generic quality tags such as masterpiece, best quality, highres；不要虚构 model、sampler、LoRA、VAE、ControlNet、script、scheduler、seed 或 extension settings
 - Keep tags concise and important tags first；visual tags use spaces, canonical character identity may retain underscores
 - 完成 `mindful_prelude` 和全部 `images` 后调用一次 `submit_scene_plan`

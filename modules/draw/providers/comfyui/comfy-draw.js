@@ -90,6 +90,7 @@ import {
     getCharacterEnabledFromCard,
 } from "../../shared/character-enabled-control.js";
 import { hashStableValue } from "../../shared/generation-fingerprint.js";
+import { refreshReleasedPromptPresetDefaults } from "../../shared/prompt-template-migration.js";
 import {
     findLastAIMessageId,
     createPlaceholder,
@@ -120,6 +121,7 @@ import {
 } from "../../shared/danbooru-local-db.js";
 import {
     COMFY_SCENE_PROMPTS,
+    COMFY_RELEASED_PROMPT_DEFAULT_FINGERPRINTS,
     DEFAULT_PROMPT_CONFIG,
     PROMPT_TEMPLATE_VERSION,
     getLoadedTagGuide,
@@ -437,20 +439,19 @@ function normalizeSettings(raw = {}) {
         : [];
     if (!promptPresets.length) promptPresets = createDefaultPromptPresets();
 
-    const defaultPresetNames = ['默认-完整规则', '默认-第一人称完整规则'];
     const storedVersion = Number(merged._promptTemplateVersion) || 0;
     if (!promptPresets.some((preset) => preset.name === '默认-第一人称完整规则')) {
         promptPresets.push(createPromptPreset('默认-第一人称完整规则'));
     }
     if (storedVersion < PROMPT_TEMPLATE_VERSION) {
-        promptPresets = promptPresets.map((preset) => {
-            if (!defaultPresetNames.includes(preset.name)) return preset;
-            return {
-                ...preset,
-                ...getPromptPresetDefaults(preset.name),
-            };
+        const refresh = refreshReleasedPromptPresetDefaults(promptPresets, {
+            storedVersion,
+            targetVersion: PROMPT_TEMPLATE_VERSION,
+            releasedFingerprints: COMFY_RELEASED_PROMPT_DEFAULT_FINGERPRINTS,
+            getCurrentDefaults: getPromptPresetDefaults,
         });
-        merged._promptTemplateVersion = PROMPT_TEMPLATE_VERSION;
+        promptPresets = refresh.presets;
+        merged._promptTemplateVersion = refresh.templateVersion;
     }
 
     merged.promptPresets = promptPresets.map((preset, index) => {

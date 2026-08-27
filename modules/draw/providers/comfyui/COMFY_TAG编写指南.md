@@ -86,10 +86,10 @@ tag--        → 降低
 
 **已录入角色（已知角色）：**
 - 不要输出 `type` 和 `appear`（系统自动注入）
-- 必须输出: `costume`, `action`, `interact`, `uc`, `center`
+- 必须输出 `name` 和 `action`；`danbooru`, `costume`, `interact`, `uc`, `center` 仅在有对应内容时输出
 
 **未知角色：**
-- 必须输出所有字段: `type`, `appear`, `costume`, `action`, `interact`, `uc`, `center`
+- 必须输出 `name`, `type`, `appear`, `action`；`danbooru`, `costume`, `interact`, `uc`, `center` 仅在有对应内容时输出
 
 ---
 

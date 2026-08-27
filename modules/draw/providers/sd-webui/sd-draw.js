@@ -85,6 +85,7 @@ import {
     getCharacterEnabledFromCard,
 } from "../../shared/character-enabled-control.js";
 import { hashStableValue } from "../../shared/generation-fingerprint.js";
+import { refreshReleasedPromptPresetDefaults } from "../../shared/prompt-template-migration.js";
 import {
     findLastAIMessageId,
     createPlaceholder,
@@ -116,6 +117,7 @@ import {
 import {
     DEFAULT_PROMPT_CONFIG,
     PROMPT_TEMPLATE_VERSION,
+    SD_RELEASED_PROMPT_DEFAULT_FINGERPRINTS,
     SD_SCENE_PROMPTS,
     getLoadedTagGuide,
     getPromptChainPreview,
@@ -312,21 +314,20 @@ function normalizeSettings(raw = {}) {
     merged.advancedMode = true;
     if (!merged.promptPresets.length) merged.promptPresets = createDefaultPromptPresets();
 
-    const defaultPresetNames = ['默认-完整规则', '默认-第一人称完整规则'];
     const storedVersion = Number(merged._promptTemplateVersion) || 0;
     if (!merged.promptPresets.some((preset) => preset.name === '默认-第一人称完整规则')) {
         const povPreset = createPromptPreset('默认-第一人称完整规则');
         merged.promptPresets.push(povPreset);
     }
     if (storedVersion < PROMPT_TEMPLATE_VERSION) {
-        merged.promptPresets = merged.promptPresets.map((preset) => {
-            if (!defaultPresetNames.includes(preset.name)) return preset;
-            return {
-                ...preset,
-                ...getPromptPresetDefaults(preset.name),
-            };
+        const refresh = refreshReleasedPromptPresetDefaults(merged.promptPresets, {
+            storedVersion,
+            targetVersion: PROMPT_TEMPLATE_VERSION,
+            releasedFingerprints: SD_RELEASED_PROMPT_DEFAULT_FINGERPRINTS,
+            getCurrentDefaults: getPromptPresetDefaults,
         });
-        merged._promptTemplateVersion = PROMPT_TEMPLATE_VERSION;
+        merged.promptPresets = refresh.presets;
+        merged._promptTemplateVersion = refresh.templateVersion;
     }
 
     merged.promptPresets = merged.promptPresets.map((preset) => {
