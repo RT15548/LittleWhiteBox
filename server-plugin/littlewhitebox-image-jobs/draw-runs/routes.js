@@ -33,7 +33,7 @@ function exceedsDeclaredLimit(req) {
     return Number.isFinite(length) && length > MAX_ENVELOPE_BYTES;
 }
 
-function registerDrawRunRoutes(router, { manager }) {
+function registerDrawRunRoutes(router, { manager, logger = console }) {
     if (!manager || typeof manager.create !== 'function') {
         throw new TypeError('Draw Run routes require a manager');
     }
@@ -53,6 +53,13 @@ function registerDrawRunRoutes(router, { manager }) {
             const run = manager.create(owner, req.body || {}, req);
             return res.status(202).send({ ok: true, run });
         } catch (error) {
+            const status = Number.isInteger(error?.status) ? error.status : 503;
+            if (status >= 500) {
+                logger.error?.(
+                    `[littlewhitebox-image-jobs] Draw Run create rejected: runId=${String(req.body?.runId || '<unknown>')} status=${status} code=${String(error?.code || 'draw_run_failed')}`,
+                    error,
+                );
+            }
             return sendError(res, error);
         }
     });

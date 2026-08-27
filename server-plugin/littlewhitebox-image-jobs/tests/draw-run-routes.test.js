@@ -90,3 +90,32 @@ test('Draw Run POST applies the declared Content-Length business limit before ma
     assert.equal(response.body.code, 'draw_run_input_limit');
     assert.equal(createCount, 0);
 });
+
+test('Draw Run POST logs a server rejection without logging its request payload', async () => {
+    const calls = [];
+    const router = createRouter();
+    registerDrawRunRoutes(router, {
+        manager: {
+            create() {
+                throw Object.assign(new Error('The SillyTavern listening socket is unavailable.'), {
+                    code: 'loopback_socket_unavailable',
+                    status: 503,
+                });
+            },
+        },
+        logger: {
+            error(...args) { calls.push(args); },
+        },
+    });
+
+    const response = await invoke(router, 'POST', '/v1/draw-runs', {
+        body: { runId: 'run-test-202', apiKey: 'must-not-be-logged' },
+    });
+
+    assert.equal(response.statusCode, 503);
+    assert.equal(response.body.code, 'loopback_socket_unavailable');
+    assert.equal(calls.length, 1);
+    assert.match(calls[0][0], /run-test-202.*status=503.*loopback_socket_unavailable/);
+    assert.doesNotMatch(calls[0][0], /must-not-be-logged/);
+    assert.equal(calls[0][1].message, 'The SillyTavern listening socket is unavailable.');
+});

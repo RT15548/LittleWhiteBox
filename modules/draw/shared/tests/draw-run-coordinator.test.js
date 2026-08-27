@@ -297,6 +297,68 @@ test('an explicit 4xx rejection removes and confirms removal of the marker', asy
     assert.equal(getDrawRunMarker(message, 0, 'run-test-105'), null);
 });
 
+test('an explicit server error is reported immediately instead of becoming a missing task', async () => {
+    const message = createMessage();
+    const ctx = { chatId: 'chat-1', chat: [message], getRequestHeaders: () => ({}) };
+    let saveCount = 0;
+    await assert.rejects(submitDrawRun({
+        ctx,
+        getCurrentContext: () => ctx,
+        message,
+        messageId: 0,
+        targetHash: hashSceneSource(message.mes),
+        prepared: createPrepared(),
+        imageProvider: 'sd-webui',
+        generationRecipe: {},
+        runId: 'run-test-119',
+        syncActiveSwipe: syncMessage(message),
+        isMessageBeingEdited: () => false,
+        saveAndConfirm: async ({ verify }) => {
+            saveCount += 1;
+            assert.equal(await verify([{ chat_metadata: {} }, structuredClone(message)]), true);
+        },
+        fetchImpl: async () => response(503, {
+            ok: false,
+            code: 'draw_run_host_client_failed',
+            error: 'host client unavailable',
+        }),
+    }), error => error?.code === 'draw_run_host_client_failed'
+        && error?.status === 503
+        && error?.message === 'host client unavailable'
+        && error?.uncertain === false);
+
+    assert.equal(saveCount, 2);
+    assert.equal(getDrawRunMarker(message, 0, 'run-test-119'), null);
+});
+
+test('an unstructured gateway error remains uncertain because the backend may have created the task', async () => {
+    const message = createMessage();
+    const ctx = { chatId: 'chat-1', chat: [message], getRequestHeaders: () => ({}) };
+    let saveCount = 0;
+    const result = await submitDrawRun({
+        ctx,
+        getCurrentContext: () => ctx,
+        message,
+        messageId: 0,
+        targetHash: hashSceneSource(message.mes),
+        prepared: createPrepared(),
+        imageProvider: 'sd-webui',
+        generationRecipe: {},
+        runId: 'run-test-122',
+        syncActiveSwipe: syncMessage(message),
+        isMessageBeingEdited: () => false,
+        saveAndConfirm: async ({ verify }) => {
+            saveCount += 1;
+            assert.equal(await verify([{ chat_metadata: {} }, structuredClone(message)]), true);
+        },
+        fetchImpl: async () => new Response('Bad Gateway', { status: 502 }),
+    });
+
+    assert.equal(result.status, 'uncertain');
+    assert.equal(saveCount, 1);
+    assert.ok(getDrawRunMarker(message, 0, 'run-test-122'));
+});
+
 test('an uncertain marker removal restores the local deletion handle for read-back recovery', async () => {
     const message = createMessage();
     const ctx = { chatId: 'chat-1', chat: [message], getRequestHeaders: () => ({}) };
@@ -430,15 +492,16 @@ test('a page farewell narrows only its interrupted Draw Run submission window to
     assert.equal(classifyMissingDrawRun(1_000, 120_000), 'wait');
 });
 
-test('request-header acquisition failure remains a recoverable uncertain submission', async () => {
+test('a request-header failure before POST clears the marker and fails immediately', async () => {
     const message = createMessage();
     const ctx = {
         chatId: 'chat-1',
         chat: [message],
         getRequestHeaders: () => { throw new Error('headers unavailable'); },
     };
+    let saveCount = 0;
     let fetchCount = 0;
-    const result = await submitDrawRun({
+    await assert.rejects(submitDrawRun({
         ctx,
         getCurrentContext: () => ctx,
         message,
@@ -451,14 +514,80 @@ test('request-header acquisition failure remains a recoverable uncertain submiss
         syncActiveSwipe: syncMessage(message),
         isMessageBeingEdited: () => false,
         saveAndConfirm: async ({ verify }) => {
+            saveCount += 1;
             assert.equal(await verify([{ chat_metadata: {} }, structuredClone(message)]), true);
         },
         fetchImpl: async () => { fetchCount += 1; },
+    }), error => error?.code === 'DRAW_RUN_SUBMISSION_FAILED'
+        && error?.uncertain === false);
+
+    assert.equal(saveCount, 2);
+    assert.equal(fetchCount, 0);
+    assert.equal(getDrawRunMarker(message, 0, 'run-test-107'), null);
+});
+
+test('a failed POST followed by 404 remains uncertain because requests may race', async () => {
+    const message = createMessage();
+    const ctx = { chatId: 'chat-1', chat: [message], getRequestHeaders: () => ({}) };
+    const methods = [];
+    let saveCount = 0;
+    const result = await submitDrawRun({
+        ctx,
+        getCurrentContext: () => ctx,
+        message,
+        messageId: 0,
+        targetHash: hashSceneSource(message.mes),
+        prepared: createPrepared(),
+        imageProvider: 'sd-webui',
+        generationRecipe: {},
+        runId: 'run-test-120',
+        syncActiveSwipe: syncMessage(message),
+        isMessageBeingEdited: () => false,
+        saveAndConfirm: async ({ verify }) => {
+            saveCount += 1;
+            assert.equal(await verify([{ chat_metadata: {} }, structuredClone(message)]), true);
+        },
+        fetchImpl: async (_url, options) => {
+            methods.push(options.method);
+            if (options.method === 'POST') throw new TypeError('Failed to fetch');
+            return response(404, { ok: false, code: 'draw_run_not_found' });
+        },
     });
 
     assert.equal(result.status, 'uncertain');
-    assert.equal(fetchCount, 0);
-    assert.ok(getDrawRunMarker(message, 0, 'run-test-107'));
+    assert.deepEqual(methods, ['POST', 'GET']);
+    assert.equal(saveCount, 1);
+    assert.ok(getDrawRunMarker(message, 0, 'run-test-120'));
+});
+
+test('a failed POST remains uncertain when the confirmation query also has no response', async () => {
+    const message = createMessage();
+    const ctx = { chatId: 'chat-1', chat: [message], getRequestHeaders: () => ({}) };
+    const methods = [];
+    const result = await submitDrawRun({
+        ctx,
+        getCurrentContext: () => ctx,
+        message,
+        messageId: 0,
+        targetHash: hashSceneSource(message.mes),
+        prepared: createPrepared(),
+        imageProvider: 'sd-webui',
+        generationRecipe: {},
+        runId: 'run-test-121',
+        syncActiveSwipe: syncMessage(message),
+        isMessageBeingEdited: () => false,
+        saveAndConfirm: async ({ verify }) => {
+            assert.equal(await verify([{ chat_metadata: {} }, structuredClone(message)]), true);
+        },
+        fetchImpl: async (_url, options) => {
+            methods.push(options.method);
+            throw new TypeError('Failed to fetch');
+        },
+    });
+
+    assert.equal(result.status, 'uncertain');
+    assert.deepEqual(methods, ['POST', 'GET']);
+    assert.ok(getDrawRunMarker(message, 0, 'run-test-121'));
 });
 
 test('a timed-out submission queries the deterministic run instead of hanging or reposting', async () => {

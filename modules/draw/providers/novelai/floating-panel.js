@@ -956,6 +956,7 @@ async function handleFloorDrawClick(messageId) {
             setFloorState(messageId, FloatState.IDLE);
             if (e.message?.includes('任务进行中')) toastr?.info?.(e.message);
         } else {
+            toastr?.error?.(e?.message || '后台画图提交失败', '小白X画图');
             setFloorState(messageId, FloatState.ERROR, { error: classifyError(e) });
         }
     }
@@ -1537,6 +1538,7 @@ async function handleFloatingDrawClick() {
             setFloatingState(FloatState.IDLE);
             if (e.message?.includes('任务进行中')) toastr?.info?.(e.message);
         } else {
+            toastr?.error?.(e?.message || '后台画图提交失败', '小白X画图');
             setFloatingState(FloatState.ERROR, { error: classifyError(e) });
         }
     }

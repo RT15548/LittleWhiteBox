@@ -280,6 +280,57 @@ async function querySubmittedRun({ fetchImpl, headers, runId, signal, timeoutMs 
     }, signal, timeoutMs);
 }
 
+function isExplicitDrawRunRejection(response, body) {
+    if (response.status >= 400 && response.status < 500) return true;
+    return response.status >= 500
+        && response.status < 600
+        && body?.ok === false
+        && typeof body.code === 'string'
+        && body.code.length > 0
+        && typeof body.error === 'string'
+        && body.error.length > 0;
+}
+
+async function failSubmittedRun({
+    ctx,
+    message,
+    messageId,
+    swipeIndex,
+    runId,
+    marker,
+    syncActiveSwipe,
+    saveAndConfirm,
+    fetchImpl,
+    onStateChange,
+    status = 0,
+    code = 'DRAW_RUN_SUBMISSION_FAILED',
+    errorMessage = '后台画图任务提交失败。',
+    cause,
+}) {
+    try {
+        await clearDrawRunMarkerAndConfirm({
+            ctx,
+            message,
+            messageId,
+            swipeIndex,
+            runId,
+            marker,
+            syncActiveSwipe,
+            saveAndConfirm,
+            fetchImpl,
+        });
+    } catch (cleanupError) {
+        emit(onStateChange, 'uncertain', { runId, reason: 'rejected_marker_cleanup_uncertain' });
+        throw new DrawRunSubmissionError(
+            `${errorMessage} 提交标记清理结果不确定。`,
+            code,
+            { status, cause: cleanupError, uncertain: true },
+        );
+    }
+    emit(onStateChange, 'failed', { runId, status, reason: code });
+    throw new DrawRunSubmissionError(errorMessage, code, { status, cause });
+}
+
 /**
  * Performs the reliable browser half of Draw Run submission. It deliberately
  * stops at HTTP 202; child adoption belongs to the recovery layer.
@@ -399,81 +450,94 @@ export async function submitDrawRun({
         );
     }
 
-    let headers = null;
-    let response;
-    let body;
+    let headers;
     try {
         if (typeof ctx.getRequestHeaders !== 'function') {
             throw new TypeError('当前酒馆上下文无法提供请求头');
         }
         headers = ctx.getRequestHeaders();
-        trackPageDrawRun(runId);
+    } catch (headerError) {
+        return failSubmittedRun({
+            ctx,
+            message,
+            messageId,
+            swipeIndex,
+            runId,
+            marker,
+            syncActiveSwipe,
+            saveAndConfirm,
+            fetchImpl,
+            onStateChange,
+            code: 'DRAW_RUN_SUBMISSION_FAILED',
+            errorMessage: '后台画图请求未能发出，请重试。',
+            cause: headerError,
+        });
+    }
+
+    let response;
+    let body;
+    trackPageDrawRun(runId);
+    try {
         ({ response, body } = await requestWithTimeout(fetchImpl, DRAW_RUNS_ENDPOINT, {
             method: 'POST',
             headers,
             body: JSON.stringify(envelope),
             cache: 'no-store',
         }, signal, requestTimeoutMs));
-    } catch {
+    } catch (submissionError) {
+        let confirmationStatus = null;
+        let confirmationError = null;
         try {
-            if (headers) {
-                try {
-                    const queried = await querySubmittedRun({
-                        fetchImpl,
-                        headers,
-                        runId,
-                        signal,
-                        timeoutMs: requestTimeoutMs,
-                    });
-                    if (queried.response.ok && queried.body?.run?.id === runId) {
-                        emit(onStateChange, 'accepted', { runId, run: queried.body.run, recovered: true });
-                        return { status: 'accepted', runId, run: queried.body.run, recovered: true };
-                    }
-                } catch {
-                    // Both requests are indeterminate; the persisted marker owns later reconciliation.
-                }
+            const queried = await querySubmittedRun({
+                fetchImpl,
+                headers,
+                runId,
+                signal,
+                timeoutMs: requestTimeoutMs,
+            });
+            confirmationStatus = queried.response.status;
+            if (queried?.response.ok && queried.body?.run?.id === runId) {
+                emit(onStateChange, 'accepted', { runId, run: queried.body.run, recovered: true });
+                return { status: 'accepted', runId, run: queried.body.run, recovered: true };
             }
-            emit(onStateChange, 'uncertain', { runId, reason: 'submission_response_lost' });
-            return { status: 'uncertain', runId, marker };
-        } finally {
-            // 查询完成前 POST 的结果仍不确定；页面若在这段时间退出，必须留下 run 遗言。
-            untrackPageDrawRun(runId);
+        } catch (error) {
+            confirmationError = error;
         }
+        console.error('[Draw Run] submission response unavailable:', {
+            runId,
+            signalAborted: signal?.aborted === true,
+            submissionError,
+            confirmationStatus,
+            confirmationError,
+        });
+        emit(onStateChange, 'uncertain', { runId, reason: 'submission_response_lost' });
+        return { status: 'uncertain', runId, marker };
+    } finally {
+        // 查询完成前 POST 的结果仍不确定；页面若在这段时间退出，必须留下 run 遗言。
+        untrackPageDrawRun(runId);
     }
-    untrackPageDrawRun(runId);
 
     if (response.status === 202 && body?.run?.id === runId) {
         emit(onStateChange, 'accepted', { runId, run: body.run });
         return { status: 'accepted', runId, run: body.run };
     }
 
-    if (response.status >= 400 && response.status < 500) {
-        try {
-            await clearDrawRunMarkerAndConfirm({
-                ctx,
-                message,
-                messageId,
-                swipeIndex,
-                runId,
-                marker,
-                syncActiveSwipe,
-                saveAndConfirm,
-                fetchImpl,
-            });
-        } catch (cleanupError) {
-            emit(onStateChange, 'uncertain', { runId, reason: 'rejected_marker_cleanup_uncertain' });
-            throw new DrawRunSubmissionError(
-                body?.error || `后台拒绝了画图任务（HTTP ${response.status}），且提交标记清理结果不确定。`,
-                body?.code || 'DRAW_RUN_REJECTED',
-                { status: response.status, cause: cleanupError, uncertain: true },
-            );
-        }
-        emit(onStateChange, 'failed', { runId, status: response.status });
-        throw new DrawRunSubmissionError(
-            body?.error || `后台拒绝了画图任务（HTTP ${response.status}）。`,
-            body?.code || 'DRAW_RUN_REJECTED',
-            { status: response.status },
-        );
+    if (isExplicitDrawRunRejection(response, body)) {
+        return failSubmittedRun({
+            ctx,
+            message,
+            messageId,
+            swipeIndex,
+            runId,
+            marker,
+            syncActiveSwipe,
+            saveAndConfirm,
+            fetchImpl,
+            onStateChange,
+            status: response.status,
+            code: body?.code || 'DRAW_RUN_REJECTED',
+            errorMessage: body?.error || `后台拒绝了画图任务（HTTP ${response.status}）。`,
+        });
     }
 
     emit(onStateChange, 'uncertain', { runId, status: response.status });
