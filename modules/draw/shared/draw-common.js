@@ -33,6 +33,7 @@ let drawPreviewMessageObserver = null;
 let drawPreviewRuntimeGeneration = 0;
 let drawPreviewCacheSyncCleanup = null;
 const drawPreviewPendingTimers = new Set();
+const drawPreviewRenderQueues = new WeakMap();
 
 export const ImageState = {
     PREVIEW: 'preview',
@@ -529,7 +530,7 @@ function replacePlaceholdersInDomBatch(root, replacements) {
     for (const item of replacements) {
         if (!item?.slotId || !item?.html) continue;
         const existing = root.querySelector(buildDrawSlotSelector(item.slotId));
-        if (existing?.dataset?.state !== 'pending') continue;
+        if (!existing) continue;
         const replacement = createNodeFromHtml(item.html);
         if (!replacement) continue;
         existing.replaceWith(replacement);
@@ -666,14 +667,65 @@ function buildFailedPlaceholderHtml({ slotId, messageId, tags, positive, errorTy
 </div>`;
 }
 
-export async function renderPreviewsForMessage(messageId, { refreshSlotIds = [] } = {}) {
+async function rebuildRenderedMessageFromState(messageId, {
+    chatId,
+    expectedMessage,
+} = {}) {
     const ctx = getContext();
     const message = ctx.chat?.[messageId];
-    if (!message?.mes) return;
-
-    const slotIds = extractSlotIds(message.mes);
+    if (!message || (chatId !== undefined && String(ctx.chatId || '') !== String(chatId || ''))
+        || (expectedMessage && message !== expectedMessage) || isMessageBeingEdited(messageId)) return false;
+    const { messageFormatting } = await import('../../../../../../../script.js');
+    const live = getContext();
+    if (String(live.chatId || '') !== String(ctx.chatId || '')
+        || live.chat?.[messageId] !== message || isMessageBeingEdited(messageId)) return false;
     const mesTextEl = getMesTextElement(messageId);
+    if (!mesTextEl) return false;
+    const formatted = messageFormatting(
+        message.mes,
+        message.name,
+        message.is_system,
+        message.is_user,
+        messageId,
+    );
+    // Host-generated message markup.
+    // eslint-disable-next-line no-unsanitized/property
+    mesTextEl.innerHTML = formatted;
+    return true;
+}
+
+function renderedMessageContainsSlot(mesTextEl, slotId) {
+    if (mesTextEl.querySelector(buildDrawSlotSelector(slotId))) return true;
+    return String(mesTextEl.textContent || '').includes(createPlaceholder(slotId));
+}
+
+async function renderPreviewsForMessageNow(messageId, {
+    refreshSlotIds = [],
+    expectedChatId,
+    expectedMessage,
+} = {}) {
+    const ctx = getContext();
+    const message = ctx.chat?.[messageId];
+    if (!message?.mes
+        || String(ctx.chatId || '') !== String(expectedChatId || '')
+        || message !== expectedMessage) return;
+
+    const sourceText = message.mes;
+    const slotIds = extractSlotIds(sourceText);
+    let mesTextEl = getMesTextElement(messageId);
     if (!mesTextEl) return;
+    if ([...slotIds].some(slotId => !renderedMessageContainsSlot(mesTextEl, slotId))) {
+        // message.mes 是持久化排版事实。adoption 当下若恰逢聊天切换或宿主 DOM
+        // 尚未挂载，一次局部 patch 可能没有锚点；先按前台生成相同的宿主格式
+        // 重建楼层，再在下面统一投影 pending 卡或图片。
+        const rebuilt = await rebuildRenderedMessageFromState(messageId, {
+            chatId: ctx.chatId,
+            expectedMessage: message,
+        });
+        if (!rebuilt) return;
+        mesTextEl = getMesTextElement(messageId);
+        if (!mesTextEl) return;
+    }
     const refreshSlots = new Set((Array.isArray(refreshSlotIds) ? refreshSlotIds : [])
         .map(slotId => String(slotId || '').trim())
         .filter(Boolean));
@@ -704,7 +756,7 @@ export async function renderPreviewsForMessage(messageId, { refreshSlotIds = [] 
                     messageId,
                     index: pendingSlot.index + 1,
                     total: pendingSlot.total,
-                    label: pendingSlot.state === PendingJobState.CANCELLING ? '正在取消后台任务' : '正在接回后台任务',
+                    label: pendingSlot.state === PendingJobState.CANCELLING ? '正在取消' : '生成中',
                 });
             } else if (displayData.isFailed) {
                 replacementHtml = buildFailedPlaceholderHtml({
@@ -754,6 +806,12 @@ export async function renderPreviewsForMessage(messageId, { refreshSlotIds = [] 
     }
 
     if (replacements.length === 0) return;
+    const live = getContext();
+    if (String(live.chatId || '') !== String(ctx.chatId || '')
+        || live.chat?.[messageId] !== message
+        || message.mes !== sourceText
+        || getMesTextElement(messageId) !== mesTextEl
+        || isMessageBeingEdited(messageId)) return;
     const insertedSlotIds = replacePlaceholdersInDomBatch(mesTextEl, replacements);
     const pendingFallback = replacements.filter(item => !insertedSlotIds.has(item.slotId));
     if (pendingFallback.length === 0) return;
@@ -775,29 +833,39 @@ export async function renderPreviewsForMessage(messageId, { refreshSlotIds = [] 
     }
 }
 
+// 同一楼层只允许一个异步投影在运行。图片落库、恢复状态变化和消息事件可能在同一时刻
+// 发起刷新；串行执行保证较早读取的旧事实一定先完成，最后留在 DOM 的总是较新的投影。
+// 队列只绑定当前 message 对象，聊天切换或宿主替换消息对象后，旧任务会被上面的身份守卫丢弃。
+export function renderPreviewsForMessage(messageId, { refreshSlotIds = [] } = {}) {
+    const ctx = getContext();
+    const message = ctx.chat?.[messageId];
+    if (!message?.mes) return Promise.resolve();
+    const expectedChatId = ctx.chatId;
+
+    let queue = drawPreviewRenderQueues.get(message);
+    if (!queue) {
+        queue = { tail: Promise.resolve() };
+        drawPreviewRenderQueues.set(message, queue);
+    }
+    const requestedSlots = Array.isArray(refreshSlotIds) ? [...refreshSlotIds] : [];
+    const render = queue.tail.then(() => renderPreviewsForMessageNow(messageId, {
+        refreshSlotIds: requestedSlots,
+        expectedChatId,
+        expectedMessage: message,
+    }));
+    const tail = render.catch(() => {});
+    queue.tail = tail;
+    void tail.then(() => {
+        if (queue.tail === tail) drawPreviewRenderQueues.delete(message);
+    });
+    return render;
+}
+
 // Draw Run adoption 会在酒馆完成楼层渲染之后才把 slots 写进 message.mes。
 // 仅替换已有 DOM 锚点不够，必须先按宿主规则重建活动楼层，再把 slots 渲染成 pending/图片卡。
 export async function syncRenderedMessageFromState(messageId, { chatId, expectedMessage } = {}) {
-    const ctx = getContext();
-    const message = ctx.chat?.[messageId];
-    if (!message || (chatId !== undefined && String(ctx.chatId || '') !== String(chatId || ''))
-        || (expectedMessage && message !== expectedMessage) || isMessageBeingEdited(messageId)) return false;
-    const { messageFormatting } = await import('../../../../../../../script.js');
-    const live = getContext();
-    if (String(live.chatId || '') !== String(ctx.chatId || '')
-        || live.chat?.[messageId] !== message || isMessageBeingEdited(messageId)) return false;
-    const mesTextEl = getMesTextElement(messageId);
-    if (!mesTextEl) return false;
-    const formatted = messageFormatting(
-        message.mes,
-        message.name,
-        message.is_system,
-        message.is_user,
-        messageId,
-    );
-    // Host-generated message markup.
-    // eslint-disable-next-line no-unsanitized/property
-    mesTextEl.innerHTML = formatted;
+    const rebuilt = await rebuildRenderedMessageFromState(messageId, { chatId, expectedMessage });
+    if (!rebuilt) return false;
     await renderPreviewsForMessage(messageId);
     return true;
 }

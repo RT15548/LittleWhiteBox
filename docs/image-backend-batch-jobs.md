@@ -155,8 +155,8 @@ preparing -> active -> settling -> 删除
 - 存活 slot 的交付顺序固定为 fence、图片落库、fence、selection 落库、fence；任一阶段发现 slot 被删除，只回滚本项刚写入的事实。
 - 后端结果只有在图片与 selection 成功持久化，或“该 slot 已被用户删除”这一事实确认后才能 ACK；持久化失败或聊天不可用都保留后端副本与 journal。
 - 楼层处于编辑状态时跳过即时 DOM patch；取消或结算需要删除 slot 时，只要任一楼层仍在编辑就延后整次删除与保存，避免把编辑器草稿覆盖回正文。
-- 聊天切换或扩展卸载只 detach；恢复 runtime 回到原聊天后接回。
-- 结算先保存当前正文中的 slot 变更，再删除 journal，最后以 `afterForget` 强制刷新本批新旧节点；DOM 刷新失败只记录警告，不复活已经完成的 journal。
+- 聊天切换或扩展卸载只 detach；journal 与 slots 保留，但停止推进的页面立即让出租约，恢复 runtime 回到原聊天后即可接管，不再等待旧页面的 120 秒租约自然到期。
+- 结算先保存当前正文中的 slot 变更，再删除 journal，最后以 `afterForget` 强制刷新本批新旧节点；若当前 DOM 没有对应 slot 锚点，则从 `message.mes` 重建楼层后再次渲染，不能把已经落库的图片留到 F5 后才显示。DOM 暂时不可用只影响当前视图，不复活已经完成的 journal；楼层重新挂载时继续自愈。
 
 文本源/ebook 路径不写聊天正文，只按 index 返回已落库图片。
 

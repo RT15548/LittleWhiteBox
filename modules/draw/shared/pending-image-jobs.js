@@ -535,7 +535,8 @@ export async function activateAdoptingPendingImageJob(jobId, leaseId, { cancelli
     return activated;
 }
 
-// adoption 暂缓或失败时主动让出租约；成功激活由 activateAdoptingPendingImageJob 原子释放。
+// 当前推进者暂缓或退出时主动让出租约；adoption 成功激活则由
+// activateAdoptingPendingImageJob 在状态迁移中原子释放。记录本身始终保留。
 export async function releasePendingImageJobLease(jobId, leaseId) {
     const released = await patchPendingImageJob(
         jobId,

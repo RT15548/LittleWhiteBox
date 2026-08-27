@@ -8,6 +8,7 @@ import {
     markPendingImageJobCancelling,
     markPendingImageJobSettling,
     PendingJobState,
+    releasePendingImageJobLease,
     renewPendingImageJobLease,
 } from './pending-image-jobs.js';
 import { ReattachAction } from './image-job-reattach.js';
@@ -21,6 +22,7 @@ const defaultJournal = {
     markActive: markPendingImageJobActive,
     markCancelling: markPendingImageJobCancelling,
     markSettling: markPendingImageJobSettling,
+    releaseLease: releasePendingImageJobLease,
     renewLease: renewPendingImageJobLease,
 };
 
@@ -89,7 +91,11 @@ async function runAttachment({ client, record, journal, delivery, cancelled }) {
             await guard();
             await delivery.beforeForget?.(record, settlement || { mode: 'complete' }, details, guard);
         },
-        afterForget: () => delivery.afterForget?.(record, settlement || { mode: 'complete' }),
+        afterForget: details => delivery.afterForget?.(
+            record,
+            settlement || { mode: 'complete' },
+            details,
+        ),
     });
 }
 
@@ -137,7 +143,7 @@ export async function executeImageJobReattachEntry({
     await delivery.beforeForget?.(record, settlement || { mode: 'complete' }, {}, guard);
     await journal.forget(record.jobId, record.leaseId);
     try {
-        await delivery.afterForget?.(record, settlement || { mode: 'complete' });
+        await delivery.afterForget?.(record, settlement || { mode: 'complete' }, {});
     } catch (error) {
         console.warn(`[ImageJobs] 后台生图任务 ${record.jobId} 已完成，但最终界面刷新失败:`, error);
     }

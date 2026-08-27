@@ -6,6 +6,7 @@ import {
     markPendingImageJobSettling,
     PendingImageJobLostError,
     recordPendingImageJob,
+    releasePendingImageJobLease,
     renewPendingImageJobLease,
 } from './pending-image-jobs.js';
 
@@ -30,6 +31,7 @@ const defaultJournal = {
     markActive: markPendingImageJobActive,
     markCancelling: markPendingImageJobCancelling,
     markSettling: markPendingImageJobSettling,
+    releaseLease: releasePendingImageJobLease,
     forget: forgetPendingImageJob,
 };
 
@@ -63,6 +65,17 @@ function preserveUndeliveredResults(result, jobId) {
     error.detached = true;
     error.jobId = jobId;
     throw error;
+}
+
+// 当前流程已经明确停止推进、但后端任务与 journal 仍需保留时，主动让出租约。
+// release 失败不能覆盖原始 detached 错误；最坏只会退回租约自然过期的旧行为。
+async function releaseStoppedFlowLease(journal, jobId, leaseId) {
+    try {
+        await journal.releaseLease(jobId, leaseId);
+    } catch (error) {
+        if (isPendingJobLeaseLost(error)) return;
+        console.warn(`[ImageJobs] 后台生图恢复记录 ${jobId} 未能主动让出租约:`, error);
+    }
 }
 
 // 把日志维护挂在客户端本来就会发的状态通知上，不新增钩子：
@@ -199,7 +212,10 @@ export async function submitRecoverableImageJob({
         error.jobId ||= jobId;
         // 任务是否还活在后端由 client 判定（只有 404 才算真的没了）。detached 的任务必须
         // 保留日志和槽位：它还在跑，图还会出来，交给下一次 reconcile 接回。
-        if (error?.detached === true) throw error;
+        if (error?.detached === true) {
+            await releaseStoppedFlowLease(journal, jobId, leaseId);
+            throw error;
+        }
         await finishRecoverableImageJob({
             journal, jobId, leaseId, settlePlacements, resolveSettlement, beforeForget, afterForget, result: null, error,
         });
@@ -303,7 +319,10 @@ export async function reattachRecoverableImageJob({
         return { ...result, jobId, leaseId };
     } catch (error) {
         if (isPendingJobLeaseLost(error)) throw error;
-        if (error?.detached === true) throw error;
+        if (error?.detached === true) {
+            await releaseStoppedFlowLease(journal, jobId, leaseId);
+            throw error;
+        }
         await finishRecoverableImageJob({
             journal, jobId, leaseId, settlePlacements, resolveSettlement, beforeForget, afterForget, result: null, error,
         });

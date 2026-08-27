@@ -1,4 +1,7 @@
+import { matchesDrawRunActivityTarget } from './draw-run-activity.js';
+
 const DRAW_RUN_UI_STATES = new Set(['submitting', 'accepted', 'uncertain', 'cancelling']);
+const DRAW_RUN_COMPLETION_TARGET_STATES = new Set(['idle', 'accepted', 'uncertain', 'cancelling']);
 
 const ANALYSIS_STAGES = new Set([
     'planning',
@@ -28,9 +31,8 @@ export function formatDrawRunProgress(detail = {}) {
     return '生成中';
 }
 
-export function matchesDrawRunActivityDetail(detail = {}, { messageId, provider } = {}) {
-    return (!detail.provider || detail.provider === provider)
-        && (detail.messageId === undefined || Number(detail.messageId) === Number(messageId));
+export function matchesDrawRunActivityDetail(detail = {}, target = {}) {
+    return matchesDrawRunActivityTarget(detail, target);
 }
 
 export function hasDrawRunProgressDetail(detail = {}) {
@@ -41,18 +43,49 @@ export function hasDrawRunProgressDetail(detail = {}) {
     );
 }
 
+export function resolveDrawRunActivityDetail({
+    detail = {},
+    pending = false,
+    chatId,
+    messageId,
+    swipeIndex,
+    provider,
+    runId,
+} = {}) {
+    const target = { chatId, messageId, swipeIndex, provider, runId };
+    if (matchesDrawRunActivityDetail(detail || {}, target)
+        && !(pending && detail.phase === 'completed')) return detail;
+    return {};
+}
+
 export function resolveDrawRunUiState({
     currentState,
     pending,
     detail = {},
+    chatId,
     messageId,
+    swipeIndex,
     provider,
+    runId,
 } = {}) {
+    const matches = matchesDrawRunActivityDetail(detail, {
+        chatId,
+        messageId,
+        swipeIndex,
+        provider,
+        runId,
+    });
+    if (!pending && matches && detail.phase === 'completed'
+        && DRAW_RUN_COMPLETION_TARGET_STATES.has(currentState)) {
+        const success = Math.max(0, Number(detail.success) || 0);
+        const total = Math.max(0, Number(detail.total) || 0);
+        if (detail.aborted === true && success === 0) return 'idle';
+        return total > 0 && success >= total ? 'success' : 'partial';
+    }
     // submitting 是本页在 marker 写入前持有的临时态。共享恢复器此时看到
     // “没有 marker”并不能证明提交结束，不能把仍在预处理的按钮误重置为空闲。
     if (!pending && currentState === 'submitting') return currentState;
     if (!pending) return DRAW_RUN_UI_STATES.has(currentState) ? 'idle' : currentState;
-    const matches = matchesDrawRunActivityDetail(detail, { messageId, provider });
     if (matches && detail.phase === 'cancelling') return 'cancelling';
     if (matches && detail.phase === 'cancel_failed') return 'accepted';
     if (currentState === 'cancelling') return 'cancelling';

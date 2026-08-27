@@ -1,7 +1,10 @@
 import { getContext } from '../../../../../../../extensions.js';
 import { registerToToolbar, removeFromToolbar } from '../../../../widgets/message-toolbar.js';
 import { formatScenePlannerProgress } from '../../shared/draw-common.js';
-import { subscribeDrawRunActivity } from '../../shared/draw-run-activity.js';
+import {
+    resolveCurrentDrawRunActivityTarget,
+    subscribeDrawRunActivity,
+} from '../../shared/draw-run-activity.js';
 import {
     cancelPendingChildDrawRuns,
     getPendingDrawWorkState,
@@ -10,7 +13,7 @@ import { isDrawRunCancelledError, isDrawRunPendingError } from '../../shared/dra
 import {
     formatDrawRunProgress,
     hasDrawRunProgressDetail,
-    matchesDrawRunActivityDetail,
+    resolveDrawRunActivityDetail,
     resolveDrawRunUiState,
 } from '../../shared/draw-run-ui-state.js';
 import {
@@ -566,16 +569,29 @@ async function syncDrawRunPanelState(messageId, detail = {}) {
     // 活动任务仍应在新面板可见并可取消。
     const markerState = await getPendingDrawWorkState(messageId).catch(() => null);
     if (!markerState) return;
-    const provider = markerState.provider || DRAW_RUN_PROVIDER;
-    const detailMatches = matchesDrawRunActivityDetail(detail, { messageId, provider });
-    const matchedDetail = detailMatches ? detail : {};
+    const ctx = getContext();
+    const chatId = String(ctx?.chatId || '');
+    const message = ctx?.chat?.[Number(messageId)];
+    if (!chatId || !message) return;
+    const activeSwipeIndex = Number.isInteger(message.swipe_id) ? message.swipe_id : 0;
+    const swipeIndex = Number.isSafeInteger(markerState.swipeIndex)
+        ? markerState.swipeIndex
+        : activeSwipeIndex;
+    const provider = markerState.provider || detail?.provider || DRAW_RUN_PROVIDER;
+    const runId = markerState.runId || detail?.runId || '';
+    const activityTarget = { chatId, messageId, swipeIndex, provider, runId };
+    const matchedDetail = resolveDrawRunActivityDetail({
+        detail,
+        pending: markerState.pending,
+        ...activityTarget,
+    });
     const progressDetail = markerState.backendAccepted && !hasDrawRunProgressDetail(matchedDetail)
         ? { ...matchedDetail, stage: 'reattaching' }
         : matchedDetail;
     const effectiveDetail = markerState.cancelling
-        ? { ...progressDetail, provider: undefined, phase: 'cancelling' }
+        ? { ...progressDetail, ...activityTarget, phase: 'cancelling' }
         : markerState.backendAccepted
-            ? { ...progressDetail, provider: undefined, phase: 'active' }
+            ? { ...progressDetail, ...activityTarget, phase: 'active' }
             : progressDetail;
     const panelData = panelMap.get(messageId);
     if (panelData) {
@@ -583,11 +599,10 @@ async function syncDrawRunPanelState(messageId, detail = {}) {
             currentState: panelData.state,
             pending: markerState.pending,
             detail: effectiveDetail,
-            messageId,
-            provider,
+            ...activityTarget,
         });
         if (next !== panelData.state
-            || (next === FloatState.ACCEPTED && detailMatches && hasDrawRunProgressDetail(detail))) {
+            || (next === FloatState.ACCEPTED && hasDrawRunProgressDetail(matchedDetail))) {
             setFloorState(messageId, next, effectiveDetail);
         }
     }
@@ -596,22 +611,23 @@ async function syncDrawRunPanelState(messageId, detail = {}) {
             currentState: floatingState,
             pending: markerState.pending,
             detail: effectiveDetail,
-            messageId,
-            provider,
+            ...activityTarget,
         });
         if (markerState.pending) floatingMessageId = Number(messageId);
         if (next !== floatingState
-            || (next === FloatState.ACCEPTED && detailMatches && hasDrawRunProgressDetail(detail))) {
+            || (next === FloatState.ACCEPTED && hasDrawRunProgressDetail(matchedDetail))) {
             setFloatingState(next, effectiveDetail);
         }
     }
 }
 
-function syncAllDrawRunPanelStates(detail = {}) {
-    panelMap.forEach((_panel, messageId) => { void syncDrawRunPanelState(messageId, detail); });
+function syncDrawRunActivity(detail = {}) {
+    const currentTarget = resolveCurrentDrawRunActivityTarget(detail, getContext());
+    if (!currentTarget) return;
     const lastMessageId = findLastAIMessageId();
-    if (lastMessageId >= 0 && !panelMap.has(lastMessageId)) {
-        void syncDrawRunPanelState(lastMessageId, detail);
+    if (panelMap.has(currentTarget.messageId)
+        || (floatingEl && currentTarget.messageId === lastMessageId)) {
+        void syncDrawRunPanelState(currentTarget.messageId, detail);
     }
 }
 
@@ -1444,7 +1460,8 @@ function createFloatingButton() {
     });
     document.addEventListener('click', handleFloatingOutsideClick, { passive: true });
     window.addEventListener('resize', applyFloatingPosition);
-    syncAllDrawRunPanelStates();
+    const messageId = findLastAIMessageId();
+    if (messageId >= 0) void syncDrawRunPanelState(messageId);
 }
 
 function destroyFloatingButton() {
@@ -1510,7 +1527,7 @@ export function updateButtonVisibility(showFloor, showFloating) {
 }
 
 export function initFloatingPanel() {
-    drawRunActivityDispose ??= subscribeDrawRunActivity(syncAllDrawRunPanelStates);
+    drawRunActivityDispose ??= subscribeDrawRunActivity(syncDrawRunActivity);
     if (getSettings().showFloatingButton !== false) {
         createFloatingButton();
     }

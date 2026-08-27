@@ -158,6 +158,7 @@ test('a dispatched child persists its slots before becoming an active image jour
     assert.deepEqual(result.record.delivery, {
         mode: 'slots', chatId: 'chat-1', messageId: '4', swipeIndex: 0,
     });
+    assert.equal(result.record.gallery.swipeIndex, 0);
     assert.equal(result.record.adoptionPhase, PendingJobAdoptionPhase.READY);
     assert.equal(
         result.record.items[0].previewMetadata.providerMetadata.autoLearnCharacters[0].name,
@@ -264,6 +265,7 @@ test('source edits switch child delivery to gallery without touching the edited 
     assert.equal(result.status, 'ready');
     assert.equal(result.delivery, 'gallery');
     assert.deepEqual(result.record.delivery, { mode: 'gallery', reason: 'source_changed' });
+    assert.equal(result.record.gallery.swipeIndex, 0);
     assert.equal(message.mes, 'User edited this text.');
     assert.equal(confirmCalled, false);
 });

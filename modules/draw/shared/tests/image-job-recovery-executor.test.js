@@ -61,6 +61,11 @@ function createJournal() {
             entry.settlement = settlement;
             return entry;
         },
+        async releaseLease(jobId, leaseId) {
+            const entry = await journal.fenceLease(jobId, leaseId);
+            entry.leaseExpiresAt = 0;
+            return entry;
+        },
         async forget(jobId, leaseId) {
             await journal.fenceLease(jobId, leaseId);
             store.delete(jobId);
@@ -109,7 +114,7 @@ test('a new frontend instance reattaches a submitted job and ACK follows image p
     }), error => error.detached === true);
 
     const abandoned = [...journal.store.values()][0];
-    abandoned.leaseExpiresAt = 0;
+    assert.equal(abandoned.leaseExpiresAt, 0, '旧页面停止推进后，新页面应能立即接管');
     const recoveryPlan = planImageJobReattach({
         records: [abandoned],
         backendJobs: [{ id: abandoned.jobId, state: 'completed', items: [{ index: 0, state: 'ready' }] }],
@@ -148,8 +153,10 @@ test('a new frontend instance reattaches a submitted job and ACK follows image p
         async settle(_record, settlement) {
             order.push(`settle:${settlement.mode}`);
         },
-        async afterForget() {
+        async afterForget(_record, settlement, details) {
             assert.equal(journal.store.size, 0, '最终渲染只能发生在 journal 删除之后');
+            assert.equal(settlement.mode, 'complete');
+            assert.equal(details.result?.job?.state, 'completed');
             order.push('final-render');
         },
         describeError() {

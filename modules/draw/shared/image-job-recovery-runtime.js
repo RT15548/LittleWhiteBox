@@ -66,6 +66,26 @@ function handleRecoveryVisibilityChange() {
     if (document.visibilityState === 'visible') scheduleRecovery();
 }
 
+function drawRunActivityTarget(record) {
+    const slots = record?.delivery?.mode === 'slots';
+    const located = slots
+        ? record.items?.map(item => recordTarget(record, item))
+            .find(target => target.state === ImageJobDeliveryTargetState.ALIVE)
+        : null;
+    const locatedSwipe = Number.isInteger(located?.swipe)
+        ? located.swipe
+        : Number.isInteger(located?.message?.swipe_id)
+            ? located.message.swipe_id
+            : null;
+    return {
+        provider: record?.provider,
+        chatId: String(record?.chatTarget?.chatId || record?.delivery?.chatId || record?.gallery?.chatId || ''),
+        messageId: located ? located.messageId : Number(slots ? record?.delivery?.messageId : record?.gallery?.messageId),
+        swipeIndex: locatedSwipe ?? Number(slots ? record?.delivery?.swipeIndex : record?.gallery?.swipeIndex),
+        runId: record?.originRunId,
+    };
+}
+
 function recordTarget(record, item = null) {
     if (record.delivery?.mode !== 'slots') {
         return { state: ImageJobDeliveryTargetState.REMOVED, message: null, messageId: null, swipe: null, ctx: getContext() };
@@ -137,8 +157,7 @@ function createDeliveryAdapter() {
             if (!record.originRunId) return;
             reportImageBackendJobState((stage, progress = {}) => {
                 publishDrawRunActivity({
-                    provider: record.provider,
-                    messageId: Number(record.gallery?.messageId ?? record.delivery?.messageId),
+                    ...drawRunActivityTarget(record),
                     phase: stage === 'cancelling' ? 'cancelling' : 'active',
                     stage,
                     ...progress,
@@ -320,7 +339,19 @@ function createDeliveryAdapter() {
             await runtimeDrawRunClient.acknowledgeRun(record.originRunId);
             await guard();
         },
-        async afterForget(record) {
+        async afterForget(record, settlement = { mode: 'complete' }) {
+            const delivered = await Promise.all(record.items.map(item => getPreview(item.imgId).catch(() => null)));
+            const success = delivered.filter(Boolean).length;
+            publishDrawRunActivity({
+                ...drawRunActivityTarget(record),
+                phase: 'completed',
+                success,
+                total: record.items.length,
+                aborted: settlement.mode === 'discard',
+            });
+            // 终态来自已落库图片，不依赖当前聊天是否挂载、DOM 是否可重建。
+            // UI 投影失败仍可由 CHAT_CHANGED / 消息渲染 / 缓存事件重试，不能反过来
+            // 吞掉已经完成这一事实。
             await renderRecord(record, { final: true });
         },
     };
@@ -432,9 +463,6 @@ async function runRecoveryPass() {
             scheduleRecovery(RETRY_DELAY_MS);
         }
     }
-    // attachment 可能刚删除最后一条 Draw Run child journal。面板不缓存任务
-    // 进度，只收到这次失效通知后重新读取 marker + journal 的当前事实。
-    publishDrawRunActivity({ phase: 'reconciled' });
 }
 
 export async function reconcilePendingImageJobs() {

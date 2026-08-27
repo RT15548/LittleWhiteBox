@@ -178,7 +178,9 @@ export async function submitProviderDrawRun({
         if (error?.uncertain === true) {
             publishDrawRunActivity({
                 provider: normalizedProvider,
+                chatId: String(ctx?.chatId || ''),
                 messageId,
+                swipeIndex: targetSwipeIndex,
                 phase: 'uncertain',
                 wakeRecovery: true,
             });
@@ -187,7 +189,9 @@ export async function submitProviderDrawRun({
     }
     publishDrawRunActivity({
         provider: normalizedProvider,
+        chatId: String(ctx?.chatId || ''),
         messageId,
+        swipeIndex: targetSwipeIndex,
         phase: result.status,
         runId: result.runId,
         wakeRecovery: result.status === 'accepted' || result.status === 'uncertain',

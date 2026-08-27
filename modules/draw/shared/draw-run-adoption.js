@@ -159,6 +159,7 @@ async function acquireRecord({ handoff, marker, resolveTarget, chatTarget, journ
         gallery: {
             chatId: String(target.chatId || ''),
             messageId: String(target.messageId),
+            swipeIndex: target.swipeIndex,
             characterName: String(target.message?.name || ''),
         },
         items: handoff.items,

@@ -6,8 +6,15 @@ import {
     isDrawRunCancelledError,
     submitProviderDrawRun,
 } from '../draw-run-production.js';
-import { subscribeDrawRunActivity } from '../draw-run-activity.js';
-import { formatDrawRunProgress, resolveDrawRunUiState } from '../draw-run-ui-state.js';
+import {
+    resolveCurrentDrawRunActivityTarget,
+    subscribeDrawRunActivity,
+} from '../draw-run-activity.js';
+import {
+    formatDrawRunProgress,
+    resolveDrawRunActivityDetail,
+    resolveDrawRunUiState,
+} from '../draw-run-ui-state.js';
 import { hashSceneSource } from '../scene-source.js';
 
 function baseOptions(overrides = {}) {
@@ -205,11 +212,114 @@ test('an accepted production submission wakes recovery without waiting for a bro
     }
     assert.deepEqual(activities, [{
         provider: 'sd-webui',
+        chatId: '',
         messageId: 0,
+        swipeIndex: 0,
         phase: 'accepted',
         runId: 'run-test-205',
         wakeRecovery: true,
     }]);
+});
+
+test('a backend stage applies only to its exact run and active swipe', () => {
+    const detail = {
+        provider: 'sd-webui',
+        chatId: 'chat-activity-1',
+        messageId: 4,
+        swipeIndex: 2,
+        phase: 'active',
+        runId: 'run-activity-1',
+        stage: 'progress',
+        current: 1,
+        total: 2,
+    };
+    assert.equal(resolveDrawRunActivityDetail({
+        detail,
+        pending: true,
+        chatId: 'chat-activity-1',
+        messageId: 4,
+        swipeIndex: 2,
+        provider: 'sd-webui',
+        runId: 'run-activity-1',
+    }).stage, 'progress');
+    assert.deepEqual(resolveDrawRunActivityDetail({
+        detail,
+        pending: true,
+        chatId: 'chat-activity-1',
+        messageId: 4,
+        swipeIndex: 1,
+        provider: 'sd-webui',
+        runId: 'run-activity-1',
+    }), {});
+    assert.deepEqual(resolveDrawRunActivityDetail({
+        detail,
+        pending: true,
+        chatId: 'chat-activity-1',
+        messageId: 4,
+        swipeIndex: 2,
+        provider: 'novelai',
+        runId: 'run-activity-1',
+    }), {});
+    assert.deepEqual(resolveDrawRunActivityDetail({
+        detail,
+        pending: true,
+        chatId: 'chat-activity-1',
+        messageId: 4,
+        swipeIndex: 2,
+        provider: 'sd-webui',
+        runId: 'run-activity-2',
+    }), {});
+});
+
+test('a refreshed page with no local activity snapshot derives its state from pending facts', () => {
+    assert.deepEqual(resolveDrawRunActivityDetail({
+        detail: { phase: 'reconciled' },
+        pending: true,
+        chatId: 'chat-activity-2',
+        messageId: 4,
+        swipeIndex: 0,
+        provider: 'sd-webui',
+        runId: 'run-activity-2',
+    }), {});
+    assert.equal(resolveDrawRunUiState({
+        currentState: 'idle',
+        pending: true,
+        detail: {},
+        chatId: 'chat-activity-2',
+        messageId: 4,
+        swipeIndex: 0,
+        provider: 'sd-webui',
+        runId: 'run-activity-2',
+    }), 'uncertain');
+});
+
+test('targeted activity routes only to the active swipe in its own chat', () => {
+    const detail = {
+        provider: 'novelai',
+        chatId: 'chat-route-1',
+        messageId: 2,
+        swipeIndex: 1,
+        runId: 'run-route-1',
+        phase: 'active',
+    };
+    assert.deepEqual(resolveCurrentDrawRunActivityTarget(detail, {
+        chatId: 'chat-route-1',
+        chat: [null, null, { swipe_id: 1 }],
+    }), {
+        provider: 'novelai',
+        chatId: 'chat-route-1',
+        messageId: 2,
+        swipeIndex: 1,
+        runId: 'run-route-1',
+    });
+    assert.equal(resolveCurrentDrawRunActivityTarget(detail, {
+        chatId: 'chat-route-1',
+        chat: [null, null, { swipe_id: 0 }],
+    }), null);
+    assert.equal(resolveCurrentDrawRunActivityTarget(detail, {
+        chatId: 'chat-route-2',
+        chat: [null, null, { swipe_id: 1 }],
+    }), null);
 });
 
 test('marker-driven UI keeps uncertain and cancelling states until the marker disappears', () => {
@@ -220,20 +330,71 @@ test('marker-driven UI keeps uncertain and cancelling states until the marker di
         currentState: 'idle', pending: true, messageId: 1, provider: 'novelai',
     }), 'uncertain');
     assert.equal(resolveDrawRunUiState({
-        currentState: 'uncertain', pending: true, detail: { phase: 'active' }, messageId: 1, provider: 'novelai',
+        currentState: 'uncertain', pending: true,
+        detail: { provider: 'novelai', messageId: 1, phase: 'active' },
+        messageId: 1, provider: 'novelai',
     }), 'accepted');
     assert.equal(resolveDrawRunUiState({
-        currentState: 'submitting', pending: true, detail: { phase: 'uncertain' }, messageId: 1, provider: 'novelai',
+        currentState: 'submitting', pending: true,
+        detail: { provider: 'novelai', messageId: 1, phase: 'uncertain' },
+        messageId: 1, provider: 'novelai',
     }), 'uncertain');
     assert.equal(resolveDrawRunUiState({
         currentState: 'uncertain', pending: true, detail: { phase: 'reconciled' }, messageId: 1, provider: 'novelai',
     }), 'uncertain');
     assert.equal(resolveDrawRunUiState({
-        currentState: 'accepted', pending: true, detail: { phase: 'cancelling' }, messageId: 1, provider: 'novelai',
+        currentState: 'accepted', pending: true,
+        detail: { provider: 'novelai', messageId: 1, phase: 'cancelling' },
+        messageId: 1, provider: 'novelai',
     }), 'cancelling');
     assert.equal(resolveDrawRunUiState({
         currentState: 'cancelling', pending: false, messageId: 1, provider: 'novelai',
     }), 'idle');
+});
+
+test('a completed background batch exposes the same terminal result as browser generation', () => {
+    assert.equal(resolveDrawRunUiState({
+        currentState: 'accepted',
+        pending: false,
+        detail: { provider: 'novelai', messageId: 1, phase: 'completed', success: 2, total: 2 },
+        messageId: 1,
+        provider: 'novelai',
+    }), 'success');
+    assert.equal(resolveDrawRunUiState({
+        currentState: 'accepted',
+        pending: false,
+        detail: { provider: 'novelai', messageId: 1, phase: 'completed', success: 1, total: 2 },
+        messageId: 1,
+        provider: 'novelai',
+    }), 'partial');
+    assert.equal(resolveDrawRunUiState({
+        currentState: 'cancelling',
+        pending: false,
+        detail: { provider: 'novelai', messageId: 1, phase: 'completed', success: 0, total: 2, aborted: true },
+        messageId: 1,
+        provider: 'novelai',
+    }), 'idle');
+    assert.equal(resolveDrawRunUiState({
+        currentState: 'accepted',
+        pending: true,
+        detail: { provider: 'novelai', messageId: 1, phase: 'completed', success: 2, total: 2 },
+        messageId: 1,
+        provider: 'novelai',
+    }), 'accepted', '旧批完成事件不能覆盖同一目标的新任务');
+    assert.equal(resolveDrawRunUiState({
+        currentState: 'submitting',
+        pending: false,
+        detail: { provider: 'novelai', messageId: 1, phase: 'completed', success: 2, total: 2 },
+        messageId: 1,
+        provider: 'novelai',
+    }), 'submitting', '旧后台终态不能覆盖新一批尚未写 marker 的提交');
+    assert.equal(resolveDrawRunUiState({
+        currentState: 'gen',
+        pending: false,
+        detail: { provider: 'novelai', messageId: 1, phase: 'completed', success: 2, total: 2 },
+        messageId: 1,
+        provider: 'novelai',
+    }), 'gen', '旧后台终态不能覆盖随后开始的前端直连生成');
 });
 
 test('a cancellation that reached neither chat nor backend returns the pending run to accepted', () => {

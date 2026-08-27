@@ -5421,6 +5421,9 @@ export async function initComfyDraw() {
     events.on(event_types.CHARACTER_MESSAGE_RENDERED, (data) => {
         const messageId = typeof data === 'number' ? data : data?.messageId ?? data?.mesId;
         if (messageId === undefined) return;
+        if (Number(messageId) === findLastAIMessageId()) {
+            floatingPanel.refreshDrawRunUiState?.();
+        }
         const ctx = getContext();
         const message = ctx.chat?.[messageId];
         if (!message || message.is_user) return;
@@ -5431,6 +5434,9 @@ export async function initComfyDraw() {
     events.on(event_types.CHAT_CHANGED, () => {
         floatingPanel.refreshDrawRunUiState?.();
         setTimeout(renderExistingPanels, 150);
+    });
+    events.on(event_types.MESSAGE_SWIPED, () => {
+        floatingPanel.refreshDrawRunUiState?.();
     });
     events.on(event_types.GENERATION_ENDED, async () => {
         try {

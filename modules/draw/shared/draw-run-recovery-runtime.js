@@ -14,7 +14,6 @@ import {
     persistedDrawRunTargetMatches,
     removeDrawRunMarker,
     setDrawRunAutomaticCompletion,
-    setDrawRunMarkerText,
 } from './draw-run-markers.js';
 import {
     DRAW_RUN_BLOCKED_RETRY_MS,
@@ -58,6 +57,29 @@ function collectCurrentDrawRunMarkers(ctx) {
         }
     }
     return entries;
+}
+
+function markerActivityTarget(markerEntry) {
+    if (!markerEntry) return {};
+    return {
+        provider: markerEntry.marker?.provider,
+        chatId: markerEntry.chatId,
+        messageId: markerEntry.messageId,
+        swipeIndex: markerEntry.swipeIndex,
+        runId: markerEntry.runId,
+    };
+}
+
+function recordActivityTarget(record) {
+    if (!record) return {};
+    const slots = record.delivery?.mode === 'slots';
+    return {
+        provider: record.provider,
+        chatId: String(record.chatTarget?.chatId || record.delivery?.chatId || record.gallery?.chatId || ''),
+        messageId: Number(slots ? record.delivery?.messageId : record.gallery?.messageId),
+        swipeIndex: Number(slots ? record.delivery?.swipeIndex : record.gallery?.swipeIndex),
+        runId: record.originRunId,
+    };
 }
 
 function resolveCurrentDrawRunTarget(runId) {
@@ -343,8 +365,9 @@ async function recoverAdoptingRecord({
                 ),
             });
             // 槽位是一整批原子写入的；只要任意一个确定性 slotId 仍在持久化正文，
-            // 就能证明那次写入曾成功。用户后来删掉的单个槽位不得被复活，也不应
-            // 让同批其余仍存槽位全部降级到画廊。
+            // 就能证明那次写入曾成功。持久化读回只承担这个证明职责，绝不能反向
+            // 覆盖当前 message.mes；否则用户刚删除、尚在 ST 防抖保存窗口内的 slot
+            // 会被旧磁盘快照复活。
             const hasPersistedSlot = readback.confirmed || owned.items.some(item => (
                 persistedChatHasDeliverySlots(
                     readback.persistedChat,
@@ -354,23 +377,20 @@ async function recoverAdoptingRecord({
             ));
             if (hasPersistedSlot && markerEntry) {
                 const current = resolveCurrentDrawRunTarget(owned.originRunId);
-                const persisted = findDrawRunMarker(readback.persistedChat, owned.originRunId);
-                const persistedText = getDrawRunMarkerText(persisted);
-                const localSourceHash = hashSceneSource(normalizeMessageSceneSourceText(
-                    getDrawRunMarkerText(current),
-                ));
-                if (current && typeof persistedText === 'string'
-                    && localSourceHash === owned.sourceHash
-                    && !isMessageBeingEdited(current.messageId)) {
-                    setDrawRunMarkerText(current, persistedText);
-                    const activeSwipe = Number.isInteger(current.message?.swipe_id)
-                        ? current.message.swipe_id
-                        : 0;
-                    if (current.swipeIndex === activeSwipe) {
-                        await syncRenderedMessageFromState(current.messageId, {
-                            chatId: current.chatId,
-                            expectedMessage: current.message,
-                        });
+                if (current && !isMessageBeingEdited(current.messageId)) {
+                    const localSourceHash = hashSceneSource(normalizeMessageSceneSourceText(
+                        getDrawRunMarkerText(current),
+                    ));
+                    if (localSourceHash === owned.sourceHash) {
+                        const activeSwipe = Number.isInteger(current.message?.swipe_id)
+                            ? current.message.swipe_id
+                            : 0;
+                        if (current.swipeIndex === activeSwipe) {
+                            await syncRenderedMessageFromState(current.messageId, {
+                                chatId: current.chatId,
+                                expectedMessage: current.message,
+                            });
+                        }
                     }
                 }
             }
@@ -468,8 +488,7 @@ export async function runDrawRunRecoveryPass({
             if (entry.markerEntry && entry.run
                 && entry.action !== DrawRunRecoveryAction.REQUEST_CANCEL) {
                 publishDrawRunActivity({
-                    provider: entry.markerEntry.marker?.provider,
-                    messageId: entry.markerEntry.messageId,
+                    ...markerActivityTarget(entry.markerEntry),
                     phase: Number(entry.markerEntry.marker?.cancelRequestedAt) > 0
                         || Number(entry.run.cancelRequestedAt) > 0
                         ? 'cancelling'
@@ -481,20 +500,19 @@ export async function runDrawRunRecoveryPass({
             if (entry.action === DrawRunRecoveryAction.WAIT) {
                 if (entry.reason === 'missing_run_uncertain' && entry.markerEntry) {
                     publishDrawRunActivity({
-                        provider: entry.markerEntry.marker?.provider,
-                        messageId: entry.markerEntry.messageId,
+                        ...markerActivityTarget(entry.markerEntry),
                         phase: 'uncertain',
-                        runId: entry.markerEntry.runId,
                     });
                 }
                 continue;
             }
             if (entry.action === DrawRunRecoveryAction.REQUEST_CANCEL) {
                 publishDrawRunActivity({
-                    provider: entry.markerEntry?.marker?.provider,
-                    messageId: entry.markerEntry?.messageId,
+                    ...(entry.markerEntry
+                        ? markerActivityTarget(entry.markerEntry)
+                        : recordActivityTarget(entry.record)),
                     phase: 'cancelling',
-                    runId: entry.run?.id,
+                    runId: entry.run?.id || entry.record?.originRunId,
                 });
                 await client.cancelRun(entry.run.id);
                 scheduleRecovery(100);
@@ -505,6 +523,10 @@ export async function runDrawRunRecoveryPass({
                 if (cleared) {
                     if (entry.runFarewell) consumePageFarewell(entry.runFarewell);
                     notifyDrawRun('warning', '后台没有找到这次画图任务，已清理失效标记。');
+                    publishDrawRunActivity({
+                        ...markerActivityTarget(entry.markerEntry),
+                        phase: 'reconciled',
+                    });
                 } else {
                     scheduleRecovery(DRAW_RUN_BLOCKED_RETRY_MS);
                 }
@@ -513,6 +535,11 @@ export async function runDrawRunRecoveryPass({
             if (entry.action === DrawRunRecoveryAction.DROP_STALE_LOCAL_MARKER) {
                 if (!dropLocalDrawRunMarker(entry.markerEntry)) {
                     scheduleRecovery(DRAW_RUN_BLOCKED_RETRY_MS);
+                } else {
+                    publishDrawRunActivity({
+                        ...markerActivityTarget(entry.markerEntry),
+                        phase: 'reconciled',
+                    });
                 }
                 continue;
             }
@@ -540,6 +567,12 @@ export async function runDrawRunRecoveryPass({
                     || outcome.reason !== 'abandoned') continue;
                 if (entry.runFarewell) consumePageFarewell(entry.runFarewell);
                 notifyTerminalDrawRun(entry.run);
+                publishDrawRunActivity({
+                    ...(entry.markerEntry
+                        ? markerActivityTarget(entry.markerEntry)
+                        : recordActivityTarget(entry.record)),
+                    phase: 'reconciled',
+                });
                 if (entry.run) await client.acknowledgeRun(entry.run.id);
                 continue;
             }
@@ -550,6 +583,10 @@ export async function runDrawRunRecoveryPass({
                     continue;
                 }
                 notifyTerminalDrawRun(entry.run);
+                publishDrawRunActivity({
+                    ...markerActivityTarget(entry.markerEntry),
+                    phase: 'reconciled',
+                });
                 await client.acknowledgeRun(entry.run.id);
                 continue;
             }
@@ -610,5 +647,4 @@ export async function runDrawRunRecoveryPass({
             scheduleRecovery(DRAW_RUN_BLOCKED_RETRY_MS);
         }
     }
-    publishDrawRunActivity({ phase: 'reconciled' });
 }

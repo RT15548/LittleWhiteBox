@@ -40,15 +40,23 @@ function findPendingChildDrawRuns(messageId, records, ctx = getContext()) {
     const chatId = String(ctx?.chatId || '');
     const message = ctx?.chat?.[normalizedMessageId];
     if (!chatId || !message) return [];
+    const activeSwipeIndex = Number.isInteger(message.swipe_id) ? message.swipe_id : 0;
     const activeText = String(message.mes ?? '');
     return (Array.isArray(records) ? records : []).filter(record => {
         if (!record?.originRunId
             || ![PendingJobState.ADOPTING, PendingJobState.ACTIVE, PendingJobState.CANCELLING]
                 .includes(record.state)) return false;
         if (String(record.chatTarget?.chatId || record.delivery?.chatId || '') !== chatId) return false;
+        const recordSwipeIndex = Number(record.delivery?.mode === 'slots'
+            ? record.delivery?.swipeIndex
+            : record.gallery?.swipeIndex);
         if (record.delivery?.mode === 'slots') {
+            // messageId 是数组下标；用户删除更早楼层后会移动。slotId 才是 slots
+            // 交付的稳定身份；swipe 下标也会在用户删除更早 swipe 后移动，因此
+            // slots 模式只按当前正文定位，不能拿任何冻结下标误判任务消失。
             return record.items?.some(item => isSceneSlotAlive(activeText, item?.slotId));
         }
+        if (recordSwipeIndex !== activeSwipeIndex) return false;
         return Number(record.gallery?.messageId) === normalizedMessageId;
     });
 }
@@ -59,10 +67,14 @@ export function hasPendingDrawRun(messageId, ctx = getContext()) {
 
 function getPendingDrawRunState(messageId, ctx = getContext()) {
     const entries = getPendingDrawRuns(messageId, ctx);
+    const message = ctx?.chat?.[Number(messageId)];
+    const swipeIndex = Number.isInteger(message?.swipe_id) ? message.swipe_id : 0;
     return {
         pending: entries.length > 0,
         cancelling: entries.some(entry => Number(entry.marker?.cancelRequestedAt) > 0),
         provider: entries[0]?.marker?.provider || '',
+        runId: entries[0]?.runId || '',
+        swipeIndex,
     };
 }
 
@@ -93,6 +105,8 @@ export async function getPendingDrawWorkState(messageId, ctx = getContext()) {
             record.state === PendingJobState.CANCELLING || record.cancelRequested === true
         )),
         provider: children[0]?.provider || '',
+        runId: children[0]?.originRunId || '',
+        swipeIndex,
         backendAccepted: children.length > 0,
     };
 }
@@ -107,7 +121,17 @@ export async function cancelPendingDrawRuns(messageId, {
     const entries = getPendingDrawRuns(messageId, ctx);
     if (entries.length === 0) return false;
     const activityProvider = entries[0]?.marker?.provider || '';
-    publishDrawRunActivity({ provider: activityProvider, messageId, phase: 'cancelling' });
+    const activityTarget = {
+        provider: activityProvider,
+        chatId: String(ctx?.chatId || ''),
+        messageId,
+        swipeIndex: entries[0]?.swipeIndex,
+        runId: entries[0]?.runId,
+    };
+    publishDrawRunActivity({
+        ...activityTarget,
+        phase: 'cancelling',
+    });
 
     // 先把用户取消意图写进 marker。提交 POST 与取消 POST 可能交错：取消先到会
     // 暂时得到 404，只有这个持久事实才能让刷新后的恢复器在 run 出现时补发取消。
@@ -183,8 +207,7 @@ export async function cancelPendingDrawRuns(messageId, {
     const cancellationError = results.find(result => result.status === 'rejected')?.reason || null;
     if (cancellationError && persistenceError) {
         publishDrawRunActivity({
-            provider: activityProvider,
-            messageId,
+            ...activityTarget,
             phase: 'cancel_failed',
             error: cancellationError,
             wakeRecovery: true,
@@ -199,8 +222,7 @@ export async function cancelPendingDrawRuns(messageId, {
         console.warn('[Draw Run] 后台取消暂未送达，已保留取消意图等待恢复:', cancellationError);
     }
     publishDrawRunActivity({
-        provider: activityProvider,
-        messageId,
+        ...activityTarget,
         phase: 'cancelling',
         wakeRecovery: true,
     });
@@ -218,7 +240,18 @@ export async function cancelPendingChildDrawRuns(messageId, {
     if (children.length === 0) return false;
 
     const provider = children[0]?.provider || '';
-    publishDrawRunActivity({ provider, messageId, phase: 'cancelling' });
+    const targetMessage = ctx?.chat?.[Number(messageId)];
+    const activityTarget = {
+        provider,
+        chatId: String(ctx?.chatId || ''),
+        messageId,
+        swipeIndex: Number.isInteger(targetMessage?.swipe_id) ? targetMessage.swipe_id : 0,
+        runId: children[0]?.originRunId,
+    };
+    publishDrawRunActivity({
+        ...activityTarget,
+        phase: 'cancelling',
+    });
     const persisted = await Promise.allSettled(
         children.map(record => requestPendingImageJobCancellation(record.jobId)),
     );
@@ -240,8 +273,7 @@ export async function cancelPendingChildDrawRuns(messageId, {
         console.warn('[Draw Run] child 取消暂未送达，已保留取消意图等待恢复:', cancellationError);
     }
     publishDrawRunActivity({
-        provider,
-        messageId,
+        ...activityTarget,
         phase: 'cancelling',
         wakeRecovery: true,
     });

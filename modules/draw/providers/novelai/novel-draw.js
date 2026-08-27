@@ -5215,6 +5215,12 @@ export async function initNovelDraw() {
     events.on(event_types.CHARACTER_MESSAGE_RENDERED, (data) => {
         const messageId = typeof data === 'number' ? data : data?.messageId ?? data?.mesId;
         if (messageId === undefined) return;
+
+        // 悬浮按钮的目标是当前最后一条 AI 消息，不能依赖楼层按钮顺带刷新；
+        // 用户关闭楼层按钮时，新消息也必须独立重读自己的 Draw Run 事实。
+        if (Number(messageId) === findLastAIMessageId()) {
+            floatingPanel.refreshDrawRunUiState?.();
+        }
         
         const messageEl = document.querySelector(`.mes[mesid="${messageId}"]`);
         if (!messageEl) return;
@@ -5248,6 +5254,9 @@ export async function initNovelDraw() {
     events.on(event_types.CHAT_CHANGED, () => {
         floatingPanel.refreshDrawRunUiState?.();
         setTimeout(renderExistingPanels, 200);
+    });
+    events.on(event_types.MESSAGE_SWIPED, () => {
+        floatingPanel.refreshDrawRunUiState?.();
     });
 
     // ════════════════════════════════════════════════════════════════════

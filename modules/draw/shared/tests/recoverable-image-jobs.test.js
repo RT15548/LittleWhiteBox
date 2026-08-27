@@ -23,6 +23,7 @@ function createFakeJournal() {
             const entry = {
                 ...record,
                 leaseId: `lease-${++leaseCounter}`,
+                leaseExpiresAt: Date.now() + 120_000,
                 state: PendingJobState.PREPARING,
             };
             store.set(record.jobId, entry);
@@ -56,6 +57,12 @@ function createFakeJournal() {
             calls.push(`markSettling:${jobId}`);
             return journal.fenceLease(jobId, leaseId).then((entry) => {
                 entry.state = PendingJobState.SETTLING;
+                return entry;
+            });
+        },
+        async releaseLease(jobId, leaseId) {
+            return journal.fenceLease(jobId, leaseId).then((entry) => {
+                entry.leaseExpiresAt = 0;
                 return entry;
             });
         },
@@ -307,7 +314,9 @@ test('a detached run keeps its journal entry and slots for the next reconcile', 
 
     assert.equal(settleCalls, 0, 'detached 任务不得清槽');
     assert.equal(journal.store.size, 1, 'detached 任务必须保留恢复记录');
-    assert.equal([...journal.store.values()][0].state, PendingJobState.ACTIVE);
+    const record = [...journal.store.values()][0];
+    assert.equal(record.state, PendingJobState.ACTIVE);
+    assert.equal(record.leaseExpiresAt, 0, '停止推进的页面必须立即让出恢复权');
 });
 
 test('an unconfirmed cancellation remains CANCELLING for the next reconcile', async () => {
@@ -335,6 +344,7 @@ test('an unconfirmed cancellation remains CANCELLING for the next reconcile', as
     }), error => error.detached === true);
 
     assert.equal([...journal.store.values()][0].state, PendingJobState.CANCELLING);
+    assert.equal([...journal.store.values()][0].leaseExpiresAt, 0);
 });
 
 test('a result retained after persistence failure keeps the journal for a later attachment', async () => {
@@ -364,6 +374,7 @@ test('a result retained after persistence failure keeps the journal for a later 
 
     const record = [...journal.store.values()][0];
     assert.equal(record.state, PendingJobState.ACTIVE);
+    assert.equal(record.leaseExpiresAt, 0);
 
     client.attachJob = async () => ({
         job: { id: record.jobId, state: 'completed', items: [] },
@@ -374,4 +385,5 @@ test('a result retained after persistence failure keeps the journal for a later 
         error => error.detached === true && error.code === 'backend_results_preserved',
     );
     assert.equal(journal.store.size, 1, '接回仍未落库时必须继续保留恢复记录');
+    assert.equal(journal.store.get(record.jobId).leaseExpiresAt, 0, '接回停止后也必须立即让出恢复权');
 });

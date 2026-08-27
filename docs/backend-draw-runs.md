@@ -432,11 +432,15 @@ delivery: { mode: 'gallery' }
 → 删除 journal（ACK 响应丢失时凭 originRunId 重试，404 视为已完成）
 ```
 
-marker 清理后，面板控制权改读同一条第一刀 journal，不另建 UI 状态：child 仍在排队/生成时继续显示实际阶段与张数并可取消；取消意图先原子写入 journal，再同时请求 Draw Run 与 child 取消，恢复器最终以 journal 的 `cancelling` 事实做 discard 结算。journal 删除后面板重新读取事实并回到空闲。
+marker 清理后，面板控制权改读同一条第一刀 journal，不另建 UI 状态快照：child 仍在排队/生成时继续显示实际阶段与张数并可取消。带完整任务身份的页面内活动事件只负责唤醒目标楼层读取当前 marker/journal，并携带这一刻的阶段或终态；事件不落盘、不设 TTL，也不作为任务事实。取消意图先原子写入 journal，再同时请求 Draw Run 与 child 取消，恢复器最终以 journal 的 `cancelling` 事实做 discard 结算。journal 删除后，成功/部分成功结果按浏览器生成的同一终态短暂显示，再自动回到空闲。
 
 酒馆停止键 / Escape 只中止仍在浏览器调用栈里的前台生成，不取消已经由后端接管的 Draw Run。后台任务只能从对应楼层或悬浮画图胶囊显式取消，避免用户停止文本生成时误伤早前楼层已经付费的后台批。
 
 刷新卡在任何一步都能继续；不允许出现"child job 已存在但本地无任何恢复依据"的窗口（marker 删除与 ACK 之间崩溃时，journal 即恢复依据）。
+
+Planner 尚未完成、后端还没有 handoff manifest 时不存在合法的插图位置，因此楼层不得提前伪造占位卡，只由面板显示分析阶段。manifest 给出确定的 `insertOffset/slotId` 后，adoption 才依次创建 journal、把 slots 写入 `message.mes` 并确认落盘；从未离开页面时，紧接着使用与前台生成相同的宿主 `messageFormatting` 重建当前楼层并投影 pending 卡。
+
+slots 已进入 `message.mes` 后，正文是唯一排版事实，当前 DOM 只是可重建视图。断联恢复、F5、切回原聊天、宿主重新渲染消息、图片落库或跨标签页画廊失效通知都会触发同一个幂等预览投影：先确认当前 DOM 仍表示正文中的每个 slot；完全缺席时按当前正文重建楼层，再把 pending 卡或已落库图片原地放回。写 DOM 前必须再次核对聊天、消息对象、正文快照与编辑态；异步读取期间被用户删除或修改的 slot 不得复活。已完成图片不得依赖再次 F5 才可见。
 
 正文变了：不覆盖正文、不强插 slots，journal 转 `delivery.mode = 'gallery'`，图片继续收进画廊，提示"正文已变化，图片已保留在画廊"。gallery 模式的结算边界：全部图片落画廊（IndexedDB 写入成功）后才 ACK；不写 selection、不写失败卡、不改正文。
 
