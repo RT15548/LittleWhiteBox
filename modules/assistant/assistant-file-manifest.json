@@ -1210,7 +1210,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/comfyui/floating-panel.js",
       "relativePath": "modules/draw/providers/comfyui/floating-panel.js",
       "extension": ".js",
-      "sizeBytes": 60752
+      "sizeBytes": 60936
     },
     {
       "source": "littlewhitebox",
@@ -1266,7 +1266,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/floating-panel.js",
       "relativePath": "modules/draw/providers/novelai/floating-panel.js",
       "extension": ".js",
-      "sizeBytes": 70314
+      "sizeBytes": 70490
     },
     {
       "source": "littlewhitebox",
@@ -1511,7 +1511,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/sd-webui/floating-panel.js",
       "relativePath": "modules/draw/providers/sd-webui/floating-panel.js",
       "extension": ".js",
-      "sizeBytes": 60708
+      "sizeBytes": 60892
     },
     {
       "source": "littlewhitebox",
@@ -1686,7 +1686,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/draw-run-coordinator.js",
       "relativePath": "modules/draw/shared/draw-run-coordinator.js",
       "extension": ".js",
-      "sizeBytes": 18442
+      "sizeBytes": 19832
     },
     {
       "source": "littlewhitebox",
@@ -1959,7 +1959,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/draw-run-coordinator.test.js",
       "relativePath": "modules/draw/shared/tests/draw-run-coordinator.test.js",
       "extension": ".js",
-      "sizeBytes": 27509
+      "sizeBytes": 32485
     },
     {
       "source": "littlewhitebox",
@@ -6824,7 +6824,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/server-plugin/littlewhitebox-image-jobs/draw-runs/routes.js",
       "relativePath": "server-plugin/littlewhitebox-image-jobs/draw-runs/routes.js",
       "extension": ".js",
-      "sizeBytes": 3753
+      "sizeBytes": 4168
     },
     {
       "source": "littlewhitebox",
@@ -6957,7 +6957,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/server-plugin/littlewhitebox-image-jobs/tests/draw-run-routes.test.js",
       "relativePath": "server-plugin/littlewhitebox-image-jobs/tests/draw-run-routes.test.js",
       "extension": ".js",
-      "sizeBytes": 3571
+      "sizeBytes": 4668
     },
     {
       "source": "littlewhitebox",
@@ -7013,7 +7013,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/settings.html",
       "relativePath": "settings.html",
       "extension": ".html",
-      "sizeBytes": 37351
+      "sizeBytes": 37316
     },
     {
       "source": "littlewhitebox",

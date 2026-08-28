@@ -709,7 +709,6 @@
     window.XB_captureAndStoreStates = function () { try { extension_settings[EXT_ID].prevModuleStatesV2 = captureStates(); if (window.saveSettingsDebounced) window.saveSettingsDebounced(); } catch (e) { } };
     window.XB_applyPrevStates = function () { try { const st = extension_settings[EXT_ID].prevModuleStatesV2; if (st) applyStates(st); } catch (e) { } };
     onReady(() => {
-      setupUpdateButtonHandlers();
       setupXBtnPositionButton();
       initTaskTabs();
       try { $(document).off('click.xbreset', '#xiaobaix_reset_btn').on('click.xbreset', '#xiaobaix_reset_btn', e => { e.preventDefault(); e.stopPropagation(); applyResetDefaults(); }); } catch (e) {
