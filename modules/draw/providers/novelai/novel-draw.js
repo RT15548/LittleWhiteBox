@@ -88,6 +88,10 @@ import {
     NovelV5StreamError,
 } from './novel-v5-stream.js';
 import {
+    decodeNovelBackendJobResult,
+    hasNovelV5FinalImageCapability,
+} from './novel-backend-job-result.js';
+import {
     createImageBackendJobMonitorRegistry,
     createImageBackendJobsClient,
     hasImageBackendJobsCapability,
@@ -1920,29 +1924,7 @@ async function executePreparedNovelRequest(prepared, requestConfig, signal) {
     }
 }
 
-export async function decodeNovelBackendJobResult({ response, kind: transport }) {
-    try {
-        if (transport === 'msgpack-stream') {
-            const decodeMessagePack = await loadMessagePackDecoder();
-            const image = await readNovelV5FinalImage(response, { decode: decodeMessagePack });
-            return imageBytesToBase64(image);
-        }
-        const responseData = await readImageResponse(response);
-        return await extractImageFromResponse(responseData, ensureJSZip);
-    } catch (error) {
-        if (error instanceof NovelV5StreamError && error.code === 'V5_STREAM_READ_FAILED') {
-            throw new ImageBackendJobsError(error.message, { code: error.code, retriable: true, cause: error });
-        }
-        if (error instanceof TypeError || error?.name === 'AbortError') {
-            throw new ImageBackendJobsError('后端图片结果读取中断', {
-                code: 'backend_result_interrupted',
-                retriable: true,
-                cause: error,
-            });
-        }
-        throw error;
-    }
-}
+export { decodeNovelBackendJobResult };
 
 function backendItemError(item) {
     // alreadyDelivered 的项是成功事实（早先已交付并 ACK 过），必须从画廊恢复而不是报错。
@@ -2023,6 +2005,13 @@ async function runNovelImageBatch({
                     ErrorType.NETWORK,
                 );
             }
+            if (prepared.some(item => item.isV5) && !hasNovelV5FinalImageCapability(backendStatus)) {
+                detachScope.dispose();
+                throw new NovelDrawError(
+                    '当前后端插件仍会把 NovelAI V5 原始流交给浏览器。请安装并启动当前 littlewhitebox-image-jobs，或关闭“小白X后台任务”。',
+                    ErrorType.NETWORK,
+                );
+            }
             const backendRequest = compiledBatch
                 ? {
                     provider: compiledBatch.provider,
@@ -2056,14 +2045,7 @@ async function runNovelImageBatch({
                 detachSignal: detachScope.signal,
                 onStateChange: (state, data) => reportImageBackendJobState(onStateChange, state, data),
                 onItemReady: async ({ index, kind, response }) => {
-                    let base64;
-                    try {
-                        base64 = await decodeNovelBackendJobResult({ response, kind });
-                    } catch (error) {
-                        const decodeError = error instanceof Error ? error : new Error(String(error));
-                        decodeError.discardBackendResult = true;
-                        throw decodeError;
-                    }
+                    const base64 = await decodeNovelBackendJobResult({ response, kind });
                     await onItemReady?.({ index, base64 });
                     outcomes[index] = { state: 'ready', base64 };
                 },

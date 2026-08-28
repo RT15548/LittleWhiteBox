@@ -6,17 +6,30 @@ const zlib = require('node:zlib');
 const { EventEmitter } = require('node:events');
 const { PassThrough } = require('node:stream');
 const { after, before, test } = require('node:test');
+const { encode } = require('@msgpack/msgpack');
 
 const { init } = require('../index.js');
 const {
     generateImage,
     generateImageBuffer,
+    generateV5ImageBuffer,
     openImageStream,
-    readImageStreamBuffer,
     testConnection,
 } = require('../providers/novelai/client.js');
 
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64');
+
+function v5Frame(event) {
+    const payload = Buffer.from(encode(event));
+    const header = Buffer.alloc(4);
+    header.writeUInt32BE(payload.length);
+    return Buffer.concat([header, payload]);
+}
+
+const V5_STREAM = Buffer.concat([
+    v5Frame({ event_type: 'intermediate', image: PNG, samp_ix: 0, step_ix: 1 }),
+    v5Frame({ event_type: 'final', image: PNG, samp_ix: 0 }),
+]);
 
 let server;
 let origin;
@@ -59,8 +72,8 @@ before(async () => {
                     body: Buffer.concat(chunks).toString('utf8'),
                 };
                 res.writeHead(200, { 'Content-Type': 'application/octet-stream' });
-                res.write(Buffer.from([0, 0, 0, 2]));
-                res.end(Buffer.from([0x81, 0xA0]));
+                res.write(V5_STREAM.subarray(0, 2));
+                res.end(V5_STREAM.subarray(2));
             });
             return;
         }
@@ -200,11 +213,11 @@ test('sends V5 as multipart request JSON and exposes the upstream stream unchang
     assert.match(lastStreamRequest.body, /Content-Type: application\/json/);
     assert.match(lastStreamRequest.body, new RegExp(`--${boundary.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}--`));
     assert.ok(lastStreamRequest.body.includes(JSON.stringify(payload)));
-    assert.deepEqual(Buffer.concat(chunks), Buffer.from([0, 0, 0, 2, 0x81, 0xA0]));
+    assert.deepEqual(Buffer.concat(chunks), V5_STREAM);
 });
 
-test('reads the complete V5 stream for background jobs without interpreting MessagePack', async () => {
-    const result = await readImageStreamBuffer({
+test('extracts the final V5 PNG on the server for background jobs', async () => {
+    const result = await generateV5ImageBuffer({
         url: `${origin}/v5/ai/generate-image-stream`,
         key: 'v5-key',
         payload: { input: 'test', model: 'nai-diffusion-5-full' },
@@ -212,7 +225,8 @@ test('reads the complete V5 stream for background jobs without interpreting Mess
     });
 
     assert.equal(result.ok, true);
-    assert.deepEqual(result.buffer, Buffer.from([0, 0, 0, 2, 0x81, 0xA0]));
+    assert.equal(result.mime, 'image/png');
+    assert.deepEqual(result.buffer, PNG);
 });
 
 test('tests the selected V5 transport instead of falling back to the V3 JSON endpoint', async () => {
@@ -284,6 +298,7 @@ test('advertises and proxies the V5 MessagePack stream route', async () => {
     assert.deepEqual(statusResponse.body.capabilities, [
         'v5-msgpack-stream',
         'image-batch-jobs-v1',
+        'novelai-v5-final-image-v1',
         'draw-runs-v1',
         DRAW_RUN_RUNTIME_CAPABILITY,
     ]);
@@ -319,7 +334,7 @@ test('advertises and proxies the V5 MessagePack stream route', async () => {
     await streamHandler(req, res);
     assert.equal(res.statusCode, 200);
     assert.equal(res.getHeader('Content-Type'), 'application/octet-stream');
-    assert.deepEqual(Buffer.concat(output), Buffer.from([0, 0, 0, 2, 0x81, 0xA0]));
+    assert.deepEqual(Buffer.concat(output), V5_STREAM);
 });
 
 test('does not forward the API key across origins', async () => {

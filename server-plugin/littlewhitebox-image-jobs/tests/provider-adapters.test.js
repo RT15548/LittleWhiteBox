@@ -392,7 +392,7 @@ test('ComfyUI treats a completed history entry without status_str as finished', 
     );
 });
 
-test('NovelAI adapter validates the per-item transport and tags stream results with the agreed MIME type', async () => {
+test('NovelAI adapter validates each transport and returns normalized image results', async () => {
     const novelai = require('../providers/novelai/adapter.js');
     const options = { parseTimeout: Number, parseUrl: String };
     const url = 'https://api.novelai.test/ai/generate-image-stream';
@@ -414,9 +414,9 @@ test('NovelAI adapter validates the per-item transport and tags stream results w
 
     const clientPath = require.resolve('../providers/novelai/client.js');
     const client = require(clientPath);
-    const originalStream = client.readImageStreamBuffer;
+    const originalV5 = client.generateV5ImageBuffer;
     const originalGenerate = client.generateImageBuffer;
-    client.readImageStreamBuffer = async () => ({ ok: true, buffer: PNG, mime: 'application/octet-stream' });
+    client.generateV5ImageBuffer = async () => ({ ok: true, buffer: PNG, mime: 'image/png' });
     client.generateImageBuffer = async () => ({ ok: true, buffer: PNG, mime: 'image/png' });
     delete require.cache[require.resolve('../providers/novelai/adapter.js')];
     const reloaded = require('../providers/novelai/adapter.js');
@@ -431,11 +431,10 @@ test('NovelAI adapter validates the per-item transport and tags stream results w
             item: normalized.items[1],
             signal: new AbortController().signal,
         });
-        // V5 流式结果必须带小白X专属 MIME，前端据此判断要走 msgpack 解码。
-        assert.equal(streamed.mime, 'application/vnd.littlewhitebox.novelai-msgpack');
+        assert.equal(streamed.mime, 'image/png');
         assert.equal(legacy.mime, 'image/png');
     } finally {
-        client.readImageStreamBuffer = originalStream;
+        client.generateV5ImageBuffer = originalV5;
         client.generateImageBuffer = originalGenerate;
         delete require.cache[require.resolve('../providers/novelai/adapter.js')];
     }

@@ -1664,9 +1664,19 @@ function renderBackendPluginStatus() {
     }
     const model = $('nd_model_sel')?.value === 'custom' ? $('nd_model')?.value : $('nd_model_sel')?.value;
     const isV5 = getModelCapability(model).family === 'v5';
+    const capabilities = Array.isArray(st.capabilities) ? st.capabilities : [];
+    const usesBackgroundJobs = getSendMode() === 'backend' && $('nd_use_backend_jobs')?.checked === true;
+    const supportsBackgroundJobs = isVersionAtLeast(st.version, '2.2.0')
+        && capabilities.includes('image-batch-jobs-v1')
+        && capabilities.includes('draw-runs-v1')
+        && capabilities.includes('draw-run-runtime-v3')
+        && (!isV5 || capabilities.includes('novelai-v5-final-image-v1'));
+    if (usesBackgroundJobs && !supportsBackgroundJobs) {
+        setBackendStatusUI('bad', `小白X后台任务需要后端插件 v2.2.0+（当前 v${st.version || '未知'}），请完整覆盖插件并重启 SillyTavern`);
+        return;
+    }
     const supportsV5 = isVersionAtLeast(st.version, '1.2.0')
-        && Array.isArray(st.capabilities)
-        && st.capabilities.includes('v5-msgpack-stream');
+        && capabilities.includes('v5-msgpack-stream');
     if (isV5 && !supportsV5) {
         setBackendStatusUI('bad', `当前 V5 模型需要后端插件 v1.2.0+ 并支持 v5-msgpack-stream（当前 v${st.version || '未知'}）`);
         return;
@@ -3330,6 +3340,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     $('nd_use_backend_jobs').addEventListener('change', () => {
         updateSendModeUI(getSendMode());
+        renderBackendPluginStatus();
         postToParent({
             type: 'SAVE_API_CONFIG',
             apiKey: $('nd_api_key').value.trim(),

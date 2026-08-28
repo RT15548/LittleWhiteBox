@@ -617,21 +617,21 @@ V5：
 
 目标样本固定为 `samp_ix === 0`。`final.image` 必须是非空 `Uint8Array`、不超过图片大小上限，并通过 PNG 文件签名校验；缺失字段、错误样本或非 PNG 字节都明确失败。首个合法 `final` 即为终态，成功取得后立即取消并释放 reader，不继续读取后续事件。
 
-MessagePack 解码使用锁定版本的成熟浏览器 ESM 依赖（`@msgpack/msgpack`），以本地 decode-only 模块随扩展分发并保留许可证，不从 CDN 运行时加载，也不为本协议手写不完整 decoder。该模块只在 V5 上游接受请求并开始返回流后动态加载，V4.5 不下载它；包装层只暴露本功能需要的 `decode(frame)`，将 MessagePack map 统一成普通字段读取，并要求 `bin` 解码为 `Uint8Array`；测试直接使用真实编码帧而非伪造已解码对象。
+MessagePack 解码使用锁定版本的成熟依赖（`@msgpack/msgpack`），以浏览器 ESM decode-only 模块和服务端独立 CJS bundle 随扩展分发并保留许可证，不从 CDN 加载，也不为本协议手写不完整 decoder。浏览器模块只在 V5 上游开始返回流后动态加载；服务端 bundle 复用同一个帧解析器。测试直接使用真实编码帧而非伪造已解码对象。
 
 ### 10.3 后端转发与版本门槛
 
-`1.1.0` 首次加入 V5 stream；`1.2.0` 新增 `/v2/generate-image` 与 `/v2/test`，将当前端点解析和连接探针构造收回前端，移除后端的第二份 V5 报文与 URL 规则。V3/V4/V4.5 后端发送仍可通过冻结的 v1 入口兼容 `1.0.1`；V5 要求插件至少为 `1.2.0`，且 `/status` 的 `capabilities` 明确包含 `v5-msgpack-stream`。版本或能力不足时在请求前明确提示升级，前端直连不受此限制。
+`1.1.0` 首次加入 V5 stream；`1.2.0` 新增 `/v2/generate-image` 与 `/v2/test`，将当前端点解析和连接探针构造收回前端。V5 前台逐张后端发送要求 `v5-msgpack-stream`。`2.2.0` 起异步 Image Job / Draw Run 要求 `novelai-v5-final-image-v1` 与 `draw-run-runtime-v3`，由服务器解析 V5 流并只交付最终 PNG。能力不足时在请求前明确提示升级，前端直连不受此限制。
 
 后端插件负责：
 
 - 接收本地 JSON 包装中的 key、已解析的完整 `url` 和前端构造的 payload。
 - 在服务端构造官方 multipart 请求。
-- 将上游二进制流原样转发给浏览器。
+- 前台逐张后端发送将上游二进制流原样转发给浏览器；异步任务逐帧解析并只保存最终 PNG。
 - 上游非 2xx 时保留 HTTP status，并在响应大小上限内转发 JSON/文本错误；不得包装成伪 MessagePack 200 响应。
 - 传播取消、超时和连接错误。
 
-前端和后端模式共用同一个 MessagePack 帧解析器，不能各自实现一套事件语义。
+浏览器直连和异步后端任务共用同一个 MessagePack 帧解析器；Node 侧只负责把 IncomingMessage/压缩流适配为解析器需要的 Web Stream。
 
 ### 10.4 安全与限制
 

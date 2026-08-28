@@ -125,7 +125,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/docs/backend-draw-runs.md",
       "relativePath": "docs/backend-draw-runs.md",
       "extension": ".md",
-      "sizeBytes": 39881
+      "sizeBytes": 39987
     },
     {
       "source": "littlewhitebox",
@@ -139,7 +139,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/docs/image-backend-batch-jobs.md",
       "relativePath": "docs/image-backend-batch-jobs.md",
       "extension": ".md",
-      "sizeBytes": 18886
+      "sizeBytes": 19432
     },
     {
       "source": "littlewhitebox",
@@ -153,7 +153,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/docs/novelai-v5-product-development.md",
       "relativePath": "docs/novelai-v5-product-development.md",
       "extension": ".md",
-      "sizeBytes": 44019
+      "sizeBytes": 44015
     },
     {
       "source": "littlewhitebox",
@@ -328,7 +328,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/libs/msgpack.LICENSE.txt",
       "relativePath": "libs/msgpack.LICENSE.txt",
       "extension": ".txt",
-      "sizeBytes": 716
+      "sizeBytes": 831
     },
     {
       "source": "littlewhitebox",
@@ -1270,6 +1270,13 @@
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/novel-backend-job-result.js",
+      "relativePath": "modules/draw/providers/novelai/novel-backend-job-result.js",
+      "extension": ".js",
+      "sizeBytes": 1801
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/novel-character-learning.js",
       "relativePath": "modules/draw/providers/novelai/novel-character-learning.js",
       "extension": ".js",
@@ -1280,14 +1287,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/novel-draw.html",
       "relativePath": "modules/draw/providers/novelai/novel-draw.html",
       "extension": ".html",
-      "sizeBytes": 207798
+      "sizeBytes": 208531
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/novel-draw.js",
       "relativePath": "modules/draw/providers/novelai/novel-draw.js",
       "extension": ".js",
-      "sizeBytes": 247023
+      "sizeBytes": 246228
     },
     {
       "source": "littlewhitebox",
@@ -1428,6 +1435,13 @@
       "relativePath": "modules/draw/providers/novelai/tests/fixtures/novel-settings-upstream-v7.json",
       "extension": ".json",
       "sizeBytes": 67490
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/tests/novel-backend-job-result.test.js",
+      "relativePath": "modules/draw/providers/novelai/tests/novel-backend-job-result.test.js",
+      "extension": ".js",
+      "sizeBytes": 3277
     },
     {
       "source": "littlewhitebox",
@@ -1973,7 +1987,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/draw-run-production.test.js",
       "relativePath": "modules/draw/shared/tests/draw-run-production.test.js",
       "extension": ".js",
-      "sizeBytes": 15738
+      "sizeBytes": 15760
     },
     {
       "source": "littlewhitebox",
@@ -6166,7 +6180,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/package.json",
       "relativePath": "package.json",
       "extension": ".json",
-      "sizeBytes": 7423
+      "sizeBytes": 7536
     },
     {
       "source": "littlewhitebox",
@@ -6215,7 +6229,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/build-novelai-vendor.mjs",
       "relativePath": "scripts/build-novelai-vendor.mjs",
       "extension": ".mjs",
-      "sizeBytes": 652
+      "sizeBytes": 3641
     },
     {
       "source": "littlewhitebox",
@@ -6873,7 +6887,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/server-plugin/littlewhitebox-image-jobs/index.js",
       "relativePath": "server-plugin/littlewhitebox-image-jobs/index.js",
       "extension": ".js",
-      "sizeBytes": 13559
+      "sizeBytes": 13592
     },
     {
       "source": "littlewhitebox",
@@ -6901,14 +6915,35 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/server-plugin/littlewhitebox-image-jobs/providers/novelai/adapter.js",
       "relativePath": "server-plugin/littlewhitebox-image-jobs/providers/novelai/adapter.js",
       "extension": ".js",
-      "sizeBytes": 2394
+      "sizeBytes": 2274
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/server-plugin/littlewhitebox-image-jobs/providers/novelai/client.js",
       "relativePath": "server-plugin/littlewhitebox-image-jobs/providers/novelai/client.js",
       "extension": ".js",
-      "sizeBytes": 16315
+      "sizeBytes": 16759
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/server-plugin/littlewhitebox-image-jobs/providers/novelai/v5-stream.js",
+      "relativePath": "server-plugin/littlewhitebox-image-jobs/providers/novelai/v5-stream.js",
+      "extension": ".js",
+      "sizeBytes": 2339
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/server-plugin/littlewhitebox-image-jobs/providers/novelai/vendor/novel-v5-parser.cjs",
+      "relativePath": "server-plugin/littlewhitebox-image-jobs/providers/novelai/vendor/novel-v5-parser.cjs",
+      "extension": ".cjs",
+      "sizeBytes": 17401
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/server-plugin/littlewhitebox-image-jobs/providers/novelai/vendor/THIRD_PARTY_LICENSES.txt",
+      "relativePath": "server-plugin/littlewhitebox-image-jobs/providers/novelai/vendor/THIRD_PARTY_LICENSES.txt",
+      "extension": ".txt",
+      "sizeBytes": 831
     },
     {
       "source": "littlewhitebox",
@@ -6929,7 +6964,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/server-plugin/littlewhitebox-image-jobs/README.md",
       "relativePath": "server-plugin/littlewhitebox-image-jobs/README.md",
       "extension": ".md",
-      "sizeBytes": 6746
+      "sizeBytes": 7239
     },
     {
       "source": "littlewhitebox",
@@ -6999,14 +7034,21 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/server-plugin/littlewhitebox-image-jobs/tests/novelai-client.test.js",
       "relativePath": "server-plugin/littlewhitebox-image-jobs/tests/novelai-client.test.js",
       "extension": ".js",
-      "sizeBytes": 17894
+      "sizeBytes": 18288
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/server-plugin/littlewhitebox-image-jobs/tests/novelai-v5-stream.test.js",
+      "relativePath": "server-plugin/littlewhitebox-image-jobs/tests/novelai-v5-stream.test.js",
+      "extension": ".js",
+      "sizeBytes": 6141
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/server-plugin/littlewhitebox-image-jobs/tests/provider-adapters.test.js",
       "relativePath": "server-plugin/littlewhitebox-image-jobs/tests/provider-adapters.test.js",
       "extension": ".js",
-      "sizeBytes": 19405
+      "sizeBytes": 19225
     },
     {
       "source": "littlewhitebox",

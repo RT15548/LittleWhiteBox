@@ -12,7 +12,7 @@
 
 - Scene Planner、角色 Prompt、V4.5/V5 payload 与最终上游 URL。
 - 楼层、slot、正文 hash、聊天归属和插入位置。
-- V5 MessagePack `final/error` 解释。
+- 浏览器直连时的 V5 MessagePack `final/error` 解释；后台任务只接收最终 PNG。
 - IndexedDB、画廊、DOM 与聊天正文写入。
 - 结果落库成功后的 ACK。
 
@@ -22,9 +22,9 @@
 - 同一 SillyTavern 用户的单请求并发限制和任务轮转。
 - 已经开始的请求之后必须执行的用户间隔。
 - 单项 timeout、显式取消、结果字节暂存和 TTL 清理。
-- V4.5 图片响应解包，以及 V5 原始 MessagePack 流的有界完整读取。
+- V4.5 图片响应解包，以及 V5 MessagePack 流的有界逐帧解析与最终 PNG 提取。
 
-后端不接收 Scene Planner、角色、楼层、slot 或正文信息，不解释 V5 MessagePack 事件。
+后端不接收 Scene Planner、角色、楼层、slot 或正文信息。NovelAI adapter 只解释供应商传输事件，把 `final/error` 收敛成通用 Image Job 的最终图片或错误。
 
 ## 唯一事实来源与生命周期
 
@@ -57,7 +57,7 @@ queued -> running -> ready -> consumed
          cancelled <-+
 ```
 
-`ready` 只表示后端完整收到供应商响应。V5 是否含有效 `final/error` 仍由前端 `readNovelV5FinalImage()` 判定。
+`ready` 表示 provider adapter 已验证并产出最终图片。NovelAI V5 必须已经收到合法 `samp_ix === 0` 的 `final` PNG；原始 MessagePack 不进入结果存储。
 
 取消 queued job 不触发冷却。取消 running job 会中止当前 HTTP 传输并取消剩余 item，但已经开始的请求仍触发其所属 job 的安全冷却；ready 结果继续保留。SD WebUI 不调用会影响同实例其他请求的全局 `/interrupt`；ComfyUI 只通过 `/queue` 删除本任务的 prompt。单项普通失败记录错误并在冷却后继续后续项。
 
@@ -84,7 +84,7 @@ A1 -> cooldown(A) -> B1 -> cooldown(B) -> A2
 | POST | `/v1/jobs` | 完整校验后按 owner + `requestId` 幂等创建整批任务，返回 202 |
 | GET | `/v1/jobs` | 列出当前 owner 的任务，供刷新后发现与接回 |
 | GET | `/v1/jobs/:jobId` | 返回 owner 可见的状态、计数、queueAhead 与 item 摘要 |
-| GET | `/v1/jobs/:jobId/results/:index` | 返回 V4.5 图片或 V5 原始 MessagePack Buffer |
+| GET | `/v1/jobs/:jobId/results/:index` | 返回 provider 已归一化的最终图片 Buffer |
 | DELETE | `/v1/jobs/:jobId/results/:index` | 幂等 ACK，释放结果并进入 `consumed` |
 | POST | `/v1/jobs/:jobId/cancel` | 取消 active/queued item，保留 ready 结果 |
 | DELETE | `/v1/jobs/:jobId` | 仅删除 `completed`/`cancelled` job |
@@ -92,7 +92,7 @@ A1 -> cooldown(A) -> B1 -> cooldown(B) -> A2
 NovelAI 创建项的 `kind` 只允许：
 
 - `legacy-image`：复用 `generateImage()`，将成功 base64 转回 Buffer，并保存检测后的真实图片 MIME。
-- `msgpack-stream`：复用 `openImageStream()`，有界读取完整原始响应并保存专用 MIME `application/vnd.littlewhitebox.novelai-msgpack`。
+- `msgpack-stream`：复用 `openImageStream()`，用与浏览器直连相同的帧解析器逐帧解码，忽略 intermediate，只保存经过 PNG 签名校验的 sample-zero final，结果 MIME 固定为 `image/png`。
 
 NovelAI、SD WebUI 与 ComfyUI 都传入完整 HTTP(S) URL；不新增域名、私网或第三方代理限制。SD 保留地址 query 并使用根 `/sdapi` 路径（与酒馆原生 SD 代理一致）；Comfy 无论浏览器直连还是酒馆代理都保留反代基础路径与地址 query。各 provider adapter 仅解释自己的 opaque request 与 context。
 
@@ -107,7 +107,7 @@ NovelAI、SD WebUI 与 ComfyUI 都传入完整 HTTP(S) URL；不新增域名、�
 三家 provider 都使用独立持久化字段 `useImageBackendJobs`，默认 `false`：
 
 - 关闭：不探测、不调用本插件，继续当前 provider 的原生连接方式。
-- 开启且 capability 包含 `image-batch-jobs-v1`：一次创建后端 job，逐个收取 ready 结果。
+- 开启且 capability 包含 `image-batch-jobs-v1`：一次创建后端 job，逐个收取 ready 结果；NovelAI V5 还要求 `novelai-v5-final-image-v1`。
 - 开启但插件不可用或 capability 缺失：明确报配置错误，不静默回退到其他连接链路。
 - NovelAI 只在后端发送模式展示并启用任务开关；前端直连即使保留过勾选值也不会提交后台任务。后端发送关闭任务开关时继续使用原逐张代理。
 - ComfyUI 即使选择浏览器直连也可以显式开启；此时楼层批量任务实际从酒馆服务器发起，因此该服务器必须能够访问所填地址。单张重绘、失败重试、设置页测试生成以及文本源/ebook 没有可恢复的楼层 journal，继续走原连接链路，不创建无法接回的裸后端任务。
@@ -162,13 +162,14 @@ preparing -> active -> settling -> 删除
 
 ## 能力与版本
 
-server plugin 版本为 `2.0.0`，`/status` 增加 capability：
+server plugin 版本为 `2.2.0`，`/status` 中与本链路相关的 capability 为：
 
 ```text
 image-batch-jobs-v1
+novelai-v5-final-image-v1
 ```
 
-启用任务开关的 provider 只按 capability 决定是否可以使用 job API，不用版本号猜测。`v5-msgpack-stream` 和所有旧接口继续保留。
+启用任务开关的 provider 按 capability 决定是否可以使用 job API，不用版本号猜测。`novelai-v5-final-image-v1` 明确声明异步 V5 结果是 PNG；缺少时新前端拒绝提交。`v5-msgpack-stream` 继续只代表前台逐张后端代理能力，所有旧接口保持原语义。
 
 ## 删除路径
 
@@ -204,7 +205,7 @@ image-batch-jobs-v1
 
 - create/status/result/ACK/cancel/delete 闭环。
 - 全字段先校验，最多 20 项，自定义 URL 原样传递。
-- V4.5 返回真实图片 MIME；V5 返回原始 MessagePack 字节。
+- V4.5 返回真实图片 MIME；V5 流在服务端提取 sample-zero final，并只返回 `image/png`。
 - SD/Comfy adapter 的 URL、认证、interrupt、SaveImage 选图、`/view` 参数和错误诊断。
 - 旧生成和连接测试接口不回归。
 

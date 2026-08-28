@@ -21,7 +21,7 @@ SillyTavern 的前端扩展更新不会改写 `plugins/`。LittleWhiteBox 更新
 
 ## Provider 边界
 
-- NovelAI：保留 `/v1/generate-image`、`/v2/generate-image`、`/v1/generate-image-stream`、`/v1/test`、`/v2/test` 的现有行为；异步任务保留 V5 原始 MessagePack，仍由前端解码。
+- NovelAI：保留 `/v1/generate-image`、`/v2/generate-image`、`/v1/generate-image-stream`、`/v1/test`、`/v2/test` 的现有行为；异步任务在服务器读取 V5 MessagePack 流，只保留并交付最终 PNG。前台逐张后端发送仍由 `/v1/generate-image-stream` 原样转发流。
 - SD WebUI：后端直接请求 `/sdapi/v1/txt2img`。取消会中止当前 HTTP 传输，但不会调用会误伤同一实例其他用户的全局 `/interrupt`。
 - ComfyUI：开启后台批量任务后，由酒馆服务器完成 `/prompt`、`/history/:promptId`、`/view`；取消时只通过 `/queue` 删除本任务的 prompt，不调用全局 `/interrupt`。即使原连接模式选择浏览器直连，酒馆服务器也必须能够访问所填地址。关闭后台任务时仍保持原酒馆代理或浏览器直连链路。
 
@@ -31,8 +31,9 @@ SillyTavern 的前端扩展更新不会改写 `plugins/`。LittleWhiteBox 更新
 
 ```text
 image-batch-jobs-v1
+novelai-v5-final-image-v1
 draw-runs-v1
-draw-run-runtime-v2
+draw-run-runtime-v3
 ```
 
 通用任务接口位于 `/v1/jobs`：
@@ -42,7 +43,7 @@ draw-run-runtime-v2
 | POST | `/v1/jobs` | 创建 provider 批量任务 |
 | GET | `/v1/jobs` | 列出当前登录用户的任务，供浏览器刷新后接回 |
 | GET | `/v1/jobs/:jobId` | 查询任务和每项状态 |
-| GET | `/v1/jobs/:jobId/results/:index` | 获取完成图片或 NovelAI V5 原始流 |
+| GET | `/v1/jobs/:jobId/results/:index` | 获取已归一化的完成图片 |
 | DELETE | `/v1/jobs/:jobId/results/:index` | ACK 已落库结果并释放字节 |
 | POST | `/v1/jobs/:jobId/cancel` | 取消当前和未执行项目，保留完成结果 |
 | DELETE | `/v1/jobs/:jobId` | 删除终态任务 |
@@ -82,3 +83,5 @@ npm run build:agent-core:node
 `npm run check:agent-core:node` 会先核对实际入包依赖与 `package-lock.json` 的锁定版本，再在不改文件的情况下重建并比对两个已提交产物，用于阻止源码、依赖锁文件与 bundle/许可证清单脱节。若依赖未附带 LICENSE/NOTICE/COPYING 文件，构建会提取 README 的 License 段；两处都没有许可证正文时直接失败。正式构建在同目录完成 staging，并以整个 `vendor` 目录为发布单元切换；失败时恢复上一份完整产物。
 
 `npm run check:agent-core:node18` 使用固定 Node.js 18.20.8 隔离加载两个 bundle，创建七类 Adapter、调用一次 Draw Run compiler，并让打包后的 Google SDK 向本机模拟端点发出一次真实 `generateContent` 请求。当前 `@google/genai` 虽声明 Node.js 20，但本插件锁定并打包的调用路径支持 Node.js 18；升级 SDK 后必须通过此检查。
+
+NovelAI V5 流解析使用已提交的 `providers/novelai/vendor/novel-v5-parser.cjs`，它将浏览器直连所用的同一帧解析器与 MessagePack decoder 打包给 Node；对应许可证位于同目录的 `THIRD_PARTY_LICENSES.txt`。仓库开发者升级解析器或 `@msgpack/msgpack` 后运行 `npm run build:novelai:vendor`；插件运行环境不需要安装依赖。

@@ -1,6 +1,6 @@
 # 后端 Draw Run（第二刀）方案定稿
 
-状态：第 1～11 步代码完成；`draw-runs-v1` 路由 capability、`draw-run-runtime-v2` 运行契约与三家 Provider 生产入口已经开放。自动化契约验证通过后，仍需在真实 SillyTavern 中完成人工写盘/读回、关闭浏览器接回与三家 Provider 实盘验收。
+状态：第 1～11 步代码完成；`draw-runs-v1` 路由 capability、`draw-run-runtime-v3` 运行契约与三家 Provider 生产入口已经开放。v3 要求 NovelAI V5 子任务在服务端归一为最终 PNG。自动化契约验证通过后，仍需在真实 SillyTavern 中完成人工写盘/读回、关闭浏览器接回与三家 Provider 实盘验收。
 前置：第一刀已封板于 `95526dd feat(draw): add provider-neutral backend image jobs`。
 权威文档关系：本文件是第二刀的开工单与终态契约；第一刀契约见 `docs/image-backend-batch-jobs.md`，第二刀不修改第一刀的进程内存边界。
 
@@ -60,7 +60,7 @@ Agent 渠道分两类传输：
 | 临时态 | 请求正文、Agent 凭证、图片密钥、LLM transcript、编译 recipe 全在后端内存 |
 | 持久态 | 只在目标 swipe extra 保存最小 run handle；Planner 后沿用第一刀 IndexedDB journal |
 | 外部依赖 | Agent Core、酒馆三条 Chat Completion 渠道、直接模型 API、三家图片服务、聊天保存接口 |
-| 注册入口 | 后端声明 `draw-runs-v1` 路由 capability 与 `draw-run-runtime-v2` 运行契约；前端只注册一个共享恢复运行时 |
+| 注册入口 | 后端声明 `draw-runs-v1` 路由 capability 与 `draw-run-runtime-v3` 运行契约；前端只注册一个共享恢复运行时 |
 | 删除路径 | 删 draw-runs 后端目录、前端协调器、capability，清理 `extra.xbDrawRuns`；图片 compiler 继续供普通链路使用 |
 | 兼容对象 | 当前 SillyTavern、浏览器/WebView、现行 Agent Provider 和三家图片协议；不兼容测试线旧 Draw Run 草稿与旧 journal schema |
 
@@ -468,7 +468,7 @@ slots 已进入 `message.mes` 后，正文是唯一排版事实，当前 DOM 只
 → 8. 前端提交与 marker（已完成共享 draw-run-coordinator：preflight、marker CAS、幂等提交、提交不确定窗口、"正在提交/后台已接管"状态事件；该阶段未单独注册三家生产入口）
 → 9. journal 重整：delivery 判别模型 + adopting 状态 + 原子创建 + originRunId（已完成；旧测试线 schema 在升级入口一次性删除）
 → 10. child adoption（已完成：marker 扫描、reconcile、adoptExistingJobFromDrawRun、source_changed → gallery、marker 清理与补 ACK、多标签页竞争、取消与 child_expired 收口）
-→ 11. 注册三家 Provider 生产入口与对应 UI 状态，并开放 `draw-runs-v1` 路由 capability 与 `draw-run-runtime-v2` 运行契约（已完成；任一不匹配时明确显示当前/所需插件版本和更新路径，不悄悄退化）
+→ 11. 注册三家 Provider 生产入口与对应 UI 状态，并开放 `draw-runs-v1` 路由 capability；当前 `draw-run-runtime-v3` 还要求 NovelAI V5 子任务只交付最终 PNG（已完成；任一不匹配时明确显示当前/所需插件版本和更新路径，不悄悄退化）
 ```
 
 施工期间阶段 1–8 用户行为保持不变：第 7～8 步只建立后端 API 与共享提交边界，当时未发布 capability、未注册 Provider 入口，避免前端进入一个能提交却不能 adoption 的半成品路径。现在第 9～10 步接回闭环与第 11 步生产入口已经一并完成并开放。

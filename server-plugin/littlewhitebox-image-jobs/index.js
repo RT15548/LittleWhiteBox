@@ -44,8 +44,9 @@ const PLUGIN_VERSION = pluginManifest.version;
 const PLUGIN_CAPABILITIES = Object.freeze([
     'v5-msgpack-stream',
     'image-batch-jobs-v1',
+    'novelai-v5-final-image-v1',
     'draw-runs-v1',
-    'draw-run-runtime-v2',
+    'draw-run-runtime-v3',
 ]);
 const LOG_PREFIX = '[littlewhitebox-image-jobs]';
 

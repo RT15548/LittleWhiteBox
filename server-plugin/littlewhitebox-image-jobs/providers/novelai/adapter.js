@@ -2,10 +2,8 @@
 
 const {
     generateImageBuffer,
-    readImageStreamBuffer,
+    generateV5ImageBuffer,
 } = require('./client.js');
-
-const MSGPACK_MIME = 'application/vnd.littlewhitebox.novelai-msgpack';
 
 function createUpstreamError(result) {
     const error = new Error(result.error || `NovelAI upstream returned HTTP ${result.status || 502}`);
@@ -18,12 +16,12 @@ async function execute({ context, item, signal }) {
     const { key, insecure } = context;
     const { transport, url, payload } = item.request;
     const result = transport === 'msgpack-stream'
-        ? await readImageStreamBuffer({ url, key, payload, insecure, signal })
+        ? await generateV5ImageBuffer({ url, key, payload, insecure, signal })
         : await generateImageBuffer({ url, key, payload, insecure, signal });
     if (!result.ok) throw createUpstreamError(result);
     return {
         buffer: result.buffer,
-        mime: transport === 'msgpack-stream' ? MSGPACK_MIME : result.mime,
+        mime: result.mime,
     };
 }
 
