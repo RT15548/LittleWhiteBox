@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
     createDrawRunClient,
     DRAW_RUNS_CAPABILITY,
+    DRAW_RUN_RUNTIME_CAPABILITY,
     DrawRunClientError,
     hasDrawRunsCapability,
 } from '../draw-run-client.js';
@@ -78,9 +79,17 @@ test('Draw Run ACK requires the protocol success envelope while keeping 404 idem
 });
 
 test('Draw Run capability requires a ready backend that explicitly advertises the contract', () => {
-    assert.equal(hasDrawRunsCapability({ ready: true, capabilities: [DRAW_RUNS_CAPABILITY] }), true);
+    assert.equal(hasDrawRunsCapability({
+        ready: true,
+        capabilities: [DRAW_RUNS_CAPABILITY, DRAW_RUN_RUNTIME_CAPABILITY],
+    }), true);
+    assert.equal(hasDrawRunsCapability({ ready: true, capabilities: [DRAW_RUNS_CAPABILITY] }), false);
+    assert.equal(hasDrawRunsCapability({ ready: true, capabilities: [DRAW_RUN_RUNTIME_CAPABILITY] }), false);
     assert.equal(hasDrawRunsCapability({ ready: true, capabilities: [] }), false);
-    assert.equal(hasDrawRunsCapability({ ready: false, capabilities: [DRAW_RUNS_CAPABILITY] }), false);
+    assert.equal(hasDrawRunsCapability({
+        ready: false,
+        capabilities: [DRAW_RUNS_CAPABILITY, DRAW_RUN_RUNTIME_CAPABILITY],
+    }), false);
 });
 
 test('Draw Run cancel posts to the run-scoped endpoint and validates the returned run', async () => {

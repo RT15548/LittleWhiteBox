@@ -3,11 +3,14 @@ import { DRAW_RUNS_ENDPOINT } from './draw-run-coordinator.js';
 const DEFAULT_TIMEOUT_MS = 15_000;
 
 export const DRAW_RUNS_CAPABILITY = 'draw-runs-v1';
+export const DRAW_RUN_RUNTIME_CAPABILITY = 'draw-run-runtime-v2';
+export const REQUIRED_DRAW_RUN_PLUGIN_VERSION = '2.1.0';
 
 export function hasDrawRunsCapability(status) {
     return status?.ready === true
         && Array.isArray(status.capabilities)
-        && status.capabilities.includes(DRAW_RUNS_CAPABILITY);
+        && status.capabilities.includes(DRAW_RUNS_CAPABILITY)
+        && status.capabilities.includes(DRAW_RUN_RUNTIME_CAPABILITY);
 }
 
 export class DrawRunClientError extends Error {

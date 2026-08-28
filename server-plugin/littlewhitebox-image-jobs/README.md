@@ -9,6 +9,10 @@ LittleWhiteBox 的可选 SillyTavern server plugin。开启小白X后台任务�
 3. 在 `config.yaml` 开启 `enableServerPlugins: true`，然后重启 SillyTavern。
 4. 如果装过旧的 `SillyTavern/plugins/littlewhitebox-nai/`，建议一并删除。它是独立插件 ID，不会和本插件冲突，但小白X已完全不再请求它。
 
+## 升级
+
+SillyTavern 的前端扩展更新不会改写 `plugins/`。LittleWhiteBox 更新后，如果界面提示后台插件版本不兼容，请用扩展内的 `server-plugin/littlewhitebox-image-jobs/` 完整覆盖 `SillyTavern/plugins/littlewhitebox-image-jobs/`，再重启 SillyTavern。前端会在提交场景分析前校验运行契约，不会继续调用不兼容的旧插件。
+
 插件挂载在自己的命名空间：
 
 ```text
@@ -28,6 +32,7 @@ LittleWhiteBox 的可选 SillyTavern server plugin。开启小白X后台任务�
 ```text
 image-batch-jobs-v1
 draw-runs-v1
+draw-run-runtime-v2
 ```
 
 通用任务接口位于 `/v1/jobs`：

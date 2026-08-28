@@ -125,7 +125,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/docs/backend-draw-runs.md",
       "relativePath": "docs/backend-draw-runs.md",
       "extension": ".md",
-      "sizeBytes": 39716
+      "sizeBytes": 39881
     },
     {
       "source": "littlewhitebox",
@@ -1672,7 +1672,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/draw-run-client.js",
       "relativePath": "modules/draw/shared/draw-run-client.js",
       "extension": ".js",
-      "sizeBytes": 6164
+      "sizeBytes": 6356
     },
     {
       "source": "littlewhitebox",
@@ -1707,7 +1707,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/draw-run-production.js",
       "relativePath": "modules/draw/shared/draw-run-production.js",
       "extension": ".js",
-      "sizeBytes": 7313
+      "sizeBytes": 7636
     },
     {
       "source": "littlewhitebox",
@@ -1952,7 +1952,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/draw-run-client.test.js",
       "relativePath": "modules/draw/shared/tests/draw-run-client.test.js",
       "extension": ".js",
-      "sizeBytes": 4129
+      "sizeBytes": 4475
     },
     {
       "source": "littlewhitebox",
@@ -1973,7 +1973,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/draw-run-production.test.js",
       "relativePath": "modules/draw/shared/tests/draw-run-production.test.js",
       "extension": ".js",
-      "sizeBytes": 15284
+      "sizeBytes": 15738
     },
     {
       "source": "littlewhitebox",
@@ -6873,7 +6873,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/server-plugin/littlewhitebox-image-jobs/index.js",
       "relativePath": "server-plugin/littlewhitebox-image-jobs/index.js",
       "extension": ".js",
-      "sizeBytes": 13466
+      "sizeBytes": 13559
     },
     {
       "source": "littlewhitebox",
@@ -6929,7 +6929,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/server-plugin/littlewhitebox-image-jobs/README.md",
       "relativePath": "server-plugin/littlewhitebox-image-jobs/README.md",
       "extension": ".md",
-      "sizeBytes": 6333
+      "sizeBytes": 6746
     },
     {
       "source": "littlewhitebox",
@@ -6999,7 +6999,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/server-plugin/littlewhitebox-image-jobs/tests/novelai-client.test.js",
       "relativePath": "server-plugin/littlewhitebox-image-jobs/tests/novelai-client.test.js",
       "extension": ".js",
-      "sizeBytes": 17581
+      "sizeBytes": 17894
     },
     {
       "source": "littlewhitebox",

@@ -1,7 +1,7 @@
 {
     "id": "littlewhitebox-image-jobs",
     "name": "LittleWhiteBox Image Jobs",
-    "version": "2.0.0",
+    "version": "2.1.0",
     "author": "LittleWhiteBox",
     "description": "SillyTavern 后端插件：为 LittleWhiteBox 的 NovelAI、SD WebUI 和 ComfyUI 提供浏览器脱离式批量生图任务。"
 }

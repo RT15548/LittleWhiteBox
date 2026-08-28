@@ -1,6 +1,9 @@
 import { fetchImageBackendJobsStatus } from './backend-image-jobs.js';
 import { publishDrawRunActivity } from './draw-run-activity.js';
-import { hasDrawRunsCapability } from './draw-run-client.js';
+import {
+    hasDrawRunsCapability,
+    REQUIRED_DRAW_RUN_PLUGIN_VERSION,
+} from './draw-run-client.js';
 import { submitDrawRun } from './draw-run-coordinator.js';
 import { listActiveSwipeDrawRunMarkers } from './draw-run-markers.js';
 import { listPendingImageJobs } from './pending-image-jobs.js';
@@ -138,8 +141,11 @@ export async function submitProviderDrawRun({
         );
     }
     if (!hasDrawRunsCapability(status)) {
+        const installedVersion = String(status?.version || '未知');
         throw new DrawRunProductionError(
-            '检测到旧版 littlewhitebox-image-jobs：缺少 draw-runs-v1。请更新后端插件并重启 SillyTavern；本次不会退回浏览器规划。',
+            `后台画图插件版本不兼容：当前 ${installedVersion}，需要 ${REQUIRED_DRAW_RUN_PLUGIN_VERSION}。`
+                + '请将小白X扩展目录中的 server-plugin/littlewhitebox-image-jobs 完整覆盖到 '
+                + 'SillyTavern/plugins/littlewhitebox-image-jobs，然后重启 SillyTavern；本次不会使用旧插件继续运行。',
             'DRAW_RUN_BACKEND_OUTDATED',
         );
     }

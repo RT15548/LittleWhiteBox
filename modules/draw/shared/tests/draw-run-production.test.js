@@ -7,6 +7,11 @@ import {
     submitProviderDrawRun,
 } from '../draw-run-production.js';
 import {
+    DRAW_RUNS_CAPABILITY,
+    DRAW_RUN_RUNTIME_CAPABILITY,
+    REQUIRED_DRAW_RUN_PLUGIN_VERSION,
+} from '../draw-run-client.js';
+import {
     resolveCurrentDrawRunActivityTarget,
     subscribeDrawRunActivity,
 } from '../draw-run-activity.js';
@@ -16,6 +21,14 @@ import {
     resolveDrawRunUiState,
 } from '../draw-run-ui-state.js';
 import { hashSceneSource } from '../scene-source.js';
+
+function compatibleBackendStatus() {
+    return {
+        ready: true,
+        version: REQUIRED_DRAW_RUN_PLUGIN_VERSION,
+        capabilities: ['image-batch-jobs-v1', DRAW_RUNS_CAPABILITY, DRAW_RUN_RUNTIME_CAPABILITY],
+    };
+}
 
 function baseOptions(overrides = {}) {
     const message = { mes: 'hello', extra: {} };
@@ -50,13 +63,19 @@ test('production entry refuses an old backend without running Planner or silentl
     let submitted = 0;
     await assert.rejects(
         submitProviderDrawRun(baseOptions({
-            statusLoader: async () => ({ ready: true, capabilities: ['image-batch-jobs-v1'] }),
+            statusLoader: async () => ({
+                ready: true,
+                version: '2.0.0',
+                capabilities: ['image-batch-jobs-v1', DRAW_RUNS_CAPABILITY],
+            }),
             preparePlanner: async () => { prepared += 1; },
             submit: async () => { submitted += 1; },
         })),
         error => error instanceof DrawRunProductionError
             && error.code === 'DRAW_RUN_BACKEND_OUTDATED'
-            && /不会退回浏览器规划/.test(error.message),
+            && /当前 2\.0\.0，需(?:要|求) 2\.1\.0/.test(error.message)
+            && /SillyTavern\/plugins\/littlewhitebox-image-jobs/.test(error.message)
+            && /不会使用旧插件继续运行/.test(error.message),
     );
     assert.equal(prepared, 0);
     assert.equal(submitted, 0);
@@ -67,7 +86,7 @@ test('a user abort during pre-marker preparation stays a cancellation and never 
     let submitted = 0;
     await assert.rejects(submitProviderDrawRun(baseOptions({
         signal: controller.signal,
-        statusLoader: async () => ({ ready: true, capabilities: ['draw-runs-v1'] }),
+        statusLoader: async () => compatibleBackendStatus(),
         preparePlanner: async () => {
             controller.abort();
             throw new Error('provider request failed');
@@ -95,7 +114,7 @@ test('switching image provider cannot start a second Draw Run on the same active
             provider: 'sd-webui',
             statusLoader: async () => {
                 statusChecks += 1;
-                return { ready: true, capabilities: ['draw-runs-v1'] };
+                return compatibleBackendStatus();
             },
         }),
         error => error?.code === 'DRAW_RUN_ALREADY_PENDING',
@@ -115,7 +134,7 @@ test('a persisted image journal with a live slot blocks replacement before Plann
             }],
             statusLoader: async () => {
                 statusChecks += 1;
-                return { ready: true, capabilities: ['draw-runs-v1'] };
+                return compatibleBackendStatus();
             },
             preparePlanner: async () => { prepared += 1; },
         })),
@@ -132,7 +151,7 @@ test('a gallery-only journal or a user-deleted slot does not lock the current sw
             { delivery: { mode: 'gallery' }, items: [{ slotId: 'slot-gallery' }] },
             { delivery: { mode: 'slots' }, items: [{ slotId: 'slot-deleted' }] },
         ],
-        statusLoader: async () => ({ ready: true, capabilities: ['draw-runs-v1'] }),
+        statusLoader: async () => compatibleBackendStatus(),
         submit: async value => {
             submitted.push(value);
             return { status: 'accepted', runId: 'run-test-207' };
@@ -150,7 +169,7 @@ test('production entry prepares and submits exactly once after capability admiss
         automatic: true,
         statusLoader: async ({ getHeaders }) => {
             calls.push(['status', getHeaders()]);
-            return { ready: true, capabilities: ['image-batch-jobs-v1', 'draw-runs-v1'] };
+            return compatibleBackendStatus();
         },
         preparePlanner: async limits => {
             calls.push(['prepare', limits]);
@@ -186,7 +205,7 @@ test('production freezes the exact target before asynchronous admission and prep
         statusLoader: async () => {
             options.message.swipe_id = 1;
             options.message.mes = 'changed while checking capability';
-            return { ready: true, capabilities: ['draw-runs-v1'] };
+            return compatibleBackendStatus();
         },
         submit: async value => {
             submittedOptions = value;
@@ -204,7 +223,7 @@ test('an accepted production submission wakes recovery without waiting for a bro
     const dispose = subscribeDrawRunActivity(detail => activities.push(detail));
     try {
         await submitProviderDrawRun(baseOptions({
-            statusLoader: async () => ({ ready: true, capabilities: ['draw-runs-v1'] }),
+            statusLoader: async () => compatibleBackendStatus(),
             submit: async () => ({ status: 'accepted', runId: 'run-test-205' }),
         }));
     } finally {

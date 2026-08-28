@@ -32,6 +32,7 @@ const { parseTimeout } = require('./providers/upstream.js');
 const novelai = require('./providers/novelai/adapter.js');
 const sdWebUi = require('./providers/sd-webui/adapter.js');
 const comfyui = require('./providers/comfyui/adapter.js');
+const pluginManifest = require('./manifest.json');
 
 const providerAdapters = Object.freeze({
     novelai,
@@ -39,11 +40,12 @@ const providerAdapters = Object.freeze({
     comfyui,
 });
 
-const PLUGIN_VERSION = '2.0.0';
+const PLUGIN_VERSION = pluginManifest.version;
 const PLUGIN_CAPABILITIES = Object.freeze([
     'v5-msgpack-stream',
     'image-batch-jobs-v1',
     'draw-runs-v1',
+    'draw-run-runtime-v2',
 ]);
 const LOG_PREFIX = '[littlewhitebox-image-jobs]';
 

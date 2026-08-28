@@ -252,6 +252,10 @@ test('bounds upstream V5 error bodies to 1 MiB', async () => {
 });
 
 test('advertises and proxies the V5 MessagePack stream route', async () => {
+    const {
+        DRAW_RUN_RUNTIME_CAPABILITY,
+        REQUIRED_DRAW_RUN_PLUGIN_VERSION,
+    } = await import('../../../modules/draw/shared/draw-run-client.js');
     let statusHandler;
     let streamHandler;
     await init({
@@ -276,7 +280,13 @@ test('advertises and proxies the V5 MessagePack stream route', async () => {
     };
     statusHandler({}, statusResponse);
     assert.equal(statusResponse.statusCode, 200);
-    assert.deepEqual(statusResponse.body.capabilities, ['v5-msgpack-stream', 'image-batch-jobs-v1', 'draw-runs-v1']);
+    assert.equal(statusResponse.body.version, REQUIRED_DRAW_RUN_PLUGIN_VERSION);
+    assert.deepEqual(statusResponse.body.capabilities, [
+        'v5-msgpack-stream',
+        'image-batch-jobs-v1',
+        'draw-runs-v1',
+        DRAW_RUN_RUNTIME_CAPABILITY,
+    ]);
 
     const req = new EventEmitter();
     req.aborted = false;
