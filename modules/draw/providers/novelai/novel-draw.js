@@ -5067,8 +5067,8 @@ async function handleFrameMessage(event) {
                 const result = await generateAndInsertImages({
                     messageId,
                     onStateChange: (state, d) => {
-                        if (state === 'submitting') postStatus('loading', '正在提交后台任务...');
-                        if (state === 'accepted') postStatus('loading', '后台已接管，可关闭页面');
+                        if (state === 'submitting') postStatus('loading', '提交后台...');
+                        if (state === 'accepted') postStatus('loading', '提交后台完成，可关闭页面');
                         if (state === 'uncertain') postStatus('loading', '后台任务确认中...');
                         if (state === 'progress') postStatus('loading', `${d.current}/${d.total}`);
                         if (state === 'queued') postStatus('loading', d.ahead > 0 ? `排队中·前方 ${d.ahead}` : '排队中');
@@ -5079,7 +5079,7 @@ async function handleFrameMessage(event) {
                     }
                 });
                 if (result?.status === 'accepted') {
-                    postStatus('success', '后台已接管，可关闭页面');
+                    postStatus('success', '提交后台完成，可关闭页面');
                 } else if (result?.status === 'uncertain') {
                     postStatus('loading', '后台任务确认中，请勿重复提交');
                 } else {

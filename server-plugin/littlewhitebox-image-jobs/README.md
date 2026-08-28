@@ -1,6 +1,6 @@
 # LittleWhiteBox Image Jobs
 
-LittleWhiteBox 的可选 SillyTavern server plugin。开启小白X后台任务后，Scene Planner 与整批图片任务都在 Node 进程中执行；前端收到“后台已接管”后，切后台、断网、刷新、WebView 冻结或关闭浏览器都不会暂停已创建的任务，重新打开后会自动接回。
+LittleWhiteBox 的可选 SillyTavern server plugin。开启小白X后台任务后，Scene Planner 与整批图片任务都在 Node 进程中执行；前端显示“提交后台”完成后，切后台、断网、刷新、WebView 冻结或关闭浏览器都不会暂停已创建的任务，重新打开后会自动接回。
 
 ## 安装
 

@@ -701,7 +701,7 @@ function setFloorState(messageId, state, data = {}) {
             el.classList.add('working');
             if (!panelData.result.startTime) panelData.result.startTime = Date.now();
             if (statusIcon) { statusIcon.textContent = '↥'; statusIcon.className = 'nd-status-icon nd-spin'; }
-            if (statusText) statusText.textContent = '正在提交';
+            if (statusText) statusText.textContent = '提交后台';
             break;
         case FloatState.ACCEPTED:
             el.classList.add('working');
@@ -1133,7 +1133,7 @@ export function setFloatingState(state, data = {}) {
             if (!floatingResult.startTime) floatingResult.startTime = Date.now();
             statusIcon.textContent = '↥';
             statusIcon.className = 'nd-status-icon nd-spin';
-            statusText.textContent = '正在提交';
+            statusText.textContent = '提交后台';
             break;
         case FloatState.ACCEPTED:
             floatingEl.classList.add('working');

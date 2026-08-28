@@ -127,7 +127,7 @@ export async function submitProviderDrawRun({
         );
     }
 
-    emit(onStateChange, 'submitting', { label: '正在提交' });
+    emit(onStateChange, 'submitting', { label: '提交后台' });
     const status = await runBeforeMarker(() => statusLoader({ getHeaders, signal }), signal);
     if (signal?.aborted) {
         const error = new Error('已取消');

@@ -93,6 +93,6 @@ export function resolveDrawRunUiState({
     if (currentState === 'uncertain' && detail.phase === 'reconciled') return currentState;
     if (matches && ['accepted', 'active'].includes(detail.phase)) return 'accepted';
     // marker 只证明提交意图已经落盘，不证明 POST 已到达后台。刷新后的面板
-    // 必须先显示“确认中”，直到恢复器实际发现 run，才能承诺“后台已接管”。
+    // 必须先显示“确认中”，直到恢复器实际发现 run，才能承诺“提交后台完成”。
     return currentState === 'accepted' ? 'accepted' : 'uncertain';
 }

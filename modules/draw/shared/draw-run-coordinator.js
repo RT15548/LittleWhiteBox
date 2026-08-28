@@ -44,9 +44,9 @@ function emit(onStateChange, phase, detail = {}) {
     try {
         onStateChange?.(phase, {
             label: phase === 'submitting'
-                ? '正在提交'
+                ? '提交后台'
                 : phase === 'accepted'
-                    ? '后台已接管'
+                    ? '提交后台完成，可关闭页面'
                     : phase === 'uncertain'
                         ? '正在确认后台任务'
                         : '提交失败',

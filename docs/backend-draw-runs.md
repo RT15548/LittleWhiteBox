@@ -6,13 +6,13 @@
 
 ## 0. 目标与产品承诺
 
-把 Scene Planner（LLM 场景规划 + Tool 纠错 + 图片请求编译）交给后端。用户看到"后台已接管"后，切屏、冻结、刷新、关闭浏览器都不影响 LLM 规划和整批生图。
+把 Scene Planner（LLM 场景规划 + Tool 纠错 + 图片请求编译）交给后端。用户看到“提交后台”完成后，切屏、冻结、刷新、关闭浏览器都不影响 LLM 规划和整批生图。
 
 产品承诺：
 
-- 点击后先显示"正在提交"。
+- 点击后先显示“提交后台”。
 - 收到 202 后确认后台已经接管，此后即可关闭页面。
-- 接管后的画图胶囊不固定占用整句"后台已接管"，而是持续显示排队、分析、准备、生成张数、等待、重连或接回等真实阶段；接管确认通知仍明确告知用户可以离开页面。
+- 提交完成后的画图胶囊不固定占用整句“提交后台完成”，而是持续显示排队、分析、准备、生成张数、等待、重连或接回等真实阶段；提交完成通知仍明确告知用户可以离开页面。
 - 图片 Provider 仍是现有的单值设置；任一时刻只有当前 Provider 的一套面板与提交入口，不引入多 Provider 同时点击或并发执行。
 - 同一 owner 的图片任务继续由第一刀严格串行执行；第二刀只把 Planner 前移到后端，不放宽 NovelAI、SD WebUI 或 ComfyUI 的执行并发。
 
@@ -31,7 +31,7 @@
   ├─ 冻结 Agent 配置与图片 generationRecipe
   ├─ 在目标 swipe extra 保存 runId marker（唯一 accessor + confirmable save）
   └─ POST /v1/draw-runs
-              ↓ 202：后台已接管
+              ↓ 202：提交后台完成
 后端 DrawRunManager
   ├─ 调用 Agent Core（Node entry，per-run Host Client）
   ├─ Tool 纠错与计划校验（与浏览器同一份 Planner）
@@ -465,7 +465,7 @@ slots 已进入 `message.mes` 后，正文是唯一排版事实，当前 DOM 只
 → 5. Planner prepare/execute 拆分（已完成；浏览器行为不变）
 → 6. 三家纯 compiler 提取，浏览器链路切换（已完成；行为不变）
 → 7. DrawRunManager / 状态机 / API / per-run Host Client / Agent executor / compiler registry / child 创建（经共享 normalize/validate service）/ 敏感数据清理 / 生命周期与取消（已完成；该阶段未单独发布 capability）
-→ 8. 前端提交与 marker（已完成共享 draw-run-coordinator：preflight、marker CAS、幂等提交、提交不确定窗口、"正在提交/后台已接管"状态事件；该阶段未单独注册三家生产入口）
+→ 8. 前端提交与 marker（已完成共享 draw-run-coordinator：preflight、marker CAS、幂等提交、提交不确定窗口、“提交后台/提交后台完成”状态事件；该阶段未单独注册三家生产入口）
 → 9. journal 重整：delivery 判别模型 + adopting 状态 + 原子创建 + originRunId（已完成；旧测试线 schema 在升级入口一次性删除）
 → 10. child adoption（已完成：marker 扫描、reconcile、adoptExistingJobFromDrawRun、source_changed → gallery、marker 清理与补 ACK、多标签页竞争、取消与 child_expired 收口）
 → 11. 注册三家 Provider 生产入口与对应 UI 状态，并开放 `draw-runs-v1` 路由 capability；当前 `draw-run-runtime-v3` 还要求 NovelAI V5 子任务只交付最终 PNG（已完成；任一不匹配时明确显示当前/所需插件版本和更新路径，不悄悄退化）
