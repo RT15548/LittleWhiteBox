@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue';
+import AppDialog from '../../../shell/app-src/components/AppDialog.vue';
+import { computed, reactive } from 'vue';
 import type { ShopActivationView, ShopCatalogItemView } from '../types.js';
 import ShopIcon from './ShopIcon.vue';
 import ShopItemArt from './ShopItemArt.vue';
@@ -15,28 +16,16 @@ const props = defineProps<{
     disabledReason: string;
 }>();
 const emit = defineEmits<{ cancel: []; confirm: [parameters: Record<string, string>] }>();
-const dialog = ref<HTMLDialogElement | null>(null);
 const parameters = reactive<Record<string, string>>({});
 const title = computed(() => props.mode === 'purchase' ? '确认购买' : props.mode === 'use' ? '使用奇物' : '关闭效果？');
 const formValid = computed(() => props.mode !== 'use' || props.item.inputs.every(input => String(parameters[input.key] || '').trim().length > 0));
 const canSubmit = computed(() => !props.busy && !props.disabledReason && formValid.value);
-onMounted(() => dialog.value?.showModal());
 function submit(): void {
     if (canSubmit.value) {emit('confirm', { ...parameters });}
 }
-function handleKeydown(event: KeyboardEvent): void {
-    event.stopPropagation();
-    if (event.key !== 'Tab') {return;}
-    const controls = Array.from(dialog.value?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled)') ?? []);
-    const first = controls[0];
-    const last = controls.at(-1);
-    if (!first) {event.preventDefault(); return;}
-    if (event.shiftKey && document.activeElement === first) {event.preventDefault(); last?.focus();}
-    else if (!event.shiftKey && document.activeElement === last) {event.preventDefault(); first.focus();}
-}
 </script>
 <template>
-    <dialog ref="dialog" class="shop-dialog" :aria-label="title" @cancel.prevent="!busy && emit('cancel')" @keydown="handleKeydown">
+    <AppDialog class="shop-dialog" :aria-label="title" :busy="busy" @close="emit('cancel')">
         <form @submit.prevent="submit">
             <header class="shop-dialog-heading"><h2>{{ title }}</h2></header>
             <div class="shop-dialog-item"><ShopItemArt :name="item.icon" /><div><strong>{{ item.name }}</strong><span>{{ item.durationLabel }}</span><small v-if="mode === 'purchase'">数量 1 件 · 放入背包</small><small v-else-if="mode === 'use'">消耗库存 1 件 · 不再扣款</small></div></div>
@@ -61,5 +50,5 @@ function handleKeydown(event: KeyboardEvent): void {
             <p v-if="error" class="shop-inline-error" role="alert">{{ error }}</p>
             <footer class="shop-dialog-actions"><button type="button" class="shop-secondary-button" :disabled="busy" autofocus @click="emit('cancel')">返回</button><button type="submit" class="shop-primary-button" :disabled="!canSubmit">{{ busy ? '正在保存…' : mode === 'purchase' ? '确认支付' : mode === 'deactivate' ? '确认关闭' : '确认使用' }}</button></footer>
         </form>
-    </dialog>
+    </AppDialog>
 </template>

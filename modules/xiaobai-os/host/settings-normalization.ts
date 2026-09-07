@@ -6,6 +6,7 @@ import { normalizeTasksSettings } from '../apps/tasks/settings.js';
 import type { TasksSettings } from '../apps/tasks/types.js';
 import type { XiaobaiOsSettings as XiaobaiOsSettingsRoot } from '../types.js';
 import { jsonValuesEqual } from './json-values-equal.js';
+import { normalizeAppOrder } from '../shell/app-order.js';
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -41,6 +42,7 @@ function booleanOr(value: unknown, fallback: boolean): boolean {
 export function createDefaultXiaobaiOsSettings(): XiaobaiOsSettings {
     return {
         enabled: false,
+        appOrder: [],
         apps: {
             fourthWall: normalizeFourthWallGlobalSettings(undefined),
             map: normalizeMapSettings(undefined),
@@ -58,6 +60,7 @@ export function normalizeXiaobaiOsSettings(value: unknown): XiaobaiOsSettings {
     const apps = recordOrEmpty(root.apps);
     return {
         enabled: booleanOr(root.enabled, false),
+        appOrder: normalizeAppOrder(root.appOrder),
         apps: {
             fourthWall: normalizeFourthWallGlobalSettings(apps.fourthWall),
             map: normalizeMapSettings(apps.map),
@@ -79,6 +82,7 @@ export function migrateUpstreamFourthWallSettings(extensionSettings: unknown): {
     const templates = recordOrEmpty(source.fourthWallPromptTemplates);
     return {
         value: {
+            appOrder: [],
             enabled: Object.hasOwn(source, 'fourthWall')
                 ? booleanOr(fourthWall.enabled, false)
                 : booleanOr(dynamicPrompt.enabled, false),

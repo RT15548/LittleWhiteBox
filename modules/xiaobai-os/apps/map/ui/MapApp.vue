@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue';
+import { useAppBack } from '../../../shell/app-src/navigation/app-navigation.js';
 import type { XiaobaiOsAppProps } from '../../../shell/app-contract.js';
 import MapAtlas from './MapAtlas.vue';
 import MapScene from './MapScene.vue';
@@ -73,18 +74,16 @@ function showWorld(): void {
     sceneKey.value = null;
     helpOpen.value = false;
 }
-function handleEscape(event: KeyboardEvent): void {
-    if (event.key !== 'Escape') {return;}
-    if (showingScene.value || selectedKey.value || helpOpen.value) {
-        event.stopPropagation();
-        if (showingScene.value) {showWorld();}
-        else if (selectedKey.value) {selectedKey.value = '';}
-        else {helpOpen.value = false;}
-    }
-}
+useAppBack(() => {
+    if (helpOpen.value) { helpOpen.value = false; return true; }
+    if (showingScene.value) { showWorld(); return true; }
+    if (selectedKey.value) { selectedKey.value = ''; return true; }
+    if (region.value) { enterRegion(currentRegion.value?.parent || ''); return true; }
+    return false;
+});
 </script>
 <template>
-    <main class="map-app" :class="{ 'has-view-switch': atlas?.locations.length, 'is-scene-view': showingScene }" @keydown="handleEscape">
+    <main class="map-app" :class="{ 'has-view-switch': atlas?.locations.length, 'is-scene-view': showingScene }">
         <div class="map-top">
             <header class="map-search-bar"><MapIcon :name="showingScene ? 'layers' : 'search'" /><button v-if="!showingScene" type="button" class="map-search-entry" :disabled="!atlas?.locations.length" @click="searchOpen = true">想去哪里？<small>搜索世界中的地点</small></button><div v-else class="map-search-entry">{{ sceneLocation?.name || '当前场景' }}<small>{{ sceneKey ? '正在查看已记录的场景' : '看看你身边的布局' }}</small></div><button type="button" class="map-round-button" aria-label="地图设置" @click="settingsOpen = true"><MapIcon name="more" /></button></header>
             <nav v-if="atlas?.locations.length" class="map-view-switch" aria-label="地图视图">

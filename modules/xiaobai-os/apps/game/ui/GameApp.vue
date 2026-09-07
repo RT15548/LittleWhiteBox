@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, shallowRef, watch, type Component } from 'vue';
+import { useAppBack } from '../../../shell/app-src/navigation/app-navigation.js';
 import type { XiaobaiOsAppProps } from '../../../shell/app-contract.js';
 import type { GameClientState, GameKind } from '../types.js';
 import type { GameAction } from './room-contract.js';
@@ -71,7 +72,6 @@ watch(selected, loadRoom, { immediate: true });
 watch(settlement, (value) => {
     if (value) {
         selected.value = value.record.game;
-        page.value = 'room';
     }
 });
 watch(
@@ -94,6 +94,10 @@ function leave(target: 'lobby' | 'records'): void {
     client.dismissSettlement();
     page.value = target;
 }
+useAppBack(() => {
+    if (page.value === 'lobby') { return false; }
+    leave('lobby'); return true;
+});
 function resume(): void {
     if (state.value.activeGame) {
         open(state.value.activeGame.kind);

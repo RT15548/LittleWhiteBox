@@ -1,4 +1,5 @@
 @import url('./apps/messages/host/message-renderer.css');
+@import url('./host/quick-launcher.css');
 
 .xiaobaix-os-button {
     align-items: center;

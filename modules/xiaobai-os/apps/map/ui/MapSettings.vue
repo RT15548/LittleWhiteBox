@@ -1,13 +1,12 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import AppDialog from '../../../shell/app-src/components/AppDialog.vue';
+
 import MapIcon from './MapIcon.vue';
 defineProps<{ autoMaintenance: boolean; busy: boolean; refreshDisabled: boolean; autoToggleBusy: boolean; disabledReason: string; hasMap: boolean; status: string; maintenanceMessage: string; maintenanceError: boolean; notice: string; noticeError: boolean }>();
 defineEmits<{ close: []; setAuto: [enabled: boolean]; update: []; rebuild: []; refresh: [] }>();
-const dialog = ref<HTMLDialogElement | null>(null);
-onMounted(() => dialog.value?.showModal());
 </script>
 <template>
-    <dialog ref="dialog" class="map-dialog map-settings" aria-labelledby="map-settings-title" @cancel.prevent="$emit('close')" @keydown.stop>
+    <AppDialog class="map-dialog map-settings" aria-labelledby="map-settings-title" @close="$emit('close')">
         <header class="map-dialog-header"><div><small>让地图跟上你的故事</small><h2 id="map-settings-title">地图设置</h2></div><button type="button" class="map-round-button" aria-label="关闭地图设置" @click="$emit('close')"><MapIcon name="close" /></button></header>
         <section v-if="status || notice || maintenanceMessage" class="map-settings-feedback" :class="{ 'is-error': notice ? noticeError : maintenanceError }" role="status">
             <strong>{{ notice ? (notice === maintenanceMessage ? '最近一次更新' : '操作提示') : status || '最近一次更新' }}</strong>
@@ -20,5 +19,5 @@ onMounted(() => dialog.value?.showModal());
             <p v-if="disabledReason" class="map-setting-note" role="status">{{ disabledReason }}</p>
             <button type="button" class="map-sync-button" :disabled="busy || refreshDisabled" @click="$emit('refresh')"><MapIcon name="refresh" />同步已保存的地图</button><p class="map-setting-note">同步只读取保存结果，不会重新生成地图。绘制或更新开始后，可以离开此页面。</p>
         </div>
-    </dialog>
+    </AppDialog>
 </template>

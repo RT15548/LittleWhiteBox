@@ -1,11 +1,11 @@
 /* eslint-disable */
-import { B as v, E as B, H as d, I as b, T as m, d as e, f as h, g, j as p, l as k, m as f, p as R, u as c, v as w, x as T, z as A } from "./xiaobai-os-runtime-dom.esm-bundler-DwdCK5Jt.js";
-import { r as P } from "./xiaobai-os-room-catalog-GDoMHdYd.js";
-import { n as G, t as F } from "./xiaobai-os-GameResult-BoKKS9Ni.js";
-var I = { class: "push-table" }, L = { class: "room-heading" }, N = { class: "push-felt" }, z = { class: "push-pot" }, D = { class: "push-card-stage" }, E = { class: "push-card-inner" }, O = {
+import { G as R, H as v, I as b, J as d, K as g, T as B, b as w, f as h, g as p, h as T, j as A, k as m, m as c, p as e, u as k, v as f } from "./xiaobai-os-runtime-dom.esm-bundler-DGqntx6-.js";
+import { r as G } from "./xiaobai-os-room-catalog-BYX95Q29.js";
+import { n as P, t as F } from "./xiaobai-os-GameResult-DatmszlD.js";
+var I = { class: "push-table" }, L = { class: "room-heading" }, N = { class: "push-felt" }, D = { class: "push-pot" }, O = { class: "push-card-stage" }, S = { class: "push-card-inner" }, V = {
   class: "push-table-talk",
   role: "status"
-}, S = ["aria-label"], V = { class: "push-odds" }, M = { class: "room-actions" }, j = ["disabled"], H = ["disabled"], U = /* @__PURE__ */ w({
+}, z = ["aria-label"], E = { class: "push-odds" }, M = { class: "room-actions" }, j = ["disabled"], H = ["disabled"], J = /* @__PURE__ */ w({
   __name: "PushTable",
   props: {
     game: {},
@@ -21,7 +21,7 @@ var I = { class: "push-table" }, L = { class: "room-heading" }, N = { class: "pu
     "revealed"
   ],
   setup(s) {
-    const o = s, l = b({ ...o.game }), i = b(null), t = b(!1);
+    const o = s, l = v({ ...o.game }), i = v(null), t = v(!1);
     let u;
     function y(n, a) {
       clearTimeout(u), i.value = n, t.value = !0;
@@ -30,13 +30,13 @@ var I = { class: "push-table" }, L = { class: "room-heading" }, N = { class: "pu
         a(), t.value = !1;
       }, r);
     }
-    p(() => o.drawing, (n) => {
+    b(() => o.drawing, (n) => {
       n && (i.value = null);
-    }), p(() => o.game.revealedCoins, (n, a) => {
+    }), b(() => o.game.revealedCoins, (n, a) => {
       n > a && y("coin", () => {
         l.value = { ...o.game };
       });
-    }), p(() => o.settlement, (n) => {
+    }), b(() => o.settlement, (n) => {
       !n || n.record.detail.kind !== "push" || n.record.outcome !== "cashed-out" && y(n.record.outcome === "busted" ? "bomb" : "coin", () => {
         n.record.detail.kind === "push" && (l.value = {
           ...o.game,
@@ -45,40 +45,40 @@ var I = { class: "push-table" }, L = { class: "room-heading" }, N = { class: "pu
         });
       });
     }, { immediate: !0 });
-    const $ = c(() => !!o.disabledReason || o.drawing || t.value || !!o.settlement), C = c(() => (l.value.nextBombProbabilityBps / 100).toLocaleString("zh-CN", { maximumFractionDigits: 2 }));
-    return T(() => clearTimeout(u)), (n, a) => (m(), f("section", I, [
+    const $ = h(() => !!o.disabledReason || o.drawing || t.value || !!o.settlement), C = h(() => (l.value.nextBombProbabilityBps / 100).toLocaleString("zh-CN", { maximumFractionDigits: 2 }));
+    return B(() => clearTimeout(u)), (n, a) => (m(), p("section", I, [
       e("header", L, [e("small", null, "本局筹码 ¤ " + d(s.game.bet), 1)]),
       e("div", N, [
-        e("div", z, [e("span", null, d(s.settlement && !t.value ? "这一局，拿回" : "现在收手，带走"), 1), e("strong", null, "¤ " + d(l.value.cashoutAmount), 1)]),
-        e("div", D, [a[6] || (a[6] = e("div", {
+        e("div", D, [e("span", null, d(s.settlement && !t.value ? "这一局，拿回" : "现在收手，带走"), 1), e("strong", null, "¤ " + d(l.value.cashoutAmount), 1)]),
+        e("div", O, [a[6] || (a[6] = e("div", {
           class: "push-deck",
           "aria-hidden": "true"
         }, [
           e("i"),
           e("i"),
           e("i")
-        ], -1)), e("div", { class: v(["push-card", {
+        ], -1)), e("div", { class: g(["push-card", {
           "is-turning": t.value,
           "is-revealed": i.value,
           "is-waiting": s.drawing
-        }]) }, [e("div", E, [a[5] || (a[5] = e("span", {
+        }]) }, [e("div", S, [a[5] || (a[5] = e("span", {
           class: "push-card-back",
           "aria-hidden": "true"
         }, [e("b", null, "金")], -1)), e("span", {
-          class: v(["push-card-face", { "is-bomb": i.value === "bomb" }]),
+          class: g(["push-card-face", { "is-bomb": i.value === "bomb" }]),
           "aria-hidden": "true"
         }, [e("b", null, d(i.value === "bomb" ? "✹" : "¤"), 1), e("small", null, d(i.value === "bomb" ? "炸弹" : "+50"), 1)], 2)])], 2)]),
-        e("p", O, d(s.drawing ? "牌还没亮，稍等一下…" : t.value ? "翻开看看…" : i.value === "bomb" ? "哎呀，是炸弹。" : i.value === "coin" ? "是金币！还要再来一张吗？" : "牌已洗好，翻一张试试手气。"), 1),
+        e("p", V, d(s.drawing ? "牌还没亮，稍等一下…" : t.value ? "翻开看看…" : i.value === "bomb" ? "哎呀，是炸弹。" : i.value === "coin" ? "是金币！还要再来一张吗？" : "牌已洗好，翻一张试试手气。"), 1),
         e("div", {
           class: "push-coins",
           "aria-label": "已找到 " + l.value.revealedCoins + " 张金币"
-        }, [(m(), f(k, null, B(7, (r) => e("span", {
+        }, [(m(), p(k, null, A(7, (r) => e("span", {
           key: r,
-          class: v({ "is-found": r <= l.value.revealedCoins }),
+          class: g({ "is-found": r <= l.value.revealedCoins }),
           "aria-hidden": "true"
-        }, "¤", 2)), 64))], 8, S)
+        }, "¤", 2)), 64))], 8, z)
       ]),
-      s.settlement && !t.value ? (m(), h(F, {
+      s.settlement && !t.value ? (m(), c(F, {
         key: 0,
         record: s.settlement.record,
         "balance-after": s.settlement.balanceAfter,
@@ -90,13 +90,13 @@ var I = { class: "push-table" }, L = { class: "room-heading" }, N = { class: "pu
         "record",
         "balance-after",
         "disabled"
-      ])) : s.settlement ? R("", !0) : (m(), f(k, { key: 1 }, [
-        e("div", V, [e("span", null, [
-          a[7] || (a[7] = g("还剩 ", -1)),
+      ])) : s.settlement ? T("", !0) : (m(), p(k, { key: 1 }, [
+        e("div", E, [e("span", null, [
+          a[7] || (a[7] = f("还剩 ", -1)),
           e("b", null, d(l.value.remainingCards), 1),
-          a[8] || (a[8] = g(" 张牌，其中 ", -1)),
+          a[8] || (a[8] = f(" 张牌，其中 ", -1)),
           e("b", null, d(l.value.remainingBombs), 1),
-          a[9] || (a[9] = g(" 张炸弹", -1))
+          a[9] || (a[9] = f(" 张炸弹", -1))
         ]), e("small", null, "下一张翻到炸弹的概率 " + d(C.value) + "%", 1)]),
         e("div", M, [e("button", {
           type: "button",
@@ -113,7 +113,7 @@ var I = { class: "push-table" }, L = { class: "room-heading" }, N = { class: "pu
       ], 64))
     ]));
   }
-}), q = U, J = /* @__PURE__ */ w({
+}), K = J, U = /* @__PURE__ */ w({
   __name: "PushRoom",
   props: {
     state: {},
@@ -129,8 +129,8 @@ var I = { class: "push-table" }, L = { class: "room-heading" }, N = { class: "pu
     "resume"
   ],
   setup(s) {
-    const o = s, l = c(() => o.settlement?.before.kind === "push" ? o.settlement.before : o.state.activeGame?.kind === "push" ? o.state.activeGame : null);
-    return (i, t) => l.value ? (m(), h(q, {
+    const o = s, l = h(() => o.settlement?.before.kind === "push" ? o.settlement.before : o.state.activeGame?.kind === "push" ? o.state.activeGame : null);
+    return (i, t) => l.value ? (m(), c(K, {
       key: l.value.id,
       game: l.value,
       "disabled-reason": s.disabledReason,
@@ -152,7 +152,7 @@ var I = { class: "push-table" }, L = { class: "room-heading" }, N = { class: "pu
       "disabled-reason",
       "settlement",
       "drawing"
-    ])) : (m(), h(G, {
+    ])) : (m(), c(P, {
       key: 1,
       kind: "push",
       minimum: 50,
@@ -162,7 +162,7 @@ var I = { class: "push-table" }, L = { class: "room-heading" }, N = { class: "pu
       chips: [50],
       balance: s.state.balance,
       "disabled-reason": s.disabledReason,
-      "other-game": s.state.activeGame ? A(P)(s.state.activeGame.kind).name : "",
+      "other-game": s.state.activeGame ? R(G)(s.state.activeGame.kind).name : "",
       rules: [
         "一副十张牌：七张金币，三张炸弹。每局下注 50 小白币。",
         "每翻出一张金币，攒下 50 小白币。随时收手，把攒下的钱带走。",
@@ -176,7 +176,7 @@ var I = { class: "push-table" }, L = { class: "room-heading" }, N = { class: "pu
       "other-game"
     ]));
   }
-}), X = J;
+}), X = U;
 export {
   X as default
 };

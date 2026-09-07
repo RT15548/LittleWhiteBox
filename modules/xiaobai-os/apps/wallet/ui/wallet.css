@@ -38,7 +38,6 @@
 .wallet-ledger-end { color: var(--wallet-muted); font-size: 10px; }
 .wallet-load-error { color: var(--wallet-danger); font-size: 12px; text-align: center; }
 .wallet-receipt { width: min(352px, calc(100vw - 30px)); max-height: calc(100dvh - 40px); padding: 17px 23px 22px; background: var(--wallet-panel); color: var(--wallet-ink); border: 1px solid var(--wallet-line); border-radius: 25px; box-shadow: 0 25px 70px rgb(0 0 0 / 25%); overflow: auto; }
-.wallet-receipt::backdrop { background: rgb(13 28 22 / 50%); backdrop-filter: blur(5px); }
 .wallet-receipt > header { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--wallet-muted); font-size: 12px; }
 .wallet-receipt-hero { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 13px 0 24px; border-bottom: 1px dashed var(--wallet-line); }
 .wallet-receipt-hero .wallet-row-mark { width: 46px; height: 48px; }

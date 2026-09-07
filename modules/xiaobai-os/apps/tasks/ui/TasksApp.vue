@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, toRaw } from 'vue';
+import { useAppBack } from '../../../shell/app-src/navigation/app-navigation.js';
 import type { XiaobaiOsAppProps } from '../../../shell/app-contract.js';
 import type {
     TaskDetailPresentation,
@@ -65,7 +66,7 @@ function resultBody(response: unknown): unknown {
 
 const state = ref(initialState(props.initialState));
 const page = ref<TasksPage>('board');
-const previousPage = ref<MainPage | 'recruit'>('board');
+const parents: Partial<Record<TasksPage, TasksPage>> = {};
 const detail = ref<TaskDetailPresentation | null>(null);
 const confirmation = ref<Confirmation | null>(null);
 const cancellingReceived = computed(() => confirmation.value?.kind === 'cancel' && confirmation.value.task.source === 'received');
@@ -281,7 +282,6 @@ async function maintainOnce(): Promise<void> {
 
 async function openDetail(taskId: string, refresh = false): Promise<void> {
     if (!refresh) {
-        if (isMainPage.value || page.value === 'recruit') {previousPage.value = page.value as MainPage | 'recruit';}
         go('detail');
         detail.value = null;
         detailBusy.value = true;
@@ -351,7 +351,9 @@ async function retryRead(): Promise<void> {
 
 function go(next: TasksPage, restore = false): void {
     actionMessage.value = '';
-    if (next === 'settings' && isMainPage.value) {previousPage.value = page.value as MainPage;}
+    if (next !== page.value && !restore) {
+        parents[next] = ['board', 'active', 'published', 'history'].includes(next) ? 'board' : page.value;
+    }
     pagePositions[page.value] = {
         scrollTop: content.value?.scrollTop ?? 0,
         focusKey: document.activeElement instanceof HTMLElement ? document.activeElement.dataset.navigationId ?? '' : '',
@@ -370,10 +372,10 @@ function go(next: TasksPage, restore = false): void {
     });
 }
 
-function back(): void {
-    go(page.value === 'detail' || page.value === 'settings' ? previousPage.value
-        : page.value === 'listing' ? 'board' : 'published', true);
-}
+const back = useAppBack(() => {
+    if (page.value === 'board') { return false; }
+    go(parents[page.value] ?? 'board', true); return true;
+});
 
 function openListing(boardId: string, listingId: string): void {
     selectedListing.value = { boardId, listingId };
@@ -390,6 +392,7 @@ function openPublished(task: TaskRecord): void {
 function showPublishedHistory(): void {
     historySource.value = 'published';
     go('history');
+    parents.history = 'published';
 }
 
 function askCancel(task: TaskRecord): void {
@@ -410,13 +413,6 @@ function confirmAction(): void {
     else {void assignTask(action.task, action.candidateId);}
 }
 
-function handleEscape(event: KeyboardEvent): void {
-    if (event.key === 'Escape' && !isMainPage.value) {
-        event.stopPropagation();
-        event.preventDefault();
-        back();
-    }
-}
 
 onMounted(() => {
     mounted = true;
@@ -441,7 +437,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-    <main class="tasks-app" @keydown="handleEscape">
+    <main class="tasks-app">
         <header class="tasks-app-header">
             <button v-if="!isMainPage" type="button" class="tasks-icon-button" aria-label="返回上一页" @click="back"><TaskIcon name="back" /></button>
             <h1>{{ pageTitle }}</h1>

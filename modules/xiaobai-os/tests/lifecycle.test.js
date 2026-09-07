@@ -3,6 +3,7 @@ import test from 'node:test';
 import { parseHTML } from 'linkedom';
 
 import { createXiaobaiOsLifecycle } from '../host/lifecycle.js';
+import { xiaobaiOsLaunchers } from '../shell/app-launchers.js';
 
 async function waitFor(predicate, message = 'condition was not reached') {
     for (let attempt = 0; attempt < 20; attempt += 1) {
@@ -14,7 +15,7 @@ async function waitFor(predicate, message = 'condition was not reached') {
 
 function createHarness({ appRuntime = {}, captureChatBinding = () => ({
     identityKey: 'character:fixture.png:chat', binding: { kind: 'character', ownerLocator: 'fixture.png', chatId: 'chat' }, reference: null,
-}), isChatBindingCurrent, onError, onChatRequired } = {}) {
+}), isChatBindingCurrent, onError, onChatRequired, getAppOrder, saveAppOrder, subscribeAppOrderChanged } = {}) {
     const { document, window } = parseHTML(`<!doctype html><html><head></head><body>
         <div id="send-controls"><button id="message_preview_btn"></button><button id="send_but"></button></div>
     </body></html>`);
@@ -71,6 +72,9 @@ function createHarness({ appRuntime = {}, captureChatBinding = () => ({
         onChatRequired,
         isChatBindingCurrent,
         onError,
+        getAppOrder,
+        saveAppOrder,
+        subscribeAppOrderChanged,
         appRuntime: {
             cancelAll: reason => runtimeCalls.push(['cancelAll', reason]),
             cancelForeground: reason => runtimeCalls.push(['cancelForeground', reason]),
@@ -137,6 +141,87 @@ test('init is idempotent and mounts one launcher before preview and send', () =>
     assert.deepEqual(harness.runtimeCalls, [['startBackground']]);
 });
 
+test('shortcuts expose the desktop first six without opening a window or activating apps', async () => {
+    let activations = 0; let opened = 0;
+    const harness = createHarness({ appRuntime: {
+        activate: () => { activations++; }, handleWindowOpened: () => { opened++; },
+    } });
+    harness.setAppDescriptors([...xiaobaiOsLaunchers].reverse());
+    harness.lifecycle.init();
+    const launcher = harness.document.getElementById('xiaobaix-os-button');
+    const panel = harness.document.getElementById('xiaobaix-os-shortcuts');
+    for (let index = 0; index < 3; index++) { launcher.click(); launcher.click(); }
+    launcher.click();
+    assert.equal(launcher.getAttribute('aria-expanded'), 'true');
+    assert.equal(panel.getAttribute('aria-hidden'), 'false');
+    assert.deepEqual([...panel.querySelectorAll('[data-app-id]')].map(button => button.dataset.appId),
+        xiaobaiOsLaunchers.slice(0, 6).map(app => app.id));
+    assert.equal(harness.document.querySelector('iframe'), null);
+    assert.equal(opened, 0); assert.equal(activations, 0);
+
+    panel.querySelector('[data-app-id="world"]').click();
+    assert.equal(launcher.getAttribute('aria-expanded'), 'false');
+    const options = harness.bridgeOptions();
+    await options.onReady(options.bridge);
+    assert.equal(harness.posts.find(post => post.type === 'os/init').payload.initialAppId, 'world');
+    assert.equal(opened, 1);
+    await harness.lifecycle.cleanup();
+});
+
+test('shortcut desktop entry has no app target and unavailable apps cannot be opened', async () => {
+    const harness = createHarness();
+    harness.lifecycle.init();
+    const launcher = harness.document.getElementById('xiaobaix-os-button');
+    launcher.click();
+    harness.document.querySelector('[aria-label="打开桌面"]').click();
+    const options = harness.bridgeOptions();
+    await options.onReady(options.bridge);
+    assert.equal(harness.posts.at(-1).payload.initialAppId, null);
+    assert.equal(harness.lifecycle.open('missing-app'), false);
+    assert.equal(harness.lifecycle.open('fourth-wall'), true);
+    assert.deepEqual(harness.posts.at(-1).payload, { appId: 'fourth-wall' });
+    await harness.lifecycle.cleanup();
+});
+
+test('outside pointer, Escape, chat changes and cleanup dismiss shortcuts without opening an app', async () => {
+    const harness = createHarness();
+    harness.lifecycle.init();
+    const launcher = harness.document.getElementById('xiaobaix-os-button');
+    launcher.click();
+    harness.document.getElementById('send_but').dispatchEvent(new harness.window.Event('pointerdown', { bubbles: true }));
+    assert.equal(launcher.getAttribute('aria-expanded'), 'false');
+    launcher.click();
+    const escape = new harness.window.Event('keydown', { bubbles: true, cancelable: true });
+    Object.defineProperty(escape, 'key', { value: 'Escape' });
+    harness.document.dispatchEvent(escape);
+    assert.equal(launcher.getAttribute('aria-expanded'), 'false');
+    assert.equal(escape.defaultPrevented, true);
+    launcher.click();
+    harness.chatChanged()();
+    assert.equal(launcher.getAttribute('aria-expanded'), 'false');
+    assert.equal(harness.document.querySelector('iframe'), null);
+    await harness.lifecycle.cleanup();
+    assert.equal(harness.document.getElementById('xiaobaix-os-shortcuts'), null);
+});
+
+test('shortcuts refresh availability and a late frame cannot consume the next window destination', async () => {
+    const harness = createHarness();
+    harness.lifecycle.init();
+    harness.lifecycle.open('fourth-wall');
+    const old = harness.bridgeOptions();
+    await harness.lifecycle.closeWindow();
+    harness.setAppDescriptors(xiaobaiOsLaunchers.filter(app => app.id === 'world'));
+    harness.appDescriptorsChanged()();
+    assert.deepEqual([...harness.document.querySelectorAll('[data-app-id]')].map(button => button.dataset.appId), ['world']);
+    harness.lifecycle.open('world');
+    const current = harness.bridgeOptions();
+    await old.onReady(old.bridge);
+    assert.equal(harness.posts.length, 0);
+    await current.onReady(current.bridge);
+    assert.equal(harness.posts.at(-1).payload.initialAppId, 'world');
+    await harness.lifecycle.cleanup();
+});
+
 test('open is idempotent and closing a window preserves host resources', () => {
     const harness = createHarness();
     harness.lifecycle.init();
@@ -150,6 +235,61 @@ test('open is idempotent and closing a window preserves host resources', () => {
     assert.ok(harness.document.getElementById('xiaobaix-os-button'));
     assert.ok(harness.document.getElementById('xiaobaix-os-host-styles'));
     assert.equal(harness.bridgeDisposals(), 1);
+});
+
+test('desktop order is persisted once, shared with shortcuts and reused by a new frame', async () => {
+    let order = [];
+    let changed;
+    let saves = 0;
+    const harness = createHarness({ getAppOrder: () => order,
+        saveAppOrder: async next => { order = next; saves++; changed(); },
+        subscribeAppOrderChanged: callback => { changed = callback; return () => { changed = null; }; },
+    });
+    harness.setAppDescriptors(xiaobaiOsLaunchers);
+    harness.lifecycle.init();
+    harness.lifecycle.open();
+    const frame = harness.bridgeOptions();
+    const custom = xiaobaiOsLaunchers.map(app => app.id).reverse();
+    await frame.onMessage({ type: 'os/set-app-order', requestId: 'sort', payload: { appOrder: custom } }, frame.bridge);
+    assert.equal(saves, 1);
+    assert.deepEqual(harness.posts.find(post => post.requestId === 'sort').payload, { ok: true, appOrder: custom });
+    assert.deepEqual([...harness.document.querySelectorAll('.xiaobaix-os-shortcut')].map(tile => tile.dataset.appId), custom.slice(0, 6));
+    await harness.lifecycle.closeWindow();
+    harness.lifecycle.open();
+    const reopened = harness.bridgeOptions();
+    await reopened.onReady(reopened.bridge);
+    assert.deepEqual(harness.posts.filter(post => post.type === 'os/init').at(-1).payload.appOrder, custom);
+    assert.equal(saves, 1);
+    for (const invalid of [['world', 'world'], ['unknown-app'], null]) {
+        await reopened.onMessage({ type: 'os/set-app-order', requestId: 'invalid', payload: { appOrder: invalid } }, reopened.bridge);
+        assert.equal(harness.posts.at(-1).payload.ok, false);
+    }
+    assert.equal(saves, 1);
+    await harness.lifecycle.cleanup();
+    assert.equal(changed, null);
+});
+
+test('failed order saves report locally; late user-setting completion cannot post into the next chat frame', async () => {
+    let complete;
+    let failing = true;
+    const harness = createHarness({ onError: () => {}, saveAppOrder: async () => {
+        if (failing) { throw new Error('offline'); }
+        await new Promise(resolve => { complete = resolve; });
+    } });
+    harness.lifecycle.init(); harness.lifecycle.open();
+    const frame = harness.bridgeOptions();
+    await frame.onMessage({ type: 'os/set-app-order', requestId: 'failed-sort', payload: { appOrder: [] } }, frame.bridge);
+    assert.equal(harness.posts.at(-1).payload.error, 'app_order_save_failed');
+    assert.equal(harness.lifecycle.isOpen(), true);
+    failing = false;
+    const pending = frame.onMessage({ type: 'os/set-app-order', requestId: 'late-sort', payload: { appOrder: [] } }, frame.bridge);
+    await waitFor(() => !!complete);
+    harness.chatChanged()();
+    harness.lifecycle.open();
+    complete();
+    await pending;
+    assert.equal(harness.posts.some(post => post.requestId === 'late-sort'), false);
+    await harness.lifecycle.cleanup();
 });
 
 test('trusted frame ready receives a fresh snapshot and unknown apps stay inactive', async () => {

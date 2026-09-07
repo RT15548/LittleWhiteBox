@@ -1,8 +1,13 @@
 <script setup lang="ts">
 import type { LearningClientState } from '../types.js';
+import { useAppBack } from '../../../shell/app-src/navigation/app-navigation.js';
 import AttemptFeedback from './AttemptFeedback.vue';
-defineProps<{ state: LearningClientState; disabled: boolean }>();
-defineEmits<{ action: [name: string, input?: Record<string, unknown>]; remove: [name: string, input: Record<string, unknown>, message: string] }>();
+const props = defineProps<{ state: LearningClientState; disabled: boolean }>();
+const emit = defineEmits<{ action: [name: string, input?: Record<string, unknown>]; remove: [name: string, input: Record<string, unknown>, message: string] }>();
+useAppBack(() => {
+    if (!props.state.record) { return false; }
+    emit('action', 'records', { offset: props.state.records.offset }); return true;
+});
 const labels = { unassessed: '尚待练习', review: '待复核', independent: '已能独立使用', practised: '练过一次', strengthen: '再练练' };
 </script>
 

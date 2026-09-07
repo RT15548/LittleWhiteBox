@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue';
+import { useAppBack, useAppLayer } from '../../../shell/app-src/navigation/app-navigation.js';
 import type { XiaobaiOsAppProps } from '../../../shell/app-contract.js';
 import LearningActivity from './LearningActivity.vue';
 import LearningPlayer from './LearningPlayer.vue';
@@ -16,15 +17,24 @@ const props = defineProps<XiaobaiOsAppProps>();
 const { state, pending, writable, localMessage, request } = useLearningState(props);
 type Page = 'teacher' | 'materials' | 'records' | 'harvest' | 'settings' | 'profile' | 'goals';
 const page = ref<Page>(state.value.teacher ? 'teacher' : 'profile');
+const trail: Page[] = [];
 const menu = ref<HTMLDetailsElement | null>(null);
+const menuOpen = ref(false);
+useAppBack(() => { if (!menu.value?.open) { return false; } menu.value.open = false; return true; }, () => menuOpen.value);
 const conversation = ref<InstanceType<typeof LearningConversation> | null>(null);
 const activity = ref<LearningActivityPresentation | null>(null);
-const covered = computed(() => !!confirm.value || !!activity.value);
 const scroller = ref<HTMLElement | null>(null);
 const scrolls: Partial<Record<Page, number>> = {};
+let recordListScroll = 0;
+watch(() => !!state.value.record, async (reading, previous) => {
+    if (page.value !== 'records' || reading === previous) { return; }
+    if (reading) { recordListScroll = scroller.value?.scrollTop ?? 0; }
+    await nextTick();
+    if (page.value === 'records' && scroller.value) { scroller.value.scrollTop = reading ? 0 : recordListScroll; }
+});
 const confirm = ref<{ action: string; input: Record<string, unknown>; text: string } | null>(null);
-const confirmButton = ref<HTMLButtonElement | null>(null);
-let confirmationOrigin: HTMLElement | null = null;
+const confirmLayer = ref<HTMLElement | null>(null);
+useAppLayer(confirmLayer, () => { confirm.value = null; });
 const voice = ref(state.value.profile?.voice?.voiceId ?? state.value.voices.defaultVoice);
 const voiceLanguage = ref(state.value.profile?.voice?.language ?? state.value.language);
 const speed = ref(state.value.profile?.voice?.speed ?? 1);
@@ -47,21 +57,28 @@ watch(() => state.value.conversation.turns.length + state.value.conversation.rem
     const target = state.value.conversation.turns.at(-1)?.presentation;
     if (total > old && target) { void present(target); }
 });
-async function present(target: LearningPresentation) {
+function present(target: LearningPresentation) {
     if (target.kind === 'replacement') {
         if (state.value.currentUnitId !== target.unitId || state.value.storage !== 'ready') { return; }
-        await go('teacher');
-        await askConfirm('replace-lesson', { unitId: target.unitId, message: target.message }, '换一课？新课保存成功后会替换当前课件、原答和笔记；学习记录和已获得的奖励资格保留。');
+        askConfirm('replace-lesson', { unitId: target.unitId, message: target.message }, '换一课？新课保存成功后会替换当前课件、原答和笔记；学习记录和已获得的奖励资格保留。');
         return;
     }
     if (state.value.unit?.id !== target.unitId) { return; }
-    await go('teacher'); activity.value = target;
+    activity.value = target;
 }
 function closeActivity() { activity.value = null; void request('stop'); }
 async function askTeacher(exerciseId?: string, selection?: LearningSelection) {
     closeActivity(); await go('teacher'); await conversation.value?.ask(exerciseId, selection);
 }
-async function go(next: Page) {
+async function go(next: Page, returning = false) {
+    if (next !== page.value && !returning) {
+        if (next === 'teacher') { trail.length = 0; }
+        else {
+            const existing = trail.indexOf(next);
+            if (existing >= 0) { trail.splice(existing); }
+            else { trail.push(page.value); }
+        }
+    }
     if (scroller.value) { scrolls[page.value] = scroller.value.scrollTop; }
     if (menu.value) { menu.value.open = false; }
     page.value = next;
@@ -72,15 +89,13 @@ async function go(next: Page) {
         if (heading) { heading.tabIndex = -1; heading.focus({ preventScroll: true }); }
     }
 }
-async function askConfirm(action: string, input: Record<string, unknown>, text: string) {
-    confirmationOrigin = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    confirm.value = { action, input, text }; await nextTick(); confirmButton.value?.focus();
-}
-watch(confirm, async value => { if (!value) { await nextTick(); confirmationOrigin?.focus({ preventScroll: true }); } });
-function trapConfirmation(event: KeyboardEvent) {
-    const buttons = (event.currentTarget as HTMLElement).querySelectorAll<HTMLButtonElement>('button');
-    if (event.shiftKey && document.activeElement === buttons[0]) { event.preventDefault(); buttons[buttons.length - 1]?.focus(); }
-    else if (!event.shiftKey && document.activeElement === buttons[buttons.length - 1]) { event.preventDefault(); buttons[0]?.focus(); }
+const back = useAppBack(() => {
+    if (menu.value?.open) { menu.value.open = false; return true; }
+    if (page.value === 'teacher' || !trail.length && page.value === 'profile' && !state.value.teacher) { return false; }
+    void go(trail.pop() ?? 'teacher', true); return true;
+});
+function askConfirm(action: string, input: Record<string, unknown>, text: string) {
+    confirm.value = { action, input, text };
 }
 async function exportData() {
     const result = await request('export');
@@ -93,12 +108,12 @@ async function exportData() {
 
 <template>
     <section class="learning-app" aria-label="语伴语言学习">
-        <header class="learning-toolbar" :inert="covered">
-            <button v-if="page !== 'teacher'" type="button" class="learning-toolbar-back" aria-label="返回老师对话" @click="go('teacher')"><LearningIcon name="back" /></button>
+        <header class="learning-toolbar">
+            <button v-if="page !== 'teacher' && (state.teacher || trail.length)" type="button" class="learning-toolbar-back" aria-label="返回上一页" @click="back"><LearningIcon name="back" /></button>
             <button type="button" class="learning-wordmark" @click="go('teacher')"><span class="learning-brand-mark" aria-hidden="true">a<span>あ</span></span>语伴</button>
-            <details ref="menu" class="learning-menu" @keydown.esc.stop.prevent="menu!.open = false"><summary aria-label="学习资料与设置"><LearningIcon name="more" /></summary><nav aria-label="学习资料与设置"><button v-for="[id, label] in ([['materials', '课件与笔记'], ['records', '学习记录'], ['goals', '学习目标'], ['harvest', '我的收获'], ['settings', '设置']] as const)" :key="id" type="button" @click="go(id)">{{ label }}</button></nav></details>
+            <details ref="menu" class="learning-menu" @toggle="menuOpen = !!menu?.open" @keydown.esc.stop.prevent="menu!.open = false"><summary aria-label="学习资料与设置"><LearningIcon name="more" /></summary><nav aria-label="学习资料与设置"><button v-for="[id, label] in ([['materials', '课件与笔记'], ['records', '学习记录'], ['goals', '学习目标'], ['harvest', '我的收获'], ['settings', '设置']] as const)" :key="id" type="button" @click="go(id)">{{ label }}</button></nav></details>
         </header>
-        <div v-if="state.busy || state.message || localMessage || state.storage !== 'ready'" class="learning-notice" :class="{ 'is-working': state.busy }" role="status" aria-live="polite" :inert="covered">
+        <div v-if="state.busy || state.message || localMessage || state.storage !== 'ready'" class="learning-notice" :class="{ 'is-working': state.busy }" role="status" aria-live="polite">
             <template v-if="state.busy"><span class="learning-working-dot" />{{ state.message || '正在处理学习操作…' }}<button type="button" :disabled="pending" @click="request('cancel')">停止</button></template>
             <template v-else>{{ localMessage || state.message || (state.storage === 'unconfirmed' ? '上次保存尚未确认，请先核实。' : state.storage === 'conflict' ? '学习文件出现另一版本，请先核实。' : '暂时无法读取学习文件。') }}</template>
             <div v-if="!state.busy" class="learning-row">
@@ -108,8 +123,8 @@ async function exportData() {
                 <button v-if="state.storage === 'unloaded' || localMessage" type="button" :disabled="pending" @click="request('read')">重试读取</button>
             </div>
         </div>
-        <LearningConversation v-show="page === 'teacher'" ref="conversation" :state="state" :disabled="!writable" :inert="covered" @action="request" @present="present" @profile="go('profile')" />
-        <div v-show="page !== 'teacher'" ref="scroller" class="learning-scroll" :inert="covered">
+        <LearningConversation v-show="page === 'teacher'" ref="conversation" :state="state" :disabled="!writable" @action="request" @present="present" @profile="go('profile')" />
+        <div v-show="page !== 'teacher'" ref="scroller" class="learning-scroll">
             <LearningSetup v-if="page === 'profile'" :state="state" :disabled="!writable" @action="request" @done="go('teacher')" />
             <section v-if="page === 'materials'" class="learning-materials-page"><h1>课件与笔记</h1><p v-if="!state.unit" class="learning-empty-note">{{ state.blockedUnit ? '当前课件在另一个故事中' : '还没有课件' }}</p><template v-if="state.unit"><p class="learning-materials-title">{{ state.unit.title }}</p><button v-for="material in state.unit.materials" :key="material.id" type="button" class="learning-activity-link" @click="present({ unitId: state.unit.id, kind: 'material', id: material.id, title: material.title })"><LearningIcon name="book" /><span>{{ material.title }}</span><LearningIcon name="arrow" /></button><button v-for="exercise in state.unit.exercises" :key="exercise.id" type="button" class="learning-activity-link" @click="present({ unitId: state.unit.id, kind: 'exercise', id: exercise.id, title: exercise.prompt })"><LearningIcon name="records" /><span>{{ exercise.prompt }}</span><LearningIcon name="arrow" /></button><section v-if="state.unit.notes.length" class="learning-notes"><article v-for="note in state.unit.notes" :key="note.id"><blockquote v-if="note.selection">{{ note.selection.quote }}</blockquote><p>{{ note.text }}</p><button type="button" :disabled="!writable" @click="request('delete-note', { id: note.id })">删除笔记</button></article></section></template></section>
             <section v-if="page === 'goals'" class="learning-goals-page"><h1>学习目标</h1><template v-if="state.profile"><p>{{ state.profile.goal.description }}</p><p v-if="state.profile.goal.exam">{{ state.profile.goal.exam }}</p><p v-if="state.profile.goal.targetLevel">{{ state.profile.goal.targetLevel }}</p><p v-if="state.profile.goal.targetDate">{{ state.profile.goal.targetDate }}</p><h2>自评水平</h2><p>{{ state.profile.selfAssessment }}</p></template><p v-else class="learning-empty-note">还没有记录目标</p><button type="button" class="learning-primary" @click="go('teacher'); conversation?.focus()">和老师聊聊</button></section>
@@ -150,12 +165,12 @@ async function exportData() {
                 </section>
             </section>
         </div>
-        <LearningPlayer v-if="!activity" :state="state" :inert="!!confirm" @action="request" />
+        <LearningPlayer v-if="!activity" :state="state" @action="request" />
         <LearningActivity v-if="state.unit" :key="`${state.chatIdentity}:${state.language}:${state.unit.id}`" :state="state" :target="activity" :disabled="!writable" @action="request" @close="closeActivity" @ask="askTeacher" />
-        <div v-if="confirm" class="learning-confirm-shade" @keydown.esc.stop.prevent="confirm = null" @keydown.tab="trapConfirmation">
-            <section role="alertdialog" aria-modal="true" aria-labelledby="learning-confirm-title" class="learning-confirm">
+        <div v-if="confirm" ref="confirmLayer" class="learning-confirm-shade" @keydown.esc.stop.prevent="confirm = null">
+            <section role="alertdialog" aria-labelledby="learning-confirm-title" class="learning-confirm">
                 <h2 id="learning-confirm-title">确认这次操作</h2><p>{{ confirm.text }}</p>
-                <div class="learning-row"><button ref="confirmButton" type="button" @click="confirm = null">先不改</button><button type="button" class="learning-primary" :disabled="pending || state.busy" @click="request(confirm.action, confirm.input); confirm = null">确认</button></div>
+                <div class="learning-row"><button autofocus type="button" @click="confirm = null">先不改</button><button type="button" class="learning-primary" :disabled="pending || state.busy" @click="request(confirm.action, confirm.input); confirm = null">确认</button></div>
             </section>
         </div>
     </section>

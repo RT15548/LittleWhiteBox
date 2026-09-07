@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { reactive, toRaw } from 'vue';
+import { reactive, ref, toRaw } from 'vue';
+import { useAppLayer } from '../../../shell/app-src/navigation/app-navigation.js';
 import FourthWallSessions from './FourthWallSessions.vue';
 import type { FourthWallChatState, FourthWallGlobalSettings } from '../types.js';
 
@@ -21,6 +22,8 @@ const emit = defineEmits<{
 }>();
 
 const chatDraft = reactive(structuredClone(toRaw(props.chat.settings)));
+const layer = ref<HTMLElement | null>(null);
+useAppLayer(layer, () => emit('close'));
 const globalDraft = reactive(structuredClone(toRaw(props.global)));
 
 function saveChat(): void {
@@ -37,7 +40,7 @@ function saveCapabilities(): void {
 </script>
 
 <template>
-    <aside class="fourth-wall-settings" aria-label="四次元壁设置">
+    <aside ref="layer" class="fourth-wall-settings" aria-label="四次元壁设置">
         <header><strong>四次元壁设置</strong><button type="button" @click="emit('close')">关闭</button></header>
         <div class="fourth-wall-settings-scroll">
             <FourthWallSessions

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 defineProps<{
     isHome: boolean;
+    canBack: boolean;
 }>();
 
 defineEmits<{
@@ -12,7 +13,7 @@ defineEmits<{
 
 <template>
     <nav class="xiaobai-os-navigation" :class="{ 'is-home': isHome }" aria-label="系统导航">
-        <button type="button" class="xiaobai-os-nav-button" :disabled="isHome" aria-label="返回" @click="$emit('back')">
+        <button type="button" class="xiaobai-os-nav-button" :disabled="!canBack" aria-label="返回" @pointerdown.prevent @click="$emit('back')">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14.5 6-6 6 6 6" /></svg>
         </button>
         <button type="button" class="xiaobai-os-nav-button xiaobai-os-home-button" aria-label="主页" @click="$emit('home')">

@@ -3,6 +3,7 @@ import type { MapSettings } from '../apps/map/types.js';
 import type { TasksSettings } from '../apps/tasks/types.js';
 import type { XiaobaiOsSettings as XiaobaiOsSettingsRoot } from '../types.js';
 import { jsonValuesEqual } from './json-values-equal.js';
+import { normalizeAppOrder } from '../shell/app-order.js';
 import {
     isXiaobaiOsSettings,
     LEGACY_FOURTH_WALL_SETTING_KEYS,
@@ -42,6 +43,7 @@ export interface XiaobaiOsSettingsRepository {
     prepare: () => Promise<XiaobaiOsSettings>;
     read: () => XiaobaiOsSettings | null;
     setEnabled: (enabled: boolean) => Promise<XiaobaiOsSettings>;
+    setAppOrder: (order: readonly string[]) => Promise<XiaobaiOsSettings>;
     setMapAutoMaintenance: (enabled: boolean) => Promise<XiaobaiOsSettings>;
     setTasksAutoMaintenance: (enabled: boolean) => Promise<XiaobaiOsSettings>;
     mutateFourthWall: (
@@ -194,6 +196,14 @@ export function createSettingsRepository(adapter: XiaobaiOsSettingsAdapter): Xia
         });
     }
 
+    function setAppOrder(order: readonly string[]): Promise<XiaobaiOsSettings> {
+        const normalized = normalizeAppOrder(order);
+        if (!Array.isArray(order) || normalized.length !== order.length) {
+            return Promise.reject(new TypeError('invalid_app_order'));
+        }
+        return mutate(next => ({ ...next, appOrder: normalized }));
+    }
+
     function setTasksAutoMaintenance(enabled: boolean): Promise<XiaobaiOsSettings> {
         if (typeof enabled !== 'boolean') {
             throw new TypeError('tasks auto-maintenance must be a boolean');
@@ -240,6 +250,7 @@ export function createSettingsRepository(adapter: XiaobaiOsSettingsAdapter): Xia
         prepare,
         read,
         setEnabled,
+        setAppOrder,
         setMapAutoMaintenance,
         setTasksAutoMaintenance,
         mutateFourthWall,

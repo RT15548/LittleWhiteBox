@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { nextTick, ref } from 'vue';
+import { useAppBack } from '../../../shell/app-src/navigation/app-navigation.js';
 import type { LearningClientState } from '../types.js';
 import LearningIcon from './LearningIcon.vue';
 defineProps<{ state: LearningClientState; disabled: boolean }>();
@@ -9,6 +10,7 @@ const heading = ref<HTMLElement | null>(null);
 const name = ref('');
 const languages = [['en', '英语', 'Aa'], ['ja', '日语', 'あ'], ['ko', '韩语', '한'], ['fr', '法语', 'Ç'], ['de', '德语', 'ß'], ['es', '西班牙语', 'Ñ'], ['zh-CN', '中文', '文']];
 async function go(value: number) { step.value = value; await nextTick(); heading.value?.focus(); }
+useAppBack(() => { if (!step.value) { return false; } void go(0); return true; });
 </script>
 
 <template>

@@ -174,7 +174,6 @@
 .tasks-switch input:disabled + span { opacity: .45; }
 .tasks-maintenance-message { padding: 14px 0; font-size: 12px; color: var(--tasks-muted); }
 .tasks-dialog { width: min(380px,calc(100vw - 32px)); max-height: calc(100dvh - 40px); padding: 24px; margin: auto; border: 1px solid var(--tasks-line); border-radius: 14px; background: var(--tasks-panel); color: var(--tasks-ink); box-shadow: 0 18px 60px #11182730; overflow-y: auto; }
-.tasks-dialog::backdrop { background: #12172370; }
 .tasks-dialog h2 { font-size: 20px; font-weight: 600; margin-bottom: 18px; }
 .tasks-dialog-copy { font-size: 13px; line-height: 1.85; color: var(--tasks-muted); overflow-wrap: anywhere; }
 .tasks-dialog-copy p { margin: 12px 0; }

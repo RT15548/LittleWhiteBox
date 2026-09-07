@@ -1,0 +1,118 @@
+.xiaobai-os-home {
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+}
+
+.xiaobai-os-desktop-toolbar {
+    align-items: center;
+    display: flex;
+    justify-content: space-between;
+    min-height: 44px;
+    margin: -12px 0 22px;
+    position: relative;
+    z-index: 3;
+}
+
+.xiaobai-os-desktop-toolbar button,
+.xiaobai-os-order-error button {
+    background: rgb(255 255 255 / 12%);
+    border: 1px solid rgb(255 255 255 / 15%);
+    border-radius: 22px;
+    color: #fff;
+    cursor: pointer;
+    font: inherit;
+    font-size: .8125rem;
+    font-weight: 600;
+    min-height: 40px;
+    padding: 6px 16px;
+}
+
+.xiaobai-os-desktop-toolbar .xiaobai-os-desktop-done {
+    background: #fff;
+    color: #14233d;
+}
+
+.xiaobai-os-desktop-toolbar button:disabled,
+.xiaobai-os-order-error button:disabled {
+    opacity: .5;
+    cursor: wait;
+}
+
+.xiaobai-os-desktop-toolbar button:focus-visible,
+.xiaobai-os-order-error button:focus-visible {
+    outline: 2px solid #9dd4ff;
+    outline-offset: 3px;
+}
+
+.xiaobai-os-home.is-editing .xiaobai-os-app-tile {
+    cursor: grab;
+}
+
+.xiaobai-os-home.is-editing .xiaobai-os-app-icon {
+    outline: 1px solid rgb(255 255 255 / 45%);
+    outline-offset: 4px;
+    animation: xiaobai-os-edit-settle 230ms ease-out;
+}
+
+.xiaobai-os-home.is-editing .xiaobai-os-app-tile:hover .xiaobai-os-app-icon,
+.xiaobai-os-home.is-editing .xiaobai-os-app-tile:active .xiaobai-os-app-icon {
+    transform: none;
+}
+
+.xiaobai-os-home .xiaobai-os-app-tile.is-lifted {
+    opacity: .22;
+}
+
+.xiaobai-os-home .xiaobai-os-app-name,
+.xiaobai-os-dragged-app .xiaobai-os-app-name {
+    font-size: .75rem;
+    max-width: 100%;
+    overflow: visible;
+    overflow-wrap: anywhere;
+    white-space: normal;
+}
+
+.xiaobai-os-sort-move {
+    transition: transform 180ms cubic-bezier(.2, .75, .3, 1);
+}
+
+.xiaobai-os-dragged-app {
+    pointer-events: none;
+    position: fixed;
+    transform: scale(1.1);
+    z-index: 100;
+}
+
+.xiaobai-os-dragged-app .xiaobai-os-app-icon {
+    box-shadow: 0 12px 28px rgb(0 0 0 / 35%);
+}
+
+.xiaobai-os-sort-announcement {
+    clip-path: inset(50%);
+    height: 1px;
+    overflow: hidden;
+    position: absolute;
+    white-space: nowrap;
+    width: 1px;
+}
+
+.xiaobai-os-order-error {
+    align-items: center;
+    background: #19273c;
+    border: 1px solid rgb(255 255 255 / 18%);
+    border-radius: 16px;
+    bottom: 12px;
+    display: flex;
+    font-size: .8125rem;
+    gap: 12px;
+    justify-content: space-between;
+    left: 12px;
+    padding: 8px 12px;
+    position: sticky;
+    z-index: 4;
+}
+
+@keyframes xiaobai-os-edit-settle {
+    50% { transform: scale(.94); }
+}

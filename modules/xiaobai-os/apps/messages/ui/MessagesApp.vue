@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { computed, nextTick, onUnmounted, reactive, ref } from 'vue';
+import { computed, onUnmounted, reactive, ref } from 'vue';
+import AppDialog from '../../../shell/app-src/components/AppDialog.vue';
+import { useAppBack } from '../../../shell/app-src/navigation/app-navigation.js';
 import type { XiaobaiOsAppProps } from '../../../shell/app-contract.js';
 import type { MessageSendFailure, MessagesClientState, PendingOutgoingMessage, ThreadPage } from '../types.js';
 import type { OutgoingMessage } from '../application/image-upload.js';
@@ -17,7 +19,7 @@ const selected = ref(''); const page = ref<ThreadPage>({ contactId: '', messages
 const loading = ref(false); const working = ref(false); const error = ref('');
 const threadError = ref('');
 const conversation = ref<InstanceType<typeof Conversation> | null>(null);
-const dialog = ref<HTMLDialogElement | null>(null); const mode = ref<'add' | 'detail' | 'delete' | 'delete-image' | 'sync' | 'recover' | 'adopt'>('add');
+const dialogOpen = ref(false); const mode = ref<'add' | 'detail' | 'delete' | 'delete-image' | 'sync' | 'recover' | 'adopt'>('add');
 const imageToDelete = ref('');
 const name = ref(''); const note = ref(''); const personSearch = ref('');
 const contactAction = ref(createMessageId());
@@ -76,6 +78,7 @@ function select(id: string) {
     selected.value = id; error.value = ''; page.value = { contactId: id, messages: [], hasMore: false, retryMessageId: null }; void readThread();
 }
 function back() {selected.value = ''; threadRequest++; threadError.value = ''; page.value = { contactId: '', messages: [], hasMore: false, retryMessageId: null };}
+useAppBack(() => { back(); return true; }, () => !!selected.value);
 async function run(task: () => Promise<void>) {
     if (working.value) {return;} working.value = true; error.value = '';
     try {await task();} catch (cause) {if (alive) {error.value = cause instanceof Error && cause.message !== 'host_request_timeout' ? cause.message : '等待操作结果超时，请核实保存状态后重试。';}}
@@ -123,11 +126,17 @@ function discard(messageId: string) {
 }
 function operation(type: string) {void run(async () => apply(await request(type)));}
 function sync() {void run(async () => {apply(await request('messages/sync')); close();});}
-async function open(next: typeof mode.value) {
+function open(next: typeof mode.value) {
     mode.value = next; error.value = ''; name.value = ''; note.value = contact.value?.note ?? ''; personSearch.value = '';
-    contactAction.value = createMessageId(); await nextTick(); dialog.value?.showModal();
+    contactAction.value = createMessageId(); dialogOpen.value = true;
 }
-function close() {dialog.value?.close();}
+function close() {dialogOpen.value = false;}
+function backDialog() {
+    if (working.value) { return; }
+    if (mode.value === 'delete') { mode.value = 'detail'; }
+    else if (mode.value === 'recover') { mode.value = 'sync'; }
+    else { close(); }
+}
 function add(personName = name.value) {
     if (!personName.trim() || disabled.value) {return;}
     void run(async () => {
@@ -178,9 +187,9 @@ onUnmounted(() => {alive = false; threadRequest++; unsubscribe();});
         <p v-if="error || state.error" class="messages-error" role="alert">{{ error || state.error }}</p>
         <div v-if="threadError" class="messages-banner" role="alert"><span>{{ threadError }}</span><button :disabled="loading" @click="readThread()">重试读取</button></div>
         <Conversation v-if="contact" :key="contact.id" ref="conversation" v-model:draft="draft" :contact="contact" :page="page" :bridge="bridge" :chat-identity="state.chatIdentity" :disabled="disabled" :send-disabled="disabled || !!outgoing" :busy="state.busy" :outgoing="pendingBubble" :send-failure="state.sendFailure" :send-error="sendError" :working="working" :pending-save="needsSave" :retry-disabled="working || !!state.busy || state.generationActive || state.fileState === 'conflict'" :loading="loading" :load-more="() => readThread(true)" :media="state.media" :waiting-for="waitingFor" @back="back" @details="open('detail')" @send="send" @retry="retry" @discard="discard" @delete-image="confirmImageDelete" />
-        <ContactList v-else :contacts="state.contacts" :busy-contact-id="state.busy?.contactId ?? ''" :drafts="drafts" @select="select" @add="open('add')" />
-        <dialog ref="dialog" class="messages-dialog" @keydown.esc.stop @click="event => { if (event.target === dialog) close(); }">
-            <header><ContactAvatar v-if="mode === 'detail' && contact" :identity="contact.id" :name="contact.name" small /><h2>{{ mode === 'add' ? '新的对话' : mode === 'detail' ? contact?.name : mode === 'delete' ? '删除联系人？' : mode === 'delete-image' ? '删除这条图片消息？' : mode === 'sync' ? '消息还未写入主聊天' : mode === 'adopt' ? '采用服务器版本？' : '在当前位置补记？' }}</h2><button class="messages-icon-button" aria-label="关闭" @click="close"><MessageIcon name="close" /></button></header>
+        <ContactList v-show="!contact" :contacts="state.contacts" :busy-contact-id="state.busy?.contactId ?? ''" :drafts="drafts" @select="select" @add="open('add')" />
+        <AppDialog v-if="dialogOpen" class="messages-dialog" aria-labelledby="messages-dialog-title" :busy="working" @close="backDialog">
+            <header><ContactAvatar v-if="mode === 'detail' && contact" :identity="contact.id" :name="contact.name" small /><h2 id="messages-dialog-title">{{ mode === 'add' ? '新的对话' : mode === 'detail' ? contact?.name : mode === 'delete' ? '删除联系人？' : mode === 'delete-image' ? '删除这条图片消息？' : mode === 'sync' ? '消息还未写入主聊天' : mode === 'adopt' ? '采用服务器版本？' : '在当前位置补记？' }}</h2><button class="messages-icon-button" aria-label="关闭" :disabled="working" @click="close"><MessageIcon name="close" /></button></header>
             <p v-if="error" class="messages-error" role="alert">{{ error }}</p>
             <template v-if="mode === 'add'">
                 <label class="messages-search"><MessageIcon name="search" /><input v-model="personSearch" placeholder="查找已知人物" aria-label="查找已知人物"></label>
@@ -193,6 +202,6 @@ onUnmounted(() => {alive = false; threadRequest++; unsubscribe();});
             <template v-else-if="mode === 'sync'"><p>信息 APP 已保留这些消息。重试只会补上主聊天里的记录，不会再次向对方发送，也不会重新生成回复。</p><button class="messages-primary" :disabled="disabled" @click="sync">重试写入</button><details class="messages-manual"><summary>原来的记录已被修改或删除？</summary><p>不会覆盖你的修改。需要这些消息继续进入剧情时，可以在当前位置另加一条补记。</p><button class="messages-secondary" :disabled="disabled" @click="mode = 'recover'">查看补记方式</button></details></template>
             <template v-else-if="mode === 'adopt'"><p>将读取服务器上的当前聊天小白 OS 存档，放弃本地尚未确认的修改。信息 APP 会显示服务器已保存的联系人和消息。</p><p class="messages-subtle">这项选择作用于当前聊天的整份 OS 存档，不会删除主聊天里的记录，也不会重新生成回复。</p><button class="messages-danger" :disabled="working || !!state.busy || state.generationActive" @click="adoptServer">确认采用服务器版本</button><button class="messages-secondary" :disabled="working" @click="close">暂不处理</button></template>
             <template v-else><p>先检查已有记录；仍未写入的消息会在主聊天当前位置标为「补录」，保留原发送时间。不会覆盖旧记录或恢复你删除的那一条。</p><button class="messages-primary" :disabled="disabled" @click="recover">确认补记</button><button class="messages-secondary" @click="close">暂不补记</button></template>
-        </dialog>
+        </AppDialog>
     </main>
 </template>

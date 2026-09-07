@@ -219,6 +219,17 @@ export function createProductionBootstrap(
         frameSrc: frameSource,
         subscribeChatChanged: subscribeXiaobaiOsChatChanged,
         getInitSnapshot: getSillyTavernShellSnapshot,
+        getAppOrder: () => settings.read()?.appOrder ?? [],
+        saveAppOrder: async order => { await settings.setAppOrder(order); },
+        subscribeAppOrderChanged: handler => {
+            let previous = JSON.stringify(settings.read()?.appOrder ?? []);
+            return settings.subscribe(value => {
+                const next = JSON.stringify(value.appOrder);
+                if (next === previous) { return; }
+                previous = next;
+                handler();
+            });
+        },
         captureChatBinding: references.capture,
         isChatBindingCurrent: references.isCurrent,
         onChatRequired: () => (window.toastr as unknown as { info?(message: string): void } | undefined)?.info?.('请先进入聊天，再打开小白 OS。'),

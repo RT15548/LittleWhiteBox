@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, type Component } from 'vue';
+import { computed, ref, type Component } from 'vue';
+import AppNavigationScope from './AppNavigationScope.vue';
 import type { XiaobaiOsAppDefinition } from '../../app-catalog.js';
 import type { XiaobaiOsFrameBridge } from '../frame-bridge.js';
 import AppBoundary from './AppBoundary.vue';
@@ -17,6 +18,7 @@ const props = defineProps<{
     appRenderKey: number;
     bridge: XiaobaiOsFrameBridge;
     characterAvatar: string;
+    saveAppOrder: (order: readonly string[] | null) => Promise<void>;
 }>();
 
 defineEmits<{
@@ -30,6 +32,16 @@ defineEmits<{
 }>();
 
 const isHome = computed(() => props.activeApp === null);
+const home = ref<InstanceType<typeof XiaobaiOsHome> | null>(null);
+const navigation = ref<InstanceType<typeof AppNavigationScope> | null>(null);
+defineExpose({
+    back: () => {
+        if (isHome.value && home.value?.editing) { home.value.finishEditing(); return true; }
+        return !props.appLoading && !props.appFailure
+            && navigation.value?.owner === `${props.activeApp?.id}:${props.appRenderKey}` && navigation.value.back();
+    },
+    finishHomeEditing: () => home.value?.finishEditing(),
+});
 </script>
 
 <template>
@@ -42,8 +54,10 @@ const isHome = computed(() => props.activeApp === null);
                     <XiaobaiOsHome
                         v-if="isHome"
                         key="home"
+                        ref="home"
                         :apps="apps"
                         :character-avatar="characterAvatar"
+                        :save-app-order="saveAppOrder"
                         @open-app="$emit('openApp', $event)"
                     />
                     <section v-else-if="appFailure" key="failure" class="xiaobai-os-app-failure" role="alert">
@@ -59,10 +73,11 @@ const isHome = computed(() => props.activeApp === null);
                         <span aria-hidden="true" />
                         正在打开{{ activeApp?.name }}
                     </div>
-                    <div
+                    <AppNavigationScope
                         v-else-if="activeApp && activeComponent"
                         :key="`app:${activeApp.id}:${appRenderKey}`"
-                        class="xiaobai-os-app-route"
+                        ref="navigation"
+                        :owner="`${activeApp.id}:${appRenderKey}`"
                     >
                         <AppBoundary @failed="$emit('renderFailed', $event)">
                             <component
@@ -71,11 +86,12 @@ const isHome = computed(() => props.activeApp === null);
                                 :initial-state="activeState"
                             />
                         </AppBoundary>
-                    </div>
+                    </AppNavigationScope>
                 </Transition>
             </div>
             <XiaobaiOsNavigation
                 :is-home="isHome"
+                :can-back="!isHome || !!home?.editing"
                 @back="$emit('back')"
                 @home="$emit('home')"
                 @close="$emit('close')"

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, shallowRef, toRaw } from 'vue';
+import { useAppBack } from '../../../shell/app-src/navigation/app-navigation.js';
 import type { XiaobaiOsAppProps } from '../../../shell/app-contract.js';
 import type { WorldNews } from '../../../domains/world/types.js';
 import NewsArticle from './NewsArticle.vue';
@@ -52,6 +53,11 @@ function dismissMenu(event: Event) {
 function leaveMenu(event: FocusEvent) {
     if (menu.value && (!(event.relatedTarget instanceof Node) || !menu.value.contains(event.relatedTarget))) { menu.value.open = false; }
 }
+useAppBack(() => {
+    if (menu.value?.open) { closeMenu(); return true; }
+    if (reading.value) { void back(); return true; }
+    return false;
+});
 </script>
 
 <template>

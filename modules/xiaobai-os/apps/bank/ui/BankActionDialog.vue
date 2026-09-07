@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import AppDialog from '../../../shell/app-src/components/AppDialog.vue';
+import { computed, ref } from 'vue';
 import { amountAtBps } from '../../../domains/bank/money.js';
 import type { BankDepositPositionView, BankDepositProductView, BankFundProductView } from '../types.js';
 const props = defineProps<{
@@ -9,8 +10,6 @@ const props = defineProps<{
     balance: number; busy: boolean; error: string; disabledReason: string; claimableCount: number;
 }>();
 const emit = defineEmits<{ cancel: []; confirm: [amount?: number] }>();
-const dialog = ref<HTMLDialogElement | null>(null);
-onMounted(() => dialog.value?.showModal());
 const amount = ref(props.product ? String(props.product.minAmount) : '');
 const title = computed(() => props.mode === 'deposit-open' ? '存入定期' : props.mode === 'fund-open' ? '申购理财' : '提前支取');
 const amountValue = computed(() => /^\d+$/.test(amount.value.trim()) ? Number(amount.value) : 0);
@@ -39,19 +38,9 @@ function submit(): void {
     if (props.mode === 'withdraw') {emit('confirm');}
     else {emit('confirm', amountValue.value);}
 }
-function handleKeydown(event: KeyboardEvent): void {
-    event.stopPropagation();
-    if (event.key !== 'Tab') {return;}
-    const controls = Array.from(dialog.value?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled)') ?? []);
-    const first = controls[0];
-    const last = controls.at(-1);
-    if (!first) {event.preventDefault(); return;}
-    if (event.shiftKey && document.activeElement === first) {event.preventDefault(); last?.focus();}
-    else if (!event.shiftKey && document.activeElement === last) {event.preventDefault(); first.focus();}
-}
 </script>
 <template>
-    <dialog ref="dialog" class="bank-dialog" :aria-label="title" @cancel.prevent="!busy && emit('cancel')" @keydown="handleKeydown">
+    <AppDialog class="bank-dialog" :aria-label="title" :busy="busy" @close="emit('cancel')">
         <form @submit.prevent="submit">
             <h2>{{ title }}</h2>
             <div class="bank-dialog-subject"><strong>{{ position?.name || product?.name }}</strong><span v-if="product">{{ product.lockRounds }} 回合</span></div>
@@ -69,5 +58,5 @@ function handleKeydown(event: KeyboardEvent): void {
             <p v-if="error" class="bank-inline-error" role="alert">{{ error }}</p>
             <footer class="bank-dialog-actions"><button type="button" class="bank-secondary-button" :disabled="busy" autofocus @click="emit('cancel')">返回</button><button type="submit" class="bank-primary-button" :disabled="!canSubmit">{{ busy ? '正在保存…' : mode === 'withdraw' ? '确认支取' : mode === 'fund-open' ? '确认申购' : '确认存入' }}</button></footer>
         </form>
-    </dialog>
+    </AppDialog>
 </template>

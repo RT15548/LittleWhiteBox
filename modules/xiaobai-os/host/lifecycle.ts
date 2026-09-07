@@ -7,6 +7,9 @@ import {
 import type { XiaobaiOsAppDescriptor, XiaobaiOsAppRuntimeRouter } from '../types.js';
 import type { CapturedChatBinding } from '../kernel/contracts.js';
 import type { AppStatus } from '../kernel/execution-scope.js';
+import { xiaobaiOsLaunchers } from '../shell/app-launchers.js';
+import { createQuickLauncher } from './quick-launcher.js';
+import { normalizeAppOrder, orderApps } from '../shell/app-order.js';
 
 const BUTTON_ID = 'xiaobaix-os-button';
 const STYLE_ID = 'xiaobaix-os-host-styles';
@@ -33,6 +36,9 @@ export interface XiaobaiOsLifecycleOptions {
     subscribeAppStatusChanged?: (handler: (appId: string, status: AppStatus) => void) => () => void;
     getInitSnapshot?: () => XiaobaiOsLifecycleSnapshot | null;
     getAppDescriptors?: () => readonly XiaobaiOsAppDescriptor[];
+    getAppOrder?: () => readonly string[];
+    saveAppOrder?: (order: readonly string[]) => Promise<void>;
+    subscribeAppOrderChanged?: (handler: () => void) => () => void;
     getAppStatuses?: () => Readonly<Record<string, AppStatus>>;
     captureChatBinding?: () => CapturedChatBinding | null;
     onChatRequired?: () => void;
@@ -45,7 +51,7 @@ export interface XiaobaiOsLifecycleOptions {
 
 export interface XiaobaiOsLifecycle {
     init: () => boolean;
-    open: () => boolean;
+    open: (appId?: string) => boolean;
     closeWindow: (reason?: string) => Promise<void>;
     cleanup: () => Promise<void>;
     isInitialized: () => boolean;
@@ -93,8 +99,8 @@ function createLauncherButton(documentTarget: Document): HTMLButtonElement {
     button.id = BUTTON_ID;
     button.type = 'button';
     button.className = 'xiaobaix-os-button interactable';
-    button.title = '打开小白 OS';
-    button.setAttribute('aria-label', '打开小白 OS');
+    button.title = '小白 OS';
+    button.setAttribute('aria-label', '小白 OS');
     button.setAttribute('aria-haspopup', 'dialog');
     button.setAttribute('aria-controls', OVERLAY_ID);
     button.append(createLauncherIcon(documentTarget));
@@ -124,6 +130,9 @@ export function createXiaobaiOsLifecycle({
     subscribeAppStatusChanged = () => () => {},
     getInitSnapshot = () => ({}),
     getAppDescriptors = () => [],
+    getAppOrder = () => [],
+    saveAppOrder,
+    subscribeAppOrderChanged = () => () => {},
     getAppStatuses = () => ({}),
     captureChatBinding = () => null,
     onChatRequired = () => undefined,
@@ -142,12 +151,15 @@ export function createXiaobaiOsLifecycle({
 
     let initialized = false;
     let launcher: HTMLElement | null = null;
+    let shortcuts: ReturnType<typeof createQuickLauncher> | null = null;
+    let initialAppId: string | null = null;
     let overlay: HTMLDivElement | null = null;
     let iframe: HTMLIFrameElement | null = null;
     let bridge: XiaobaiOsHostFrameBridge | null = null;
     let unsubscribeChatChanged: (() => void) | null = null;
     let unsubscribeAppDescriptorsChanged: (() => void) | null = null;
     let unsubscribeAppStatusChanged: (() => void) | null = null;
+    let unsubscribeAppOrderChanged: (() => void) | null = null;
     let themeObserver: MutationObserver | null = null;
     let activeApp: ActiveApp | null = null;
     let pendingApp: ActiveApp | null = null;
@@ -231,6 +243,7 @@ export function createXiaobaiOsLifecycle({
 
     function handleAppDescriptorsChanged(): void {
         const apps = getAppDescriptors();
+        shortcuts?.refresh();
         const availableIds = new Set(apps.map(app => app.id));
         if (
             (activeApp && !availableIds.has(activeApp.appId))
@@ -250,7 +263,14 @@ export function createXiaobaiOsLifecycle({
         if (bridge?.isReady()) { bridge.post('os/app-state', { appId, status }); }
     }
 
+    function handleAppOrderChanged(): void {
+        shortcuts?.refresh();
+        if (bridge?.isReady()) { bridge.post('os/app-order-changed', { appOrder: getAppOrder() }); }
+    }
+
     async function closeWindow(reason = 'closed'): Promise<void> {
+        shortcuts?.hide(false);
+        initialAppId = null;
         generation += 1;
         const deactivation = deactivateActiveApp(reason);
         bridge?.dispose();
@@ -260,6 +280,7 @@ export function createXiaobaiOsLifecycle({
         overlay?.remove();
         overlay = null;
         iframe = null;
+        if (reason === 'closed' || reason === 'frame-close') { launcher?.focus({ preventScroll: true }); }
         await Promise.allSettled([
             deactivation,
             Promise.resolve().then(() => appRuntime.handleWindowClosed?.(reason)),
@@ -267,6 +288,7 @@ export function createXiaobaiOsLifecycle({
     }
 
     function handleThemeChanged(): void {
+        shortcuts?.updateTheme();
         if (!bridge?.isReady()) {
             return;
         }
@@ -312,7 +334,10 @@ export function createXiaobaiOsLifecycle({
             frameBridge.post('os/init', {
                 ...snapshot,
                 apps: appDescriptorsWithStatus(),
+                initialAppId,
+                appOrder: getAppOrder(),
             });
+            initialAppId = null;
         } catch (error) {
             if (openGeneration === generation && frameBridge === bridge) {
                 frameBridge.post('os/error', { message: error instanceof Error ? error.message : String(error) });
@@ -330,6 +355,25 @@ export function createXiaobaiOsLifecycle({
             return;
         }
         const { type, requestId = '', payload = {} } = message;
+        if (type === 'os/set-app-order') {
+            const order = isRecord(payload) ? payload.appOrder : undefined;
+            if (!saveAppOrder || !Array.isArray(order) || normalizeAppOrder(order).length !== order.length) {
+                frameBridge.post('os/app-order-result', { ok: false, error: 'invalid_app_order' }, requestId);
+                return;
+            }
+            try {
+                await saveAppOrder(order);
+                if (openGeneration !== generation || frameBridge !== bridge) { return; }
+                frameBridge.post('os/app-order-result', { ok: true, appOrder: getAppOrder() }, requestId);
+            } catch (error) {
+                if (openGeneration !== generation || frameBridge !== bridge) { return; }
+                frameBridge.post('os/app-order-result', {
+                    ok: false, error: 'app_order_save_failed', message: '顺序未能保存，请重试。',
+                }, requestId);
+                onError(error);
+            }
+            return;
+        }
         if (type === 'os/close') {
             await closeWindow('frame-close');
             return;
@@ -525,7 +569,7 @@ export function createXiaobaiOsLifecycle({
         }
     }
 
-    function open(): boolean {
+    function canOpen(): boolean {
         if (!initialized) {
             return false;
         }
@@ -533,7 +577,19 @@ export function createXiaobaiOsLifecycle({
             onChatRequired();
             return false;
         }
+        return true;
+    }
+
+    function open(appId?: string): boolean {
+        if (!canOpen()) { return false; }
+        if (appId && !getAppDescriptors().some(app => app.id === appId)) { return false; }
+        shortcuts?.hide(false);
+        initialAppId = appId || null;
         if (overlay?.isConnected) {
+            if (bridge?.isReady()) {
+                bridge.post('os/navigate', { appId: initialAppId });
+                initialAppId = null;
+            }
             iframe?.focus();
             return true;
         }
@@ -565,6 +621,7 @@ export function createXiaobaiOsLifecycle({
     }
 
     function handleChatChanged(): void {
+        shortcuts?.hide(false);
         void invoke(async () => {
             await appRuntime.cancelAll?.('chat-changed');
             await closeWindow('chat-changed');
@@ -589,10 +646,26 @@ export function createXiaobaiOsLifecycle({
             launcher = createLauncherButton(documentTarget);
             insertLauncher(documentTarget, launcher);
         }
-        launcher.addEventListener('click', open);
+        shortcuts = createQuickLauncher({
+            anchor: launcher,
+            documentTarget,
+            windowTarget,
+            getApps: () => {
+                const ids = new Set(getAppDescriptors().map(app => app.id));
+                return orderApps(xiaobaiOsLaunchers, getAppOrder()).filter(app => ids.has(app.id));
+            },
+            getTheme: () => getInitSnapshot()?.theme === 'dark' ? 'dark' : 'light',
+            canOpen,
+            launch: open,
+            onVisibilityChange: visible => {
+                if (visible) { startThemeObserver(); }
+                else if (!overlay) { stopThemeObserver(); }
+            },
+        });
         unsubscribeChatChanged = subscribeChatChanged(handleChatChanged);
         unsubscribeAppDescriptorsChanged = subscribeAppDescriptorsChanged(handleAppDescriptorsChanged);
         unsubscribeAppStatusChanged = subscribeAppStatusChanged(handleAppStatusChanged);
+        unsubscribeAppOrderChanged = subscribeAppOrderChanged(handleAppOrderChanged);
         windowTarget.addEventListener('pagehide', handlePageHide);
         void invoke(() => appRuntime.startBackground?.());
         initialized = true;
@@ -614,8 +687,11 @@ export function createXiaobaiOsLifecycle({
         unsubscribeAppDescriptorsChanged = null;
         unsubscribeAppStatusChanged?.();
         unsubscribeAppStatusChanged = null;
+        unsubscribeAppOrderChanged?.();
+        unsubscribeAppOrderChanged = null;
         windowTarget.removeEventListener('pagehide', handlePageHide);
-        launcher?.removeEventListener('click', open);
+        shortcuts?.destroy();
+        shortcuts = null;
         launcher?.remove();
         launcher = null;
         documentTarget.getElementById(STYLE_ID)?.remove();

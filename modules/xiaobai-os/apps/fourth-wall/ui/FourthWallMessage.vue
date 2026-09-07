@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
+import { useAppBack } from '../../../shell/app-src/navigation/app-navigation.js';
 import type { XiaobaiOsFrameBridge } from '../../../shell/app-src/frame-bridge.js';
 import type { FourthWallMessageData } from '../types.js';
 
@@ -35,6 +36,7 @@ const emit = defineEmits<{
 }>();
 
 const editing = ref(false);
+useAppBack(() => { editing.value = false; return true; }, () => editing.value);
 const draft = ref('');
 const media = reactive<Record<number, MediaState>>({});
 const activeMediaIds = new Set<string>();

@@ -3,6 +3,7 @@ import { computed, markRaw, nextTick, onBeforeUnmount, onMounted, ref, shallowRe
 import { xiaobaiOsApps, type XiaobaiOsAppDefinition } from '../app-catalog.js';
 import XiaobaiOsDevice from './components/XiaobaiOsDevice.vue';
 import { createFrameBridge, HostRequestError, type FrameMessage } from './frame-bridge.js';
+import { mergeVisibleAppOrder, orderApps } from '../app-order.js';
 
 interface AppStatus {
     state: 'loading' | 'ready' | 'failed';
@@ -22,6 +23,8 @@ interface HostAppDescriptor {
 
 interface InitPayload {
     theme?: 'light' | 'dark';
+    initialAppId?: string | null;
+    appOrder?: string[];
     apps?: HostAppDescriptor[];
     chat?: {
         characterAvatar?: string;
@@ -35,9 +38,11 @@ interface PendingAppOpening {
 
 const bridge = createFrameBridge();
 const root = ref<HTMLElement | null>(null);
+const device = ref<InstanceType<typeof XiaobaiOsDevice> | null>(null);
 const initialized = ref(false);
 const theme = ref<'light' | 'dark'>('light');
 const availableIds = ref<Set<string>>(new Set());
+const appOrder = ref<string[]>([]);
 const characterAvatar = ref('');
 const activeApp = ref<XiaobaiOsAppDefinition | null>(null);
 const activeComponent = shallowRef<Component | null>(null);
@@ -56,7 +61,13 @@ let unsubscribe = () => {};
 let navigationGeneration = 0;
 let pendingAppOpening: PendingAppOpening | null = null;
 
-const availableApps = computed(() => xiaobaiOsApps.filter(app => availableIds.value.has(app.id)));
+const availableApps = computed(() => orderApps(xiaobaiOsApps, appOrder.value).filter(app => availableIds.value.has(app.id)));
+
+async function saveAppOrder(visibleOrder: readonly string[] | null): Promise<void> {
+    const nextOrder = visibleOrder === null ? [] : mergeVisibleAppOrder(appOrder.value, visibleOrder);
+    const result = await bridge.request('os/set-app-order', { appOrder: nextOrder }) as { appOrder: string[] };
+    appOrder.value = result.appOrder;
+}
 
 function applyAvailableApps(apps: readonly HostAppDescriptor[]): void {
     const nextIds = new Set(apps.map(app => String(app.id)));
@@ -78,6 +89,7 @@ function applyInit(payload: InitPayload): void {
     navigationGeneration += 1;
     pendingAppOpening = null;
     theme.value = payload.theme === 'dark' ? 'dark' : 'light';
+    appOrder.value = payload.appOrder ?? [];
     applyAvailableApps(payload.apps || []);
     characterAvatar.value = String(payload.chat?.characterAvatar || '');
     activeApp.value = null;
@@ -87,11 +99,25 @@ function applyInit(payload: InitPayload): void {
     appFailure.value = null;
     bridge.clearAppSession();
     initialized.value = true;
+    if (payload.initialAppId) { navigate(payload.initialAppId); }
+}
+
+function navigate(appId: string | null): void {
+    if (!appId) { goHome(); return; }
+    const app = availableApps.value.find(item => item.id === appId);
+    if (app && activeApp.value?.id !== app.id) { void openApp(app); }
 }
 
 function handleHostMessage(message: FrameMessage): void {
+    if (message.type === 'os/app-order-changed') {
+        appOrder.value = (message.payload as { appOrder: string[] }).appOrder;
+    }
     if (message.type === 'os/init') {
         applyInit((message.payload || {}) as InitPayload);
+    }
+    if (message.type === 'os/navigate' && initialized.value) {
+        const payload = message.payload as { appId?: string | null } | undefined;
+        if (payload?.appId === null || typeof payload?.appId === 'string') { navigate(payload.appId); }
     }
     if (message.type === 'os/theme-changed') {
         const payload = message.payload as { theme?: string };
@@ -133,6 +159,7 @@ function handleHostMessage(message: FrameMessage): void {
 
 async function openApp(app: XiaobaiOsAppDefinition): Promise<void> {
     const generation = ++navigationGeneration;
+    appRenderKey.value += 1;
     const opening: PendingAppOpening = { appId: app.id };
     pendingAppOpening = opening;
     activeApp.value = app;
@@ -262,6 +289,7 @@ function reloadFrame(): void {
 }
 
 function goHome(): void {
+    if (!activeApp.value) { device.value?.finishHomeEditing(); return; }
     navigationGeneration += 1;
     pendingAppOpening = null;
     bridge.post('app/deactivate', { appId: activeApp.value?.id || '' });
@@ -271,6 +299,10 @@ function goHome(): void {
     activeState.value = null;
     appLoading.value = false;
     appFailure.value = null;
+}
+
+function goBack(): void {
+    if (!device.value?.back()) { goHome(); }
 }
 
 function close(): void {
@@ -284,8 +316,8 @@ function handleKeydown(event: KeyboardEvent): void {
     if (event.key === 'Escape') {
         event.preventDefault();
         if (activeApp.value) {
-            goHome();
-        } else {
+            goBack();
+        } else if (!device.value?.back()) {
             close();
         }
         return;
@@ -293,7 +325,8 @@ function handleKeydown(event: KeyboardEvent): void {
     if (event.key !== 'Tab' || !root.value) {
         return;
     }
-    const focusable = Array.from(root.value.querySelectorAll<HTMLElement>('button:not(:disabled), [href], input:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])'));
+    const focusable = Array.from(root.value.querySelectorAll<HTMLElement>('button:not(:disabled), [href], input:not(:disabled), textarea:not(:disabled), select:not(:disabled), summary, [tabindex]:not([tabindex="-1"])'))
+        .filter(element => !element.closest('[inert]') && element.getClientRects().length > 0);
     if (focusable.length === 0) {
         return;
     }
@@ -345,6 +378,7 @@ onBeforeUnmount(() => {
         <div v-if="!initialized" class="xiaobai-os-loading" role="status">正在启动小白 OS</div>
         <XiaobaiOsDevice
             v-else
+            ref="device"
             :apps="availableApps"
             :active-app="activeApp"
             :active-component="activeComponent"
@@ -354,8 +388,9 @@ onBeforeUnmount(() => {
             :app-render-key="appRenderKey"
             :bridge="bridge"
             :character-avatar="characterAvatar"
+            :save-app-order="saveAppOrder"
             @open-app="openApp"
-            @back="goHome"
+            @back="goBack"
             @home="goHome"
             @close="close"
             @render-failed="handleRenderFailure"

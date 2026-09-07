@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, toRaw } from 'vue';
+import { useAppBack } from '../../../shell/app-src/navigation/app-navigation.js';
 import type { XiaobaiOsAppProps } from '../../../shell/app-contract.js';
 import { HostRequestError } from '../../../shell/app-src/frame-bridge.js';
 import type { ShopActivationView, ShopCatalogItemView, ShopClientState } from '../types.js';
@@ -40,6 +41,12 @@ const pendingItem = computed(() => state.value.catalog.find(item => item.id === 
 const pendingActivation = computed(() => state.value.activations.find(activation => activation.activationId === pending.value?.activationId));
 let unsubscribe = () => {};
 let requestGeneration = 0;
+useAppBack(() => {
+    if (pending.value) { closeAction(); return true; }
+    if (selectedItemId.value) { void closeDetail(); return true; }
+    if (page.value !== 'shelf') { navigate('shelf'); return true; }
+    return false;
+});
 
 const requiresConfirmation = computed(() => state.value.status === 'unconfirmed');
 const writeDisabledReason = computed(() => {

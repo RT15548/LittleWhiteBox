@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
+import { useAppLayer } from '../../../shell/app-src/navigation/app-navigation.js';
 import type { LearningClientState } from '../types.js';
 import type { LearningActivityPresentation } from '../application/presentation.js';
 import type { LearningSelection } from '../../../domains/learning/notes.js';
@@ -14,14 +15,19 @@ import { createLearningAnswerDraft, type LearningAnswerDraft } from './answer-dr
 
 const props = defineProps<{ state: LearningClientState; target: LearningActivityPresentation | null; disabled: boolean }>();
 const emit = defineEmits<{ action: [name: string, input?: Record<string, unknown>]; close: []; ask: [exerciseId: string | undefined, selection?: LearningSelection] }>();
-const dialog = ref<HTMLElement | null>(null);
 const body = ref<HTMLElement | null>(null);
 const scrolls = new Map<string, number>();
 const closeButton = ref<HTMLButtonElement | null>(null);
 const retry = ref(false);
 const selected = ref<LearningSelection | null>(null);
+const layer = ref<HTMLElement | null>(null);
+function back() {
+    if (selected.value) { selected.value = null; }
+    else if (retry.value) { retry.value = false; }
+    else { emit('close'); }
+}
+useAppLayer(layer, back);
 const drafts = ref<Record<string, { response: string; value: LearningAnswerDraft }>>({});
-let origin: HTMLElement | null = null;
 let submitting: { id: string; before: string | undefined } | null = null;
 const question = computed(() => props.target?.kind === 'exercise' ? props.state.unit?.exercises.find(entry => entry.id === props.target?.id) : undefined);
 const materials = computed(() => props.state.unit?.materials.filter(entry => props.target?.kind === 'material' ? entry.id === props.target.id : question.value?.materialIds.includes(entry.id)) ?? []);
@@ -38,46 +44,31 @@ watch(() => question.value, value => {
 const draft = computed({ get: () => drafts.value[question.value!.id].value,
     set: (value: LearningAnswerDraft) => { drafts.value[question.value!.id].value = value; } });
 watch(() => props.target, async (value, old) => {
-    const root = dialog.value?.closest('.learning-app');
     if (old && body.value) { scrolls.set(`${old.kind}:${old.id}`, body.value.scrollTop); }
     retry.value = false; selected.value = null;
-    if (value && !old) { origin = document.activeElement instanceof HTMLElement ? document.activeElement : null; }
     await nextTick();
     if (value) { closeButton.value?.focus(); if (body.value) { body.value.scrollTop = scrolls.get(`${value.kind}:${value.id}`) ?? 0; } }
-    else if (origin?.isConnected && origin.getClientRects().length && origin.matches('button, input, textarea, summary, [tabindex]')) { origin.focus({ preventScroll: true }); }
-    else { root?.querySelector<HTMLTextAreaElement>('.learning-conversation-compose textarea')?.focus({ preventScroll: true }); }
 });
 watch(() => props.state.unit?.id, () => { drafts.value = {}; submitting = null; });
 watch(() => props.state.unit?.attempts, attempts => {
     if (!submitting) { return; }
     const saved = attempts?.filter(entry => entry.exerciseId === submitting!.id).at(-1);
     if (saved && saved.id !== submitting.before) {
-        delete drafts.value[submitting.id]; submitting = null; emit('close');
+        const stillReading = props.target?.kind === 'exercise' && props.target.id === submitting.id;
+        delete drafts.value[submitting.id]; submitting = null;
+        if (stillReading) { emit('close'); }
     }
 });
 function submit(answer: LearningAnswer) {
     submitting = { id: question.value!.id, before: attempt.value?.id };
     emit('action', 'submit', { unitId: props.state.unit!.id, exerciseId: question.value!.id, answer });
 }
-function trap(event: KeyboardEvent) {
-    const focusable = [...dialog.value!.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), summary, a, [tabindex="0"]')].filter(entry => entry.getClientRects().length);
-    if (!dialog.value!.contains(document.activeElement)) { event.preventDefault(); (event.shiftKey ? focusable.at(-1) : focusable[0])?.focus(); }
-    else if (event.shiftKey && document.activeElement === focusable[0]) { event.preventDefault(); focusable.at(-1)?.focus(); }
-    else if (!event.shiftKey && document.activeElement === focusable.at(-1)) { event.preventDefault(); focusable[0]?.focus(); }
-}
-function keydown(event: KeyboardEvent) {
-    if (!props.target || !dialog.value) { return; }
-    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); emit('close'); }
-    else if (event.key === 'Tab') { trap(event); }
-}
-onMounted(() => document.addEventListener('keydown', keydown, true));
-onUnmounted(() => document.removeEventListener('keydown', keydown, true));
 </script>
 
 <template>
-    <div v-if="target" class="learning-activity-shade">
-        <section ref="dialog" role="dialog" aria-modal="true" aria-labelledby="learning-activity-title" class="learning-activity">
-            <header class="learning-activity-header"><h2 id="learning-activity-title">{{ question ? '练习' : materials[0]?.title ?? '材料' }}</h2><small v-if="state.unit" aria-label="完成本课的固定奖励">+{{ state.unit.reward.amount }} 币</small><button ref="closeButton" type="button" aria-label="回到老师对话" @click="emit('close')">收起<LearningIcon name="back" /></button></header>
+    <div v-if="target" ref="layer" class="learning-activity-shade" @keydown.esc.stop.prevent="back">
+        <section role="dialog" aria-labelledby="learning-activity-title" class="learning-activity">
+            <header class="learning-activity-header"><h2 id="learning-activity-title">{{ question ? '练习' : materials[0]?.title ?? '材料' }}</h2><small v-if="state.unit" aria-label="完成本课的固定奖励">+{{ state.unit.reward.amount }} 币</small><button ref="closeButton" type="button" aria-label="收起课件" @click="emit('close')">收起<LearningIcon name="back" /></button></header>
             <p v-if="state.message && !state.busy" class="learning-margin-note" role="status">{{ state.message }}</p>
             <div ref="body" class="learning-activity-body">
                 <details v-if="question && materials.length" class="learning-activity-materials"><summary>阅读材料 · {{ materials.length }}</summary><MaterialReader v-for="material in materials" :key="material.id" :material="material" :exercise-id="exerciseId" :disabled="disabled" @action="(name, input) => emit('action', name, input)" @select="selected = $event" /></details>

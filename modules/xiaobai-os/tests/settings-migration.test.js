@@ -33,6 +33,7 @@ function createFourthWallSettings() {
 function createCurrentSettings(enabled = true) {
     return {
         enabled,
+        appOrder: [],
         apps: {
             fourthWall: createFourthWallSettings(),
             map: { autoMaintenance: false },

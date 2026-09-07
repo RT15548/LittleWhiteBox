@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { reactive, toRaw } from 'vue';
+import { reactive, ref, toRaw } from 'vue';
+import { useAppLayer } from '../../../shell/app-src/navigation/app-navigation.js';
 import type { FourthWallGlobalSettings } from '../types.js';
 
 const props = defineProps<{
@@ -13,6 +14,8 @@ const emit = defineEmits<{
 }>();
 
 const draft = reactive(structuredClone(toRaw(props.templates)));
+const layer = ref<HTMLElement | null>(null);
+useAppLayer(layer, () => emit('close'));
 
 function save(): void {
     emit('save', structuredClone(toRaw(draft)));
@@ -20,8 +23,8 @@ function save(): void {
 </script>
 
 <template>
-    <div class="fourth-wall-modal-backdrop" @click.self="emit('close')">
-        <section class="fourth-wall-modal" role="dialog" aria-modal="true" aria-label="四次元壁提示词">
+    <div ref="layer" class="fourth-wall-modal-backdrop" @click.self="emit('close')">
+        <section class="fourth-wall-modal" role="dialog" aria-label="四次元壁提示词">
             <header><strong>提示词模板</strong><button type="button" @click="emit('close')">关闭</button></header>
             <div class="fourth-wall-prompt-fields">
                 <label>Top User<textarea v-model="draft.topuser" rows="5" /></label>

@@ -141,7 +141,6 @@
 .bank-inline-error { color: var(--bank-loss); font-size: 12px; line-height: 1.8; margin: 12px 0 0; overflow-wrap: anywhere; }
 .bank-load-more { margin-top: 19px; }
 .bank-dialog { width: min(354px, calc(100vw - 30px)); max-height: calc(100dvh - 34px); padding: 24px; background: var(--bank-panel); color: var(--bank-ink); border: 1px solid var(--bank-line); border-radius: 20px; box-shadow: 0 25px 75px rgb(0 0 0 / 25%); overflow: auto; }
-.bank-dialog::backdrop { background: rgb(12 17 27 / 40%); backdrop-filter: blur(4px); }
 .bank-dialog h2 { font-size: 20px; margin: 0 0 18px; font-weight: 600; }
 .bank-dialog-subject { display: flex; align-items: center; justify-content: space-between; gap: 10px; border-bottom: 1px solid var(--bank-line); padding-bottom: 16px; margin-bottom: 20px; }
 .bank-dialog-subject strong { font-size: 13px; overflow-wrap: anywhere; }

@@ -1,0 +1,139 @@
+.xiaobaix-os-shortcuts {
+    --shortcut-ink: #202837;
+    --shortcut-hover: rgba(48, 85, 135, .065);
+    --shortcut-focus: #396ff6;
+    position: fixed;
+    z-index: 10019;
+    box-sizing: border-box;
+    width: 252px;
+    padding: 8px 10px 14px;
+    border: 1px solid rgba(255, 255, 255, .85);
+    border-radius: 24px;
+    background: rgba(250, 253, 255, .92);
+    box-shadow: 0 12px 38px rgba(20, 38, 65, .17), 0 2px 7px rgba(20, 38, 65, .08), inset 0 1px 0 #fff;
+    color: var(--shortcut-ink);
+    font-family: var(--mainFontFamily, system-ui, sans-serif);
+    text-shadow: none;
+    backdrop-filter: blur(16px) saturate(1.2);
+    -webkit-backdrop-filter: blur(16px) saturate(1.2);
+    overflow: auto;
+    overscroll-behavior: contain;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transform: translateY(5px) scale(.965);
+    transition: opacity 140ms ease, transform 160ms cubic-bezier(.2, .8, .2, 1), visibility 0s 160ms;
+}
+
+.xiaobaix-os-shortcuts[data-theme='dark'] {
+    --shortcut-ink: #f5f7ff;
+    --shortcut-hover: rgba(200, 221, 255, .095);
+    --shortcut-focus: #a6c7ff;
+    border-color: rgba(217, 232, 255, .2);
+    background: rgba(24, 32, 47, .93);
+    box-shadow: 0 14px 40px rgba(0, 0, 0, .3), 0 2px 7px rgba(0, 0, 0, .15), inset 0 1px 0 rgba(255, 255, 255, .07);
+}
+
+.xiaobaix-os-shortcuts[data-side='below'] { transform: translateY(-5px) scale(.965); }
+.xiaobaix-os-shortcuts.is-open {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transform: translateY(0) scale(1);
+    transition-delay: 0s;
+}
+
+.xiaobaix-os-shortcuts button {
+    appearance: none;
+    -webkit-appearance: none;
+    box-sizing: border-box;
+    border: 0;
+    margin: 0;
+    background: transparent;
+    color: inherit;
+    font-family: inherit;
+    text-shadow: none;
+    box-shadow: none;
+    cursor: pointer;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.xiaobaix-os-shortcut-toolbar {
+    display: flex;
+    justify-content: flex-end;
+    height: 32px;
+    margin-bottom: 2px;
+}
+
+.xiaobaix-os-shortcuts .xiaobaix-os-shortcut-desktop {
+    display: grid;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    padding: 8px;
+    border-radius: 12px;
+    opacity: .72;
+}
+
+.xiaobaix-os-shortcut-desktop svg {
+    display: block;
+    width: 18px;
+    height: 18px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.xiaobaix-os-shortcut-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 5px 2px;
+}
+
+.xiaobaix-os-shortcuts .xiaobaix-os-shortcut {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 7px;
+    min-width: 0;
+    padding: 9px 2px 7px;
+    border-radius: 16px;
+    transition: background-color 100ms ease, transform 100ms ease;
+}
+
+.xiaobaix-os-shortcut img {
+    display: block;
+    width: 44px;
+    height: 44px;
+    flex-shrink: 0;
+    border-radius: 13px;
+    filter: drop-shadow(0 2px 2px rgba(24, 42, 72, .08));
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.xiaobaix-os-shortcut span {
+    max-width: 100%;
+    font-size: .75rem;
+    line-height: 1.35;
+    font-weight: 500;
+    text-align: center;
+    overflow-wrap: anywhere;
+}
+
+@media (hover: hover) {
+    .xiaobaix-os-shortcuts button:hover { background: var(--shortcut-hover); opacity: 1; }
+}
+.xiaobaix-os-shortcuts button:active { background: var(--shortcut-hover); transform: scale(.94); }
+.xiaobaix-os-shortcuts button:focus-visible { outline: 2px solid var(--shortcut-focus); outline-offset: -2px; }
+.xiaobaix-os-button[aria-expanded='true'] { opacity: 1; }
+
+@media (prefers-reduced-motion: reduce) {
+    .xiaobaix-os-shortcuts,
+    .xiaobaix-os-shortcuts .xiaobaix-os-shortcut { transition: none; }
+    .xiaobaix-os-shortcuts button:active { transform: none; }
+}

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, toRaw } from 'vue';
+import { useAppBack } from '../../../shell/app-src/navigation/app-navigation.js';
 import type { XiaobaiOsAppProps } from '../../../shell/app-contract.js';
 import type {
     BankActivityPageView,
@@ -40,6 +41,11 @@ const recordsError = ref('');
 let claimActionId: string | null = null;
 let unsubscribe = () => {};
 let requestGeneration = 0;
+useAppBack(() => {
+    if (pending.value) { closeAction(); return true; }
+    if (page.value !== 'vault') { navigate('vault'); return true; }
+    return false;
+});
 
 const requiresConfirmation = computed(() => state.value.status === 'unconfirmed');
 const writeDisabledReason = computed(() => {

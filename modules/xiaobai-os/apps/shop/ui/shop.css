@@ -156,7 +156,6 @@
 .shop-effect-history p { font-size: 12px; margin: 8px 0; }
 .shop-effect-history p > span { margin-right: 8px; color: var(--shop-muted); }
 .shop-dialog { width: min(380px,calc(100vw - 32px)); max-height: calc(100dvh - 40px); margin: auto; padding: 24px; background: var(--shop-panel); color: var(--shop-ink); border: 1px solid var(--shop-line); border-radius: 14px; box-shadow: 0 18px 60px #11182730; overflow-y: auto; }
-.shop-dialog::backdrop { background: #12172370; }
 .shop-dialog-heading h2 { font-size: 20px; font-weight: 600; }
 .shop-dialog-item { display: flex; align-items: center; gap: 14px; padding: 18px 0; margin-bottom: 12px; border-bottom: 1px solid var(--shop-line); }
 .shop-dialog-item > .shop-item-art { width: 68px; height: 76px; flex-shrink: 0; }
