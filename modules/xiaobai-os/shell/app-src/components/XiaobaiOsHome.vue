@@ -138,8 +138,10 @@ watch(() => props.apps.map(app => app.id).sort().join(','), () => {
         ref="root" class="xiaobai-os-home" :class="{ 'is-editing': editing }"
         @pointerdown="pointerDown" @keydown="keydown" @keyup="keyup" @contextmenu.prevent @dragstart.prevent
     >
-        <img v-if="characterAvatar" class="xiaobai-os-wallpaper" :src="characterAvatar" alt="" draggable="false">
-        <div class="xiaobai-os-home-wash" aria-hidden="true" />
+        <div class="xiaobai-os-home-background" aria-hidden="true">
+            <img v-if="characterAvatar" class="xiaobai-os-wallpaper" :src="characterAvatar" alt="" draggable="false">
+            <div class="xiaobai-os-home-wash" />
+        </div>
         <div class="xiaobai-os-desktop-toolbar">
             <template v-if="editing">
                 <button type="button" :disabled="saving || !!error" @click="reset">恢复默认</button>

@@ -212,63 +212,6 @@ button {
     letter-spacing: .08em;
 }
 
-.xiaobai-os-system-status,
-.xiaobai-os-signal {
-    align-items: flex-end;
-    display: flex;
-}
-
-.xiaobai-os-system-status {
-    align-items: center;
-    gap: 8px;
-}
-
-.xiaobai-os-signal {
-    gap: 2px;
-    height: 11px;
-}
-
-.xiaobai-os-signal i {
-    background: currentColor;
-    border-radius: 1px;
-    display: block;
-    width: 2px;
-}
-
-.xiaobai-os-signal i:nth-child(1) { height: 4px; }
-.xiaobai-os-signal i:nth-child(2) { height: 6px; }
-.xiaobai-os-signal i:nth-child(3) { height: 8px; }
-.xiaobai-os-signal i:nth-child(4) { height: 10px; }
-
-.xiaobai-os-battery {
-    border: 1px solid currentColor;
-    border-radius: 2px;
-    display: block;
-    height: 9px;
-    padding: 1px;
-    position: relative;
-    width: 19px;
-}
-
-.xiaobai-os-battery::after {
-    background: currentColor;
-    border-radius: 0 1px 1px 0;
-    content: '';
-    height: 4px;
-    position: absolute;
-    right: -3px;
-    top: 2px;
-    width: 2px;
-}
-
-.xiaobai-os-battery i {
-    background: currentColor;
-    border-radius: 1px;
-    display: block;
-    height: 100%;
-    width: 76%;
-}
-
 .xiaobai-os-home {
     background:
         radial-gradient(circle at 22% 14%, rgba(111, 142, 170, .58), transparent 42%),
@@ -279,6 +222,14 @@ button {
     overflow: hidden auto;
     padding: 64px 21px 18px;
     position: relative;
+}
+
+.xiaobai-os-home-background {
+    /* Clip the oversized wallpaper without blocking genuine desktop scrolling. */
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+    position: absolute;
 }
 
 .xiaobai-os-wallpaper {

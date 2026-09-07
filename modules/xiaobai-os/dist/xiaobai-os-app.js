@@ -1,5 +1,5 @@
 /* eslint-disable */
-import { A as ge, B as ce, D as pe, E as be, G, H as y, I as we, J as q, K as J, L as ye, M as de, N as ke, R as te, T as fe, U as oe, b as V, d as xe, f as ae, g as S, h as K, j as Ae, k, l as ie, m as W, n as Oe, p as s, q as ne, r as Ee, t as Se, u as ue, v as _e, w as ve, y as Y } from "./xiaobai-os-runtime-dom.esm-bundler-DGqntx6-.js";
+import { A as ge, B as ce, D as pe, E as be, G, H as y, I as we, J as q, K as J, L as ye, M as de, N as ke, R as te, T as fe, U as oe, b as V, d as xe, f as ae, g as S, h as K, j as Ae, k, l as ie, m as W, n as Oe, p as c, q as ne, r as _e, t as Se, u as ue, v as Ee, w as ve, y as Y } from "./xiaobai-os-runtime-dom.esm-bundler-DGqntx6-.js";
 import { t as Pe } from "./xiaobai-os-app-navigation-D5qZ5Ulq.js";
 import { n as Re, t as re } from "./xiaobai-os-frame-bridge-8-bd80In.js";
 var se = [
@@ -134,7 +134,7 @@ var Xe = Object.freeze({
   map: () => import("./xiaobai-os-MapApp-Dy7FUaQr.js"),
   messages: () => import("./xiaobai-os-MessagesApp-CDlL4iII.js"),
   tasks: () => import("./xiaobai-os-TasksApp-DDY7Zw8d.js"),
-  world: () => import("./xiaobai-os-WorldApp-DhHptpN9.js"),
+  world: () => import("./xiaobai-os-WorldApp-C0sxAt63.js"),
   learning: () => import("./xiaobai-os-LearningApp-D06rbK-X.js")
 }), he = Object.freeze(Fe.map((t) => {
   const i = Xe[t.id];
@@ -145,7 +145,7 @@ var Xe = Object.freeze({
     load: e.load,
     resetLoader: e.reset
   });
-})), Bt = Object.freeze(he.map((t) => t.id));
+})), Dt = Object.freeze(he.map((t) => t.id));
 function Ne() {
   const t = [];
   return {
@@ -165,11 +165,11 @@ var qe = /* @__PURE__ */ V({
   __name: "AppNavigationScope",
   props: { owner: {} },
   setup(t, { expose: i }) {
-    const e = t, o = y(null), b = oe([]), _ = Ne();
+    const e = t, o = y(null), b = oe([]), E = Ne();
     return ge(Pe, {
       root: o,
       layers: b,
-      stack: _
+      stack: E
     }), ye((d) => {
       const r = b.value.at(-1);
       if (!r || !o.value?.contains(r)) return;
@@ -191,7 +191,7 @@ var qe = /* @__PURE__ */ V({
         for (const v of m) v.inert = !1;
       });
     }, { flush: "post" }), i({
-      back: _.back,
+      back: E.back,
       get owner() {
         return e.owner;
       }
@@ -233,30 +233,30 @@ function We(t, i) {
 function Je(t) {
   const i = oe(null);
   let e = null, o, b = 0;
-  function _() {
+  function E() {
     const n = t.root.value;
     if (!e || !i.value || !n) return;
-    const c = e;
+    const s = e;
     i.value = {
-      id: c.id,
-      x: c.x - c.offsetX,
-      y: c.y - c.offsetY,
-      width: c.width
+      id: s.id,
+      x: s.x - s.offsetX,
+      y: s.y - s.offsetY,
+      width: s.width
     };
-    const R = n.getBoundingClientRect(), U = 42, X = c.y < R.top + U ? -8 : c.y > R.bottom - U ? 8 : 0;
+    const R = n.getBoundingClientRect(), U = 42, X = s.y < R.top + U ? -8 : s.y > R.bottom - U ? 8 : 0;
     X && (n.scrollTop += X);
     const L = n.querySelector(".xiaobai-os-app-grid");
     if (L) {
       const D = L.getBoundingClientRect();
       let l = 0, g = 1 / 0;
       [...L.querySelectorAll("[data-app-id]")].forEach((p, C) => {
-        const T = D.left + p.offsetLeft + p.offsetWidth / 2 - c.x, N = D.top + p.offsetTop + p.offsetHeight / 2 - c.y, H = T * T + N * N;
+        const T = D.left + p.offsetLeft + p.offsetWidth / 2 - s.x, N = D.top + p.offsetTop + p.offsetHeight / 2 - s.y, H = T * T + N * N;
         H < g && (g = H, l = C);
-      }), t.move(c.id, l);
+      }), t.move(s.id, l);
     }
   }
   function d() {
-    _(), b = requestAnimationFrame(d);
+    E(), b = requestAnimationFrame(d);
   }
   function r() {
     e && (clearTimeout(o), t.start(e.id), e.pointerId !== null && t.root.value?.setPointerCapture(e.pointerId), i.value = {
@@ -266,7 +266,7 @@ function Je(t) {
       width: e.width
     }, b = requestAnimationFrame(d));
   }
-  function m(n, c, R, U, X) {
+  function m(n, s, R, U, X) {
     if (e || t.disabled()) return;
     const L = n instanceof Element ? n.closest("[data-app-id]") : null;
     if (!L?.dataset.appId) return;
@@ -275,22 +275,22 @@ function Je(t) {
       id: L.dataset.appId,
       pointerId: U,
       touchId: X,
-      x: c,
+      x: s,
       y: R,
-      startX: c,
+      startX: s,
       startY: R,
       width: D.width,
-      offsetX: c - D.left,
+      offsetX: s - D.left,
       offsetY: R - D.top
-    }, window.addEventListener("pointermove", v), window.addEventListener("pointerup", f), window.addEventListener("pointercancel", j), window.addEventListener("blur", E), t.editing.value ? r() : o = setTimeout(r, 420);
+    }, window.addEventListener("pointermove", v), window.addEventListener("pointerup", f), window.addEventListener("pointercancel", j), window.addEventListener("blur", _), t.editing.value ? r() : o = setTimeout(r, 420);
   }
-  function u(n, c) {
-    e && (e.x = n, e.y = c, !i.value && Math.hypot(n - e.startX, c - e.startY) > 8 && (e.touchId !== null ? x(!0) : r()));
+  function u(n, s) {
+    e && (e.x = n, e.y = s, !i.value && Math.hypot(n - e.startX, s - e.startY) > 8 && (e.touchId !== null ? x(!0) : r()));
   }
   function x(n) {
-    clearTimeout(o), cancelAnimationFrame(b), !n && i.value && _(), window.removeEventListener("pointermove", v), window.removeEventListener("pointerup", f), window.removeEventListener("pointercancel", j), window.removeEventListener("blur", E), e?.pointerId !== null && e?.pointerId !== void 0 && t.root.value?.hasPointerCapture(e.pointerId) && t.root.value.releasePointerCapture(e.pointerId);
-    const c = !!i.value;
-    e = null, i.value = null, c && t.finish(n);
+    clearTimeout(o), cancelAnimationFrame(b), !n && i.value && E(), window.removeEventListener("pointermove", v), window.removeEventListener("pointerup", f), window.removeEventListener("pointercancel", j), window.removeEventListener("blur", _), e?.pointerId !== null && e?.pointerId !== void 0 && t.root.value?.hasPointerCapture(e.pointerId) && t.root.value.releasePointerCapture(e.pointerId);
+    const s = !!i.value;
+    e = null, i.value = null, s && t.finish(n);
   }
   function A(n) {
     n.pointerType === "touch" || n.button !== 0 || !n.isPrimary || m(n.target, n.clientX, n.clientY, n.pointerId, null);
@@ -309,49 +309,52 @@ function Je(t) {
       x(!0);
       return;
     }
-    const c = n.changedTouches[0];
-    m(n.target, c.clientX, c.clientY, null, c.identifier), i.value && n.cancelable && n.preventDefault();
+    const s = n.changedTouches[0];
+    m(n.target, s.clientX, s.clientY, null, s.identifier), i.value && n.cancelable && n.preventDefault();
   }
   function F(n) {
-    const c = [...n.touches].find((R) => R.identifier === e?.touchId);
-    c && (i.value && n.cancelable && n.preventDefault(), u(c.clientX, c.clientY));
+    const s = [...n.touches].find((R) => R.identifier === e?.touchId);
+    s && (i.value && n.cancelable && n.preventDefault(), u(s.clientX, s.clientY));
   }
   function z(n) {
-    [...n.changedTouches].some((c) => c.identifier === e?.touchId) && (i.value && n.cancelable && n.preventDefault(), x(!1));
+    [...n.changedTouches].some((s) => s.identifier === e?.touchId) && (i.value && n.cancelable && n.preventDefault(), x(!1));
   }
-  function E() {
+  function _() {
     x(!0);
   }
   function w() {
-    document.hidden && E();
+    document.hidden && _();
   }
   let P = null;
   return pe(() => {
-    P = t.root.value, P?.addEventListener("touchstart", $, { passive: !1 }), P?.addEventListener("touchmove", F, { passive: !1 }), P?.addEventListener("touchend", z, { passive: !1 }), P?.addEventListener("touchcancel", E), document.addEventListener("visibilitychange", w);
+    P = t.root.value, P?.addEventListener("touchstart", $, { passive: !1 }), P?.addEventListener("touchmove", F, { passive: !1 }), P?.addEventListener("touchend", z, { passive: !1 }), P?.addEventListener("touchcancel", _), document.addEventListener("visibilitychange", w);
   }), fe(() => {
-    E(), P?.removeEventListener("touchstart", $), P?.removeEventListener("touchmove", F), P?.removeEventListener("touchend", z), P?.removeEventListener("touchcancel", E), document.removeEventListener("visibilitychange", w);
+    _(), P?.removeEventListener("touchstart", $), P?.removeEventListener("touchmove", F), P?.removeEventListener("touchend", z), P?.removeEventListener("touchcancel", _), document.removeEventListener("visibilitychange", w);
   }), {
     floating: i,
     pointerDown: A,
-    cancel: E
+    cancel: _
   };
 }
-var Qe = ["src"], et = { class: "xiaobai-os-desktop-toolbar" }, tt = ["disabled"], at = ["disabled"], it = {
-  key: 1,
+var Qe = {
+  class: "xiaobai-os-home-background",
+  "aria-hidden": "true"
+}, et = ["src"], tt = { class: "xiaobai-os-desktop-toolbar" }, at = ["disabled"], it = ["disabled"], rt = {
+  key: 0,
   class: "xiaobai-os-order-error",
   role: "alert"
-}, rt = ["disabled"], nt = [
+}, nt = ["disabled"], lt = [
   "data-app-id",
   "aria-label",
   "aria-keyshortcuts",
   "onClick"
-], lt = {
+], ot = {
   class: "xiaobai-os-app-icon",
   "aria-hidden": "true"
-}, ot = ["src"], st = { class: "xiaobai-os-app-name" }, ct = {
+}, st = ["src"], ct = { class: "xiaobai-os-app-name" }, ut = {
   class: "xiaobai-os-sort-announcement",
   role: "status"
-}, ut = { class: "xiaobai-os-app-icon" }, pt = ["src"], dt = { class: "xiaobai-os-app-name" }, ft = /* @__PURE__ */ V({
+}, pt = { class: "xiaobai-os-app-icon" }, dt = ["src"], ft = { class: "xiaobai-os-app-name" }, vt = /* @__PURE__ */ V({
   __name: "XiaobaiOsHome",
   props: {
     apps: {},
@@ -360,11 +363,11 @@ var Qe = ["src"], et = { class: "xiaobai-os-desktop-toolbar" }, tt = ["disabled"
   },
   emits: ["openApp"],
   setup(t, { expose: i, emit: e }) {
-    const o = t, b = e, _ = y(null), d = y(!1), r = y([]), m = y(!1), u = y(""), x = y(""), A = y("");
+    const o = t, b = e, E = y(null), d = y(!1), r = y([]), m = y(!1), u = y(""), x = y(""), A = y("");
     let v = [], f = null;
     const j = ae(() => d.value ? le(o.apps, r.value) : o.apps);
     function $(l) {
-      ve(() => _.value?.querySelector(`[data-app-id="${l}"]`)?.focus({ preventScroll: !0 }));
+      ve(() => E.value?.querySelector(`[data-app-id="${l}"]`)?.focus({ preventScroll: !0 }));
     }
     function F(l) {
       d.value || (r.value = o.apps.map((g) => g.id)), d.value = !0, A.value = l;
@@ -375,7 +378,7 @@ var Qe = ["src"], et = { class: "xiaobai-os-desktop-toolbar" }, tt = ["disabled"
       const C = [...r.value];
       C.splice(p, 1), C.splice(g, 0, l), r.value = C;
     }
-    async function E(l) {
+    async function _(l) {
       m.value = !0, u.value = "", f = l;
       try {
         await o.saveAppOrder(l), x.value = "顺序已保存";
@@ -386,7 +389,7 @@ var Qe = ["src"], et = { class: "xiaobai-os-desktop-toolbar" }, tt = ["disabled"
       }
     }
     const { floating: w, pointerDown: P, cancel: n } = Je({
-      root: _,
+      root: E,
       editing: d,
       disabled: () => m.value || !!u.value,
       start(l) {
@@ -394,9 +397,9 @@ var Qe = ["src"], et = { class: "xiaobai-os-desktop-toolbar" }, tt = ["disabled"
       },
       move: z,
       finish(l) {
-        l ? r.value = v : r.value.some((g, p) => g !== v[p]) && E([...r.value]), $(A.value);
+        l ? r.value = v : r.value.some((g, p) => g !== v[p]) && _([...r.value]), $(A.value);
       }
-    }), c = ae(() => o.apps.find((l) => l.id === w.value?.id));
+    }), s = ae(() => o.apps.find((l) => l.id === w.value?.id));
     function R() {
       m.value || (n(), d.value = !1, $(A.value));
     }
@@ -407,7 +410,7 @@ var Qe = ["src"], et = { class: "xiaobai-os-desktop-toolbar" }, tt = ["disabled"
       finishEditing: R
     });
     async function U() {
-      n(), r.value = le(o.apps, []).map((l) => l.id), await E(null);
+      n(), r.value = le(o.apps, []).map((l) => l.id), await _(null);
     }
     function X(l) {
       d.value ? A.value = l.id : b("openApp", l);
@@ -433,7 +436,7 @@ var Qe = ["src"], et = { class: "xiaobai-os-desktop-toolbar" }, tt = ["disabled"
       if (N === void 0) return;
       l.preventDefault();
       const H = r.value.indexOf(p), Q = Math.max(0, Math.min(r.value.length - 1, H + N));
-      Q !== H && (z(p, Q), A.value = p, $(p), E([...r.value]));
+      Q !== H && (z(p, Q), A.value = p, $(p), _([...r.value]));
     }
     function D(l) {
       l.key === " " && l.target instanceof Element && l.target.closest("[data-app-id]") && l.preventDefault();
@@ -442,7 +445,7 @@ var Qe = ["src"], et = { class: "xiaobai-os-desktop-toolbar" }, tt = ["disabled"
       n(), r.value = o.apps.map((l) => l.id);
     }), (l, g) => (k(), S("main", {
       ref_key: "root",
-      ref: _,
+      ref: E,
       class: J(["xiaobai-os-home", { "is-editing": d.value }]),
       onPointerdown: g[1] || (g[1] = (...p) => G(P) && G(P)(...p)),
       onKeydown: L,
@@ -452,32 +455,28 @@ var Qe = ["src"], et = { class: "xiaobai-os-desktop-toolbar" }, tt = ["disabled"
       onDragstart: g[3] || (g[3] = ie(() => {
       }, ["prevent"]))
     }, [
-      t.characterAvatar ? (k(), S("img", {
+      c("div", Qe, [t.characterAvatar ? (k(), S("img", {
         key: 0,
         class: "xiaobai-os-wallpaper",
         src: t.characterAvatar,
         alt: "",
         draggable: "false"
-      }, null, 8, Qe)) : K("", !0),
-      g[4] || (g[4] = s("div", {
-        class: "xiaobai-os-home-wash",
-        "aria-hidden": "true"
-      }, null, -1)),
-      s("div", et, [d.value ? (k(), S(ue, { key: 0 }, [s("button", {
+      }, null, 8, et)) : K("", !0), g[4] || (g[4] = c("div", { class: "xiaobai-os-home-wash" }, null, -1))]),
+      c("div", tt, [d.value ? (k(), S(ue, { key: 0 }, [c("button", {
         type: "button",
         disabled: m.value || !!u.value,
         onClick: U
-      }, "恢复默认", 8, tt), s("button", {
+      }, "恢复默认", 8, at), c("button", {
         class: "xiaobai-os-desktop-done",
         type: "button",
         disabled: m.value,
         onClick: R
-      }, "完成", 8, at)], 64)) : K("", !0)]),
-      u.value ? (k(), S("div", it, [s("span", null, q(u.value), 1), s("button", {
+      }, "完成", 8, it)], 64)) : K("", !0)]),
+      u.value ? (k(), S("div", rt, [c("span", null, q(u.value), 1), c("button", {
         type: "button",
         disabled: m.value,
-        onClick: g[0] || (g[0] = (p) => E(G(f)))
-      }, "重试", 8, rt)])) : K("", !0),
+        onClick: g[0] || (g[0] = (p) => _(G(f)))
+      }, "重试", 8, nt)])) : K("", !0),
       Y(Oe, {
         tag: "section",
         name: "xiaobai-os-sort",
@@ -493,17 +492,17 @@ var Qe = ["src"], et = { class: "xiaobai-os-desktop-toolbar" }, tt = ["disabled"
           "aria-keyshortcuts": d.value ? "ArrowUp ArrowDown ArrowLeft ArrowRight Space" : "F2 Space",
           style: ne({ "--app-accent": p.accent }),
           onClick: (C) => X(p)
-        }, [s("span", lt, [s("img", {
+        }, [c("span", ot, [c("img", {
           src: p.icon,
           alt: "",
           width: "64",
           height: "64",
           draggable: "false"
-        }, null, 8, ot)]), s("span", st, q(p.name), 1)], 14, nt))), 128))]),
+        }, null, 8, st)]), c("span", ct, q(p.name), 1)], 14, lt))), 128))]),
         _: 1
       }),
-      s("span", ct, q(x.value), 1),
-      (k(), W(xe, { to: "body" }, [G(w) && c.value ? (k(), S("div", {
+      c("span", ut, q(x.value), 1),
+      (k(), W(xe, { to: "body" }, [G(w) && s.value ? (k(), S("div", {
         key: 0,
         class: "xiaobai-os-dragged-app xiaobai-os-app-tile",
         "aria-hidden": "true",
@@ -512,17 +511,17 @@ var Qe = ["src"], et = { class: "xiaobai-os-desktop-toolbar" }, tt = ["disabled"
           top: `${G(w).y}px`,
           width: `${G(w).width}px`
         })
-      }, [s("span", ut, [s("img", {
-        src: c.value.icon,
+      }, [c("span", pt, [c("img", {
+        src: s.value.icon,
         alt: "",
         draggable: "false"
-      }, null, 8, pt)]), s("span", dt, q(c.value.name), 1)], 4)) : K("", !0)]))
+      }, null, 8, dt)]), c("span", ft, q(s.value.name), 1)], 4)) : K("", !0)]))
     ], 34));
   }
-}), vt = ft, ht = ["disabled"], mt = {
+}), ht = vt, mt = ["disabled"], gt = {
   key: 0,
   "aria-hidden": "true"
-}, gt = /* @__PURE__ */ V({
+}, bt = /* @__PURE__ */ V({
   __name: "XiaobaiOsNavigation",
   props: {
     isHome: { type: Boolean },
@@ -538,7 +537,7 @@ var Qe = ["src"], et = { class: "xiaobai-os-desktop-toolbar" }, tt = ["disabled"
       class: J(["xiaobai-os-navigation", { "is-home": t.isHome }]),
       "aria-label": "系统导航"
     }, [
-      s("button", {
+      c("button", {
         type: "button",
         class: "xiaobai-os-nav-button",
         disabled: !t.canBack,
@@ -546,56 +545,48 @@ var Qe = ["src"], et = { class: "xiaobai-os-desktop-toolbar" }, tt = ["disabled"
         onPointerdown: e[0] || (e[0] = ie(() => {
         }, ["prevent"])),
         onClick: e[1] || (e[1] = (o) => i.$emit("back"))
-      }, [...e[4] || (e[4] = [s("svg", {
+      }, [...e[4] || (e[4] = [c("svg", {
         viewBox: "0 0 24 24",
         "aria-hidden": "true"
-      }, [s("path", { d: "m14.5 6-6 6 6 6" })], -1)])], 40, ht),
-      s("button", {
+      }, [c("path", { d: "m14.5 6-6 6 6 6" })], -1)])], 40, mt),
+      c("button", {
         type: "button",
         class: "xiaobai-os-nav-button xiaobai-os-home-button",
         "aria-label": "主页",
         onClick: e[2] || (e[2] = (o) => i.$emit("home"))
-      }, [e[5] || (e[5] = s("svg", {
+      }, [e[5] || (e[5] = c("svg", {
         viewBox: "0 0 24 24",
         "aria-hidden": "true"
-      }, [s("path", { d: "m4.5 11 7.5-6 7.5 6v8h-5v-5h-5v5h-5z" })], -1)), t.isHome ? (k(), S("i", mt)) : K("", !0)]),
-      s("button", {
+      }, [c("path", { d: "m4.5 11 7.5-6 7.5 6v8h-5v-5h-5v5h-5z" })], -1)), t.isHome ? (k(), S("i", gt)) : K("", !0)]),
+      c("button", {
         type: "button",
         class: "xiaobai-os-nav-button xiaobai-os-close-button",
         "aria-label": "关闭",
         onClick: e[3] || (e[3] = (o) => i.$emit("close"))
-      }, [...e[6] || (e[6] = [s("span", null, [s("svg", {
+      }, [...e[6] || (e[6] = [c("span", null, [c("svg", {
         viewBox: "0 0 24 24",
         "aria-hidden": "true"
-      }, [s("path", { d: "m7 9.5 5 5 5-5" })])], -1)])])
+      }, [c("path", { d: "m7 9.5 5 5 5-5" })])], -1)])])
     ], 2));
   }
-}), bt = gt, wt = /* @__PURE__ */ V({
+}), wt = bt, yt = /* @__PURE__ */ V({
   __name: "XiaobaiOsSystemBar",
   props: { isHome: { type: Boolean } },
   setup(t) {
     return (i, e) => (k(), S("header", {
       class: J(["xiaobai-os-system-bar", { "is-home": t.isHome }]),
-      "aria-label": "系统状态"
-    }, [...e[0] || (e[0] = [s("span", { class: "xiaobai-os-system-mark" }, "小白", -1), s("span", {
-      class: "xiaobai-os-system-status",
-      "aria-hidden": "true"
-    }, [s("span", { class: "xiaobai-os-signal" }, [
-      s("i"),
-      s("i"),
-      s("i"),
-      s("i")
-    ]), s("span", { class: "xiaobai-os-battery" }, [s("i")])], -1)])], 2));
+      "aria-label": "系统栏"
+    }, [...e[0] || (e[0] = [c("span", { class: "xiaobai-os-system-mark" }, "小白 OS", -1)])], 2));
   }
-}), yt = wt, kt = { class: "xiaobai-os-device" }, xt = { class: "xiaobai-os-glass" }, At = {
+}), kt = yt, xt = { class: "xiaobai-os-device" }, At = { class: "xiaobai-os-glass" }, Ot = {
   key: "failure",
   class: "xiaobai-os-app-failure",
   role: "alert"
-}, Ot = { class: "xiaobai-os-app-failure-actions" }, Et = {
+}, _t = { class: "xiaobai-os-app-failure-actions" }, St = {
   key: "loading",
   class: "xiaobai-os-app-loading",
   role: "status"
-}, St = /* @__PURE__ */ V({
+}, Et = /* @__PURE__ */ V({
   __name: "XiaobaiOsDevice",
   props: {
     apps: {},
@@ -619,23 +610,23 @@ var Qe = ["src"], et = { class: "xiaobai-os-desktop-toolbar" }, tt = ["disabled"
     "reload"
   ],
   setup(t, { expose: i }) {
-    const e = t, o = ae(() => e.activeApp === null), b = y(null), _ = y(null);
+    const e = t, o = ae(() => e.activeApp === null), b = y(null), E = y(null);
     return i({
-      back: () => o.value && b.value?.editing ? (b.value.finishEditing(), !0) : !e.appLoading && !e.appFailure && _.value?.owner === `${e.activeApp?.id}:${e.appRenderKey}` && _.value.back(),
+      back: () => o.value && b.value?.editing ? (b.value.finishEditing(), !0) : !e.appLoading && !e.appFailure && E.value?.owner === `${e.activeApp?.id}:${e.appRenderKey}` && E.value.back(),
       finishHomeEditing: () => b.value?.finishEditing()
-    }), (d, r) => (k(), S("div", kt, [r[9] || (r[9] = s("span", {
+    }), (d, r) => (k(), S("div", xt, [r[9] || (r[9] = c("span", {
       class: "xiaobai-os-side-key",
       "aria-hidden": "true"
-    }, null, -1)), s("div", xt, [
-      Y(yt, { "is-home": o.value }, null, 8, ["is-home"]),
-      s("div", {
+    }, null, -1)), c("div", At, [
+      Y(kt, { "is-home": o.value }, null, 8, ["is-home"]),
+      c("div", {
         class: "xiaobai-os-stage",
         style: ne(t.activeApp ? { "--app-accent": t.activeApp.accent } : null)
       }, [Y(Se, {
         name: "xiaobai-os-route",
         mode: "out-in"
       }, {
-        default: te(() => [o.value ? (k(), W(vt, {
+        default: te(() => [o.value ? (k(), W(ht, {
           key: "home",
           ref_key: "home",
           ref: b,
@@ -647,25 +638,25 @@ var Qe = ["src"], et = { class: "xiaobai-os-desktop-toolbar" }, tt = ["disabled"
           "apps",
           "character-avatar",
           "save-app-order"
-        ])) : t.appFailure ? (k(), S("section", At, [
-          r[7] || (r[7] = s("span", {
+        ])) : t.appFailure ? (k(), S("section", Ot, [
+          r[7] || (r[7] = c("span", {
             class: "xiaobai-os-app-failure-mark",
             "aria-hidden": "true"
           }, "!", -1)),
-          s("h1", null, q(t.activeApp?.name) + "暂时无法打开", 1),
-          s("p", null, q(t.appFailure.message), 1),
-          s("div", Ot, [t.appFailure.retryable ? (k(), S("button", {
+          c("h1", null, q(t.activeApp?.name) + "暂时无法打开", 1),
+          c("p", null, q(t.appFailure.message), 1),
+          c("div", _t, [t.appFailure.retryable ? (k(), S("button", {
             key: 0,
             type: "button",
             onClick: r[1] || (r[1] = (m) => d.$emit("retry"))
-          }, "重试")) : K("", !0), s("button", {
+          }, "重试")) : K("", !0), c("button", {
             type: "button",
             onClick: r[2] || (r[2] = (m) => d.$emit("reload"))
           }, "重新载入 OS")])
-        ])) : t.appLoading ? (k(), S("div", Et, [r[8] || (r[8] = s("span", { "aria-hidden": "true" }, null, -1)), _e(" 正在打开" + q(t.activeApp?.name), 1)])) : t.activeApp && t.activeComponent ? (k(), W(Ke, {
+        ])) : t.appLoading ? (k(), S("div", St, [r[8] || (r[8] = c("span", { "aria-hidden": "true" }, null, -1)), Ee(" 正在打开" + q(t.activeApp?.name), 1)])) : t.activeApp && t.activeComponent ? (k(), W(Ke, {
           key: `app:${t.activeApp.id}:${t.appRenderKey}`,
           ref_key: "navigation",
-          ref: _,
+          ref: E,
           owner: `${t.activeApp.id}:${t.appRenderKey}`
         }, {
           default: te(() => [Y(Ze, { onFailed: r[3] || (r[3] = (m) => d.$emit("renderFailed", m)) }, {
@@ -679,7 +670,7 @@ var Qe = ["src"], et = { class: "xiaobai-os-desktop-toolbar" }, tt = ["disabled"
         }, 8, ["owner"])) : K("", !0)]),
         _: 1
       })], 4),
-      Y(bt, {
+      Y(wt, {
         "is-home": o.value,
         "can-back": !o.value || !!b.value?.editing,
         onBack: r[4] || (r[4] = (m) => d.$emit("back")),
@@ -688,31 +679,31 @@ var Qe = ["src"], et = { class: "xiaobai-os-desktop-toolbar" }, tt = ["disabled"
       }, null, 8, ["is-home", "can-back"])
     ])]));
   }
-}), _t = St, Pt = {
+}), Pt = Et, Rt = {
   key: 0,
   class: "xiaobai-os-error",
   role: "alert"
-}, Rt = {
+}, It = {
   key: 1,
   class: "xiaobai-os-loading",
   role: "status"
-}, It = /* @__PURE__ */ V({
+}, Lt = /* @__PURE__ */ V({
   __name: "App",
   setup(t) {
-    const i = Re(), e = y(null), o = y(null), b = y(!1), _ = y("light"), d = y(/* @__PURE__ */ new Set()), r = y([]), m = y(""), u = y(null), x = oe(null), A = y(null), v = y(!1), f = y(null), j = y(0), $ = y("");
+    const i = Re(), e = y(null), o = y(null), b = y(!1), E = y("light"), d = y(/* @__PURE__ */ new Set()), r = y([]), m = y(""), u = y(null), x = oe(null), A = y(null), v = y(!1), f = y(null), j = y(0), $ = y("");
     let F = null, z = () => {
-    }, E = 0, w = null;
+    }, _ = 0, w = null;
     const P = ae(() => le(he, r.value).filter((a) => d.value.has(a.id)));
     async function n(a) {
       const h = a === null ? [] : We(r.value, a);
       r.value = (await i.request("os/set-app-order", { appOrder: h })).appOrder;
     }
-    function c(a) {
+    function s(a) {
       const h = new Set(a.map((B) => String(B.id))), O = u.value && !h.has(u.value.id), I = w && !h.has(w.appId);
-      d.value = h, !(!O && !I) && (E += 1, w = null, u.value = null, x.value = null, A.value = null, v.value = !1, f.value = null, i.clearAppSession());
+      d.value = h, !(!O && !I) && (_ += 1, w = null, u.value = null, x.value = null, A.value = null, v.value = !1, f.value = null, i.clearAppSession());
     }
     function R(a) {
-      E += 1, w = null, _.value = a.theme === "dark" ? "dark" : "light", r.value = a.appOrder ?? [], c(a.apps || []), m.value = String(a.chat?.characterAvatar || ""), u.value = null, x.value = null, A.value = null, v.value = !1, f.value = null, i.clearAppSession(), b.value = !0, a.initialAppId && U(a.initialAppId);
+      _ += 1, w = null, E.value = a.theme === "dark" ? "dark" : "light", r.value = a.appOrder ?? [], s(a.apps || []), m.value = String(a.chat?.characterAvatar || ""), u.value = null, x.value = null, A.value = null, v.value = !1, f.value = null, i.clearAppSession(), b.value = !0, a.initialAppId && U(a.initialAppId);
     }
     function U(a) {
       if (!a) {
@@ -727,9 +718,9 @@ var Qe = ["src"], et = { class: "xiaobai-os-desktop-toolbar" }, tt = ["disabled"
         const I = a.payload;
         (I?.appId === null || typeof I?.appId == "string") && U(I.appId);
       }
-      if (a.type === "os/theme-changed" && (_.value = a.payload?.theme === "dark" ? "dark" : "light"), a.type === "os/apps-changed") {
+      if (a.type === "os/theme-changed" && (E.value = a.payload?.theme === "dark" ? "dark" : "light"), a.type === "os/apps-changed") {
         const I = a.payload;
-        c(I?.apps || []);
+        s(I?.apps || []);
       }
       if (a.type === "os/app-state") {
         const I = a.payload, B = I?.status;
@@ -747,13 +738,13 @@ var Qe = ["src"], et = { class: "xiaobai-os-desktop-toolbar" }, tt = ["disabled"
       u.value && O?.appId === u.value.id && a.appId === O.appId && a.activationToken === O.activationToken && a.type === `${u.value.id}/state` && (A.value = h);
     }
     async function L(a) {
-      const h = ++E;
+      const h = ++_;
       j.value += 1;
       const O = { appId: a.id };
       w = O, u.value = a, x.value = null, A.value = null, v.value = !0, f.value = null, i.clearAppSession(), $.value = "";
       const I = i.request("app/activate", { appId: a.id }), B = a.load(), [Z, ee] = await Promise.allSettled([I, B]);
       try {
-        if (h !== E) return;
+        if (h !== _) return;
         if (Z.status === "fulfilled") {
           if (Z.value.appId !== a.id || !Z.value.activationToken) throw new Error("app_activation_mismatch");
           i.setAppSession({
@@ -847,13 +838,13 @@ var Qe = ["src"], et = { class: "xiaobai-os-desktop-toolbar" }, tt = ["disabled"
         o.value?.finishHomeEditing();
         return;
       }
-      E += 1, w = null, i.post("app/deactivate", { appId: u.value?.id || "" }), i.clearAppSession(), u.value = null, x.value = null, A.value = null, v.value = !1, f.value = null;
+      _ += 1, w = null, i.post("app/deactivate", { appId: u.value?.id || "" }), i.clearAppSession(), u.value = null, x.value = null, A.value = null, v.value = !1, f.value = null;
     }
     function N() {
       o.value?.back() || T();
     }
     function H() {
-      E += 1, w = null, i.post("os/close"), i.clearAppSession();
+      _ += 1, w = null, i.post("os/close"), i.clearAppSession();
     }
     function Q(a) {
       if (a.key === "Escape") {
@@ -869,18 +860,18 @@ var Qe = ["src"], et = { class: "xiaobai-os-desktop-toolbar" }, tt = ["disabled"
     return pe(async () => {
       F = document.activeElement instanceof HTMLElement ? document.activeElement : null, z = i.subscribe(X), i.start(), window.addEventListener("error", g), window.addEventListener("unhandledrejection", p), await ve(), e.value?.focus();
     }), fe(() => {
-      E += 1, w = null, window.removeEventListener("error", g), window.removeEventListener("unhandledrejection", p), z(), i.dispose(), F?.focus();
+      _ += 1, w = null, window.removeEventListener("error", g), window.removeEventListener("unhandledrejection", p), z(), i.dispose(), F?.focus();
     }), (a, h) => (k(), S("main", {
       ref_key: "root",
       ref: e,
-      class: J(["xiaobai-os-shell", `theme-${_.value}`]),
+      class: J(["xiaobai-os-shell", `theme-${E.value}`]),
       role: "dialog",
       "aria-modal": "true",
       "aria-label": "小白 OS",
       tabindex: "-1",
       onKeydown: Q,
       onClick: ie(H, ["self"])
-    }, [$.value ? (k(), S("div", Pt, q($.value), 1)) : K("", !0), b.value ? (k(), W(_t, {
+    }, [$.value ? (k(), S("div", Rt, q($.value), 1)) : K("", !0), b.value ? (k(), W(Pt, {
       key: 2,
       ref_key: "device",
       ref: o,
@@ -911,7 +902,7 @@ var Qe = ["src"], et = { class: "xiaobai-os-desktop-toolbar" }, tt = ["disabled"
       "app-render-key",
       "bridge",
       "character-avatar"
-    ])) : (k(), S("div", Rt, "正在启动小白 OS"))], 34));
+    ])) : (k(), S("div", It, "正在启动小白 OS"))], 34));
   }
-}), Lt = It;
-Ee(Lt).mount("#app");
+}), Mt = Lt;
+_e(Mt).mount("#app");
