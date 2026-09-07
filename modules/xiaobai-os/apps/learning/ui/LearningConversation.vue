@@ -79,7 +79,7 @@ defineExpose({ async ask(exerciseId?: string, selection?: LearningSelection) { f
     <section class="learning-conversation">
         <header class="learning-conversation-heading"><span class="learning-person-initial">{{ [...(state.teacher?.name ?? '师')][0] }}</span><h1>{{ state.teacher?.name ?? '老师' }}</h1><button type="button" :disabled="disabled" aria-label="更换学习语言和老师" @click="emit('profile')">{{ new Intl.DisplayNames(['zh-CN'], { type: 'language' }).of(state.language) }}</button></header>
         <div ref="scroller" class="learning-conversation-turns" aria-label="师生对话" @scroll="trackScroll">
-            <p v-if="state.conversation.removedTurns" class="learning-history-notice">较早对话已释放，学习记录仍保留。</p>
+            <p v-if="state.conversation.removedTurns" class="learning-history-notice">较早对话已整理为课堂记忆。</p>
             <div v-for="(turn, index) in state.conversation.turns" :key="index" class="learning-conversation-turn">
                 <p class="learning-conversation-user">{{ turn.user }}</p><p class="learning-conversation-teacher">{{ turn.teacher }}</p>
                 <button v-if="turn.presentation" type="button" class="learning-activity-link" :disabled="!available(turn.presentation)" @click="emit('present', turn.presentation)"><LearningIcon :name="turn.presentation.kind === 'material' ? 'book' : 'records'" /><span>{{ turn.presentation.title }}</span><LearningIcon name="arrow" /></button>

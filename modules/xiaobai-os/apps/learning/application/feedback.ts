@@ -2,7 +2,7 @@ import { providerFailureMessage } from '../../../capabilities/agent/provider-fai
 import { LearningValidationError } from '../../../domains/learning/profile.js';
 
 export interface LearningProgress {
-    stage: 'context' | 'config' | 'session' | 'provider' | 'tools' | 'save' | 'action';
+    stage: 'context' | 'config' | 'session' | 'summary' | 'provider' | 'tools' | 'save' | 'action';
     round?: number;
     tool?: string;
 }
@@ -14,6 +14,7 @@ export interface LearningFailureDetails extends LearningProgress {
 
 const stages: Record<LearningProgress['stage'], string> = {
     context: '读取教学背景', config: '读取 API 配置', session: '准备教学请求',
+    summary: '整理课堂记忆',
     provider: '等待老师回复', tools: '处理教学工具', save: '保存学习内容', action: '处理学习操作',
 };
 
@@ -31,7 +32,8 @@ export function learningTeachingFailure(reason: string): string {
         case 'learning_protocol_failed': return '老师的返回结果无法解析，本次教学未保存。请提供下方错误码与控制台诊断。';
         case 'learning_tool_failed': return '处理教学工具时程序发生异常，本次教学未保存。请提供下方错误码与控制台诊断。';
         case 'learning_save_failed': return '保存学习内容时程序发生异常。请先重新读取保存内容，并提供下方错误码与控制台诊断。';
-        case 'learning_context_full': return '本轮内容超过模型接口的上下文容量，已没有可释放的较早对话。已保存的课程与原答不变；请换用更长上下文的模型，或把本次要求拆小后再试。';
+        case 'learning_context_full': return '本轮内容超过模型接口的上下文容量，现有历史无法再安全缩减。已保存的课程与原答不变；请换用更长上下文的模型，或把本次要求拆小后再试。';
+        case 'learning_summary_failed': return '整理课堂记忆未完成，尚未替换的原对话和已保存的学习内容均保留。可以重试，或换用更长上下文的模型。';
         case 'learning_empty_response': return '老师没有返回有效回复，本次修改未发布，可以重试。';
         case 'learning_stalled': return '老师连续重复了相同的工具操作和结果，没有继续推进，已停止本次请求。已确认内容不变，可以调整要求后重试。';
         case 'learning_unresolved_proposals': return '老师提交的学习内容仍未通过工具校验，本次没有保存。可以重试，具体字段问题已记录到控制台。';

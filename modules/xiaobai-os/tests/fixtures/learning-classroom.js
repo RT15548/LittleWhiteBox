@@ -55,8 +55,8 @@ export async function createClassroomFixture({ listening = false, lesson: lesson
             round++;
             if (flags.teacherResponse) { return flags.teacherResponse(request, round); }
             if (round > 1) { return { text: '你已经抓住关键了。语言不用一次学完，今天多会一点点就很好。' }; }
-            const message = request.messages.find(entry => entry.content.startsWith('<learning_request>'));
-            const input = JSON.parse(message.content.slice(message.content.indexOf('\n') + 1, message.content.lastIndexOf('\n')));
+            const message = request.messages.findLast(entry => entry.role === 'user');
+            const input = JSON.parse(message.content.split('<learning_request>\n').at(-1).split('\n</learning_request>')[0]);
             const action = input.action;
             if (action.kind === 'profile') {
                 if (flags.profileReply !== null) { return { text: flags.profileReply }; }

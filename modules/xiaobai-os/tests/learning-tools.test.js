@@ -408,6 +408,9 @@ test('due review is injected with time and a sorted cursor, and every due item r
         } } });
     const injected = JSON.parse(messages[0].content.slice(messages[0].content.indexOf('{'), messages[0].content.lastIndexOf('}') + 1));
     assert.equal(injected.currentTime, asOf); assert.equal(injected.review.total, 26);
+    assert.equal(injected.profile.progress.skills.reduce((total, skill) => total + skill.total, 0), 27);
+    assert.equal(injected.profile.progress.skills.reduce((total, skill) => total + skill.due, 0), 26);
+    assert.deepEqual(injected.items, readLearning(document.data, 'en', 'story-a', { section: 'items' }, asOf));
     assert.equal(injected.review.data[0].id, oldest);
     assert.deepEqual(injected.review, readLearning(document.data, 'en', 'story-a', { section: 'review' }, asOf));
     assert.ok(injected.review.omitted); assert.ok(injected.review.nextOffset > 0);

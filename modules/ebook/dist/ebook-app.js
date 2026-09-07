@@ -36656,6 +36656,7 @@ var OU = class {
       toolCalls: g.toolCalls,
       thoughts: g.thoughts,
       finishReason: f.incomplete_details?.reason || f.status || "stop",
+      refused: g.output.some((y) => y?.type === "message" && Array.isArray(y.content) && y.content.some((b) => b?.type === "refusal")),
       model: f.model || this.config.model,
       provider: "openai-responses",
       providerPayload: g.output.length ? { openAIResponseOutput: Gp(g.output) } : void 0,

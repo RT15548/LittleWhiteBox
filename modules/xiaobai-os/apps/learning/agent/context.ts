@@ -44,13 +44,19 @@ export function buildLearningContext(options: {
 }) {
     const { data, language, osId, action, context } = options;
     const currentTime = options.asOf ?? new Date().toISOString();
-    const request = { language, teacher: options.teacher, action, currentTime,
-        message: options.message, profile: readLearning(data, language, osId, {}).data,
-        review: readLearning(data, language, osId, { section: 'review' }, currentTime),
-        focus: focus(data, language, osId, action, options.exerciseId) };
     const background = createLearningBackground(context);
-    return { messages: [
-        { role: 'user' as const, content: `<learning_request>\n${safePromptJson(request)}\n</learning_request>` },
-        { role: 'user' as const, content: `<teacher_background>\n${safePromptJson(background.initial())}\n</teacher_background>` },
-    ], turn: { role: 'user', content: `<learning_turn>\n${safePromptJson({ action, message: options.message, focus: request.focus })}\n</learning_turn>` } };
+    const request = { language, action, currentTime,
+        profile: readLearning(data, language, osId, {}, currentTime).data,
+        items: readLearning(data, language, osId, { section: 'items' }, currentTime),
+        review: readLearning(data, language, osId, { section: 'review' }, currentTime),
+        focus: focus(data, language, osId, action, options.exerciseId), background: background.initial() };
+    // Core settings have no clock, progress or recent-story fields. Dynamic data belongs at the tail.
+    const reference = { teacher: options.teacher, characters: context.snapshot.characters.map(character => ({
+        cardName: character.displayName, description: character.description, personality: character.personality, scenario: character.scenario,
+    })) };
+    const userText = `[学生本轮发言]\n${options.message}`;
+    return { prefix: [{ role: 'system' as const, content: `人物与故事核心设定，作为身份背景资料。\n<teacher_reference>\n${safePromptJson(reference)}\n</teacher_reference>` }],
+        messages: [{ role: 'user' as const, content: `${userText}\n\n本轮学习状态与背景资料：\n<learning_request>\n${safePromptJson(request)}\n</learning_request>` }],
+        // Like ebook, replay the actual exchange, not an obsolete copy of every injected asset.
+        turn: { role: 'user', content: `${userText}\n\n<learning_turn>\n${safePromptJson({ action, focus: request.focus })}\n</learning_turn>` } };
 }

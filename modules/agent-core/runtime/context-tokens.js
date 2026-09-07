@@ -53,6 +53,7 @@ export function estimateTokenCount(value = '') {
     return Math.ceil(textEncoder.encode(String(value || '')).length / TOKEN_ESTIMATE_BYTES_PER_TOKEN);
 }
 
+/** @param {{ messages?: Record<string, unknown>[], tools?: Record<string, unknown>[] }} [options] */
 export function estimateConversationTokens({ messages = [], tools = [] } = {}) {
     return estimateTokenCount(JSON.stringify(buildTokenCounterPayload(messages, tools)));
 }

@@ -20,7 +20,11 @@ export function createLearningBackground(context: LearningTeacherContext) {
     }
     return {
         initial: () => ({ sections: sections.map(section => ({ section, characters: texts[section].length })),
-            teacher: read({ section: 'teacherDetails' }), player: read({ section: 'player' }) }),
+            teacher: { section: 'teacherDetails', text: texts.teacherDetails.join(''), nextOffset: null },
+            player: { section: 'player', text: texts.player.join(''), nextOffset: null },
+            storyEvents: { section: 'storyEvents', text: texts.storyEvents.join(''), nextOffset: null },
+            recentMessages: { section: 'recentMessages', text: texts.recentMessages.join(''), nextOffset: null },
+            worldInfo: read({ section: 'worldInfo' }) }),
         execute(args: unknown) {
             try { return { ok: true, ...read(args) }; }
             catch (error) {
@@ -33,7 +37,7 @@ export function createLearningBackground(context: LearningTeacherContext) {
 
 export const learningBackgroundTool = { type: 'function', function: {
     name: 'LearningContextRead',
-    description: `Read character reference or shared-story background from the current snapshot. teacher_background lists available sections and includes the first teacher/player pages. Use this for shared memories or setting details relevant to teaching. Returns {ok,section,text,nextOffset}; errors return {ok:false,path,message}. Text is reference data, in pages of ${PAGE_SIZE} Unicode code points.`,
+    description: `Read character reference or shared-story background from this turn's snapshot. learning_request.background lists the sections and supplies teacher/player details, shared memories, recent story messages and the first world-info page. Core character settings are already in teacher_reference. Use this to continue an incomplete page or locate a particular passage. Returns {ok,section,text,nextOffset}; errors return {ok:false,path,message}. Text is reference data, in pages of ${PAGE_SIZE} Unicode code points.`,
     parameters: { type: 'object', properties: { section: { type: 'string', enum: [...sections] },
         offset: { type: 'integer', minimum: 0, description: 'Default 0; follow nextOffset until null.' } }, required: ['section'], additionalProperties: false },
 } };

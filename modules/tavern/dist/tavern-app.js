@@ -54800,6 +54800,7 @@ var cIe = class {
       toolCalls: m.toolCalls,
       thoughts: m.thoughts,
       finishReason: d.incomplete_details?.reason || d.status || "stop",
+      refused: m.output.some((p) => p?.type === "message" && Array.isArray(p.content) && p.content.some((g) => g?.type === "refusal")),
       model: d.model || this.config.model,
       provider: "openai-responses",
       providerPayload: m.output.length ? { openAIResponseOutput: _P(m.output) } : void 0,

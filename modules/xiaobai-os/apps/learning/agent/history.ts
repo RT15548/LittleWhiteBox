@@ -14,7 +14,6 @@ export function isLearningContextOverflow(error: unknown): boolean {
         && /maximum context length|context (?:window|length).*(?:exceed|too (?:long|large))|prompt is too long|input token count.*exceeds/i.test(value.message);
 }
 
-export function learningHistoryNotice(removed: number) {
-    return { role: 'user', content: `<classroom_history>\n${safePromptJson({ removedTurns: removed,
-        note: 'Earlier complete exchanges were released after the provider reported a full context. LearningRead still supplies saved teaching content and progress. Ask the learner when an unsaved conversational detail is needed.' })}\n</classroom_history>` };
+export function learningHistoryMessage(summary: string) {
+    return { role: 'system', content: `Earlier classroom exchanges, summarised as reference data.\n<classroom_history>\n${safePromptJson({ summary })}\n</classroom_history>` };
 }

@@ -27279,6 +27279,7 @@ var MJ = class {
       toolCalls: f.toolCalls,
       thoughts: f.thoughts,
       finishReason: d.incomplete_details?.reason || d.status || "stop",
+      refused: f.output.some((m) => m?.type === "message" && Array.isArray(m.content) && m.content.some((O) => O?.type === "refusal")),
       model: d.model || this.config.model,
       provider: "openai-responses",
       providerPayload: f.output.length ? { openAIResponseOutput: jS(f.output) } : void 0,

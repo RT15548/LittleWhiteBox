@@ -1,9 +1,11 @@
 import { buildProviderAssistantToolCallMessage, buildProviderToolResultMessage, resolveResultToolCalls } from '../../../../agent-core/runtime/protocol.js';
+import { estimateConversationTokens } from '../../../../agent-core/runtime/context-tokens.js';
 import type { XiaobaiOsAgentSession } from '../../../capabilities/agent/gateway.js';
 import { classifyProviderFailure } from '../../../capabilities/agent/provider-failure.js';
 import { safePromptJson } from '../../../capabilities/maintenance/prompt-safety.js';
 import type { LearningFailureDetails, LearningProgress } from '../application/feedback.js';
-import { isLearningContextOverflow, learningHistoryNotice, type LearningTurn } from './history.js';
+import { isLearningContextOverflow, learningHistoryMessage, type LearningTurn } from './history.js';
+import { LEARNING_PRESERVED_TURNS, LEARNING_SUMMARY_TRIGGER_TOKENS, summariseLearningHistory } from './history-compaction.js';
 
 type RecordValue = Record<string, unknown>;
 export type LearningLoopResult = { status: 'finished'; text: string; messages: RecordValue[]; removedTurns: number }
@@ -15,14 +17,17 @@ export async function runLearningProviderLoop(options: {
     tools: readonly RecordValue[]; signal: AbortSignal; guard: () => boolean;
     executeTool: (name: string, args: unknown) => unknown | Promise<unknown>;
     history?: readonly LearningTurn[];
-    removedTurns?: number;
+    prefix?: readonly RecordValue[];
+    historySummary?: string;
     reopen?: () => Promise<XiaobaiOsAgentSession>;
-    onCompact?: (removed: number) => void;
+    onCompact?: (removed: number, summary: string) => void;
     onProgress?: (progress: LearningProgress) => void;
 }): Promise<LearningLoopResult> {
     const { signal, guard } = options;
     let agent = options.agent;
     const history = [...(options.history ?? [])];
+    let summary = options.historySummary ?? '';
+    let summaryExhausted = false;
     let removedTurns = 0;
     const messages: RecordValue[] = [];
     const tools = new Set(options.tools.map(tool => String((tool.function as RecordValue).name)));
@@ -34,24 +39,54 @@ export async function runLearningProviderLoop(options: {
     const advance = (next: LearningProgress) => { progress = next; options.onProgress?.(next); };
     const failure = (reason: string, cause?: unknown): LearningLoopResult => cancelled() ? { status: 'cancelled' }
         : { status: 'failed', reason, details: { ...progress, cause } };
+    const replay = () => [...(options.prefix ?? []), ...(summary ? [learningHistoryMessage(summary)] : []),
+        ...history.flatMap(turn => turn.messages), ...options.messages, ...messages];
+    async function compact(round: number) {
+        if (summaryExhausted) { return false; }
+        advance({ stage: 'summary', round });
+        // Prefer keeping recent exchanges verbatim, but a short oldest exchange alone may not shrink.
+        for (let count = Math.max(1, history.length - LEARNING_PRESERVED_TURNS); count <= history.length; count++) {
+            const next = await summariseLearningHistory({ summary, turns: history.slice(0, count),
+                openSession: options.reopen!, signal, guard: () => !cancelled() });
+            if (cancelled()) { return false; }
+            if (next === null) { continue; }
+            summary = next;
+            history.splice(0, count); removedTurns += count;
+            options.onCompact?.(count, summary);
+            return true;
+        }
+        // Only this run owns this marker: tools cannot change the earlier exchanges being summarised.
+        summaryExhausted = true;
+        return false;
+    }
     for (let round = 1; !cancelled(); round++) {
         if (cancelled()) { return { status: 'cancelled' }; }
-        advance({ stage: 'provider', round });
         let result: RecordValue;
         try {
-            const removed = (options.removedTurns ?? 0) + removedTurns;
+            let compacted = false;
+            while (options.reopen && history.length && !summaryExhausted && estimateConversationTokens({
+                messages: [{ role: 'system', content: options.systemPrompt }, ...replay()], tools: [...options.tools],
+            }) > LEARNING_SUMMARY_TRIGGER_TOKENS) {
+                const changed = await compact(round);
+                if (cancelled()) { return { status: 'cancelled' }; }
+                if (!changed) { break; }
+                compacted = true;
+            }
+            if (compacted && responses) { advance({ stage: 'session', round }); agent = await options.reopen!(); responses = undefined; }
+            if (cancelled()) { return { status: 'cancelled' }; }
+            advance({ stage: 'provider', round });
             result = await agent.run({ systemPrompt: options.systemPrompt, tools: options.tools, signal,
-                messages: agent.supportsSessionToolLoop && responses ? [] : [
-                    ...(removed ? [learningHistoryNotice(removed)] : []), ...history.flatMap(turn => turn.messages), ...options.messages, ...messages],
+                messages: agent.supportsSessionToolLoop && responses ? [] : replay(),
                 ...(agent.supportsSessionToolLoop && responses ? { toolResponses: responses } : {}) });
         } catch (error) {
             if (cancelled()) { return { status: 'cancelled' }; }
+            if (progress.stage === 'summary') { return failure('learning_summary_failed', error); }
             if (isLearningContextOverflow(error)) {
                 if (history.length && options.reopen) {
-                    // Release whole old turns, never part of the active tool exchange. Replaying is read-only.
-                    const count = Math.ceil(history.length / 2);
-                    history.splice(0, count); removedTurns += count;
-                    options.onCompact?.(count);
+                    try { if (!await compact(round)) { return failure('learning_context_full', error); } }
+                    catch (cause) { return failure('learning_summary_failed', cause); }
+                    if (cancelled()) { return { status: 'cancelled' }; }
+                    advance({ stage: 'session', round });
                     try { agent = await options.reopen(); }
                     catch (cause) { return failure(classifyProviderFailure(cause), cause); }
                     responses = undefined;

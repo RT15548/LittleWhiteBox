@@ -19913,6 +19913,7 @@ var TI = class {
       toolCalls: p.toolCalls,
       thoughts: p.thoughts,
       finishReason: f.incomplete_details?.reason || f.status || "stop",
+      refused: p.output.some((m) => m?.type === "message" && Array.isArray(m.content) && m.content.some((g) => g?.type === "refusal")),
       model: f.model || this.config.model,
       provider: "openai-responses",
       providerPayload: p.output.length ? { openAIResponseOutput: da(p.output) } : void 0,

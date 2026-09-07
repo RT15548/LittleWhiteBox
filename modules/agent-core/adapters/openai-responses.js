@@ -563,6 +563,9 @@ export class OpenAIResponsesAdapter {
             toolCalls: parsed.toolCalls,
             thoughts: parsed.thoughts,
             finishReason: response.incomplete_details?.reason || response.status || 'stop',
+            // A completed response can still explicitly refuse all or part of the request.
+            refused: parsed.output.some(item => item?.type === 'message' && Array.isArray(item.content)
+                && item.content.some(part => part?.type === 'refusal')),
             model: response.model || this.config.model,
             provider: 'openai-responses',
             providerPayload: parsed.output.length

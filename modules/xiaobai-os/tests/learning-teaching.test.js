@@ -497,11 +497,12 @@ test('extracted source identities and complete long paragraphs survive into a fo
 });
 
 for (const session of [false, true]) {
-    test(`provider overflow releases only complete old turns and never re-executes current tools (${session ? 'session' : 'replay'})`, async () => {
+    test(`provider overflow summarises complete old turns and never re-executes current tools (${session ? 'session' : 'replay'})`, async () => {
         let requests = 0; let executed = 0; let reopened = 0;
         const history = ['old-a', 'old-b'].map(text => ({ user: text, teacher: text,
-            messages: [{ role: 'user', content: text }, { role: 'assistant', content: text }] }));
+            messages: [{ role: 'user', content: text }, { role: 'assistant', content: text.repeat(200) }] }));
         const agent = () => ({ providerConfig: {}, supportsSessionToolLoop: session, run: async request => {
+            if (!request.tools.length) { return { text: 'Earlier discussion of old-a.' }; }
             requests++;
             if (requests === 1) { return { toolCalls: [call('Write', { value: 'current' }, 'unique-current')] }; }
             if (requests === 2) { throw Object.assign(new Error('maximum context length exceeded'), { status: 400, code: 'context_length_exceeded' }); }
@@ -519,7 +520,7 @@ for (const session of [false, true]) {
         assert.equal(result.status, 'finished');
         assert.equal(result.removedTurns, 1);
         assert.equal(executed, 1);
-        assert.equal(reopened, 1);
+        assert.equal(reopened, 2, 'one isolated summary session and one resumed teacher session');
     });
 }
 

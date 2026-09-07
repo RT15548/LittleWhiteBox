@@ -5,7 +5,7 @@ import { learningText, LearningValidationError, type LearningTeacherPreference }
 import { buildLearningContext, type LearningDialogue, type LearningTeacherContext } from '../agent/context.js';
 import { createLearningBackground, learningBackgroundTool } from '../agent/background.js';
 import type { LearningTurn } from '../agent/history.js';
-import { LEARNING_SYSTEM_PROMPT } from '../agent/prompt.js';
+import { buildLearningSystemPrompt } from '../agent/prompt.js';
 import { runLearningProviderLoop } from '../agent/provider-loop.js';
 import { learningResearchTools } from '../agent/research-tools.js';
 import { createLearningSession, type LearningAction } from '../agent/session.js';
@@ -43,13 +43,14 @@ export function createLearningTeaching(options: {
     let turns: LearningTurn[] = [];
     let pending: string | null = null;
     let removedTurns = 0;
+    let historySummary = '';
     // An uncertain upload owns this reply until its exact commit is confirmed or explicitly abandoned.
     let awaitingSave: { commitId: string; turn: LearningTurn; result: Extract<LearningTeachingResult, { status: 'finished' }>;
         request: TeachingRequest } | null = null;
     let sources = createLearningSourceRegistry();
     let cache = createLearningResearchCache();
     function reset() {
-        active?.abort(); active = null; turns = []; pending = null; dialogueKey = ''; removedTurns = 0; awaitingSave = null;
+        active?.abort(); active = null; turns = []; pending = null; dialogueKey = ''; removedTurns = 0; historySummary = ''; awaitingSave = null;
         sources = createLearningSourceRegistry(); cache = createLearningResearchCache();
     }
     return {
@@ -99,7 +100,7 @@ export function createLearningTeaching(options: {
                 const context = await options.capture(classroom.teacher.name, classroom.chatIdentity);
                 if (!guard()) { return { status: 'cancelled' }; }
                 const asOf = options.now?.() ?? new Date().toISOString();
-                const { messages, turn } = buildLearningContext({ ...classroom, ...request, context, asOf,
+                const { prefix, messages, turn } = buildLearningContext({ ...classroom, ...request, context, asOf,
                     data: baseline?.data ?? { profiles: [] } });
                 const background = createLearningBackground(context);
                 advance({ stage: 'config' });
@@ -115,9 +116,9 @@ export function createLearningTeaching(options: {
                     inputScope: { kind: 'story', osId: classroom.osId }, sources, learnerMessage: request.message, createId: options.createId, now: options.now, asOf });
                 const session = draft;
                 if (request.exerciseId && request.action.kind === 'explain') { session.markExplained(request.exerciseId); }
-                const outcome = await runLearningProviderLoop({ agent, systemPrompt: LEARNING_SYSTEM_PROMPT, messages,
-                    history: turns, removedTurns, reopen: () => options.gateway.openSession(config),
-                    onCompact: count => { turns.splice(0, count); removedTurns += count; options.onConversation?.(); },
+                const outcome = await runLearningProviderLoop({ agent, systemPrompt: buildLearningSystemPrompt(classroom.teacher.name), prefix, messages,
+                    history: turns, historySummary, reopen: () => options.gateway.openSession(config),
+                    onCompact: (count, summary) => { turns.splice(0, count); removedTurns += count; historySummary = summary; options.onConversation?.(); },
                     tools: [...learningTools(), learningBackgroundTool, ...(research.available ? learningResearchTools() : [])],
                     signal: controller.signal, guard, onProgress: advance, executeTool: (name, args) => name === 'LearningSearch' || name === 'LearningExtract'
                         ? research.executeTool(name, args) : name === 'LearningContextRead' ? background.execute(args) : session.executeTool(name, args) });

@@ -3,6 +3,7 @@ import { learningRecord } from '../../../domains/learning/profile.js';
 import { learningProgress } from '../../../domains/learning/progress.js';
 import { canReadLearningScope, LEARNING_LIMITS as L, type LearningData, type LearningScope } from '../../../domains/learning/types.js';
 import { learningEnum, learningId, learningInteger, requireLearning } from '../../../domains/learning/validation.js';
+import { learningProgressOverview } from './progress-overview.js';
 
 export function readLearning(data: LearningData, language: string, accessOsId: string | null, args: unknown, asOf = new Date().toISOString()) {
     const input = learningRecord(args, 'LearningRead', ['section', 'id', 'offset', 'limit']);
@@ -31,6 +32,7 @@ export function readLearning(data: LearningData, language: string, accessOsId: s
             completed: !!profile?.completions.some(completion => completion.unitId === unit.id) } : null,
         blockedCurrentUnit: !!profile?.unit && !unit,
         itemCount: profile?.items.length ?? 0,
+        ...(section === 'overview' ? { progress: learningProgressOverview(profile, accessOsId, asOf) } : {}),
     };
     if (section === 'overview') {
         while (overview.unit && overview.unit.attempts.length && [...safePromptJson(overview)].length > L.dataMessage - 512) {

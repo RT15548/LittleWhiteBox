@@ -75,7 +75,7 @@ const tools = [
         name: 'LearningRead',
         description: [
             'Read the current learning draft within this action’s permitted sources, including successful changes.',
-            'Returns {section,data,nextOffset,omitted}. overview gives the profile, current unit references and item count; unit gives the full current lesson when it fits. Other sections return arrays.',
+            'Returns {section,data,nextOffset,omitted}. overview gives the profile, current unit references, item count and progress across all retained items: counts by skill/state, due counts, completed lesson count and latest readable completion. unit gives the full current lesson when it fits. Other sections return arrays.',
             'Use materials for paragraph pages, exercises for full questions and answer rules, attempts for current real answers with available feedback, items for progress, evidence for retained practice, and completions for past wrap-ups.',
             'review gives items due at the current request time, oldest first, with the same progress fields as items. It also returns asOf and total; follow nextOffset for the rest of the due items.',
             'notes gives saved explanations; listening gives actual playback facts. Filter either by exercise ID. Exercises include their answer/hint exposure, and materials include transcriptRevealed; these describe the conditions of future practice.',

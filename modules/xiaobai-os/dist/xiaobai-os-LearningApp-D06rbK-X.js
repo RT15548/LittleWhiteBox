@@ -979,7 +979,7 @@ ${g.value.selection.quote}` : C;
         "aria-label": "师生对话",
         onScroll: j
       }, [
-        e.state.conversation.removedTurns ? (a(), n("p", ha, "较早对话已释放，学习记录仍保留。")) : b("", !0),
+        e.state.conversation.removedTurns ? (a(), n("p", ha, "较早对话已整理为课堂记忆。")) : b("", !0),
         (a(!0), n(M, null, T(e.state.conversation.turns, (h, x) => (a(), n("div", {
           key: x,
           class: "learning-conversation-turn"
