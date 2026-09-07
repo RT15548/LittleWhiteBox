@@ -47,9 +47,15 @@
 .learning-conversation .learning-conversation-user { margin-left: auto; width: fit-content; max-width: 90%; padding: 10px 16px; background: var(--learn-tint); border-radius: 16px 16px 4px 16px; }
 .learning-conversation-empty { display: grid; justify-items: center; gap: 18px; padding: 60px 0; color: var(--learn-muted); }
 .learning-conversation-empty .learning-icon { width: 32px; height: 32px; color: var(--learn-blue); }
-.learning-conversation-compose { flex-shrink: 0; display: flex; align-items: flex-end; gap: 10px; background: var(--learn-bg); padding: 12px 0 max(16px, env(safe-area-inset-bottom)); }
-.learning-conversation-compose textarea { min-height: 74px; max-height: 180px; flex: 1; }
-.learning-conversation-compose .learning-primary { padding: 10px; min-width: 44px; margin-bottom: 1px; }
+.learning-conversation-compose { flex-shrink: 0; background: var(--learn-bg); padding: 12px 0 max(16px, env(safe-area-inset-bottom)); }
+.learning-composer-surface { border: 1px solid var(--learn-rule); border-radius: 18px; background: var(--learn-page); padding: 5px; }
+.learning-composer-surface:focus-within { border-color: var(--learn-blue); box-shadow: 0 0 0 1px var(--learn-blue); }
+.learning-composer-row { display: flex; align-items: center; gap: 8px; }
+.learning-app .learning-composer-row textarea { display: block; flex: 1; min-width: 0; width: 0; height: 44px; min-height: calc(1.6em + 20px); max-height: 160px; padding: 10px 9px; border: 0; border-radius: 12px; background: transparent; line-height: 1.6; resize: none; overflow-y: auto; scrollbar-width: thin; }
+.learning-app .learning-composer-row textarea:focus-visible { outline: none; }
+.learning-app .learning-composer-row > button { display: grid; place-items: center; flex: 0 0 44px; width: 44px; height: 44px; padding: 0; border-radius: 13px; }
+.learning-app .learning-composer-stop { color: var(--learn-blue); background: var(--learn-tint); }
+.learning-composer-stop .learning-icon { width: 16px; height: 16px; fill: currentColor; stroke: none; }
 .learning-history-notice { color: var(--learn-muted); font-size: 12px; padding-bottom: 12px; }
 
 .learning-toolbar { display: flex; align-items: center; flex-shrink: 0; padding: 0 22px 6px; gap: 8px; }
@@ -78,9 +84,11 @@
 
 .learning-notice { margin: 3px 22px 8px; padding: 10px 12px; border-left: 2px solid #c68431; background: #fff8ed; color: #744412; font-size: 13px; flex-shrink: 0; max-height: 28%; overflow-y: auto; overflow-wrap: anywhere; }
 .theme-dark .learning-notice { background: #30291f; border-color: #e5b36d; color: #f6d4a4; }
-.learning-notice.is-working { color: var(--learn-blue); background: var(--learn-tint); border-color: var(--learn-blue); }
 .learning-notice .learning-row:empty { display: none; }
-.learning-working-dot { display: inline-block; width: 6px; height: 6px; margin-right: 8px; background: var(--learn-blue); border-radius: 50%; animation: learning-breathe 1.5s ease-in-out infinite alternate; }
+.learning-working { display: flex; align-items: center; gap: 10px; padding: 16px 0; color: var(--learn-muted); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.learning-working > span:not(.learning-working-dot) { min-width: 0; }
+.learning-working > button { margin-left: auto; color: var(--learn-blue); flex-shrink: 0; }
+.learning-working-dot { flex: 0 0 6px; width: 6px; height: 6px; background: var(--learn-blue); border-radius: 50%; animation: learning-breathe 1.5s ease-in-out infinite alternate; }
 .learning-material { margin-bottom: 24px; }
 .learning-material h2 { font-size: 19px; line-height: 1.5; font-weight: 550; letter-spacing: -.01em; }
 .learning-source { font-size: 12px; margin: 8px 0 24px; color: var(--learn-muted); }
@@ -176,10 +184,9 @@
     .learning-app *, .learning-app *::before, .learning-app *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
 
-.learning-composer-input { flex: 1; min-width: 0; }
 .learning-conversation-tools { display: flex; gap: 8px; }
 .learning-conversation-tools button { display: flex; align-items: center; gap: 6px; padding-left: 0; font-size: 12px; color: var(--learn-muted); }
-.learning-composer-quote { display: flex; gap: 8px; align-items: center; background: var(--learn-tint); padding: 4px 10px; border-radius: 8px 8px 0 0; font-size: 12px; }
+.learning-composer-quote { display: flex; gap: 8px; align-items: center; background: var(--learn-tint); padding: 0 9px; margin-bottom: 5px; border-radius: 12px; font-size: 12px; }
 .learning-composer-quote span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .learning-menu { position: relative; margin-left: auto; z-index: 3; }
 .learning-menu summary { display: grid; place-items: center; width: 44px; list-style: none; }

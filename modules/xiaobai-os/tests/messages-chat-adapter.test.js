@@ -14,16 +14,19 @@ const compiled = await build({
         export { host } from 'messages-test-host';`, resolveDir: process.cwd() },
     bundle: true, write: false, format: 'esm', platform: 'node', logLevel: 'silent',
     plugins: [{ name: 'native-chat-fixture', setup(builder) {
-        builder.onResolve({ filter: /(?:^messages-test-host$|\/(?:extensions|script|request-compression|RossAscends-mods|event-manager|sillytavern-context|story-summary)\.js$)/ },
+        // This optional host module is absent in SillyTavern 1.14–1.16; exercise actual module resolution.
+        builder.onResolve({ filter: /\/request-compression\.js$/ }, () => ({
+            errors: [{ text: 'The host does not provide request-compression.js' }],
+        }));
+        builder.onResolve({ filter: /(?:^messages-test-host$|\/(?:extensions|script|RossAscends-mods|event-manager|sillytavern-context|story-summary)\.js$)/ },
             () => ({ path: 'host', namespace: 'fixture' }));
         builder.onLoad({ filter: /.*/, namespace: 'fixture' }, () => ({ contents: `
-            export const host = { context: null, identity: 'chat', compress: null, listeners: new Map() };
+            export const host = { context: null, identity: 'chat', listeners: new Map() };
             export const getContext = () => host.context;
             export const getSillyTavernChatIdentity = () => ({ key: host.identity });
             export const getStorySummaryCommittedThrough = () => -1;
-            export const getRequestHeaders = () => ({ 'X-Test': 'native' });
+            export const getRequestHeaders = () => ({ 'Content-Type': 'application/json', 'X-Test': 'native' });
             export const cancelDebouncedChatSave = () => {};
-            export const compressRequest = request => host.compress ? host.compress(request) : request;
             export const default_avatar = 'default.png';
             export const isChatSaving = false;
             export const getMessageTimeStamp = () => '2026-09-06T00:00:00.000Z';
@@ -47,7 +50,7 @@ const { createMessagesChatAdapter, createSillyTavernChatMetadataAdapter, saveSil
     `data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].text).toString('base64')}`);
 
 function harness(t, group = false, floors = 1) {
-    host.identity = 'chat'; host.compress = null; host.listeners.clear();
+    host.identity = 'chat'; host.listeners.clear();
     host.context = { chat: Array.from({ length: floors }, (_, i) => ({ mes: `Story ${i}`, is_user: false })), chatId: 'chat',
         ...(group ? { groupId: 'group' } : { characterId: '0' }), characters: { 0: { name: 'NPC', avatar: 'npc.png' } },
         groups: [{ id: 'group' }], chatMetadata: { integrity: 'original' }, eventSource: { async emit(name, ...args) {
@@ -85,6 +88,11 @@ for (const group of [false, true]) {
         assert.equal(h.reads.length, 0); assert.equal(h.saves.length, 1);
         assert.equal(h.remote.length, 10_002);
         assert.equal(h.saves[0].url, group ? '/api/chats/group/save' : '/api/chats/save');
+        assert.equal(h.saves[0].options.method, 'POST');
+        const headers = new Headers(h.saves[0].options.headers);
+        assert.equal(headers.get('Content-Type'), 'application/json');
+        assert.equal(headers.get('Content-Encoding'), null);
+        assert.equal(headers.get('X-Test'), 'native');
         assert.equal(h.saves[0].body.force, false);
         assert.equal(h.remote[0].chat_metadata.integrity, 'original');
         assert.equal(h.remote.at(-1).extra[PRIVATE_MESSAGE_MARKER].throughSeq, 1);
@@ -141,18 +149,6 @@ test('a slow save survives 15 seconds and APP cancellation after dispatch withou
     assert.equal(finished, false); assert.equal(h.saves.length, 1); assert.equal(h.reads.length, 0);
     release(new Response('{"ok":true}'));
     assert.equal(await saving, true);
-});
-
-test('an edit during compression invalidates the upload and cleans its temporary listeners', async t => {
-    const { h, port, input } = harness(t);
-    host.compress = async request => {
-        host.context.chat[0].mes = 'Edited during compression';
-        await host.context.eventSource.emit('MESSAGE_EDITED', 0);
-        return request;
-    };
-    await assert.rejects(port.publish(input(1)), /chat_changed/);
-    assert.equal(h.saves.length, 0);
-    assert.equal([...host.listeners.values()].reduce((sum, list) => sum + list.size, 0), 0);
 });
 
 test('a queued native save cannot write to a newly selected chat', async t => {

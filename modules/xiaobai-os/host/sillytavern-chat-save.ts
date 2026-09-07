@@ -1,7 +1,5 @@
 import { getContext } from '../../../../../../extensions.js';
 import { cancelDebouncedChatSave, getRequestHeaders, isChatSaving } from '../../../../../../../script.js';
-import { compressRequest } from '../../../../../../request-compression.js';
-import { createModuleEvents, event_types } from '../../../core/event-manager.js';
 
 interface ChatSource {
     chat: unknown[];
@@ -35,25 +33,16 @@ export function saveSillyTavernChat(guard: () => boolean, signal?: AbortSignal):
             return { status: 'failed', error: new Error('chat_unavailable') };
         }
         let request: RequestInit;
-        let changed = false;
-        const events = createModuleEvents('xiaobaiOsChatSave');
-        for (const name of [event_types.CHAT_CHANGED, event_types.MESSAGE_SENT, event_types.MESSAGE_RECEIVED,
-            event_types.MESSAGE_EDITED, event_types.MESSAGE_UPDATED, event_types.MESSAGE_DELETED,
-            event_types.MESSAGE_SWIPED, event_types.GENERATION_STARTED]) {
-            events.on(name, () => { changed = true; });
-        }
         try {
-            // Serialize once for the required native upload; never retain a chat copy for comparison/retry.
+            // Serialize once and dispatch without an async gap or optional host compression dependency.
             const chat = [{ chat_metadata: source.chatMetadata, user_name: 'unused', character_name: 'unused' }, ...source.chat];
             const body = source.groupId ? { id: source.chatId, chat, force: false }
                 : { ch_name: character.name, file_name: source.chatId, avatar_url: character.avatar, chat, force: false };
-            request = await compressRequest({ method: 'POST', cache: 'no-cache', headers: getRequestHeaders(), body: JSON.stringify(body) });
+            request = { method: 'POST', cache: 'no-cache', headers: getRequestHeaders(), body: JSON.stringify(body) };
         } catch (cause) {
             return { status: 'failed', error: new Error('chat_save_invalid', { cause }) };
-        } finally {
-            events.cleanup();
         }
-        if (changed || !current() || isChatSaving) { return { status: 'failed', error: new Error('chat_changed') }; }
+        if (!current() || isChatSaving) { return { status: 'failed', error: new Error('chat_changed') }; }
         cancelDebouncedChatSave();
         const owner = source.groupId ? source.groups?.find(group => String(group.id) === String(source.groupId)) : character;
         if (owner) { owner.date_last_chat = Date.now(); }

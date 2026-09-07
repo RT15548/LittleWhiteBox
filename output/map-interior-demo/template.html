@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>插件地图 · 混合三维预览</title>
+<style>/* MAP_COMPONENT_CSS */</style>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden}body{font-family:MiSans,"PingFang SC","Microsoft YaHei",system-ui,sans-serif;background:#dce5e8;display:grid;place-items:center}button,select{font:inherit}button{cursor:pointer;-webkit-tap-highlight-color:transparent}button:disabled{opacity:.4;cursor:default}button:focus-visible,select:focus-visible,summary:focus-visible{outline:3px solid #278595;outline-offset:2px}[hidden]{display:none!important}
+.app{--bg:#eff4f6;--surface:#fff;--ink:#2c414c;--muted:#657b87;--line:#dce6eb;--tint:#e7f0f3;--accent:#146579;--model:#227466;--abstract:#8e6629;--mark:#347db2;container-type:inline-size;width:100%;height:100%;display:grid;grid-template-rows:auto auto minmax(0,1fr) auto;background:var(--bg);color:var(--ink);overflow:hidden;position:relative;color-scheme:light}
+.app.theme-dark{--bg:#17262e;--surface:#223640;--ink:#e6f1f5;--muted:#a5beca;--line:#39515d;--tint:#2c4652;--accent:#99d7e5;--model:#90d2b5;--abstract:#e4bc83;--mark:#91c1ec;color-scheme:dark}
+.app.phone{width:390px;max-width:100vw;height:min(844px,100dvh - 24px);border:6px solid #263b45;border-radius:30px;box-shadow:0 20px 80px #1c33352b}
+.topbar{display:flex;align-items:center;gap:12px;padding:18px 24px 12px}.identity{flex:1;min-width:0}.identity h1{font-size:17px;font-weight:600;margin:0 0 5px}.identity p{font-size:11px;color:var(--muted);margin:0}.header-actions{display:flex;gap:6px}.quiet-button{border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);padding:0 12px;min-height:38px;font-size:12px}.quiet-button[aria-pressed=true]{color:var(--accent);background:var(--tint)}
+.toolbar{display:flex;align-items:center;gap:15px;padding:0 24px 14px;border-bottom:1px solid var(--line)}.scene-picker{position:relative;min-width:0}.scene-picker select{max-width:240px;min-height:40px;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:0 30px 0 12px;font-size:13px}
+.view-switch{display:flex;gap:3px;padding:3px;background:var(--surface);border:1px solid var(--line);border-radius:11px;flex-shrink:0}.view-switch button{min-height:32px;padding:0 14px;background:transparent;color:var(--muted);border:0;border-radius:8px;font-size:12px}.view-switch button[aria-pressed=true]{background:var(--tint);color:var(--accent);font-weight:600}
+.coverage{display:flex;align-items:center;gap:14px;margin-left:auto;flex-wrap:wrap;color:var(--muted);font-size:11px}.coverage span{white-space:nowrap}.coverage span:before,.kind:before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:currentColor;margin-right:5px;vertical-align:1px}.coverage .model,.kind.model{color:var(--model)}.coverage .footprint,.kind.footprint{color:var(--abstract)}.coverage .footprint:before,.kind.footprint:before{border-radius:1px;transform:rotate(45deg)}.coverage .marker,.kind.marker{color:var(--mark)}
+.workspace{position:relative;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 290px}.map-area{position:relative;min-width:0;min-height:0;overflow:hidden}.viewport{position:absolute;inset:0 0 64px;outline-offset:-4px;touch-action:none}.viewport canvas{display:block;cursor:grab;touch-action:none}.viewport canvas:active{cursor:grabbing}.plan{position:absolute!important;inset:0}.plan .map-viewport{height:100%}.labels{position:absolute;inset:0;pointer-events:none;overflow:hidden}.scene-label{position:absolute;transform:translate(-50%,-100%);font-size:11px;white-space:nowrap;background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:4px 7px;color:var(--ink);box-shadow:0 2px 7px #2135420a}.scene-label.footprint:before{content:"◇ ";color:var(--abstract)}.scene-label.marker{color:var(--mark)}.scene-label.selected{border-color:var(--accent);color:var(--accent)}
+.compass{position:absolute;top:18px;left:22px;pointer-events:none;color:var(--muted);text-align:center;font-size:10px;z-index:2}.compass svg{width:34px;height:34px;display:block}.needle{transform-origin:20px 20px}.controls{position:absolute;bottom:80px;right:20px;z-index:2;display:flex;gap:6px;flex-wrap:wrap}.controls button{height:36px;padding:0 12px;background:var(--surface);border:1px solid var(--line);border-radius:9px;color:var(--ink);font-size:11px}.controls button[aria-pressed=true]{background:var(--tint);color:var(--accent)}.app[data-mode="2d"] .controls{display:none}.hint{position:absolute;bottom:70px;left:22px;margin:0;font-size:10px;color:var(--muted);pointer-events:none}.selection-bar{position:absolute;left:0;right:0;bottom:0;min-height:64px;display:flex;align-items:center;gap:10px;padding:12px 22px;border-top:1px solid var(--line);background:var(--surface)}.selection-bar>div{flex:1;min-width:0}.selection-bar strong{font-size:13px;font-weight:600}.selection-bar p{font-size:11px;color:var(--muted);margin:4px 0 0;line-height:1.45}.selection-bar .quiet-button{flex-shrink:0}.mobile-only{display:none}
+.inspector{min-height:0;overflow:auto;padding:20px 18px;background:var(--surface);border-left:1px solid var(--line);scrollbar-width:thin}.inspector header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}.inspector h2{font-size:13px;margin:0;font-weight:600}.inspector header small{font-size:10px;color:var(--muted)}.object-list{display:flex;flex-direction:column;gap:3px}.object-row{width:100%;display:flex;align-items:center;gap:8px;justify-content:space-between;border:1px solid transparent;background:transparent;border-radius:8px;padding:10px 8px;text-align:left;color:var(--ink);min-height:38px}.object-row:hover{background:var(--bg)}.object-row[aria-pressed=true]{background:var(--tint);border-color:var(--line)}.object-row .object-name{font-size:12px;overflow-wrap:anywhere}.kind{white-space:nowrap;font-size:10px;color:var(--muted)}.object-detail{border-top:1px solid var(--line);padding-top:16px;margin-top:15px}.object-detail h3{font-size:14px;margin:0 0 8px}.object-detail p{font-size:12px;line-height:1.8;margin:8px 0;color:var(--muted)}.object-detail .fact{font-size:11px;color:var(--ink)}.object-detail summary{font-size:11px;color:var(--accent);cursor:pointer;padding:9px 0}.object-detail pre{font:10px/1.6 ui-monospace,Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere;margin:0;padding:10px;background:var(--bg);border-radius:8px}
+.footer{display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:40px;padding:6px 24px;border-top:1px solid var(--line);background:var(--surface);font-size:10px;color:var(--muted);z-index:4}.source-note{margin:0}.about summary{cursor:pointer;padding:7px 0;white-space:nowrap}.about[open]{position:absolute;bottom:8px;right:12px;width:330px;max-width:calc(100% - 24px);padding:12px 16px;background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:0 8px 30px #18303d22}.about p{font-size:12px;line-height:1.8;margin:6px 0}.about code{font-size:10px;overflow-wrap:anywhere}.error{position:absolute;z-index:6;left:16px;right:16px;top:8px;padding:12px 14px;border:1px solid var(--line);border-radius:10px;background:var(--surface);font-size:12px;line-height:1.6}.loading{position:absolute;inset:0;display:grid;place-content:center;color:var(--muted);font-size:13px;pointer-events:none}
+@container(max-width:760px){.topbar{padding:16px 16px 10px}.identity h1{font-size:15px}.identity p{font-size:10px}.toolbar{gap:8px;flex-wrap:wrap;padding:0 16px 12px}.scene-picker{flex:1}.scene-picker select{width:100%;max-width:none;font-size:12px;padding-left:8px}.view-switch button{padding:0 10px;font-size:11px}.coverage{margin-left:0;width:100%;gap:13px;font-size:10px}.workspace{grid-template-columns:1fr}.inspector{display:none;position:absolute;inset:auto 0 0;z-index:5;max-height:78%;border:1px solid var(--line);border-radius:18px 18px 0 0;box-shadow:0 -5px 30px #162d381a}.objects-open .inspector{display:block}.mobile-only{display:initial}.desktop-only{display:none}.viewport{bottom:104px}.hint{bottom:112px;left:16px;font-size:9px}.controls{bottom:70px;right:0;left:0;justify-content:center;gap:5px}.controls button{padding:0 10px;height:32px;font-size:10px}.selection-bar{padding:10px 16px;min-height:60px}.selection-bar strong{font-size:12px}.selection-bar p{font-size:10px}.selection-bar .quiet-button{min-height:34px;padding:0 10px;font-size:11px}.compass{top:12px;left:16px}.scene-label{font-size:10px;padding:3px 5px}.footer{padding:5px 16px;gap:8px;font-size:9px;min-height:38px}.source-note{max-width:235px;line-height:1.5}.object-row{min-height:42px}.app[data-mode="2d"] .viewport{bottom:64px}.app[data-mode="2d"] .hint{display:none}}
+.app.phone .desktop-only{display:initial}
+@media(max-width:650px){.app.phone{height:100dvh;border:0;border-radius:0}}
+</style>
+</head>
+<body>
+<main class="app" id="app" data-mode="3d">
+    <header class="topbar">
+        <div class="identity"><h1>地图 · 三维方案预览</h1><p>同一份场景数据 · 二维 / 三维对照</p></div>
+        <div class="header-actions"><button class="quiet-button desktop-only" id="phone" aria-pressed="false">手机尺寸</button><button class="quiet-button" id="theme" aria-pressed="false" aria-label="切换深色">深色</button></div>
+    </header>
+    <nav class="toolbar" aria-label="场景与视图">
+        <label class="scene-picker"><select id="scene-picker" aria-label="项目测试场景"></select></label>
+        <div class="view-switch"><button id="mode-3d" aria-pressed="true">三维候选</button><button id="mode-2d" aria-pressed="false">现有二维</button></div>
+        <div class="coverage" id="coverage" aria-label="三维造型覆盖"></div>
+    </nav>
+    <div class="workspace">
+        <section class="map-area" aria-label="地图预览">
+            <div id="viewport" class="viewport" tabindex="0" aria-label="三维视口：拖动旋转，方向键调整，Home复位">
+                <div class="plan map-app" id="plan" hidden></div>
+                <div class="labels" id="labels"></div>
+                <div class="loading" id="loading">正在打开场景</div>
+            </div>
+            <div class="compass"><span>北</span><svg viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="20" r="17" fill="none" stroke="currentColor" opacity=".2"/><g class="needle" id="needle"><path d="m20 6 5 14-5-2-5 2Z" fill="#327f90"/><path d="m20 34 5-14-5 2-5-2Z" fill="currentColor" opacity=".35"/></g></svg></div>
+            <div class="controls" aria-label="三维查看控制"><button id="zoom-in" aria-label="放大三维">＋</button><button id="zoom-out" aria-label="缩小三维">−</button><button id="reset">全图</button><button id="labels-toggle" aria-pressed="true">名称</button><button id="walls-toggle" aria-pressed="false">低墙</button></div>
+            <p class="hint" id="hint">拖动旋转 · 双指 / 滚轮缩放 · 点选物件</p>
+            <div class="selection-bar" aria-live="polite"><div><strong id="selection-title"></strong><p id="selection-detail"></p></div><button class="quiet-button mobile-only" id="objects-toggle" aria-expanded="false" aria-controls="inspector">物件</button></div>
+            <p class="error" id="error" role="status" hidden></p>
+        </section>
+        <aside class="inspector" id="inspector" aria-label="三维呈现明细">
+            <header><h2>三维呈现</h2><small id="element-count"></small><button id="objects-close" class="quiet-button mobile-only">收起</button></header>
+            <div class="object-list" id="object-list"></div>
+            <section class="object-detail"><h3 id="detail-title"></h3><p id="detail-reason"></p><p class="fact" id="detail-fact"></p><details><summary>查看原始字段</summary><pre id="element-json"></pre></details></section>
+        </aside>
+    </div>
+    <footer class="footer"><p class="source-note">项目手写测试样本 · 未调用模型 · 未连接存档</p><details class="about"><summary>来源与限制</summary><p>同一份工具测试输入经过插件现有编译器和数据校验，再同时交给二维与三维视图。</p><p>二维直接使用现有 MapScene.vue；三维是候选渲染器。模板只支持桌、椅、沙发、柜台、书架、树木的部分形状。没有模板的物件不按名称猜造型。</p><p>高度、书籍、软垫和材质细节是显示预设，不是场景事实；不表示楼层、真实体积、物理碰撞或模型生成质量。</p><p><code>modules/xiaobai-os/tests/fixtures/scene-maps.js</code></p></details></footer>
+</main>
+<script>/* DEMO_BUNDLE */</script>
+</body>
+</html>
