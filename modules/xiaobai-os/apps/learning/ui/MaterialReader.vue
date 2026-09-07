@@ -3,7 +3,7 @@ import type { LearningClassView } from '../application/projection.js';
 import type { LearningSelection } from '../../../domains/learning/notes.js';
 import LearningIcon from './LearningIcon.vue';
 type Material = NonNullable<LearningClassView['unit']>['materials'][number];
-const props = defineProps<{ material: Material; disabled: boolean; exerciseId: string }>();
+const props = defineProps<{ material: Material; disabled: boolean; exerciseId?: string }>();
 const emit = defineEmits<{ action: [name: string, input: Record<string, unknown>]; select: [selection: LearningSelection] }>();
 function selectParagraph(paragraph: { id: string; text: string }) {
     emit('select', { materialId: props.material.id, paragraphId: paragraph.id, start: 0, end: paragraph.text.length, quote: paragraph.text });

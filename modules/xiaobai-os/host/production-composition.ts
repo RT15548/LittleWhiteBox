@@ -165,6 +165,7 @@ export function createProductionBootstrap(
         chatReferences: references,
         capabilities,
         modules,
+        beforeRead: () => bindingLifecycle.ready(),
         prepareInitialPartitions: upstreamFourthWall.prepareInitialPartitions,
     });
     const bindingLifecycle = createChatBindingLifecycle({
@@ -179,7 +180,7 @@ export function createProductionBootstrap(
     const productionApps = Object.freeze({
         ...composition.apps,
         async handleWindowOpened() {
-            await bindingLifecycle.refresh();
+            await bindingLifecycle.ready();
             await composition.apps.handleWindowOpened();
         },
     });
@@ -189,11 +190,11 @@ export function createProductionBootstrap(
             if (productionInstalled) { return; }
             mainGeneration.startBackground?.();
             try {
+                bindingLifecycle.start();
+                await bindingLifecycle.ready();
                 await composition.install();
                 const maintenance = composition.capabilities.require(MAINTENANCE_CAPABILITY);
                 maintenance.runner.startBackground(subscribeMaintenanceMessages);
-                bindingLifecycle.start();
-                await bindingLifecycle.refresh();
                 productionInstalled = true;
             } catch (error) {
                 await bindingLifecycle.stop();

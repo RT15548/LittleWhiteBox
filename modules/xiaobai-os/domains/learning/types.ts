@@ -2,7 +2,7 @@ import type { LearningProfile } from './profile.js';
 import type { LearningNote } from './notes.js';
 
 export const LEARNING_LIMITS = Object.freeze({
-    materials: 3, exercises: 8, materialText: 6000, prompt: 1200, explanation: 2000,
+    materialText: 6000, prompt: 1200, explanation: 2000,
     answer: 4000, name: 80, goal: 800, itemChanges: 5, evidence: 3, options: 6, pairs: 8, gaps: 6,
     readDefault: 20, readMax: 50, dataMessage: 24000, paragraphChunk: 2000, acceptedForms: 12,
 });

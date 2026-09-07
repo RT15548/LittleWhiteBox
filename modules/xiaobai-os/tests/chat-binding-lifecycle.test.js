@@ -28,7 +28,7 @@ const eventNames = {
     characterRenamed: 'character-renamed',
 };
 
-test('chat, focus and visibility refreshes share one coalescing lifecycle queue', async () => {
+test('chat events resolve once; reopening, focus and visibility do not re-read storage', async () => {
     const events = eventTarget();
     const windowTarget = eventTarget();
     const documentTarget = eventTarget();
@@ -59,6 +59,13 @@ test('chat, focus and visibility refreshes share one coalescing lifecycle queue'
     await lifecycle.refresh();
     assert.equal(resolves, 1);
     assert.equal(sidecarRefreshes, 1);
+    windowTarget.emit('focus');
+    documentTarget.emit('visibilitychange');
+    await lifecycle.ready();
+    await lifecycle.ready();
+    assert.equal(resolves, 1);
+    assert.equal(windowTarget.count('focus'), 0);
+    assert.equal(documentTarget.count('visibilitychange'), 0);
 
     events.emit('chat-changed');
     await lifecycle.refresh();

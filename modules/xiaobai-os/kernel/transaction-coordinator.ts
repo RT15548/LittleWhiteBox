@@ -47,6 +47,7 @@ export interface TransactionCoordinatorOptions {
     capabilityBinder?: TransactionCapabilityBinder;
     validateCandidate?: (context: TransactionCandidateValidationContext) => void | Promise<void>;
     createId?: () => string;
+    beforeRead?: () => Promise<void>;
     prepareInitialPartitions?: (
         capture: CapturedChatBinding,
         signal?: AbortSignal,
@@ -160,6 +161,8 @@ export function createTransactionCoordinator(options: TransactionCoordinatorOpti
     const pending = new Map<string, PendingCommit>();
     const stateListeners = new Set<(change: XiaobaiOsFileStateChange) => void>();
     const partitionListeners = new Map<string, Set<(snapshot: PartitionSnapshot<unknown>) => void>>();
+    let activeIdentity: string | null = null;
+    let activation = 0;
 
     function enqueue<T>(work: () => Promise<T>): Promise<T> {
         const result = queue.then(work, work);
@@ -172,7 +175,27 @@ export function createTransactionCoordinator(options: TransactionCoordinatorOpti
         if (!capture) {
             throw new KernelOperationError(writeFailure('chat_unavailable', 'No chat is currently open', false));
         }
+        if (activeIdentity !== capture.identityKey) {
+            activation += 1;
+            for (const key of envelopes.keys()) { if (!pending.has(key)) { envelopes.delete(key); } }
+            activeIdentity = capture.identityKey;
+        }
+        if (envelopes.has(capture.identityKey)
+            && (envelopes.get(capture.identityKey)?.osId ?? null) !== (capture.reference?.osId ?? null)
+            && !pending.has(capture.identityKey)) {
+            envelopes.delete(capture.identityKey);
+        }
         return capture;
+    }
+
+    async function captureForOperation(): Promise<CapturedChatBinding> {
+        const requested = requireCapture();
+        await options.beforeRead?.();
+        const current = requireCapture();
+        if (!sameBinding(requested, current)) {
+            throw new KernelOperationError(writeFailure('chat_changed', 'The active chat changed while loading', true));
+        }
+        return current;
     }
 
     async function assertCurrent(capture: CapturedChatBinding): Promise<void> {
@@ -211,6 +234,18 @@ export function createTransactionCoordinator(options: TransactionCoordinatorOpti
         if (!capture.reference) { return null; }
         const envelope = await storage.read(capture.reference.osId);
         assertResolvedEnvelope(capture, envelope);
+        return envelope;
+    }
+
+    async function readConfirmed(capture: CapturedChatBinding): Promise<XiaobaiOsSidecarV1 | null> {
+        if (envelopes.has(capture.identityKey)) { return envelopes.get(capture.identityKey) ?? null; }
+        const requestedAt = activation;
+        const envelope = await strongRead(capture);
+        await assertCurrent(capture);
+        if (requestedAt !== activation) {
+            throw new KernelOperationError(writeFailure('chat_changed', 'The chat was reloaded during the read', true));
+        }
+        installEnvelope(capture, envelope);
         return envelope;
     }
 
@@ -279,6 +314,8 @@ export function createTransactionCoordinator(options: TransactionCoordinatorOpti
     }
 
     function installEnvelope(capture: CapturedChatBinding, envelope: XiaobaiOsSidecarV1 | null): void {
+        const current = chatReferences.capture();
+        if (!current || !sameBinding(capture, current)) { return; }
         envelopes.set(capture.identityKey, envelope ? cloneJsonValue(envelope) : null);
         for (const registration of partitions.list()) {
             publishPartition(registration.key, capture.identityKey, envelope);
@@ -295,12 +332,11 @@ export function createTransactionCoordinator(options: TransactionCoordinatorOpti
             const isFrozen = frozenState === 'unconfirmed'
                 || frozenState === 'conflict'
                 || pending.has(requested.identityKey);
-            if (!isFrozen) { setState(requested.identityKey, 'loading'); }
+            if (!isFrozen && !envelopes.has(requested.identityKey)) { setState(requested.identityKey, 'loading'); }
             let envelope: XiaobaiOsSidecarV1 | null;
             try {
-                envelope = await strongRead(requested);
+                envelope = await readConfirmed(requested);
                 await assertCurrent(requested);
-                installEnvelope(requested, envelope);
                 if (!isFrozen) { setState(requested.identityKey, 'ready'); }
             } catch (error) {
                 const failure = asWriteFailure(error, 'storage_read_failed');
@@ -396,8 +432,9 @@ export function createTransactionCoordinator(options: TransactionCoordinatorOpti
         );
 
         function peekCurrent(): PartitionSnapshot<T> | null {
-            const capture = chatReferences.capture();
-            if (!capture || !envelopes.has(capture.identityKey)) { return null; }
+            if (!chatReferences.capture()) { return null; }
+            const capture = requireCapture();
+            if (!envelopes.has(capture.identityKey)) { return null; }
             return snapshotFromEnvelope(
                 registration,
                 capture.identityKey,
@@ -406,7 +443,7 @@ export function createTransactionCoordinator(options: TransactionCoordinatorOpti
         }
 
         async function read(): Promise<PartitionSnapshot<T>> {
-            return await readForStore(requireCapture(), registration);
+            return await readForStore(await captureForOperation(), registration);
         }
 
         async function transact<R>(
@@ -414,7 +451,7 @@ export function createTransactionCoordinator(options: TransactionCoordinatorOpti
             transactionOptions: TransactionOptions = {},
         ): Promise<ScopedTransactionResult<T, R>> {
             if (typeof command !== 'function') { throw new TypeError('transaction command must be a function'); }
-            const requested = requireCapture();
+            const requested = await captureForOperation();
             return await enqueue(async () => {
                 await assertCurrent(requested);
                 const frozenState = stateFor(requested);
@@ -433,16 +470,15 @@ export function createTransactionCoordinator(options: TransactionCoordinatorOpti
 
                 let envelope: XiaobaiOsSidecarV1 | null;
                 let initialPartitions: Record<string, unknown> = {};
-                setState(requested.identityKey, 'loading');
+                if (!envelopes.has(requested.identityKey)) { setState(requested.identityKey, 'loading'); }
                 try {
-                    envelope = await strongRead(requested);
+                    envelope = await readConfirmed(requested);
                     if (!envelope && !requested.reference && options.prepareInitialPartitions) {
                         initialPartitions = cloneJsonValue(
                             await options.prepareInitialPartitions(requested, transactionOptions.signal),
                         );
                     }
                     await assertCurrent(requested);
-                    installEnvelope(requested, envelope);
                     setState(requested.identityKey, 'ready');
                 } catch (error) {
                     const failure = asWriteFailure(error, 'storage_read_failed');
@@ -635,15 +671,16 @@ export function createTransactionCoordinator(options: TransactionCoordinatorOpti
             const isFrozen = frozenState === 'unconfirmed'
                 || frozenState === 'conflict'
                 || pending.has(requested.identityKey);
-            if (!isFrozen) { setState(requested.identityKey, 'loading'); }
+            if (isFrozen) { return; }
+            setState(requested.identityKey, 'loading');
             try {
                 const envelope = await strongRead(requested);
                 await assertCurrent(requested);
                 installEnvelope(requested, envelope);
-                if (!isFrozen) { setState(requested.identityKey, 'ready'); }
+                setState(requested.identityKey, 'ready');
             } catch (error) {
                 const failure = asWriteFailure(error, 'storage_read_failed');
-                if (!isFrozen) { setState(requested.identityKey, 'failed', failure); }
+                setState(requested.identityKey, 'failed', failure);
                 throw error;
             }
         });
@@ -689,9 +726,11 @@ export function createTransactionCoordinator(options: TransactionCoordinatorOpti
     }
 
     function invalidateCurrent(): void {
+        activation += 1;
+        for (const key of envelopes.keys()) { if (!pending.has(key)) { envelopes.delete(key); } }
+        activeIdentity = null;
         const capture = chatReferences.capture();
         if (!capture) { return; }
-        envelopes.delete(capture.identityKey);
         for (const registration of partitions.list()) {
             publishPartition(registration.key, capture.identityKey, null);
         }

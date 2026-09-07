@@ -26,15 +26,16 @@ export function learningClassView(data: LearningData, language: string, osId: st
         profile: profile ? { language: profile.language, explanationLanguage: profile.explanationLanguage,
             selfAssessment: profile.selfAssessment, goal: profile.goal, voice: profile.voice ?? null } : null,
         blockedUnit: !!profile?.unit && !unit,
+        currentUnitId: profile?.unit?.id ?? null,
         unit: unit ? { id: unit.id, title: unit.title, goal: unit.goal, reward: unit.reward,
             notes: unit.notes ?? [],
             materials: unit.materials.map(material => learningMaterialView(material, !material.transcriptRevealed
                 && unit.exercises.some(exercise => exercise.skill === 'listening' && exercise.materialIds.includes(material.id)))),
             exercises: unit.exercises.map(exercise => learningExerciseView(exercise, unit)),
             // Current attempts are paged by question in the UI; keys and transcript never travel with them.
-            attempts: unit.attempts.filter(attempt => visible(attempt.scope)).slice(-80),
+            attempts: unit.attempts.filter(attempt => visible(attempt.scope)),
             assessments: unit.assessments.filter(assessment => visible(assessment.scope)
-                && unit.attempts.slice(-80).some(attempt => attempt.id === assessment.attemptId)),
+                && unit.attempts.some(attempt => attempt.id === assessment.attemptId && visible(attempt.scope))),
         } : null,
         records: { offset: pageOffset, total: items.length, items: items.slice(pageOffset, pageOffset + 30).map(entry => ({
             id: entry.id, label: visible(entry.scope) ? entry.label : '其他故事中的学习项', skill: entry.skill,

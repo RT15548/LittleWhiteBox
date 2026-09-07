@@ -9,7 +9,7 @@ export function completeLearning(profile: LearningLanguage, args: unknown, optio
     const unitId = learningId(input.unitId, 'unitId');
     const unit = profile.unit;
     requireLearning(unit && unit.id === unitId && canReadLearningScope(unit.scope, options.osId), 'unitId', 'Use the current readable unit');
-    const attemptIds = learningIds(input.attemptIds, 'attemptIds', L.exercises);
+    const attemptIds = learningIds(input.attemptIds, 'attemptIds');
     requireLearning(attemptIds.length > 0, 'attemptIds', 'Completion requires actual practice with feedback');
     const summary = learningText(input.summary, 'summary', L.explanation);
     // A completed unit keeps its original completion and reward even during later review.

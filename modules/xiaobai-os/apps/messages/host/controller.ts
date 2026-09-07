@@ -39,7 +39,8 @@ export function createMessagesController(deps: MessagesControllerDependencies): 
             }).sort((left, right) => right.lastSeq - left.lastSeq || left.createdAt - right.createdAt),
             knownPeople: context.knownPeople().map(({ name, aliases }) => ({ name, aliases })),
             fileState: service.fileState(), pendingSave: service.pending(),
-            busy: runtime.active?.identity === deps.identity() ? { contactId: runtime.active.contactId, stage: runtime.active.stage } : null,
+            busy: runtime.active?.identity === deps.identity() ? { contactId: runtime.active.contactId, messageId: runtime.active.messageId, stage: runtime.active.stage } : null,
+            outgoing: runtime.outgoing, sendFailure: runtime.failure,
             generationActive: deps.isGenerating(), unsynced: unsyncedIds(domain).length,
             error: localError || runtime.error, media: media.capabilities(),
         };
@@ -114,6 +115,8 @@ export function createMessagesController(deps: MessagesControllerDependencies): 
                     if (localBusy) {throw new Error('messages_busy');}
                     runtime.start(string('contactId'), string('messageId'));
                     return state();
+                case 'messages/discard-send':
+                    runtime.discard(string('messageId')); return state();
                 case 'messages/confirm':
                     return await exclusive(async () => {await service.confirm(); runtime.clearError(); return state();});
                 case 'messages/adopt-server-state':
@@ -121,7 +124,7 @@ export function createMessagesController(deps: MessagesControllerDependencies): 
                         if (!guard()) {throw new Error('messages_chat_changed');}
                         const result = await service.adoptServerState();
                         if (!guard()) {throw new Error('messages_chat_changed');}
-                        if (result.status === 'adopted') {timeline.reset(); runtime.clearError();}
+                        if (result.status === 'adopted') {timeline.reset(); runtime.reset();}
                         return state();
                     });
                 case 'messages/sync':
@@ -167,7 +170,7 @@ export function createMessagesController(deps: MessagesControllerDependencies): 
         },
         deactivate, cancelForeground: deactivate, handleWindowClosed: deactivate,
         cancelAll() {chatBoundary++; runtime.cancel(); deactivate();},
-        handleChatChanged() {chatBoundary++; runtime.cancel(); runtime.clearError(); timeline.reset(); localError = ''; deactivate();},
+        handleChatChanged() {chatBoundary++; runtime.reset(); timeline.reset(); localError = ''; deactivate();},
         startBackground() {
             if (cleanups.length) {return;}
             cleanups = [service.subscribe(emit), service.subscribeFile(emit),

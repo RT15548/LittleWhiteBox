@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { computed, nextTick, onUnmounted, reactive, ref } from 'vue';
 import type { XiaobaiOsAppProps } from '../../../shell/app-contract.js';
-import type { MessagesClientState, ThreadPage } from '../types.js';
+import type { MessageSendFailure, MessagesClientState, PendingOutgoingMessage, ThreadPage } from '../types.js';
 import type { OutgoingMessage } from '../application/image-upload.js';
 import ContactList from './ContactList.vue';
 import Conversation from './Conversation.vue';
 import MessageIcon from './MessageIcon.vue';
 import ContactAvatar from './ContactAvatar.vue';
-import { emptyDraft, sameDraft, type MessageDraft } from './draft.js';
+import { emptyDraft, type MessageDraft } from './draft.js';
 import { createMessageId } from '../application/identity.js';
 import './messages.css';
 
@@ -15,15 +15,20 @@ const props = defineProps<XiaobaiOsAppProps>();
 const state = ref(props.initialState as MessagesClientState);
 const selected = ref(''); const page = ref<ThreadPage>({ contactId: '', messages: [], hasMore: false, retryMessageId: null });
 const loading = ref(false); const working = ref(false); const error = ref('');
+const threadError = ref('');
 const conversation = ref<InstanceType<typeof Conversation> | null>(null);
 const dialog = ref<HTMLDialogElement | null>(null); const mode = ref<'add' | 'detail' | 'delete' | 'delete-image' | 'sync' | 'recover' | 'adopt'>('add');
 const imageToDelete = ref('');
 const name = ref(''); const note = ref(''); const personSearch = ref('');
-const action = ref(createMessageId()); const contactAction = ref(createMessageId());
+const contactAction = ref(createMessageId());
 let alive = true; let threadRequest = 0;
 const drafts = reactive(new Map<string, MessageDraft>());
 const draft = computed({ get: () => drafts.get(selected.value) ?? emptyDraft(), set: value => {drafts.set(selected.value, value);} });
-let submitted: { contactId: string; messageId: string; draft: MessageDraft } | null = null;
+const submitted = ref<PendingOutgoingMessage | null>(null);
+const sendError = ref<MessageSendFailure | null>(null);
+const outgoing = computed(() => state.value.outgoing ?? submitted.value);
+const pendingBubble = computed(() => outgoing.value?.contactId === selected.value
+    && !page.value.messages.some(message => message.id === outgoing.value?.messageId) ? outgoing.value : null);
 const contact = computed(() => state.value.contacts.find(person => person.id === selected.value));
 const waitingFor = computed(() => state.value.busy && state.value.busy.contactId !== selected.value
     ? state.value.contacts.find(person => person.id === state.value.busy?.contactId)?.name ?? '另一位联系人' : '');
@@ -37,7 +42,7 @@ async function request<T>(type: string, payload: Record<string, unknown> = {}): 
 }
 async function readThread(older = false, replace = false) {
     const id = selected.value; if (!id) {return;}
-    const token = ++threadRequest; loading.value = true;
+    const token = ++threadRequest; loading.value = true; threadError.value = '';
     try {
         const next = await request<ThreadPage>('messages/thread', { contactId: id, ...(older ? { before: page.value.messages[0]?.seq } : {}) });
         if (!alive || token !== threadRequest || selected.value !== id) {return;}
@@ -48,8 +53,8 @@ async function readThread(older = false, replace = false) {
         const combined = new Map([...previous, ...next.messages].map(message => [message.id, message]));
         const messages = [...combined.values()].sort((left, right) => left.seq - right.seq);
         page.value = { ...next, messages, hasMore: replace || older || !overlap || messages.length <= 50 ? next.hasMore : page.value.hasMore };
-        if (submitted?.contactId === id && messages.some(message => message.id === submitted?.messageId)) {clearSubmitted();}
-    } catch {if (alive && token === threadRequest && selected.value === id) {error.value = '消息暂时无法读取，请返回后重试。';}}
+        if (submitted.value?.contactId === id && messages.some(message => message.id === submitted.value?.messageId)) {submitted.value = null; sendError.value = null;}
+    } catch {if (alive && token === threadRequest && selected.value === id) {threadError.value = '消息暂时无法读取。';}}
     finally {if (token === threadRequest) {loading.value = false;}}
 }
 function apply(next: MessagesClientState) {
@@ -58,7 +63,7 @@ function apply(next: MessagesClientState) {
     const wasPendingSave = needsSave.value;
     state.value = next;
     for (const id of drafts.keys()) {if (!next.contacts.some(person => person.id === id)) {drafts.delete(id);}}
-    if (submitted && next.contacts.some(contact => contact.lastMessageId === submitted?.messageId)) {clearSubmitted();}
+    if (submitted.value && !next.contacts.some(contact => contact.id === submitted.value?.contactId)) {submitted.value = null; sendError.value = null;}
     if (selected.value && !next.contacts.some(contact => contact.id === selected.value)) {back();}
     else if (selected.value && (previousSeq !== contact.value?.lastSeq || wasPendingSave && !needsSave.value)) {
         // A confirmed pending deletion may not change the last message. Reload
@@ -66,35 +71,56 @@ function apply(next: MessagesClientState) {
         void readThread(false, wasPendingSave && !needsSave.value);
     }
 }
-function clearSubmitted() {
-    if (submitted) {
-        // A delayed confirmation clears only the submitted draft, never newer
-        // typing or a different contact's text.
-        const current = drafts.get(submitted.contactId);
-        if (current && sameDraft(current, submitted.draft)) {drafts.delete(submitted.contactId);}
-        if (submitted.contactId === selected.value) {conversation.value?.sent();}
-    }
-    submitted = null; action.value = createMessageId();
-}
 const unsubscribe = props.bridge.subscribe(event => {if (event.type === 'messages/state') {apply((event.payload as { state: MessagesClientState }).state);}});
 function select(id: string) {
     selected.value = id; error.value = ''; page.value = { contactId: id, messages: [], hasMore: false, retryMessageId: null }; void readThread();
 }
-function back() {selected.value = ''; threadRequest++; page.value = { contactId: '', messages: [], hasMore: false, retryMessageId: null };}
+function back() {selected.value = ''; threadRequest++; threadError.value = ''; page.value = { contactId: '', messages: [], hasMore: false, retryMessageId: null };}
 async function run(task: () => Promise<void>) {
     if (working.value) {return;} working.value = true; error.value = '';
     try {await task();} catch (cause) {if (alive) {error.value = cause instanceof Error && cause.message !== 'host_request_timeout' ? cause.message : '等待操作结果超时，请核实保存状态后重试。';}}
     finally {working.value = false;}
 }
 function send(payload: OutgoingMessage) {
-    if (disabled.value) {return;}
-    void run(async () => {
-        submitted = { contactId: selected.value, messageId: `input:${action.value}`, draft: { ...draft.value } };
-        const next = await request<MessagesClientState>('messages/send', { contactId: selected.value, actionId: action.value, payload });
+    if (disabled.value || outgoing.value) {return;}
+    const input = { contactId: selected.value, messageId: `input:${createMessageId()}`, payload, createdAt: Date.now() };
+    submitted.value = input; sendError.value = null;
+    drafts.delete(input.contactId);
+    conversation.value?.sent();
+    void deliver(input.contactId, input.messageId, input);
+}
+async function deliver(contactId: string, messageId: string, input?: PendingOutgoingMessage) {
+    if (working.value) {return;}
+    working.value = true; sendError.value = null; error.value = '';
+    try {
+        if (needsSave.value) {
+            apply(await request(state.value.pendingSave ? 'messages/confirm' : 'messages/refresh'));
+            if (needsSave.value) {return;}
+        }
+        // Build a plain bridge DTO: retry input may come from Vue-reactive state.
+        const payload = input?.payload.type === 'image'
+            ? { type: 'image', description: input.payload.description, upload: { ...input.payload.upload } }
+            : input ? { type: 'text', text: input.payload.text } : undefined;
+        const next = input
+            ? await request<MessagesClientState>('messages/send', { contactId, actionId: messageId.slice('input:'.length), payload })
+            : await request<MessagesClientState>('messages/retry', { contactId, messageId });
         apply(next);
+    } catch (cause) {
+        if (alive) {sendError.value = { contactId, messageId, message: cause instanceof Error && cause.message !== 'host_request_timeout' ? cause.message : '尚未确认发送结果，可以重试。' };}
+    } finally {working.value = false;}
+}
+function retry(messageId: string) {
+    const input = outgoing.value?.messageId === messageId ? outgoing.value : undefined;
+    void deliver(selected.value, messageId, input);
+}
+function discard(messageId: string) {
+    void run(async () => {
+        apply(await request('messages/discard-send', { messageId }));
+        if (submitted.value?.messageId === messageId) {submitted.value = null;}
+        sendError.value = null;
+        await readThread();
     });
 }
-function retry(messageId: string) {void run(async () => apply(await request('messages/retry', { contactId: selected.value, messageId })));}
 function operation(type: string) {void run(async () => apply(await request(type)));}
 function sync() {void run(async () => {apply(await request('messages/sync')); close();});}
 async function open(next: typeof mode.value) {
@@ -132,7 +158,7 @@ function recover() {void run(async () => {apply(await request('messages/recover'
 function adoptServer() {
     void run(async () => {
         apply(await request('messages/adopt-server-state'));
-        if (state.value.fileState === 'ready' && !state.value.pendingSave) {close();}
+        if (state.value.fileState === 'ready' && !state.value.pendingSave) {submitted.value = null; sendError.value = null; close();}
         else {error.value = '暂时未能采用服务器版本，请检查网络后重试。当前记录保持不变。';}
     });
 }
@@ -150,7 +176,8 @@ onUnmounted(() => {alive = false; threadRequest++; unsubscribe();});
         <div v-else-if="state.unsynced && !state.busy" class="messages-banner" role="status"><span>{{ state.unsynced }} 条消息已保留，尚未写入主聊天。</span><button :disabled="disabled" @click="open('sync')">查看</button></div>
         <div v-if="state.generationActive" class="messages-notice">故事正在继续，稍后就能发送消息。</div>
         <p v-if="error || state.error" class="messages-error" role="alert">{{ error || state.error }}</p>
-        <Conversation v-if="contact" :key="contact.id" ref="conversation" v-model:draft="draft" :contact="contact" :page="page" :bridge="bridge" :chat-identity="state.chatIdentity" :disabled="disabled" :stage="state.busy?.contactId === contact.id ? state.busy.stage : ''" :loading="loading" :load-more="() => readThread(true)" :media="state.media" :waiting-for="waitingFor" @back="back" @details="open('detail')" @send="send" @retry="retry" @delete-image="confirmImageDelete" />
+        <div v-if="threadError" class="messages-banner" role="alert"><span>{{ threadError }}</span><button :disabled="loading" @click="readThread()">重试读取</button></div>
+        <Conversation v-if="contact" :key="contact.id" ref="conversation" v-model:draft="draft" :contact="contact" :page="page" :bridge="bridge" :chat-identity="state.chatIdentity" :disabled="disabled" :send-disabled="disabled || !!outgoing" :busy="state.busy" :outgoing="pendingBubble" :send-failure="state.sendFailure" :send-error="sendError" :working="working" :pending-save="needsSave" :retry-disabled="working || !!state.busy || state.generationActive || state.fileState === 'conflict'" :loading="loading" :load-more="() => readThread(true)" :media="state.media" :waiting-for="waitingFor" @back="back" @details="open('detail')" @send="send" @retry="retry" @discard="discard" @delete-image="confirmImageDelete" />
         <ContactList v-else :contacts="state.contacts" :busy-contact-id="state.busy?.contactId ?? ''" :drafts="drafts" @select="select" @add="open('add')" />
         <dialog ref="dialog" class="messages-dialog" @keydown.esc.stop @click="event => { if (event.target === dialog) close(); }">
             <header><ContactAvatar v-if="mode === 'detail' && contact" :identity="contact.id" :name="contact.name" small /><h2>{{ mode === 'add' ? '新的对话' : mode === 'detail' ? contact?.name : mode === 'delete' ? '删除联系人？' : mode === 'delete-image' ? '删除这条图片消息？' : mode === 'sync' ? '消息还未写入主聊天' : mode === 'adopt' ? '采用服务器版本？' : '在当前位置补记？' }}</h2><button class="messages-icon-button" aria-label="关闭" @click="close"><MessageIcon name="close" /></button></header>

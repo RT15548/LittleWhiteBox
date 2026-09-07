@@ -8,8 +8,8 @@ import { combineLearningScope, learningArray, learningEnum, learningId, learning
 
 export function parseLearningUnit(value: unknown, path = 'unit'): LearningUnit {
     const item = learningRecord(value, path, ['id', 'title', 'goal', 'scope', 'originOsId', 'reward', 'materials', 'exercises', 'attempts', 'assessments', 'revealed', 'listening', 'notes']);
-    const materials = learningArray(item.materials, `${path}.materials`, parseLearningMaterial, L.materials);
-    const exercises = learningArray(item.exercises, `${path}.exercises`, (raw, p) => parseLearningExercise(raw, materials, p), L.exercises);
+    const materials = learningArray(item.materials, `${path}.materials`, parseLearningMaterial);
+    const exercises = learningArray(item.exercises, `${path}.exercises`, (raw, p) => parseLearningExercise(raw, materials, p));
     requireLearning(exercises.length > 0, `${path}.exercises`, 'A unit needs at least one exercise');
     const attempts = learningArray(item.attempts, `${path}.attempts`, (raw, p) => parseLearningAttempt(raw, exercises, materials, p));
     const assessments = learningArray(item.assessments, `${path}.assessments`, parseLearningAssessment);
@@ -28,8 +28,8 @@ export function parseLearningUnit(value: unknown, path = 'unit'): LearningUnit {
     }
     const reward = learningRecord(item.reward, `${path}.reward`, ['tier', 'amount']);
     const revealed = learningRecord(item.revealed, `${path}.revealed`, ['answers', 'hints']);
-    const answers = learningIds(revealed.answers, `${path}.revealed.answers`, L.exercises);
-    const hints = learningIds(revealed.hints, `${path}.revealed.hints`, L.exercises);
+    const answers = learningIds(revealed.answers, `${path}.revealed.answers`);
+    const hints = learningIds(revealed.hints, `${path}.revealed.hints`);
     requireLearning([...answers, ...hints].every(id => exercises.some(exercise => exercise.id === id)), path, 'Revealed content must belong to this unit');
     const notes = item.notes === undefined ? undefined : learningArray(item.notes, `${path}.notes`, raw => {
         const note = learningRecord(raw, 'note', ['id', 'text', 'exerciseId', 'selection']);
@@ -49,7 +49,7 @@ export function parseLearningUnit(value: unknown, path = 'unit'): LearningUnit {
 
 function parseEvidence(value: unknown, path: string): LearningEvidence {
     const item = learningRecord(value, path, ['unitId', 'scope', 'exercise', 'materials', 'attempt', 'assessment']);
-    const materials = learningArray(item.materials, `${path}.materials`, parseLearningMaterial, L.materials);
+    const materials = learningArray(item.materials, `${path}.materials`, parseLearningMaterial);
     uniqueLearning(materials.map(material => material.id), path);
     const exercise = parseLearningExercise(item.exercise, materials, `${path}.exercise`);
     const attempt = parseLearningAttempt(item.attempt, [exercise], materials, `${path}.attempt`);

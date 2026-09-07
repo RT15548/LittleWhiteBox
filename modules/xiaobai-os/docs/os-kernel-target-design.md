@@ -52,7 +52,7 @@ Sidecar 是独立于聊天 JSONL 的业务文件，通常远小于完整聊天�
     │  ├─ contracts.ts                 公共 JSON、状态和错误契约
     │  ├─ envelope.ts                  Envelope 严格解析和序列化
     │  ├─ partition-registry.ts        分区所有权、解析器和初始值
-    │  ├─ transaction-coordinator.ts   强读、单页 FIFO、候选提交和确认
+    │  ├─ transaction-coordinator.ts   会话内确认版本、单页 FIFO、候选提交和恢复
     │  ├─ capability-registry.ts       能力注册、依赖解析和事务绑定
     │  ├─ app-registry.ts              Host APP 安装、激活、失败和重试
     │  └─ execution-scope.ts           受监管异步任务和取消
@@ -196,7 +196,9 @@ Envelope 严格验证字段、类型、osId、非负 revision 和 commitId。par
 - delete 使用 /api/files/delete，404 视为 missing；
 - 不存在 ETag、If-Match 或服务端 CAS。revision 是客户端冲突检测，不得在 UI 或文档中宣传成并发锁。
 
-明确支持手机与 PC 顺序使用：打开 OS、切聊、页面重新获得焦点和每次写事务前都强读最新 sidecar。明确不支持两个设备同时写同一聊天；并发窗口中仍可能最后写入者覆盖。
+以当前页面的单个活跃写入会话为边界，不额外支持跨设备/标签页同时编辑。当前聊天首次解析后复用协调器持有的已确认 Envelope，日常 APP 读取和事务不再下载文件；切聊/改名/分支重新解析，重开同聊天 OS、focus/visibility 不发起对账。切走释放普通缓存，未确认候选及其旧事实仍按原聊天保留。显式刷新及异常恢复才重新读取服务器。
+
+文件写入默认没有 15 秒客户端截止；发送前取消不写，发送后不因关闭 APP 中止或重发。首次安装聊天引用由 OS 宿主保存适配调用原生聊天 HTTP 协议，保留请求压缩和 integrity，明确成功响应即确认；异常才读回引用，不修改宿主或增加全局请求拦截。
 
 ## 7. 分区注册与事务
 
@@ -274,7 +276,7 @@ APP 安装后只获得自己分区的 ScopedChatStore。它不能取得 Envelope
 
 1. 在单页面 FIFO 中取得写权；
 2. 捕获当前聊天引用和 binding；
-3. no-store 强读服务端 Envelope；
+3. 使用当前聊天已确认 Envelope；未加载时先等待绑定解析并加载一次；
 4. 确认 osId、当前聊天和文件级 write state；
 5. 只解析所有者分区及本动作实际使用的 Capability 分区；
 6. 执行领域命令、actionId 幂等和分区 CAS；
@@ -287,7 +289,7 @@ APP 安装后只获得自己分区的 ScopedChatStore。它不能取得 Envelope
 
 业务 command 只执行一次。保存重试复用已序列化 candidate，不重新进入 command callback。
 
-APP 自己的 revision/eventId CAS 仍保留。Envelope revision 解决存储覆盖检测，不能替代领域 CAS。
+APP 自己的 revision/eventId 检查仍保留，防止本页过期动作覆盖新事实。Envelope revision/commitId 用于本地顺序和异常核实，不能替代领域检查，也不是服务端并发锁。
 
 ### 7.3 文件级状态与恢复
 
@@ -462,7 +464,7 @@ Game 点击确认后的时序固定为：
 
     关闭确认框
     → 立即开始不暴露最终骰面的中性动画
-    → 事务强读最新 sidecar
+    → 事务使用协调器最新已确认 sidecar
     → 校验 Game/Economy/CAS
     → 只生成一次随机结果、ID 和 candidate
     → 上传并确认 commitId
@@ -519,7 +521,7 @@ upstream 已上线的旧 Fourth Wall 是单独的真实兼容对象。对“没�
 - 坏 Game 分区不影响 Map/Fourth Wall，坏 Economy 只影响其真实依赖者；
 - 无关分区在其他 APP 提交后保持 JSON value 深相等，不要求对象键顺序或文件字节完全一致；
 - Game + Economy、Shop + Economy、Bank + Economy、Tasks + Economy 各自只产生一次 replace；
-- 每次写前强读，顺序跨设备可见；同时写明确不保证；
+- 当前激活期读写共用已确认版本；首次加载、明确刷新、异常恢复才读服务器，不承诺多端同时编辑；
 - timeout 以 commitId 确认，重试不重新执行业务命令；
 - 分支得到独立 osId 和创建时分区副本；重命名保留 osId；删除歧义不误删；
 - index 损坏不影响通过 metadata 引用加载聊天数据；

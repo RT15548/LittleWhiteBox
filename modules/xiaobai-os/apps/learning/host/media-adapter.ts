@@ -131,7 +131,7 @@ export function createLearningMedia(options: {
         openSettings() {
             const facade = getFacade();
             if (facade?.isEnabled()) { facade.openSettings(); }
-            else { notify({ status: 'unavailable', message: disabledMessage }); }
+            else { notify({ status: 'unavailable', message: '请在酒馆扩展设置 → 小白X → 渲染交互中，勾选「启用 TTS 语音」。开启后回到语伴即可使用。' }); }
         },
     };
 }

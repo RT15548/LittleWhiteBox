@@ -13,7 +13,8 @@ import {
 import type { JsonUserFilePort } from './sidecar-index.js';
 import { XiaobaiOsStorageError } from './storage-port.js';
 
-const DEFAULT_TIMEOUT_MS = 15_000;
+// Native saves have no short client deadline. A slow VPS is not evidence of a failed write.
+const DEFAULT_TIMEOUT_MS = 0;
 
 export interface SillyTavernFileStorageOptions {
     fetch?: typeof globalThis.fetch;
@@ -51,15 +52,15 @@ function createTimedSignal(signal: AbortSignal | undefined, timeoutMs: number): 
     const forwardAbort = () => controller.abort(signal?.reason);
     signal?.addEventListener('abort', forwardAbort, { once: true });
     if (signal?.aborted) { controller.abort(signal.reason); }
-    const timer = globalThis.setTimeout(() => {
+    const timer = timeoutMs > 0 ? globalThis.setTimeout(() => {
         didTimeOut = true;
         controller.abort(new DOMException('Request timed out', 'TimeoutError'));
-    }, timeoutMs);
+    }, timeoutMs) : undefined;
     return {
         signal: controller.signal,
         timedOut: () => didTimeOut,
         cleanup: () => {
-            globalThis.clearTimeout(timer);
+            if (timer !== undefined) { globalThis.clearTimeout(timer); }
             signal?.removeEventListener('abort', forwardAbort);
         },
     };
@@ -240,7 +241,7 @@ export function createSillyTavernFileStorage(
             };
         }
 
-        const timed = createTimedSignal(signal, requestTimeoutMs);
+        const timed = createTimedSignal(undefined, requestTimeoutMs);
         try {
             const response = await request('/api/files/upload', {
                 method: 'POST',

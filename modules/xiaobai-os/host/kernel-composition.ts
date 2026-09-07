@@ -22,6 +22,7 @@ export interface KernelCompositionOptions {
     capabilities: readonly CapabilityRegistration<unknown>[];
     modules: readonly XiaobaiOsAppModule[];
     createId?: TransactionCoordinatorOptions['createId'];
+    beforeRead?: TransactionCoordinatorOptions['beforeRead'];
     prepareInitialPartitions?: TransactionCoordinatorOptions['prepareInitialPartitions'];
 }
 
@@ -48,6 +49,7 @@ export function createKernelComposition(
         chatReferences: options.chatReferences,
         capabilityBinder: capabilities,
         createId: options.createId,
+        beforeRead: options.beforeRead,
         prepareInitialPartitions: options.prepareInitialPartitions,
     });
     const apps = createAppModuleRegistry(options.modules, {

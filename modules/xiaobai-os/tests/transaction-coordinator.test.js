@@ -26,7 +26,7 @@ function envelope(partitions, revision = 0, commitId = `commit_${revision}`) {
     return { formatVersion: 1, osId: 'os_1', binding, revision, commitId, partitions };
 }
 
-function harness(initial = envelope({ good: { schemaVersion: 1, value: 1 } })) {
+function harness(initial = envelope({ good: { schemaVersion: 1, value: 1 } }), options = {}) {
     const state = {
         capture: {
             identityKey: 'character:avatar.png:chat-a',
@@ -74,6 +74,7 @@ function harness(initial = envelope({ good: { schemaVersion: 1, value: 1 } })) {
         partitions: registry,
         chatReferences,
         createId: () => ids.shift() ?? `generated_${++state.commandIds}`,
+        ...options,
     });
     return { state, storage, chatReferences, registry, coordinator };
 }
@@ -176,7 +177,7 @@ test('a lifecycle result that reaches the coordinator after chat switch is disca
     assert.equal(testHarness.coordinator.createScopedStore(good).peekCurrent(), null);
 });
 
-test('each transaction strongly reads and two queued writes advance from the latest revision', async () => {
+test('two queued writes advance from the latest confirmed revision with one initial download', async () => {
     const testHarness = harness();
     const good = partition('good');
     testHarness.registry.register(good);
@@ -200,7 +201,7 @@ test('each transaction strongly reads and two queued writes advance from the lat
     assert.deepEqual(seen, [1, 2]);
     assert.equal(testHarness.state.persisted.revision, 2);
     assert.equal(testHarness.state.persisted.partitions.good.value, 3);
-    assert.equal(testHarness.state.reads, 2);
+    assert.equal(testHarness.state.reads, 1);
     assert.equal(testHarness.state.writes, 2);
 });
 
@@ -393,4 +394,85 @@ test('commit guard rejection performs no upload', async () => {
     assert.equal(result.status, 'failed');
     assert.equal(result.error.code, 'commit_guard_rejected');
     assert.equal(testHarness.state.writes, 0);
+});
+
+test('resolved storage is shared by APP reads and different partition writes without extra downloads', async () => {
+    const h = harness(envelope({ a: { schemaVersion: 1, value: 1 }, b: { schemaVersion: 1, value: 2 } }));
+    const a = partition('a'), b = partition('b'); h.registry.register(a); h.registry.register(b);
+    await h.coordinator.installResolvedEnvelope(h.state.persisted);
+    const first = h.coordinator.createScopedStore(a), second = h.coordinator.createScopedStore(b);
+    await Promise.all([first.read(), second.read(), first.read()]);
+    await Promise.all([
+        first.transact(tx => tx.replace({ ...tx.current, value: 10 })),
+        second.transact(tx => tx.replace({ ...tx.current, value: 20 })),
+    ]);
+    assert.equal(h.state.reads, 0); assert.equal(h.state.writes, 2);
+    assert.equal(h.state.persisted.revision, 2);
+    assert.equal((await first.read()).value.value, 10);
+    assert.equal((await second.read()).value.value, 20);
+    assert.equal(h.state.reads, 0);
+});
+
+test('leaving a chat releases its ordinary cache and returning reloads; reference changes invalidate it too', async () => {
+    const h = harness(); const good = partition('good'); h.registry.register(good);
+    const store = h.coordinator.createScopedStore(good);
+    const originalCapture = structuredClone(h.state.capture), originalFile = structuredClone(h.state.persisted);
+    await store.read(); assert.equal(h.state.reads, 1);
+    h.state.capture = { ...h.state.capture, identityKey: 'another', binding: { ...binding, chatId: 'another' }, reference: null };
+    assert.equal((await store.read()).value, null);
+    h.state.capture = originalCapture;
+    assert.equal(store.peekCurrent(), null);
+    await store.read(); assert.equal(h.state.reads, 2);
+    h.state.capture.reference.osId = 'replacement';
+    h.state.persisted = { ...originalFile, osId: 'replacement', partitions: { good: { schemaVersion: 1, value: 8 } } };
+    assert.equal(store.peekCurrent(), null);
+    assert.equal((await store.read()).value.value, 8);
+    assert.equal(h.state.reads, 3);
+});
+
+test('pending writes keep their old confirmed facts across chat changes until explicit recovery', async () => {
+    const h = harness(); const good = partition('good'); h.registry.register(good);
+    const store = h.coordinator.createScopedStore(good);
+    const capture = structuredClone(h.state.capture);
+    h.state.replace = async input => {
+        h.state.persisted = structuredClone(input.candidate);
+        return { status: 'unconfirmed', observed: null };
+    };
+    assert.equal((await store.transact(tx => tx.replace({ schemaVersion: 1, value: 7 }))).status, 'unconfirmed');
+    h.state.capture = { ...capture, identityKey: 'other', reference: null, binding: { ...binding, chatId: 'other' } };
+    h.coordinator.invalidateCurrent(); await store.read();
+    h.state.capture = capture; h.coordinator.invalidateCurrent();
+    const reads = h.state.reads;
+    assert.equal((await store.read()).value.value, 1);
+    assert.equal(h.state.reads, reads);
+    assert.equal(h.coordinator.getFileState(), 'unconfirmed');
+    assert.equal((await h.coordinator.retryPending()).status, 'confirmed');
+    assert.equal((await store.read()).value.value, 7);
+    assert.equal(h.state.writes, 1);
+});
+
+test('a delayed initial read cannot reinstall data invalidated by a chat reload', async () => {
+    const h = harness(); const good = partition('good'); h.registry.register(good);
+    const store = h.coordinator.createScopedStore(good);
+    let release;
+    h.storage.read = () => new Promise(resolve => { release = resolve; });
+    const reading = store.read();
+    while (!release) { await Promise.resolve(); }
+    h.coordinator.invalidateCurrent();
+    release(structuredClone(h.state.persisted));
+    await assert.rejects(reading, error => error.failure?.code === 'chat_changed');
+    assert.equal(store.peekCurrent(), null);
+});
+
+test('APP reads wait outside the write queue for binding resolution and reuse its installed envelope', async () => {
+    let release;
+    const ready = new Promise(resolve => { release = resolve; });
+    const h = harness(undefined, { beforeRead: () => ready });
+    const good = partition('good'); h.registry.register(good);
+    const store = h.coordinator.createScopedStore(good);
+    const reading = store.read();
+    await h.coordinator.installResolvedEnvelope(h.state.persisted);
+    release();
+    assert.equal((await reading).value.value, 1);
+    assert.equal(h.state.reads, 0);
 });

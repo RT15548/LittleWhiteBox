@@ -187,6 +187,7 @@ test('current task storage accepts reordered assignee fields while rejecting cha
     event.assignee = Object.fromEntries(Object.entries(event.assignee).reverse());
     const originalDisk = structuredClone(disk);
     const writes = h.state.writes.length;
+    await h.coordinator.refresh();
     const reordered = await h.tasks.refreshCurrent();
     assert.equal(reordered.writeState, 'ready');
     assert.deepEqual(reordered.records[0].assignee, assigned.record.assignee);
@@ -197,10 +198,12 @@ test('current task storage accepts reordered assignee fields while rejecting cha
         const changed = structuredClone(disk);
         changed.partitions.tasks.events.find(entry => entry.kind === 'assigned').assignee[field] += '-changed';
         h.state.persisted = changed;
+        await h.coordinator.refresh();
         await assert.rejects(h.tasks.refreshCurrent(), /task_invalid_domain|partition/i,
             `${field} is a frozen assignment fact`);
     }
     h.state.persisted = disk;
+    await h.coordinator.refresh();
     const recovered = await h.tasks.refreshCurrent();
     assert.deepEqual(recovered.records[0].assignee, assigned.record.assignee);
 });
@@ -641,6 +644,7 @@ test('a corrupt Tasks partition is isolated from Economy reads and notification 
         events: [],
         forged: true,
     };
+    await harness.coordinator.refresh();
 
     await assert.rejects(harness.tasks.refreshCurrent(), /task_invalid_domain|non-canonical|partition/i);
     t.mock.method(console, 'warn', () => {});
@@ -659,6 +663,7 @@ test('refresh rejects a structurally valid Tasks partition whose owned Economy l
     const harness = await createHarness();
     await harness.tasks.publish({ actionId: 'missing-leg', form: publishedForm() }, allowCommit);
     harness.state.persisted.partitions.economy.transactions.pop();
+    await harness.coordinator.refresh();
 
     await assert.rejects(harness.tasks.refreshCurrent(), error => error.code === 'task_invalid_domain');
     await harness.economy.refresh();

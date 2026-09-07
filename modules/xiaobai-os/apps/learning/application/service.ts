@@ -1,12 +1,12 @@
 import { learningEvidence, replaceLearningAssessment } from '../../../domains/learning/assessment.js';
-import { objectiveLearningVerdict, parseLearningAnswer } from '../../../domains/learning/exercise.js';
-import { parseLearningHelp } from '../../../domains/learning/facts.js';
-import { learningListeningBasis, learningSpeechParts, parseLearningVoice } from '../../../domains/learning/speech.js';
+import { exposeLearningContent } from '../../../domains/learning/exposure.js';
+import { learningSpeechParts, parseLearningVoice } from '../../../domains/learning/speech.js';
 import type { LearningNote } from '../../../domains/learning/notes.js';
 import { canReadLearningScope, type LearningData, type LearningScope } from '../../../domains/learning/types.js';
-import { combineLearningScope, learningId, learningTimestamp, parseLearningScope, requireLearning } from '../../../domains/learning/validation.js';
+import { requireLearning } from '../../../domains/learning/validation.js';
 import type { createLearningRepository } from '../storage/repository.js';
 import { createLearningId } from './identity.js';
+import { appendLearningAttempt } from './attempt.js';
 
 export type LearningRepository = ReturnType<typeof createLearningRepository>;
 
@@ -34,30 +34,8 @@ export function createLearningService(repository: LearningRepository, options: {
             const expected = confirmedLearning(repository);
             const data = structuredClone(expected?.data ?? { profiles: [] });
             const profile = data.profiles.find(profile => profile.language === input.language);
-            const unit = profile?.unit;
-            requireLearning(profile && unit && unit.id === input.unitId && canReadLearningScope(unit.scope, input.osId), 'unitId', 'Select an available current unit');
-            const exercise = unit.exercises.find(entry => entry.id === input.exerciseId);
-            requireLearning(exercise, 'exerciseId', 'Select an exercise in this unit');
-            const answer = parseLearningAnswer(input.answer, exercise.response, unit.materials);
-            requireLearning(input.scope.kind === 'public' || input.scope.osId === input.osId, 'scope', 'Use the current story identity');
-            const scope = combineLearningScope(unit.scope, parseLearningScope(input.scope, 'scope'));
-            const listening = exercise.skill === 'listening' ? learningListeningBasis(unit.listening ?? [],
-                unit.materials.filter(material => exercise.materialIds.includes(material.id)).flatMap(learningSpeechParts).map(part => part.key)) : null;
-            const help = parseLearningHelp({ answer: unit.revealed.answers.includes(exercise.id), hint: unit.revealed.hints.includes(exercise.id),
-                feedback: unit.attempts.some(attempt => attempt.exerciseId === exercise.id
-                    && unit.assessments.some(assessment => assessment.attemptId === attempt.id && canReadLearningScope(assessment.scope, input.osId))),
-                transcript: exercise.skill === 'listening' && unit.materials.some(material => exercise.materialIds.includes(material.id) && material.transcriptRevealed),
-                replays: listening?.replays ?? input.replays,
-                slowPlayback: listening?.slowPlayback ?? input.slowPlayback });
-            const attempt = { id: learningId(createId(), 'attemptId'), exerciseId: exercise.id, answer, scope,
-                submittedAt: learningTimestamp(now(), 'submittedAt'), help,
-                ...(listening ? { listening: structuredClone(listening.parts) } : {}) };
-            unit.attempts.push(attempt);
-            const verdict = objectiveLearningVerdict(exercise, answer);
-            if (verdict !== null && exercise.rule.kind !== 'semantic') {
-                replaceLearningAssessment(profile, { attemptId: attempt.id, verdict, scope,
-                    understanding: '', expression: '', guidance: exercise.rule.explanation });
-            }
+            requireLearning(profile, 'language', 'Select a saved learning profile');
+            const attempt = appendLearningAttempt(profile, { ...input, createId, now });
             let submitted = false;
             return { attemptId: attempt.id, save(guard: () => boolean) {
                 requireLearning(!submitted, 'attemptId', 'This submission has been sent; read or verify its saved result');
@@ -71,14 +49,7 @@ export function createLearningService(repository: LearningRepository, options: {
                 requireLearning(unit && unit.id === unitId && canReadLearningScope(unit.scope, osId), 'unitId', 'Select an available current unit');
                 requireLearning(kind === 'transcripts' ? unit.materials.some(material => material.id === id) : unit.exercises.some(exercise => exercise.id === id), 'id', 'Reveal content from this unit');
                 if (kind === 'hints' && !unit.exercises.find(exercise => exercise.id === id)!.hint.trim()) { return; }
-                if (kind === 'transcripts') {
-                    unit.materials.find(material => material.id === id)!.transcriptRevealed = true;
-                    for (const item of data.profiles[index].items) {
-                        for (const evidence of item.evidence) {
-                            for (const material of evidence.materials) { if (material.id === id) { material.transcriptRevealed = true; } }
-                        }
-                    }
-                } else if (!unit.revealed[kind].includes(id)) { unit.revealed[kind].push(id); }
+                exposeLearningContent(data.profiles[index], kind, id);
             }, guard);
         },
         setVoice(language: string, value: unknown, guard: () => boolean) {

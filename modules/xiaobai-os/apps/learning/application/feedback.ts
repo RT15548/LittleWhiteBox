@@ -30,12 +30,10 @@ export function learningTeachingFailure(reason: string): string {
         case 'learning_session_failed': return '教学请求准备失败。请提供下方错误码与控制台诊断，以便检查程序或接口适配。';
         case 'learning_protocol_failed': return '老师的返回结果无法解析，本次教学未保存。请提供下方错误码与控制台诊断。';
         case 'learning_tool_failed': return '处理教学工具时程序发生异常，本次教学未保存。请提供下方错误码与控制台诊断。';
-        case 'learning_unknown_tool': return '老师调用了本次未提供的工具，本次教学未保存。可以重试；若仍失败，请提供控制台中的工具名。';
-        case 'learning_tool_limit': return '老师在一轮内调用了过多工具，本次教学未保存，可以重试。';
         case 'learning_save_failed': return '保存学习内容时程序发生异常。请先重新读取保存内容，并提供下方错误码与控制台诊断。';
-        case 'learning_context_full': return '这次题目和资料超过了单次上下文容量，已保存的课程与作答保持不变。可以减少本次补充材料后重试。';
+        case 'learning_context_full': return '本轮内容超过模型接口的上下文容量，已没有可释放的较早对话。已保存的课程与原答不变；请换用更长上下文的模型，或把本次要求拆小后再试。';
         case 'learning_empty_response': return '老师没有返回有效回复，本次修改未发布，可以重试。';
-        case 'learning_round_limit': return '本次教学未能在请求上限内完成，未发布半成品，可以重试。';
+        case 'learning_stalled': return '老师连续重复了相同的工具操作和结果，没有继续推进，已停止本次请求。已确认内容不变，可以调整要求后重试。';
         case 'learning_unresolved_proposals': return '老师提交的学习内容仍未通过工具校验，本次没有保存。可以重试，具体字段问题已记录到控制台。';
         case 'learning_assessment_missing': return '老师尚未给这条作答提交评估，原答已保留，可以重试评估。';
         case 'learning_file_invalid': return '学习文件暂时无法读取，请检查文件；不会覆盖已有内容。';
@@ -43,7 +41,6 @@ export function learningTeachingFailure(reason: string): string {
         case 'learning_resolve_pending_first': return '上一次保存尚未核实，请先核实保存状态。';
         case 'learning_file_full': return '学习文件已达到容量上限，请整理不再需要的记录后重试。';
         case 'learning_write_rejected': return '服务器拒绝保存学习记录，请检查登录状态和存储权限后重试。';
-        case 'learning_upload_unresolved': return '上次上传尚未确认结束，请先核实保存；暂时不能采用另一版本。';
         case 'learning_commit_id_reused': return '保存标识生成异常，未发起本次保存。请提供下方错误码与控制台诊断。';
         case 'learning_input_invalid': return '输入内容未通过校验，请检查输入或重新读取课程后再操作。具体字段问题已记录到控制台。';
         default: return '这次学习操作发生异常。请提供下方错误码与控制台诊断；不要清空已有学习记录。';

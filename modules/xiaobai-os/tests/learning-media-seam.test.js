@@ -8,7 +8,7 @@ import { createLearningMedia } from '../apps/learning/host/media-adapter.js';
 // Real TTS/player/learning transport with an Audio boundary fixture; no claim about audio quality.
 function harness(t) {
     const original = Object.getOwnPropertyDescriptor(globalThis, 'Audio');
-    const audios = []; const calls = []; const events = [];
+    const audios = []; const calls = []; const events = []; const settings = [];
     const state = { enabled: true, current: true, blocked: false, synthesize: async () => new Blob(['sound']) };
     class AudioFixture {
         constructor() { this.paused = true; this.duration = 12; this.currentTime = 0; audios.push(this); }
@@ -29,7 +29,7 @@ function harness(t) {
         createPlayer: () => new TtsPlayer({ ownership }),
         getVoices: () => ({ defaultVoice: 'voice', voices: [{ id: 'voice', name: 'Teacher', source: 'free', available: true }] }),
         synthesize: speech.synthesize,
-        openSettings() {},
+        openSettings() { settings.push(true); },
     };
     const media = createLearningMedia({ getFacade: () => facade, isCurrent: () => state.current, onState: next => events.push(next) });
     const story = facade.createPlayer();
@@ -37,12 +37,12 @@ function harness(t) {
         media.stop(); ownership.dispose(); speech.dispose();
         if (original) Object.defineProperty(globalThis, 'Audio', original); else delete globalThis.Audio;
     });
-    return { state, media, audios, calls, events, ownership, speech, story };
+    return { state, media, audios, calls, events, ownership, speech, story, settings };
 }
 const request = { key: 'exercise-one', text: 'A real teaching sentence.', voiceId: 'voice', language: 'en', speed: 1 };
 
 test('disabled TTS is explained at the voice action without requests, popups or blocking text reading', async t => {
-    const { state, media, calls, events } = harness(t);
+    const { state, media, calls, events, settings } = harness(t);
     state.enabled = false;
     assert.equal(media.capabilities().enabled, false);
     assert.equal(media.snapshot().status, 'idle');
@@ -54,6 +54,13 @@ test('disabled TTS is explained at the voice action without requests, popups or 
     const count = events.length;
     media.capabilities(); media.snapshot();
     assert.equal(events.length, count);
+    media.openSettings();
+    assert.equal(settings.length, 0);
+    assert.match(media.snapshot().message, /小白X.*启用 TTS 语音/);
+    state.enabled = true;
+    media.openSettings();
+    assert.equal(settings.length, 1);
+    assert.equal(calls.length, 0);
 });
 
 test('lesson speech uses original text, real media timing and local controls without clearing the story queue', async t => {

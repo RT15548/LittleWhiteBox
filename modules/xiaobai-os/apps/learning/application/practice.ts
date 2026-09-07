@@ -1,5 +1,6 @@
 import type { LearningAnswer } from '../../../domains/learning/types.js';
-import { createLearningService, confirmedLearning, type LearningRepository } from './service.js';
+import { confirmedLearning, createLearningService, type LearningRepository } from './service.js';
+import { learningAnswerText } from './answer-text.js';
 import type { createLearningTeaching, LearningClassroom, LearningTeachingResult } from './teaching.js';
 
 /** User submissions are saved before the teacher sees them; the teacher never fabricates an Attempt. */
@@ -26,16 +27,12 @@ export function createLearningPractice(options: {
                 const saved = await pending.save(guard);
                 if (!guard()) { return { status: 'cancelled' }; }
                 if (saved.status !== 'confirmed' && saved.status !== 'unchanged') { return { status: saved.status }; }
-                const profile = confirmedLearning(options.repository)!.data.profiles.find(profile => profile.language === classroom.language)!;
-                const unit = profile.unit!;
-                const feedback = unit.assessments.find(entry => entry.attemptId === pending.attemptId);
-                let teaching: LearningTeachingResult | null = null;
-                if (!feedback) {
-                    teaching = await options.teaching.run({ action: { kind: 'assess', attemptId: pending.attemptId, review: false }, message: 'Review this submitted answer.' });
-                } else if (!profile.completions.some(completion => completion.unitId === unit.id)
-                    && unit.exercises.every(exercise => unit.attempts.some(attempt => attempt.exerciseId === exercise.id))) {
-                    teaching = await options.teaching.run({ action: { kind: 'complete' }, message: 'The planned exercises have been submitted. Review the unit for a useful stopping point.' });
-                }
+                const unit = confirmedLearning(options.repository)!.data.profiles.find(entry => entry.language === classroom.language)!.unit!;
+                const attempt = unit.attempts.find(entry => entry.id === pending.attemptId)!;
+                const exercise = unit.exercises.find(entry => entry.id === attempt.exerciseId)!;
+                const teaching = await options.teaching.run({ action: { kind: 'assess', attemptId: pending.attemptId, review: false },
+                    message: '我提交了这道题的答案，请接着带我学。',
+                    displayMessage: learningAnswerText(attempt.answer, exercise.response, unit.materials.flatMap(entry => entry.paragraphs)) });
                 return { status: 'saved', attemptId: pending.attemptId, teaching };
             } finally { submitting = false; }
         },

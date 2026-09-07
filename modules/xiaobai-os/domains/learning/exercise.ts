@@ -97,7 +97,7 @@ function parseRule(value: unknown, response: LearningResponse, materials: Learni
 
 export function parseLearningExercise(value: unknown, materials: LearningMaterial[], path = 'exercise'): LearningExercise {
     const item = learningRecord(value, path, ['id', 'skill', 'materialIds', 'prompt', 'response', 'rule', 'hint']);
-    const materialIds = learningIds(item.materialIds, `${path}.materialIds`, L.materials);
+    const materialIds = learningIds(item.materialIds, `${path}.materialIds`);
     requireLearning(materialIds.every(id => materials.some(material => material.id === id)), `${path}.materialIds`, 'Referenced material must exist');
     const referenced = materials.filter(material => materialIds.includes(material.id));
     const response = parseResponse(item.response, `${path}.response`);

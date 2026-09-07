@@ -1,28 +1,33 @@
 <script setup lang="ts">
-import { nextTick, ref, watch } from 'vue';
-import type { ContactView, ThreadPage, MessagesClientState } from '../types.js';
+import { computed, nextTick, ref, watch } from 'vue';
+import type { ContactView, ThreadPage, MessagesClientState, PendingOutgoingMessage, MessageSendFailure } from '../types.js';
 import type { XiaobaiOsAppProps } from '../../../shell/app-contract.js';
 import type { OutgoingMessage } from '../application/image-upload.js';
 import MessageIcon from './MessageIcon.vue';
 import MessageBubble from './MessageBubble.vue';
 import MessageComposer from './MessageComposer.vue';
 import ContactAvatar from './ContactAvatar.vue';
+import DeliveryStatus from './DeliveryStatus.vue';
 import type { MessageDraft } from './draft.js';
 const draft = defineModel<MessageDraft>('draft', { required: true });
-const props = defineProps<{ contact: ContactView; page: ThreadPage; bridge: XiaobaiOsAppProps['bridge']; chatIdentity: string; disabled: boolean; stage: string; loading: boolean; loadMore: () => Promise<void>; media: MessagesClientState['media']; waitingFor: string }>();
-defineEmits<{ back: []; details: []; send: [payload: OutgoingMessage]; retry: [id: string]; deleteImage: [messageId: string] }>();
+const props = defineProps<{ contact: ContactView; page: ThreadPage; bridge: XiaobaiOsAppProps['bridge']; chatIdentity: string; disabled: boolean; sendDisabled: boolean; busy: MessagesClientState['busy']; outgoing: PendingOutgoingMessage | null; sendFailure: MessageSendFailure | null; sendError: MessageSendFailure | null; working: boolean; pendingSave: boolean; retryDisabled: boolean; loading: boolean; loadMore: () => Promise<void>; media: MessagesClientState['media']; waitingFor: string }>();
+defineEmits<{ back: []; details: []; send: [payload: OutgoingMessage]; retry: [id: string]; discard: [id: string]; deleteImage: [messageId: string] }>();
+const stage = computed(() => props.busy?.contactId === props.contact.id ? props.busy.stage : '');
+const replying = computed(() => ['replying', 'summarizing', 'saving-reply'].includes(stage.value));
+function failure(messageId: string): string | undefined {
+    return [props.sendFailure, props.sendError].find(error => error?.contactId === props.contact.id && error.messageId === messageId)?.message;
+}
 const scroller = ref<HTMLElement | null>(null);
 let bottom = true; let older = false;
 function scroll() {const el = scroller.value; if (el) {bottom = el.scrollHeight - el.clientHeight - el.scrollTop < 70;}}
 async function stick() {await nextTick(); if (bottom && !older && scroller.value) {scroller.value.scrollTop = scroller.value.scrollHeight;}}
-watch(() => [props.page.messages.at(-1)?.id, props.stage], stick, { immediate: true });
+watch(() => [props.page.messages.at(-1)?.id, props.outgoing?.messageId, stage.value, props.sendFailure, props.sendError], stick, { immediate: true });
 async function more() {
     const el = scroller.value; if (!el || older) {return;} older = true;
     const height = el.scrollHeight; const top = el.scrollTop;
     try {await props.loadMore(); await nextTick(); el.scrollTop = top + el.scrollHeight - height;}
     finally {older = false; scroll();}
 }
-const stages: Record<string, string> = { uploading: '正在发送图片…', saving: '正在保存消息…', syncing: '正在写入主聊天…', summarizing: '正在回顾你们的对话…', replying: '对方正在输入…' };
 defineExpose({ sent() {bottom = true; void stick();} });
 </script>
 <template>
@@ -34,10 +39,19 @@ defineExpose({ sent() {bottom = true; void stick();} });
             <template v-for="(message, index) in page.messages" :key="message.id">
                 <time v-if="index === 0 || message.createdAt - page.messages[index - 1].createdAt > 300000" class="messages-time">{{ new Date(message.createdAt).toLocaleString(undefined, { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) }}</time>
                 <MessageBubble :message="message" :bridge="bridge" :chat-identity="chatIdentity" :media="media" :disabled="disabled" @resize="stick" @delete-image="$emit('deleteImage', $event)" />
+                <DeliveryStatus v-if="message.id === page.retryMessageId && !replying" :sending="busy?.messageId === message.id && ['saving', 'uploading'].includes(stage)" :error="failure(message.id)" :pending-save="pendingSave" :disabled="retryDisabled" @retry="$emit('retry', message.id)" />
             </template>
-            <div v-if="stage" class="messages-typing" role="status"><span><i /><i /><i /></span>{{ stages[stage] || '处理中…' }}</div>
-            <button v-else-if="page.retryMessageId" class="messages-retry" :disabled="disabled" @click="$emit('retry', page.retryMessageId)">尚未收到回复 · 重试</button>
+            <template v-if="outgoing">
+                <div class="messages-bubble-row outgoing">
+                    <div class="messages-bubble" :class="{ 'messages-bubble-image': outgoing.payload.type === 'image' }">
+                        <p v-if="outgoing.payload.type === 'text'">{{ outgoing.payload.text }}</p>
+                        <template v-else><img class="messages-pending-image" :src="outgoing.payload.upload.dataUrl" :alt="outgoing.payload.upload.name" @load="stick"><p v-if="outgoing.payload.description" class="messages-image-caption">{{ outgoing.payload.description }}</p></template>
+                    </div>
+                </div>
+                <DeliveryStatus :sending="working || busy?.messageId === outgoing.messageId" :error="failure(outgoing.messageId) || '发送未完成'" :pending-save="pendingSave" :disabled="retryDisabled" discard @retry="$emit('retry', outgoing.messageId)" @discard="$emit('discard', outgoing.messageId)" />
+            </template>
+            <div v-if="replying" class="messages-typing" role="status"><span><i /><i /><i /></span>对方正在输入…</div>
         </div>
-        <MessageComposer v-model:draft="draft" :disabled="disabled" :sending="['uploading', 'saving'].includes(stage)" :waiting-for="waitingFor" @send="$emit('send', $event)" />
+        <MessageComposer v-model:draft="draft" :disabled="sendDisabled" :sending="false" :waiting-for="waitingFor" @send="$emit('send', $event)" />
     </section>
 </template>

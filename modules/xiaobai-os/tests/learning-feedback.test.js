@@ -18,7 +18,7 @@ async function setup(mode) {
     let file = null; let requests = 0; let writes = 0;
     const progress = [];
     const repository = createLearningRepository({ read: async () => file, replace: async (_name, value) => { writes++; file = value; } }, {
-        locks: null, createId: () => { if (mode === 'save') { throw fault(); } return 'saved-1'; },
+        createId: () => { if (mode === 'save') { throw fault(); } return 'saved-1'; },
     });
     await repository.read();
     const teaching = createLearningTeaching({ repository, current: () => classroom, onProgress: value => progress.push(value),
@@ -48,8 +48,8 @@ test('profile failures identify their stage, log one bounded diagnostic and neve
     for (const [mode, reason, stage, tool] of [
         ['context', 'learning_context_failed', 'context'], ['config', 'learning_config_failed', 'config'],
         ['session', 'learning_session_failed', 'session'], ['provider', 'provider-request', 'provider'],
-        ['protocol', 'learning_protocol_failed', 'provider'], ['unknown', 'learning_unknown_tool', 'tools', 'NotProvided'],
-        ['limit', 'learning_tool_limit', 'provider'], ['invalid', 'learning_unresolved_proposals', 'tools'],
+        ['protocol', 'learning_protocol_failed', 'provider'], ['unknown', 'learning_stalled', 'tools', 'NotProvided'],
+        ['limit', 'learning_stalled', 'tools', 'LearningRead'], ['invalid', 'learning_unresolved_proposals', 'tools'],
         ['save', 'learning_save_failed', 'save'],
     ]) {
         await t.test(mode, async sub => {
@@ -61,7 +61,7 @@ test('profile failures identify their stage, log one bounded diagnostic and neve
             assert.equal(logs.mock.calls.length, 1);
             const diagnostic = logs.mock.calls[0].arguments[1];
             assert.equal(diagnostic.action, 'profile'); assert.equal(diagnostic.stage, stage);
-            if (tool) { assert.equal(diagnostic.tool, tool); assert.equal(diagnostic.round, 1); }
+            if (tool) { assert.equal(diagnostic.tool, tool); assert.equal(diagnostic.round, 3); }
             if (mode === 'provider') { assert.equal(diagnostic.httpStatus, 400); }
             if (mode === 'invalid') {
                 assert.ok(diagnostic.issues.some(issue => issue.path === 'profile.explanationLanguage' && issue.rule.includes('non-empty')));

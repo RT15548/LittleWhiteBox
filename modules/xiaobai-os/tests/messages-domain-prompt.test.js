@@ -16,7 +16,6 @@ import { messageReceipt } from '../domains/messages/receipt.js';
 import { selectKnownPeople } from '../host/prompt-context/known-people.js';
 import { parseOutgoingMessage, uploadedImageReference } from '../apps/messages/application/image-upload.js';
 import { MAX_MESSAGE_IMAGE_BYTES } from '../domains/messages/image-attachment.js';
-import { sameDraft } from '../apps/messages/ui/draft.js';
 
 const contact = id => ({ id, name: id, note: '', createdAt: 1, summary: null });
 const message = (id, contactId, replyTo = null) => ({ segmentId: 'now', contactId, playerName: '玩家', replyTo, entries: [{ id, payload: { type: 'text', text: id } }], createdAt: 2 });
@@ -57,14 +56,6 @@ test('image-only history compacts with pixels and receipt digests bind the image
     assert.equal(MESSAGES_PARTITION.parse(state).ok, true);
     state.messages[0].payload.attachment.path = '/user/images/xb-os-messages/' + 'b'.repeat(64) + '.png';
     assert.equal(MESSAGES_PARTITION.parse(state).ok, false);
-});
-
-test('delayed send confirmation only clears the same picture and caption draft', () => {
-    const first = { text: '', image: { name: 'a.png', dataUrl: 'data:image/png;base64,AQID' } };
-    assert.equal(sameDraft(first, structuredClone(first)), true);
-    assert.equal(sameDraft(first, { ...first, text: '新配文' }), false);
-    assert.equal(sameDraft(first, { ...first, image: { ...first.image, dataUrl: 'data:image/png;base64,BAUG' } }), false);
-    assert.equal(sameDraft(first, { text: '', image: null }), false);
 });
 
 test('deleting an image preserves replies and unrelated history, invalidates its summary, and keeps only confirmed receipt members', () => {

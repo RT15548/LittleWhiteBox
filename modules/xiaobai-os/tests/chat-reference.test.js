@@ -46,6 +46,7 @@ test('chat reference install persists only formatVersion and osId without inspec
     const capture = port.capture();
     const result = await port.install(capture, { formatVersion: 1, osId: 'os_1' });
     assert.deepEqual(result, { status: 'confirmed' });
+    assert.equal(state.reads, 0);
     assert.deepEqual(readXiaobaiOsReference(state.persisted), { formatVersion: 1, osId: 'os_1' });
     assert.deepEqual(state.persisted.extensions.LittleWhiteBox.unrelatedRoot, { keep: true });
     assert.deepEqual(state.persisted.extensions.LittleWhiteBox.unrelated, { keep: true });
@@ -60,6 +61,7 @@ test('an explicitly rejected metadata save rolls local metadata back', async () 
     };
     const result = await port.install(port.capture(), { formatVersion: 1, osId: 'os_1' });
     assert.equal(result.status, 'failed');
+    assert.equal(state.reads, 0);
     assert.deepEqual(state.metadata, { extensions: { LittleWhiteBox: { unrelated: true } } });
 });
 

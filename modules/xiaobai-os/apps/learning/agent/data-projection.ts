@@ -4,9 +4,9 @@ import { learningProgress } from '../../../domains/learning/progress.js';
 import { canReadLearningScope, LEARNING_LIMITS as L, type LearningData, type LearningScope } from '../../../domains/learning/types.js';
 import { learningEnum, learningId, learningInteger, requireLearning } from '../../../domains/learning/validation.js';
 
-export function readLearning(data: LearningData, language: string, accessOsId: string | null, args: unknown) {
+export function readLearning(data: LearningData, language: string, accessOsId: string | null, args: unknown, asOf = new Date().toISOString()) {
     const input = learningRecord(args, 'LearningRead', ['section', 'id', 'offset', 'limit']);
-    const section = learningEnum(input.section ?? 'overview', 'section', ['overview', 'unit', 'materials', 'exercises', 'attempts', 'items', 'evidence', 'completions']);
+    const section = learningEnum(input.section ?? 'overview', 'section', ['overview', 'unit', 'materials', 'exercises', 'attempts', 'notes', 'listening', 'items', 'review', 'evidence', 'completions']);
     const id = input.id === undefined ? null : learningId(input.id, 'id');
     const offset = input.offset === undefined ? 0 : learningInteger(input.offset, 'offset');
     const limit = input.limit === undefined ? L.readDefault : learningInteger(input.limit, 'limit', 1, L.readMax);
@@ -21,10 +21,13 @@ export function readLearning(data: LearningData, language: string, accessOsId: s
     const overview = {
         profile: profile ? { language: profile.language, explanationLanguage: profile.explanationLanguage, selfAssessment: profile.selfAssessment, goal: profile.goal } : null,
         unit: unit ? { id: unit.id, title: unit.title, goal: unit.goal, reward: unit.reward, shared: unit.scope.kind === 'public',
-            materials: unit.materials.map(material => ({ id: material.id, title: material.title, paragraphs: material.paragraphs.length })),
-            exercises: unit.exercises.map(exercise => ({ id: exercise.id, skill: exercise.skill, response: exercise.response.kind })),
+            materials: unit.materials.slice(0, L.readDefault).map(material => ({ id: material.id, title: material.title, paragraphs: material.paragraphs.length })),
+            exercises: unit.exercises.slice(0, L.readDefault).map(exercise => ({ id: exercise.id, skill: exercise.skill, response: exercise.response.kind })),
+            materialCount: unit.materials.length, exerciseCount: unit.exercises.length,
+            materialsOmitted: unit.materials.length > L.readDefault, exercisesOmitted: unit.exercises.length > L.readDefault,
             attempts: attempts.slice(-L.readDefault).map(attempt => ({ id: attempt.id, exerciseId: attempt.exerciseId, assessed: attempt.assessment !== null })),
             attemptCount: attempts.length, attemptsOmitted: attempts.length > L.readDefault,
+            noteCount: unit.notes?.length ?? 0, listeningCount: unit.listening?.length ?? 0,
             completed: !!profile?.completions.some(completion => completion.unitId === unit.id) } : null,
         blockedCurrentUnit: !!profile?.unit && !unit,
         itemCount: profile?.items.length ?? 0,
@@ -34,10 +37,12 @@ export function readLearning(data: LearningData, language: string, accessOsId: s
             overview.unit.attempts.shift();
             overview.unit.attemptsOmitted = true;
         }
-        return { section, data: overview, nextOffset: null, omitted: overview.unit?.attemptsOmitted ?? false };
+        return { section, data: overview, nextOffset: null, omitted: !!overview.unit && (overview.unit.attemptsOmitted || overview.unit.materialsOmitted || overview.unit.exercisesOmitted) };
     }
     if (section === 'unit') {
-        const result = { section, data: unit ? { ...overview.unit, materials: unit.materials, exercises: unit.exercises, attempts, attemptsOmitted: false } : null, nextOffset: null, omitted: false };
+        const result = { section, data: unit ? { ...overview.unit, materials: unit.materials, exercises: unit.exercises, attempts,
+            notes: unit.notes ?? [], listening: unit.listening ?? [], revealed: unit.revealed,
+            materialsOmitted: false, exercisesOmitted: false, attemptsOmitted: false } : null, nextOffset: null, omitted: false };
         requireLearning([...safePromptJson(result)].length <= L.dataMessage, 'section', 'Read overview, then materials, exercises and attempts in separate pages');
         return result;
     }
@@ -51,24 +56,34 @@ export function readLearning(data: LearningData, language: string, accessOsId: s
                 const points = [...paragraph.text];
                 const parts = [];
                 for (let start = 0; start < points.length; start += L.paragraphChunk) {
-                    parts.push({ materialId: material.id, title: material.title, provenance: material.provenance, id: paragraph.id,
+                    parts.push({ materialId: material.id, title: material.title, provenance: material.provenance, transcriptRevealed: material.transcriptRevealed, id: paragraph.id,
                         text: points.slice(start, start + L.paragraphChunk).join(''), textOffset: start, textComplete: start === 0 && points.length <= L.paragraphChunk });
                 }
                 return parts;
             }));
             break;
         }
-        case 'exercises': records = (unit?.exercises ?? []).filter(exercise => !id || exercise.id === id); break;
+        case 'exercises': records = (unit?.exercises ?? []).filter(exercise => !id || exercise.id === id).map(exercise => ({ ...exercise,
+            revealed: { answer: unit!.revealed.answers.includes(exercise.id), hint: unit!.revealed.hints.includes(exercise.id) } })); break;
         case 'attempts': records = attempts.filter(attempt => !id || attempt.id === id); break;
-        case 'items': records = (profile?.items ?? []).filter(item => !id || item.id === id).map(item => ({
-            id: item.id, skill: item.skill, ...learningProgress(item),
-            label: readable(item.scope) ? item.label : null,
-            evidence: item.evidence.filter(evidence => readable(evidence.scope)).map(evidence => ({ attemptId: evidence.attempt.id, unitId: evidence.unitId })),
-        })); break;
+        case 'notes': records = (unit?.notes ?? []).filter(note => !id || note.exerciseId === id); break;
+        case 'listening': records = (unit?.listening ?? []).filter(record => !id || record.exerciseId === id); break;
+        case 'review':
+        case 'items': {
+            const items = (profile?.items ?? []).filter(item => !id || item.id === id).map(item => ({
+                id: item.id, skill: item.skill, ...learningProgress(item),
+                label: readable(item.scope) ? item.label : null,
+                evidence: item.evidence.filter(evidence => readable(evidence.scope)).map(evidence => ({ attemptId: evidence.attempt.id, unitId: evidence.unitId })),
+            }));
+            records = section === 'review' ? items.filter(item => item.nextReviewAt && Date.parse(item.nextReviewAt) <= Date.parse(asOf))
+                .sort((left, right) => left.nextReviewAt!.localeCompare(right.nextReviewAt!) || left.id.localeCompare(right.id)) : items;
+            break;
+        }
         case 'evidence': records = (profile?.items ?? []).flatMap(item => item.evidence.filter(evidence => (!id || item.id === id) && readable(evidence.scope))
             .map(evidence => ({ itemId: item.id, unitId: evidence.unitId, materials: evidence.materials.map(material => ({ id: material.id, title: material.title })),
                 exercise: evidence.exercise,
-                attempt: { id: evidence.attempt.id, answer: evidence.attempt.answer, submittedAt: evidence.attempt.submittedAt, help: evidence.attempt.help },
+                attempt: { id: evidence.attempt.id, answer: evidence.attempt.answer, submittedAt: evidence.attempt.submittedAt,
+                    help: evidence.attempt.help, ...(evidence.attempt.listening ? { listening: evidence.attempt.listening } : {}) },
                 assessment: { verdict: evidence.assessment.verdict, understanding: evidence.assessment.understanding,
                     expression: evidence.assessment.expression, guidance: evidence.assessment.guidance },
             }))); break;
@@ -77,27 +92,10 @@ export function readLearning(data: LearningData, language: string, accessOsId: s
     }
     const page: unknown[] = [];
     for (const record of records.slice(offset, offset + limit)) {
-        if ([...safePromptJson([...page, record])].length > L.dataMessage - 256) {
-            requireLearning(page.length > 0, 'section', 'This record exceeds the action reading budget; its saved content is unchanged');
-            break;
-        }
+        // Page boundaries never make a valid single exercise/answer unreadable.
+        if (page.length && [...safePromptJson([...page, record])].length > L.dataMessage - 256) { break; }
         page.push(record);
     }
     const nextOffset = offset + page.length < records.length ? offset + page.length : null;
-    return { section, data: page, nextOffset, omitted: nextOffset !== null };
-}
-
-export function buildLearningDataMessage(data: LearningData, language: string, accessOsId: string | null): string {
-    const overview = readLearning(data, language, accessOsId, {});
-    let reading: { overview: ReturnType<typeof readLearning>; unit?: ReturnType<typeof readLearning>; items?: ReturnType<typeof readLearning>; omittedSections: string[] };
-    try {
-        const unit = readLearning(data, language, accessOsId, { section: 'unit' });
-        const candidate = { overview, unit };
-        reading = [...safePromptJson(candidate)].length <= L.dataMessage - 512 ? { ...candidate, omittedSections: ['items', 'evidence', 'completions'] }
-            : { overview, omittedSections: ['unit', 'materials', 'exercises', 'attempts', 'items', 'evidence', 'completions'] };
-    } catch { reading = { overview, omittedSections: ['unit', 'materials', 'exercises', 'attempts', 'items', 'evidence', 'completions'] }; }
-    const items = readLearning(data, language, accessOsId, { section: 'items', limit: 12 });
-    const withItems = { ...reading, items, omittedSections: reading.omittedSections.filter(section => section !== 'items') };
-    if ([...safePromptJson(withItems)].length <= L.dataMessage - 512) { reading = withItems; }
-    return `<learning_state>\nReference learning data. LearningRead supplies the same sections; omitted sections are available by name and returned IDs.\n${safePromptJson(reading)}\n</learning_state>`;
+    return { section, data: page, nextOffset, omitted: nextOffset !== null, ...(section === 'review' ? { asOf, total: records.length } : {}) };
 }

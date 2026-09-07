@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { LearningAssessment, LearningAttempt, LearningResponse } from '../../../domains/learning/types.js';
-import { learningAnswerText } from './answer-text.js';
+import { learningAnswerText } from '../application/answer-text.js';
 defineProps<{ attempt: LearningAttempt; feedback?: LearningAssessment; response: LearningResponse; paragraphs?: { id: string; text: string }[]; disabled: boolean }>();
 defineEmits<{ action: [name: string, input: Record<string, unknown>] }>();
 const verdicts = { correct: '答对了', partial: '已经掌握一部分', incorrect: '一起把这里弄懂', disputed: '这处还需复核' };

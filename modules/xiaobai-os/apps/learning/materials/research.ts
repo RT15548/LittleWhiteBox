@@ -6,25 +6,16 @@ import type { createLearningSourceRegistry, LearningSource } from './lesson-sour
 import { createLearningId } from '../application/identity.js';
 import { extractLearningSources, LearningMaterialError, learningPublicUrl } from './tavily-extract.js';
 
-export const LEARNING_RESEARCH_LIMITS = Object.freeze({ searches: 2, urls: 4, query: 400,
-    results: 8, defaultResults: 5, source: 20_000, page: 4500, chunk: 500 });
+export const LEARNING_RESEARCH_LIMITS = Object.freeze({ query: 400,
+    results: 8, defaultResults: 5, page: 4500, chunk: 500 });
 const L = LEARNING_RESEARCH_LIMITS;
 type Candidate = { id: string; url: string; title: string; summary: string };
 
 function sourceParagraphs(text: string) {
-    const paragraphs: LearningSource['paragraphs'] = [];
-    let size = 0;
-    const parts = text.split(/\r?\n\s*\r?\n/u).filter(part => part.trim());
-    for (const part of parts) {
-        const length = [...part].length + (paragraphs.length ? 2 : 0);
-        if (size + length > L.source) { break; }
-        paragraphs.push({ id: `p${paragraphs.length + 1}`, text: part });
-        size += length;
-    }
-    return { paragraphs, truncated: paragraphs.length < parts.length };
+    return text.split(/\r?\n\s*\r?\n/u).filter(part => part.trim()).map((text, index) => ({ id: `p${index + 1}`, text }));
 }
 
-function sourcePage(source: LearningSource, offset: number, truncated: boolean) {
+function sourcePage(source: LearningSource, offset: number) {
     const chunks = source.paragraphs.flatMap((paragraph, index) => {
         const points = [...paragraph.text];
         return Array.from({ length: Math.ceil(points.length / L.chunk) }, (_, part) => ({
@@ -34,34 +25,33 @@ function sourcePage(source: LearningSource, offset: number, truncated: boolean) 
         }));
     });
     const base = { sourceId: source.id, url: source.url, title: source.title, retrievedAt: source.retrievedAt,
-        paragraphCount: source.paragraphs.length, truncated };
+        paragraphCount: source.paragraphs.length };
     const paragraphs: typeof chunks = [];
     for (const chunk of chunks.slice(offset)) {
-        if ([...safePromptJson({ ...base, paragraphs: [...paragraphs, chunk] })].length > L.page - 256) { break; }
+        if (paragraphs.length && [...safePromptJson({ ...base, paragraphs: [...paragraphs, chunk] })].length > L.page - 256) { break; }
         paragraphs.push(chunk);
     }
     const nextOffset = offset + paragraphs.length < chunks.length ? offset + paragraphs.length : null;
-    requireLearning(nextOffset === null || paragraphs.length > 0, 'candidateIds', 'This source cannot fit a reading page; choose another article');
     return { ...base, paragraphs, nextOffset };
 }
 
-/** Search candidates and extracted sources live only for this teaching action. */
+export function createLearningResearchCache() {
+    return { candidates: new Map<string, Candidate>(), extracted: new Map<string, LearningSource>() };
+}
+
+/** Search/extraction identities remain valid for the live classroom, not just one button press. */
 export function createLearningResearch(config: { tavilyApiKey?: string; tavilyBaseUrl?: string }, options: {
     sources: ReturnType<typeof createLearningSourceRegistry>; signal: AbortSignal;
+    cache?: ReturnType<typeof createLearningResearchCache>;
     createId?: () => string; now?: () => string; timeoutMs?: number;
 }) {
-    const candidates = new Map<string, Candidate>();
-    const extracted = new Map<string, { source: LearningSource; truncated: boolean }>();
+    const { candidates, extracted } = options.cache ?? createLearningResearchCache();
     const createId = options.createId ?? createLearningId;
-    let searches = 0;
-    let urls = 0;
     const available = isTavilyConfigured(config);
     async function search(args: unknown) {
         const input = learningRecord(args, 'LearningSearch', ['query', 'maxResults']);
         const query = learningText(input.query, 'query', L.query);
         const maxResults = learningInteger(input.maxResults ?? L.defaultResults, 'maxResults', 1, L.results);
-        requireLearning(searches < L.searches, 'query', 'The search allowance for this teaching action has been used');
-        searches++;
         const controller = new AbortController();
         const abort = () => controller.abort();
         options.signal.addEventListener('abort', abort, { once: true });
@@ -80,7 +70,7 @@ export function createLearningResearch(config: { tavilyApiKey?: string; tavilyBa
                 candidates.set(candidate.id, candidate);
                 selected.push(candidate);
             }
-            return { ok: true, results: selected, searchesRemaining: L.searches - searches };
+            return { ok: true, results: selected };
         } catch {
             throw new LearningMaterialError(controller.signal.aborted ? 'learning_search_timeout' : 'learning_search_failed');
         } finally {
@@ -89,39 +79,43 @@ export function createLearningResearch(config: { tavilyApiKey?: string; tavilyBa
         }
     }
     async function extract(args: unknown) {
-        const input = learningRecord(args, 'LearningExtract', ['candidateIds', 'offset']);
+        const input = learningRecord(args, 'LearningExtract', ['candidateIds', 'sourceId', 'offset']);
+        const offset = learningInteger(input.offset ?? 0, 'offset');
+        if (input.sourceId !== undefined) {
+            requireLearning(input.candidateIds === undefined, 'sourceId', 'Choose sourceId or candidateIds for this read');
+            const source = options.sources.get(learningId(input.sourceId, 'sourceId'));
+            requireLearning(source, 'sourceId', 'Use a source ID from LearningRead section sources');
+            return { ok: true, results: [sourcePage(source, offset)], failed: [] };
+        }
         const ids = learningArray(input.candidateIds, 'candidateIds', learningId, 2);
         requireLearning(ids.length > 0 && new Set(ids).size === ids.length, 'candidateIds', 'Choose one or two distinct search candidates');
-        const offset = learningInteger(input.offset ?? 0, 'offset');
         const selected = ids.map(id => {
             const candidate = candidates.get(id);
-            requireLearning(candidate, 'candidateIds', 'Choose an ID returned by LearningSearch in this action');
+            requireLearning(candidate, 'candidateIds', 'Choose an ID returned by LearningSearch in this classroom');
             return candidate;
         });
         const missing = selected.filter(candidate => !extracted.has(candidate.id));
-        requireLearning(urls + missing.length <= L.urls, 'candidateIds', 'The article extraction allowance for this action has been used');
         const failed: { candidateId: string; error: string }[] = [];
         if (missing.length) {
-            urls += missing.length;
             const received = await extractLearningSources(config, missing.map(candidate => candidate.url), options);
             if (options.signal.aborted) { throw new LearningMaterialError('learning_research_cancelled'); }
             for (const candidate of missing) {
                 const text = received.results.find(result => result.url === candidate.url)?.text;
                 const projected = sourceParagraphs(text ?? '');
-                if (!projected.paragraphs.length) {
+                if (!projected.length) {
                     failed.push({ candidateId: candidate.id, error: 'learning_source_unavailable' });
                     continue;
                 }
                 const source = { id: createId(), url: candidate.url, title: candidate.title || candidate.url.slice(0, 240),
-                    retrievedAt: (options.now ?? (() => new Date().toISOString()))(), paragraphs: projected.paragraphs };
+                    retrievedAt: (options.now ?? (() => new Date().toISOString()))(), paragraphs: projected };
                 options.sources.add(source);
-                extracted.set(candidate.id, { source, truncated: projected.truncated });
+                extracted.set(candidate.id, source);
             }
         }
         return { ok: failed.length === 0, results: selected.flatMap(candidate => {
             const entry = extracted.get(candidate.id);
-            return entry ? [{ candidateId: candidate.id, ...sourcePage(entry.source, offset, entry.truncated) }] : [];
-        }), failed, urlsRemaining: L.urls - urls };
+            return entry ? [{ candidateId: candidate.id, ...sourcePage(entry, offset) }] : [];
+        }), failed };
     }
     return {
         available,

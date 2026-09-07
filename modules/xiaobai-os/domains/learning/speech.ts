@@ -1,5 +1,5 @@
 import { learningRecord, learningText, parseLearningLanguageTag } from './profile.js';
-import { LEARNING_LIMITS, type LearningExercise, type LearningHeardPart, type LearningListening, type LearningMaterial, type LearningSpeechVoice } from './types.js';
+import { type LearningExercise, type LearningHeardPart, type LearningListening, type LearningMaterial, type LearningSpeechVoice } from './types.js';
 import { learningArray, learningBoolean, learningId, learningInteger, requireLearning, uniqueLearning } from './validation.js';
 
 export function parseLearningVoice(value: unknown, path = 'voice'): LearningSpeechVoice {
@@ -60,7 +60,7 @@ export function parseLearningHeardParts(value: unknown, exercise: LearningExerci
         requireLearning(keys.includes(key), p, 'Listening refers to an actual material span');
         return { key, voice: parseLearningVoice(item.voice, `${p}.voice`), count: learningInteger(item.count, `${p}.count`, 1),
             slowPlayback: learningBoolean(item.slowPlayback, `${p}.slowPlayback`) };
-    }, keys.length * LEARNING_LIMITS.exercises);
+    });
     requireLearning(parts.length > 0, path, 'Listening requires a played material span');
     uniqueLearning(parts.map(part => heardPartIdentity(part.key, part.voice)), path);
     return parts;

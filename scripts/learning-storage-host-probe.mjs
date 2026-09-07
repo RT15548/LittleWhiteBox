@@ -60,11 +60,11 @@ const server = app.listen(0, '127.0.0.1');
 await once(server, 'listening');
 const base = `http://127.0.0.1:${server.address().port}`;
 let id = 0;
-const repository = (user = 'a', timeout = 2000) => createLearningRepository(createSillyTavernUserJsonFilePort({
+const repository = (user = 'a', timeout = 0) => createLearningRepository(createSillyTavernUserJsonFilePort({
     requestTimeoutMs: timeout,
     fetch: (url, options) => fetch(`${base}${url}`, options),
     getRequestHeaders: () => ({ 'X-Probe-User': user }),
-}), { createId: () => `probe-${++id}`, locks: null });
+}), { createId: () => `probe-${++id}` });
 const profile = { language: 'en', explanationLanguage: 'zh-CN', selfAssessment: '初学',
     goal: { description: '阅读与表达', exam: null, targetLevel: null, targetDate: null }, unit: null, items: [], completions: [] };
 try {
@@ -82,7 +82,7 @@ try {
     const landed = new Promise(resolve => { afterUpload = resolve; });
     const next = { profiles: [{ ...profile, selfAssessment: '更新自评' }] };
     assert.equal((await delayed.save(first.document, next, () => true)).status, 'unconfirmed');
-    assert.equal((await delayed.retry(() => true)).status, 'unconfirmed');
+    assert.equal((await delayed.read()).status, 'unconfirmed');
     assert.equal(uploads, 2);
     releaseUpload();
     await landed;

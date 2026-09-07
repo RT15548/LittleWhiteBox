@@ -1,5 +1,6 @@
 import { getContext } from '../../../../../../extensions.js';
 import { getRequestHeaders } from '../../../../../../../script.js';
+import { saveSillyTavernChat } from '../host/sillytavern-chat-save.js';
 import type { XiaobaiOsChatBindingV1 } from '../kernel/contracts.js';
 import {
     readChatMetadataHeader,
@@ -8,7 +9,7 @@ import {
     type ChatMetadataCapture,
 } from './chat-reference.js';
 
-const DEFAULT_TIMEOUT_MS = 15_000;
+const DEFAULT_TIMEOUT_MS = 0;
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -18,7 +19,6 @@ interface SillyTavernContext {
     characterId?: unknown;
     characters?: Record<string, { avatar?: unknown; name?: unknown }>;
     chatMetadata?: unknown;
-    saveMetadata?: () => Promise<void> | void;
 }
 
 interface SillyTavernChatMetadataAdapterOptions {
@@ -83,7 +83,6 @@ export function createSillyTavernChatMetadataAdapter(
     const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
     async function save(captured: ChatMetadataCapture, signal?: AbortSignal): Promise<void> {
-        const source = context();
         const current = captureCurrent();
         if (
             !current
@@ -92,29 +91,13 @@ export function createSillyTavernChatMetadataAdapter(
         ) {
             throw createSaveError('CHAT_CHANGED', '保存引用前聊天已经切换', false);
         }
-        if (typeof source.saveMetadata !== 'function') {
-            throw createSaveError('SAVE_UNAVAILABLE', '当前聊天不提供元数据保存能力', false);
-        }
         if (signal?.aborted) { throw createSaveError('SAVE_ABORTED', '引用保存已取消', false, signal.reason); }
-        let timer: ReturnType<typeof globalThis.setTimeout> | undefined;
-        let abortHandler: (() => void) | undefined;
-        const interrupted = new Promise<never>((_resolve, reject) => {
-            timer = globalThis.setTimeout(
-                () => reject(createSaveError('SAVE_UNCONFIRMED', '等待聊天元数据保存超时', true)),
-                timeoutMs,
-            );
-            abortHandler = () => reject(createSaveError('SAVE_UNCONFIRMED', '聊天元数据保存结果未知', true, signal?.reason));
-            signal?.addEventListener('abort', abortHandler, { once: true });
-        });
-        try {
-            await Promise.race([Promise.resolve().then(() => source.saveMetadata?.()), interrupted]);
-        } catch (error) {
-            if (isRecord(error) && typeof error.uncertain === 'boolean') { throw error; }
-            // Once saveMetadata was invoked, an arbitrary rejection does not prove the write was not accepted.
-            throw createSaveError('SAVE_UNCONFIRMED', '聊天元数据保存结果未知', true, error);
-        } finally {
-            if (timer !== undefined) { globalThis.clearTimeout(timer); }
-            if (abortHandler) { signal?.removeEventListener('abort', abortHandler); }
+        const result = await saveSillyTavernChat(() => {
+            const now = captureCurrent();
+            return now?.identityKey === captured.identityKey && now.metadata === captured.metadata;
+        }, signal);
+        if (result.status !== 'confirmed') {
+            throw createSaveError('SAVE_UNCONFIRMED', '聊天元数据未能确认保存', result.status === 'unconfirmed', result.error);
         }
     }
 
@@ -139,7 +122,7 @@ export function createSillyTavernChatMetadataAdapter(
         const forwardAbort = () => controller.abort(signal?.reason);
         signal?.addEventListener('abort', forwardAbort, { once: true });
         if (signal?.aborted) { controller.abort(signal.reason); }
-        const timer = globalThis.setTimeout(() => controller.abort(), timeoutMs);
+        const timer = timeoutMs > 0 ? globalThis.setTimeout(() => controller.abort(), timeoutMs) : undefined;
         try {
             const response = await request(endpoint, {
                 method: 'POST',
@@ -153,7 +136,7 @@ export function createSillyTavernChatMetadataAdapter(
             const chat: unknown = await response.json();
             return readChatMetadataHeader(chat);
         } finally {
-            globalThis.clearTimeout(timer);
+            if (timer !== undefined) { globalThis.clearTimeout(timer); }
             signal?.removeEventListener('abort', forwardAbort);
         }
     }

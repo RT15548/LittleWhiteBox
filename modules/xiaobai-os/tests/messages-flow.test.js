@@ -20,7 +20,7 @@ const clone = structuredClone;
 async function harness() {
     const binding = { kind: 'character', ownerLocator: 'test.png', chatId: 'chat' };
     const h = { identity: 'chat', persisted: null, writes: 0, replace: null, read: null, messages: [], remote: [], publishes: 0, failProjection: false, apiCalls: 0, response: null,
-        images: new Map(), uploads: 0, upload: null, requests: [] };
+        images: new Map(), uploads: 0, upload: null, publish: null, requests: [], releasedConfirmations: [] };
     h.persisted = { formatVersion: 1, osId: 'os', binding, revision: 0, commitId: 'initial', partitions: {} };
     let serial = 0; const id = () => `id-${++serial}`;
     const capture = () => ({ identityKey: h.identity, binding, reference: { formatVersion: 1, osId: 'os' } });
@@ -37,11 +37,13 @@ async function harness() {
     const chat = {
         identity: () => h.identity, messages: () => h.messages,
         finalizedThrough: () => h.finalizedThrough ?? -1,
+        releaseConfirmation(identity, marker) {h.releasedConfirmations.push({ identity, marker });},
         async confirm(identity, marker, text) {return identity === h.identity && h.remote.some(message => message.mes === text && projectionMarker(message)?.digest === marker.digest);},
         async publish({ index, text, marker, guard }) {
             assert.equal(guard(), true); h.publishes++;
             const message = { name: '私人信息', is_user: false, is_system: false, mes: text, extra: { swipeable: false, [PRIVATE_MESSAGE_MARKER]: marker } };
             if (index === null) {h.messages.push(message);} else {h.messages[index] = message;}
+            if (h.publish) {await h.publish();}
             if (h.failProjection) {return false;}
             h.remote = clone(h.messages); return true;
         },
@@ -71,6 +73,92 @@ async function harness() {
 const photo = parseOutgoingMessage({ type: 'image', description: '', upload: {
     name: '照片.png', dataUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a2XsAAAAASUVORK5CYII=',
 } });
+
+async function controllerHarness(h) {
+    const waiters = [];
+    const runtime = createMessagesRuntime({ ...h.deps, identity: () => h.identity, isGenerating: () => false,
+        changed() {if (!runtime.active) {waiters.splice(0).forEach(resolve => resolve());}} });
+    const controller = createMessagesController({ ...h.deps, runtime, identity: () => h.identity,
+        context: { ...h.deps.context, knownPeople: () => [] }, media: { capabilities: () => ({ image: false, voice: false }), cancelAll() {} },
+        isGenerating: () => false, subscribeGeneration: () => () => {}, subscribeChat: () => () => {} });
+    const activate = () => controller.activate({ isCurrent: () => true, post() {} });
+    const command = (type, payload = {}) => controller.handleMessage({ type: `messages/${type}`, payload: { chatIdentity: h.identity, ...payload } });
+    activate(); await command('refresh');
+    return { controller, runtime, activate, command, idle: () => runtime.active ? new Promise(resolve => waiters.push(resolve)) : Promise.resolve() };
+}
+
+test('unconfirmed input remains visible across APP reentry; confirmation and retry preserve its identity', async () => {
+    const h = await harness(); const c = await controllerHarness(h);
+    let release; let saving;
+    const entered = new Promise(resolve => {saving = resolve;});
+    h.replace = input => {
+        h.persisted = clone(input.candidate);
+        saving(); return new Promise(resolve => {release = () => resolve({ status: 'unconfirmed', observed: null });});
+    };
+    const state = await c.command('send', { contactId: '甲', actionId: 'instant', payload: { type: 'text', text: '立刻显示' } });
+    assert.equal(state.outgoing.messageId, 'input:instant');
+    assert.equal(state.outgoing.payload.text, '立刻显示');
+    await entered;
+    assert.deepEqual((await c.command('thread', { contactId: '甲' })).messages, []);
+    assert.equal(h.apiCalls, 0);
+    c.controller.deactivate(); release(); await c.idle();
+    const reopened = c.activate();
+    assert.equal(reopened.outgoing.messageId, 'input:instant'); assert.equal(reopened.pendingSave, true);
+    assert.equal(reopened.sendFailure.messageId, 'input:instant');
+    await assert.rejects(c.command('discard-send', { messageId: 'input:instant' }));
+    h.replace = null;
+    assert.equal((await c.command('confirm')).outgoing, null);
+    await c.command('retry', { contactId: '甲', messageId: 'input:instant' }); await c.idle();
+    assert.equal(h.apiCalls, 1);
+    assert.equal(h.service.current().messages.filter(m => m.id === 'input:instant').length, 1);
+    assert.deepEqual(unsyncedIds(h.service.current()), []);
+    await c.runtime.stop(); c.controller.deactivate();
+});
+
+test('failed uploads retry from the retained original file and can be discarded without touching history', async () => {
+    const h = await harness(); const c = await controllerHarness(h);
+    h.upload = async () => {throw new Error('offline');};
+    await c.command('send', { contactId: '甲', actionId: 'photo', payload: photo }); await c.idle();
+    assert.equal(c.activate().outgoing.payload.upload.dataUrl, photo.upload.dataUrl);
+    assert.equal(h.service.current().messages.length, 0);
+    h.upload = null;
+    await c.command('retry', { contactId: '甲', messageId: 'input:photo' }); await c.idle();
+    assert.equal(h.apiCalls, 1); assert.equal(c.activate().outgoing, null);
+    assert.equal(h.service.current().messages.filter(m => m.id === 'input:photo').length, 1);
+    h.upload = async () => {throw new Error('offline');};
+    await c.command('send', { contactId: '甲', actionId: 'discard', payload: photo }); await c.idle();
+    const saved = h.service.current();
+    assert.equal((await c.command('discard-send', { messageId: 'input:discard' })).outgoing, null);
+    assert.deepEqual(h.service.current(), saved);
+    await c.runtime.stop(); c.controller.deactivate();
+});
+
+test('a stalled native save starts only after the reply is confirmed and never hides that reply', async () => {
+    const h = await harness(); let release; let syncing;
+    const entered = new Promise(resolve => {syncing = resolve;});
+    h.publish = () => {syncing(); return new Promise(resolve => {release = resolve;});};
+    const sending = h.send('甲', 'fast');
+    await entered;
+    assert.equal(h.apiCalls, 1);
+    assert.equal(h.service.current().messages.length, 3);
+    assert.equal(h.service.current().messages[1].payload.text, '马上到。');
+    assert.equal(h.publishes, 1);
+    release(); await sending;
+    assert.deepEqual(unsyncedIds(h.service.current()), []);
+});
+
+test('a provider failure remains attached to its input even if mirroring fails as well', async () => {
+    const h = await harness(); const c = await controllerHarness(h);
+    h.failProjection = true; h.response = async () => {throw new Error('provider offline');};
+    await c.command('send', { contactId: '甲', actionId: 'failed', payload: { type: 'text', text: '还在吗' } }); await c.idle();
+    const state = c.activate();
+    assert.equal(state.outgoing, null); assert.equal(state.sendFailure.messageId, 'input:failed');
+    assert.match(state.sendFailure.message, /没有收到回复/); assert.equal(state.unsynced, 1);
+    h.failProjection = false; h.response = null;
+    await c.command('retry', { contactId: '甲', messageId: 'input:failed' }); await c.idle();
+    assert.equal(h.service.current().messages.length, 3); assert.equal(h.apiCalls, 2);
+    await c.runtime.stop(); c.controller.deactivate();
+});
 
 test('a real sidecar conflict can be explicitly adopted through Messages, then edited and sent again', async () => {
     const h = await harness(); await h.send('甲', 'existing');
@@ -137,10 +225,12 @@ test('failed upload publishes no outgoing message; retry keeps one image and mis
     h.upload = null; h.failProjection = true;
     await assert.rejects(h.send('甲', 'photo', photo), /projection_unconfirmed/);
     const uploads = h.uploads;
-    h.failProjection = false; h.images.clear();
-    await assert.rejects(h.send('甲', 'photo', photo), /image_missing/);
-    assert.equal(h.uploads, uploads); assert.equal(h.apiCalls, 0);
-    assert.equal(h.service.current().messages.length, 1);
+    assert.equal(h.apiCalls, 1); assert.equal(h.service.current().messages.length, 3);
+    h.failProjection = false; await h.send('甲', 'photo', photo);
+    h.images.clear();
+    await assert.rejects(h.send('甲', 'later'), /image_missing/);
+    assert.equal(h.uploads, uploads); assert.equal(h.apiCalls, 1);
+    assert.equal(h.service.current().messages.length, 4);
 });
 
 test('an image-rejecting provider can recover by deleting the picture, then sending or retrying text without rolling back history', async t => {
@@ -154,7 +244,7 @@ test('an image-rejecting provider can recover by deleting the picture, then send
                 }
                 return { text: '{"replies":[{"type":"text","text":"文字可以继续。"}]}' };
             };
-            await assert.rejects(older ? h.send('甲', 'later') : h.send('甲', 'photo', photo), { status: 400 });
+            await assert.rejects(older ? h.send('甲', 'later') : h.send('甲', 'photo', photo), error => error.cause?.status === 400);
             const original = h.service.current(); const native = clone(h.messages); const apiCalls = h.apiCalls;
             const runtime = createMessagesRuntime({ ...h.deps, identity: () => h.identity, isGenerating: () => false, changed() {} });
             const controller = createMessagesController({ ...h.deps, runtime, identity: () => h.identity,
@@ -239,10 +329,10 @@ test('native edits/deletes never rewrite app history or resurrect a floor after 
     assert.notEqual(projectionMarker(h.messages[1]).segmentId, h.service.current().segments[1].id);
 });
 
-test('a failed user-floor sync retries the same message; a confirmed reply retries sync without another Agent call', async () => {
+test('failed native sync cannot block a reply; retry mirrors the saved exchange without another Agent call', async () => {
     const h = await harness(); h.failProjection = true;
     await assert.rejects(h.send('甲', 'a'), /projection_unconfirmed/);
-    assert.equal(h.apiCalls, 0); assert.equal(h.service.current().messages.length, 1);
+    assert.equal(h.apiCalls, 1); assert.equal(h.service.current().messages.length, 3);
     h.failProjection = false; await h.send('甲', 'a');
     assert.equal(h.messages.length, 1); assert.equal(h.apiCalls, 1); assert.equal(h.service.current().messages.length, 3);
     await h.send('甲', 'a'); assert.equal(h.apiCalls, 1); assert.equal(h.service.current().messages.length, 3);
@@ -255,9 +345,11 @@ test('chat confirmation recovers a missing sidecar receipt without publishing an
         entries: [{ id: 'a', payload: { type: 'text', text: 'hello' } }], createdAt: 0 }));
     h.replace = () => ({ status: 'failed', error: { code: 'network', message: 'offline', retryable: true } });
     await assert.rejects(h.deps.timeline.sync(segmentId, () => true), /save_failed/);
+    assert.equal(h.releasedConfirmations.length, 0, 'keep the host acknowledgement while the receipt is unsaved');
     assert.equal(h.messages.length, 1); assert.equal(h.publishes, 1);
     h.replace = null; await h.service.confirm(); h.restart();
     await h.deps.timeline.sync(segmentId, () => true);
+    assert.ok(h.releasedConfirmations.some(item => item.marker.segmentId === segmentId));
     assert.equal(h.publishes, 1); assert.deepEqual(unsyncedIds(h.service.current()), []);
 });
 
@@ -318,7 +410,8 @@ test('chat/run cancellation rejects a late Provider result while preserving the 
     runtime.cancel(); h.identity = 'another'; h.identity = 'chat';
     release({ text: '{"replies":[{"type":"text","text":"late"}]}' }); await runtime.stop();
     assert.equal(h.service.current().messages.length, 1);
-    assert.equal(h.messages.length, 1);
+    assert.equal(h.messages.length, 0);
+    assert.deepEqual(unsyncedIds(h.service.current()), ['a']);
 });
 
 test('leaving the APP keeps an accepted reply running and reactivation reads the confirmed facts', async () => {
@@ -359,8 +452,8 @@ test('cancellation after reply replace begins preserves its confirmed batch but 
     runtime.start('甲', 'a', { type: 'text', text: 'hi' }); await writing;
     const stopped = runtime.stop(); release(); await stopped;
     assert.equal(h.service.current().messages.length, 3);
-    assert.equal(h.messages[0].mes.includes('马上到'), false);
-    assert.equal(unsyncedIds(h.service.current()).length, 2);
+    assert.equal(h.messages.length, 0);
+    assert.equal(unsyncedIds(h.service.current()).length, 3);
     h.replace = null; await syncCurrentMessages(h.service, h.deps.timeline, () => true);
     assert.equal(h.messages[0].mes.includes('马上到'), true); assert.equal(h.apiCalls, 1);
 });

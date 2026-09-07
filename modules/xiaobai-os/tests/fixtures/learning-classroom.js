@@ -20,7 +20,7 @@ export const fixtureLesson = {
 
 export async function createClassroomFixture({ listening = false, lesson: lessonInput = fixtureLesson, getTtsFacade = () => undefined } = {}) {
     let chat = 'runtime-a'; let envelope = null; let userFile = null; let serial = 0;
-    const flags = { userFailure: false, userRejected: false, heldUser: null, ledgerFailure: false, ledgerUnknown: false, heldLedger: null, providerFailure: false, providerGate: null, prepareReply: null, profileReply: null };
+    const flags = { userFailure: false, userRejected: false, heldUser: null, ledgerFailure: false, ledgerUnknown: false, heldLedger: null, providerFailure: false, providerGate: null, prepareReply: null, profileReply: null, talkTools: null, teacherResponse: null };
     const counts = { provider: 0, userWrites: 0, ledgerWrites: 0 };
     const failures = [];
     const reference = () => ({ identityKey: `storage-${chat}`, binding: { kind: 'character', ownerLocator: 'fixture.png', chatId: chat },
@@ -43,7 +43,7 @@ export async function createClassroomFixture({ listening = false, lesson: lesson
         if (flags.userRejected) { throw new XiaobaiOsStorageError('fixture_rejected', 'fixed rejection', false, { httpStatus: 403 }); }
         if (flags.userFailure) { flags.heldUser = structuredClone(value); throw new Error('fixture response lost'); }
         userFile = structuredClone(value);
-    } }, { locks: null });
+    } });
     const profile = () => repository.snapshot().document?.data.profiles[0];
     const call = (name, args) => ({ id: name, name, arguments: JSON.stringify(args) });
     const gateway = { loadConfig: async () => ({}), openSession: async () => {
@@ -52,7 +52,9 @@ export async function createClassroomFixture({ listening = false, lesson: lesson
             counts.provider++;
             if (flags.providerGate) { await flags.providerGate; }
             if (flags.providerFailure) { throw Object.assign(new Error('fixture secret must stay hidden'), { status: 401 }); }
-            if (++round > 1) { return { text: '你已经抓住关键了。语言不用一次学完，今天多会一点点就很好。' }; }
+            round++;
+            if (flags.teacherResponse) { return flags.teacherResponse(request, round); }
+            if (round > 1) { return { text: '你已经抓住关键了。语言不用一次学完，今天多会一点点就很好。' }; }
             const message = request.messages.find(entry => entry.content.startsWith('<learning_request>'));
             const input = JSON.parse(message.content.slice(message.content.indexOf('\n') + 1, message.content.lastIndexOf('\n')));
             const action = input.action;
@@ -67,10 +69,14 @@ export async function createClassroomFixture({ listening = false, lesson: lesson
                 return { toolCalls: [call('LearningLessonEdit', lesson)] };
             }
             if (action.kind === 'explain') { return { text: '“do more than” 表示“不仅仅”。树木不只是好看，还能提供荫凉。试着用这个结构，写一句自己的话。' }; }
+            if (action.kind === 'talk') {
+                return flags.talkTools ? { toolCalls: flags.talkTools.map(entry => call(entry.name, entry.args)) }
+                    : { text: '可以，我们先放慢一点。你最想弄清楚哪一部分？' };
+            }
             const unit = profile().unit;
             const attempt = unit.attempts.at(-1);
             return { toolCalls: [call('LearningAssess', { attemptId: action.attemptId ?? attempt.id,
-                ...(action.kind === 'assess' ? { verdict: 'correct', understanding: '抓住了文章的中心。', expression: '', guidance: '下次试着用自己的句子说明原因。' } : {}),
+                ...(action.kind === 'assess' && (!input.focus?.assessment || action.review) ? { verdict: 'correct', understanding: '抓住了文章的中心。', expression: '', guidance: '下次试着用自己的句子说明原因。' } : {}),
                 items: [{ label: '抓住段落中心观点' }] }),
             call('LearningComplete', { unitId: unit.id, attemptIds: [attempt.id], summary: '读懂了树荫与城市生活的关系，也练习了辨认文章主旨。' })] };
         } };
@@ -93,7 +99,11 @@ export async function createClassroomFixture({ listening = false, lesson: lesson
     } });
     state = await runtime.activate(context());
     const bridge = { subscribe: listener => { listeners.add(listener); return () => listeners.delete(listener); },
-        request: async (type, payload) => ({ result: await runtime.handleMessage({ type, payload }) }) };
+        request: async (type, payload) => {
+            const result = await runtime.handleMessage({ type, payload });
+            if (result?.state) { state = result.state; }
+            return { result };
+        } };
     async function command(name, input = {}) {
         const response = await bridge.request(`learning/${name}`, { chatIdentity: chat, ...input });
         state = response.result.state;

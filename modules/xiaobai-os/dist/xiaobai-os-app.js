@@ -91,10 +91,10 @@ var je = Object.freeze({
   bank: w(we, $e, () => import("./xiaobai-os-BankApp-D0ZbUfMo.js")),
   game: w(xe, Be, () => import("./xiaobai-os-GameApp-B78sgmUd.js")),
   map: w(ke, Le, () => import("./xiaobai-os-MapApp-BDA2OYTF.js")),
-  messages: w(Ae, Ce, () => import("./xiaobai-os-MessagesApp-D-ivW0Tl.js")),
+  messages: w(Ae, Ce, () => import("./xiaobai-os-MessagesApp-CjffdHpF.js")),
   tasks: w(Se, He, () => import("./xiaobai-os-TasksApp-WuFHj6iI.js")),
   world: w(_e, Ge, () => import("./xiaobai-os-WorldApp-8GzCYqf4.js")),
-  learning: w(Re, Te, () => import("./xiaobai-os-LearningApp-nH1ZX5bc.js"))
+  learning: w(Re, Te, () => import("./xiaobai-os-LearningApp-BpWS8JGA.js"))
 }), q = Object.freeze(ge.map((t) => {
   const a = je[t];
   if (!a) throw new Error(`missing_shell_app:${t}`);

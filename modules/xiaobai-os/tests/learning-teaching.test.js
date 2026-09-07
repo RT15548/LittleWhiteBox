@@ -4,7 +4,8 @@ import { createLearningTeaching } from '../apps/learning/application/teaching.js
 import { createLearningService } from '../apps/learning/application/service.js';
 import { createLearningPractice } from '../apps/learning/application/practice.js';
 import { createLearningSession } from '../apps/learning/agent/session.js';
-import { buildLearningContext, retainLearningDialogue } from '../apps/learning/agent/context.js';
+import { buildLearningContext } from '../apps/learning/agent/context.js';
+import { createLearningBackground } from '../apps/learning/agent/background.js';
 import { createLearningContextAdapter } from '../apps/learning/host/context-adapter.js';
 import { createLearningRepository } from '../apps/learning/storage/repository.js';
 import { createLearningSourceRegistry } from '../apps/learning/materials/lesson-sources.js';
@@ -42,7 +43,7 @@ async function harness(handler, { session = false, search = false } = {}) {
     } };
     const createId = () => `id-${++id}`;
     const now = () => '2026-09-06T09:00:00.000Z';
-    const repository = createLearningRepository(files, { createId, locks: null });
+    const repository = createLearningRepository(files, { createId });
     await repository.read();
     const profile = createLearningSession(repository, { language: 'en', osId: 'story-a', inputScope: { kind: 'public' }, action: { kind: 'profile' }, createId, now });
     assert.equal(profile.executeTool('LearningProfileEdit', { explanationLanguage: 'zh-CN', selfAssessment: '初学', goal: { description: '阅读和表达' } }).ok, true);
@@ -56,7 +57,7 @@ async function harness(handler, { session = false, search = false } = {}) {
     return { repository, teaching, requests, read, now, createId, captures: () => captures,
         current: () => current, setCurrent: value => { current = value; },
         interruptSave: () => { failWrite = true; }, confirmSave: () => { file = held; failWrite = false; },
-        reopen: () => createLearningRepository(files, { locks: null }).read() };
+        reopen: () => createLearningRepository(files).read() };
 }
 
 for (const session of [false, true]) {
@@ -70,7 +71,7 @@ for (const session of [false, true]) {
         const h = await harness((request, round) => {
             if (round === 1) {
                 const data = request.messages.map(message => message.content).join('\n');
-                assert.ok(data.includes('林老师') && data.includes('溪谷漫步'));
+                assert.ok(data.includes('林老师') && data.includes('你们一起走过溪谷'));
                 assert.ok(request.tools.some(tool => tool.function.name === 'LearningSearch'));
                 return { toolCalls: [call('LearningSearch', { query: 'BBC urban trees beginner reading', maxResults: 2 })] };
             }
@@ -101,6 +102,72 @@ for (const session of [false, true]) {
         else { assert.ok(h.requests[1].messages.some(message => message.role === 'assistant' && message.tool_calls)); }
     });
 }
+
+for (const outcome of ['confirmed', 'unconfirmed', 'failed', 'cancelled']) {
+    test(`teacher presentation is published only after confirmed teaching (${outcome})`, async () => {
+        let step = 0;
+        const h = await harness(request => {
+            if (++step === 1) { return { toolCalls: [call('LearningLessonEdit', lesson())] }; }
+            if (step === 2) {
+                const id = results(request).find(entry => entry.name === 'LearningLessonEdit').response.ids.at(-1);
+                return { toolCalls: [call('LearningPresent', { kind: 'exercise', id })] };
+            }
+            if (outcome === 'failed') { throw Object.assign(new Error('fixture'), { status: 401 }); }
+            if (outcome === 'cancelled') { h.teaching.cancel(); }
+            assert.equal(h.teaching.conversation().turns.length, 0);
+            assert.equal(h.read().unit, null);
+            return { text: '试试用自己的话表达。' };
+        });
+        if (outcome === 'unconfirmed') { h.interruptSave(); }
+        const result = await h.teaching.run({ action: { kind: 'talk' }, message: '开始学习。' });
+        assert.equal(result.status, outcome === 'confirmed' ? 'finished' : outcome);
+        const turns = h.teaching.conversation().turns;
+        if (outcome === 'confirmed') {
+            assert.equal(turns.at(-1).presentation.id, h.read().unit.exercises[0].id);
+            assert.equal(turns.at(-1).presentation.unitId, h.read().unit.id);
+        } else {
+            assert.equal(turns.length, 0);
+            assert.equal(h.read().unit, null);
+            if (outcome === 'unconfirmed') {
+                h.confirmSave(); await h.repository.verify();
+                assert.ok(h.read().unit);
+                const calls = h.requests.length;
+                assert.equal(h.teaching.recoverConfirmed().result.text, '试试用自己的话表达。');
+                assert.equal(h.teaching.conversation().turns.at(-1).presentation.id, h.read().unit.exercises[0].id);
+                assert.equal(h.teaching.recoverConfirmed(), null);
+                assert.equal(h.requests.length, calls);
+            }
+        }
+    });
+}
+
+test('a conversational answer and feedback publish together; provider failure leaves the previous lesson intact', async () => {
+    let phase = 'prepare'; let step = 0; let original;
+    const h = await harness(request => {
+        if (phase === 'prepare') { return ++step === 1 ? { toolCalls: [call('LearningLessonEdit', lesson())] } : { text: 'Summarise the main point.' }; }
+        if (++step === 1) { return { toolCalls: [call('LearningAnswer', { exerciseId: h.read().unit.exercises[0].id })] }; }
+        if (phase === 'failed') { throw Object.assign(new Error('fixture'), { status: 401 }); }
+        if (phase === 'missing') { return { text: '答对了。' }; }
+        if (step === 2) {
+            const id = results(request).find(entry => entry.name === 'LearningAnswer').response.ids[0];
+            return { toolCalls: [call('LearningAssess', { attemptId: id, verdict: 'partial', understanding: '意思清楚', expression: '动词需要调整', guidance: '试试 trees cool…' })] };
+        }
+        return { text: '意思清楚，接着调整这个动词。' };
+    });
+    await h.teaching.run({ action, message: '开始' }); original = structuredClone(h.read().unit);
+    const input = { action: { kind: 'talk' }, message: 'Trees makes streets cool.' };
+    phase = 'failed'; step = 0;
+    assert.equal((await h.teaching.run(input)).status, 'failed');
+    assert.deepEqual(h.read().unit, original);
+    phase = 'missing'; step = 0;
+    assert.equal((await h.teaching.run(input)).reason, 'learning_assessment_missing');
+    assert.deepEqual(h.read().unit, original);
+    phase = 'success'; step = 0;
+    assert.equal((await h.teaching.run(input)).status, 'finished');
+    assert.equal(h.read().unit.attempts.length, 1);
+    assert.equal(h.read().unit.attempts[0].answer.text, input.message);
+    assert.equal(h.teaching.conversation().turns.at(-1).user, input.message);
+});
 
 test('real submitted answer survives failed assessment and is evaluated under the same ID on retry', async () => {
     let phase = 'prepare';
@@ -164,18 +231,18 @@ test('cancel, changed classroom and late provider replies cannot publish staged 
     }
 });
 
-test('empty replies, exhausted rounds and unresolved tools do not publish drafts', async () => {
+test('empty replies, repeated no-progress calls and unresolved tools do not publish drafts', async () => {
     for (const mode of ['empty', 'limit', 'invalid']) {
         const h = await harness((_request, step) => {
             if (step === 1) { return { toolCalls: [call('LearningLessonEdit', lesson())] }; }
             if (mode === 'limit') { return { toolCalls: [call('LearningRead', {})] }; }
-            if (mode === 'invalid' && step === 2) { return { toolCalls: [call('LearningLessonEdit', { title: 'incomplete' })] }; }
+            if (mode === 'invalid' && step === 2) { return { toolCalls: [call('LearningLessonEdit', { tier: 'invalid' })] }; }
             return { text: mode === 'empty' ? '' : '完成' };
         });
         const result = await h.teaching.run({ action, message: '开始' });
         assert.equal(result.status, 'failed');
         assert.equal(h.read().unit, null);
-        assert.ok(h.requests.length <= 8);
+        if (mode === 'limit') { assert.equal(result.reason, 'learning_stalled'); }
     }
 });
 
@@ -214,6 +281,14 @@ test('article paging is cached, bounded, keeps real text and consumes no extra r
     assert.equal(text, paragraph);
     assert.equal(sources.get(sourceId).paragraphs[0].text, paragraph);
     assert.equal(calls, 2);
+    sources.add({ id: 'long-metadata', url: `https://example.com/?${'&'.repeat(1600)}`, title: 'Escaped source',
+        retrievedAt: '2026-09-06T09:00:00.000Z', paragraphs: [{ id: 'p1', text: '<'.repeat(600) }] });
+    const first = (await research.executeTool('LearningExtract', { sourceId: 'long-metadata' })).results[0];
+    assert.ok(first.paragraphs.length > 0);
+    const last = (await research.executeTool('LearningExtract', { sourceId: 'long-metadata', offset: first.nextOffset })).results[0];
+    assert.equal([...first.paragraphs, ...last.paragraphs].map(part => part.text).join(''), '<'.repeat(600));
+    assert.equal(last.nextOffset, null);
+    assert.equal(calls, 2);
     const second = createLearningResearch(config, { sources: createLearningSourceRegistry(), signal: new AbortController().signal });
     assert.equal((await second.executeTool('LearningExtract', { candidateIds: [id] })).ok, false);
 });
@@ -236,15 +311,20 @@ test('cross-card teaching drops prior conversation and private lesson, but keeps
     assert.equal(h.read().unit.scope.osId, 'story-a');
 });
 
-test('context uses complete submitted focus, bounded history and rejects over-budget focus without changing data', async () => {
-    assert.equal(retainLearningDialogue(Array.from({ length: 30 }, (_, i) => ({ user: `u${i}`, teacher: `t${i}` }))).length, 8);
+test('current focus is complete and every background character remains accessible through the indexed reader', async () => {
     const h = await harness((_request, step) => step === 1 ? { toolCalls: [call('LearningLessonEdit', lesson())] } : { text: '开始' });
     await h.teaching.run({ action, message: '开始' });
     const data = h.repository.snapshot().document.data;
-    const messages = buildLearningContext({ data, ...classroom, context, action: { kind: 'explain' }, message: '请解释', exerciseId: h.read().unit.exercises[0].id, dialogue: [] });
+    const { messages } = buildLearningContext({ data, ...classroom, context, action: { kind: 'explain' }, message: '请解释', exerciseId: h.read().unit.exercises[0].id });
     assert.ok(messages[0].content.includes('Summarise the main point.'));
-    assert.ok([...safePromptJson(messages)].length <= 32000);
-    assert.throws(() => buildLearningContext({ data, ...classroom, context, action: { kind: 'explain' }, message: '<'.repeat(32000), dialogue: [] }));
+    const long = '<&树'.repeat(20000);
+    const source = createLearningBackground({ ...context, snapshot: { ...context.snapshot, storyEvents: long } });
+    let recovered = ''; let offset = 0;
+    do {
+        const page = source.execute({ section: 'storyEvents', offset });
+        assert.equal(page.ok, true); recovered += page.text; offset = page.nextOffset;
+    } while (offset !== null);
+    assert.equal(recovered, long);
 });
 
 test('host teacher lookup uses known person identity and rejects chat changes during capture', async () => {
@@ -271,7 +351,7 @@ test('Google continuation preserves thought payload and provider tool identity',
     assert.equal(result.status, 'finished');
 });
 
-test('fixed-key submissions save immediately; only the last planned question asks the teacher to wrap up', async () => {
+test('fixed-key submissions save before the teacher continues; continuation can present the next exercise and wrap up once', async () => {
     let phase = 'prepare';
     let step = 0;
     const choices = { ...lesson(), materials: [], exercises: ['a', 'b'].map(key => ({ key, skill: 'vocabulary', materialKeys: [],
@@ -280,6 +360,12 @@ test('fixed-key submissions save immediately; only the last planned question ask
     const h = await harness(() => {
         if (phase === 'prepare') { return ++step === 1 ? { toolCalls: [call('LearningLessonEdit', choices)] } : { text: '试试这两个词。' }; }
         const unit = h.read().unit;
+        if (phase === 'continue') {
+            assert.equal(unit.attempts.length, 1);
+            assert.equal(unit.assessments[0].verdict, 'correct');
+            return ++step === 1 ? { toolCalls: [call('LearningPresent', { kind: 'exercise', id: unit.exercises[1].id })] } : { text: '答对了，继续下一题。' };
+        }
+        if (phase === 'review') { return { text: '我们再巩固一下。' }; }
         assert.equal(unit.attempts.length, 2);
         assert.equal(unit.assessments.length, 2);
         return ++step === 1 ? { toolCalls: [call('LearningComplete', { unitId: unit.id, attemptIds: unit.attempts.map(attempt => attempt.id), summary: '练习了词义识别' })] }
@@ -290,14 +376,18 @@ test('fixed-key submissions save immediately; only the last planned question ask
     const unit = h.read().unit;
     const submit = id => practice.submit({ unitId: unit.id, exerciseId: id, answer: { kind: 'choice', ids: ['tree'] }, replays: 0, slowPlayback: false });
     const count = h.requests.length;
-    assert.equal((await submit(unit.exercises[0].id)).teaching, null);
-    assert.equal(h.requests.length, count);
+    phase = 'continue'; step = 0;
+    assert.equal((await submit(unit.exercises[0].id)).teaching.status, 'finished');
+    assert.equal(h.requests.length, count + 2);
+    assert.equal(h.teaching.conversation().turns.at(-1).presentation.id, unit.exercises[1].id);
     phase = 'wrapup'; step = 0;
     assert.equal((await submit(unit.exercises[1].id)).teaching.status, 'finished');
     assert.equal(h.read().completions.length, 1);
     const finishedCalls = h.requests.length;
-    assert.equal((await submit(unit.exercises[1].id)).teaching, null);
-    assert.equal(h.requests.length, finishedCalls);
+    phase = 'review';
+    assert.equal((await submit(unit.exercises[1].id)).teaching.status, 'finished');
+    assert.equal(h.requests.length, finishedCalls + 1);
+    assert.equal(h.read().completions.length, 1);
 });
 
 test('a displayed explanation records assistance before later practice, without rewriting earlier attempts', async () => {
@@ -315,7 +405,7 @@ test('a displayed explanation records assistance before later practice, without 
     assert.equal(h.read().unit.attempts[1].help.hint, true);
 });
 
-test('research limits and cancellation do not leak transport errors or silently retry', async t => {
+test('research failures do not leak transport errors, impose a two-query quota or silently retry', async t => {
     let count = 0;
     const controller = new AbortController();
     t.mock.method(globalThis, 'fetch', async () => { count++; return new Response('private gateway response', { status: 401 }); });
@@ -325,8 +415,123 @@ test('research limits and cancellation do not leak transport errors or silently 
     assert.equal(count, 1);
     await research.executeTool('LearningSearch', { query: 'another article' });
     assert.equal((await research.executeTool('LearningSearch', { query: 'third' })).ok, false);
-    assert.equal(count, 2);
+    assert.equal(count, 3);
     controller.abort();
     await assert.rejects(research.executeTool('LearningSearch', { query: 'cancelled' }), { code: 'learning_research_cancelled' });
-    assert.equal(count, 2);
+    assert.equal(count, 3);
+});
+
+test('a substantive tool turn can exceed 32000 serialized characters and eight rounds, then continue with the same teacher', async () => {
+    let phase = 'prepare';
+    let round = 0;
+    const article = 'A<&树'.repeat(1400);
+    const h = await harness(request => {
+        round++;
+        if (phase === 'prepare') {
+            if (round === 1) { return { toolCalls: [call('LearningLessonEdit', lesson([{ key: 'article', title: 'Long valid material', kind: 'authored', text: article }]))] }; }
+            if (round <= 10) { return { toolCalls: [call('LearningRead', { section: 'materials', offset: round - 2, limit: 1 })] }; }
+            assert.ok([...safePromptJson(request.messages)].length > 32000);
+            return { text: '我们下一步练习因果表达。' };
+        }
+        if (round === 1) {
+            assert.ok(request.messages.some(message => message.role === 'assistant' && message.content === '我们下一步练习因果表达。'));
+            assert.ok(request.messages.some(message => message.role === 'tool'));
+            assert.ok(request.tools.some(tool => tool.function.name === 'LearningLessonEdit'));
+            return { toolCalls: [call('LearningLessonEdit', { exercises: [{ key: 'easier', skill: 'writing', materialKeys: [],
+                prompt: 'Write one sentence with because.', response: { kind: 'text' }, rule: { kind: 'semantic' } }] })] };
+        }
+        return { text: '加了一小步，先试试这一句。' };
+    });
+    assert.equal((await h.teaching.run({ action, message: '准备一课，读完需要的材料。' })).status, 'finished');
+    assert.equal(h.requests.length, 11);
+    const previous = structuredClone(h.read().unit);
+    // Stopping is not forgetting. No new model request is made to retain history.
+    h.teaching.cancel();
+    assert.equal(h.teaching.conversation().turns.length, 1);
+    phase = 'talk'; round = 0;
+    assert.equal((await h.teaching.run({ action: { kind: 'talk' }, message: '有点难，给我一个简单的铺垫。' })).status, 'finished');
+    assert.equal(h.read().unit.id, previous.id);
+    assert.deepEqual(h.read().unit.materials, previous.materials);
+    assert.equal(h.read().unit.exercises.length, 2);
+    assert.equal(h.teaching.conversation().turns.length, 2);
+    h.teaching.reset();
+    assert.equal(h.teaching.conversation().turns.length, 0);
+    assert.deepEqual(h.read().unit.materials, previous.materials);
+});
+
+test('extracted source identities and complete long paragraphs survive into a follow-up teaching turn', async t => {
+    let network = 0;
+    const longParagraph = 'Long reference text. '.repeat(1300);
+    t.mock.method(globalThis, 'fetch', async url => {
+        network++;
+        return Response.json(url.endsWith('/search') ? { results: [{ title: 'Article', url: 'https://example.com/article', content: 'Summary' }] }
+            : { results: [{ url: 'https://example.com/article', raw_content: `${longParagraph}\n\nTrees cool streets.` }] });
+    });
+    let sourceId; let step = 0; let phase = 'research';
+    const h = await harness(request => {
+        step++;
+        const last = name => results(request).filter(result => result.name === name).at(-1)?.response;
+        if (phase === 'research') {
+            if (step === 1) { return { toolCalls: [call('LearningSearch', { query: 'urban trees article' })] }; }
+            if (step === 2) { return { toolCalls: [call('LearningExtract', { candidateIds: [last('LearningSearch').results[0].id] })] }; }
+            sourceId = last('LearningExtract').results[0].sourceId;
+            assert.equal(last('LearningExtract').results[0].paragraphCount, 2);
+            return { text: '这篇可以，我们挑一个短段落练习。' };
+        }
+        if (step === 1) { return { toolCalls: [call('LearningRead', { section: 'sources' })] }; }
+        if (step === 2) {
+            assert.equal(last('LearningRead').data[0].id, sourceId);
+            return { toolCalls: [call('LearningExtract', { sourceId, offset: Math.ceil(longParagraph.length / 500) })] };
+        }
+        if (step === 3) {
+            assert.equal(last('LearningExtract').results[0].paragraphs[0].text, 'Trees cool streets.');
+            return { toolCalls: [call('LearningLessonEdit', lesson([{ key: 'article', title: 'Excerpt', kind: 'original', sourceId, from: 2, through: 2 }]))] };
+        }
+        return { text: '用这一段开始。' };
+    }, { search: true });
+    assert.equal((await h.teaching.run({ action: { kind: 'talk' }, message: '先找一篇文章看看。' })).status, 'finished');
+    phase = 'lesson'; step = 0;
+    assert.equal((await h.teaching.run({ action: { kind: 'talk' }, message: '就用刚才那篇的短段落出题。' })).status, 'finished');
+    assert.equal(network, 2);
+    assert.equal(h.read().unit.materials[0].paragraphs[0].text, 'Trees cool streets.');
+});
+
+for (const session of [false, true]) {
+    test(`provider overflow releases only complete old turns and never re-executes current tools (${session ? 'session' : 'replay'})`, async () => {
+        let requests = 0; let executed = 0; let reopened = 0;
+        const history = ['old-a', 'old-b'].map(text => ({ user: text, teacher: text,
+            messages: [{ role: 'user', content: text }, { role: 'assistant', content: text }] }));
+        const agent = () => ({ providerConfig: {}, supportsSessionToolLoop: session, run: async request => {
+            requests++;
+            if (requests === 1) { return { toolCalls: [call('Write', { value: 'current' }, 'unique-current')] }; }
+            if (requests === 2) { throw Object.assign(new Error('maximum context length exceeded'), { status: 400, code: 'context_length_exceeded' }); }
+            assert.equal(request.toolResponses, undefined);
+            assert.ok(!request.messages.some(message => message.content === 'old-a'));
+            assert.ok(request.messages.some(message => message.content === 'old-b'));
+            assert.ok(request.messages.some(message => message.tool_calls?.[0].id === 'unique-current'));
+            assert.ok(request.messages.some(message => message.role === 'tool' && JSON.parse(message.content).saved === 'current'));
+            return { text: 'done' };
+        } });
+        const result = await runLearningProviderLoop({ agent: agent(), reopen: async () => { reopened++; return agent(); },
+            history, systemPrompt: 'test', messages: [{ role: 'user', content: 'new-turn' }], tools: [{ function: { name: 'Write' } }],
+            signal: new AbortController().signal, guard: () => true,
+            executeTool: () => { executed++; return { saved: 'current' }; } });
+        assert.equal(result.status, 'finished');
+        assert.equal(result.removedTurns, 1);
+        assert.equal(executed, 1);
+        assert.equal(reopened, 1);
+    });
+}
+
+test('an ordinary invalid-request response does not erase history or automatically retry', async () => {
+    let calls = 0;
+    const result = await runLearningProviderLoop({ systemPrompt: 'test', messages: [], tools: [],
+        history: [{ user: 'hello', teacher: 'hello', messages: [{ role: 'user', content: 'hello' }] }],
+        signal: new AbortController().signal, guard: () => true, executeTool: () => null,
+        reopen: () => { throw new Error('must not reopen'); },
+        agent: { providerConfig: {}, supportsSessionToolLoop: false, run: async () => {
+            calls++; throw Object.assign(new Error('Unsupported request parameter'), { status: 400 });
+        } } });
+    assert.equal(result.reason, 'provider-request');
+    assert.equal(calls, 1);
 });

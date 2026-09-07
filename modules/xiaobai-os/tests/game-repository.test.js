@@ -369,6 +369,7 @@ test('Game rejects forged owned Economy history before drawing or writing', asyn
     const randomBefore = harness.state.randomCalls;
     const writesBefore = harness.state.writes.length;
     harness.state.persisted.partitions.economy.transactions[1].sourceId = 'wrong-game';
+    await harness.coordinator.refresh();
     await harness.economy.refresh();
     await harness.game.refreshCurrent();
 

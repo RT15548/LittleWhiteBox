@@ -23,10 +23,10 @@
 
 1. 定义 Envelope、StorageReplaceResult、PartitionRegistration、ScopedChatStore、文件级 write state 和结构化错误。
 2. Envelope parser 严格拒绝未知根字段、错误 formatVersion、osId/revision/commitId；partitions 内部保持 opaque。
-3. SillyTavern adapter 实现 no-store 读取、404、base64 上传、删除、超时读回和`expected/candidate/observed`的 commitId 比对。
-4. Coordinator 实现单页 FIFO、每次写前强读、一次 command、一次 candidate、一次 replace。
+3. SillyTavern adapter 实现 no-store 读取、404、base64 上传、删除、结果未知时读回和`expected/candidate/observed`的 commitId 比对。生产写入不设固定 15 秒截止。
+4. Coordinator 实现单页 FIFO、当前聊天已确认 Envelope、一次 command、一次 candidate、一次 replace；绑定解析直接安装读入结果，APP 不重复下载。
 5. unconfirmed/conflict 只存在当前运行；状态冻结同聊天全部新写入，不写入 sidecar。
-6. 无关分区始终从强读结果复制，不能从过期缓存拼装。
+6. 无关分区从协调器最新已确认版本复制；各 APP 不持有独立可写文件缓存。
 7. replace 重试接受已序列化 candidate；不得再次调用 command。
 
 ### 不得做
@@ -41,7 +41,7 @@
 
 - 缺失、坏 JSON、坏 Envelope、合法未知分区；
 - 一个坏分区不阻止另一个注册分区读写；
-- 两个排队写严格按强读后的 revision 递增；
+- 两个排队写按最新已确认 revision 递增；不同分区不覆盖彼此，热状态读取不发请求；
 - 成功、明确失败、timeout-confirmed、读回仍为 expected 的 timeout-unconfirmed、第三方 commit conflict；
 - candidate 重试不重复执行 command；
 - 一次事务只有一个 upload。
@@ -58,7 +58,7 @@
 
 1. 只在 xiaobaiOsRef 写 formatVersion + osId。
 2. 新 sidecar 与引用使用明确的两阶段流程；失败和未知结果按目标文档处理。
-3. CHAT_CHANGED 总是刷新 binding 和 sidecar；focus/visibility 恢复只入同一读取队列，连续事件可合并读。
+3. CHAT_CHANGED 刷新 binding 和 sidecar，并释放非待核实的旧聊天缓存；同聊天重开、focus/visibility 不再读文件。启动时先完成绑定解析，APP 初次读取等待该结果。
 4. 分支识别读取 main_chat 和父聊天 header，不使用“消息数大于一”。复制 partitions 后、首次子 sidecar 写入前调用组合层同步准备回调；当前仅 Messages 自有策略裁剪通讯历史，不改变其他分区的默认完整复制。
 5. CHAT_RENAMED/CHARACTER_RENAMED 保留 osId。
 6. 复制冲突优先证明旧 binding 是否仍存在；不能证明时返回 identity_conflict。
@@ -285,3 +285,12 @@ legacy-migration.ts 中若仍有 upstream Fourth Wall 真实转换，必须移�
 - 下一批唯一接缝。
 
 任何一批若出现“临时让 APP 取得完整 Envelope”“先双写以后再删”“先把所有东西放 bootstrap”“先静态 import 以后拆 chunk”，视为边界失败，应回到本方案修正后再施工。
+
+## 11. 存储减负验证记录（2026-09-07）
+
+- 自动回归：773 项 OS 测试通过。单聊、群聊各 10,000 楼的宿主适配测试证明：每次正常私信同步一次聊天保存、零额外聊天下载；首次引用安装成功也不读回聊天。
+- 学习文件及公共存储：热状态读取不下载，明确保存成功不读回；覆盖本页并发、切聊迟到响应、引用变化、重进课堂、同候选恢复及奖励幂等。绑定解析结果直接安装，初次 APP 读取不会再下载一次。
+- 故障回归：模拟超过 15 秒的成功响应、明确拒绝、响应丢失与核实失败，验证不自动重发、不把未知结果当成功，已确认内容仍可读。
+- 本机真实文件接口探针通过：隔离临时用户目录验证上传、重开、用户隔离、坏文件保护及故障注入后的迟到写入；未操作用户聊天数据。
+- 类型、lint、imports、三路构建及 diff 检查通过，受追踪构建产物已更新。画图、向量处理未改动。
+- 待实测：真实浏览器中的单聊／群聊全流程与用户 VPS 长聊天耗时。本轮没有真实模型或语音服务验收，自动请求计数不代表实际 VPS 延迟。

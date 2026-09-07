@@ -10,6 +10,7 @@ export interface MessagesChatPort {
     finalizedThrough(): number;
     publish(input: { identity: string; index: number | null; text: string; marker: ProjectionMarker; guard: () => boolean }): Promise<boolean>;
     confirm(identity: string, marker: ProjectionMarker, text: string): Promise<boolean>;
+    releaseConfirmation(identity: string, marker: ProjectionMarker): void;
 }
 
 export function createMessagesTimeline(service: MessagesService, chat: MessagesChatPort, id: () => string) {
@@ -53,12 +54,14 @@ export function createMessagesTimeline(service: MessagesService, chat: MessagesC
     }
 
     async function receipt(segmentId: string, marker: ProjectionMarker, guard: () => boolean): Promise<void> {
+        const identity = chat.identity();
         await service.change(state => {
             const segment = state.segments.find(item => item.id === segmentId);
             if (segment && marker.throughSeq >= (segment.receipt?.throughSeq ?? 0)) {
                 segment.receipt = { throughSeq: marker.throughSeq, digest: marker.digest };
             }
         }, guard);
+        chat.releaseConfirmation(identity, marker);
     }
 
     async function sync(segmentId: string, guard: () => boolean): Promise<void> {
@@ -83,7 +86,10 @@ export function createMessagesTimeline(service: MessagesService, chat: MessagesC
         const current = service.current().segments.find(item => item.id === segmentId)!;
         const members = state.messages.filter(item => segment.messageIds.includes(item.id));
         const throughSeq = members.at(-1)?.seq ?? 0;
-        if ((current.receipt?.throughSeq ?? 0) >= throughSeq) {return;}
+        if ((current.receipt?.throughSeq ?? 0) >= throughSeq) {
+            if (current.receipt) {chat.releaseConfirmation(identity, { version: 1, segmentId, ...current.receipt });}
+            return;
+        }
         if (!intact(current)) {
             await seal([segmentId], guard);
             throw new Error('messages_projection_closed');

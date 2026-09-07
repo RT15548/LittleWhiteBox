@@ -242,19 +242,18 @@ export function createChatReferencePort(
 
         let saveError: unknown;
         try {
+            if (pendingInstall) {
+                const persisted = await adapter.read(current.binding, signal);
+                if (persistedInstallMatches(persisted, reference, effect)) {
+                    pending.delete(captured.identityKey);
+                    return { status: 'confirmed' };
+                }
+            }
             await adapter.save(current, signal);
-        } catch (error) {
-            saveError = error;
-        }
-        let persisted: ChatMetadata | null = null;
-        try {
-            persisted = await adapter.read(current.binding, signal);
-        } catch {
-            // An unreadable result cannot disprove a write that may already have reached the host.
-        }
-        if (persistedInstallMatches(persisted, reference, effect)) {
             pending.delete(captured.identityKey);
             return { status: 'confirmed' };
+        } catch (error) {
+            saveError = error;
         }
         if (saveError && isExplicitFailure(saveError)) {
             effect?.rollback();
@@ -268,6 +267,17 @@ export function createChatReferencePort(
                     true,
                 ),
             };
+        }
+        if (!pendingInstall) {
+            try {
+                const persisted = await adapter.read(current.binding, signal);
+                if (persistedInstallMatches(persisted, reference, effect)) {
+                    pending.delete(captured.identityKey);
+                    return { status: 'confirmed' };
+                }
+            } catch {
+                // Keep the candidate for explicit recovery; an unreadable result proves nothing.
+            }
         }
         return {
             status: 'unconfirmed',

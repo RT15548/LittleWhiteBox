@@ -20,6 +20,7 @@ export function createLearningSourceRegistry() {
             sources.set(source.id, structuredClone(source));
         },
         get(id: string): LearningSource | undefined { return structuredClone(sources.get(id)); },
+        list: () => [...sources.values()].map(source => ({ id: source.id, title: source.title, url: source.url, paragraphs: source.paragraphs.length })),
     };
 }
 
@@ -33,7 +34,7 @@ export function compileLearningMaterial(value: unknown, id: string, sources: Pic
         provenance = { kind: 'authored' };
     } else {
         const source = sources.get(learningId(input.sourceId, 'materials.sourceId'));
-        requireLearning(source, 'materials.sourceId', 'Choose an extracted source from this preparation');
+        requireLearning(source, 'materials.sourceId', 'Choose an extracted source from this classroom');
         requireLearning(input.kind === 'original' || input.kind === 'adapted', 'materials.kind', 'Expected original, adapted or authored');
         provenance = { kind: input.kind, url: source.url, title: source.title, retrievedAt: source.retrievedAt };
         if (input.kind === 'original') {

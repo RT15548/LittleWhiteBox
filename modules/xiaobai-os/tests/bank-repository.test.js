@@ -215,6 +215,7 @@ test('Bank partition rejects non-canonical data', () => {
 test('corrupt Bank data is isolated from Economy reads', async () => {
     const harness = await createHarness();
     harness.state.persisted.partitions.bank = 'corrupt-bank-data';
+    await harness.coordinator.refresh();
 
     await harness.economy.refresh();
     assert.equal(harness.economy.getPlayerBalance(), 100);
@@ -490,6 +491,7 @@ test('generation guard, turn regression, and caller-bound consistency preserve c
     const bankTransaction = harness.state.persisted.partitions.economy.transactions
         .find(transaction => transaction.sourceDomain === 'bank');
     bankTransaction.sourceId = 'wrong-action-source';
+    await harness.coordinator.refresh();
     const replacementsBefore = harness.state.replaces.length;
     await assert.rejects(
         harness.bank.openDeposit(command(regressed, 'detect-corruption', {

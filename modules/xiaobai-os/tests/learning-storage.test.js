@@ -33,7 +33,7 @@ function harness() {
     };
     let id = 0;
     const files = createSillyTavernUserJsonFilePort({ fetch: request });
-    const make = () => createLearningRepository(files, { createId: () => `commit-${++id}`, locks: null });
+    const make = () => createLearningRepository(files, { createId: () => `commit-${++id}` });
     return { state, make, repository: make() };
 }
 
@@ -80,34 +80,52 @@ test('stored documents validate facts, not prompt budgets, and reject unsupporte
     ]) { assert.throws(() => parseLearningDocument(bad)); }
 });
 
-test('a confirmed upload is still read back, and matching commitId alone cannot publish corrupt content', async () => {
+test('confirmed uploads and ordinary reads reuse the session; only explicit refresh downloads again', async () => {
     const { state, repository } = harness();
-    state.upload = document => {
-        state.file = { ...document, data: data(profile('ja')) };
-        return new Response('{}');
-    };
-    assert.equal((await repository.save(null, data(profile()), () => true)).status, 'conflict');
-    assert.equal(repository.snapshot().document, null);
-    assert.equal((await repository.adoptServer()).document.data.profiles[0].language, 'ja');
+    const saved = await repository.save(null, data(profile()), () => true);
+    assert.equal(saved.status, 'confirmed');
+    assert.equal(state.requests.length, 2); // initial load + upload, no success read-back
+    state.file = { ...state.file, commitId: 'server-edit', data: data(profile('ja')) };
+    assert.equal((await repository.read()).document.data.profiles[0].language, 'en');
+    assert.equal(state.requests.length, 2);
+    assert.equal((await repository.refresh()).document.data.profiles[0].language, 'ja');
+    assert.equal(state.requests.length, 3);
 });
 
-test('late writes remain frozen across read, retry and attempted conflict adoption until confirmed', async () => {
+test('unknown writes keep the old facts; ordinary reads do not retry; recovery has an adoption exit', async () => {
     const { state, repository } = harness();
     const initial = await repository.save(null, data(profile()), () => true);
-    let late;
-    state.upload = document => { late = document; throw new TypeError('response lost'); };
+    state.upload = () => { throw new TypeError('response lost'); };
     const saved = await repository.save(initial.document, data(profile('ja')), () => true);
     assert.equal(saved.status, 'unconfirmed');
     assert.deepEqual(repository.snapshot().document, initial.document);
+    const reads = state.requests.length;
     assert.equal((await repository.read()).status, 'unconfirmed');
-    assert.equal((await repository.retry(() => true)).status, 'unconfirmed');
+    assert.equal((await repository.refresh()).status, 'unconfirmed');
+    assert.equal(state.requests.length, reads);
     await assert.rejects(repository.clear(initial.document, () => true), { code: 'learning_resolve_pending_first' });
     state.file = { ...initial.document, revision: 2, commitId: 'other-writer' };
     assert.equal((await repository.verify()).status, 'conflict');
-    await assert.rejects(repository.adoptServer(), { code: 'learning_upload_unresolved' });
+    assert.equal((await repository.adoptServer()).status, 'ready');
     assert.equal(state.uploads.length, 2);
-    state.file = structuredClone(late);
-    assert.equal((await repository.verify()).status, 'confirmed');
+    assert.equal(repository.snapshot().document.commitId, 'other-writer');
+    assert.equal((await repository.clear(repository.snapshot().document, () => true)).status, 'unconfirmed');
+});
+
+test('an unchanged server baseline permits explicit retry of exactly the original candidate', async () => {
+    const { state, repository } = harness();
+    const initial = await repository.save(null, data(profile()), () => true);
+    state.upload = () => { throw new TypeError('response lost before persistence'); };
+    assert.equal((await repository.save(initial.document, data(profile('ja')), () => true)).status, 'unconfirmed');
+    const candidate = structuredClone(state.uploads.at(-1));
+    state.read = () => { throw new Error('offline'); };
+    assert.equal((await repository.retry(() => true)).status, 'unconfirmed');
+    assert.equal(state.uploads.length, 2);
+    state.read = null; state.upload = null;
+    const requests = state.requests.length;
+    assert.equal((await repository.retry(() => true)).status, 'confirmed');
+    assert.deepEqual(state.uploads.at(-1), candidate);
+    assert.equal(state.requests.length - requests, 2); // one verification, one upload
     assert.equal(repository.snapshot().document.data.profiles[0].language, 'ja');
 });
 
@@ -129,13 +147,14 @@ test('definite HTTP rejection is retryable by the user, whereas 408/429/5xx need
             assert.equal((await repository.save(null, data(profile()), () => true)).status, 'confirmed');
         } else {
             assert.equal((await attempt).status, 'unconfirmed');
+            state.read = () => { throw new Error('cannot verify'); };
             assert.equal((await repository.retry(() => true)).status, 'unconfirmed');
             assert.equal(state.uploads.length, 1);
         }
     }
 });
 
-test('queued stale edits conflict; cancellation before send writes nothing; cancellation after send still confirms facts', async () => {
+test('queued stale edits are cancelled locally; cancellation after send still confirms facts', async () => {
     const { state, repository } = harness();
     let active = false;
     assert.equal((await repository.save(null, data(profile()), () => active)).status, 'cancelled');
@@ -144,8 +163,10 @@ test('queued stale edits conflict; cancellation before send writes nothing; canc
     const first = repository.save(null, data(profile()), () => active);
     const second = repository.save(null, data(profile('ja')), () => active);
     assert.equal((await first).status, 'confirmed');
-    assert.equal((await second).status, 'conflict');
-    const adopted = await repository.adoptServer();
+    assert.equal((await second).status, 'cancelled');
+    const adopted = repository.snapshot();
+    assert.equal(adopted.status, 'ready');
+    assert.equal(state.requests.length, 2);
     state.upload = document => { active = false; state.file = document; return new Response('{}'); };
     const afterSend = await repository.save(adopted.document, data(profile('ja')), () => active);
     assert.equal(afterSend.status, 'confirmed');
@@ -158,4 +179,19 @@ test('clearing user assets is an explicit confirmed write and never touches a ch
     assert.equal((await repository.clear(saved.document, () => true)).status, 'confirmed');
     assert.deepEqual((await make().read()).document.data, { profiles: [] });
     assert.equal(state.uploads.length, 2);
+});
+
+test('slow learning uploads wait for the actual ACK without a timed retry or read-back', async t => {
+    const { state, repository } = harness();
+    await repository.read();
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    let release, finished = false;
+    state.upload = () => new Promise(resolve => { release = resolve; });
+    const saving = repository.save(null, data(profile()), () => true).then(result => { finished = true; return result; });
+    while (!release) { await Promise.resolve(); }
+    t.mock.timers.tick(20_000); await Promise.resolve();
+    assert.equal(finished, false); assert.equal(state.requests.length, 2);
+    release(new Response('{}'));
+    assert.equal((await saving).status, 'confirmed');
+    assert.equal(state.requests.length, 2);
 });

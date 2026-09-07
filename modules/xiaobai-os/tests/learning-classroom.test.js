@@ -65,8 +65,10 @@ test('records stay on a populated page after deletion, verification and server r
     replacement.revision++; replacement.commitId = 'records-replaced';
     replacement.data.profiles[0].items = replacement.data.profiles[0].items.slice(0, 1);
     h.replaceUser(replacement);
+    h.flags.userFailure = true;
     assert.equal((await h.command('delete-item', { id: 'item-60' })).storage, 'conflict');
     const adopted = await h.command('adopt-server');
+    h.flags.userFailure = false;
     assert.equal(adopted.records.offset, 0);
     assert.equal(adopted.records.items.length, 1);
     const empty = await h.command('delete-item', { id: 'item-0' });
@@ -106,11 +108,13 @@ test('adopting a lesson replacement retires obsolete queued hearing events witho
             if (replacement === 'changed-span') { server.data.profiles[0].unit.materials[0].paragraphs[0].text = 'A different audio passage.'; }
             if (replacement === 'other-story') { server.data.profiles[0].unit.scope.osId = 'other'; server.data.profiles[0].unit.originOsId = 'other'; }
             h.replaceUser(server);
-            // The playing write discovers a conflict; slow playback is already waiting behind it.
+            h.flags.userFailure = true;
+            // An uncertain playing write discovers a different saved lesson during recovery.
             audio.players[0].onStateChange('playing');
             await h.command('rate', { value: 0.75 });
             assert.equal((await h.command('read')).storage, 'conflict');
             await h.command('adopt-server');
+            h.flags.userFailure = false;
             const writes = h.counts.userWrites;
             const read = await h.command('read');
             assert.equal(read.storage, 'ready'); assert.equal(read.message, '');
@@ -148,7 +152,7 @@ test('shared material carries real listening, replay and slow-play facts across 
     const attempt = await answer(second);
     assert.equal(attempt.listening[0].voice.voiceId, 'voice-a');
     assert.equal(attempt.help.replays, 0); assert.equal(attempt.help.slowPlayback, false);
-    assert.equal(independentLearningSuccess({ exercise: second, attempt, assessment: { verdict: 'correct' } }), true);
+    assert.equal(independentLearningSuccess({ exercise: second, materials: unit.materials, attempt, assessment: { verdict: 'correct' } }), true);
     assert.equal((await answer(unrelated)).listening, undefined);
     await service.setVoice('en', { voiceId: 'voice-b', language: 'en', speed: 1 }, () => true);
     await h.command('play', { materialId: material.id, exerciseId: second.id, partKey: key });
@@ -502,3 +506,156 @@ for (const failure of ['rejected', 'unknown']) {
         assert.equal(h.profile().unit.listening[0].parts[0].count, 2);
     });
 }
+test('the teacher conversation survives stopping and reentry, records assistance, and resets without deleting learning assets', async () => {
+    const h = await createClassroomFixture({ listening: true });
+    try {
+        await h.openLesson();
+        const unit = h.profile().unit;
+        const before = h.counts.provider;
+        await h.command('cancel');
+        await h.reenter();
+        assert.equal(h.counts.provider, before);
+        assert.equal(h.state().conversation.turns.length, 2);
+        h.flags.talkTools = [{ name: 'LearningHelp', args: { exerciseIds: [unit.exercises[0].id], materialIds: [unit.materials[0].id] } }];
+        await h.command('talk', { message: '把听力的原文给我讲一下。' });
+        assert.equal(h.state().conversation.turns.at(-1).user, '把听力的原文给我讲一下。');
+        assert.equal(h.profile().unit.materials[0].transcriptRevealed, true);
+        await h.command('submit', { unitId: unit.id, exerciseId: unit.exercises[0].id, answer: { kind: 'choice', ids: ['a'] } });
+        assert.equal(h.profile().unit.attempts[0].help.hint, true);
+        assert.equal(h.profile().unit.attempts[0].help.transcript, true);
+        const saved = structuredClone(h.profile());
+        await h.command('forget-conversation');
+        assert.equal(h.state().conversation.turns.length, 0);
+        assert.deepEqual(h.profile(), saved);
+        await h.changeChat();
+        assert.equal(h.state().conversation.turns.length, 0);
+    } finally { await h.dispose(); }
+});
+
+test('failed cleanup retains conversation, while confirmed deletion and server replacement retire its stale references', async t => {
+    const h = await createClassroomFixture(); t.after(h.dispose); await h.openLesson();
+    const turns = h.state().conversation.turns;
+    h.flags.userRejected = true;
+    await h.command('clear');
+    assert.deepEqual(h.state().conversation.turns, turns);
+    assert.ok(h.profile().unit);
+    h.flags.userRejected = false;
+    h.flags.userFailure = true;
+    assert.equal((await h.command('clear')).storage, 'unconfirmed');
+    assert.deepEqual(h.state().conversation.turns, turns);
+    h.confirmUser();
+    await h.command('verify');
+    assert.equal(h.state().conversation.turns.length, 0);
+    assert.equal(h.profile(), undefined);
+    await h.openLesson();
+    const replacement = structuredClone(h.repository.snapshot().document);
+    replacement.revision++; replacement.commitId = 'server-edited-learning';
+    replacement.data.profiles[0].unit = null;
+    h.replaceUser(replacement);
+    await h.reenter();
+    assert.ok(h.profile().unit, 'reenter uses the confirmed session, not a remote read');
+    await h.command('read');
+    assert.equal(h.state().conversation.turns.length, 0);
+    assert.equal(h.profile().unit, null);
+});
+
+test('confirming an owned teacher save restores the reply and activity once without losing previous turns or requesting a model', async t => {
+    for (const recovery of ['verify', 'retry-save', 'read', 'reenter', 'cancel-then-verify']) {
+        await t.test(recovery, async sub => {
+            const h = await createClassroomFixture(); sub.after(h.dispose); await h.openLesson();
+            const turns = h.state().conversation.turns;
+            const unit = h.profile().unit;
+            h.flags.talkTools = [{ name: 'LearningProfileEdit', args: { selfAssessment: '想加强阅读。' } },
+                { name: 'LearningPresent', args: { kind: 'exercise', id: unit.exercises[0].id } }];
+            h.flags.userFailure = true;
+            assert.equal((await h.command('talk', { message: '给我阅读练习。' })).storage, 'unconfirmed');
+            assert.deepEqual(h.state().conversation.turns, turns);
+            const calls = h.counts.provider;
+            if (recovery === 'cancel-then-verify') { await h.command('cancel'); }
+            h.confirmUser();
+            let restored = recovery === 'reenter' ? await h.reenter() : await h.command(recovery === 'cancel-then-verify' ? 'verify' : recovery);
+            if (recovery === 'read' || recovery === 'reenter') {
+                assert.equal(restored.storage, 'unconfirmed');
+                assert.deepEqual(restored.conversation.turns, turns);
+                restored = await h.command('verify');
+            }
+            assert.equal(restored.storage, 'ready');
+            assert.deepEqual(restored.conversation.turns.slice(0, -1), turns);
+            assert.equal(restored.conversation.turns.at(-1).user, '给我阅读练习。');
+            assert.equal(restored.conversation.turns.at(-1).presentation.id, unit.exercises[0].id);
+            assert.equal(restored.reply.text, restored.conversation.turns.at(-1).teacher);
+            await h.command('verify'); await h.command('read');
+            assert.equal(h.state().conversation.turns.length, turns.length + 1);
+            assert.equal(h.counts.provider, calls);
+        });
+    }
+});
+
+test('abandoning an uncertain reply or adopting a different commit never revives its conversation', async t => {
+    for (const exit of ['forget-conversation', 'chat', 'adopt-server']) {
+        await t.test(exit, async sub => {
+            const h = await createClassroomFixture(); sub.after(h.dispose); await h.openLesson();
+            h.flags.userFailure = true;
+            h.flags.talkTools = [{ name: 'LearningProfileEdit', args: { selfAssessment: '未确认的自评。' } }];
+            await h.command('talk', { message: 'PRIVATE_REPLY' });
+            const calls = h.counts.provider;
+            if (exit === 'adopt-server') {
+                const external = h.repository.snapshot().document;
+                external.revision++; external.commitId = 'another-writer';
+                external.data.profiles[0].selfAssessment = '服务器上的自评';
+                h.replaceUser(external); await h.command('verify');
+                assert.equal(h.state().storage, 'conflict');
+                await h.command('adopt-server');
+            } else {
+                if (exit === 'chat') { await h.changeChat(); }
+                else { await h.command(exit); }
+                h.confirmUser(); await h.command('verify');
+            }
+            assert.equal(h.state().conversation.turns.length, 0);
+            assert.equal(h.state().reply, null);
+            assert.equal(h.counts.provider, calls);
+        });
+    }
+});
+
+test('an uncertain native answer preserves dialogue on verification and remains available for assessment', async t => {
+    const h = await createClassroomFixture(); t.after(h.dispose); await h.openLesson();
+    const turns = h.state().conversation.turns;
+    const unit = h.profile().unit; const calls = h.counts.provider;
+    h.flags.userFailure = true;
+    await h.command('submit', { unitId: unit.id, exerciseId: unit.exercises[0].id, answer: { kind: 'choice', ids: ['a'] } });
+    h.confirmUser(); await h.command('verify');
+    assert.deepEqual(h.state().conversation.turns, turns);
+    assert.equal(h.state().unit.attempts.length, 1);
+    assert.equal(h.counts.provider, calls);
+});
+
+test('teacher-requested replacement waits for exact-lesson confirmation and keeps the old course on failure', async t => {
+    for (const blocked of [false, true]) {
+        await t.test(blocked ? 'other-story lesson' : 'current lesson', async sub => {
+            const h = await createClassroomFixture(); sub.after(h.dispose); await h.openLesson();
+            const old = structuredClone(h.profile().unit);
+            if (blocked) { await h.changeChat(); await h.command('teacher', { teacher: { name: '林老师', note: '' } }); }
+            h.flags.talkTools = [{ name: 'LearningPresent', args: { kind: 'replacement' } }];
+            await h.command('talk', { message: '这课太难了，换成基础句子练习。' });
+            const target = h.state().conversation.turns.at(-1).presentation;
+            assert.equal(target.kind, 'replacement'); assert.equal(target.unitId, old.id);
+            assert.deepEqual(h.profile().unit, old);
+            const calls = h.counts.provider;
+            await h.command('replace-lesson', { unitId: 'stale-unit', message: target.message });
+            assert.equal(h.counts.provider, calls);
+            h.flags.providerFailure = true;
+            await h.command('replace-lesson', { unitId: target.unitId, message: target.message });
+            assert.deepEqual(h.profile().unit, old);
+            h.flags.providerFailure = false; h.flags.userRejected = true;
+            await h.command('replace-lesson', { unitId: target.unitId, message: target.message });
+            assert.deepEqual(h.profile().unit, old);
+            h.flags.userRejected = false;
+            await h.command('replace-lesson', { unitId: target.unitId, message: target.message });
+            assert.notEqual(h.profile().unit.id, old.id);
+            const finishedCalls = h.counts.provider;
+            await h.command('replace-lesson', { unitId: target.unitId, message: target.message });
+            assert.equal(h.counts.provider, finishedCalls);
+        });
+    }
+});

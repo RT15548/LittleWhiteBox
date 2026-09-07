@@ -22,8 +22,6 @@ export interface ChatBindingLifecycleOptions {
     invalidateSidecar?: () => void;
     events: ChatBindingEventSource;
     eventNames: ChatBindingEventNames;
-    windowTarget?: Pick<Window, 'addEventListener' | 'removeEventListener'>;
-    documentTarget?: Pick<Document, 'visibilityState' | 'addEventListener' | 'removeEventListener'>;
     onError?: (error: unknown) => void;
 }
 
@@ -31,6 +29,7 @@ export interface ChatBindingLifecycle {
     start(): void;
     stop(): Promise<void>;
     refresh(): Promise<void>;
+    ready(): Promise<void>;
 }
 
 export function createChatBindingLifecycle(options: ChatBindingLifecycleOptions): ChatBindingLifecycle {
@@ -40,8 +39,6 @@ export function createChatBindingLifecycle(options: ChatBindingLifecycleOptions)
         invalidateSidecar = () => undefined,
         events,
         eventNames,
-        windowTarget = window,
-        documentTarget = document,
         onError = error => console.error('[LittleWhiteBox] 小白 OS 聊天生命周期刷新失败', error),
     } = options;
     let active = false;
@@ -78,17 +75,13 @@ export function createChatBindingLifecycle(options: ChatBindingLifecycleOptions)
         return refreshPromise;
     }
 
-    const handleRefresh: EventListener = () => { void refresh(); };
-    const handleFocus = () => { void refresh(); };
-    const handleVisibility = () => {
-        if (documentTarget.visibilityState === 'visible') { void refresh(); }
-    };
+    const handleRefresh: EventListener = () => { invalidateSidecar(); void refresh(); };
     const handleChatDeleted: EventListener = (chatId) => {
         void manager.handleChatDeleted(String(chatId || '')).catch(onError);
     };
     const handleCharacterRenamed: EventListener = (oldOwnerLocator, newOwnerLocator) => {
         void manager.handleCharacterRenamed(String(oldOwnerLocator || ''), String(newOwnerLocator || ''))
-            .then(refresh)
+            .then(() => { invalidateSidecar(); return refresh(); })
             .catch(onError);
     };
 
@@ -101,8 +94,6 @@ export function createChatBindingLifecycle(options: ChatBindingLifecycleOptions)
         events.on(eventNames.chatDeleted, handleChatDeleted);
         events.on(eventNames.groupChatDeleted, handleChatDeleted);
         events.on(eventNames.characterRenamed, handleCharacterRenamed);
-        windowTarget.addEventListener('focus', handleFocus);
-        documentTarget.addEventListener('visibilitychange', handleVisibility);
         void refresh();
     }
 
@@ -119,10 +110,8 @@ export function createChatBindingLifecycle(options: ChatBindingLifecycleOptions)
         events.removeListener(eventNames.chatDeleted, handleChatDeleted);
         events.removeListener(eventNames.groupChatDeleted, handleChatDeleted);
         events.removeListener(eventNames.characterRenamed, handleCharacterRenamed);
-        windowTarget.removeEventListener('focus', handleFocus);
-        documentTarget.removeEventListener('visibilitychange', handleVisibility);
         if (refreshPromise) { await refreshPromise; }
     }
 
-    return Object.freeze({ start, stop, refresh });
+    return Object.freeze({ start, stop, refresh, ready: () => refreshPromise ?? Promise.resolve() });
 }

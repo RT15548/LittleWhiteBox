@@ -169,6 +169,24 @@ test('a pre-aborted write is explicitly failed and sends no request', async () =
     assert.equal(requests, 0);
 });
 
+test('normal writes have no 15-second deadline and cancellation after dispatch cannot cause a resend', async t => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    let release, sentSignal, requests = 0, finished = false;
+    const controller = new AbortController();
+    const storage = createSillyTavernFileStorage({ fetch: async (_url, options) => {
+        requests++; sentSignal = options.signal;
+        return new Promise(resolve => { release = resolve; });
+    } });
+    const saving = storage.replace({ expected: null, candidate: envelope() }, controller.signal)
+        .then(result => { finished = true; return result; });
+    while (!release) { await Promise.resolve(); }
+    controller.abort(); t.mock.timers.tick(20_000); await Promise.resolve();
+    assert.equal(finished, false); assert.equal(sentSignal.aborted, false); assert.equal(requests, 1);
+    release(response(200, '{}'));
+    assert.equal((await saving).status, 'confirmed');
+    assert.equal(requests, 1);
+});
+
 test('SillyTavern storage deletes through the user files path and treats 404 as missing', async () => {
     const bodies = [];
     let status = 200;

@@ -1,12 +1,12 @@
 import { getContext } from '../../../../../../../../extensions.js';
-import { addOneMessage, updateMessageBlock, saveChat, isChatSaving, getRequestHeaders, default_avatar } from '../../../../../../../../../script.js';
-import { saveGroupChat } from '../../../../../../../../group-chats.js';
+import { addOneMessage, updateMessageBlock, isChatSaving, getRequestHeaders, default_avatar } from '../../../../../../../../../script.js';
 import { getMessageTimeStamp } from '../../../../../../../../RossAscends-mods.js';
 import { createModuleEvents, event_types } from '../../../../../core/event-manager.js';
 import { getSillyTavernChatIdentity } from '../../../host/sillytavern-context.js';
-import { PRIVATE_MESSAGE_MARKER, projectionMarker, type ChatMessage } from '../application/projection.js';
+import { PRIVATE_MESSAGE_MARKER, projectionMarker, type ChatMessage, type ProjectionMarker } from '../application/projection.js';
 import type { MessagesChatPort } from '../application/timeline.js';
 import { getStorySummaryCommittedThrough } from '../../../../story-summary/story-summary.js';
+import { saveSillyTavernChat, type ChatSaveResult } from '../../../host/sillytavern-chat-save.js';
 
 interface HostContext {
     chat: ChatMessage[];
@@ -24,52 +24,50 @@ function same(left: unknown, right: unknown): boolean {return JSON.stringify(lef
 
 export function createMessagesChatAdapter(isGenerating: () => boolean) {
     let writing: { index: number; text: string; segmentId: string } | null = null;
-    const attempts = new Map<string, { before: ChatMessage[]; after: ChatMessage[] }>();
+    const attempts = new Map<string, { marker: ProjectionMarker; text: string; status: ChatSaveResult['status'] }>();
 
     async function readRemote(source: HostContext): Promise<ChatMessage[]> {
         const character = source.characters[String(source.characterId)];
         const endpoint = source.groupId ? '/api/chats/group/get' : '/api/chats/get';
         const body = source.groupId ? { id: source.chatId }
             : { ch_name: character?.name, avatar_url: character?.avatar, file_name: source.chatId };
-        const abort = new AbortController();
-        const timer = globalThis.setTimeout(() => abort.abort(), 15000);
-        try {
-            const response = await fetch(endpoint, { method: 'POST', headers: getRequestHeaders(),
-                cache: 'no-store', body: JSON.stringify(body), signal: abort.signal });
-            if (!response.ok) {throw new Error('messages_chat_read_failed');}
-            const data: unknown = await response.json();
-            if (!Array.isArray(data)) {throw new Error('messages_chat_read_invalid');}
-            return data.filter(item => item && typeof item === 'object' && typeof item.mes === 'string') as ChatMessage[];
-        } finally {globalThis.clearTimeout(timer);}
+        const response = await fetch(endpoint, { method: 'POST', headers: getRequestHeaders(),
+            cache: 'no-store', body: JSON.stringify(body) });
+        if (!response.ok) {throw new Error('messages_chat_read_failed');}
+        const data: unknown = await response.json();
+        if (!Array.isArray(data)) {throw new Error('messages_chat_read_invalid');}
+        return data.filter(item => item && typeof item === 'object' && typeof item.mes === 'string') as ChatMessage[];
     }
 
     const port: MessagesChatPort = {
         identity,
         messages: () => context().chat ?? [],
         finalizedThrough: getStorySummaryCommittedThrough,
+        releaseConfirmation(expected, marker) {
+            const attempt = attempts.get(marker.segmentId);
+            if (identity() === expected && attempt?.status === 'confirmed' && same(attempt.marker, marker)) {
+                attempts.delete(marker.segmentId);
+            }
+        },
         async confirm(expected, marker, text) {
             if (identity() !== expected) {return false;}
             const source = context();
             const attempt = attempts.get(marker.segmentId);
+            if (attempt && attempt.text === text && same(attempt.marker, marker) && attempt.status !== 'unconfirmed') {
+                return attempt.status === 'confirmed';
+            }
             const remote = await readRemote(source);
             if (identity() !== expected || context().chat !== source.chat) {return false;}
             const matches = remote.filter(message => projectionMarker(message)?.segmentId === marker.segmentId);
             const confirmed = matches.length === 1 && matches[0].mes === text && same(projectionMarker(matches[0]), marker);
-            if (confirmed && attempts.get(marker.segmentId) === attempt) {attempts.delete(marker.segmentId);}
+            if (confirmed) {attempts.set(marker.segmentId, { marker, text, status: 'confirmed' });}
             return confirmed;
         },
         async publish(input) {
             const source = context();
-            const before = structuredClone(source.chat);
-            const remote = await readRemote(source);
-            const retry = attempts.get(input.marker.segmentId);
             const current = () => identity() === input.identity && context().chat === source.chat
                 && input.guard() && !isGenerating() && !isChatSaving;
-            if (!current() || !same(source.chat, before)) {throw new Error('messages_boundary_changed');}
-            // Never replace a chat which another device or an unsaved native edit has changed.
-            if (!same(remote, before) && !(retry && same(remote, retry.before) && same(before, retry.after))) {
-                throw new Error('messages_chat_diverged');
-            }
+            if (!current()) {throw new Error('messages_boundary_changed');}
             writing = { index: input.index ?? source.chat.length, text: input.text, segmentId: input.marker.segmentId };
             try {
                 const extra = { swipeable: false, isSmallSys: false, api: 'manual', model: '私人信息', gen_id: Date.now(),
@@ -93,9 +91,7 @@ export function createMessagesChatAdapter(isGenerating: () => boolean) {
                     message.swipe_info = [{ send_date: message.send_date, gen_started: null, gen_finished: null, extra: structuredClone(message.extra) }];
                 }
                 source.chatMetadata.tainted = true;
-                // The latest remote read is this attempt's baseline, including when a
-                // previous native save succeeded but its confirmation was interrupted.
-                const attempt = { before: remote, after: structuredClone(source.chat) };
+                const attempt = { marker: input.marker, text: input.text, status: 'failed' as ChatSaveResult['status'] };
                 attempts.set(input.marker.segmentId, attempt);
                 if (input.index === null) {
                     await source.eventSource.emit(event_types.MESSAGE_RECEIVED, index, 'command');
@@ -109,15 +105,11 @@ export function createMessagesChatAdapter(isGenerating: () => boolean) {
                     await source.eventSource.emit(event_types.MESSAGE_UPDATED, index);
                 }
                 if (!current() || source.chat[index] !== message || message.mes !== input.text) {return false;}
-                // Direct native saves bind their request body before their first await. The
-                // conditional helper waits first and can otherwise save a newly selected chat.
-                if (source.groupId) {await saveGroupChat(source.groupId, false);}
-                else {await saveChat({ chatName: source.chatId });}
-                const saved = await readRemote(source);
-                const matches = saved.filter(item => projectionMarker(item)?.segmentId === input.marker.segmentId);
-                const confirmed = matches.length === 1 && matches[0].mes === input.text && same(projectionMarker(matches[0]), input.marker);
-                if (confirmed && attempts.get(input.marker.segmentId) === attempt) {attempts.delete(input.marker.segmentId);}
-                return confirmed;
+                const result = await saveSillyTavernChat(() => current() && source.chat[index] === message
+                    && message.mes === input.text && same(projectionMarker(message), input.marker));
+                attempt.status = result.status;
+                if (result.status === 'failed') {throw result.error;}
+                return result.status === 'confirmed';
             } finally {writing = null;}
         },
     };
