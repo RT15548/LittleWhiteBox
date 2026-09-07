@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 import { createSettingsRepository } from '../host/settings-repository.js';
+import { createDefaultXiaobaiOsSettings } from '../host/settings-normalization.js';
 
 async function loadFixture() {
     const text = await readFile(new URL('./fixtures/upstream-fourth-wall-settings.json', import.meta.url), 'utf8');
@@ -41,6 +42,41 @@ function createCurrentSettings(enabled = true) {
         },
     };
 }
+
+test('enables a new OS entry without enabling automatic app features', async () => {
+    for (const settings of [{}, { xiaobaiOs: {} }, { xiaobaiOs: createDefaultXiaobaiOsSettings() }]) {
+        const repository = createSettingsRepository(createAdapter(settings));
+        const current = await repository.prepare();
+
+        assert.equal(current.enabled, true);
+        assert.equal(current.apps.map.autoMaintenance, false);
+        assert.equal(current.apps.tasks.autoMaintenance, false);
+        assert.equal(current.apps.fourthWall.commentary.enabled, false);
+        assert.equal(current.apps.fourthWall.image.enablePrompt, false);
+        assert.equal(current.apps.fourthWall.voice.enabled, false);
+        assert.deepEqual(repository.read(), current);
+    }
+});
+
+test('keeps a saved OS opt-out and existing app preferences during preparation', async () => {
+    const saved = createCurrentSettings(false);
+    const settings = { xiaobaiOs: structuredClone(saved) };
+    const repository = createSettingsRepository(createAdapter(settings));
+
+    assert.deepEqual(await repository.prepare(), saved);
+    assert.deepEqual(repository.read(), saved);
+});
+
+test('keeps an upstream opt-out when migrating to the default-enabled OS entry', async () => {
+    for (const owner of ['fourthWall', 'dynamicPrompt']) {
+        const settings = await loadFixture();
+        settings[owner].enabled = false;
+        if (owner === 'dynamicPrompt') delete settings.fourthWall;
+        const repository = createSettingsRepository(createAdapter(settings));
+
+        assert.equal((await repository.prepare()).enabled, false);
+    }
+});
 
 test('moves the frozen upstream Fourth Wall preferences into OS without changing user choices', async () => {
     const settings = await loadFixture();

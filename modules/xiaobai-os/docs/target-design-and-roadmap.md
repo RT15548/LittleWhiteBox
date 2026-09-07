@@ -43,6 +43,8 @@ OS 有三类用户级设置：
 2. Map/Tasks APP：各自的「所有普通聊天自动维护」，默认关闭；
 3. agent-core 共享配置：Provider、model、API key、temperature 等，供小白酒馆、Ebook、画图和普通 OS 共用。
 
+OS 入口默认开启；仅在没有已保存的开关选择时使用此默认值，不覆盖用户关闭 OS 或正式线四次元壁的选择。地图／任务自动维护、世界新闻订阅和四次元壁自动旁白仍默认关闭，开启入口不等于开启这些功能。
+
 共享 Agent 配置不进入 sidecar，也不复制到 OS settings。Agent API 是共享配置的系统 APP，不拥有另一份配置。
 
 Map、Tasks 与银行一样是固定桌面 APP，不存在产品 enabled 字段或扩展页复选框。自动维护开关只决定接受轮是否产生 Agent 工作，不影响图标、前台功能或主 RP 的只读 Prompt。

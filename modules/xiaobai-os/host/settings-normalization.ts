@@ -9,6 +9,7 @@ import { jsonValuesEqual } from './json-values-equal.js';
 import { normalizeAppOrder } from '../shell/app-order.js';
 
 type UnknownRecord = Record<string, unknown>;
+const DEFAULT_OS_ENABLED = true;
 
 export type XiaobaiOsSettings = XiaobaiOsSettingsRoot<{
     fourthWall: FourthWallGlobalSettings;
@@ -41,7 +42,7 @@ function booleanOr(value: unknown, fallback: boolean): boolean {
 
 export function createDefaultXiaobaiOsSettings(): XiaobaiOsSettings {
     return {
-        enabled: false,
+        enabled: DEFAULT_OS_ENABLED,
         appOrder: [],
         apps: {
             fourthWall: normalizeFourthWallGlobalSettings(undefined),
@@ -59,7 +60,7 @@ export function normalizeXiaobaiOsSettings(value: unknown): XiaobaiOsSettings {
     const root = recordOrEmpty(value);
     const apps = recordOrEmpty(root.apps);
     return {
-        enabled: booleanOr(root.enabled, false),
+        enabled: booleanOr(root.enabled, DEFAULT_OS_ENABLED),
         appOrder: normalizeAppOrder(root.appOrder),
         apps: {
             fourthWall: normalizeFourthWallGlobalSettings(apps.fourthWall),
@@ -84,8 +85,8 @@ export function migrateUpstreamFourthWallSettings(extensionSettings: unknown): {
         value: {
             appOrder: [],
             enabled: Object.hasOwn(source, 'fourthWall')
-                ? booleanOr(fourthWall.enabled, false)
-                : booleanOr(dynamicPrompt.enabled, false),
+                ? booleanOr(fourthWall.enabled, DEFAULT_OS_ENABLED)
+                : booleanOr(dynamicPrompt.enabled, DEFAULT_OS_ENABLED),
             apps: {
                 fourthWall: normalizeFourthWallGlobalSettings({
                     image: {
