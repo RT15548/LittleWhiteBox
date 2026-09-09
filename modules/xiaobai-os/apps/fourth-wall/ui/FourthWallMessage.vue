@@ -28,16 +28,22 @@ const props = defineProps<{
     imageAvailable: boolean;
     voiceAvailable: boolean;
     bridge: XiaobaiOsFrameBridge;
+    editable: boolean;
+    editDraft?: string;
 }>();
 
 const emit = defineEmits<{
     edit: [messageIndex: number, content: string];
     delete: [messageIndex: number];
+    draft: [content: string];
+    editCancel: [];
 }>();
 
-const editing = ref(false);
-useAppBack(() => { editing.value = false; return true; }, () => editing.value);
-const draft = ref('');
+const editing = computed(() => props.editDraft !== undefined);
+useAppBack(() => { emit('editCancel'); return true; }, () => editing.value);
+const draft = computed({ get: () => props.editDraft || '', set: value => emit('draft', value) });
+const root = ref<HTMLElement | null>(null);
+let observer: IntersectionObserver | null = null;
 const media = reactive<Record<number, MediaState>>({});
 const activeMediaIds = new Set<string>();
 let unsubscribe = () => {};
@@ -185,8 +191,7 @@ async function playVoice(segment: Segment, index: number): Promise<void> {
 }
 
 function beginEdit(): void {
-    draft.value = props.message.content;
-    editing.value = true;
+    emit('draft', props.message.content);
 }
 
 function saveEdit(): void {
@@ -195,7 +200,6 @@ function saveEdit(): void {
         return;
     }
     emit('edit', props.messageIndex, content);
-    editing.value = false;
 }
 
 function cancelMedia(): void {
@@ -206,12 +210,9 @@ function cancelMedia(): void {
     activeMediaIds.clear();
 }
 
-function hydrateImages(): void {
-    segments.value.forEach((segment, index) => {
-        if (segment.kind === 'image') {
-            void loadImage(segment, index);
-        }
-    });
+function observeImages(): void {
+    observer?.disconnect();
+    root.value?.querySelectorAll<HTMLElement>('[data-image-index]').forEach(figure => observer?.observe(figure));
 }
 
 onMounted(() => {
@@ -244,23 +245,36 @@ onMounted(() => {
             }
         }
     });
-    hydrateImages();
+    if (root.value && typeof IntersectionObserver !== 'undefined') {
+        observer = new IntersectionObserver(entries => {
+            for (const entry of entries) {
+                if (!entry.isIntersecting) { continue; }
+                const index = Number((entry.target as HTMLElement).dataset.imageIndex);
+                const segment = segments.value[index];
+                if (segment?.kind === 'image') { void loadImage(segment, index); }
+                observer?.unobserve(entry.target);
+            }
+        }, { root: root.value.closest('.fourth-wall-conversation') });
+        observeImages();
+    }
 });
 
 watch(() => props.message.content, () => {
     cancelMedia();
     Object.keys(media).forEach(key => delete media[Number(key)]);
-    hydrateImages();
 });
+
+watch([segments, editing], observeImages, { flush: 'post' });
 
 onBeforeUnmount(() => {
     unsubscribe();
+    observer?.disconnect();
     cancelMedia();
 });
 </script>
 
 <template>
-    <article class="fourth-wall-message" :class="message.role === 'user' ? 'is-user' : 'is-ai'">
+    <article ref="root" class="fourth-wall-message" :data-message-index="messageIndex" :class="message.role === 'user' ? 'is-user' : 'is-ai'">
         <img
             v-if="message.role === 'user' ? userAvatar : characterAvatar"
             class="fourth-wall-avatar"
@@ -278,7 +292,7 @@ onBeforeUnmount(() => {
                 <template v-else>
                     <template v-for="(segment, index) in segments" :key="`${segment.kind}-${index}`">
                         <span v-if="segment.kind === 'text'" class="fourth-wall-message-text">{{ segment.value }}</span>
-                        <figure v-else-if="segment.kind === 'image'" class="fourth-wall-image-card">
+                        <figure v-else-if="segment.kind === 'image'" class="fourth-wall-image-card" :data-image-index="index">
                             <img v-if="media[index]?.status === 'ready'" :src="media[index].source" :alt="segment.value">
                             <button v-else-if="media[index]?.status === 'error'" type="button" @click="loadImage(segment, index)">
                                 {{ segment.raw }}<small>{{ media[index].message }}，点此重试</small>
@@ -286,7 +300,9 @@ onBeforeUnmount(() => {
                             <div v-else-if="media[index]?.status === 'unavailable'">
                                 {{ segment.raw }}<small>{{ media[index].message }}</small>
                             </div>
-                            <div v-else>{{ segment.raw }}<small>{{ media[index]?.message || '准备图片' }}</small></div>
+                            <button v-else type="button" :disabled="media[index]?.status === 'loading'" @click="loadImage(segment, index)">
+                                {{ segment.raw }}<small>{{ media[index]?.message || '生成图片' }}</small>
+                            </button>
                         </figure>
                         <button v-else class="fourth-wall-voice" type="button" @click="playVoice(segment, index)">
                             <span aria-hidden="true">{{ media[index]?.status === 'playing' ? '■' : '▶' }}</span>
@@ -297,12 +313,12 @@ onBeforeUnmount(() => {
                 </template>
                 <div class="fourth-wall-message-actions">
                     <template v-if="editing">
-                        <button type="button" @click="saveEdit">保存</button>
-                        <button type="button" @click="editing = false">取消</button>
+                        <button type="button" :disabled="!editable" @click="saveEdit">保存</button>
+                        <button type="button" @click="emit('editCancel')">取消</button>
                     </template>
                     <template v-else>
-                        <button type="button" @click="beginEdit">编辑</button>
-                        <button type="button" @click="emit('delete', messageIndex)">删除</button>
+                        <button type="button" :disabled="!editable" @click="beginEdit">编辑</button>
+                        <button type="button" :disabled="!editable" @click="emit('delete', messageIndex)">删除</button>
                     </template>
                 </div>
             </div>

@@ -11,7 +11,7 @@ import { parseFourthWallChatState } from '../domain/state.js';
 import type {
     FourthWallChatState,
     FourthWallMessageData,
-    FourthWallPartitionV1,
+    FourthWallPartition,
 } from '../types.js';
 
 type UnknownRecord = Record<string, unknown>;
@@ -101,13 +101,12 @@ export function readUpstreamFourthWall(metadata: unknown, chatId: string): Unkno
 export function convertUpstreamFourthWall(
     legacy: unknown,
     createdAt = Date.now(),
-): FourthWallPartitionV1 {
+): FourthWallPartition {
     const source = requireRecord(legacy, 'fw');
     const defaults = createDefaultFourthWallChatState(createdAt);
     const rawSettings = source.settings === undefined ? {} : requireRecord(source.settings, 'fw.settings');
     const settings = {
-        maxChatLayers: optionalInteger(rawSettings.maxChatLayers, 9999, 'fw.settings.maxChatLayers'),
-        maxMetaTurns: optionalInteger(rawSettings.maxMetaTurns, 9999, 'fw.settings.maxMetaTurns'),
+        maxChatLayers: rawSettings.maxChatLayers === 9999 ? 20 : optionalInteger(rawSettings.maxChatLayers, 20, 'fw.settings.maxChatLayers'),
         stream: optionalBoolean(rawSettings.stream, true, 'fw.settings.stream'),
         disableAssistantPrefill: optionalBoolean(
             rawSettings.disableAssistantPrefill,
@@ -128,6 +127,8 @@ export function convertUpstreamFourthWall(
                 name: requireString(session.name, `${path}.name`),
                 createdAt: requireFinite(session.createdAt, `${path}.createdAt`),
                 history: copyHistory(session.history, `${path}.history`),
+                memory: '',
+                archivedCount: 0,
             };
         });
     } else {
@@ -141,7 +142,7 @@ export function convertUpstreamFourthWall(
         ? source.activeSessionId
         : sessions[0]?.id ?? '';
     return {
-        schemaVersion: 1,
+        schemaVersion: 2,
         state: parseFourthWallChatState({ settings, sessions, activeSessionId }),
     };
 }
@@ -179,14 +180,14 @@ function restoreLegacy(metadata: ChatMetadata, chatId: string, snapshot: Unknown
 export interface FourthWallUpstreamImport {
     prepareInitialPartitions(capture: CapturedChatBinding): Promise<Record<string, unknown>>;
     createReferenceInstallEffect(capture: ChatMetadataCapture): ChatReferenceInstallEffect | null;
-    readCurrentPartition(): { identityKey: string; partition: FourthWallPartitionV1 } | null;
+    readCurrentPartition(): { identityKey: string; partition: FourthWallPartition } | null;
 }
 
 export function createFourthWallUpstreamImport(
     metadata: ChatMetadataAdapter,
     { now = Date.now }: { now?: () => number } = {},
 ): FourthWallUpstreamImport {
-    const prepared = new Map<string, { legacy: UnknownRecord; partition: FourthWallPartitionV1 }>();
+    const prepared = new Map<string, { legacy: UnknownRecord; partition: FourthWallPartition }>();
     return Object.freeze({
         readCurrentPartition() {
             const current = metadata.capture();

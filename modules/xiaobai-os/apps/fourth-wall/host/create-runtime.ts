@@ -14,6 +14,7 @@ import type { FourthWallChatRepository } from './repository.js';
 import { createFourthWallAgentResponse } from './agent-response.js';
 import { createCommentaryBubblePresenter } from './commentary-runtime.js';
 import { createFourthWallController } from './controller.js';
+import { createGatewayContextService } from './context-service.js';
 import { createFourthWallImageProtocol } from './image-protocol.js';
 import { createFourthWallVoiceProtocol } from './voice-protocol.js';
 
@@ -53,6 +54,7 @@ export function createFourthWallRuntime(
         getChatIdentity: getSillyTavernChatIdentity,
         getChatSnapshot: getSillyTavernChatSnapshot,
         generateResponse: createFourthWallAgentResponse(agentGateway),
+        contextService: createGatewayContextService(agentGateway),
         loadAgentConfig: agentGateway.loadConfig,
         imageProtocol: createFourthWallImageProtocol(),
         voiceProtocol: createFourthWallVoiceProtocol(),

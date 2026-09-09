@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "state": {
+    "settings": { "maxChatLayers": 42, "maxMetaTurns": 17, "stream": false, "disableAssistantPrefill": true },
+    "sessions": [
+      {
+        "id": "default", "name": "Default", "createdAt": 1710000000000,
+        "history": [
+          { "role": "user", "content": "first user message", "ts": 1710000001000 },
+          { "role": "ai", "content": "first assistant message [voice:calm]", "thinking": "private reasoning", "ts": 1710000002000 }
+        ]
+      },
+      {
+        "id": "sess_1710000003000", "name": "Commentary", "createdAt": 1710000003000,
+        "history": [
+          { "role": "ai", "content": "(glanced at the last line) commentary", "ts": 1710000004000, "type": "commentary" }
+        ]
+      }
+    ],
+    "activeSessionId": "sess_1710000003000"
+  }
+}

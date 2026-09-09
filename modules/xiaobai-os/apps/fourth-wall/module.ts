@@ -8,8 +8,7 @@ import {
     type FourthWallChatRepository,
     type FourthWallUpgradeSource,
 } from './host/repository.js';
-import { FOURTH_WALL_PARTITION } from './partition.js';
-import type { FourthWallPartitionV1 } from './types.js';
+import { FOURTH_WALL_PARTITION, type FourthWallStoredPartition } from './partition.js';
 
 export interface FourthWallModuleInstallContext {
     ownerId: string;
@@ -32,7 +31,7 @@ export function createFourthWallModule(dependencies: FourthWallModuleDependencie
         install(context) {
             if (!context.partition) { throw new Error('Fourth Wall partition store is unavailable'); }
             const repository = createFourthWallRepository(
-                context.partition as ScopedChatStore<FourthWallPartitionV1>,
+                context.partition as ScopedChatStore<FourthWallStoredPartition>,
                 { upgradeSource: dependencies.upgradeSource },
             );
             return dependencies.install({

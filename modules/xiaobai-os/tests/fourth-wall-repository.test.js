@@ -1,11 +1,18 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
 
 import { createFourthWallRepository } from '../apps/fourth-wall/host/repository.js';
 import { createDefaultFourthWallChatState } from '../apps/fourth-wall/domain/defaults.js';
 import { FOURTH_WALL_PARTITION } from '../apps/fourth-wall/partition.js';
 import { XiaobaiOsPartitionRegistry } from '../kernel/partition-registry.js';
 import { createTransactionCoordinator } from '../kernel/transaction-coordinator.js';
+import { normalizeFourthWallGlobalSettings, DEFAULT_META_PROTOCOL } from '../apps/fourth-wall/domain/defaults.js';
+import { PRE_MEMORY_META_PROTOCOL } from '../apps/fourth-wall/upgrade/pre-memory-prompt.js';
+import { convertUpstreamFourthWall } from '../apps/fourth-wall/upgrade/upstream-import.js';
+
+// Frozen V1 output: upstream sessions fixture passed through the actual state serializer at 834c191.
+const v1Fixture = JSON.parse(readFileSync(new URL('./fixtures/fourth-wall-partition-v1.json', import.meta.url), 'utf8'));
 
 const bindings = {
     a: { kind: 'character', ownerLocator: 'avatar.png', chatId: 'chat-a' },
@@ -85,7 +92,7 @@ test('the first Fourth Wall open and mutation project upstream history before a 
     const upgradeSource = {
         readCurrentPartition: () => ({
             identityKey: 'character:avatar.png:chat-a',
-            partition: { schemaVersion: 1, state: structuredClone(upstream) },
+            partition: { schemaVersion: 2, state: structuredClone(upstream) },
         }),
     };
     const openedHarness = createHarness({ upgradeSource });
@@ -115,7 +122,7 @@ test('the first Fourth Wall mutation writes only its partition and then installs
     assert.equal(harness.state.writes.length, 1);
     assert.equal(harness.state.installs, 1);
     assert.deepEqual(Object.keys(harness.state.writes[0].candidate.partitions), ['fourthWall']);
-    assert.equal(harness.state.writes[0].candidate.partitions.fourthWall.schemaVersion, 1);
+    assert.equal(harness.state.writes[0].candidate.partitions.fourthWall.schemaVersion, 2);
 });
 
 test('Fourth Wall preserves unrelated opaque partitions and isolates chats by sidecar identity', async () => {
@@ -194,4 +201,42 @@ test('an invalid Fourth Wall partition fails locally without touching the file',
     await assert.rejects(harness.repository.prepareCurrentChatFourthWall(), /non-canonical fields/);
     assert.equal(harness.state.writes.length, 0);
     assert.deepEqual(harness.state.files.get('invalid_fw').partitions.unrelated, { keep: true });
+});
+
+test('opening a V1 sidecar upgrades once, retains history and unrelated data, and preserves later settings', async () => {
+    for (const oldLimit of [9999, 42]) {
+        const h = createHarness();
+        const old = structuredClone(v1Fixture);
+        old.state.settings.maxChatLayers = oldLimit;
+        h.captures.a.reference = { formatVersion: 1, osId: 'v1_fixture' };
+        h.state.files.set('v1_fixture', { formatVersion: 1, osId: 'v1_fixture', binding: bindings.a,
+            revision: 0, commitId: 'before-memory', partitions: { fourthWall: old, unrelated: { keep: [1, 2] } } });
+        const upgraded = await h.repository.prepareCurrentChatFourthWall();
+        assert.equal(upgraded.settings.maxChatLayers, oldLimit === 9999 ? 20 : oldLimit);
+        assert.equal(Object.hasOwn(upgraded.settings, 'maxMetaTurns'), false);
+        assert.deepEqual(upgraded.sessions.map(s => s.history), old.state.sessions.map(s => s.history));
+        assert.ok(upgraded.sessions.every(s => s.memory === '' && s.archivedCount === 0));
+        assert.equal(h.state.writes.length, 1);
+        assert.equal(h.state.files.get('v1_fixture').partitions.fourthWall.schemaVersion, 2);
+        assert.deepEqual(h.state.files.get('v1_fixture').partitions.unrelated, { keep: [1, 2] });
+        await h.repository.prepareCurrentChatFourthWall();
+        assert.equal(h.state.writes.length, 1);
+        await h.repository.mutateCurrentChatFourthWall(state => { state.settings.maxChatLayers = 9999; return state; });
+        assert.equal((await h.repository.prepareCurrentChatFourthWall()).settings.maxChatLayers, 9999);
+    }
+});
+
+test('formal upstream limits migrate at import; only the exact old default prompt is replaced', () => {
+    for (const maxChatLayers of [9999, 73]) {
+        const old = structuredClone(v1Fixture.state);
+        old.settings.maxChatLayers = maxChatLayers;
+        const converted = convertUpstreamFourthWall(old, 1);
+        assert.equal(converted.state.settings.maxChatLayers, maxChatLayers === 9999 ? 20 : 73);
+        assert.deepEqual(converted.state.sessions.map(s => s.history), old.sessions.map(s => s.history));
+    }
+    const migrated = normalizeFourthWallGlobalSettings({ promptTemplates: { metaProtocol: PRE_MEMORY_META_PROTOCOL } });
+    assert.equal(migrated.promptTemplates.metaProtocol, DEFAULT_META_PROTOCOL);
+    assert.deepEqual(normalizeFourthWallGlobalSettings(migrated), migrated);
+    const custom = PRE_MEMORY_META_PROTOCOL + '\n用户修改';
+    assert.equal(normalizeFourthWallGlobalSettings({ promptTemplates: { metaProtocol: custom } }).promptTemplates.metaProtocol, custom);
 });

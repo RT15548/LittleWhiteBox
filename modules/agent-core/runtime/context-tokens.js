@@ -100,6 +100,7 @@ async function countTextTokensWithEndpoint(endpoint, text, signal) {
     return tokenCount;
 }
 
+/** @param {{ messages?: Record<string, unknown>[], tools?: Record<string, unknown>[] | null, providerConfig?: Record<string, unknown>, signal?: AbortSignal }} [options] */
 export async function resolveConversationTokens({ messages = [], tools = null, providerConfig = {}, signal } = {}) {
     const provider = String(providerConfig?.provider || '');
     const resolvedTools = Array.isArray(tools) ? tools : [];

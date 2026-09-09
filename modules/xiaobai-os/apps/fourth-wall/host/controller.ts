@@ -1,4 +1,4 @@
-import { createDefaultFourthWallGlobalSettings } from '../domain/defaults.js';
+import { createDefaultFourthWallChatState, createDefaultFourthWallGlobalSettings } from '../domain/defaults.js';
 import {
     addSession,
     appendMessage,
@@ -11,7 +11,12 @@ import {
     renameSession,
     switchSession,
     updateChatSettings,
+    updateMemory,
 } from '../domain/state.js';
+import { estimateFourthWallContext } from '../domain/context-stats.js';
+import { jsonValuesEqual } from '../../../host/json-values-equal.js';
+import { createFourthWallHistoryView } from './history-view.js';
+import type { FourthWallContextService } from './context-service.js';
 import { buildFourthWallCommentaryPrompt, buildFourthWallPrompt } from '../domain/prompt.js';
 import { projectGenerationProgress, projectGenerationResult } from '../domain/response-projection.js';
 import { createFourthWallCommentaryRuntime } from './commentary-runtime.js';
@@ -25,6 +30,8 @@ import type {
     FourthWallGenerationResult,
     FourthWallGlobalSettings,
     FourthWallGlobalSettingsPatch,
+    FourthWallPromptInput,
+    FourthWallSession,
 } from '../types.js';
 import type { XiaobaiOsAppRuntime, XiaobaiOsChatIdentity } from '../../../types.js';
 import type { FourthWallMutationOptions } from './repository.js';
@@ -69,8 +76,9 @@ interface ControllerDependencies {
     chatRepository: ControllerChatRepository;
     settingsRepository: ControllerSettingsRepository;
     getChatIdentity: () => XiaobaiOsChatIdentity | { key?: unknown } | string | null;
-    getChatSnapshot: () => FourthWallChatSnapshot | null;
+    getChatSnapshot: (maxLayers?: number) => FourthWallChatSnapshot | null;
     generateResponse: FourthWallGenerateResponse;
+    contextService: FourthWallContextService;
     loadAgentConfig: () => unknown | Promise<unknown>;
     imageProtocol?: FourthWallImageProtocol;
     voiceProtocol?: FourthWallVoiceProtocol;
@@ -174,6 +182,7 @@ export function createFourthWallController({
     getChatIdentity,
     getChatSnapshot,
     generateResponse,
+    contextService,
     loadAgentConfig,
     imageProtocol,
     voiceProtocol,
@@ -190,6 +199,7 @@ export function createFourthWallController({
         typeof getChatIdentity !== 'function' ||
         typeof getChatSnapshot !== 'function' ||
         typeof generateResponse !== 'function' ||
+        !contextService ||
         typeof loadAgentConfig !== 'function'
     ) {
         throw new TypeError('fourth-wall controller dependencies are incomplete');
@@ -199,6 +209,11 @@ export function createFourthWallController({
     let activationGeneration = 0;
 
     const generationRuntime = createFourthWallGenerationRuntime({ generateResponse, loadAgentConfig });
+    const historyView = createFourthWallHistoryView();
+
+    function readChatState(): FourthWallChatState {
+        return chatRepository.readCurrentChatFourthWall() || createDefaultFourthWallChatState(now());
+    }
 
     function getGlobalSettings(): FourthWallGlobalSettings {
         const root = settingsRepository.read();
@@ -209,20 +224,59 @@ export function createFourthWallController({
     }
 
     function buildClientState(chatState: FourthWallChatState): FourthWallClientState {
-        const snapshot = getChatSnapshot();
+        const snapshot = getChatSnapshot(chatState.settings.maxChatLayers);
+        const session = getActiveSession(chatState)!;
+        const input = promptInput(chatState, session, '', snapshot);
         return {
             chatIdentity: snapshot?.chatIdentity || identityKey(getChatIdentity()),
             userName: String(snapshot?.userName || 'User'),
             characterName: String(snapshot?.characterName || 'Assistant'),
             userAvatar: String(snapshot?.userAvatar || ''),
             characterAvatar: String(snapshot?.characterAvatar || ''),
-            chat: structuredClone(chatState),
+            chat: {
+                settings: { ...chatState.settings },
+                activeSessionId: chatState.activeSessionId,
+                sessions: chatState.sessions.map(({ history, memory, ...info }) => ({
+                    ...info, messageCount: history.length, hasMemory: !!memory,
+                })),
+            },
+            history: historyView.project(chatState),
+            context: estimateFourthWallContext(buildFourthWallPrompt(input), input, session),
             global: structuredClone(getGlobalSettings()),
             capabilities: {
                 image: imageProtocol?.getCapabilities?.() || { available: false },
                 voice: voiceProtocol?.getCapabilities?.() || { available: false },
             },
         };
+    }
+
+    function promptInput(
+        state: FourthWallChatState, session: FourthWallSession, userInput: string,
+        snapshot = getChatSnapshot(state.settings.maxChatLayers),
+    ): FourthWallPromptInput {
+        return {
+            userInput, history: session.history.slice(session.archivedCount), memory: session.memory,
+            chatSnapshot: snapshot, settings: state.settings, globalSettings: getGlobalSettings(),
+        };
+    }
+
+    async function commitMemory(
+        source: FourthWallChatState, session: FourthWallSession, memory: string, archivedCount: number,
+        signal: AbortSignal, isCurrent: () => boolean,
+    ): Promise<void> {
+        const next = await chatRepository.mutateCurrentChatFourthWall(state => {
+            const current = getActiveSession(state);
+            if (!isCurrent() || signal.aborted || state.activeSessionId !== session.id
+                || !jsonValuesEqual(current, session) || !jsonValuesEqual(state.settings, source.settings)) {
+                throw new Error('总结期间聊天已变化，结果未保存，请重试');
+            }
+            current!.memory = memory;
+            current!.archivedCount = archivedCount;
+            return state;
+        }, { beforeCommit() {
+            if (signal.aborted || !isCurrent()) { throw new Error('summary_result_invalidated'); }
+        } });
+        if (!signal.aborted && isCurrent() && activation) { emitState(next); }
     }
 
     function assertActivation(payload: UnknownRecord = {}, expectedSession = false): Activation {
@@ -239,6 +293,9 @@ export function createFourthWallController({
         }
         if (expectedSession && !String(payload.sessionId || '')) {
             throw new Error('四次元壁记录标识缺失');
+        }
+        if (expectedSession && readChatState().activeSessionId !== payload.sessionId) {
+            throw new Error('皮下会话已切换，请重试');
         }
         return activation;
     }
@@ -279,13 +336,19 @@ export function createFourthWallController({
         sessionId,
         userInput,
         requestId,
+        manual = false,
+        initialize,
+        inputDraft,
     }: {
         chatState: FourthWallChatState;
         sessionId: string;
         userInput: string;
         requestId: string;
+        manual?: boolean;
+        initialize?: (signal: AbortSignal) => Promise<{ state: FourthWallChatState; userInput: string }>;
+        inputDraft?: string;
     }): void {
-        const session = chatState.sessions.find((item) => item.id === sessionId);
+        let session = chatState.sessions.find((item) => item.id === sessionId);
         if (!session) {
             throw new Error('四次元壁记录不存在');
         }
@@ -299,19 +362,59 @@ export function createFourthWallController({
             sessionId,
             requestId,
         };
-        const builtPrompt = buildFourthWallPrompt({
-            userInput,
-            history: session.history,
-            chatSnapshot: getChatSnapshot(),
-            settings: chatState.settings,
-            globalSettings: getGlobalSettings(),
+        let input = promptInput(chatState, session, userInput);
+        const buildPrompt = (current: FourthWallSession) => buildFourthWallPrompt({
+            ...input, memory: current.memory, history: current.history.slice(current.archivedCount),
         });
-        post('fourth-wall/generation', { requestId, status: 'started', sessionId });
+        const builtPrompt = buildPrompt(session);
+        let expectedSession = session;
+        let taskSignal: AbortSignal | null = null;
+        let inputSaved = !initialize;
+        let inputSaveUnconfirmed = false;
+        function recoverInput(): { inputDraft?: string; message?: string } {
+            if (inputSaved || !inputDraft) { return {}; }
+            return inputSaveUnconfirmed
+                ? { message: `输入保存结果未确认，请核对聊天记录后再发送。原输入：${inputDraft}` }
+                : { inputDraft };
+        }
+        post('fourth-wall/generation', { requestId, status: 'started', sessionId, manual, phase: initialize ? 'saving' : 'counting' });
         generationRuntime.start({
             requestId,
             builtPrompt,
             stream: chatState.settings.stream,
             disableAssistantPrefill: chatState.settings.disableAssistantPrefill,
+            prepareOnly: manual,
+            async initialize(signal) {
+                taskSignal = signal;
+                if (!initialize) { return; }
+                let initialized;
+                try { initialized = await initialize(signal); }
+                catch (error) { inputSaveUnconfirmed = isUnconfirmedSave(error); throw error; }
+                inputSaved = true;
+                chatState = initialized.state;
+                userInput = initialized.userInput;
+                session = chatState.sessions.find(item => item.id === sessionId)!;
+                expectedSession = session;
+                input = promptInput(chatState, session, userInput);
+                if (isRunCurrent(run)) { emitState(chatState); }
+            },
+            async prepare(config, signal) {
+                taskSignal = signal;
+                const prepared = await contextService.prepare({
+                    session: session!, buildPrompt, config, signal, manual,
+                    disableAssistantPrefill: chatState.settings.disableAssistantPrefill,
+                    onPhase(phase) {
+                        if (isRunCurrent(run)) { post('fourth-wall/generation', { requestId, sessionId, status: 'started', manual, phase }); }
+                    },
+                    async commit(memory, archivedCount) {
+                        await commitMemory(chatState, session!, memory, archivedCount, signal, () => isRunCurrent(run));
+                        expectedSession = { ...session!, memory, archivedCount };
+                    },
+                });
+                if (!isRunCurrent(run)) { throw new DOMException('已取消', 'AbortError'); }
+                if (!manual) { post('fourth-wall/generation', { requestId, sessionId, status: 'started', phase: 'replying' }); }
+                return prepared;
+            },
             onProgress(result: FourthWallGenerationResult) {
                 if (!isRunCurrent(run)) {
                     return;
@@ -327,11 +430,16 @@ export function createFourthWallController({
                 if (!isRunCurrent(run)) {
                     return;
                 }
+                if (manual) {
+                    post('fourth-wall/generation', { requestId, sessionId, status: 'complete', manual: true });
+                    return;
+                }
                 const projected = projectGenerationResult(result);
                 try {
                     const next = await chatRepository.mutateCurrentChatFourthWall(
                         (state) => {
-                            if (state.activeSessionId !== sessionId) {
+                            if (state.activeSessionId !== sessionId || !jsonValuesEqual(getActiveSession(state), expectedSession)
+                                || !jsonValuesEqual(state.settings, chatState.settings)) {
                                 throw new Error('记录已切换，回复未保存');
                             }
                             return appendMessage(state, sessionId, {
@@ -343,7 +451,7 @@ export function createFourthWallController({
                         },
                         {
                             beforeCommit() {
-                                if (!isRunCurrent(run)) {
+                                if (!isRunCurrent(run) || taskSignal?.aborted) {
                                     throw new Error('generation_result_invalidated');
                                 }
                             },
@@ -390,15 +498,17 @@ export function createFourthWallController({
                     requestId,
                     sessionId,
                     status: 'error',
-                    kind: classifyGenerationError(error),
+                    kind: !inputSaved ? 'input-save' : classifyGenerationError(error),
                     message: describeError(error),
+                    ...recoverInput(),
+                    manual,
                 });
             },
             onCancelled() {
                 if (!isRunCurrent(run)) {
                     return;
                 }
-                post('fourth-wall/generation', { requestId, sessionId, status: 'cancelled' });
+                post('fourth-wall/generation', { requestId, sessionId, status: 'cancelled', ...recoverInput() });
             },
         });
     }
@@ -442,20 +552,27 @@ export function createFourthWallController({
                   };
               },
               async generate(captured: CommentaryCaptured, signal: AbortSignal): Promise<string> {
-                  const builtPrompt = buildFourthWallCommentaryPrompt({
-                      targetText: captured.text,
-                      type: captured.kind,
-                      history:
-                          captured.chatState.sessions.find((item) => item.id === captured.sessionId)?.history || [],
-                      chatSnapshot: captured.chatSnapshot,
-                      settings: captured.chatState.settings,
-                      globalSettings: captured.globalSettings,
+                  const source = captured.chatState;
+                  const session = source.sessions.find(item => item.id === captured.sessionId)!;
+                  const input = promptInput(source, session, '', getChatSnapshot(source.settings.maxChatLayers));
+                  const buildPrompt = (current: FourthWallSession) => buildFourthWallCommentaryPrompt({
+                      ...input, globalSettings: captured.globalSettings,
+                      memory: current.memory, history: current.history.slice(current.archivedCount),
+                      targetText: captured.text, type: captured.kind,
+                  })!;
+                  const config = await loadAgentConfig();
+                  const builtPrompt = await contextService.prepare({
+                      session, buildPrompt, config, signal,
+                      disableAssistantPrefill: source.settings.disableAssistantPrefill,
+                      async commit(memory, archivedCount) {
+                          await commitMemory(source, session, memory, archivedCount, signal,
+                              () => !activation && identityKey(getChatIdentity()) === captured.chatIdentity);
+                          captured.chatState = { ...source, sessions: source.sessions.map(item => item.id === session.id
+                              ? { ...item, memory, archivedCount } : item) };
+                      },
                   });
-                  if (!builtPrompt) {
-                      return '';
-                  }
                   const result = await generateResponse({
-                      config: await loadAgentConfig(),
+                      config,
                       builtPrompt,
                       stream: false,
                       disableAssistantPrefill: captured.chatState.settings.disableAssistantPrefill,
@@ -473,12 +590,18 @@ export function createFourthWallController({
                       edit_ai: '(noticed you edited my line) ',
                   };
                   await chatRepository.mutateCurrentChatFourthWall(
-                      (state) => appendMessage(state, captured.sessionId, {
+                      (state) => {
+                          if (state.activeSessionId !== captured.sessionId || !jsonValuesEqual(getActiveSession(state),
+                              captured.chatState.sessions.find(item => item.id === captured.sessionId))) {
+                              throw new Error('吐槽期间聊天已变化，结果未保存');
+                          }
+                          return appendMessage(state, captured.sessionId, {
                           role: 'ai',
                           content: `${prefixes[captured.kind]}${text}`,
                           ts: now(),
                           type: 'commentary',
-                      }),
+                          });
+                      },
                       {
                           beforeCommit() {
                               if (signal.aborted || identityKey(getChatIdentity()) !== captured.chatIdentity) {
@@ -495,6 +618,8 @@ export function createFourthWallController({
         { post: postToFrame }: { post?: Activation['post'] } = {},
     ): Promise<FourthWallClientState> {
         cancelForeground('reactivated');
+        commentaryRuntime?.cancel();
+        historyView.reset();
         const identity = getChatIdentity();
         const chatIdentity = identityKey(identity);
         if (!chatIdentity) {
@@ -519,10 +644,19 @@ export function createFourthWallController({
         current: Activation,
         payload: UnknownRecord,
         action: (state: FourthWallChatState) => FourthWallChatState,
+        signal?: AbortSignal,
     ): Promise<FourthWallChatState> {
         let next: FourthWallChatState;
         try {
-            next = await chatRepository.mutateCurrentChatFourthWall(action);
+            const guard = () => {
+                assertSameActivation(current, payload, true);
+                if (signal?.aborted) { throw new DOMException('已取消', 'AbortError'); }
+            };
+            next = await chatRepository.mutateCurrentChatFourthWall(state => {
+                guard();
+                if (state.activeSessionId !== payload.sessionId) { throw new Error('皮下会话已切换，请重试'); }
+                return action(state);
+            }, { beforeCommit: guard });
         } catch (error) {
             if (isUnconfirmedSave(error)) {
                 assertSameActivation(current, payload);
@@ -542,6 +676,7 @@ export function createFourthWallController({
         action: (state: FourthWallChatState) => FourthWallChatState,
     ): Promise<FourthWallClientState> {
         const current = assertActivation(payload, true);
+        generationRuntime.cancel('data-changed');
         const next = await mutateBoundChat(current, payload, action);
         return emitState(next);
     }
@@ -580,11 +715,43 @@ export function createFourthWallController({
         }
         if (action === 'refresh') {
             assertActivation(payload);
-            const state = chatRepository.readCurrentChatFourthWall();
-            if (!state) {
-                throw new Error('四次元壁聊天数据不存在');
+            return emitState(readChatState());
+        }
+        if (action === 'history-page') {
+            assertActivation(payload, true);
+            return historyView.page(readChatState(), payload.direction, payload.revision);
+        }
+        if (action === 'read-memory') {
+            assertActivation(payload, true);
+            historyView.assertRevision(payload.revision);
+            return { content: getActiveSession(readChatState())!.memory };
+        }
+        if (action === 'save-memory') {
+            assertActivation(payload, true);
+            historyView.assertRevision(payload.revision);
+            if (typeof payload.content !== 'string') { throw new Error('记忆必须是文本'); }
+            if (typeof payload.expectedContent !== 'string') { throw new Error('请重新打开记忆面板后保存'); }
+            return await mutateChat(payload, state => {
+                if (getActiveSession(state)?.memory !== payload.expectedContent) { throw new Error('记忆已变化，请重新打开后编辑'); }
+                return updateMemory(state, String(payload.sessionId), String(payload.content));
+            });
+        }
+        if (action === 'summarize' || action === 'retry') {
+            assertActivation(payload, true);
+            if (generationRuntime.isRunning()) { throw new Error('已有任务正在进行'); }
+            const state = readChatState();
+            const session = getActiveSession(state)!;
+            let userIndex = session.history.length - 1;
+            while (userIndex >= 0 && session.history[userIndex].role !== 'user') { userIndex--; }
+            const lastUser = session.history[userIndex];
+            if (action === 'retry' && (!lastUser || session.history.slice(userIndex + 1)
+                .some(item => item.role === 'ai' && item.type !== 'commentary'))) {
+                throw new Error('没有待回答的用户消息');
             }
-            return emitState(state);
+            launchGeneration({ chatState: state, sessionId: session.id,
+                userInput: action === 'retry' ? lastUser!.content : '',
+                requestId: String(message.requestId || ''), manual: action === 'summarize' });
+            return { accepted: true };
         }
         if (action === 'update-chat-settings') {
             const patch =
@@ -617,18 +784,24 @@ export function createFourthWallController({
             return await mutateChat(payload, (state) => deleteSession(state, String(payload.sessionId || '')));
         }
         if (action === 'edit-message') {
-            return await mutateChat(payload, (state) =>
-                editMessage(state, String(payload.sessionId || ''), Number(payload.messageIndex), payload.content),
-            );
+            assertActivation(payload, true);
+            historyView.assertRevision(payload.revision);
+            return await mutateChat(payload, (state) => {
+                historyView.assertMessage(state, Number(payload.messageIndex), payload.revision);
+                return editMessage(state, String(payload.sessionId || ''), Number(payload.messageIndex), payload.content);
+            });
         }
         if (action === 'delete-message') {
-            return await mutateChat(payload, (state) =>
-                deleteMessage(state, String(payload.sessionId || ''), Number(payload.messageIndex)),
-            );
+            assertActivation(payload, true);
+            historyView.assertRevision(payload.revision);
+            return await mutateChat(payload, (state) => {
+                historyView.assertMessage(state, Number(payload.messageIndex), payload.revision);
+                return deleteMessage(state, String(payload.sessionId || ''), Number(payload.messageIndex));
+            });
         }
         if (action === 'clear-history') {
             generationRuntime.cancel('history-cleared');
-            return await mutateChat(payload, (state) => clearSession(state, String(payload.sessionId || '')));
+            return await mutateChat(payload, (state) => clearSession(state, String(payload.sessionId || ''), payload.clearMemory === true));
         }
         if (action === 'send') {
             const current = assertActivation(payload, true);
@@ -636,44 +809,51 @@ export function createFourthWallController({
                 throw new Error('已有回复正在生成');
             }
             const userInput = String(payload.content || '').trim();
+            if (!userInput) { throw new Error('请输入消息'); }
             const sessionId = String(payload.sessionId || '');
-            const next = await mutateBoundChat(current, payload, (state) =>
-                appendMessage(state, sessionId, {
-                        role: 'user',
-                        content: userInput,
-                        ts: now(),
-                    }),
-            );
-            const clientState = emitState(next);
+            const source = readChatState();
             launchGeneration({
-                chatState: next,
+                chatState: source,
                 sessionId,
                 userInput,
+                inputDraft: userInput,
                 requestId: String(message.requestId || ''),
+                async initialize(signal) {
+                    const state = await mutateBoundChat(current, payload, state => {
+                        if (!jsonValuesEqual(state.settings, source.settings)) { throw new Error('上下文设置已变化，请刷新后重试'); }
+                        return appendMessage(state, sessionId, { role: 'user', content: userInput, ts: now() });
+                    }, signal);
+                    return { state, userInput };
+                },
             });
-            return clientState;
+            return { accepted: true };
         }
         if (action === 'regenerate') {
             const current = assertActivation(payload, true);
-            generationRuntime.cancel('regenerated');
-            let userInput = '';
+            if (generationRuntime.isRunning()) { throw new Error('已有任务正在进行'); }
             const sessionId = String(payload.sessionId || '');
-            const next = await mutateBoundChat(current, payload, (state) => {
-                    const prepared = prepareRegeneration(state, sessionId);
-                    userInput = prepared.userInput;
-                    return prepared.state;
-            });
-            const clientState = emitState(next);
+            const source = readChatState();
             launchGeneration({
-                chatState: next,
+                chatState: source,
                 sessionId,
-                userInput,
+                userInput: '',
                 requestId: String(message.requestId || ''),
+                async initialize(signal) {
+                    let userInput = '';
+                    const state = await mutateBoundChat(current, payload, state => {
+                        if (!jsonValuesEqual(state.settings, source.settings)) { throw new Error('上下文设置已变化，请刷新后重试'); }
+                        const prepared = prepareRegeneration(state, sessionId);
+                        userInput = prepared.userInput;
+                        return prepared.state;
+                    }, signal);
+                    return { state, userInput };
+                },
             });
-            return clientState;
+            return { accepted: true };
         }
         if (action === 'update-global-settings') {
             const current = assertActivation(payload);
+            generationRuntime.cancel('settings-changed');
             const patch =
                 payload.patch && typeof payload.patch === 'object' && !Array.isArray(payload.patch)
                     ? (payload.patch as FourthWallGlobalSettingsPatch)
@@ -681,25 +861,18 @@ export function createFourthWallController({
             await mutateGlobalSettings(current, payload, (settings) => normalizeGlobalSettings(settings, patch));
             commentaryRuntime?.sync();
             assertSameActivation(current, payload);
-            const chatState = chatRepository.readCurrentChatFourthWall();
-            if (!chatState) {
-                throw new Error('四次元壁聊天数据不存在');
-            }
-            return emitState(chatState);
+            return emitState(readChatState());
         }
         if (action === 'restore-prompts') {
             const current = assertActivation(payload);
+            generationRuntime.cancel('settings-changed');
             const defaults = createDefaultFourthWallGlobalSettings();
             await mutateGlobalSettings(current, payload, (settings) => ({
                 ...settings,
                 promptTemplates: defaults.promptTemplates,
             }));
             assertSameActivation(current, payload);
-            const chatState = chatRepository.readCurrentChatFourthWall();
-            if (!chatState) {
-                throw new Error('四次元壁聊天数据不存在');
-            }
-            return emitState(chatState);
+            return emitState(readChatState());
         }
         if (action === 'image-check') {
             assertActivation(payload, true);

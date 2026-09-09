@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import type { FourthWallSession } from '../types.js';
+import type { FourthWallSessionInfo } from '../types.js';
 
 defineProps<{
-    sessions: FourthWallSession[];
+    sessions: FourthWallSessionInfo[];
     activeSessionId: string;
     disabled: boolean;
 }>();
@@ -29,7 +29,7 @@ function rename(sessionId: string, currentName: string): void {
 }
 
 function remove(sessionId: string): void {
-    if (window.confirm('确定删除当前记录吗？')) {
+    if (window.confirm('确定删除当前记录及其皮下记忆吗？')) {
         emit('delete', sessionId);
     }
 }

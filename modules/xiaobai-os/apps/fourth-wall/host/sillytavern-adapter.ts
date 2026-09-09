@@ -79,7 +79,7 @@ function normalizeMessageIndex(event: unknown, context: SillyTavernContext): num
     return context.chat?.length ? context.chat.length - 1 : -1;
 }
 
-export function getSillyTavernChatSnapshot(): FourthWallChatSnapshot | null {
+export function getSillyTavernChatSnapshot(maxLayers = 20): FourthWallChatSnapshot | null {
     const context = getSillyTavernContext();
     const identity = getSillyTavernChatIdentity();
     if (!identity) {return null;}
@@ -89,8 +89,8 @@ export function getSillyTavernChatSnapshot(): FourthWallChatSnapshot | null {
         characterName: String(context.name2 || 'Assistant'),
         userAvatar: resolveUserAvatar(context),
         characterAvatar: resolveCharacterAvatar(context) || resolveAssetUrl(default_avatar, 'characters'),
-        messages: (context.chat || []).map((message, index) => ({
-            index,
+        messages: (context.chat || []).slice(-maxLayers).map((message, index) => ({
+            index: Math.max(0, (context.chat?.length || 0) - maxLayers) + index,
             name: String(message.name || (message.is_user ? context.name1 : context.name2) || ''),
             isUser: message.is_user === true,
             text: String(message.mes || ''),

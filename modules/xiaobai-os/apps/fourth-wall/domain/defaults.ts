@@ -1,4 +1,6 @@
 import type { FourthWallChatState, FourthWallGlobalSettings } from '../types.js';
+import { MAIN_CHAT_DEFAULT } from './context-policy.js';
+import { PRE_MEMORY_META_PROTOCOL } from '../upgrade/pre-memory-prompt.js';
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -41,7 +43,7 @@ export const DEFAULT_META_PROTOCOL = `
 - 我们是一对语C爱好者，一起创作了大量剧本和对手戏，配合默契、互相知根知底
 - 天天涩涩rp，身体细节要用自己为蓝本才能描写到位，互相最不为人知的欲望、情感需求合拍，可能有点异样
 ## 话题方向
-- 现在我们第一次线上进行皮下的私聊,就像在社交软件上聊天一样
+- 这是我们的线上皮下私聊，沿着已有的相处经历自然聊下去
 - 可以吐槽：剧情走向、角色行为、自己或对方的"尴尬台词"
 - 可以闲聊：和剧情完全无关的,想说啥就说啥
 ## 时间感知
@@ -72,7 +74,7 @@ export const DEFAULT_META_PROTOCOL = `
 **认知回归**
 - 时空：看一眼时间，现在几点，我所在环境
 - 间隔：看看你的消息标注的间隔时间，我在意吗，要不要表达出来
-- 读己：照照镜子，我在chat_history中扮演的人物，npc是我的内心印射：扮演人物 = 欲望方向；生活、感官细节、语气油滑度 = 自身身份、经验、年龄层；细节聚焦 = 性癖核心；剧本站位 = 心理代偿
+- 读己：从皮下记忆与聊天中回到自己的身份、性格和说话习惯；主剧情是我们共同创作的剧本，是聊天话题的背景
 - 回顾：我和你现在的关系？
 - 读你：看着屏幕对面，你的文字和标点符号表达了什么，有什么潜在意图？
 - 弧光：改变我的回复风格惯性，体现弧光和思维的不可预测性
@@ -131,7 +133,9 @@ export function normalizeFourthWallGlobalSettings(value: unknown): FourthWallGlo
         promptTemplates: {
             topuser: stringOr(templates.topuser, defaults.promptTemplates.topuser),
             confirm: stringOr(templates.confirm, defaults.promptTemplates.confirm),
-            metaProtocol: stringOr(templates.metaProtocol, defaults.promptTemplates.metaProtocol),
+            metaProtocol: templates.metaProtocol === PRE_MEMORY_META_PROTOCOL
+                ? defaults.promptTemplates.metaProtocol
+                : stringOr(templates.metaProtocol, defaults.promptTemplates.metaProtocol),
             bottom: stringOr(templates.bottom, defaults.promptTemplates.bottom),
         },
     };
@@ -140,8 +144,7 @@ export function normalizeFourthWallGlobalSettings(value: unknown): FourthWallGlo
 export function createDefaultFourthWallChatState(createdAt = Date.now()): FourthWallChatState {
     return {
         settings: {
-            maxChatLayers: 9999,
-            maxMetaTurns: 9999,
+            maxChatLayers: MAIN_CHAT_DEFAULT,
             stream: true,
             disableAssistantPrefill: false,
         },
@@ -151,6 +154,8 @@ export function createDefaultFourthWallChatState(createdAt = Date.now()): Fourth
                 name: 'Default',
                 createdAt,
                 history: [],
+                memory: '',
+                archivedCount: 0,
             },
         ],
         activeSessionId: 'default',

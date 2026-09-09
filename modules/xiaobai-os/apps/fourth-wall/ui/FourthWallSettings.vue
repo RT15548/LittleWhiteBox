@@ -2,17 +2,17 @@
 import { reactive, ref, toRaw } from 'vue';
 import { useAppLayer } from '../../../shell/app-src/navigation/app-navigation.js';
 import FourthWallSessions from './FourthWallSessions.vue';
-import type { FourthWallChatState, FourthWallGlobalSettings } from '../types.js';
+import type { FourthWallClientState, FourthWallGlobalSettings } from '../types.js';
 
 const props = defineProps<{
-    chat: FourthWallChatState;
+    chat: FourthWallClientState['chat'];
     global: FourthWallGlobalSettings;
     busy: boolean;
 }>();
 
 const emit = defineEmits<{
     close: [];
-    updateChat: [patch: FourthWallChatState['settings']];
+    updateChat: [patch: FourthWallClientState['chat']['settings']];
     updateGlobal: [patch: Partial<FourthWallGlobalSettings>];
     switchSession: [sessionId: string];
     addSession: [name: string];
@@ -55,7 +55,6 @@ function saveCapabilities(): void {
             <section class="fourth-wall-settings-section">
                 <h3>上下文</h3>
                 <label>普通聊天层数<input v-model.number="chatDraft.maxChatLayers" type="number" min="1" max="9999"></label>
-                <label>皮下聊天轮数<input v-model.number="chatDraft.maxMetaTurns" type="number" min="1" max="9999"></label>
                 <label class="is-toggle"><span>流式生成</span><input v-model="chatDraft.stream" type="checkbox"></label>
                 <label class="is-toggle"><span>禁用 Assistant Prefill</span><input v-model="chatDraft.disableAssistantPrefill" type="checkbox"></label>
                 <button type="button" class="is-primary" :disabled="busy" @click="saveChat">保存上下文设置</button>

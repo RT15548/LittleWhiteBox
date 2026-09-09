@@ -2,7 +2,9 @@ import type { ScopedChatStore } from '../../../kernel/contracts.js';
 import { jsonValuesEqual } from '../../../host/json-values-equal.js';
 import { createDefaultFourthWallChatState } from '../domain/defaults.js';
 import { parseFourthWallChatState } from '../domain/state.js';
-import type { FourthWallChatState, FourthWallPartitionV1 } from '../types.js';
+import type { FourthWallChatState, FourthWallPartition } from '../types.js';
+import type { FourthWallStoredPartition } from '../partition.js';
+import { upgradeFourthWallV1 } from '../upgrade/partition-v1.js';
 
 export interface FourthWallMutationOptions {
     beforeCommit?: () => void | Promise<void>;
@@ -18,7 +20,7 @@ export interface FourthWallChatRepository {
 }
 
 export interface FourthWallUpgradeSource {
-    readCurrentPartition(): { identityKey: string; partition: FourthWallPartitionV1 } | null;
+    readCurrentPartition(): { identityKey: string; partition: FourthWallPartition } | null;
 }
 
 function transactionError(result: {
@@ -35,7 +37,7 @@ function transactionError(result: {
 }
 
 export function createFourthWallRepository(
-    store: ScopedChatStore<FourthWallPartitionV1>,
+    store: ScopedChatStore<FourthWallStoredPartition>,
     {
         now = Date.now,
         upgradeSource,
@@ -50,6 +52,9 @@ export function createFourthWallRepository(
 
     async function prepareCurrentChatFourthWall(): Promise<FourthWallChatState> {
         const snapshot = store.peekCurrent() ?? await store.read();
+        if (snapshot.value?.schemaVersion === 1) {
+            return await mutateCurrentChatFourthWall(current => current);
+        }
         return structuredClone(
             snapshot.value?.state
             ?? readUpgradeState(snapshot.identityKey)
@@ -64,12 +69,13 @@ export function createFourthWallRepository(
         if (typeof action !== 'function') { throw new TypeError('chat mutation action must be a function'); }
         const result = await store.transact(transaction => {
             const identityKey = store.peekCurrent()?.identityKey;
-            const current = transaction.current?.state
+            const persisted = transaction.current;
+            const current = (persisted?.schemaVersion === 1 ? upgradeFourthWallV1(persisted).state : persisted?.state)
                 ?? readUpgradeState(identityKey)
                 ?? createDefaultFourthWallChatState(now());
             const next = parseFourthWallChatState(action(structuredClone(current)));
-            if (!jsonValuesEqual(current, next)) {
-                transaction.replace({ schemaVersion: 1, state: next });
+            if (persisted?.schemaVersion === 1 || !jsonValuesEqual(current, next)) {
+                transaction.replace({ schemaVersion: 2, state: next });
             }
             return next;
         }, {
@@ -80,7 +86,9 @@ export function createFourthWallRepository(
         if (result.status === 'failed' || result.status === 'unconfirmed' || result.status === 'conflict') {
             throw transactionError(result);
         }
-        const current = result.status === 'confirmed' ? result.snapshot.value?.state ?? null : result.result;
+        const current = result.status === 'confirmed'
+            ? result.snapshot.value?.schemaVersion === 2 ? result.snapshot.value.state : null
+            : result.result;
         if (!current) { throw new Error('fourth_wall_state_missing_after_commit'); }
         return structuredClone(current);
     }
@@ -89,6 +97,7 @@ export function createFourthWallRepository(
         prepareCurrentChatFourthWall,
         readCurrentChatFourthWall: () => {
             const snapshot = store.peekCurrent();
+            if (snapshot?.value?.schemaVersion === 1) { return null; }
             const current = snapshot?.value?.state
                 ?? (snapshot ? readUpgradeState(snapshot.identityKey) : null);
             return current ? structuredClone(current) : null;

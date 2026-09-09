@@ -59,18 +59,19 @@ test('chat limits accept their documented boundaries and reject values outside t
     const state = createDefaultFourthWallChatState(1000);
 
     assert.equal(updateChatSettings(state, { maxChatLayers: 1 }).settings.maxChatLayers, 1);
-    assert.equal(updateChatSettings(state, { maxMetaTurns: 9999 }).settings.maxMetaTurns, 9999);
+    assert.equal(state.settings.maxChatLayers, 20);
+    assert.equal(updateChatSettings(state, { maxChatLayers: 9999 }).settings.maxChatLayers, 9999);
     assert.throws(
         () => updateChatSettings(state, { maxChatLayers: 0 }),
         error => error.code === 'INVALID_SETTINGS',
     );
     assert.throws(
-        () => updateChatSettings(state, { maxMetaTurns: 10000 }),
+        () => updateChatSettings(state, { maxChatLayers: 10000 }),
         error => error.code === 'INVALID_SETTINGS',
     );
 });
 
-test('prompt limits main chat layers and fourth-wall turns independently', () => {
+test('prompt limits main chat layers without silently discarding supplied private history', () => {
     const built = buildFourthWallPrompt({
         userInput: 'new input',
         history: [
@@ -88,15 +89,15 @@ test('prompt limits main chat layers and fourth-wall turns independently', () =>
                 { isUser: true, text: 'main three' },
             ],
         },
-        settings: { maxChatLayers: 2, maxMetaTurns: 1 },
+        settings: { maxChatLayers: 2 },
         globalSettings: createDefaultFourthWallGlobalSettings(),
     });
 
     assert.equal(built.msg3.includes('main one'), false);
     assert.equal(built.msg3.includes('main two'), true);
     assert.equal(built.msg3.includes('main three'), true);
-    assert.equal(built.msg3.includes('meta one'), false);
-    assert.equal(built.msg3.includes('meta two'), false);
+    assert.equal(built.msg3.includes('meta one'), true);
+    assert.equal(built.msg3.includes('meta two'), true);
     assert.equal(built.msg3.includes('meta three'), true);
     assert.equal(built.msg3.includes('meta four'), true);
 });

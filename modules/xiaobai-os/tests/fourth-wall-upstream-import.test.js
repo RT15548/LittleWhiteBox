@@ -108,10 +108,9 @@ test('converts the upstream sessions fixture into the frozen Fourth Wall partiti
         1720000000000,
     );
 
-    assert.equal(partition.schemaVersion, 1);
+    assert.equal(partition.schemaVersion, 2);
     assert.deepEqual(partition.state.settings, {
         maxChatLayers: 42,
-        maxMetaTurns: 17,
         stream: false,
         disableAssistantPrefill: true,
     });

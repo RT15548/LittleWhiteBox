@@ -50,9 +50,6 @@ function normalizeChatSettings(
     if (Object.hasOwn(patch, 'maxChatLayers')) {
         next.maxChatLayers = Number(patch.maxChatLayers);
     }
-    if (Object.hasOwn(patch, 'maxMetaTurns')) {
-        next.maxMetaTurns = Number(patch.maxMetaTurns);
-    }
     if (Object.hasOwn(patch, 'stream')) {
         next.stream = patch.stream === true;
     }
@@ -61,9 +58,6 @@ function normalizeChatSettings(
     }
     if (!Number.isInteger(next.maxChatLayers) || next.maxChatLayers < 1 || next.maxChatLayers > 9999) {
         throw new FourthWallStateError('INVALID_SETTINGS', '普通聊天层数必须是 1 到 9999 的整数');
-    }
-    if (!Number.isInteger(next.maxMetaTurns) || next.maxMetaTurns < 1 || next.maxMetaTurns > 9999) {
-        throw new FourthWallStateError('INVALID_SETTINGS', '皮下聊天轮数必须是 1 到 9999 的整数');
     }
     return next;
 }
@@ -102,6 +96,8 @@ export function addSession(
         name: normalizeName(name),
         createdAt: Number(createdAt),
         history: [],
+        memory: '',
+        archivedCount: 0,
     });
     next.activeSessionId = normalizedId;
     return next;
@@ -181,12 +177,22 @@ export function deleteMessage(
     const session = requireSession(next, sessionId);
     requireMessage(session, messageIndex);
     session.history.splice(messageIndex, 1);
+    if (messageIndex < session.archivedCount) { session.archivedCount -= 1; }
     return next;
 }
 
-export function clearSession(state: FourthWallChatState, sessionId: string): FourthWallChatState {
+export function clearSession(state: FourthWallChatState, sessionId: string, clearMemory = false): FourthWallChatState {
     const next = clone(state);
-    requireSession(next, sessionId).history = [];
+    const session = requireSession(next, sessionId);
+    session.history = [];
+    session.archivedCount = 0;
+    if (clearMemory) { session.memory = ''; }
+    return next;
+}
+
+export function updateMemory(state: FourthWallChatState, sessionId: string, content: string): FourthWallChatState {
+    const next = clone(state);
+    requireSession(next, sessionId).memory = content.trim();
     return next;
 }
 
@@ -208,6 +214,7 @@ export function prepareRegeneration(
     }
     const userInput = session.history[userIndex].content;
     session.history = session.history.slice(0, userIndex + 1);
+    session.archivedCount = Math.min(session.archivedCount, userIndex);
     return { state: next, userInput };
 }
 
@@ -250,11 +257,10 @@ export function validateFourthWallChatState(
     const settings = requirePersistedRecord(state.settings, `${path}.settings`);
     requireExactKeys(
         settings,
-        ['maxChatLayers', 'maxMetaTurns', 'stream', 'disableAssistantPrefill'],
+        ['maxChatLayers', 'stream', 'disableAssistantPrefill'],
         `${path}.settings`,
     );
     requirePersistedInteger(settings.maxChatLayers, `${path}.settings.maxChatLayers`, 1, 9999);
-    requirePersistedInteger(settings.maxMetaTurns, `${path}.settings.maxMetaTurns`, 1, 9999);
     if (typeof settings.stream !== 'boolean' || typeof settings.disableAssistantPrefill !== 'boolean') {
         throw new FourthWallStateError('INVALID_CURRENT_DATA', `${path}.settings flags must be boolean`);
     }
@@ -264,7 +270,7 @@ export function validateFourthWallChatState(
     const ids = new Set<string>();
     for (const [index, rawSession] of state.sessions.entries()) {
         const session = requirePersistedRecord(rawSession, `${path}.sessions[${index}]`);
-        requireExactKeys(session, ['id', 'name', 'createdAt', 'history'], `${path}.sessions[${index}]`);
+        requireExactKeys(session, ['id', 'name', 'createdAt', 'history', 'memory', 'archivedCount'], `${path}.sessions[${index}]`);
         const id = requirePersistedString(session.id, `${path}.sessions[${index}].id`);
         if (!id || ids.has(id)) {
             throw new FourthWallStateError('INVALID_CURRENT_DATA', `${path}.sessions ids must be non-empty and unique`);
@@ -277,6 +283,8 @@ export function validateFourthWallChatState(
         if (!Array.isArray(session.history)) {
             throw new FourthWallStateError('INVALID_CURRENT_DATA', `${path}.sessions[${index}].history must be an array`);
         }
+        requirePersistedString(session.memory, `${path}.sessions[${index}].memory`);
+        requirePersistedInteger(session.archivedCount, `${path}.sessions[${index}].archivedCount`, 0, session.history.length);
         for (const [messageIndex, rawMessage] of session.history.entries()) {
             const message = requirePersistedRecord(
                 rawMessage,

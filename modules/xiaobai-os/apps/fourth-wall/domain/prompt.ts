@@ -1,4 +1,5 @@
 import { DEFAULT_BOTTOM, DEFAULT_CONFIRM, DEFAULT_META_PROTOCOL, DEFAULT_TOPUSER } from './defaults.js';
+import { MAIN_CHAT_DEFAULT } from './context-policy.js';
 import type {
     FourthWallBuiltPrompt,
     FourthWallChatSnapshot,
@@ -82,7 +83,7 @@ function replaceNames(value: unknown, userName: string, characterName: string): 
         .replace(/{{CHAR_NAME}}/g, characterName);
 }
 
-function formatMainChat(snapshot: FourthWallChatSnapshot | null, maximumLayers: number): string {
+export function formatMainChat(snapshot: FourthWallChatSnapshot | null, maximumLayers: number): string {
     return (snapshot?.messages || [])
         .slice(-maximumLayers)
         .map((message) => `${message.isUser ? '对方(你)' : '自己(我)'}:\n${cleanContent(message.text)}`)
@@ -90,11 +91,10 @@ function formatMainChat(snapshot: FourthWallChatSnapshot | null, maximumLayers: 
         .join('\n');
 }
 
-function formatMetaHistory(history: FourthWallMessageData[], maximumTurns: number): string {
+export function formatMetaHistory(history: FourthWallMessageData[]): string {
     let lastAiTimestamp: number | null = null;
     return (history || [])
         .filter((message) => String(message?.content || '').trim())
-        .slice(-maximumTurns * 2)
         .map((message) => {
             const timestamp = formatTimestamp(message.ts);
             let prefix = timestamp ? `[${timestamp}] ` : '';
@@ -112,6 +112,7 @@ function formatMetaHistory(history: FourthWallMessageData[], maximumTurns: numbe
 export function buildFourthWallPrompt({
     userInput,
     history,
+    memory = '',
     chatSnapshot,
     settings,
     globalSettings,
@@ -120,8 +121,7 @@ export function buildFourthWallPrompt({
     const userName = String(chatSnapshot?.userName || 'User');
     const characterName = String(chatSnapshot?.characterName || 'Assistant');
     const templates: Partial<typeof globalSettings.promptTemplates> = globalSettings?.promptTemplates || {};
-    const maximumLayers = Number.isInteger(settings?.maxChatLayers) ? settings.maxChatLayers : 9999;
-    const maximumTurns = Number.isInteger(settings?.maxMetaTurns) ? settings.maxMetaTurns : 9999;
+    const maximumLayers = Number.isInteger(settings?.maxChatLayers) ? settings.maxChatLayers : MAIN_CHAT_DEFAULT;
     let protocol = commentary ? COMMENTARY_PROTOCOL : String(templates.metaProtocol || DEFAULT_META_PROTOCOL);
     protocol = replaceNames(protocol, userName, characterName);
     if (globalSettings?.image?.enablePrompt) {
@@ -138,9 +138,9 @@ export function buildFourthWallPrompt({
 <chat_history>
 ${formatMainChat(chatSnapshot, maximumLayers)}
 </chat_history>
-Developer:以下是你们的皮下聊天记录：
-<meta_history>
-${formatMetaHistory(history, maximumTurns)}
+Developer:以下是你们的皮下过往：
+${memory.trim() ? `<meta_memory>\n${memory.trim()}\n</meta_memory>\n` : ''}<meta_history>
+${formatMetaHistory(history)}
 </meta_history>
 ${protocol}`
             .replace(/\|/g, '｜')

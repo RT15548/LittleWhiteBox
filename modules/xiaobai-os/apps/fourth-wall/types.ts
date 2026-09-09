@@ -8,7 +8,6 @@ export interface FourthWallMessageData {
 
 export interface FourthWallChatSettings {
     maxChatLayers: number;
-    maxMetaTurns: number;
     stream: boolean;
     disableAssistantPrefill: boolean;
 }
@@ -18,6 +17,8 @@ export interface FourthWallSession {
     name: string;
     createdAt: number;
     history: FourthWallMessageData[];
+    memory: string;
+    archivedCount: number;
 }
 
 export interface FourthWallChatState {
@@ -26,8 +27,8 @@ export interface FourthWallChatState {
     activeSessionId: string;
 }
 
-export interface FourthWallPartitionV1 {
-    schemaVersion: 1;
+export interface FourthWallPartition {
+    schemaVersion: 2;
     state: FourthWallChatState;
 }
 
@@ -79,6 +80,7 @@ export interface FourthWallGenerationResult {
     provider?: string;
     model?: string;
     finishReason?: string;
+    refused?: boolean;
 }
 
 export interface FourthWallProjection {
@@ -106,6 +108,7 @@ export interface FourthWallCapturedCommentary {
 export interface FourthWallPromptInput {
     userInput: string;
     history: FourthWallMessageData[];
+    memory?: string;
     chatSnapshot: FourthWallChatSnapshot | null;
     settings: FourthWallChatSettings;
     globalSettings: FourthWallGlobalSettings;
@@ -130,7 +133,13 @@ export interface FourthWallClientState {
     characterName: string;
     userAvatar: string;
     characterAvatar: string;
-    chat: FourthWallChatState;
+    chat: {
+        settings: FourthWallChatSettings;
+        activeSessionId: string;
+        sessions: FourthWallSessionInfo[];
+    };
+    history: FourthWallHistoryPage;
+    context: FourthWallContextStats;
     global: FourthWallGlobalSettings;
     capabilities: {
         image: { available: boolean };
@@ -145,4 +154,29 @@ export interface FourthWallGenerationState {
     thinking: string;
     message: string;
     unsaved: boolean;
+    phase?: FourthWallTaskPhase;
+    manual?: boolean;
+}
+
+export type FourthWallTaskPhase = 'counting' | 'summarizing' | 'saving' | 'replying';
+export type FourthWallSessionInfo = Omit<FourthWallSession, 'history' | 'memory'> & {
+    messageCount: number;
+    hasMemory: boolean;
+};
+export interface FourthWallHistoryPage {
+    sessionId: string;
+    revision: number;
+    start: number;
+    total: number;
+    messages: FourthWallMessageData[];
+}
+export interface FourthWallContextStats {
+    usedTokens: number;
+    limit: number;
+    trigger: number;
+    mainTokens: number;
+    memoryTokens: number;
+    historyTokens: number;
+    promptTokens: number;
+    canSummarize: boolean;
 }

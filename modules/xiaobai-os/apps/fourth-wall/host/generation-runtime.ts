@@ -16,6 +16,9 @@ export interface FourthWallGenerationStartOptions {
     builtPrompt: FourthWallBuiltPrompt;
     stream: boolean;
     disableAssistantPrefill: boolean;
+    initialize?: (signal: AbortSignal) => Promise<void>;
+    prepare?: (config: unknown, signal: AbortSignal) => Promise<FourthWallBuiltPrompt>;
+    prepareOnly?: boolean;
     onProgress?: (snapshot: FourthWallGenerationResult) => void;
     onComplete?: (result: FourthWallGenerationResult) => void | Promise<void>;
     onError?: (error: unknown) => void | Promise<void>;
@@ -31,6 +34,7 @@ interface ActiveGeneration {
     sequence: number;
     requestId: string;
     controller: AbortController;
+    initializing: boolean;
     onCancelled?: (reason: string) => void;
 }
 
@@ -69,15 +73,21 @@ export function createFourthWallGenerationRuntime({
         return active === run && run.sequence === sequence && !run.controller.signal.aborted;
     }
 
+    function finishCancellation(run: ActiveGeneration, reason: string): void {
+        if (active !== run) { return; }
+        active = null;
+        sequence += 1;
+        run.onCancelled?.(reason);
+    }
+
     function cancel(reason = 'cancelled'): boolean {
-        if (!active) {
+        if (!active || active.controller.signal.aborted) {
             return false;
         }
         const run = active;
-        active = null;
-        sequence += 1;
         run.controller.abort(reason);
-        run.onCancelled?.(reason);
+        // A pending input write must settle before the caller can decide whether to restore its draft.
+        if (!run.initializing) { finishCancellation(run, reason); }
         return true;
     }
 
@@ -87,19 +97,32 @@ export function createFourthWallGenerationRuntime({
             sequence: ++sequence,
             requestId: String(options.requestId || ''),
             controller: new AbortController(),
+            initializing: !!options.initialize,
             onCancelled: options.onCancelled,
         };
         active = run;
 
         const done: Promise<FourthWallGenerationOutcome> = Promise.resolve()
             .then(async (): Promise<FourthWallGenerationOutcome> => {
+                try {
+                    if (!isCurrent(run)) { return { status: 'cancelled' }; }
+                    await options.initialize?.(run.controller.signal);
+                } finally {
+                    run.initializing = false;
+                    if (run.controller.signal.aborted) {
+                        finishCancellation(run, String(run.controller.signal.reason || 'cancelled'));
+                    }
+                }
+                if (!isCurrent(run)) { return { status: 'cancelled' }; }
                 const config = await loadAgentConfig();
                 if (!isCurrent(run)) {
                     return { status: 'cancelled' };
                 }
-                const result = await generateResponse({
+                const builtPrompt = options.prepare ? await options.prepare(config, run.controller.signal) : options.builtPrompt;
+                if (!isCurrent(run)) { return { status: 'cancelled' }; }
+                const result = options.prepareOnly ? {} : await generateResponse({
                     config,
-                    builtPrompt: options.builtPrompt,
+                    builtPrompt,
                     stream: options.stream === true,
                     disableAssistantPrefill: options.disableAssistantPrefill === true,
                     signal: run.controller.signal,
@@ -120,10 +143,7 @@ export function createFourthWallGenerationRuntime({
             })
             .catch(async (error) => {
                 if (run.controller.signal.aborted || run.sequence !== sequence || isAbortError(error)) {
-                    if (active === run) {
-                        active = null;
-                        run.onCancelled?.('aborted');
-                    }
+                    finishCancellation(run, 'aborted');
                     return { status: 'cancelled' };
                 }
                 active = null;
