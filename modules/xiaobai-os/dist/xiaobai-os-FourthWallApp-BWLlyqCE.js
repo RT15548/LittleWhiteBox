@@ -595,11 +595,11 @@ var ee = ["src"], te = {
       }, "提示词模板")])
     ])], 512));
   }
-}), et = _e, tt = { class: "fourth-wall-app" }, at = { class: "fourth-wall-header" }, st = { class: "fourth-wall-heading" }, lt = { class: "fourth-wall-header-actions" }, it = ["disabled"], nt = ["disabled"], rt = {
+}), et = _e, tt = { class: "fourth-wall-app" }, at = { class: "fourth-wall-header" }, st = { class: "fourth-wall-heading" }, lt = { class: "fourth-wall-header-actions" }, it = ["disabled"], nt = {
   key: 0,
   class: "fourth-wall-error",
   role: "alert"
-}, ot = { class: "fourth-wall-composer" }, ut = ["disabled"], dt = ["disabled"], vt = 35e3, mt = /* @__PURE__ */ T({
+}, rt = { class: "fourth-wall-composer" }, ot = ["disabled"], ut = ["disabled"], dt = ["disabled"], vt = 35e3, mt = /* @__PURE__ */ T({
   __name: "FourthWallApp",
   props: {
     bridge: {},
@@ -732,30 +732,21 @@ var ee = ["src"], te = {
         }
       });
     }), J(() => l()), (s, t) => (g(), b("main", tt, [
-      e("header", at, [e("div", st, [t[17] || (t[17] = e("span", null, "IV", -1)), e("div", null, [t[16] || (t[16] = e("strong", null, "四次元壁", -1)), e("small", null, w(d.value.name), 1)])]), e("div", lt, [
-        e("button", {
-          type: "button",
-          title: "重答",
-          disabled: a.value || $.value,
-          onClick: O
-        }, "↻", 8, it),
-        e("button", {
-          type: "button",
-          title: "清空当前记录",
-          "aria-label": "清空当前记录",
-          disabled: a.value,
-          onClick: m
-        }, [...t[18] || (t[18] = [e("svg", {
-          viewBox: "0 0 24 24",
-          "aria-hidden": "true"
-        }, [e("path", { d: "M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 4v5m4-5v5" })], -1)])], 8, nt),
-        e("button", {
-          type: "button",
-          title: "设置",
-          onClick: t[0] || (t[0] = (p) => v.value = !0)
-        }, "⚙")
-      ])]),
-      f.value ? (g(), b("div", rt, [e("span", null, w(f.value), 1), e("button", {
+      e("header", at, [e("div", st, [t[17] || (t[17] = e("span", null, "IV", -1)), e("div", null, [t[16] || (t[16] = e("strong", null, "四次元壁", -1)), e("small", null, w(d.value.name), 1)])]), e("div", lt, [e("button", {
+        type: "button",
+        title: "清空当前记录",
+        "aria-label": "清空当前记录",
+        disabled: a.value,
+        onClick: m
+      }, [...t[18] || (t[18] = [e("svg", {
+        viewBox: "0 0 24 24",
+        "aria-hidden": "true"
+      }, [e("path", { d: "M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 4v5m4-5v5" })], -1)])], 8, it), e("button", {
+        type: "button",
+        title: "设置",
+        onClick: t[0] || (t[0] = (p) => v.value = !0)
+      }, "⚙")])]),
+      f.value ? (g(), b("div", nt, [e("span", null, w(f.value), 1), e("button", {
         type: "button",
         onClick: t[1] || (t[1] = (p) => f.value = "")
       }, "×")])) : A("", !0),
@@ -786,20 +777,31 @@ var ee = ["src"], te = {
         "generation",
         "bridge"
       ]),
-      e("footer", ot, [x(e("textarea", {
-        "onUpdate:modelValue": t[3] || (t[3] = (p) => c.value = p),
-        rows: "1",
-        placeholder: "聊点什么...",
-        disabled: a.value,
-        onCompositionstart: t[4] || (t[4] = (p) => r.value = !0),
-        onCompositionend: t[5] || (t[5] = (p) => r.value = !1),
-        onKeydown: N
-      }, null, 40, ut), [[M, c.value]]), e("button", {
-        type: "button",
-        class: z({ "is-stop": $.value }),
-        disabled: a.value,
-        onClick: t[6] || (t[6] = (p) => $.value ? D() : B())
-      }, w($.value ? "■" : "↑"), 11, dt)]),
+      e("footer", rt, [
+        e("button", {
+          type: "button",
+          class: "fourth-wall-regenerate",
+          title: "重答",
+          "aria-label": "重答",
+          disabled: a.value || $.value,
+          onClick: O
+        }, " ↻ ", 8, ot),
+        x(e("textarea", {
+          "onUpdate:modelValue": t[3] || (t[3] = (p) => c.value = p),
+          rows: "1",
+          placeholder: "聊点什么...",
+          disabled: a.value,
+          onCompositionstart: t[4] || (t[4] = (p) => r.value = !0),
+          onCompositionend: t[5] || (t[5] = (p) => r.value = !1),
+          onKeydown: N
+        }, null, 40, ut), [[M, c.value]]),
+        e("button", {
+          type: "button",
+          class: z({ "is-stop": $.value }),
+          disabled: a.value,
+          onClick: t[6] || (t[6] = (p) => $.value ? D() : B())
+        }, w($.value ? "■" : "↑"), 11, dt)
+      ]),
       v.value ? (g(), j(et, {
         key: 1,
         chat: o.value.chat,

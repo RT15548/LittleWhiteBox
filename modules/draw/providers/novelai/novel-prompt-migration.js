@@ -1,9 +1,11 @@
 import { NOVEL_PROMPT_GUIDES } from './novel-model-capabilities.js';
 import { promptTemplateFingerprint } from '../../shared/prompt-template-migration.js';
+import { installScenePlannerPresets } from '../../shared/scene-planner-presets.js';
 
 // Upgrade boundary for prompt formats that have actually shipped.
 // - upstream config v7 / prompt template v4: YAML-era preset fields.
-// - prompt template v6 through v11: Tool-era defaults, refreshed by content fingerprint.
+// - prompt template v12: `modelContractOverrides` (per-model coordinate contract text);
+//   the field has no runtime reader any more and is dropped.
 // Remove the corresponding branch when that released input version is no longer supported.
 const UPSTREAM_V4_PROMPT_FINGERPRINTS = Object.freeze({
     topSystem: '1280:7fa69e8a:fea74076',
@@ -13,49 +15,6 @@ const UPSTREAM_V4_PROMPT_FINGERPRINTS = Object.freeze({
     legacyUserJsonFormat: '2280:fbc8792d:9d385adb',
 });
 
-// Fingerprints of every prompt template that has shipped as a system default.
-// A stored preset whose text matches one of these was never edited by the user,
-// so it is safe to replace with the current template. Add a new entry whenever
-// PROMPT_TEMPLATE_VERSION is raised; drop one only when that release is no
-// longer supported as an upgrade source.
-const RELEASED_DEFAULT_FINGERPRINTS = Object.freeze({
-    v6: Object.freeze({
-        topSystem: '1335:95ec8984:6cb7d872',
-        topSystemPov: '2728:5de1f375:aa983a63',
-        sceneRules: '6694:22e2f5a9:3182133f',
-    }),
-    v7: Object.freeze({
-        topSystem: '1282:6c808dfd:a5791513',
-        topSystemPov: '2675:92ce74f2:2b4942b4',
-        sceneRules: '6018:8b967159:baab550f',
-    }),
-    v8: Object.freeze({
-        topSystem: '1197:4f5dc6ba:c8bf2f9c',
-        topSystemPov: '2590:6d6d4d27:e6e8f9b1',
-        sceneRules: '6017:839b14d0:2661f222',
-    }),
-    v9: Object.freeze({
-        topSystem: '1197:4f5dc6ba:c8bf2f9c',
-        topSystemPov: '2590:6d6d4d27:e6e8f9b1',
-        sceneRules: '6254:7f3e7262:02951222',
-    }),
-    v10: Object.freeze({
-        topSystem: '1197:4f5dc6ba:c8bf2f9c',
-        topSystemPov: '2590:6d6d4d27:e6e8f9b1',
-        sceneRules: '6500:03affbbe:867cbc92',
-    }),
-    v11: Object.freeze({
-        topSystem: '1197:4f5dc6ba:c8bf2f9c',
-        topSystemPov: '2590:6d6d4d27:e6e8f9b1',
-        sceneRules: '6509:3e8b6279:426b3647',
-    }),
-});
-
-const RELEASED_DEFAULT_SETS = Object.freeze(Object.values(RELEASED_DEFAULT_FINGERPRINTS));
-
-function isReleasedDefault(fingerprint, field) {
-    return RELEASED_DEFAULT_SETS.some((released) => released[field] === fingerprint);
-}
 
 const UPSTREAM_MANAGED_PRESETS = Object.freeze({
     '默认-模型要求高': { name: '默认-完整规则', pov: false },
@@ -174,27 +133,17 @@ function migrateLegacyTagGuideFields(presets) {
     return { presets: next, migrated };
 }
 
-function refreshReleasedDefaultPresets(presets, storedTemplateVersion, targetVersion, currentDefaults) {
-    if (Number(storedTemplateVersion) >= targetVersion) {
-        return { presets, migrated: false };
-    }
-
+/** Template v12 shipped `modelContractOverrides`; nothing reads it now, so it leaves here. */
+function dropModelContractOverrides(presets) {
     let migrated = false;
     const next = presets.map((preset) => {
-        if (!preset || typeof preset !== 'object') return preset;
+        if (!preset || typeof preset !== 'object'
+            || !Object.prototype.hasOwnProperty.call(preset, 'modelContractOverrides')) {
+            return preset;
+        }
+        migrated = true;
         const copy = { ...preset };
-        const topFingerprint = promptTemplateFingerprint(copy.topSystem);
-        if (isReleasedDefault(topFingerprint, 'topSystem')) {
-            copy.topSystem = currentDefaults.topSystem;
-            migrated = true;
-        } else if (isReleasedDefault(topFingerprint, 'topSystemPov')) {
-            copy.topSystem = currentDefaults.topSystemPov;
-            migrated = true;
-        }
-        if (isReleasedDefault(promptTemplateFingerprint(copy.sceneRules), 'sceneRules')) {
-            copy.sceneRules = currentDefaults.sceneRules;
-            migrated = true;
-        }
+        delete copy.modelContractOverrides;
         return copy;
     });
     return { presets: next, migrated };
@@ -204,17 +153,13 @@ function refreshReleasedDefaultPresets(presets, storedTemplateVersion, targetVer
  * Converts released prompt preset inputs once, before current normalization.
  * The returned presets contain only current runtime fields.
  */
-export function migrateLegacyNovelPromptPresets(
+function migrateLegacyNovelPromptPresets(
     presets,
-    { configVersion = 0, templateVersion = 0, targetVersion, currentDefaults } = {},
+    { configVersion = 0, currentDefaults } = {},
 ) {
-    if (!Number.isInteger(targetVersion) || targetVersion <= 0) {
-        throw new TypeError('targetVersion is required');
-    }
     if (!Array.isArray(presets)) {
         return {
             presets,
-            templateVersion: Number(templateVersion) || 0,
             migrated: false,
             upstreamPresetCount: 0,
             customPresetCount: 0,
@@ -238,16 +183,12 @@ export function migrateLegacyNovelPromptPresets(
     }
 
     const legacyGuideMigration = migrateLegacyTagGuideFields(converted);
-    const defaultRefresh = refreshReleasedDefaultPresets(
-        legacyGuideMigration.presets,
-        templateVersion,
-        targetVersion,
-        currentDefaults,
-    );
-    const migrated = upstreamPresetCount > 0 || legacyGuideMigration.migrated || defaultRefresh.migrated;
+    const contractRemoval = dropModelContractOverrides(legacyGuideMigration.presets);
+    const migrated = upstreamPresetCount > 0
+        || legacyGuideMigration.migrated
+        || contractRemoval.migrated;
     return {
-        presets: defaultRefresh.presets,
-        templateVersion: targetVersion,
+        presets: contractRemoval.presets,
         migrated,
         upstreamPresetCount,
         customPresetCount,
@@ -258,19 +199,17 @@ export function migrateLegacyNovelPromptSettings(saved, currentDefaults, targetV
     const source = saved && typeof saved === 'object' && !Array.isArray(saved) ? saved : {};
     const result = migrateLegacyNovelPromptPresets(source.promptPresets, {
         configVersion: source.configVersion,
-        templateVersion: source._promptTemplateVersion,
-        targetVersion,
         currentDefaults,
     });
-    if (!result.migrated && result.templateVersion === (Number(source._promptTemplateVersion) || 0)) {
-        return { settings: source, ...result };
-    }
+    const installation = installScenePlannerPresets({
+        ...source,
+        promptPresets: result.presets,
+    }, currentDefaults, targetVersion);
     return {
-        settings: {
-            ...source,
-            promptPresets: result.presets,
-            _promptTemplateVersion: result.templateVersion,
-        },
         ...result,
+        settings: installation.settings,
+        presets: installation.settings.promptPresets,
+        templateVersion: installation.settings._promptTemplateVersion,
+        migrated: result.migrated || installation.installed,
     };
 }

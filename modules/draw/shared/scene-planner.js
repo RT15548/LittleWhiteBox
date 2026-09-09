@@ -13,41 +13,22 @@ import {
 } from './scene-planner-executor.js';
 import { createSceneSource, stripScenePointMarkers } from './scene-source.js';
 import { createSubmitScenePlanTool } from './scene-plan-tool.js';
+import { buildScenePlannerSystemPrompt, buildScenePlannerUserTask } from './scene-planner-frame.js';
+import { normalizeScenePlannerProfile } from './scene-planner-profile.js';
 import {
     applyPromptSlots,
     createPromptSlots,
     emitScenePromptReady,
     expandScenePromptText,
     loadScenePromptRuntime,
-    spliceLiteral,
     wrapPromptExpansionError,
 } from './scene-prompt-expansion.js';
 
+/** User-editable prompt preset. Everything else in the request is rendered by code. */
 const EMPTY_PROMPT_CONFIG = {
     topSystem: '',
-    assistantDoc: '{$tagGuide}',
     tagGuideContent: '',
-    assistantAskBackground: '',
-    userWorldInfo: `Content Provider:
-<worldInfo>
-用户角色设定：
-{{persona}}
----
-世界/场景:
-{{description}}
----
-{$worldInfo}
-</worldInfo>`,
-    assistantAskContent: '',
-    userContent: `Content Provider:
-<content>
-{{characterInfo}}
----
-{{lastMessage}}
-</content>`,
     sceneRules: '',
-    assistantCheck: '',
-    userConfirm: '',
 };
 
 function createSerializableSnapshot(value) {
@@ -68,6 +49,7 @@ function createSerializableSnapshot(value) {
 export { ScenePlannerError };
 export { executePreparedScenePlanner };
 
+/** Missing fields use defaults; explicit empty strings disable that editable section. */
 export function getEffectivePromptConfig(custom, defaults = EMPTY_PROMPT_CONFIG) {
     const base = defaults && typeof defaults === 'object'
         ? { ...EMPTY_PROMPT_CONFIG, ...defaults }
@@ -75,7 +57,7 @@ export function getEffectivePromptConfig(custom, defaults = EMPTY_PROMPT_CONFIG)
     if (!custom) return base;
     const merged = { ...base };
     for (const key of Object.keys(base)) {
-        if (typeof custom[key] === 'string' && custom[key].trim()) merged[key] = custom[key];
+        if (typeof custom[key] === 'string') merged[key] = custom[key];
     }
     return merged;
 }
@@ -84,34 +66,32 @@ export function getEffectiveTagGuide(customGuide) {
     return typeof customGuide === 'string' && customGuide.trim() ? customGuide : '';
 }
 
+function formatReferenceList(items, fallbackLabel) {
+    return (Array.isArray(items) ? items : [])
+        .filter((item) => item?.name || item?.tags)
+        .map((item) => `${item.name || fallbackLabel}=${item.tags || '未填写tag'}`)
+        .join('； ');
+}
+
+/** Registered characters as plain facts; what to do with them is defined by the Tool schema. */
 export function buildCharacterInfoForLLM(presentCharacters) {
     if (!presentCharacters?.length) {
-        return `【已录入角色】: 无
-所有角色都是未知角色；每个角色必须提交 name + type + appear + action。danbooru/costume/interact/uc/center 仅在有对应事实时提交。`;
+        return '【已录入角色】: 无';
     }
 
     const lines = presentCharacters.map((character) => {
-        const aliases = character.aliases?.length ? ` (别名: ${character.aliases.join(', ')})` : '';
+        const aliases = character.aliases?.length ? `（别名: ${character.aliases.join(', ')}）` : '';
         const type = character.type || 'girl';
         const danbooru = character.danbooruTag ? ` | danbooru: ${character.danbooruTag}` : '';
         const appear = character.appearance ? `\n  外貌参考: ${character.appearance}` : '';
-        const outfits = Array.isArray(character.outfits) && character.outfits.length
-            ? `\n  可选服装（仅供参考；请结合剧情自行选择最合适的一套或其变体写入 costume，可在参考基础上体现破损/敞开/滑落/湿透等状态；不要把多套服装直接拼接或混合输出）: ${character.outfits
-                .filter((outfit) => outfit?.name || outfit?.tags)
-                .map((outfit) => `${outfit.name || '服装'}=${outfit.tags || '未填写tag'}`)
-                .join('； ')}`
-            : '';
-        const dynamicStates = Array.isArray(character.dynamicStates) && character.dynamicStates.length
-            ? `\n  动态外貌参考（会随剧情变化的外观状态，仅供参考；请结合当前场景选用最贴切的一条或其变体融入 action 等本图状态描述；不要同时堆叠多条互斥状态）: ${character.dynamicStates
-                .filter((state) => state?.name || state?.tags)
-                .map((state) => `${state.name || '状态'}=${state.tags || '未填写tag'}`)
-                .join('； ')}`
-            : '';
-        return `- ${character.name}${aliases} [${type}]${danbooru}: 外貌已预设；提交该角色时必须使用规范 name 与 action，不要提交 type/appear；danbooru/costume/interact/uc/center 仅在有对应事实时提交，costume 只描述本图实际穿着${appear}${outfits}${dynamicStates}`;
+        const outfits = formatReferenceList(character.outfits, '服装');
+        const dynamicStates = formatReferenceList(character.dynamicStates, '状态');
+        return `- ${character.name}${aliases} [${type}]${danbooru}${appear}`
+            + (outfits ? `\n  服装参考: ${outfits}` : '')
+            + (dynamicStates ? `\n  状态参考（随剧情变化的外观，选贴合当前画面的一条融入 action）: ${dynamicStates}` : '');
     });
 
-    return `【已录入角色】（别名只用于识别，提交时改回规范名；不要提交 type/appear）:
-${lines.join('\n')}`;
+    return `【已录入角色】\n${lines.join('\n')}`;
 }
 
 function collectWorldInfoSections(result) {
@@ -189,26 +169,6 @@ function resolveEffectiveMaxCharacters(requestedLimit, absoluteLimit) {
     return requested ? Math.min(requested, absolute) : absolute;
 }
 
-const TRAILING_CLOSING_TAG = /\n?(<\/[A-Za-z][\w-]*>)\s*$/;
-
-/**
- * Dynamic instructions stay inside the container the top system prompt opened, so a preset
- * ending with `</Chat_History>` keeps that tag last.
- */
-function appendInstruction(base, additions = []) {
-    const text = String(base || '').trim();
-    const extra = additions.map((item) => String(item || '').trim()).filter(Boolean);
-    if (!extra.length) return text;
-    if (!text) return extra.join('\n');
-    const match = text.match(TRAILING_CLOSING_TAG);
-    if (!match) return [text, ...extra].join('\n');
-    return [text.slice(0, match.index).trimEnd(), ...extra, match[1]].filter(Boolean).join('\n');
-}
-
-function joinTaskSections(sections) {
-    return sections.map((section) => String(section || '').trim()).filter(Boolean).join('\n\n');
-}
-
 async function resolveExpansionRuntime(expansionOptions = {}) {
     try {
         return expansionOptions.runtime || await loadScenePromptRuntime();
@@ -231,9 +191,10 @@ async function buildScenePlannerRequest(options = {}) {
         maxCharactersPerImage = 0,
         absoluteMaxCharactersPerImage = 0,
         modelGuide = null,
-        modelContract = '',
-        centerMode = 'grid',
+        plannerProfile = null,
     } = options;
+    const profile = normalizeScenePlannerProfile(plannerProfile);
+    const centerMode = profile.centerMode === 'normalized' ? 'normalized' : 'grid';
     const sceneSource = providedSceneSource || createSceneSource(messageText);
     if (!String(sceneSource.content || '').trim()) {
         throw new ScenePlannerError('消息内容为空。', 'EMPTY_MESSAGE');
@@ -270,7 +231,7 @@ async function buildScenePlannerRequest(options = {}) {
 
     const promptConfig = getEffectivePromptConfig(customPrompts, promptDefaults);
     const runtime = await resolveExpansionRuntime(options.expansionOptions);
-    const slots = createPromptSlots(['tagGuide', 'worldInfo', 'characterInfo', 'lastMessage']);
+    const slots = createPromptSlots(['worldInfo', 'characterInfo', 'lastMessage']);
 
     try {
         // Every dynamic value is expanded exactly once, then spliced literally into the
@@ -294,61 +255,34 @@ async function buildScenePlannerRequest(options = {}) {
             buildCharacterInfoForLLM(presentCharacters),
             runtime,
         );
-        const expandedTagGuide = await expandScenePromptText(
-            typeof modelGuide === 'string'
-                ? modelGuide
-                : getEffectiveTagGuide(promptConfig.tagGuideContent),
-            runtime,
-        );
-        const expandedModelContract = modelContract
-            ? await expandScenePromptText(modelContract, runtime)
-            : '';
+        const tagGuide = typeof modelGuide === 'string'
+            ? modelGuide
+            : getEffectiveTagGuide(promptConfig.tagGuideContent);
 
-        const guideTemplate = expandedTagGuide
-            ? spliceLiteral(promptConfig.assistantDoc, '{$tagGuide}', slots.tagGuide)
-            : '好的，我将按照当前图像生成规范生成图像描述。';
-        const worldInfoTemplate = String(promptConfig.userWorldInfo || '')
-            .split('{$worldInfo}').join(slots.worldInfo)
-            .split('{$WORLDINFO}').join(slots.worldInfo);
-        const contentTemplate = spliceLiteral(
-            spliceLiteral(promptConfig.userContent, '{{characterInfo}}', slots.characterInfo),
-            '{{lastMessage}}',
-            slots.lastMessage,
-        );
-        const finalInstruction = appendInstruction(promptConfig.userConfirm, [
-            buildSessionLimitsLine(
+        const systemTemplate = buildScenePlannerSystemPrompt({
+            opening: promptConfig.topSystem,
+            guide: tagGuide,
+            sceneRules: promptConfig.sceneRules,
+            profile,
+        });
+        const userTaskTemplate = buildScenePlannerUserTask({
+            worldInfoSlot: slots.worldInfo,
+            characterInfoSlot: slots.characterInfo,
+            lastMessageSlot: slots.lastMessage,
+            limitsLine: buildSessionLimitsLine(
                 effectiveMaxImages,
                 effectiveMaxCharactersPerImage,
                 insertPointCount,
                 effectiveMaxPlanImages,
             ),
-            '完成 mindful_prelude 与全部 images 后，必须且只能调用一次 submit_scene_plan；不要只返回正文。',
-        ]);
-
-        // Terminal-submit tool calling takes a single system prompt plus one user task; no
-        // synthetic multi-turn chain and no consecutive same-role messages.
-        const userTaskTemplate = joinTaskSections([
-            guideTemplate,
-            promptConfig.assistantAskBackground,
-            worldInfoTemplate,
-            promptConfig.assistantAskContent,
-            contentTemplate,
-            promptConfig.sceneRules,
-            expandedModelContract,
-            promptConfig.assistantCheck,
-            finalInstruction,
-        ]);
+        });
 
         const slotValues = {
-            [slots.tagGuide]: expandedTagGuide,
             [slots.worldInfo]: expandedWorldInfo,
             [slots.characterInfo]: expandedCharacterInfo,
             [slots.lastMessage]: expandedMessageText,
         };
-        const systemPrompt = applyPromptSlots(
-            await expandScenePromptText(promptConfig.topSystem || '', runtime),
-            slotValues,
-        ).trim();
+        const systemPrompt = (await expandScenePromptText(systemTemplate, runtime)).trim();
         const userTask = applyPromptSlots(
             await expandScenePromptText(userTaskTemplate, runtime),
             slotValues,
@@ -369,7 +303,7 @@ async function buildScenePlannerRequest(options = {}) {
                 maxPlanImages: effectiveMaxPlanImages,
                 maxCharactersPerImage: effectiveMaxCharactersPerImage,
                 insertPointCount: sceneSource.points.length,
-                centerMode,
+                profile,
             }),
             imageLimitAdjustment,
             validationContext: {

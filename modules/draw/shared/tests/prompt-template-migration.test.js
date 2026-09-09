@@ -2,134 +2,105 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
+import { PROMPT_TEMPLATE_VERSION as COMFY_VERSION } from '../../providers/comfyui/comfy-prompts.js';
+import { PROMPT_TEMPLATE_VERSION as SD_VERSION } from '../../providers/sd-webui/sd-prompts.js';
 import {
-    COMFY_RELEASED_PROMPT_DEFAULT_FINGERPRINTS,
-    PROMPT_TEMPLATE_VERSION as COMFY_PROMPT_TEMPLATE_VERSION,
-} from '../../providers/comfyui/comfy-prompts.js';
-import {
-    PROMPT_TEMPLATE_VERSION as SD_PROMPT_TEMPLATE_VERSION,
-    SD_RELEASED_PROMPT_DEFAULT_FINGERPRINTS,
-} from '../../providers/sd-webui/sd-prompts.js';
-import {
-    promptTemplateFingerprint,
-    refreshReleasedPromptPresetDefaults,
-} from '../prompt-template-migration.js';
+    installScenePlannerPresets,
+    isPovPromptPreset,
+    SCENE_PLANNER_PRESET_NAMES,
+} from '../scene-planner-presets.js';
 
-const PROVIDERS = [{
-    label: 'SD WebUI',
-    fixtureUrls: [
-        new URL('../../providers/sd-webui/tests/fixtures/prompt-template-v6.json', import.meta.url),
-        new URL('../../providers/sd-webui/tests/fixtures/prompt-template-v7.json', import.meta.url),
-    ],
-    targetVersion: SD_PROMPT_TEMPLATE_VERSION,
-    releasedFingerprints: SD_RELEASED_PROMPT_DEFAULT_FINGERPRINTS,
-    currentPaths: {
-        topSystem: '../../providers/sd-webui/prompts/top-system.md',
-        topSystemPov: '../../providers/sd-webui/prompts/top-system-pov.md',
-        tagGuideContent: '../../providers/sd-webui/SD_TAG编写指南.md',
-        sceneRules: '../../providers/sd-webui/prompts/scene-rules.md',
-    },
-}, {
-    label: 'ComfyUI',
-    fixtureUrls: [
-        new URL('../../providers/comfyui/tests/fixtures/prompt-template-v7.json', import.meta.url),
-        new URL('../../providers/comfyui/tests/fixtures/prompt-template-v8.json', import.meta.url),
-    ],
-    targetVersion: COMFY_PROMPT_TEMPLATE_VERSION,
-    releasedFingerprints: COMFY_RELEASED_PROMPT_DEFAULT_FINGERPRINTS,
-    currentPaths: {
-        topSystem: '../../providers/comfyui/prompts/top-system.md',
-        topSystemPov: '../../providers/comfyui/prompts/top-system-pov.md',
-        tagGuideContent: '../../providers/comfyui/COMFY_TAG编写指南.md',
-        sceneRules: '../../providers/comfyui/prompts/scene-rules.md',
-    },
-}];
-
-async function loadProviderCase(provider, fixtureUrl) {
-    const fixture = JSON.parse(await readFile(fixtureUrl, 'utf8'));
-    const entries = await Promise.all(Object.entries(provider.currentPaths).map(async ([key, relativePath]) => (
-        [key, await readFile(new URL(relativePath, import.meta.url), 'utf8')]
-    )));
-    return { fixture, current: Object.fromEntries(entries) };
+async function loadDefaults(provider) {
+    const guide = provider === 'sd-webui' ? 'SD_TAG编写指南.md' : 'COMFY_TAG编写指南.md';
+    const paths = {
+        topSystem: '../prompts/opening.md',
+        topSystemPov: '../prompts/opening-pov.md',
+        sceneRules: '../prompts/scene-rules.md',
+        tagGuideContent: `../../providers/${provider}/${guide}`,
+    };
+    return Object.fromEntries(await Promise.all(Object.entries(paths).map(async ([key, path]) => (
+        [key, await readFile(new URL(path, import.meta.url), 'utf8')]
+    ))));
 }
 
-function assertFingerprintRegistered(registered, value) {
-    const fingerprints = Array.isArray(registered) ? registered : [registered];
-    assert.ok(fingerprints.includes(promptTemplateFingerprint(value)));
-}
-
-for (const provider of PROVIDERS) {
-    for (const fixtureUrl of provider.fixtureUrls) {
-        test(`${provider.label} refreshes ${fixtureUrl.pathname.split('/').pop()} defaults and the upgrade is idempotent`, async () => {
-            const { fixture, current } = await loadProviderCase(provider, fixtureUrl);
-            const normalName = '默认-完整规则';
-            const povName = '默认-第一人称完整规则';
-            const releasedNormal = provider.releasedFingerprints[normalName];
-            const releasedPov = provider.releasedFingerprints[povName];
-
-            assert.ok(provider.targetVersion > fixture.templateVersion);
-            assertFingerprintRegistered(releasedNormal.topSystem, fixture.topSystem);
-            assertFingerprintRegistered(releasedPov.topSystem, fixture.topSystemPov);
-            assertFingerprintRegistered(releasedNormal.tagGuideContent, fixture.tagGuideContent);
-            assertFingerprintRegistered(releasedNormal.sceneRules, fixture.sceneRules);
-
+for (const [provider, targetVersion, versions] of [
+    ['sd-webui', SD_VERSION, [6, 7, 8]],
+    ['comfyui', COMFY_VERSION, [7, 8, 9]],
+]) {
+    for (const version of versions) {
+        test(`${provider} offers new presets alongside unchanged v${version} presets, once across reloads`, async () => {
+            const fixture = JSON.parse(await readFile(
+                new URL(`../../providers/${provider}/tests/fixtures/prompt-template-v${version}.json`, import.meta.url),
+                'utf8',
+            ));
+            const defaults = await loadDefaults(provider);
             const normal = {
-                id: 'normal',
-                name: normalName,
-                topSystem: fixture.topSystem,
-                tagGuideContent: fixture.tagGuideContent,
-                sceneRules: fixture.sceneRules,
+                id: 'old-normal', name: '默认-完整规则',
+                topSystem: fixture.topSystem, sceneRules: fixture.sceneRules, tagGuideContent: fixture.tagGuideContent,
             };
-            const pov = {
-                id: 'pov',
-                name: povName,
-                topSystem: fixture.topSystemPov,
-                tagGuideContent: fixture.tagGuideContent,
-                sceneRules: fixture.sceneRules,
+            const pov = { ...normal, id: 'old-pov', name: '默认-第一人称完整规则', topSystem: fixture.topSystemPov };
+            const custom = { ...normal, id: 'custom', name: '我的预设', topSystem: `${fixture.topSystem}\nuser edit`, tagGuideContent: '' };
+            const saved = {
+                _promptTemplateVersion: fixture.templateVersion,
+                promptPresets: [normal, pov, custom],
+                selectedPromptPresetId: custom.id,
+                selectedPresetId: 'unchanged-image-params',
             };
-            const edited = {
-                ...normal,
-                id: 'edited',
-                topSystem: `${fixture.topSystem}\nuser edit`,
-                tagGuideContent: `${fixture.tagGuideContent}\nuser edit`,
-                sceneRules: `${fixture.sceneRules}\nuser edit`,
-            };
-            const custom = {
-                id: 'custom',
-                name: '我的预设',
-                topSystem: fixture.topSystem,
-                tagGuideContent: fixture.tagGuideContent,
-                sceneRules: fixture.sceneRules,
-            };
-            const presets = [normal, pov, edited, custom];
-            const getCurrentDefaults = (name) => ({
-                topSystem: name === povName ? current.topSystemPov : current.topSystem,
-                tagGuideContent: current.tagGuideContent,
-                sceneRules: current.sceneRules,
-            });
+            const snapshot = structuredClone(saved);
+            const result = installScenePlannerPresets(saved, defaults, targetVersion);
+            assert.equal(result.installed, true);
+            assert.deepEqual(saved, snapshot);
+            assert.deepEqual(result.settings.promptPresets.slice(0, 3), saved.promptPresets);
+            assert.equal(result.settings.selectedPromptPresetId, custom.id);
+            assert.equal(result.settings.selectedPresetId, saved.selectedPresetId);
+            assert.equal(result.settings._promptTemplateVersion, targetVersion);
 
-            const result = refreshReleasedPromptPresetDefaults(presets, {
-                storedVersion: fixture.templateVersion,
-                targetVersion: provider.targetVersion,
-                releasedFingerprints: provider.releasedFingerprints,
-                getCurrentDefaults,
-            });
+            const [newNormal, newPov] = result.settings.promptPresets.slice(3);
+            assert.equal(newNormal.name, SCENE_PLANNER_PRESET_NAMES.normal);
+            assert.equal(newPov.name, SCENE_PLANNER_PRESET_NAMES.pov);
+            assert.equal(newNormal.topSystem, defaults.topSystem);
+            assert.equal(newPov.topSystem, defaults.topSystemPov);
+            assert.equal(isPovPromptPreset(newPov.name), true);
+            for (const preset of [newNormal, newPov]) {
+                assert.equal(preset.sceneRules, defaults.sceneRules);
+                assert.equal(preset.tagGuideContent, defaults.tagGuideContent);
+            }
+            assert.equal(new Set(result.settings.promptPresets.map(preset => preset.id)).size, 5);
 
-            assert.equal(result.templateVersion, provider.targetVersion);
-            assert.deepEqual(result.presets[0], { ...normal, ...getCurrentDefaults(normalName) });
-            assert.deepEqual(result.presets[1], { ...pov, ...getCurrentDefaults(povName) });
-            assert.deepEqual(result.presets[2], edited);
-            assert.deepEqual(result.presets[3], custom);
-            assert.equal(normal.topSystem, fixture.topSystem);
-
-            const repeated = refreshReleasedPromptPresetDefaults(result.presets, {
-                storedVersion: result.templateVersion,
-                targetVersion: provider.targetVersion,
-                releasedFingerprints: provider.releasedFingerprints,
-                getCurrentDefaults,
-            });
-            assert.equal(repeated.presets, result.presets);
-            assert.equal(repeated.migrated, false);
+            // Simulate save/restart, a rename, an edit and deletion of the other new copy.
+            const persisted = JSON.parse(JSON.stringify(result.settings));
+            persisted.promptPresets = persisted.promptPresets.filter(preset => preset.id !== newPov.id);
+            persisted.promptPresets.find(preset => preset.id === newNormal.id).name = '我改过名';
+            persisted.promptPresets.find(preset => preset.id === newNormal.id).sceneRules = 'my new rules';
+            const repeated = installScenePlannerPresets(persisted, {}, targetVersion);
+            assert.equal(repeated.installed, false);
+            assert.equal(repeated.settings, persisted);
+            assert.equal(repeated.settings.promptPresets.length, 4);
         });
     }
 }
+
+test('a fresh installation creates exactly two current presets and selects the normal one', async () => {
+    const defaults = await loadDefaults('sd-webui');
+    const { settings } = installScenePlannerPresets(null, defaults, SD_VERSION);
+    assert.equal(settings.promptPresets.length, 2);
+    assert.equal(settings.selectedPromptPresetId, settings.promptPresets[0].id);
+    assert.equal(settings.promptPresets[0].name, SCENE_PLANNER_PRESET_NAMES.normal);
+});
+
+test('a user-owned preset with the new default name is preserved and does not suppress installation', async () => {
+    const defaults = await loadDefaults('sd-webui');
+    const saved = { promptPresets: [{ id: 'mine', name: SCENE_PLANNER_PRESET_NAMES.normal, topSystem: '', sceneRules: '' }] };
+    const { settings } = installScenePlannerPresets(saved, defaults, SD_VERSION);
+    assert.equal(settings.promptPresets.length, 3);
+    assert.deepEqual(settings.promptPresets[0], saved.promptPresets[0]);
+});
+
+test('missing templates do not mark an installation complete or change existing settings', async () => {
+    const defaults = await loadDefaults('sd-webui');
+    for (const key of Object.keys(defaults)) {
+        const saved = { _promptTemplateVersion: SD_VERSION - 1, promptPresets: [] };
+        assert.throws(() => installScenePlannerPresets(saved, { ...defaults, [key]: '' }, SD_VERSION));
+        assert.deepEqual(saved, { _promptTemplateVersion: SD_VERSION - 1, promptPresets: [] });
+    }
+});

@@ -604,20 +604,18 @@ select.input { cursor: pointer; }
     font-size: 10px; font-weight: 600; white-space: nowrap; min-width: 60px; text-align: center;
 }
 .chain-role.system { background: #7c3aed22; color: #a78bfa; }
-.chain-role.assistant { background: #3b82f622; color: #60a5fa; }
 .chain-role.user { background: #10b98122; color: #34d399; }
+.chain-role.tools { background: #f59e0b22; color: #fbbf24; }
 .chain-summary { flex: 1; min-width: 0; }
 .chain-summary-text { display: flex; align-items: center; gap: 6px; }
 .chain-editable { font-size: 10px; opacity: 0.7; }
 .chain-variables { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
-.chain-content-preview,
 .chain-section-content {
     display: none; margin-top: 6px; padding: 8px;
     background: var(--bg-input); border-radius: 6px;
     font-family: monospace; font-size: 10px; white-space: pre-wrap;
     max-height: 200px; overflow-y: auto; color: var(--text-muted);
 }
-.chain-item.expanded > .chain-summary > .chain-content-preview { display: block; }
 .chain-item.has-sections { cursor: default; }
 .chain-sections { display: grid; gap: 5px; margin-top: 6px; }
 .chain-section {
@@ -627,6 +625,13 @@ select.input { cursor: pointer; }
 .chain-section:hover { border-color: var(--accent); }
 .chain-section-summary { color: var(--text-secondary); font-size: 11px; }
 .chain-section.expanded > .chain-section-content { display: block; }
+.chain-fields { display: grid; gap: 4px; margin-top: 6px; }
+.chain-field {
+    display: grid; grid-template-columns: minmax(120px, 0.35fr) 1fr; gap: 8px;
+    padding: 4px 8px; border: 1px solid var(--border); border-radius: 6px;
+    background: var(--bg-tertiary); font-size: 11px; color: var(--text-secondary);
+}
+.chain-field code { font-size: 10px; color: var(--accent); word-break: break-all; }
 .llm-request-preview {
     margin-top: 10px; padding: 12px; max-height: 360px; overflow: auto;
     background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px;
@@ -1207,38 +1212,29 @@ select.input { cursor: pointer; }
 
                 <div class="card">
                     <div class="prompt-card-header">
-                        <div class="card-title">系统提示词 (System Prompt)</div>
+                        <div class="card-title">开场与视角</div>
                         <button class="btn btn-sm" id="nd_prompt_reset_system"><i class="fa-solid fa-rotate-left"></i> 恢复默认</button>
                     </div>
-                    <p class="form-hint">定义 LLM 的角色定位和 VSPF 框架</p>
+                    <p class="form-hint">规划器是谁、要做什么、正文用什么视角写成。第一人称预设在这里说明 &lt;user&gt; 是相机、默认不出镜。</p>
                     <textarea id="nd_prompt_system" class="prompt-textarea" rows="8"></textarea>
                 </div>
 
                 <div class="card">
                     <div class="prompt-card-header">
-                        <div class="card-title">当前模型提示词指南</div>
+                        <div class="card-title">模型 Tag 指南</div>
                         <button class="btn btn-sm" id="nd_prompt_reset_guide"><i class="fa-solid fa-rotate-left"></i> 恢复当前模型默认</button>
                     </div>
-                    <p class="form-hint">根据当前参数预设中的模型自动切换 V4.5 / V5 指南；修改内容保存到当前提示词预设。</p>
+                    <p class="form-hint">当前模型认哪些 tag、权重和语法怎么写。随参数预设中的模型自动切换 V4.5 / V5；修改保存到当前提示词预设。</p>
                     <textarea id="nd_prompt_guide" class="prompt-textarea" rows="8"></textarea>
                 </div>
 
                 <div class="card">
                     <div class="prompt-card-header">
-                        <div class="card-title">场景计划规则</div>
+                        <div class="card-title">场景规则</div>
                         <button class="btn btn-sm" id="nd_prompt_reset_format"><i class="fa-solid fa-rotate-left"></i> 恢复默认</button>
                     </div>
-                    <p class="form-hint">定义 submit_scene_plan 的字段语义、角色规则与构图约束；结构由 Tool Schema 保证。</p>
+                    <p class="form-hint">画什么、怎么画：分级、构图、角色外貌与服装、动作、光影、物理约束与内容偏好。</p>
                     <textarea id="nd_prompt_format" class="prompt-textarea" rows="8"></textarea>
-                </div>
-
-                <div class="card">
-                    <div class="prompt-card-header">
-                        <div class="card-title">当前模型 Tool 契约（高级修改）</div>
-                        <button class="btn btn-sm" id="nd_prompt_reset_contract"><i class="fa-solid fa-rotate-left"></i> 恢复当前模型默认</button>
-                    </div>
-                    <p class="form-hint">根据当前参数预设中的模型自动切换 V4.5 / V5 契约；修改内容保存到当前提示词预设，并直接注入实际请求。字段结构仍由 Tool Schema 校验。</p>
-                    <textarea id="nd_prompt_model_contract" class="prompt-textarea" rows="6" placeholder="正在加载当前模型契约..."></textarea>
                 </div>
 
                 <div class="action-status-row">
@@ -1274,7 +1270,7 @@ select.input { cursor: pointer; }
                         <div class="card-title"><i class="fa-solid fa-link"></i> 请求结构</div>
                         <span class="chain-toggle-icon" aria-hidden="true"></span>
                     </summary>
-                    <p class="form-hint">实际请求只有 1 条 system 与 1 条 user；下列片段按顺序拼进同一条 user 任务（点击查看模板内容）</p>
+                    <p class="form-hint">实际请求由 1 条 system、1 条 user 和 1 个工具组成；点击各段查看内容，工具一节列出模型读到的字段说明。</p>
                     <div id="nd_prompt_chain" class="prompt-chain-container"></div>
                 </details>
 
@@ -1457,8 +1453,6 @@ let state = {
     promptPresets: [],
     selectedPromptPresetId: null,
     modelGuideDefaults: {},
-    modelContractDefaults: {},
-    modelContractContent: '',
     modelCapabilities: {},
     backendPluginStatus: null,
     messageFilterRules: [],
@@ -1470,10 +1464,6 @@ let editingCharId = null;
 const saveBtnStates = new WeakMap();
 const promptTextDraftsByPreset = new Map();
 const modelGuideDraftsByPreset = new Map();
-const modelContractDraftsByPreset = new Map();
-const promptDraftRevisions = new Map();
-const promptPresetDraftRevisions = new Map();
-let promptDraftRevision = 0;
 let promptChainRequestId = 0;
 let charFilters = { query: '', type: 'all', status: 'all' };
 let modalData = { slotId: null, images: [], currentIndex: 0, charName: null };
@@ -1598,7 +1588,6 @@ function requestPromptChainPreview() {
             topSystem: $('nd_prompt_system')?.value || '',
             sceneRules: $('nd_prompt_format')?.value || '',
             modelGuideOverrides: collectModelGuideOverridesFromForm(),
-            modelContractOverrides: collectModelContractOverridesFromForm(),
         },
     });
 }
@@ -2283,73 +2272,53 @@ function renderPromptChain(chain) {
 
     const editableMap = {
         topSystem: 'nd_prompt_system',
-        assistantDoc: 'nd_prompt_guide',
+        tagGuide: 'nd_prompt_guide',
         sceneRules: 'nd_prompt_format',
-        modelContract: 'nd_prompt_model_contract',
     };
+    const sectionContent = new Map();
     const getPreviewContent = (key) => {
-        const defaults = state._defaultPrompts || {};
-        const promptConfig = {
-            ...defaults,
-            topSystem: $('nd_prompt_system')?.value || defaults.topSystem || '',
-            sceneRules: $('nd_prompt_format')?.value || defaults.sceneRules || '',
-        };
-        let content = String(promptConfig[key] || '(内置模板，不可编辑)');
-        if (key === 'assistantDoc') {
-            content = content.replace('{$tagGuide}', $('nd_prompt_guide')?.value || '');
-        } else if (key === 'modelContract') {
-            content = state.modelContractContent;
-        }
+        const editableId = editableMap[key];
+        const content = editableId
+            ? ($(editableId)?.value.trim() || '(当前为空，不注入)')
+            : (sectionContent.get(key) || '(运行时按本次请求生成)');
         return content.length > 1200 ? `${content.slice(0, 1200)}\n...(已截断)` : content;
     };
 
     container.innerHTML = chain.map((item, i) => {
-        const varsHtml = (item.variables || []).map(v => `<span>📎 ${escapeHtml(v)}</span>`).join(' ');
-        const editIcon = item.editable ? ' <span class="chain-editable" title="可在上方编辑">✏️</span>' : '';
-        const labelSuffix = item.label ? ` <span class="chain-editable">[${escapeHtml(item.label)}]</span>` : '';
         const sections = Array.isArray(item.sections) ? item.sections : [];
         const sectionsHtml = sections.map((section, sectionIndex) => {
+            if (typeof section.content === 'string') sectionContent.set(section.key, section.content);
             const sectionVars = (section.variables || []).map(v => `<span>📎 ${escapeHtml(v)}</span>`).join(' ');
             const sectionEdit = section.editable
                 ? ' <span class="chain-editable" data-edit-trigger title="可在上方编辑">✏️</span>'
                 : '';
-            const sectionLabel = section.label
-                ? ` <span class="chain-editable">[${escapeHtml(section.label)}]</span>`
-                : '';
             return `
             <div class="chain-section" data-key="${escapeHtml(section.key)}" data-editable-id="${editableMap[section.key] || ''}">
-                <div class="chain-section-summary">${sectionIndex + 1}. ${escapeHtml(section.summary)}${sectionLabel}${sectionEdit}</div>
+                <div class="chain-section-summary">${sectionIndex + 1}. ${escapeHtml(section.summary)}${sectionEdit}</div>
                 ${sectionVars ? `<div class="chain-variables">${sectionVars}</div>` : ''}
                 <div class="chain-section-content"></div>
             </div>`;
         }).join('');
+        const fields = Array.isArray(item.fields) ? item.fields : [];
+        const fieldsHtml = fields.length
+            ? `<div class="chain-fields">${fields.map(field => `
+                <div class="chain-field">
+                    <code>${escapeHtml(field.path)}</code>
+                    <span>${escapeHtml(field.description)}</span>
+                </div>`).join('')}</div>`
+            : '';
 
         return `
-        <div class="chain-item${sections.length ? ' has-sections' : ''}" data-key="${escapeHtml(item.key)}" data-editable-id="${editableMap[item.key] || ''}">
+        <div class="chain-item has-sections" data-key="${escapeHtml(item.key)}">
             <span class="chain-role ${item.role}">${item.role}</span>
             <div class="chain-summary">
-                <div class="chain-summary-text">
-                    <span>${i + 1}. ${escapeHtml(item.summary)}${labelSuffix}${editIcon}</span>
-                </div>
-                ${varsHtml ? `<div class="chain-variables">${varsHtml}</div>` : ''}
-                ${sectionsHtml ? `<div class="chain-sections">${sectionsHtml}</div>` : '<div class="chain-content-preview"></div>'}
+                <div class="chain-summary-text"><span>${i + 1}. ${escapeHtml(item.summary)}</span></div>
+                ${sectionsHtml ? `<div class="chain-sections">${sectionsHtml}</div>` : ''}
+                ${fieldsHtml}
             </div>
         </div>`;
     }).join('');
 
-    container.querySelectorAll('.chain-item').forEach(el => {
-        el.addEventListener('click', () => {
-            if (el.classList.contains('has-sections')) return;
-            const editableId = el.dataset.editableId;
-            if (editableId) {
-                const target = $(editableId);
-                if (target) { target.scrollIntoView({ behavior: 'smooth', block: 'center' }); target.focus(); return; }
-            }
-            const preview = el.querySelector('.chain-content-preview');
-            const isExpanded = el.classList.toggle('expanded');
-            if (isExpanded) preview.textContent = getPreviewContent(el.dataset.key);
-        });
-    });
     container.querySelectorAll('.chain-section').forEach(el => {
         el.addEventListener('click', (event) => {
             event.stopPropagation();
@@ -2797,7 +2766,6 @@ function applyPromptPreset() {
         ? drafts.get('sceneRules')
         : active.sceneRules ?? '';
     applyModelGuideForCurrentModel();
-    applyModelContractForCurrentModel();
 }
 
 function getActivePromptPresetForForm() {
@@ -2812,22 +2780,6 @@ function getActivePromptPresetForForm() {
     return active;
 }
 
-function markPromptDraftRevision(presetId, key) {
-    promptDraftRevision += 1;
-    promptDraftRevisions.set(`${presetId}\u0000${key}`, promptDraftRevision);
-    promptPresetDraftRevisions.set(presetId, promptDraftRevision);
-    return promptDraftRevision;
-}
-
-function markPromptPresetDraftRevision(presetId) {
-    promptDraftRevision += 1;
-    for (const key of promptDraftRevisions.keys()) {
-        if (key.startsWith(`${presetId}\u0000`)) promptDraftRevisions.delete(key);
-    }
-    promptPresetDraftRevisions.set(presetId, promptDraftRevision);
-    return promptDraftRevision;
-}
-
 function setCurrentPromptTextDraft(key, content) {
     const active = getActivePromptPresetForForm();
     if (!active?.id) return;
@@ -2837,7 +2789,6 @@ function setCurrentPromptTextDraft(key, content) {
         promptTextDraftsByPreset.set(active.id, drafts);
     }
     drafts.set(key, String(content ?? ''));
-    return markPromptDraftRevision(active.id, key);
 }
 
 /** 当前指南以用户眼前的 textarea 为准；其他模型草稿沿用本页临时状态。 */
@@ -2879,41 +2830,6 @@ function setCurrentModelGuideDraft(content) {
         modelGuideDraftsByPreset.set(active.id, drafts);
     }
     drafts.set(guideId, String(content ?? ''));
-    return markPromptDraftRevision(active.id, `modelGuide:${guideId}`);
-}
-
-function collectModelContractOverridesFromForm() {
-    const active = getActivePromptPresetForForm();
-    const source = active?.modelContractOverrides && typeof active.modelContractOverrides === 'object'
-        && !Array.isArray(active.modelContractOverrides)
-        ? active.modelContractOverrides
-        : {};
-    const overrides = { ...source };
-    const defaults = state.modelContractDefaults && typeof state.modelContractDefaults === 'object'
-        ? state.modelContractDefaults
-        : {};
-    const drafts = active?.id ? modelContractDraftsByPreset.get(active.id) : null;
-    drafts?.forEach((content, guideId) => {
-        if (typeof defaults[guideId] === 'string' && content === defaults[guideId]) {
-            delete overrides[guideId];
-        } else {
-            overrides[guideId] = content;
-        }
-    });
-    return overrides;
-}
-
-function setCurrentModelContractDraft(content) {
-    const active = getActivePromptPresetForForm();
-    if (!active?.id) return;
-    const guideId = getCurrentModelGuideId();
-    let drafts = modelContractDraftsByPreset.get(active.id);
-    if (!drafts) {
-        drafts = new Map();
-        modelContractDraftsByPreset.set(active.id, drafts);
-    }
-    drafts.set(guideId, String(content ?? ''));
-    return markPromptDraftRevision(active.id, `modelContract:${guideId}`);
 }
 
 function getCurrentModelGuideId() {
@@ -2942,29 +2858,6 @@ function applyModelGuideForCurrentModel() {
             : defaultContent;
 
     $('nd_prompt_guide').value = content;
-}
-
-function applyModelContractForCurrentModel() {
-    const guideId = getCurrentModelGuideId();
-    const defaults = state.modelContractDefaults && typeof state.modelContractDefaults === 'object'
-        ? state.modelContractDefaults
-        : {};
-    const defaultContent = typeof defaults[guideId] === 'string'
-        ? defaults[guideId]
-        : '';
-    const active = getActivePromptPresetForForm() || {};
-    const overrides = active.modelContractOverrides && typeof active.modelContractOverrides === 'object'
-        ? active.modelContractOverrides
-        : {};
-    const drafts = active.id ? modelContractDraftsByPreset.get(active.id) : null;
-    const textarea = $('nd_prompt_model_contract');
-    if (!textarea) return;
-    textarea.value = drafts?.has(guideId)
-        ? drafts.get(guideId)
-        : Object.prototype.hasOwnProperty.call(overrides, guideId)
-            && typeof overrides[guideId] === 'string'
-            ? overrides[guideId]
-            : defaultContent;
 }
 
 function setSelectOrCustom(kind, value) {
@@ -3003,7 +2896,6 @@ function updateModelOptions() {
     const characterLimit = capability.maxCharactersPerImage || 10;
     $('nd_max_chars').max = String(characterLimit);
     applyModelGuideForCurrentModel();
-    applyModelContractForCurrentModel();
     requestPromptChainPreview();
     renderBackendPluginStatus();
 }
@@ -3163,54 +3055,8 @@ window.addEventListener('message', event => {
 
         case 'PROMPT_CHAIN_DATA':
             if (Number(data.requestId) !== promptChainRequestId) break;
-            if (typeof data.modelContractContent === 'string') {
-                state.modelContractContent = data.modelContractContent;
-            }
             renderPromptChain(data.chain || []);
             break;
-
-        case 'PROMPT_RESET_RESULT': {
-            if (data.ok !== true) break;
-            const presetId = String(data.presetId || state.selectedPromptPresetId || '');
-            const guideId = String(data.guideId || '');
-            const isText = data.key === 'topSystem' || data.key === 'sceneRules';
-            const isGuide = data.key === 'modelGuide';
-            const draftsByPreset = isText
-                ? promptTextDraftsByPreset
-                : isGuide ? modelGuideDraftsByPreset : modelContractDraftsByPreset;
-            const drafts = draftsByPreset.get(presetId);
-            const draftKey = isText ? data.key : guideId;
-            const revisionKey = `${presetId}\u0000${isText ? data.key : `${data.key}:${guideId}`}`;
-            if (promptDraftRevisions.get(revisionKey) === Number(data.draftRevision)) {
-                drafts?.delete(draftKey);
-                if (drafts && !drafts.size) draftsByPreset.delete(presetId);
-                promptDraftRevisions.delete(revisionKey);
-            }
-            break;
-        }
-
-        case 'PROMPT_RESET_ALL_RESULT': {
-            if (data.ok !== true) break;
-            const presetId = String(data.presetId || '');
-            if (promptPresetDraftRevisions.get(presetId) !== Number(data.draftRevision)) break;
-            const active = (state.promptPresets || []).find(preset => preset.id === presetId);
-            if (active) {
-                const textDrafts = promptTextDraftsByPreset.get(presetId);
-                active.topSystem = textDrafts?.get('topSystem') ?? active.topSystem;
-                active.sceneRules = textDrafts?.get('sceneRules') ?? active.sceneRules;
-                active.modelGuideOverrides = {};
-                active.modelContractOverrides = {};
-            }
-            promptTextDraftsByPreset.delete(presetId);
-            modelGuideDraftsByPreset.delete(presetId);
-            modelContractDraftsByPreset.delete(presetId);
-            promptPresetDraftRevisions.delete(presetId);
-            for (const key of promptDraftRevisions.keys()) {
-                if (key.startsWith(`${presetId}\u0000`)) promptDraftRevisions.delete(key);
-            }
-            if (state.selectedPromptPresetId === presetId) applyPromptPreset();
-            break;
-        }
 
         case 'LAST_LLM_REQUEST_DATA':
             renderLastLlmRequest(data.snapshot || null);
@@ -3653,7 +3499,6 @@ document.addEventListener('DOMContentLoaded', () => {
             topSystem: $('nd_prompt_system').value,
             sceneRules: $('nd_prompt_format').value,
             modelGuideOverrides: collectModelGuideOverridesFromForm(),
-            modelContractOverrides: collectModelContractOverridesFromForm(),
         }, statusTarget: 'prompt-preset' });
     });
 
@@ -3685,69 +3530,40 @@ document.addEventListener('DOMContentLoaded', () => {
             topSystem: $('nd_prompt_system').value,
             sceneRules: $('nd_prompt_format').value,
             modelGuideOverrides: collectModelGuideOverridesFromForm(),
-            modelContractOverrides: collectModelContractOverridesFromForm(),
         }, statusTarget: 'prompts' });
     });
 
+    // 恢复默认只改表单；点保存才落盘
+    const refreshChainIfOpen = () => { if ($('nd_prompt_chain_details').open) requestPromptChainPreview(); };
     $('nd_prompt_reset_system').addEventListener('click', () => {
         const activePreset = (state.promptPresets || []).find(p => p.id === state.selectedPromptPresetId);
-        const isPov = activePreset?.name === '默认-第一人称完整规则';
+        const isPov = ['默认-第一人称完整规则', '新版-第一人称完整规则'].includes(activePreset?.name);
         const defaultTopSystem = isPov ? (state._defaultPrompts?.topSystemPov || '') : (state._defaultPrompts?.topSystem || '');
         $('nd_prompt_system').value = defaultTopSystem;
-        const draftRevision = setCurrentPromptTextDraft('topSystem', defaultTopSystem);
-        postToParent({
-            type: 'RESET_CUSTOM_PROMPT',
-            key: 'topSystem',
-            selectedPromptPresetId: state.selectedPromptPresetId,
-            draftRevision,
-        });
+        setCurrentPromptTextDraft('topSystem', defaultTopSystem);
+        refreshChainIfOpen();
     });
     $('nd_prompt_reset_format').addEventListener('click', () => {
         const defaultSceneRules = state._defaultPrompts?.sceneRules || '';
         $('nd_prompt_format').value = defaultSceneRules;
-        const draftRevision = setCurrentPromptTextDraft('sceneRules', defaultSceneRules);
-        postToParent({
-            type: 'RESET_CUSTOM_PROMPT',
-            key: 'sceneRules',
-            selectedPromptPresetId: state.selectedPromptPresetId,
-            draftRevision,
-        });
+        setCurrentPromptTextDraft('sceneRules', defaultSceneRules);
+        refreshChainIfOpen();
     });
     $('nd_prompt_reset_guide').addEventListener('click', () => {
-        const guideId = getCurrentModelGuideId();
-        const defaultContent = state.modelGuideDefaults?.[guideId] ?? '';
+        const defaultContent = state.modelGuideDefaults?.[getCurrentModelGuideId()] ?? '';
         $('nd_prompt_guide').value = defaultContent;
-        const draftRevision = setCurrentModelGuideDraft(defaultContent);
-        postToParent({
-            type: 'RESET_CUSTOM_PROMPT',
-            key: 'modelGuide',
-            guideId,
-            selectedPromptPresetId: state.selectedPromptPresetId,
-            draftRevision,
-        });
-    });
-    $('nd_prompt_reset_contract').addEventListener('click', () => {
-        const guideId = getCurrentModelGuideId();
-        const defaultContent = state.modelContractDefaults?.[guideId] ?? '';
-        $('nd_prompt_model_contract').value = defaultContent;
-        const draftRevision = setCurrentModelContractDraft(defaultContent);
-        postToParent({
-            type: 'RESET_CUSTOM_PROMPT',
-            key: 'modelContract',
-            guideId,
-            selectedPromptPresetId: state.selectedPromptPresetId,
-            draftRevision,
-        });
+        setCurrentModelGuideDraft(defaultContent);
+        refreshChainIfOpen();
     });
     $('nd_prompts_reset_all').addEventListener('click', () => {
-        if (!confirm('确认恢复全部提示词为默认值？')) return;
+        if (!confirm('确认将当前预设的全部提示词恢复为默认值？（需点击保存才会生效）')) return;
         const defaults = state._defaultPrompts || {};
         const activePreset = getActivePromptPresetForForm();
         if (!activePreset) {
             alert('没有可恢复的提示词预设');
             return;
         }
-        const isPov = activePreset.name === '默认-第一人称完整规则';
+        const isPov = ['默认-第一人称完整规则', '新版-第一人称完整规则'].includes(activePreset.name);
         const topSystemVal = isPov ? (defaults.topSystemPov || '') : (defaults.topSystem || '');
         const sceneRulesVal = defaults.sceneRules || '';
         $('nd_prompt_system').value = topSystemVal;
@@ -3756,24 +3572,12 @@ document.addEventListener('DOMContentLoaded', () => {
             ['topSystem', topSystemVal],
             ['sceneRules', sceneRulesVal],
         ]));
-        const guideDrafts = new Map(
+        modelGuideDraftsByPreset.set(activePreset.id, new Map(
             Object.entries(state.modelGuideDefaults || {})
                 .filter(([, content]) => typeof content === 'string'),
-        );
-        modelGuideDraftsByPreset.set(activePreset.id, guideDrafts);
-        modelContractDraftsByPreset.set(activePreset.id, new Map(
-            Object.entries(state.modelContractDefaults || {})
-                .filter(([, content]) => typeof content === 'string'),
         ));
-        const draftRevision = markPromptPresetDraftRevision(activePreset.id);
         applyModelGuideForCurrentModel();
-        applyModelContractForCurrentModel();
-        postToParent({ type: 'SAVE_PROMPT_PRESET', selectedPromptPresetId: state.selectedPromptPresetId, promptDraft: {
-            topSystem: topSystemVal,
-            sceneRules: sceneRulesVal,
-            modelGuideOverrides: {},
-            modelContractOverrides: {},
-        }, statusTarget: 'prompts', resetAll: true, draftRevision });
+        refreshChainIfOpen();
     });
 
     $('nd_prompt_preset_export').addEventListener('click', () => {
@@ -3785,7 +3589,6 @@ document.addEventListener('DOMContentLoaded', () => {
             topSystem: $('nd_prompt_system').value,
             sceneRules: $('nd_prompt_format').value,
             modelGuideOverrides: collectModelGuideOverridesFromForm(),
-            modelContractOverrides: collectModelContractOverridesFromForm(),
         };
         const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
         const a = document.createElement('a');
@@ -3824,11 +3627,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     $('nd_prompt_guide').addEventListener('input', () => {
         setCurrentModelGuideDraft($('nd_prompt_guide').value);
-        if ($('nd_prompt_chain_details').open) requestPromptChainPreview();
-        else promptChainRequestId += 1;
-    });
-    $('nd_prompt_model_contract').addEventListener('input', () => {
-        setCurrentModelContractDraft($('nd_prompt_model_contract').value);
         if ($('nd_prompt_chain_details').open) requestPromptChainPreview();
         else promptChainRequestId += 1;
     });

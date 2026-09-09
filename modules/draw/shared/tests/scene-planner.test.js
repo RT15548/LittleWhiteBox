@@ -2,10 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-import { DEFAULT_PROMPT_CONFIG as NOVEL_SCENE_PROMPTS } from '../../providers/novelai/novel-prompts.js';
-import { getNovelScenePlannerContract } from '../../providers/novelai/novel-model-capabilities.js';
-import { SD_SCENE_PROMPTS } from '../../providers/sd-webui/sd-prompts.js';
-import { COMFY_SCENE_PROMPTS } from '../../providers/comfyui/comfy-prompts.js';
+import { DEFAULT_PROMPT_CONFIG as NOVEL_SCENE_PROMPTS, getNovelPlannerProfile } from '../../providers/novelai/novel-prompts.js';
+import { SD_PLANNER_PROFILE, SD_SCENE_PROMPTS } from '../../providers/sd-webui/sd-prompts.js';
+import { COMFY_PLANNER_PROFILE, COMFY_SCENE_PROMPTS } from '../../providers/comfyui/comfy-prompts.js';
 import { getLastDrawAgentDiagnostic } from '../draw-agent.js';
 import {
     buildScenePlannerTask,
@@ -21,12 +20,18 @@ const NOOP_EXPANSION_OPTIONS = {
     },
 };
 
+const PROVIDER_PROFILES = {
+    novelai: getNovelPlannerProfile('nai-diffusion-4-5-full'),
+    'sd-webui': SD_PLANNER_PROFILE,
+    comfyui: COMFY_PLANNER_PROFILE,
+};
+
 async function loadPromptConfig(providerDirectory, baseConfig, { pov = false } = {}) {
-    const promptDirectory = new URL(`../../providers/${providerDirectory}/prompts/`, import.meta.url);
+    const sharedPrompts = new URL('../prompts/', import.meta.url);
     const [topSystem, topSystemPov, sceneRules] = await Promise.all([
-        readFile(new URL('top-system.md', promptDirectory), 'utf8'),
-        readFile(new URL('top-system-pov.md', promptDirectory), 'utf8'),
-        readFile(new URL('scene-rules.md', promptDirectory), 'utf8'),
+        readFile(new URL('opening.md', sharedPrompts), 'utf8'),
+        readFile(new URL('opening-pov.md', sharedPrompts), 'utf8'),
+        readFile(new URL('scene-rules.md', sharedPrompts), 'utf8'),
     ]);
     const guideFile = providerDirectory === 'novelai' ? 'TAG编写指南-V4.5.md'
         : providerDirectory === 'sd-webui' ? 'SD_TAG编写指南.md'
@@ -58,6 +63,10 @@ function assertSingleUserTask(task) {
     assert.equal(typeof task.systemPrompt, 'string');
 }
 
+function characterProperties(task) {
+    return task.tools[0].function.parameters.properties.images.items.properties.characters.items.properties;
+}
+
 async function buildProviderTask(providerDirectory, baseConfig, options = {}) {
     const promptDefaults = await loadPromptConfig(providerDirectory, baseConfig, options);
     return buildScenePlannerTask({
@@ -81,17 +90,17 @@ async function buildProviderTask(providerDirectory, baseConfig, options = {}) {
         promptDefaults,
         maxImages: 2,
         maxCharactersPerImage: 3,
-        modelContract: providerDirectory === 'novelai'
-            ? getNovelScenePlannerContract('nai-diffusion-4-5-full')
-            : '',
+        plannerProfile: PROVIDER_PROFILES[providerDirectory],
         expansionOptions: NOOP_EXPANSION_OPTIONS,
     });
 }
 
-test('final NovelAI scene-planner task preserves the complete domain prompt and Tool boundary', async () => {
+test('final NovelAI scene-planner task keeps the creative rules in prose and the field semantics in the Tool', async () => {
     const task = await buildProviderTask('novelai', NOVEL_SCENE_PROMPTS);
-    const text = flattenTaskText(task);
+    const system = task.systemPrompt;
+    const userTask = task.messages[0].content;
     const imagesSchema = task.tools[0].function.parameters.properties.images;
+    const properties = characterProperties(task);
 
     assertSingleUserTask(task);
     assert.equal(task.toolChoice, 'required');
@@ -100,30 +109,40 @@ test('final NovelAI scene-planner task preserves the complete domain prompt and 
     assert.equal(imagesSchema.minItems, 2);
     assert.equal(imagesSchema.maxItems, 2);
     assert.equal(imagesSchema.items.properties.characters.maxItems, 3);
-    assert.match(text, /FICTIONAL_CREATIVE_WORK/);
-    assert.match(text, /mindful_prelude/);
-    assert.match(text, /source#/);
-    assert.match(text, /target#/);
-    assert.match(text, /mutual#/);
-    assert.match(text, /A1/);
-    assert.match(text, /E5/);
-    assert.match(text, /<worldInfo>/);
-    assert.match(text, /<content>/);
-    assert.match(text, /n::Tag::/);
-    assert.match(text, /破损/);
-    assert.match(text, /敞开/);
-    assert.match(text, /滑落/);
-    assert.match(text, /湿透/);
-    assert.match(text, /阿璃/);
-    assert.match(text, /小璃/);
-    assert.match(text, /white dress/);
-    assert.match(text, /blush, embarrassed/);
-    assert.match(text, /images 必须恰好包含 2 项/);
-    assert.match(text, /characters 最多 3 人/);
-    assert.doesNotMatch(text, /YAML|<meta_protocol>|assistant prefill/i);
+
+    // System: opening, material frame, guide, scene rules — in that order, each once.
+    assert.ok(system.indexOf('## 你收到的材料') < system.indexOf('## NovelAI Diffusion V4.5 Tag 指南'));
+    assert.ok(system.indexOf('## NovelAI Diffusion V4.5 Tag 指南') < system.indexOf('## 场景规则'));
+    assert.equal(countOccurrences(system, '## 场景规则'), 1);
+    assert.match(system, /1\.3::tag::/);
+    assert.match(system, /换装\/脱衣\/撕裂\/湿透/);
+
+    // User: materials plus the numeric constraints, nothing else.
+    assert.match(userTask, /<worldInfo>/);
+    assert.match(userTask, /<content>/);
+    assert.match(userTask, /【已录入角色】/);
+    assert.match(userTask, /阿璃/);
+    assert.match(userTask, /小璃/);
+    assert.match(userTask, /white dress/);
+    assert.match(userTask, /blush, embarrassed/);
+    assert.match(userTask, /images 必须恰好包含 2 项/);
+    assert.match(userTask, /characters 最多 3 人/);
+
+    // Field semantics belong to the Tool schema only.
+    assert.match(properties.center.description, /A–E/);
+    for (const clothingState of ['破损', '敞开', '滑落', '湿透']) {
+        assert.match(properties.costume.description, new RegExp(clothingState));
+    }
+    assert.match(properties.interact.description, /source#/);
+    assert.match(properties.interact.description, /target#/);
+    assert.match(properties.interact.description, /mutual#/);
+
+    const text = flattenTaskText(task);
+    assert.doesNotMatch(text, /YAML|<meta_protocol>|assistant prefill|Chat_History|FICTIONAL_CREATIVE_WORK|Roles/i);
+    assert.doesNotMatch(text, /source#|A1-E5|归一化坐标/);
 });
 
-test('NovelAI V5 injects its own guide and normalized coordinate Tool contract', async () => {
+test('NovelAI V5 injects its own guide and normalized coordinate field', async () => {
     const promptDefaults = await loadPromptConfig('novelai', NOVEL_SCENE_PROMPTS);
     const modelGuide = await readFile(
         new URL('../../providers/novelai/提示词编写指南-V5.md', import.meta.url),
@@ -133,29 +152,25 @@ test('NovelAI V5 injects its own guide and normalized coordinate Tool contract',
         messageText: '阿璃站在窗前。',
         promptDefaults,
         modelGuide,
-        modelContract: getNovelScenePlannerContract('nai-diffusion-5-full'),
-        centerMode: 'normalized',
+        plannerProfile: getNovelPlannerProfile('nai-diffusion-5-full'),
         maxImages: 1,
         maxCharactersPerImage: 30,
         absoluteMaxCharactersPerImage: 22,
         expansionOptions: NOOP_EXPANSION_OPTIONS,
     });
     const text = flattenTaskText(task);
-    const center = task.tools[0].function.parameters.properties.images
-        .items.properties.characters.items.properties.center;
+    const center = characterProperties(task).center;
 
+    assert.match(text, /## NovelAI Diffusion V5 Tag 指南/);
     assert.match(text, /# NovelAI 图像生成 V5 提示词编写指南/);
-    assert.match(text, /归一化坐标对象/);
     assert.doesNotMatch(text, /V4\.5 图像生成 Tag 编写指南/);
-    assert.deepEqual(center, {
-        type: 'object',
-        additionalProperties: false,
-        required: ['x', 'y'],
-        properties: {
-            x: { type: 'number', minimum: 0, maximum: 1 },
-            y: { type: 'number', minimum: 0, maximum: 1 },
-        },
+    assert.equal(center.type, 'object');
+    assert.deepEqual(center.required, ['x', 'y']);
+    assert.deepEqual(center.properties, {
+        x: { type: 'number', minimum: 0, maximum: 1 },
+        y: { type: 'number', minimum: 0, maximum: 1 },
     });
+    assert.match(center.description, /\(0, 0\)/);
     assert.equal(
         task.tools[0].function.parameters.properties.images
             .items.properties.characters.maxItems,
@@ -163,25 +178,14 @@ test('NovelAI V5 injects its own guide and normalized coordinate Tool contract',
     );
 });
 
-test('scene planner honors a custom or intentionally empty model contract', async () => {
-    const promptDefaults = await loadPromptConfig('novelai', NOVEL_SCENE_PROMPTS);
-    const baseOptions = {
-        messageText: '阿璃站在窗前。',
-        promptDefaults,
-        maxImages: 1,
-        expansionOptions: NOOP_EXPANSION_OPTIONS,
-    };
-    const customTask = await buildScenePlannerTask({
-        ...baseOptions,
-        modelContract: 'CUSTOM_MODEL_CONTRACT',
-    });
-    const emptyTask = await buildScenePlannerTask({
-        ...baseOptions,
-        modelContract: '',
-    });
-
-    assert.match(flattenTaskText(customTask), /CUSTOM_MODEL_CONTRACT/);
-    assert.doesNotMatch(flattenTaskText(emptyTask), /CUSTOM_MODEL_CONTRACT|角色坐标契约/);
+test('SD WebUI and ComfyUI profiles expose neither a center field nor directional interaction syntax', async () => {
+    for (const [providerDirectory, baseConfig] of [['sd-webui', SD_SCENE_PROMPTS], ['comfyui', COMFY_SCENE_PROMPTS]]) {
+        const task = await buildProviderTask(providerDirectory, baseConfig);
+        const properties = characterProperties(task);
+        assert.equal(Object.hasOwn(properties, 'center'), false, `${providerDirectory}: 不应暴露 center`);
+        assert.doesNotMatch(properties.interact.description, /source#|target#|mutual#/);
+        assert.doesNotMatch(flattenTaskText(task), /source#|A–E|归一化/);
+    }
 });
 
 test('scene planner clamps an exact image request to the available illustration points', async () => {
@@ -288,19 +292,9 @@ test('every provider request is user-first and injects each key marker exactly o
 
         // Structural containers are injected exactly once; the prompt bodies may still discuss
         // `<content>` / `<worldInfo>` as documentation.
-        for (const marker of ['Content Provider:\n<worldInfo>', '</worldInfo>', 'Content Provider:\n<content>', '</content>']) {
+        for (const marker of ['<worldInfo>', '</worldInfo>', '<content>', '</content>', '【已录入角色】', '本次提交数量约束：']) {
             assert.equal(countOccurrences(userTask, marker), 1, `${providerDirectory}: ${marker} 必须只出现一次`);
         }
-        assert.equal(
-            countOccurrences(userTask, 'FICTIONAL_CREATIVE_WORK'),
-            1,
-            `${providerDirectory}: 合规确认段必须只出现一次`,
-        );
-        assert.equal(
-            countOccurrences(userTask, '必须且只能调用一次 submit_scene_plan'),
-            1,
-            `${providerDirectory}: Tool 强制指令必须只出现一次`,
-        );
         const unnumberedUserTask = stripScenePointMarkers(userTask);
         assert.equal(countOccurrences(unnumberedUserTask, '雨声停了。阿璃推开门，抱住了旅人。'), 1);
         assert.equal(countOccurrences(userTask, '【插图点 1】'), 1);
@@ -312,7 +306,6 @@ test('every provider request is user-first and injects each key marker exactly o
         assert.equal(userTask.includes('{$worldInfo}'), false);
         assert.equal(userTask.includes('{$tagGuide}'), false);
         assert.equal(/XBDRAWSLOT_/.test(userTask), false, '内部占位符不得泄漏');
-        assert.match(userTask, /girl \/ boy \/ woman \/ man \/ other \/ no_humans/);
         assert.equal(userTask.includes('→no humans'), false);
     }
 });
@@ -338,8 +331,8 @@ test('narrative replacement tokens survive verbatim and side-effecting macros ru
     const userTask = stripScenePointMarkers(task.messages[0].content);
     assert.equal(countOccurrences(userTask, source), 1);
     assert.equal(countOccurrences(userTask, '暗巷里有 $& 记号。'), 1);
-    // messageText, worldInfo, characterInfo, tagGuide, systemPrompt, userTask template.
-    assert.equal(macroCalls, 6);
+    // messageText, worldInfo, characterInfo, systemPrompt, userTask template.
+    assert.equal(macroCalls, 5);
 });
 
 test('prompt macro failures surface as PROMPT_EXPANSION_FAILED', async () => {
@@ -366,8 +359,9 @@ test('SD and Comfy tasks retain weighted-tag rules while POV uses the dedicated 
     assert.match(flattenTaskText(sdTask), /\(tag:1\.2\)/);
     assert.match(flattenTaskText(comfyTask), /\(tag:1\.2\)/);
     assertSingleUserTask(povTask);
-    assert.match(povTask.systemPrompt, /First-Person POV Core Rule/);
-    assert.match(povTask.systemPrompt, /Do NOT create a Character entry for <user>/);
+    assert.match(povTask.systemPrompt, /<user> 是相机/);
+    assert.match(povTask.systemPrompt, /pov hands/);
+    assert.doesNotMatch(povTask.systemPrompt, /## 你收到的材料[\s\S]*<user> 是相机/, 'POV 开场必须位于材料说明之前');
     assert.equal(povTask.toolChoice, 'required');
 });
 

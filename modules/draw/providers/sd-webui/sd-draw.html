@@ -230,19 +230,17 @@ select.input { cursor: pointer; }
 }
 .chain-role.system { background: rgba(212, 165, 116, 0.15); color: var(--accent); }
 .chain-role.user { background: rgba(59, 130, 246, 0.15); color: #93c5fd; }
-.chain-role.assistant { background: rgba(63, 185, 80, 0.15); color: #86efac; }
+.chain-role.tools { background: rgba(245, 158, 11, 0.15); color: #fbbf24; }
 .chain-summary { flex: 1; min-width: 0; }
 .chain-summary-text { color: var(--text-primary); font-size: 12px; }
 .chain-variables { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; color: var(--text-muted); font-size: 11px; }
 .chain-editable { color: var(--accent); font-size: 11px; }
-.chain-content-preview,
 .chain-section-content {
     display: none; margin-top: 8px; padding: 10px;
     background: var(--bg-input); border-radius: 8px;
     border: 1px solid var(--border); white-space: pre-wrap;
     word-break: break-word; font-family: monospace; font-size: 11px; color: var(--text-secondary);
 }
-.chain-item.expanded > .chain-summary > .chain-content-preview { display: block; }
 .chain-sections { display: grid; gap: 6px; margin-top: 8px; }
 .chain-section {
     padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px;
@@ -251,6 +249,13 @@ select.input { cursor: pointer; }
 .chain-section:hover { border-color: var(--border-focus); }
 .chain-section-summary { color: var(--text-secondary); font-size: 11px; }
 .chain-section.expanded > .chain-section-content { display: block; }
+.chain-fields { display: grid; gap: 4px; margin-top: 8px; }
+.chain-field {
+    display: grid; grid-template-columns: minmax(120px, 0.6fr) 1fr; gap: 8px;
+    padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px;
+    background: var(--bg-tertiary); font-size: 11px; color: var(--text-secondary);
+}
+.chain-field code { font-size: 10px; color: var(--accent); word-break: break-all; }
 .preview-box {
     display: none; margin-top: 16px; text-align: center;
     background: var(--bg-input); border-radius: 10px; padding: 16px;
@@ -723,28 +728,28 @@ select.input { cursor: pointer; }
 
                 <div class="card">
                     <div class="prompt-card-header">
-                        <div class="card-title">系统提示词</div>
+                        <div class="card-title">开场与视角</div>
                         <button class="btn btn-sm" id="sd-prompt-reset-system" type="button"><i class="fa-solid fa-rotate-left"></i> 恢复默认</button>
                     </div>
-                    <p class="form-hint">定义 Scene Planner 的角色定位与第一层规则。</p>
+                    <p class="form-hint">规划器是谁、要做什么、正文用什么视角写成。第一人称预设在这里说明 &lt;user&gt; 是相机、默认不出镜。</p>
                     <textarea id="sd-prompt-system" class="prompt-textarea" rows="8"></textarea>
                 </div>
 
                 <div class="card">
                     <div class="prompt-card-header">
-                        <div class="card-title">TAG 编写指南</div>
+                        <div class="card-title">模型 Tag 指南</div>
                         <button class="btn btn-sm" id="sd-prompt-reset-guide" type="button"><i class="fa-solid fa-rotate-left"></i> 恢复默认</button>
                     </div>
-                    <p class="form-hint">注入给 LLM 的 SD TAG 书写参考。</p>
+                    <p class="form-hint">Stable Diffusion WebUI 认哪些 tag、权重和语法怎么写。</p>
                     <textarea id="sd-prompt-guide" class="prompt-textarea" rows="8"></textarea>
                 </div>
 
                 <div class="card">
                     <div class="prompt-card-header">
-                        <div class="card-title">场景计划规则</div>
+                        <div class="card-title">场景规则</div>
                         <button class="btn btn-sm" id="sd-prompt-reset-format" type="button"><i class="fa-solid fa-rotate-left"></i> 恢复默认</button>
                     </div>
-                    <p class="form-hint">定义 submit_scene_plan 的字段语义、角色规则与构图约束；结构由 Tool Schema 保证。</p>
+                    <p class="form-hint">画什么、怎么画：分级、构图、角色外貌与服装、动作、光影、物理约束与内容偏好。</p>
                     <textarea id="sd-prompt-format" class="prompt-textarea" rows="8"></textarea>
                 </div>
 
@@ -780,7 +785,7 @@ select.input { cursor: pointer; }
                         <div class="card-title"><i class="fa-solid fa-link"></i> 请求结构</div>
                         <span class="chain-toggle-icon" aria-hidden="true"></span>
                     </summary>
-                    <p class="form-hint">实际请求只有 1 条 system 与 1 条 user；下列片段按顺序拼进同一条 user 任务。</p>
+                    <p class="form-hint">实际请求由 1 条 system、1 条 user 和 1 个工具组成；点击各段查看内容，工具一节列出模型读到的字段说明。</p>
                     <div id="sd-prompt-chain" class="prompt-chain-container"></div>
                 </details>
 

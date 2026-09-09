@@ -8,6 +8,8 @@
         var(--xiaobai-os-screen);
     color: var(--xiaobai-os-ink);
     display: grid;
+    grid-template-areas: "header" "error" "conversation" "composer";
+    grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto auto minmax(0, 1fr) auto;
     height: 100%;
     overflow: hidden;
@@ -26,6 +28,7 @@
     align-items: center;
     border-bottom: 1px solid var(--fw-line);
     display: flex;
+    grid-area: header;
     justify-content: space-between;
     min-height: 58px;
     padding: 8px 14px;
@@ -112,6 +115,7 @@
     color: #a43c44;
     display: flex;
     font-size: 12px;
+    grid-area: error;
     justify-content: space-between;
     padding: 8px 13px;
 }
@@ -128,6 +132,7 @@
     display: flex;
     flex-direction: column;
     gap: 13px;
+    grid-area: conversation;
     min-height: 0;
     overflow: auto;
     overscroll-behavior: contain;
@@ -351,6 +356,7 @@
     border-top: 1px solid var(--fw-line);
     display: flex;
     gap: 8px;
+    grid-area: composer;
     padding: 10px 12px 11px;
 }
 
@@ -361,6 +367,7 @@
     flex: 1;
     max-height: 110px;
     min-height: 40px;
+    min-width: 0;
     padding: 9px 13px;
     resize: none;
 }
@@ -384,6 +391,12 @@
 
 .fourth-wall-composer button.is-stop {
     background: #ad4e59;
+}
+
+.fourth-wall-composer .fourth-wall-regenerate {
+    background: transparent;
+    border: 1px solid var(--fw-line);
+    color: var(--xiaobai-os-muted);
 }
 
 .fourth-wall-settings {

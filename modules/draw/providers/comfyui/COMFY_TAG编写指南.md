@@ -8,7 +8,7 @@ ComfyUI 使用与 SD WebUI 相同的 **Danbooru 风格 tags** 和短英文视觉
 - Tag 之间用英文逗号 `,` 分隔，tag 内部用空格（如 `long hair` 而非 `long_hair`）
 - 不输出模型、采样器、VAE、LoRA、ControlNet、节点配置、seed 等参数
 - 不输出通用质量词：`masterpiece`, `best quality`, `highres` 等由用户在「正向固定」配置
-- 不输出整图 negative 字段；只允许在角色 `uc` 中写当前角色专属排除项，通用负向由用户在「负向固定」配置
+- `uc` 只写本图要排除的具体元素；`bad anatomy`、`worst quality` 这类通用负向由用户在「负向固定」配置
 
 ---
 
@@ -69,27 +69,13 @@ tag--        → 降低
 
 ---
 
-## 场景字段规则
+## 构图与环境
 
-`scene` 负责整张图的基础构图，不要重复角色细节。
-
-**必须包含：**
 - 分级与人数: `sfw`, `nsfw`, `solo`, `duo`, `1girl`, `1boy`, `1girl 1boy`, `2girls`
 - 构图: `portrait`, `upper body`, `cowboy shot`, `full body`, `close-up`, `wide shot`
 - 视角: `from front`, `from side`, `from behind`, `from above`, `from below`, `pov`
 - 环境: 不要只写 `indoors`，要补具体地点和物件，如 `bedroom, bed, window, curtains`
 - 光影: `sunlight`, `moonlight`, `warm lighting`, `dim lighting`, `backlighting`, `rim light`
-
----
-
-## 角色字段规则
-
-**已录入角色（已知角色）：**
-- 不要输出 `type` 和 `appear`（系统自动注入）
-- 必须输出 `name` 和 `action`；`danbooru`, `costume`, `interact`, `uc`, `center` 仅在有对应内容时输出
-
-**未知角色：**
-- 必须输出 `name`, `type`, `appear`, `action`；`danbooru`, `costume`, `interact`, `uc`, `center` 仅在有对应内容时输出
 
 ---
 
@@ -109,8 +95,6 @@ tag--        → 降低
 
 **互动（多角色时）：**
 - `holding hands`, `hug`, `kiss`, `face to face`, `hand on shoulder`
-- 方向不清时用前缀: `source#动作`, `target#动作`, `mutual#动作`
-- 在 ComfyUI 中，`interact` 仍然会作为角色 prompt 的普通 tags 并入最终正向提示词，不是 NovelAI 专属能力
 
 ---
 
@@ -132,21 +116,6 @@ tag--        → 降低
 
 ---
 
-## 角色 uc 字段
-
-`uc` 是角色级排除项，会并入最终负向提示词；只写当前角色专属排除，不写整图 negative 或通用质量负面。
-
-**适合写入：**
-- 当前角色摘掉了眼镜: `glasses`
-- 当前视角看不到眼睛: `visible eyes`
-- 当前角色应悲伤: `smile, happy`
-- 衣服已脱下或破损: 排除仍完整穿着的互斥服饰
-
-**不适合写入：**
-- `bad anatomy`, `bad hands`, `worst quality`, `lowres`（这些由用户负向固定配置）
-
----
-
 ## 物理与构图检查
 
 - 一只手不要同时做多个动作
@@ -158,6 +127,5 @@ tag--        → 降低
 
 ## 输出纪律
 
-- insert_after 填 `<content>` 中标注的【插图点 N】编号，选择画面发生处之后最近的那个点；多张图的编号必须严格递增且不重复
 - tags 用空格不用下划线（除非是角色 canonical tag 如 `hatsune_miku`）
 - 总量保持紧凑：整张图组装后约 50-80 个 tag

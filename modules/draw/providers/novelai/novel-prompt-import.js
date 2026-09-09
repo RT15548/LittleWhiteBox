@@ -23,22 +23,11 @@ function parseGuideOverrides(value, version) {
     return Object.fromEntries(entries);
 }
 
-function parseV3ContractOverrides(value) {
-    if (value == null) return {};
-    if (typeof value !== 'object' || Array.isArray(value)) {
-        throw new TypeError('V3 提示词模板的 modelContractOverrides 格式无效');
-    }
-    const entries = Object.entries(value);
-    if (entries.some(([guideId, content]) =>
-        !SUPPORTED_GUIDE_IDS.has(guideId) || typeof content !== 'string')) {
-        throw new TypeError('V3 提示词模板包含无效的模型契约覆盖');
-    }
-    return Object.fromEntries(entries);
-}
-
 /**
  * Parses the released NovelAI prompt-template formats at the import boundary.
  * The runtime only receives the current prompt preset shape.
+ * V3 files may carry `modelContractOverrides` (template v12 era); the field has no
+ * runtime reader any more and is ignored.
  */
 export function parseNovelPromptPresetImport(payload, { fallbackName = '' } = {}) {
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)
@@ -66,8 +55,5 @@ export function parseNovelPromptPresetImport(payload, { fallbackName = '' } = {}
         topSystem: payload.topSystem,
         sceneRules: payload.sceneRules,
         modelGuideOverrides,
-        modelContractOverrides: payload._version === 3
-            ? parseV3ContractOverrides(payload.modelContractOverrides)
-            : {},
     };
 }

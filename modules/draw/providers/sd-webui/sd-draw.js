@@ -85,7 +85,7 @@ import {
     getCharacterEnabledFromCard,
 } from "../../shared/character-enabled-control.js";
 import { hashStableValue } from "../../shared/generation-fingerprint.js";
-import { refreshReleasedPromptPresetDefaults } from "../../shared/prompt-template-migration.js";
+import { createScenePlannerDefaultPresets, installScenePlannerPresets, isPovPromptPreset } from "../../shared/scene-planner-presets.js";
 import {
     findLastAIMessageId,
     createPlaceholder,
@@ -114,11 +114,11 @@ import {
     searchLocalDanbooru,
     isDanbooruDBLoaded,
 } from "../../shared/danbooru-local-db.js";
+import { renderScenePlannerChain } from "../../shared/scene-planner-chain-view.js";
 import {
     DEFAULT_PROMPT_CONFIG,
     PROMPT_TEMPLATE_VERSION,
-    SD_RELEASED_PROMPT_DEFAULT_FINGERPRINTS,
-    SD_SCENE_PROMPTS,
+    SD_PLANNER_PROFILE,
     getLoadedTagGuide,
     getPromptChainPreview,
     loadPromptTemplates,
@@ -233,7 +233,7 @@ function createDefaultPreset() {
 
 function getPromptPresetDefaults(name) {
     const guide = getLoadedTagGuide() || '';
-    if (name === '默认-第一人称完整规则') {
+    if (isPovPromptPreset(name)) {
         return {
             topSystem: DEFAULT_PROMPT_CONFIG.topSystemPov || DEFAULT_PROMPT_CONFIG.topSystem,
             tagGuideContent: guide,
@@ -249,13 +249,6 @@ function getPromptPresetDefaults(name) {
 
 function createPromptPreset(name, id = `prompt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`) {
     return { id, name, ...getPromptPresetDefaults(name) };
-}
-
-function createDefaultPromptPresets() {
-    return [
-        createPromptPreset('默认-完整规则'),
-        createPromptPreset('默认-第一人称完整规则'),
-    ];
 }
 
 function cloneSettingsObject(obj) {
@@ -312,23 +305,7 @@ function normalizeSettings(raw = {}) {
     };
 
     merged.advancedMode = true;
-    if (!merged.promptPresets.length) merged.promptPresets = createDefaultPromptPresets();
-
-    const storedVersion = Number(merged._promptTemplateVersion) || 0;
-    if (!merged.promptPresets.some((preset) => preset.name === '默认-第一人称完整规则')) {
-        const povPreset = createPromptPreset('默认-第一人称完整规则');
-        merged.promptPresets.push(povPreset);
-    }
-    if (storedVersion < PROMPT_TEMPLATE_VERSION) {
-        const refresh = refreshReleasedPromptPresetDefaults(merged.promptPresets, {
-            storedVersion,
-            targetVersion: PROMPT_TEMPLATE_VERSION,
-            releasedFingerprints: SD_RELEASED_PROMPT_DEFAULT_FINGERPRINTS,
-            getCurrentDefaults: getPromptPresetDefaults,
-        });
-        merged.promptPresets = refresh.presets;
-        merged._promptTemplateVersion = refresh.templateVersion;
-    }
+    if (!merged.promptPresets.length) merged.promptPresets = createScenePlannerDefaultPresets(DEFAULT_PROMPT_CONFIG);
 
     merged.promptPresets = merged.promptPresets.map((preset) => {
         const defaults = getPromptPresetDefaults(preset.name);
@@ -420,12 +397,11 @@ export async function loadSettings() {
 
     try {
         const saved = await SdDrawStorage.getStrict(SERVER_FILE_KEY, null);
-        if (saved && typeof saved === 'object') {
-            settingsCache = normalizeSettings(saved);
-        } else {
-            settingsCache = normalizeSettings({});
+        const upgrade = installScenePlannerPresets(saved, DEFAULT_PROMPT_CONFIG, PROMPT_TEMPLATE_VERSION);
+        settingsCache = normalizeSettings(upgrade.settings);
+        if (!saved || upgrade.installed) {
             const savedDefaults = await SdDrawStorage.setAndSave(SERVER_FILE_KEY, settingsCache, { silent: true });
-            if (!savedDefaults) throw new Error('默认设置保存失败');
+            if (!savedDefaults) throw new Error('新版提示词预设保存失败');
         }
         settingsLoaded = true;
         return settingsCache;
@@ -2701,154 +2677,17 @@ function renderPromptChainPreview(settings = getSettings()) {
     const container = getSettingsElement('sd-prompt-chain');
     if (!container || !container.closest('details')?.open) return;
 
-    const promptPreset = getActivePromptPreset(settings);
-    const systemInput = getSettingsElement('sd-prompt-system');
-    const guideInput = getSettingsElement('sd-prompt-guide');
-    const formatInput = getSettingsElement('sd-prompt-format');
-    const formPromptPreset = {
-        ...promptPreset,
-        topSystem: systemInput ? systemInput.value : (promptPreset?.topSystem || ''),
-        tagGuideContent: guideInput ? guideInput.value : (promptPreset?.tagGuideContent || ''),
-        sceneRules: formatInput ? formatInput.value : (promptPreset?.sceneRules || ''),
-    };
-    const promptConfig = {
-        ...SD_SCENE_PROMPTS,
-        ...formPromptPreset,
-        tagGuideContent: formPromptPreset.tagGuideContent || getLoadedTagGuide() || '',
-    };
-    const chain = getPromptChainPreview(promptConfig);
     const editableMap = {
         topSystem: 'sd-prompt-system',
-        tagGuideContent: 'sd-prompt-guide',
+        tagGuide: 'sd-prompt-guide',
         sceneRules: 'sd-prompt-format',
     };
-
-    container.replaceChildren();
-
-    const focusPromptEditor = (key) => {
-        const target = getSettingsElement(editableMap[key]);
-        if (!target) return false;
-        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        target.focus();
-        return true;
-    };
-    const getPreviewContent = (key) => {
-        let content = String(promptConfig[key] || '(内置模板，不可编辑)');
-        if (key === 'assistantDoc') {
-            content = content.replace('{$tagGuide}', promptConfig.tagGuideContent || '');
-        }
-        return content.length > 1200 ? `${content.slice(0, 1200)}\n...(已截断)` : content;
-    };
-
-    chain.forEach((item, index) => {
-        const row = document.createElement('div');
-        row.className = 'chain-item';
-        row.dataset.key = item.key;
-        row.dataset.editableId = editableMap[item.key] || '';
-        const sections = Array.isArray(item.sections) ? item.sections : [];
-        if (sections.length) row.classList.add('has-sections');
-
-        const role = document.createElement('span');
-        role.className = `chain-role ${item.role}`;
-        role.textContent = item.role;
-
-        const summary = document.createElement('div');
-        summary.className = 'chain-summary';
-
-        const summaryText = document.createElement('div');
-        summaryText.className = 'chain-summary-text';
-        summaryText.textContent = `${index + 1}. ${item.summary || ''}`;
-        if (item.label) {
-            const label = document.createElement('span');
-            label.className = 'chain-editable';
-            label.textContent = ` [${item.label}]`;
-            summaryText.appendChild(label);
-        }
-        if (item.editable) {
-            const edit = document.createElement('span');
-            edit.className = 'chain-editable';
-            edit.title = '可在上方编辑';
-            edit.textContent = ' ✏️';
-            summaryText.appendChild(edit);
-        }
-        summary.appendChild(summaryText);
-
-        if (Array.isArray(item.variables) && item.variables.length) {
-            const vars = document.createElement('div');
-            vars.className = 'chain-variables';
-            item.variables.forEach((value) => {
-                const span = document.createElement('span');
-                span.textContent = `📎 ${value}`;
-                vars.appendChild(span);
-            });
-            summary.appendChild(vars);
-        }
-
-        if (sections.length) {
-            const sectionList = document.createElement('div');
-            sectionList.className = 'chain-sections';
-            sections.forEach((section, sectionIndex) => {
-                const sectionRow = document.createElement('div');
-                sectionRow.className = 'chain-section';
-                sectionRow.dataset.key = section.key;
-
-                const sectionSummary = document.createElement('div');
-                sectionSummary.className = 'chain-section-summary';
-                sectionSummary.textContent = `${sectionIndex + 1}. ${section.summary || ''}`;
-                if (section.label) {
-                    const label = document.createElement('span');
-                    label.className = 'chain-editable';
-                    label.textContent = ` [${section.label}]`;
-                    sectionSummary.appendChild(label);
-                }
-                if (section.editable) {
-                    const edit = document.createElement('span');
-                    edit.className = 'chain-editable';
-                    edit.title = '可在上方编辑';
-                    edit.textContent = ' ✏️';
-                    edit.addEventListener('click', (event) => {
-                        event.stopPropagation();
-                        focusPromptEditor(section.key);
-                    });
-                    sectionSummary.appendChild(edit);
-                }
-                sectionRow.appendChild(sectionSummary);
-
-                if (Array.isArray(section.variables) && section.variables.length) {
-                    const vars = document.createElement('div');
-                    vars.className = 'chain-variables';
-                    section.variables.forEach((value) => {
-                        const span = document.createElement('span');
-                        span.textContent = `📎 ${value}`;
-                        vars.appendChild(span);
-                    });
-                    sectionRow.appendChild(vars);
-                }
-
-                const sectionPreview = document.createElement('div');
-                sectionPreview.className = 'chain-section-content';
-                sectionRow.appendChild(sectionPreview);
-                sectionRow.addEventListener('click', (event) => {
-                    event.stopPropagation();
-                    sectionRow.classList.toggle('expanded');
-                    sectionPreview.textContent = getPreviewContent(section.key);
-                });
-                sectionList.appendChild(sectionRow);
-            });
-            summary.appendChild(sectionList);
-        } else {
-            const preview = document.createElement('div');
-            preview.className = 'chain-content-preview';
-            summary.appendChild(preview);
-            row.addEventListener('click', () => {
-                if (row.dataset.editableId && focusPromptEditor(row.dataset.key)) return;
-                row.classList.toggle('expanded');
-                preview.textContent = getPreviewContent(row.dataset.key);
-            });
-        }
-
-        row.append(role, summary);
-        container.appendChild(row);
+    const guideInput = getSettingsElement(editableMap.tagGuide);
+    const chain = getPromptChainPreview({
+        tagGuideContent: guideInput ? guideInput.value : (getActivePromptPreset(settings)?.tagGuideContent || ''),
+    });
+    renderScenePlannerChain(container, chain, {
+        getEditable: (key) => getSettingsElement(editableMap[key]),
     });
 }
 
@@ -3186,6 +3025,7 @@ async function buildSdScenePlannerOptions({
             worldbookEntries,
             maxImages: preset.maxImages || 0,
             maxCharactersPerImage: preset.maxCharactersPerImage || 0,
+            plannerProfile: SD_PLANNER_PROFILE,
             onImageLimitAdjusted: notifySceneImageLimitAdjusted,
             onDiagnosticUpdate: diagnostic => onStateChange?.('llm', toScenePlannerProgress(diagnostic)),
             signal,

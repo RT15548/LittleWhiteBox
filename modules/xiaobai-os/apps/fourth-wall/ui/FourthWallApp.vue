@@ -174,7 +174,6 @@ onBeforeUnmount(() => unsubscribe());
         <header class="fourth-wall-header">
             <div class="fourth-wall-heading"><span>IV</span><div><strong>四次元壁</strong><small>{{ activeSession.name }}</small></div></div>
             <div class="fourth-wall-header-actions">
-                <button type="button" title="重答" :disabled="saving || isGenerating" @click="regenerate">↻</button>
                 <button type="button" title="清空当前记录" aria-label="清空当前记录" :disabled="saving" @click="confirmClear">
                     <svg viewBox="0 0 24 24" aria-hidden="true">
                         <path d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 4v5m4-5v5" />
@@ -200,6 +199,16 @@ onBeforeUnmount(() => unsubscribe());
             @delete="confirmDelete"
         />
         <footer class="fourth-wall-composer">
+            <button
+                type="button"
+                class="fourth-wall-regenerate"
+                title="重答"
+                aria-label="重答"
+                :disabled="saving || isGenerating"
+                @click="regenerate"
+            >
+                ↻
+            </button>
             <textarea
                 v-model="draft"
                 rows="1"

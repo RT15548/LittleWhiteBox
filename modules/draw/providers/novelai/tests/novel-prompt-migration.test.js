@@ -2,220 +2,105 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-import {
-    migrateLegacyNovelPromptPresets,
-    migrateLegacyNovelPromptSettings,
-} from '../novel-prompt-migration.js';
+import { migrateLegacyNovelPromptSettings } from '../novel-prompt-migration.js';
 import { PROMPT_TEMPLATE_VERSION } from '../novel-prompts.js';
+import { SCENE_PLANNER_PRESET_NAMES } from '../../../shared/scene-planner-presets.js';
 
 const CURRENT = Object.freeze({
     topSystem: 'current model-independent system',
     topSystemPov: 'current model-independent pov system',
     sceneRules: 'current model-independent scene rules',
 });
-
 const TARGET = PROMPT_TEMPLATE_VERSION;
 
 async function loadFixture(name) {
-    const text = await readFile(new URL(`./fixtures/${name}`, import.meta.url), 'utf8');
-    return JSON.parse(text);
+    return JSON.parse(await readFile(new URL(`./fixtures/${name}`, import.meta.url), 'utf8'));
+}
+const loadUpstreamV7Fixture = () => loadFixture('novel-settings-upstream-v7.json');
+
+for (const version of [6, 7]) {
+    test(`offers new defaults alongside frozen v${version} presets without overwriting their text`, async () => {
+        const fixture = await loadFixture(`novel-settings-template-v${version}.json`);
+        fixture.promptPresets[0].name = '用户改过的名字';
+        fixture.promptPresets[1].sceneRules += '\nuser edit';
+        fixture.selectedPromptPresetId = fixture.promptPresets[1].id;
+        const before = structuredClone(fixture);
+        const result = migrateLegacyNovelPromptSettings(fixture, CURRENT, TARGET);
+        assert.equal(result.migrated, true);
+        assert.equal(result.settings._promptTemplateVersion, TARGET);
+        assert.deepEqual(fixture, before);
+        assert.equal(result.settings.selectedPromptPresetId, fixture.selectedPromptPresetId);
+        for (let index = 0; index < fixture.promptPresets.length; index++) {
+            const original = fixture.promptPresets[index];
+            const migrated = result.presets[index];
+            for (const key of ['id', 'name', 'topSystem', 'sceneRules']) {
+                assert.equal(migrated[key], original[key]);
+            }
+            if (Object.hasOwn(original, 'tagGuideContent')) {
+                assert.equal(Object.hasOwn(migrated, 'tagGuideContent'), false);
+                assert.equal(migrated.modelGuideOverrides['v4.5'], original.tagGuideContent);
+            }
+        }
+        const added = result.presets.slice(fixture.promptPresets.length);
+        assert.equal(added.length, 2);
+        assert.deepEqual(added.map(preset => preset.name), Object.values(SCENE_PLANNER_PRESET_NAMES));
+        assert.equal(added[0].topSystem, CURRENT.topSystem);
+        assert.equal(added[1].topSystem, CURRENT.topSystemPov);
+        for (const preset of added) {
+            assert.equal(preset.sceneRules, CURRENT.sceneRules);
+            assert.deepEqual(preset.modelGuideOverrides, {});
+        }
+        // Deleted/renamed new presets stay deleted/renamed after a save and reload.
+        const persisted = JSON.parse(JSON.stringify(result.settings));
+        persisted.promptPresets = persisted.promptPresets.filter(preset => preset.id !== added[1].id);
+        persisted.promptPresets.find(preset => preset.id === added[0].id).name = '自定义的新预设';
+        const repeated = migrateLegacyNovelPromptSettings(persisted, CURRENT, TARGET);
+        assert.equal(repeated.migrated, false);
+        assert.deepEqual(repeated.settings, persisted);
+    });
 }
 
-const loadTemplateV6Fixture = () => loadFixture('novel-settings-template-v6.json');
-const loadTemplateV7Fixture = () => loadFixture('novel-settings-template-v7.json');
-const loadUpstreamV7Fixture = () => loadFixture('novel-settings-upstream-v7.json');
-const loadTemplateV8SceneRules = () => readFile(
-    new URL('./fixtures/novel-scene-rules-template-v8.md', import.meta.url),
-    'utf8',
-);
-const loadTemplateV9SceneRules = () => readFile(
-    new URL('./fixtures/novel-scene-rules-template-v9.md', import.meta.url),
-    'utf8',
-);
-const loadTemplateV10SceneRules = () => readFile(
-    new URL('./fixtures/novel-scene-rules-template-v10.md', import.meta.url),
-    'utf8',
-);
-
-test('refreshes the frozen template v6 defaults without relying on preset names', async () => {
-    const fixture = await loadTemplateV6Fixture();
-    fixture.promptPresets[0].name = '用户改过的名字';
-    fixture.promptPresets[1].name = '另一个名字';
-
-    const result = migrateLegacyNovelPromptPresets(fixture.promptPresets, {
-        configVersion: fixture.configVersion,
-        templateVersion: fixture._promptTemplateVersion,
-        targetVersion: TARGET,
-        currentDefaults: CURRENT,
+for (const version of [8, 9, 10, 11, 12]) {
+    test(`preserves frozen v${version} rules and edited copies when offering this release's presets`, async () => {
+        const sceneRules = await readFile(new URL(`./fixtures/novel-scene-rules-template-v${version}.md`, import.meta.url), 'utf8');
+        const presets = [
+            { id: 'default', name: '默认-完整规则', topSystem: 'custom system', sceneRules },
+            { id: 'edited', name: '我的规则', topSystem: '', sceneRules: `${sceneRules}\nuser edit` },
+        ];
+        const result = migrateLegacyNovelPromptSettings({
+            _promptTemplateVersion: version, promptPresets: presets, selectedPromptPresetId: 'edited',
+        }, CURRENT, TARGET);
+        assert.deepEqual(result.presets.slice(0, 2), presets);
+        assert.equal(result.presets.length, 4);
+        assert.equal(result.settings.selectedPromptPresetId, 'edited');
     });
+}
 
-    assert.equal(result.migrated, true);
-    assert.equal(result.templateVersion, TARGET);
-    assert.equal(result.presets[0].topSystem, CURRENT.topSystem);
-    assert.equal(result.presets[0].sceneRules, CURRENT.sceneRules);
-    assert.equal(result.presets[1].topSystem, CURRENT.topSystemPov);
-    assert.equal(result.presets[1].sceneRules, CURRENT.sceneRules);
-});
-
-test('moves a Tool-era legacy guide into the V4.5 override without losing it', async () => {
-    const fixture = await loadTemplateV6Fixture();
-    const result = migrateLegacyNovelPromptPresets(fixture.promptPresets, {
-        configVersion: fixture.configVersion,
-        templateVersion: fixture._promptTemplateVersion,
-        targetVersion: TARGET,
-        currentDefaults: CURRENT,
-    });
-
-    for (const preset of result.presets) {
-        assert.equal('tagGuideContent' in preset, false);
-        assert.deepEqual(preset.modelGuideOverrides, { 'v4.5': 'legacy provider guide copy' });
-    }
-});
-
-test('fills only the missing V4.5 guide when a preset already has a V5 override', () => {
-    const result = migrateLegacyNovelPromptPresets([{
-        id: 'mixed-guides',
-        topSystem: 'current system',
-        sceneRules: 'current scene rules',
-        tagGuideContent: 'legacy V4.5 guide',
-        modelGuideOverrides: { v5: 'current V5 guide' },
-    }], {
-        targetVersion: TARGET,
-        currentDefaults: CURRENT,
-    });
-
-    assert.deepEqual(result.presets[0].modelGuideOverrides, {
-        'v4.5': 'legacy V4.5 guide',
-        v5: 'current V5 guide',
+test('drops retired fields at the format boundary and preserves both model guide overrides', () => {
+    const result = migrateLegacyNovelPromptSettings({
+        _promptTemplateVersion: 12,
+        promptPresets: [{
+            id: 'mixed-guides', topSystem: 'system', sceneRules: 'rules',
+            tagGuideContent: 'legacy V4.5 guide',
+            modelGuideOverrides: { v5: 'current V5 guide' },
+            modelContractOverrides: { 'v4.5': 'retired contract' },
+        }],
+    }, CURRENT, TARGET);
+    assert.deepEqual(result.presets[0], {
+        id: 'mixed-guides', topSystem: 'system', sceneRules: 'rules',
+        modelGuideOverrides: { 'v4.5': 'legacy V4.5 guide', v5: 'current V5 guide' },
     });
 });
 
-test('refreshes the frozen template v7 defaults without relying on preset names', async () => {
-    const fixture = await loadTemplateV7Fixture();
-    fixture.promptPresets[0].name = '用户改过的名字';
-    fixture.promptPresets[1].name = '另一个名字';
-
-    const result = migrateLegacyNovelPromptPresets(fixture.promptPresets, {
-        configVersion: fixture.configVersion,
-        templateVersion: fixture._promptTemplateVersion,
-        targetVersion: TARGET,
-        currentDefaults: CURRENT,
-    });
-
-    assert.equal(result.migrated, true);
-    assert.equal(result.templateVersion, TARGET);
-    assert.equal(result.presets[0].topSystem, CURRENT.topSystem);
-    assert.equal(result.presets[0].sceneRules, CURRENT.sceneRules);
-    assert.equal(result.presets[1].topSystem, CURRENT.topSystemPov);
-    assert.equal(result.presets[1].sceneRules, CURRENT.sceneRules);
+test('new NovelAI installations receive only the two current presets', () => {
+    const result = migrateLegacyNovelPromptSettings(null, CURRENT, TARGET);
+    assert.equal(result.presets.length, 2);
+    assert.equal(result.settings.selectedPromptPresetId, result.presets[0].id);
+    assert.equal(result.settings._promptTemplateVersion, TARGET);
 });
 
-test('refreshes frozen template v8 scene rules without overwriting an edited copy', async () => {
-    const sceneRules = await loadTemplateV8SceneRules();
-    const editedSceneRules = `${sceneRules}\nuser edit`;
-    const result = migrateLegacyNovelPromptPresets([
-        { id: 'default', topSystem: 'custom system', sceneRules },
-        { id: 'edited', topSystem: 'custom system', sceneRules: editedSceneRules },
-    ], {
-        templateVersion: 8,
-        targetVersion: TARGET,
-        currentDefaults: CURRENT,
-    });
-
-    assert.equal(result.presets[0].sceneRules, CURRENT.sceneRules);
-    assert.equal(result.presets[1].sceneRules, editedSceneRules);
-});
-
-test('refreshes frozen template v9 interaction rules without overwriting an edited copy', async () => {
-    const sceneRules = await loadTemplateV9SceneRules();
-    const editedSceneRules = `${sceneRules}\nuser edit`;
-    const result = migrateLegacyNovelPromptPresets([
-        { id: 'default', topSystem: 'custom system', sceneRules },
-        { id: 'edited', topSystem: 'custom system', sceneRules: editedSceneRules },
-    ], {
-        templateVersion: 9,
-        targetVersion: TARGET,
-        currentDefaults: CURRENT,
-    });
-
-    assert.equal(result.presets[0].sceneRules, CURRENT.sceneRules);
-    assert.equal(result.presets[1].sceneRules, editedSceneRules);
-});
-
-test('refreshes frozen template v10 execution rules without overwriting an edited copy', async () => {
-    const sceneRules = await loadTemplateV10SceneRules();
-    const editedSceneRules = `${sceneRules}\nuser edit`;
-    const result = migrateLegacyNovelPromptPresets([
-        { id: 'default', topSystem: 'custom system', sceneRules },
-        { id: 'edited', topSystem: 'custom system', sceneRules: editedSceneRules },
-    ], {
-        templateVersion: 10,
-        targetVersion: TARGET,
-        currentDefaults: CURRENT,
-    });
-
-    assert.equal(result.presets[0].sceneRules, CURRENT.sceneRules);
-    assert.equal(result.presets[1].sceneRules, editedSceneRules);
-});
-
-test('refreshes frozen template v11 planning rules without overwriting an edited copy', async () => {
-    const sceneRules = await readFile(
-        new URL('./fixtures/novel-scene-rules-template-v11.md', import.meta.url),
-        'utf8',
-    );
-    const editedSceneRules = `${sceneRules}\nuser edit`;
-    const result = migrateLegacyNovelPromptPresets([
-        { id: 'default', topSystem: 'custom system', sceneRules },
-        { id: 'edited', topSystem: 'custom system', sceneRules: editedSceneRules },
-    ], {
-        templateVersion: 11,
-        targetVersion: TARGET,
-        currentDefaults: CURRENT,
-    });
-
-    assert.equal(result.presets[0].sceneRules, CURRENT.sceneRules);
-    assert.equal(result.presets[1].sceneRules, editedSceneRules);
-    assert.equal(result.templateVersion, TARGET);
-});
-
-test('preserves any user-edited prompt field even when its preset keeps a default name', async () => {
-    const fixture = await loadTemplateV7Fixture();
-    fixture.promptPresets[0].topSystem += '\nuser edit';
-    fixture.promptPresets[0].sceneRules = `user edit\n${fixture.promptPresets[0].sceneRules}`;
-
-    const result = migrateLegacyNovelPromptPresets(fixture.promptPresets, {
-        configVersion: fixture.configVersion,
-        templateVersion: fixture._promptTemplateVersion,
-        targetVersion: TARGET,
-        currentDefaults: CURRENT,
-    });
-
-    assert.match(result.presets[0].topSystem, /user edit$/);
-    assert.match(result.presets[0].sceneRules, /^user edit/);
-    assert.equal(result.presets[0].name, '默认-完整规则');
-    assert.equal(result.templateVersion, TARGET);
-});
-
-test('does not re-run the upgrade after the target version is recorded', async () => {
-    const fixture = await loadTemplateV7Fixture();
-    const result = migrateLegacyNovelPromptPresets(fixture.promptPresets, {
-        configVersion: fixture.configVersion,
-        templateVersion: TARGET,
-        targetVersion: TARGET,
-        currentDefaults: CURRENT,
-    });
-
-    assert.equal(result.migrated, false);
-    assert.deepEqual(result.presets, fixture.promptPresets);
-    assert.equal(result.templateVersion, TARGET);
-});
-
-test('requires an explicit target version so the boundary cannot drift from the templates', async () => {
-    const fixture = await loadTemplateV7Fixture();
-    assert.throws(
-        () => migrateLegacyNovelPromptPresets(fixture.promptPresets, { currentDefaults: CURRENT }),
-        /targetVersion is required/,
-    );
+test('requires an explicit target version', () => {
+    assert.throws(() => migrateLegacyNovelPromptSettings({}, CURRENT), /targetVersion is required/);
 });
 
 test('converts the released upstream v7 YAML preset shape before current normalization', async () => {
@@ -229,7 +114,7 @@ test('converts the released upstream v7 YAML preset shape before current normali
     assert.equal(result.settings._promptTemplateVersion, TARGET);
     assert.deepEqual(
         result.settings.promptPresets.map(preset => preset.name),
-        ['默认-完整规则', '默认-第一人称完整规则', '旧版-模型要求低（已升级）', '我的构图规则'],
+        ['默认-完整规则', '默认-第一人称完整规则', '旧版-模型要求低（已升级）', '我的构图规则', ...Object.values(SCENE_PLANNER_PRESET_NAMES)],
     );
     assert.equal(result.settings.promptPresets[0].topSystem, CURRENT.topSystem);
     assert.equal(result.settings.promptPresets[1].topSystem, CURRENT.topSystemPov);

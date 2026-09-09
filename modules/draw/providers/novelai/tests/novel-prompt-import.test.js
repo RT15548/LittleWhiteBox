@@ -65,11 +65,10 @@ test('round-trips the current V2 optional model guide overrides', () => {
             'v4.5': '',
             v5: 'custom V5 guide',
         },
-        modelContractOverrides: {},
     });
 });
 
-test('round-trips V3 model-contract overrides', () => {
+test('ignores the retired V3 model-contract overrides instead of carrying them into runtime data', () => {
     const result = parseNovelPromptPresetImport({
         _type: TYPE,
         _version: 3,
@@ -83,9 +82,11 @@ test('round-trips V3 model-contract overrides', () => {
         },
     });
 
-    assert.deepEqual(result.modelContractOverrides, {
-        'v4.5': 'custom grid contract',
-        v5: '',
+    assert.deepEqual(result, {
+        name: 'advanced preset',
+        topSystem: 'system',
+        sceneRules: 'rules',
+        modelGuideOverrides: { v5: 'custom V5 guide' },
     });
 });
 
@@ -117,16 +118,6 @@ test('rejects unknown formats instead of leaking old fields into runtime data', 
             modelGuideOverrides: { v5: 5 },
         }),
         /无效的模型指南覆盖/,
-    );
-    assert.throws(
-        () => parseNovelPromptPresetImport({
-            _type: TYPE,
-            _version: 3,
-            topSystem: 'system',
-            sceneRules: 'rules',
-            modelContractOverrides: { future: 'unsupported' },
-        }),
-        /无效的模型契约覆盖/,
     );
     assert.throws(
         () => parseNovelPromptPresetImport({
