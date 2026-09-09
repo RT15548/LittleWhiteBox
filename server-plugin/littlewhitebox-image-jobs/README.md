@@ -13,6 +13,14 @@ LittleWhiteBox 的可选 SillyTavern server plugin。开启小白X后台任务�
 
 SillyTavern 的前端扩展更新不会改写 `plugins/`。LittleWhiteBox 更新后，如果界面提示后台插件版本不兼容，请用扩展内的 `server-plugin/littlewhitebox-image-jobs/` 完整覆盖 `SillyTavern/plugins/littlewhitebox-image-jobs/`，再重启 SillyTavern。前端会在提交场景分析前校验运行契约，不会继续调用不兼容的旧插件。
 
+2.3.0 建立 `draw-run-runtime-v4` 边界，需要从旧后台升级一次。提示词与 `submit_scene_plan` Tool Schema 随前端请求提供；后台只解释返回结果中的 `images`，不解释 `mindful_prelude` 或其他规划说明。只要图片执行契约不变，后续增删、改名或调整规划字段都不需要再次替换后台。供应商协议变化或后台缺陷修复仍可能需要升级。
+
+升级重启前，请先等待正在运行的任务完成并接回；后台任务保存在进程内存中，重启不会续跑。
+
+角色 `type` 是提示词文本，不限定语言或固定枚举；空字符串、`null` 或省略也不因此拒绝出图。除表示未提供的 `null` 外，非文本值仍属于结构错误。角色库匹配与外貌注入不变；浏览器接回时，自动学习跳过没有提供类型的新角色，不把未知类型补成 `girl`。
+
+执行层允许 `action` 省略或留空，可选文本的 `null` 按未提供处理；图片编号由数组顺序生成，忽略模型填写的 `index`。图片和角色的额外字段直接丢弃，不带入绘图参数。模型仍按前端提示词和 Tool Schema 填写；非空 `scene`、角色名、未知角色外貌、数量限制、插图点及坐标校验不变。
+
 插件挂载在自己的命名空间：
 
 ```text
@@ -33,7 +41,7 @@ SillyTavern 的前端扩展更新不会改写 `plugins/`。LittleWhiteBox 更新
 image-batch-jobs-v1
 novelai-v5-final-image-v1
 draw-runs-v1
-draw-run-runtime-v3
+draw-run-runtime-v4
 ```
 
 通用任务接口位于 `/v1/jobs`：

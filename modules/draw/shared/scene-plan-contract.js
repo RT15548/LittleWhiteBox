@@ -1,42 +1,10 @@
 export const SUBMIT_SCENE_PLAN_TOOL_NAME = 'submit_scene_plan';
 
-const CHARACTER_FIELDS = Object.freeze([
-    'name',
-    'danbooru',
-    'type',
-    'appear',
-    'costume',
-    'action',
-    'interact',
-    'uc',
-    'center',
-]);
-const REQUIRED_CHARACTER_FIELDS = Object.freeze(['name', 'action']);
-const IMAGE_FIELDS = Object.freeze(['index', 'insert_after', 'scene', 'characters']);
-const MOMENT_FIELDS = Object.freeze([
-    'moment',
-    'insert_after',
-    'char_count',
-    'known_chars',
-    'unknown_chars',
-    'composition',
-]);
-const PRELUDE_FIELDS = Object.freeze(['user_insight', 'visual_plan']);
-const VISUAL_PLAN_FIELDS = Object.freeze(['moments']);
-const ROOT_FIELDS = Object.freeze(['mindful_prelude', 'images']);
-export const SCENE_CHARACTER_TYPES = Object.freeze([
-    'girl',
-    'boy',
-    'woman',
-    'man',
-    'other',
-    'no_humans',
-]);
-const CHARACTER_TYPES = new Set(SCENE_CHARACTER_TYPES);
+const REQUIRED_IMAGE_FIELDS = Object.freeze(['insert_after', 'scene', 'characters']);
 
 export function toSceneCharacterPromptTag(value) {
-    const type = String(value || '').trim().toLowerCase();
-    return type === 'no_humans' ? 'no humans' : type;
+    const type = String(value || '').trim();
+    return type.toLowerCase() === 'no_humans' ? 'no humans' : type;
 }
 
 export const ScenePlannerErrorCategory = Object.freeze({
@@ -96,6 +64,25 @@ export class ScenePlannerError extends Error {
         this.code = code;
         this.details = details;
     }
+}
+
+/** Validate the execution surface, not the browser-owned planning vocabulary. */
+export function assertSubmitScenePlanTool(tool) {
+    const definition = tool?.function;
+    const parameters = definition?.parameters;
+    if (tool?.type !== 'function'
+        || definition?.name !== SUBMIT_SCENE_PLAN_TOOL_NAME
+        || typeof definition?.description !== 'string'
+        || parameters?.type !== 'object'
+        || !Array.isArray(parameters.required)
+        || !parameters.required.includes('images')
+        || parameters.properties?.images?.type !== 'array') {
+        throw new ScenePlannerError(
+            'planner.tool 必须是包含必填 images 数组的 submit_scene_plan Tool。',
+            'TOOL_CONTRACT_INVALID',
+        );
+    }
+    return tool;
 }
 
 export function getScenePlannerErrorCategory(error) {
@@ -166,138 +153,6 @@ function normalizeLimit(value) {
     return Number.isInteger(number) && number > 0 ? number : 0;
 }
 
-function stringSchema({ minLength = 0 } = {}) {
-    return {
-        type: 'string',
-        ...(minLength > 0 ? { minLength } : {}),
-    };
-}
-
-function normalizedCenterSchema() {
-    return {
-        type: 'object',
-        additionalProperties: false,
-        required: ['x', 'y'],
-        properties: {
-            x: { type: 'number', minimum: 0, maximum: 1 },
-            y: { type: 'number', minimum: 0, maximum: 1 },
-        },
-    };
-}
-
-export function createSubmitScenePlanTool(options = {}) {
-    const maxImages = normalizeLimit(options.maxImages);
-    const maxPlanImages = normalizeLimit(options.maxPlanImages);
-    const maxCharactersPerImage = normalizeLimit(options.maxCharactersPerImage);
-    const insertPointCount = normalizeLimit(options.insertPointCount);
-    const centerMode = options.centerMode === 'normalized' ? 'normalized' : 'grid';
-    const maxPlanItems = maxImages || maxPlanImages || insertPointCount;
-    const momentsSchema = {
-        type: 'array',
-        minItems: maxImages || 1,
-        ...(maxPlanItems ? { maxItems: maxPlanItems } : {}),
-        items: {
-            type: 'object',
-            additionalProperties: false,
-            required: [...MOMENT_FIELDS],
-            properties: {
-                moment: stringSchema({ minLength: 1 }),
-                insert_after: {
-                    type: 'integer',
-                    minimum: 1,
-                    ...(insertPointCount ? { maximum: insertPointCount } : {}),
-                    description: 'The numbered illustration point after which this image belongs.',
-                },
-                char_count: stringSchema({ minLength: 1 }),
-                known_chars: {
-                    type: 'array',
-                    items: stringSchema({ minLength: 1 }),
-                },
-                unknown_chars: {
-                    type: 'array',
-                    items: stringSchema({ minLength: 1 }),
-                },
-                composition: stringSchema({ minLength: 1 }),
-            },
-        },
-    };
-    const charactersSchema = {
-        type: 'array',
-        ...(maxCharactersPerImage ? { maxItems: maxCharactersPerImage } : {}),
-        items: {
-            type: 'object',
-            additionalProperties: false,
-            required: [...REQUIRED_CHARACTER_FIELDS],
-            properties: {
-                name: stringSchema({ minLength: 1 }),
-                danbooru: stringSchema(),
-                type: { type: 'string', enum: ['', ...SCENE_CHARACTER_TYPES] },
-                appear: stringSchema(),
-                costume: stringSchema(),
-                action: stringSchema({ minLength: 1 }),
-                interact: stringSchema(),
-                uc: stringSchema(),
-                center: centerMode === 'normalized'
-                    ? normalizedCenterSchema()
-                    : { type: 'string', pattern: '^[A-E][1-5]$' },
-            },
-        },
-    };
-    const imagesSchema = {
-        type: 'array',
-        minItems: maxImages || 1,
-        ...(maxPlanItems ? { maxItems: maxPlanItems } : {}),
-        items: {
-            type: 'object',
-            additionalProperties: false,
-            required: [...IMAGE_FIELDS],
-            properties: {
-                index: { type: 'integer', minimum: 1 },
-                insert_after: {
-                    type: 'integer',
-                    minimum: 1,
-                    ...(insertPointCount ? { maximum: insertPointCount } : {}),
-                    description: 'The numbered illustration point after which this image belongs.',
-                },
-                scene: stringSchema({ minLength: 1 }),
-                characters: charactersSchema,
-            },
-        },
-    };
-
-    return {
-        type: 'function',
-        function: {
-            name: SUBMIT_SCENE_PLAN_TOOL_NAME,
-            description: 'Submit planning notes and the final ordered image tasks. mindful_prelude guides planning; only images[] defines execution and placement. Call exactly once.',
-            parameters: {
-                type: 'object',
-                additionalProperties: false,
-                required: [...ROOT_FIELDS],
-                properties: {
-                    mindful_prelude: {
-                        type: 'object',
-                        additionalProperties: false,
-                        required: [...PRELUDE_FIELDS],
-                        properties: {
-                            user_insight: stringSchema({ minLength: 1 }),
-                            visual_plan: {
-                                type: 'object',
-                                additionalProperties: false,
-                                required: [...VISUAL_PLAN_FIELDS],
-                                properties: {
-                                    moments: momentsSchema,
-                                },
-                            },
-                        },
-                    },
-                    images: imagesSchema,
-                },
-            },
-        },
-    };
-}
-
 function failSchema(path, message, value, expected = message) {
     throw new ScenePlannerError(
         `场景计划参数无效：${path} ${message}`,
@@ -313,16 +168,16 @@ function assertObject(value, path) {
 }
 
 function assertExactFields(value, fields, path) {
-    assertFields(value, fields, fields, path);
-}
-
-function assertFields(value, allowedFields, requiredFields, path) {
-    assertObject(value, path);
-    const expected = new Set(allowedFields);
+    assertRequiredFields(value, fields, path);
+    const expected = new Set(fields);
     for (const key of Object.keys(value)) {
         if (!expected.has(key)) failSchema(`${path}.${key}`, '是不允许的字段', value[key]);
     }
-    for (const key of requiredFields) {
+}
+
+function assertRequiredFields(value, fields, path) {
+    assertObject(value, path);
+    for (const key of fields) {
         if (!Object.prototype.hasOwnProperty.call(value, key)) {
             failSchema(`${path}.${key}`, '是必填字段', undefined);
         }
@@ -337,61 +192,13 @@ function requireString(value, path, { allowEmpty = false } = {}) {
 }
 
 function optionalString(value, key, path) {
-    if (!Object.prototype.hasOwnProperty.call(value, key)) return '';
+    if (!Object.prototype.hasOwnProperty.call(value, key) || value[key] === null) return '';
     return requireString(value[key], `${path}.${key}`, { allowEmpty: true });
-}
-
-function requireStringArray(value, path) {
-    if (!Array.isArray(value)) failSchema(path, '必须是 array', value);
-    return value.map((item, index) => requireString(item, `${path}[${index}]`));
 }
 
 function requirePositiveInteger(value, path) {
     if (!Number.isInteger(value) || value < 1) failSchema(path, '必须是大于 0 的整数', value);
     return value;
-}
-
-function validateMindfulPrelude(value, options = {}) {
-    assertExactFields(value, PRELUDE_FIELDS, 'mindful_prelude');
-    const visualPlan = value.visual_plan;
-    assertExactFields(visualPlan, VISUAL_PLAN_FIELDS, 'mindful_prelude.visual_plan');
-    if (!Array.isArray(visualPlan.moments) || !visualPlan.moments.length) {
-        failSchema('mindful_prelude.visual_plan.moments', '必须是非空 array', visualPlan.moments);
-    }
-    const maxImages = normalizeLimit(options.maxImages);
-    const maxPlanImages = normalizeLimit(options.maxPlanImages);
-    if (maxImages && visualPlan.moments.length !== maxImages) {
-        failSchema(
-            'mindful_prelude.visual_plan.moments',
-            `本次必须恰好包含 ${maxImages} 项`,
-            visualPlan.moments.length,
-        );
-    }
-    if (!maxImages && maxPlanImages && visualPlan.moments.length > maxPlanImages) {
-        failSchema(
-            'mindful_prelude.visual_plan.moments',
-            `本次最多包含 ${maxPlanImages} 项`,
-            visualPlan.moments.length,
-        );
-    }
-    const moments = visualPlan.moments.map((moment, index) => {
-        const path = `mindful_prelude.visual_plan.moments[${index}]`;
-        assertExactFields(moment, MOMENT_FIELDS, path);
-        return {
-            moment: requireString(moment.moment, `${path}.moment`),
-            insert_after: requirePositiveInteger(moment.insert_after, `${path}.insert_after`),
-            char_count: requireString(moment.char_count, `${path}.char_count`),
-            known_chars: requireStringArray(moment.known_chars, `${path}.known_chars`),
-            unknown_chars: requireStringArray(moment.unknown_chars, `${path}.unknown_chars`),
-            composition: requireString(moment.composition, `${path}.composition`),
-        };
-    });
-    return {
-        user_insight: requireString(value.user_insight, 'mindful_prelude.user_insight'),
-        visual_plan: {
-            moments,
-        },
-    };
 }
 
 function normalizeCharacterLookup(presentCharacters = []) {
@@ -435,17 +242,12 @@ function normalizeCenter(value, path, centerMode) {
 }
 
 function normalizeCharacter(value, path, knownNameLookup, centerMode) {
-    assertFields(value, CHARACTER_FIELDS, REQUIRED_CHARACTER_FIELDS, path);
+    assertRequiredFields(value, ['name'], path);
     const returnedName = requireString(value.name, `${path}.name`);
     const canonicalName = knownNameLookup.get(returnedName.toLocaleLowerCase()) || '';
-    const type = optionalString(value, 'type', path).toLowerCase();
+    const type = optionalString(value, 'type', path);
     const appear = optionalString(value, 'appear', path);
-    if (!canonicalName) {
-        if (!CHARACTER_TYPES.has(type)) {
-            failSchema(`${path}.type`, `未知角色必须是 ${SCENE_CHARACTER_TYPES.join('、')}`, value.type);
-        }
-        if (!appear) failSchema(`${path}.appear`, '未知角色必须填写外貌', value.appear);
-    }
+    if (!canonicalName && !appear) failSchema(`${path}.appear`, '未知角色必须填写外貌', value.appear);
     const center = normalizeCenter(value.center, `${path}.center`, centerMode);
 
     return {
@@ -454,7 +256,7 @@ function normalizeCharacter(value, path, knownNameLookup, centerMode) {
         type: canonicalName ? '' : type,
         appear: canonicalName ? '' : appear,
         costume: optionalString(value, 'costume', path),
-        action: requireString(value.action, `${path}.action`),
+        action: optionalString(value, 'action', path),
         interact: optionalString(value, 'interact', path),
         uc: optionalString(value, 'uc', path),
         center,
@@ -492,11 +294,7 @@ function normalizeImages(images, options = {}) {
     let previousInsertAfter = 0;
     const tasks = images.map((image, imageIndex) => {
         const path = `images[${imageIndex}]`;
-        assertExactFields(image, IMAGE_FIELDS, path);
-        requirePositiveInteger(image.index, `${path}.index`);
-        if (image.index !== imageIndex + 1) {
-            failSchema(`${path}.index`, `必须从 1 开始连续递增，当前应为 ${imageIndex + 1}`, image.index);
-        }
+        assertRequiredFields(image, REQUIRED_IMAGE_FIELDS, path);
         const insertAfter = requirePositiveInteger(image.insert_after, `${path}.insert_after`);
         const sourcePoint = sourcePoints.get(insertAfter);
         if (!sourcePoint) {
@@ -529,7 +327,7 @@ function normalizeImages(images, options = {}) {
             normalizeCharacter(character, `${path}.characters[${characterIndex}]`, knownNameLookup, centerMode)
         ));
         return {
-            index: image.index,
+            index: imageIndex + 1,
             scene: requireString(image.scene, `${path}.scene`),
             chars,
             placement: {
@@ -625,15 +423,8 @@ export function parseSubmittedScenePlan(result = {}, options = {}) {
         );
     }
     const parameters = parseArguments(toolCall.arguments);
-    assertFields(parameters, ROOT_FIELDS, ['images'], 'parameters');
-    let mindfulPrelude = null;
-    if (Object.prototype.hasOwnProperty.call(parameters, 'mindful_prelude')) {
-        try {
-            mindfulPrelude = validateMindfulPrelude(parameters.mindful_prelude, options);
-        } catch (error) {
-            if (!(error instanceof ScenePlannerError)) throw error;
-        }
-    }
+    // Planning notes are model-facing data, not part of the image execution contract.
+    if (!Object.hasOwn(parameters, 'images')) failSchema('parameters.images', '是必填字段', undefined);
     const tasks = normalizeImages(parameters.images, options);
-    return { mindfulPrelude, tasks };
+    return { tasks };
 }

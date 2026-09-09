@@ -12,6 +12,7 @@ import {
     executePreparedScenePlanner,
 } from './scene-planner-executor.js';
 import { createSceneSource, stripScenePointMarkers } from './scene-source.js';
+import { createSubmitScenePlanTool } from './scene-plan-tool.js';
 import {
     applyPromptSlots,
     createPromptSlots,
@@ -363,6 +364,13 @@ async function buildScenePlannerRequest(options = {}) {
         ]);
         return {
             prompt,
+            tool: createSubmitScenePlanTool({
+                maxImages: effectiveMaxImages,
+                maxPlanImages: effectiveMaxPlanImages,
+                maxCharactersPerImage: effectiveMaxCharactersPerImage,
+                insertPointCount: sceneSource.points.length,
+                centerMode,
+            }),
             imageLimitAdjustment,
             validationContext: {
                 sceneSource,
@@ -384,6 +392,7 @@ export async function buildScenePlannerTask(options = {}) {
         version: 1,
         planner: {
             prompt: request.prompt,
+            tool: request.tool,
             validationContext: request.validationContext,
             presentCharacters: Array.isArray(options.presentCharacters) ? options.presentCharacters : [],
         },
@@ -431,6 +440,7 @@ export async function prepareScenePlannerInput(options = {}) {
         version: 1,
         planner: {
             prompt: request.prompt,
+            tool: request.tool,
             validationContext: request.validationContext,
             presentCharacters: Array.isArray(options.presentCharacters) ? options.presentCharacters : [],
         },

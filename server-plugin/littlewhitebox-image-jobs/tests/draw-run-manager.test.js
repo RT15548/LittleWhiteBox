@@ -17,6 +17,14 @@ function createEnvelope(runId, overrides = {}) {
         imageProvider: 'sd-webui',
         planner: {
             prompt: { systemPrompt: 'system', messages: [{ role: 'user', content: 'content' }] },
+            tool: {
+                type: 'function',
+                function: {
+                    name: 'submit_scene_plan',
+                    description: 'Submit the image tasks.',
+                    parameters: { type: 'object', required: ['images'], properties: { images: { type: 'array' } } },
+                },
+            },
             validationContext: {
                 sceneSource: {
                     sourceText,
@@ -202,6 +210,121 @@ async function waitFor(predicate, timeoutMs = 1000) {
     }
     assert.fail('Timed out waiting for Draw Run state');
 }
+
+test('one backend runtime forwards changing browser planning schemas and executes the same images', async (t) => {
+    const { createSubmitScenePlanTool } = await import('../../../modules/draw/shared/scene-plan-tool.js');
+    const images = [{
+        insert_after: 1, scene: 'rain',
+        characterPrompts: [{ prompt: 'must not override the parsed characters' }],
+        negative: 'must not override the recipe',
+        characters: [{ name: '旅人', type: '女孩', appear: 'black hair', uc: null, nickname: 'ignored' }],
+    }];
+    const variants = [
+        { mindful_prelude: { user_insight: '雨夜', visual_plan: '画旅人。' } },
+        { planning_notes: ['another planning format'], review: { done: true } },
+        {},
+    ];
+    const seenTools = [];
+    const { manager, imageJobService } = createManager({
+        runtime: drawRuntime,
+        managerOptions: {
+            agentCore: {
+                createAgentAdapter() {
+                    return {
+                        async chat(task) {
+                            seenTools.push(structuredClone(task.tools[0]));
+                            return { toolCalls: [{
+                                name: 'submit_scene_plan',
+                                arguments: JSON.stringify({ ...variants[seenTools.length - 1], images }),
+                            }] };
+                        },
+                    };
+                },
+            },
+        },
+    });
+    t.after(() => manager.close());
+    for (const [index, notes] of variants.entries()) {
+        const envelope = createEnvelope(`run-notes-${index}`);
+        const tool = createSubmitScenePlanTool({ maxImages: 1, insertPointCount: 1, centerMode: 'normalized' });
+        if (index > 0) {
+            delete tool.function.parameters.properties.mindful_prelude;
+            tool.function.parameters.required = ['images', ...Object.keys(notes)];
+            for (const [name, value] of Object.entries(notes)) {
+                tool.function.parameters.properties[name] = Array.isArray(value)
+                    ? { type: 'array', items: { type: 'string' } }
+                    : { type: 'object', properties: { done: { type: 'boolean' } } };
+            }
+        }
+        envelope.planner.tool = tool;
+        manager.create('alice', envelope, {});
+        const terminal = await waitFor(() => {
+            const run = manager.get('alice', envelope.runId);
+            return ['dispatched', 'failed'].includes(run?.state) ? run : null;
+        });
+        assert.equal(terminal.state, 'dispatched', JSON.stringify(terminal.error));
+        assert.deepEqual(seenTools[index], tool);
+        const job = imageJobService.get('alice', terminal.childJobId);
+        assert.equal(job.body.items[0].request.payload.prompt, 'rain, 女孩, black hair');
+        assert.equal(job.body.items[0].request.payload.negative_prompt, '');
+        assert.equal(terminal.handoffManifest.items[0].imgId, `img-draw-${envelope.runId}-1`);
+        assert.equal(terminal.handoffManifest.items[0].insertOffset, 6);
+    }
+    assert.equal(seenTools.length, variants.length);
+});
+
+test('a permissive supplied schema cannot bypass image placement validation or its diagnostic', async (t) => {
+    let calls = 0;
+    const { manager, imageJobService } = createManager({
+        runtime: drawRuntime,
+        managerOptions: {
+            agentCore: {
+                createAgentAdapter() {
+                    return {
+                        async chat() {
+                            calls += 1;
+                            return { toolCalls: [{ name: 'submit_scene_plan', arguments: JSON.stringify({
+                                planning_notes: { custom: 'retain in failure diagnostics' },
+                                images: [{ index: 1, insert_after: 42, scene: 'rain', characters: [] }],
+                            }) }] };
+                        },
+                    };
+                },
+            },
+        },
+    });
+    t.after(() => manager.close());
+    manager.create('alice', createEnvelope('run-invalid-image'), {});
+    const failed = await waitFor(() => {
+        const run = manager.get('alice', 'run-invalid-image');
+        return run?.state === 'failed' ? run : null;
+    });
+    assert.equal(failed.error.code, 'INSERT_POINT_INVALID');
+    assert.equal(imageJobService.jobs.size, 0);
+    assert.equal(calls, 2);
+    const output = JSON.parse(failed.progress.validationFailures[0].modelOutput);
+    assert.equal(JSON.parse(output.toolCalls[0].arguments).planning_notes.custom, 'retain in failure diagnostics');
+});
+
+test('Draw Run admits only a data-only submit_scene_plan tool with an images array', () => {
+    const validate = createEnvelopeValidator(drawRuntime);
+    for (const mutate of [
+        envelope => { delete envelope.planner.tool; },
+        envelope => { envelope.planner.tool.function.name = 'run_shell'; },
+        envelope => { delete envelope.planner.tool.function.parameters.properties.images; },
+        envelope => { envelope.planner.tool.function.parameters.required = []; },
+        envelope => { envelope.planner.tool.function.parameters.properties.images.type = 'string'; },
+        envelope => { envelope.planner.tool.function.parameters.properties.other = JSON.parse('{"__proto__":{}}'); },
+    ]) {
+        const envelope = createEnvelope('run-invalid-tool');
+        mutate(envelope);
+        assert.throws(() => validate(envelope), error => error.status === 400);
+    }
+    const original = createEnvelope('run-tool-copy');
+    const admitted = validate(original).envelope;
+    original.planner.tool.function.description = 'mutated after admission';
+    assert.equal(admitted.planner.tool.function.description, 'Submit the image tasks.');
+});
 
 test('Draw Run dispatch is idempotent and hands off a deterministic child manifest', async (t) => {
     const { manager, imageJobService } = createManager();

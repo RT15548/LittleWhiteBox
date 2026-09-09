@@ -1,6 +1,6 @@
 # 后端 Draw Run（第二刀）方案定稿
 
-状态：第 1～11 步代码完成；`draw-runs-v1` 路由 capability、`draw-run-runtime-v3` 运行契约与三家 Provider 生产入口已经开放。v3 要求 NovelAI V5 子任务在服务端归一为最终 PNG。自动化契约验证通过后，仍需在真实 SillyTavern 中完成人工写盘/读回、关闭浏览器接回与三家 Provider 实盘验收。
+状态：第 1～11 步代码完成；`draw-runs-v1` 路由 capability、`draw-run-runtime-v4` 运行契约与三家 Provider 生产入口已经开放。v4 接收前端提供的 Tool Schema，仅以 `images` 作为返回结果的执行契约；继续要求 NovelAI V5 子任务在服务端归一为最终 PNG。自动化契约验证通过后，仍需在真实 SillyTavern 中完成人工写盘/读回、关闭浏览器接回与三家 Provider 实盘验收。
 前置：第一刀已封板于 `95526dd feat(draw): add provider-neutral backend image jobs`。
 权威文档关系：本文件是第二刀的开工单与终态契约；第一刀契约见 `docs/image-backend-batch-jobs.md`，第二刀不修改第一刀的进程内存边界。
 
@@ -60,7 +60,7 @@ Agent 渠道分两类传输：
 | 临时态 | 请求正文、Agent 凭证、图片密钥、LLM transcript、编译 recipe 全在后端内存 |
 | 持久态 | 只在目标 swipe extra 保存最小 run handle；Planner 后沿用第一刀 IndexedDB journal |
 | 外部依赖 | Agent Core、酒馆三条 Chat Completion 渠道、直接模型 API、三家图片服务、聊天保存接口 |
-| 注册入口 | 后端声明 `draw-runs-v1` 路由 capability 与 `draw-run-runtime-v3` 运行契约；前端只注册一个共享恢复运行时 |
+| 注册入口 | 后端声明 `draw-runs-v1` 路由 capability 与 `draw-run-runtime-v4` 运行契约；前端只注册一个共享恢复运行时 |
 | 删除路径 | 删 draw-runs 后端目录、前端协调器、capability，清理 `extra.xbDrawRuns`；图片 compiler 继续供普通链路使用 |
 | 兼容对象 | 当前 SillyTavern、浏览器/WebView、现行 Agent Provider 和三家图片协议；不兼容测试线旧 Draw Run 草稿与旧 journal schema |
 
@@ -244,7 +244,7 @@ Node 发布边界：
 
 浏览器预处理 `prepareScenePlannerInput()`：Scene Source、插图点、宏展开、世界书、角色资料、Prompt 模板、当前 Agent providerConfig、Tool 校验上下文、sourceHash。输出可序列化的 Planner 部分；第 8 步的协调器只负责在外层补齐 run 与图片生成字段，不能再次解释 Prompt。
 
-后台执行 `executePreparedScenePlanner()`：创建唯一 `submit_scene_plan` Tool、调用 Agent、Tool 回放、最多三次纠错、重复错误提前终止、契约校验、输出规范 Scene Plan。
+后台执行 `executePreparedScenePlanner()`：转发前端提供的唯一 `submit_scene_plan` Tool、调用 Agent、Tool 回放、最多三次纠错、重复错误提前终止、独立校验 `images`、输出规范 Scene Plan。
 
 `ScenePlannerEnvelopeV1` 正式结构（可序列化，无函数、无 DOM 引用）：
 
@@ -256,6 +256,7 @@ Node 发布边界：
   imageProvider,               // 'novelai' | 'sd-webui' | 'comfyui'
   planner: {
     prompt: { systemPrompt, messages }, // 宏、世界书与模板已在浏览器展开完毕
+    tool,                      // 前端准备的 submit_scene_plan 定义，包含当前完整 JSON Schema
     validationContext: {
       sceneSource, effectiveMaxImages, maxPlanImages,
       effectiveMaxCharactersPerImage, centerMode
@@ -270,11 +271,21 @@ Node 发布边界：
 }
 ```
 
-`planner` 中不携带 Tool schema。`executePreparedScenePlanner()` 必须根据冻结的 `validationContext` 在执行端重建唯一的 `submit_scene_plan` Tool，服务端不信任浏览器提交的 Tool 契约。
+`scene-plan-tool.js` 是模型填写说明和 Tool Schema 的唯一来源，仅由浏览器预处理入口导入，不进入 Node 运行包。`planner.tool` 是当前任务的临时输入，沿用 Planner 输入释放路径，不新增持久化状态。
+
+服务端只检查工具名固定为 `submit_scene_plan`，且参数声明必填的 `images` 数组；其余 Schema 内容作为纯 JSON 传给模型，不执行代码、不加载外部引用。返回结果必须仍是唯一一次该工具调用的合法 JSON object。`scene-plan-contract.js` 独立校验其中的 `images` 与冻结的执行限制，不根据前端 Schema 放宽图片执行。其他顶层字段全部忽略，不解释、不合并进图片任务；失败诊断仍保留原始模型输出（沿用长度上限和脱敏）。
+
+`type` 是用于正向提示词的可选文本，不按枚举或语言校验；保留 `no_humans` 到 `no humans` 的绘图标签转换。执行层允许 `action` 省略或留空，可选文本的 `null` 按未提供处理；`index` 不读取模型值，按 `images` 数组顺序生成连续编号。图片和角色只提取认识的字段，额外字段不进入任务或提示词。模型的填写要求仍由前端 Prompt / Tool Schema 指定，不因执行层容错而放宽。
+
+`name`、非空 `scene`、未知角色的非空 `appear`、图片数量、角色数量、插图点有效性与严格递增顺序、坐标校验保持不变。未知角色的 `appear: null` 仍不满足外貌要求；坐标不是可选文本，`center: null` 仍是结构错误。
+
+NovelAI 自动学习在浏览器侧复用同一入口：未提供 `type` 的新角色可以出图，但不自动入库，避免角色库把缺失类型补成 `girl`；已有角色的匹配、停用保护与补空字段行为不变。
+
+2.2.0 正式版后台不接收 `planner.tool`，新前端通过 `draw-run-runtime-v4` 在提交前明确要求一次升级至 2.3.0；不保留在后端重建旧 Schema 的分支。既有聊天标记和图片交付记录没有格式变更。后续只改规划说明及其 Schema 不需要升级后台；改变图片执行语义、供应商协议或修复后台缺陷仍可能需要升级。
 
 服务端验证边界：
 
-- JSON 形状与类型校验，未知字段拒绝。
+- 请求 envelope 的 JSON 形状与类型校验，未知字段拒绝；`planner.tool` 中的 Schema 内容按上述边界透传。
 - `imageProvider` / `agent.channel` 白名单。
 - `effectiveMaxImages = 0` 保留用户“不指定精确张数”的语义；`maxPlanImages` 是本次执行容量且 ≤ 第一刀单 job items 上限（20）。显式设置超过容量时在写 marker、调用 Planner 前拒绝。
 - `planner.prompt` 只接受预处理后的 system prompt 与单条 user message；原始世界书、Prompt 模板或宏运行时对象不得进入 envelope。
@@ -468,7 +479,7 @@ slots 已进入 `message.mes` 后，正文是唯一排版事实，当前 DOM 只
 → 8. 前端提交与 marker（已完成共享 draw-run-coordinator：preflight、marker CAS、幂等提交、提交不确定窗口、“提交后台/提交后台完成”状态事件；该阶段未单独注册三家生产入口）
 → 9. journal 重整：delivery 判别模型 + adopting 状态 + 原子创建 + originRunId（已完成；旧测试线 schema 在升级入口一次性删除）
 → 10. child adoption（已完成：marker 扫描、reconcile、adoptExistingJobFromDrawRun、source_changed → gallery、marker 清理与补 ACK、多标签页竞争、取消与 child_expired 收口）
-→ 11. 注册三家 Provider 生产入口与对应 UI 状态，并开放 `draw-runs-v1` 路由 capability；当前 `draw-run-runtime-v3` 还要求 NovelAI V5 子任务只交付最终 PNG（已完成；任一不匹配时明确显示当前/所需插件版本和更新路径，不悄悄退化）
+→ 11. 注册三家 Provider 生产入口与对应 UI 状态，并开放 `draw-runs-v1` 路由 capability；当前 `draw-run-runtime-v4` 接收前端 Tool Schema、仅解释返回的 `images`，并要求 NovelAI V5 子任务只交付最终 PNG（已完成；任一不匹配时明确显示当前/所需插件版本和更新路径，不悄悄退化）
 ```
 
 施工期间阶段 1–8 用户行为保持不变：第 7～8 步只建立后端 API 与共享提交边界，当时未发布 capability、未注册 Provider 入口，避免前端进入一个能提交却不能 adoption 的半成品路径。现在第 9～10 步接回闭环与第 11 步生产入口已经一并完成并开放。

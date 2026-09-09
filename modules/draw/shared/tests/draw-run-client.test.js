@@ -84,6 +84,10 @@ test('Draw Run capability requires a ready backend that explicitly advertises th
         capabilities: [DRAW_RUNS_CAPABILITY, DRAW_RUN_RUNTIME_CAPABILITY],
     }), true);
     assert.equal(hasDrawRunsCapability({ ready: true, capabilities: [DRAW_RUNS_CAPABILITY] }), false);
+    // Released 2.2.0 builds own the planning schema and cannot accept planner.tool.
+    assert.equal(hasDrawRunsCapability({
+        ready: true, version: '2.2.0', capabilities: [DRAW_RUNS_CAPABILITY, 'draw-run-runtime-v3'],
+    }), false);
     assert.equal(hasDrawRunsCapability({ ready: true, capabilities: [DRAW_RUN_RUNTIME_CAPABILITY] }), false);
     assert.equal(hasDrawRunsCapability({ ready: true, capabilities: [] }), false);
     assert.equal(hasDrawRunsCapability({

@@ -1539,7 +1539,7 @@ function autoLearnFromTasks(tasks, settings) {
     const mode = settings.autoLearnMode || 'new_only';
 
     for (const [, char] of charMap) {
-        const match = resolveAutoLearnCharacter(char.name, knownTags);
+        const match = resolveAutoLearnCharacter(char, knownTags);
         if (match.action === 'skip') continue;
         const found = match.character;
 
@@ -1549,7 +1549,7 @@ function autoLearnFromTasks(tasks, settings) {
                 enabled: true,
                 name: char.name,
                 aliases: [],
-                type: char.type || 'girl',
+                type: char.type,
                 appearance: char.appear || '',
                 negativeTags: '',
                 danbooruTag: char.danbooru || '',

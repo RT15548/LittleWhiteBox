@@ -4,40 +4,44 @@ const TAG_GUIDE_PATH = `${extensionFolderPath}/modules/draw/providers/sd-webui/S
 const PROMPTS_DIR = `${extensionFolderPath}/modules/draw/providers/sd-webui/prompts`;
 
 /** 修改默认提示词前先登记旧指纹，再递增此版本。 */
-export const PROMPT_TEMPLATE_VERSION = 7;
+export const PROMPT_TEMPLATE_VERSION = 8;
 
 /**
- * Shipped AgentCore-era SD defaults (v5-v6), frozen before the v7 protocol
- * upgrade. Multiple v5 values exist because prompt fixes shipped without a
+ * Shipped AgentCore-era SD defaults (v5-v7), retained for one-time default
+ * refreshes. Multiple v5 values exist because prompt fixes shipped without a
  * template-version bump; all of them remain valid unedited defaults.
  */
 export const SD_RELEASED_PROMPT_DEFAULT_FINGERPRINTS = Object.freeze({
     '默认-完整规则': Object.freeze({
-        topSystem: '1336:6fa08446:73885312',
+        topSystem: Object.freeze(['1336:6fa08446:73885312', '1404:771233c7:eec6ade5']),
         tagGuideContent: Object.freeze([
             '3829:41e93018:ed1e2e3a',
             '3856:1cb0dd00:0c70927c',
             '3873:8ba055ae:a164b8c4',
+            '3928:0f0787fb:92614911',
         ]),
         sceneRules: Object.freeze([
             '6527:81366c4b:d139afed',
             '6605:b7e644b6:be9d8e04',
             '6629:f1e674c4:d007b3d2',
             '6574:761ce122:50a72216',
+            '6646:3f772ded:1f69248b',
         ]),
     }),
     '默认-第一人称完整规则': Object.freeze({
-        topSystem: '2692:753438ea:a7cc7c5a',
+        topSystem: Object.freeze(['2692:753438ea:a7cc7c5a', '2760:d46280a3:d6420835']),
         tagGuideContent: Object.freeze([
             '3829:41e93018:ed1e2e3a',
             '3856:1cb0dd00:0c70927c',
             '3873:8ba055ae:a164b8c4',
+            '3928:0f0787fb:92614911',
         ]),
         sceneRules: Object.freeze([
             '6527:81366c4b:d139afed',
             '6605:b7e644b6:be9d8e04',
             '6629:f1e674c4:d007b3d2',
             '6574:761ce122:50a72216',
+            '6646:3f772ded:1f69248b',
         ]),
     }),
 });

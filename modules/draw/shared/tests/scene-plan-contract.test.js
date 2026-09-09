@@ -3,32 +3,23 @@ import assert from 'node:assert/strict';
 
 import { createSceneSource } from '../scene-source.js';
 import {
-    SCENE_CHARACTER_TYPES,
     ScenePlannerError,
     ScenePlannerErrorCategory,
     createScenePlannerCorrectionResult,
-    createSubmitScenePlanTool,
     getScenePlannerCorrectionSignature,
     getScenePlannerErrorCategory,
     isScenePlannerCorrectionError,
     parseSubmittedScenePlan,
     toSceneCharacterPromptTag,
 } from '../scene-plan-contract.js';
+import { createSubmitScenePlanTool } from '../scene-plan-tool.js';
+import { assembleCharacterPrompts } from '../character-prompts.js';
 
 function buildParameters(overrides = {}) {
     return {
         mindful_prelude: {
             user_insight: '用户在描写雨夜重逢。',
-            visual_plan: {
-                moments: [{
-                    moment: '1',
-                    insert_after: 1,
-                    char_count: '2 girls',
-                    known_chars: ['阿璃'],
-                    unknown_chars: ['旅人'],
-                    composition: 'C3/E5，雨夜逆光。',
-                }],
-            },
+            visual_plan: '画雨夜重逢，放在插图点 1 后；两名女性，已录入阿璃，未录入旅人，分别位于 C3/E5，使用雨夜逆光。',
         },
         images: [{
             index: 1,
@@ -85,11 +76,7 @@ test('scene plan contract normalizes aliases, known character fields, placement,
         scene: 'sfw, scenery, rain',
         characters: [],
     });
-    parameters.mindful_prelude.visual_plan.moments.push({
-        ...parameters.mindful_prelude.visual_plan.moments[0],
-        moment: '2',
-        insert_after: 2,
-    });
+    parameters.mindful_prelude.visual_plan += '随后画雨景，放在插图点 2 后，无人物，已录入和未录入角色均不出现。';
     const parsed = parseSubmittedScenePlan(buildResult(parameters), {
         ...parseOptions,
         maxImages: 2,
@@ -103,7 +90,7 @@ test('scene plan contract normalizes aliases, known character fields, placement,
     assert.equal(parsed.tasks[0].chars[0].interact, 'mutual#hug');
     assert.equal(parsed.tasks[0].chars[1].interact, 'source#hug, target#comfort');
     assert.deepEqual(parsed.tasks[1].chars, []);
-    assert.equal(parsed.mindfulPrelude.visual_plan.moments[0].composition.includes('E5'), true);
+    assert.deepEqual(Object.keys(parsed), ['tasks']);
 
     const source = parseOptions.sceneSource;
     assert.deepEqual(parsed.tasks[0].placement, {
@@ -127,25 +114,25 @@ test('scene plan tool schema applies exact image count and character cap', () =>
     assert.deepEqual(tool.function.parameters.required, ['mindful_prelude', 'images']);
     assert.equal(schema.minItems, 3);
     assert.equal(schema.maxItems, 3);
-    const momentsSchema = createSubmitScenePlanTool({ maxImages: 3 })
-        .function.parameters.properties.mindful_prelude.properties.visual_plan.properties.moments;
-    assert.equal(momentsSchema.minItems, 3);
-    assert.equal(momentsSchema.maxItems, 3);
+    assert.deepEqual(schema.items.required, ['index', 'insert_after', 'scene', 'characters']);
+    assert.equal(schema.items.additionalProperties, false);
     assert.equal(schema.items.properties.characters.maxItems, 2);
     assert.deepEqual(schema.items.properties.characters.items.required, ['name', 'action']);
-    assert.deepEqual(
-        schema.items.properties.characters.items.properties.type.enum,
-        ['', ...SCENE_CHARACTER_TYPES],
-    );
-    const preludeProperties = createSubmitScenePlanTool().function.parameters
-        .properties.mindful_prelude.properties;
-    assert.equal(Object.hasOwn(preludeProperties, 'therapeutic_commitment'), false);
-    assert.equal(Object.hasOwn(preludeProperties.visual_plan.properties, 'reasoning'), false);
+    assert.equal(schema.items.properties.characters.items.properties.action.minLength, 1);
+    assert.equal(schema.items.properties.characters.items.additionalProperties, false);
+    assert.equal(schema.items.properties.characters.items.properties.type.type, 'string');
+    assert.equal(schema.items.properties.characters.items.properties.type.enum, undefined);
+    const preludeSchema = tool.function.parameters.properties.mindful_prelude;
+    assert.deepEqual(preludeSchema.required, ['user_insight', 'visual_plan']);
+    assert.equal(preludeSchema.additionalProperties, false);
+    assert.deepEqual(Object.keys(preludeSchema.properties), ['user_insight', 'visual_plan']);
+    for (const field of Object.values(preludeSchema.properties)) {
+        assert.equal(field.type, 'string');
+        assert.equal(field.minLength, 1);
+    }
 
     const boundedTool = createSubmitScenePlanTool({ insertPointCount: 2 });
     const boundedImages = boundedTool.function.parameters.properties.images;
-    const boundedMoments = boundedTool.function.parameters.properties.mindful_prelude
-        .properties.visual_plan.properties.moments;
     const backendBounded = createSubmitScenePlanTool({
         maxImages: 0,
         maxPlanImages: 20,
@@ -153,11 +140,9 @@ test('scene plan tool schema applies exact image count and character cap', () =>
     }).function.parameters.properties;
     assert.equal(backendBounded.images.minItems, 1);
     assert.equal(backendBounded.images.maxItems, 20);
-    assert.equal(backendBounded.mindful_prelude.properties.visual_plan.properties.moments.maxItems, 20);
     assert.equal(boundedImages.minItems, 1);
     assert.equal(boundedImages.maxItems, 2);
     assert.equal(boundedImages.items.properties.insert_after.maximum, 2);
-    assert.equal(boundedMoments.items.properties.insert_after.maximum, 2);
 });
 
 test('scene plan contract defaults optional character facts while keeping unknown identity requirements', () => {
@@ -190,7 +175,7 @@ test('scene plan contract defaults optional character facts while keeping unknow
     assert.equal(unknown.uc, '');
     assert.deepEqual(unknown.center, { x: 0.5, y: 0.5 });
 
-    for (const missingField of ['type', 'appear']) {
+    for (const missingField of ['appear']) {
         const parameters = buildParameters();
         const character = {
             name: '旅人',
@@ -207,12 +192,81 @@ test('scene plan contract defaults optional character facts while keeping unknow
         );
     }
 
-    const invalidOptional = buildParameters();
-    invalidOptional.images[0].characters = [{ name: '小璃', action: 'standing', uc: null }];
-    assert.throws(
-        () => parseSubmittedScenePlan(buildResult(invalidOptional), parseOptions),
-        (error) => error.code === 'TOOL_ARGUMENTS_SCHEMA_INVALID'
-            && error.message.includes('images[0].characters[0].uc'),
+});
+
+test('missing, null or empty action does not invent character prompt content', () => {
+    const knownCharacters = [{ name: '阿璃', type: 'girl', appearance: 'silver hair' }];
+    for (const action of [undefined, null, '', '   ']) {
+        const parameters = buildParameters();
+        parameters.images[0].characters = [
+            { name: '小璃' },
+            { name: '旅人', type: 'woman', appear: 'black hair' },
+        ].map(character => ({ ...character, ...(action === undefined ? {} : { action }) }));
+        const { tasks } = parseSubmittedScenePlan(buildResult(parameters), parseOptions);
+        assert.deepEqual(tasks[0].chars.map(character => character.action), ['', '']);
+        assert.deepEqual(assembleCharacterPrompts(tasks[0].chars, knownCharacters).map(character => character.prompt),
+            ['girl, silver hair', 'woman, black hair']);
+    }
+});
+
+test('optional text null means omitted but unrelated JSON types still fail', () => {
+    for (const name of ['小璃', '旅人']) {
+        const baseline = buildParameters();
+        baseline.images[0].characters = [{ name, ...(name === '旅人' ? { appear: 'black hair' } : {}) }];
+        const expected = parseSubmittedScenePlan(buildResult(baseline), parseOptions);
+        const fields = ['type', 'danbooru', 'costume', 'action', 'interact', 'uc',
+            ...(name === '小璃' ? ['appear'] : [])];
+        for (const field of fields) {
+            for (const value of [null, true, 12, [], {}]) {
+                const parameters = structuredClone(baseline);
+                parameters.images[0].characters[0][field] = value;
+                if (value === null) {
+                    assert.deepEqual(parseSubmittedScenePlan(buildResult(parameters), parseOptions), expected);
+                } else {
+                    assert.throws(() => parseSubmittedScenePlan(buildResult(parameters), parseOptions),
+                        error => error.code === 'TOOL_ARGUMENTS_SCHEMA_INVALID'
+                            && error.details.path === `images[0].characters[0].${field}`);
+                }
+            }
+        }
+    }
+});
+
+test('image indices come from array order without changing scenes or placement', () => {
+    const baseline = buildParameters();
+    baseline.images.push({ index: 2, insert_after: 2, scene: 'rainy street', characters: [] });
+    const options = { ...parseOptions, maxImages: 2 };
+    const expected = parseSubmittedScenePlan(buildResult(baseline), options);
+    for (const indices of [[undefined, undefined], [1, 1], [3, 9], [2, 1], [0, -1], [null, 'second'], [{}, []]]) {
+        const parameters = structuredClone(baseline);
+        parameters.images.forEach((image, index) => {
+            delete image.index;
+            if (indices[index] !== undefined) image.index = indices[index];
+        });
+        const parsed = parseSubmittedScenePlan(buildResult(parameters), options);
+        assert.deepEqual(parsed, expected);
+        assert.deepEqual(parsed.tasks.map(task => task.index), [1, 2]);
+    }
+});
+
+test('extra image and character fields are discarded rather than forwarded to compilation', () => {
+    const baseline = buildParameters();
+    const parameters = structuredClone(baseline);
+    Object.assign(parameters.images[0], {
+        anchor: 'other placement', negative: 'extra negative', comment: { note: true },
+        characterPrompts: [{ name: 'override', prompt: 'extra prompt' }],
+        chars: [{ name: 'override', appear: 'extra appearance' }],
+        placement: { insertAfter: 2 },
+    });
+    for (const character of parameters.images[0].characters) {
+        Object.assign(character, {
+            nickname: 'other name', prompt: 'extra prompt', appearance: 'extra appearance',
+            notes: { detail: ['ignored'] },
+        });
+    }
+    assert.deepEqual(
+        parseSubmittedScenePlan(buildResult(parameters), parseOptions),
+        parseSubmittedScenePlan(buildResult(baseline), parseOptions),
     );
 });
 
@@ -224,17 +278,31 @@ test('scene plan execution accepts absent or invalid planning notes and trusts i
         1,
     );
 
-    const invalidPrelude = buildParameters();
-    invalidPrelude.mindful_prelude = { obsolete: true };
-    const parsed = parseSubmittedScenePlan(buildResult(invalidPrelude), parseOptions);
-    assert.equal(parsed.mindfulPrelude, null);
-    assert.equal(parsed.tasks[0].placement.insertAfter, 1);
+    for (const field of ['user_insight', 'visual_plan']) {
+        for (const value of [null, {}, [], '', '   ']) {
+            const invalidPrelude = buildParameters();
+            invalidPrelude.mindful_prelude[field] = value;
+            const parsed = parseSubmittedScenePlan(buildResult(invalidPrelude), parseOptions);
+            assert.deepEqual(Object.keys(parsed), ['tasks']);
+            assert.equal(parsed.tasks[0].placement.insertAfter, 1);
+        }
+    }
 
     const conflictingPrelude = buildParameters();
-    conflictingPrelude.mindful_prelude.visual_plan.moments[0].insert_after = 2;
+    conflictingPrelude.mindful_prelude.visual_plan = '计划把画面放在插图点 2 后。';
     assert.equal(
         parseSubmittedScenePlan(buildResult(conflictingPrelude), parseOptions).tasks[0].placement.insertAfter,
         1,
+    );
+
+    const differentNotes = {
+        analysis: { shots: [2, 3], characters: 'not executable' },
+        negative: 'not a drawing parameter at the root',
+        images: withoutPrelude.images,
+    };
+    assert.deepEqual(
+        parseSubmittedScenePlan(buildResult(differentNotes), parseOptions),
+        parseSubmittedScenePlan(buildResult(withoutPrelude), parseOptions),
     );
 });
 
@@ -256,11 +324,28 @@ test('scene plan contract keeps no_humans canonical and maps it to the downstrea
     assert.equal(toSceneCharacterPromptTag(parsed.tasks[0].chars[0].type), 'no humans');
 
     parameters.images[0].characters[0].type = 'no humans';
-    assert.throws(
-        () => parseSubmittedScenePlan(buildResult(parameters), parseOptions),
-        (error) => error.code === 'TOOL_ARGUMENTS_SCHEMA_INVALID'
-            && error.message.includes('images[0].characters[0].type'),
-    );
+    assert.equal(parseSubmittedScenePlan(buildResult(parameters), parseOptions).tasks[0].chars[0].type, 'no humans');
+});
+
+test('character type is prompt text, including multilingual, custom, empty and omitted values', () => {
+    for (const type of ['女孩', '少女', 'mature Female', 'elf', '', null, undefined]) {
+        const parameters = buildParameters();
+        parameters.images[0].characters = [{
+            name: '旅人', appear: 'black hair', action: 'standing',
+            ...(type === undefined ? {} : { type }),
+        }];
+        const { tasks } = parseSubmittedScenePlan(buildResult(parameters), parseOptions);
+        assert.equal(tasks[0].chars[0].type, type || '');
+        assert.equal(assembleCharacterPrompts(tasks[0].chars)[0].prompt,
+            [type, 'black hair', 'standing'].filter(Boolean).join(', '));
+    }
+    for (const type of [true, 12, [], {}]) {
+        const parameters = buildParameters();
+        parameters.images[0].characters[1].type = type;
+        assert.throws(() => parseSubmittedScenePlan(buildResult(parameters), parseOptions),
+            error => error.code === 'TOOL_ARGUMENTS_SCHEMA_INVALID'
+                && error.details.path === 'images[0].characters[1].type');
+    }
 });
 
 test('normalized centers accept numeric strings without coercing unrelated JSON types', () => {
@@ -370,18 +455,14 @@ test('scene planner correction feedback distinguishes missing, wrong, multiple, 
     );
 });
 
-test('scene plan contract rejects schema, index, placement, count, and unknown-character violations', () => {
+test('scene plan contract retains required content, placement, count, and coordinate checks', () => {
     const cases = [
+        [() => ({ analysis: 'no images' }), 'parameters.images'],
         [() => {
             const value = buildParameters();
-            value.negative = 'bad anatomy';
+            delete value.images[0].scene;
             return value;
-        }, 'parameters.negative'],
-        [() => {
-            const value = buildParameters();
-            value.images[0].index = 0;
-            return value;
-        }, 'images[0].index'],
+        }, 'images[0].scene'],
         [() => {
             const value = buildParameters();
             value.images[0].insert_after = 99;
@@ -394,14 +475,14 @@ test('scene plan contract rejects schema, index, placement, count, and unknown-c
         }, 'images[0].insert_after'],
         [() => {
             const value = buildParameters();
-            value.images[0].anchor = '旧契约字段';
+            delete value.images[0].characters;
             return value;
-        }, 'images[0].anchor'],
+        }, 'images[0].characters'],
         [() => {
             const value = buildParameters();
-            value.images[0].characters[0].nickname = '额外字段';
+            delete value.images[0].characters[0].name;
             return value;
-        }, 'images[0].characters[0].nickname'],
+        }, 'images[0].characters[0].name'],
         [() => {
             const value = buildParameters();
             value.images[0].characters[1].appear = '';
@@ -413,6 +494,25 @@ test('scene plan contract rejects schema, index, placement, count, and unknown-c
             return value;
         }, 'images[0].characters[1].center'],
     ];
+    for (const invalidText of [null, '', '   ', 12, true, [], {}]) {
+        cases.push(
+            [() => {
+                const value = buildParameters();
+                value.images[0].scene = invalidText;
+                return value;
+            }, 'images[0].scene'],
+            [() => {
+                const value = buildParameters();
+                value.images[0].characters[0].name = invalidText;
+                return value;
+            }, 'images[0].characters[0].name'],
+            [() => {
+                const value = buildParameters();
+                value.images[0].characters[1].appear = invalidText;
+                return value;
+            }, 'images[0].characters[1].appear'],
+        );
+    }
 
     for (const [build, expectedPath, expectedCode = 'TOOL_ARGUMENTS_SCHEMA_INVALID'] of cases) {
         assert.throws(
@@ -436,17 +536,21 @@ test('scene plan contract rejects schema, index, placement, count, and unknown-c
         );
     }
 
-    const duplicate = buildParameters();
-    duplicate.images.push({ ...duplicate.images[0], insert_after: 2 });
-    duplicate.mindful_prelude.visual_plan.moments.push({
-        ...duplicate.mindful_prelude.visual_plan.moments[0],
-        moment: '2',
-    });
-    assert.throws(
-        () => parseSubmittedScenePlan(buildResult(duplicate), { ...parseOptions, maxImages: 2 }),
-        (error) => error.code === 'TOOL_ARGUMENTS_SCHEMA_INVALID'
-            && error.message.includes('必须从 1 开始连续递增'),
-    );
+    for (const limits of [{ maxImages: 2 }, { maxCharactersPerImage: 1 }]) {
+        assert.throws(
+            () => parseSubmittedScenePlan(buildResult(), { ...parseOptions, ...limits }),
+            error => error.code === 'TOOL_ARGUMENTS_SCHEMA_INVALID',
+        );
+    }
+    for (const centerMode of ['grid', 'normalized']) {
+        const parameters = buildParameters();
+        parameters.images[0].characters[0].center = null;
+        assert.throws(
+            () => parseSubmittedScenePlan(buildResult(parameters), { ...parseOptions, centerMode }),
+            error => error.code === 'TOOL_ARGUMENTS_SCHEMA_INVALID'
+                && error.details.path === 'images[0].characters[0].center',
+        );
+    }
     assert.throws(
         () => parseSubmittedScenePlan(buildResult(buildParameters({ images: [] })), {
             ...parseOptions,

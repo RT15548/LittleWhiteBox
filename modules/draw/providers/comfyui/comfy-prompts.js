@@ -4,40 +4,44 @@ const TAG_GUIDE_PATH = `${extensionFolderPath}/modules/draw/providers/comfyui/CO
 const PROMPTS_DIR = `${extensionFolderPath}/modules/draw/providers/comfyui/prompts`;
 
 /** 修改默认提示词前先登记旧指纹，再递增此版本。 */
-export const PROMPT_TEMPLATE_VERSION = 8;
+export const PROMPT_TEMPLATE_VERSION = 9;
 
 /**
- * Shipped AgentCore-era ComfyUI defaults (v6-v7), frozen before the v8
- * protocol upgrade. Multiple v6 values exist because prompt fixes shipped
+ * Shipped AgentCore-era ComfyUI defaults (v6-v8), retained for one-time
+ * default refreshes. Multiple v6 values exist because prompt fixes shipped
  * without a template-version bump; all of them remain valid unedited defaults.
  */
 export const COMFY_RELEASED_PROMPT_DEFAULT_FINGERPRINTS = Object.freeze({
     '默认-完整规则': Object.freeze({
-        topSystem: '1338:11e4ec18:7ccb9f00',
+        topSystem: Object.freeze(['1338:11e4ec18:7ccb9f00', '1406:2f4a401d:166d5193']),
         tagGuideContent: Object.freeze([
             '3788:0fba1038:8d0ee540',
             '3815:e10b90a0:fba1796a',
             '3832:9ba2c38e:fe2f2b62',
+            '3887:869869db:a62bbd31',
         ]),
         sceneRules: Object.freeze([
             '6537:cf43b6b2:88340a88',
             '6615:3b5e87fb:03c9f089',
             '6639:7ac1f9d9:e15a080f',
             '6584:894e47d7:1f5aa1b1',
+            '6656:b3fe46d6:97b706b2',
         ]),
     }),
     '默认-第一人称完整规则': Object.freeze({
-        topSystem: '2694:94908ce4:dd0aebd0',
+        topSystem: Object.freeze(['2694:94908ce4:dd0aebd0', '2762:78ac7721:45b96167']),
         tagGuideContent: Object.freeze([
             '3788:0fba1038:8d0ee540',
             '3815:e10b90a0:fba1796a',
             '3832:9ba2c38e:fe2f2b62',
+            '3887:869869db:a62bbd31',
         ]),
         sceneRules: Object.freeze([
             '6537:cf43b6b2:88340a88',
             '6615:3b5e87fb:03c9f089',
             '6639:7ac1f9d9:e15a080f',
             '6584:894e47d7:1f5aa1b1',
+            '6656:b3fe46d6:97b706b2',
         ]),
     }),
 });

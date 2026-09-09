@@ -15,7 +15,7 @@ import {
     resolveDrawAgentContext,
 } from '../draw-agent.js';
 import { generateAndParseScenePlan } from '../scene-planner.js';
-import { createSubmitScenePlanTool } from '../scene-plan-contract.js';
+import { createSubmitScenePlanTool } from '../scene-plan-tool.js';
 
 function buildSettings(model, apiKey = 'main-key') {
     return {
@@ -99,16 +99,7 @@ function buildValidScenePlanResult() {
             arguments: JSON.stringify({
                 mindful_prelude: {
                     user_insight: '开门动作。',
-                    visual_plan: {
-                        moments: [{
-                            moment: '1',
-                            insert_after: 1,
-                            char_count: '0',
-                            known_chars: [],
-                            unknown_chars: [],
-                            composition: '室内中景。',
-                        }],
-                    },
+                    visual_plan: '画剧情中的这一瞬间，放在插图点 1 后，画面无人物，已录入和未录入角色均不出现，采用室内中景。',
                 },
                 images: [{
                     index: 1,

@@ -193,14 +193,11 @@ test('scene planner clamps an exact image request to the available illustration 
     });
     const parameters = task.tools[0].function.parameters;
     const images = parameters.properties.images;
-    const moments = parameters.properties.mindful_prelude.properties.visual_plan.properties.moments;
     const text = flattenTaskText(task);
 
     assert.equal(images.minItems, 1);
     assert.equal(images.maxItems, 1);
-    assert.equal(moments.minItems, 1);
-    assert.equal(moments.maxItems, 1);
-    assert.equal(moments.items.properties.insert_after.maximum, 1);
+    assert.equal(images.items.properties.insert_after.maximum, 1);
     assert.match(text, /本次正文共有 1 个可用插图点/);
     assert.match(text, /images 必须恰好包含 1 项/);
 });
@@ -227,16 +224,7 @@ test('scene planner reports an image-limit adjustment once before the provider r
                         arguments: JSON.stringify({
                             mindful_prelude: {
                                 user_insight: '短句画面。',
-                                visual_plan: {
-                                    moments: [{
-                                        moment: '1',
-                                        insert_after: 1,
-                                        char_count: '0',
-                                        known_chars: [],
-                                        unknown_chars: [],
-                                        composition: '中景。',
-                                    }],
-                                },
+                                visual_plan: '画剧情中的这一瞬间，放在插图点 1 后，画面无人物，已录入和未录入角色均不出现，采用中景。',
                             },
                             images: [{ index: 1, insert_after: 1, scene: 'short scene', characters: [] }],
                         }),
@@ -412,16 +400,7 @@ test('NovelAI, SD, and Comfy each submit one Tool call and receive the same imag
                             arguments: JSON.stringify({
                                 mindful_prelude: {
                                     user_insight: '重逢前的动作。',
-                                    visual_plan: {
-                                        moments: [{
-                                            moment: '1',
-                                            insert_after: 1,
-                                            char_count: '1 girl',
-                                            known_chars: ['阿璃'],
-                                            unknown_chars: [],
-                                            composition: 'C3 正面中景。',
-                                        }],
-                                    },
+                                    visual_plan: '画阿璃开门的瞬间，放在插图点 1 后，画面有一名女性，即已录入角色阿璃，没有未录入角色，采用C3 正面中景。',
                                 },
                                 images: [{
                                     index: 1,
@@ -496,16 +475,7 @@ test('scene placement stays anchored to the unexpanded snapshot while the model 
                         arguments: JSON.stringify({
                             mindful_prelude: {
                                 user_insight: '开门动作。',
-                                visual_plan: {
-                                    moments: [{
-                                        moment: '1',
-                                        insert_after: 1,
-                                        char_count: '0',
-                                        known_chars: [],
-                                        unknown_chars: [],
-                                        composition: '室内中景。',
-                                    }],
-                                },
+                                visual_plan: '画剧情中的这一瞬间，放在插图点 1 后，画面无人物，已录入和未录入角色均不出现，采用室内中景。',
                             },
                             images: [{
                                 index: 1,
@@ -540,16 +510,7 @@ test('scene planner rejects illustration point numbers that do not exist in this
                     arguments: JSON.stringify({
                         mindful_prelude: {
                             user_insight: '开门动作。',
-                            visual_plan: {
-                                moments: [{
-                                    moment: '1',
-                                    insert_after: 42,
-                                    char_count: '0',
-                                    known_chars: [],
-                                    unknown_chars: [],
-                                    composition: '室内中景。',
-                                }],
-                            },
+                            visual_plan: '画剧情中的这一瞬间，放在插图点 42 后，画面无人物，已录入和未录入角色均不出现，采用室内中景。',
                         },
                         images: [{
                             index: 1,
@@ -595,6 +556,8 @@ test('prepared scene planner input is serializable and executes without browser 
     assert.deepEqual(transferred.agent.providerConfig, providerConfig);
     assert.equal(Object.hasOwn(transferred, 'task'), false);
     assert.equal(Object.hasOwn(transferred.planner.prompt, 'tools'), false);
+    assert.equal(transferred.planner.tool.function.name, 'submit_scene_plan');
+    assert.deepEqual(transferred.planner.tool, prepared.planner.tool);
     assert.deepEqual(Object.keys(transferred.planner.validationContext).sort(), [
         'centerMode',
         'effectiveMaxCharactersPerImage',
@@ -607,6 +570,7 @@ test('prepared scene planner input is serializable and executes without browser 
         agentCaller: async ({ task, providerConfig: receivedProviderConfig }) => {
             assert.deepEqual(receivedProviderConfig, providerConfig);
             assert.equal(task.tools[0].function.name, 'submit_scene_plan');
+            assert.deepEqual(task.tools, [transferred.planner.tool]);
             return {
                 providerConfig: receivedProviderConfig,
                 result: {
@@ -615,16 +579,7 @@ test('prepared scene planner input is serializable and executes without browser 
                         arguments: JSON.stringify({
                             mindful_prelude: {
                                 user_insight: '推门动作。',
-                                visual_plan: {
-                                    moments: [{
-                                        moment: '1',
-                                        insert_after: 1,
-                                        char_count: '0',
-                                        known_chars: [],
-                                        unknown_chars: [],
-                                        composition: '室内中景。',
-                                    }],
-                                },
+                                visual_plan: '画剧情中的这一瞬间，放在插图点 1 后，画面无人物，已录入和未录入角色均不出现，采用室内中景。',
                             },
                             images: [{ index: 1, insert_after: 1, scene: 'opening door, indoor', characters: [] }],
                         }),

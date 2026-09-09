@@ -9,6 +9,7 @@ import {
     deriveDrawRunItemIds,
 } from './shared/draw-run-identifiers.js';
 import { executePreparedScenePlanner } from './shared/scene-planner-executor.js';
+import { assertSubmitScenePlanTool } from './shared/scene-plan-contract.js';
 import { hashSceneSource } from './shared/scene-source.js';
 
 const PROVIDER_COMPILERS = Object.freeze({
@@ -25,6 +26,7 @@ export function compileDrawRunImages(provider, scenePlan, generationRecipe) {
 
 export {
     assertDrawRunId,
+    assertSubmitScenePlanTool,
     createDrawRunId,
     deriveDrawRunChildJobId,
     deriveDrawRunItemIds,

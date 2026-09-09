@@ -2,9 +2,7 @@
 
 完成观察与视觉规划后，必须且只能调用一次 `submit_scene_plan`。Tool 参数包含两个根字段：
 
-- `mindful_prelude`：人文观察与视觉规划。
-  - `user_insight`：用户的幻想处于什么时空与场景，写作风格和情绪表达是什么；仅在文本确实反映严重心理问题时给出审慎建议。
-  - `visual_plan.moments`：每项都填写 `moment`、`insert_after`、`char_count`、`known_chars`、`unknown_chars`、`composition`。
+- `mindful_prelude`: two prose paragraphs, `user_insight` and `visual_plan`, as described in the Tool Schema.
 - `images`：最终图片任务；每项都填写 `index`、`insert_after`、`scene`、`characters`。
 
 `characters` 中每个角色必须提交 `name` 与 `action`。未知角色还必须提交 `type` 与 `appear`。`danbooru`、`costume`、`interact`、`uc`、`center` 只在有对应事实时提交；不要为了凑字段输出空字符串。
@@ -14,7 +12,6 @@
 - 未知角色：`type` 必须是 girl / boy / woman / man / other，`appear` 必须填写可见外貌。
 - 不得提交根级或图片级 `negative`；整图负面由用户预设负责，角色级互斥只写入 `uc`。
 - `images[].insert_after` 是本图唯一的正文插入位置事实：`<content>` 里每个可插图的位置都已预标注为 `【插图点 N】`，选择本图画面发生处之后最近的那个编号，填整数 N；多张图必须按阅读顺序选择严格递增且不重复的编号；不要复制原文句子。
-- `visual_plan.moments` 只用于规划。它与 `images` 不按下标绑定；发生差异时以 `images[].insert_after` 为准。
 
 ---
 

@@ -136,7 +136,7 @@ function validateSceneSource(value, runtime) {
 }
 
 function validatePlanner(value, runtime) {
-    const planner = assertExactKeys(value, ['prompt', 'validationContext', 'presentCharacters'], 'planner');
+    const planner = assertExactKeys(value, ['prompt', 'tool', 'validationContext', 'presentCharacters'], 'planner');
     const prompt = assertExactKeys(planner.prompt, ['systemPrompt', 'messages'], 'planner.prompt');
     requireString(prompt.systemPrompt, 'planner.prompt.systemPrompt', { allowEmpty: true });
     if (!Array.isArray(prompt.messages) || prompt.messages.length !== 1) {
@@ -145,6 +145,13 @@ function validatePlanner(value, runtime) {
     const message = assertExactKeys(prompt.messages[0], ['role', 'content'], 'planner.prompt.messages[0]');
     if (message.role !== 'user') throw invalid('planner.prompt.messages[0].role must be user');
     requireString(message.content, 'planner.prompt.messages[0].content');
+
+    assertSafeJson(planner.tool, 'planner.tool');
+    try {
+        runtime.assertSubmitScenePlanTool(planner.tool);
+    } catch (error) {
+        throw invalid(error.message);
+    }
 
     const context = assertExactKeys(
         planner.validationContext,
@@ -181,6 +188,7 @@ function validatePlanner(value, runtime) {
     assertSafeJson(planner.presentCharacters, 'planner.presentCharacters');
     return {
         prompt: cloneJson(prompt),
+        tool: cloneJson(planner.tool),
         validationContext: {
             sceneSource,
             effectiveMaxImages,
@@ -336,6 +344,7 @@ function validateGenerationRecipe(provider, value, imageCount) {
 function createEnvelopeValidator(runtime) {
     if (!runtime || typeof runtime.hashSceneSource !== 'function'
         || typeof runtime.assertDrawRunId !== 'function'
+        || typeof runtime.assertSubmitScenePlanTool !== 'function'
         || typeof runtime.getNovelModelCapability !== 'function') {
         throw new TypeError('Draw Run envelope validator requires the Node runtime');
     }

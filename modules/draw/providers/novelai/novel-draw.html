@@ -1666,13 +1666,13 @@ function renderBackendPluginStatus() {
     const isV5 = getModelCapability(model).family === 'v5';
     const capabilities = Array.isArray(st.capabilities) ? st.capabilities : [];
     const usesBackgroundJobs = getSendMode() === 'backend' && $('nd_use_backend_jobs')?.checked === true;
-    const supportsBackgroundJobs = isVersionAtLeast(st.version, '2.2.0')
+    const supportsBackgroundJobs = isVersionAtLeast(st.version, '2.3.0')
         && capabilities.includes('image-batch-jobs-v1')
         && capabilities.includes('draw-runs-v1')
-        && capabilities.includes('draw-run-runtime-v3')
+        && capabilities.includes('draw-run-runtime-v4')
         && (!isV5 || capabilities.includes('novelai-v5-final-image-v1'));
     if (usesBackgroundJobs && !supportsBackgroundJobs) {
-        setBackendStatusUI('bad', `小白X后台任务需要后端插件 v2.2.0+（当前 v${st.version || '未知'}），请完整覆盖插件并重启 SillyTavern`);
+        setBackendStatusUI('bad', `小白X后台任务需要后端插件 v2.3.0+（当前 v${st.version || '未知'}），请完整覆盖插件并重启 SillyTavern`);
         return;
     }
     const supportsV5 = isVersionAtLeast(st.version, '1.2.0')
@@ -2009,8 +2009,10 @@ function renderCharList() {
             </div>`;
 
         if (isEditing) {
+            const savedType = c.type || 'girl';
+            const selectedType = normalizeCharType(savedType);
             const typeOptions = CHARACTER_TYPES.map(t =>
-                `<option value="${t.value}"${t.value === (c.type || 'girl') ? ' selected' : ''}>${t.label}</option>`
+                `<option value="${t.value}"${t.value === selectedType ? ' selected' : ''}>${t.label}</option>`
             ).join('');
 
             return `
@@ -2025,7 +2027,7 @@ function renderCharList() {
                         <div class="form-group">
                             <label class="form-label">类型</label>
                             <select class="input char-edit-type">${typeOptions}</select>
-                            <input type="text" class="input char-edit-type-custom hidden" placeholder="如: mature female" style="margin-top:4px;">
+                            <input type="text" class="input char-edit-type-custom${selectedType === 'custom' ? '' : ' hidden'}" value="${selectedType === 'custom' ? escapeHtml(savedType) : ''}" placeholder="如: mature female" style="margin-top:4px;">
                         </div>
                     </div>
                     <div class="form-group">

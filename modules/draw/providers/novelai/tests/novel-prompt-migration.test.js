@@ -6,6 +6,7 @@ import {
     migrateLegacyNovelPromptPresets,
     migrateLegacyNovelPromptSettings,
 } from '../novel-prompt-migration.js';
+import { PROMPT_TEMPLATE_VERSION } from '../novel-prompts.js';
 
 const CURRENT = Object.freeze({
     topSystem: 'current model-independent system',
@@ -13,7 +14,7 @@ const CURRENT = Object.freeze({
     sceneRules: 'current model-independent scene rules',
 });
 
-const TARGET = 11;
+const TARGET = PROMPT_TEMPLATE_VERSION;
 
 async function loadFixture(name) {
     const text = await readFile(new URL(`./fixtures/${name}`, import.meta.url), 'utf8');
@@ -155,6 +156,26 @@ test('refreshes frozen template v10 execution rules without overwriting an edite
 
     assert.equal(result.presets[0].sceneRules, CURRENT.sceneRules);
     assert.equal(result.presets[1].sceneRules, editedSceneRules);
+});
+
+test('refreshes frozen template v11 planning rules without overwriting an edited copy', async () => {
+    const sceneRules = await readFile(
+        new URL('./fixtures/novel-scene-rules-template-v11.md', import.meta.url),
+        'utf8',
+    );
+    const editedSceneRules = `${sceneRules}\nuser edit`;
+    const result = migrateLegacyNovelPromptPresets([
+        { id: 'default', topSystem: 'custom system', sceneRules },
+        { id: 'edited', topSystem: 'custom system', sceneRules: editedSceneRules },
+    ], {
+        templateVersion: 11,
+        targetVersion: TARGET,
+        currentDefaults: CURRENT,
+    });
+
+    assert.equal(result.presets[0].sceneRules, CURRENT.sceneRules);
+    assert.equal(result.presets[1].sceneRules, editedSceneRules);
+    assert.equal(result.templateVersion, TARGET);
 });
 
 test('preserves any user-edited prompt field even when its preset keeps a default name', async () => {

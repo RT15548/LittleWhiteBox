@@ -3,7 +3,7 @@ import { promptTemplateFingerprint } from '../../shared/prompt-template-migratio
 
 // Upgrade boundary for prompt formats that have actually shipped.
 // - upstream config v7 / prompt template v4: YAML-era preset fields.
-// - prompt template v6 through v10: Tool-era defaults, refreshed by content fingerprint.
+// - prompt template v6 through v11: Tool-era defaults, refreshed by content fingerprint.
 // Remove the corresponding branch when that released input version is no longer supported.
 const UPSTREAM_V4_PROMPT_FINGERPRINTS = Object.freeze({
     topSystem: '1280:7fa69e8a:fea74076',
@@ -43,6 +43,11 @@ const RELEASED_DEFAULT_FINGERPRINTS = Object.freeze({
         topSystem: '1197:4f5dc6ba:c8bf2f9c',
         topSystemPov: '2590:6d6d4d27:e6e8f9b1',
         sceneRules: '6500:03affbbe:867cbc92',
+    }),
+    v11: Object.freeze({
+        topSystem: '1197:4f5dc6ba:c8bf2f9c',
+        topSystemPov: '2590:6d6d4d27:e6e8f9b1',
+        sceneRules: '6509:3e8b6279:426b3647',
     }),
 });
 

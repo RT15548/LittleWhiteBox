@@ -4,7 +4,7 @@ import {
 } from './draw-agent-runtime.js';
 import {
     ScenePlannerError,
-    createSubmitScenePlanTool,
+    assertSubmitScenePlanTool,
     parseSubmittedScenePlan,
 } from './scene-plan-contract.js';
 
@@ -19,26 +19,20 @@ function assertPreparedScenePlanner(prepared) {
         || !validationContext?.sceneSource) {
         throw new ScenePlannerError('Scene Planner 预处理结果无效。', 'PREPARED_INPUT_INVALID');
     }
+    assertSubmitScenePlanTool(prepared.planner.tool);
     return prepared;
 }
 
 /**
- * The submit tool is an executor-owned protocol invariant. It is rebuilt from the
- * frozen validation constraints instead of trusting a browser-supplied schema.
+ * The browser supplies the model-facing tool. Execution validates images against
+ * its own contract and frozen limits, independently of the supplied JSON schema.
  */
 export function createPreparedScenePlannerTask(prepared) {
     const input = assertPreparedScenePlanner(prepared);
-    const validationContext = input.planner.validationContext;
     return {
         systemPrompt: input.planner.prompt.systemPrompt,
         messages: input.planner.prompt.messages,
-        tools: [createSubmitScenePlanTool({
-            maxImages: validationContext.effectiveMaxImages,
-            maxPlanImages: validationContext.maxPlanImages,
-            maxCharactersPerImage: validationContext.effectiveMaxCharactersPerImage,
-            insertPointCount: validationContext.sceneSource.points?.length || 0,
-            centerMode: validationContext.centerMode,
-        })],
+        tools: [input.planner.tool],
         toolChoice: 'required',
     };
 }
