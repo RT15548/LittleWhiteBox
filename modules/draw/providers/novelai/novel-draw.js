@@ -66,7 +66,7 @@ import {
     normalizeNovelPromptGuideOverrides,
 } from './novel-prompts.js';
 import { parseNovelPromptPresetImport } from './novel-prompt-import.js';
-import { createScenePlannerDefaultPresets, isPovPromptPreset } from '../../shared/scene-planner-presets.js';
+import { createScenePlannerDefaultPresets, isPovPromptPreset, SCENE_PLANNER_PRESET_INSTALL_NOTICE } from '../../shared/scene-planner-presets.js';
 import {
     getNovelModelCapability,
     getNovelModelCapabilitiesForUi,
@@ -1084,6 +1084,9 @@ async function loadSettings() {
             if (!savedMigration) throw new Error('默认设置保存失败');
         }
         settingsLoaded = true;
+        if (saved && promptUpgrade.installed) {
+            showToast(SCENE_PLANNER_PRESET_INSTALL_NOTICE, 'info', 8000);
+        }
         if (promptUpgrade.upstreamPresetCount > 0) {
             const customNotice = promptUpgrade.customPresetCount > 0
                 ? `；其中 ${promptUpgrade.customPresetCount} 个自定义预设的旧规则已保留，请在提示词设置中检查`

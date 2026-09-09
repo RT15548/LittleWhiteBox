@@ -51,11 +51,12 @@ for (const [provider, targetVersion, versions] of [
             assert.equal(result.installed, true);
             assert.deepEqual(saved, snapshot);
             assert.deepEqual(result.settings.promptPresets.slice(0, 3), saved.promptPresets);
-            assert.equal(result.settings.selectedPromptPresetId, custom.id);
             assert.equal(result.settings.selectedPresetId, saved.selectedPresetId);
             assert.equal(result.settings._promptTemplateVersion, targetVersion);
 
             const [newNormal, newPov] = result.settings.promptPresets.slice(3);
+            // Even a selected custom preset hands over: its rules predate the tool contract.
+            assert.equal(result.settings.selectedPromptPresetId, newNormal.id);
             assert.equal(newNormal.name, SCENE_PLANNER_PRESET_NAMES.normal);
             assert.equal(newPov.name, SCENE_PLANNER_PRESET_NAMES.pov);
             assert.equal(newNormal.topSystem, defaults.topSystem);
@@ -77,6 +78,32 @@ for (const [provider, targetVersion, versions] of [
             assert.equal(repeated.settings, persisted);
             assert.equal(repeated.settings.promptPresets.length, 4);
         });
+
+        test(`${provider} keeps the first-person perspective when moving a selected v${version} preset onto a new copy`, async () => {
+            const fixture = JSON.parse(await readFile(
+                new URL(`../../providers/${provider}/tests/fixtures/prompt-template-v${version}.json`, import.meta.url),
+                'utf8',
+            ));
+            const defaults = await loadDefaults(provider);
+            const normal = { id: 'old-normal', name: '默认-完整规则', topSystem: fixture.topSystem, sceneRules: fixture.sceneRules };
+            const editedPov = { id: 'old-pov', name: '默认-第一人称完整规则', topSystem: `${fixture.topSystemPov}\nuser edit`, sceneRules: fixture.sceneRules };
+
+            for (const [selectedId, expectedName] of [
+                [normal.id, SCENE_PLANNER_PRESET_NAMES.normal],
+                [editedPov.id, SCENE_PLANNER_PRESET_NAMES.pov],
+                ['no-longer-exists', SCENE_PLANNER_PRESET_NAMES.normal],
+            ]) {
+                const result = installScenePlannerPresets({
+                    _promptTemplateVersion: fixture.templateVersion,
+                    promptPresets: [normal, editedPov],
+                    selectedPromptPresetId: selectedId,
+                }, defaults, targetVersion);
+                const active = result.settings.promptPresets.find(preset => preset.id === result.settings.selectedPromptPresetId);
+                assert.equal(active.name, expectedName);
+                assert.notEqual(active.id, selectedId);
+                assert.ok(result.settings.promptPresets.some(preset => preset.id === normal.id), '旧预设仍在列表中');
+            }
+        });
     }
 }
 
@@ -88,12 +115,16 @@ test('a fresh installation creates exactly two current presets and selects the n
     assert.equal(settings.promptPresets[0].name, SCENE_PLANNER_PRESET_NAMES.normal);
 });
 
-test('a user-owned preset with the new default name is preserved and does not suppress installation', async () => {
+test('a user-owned preset with the new default name is preserved but the new copy still becomes active', async () => {
     const defaults = await loadDefaults('sd-webui');
-    const saved = { promptPresets: [{ id: 'mine', name: SCENE_PLANNER_PRESET_NAMES.normal, topSystem: '', sceneRules: '' }] };
+    const saved = {
+        promptPresets: [{ id: 'mine', name: SCENE_PLANNER_PRESET_NAMES.normal, topSystem: '', sceneRules: '' }],
+        selectedPromptPresetId: 'mine',
+    };
     const { settings } = installScenePlannerPresets(saved, defaults, SD_VERSION);
     assert.equal(settings.promptPresets.length, 3);
     assert.deepEqual(settings.promptPresets[0], saved.promptPresets[0]);
+    assert.equal(settings.selectedPromptPresetId, settings.promptPresets[1].id);
 });
 
 test('missing templates do not mark an installation complete or change existing settings', async () => {

@@ -211,5 +211,6 @@ export function migrateLegacyNovelPromptSettings(saved, currentDefaults, targetV
         presets: installation.settings.promptPresets,
         templateVersion: installation.settings._promptTemplateVersion,
         migrated: result.migrated || installation.installed,
+        installed: installation.installed,
     };
 }

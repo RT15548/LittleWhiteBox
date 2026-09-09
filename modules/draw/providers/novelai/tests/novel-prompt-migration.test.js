@@ -29,7 +29,6 @@ for (const version of [6, 7]) {
         assert.equal(result.migrated, true);
         assert.equal(result.settings._promptTemplateVersion, TARGET);
         assert.deepEqual(fixture, before);
-        assert.equal(result.settings.selectedPromptPresetId, fixture.selectedPromptPresetId);
         for (let index = 0; index < fixture.promptPresets.length; index++) {
             const original = fixture.promptPresets[index];
             const migrated = result.presets[index];
@@ -50,6 +49,8 @@ for (const version of [6, 7]) {
             assert.equal(preset.sceneRules, CURRENT.sceneRules);
             assert.deepEqual(preset.modelGuideOverrides, {});
         }
+        // The selected (edited) legacy POV default hands the selection to its new counterpart.
+        assert.equal(result.settings.selectedPromptPresetId, added[1].id);
         // Deleted/renamed new presets stay deleted/renamed after a save and reload.
         const persisted = JSON.parse(JSON.stringify(result.settings));
         persisted.promptPresets = persisted.promptPresets.filter(preset => preset.id !== added[1].id);
@@ -72,7 +73,9 @@ for (const version of [8, 9, 10, 11, 12]) {
         }, CURRENT, TARGET);
         assert.deepEqual(result.presets.slice(0, 2), presets);
         assert.equal(result.presets.length, 4);
-        assert.equal(result.settings.selectedPromptPresetId, 'edited');
+        // A selected custom preset also hands over: its rules predate the tool contract.
+        assert.equal(result.settings.selectedPromptPresetId, result.presets[2].id);
+        assert.equal(result.presets[2].name, SCENE_PLANNER_PRESET_NAMES.normal);
     });
 }
 
@@ -110,7 +113,7 @@ test('converts the released upstream v7 YAML preset shape before current normali
     assert.equal(result.migrated, true);
     assert.equal(result.upstreamPresetCount, 4);
     assert.equal(result.customPresetCount, 1);
-    assert.equal(result.settings.selectedPromptPresetId, 'prompt-custom');
+    assert.equal(result.settings.selectedPromptPresetId, result.settings.promptPresets[4].id);
     assert.equal(result.settings._promptTemplateVersion, TARGET);
     assert.deepEqual(
         result.settings.promptPresets.map(preset => preset.name),

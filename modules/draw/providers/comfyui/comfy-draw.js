@@ -90,7 +90,7 @@ import {
     getCharacterEnabledFromCard,
 } from "../../shared/character-enabled-control.js";
 import { hashStableValue } from "../../shared/generation-fingerprint.js";
-import { createScenePlannerDefaultPresets, installScenePlannerPresets, isPovPromptPreset } from "../../shared/scene-planner-presets.js";
+import { createScenePlannerDefaultPresets, installScenePlannerPresets, isPovPromptPreset, SCENE_PLANNER_PRESET_INSTALL_NOTICE } from "../../shared/scene-planner-presets.js";
 import {
     findLastAIMessageId,
     createPlaceholder,
@@ -470,6 +470,9 @@ export async function loadSettings() {
         if (!saved || upgrade.installed) {
             const savedDefaults = await ComfyDrawStorage.setAndSave(SERVER_FILE_KEY, settingsCache, { silent: true });
             if (!savedDefaults) throw new Error('新版提示词预设保存失败');
+        }
+        if (saved && upgrade.installed) {
+            toastr.info(SCENE_PLANNER_PRESET_INSTALL_NOTICE, 'ComfyUI', { timeOut: 8000 });
         }
         settingsLoaded = true;
         return settingsCache;
