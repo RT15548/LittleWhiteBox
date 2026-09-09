@@ -20,9 +20,12 @@ import {
     normalizeSummaryUndo,
 } from "./summary-undo.js";
 import { isRelationFact, parseRelationTarget } from "./fact-predicates.js";
+import { projectSummaryEvent } from "./events.js";
+import { upgradeStoredEventMemoryRoles } from "./migrations/event-memory-role.js";
 
 const MODULE_ID = 'summaryStore';
 const FACTS_LIMIT_PER_SUBJECT = 10;
+const loadedEventStores = new WeakSet();
 
 function isPlainObject(value) {
     return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -344,6 +347,10 @@ export function getSummaryStore() {
 
     const store = chat_metadata.extensions[EXT_ID].storySummary;
     let changed = normalizeSummaryStore(store);
+    if (!loadedEventStores.has(store)) {
+        changed = upgradeStoredEventMemoryRoles(store) || changed;
+        loadedEventStores.add(store);
+    }
 
     // One-time migration: v3.0.4 and earlier persisted this derived Ena cache.
     // Canonical story-summary data is now the only source, so the old cache is discarded.
@@ -638,8 +645,7 @@ export function mergeNewData(oldJson, parsed, endMesId, options = {}) {
     }
 
     (incoming.events || []).forEach(e => {
-        e._addedAt = endMesId;
-        merged.events.push(e);
+        merged.events.push(projectSummaryEvent({ ...e, _addedAt: endMesId }));
     });
 
     // newCharacters

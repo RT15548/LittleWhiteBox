@@ -1,6 +1,8 @@
 ﻿// story-summary-ui.js
 // iframe 内 UI 逻辑
 
+import { EVENT_MEMORY_ROLES, projectEditedSummaryEvents } from './data/events.js';
+
 (function () {
     'use strict';
 
@@ -1406,7 +1408,7 @@
         }
         setHtml(c, ev.map(e => {
             const participants = (e.participants || e.characters || []).map(h).join('、');
-            return `<div class="tl-item${e.weight === '核心' || e.weight === '主线' ? ' crit' : ''}">
+            return `<div class="tl-item">
                 <div class="tl-dot"></div>
                 <div class="tl-head">
                     <div class="tl-title">${h(e.title || '')}</div>
@@ -1415,7 +1417,7 @@
                 <div class="tl-brief">${h(e.summary || e.brief || '')}</div>
                 <div class="tl-meta">
                     <span>人物：${participants || '—'}</span>
-                    <span class="imp">${h(e.type || '')}${e.type && e.weight ? ' · ' : ''}${h(e.weight || '')}</span>
+                    <span class="imp">记忆作用：${h(e.memoryRole || '未标注')}</span>
                 </div>
             </div>`;
         }).join(''));
@@ -2020,8 +2022,13 @@
         del.onclick = () => item.remove();
     }
 
+    function memoryRoleOptions(role = '') {
+        return `<option value=""${role ? '' : ' selected'}>未标注</option>`
+            + EVENT_MEMORY_ROLES.map(value => `<option value="${h(value)}"${role === value ? ' selected' : ''}>${h(value)}</option>`).join('');
+    }
+
     function renderEventsEditor(events) {
-        const list = events?.length ? events : [{ id: 'evt-1', title: '', timeLabel: '', summary: '', participants: [], type: '日常', weight: '点睛' }];
+        const list = events?.length ? events : [{ id: 'evt-1', title: '', timeLabel: '', summary: '', participants: [], memoryRole: '' }];
         let maxId = 0;
         list.forEach(e => {
             const m = e.id?.match(/evt-(\d+)/);
@@ -2043,8 +2050,7 @@
                     <input type="text" class="event-participants" placeholder="人物（顿号分隔）" value="${h((ev.participants || []).join('、'))}">
                 </div>
                 <div class="struct-row">
-                    <select class="event-type">${['相遇', '冲突', '揭示', '抉择', '羁绊', '转变', '收束', '日常'].map(t => `<option ${ev.type === t ? 'selected' : ''}>${t}</option>`).join('')}</select>
-                    <select class="event-weight">${['核心', '主线', '转折', '点睛', '氛围'].map(t => `<option ${ev.weight === t ? 'selected' : ''}>${t}</option>`).join('')}</select>
+                    <label class="event-memory-role-field">记忆作用<select class="event-memory-role">${memoryRoleOptions(ev.memoryRole)}</select></label>
                 </div>
                 <div class="struct-actions"><span>ID：${h(id)}</span></div>
             </div>`;
@@ -2067,8 +2073,7 @@
                 <div class="struct-row"><textarea class="event-summary" rows="2" placeholder="一句话描述"></textarea></div>
                 <div class="struct-row"><input type="text" class="event-participants" placeholder="人物（顿号分隔）"></div>
                 <div class="struct-row">
-                    <select class="event-type">${['相遇', '冲突', '揭示', '抉择', '羁绊', '转变', '收束', '日常'].map(t => `<option>${t}</option>`).join('')}</select>
-                    <select class="event-weight">${['核心', '主线', '转折', '点睛', '氛围'].map(t => `<option>${t}</option>`).join('')}</select>
+                    <label class="event-memory-role-field">记忆作用<select class="event-memory-role">${memoryRoleOptions()}</select></label>
                 </div>
                 <div class="struct-actions"><span>ID：${h(nid)}</span></div>
             `);
@@ -2197,10 +2202,11 @@
                         timeLabel: it.querySelector('.event-time').value.trim(),
                         summary: it.querySelector('.event-summary').value.trim(),
                         participants: it.querySelector('.event-participants').value.trim().split(/[,、，]/).map(s => s.trim()).filter(Boolean),
-                        type: it.querySelector('.event-type').value,
-                        weight: it.querySelector('.event-weight').value
+                        memoryRole: it.querySelector('.event-memory-role').value,
+                        causedBy: [...(oldMap.get(id)?.causedBy || [])],
                     }, oldMap.get(id));
                 }).filter(e => e.title || e.summary);
+                parsed = projectEditedSummaryEvents(parsed);
             } else if (section === 'characters') {
                 const oldMainMap = new Map((summaryData.characters?.main || []).map(m => [getCharName(m), m]));
                 const mainNames = Array.from(es.querySelectorAll('.char-main-name')).map(i => i.value.trim()).filter(Boolean);

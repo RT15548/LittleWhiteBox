@@ -2,6 +2,7 @@ import { extension_settings } from "../../../../../../extensions.js";
 import { EXT_ID } from "../../../core/constants.js";
 import { xbLog } from "../../../core/debug-core.js";
 import { CommonSettingStorage } from "../../../core/server-storage.js";
+import { EVENT_MEMORY_ROLES } from "./events.js";
 
 const MODULE_ID = "summaryConfig";
 const SUMMARY_CONFIG_KEY = "storySummaryPanelConfig";
@@ -20,27 +21,12 @@ export const DEFAULT_SUMMARY_SYSTEM_PROMPT = `Story Analyst: This task involves 
 <task_settings>
 Incremental_Summary_Requirements:
   - Incremental_Only: 只提取新对话中的新增要素，绝不重复已有总结
-  - Output_Language: 所有自由文本总结字段使用本批新对话的主要语言；混合语言时跟随主要叙事语言，并保留原文人名、专名和引语。JSON 键、事件 type/weight、关系 trend 及其他协议固定值保持规定值，不翻译
+  - Output_Language: 所有自由文本总结字段使用本批新对话的主要语言；混合语言时跟随主要叙事语言，并保留原文人名、专名和引语。JSON 键、事件 memoryRole、关键词 weight、关系 trend 及其他协议固定值保持规定值，不翻译
   - Event_Granularity: 记录有叙事价值的事件，而非剧情梗概
   - Memory_Album_Style: 形成有细节、有温度、有记忆点的回忆册
   - Retrieval_Readiness: event.summary 必须面向未来召回，不得写成泛化剧情概括
-  - Event_Classification:
-      type:
-        - 相遇: 人物/事物初次接触
-        - 冲突: 对抗、矛盾激化
-        - 揭示: 真相、秘密、身份
-        - 抉择: 关键决定
-        - 羁绊: 关系加深或破裂
-        - 转变: 角色/局势改变
-        - 收束: 问题解决、和解
-        - 日常: 生活片段
-      weight:
-        - 核心: 删掉故事就崩
-        - 主线: 推动主要剧情
-        - 转折: 改变某条线走向
-        - 点睛: 有细节不影响主线
-        - 氛围: 纯粹氛围片段
-    - Causal_Chain: 为每个新事件标注直接前因事件ID（causedBy）。仅在因果关系明确（直接导致/明确动机/承接后果）时填写；不明确时填[]完全正常。0-2个，只填 evt-数字，指向已存在或本次新输出事件。
+  - Event_Memory_Role: Identify what each event leaves for later context, using the Memory Role definitions below.
+  - Causal_Chain: 为每个新事件标注直接前因事件ID（causedBy）。仅在因果关系明确（直接导致/明确动机/承接后果）时填写；不明确时填[]完全正常。0-2个，只填 evt-数字，指向已存在或本次新输出事件。
   - Character_Dynamics: 识别新角色，追踪关系趋势（破裂/厌恶/反感/陌生/投缘/亲密/交融）
   - Arc_Tracking: 更新角色弧光轨迹与成长进度(0.0-1.0)
   - Fact_Tracking: 维护 SPO 三元组知识图谱。追踪生死、物品归属、位置、关系、稳定辨识性身体特征等硬性事实。采用 KV 覆盖模型（s+p 为键）。
@@ -63,8 +49,8 @@ analysis_task:
     description: Incremental Story Summary & Knowledge Graph Analyst
     behavior: >-
       To compare new dialogue against existing summary, identify genuinely
-      new events and character interactions, classify events by narrative
-      type and weight, track character arc progression with percentage,
+      new events and character interactions, identify each event's memory
+      role, track character arc progression with percentage,
       maintain facts as SPO triples with clear semantics,
       and output structured JSON containing only incremental updates.
       Must strictly avoid repeating any existing summary content.
@@ -102,10 +88,14 @@ export const DEFAULT_SUMMARY_ASSISTANT_DOC_PROMPT = `
 Summary Specialist:
 Acknowledged. Now reviewing the incremental summarization specifications:
 
-[Event Classification System]
-├─ Types: 相遇|冲突|揭示|抉择|羁绊|转变|收束|日常
-├─ Weights: 核心|主线|转折|点睛|氛围
-└─ Each event needs: id, title, timeLabel, summary(含楼层), participants, type, weight
+[Memory Role]
+memoryRole describes what an event leaves for later context. Choose one role based on its main evidenced result:
+- 状态变化: A status is established, changed or ended: identity, relationship, residence, ownership or ongoing circumstances.
+- 约定承诺: A plan, promise, rule or responsibility is agreed, fulfilled or cancelled. An intention alone is not a completed state change.
+- 信息揭示: Someone learns an identity, secret, reason or truth. Preserve who learned it in the summary.
+- 偏好习惯: An explicitly stated preference, aversion or taboo, or a recurring behavior supported by the available history. A single action alone does not establish a habit.
+- 具体经历: A recognizable interaction or experience, including daily life, conflict, comfort or adventure, whose main contribution is the episode itself.
+These roles are different uses of memory, not importance levels. Choose the main result; keep other relevant details in the summary. Continuous actions and reactions about the same occurrence stay together rather than being split to fill roles.
 
 [Event Summary Style]
 - summary 不是剧情概括，而是高召回的回忆卡片
@@ -234,8 +224,7 @@ Before generating, observe the USER and analyze carefully:
       "timeLabel": "时间线标签(如：开场、第二天晚上)",
       "summary": "回忆卡片。优先写成1句；信息确实过多时可写2句。必须保留正式人名、原文称呼/昵称、地点、物件、具体动作和可召回钩子，末尾标注楼层(#X-Y)",
       "participants": ["参与角色名，不要使用人称代词或别名，只用正式人名"],
-      "type": "相遇|冲突|揭示|抉择|羁绊|转变|收束|日常",
-      "weight": "核心|主线|转折|点睛|氛围",
+      "memoryRole": "${EVENT_MEMORY_ROLES.join('|')}",
       "causedBy": ["evt-12", "evt-14"]
     }
   ],
@@ -275,7 +264,7 @@ export const DEFAULT_SUMMARY_ASSISTANT_CHECK_PROMPT = `Content review initiated.
 ├─ Existing summary loaded: ✓ Fully indexed
 ├─ New dialogue received: ✓ Content parsed
 ├─ Deduplication engine: ✓ Active
-├─ Event classification: ✓ Ready
+├─ Memory roles: ✓ Ready
 ├─ Fact tracking: ✓ Enabled
 └─ Output format: ✓ JSON specification loaded
 

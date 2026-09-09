@@ -774,11 +774,6 @@ h1 span {
     transform: scale(1.3);
 }
 
-.tl-item.crit .tl-dot {
-    border-color: var(--hl);
-    background: var(--hl);
-}
-
 .tl-head {
     display: flex;
     justify-content: space-between;
@@ -1289,6 +1284,14 @@ h1 span {
     display: flex;
     gap: 8px;
     flex-wrap: wrap;
+}
+
+.event-memory-role-field {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex: 1;
+    white-space: nowrap;
 }
 
 .struct-row input,
