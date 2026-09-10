@@ -1417,7 +1417,7 @@ import { EVENT_MEMORY_ROLES, projectEditedSummaryEvents } from './data/events.js
                 <div class="tl-brief">${h(e.summary || e.brief || '')}</div>
                 <div class="tl-meta">
                     <span>人物：${participants || '—'}</span>
-                    <span class="imp">记忆作用：${h(e.memoryRole || '未标注')}</span>
+                    <span class="imp">${h(e.memoryRole || '未标注')}</span>
                 </div>
             </div>`;
         }).join(''));
