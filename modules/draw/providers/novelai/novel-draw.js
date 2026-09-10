@@ -142,6 +142,7 @@ import {
     isMessageBeingEdited,
     DEFAULT_MESSAGE_FILTER_RULES,
 } from '../../shared/draw-common.js';
+import { replaceSceneSlotElements } from '../../shared/scene-slot-dom.js';
 import { createSceneSource, normalizeMessageSceneSourceText } from '../../shared/scene-source.js';
 import { createDrawImageSlotRegex, stripDrawImageSlots } from '../../shared/image-marker-syntax.js';
 import {
@@ -577,137 +578,13 @@ function getMesTextElement(messageId) {
     return document.querySelector(`#chat .mes[mesid="${messageId}"] .mes_text`);
 }
 
-function createNodeFromHtml(html) {
-    const template = document.createElement('template');
-    // Template-only UI markup built locally.
-    // eslint-disable-next-line no-unsanitized/property
-    template.innerHTML = String(html || '').trim();
-    return template.content.firstElementChild || null;
-}
-
-function getTrimmedText(value) {
-    return String(value || '').replace(/\u200B/g, '').trim();
-}
-
-function findTopLevelFlowContainer(root, node) {
-    let current = node?.nodeType === Node.TEXT_NODE ? node.parentElement : node;
-    while (current && current.parentElement && current.parentElement !== root) {
-        current = current.parentElement;
-    }
-    return current && current.parentElement === root ? current : null;
-}
-
-function removeIfEmptyFlowContainer(container) {
-    if (!(container instanceof HTMLElement)) return;
-    if (!['P', 'DIV', 'BLOCKQUOTE', 'LI'].includes(container.tagName)) return;
-    if (container.querySelector('img, video, audio, canvas, iframe, .xb-nd-img')) return;
-    if (getTrimmedText(container.textContent).length > 0) return;
-    container.remove();
-}
-
-function replacePlaceholdersInDomBatch(root, replacements) {
-    if (!root || !Array.isArray(replacements) || replacements.length === 0) return new Set();
-
-    const resolvedSlotIds = new Set();
-    for (const item of replacements) {
-        if (!item?.slotId || !item?.html) continue;
-        const existing = root.querySelector(buildDrawSlotSelector(item.slotId));
-        if (existing?.dataset?.state !== 'pending') continue;
-        const replacement = createNodeFromHtml(item.html);
-        if (!replacement) continue;
-        existing.replaceWith(replacement);
-        resolvedSlotIds.add(item.slotId);
-    }
-    const pending = replacements.filter(item =>
-        item?.slotId &&
-        item?.html &&
-        !resolvedSlotIds.has(item.slotId) &&
-        !root.querySelector(buildDrawSlotSelector(item.slotId))
-    );
-    if (pending.length === 0) return resolvedSlotIds;
-
-    const placeholderMap = new Map(pending.map(item => [createPlaceholder(item.slotId), item]));
-    const placeholderRegex = new RegExp(
-        Array.from(placeholderMap.keys()).map(escapeRegexChars).join('|'),
-        'g'
-    );
-    const nodePlans = new Map();
-    const groupedByContainer = new Map();
-    const orderedContainers = [];
-
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
-        acceptNode(node) {
-            return node.parentElement?.closest('.xb-nd-img')
-                ? NodeFilter.FILTER_REJECT
-                : NodeFilter.FILTER_ACCEPT;
-        }
-    });
-
-    let textNode;
-    while ((textNode = walker.nextNode())) {
-        const value = textNode.nodeValue || '';
-        placeholderRegex.lastIndex = 0;
-        let match;
-        while ((match = placeholderRegex.exec(value))) {
-            const placeholder = match[0];
-            const patch = placeholderMap.get(placeholder);
-            if (!patch || resolvedSlotIds.has(patch.slotId)) continue;
-
-            const container = findTopLevelFlowContainer(root, textNode) || root;
-            if (!groupedByContainer.has(container)) {
-                groupedByContainer.set(container, []);
-                orderedContainers.push(container);
-            }
-            groupedByContainer.get(container).push(patch);
-
-            if (!nodePlans.has(textNode)) {
-                nodePlans.set(textNode, { text: value, removals: [] });
-            }
-            nodePlans.get(textNode).removals.push({ start: match.index, end: match.index + placeholder.length });
-            resolvedSlotIds.add(patch.slotId);
-        }
-    }
-
-    nodePlans.forEach((plan, node) => {
-        let nextText = plan.text;
-        plan.removals
-            .sort((a, b) => b.start - a.start)
-            .forEach(removal => {
-                nextText = nextText.slice(0, removal.start) + nextText.slice(removal.end);
-            });
-
-        if (nextText) node.nodeValue = nextText;
-        else node.remove();
-    });
-
-    orderedContainers.forEach(container => {
-        const patches = groupedByContainer.get(container) || [];
-        let ref = container;
-        patches.forEach(patch => {
-            const node = createNodeFromHtml(patch.html);
-            if (!node) return;
-
-            if (container === root) {
-                root.appendChild(node);
-                ref = node;
-                return;
-            }
-
-            ref.insertAdjacentElement('afterend', node);
-            ref = node;
-        });
-
-        if (container !== root) removeIfEmptyFlowContainer(container);
-    });
-
-    return resolvedSlotIds;
-}
-
 function insertPreviewBatchIntoRenderedMessage({ messageId, patches }) {
     const mesTextEl = getMesTextElement(messageId);
     if (!mesTextEl || !Array.isArray(patches) || patches.length === 0) return false;
 
-    const insertedSlotIds = replacePlaceholdersInDomBatch(mesTextEl, patches);
+    const insertedSlotIds = replaceSceneSlotElements(mesTextEl, patches, {
+        shouldReplaceExisting: element => element.dataset.state === 'pending',
+    });
     let inserted = insertedSlotIds.size > 0;
 
     patches.forEach(patch => {
@@ -3133,10 +3010,6 @@ export async function applyNovelDrawRunAutoLearn(record = {}) {
     }
 }
 
-function notifySceneImageLimitAdjusted(adjustment) {
-    if (adjustment?.message) toastr.info(adjustment.message, '小白X画图');
-}
-
 function notifyDetachedGeneration(successCount) {
     const count = Math.max(0, Number(successCount) || 0);
     if (count > 0) {
@@ -3180,7 +3053,6 @@ async function buildNovelScenePlannerOptions({
         absoluteMaxCharactersPerImage: capability.maxCharactersPerImage,
         modelGuide: getEffectiveNovelModelGuide(model, customPrompts),
         plannerProfile: getNovelPlannerProfile(model),
-        onImageLimitAdjusted: notifySceneImageLimitAdjusted,
         onDiagnosticUpdate: diagnostic => onStateChange?.('llm', toScenePlannerProgress(diagnostic)),
         signal,
     };

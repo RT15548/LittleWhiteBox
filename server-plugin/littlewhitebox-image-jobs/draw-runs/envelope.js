@@ -172,7 +172,6 @@ function validatePlanner(value, runtime) {
         MAX_IMAGE_ITEMS,
     );
     if (effectiveMaxImages > maxPlanImages) throw invalid('effectiveMaxImages exceeds maxPlanImages');
-    if (maxPlanImages > sceneSource.points.length) throw invalid('maxPlanImages exceeds available scene points');
     const effectiveMaxCharactersPerImage = requireInteger(
         context.effectiveMaxCharactersPerImage,
         'planner.validationContext.effectiveMaxCharactersPerImage',

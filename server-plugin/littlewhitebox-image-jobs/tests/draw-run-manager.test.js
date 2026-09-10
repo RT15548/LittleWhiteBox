@@ -275,6 +275,7 @@ test('one backend runtime forwards changing browser planning schemas and execute
 
 test('a permissive supplied schema cannot bypass image placement validation or its diagnostic', async (t) => {
     let calls = 0;
+    const fullModelNote = 'retain in failure diagnostics '.repeat(1000);
     const { manager, imageJobService } = createManager({
         runtime: drawRuntime,
         managerOptions: {
@@ -284,7 +285,7 @@ test('a permissive supplied schema cannot bypass image placement validation or i
                         async chat() {
                             calls += 1;
                             return { toolCalls: [{ name: 'submit_scene_plan', arguments: JSON.stringify({
-                                planning_notes: { custom: 'retain in failure diagnostics' },
+                                planning_notes: { custom: fullModelNote },
                                 images: [{ index: 1, insert_after: 42, scene: 'rain', characters: [] }],
                             }) }] };
                         },
@@ -303,7 +304,53 @@ test('a permissive supplied schema cannot bypass image placement validation or i
     assert.equal(imageJobService.jobs.size, 0);
     assert.equal(calls, 2);
     const output = JSON.parse(failed.progress.validationFailures[0].modelOutput);
-    assert.equal(JSON.parse(output.toolCalls[0].arguments).planning_notes.custom, 'retain in failure diagnostics');
+    assert.equal(JSON.parse(output.toolCalls[0].arguments).planning_notes.custom, fullModelNote);
+    assert.equal(failed.progress.validationFailures[0].modelOutputTruncated, false);
+    assert.equal(failed.progress.attempts.length, 2);
+    assert.ok(failed.progress.attempts.every(attempt => attempt.durationMs >= 0));
+    assert.equal(failed.progress.model, 'test-model');
+});
+
+test('Draw Run delivers unordered and shared placements as distinct images without a correction round', async (t) => {
+    let calls = 0;
+    const { manager } = createManager({
+        runtime: drawRuntime,
+        managerOptions: {
+            agentCore: {
+                createAgentAdapter: () => ({
+                    async chat() {
+                        calls += 1;
+                        return { toolCalls: [{ name: 'submit_scene_plan', arguments: JSON.stringify({
+                            images: [2, 1, 2].map((point, index) => ({
+                                insert_after: point, scene: `image-${index}`, characters: [],
+                            })),
+                        }) }] };
+                    },
+                }),
+            },
+        },
+    });
+    t.after(() => manager.close());
+    const envelope = createEnvelope('run-shared-placement');
+    const sourceText = 'Hello.World.';
+    envelope.sourceHash = drawRuntime.hashSceneSource(sourceText);
+    Object.assign(envelope.planner.validationContext, {
+        effectiveMaxImages: 3,
+        maxPlanImages: 3,
+        sceneSource: {
+            sourceText, sourceHash: envelope.sourceHash, content: sourceText, numberedContent: sourceText,
+            points: [{ number: 1, offset: 6 }, { number: 2, offset: 12 }],
+        },
+    });
+    manager.create('alice', envelope, {});
+    const run = await waitFor(() => {
+        const current = manager.get('alice', envelope.runId);
+        return ['dispatched', 'failed'].includes(current?.state) ? current : null;
+    });
+    assert.equal(run.state, 'dispatched', run.error?.message);
+    assert.equal(calls, 1);
+    assert.deepEqual(run.handoffManifest.items.map(item => item.insertOffset), [12, 6, 12]);
+    assert.equal(new Set(run.handoffManifest.items.map(item => item.imgId)).size, 3);
 });
 
 test('Draw Run admits only a data-only submit_scene_plan tool with an images array', () => {

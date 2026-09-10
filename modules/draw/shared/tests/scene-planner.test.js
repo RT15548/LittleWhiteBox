@@ -188,7 +188,7 @@ test('SD WebUI and ComfyUI profiles expose neither a center field nor directiona
     }
 });
 
-test('scene planner clamps an exact image request to the available illustration points', async () => {
+test('scene planner preserves an exact image count even at a shared illustration point', async () => {
     const task = await buildScenePlannerTask({
         messageText: '短句。',
         maxImages: 3,
@@ -199,27 +199,22 @@ test('scene planner clamps an exact image request to the available illustration 
     const images = parameters.properties.images;
     const text = flattenTaskText(task);
 
-    assert.equal(images.minItems, 1);
-    assert.equal(images.maxItems, 1);
+    assert.equal(images.minItems, 3);
+    assert.equal(images.maxItems, 3);
     assert.equal(images.items.properties.insert_after.maximum, 1);
     assert.match(text, /本次正文共有 1 个可用插图点/);
-    assert.match(text, /images 必须恰好包含 1 项/);
+    assert.match(text, /images 必须恰好包含 3 项/);
 });
 
-test('scene planner reports an image-limit adjustment once before the provider request', async () => {
-    const sequence = [];
-    const adjustments = [];
-    await generateAndParseScenePlan({
+test('scene planner accepts the requested images at one point without another model call', async () => {
+    let calls = 0;
+    const tasks = await generateAndParseScenePlan({
         messageText: '短句。',
         maxImages: 3,
         promptDefaults: NOVEL_SCENE_PROMPTS,
         expansionOptions: NOOP_EXPANSION_OPTIONS,
-        onImageLimitAdjusted(adjustment) {
-            sequence.push('adjusted');
-            adjustments.push(adjustment);
-        },
         agentCaller: async () => {
-            sequence.push('provider');
+            calls += 1;
             return {
                 providerConfig: { provider: 'openai-compatible', model: 'test-model' },
                 result: {
@@ -230,7 +225,7 @@ test('scene planner reports an image-limit adjustment once before the provider r
                                 user_insight: '短句画面。',
                                 visual_plan: '画剧情中的这一瞬间，放在插图点 1 后，画面无人物，已录入和未录入角色均不出现，采用中景。',
                             },
-                            images: [{ index: 1, insert_after: 1, scene: 'short scene', characters: [] }],
+                            images: [1, 2, 3].map(index => ({ index, insert_after: 1, scene: 'short scene', characters: [] })),
                         }),
                     }],
                 },
@@ -238,13 +233,9 @@ test('scene planner reports an image-limit adjustment once before the provider r
         },
     });
 
-    assert.deepEqual(sequence, ['adjusted', 'provider']);
-    assert.deepEqual(adjustments, [{
-        requested: 3,
-        effective: 1,
-        insertPointCount: 1,
-        message: '本次正文只有 1 个可用插图点，图片数量已从 3 张调整为 1 张。',
-    }]);
+    assert.equal(calls, 1);
+    assert.equal(tasks.length, 3);
+    assert.deepEqual(tasks.map(task => task.placement.insertAfter), [1, 1, 1]);
 });
 
 test('backend planning capacity rejects an explicit oversized batch before calling the provider', async () => {
@@ -263,18 +254,15 @@ test('backend planning capacity rejects an explicit oversized batch before calli
     assert.equal(providerCalls, 0);
 });
 
-test('backend planning capacity applies after the request is clamped to available points', async () => {
-    const prepared = await prepareScenePlannerInput({
+test('backend capacity still rejects an oversized request when all images share one point', async () => {
+    await assert.rejects(prepareScenePlannerInput({
         messageText: '她推开门。',
         maxImages: 25,
         maxPlanImages: 20,
         promptDefaults: NOVEL_SCENE_PROMPTS,
         expansionOptions: NOOP_EXPANSION_OPTIONS,
         agentCaller: async () => { throw new Error('prepare must not call the provider'); },
-    });
-
-    assert.equal(prepared.planner.validationContext.effectiveMaxImages, 1);
-    assert.equal(prepared.planner.validationContext.maxPlanImages, 1);
+    }), error => error?.code === 'IMAGE_LIMIT_EXCEEDED');
 });
 
 test('every provider request is user-first and injects each key marker exactly once', async () => {

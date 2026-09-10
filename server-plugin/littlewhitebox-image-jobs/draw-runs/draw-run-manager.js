@@ -107,12 +107,13 @@ function buildDisplayMetadata(artifact = {}) {
     return metadata;
 }
 
-function createProgressDiagnostic(onUpdate) {
+function createProgressDiagnostic(runId, onUpdate) {
     const record = {
         stage: 'planning',
         attempt: 0,
         maxAttempts: 3,
         validationFailures: [],
+        attempts: [],
     };
     const apply = (patch = {}) => {
         if (typeof patch.stage === 'string') record.stage = patch.stage;
@@ -121,11 +122,18 @@ function createProgressDiagnostic(onUpdate) {
         if (Array.isArray(patch.validationFailures)) {
             record.validationFailures = cloneJson(patch.validationFailures) || [];
         }
+        if (Array.isArray(patch.attempts)) record.attempts = cloneJson(patch.attempts) || [];
         onUpdate(cloneJson(record));
     };
     return Object.freeze({
+        id: runId,
         update: apply,
-        applyProviderConfig() {},
+        applyProviderConfig(config) {
+            record.presetName = String(config.currentPresetName || '');
+            record.provider = String(config.provider || '');
+            record.model = String(config.model || '');
+            apply();
+        },
         succeed: apply,
         fail(_error, patch = {}) { apply(patch); },
         snapshot() { return cloneJson(record); },
@@ -365,7 +373,7 @@ class DrawRunManager {
             validationFailures: [],
         };
         run.updatedAt = this.now();
-        const diagnostic = createProgressDiagnostic((progress) => {
+        const diagnostic = createProgressDiagnostic(run.id, (progress) => {
             if (!this.runs.has(run.key)) return;
             run.progress = progress;
             run.updatedAt = this.now();

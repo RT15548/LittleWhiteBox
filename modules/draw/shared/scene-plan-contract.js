@@ -291,7 +291,6 @@ function normalizeImages(images, options = {}) {
     const sceneSource = options.sceneSource;
     const sourcePoints = new Map((Array.isArray(sceneSource?.points) ? sceneSource.points : [])
         .map((point) => [point.number, point]));
-    let previousInsertAfter = 0;
     const tasks = images.map((image, imageIndex) => {
         const path = `images[${imageIndex}]`;
         assertRequiredFields(image, REQUIRED_IMAGE_FIELDS, path);
@@ -310,15 +309,6 @@ function normalizeImages(images, options = {}) {
                 },
             );
         }
-        if (insertAfter <= previousInsertAfter) {
-            failSchema(
-                `${path}.insert_after`,
-                '必须按图片顺序严格递增且不得重复',
-                insertAfter,
-                `大于 ${previousInsertAfter} 的有效插图点编号`,
-            );
-        }
-        previousInsertAfter = insertAfter;
         if (!Array.isArray(image.characters)) failSchema(`${path}.characters`, '必须是 array', image.characters);
         if (maxCharactersPerImage && image.characters.length > maxCharactersPerImage) {
             failSchema(`${path}.characters`, `最多包含 ${maxCharactersPerImage} 人`, image.characters.length);

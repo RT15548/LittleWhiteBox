@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-    logDrawRunPlannerFailures,
+    logDrawRunPlannerDiagnostics,
     resetDrawRunPlannerFailureLogsForTests,
 } from '../draw-run-debug.js';
 
@@ -10,7 +10,7 @@ test('new Planner validation failures enter the browser console once with the LL
     resetDrawRunPlannerFailureLogsForTests();
     const entries = [];
     const logger = {
-        warn(prefix, details) { entries.push({ prefix, details }); },
+        log(prefix, details) { entries.push({ prefix, details }); },
     };
     const run = {
         id: 'run-debug-1',
@@ -29,8 +29,8 @@ test('new Planner validation failures enter the browser console once with the LL
         },
     };
 
-    assert.equal(logDrawRunPlannerFailures(run, logger), 1);
-    assert.equal(logDrawRunPlannerFailures(run, logger), 0);
+    assert.equal(logDrawRunPlannerDiagnostics(run, logger), 1);
+    assert.equal(logDrawRunPlannerDiagnostics(run, logger), 0);
     assert.equal(entries.length, 1);
     assert.match(entries[0].prefix, /Tool 返回未通过校验/);
     assert.equal(entries[0].details.errorPath, 'images[0].characters');
@@ -44,7 +44,7 @@ test('browser console logging does not require the DEBUG monitor to be enabled',
     const entries = [];
     const logger = {
         isEnabled: () => false,
-        warn(_prefix, details) { entries.push(details); },
+        log(_prefix, details) { entries.push(details); },
     };
     const run = {
         id: 'run-debug-2',
@@ -53,7 +53,33 @@ test('browser console logging does not require the DEBUG monitor to be enabled',
         },
     };
 
-    assert.equal(logDrawRunPlannerFailures(run, logger), 1);
+    assert.equal(logDrawRunPlannerDiagnostics(run, logger), 1);
     assert.equal(entries[0].errorCode, 'TOOL_CALL_MISSING');
     assert.equal(entries[0].llmResult.text, 'plain answer');
+});
+
+test('backend recovery prints each round once with complete output and durations', () => {
+    resetDrawRunPlannerFailureLogsForTests();
+    const entries = [];
+    const logger = { log: (_label, details) => entries.push(details) };
+    const fullText = 'response'.repeat(4000);
+    const run = {
+        id: 'run-debug-rounds',
+        progress: {
+            model: 'model-name',
+            attempts: [{ attempt: 1, durationMs: 25000 }],
+            validationFailures: [{
+                attempt: 1, durationMs: 25000, errorCode: 'TOOL_CALL_MISSING',
+                modelOutput: JSON.stringify({ text: fullText }), modelOutputTruncated: false,
+            }],
+        },
+    };
+    logDrawRunPlannerDiagnostics(run, logger);
+    logDrawRunPlannerDiagnostics(run, logger);
+    run.progress.attempts.push({ attempt: 2, durationMs: 20000 });
+    logDrawRunPlannerDiagnostics(run, logger);
+    assert.equal(entries.length, 3);
+    assert.equal(entries[1].llmResult.text, fullText);
+    assert.deepEqual(entries.map(entry => entry.durationMs), [25000, 25000, 20000]);
+    assert.ok(entries.every(entry => entry.runId === run.id && entry.model === 'model-name'));
 });

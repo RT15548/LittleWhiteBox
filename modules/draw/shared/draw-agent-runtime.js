@@ -6,6 +6,7 @@ import {
     isScenePlannerCorrectionError,
 } from './scene-plan-contract.js';
 import { redactRequestSecrets } from '../../agent-core/adapters/request-inspection.js';
+import { logScenePlannerDiagnostic, logScenePlannerValidationFailure } from './scene-planner-debug.js';
 import {
     buildProviderAssistantToolCallMessage,
     buildProviderToolResultMessage,
@@ -14,7 +15,6 @@ import {
 
 const DEFAULT_SCENE_PLANNER_TIMEOUT_MS = 10 * 60 * 1000;
 const MAX_SCENE_PLANNER_ATTEMPTS = 3;
-const MAX_DIAGNOSTIC_MODEL_OUTPUT_CHARS = 16 * 1024;
 
 let lastDrawAgentDiagnostic = null;
 let diagnosticSequence = 0;
@@ -139,6 +139,10 @@ function captureDiagnosticModelOutput(result) {
             finishReason: String(result?.finishReason || ''),
             model: String(result?.model || ''),
             provider: String(result?.provider || ''),
+            refused: result?.refused === true,
+            thoughts: cloneJson(result?.thoughts),
+            providerPayload: redactRequestSecrets(cloneJson(result?.providerPayload)),
+            usage: cloneJson(result?.usage),
         });
     } catch (error) {
         serialized = JSON.stringify({
@@ -146,16 +150,17 @@ function captureDiagnosticModelOutput(result) {
             text: String(result?.text || ''),
         });
     }
-    const truncated = serialized.length > MAX_DIAGNOSTIC_MODEL_OUTPUT_CHARS;
     return {
-        modelOutput: serialized.slice(0, MAX_DIAGNOSTIC_MODEL_OUTPUT_CHARS),
-        modelOutputTruncated: truncated,
+        modelOutput: serialized,
+        modelOutputTruncated: false,
     };
 }
 
-function buildValidationFailureRecord({ result, error, attempt, feedbackSent = false }) {
+function buildValidationFailureRecord({ result, error, attempt, startedAt, durationMs, feedbackSent = false }) {
     return {
         attempt,
+        startedAt,
+        durationMs,
         errorCode: String(error?.code || ''),
         errorMessage: String(error?.message || ''),
         errorPath: String(error?.details?.path || ''),
@@ -396,6 +401,12 @@ export async function callDrawScenePlannerAgentRuntime(options = {}) {
     const corrections = [];
     const validationFailures = [];
     const attempts = [];
+    const logContext = {
+        requestId: diagnostic.id,
+        presetName: String(providerConfig.currentPresetName || ''),
+        provider: String(providerConfig.provider || ''),
+        model: String(providerConfig.model || ''),
+    };
     let pendingToolResponses = null;
     let pendingFinalAnswerReminderText = '';
     let previousCorrectionSignature = '';
@@ -426,14 +437,25 @@ export async function callDrawScenePlannerAgentRuntime(options = {}) {
                 corrections,
             });
 
+            const startedAt = Date.now();
+            logScenePlannerDiagnostic('开始请求', { ...logContext, attempt, startedAt });
             let result;
             try {
                 result = await adapter.chat(agentTask);
             } catch (rawError) {
                 const error = mapProviderError(rawError, abortScope, options.signal);
                 const inspection = cloneJson(rawError?.requestInspection);
+                const failedAttempt = {
+                    attempt,
+                    startedAt,
+                    durationMs: Math.max(0, Date.now() - startedAt),
+                    errorCode: error.code,
+                };
+                attempts.push(failedAttempt);
+                logScenePlannerDiagnostic('请求失败', { ...logContext, ...failedAttempt, errorMessage: error.message });
                 diagnostic.fail(error, {
                     stage: 'request',
+                    attempts,
                     terminationReason: error.code === 'REQUEST_TIMEOUT'
                         ? 'timeout'
                         : error.code === 'REQUEST_ABORTED'
@@ -451,11 +473,14 @@ export async function callDrawScenePlannerAgentRuntime(options = {}) {
             const inspection = cloneJson(result?.requestInspection);
             const attemptRecord = {
                 attempt,
+                startedAt,
+                durationMs: Math.max(0, Date.now() - startedAt),
                 toolCallCount: validationToolCalls.length,
                 toolNames: validationToolCalls.map((toolCall) => String(toolCall?.name || '')).filter(Boolean),
                 finishReason: String(result?.finishReason || ''),
             };
             attempts.push(attemptRecord);
+            logScenePlannerDiagnostic('请求完成', { ...logContext, ...attemptRecord });
             diagnostic.update({
                 stage: 'request',
                 ...buildInspectionDiagnosticPatch(inspection),
@@ -494,8 +519,11 @@ export async function callDrawScenePlannerAgentRuntime(options = {}) {
                     result: validationResult,
                     error,
                     attempt,
+                    startedAt,
+                    durationMs: attemptRecord.durationMs,
                 });
                 validationFailures.push(failureRecord);
+                logScenePlannerValidationFailure(failureRecord, logContext);
                 diagnostic.update({
                     stage: 'correction',
                     correctionCount: corrections.length,

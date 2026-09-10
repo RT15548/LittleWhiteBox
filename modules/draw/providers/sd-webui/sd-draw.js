@@ -2968,10 +2968,6 @@ async function autoGenerateForLastAI() {
     }
 }
 
-function notifySceneImageLimitAdjusted(adjustment) {
-    if (adjustment?.message) toastr.info(adjustment.message, '小白X画图');
-}
-
 function notifyDetachedGeneration(successCount) {
     const count = Math.max(0, Number(successCount) || 0);
     if (count > 0) {
@@ -3029,7 +3025,6 @@ async function buildSdScenePlannerOptions({
             maxImages: preset.maxImages || 0,
             maxCharactersPerImage: preset.maxCharactersPerImage || 0,
             plannerProfile: SD_PLANNER_PROFILE,
-            onImageLimitAdjusted: notifySceneImageLimitAdjusted,
             onDiagnosticUpdate: diagnostic => onStateChange?.('llm', toScenePlannerProgress(diagnostic)),
             signal,
         },

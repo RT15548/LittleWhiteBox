@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { createSceneSource } from '../scene-source.js';
+import { insertScenePlacements } from '../scene-placement.js';
 import {
     ScenePlannerError,
     ScenePlannerErrorCategory,
@@ -108,6 +109,23 @@ test('scene plan contract normalizes aliases, known character fields, placement,
     assert.equal(source.sourceText.slice(0, source.points[0].offset).endsWith('她在雨中抱住了阿璃。'), true);
 });
 
+test('unordered and shared illustration points preserve each image and its intended placement', () => {
+    const sceneSource = createSceneSource('First. Second.');
+    const parameters = buildParameters({ images: [2, 1, 2].map((point, index) => ({
+        insert_after: point,
+        scene: `scene-${index}`,
+        characters: [],
+    })) });
+    const { tasks } = parseSubmittedScenePlan(buildResult(parameters), { sceneSource, maxImages: 3 });
+    assert.deepEqual(tasks.map(task => task.placement.insertAfter), [2, 1, 2]);
+    assert.deepEqual(tasks.map(task => task.scene), ['scene-0', 'scene-1', 'scene-2']);
+    const placed = insertScenePlacements(sceneSource.sourceText, tasks.map((task, index) => ({
+        placement: task.placement,
+        content: `[image:${index}]`,
+    })));
+    assert.equal(placed, 'First. [image:1]Second.[image:0][image:2]');
+});
+
 test('scene plan tool schema applies exact image count and character cap', () => {
     const tool = createSubmitScenePlanTool({ maxImages: 3, maxCharactersPerImage: 2 });
     const schema = tool.function.parameters.properties.images;
@@ -141,7 +159,7 @@ test('scene plan tool schema applies exact image count and character cap', () =>
     assert.equal(backendBounded.images.minItems, 1);
     assert.equal(backendBounded.images.maxItems, 20);
     assert.equal(boundedImages.minItems, 1);
-    assert.equal(boundedImages.maxItems, 2);
+    assert.equal(boundedImages.maxItems, undefined);
     assert.equal(boundedImages.items.properties.insert_after.maximum, 2);
 });
 
@@ -519,20 +537,6 @@ test('scene plan contract retains required content, placement, count, and coordi
             () => parseSubmittedScenePlan(buildResult(build()), parseOptions),
             (error) => error.code === expectedCode
                 && error.message.includes(expectedPath),
-        );
-    }
-
-    for (const insertAfter of [[2, 1], [1, 1]]) {
-        const value = buildParameters();
-        value.images = insertAfter.map((point, index) => ({
-            ...value.images[0],
-            index: index + 1,
-            insert_after: point,
-        }));
-        assert.throws(
-            () => parseSubmittedScenePlan(buildResult(value), { ...parseOptions, maxImages: 2 }),
-            (error) => error.code === 'TOOL_ARGUMENTS_SCHEMA_INVALID'
-                && error.details?.rule === '必须按图片顺序严格递增且不得重复',
         );
     }
 

@@ -84,7 +84,7 @@ export function createSubmitScenePlanTool(options = {}) {
     const maxCharactersPerImage = normalizeLimit(options.maxCharactersPerImage);
     const insertPointCount = normalizeLimit(options.insertPointCount);
     const profile = normalizeScenePlannerProfile(options.profile);
-    const maxPlanItems = maxImages || maxPlanImages || insertPointCount;
+    const maxPlanItems = maxImages || maxPlanImages;
     const charactersSchema = {
         type: 'array',
         ...(maxCharactersPerImage ? { maxItems: maxCharactersPerImage } : {}),
@@ -111,7 +111,7 @@ export function createSubmitScenePlanTool(options = {}) {
                     type: 'integer',
                     minimum: 1,
                     ...(insertPointCount ? { maximum: insertPointCount } : {}),
-                    description: '本图在正文中的位置：<content> 里 `【插图点 N】` 的 N。取本图画面发生处之后最近的那个标记。多张图按阅读顺序递增且不重复。',
+                    description: 'The number N of an existing `【插图点 N】` marker in <content>. Choose the nearest marker after the moment depicted. Images at the same marker appear in array order.',
                 },
                 scene: stringSchema(
                     '画面整体：人数与关系、构图与视角、背景、光影、氛围，逗号分隔的英文 tag。角色个体的外貌与动作不写在这里。拼在正向提示词最前。',

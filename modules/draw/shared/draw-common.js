@@ -10,6 +10,7 @@ import {
     ScenePlannerError,
 } from "./scene-plan-contract.js";
 import { ScenePlacementError } from './scene-placement.js';
+import { replaceSceneSlotElements } from './scene-slot-dom.js';
 import { getPendingImageJobSlots, PendingJobState } from './pending-image-jobs.js';
 import { createDrawImageSlotRegex } from './image-marker-syntax.js';
 import { classifyScenePlannerErrorForUi } from "./scene-planner-error-ui.js";
@@ -369,14 +370,6 @@ export function buildDrawSlotSelector(slotId) {
     return `.xb-nd-img[data-slot-id="${escaped}"]`;
 }
 
-function createNodeFromHtml(html) {
-    const template = document.createElement('template');
-    // Template-only UI markup built locally.
-    // eslint-disable-next-line no-unsanitized/property
-    template.innerHTML = String(html || '').trim();
-    return template.content.firstElementChild || null;
-}
-
 export function extractSlotIds(mes) {
     const ids = new Set();
     if (!mes) return ids;
@@ -384,10 +377,6 @@ export function extractSlotIds(mes) {
     const regex = createDrawImageSlotRegex();
     while ((match = regex.exec(mes)) !== null) ids.add(match[1]);
     return ids;
-}
-
-function getTrimmedText(value) {
-    return String(value || '').replace(/\u200B/g, '').trim();
 }
 
 async function persistChatSilently() {
@@ -509,108 +498,10 @@ export async function syncDrawSavedAfterDeletion(messageId, slotId, deletedImgId
     return clearDrawSavedEntry(messageId, slotId);
 }
 
-function findTopLevelFlowContainer(root, node) {
-    let current = node?.nodeType === Node.TEXT_NODE ? node.parentElement : node;
-    while (current && current.parentElement && current.parentElement !== root) {
-        current = current.parentElement;
-    }
-    return current && current.parentElement === root ? current : null;
-}
-
-function removeIfEmptyFlowContainer(container) {
-    if (!(container instanceof HTMLElement)) return;
-    if (!['P', 'DIV', 'BLOCKQUOTE', 'LI'].includes(container.tagName)) return;
-    if (container.querySelector('img, video, audio, canvas, iframe, .xb-nd-img')) return;
-    if (getTrimmedText(container.textContent).length > 0) return;
-    container.remove();
-}
-
-function replacePlaceholdersInDomBatch(root, replacements) {
-    const resolvedSlotIds = new Set();
-    for (const item of replacements) {
-        if (!item?.slotId || !item?.html) continue;
-        const existing = root.querySelector(buildDrawSlotSelector(item.slotId));
-        if (!existing) continue;
-        const replacement = createNodeFromHtml(item.html);
-        if (!replacement) continue;
-        existing.replaceWith(replacement);
-        resolvedSlotIds.add(item.slotId);
-    }
-    const pending = replacements.filter(item =>
-        item?.slotId &&
-        item?.html &&
-        !resolvedSlotIds.has(item.slotId) &&
-        !root.querySelector(buildDrawSlotSelector(item.slotId))
-    );
-    if (pending.length === 0) return resolvedSlotIds;
-
-    const placeholderMap = new Map(pending.map(item => [createPlaceholder(item.slotId), item]));
-    const placeholderRegex = new RegExp(Array.from(placeholderMap.keys()).map(escapeRegexChars).join('|'), 'g');
-    const nodePlans = new Map();
-    const groupedByContainer = new Map();
-    const orderedContainers = [];
-
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
-        acceptNode(node) {
-            return node.parentElement?.closest('.xb-nd-img')
-                ? NodeFilter.FILTER_REJECT
-                : NodeFilter.FILTER_ACCEPT;
-        },
-    });
-
-    let textNode;
-    while ((textNode = walker.nextNode())) {
-        const value = textNode.nodeValue || '';
-        placeholderRegex.lastIndex = 0;
-        let match;
-        while ((match = placeholderRegex.exec(value))) {
-            const patch = placeholderMap.get(match[0]);
-            if (!patch || resolvedSlotIds.has(patch.slotId)) continue;
-            const container = findTopLevelFlowContainer(root, textNode) || root;
-            if (!groupedByContainer.has(container)) {
-                groupedByContainer.set(container, []);
-                orderedContainers.push(container);
-            }
-            groupedByContainer.get(container).push(patch);
-            if (!nodePlans.has(textNode)) nodePlans.set(textNode, { text: value, removals: [] });
-            nodePlans.get(textNode).removals.push({ start: match.index, end: match.index + match[0].length });
-            resolvedSlotIds.add(patch.slotId);
-        }
-    }
-
-    nodePlans.forEach((plan, node) => {
-        let nextText = plan.text;
-        plan.removals.sort((a, b) => b.start - a.start).forEach(removal => {
-            nextText = nextText.slice(0, removal.start) + nextText.slice(removal.end);
-        });
-        if (nextText) node.nodeValue = nextText;
-        else node.remove();
-    });
-
-    orderedContainers.forEach(container => {
-        const patches = groupedByContainer.get(container) || [];
-        let ref = container;
-        patches.forEach(patch => {
-            const node = createNodeFromHtml(patch.html);
-            if (!node) return;
-            if (container === root) {
-                root.appendChild(node);
-                ref = node;
-                return;
-            }
-            ref.insertAdjacentElement('afterend', node);
-            ref = node;
-        });
-        if (container !== root) removeIfEmptyFlowContainer(container);
-    });
-
-    return resolvedSlotIds;
-}
-
 export function insertPreviewIntoRenderedMessage({ messageId, slotId, html }) {
     const mesTextEl = getMesTextElement(messageId);
     if (!mesTextEl || !slotId || !html) return false;
-    const insertedSlotIds = replacePlaceholdersInDomBatch(mesTextEl, [{ slotId, html }]);
+    const insertedSlotIds = replaceSceneSlotElements(mesTextEl, [{ slotId, html }]);
     if (insertedSlotIds.has(slotId)) return true;
     return mesTextEl.querySelector(buildDrawSlotSelector(slotId)) !== null;
 }
@@ -812,25 +703,7 @@ async function renderPreviewsForMessageNow(messageId, {
         || message.mes !== sourceText
         || getMesTextElement(messageId) !== mesTextEl
         || isMessageBeingEdited(messageId)) return;
-    const insertedSlotIds = replacePlaceholdersInDomBatch(mesTextEl, replacements);
-    const pendingFallback = replacements.filter(item => !insertedSlotIds.has(item.slotId));
-    if (pendingFallback.length === 0) return;
-
-    let html = mesTextEl.innerHTML;
-    let fallbackReplaced = false;
-    for (const item of pendingFallback) {
-        const placeholder = createPlaceholder(item.slotId);
-        const escapedPlaceholder = placeholder.replace(/[[\]]/g, '\\$&');
-        if (!new RegExp(escapedPlaceholder).test(html)) continue;
-        html = html.replace(new RegExp(escapedPlaceholder, 'g'), item.html);
-        fallbackReplaced = true;
-    }
-
-    if (fallbackReplaced && !isMessageBeingEdited(messageId)) {
-        // Template-only UI markup built locally.
-        // eslint-disable-next-line no-unsanitized/property
-        mesTextEl.innerHTML = html;
-    }
+    replaceSceneSlotElements(mesTextEl, replacements);
 }
 
 // 同一楼层只允许一个异步投影在运行。图片落库、恢复状态变化和消息事件可能在同一时刻

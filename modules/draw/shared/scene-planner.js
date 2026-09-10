@@ -147,7 +147,7 @@ function buildSessionLimitsLine(maxImages, maxCharactersPerImage, insertPointCou
     const clauses = [];
     if (insertPointCount > 0) clauses.push(`本次正文共有 ${insertPointCount} 个可用插图点，编号范围为 1～${insertPointCount}`);
     if (imageLimit) clauses.push(`images 必须恰好包含 ${imageLimit} 项`);
-    else if (maxPlanImages > 0 && maxPlanImages < insertPointCount) clauses.push(`images 最多包含 ${maxPlanImages} 项`);
+    else if (maxPlanImages > 0) clauses.push(`images 最多包含 ${maxPlanImages} 项`);
     if (characterLimit) clauses.push(`每项 characters 最多 ${characterLimit} 人`);
     return clauses.length ? `本次提交数量约束：${clauses.join('；')}。` : '';
 }
@@ -155,11 +155,6 @@ function buildSessionLimitsLine(maxImages, maxCharactersPerImage, insertPointCou
 function resolveRequestedMaxImages(maxImages) {
     const requested = Number(maxImages) > 0 ? Math.floor(Number(maxImages)) : 0;
     return Math.max(0, requested);
-}
-
-function resolveEffectiveMaxImages(requested, insertPointCount) {
-    if (!requested) return 0;
-    return Math.min(requested, Math.max(0, Number(insertPointCount) || 0));
 }
 
 function resolveEffectiveMaxCharacters(requestedLimit, absoluteLimit) {
@@ -203,32 +198,19 @@ async function buildScenePlannerRequest(options = {}) {
     if (!insertPointCount) {
         throw new ScenePlannerError('正文中没有可用的插图位置。', 'NO_INSERT_POINTS');
     }
-    const requestedMaxImages = resolveRequestedMaxImages(maxImages);
+    const effectiveMaxImages = resolveRequestedMaxImages(maxImages);
     const requestedPlanCapacity = resolveRequestedMaxImages(maxPlanImages);
-    const effectiveMaxImages = resolveEffectiveMaxImages(requestedMaxImages, insertPointCount);
     if (requestedPlanCapacity && effectiveMaxImages > requestedPlanCapacity) {
         throw new ScenePlannerError(
             `后台画图单批最多支持 ${requestedPlanCapacity} 张；请把本次图片数调低后重试。`,
             'IMAGE_LIMIT_EXCEEDED',
         );
     }
-    const effectiveMaxPlanImages = effectiveMaxImages || Math.min(
-        insertPointCount,
-        requestedPlanCapacity || insertPointCount,
-    );
+    const effectiveMaxPlanImages = effectiveMaxImages || requestedPlanCapacity;
     const effectiveMaxCharactersPerImage = resolveEffectiveMaxCharacters(
         maxCharactersPerImage,
         absoluteMaxCharactersPerImage,
     );
-    const imageLimitAdjustment = requestedMaxImages > effectiveMaxImages
-        ? {
-            requested: requestedMaxImages,
-            effective: effectiveMaxImages,
-            insertPointCount,
-            message: `本次正文只有 ${insertPointCount} 个可用插图点，图片数量已从 ${requestedMaxImages} 张调整为 ${effectiveMaxImages} 张。`,
-        }
-        : null;
-
     const promptConfig = getEffectivePromptConfig(customPrompts, promptDefaults);
     const runtime = await resolveExpansionRuntime(options.expansionOptions);
     const slots = createPromptSlots(['worldInfo', 'characterInfo', 'lastMessage']);
@@ -305,7 +287,6 @@ async function buildScenePlannerRequest(options = {}) {
                 insertPointCount: sceneSource.points.length,
                 profile,
             }),
-            imageLimitAdjustment,
             validationContext: {
                 sceneSource,
                 effectiveMaxImages,
@@ -342,19 +323,6 @@ export async function prepareScenePlannerInput(options = {}) {
     } catch (error) {
         diagnostic?.fail(error, { stage: 'prompt' });
         throw error;
-    }
-
-    if (request.imageLimitAdjustment) {
-        xbLog.info(
-            'novelDrawLlm',
-            request.imageLimitAdjustment.message,
-            request.imageLimitAdjustment,
-        );
-        try {
-            options.onImageLimitAdjusted?.(request.imageLimitAdjustment);
-        } catch (error) {
-            console.warn('[Draw Scene Planner] 图片数量调整提示失败:', error);
-        }
     }
 
     let providerConfig = options.agentOptions?.providerConfig || null;
