@@ -12,6 +12,26 @@ import { OpenAIResponsesAdapter } from '../../agent-core/adapters/openai-respons
 import { redactRequestSecrets } from '../../agent-core/adapters/request-inspection.js';
 import { resolveRuntimeReasoning } from '../../agent-core/reasoning-capabilities.js';
 
+test('raw assistant diagnostics are opt-in and preserve missing native arguments without changing replay', async () => {
+    const adapter = new OpenAICompatibleAdapter({ apiKey: 'test-key', model: 'compat-test' });
+    const message = {
+        role: 'assistant', content: '',
+        tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'Read' } }],
+    };
+    const original = structuredClone(message);
+    adapter.client.chat.completions.create = async () => ({ choices: [{ message, finish_reason: 'stop' }] });
+    const task = { messages: [{ role: 'user', content: 'test' }] };
+    const ordinary = await adapter.chat(task);
+    assert.equal(Object.hasOwn(ordinary, 'rawAssistantMessage'), false);
+    const captured = await adapter.chat({ ...task, captureRawAssistantMessage: true });
+    assert.deepEqual(captured.rawAssistantMessage, original);
+    const { rawAssistantMessage, ...normalized } = captured;
+    assert.deepEqual(normalized, ordinary);
+    assert.deepEqual(message, original);
+    rawAssistantMessage.tool_calls[0].function.name = 'changed';
+    assert.equal(message.tool_calls[0].function.name, 'Read');
+});
+
 test('tagged-json prompt honors required, named, and none tool choices', () => {
     const buildSystem = (toolChoice) => buildTaggedMessages({
         systemPrompt: '你是测试助手。',
@@ -1785,6 +1805,7 @@ test('openai-compatible tagged-json streaming hides raw tool JSON and emits tool
     const progress = [];
     const result = await adapter.chat({
         messages: [{ role: 'user', content: '查状态' }],
+        captureRawAssistantMessage: true,
         tools: [{
             function: {
                 name: 'Read',
@@ -1800,6 +1821,9 @@ test('openai-compatible tagged-json streaming hides raw tool JSON and emits tool
     assert.equal(progress.some((snapshot) => snapshot.toolCalls?.[0]?.name === 'Read'), true);
     assert.equal(result.text, '我先查一下。');
     assert.equal(result.toolCalls?.[0]?.name, 'Read');
+    assert.equal(result.rawAssistantMessage.content,
+        '我先查一下。\n<tool_call>{"name":"Read","arguments":{"path":"memory/state.md"}}</tool_call>');
+    assert.equal(result.providerPayload.openaiCompatibleMessage.content, '我先查一下。');
 });
 
 test('openai-compatible adapter accepts CRLF-delimited SSE events in native streaming mode', async () => {

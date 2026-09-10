@@ -22,6 +22,7 @@ import {
     buildProviderPayload,
     buildReplayableAssistantMessage,
     buildTaggedMessages,
+    captureRawAssistantMessage,
     extractTaggedToolCalls,
     extractThinkTaggedContent,
     extractThoughtsFromMessage,
@@ -210,6 +211,7 @@ export class SillyTavernOpenAICompatibleAdapter {
             model: lastModel,
             provider: 'sillytavern-openai-compatible',
             providerPayload: buildProviderPayload(assistantSnapshot),
+            ...captureRawAssistantMessage(task, assistantSnapshot),
         };
     }
 
@@ -237,6 +239,7 @@ export class SillyTavernOpenAICompatibleAdapter {
             model: response.model || this.config.model,
             provider: 'sillytavern-openai-compatible',
             providerPayload: buildProviderPayload(replayableMessage),
+            ...captureRawAssistantMessage(task, message),
         };
     }
 

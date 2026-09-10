@@ -277,6 +277,8 @@ async function buildNodeBundle({ entryPoint, outfile, banner }) {
         format: 'cjs',
         platform: 'node',
         target: 'node18',
+        // Escape literal newlines instead of emitting templates with trailing spaces.
+        supported: { 'template-literal': false },
         packages: 'bundle',
         plugins: [optionalNativeDependencyPlugin],
         legalComments: 'eof',

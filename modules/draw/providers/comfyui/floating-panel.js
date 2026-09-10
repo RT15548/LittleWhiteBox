@@ -12,6 +12,7 @@ import {
 import { isDrawRunCancelledError, isDrawRunPendingError } from '../../shared/draw-run-production.js';
 import {
     formatDrawRunProgress,
+    getDrawRunProgressIcon,
     hasDrawRunProgressDetail,
     resolveDrawRunActivityDetail,
     resolveDrawRunUiState,
@@ -714,7 +715,7 @@ function setFloorState(messageId, state, data = {}) {
         case FloatState.ACCEPTED:
             el.classList.add('working');
             if (!panelData.result.startTime) panelData.result.startTime = Date.now();
-            if (statusIcon) { statusIcon.textContent = '🎨'; statusIcon.className = 'nd-status-icon nd-spin'; }
+            if (statusIcon) { statusIcon.textContent = getDrawRunProgressIcon(data); statusIcon.className = 'nd-status-icon nd-spin'; }
             if (statusText) statusText.textContent = formatDrawRunProgress(data);
             break;
         case FloatState.UNCERTAIN:
@@ -1146,7 +1147,7 @@ export function setFloatingState(state, data = {}) {
         case FloatState.ACCEPTED:
             floatingEl.classList.add('working');
             if (!floatingResult.startTime) floatingResult.startTime = Date.now();
-            statusIcon.textContent = '🎨';
+            statusIcon.textContent = getDrawRunProgressIcon(data);
             statusIcon.className = 'nd-status-icon nd-spin';
             statusText.textContent = formatDrawRunProgress(data);
             break;

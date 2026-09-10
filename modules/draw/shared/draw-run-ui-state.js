@@ -13,11 +13,19 @@ const ANALYSIS_STAGES = new Set([
 ]);
 const REATTACH_STAGES = new Set(['reattaching', 'delivering', 'dispatched']);
 
-export function formatDrawRunProgress(detail = {}) {
+function getDrawRunProgressStage(detail) {
     const run = detail.run && typeof detail.run === 'object' ? detail.run : null;
-    const stage = String(detail.stage || run?.progress?.stage || run?.state || '').toLowerCase();
+    return String(detail.stage || run?.progress?.stage || run?.state || '').toLowerCase();
+}
+
+export function getDrawRunProgressIcon(detail = {}) {
+    return ANALYSIS_STAGES.has(getDrawRunProgressStage(detail)) ? '⏳' : '🎨';
+}
+
+export function formatDrawRunProgress(detail = {}) {
+    const stage = getDrawRunProgressStage(detail);
     if (stage === 'queued') return '排队';
-    if (ANALYSIS_STAGES.has(stage)) return '分析中';
+    if (ANALYSIS_STAGES.has(stage)) return '分析';
     if (REATTACH_STAGES.has(stage)) return '接回中';
     if (stage === 'compiling') return '准备中';
     if (stage === 'reconnecting') return '重连';

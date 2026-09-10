@@ -2304,6 +2304,7 @@ test('sillytavern OpenAI-compatible tagged-json streaming hides raw tool JSON an
                 },
             }],
             onStreamProgress: (snapshot) => progress.push(snapshot),
+            captureRawAssistantMessage: true,
         });
 
         assert.equal(progress.some((snapshot) => String(snapshot.text || '').includes('<tool_call>')), false);
@@ -2311,6 +2312,9 @@ test('sillytavern OpenAI-compatible tagged-json streaming hides raw tool JSON an
         assert.equal(progress.some((snapshot) => snapshot.toolCalls?.[0]?.name === 'Read'), true);
         assert.equal(result.text, '我先查一下。');
         assert.equal(result.toolCalls?.[0]?.name, 'Read');
+        assert.equal(result.rawAssistantMessage.content,
+            '我先查一下。\n<tool_call>{"name":"Read","arguments":{"path":"local/test.txt"}}</tool_call>');
+        assert.equal(result.providerPayload.openaiCompatibleMessage.content, '我先查一下。');
     } finally {
         globalThis.fetch = originalFetch;
     }

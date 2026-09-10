@@ -142,6 +142,7 @@ function captureDiagnosticModelOutput(result) {
             refused: result?.refused === true,
             thoughts: cloneJson(result?.thoughts),
             providerPayload: redactRequestSecrets(cloneJson(result?.providerPayload)),
+            rawAssistantMessage: redactRequestSecrets(cloneJson(result?.rawAssistantMessage)),
             usage: cloneJson(result?.usage),
         });
     } catch (error) {
@@ -392,6 +393,7 @@ export async function callDrawScenePlannerAgentRuntime(options = {}) {
         temperature: providerConfig.temperature,
         maxTokens: providerConfig.maxTokens,
         reasoning: providerConfig.reasoning,
+        captureRawAssistantMessage: true,
         signal: abortScope.signal,
     };
     delete baseAgentTask.onStreamProgress;
@@ -406,6 +408,7 @@ export async function callDrawScenePlannerAgentRuntime(options = {}) {
         presetName: String(providerConfig.currentPresetName || ''),
         provider: String(providerConfig.provider || ''),
         model: String(providerConfig.model || ''),
+        toolMode: String(providerConfig.toolMode || ''),
     };
     let pendingToolResponses = null;
     let pendingFinalAnswerReminderText = '';

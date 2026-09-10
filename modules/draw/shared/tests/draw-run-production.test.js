@@ -17,6 +17,7 @@ import {
 } from '../draw-run-activity.js';
 import {
     formatDrawRunProgress,
+    getDrawRunProgressIcon,
     resolveDrawRunActivityDetail,
     resolveDrawRunUiState,
 } from '../draw-run-ui-state.js';
@@ -49,13 +50,28 @@ function baseOptions(overrides = {}) {
 
 test('Draw Run progress labels use real backend stages and item positions', () => {
     assert.equal(formatDrawRunProgress({ run: { progress: { stage: 'queued' } } }), '排队');
-    assert.equal(formatDrawRunProgress({ stage: 'planning' }), '分析中');
+    assert.equal(formatDrawRunProgress({ stage: 'planning' }), '分析');
     assert.equal(formatDrawRunProgress({ stage: 'queued', current: 1, total: 2 }), '排队');
     assert.equal(formatDrawRunProgress({ stage: 'progress', current: 1, total: 2 }), '1/2');
     assert.equal(formatDrawRunProgress({ stage: 'dispatched' }), '接回中');
     assert.equal(formatDrawRunProgress({ stage: 'delivering' }), '接回中');
     assert.equal(formatDrawRunProgress({ stage: 'reconnecting' }), '重连');
     assert.equal(formatDrawRunProgress({}), '生成中');
+});
+
+test('Draw Run analysis uses the hourglass while other stages keep the drawing icon', () => {
+    for (const stage of ['planning', 'prompt', 'config', 'request', 'correction', 'parse']) {
+        for (const detail of [{ stage }, { run: { progress: { stage } } }, { run: { state: stage } }]) {
+            assert.equal(getDrawRunProgressIcon(detail), '⏳');
+            assert.equal(formatDrawRunProgress(detail), '分析');
+        }
+    }
+    for (const stage of ['queued', 'compiling', 'progress', 'cooldown', 'dispatched', 'delivering', 'reconnecting', '']) {
+        assert.equal(getDrawRunProgressIcon({ stage }), '🎨');
+    }
+    const generation = { stage: 'progress', current: 1, total: 2, run: { state: 'planning' } };
+    assert.equal(getDrawRunProgressIcon(generation), '🎨');
+    assert.equal(formatDrawRunProgress(generation), '1/2');
 });
 
 test('production entry refuses an old backend without running Planner or silently falling back', async () => {

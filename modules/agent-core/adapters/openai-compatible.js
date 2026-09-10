@@ -41,6 +41,14 @@ function cloneJson(value) {
     }
 }
 
+// Opt-in, request-local diagnostics. Never put unparsed content in replay payloads.
+// Streaming callers receive the assembled assistant message, not individual SSE frames.
+export function captureRawAssistantMessage(task, message) {
+    return task.captureRawAssistantMessage === true
+        ? { rawAssistantMessage: cloneJson(message) }
+        : {};
+}
+
 function isPlainObject(value) {
     return !!value && typeof value === 'object' && !Array.isArray(value);
 }
@@ -1100,6 +1108,7 @@ export class OpenAICompatibleAdapter {
             model: lastModel,
             provider: 'openai-compatible',
             providerPayload,
+            ...captureRawAssistantMessage(task, assistantSnapshot),
         };
     }
 
@@ -1200,6 +1209,7 @@ export class OpenAICompatibleAdapter {
                 provider: 'openai-compatible',
                 providerPayload,
                 requestInspection,
+                ...captureRawAssistantMessage(task, finalMessage),
             };
         }
 
@@ -1231,6 +1241,7 @@ export class OpenAICompatibleAdapter {
             provider: 'openai-compatible',
             providerPayload: buildProviderPayload(replayableMessage),
             requestInspection,
+            ...captureRawAssistantMessage(task, message),
         };
     }
 }
