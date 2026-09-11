@@ -432,7 +432,7 @@ export function isSummaryRollbackRequired(store, currentLength) {
     const lastSummarized = Number(store?.lastSummarizedMesId);
     if (!Number.isInteger(lastSummarized) || lastSummarized < 0) return false;
     const length = Math.max(0, Math.trunc(Number(currentLength) || 0));
-    return length <= lastSummarized && lastSummarized + 1 - length >= 2;
+    return length <= lastSummarized && lastSummarized + 1 - length >= 1;
 }
 
 export function isSummaryConsumable(store, currentLength) {
