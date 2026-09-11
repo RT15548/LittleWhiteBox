@@ -1160,6 +1160,7 @@ import { EVENT_MEMORY_ROLES, projectEditedSummaryEvents } from './data/events.js
         $('gen-frequency').value = config.gen.frequency_penalty ?? '';
         $('trigger-enabled').checked = config.trigger.enabled;
         $('trigger-interval').value = config.trigger.interval;
+        $('trigger-delay-floors').value = config.trigger.delayFloors ?? 0;
         $('trigger-timing').value = config.trigger.timing;
         $('trigger-role').value = config.trigger.role || 'system';
         $('trigger-stream').checked = config.trigger.useStream !== false;
@@ -1236,6 +1237,7 @@ import { EVENT_MEMORY_ROLES, projectEditedSummaryEvents } from './data/events.js
         config.trigger.role = $('trigger-role').value || 'system';
         config.trigger.enabled = $('trigger-enabled').checked;
         config.trigger.interval = Math.max(1, Math.min(30, parseInt($('trigger-interval').value) || 20));
+        config.trigger.delayFloors = Math.max(0, Math.min(30, parseInt($('trigger-delay-floors').value) || 0));
         config.trigger.useStream = $('trigger-stream').checked;
         config.trigger.maxPerRun = parseInt($('trigger-max-per-run').value) || 100;
         config.trigger.wrapperHead = $('trigger-wrapper-head').value;
@@ -2622,6 +2624,13 @@ import { EVENT_MEMORY_ROLES, projectEditedSummaryEvents } from './data/events.js
         $('trigger-interval').onchange = e => {
             let val = parseInt(e.target.value) || 20;
             val = Math.max(1, Math.min(30, val));
+            e.target.value = val;
+        };
+
+        // 延迟总结楼层范围校验
+        $('trigger-delay-floors').onchange = e => {
+            let val = parseInt(e.target.value) || 0;
+            val = Math.max(0, Math.min(30, val));
             e.target.value = val;
         };
 

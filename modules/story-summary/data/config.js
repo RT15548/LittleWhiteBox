@@ -425,6 +425,7 @@ function createDefaultSummaryPanelConfig() {
         trigger: {
             enabled: false,
             interval: 20,
+            delayFloors: 0,
             timing: "before_user",
             role: "system",
             useStream: true,
@@ -515,6 +516,8 @@ function normalizeSummaryPanelConfig(rawConfig = null) {
         result.trigger.timing = defaults.trigger.timing;
     }
     if (result.trigger.useStream === undefined) result.trigger.useStream = true;
+    const delayFloors = Number.parseInt(result.trigger.delayFloors, 10);
+    result.trigger.delayFloors = Number.isFinite(delayFloors) ? Math.max(0, Math.min(30, delayFloors)) : 0;
     result.ui.hideSummarized = !!result.ui.hideSummarized;
     result.ui.keepVisibleCount = clampKeepVisibleCount(result.ui.keepVisibleCount);
     result.ui.useVectorBoundary = result.ui.useVectorBoundary !== false;
