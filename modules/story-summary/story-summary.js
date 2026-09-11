@@ -3056,7 +3056,8 @@ async function maybeAutoRunSummary(reason) {
 
     const store = getSummaryStore();
     const lastSummarized = store?.lastSummarizedMesId ?? -1;
-    const target = getSummarySourceEnd(chat, chat.length - 1);
+    const sourceEnd = getSummarySourceEnd(chat, chat.length - 1);
+    const target = Math.min(sourceEnd, chat.length - 1 - (Number(trig?.delayFloors) || 0));
     const pending = target - lastSummarized;
     if (pending < (trig.interval || 1)) return;
 
@@ -3206,7 +3207,7 @@ async function handleFrameMessage(event) {
                 break;
             }
             const ctx = getContext();
-            currentMesId = (ctx.chat?.length ?? 1) - 1;
+            currentMesId = (ctx.chat?.length ?? 1) - 1 - (Number(getSummaryPanelConfig()?.trigger?.delayFloors) || 0);
             handleManualGenerate(currentMesId, data.config || {});
             break;
         }
