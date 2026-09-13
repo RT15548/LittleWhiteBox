@@ -1,12 +1,26 @@
 import { getHostRequestHeaders } from '../../../shared/host-request-headers.js';
+import {
+    getLastUserMessageIndex,
+    shouldPreserveHistoricalReasoning,
+    shouldReplayFullNativeMessage,
+} from '../adapters/openai-compatible-replay-policy.js';
 
 const TOKEN_ESTIMATE_BYTES_PER_TOKEN = 3.35;
 const textEncoder = new TextEncoder();
 
 /** @typedef {{ tokens: number, source: 'tokenizer' | 'estimated' }} ConversationTokenCount */
 
-function buildTokenCounterMessages(messages = []) {
-    return messages.map((message) => {
+function buildTokenCounterMessages(messages = [], tools = [], providerConfig = {}) {
+    const preserveHistoricalReasoning = shouldPreserveHistoricalReasoning(providerConfig, tools);
+    const nativeReplay = ['openai-compatible', 'sillytavern-openai-compatible'].includes(providerConfig.provider)
+        && !(providerConfig.toolMode === 'tagged-json' && tools.length);
+    const lastUserIndex = getLastUserMessageIndex(messages);
+    return messages.map((message, index) => {
+        const preserved = message.role === 'assistant' ? message.providerPayload?.openaiCompatibleMessage : null;
+        const reasoningContent = typeof preserved?.reasoning_content === 'string'
+            && (preserveHistoricalReasoning || (nativeReplay && shouldReplayFullNativeMessage(preserved, index, lastUserIndex)))
+            ? preserved.reasoning_content : '';
+        const reasoningField = reasoningContent ? { reasoning_content: reasoningContent } : {};
         const contentText = Array.isArray(message.content)
             ? message.content.map((part) => {
                 if (!part || typeof part !== 'object') return '';
@@ -25,6 +39,7 @@ function buildTokenCounterMessages(messages = []) {
             return {
                 role: 'assistant',
                 content: [contentText, toolCalls].filter(Boolean).join('\n'),
+                ...reasoningField,
             };
         }
 
@@ -38,27 +53,28 @@ function buildTokenCounterMessages(messages = []) {
         return {
             role: message.role,
             content: contentText,
+            ...reasoningField,
         };
     });
 }
 
-function buildTokenCounterPayload(messages = [], tools = []) {
+export function buildTokenCounterPayload(messages = [], tools = [], providerConfig = {}) {
     return [
-        ...buildTokenCounterMessages(messages),
+        ...buildTokenCounterMessages(messages, tools, providerConfig),
         {
             role: 'system',
             content: tools.length ? `TOOLS\n${JSON.stringify(tools)}` : '',
         },
-    ].filter((message) => message.content);
+    ].filter((message) => message.content || message.reasoning_content);
 }
 
 export function estimateTokenCount(value = '') {
     return Math.ceil(textEncoder.encode(String(value || '')).length / TOKEN_ESTIMATE_BYTES_PER_TOKEN);
 }
 
-/** @param {{ messages?: Record<string, unknown>[], tools?: Record<string, unknown>[] }} [options] */
-export function estimateConversationTokens({ messages = [], tools = [] } = {}) {
-    return estimateTokenCount(JSON.stringify(buildTokenCounterPayload(messages, tools)));
+/** @param {{ messages?: Record<string, unknown>[], tools?: Record<string, unknown>[], providerConfig?: Record<string, unknown> }} [options] */
+export function estimateConversationTokens({ messages = [], tools = [], providerConfig = {} } = {}) {
+    return estimateTokenCount(JSON.stringify(buildTokenCounterPayload(messages, tools, providerConfig)));
 }
 
 export function getTokenizerModelHint(providerConfig = {}) {
@@ -99,7 +115,7 @@ async function postJson(url, body, signal, requestHeaders) {
 export async function resolveConversationTokens({ messages = [], tools = null, providerConfig = {}, signal, requestHeaders = getHostRequestHeaders } = {}) {
     const provider = String(providerConfig?.provider || '');
     const resolvedTools = Array.isArray(tools) ? tools : [];
-    const payload = buildTokenCounterPayload(messages, resolvedTools);
+    const payload = buildTokenCounterPayload(messages, resolvedTools, providerConfig);
     const flattenedText = JSON.stringify(payload);
 
     try {

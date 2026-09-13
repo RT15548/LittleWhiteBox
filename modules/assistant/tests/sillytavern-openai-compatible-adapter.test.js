@@ -33,6 +33,24 @@ test.afterEach(() => {
     setHostChatCompletionsRequestHeadersProvider(null);
 });
 
+test('hosted DeepSeek retains required tools because host OpenAI forwarding does not enable thinking', () => {
+    const adapter = new SillyTavernOpenAICompatibleAdapter({ model: 'deepseek-chat' });
+    for (const mode of ['on', 'off', 'inherit']) {
+        const task = {
+            messages: [{ role: 'user', content: 'test' }],
+            tools: [{ type: 'function', function: { name: 'submit_scene_plan', parameters: {} } }],
+            toolChoice: 'required', reasoning: { mode },
+        };
+        const body = adapter.buildPayload(task);
+        assert.equal(body.tool_choice, 'required');
+        assert.deepEqual(body.tools, task.tools);
+        assert.deepEqual(body.thinking, mode === 'inherit' ? undefined : { type: mode === 'on' ? 'enabled' : 'disabled' });
+        const inspection = adapter.buildRequestInspection({ body }, task);
+        assert.equal(inspection.effectiveConfig.toolChoice, body.tool_choice);
+        assert.equal(inspection.effectiveConfig.reasoningEffectiveMode, mode);
+    }
+});
+
 test('SillyTavern hosted Claude and Google always include and deduplicate systemPrompt', () => {
     for (const Adapter of [SillyTavernClaudeAdapter, SillyTavernGoogleAdapter]) {
         const adapter = new Adapter({ model: 'hosted-model' });

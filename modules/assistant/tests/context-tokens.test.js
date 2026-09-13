@@ -2,11 +2,64 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { resolveConversationTokens, estimateConversationTokens } from '../../agent-core/runtime/context-tokens.js';
+import { OpenAICompatibleAdapter } from '../../agent-core/adapters/openai-compatible.js';
+import { SillyTavernOpenAICompatibleAdapter } from '../../agent-core/adapters/sillytavern-openai-compatible.js';
 import { setHostChatCompletionsRequestHeadersProvider, buildHostChatCompletionGenerateRequest } from '../../../shared/host-llm/chat-completions/client.js';
 
 const messages = [{ role: 'system', content: '规则' }, { role: 'user', content: '请求' }];
 const tools = [{ function: { name: 'Read', parameters: { type: 'object' } } }];
 const encoded = count => ({ count, ids: Array(count).fill(1) });
+
+test('tokenizer and fallback count only reasoning replayed by the native adapter, including earlier text-only replies', async t => {
+    const calls = [{ id: 'call', type: 'function', function: { name: 'Read', arguments: '{}' } }];
+    const assistant = (content, reasoning, toolCalls) => ({ role: 'assistant', content,
+        ...(toolCalls ? { tool_calls: toolCalls } : {}),
+        thoughts: [{ text: 'display-only-thought' }],
+        providerPayload: { openaiCompatibleMessage: { role: 'assistant', content,
+            reasoning_content: reasoning, ...(toolCalls ? { tool_calls: toolCalls } : {}),
+        } },
+    });
+    const history = [
+        { role: 'user', content: 'old' },
+        assistant('', 'old tool reasoning', calls),
+        { role: 'tool', tool_call_id: 'call', content: '{}' },
+        assistant('', 'old text reasoning '.repeat(1000)),
+        { role: 'user', content: 'next' },
+        assistant('', 'current tool reasoning', calls),
+        { role: 'tool', tool_call_id: 'call', content: '{}' },
+        assistant('answer', 'current text reasoning'),
+    ];
+    const original = structuredClone(history);
+    let counted;
+    t.mock.method(globalThis, 'fetch', async (_url, request) => {
+        counted = JSON.parse(JSON.parse(request.body).text);
+        return Response.json(encoded(4321));
+    });
+    for (const provider of ['openai-compatible', 'sillytavern-openai-compatible']) {
+        for (const model of ['deepseek-chat', 'gpt-5.6']) {
+            for (const mode of ['on', 'off', 'inherit']) {
+                for (const toolMode of ['native', 'tagged-json']) {
+                    for (const requestTools of [tools, []]) {
+                        const config = { provider, model, toolMode, apiKey: 'test', reasoning: { mode } };
+                        const task = { messages: history, tools: requestTools, reasoning: config.reasoning };
+                        const body = provider === 'openai-compatible'
+                            ? new OpenAICompatibleAdapter(config).buildRequestBody(task)
+                            : new SillyTavernOpenAICompatibleAdapter(config).buildPayload(task, toolMode === 'tagged-json' && requestTools.length > 0);
+                        const input = { messages: history, tools: requestTools, providerConfig: config };
+                        assert.deepEqual(await resolveConversationTokens({ ...input, requestHeaders: () => ({}) }), { tokens: 4321, source: 'tokenizer' });
+                        assert.deepEqual(counted.map(m => m.reasoning_content).filter(Boolean),
+                            body.messages.map(m => m.reasoning_content).filter(Boolean), JSON.stringify(config));
+                        assert.ok(!JSON.stringify(counted).includes('display-only-thought'));
+                        const fallback = await resolveConversationTokens({ ...input, requestHeaders: () => { throw new Error('headers unavailable'); } });
+                        assert.deepEqual(fallback, { tokens: estimateConversationTokens(input), source: 'estimated' });
+                        assert.equal(fallback.tokens, Math.ceil(new TextEncoder().encode(JSON.stringify(counted)).length / 3.35));
+                    }
+                }
+            }
+        }
+    }
+    assert.deepEqual(history, original);
+});
 
 test('generation and counting read current Host authentication; count includes text and tools, never API credentials', async t => {
     let csrf = 'first';

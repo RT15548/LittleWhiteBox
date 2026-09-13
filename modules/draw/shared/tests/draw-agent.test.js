@@ -167,6 +167,46 @@ test('draw agent reads the latest main preset every request and never selects de
     assert.equal(diagnostic.request.request.body.api_key, '[redacted]');
 });
 
+test('DeepSeek text-only planning replies keep their reasoning in the existing correction request', async (t) => {
+    t.mock.method(console, 'log', () => {});
+    resetDrawAgentRuntimeForTests();
+    const requests = [];
+    const firstReply = { role: 'assistant', content: 'Preparing the plan.', reasoning_content: 'Choose the doorway moment.' };
+    const result = await generateAndParseScenePlan({
+        messageText: '阿璃推开门。', maxImages: 1,
+        expansionOptions: { runtime: { substituteParams: text => text } },
+        agentOptions: {
+            dependencies: { getAgentSettings: async () => buildSettings('deepseek-chat') },
+            loadAgentCore: async () => ({ createAgentAdapter: providerConfig => {
+                const adapter = new OpenAICompatibleAdapter(providerConfig);
+                adapter.client.chat.completions.create = async body => {
+                    requests.push(structuredClone(body));
+                    assert.ok(requests.length <= 2, 'the existing correction is sufficient');
+                    if (requests.length === 2) {
+                        const replay = body.messages.find(message => message.role === 'assistant');
+                        assert.equal(replay.reasoning_content, firstReply.reasoning_content);
+                        assert.equal(replay.content, firstReply.content);
+                    }
+                    return { choices: [{ message: requests.length === 1 ? firstReply : {
+                        role: 'assistant', content: '', reasoning_content: 'Submit the plan.',
+                        tool_calls: [{ id: 'plan-call', type: 'function', function: {
+                            name: 'submit_scene_plan', arguments: buildValidScenePlanResult().toolCalls[0].arguments,
+                        } }],
+                    }, finish_reason: requests.length === 1 ? 'stop' : 'tool_calls' }] };
+                };
+                return adapter;
+            } }),
+        },
+    });
+    assert.equal(requests.length, 2);
+    assert.ok(requests.every(body => body.tool_choice === 'auto' && body.thinking.type === 'enabled'));
+    assert.equal(result[0].scene, 'opening door, indoor');
+    const diagnostic = getLastDrawAgentDiagnostic();
+    assert.equal(diagnostic.status, 'success');
+    assert.equal(diagnostic.correctionCount, 1);
+    assert.equal(diagnostic.validationFailures[0].errorCode, 'TOOL_CALL_MISSING');
+});
+
 test('draw agent forwards the per-run Host Client to an injected Node Agent Core', async () => {
     const hostClient = { create() {} };
     let adapterOptions;

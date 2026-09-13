@@ -1,55 +1,8 @@
-import { estimateTokenCount, estimateConversationTokens, resolveConversationTokens } from '../../../agent-core/runtime/context-tokens.js';
+import { buildTokenCounterPayload, estimateTokenCount, estimateConversationTokens, resolveConversationTokens } from '../../../agent-core/runtime/context-tokens.js';
 
 const textEncoder = new TextEncoder();
 const CONTEXT_DEBUG_PREVIEW_CHARS = 140;
 const CONTEXT_DEBUG_TOP_ENTRY_COUNT = 6;
-
-function buildTokenCounterMessages(messages = []) {
-    return messages.map((message) => {
-        const contentText = Array.isArray(message.content)
-            ? message.content.map((part) => {
-                if (!part || typeof part !== 'object') return '';
-                if (part.type === 'text') return part.text || '';
-                if (part.type === 'image_url') return `[image:${part.name || part.mimeType || 'image'}]`;
-                return '';
-            }).filter(Boolean).join('\n')
-            : (message.content || '');
-
-        if (message.role === 'assistant' && Array.isArray(message.tool_calls) && message.tool_calls.length) {
-            const toolCalls = message.tool_calls.map((toolCall) => JSON.stringify({
-                id: toolCall.id,
-                name: toolCall.function?.name || '',
-                arguments: toolCall.function?.arguments || '{}',
-            })).join('\n');
-            return {
-                role: 'assistant',
-                content: [contentText, toolCalls].filter(Boolean).join('\n'),
-            };
-        }
-
-        if (message.role === 'tool') {
-            return {
-                role: 'tool',
-                content: [message.tool_call_id || '', message.content || ''].filter(Boolean).join('\n'),
-            };
-        }
-
-        return {
-            role: message.role,
-            content: contentText,
-        };
-    });
-}
-
-function buildTokenCounterPayload(messages = [], tools = []) {
-    return [
-        ...buildTokenCounterMessages(messages),
-        {
-            role: 'system',
-            content: tools.length ? `TOOLS\n${JSON.stringify(tools)}` : '',
-        },
-    ].filter((message) => message.content);
-}
 
 function createSignatureHasher() {
     let hashA = 2166136261;
@@ -93,54 +46,6 @@ function createSignatureHasher() {
     };
 }
 
-function addContentToSignature(hasher, content) {
-    if (Array.isArray(content)) {
-        hasher.addField('content-kind', 'parts');
-        hasher.addField('part-count', content.length);
-        content.forEach((part, index) => {
-            if (!part || typeof part !== 'object') {
-                hasher.addField(`part:${index}:empty`, '');
-                return;
-            }
-            hasher.addField(`part:${index}:type`, part.type || '');
-            if (part.type === 'text') {
-                hasher.addField(`part:${index}:text`, part.text || '');
-                return;
-            }
-            if (part.type === 'image_url') {
-                hasher.addField(`part:${index}:image`, part.name || part.mimeType || 'image');
-            }
-        });
-        return;
-    }
-
-    hasher.addField('content-kind', 'text');
-    hasher.addField('content', content || '');
-}
-
-function addToolCallToSignature(hasher, toolCall = {}, index = 0) {
-    hasher.addField(`tool-call:${index}:id`, toolCall.id || '');
-    hasher.addField(`tool-call:${index}:name`, toolCall.function?.name || '');
-    hasher.addField(`tool-call:${index}:arguments`, toolCall.function?.arguments || '{}');
-}
-
-function addMessageToSignature(hasher, message = {}, index = 0) {
-    hasher.addField(`message:${index}:role`, message.role || '');
-    if (message.role === 'tool') {
-        hasher.addField(`message:${index}:tool-call-id`, message.tool_call_id || '');
-        hasher.addField(`message:${index}:tool-content`, message.content || '');
-        return;
-    }
-
-    addContentToSignature(hasher, message.content);
-    if (message.role === 'assistant' && Array.isArray(message.tool_calls) && message.tool_calls.length) {
-        hasher.addField(`message:${index}:tool-call-count`, message.tool_calls.length);
-        message.tool_calls.forEach((toolCall, toolCallIndex) => {
-            addToolCallToSignature(hasher, toolCall, `${index}:${toolCallIndex}`);
-        });
-    }
-}
-
 function addJsonValueToSignature(hasher, value, path = 'json') {
     if (value === null) {
         hasher.addField(path, 'null');
@@ -172,37 +77,24 @@ function normalizeDebugPreview(value, limit = CONTEXT_DEBUG_PREVIEW_CHARS) {
     return text.length > limit ? `${text.slice(0, limit)}...` : text;
 }
 
-function summarizeContextPayload(messages = [], tools = []) {
-    const counterMessages = buildTokenCounterMessages(messages);
-    const entries = counterMessages.map((message, index) => {
+function summarizeContextPayload(messages = [], tools = [], providerConfig = {}) {
+    const payload = buildTokenCounterPayload(messages, tools, providerConfig);
+    const entries = payload.map((message, index) => {
         const content = String(message.content || '');
-        const bytes = textEncoder.encode(content).length;
+        const countedText = content + (message.reasoning_content || '');
+        const bytes = textEncoder.encode(countedText).length;
+        const isTools = tools.length > 0 && index === payload.length - 1;
         return {
-            index,
-            kind: 'message',
+            index: isTools ? -1 : index,
+            kind: isTools ? 'tools' : 'message',
             role: String(message.role || ''),
             bytes,
-            estimatedTokens: estimateTokenCount(content),
+            estimatedTokens: estimateTokenCount(countedText),
             containsLocalPath: content.includes('local/'),
             preview: normalizeDebugPreview(content),
         };
     });
 
-    if (tools.length) {
-        const toolContent = `TOOLS\n${JSON.stringify(tools)}`;
-        const toolBytes = textEncoder.encode(toolContent).length;
-        entries.push({
-            index: -1,
-            kind: 'tools',
-            role: 'system',
-            bytes: toolBytes,
-            estimatedTokens: estimateTokenCount(toolContent),
-            containsLocalPath: toolContent.includes('local/'),
-            preview: normalizeDebugPreview(toolContent),
-        });
-    }
-
-    const payload = buildTokenCounterPayload(messages, tools);
     const serializedPayload = JSON.stringify(payload);
     const payloadBytes = textEncoder.encode(serializedPayload).length;
     const totalMessageBytes = entries
@@ -216,7 +108,7 @@ function summarizeContextPayload(messages = [], tools = []) {
         totalMessageBytes,
         toolBytes: toolEntry?.bytes || 0,
         toolEstimatedTokens: toolEntry?.estimatedTokens || 0,
-        messageCount: counterMessages.length,
+        messageCount: messages.length,
         entries,
         topEntries: [...entries]
             .sort((left, right) => right.bytes - left.bytes)
@@ -242,7 +134,7 @@ function logContextStats(reason, {
     source = 'estimated',
 } = {}) {
     if (!isContextStatsDebugEnabled()) return;
-    const payloadSummary = summarizeContextPayload(messages, tools);
+    const payloadSummary = summarizeContextPayload(messages, tools, providerConfig);
     console.info('[Assistant][ContextStats]', {
         reason,
         source,
@@ -291,10 +183,7 @@ export function createContextStatsController(deps) {
         const hasher = createSignatureHasher();
         hasher.addField('provider', providerConfig?.provider || '');
         hasher.addField('model', providerConfig?.model || '');
-        hasher.addField('message-count', messages.length);
-        messages.forEach((message, index) => addMessageToSignature(hasher, message, index));
-        hasher.addField('tool-count', toolDefinitions.length);
-        addJsonValueToSignature(hasher, toolDefinitions, 'tools');
+        addJsonValueToSignature(hasher, buildTokenCounterPayload(messages, toolDefinitions, providerConfig), 'payload');
         return hasher.digest();
     }
 
@@ -369,7 +258,7 @@ export function createContextStatsController(deps) {
         const cacheHit = latestResolvedContextStatsSignature === signature;
         const estimatedTokens = cacheHit
             ? latestResolvedContextTokens
-            : estimateConversationTokens({ messages, tools: resolvedTools });
+            : estimateConversationTokens({ messages, tools: resolvedTools, providerConfig });
 
         state.contextStats = {
             usedTokens: estimatedTokens,

@@ -6338,6 +6338,32 @@ test('Book context meter ignores resolved token stats when conversation state ch
     assert.equal(renderConversationContextMeterTitle(state, providerConfig), '当前估算送模上下文 / 188k');
 });
 
+test('Book meter includes replayed reasoning and invalidates resolved stats when that input changes', () => {
+    const config = { provider: 'openai-compatible', model: 'deepseek-chat', reasoning: { mode: 'on' } };
+    const preserved = { role: 'assistant', content: 'answer', reasoning_content: 'reasoning '.repeat(1000) };
+    const state = { messages: [
+        { role: 'assistant', content: 'answer', providerPayload: { openaiCompatibleMessage: preserved } },
+        { role: 'user', content: 'next' },
+    ] };
+    const estimate = () => rendererModule.estimateConversationContextTokens(state, config);
+    const initial = estimate();
+    const resolve = () => {
+        state.contextStats = { usedTokens: 777000, source: 'resolved', stateKey: buildConversationContextMeterStateKey(state, config) };
+    };
+    resolve();
+    assert.equal(renderConversationContextMeterLabel(state, config), '777k/188k');
+    preserved.reasoning_content += 'additional reasoning '.repeat(1000);
+    assert.ok(estimate() > initial);
+    assert.notEqual(renderConversationContextMeterLabel(state, config), '777k/188k');
+    resolve();
+    config.reasoning.mode = 'off';
+    assert.ok(estimate() < initial);
+    assert.notEqual(renderConversationContextMeterLabel(state, config), '777k/188k');
+    resolve();
+    preserved.reasoning_content += 'not replayed';
+    assert.equal(renderConversationContextMeterLabel(state, config), '777k/188k');
+});
+
 test('Book context meter keeps last resolved request count while agent is busy', async () => {
     await resetDb();
     const book = await createBook('计数运行中稳定测试');
@@ -8334,6 +8360,36 @@ test('Book history compaction releases archived turns without writing creative r
     assert.equal(state.messages.length, 2);
     assert.equal(state.messages[0].content, '继续写下一章。');
     assert.equal(state.uiMessageWindowLimit, 5);
+});
+
+test('replayed historical reasoning triggers Book compaction through the shared fallback without changing thresholds', async () => {
+    const state = { messages: [
+        { role: 'user', content: 'old' },
+        { role: 'assistant', content: 'answer', providerPayload: { openaiCompatibleMessage: {
+            role: 'assistant', content: 'answer', reasoning_content: 'r'.repeat(600000),
+        } } },
+        { role: 'user', content: 'recent' },
+        { role: 'assistant', content: 'recent answer' },
+        { role: 'user', content: 'next' },
+    ], archivedTurnCount: 0, historySummary: '' };
+    const config = { provider: 'openai-compatible', model: 'deepseek-chat', reasoning: { mode: 'on' } };
+    const tools = getEbookToolDefinitions();
+    let saves = 0;
+    const controller = createEbookHistoryCompactionController({ state,
+        persistConversation: () => { saves++; },
+        getActiveProviderConfig: () => config, getToolDefinitions: () => tools,
+        buildProviderMessages: () => agentRunnerModule.buildEbookProviderMessagesFromHistory(state.messages),
+        countTokens: input => resolveConversationTokens({ ...input, requestHeaders: () => { throw new Error('unavailable'); } }),
+    });
+    assert.ok(estimateConversationTokens({ messages: state.messages, tools }) < EBOOK_SUMMARY_TRIGGER_TOKENS);
+    assert.ok((await controller.countContext()).tokens > EBOOK_SUMMARY_TRIGGER_TOKENS);
+    const result = await controller.ensureContextBudget({});
+    assert.equal(saves, 1);
+    assert.equal(state.messages.length, 3);
+    assert.equal(state.messages[0].content, 'recent');
+    assert.ok(result.tokens < EBOOK_SUMMARY_TRIGGER_TOKENS);
+    assert.equal(result.source, 'estimated');
+    assert.ok(result.messages.every(m => !m.providerPayload));
 });
 
 test('Book history compaction stops before pruning when aborted', async () => {

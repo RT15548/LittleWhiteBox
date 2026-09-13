@@ -147,11 +147,14 @@ export class SillyTavernOpenAICompatibleAdapter {
             model: this.config.model,
             transport: 'sillytavern-chat-completions',
             request: redactRequestSecrets(request),
-            effectiveConfig: buildEffectiveReasoningConfig(task, {
-                reasoning: effectiveReasoning,
-                effort: request?.body?.reasoning_effort,
-                controlFields,
-            }),
+            effectiveConfig: {
+                ...buildEffectiveReasoningConfig(task, {
+                    reasoning: effectiveReasoning,
+                    effort: request?.body?.reasoning_effort,
+                    controlFields,
+                }),
+                ...(request?.body?.tool_choice !== undefined ? { toolChoice: request.body.tool_choice } : {}),
+            },
         };
     }
 

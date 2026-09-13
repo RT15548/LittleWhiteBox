@@ -1,5 +1,10 @@
 import OpenAI from 'openai';
 import {
+    getLastUserMessageIndex,
+    shouldPreserveHistoricalReasoning,
+    shouldReplayFullNativeMessage,
+} from './openai-compatible-replay-policy.js';
+import {
     buildEffectiveReasoningConfig,
     buildSdkRequestInspection,
 } from './request-inspection.js';
@@ -374,15 +379,6 @@ function normalizeOpenAICompatibleMessage(message) {
     return sanitizeOpenAICompatibleMessage(preserved);
 }
 
-function getLastUserMessageIndex(messages = []) {
-    for (let index = messages.length - 1; index >= 0; index -= 1) {
-        if (messages[index]?.role === 'user') {
-            return index;
-        }
-    }
-    return -1;
-}
-
 function getReplayableToolCalls(message = {}) {
     const topLevelToolCalls = normalizeToolCallsForReplay(message?.tool_calls);
     if (topLevelToolCalls.length) return topLevelToolCalls;
@@ -557,7 +553,7 @@ export function mergeReplayMessages(existing = {}, next = {}) {
     return mergeReplayValue(cloneJson(existing) || {}, next, '');
 }
 
-export function buildNativeMessages(task, model = '') {
+export function buildNativeMessages(task, model = '', { preserveReasoningContent = false } = {}) {
     const sourceMessages = Array.isArray(task.messages) ? task.messages : [];
     const lastUserIndex = getLastUserMessageIndex(sourceMessages);
     const normalizedMessages = [];
@@ -606,10 +602,10 @@ export function buildNativeMessages(task, model = '') {
         // 签名调用必须原样回放（含 id 与 extra_content），不能被上层重建的 tool_calls 覆盖。
         const hasPreservedSignedToolCalls = preservedToolCalls.length > 0 && hasSignedToolCalls(preserved);
 
-        // 只有「最后一条 user 之后」的助手消息才整条回放 provider 原文。更早轮次只回放
-        // role/content/tool_calls：reasoning_content 之类是可选摘要而非签名本体，历史轮次
-        // 重新塞回去只会放大上下文并触发部分网关的校验，签名本身在 tool_calls 里已完整保留。
-        if (preservedToolCalls.length && index > lastUserIndex) {
+        // Replay the full provider message within the current tool loop. Earlier turns
+        // normally keep only content/tool calls; the direct DeepSeek thinking adapter
+        // separately retains reasoning_content below, including text-only replies.
+        if (shouldReplayFullNativeMessage(preserved, index, lastUserIndex)) {
             normalizedMessages.push(ensureReasoningContentForToolCalls({
                 ...preserved,
                 ...(topLevelToolCalls.length && !hasPreservedSignedToolCalls ? {
@@ -623,6 +619,10 @@ export function buildNativeMessages(task, model = '') {
             role: message.role,
             content: message.content,
         };
+
+        if (preserveReasoningContent && typeof preserved?.reasoning_content === 'string') {
+            baseMessage.reasoning_content = preserved.reasoning_content;
+        }
 
         if (message.role === 'tool' && message.tool_call_id) {
             baseMessage.tool_call_id = message.tool_call_id;
@@ -1019,9 +1019,14 @@ export class OpenAICompatibleAdapter {
         const nativeTools = !isTaggedMode && Array.isArray(task.tools) && task.tools.length
             ? task.tools
             : null;
+        const deepSeekThinkingWithTools = shouldPreserveHistoricalReasoning(
+            { ...this.config, provider: 'openai-compatible' }, nativeTools, reasoning,
+        );
         const body = {
             model: this.config.model,
-            messages: isTaggedMode ? buildTaggedMessages(task, this.config.model) : buildNativeMessages(task, this.config.model),
+            messages: isTaggedMode ? buildTaggedMessages(task, this.config.model) : buildNativeMessages(task, this.config.model, {
+                preserveReasoningContent: deepSeekThinkingWithTools,
+            }),
             ...(nativeTools ? { tools: nativeTools, tool_choice: task.toolChoice || 'auto' } : {}),
             ...(task.maxTokens
                 ? (usesMaxCompletionTokens(this.config.model)
@@ -1029,6 +1034,11 @@ export class OpenAICompatibleAdapter {
                     : { max_tokens: task.maxTokens })
                 : {}),
         };
+        // Only direct requests guarantee that DeepSeek receives thinking: enabled.
+        // SillyTavern's OpenAI forwarding path does not pass that field through.
+        if (deepSeekThinkingWithTools && (body.tool_choice === 'required' || body.tool_choice?.type === 'function')) {
+            body.tool_choice = 'auto';
+        }
         if (!shouldOmitTemperatureForReasoning(
             { ...this.config, provider: 'openai-compatible' },
             reasoning,
@@ -1065,11 +1075,14 @@ export class OpenAICompatibleAdapter {
                 sdk: stream
                     ? 'client.chat.completions.create(..., { stream: true })'
                     : 'client.chat.completions.create',
-                effectiveConfig: buildEffectiveReasoningConfig(task, {
-                    reasoning: effectiveReasoning,
-                    effort: body.reasoning_effort,
-                    controlFields,
-                }),
+                effectiveConfig: {
+                    ...buildEffectiveReasoningConfig(task, {
+                        reasoning: effectiveReasoning,
+                        effort: body.reasoning_effort,
+                        controlFields,
+                    }),
+                    ...(body.tool_choice !== undefined ? { toolChoice: body.tool_choice } : {}),
+                },
             }),
         };
     }

@@ -8,6 +8,72 @@ import { setHostChatCompletionsRequestHeadersProvider } from '../../../shared/ho
 import { createAssistantRuntime } from '../app-src/runtime.js';
 import { resolveConversationTokens, estimateConversationTokens } from '../../agent-core/runtime/context-tokens.js';
 
+test('assistant meter invalidates resolved counts when replayed reasoning or its mode changes', async () => {
+    const state = { historySummary: '', contextStats: {} };
+    const config = { provider: 'openai-compatible', model: 'deepseek-chat', reasoning: { mode: 'on' } };
+    const tools = [{ type: 'function', function: { name: 'Read', parameters: {} } }];
+    const preserved = { role: 'assistant', content: '', reasoning_content: 'thinking '.repeat(1000) };
+    const messages = [{ role: 'assistant', content: '', providerPayload: { openaiCompatibleMessage: preserved } },
+        { role: 'user', content: 'next' }];
+    let calls = 0;
+    const controller = createContextStatsController({ state, MAX_CONTEXT_TOKENS: 258000, TOOL_DEFINITIONS: tools,
+        getActiveProviderConfig: () => config,
+        countTokens: async input => { calls++; return { tokens: estimateConversationTokens(input), source: 'tokenizer' }; },
+    });
+    controller.updateContextStats(messages);
+    const initial = state.contextStats.usedTokens;
+    assert.equal(initial, estimateConversationTokens({ messages, tools, providerConfig: config }));
+    assert.equal(await controller.forceUpdateContextStats(messages), initial);
+    await controller.forceUpdateContextStats(messages);
+    assert.equal(calls, 1);
+    preserved.reasoning_content += 'more reasoning '.repeat(1000);
+    controller.updateContextStats(messages);
+    assert.equal(state.contextStats.source, 'estimated');
+    assert.ok(await controller.forceUpdateContextStats(messages) > initial);
+    assert.equal(calls, 2);
+    config.reasoning.mode = 'off';
+    controller.updateContextStats(messages);
+    assert.equal(state.contextStats.source, 'estimated');
+    assert.ok(await controller.forceUpdateContextStats(messages) < initial);
+    assert.equal(calls, 3);
+    preserved.reasoning_content += 'not replayed';
+    await controller.forceUpdateContextStats(messages);
+    assert.equal(calls, 3);
+});
+
+test('replayed historical reasoning alone triggers assistant compaction even when Host counting is unavailable', async () => {
+    const state = { messages: [
+        { role: 'user', content: 'old' },
+        { role: 'assistant', content: 'answer', providerPayload: { openaiCompatibleMessage: {
+            role: 'assistant', content: 'answer', reasoning_content: 'r'.repeat(800000),
+        } } },
+        { role: 'user', content: 'next' },
+    ], historySummary: '', archivedTurnCount: 0, contextStats: {} };
+    const config = { provider: 'openai-compatible', model: 'deepseek-chat', reasoning: { mode: 'on' } };
+    const tools = [{ type: 'function', function: { name: 'Read', parameters: {} } }];
+    const meter = createContextStatsController({ state, MAX_CONTEXT_TOKENS: 258000, TOOL_DEFINITIONS: tools,
+        getActiveProviderConfig: () => config,
+        countTokens: input => resolveConversationTokens({ ...input, requestHeaders: () => { throw new Error('unavailable'); } }),
+    });
+    assert.ok(estimateConversationTokens({ messages: state.messages, tools }) < 228000);
+    assert.ok(await meter.forceUpdateContextStats(state.messages) > 228000);
+    const controller = createHistoryCompactionController({ state, ...meter,
+        render() {}, persistSession() {}, showToast() {}, getActiveProviderConfig: () => config,
+        buildTextWithAttachmentSummary: text => text, trimForSummary: text => text,
+        SUMMARY_SYSTEM_PROMPT, DEFAULT_PRESERVED_TURNS: 1, MIN_PRESERVED_TURNS: 1,
+        SUMMARY_TRIGGER_TOKENS: 228000, HISTORY_SUMMARY_MAX_TOKENS: 10000,
+        toProviderMessages: messages => [{ role: 'system', content: state.historySummary }, ...messages],
+    });
+    let summaries = 0;
+    const result = await controller.ensureContextBudget({ chat: async () => { summaries++; return { text: 'summary' }; } });
+    assert.equal(summaries, 1);
+    assert.equal(state.historySummary, 'summary');
+    assert.deepEqual(state.messages, [{ role: 'user', content: 'next' }]);
+    assert.ok(state.contextStats.usedTokens < 228000);
+    assert.equal(state.contextStats.source, 'estimated');
+    assert.ok(result.every(m => !m.providerPayload));
+});
+
 test('context meter estimates during render and sends one complete payload only at the exact budget boundary', async () => {
     setHostChatCompletionsRequestHeadersProvider(() => ({ 'X-CSRF-Token': 'test-csrf' }));
     const originalFetch = globalThis.fetch;

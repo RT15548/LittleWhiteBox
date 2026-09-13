@@ -3,7 +3,7 @@ import { renderMarkdownToHtml } from '../../agent-core/ui/message-markdown.js';
 import { buildAgentSettingsPanelMarkup } from '../../agent-core/ui/settings-markup.js';
 import { escapeHtml, trimInlineText } from './text-utils.js';
 import { formatDraftMetrics, formatTextMetrics } from './text-metrics.js';
-import { estimateTokenCount } from '../../agent-core/runtime/context-tokens.js';
+import { buildTokenCounterPayload, estimateTokenCount } from '../../agent-core/runtime/context-tokens.js';
 import { EBOOK_MAX_CONTEXT_TOKENS } from './history-compaction.js';
 import { getMessageWindow } from '../../agent-core/ui/message-windowing.js';
 import { isTavilyConfigured } from '../../agent-core/tavily-search.js';
@@ -259,12 +259,19 @@ function createContextMeterHasher() {
     };
 }
 
+function getContextMeterReasoning(state, providerConfig) {
+    const tools = getEbookToolDefinitions({ webSearchEnabled: isTavilyConfigured(providerConfig) });
+    return buildTokenCounterPayload(state.messages || [], tools, providerConfig)
+        .map(message => message.reasoning_content || '').filter(Boolean).join('\n');
+}
+
 export function buildConversationContextMeterStateKey(state = {}, providerConfig = {}) {
     const hasher = createContextMeterHasher();
     hasher.addField('book-id', state.book?.id || '');
     hasher.addField('provider', providerConfig?.provider || '');
     hasher.addField('model', providerConfig?.model || '');
     hasher.addField('tool-mode', providerConfig?.toolMode || '');
+    hasher.addField('replayed-reasoning', getContextMeterReasoning(state, providerConfig));
     const files = Array.isArray(state.files) ? state.files : [];
     hasher.addField('file-count', files.length);
     files.forEach((file, index) => {
@@ -333,6 +340,8 @@ export function estimateConversationContextTokens(state = {}, providerConfig = {
             : '';
         lines.push(`${roleLabel}: ${[message.content || '', toolCalls].filter(Boolean).join('\n')}`);
     });
+    const reasoningContent = getContextMeterReasoning(state, providerConfig);
+    if (reasoningContent) lines.push(reasoningContent);
     return estimateTokenCount(lines.join('\n\n'));
 }
 

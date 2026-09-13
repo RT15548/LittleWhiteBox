@@ -1564,6 +1564,84 @@ test('OpenAI-compatible matches model families broadly and encodes their latest 
     assert.equal(customOff.reasoning_effort, 'none');
 });
 
+test('DeepSeek thinking relaxes only forced native tool choices and reports the transmitted choice', () => {
+    const tools = [{ type: 'function', function: { name: 'submit_scene_plan', parameters: {} } }];
+    const namedChoice = { type: 'function', function: { name: 'submit_scene_plan' } };
+    for (const model of ['deepseek-chat', 'relay/DeepSeek-v3.2', 'gpt-5.6', 'kimi-k3']) {
+        const adapter = new OpenAICompatibleAdapter({ apiKey: 'test-key', model });
+        for (const mode of ['on', 'off', 'inherit']) {
+            for (const toolChoice of ['required', namedChoice, 'auto', 'none']) {
+                const task = {
+                    messages: [{ role: 'user', content: 'test' }], tools, toolChoice,
+                    reasoning: { mode, effort: 'high', output: 'show' },
+                };
+                const original = structuredClone(task);
+                const inspection = adapter.inspectRequest(task);
+                const body = inspection.request.body;
+                const relax = model.toLowerCase().includes('deepseek') && mode === 'on'
+                    && (toolChoice === 'required' || toolChoice === namedChoice);
+                assert.deepEqual(body.tool_choice, relax ? 'auto' : toolChoice, `${model}/${mode}/${JSON.stringify(toolChoice)}`);
+                assert.deepEqual(body.tools, tools);
+                assert.deepEqual(inspection.effectiveConfig.toolChoice, body.tool_choice);
+                assert.equal(inspection.effectiveConfig.reasoningEffectiveMode, mode);
+                if (model.toLowerCase().includes('deepseek')) {
+                    assert.deepEqual(body.thinking, mode === 'inherit' ? undefined : { type: mode === 'on' ? 'enabled' : 'disabled' });
+                    assert.equal(body.reasoning_effort, mode === 'on' ? 'high' : undefined);
+                }
+                assert.deepEqual(task, original);
+            }
+        }
+    }
+});
+
+test('only direct DeepSeek thinking with tools preserves earlier assistant reasoning across user turns', () => {
+    const calls = [{ id: 'old-call', type: 'function', function: { name: 'submit_scene_plan', arguments: '{}' } }];
+    const messages = [
+        { role: 'user', content: 'test' },
+        { role: 'assistant', content: '', tool_calls: calls, providerPayload: { openaiCompatibleMessage: {
+            role: 'assistant', content: '', tool_calls: calls, reasoning_content: 'tool reasoning',
+        } } },
+        { role: 'tool', tool_call_id: 'old-call', content: '{}' },
+        { role: 'assistant', content: 'text', providerPayload: { openaiCompatibleMessage: {
+            role: 'assistant', content: 'text', reasoning_content: 'text reasoning',
+        } } },
+        { role: 'assistant', content: 'without reasoning' },
+        { role: 'user', content: 'continue' },
+    ];
+    const original = structuredClone(messages);
+    for (const model of ['deepseek-chat', 'gpt-5.6']) {
+        const adapter = new OpenAICompatibleAdapter({ apiKey: 'test-key', model });
+        for (const mode of ['on', 'off', 'inherit']) {
+            for (const hasTools of [true, false]) {
+                const body = adapter.buildRequestBody({ messages, reasoning: { mode },
+                    tools: hasTools ? [{ type: 'function', function: { name: 'submit_scene_plan', parameters: {} } }] : [],
+                });
+                const preserve = model === 'deepseek-chat' && mode === 'on' && hasTools;
+                assert.equal(body.messages[1].reasoning_content, preserve ? 'tool reasoning' : model === 'deepseek-chat' ? '' : undefined);
+                assert.equal(body.messages[3].reasoning_content, preserve ? 'text reasoning' : undefined);
+                assert.equal(Object.hasOwn(body.messages[4], 'reasoning_content'), false);
+                assert.deepEqual(body.messages[1].tool_calls, calls);
+                assert.equal(body.messages[2].tool_call_id, 'old-call');
+                assert.deepEqual(messages, original);
+            }
+        }
+    }
+});
+
+test('DeepSeek thinking does not add native tool fields to text-tool or tool-free requests', () => {
+    for (const toolMode of ['native', 'tagged-json']) {
+        const adapter = new OpenAICompatibleAdapter({ apiKey: 'test-key', model: 'deepseek-chat', toolMode });
+        const body = adapter.buildRequestBody({
+            messages: [{ role: 'user', content: 'test' }],
+            tools: toolMode === 'native' ? [] : [{ type: 'function', function: { name: 'submit_scene_plan', parameters: {} } }],
+            toolChoice: 'required', reasoning: { mode: 'on' },
+        });
+        assert.equal(Object.hasOwn(body, 'tools'), false);
+        assert.equal(Object.hasOwn(body, 'tool_choice'), false);
+        assert.deepEqual(body.thinking, { type: 'enabled' });
+    }
+});
+
 test('openai-compatible adapter does not retry ambiguous reasoning_effort errors', async () => {
     const config = {
         apiKey: 'test-key',

@@ -34,6 +34,7 @@ const estimateConversationTokens = (contextTokens as unknown as {
     estimateConversationTokens: (input: {
         messages?: XbTavernMessage[];
         tools?: unknown[] | null;
+        providerConfig?: Record<string, unknown>;
     }) => number;
 }).estimateConversationTokens;
 
@@ -251,6 +252,10 @@ export async function estimateTavernAssistantChatContext(input: {
     throwIfAssistantChatAborted(input.signal);
     return estimateConversationTokens({
         messages,
+        providerConfig: resolveXbTavernProviderConfig(input.agentConfig || {}, {
+            role: 'delegate',
+            timeoutMs: TAVERN_ASSISTANT_CHAT_TIMEOUT_MS,
+        }) as unknown as Record<string, unknown>,
         tools: getTavernManagerToolDefinitions({
             webSearchEnabled: isManagerWebSearchEnabled(input.agentConfig),
         }),
