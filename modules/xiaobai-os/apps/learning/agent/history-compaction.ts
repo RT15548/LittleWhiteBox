@@ -1,7 +1,6 @@
-import { estimateConversationTokens } from '../../../../agent-core/runtime/context-tokens.js';
 import type { XiaobaiOsAgentSession } from '../../../capabilities/agent/gateway.js';
 import { safePromptJson } from '../../../capabilities/maintenance/prompt-safety.js';
-import { isLearningContextOverflow, learningHistoryMessage, type LearningTurn } from './history.js';
+import { isLearningContextOverflow, type LearningTurn } from './history.js';
 import { LEARNING_HISTORY_PROMPT } from './history-prompt.js';
 
 // Same proactive trigger as ebook, not a claimed provider capacity or a request rejection limit.
@@ -9,12 +8,12 @@ export const LEARNING_SUMMARY_TRIGGER_TOKENS = 158_000;
 const SUMMARY_MAX_TOKENS = 10_000; // Same summary allowance as Assistant, bounded by the active API setting.
 export const LEARNING_PRESERVED_TURNS = 2;
 
-/** Independent model sessions; no tool execution, storage mutation or partial publication. */
+/** Independent summary generation; the calling teacher loop measures replay savings before adoption. */
 export async function summariseLearningHistory(options: {
     summary: string; turns: readonly LearningTurn[]; signal: AbortSignal;
     guard: () => boolean;
     openSession: () => Promise<XiaobaiOsAgentSession>;
-}): Promise<string | null> {
+}): Promise<string> {
     let summary = options.summary;
     let offset = 0;
     let size = options.turns.length;
@@ -55,10 +54,6 @@ export async function summariseLearningHistory(options: {
             }
             throw error;
         }
-    }
-    const before = [...(options.summary ? [learningHistoryMessage(options.summary)] : []), ...options.turns.flatMap(turn => turn.messages)];
-    if (estimateConversationTokens({ messages: [learningHistoryMessage(summary)] }) >= estimateConversationTokens({ messages: before })) {
-        return null;
     }
     return summary;
 }

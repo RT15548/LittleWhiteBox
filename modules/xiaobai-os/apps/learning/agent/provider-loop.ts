@@ -39,8 +39,13 @@ export async function runLearningProviderLoop(options: {
     const advance = (next: LearningProgress) => { progress = next; options.onProgress?.(next); };
     const failure = (reason: string, cause?: unknown): LearningLoopResult => cancelled() ? { status: 'cancelled' }
         : { status: 'failed', reason, details: { ...progress, cause } };
-    const replay = () => [...(options.prefix ?? []), ...(summary ? [learningHistoryMessage(summary)] : []),
-        ...history.flatMap(turn => turn.messages), ...options.messages, ...messages];
+    const replay = (candidateSummary = summary, candidateHistory = history) => [
+        ...(options.prefix ?? []), ...(candidateSummary ? [learningHistoryMessage(candidateSummary)] : []),
+        ...candidateHistory.flatMap(turn => turn.messages), ...options.messages, ...messages];
+    const contextTokens = (candidateMessages = replay()) => estimateConversationTokens({
+        messages: [{ role: 'system', content: options.systemPrompt }, ...candidateMessages],
+        tools: [...options.tools], providerConfig: agent.providerConfig,
+    });
     async function compact(round: number) {
         if (summaryExhausted) { return false; }
         advance({ stage: 'summary', round });
@@ -49,7 +54,8 @@ export async function runLearningProviderLoop(options: {
             const next = await summariseLearningHistory({ summary, turns: history.slice(0, count),
                 openSession: options.reopen!, signal, guard: () => !cancelled() });
             if (cancelled()) { return false; }
-            if (next === null) { continue; }
+            // Compare complete teacher requests, preserving the real latest-user/tool replay boundary.
+            if (contextTokens(replay(next, history.slice(count))) >= contextTokens()) { continue; }
             summary = next;
             history.splice(0, count); removedTurns += count;
             options.onCompact?.(count, summary);
@@ -64,9 +70,7 @@ export async function runLearningProviderLoop(options: {
         let result: RecordValue;
         try {
             let compacted = false;
-            while (options.reopen && history.length && !summaryExhausted && estimateConversationTokens({
-                messages: [{ role: 'system', content: options.systemPrompt }, ...replay()], tools: [...options.tools],
-            }) > LEARNING_SUMMARY_TRIGGER_TOKENS) {
+            while (options.reopen && history.length && !summaryExhausted && contextTokens() > LEARNING_SUMMARY_TRIGGER_TOKENS) {
                 const changed = await compact(round);
                 if (cancelled()) { return { status: 'cancelled' }; }
                 if (!changed) { break; }

@@ -7293,7 +7293,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/learning/agent/history-compaction.ts",
       "relativePath": "modules/xiaobai-os/apps/learning/agent/history-compaction.ts",
       "extension": ".ts",
-      "sizeBytes": 3657
+      "sizeBytes": 3234
     },
     {
       "source": "littlewhitebox",
@@ -7328,7 +7328,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/learning/agent/provider-loop.ts",
       "relativePath": "modules/xiaobai-os/apps/learning/agent/provider-loop.ts",
       "extension": ".ts",
-      "sizeBytes": 8324
+      "sizeBytes": 8689
     },
     {
       "source": "littlewhitebox",
@@ -9442,7 +9442,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/docs/language-learning-app-implementation-plan.md",
       "relativePath": "modules/xiaobai-os/docs/language-learning-app-implementation-plan.md",
       "extension": ".md",
-      "sizeBytes": 90795
+      "sizeBytes": 91241
     },
     {
       "source": "littlewhitebox",
@@ -10870,7 +10870,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/tests/learning-context-history.test.js",
       "relativePath": "modules/xiaobai-os/tests/learning-context-history.test.js",
       "extension": ".js",
-      "sizeBytes": 20589
+      "sizeBytes": 26808
     },
     {
       "source": "littlewhitebox",
