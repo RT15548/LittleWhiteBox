@@ -7,7 +7,7 @@ import './scene-view.css';
 
 defineProps<{ scene: SceneData; mode: '2d' | '3d'; threeUnavailable: boolean }>();
 const emit = defineEmits<{ 'update:mode': [mode: '2d' | '3d']; fallback: [reason: string] }>();
-const lowWalls = ref(true);
+const lowWalls = ref(false);
 const showLabels = ref(true);
 </script>
 <template>

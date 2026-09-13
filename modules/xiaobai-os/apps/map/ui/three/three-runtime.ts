@@ -1,4 +1,4 @@
-import { Box3, DirectionalLight, HemisphereLight, MathUtils, NeutralToneMapping, OrthographicCamera, PCFSoftShadowMap, Scene, Spherical, SRGBColorSpace, Vector2, Vector3, WebGLRenderer } from 'three';
+import { Box3, DirectionalLight, HemisphereLight, MathUtils, NeutralToneMapping, OrthographicCamera, PCFSoftShadowMap, Scene, Spherical, SRGBColorSpace, TOUCH, Vector2, Vector3, WebGLRenderer } from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import type { MapScene } from '../../../../domains/map/types.js';
 import { createSceneModel } from './scene3d-model.js';
@@ -17,7 +17,7 @@ export function createThreeRuntime(host: HTMLElement, labelHost: HTMLElement, op
     let visibilityObserver: IntersectionObserver | undefined;
     let themeObserver: MutationObserver | undefined;
     let disposed = false, failed = false, visible = true, raf = 0;
-    let width = 0, height = 0, showLabels = true, lowWalls = true, symbolsReady = false;
+    let width = 0, height = 0, showLabels = true, lowWalls = false, symbolsReady = false;
     let data: MapScene | undefined;
     let fitWidth = 14, fitHeight = 14;
     const abort = new AbortController();
@@ -63,9 +63,9 @@ export function createThreeRuntime(host: HTMLElement, labelHost: HTMLElement, op
         });
     }
     function sceneBounds() {
-        const scale = data ? Math.max(data.viewBox[2], data.viewBox[3]) / 14 : 1;
-        const halfW = data ? data.viewBox[2] / scale / 2 : 7, halfH = data ? data.viewBox[3] / scale / 2 : 7;
-        return new Box3(new Vector3(-halfW, 0, -halfH), new Vector3(halfW, 0, halfH)).union(model!.bounds);
+        const [x, y, w, h] = data!.viewBox;
+        const { frame } = model!;
+        return new Box3(frame.point(x, y), frame.point(x + w, y + h)).union(model!.bounds);
     }
     function lightScene() {
         const bounds = sceneBounds();
@@ -131,7 +131,9 @@ export function createThreeRuntime(host: HTMLElement, labelHost: HTMLElement, op
                     return decodeSceneAsset(await response.arrayBuffer());
                 }, () => {if (data) {setScene(data);}}, (kind, error) => console.warn(`[Map 3D] ${kind}: keeping procedural shape`, error));
             }
-            const candidate = createSceneModel(next, dark, assets);
+            // ViewBox updates change the available map, not the user's coordinate frame.
+            // Keep this scene-local transform until switching scenes or unmounting.
+            const candidate = createSceneModel(next, dark, assets, reset ? undefined : model?.frame);
             labels?.dispose(); model?.dispose();
             data = next; model = candidate; scene.add(model.group); model.updateWalls(lowWalls);
             labels = createSceneLabels(labelHost, next, model.anchors);
@@ -157,10 +159,14 @@ export function createThreeRuntime(host: HTMLElement, labelHost: HTMLElement, op
         renderer.shadowMap.enabled = true; renderer.shadowMap.type = PCFSoftShadowMap;
         renderer.debug.onShaderError = () => fail('图形驱动无法绘制三维，已切换二维。');
         const canvas = renderer.domElement;
-        canvas.setAttribute('aria-label', '三维场景：拖动旋转，双指缩放和平移，方向键旋转，Home 全图');
+        canvas.setAttribute('aria-label', '三维场景：左键拖动旋转，Shift + 左键拖动平移，滚轮缩放；单指平移，双指拖动旋转、捏合缩放；方向键旋转，Home 全图');
+        canvas.title = '左键拖动旋转 · Shift + 左键拖动平移 · 滚轮缩放';
         canvas.setAttribute('role', 'group'); canvas.tabIndex = 0;
         host.prepend(canvas);
         controls = new OrbitControls(camera, canvas);
+        // Right-drag must not move the map while browser mouse gestures may take over.
+        controls.mouseButtons.RIGHT = null;
+        controls.touches = { ONE: TOUCH.PAN, TWO: TOUCH.DOLLY_ROTATE };
         controls.enableDamping = false;
         controls.minPolarAngle = .08; controls.maxPolarAngle = Math.PI * .46;
         controls.minZoom = .4; controls.maxZoom = 6;

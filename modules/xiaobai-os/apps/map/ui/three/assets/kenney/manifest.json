@@ -1,5 +1,6 @@
 [
   {
+    "icon": "table",
     "file": "table.glb",
     "originalFile": "furniture/Models/GLTF format/table.glb",
     "sourceSha256": "ff1a94498d023957f4bc3ff6f55a7a82977d336dbf01a573b3364f03afe5ff61",
@@ -9,12 +10,14 @@
     "batches": 1,
     "geometryBytes": 11520,
     "size": [
-      0.841487944,
-      0.326733977,
-      0.447373331
-    ]
+      0.8414879441261292,
+      0.3267339766025543,
+      0.44737333059310913
+    ],
+    "radius": 0.4765094062648687
   },
   {
+    "icon": "chair",
     "file": "chairRounded.glb",
     "originalFile": "furniture/Models/GLTF format/chairRounded.glb",
     "sourceSha256": "53f4933ec547179c499f04dbda1231cf44b83ec82c7f4ab981cdf680aee5c973",
@@ -24,12 +27,14 @@
     "batches": 1,
     "geometryBytes": 26880,
     "size": [
-      0.2,
-      0.454999983,
-      0.2
-    ]
+      0.20000000298023224,
+      0.45499998331069946,
+      0.20000000298023224
+    ],
+    "radius": 0.14142135834465194
   },
   {
+    "icon": "bed",
     "file": "bedSingle.glb",
     "originalFile": "furniture/Models/GLTF format/bedSingle.glb",
     "sourceSha256": "ca00c63f9a12da3138d902b2f5f18e0360fb6e8a5ac42ccb4bc3f185724b65d1",
@@ -39,12 +44,14 @@
     "batches": 3,
     "geometryBytes": 20544,
     "size": [
-      0.571000033326942,
-      0.37499999999996686,
+      0.5709999799728394,
+      0.375,
       1.125
-    ]
+    ],
+    "radius": 0.6294541280557842
   },
   {
+    "icon": "shelf",
     "file": "bookcaseOpenLow.glb",
     "originalFile": "furniture/Models/GLTF format/bookcaseOpenLow.glb",
     "sourceSha256": "6d4d625faf977a2dbf155f1313cd32c6310e463114a1cd4c08cb9f80a5fb1d75",
@@ -54,12 +61,14 @@
     "batches": 1,
     "geometryBytes": 17664,
     "size": [
-      0.4,
-      0.4,
+      0.4000000059604645,
+      0.4000000059604645,
       0.25
-    ]
+    ],
+    "radius": 0.23584953082864699
   },
   {
+    "icon": "tree",
     "file": "tree_oak.glb",
     "originalFile": "nature/Models/GLTF format/tree_oak.glb",
     "sourceSha256": "d7fd8773674928c50c11b66d12c636d49bdcc15a8b1c7fbb98e6f63a3439a3f3",
@@ -69,12 +78,14 @@
     "batches": 2,
     "geometryBytes": 18816,
     "size": [
-      0.6405540110000001,
-      1.22623992,
-      0.739648
-    ]
+      0.6405540108680725,
+      1.2262399204075336,
+      0.7396479845046997
+    ],
+    "radius": 0.36982402101696993
   },
   {
+    "icon": "rock",
     "file": "stone_largeE.glb",
     "originalFile": "nature/Models/GLTF format/stone_largeE.glb",
     "sourceSha256": "392cf28f85aa4b7b7c5e12b1a3b87fe2b3a7c5ec1797d5d1d0d58edca6da9de8",
@@ -84,9 +95,282 @@
     "batches": 1,
     "geometryBytes": 6144,
     "size": [
-      1.0954588,
-      0.29224798100000027,
-      0.919871092
-    ]
+      1.095458745956421,
+      0.2922479815781114,
+      0.9198710918426514
+    ],
+    "radius": 0.5865749968024526
+  },
+  {
+    "icon": "stool",
+    "file": "stoolBar.glb",
+    "originalFile": "furniture/Models/GLTF format/stoolBar.glb",
+    "sourceSha256": "a86167a9f92401a61fec7e509ad089ecc552d0f299743add3aeb919acb24e341",
+    "sha256": "6fe6e654458f50ab7e73cc5977f055a50562cb74a56a8bd5ebaac312f03c4563",
+    "bytes": 17852,
+    "triangles": 176,
+    "batches": 1,
+    "geometryBytes": 16896,
+    "size": [
+      0.2654399871826172,
+      0.4350000023841858,
+      0.2298777848482132
+    ],
+    "radius": 0.13272000284524055
+  },
+  {
+    "icon": "bench",
+    "file": "bench.glb",
+    "originalFile": "furniture/Models/GLTF format/bench.glb",
+    "sourceSha256": "ba05a6d23a5a5a44da016757632070e47ff7587ce10e2f6d6d52328b4cf5489b",
+    "sha256": "21bd02dce1f980aff3bc22c916bdcbefa3db2fa11bd5dbbc9fbb07830f9bd87b",
+    "bytes": 17280,
+    "triangles": 170,
+    "batches": 1,
+    "geometryBytes": 16320,
+    "size": [
+      0.4000000059604645,
+      0.4699999988079071,
+      0.20000000298023224
+    ],
+    "radius": 0.22360680108197992
+  },
+  {
+    "icon": "sofa",
+    "file": "loungeSofa.glb",
+    "originalFile": "furniture/Models/GLTF format/loungeSofa.glb",
+    "sourceSha256": "1886b811c0d3ad0d8525a4fd43adf4112c497c8e0ed906f06877ca3517f4c7dd",
+    "sha256": "a4a0b16aa48731b61fcc08302c8bca8d2ff9e1ae41e77893ed9f2091f8a35ee2",
+    "bytes": 13952,
+    "triangles": 128,
+    "batches": 2,
+    "geometryBytes": 12288,
+    "size": [
+      0.9799999594688416,
+      0.46000000834465027,
+      0.4100000262260437
+    ],
+    "radius": 0.5311543895291386
+  },
+  {
+    "icon": "cabinet",
+    "file": "kitchenCabinet.glb",
+    "originalFile": "furniture/Models/GLTF format/kitchenCabinet.glb",
+    "sourceSha256": "7238c57778935ae25db5e57e9f7af3ba7068c71b005ff7cfbff3b6f3b1a13200",
+    "sha256": "0f9b3693f3de853fa68148bb71c9e29ecf38e784bfa7e39a7fb3cc78f76ce972",
+    "bytes": 12604,
+    "triangles": 114,
+    "batches": 2,
+    "geometryBytes": 10944,
+    "size": [
+      0.4300000071525574,
+      0.44999998807907104,
+      0.44999998807907104
+    ],
+    "radius": 0.3112073245532484
+  },
+  {
+    "icon": "stove",
+    "file": "kitchenStove.glb",
+    "originalFile": "furniture/Models/GLTF format/kitchenStove.glb",
+    "sourceSha256": "3239edb36295dfca9530a9b9a6ad0aff98ce62e7cf8d13ca2a5a1a6b2a904656",
+    "sha256": "6d1deee24fa30890cbfc540fa6e711fce2ab68cc82d0b68e104074c2c161b170",
+    "bytes": 81356,
+    "triangles": 830,
+    "batches": 2,
+    "geometryBytes": 79680,
+    "size": [
+      0.4300000071525574,
+      0.44999998807907104,
+      0.44999998807907104
+    ],
+    "radius": 0.3112073245532484
+  },
+  {
+    "icon": "refrigerator",
+    "file": "kitchenFridge.glb",
+    "originalFile": "furniture/Models/GLTF format/kitchenFridge.glb",
+    "sourceSha256": "8af4f4bbb1b5525ad8226e97926a5af60fa8fb20a3cb74dbda5328a9d320dbab",
+    "sha256": "69be9a8c3d3a804c494b92220710c61a2f87a4c3600922d0da3d5020eb3aef4c",
+    "bytes": 25668,
+    "triangles": 250,
+    "batches": 2,
+    "geometryBytes": 24000,
+    "size": [
+      0.4300000071525574,
+      0.9200000166893005,
+      0.29193389415740967
+    ],
+    "radius": 0.2598679494998898
+  },
+  {
+    "icon": "sink",
+    "file": "kitchenSink.glb",
+    "originalFile": "furniture/Models/GLTF format/kitchenSink.glb",
+    "sourceSha256": "7b9610277d71f00dcf1bba49cf4d98d77ce5177e84bf76c7da2f8893e542f743",
+    "sha256": "7063bb1597aae39279a3430952338d6f72fe8bccba5b93b143b930ba992f3878",
+    "bytes": 32196,
+    "triangles": 318,
+    "batches": 2,
+    "geometryBytes": 30528,
+    "size": [
+      0.4300000071525574,
+      0.4899999797344208,
+      0.44999998807907104
+    ],
+    "radius": 0.3112073245532484
+  },
+  {
+    "icon": "toilet",
+    "file": "toilet.glb",
+    "originalFile": "furniture/Models/GLTF format/toilet.glb",
+    "sourceSha256": "16165cfd03c56c2cb443b800570810a22ef770f65e7a468f6761d9dc14eaaeae",
+    "sha256": "42fcec7b0b225b544dcf05bde35f17e598cdf01c8f5f15f36aa55c76ab91652f",
+    "bytes": 23732,
+    "triangles": 230,
+    "batches": 2,
+    "geometryBytes": 22080,
+    "size": [
+      0.31255000829696655,
+      0.450965017080307,
+      0.4771767109632492
+    ],
+    "radius": 0.2827908769988002
+  },
+  {
+    "icon": "bathtub",
+    "file": "bathtub.glb",
+    "originalFile": "furniture/Models/GLTF format/bathtub.glb",
+    "sourceSha256": "54c405c7035aab63dc41e709dc3c50fc5bcfbc4cddc91ffc54188075a6d25d01",
+    "sha256": "f15e3a3316060b4ddca2dd1350109adc26bc11f1a4784e8dcb23465ccdb3cb5a",
+    "bytes": 59480,
+    "triangles": 602,
+    "batches": 2,
+    "geometryBytes": 57792,
+    "size": [
+      0.5600000023841858,
+      0.41999998688697815,
+      1.190000057220459
+    ],
+    "radius": 0.6478308291120068
+  },
+  {
+    "icon": "potted-plant",
+    "file": "pottedPlant.glb",
+    "originalFile": "furniture/Models/GLTF format/pottedPlant.glb",
+    "sourceSha256": "5b760eda2766f75fda36b2c5df652a1662f82981ef64cd8fa7fe7bcd386b3a15",
+    "sha256": "d6be69190662ff9b0388b7332f9a8d8e0530d1373b5a3c08deea336ea09613e7",
+    "bytes": 7420,
+    "triangles": 60,
+    "batches": 2,
+    "geometryBytes": 5760,
+    "size": [
+      0.21205927431583405,
+      0.6540167927742004,
+      0.24146194756031036
+    ],
+    "radius": 0.12073097378015518
+  },
+  {
+    "icon": "light",
+    "file": "lampRoundFloor.glb",
+    "originalFile": "furniture/Models/GLTF format/lampRoundFloor.glb",
+    "sourceSha256": "50fe1b5b588edf15bfa9cc880f71a02a4fda6036350b24733d0ef4de5cc5e908",
+    "sha256": "f663a0f42fc9277cfc365f4ccc335fe8a80d621159dae74922dd8c3947fd2b36",
+    "bytes": 8956,
+    "triangles": 76,
+    "batches": 2,
+    "geometryBytes": 7296,
+    "size": [
+      0.15203941613435745,
+      0.8600000143051147,
+      0.17555999755859375
+    ],
+    "radius": 0.08778000315811903
+  },
+  {
+    "icon": "statue",
+    "file": "statue_ring.glb",
+    "originalFile": "nature/Models/GLTF format/statue_ring.glb",
+    "sourceSha256": "5c62e4165f7a76436faa0b20e98b47d0a9e5021dcbf2a0eef0cdf0912180f02c",
+    "sha256": "013b58818fbebae606f6cb9b5bc7f769ac6f55dbf5bc1c486787078a8761d29c",
+    "bytes": 8976,
+    "triangles": 76,
+    "batches": 2,
+    "geometryBytes": 7296,
+    "size": [
+      0.6000000238418579,
+      0.7964101441204547,
+      0.4000000059604645
+    ],
+    "radius": 0.3605551391183468
+  },
+  {
+    "icon": "chest",
+    "file": "chest.glb",
+    "originalFile": "survival/Models/GLB format/chest.glb",
+    "sourceSha256": "84b03023e425cc1f96c6d0b0f352608be9e8e01b112790e6b00b8651bf84379b",
+    "sha256": "dfaf5cf144a7465e313e87d08eb82b0039202500256a6e89f774d0a1e9c35946",
+    "bytes": 32580,
+    "triangles": 322,
+    "batches": 2,
+    "geometryBytes": 30912,
+    "size": [
+      0.2603999972343445,
+      0.2571914792060852,
+      0.2720249891281128
+    ],
+    "radius": 0.18828552338788324
+  },
+  {
+    "icon": "barrel",
+    "file": "barrel.glb",
+    "originalFile": "survival/Models/GLB format/barrel.glb",
+    "sourceSha256": "3a0d12f6bdd1badd361f64ce0fbbf878a4ccfc2de8ff1ac4ed4c1aea2a9ee04a",
+    "sha256": "3b1f6cdf0e406cdf9630649a1eca8bdf8428a9f07d794bafd70406e63dafa6e3",
+    "bytes": 41228,
+    "triangles": 412,
+    "batches": 2,
+    "geometryBytes": 39552,
+    "size": [
+      0.23649999499320984,
+      0.3440000116825104,
+      0.23649999499320984
+    ],
+    "radius": 0.13364122923364707
+  },
+  {
+    "icon": "tent",
+    "file": "tent-canvas.glb",
+    "originalFile": "survival/Models/GLB format/tent-canvas.glb",
+    "sourceSha256": "efc4bca46a22e4cc4fe391aeafba161c24bc39bfa75e192c57eaacaf686f9717",
+    "sha256": "8baaab74d57cfa38d73963dccd6fe711006d28ebef0145a410494625f4cc0b9d",
+    "bytes": 15868,
+    "triangles": 148,
+    "batches": 2,
+    "geometryBytes": 14208,
+    "size": [
+      0.5607622265815735,
+      0.4913683533668518,
+      0.5610000491142273
+    ],
+    "radius": 0.37933337775768333
+  },
+  {
+    "icon": "car",
+    "file": "sedan.glb",
+    "originalFile": "car/Models/GLB format/sedan.glb",
+    "sourceSha256": "b532ea7d2c59f7f6b22b138cf1955218a2c1898f1cea932af4d3fd563c3959b7",
+    "sha256": "99b2d9141e842d542c406b83a3f8701519cad9f5a4f4d046b7b0d6f8cf12c0f8",
+    "bytes": 197452,
+    "triangles": 2032,
+    "batches": 3,
+    "geometryBytes": 195072,
+    "size": [
+      1.5,
+      1.2999999523162844,
+      2.549999952316284
+    ],
+    "radius": 1.3472214803586575
   }
 ]

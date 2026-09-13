@@ -5,7 +5,8 @@ import { validateMapDomain } from '../../modules/xiaobai-os/domains/map/invarian
 import { createEmptyMapDomain } from '../../modules/xiaobai-os/domains/map/state.ts';
 import { compileSceneIntent } from '../../modules/xiaobai-os/apps/map/maintenance/scene-intent-compiler.ts';
 import { sceneMapInputs } from '../../modules/xiaobai-os/tests/fixtures/scene-maps.js';
-const fixtures = Object.fromEntries(sceneMapInputs.map(input => {
+import { sceneObjectInputs } from '../../modules/xiaobai-os/tests/fixtures/scene-map-objects.js';
+const fixtures = Object.fromEntries([...sceneMapInputs, ...sceneObjectInputs].map(input => {
     const compiled = compileSceneIntent(createEmptyMapDomain(), input, { actorKey: 'player', displayName: '小白' });
     if (compiled.result.skipped.length) throw new Error(JSON.stringify(compiled.result));
     validateMapDomain(compiled.domain);

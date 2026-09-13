@@ -32,6 +32,18 @@ function createEslintDisableBannerPlugin() {
     };
 }
 
+function createMapAssetCreditsPlugin() {
+    return {
+        name: 'xiaobai-os-map-asset-credits',
+        generateBundle() {
+            for (const file of ['SOURCES.md', 'LICENSE-furniture.txt', 'LICENSE-nature.txt', 'LICENSE-car.txt', 'LICENSE-survival.txt']) {
+                this.emitFile({ type: 'asset', fileName: `map-assets/${file}`,
+                    source: fs.readFileSync(path.join(xiaobaiOsRoot, 'apps/map/ui/three/assets/kenney', file)) });
+            }
+        },
+    };
+}
+
 function createAgentCompatibilityPlugin() {
     return {
         name: 'xiaobai-os-agent-compatibility',
@@ -83,7 +95,7 @@ export default defineConfig(({ mode }) => {
         plugins: [
             ...(buildAgent ? [createAgentCompatibilityPlugin()] : []),
             ...(buildHost ? [createHostExternalPlugin()] : []),
-            ...(buildShell ? [vue()] : []),
+            ...(buildShell ? [vue(), createMapAssetCreditsPlugin()] : []),
             createEslintDisableBannerPlugin(),
         ],
         define: {

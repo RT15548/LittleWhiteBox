@@ -19,6 +19,7 @@ import {
     MAP_ELEMENT_SHAPES,
     MAP_ICON_TOKENS,
     MAP_MATERIALS,
+    MAP_OBJECT_GROUPS,
 } from '../../../domains/map/semantics.js';
 import { DEFAULT_ATLAS_READ_LIMIT, MAX_ATLAS_QUERY_LENGTH, MAX_ATLAS_READ_LIMIT } from './atlas-reader.js';
 
@@ -33,6 +34,8 @@ const locationScale = ['world', 'region', 'city', 'district', 'building', 'floor
 const locationStatus = ['mentioned', 'visited'];
 const linkKind = ['door', 'stairs', 'elevator', 'path', 'road', 'portal', 'passage'];
 const mood = ['neutral', 'warm', 'cold', 'dark', 'mystic', 'danger', 'calm'];
+
+const objectGuidance = MAP_OBJECT_GROUPS.map(group => `${group.name}: ${group.icons.join(', ')}. ${group.hint}`.trim()).join('\n');
 
 const EDIT_RESULT_SHAPE = 'Returns {ok, status, changed, applied[], skipped[], warnings[]}. status is updated, unchanged (nothing needed to change; this is success, not a failure to retry), partial or failed. Each skipped item carries collection, index, id, reason and a hint; fix only those and keep the applied ones. warnings list values that were ignored or normalized.';
 
@@ -251,11 +254,11 @@ export const MAP_MAINTENANCE_TOOLS: readonly MaintenanceFunctionDeclaration[] = 
                                 },
                                 label: { type: ['string', 'null'], maxLength: MAX_MAP_LABEL_LENGTH, description: 'Optional short visible text. Required for shape "label". Use null to clear it.' },
                                 actorKey: { type: ['string', 'null'], maxLength: MAX_MAP_ID_LENGTH, description: 'Stable actor identity for a new cat "actor" element. The player is always "player". An existing actor keeps its stored actorKey.' },
-                                icon: nullableEnum(MAP_ICON_TOKENS, 'Object or marker token. On a rect/circle, table/chair/bed/counter/shelf/sofa/bridge/tree/rock draws that physical footprint; on shape icon it is only a point marker. A tree footprint is ONE tree; a forest is terrain with material forest and no tree icon. Use null to clear.'),
+                                icon: nullableEnum(MAP_ICON_TOKENS, `Object type or marker symbol. Sized objects use rect/circle footprints; other outlines retain their original shape. On shape icon/label it is only a position marker/text. Actors and entrances retain their marker identity regardless of icon. Use null to clear.\n${objectGuidance}`),
                                 material: nullableEnum(MAP_MATERIALS, 'What the surface is made of, independent of object type: e.g. icon table + material metal. Floors, ground, decks and platforms are cat terrain with a surface material; fabric and bed-sheet describe soft objects, not a floor. Textures are automatic. Use null to clear.'),
                                 certainty: nullableEnum(MAP_CERTAINTIES, 'Use inferred for ordinary structures you plausibly add beyond explicit setting/story facts. Omit for established facts; approximate coordinates alone are not inferred. Use null to clear.'),
-                                closed: { type: ['boolean', 'null'], description: 'Paths/curves only: true joins last to first (needs 3+ points); false stays open. Omit preserves the stored value; null removes the override. Without an override, 3+ points close for water/terrain/furniture/decoration/danger/magic/secret/light; other categories stay open. Two points are always a line. Walls never fill.' },
-                                rotation: { type: ['number', 'null'], minimum: 0, description: 'Rect/circle only: clockwise degrees [0,360) around the footprint centre. At 0, chair/sofa backs and bed pillows are at the top (north); seats face down (south); bridge travel runs top-to-bottom. Thus a chair facing north is 180, east 270, west 90. Omit preserves; null clears. Clear explicitly when changing to a non-rect/circle shape. Rotation-only edits need no geo.' },
+                                closed: { type: ['boolean', 'null'], description: 'Paths/curves only: true joins last to first (needs 3+ points); false stays open. Omit preserves the stored value; null removes the override. Without an override, 3+ points close for water/terrain/furniture/decoration/danger/magic/secret/light; other categories stay open. An open fence needs false even with category decoration. Two points are always a line. Wall boundaries and fence paths never fill their interior.' },
+                                rotation: { type: ['number', 'null'], minimum: 0, description: 'Rect/circle only: clockwise degrees [0,360) around the footprint centre. At 0, object fronts and car noses face south; chair/sofa backs and bed heads are north; bridges run north-south. A front facing north is 180, east 270, west 90. Omit preserves; null clears. Clear explicitly when changing to a non-rect/circle shape. Rotation-only edits need no geo.' },
                             },
                             required: ['id'], additionalProperties: false,
                         },

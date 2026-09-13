@@ -1,3 +1,5 @@
+import type { MAP_ICON_TOKENS } from './semantics.js';
+
 export type MapLocationScale = 'world' | 'region' | 'city' | 'district' | 'building' | 'floor' | 'room' | 'outdoor';
 export type MapTerrain = 'urban' | 'plain' | 'forest' | 'water' | 'mountain' | 'desert' | 'snow';
 export type MapLocationStatus = 'mentioned' | 'visited';
@@ -71,38 +73,7 @@ export type MapMaterial =
     | 'shadow';
 
 /** Local renderer vocabulary; arbitrary SVG, CSS and remote icon names are never persisted. */
-export type MapIconToken =
-    | 'door-open'
-    | 'stairs'
-    | 'elevator'
-    | 'portal'
-    | 'passage'
-    | 'entrance'
-    | 'exit'
-    | 'north'
-    | 'south'
-    | 'east'
-    | 'west'
-    | 'up'
-    | 'down'
-    | 'trap'
-    | 'chest'
-    | 'marker'
-    | 'player'
-    | 'actor'
-    | 'chair'
-    | 'table'
-    | 'bed'
-    | 'counter'
-    | 'shelf'
-    | 'sofa'
-    | 'bridge'
-    | 'tree'
-    | 'rock'
-    | 'building'
-    | 'fire'
-    | 'light'
-    | 'water';
+export type MapIconToken = (typeof MAP_ICON_TOKENS)[number];
 
 export interface RectGeometry {
     x: number;

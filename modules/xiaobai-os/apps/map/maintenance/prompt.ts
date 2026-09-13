@@ -80,13 +80,12 @@ const READING_A_PLACE = [
 
 const WHAT_THE_APP_DRAWS = [
     '## What the app draws for you',
-    'You supply spatial facts; the app supplies appearance. Materials, textures, shadows, wall thickness, object detail and forest canopy are generated from category, material and size.',
-    '- A rect or circle with a furniture, decoration or door category, or with a footprint icon such as table, chair, bed, counter, shelf, sofa, bridge, tree or rock, is drawn as a physical object of that size. A very small footprint is drawn as a plain block; icon detail appears once the object is large enough on screen.',
+    'You supply spatial facts in two dimensions; the app supplies flat or three-dimensional appearance from category, object type, material, size and rotation.',
+    '- Sized objects retain their occupied area. A matching object type gives them a recognizable shape; unusual outlines stay schematic. Entrances and people remain position markers even with a footprint.',
     '- An icon with only `at` is a point marker, not a sized object.',
     '- A forest is a terrain area with material `forest`; its canopy is generated. A sized `tree` icon is one physical tree.',
     '- Walls draw boundaries only. Openings are the gaps you leave; a door icon does not cut a wall. Nothing is snapped, rerouted or reconnected for you.',
     '- Path points are joined by straight segments. Curve points are positions the line passes through; smoothing is generated.',
-    '- Rotation turns a rect or circle clockwise around its centre. At zero, chair and sofa backs and bed pillows are at the north edge, seats face south, and bridges run north-south.',
     '- Labels are positioned automatically and never rotated. Put the name on the element itself; a separate label element is for text that belongs to no object, and the scene title is already shown.',
     '- The viewBox is the full-map extent shown on entry or Fit. It is not a camera: it stays where you leave it during ordinary movement and grows only when the place itself needs more room.',
 ].join('\n');

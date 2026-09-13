@@ -6,7 +6,7 @@ import MapViewport from './MapViewport.vue';
 import SceneMaterials from './SceneMaterials.vue';
 import SceneObject from './SceneObject.vue';
 import { elementPresentation, MAP_MOOD_RECIPES, sortedSceneElements } from './map-presentation.js';
-import { forestCanopies, isAreaElement, isSceneObject, sceneElementBounds, sceneElementLabelPoint, sceneElementPath, sceneElementTransform } from './scene-geometry.js';
+import { forestCanopies, hasSceneObjectDrawing, isAreaElement, isSceneMarker, isSceneObject, sceneElementBounds, sceneElementLabelPoint, sceneElementPath, sceneElementTransform } from './scene-geometry.js';
 import { materialBase } from './scene-materials.js';
 import './scene.css';
 
@@ -24,7 +24,8 @@ const items = computed(() => sortedSceneElements(props.scene.elements).map((elem
     area: isAreaElement(element),
     presentation: elementPresentation(element, prefix),
     clipId: `${prefix}-area-${index}`,
-    object: isSceneObject(element),
+    object: isSceneObject(element) && !isSceneMarker(element),
+    marker: isSceneMarker(element) && element.shape !== 'label',
 })));
 </script>
 
@@ -41,18 +42,21 @@ const items = computed(() => sortedSceneElements(props.scene.elements).map((elem
                         <path :d="item.path" :fill="item.presentation.fill" :stroke="item.presentation.stroke" :stroke-width="item.presentation.width" :stroke-dasharray="item.presentation.dash" stroke-linejoin="round" :stroke-linecap="item.element.category === 'wall' ? 'butt' : 'round'" fill-rule="evenodd" vector-effect="non-scaling-stroke" />
                         <path v-if="item.element.category === 'wall'" :d="item.path" fill="none" :stroke="item.element.material ? materialBase(item.element.material) : 'var(--scene-wall)'" stroke-width="3.5" :stroke-opacity="item.element.material === 'glass' ? .4 : 1" :stroke-dasharray="item.presentation.dash" stroke-linejoin="round" vector-effect="non-scaling-stroke" />
                     </template>
+                    <g v-if="item.object && !hasSceneObjectDrawing(item.element) && Math.min(item.bounds.width, item.bounds.height) / unitScale >= 12" :transform="`translate(${item.bounds.x + item.bounds.width / 2} ${item.bounds.y + item.bounds.height / 2})`" aria-hidden="true">
+                        <text :class="symbolsReady ? 'map-material-symbol' : 'map-symbol-fallback'" :style="{ fontSize: `${Math.min(22 * unitScale, Math.min(item.bounds.width, item.bounds.height) * .65)}px`, fill: 'var(--scene-edge)', textAnchor: 'middle', dominantBaseline: 'central' }">{{ symbolsReady ? item.presentation.icon : item.presentation.fallback }}</text>
+                    </g>
                     <template v-if="crowns.has(item.element.id)">
                         <defs><clipPath :id="item.clipId"><path :d="item.path" clip-rule="evenodd" /></clipPath></defs>
                         <g :clip-path="`url(#${item.clipId})`" class="scene-forest-decoration" aria-hidden="true">
                             <use v-for="(crown, index) in crowns.get(item.element.id)" :key="index" :href="`#${prefix}-crown-${crown.variant}`" :x="crown.x - crown.size / 2" :y="crown.y - crown.size / 2" :width="crown.size" :height="crown.size" />
                         </g>
                     </template>
-                    <g v-if="item.element.shape === 'icon'" class="map-scene-icon" :transform="`translate(${item.bounds.x} ${item.bounds.y}) scale(${unitScale})`">
-                        <circle v-if="item.element.kind === 'player'" r="19" class="scene-player-halo" />
-                        <circle r="11" :stroke="item.presentation.stroke" />
-                        <text v-if="symbolsReady" class="map-material-symbol" aria-hidden="true">{{ item.presentation.icon }}</text>
-                        <text v-else class="map-symbol-fallback" aria-hidden="true">{{ item.presentation.fallback }}</text>
-                    </g>
+                </g>
+                <g v-if="item.marker" class="map-scene-icon" :transform="`translate(${item.bounds.x + item.bounds.width / 2} ${item.bounds.y + item.bounds.height / 2}) scale(${unitScale})`">
+                    <circle v-if="item.element.actorKey === 'player' || item.element.kind === 'player'" r="19" class="scene-player-halo" />
+                    <circle r="11" :stroke="item.presentation.stroke" />
+                    <text v-if="symbolsReady" class="map-material-symbol" aria-hidden="true">{{ item.presentation.icon }}</text>
+                    <text v-else class="map-symbol-fallback" aria-hidden="true">{{ item.presentation.fallback }}</text>
                 </g>
             </g>
             <g class="scene-labels" :style="{ '--scene-unit-scale': unitScale }">

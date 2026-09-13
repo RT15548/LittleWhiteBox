@@ -1,9 +1,10 @@
-import { CylinderGeometry, DodecahedronGeometry, InstancedMesh, Matrix4, SphereGeometry, type BufferGeometry, type Group, type MeshStandardMaterial } from 'three';
+import { ConeGeometry, CylinderGeometry, DodecahedronGeometry, InstancedMesh, LatheGeometry, Matrix4, SphereGeometry, Vector2, type BufferGeometry, type Group, type MeshStandardMaterial } from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import type { MapElement } from '../../../../domains/map/types.js';
+import type { MapElement, MapMaterial } from '../../../../domains/map/types.js';
 import type { SceneTemplate } from './scene3d-presentation.js';
 import type { createSceneMaterials } from './scene3d-materials.js';
 import type { Scene3DResources } from './scene3d-resources.js';
+import { buildFixture } from './scene3d-fixtures.js';
 
 /** Normalized parts keep even tiny footprints positive and inside the authored bounds. */
 export function createTemplates(resources: Scene3DResources, materials: ReturnType<typeof createSceneMaterials>) {
@@ -19,11 +20,13 @@ export function createTemplates(resources: Scene3DResources, materials: ReturnTy
     const cylinder = resources.own(new CylinderGeometry(.5, .5, 1, 32));
     const sphere = resources.own(new SphereGeometry(.5, 16, 10));
     const rock = resources.own(new DodecahedronGeometry(.5, 0));
+    const cone = resources.own(new ConeGeometry(.5, 1, 9));
+    const ring = resources.own(new LatheGeometry([[.35, -.5], [.5, -.5], [.5, .5], [.35, .5], [.35, -.5]].map(([x, y]) => new Vector2(x, y)), 32));
     return function build(parent: Group, element: MapElement, template: SceneTemplate, w: number, d: number): number {
         const h = Math.min(1.6, Math.min(w, d));
         const batches = new Map<string, { geometry: BufferGeometry; material: MeshStandardMaterial; matrices: Matrix4[] }>();
-        function part(x: number, y: number, z: number, sx: number, sy: number, sz: number, tint = 0, geometry: BufferGeometry = cube) {
-            const material = materials.mesh(element, tint);
+        function part(x: number, y: number, z: number, sx: number, sy: number, sz: number, tint = 0, geometry: BufferGeometry = cube, surface?: MapMaterial) {
+            const material = materials.mesh(surface ? { ...element, material: surface } : element, tint);
             const key = `${geometry.uuid}:${material.uuid}`;
             if (!batches.has(key)) {batches.set(key, { geometry, material, matrices: [] });}
             batches.get(key)!.matrices.push(new Matrix4().makeScale(sx * w, sy * h, sz * d).setPosition(x * w, y * h, z * d));
@@ -109,6 +112,8 @@ export function createTemplates(resources: Scene3DResources, materials: ReturnTy
             case 'rock':
                 part(0, .29, 0, 1, .62, 1, .03, rock);
                 return .60 * h;
+            default:
+                return buildFixture(template, element, part, { cylinder, ring, cone }) * h;
             }
         }
         const height = buildParts();

@@ -2,7 +2,9 @@ import { Box3, Mesh, Vector3 } from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { Scene3DResources } from './scene3d-resources.js';
 
-export type SceneAssetKind = 'table' | 'chair' | 'bed' | 'shelf' | 'tree' | 'rock';
+export type SceneAssetKind = 'table' | 'chair' | 'bed' | 'shelf' | 'tree' | 'rock' | 'stool' | 'bench' | 'sofa'
+    | 'cabinet' | 'chest' | 'barrel' | 'stove' | 'refrigerator' | 'sink' | 'toilet' | 'bathtub'
+    | 'car' | 'statue' | 'tent' | 'potted-plant' | 'light';
 export type SceneAsset = Awaited<ReturnType<typeof decodeSceneAsset>>;
 export type SceneAssetLoader = (kind: SceneAssetKind, signal: AbortSignal) => Promise<SceneAsset>;
 

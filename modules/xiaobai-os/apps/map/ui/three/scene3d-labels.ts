@@ -1,7 +1,7 @@
 import type { Camera, Vector3 } from 'three';
 import type { MapScene } from '../../../../domains/map/types.js';
 import { elementPresentation, MAP_CATEGORY_LABELS } from '../map-presentation.js';
-import { isSceneMarker } from './scene3d-presentation.js';
+import { isSceneMarker } from '../scene-geometry.js';
 import { layoutSceneLabels, type ProjectedLabel } from './scene3d-label-layout.js';
 
 export function createSceneLabels(container: HTMLElement, scene: MapScene, anchors: ReadonlyMap<string, Vector3>) {

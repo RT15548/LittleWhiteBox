@@ -1,24 +1,33 @@
 import type { MapElement, MapIconToken, RectGeometry, CircleGeometry, PointGeometry, PointsGeometry } from '../../../domains/map/types.js';
+import { MAP_OBJECT_ICONS } from '../../../domains/map/semantics.js';
 
 export interface SceneBounds { x: number; y: number; width: number; height: number }
 const AREA_CATEGORIES = new Set(['water', 'terrain', 'furniture', 'decoration', 'danger', 'magic', 'secret', 'light']);
-const FOOTPRINT_OBJECT_ICONS = new Set<MapIconToken>(['chair', 'table', 'bed', 'counter', 'shelf', 'sofa', 'bridge', 'tree', 'rock']);
+const FOOTPRINT_OBJECT_ICONS = new Set<MapIconToken>(MAP_OBJECT_ICONS);
+const PLAN_OBJECT_DRAWINGS = new Set<MapIconToken>(['chair', 'table', 'bed', 'counter', 'shelf', 'sofa', 'bridge', 'tree', 'rock']);
+export function hasSceneObjectDrawing(element: MapElement): boolean {return !!element.icon && PLAN_OBJECT_DRAWINGS.has(element.icon);}
 const numberText = (value: number): string => Number(value.toFixed(3)).toString();
 const pointsOf = (element: MapElement): Array<[number, number]> => (element.geometry as PointsGeometry).points || [];
+
+/** Identity markers keep their glyph in both renderers, even with a sized footprint. */
+export function isSceneMarker(element: MapElement): boolean {
+    return element.shape === 'icon' || element.shape === 'label' || element.category === 'actor' || element.category === 'door'
+        || element.kind === 'stairs' || element.icon === 'stairs' || element.icon === 'door-open';
+}
 
 function closesPath(element: MapElement): boolean {
     return pointsOf(element).length >= 3 && (element.closed ?? AREA_CATEGORIES.has(element.category));
 }
 
 export function isAreaElement(element: MapElement): boolean {
-    if (element.category === 'wall' || element.category === 'grid') {return false;}
+    if (element.category === 'wall' || element.category === 'grid' || (element.icon === 'fence' && ['path', 'curve'].includes(element.shape))) {return false;}
     if (element.shape === 'rect' || element.shape === 'circle') {return true;}
     return (element.shape === 'path' || element.shape === 'curve') && closesPath(element);
 }
 
 /** A sized known object remains an object regardless of which category authored it. */
 export function isSceneObject(element: MapElement): boolean {
-    return (element.shape === 'rect' || element.shape === 'circle') && (
+    return !['wall', 'grid', 'actor'].includes(element.category) && (element.shape === 'rect' || element.shape === 'circle') && (
         (element.icon !== undefined && FOOTPRINT_OBJECT_ICONS.has(element.icon))
         || ['furniture', 'decoration', 'door'].includes(element.category)
     );
@@ -118,7 +127,7 @@ export function sceneElementLabelPoint(element: MapElement, unitScale = 1): [num
     const b = sceneElementBounds(element);
     const centre: [number, number] = [b.x + b.width / 2, b.y + b.height / 2];
     if (element.shape === 'label') {return centre;}
-    if (element.shape === 'icon') {return [centre[0], centre[1] + 23 * unitScale];}
+    if (isSceneMarker(element)) {return [centre[0], centre[1] + 23 * unitScale];}
     if ((element.category === 'terrain' || element.category === 'water') && isAreaElement(element)) {return centre;}
     if (element.shape === 'path' || element.shape === 'curve') {
         const points = pointsOf(element);

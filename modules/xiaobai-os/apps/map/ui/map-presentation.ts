@@ -9,6 +9,14 @@ import type {
 } from '../../../domains/map/types.js';
 import { isAreaElement, sceneElementBounds } from './scene-geometry.js';
 import { materialPaint } from './scene-materials.js';
+import type { MapObjectIcon } from '../../../domains/map/semantics.js';
+
+const OBJECT_FALLBACKS: Readonly<Record<MapObjectIcon, string>> = {
+    chair: '椅', stool: '凳', bench: '长凳', sofa: '沙发', bed: '床', table: '桌', counter: '台', shelf: '架', cabinet: '柜', chest: '箱', barrel: '桶',
+    stove: '灶', refrigerator: '冰箱', sink: '水槽', toilet: '厕', bathtub: '浴缸', terminal: '终端', machine: '机械', 'vending-machine': '售货', car: '车',
+    column: '柱', partition: '屏风', fence: '围栏', 'door-open': '门', ladder: '梯', statue: '雕像', well: '井', fountain: '喷泉', bridge: '桥', tent: '帐篷',
+    tree: '树', 'potted-plant': '盆栽', rock: '石', light: '灯', fire: '火', flag: '旗', sign: '牌',
+};
 
 export interface MapElementRecipe {
     stroke: string;
@@ -142,6 +150,11 @@ const ICON_TOKENS: Readonly<Record<MapIconToken, string>> = Object.freeze({
     fire: 'local_fire_department',
     light: 'lightbulb',
     water: 'water_drop',
+    stool: 'chair_alt', bench: 'event_seat', cabinet: 'kitchen', barrel: 'propane_tank',
+    stove: 'oven_gen', refrigerator: 'kitchen', sink: 'countertops', toilet: 'wc', bathtub: 'bathtub',
+    terminal: 'computer', machine: 'precision_manufacturing', 'vending-machine': 'point_of_sale', car: 'directions_car',
+    column: 'account_balance', partition: 'view_column', fence: 'fence', ladder: 'format_line_spacing', statue: 'architecture',
+    well: 'water_pump', fountain: 'water', tent: 'camping', 'potted-plant': 'potted_plant', flag: 'flag', sign: 'signpost',
 });
 
 const CATEGORY_ICONS: Readonly<Record<MapElementCategory, string>> = Object.freeze({
@@ -230,7 +243,8 @@ export function elementPresentation(element: MapElement, patternPrefix: string):
         opacity: element.certainty === 'unknown' ? 0.48 : element.certainty === 'inferred' ? 0.72 : 1,
         dash: certaintyDash,
         icon: element.icon ? ICON_TOKENS[element.icon] : element.kind ? KIND_ICONS[element.kind] : CATEGORY_ICONS[element.category],
-        fallback: element.kind ? KIND_FALLBACKS[element.kind] : MAP_CATEGORY_LABELS[element.category].slice(0, 1),
+        fallback: element.kind ? KIND_FALLBACKS[element.kind] : element.icon && Object.hasOwn(OBJECT_FALLBACKS, element.icon)
+            ? OBJECT_FALLBACKS[element.icon as MapObjectIcon] : MAP_CATEGORY_LABELS[element.category].slice(0, 1),
         z: CATEGORY_Z[element.category],
     };
 }
