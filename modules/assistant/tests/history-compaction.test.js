@@ -4,15 +4,19 @@ import assert from 'node:assert/strict';
 import { SUMMARY_SYSTEM_PROMPT } from '../app-src/prompts/system-prompt.js';
 import { createContextStatsController } from '../app-src/runtime/context-stats.js';
 import { createHistoryCompactionController } from '../app-src/runtime/history-compaction.js';
+import { setHostChatCompletionsRequestHeadersProvider } from '../../../shared/host-llm/chat-completions/client.js';
+import { createAssistantRuntime } from '../app-src/runtime.js';
+import { resolveConversationTokens, estimateConversationTokens } from '../../agent-core/runtime/context-tokens.js';
 
 test('context meter estimates during render and sends one complete payload only at the exact budget boundary', async () => {
+    setHostChatCompletionsRequestHeadersProvider(() => ({ 'X-CSRF-Token': 'test-csrf' }));
     const originalFetch = globalThis.fetch;
     const requests = [];
     globalThis.fetch = async (url, options) => {
         requests.push({ url, options });
         return {
             ok: true,
-            json: async () => ({ token_count: 47 }),
+            json: async () => ({ count: 47, ids: Array(47).fill(1) }),
         };
     };
 
@@ -43,8 +47,9 @@ test('context meter estimates during render and sends one complete payload only 
 
         await controller.forceUpdateContextStats(messages);
         assert.equal(requests.length, 1);
-        assert.equal(requests[0].url, '/api/tokenizers/openai/count?model=gpt-4o-mini');
-        assert.deepEqual(JSON.parse(requests[0].options.body), [
+        assert.equal(requests[0].url, '/api/tokenizers/openai/encode?model=gpt-4o-mini');
+        assert.equal(requests[0].options.headers['X-CSRF-Token'], 'test-csrf');
+        assert.deepEqual(JSON.parse(JSON.parse(requests[0].options.body).text), [
             ...messages,
             {
                 role: 'system',
@@ -54,6 +59,7 @@ test('context meter estimates during render and sends one complete payload only 
         assert.equal(state.contextStats.usedTokens, 47);
     } finally {
         globalThis.fetch = originalFetch;
+        setHostChatCompletionsRequestHeadersProvider(null);
     }
 });
 
@@ -70,6 +76,83 @@ test('history summary prompt preserves structured cross-domain memory', () => {
     assert.match(SUMMARY_SYSTEM_PROMPT, /不超过 10000 tokens/);
     assert.match(SUMMARY_SYSTEM_PROMPT, /先判断对话类型/);
     assert.match(SUMMARY_SYSTEM_PROMPT, /不要把具体事实洗成/);
+});
+
+test('fallback estimates are not cached as resolved; late cancelled counts cannot overwrite the latest meter', async () => {
+    const state = { historySummary: '', contextStats: { usedTokens: 0 } };
+    let calls = 0;
+    let late;
+    const controller = createContextStatsController({ state, MAX_CONTEXT_TOKENS: 258000, TOOL_DEFINITIONS: [],
+        getActiveProviderConfig: () => ({ provider: 'openai-compatible' }),
+        countTokens: async options => {
+            calls++;
+            if (calls === 1) return { tokens: estimateConversationTokens(options), source: 'estimated' };
+            if (calls === 3) return new Promise(resolve => { late = resolve; });
+            return { tokens: calls === 2 ? 194088 : 500, source: 'tokenizer' };
+        },
+    });
+    const messages = [{ role: 'user', content: '材料' }];
+    controller.updateContextStats(messages);
+    const estimated = state.contextStats.usedTokens;
+    assert.equal(await controller.forceUpdateContextStats(messages), estimated);
+    assert.equal(state.contextStats.usedTokens, estimated);
+    assert.equal(state.contextStats.source, 'estimated');
+    assert.equal(await controller.forceUpdateContextStats(messages), 194088);
+    assert.equal(state.contextStats.source, 'resolved');
+    assert.equal(await controller.forceUpdateContextStats(messages), 194088);
+    assert.equal(calls, 2);
+    const cancelled = controller.forceUpdateContextStats([{ role: 'user', content: '旧请求' }]);
+    const rejected = assert.rejects(cancelled, { name: 'AbortError' });
+    await controller.forceUpdateContextStats([{ role: 'user', content: '新请求' }]);
+    late({ tokens: 99999, source: 'tokenizer' });
+    await rejected;
+    assert.equal(state.contextStats.usedTokens, 500);
+});
+
+test('assistant continues after unavailable counting or uncompressible tool input and restarts after compaction', async t => {
+    for (const mode of ['403', 'oversize-tool', 'session', 'compact-session']) {await t.test(mode, async t => {
+        const state = { messages: [{ role: 'user', content: '开始任务' }], historySummary: '', archivedTurnCount: 0 };
+        if (mode === 'compact-session') state.messages.unshift({ role: 'user', content: '旧任务' }, { role: 'assistant', content: '旧答复' });
+        const requests = []; const pending = new Map(); let counts = 0;
+        const run = { id: 'test', controller: new AbortController(), toolRequestIds: new Set() };
+        state.activeRun = run;
+        t.mock.method(globalThis, 'fetch', async () => new Response('', { status: 403 }));
+        const runtime = createAssistantRuntime({ state, pendingToolCalls: pending, pendingApprovals: new Map(),
+            render() {}, persistSession() {}, showToast() {}, createRequestId: () => 'tool-request',
+            post(type, payload) {if (type === 'xb-assistant:tool-call') pending.get(payload.requestId).resolve({ ok: true, text: '工具结果' });},
+            safeJsonParse: JSON.parse, describeError: String, isAbortError: e => e?.name === 'AbortError',
+            formatToolResultDisplay: message => ({ details: message.content }),
+            buildTextWithAttachmentSummary: text => text, buildUserContentParts: message => message.content,
+            normalizeAttachments: value => value || [], normalizeThoughtBlocks: value => value || [],
+            getActiveProviderConfig: () => ({ provider: 'google', model: 'gemini-test' }),
+            SYSTEM_PROMPT: '规则', SUMMARY_SYSTEM_PROMPT: '总结', HISTORY_SUMMARY_PREFIX: '记忆',
+            MAX_CONTEXT_TOKENS: 258000, SUMMARY_TRIGGER_TOKENS: 228000, HISTORY_SUMMARY_MAX_TOKENS: 10000,
+            DEFAULT_PRESERVED_TURNS: 1, MIN_PRESERVED_TURNS: 1, MAX_TOOL_ROUNDS: 4, REQUEST_TIMEOUT_MS: 1000,
+            TOOL_DEFINITIONS: [], TOOL_NAMES: { READ: 'Read' },
+            countTokens: async options => {
+                counts++;
+                if (mode === '403') return resolveConversationTokens({ ...options, requestHeaders: () => ({}) });
+                if (mode === 'oversize-tool' && options.messages.some(m => m.role === 'tool')) return { tokens: 300000, source: 'tokenizer' };
+                if (mode === 'compact-session' && counts === 2) return { tokens: 240000, source: 'tokenizer' };
+                return { tokens: 100, source: 'tokenizer' };
+            },
+            createAdapter: () => ({ supportsSessionToolLoop: true, async chat(request) {
+                if (request.toolChoice === 'none') return { text: '历史摘要' };
+                requests.push(request);
+                return requests.length === 1 ? { text: '', toolCalls: [{ id: 'read', name: 'Read', arguments: '{}' }] } : { text: '完成' };
+            } }),
+        });
+        await runtime.runAssistantLoop(run);
+        assert.equal(requests.length, 2); assert.ok(counts >= 2);
+        assert.equal(state.messages.at(-1).content, '完成');
+        if (mode === '403') assert.equal(state.contextStats.source, 'estimated');
+        if (mode !== 'compact-session') assert.equal(requests[1].toolResponses.length, 1);
+        else {
+            assert.equal(requests[1].toolResponses, undefined);
+            assert.ok(Array.isArray(requests[1].messages));
+            assert.ok(!requests[1].messages.some(m => m.content === '旧任务'));
+        }
+    });}
 });
 
 test('history compaction source includes full archived tool details', async () => {

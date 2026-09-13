@@ -9,6 +9,7 @@ import { createFourthWallController } from '../apps/fourth-wall/host/controller.
 import { createFourthWallGenerationRuntime } from '../apps/fourth-wall/host/generation-runtime.js';
 import { createFourthWallContextService, createGatewayContextService } from '../apps/fourth-wall/host/context-service.js';
 import { OpenAIResponsesAdapter } from '../../agent-core/adapters/openai-responses.js';
+import { resolveConversationTokens } from '../../agent-core/runtime/context-tokens.js';
 
 function smallContext() {
     return createFourthWallContextService({ count: async () => 100, summarize: async () => { throw new Error('unexpected summary'); } });
@@ -24,6 +25,24 @@ function seedLongHistory(harness) {
         role: i % 2 ? 'ai' : 'user', content: `history-${i}`, ts: 100 + i,
     }));
 }
+
+test('tokenizer rejection permits Fourth Wall replies using estimates without losing history', async t => {
+    let summaries = 0;
+    const h = createHarness({ contextService: createGatewayContextService({ run: async () => {summaries++; return { text: 'summary' };} },
+        options => resolveConversationTokens({ ...options, requestHeaders: () => ({}) })) });
+    seedLongHistory(h);
+    const history = structuredClone(h.state.chat.sessions[0].history);
+    t.mock.method(globalThis, 'fetch', async () => new Response('', { status: 403 }));
+    await h.controller.activate({ post: (type, payload) => h.posts.push({ type, payload }) });
+    await h.controller.handleMessage({ type: 'fourth-wall/send', payload: { ...binding, content: 'pending' } });
+    await flushAsyncWork();
+    assert.equal(h.requests.length, 1); assert.equal(summaries, 0);
+    assert.equal(h.state.chat.sessions[0].archivedCount, 0);
+    assert.deepEqual(h.state.chat.sessions[0].history.slice(0, -1), history);
+    h.requests[0].resolve({ text: '<msg>reply</msg>' });
+    await flushAsyncWork();
+    assert.notEqual(h.posts.at(-1).payload.status, 'error');
+});
 
 test('summary failure retries the saved pending message without adding it twice', async () => {
     let attempt = 0;
@@ -101,10 +120,6 @@ test('Responses completed refusals survive gateway projection and block manual a
     for (const manual of [true, false]) {
         for (const mode of ['refusal', 'mixed', 'ordinary summary']) {
             await t.test(`${manual ? 'manual' : 'automatic'}: ${mode}`, async t => {
-                t.mock.method(globalThis, 'fetch', async (url, options) => {
-                    assert.ok(String(url).startsWith('/api/tokenizers/openai/count?'), 'no real network requests');
-                    return Response.json({ token_count: options.body.includes('history-0') ? 128000 : 100 });
-                });
                 const adapter = new OpenAIResponsesAdapter({ apiKey: 'test-only-not-used', model: 'gpt-4.1' });
                 let refuse = mode !== 'ordinary summary';
                 const sources = [];
@@ -117,7 +132,8 @@ test('Responses completed refusals survive gateway projection and block manual a
                         ...(refuse && mode === 'mixed' ? { output_text: 'Partial summary.' } : {}),
                         output: [{ id: 'msg_summary', type: 'message', role: 'assistant', status: 'completed', content }] };
                 };
-                const h = createHarness({ contextService: createGatewayContextService({ run: request => adapter.chat(request) }) });
+                const h = createHarness({ contextService: createGatewayContextService({ run: request => adapter.chat(request) },
+                    async ({ messages }) => ({ tokens: JSON.stringify(messages).includes('history-0') ? 128000 : 100, source: 'tokenizer' })) });
                 seedLongHistory(h);
                 h.state.chat.sessions[0].memory = 'OFFICIAL_MEMORY';
                 const original = structuredClone(h.state.chat.sessions[0]);

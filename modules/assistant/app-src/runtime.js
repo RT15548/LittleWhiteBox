@@ -190,6 +190,7 @@ export function createAssistantRuntime(deps) {
         updateContextStats,
     } = createContextStatsController({
         state,
+        countTokens: deps.countTokens,
         render,
         getActiveProviderConfig,
         getToolDefinitions: resolveToolDefinitions,
@@ -654,13 +655,21 @@ export function createAssistantRuntime(deps) {
                     onStreamProgress: handleStreamProgress,
                 };
 
-                if (Array.isArray(pendingToolResponses) && pendingToolResponses.length && adapter?.supportsSessionToolLoop) {
+                const historyBeforeBudget = state.messages;
+                const budgetMessages = await ensureContextBudget(adapter, run.controller.signal, {
+                    ...providerMessageOptions,
+                    finalAnswerReminderText: pendingFinalAnswerReminderText || providerMessageOptions.finalAnswerReminderText,
+                });
+                // A session must restart from the compacted replay when old turns were removed.
+                const continueSession = adapter?.supportsSessionToolLoop && historyBeforeBudget === state.messages;
+                if (Array.isArray(pendingToolResponses) && pendingToolResponses.length && continueSession) {
                     requestTask.toolResponses = pendingToolResponses;
-                } else if (pendingFinalAnswerReminderText && adapter?.supportsSessionToolLoop) {
+                } else if (pendingFinalAnswerReminderText && continueSession) {
                     requestTask.finalAnswerReminderText = pendingFinalAnswerReminderText;
                     pendingFinalAnswerReminderText = '';
                 } else {
-                    requestTask.messages = await ensureContextBudget(adapter, run.controller.signal, providerMessageOptions);
+                    requestTask.messages = budgetMessages;
+                    pendingFinalAnswerReminderText = '';
                 }
 
                 console.info('[Assistant][ModelRequest] round:start', {

@@ -5,8 +5,13 @@ import type { PrivateMessage } from '../../../domains/messages/types.js';
 import type { XiaobaiOsAppProps } from '../../../shell/app-contract.js';
 import MessageIcon from './MessageIcon.vue';
 import type { MessagesClientState } from '../types.js';
-const props = defineProps<{ message: PrivateMessage; bridge: XiaobaiOsAppProps['bridge']; chatIdentity: string; media: MessagesClientState['media']; disabled: boolean }>();
-defineEmits<{ resize: []; deleteImage: [messageId: string] }>();
+import type { MessagePermission } from '../application/modifications.js';
+const props = defineProps<{ message: PrivateMessage; bridge: XiaobaiOsAppProps['bridge']; chatIdentity: string; media: MessagesClientState['media']; disabled: boolean; selected: boolean; permission?: MessagePermission }>();
+const emit = defineEmits<{ resize: []; select: [messageId: string]; deleteMessage: [messageId: string]; regenerate: [messageId: string] }>();
+function select(event: MouseEvent) {
+    if ((event.target as HTMLElement).closest('button, a, dialog') || window.getSelection()?.toString()) {return;}
+    emit('select', props.message.id);
+}
 const data = ref(''); const working = ref(false); const error = ref(''); const voiceState = ref(''); const showText = ref(false);
 const attachment = computed(() => props.message.payload.type === 'image' ? props.message.payload.attachment : undefined);
 const imageSource = computed(() => attachment.value?.path || data.value);
@@ -54,10 +59,14 @@ const unsubscribe = props.bridge.subscribe(event => {
 });
 onMounted(() => {if (props.message.payload.type === 'image' && !attachment.value) {void image(false);}});
 watch(() => props.media.image, available => {if (available && props.message.payload.type === 'image' && !attachment.value && !data.value) {void image(false);}});
-onUnmounted(() => {alive = false; unsubscribe();});
+onUnmounted(() => {alive = false; unsubscribe(); if (voiceActive.value) {void request('messages/voice/stop').catch(() => {});}});
 </script>
 <template>
-    <article class="messages-bubble-row" :class="{ outgoing: message.sender === 'user' }">
+    <article class="messages-bubble-row" :class="{ outgoing: message.sender === 'user', 'actions-selected': selected }" :data-message-id="message.id" tabindex="0" aria-label="消息操作" @click="select" @focus="emit('select', message.id)">
+        <div class="messages-bubble-actions" role="group" aria-label="消息操作">
+            <button :disabled="disabled" :title="permission?.reason" :class="{ 'is-unavailable': permission?.reason }" aria-haspopup="dialog" @click="$emit('deleteMessage', message.id)">删除</button>
+            <button v-if="permission?.regenerate" :disabled="disabled" @click="$emit('regenerate', message.id)">重新回复</button>
+        </div>
         <div class="messages-bubble" :class="`messages-bubble-${message.payload.type}`">
             <p v-if="message.payload.type === 'text'">{{ message.payload.text }}</p>
             <template v-else-if="message.payload.type === 'image'">
@@ -66,7 +75,6 @@ onUnmounted(() => {alive = false; unsubscribe();});
                 <button v-else-if="media.image" class="messages-image-placeholder" :disabled="working" @click="image(true)"><MessageIcon name="image" /><span>{{ working ? '正在生成图片…' : error ? '重新生成图片' : '生成图片' }}</span></button>
                 <div v-else class="messages-image-placeholder messages-media-unavailable"><MessageIcon name="image" /><span>图片描述</span><small>开启画图后可生成图片</small></div>
                 <p v-if="message.payload.description" class="messages-image-caption">{{ message.payload.description }}</p>
-                <button v-if="message.sender === 'user' && attachment" class="messages-image-delete" :disabled="disabled" @click="$emit('deleteImage', message.id)">删除图片消息</button>
                 <AppDialog v-if="viewerOpen" class="messages-image-viewer" aria-label="查看图片" @close="viewerOpen = false"><button aria-label="关闭图片" @click="viewerOpen = false"><MessageIcon name="close" /></button><img v-if="imageSource" :src="imageSource" :alt="message.payload.description || attachment?.name || '图片'"></AppDialog>
             </template>
             <template v-else>

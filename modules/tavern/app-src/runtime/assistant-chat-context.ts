@@ -28,7 +28,7 @@ const resolveConversationTokens = (contextTokens as unknown as {
         tools?: unknown[] | null;
         providerConfig?: Record<string, unknown>;
         signal?: AbortSignal;
-    }) => Promise<number>;
+    }) => Promise<{ tokens: number; source: 'tokenizer' | 'estimated' }>;
 }).resolveConversationTokens;
 const estimateConversationTokens = (contextTokens as unknown as {
     estimateConversationTokens: (input: {
@@ -210,7 +210,7 @@ async function estimateAssistantChatContext(input: {
     });
     const messages = await buildAssistantChatMessages(input);
     throwIfAssistantChatAborted(input.signal);
-    const tokens = await resolveConversationTokens({
+    const { tokens } = await resolveConversationTokens({
         messages,
         tools: getTavernManagerToolDefinitions({
             webSearchEnabled: isManagerWebSearchEnabled(input.agentConfig),

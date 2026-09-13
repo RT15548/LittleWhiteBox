@@ -5,6 +5,7 @@ import test from 'node:test';
 import { build } from 'esbuild';
 import { PRIVATE_MESSAGE_MARKER } from '../apps/messages/application/projection.js';
 import { createChatReferencePort } from '../storage/chat-reference.js';
+import { floorDigest, prefixDigest, hasMutationResult } from '../apps/messages/application/mutation-evidence.js';
 
 // Production adapters run at the native HTTP/event boundary; no simulated saveChat acknowledgement.
 const compiled = await build({
@@ -13,6 +14,7 @@ const compiled = await build({
         export { saveSillyTavernChat } from './modules/xiaobai-os/host/sillytavern-chat-save.ts';
         export { host } from 'messages-test-host';`, resolveDir: process.cwd() },
     bundle: true, write: false, format: 'esm', platform: 'node', logLevel: 'silent',
+    banner: { js: "import { createRequire } from 'node:module'; const require = createRequire(process.cwd() + '/package.json');" },
     plugins: [{ name: 'native-chat-fixture', setup(builder) {
         // This optional host module is absent in SillyTavern 1.14–1.16; exercise actual module resolution.
         builder.onResolve({ filter: /\/request-compression\.js$/ }, () => ({
@@ -32,6 +34,7 @@ const compiled = await build({
             export const getMessageTimeStamp = () => '2026-09-06T00:00:00.000Z';
             export const addOneMessage = () => {};
             export const updateMessageBlock = () => {};
+            export const deleteLastMessage = async () => { host.context.chat.pop(); await host.context.eventSource.emit('MESSAGE_DELETED', host.context.chat.length); };
             export const event_types = Object.fromEntries(['CHAT_CHANGED', 'MESSAGE_SENT', 'MESSAGE_RECEIVED',
                 'MESSAGE_EDITED', 'MESSAGE_UPDATED', 'MESSAGE_DELETED', 'MESSAGE_SWIPED', 'GENERATION_STARTED',
                 'CHARACTER_MESSAGE_RENDERED', 'MORE_MESSAGES_LOADED'].map(key => [key, key]));
@@ -77,6 +80,52 @@ function harness(t, group = false, floors = 1) {
         marker: { version: 1, segmentId: 'segment', throughSeq: seq, digest: String(seq).repeat(64) }, guard: () => true });
     return { h, ...adapter, input };
 }
+
+test('native deletion uses its normal event lifecycle once, tolerates lost ACK and never deletes the preceding floor on retry', async t => {
+    const { h, port, input, subscribe } = harness(t);
+    await port.publish(input(1));
+    const mutation = { segmentId: 'segment', index: 1, baseDigest: floorDigest(host.context.chat[1]), prefixDigest: prefixDigest(host.context.chat, 1) };
+    let external = 0; let deleted = 0;
+    const unsubscribe = subscribe(() => external++, () => {});
+    host.listeners.set('MESSAGE_DELETED', new Set([...host.listeners.get('MESSAGE_DELETED'), () => deleted++]));
+    h.mode = 'lost-response';
+    assert.equal(await port.rewrite({ identity: 'chat', mutation, result: null, guard: () => true }), false);
+    assert.equal(deleted, 1); assert.equal(external, 0);
+    assert.equal(host.context.chat.length, 1);
+    assert.equal(hasMutationResult(await port.readSaved('chat'), mutation, null), true);
+    h.mode = 'confirmed';
+    assert.equal(await port.rewrite({ identity: 'chat', mutation, result: null, guard: () => true }), true);
+    assert.equal(deleted, 1); assert.equal(host.context.chat[0].mes, 'Story 0');
+    host.context.chat.push({ mes: 'new story' });
+    await assert.rejects(port.rewrite({ identity: 'chat', mutation, result: null, guard: () => true }), /projection_closed/);
+    unsubscribe();
+});
+
+test('native replacement emits edit/update, rejects changed base and checks identity before reading saved evidence', async t => {
+    const { h, port, input, subscribe } = harness(t);
+    await port.publish(input(1));
+    const mutation = { segmentId: 'segment', index: 1, baseDigest: floorDigest(host.context.chat[1]), prefixDigest: prefixDigest(host.context.chat, 1) };
+    let external = 0; const unsubscribe = subscribe(() => external++, () => {});
+    const events = [];
+    for (const name of ['MESSAGE_EDITED', 'MESSAGE_UPDATED']) {host.listeners.get(name).add(() => events.push(name));}
+    const result = { text: input(2).text, marker: input(2).marker };
+    assert.equal(await port.rewrite({ identity: 'chat', mutation, result, guard: () => true }), true);
+    assert.deepEqual(events, ['MESSAGE_EDITED', 'MESSAGE_UPDATED']); assert.equal(external, 0);
+    assert.equal(hasMutationResult(await port.readSaved('chat'), mutation, result), true);
+    host.context.chat[1].mes = 'manual edit';
+    const saves = h.saves.length;
+    await assert.rejects(port.rewrite({ identity: 'chat', mutation, result, guard: () => true }));
+    assert.equal(h.saves.length, saves);
+    await assert.rejects(port.readSaved('another'), /boundary_changed/);
+    unsubscribe();
+});
+
+test('a pending deletion fingerprint cannot authorize removal of an ordinary story floor', async t => {
+    const { port } = harness(t);
+    const mutation = { segmentId: 'unrelated', index: 0, baseDigest: floorDigest(host.context.chat[0]), prefixDigest: prefixDigest(host.context.chat, 0) };
+    await assert.rejects(port.rewrite({ identity: 'chat', mutation, result: null, guard: () => true }));
+    assert.equal(host.context.chat[0].mes, 'Story 0');
+});
 
 for (const group of [false, true]) {
     test(`${group ? 'group' : 'character'}: 10,000 floors save once without downloading the chat`, async t => {

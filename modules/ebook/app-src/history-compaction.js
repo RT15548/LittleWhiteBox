@@ -6,10 +6,6 @@ export const EBOOK_SUMMARY_TRIGGER_TOKENS = 158000;
 export const EBOOK_DEFAULT_PRESERVED_TURNS = 2;
 export const EBOOK_MIN_PRESERVED_TURNS = 1;
 
-function isAbortError(error) {
-    return error?.name === 'AbortError' || /abort/i.test(String(error?.message || error || ''));
-}
-
 function throwIfAborted(signal) {
     if (signal?.aborted) {
         const error = new Error('Context compaction aborted.');
@@ -47,6 +43,7 @@ export function createEbookHistoryCompactionController(deps = {}) {
         getActiveProviderConfig = () => ({}),
         buildProviderMessages = () => [],
         getToolDefinitions = () => [],
+        countTokens = resolveConversationTokens,
         onCompactionStart = () => {},
         onCompactionProgress = () => {},
         onCompactionComplete = () => {},
@@ -56,14 +53,19 @@ export function createEbookHistoryCompactionController(deps = {}) {
         minPreservedTurns = EBOOK_MIN_PRESERVED_TURNS,
     } = deps;
 
-    async function estimateCurrentTokens() {
+    async function countContext(signal, buildMessages = buildProviderMessages) {
+        throwIfAborted(signal);
         const providerConfig = getActiveProviderConfig();
         const toolDefinitions = getToolDefinitions();
-        return await resolveConversationTokens({
-            messages: buildProviderMessages(),
+        const messages = await buildMessages();
+        const measurement = await countTokens({
+            messages,
             tools: Array.isArray(toolDefinitions) ? toolDefinitions : [],
             providerConfig,
+            signal,
         });
+        throwIfAborted(signal);
+        return { messages, ...measurement };
     }
 
     function getActiveContextMessages() {
@@ -88,11 +90,11 @@ export function createEbookHistoryCompactionController(deps = {}) {
         state.historySummary = '';
     }
 
-    async function ensureContextBudget(_adapter, signal) {
-        throwIfAborted(signal);
-        const initialTokens = await estimateCurrentTokens();
+    async function ensureContextBudget(_adapter, signal, buildMessages = buildProviderMessages) {
+        let context = await countContext(signal, buildMessages);
+        const initialTokens = context.tokens;
         if (initialTokens <= summaryTriggerTokens) {
-            return;
+            return context;
         }
         throwIfAborted(signal);
         onCompactionStart({
@@ -125,39 +127,15 @@ export function createEbookHistoryCompactionController(deps = {}) {
                 } catch (error) {
                     state.status = previousStatus || '就绪';
                     render();
-                    if (isAbortError(error)) return;
                     throw error;
                 }
                 state.status = previousStatus || '就绪';
                 render();
-                if (signal?.aborted) return;
-
-                const currentTokens = await estimateCurrentTokens();
                 throwIfAborted(signal);
-                const status = currentTokens <= summaryTriggerTokens
-                    ? `已只保留最近 ${preservedTurns} 轮创作上下文。`
-                    : '最近创作上下文仍然过长，继续收缩...';
-                onCompactionProgress({
-                    currentTokens: initialTokens,
-                    yieldTokens: currentTokens,
-                    triggerTokens: summaryTriggerTokens,
-                    status,
-                });
-                if (currentTokens <= summaryTriggerTokens) {
-                    showToast(`已释放较早对话，只保留最近 ${preservedTurns} 轮。`);
-                    onCompactionComplete({
-                        currentTokens: initialTokens,
-                        yieldTokens: currentTokens,
-                        triggerTokens: summaryTriggerTokens,
-                        status,
-                    });
-                    render();
-                    return;
-                }
-                continue;
+                context = await countContext(signal, buildMessages);
             }
 
-            const currentTokens = await estimateCurrentTokens();
+            const currentTokens = context.tokens;
             throwIfAborted(signal);
             onCompactionProgress({
                 currentTokens: initialTokens,
@@ -176,7 +154,7 @@ export function createEbookHistoryCompactionController(deps = {}) {
                     status: `已只保留最近 ${preservedTurns} 轮创作上下文。`,
                 });
                 render();
-                return;
+                return context;
             }
         }
 
@@ -187,11 +165,12 @@ export function createEbookHistoryCompactionController(deps = {}) {
             status: '当前这一轮过长，无法继续自动收缩。',
         });
         render();
+        return context;
     }
 
     return {
         ensureContextBudget,
-        estimateCurrentTokens,
+        countContext,
         getActiveContextMessages,
         pruneArchivedTurnsFromState,
         resetCompactionState,

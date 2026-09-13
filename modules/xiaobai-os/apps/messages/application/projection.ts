@@ -1,4 +1,4 @@
-import type { MessagesDomainV1 } from '../../../domains/messages/types.js';
+import type { MessagesDomainV2 } from '../../../domains/messages/types.js';
 
 export const PRIVATE_MESSAGE_MARKER = 'xiaobai_private_messages';
 export interface ProjectionMarker { version: 1; segmentId: string; throughSeq: number; digest: string }
@@ -17,7 +17,7 @@ export function projectionMarker(message: ChatMessage | undefined): ProjectionMa
         && typeof marker.digest === 'string' && /^[a-f0-9]{64}$/u.test(marker.digest) ? marker : null;
 }
 
-export function unsyncedIds(state: MessagesDomainV1): string[] {
+export function unsyncedIds(state: MessagesDomainV2): string[] {
     const synced = new Set<string>();
     const messages = new Map(state.messages.map(message => [message.id, message]));
     for (const segment of state.segments) {

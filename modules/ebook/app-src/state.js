@@ -38,7 +38,6 @@ export function createEbookState() {
         historySummary: '',
         archivedTurnCount: 0,
         contextStats: null,
-        contextStatsRequestSerial: 0,
         compactionOverlay: null,
         protocolNotice: null,
         isShelfLoading: true,

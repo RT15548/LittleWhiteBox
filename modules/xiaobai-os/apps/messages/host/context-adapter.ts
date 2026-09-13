@@ -6,9 +6,10 @@ import { getStorySummaryCharacters } from '../../../../story-summary/story-summa
 import type { MessagesChatPort } from '../application/timeline.js';
 import type { MessageContact, PrivateMessage } from '../../../domains/messages/types.js';
 import { privateMessageScan } from '../prompt/world-info-scan.js';
+import { applyTextFilterRules } from '../../../../story-summary/vector/utils/text-filter.js';
+import { getTextFilterRules } from '../../../../story-summary/data/config.js';
 
 export function createMessagesContext(chat: MessagesChatPort) {
-    const adapter = createPromptContextAdapter();
     function people(name = ''): KnownPerson[] {
         return getStorySummaryCharacters({ name, throughMessageIndex: chat.messages().length - 1,
             maxCharacters: name ? 8000 : 12000, maxPeople: 200 }) as KnownPerson[];
@@ -18,6 +19,9 @@ export function createMessagesContext(chat: MessagesChatPort) {
         return selectKnownPeople(people(), getContext().name1);
     }
     async function capture(contact: MessageContact, history: PrivateMessage[], incoming: PrivateMessage) {
+        // One live configuration snapshot for this capture, not a config clone per floor.
+        const rules = getTextFilterRules();
+        const adapter = createPromptContextAdapter({ cleanMessageText: text => applyTextFilterRules(text, rules) });
         const excluded = chat.messages().flatMap((message: ChatMessage, index) => projectionMarker(message) ? [index] : []);
         const snapshot = await adapter.capture({ excludeMessageIndices: excluded,
             worldInfoScanMessages: privateMessageScan(contact, history, incoming) });

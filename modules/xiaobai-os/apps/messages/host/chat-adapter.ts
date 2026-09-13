@@ -1,5 +1,5 @@
 import { getContext } from '../../../../../../../../extensions.js';
-import { addOneMessage, updateMessageBlock, isChatSaving, getRequestHeaders, default_avatar } from '../../../../../../../../../script.js';
+import { addOneMessage, updateMessageBlock, deleteLastMessage, isChatSaving, getRequestHeaders, default_avatar } from '../../../../../../../../../script.js';
 import { getMessageTimeStamp } from '../../../../../../../../RossAscends-mods.js';
 import { createModuleEvents, event_types } from '../../../../../core/event-manager.js';
 import { getSillyTavernChatIdentity } from '../../../host/sillytavern-context.js';
@@ -7,6 +7,7 @@ import { PRIVATE_MESSAGE_MARKER, projectionMarker, type ChatMessage, type Projec
 import type { MessagesChatPort } from '../application/timeline.js';
 import { getStorySummaryCommittedThrough } from '../../../../story-summary/story-summary.js';
 import { saveSillyTavernChat, type ChatSaveResult } from '../../../host/sillytavern-chat-save.js';
+import { hasMutationBase, hasMutationResult } from '../application/mutation-evidence.js';
 
 interface HostContext {
     chat: ChatMessage[];
@@ -23,7 +24,7 @@ function identity(): string {return getSillyTavernChatIdentity()?.key ?? '';}
 function same(left: unknown, right: unknown): boolean {return JSON.stringify(left) === JSON.stringify(right);}
 
 export function createMessagesChatAdapter(isGenerating: () => boolean) {
-    let writing: { index: number; text: string; segmentId: string } | null = null;
+    let writing: { index: number; text: string | null; segmentId: string } | null = null;
     const attempts = new Map<string, { marker: ProjectionMarker; text: string; status: ChatSaveResult['status'] }>();
 
     async function readRemote(source: HostContext): Promise<ChatMessage[]> {
@@ -43,6 +44,34 @@ export function createMessagesChatAdapter(isGenerating: () => boolean) {
         identity,
         messages: () => context().chat ?? [],
         finalizedThrough: getStorySummaryCommittedThrough,
+        async readSaved(expected) {
+            const source = context();
+            if (identity() !== expected) {throw new Error('messages_boundary_changed');}
+            const remote = await readRemote(source);
+            if (identity() !== expected || context().chat !== source.chat) {throw new Error('messages_boundary_changed');}
+            return remote;
+        },
+        async rewrite(input) {
+            const source = context();
+            const { mutation, result } = input;
+            const current = () => identity() === input.identity && context().chat === source.chat && input.guard()
+                && !isGenerating() && !isChatSaving && mutation.index > getStorySummaryCommittedThrough()
+                && (hasMutationBase(source.chat, mutation) || (hasMutationResult(source.chat, mutation, result)
+                    && source.chat.length === mutation.index + (result ? 1 : 0)));
+            if (!current()) {throw new Error('messages_projection_closed');}
+            if (result) {return port.publish({ identity: input.identity, index: mutation.index, ...result, guard: current });}
+            writing = { index: mutation.index, text: null, segmentId: mutation.segmentId };
+            try {
+                if (hasMutationBase(source.chat, mutation)) {
+                    source.chatMetadata.tainted = true;
+                    await deleteLastMessage();
+                }
+                if (!current()) {return false;}
+                const saved = await saveSillyTavernChat(current);
+                if (saved.status === 'failed') {throw saved.error;}
+                return saved.status === 'confirmed';
+            } finally {writing = null;}
+        },
         releaseConfirmation(expected, marker) {
             const attempt = attempts.get(marker.segmentId);
             if (identity() === expected && attempt?.status === 'confirmed' && same(attempt.marker, marker)) {
@@ -118,8 +147,9 @@ export function createMessagesChatAdapter(isGenerating: () => boolean) {
         const events = createModuleEvents('xiaobaiOsMessages');
         const changed = (index: unknown) => {
             const current = writing && context().chat[writing.index];
-            const ownEvent = writing && Number(index) === writing.index && current?.mes === writing.text
-                && projectionMarker(current)?.segmentId === writing.segmentId;
+            const ownEvent = writing && Number(index) === writing.index && (writing.text === null
+                ? context().chat.length === writing.index
+                : current?.mes === writing.text && projectionMarker(current)?.segmentId === writing.segmentId);
             if (!ownEvent) {onChange();}
         };
         for (const event of [event_types.MESSAGE_RECEIVED, event_types.MESSAGE_SENT, event_types.MESSAGE_EDITED,

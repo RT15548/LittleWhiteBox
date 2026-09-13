@@ -6,3 +6,8 @@ modules/assistant/dist/**
 modules/ebook/dist/**
 modules/xiaobai-os/dist/**
 modules/tavern/dist/**
+
+# Preview dependencies, generated bundles, and local browser verification artifacts
+output/map-interior-demo/vendor/**
+output/map-production-check/dist/**
+output/playwright/**

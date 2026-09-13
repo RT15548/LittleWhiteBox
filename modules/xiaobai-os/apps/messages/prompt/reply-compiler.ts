@@ -41,7 +41,7 @@ export function compileReplies(response: { text?: unknown; truncated?: unknown; 
     return replies;
 }
 
-export function compileSummary(response: { text?: unknown; truncated?: unknown }): string {
-    if (response.truncated === true) {throw new Error('messages_summary_incomplete');}
+export function compileSummary(response: { text?: unknown; truncated?: unknown; finishReason?: unknown }): string {
+    if (response.truncated === true || response.finishReason === 'length' || response.finishReason === 'max_tokens') {throw new Error('messages_summary_incomplete');}
     return messageString(parseResponseObject(String(response.text ?? '')).summary, MESSAGE_LIMITS.summary);
 }

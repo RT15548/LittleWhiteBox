@@ -151,6 +151,7 @@ export function createHistoryCompactionController(deps) {
                 reasoning: { mode: 'inherit', output: 'hide' },
                 signal,
             });
+            signal?.throwIfAborted();
             state.historySummary = String(result.text || '').trim() || fallbackSummary;
         } catch (error) {
             if (signal?.aborted || error?.name === 'AbortError') throw error;
@@ -163,7 +164,7 @@ export function createHistoryCompactionController(deps) {
         const preservedOptions = [DEFAULT_PRESERVED_TURNS, MIN_PRESERVED_TURNS];
         let contextMessages = getActiveContextMessages();
         let providerMessages = toProviderMessages(contextMessages, options);
-        await forceUpdateContextStats(providerMessages);
+        await forceUpdateContextStats(providerMessages, null, signal);
 
         if (state.contextStats.usedTokens <= SUMMARY_TRIGGER_TOKENS) {
             return providerMessages;
@@ -193,7 +194,7 @@ export function createHistoryCompactionController(deps) {
 
             contextMessages = getActiveContextMessages();
             providerMessages = toProviderMessages(contextMessages, options);
-            await forceUpdateContextStats(providerMessages);
+            await forceUpdateContextStats(providerMessages, null, signal);
             if (state.contextStats.usedTokens <= SUMMARY_TRIGGER_TOKENS) {
                 showToast(`已压缩较早历史，当前上下文 ${buildContextMeterLabel()}`);
                 render();

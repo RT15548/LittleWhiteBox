@@ -1,8 +1,9 @@
 import { sha256 } from 'js-sha256';
-import type { MessageSegment } from '../../../domains/messages/types.js';
+import type { MessageSegment, MessageMutation, MessagesDomainV2 } from '../../../domains/messages/types.js';
 import type { MessagesService } from './service.js';
 import { projectionMarker, unsyncedIds, type ChatMessage, type ProjectionMarker } from './projection.js';
 import { projectionText } from '../../../domains/messages/transcript.js';
+import { mutationResult, hasMutationResult } from './mutation-evidence.js';
 
 export interface MessagesChatPort {
     identity(): string;
@@ -11,6 +12,8 @@ export interface MessagesChatPort {
     publish(input: { identity: string; index: number | null; text: string; marker: ProjectionMarker; guard: () => boolean }): Promise<boolean>;
     confirm(identity: string, marker: ProjectionMarker, text: string): Promise<boolean>;
     releaseConfirmation(identity: string, marker: ProjectionMarker): void;
+    readSaved(identity: string): Promise<readonly ChatMessage[]>;
+    rewrite(input: { identity: string; mutation: MessageMutation; result: ReturnType<typeof mutationResult>; guard: () => boolean }): Promise<boolean>;
 }
 
 export function createMessagesTimeline(service: MessagesService, chat: MessagesChatPort, id: () => string) {
@@ -21,22 +24,28 @@ export function createMessagesTimeline(service: MessagesService, chat: MessagesC
         return chat.messages().flatMap((message, index) => projectionMarker(message)?.segmentId === segmentId ? [{ message, index }] : []);
     }
 
-    function intact(segment: MessageSegment): boolean {
+    function intact(segment: MessageSegment, state: MessagesDomainV2 = service.current()): boolean {
         if (segment.sealed || observedClosed.has(segment.id)) {return false;}
         const matches = matching(segment.id);
         if (!matches.length) {return !segment.receipt && createdHere.has(segment.id);}
         if (matches.length !== 1 || matches[0].index !== chat.messages().length - 1) {return false;}
         if (matches[0].index <= chat.finalizedThrough()) {return false;}
+        if (state.pendingMutation?.segmentId === segment.id
+            && hasMutationResult(chat.messages(), state.pendingMutation, mutationResult(state, state.pendingMutation))) {return true;}
         const { message } = matches[0];
         const marker = projectionMarker(message)!;
         return message.is_user === false && message.is_system === false
-            && message.mes === projectionText(service.current(), segment, marker.throughSeq)
+            && message.mes === projectionText(state, segment, marker.throughSeq)
             && (!segment.receipt || marker.throughSeq >= segment.receipt.throughSeq);
     }
 
     /** Called synchronously on external message events, before asynchronous persistence. */
     function observe(): string[] {
-        const closed = service.current().segments.filter(segment => !segment.sealed && !intact(segment)).map(segment => segment.id);
+        const state = service.current();
+        const mutation = state.pendingMutation;
+        const closed = state.segments.filter(segment => !segment.sealed && !intact(segment, state)
+            && !(mutation?.segmentId === segment.id && mutationResult(state, mutation) === null
+                && chat.messages().length === mutation.index && hasMutationResult(chat.messages(), mutation, null))).map(segment => segment.id);
         closed.forEach(key => observedClosed.add(key));
         return closed;
     }
@@ -124,7 +133,7 @@ export function createMessagesTimeline(service: MessagesService, chat: MessagesC
         await sync(segmentId, guard);
     }
 
-    return { select, sync, recover, observe, seal, intact, reset() {createdHere.clear(); observedClosed.clear();} };
+    return { select, sync, recover, observe, seal, intact, wasClosed: (id: string) => observedClosed.has(id), reset() {createdHere.clear(); observedClosed.clear();} };
 }
 
 export type MessagesTimeline = ReturnType<typeof createMessagesTimeline>;

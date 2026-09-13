@@ -1,6 +1,9 @@
+import { getHostRequestHeaders } from '../../../shared/host-request-headers.js';
+
 const TOKEN_ESTIMATE_BYTES_PER_TOKEN = 3.35;
-const OPENAI_TOKENIZER_PROVIDERS = new Set(['openai-compatible', 'openai-responses', 'sillytavern-openai-compatible']);
 const textEncoder = new TextEncoder();
+
+/** @typedef {{ tokens: number, source: 'tokenizer' | 'estimated' }} ConversationTokenCount */
 
 function buildTokenCounterMessages(messages = []) {
     return messages.map((message) => {
@@ -61,15 +64,20 @@ export function estimateConversationTokens({ messages = [], tools = [] } = {}) {
 export function getTokenizerModelHint(providerConfig = {}) {
     const model = String(providerConfig?.model || '').trim();
     if (model) return model;
-    if (providerConfig?.provider === 'anthropic') return 'claude';
+    if (['anthropic', 'sillytavern-claude'].includes(providerConfig?.provider)) return 'claude';
+    if (['google', 'sillytavern-google'].includes(providerConfig?.provider)) return 'gemini';
     return 'gpt-4o';
 }
 
-async function postJson(url, body, signal) {
+async function postJson(url, body, signal, requestHeaders) {
+    signal?.throwIfAborted();
+    const headers = await requestHeaders();
+    signal?.throwIfAborted();
     const response = await fetch(url, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
+            ...headers,
         },
         body: JSON.stringify(body),
         signal,
@@ -80,46 +88,34 @@ async function postJson(url, body, signal) {
     return await response.json();
 }
 
-async function countOpenAIContextTokens(messages = [], model = '', signal) {
-    if (!messages.length) return 0;
-    const endpoint = `/api/tokenizers/openai/count?model=${encodeURIComponent(model || 'gpt-4o')}`;
-    const data = await postJson(endpoint, messages, signal);
-    const tokenCount = Number(data?.token_count);
-    if (!Number.isFinite(tokenCount)) {
-        throw new Error('tokenizer_invalid_response');
-    }
-    return tokenCount;
-}
-
-async function countTextTokensWithEndpoint(endpoint, text, signal) {
-    const data = await postJson(endpoint, { text }, signal);
-    const tokenCount = Number(data?.count);
-    if (!Number.isFinite(tokenCount)) {
-        throw new Error('tokenizer_invalid_response');
-    }
-    return tokenCount;
-}
-
-/** @param {{ messages?: Record<string, unknown>[], tools?: Record<string, unknown>[] | null, providerConfig?: Record<string, unknown>, signal?: AbortSignal }} [options] */
-export async function resolveConversationTokens({ messages = [], tools = null, providerConfig = {}, signal } = {}) {
+/**
+ * Host tokenizer count of the text/tool projection, not provider billing or image usage.
+ * /count may return an unmarked estimate on failure; /encode lets us verify token IDs.
+ * Counting is best-effort: unavailable Host headers or tokenization use the same
+ * local estimate as previews. Callers must not cache that estimate as resolved.
+ * @param {{ messages?: Record<string, unknown>[], tools?: Record<string, unknown>[] | null, providerConfig?: Record<string, unknown>, signal?: AbortSignal, requestHeaders?: () => object | Promise<object> }} [options]
+ * @returns {Promise<ConversationTokenCount>}
+ */
+export async function resolveConversationTokens({ messages = [], tools = null, providerConfig = {}, signal, requestHeaders = getHostRequestHeaders } = {}) {
     const provider = String(providerConfig?.provider || '');
     const resolvedTools = Array.isArray(tools) ? tools : [];
     const payload = buildTokenCounterPayload(messages, resolvedTools);
     const flattenedText = JSON.stringify(payload);
 
     try {
-        if (OPENAI_TOKENIZER_PROVIDERS.has(provider)) {
-            return await countOpenAIContextTokens(payload, getTokenizerModelHint(providerConfig), signal);
+        const endpoint = ['anthropic', 'sillytavern-claude'].includes(provider)
+            ? '/api/tokenizers/claude/encode'
+            : `/api/tokenizers/openai/encode?model=${encodeURIComponent(getTokenizerModelHint(providerConfig))}`;
+        const data = await postJson(endpoint, { text: flattenedText }, signal, requestHeaders);
+        signal?.throwIfAborted();
+        if (!Number.isSafeInteger(data?.count) || data.count <= 0
+            || !Array.isArray(data.ids) || data.ids.length !== data.count
+            || !data.ids.every(id => Number.isSafeInteger(id) && id >= 0)) {
+            throw new Error('tokenizer_invalid_response');
         }
-        if (provider === 'anthropic') {
-            return await countTextTokensWithEndpoint('/api/tokenizers/claude/encode', flattenedText, signal);
-        }
-    } catch (error) {
-        if (signal?.aborted || error?.name === 'AbortError') {
-            throw error;
-        }
-        return estimateConversationTokens({ messages, tools: resolvedTools });
+        return { tokens: data.count, source: 'tokenizer' };
+    } catch {
+        signal?.throwIfAborted();
+        return { tokens: estimateTokenCount(flattenedText), source: 'estimated' };
     }
-
-    return estimateConversationTokens({ messages, tools: resolvedTools });
 }

@@ -11,7 +11,6 @@ import {
 } from '../../agent-core/runtime/protocol.js';
 import { createStreamingMessageController } from '../../agent-core/runtime/streaming-messages.js';
 import { createLightBrakeController } from '../../agent-core/runtime/light-brake.js';
-import { resolveConversationTokens } from '../../agent-core/runtime/context-tokens.js';
 import { buildTavilySearchTracePayload, isTavilyConfigured } from '../../agent-core/tavily-search.js';
 import { resetMessageWindow } from '../../agent-core/ui/message-windowing.js';
 import { upsertBookFile } from '../shared/ebook-db.js';
@@ -427,6 +426,7 @@ export function createEbookAgentRunner(deps = {}) {
 
     const compactionController = createEbookHistoryCompactionController({
         state,
+        countTokens: deps.countTokens,
         render,
         showToast,
         persistConversation,
@@ -626,7 +626,6 @@ export function createEbookAgentRunner(deps = {}) {
             let finalAnswerReminderSent = false;
             let pendingToolResponses = null;
             let pendingFinalAnswerReminderText = '';
-            let contextMeterAbortController = null;
             const providerMessageOptions = {
                 finalAnswerReminderText: '',
             };
@@ -652,49 +651,19 @@ export function createEbookAgentRunner(deps = {}) {
                     lightBrakeText: lightBrake.getMessage(),
                     finalAnswerReminderText: providerMessageOptions.finalAnswerReminderText,
                 });
-                providerMessageOptions.finalAnswerReminderText = '';
                 return messages;
             }
 
-            async function updateContextMeterFromRequest(messages = []) {
-                if (!Array.isArray(messages) || !messages.length) return;
-                contextMeterAbortController?.abort();
-                const requestController = new AbortController();
-                contextMeterAbortController = requestController;
-                const abortFromRun = () => requestController.abort();
-                controller.signal.addEventListener('abort', abortFromRun, { once: true });
-                const updateSerial = (Number(state.contextStatsRequestSerial) || 0) + 1;
-                state.contextStatsRequestSerial = updateSerial;
-                try {
-                    const usedTokens = await resolveConversationTokens({
-                        messages,
-                        tools,
-                        providerConfig,
-                        signal: requestController.signal,
-                    });
-                    const currentStateKey = buildConversationContextMeterStateKey(state, providerConfig);
-                    if (
-                        updateSerial !== state.contextStatsRequestSerial
-                        || !Number.isFinite(usedTokens)
-                        || requestController.signal.aborted
-                    ) return;
-                    state.contextStats = {
-                        usedTokens,
-                        budgetTokens: EBOOK_MAX_CONTEXT_TOKENS,
-                        summaryActive: false,
-                        source: 'resolved',
-                        stateKey: currentStateKey,
-                        updatedAt: Date.now(),
-                    };
-                    renderStreamingSurface();
-                } catch {
-                    // The renderer keeps its local estimate if tokenizer counting is unavailable.
-                } finally {
-                    controller.signal.removeEventListener('abort', abortFromRun);
-                    if (contextMeterAbortController === requestController) {
-                        contextMeterAbortController = null;
-                    }
-                }
+            function updateContextMeter({ tokens: usedTokens, source }) {
+                state.contextStats = {
+                    usedTokens,
+                    budgetTokens: EBOOK_MAX_CONTEXT_TOKENS,
+                    summaryActive: false,
+                    source: source === 'tokenizer' ? 'resolved' : 'estimated',
+                    stateKey: buildConversationContextMeterStateKey(state, providerConfig),
+                    updatedAt: Date.now(),
+                };
+                renderStreamingSurface();
             }
 
             function dropStreamingAssistantMessage() {
@@ -734,16 +703,21 @@ export function createEbookAgentRunner(deps = {}) {
                         },
                     };
 
-                    if (Array.isArray(pendingToolResponses) && pendingToolResponses.length && adapter?.supportsSessionToolLoop) {
+                    const historyBeforeBudget = state.messages;
+                    providerMessageOptions.finalAnswerReminderText = pendingFinalAnswerReminderText || providerMessageOptions.finalAnswerReminderText;
+                    const context = await compactionController.ensureContextBudget(adapter, controller.signal, buildReplayMessages);
+                    updateContextMeter(context);
+                    const continueSession = adapter?.supportsSessionToolLoop && historyBeforeBudget === state.messages;
+                    if (Array.isArray(pendingToolResponses) && pendingToolResponses.length && continueSession) {
                         requestTask.toolResponses = pendingToolResponses;
-                    } else if (pendingFinalAnswerReminderText && adapter?.supportsSessionToolLoop) {
+                    } else if (pendingFinalAnswerReminderText && continueSession) {
                         requestTask.finalAnswerReminderText = pendingFinalAnswerReminderText;
                         pendingFinalAnswerReminderText = '';
                     } else {
-                        await compactionController.ensureContextBudget(adapter, controller.signal);
-                        requestTask.messages = await buildReplayMessages();
-                        void updateContextMeterFromRequest(requestTask.messages);
+                        requestTask.messages = context.messages;
+                        pendingFinalAnswerReminderText = '';
                     }
+                    providerMessageOptions.finalAnswerReminderText = '';
 
                     console.info('[Ebook][ModelRequest] round:start', {
                         round,
@@ -927,9 +901,8 @@ export function createEbookAgentRunner(deps = {}) {
                 state.status = '就绪';
                 await refreshBooksAndFiles();
                 await persistConversation?.(runBookId);
-                void buildReplayMessages()
-                    .then((messages) => updateContextMeterFromRequest(messages))
-                    .catch(() => {});
+                // Changed history invalidates the meter key; rendering uses a local preview
+                // until the next request is counted at the budget boundary.
                 return;
             }
             throw new Error('工具轮次达到上限，已停止。');

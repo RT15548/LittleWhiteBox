@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict';
 import { Buffer } from 'node:buffer';
 import test from 'node:test';
+import { applyMessageMutation } from '../domains/messages/mutation.js';
 import { emptyMessages, MESSAGE_LIMITS } from '../domains/messages/types.js';
-import { addContact, appendMessages, deleteContact, deleteImageMessage } from '../domains/messages/commands.js';
+import { addContact, appendMessages } from '../domains/messages/commands.js';
 import { validateMessages, parsePayload } from '../domains/messages/invariants.js';
 import { compileReplies, compileSummary } from '../apps/messages/prompt/reply-compiler.js';
 import { buildReplyPrompt } from '../apps/messages/prompt/reply-prompt.js';
-import { summaryBatch, buildSummaryPrompt } from '../apps/messages/prompt/thread-summary.js';
+import { buildSummaryPrompt } from '../apps/messages/prompt/thread-summary.js';
+import { archivePrefix } from '../apps/messages/application/context-policy.js';
 import { normalizePromptContext } from '../host/prompt-context/normalize.js';
 import { projectionText } from '../domains/messages/transcript.js';
 import { projectStoryCharacters } from '../../story-summary/prompt-characters.js';
@@ -42,12 +44,11 @@ test('outgoing media requires an actual bounded device image and models cannot f
     assert.deepEqual(replies, [{ type: 'voice', transcript: '看到了' }]);
 });
 
-test('image-only history compacts with pixels and receipt digests bind the image reference', () => {
+test('summary material carries pixels and receipt digests bind the image reference', () => {
     const state = emptyMessages(); addContact(state, contact('甲'));
     const attachment = uploadedImageReference({ name: '照片.png', dataUrl: 'data:image/png;base64,AQID' });
     for (let i = 0; i < 5; i++) {appendMessages(state, { ...message(`p${i}`, '甲'), entries: [{ id: `p${i}`, payload: { type: 'image', description: '', attachment } }] });}
-    const batch = summaryBatch(state.contacts[0], state.messages);
-    assert.ok(batch.length > 0 && batch.length < state.messages.length);
+    const batch = state.messages.slice(0, 3);
     const images = new Map(batch.map(m => [m.id, 'data:image/png;base64,AQID']));
     const prompt = buildSummaryPrompt(state.contacts[0], batch, images);
     assert.equal(prompt.messages[0].content.filter(p => p.type === 'image_url').length, batch.length);
@@ -58,35 +59,6 @@ test('image-only history compacts with pixels and receipt digests bind the image
     assert.equal(MESSAGES_PARTITION.parse(state).ok, false);
 });
 
-test('deleting an image preserves replies and unrelated history, invalidates its summary, and keeps only confirmed receipt members', () => {
-    const state = emptyMessages(); addContact(state, contact('甲')); addContact(state, contact('乙'));
-    appendMessages(state, message('before', '甲'));
-    const attachment = uploadedImageReference({ name: '照片.png', dataUrl: 'data:image/png;base64,AQID' });
-    appendMessages(state, { ...message('photo', '甲'), entries: [{ id: 'photo', payload: { type: 'image', description: '配文', attachment } }] });
-    state.segments[0].receipt = messageReceipt(state, state.segments[0], 2);
-    appendMessages(state, { ...message('reply', '甲', 'photo'), segmentId: 'later' });
-    appendMessages(state, message('other', '乙'));
-    appendMessages(state, message('new', '甲')); // not yet projected
-    state.contacts[0].summary = { throughSeq: 3, text: '包含了旧图片' };
-    state.contacts[1].summary = { throughSeq: 4, text: '其他联系人的摘要' };
-    const nextSeq = state.nextSeq;
-    assert.throws(() => deleteImageMessage(state, '乙', 'photo'), /invalid_image_deletion/);
-    assert.throws(() => deleteImageMessage(state, '甲', 'before'), /invalid_image_deletion/);
-    deleteImageMessage(state, '甲', 'photo');
-    assert.deepEqual(state.messages.map(m => m.id), ['before', 'reply', 'other', 'new']);
-    assert.equal(state.messages[1].replyTo, null);
-    assert.equal(state.messages[1].payload.text, 'reply');
-    assert.equal(state.contacts[0].summary, null);
-    assert.equal(state.contacts[1].summary.text, '其他联系人的摘要');
-    assert.equal(state.segments[0].sealed, true);
-    assert.equal(state.segments[0].receipt.throughSeq, 1);
-    assert.equal(state.nextSeq, nextSeq);
-    assert.equal(MESSAGES_PARTITION.parse(state).ok, true);
-    const deleted = structuredClone(state); deleteImageMessage(state, '甲', 'photo');
-    assert.deepEqual(state, deleted);
-    const invalid = structuredClone(state); invalid.messages[1].replyTo = 'photo';
-    assert.equal(MESSAGES_PARTITION.parse(invalid).ok, false);
-});
 
 test('contact suggestions use known people and exclude the player by canonical name or alias without modifying memory', () => {
     const store = { lastSummarizedMesId: 2, json: {
@@ -125,9 +97,9 @@ test('private messages retain stable global order and reply ownership across del
     assert.equal(state.messages.length, 3);
     assert.throws(() => appendMessages(state, { ...reply, contactId: '乙' }), /conflict/);
     assert.throws(() => appendMessages(structuredClone(state), message('a3', '甲', 'a1')), /already_replied/);
-    deleteContact(state, '甲');
+    applyMessageMutation(state, { kind: 'delete-contact', contactId: '甲', segmentId: 'now', removeIds: ['a1', 'a2'], replacements: [], summary: null });
     assert.deepEqual(state.messages.map(m => m.seq), [2]);
-    assert.equal(state.segments[0].sealed, true);
+    assert.equal(state.segments[0].sealed, false);
     appendMessages(state, { ...message('b2', '乙'), segmentId: 'later' });
     assert.equal(state.messages.at(-1).seq, 4);
     validateMessages(state);
@@ -152,18 +124,6 @@ test('persisted receipts reject non-member coverage and mismatched projected tex
     assert.equal(MESSAGES_PARTITION.parse(corrupt).ok, false);
 });
 
-test('deleting the last contact in a shared floor preserves only the remaining acknowledged prefix', () => {
-    const state = emptyMessages(); addContact(state, contact('甲')); addContact(state, contact('乙'));
-    appendMessages(state, message('a1', '甲')); appendMessages(state, message('b1', '乙'));
-    state.segments[0].receipt = messageReceipt(state, state.segments[0], 2);
-    appendMessages(state, message('a2', '甲')); // saved but not projected
-    deleteContact(state, '乙');
-    assert.equal(MESSAGES_PARTITION.parse(state).ok, true);
-    assert.deepEqual(state.segments[0].receipt, messageReceipt(state, state.segments[0], 1));
-    assert.equal(state.segments[0].sealed, true);
-    deleteContact(state, '甲');
-    assert.deepEqual(state.segments, []);
-});
 
 test('payload protocol has one closed shape, bounded visible replies and independent invalid siblings', () => {
     const replies = [{ type: 'text', text: '到啦' }, { type: 'image', description: '雨里的车站' }, { type: 'voice', transcript: '我在这里。' }];
@@ -201,10 +161,10 @@ test('summary batches cover only old uncompressed records, preserving recent ori
     const state = emptyMessages(); addContact(state, contact('甲'));
     for (let i = 0; i < 16; i++) {appendMessages(state, { ...message(String(i), '甲'), entries: [{ id: String(i), payload: { type: 'text', text: '旧约定'.repeat(800) } }] });}
     const before = structuredClone(state);
-    const first = summaryBatch(state.contacts[0], state.messages);
+    const first = archivePrefix(state.messages);
     assert.ok(first.length > 0 && first.length < state.messages.length);
     const nextContact = { ...state.contacts[0], summary: { throughSeq: first.at(-1).seq, text: '约定摘要' } };
-    const next = summaryBatch(nextContact, state.messages);
+    const next = archivePrefix(state.messages.filter(message => message.seq > nextContact.summary.throughSeq));
     assert.ok(next.every(message => message.seq > first.at(-1).seq));
     assert.deepEqual(state, before);
 });

@@ -1,5 +1,7 @@
 import { readSseEventsFromResponse } from './sse.js';
 import { resolveModelFamily } from '../model-family.js';
+import { getHostRequestHeaders } from '../../host-request-headers.js';
+export { setHostRequestHeadersProvider as setHostChatCompletionsRequestHeadersProvider } from '../../host-request-headers.js';
 
 export const HOST_CHAT_COMPLETIONS_SOURCE_OPENAI = 'openai';
 export const HOST_CHAT_COMPLETIONS_SOURCE_CLAUDE = 'claude';
@@ -11,7 +13,7 @@ export const HOST_CHAT_COMPLETIONS_DEFAULT_REVERSE_PROXY = Object.freeze({
     [HOST_CHAT_COMPLETIONS_SOURCE_MAKERSUITE]: 'https://generativelanguage.googleapis.com',
 });
 
-let requestHeadersProvider = null;
+const requestHeadersProvider = getHostRequestHeaders;
 
 function normalizeBaseUrl(value) {
     return String(value || '').trim().replace(/\/+$/, '');
@@ -31,10 +33,6 @@ function normalizeReverseProxyForSource(value, source) {
         return baseUrl.replace(/\/v\d[\w.-]*$/i, '');
     }
     return baseUrl;
-}
-
-export function setHostChatCompletionsRequestHeadersProvider(provider) {
-    requestHeadersProvider = typeof provider === 'function' ? provider : null;
 }
 
 async function buildHeaders(provider = requestHeadersProvider) {

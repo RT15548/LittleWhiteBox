@@ -4,8 +4,19 @@ import { MessageSendError, sendPrivateMessage, type SendDependencies } from '../
 import type { OutgoingMessage } from '../application/image-upload.js';
 import { unsyncedIds } from '../application/projection.js';
 import type { MessageSendFailure, PendingOutgoingMessage } from '../types.js';
+import type { MessagesModifications, ModificationTarget } from '../application/modifications.js';
+import { regenerateMessageReply } from '../application/regenerate.js';
+import { previewMessageContext } from '../application/context-preview.js';
+import type { MessageContact, PrivateMessage } from '../../../domains/messages/types.js';
+
+function contextFailure(cause: unknown): string {
+    const code = cause instanceof Error ? cause.message : '';
+    return code === 'messages_context_capacity' ? '上下文超过 158k，近期原文已保留。请减少背景材料或附图后重试。'
+        : code === 'messages_summary_not_reduced' ? '这次摘要未能缩减上下文，未保存该摘要，请重试。' : '';
+}
 
 export function createMessagesRuntime(deps: SendDependencies & {
+    modifications: MessagesModifications;
     identity(): string; isGenerating(): boolean; changed(): void;
 }) {
     let epoch = 0;
@@ -34,7 +45,7 @@ export function createMessagesRuntime(deps: SendDependencies & {
             if (active.messageId === messageId && active.identity === deps.identity()) {return;}
             throw new Error('messages_busy');
         }
-        if (deps.isGenerating() || deps.service.pending() || deps.service.fileState() !== 'ready') {throw new Error('messages_not_ready');}
+        if (deps.isGenerating() || deps.service.pending() || deps.service.current().pendingMutation || deps.service.fileState() !== 'ready') {throw new Error('messages_not_ready');}
         const pending = pendingOutgoing();
         if (pending && (pending.messageId !== messageId || pending.contactId !== contactId)) {throw new Error('messages_busy');}
         if (!deps.service.current().contacts.some(contact => contact.id === contactId)) {throw new Error('messages_contact_missing');}
@@ -57,21 +68,36 @@ export function createMessagesRuntime(deps: SendDependencies & {
                 const sent = domain.messages.some(message => message.id === messageId);
                 const hasImages = domain.messages.some(message => message.contactId === contactId
                     && message.payload.type === 'image' && message.payload.attachment);
-                const message = run.controller.signal.aborted ? (sent ? '这次回复已停止，可以重试。' : '发送已停止，可以重试。')
+                const message = contextFailure(cause) || (run.controller.signal.aborted ? (sent ? '这次回复已停止，可以重试。' : '发送已停止，可以重试。')
                     : deps.service.pending() ? (sent ? '回复尚待保存确认，请先检查保存。' : '发送尚未确认，请先检查保存。')
                         : stage === 'uploading' ? '图片发送失败，可以重试。'
-                            : cause instanceof Error && cause.message === 'messages_image_missing' ? '消息里的原图暂时无法读取，可恢复图片后重试，或删除这条图片消息后继续。'
+                            : cause instanceof Error && cause.message === 'messages_image_missing' ? '消息里的原图暂时无法读取，请恢复图库中的原图后重试。'
                                 : stage === 'syncing' ? '消息已保留，尚未写入主聊天。点上方「查看」继续处理。'
                                     : !sent ? '发送失败，可以重试。'
                                         : '暂时没有收到回复。请检查 API 配置或网络，再重试这条消息。'
-                                            + (hasImages ? '若模型不支持图片，可更换模型，或点图片下方「删除图片消息」后继续。' : '');
+                                            + (hasImages ? '若模型不支持图片，可更换支持图片的模型后重试。' : ''));
                 if (stage === 'syncing') {error = message;}
                 else {failure = { contactId, messageId, message };}
             }
         }).finally(() => {pendingOutgoing(); if (active === run) {active = null;} deps.changed();});
     }
+    function regenerate(target: ModificationTarget) {
+        if (active || pendingOutgoing()) {throw new Error('messages_busy');}
+        if (deps.isGenerating()) {throw new Error('messages_not_ready');}
+        deps.modifications.authorize(target, 'regenerate');
+        const run = { contactId: target.contactId, messageId: target.messageId!, stage: 'replying', controller: new AbortController(), identity: deps.identity() };
+        const current = guard(); active = run; error = ''; failure = null; deps.changed();
+        task = regenerateMessageReply(deps, deps.modifications, target, { signal: run.controller.signal, guard: current,
+            stage(stage) {run.stage = stage; deps.changed();},
+        }).catch(cause => {
+            console.warn('[LittleWhiteBox] 重新回复未完成', cause);
+            if (run.identity === deps.identity()) {error = deps.service.pending() || deps.service.current().pendingMutation
+                ? '修改尚待保存确认，请点击「检查保存」。' : contextFailure(cause) || '重新回复未完成，原回复已保留。';}
+        }).finally(() => {if (active === run) {active = null;} deps.changed();});
+    }
     return {
-        start, cancel, guard,
+        start, regenerate, cancel, guard,
+        contextStats: (contact: MessageContact, history: PrivateMessage[]) => previewMessageContext(deps, contact, history),
         get active() {return active;}, get error() {return error;},
         get outgoing() {return pendingOutgoing();}, get failure() {return failure;},
         clearError() {error = ''; failure = null;},

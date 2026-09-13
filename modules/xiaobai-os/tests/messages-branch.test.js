@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { applyMessageMutation } from '../domains/messages/mutation.js';
 import { createHash } from 'node:crypto';
 import { emptyMessages } from '../domains/messages/types.js';
-import { addContact, appendMessages, deleteContact } from '../domains/messages/commands.js';
+import { addContact, appendMessages } from '../domains/messages/commands.js';
 import { projectionText } from '../domains/messages/transcript.js';
 import { messageReceipt } from '../domains/messages/receipt.js';
 import { branchMessages } from '../apps/messages/application/branch.js';
@@ -65,7 +66,7 @@ test('modified native markers do not establish a later private-message boundary'
 
 test('branching after contact deletion retains other messages and supports branching again', () => {
     const h = fixture(); h.add('甲的消息'); h.add('乙的消息', '乙'); const chat = [h.floor()];
-    deleteContact(h.source, '乙');
+    applyMessageMutation(h.source, { kind: 'delete-contact', contactId: '乙', segmentId: 'shared', removeIds: ['乙的消息'], replacements: [], summary: null }); chat[0] = h.floor();
     const once = branchMessages(h.source, chat);
     const twice = branchMessages(once, chat);
     assert.deepEqual(twice.messages.map(message => message.id), ['甲的消息']);
@@ -101,9 +102,9 @@ test('full copy preserves messages, while a chat switch refuses historical copyi
     const binding = { kind: 'character', ownerLocator: 'card.png', chatId: 'parent' };
     const partitions = { messages: MESSAGES_PARTITION.serialize(h.source) };
     const original = clone(partitions);
-    const prepare = createMessagesBranchCopy(() => ({ identityKey: 'other', messages: [] }));
+    const prepare = createMessagesBranchCopy(() => ({ identityKey: 'child', messages: [h.floor()] }));
     prepare({ identityKey: 'child', binding: { ...binding, chatId: 'child' }, metadata: {} }, binding, partitions);
     assert.deepEqual(partitions, original);
-    assert.throws(() => prepare({ identityKey: 'child', binding, metadata: {}, mainChatId: 'parent' }, binding, partitions), /branch_chat_changed/);
+    assert.throws(() => prepare({ identityKey: 'other', binding, metadata: {}, mainChatId: 'parent' }, binding, partitions), /branch_chat_changed/);
     assert.deepEqual(partitions, original);
 });

@@ -1,6 +1,6 @@
 import type { XiaobaiOsAppActivationContext, XiaobaiOsAppRuntime } from '../../../types.js';
 import type { XiaobaiOsHostFrameMessage } from '../../../host/frame-bridge.js';
-import { addContact, deleteContact, deleteImageMessage } from '../../../domains/messages/commands.js';
+import { addContact } from '../../../domains/messages/commands.js';
 import { messageString, record } from '../../../domains/messages/invariants.js';
 import { parseOutgoingMessage } from '../application/image-upload.js';
 import { payloadText } from '../../../domains/messages/types.js';
@@ -11,10 +11,12 @@ import type { MessagesContext } from './context-adapter.js';
 import type { MessagesMedia } from './media-adapter.js';
 import { syncCurrentMessages, type createMessagesRuntime } from './runtime.js';
 import type { MessagesClientState, MessagesSettings, ThreadPage } from '../types.js';
+import { messagesRevision, type MessagesModifications } from '../application/modifications.js';
 
 export interface MessagesControllerDependencies {
     service: MessagesService; timeline: MessagesTimeline; context: MessagesContext; media: MessagesMedia;
     runtime: ReturnType<typeof createMessagesRuntime>;
+    modifications: MessagesModifications;
     getSettings(): MessagesSettings;
     saveSettings(settings: MessagesSettings): Promise<void>;
     subscribeSettings(listener: () => void): () => void;
@@ -24,25 +26,31 @@ export interface MessagesControllerDependencies {
 }
 
 export function createMessagesController(deps: MessagesControllerDependencies): XiaobaiOsAppRuntime & { emit(): void } {
-    const { service, timeline, context, media, runtime } = deps;
+    const { service, timeline, context, media, runtime, modifications } = deps;
     let activation: XiaobaiOsAppActivationContext | null = null;
     let pageIdentity = '';
     let localBusy = false;
     let localError = '';
     let chatBoundary = 0;
+    let viewBoundary = 0;
     let cleanups: (() => void)[] = [];
     function state(): MessagesClientState {
         const domain = service.current();
+        const assessment = modifications.inspect(domain);
         const latest = new Map(domain.messages.map(message => [message.contactId, message]));
         return {
             chatIdentity: deps.identity(),
             settings: deps.getSettings(),
             contacts: domain.contacts.map(({ summary: _summary, ...contact }) => {
                 const last = latest.get(contact.id);
-                return { ...contact, preview: last ? (last.sender === 'user' ? '我：' : '') + (last.payload.type === 'image' ? '［图片］' : last.payload.type === 'voice' ? '［语音］' : '') + payloadText(last.payload).slice(0, 100) : '还没有消息', lastSeq: last?.seq ?? 0, lastAt: last?.createdAt ?? null, lastMessageId: last?.id ?? null };
+                const ids = domain.messages.filter(message => message.contactId === contact.id).map(message => message.id);
+                const deleteReason = ids.length ? assessment.reason(ids) : '';
+                return { ...contact, deleteReason, preview: last ? (last.sender === 'user' ? '我：' : '') + (last.payload.type === 'image' ? '［图片］' : last.payload.type === 'voice' ? '［语音］' : '') + payloadText(last.payload).slice(0, 100) : '还没有消息', lastSeq: last?.seq ?? 0, lastAt: last?.createdAt ?? null, lastMessageId: last?.id ?? null };
             }).sort((left, right) => right.lastSeq - left.lastSeq || left.createdAt - right.createdAt),
             knownPeople: context.knownPeople().map(({ name, aliases }) => ({ name, aliases })),
             fileState: service.fileState(), pendingSave: service.pending(),
+            pendingModification: !!domain.pendingMutation, revision: messagesRevision(domain),
+            boundary: viewBoundary,
             busy: runtime.active?.identity === deps.identity() ? { contactId: runtime.active.contactId, messageId: runtime.active.messageId, stage: runtime.active.stage } : null,
             outgoing: runtime.outgoing, sendFailure: runtime.failure,
             generationActive: deps.isGenerating(), unsynced: unsyncedIds(domain).length,
@@ -54,12 +62,16 @@ export function createMessagesController(deps: MessagesControllerDependencies): 
         try {activation.post('messages/state', { state: state() });}
         catch (cause) {console.warn('[LittleWhiteBox] 信息状态读取失败', cause);}
     }
-    function page(contactId: string, before = Infinity): ThreadPage {
+    function page(contactId: string, before = Infinity, window?: { first: number; last: number; latest: boolean }): ThreadPage {
         const domain = service.current();
         const all = domain.messages.filter(message => message.contactId === contactId);
-        const selected = all.filter(message => message.seq < before);
+        const selected = window ? all.filter(message => message.seq >= window.first && (window.latest || message.seq <= window.last))
+            : all.filter(message => message.seq < before);
+        const messages = selected.slice(window ? -100 : -50);
         const last = all.at(-1);
-        return { contactId, messages: selected.slice(-50), hasMore: selected.length > 50,
+        return { contactId, messages, hasMore: !!messages.length && all[0].id !== messages[0].id,
+            hasNewer: !!messages.length && all.at(-1)!.id !== messages.at(-1)!.id,
+            revision: messagesRevision(domain), permissions: modifications.permissions(domain, contactId, messages),
             retryMessageId: last?.sender === 'user' ? last.id : null };
     }
     async function exclusive(task: () => Promise<unknown>) {
@@ -89,7 +101,19 @@ export function createMessagesController(deps: MessagesControllerDependencies): 
                 case 'messages/thread': {
                     const before = payload.before === undefined ? Infinity : Number(payload.before);
                     if (before !== Infinity && (!Number.isSafeInteger(before) || before < 1)) {throw new Error('messages_invalid_page');}
-                    return page(string('contactId'), before);
+                    const window = payload.window;
+                    if (window !== undefined && (!record(window) || !Number.isSafeInteger(window.first) || !Number.isSafeInteger(window.last)
+                        || Number(window.first) < 1 || Number(window.last) < Number(window.first) || typeof window.latest !== 'boolean')) {throw new Error('messages_invalid_page');}
+                    if (payload.before !== undefined && payload.revision !== messagesRevision(service.current())) {throw new Error('messages_page_stale');}
+                    return page(string('contactId'), before, window as { first: number; last: number; latest: boolean } | undefined);
+                }
+                case 'messages/context': {
+                    const domain = service.current(); const contact = domain.contacts.find(person => person.id === string('contactId'));
+                    if (!contact) {throw new Error('messages_contact_missing');}
+                    const revision = messagesRevision(domain); const boundary = viewBoundary; const identity = deps.identity();
+                    const stats = await runtime.contextStats(contact, domain.messages.filter(message => message.contactId === contact.id));
+                    if (identity !== deps.identity()) {throw new Error('messages_chat_changed');}
+                    return { revision, boundary, stats };
                 }
                 case 'messages/contact/add':
                     return await exclusive(async () => {
@@ -110,20 +134,25 @@ export function createMessagesController(deps: MessagesControllerDependencies): 
                 case 'messages/contact/delete':
                     return await exclusive(async () => {
                         const contactId = string('contactId');
-                        await service.change(domain => deleteContact(domain, contactId), guard);
+                        await modifications.commit({ contactId, revision: string('revision') }, 'delete-contact', guard);
                         return state();
                     });
                 case 'messages/send':
                     if (localBusy) {throw new Error('messages_busy');}
                     runtime.start(string('contactId'), `input:${string('actionId', 100)}`, parseOutgoingMessage(payload.payload));
                     return state();
-                case 'messages/message/delete-image':
+                case 'messages/message/delete':
                     return await exclusive(async () => {
                         const contactId = string('contactId'); const messageId = string('messageId');
-                        await service.change(domain => deleteImageMessage(domain, contactId, messageId), guard);
+                        await modifications.commit({ contactId, messageId, revision: string('revision') }, 'delete', guard);
+                        media.stop();
                         runtime.clearError();
-                        return { state: state(), retryMessageId: page(contactId).retryMessageId };
+                        return state();
                     });
+                case 'messages/regenerate':
+                    if (localBusy) {throw new Error('messages_busy');}
+                    runtime.regenerate({ contactId: string('contactId'), messageId: string('messageId'), revision: string('revision') });
+                    return state();
                 case 'messages/retry':
                     if (localBusy) {throw new Error('messages_busy');}
                     runtime.start(string('contactId'), string('messageId'));
@@ -131,7 +160,7 @@ export function createMessagesController(deps: MessagesControllerDependencies): 
                 case 'messages/discard-send':
                     runtime.discard(string('messageId')); return state();
                 case 'messages/confirm':
-                    return await exclusive(async () => {await service.confirm(); runtime.clearError(); return state();});
+                    return await exclusive(async () => {await service.confirm(); await modifications.recover(guard); runtime.clearError(); return state();});
                 case 'messages/adopt-server-state':
                     return await exclusive(async () => {
                         if (!guard()) {throw new Error('messages_chat_changed');}
@@ -141,9 +170,9 @@ export function createMessagesController(deps: MessagesControllerDependencies): 
                         return state();
                     });
                 case 'messages/sync':
-                    return await exclusive(async () => {await syncCurrentMessages(service, timeline, guard); runtime.clearError(); return state();});
+                    return await exclusive(async () => {await modifications.recover(guard); await syncCurrentMessages(service, timeline, guard); runtime.clearError(); return state();});
                 case 'messages/recover':
-                    return await exclusive(async () => {await service.refresh(); await timeline.recover(guard); runtime.clearError(); return state();});
+                    return await exclusive(async () => {await service.refresh(); await modifications.recover(guard); await timeline.recover(guard); runtime.clearError(); return state();});
                 case 'messages/image/check':
                 case 'messages/image/generate':
                 case 'messages/voice/play': {
@@ -161,11 +190,13 @@ export function createMessagesController(deps: MessagesControllerDependencies): 
             }
         } catch (cause) {
             console.warn('[LittleWhiteBox] 信息操作失败', cause);
+            if (message.type === 'messages/context') {throw new Error('上下文用量暂时无法读取。');}
             if (message.type.startsWith('messages/image/') || message.type.startsWith('messages/voice/')) {
                 throw new Error('媒体暂不可用，消息原文已保留。');
             }
             const code = cause instanceof Error ? cause.message : '';
-            const userMessage = code === 'messages_contact_exists' ? '通讯录里已经有这个人了。'
+            const userMessage = code && !code.startsWith('messages_') && /[\u3400-\u9fff]/u.test(code) ? code
+                : code === 'messages_contact_exists' ? '通讯录里已经有这个人了。'
                 : code === 'messages_busy' ? '上一项操作还没完成，请稍候。'
                     : code.startsWith('messages_invalid') ? '请检查输入内容和长度。'
                         : code === 'messages_projection_closed' ? '原记录已被修改、删除，或故事已继续。可以展开下方说明，在当前位置补记。'
@@ -190,6 +221,7 @@ export function createMessagesController(deps: MessagesControllerDependencies): 
             cleanups = [service.subscribe(emit), service.subscribeFile(emit), deps.subscribeSettings(emit),
                 deps.subscribeGeneration(active => {if (active) {runtime.cancel();} emit();}),
                 deps.subscribeChat(() => {
+                    viewBoundary++;
                     runtime.cancel();
                     const closed = timeline.observe();
                     const boundary = chatBoundary; const identity = deps.identity();

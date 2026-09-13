@@ -6,6 +6,7 @@ import type { PromptContextAdapter } from './types.js';
 interface PromptContextAdapterDependencies {
     readonly readContext?: () => PromptHostContext;
     readonly readStoryEvents?: (throughMessageIndex: number) => string | Promise<string>;
+    readonly cleanMessageText?: (text: string) => string;
     readonly report?: (error: unknown) => void;
 }
 
@@ -25,7 +26,8 @@ export function createPromptContextAdapter({
         worldInfoIncludeNames: getWorldInfoSettings().world_info_include_names === true,
     }),
     readStoryEvents = defaultStoryEvents,
+    cleanMessageText,
     report = error => console.warn('[LittleWhiteBox] Prompt 背景读取失败', error),
 }: PromptContextAdapterDependencies = {}): PromptContextAdapter {
-    return createHostPromptContextAdapter({ readContext, readStoryEvents, report });
+    return createHostPromptContextAdapter({ readContext, readStoryEvents, cleanMessageText, report });
 }

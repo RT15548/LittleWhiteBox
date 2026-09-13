@@ -1,8 +1,7 @@
 import { messageString, parsePayload, validateMessages } from './invariants.js';
-import { messageReceipt } from './receipt.js';
-import { MESSAGE_LIMITS as LIMIT, type MessageContact, type MessagePayload, type MessagesDomainV1, type PrivateMessage } from './types.js';
+import { MESSAGE_LIMITS as LIMIT, type MessageContact, type MessagePayload, type MessagesDomainV2, type PrivateMessage } from './types.js';
 
-export function addContact(state: MessagesDomainV1, contact: MessageContact): void {
+export function addContact(state: MessagesDomainV2, contact: MessageContact): void {
     messageString(contact.id, 160); messageString(contact.name, LIMIT.name); messageString(contact.note, LIMIT.note, true);
     const existing = state.contacts.find(item => item.id === contact.id);
     if (existing) {
@@ -16,45 +15,7 @@ export function addContact(state: MessagesDomainV1, contact: MessageContact): vo
     validateMessages(state);
 }
 
-function removeMessages(state: MessagesDomainV1, ids: Set<string>): void {
-    const messages = new Map(state.messages.map(message => [message.id, message]));
-    for (const segment of state.segments) {
-        if (!segment.messageIds.some(id => ids.has(id))) {continue;}
-        segment.sealed = true;
-        segment.messageIds = segment.messageIds.filter(id => !ids.has(id));
-        if (segment.receipt) {
-            // A subset of confirmed messages remains confirmed. Its local digest
-            // is rederived; the sealed native floor and its marker stay untouched.
-            segment.receipt = messageReceipt({ messages: segment.messageIds.map(id => messages.get(id)!) }, segment, segment.receipt.throughSeq);
-        }
-    }
-    state.segments = state.segments.filter(item => item.messageIds.length);
-    state.messages = state.messages.filter(item => !ids.has(item.id));
-}
-
-export function deleteContact(state: MessagesDomainV1, contactId: string): void {
-    removeMessages(state, new Set(state.messages.filter(item => item.contactId === contactId).map(item => item.id)));
-    state.contacts = state.contacts.filter(item => item.id !== contactId);
-}
-
-/** Remove only the selected uploaded image, keeping all other messages. */
-export function deleteImageMessage(state: MessagesDomainV1, contactId: string, messageId: string): void {
-    const message = state.messages.find(item => item.id === messageId);
-    if (!message) {return;}
-    if (message.contactId !== contactId || message.sender !== 'user' || message.payload.type !== 'image' || !message.payload.attachment) {
-        throw new Error('messages_invalid_image_deletion');
-    }
-    const ids = new Set([messageId]);
-    for (const reply of state.messages) {
-        if (reply.replyTo === messageId) {reply.replyTo = null;}
-    }
-    const contact = state.contacts.find(item => item.id === contactId)!;
-    if (contact.summary && message.seq <= contact.summary.throughSeq) {contact.summary = null;}
-    removeMessages(state, ids);
-    validateMessages(state);
-}
-
-export function appendMessages(state: MessagesDomainV1, input: {
+export function appendMessages(state: MessagesDomainV2, input: {
     segmentId: string; contactId: string; playerName: string; replyTo: string | null;
     entries: { id: string; payload: MessagePayload }[]; createdAt: number;
 }): PrivateMessage[] {

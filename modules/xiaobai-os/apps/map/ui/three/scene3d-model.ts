@@ -35,20 +35,9 @@ export function createSceneModel(data: MapScene, dark: boolean, assets?: { get(k
         for (const [index, element] of sortedSceneElements(data.elements).entries()) {
             const fp = elementFootprint(element, frame.scale);
             const parent = new Group();
-            // Separate layered surfaces enough to avoid depth fighting at overview scale.
-            parent.position.copy(frame.point(...fp.center, index * .002));
-            parent.rotation.y = fp.rotation;
-            group.add(parent);
             let height = .015, needsOutline = false;
             const model = sceneTemplate(element);
             const kind = sceneAssetKind(element), asset = kind && assets?.get(kind);
-            if (kind) {
-                // Include the footprint and eventual label height from the first frame.
-                // This affects framing only; placeholders and map facts stay unchanged.
-                const top = sceneAssetHeight(element, kind, fp.width, fp.depth) + .10;
-                parent.updateMatrix();
-                assetBounds.union(new Box3(new Vector3(-fp.width / 2, 0, -fp.depth / 2), new Vector3(fp.width / 2, top, fp.depth / 2)).applyMatrix4(parent.matrix));
-            }
             const fence = element.icon === 'fence' && ['path', 'curve'].includes(element.shape) && !isSceneMarker(element) && !['wall', 'grid'].includes(element.category);
             const footprintOnly = !model && !isSceneMarker(element) && isAreaElement(element) && (isSceneObject(element) || ['furniture', 'decoration'].includes(element.category));
             if (element.shape === 'icon' || element.shape === 'label') {
@@ -67,7 +56,7 @@ export function createSceneModel(data: MapScene, dark: boolean, assets?: { get(k
             } else if (fence) {
                 height = buildFence(parent, fp.points, fp.closed, cube, materials.mesh(element), resources);
             } else if (kind && asset) {
-                ({ height, needsOutline } = fitSceneAsset(parent, element, kind, asset, fp.width, fp.depth, resources, materials));
+                height = fitSceneAsset(parent, element, kind, asset, fp.width, fp.depth, resources, materials);
             } else if (model) {
                 height = template(parent, element, model, fp.width, fp.depth);
             } else if (isAreaElement(element)) {
@@ -80,6 +69,13 @@ export function createSceneModel(data: MapScene, dark: boolean, assets?: { get(k
                 const mesh = new Mesh(resources.own(ribbonGeometry(fp.points, fp.closed, element.category === 'road' ? .16 : .08).translate(0, height, 0)), materials.mesh(element));
                 mesh.receiveShadow = true;
                 parent.add(mesh);
+            }
+            if (model || asset) {
+                // Measure either representation in the footprint's axes, before placement.
+                const drawn = new Box3().setFromObject(parent);
+                const tolerance = Math.max(fp.width, fp.depth) * 1e-6;
+                needsOutline = drawn.min.x > -fp.width / 2 + tolerance || drawn.max.x < fp.width / 2 - tolerance
+                    || drawn.min.z > -fp.depth / 2 + tolerance || drawn.max.z < fp.depth / 2 - tolerance;
             }
             if (fp.points.length && (needsOutline || (!model && !asset))) {
                 // A fitted decorative model must not erase occupied ground when it is smaller.
@@ -99,6 +95,17 @@ export function createSceneModel(data: MapScene, dark: boolean, assets?: { get(k
                 trees.castShadow = trees.receiveShadow = true;
                 resources.own(trees);
                 parent.add(trees);
+            }
+            // Separate layered surfaces enough to avoid depth fighting at overview scale.
+            parent.position.copy(frame.point(...fp.center, index * .002));
+            parent.rotation.y = fp.rotation;
+            group.add(parent);
+            if (kind) {
+                // Include the footprint and eventual label height from the first frame.
+                // This affects framing only; placeholders and map facts stay unchanged.
+                const top = sceneAssetHeight(element, kind, fp.width, fp.depth) + .10;
+                parent.updateMatrix();
+                assetBounds.union(new Box3(new Vector3(-fp.width / 2, 0, -fp.depth / 2), new Vector3(fp.width / 2, top, fp.depth / 2)).applyMatrix4(parent.matrix));
             }
             if (isSceneMarker(element)) {
                 anchors.set(element.id, frame.point(...fp.center, parent.position.y + .025));

@@ -39,10 +39,7 @@ function assetFit(element: MapElement, kind: SceneAssetKind, { size, radius }: P
     const count = kind === 'shelf' ? Math.max(1, Math.ceil(width / depth / (size.x / size.z))) : 1;
     const scale = Math.min((kind === 'tree' ? 3 : 2.5) / size.y,
         element.shape === 'circle' ? width / (2 * radius) : Math.min(width / count / size.x, depth / size.z));
-    const fittedWidth = element.shape === 'circle' ? 2 * radius * scale : kind === 'table' ? width : size.x * scale * count;
-    const fittedDepth = element.shape === 'circle' ? fittedWidth : size.z * scale;
-    const needsOutline = fittedWidth < width - 1e-6 || fittedDepth < depth - 1e-6;
-    return { count, scale, height: size.y * scale, needsOutline };
+    return { count, scale, height: size.y * scale };
 }
 
 /** Offline measurements reserve the eventual height without waiting for a GLB request. */
@@ -53,7 +50,7 @@ export function sceneAssetHeight(element: MapElement, kind: SceneAssetKind, widt
 export function fitSceneAsset(parent: Group, element: MapElement, kind: SceneAssetKind, asset: SceneAsset,
     width: number, depth: number, resources: Scene3DResources, materials: ReturnType<typeof createSceneMaterials>) {
     const { size } = asset;
-    const { count, scale, height, needsOutline } = assetFit(element, kind, asset, width, depth);
+    const { count, scale, height } = assetFit(element, kind, asset, width, depth);
     const main = element.material ? element : {
         ...element, material: DEFAULT_SURFACES[kind] || 'unknown',
     };
@@ -85,5 +82,5 @@ export function fitSceneAsset(parent: Group, element: MapElement, kind: SceneAss
         mesh.castShadow = material.opacity >= .8; mesh.receiveShadow = true;
         parent.add(mesh);
     }
-    return { height, needsOutline };
+    return height;
 }

@@ -226,6 +226,61 @@ test('height-limited or differently proportioned assets still show the entire au
     } finally {for (const asset of assets.values()) asset.dispose();}
 });
 
+test('procedural objects retain their full ground footprint without framing already fitted shapes', () => {
+    const workshop = compile(sceneObjectInputs[2]).scenes.workshop;
+    const courtyard = compile(sceneObjectInputs[3]).scenes.courtyard;
+    const fixtures = [
+        [workshop, 'ladder', true],
+        [courtyard, 'flag', true],
+        [courtyard, 'fire', true],
+        [workshop, 'machine', false],
+        [courtyard, 'column', false],
+    ];
+    for (const [source, icon, needsOutline] of fixtures) for (const rotation of [0, 37, 217]) for (const certainty of ['confirmed', 'inferred', 'unknown']) {
+        const element = { ...source.elements.find(element => element.icon === icon), rotation, certainty };
+        const scene = freeze({ ...source, elements: [element] }), original = structuredClone(scene);
+        const frame = sceneFrame(scene), fp = elementFootprint(element, frame.scale);
+        const center = frame.point(...fp.center);
+        const toFootprint = new Matrix4().makeRotationY(-fp.rotation).multiply(new Matrix4().makeTranslation(-center.x, 0, -center.z));
+        const expected = new Box3().setFromPoints(fp.points.map(point => new Vector3(point.x, 0, point.y)));
+        const model = createSceneModel(scene, false);
+        try {
+            const rendered = new Box3(), outlines = [];
+            model.group.updateMatrixWorld(true);
+            // Measure drawn vertices in the footprint's axes, not an expanded world AABB.
+            model.group.traverse(node => {
+                if (node.isLine) outlines.push(node);
+                if (!node.isMesh && !node.isLine) return;
+                const points = node.geometry.getAttribute('position');
+                for (let instance = 0; instance < (node.isInstancedMesh ? node.count : 1); instance++) {
+                    const matrix = new Matrix4();
+                    if (node.isInstancedMesh) node.getMatrixAt(instance, matrix);
+                    matrix.premultiply(node.matrixWorld).premultiply(toFootprint);
+                    for (let i = 0; i < points.count; i++) rendered.expandByPoint(new Vector3().fromBufferAttribute(points, i).applyMatrix4(matrix));
+                }
+            });
+            for (const side of ['min', 'max']) for (const axis of ['x', 'z']) {
+                assert.ok(Math.abs(rendered[side][axis] - expected[side][axis]) < 1e-5, `${icon}: lost authored ${side}.${axis}`);
+            }
+            assert.equal(outlines.length, needsOutline ? 1 : 0, `${icon}: footprint outline must reflect the actual fit`);
+            for (const outline of outlines) {
+                const points = outline.geometry.getAttribute('position');
+                assert.equal(points.count, fp.points.length + 1);
+                for (let i = 0; i < points.count; i++) {
+                    const point = new Vector3().fromBufferAttribute(points, i).applyMatrix4(outline.matrixWorld);
+                    const corner = fp.points[i % fp.points.length];
+                    const expectedPoint = new Vector3(corner.x, 0, corner.y).applyAxisAngle(new Vector3(0, 1, 0), fp.rotation).add(frame.point(...fp.center));
+                    assert.ok(Math.hypot(point.x - expectedPoint.x, point.z - expectedPoint.z) < 1e-5, `${icon}: outline changed the original contour`);
+                    assert.ok(point.y > 0 && point.y < .03, 'Occupancy belongs at ground level');
+                }
+                assert.equal(outline.material.opacity, elementPresentation(element, '').opacity);
+                assert.equal(outline.material.gapSize > 0, certainty !== 'confirmed');
+            }
+            assert.deepEqual(scene, original);
+        } finally {model.dispose();}
+    }
+});
+
 test('fence paths preserve open gaps and closed outlines without filling interiors', () => {
     for (const shape of ['path', 'curve']) for (const closed of [false, true]) {
         const element = { id: 'fence', category: 'decoration', shape, icon: 'fence', closed, geometry: { points: [[0, 0], [100, 0], [100, 100]] } };

@@ -42,6 +42,7 @@ export interface PromptHostContext {
 export interface HostPromptContextAdapterDependencies {
     readonly readContext: () => PromptHostContext;
     readonly readStoryEvents: (throughMessageIndex: number) => string | Promise<string>;
+    readonly cleanMessageText?: (text: string) => string;
     readonly report?: (error: unknown) => void;
 }
 
@@ -102,6 +103,7 @@ function promptScanData(context: PromptHostContext, report: (error: unknown) => 
 export function createHostPromptContextAdapter({
     readContext,
     readStoryEvents,
+    cleanMessageText,
     report = () => undefined,
 }: HostPromptContextAdapterDependencies): PromptContextAdapter {
     function currentChatIdentity(): string {
@@ -122,7 +124,8 @@ export function createHostPromptContextAdapter({
             throw new Error('prompt_context_recent_boundary_invalid');
         }
         const excluded = new Set(options.excludeMessageIndices ?? []);
-        const messages = ordinaryMessages(context, through).filter(message => !excluded.has(message.index));
+        const messages = ordinaryMessages(context, through).filter(message => !excluded.has(message.index))
+            .map(message => cleanMessageText ? { ...message, text: cleanMessageText(String(message.text ?? '')) } : message);
         const recentMessages = messages.filter(message => message.index < recentBefore);
         const baseInput: PromptContextInput = {
             player: {

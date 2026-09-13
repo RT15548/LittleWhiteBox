@@ -10,6 +10,7 @@ import {
     type CommentaryEventInput,
 } from './sillytavern-adapter.js';
 import { getSillyTavernChatIdentity } from '../../../host/sillytavern-context.js';
+import { countHostContextTokens } from '../../../host/context-tokens.js';
 import type { FourthWallChatRepository } from './repository.js';
 import { createFourthWallAgentResponse } from './agent-response.js';
 import { createCommentaryBubblePresenter } from './commentary-runtime.js';
@@ -54,7 +55,7 @@ export function createFourthWallRuntime(
         getChatIdentity: getSillyTavernChatIdentity,
         getChatSnapshot: getSillyTavernChatSnapshot,
         generateResponse: createFourthWallAgentResponse(agentGateway),
-        contextService: createGatewayContextService(agentGateway),
+        contextService: createGatewayContextService(agentGateway, countHostContextTokens),
         loadAgentConfig: agentGateway.loadConfig,
         imageProtocol: createFourthWallImageProtocol(),
         voiceProtocol: createFourthWallVoiceProtocol(),

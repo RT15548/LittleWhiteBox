@@ -2,6 +2,7 @@ import 'fake-indexeddb/auto';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { estimateConversationTokens, resolveConversationTokens } from '../../agent-core/runtime/context-tokens.js';
 
 const dbModule = await import('../shared/ebook-db.js');
 const toolsModule = await import('../shared/book-tools.js');
@@ -71,8 +72,10 @@ const {
     EBOOK_MAX_CONTEXT_TOKENS,
     EBOOK_MIN_PRESERVED_TURNS,
     EBOOK_SUMMARY_TRIGGER_TOKENS,
-    createEbookHistoryCompactionController,
 } = compactionModule;
+// Workflow tests inject a deterministic counter; protocol tests explicitly use the Host counter.
+const fixtureCountTokens = async options => ({ tokens: estimateConversationTokens(options), source: 'tokenizer' });
+const createEbookHistoryCompactionController = options => compactionModule.createEbookHistoryCompactionController({ countTokens: fixtureCountTokens, ...options });
 const {
     EBOOK_DELEGATE_PROMPT,
     EBOOK_SYSTEM_PROMPT,
@@ -81,7 +84,8 @@ const {
     buildBookTurnContextPrompt,
     buildDelegateBookContextPrompt,
 } = promptsModule;
-const { buildEbookProviderMessagesFromHistory, createEbookAgentRunner } = agentRunnerModule;
+const { buildEbookProviderMessagesFromHistory } = agentRunnerModule;
+const createEbookAgentRunner = options => agentRunnerModule.createEbookAgentRunner({ countTokens: fixtureCountTokens, ...options });
 const {
     captureScrollState,
     createEbookApp,
@@ -8566,13 +8570,14 @@ test('Book history compaction counts real tool schemas through the shared tokeni
         return {
             ok: true,
             async json() {
-                return { count: 4321 };
+                return { count: 4321, ids: Array(4321).fill(1) };
             },
         };
     };
 
     try {
         const controller = createEbookHistoryCompactionController({
+            countTokens: options => resolveConversationTokens({ ...options, requestHeaders: () => ({ 'X-CSRF-Token': 'test-csrf' }) }),
             state,
             render() {},
             persistConversation() {},
@@ -8605,7 +8610,7 @@ test('Book history compaction counts real tool schemas through the shared tokeni
             },
         });
 
-        const tokenCount = await controller.estimateCurrentTokens();
+        const { tokens: tokenCount } = await controller.countContext();
 
         assert.equal(tokenCount, 4321);
         assert.equal(tokenizerRequests.length, 1);
@@ -8617,6 +8622,44 @@ test('Book history compaction counts real tool schemas through the shared tokeni
     } finally {
         globalThis.fetch = originalFetch;
     }
+});
+
+test('Book replies continue with unavailable counting or uncompressible input, with estimates marked as estimates', async t => {
+    for (const mode of ['403', 'oversize-tool', 'session', 'compact-session']) {await t.test(mode, async t => {
+        await resetDb();
+        const book = await createBook('预算测试');
+        const state = { config: {}, book, files: await listBookFiles(book.id), messages: [], toolTrace: [],
+            historySummary: '', archivedTurnCount: 0, isBusy: false, status: '就绪' };
+        if (mode === 'compact-session') state.messages.push(
+            { role: 'user', content: '最早任务' }, { role: 'assistant', content: '旧答复' },
+            { role: 'user', content: '中间任务' }, { role: 'assistant', content: '中间答复' });
+        const calls = []; let counts = 0;
+        t.mock.method(globalThis, 'fetch', async () => new Response('', { status: 403 }));
+        const runner = createEbookAgentRunner({ state, async refreshBooksAndFiles() {}, render() {}, showToast() {},
+            persistConversation() {}, isEditorDirty: () => false, getActiveProviderConfig: () => ({ provider: 'google', model: 'gemini-test' }),
+            countTokens: async options => {
+                counts++;
+                if (mode === '403') return resolveConversationTokens({ ...options, requestHeaders: () => ({}) });
+                if (mode === 'oversize-tool' && options.messages.some(m => m.role === 'tool')) return { tokens: 194088, source: 'tokenizer' };
+                if (mode === 'compact-session' && counts === 2) return { tokens: 194088, source: 'tokenizer' };
+                return { tokens: 100, source: 'tokenizer' };
+            },
+            createAdapter: () => ({ supportsSessionToolLoop: true, async chat(request) {
+                calls.push(request);
+                return calls.length === 1 ? { text: '', toolCalls: [{ id: 'read', name: EBOOK_TOOL_NAMES.READ,
+                    arguments: JSON.stringify({ filePath: 'book/chapters/001.md' }) }] } : { text: '完成' };
+            } }),
+        });
+        await runner.runAgent('继续写作');
+        assert.equal(calls.length, 2); assert.ok(counts >= 2);
+        assert.equal(state.messages.at(-1).content, '完成');
+        if (mode === '403') assert.equal(state.contextStats.source, 'estimated');
+        if (mode !== 'compact-session') assert.equal(calls[1].toolResponses.length, 1);
+        else {
+            assert.equal(calls[1].toolResponses, undefined);
+            assert.ok(!JSON.stringify(calls[1].messages).includes('最早任务'));
+        }
+    });}
 });
 
 test('Book prompt keeps assistant-style tool layers and recovery rules', () => {

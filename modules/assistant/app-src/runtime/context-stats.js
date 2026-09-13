@@ -269,6 +269,7 @@ export function createContextStatsController(deps) {
         getToolDefinitions,
         TOOL_DEFINITIONS,
         MAX_CONTEXT_TOKENS,
+        countTokens = resolveConversationTokens,
     } = deps;
 
     let latestResolvedContextStatsSignature = '';
@@ -300,39 +301,45 @@ export function createContextStatsController(deps) {
     async function resolveContextTokens({ messages = [], tools = null, signal } = {}) {
         const providerConfig = getActiveProviderConfig();
         const resolvedTools = resolveToolDefinitions(tools);
-        return await resolveConversationTokens({ messages, tools: resolvedTools, providerConfig, signal });
+        return await countTokens({ messages, tools: resolvedTools, providerConfig, signal });
     }
 
-    async function forceUpdateContextStats(messages = [], tools = null) {
+    async function forceUpdateContextStats(messages = [], tools = null, signal) {
+        signal?.throwIfAborted();
         contextStatsAbortController?.abort();
         const requestController = new AbortController();
         contextStatsAbortController = requestController;
+        const abort = () => requestController.abort();
+        signal?.addEventListener('abort', abort, { once: true });
         const providerConfig = getActiveProviderConfig();
         const resolvedTools = resolveToolDefinitions(tools);
         const signature = buildContextStatsSignature(messages, resolvedTools);
         const summaryActive = !!state.historySummary;
         const cacheHit = latestResolvedContextStatsSignature === signature;
-        let usedTokens;
+        let measurement;
         try {
-            usedTokens = cacheHit
-                ? latestResolvedContextTokens
+            measurement = cacheHit
+                ? { tokens: latestResolvedContextTokens, source: 'tokenizer' }
                 : await resolveContextTokens({ messages, tools: resolvedTools, signal: requestController.signal });
+            requestController.signal.throwIfAborted();
         } finally {
+            signal?.removeEventListener('abort', abort);
             if (contextStatsAbortController === requestController) {
                 contextStatsAbortController = null;
             }
         }
 
-        if (!Number.isFinite(usedTokens)) {
-            usedTokens = estimateConversationTokens({ messages, tools: resolvedTools });
+        const { tokens: usedTokens } = measurement;
+        const source = measurement.source === 'tokenizer' ? 'resolved' : 'estimated';
+        if (source === 'resolved') {
+            latestResolvedContextStatsSignature = signature;
+            latestResolvedContextTokens = usedTokens;
         }
-
-        latestResolvedContextStatsSignature = signature;
-        latestResolvedContextTokens = usedTokens;
         state.contextStats = {
             usedTokens,
             budgetTokens: MAX_CONTEXT_TOKENS,
             summaryActive,
+            source,
         };
         logContextStats('forceUpdateContextStats', {
             providerConfig,
@@ -341,7 +348,7 @@ export function createContextStatsController(deps) {
             usedTokens,
             summaryActive,
             cacheHit,
-            source: cacheHit ? 'resolved-cache' : 'resolved',
+            source: cacheHit ? 'resolved-cache' : source,
         });
         return usedTokens;
     }
@@ -368,6 +375,7 @@ export function createContextStatsController(deps) {
             usedTokens: estimatedTokens,
             budgetTokens: MAX_CONTEXT_TOKENS,
             summaryActive,
+            source: cacheHit ? 'resolved' : 'estimated',
         };
         logContextStats('updateContextStats', {
             providerConfig,

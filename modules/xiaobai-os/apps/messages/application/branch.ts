@@ -1,12 +1,32 @@
 import { sha256 } from 'js-sha256';
 import { validateMessages } from '../../../domains/messages/invariants.js';
 import { messageReceipt } from '../../../domains/messages/receipt.js';
-import type { MessagesDomainV1 } from '../../../domains/messages/types.js';
+import type { MessagesDomainV2 } from '../../../domains/messages/types.js';
 import { projectionMarker, type ChatMessage } from './projection.js';
+import { applyMessageMutation } from '../../../domains/messages/mutation.js';
+import { hasMutationBase, hasMutationResult, mutationResult } from './mutation-evidence.js';
+
+/** Copies inherit the result evidenced by their floors, never an executable parent operation. */
+export function resolveCopiedMessages(source: MessagesDomainV2, childChat: readonly ChatMessage[]): MessagesDomainV2 {
+    const next = structuredClone(source);
+    const mutation = next.pendingMutation;
+    if (mutation) {
+        const result = mutationResult(next, mutation);
+        const applied = hasMutationResult(childChat, mutation, result);
+        if (applied) {applyMessageMutation(next, mutation);}
+        const segment = next.segments.find(segment => segment.id === mutation.segmentId);
+        if (segment && !hasMutationBase(childChat, mutation)
+            && !(applied && result && childChat.length === mutation.index + 1)) {segment.sealed = true;}
+    }
+    next.pendingMutation = null;
+    validateMessages(next);
+    return next;
+}
 
 /** Only native evidence present in the child may carry parent communications into it. */
-export function branchMessages(source: MessagesDomainV1, childChat: readonly ChatMessage[]): MessagesDomainV1 {
+export function branchMessages(source: MessagesDomainV2, childChat: readonly ChatMessage[]): MessagesDomainV2 {
     validateMessages(source);
+    source = resolveCopiedMessages(source, childChat);
     const segments = new Set(source.segments.map(segment => segment.id));
     let through = 0;
     for (const floor of childChat) {

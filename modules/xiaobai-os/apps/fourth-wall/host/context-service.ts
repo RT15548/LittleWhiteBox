@@ -1,7 +1,7 @@
 import { buildFourthWallAgentRequest, counterMessages } from '../domain/agent-request.js';
 import { buildMemoryRequest, formatMemoryMessage } from '../domain/memory-prompt.js';
 import { CONTEXT_LIMIT, SUMMARY_TRIGGER, SUMMARY_OUTPUT_LIMIT, getArchiveEnd } from '../domain/context-policy.js';
-import { resolveConversationTokens } from '../../../../agent-core/runtime/context-tokens.js';
+import type { resolveConversationTokens } from '../../../../agent-core/runtime/context-tokens.js';
 import { normalizeAgentSettings } from '../../../../agent-core/config.js';
 import { resolveActiveProviderConfig } from '../../../../agent-core/provider-resolution.js';
 import type { XiaobaiOsAgentGateway } from '../../../capabilities/agent/gateway.js';
@@ -114,11 +114,11 @@ export function createFourthWallContextService(deps: {
     };
 }
 
-export function createGatewayContextService(gateway: XiaobaiOsAgentGateway): FourthWallContextService {
+export function createGatewayContextService(gateway: XiaobaiOsAgentGateway, countTokens: typeof resolveConversationTokens): FourthWallContextService {
     return createFourthWallContextService({
         async count(request, config, signal) {
             const providerConfig = resolveActiveProviderConfig(normalizeAgentSettings(config || {}));
-            return await resolveConversationTokens({ messages: counterMessages(request), providerConfig, signal });
+            return (await countTokens({ messages: counterMessages(request), providerConfig, signal })).tokens;
         },
         async summarize(request, config, signal) {
             const result = await gateway.run({

@@ -21,7 +21,7 @@ export interface PrivateMessage {
     from: string;
     to: string;
     createdAt: number;
-    /** Null for outgoing messages, or when the triggering image was deleted. */
+    /** Null for outgoing messages, or when the triggering message was deleted. */
     replyTo: string | null;
     payload: MessagePayload;
 }
@@ -34,12 +34,27 @@ export interface MessageSegment {
     receipt: { throughSeq: number; digest: string } | null;
 }
 
-export interface MessagesDomainV1 {
-    version: 1;
+export interface MessagesDomainV2 {
+    version: 2;
     nextSeq: number;
     contacts: MessageContact[];
     messages: PrivateMessage[];
     segments: MessageSegment[];
+    pendingMutation: MessageMutation | null;
+}
+
+/** One cross-file operation, retained only until its native write is resolved. */
+export interface MessageMutation {
+    id: string;
+    kind: 'delete' | 'delete-contact' | 'regenerate';
+    contactId: string;
+    segmentId: string;
+    index: number;
+    baseDigest: string;
+    prefixDigest: string;
+    removeIds: string[];
+    replacements: PrivateMessage[];
+    summary: MessageContact['summary'];
 }
 
 export const MESSAGE_LIMITS = Object.freeze({
@@ -47,8 +62,8 @@ export const MESSAGE_LIMITS = Object.freeze({
     messages: 30000, segments: 10000, summary: 6000, serialized: 12_000_000,
 });
 
-export function emptyMessages(): MessagesDomainV1 {
-    return { version: 1, nextSeq: 1, contacts: [], messages: [], segments: [] };
+export function emptyMessages(): MessagesDomainV2 {
+    return { version: 2, nextSeq: 1, contacts: [], messages: [], segments: [], pendingMutation: null };
 }
 
 export function payloadText(payload: MessagePayload): string {
