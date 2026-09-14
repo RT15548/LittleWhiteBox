@@ -115,6 +115,10 @@ export function createFrameBridge() {
         subscribers.forEach(subscriber => subscriber(event.data));
     }
 
+    function announceReady(): void {
+        post('os/frame-ready');
+    }
+
     function start(): void {
         if (listening) {
             return;
@@ -123,7 +127,13 @@ export function createFrameBridge() {
         // The host origin, parent window and protocol source are checked above.
         // eslint-disable-next-line no-restricted-syntax
         window.addEventListener('message', handleMessage);
-        post('os/frame-ready');
+        // The host resets its channel on iframe load. Post readiness after the
+        // document loads so that reset precedes delivery of this queued message.
+        if (document.readyState === 'complete') {
+            announceReady();
+        } else {
+            window.addEventListener('load', announceReady, { once: true });
+        }
     }
 
     function request(type: string, payload: unknown = {}, timeoutMs = 15_000): Promise<unknown> {
@@ -164,6 +174,7 @@ export function createFrameBridge() {
     }
 
     function dispose(): void {
+        window.removeEventListener('load', announceReady);
         if (listening) {
             window.removeEventListener('message', handleMessage);
         }

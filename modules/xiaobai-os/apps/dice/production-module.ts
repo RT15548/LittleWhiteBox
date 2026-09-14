@@ -20,7 +20,8 @@ export function createProductionDiceModule(): XiaobaiOsAppModule {
             let running = false;
             const enabled = () => running && store.peekCurrent()?.identityKey === captureDiceChat()?.key
                 && (store.peekCurrent()?.value?.actionChecksEnabled ?? false);
-            const generation = createDiceGenerationAdapter(enabled, () => display.refresh());
+            const generation = createDiceGenerationAdapter(enabled, () => display.refresh(),
+                (target, candidate, signal) => display.reveal(target, candidate, signal));
             const display = createDiceMessageDisplay(generation, enabled);
             const controller = createDiceController(store, context.files, ensureDiceDisplayRule, generation.cancel);
             cleanup = async () => {

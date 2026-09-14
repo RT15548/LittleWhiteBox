@@ -77,6 +77,10 @@ function createHostExternalPlugin() {
         enforce: 'pre',
         resolveId(source, importer) {
             if (!importer || !source.startsWith('.')) return null;
+            // Only OS source owns this host boundary. Relative imports inside
+            // npm packages must stay in the bundle, not point at node_modules.
+            const importerRelativeToOs = path.relative(xiaobaiOsRoot, importer);
+            if (importerRelativeToOs.startsWith('..') || path.isAbsolute(importerRelativeToOs)) return null;
             const resolved = path.resolve(path.dirname(importer), source);
             const relativeToOs = path.relative(xiaobaiOsRoot, resolved);
             const belongsToOs = relativeToOs === ''

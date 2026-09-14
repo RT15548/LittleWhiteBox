@@ -2,7 +2,7 @@
 import { A as ge, B as we, C as pe, E as de, K as y, M as fe, N as be, S as ve, T as ye, V as te, W as ce, Y as j, c as W, gt as Z, h as q, ht as ne, i as ke, j as xe, k, l as N, m as Y, mt as J, o as ae, p as Ae, q as le, r as ue, s as c, u as S, z as Oe } from "./xiaobai-os-runtime-core.esm-bundler-x_Eikhco.js";
 import { l as ie, n as _e, r as Se, t as Ee } from "./xiaobai-os-runtime-dom.esm-bundler-DWFjb9Vy.js";
 import { t as Pe } from "./xiaobai-os-app-navigation-BcQEoInO.js";
-import { n as Re, t as re } from "./xiaobai-os-frame-bridge-8-bd80In.js";
+import { n as Re, t as re } from "./xiaobai-os-frame-bridge-5XxFerhp.js";
 var se = [
   "messages",
   "fourth-wall",
@@ -139,7 +139,7 @@ var Ve = Object.freeze({
   "agent-api": () => import("./xiaobai-os-AgentApiApp-Z2ML_2mV.js"),
   "fourth-wall": () => import("./xiaobai-os-FourthWallApp-D6dG5swh.js"),
   wallet: () => import("./xiaobai-os-WalletApp-C5MjHond.js"),
-  shop: () => import("./xiaobai-os-ShopApp-CrHJ869o.js"),
+  shop: () => import("./xiaobai-os-ShopApp-DlMZkNvK.js"),
   bank: () => import("./xiaobai-os-BankApp-B8Po1bGM.js"),
   game: () => import("./xiaobai-os-GameApp-DwgZ6xaY.js"),
   map: () => import("./xiaobai-os-MapApp-Dx-s1Y79.js"),

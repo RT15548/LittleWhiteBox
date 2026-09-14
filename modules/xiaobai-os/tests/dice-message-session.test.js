@@ -108,7 +108,7 @@ test('session waits, saves, then continues; repeat completion and explicit retry
         disk = structuredClone(source.chat); return { status: 'confirmed' };
     }, read: async () => disk });
     const session = createActionCheckSession({ enabled: () => true, current: target => isDiceTargetCurrent(source, target), same: (a,b) => a.message === b.message && a.swipe === b.swipe,
-        ready: async () => {}, save: saver.commit, changed() {}, id: () => 'id', random: () => { randomCalls++; return .3; },
+        ready: async () => {}, reveal: async () => {}, save: saver.commit, changed() {}, id: () => 'id', random: () => { randomCalls++; return .3; },
         continue: async (current, candidate) => {
             continuations++;
             assert.deepEqual(readDiceRecords(current.message), candidate.records);
@@ -132,7 +132,7 @@ test('cancellation while save is in flight prevents late confirmed continuation'
     const saving = new Promise(resolve => { release = resolve; });
     const saver = createDiceMessageSave({ capture: () => source, save: () => saving, read: async () => [] });
     const session = createActionCheckSession({ enabled: () => true, current: target => isDiceTargetCurrent(source, target), same: (a,b) => a.message === b.message && a.swipe === b.swipe,
-        ready: async () => {}, save: saver.commit, changed() {}, id: () => 'id',
+        ready: async () => {}, reveal: async () => {}, save: saver.commit, changed() {}, id: () => 'id',
         continue: async () => { continueCalls++; return null; } });
     session.accept(target);
     const pending = session.drain();
@@ -142,6 +142,46 @@ test('cancellation while save is in flight prevents late confirmed continuation'
     await pending;
     assert.equal(continueCalls, 0);
     assert.equal(readDiceRecords(source.chat[0]).checks.length, 1);
+});
+
+// Presentation is a barrier after durable save, not a second random operation or a background timer.
+test('fresh result waits for reveal; stop, target edits, and recovery cannot reroll or send early', async () => {
+    for (const ending of ['finish', 'cancel', 'edit']) {
+        const { source, target } = fixture();
+        const steps = [];
+        let release;
+        let started;
+        const shown = new Promise(resolve => { started = resolve; });
+        const saver = createDiceMessageSave({ capture: () => source, read: async () => [],
+            save: async () => { steps.push('save'); return { status: 'confirmed' }; } });
+        const session = createActionCheckSession({ enabled: () => true,
+            current: target => isDiceTargetCurrent(source, target), same: (a,b) => a.message === b.message && a.swipe === b.swipe,
+            ready: async () => {}, save: saver.commit, changed() {}, id: () => 'revealed',
+            random: () => { steps.push('roll'); return .3; },
+            reveal: async (_target, candidate, signal) => {
+                assert.deepEqual(saver.readConfirmed(source.chat[0]), candidate.records);
+                steps.push('reveal'); started();
+                await new Promise(resolve => { release = resolve; signal.addEventListener('abort', resolve, { once: true }); });
+            },
+            continue: async () => { steps.push('continue'); return null; },
+        });
+        session.accept(target);
+        const operation = session.drain();
+        await shown;
+        assert.deepEqual(steps, ['roll', 'save', 'reveal']);
+        await session.drain();
+        if (ending === 'cancel') session.cancel();
+        if (ending === 'edit') source.chat[0].mes = 'Edited action';
+        release(); await operation;
+        assert.equal(readDiceRecords(source.chat[0]).checks[0].roll, 7);
+        if (ending === 'edit') { assert.equal(session.view(), null); continue; }
+        if (ending === 'cancel') assert.deepEqual(steps, ['roll', 'save', 'reveal']);
+        else assert.deepEqual(steps, ['roll', 'save', 'reveal', 'continue']);
+        await session.retry(captureDiceTarget(source, 0, 0));
+        assert.equal(steps.filter(step => step === 'roll').length, 1);
+        assert.equal(steps.filter(step => step === 'reveal').length, 1);
+        assert.equal(steps.at(-1), 'continue');
+    }
 });
 
 test('a retry readiness failure retains the same candidate until recovery succeeds', async () => {
@@ -157,7 +197,7 @@ test('a retry readiness failure retains the same candidate until recovery succee
         const session = createActionCheckSession({ enabled: () => true,
             current: target => isDiceTargetCurrent(source, target), same: (a,b) => a.message === b.message && a.swipe === b.swipe,
             ready: async () => { if (failReadiness) throw new Error('Host is still saving'); },
-            save: saver.commit, changed() {}, id: () => 'retained', random: () => { randomCalls++; return .3; },
+            reveal: async () => {}, save: saver.commit, changed() {}, id: () => 'retained', random: () => { randomCalls++; return .3; },
             continue: async (_current, candidate) => {
                 continuations++;
                 if (failOperation) return null;
@@ -194,7 +234,7 @@ test('target changes and cancellation during retry readiness prevent continuatio
         const session = createActionCheckSession({ enabled: () => true,
             current: target => isDiceTargetCurrent(source, target), same: (a,b) => a.message === b.message && a.swipe === b.swipe,
             ready: () => retrying ? new Promise((_resolve, reject) => { rejectWait = reject; }) : Promise.resolve(),
-            save: saver.commit, changed() {}, id: () => 'retained', random: () => { randomCalls++; return .3; },
+            reveal: async () => {}, save: saver.commit, changed() {}, id: () => 'retained', random: () => { randomCalls++; return .3; },
             continue: async () => { continuations++; return null; } });
         session.accept(target);
         await session.drain();

@@ -59,6 +59,8 @@ const compiled = await build({
             };
             export const isGenerating = () => host.busy || is_group_generating;
             export const setSendButtonState = value => { host.busy = value; };
+            export const deactivateSendButtons = () => { host.stopVisible = true; };
+            export const activateSendButtons = () => { host.stopVisible = false; host.busy = false; };
             export const setCharacterId = value => { host.source.characterId = value; };
             export const setCharacterName = value => { host.source.characterName = value; };
             export const setExternalAbortController = value => { host.controller = value; };
@@ -97,10 +99,10 @@ const { createDiceGenerationAdapter, captureDiceChat, waitForDiceHost, host } = 
 
 const call = 'Attempt.\n\n<xb_action_check>{"action":"Climb","stat":"Agility","difficulty":"hard"}</xb_action_check>';
 const message = mes => ({ name: 'Mira', mes, extra: {} });
-function setup(t, group = false) {
+function setup(t, group = false, reveal = async () => {}) {
     host.reset({ key: group ? 'group:g:chat' : 'character:mira.png:chat', chatId: 'chat', chat: [message('Old reply')],
         characterId: 0, characterName: 'Mira', avatar: 'mira.png', ...(group ? { groupId: 'g' } : {}) });
-    const adapter = createDiceGenerationAdapter(() => host.enabled, () => {});
+    const adapter = createDiceGenerationAdapter(() => host.enabled, () => {}, reveal);
     adapter.start();
     t.after(() => adapter.stop());
     return adapter;
@@ -167,6 +169,30 @@ test('native regenerate deletion preserves the new generation, but a later user 
     await settled(adapter);
     assert.equal(host.writes, 1, 'a later deletion must not revive the canceled observation');
     assert.equal(host.requests.length, 1);
+});
+
+test('reveal owns native busy/Stop controls and late completion cannot unlock a replacement generation', async t => {
+    let release;
+    let shown;
+    const revealing = new Promise(resolve => { shown = resolve; });
+    const adapter = setup(t, false, async () => {
+        shown(); await new Promise(resolve => { release = resolve; });
+    });
+    await begin(); await host.intercept('normal');
+    host.source.chat.push(message(call)); await received(); await revealing;
+    assert.equal(host.busy, true);
+    assert.equal(host.stopVisible, true);
+    assert.equal(host.requests.length, 0);
+    await host.emit('GENERATION_STOPPED');
+    assert.equal(host.busy, false);
+    assert.equal(host.stopVisible, false);
+    assert.equal(adapter.view(), null);
+    host.busy = true; host.stopVisible = true; // A later native generation now owns the controls.
+    release(); await setImmediate();
+    assert.equal(host.busy, true);
+    assert.equal(host.stopVisible, true);
+    assert.equal(host.requests.length, 0);
+    assert.equal(host.source.chat.at(-1).extra.xiaobaiOsDice.checks.length, 1);
 });
 
 test('disabled checks still isolate a new swipe and preserve the old candidate and unrelated fields', async t => {

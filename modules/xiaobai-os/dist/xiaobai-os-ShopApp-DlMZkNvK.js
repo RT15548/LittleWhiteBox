@@ -2,7 +2,7 @@
 import { C as m1, E as f1, G as p1, H as B, I as T1, J as b1, K as x, S as r1, V as y1, Y as w, c as Q, f as H, gt as n, h as I, ht as k1, j as S, k as a, l as p, m as f, mt as W, o as y, p as Z, r as L, s as e, u as i } from "./xiaobai-os-runtime-core.esm-bundler-x_Eikhco.js";
 import { l as g1, o as n1, s as K } from "./xiaobai-os-runtime-dom.esm-bundler-DWFjb9Vy.js";
 import { n as Z1 } from "./xiaobai-os-app-navigation-BcQEoInO.js";
-import { t as $1 } from "./xiaobai-os-frame-bridge-8-bd80In.js";
+import { t as $1 } from "./xiaobai-os-frame-bridge-5XxFerhp.js";
 import { t as M1 } from "./xiaobai-os-AppDialog-BtiJ8z-w.js";
 var w1 = {
   class: "shop-icon",

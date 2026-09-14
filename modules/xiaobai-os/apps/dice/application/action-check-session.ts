@@ -6,7 +6,7 @@ export interface DiceCandidate { body: string; records: DiceMessageRecords }
 export type DiceSaveResult = { status: 'confirmed' } | { status: 'failed' | 'unconfirmed' | 'conflict'; error: string };
 
 type Phase = { kind: 'waiting' | 'settling' }
-    | { kind: 'saving' | 'continuing'; candidate: DiceCandidate }
+    | { kind: 'saving' | 'revealing' | 'continuing'; candidate: DiceCandidate }
     | { kind: 'save-error' | 'continue-error'; candidate: DiceCandidate; error: string }
     | { kind: 'invalid'; error: string };
 interface Run<T> { controller: AbortController; target: T; phase: Phase }
@@ -16,6 +16,7 @@ export interface DiceSessionPort<T extends ActionCheckTarget> {
     same(left: T, right: T): boolean;
     ready(target: T, signal: AbortSignal, inGroup: boolean): Promise<void>;
     save(target: T, candidate: DiceCandidate, signal: AbortSignal, retry: boolean): Promise<DiceSaveResult>;
+    reveal(target: T, candidate: DiceCandidate, signal: AbortSignal): Promise<void>;
     continue(target: T, candidate: DiceCandidate, signal: AbortSignal): Promise<T | null>;
     changed(): void;
     random?: () => number;
@@ -77,6 +78,13 @@ export function createActionCheckSession<T extends ActionCheckTarget>(port: Dice
                     current.target = { ...current.target, body: candidate.body, records: candidate.records };
                 }
                 if (!port.current(current.target)) { cancel(); return; }
+                if (!recovery) {
+                    current.phase = { kind: 'revealing', candidate };
+                    publish();
+                    await port.reveal(current.target, candidate, current.controller.signal);
+                    if (!owns(current)) { return; }
+                    if (!port.current(current.target)) { cancel(); return; }
+                }
                 current.phase = { kind: 'continuing', candidate };
                 publish();
                 const next = await port.continue(current.target, candidate, current.controller.signal);
@@ -93,7 +101,7 @@ export function createActionCheckSession<T extends ActionCheckTarget>(port: Dice
             if (!owns(current)) { return; }
             const phase = current.phase;
             const message = error instanceof Error ? error.message : String(error);
-            if (phase.kind === 'continuing') {
+            if (phase.kind === 'continuing' || phase.kind === 'revealing') {
                 current.phase = port.current(current.target)
                     ? { kind: 'continue-error', candidate: phase.candidate, error: `骰点已保存，续写失败：${message}` }
                     : { kind: 'invalid', error: '骰点已保存，续写中断；原回复已有后文或已变更，请使用酒馆的普通继续操作。' };
@@ -124,7 +132,7 @@ export function createActionCheckSession<T extends ActionCheckTarget>(port: Dice
             await execute(replacement, false, true);
             return;
         }
-        if (current && ['saving', 'continuing', 'waiting', 'settling'].includes(current.phase.kind)) { return; }
+        if (current && ['saving', 'revealing', 'continuing', 'waiting', 'settling'].includes(current.phase.kind)) { return; }
         const records = parseDiceRecords(target.records);
         const last = records.checks.at(-1);
         if (!last || target.body.length !== last.offset || records.checks.some(record => !hasValidCheckAnchor(target.body, record))) {

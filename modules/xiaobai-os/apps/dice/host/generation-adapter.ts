@@ -1,4 +1,4 @@
-import { setCharacterId, setCharacterName, setExternalAbortController, setSendButtonState, stopGeneration, isGenerating } from '../../../../../../../../../script.js';
+import { activateSendButtons, deactivateSendButtons, setCharacterId, setCharacterName, setExternalAbortController, setSendButtonState, stopGeneration, isGenerating } from '../../../../../../../../../script.js';
 import { generateGroupWrapper, is_group_generating } from '../../../../../../../../group-chats.js';
 import { uuidv4 } from '../../../../../../../../utils.js';
 import { createModuleEvents, event_types } from '../../../../../core/event-manager.js';
@@ -20,11 +20,13 @@ interface Observation {
     previousStream: ReturnType<typeof diceHostContext>['streamingProcessor'];
 }
 
-export function createDiceGenerationAdapter(enabled: () => boolean, changed: () => void) {
+export function createDiceGenerationAdapter(enabled: () => boolean, changed: () => void,
+    reveal: (target: DiceTarget, candidate: DiceCandidate, signal: AbortSignal) => Promise<void>) {
     const saver = createDiceMessageSave(diceSavePort);
     let observation: Observation | null = null;
     let intention: { target: DiceTarget; candidate: DiceCandidate; signal: AbortSignal } | null = null;
     let wrapperSignal: AbortSignal | undefined;
+    let revealing: AbortSignal | null = null;
     let unsubscribe: (() => void) | null = null;
     const clearPrompt = () => setSillyTavernPrompt(KEY, '');
     const session = createActionCheckSession({
@@ -32,6 +34,15 @@ export function createDiceGenerationAdapter(enabled: () => boolean, changed: () 
         same: (left, right) => left.message === right.message && left.swipe === right.swipe,
         ready: waitForDiceHost, save: saver.commit, changed,
         id: uuidv4,
+        async reveal(target, candidate, signal) {
+            revealing = signal;
+            setSendButtonState(true);
+            deactivateSendButtons();
+            try { await reveal(target, candidate, signal); }
+            finally {
+                if (revealing === signal) { releaseReveal(); }
+            }
+        },
         async continue(target, candidate, signal) {
             if (!isDiceTargetCurrent(captureDiceChat(), target) || signal.aborted) { return null; }
             const callController = new AbortController();
@@ -73,9 +84,16 @@ export function createDiceGenerationAdapter(enabled: () => boolean, changed: () 
         },
     });
 
+    function releaseReveal(): void {
+        revealing = null; setSendButtonState(false);
+        // An active native group wrapper owns its own Stop/swipe controls.
+        if (!is_group_generating) { activateSendButtons(); }
+    }
+
     function cancel(): void {
         observation = null;
         session.cancel();
+        if (revealing) { releaseReveal(); }
         if (intention) { intention = null; setSendButtonState(false); }
         clearPrompt();
     }
