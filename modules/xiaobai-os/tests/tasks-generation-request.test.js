@@ -139,32 +139,35 @@ function createHarness({
     return { requests, state };
 }
 
-test('generation exposes actionable API errors without raw provider details or automatic retries', async () => {
+test('generation reports failures without leaking provider details, writing data or retrying automatically', async () => {
     const secret = 'sensitive-key-and-response-body';
     for (const scenario of [
-        { loadConfig: () => ({}), expected: /API.*配置模型/ },
-        { loadConfig: () => { throw new Error(secret); }, expected: /读取模型配置/ },
-        ...[[401, /身份验证.*密钥/], [403, /使用权限/], [400, /不接受本次请求/], [404, /模型名称/],
-            [413, /上下文长度/], [429, /限流或额度不足/], [503, /服务暂时不可用/], [504, /超时/], [undefined, /API 配置与连接/]]
-            .map(([status, expected]) => ({ status, expected })),
+        { loadConfig: () => ({}), errorCode: 'tasks_agent_not_configured' },
+        { loadConfig: () => { throw new Error(secret); }, errorCode: 'tasks_config_load_failed' },
+        ...[401, 403, 400, 404, 413, 429, 503, 504, undefined].map(status => ({ status })),
     ]) {
         let calls = 0;
-        const { requests } = createHarness({
+        const { requests, state } = createHarness({
             loadConfig: scenario.loadConfig,
             openSession: async () => ({ run: async () => { calls++; throw Object.assign(new Error(secret), { status: scenario.status }); } }),
         });
         let done;
+        const errors = [];
         const finished = new Promise(resolve => { done = resolve; });
-        const runtime = createTaskGenerationRuntime({ requests, getChatIdentity: () => 'chat', report() {},
+        const runtime = createTaskGenerationRuntime({ requests, getChatIdentity: () => 'chat', report: error => errors.push(error),
             onChange() { if (runtime.getState('chat').state === 'idle') { done(); } } });
         runtime.startBoard('chat');
         await finished;
         const result = runtime.getState('chat');
-        assert.match(result.message, scenario.expected);
+        assert.equal(result.state, 'idle');
+        assert.equal(errors.length, 1);
+        if (scenario.errorCode) { assert.equal(errors[0].message, scenario.errorCode); }
+        else { assert.equal(errors[0].status, scenario.status); }
         assert.doesNotMatch(result.message, /sensitive-key|response-body/);
         runtime.reconcileSave('chat', true);
         assert.deepEqual(runtime.getState('chat'), result, 'unrelated storage recovery must not clear an API failure');
         assert.equal(calls, scenario.loadConfig ? 0 : 1);
+        assert.equal(state.writes, 0);
     }
 });
 

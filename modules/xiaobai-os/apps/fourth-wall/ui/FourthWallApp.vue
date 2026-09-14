@@ -95,7 +95,7 @@ async function send(): Promise<void> {
     generation.value = { status: 'started', sessionId: activeSession.value.id, text: '', thinking: '', message: '', unsaved: false };
     try { await props.bridge.request('fourth-wall/send', { ...binding(), content }, PERSISTENT_REQUEST_TIMEOUT_MS); }
     catch (error) {
-        errorMessage.value = `发送请求未确认：${error instanceof Error ? error.message : String(error)}。请核对聊天记录后再发送。原输入：${content}`;
+        errorMessage.value = `还不确定是否发送成功：${error instanceof Error ? error.message : String(error)}。请核对聊天记录后再发送。原输入：${content}`;
         generation.value.status = 'idle';
     }
 }
@@ -137,7 +137,7 @@ function handleComposerKeydown(event: KeyboardEvent): void {
 }
 
 function confirmDelete(index: number): void {
-    const hint = index < activeSession.value.archivedCount ? '这条消息已经归档；删除原文不会修改记忆，需要遗忘的内容请在记忆中删除。\n' : '';
+    const hint = index < activeSession.value.archivedCount ? '这条消息已记入皮下记忆；删除消息不会让对方忘记，需要遗忘的内容请到皮下记忆中删除。\n' : '';
     if (window.confirm(`${hint}确定删除这条消息吗？`)) {
         void requestState('fourth-wall/delete-message', { ...binding(), revision: state.value.history.revision, messageIndex: index });
     }
@@ -153,7 +153,7 @@ async function clearHistory(): Promise<void> {
 }
 
 async function editMessage(index: number, content: string, revision: number): Promise<void> {
-    if (index < activeSession.value.archivedCount && !window.confirm('这条消息已经归档，修改原文不会改写记忆；需要同步更正时请编辑记忆。继续修改？')) { return; }
+    if (index < activeSession.value.archivedCount && !window.confirm('这条消息已记入皮下记忆，修改消息不会同时修改记忆；需要更正时请另行编辑皮下记忆。继续修改？')) { return; }
     await requestState('fourth-wall/edit-message', { ...binding(), revision, messageIndex: index, content });
 }
 

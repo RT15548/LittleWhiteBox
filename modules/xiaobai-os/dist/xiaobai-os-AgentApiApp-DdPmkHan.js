@@ -1669,7 +1669,7 @@ var Fa = { class: "agent-api-app" }, Ha = { class: "agent-api-scroll" }, za = { 
   role: "alert"
 }, Va = {
   class: "agent-api-panel xb-agent-settings-surface",
-  "aria-label": "Agent API 配置"
+  "aria-label": "API 设置"
 }, Wa = { "aria-live": "polite" }, Xa = ["disabled"], dt = 13e4, Ya = /* @__PURE__ */ Dt({
   __name: "AgentApiApp",
   props: {
@@ -1697,7 +1697,7 @@ var Fa = { class: "agent-api-app" }, Ha = { class: "agent-api-scroll" }, za = { 
     }), D = we(() => i.value.status === "ready" && g.config !== null), B = we(() => Object.keys(g.config?.presets || {}).length), $ = we(() => d.value === "testing");
     function q(b) {
       const T = b instanceof Error ? b.message : String(b || "unknown_error");
-      return T === "host_request_timeout" ? "请求等待超时，请检查网络后重试。" : T === "app_inactive" ? "页面已经关闭。" : T;
+      return T === "host_request_timeout" ? "暂时没收到结果，请检查网络后重试。" : T === "app_inactive" ? "页面已经关闭。" : T;
     }
     function O() {
       m && clearTimeout(m), m = setTimeout(() => {
@@ -1714,15 +1714,15 @@ var Fa = { class: "agent-api-app" }, Ha = { class: "agent-api-scroll" }, za = { 
         status: "saving",
         requestId: "",
         error: ""
-      }, g.inlineToastText = "正在保存配置…", y();
+      }, g.inlineToastText = "正在保存设置…", y();
       try {
         const A = (await a.bridge.request("agent-api/save", { patch: T }, 35e3)).result;
-        if (A.ok !== !0 || !A.config) throw new Error(A.error || "共享 Agent API 配置保存失败");
+        if (A.ok !== !0 || !A.config) throw new Error(A.error || "模型设置保存失败");
         g.config = ke(A.config), g.configDraft = null, g.configDirty = !1, g.configFormSyncPending = !0, g.configSave = {
           status: "success",
           requestId: "",
           error: ""
-        }, g.inlineToastText = "配置已保存";
+        }, g.inlineToastText = "设置已保存";
       } catch (A) {
         const fe = q(A);
         g.configSave = {
@@ -1776,7 +1776,7 @@ var Fa = { class: "agent-api-app" }, Ha = { class: "agent-api-scroll" }, za = { 
       const b = o.value;
       if (!b || !D.value || $.value) return;
       const T = R.getActiveProviderConfigFromForm(b);
-      d.value = "testing", u.value = "正在测试当前表单中的连接…";
+      d.value = "testing", u.value = "正在测试当前填写的连接…";
       try {
         const A = (await a.bridge.request("agent-api/test-connection", { providerConfig: structuredClone(at(T)) }, dt)).result;
         d.value = "success", u.value = `${A.provider || "当前服务"} · ${A.model || "当前模型"} · ${A.latencyMs} 毫秒`;
@@ -1791,11 +1791,11 @@ var Fa = { class: "agent-api-app" }, Ha = { class: "agent-api-scroll" }, za = { 
     }), Ot(() => {
       v += 1, p(), m && clearTimeout(m);
     }), (b, T) => (Ne(), Oe("main", Fa, [w("div", Ha, [w("div", za, [
-      T[2] || (T[2] = w("header", { class: "agent-api-header" }, [w("h1", null, "Agent API 配置"), w("p", null, "共享 Agent 主预设")], -1)),
-      i.value.status === "loading" ? (Ne(), Oe("section", Ja, " 正在读取配置 ")) : i.value.status === "error" ? (Ne(), Oe("section", Ga, [w("div", null, [T[1] || (T[1] = w("strong", null, "配置暂时无法读取", -1)), w("span", null, qe(i.value.message), 1)]), w("button", {
+      T[2] || (T[2] = w("header", { class: "agent-api-header" }, [w("h1", null, "API 设置"), w("p", null, "与小白助手等功能共用主预设")], -1)),
+      i.value.status === "loading" ? (Ne(), Oe("section", Ja, " 正在加载设置 ")) : i.value.status === "error" ? (Ne(), Oe("section", Ga, [w("div", null, [T[1] || (T[1] = w("strong", null, "设置暂时无法加载", -1)), w("span", null, qe(i.value.message), 1)]), w("button", {
         type: "button",
         onClick: T[0] || (T[0] = (A) => Z())
-      }, "重新读取")])) : Rt("", !0),
+      }, "重新加载")])) : Rt("", !0),
       It(w("section", Va, [w("div", {
         ref_key: "panelRoot",
         ref: o

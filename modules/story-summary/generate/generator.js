@@ -329,6 +329,15 @@ export async function runSummaryGeneration(mesId, config, callbacks = {}, runtim
         return { success: false, error: "parse" };
     }
 
+    if (!Array.isArray(parsed.events) || !parsed.events.every(event =>
+        typeof event?.title === 'string' && event.title.trim()
+        && typeof event?.summary === 'string' && event.summary.trim()
+    )) {
+        xbLog.error(MODULE_ID, '总结事件结构无效');
+        onError?.("返回的JSON不是有效总结：events须为数组，每条事件须有非空标题和正文");
+        return { success: false, error: "structure" };
+    }
+
     sanitizeFacts(parsed);
     sanitizeAliases(parsed);
     const existingEventIds = new Set((store?.json?.events || []).map(e => e?.id).filter(Boolean));

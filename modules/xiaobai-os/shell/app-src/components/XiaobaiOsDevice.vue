@@ -66,7 +66,7 @@ defineExpose({
                         <p>{{ appFailure.message }}</p>
                         <div class="xiaobai-os-app-failure-actions">
                             <button v-if="appFailure.retryable" type="button" @click="$emit('retry')">重试</button>
-                            <button type="button" @click="$emit('reload')">重新载入 OS</button>
+                            <button type="button" @click="$emit('reload')">重新打开 OS</button>
                         </div>
                     </section>
                     <div v-else-if="appLoading" key="loading" class="xiaobai-os-app-loading" role="status">

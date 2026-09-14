@@ -208,7 +208,6 @@ function applyCliOverrides(config, argv) {
     const summaryReasoningEffort = readFlag(argv, 'summary-api-reasoning-effort');
     const summaryMaxTokens = readFlag(argv, 'summary-api-max-tokens');
     const eventRerankEnabled = readBooleanFlag(argv, 'event-rerank');
-    const summarizedEvidenceBudget = readFlag(argv, 'summarized-evidence-budget');
     const maxFloors = readFlag(argv, 'max-floors');
     const casesPath = readFlag(argv, 'gold-cases');
     const runsRoot = readFlag(argv, 'gold-runs-root');
@@ -255,16 +254,6 @@ function applyCliOverrides(config, argv) {
         config.vectorConfig = {
             ...(config.vectorConfig || {}),
             eventRerankEnabled,
-        };
-    }
-    if (summarizedEvidenceBudget != null) {
-        const parsed = Number(summarizedEvidenceBudget);
-        if (!Number.isInteger(parsed) || parsed < 3000 || parsed > 5000) {
-            throw new Error('--summarized-evidence-budget 必须是 3000-5000 的整数');
-        }
-        config.vectorConfig = {
-            ...(config.vectorConfig || {}),
-            summarizedEvidenceBudget: parsed,
         };
     }
     if (maxFloors != null) {

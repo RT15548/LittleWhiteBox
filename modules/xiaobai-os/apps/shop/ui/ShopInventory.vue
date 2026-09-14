@@ -27,7 +27,7 @@ const quantity = computed(() => held.value.reduce((total, item) => total + item.
         <details v-if="exhausted.length" class="shop-exhausted">
             <summary>用过的奇物 <small>{{ exhausted.length }} 种</small><ShopIcon name="next" /></summary>
             <div v-for="item in exhausted" :key="item.id"><button type="button" :data-item-id="item.id" @click="$emit('open', item)">{{ item.name }}</button><span>曾购入 {{ item.purchasedCount }} 件 · 库存 0</span></div>
-            <p>库存用完不代表效果结束，启用状态请看「生效中」。</p>
+            <p>奇物用完后，效果可能还在。可到「生效中」查看。</p>
         </details>
     </section>
 </template>

@@ -40,7 +40,7 @@ export function useWorldState(props: XiaobaiOsAppProps) {
             if (!mounted || state.value.chatIdentity !== identity) { return; }
             const message = caught instanceof Error ? caught.message : '';
             localMessage.value = message === 'host_request_timeout'
-                ? '等待结果超时，操作可能仍在进行。请稍后重试读取，避免重复生成。'
+                ? '暂时没收到结果，更新可能还在继续。请稍后重新加载，不要再次生成。'
                 : message.startsWith('请先在 API') ? '请先在 API 应用中配置可用的模型。'
                     : '操作未完成，请检查保存状态或稍后重试。';
             localError.value = true;
@@ -54,7 +54,7 @@ export function useWorldState(props: XiaobaiOsAppProps) {
                 if (next.chatIdentity === state.value.chatIdentity) { pushed++; apply(next); }
             } else if (message.type === 'world/error') {
                 localError.value = true;
-                localMessage.value = '暂时无法读取世界内容，请重试读取。';
+                localMessage.value = '新闻暂时加载不了，请重试。';
             }
         });
     });

@@ -85,17 +85,17 @@ function resolveStatus(
     opened: boolean,
 ): { status: WalletStatus; message: string } {
     if (writeState === 'loading') { return { status: 'loading', message: '' }; }
-    if (writeState === 'saving') { return { status: 'saving', message: '正在确认账本保存结果…' }; }
+    if (writeState === 'saving') { return { status: 'saving', message: '正在保存账目…' }; }
     if (writeState === 'unconfirmed') {
-        return { status: 'unconfirmed', message: '账本保存结果尚未确认，资金写入已经冻结。' };
+        return { status: 'unconfirmed', message: '还不确定账目是否保存成功，暂时不能操作小白币。请先检查保存。' };
     }
     if (writeState === 'conflict') {
-        return { status: 'conflict', message: '服务端账本与当前候选不一致。请先处理存储冲突。' };
+        return { status: 'conflict', message: '服务器上的账本与当前内容不同，请先检查保存。' };
     }
     if (writeState === 'failed') {
         return { status: 'blocked', message: '钱包数据暂时无法读取，请稍后重试。' };
     }
-    if (!opened) { return { status: 'blocked', message: '钱包尚未完成开户，请重新读取。' }; }
+    if (!opened) { return { status: 'blocked', message: '钱包还未开通，请重新加载。' }; }
     return { status: 'ready', message: '' };
 }
 
@@ -202,7 +202,7 @@ export function createWalletController({
         if (message.type === 'wallet/load-more') {
             const beforeSequence = Number(payload.beforeSequence);
             if (!Number.isSafeInteger(beforeSequence) || beforeSequence < 2) {
-                throw new Error('钱包流水游标无效');
+                throw new Error('无法加载这页账目，请重新打开钱包');
             }
             return projectPage(economy.listTransactions({ beforeSequence, limit: WALLET_PAGE_SIZE }));
         }

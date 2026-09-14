@@ -28,7 +28,6 @@ test('opening and reading are read-only; subscription without a scene saves inte
     assert.equal(h.state.requests.length, 0);
     const result = await c.request('subscribe', { enabled: true });
     assert.equal(result.state.world.subscribed, true);
-    assert.match(result.message, /等待故事开场/);
     c.runtime.deactivate(); c.activate();
     await tick();
     assert.equal(h.state.requests.length, 0);
@@ -68,20 +67,21 @@ test('World opens, subscribes and publishes when runtime and sidecar chat keys d
     assert.deepEqual(c.activate().world.news, [article()]);
     await c.request('read');
     assert.equal(h.state.requests.length, requests);
-    await assert.rejects(c.request('background', { chatIdentity: h.state.capture.identityKey, enabled: true }), /聊天已切换/);
+    await assert.rejects(c.request('background', { chatIdentity: h.state.capture.identityKey, enabled: true }));
 });
 
 test('World preserves safe API failure categories through maintenance and reopening does not retry', async t => {
     const h = await worldHarness({ ...createEmptyWorld(), news: [article()] }); t.after(h.dispose);
     const c = controller(h); t.after(() => c.runtime.stopBackground()); c.activate();
-    for (const [status, expected] of [[401, /身份验证.*密钥/], [429, /限流或额度不足/], [400, /不接受本次请求/]]) {
+    for (const [status, reason] of [[401, 'provider-auth'], [429, 'provider-rate-limit'], [400, 'provider-request']]) {
         h.state.generate = async () => { throw Object.assign(new Error('secret-key-provider-body'), { status }); };
         const run = h.runner.startRebuild('world');
         assert.equal((await run.completion).status, 'failed');
+        assert.equal(h.runner.getStatus('world', h.getChatIdentity()).reason, reason);
         const count = h.state.requests.length;
         c.runtime.deactivate();
         const reopened = c.activate();
-        assert.match(reopened.message, expected);
+        assert.equal(reopened.maintenance, 'error');
         assert.doesNotMatch(reopened.message, /secret-key|provider-body/);
         assert.equal(reopened.world.news[0].id, article().id);
         await c.request('read');

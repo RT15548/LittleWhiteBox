@@ -82,7 +82,7 @@ function pe(d) {
     } catch (_) {
       if (!o || e.value.chatIdentity !== C) return;
       const $ = _ instanceof Error ? _.message : "";
-      i.value = $ === "host_request_timeout" ? "等待结果超时，操作可能仍在进行。请稍后重试读取，避免重复生成。" : $.startsWith("请先在 API") ? "请先在 API 应用中配置可用的模型。" : "操作未完成，请检查保存状态或稍后重试。", n.value = !0;
+      i.value = $ === "host_request_timeout" ? "暂时没收到结果，更新可能还在继续。请稍后重新加载，不要再次生成。" : $.startsWith("请先在 API") ? "请先在 API 应用中配置可用的模型。" : "操作未完成，请检查保存状态或稍后重试。", n.value = !0;
     } finally {
       o && (u.value = !1);
     }
@@ -92,7 +92,7 @@ function pe(d) {
       if (b.type === "world/state") {
         const g = b.payload.state;
         g.chatIdentity === e.value.chatIdentity && (m++, v(g));
-      } else b.type === "world/error" && (n.value = !0, i.value = "暂时无法读取世界内容，请重试读取。");
+      } else b.type === "world/error" && (n.value = !0, i.value = "新闻暂时加载不了，请重试。");
     });
   }), R(() => {
     o = !1, f();
@@ -165,7 +165,7 @@ var we = { class: "world-toolbar" }, fe = { class: "world-tools" }, be = ["disab
         class: "world-icon-button",
         disabled: !B.value,
         "aria-label": "刷新新闻",
-        title: t(n) ? "正在更新世界近况" : "刷新新闻，会使用模型",
+        title: t(n) ? "正在更新新闻" : "刷新新闻，会使用模型",
         onClick: l[0] || (l[0] = (w) => t(f)("refresh"))
       }, [(r(), s("svg", {
         viewBox: "0 0 24 24",
@@ -209,17 +209,17 @@ var we = { class: "world-toolbar" }, fe = { class: "world-tools" }, be = ["disab
         disabled: t(u),
         type: "button",
         onClick: l[3] || (l[3] = (w) => t(f)("confirm-save"))
-      }, "核实保存", 8, ke)) : t(e).writeState === "conflict" ? (r(), s("button", {
+      }, "检查保存", 8, ke)) : t(e).writeState === "conflict" ? (r(), s("button", {
         key: 1,
         disabled: t(u),
         type: "button",
         onClick: l[4] || (l[4] = (w) => t(f)("adopt-server-state"))
-      }, "读取服务器版本", 8, he)) : t(e).writeState === "failed" || t(m) ? (r(), s("button", {
+      }, "使用已保存版本", 8, he)) : t(e).writeState === "failed" || t(m) ? (r(), s("button", {
         key: 2,
         disabled: t(u) || t(e).writeState === "saving",
         type: "button",
         onClick: l[5] || (l[5] = (w) => t(f)(t(e).maintenance === "error" && t(e).writeState === "ready" ? "refresh" : "read"))
-      }, y(t(e).maintenance === "error" && t(e).writeState === "ready" ? "重试更新" : "重试读取"), 9, Se)) : I("", !0)], 2)) : I("", !0),
+      }, y(t(e).maintenance === "error" && t(e).writeState === "ready" ? "重试更新" : "重新加载"), 9, Se)) : I("", !0)], 2)) : I("", !0),
       j(a("div", {
         ref_key: "listing",
         ref: S,

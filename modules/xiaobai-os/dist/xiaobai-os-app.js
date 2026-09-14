@@ -125,17 +125,17 @@ function ze(t) {
   });
 }
 var Xe = Object.freeze({
-  "agent-api": () => import("./xiaobai-os-AgentApiApp-z8OrvILC.js"),
-  "fourth-wall": () => import("./xiaobai-os-FourthWallApp-BbdoC8Vd.js"),
-  wallet: () => import("./xiaobai-os-WalletApp-C2rvmt0H.js"),
-  shop: () => import("./xiaobai-os-ShopApp-DJZa8a6R.js"),
-  bank: () => import("./xiaobai-os-BankApp-BMIfVPMr.js"),
-  game: () => import("./xiaobai-os-GameApp-DNioEvHp.js"),
-  map: () => import("./xiaobai-os-MapApp-D6nukW2V.js"),
-  messages: () => import("./xiaobai-os-MessagesApp-Dr9DmAFQ.js"),
-  tasks: () => import("./xiaobai-os-TasksApp-Bw4zGTng.js"),
-  world: () => import("./xiaobai-os-WorldApp-D-aOC2KH.js"),
-  learning: () => import("./xiaobai-os-LearningApp-Ca5NTP5k.js")
+  "agent-api": () => import("./xiaobai-os-AgentApiApp-DdPmkHan.js"),
+  "fourth-wall": () => import("./xiaobai-os-FourthWallApp-Del4zK-x.js"),
+  wallet: () => import("./xiaobai-os-WalletApp-B0Xq91Vw.js"),
+  shop: () => import("./xiaobai-os-ShopApp-D3mKGJk2.js"),
+  bank: () => import("./xiaobai-os-BankApp-BioyH4gR.js"),
+  game: () => import("./xiaobai-os-GameApp-Bcj5wN4e.js"),
+  map: () => import("./xiaobai-os-MapApp-Dg4svz3Y.js"),
+  messages: () => import("./xiaobai-os-MessagesApp-B-r3GZrH.js"),
+  tasks: () => import("./xiaobai-os-TasksApp-C_ZPQDOG.js"),
+  world: () => import("./xiaobai-os-WorldApp-aLZWwbis.js"),
+  learning: () => import("./xiaobai-os-LearningApp-Bk-54meP.js")
 }), he = Object.freeze(Fe.map((t) => {
   const i = Xe[t.id];
   if (!i) throw new Error(`missing_shell_app:${t.id}`);
@@ -652,7 +652,7 @@ var Je = {
           }, "重试")) : Z("", !0), c("button", {
             type: "button",
             onClick: r[2] || (r[2] = (m) => d.$emit("reload"))
-          }, "重新载入 OS")])
+          }, "重新打开 OS")])
         ])) : t.appLoading ? (k(), S("div", St, [r[8] || (r[8] = c("span", { "aria-hidden": "true" }, null, -1)), Se(" 正在打开" + V(t.activeApp?.name), 1)])) : t.activeApp && t.activeComponent ? (k(), W(Ze, {
           key: `app:${t.activeApp.id}:${t.appRenderKey}`,
           ref_key: "navigation",
@@ -726,12 +726,12 @@ var Je = {
         const I = a.payload, B = I?.status;
         I?.appId === u.value?.id && B?.state === "failed" && (v.value = !1, f.value = {
           phase: B.failure?.phase || "host",
-          message: B.failure?.message || "Host APP 运行失败",
+          message: B.failure?.message || "应用暂时无法运行",
           retryable: B.failure?.retryable !== !1,
           requiresAppRetry: !0
         }, i.clearAppSession());
       }
-      a.type === "os/error" && ($.value = String(a.payload?.message || "小白 OS 初始化失败"));
+      a.type === "os/error" && ($.value = String(a.payload?.message || "小白 OS 启动失败"));
       const h = a.payload?.state;
       w && a.appId === w.appId && a.type === `${w.appId}/state` && (w.latestState = h);
       const O = i.getAppSession();
@@ -762,7 +762,7 @@ var Je = {
         }
         ee.status === "fulfilled" ? x.value = ce(ee.value) : f.value || (f.value = {
           phase: "ui-load",
-          message: ee.reason instanceof Error ? ee.reason.message : "APP 界面加载失败",
+          message: ee.reason instanceof Error ? ee.reason.message : "应用页面加载失败",
           retryable: !0
         }), v.value = !1;
       } catch (M) {
@@ -789,7 +789,7 @@ var Je = {
           } catch (O) {
             f.value = {
               phase: "ui-load",
-              message: O instanceof Error ? O.message : "APP 界面加载失败",
+              message: O instanceof Error ? O.message : "应用页面加载失败",
               retryable: !0
             };
           } finally {
@@ -817,7 +817,7 @@ var Je = {
       const h = u.value;
       h && (f.value = {
         phase: "ui-render",
-        message: a instanceof Error ? a.message : "APP 界面渲染失败",
+        message: a instanceof Error ? a.message : "应用页面显示出了问题",
         retryable: !0
       }, i.post("os/app-ui-failure", {
         appId: h.id,
@@ -825,7 +825,7 @@ var Je = {
       }));
     }
     function g(a) {
-      !u.value || v.value || f.value || (a.preventDefault(), l(a.error ?? new Error(a.message || "APP 界面运行失败")));
+      !u.value || v.value || f.value || (a.preventDefault(), l(a.error ?? new Error(a.message || "应用页面出了问题")));
     }
     function p(a) {
       !u.value || v.value || f.value || (a.preventDefault(), l(a.reason));

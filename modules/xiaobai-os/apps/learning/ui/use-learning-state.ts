@@ -24,7 +24,7 @@ export function useLearningState(props: XiaobaiOsAppProps) {
             return response.result;
         } catch {
             if (mounted && state.value.chatIdentity === identity) {
-                localMessage.value = '暂未收到操作结果。请先读取已保存内容，不要重复提交或生成。';
+                localMessage.value = '暂时没收到操作结果。请先重新加载，确认是否已保存，不要重复提交或生成。';
             }
         } finally { if (mounted) { pending.value = false; } }
     }

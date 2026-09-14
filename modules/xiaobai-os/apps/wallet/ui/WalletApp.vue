@@ -33,15 +33,15 @@ const noticeTone = computed<WalletNoticeTone>(() => {
 });
 
 const noticeTitle = computed(() => {
-    if (state.value.status === 'conflict') {return '账本发生冲突';}
+    if (state.value.status === 'conflict') {return '账本有变化';}
     if (state.value.status === 'blocked') {return '钱包暂时无法读取';}
-    return '账本状态';
+    return '保存情况';
 });
 
 function readableError(error: unknown): string {
     const message = error instanceof Error ? error.message : String(error);
     if (message.includes('聊天已切换')) {return '聊天已切换，请重新打开钱包。';}
-    if (message === 'host_request_timeout') {return '读取等待超时，请稍后重新读取。';}
+    if (message === 'host_request_timeout') {return '暂时没收到结果，请稍后重新加载。';}
     return '钱包数据暂时无法读取，请稍后重试。';
 }
 
@@ -147,10 +147,10 @@ onBeforeUnmount(() => {
                 :message="errorMessage || state.message"
             >
                 <button v-if="requiresConfirmation" type="button" class="wallet-ui-text-button" :disabled="refreshing" @click="confirmSave">
-                    {{ refreshing ? '正在核实…' : '核实保存结果' }}
+                    {{ refreshing ? '正在检查…' : '检查保存' }}
                 </button>
                 <button v-else-if="state.status === 'blocked' || errorMessage" type="button" class="wallet-ui-text-button" :disabled="refreshDisabled" @click="refresh">
-                    {{ refreshing ? '正在读取…' : '重新读取' }}
+                    {{ refreshing ? '正在读取…' : '重新加载' }}
                 </button>
             </WalletNotice>
 

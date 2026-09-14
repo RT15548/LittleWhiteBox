@@ -9,10 +9,10 @@ function readableError(error: unknown): string {
     const message = error instanceof Error ? error.message : String(error);
     if (message.includes('economy_insufficient_funds') || message.includes('cannot be overdrawn')) {return '小白币不够了，换个小一点的筹码吧。';}
     if (message.includes('game_dice_bid_not_higher')) {return '这次要叫得比对方更大一些。';}
-    if (message.includes('game_revision_conflict') || message.includes('game_event_id_conflict')) {return '本局已有变化，请重新读取后继续。';}
+    if (message.includes('game_revision_conflict') || message.includes('game_event_id_conflict')) {return '本局已有变化，请重新加载后继续。';}
     if (message.includes('game_main_generation_active')) {return '故事正在回复，等回复结束就能继续玩。';}
     if (message.includes('聊天已切换')) {return '聊天已切换，请重新打开游戏。';}
-    if (message === 'host_request_timeout') {return '等待结果超时了。可以重试这次操作，不会重复下注或重新抽取结果。';}
+    if (message === 'host_request_timeout') {return '暂时没收到结果。可以重试这次操作，不会重复下注或重新抽取结果。';}
     return '这次操作没能完成，请重试。';
 }
 
@@ -41,7 +41,7 @@ export function createGameClient(bridge: XiaobaiOsAppProps['bridge'], initial: G
     const disabledReason = computed(() => {
         if (busy.value) {return '上一项操作还在进行，请稍候。';}
         if (state.value.status !== 'ready') {return state.value.message || '游戏正在准备，请稍候。';}
-        if (failed.value) {return '请先重试这次操作，或重新读取本局结果。';}
+        if (failed.value) {return '请先重试这次操作，或重新加载本局结果。';}
         if (state.value.generationActive) {return '故事正在回复，等回复结束就能继续玩。';}
         return '';
     });
@@ -69,7 +69,7 @@ export function createGameClient(bridge: XiaobaiOsAppProps['bridge'], initial: G
     function pendingSave(code: string): boolean {
         const status = code === 'game_save_pending' ? 'save-failed' : code === 'storage_unconfirmed' ? 'unconfirmed' : code === 'storage_conflict' ? 'conflict' : null;
         if (!status) {return false;}
-        state.value = { ...state.value, status, message: status === 'save-failed' ? '这局还没保存好，请重试保存后继续。' : status === 'unconfirmed' ? '保存结果尚未确认，请先核实。' : '保存的版本不一致，请重新打开酒馆后继续。' };
+        state.value = { ...state.value, status, message: status === 'save-failed' ? '这局还没保存好，请重试保存后继续。' : status === 'unconfirmed' ? '还不确定是否保存成功，请先检查保存。' : '服务器上的游戏记录与当前内容不同，请重新打开酒馆后继续。' };
         return true;
     }
     async function send(request: Request): Promise<boolean> {

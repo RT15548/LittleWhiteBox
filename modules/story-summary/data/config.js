@@ -302,9 +302,6 @@ const DEFAULT_OPENROUTER_URL = "https://openrouter.ai/api/v1";
 const DEFAULT_L0_MODEL = "Qwen/Qwen3-8B";
 const DEFAULT_EMBEDDING_MODEL = "BAAI/bge-m3";
 const DEFAULT_RERANK_MODEL = "BAAI/bge-reranker-v2-m3";
-const DEFAULT_SUMMARIZED_EVIDENCE_BUDGET = 4000;
-const MIN_SUMMARIZED_EVIDENCE_BUDGET = 3000;
-const MAX_SUMMARIZED_EVIDENCE_BUDGET = 5000;
 
 function getVectorProviderDefaultUrl(provider) {
     return provider === "openrouter" ? DEFAULT_OPENROUTER_URL : DEFAULT_L0_URL;
@@ -379,24 +376,12 @@ function normalizeVectorConfig(rawVector = null) {
     const sharedUrl = String(legacyOnline.url || (sharedProvider === "openrouter" ? DEFAULT_OPENROUTER_URL : DEFAULT_L0_URL)).trim();
     const sharedKey = String(legacyOnline.key || "").trim();
     const eventRerankEnabled = rawVector?.eventRerankEnabled !== false;
-    const summarizedEvidenceBudgetValue = rawVector?.summarizedEvidenceBudget;
-    const summarizedEvidenceBudgetRaw = summarizedEvidenceBudgetValue == null
-        || summarizedEvidenceBudgetValue === ""
-        ? Number.NaN
-        : Number(summarizedEvidenceBudgetValue);
-    const summarizedEvidenceBudget = Number.isFinite(summarizedEvidenceBudgetRaw)
-        ? Math.max(
-            MIN_SUMMARIZED_EVIDENCE_BUDGET,
-            Math.min(MAX_SUMMARIZED_EVIDENCE_BUDGET, Math.round(summarizedEvidenceBudgetRaw)),
-        )
-        : DEFAULT_SUMMARIZED_EVIDENCE_BUDGET;
 
     return {
         enabled: !!rawVector?.enabled,
         engine: "online",
         l0Concurrency: Math.max(1, Math.min(50, Number(rawVector?.l0Concurrency) || 10)),
         eventRerankEnabled,
-        summarizedEvidenceBudget,
         l0Api: normalizeOpenAiCompatApiConfig(rawVector?.l0Api, {
             provider: sharedProvider,
             url: sharedUrl,

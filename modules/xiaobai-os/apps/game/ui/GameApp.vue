@@ -158,7 +158,7 @@ onBeforeUnmount(() => {
         <aside v-if="state.message || error || state.generationActive" class="game-notice" role="status">
             <p>{{ error || state.message || '故事正在回复，等回复结束就能继续玩。' }}</p>
             <button v-if="needsSave" type="button" :disabled="busy" @click="client.confirmSave">
-                {{ reading ? '正在确认…' : state.status === 'save-failed' ? '重试保存' : '核实保存结果' }}
+                {{ reading ? '正在检查…' : state.status === 'save-failed' ? '重试保存' : '检查保存' }}
             </button>
             <button
                 v-else-if="failed"
@@ -174,7 +174,7 @@ onBeforeUnmount(() => {
                 :disabled="refreshDisabled"
                 @click="client.refresh"
             >
-                重新读取
+                重新加载
             </button>
         </aside>
         <div ref="scroll" class="game-scroll">

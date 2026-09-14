@@ -10,7 +10,7 @@ const rootDir = fileURLToPath(new URL('../../../', import.meta.url));
 const runnerPath = fileURLToPath(new URL('../../../scripts/story-summary-replay-runner.mjs', import.meta.url));
 const resultPrefix = '[story-summary-replay] prompt assembly check: ';
 
-test('final prompt bounds temporal protection and renders ordinary overflow by floor', { timeout: 120_000 }, async () => {
+test('final prompt uses the fixed evidence budget despite saved overrides and bounds temporal protection', { timeout: 120_000 }, async () => {
     const { stdout } = await execFileAsync(
         process.execPath,
         [runnerPath, '--check-prompt-assembly'],
@@ -29,8 +29,8 @@ test('final prompt bounds temporal protection and renders ordinary overflow by f
     assert.equal(result.event.temporalOverflow, 2);
     assert.deepEqual(result.event.overflowRendered, [true, true]);
 
-    assert.equal(result.evidence.summarizedBudgetMax, 3000);
-    assert.equal(result.evidence.temporalProtectionBudgetMax, 1200);
+    assert.equal(result.evidence.summarizedBudgetMax, 4000);
+    assert.equal(result.evidence.temporalProtectionBudgetMax, 1600);
     assert.ok(result.evidence.temporalProtectedTokens > 0);
     assert.ok(
         result.evidence.temporalProtectedTokens

@@ -54,21 +54,21 @@ function saveCapabilities(): void {
             />
             <section class="fourth-wall-settings-section">
                 <h3>上下文</h3>
-                <label>普通聊天层数<input v-model.number="chatDraft.maxChatLayers" type="number" min="1" max="9999"></label>
+                <label>带入的主聊天楼层数<input v-model.number="chatDraft.maxChatLayers" type="number" min="1" max="9999"></label>
                 <label class="is-toggle"><span>流式生成</span><input v-model="chatDraft.stream" type="checkbox"></label>
-                <label class="is-toggle"><span>禁用 Assistant Prefill</span><input v-model="chatDraft.disableAssistantPrefill" type="checkbox"></label>
+                <label class="is-toggle"><span>禁用助手预填充</span><input v-model="chatDraft.disableAssistantPrefill" type="checkbox"></label>
                 <button type="button" class="is-primary" :disabled="busy" @click="saveChat">保存上下文设置</button>
             </section>
             <section class="fourth-wall-settings-section">
-                <h3>能力</h3>
-                <label class="is-toggle"><span>在提示词中允许图片</span><input v-model="globalDraft.image.enablePrompt" type="checkbox"></label>
-                <label class="is-toggle"><span>在提示词中允许语音</span><input v-model="globalDraft.voice.enabled" type="checkbox"></label>
+                <h3>回复方式</h3>
+                <label class="is-toggle"><span>允许对方发图片</span><input v-model="globalDraft.image.enablePrompt" type="checkbox"></label>
+                <label class="is-toggle"><span>允许对方发语音</span><input v-model="globalDraft.voice.enabled" type="checkbox"></label>
                 <label class="is-toggle"><span>实时吐槽</span><input v-model="globalDraft.commentary.enabled" type="checkbox"></label>
                 <label v-if="globalDraft.commentary.enabled">
                     吐槽概率 {{ globalDraft.commentary.probability }}%
                     <input v-model.number="globalDraft.commentary.probability" type="range" min="1" max="99">
                 </label>
-                <button type="button" class="is-primary" :disabled="busy" @click="saveCapabilities">保存能力设置</button>
+                <button type="button" class="is-primary" :disabled="busy" @click="saveCapabilities">保存设置</button>
             </section>
             <section class="fourth-wall-settings-section is-actions">
                 <button type="button" @click="emit('openPrompts')">提示词模板</button>

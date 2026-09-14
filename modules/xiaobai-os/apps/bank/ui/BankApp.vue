@@ -50,9 +50,9 @@ useAppBack(() => {
 const requiresConfirmation = computed(() => state.value.status === 'unconfirmed');
 const writeDisabledReason = computed(() => {
     if (actionBusy.value) {return '正在处理上一项银行操作';}
-    if (refreshing.value) {return '正在刷新金库状态';}
-    if (state.value.status !== 'ready') {return state.value.message || '金库暂时不可写入';}
-    if (state.value.generationActive) {return '主剧情正在生成，请等待回复完成';}
+    if (refreshing.value) {return '正在刷新银行记录';}
+    if (state.value.status !== 'ready') {return state.value.message || '暂时不能交易';}
+    if (state.value.generationActive) {return '故事正在继续，请等回复结束';}
     return '';
 });
 const refreshDisabled = computed(() => refreshing.value || actionBusy.value || requiresConfirmation.value);
@@ -78,13 +78,13 @@ function applyState(next: BankClientState): void {
 
 function readableError(error: unknown): string {
     const message = error instanceof Error ? error.message : String(error);
-    if (message.includes('economy_insufficient_funds') || message.includes('cannot be overdrawn')) {return '可用小白币不足，开户未完成。';}
-    if (message.includes('bank_amount_out_of_range')) {return '开户金额不在该产品允许范围内。';}
-    if (message.includes('bank_amount_invalid')) {return '开户金额必须是正整数。';}
-    if (message.includes('bank_revision_conflict') || message.includes('bank_event_id_conflict')) {return '金库状态已变化，请关闭确认框并刷新后重试。';}
-    if (message.includes('bank_position_missing') || message.includes('bank_position_state_changed')) {return '该笔资产状态已经变化，请刷新金库。';}
+    if (message.includes('economy_insufficient_funds') || message.includes('cannot be overdrawn')) {return '小白币不足，这次交易未完成。';}
+    if (message.includes('bank_amount_out_of_range')) {return '金额不在该产品允许范围内。';}
+    if (message.includes('bank_amount_invalid')) {return '金额必须是正整数。';}
+    if (message.includes('bank_revision_conflict') || message.includes('bank_event_id_conflict')) {return '银行记录已有变化，请关闭确认框，刷新后再试。';}
+    if (message.includes('bank_position_missing') || message.includes('bank_position_state_changed')) {return '这笔资产已有变化，请刷新银行记录。';}
     if (message.includes('bank_no_due_positions')) {return '当前没有可领取的到期资产。';}
-    if (message === 'host_request_timeout') {return '等待保存结果超时，请保留当前页面并重试。';}
+    if (message === 'host_request_timeout') {return '暂时没收到保存结果，请保留当前页面并重试。';}
     return '银行操作未完成，请稍后重试。';
 }
 
@@ -250,8 +250,8 @@ onBeforeUnmount(() => {
         <div v-if="noticeMessage" class="bank-notice-area">
             <aside class="bank-notice" :class="{ 'is-error': Boolean(errorMessage) || state.status === 'blocked' || state.status === 'conflict' }" role="status">
                 <p>{{ noticeMessage }}</p>
-                <button v-if="requiresConfirmation" type="button" :disabled="refreshing || actionBusy" @click="confirmSave">{{ refreshing ? '正在核实…' : '核实保存结果' }}</button>
-                <button v-else-if="state.status === 'blocked' || state.status === 'conflict'" type="button" :disabled="refreshDisabled" @click="refresh">{{ refreshing ? '正在读取…' : '重新读取银行' }}</button>
+                <button v-if="requiresConfirmation" type="button" :disabled="refreshing || actionBusy" @click="confirmSave">{{ refreshing ? '正在检查…' : '检查保存' }}</button>
+                <button v-else-if="state.status === 'blocked' || state.status === 'conflict'" type="button" :disabled="refreshDisabled" @click="refresh">{{ refreshing ? '正在读取…' : '重新加载' }}</button>
             </aside>
         </div>
         <div ref="content" class="bank-scroll">

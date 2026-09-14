@@ -5,42 +5,42 @@ import { providerFailureMessage } from '../../../capabilities/agent/provider-fai
 export function worldSkippedMessage(reason: string): string {
     switch (reason) {
         case 'no-usable-messages':
-        case 'no-complete-assistant': return '等待故事开场后，再获取世界新闻。';
+        case 'no-complete-assistant': return '先聊一会儿，再来看看新闻吧。';
         case 'generation-active': return '角色正在回复，等这次对话结束后再刷新。';
         case 'chat-unavailable': return '请先进入聊天。';
-        case 'no-work': return '这次没有需要更新的新闻。';
-        default: return '这次未能开始更新，请稍后重试。';
+        case 'no-work': return '暂时没有新消息。';
+        default: return '新闻没能更新，请稍后重试。';
     }
 }
 
 export function worldStatusMessage(write: XiaobaiOsFileState, status: MaintenanceStatus, pendingSave = false): string {
     switch (write) {
-        case 'loading': return '正在读取本期内容…';
-        case 'saving': return '正在确认保存，原有内容仍可阅读。';
-        case 'unconfirmed': return '保存结果尚未确认。请先核实保存，不要重复生成。';
-        case 'conflict': return '保存的版本不一致。请先读取服务器版本，再继续更新。';
+        case 'loading': return '正在加载新闻…';
+        case 'saving': return '正在保存新闻…';
+        case 'unconfirmed': return '还不确定是否保存成功，请先检查保存，不要重新生成。';
+        case 'conflict': return '服务器上的存档与当前内容不同，请先使用已保存版本。';
         case 'failed': return pendingSave
-            ? '核实保存未完成，待保存内容仍保留。请检查存储连接后再次核实，不要重复生成。'
-            : '暂时无法读取已保存的内容，请重试读取。';
+            ? '暂时无法确认是否保存成功。新内容还在，请检查连接后再试，不要重新生成。'
+            : '新闻暂时加载不了，请重试。';
     }
-    if (status.state === 'running') { return '正在采集世界近况，原有内容仍可阅读…'; }
-    if (status.message === 'updated') { return '本期内容已更新。'; }
-    if (status.message === 'unchanged') { return '已查看世界近况，本期内容依然适用。'; }
-    if (status.message === 'cancelled') { return '本次更新已取消，原有内容保留。'; }
+    if (status.state === 'running') { return '正在更新新闻…'; }
+    if (status.message === 'updated') { return '新闻已更新。'; }
+    if (status.message === 'unchanged') { return '暂时没有新消息。'; }
+    if (status.message === 'cancelled') { return '已取消更新。'; }
     if (status.message === 'skipped') { return worldSkippedMessage(status.reason); }
     if (status.state !== 'error' && status.message !== 'failed') { return ''; }
     const detail: Record<string, string> = {
-        'agent-not-configured': '请先在 API 应用中配置模型和所需的密钥。',
-        'config-load-failed': '未能读取模型配置，请在 API 应用中检查。',
+        'agent-not-configured': '请先在 API 应用中设置模型和密钥。',
+        'config-load-failed': '模型设置加载失败，请到 API 应用中检查。',
         'agent-session-failed': '未能连接模型，请检查 API 配置。',
         'empty-provider-response': '模型没有返回内容，可以稍后重试。',
-        'tool-errors-unresolved': '模型提交的内容未通过检查，可以重试。',
-        'round-limit': '本次处理未能完成，可以稍后继续更新。',
-        'background-capture-failed': '未能读取世界背景，请确认聊天已加载。',
-        'session-creation-failed': '未能读取当前新闻，请重试读取。',
-        'save-unconfirmed': '保存尚待核实，请先核实保存结果。',
-        'save-failed': '保存未完成，请检查存储连接后重试。',
+        'tool-errors-unresolved': '这次生成的新闻有误，请重试。',
+        'round-limit': '这次更新还没完成，可以稍后再试。',
+        'background-capture-failed': '没有读到故事背景，请先打开聊天。',
+        'session-creation-failed': '新闻暂时加载不了，请重试。',
+        'save-unconfirmed': '还不确定是否保存成功，请先检查保存。',
+        'save-failed': '新闻没能保存，请检查连接后重试。',
     };
     return '本次更新未完成。' + (providerFailureMessage(status.reason)
-        || detail[status.reason] || '请稍后重试；持续失败时可查看控制台诊断。');
+        || detail[status.reason] || '请稍后重试；如果一直失败，可查看控制台报错。');
 }

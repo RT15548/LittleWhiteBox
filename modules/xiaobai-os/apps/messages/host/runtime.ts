@@ -12,7 +12,7 @@ import type { MessageContact, PrivateMessage } from '../../../domains/messages/t
 function contextFailure(cause: unknown): string {
     const code = cause instanceof Error ? cause.message : '';
     return code === 'messages_context_capacity' ? '上下文超过 158k，近期原文已保留。请减少背景材料或附图后重试。'
-        : code === 'messages_summary_not_reduced' ? '这次摘要未能缩减上下文，未保存该摘要，请重试。' : '';
+        : code === 'messages_summary_not_reduced' ? '这次总结没能缩短聊天记录，摘要没有保存，请重试。' : '';
 }
 
 export function createMessagesRuntime(deps: SendDependencies & {
@@ -69,7 +69,7 @@ export function createMessagesRuntime(deps: SendDependencies & {
                 const hasImages = domain.messages.some(message => message.contactId === contactId
                     && message.payload.type === 'image' && message.payload.attachment);
                 const message = contextFailure(cause) || (run.controller.signal.aborted ? (sent ? '这次回复已停止，可以重试。' : '发送已停止，可以重试。')
-                    : deps.service.pending() ? (sent ? '回复尚待保存确认，请先检查保存。' : '发送尚未确认，请先检查保存。')
+                    : deps.service.pending() ? (sent ? '还不确定回复是否保存成功，请先检查保存。' : '还不确定是否发送成功，请先检查保存。')
                         : stage === 'uploading' ? '图片发送失败，可以重试。'
                             : cause instanceof Error && cause.message === 'messages_image_missing' ? '消息里的原图暂时无法读取，请恢复图库中的原图后重试。'
                                 : stage === 'syncing' ? '消息已保留，尚未写入主聊天。点上方「查看」继续处理。'
@@ -92,7 +92,7 @@ export function createMessagesRuntime(deps: SendDependencies & {
         }).catch(cause => {
             console.warn('[LittleWhiteBox] 重新回复未完成', cause);
             if (run.identity === deps.identity()) {error = deps.service.pending() || deps.service.current().pendingMutation
-                ? '修改尚待保存确认，请点击「检查保存」。' : contextFailure(cause) || '重新回复未完成，原回复已保留。';}
+                ? '还不确定修改是否保存成功，请点击「检查保存」。' : contextFailure(cause) || '重新回复未完成，原回复已保留。';}
         }).finally(() => {if (active === run) {active = null;} deps.changed();});
     }
     return {

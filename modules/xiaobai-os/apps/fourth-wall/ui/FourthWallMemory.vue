@@ -9,7 +9,7 @@ function close() {
     if (draft.value === props.content || window.confirm('放弃尚未保存的记忆修改？')) { emit('close'); }
 }
 function clear() {
-    if (window.confirm('清空皮下记忆？聊天原文仍保留，已归档的内容不会自动重新送入上下文。')) {
+    if (window.confirm('清空皮下记忆？聊天记录会保留，但已总结过的旧消息不会自动再发给模型。')) {
         draft.value = '';
         emit('save', '');
     }

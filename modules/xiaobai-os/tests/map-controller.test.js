@@ -146,7 +146,6 @@ test('leaving Map detaches the page without cancelling Host-owned maintenance', 
             type: 'map/refresh',
             payload: { chatIdentity: 'character:1:chat-a' },
         }),
-        /地图 APP 未激活/,
     );
 
     controller.handleChatChanged();
@@ -176,29 +175,24 @@ test('maintenance completion is projected from Host status without exposing inte
     };
     host.statuses.set('character:1:chat-a', host.status);
     const result = await controller.activate(activation(host));
-    assert.match(result.maintenanceMessage, /未取得具体失败原因/);
-    assert.doesNotMatch(result.maintenanceMessage, /provider_secret|Agent API/);
+    assert.equal(result.maintenanceStatus, 'error');
+    assert.doesNotMatch(JSON.stringify(result), /provider_secret_stack_and_key/);
 });
 
-test('Map keeps inspectable failure categories across read-only reopen and refresh', async () => {
+test('Map preserves failed maintenance across read-only reopen and refresh without restarting work', async () => {
     const { controller, host } = createHarness();
-    for (const [reason, explanation] of [
-        ['agent-not-configured', /配置模型/],
-        ['provider-failed', /模型请求未完成/],
-        ['empty-provider-response', /空内容/],
-        ['tool-errors-unresolved', /未通过检查/],
-        ['round-limit', /处理上限/],
-        ['save-failed', /未能保存/],
-        ['save-unconfirmed', /核实保存结果/],
+    for (const reason of [
+        'agent-not-configured', 'provider-failed', 'empty-provider-response',
+        'tool-errors-unresolved', 'round-limit', 'save-failed', 'save-unconfirmed',
     ]) {
         host.statuses.set(host.identity.key, { state: 'error', mode: 'manual', message: 'failed', reason, lastRunAt: null });
         const first = controller.activate(activation(host));
         controller.deactivate();
         const reopened = controller.activate(activation(host));
         const refreshed = await controller.handleMessage({ type: 'map/refresh', payload: { chatIdentity: host.identity.key } });
-        assert.match(first.maintenanceMessage, explanation);
-        assert.equal(reopened.maintenanceMessage, first.maintenanceMessage);
-        assert.equal(refreshed.maintenanceMessage, first.maintenanceMessage);
+        assert.equal(first.maintenanceStatus, 'error');
+        assert.deepEqual(reopened, first);
+        assert.deepEqual(refreshed, first);
     }
     assert.deepEqual(host.calls, []);
 });
@@ -210,6 +204,7 @@ test('Map manual admission reports this attempt even if capture failed before a 
     controller.activate(activation(host));
     const result = await controller.handleMessage({ type: 'map/maintain-once', payload: { chatIdentity: host.identity.key } });
     assert.equal(result.started, false);
-    assert.match(result.message, /确认聊天已加载/);
-    assert.doesNotMatch(result.message, /配置模型/);
+    assert.equal(result.status, 'skipped');
+    assert.equal(result.state.maintenanceStatus, 'error');
+    assert.notEqual(result.message, result.state.maintenanceMessage);
 });

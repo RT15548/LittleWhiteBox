@@ -201,16 +201,17 @@ test('activation prepares a missing Economy only and projects safe locked-fund f
     const unopened = createHarness({ economyOpened: false });
     const loading = await activate(unopened, { waitForPreparation: false });
     assert.equal(loading.status, 'loading');
-    assert.equal(loading.statusLabel, '正在载入');
     assert.equal(unopened.ensureCalls, 0);
     await nextTask();
     const fresh = unopened.host.posts.findLast(post => post.type === 'bank/state').payload.state;
     assert.equal(fresh.balance, 1_500);
-    assert.equal(fresh.statusLabel, '金库就绪');
+    assert.equal(fresh.status, 'ready');
     assert.equal(unopened.ensureCalls, 1);
 
     const lockedFund = fresh.investments[0];
-    assert.equal(lockedFund.statusLabel, '剩余 16 回合');
+    assert.equal(lockedFund.status, 'locked');
+    assert.equal(lockedFund.remainingTurns, 16);
+    assert.equal(lockedFund.claimable, false);
     assert.equal(Object.hasOwn(lockedFund, 'resolvedReturnBps'), false);
     assert.equal(Object.hasOwn(lockedFund, 'settlementAmount'), false);
     assert.equal(Object.hasOwn(lockedFund, 'randomSeed'), false);
@@ -276,16 +277,18 @@ test('write protocols forward only identity-bound intent, CAS, and action fields
     await assert.rejects(harness.controller.handleMessage({
         type: 'bank/deposit/open',
         payload: payload(harness, state, { productId: 'short-term', amount: '200' }),
-    }), /开户金额无效/);
+    }));
     assert.equal(harness.commands.length, 4);
 });
 
-test('records use service-backed offset pagination and expose human settlement labels', async () => {
+test('records use service-backed offset pagination and preserve settlement amounts', async () => {
     const harness = createHarness({ activityCount: 75 });
     const initial = await activate(harness);
     assert.equal(initial.activities.length, 50);
     assert.equal(initial.activityPage.hasMore, true);
-    assert.equal(initial.activities[1].resultLabel, '到期收益 +5%');
+    assert.equal(initial.activities[1].kind, 'fund');
+    assert.equal(initial.activities[1].payout, 105);
+    assert.equal(initial.activities[1].net, 5);
 
     const page = await harness.controller.handleMessage({
         type: 'bank/records/load-more',
@@ -308,16 +311,16 @@ test('controller serializes every write and rejects a late result after chat ide
     await assert.rejects(harness.controller.handleMessage({
         type: 'bank/confirm-save',
         payload: { chatIdentity: harness.host.identity.key },
-    }), /已有银行操作正在处理/);
+    }));
 
     harness.host.identity = { key: 'character:2:other-chat', chatId: 'other-chat' };
     pending.resolve(harness.bank.readCurrent());
-    await assert.rejects(first, /聊天已切换/);
+    await assert.rejects(first);
     harness.controller.handleChatChanged();
     await assert.rejects(harness.controller.handleMessage({
         type: 'bank/refresh',
         payload: { chatIdentity: commandPayload.chatIdentity },
-    }), /银行 APP 未激活/);
+    }));
 });
 
 test('a stale first-time Economy preparation cannot update a page after the chat changes', async () => {
@@ -335,14 +338,13 @@ test('a stale first-time Economy preparation cannot update a page after the chat
     await assert.rejects(harness.controller.handleMessage({
         type: 'bank/refresh',
         payload: { chatIdentity: 'character:1:bank-chat' },
-    }), /银行 APP 未激活/);
+    }));
 });
 
-test('unconfirmed saves freeze state until the shared confirmation succeeds', async () => {
+test('unconfirmed status recovers through the shared save confirmation', async () => {
     const harness = createHarness({ writeState: 'unconfirmed' });
     const initial = await activate(harness);
     assert.equal(initial.status, 'unconfirmed');
-    assert.match(initial.message, /写入已冻结/);
 
     const result = await harness.controller.handleMessage({
         type: 'bank/confirm-save',

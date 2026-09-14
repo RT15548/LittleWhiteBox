@@ -15,11 +15,11 @@ const RISK_LABELS: Readonly<Record<BankRiskView, string>> = Object.freeze({
 });
 
 const STATUS_LABELS: Readonly<Record<BankClientStatus, string>> = Object.freeze({
-    ready: '金库就绪',
-    saving: '正在封存',
-    unconfirmed: '保存待核实',
-    conflict: '状态冲突',
-    loading: '正在载入',
+    ready: '正常',
+    saving: '正在保存',
+    unconfirmed: '需要检查保存',
+    conflict: '存档有变化',
+    loading: '正在加载',
     blocked: '暂时不可用',
 });
 
@@ -44,13 +44,13 @@ function status(
         message = '银行数据暂时无法读取，请稍后重试。';
     } else if (view.writeState === 'conflict') {
         next = 'conflict';
-        message = '服务端数据与当前金库候选不一致，请刷新酒馆后再继续。';
+        message = '服务器上的银行记录与当前内容不同，请刷新酒馆后再继续。';
     } else if (view.writeState === 'unconfirmed') {
         next = 'unconfirmed';
-        message = '上一次保存结果尚未确认，金库与资金写入已冻结。';
+        message = '还不确定上次是否保存成功，暂时不能交易。请先检查保存。';
     } else if (view.writeState === 'saving') {
         next = 'saving';
-        message = '正在确认金库与账本保存结果…';
+        message = '正在保存银行记录和账目…';
     }
     return { status: next, statusLabel: STATUS_LABELS[next], message };
 }
@@ -155,7 +155,7 @@ export function presentBankState({
                 id: product.id,
                 name: product.name,
                 lockRounds: product.lockRounds,
-                lockLabel: `${product.lockRounds} 个 Assistant 回合`,
+                lockLabel: `${product.lockRounds} 次主剧情回复`,
                 interestBps: product.interestBps,
                 interestLabel: bpsLabel(product.interestBps),
                 earlyPenaltyBps: product.earlyPenaltyBps,
@@ -169,7 +169,7 @@ export function presentBankState({
                 name: product.name,
                 description: product.description,
                 lockRounds: product.lockRounds,
-                lockLabel: `${product.lockRounds} 个 Assistant 回合`,
+                lockLabel: `${product.lockRounds} 次主剧情回复`,
                 returnMinBps: product.returnRangeBps.min,
                 returnMaxBps: product.returnRangeBps.max,
                 returnLabel: `${bpsLabel(product.returnRangeBps.min)} 至 ${bpsLabel(product.returnRangeBps.max)}`,

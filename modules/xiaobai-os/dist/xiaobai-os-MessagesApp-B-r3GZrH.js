@@ -143,16 +143,16 @@ var sa = {
       class: "messages-settings",
       onSubmit: r[2] || (r[2] = le((u) => c("save", { ...o }), ["prevent"]))
     }, [e("fieldset", { disabled: a.busy }, [
-      r[5] || (r[5] = e("legend", null, "能力", -1)),
-      e("label", null, [r[3] || (r[3] = e("span", null, "在提示词中允许图片", -1)), Y(e("input", {
+      r[5] || (r[5] = e("legend", null, "对方的回复", -1)),
+      e("label", null, [r[3] || (r[3] = e("span", null, "允许对方发图片", -1)), Y(e("input", {
         "onUpdate:modelValue": r[0] || (r[0] = (u) => o.imagePrompt = u),
         type: "checkbox"
       }, null, 512), [[he, o.imagePrompt]])]),
-      e("label", null, [r[4] || (r[4] = e("span", null, "在提示词中允许语音", -1)), Y(e("input", {
+      e("label", null, [r[4] || (r[4] = e("span", null, "允许对方发语音", -1)), Y(e("input", {
         "onUpdate:modelValue": r[1] || (r[1] = (u) => o.voicePrompt = u),
         type: "checkbox"
       }, null, 512), [[he, o.voicePrompt]])]),
-      e("button", ha, f(a.busy ? "请稍候…" : "保存能力设置"), 1)
+      e("button", ha, f(a.busy ? "请稍候…" : "保存设置"), 1)
     ], 8, wa)], 32));
   }
 }), Ia = Ca, Ma = ["data-message-id"], Sa = {
@@ -513,7 +513,7 @@ var Ha = {
   emits: ["retry", "discard"],
   setup(a) {
     return (p, s) => (l(), n("div", as, [a.sending ? (l(), n("span", ss, "发送中…")) : (l(), n(R, { key: 1 }, [
-      e("span", null, f(a.error || (a.pendingSave ? "尚待保存确认" : "尚未收到回复")), 1),
+      e("span", null, f(a.error || (a.pendingSave ? "还不确定是否保存成功" : "尚未收到回复")), 1),
       e("button", {
         disabled: a.disabled,
         onClick: s[0] || (s[0] = (c) => p.$emit("retry"))
@@ -988,7 +988,7 @@ var Es = { class: "messages-app" }, Ds = {
         try {
           await i();
         } catch (t) {
-          A && (I.value = t instanceof Error && t.message !== "host_request_timeout" ? t.message : "等待操作结果超时，请核实保存状态后重试。");
+          A && (I.value = t instanceof Error && t.message !== "host_request_timeout" ? t.message : "暂时没收到操作结果，请先检查保存再重试。");
         } finally {
           u.value = !1;
         }
@@ -1033,7 +1033,7 @@ var Es = { class: "messages-app" }, Ds = {
           A && (j.value = {
             contactId: i,
             messageId: t,
-            message: z instanceof Error && z.message !== "host_request_timeout" ? z.message : "尚未确认发送结果，可以重试。"
+            message: z instanceof Error && z.message !== "host_request_timeout" ? z.message : "还不确定是否发送成功，可以重试。"
           });
         } finally {
           u.value = !1;
@@ -1138,20 +1138,20 @@ var Es = { class: "messages-app" }, Ds = {
     }
     function je() {
       Z(async () => {
-        V(await q("messages/adopt-server-state")), s.value.fileState === "ready" && !s.value.pendingSave ? (U.value = null, j.value = null, G()) : I.value = "暂时未能采用服务器版本，请检查网络后重试。当前记录保持不变。";
+        V(await q("messages/adopt-server-state")), s.value.fileState === "ready" && !s.value.pendingSave ? (U.value = null, j.value = null, G()) : I.value = "暂时无法加载已保存版本，请检查网络后重试。当前记录未改。";
       });
     }
     return ge(() => {
       A = !1, m++, Re();
     }), (i, t) => (l(), n("main", Es, [
-      te.value ? (l(), n("div", Ds, [e("span", null, f(s.value.fileState === "conflict" ? "服务器上的存档已有变化，请选择如何处理。" : "有消息还在等待保存确认，已保存的记录不会丢失。"), 1), e("div", Ts, [e("button", {
+      te.value ? (l(), n("div", Ds, [e("span", null, f(s.value.fileState === "conflict" ? "服务器上的存档已有变化，请选择如何处理。" : "还不确定部分消息是否保存成功，请先检查保存。"), 1), e("div", Ts, [e("button", {
         disabled: u.value || !!s.value.busy,
         onClick: t[0] || (t[0] = (v) => qe("messages/confirm"))
       }, "检查保存", 8, Rs), s.value.fileState === "conflict" ? (l(), n("button", {
         key: 0,
         disabled: u.value || !!s.value.busy || s.value.generationActive,
         onClick: t[1] || (t[1] = (v) => ee("adopt"))
-      }, "采用服务器版本", 8, Ls)) : h("", !0)])])) : s.value.unsynced && !s.value.busy ? (l(), n("div", Ps, [e("span", null, f(s.value.unsynced) + " 条消息已保留，尚未写入主聊天。", 1), e("button", {
+      }, "使用已保存版本", 8, Ls)) : h("", !0)])])) : s.value.unsynced && !s.value.busy ? (l(), n("div", Ps, [e("span", null, f(s.value.unsynced) + " 条消息已保留，尚未写入主聊天。", 1), e("button", {
         disabled: N.value,
         onClick: t[2] || (t[2] = (v) => ee("sync"))
       }, "查看", 8, Us)])) : h("", !0),
@@ -1160,7 +1160,7 @@ var Es = { class: "messages-app" }, Ds = {
       M.value ? (l(), n("div", Ns, [e("span", null, f(M.value), 1), e("button", {
         disabled: r.value,
         onClick: t[3] || (t[3] = (v) => X())
-      }, "重试读取", 8, Fs)])) : h("", !0),
+      }, "重新加载", 8, Fs)])) : h("", !0),
       H.value ? (l(), ae(Bs, {
         key: H.value.id,
         ref_key: "conversation",
@@ -1241,7 +1241,7 @@ var Es = { class: "messages-app" }, Ds = {
               name: H.value.name,
               small: ""
             }, null, 8, ["identity", "name"])) : h("", !0),
-            e("h2", Gs, f(b.value === "settings" ? "信息设置" : b.value === "add" ? "新的对话" : b.value === "detail" ? H.value?.name : b.value === "delete" ? "删除联系人？" : b.value === "delete-message" ? "删除这条消息？" : b.value === "sync" ? "消息还未写入主聊天" : b.value === "adopt" ? "采用服务器版本？" : "在当前位置补记？"), 1),
+            e("h2", Gs, f(b.value === "settings" ? "信息设置" : b.value === "add" ? "新的对话" : b.value === "detail" ? H.value?.name : b.value === "delete" ? "删除联系人？" : b.value === "delete-message" ? "删除这条消息？" : b.value === "sync" ? "消息还未写入主聊天" : b.value === "adopt" ? "使用已保存版本？" : "在当前位置补记？"), 1),
             e("button", {
               class: "messages-icon-button",
               "aria-label": "关闭",
@@ -1265,7 +1265,7 @@ var Es = { class: "messages-app" }, Ds = {
             t[21] || (t[21] = e("div", {
               id: "messages-people-source",
               class: "messages-subtle messages-people-source"
-            }, "候选来自当前聊天的总结人物资料，需开启总结；未列出的人可手动添加。", -1)),
+            }, "人物来自当前聊天的剧情总结，需要开启总结功能；找不到的人可以手动添加。", -1)),
             e("div", {
               class: "messages-known-list",
               "aria-busy": L.value === "loading"
@@ -1276,7 +1276,7 @@ var Es = { class: "messages-app" }, Ds = {
               class: "messages-secondary",
               disabled: u.value,
               onClick: ke
-            }, "重新读取", 8, Ys)])) : (l(), n(R, { key: 2 }, [(l(!0), n(R, null, oe(be.value, (v) => (l(), n("button", {
+            }, "重新加载", 8, Ys)])) : (l(), n(R, { key: 2 }, [(l(!0), n(R, null, oe(be.value, (v) => (l(), n("button", {
               key: v.name,
               disabled: N.value,
               onClick: (z) => $e(v.name)
@@ -1355,7 +1355,7 @@ var Es = { class: "messages-app" }, Ds = {
               class: "messages-primary",
               disabled: N.value,
               onClick: Ne
-            }, "重试写入", 8, ot),
+            }, "补到主聊天", 8, ot),
             e("details", rt, [
               t[23] || (t[23] = e("summary", null, "原来的记录已被修改或删除？", -1)),
               t[24] || (t[24] = e("p", null, "不会覆盖你的修改。需要这些消息继续进入剧情时，可以在当前位置另加一条补记。", -1)),
@@ -1372,7 +1372,7 @@ var Es = { class: "messages-app" }, Ds = {
               class: "messages-danger",
               disabled: u.value || !!s.value.busy || s.value.generationActive,
               onClick: je
-            }, "确认采用服务器版本", 8, vt),
+            }, "确认使用已保存版本", 8, vt),
             e("button", {
               class: "messages-secondary",
               disabled: u.value,

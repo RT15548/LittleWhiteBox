@@ -748,7 +748,7 @@ var Xa = { class: "tasks-page" }, Ya = { class: "tasks-contract-sheet" }, Wa = {
       return {
         chatIdentity: "",
         status: "blocked",
-        message: "任务状态未能载入。",
+        message: "任务暂时加载不了。",
         writeState: "ready",
         settings: { autoMaintenance: !1 },
         playerBalance: 0,
@@ -802,7 +802,7 @@ var Xa = { class: "tasks-page" }, Ya = { class: "tasks-contract-sheet" }, Wa = {
     const ue = B(() => u.value.generation.state === "running" && u.value.generation.kind === "board"), de = B(() => u.value.generation.state === "running" && u.value.generation.kind === "candidates" ? u.value.generation.taskId ?? "" : ""), A = R(!1), W = R(!1), T = R(!1), ae = R(!1), _ = R(!1), h = R(""), j = R("");
     let w = 0, x = !1, oe = () => {
     };
-    const ve = B(() => u.value.status === "unconfirmed"), L = B(() => A.value ? "正在处理上一项任务操作" : u.value.status === "loading" ? "任务数据正在准备" : u.value.status === "saving" ? "任务与资金正在保存" : u.value.status === "unconfirmed" ? "请先核实上一次保存结果" : u.value.status === "conflict" ? "请先采用服务端数据" : u.value.status === "blocked" ? u.value.message || "任务暂时不可用" : u.value.generationActive ? "正在生成内容，请稍后" : ""), O = B(() => L.value || (u.value.maintenance.state === "running" ? "正在更新任务" : "")), Ie = B(() => u.value.maintenance.message);
+    const ve = B(() => u.value.status === "unconfirmed"), L = B(() => A.value ? "正在处理上一项任务操作" : u.value.status === "loading" ? "正在加载任务" : u.value.status === "saving" ? "任务与资金正在保存" : u.value.status === "unconfirmed" ? "请先检查上一次是否保存成功" : u.value.status === "conflict" ? "请先使用已保存版本" : u.value.status === "blocked" ? u.value.message || "任务暂时不可用" : u.value.generationActive ? "正在生成内容，请稍后" : ""), O = B(() => L.value || (u.value.maintenance.state === "running" ? "正在更新任务" : "")), Ie = B(() => u.value.maintenance.message);
     function ke(l) {
       if (!l || typeof l.chatIdentity != "string") return;
       u.value = structuredClone(l), h.value = "";
@@ -823,7 +823,7 @@ var Xa = { class: "tasks-page" }, Ya = { class: "tasks-contract-sheet" }, Wa = {
     }
     function P(l) {
       const n = l instanceof Error ? l.message : String(l);
-      return n === "tasks_insufficient_funds" ? "小白币余额不足，任务没有发布。" : n === "tasks_state_changed" || n === "tasks_listing_already_accepted" ? "任务状态已经变化，请按最新状态重试。" : n === "tasks_terminal" ? "该任务已经结束，不能再次操作。" : n === "tasks_publish_invalid" || n === "tasks_request_invalid" ? "任务内容不完整或超出允许范围。" : n === "tasks_write_blocked" || n === "tasks_generation_active" ? "当前有生成或保存正在进行，请稍后重试。" : n === "tasks_chat_changed" ? "聊天已经切换，请重新打开任务。" : n === "host_request_timeout" ? "操作响应超时，结果可能稍后返回，请勿立即重复。" : "任务操作未完成，请稍后重试。";
+      return n === "tasks_insufficient_funds" ? "小白币余额不足，任务没有发布。" : n === "tasks_state_changed" || n === "tasks_listing_already_accepted" ? "任务有变化，请查看最新进展后再试。" : n === "tasks_terminal" ? "该任务已经结束，不能再次操作。" : n === "tasks_publish_invalid" || n === "tasks_request_invalid" ? "任务内容不完整或超出允许范围。" : n === "tasks_write_blocked" || n === "tasks_generation_active" ? "当前有生成或保存正在进行，请稍后重试。" : n === "tasks_chat_changed" ? "聊天已经切换，请重新打开任务。" : n === "host_request_timeout" ? "暂时没收到结果，请稍后查看，不要重复操作。" : "任务操作未完成，请稍后重试。";
     }
     async function q(l, n = {}, v = rl) {
       return $(await o.bridge.request(l, {
@@ -892,7 +892,7 @@ var Xa = { class: "tasks-page" }, Ya = { class: "tasks-contract-sheet" }, Wa = {
           expectedTaskRevision: l.taskRevision,
           expectedEventId: l.eventId,
           candidateId: n
-        }), v), f.value = null, x && p("published"), H("执行者已确认，任务进入进行中。");
+        }), v), f.value = null, x && p("published"), H("已选好执行者，委托开始了。");
       } catch (C) {
         h.value = P(C);
       } finally {
@@ -994,7 +994,7 @@ var Xa = { class: "tasks-page" }, Ya = { class: "tasks-contract-sheet" }, Wa = {
       const l = w;
       try {
         const n = await q("tasks/save/confirm");
-        V(n, l), c(n) && n.confirmation === "confirmed" && H("保存已确认。");
+        V(n, l), c(n) && n.confirmation === "confirmed" && H("已确认保存成功。");
       } catch (n) {
         h.value = P(n);
       } finally {
@@ -1007,7 +1007,7 @@ var Xa = { class: "tasks-page" }, Ya = { class: "tasks-contract-sheet" }, Wa = {
       const l = w;
       try {
         const n = await q("tasks/save/adopt-server");
-        V(n, l), c(n) && n.adoption === "adopted" && H("已采用服务端数据。");
+        V(n, l), c(n) && n.adoption === "adopted" && H("已使用保存的任务和账目。");
       } catch (n) {
         h.value = P(n);
       } finally {
@@ -1021,7 +1021,7 @@ var Xa = { class: "tasks-page" }, Ya = { class: "tasks-contract-sheet" }, Wa = {
       try {
         V(await q("tasks/read"), l);
       } catch {
-        h.value = "读取未完成，请检查存储连接后重试读取。";
+        h.value = "任务暂时加载不了，请检查连接后重试。";
       } finally {
         T.value = !1;
       }
@@ -1113,17 +1113,17 @@ var Xa = { class: "tasks-page" }, Ya = { class: "tasks-contract-sheet" }, Wa = {
         type: "button",
         disabled: T.value,
         onClick: Pe
-      }, r(T.value ? "正在核实…" : "核实保存结果"), 9, zs)) : u.value.status === "conflict" ? (i(), d("button", {
+      }, r(T.value ? "正在检查…" : "检查保存"), 9, zs)) : u.value.status === "conflict" ? (i(), d("button", {
         key: 1,
         type: "button",
         disabled: T.value,
         onClick: Ve
-      }, r(T.value ? "正在采用…" : "采用服务端数据"), 9, Qs)) : u.value.status === "blocked" ? (i(), d("button", {
+      }, r(T.value ? "正在加载…" : "使用已保存版本"), 9, Qs)) : u.value.status === "blocked" ? (i(), d("button", {
         key: 2,
         type: "button",
         disabled: T.value,
         onClick: Ne
-      }, r(T.value ? "正在读取…" : "重试读取"), 9, Gs)) : y("", !0)]), u.value.message ? y("", !0) : (i(), d("button", {
+      }, r(T.value ? "正在读取…" : "重新加载"), 9, Gs)) : y("", !0)]), u.value.message ? y("", !0) : (i(), d("button", {
         key: 0,
         type: "button",
         class: "tasks-icon-button",

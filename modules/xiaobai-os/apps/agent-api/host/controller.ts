@@ -50,7 +50,7 @@ export function createAgentApiController(
             return {
                 status: 'error',
                 config: null,
-                message: `共享 Agent API 配置读取失败：${describeError(error)}`,
+                message: `模型设置加载失败：${describeError(error)}`,
             };
         }
     }

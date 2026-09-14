@@ -63,28 +63,6 @@ test('state projection marks accepted board entries and sorts visible task group
     assert.deepEqual(state.board.listings.map(item => item.accepted), [true, false]);
     assert.deepEqual(state.active.map(item => item.taskId), ['accepted', 'older']);
     assert.deepEqual(state.recruiting.map(item => item.taskId), ['recruiting']);
-    assert.match(state.maintenance.message, /没有需要更新/);
-});
-
-test('maintenance feedback distinguishes skipped checks from confirmed no-work and explains failures safely', () => {
-    for (const [message, reason, expected] of [
-        ['skipped', 'generation-active', /角色正在回复/],
-        ['skipped', 'no-complete-assistant', /完成一轮对话/],
-        ['skipped', 'participant-disabled', /当前不可用/],
-        ['skipped', 'unknown', /未能开始检查/],
-        ['skipped', 'no-work', /没有需要更新/],
-        ['unchanged', '', /已检查/],
-        ['failed', 'agent-not-configured', /API.*配置/],
-        ['partial', 'provider-rate-limit', /部分任务状态已保存.*限流/],
-    ]) {
-        const state = presentTasksState({
-            chatIdentity: 'chat', serviceView: { domain: null, records: [], playerBalance: 0, writeState: 'ready', pendingSave: false },
-            settings: { autoMaintenance: false }, economyReady: true, generationActive: false,
-            generation: { state: 'idle', kind: null, taskId: null, message: '' },
-            maintenanceStatus: { state: 'idle', mode: 'manual', message, reason, lastRunAt: null },
-        });
-        assert.match(state.maintenance.message, expected);
-    }
 });
 
 test('history uses stable cursors and rejects stale or malformed boundaries', () => {

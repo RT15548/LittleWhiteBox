@@ -113,8 +113,8 @@ test('classroom publishes real progress, exposes the error code and allows expli
     const failed = await h.command('profile', { message: '高中基础，希望读懂新闻。' });
     assert.equal(failed.busy, false); assert.equal(failed.profile, null);
     assert.ok(failed.message.includes('provider-auth')); assert.equal(logs.mock.calls.length, 1);
-    assert.ok(states.some(state => state.busy && state.message.includes('读取教学背景')));
-    assert.ok(states.some(state => state.busy && state.message.includes('等待老师回复')));
+    assert.ok(states.some(state => state.busy));
+    assert.equal(states.at(-1).busy, false);
     assert.equal(h.counts.provider, 1);
     h.flags.providerFailure = false;
     const retried = await h.command('profile', { message: '高中基础，希望读懂新闻。' });

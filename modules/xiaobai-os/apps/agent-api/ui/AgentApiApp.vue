@@ -45,7 +45,7 @@ const connectionBusy = computed(() => connectionStatus.value === 'testing');
 
 function describeError(error: unknown): string {
     const message = error instanceof Error ? error.message : String(error || 'unknown_error');
-    if (message === 'host_request_timeout') {return '请求等待超时，请检查网络后重试。';}
+    if (message === 'host_request_timeout') {return '暂时没收到结果，请检查网络后重试。';}
     if (message === 'app_inactive') {return '页面已经关闭。';}
     return message;
 }
@@ -62,7 +62,7 @@ function scheduleSaveFeedbackReset(): void {
 async function handleSaveConfig(request: SaveRequest): Promise<void> {
     const patch = request.payload || {};
     panelState.configSave = { status: 'saving', requestId: '', error: '' };
-    panelState.inlineToastText = '正在保存配置…';
+    panelState.inlineToastText = '正在保存设置…';
     renderPanel();
     try {
         const response = await props.bridge.request('agent-api/save', { patch }, 35_000) as {
@@ -70,14 +70,14 @@ async function handleSaveConfig(request: SaveRequest): Promise<void> {
         };
         const result = response.result;
         if (result.ok !== true || !result.config) {
-            throw new Error(result.error || '共享 Agent API 配置保存失败');
+            throw new Error(result.error || '模型设置保存失败');
         }
         panelState.config = normalizeAgentConfig(result.config);
         panelState.configDraft = null;
         panelState.configDirty = false;
         panelState.configFormSyncPending = true;
         panelState.configSave = { status: 'success', requestId: '', error: '' };
-        panelState.inlineToastText = '配置已保存';
+        panelState.inlineToastText = '设置已保存';
     } catch (error) {
         const message = describeError(error);
         panelState.configSave = { status: 'error', requestId: '', error: message };
@@ -150,7 +150,7 @@ async function testConnection(): Promise<void> {
     if (!root || !configReady.value || connectionBusy.value) {return;}
     const providerConfig = panel.getActiveProviderConfigFromForm(root);
     connectionStatus.value = 'testing';
-    connectionMessage.value = '正在测试当前表单中的连接…';
+    connectionMessage.value = '正在测试当前填写的连接…';
     try {
         const response = await props.bridge.request('agent-api/test-connection', {
             providerConfig: structuredClone(toRaw(providerConfig)),
@@ -185,20 +185,20 @@ onBeforeUnmount(() => {
         <div class="agent-api-scroll">
             <div class="agent-api-content">
                 <header class="agent-api-header">
-                    <h1>Agent API 配置</h1>
-                    <p>共享 Agent 主预设</p>
+                    <h1>API 设置</h1>
+                    <p>与小白助手等功能共用主预设</p>
                 </header>
 
                 <section v-if="clientState.status === 'loading'" class="agent-api-state" aria-live="polite">
-                    正在读取配置
+                    正在加载设置
                 </section>
 
                 <section v-else-if="clientState.status === 'error'" class="agent-api-state is-error" role="alert">
-                    <div><strong>配置暂时无法读取</strong><span>{{ clientState.message }}</span></div>
-                    <button type="button" @click="reloadConfig()">重新读取</button>
+                    <div><strong>设置暂时无法加载</strong><span>{{ clientState.message }}</span></div>
+                    <button type="button" @click="reloadConfig()">重新加载</button>
                 </section>
 
-                <section v-show="configReady" class="agent-api-panel xb-agent-settings-surface" aria-label="Agent API 配置">
+                <section v-show="configReady" class="agent-api-panel xb-agent-settings-surface" aria-label="API 设置">
                     <div ref="panelRoot" />
                     <div class="agent-api-connection" :class="`is-${connectionStatus}`">
                         <p aria-live="polite">{{ connectionMessage }}</p>

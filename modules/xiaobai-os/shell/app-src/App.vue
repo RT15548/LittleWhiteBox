@@ -134,7 +134,7 @@ function handleHostMessage(message: FrameMessage): void {
             appLoading.value = false;
             appFailure.value = {
                 phase: status.failure?.phase || 'host',
-                message: status.failure?.message || 'Host APP 运行失败',
+                message: status.failure?.message || '应用暂时无法运行',
                 retryable: status.failure?.retryable !== false,
                 requiresAppRetry: true,
             };
@@ -142,7 +142,7 @@ function handleHostMessage(message: FrameMessage): void {
         }
     }
     if (message.type === 'os/error') {
-        errorMessage.value = String((message.payload as { message?: string })?.message || '小白 OS 初始化失败');
+        errorMessage.value = String((message.payload as { message?: string })?.message || '小白 OS 启动失败');
     }
     const state = (message.payload as { state?: unknown } | undefined)?.state;
     if (pendingAppOpening && message.appId === pendingAppOpening.appId
@@ -198,7 +198,7 @@ async function openApp(app: XiaobaiOsAppDefinition): Promise<void> {
         } else if (!appFailure.value) {
             appFailure.value = {
                 phase: 'ui-load',
-                message: uiResult.reason instanceof Error ? uiResult.reason.message : 'APP 界面加载失败',
+                message: uiResult.reason instanceof Error ? uiResult.reason.message : '应用页面加载失败',
                 retryable: true,
             };
         }
@@ -234,7 +234,7 @@ async function retryApp(): Promise<void> {
         } catch (error) {
             appFailure.value = {
                 phase: 'ui-load',
-                message: error instanceof Error ? error.message : 'APP 界面加载失败',
+                message: error instanceof Error ? error.message : '应用页面加载失败',
                 retryable: true,
             };
         } finally {
@@ -266,7 +266,7 @@ function handleRenderFailure(error: unknown): void {
     if (!app) { return; }
     appFailure.value = {
         phase: 'ui-render',
-        message: error instanceof Error ? error.message : 'APP 界面渲染失败',
+        message: error instanceof Error ? error.message : '应用页面显示出了问题',
         retryable: true,
     };
     bridge.post('os/app-ui-failure', { appId: app.id, phase: 'ui-render' });
@@ -275,7 +275,7 @@ function handleRenderFailure(error: unknown): void {
 function handleFrameError(event: ErrorEvent): void {
     if (!activeApp.value || appLoading.value || appFailure.value) { return; }
     event.preventDefault();
-    handleRenderFailure(event.error ?? new Error(event.message || 'APP 界面运行失败'));
+    handleRenderFailure(event.error ?? new Error(event.message || '应用页面出了问题'));
 }
 
 function handleUnhandledRejection(event: PromiseRejectionEvent): void {

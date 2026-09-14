@@ -374,7 +374,7 @@ export function createFourthWallController({
         function recoverInput(): { inputDraft?: string; message?: string } {
             if (inputSaved || !inputDraft) { return {}; }
             return inputSaveUnconfirmed
-                ? { message: `输入保存结果未确认，请核对聊天记录后再发送。原输入：${inputDraft}` }
+                ? { message: `还不确定消息是否保存成功，请核对聊天记录后再发送。原输入：${inputDraft}` }
                 : { inputDraft };
         }
         post('fourth-wall/generation', { requestId, status: 'started', sessionId, manual, phase: initialize ? 'saving' : 'counting' });
@@ -484,7 +484,7 @@ export function createFourthWallController({
                         status: 'error',
                         kind: 'save',
                         message: unconfirmed
-                            ? `回复已生成，但保存结果未确认：${describeError(error)}`
+                            ? `回复已生成，但还不确定是否保存成功：${describeError(error)}`
                             : `回复已生成，但未保存：${describeError(error)}`,
                         draft: unconfirmed ? undefined : projected,
                     });
@@ -877,14 +877,14 @@ export function createFourthWallController({
         if (action === 'image-check') {
             assertActivation(payload, true);
             if (!imageProtocol) {
-                throw new Error('画图能力不可用');
+                throw new Error('画图功能暂时不可用');
             }
             return await imageProtocol.check({ tags: payload.tags });
         }
         if (action === 'image-generate') {
             const current = assertActivation(payload, true);
             if (!imageProtocol) {
-                throw new Error('画图能力不可用');
+                throw new Error('画图功能暂时不可用');
             }
             return await imageProtocol.generate({
                 requestId: payload.mediaRequestId,
@@ -906,7 +906,7 @@ export function createFourthWallController({
         if (action === 'voice-play') {
             const current = assertActivation(payload, true);
             if (!voiceProtocol) {
-                throw new Error('TTS 能力不可用');
+                throw new Error('TTS 语音暂时不可用');
             }
             return voiceProtocol.play({
                 requestId: payload.mediaRequestId,

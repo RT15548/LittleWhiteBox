@@ -200,7 +200,7 @@ export function createMessagesController(deps: MessagesControllerDependencies): 
                 : code === 'messages_busy' ? '上一项操作还没完成，请稍候。'
                     : code.startsWith('messages_invalid') ? '请检查输入内容和长度。'
                         : code === 'messages_projection_closed' ? '原记录已被修改、删除，或故事已继续。可以展开下方说明，在当前位置补记。'
-                            : message.type === 'messages/settings' ? '能力设置未能确认保存，请重试。'
+                            : message.type === 'messages/settings' ? '还不确定设置是否保存成功，请重试。'
                                 : '操作未完成，已保存的消息会保留，请稍后重试。';
             localError = userMessage; emit(); throw new Error(userMessage);
         }

@@ -844,7 +844,7 @@ var he = { class: "shop-dialog-heading" }, me = { class: "shop-dialog-item" }, f
           "data-item-id": c.id,
           onClick: (l) => v.$emit("open", c)
         }, n(c.name), 9, Ue), e("span", null, "曾购入 " + n(c.purchasedCount) + " 件 · 库存 0", 1)]))), 128)),
-        u[6] || (u[6] = e("p", null, "库存用完不代表效果结束，启用状态请看「生效中」。", -1))
+        u[6] || (u[6] = e("p", null, "奇物用完后，效果可能还在。可到「生效中」查看。", -1))
       ])) : p("", !0)
     ]));
   }
@@ -1078,7 +1078,7 @@ var he = { class: "shop-dialog-heading" }, me = { class: "shop-dialog-item" }, f
           t.item.inputs.length ? (a(), i("p", _t, "使用时需要填写：" + n(t.item.inputs.map((v) => v.label).join("、")) + "。", 1)) : p("", !0),
           o[8] || (o[8] = e("p", null, "每次使用消耗 1 件库存，不会再次扣款。已经发生的剧情不会因效果结束而撤销。", -1))
         ]),
-        t.item.duration === "permanent" ? (a(), i("p", Lt, [f(k, { name: "lock" }), o[9] || (o[9] = Z("永久生效指启用后的效果规则，不是可重复使用的库存。", -1))])) : p("", !0),
+        t.item.duration === "permanent" ? (a(), i("p", Lt, [f(k, { name: "lock" }), o[9] || (o[9] = Z("效果会永久保留，但使用一次仍会消耗一件奇物。", -1))])) : p("", !0),
         t.item.quantity ? (a(), i("div", St, [
           e("span", null, [f(k, { name: "check" }), Z("背包里已有 " + n(t.item.quantity) + " 件", 1)]),
           e("button", {
@@ -1132,7 +1132,7 @@ var he = { class: "shop-dialog-heading" }, me = { class: "shop-dialog-item" }, f
     let e1 = () => {
     }, M = 0;
     Z1(() => m.value ? (s1(), !0) : v.value ? (i1(), !0) : h.value !== "shelf" ? (D("shelf"), !0) : !1);
-    const j = y(() => r.value.status === "unconfirmed"), z = y(() => C.value ? "正在处理上一项操作" : $.value ? "正在刷新商店状态" : r.value.status !== "ready" ? r.value.message || "商店暂时不可写入" : ""), A = y(() => z.value || (r.value.generationActive ? "主剧情正在生成，请等待回复完成" : "")), G = y(() => $.value || C.value || j.value), t1 = y(() => !m.value || !R.value ? "这件奇物暂时不可操作" : j.value ? "保存尚未确认，请返回商店核实保存结果" : m.value.mode === "purchase" ? z.value || o1(R.value, r.value.balance) : A.value ? A.value : m.value.mode === "use" && R.value.quantity < 1 ? "背包中已没有这件奇物，请返回查看最新状态" : m.value.mode === "deactivate" && !W.value?.canDeactivate ? "这份效果已不可关闭，请返回查看最新状态" : "");
+    const j = y(() => r.value.status === "unconfirmed"), z = y(() => C.value ? "正在处理上一项操作" : $.value ? "正在刷新商店" : r.value.status !== "ready" ? r.value.message || "暂时不能购买或使用商品" : ""), A = y(() => z.value || (r.value.generationActive ? "故事正在继续，请等回复结束" : "")), G = y(() => $.value || C.value || j.value), t1 = y(() => !m.value || !R.value ? "这件奇物暂时不可操作" : j.value ? "还不确定是否保存成功，请返回商店检查保存" : m.value.mode === "purchase" ? z.value || o1(R.value, r.value.balance) : A.value ? A.value : m.value.mode === "use" && R.value.quantity < 1 ? "背包中已没有这件奇物，请返回查看最新状态" : m.value.mode === "deactivate" && !W.value?.canDeactivate ? "这份效果已不可关闭，请返回查看最新状态" : "");
     function d1() {
       return typeof globalThis.crypto?.randomUUID == "function" ? `shop-ui:${globalThis.crypto.randomUUID()}` : `shop-ui:${Date.now()}:${Math.random().toString(36).slice(2, 10)}`;
     }
@@ -1144,7 +1144,7 @@ var he = { class: "shop-dialog-heading" }, me = { class: "shop-dialog-item" }, f
     }
     function U(d) {
       const s = d instanceof $1 ? `${d.code} ${d.message}` : d instanceof Error ? d.message : String(d);
-      return s.includes("cannot be overdrawn") || s.includes("economy_insufficient_funds") ? "小白币余额不足，未完成购买。" : s.includes("shop_purchase_limit_reached") ? "这件奇物已达购买上限。" : s.includes("shop_quantity_insufficient") ? "背包里已没有这件奇物，请返回查看。" : s.includes("shop_activation_duplicate") ? "这份效果已经启用，本次没有消耗道具。" : s.includes("shop_parameters_invalid") ? "请检查填写内容与字数后重试。" : s.includes("shop_action_conflict") ? "该次使用已被记录，不能更换参数重试。请返回查看生效状态。" : s.includes("shop_activation_not_active") || s.includes("shop_activation_missing") ? "这份效果状态已变化，请返回查看。" : s.includes("聊天已切换") || s.includes("app_inactive") ? "聊天或应用已切换，请重新打开商店。" : s.includes("shop_main_generation_active") ? "主剧情正在生成，请等待回复完成。" : s.includes("shop_revision_conflict") || s.includes("shop_event_id_conflict") ? "商店状态已变化，请关闭确认框后重试。" : s === "host_request_timeout" ? "等待保存结果超时，请使用同一确认框重试。" : "商店操作未完成，请稍后重试。";
+      return s.includes("cannot be overdrawn") || s.includes("economy_insufficient_funds") ? "小白币余额不足，未完成购买。" : s.includes("shop_purchase_limit_reached") ? "这件奇物已达购买上限。" : s.includes("shop_quantity_insufficient") ? "背包里已没有这件奇物，请返回查看。" : s.includes("shop_activation_duplicate") ? "这份效果已经启用，本次没有消耗道具。" : s.includes("shop_parameters_invalid") ? "请检查填写内容与字数后重试。" : s.includes("shop_action_conflict") ? "这次使用已经记录，不能修改填写内容后重试。请返回查看效果是否已生效。" : s.includes("shop_activation_not_active") || s.includes("shop_activation_missing") ? "这份效果状态已变化，请返回查看。" : s.includes("聊天已切换") || s.includes("app_inactive") ? "聊天或应用已切换，请重新打开商店。" : s.includes("shop_main_generation_active") ? "故事正在继续，请等回复结束。" : s.includes("shop_revision_conflict") || s.includes("shop_event_id_conflict") ? "商店状态已变化，请关闭确认框后重试。" : s === "host_request_timeout" ? "暂时没收到保存结果，请在当前确认框中重试。" : "商店操作未完成，请稍后重试。";
     }
     async function l1() {
       if (G.value) return;
@@ -1250,12 +1250,12 @@ var he = { class: "shop-dialog-heading" }, me = { class: "shop-dialog-item" }, f
         type: "button",
         disabled: $.value || C.value,
         onClick: v1
-      }, n($.value ? "正在核实…" : "核实保存结果"), 9, Ut)) : r.value.status === "blocked" || _.value ? (a(), i("button", {
+      }, n($.value ? "正在检查…" : "检查保存"), 9, Ut)) : r.value.status === "blocked" || _.value ? (a(), i("button", {
         key: 1,
         type: "button",
         disabled: G.value,
         onClick: l1
-      }, n($.value ? "正在读取…" : "重新读取商店"), 9, Pt)) : p("", !0)], 2)) : p("", !0), b.value ? (a(), i("div", jt, [
+      }, n($.value ? "正在读取…" : "重新加载"), 9, Pt)) : p("", !0)], 2)) : p("", !0), b.value ? (a(), i("div", jt, [
         f(k, { name: "check" }),
         e("span", null, n(b.value), 1),
         e("button", {

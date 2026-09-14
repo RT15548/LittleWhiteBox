@@ -1104,8 +1104,8 @@ var Ta = { class: "map-dialog-header" }, Qa = { key: 0 }, za = { class: "map-set
             class: "map-sync-button",
             disabled: s.busy || s.refreshDisabled,
             onClick: i[4] || (i[4] = (a) => n.$emit("refresh"))
-          }, [$(j, { name: "refresh" }), i[12] || (i[12] = R("同步已保存的地图", -1))], 8, Ga),
-          i[13] || (i[13] = t("p", { class: "map-setting-note" }, "同步只读取保存结果，不会重新生成地图。绘制或更新开始后，可以离开此页面。", -1))
+          }, [$(j, { name: "refresh" }), i[12] || (i[12] = R("重新加载地图", -1))], 8, Ga),
+          i[13] || (i[13] = t("p", { class: "map-setting-note" }, "只加载已保存的地图，不会重新绘制。绘制或更新时可以离开此页面。", -1))
         ])
       ]),
       _: 1
@@ -1277,7 +1277,7 @@ function xl(s) {
   const n = q(structuredClone(Le(s.initialState))), i = q(null), a = q(""), v = q(!1);
   let k = !1, m = 0, r = 0, p = () => {
   };
-  const c = w(() => n.value.status === "unconfirmed" || n.value.writeState === "unconfirmed"), e = w(() => i.value !== null || ["loading", "saving"].includes(n.value.status) || ["maintaining", "rebuilding"].includes(n.value.maintenanceStatus || "")), g = w(() => e.value ? "正在更新地图，请稍候" : c.value ? "请先核实上一次保存结果" : n.value.status === "conflict" ? "保存的版本不一致，请先处理保存问题" : n.value.status !== "ready" ? n.value.message || "地图暂时不可更新" : n.value.chatIdentity ? "" : "请先打开一个聊天"), V = w(() => n.value.maintenanceStatus === "rebuilding" || i.value === "rebuild" ? "正在绘制世界…" : n.value.maintenanceStatus === "maintaining" || i.value === "maintain" ? "正在更新地图…" : i.value === "confirm" ? "正在核实保存…" : e.value ? "正在同步…" : ""), E = w(() => n.value.message || a.value), Q = w(() => n.value.message ? [
+  const c = w(() => n.value.status === "unconfirmed" || n.value.writeState === "unconfirmed"), e = w(() => i.value !== null || ["loading", "saving"].includes(n.value.status) || ["maintaining", "rebuilding"].includes(n.value.maintenanceStatus || "")), g = w(() => e.value ? "正在更新地图，请稍候" : c.value ? "请先检查上一次是否保存成功" : n.value.status === "conflict" ? "存档有变化，请先选择要保留的版本" : n.value.status !== "ready" ? n.value.message || "地图暂时不可更新" : n.value.chatIdentity ? "" : "请先打开一个聊天"), V = w(() => n.value.maintenanceStatus === "rebuilding" || i.value === "rebuild" ? "正在绘制世界…" : n.value.maintenanceStatus === "maintaining" || i.value === "maintain" ? "正在更新地图…" : i.value === "confirm" ? "正在检查保存…" : e.value ? "请稍候…" : ""), E = w(() => n.value.message || a.value), Q = w(() => n.value.message ? [
     "blocked",
     "error",
     "conflict",
@@ -1289,7 +1289,7 @@ function xl(s) {
   }
   function A(C, H) {
     const D = C instanceof Error ? C.message : String(C);
-    return D.includes("聊天已切换") ? "聊天已切换，请重新打开地图。" : D === "host_request_timeout" ? "等待结果超时，更新可能仍在进行。请稍后查看，不要重复提交。" : H === "confirm" ? "仍无法确认保存结果，请稍后再试。" : H === "adopt" ? "未能恢复已保存的版本，当前更改仍暂停保存。" : H === "settings" ? "设置未能保存，请重试。" : "地图操作未完成，请稍后重试。";
+    return D.includes("聊天已切换") ? "聊天已切换，请重新打开地图。" : D === "host_request_timeout" ? "暂时没收到结果，地图可能还在更新。请稍后查看，不要再次更新。" : H === "confirm" ? "仍无法确认保存结果，请稍后再试。" : H === "adopt" ? "已保存版本暂时加载不了，当前修改还在，请稍后重试。" : H === "settings" ? "设置未能保存，请重试。" : "地图操作未完成，请稍后重试。";
   }
   async function P(C, H, D = {}) {
     if (i.value) return;
@@ -1302,7 +1302,7 @@ function xl(s) {
       }, 35e3);
       if (!k || z !== m || n.value.chatIdentity !== K) return;
       const I = ee(U) ? U.result : void 0, y = ee(I) && ee(I.state) ? I.state : I;
-      Z === r && ee(y) && y.chatIdentity === K && Y(y), (H === "maintain" || H === "rebuild") && ee(I) && typeof I.message == "string" && I.message && (a.value = I.message), H === "refresh" && n.value.status === "ready" && (a.value = "已同步保存的地图。"), H === "settings" && (a.value = n.value.autoMaintenance ? "自动更新已开启。" : "自动更新已关闭。"), H === "confirm" && n.value.status === "ready" && (a.value = "保存已确认。"), H === "adopt" && ee(I) && I.adoption === "adopted" && (a.value = "已恢复当前聊天中保存的 OS 数据。");
+      Z === r && ee(y) && y.chatIdentity === K && Y(y), (H === "maintain" || H === "rebuild") && ee(I) && typeof I.message == "string" && I.message && (a.value = I.message), H === "refresh" && n.value.status === "ready" && (a.value = "已加载保存的地图。"), H === "settings" && (a.value = n.value.autoMaintenance ? "自动更新已开启。" : "自动更新已关闭。"), H === "confirm" && n.value.status === "ready" && (a.value = "已确认保存成功。"), H === "adopt" && ee(I) && I.adoption === "adopted" && (a.value = "已使用当前聊天里保存的 OS 存档。");
     } catch (U) {
       k && z === m && n.value.chatIdentity === K && (a.value = A(U, H), v.value = !0);
     } finally {
@@ -1490,12 +1490,12 @@ var _l = { class: "map-top" }, Cl = { class: "map-search-bar" }, Sl = ["disabled
           key: 4,
           class: O(["map-notice", { "is-error": d(p) }]),
           role: "status"
-        }, [t("p", null, h(d(r) || (d(k) ? "保存结果尚未确认。" : "保存的版本不一致。")), 1), d(k) ? (l(), o("button", {
+        }, [t("p", null, h(d(r) || (d(k) ? "还不确定是否保存成功，请先检查保存。" : "服务器上的存档与当前内容不同。")), 1), d(k) ? (l(), o("button", {
           key: 0,
           type: "button",
           disabled: d(a),
           onClick: u[7] || (u[7] = (...b) => d(g) && d(g)(...b))
-        }, "核实保存结果", 8, El)) : d(n).status === "conflict" ? (l(), o(B, { key: 1 }, [u[29] || (u[29] = t("small", null, "恢复会放弃尚未保存的更改，并使用当前聊天已保存的 OS 数据（不只是地图）。", -1)), t("button", {
+        }, "检查保存", 8, El)) : d(n).status === "conflict" ? (l(), o(B, { key: 1 }, [u[29] || (u[29] = t("small", null, "恢复会放弃尚未保存的更改，并使用当前聊天已保存的 OS 数据（不只是地图）。", -1)), t("button", {
           type: "button",
           disabled: d(a),
           onClick: u[8] || (u[8] = (...b) => d(V) && d(V)(...b))
@@ -1504,7 +1504,7 @@ var _l = { class: "map-top" }, Cl = { class: "map-search-bar" }, Sl = ["disabled
           type: "button",
           disabled: d(a),
           onClick: u[9] || (u[9] = (...b) => d(e) && d(e)(...b))
-        }, "重新读取", 8, Ql)) : (l(), o("button", {
+        }, "重新加载", 8, Ql)) : (l(), o("button", {
           key: 3,
           type: "button",
           class: "map-notice-close",

@@ -27,7 +27,7 @@ const groups = computed(() => {
         <p v-if="filter === 'transfer'" class="wallet-ledger-caption">系统账户间的划转，不计入你的个人收支。</p>
         <div v-if="loading" class="wallet-ui-empty" role="status"><WalletIcon name="refresh" class="is-spinning" /><strong>正在准备你的钱包…</strong></div>
         <template v-else>
-            <WalletEmpty v-if="!groups.length" :title="hasMore ? '已加载的账目中暂无匹配项' : '这里还没有账目'" message="每一笔已确认的资金流动，都会记在这里。"><template #icon><WalletIcon name="receipt" /></template></WalletEmpty>
+            <WalletEmpty v-if="!groups.length" :title="hasMore ? '当前已加载的账目中没有这类记录' : '这里还没有账目'" message="收支记录会显示在这里。"><template #icon><WalletIcon name="receipt" /></template></WalletEmpty>
             <section v-for="group in groups" :key="group.transactions[0].id" class="wallet-day-group">
                 <h3>{{ group.date }}</h3>
                 <ol class="wallet-ui-list"><WalletTransactionRow v-for="transaction in group.transactions" :key="transaction.id" :transaction="transaction" @open="$emit('open', $event)" /></ol>
@@ -35,7 +35,7 @@ const groups = computed(() => {
             <div class="wallet-ledger-foot">
                 <p v-if="error" class="wallet-load-error" role="alert">{{ error }}</p>
                 <button v-if="hasMore" type="button" class="wallet-ui-text-button" :disabled="loadingMore" @click="$emit('loadMore')">{{ loadingMore ? '正在读取…' : '查看更早的账单' }}<WalletIcon name="next" /></button>
-                <span v-else-if="transactions.length" class="wallet-ledger-end">每一笔，都有来处</span>
+                <span v-else-if="transactions.length" class="wallet-ledger-end">已显示全部账目</span>
             </div>
         </template>
     </div>

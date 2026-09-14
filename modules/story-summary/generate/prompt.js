@@ -52,6 +52,7 @@ const CONSTRAINT_MAX = 2000;
 const ARCS_MAX = 1500;
 const EVENT_BUDGET_MAX = 5000;
 const RELATED_EVENT_MAX = 500;
+const SUMMARIZED_EVIDENCE_MAX = 4000;
 const UNSUMMARIZED_EVIDENCE_MAX = 2000;
 const TOP_N_STAR = 5;
 
@@ -1011,13 +1012,11 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
 
     const data = store.json || {};
     const total = { used: 0, max: SHARED_POOL_MAX };
-    const vectorConfig = getVectorConfig() || {};
-    const summarizedEvidenceBudgetMax = vectorConfig.summarizedEvidenceBudget;
-    const summarizedEvidenceBudget = { used: 0, max: summarizedEvidenceBudgetMax };
+    const summarizedEvidenceBudget = { used: 0, max: SUMMARIZED_EVIDENCE_MAX };
     const temporalEvidenceProtectionBudget = {
         used: 0,
         max: getTemporalProtectionLimit(
-            summarizedEvidenceBudgetMax,
+            SUMMARIZED_EVIDENCE_MAX,
             TEMPORAL_PROTECTION_POLICY.maxEvidenceBudgetShare,
         ),
     };
@@ -1039,7 +1038,7 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
 
     // 注入统计
     const injectionStats = {
-        budget: { max: SHARED_POOL_MAX + summarizedEvidenceBudgetMax + UNSUMMARIZED_EVIDENCE_MAX, used: 0 },
+        budget: { max: SHARED_POOL_MAX + SUMMARIZED_EVIDENCE_MAX + UNSUMMARIZED_EVIDENCE_MAX, used: 0 },
         constraint: { count: 0, tokens: 0, filtered: 0 },
         arc: { count: 0, tokens: 0 },
         event: { selected: 0, tokens: 0 },

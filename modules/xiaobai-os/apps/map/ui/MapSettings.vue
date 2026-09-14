@@ -17,7 +17,7 @@ defineEmits<{ close: []; setAuto: [enabled: boolean]; update: []; rebuild: []; r
             <section class="map-settings-section"><MapIcon name="refresh" /><h3>补充最近的变化</h3><p>根据最近一轮对话更新位置和地点，并补全当前区域尚缺少的探索去处。</p><button type="button" class="map-primary-button" :disabled="busy || Boolean(disabledReason) || !hasMap" @click="$emit('update')">{{ busy ? status || '请稍候…' : '更新地图' }}</button><small v-if="!hasMap">请先建立世界地图</small></section>
             <section class="map-settings-section"><MapIcon name="globe" /><h3>{{ hasMap ? '重新绘制世界' : '建立世界地图' }}</h3><p>依据角色与世界设定建立地图；设定未写明的地方，会合理补全。结合当前聊天保留已发生的故事。</p><p v-if="hasMap">新地图保存成功后替换原图；失败时保留原图。</p><button type="button" class="map-secondary-button" :disabled="busy || Boolean(disabledReason)" @click="$emit('rebuild')">{{ busy ? status || '请稍候…' : hasMap ? '重新绘制' : '绘制世界地图' }}</button></section>
             <p v-if="disabledReason" class="map-setting-note" role="status">{{ disabledReason }}</p>
-            <button type="button" class="map-sync-button" :disabled="busy || refreshDisabled" @click="$emit('refresh')"><MapIcon name="refresh" />同步已保存的地图</button><p class="map-setting-note">同步只读取保存结果，不会重新生成地图。绘制或更新开始后，可以离开此页面。</p>
+            <button type="button" class="map-sync-button" :disabled="busy || refreshDisabled" @click="$emit('refresh')"><MapIcon name="refresh" />重新加载地图</button><p class="map-setting-note">只加载已保存的地图，不会重新绘制。绘制或更新时可以离开此页面。</p>
         </div>
     </AppDialog>
 </template>

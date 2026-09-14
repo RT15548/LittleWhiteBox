@@ -71,11 +71,11 @@ var Y = {
   },
   setup(t) {
     const i = t, a = w(() => ({
-      ready: "账目就绪",
+      ready: "正常",
       loading: "正在准备",
       saving: "正在保存",
-      unconfirmed: "保存待确认",
-      conflict: "账目已冻结",
+      unconfirmed: "需要检查保存",
+      conflict: "账本有变化",
       blocked: "暂时不可用"
     })[i.status]);
     return (l, c) => (n(), r("section", ie, [c[2] || (c[2] = e("div", {
@@ -243,8 +243,8 @@ var Me = {
       }), v[2] || (v[2] = e("strong", null, "正在准备你的钱包…", -1))])) : (n(), r(S, { key: 2 }, [
         f.value.length ? h("", !0) : (n(), C(ke, {
           key: 0,
-          title: t.hasMore ? "已加载的账目中暂无匹配项" : "这里还没有账目",
-          message: "每一笔已确认的资金流动，都会记在这里。"
+          title: t.hasMore ? "当前已加载的账目中没有这类记录" : "这里还没有账目",
+          message: "收支记录会显示在这里。"
         }, {
           icon: L(() => [p(b, { name: "receipt" })]),
           _: 1
@@ -263,7 +263,7 @@ var Me = {
           class: "wallet-ui-text-button",
           disabled: t.loadingMore,
           onClick: v[1] || (v[1] = (m) => g.$emit("loadMore"))
-        }, [x(s(t.loadingMore ? "正在读取…" : "查看更早的账单"), 1), p(b, { name: "next" })], 8, Le)) : t.transactions.length ? (n(), r("span", Ie, "每一笔，都有来处")) : h("", !0)])
+        }, [x(s(t.loadingMore ? "正在读取…" : "查看更早的账单"), 1), p(b, { name: "next" })], 8, Le)) : t.transactions.length ? (n(), r("span", Ie, "已显示全部账目")) : h("", !0)])
       ], 64))
     ]));
   }
@@ -327,10 +327,10 @@ var Me = {
     const i = t, a = k(structuredClone(K(i.initialState))), l = k(!1), c = k(!1), f = k(""), g = k(""), v = k(null);
     let m = () => {
     }, u = 0;
-    const M = w(() => a.value.status === "unconfirmed"), T = w(() => l.value || a.value.status === "loading" || a.value.status === "saving"), I = w(() => T.value || M.value || a.value.status === "conflict"), R = w(() => !!(a.value.message || f.value)), O = w(() => f.value || a.value.status === "conflict" || a.value.status === "blocked" ? "danger" : M.value ? "warning" : "info"), U = w(() => a.value.status === "conflict" ? "账本发生冲突" : a.value.status === "blocked" ? "钱包暂时无法读取" : "账本状态");
+    const M = w(() => a.value.status === "unconfirmed"), T = w(() => l.value || a.value.status === "loading" || a.value.status === "saving"), I = w(() => T.value || M.value || a.value.status === "conflict"), R = w(() => !!(a.value.message || f.value)), O = w(() => f.value || a.value.status === "conflict" || a.value.status === "blocked" ? "danger" : M.value ? "warning" : "info"), U = w(() => a.value.status === "conflict" ? "账本有变化" : a.value.status === "blocked" ? "钱包暂时无法读取" : "保存情况");
     function B(o) {
       const d = o instanceof Error ? o.message : String(o);
-      return d.includes("聊天已切换") ? "聊天已切换，请重新打开钱包。" : d === "host_request_timeout" ? "读取等待超时，请稍后重新读取。" : "钱包数据暂时无法读取，请稍后重试。";
+      return d.includes("聊天已切换") ? "聊天已切换，请重新打开钱包。" : d === "host_request_timeout" ? "暂时没收到结果，请稍后重新加载。" : "钱包数据暂时无法读取，请稍后重试。";
     }
     function N() {
       return { chatIdentity: a.value.chatIdentity };
@@ -418,13 +418,13 @@ var Me = {
             class: "wallet-ui-text-button",
             disabled: l.value,
             onClick: Q
-          }, s(l.value ? "正在核实…" : "核实保存结果"), 9, je)) : a.value.status === "blocked" || f.value ? (n(), r("button", {
+          }, s(l.value ? "正在检查…" : "检查保存"), 9, je)) : a.value.status === "blocked" || f.value ? (n(), r("button", {
             key: 1,
             type: "button",
             class: "wallet-ui-text-button",
             disabled: I.value,
             onClick: H
-          }, s(l.value ? "正在读取…" : "重新读取"), 9, Ge)) : h("", !0)]),
+          }, s(l.value ? "正在读取…" : "重新加载"), 9, Ge)) : h("", !0)]),
           _: 1
         }, 8, [
           "tone",

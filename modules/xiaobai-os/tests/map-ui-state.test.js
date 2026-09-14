@@ -5,7 +5,7 @@ import { useMapState } from '../apps/map/ui/use-map-state.js';
 
 const saved = {
     chatIdentity: 'chat:a', map: {}, writeState: 'ready', status: 'ready', message: '',
-    autoMaintenance: true, maintenanceStatus: 'error', maintenanceMessage: '地图更新未完成。请先配置模型。',
+    autoMaintenance: true, maintenanceStatus: 'error', maintenanceMessage: 'previous-run-feedback',
 };
 const running = { ...saved, maintenanceStatus: 'maintaining', maintenanceMessage: '' };
 
@@ -83,7 +83,7 @@ test('dismissal cannot hide a storage problem or enable updates, including after
 });
 
 test('manual rejection shows the current reason even without a running transition', async t => {
-    const message = '还没有完整的角色回复，请完成一轮对话后再更新地图。';
+    const message = 'current-attempt-feedback';
     const { ui, requests } = mount(t, saved, async () => ({ result: { status: 'skipped', started: false, message, state: saved } }));
     await ui.update();
     assert.equal(ui.notice.value, message);
@@ -108,7 +108,7 @@ test('late admission responses cannot erase a completed run or replay a dismisse
 test('reading saved Map data gives fresh success feedback, not the old maintenance error', async t => {
     const { ui } = mount(t);
     await ui.refresh();
-    assert.equal(ui.notice.value, '已同步保存的地图。');
+    assert.notEqual(ui.notice.value, saved.maintenanceMessage);
     assert.equal(ui.isError.value, false);
     assert.equal(ui.state.value.maintenanceMessage, saved.maintenanceMessage);
 });

@@ -31,13 +31,13 @@ function resolveStatus(
         return { status: 'loading', message: '' };
     }
     if (view.writeState === 'conflict') {
-        return { status: 'conflict', message: '服务端数据与当前候选不一致，请刷新酒馆后再继续。' };
+        return { status: 'conflict', message: '服务器上的存档与当前内容不同，请刷新酒馆后再继续。' };
     }
     if (view.writeState === 'unconfirmed') {
-        return { status: 'unconfirmed', message: '上一次保存结果尚未确认，商店与资金写入已冻结。' };
+        return { status: 'unconfirmed', message: '还不确定上次是否保存成功，暂时不能购买或使用商品。请先检查保存。' };
     }
     if (view.writeState === 'saving') {
-        return { status: 'saving', message: '正在确认商店与账本保存结果…' };
+        return { status: 'saving', message: '正在保存商品和账目…' };
     }
     if (view.writeState === 'failed') {
         return { status: 'blocked', message: '商店数据暂时无法读取，请稍后重试。' };

@@ -4,8 +4,8 @@ import type { WalletStatus } from '../types.js';
 import WalletIcon from './WalletIcon.vue';
 const props = defineProps<{ balance: number; currency: string; status: WalletStatus }>();
 const statusLabel = computed(() => ({
-    ready: '账目就绪', loading: '正在准备', saving: '正在保存',
-    unconfirmed: '保存待确认', conflict: '账目已冻结', blocked: '暂时不可用',
+    ready: '正常', loading: '正在准备', saving: '正在保存',
+    unconfirmed: '需要检查保存', conflict: '账本有变化', blocked: '暂时不可用',
 })[props.status]);
 </script>
 <template>

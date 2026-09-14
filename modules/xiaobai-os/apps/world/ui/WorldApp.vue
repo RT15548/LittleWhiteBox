@@ -71,7 +71,7 @@ useAppBack(() => {
             <div class="world-tools">
                 <button
                     type="button" class="world-icon-button" :disabled="!canRefresh" aria-label="刷新新闻"
-                    :title="refreshing ? '正在更新世界近况' : '刷新新闻，会使用模型'" @click="request('refresh')"
+                    :title="refreshing ? '正在更新新闻' : '刷新新闻，会使用模型'" @click="request('refresh')"
                 >
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true" :class="{ 'world-spinning': refreshing }">
                         <path d="M20 10a8 8 0 1 0-1 6M20 4v6h-6" stroke-linecap="round" stroke-linejoin="round" />
@@ -101,13 +101,13 @@ useAppBack(() => {
 
         <div v-if="notice" class="world-notice" :class="{ 'is-error': error }" role="status" aria-live="polite">
             <span>{{ notice }}</span>
-            <button v-if="state.writeState === 'unconfirmed' || (state.pendingSave && state.writeState === 'failed')" :disabled="pending" type="button" @click="request('confirm-save')">核实保存</button>
-            <button v-else-if="state.writeState === 'conflict'" :disabled="pending" type="button" @click="request('adopt-server-state')">读取服务器版本</button>
+            <button v-if="state.writeState === 'unconfirmed' || (state.pendingSave && state.writeState === 'failed')" :disabled="pending" type="button" @click="request('confirm-save')">检查保存</button>
+            <button v-else-if="state.writeState === 'conflict'" :disabled="pending" type="button" @click="request('adopt-server-state')">使用已保存版本</button>
             <button
                 v-else-if="state.writeState === 'failed' || error" :disabled="pending || state.writeState === 'saving'" type="button"
                 @click="request(state.maintenance === 'error' && state.writeState === 'ready' ? 'refresh' : 'read')"
             >
-                {{ state.maintenance === 'error' && state.writeState === 'ready' ? '重试更新' : '重试读取' }}
+                {{ state.maintenance === 'error' && state.writeState === 'ready' ? '重试更新' : '重新加载' }}
             </button>
         </div>
 

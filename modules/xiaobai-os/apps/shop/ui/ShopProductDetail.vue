@@ -24,7 +24,7 @@ const purchaseReason = computed(() => props.writeDisabledReason || shopPurchaseR
                 <div v-if="item.purchaseLimit !== null"><dt><ShopIcon name="lock" />购买限制</dt><dd>最多 {{ item.purchaseLimit }} 件 · 已购 {{ item.purchasedCount }} 件</dd></div>
             </dl>
             <details class="shop-use-guide"><summary>使用说明</summary><p>{{ shopUseNotice(item) }}</p><p v-if="item.inputs.length">使用时需要填写：{{ item.inputs.map(input => input.label).join('、') }}。</p><p>每次使用消耗 1 件库存，不会再次扣款。已经发生的剧情不会因效果结束而撤销。</p></details>
-            <p v-if="item.duration === 'permanent'" class="shop-hint is-warning"><ShopIcon name="lock" />永久生效指启用后的效果规则，不是可重复使用的库存。</p>
+            <p v-if="item.duration === 'permanent'" class="shop-hint is-warning"><ShopIcon name="lock" />效果会永久保留，但使用一次仍会消耗一件奇物。</p>
             <div v-if="item.quantity" class="shop-detail-owned"><span><ShopIcon name="check" />背包里已有 {{ item.quantity }} 件</span><button type="button" class="shop-text-button" :disabled="Boolean(activationDisabledReason)" @click="$emit('use')">使用一件<ShopIcon name="next" /></button><p v-if="activationDisabledReason">{{ activationDisabledReason }}</p></div>
         </div>
         <footer class="shop-detail-checkout">

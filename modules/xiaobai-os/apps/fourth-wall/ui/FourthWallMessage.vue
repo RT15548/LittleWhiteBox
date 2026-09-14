@@ -68,12 +68,12 @@ async function loadImage(segment: FourthWallMediaSegment, index: number): Promis
         return;
     }
     if (!props.imageAvailable) {
-        media[index] = { status: 'unavailable', message: '画图能力未启用' };
+        media[index] = { status: 'unavailable', message: '请先开启画图功能' };
         return;
     }
     const mediaRequestId = createMediaId('image', index);
     activeMediaIds.add(mediaRequestId);
-    media[index] = { status: 'loading', message: '查询图片缓存', requestId: mediaRequestId };
+    media[index] = { status: 'loading', message: '正在加载图片', requestId: mediaRequestId };
     const binding = { chatIdentity: props.chatIdentity, sessionId: props.sessionId };
     try {
         const checked = unwrap<{ available: boolean; cached?: string | null }>(await props.bridge.request(
@@ -85,7 +85,7 @@ async function loadImage(segment: FourthWallMediaSegment, index: number): Promis
             return;
         }
         if (!checked.available) {
-            media[index] = { status: 'unavailable', message: '画图能力未启用', requestId: mediaRequestId };
+            media[index] = { status: 'unavailable', message: '请先开启画图功能', requestId: mediaRequestId };
             return;
         }
         let source = checked.cached || '';
@@ -120,7 +120,7 @@ async function loadImage(segment: FourthWallMediaSegment, index: number): Promis
 
 async function playVoice(segment: FourthWallMediaSegment, index: number): Promise<void> {
     if (!props.voiceAvailable) {
-        media[index] = { status: 'unavailable', message: 'TTS 能力未启用' };
+        media[index] = { status: 'unavailable', message: '请先开启 TTS 语音' };
         return;
     }
     const current = media[index];

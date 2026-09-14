@@ -51,16 +51,16 @@ useAppBack(() => {
 const requiresConfirmation = computed(() => state.value.status === 'unconfirmed');
 const writeDisabledReason = computed(() => {
     if (actionBusy.value) {return '正在处理上一项操作';}
-    if (refreshing.value) {return '正在刷新商店状态';}
-    if (state.value.status !== 'ready') {return state.value.message || '商店暂时不可写入';}
+    if (refreshing.value) {return '正在刷新商店';}
+    if (state.value.status !== 'ready') {return state.value.message || '暂时不能购买或使用商品';}
     return '';
 });
 const activationDisabledReason = computed(() => writeDisabledReason.value
-    || (state.value.generationActive ? '主剧情正在生成，请等待回复完成' : ''));
+    || (state.value.generationActive ? '故事正在继续，请等回复结束' : ''));
 const refreshDisabled = computed(() => refreshing.value || actionBusy.value || requiresConfirmation.value);
 const pendingDisabledReason = computed(() => {
     if (!pending.value || !pendingItem.value) {return '这件奇物暂时不可操作';}
-    if (requiresConfirmation.value) {return '保存尚未确认，请返回商店核实保存结果';}
+    if (requiresConfirmation.value) {return '还不确定是否保存成功，请返回商店检查保存';}
     if (pending.value.mode === 'purchase') {return writeDisabledReason.value || shopPurchaseReason(pendingItem.value, state.value.balance);}
     if (activationDisabledReason.value) {return activationDisabledReason.value;}
     if (pending.value.mode === 'use' && pendingItem.value.quantity < 1) {return '背包中已没有这件奇物，请返回查看最新状态';}
@@ -90,14 +90,14 @@ function readableError(error: unknown): string {
     if (message.includes('shop_quantity_insufficient')) {return '背包里已没有这件奇物，请返回查看。';}
     if (message.includes('shop_activation_duplicate')) {return '这份效果已经启用，本次没有消耗道具。';}
     if (message.includes('shop_parameters_invalid')) {return '请检查填写内容与字数后重试。';}
-    if (message.includes('shop_action_conflict')) {return '该次使用已被记录，不能更换参数重试。请返回查看生效状态。';}
+    if (message.includes('shop_action_conflict')) {return '这次使用已经记录，不能修改填写内容后重试。请返回查看效果是否已生效。';}
     if (message.includes('shop_activation_not_active') || message.includes('shop_activation_missing')) {return '这份效果状态已变化，请返回查看。';}
     if (message.includes('聊天已切换') || message.includes('app_inactive')) {return '聊天或应用已切换，请重新打开商店。';}
-    if (message.includes('shop_main_generation_active')) {return '主剧情正在生成，请等待回复完成。';}
+    if (message.includes('shop_main_generation_active')) {return '故事正在继续，请等回复结束。';}
     if (message.includes('shop_revision_conflict') || message.includes('shop_event_id_conflict')) {
         return '商店状态已变化，请关闭确认框后重试。';
     }
-    if (message === 'host_request_timeout') {return '等待保存结果超时，请使用同一确认框重试。';}
+    if (message === 'host_request_timeout') {return '暂时没收到保存结果，请在当前确认框中重试。';}
     return '商店操作未完成，请稍后重试。';
 }
 
@@ -241,8 +241,8 @@ onBeforeUnmount(() => {
         <div v-if="state.message || errorMessage || successMessage" class="shop-notice-area">
             <aside v-if="state.message || errorMessage" class="shop-notice" :class="{ 'is-error': errorMessage || state.status === 'blocked' || state.status === 'conflict' }" role="status">
                 <p>{{ errorMessage || state.message }}</p>
-                <button v-if="requiresConfirmation" type="button" :disabled="refreshing || actionBusy" @click="confirmSave">{{ refreshing ? '正在核实…' : '核实保存结果' }}</button>
-                <button v-else-if="state.status === 'blocked' || errorMessage" type="button" :disabled="refreshDisabled" @click="refresh">{{ refreshing ? '正在读取…' : '重新读取商店' }}</button>
+                <button v-if="requiresConfirmation" type="button" :disabled="refreshing || actionBusy" @click="confirmSave">{{ refreshing ? '正在检查…' : '检查保存' }}</button>
+                <button v-else-if="state.status === 'blocked' || errorMessage" type="button" :disabled="refreshDisabled" @click="refresh">{{ refreshing ? '正在读取…' : '重新加载' }}</button>
             </aside>
             <div v-if="successMessage" class="shop-success" role="status"><ShopIcon name="check" /><span>{{ successMessage }}</span><button type="button" class="shop-icon-button" aria-label="关闭成功提示" @click="successMessage = ''"><ShopIcon name="close" /></button></div>
         </div>

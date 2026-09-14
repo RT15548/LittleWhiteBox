@@ -7,7 +7,7 @@ function Z(s) {
 }
 function P(s) {
   const y = s instanceof Error ? s.message : String(s);
-  return y.includes("economy_insufficient_funds") || y.includes("cannot be overdrawn") ? "小白币不够了，换个小一点的筹码吧。" : y.includes("game_dice_bid_not_higher") ? "这次要叫得比对方更大一些。" : y.includes("game_revision_conflict") || y.includes("game_event_id_conflict") ? "本局已有变化，请重新读取后继续。" : y.includes("game_main_generation_active") ? "故事正在回复，等回复结束就能继续玩。" : y.includes("聊天已切换") ? "聊天已切换，请重新打开游戏。" : y === "host_request_timeout" ? "等待结果超时了。可以重试这次操作，不会重复下注或重新抽取结果。" : "这次操作没能完成，请重试。";
+  return y.includes("economy_insufficient_funds") || y.includes("cannot be overdrawn") ? "小白币不够了，换个小一点的筹码吧。" : y.includes("game_dice_bid_not_higher") ? "这次要叫得比对方更大一些。" : y.includes("game_revision_conflict") || y.includes("game_event_id_conflict") ? "本局已有变化，请重新加载后继续。" : y.includes("game_main_generation_active") ? "故事正在回复，等回复结束就能继续玩。" : y.includes("聊天已切换") ? "聊天已切换，请重新打开游戏。" : y === "host_request_timeout" ? "暂时没收到结果。可以重试这次操作，不会重复下注或重新抽取结果。" : "这次操作没能完成，请重试。";
 }
 function ue(s, y) {
   const e = p(structuredClone(z(y))), n = p(null), i = p(null), b = p(null), d = p(!1), v = p(!1), G = p(""), R = p(""), C = p(null);
@@ -15,7 +15,7 @@ function ue(s, y) {
   function E() {
     return typeof globalThis.crypto?.randomUUID == "function" ? "game-ui:" + globalThis.crypto.randomUUID() : "game-ui:" + Date.now() + ":" + ++J;
   }
-  const B = L(() => ["unconfirmed", "save-failed"].includes(e.value.status)), f = L(() => d.value || !!b.value), $ = L(() => f.value ? "上一项操作还在进行，请稍候。" : e.value.status !== "ready" ? e.value.message || "游戏正在准备，请稍候。" : C.value ? "请先重试这次操作，或重新读取本局结果。" : e.value.generationActive ? "故事正在回复，等回复结束就能继续玩。" : ""), U = L(() => i.value ?? {
+  const B = L(() => ["unconfirmed", "save-failed"].includes(e.value.status)), f = L(() => d.value || !!b.value), $ = L(() => f.value ? "上一项操作还在进行，请稍候。" : e.value.status !== "ready" ? e.value.message || "游戏正在准备，请稍候。" : C.value ? "请先重试这次操作，或重新加载本局结果。" : e.value.generationActive ? "故事正在回复，等回复结束就能继续玩。" : ""), U = L(() => i.value ?? {
     balance: e.value.balance,
     lockedAmount: e.value.lockedAmount
   }), T = L(() => f.value || B.value || [
@@ -45,7 +45,7 @@ function ue(s, y) {
     return r ? (e.value = {
       ...e.value,
       status: r,
-      message: r === "save-failed" ? "这局还没保存好，请重试保存后继续。" : r === "unconfirmed" ? "保存结果尚未确认，请先核实。" : "保存的版本不一致，请重新打开酒馆后继续。"
+      message: r === "save-failed" ? "这局还没保存好，请重试保存后继续。" : r === "unconfirmed" ? "还不确定是否保存成功，请先检查保存。" : "服务器上的游戏记录与当前内容不同，请重新打开酒馆后继续。"
     }, !0) : !1;
   }
   async function q(o) {
@@ -382,7 +382,7 @@ var de = { class: "game-lobby" }, ve = ["src"], ce = { class: "game-search" }, m
           type: "button",
           disabled: t(R),
           onClick: l[3] || (l[3] = (...c) => t(e).confirmSave && t(e).confirmSave(...c))
-        }, g(t(v) ? "正在确认…" : t(n).status === "save-failed" ? "重试保存" : "核实保存结果"), 9, xe)) : t(k) ? (u(), m("button", {
+        }, g(t(v) ? "正在检查…" : t(n).status === "save-failed" ? "重试保存" : "检查保存"), 9, xe)) : t(k) ? (u(), m("button", {
           key: 1,
           type: "button",
           disabled: t(R) || t(n).generationActive,
@@ -393,7 +393,7 @@ var de = { class: "game-lobby" }, ve = ["src"], ce = { class: "game-search" }, m
           type: "button",
           disabled: t(J),
           onClick: l[5] || (l[5] = (...c) => t(e).refresh && t(e).refresh(...c))
-        }, " 重新读取 ", 8, He)) : I("", !0)
+        }, " 重新加载 ", 8, He)) : I("", !0)
       ])) : I("", !0),
       a("div", {
         ref_key: "scroll",

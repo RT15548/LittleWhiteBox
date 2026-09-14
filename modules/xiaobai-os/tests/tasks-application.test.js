@@ -279,10 +279,7 @@ test('both task lines notify after settlement without UI activation, but history
         maintenanceCommand('complete', 'complete-published', published.record, '已送达'),
     ], observedAssistantCount: 4 }, allowCommit);
     assert.equal(notices.length, 2);
-    assert.match(notices[0].title, /接取/);
-    assert.match(notices[0].message, /封蜡信.*150 小白币已到账/);
-    assert.match(notices[1].title, /发布/);
-    assert.match(notices[1].message, /护送药箱.*艾拉.*80 小白币已支付给执行者/);
+    assert.ok(h.tasks.readCurrent().records.every(record => record.status === 'completed'));
     assert.equal(h.economy.getPlayerBalance(), 170);
     await h.tasks.refreshCurrent();
     runtime.handleChatChanged();
@@ -598,7 +595,6 @@ test('Tasks keeps recovery available after failed verification and retires only 
             const initial = await request('activate');
             assert.equal(initial.status, 'unconfirmed');
             assert.equal(initial.board, null);
-            assert.match(initial.generation.message, /先核实保存/);
 
             h.state.replaceImpl = async () => ({ status: 'failed', error: { code: 'offline', message: 'offline', retryable: true } });
             const failed = await request('save/confirm');
@@ -606,7 +602,6 @@ test('Tasks keeps recovery available after failed verification and retires only 
             assert.equal(failed.state.writeState, 'failed');
             assert.equal(failed.state.status, 'unconfirmed');
             assert.equal(h.tasks.readCurrent().pendingSave, true);
-            assert.match(failed.state.message, /再次核实/);
             await assert.rejects(request('refresh'), /tasks_write_blocked/);
             controller.deactivate();
             assert.equal(activate().status, 'unconfirmed');

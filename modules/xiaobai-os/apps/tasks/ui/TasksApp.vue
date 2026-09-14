@@ -36,7 +36,7 @@ function fallbackState(): TasksPresentation {
     return {
         chatIdentity: '',
         status: 'blocked',
-        message: '任务状态未能载入。',
+        message: '任务暂时加载不了。',
         writeState: 'ready',
         settings: { autoMaintenance: false },
         playerBalance: 0,
@@ -104,10 +104,10 @@ let unsubscribe = () => {};
 const requiresConfirmation = computed(() => state.value.status === 'unconfirmed');
 const writeDisabledReason = computed(() => {
     if (writeBusy.value) {return '正在处理上一项任务操作';}
-    if (state.value.status === 'loading') {return '任务数据正在准备';}
+    if (state.value.status === 'loading') {return '正在加载任务';}
     if (state.value.status === 'saving') {return '任务与资金正在保存';}
-    if (state.value.status === 'unconfirmed') {return '请先核实上一次保存结果';}
-    if (state.value.status === 'conflict') {return '请先采用服务端数据';}
+    if (state.value.status === 'unconfirmed') {return '请先检查上一次是否保存成功';}
+    if (state.value.status === 'conflict') {return '请先使用已保存版本';}
     if (state.value.status === 'blocked') {return state.value.message || '任务暂时不可用';}
     if (state.value.generationActive) {return '正在生成内容，请稍后';}
     return '';
@@ -137,12 +137,12 @@ function stateFromBody(body: unknown): TasksPresentation | null {
 function readableError(error: unknown): string {
     const code = error instanceof Error ? error.message : String(error);
     if (code === 'tasks_insufficient_funds') {return '小白币余额不足，任务没有发布。';}
-    if (code === 'tasks_state_changed' || code === 'tasks_listing_already_accepted') {return '任务状态已经变化，请按最新状态重试。';}
+    if (code === 'tasks_state_changed' || code === 'tasks_listing_already_accepted') {return '任务有变化，请查看最新进展后再试。';}
     if (code === 'tasks_terminal') {return '该任务已经结束，不能再次操作。';}
     if (code === 'tasks_publish_invalid' || code === 'tasks_request_invalid') {return '任务内容不完整或超出允许范围。';}
     if (code === 'tasks_write_blocked' || code === 'tasks_generation_active') {return '当前有生成或保存正在进行，请稍后重试。';}
     if (code === 'tasks_chat_changed') {return '聊天已经切换，请重新打开任务。';}
-    if (code === 'host_request_timeout') {return '操作响应超时，结果可能稍后返回，请勿立即重复。';}
+    if (code === 'host_request_timeout') {return '暂时没收到结果，请稍后查看，不要重复操作。';}
     return '任务操作未完成，请稍后重试。';
 }
 
@@ -217,7 +217,7 @@ async function assignTask(task: TaskRecord, candidateId: string): Promise<void> 
         applyResponseState(body, version);
         confirmation.value = null;
         if (mounted) {go('published');}
-        announce('执行者已确认，任务进入进行中。');
+        announce('已选好执行者，委托开始了。');
     } catch (error) {errorMessage.value = readableError(error);}
     finally {writeBusy.value = false;}
 }
@@ -321,7 +321,7 @@ async function confirmSave(): Promise<void> {
     try {
         const body = await request('tasks/save/confirm');
         applyResponseState(body, version);
-        if (isRecord(body) && body.confirmation === 'confirmed') { announce('保存已确认。'); }
+        if (isRecord(body) && body.confirmation === 'confirmed') { announce('已确认保存成功。'); }
     } catch (error) {errorMessage.value = readableError(error);}
     finally {saveBusy.value = false;}
 }
@@ -334,7 +334,7 @@ async function adoptServer(): Promise<void> {
     try {
         const body = await request('tasks/save/adopt-server');
         applyResponseState(body, version);
-        if (isRecord(body) && body.adoption === 'adopted') { announce('已采用服务端数据。'); }
+        if (isRecord(body) && body.adoption === 'adopted') { announce('已使用保存的任务和账目。'); }
     } catch (error) {errorMessage.value = readableError(error);}
     finally {saveBusy.value = false;}
 }
@@ -345,7 +345,7 @@ async function retryRead(): Promise<void> {
     errorMessage.value = ''; actionMessage.value = '';
     const version = stateVersion;
     try { applyResponseState(await request('tasks/read'), version); }
-    catch { errorMessage.value = '读取未完成，请检查存储连接后重试读取。'; }
+    catch { errorMessage.value = '任务暂时加载不了，请检查连接后重试。'; }
     finally { saveBusy.value = false; }
 }
 
@@ -446,7 +446,7 @@ onBeforeUnmount(() => {
         </header>
         <div class="tasks-notices" aria-live="polite">
             <aside v-if="state.message || (errorMessage && !confirmation) || actionMessage" class="tasks-notice" :class="{ 'is-error': Boolean(errorMessage) || state.status === 'conflict' || state.status === 'blocked', 'is-warning': requiresConfirmation }" role="status">
-                <div><p>{{ state.message || (confirmation ? '' : errorMessage) || actionMessage }}</p><button v-if="requiresConfirmation" type="button" :disabled="saveBusy" @click="confirmSave">{{ saveBusy ? '正在核实…' : '核实保存结果' }}</button><button v-else-if="state.status === 'conflict'" type="button" :disabled="saveBusy" @click="adoptServer">{{ saveBusy ? '正在采用…' : '采用服务端数据' }}</button><button v-else-if="state.status === 'blocked'" type="button" :disabled="saveBusy" @click="retryRead">{{ saveBusy ? '正在读取…' : '重试读取' }}</button></div>
+                <div><p>{{ state.message || (confirmation ? '' : errorMessage) || actionMessage }}</p><button v-if="requiresConfirmation" type="button" :disabled="saveBusy" @click="confirmSave">{{ saveBusy ? '正在检查…' : '检查保存' }}</button><button v-else-if="state.status === 'conflict'" type="button" :disabled="saveBusy" @click="adoptServer">{{ saveBusy ? '正在加载…' : '使用已保存版本' }}</button><button v-else-if="state.status === 'blocked'" type="button" :disabled="saveBusy" @click="retryRead">{{ saveBusy ? '正在读取…' : '重新加载' }}</button></div>
                 <button v-if="!state.message" type="button" class="tasks-icon-button" aria-label="关闭提示" @click="errorMessage = ''; actionMessage = ''"><TaskIcon name="close" /></button>
             </aside>
             <aside v-if="state.generation.message && !state.message" class="tasks-notice" role="status"><p>{{ state.generation.message }}</p></aside>

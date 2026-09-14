@@ -25,8 +25,8 @@ export function createMessagesModifications(service: MessagesService, timeline: 
             return reasons.get(segment.id)!;
         }
         function reason(ids: string[]): string {
-            if (state.pendingMutation || service.pending()) {return '上次修改尚待确认，请先检查保存。';}
-            if (service.fileState() !== 'ready') {return '信息存档尚未就绪，请先检查保存。';}
+            if (state.pendingMutation || service.pending()) {return '还不确定上次修改是否保存成功，请先检查保存。';}
+            if (service.fileState() !== 'ready') {return '信息记录暂时不可用，请先检查保存。';}
             const segment = memberships.get(ids[0])?.[0];
             if (!segment || ids.some(id => {
                 const owners = memberships.get(id); return owners?.length !== 1 || owners[0] !== segment;
@@ -36,7 +36,7 @@ export function createMessagesModifications(service: MessagesService, timeline: 
         function checkSegment(segment: MessagesDomainV2['segments'][number]): string {
             const matches = chat.messages().flatMap((message, index) => projectionMarker(message)?.segmentId === segment.id ? [{ message, index }] : []);
             if (!matches.length) {return '主聊天中的通讯楼层已被删除，不能再修改这条信息。';}
-            if (matches.length !== 1) {return '主聊天中的通讯楼层存在重复，不能安全修改。';}
+            if (matches.length !== 1) {return '主聊天中出现了重复的通讯记录，暂时不能修改。';}
             const { message, index } = matches[0];
             if (index <= chat.finalizedThrough()) {return '这段通讯已纳入剧情总结，不能再修改。';}
             if (message.is_user !== false || message.is_system !== false
@@ -72,7 +72,7 @@ export function createMessagesModifications(service: MessagesService, timeline: 
             : kind === 'regenerate' ? replyGroup(state, target.contactId).map(message => message.id) : [target.messageId!];
         if (kind === 'regenerate' && (!ids.length || ids.at(-1) !== target.messageId)) {throw new Error('只能重新回复这位联系人最新的一轮。');}
         if (ids.some(id => !state.messages.some(message => message.id === id && message.contactId === target.contactId))) {throw new Error('messages_message_missing');}
-        const blocked = ids.length ? reason(state, ids) : state.pendingMutation || service.pending() ? '上次修改尚待确认，请先检查保存。' : '';
+        const blocked = ids.length ? reason(state, ids) : state.pendingMutation || service.pending() ? '还不确定上次修改是否保存成功，请先检查保存。' : '';
         if (blocked) {throw new Error(blocked);}
         return { state, ids };
     }
@@ -96,7 +96,7 @@ export function createMessagesModifications(service: MessagesService, timeline: 
             if (!canRetry) {
                 // A native edit already visible in memory may still be included in
                 // an in-flight main-chat save. Do not discard its cross-file intent.
-                if (hasMutationResult(local, mutation, result)) {throw new Error('主聊天的修改尚待保存确认，请稍后检查保存。');}
+                if (hasMutationResult(local, mutation, result)) {throw new Error('还不确定主聊天中的修改是否保存成功，请稍后检查保存。');}
                 await service.change(next => {
                     if (next.pendingMutation?.id === mutation.id) {
                         next.pendingMutation = null;
@@ -108,7 +108,7 @@ export function createMessagesModifications(service: MessagesService, timeline: 
             }
             confirmed = await chat.rewrite({ identity, mutation, result, guard: current });
         }
-        if (!confirmed) {throw new Error('修改尚待保存确认，请点击「检查保存」。');}
+        if (!confirmed) {throw new Error('还不确定修改是否保存成功，请点击「检查保存」。');}
         if (!current()) {return;}
         await service.change(next => {
             if (next.pendingMutation?.id !== mutation.id) {throw new Error('messages_action_conflict');}

@@ -29,10 +29,10 @@ function resolveStatus(
         return { status: 'loading', message: '' };
     }
     if (view.writeState === 'conflict') {
-        return { status: 'conflict', message: '保存的版本不一致，请重新打开酒馆后继续。' };
+        return { status: 'conflict', message: '服务器上的游戏记录与当前内容不同，请重新打开酒馆后继续。' };
     }
     if (view.writeState === 'unconfirmed') {
-        return { status: 'unconfirmed', message: '上一局是否保存成功还没确认，核实后才能继续玩。' };
+        return { status: 'unconfirmed', message: '还不确定上一局是否保存成功，检查保存后才能继续玩。' };
     }
     if (view.writeState === 'saving') {
         return { status: 'saving', message: '正在保存这一局，请稍候…' };
@@ -44,7 +44,7 @@ function resolveStatus(
         return { status: 'blocked', message: '游戏数据暂时无法读取，请稍后重试。' };
     }
     if (!economyReady) {
-        return { status: 'blocked', message: '钱包尚未完成开户，请重新读取。' };
+        return { status: 'blocked', message: '钱包还未开通，请重新加载。' };
     }
     return { status: 'ready', message: '' };
 }

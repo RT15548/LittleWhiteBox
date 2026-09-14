@@ -114,7 +114,7 @@ var fe = { class: "bank-dialog-subject" }, ge = { key: 0 }, ye = { class: "bank-
           A.value !== null ? (s(), i("div", Se, [r[5] || (r[5] = e("dt", null, "到期到账（含本金）", -1)), e("dd", null, "¤ " + l(A.value.toLocaleString("zh-CN")), 1)])) : c("", !0),
           e("div", null, [r[6] || (r[6] = e("dt", null, "提前支取", -1)), e("dd", null, "本金 " + l(_.value.earlyPenaltyLabel) + "，无利息", 1)])
         ])) : c("", !0),
-        $.value ? (s(), i(B, { key: 3 }, [e("dl", Me, [e("div", null, [r[7] || (r[7] = e("dt", null, "整期收益区间", -1)), e("dd", null, l($.value.returnLabel), 1)]), e("div", null, [r[8] || (r[8] = e("dt", null, "风险等级", -1)), e("dd", null, l($.value.riskLabel), 1)])]), r[9] || (r[9] = e("p", { class: "bank-dialog-warning" }, "可能损失本金。申购后不能提前退出，实际收益封存至到期才揭晓。", -1))], 64)) : c("", !0),
+        $.value ? (s(), i(B, { key: 3 }, [e("dl", Me, [e("div", null, [r[7] || (r[7] = e("dt", null, "整期收益区间", -1)), e("dd", null, l($.value.returnLabel), 1)]), e("div", null, [r[8] || (r[8] = e("dt", null, "风险等级", -1)), e("dd", null, l($.value.riskLabel), 1)])]), r[9] || (r[9] = e("p", { class: "bank-dialog-warning" }, "可能损失本金。申购后不能提前退出，实际收益到期后揭晓。", -1))], 64)) : c("", !0),
         a.mode === "withdraw" && a.position ? (s(), i(B, { key: 4 }, [
           e("div", Le, [r[10] || (r[10] = e("span", null, "现在实际到账", -1)), e("strong", null, "¤ " + l(a.position.earlyWithdrawalAmount.toLocaleString("zh-CN")), 1)]),
           e("dl", Ne, [e("div", null, [r[11] || (r[11] = e("dt", null, "原存入本金", -1)), e("dd", null, "¤ " + l(a.position.principal.toLocaleString("zh-CN")), 1)]), e("div", null, [r[12] || (r[12] = e("dt", null, "提前支取损失", -1)), e("dd", Ie, "¤ " + l((a.position.principal - a.position.earlyWithdrawalAmount).toLocaleString("zh-CN")), 1)])]),
@@ -492,7 +492,7 @@ var fe = { class: "bank-dialog-subject" }, ge = { key: 0 }, ye = { class: "bank-
     let S = null, U = () => {
     }, b = 0;
     ve(() => f.value ? (X(), !0) : t.value !== "vault" ? (V("vault"), !0) : !1);
-    const r = w(() => n.value.status === "unconfirmed"), p = w(() => h.value ? "正在处理上一项银行操作" : m.value ? "正在刷新金库状态" : n.value.status !== "ready" ? n.value.message || "金库暂时不可写入" : n.value.generationActive ? "主剧情正在生成，请等待回复完成" : ""), F = w(() => m.value || h.value || r.value), W = w(() => $.value || n.value.message || (n.value.status !== "loading" && !f.value ? p.value : ""));
+    const r = w(() => n.value.status === "unconfirmed"), p = w(() => h.value ? "正在处理上一项银行操作" : m.value ? "正在刷新银行记录" : n.value.status !== "ready" ? n.value.message || "暂时不能交易" : n.value.generationActive ? "故事正在继续，请等回复结束" : ""), F = w(() => m.value || h.value || r.value), W = w(() => $.value || n.value.message || (n.value.status !== "loading" && !f.value ? p.value : ""));
     function O() {
       return typeof globalThis.crypto?.randomUUID == "function" ? `bank-ui:${globalThis.crypto.randomUUID()}` : `bank-ui:${Date.now()}:${Math.random().toString(36).slice(2, 10)}`;
     }
@@ -504,7 +504,7 @@ var fe = { class: "bank-dialog-subject" }, ge = { key: 0 }, ye = { class: "bank-
     }
     function x(d) {
       const o = d instanceof Error ? d.message : String(d);
-      return o.includes("economy_insufficient_funds") || o.includes("cannot be overdrawn") ? "可用小白币不足，开户未完成。" : o.includes("bank_amount_out_of_range") ? "开户金额不在该产品允许范围内。" : o.includes("bank_amount_invalid") ? "开户金额必须是正整数。" : o.includes("bank_revision_conflict") || o.includes("bank_event_id_conflict") ? "金库状态已变化，请关闭确认框并刷新后重试。" : o.includes("bank_position_missing") || o.includes("bank_position_state_changed") ? "该笔资产状态已经变化，请刷新金库。" : o.includes("bank_no_due_positions") ? "当前没有可领取的到期资产。" : o === "host_request_timeout" ? "等待保存结果超时，请保留当前页面并重试。" : "银行操作未完成，请稍后重试。";
+      return o.includes("economy_insufficient_funds") || o.includes("cannot be overdrawn") ? "小白币不足，这次交易未完成。" : o.includes("bank_amount_out_of_range") ? "金额不在该产品允许范围内。" : o.includes("bank_amount_invalid") ? "金额必须是正整数。" : o.includes("bank_revision_conflict") || o.includes("bank_event_id_conflict") ? "银行记录已有变化，请关闭确认框，刷新后再试。" : o.includes("bank_position_missing") || o.includes("bank_position_state_changed") ? "这笔资产已有变化，请刷新银行记录。" : o.includes("bank_no_due_positions") ? "当前没有可领取的到期资产。" : o === "host_request_timeout" ? "暂时没收到保存结果，请保留当前页面并重试。" : "银行操作未完成，请稍后重试。";
     }
     async function Z() {
       if (F.value) return;
@@ -646,12 +646,12 @@ var fe = { class: "bank-dialog-subject" }, ge = { key: 0 }, ye = { class: "bank-
         type: "button",
         disabled: m.value || h.value,
         onClick: J
-      }, l(m.value ? "正在核实…" : "核实保存结果"), 9, ea)) : n.value.status === "blocked" || n.value.status === "conflict" ? (s(), i("button", {
+      }, l(m.value ? "正在检查…" : "检查保存"), 9, ea)) : n.value.status === "blocked" || n.value.status === "conflict" ? (s(), i("button", {
         key: 1,
         type: "button",
         disabled: F.value,
         onClick: Z
-      }, l(m.value ? "正在读取…" : "重新读取银行"), 9, na)) : c("", !0)], 2)])) : c("", !0),
+      }, l(m.value ? "正在读取…" : "重新加载"), 9, na)) : c("", !0)], 2)])) : c("", !0),
       e("div", {
         ref_key: "content",
         ref: v,

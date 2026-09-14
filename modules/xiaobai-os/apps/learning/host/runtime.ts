@@ -67,7 +67,7 @@ export function createLearningRuntime(deps: {
             ? '学习文件已满，已暂停播放。请先导出或清理不需要的学习记录；腾出空间后再操作，会重试保存听取记录。'
             : repository.snapshot().status === 'ready'
                 ? '听取记录保存失败，已暂停播放。请重试刚才的操作，会先重试保存听取记录。'
-                : '听取记录未确认保存，请先核实保存再作答；原题保持不变。'; publish(); } });
+                : '还不确定播放记录是否保存成功，请先检查保存再作答；题目不会更换。'; publish(); } });
 
     function state(): LearningClientState {
         const snapshot = repository.snapshot();
@@ -88,8 +88,8 @@ export function createLearningRuntime(deps: {
         reply = null; replySelection = null;
     }
     function saved(result: { status: string }) {
-        if (result.status === 'unconfirmed') { message = '保存尚未确认。请先核实，不要重新生成或重复作答。'; }
-        else if (result.status === 'conflict') { message = '学习文件有另一版本。请先核实，或明确采用服务器内容。'; }
+        if (result.status === 'unconfirmed') { message = '还不确定是否保存成功。请先检查保存，不要重新生成或重复作答。'; }
+        else if (result.status === 'conflict') { message = '服务器上的学习记录与当前内容不同。请先检查保存，或使用已保存版本。'; }
         else if (result.status === 'failed') { message = '保存失败，已确认的内容保持不变，请重试。'; }
         return result.status === 'confirmed' || result.status === 'unchanged';
     }
@@ -99,7 +99,7 @@ export function createLearningRuntime(deps: {
         if (result === 'paid') { message = '学习奖励已到账。'; }
         else if (result === 'wallet-closed') { message = '学习已完成。开通当前聊天的钱包后即可领取奖励。'; }
         else if (result === 'other-story') { message = '学习成果已保留；奖励只能在开课的原聊天领取。'; }
-        else if (result !== 'cancelled') { message = '学习已完成，奖励尚未确认到账。请核实账本后再补领，不需要重新上课。'; }
+        else if (result !== 'cancelled') { message = '学习已完成，还不确定奖励是否到账。请先检查账本再补领，不需要重新上课。'; }
     }
     async function afterTeaching(result: LearningTeachingResult, guard: () => boolean, action: LearningAction['kind'], exerciseId?: string, selection: LearningSelection | null = null) {
         if (!guard()) { return; }
@@ -252,7 +252,7 @@ export function createLearningRuntime(deps: {
         const owned = epoch;
         const token = {};
         const guard = () => active() && epoch === owned;
-        job = token; message = ''; progress = '正在处理学习操作…';
+        job = token; message = ''; progress = '正在处理你的请求…';
         // Stop first so hearing facts cannot race a teacher snapshot or a submitted answer.
         speech.stop();
         void deps.execution.run(async () => {
@@ -318,7 +318,7 @@ export function createLearningRuntime(deps: {
             else if (name === 'rate' && !job) { speech.media.setRate(Number(input.value)); }
             else if (name === 'seek' && !job) { speech.media.seek(Number(input.value)); }
             else if (name === 'tts-settings') { speech.media.openSettings(); }
-            else if (name === 'cancel') { cancel(); message = '已停止本次操作；已发出的保存仍需核实。'; }
+            else if (name === 'cancel') { cancel(); message = '已停止本次操作；如果保存已经开始，仍需检查是否成功。'; }
             else if (name === 'forget-conversation' && !job) { teaching.reset(); reply = null; replySelection = null; message = ''; }
             else if (name === 'language' && !job) {
                 const selected = parseLearningLanguageTag(input.language, 'language');

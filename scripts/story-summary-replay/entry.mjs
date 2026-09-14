@@ -1278,6 +1278,7 @@ export async function runStorySummaryPromptAssemblyCheck() {
         prompts: { memoryTemplate: '{$剧情记忆}' },
         trigger: { wrapperHead: '', wrapperTail: '' },
         ui: { keepVisibleCount: 0 },
+        // Former user setting: assembly must ignore it and use the plugin budget.
         vector: { enabled: true, summarizedEvidenceBudget: 3000 },
     }));
 
@@ -1350,7 +1351,7 @@ export async function runStorySummaryPromptAssemblyCheck() {
             floor: 109,
             isUser: false,
             speaker: '角色',
-            text: `${evidenceMarkers.protected} ${'P'.repeat(4000)}`,
+            text: `${evidenceMarkers.protected} ${'P'.repeat(5500)}`,
             _directEvidenceTemporalCarrier: true,
             _directEvidencePassedMinScore: true,
         },
@@ -1359,7 +1360,7 @@ export async function runStorySummaryPromptAssemblyCheck() {
             floor: 105,
             isUser: false,
             speaker: '角色',
-            text: `${evidenceMarkers.ordinaryHigh} ${'H'.repeat(3000)}`,
+            text: `${evidenceMarkers.ordinaryHigh} ${'H'.repeat(4000)}`,
             _directEvidencePassedMinScore: true,
         },
         {
@@ -1367,7 +1368,7 @@ export async function runStorySummaryPromptAssemblyCheck() {
             floor: 101,
             isUser: false,
             speaker: '角色',
-            text: `${evidenceMarkers.temporalOverflow} ${'O'.repeat(3000)}`,
+            text: `${evidenceMarkers.temporalOverflow} ${'O'.repeat(4000)}`,
             _directEvidenceTemporalCarrier: true,
             _directEvidencePassedMinScore: true,
         },
@@ -1376,7 +1377,7 @@ export async function runStorySummaryPromptAssemblyCheck() {
             floor: 103,
             isUser: false,
             speaker: '角色',
-            text: `${evidenceMarkers.ordinaryLow} ${'L'.repeat(3000)}`,
+            text: `${evidenceMarkers.ordinaryLow} ${'L'.repeat(4000)}`,
             _directEvidencePassedMinScore: true,
         },
     ];

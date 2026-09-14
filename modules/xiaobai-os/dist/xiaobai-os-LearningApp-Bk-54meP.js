@@ -1075,7 +1075,7 @@ function Oa(e) {
       }, 35e3);
       return !v || l.value.chatIdentity !== y ? void 0 : (d === C && f.result.state.chatIdentity === y && (l.value = f.result.state), f.result);
     } catch {
-      v && l.value.chatIdentity === y && (r.value = "暂未收到操作结果。请先读取已保存内容，不要重复提交或生成。");
+      v && l.value.chatIdentity === y && (r.value = "暂时没收到操作结果。请先重新加载，确认是否已保存，不要重复提交或生成。");
     } finally {
       v && (m.value = !1);
     }
@@ -1263,31 +1263,31 @@ var Ka = {
           onClick: (jn) => H(o)
         }, u(W), 9, Fa)), 64))])], 544)
       ]),
-      !s(l).busy && (s(l).message || s(v) || s(l).storage !== "ready") ? (a(), n("div", Ea, [U(u(s(v) || s(l).message || (s(l).storage === "unconfirmed" ? "上次保存尚未确认，请先核实。" : s(l).storage === "conflict" ? "学习文件出现另一版本，请先核实。" : "暂时无法读取学习文件。")) + " ", 1), t("div", Ja, [
+      !s(l).busy && (s(l).message || s(v) || s(l).storage !== "ready") ? (a(), n("div", Ea, [U(u(s(v) || s(l).message || (s(l).storage === "unconfirmed" ? "还不确定上次是否保存成功，请先检查保存。" : s(l).storage === "conflict" ? "服务器上的学习记录与当前内容不同，请先检查保存。" : "暂时无法读取学习文件。")) + " ", 1), t("div", Ja, [
         s(l).storage === "unconfirmed" || s(l).storage === "conflict" ? (a(), n("button", {
           key: 0,
           type: "button",
           disabled: s(m),
           onClick: i[4] || (i[4] = (o) => s(d)("verify"))
-        }, "核实保存", 8, Wa)) : b("", !0),
+        }, "检查保存", 8, Wa)) : b("", !0),
         s(l).storage === "unconfirmed" ? (a(), n("button", {
           key: 1,
           type: "button",
           disabled: s(m),
           onClick: i[5] || (i[5] = (o) => s(d)("retry-save"))
-        }, "重试原保存", 8, Qa)) : b("", !0),
+        }, "重试保存", 8, Qa)) : b("", !0),
         s(l).storage === "conflict" ? (a(), n("button", {
           key: 2,
           type: "button",
           disabled: s(m),
-          onClick: i[6] || (i[6] = (o) => J("adopt-server", {}, "采用服务器上的学习文件？未确认的本次修改将不再作为候选保留。"))
-        }, "采用服务器版本", 8, Xa)) : b("", !0),
+          onClick: i[6] || (i[6] = (o) => J("adopt-server", {}, "使用服务器上已保存的学习记录？这次尚未确认保存的修改将被放弃。"))
+        }, "使用已保存版本", 8, Xa)) : b("", !0),
         s(l).storage === "unloaded" || s(v) ? (a(), n("button", {
           key: 3,
           type: "button",
           disabled: s(m),
           onClick: i[7] || (i[7] = (o) => s(d)("read"))
-        }, "重试读取", 8, Ya)) : b("", !0)
+        }, "重新加载", 8, Ya)) : b("", !0)
       ])])) : b("", !0),
       K(V(ja, {
         ref_key: "conversation",
@@ -1314,7 +1314,7 @@ var Ka = {
             class: "learning-working-dot",
             "aria-hidden": "true"
           }, null, -1)),
-          t("span", null, u(s(l).message || "正在处理学习操作…"), 1),
+          t("span", null, u(s(l).message || "正在处理你的请求…"), 1),
           t("button", {
             type: "button",
             disabled: s(m),
@@ -1426,20 +1426,20 @@ var Ka = {
                 unitId: o.unitId,
                 openWallet: !s(l).walletOpen
               })
-            }, u(s(l).walletOpen ? "核实并补领" : "开通钱包并领取"), 9, kn)) : b("", !0)
+            }, u(s(l).walletOpen ? "检查并补领" : "开通钱包并领取"), 9, kn)) : b("", !0)
           ]))), 128)),
           s(l).chatStorage === "unconfirmed" || s(l).chatStorage === "conflict" || s(l).chatStorage === "failed" ? (a(), n("button", {
             key: 1,
             type: "button",
             disabled: s(m) || s(l).busy,
             onClick: i[12] || (i[12] = (o) => s(d)("verify-wallet"))
-          }, "核实账本保存", 8, fn)) : b("", !0),
+          }, "检查账本保存", 8, fn)) : b("", !0),
           s(l).chatStorage === "conflict" ? (a(), n("button", {
             key: 2,
             type: "button",
             disabled: s(m) || s(l).busy,
-            onClick: i[13] || (i[13] = (o) => J("adopt-wallet", {}, "采用服务器上的聊天账本？本次未确认的候选将被放下，之后可凭已保存的学习完成记录核实并补领。"))
-          }, "采用服务器账本", 8, pn)) : b("", !0),
+            onClick: i[13] || (i[13] = (o) => J("adopt-wallet", {}, "使用服务器上已保存的聊天账本？这次尚未确认保存的修改将被放弃。已完成的课程仍可检查并补领奖励。"))
+          }, "使用已保存账本", 8, pn)) : b("", !0),
           s(l).completions.length > 20 ? (a(), n("div", $n, [t("button", {
             type: "button",
             disabled: w.value === 0,
@@ -1485,7 +1485,7 @@ var Ka = {
                 maxlength: "80",
                 placeholder: "en / ja"
               }, null, 512), [[Y, E.value]])]),
-              t("label", null, [i[42] || (i[42] = U("合成语速", -1)), K(t("select", { "onUpdate:modelValue": i[20] || (i[20] = (o) => A.value = o) }, [...i[41] || (i[41] = [
+              t("label", null, [i[42] || (i[42] = U("语速", -1)), K(t("select", { "onUpdate:modelValue": i[20] || (i[20] = (o) => A.value = o) }, [...i[41] || (i[41] = [
                 t("option", { value: 0.75 }, "0.75×", -1),
                 t("option", { value: 1 }, "1×", -1),
                 t("option", { value: 1.25 }, "1.25×", -1)
@@ -1493,7 +1493,7 @@ var Ka = {
               t("button", {
                 type: "submit",
                 disabled: !s(r) || !s(l).profile
-              }, "保存声音偏好", 8, Sn)
+              }, "保存声音设置", 8, Sn)
             ], 32)) : (a(), n("p", An, "使用语音前，请先开启 TTS 模块。文字学习不受影响。")),
             t("button", {
               type: "button",
@@ -1506,7 +1506,7 @@ var Ka = {
             t("button", {
               type: "button",
               disabled: s(m) || s(l).busy,
-              onClick: i[23] || (i[23] = (o) => J("forget-conversation", {}, "清空和当前老师的临时对话？目标、课件、学习记录和奖励都会保留。"))
+              onClick: i[23] || (i[23] = (o) => J("forget-conversation", {}, "清空和当前老师的对话？目标、课件、学习记录和奖励都会保留。"))
             }, "清空师生对话", 8, Ln),
             t("button", {
               type: "button",
@@ -1517,12 +1517,12 @@ var Ka = {
               type: "button",
               disabled: s(m) || s(l).busy,
               onClick: i[24] || (i[24] = (o) => s(d)("read"))
-            }, "重新读取保存内容", 8, Vn),
+            }, "重新加载", 8, Vn),
             s(l).unit || s(l).blockedUnit ? (a(), n("button", {
               key: 0,
               type: "button",
               disabled: !s(r),
-              onClick: i[25] || (i[25] = (o) => J("abandon", {}, "放下当前这一课？本课课件、原答和笔记会移除；已被学习项保留的证据和完成奖励资格仍保留。"))
+              onClick: i[25] || (i[25] = (o) => J("abandon", {}, "放下当前这一课？本课课件、作答和笔记会删除；学习记录中留存的作答和已获得的奖励资格会保留。"))
             }, "放下当前课件", 8, Rn)) : b("", !0),
             t("button", {
               type: "button",

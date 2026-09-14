@@ -94,7 +94,7 @@ var Je = Object.create, Ne = Object.defineProperty, Ye = Object.getOwnPropertyDe
       (t.value === l.content || window.confirm("放弃尚未保存的记忆修改？")) && f("close");
     }
     function h() {
-      window.confirm("清空皮下记忆？聊天原文仍保留，已归档的内容不会自动重新送入上下文。") && (t.value = "", f("save", ""));
+      window.confirm("清空皮下记忆？聊天记录会保留，但已总结过的旧消息不会自动再发给模型。") && (t.value = "", f("save", ""));
     }
     return (_, p) => (I(), ne(qe, {
       class: "fourth-wall-memory fourth-wall-dialog",
@@ -3471,14 +3471,14 @@ var na = ["data-message-index"], sa = ["src"], ia = {
       if (!l.imageAvailable) {
         p[r] = {
           status: "unavailable",
-          message: "画图能力未启用"
+          message: "请先开启画图功能"
         };
         return;
       }
       const n = F("image", r);
       k.add(n), p[r] = {
         status: "loading",
-        message: "查询图片缓存",
+        message: "正在加载图片",
         requestId: n
       };
       const i = {
@@ -3495,7 +3495,7 @@ var na = ["data-message-index"], sa = ["src"], ia = {
         if (!c.available) {
           p[r] = {
             status: "unavailable",
-            message: "画图能力未启用",
+            message: "请先开启画图功能",
             requestId: n
           };
           return;
@@ -3533,7 +3533,7 @@ var na = ["data-message-index"], sa = ["src"], ia = {
       if (!l.voiceAvailable) {
         p[r] = {
           status: "unavailable",
-          message: "TTS 能力未启用"
+          message: "请先开启 TTS 语音"
         };
         return;
       }
@@ -4045,7 +4045,7 @@ var na = ["data-message-index"], sa = ["src"], ia = {
       ]),
       v("section", Ya, [
         y[17] || (y[17] = v("h3", null, "上下文", -1)),
-        v("label", null, [y[14] || (y[14] = x("普通聊天层数", -1)), Q(v("input", {
+        v("label", null, [y[14] || (y[14] = x("带入的主聊天楼层数", -1)), Q(v("input", {
           "onUpdate:modelValue": y[5] || (y[5] = (z) => t.maxChatLayers = z),
           type: "number",
           min: "1",
@@ -4060,7 +4060,7 @@ var na = ["data-message-index"], sa = ["src"], ia = {
           "onUpdate:modelValue": y[6] || (y[6] = (z) => t.stream = z),
           type: "checkbox"
         }, null, 512), [[ie, t.stream]])]),
-        v("label", et, [y[16] || (y[16] = v("span", null, "禁用 Assistant Prefill", -1)), Q(v("input", {
+        v("label", et, [y[16] || (y[16] = v("span", null, "禁用助手预填充", -1)), Q(v("input", {
           "onUpdate:modelValue": y[7] || (y[7] = (z) => t.disableAssistantPrefill = z),
           type: "checkbox"
         }, null, 512), [[ie, t.disableAssistantPrefill]])]),
@@ -4072,12 +4072,12 @@ var na = ["data-message-index"], sa = ["src"], ia = {
         }, "保存上下文设置", 8, rt)
       ]),
       v("section", at, [
-        y[21] || (y[21] = v("h3", null, "能力", -1)),
-        v("label", tt, [y[18] || (y[18] = v("span", null, "在提示词中允许图片", -1)), Q(v("input", {
+        y[21] || (y[21] = v("h3", null, "回复方式", -1)),
+        v("label", tt, [y[18] || (y[18] = v("span", null, "允许对方发图片", -1)), Q(v("input", {
           "onUpdate:modelValue": y[8] || (y[8] = (z) => h.image.enablePrompt = z),
           type: "checkbox"
         }, null, 512), [[ie, h.image.enablePrompt]])]),
-        v("label", nt, [y[19] || (y[19] = v("span", null, "在提示词中允许语音", -1)), Q(v("input", {
+        v("label", nt, [y[19] || (y[19] = v("span", null, "允许对方发语音", -1)), Q(v("input", {
           "onUpdate:modelValue": y[9] || (y[9] = (z) => h.voice.enabled = z),
           type: "checkbox"
         }, null, 512), [[ie, h.voice.enabled]])]),
@@ -4101,7 +4101,7 @@ var na = ["data-message-index"], sa = ["src"], ia = {
           class: "is-primary",
           disabled: u.busy,
           onClick: p
-        }, "保存能力设置", 8, ot)
+        }, "保存设置", 8, ot)
       ]),
       v("section", lt, [v("button", {
         type: "button",
@@ -4191,7 +4191,7 @@ var na = ["data-message-index"], sa = ["src"], ia = {
             content: E
           }, ue);
         } catch (w) {
-          _.value = `发送请求未确认：${w instanceof Error ? w.message : String(w)}。请核对聊天记录后再发送。原输入：${E}`, $.value.status = "idle";
+          _.value = `还不确定是否发送成功：${w instanceof Error ? w.message : String(w)}。请核对聊天记录后再发送。原输入：${E}`, $.value.status = "idle";
         }
       }
     }
@@ -4223,7 +4223,7 @@ var na = ["data-message-index"], sa = ["src"], ia = {
       E.key !== "Enter" || E.shiftKey || p.value || (E.preventDefault(), q.value ? s() : i());
     }
     function P(E) {
-      const w = E < D.value.archivedCount ? `这条消息已经归档；删除原文不会修改记忆，需要遗忘的内容请在记忆中删除。
+      const w = E < D.value.archivedCount ? `这条消息已记入皮下记忆；删除消息不会让对方忘记，需要遗忘的内容请到皮下记忆中删除。
 ` : "";
       window.confirm(`${w}确定删除这条消息吗？`) && n("fourth-wall/delete-message", {
         ...a(),
@@ -4241,7 +4241,7 @@ var na = ["data-message-index"], sa = ["src"], ia = {
       }) && (k.value = !1);
     }
     async function o(E, w, L) {
-      E < D.value.archivedCount && !window.confirm("这条消息已经归档，修改原文不会改写记忆；需要同步更正时请编辑记忆。继续修改？") || await n("fourth-wall/edit-message", {
+      E < D.value.archivedCount && !window.confirm("这条消息已记入皮下记忆，修改消息不会同时修改记忆；需要更正时请另行编辑皮下记忆。继续修改？") || await n("fourth-wall/edit-message", {
         ...a(),
         revision: L,
         messageIndex: E,

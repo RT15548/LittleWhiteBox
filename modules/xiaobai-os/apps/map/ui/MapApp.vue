@@ -118,10 +118,10 @@ useAppBack(() => {
             <div v-if="status" class="map-progress" role="status"><span />{{ status }}</div>
             <aside v-if="threeNotice" class="map-notice" role="status"><p>{{ threeNotice }}</p><button type="button" class="map-notice-close" aria-label="关闭三维提示" @click="threeNotice = ''"><MapIcon name="close" /></button></aside>
             <aside v-if="notice || requiresConfirmation || state.status === 'conflict'" class="map-notice" :class="{ 'is-error': isError }" role="status">
-                <p>{{ notice || (requiresConfirmation ? '保存结果尚未确认。' : '保存的版本不一致。') }}</p>
-                <button v-if="requiresConfirmation" type="button" :disabled="busy" @click="confirmSave">核实保存结果</button>
+                <p>{{ notice || (requiresConfirmation ? '还不确定是否保存成功，请先检查保存。' : '服务器上的存档与当前内容不同。') }}</p>
+                <button v-if="requiresConfirmation" type="button" :disabled="busy" @click="confirmSave">检查保存</button>
                 <template v-else-if="state.status === 'conflict'"><small>恢复会放弃尚未保存的更改，并使用当前聊天已保存的 OS 数据（不只是地图）。</small><button type="button" :disabled="busy" @click="adopt">放弃未保存更改并恢复</button></template>
-                <button v-else-if="state.status === 'error' || state.status === 'blocked'" type="button" :disabled="busy" @click="refresh">重新读取</button>
+                <button v-else-if="state.status === 'error' || state.status === 'blocked'" type="button" :disabled="busy" @click="refresh">重新加载</button>
                 <button v-else type="button" class="map-notice-close" aria-label="关闭地图提示" @click="dismissNotice"><MapIcon name="close" /></button>
             </aside>
         </div>
