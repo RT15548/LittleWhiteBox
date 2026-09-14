@@ -2,6 +2,7 @@ import { getRequestHeaders } from '../../../../../../../script.js';
 import { extensionFolderPath } from '../../../core/constants.js';
 import { createAgentApiModule } from '../apps/agent-api/module.js';
 import { createProductionBankModule } from '../apps/bank/production-module.js';
+import { createProductionDiceModule } from '../apps/dice/production-module.js';
 import { createProductionFourthWallModule } from '../apps/fourth-wall/production-module.js';
 import { createProductionGameModule } from '../apps/game/production-module.js';
 import { createProductionLearningModule } from '../apps/learning/production-module.js';
@@ -113,6 +114,7 @@ export function createProductionBootstrap(
     ];
 
     const modules = [
+        createProductionDiceModule(),
         createAgentApiModule(),
         createProductionFourthWallModule(settings, upstreamFourthWall),
         createProductionMessagesModule(mainGeneration, settings),

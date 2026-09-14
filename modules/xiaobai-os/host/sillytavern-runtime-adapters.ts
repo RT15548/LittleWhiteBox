@@ -32,7 +32,7 @@ export function subscribeShopPromptEvents(handlers: ShopPromptEventHandlers): ()
     const key = 'xiaobai_os_shop_effects';
     const events = createModuleEvents('xiaobaiOsShopPrompt');
     events.on(event_types.GENERATION_STARTED, (type: unknown, _options: unknown, dryRun: unknown) => {
-        handlers.generationStarted({ type: String(type || ''), dryRun: Boolean(dryRun) });
+        if (!dryRun) { handlers.generationStarted({ type: String(type || ''), dryRun: false }); }
     });
     registerGenerateInterceptor(key, (
         _chat: unknown,
@@ -40,7 +40,7 @@ export function subscribeShopPromptEvents(handlers: ShopPromptEventHandlers): ()
         _abort: unknown,
         type: unknown,
     ) => handlers.intercept({ type: String(type || '') }), GENERATE_INTERCEPTOR_ORDER.XIAOBAI_OS_SHOP);
-    events.on(event_types.GENERATE_AFTER_DATA, handlers.requestBuilt);
+    events.on(event_types.GENERATE_AFTER_DATA, (_data: unknown, dryRun: unknown) => { if (!dryRun) { handlers.requestBuilt(); } });
     events.on(event_types.GENERATION_ENDED, handlers.generationEnded);
     events.on(event_types.GENERATION_STOPPED, handlers.generationStopped);
     events.on(event_types.MESSAGE_RECEIVED, handlers.messageReceived);
@@ -57,10 +57,9 @@ function subscribeSimplePromptEvents(
     handlers: SimplePromptHandlers,
 ): () => void {
     const events = createModuleEvents(moduleId);
-    let dryRun = false;
     events.on(event_types.GENERATION_STARTED, (_type: unknown, _options: unknown, value: unknown) => {
-        handlers.generationStarted();
-        dryRun = Boolean(value);
+        // Native dry runs skip interceptors and never own the pending real request's prompt.
+        if (!value) { handlers.generationStarted(); }
     });
     registerGenerateInterceptor(key, (
         _chat: unknown,
@@ -69,21 +68,15 @@ function subscribeSimplePromptEvents(
         type: unknown,
     ) => {
         const generationType = String(type || '');
-        if (dryRun || !['', 'normal', 'regenerate', 'swipe', 'continue'].includes(generationType)) {
+        if (!['', 'normal', 'regenerate', 'swipe', 'continue'].includes(generationType)) {
             handlers.generationStopped();
             return;
         }
         handlers.intercept();
     }, order);
-    events.on(event_types.GENERATE_AFTER_DATA, handlers.requestBuilt);
-    events.on(event_types.GENERATION_ENDED, () => {
-        dryRun = false;
-        handlers.generationEnded();
-    });
-    events.on(event_types.GENERATION_STOPPED, () => {
-        dryRun = false;
-        handlers.generationStopped();
-    });
+    events.on(event_types.GENERATE_AFTER_DATA, (_data: unknown, dryRun: unknown) => { if (!dryRun) { handlers.requestBuilt(); } });
+    events.on(event_types.GENERATION_ENDED, handlers.generationEnded);
+    events.on(event_types.GENERATION_STOPPED, handlers.generationStopped);
     return () => {
         unregisterGenerateInterceptor(key);
         events.cleanup();
