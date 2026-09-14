@@ -1681,6 +1681,11 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
             { evidenceMinSimilarity: CONFIG.EVENT_EVIDENCE_MIN_SIMILARITY },
         );
 
+        // Cap lexical event merge to match the dense path (EVENT_CANDIDATE_MAX).
+        // lexicalResult.eventIds 已按词法加权分降序，此处只对通过 dense gate 的候选计数；
+        // 达到上限即停止，避免事件候选爆量（event rerank 只精排前 60、预算也只放得下 ~50 条）。
+        if (lexicalEventCount >= CONFIG.EVENT_CANDIDATE_MAX) break;
+
         eventHits.push({
             event: ev,
             similarity: sim,
