@@ -241,6 +241,10 @@ function detectAsianLanguage(text) {
 const PLACEHOLDER_PREFIX = '\uE000\uE010';
 const PLACEHOLDER_SUFFIX = '\uE001';
 
+// 完整占位符匹配。由上面两个常量派生，避免格式定义出现第二份；
+// 与 String.prototype.replace + /g 配合使用，不依赖正则的 lastIndex 状态。
+const PLACEHOLDER_PATTERN = new RegExp(`${PLACEHOLDER_PREFIX}\\d+${PLACEHOLDER_SUFFIX}`, 'g');
+
 /**
  * 在文本中执行实体最长匹配，替换为占位符
  *
@@ -673,8 +677,18 @@ function tokenizeCore(text) {
     // 1. 实体保护
     const { masked, entities } = maskEntities(input);
 
+    // 1.5 预先抽出完整占位符。
+    // 占位符里的 ASCII 序号会被 segmentByScript 判成 latin 段（两侧 PUA 是 other 段），
+    // 而下面只消费 asian/latin 段，碎片因此永远进不了 unmaskTokens —— 实体词被静默丢弃。
+    // 先整体抽出、用空格占位，随后作为独立 token 加回，交 unmaskTokens 还原成实体原词。
+    const keptPlaceholders = [];
+    const maskedForSeg = masked.replace(PLACEHOLDER_PATTERN, (placeholder) => {
+        keptPlaceholders.push(placeholder);
+        return ' ';
+    });
+
     // 2. 分段
-    const segments = segmentByScript(masked);
+    const segments = segmentByScript(maskedForSeg);
 
     // 3. 分段分词
     const rawTokens = [];
@@ -692,6 +706,9 @@ function tokenizeCore(text) {
             rawTokens.push(...tokenizeLatin(seg.text));
         }
     }
+
+    // 3.5 加回预先抽出的占位符（无实体时为空数组，行为与改动前一致）
+    rawTokens.push(...keptPlaceholders);
 
     // 4. 还原占位符
     return unmaskTokens(rawTokens, entities);
