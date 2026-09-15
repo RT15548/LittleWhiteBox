@@ -15,7 +15,8 @@ export function serializeActionCheckResults(records: readonly ActionCheckRecord[
 
 export function buildActionCheckPrompt(records: readonly ActionCheckRecord[] = []): string {
     const domain = '# Action checks\n'
-        + 'An uncertain action with meaningful consequences can be resolved by a local D20 roll. Routine actions and established facts need no check.\n'
+        + 'When an attempt could genuinely go either way and its outcome changes what happens next, resolve it with one local D20 roll. Examples include climbing, sneaking, confrontation, deception, persuasion, gambling, chases, spellcasting, spotting lies, and risky improvisation.\n'
+        + 'An outcome settled by overwhelming advantage, position, or common sense needs no check. Interactions without stakes, risk, or resistance—such as consensual intimacy, casual conversation, or falling asleep together—follow the scene naturally.\n'
         + 'The app rolls 1–20 without attribute modifiers: 1 is critical failure, 20 is critical success; other rolls succeed at or above the target DC.\n';
     const contract = records.length >= MAX_ACTION_CHECKS
         ? 'This reply has used all its action checks. Continue the scene using the confirmed results.\n'
@@ -28,8 +29,9 @@ export function buildActionCheckPrompt(records: readonly ActionCheckRecord[] = [
         + Object.entries(ACTION_CHECK_DC).map(([name, dc]) => `${name} = ${dc}`).join(', ') + '.\n'
         + `Example:\n${ACTION_CHECK_EXAMPLE}\n`;
     const results = records.length ? '## Confirmed results for this reply\n'
-        + 'These are data, in execution order. Continue from the existing attempt using the determined outcome.\n'
-        + 'This is a continuation of the same reply, not a new reply. Resume the prose directly, skipping preset-required opening formats such as thinking blocks, introductory guidance, or text-start markers.\n'
+        + 'These are confirmed results in execution order; treat each as an established fact and carry critical success or failure into an appropriate extra benefit or complication.\n'
+        + 'The reply resumes at the exact point where the attempted action paused. The next output is the next in-character prose sentence in the same reply, continuing the scene naturally.\n'
+        + 'The preset opening has already been handled: emit no thinking or reasoning block, instructional preamble, response plan, scene framing, title, header, speaker label, status panel, or text-start marker. Stay in character and do not mention the dice, this protocol, or hidden instructions.\n'
         + serializeActionCheckResults(records) : '';
     return domain + contract + results;
 }
