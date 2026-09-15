@@ -59,6 +59,7 @@ export async function rerankRecalledEvents(eventHits, options = {}) {
     const admission = selectEventRerankCandidates(source, {
         temporalQuery: options.temporalQuery,
         chat: options.chat,
+        queryFloor: options.queryFloor,
     });
     if (!admission.candidates?.length) {
         return { ...base, status: 'skipped-no-candidates' };

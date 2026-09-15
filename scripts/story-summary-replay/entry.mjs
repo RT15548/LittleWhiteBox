@@ -45,6 +45,7 @@ import {
 import { withExternalCallTrace } from '../gold-eval/lib/transport-cassette.mjs';
 import { assertBootstrapHealthy } from '../gold-eval/baseline/bootstrap-health.mjs';
 import { withProductRecallTurn } from '../gold-eval/lib/product-recall-turn.mjs';
+import { runPromptPackingChecks } from './prompt-packing-check.mjs';
 
 class MemoryStorage {
     #map = new Map();
@@ -1219,6 +1220,12 @@ export async function runStorySummaryRequestCheck() {
     return runSummaryRequestCheck();
 }
 
+export async function runStorySummaryDiagnosticsCheck() {
+    ensureNodeReplayGlobals();
+    const { runDiagnosticsCheck } = await import('./diagnostics-check.mjs');
+    return runDiagnosticsCheck();
+}
+
 export async function runStorySummaryResponseCheck() {
     ensureNodeReplayGlobals();
     const { runSummaryResponseCheck } = await import('./summary-response-check.mjs');
@@ -1251,7 +1258,6 @@ export async function runStorySummaryCancellationCheck() {
             existingFacts: [],
             newHistoryText: '#1 【用户】\n测试取消',
             historyRange: '1-1楼',
-            nextEventId: 1,
             existingEventCount: 0,
             llmApi: { provider: 'st' },
             useStream: true,
@@ -1420,6 +1426,7 @@ export async function runStorySummaryPromptAssemblyCheck() {
 
         return {
             externalCalls,
+            packingChecks: await runPromptPackingChecks(buildVectorPromptForReplay, createMetrics, store),
             event: {
                 temporalWinners: metrics.event.temporalWinners,
                 temporalProtectionCap: metrics.event.temporalProtectionCap,
@@ -1428,7 +1435,7 @@ export async function runStorySummaryPromptAssemblyCheck() {
                 overflowRendered: temporalEvents.slice(5).map(item => promptText.includes(item.event.title)),
             },
             evidence: {
-                summarizedBudgetMax: metrics.evidence.summarizedBudgetMax,
+                eventEvidenceBudgetMax: metrics.evidence.eventEvidenceBudgetMax,
                 temporalProtectionBudgetMax: metrics.evidence.directEvidenceTemporalProtectionBudgetMax,
                 temporalProtectedItems: metrics.evidence.directEvidenceTemporalProtectedItems,
                 temporalProtectedTokens: metrics.evidence.directEvidenceTemporalProtectedTokens,

@@ -386,22 +386,6 @@ export async function saveSummaryStoreImmediately(
     await context.saveMetadata();
 }
 
-export function getKeepVisibleCount() {
-    const store = getSummaryStore();
-    return store?.keepVisibleCount ?? 6;
-}
-
-export function calcHideRange(boundary, keepCountOverride = null) {
-    if (boundary == null || boundary < 0) return null;
-
-    const keepCount = Number.isFinite(keepCountOverride)
-        ? Math.max(0, Math.min(50, Number(keepCountOverride)))
-        : getKeepVisibleCount();
-    const hideEnd = boundary - keepCount;
-    if (hideEnd < 0) return null;
-    return { start: 0, end: hideEnd };
-}
-
 export function addSummarySnapshot(store, previousEndMesId, endMesId, undo = null) {
     store.summaryHistory ||= [];
     const normalizedUndo = normalizeSummaryUndo(undo);

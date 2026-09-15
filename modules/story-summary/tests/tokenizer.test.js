@@ -125,3 +125,24 @@ test('numeric entity names do not collide with placeholder digits', () => {
         reset();
     }
 });
+
+test('case expansion and normalization do not consume neighboring names or words', () => {
+    injectEntities(new Set(['İbrahim', 'Alice', 'Ann']));
+    try {
+        assert.deepEqual(tokenizeForIndex('İbrahim与Alice arrived'), ['i̇brahim', 'alice', 'arrived']);
+        assert.deepEqual(tokenizeForIndex('Ａｌｉｃｅ arrived'), ['alice', 'arrived']);
+        assert.deepEqual(tokenizeForIndex('anniversary celebration'), ['anniversary', 'celebration']);
+    } finally {
+        reset();
+    }
+});
+
+test('an alias keeps its original spelling as a searchable term', () => {
+    injectEntities(new Set(['黑衣人', '雪照宁']), new Map([['黑衣人', '雪照宁'], ['雪照宁', '雪照宁']]));
+    try {
+        assert.ok(tokenizeForIndex('黑衣人来了').includes('黑衣人'));
+        assert.ok(!tokenizeForIndex('黑衣人来了').includes('雪照宁'));
+    } finally {
+        reset();
+    }
+});

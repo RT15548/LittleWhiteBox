@@ -7,7 +7,7 @@
 //
 // v8 → v9 变更：
 // - recallEvents() 返回 { events, scoreMap }，event 向量只按候选临时取回给 MMR
-// - Lexical Event 合并前验 dense similarity ≥ 0.50（CONFIG.LEXICAL_EVENT_DENSE_MIN）
+// - Lexical Event 合并前验 CONFIG.LEXICAL_EVENT_DENSE_MIN
 // - Lexical Floor 进入融合前验 dense similarity ≥ 0.50（CONFIG.LEXICAL_FLOOR_DENSE_MIN）
 // - Entity Bypass 阈值 0.85 → 0.80（CONFIG.EVENT_ENTITY_BYPASS_SIM）
 // - metrics 新增 lexical.eventFilteredByDense / lexical.floorFilteredByDense
@@ -54,9 +54,12 @@ import {
 } from './query-builder.js';
 import { getLexicalIndex, searchLexicalIndex } from './lexical-index.js';
 import { getRerankBatchDiagnostics, rerankChunks } from '../llm/reranker.js';
-import { createMetrics, calcSimilarityStats } from './metrics.js';
+import { createMetrics, calcSimilarityStats, finalizeMetricsTiming } from './metrics.js';
+import { recordRecallFallback } from '../../recall-diagnostics.js';
+import { formatErrorDetails } from '../../../../core/error-details.js';
 import { tokenizeForIndex } from '../utils/tokenizer.js';
 import { rerankRecalledEvents } from './event-rerank.js';
+import { selectBoundedEventCandidates } from './event-candidate-selection.js';
 import { rankSelectedDirectEvidence } from './direct-evidence-retrieval.js';
 import { buildSemanticRecallInputs } from './semantic-query.js';
 import {
@@ -85,13 +88,15 @@ function observeRecallStage(observer, stage, ranked, value = undefined) {
 
 function recordExternalFailure(metrics, failure) {
     if (!metrics?.external?.failures || !failure) return;
+    const details = failure.error?.embeddingFailure || failure;
     metrics.external.failures.push({
         stage: String(failure.stage || 'unknown'),
-        kind: String(failure.kind || 'unknown'),
-        status: Number.isInteger(failure.status) ? failure.status : null,
+        kind: String(details.kind || 'unknown'),
+        status: Number.isInteger(details.status) ? details.status : null,
         attempt: Number.isInteger(failure.attempt) ? failure.attempt : null,
         batchIndex: Number.isInteger(failure.batchIndex) ? failure.batchIndex : null,
         elapsedMs: Number.isFinite(failure.elapsedMs) ? failure.elapsedMs : null,
+        message: failure.error ? formatErrorDetails(failure.error, { includeStack: false }) : '',
     });
 }
 
@@ -399,12 +404,7 @@ async function recallEvents(queryVector, allEvents, vectorConfig, focusCharacter
 
     let candidates = scored
         .filter(s => s.similarity >= CONFIG.EVENT_MIN_SIMILARITY)
-        .sort((a, b) => b.similarity - a.similarity)
-        .slice(0, CONFIG.EVENT_CANDIDATE_MAX);
-
-    if (metrics) {
-        metrics.event.considered = candidates.length;
-    }
+        .sort((a, b) => b.similarity - a.similarity);
 
     // 实体过滤（准入规则不变：强语义 bypass 或明确谈焦点人物）
     if (focusSet.size > 0) {
@@ -425,6 +425,10 @@ async function recallEvents(queryVector, allEvents, vectorConfig, focusCharacter
         }
     }
 
+    candidates = selectBoundedEventCandidates(
+        candidates, CONFIG.EVENT_CANDIDATE_MAX, snapshot?.temporalCarrier?.exactFloors,
+    ).candidates;
+    if (metrics) metrics.event.considered = candidates.length;
     const candidateEventIds = candidates.map(c => c._id).filter(Boolean);
     const candidateVectors = await getRecallRuntimeEventVectorsByIds(chatId, candidateEventIds, { signal });
     if (metrics) {
@@ -442,12 +446,15 @@ async function recallEvents(queryVector, allEvents, vectorConfig, focusCharacter
         xbLog.warn(MODULE_ID, `L2候选向量缺失 ${missingCandidateVectors}/${candidateEventIds.length}，MMR diversity 可能退化`);
     }
     // MMR 选择
-    const selected = mmrSelect(
+    const diversified = mmrSelect(
         candidates,
         CONFIG.EVENT_SELECT_MAX,
         CONFIG.EVENT_MMR_LAMBDA,
         c => c.vector,
         c => c.similarity
+    );
+    const { candidates: selected } = selectBoundedEventCandidates(
+        candidates, CONFIG.EVENT_SELECT_MAX, snapshot?.temporalCarrier?.exactFloors, diversified,
     );
 
     let directCount = 0;
@@ -1207,6 +1214,7 @@ async function buildL1PairsForSelectedFloors(l0Selected, queryVector, prefetched
 
 export async function hydrateSelectedDirectEvidence(selectedDirect, context, metrics) {
     const startedAt = performance.now();
+    if (context?.diagnostics) context.diagnostics.stage = 'direct-evidence';
     try {
         const result = await rankSelectedDirectEvidence(selectedDirect, context);
         const elapsedMs = Math.round(performance.now() - startedAt);
@@ -1241,30 +1249,29 @@ export async function hydrateSelectedDirectEvidence(selectedDirect, context, met
             metrics.timing.directEvidenceVectorScore = Number(stats.vectorScoreMs || 0);
             metrics.timing.directEvidenceRerank = Number(stats.rerankMs || 0);
             metrics.timing.directEvidenceRetrieval = elapsedMs;
-            metrics.timing.total = Number(metrics.timing.total || 0) + elapsedMs;
-            metrics.timing.externalTotal = Number(metrics.timing.externalTotal || 0) + Number(stats.rerankMs || 0);
-            metrics.timing.localKnownTotal = Number(metrics.timing.localKnownTotal || 0)
-                + Math.max(0, elapsedMs - Number(stats.rerankMs || 0));
         }
         for (const failure of diagnostics.failures) {
             recordExternalFailure(metrics, { stage: 'direct-evidence-rerank', ...failure });
+        }
+        if (['incomplete-rerank', 'incomplete-vectors'].includes(result.status)) {
+            recordRecallFallback(context?.diagnostics, 'direct-evidence', result.status);
         }
         return result;
     } catch (error) {
         if (error?.name === 'AbortError') throw error;
         const elapsedMs = Math.round(performance.now() - startedAt);
         xbLog.warn(MODULE_ID, 'DIRECT evidence retrieval failed; keep the existing evidence path', error);
+        recordRecallFallback(context?.diagnostics, 'direct-evidence', error);
         if (metrics?.evidence) {
             metrics.evidence.directEvidenceStatus = 'failed';
             metrics.evidence.directEvidenceItems = 0;
         }
         if (metrics?.timing) {
             metrics.timing.directEvidenceRetrieval = elapsedMs;
-            metrics.timing.total = Number(metrics.timing.total || 0) + elapsedMs;
-            metrics.timing.localKnownTotal = Number(metrics.timing.localKnownTotal || 0) + elapsedMs;
         }
         return { items: [], status: 'failed', diagnostics: getRerankBatchDiagnostics([]), stats: {} };
     } finally {
+        if (metrics?.timing) metrics.timing.directEvidenceRetrieval = Math.round(performance.now() - startedAt);
         await releaseDirectEvidenceContext(context, metrics);
     }
 }
@@ -1275,6 +1282,7 @@ export async function releaseDirectEvidenceContext(context, metrics) {
         return await releaseDirectEvidenceRuntimeLease(context, endRecallRuntimeSession);
     } catch (error) {
         xbLog.warn(MODULE_ID, 'Deferred DIRECT evidence runtime session release failed', error);
+        recordRecallFallback(context?.diagnostics, 'runtime-release', error);
         return false;
     } finally {
         if (metrics?.timing) {
@@ -1285,35 +1293,7 @@ export async function releaseDirectEvidenceContext(context, metrics) {
 }
 
 function finalizeRecallTiming(metrics, totalStart) {
-    if (!metrics?.timing) return;
-    const timing = metrics.timing;
-    timing.total = Math.round(performance.now() - totalStart);
-
-    const lexicalTotal = (metrics.lexical?.searchTime || 0) + (metrics.lexical?.indexReadyTime || 0);
-    const externalTotal =
-        (timing.round1Embed || 0) +
-        (timing.round2Embed || 0) +
-        (timing.evidenceRerank || 0) +
-        (timing.eventRerank || 0);
-
-    const localKnownTotal =
-        (metrics.query?.buildTime || 0) +
-        (metrics.query?.refineTime || 0) +
-        (timing.round1AnchorSearch || 0) +
-        (timing.round1EventRetrieval || 0) +
-        (timing.anchorSearch || 0) +
-        (timing.eventRetrieval || 0) +
-        lexicalTotal +
-        (metrics.fusion?.time || 0) +
-        (timing.constraintFilter || 0) +
-        (timing.evidenceRetrieval || 0) +
-        (timing.diffusion || 0) +
-        (timing.evidenceAssembly || 0) +
-        (timing.formatting || 0);
-
-    timing.externalTotal = Math.round(externalTotal);
-    timing.localKnownTotal = Math.round(localKnownTotal);
-    timing.unattributed = Math.max(0, Math.round(timing.total - timing.externalTotal - timing.localKnownTotal));
+    if (metrics?.timing) finalizeMetricsTiming(metrics, performance.now() - totalStart);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1328,13 +1308,21 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
         stageObserver = null,
         deferRuntimeRelease = false,
         signal = null,
+        diagnostics = null,
     } = options;
     const captureStages = typeof stageObserver === 'function';
     const events = Array.isArray(allEvents) ? allEvents : [];
 
     const metrics = createMetrics();
+    if (diagnostics) {
+        diagnostics.metrics = metrics;
+        diagnostics.stage = 'query-build';
+    }
+    metrics.lexical.denseGateThresholds = { event: CONFIG.LEXICAL_EVENT_DENSE_MIN, floor: CONFIG.LEXICAL_FLOOR_DENSE_MIN };
 
     metrics.anchor.needRecall = true;
+
+    try {
 
     const snapshot = { chatId, meta: null, stateVectors: null };
 
@@ -1348,8 +1336,9 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
 
     // Non-blocking preload: keep recall latency stable.
     // If not ready yet, query-builder will gracefully fall back to TF terms.
-    getLexicalIndex().catch((e) => {
-        xbLog.warn(MODULE_ID, 'Preload lexical index failed; continue with TF fallback', e);
+    const lexicalPreload = getLexicalIndex().then(() => null, error => {
+        xbLog.warn(MODULE_ID, 'Preload lexical index failed; continue with TF fallback', error);
+        return error;
     });
 
     const bundle = buildQueryBundle(lastMessages);
@@ -1358,6 +1347,13 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
     }
     const focusTerms = bundle.focusTerms || bundle.focusEntities || [];
     const focusCharacters = bundle.focusCharacters || [];
+    const queryFloor = Array.isArray(chat) ? chat.lastIndexOf(lastMessages[lastMessages.length - 1]) : -1;
+    const queryBoundary = queryFloor >= 0 ? queryFloor : (chat?.length || 0);
+    const temporalCarrier = buildTemporalTurnCarrier({
+        chat, query: bundle.focusQuery, userName: name1,
+        queryFloor: queryBoundary,
+    });
+    snapshot.temporalCarrier = temporalCarrier;
 
     metrics.query.buildTime = Math.round(performance.now() - T_Build_Start);
     metrics.anchor.focusTerms = focusTerms;
@@ -1379,6 +1375,7 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
 
     const segmentTexts = bundle.querySegments.map(s => s.text);
     if (!segmentTexts.length) {
+        if (diagnostics) diagnostics.reason = '没有可用的查询内容';
         metrics.timing.total = Math.round(performance.now() - T0);
         return {
             events: [], l0Selected: [], l1ByFloor: new Map(), causalChain: [],
@@ -1387,30 +1384,33 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
             focusCharacters,
             mustKeepFloors: [],
             elapsed: metrics.timing.total,
-            logText: 'No query segments.',
             metrics,
         };
     }
 
     let r1Vectors;
+    if (diagnostics) diagnostics.stage = 'round1-embed';
     const T_R1_Embed_Start = performance.now();
+    try {
     try {
         r1Vectors = await embed(segmentTexts, vectorConfig, { timeout: 10000, signal });
     } catch (e1) {
         throwIfSignalAborted(signal);
-        recordExternalFailure(metrics, { stage: 'round1-embed', kind: 'request', attempt: 1 });
+        recordExternalFailure(metrics, { stage: 'round1-embed', kind: 'request', attempt: 1, error: e1 });
         xbLog.warn(MODULE_ID, 'Round 1 向量化失败，500ms 后重试', e1);
-        metrics.timing.round1EmbedRetryWait = 500;
-        await waitForAbortableDelay(500, signal);
+        const retryWaitStart = performance.now();
+        try {
+            await waitForAbortableDelay(500, signal);
+        } finally {
+            metrics.timing.round1EmbedRetryWait = Math.round(performance.now() - retryWaitStart);
+        }
         throwIfSignalAborted(signal);
         try {
             r1Vectors = await embed(segmentTexts, vectorConfig, { timeout: 15000, signal });
         } catch (e2) {
             throwIfSignalAborted(signal);
-            recordExternalFailure(metrics, { stage: 'round1-embed', kind: 'request', attempt: 2 });
+            recordExternalFailure(metrics, { stage: 'round1-embed', kind: 'request', attempt: 2, error: e2 });
             xbLog.error(MODULE_ID, 'Round 1 向量化重试仍失败', e2);
-            metrics.timing.round1Embed = Math.round(performance.now() - T_R1_Embed_Start);
-            finalizeRecallTiming(metrics, T0);
             const error = new Error('Embedding request failed after retry', { cause: e2 });
             error.code = 'RECALL_EMBEDDING_FAILED';
             error.stage = 'round1-embed';
@@ -1418,7 +1418,9 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
             throw error;
         }
     }
-    metrics.timing.round1Embed = Math.round(performance.now() - T_R1_Embed_Start);
+    } finally {
+        metrics.timing.round1Embed = Math.round(performance.now() - T_R1_Embed_Start);
+    }
 
     if (!r1Vectors?.length || r1Vectors.some(v => !v?.length)) {
         recordExternalFailure(metrics, { stage: 'round1-embed', kind: 'invalid-vector', attempt: 1 });
@@ -1437,6 +1439,7 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
     }
 
     if (!queryVector_v0?.length) {
+        if (diagnostics) diagnostics.reason = '查询向量无法合成';
         metrics.timing.total = Math.round(performance.now() - T0);
         return {
             events: [], l0Selected: [], l1ByFloor: new Map(), causalChain: [],
@@ -1445,7 +1448,6 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
             focusCharacters,
             mustKeepFloors: [],
             elapsed: metrics.timing.total,
-            logText: 'Weighted average produced empty vector.',
             metrics,
         };
     }
@@ -1453,6 +1455,7 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
     let runtimeLease = null;
     try {
     const T_Runtime_Begin_Start = performance.now();
+    if (diagnostics) diagnostics.stage = 'runtime-load';
     if (chatId) {
         throwIfSignalAborted(signal);
         // Session acquisition must finish so its lease can always be released;
@@ -1466,6 +1469,7 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
     metrics.timing.runtimeBeginSession = Math.round(performance.now() - T_Runtime_Begin_Start);
 
     const T_R1_Anchor_Start = performance.now();
+    if (diagnostics) diagnostics.stage = 'round1-retrieval';
     const { hits: anchorHits_v0 } = await recallAnchors(queryVector_v0, vectorConfig, null, snapshot, signal);
     const r1AnchorTime = Math.round(performance.now() - T_R1_Anchor_Start);
     metrics.timing.round1AnchorSearch = r1AnchorTime;
@@ -1518,6 +1522,7 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
     let queryVector_v1;
 
     if (bundle.hintsSegment) {
+        if (diagnostics) diagnostics.stage = 'round2-embed';
         const T_R2_Embed_Start = performance.now();
         try {
             const [hintsVec] = await embed([bundle.hintsSegment.text], vectorConfig, { timeout: 10000, signal });
@@ -1542,18 +1547,21 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
                     elapsedMs: metrics.timing.round2Embed,
                 });
                 queryVector_v1 = queryVector_v0;
+                recordRecallFallback(diagnostics, 'round2-embed', '空提示向量，使用第一轮向量');
             }
         } catch (e) {
-            throwIfSignalAborted(signal);
             metrics.timing.round2Embed = Math.round(performance.now() - T_R2_Embed_Start);
+            throwIfSignalAborted(signal);
             recordExternalFailure(metrics, {
                 stage: 'round2-embed',
                 kind: 'request',
                 attempt: 1,
                 elapsedMs: metrics.timing.round2Embed,
+                error: e,
             });
             xbLog.warn(MODULE_ID, 'Round 2 hints 向量化失败，降级使用 Round 1 向量', e);
             queryVector_v1 = queryVector_v0;
+            recordRecallFallback(diagnostics, 'round2-embed', e);
         }
     } else {
         queryVector_v1 = queryVector_v0;
@@ -1570,6 +1578,7 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
     }
 
     const T_R2_Anchor_Start = performance.now();
+    if (diagnostics) diagnostics.stage = 'round2-retrieval';
     const { hits: anchorHits, floors: anchorFloors_dense } = await recallAnchors(
         queryVector_v1,
         vectorConfig,
@@ -1606,6 +1615,7 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
     // ═══════════════════════════════════════════════════════════════════
 
     const T_Lex_Start = performance.now();
+    if (diagnostics) diagnostics.stage = 'lexical-search';
 
     let lexicalResult = {
         atomIds: [], atomFloors: new Set(),
@@ -1618,15 +1628,32 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
     };
 
     let indexReadyTime = 0;
+    const T_Index_Ready = performance.now();
     try {
-        const T_Index_Ready = performance.now();
-        const index = await getLexicalIndex();
-        indexReadyTime = Math.round(performance.now() - T_Index_Ready);
+        // Consume the speculative attempt inside this run, so a late failure
+        // cannot append diagnostics after an empty/cancelled run has finished.
+        const preloadError = await lexicalPreload;
+        throwIfSignalAborted(signal);
+        if (preloadError) recordRecallFallback(diagnostics, 'lexical-preload', preloadError);
+        let index;
+        try {
+            index = await getLexicalIndex();
+        } finally {
+            indexReadyTime = Math.round(performance.now() - T_Index_Ready);
+        }
+        throwIfSignalAborted(signal);
         if (index) {
             lexicalResult = await searchLexicalIndex(index, bundle.lexicalTerms);
+            for (const failure of lexicalResult.failures) {
+                recordRecallFallback(diagnostics, 'lexical-search', new Error(
+                    `Lexical term search failed: ${failure.term}`, { cause: failure.error },
+                ));
+            }
         }
     } catch (e) {
+        throwIfSignalAborted(signal);
         xbLog.warn(MODULE_ID, 'Lexical 检索失败', e);
+        recordRecallFallback(diagnostics, 'lexical-search', e);
     }
     throwIfSignalAborted(signal);
 
@@ -1638,7 +1665,7 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
         metrics.lexical.eventHits = lexicalResult.eventIds.length;
         metrics.lexical.searchTime = lexicalResult.searchTime || 0;
         metrics.lexical.indexReadyTime = indexReadyTime;
-        metrics.lexical.terms = bundle.lexicalTerms.slice(0, 10);
+        metrics.lexical.terms = lexicalResult.queryTerms.slice(0, 10);
         metrics.lexical.idfEnabled = !!lexicalResult.idfEnabled;
         metrics.lexical.idfDocCount = lexicalResult.idfDocCount || 0;
         metrics.lexical.topIdfTerms = lexicalResult.topIdfTerms || [];
@@ -1653,6 +1680,7 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
     let lexicalEventFilteredByDense = 0;
     let l0LinkedCount = 0;
     const focusSetForLexical = new Set((focusCharacters || []).map(normalize));
+    const lexicalCandidates = [];
 
     for (const eid of lexicalResult.eventIds) {
         if (existingEventIds.has(eid)) continue;
@@ -1681,21 +1709,24 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
             { evidenceMinSimilarity: CONFIG.EVENT_EVIDENCE_MIN_SIMILARITY },
         );
 
-        // Cap lexical event merge to match the dense path (EVENT_CANDIDATE_MAX).
-        // lexicalResult.eventIds 已按词法加权分降序，此处只对通过 dense gate 的候选计数；
-        // 达到上限即停止，避免事件候选爆量（event rerank 只精排前 60、预算也只放得下 ~50 条）。
-        if (lexicalEventCount >= CONFIG.EVENT_CANDIDATE_MAX) break;
-
-        eventHits.push({
+        lexicalCandidates.push({
             event: ev,
             similarity: sim,
             _recallType: recallType,
             _ownership: ownership,
             _evidenceEligible: evidenceEligible,
         });
-        existingEventIds.add(eid);
-        lexicalEventCount++;
     }
+    // Keep the 100-additional-event cap, but reserve eligible temporal winners
+    // before cutting the lexical tail. No new scoring/API calls are needed.
+    const lexicalSelected = selectBoundedEventCandidates(
+        lexicalCandidates, CONFIG.EVENT_CANDIDATE_MAX, temporalCarrier.exactFloors,
+    ).candidates;
+    for (const candidate of lexicalSelected) {
+        eventHits.push(candidate);
+        existingEventIds.add(candidate.event.id);
+    }
+    lexicalEventCount = lexicalSelected.length;
 
     if (metrics) {
         metrics.lexical.eventFilteredByDense = lexicalEventFilteredByDense;
@@ -1714,16 +1745,18 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
     // 阶段 6: Floor 粒度融合 + Rerank + L1 配对
     // ═══════════════════════════════════════════════════════════════════
 
+    if (diagnostics) diagnostics.stage = 'floor-evidence';
     const { l0Selected, l1ScoredByFloor, mustKeepFloors } = await locateAndPullEvidence(
         anchorHits,
         queryVector_v1,
         bundle.rerankQuery,
         lexicalResult,
-        bundle.lexicalTerms,
+        lexicalResult.queryTerms,
         metrics,
         stageObserver,
         signal
     );
+    if (metrics.evidence.rerankFailed) recordRecallFallback(diagnostics, 'floor-rerank', '重排失败，使用融合顺序');
 
     // ═══════════════════════════════════════════════════════════════════
     // Stage 7.5: PPR Diffusion Activation
@@ -1733,6 +1766,7 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
     // consumed by prompt.js through the same budget pipeline.
     // ═══════════════════════════════════════════════════════════════════
 
+    if (diagnostics) diagnostics.stage = 'diffusion';
     const diffusionResult = await diffuseRecallRuntimeL0(
         chatId,
         l0Selected,          // seeds (rerank-verified)
@@ -1860,9 +1894,11 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
     ));
 
     if (vectorConfig?.eventRerankEnabled === true) {
+        if (diagnostics) diagnostics.stage = 'event-rerank';
         const eventRerank = await rerankRecalledEvents(eventHits, {
             ...semanticInputs.eventRerank,
             chat,
+            queryFloor: queryBoundary,
             signal,
         });
         metrics.event.rerank = {
@@ -1889,20 +1925,17 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
         if (eventRerank.status === 'applied') {
             eventHits = eventRerank.events;
         } else if (eventRerank.status === 'rerank-failed') {
+            recordRecallFallback(diagnostics, 'event-rerank', '重排失败，保留原事件顺序');
             xbLog.warn(MODULE_ID, `Event rerank ${eventRerank.status}; keep original event order`);
         }
     }
 
     let directEvidenceContext = null;
-    const temporalCarrier = buildTemporalTurnCarrier({
-        chat,
-        query: bundle.focusQuery,
-        userName: name1,
-    });
     if (!eventHits.some(item => item?._evidenceEligible === true)) {
         metrics.evidence.directEvidenceStatus = 'skipped-no-direct-events';
     } else {
         directEvidenceContext = {
+            diagnostics,
             chatId,
             ...semanticInputs.directEvidence,
             timeMarker: temporalCarrier.marker,
@@ -1923,7 +1956,7 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
     metrics.event.focusTermsCount = focusTerms.length;
 
     if (xbLog.isEnabled()) {
-        xbLog.info(MODULE_ID, `[Recall v9] Total: ${metrics.timing.total}ms`);
+        xbLog.info(MODULE_ID, `[Recall v9] Retrieval subtotal (before assembly/release): ${metrics.timing.total}ms`);
         xbLog.info(MODULE_ID, `[Recall v9] Timing attribution: external=${metrics.timing.externalTotal || 0}ms localKnown=${metrics.timing.localKnownTotal || 0}ms unattributed=${metrics.timing.unattributed || 0}ms | r1Embed=${metrics.timing.round1Embed || 0}ms r2Embed=${metrics.timing.round2Embed || 0}ms floorRerank=${metrics.timing.evidenceRerank || 0}ms eventRerank=${metrics.timing.eventRerank || 0}ms`);
         xbLog.info(MODULE_ID, `[Recall v9] Query Build: ${metrics.query.buildTime}ms | Refine: ${metrics.query.refineTime}ms`);
         xbLog.info(MODULE_ID, `[Recall v9] R1 weights: [${r1Weights.map(w => w.toFixed(2)).join(', ')}]`);
@@ -1972,8 +2005,12 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
                 await endRecallRuntimeSession(runtimeLease);
             } catch (error) {
                 xbLog.warn(MODULE_ID, 'Recall runtime session release failed', error);
+                recordRecallFallback(diagnostics, 'runtime-release', error);
             }
             metrics.timing.runtimeEndSession = Math.round(performance.now() - T_Runtime_End_Start);
         }
+    }
+    } finally {
+        finalizeRecallTiming(metrics, T0);
     }
 }

@@ -11,7 +11,6 @@
 import { getStateAtoms } from '../storage/state-store.js';
 import {
     buildAliasResolver,
-    normalizeCharacterAliases,
     normalizeUserIdentityKey,
 } from '../../data/character-aliases.js';
 import { normalizeEntityTerm } from './entity-matcher.js';
@@ -52,9 +51,8 @@ function removeUserIdentityTerms(set, context, aliasResolver = null) {
     }
 }
 
-function collectTrustedCharacters(store, context) {
+function collectTrustedCharacters(store, context, aliasResolver = buildAliasResolver(store?.json?.characterAliases || [])) {
     const trusted = new Set();
-    const aliasResolver = buildAliasResolver(store?.json?.characterAliases || []);
 
     const main = store?.json?.characters?.main || [];
     for (const m of main) {
@@ -77,7 +75,7 @@ function collectTrustedCharacters(store, context) {
         }
     }
 
-    for (const alias of normalizeCharacterAliases(store?.json?.characterAliases)) {
+    for (const alias of aliasResolver.aliases) {
         addPersonTerm(trusted, aliasResolver.resolveName(alias.from));
         addPersonTerm(trusted, aliasResolver.resolveName(alias.to));
     }
@@ -99,9 +97,8 @@ export function buildTrustedCharacters(store, context) {
     return collectTrustedCharacters(store, context);
 }
 
-function collectCandidateCharactersFromL0(context) {
+function collectCandidateCharactersFromL0(context, atoms) {
     const candidate = new Set();
-    const atoms = getStateAtoms();
     for (const atom of atoms) {
         for (const e of (atom.edges || [])) {
             addPersonTerm(candidate, e?.s);
@@ -117,51 +114,22 @@ function collectCandidateCharactersFromL0(context) {
  * trustedCharacters: main/arcs/name2/L2 participants (clean source)
  * candidateCharacters: L0 edges.s/t (blacklist-cleaned)
  */
-export function buildCharacterPools(store, context) {
-    const trustedCharacters = collectTrustedCharacters(store, context);
-    const candidateCharacters = collectCandidateCharactersFromL0(context);
+function buildCharacterPools(store, context, atoms, aliasResolver) {
+    const trustedCharacters = collectTrustedCharacters(store, context, aliasResolver);
+    const candidateCharacters = collectCandidateCharactersFromL0(context, atoms);
     const aliasTerms = new Set();
-    for (const alias of normalizeCharacterAliases(store?.json?.characterAliases)) {
+    for (const alias of aliasResolver.aliases) {
         addPersonTerm(aliasTerms, alias.from);
         addPersonTerm(aliasTerms, alias.to);
     }
     const allCharacters = new Set([...trustedCharacters, ...candidateCharacters, ...aliasTerms]);
-    const aliasResolver = buildAliasResolver(store?.json?.characterAliases || []);
     removeUserIdentityTerms(allCharacters, context, aliasResolver);
     return { trustedCharacters, candidateCharacters, allCharacters };
 }
 
-/**
- * 构建实体词典
- *
- * 来源（按可信度）：
- *   1. store.json.characters.main  — 已确认主要角色
- *   2. store.json.arcs[].name      — 弧光对象
- *   3. context.name2               — 当前角色
- *   4. store.json.events[].participants — L2 事件参与者
- *   5. L0 atoms edges.s/edges.t
- *
- * 硬约束：永远排除 normalize(context.name1)
- *
- * @param {object} store  - getSummaryStore() 返回值
- * @param {object} context - { name1: string, name2: string }
- * @returns {Set<string>} 标准化后的实体集合
- */
-export function buildEntityLexicon(store, context) {
-    return buildCharacterPools(store, context).allCharacters;
-}
-
-/**
- * 构建"原词形 → 标准化"映射表
- * 用于从 lexicon 反查原始显示名
- *
- * @param {object} store
- * @param {object} context
- * @returns {Map<string, string>} normalize(name) → 原词形
- */
-export function buildDisplayNameMap(store, context) {
+// Surface spelling -> canonical display name, in source priority order.
+function buildDisplayNameMap(store, context, atoms, aliasResolver) {
     const map = new Map();
-    const aliasResolver = buildAliasResolver(store?.json?.characterAliases || []);
 
     const register = (raw, display = raw, force = false) => {
         const n = normalizeEntityTerm(raw);
@@ -193,14 +161,13 @@ export function buildDisplayNameMap(store, context) {
         }
     }
 
-    for (const alias of normalizeCharacterAliases(store?.json?.characterAliases)) {
+    for (const alias of aliasResolver.aliases) {
         const canonical = aliasResolver.resolveName(alias.from);
         register(alias.from, canonical, true);
         register(alias.to, aliasResolver.resolveName(alias.to), true);
     }
 
     // 5. L0 atoms 的 edges.s/edges.t
-    const atoms = getStateAtoms();
     for (const atom of atoms) {
         for (const e of (atom.edges || [])) {
             register(e?.s, aliasResolver.resolveName(e?.s));
@@ -215,4 +182,61 @@ export function buildDisplayNameMap(store, context) {
     }
 
     return map;
+}
+
+const SOURCE_BOUNDARY = Symbol('vocabulary source boundary');
+let cachedVocabulary = null;
+
+// These sources are mutable (including nested participants/edges). Compare their
+// actual name values, not object identity or updatedAt. Warm reads only compare;
+// they do not normalize, resolve aliases or rebuild Sets/Maps. Retain name values
+// for one vocabulary, never source documents or a cache for every visited chat.
+function* vocabularyInputs(store, context, atoms) {
+    yield context?.name1;
+    yield context?.name2;
+    for (const item of store?.json?.characters?.main || []) yield typeof item === 'string' ? item : item.name;
+    yield SOURCE_BOUNDARY;
+    for (const arc of store?.json?.arcs || []) yield arc.name;
+    yield SOURCE_BOUNDARY;
+    for (const event of store?.json?.events || []) yield* event?.participants || [];
+    yield SOURCE_BOUNDARY;
+    for (const alias of store?.json?.characterAliases || []) {
+        yield alias?.from;
+        yield alias?.to;
+    }
+    yield SOURCE_BOUNDARY;
+    for (const atom of atoms) {
+        for (const edge of atom.edges || []) {
+            yield edge?.s;
+            yield edge?.t;
+        }
+    }
+}
+
+export function getEntityVocabulary(store, context) {
+    const atoms = getStateAtoms();
+    let inputs = cachedVocabulary?.inputs || [];
+    let changed = !cachedVocabulary;
+    let position = 0;
+    for (const value of vocabularyInputs(store, context, atoms)) {
+        if (!changed && (position >= inputs.length || inputs[position] !== value)) {
+            inputs = inputs.slice(0, position);
+            changed = true;
+        }
+        if (changed) inputs.push(value);
+        position++;
+    }
+    if (!changed && position === inputs.length) return cachedVocabulary.value;
+    if (!changed) inputs = inputs.slice(0, position);
+
+    const aliasResolver = buildAliasResolver(store?.json?.characterAliases || []);
+    const pools = buildCharacterPools(store, context, atoms, aliasResolver);
+    const value = {
+        ...pools,
+        lexicon: pools.allCharacters,
+        displayMap: buildDisplayNameMap(store, context, atoms, aliasResolver),
+        blockedTerms: context?.name1 ? [context.name1, String(context.name1).replace(/\s+/gu, '')] : [],
+    };
+    cachedVocabulary = { inputs, value };
+    return value;
 }

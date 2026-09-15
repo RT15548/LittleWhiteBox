@@ -59,6 +59,7 @@ function createHarness(prepare, options = {}) {
         setTimeout: scheduler.setTimeout,
         clearTimeout: scheduler.clearTimeout,
         now: scheduler.now,
+        onJoinedCancel: options.onJoinedCancel,
     });
     return { context, coordinator, scheduler };
 }
@@ -67,6 +68,43 @@ async function flushMicrotasks() {
     await Promise.resolve();
     await Promise.resolve();
 }
+
+test('cancellation publishes once at cancellation time, before late work can affect a newer run', async () => {
+    const cancellations = [];
+    let finishOld;
+    const { coordinator, context } = createHarness((_type, _signal, diagnostics) => {
+        diagnostics.stage = 'round1-embed';
+        return new Promise(resolve => { finishOld = resolve; });
+    }, { onJoinedCancel: slot => cancellations.push({ reason: slot.cancelReason, stage: slot.diagnostics.stage }) });
+    const old = coordinator.join({ chatId: context.chatId, type: 'normal' }).slot;
+    await flushMicrotasks();
+    coordinator.cancel('generation-stopped');
+    assert.deepEqual(cancellations, [{ reason: 'generation-stopped', stage: 'round1-embed' }]);
+    assert.ok(Number.isFinite(old.diagnostics.finishedAt));
+    const next = coordinator.join({ chatId: context.chatId, type: 'normal' }).slot;
+    finishOld({ text: 'late' });
+    await old.outcome;
+    coordinator.finish(old);
+    assert.equal(coordinator.getCurrent(), next);
+    assert.equal(cancellations.length, 1);
+    coordinator.finish(next);
+});
+
+test('a retained pre-join cancellation reports only when joined and is never reported twice', () => {
+    const cancellations = [];
+    const { coordinator, context } = createHarness(() => { throw new Error('cancelled work must not start'); }, {
+        onJoinedCancel: slot => cancellations.push(slot.cancelReason),
+    });
+    coordinator.startWatching({ chatId: context.chatId, type: 'normal', initialLength: 0 });
+    coordinator.cancel('generation-stopped', { retainForJoin: true });
+    assert.deepEqual(cancellations, []);
+    const joined = coordinator.join({ chatId: context.chatId, type: 'normal' }).slot;
+    assert.deepEqual(cancellations, ['generation-stopped']);
+    coordinator.join({ chatId: context.chatId, type: 'normal' });
+    coordinator.cancel('generation-stopped', { retainForJoin: true });
+    coordinator.finish(joined);
+    assert.deepEqual(cancellations, ['generation-stopped']);
+});
 
 test('dry-run is ignored without superseding a real run, while real non-user generations cancel only', () => {
     assert.equal(getRecallPrefetchStartAction('normal', {}, true), 'ignore');

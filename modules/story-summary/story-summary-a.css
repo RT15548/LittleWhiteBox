@@ -11,6 +11,24 @@
    Facts
    ═══════════════════════════════════════════════════════════════════════════ */
 
+.summary-status {
+    margin: -8px 0 16px;
+    padding: 0 2px;
+    color: var(--txt2);
+    font-size: .8125rem;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    max-height: 8em;
+    overflow-y: auto;
+}
+
+.summary-status.is-error {
+    border-left: 3px solid var(--error);
+    padding-left: 10px;
+    color: var(--txt);
+}
+
 .facts {
     flex: 0 0 auto;
 }

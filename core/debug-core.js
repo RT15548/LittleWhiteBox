@@ -1,4 +1,6 @@
-﻿let eventCenterPromise = null;
+﻿import { formatErrorDetails } from './error-details.js';
+
+let eventCenterPromise = null;
 
 async function getEventCenter() {
     if (!eventCenterPromise) {
@@ -18,6 +20,7 @@ function now() {
 function safeStringify(value) {
     try {
         if (typeof value === "string") return value;
+        if (value instanceof Error) return formatErrorDetails(value, { includeStack: false });
         return JSON.stringify(value);
     } catch {
         try {
@@ -31,9 +34,7 @@ function safeStringify(value) {
 function errorToStack(err) {
     try {
         if (!err) return null;
-        if (typeof err === "string") return err;
-        if (err && typeof err.stack === "string") return err.stack;
-        return safeStringify(err);
+        return formatErrorDetails(err);
     } catch {
         return null;
     }
@@ -151,12 +152,15 @@ class LoggerCore {
     }
 
     info(moduleId, ...args) {
+        if (!this._enabled) return;
         const msg = args.map(a => (typeof a === 'string' ? a : safeStringify(a))).join(' ');
         this._log('info', moduleId, msg, null);
     }
     warn(moduleId, ...args) {
+        if (!this._enabled) return;
         const msg = args.map(a => (typeof a === 'string' ? a : safeStringify(a))).join(' ');
-        this._log('warn', moduleId, msg, null);
+        const errors = args.filter(a => a instanceof Error);
+        this._log('warn', moduleId, msg, errors.length ? errors.map(errorToStack).join('\n') : null);
     }
     error(moduleId, message, err) {
         this._log("error", moduleId, message, err || null);
@@ -317,8 +321,8 @@ export const xbLog = {
     disable: (options) => logger.disable(options),
     isEnabled: () => logger.isEnabled(),
     setMaxSize: (n) => logger.setMaxSize(n),
-    info: (moduleId, message) => logger.info(moduleId, message),
-    warn: (moduleId, message) => logger.warn(moduleId, message),
+    info: (moduleId, ...args) => logger.info(moduleId, ...args),
+    warn: (moduleId, ...args) => logger.warn(moduleId, ...args),
     error: (moduleId, message, err) => logger.error(moduleId, message, err),
     getAll: () => logger.getAll(),
     clear: () => logger.clear(),
@@ -412,4 +416,3 @@ if (typeof window !== "undefined") {
     window.xbLog = xbLog;
     window.xbCacheRegistry = CacheRegistry;
 }
-

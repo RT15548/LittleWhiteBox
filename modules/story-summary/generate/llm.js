@@ -270,7 +270,7 @@ function formatFactsForLLM(facts) {
     };
 }
 
-function buildSummaryMessages(existingSummary, existingFacts, newHistoryText, historyRange, nextEventId, existingEventCount) {
+function buildSummaryMessages(existingSummary, existingFacts, newHistoryText, historyRange, existingEventCount) {
     const summarySystemPrompt = DEFAULT_SUMMARY_SYSTEM_PROMPT;
     const assistantDocPrompt = DEFAULT_SUMMARY_ASSISTANT_DOC_PROMPT;
     const assistantAskSummaryPrompt = DEFAULT_SUMMARY_ASSISTANT_ASK_SUMMARY_PROMPT;
@@ -287,8 +287,6 @@ function buildSummaryMessages(existingSummary, existingFacts, newHistoryText, hi
         : '';
 
     const jsonFormat = userJsonFormatPrompt
-        .replace(/\{\$nextEventId\}/g, String(nextEventId))
-        .replace(/\{nextEventId\}/g, String(nextEventId))
         .replace(/\{\$historyRange\}/g, String(historyRange ?? ''))
         .replace(/\{historyRange\}/g, String(historyRange ?? ''));
 
@@ -362,7 +360,6 @@ export async function generateSummary(options) {
         existingFacts,
         newHistoryText,
         historyRange,
-        nextEventId,
         existingEventCount = 0,
         llmApi = {},
         genParams = {},
@@ -397,7 +394,6 @@ export async function generateSummary(options) {
             existingFacts,
             newHistoryText,
             historyRange,
-            nextEventId,
             existingEventCount
         );
 

@@ -2392,9 +2392,18 @@ import { DEFAULT_SUMMARY_DELAY_FLOORS, normalizeSummaryDelayFloors } from './dat
                 }
                 break;
 
-            case 'SUMMARY_ERROR':
-                console.error('Summary error:', d.message);
+            case 'SUMMARY_STATUS':
+            case 'SUMMARY_ERROR': {
+                const status = $('summary-status');
+                const isError = d.type === 'SUMMARY_ERROR';
+                status.classList.toggle('is-error', isError);
+                status.setAttribute('role', isError ? 'alert' : 'status');
+                status.setAttribute('aria-live', isError ? 'assertive' : 'polite');
+                status.tabIndex = isError ? 0 : -1;
+                status.textContent = String((isError ? d.message : d.statusText) || '');
+                status.hidden = !status.textContent;
                 break;
+            }
 
             case 'SUMMARY_CLEARED': {
                 const t = d.payload?.totalFloors || 0;

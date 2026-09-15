@@ -424,7 +424,7 @@ export async function buildIncrementalChunks(options = {}) {
         return await failedResult('metadata_write_failed', error);
     }
 
-    return { success: true, status: 'built', built: vectorItems.length, startFloor, endFloor };
+    return { success: true, status: 'built', built: vectorItems.length, startFloor, endFloor, chunks: newChunks };
 }
 
 

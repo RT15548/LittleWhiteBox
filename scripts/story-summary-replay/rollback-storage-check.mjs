@@ -10,7 +10,7 @@ import {
     rollbackSummaryIfNeeded,
     rollbackSummaryOnce,
 } from '../../modules/story-summary/data/store.js';
-import { getNextEventId } from '../../modules/story-summary/generate/generator.js';
+import { getNextEventId } from '../../modules/story-summary/generate/summary-result.js';
 import {
     getAllEventVectors,
     saveEventVectors,
@@ -88,7 +88,7 @@ export async function runRollbackStorageCheck() {
             assert.deepEqual(store.json, before.json, name);
             assert.deepEqual(store.summaryHistory, before.summaryHistory, name);
             assert.equal(store.lastSummarizedMesId, 39, name);
-            assert.equal(getNextEventId(store), 3, 'failed rollback must not release evt-2');
+            assert.equal(getNextEventId(store.json.events), 3, 'failed rollback must not release evt-2');
             if (name.startsWith('automatic') || name.startsWith('swipe')) {
                 assert.equal(store.summaryInvalid, true);
                 assert.equal(isSummaryConsumable(store, 40), false);
@@ -115,7 +115,7 @@ export async function runRollbackStorageCheck() {
                 assert.notEqual(store.summaryInvalid, true);
                 const vectors = await getAllEventVectors(chatId);
                 assert.deepEqual(vectors.map(item => item.eventId), target < 0 ? [] : ['evt-1']);
-                const reusedId = `evt-${getNextEventId(store)}`;
+                const reusedId = `evt-${getNextEventId(store.json?.events)}`;
                 assert.equal(vectors.some(item => item.eventId === reusedId), false);
                 store.json ||= structuredClone(empty);
                 store.json.events.push(event(reusedId, '全新的故事', 39));

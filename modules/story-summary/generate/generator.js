@@ -3,6 +3,7 @@
 
 import { getContext } from "../../../../../../extensions.js";
 import { xbLog } from "../../../core/debug-core.js";
+import { formatErrorDetails } from '../../../core/error-details.js';
 import {
     addSummarySnapshot,
     getFacts,
@@ -10,7 +11,7 @@ import {
     mergeNewData,
     saveSummaryStoreImmediately,
 } from "../data/store.js";
-import { formatCharacterAliasTableForAI, sanitizeCharacterAliasUpdates } from "../data/character-aliases.js";
+import { formatCharacterAliasTableForAI } from "../data/character-aliases.js";
 import {
     generateSummary,
     isSummaryGenerationCancelledError,
@@ -19,131 +20,10 @@ import {
 import { filterText } from "../vector/utils/text-filter.js";
 import { getSummarySourceEnd } from './source-boundary.js';
 import { normalizeSummaryDelayFloors } from '../data/summary-delay.js';
+import { prepareSummaryResult } from './summary-result.js';
 
 const MODULE_ID = 'summaryGenerator';
 const SUMMARY_SESSION_ID = 'xb9';
-const MAX_CAUSED_BY = 2;
-const FACT_PREDICATE_ALIASES = new Map([
-    ['当前位置', '位置'],
-    ['当前所在地', '位置'],
-    ['所在位置', '位置'],
-    ['所在地', '位置'],
-    ['当前状态', '状态'],
-]);
-
-// ═══════════════════════════════════════════════════════════════════════════
-// factUpdates 清洗
-// ═══════════════════════════════════════════════════════════════════════════
-
-function normalizeRelationPredicate(p) {
-    if (/^对.+的看法$/.test(p)) return p;
-    if (/^与.+的关系$/.test(p)) return p;
-    return null;
-}
-
-function normalizeFactPredicate(p) {
-    const text = String(p || '').trim();
-    return FACT_PREDICATE_ALIASES.get(text) || text;
-}
-
-function sanitizeFacts(parsed) {
-    if (!parsed) return;
-
-    const updates = Array.isArray(parsed.factUpdates) ? parsed.factUpdates : [];
-    const ok = [];
-
-    for (const item of updates) {
-        const s = String(item?.s || '').trim();
-        const pRaw = normalizeFactPredicate(item?.p);
-
-        if (!s || !pRaw) continue;
-
-        if (item.retracted === true) {
-            ok.push({ s, p: pRaw, retracted: true });
-            continue;
-        }
-
-        const o = String(item?.o || '').trim();
-        if (!o) continue;
-
-        const relP = normalizeRelationPredicate(pRaw);
-        const isRel = !!relP;
-        const fact = {
-            s,
-            p: isRel ? relP : pRaw,
-            o,
-            isState: !!item.isState,
-        };
-
-        if (isRel && item.trend) {
-            const validTrends = ['破裂', '厌恶', '反感', '陌生', '投缘', '亲密', '交融'];
-            if (validTrends.includes(item.trend)) {
-                fact.trend = item.trend;
-            }
-        }
-
-        ok.push(fact);
-    }
-
-    parsed.factUpdates = ok;
-}
-
-function sanitizeAliases(parsed) {
-    if (!parsed) return;
-    const updates = sanitizeCharacterAliasUpdates(parsed.characterAliasUpdates);
-    if (updates.length) {
-        parsed.characterAliasUpdates = updates;
-    } else {
-        delete parsed.characterAliasUpdates;
-    }
-}
-
-
-// ═══════════════════════════════════════════════════════════════════════════
-// causedBy 清洗（事件因果边）
-// ═══════════════════════════════════════════════════════════════════════════
-
-function sanitizeEventsCausality(parsed, existingEventIds) {
-    if (!parsed) return;
-
-    const events = Array.isArray(parsed.events) ? parsed.events : [];
-    if (!events.length) return;
-
-    const idRe = /^evt-\d+$/;
-
-    const newIds = new Set(
-        events
-            .map(e => String(e?.id || '').trim())
-            .filter(id => idRe.test(id))
-    );
-
-    const allowed = new Set([...(existingEventIds || []), ...newIds]);
-
-    for (const e of events) {
-        const selfId = String(e?.id || '').trim();
-        if (!idRe.test(selfId)) {
-            e.causedBy = [];
-            continue;
-        }
-
-        const raw = Array.isArray(e.causedBy) ? e.causedBy : [];
-        const out = [];
-        const seen = new Set();
-
-        for (const x of raw) {
-            const cid = String(x || '').trim();
-            if (!idRe.test(cid)) continue;
-            if (cid === selfId) continue;
-            if (!allowed.has(cid)) continue;
-            if (seen.has(cid)) continue;
-            seen.add(cid);
-            out.push(cid);
-            if (out.length >= MAX_CAUSED_BY) break;
-        }
-
-        e.causedBy = out;
-    }
-}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 辅助函数
@@ -157,7 +37,7 @@ export function formatExistingSummaryForAI(store) {
 
     if (data.events?.length) {
         parts.push("【已记录事件】");
-        data.events.forEach((ev, i) => parts.push(`${i + 1}. [${ev.timeLabel}] ${ev.title}：${ev.summary}`));
+        data.events.forEach(ev => parts.push(`[${ev.id}] ${ev.timeLabel ? `[${ev.timeLabel}] ` : ''}${ev.title}：${ev.summary}`));
     }
 
     if (data.characters?.main?.length) {
@@ -181,18 +61,6 @@ export function formatExistingSummaryForAI(store) {
     }
 
     return parts.join("\n") || "（空白，这是首次总结）";
-}
-
-export function getNextEventId(store) {
-    const events = store?.json?.events || [];
-    if (!events.length) return 1;
-
-    const maxId = Math.max(...events.map(e => {
-        const match = e.id?.match(/evt-(\d+)/);
-        return match ? parseInt(match[1]) : 0;
-    }));
-
-    return maxId + 1;
 }
 
 export function buildIncrementalSlice(targetMesId, lastSummarizedMesId, maxPerRun = 100, delayFloors = 0) {
@@ -266,7 +134,6 @@ export async function runSummaryGeneration(mesId, config, callbacks = {}, runtim
 
     const existingSummary = formatExistingSummaryForAI(store);
     const existingFacts = getFacts();
-    const nextEventId = getNextEventId(store);
     const existingEventCount = store?.json?.events?.length || 0;
     const useStream = config.trigger?.useStream !== false;
 
@@ -277,7 +144,6 @@ export async function runSummaryGeneration(mesId, config, callbacks = {}, runtim
             existingFacts,
             newHistoryText: slice.text,
             historyRange: slice.range,
-            nextEventId,
             existingEventCount,
             llmApi: {
                 provider: config.api?.provider,
@@ -296,7 +162,7 @@ export async function runSummaryGeneration(mesId, config, callbacks = {}, runtim
             return { success: false, cancelled: true };
         }
         xbLog.error(MODULE_ID, '生成失败', err);
-        onError?.(err?.message || "生成失败");
+        onError?.(`生成失败：${formatErrorDetails(err, { includeStack: false })}`);
         return { success: false, error: err };
     }
 
@@ -322,26 +188,27 @@ export async function runSummaryGeneration(mesId, config, callbacks = {}, runtim
         return { success: false, error: "empty" };
     }
 
-    const parsed = parseSummaryJson(raw);
-    if (!parsed) {
+    const decoded = parseSummaryJson(raw);
+    if (!decoded) {
         xbLog.error(MODULE_ID, 'JSON解析失败');
         onError?.("AI未返回有效JSON");
         return { success: false, error: "parse" };
     }
 
-    if (!Array.isArray(parsed.events) || !parsed.events.every(event =>
-        typeof event?.title === 'string' && event.title.trim()
-        && typeof event?.summary === 'string' && event.summary.trim()
-    )) {
-        xbLog.error(MODULE_ID, '总结事件结构无效');
-        onError?.("返回的JSON不是有效总结：events须为数组，每条事件须有非空标题和正文");
-        return { success: false, error: "structure" };
+    let parsed;
+    try {
+        parsed = prepareSummaryResult(decoded, {
+            existingEvents: store?.json?.events || [],
+            // Source markers are one-based; endMesId is zero-based.
+            startFloor: slice.endMesId - slice.count + 2,
+            endFloor: slice.endMesId + 1,
+        });
+    } catch (error) {
+        const message = `返回的JSON不是有效总结：${error.message}`;
+        xbLog.error(MODULE_ID, message);
+        onError?.(message);
+        return { success: false, error: "structure", message };
     }
-
-    sanitizeFacts(parsed);
-    sanitizeAliases(parsed);
-    const existingEventIds = new Set((store?.json?.events || []).map(e => e?.id).filter(Boolean));
-    sanitizeEventsCausality(parsed, existingEventIds);
 
     const mergeResult = mergeNewData(store?.json || {}, parsed, slice.endMesId, { returnMeta: true });
     const merged = mergeResult.json;
@@ -361,7 +228,7 @@ export async function runSummaryGeneration(mesId, config, callbacks = {}, runtim
             Object.assign(store, previousStore);
         }
         xbLog.error(MODULE_ID, '总结持久化失败', error);
-        onError?.('总结未能保存，请重试');
+        onError?.(`总结未能保存：${formatErrorDetails(error, { includeStack: false })}`);
         return { success: false, error };
     }
 
@@ -372,6 +239,15 @@ export async function runSummaryGeneration(mesId, config, callbacks = {}, runtim
     }
 
     const newEventIds = (parsed.events || []).map(e => e.id);
+    const result = {
+        success: true,
+        committed: true,
+        merged,
+        endMesId: slice.endMesId,
+        newEventIds,
+        aliasChanged: !!mergeResult.aliasChanged,
+    };
+    onStatus?.(`总结已保存至 ${slice.endMesId + 1} 楼，正在更新检索数据…`);
 
     try {
         await onComplete?.({
@@ -389,18 +265,14 @@ export async function runSummaryGeneration(mesId, config, callbacks = {}, runtim
             return cancelledResult(onStatus, true);
         }
         xbLog.warn(MODULE_ID, '总结已提交，但收尾任务失败', error);
+        onError?.(`总结已保存，但后续处理失败：${formatErrorDetails(error, { includeStack: false })}`);
+        return result;
     }
 
     if (isSummaryRunInactive(signal, targetChatId)) {
         return cancelledResult(onStatus, true);
     }
 
-    return {
-        success: true,
-        committed: true,
-        merged,
-        endMesId: slice.endMesId,
-        newEventIds,
-        aliasChanged: !!mergeResult.aliasChanged,
-    };
+    onStatus?.(`总结完成，已保存至 ${slice.endMesId + 1} 楼`);
+    return result;
 }

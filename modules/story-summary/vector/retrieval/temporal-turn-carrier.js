@@ -48,11 +48,11 @@ export function extractFullTimeMarker(value) {
         .match(/(?:\d{2,4}年)?\d{1,2}月\d{1,2}日\d{1,2}:\d{2}/)?.[0] || null;
 }
 
-export function findExactTimeFloors(chat, marker) {
+export function findExactTimeFloors(chat, marker, beforeFloor = chat?.length || 0) {
     if (!marker) return [];
     const normalizedMarker = normalizeTimeText(marker);
     const floors = [];
-    for (let floor = 0; floor < (chat || []).length; floor++) {
+    for (let floor = 0; floor < Math.min(beforeFloor, (chat || []).length); floor++) {
         if (normalizeTimeText(chat[floor]?.mes).includes(normalizedMarker)) floors.push(floor);
     }
     return floors;
@@ -98,16 +98,17 @@ function inferTemporalQuerySpeaker(query, userNames) {
     return null;
 }
 
-export function buildTemporalTurnCarrier({ chat, query, userName, timeMarker = null } = {}) {
+export function buildTemporalTurnCarrier({ chat, query, userName, timeMarker = null, queryFloor = chat?.length || 0 } = {}) {
     const marker = timeMarker ?? extractFullTimeMarker(query);
-    const exactFloors = findExactTimeFloors(chat, marker);
+    // The current query (and an excluded/swiped reply after it) is not history.
+    const exactFloors = findExactTimeFloors(chat, marker, queryFloor);
     const userFloors = new Set();
     const assistantFloors = new Set();
 
     for (const floor of exactFloors) {
         if (chat?.[floor]?.is_user) {
             userFloors.add(floor);
-            if (chat?.[floor + 1] && !chat[floor + 1].is_user) assistantFloors.add(floor + 1);
+            if (floor + 1 < queryFloor && chat?.[floor + 1] && !chat[floor + 1].is_user) assistantFloors.add(floor + 1);
             continue;
         }
 

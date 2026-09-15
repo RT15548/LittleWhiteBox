@@ -47,6 +47,7 @@ export function createMetrics() {
             termSearches: 0,
             eventFilteredByDense: 0,
             floorFilteredByDense: 0,
+            denseGateThresholds: null,
         },
 
         // Fusion (W-RRF, floor-level) - 多路融合
@@ -175,11 +176,11 @@ export function createMetrics() {
             directEvidenceTemporalProtectedItems: 0,
             directEvidenceTemporalProtectedTokens: 0,
             directEvidenceTemporalProtectionBudgetMax: 0,
-            summarizedBudgetUsedByDirectEvidence: 0,
-            summarizedBudgetUsedFinal: 0,
-            summarizedBudgetMax: 0,
-            distantEvidenceStarved: false,
-            distantEvidenceStarvedByTemporalProtection: false,
+            eventEvidenceBudgetUsed: 0,
+            eventEvidenceBudgetMax: 0,
+            causalEvidence: null,
+            distantEvidenceBudgetUsed: 0,
+            distantEvidenceBudgetMax: 0,
             distantEvidenceDroppedByBudget: 0,
             directEvidenceRerankBatchTotal: 0,
             directEvidenceRerankBatchFailed: 0,
@@ -237,6 +238,7 @@ export function createMetrics() {
                 constraints: 0,
                 events: 0,
                 directEvidence: 0,
+                causalEvidence: 0,
                 distantEvidence: 0,
                 recentEvidence: 0,
                 arcs: 0,
@@ -288,6 +290,29 @@ export function createMetrics() {
     };
 }
 
+// Parent spans exclude their separately measured children. Retry backoff is not API time.
+export function finalizeMetricsTiming(metrics, totalMs) {
+    const t = metrics.timing;
+    // On interruption the child request timings may not have returned. Do not
+    // classify that unmeasured span as local CPU work.
+    const directEvidenceLocal = ['ready', 'failed'].includes(metrics.evidence.directEvidenceStatus)
+        ? 0 : Math.max(0, t.directEvidenceRetrieval - t.directEvidenceRerank);
+    t.total = Math.round(totalMs);
+    t.externalTotal = Math.round(
+        Math.max(0, t.round1Embed - t.round1EmbedRetryWait)
+        + t.round2Embed + t.evidenceRerank + t.eventRerank + t.directEvidenceRerank,
+    );
+    t.localKnownTotal = Math.round(
+        metrics.query.buildTime + metrics.query.refineTime
+        + t.runtimeBeginSession + t.runtimeEndSession
+        + t.round1AnchorSearch + t.round1EventRetrieval + t.anchorSearch + t.eventRetrieval
+        + metrics.lexical.searchTime + metrics.lexical.indexReadyTime + metrics.fusion.time
+        + t.constraintFilter + t.evidenceRetrieval + t.diffusion + t.evidenceAssembly + t.formatting
+        + directEvidenceLocal,
+    );
+    t.unattributed = Math.max(0, Math.round(t.total - t.externalTotal - t.localKnownTotal - t.round1EmbedRetryWait));
+}
+
 /**
  * 计算相似度分布统计
  * @param {number[]} similarities
@@ -324,7 +349,7 @@ function fmtWeights(weights) {
  * @param {object} metrics
  * @returns {string}
  */
-export function formatMetricsLog(metrics) {
+export function formatMetricsLog(metrics, { complete = true } = {}) {
     const m = metrics;
     const lines = [];
 
@@ -332,7 +357,22 @@ export function formatMetricsLog(metrics) {
     lines.push('════════════════════════════════════════');
     lines.push('          Recall Metrics Report         ');
     lines.push('════════════════════════════════════════');
+    if (!complete) lines.push('本轮未完成注入；以下为已采集的部分指标，0 不代表该阶段成功执行。');
     lines.push('');
+
+    if (m.external.failures.length) {
+        lines.push('[External Requests] 请求失败与重试记录');
+        for (const failure of m.external.failures) {
+            const details = [failure.kind];
+            if (failure.status != null) details.push(`HTTP ${failure.status}`);
+            if (failure.attempt != null) details.push(`attempt=${failure.attempt}`);
+            if (failure.batchIndex != null) details.push(`batch=${failure.batchIndex + 1}`);
+            if (failure.elapsedMs != null) details.push(`${failure.elapsedMs}ms`);
+            if (failure.message) details.push(failure.message);
+            lines.push(`- ${failure.stage}: ${details.join(' | ')}`);
+        }
+        lines.push('');
+    }
 
     // Query Length
     lines.push('[Query Length] 查询长度');
@@ -394,7 +434,8 @@ export function formatMetricsLog(metrics) {
     if (m.lexical.floorFilteredByDense > 0) {
         lines.push(`├─ floor_filtered_by_dense: ${m.lexical.floorFilteredByDense}`);
     }
-    lines.push(`└─ dense_gate_threshold: 0.50`);
+    const gates = m.lexical.denseGateThresholds;
+    lines.push(`└─ dense_gate_threshold: event=${gates?.event ?? 'N/A'}, floor=${gates?.floor ?? 'N/A'}`);
     lines.push('');
 
     // Fusion (W-RRF, floor-level)
@@ -554,8 +595,17 @@ export function formatMetricsLog(metrics) {
         lines.push(`│   ├─ vector_coverage: hits=${m.evidence.directEvidenceVectorHits || 0}, missing=${m.evidence.directEvidenceMissingVectors || 0}`);
         lines.push(`│   ├─ temporal_candidate_protection: candidates=${m.evidence.directEvidenceTemporalCandidates || 0}, floor_winners=${m.evidence.directEvidenceTemporalFloorWinners || 0}, protected=${m.evidence.directEvidenceTemporalProtectedCandidates || 0}, forced=${m.evidence.directEvidenceTemporalForced || 0}, overflow=${m.evidence.directEvidenceTemporalOverflow || 0}, same_floor_non_winners=${m.evidence.directEvidenceTemporalSameFloorNonWinners || 0}, cap=${m.evidence.directEvidenceTemporalProtectionCap || 0}`);
         lines.push(`│   ├─ ranked/prompt: ${m.evidence.directEvidenceItems || 0}/${m.evidence.directEvidencePromptItems || 0} in ${m.evidence.directEvidencePromptGroups || 0} groups`);
-        lines.push(`│   ├─ prompt_tokens: ${m.evidence.directEvidencePromptTokens || 0}`);
-        lines.push(`│   └─ summarized_budget: direct=${m.evidence.summarizedBudgetUsedByDirectEvidence || 0}, final=${m.evidence.summarizedBudgetUsedFinal || 0}/${m.evidence.summarizedBudgetMax || 0}, distant_dropped=${m.evidence.distantEvidenceDroppedByBudget || 0}${m.evidence.distantEvidenceStarved ? ' ⚠ distant starved' : ''}${m.evidence.distantEvidenceStarvedByTemporalProtection ? ' (temporal protection)' : ''}`);
+        lines.push(`│   └─ prompt_tokens: ${m.evidence.directEvidencePromptTokens || 0}`);
+    }
+    if (m.evidence.causalEvidence) {
+        const causal = m.evidence.causalEvidence;
+        lines.push(`├─ causal_evidence: links=${causal.links}/${causal.candidates}, bodies=${causal.bodies}, tokens=${causal.tokens}/${causal.maxTokens}, per_event_max=${causal.perEventMaxTokens}`);
+    }
+    if (m.evidence.eventEvidenceBudgetMax > 0) {
+        lines.push(`├─ event_evidence_budget: ${m.evidence.eventEvidenceBudgetUsed}/${m.evidence.eventEvidenceBudgetMax}`);
+    }
+    if (m.evidence.distantEvidenceBudgetMax > 0) {
+        lines.push(`├─ distant_evidence_budget: ${m.evidence.distantEvidenceBudgetUsed}/${m.evidence.distantEvidenceBudgetMax}, groups_dropped=${m.evidence.distantEvidenceDroppedByBudget}`);
     }
     lines.push(`├─ tokens: ${m.evidence.tokens}`);
     lines.push(`└─ assembly_time: ${m.timing.evidenceAssembly || 0}ms`);
@@ -611,6 +661,7 @@ export function formatMetricsLog(metrics) {
     lines.push(`    ├─ constraints: ${bd.constraints || 0}`);
     lines.push(`    ├─ events: ${bd.events || 0}`);
     lines.push(`    ├─ direct_evidence: ${bd.directEvidence || 0}`);
+    lines.push(`    ├─ causal_evidence: ${bd.causalEvidence || 0}`);
     lines.push(`    ├─ distant_evidence: ${bd.distantEvidence || 0}`);
     lines.push(`    ├─ recent_evidence: ${bd.recentEvidence || 0}`);
     lines.push(`    └─ arcs: ${bd.arcs || 0}`);
@@ -666,7 +717,7 @@ export function formatMetricsLog(metrics) {
     lines.push(`│   └─ runtime_diffuse_l0: ${m.timing.runtimeDiffuseL0 || 0}ms`);
     lines.push(`├─ evidence_assembly: ${m.timing.evidenceAssembly}ms`);
     lines.push(`├─ formatting: ${m.timing.formatting}ms`);
-    lines.push(`├─ external_total: ${m.timing.externalTotal || 0}ms (embed+rerank)`);
+    lines.push(`├─ external_total: ${m.timing.externalTotal || 0}ms (embed+rerank, excludes retry wait)`);
     lines.push(`├─ local_known_total: ${m.timing.localKnownTotal || 0}ms`);
     lines.push(`├─ unattributed: ${m.timing.unattributed || 0}ms`);
     lines.push(`├─ runtime_end_session: ${m.timing.runtimeEndSession || 0}ms`);
@@ -675,6 +726,10 @@ export function formatMetricsLog(metrics) {
 
     // Quality Indicators
     lines.push('[Quality] 质量指标');
+    if (!complete) {
+        lines.push('└─ not evaluated: recall did not complete with an injected result');
+        return lines.join('\n');
+    }
     lines.push(`├─ constraint_coverage: ${m.quality.constraintCoverage}%`);
     lines.push(`├─ l1_attach_rate: ${m.quality.l1AttachRate}%`);
     lines.push(`├─ rerank_retention_rate: ${m.quality.rerankRetentionRate}%`);
@@ -711,7 +766,7 @@ export function detectIssues(metrics) {
     // ─────────────────────────────────────────────────────────────────
 
     if ((m.anchor.focusTerms || []).length === 0) {
-        issues.push('No focus entities extracted - entity lexicon may be empty or messages too short');
+        issues.push('No focus terms extracted');
     }
 
     // 权重极端退化检测
@@ -751,8 +806,8 @@ export function detectIssues(metrics) {
         issues.push('No lexical floors in fusion - hybrid retrieval not contributing');
     }
 
-    if (m.fusion.afterCap === 0) {
-        issues.push('Fusion produced zero floor candidates - all retrieval paths may have failed');
+    if (m.fusion.afterCap === 0 && m.event.selected === 0) {
+        issues.push('No floor or event candidates selected');
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -788,11 +843,6 @@ export function detectIssues(metrics) {
     // 相似度问题
     if (m.event.similarityDistribution && m.event.similarityDistribution.min > 0 && m.event.similarityDistribution.min < 0.5) {
         issues.push(`Low similarity events included (min=${m.event.similarityDistribution.min})`);
-    }
-
-    // 因果链问题
-    if (m.event.selected > 0 && m.event.causalCount === 0 && m.event.byRecallType.direct === 0) {
-        issues.push('No direct or causal events - query may not align with stored events');
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -858,10 +908,8 @@ export function detectIssues(metrics) {
         issues.push(`High budget utilization (${m.budget.utilization}%) - may be truncating content`);
     }
 
-    if (m.evidence.distantEvidenceStarved) {
-        issues.push(m.evidence.distantEvidenceStarvedByTemporalProtection
-            ? 'Distant evidence starved - protected temporal DIRECT evidence consumed the summarized budget'
-            : 'Distant evidence starved - DIRECT evidence consumed the summarized budget');
+    if (m.evidence.distantEvidenceDroppedByBudget > 0 && m.evidence.distantEvidenceBudgetUsed === 0) {
+        issues.push('No complete distant evidence group fits its independent budget');
     }
 
     if ((m.event.temporalDropped || 0) > 0) {

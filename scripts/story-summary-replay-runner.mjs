@@ -369,6 +369,16 @@ function applyCliOverrides(config, argv) {
 }
 
 async function main() {
+    if (process.argv.includes('--check-diagnostics')) {
+        await buildBundle();
+        const bundleUrl = `${pathToFileURL(bundlePath).href}?t=${Date.now()}`;
+        // eslint-disable-next-line no-unsanitized/method -- URL points to the bundle path created above.
+        const replayModule = await import(bundleUrl);
+        const result = await replayModule.runStorySummaryDiagnosticsCheck();
+        console.log(`[story-summary-replay] diagnostics check: ${JSON.stringify(result)}`);
+        return;
+    }
+
     if (process.argv.includes('--check-prompt-assembly')) {
         await buildBundle();
         const bundleUrl = `${pathToFileURL(bundlePath).href}?t=${Date.now()}`;

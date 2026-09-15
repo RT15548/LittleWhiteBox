@@ -1,4 +1,5 @@
 import { createAbortError } from '../../../shared/common/abort-utils.js';
+import { createRecallDiagnostics } from '../recall-diagnostics.js';
 
 const DEFAULT_POLL_MS = 16;
 const DEFAULT_MAX_AGE_MS = 30_000;
@@ -74,6 +75,7 @@ export function createRecallPrefetchCoordinator(options) {
         }
         slot.cancelReason = reason;
         slot.phase = 'cancelled';
+        slot.diagnostics.finishedAt ??= performance.now();
         clearTimers(slot);
         detachDispatch(slot);
         detachSource(slot);
@@ -82,6 +84,7 @@ export function createRecallPrefetchCoordinator(options) {
             slot.controller.abort(createAbortError(`Story Summary recall ${reason}`));
         }
         if (!retainForJoin && current === slot) current = null;
+        if (slot.joinedAt !== null) options.onJoinedCancel?.(slot);
     }
 
     function expireSlot(slot) {
@@ -99,11 +102,12 @@ export function createRecallPrefetchCoordinator(options) {
     function startCompute(slot) {
         if (slot.outcome) return;
         slot.computeStartedAt = now();
+        slot.diagnostics.startedAt = performance.now();
         slot.outcome = settle(Promise.resolve().then(() => {
             if (slot.controller.signal.aborted) {
                 throw slot.controller.signal.reason || createAbortError('Story Summary recall cancelled');
             }
-            return prepare(slot.type, slot.controller.signal);
+            return prepare(slot.type, slot.controller.signal, slot.diagnostics);
         }));
     }
 
@@ -142,6 +146,7 @@ export function createRecallPrefetchCoordinator(options) {
             messageIndex: null,
             capturedRef: null,
             controller: new AbortController(),
+            diagnostics: createRecallDiagnostics(chatId, type),
             outcome: null,
             pollTimer: null,
             expiryTimer: null,
@@ -250,7 +255,11 @@ export function createRecallPrefetchCoordinator(options) {
             expireSlot(slot);
         }
         if (terminalMatches || (sameGeneration && slot.phase === 'cancelled')) {
+            const wasJoined = slot.joinedAt !== null;
             slot.joinedAt = now();
+            // A cancellation before join belongs to this generation too. Notify
+            // its single report owner when consumed, never again in the catch path.
+            if (!wasJoined) options.onJoinedCancel?.(slot);
             return {
                 slot,
                 path: slot.cancelReason || 'cancelled',

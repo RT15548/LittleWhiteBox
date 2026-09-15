@@ -1,146 +1,24 @@
-import MiniSearch from '../../../../libs/minisearch.mjs';
 import { getContext } from '../../../../../../../extensions.js';
 import { getSummaryStore } from '../../data/store.js';
 import { getAllChunks } from '../storage/chunk-store.js';
 import { xbLog } from '../../../../core/debug-core.js';
-import { tokenizeForIndex } from '../utils/tokenizer.js';
+import { getTokenizerSnapshot, injectEntities } from '../utils/tokenizer.js';
+import { getEntityVocabulary } from './entity-lexicon.js';
+import { normalizeEntityTerm } from './entity-matcher.js';
+import { LexicalCorpus } from './lexical-corpus.js';
 
 const MODULE_ID = 'lexical-index';
 
-// In-memory index cache
+// One active chat, one runtime owner. No persisted index or schema.
 let cachedIndex = null;
 let cachedChatId = null;
-let cachedFingerprint = null;
-let buildGeneration = 0;
 let activeBuild = null;
-
-// floor -> chunk doc ids (L1 only)
-let floorDocIds = new Map();
-
-// IDF stats over lexical docs (L1 chunks + L2 events)
-let termDfMap = new Map();
-let docTokenSets = new Map(); // docId -> Set<token>
-let lexicalDocCount = 0;
-
-const IDF_MIN = 1.0;
-const IDF_MAX = 4.0;
-const BUILD_BATCH_SIZE = 500;
+const queryFormsByTokenizer = new WeakMap();
 
 function cleanSummary(summary) {
-    return String(summary || '')
-        .replace(/\s*\(#\d+(?:-\d+)?\)\s*$/, '')
-        .trim();
+    return String(summary || '').replace(/\s*\(#\d+(?:-\d+)?\)\s*$/, '').trim();
 }
-
-function fnv1a32(input, seed = 0x811C9DC5) {
-    let hash = seed >>> 0;
-    const text = String(input || '');
-    for (let i = 0; i < text.length; i++) {
-        hash ^= text.charCodeAt(i);
-        hash = Math.imul(hash, 0x01000193) >>> 0;
-    }
-    return hash >>> 0;
-}
-
-function compareDocKeys(a, b) {
-    const ka = `${a?.type || ''}:${a?.id || ''}`;
-    const kb = `${b?.type || ''}:${b?.id || ''}`;
-    if (ka < kb) return -1;
-    if (ka > kb) return 1;
-    return 0;
-}
-
-function computeFingerprintFromDocs(docs) {
-    const normalizedDocs = Array.isArray(docs) ? [...docs].sort(compareDocKeys) : [];
-    let hash = 0x811C9DC5;
-
-    for (const doc of normalizedDocs) {
-        const payload = `${doc?.type || ''}\u001F${doc?.id || ''}\u001F${doc?.floor ?? ''}\u001F${doc?.text || ''}\u001E`;
-        hash = fnv1a32(payload, hash);
-    }
-
-    return `${normalizedDocs.length}:${(hash >>> 0).toString(16)}`;
-}
-
-function yieldToMain() {
-    return new Promise(resolve => setTimeout(resolve, 0));
-}
-
-function clamp(v, min, max) {
-    return Math.max(min, Math.min(max, v));
-}
-
-function normalizeTerm(term) {
-    return String(term || '').trim().toLowerCase();
-}
-
-function computeIdfFromDf(df, docCount) {
-    if (!docCount || docCount <= 0) return 1;
-    const raw = Math.log((docCount + 1) / ((df || 0) + 1)) + 1;
-    return clamp(raw, IDF_MIN, IDF_MAX);
-}
-
-function computeIdf(term) {
-    const t = normalizeTerm(term);
-    if (!t || lexicalDocCount <= 0) return 1;
-    return computeIdfFromDf(termDfMap.get(t) || 0, lexicalDocCount);
-}
-
-function extractUniqueTokens(text) {
-    return new Set(tokenizeForIndex(String(text || '')).map(normalizeTerm).filter(Boolean));
-}
-
-function clearIdfState() {
-    termDfMap = new Map();
-    docTokenSets = new Map();
-    lexicalDocCount = 0;
-}
-
-function removeDocumentIdf(docId) {
-    const id = String(docId || '');
-    if (!id) return;
-
-    const tokens = docTokenSets.get(id);
-    if (!tokens) return;
-
-    for (const token of tokens) {
-        const current = termDfMap.get(token) || 0;
-        if (current <= 1) {
-            termDfMap.delete(token);
-        } else {
-            termDfMap.set(token, current - 1);
-        }
-    }
-
-    docTokenSets.delete(id);
-    lexicalDocCount = Math.max(0, lexicalDocCount - 1);
-}
-
-function addDocumentIdf(docId, text) {
-    const id = String(docId || '');
-    if (!id) return;
-
-    // Replace semantics: remove old token set first if this id already exists.
-    removeDocumentIdf(id);
-
-    const tokens = extractUniqueTokens(text);
-    docTokenSets.set(id, tokens);
-    lexicalDocCount += 1;
-
-    for (const token of tokens) {
-        termDfMap.set(token, (termDfMap.get(token) || 0) + 1);
-    }
-}
-
-function rebuildIdfFromDocs(docs) {
-    clearIdfState();
-    for (const doc of docs || []) {
-        const id = String(doc?.id || '');
-        const text = String(doc?.text || '');
-        if (!id || !text.trim()) continue;
-        addDocumentIdf(id, text);
-    }
-}
+const normalizeTerm = normalizeEntityTerm;
 
 function buildEventDoc(ev) {
     if (!ev?.id) return null;
@@ -165,7 +43,6 @@ function buildEventDoc(ev) {
 
 function collectDocuments(chunks, events) {
     const docs = [];
-    const nextFloorDocIds = new Map();
 
     for (const chunk of chunks || []) {
         if (!chunk?.chunkId || !chunk.text) continue;
@@ -177,11 +54,6 @@ function collectDocuments(chunks, events) {
             floor,
             text: chunk.text,
         });
-
-        if (floor >= 0) {
-            if (!nextFloorDocIds.has(floor)) nextFloorDocIds.set(floor, []);
-            nextFloorDocIds.get(floor).push(chunk.chunkId);
-        }
     }
 
     for (const ev of events || []) {
@@ -189,38 +61,7 @@ function collectDocuments(chunks, events) {
         if (doc) docs.push(doc);
     }
 
-    return { docs, floorDocIds: nextFloorDocIds };
-}
-
-async function buildIndexAsync(docs) {
-    const T0 = performance.now();
-
-    const index = new MiniSearch({
-        fields: ['text'],
-        storeFields: ['type', 'floor'],
-        idField: 'id',
-        searchOptions: {
-            boost: { text: 1 },
-            fuzzy: 0.2,
-            prefix: true,
-        },
-        tokenize: tokenizeForIndex,
-    });
-
-    if (!docs.length) return index;
-
-    for (let i = 0; i < docs.length; i += BUILD_BATCH_SIZE) {
-        const batch = docs.slice(i, i + BUILD_BATCH_SIZE);
-        index.addAll(batch);
-
-        if (i + BUILD_BATCH_SIZE < docs.length) {
-            await yieldToMain();
-        }
-    }
-
-    const elapsed = Math.round(performance.now() - T0);
-    xbLog.info(MODULE_ID, `Index built: ${docs.length} docs (${elapsed}ms)`);
-    return index;
+    return { docs };
 }
 
 /**
@@ -239,13 +80,14 @@ async function buildIndexAsync(docs) {
  * @property {Array<{floor:number, score:number, hitTermsCount:number}>} floorLexScores - Aggregated lexical floor scores (debug).
  * @property {number} termSearches - Number of per-term MiniSearch queries executed.
  * @property {number} searchTime - Total lexical search time in milliseconds.
+ * @property {Array<{term:string,error:Error}>} failures - Failed terms; other hits remain usable.
  */
 
 /**
  * Search lexical index by terms, using per-term MiniSearch and IDF-weighted score aggregation.
  * This keeps existing outputs compatible while adding observability fields.
  *
- * @param {MiniSearch} index
+ * @param {LexicalCorpus} index
  * @param {string[]} terms
  * @returns {LexicalSearchResult}
  */
@@ -259,14 +101,15 @@ export function searchLexicalIndex(index, terms) {
         chunkFloors: new Set(),
         eventIds: [],
         chunkScores: [],
-        idfEnabled: lexicalDocCount > 0,
-        idfDocCount: lexicalDocCount,
+        idfEnabled: (index?.documentCount || 0) > 0,
+        idfDocCount: index?.documentCount || 0,
         topIdfTerms: [],
         queryTerms: [],
         termFloorHits: {},
         floorLexScores: [],
         termSearches: 0,
         searchTime: 0,
+        failures: [],
     };
 
     if (!index || !terms?.length) {
@@ -274,7 +117,8 @@ export function searchLexicalIndex(index, terms) {
         return result;
     }
 
-    const queryTerms = Array.from(new Set((terms || []).map(normalizeTerm).filter(Boolean)));
+    const groups = buildLexicalQueryGroups(index.tokenizer, terms);
+    const queryTerms = groups.map(group => group.term);
     result.queryTerms = [...queryTerms];
     const weightedScores = new Map(); // docId -> score
     const hitMeta = new Map(); // docId -> { type, floor }
@@ -282,31 +126,32 @@ export function searchLexicalIndex(index, terms) {
     const termFloorHits = new Map(); // term -> [{ floor, weightedScore, chunkId }]
     const floorLexAgg = new Map(); // floor -> { score, terms:Set<string> }
 
-    for (const term of queryTerms) {
-        const idf = computeIdf(term);
+    for (const group of groups) {
+        const term = group.term;
+        const idf = Math.max(...group.forms.map(form => index.getIdf(form)));
         idfPairs.push({ term, idf });
-
-        let hits = [];
-        try {
-            hits = index.search(term, {
-                boost: { text: 1 },
-                fuzzy: 0.2,
-                prefix: true,
-                combineWith: 'OR',
-                tokenize: tokenizeForIndex,
-            });
-        } catch (e) {
-            xbLog.warn(MODULE_ID, `Lexical term search failed: ${term}`, e);
-            continue;
+        const groupedHits = new Map();
+        for (const form of group.forms) {
+            try {
+                for (const hit of index.search(form, { exact: group.exact })) {
+                    const weighted = (hit.score || 0) * index.getIdf(form);
+                    if (!groupedHits.has(hit.id) || groupedHits.get(hit.id).weighted < weighted) {
+                        groupedHits.set(hit.id, { ...hit, weighted });
+                    }
+                }
+                result.termSearches += 1;
+            } catch (error) {
+                xbLog.warn(MODULE_ID, `Lexical term search failed: ${form}`, error);
+                result.failures.push({ term: form, error });
+            }
         }
-
-        result.termSearches += 1;
+        const hits = [...groupedHits.values()];
 
         for (const hit of hits) {
             const id = String(hit.id || '');
             if (!id) continue;
 
-            const weighted = (hit.score || 0) * idf;
+            const weighted = hit.weighted;
             weightedScores.set(id, (weightedScores.get(id) || 0) + weighted);
 
             if (!hitMeta.has(id)) {
@@ -376,192 +221,170 @@ export function searchLexicalIndex(index, terms) {
     return result;
 }
 
-async function collectAndBuild(chatId) {
-    const store = getSummaryStore();
-    const events = store?.json?.events || [];
-
-    let chunks = [];
-    try {
-        chunks = await getAllChunks(chatId);
-    } catch (e) {
-        xbLog.warn(MODULE_ID, 'Failed to load chunks', e);
+// Keep surface spellings in documents. Canonical names only group queries;
+// recognizing an identity reveal therefore does not rewrite historical prose.
+function buildLexicalQueryGroups(tokenizer, terms) {
+    let formsByIdentity = queryFormsByTokenizer.get(tokenizer);
+    if (!formsByIdentity) {
+        formsByIdentity = new Map();
+        for (const [form, display] of tokenizer.entities) {
+            const identity = normalizeTerm(display);
+            const forms = formsByIdentity.get(identity) || [];
+            forms.push(form);
+            formsByIdentity.set(identity, forms);
+        }
+        queryFormsByTokenizer.set(tokenizer, formsByIdentity);
     }
-
-    const collected = collectDocuments(chunks, events);
-    const { docs } = collected;
-    const fp = computeFingerprintFromDocs(docs);
-
-    if (cachedIndex && cachedChatId === chatId && cachedFingerprint === fp) {
-        return { index: cachedIndex, fingerprint: fp, docs, floorDocIds: collected.floorDocIds };
+    const groups = new Map();
+    for (const raw of terms) {
+        const term = normalizeTerm(raw);
+        if (!term) continue;
+        const identity = normalizeTerm(tokenizer.entities.get(term) || '');
+        const key = identity || term;
+        if (!groups.has(key)) groups.set(key, {
+            term: key,
+            exact: !!identity,
+            forms: identity ? formsByIdentity.get(identity) : [term],
+        });
     }
-
-    const index = await buildIndexAsync(docs);
-
-    return { index, fingerprint: fp, docs, floorDocIds: collected.floorDocIds };
+    return [...groups.values()];
 }
 
-/**
- * Expose IDF accessor for query-term selection in query-builder.
- * If index stats are not ready, this gracefully falls back to idf=1.
- */
+function synchronizeVocabulary() {
+    const store = getSummaryStore();
+    const context = getContext();
+    const vocabulary = getEntityVocabulary(store, context);
+    injectEntities(vocabulary.lexicon, vocabulary.displayMap, vocabulary.blockedTerms);
+}
+
 export function getLexicalIdfAccessor() {
+    // A corpus being repaired is not a complete scoring snapshot yet.
+    const index = activeBuild || cachedChatId !== getContext().chatId ? null : cachedIndex;
     return {
-        enabled: lexicalDocCount > 0,
-        docCount: lexicalDocCount,
-        getIdf(term) {
-            return computeIdf(term);
-        },
+        enabled: (index?.documentCount || 0) > 0,
+        docCount: index?.documentCount || 0,
+        getIdf: term => index?.getIdf(term) || 1,
     };
 }
 
 export async function getLexicalIndex() {
     const { chatId } = getContext();
     if (!chatId) return null;
-
-    if (cachedIndex && cachedChatId === chatId && cachedFingerprint) {
-        return cachedIndex;
+    synchronizeVocabulary();
+    while (getContext().chatId === chatId) {
+        if (!activeBuild && cachedIndex && cachedChatId === chatId && cachedIndex.tokenizer === getTokenizerSnapshot()) return cachedIndex;
+        const pending = activeBuild?.chatId === chatId ? activeBuild.promise : startIndexSync(chatId);
+        if (!await pending) return null;
+        // Another committed update may have arrived while the promise settled.
+        // Join it before handing a partially updated corpus to a reader.
     }
+    return null;
+}
 
-    const existingBuild = activeBuild;
-    if (existingBuild?.chatId === chatId && existingBuild.generation === buildGeneration) {
-        try {
-            await existingBuild.promise;
-            if (cachedIndex && cachedChatId === chatId && cachedFingerprint) {
-                return cachedIndex;
-            }
-        } catch {
-            // Continue to rebuild below.
-        }
-        if (buildGeneration !== existingBuild.generation || (activeBuild && activeBuild !== existingBuild)) {
-            return null;
-        }
-    }
-
-    xbLog.info(MODULE_ID, `Lexical cache miss; rebuilding (chatId=${chatId.slice(0, 8)})`);
-
-    const generation = buildGeneration;
-    const build = {
-        chatId,
-        generation,
-        promise: collectAndBuild(chatId),
-    };
+function startIndexSync(chatId, updates = []) {
+    const build = { chatId, updates, promise: null };
+    const isCurrent = () => activeBuild === build && getContext().chatId === chatId;
     activeBuild = build;
-
-    try {
-        const { index, fingerprint, docs, floorDocIds: nextFloorDocIds } = await build.promise;
-        if (activeBuild !== build || buildGeneration !== generation) return null;
-        cachedIndex = index;
-        cachedChatId = chatId;
-        cachedFingerprint = fingerprint;
-        floorDocIds = nextFloorDocIds;
-        rebuildIdfFromDocs(docs);
-        return index;
-    } catch (e) {
-        xbLog.error(MODULE_ID, 'Index build failed', e);
+    build.promise = Promise.resolve().then(async () => {
+        if (!isCurrent()) return null;
+        let index = cachedChatId === chatId ? cachedIndex : null;
+        if (index) {
+            // The writer exclusively owns this mutable corpus until publication.
+            // If a chat switch abandons it mid-slice, never reuse a partial cache.
+            cachedIndex = null;
+            cachedChatId = null;
+        }
+        if (!index) {
+            // A failed read is a failed build, NOT an empty successful corpus.
+            const chunks = await getAllChunks(chatId);
+            if (!isCurrent()) return null;
+            const { docs } = collectDocuments(chunks, getSummaryStore()?.json?.events || []);
+            // Fold changes queued during the read over the loaded source before
+            // tokenizing it. Deleted/intermediate versions never enter the index.
+            build.updates.unshift({ docs });
+        }
+        while (isCurrent()) {
+            synchronizeVocabulary();
+            const tokenizer = getTokenizerSnapshot();
+            index ||= new LexicalCorpus(tokenizer);
+            const updates = build.updates.splice(0);
+            await index.applyBatch(updates, tokenizer, isCurrent);
+            if (!isCurrent()) return null;
+            if (build.updates.length || index.tokenizer !== getTokenizerSnapshot()) continue;
+            cachedIndex = index;
+            cachedChatId = chatId;
+            // Publish and close the writer in the same synchronous step. Later
+            // updates must start a new sync, never enter this finished queue.
+            activeBuild = null;
+            return index;
+        }
         return null;
-    } finally {
+    }).catch(error => {
+        if (isCurrent()) {
+            cachedIndex = null;
+            cachedChatId = null;
+        }
+        throw error;
+    }).finally(() => {
         if (activeBuild === build) activeBuild = null;
-    }
+    });
+    // Incremental writers may enqueue without awaiting. Observe their failure
+    // here, while keeping the original rejection available to recall readers.
+    build.promise.catch(error => xbLog.error(MODULE_ID, 'Index build failed', error));
+    return build.promise;
 }
 
 export function warmupIndex() {
-    const { chatId } = getContext();
-    if (!chatId) return;
-
-    getLexicalIndex().catch(e => {
-        xbLog.warn(MODULE_ID, 'Warmup failed', e);
-    });
+    getLexicalIndex().catch(error => xbLog.warn(MODULE_ID, 'Warmup failed', error));
 }
 
 export function invalidateLexicalIndex() {
-    if (cachedIndex) {
-        xbLog.info(MODULE_ID, 'Lexical index cache invalidated');
-    }
     cachedIndex = null;
     cachedChatId = null;
-    cachedFingerprint = null;
-    buildGeneration++;
     activeBuild = null;
-    floorDocIds = new Map();
-    clearIdfState();
 }
 
-export function addDocumentsForFloor(floor, chunks) {
-    if (!cachedIndex || !chunks?.length) return;
+function applyUpdate(update, chatId) {
+    if (!chatId || getContext().chatId !== chatId) return null;
+    if (!update.clearChunks && update.floor === undefined && !update.docs?.length && !update.removeIds?.length) return null;
+    if (activeBuild?.chatId === chatId) {
+        activeBuild.updates.push(update);
+        return activeBuild.promise;
+    }
+    if (!cachedIndex || cachedChatId !== chatId) return null;
+    // Even warm-cache writes use the sliced sync. Enqueuing a large alias
+    // migration must not tokenize the entire batch on the caller's stack.
+    return startIndexSync(chatId, [update]);
+}
 
-    removeDocumentsByFloor(floor);
+export function addDocumentsForFloor(floor, chunks, chatId = getContext().chatId) {
+    const { docs } = collectDocuments((chunks || []).map(chunk => ({ ...chunk, floor: chunk.floor ?? floor })), []);
+    return applyUpdate({ floor, docs }, chatId);
+}
 
+export function addChunkDocuments(chunks, chatId = getContext().chatId) {
+    return applyUpdate({ docs: collectDocuments(chunks || [], []).docs }, chatId);
+}
+
+export function clearChunkDocuments(chatId = getContext().chatId) {
+    return applyUpdate({ clearChunks: true }, chatId);
+}
+
+export function removeDocumentsByFloor(floor, chatId = getContext().chatId) {
+    return applyUpdate({ floor }, chatId);
+}
+
+export function addEventDocuments(events, chatId = getContext().chatId) {
     const docs = [];
-    const docIds = [];
-
-    for (const chunk of chunks) {
-        if (!chunk?.chunkId || !chunk.text) continue;
-
-        const doc = {
-            id: chunk.chunkId,
-            type: 'chunk',
-            floor: chunk.floor ?? floor,
-            text: chunk.text,
-        };
-        docs.push(doc);
-        docIds.push(chunk.chunkId);
+    const removeIds = [];
+    for (const event of events || []) {
+        const doc = buildEventDoc(event);
+        if (doc) docs.push(doc);
+        else if (event?.id) removeIds.push(event.id);
     }
-
-    if (!docs.length) return;
-
-    cachedIndex.addAll(docs);
-    floorDocIds.set(floor, docIds);
-
-    for (const doc of docs) {
-        addDocumentIdf(doc.id, doc.text);
-    }
-
-    xbLog.info(MODULE_ID, `Incremental add floor=${floor} chunks=${docs.length}`);
+    return applyUpdate({ docs, removeIds }, chatId);
 }
 
-export function removeDocumentsByFloor(floor) {
-    if (!cachedIndex) return;
-
-    const docIds = floorDocIds.get(floor);
-    if (!docIds?.length) return;
-
-    for (const id of docIds) {
-        try {
-            cachedIndex.discard(id);
-        } catch {
-            // Ignore if the doc was already removed/rebuilt.
-        }
-        removeDocumentIdf(id);
-    }
-
-    floorDocIds.delete(floor);
-    xbLog.info(MODULE_ID, `Incremental remove floor=${floor} chunks=${docIds.length}`);
-}
-
-export function addEventDocuments(events) {
-    if (!cachedIndex || !events?.length) return;
-
-    const docs = [];
-
-    for (const ev of events) {
-        const doc = buildEventDoc(ev);
-        if (!doc) continue;
-
-        try {
-            cachedIndex.discard(doc.id);
-        } catch {
-            // Ignore if previous document does not exist.
-        }
-        removeDocumentIdf(doc.id);
-        docs.push(doc);
-    }
-
-    if (!docs.length) return;
-
-    cachedIndex.addAll(docs);
-    for (const doc of docs) {
-        addDocumentIdf(doc.id, doc.text);
-    }
-
-    xbLog.info(MODULE_ID, `Incremental add events=${docs.length}`);
+export function removeEventDocuments(ids, chatId = getContext().chatId) {
+    return applyUpdate({ removeIds: ids }, chatId);
 }

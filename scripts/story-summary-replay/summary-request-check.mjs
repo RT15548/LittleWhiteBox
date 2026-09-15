@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { Buffer } from 'node:buffer';
+import { formatExistingSummaryForAI } from '../../modules/story-summary/generate/generator.js';
 
 export async function runSummaryRequestCheck() {
     const { generateSummary, parseSummaryJson } = await import('../../modules/story-summary/generate/llm.js');
@@ -9,6 +10,11 @@ export async function runSummaryRequestCheck() {
     const responseText = JSON.stringify(summary);
     const requests = [];
     const decodeMessages = value => JSON.parse(Buffer.from(value, 'base64url').toString('utf8'));
+    const existingEvents = [
+        { id: 'evt-7', timeLabel: '6月12日', title: '搬家', summary: '小红搬入新家。 (#1)' },
+        { id: 'evt-12', title: '回家', summary: '我买了牛肉面。 (#2)' },
+    ];
+    const existingSummary = formatExistingSummaryForAI({ json: { events: existingEvents } });
 
     // Capture the two outgoing transport boundaries without calling a model.
     globalThis.fetch = async (_url, options) => {
@@ -52,12 +58,11 @@ export async function runSummaryRequestCheck() {
                 const label = `${route.provider}/${route.model || 'host'} stream=${useStream}`;
                 const requestCount = requests.length;
                 const output = await generateSummary({
-                    existingSummary: '两人刚搬入新家。',
+                    existingSummary,
                     existingFacts: [],
-                    newHistoryText: '#1 【用户】\n我拎着两碗牛肉面推开家门。',
-                    historyRange: '1-1楼',
-                    nextEventId: 1,
-                    existingEventCount: 0,
+                    newHistoryText: '#3 【用户】\n我拎着两碗牛肉面推开家门。',
+                    historyRange: '3-3楼',
+                    existingEventCount: 2,
                     llmApi: { ...route, url: 'https://summary-test.invalid/v1' },
                     useStream,
                 });
@@ -68,6 +73,12 @@ export async function runSummaryRequestCheck() {
                 assert.ok(request.messages.at(-1).content.trim(), `${label}: final instruction is present`);
                 baselineMessages ??= request.messages;
                 assert.deepEqual(request.messages, baselineMessages, `${label}: identical prompt across transports`);
+                const eventLines = request.messages.flatMap(message => message.content.split('\n'))
+                    .filter(line => line.startsWith('[evt-'));
+                assert.deepEqual(eventLines, [
+                    '[evt-7] [6月12日] 搬家：小红搬入新家。 (#1)',
+                    '[evt-12] 回家：我买了牛肉面。 (#2)',
+                ], `${label}: injected event references retain actual IDs even when numbering has gaps`);
                 assert.equal(output, responseText, `${label}: response has no synthetic prefill`);
                 assert.deepEqual(parseSummaryJson(output), summary, `${label}: complete JSON remains parseable`);
             }

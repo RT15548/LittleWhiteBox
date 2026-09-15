@@ -18,16 +18,13 @@
 
 import { getContext } from '../../../../../../../extensions.js';
 import {
-    buildCharacterPools,
-    buildDisplayNameMap,
-    buildEntityLexicon,
-    extractEntitiesFromText,
+    getEntityVocabulary,
     normalizeEntityTerm,
 } from './entity-lexicon.js';
 import { getLexicalIdfAccessor } from './lexical-index.js';
 import { getSummaryStore } from '../../data/store.js';
 import { filterText } from '../utils/text-filter.js';
-import { tokenizeForIndex as tokenizerTokenizeForIndex } from '../utils/tokenizer.js';
+import { getTokenizerSnapshot, injectEntities, tokenizeForIndex as tokenizerTokenizeForIndex } from '../utils/tokenizer.js';
 import { buildBoundedRerankQuery } from './rerank-query.js';
 import { boundRecallEmbeddingSegment } from './recall-query-bounds.js';
 import { resolveFocusCharacters } from './event-recall-classification.js';
@@ -141,7 +138,7 @@ function extractKeyTerms(text, maxTerms = LEXICAL_TERMS_MAX) {
  */
 export function describeQueryFocusOwnership(bundle) {
     const focusText = String(bundle?.focusQuery || '');
-    const focusTerms = extractEntitiesFromText(focusText, bundle?._lexicon, bundle?._displayMap);
+    const focusTerms = bundle?._extractEntities?.(focusText) || [];
     const focusCharacters = resolveFocusCharacters(
         focusTerms,
         bundle?.trustedCharacters,
@@ -191,8 +188,7 @@ export function describeQueryFocusOwnership(bundle) {
  * @property {Set<string>} allCharacters       - Union of trusted and candidate character pools
  * @property {Set<string>} trustedCharacters   - Clean character pool (main/arcs/name2/L2 participants)
  * @property {Set<string>} candidateCharacters - Extended character pool from L0 edges.s/t after cleanup
- * @property {Set<string>}       _lexicon     - 实体词典（内部使用）
- * @property {Map<string, string>} _displayMap - 标准化→原词形映射（内部使用）
+ * @property {function(string): string[]} _extractEntities - 本查询词典快照的实体提取
  */
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -252,9 +248,7 @@ export function buildQueryBundle(lastMessages, store = null, context = null) {
     }
 
     // 1. 实体/人物词典
-    const lexicon = buildEntityLexicon(store, context);
-    const displayMap = buildDisplayNameMap(store, context);
-    const { trustedCharacters, candidateCharacters, allCharacters } = buildCharacterPools(store, context);
+    const { lexicon, displayMap, blockedTerms, trustedCharacters, candidateCharacters, allCharacters } = getEntityVocabulary(store, context);
 
     // 2. 分离焦点与上下文
     const contextEntries = [];
@@ -286,10 +280,9 @@ export function buildQueryBundle(lastMessages, store = null, context = null) {
     // focusCharacters 在这里表示“查询窗口人物”，并非只来自 focusEntry；
     // name1 在匹配阶段与人物筛选阶段均被硬排除。
     const combinedText = allCleanTexts.join(' ');
-    const blockedUserTerms = context?.name1
-        ? [context.name1, String(context.name1).replace(/\s+/gu, '')]
-        : [];
-    const focusTerms = extractEntitiesFromText(combinedText, lexicon, displayMap, blockedUserTerms);
+    injectEntities(lexicon, displayMap, blockedTerms);
+    const { extractEntities } = getTokenizerSnapshot();
+    const focusTerms = extractEntities(combinedText);
     const focusCharacters = resolveFocusCharacters(
         focusTerms,
         trustedCharacters,
@@ -344,8 +337,7 @@ export function buildQueryBundle(lastMessages, store = null, context = null) {
         allCharacters,
         trustedCharacters,
         candidateCharacters,
-        _lexicon: lexicon,
-        _displayMap: displayMap,
+        _extractEntities: extractEntities,
         _context: { name1: context?.name1 || '', name2: context?.name2 || '' },
     };
 }

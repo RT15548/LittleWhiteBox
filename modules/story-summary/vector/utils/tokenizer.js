@@ -20,6 +20,7 @@ import { extensionFolderPath } from '../../../../core/constants.js';
 import { xbLog } from '../../../../core/debug-core.js';
 import { BASE_STOP_WORDS } from './stopwords-base.js';
 import { DOMAIN_STOP_WORDS, KEEP_WORDS } from './stopwords-patch.js';
+import { createEntityMatcher, normalizeEntityTerm } from '../retrieval/entity-matcher.js';
 
 const MODULE_ID = 'tokenizer';
 
@@ -39,7 +40,7 @@ const WasmState = {
 
 let wasmState = WasmState.IDLE;
 
-/** @type {Promise<void>|null} 当前加载 Promise（防重入） */
+/** @type {Promise<true>|null} 当前加载 Promise（防重入） */
 let loadingPromise = null;
 
 /** @type {typeof import('../../../../libs/jieba-wasm/jieba_rs_wasm.js')|null} */
@@ -48,8 +49,6 @@ let jiebaModule = null;
 /** @type {Function|null} jieba cut 函数引用 */
 let jiebaCut = null;
 
-/** @type {Function|null} jieba add_word 函数引用 */
-let jiebaAddWord = null;
 
 /** @type {object|null} TinySegmenter 实例 */
 let tinySegmenter = null;
@@ -58,12 +57,8 @@ let tinySegmenter = null;
 // 实体词典
 // ═══════════════════════════════════════════════════════════════════════════
 
-/** @type {string[]} 按长度降序排列的实体列表（用于最长匹配） */
-let entityList = [];
-
-/** @type {Set<string>} 已注入结巴的实体（避免重复 add_word） */
-let injectedEntities = new Set();
-let entityKeepSet = new Set();
+let entityMatcher = createEntityMatcher();
+let tokenizerSnapshot = null;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 停用词
@@ -80,13 +75,7 @@ const EFFECTIVE_STOP_WORDS = new Set(
         .filter(Boolean),
 );
 
-function shouldKeepTokenByWhitelist(token) {
-    const t = String(token || '').trim().toLowerCase();
-    if (!t) return false;
-    if (STATIC_KEEP_WORDS.has(t)) return true;
-    if (entityKeepSet.has(t)) return true;
-    return false;
-}
+
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Unicode 分类
@@ -234,111 +223,6 @@ function detectAsianLanguage(text) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 实体保护（最长匹配占位符替换）
-// ═══════════════════════════════════════════════════════════════════════════
-
-// 使用纯 PUA 字符序列作为占位符，避免拉丁字母泄漏到分词结果
-const PLACEHOLDER_PREFIX = '\uE000\uE010';
-const PLACEHOLDER_SUFFIX = '\uE001';
-
-// 完整占位符匹配。由上面两个常量派生，避免格式定义出现第二份；
-// 与 String.prototype.replace + /g 配合使用，不依赖正则的 lastIndex 状态。
-const PLACEHOLDER_PATTERN = new RegExp(`${PLACEHOLDER_PREFIX}\\d+${PLACEHOLDER_SUFFIX}`, 'g');
-
-/**
- * 在文本中执行实体最长匹配，替换为占位符
- *
- * 实现方式（两遍法）：
- * 1. 第一遍在**不可变原文**上收集全部匹配区间 —— 读坐标与写坐标天然一致；
- * 2. 重叠的候选按「最长匹配优先」让位（entityList 已按长度降序排列）；
- * 3. 第二遍**从后往前**替换 —— 前面的下标不受后续改动影响。
- *
- * 之所以不能用「边搜索边改写同一个字符串」：indexOf 取自旧快照、slice/splice
- * 作用在新串，占位符长度 ≠ 实体长度会让坐标逐次漂移，同一实体的第 2 次及以后
- * 会出现替换到错误位置（切出垃圾串）；用前后 ±4 字符的邻域判定「是否已被占位符
- * 覆盖」也会误跳过紧邻占位符的合法实体。
- *
- * @param {string} text - 原始文本
- * @returns {{masked: string, entities: Map<string, string>}} masked 文本 + 占位符→原文映射
- */
-function maskEntities(text) {
-    const entities = new Map();
-
-    if (!entityList.length || !text) {
-        return { masked: text, entities };
-    }
-
-    const ranges = [];
-    const lowerText = text.toLowerCase();
-
-    // 1. 在原文上收集匹配区间（原文不变，坐标恒定）
-    for (const entity of entityList) {
-        // 大小写不敏感搜索
-        const lowerEntity = entity.toLowerCase();
-        let searchFrom = 0;
-
-        while (true) {
-            const pos = lowerText.indexOf(lowerEntity, searchFrom);
-            if (pos === -1) break;
-
-            const end = pos + entity.length;
-            // 与已占用区间重叠则让位（entityList 长度降序 = 最长匹配优先）
-            const taken = ranges.some(range => pos < range.end && end > range.start);
-            if (!taken) ranges.push({ start: pos, end, entity });
-
-            searchFrom = pos + 1;
-        }
-    }
-
-    // 2. 从后往前替换，避免坐标漂移
-    ranges.sort((a, b) => b.start - a.start);
-
-    let masked = text;
-    let idx = 0;
-
-    for (const range of ranges) {
-        const placeholder = `${PLACEHOLDER_PREFIX}${idx}${PLACEHOLDER_SUFFIX}`;
-        entities.set(placeholder, text.slice(range.start, range.end));
-        masked = masked.slice(0, range.start) + placeholder + masked.slice(range.end);
-        idx++;
-    }
-
-    return { masked, entities };
-}
-
-/**
- * 将 token 数组中的占位符还原为原始实体
- *
- * @param {string[]} tokens
- * @param {Map<string, string>} entities - 占位符→原文映射
- * @returns {string[]}
- */
-function unmaskTokens(tokens, entities) {
-    if (!entities.size) return tokens;
-
-    return tokens.flatMap(token => {
-        // token 本身就是一个完整占位符
-        if (entities.has(token)) {
-            return [entities.get(token)];
-        }
-
-        // token 中包含 PUA 字符 → 检查是否包含完整占位符
-        if (/[\uE000-\uE0FF]/.test(token)) {
-            for (const [placeholder, original] of entities) {
-                if (token.includes(placeholder)) {
-                    return [original];
-                }
-            }
-            // 纯 PUA 碎片，丢弃
-            return [];
-        }
-
-        // 普通 token，原样保留
-        return [token];
-    });
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
 // 分词：亚洲文字（结巴 / 降级）
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -347,11 +231,11 @@ function unmaskTokens(tokens, entities) {
  * @param {string} text
  * @returns {string[]}
  */
-function tokenizeAsianJieba(text) {
-    if (!text || !jiebaCut) return [];
+function tokenizeAsianJieba(text, cut = jiebaCut) {
+    if (!text || !cut) return [];
 
     try {
-        const words = jiebaCut(text, true); // hmm=true
+        const words = cut(text, true); // hmm=true
         return Array.from(words)
             .map(w => String(w || '').trim())
             .filter(w => w.length >= 2);
@@ -400,10 +284,10 @@ function tokenizeAsianFallback(text) {
  * @param {string} text
  * @returns {string[]}
  */
-function tokenizeJapanese(text) {
-    if (tinySegmenter) {
+function tokenizeJapanese(text, segmenter = tinySegmenter) {
+    if (segmenter) {
         try {
-            const words = tinySegmenter.segment(text);
+            const words = segmenter.segment(text);
             return words
                 .map(w => String(w || '').trim())
                 .filter(w => w.length >= 2);
@@ -443,7 +327,8 @@ function tokenizeLatin(text) {
  * 可多次调用，内部防重入。
  * FAILED 状态下再次调用会重试。
  *
- * @returns {Promise<boolean>} 是否加载成功
+ * @returns {Promise<true>} 加载成功
+ * @throws {Error} 原始加载异常；调用方负责记录并决定是否降级。
  */
 export async function preload() {
     // TinySegmenter 独立于结巴状态（内部有防重入）
@@ -454,12 +339,7 @@ export async function preload() {
 
     // 正在加载，等待结果
     if (wasmState === WasmState.LOADING && loadingPromise) {
-        try {
-            await loadingPromise;
-            return wasmState === WasmState.READY;
-        } catch {
-            return false;
-        }
+        return loadingPromise;
     }
 
     // IDLE 或 FAILED → 开始加载
@@ -484,7 +364,6 @@ export async function preload() {
 
             // 缓存函数引用
             jiebaCut = jiebaModule.cut;
-            jiebaAddWord = jiebaModule.add_word;
 
             if (typeof jiebaCut !== 'function') {
                 throw new Error('jieba cut 函数不存在');
@@ -495,10 +374,6 @@ export async function preload() {
             const elapsed = Math.round(performance.now() - T0);
             xbLog.info(MODULE_ID, `结巴 WASM 加载完成 (${elapsed}ms)`);
 
-            // 如果有待注入的实体，补做
-            if (entityList.length > 0 && jiebaAddWord) {
-                reInjectAllEntities();
-            }
 
             return true;
         } catch (e) {
@@ -509,10 +384,7 @@ export async function preload() {
     })();
 
     try {
-        await loadingPromise;
-        return true;
-    } catch {
-        return false;
+        return await loadingPromise;
     } finally {
         loadingPromise = null;
     }
@@ -529,6 +401,8 @@ async function loadTinySegmenter() {
         const mod = await import(
             `/${extensionFolderPath}/libs/tiny-segmenter.js`
         );
+        // Concurrent preload calls share one engine identity after import.
+        if (tinySegmenter) return;
         const Ctor = mod.TinySegmenter || mod.default;
         tinySegmenter = new Ctor();
         xbLog.info(MODULE_ID, 'TinySegmenter 加载完成');
@@ -557,211 +431,96 @@ export function getState() {
     return wasmState;
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// 公开接口：injectEntities
-// ═══════════════════════════════════════════════════════════════════════════
-
-/**
- * 注入实体词典
- *
- * 更新内部实体列表（用于最长匹配保护）
- * 如果结巴已就绪，同时调用 add_word 注入
- *
- * @param {Set<string>} lexicon - 标准化后的实体集合
- * @param {Map<string, string>} [displayMap] - normalize→原词形映射
- */
-export function injectEntities(lexicon, displayMap) {
-    if (!lexicon?.size) {
-        entityList = [];
-        entityKeepSet = new Set();
-        return;
+// A snapshot owns both the entity vocabulary and the actual segmentation engines.
+// No add_word mutation: a new name must not silently change unrelated documents
+// (or leak a previous chat's dictionary into the next chat).
+export function injectEntities(lexicon, displayMap, blockedTerms = []) {
+    const terms = new Map();
+    for (const raw of lexicon || []) {
+        const term = normalizeEntityTerm(raw);
+        if (term.length >= 2 && !terms.has(term)) terms.set(term, displayMap?.get(term) || String(raw));
     }
-
-    // 构建实体列表：使用原词形（displayMap），按长度降序排列
-    const entities = [];
-    for (const normalized of lexicon) {
-        const display = displayMap?.get(normalized) || normalized;
-        if (display.length >= 2) {
-            entities.push(display);
-        }
-    }
-
-    // 按长度降序（最长匹配优先）
-    entities.sort((a, b) => b.length - a.length);
-    entityList = entities;
-    entityKeepSet = new Set(entities.map(e => String(e || '').trim().toLowerCase()).filter(Boolean));
-
-    // 如果结巴已就绪，注入自定义词
-    if (wasmState === WasmState.READY && jiebaAddWord) {
-        injectNewEntitiesToJieba(entities);
-    }
-
-    xbLog.info(MODULE_ID, `实体词典更新: ${entities.length} 个实体`);
+    const blocked = [...new Set(blockedTerms.map(normalizeEntityTerm).filter(Boolean))].sort();
+    const sameTerms = terms.size === entityMatcher.terms.size
+        && [...terms].every(([term, display]) => entityMatcher.terms.get(term) === display);
+    if (sameTerms && blocked.length === entityMatcher.blockedTerms.length
+        && blocked.every((term, i) => term === entityMatcher.blockedTerms[i])) return false;
+    // Build/sort matching candidates only when the vocabulary actually changes.
+    entityMatcher = createEntityMatcher(
+        new Set([...(lexicon || [])].filter(term => normalizeEntityTerm(term).length >= 2)), displayMap, blocked,
+    );
+    tokenizerSnapshot = null;
+    return true;
 }
 
-/**
- * 将新实体注入结巴（增量，跳过已注入的）
- * @param {string[]} entities
- */
-function injectNewEntitiesToJieba(entities) {
-    let count = 0;
-    for (const entity of entities) {
-        if (!injectedEntities.has(entity)) {
-            try {
-                // freq 设高保证不被切碎
-                jiebaAddWord(entity, 99999);
-                injectedEntities.add(entity);
-                count++;
-            } catch (e) {
-                xbLog.warn(MODULE_ID, `add_word 失败: ${entity}`, e);
-            }
-        }
-    }
-    if (count > 0) {
-        xbLog.info(MODULE_ID, `注入 ${count} 个新实体到结巴`);
-    }
-}
-
-/**
- * 重新注入所有实体（WASM 刚加载完时调用）
- */
-function reInjectAllEntities() {
-    injectedEntities.clear();
-    injectNewEntitiesToJieba(entityList);
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// 公开接口：tokenize
-// ═══════════════════════════════════════════════════════════════════════════
-
-/**
- * 统一分词接口
- *
- * 流程：
- * 1. 实体最长匹配 → 占位符保护
- * 2. 按 Unicode 脚本分段（亚洲 vs 拉丁）
- * 3. 亚洲段 → 结巴 cut()（或降级）
- * 4. 拉丁段 → 空格/标点分割
- * 5. 还原占位符
- * 6. 过滤停用词 + 去重
- *
- * @param {string} text - 输入文本
- * @returns {string[]} token 数组
- */
-export function tokenize(text) {
-    const restored = tokenizeCore(text);
-
-    // 5. 过滤停用词 + 去重 + 清理
-    const seen = new Set();
+function tokenizePlain(text, cut, segmenter) {
     const result = [];
-
-    for (const token of restored) {
-        const cleaned = token.trim().toLowerCase();
-
-        if (!cleaned) continue;
-        if (cleaned.length < 2) continue;
-        if (EFFECTIVE_STOP_WORDS.has(cleaned) && !shouldKeepTokenByWhitelist(cleaned)) continue;
-        if (seen.has(cleaned)) continue;
-
-        // 过滤纯标点/特殊字符
-        if (/^[\s\x00-\x1F\p{P}\p{S}]+$/u.test(cleaned)) continue;
-
-        seen.add(cleaned);
-        result.push(token.trim()); // 保留原始大小写
+    for (const segment of segmentByScript(text)) {
+        if (segment.type === 'asian') {
+            if (detectAsianLanguage(segment.text) === 'ja') {
+                result.push(...tokenizeJapanese(segment.text, segmenter));
+            } else {
+                result.push(...(cut
+                    ? tokenizeAsianJieba(segment.text, cut)
+                    : tokenizeAsianFallback(segment.text)));
+            }
+        } else if (segment.type === 'latin') {
+            result.push(...tokenizeLatin(segment.text));
+        }
     }
-
     return result;
 }
 
-/**
- * 内核分词流程（不去重、不 lower、仅完成：实体保护→分段→分词→还原）
- * @param {string} text
- * @returns {string[]}
- */
-function tokenizeCore(text) {
-    if (!text) return [];
-
-    const input = String(text).trim();
-    if (!input) return [];
-
-    // 1. 实体保护
-    const { masked, entities } = maskEntities(input);
-
-    // 1.5 预先抽出完整占位符。
-    // 占位符里的 ASCII 序号会被 segmentByScript 判成 latin 段（两侧 PUA 是 other 段），
-    // 而下面只消费 asian/latin 段，碎片因此永远进不了 unmaskTokens —— 实体词被静默丢弃。
-    // 先整体抽出、用空格占位，随后作为独立 token 加回，交 unmaskTokens 还原成实体原词。
-    const keptPlaceholders = [];
-    const maskedForSeg = masked.replace(PLACEHOLDER_PATTERN, (placeholder) => {
-        keptPlaceholders.push(placeholder);
-        return ' ';
-    });
-
-    // 2. 分段
-    const segments = segmentByScript(maskedForSeg);
-
-    // 3. 分段分词
-    const rawTokens = [];
-    for (const seg of segments) {
-        if (seg.type === 'asian') {
-            const lang = detectAsianLanguage(seg.text);
-            if (lang === 'ja') {
-                rawTokens.push(...tokenizeJapanese(seg.text));
-            } else if (wasmState === WasmState.READY && jiebaCut) {
-                rawTokens.push(...tokenizeAsianJieba(seg.text));
-            } else {
-                rawTokens.push(...tokenizeAsianFallback(seg.text));
-            }
-        } else if (seg.type === 'latin') {
-            rawTokens.push(...tokenizeLatin(seg.text));
-        }
+export function getTokenizerSnapshot() {
+    const cut = wasmState === WasmState.READY ? jiebaCut : null;
+    const segmenter = tinySegmenter;
+    if (tokenizerSnapshot?.cut === cut && tokenizerSnapshot?.segmenter === segmenter) {
+        return tokenizerSnapshot;
     }
-
-    // 3.5 加回预先抽出的占位符（无实体时为空数组，行为与改动前一致）
-    rawTokens.push(...keptPlaceholders);
-
-    // 4. 还原占位符
-    return unmaskTokens(rawTokens, entities);
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// 公开接口：tokenizeForIndex
-// ═══════════════════════════════════════════════════════════════════════════
-
-/**
- * MiniSearch 索引专用分词
- *
- * 与 tokenize() 的区别：
- * - 全部转小写（MiniSearch 内部需要一致性）
- * - 不去重（MiniSearch 自己处理词频）
- *
- * @param {string} text
- * @returns {string[]}
- */
-export function tokenizeForIndex(text) {
-    const restored = tokenizeCore(text);
-
-    return restored
-        .map(t => t.trim().toLowerCase())
-        .filter(t => {
-            if (!t || t.length < 2) return false;
-            if (EFFECTIVE_STOP_WORDS.has(t) && !shouldKeepTokenByWhitelist(t)) return false;
-            if (/^[\s\x00-\x1F\p{P}\p{S}]+$/u.test(t)) return false;
-            return true;
+    const matcher = entityMatcher;
+    const keep = new Set(matcher.terms.keys());
+    const core = input => {
+        const { text, spans } = matcher.match(input);
+        const tokens = [];
+        let cursor = 0;
+        for (const span of spans) {
+            tokens.push(...tokenizePlain(text.slice(cursor, span.start), cut, segmenter));
+            if (span.blocked) {
+                tokens.push(...tokenizePlain(text.slice(span.start, span.end), cut, segmenter));
+            } else {
+                tokens.push(span.surface);
+            }
+            cursor = span.end;
+        }
+        tokens.push(...tokenizePlain(text.slice(cursor), cut, segmenter));
+        return tokens.filter(token => {
+            const normalized = normalizeEntityTerm(token);
+            return normalized.length >= 2
+                && (!EFFECTIVE_STOP_WORDS.has(normalized) || STATIC_KEEP_WORDS.has(normalized) || keep.has(normalized))
+                && !/^[\s\x00-\x1F\p{P}\p{S}]+$/u.test(normalized);
         });
+    };
+    tokenizerSnapshot = Object.freeze({
+        cut, segmenter,
+        entities: matcher.terms,
+        blockedTerms: matcher.blockedTerms,
+        extractEntities: text => matcher.extractEntities(text),
+        tokenize: text => [...new Map(core(text).map(token => [normalizeEntityTerm(token), token])).values()],
+        tokenizeForIndex: text => core(text).map(normalizeEntityTerm),
+    });
+    return tokenizerSnapshot;
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// 公开接口：reset
-// ═══════════════════════════════════════════════════════════════════════════
+export function tokenize(text) {
+    return getTokenizerSnapshot().tokenize(text);
+}
 
-/**
- * 重置分词器状态
- * 用于测试或模块卸载
- */
+export function tokenizeForIndex(text) {
+    return getTokenizerSnapshot().tokenizeForIndex(text);
+}
+
+// Test/unload vocabulary reset; loading WASM again is unnecessary.
 export function reset() {
-    entityList = [];
-    entityKeepSet = new Set();
-    injectedEntities.clear();
-    // 不重置 WASM 状态（避免重复加载）
+    entityMatcher = createEntityMatcher();
+    tokenizerSnapshot = null;
 }
