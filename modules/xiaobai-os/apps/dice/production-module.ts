@@ -2,13 +2,13 @@ import type { XiaobaiOsAppModule } from '../../kernel/app-registry.js';
 import type { ScopedChatStore } from '../../kernel/contracts.js';
 import { createAppRuntimeGroup } from '../../kernel/runtime-group.js';
 import { saveSillyTavernChat } from '../../host/sillytavern-chat-save.js';
-import { isGenerating, isChatSaving } from '../../../../../../../../script.js';
+import { isGenerating, isChatSaving, updateMessageBlock } from '../../../../../../../../script.js';
 import { DICE_APP_DESCRIPTOR } from './descriptor.js';
 import { DICE_PARTITION, type DicePartition } from './partition.js';
 import { createDiceController } from './host/controller.js';
 import { createDiceGenerationAdapter } from './host/generation-adapter.js';
 import { createDiceMessageDisplay } from './host/message-display.js';
-import { captureDiceChat, ensureDiceDisplayRule } from './host/sillytavern-port.js';
+import { captureDiceChat, ensureDiceDisplayRule, isDiceMessageBeingEdited } from './host/sillytavern-port.js';
 import { clearDiceMessageData, type DiceHostMessage } from './host/message-records.js';
 import { createEncounterRuntime } from './host/encounter-runtime.js';
 import { createEncounterDisplay } from './host/encounter-display.js';
@@ -43,7 +43,10 @@ export function createProductionDiceModule(references: (identityKey: string) => 
                 await generation.settled();
                 const current = () => captureDiceChat()?.chat === source.chat && captureDiceChat()?.key === source.key;
                 if (!current()) { throw new Error('聊天已切换。'); }
-                clearDiceMessageData(source.chat);
+                if (source.chat.some((_message, index) => isDiceMessageBeingEdited(index))) { throw new Error('请先结束消息编辑，再清理 Dice 数据。'); }
+                const changed = clearDiceMessageData(source.chat);
+                // Explicit data removal also removes the displayed slots. Never repaint a user's editor.
+                for (const message of changed) { updateMessageBlock(source.chat.indexOf(message), message); }
                 const result = await saveSillyTavernChat(current);
                 if (result.status !== 'confirmed') { throw new Error('还不确定 Dice 记录是否清理成功，请重新加载聊天后再试。'); }
                 if (!current()) { throw new Error('聊天已切换，未继续清理 Dice 数据。'); }

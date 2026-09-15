@@ -31,7 +31,6 @@ export const DICE_CARD_CSS = `
 .xb-dice-card details.xb-dice-stakes { padding: 0; border: 0; background: none; }
 .xb-dice-card .xb-dice-stakes summary { cursor: pointer; min-height: 36px; display: list-item; align-content: center; width: fit-content; }
 .xb-dice-card .xb-dice-stakes-text { white-space: pre-wrap; }
-.xb-dice-card .xb-dice-history { display: block; margin-top: .7em; font-size: .75em; opacity: .7; }
 .xb-dice-card .xb-dice-status { display: flex; align-items: center; flex-wrap: wrap; gap: .6em; margin-top: .8em; padding-top: .7em; border-top: 1px dashed color-mix(in srgb, currentColor 24%, transparent); font-size: .8em; }
 .xb-dice-card .xb-dice-note { display: block; flex-basis: 100%; }
 .xb-dice-card button { color: inherit; background: transparent; border: 1px solid color-mix(in srgb, currentColor 22%, transparent); border-radius: 8px; padding: .45em .8em; min-height: 40px; font: inherit; cursor: pointer; box-shadow: none; }

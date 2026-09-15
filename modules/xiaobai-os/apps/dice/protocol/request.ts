@@ -10,7 +10,7 @@ export const ACTION_CHECK_FIELDS = Object.freeze({
 
 export type ActionCheckParseResult = { kind: 'none' }
     | { kind: 'invalid'; error: string }
-    | { kind: 'request'; request: ActionCheckRequest; body: string; start: number };
+    | { kind: 'request'; request: ActionCheckRequest; body: string; start: number; end: number };
 
 export function parseActionCheck(body: string, generatedFrom = 0): ActionCheckParseResult {
     if (!Number.isSafeInteger(generatedFrom) || generatedFrom < 0 || generatedFrom > body.length) {
@@ -25,7 +25,8 @@ export function parseActionCheck(body: string, generatedFrom = 0): ActionCheckPa
     try {
         // The final closing tag delimits the JSON. Similar tags inside JSON strings are data.
         const json: unknown = JSON.parse(block.slice(ACTION_CHECK_OPEN.length, -ACTION_CHECK_CLOSE.length));
-        return { kind: 'request', request: parseActionCheckRequest(json), body: body.slice(0, start).trimEnd(), start };
+        const end = body.lastIndexOf(ACTION_CHECK_CLOSE) + ACTION_CHECK_CLOSE.length;
+        return { kind: 'request', request: parseActionCheckRequest(json), body: body.slice(0, start), start, end };
     } catch (error) {
         return { kind: 'invalid', error: error instanceof TypeError ? error.message : 'dice_request_json_invalid' };
     }

@@ -25,14 +25,14 @@ const compiled = await build({
             export let isChatSaving = false;
             export const host = {
                 source: null, busy: false, draft: '', enabled: true, requests: [], prompts: new Map(), writes: 0,
-                preflight: async () => {}, controller: null, stream: null, reply: normalReply,
+                preflight: async () => {}, controller: null, stream: null, reply: normalReply, editing: false,
                 async emit(name, ...args) { for (const fn of [...(listeners.get(name) ?? [])]) await fn(...args); },
                 group(value) { is_group_generating = value; },
                 saving(value) { isChatSaving = value; },
                 async intercept(type) { let aborted = false; await host.interceptor([], 0, () => { aborted = true; }, type); return aborted; },
                 reset(source) {
                     Object.assign(host, { source, busy: false, draft: '', enabled: true, requests: [], writes: 0,
-                        preflight: async () => {}, controller: null, stream: null, reply: normalReply });
+                        preflight: async () => {}, controller: null, stream: null, reply: normalReply, editing: false });
                     host.prompts.clear(); is_group_generating = false; isChatSaving = false;
                 },
             };
@@ -102,8 +102,13 @@ const message = mes => ({ name: 'Mira', mes, extra: {} });
 function setup(t, group = false, reveal = async () => {}) {
     t.mock.method(console, 'error', () => {});
     const previousWindow = Object.getOwnPropertyDescriptor(globalThis, 'window');
+    const previousDocument = Object.getOwnPropertyDescriptor(globalThis, 'document');
+    Object.defineProperty(globalThis, 'document', { configurable: true, value: {
+        querySelector: () => host.editing ? {} : null, getElementById: () => null,
+    } });
     Object.defineProperty(globalThis, 'window', { configurable: true, value: { toastr: { error: () => assert.fail('Dice must not add error toasts') } } });
     t.after(() => { if (previousWindow) Object.defineProperty(globalThis, 'window', previousWindow); else delete globalThis.window; });
+    t.after(() => { if (previousDocument) Object.defineProperty(globalThis, 'document', previousDocument); else delete globalThis.document; });
     host.reset({ key: group ? 'group:g:chat' : 'character:mira.png:chat', chatId: 'chat', chat: [message('Old reply')],
         characterId: 0, characterName: 'Mira', avatar: 'mira.png', ...(group ? { groupId: 'g' } : {}) });
     const adapter = createDiceGenerationAdapter(() => host.enabled, () => {}, reveal);
@@ -140,7 +145,7 @@ for (const mode of ['single', 'group-member', 'group-finished']) {
         assert.equal(host.draft, '/echo UNSENT_DRAFT');
         assert.equal(host.source.chat.length, 2);
         assert.equal(host.source.chat.at(-1), target);
-        assert.equal(target.mes, 'Attempt.\n\nAfterward.');
+        assert.equal(target.mes, 'Attempt.\n\n[dice:generated-0]\n\nAfterward.');
         assert.equal(target.extra.xiaobaiOsDice.checks.length, 1);
         assert.equal(host.requests.length, 1);
         assert.equal(host.requests[0].busy, true);
@@ -308,7 +313,7 @@ for (const partial of [false, true]) {
         assert.equal(saved.checks.length, 1);
         assert.equal(adapter.view().phase.error, '', 'native stream failures are not repeated in Dice feedback');
         if (partial) {
-            assert.equal(target.mes, 'Attempt.\n\n' + call, 'partial output is never rolled back');
+            assert.equal(target.mes, 'Attempt.\n\n[dice:generated-0]\n\n' + call, 'partial output is never rolled back');
             assert.equal(adapter.view().phase.kind, 'invalid');
             await assert.rejects(adapter.retry(1));
             assert.equal(host.requests.length, 1);
@@ -318,7 +323,7 @@ for (const partial of [false, true]) {
             await adapter.retry(1);
             assert.equal(host.requests.length, 2);
             assert.equal(host.writes, 1, 'retry does not save or roll again');
-            assert.equal(target.mes, 'Attempt.\n\nAfterward.');
+            assert.equal(target.mes, 'Attempt.\n\n[dice:generated-0]\n\nAfterward.');
             assert.equal(adapter.view(), null);
         }
         assert.deepEqual(target.extra.xiaobaiOsDice, saved);
@@ -369,4 +374,27 @@ test('host rejection keeps silent same-roll recovery while Dice preparation fail
     assert.equal(host.writes, 1);
     assert.deepEqual(target.extra.xiaobaiOsDice, saved);
     assert.equal(adapter.view(), null);
+});
+
+test('an open native message editor blocks both new checks and same-roll continuation', async t => {
+    const adapter = setup(t, false, async () => { host.editing = true; });
+    await begin(); await host.intercept('normal');
+    const target = message(call); host.source.chat.push(target);
+    host.editing = true;
+    await received(); await settled(adapter);
+    assert.equal(host.writes, 0);
+    assert.equal(host.requests.length, 0);
+    assert.equal(target.mes, call);
+
+    host.editing = false;
+    await begin(); await host.intercept('normal');
+    await received(); await settled(adapter);
+    assert.equal(host.writes, 1, 'the saved roll survives opening the editor during reveal');
+    assert.equal(host.requests.length, 0, 'Dice cannot continue into a message editor');
+    const saved = structuredClone(target.extra.xiaobaiOsDice);
+    host.editing = false;
+    await adapter.retry(1);
+    assert.equal(host.requests.length, 1);
+    assert.equal(host.writes, 1);
+    assert.deepEqual(target.extra.xiaobaiOsDice, saved);
 });

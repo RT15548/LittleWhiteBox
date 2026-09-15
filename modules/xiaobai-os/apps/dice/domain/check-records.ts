@@ -1,5 +1,6 @@
 import { sha256 } from 'js-sha256';
 import { parseActionCheckRequest, type ActionCheckRequest, type ActionCheckResult } from './action-check.js';
+import { checkMarker } from './check-marker.js';
 
 export const MAX_ACTION_CHECKS = 8;
 export const DICE_MESSAGE_KEY = 'xiaobaiOsDice';
@@ -7,6 +8,7 @@ export const DICE_MESSAGE_KEY = 'xiaobaiOsDice';
 export interface ActionCheckRecord extends ActionCheckResult {
     id: string;
     request: ActionCheckRequest;
+    /** Original request boundary, used for continuation eligibility, never for UI placement. */
     offset: number;
     prefixDigest: string;
 }
@@ -24,7 +26,7 @@ export function parseDiceRecords(value: unknown): DiceMessageRecords {
         const record = item as ActionCheckRecord;
         const keys = ['id', 'request', 'roll', 'dc', 'outcome', 'offset', 'prefixDigest'];
         if (Object.keys(record).length !== keys.length || keys.some(key => !Object.hasOwn(record, key))
-            || typeof record.id !== 'string' || !record.id.trim() || ids.has(record.id)
+            || typeof record.id !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(record.id) || ids.has(record.id)
             || !Number.isInteger(record.roll) || record.roll < 1 || record.roll > 20
             || !Number.isInteger(record.dc) || record.dc < 1
             || !['critical_failure', 'failure', 'success', 'critical_success'].includes(record.outcome)
@@ -41,7 +43,11 @@ export function parseDiceRecords(value: unknown): DiceMessageRecords {
 }
 
 export function hasValidCheckAnchor(body: string, record: ActionCheckRecord): boolean {
-    return body.length >= record.offset && sha256(body.slice(0, record.offset)) === record.prefixDigest;
+    return body.startsWith(checkMarker(record.id), record.offset) && sha256(body.slice(0, record.offset)) === record.prefixDigest;
+}
+
+export function isCheckContinuationPoint(body: string, record: ActionCheckRecord): boolean {
+    return hasValidCheckAnchor(body, record) && !body.slice(record.offset + checkMarker(record.id).length).trim();
 }
 
 export function createActionCheckRecord(body: string, id: string, request: ActionCheckRequest, result: ActionCheckResult): ActionCheckRecord {

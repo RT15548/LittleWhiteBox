@@ -27,7 +27,7 @@ test('the real prompt example and JSON string tags are parsed as a single reques
     const input = { ...request, action: 'say </xb_action_check> or <xb_action_check>', character: '  Mira  ' };
     const parsed = parseActionCheck(`尝试。\n\n${block(input)}\n`);
     assert.equal(parsed.kind, 'request');
-    assert.equal(parsed.body, '尝试。');
+    assert.equal(parsed.body, '尝试。\n\n');
     assert.deepEqual(parsed.request, { ...input, character: 'Mira' });
 });
 
@@ -106,7 +106,7 @@ test('new preferences default off, unsupported data is rejected without a legacy
 
 test('malformed saved records and edited prefixes cannot produce another die roll', () => {
     const saved = prepareActionCheck({ body: '🪜踏上墙壁。\n\n' + block(), generatedFrom: 0, id: 'saved', random: () => 0.3 });
-    assert.equal(saved.records.checks[0].offset, saved.body.length);
+    assert.equal(saved.body, '🪜踏上墙壁。\n\n[dice:saved]');
     for (const records of [
         { ...saved.records, extra: true },
         { ...saved.records, checks: [...saved.records.checks, ...saved.records.checks] },
@@ -137,4 +137,15 @@ test('managed rule checks are no-ops when valid, repair only their own ID and pr
     assert.equal(replacement[1], other);
     assert.equal(repairDiceDisplayRules(replacement), null);
     assert.deepEqual(repairDiceDisplayRules([{ ...DICE_DISPLAY_RULE, disabled: true }, other]), replacement);
+});
+
+test('executing a check replaces only its request, preserving surrounding prose and whitespace byte for byte', () => {
+    const before = '【1】起身。  \n\n<details><summary>状态</summary>【8】仍在这里。</details>\n\n';
+    const after = '\r\n \t';
+    const raw = before + block() + after;
+    const saved = prepareActionCheck({ body: raw, generatedFrom: 0, id: 'fixed', random: () => .3 });
+    assert.equal(saved.kind, 'candidate');
+    assert.equal(saved.body, before + '[dice:fixed]' + after);
+    assert.ok(hasValidCheckAnchor(saved.body, saved.records.checks[0]));
+    assert.equal(hasValidCheckAnchor(before + after, saved.records.checks[0]), false);
 });

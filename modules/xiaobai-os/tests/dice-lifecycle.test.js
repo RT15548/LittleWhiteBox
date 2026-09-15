@@ -21,6 +21,8 @@ const compiled = await build({
             export const isChatSaving = false;
             export const captureDiceChat = () => host.source;
             export const ensureDiceDisplayRule = async () => {};
+            export const isDiceMessageBeingEdited = () => false;
+            export const updateMessageBlock = () => {};
             export const saveSillyTavernChat = guard => host.save(guard);
             export const createDiceGenerationAdapter = () => ({ start() {}, stop() {}, cancel() { host.cancelled = true; }, settled: () => host.settled });
             export const createEncounterRuntime = () => ({ start() {}, stop() {}, cancel() {} });

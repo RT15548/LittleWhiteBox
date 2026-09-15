@@ -3,6 +3,7 @@ import { getRequestHeaders, isChatSaving, isGenerating } from '../../../../../..
 import { getScriptsByType, saveScriptsByType, SCRIPT_TYPES } from '../../../../../../../../extensions/regex/engine.js';
 import { saveSillyTavernChat } from '../../../host/sillytavern-chat-save.js';
 import { repairDiceDisplayRules } from './display-rule.js';
+import { showDiceDisplayRule } from './managed-rule-display.js';
 import { isDiceTargetCurrent, type DiceChat, type DiceHostMessage, type DiceTarget } from './message-records.js';
 
 export interface DiceHostContext {
@@ -12,6 +13,10 @@ export interface DiceHostContext {
     generate(type: string, options?: Record<string, unknown>): Promise<unknown>;
 }
 export const diceHostContext = () => getContext() as unknown as DiceHostContext;
+
+export function isDiceMessageBeingEdited(index: number): boolean {
+    return !!document.querySelector(`#chat .mes[mesid="${index}"] .edit_textarea`);
+}
 
 export function captureDiceChat(): DiceChat | null {
     const context = diceHostContext();
@@ -32,6 +37,7 @@ export async function ensureDiceDisplayRule(): Promise<void> {
     const repaired = repairDiceDisplayRules(getScriptsByType(SCRIPT_TYPES.GLOBAL));
     // Native GLOBAL setter schedules its own settings save; it is not a disk acknowledgement.
     if (repaired) { await saveScriptsByType(repaired as ReturnType<typeof getScriptsByType>, SCRIPT_TYPES.GLOBAL); }
+    showDiceDisplayRule(document);
 }
 
 export async function readDiceChat(source: DiceChat): Promise<unknown[]> {
@@ -56,6 +62,7 @@ export async function waitForDiceHost(target: DiceTarget, signal: AbortSignal, i
     const deadline = Date.now() + 20_000;
     while (true) {
         if (signal.aborted || !isDiceTargetCurrent(captureDiceChat(), target)) { throw new Error('聊天或回复已变化。'); }
+        if (isDiceMessageBeingEdited(target.index)) { throw new Error('请先结束消息编辑。'); }
         const stream = diceHostContext().streamingProcessor;
         // ST 1.18 retains a stopped processor after stream errors. A normally finished stream,
         // however, still owns finalization/saving until the host releases its processor.

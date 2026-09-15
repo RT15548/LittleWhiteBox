@@ -1,5 +1,5 @@
 import { prepareActionCheck } from './prepare-action-check.js';
-import { hasValidCheckAnchor, parseDiceRecords, type DiceMessageRecords } from '../domain/check-records.js';
+import { hasValidCheckAnchor, isCheckContinuationPoint, parseDiceRecords, type DiceMessageRecords } from '../domain/check-records.js';
 
 export interface ActionCheckTarget { body: string; records: unknown; generatedFrom: number }
 export interface DiceCandidate { body: string; records: DiceMessageRecords }
@@ -141,7 +141,7 @@ export function createActionCheckSession<T extends ActionCheckTarget>(port: Dice
         if (current && ['saving', 'revealing', 'continuing', 'waiting', 'settling'].includes(current.phase.kind)) { return; }
         const records = parseDiceRecords(target.records);
         const last = records.checks.at(-1);
-        if (!last || target.body.length !== last.offset || records.checks.some(record => !hasValidCheckAnchor(target.body, record))) {
+        if (!last || !isCheckContinuationPoint(target.body, last) || records.checks.some(record => !hasValidCheckAnchor(target.body, record))) {
             throw new Error('回复已有变化，请用酒馆的「继续」接着写。');
         }
         cancel();

@@ -27,7 +27,8 @@ test('candidate save commits active swipe only, preserves foreign fields and doe
     }, read: async () => { reads++; return []; } });
     assert.equal((await saver.commit(target, candidate, new AbortController().signal)).status, 'confirmed');
     assert.equal(reads, 0);
-    assert.equal(message.mes, 'Attempt.');
+    assert.equal(message.mes, 'Attempt.\n\n[dice:one]');
+    assert.equal(message.swipes[1], message.mes);
     assert.deepEqual(message.extra.other, { keep: 1 });
     assert.equal(message.swipe_info[1].extra.reasoning, 'retained');
     assert.deepEqual(message.swipe_info[0], before);
@@ -87,14 +88,41 @@ test('explicit save retry checks disk, reuses the same roll, and cannot overwrit
 
 test('new swipe and selected-chat cleanup remove only Dice-owned facts', () => {
     const { message, candidate } = fixture();
+    message.mes = '【1】之前。[dice:one]【8】之后。';
+    message.swipes = ['历史。[dice:old]尾部。', message.mes];
     message.extra.xiaobaiOsDice = candidate.records;
     message.swipe_info[0].extra.xiaobaiOsDice = candidate.records;
     clearNewDiceSwipe(message);
     assert.equal(readDiceRecords(message), undefined);
     assert.deepEqual(message.swipe_info[0].extra.xiaobaiOsDice, candidate.records);
+    // Actual ownership belongs to each candidate, never to the marker-shaped text alone.
+    message.extra.xiaobaiOsDice = candidate.records;
+    message.swipe_info[0].extra.xiaobaiOsDice = prepareActionCheck({ body: call, generatedFrom: 0, id: 'old', random: () => .3 }).records;
     clearDiceMessageData([message]);
+    assert.equal(message.mes, '【1】之前。【8】之后。');
+    assert.deepEqual(message.swipes, ['历史。尾部。', message.mes]);
     assert.equal(message.swipe_info[0].extra.xiaobaiOsDice, undefined);
     assert.equal(message.swipe_info[0].extra.other, 'old');
+});
+
+test('cleanup preserves literal marker examples and matches ownership separately for each swipe', () => {
+    const { candidate } = fixture();
+    const other = prepareActionCheck({ body: call, generatedFrom: 0, id: 'two', random: () => .3 });
+    const user = { is_user: true, mes: 'Explain `[dice:one]` and [dice:example].' };
+    const sample = { mes: 'Example: [dice:one]', swipes: ['Example: [dice:one]'] };
+    const message = { mes: 'Active [dice:one] literal [dice:two]', extra: { xiaobaiOsDice: candidate.records, display_text: '译文 [dice:one] 示例 [dice:two]' }, swipe_id: 1,
+        swipes: ['Other [dice:two] literal [dice:one]', 'Active [dice:one] literal [dice:two]'],
+        swipe_info: [{ extra: { xiaobaiOsDice: other.records, display_text: '旧译文 [dice:two] 示例 [dice:one]' } },
+            { extra: { xiaobaiOsDice: candidate.records, display_text: '译文 [dice:one]' } }] };
+    const unchanged = structuredClone([user, sample]);
+    const changed = clearDiceMessageData([user, sample, message]);
+    assert.deepEqual([user, sample], unchanged);
+    assert.deepEqual([...changed], [message]);
+    assert.equal(message.mes, 'Active  literal [dice:two]');
+    assert.deepEqual(message.swipes, ['Other  literal [dice:one]', 'Active  literal [dice:two]']);
+    assert.equal(message.extra.display_text, '译文  示例 [dice:two]');
+    assert.equal(message.swipe_info[0].extra.display_text, '旧译文  示例 [dice:one]');
+    assert.equal(message.swipe_info[1].extra.display_text, '译文 ');
 });
 
 test('session waits, saves, then continues; repeat completion and explicit retry never reroll', async () => {

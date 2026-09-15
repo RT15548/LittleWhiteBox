@@ -1,48 +1,30 @@
-import { messageFormatting } from '../../../../../../../../../script.js';
+import { isGenerating, updateMessageBlock } from '../../../../../../../../../script.js';
 import { createModuleEvents, event_types } from '../../../../../core/event-manager.js';
-import { hasValidCheckAnchor, parseDiceRecords } from '../domain/check-records.js';
+import { isCheckContinuationPoint, parseDiceRecords } from '../domain/check-records.js';
+import { checkMarkerIds } from '../domain/check-marker.js';
 import { createCheckCard, diceSpan as span, type CheckCard } from '../ui/check-card.js';
 import { revealCheckCard } from '../ui/reveal.js';
 import type { DiceCandidate, DiceHostMessage, DiceTarget } from './message-records.js';
 import { captureDiceChat } from './sillytavern-port.js';
 import type { createDiceGenerationAdapter } from './generation-adapter.js';
 import { DICE_CARD_CSS } from './card-style.js';
+import { mountCheckCards, restoreCheckMarker } from './check-marker-dom.js';
+import { checkDisplayProjection } from './check-display-projection.js';
+import { showCheckReveal } from './reveal-visibility.js';
 
 type Runtime = ReturnType<typeof createDiceGenerationAdapter>;
 const OWN = '.xb-dice-card';
 interface CardEntry { signature: string; view: CheckCard; status: string }
-
-/** Exact formatted-prefix correspondence, not a search for a similar sentence. */
-function placeAtPrefix(root: HTMLElement, prefix: string, node: HTMLElement): boolean {
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
-        acceptNode: value => value.parentElement?.closest(OWN) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT,
-    });
-    let consumed = 0;
-    let current: Node | null;
-    while ((current = walker.nextNode())) {
-        const value = current.textContent ?? '';
-        const count = Math.min(value.length, prefix.length - consumed);
-        if (value.slice(0, count) !== prefix.slice(consumed, consumed + count)) { return false; }
-        consumed += count;
-        if (consumed === prefix.length) {
-            const range = document.createRange();
-            range.setStart(current, count);
-            range.collapse(true);
-            range.insertNode(node);
-            return true;
-        }
-    }
-    return false;
-}
 
 export function createDiceMessageDisplay(runtime: Runtime, enabled: () => boolean) {
     let observer: MutationObserver | null = null;
     let disposeEvents: (() => void) | null = null;
     let frame: number | null = null;
     let style: HTMLStyleElement | null = null;
-    const rendered = new WeakMap<HTMLElement, { signature: string; nodes: HTMLElement[] }>();
     // Message/candidate identity, not the host's replaceable formatted DOM, owns a mounted card.
     const cards = new WeakMap<DiceHostMessage, { swipe: number; entries: Map<string, CardEntry> }>();
+    // Don't repeatedly repaint a source whose markers are suppressed by host formatting.
+    const failedSync = new WeakMap<HTMLElement, string>();
 
     function retryButton(index: number, label: string): HTMLButtonElement {
         const button = document.createElement('button');
@@ -82,24 +64,29 @@ export function createDiceMessageDisplay(runtime: Runtime, enabled: () => boolea
                 const value = message && runtime.readConfirmed(message);
                 const phase = active && active.target.message === message && active.target.swipe === (message?.swipe_id ?? 0) ? active.phase : null;
                 const editing = !!root.querySelector('.edit_textarea');
-                const signature = JSON.stringify([message?.mes, value, phase, enabled(), editing, source?.chat.at(-1) === message]);
-                const previous = rendered.get(content);
-                if (previous?.signature === signature && previous.nodes.every(node => content.contains(node))) { continue; }
-                if (!message || message.is_user || message.is_system || editing) {
+                if (editing) {
+                    if (phase) { runtime.cancel(); }
+                    continue;
+                }
+                if (!message || message.is_user || message.is_system) {
                     content.querySelectorAll(OWN).forEach(node => node.remove()); continue;
                 }
                 const wanted = new Set<HTMLElement>();
+                const markerIds = checkMarkerIds(message.mes);
+                const placements = new Map<string, HTMLElement>();
                 let cached = cards.get(message);
                 if (!cached || cached.swipe !== (message.swipe_id ?? 0)) {
                     cached = { swipe: message.swipe_id ?? 0, entries: new Map() }; cards.set(message, cached);
                 }
                 const kept = new Set<string>();
                 let errorPlaced = false;
+                let projection = message.mes;
                 if (value !== undefined) {
                     try {
                         const records = parseDiceRecords(value);
+                        projection = checkDisplayProjection(message, records.checks);
                         for (const record of records.checks) {
-                            const valid = hasValidCheckAnchor(message.mes, record);
+                            if (!markerIds.has(record.id)) { continue; }
                             const pending = phase && (phase.kind === 'saving' || phase.kind === 'revealing')
                                 && phase.candidate.records.checks.at(-1)?.id === record.id;
                             const signature = JSON.stringify(record);
@@ -111,23 +98,13 @@ export function createDiceMessageDisplay(runtime: Runtime, enabled: () => boolea
                             kept.add(record.id);
                             const { view } = entry;
                             if (!pending && view.element.dataset.state === 'rolling') { view.settle(); }
-                            view.changed(!valid);
                             const node = view.element;
-                            wanted.add(node);
-                            let placed = valid && content.contains(node);
-                            if (valid && !placed) {
-                                const template = document.createElement('template');
-                                // Host formatter performs the same sanitization and display regex as the actual message.
-                                // eslint-disable-next-line no-unsanitized/property
-                                template.innerHTML = messageFormatting(message.mes.slice(0, record.offset), message.name ?? '', false, false, index);
-                                placed = placeAtPrefix(content, template.content.textContent ?? '', node);
-                            }
-                            if (!placed) { content.append(node); }
+                            placements.set(record.id, node);
                             const failedContinuation = phase?.kind === 'continue-error' && phase.candidate.records.checks.at(-1)?.id === record.id;
                             const error = failedContinuation ? phase.error : '';
                             let retry = '';
                             if (enabled() && (failedContinuation || source?.chat.at(-1) === message && record === records.checks.at(-1)
-                                && valid && message.mes.length === record.offset && !active)) {
+                                && isCheckContinuationPoint(message.mes, record) && !active)) {
                                 retry = '沿用骰点续写';
                             }
                             setStatus(entry, index, error, retry);
@@ -138,6 +115,19 @@ export function createDiceMessageDisplay(runtime: Runtime, enabled: () => boolea
                         wanted.add(notice); content.append(notice);
                     }
                 }
+                let mounted = mountCheckCards(content, placements);
+                if (mounted.size < placements.size && (!isGenerating() || phase?.kind === 'revealing')) {
+                    const sourceSignature = JSON.stringify([message.mes, projection, message.swipe_id ?? 0]);
+                    if (failedSync.get(content) !== sourceSignature) {
+                        // The display regex hid the former request, or native translation still projects it.
+                        // No editor is present. Render a temporary view; neither mes nor display_text is assigned.
+                        updateMessageBlock(index, { ...message, extra: { ...message.extra, display_text: projection } });
+                        mounted = mountCheckCards(content, placements);
+                        if (mounted.size < placements.size) { failedSync.set(content, sourceSignature); }
+                    }
+                }
+                if (mounted.size === placements.size) { failedSync.delete(content); }
+                for (const node of mounted) { wanted.add(node); }
                 for (const id of cached.entries.keys()) { if (!kept.has(id)) { cached.entries.delete(id); } }
                 if (phase && !errorPlaced) {
                     if ('error' in phase && phase.error) {
@@ -151,7 +141,6 @@ export function createDiceMessageDisplay(runtime: Runtime, enabled: () => boolea
                     }
                 }
                 content.querySelectorAll<HTMLElement>(OWN).forEach(node => { if (!wanted.has(node)) { node.remove(); } });
-                rendered.set(content, { signature, nodes: [...wanted] });
             }
         } finally { observe(); }
     }
@@ -169,7 +158,9 @@ export function createDiceMessageDisplay(runtime: Runtime, enabled: () => boolea
             const id = candidate.records.checks.at(-1)?.id;
             const cached = cards.get(target.message);
             const card = id && cached?.swipe === target.swipe ? cached.entries.get(id)?.view : undefined;
-            if (card?.element.isConnected) { await revealCheckCard(card, signal); }
+            if (signal.aborted) { return; }
+            if (!card?.element.isConnected || !showCheckReveal(card.element)) { throw new Error('检定卡片暂时不可见。'); }
+            await revealCheckCard(card, signal);
         },
         start() {
             if (observer) { return; }
@@ -185,7 +176,7 @@ export function createDiceMessageDisplay(runtime: Runtime, enabled: () => boolea
             observer?.disconnect(); observer = null;
             if (frame !== null) { cancelAnimationFrame(frame); frame = null; }
             disposeEvents?.(); disposeEvents = null; style?.remove(); style = null;
-            document.querySelectorAll(`#chat ${OWN}`).forEach(node => node.remove());
+            document.querySelectorAll<HTMLElement>(`#chat ${OWN}`).forEach(restoreCheckMarker);
         },
     };
 }

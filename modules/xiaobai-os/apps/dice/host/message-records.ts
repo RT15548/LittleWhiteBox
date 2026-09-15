@@ -1,4 +1,5 @@
-import { DICE_MESSAGE_KEY } from '../domain/check-records.js';
+import { DICE_MESSAGE_KEY, parseDiceRecords } from '../domain/check-records.js';
+import { stripCheckMarkers } from '../domain/check-marker.js';
 import type { DiceCandidate } from '../application/action-check-session.js';
 export type { DiceCandidate } from '../application/action-check-session.js';
 import { jsonValuesEqual } from '../../../host/json-values-equal.js';
@@ -105,9 +106,34 @@ export function clearNewDiceSwipe(message: DiceHostMessage): void {
     if (info) { writeRecords(info, undefined); }
 }
 
-export function clearDiceMessageData(messages: DiceHostMessage[]): void {
+export function clearDiceMessageData(messages: DiceHostMessage[]): Set<DiceHostMessage> {
+    const changed = new Set<DiceHostMessage>();
+    const ownedIds = (value: unknown) => {
+        try { return new Set(parseDiceRecords(value).checks.map(record => record.id)); }
+        catch { return new Set<string>(); }
+    };
+    const clearDisplay = (extra: Record<string, unknown> | undefined, ids: ReadonlySet<string>): boolean => {
+        if (typeof extra?.display_text !== 'string') { return false; }
+        const text = stripCheckMarkers(extra.display_text, ids);
+        if (text === extra.display_text) { return false; }
+        extra.display_text = text;
+        return true;
+    };
     for (const message of messages) {
+        const currentIds = ownedIds(readDiceRecords(message));
+        const body = stripCheckMarkers(message.mes, currentIds);
+        if (body !== message.mes) { message.mes = body; changed.add(message); }
+        if (clearDisplay(message.extra, currentIds)) { changed.add(message); }
+        if (message.swipes) {
+            message.swipes = message.swipes.map((text, index) => stripCheckMarkers(text,
+                index === (message.swipe_id ?? 0) ? currentIds : ownedIds(message.swipe_info?.[index]?.extra?.[DICE_MESSAGE_KEY])));
+        }
         writeRecords(message, undefined);
-        for (const info of message.swipe_info ?? []) { if (info) { writeRecords(info, undefined); } }
+        for (const [index, info] of (message.swipe_info ?? []).entries()) {
+            if (!info) { continue; }
+            clearDisplay(info.extra, index === (message.swipe_id ?? 0) ? currentIds : ownedIds(info.extra?.[DICE_MESSAGE_KEY]));
+            writeRecords(info, undefined);
+        }
     }
+    return changed;
 }

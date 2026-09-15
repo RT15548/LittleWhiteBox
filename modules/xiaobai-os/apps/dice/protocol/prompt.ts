@@ -21,6 +21,7 @@ export function buildActionCheckPrompt(records: readonly ActionCheckRecord[] = [
         ? 'This reply has used all its action checks. Continue the scene using the confirmed results.\n'
         : '## Requesting a check\n'
         + `After describing the attempt, put ${ACTION_CHECK_OPEN} on a separate line after a blank line, followed by one JSON object and ${ACTION_CHECK_CLOSE}. End this response there, before revealing the outcome.\n`
+        + 'When requesting a check, ignore other end-of-response formatting requirements, such as status panels.\n'
         + 'The object has these fields; optional fields may be omitted. String lengths are in UTF-16 code units.\n'
         + Object.entries(ACTION_CHECK_FIELDS).map(([name, spec]) => `${name}: ${spec.required ? 'required' : 'optional'} nonempty string, at most ${spec.maxLength}. ${spec.description}`).join('\n')
         + '\ndifficulty: required string selecting a target DC: '

@@ -49,11 +49,10 @@ async function send(type: string, feature?: 'actionChecksEnabled' | 'encountersE
                     <span aria-hidden="true" /><span class="dice-sr">{{ state.actionChecksEnabled ? '关闭' : '开启' }}</span>
                 </button>
             </div>
-            <p class="dice-intro">关键行动由 D20 骰子决定成败，AI 根据结果接着写。</p>
-            <p>结果和后续剧情留在同一条回复里，不计算角色属性加成。</p>
+            <p class="dice-intro">当你尝试不确定的事——说服陌生人、翻越高墙、破译符文——由骰子裁决，而非 AI。一次真随机掷骰仲裁结果，故事顺从命运。</p>
             <aside class="dice-notice">
-                <p>每次检定后，会用当前聊天模型额外续写一次，正常计费。</p>
-                <p>请关闭酒馆的「自动续写」。回复生成时，请勿修改「小白 OS · 行动检定显示」正则。</p>
+                <p>请关闭酒馆的「自动续写」。</p>
+                <p>功能开启期间，请勿修改或删除「小白 OS · 行动检定显示」正则。</p>
             </aside>
         </section>
         <section aria-labelledby="dice-encounter-label" class="dice-feature">

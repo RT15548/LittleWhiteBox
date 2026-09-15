@@ -9,7 +9,7 @@ import { hasValidCheckAnchor, parseDiceRecords } from '../domain/check-records.j
 import { createActionCheckSession } from '../application/action-check-session.js';
 import { captureDiceTarget, clearNewDiceSwipe, isDiceTargetCurrent, type DiceCandidate, type DiceTarget } from './message-records.js';
 import { createDiceMessageSave } from './message-save.js';
-import { captureDiceChat, diceHostContext, diceSavePort, ensureDiceDisplayRule, waitForDiceHost } from './sillytavern-port.js';
+import { captureDiceChat, diceHostContext, diceSavePort, ensureDiceDisplayRule, isDiceMessageBeingEdited, waitForDiceHost } from './sillytavern-port.js';
 
 const KEY = 'xiaobai_os_dice';
 const MAIN_TYPES = ['', 'normal', 'regenerate', 'swipe', 'continue'];
@@ -30,8 +30,9 @@ export function createDiceGenerationAdapter(enabled: () => boolean, changed: () 
     let revealing: AbortSignal | null = null;
     let unsubscribe: (() => void) | null = null;
     const clearPrompt = () => setSillyTavernPrompt(KEY, '');
+    const currentTarget = (target: DiceTarget) => isDiceTargetCurrent(captureDiceChat(), target) && !isDiceMessageBeingEdited(target.index);
     const session = createActionCheckSession({
-        enabled, current: target => isDiceTargetCurrent(captureDiceChat(), target),
+        enabled, current: currentTarget,
         same: (left, right) => left.message === right.message && left.swipe === right.swipe,
         ready: waitForDiceHost, save: saver.commit, changed,
         id: uuidv4,
@@ -45,7 +46,7 @@ export function createDiceGenerationAdapter(enabled: () => boolean, changed: () 
             }
         },
         async continue(target, candidate, signal) {
-            if (!isDiceTargetCurrent(captureDiceChat(), target) || signal.aborted) { return null; }
+            if (!currentTarget(target) || signal.aborted) { return null; }
             const callController = new AbortController();
             const callSignal = is_group_generating ? wrapperSignal : callController.signal;
             if (!callSignal) { throw new Error('本次群聊已结束，无法继续检定。'); }
@@ -136,7 +137,7 @@ export function createDiceGenerationAdapter(enabled: () => boolean, changed: () 
         const events = createModuleEvents('xiaobaiOsDice');
         events.on(event_types.GENERATION_STARTED, (type: unknown, options: { signal?: AbortSignal }, dryRun: unknown) => {
             if (dryRun || intention && type === 'continue' && options.signal === intention.signal
-                && isDiceTargetCurrent(captureDiceChat(), intention.target)) { return; }
+                && currentTarget(intention.target)) { return; }
             // Keep an error at the preceding member while the aborted wrapper unwinds.
             if (is_group_generating && wrapperSignal?.aborted) { return; }
             cancel();
@@ -160,7 +161,7 @@ export function createDiceGenerationAdapter(enabled: () => boolean, changed: () 
             const own = intention;
             const observed = observation;
             const current = () => own ? intention === own && !own.signal.aborted
-                && isDiceTargetCurrent(captureDiceChat(), own.target)
+                && currentTarget(own.target)
                 : !observed || observation === observed && !observed.signal?.aborted
                     && captureDiceChat()?.chat === observed.source.chat && captureDiceChat()?.key === observed.source.key;
             if (!current()) { clearPrompt(); abort(true); return; }

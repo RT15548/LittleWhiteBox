@@ -47,11 +47,9 @@ export function createCheckCard(record: ActionCheckRecord, pending: boolean) {
             stakes.append(diceSpan('xb-dice-stakes-label', '风险'), text); copy.append(stakes);
         }
     }
-    const history = diceSpan('xb-dice-history', '原文已变更 · 保留历史骰点');
-    history.hidden = true;
     const status = diceSpan('xb-dice-status'); status.hidden = true;
     status.setAttribute('role', 'status');
-    element.append(identity, hero, copy, history, status);
+    element.append(identity, hero, copy, status);
     function settle(): void {
         if (element.dataset.state === 'settled') { return; }
         if (element.dataset.state === 'rolling') { element.dataset.revealed = 'true'; }
@@ -67,8 +65,7 @@ export function createCheckCard(record: ActionCheckRecord, pending: boolean) {
         verdict.hidden = true; copy.hidden = true;
         solid.draw(0);
     } else { settle(); }
-    return { element, status, settle, draw: solid.draw,
-        changed(value: boolean) { history.hidden = !value; } };
+    return { element, status, settle, draw: solid.draw };
 }
 
 export type CheckCard = ReturnType<typeof createCheckCard>;
