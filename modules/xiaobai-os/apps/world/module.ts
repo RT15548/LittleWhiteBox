@@ -22,10 +22,16 @@ export function createWorldModule(dependencies: {
             if (!context.partition) { throw new Error('World partition unavailable'); }
             const world = createWorldService(context.partition as ScopedChatStore<WorldDomainV1>, context.files, dependencies.getChatIdentity);
             context.execution.addCleanup(world.dispose);
-            context.execution.addCleanup(context.useCapability(WORLD_CONTEXT_CAPABILITY).registerProvider(chatIdentity => {
-                const current = world.readCurrent();
-                return !!chatIdentity && current.chatIdentity === chatIdentity && (current.world.overview || current.world.news.length)
-                    ? worldContent(current.world) : null;
+            context.execution.addCleanup(context.useCapability(WORLD_CONTEXT_CAPABILITY).registerProvider({
+                readCurrent(chatIdentity) {
+                    const current = world.readCurrent();
+                    return !!chatIdentity && current.chatIdentity === chatIdentity && (current.world.overview || current.world.news.length)
+                        ? worldContent(current.world) : null;
+                },
+                isStoryBackgroundEnabled(identityKey) {
+                    const snapshot = (context.partition as ScopedChatStore<WorldDomainV1>).peekCurrent();
+                    return snapshot?.identityKey === identityKey && (snapshot.value ?? WORLD_PARTITION.createInitial()).injectToStory;
+                },
             }));
             return dependencies.install({ world, execution: context.execution, maintenance: context.useCapability(MAINTENANCE_CAPABILITY),
                 agent: context.useCapability(AGENT_CAPABILITY) });

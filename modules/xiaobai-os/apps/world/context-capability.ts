@@ -1,10 +1,15 @@
 import { createCapabilityToken, type CapabilityRegistration } from '../../kernel/capability-registry.js';
 import type { WorldContent } from '../../domains/world/types.js';
 
-type WorldContextProvider = (chatIdentity: string) => WorldContent | null;
+interface WorldContextProvider {
+    readCurrent(chatIdentity: string): WorldContent | null;
+    isStoryBackgroundEnabled(identityKey: string): boolean;
+}
 
 export interface WorldContextCapability {
-    readCurrent: WorldContextProvider;
+    readCurrent(chatIdentity: string): WorldContent | null;
+    /** Chat binding key; reads only the owner's confirmed preference, not news. */
+    isStoryBackgroundEnabled(identityKey: string): boolean;
     registerProvider(provider: WorldContextProvider): () => void;
 }
 
@@ -18,12 +23,13 @@ export function createWorldContextCapabilityRegistration(): CapabilityRegistrati
         dependencies: [],
         install: () => Object.freeze({
             readCurrent(chatIdentity: string) {
-                try { return provider?.(chatIdentity) ?? null; }
+                try { return provider?.readCurrent(chatIdentity) ?? null; }
                 catch (error) {
                     console.error('[LittleWhiteBox] World 可选资料读取失败，已忽略', error);
                     return null;
                 }
             },
+            isStoryBackgroundEnabled(identityKey: string) { return !!identityKey && (provider?.isStoryBackgroundEnabled(identityKey) ?? false); },
             registerProvider(next: WorldContextProvider) {
                 if (provider) { throw new Error('world_context_provider_already_registered'); }
                 provider = next;

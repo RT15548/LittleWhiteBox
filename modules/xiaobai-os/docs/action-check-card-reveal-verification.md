@@ -70,3 +70,17 @@ SillyTavern 的流式文字渐入使用 morphdom，可能把没有 ID 的普通 
 使用 Playwright CLI／Edge 在隔离酒馆再次验证，全程对 `/node_modules/` 请求返回 404：生产宿主初始化与 OS 打开成功，「信息」正常加载；启用 Dice 后实际完成一次检定，2 次本地模拟供应商请求、1 条记录、1 张卡片，骰点与难度一致。续写在观察到滚动后约 2.08 秒到达，结束后无持续动画；开发库请求、脚本加载失败和未捕获页面异常均为 0。探针与截图保存在忽略目录 `output/playwright/os-host-timeout/` 的 `published-host.cli.js`、`published-dice.cli.js`、`published-dice.png`。隔离数据缺省的公共设置文件 404 和禁用自动入口后的 manifest 警告不属于脚本依赖失败；不据此声称整个酒馆控制台无任何日志。
 
 原有限制不变：关闭酒馆自带自动续写；群聊下一成员的普通生成仍由酒馆管理，不能把 Dice 的草稿保护扩展理解为整个群聊轮转的草稿保护。模拟供应商证明接线，不证明任意实际模型都遵循检定协议。
+
+## Dice 启动生命周期补查（2026-09-14）
+
+此前依赖验证先选聊天再初始化 OS，漏掉了实际插件启动时尚未打开聊天的路径。使用同一隔离酒馆，在欢迎页启动生产宿主，复现「Dice暂时无法打开 / APP background start failed」；控制台 AggregateError 内层为 `chat_unavailable: No chat is currently open`。Dice 后台启动调用 `store.read()` 被拒绝，注册表随即释放失败 runtime，之后打开聊天不会自行恢复。退出已有聊天时的后台切聊读取也会触发同类失败。
+
+聊天文件解析与分区发布已经由 OS 的 chat binding lifecycle 负责。Dice 删除后台启动、切聊中的两次重复读取，让监听器可以在无聊天时正常注册；实际打开设置页与修改开关仍保留原有读取、校验和事务。显示层订阅分区变化，确保慢加载完成后「沿用骰点续写」等入口及时刷新；订阅随模块 execution scope 清理，不新增持久态、重试或缓存，不改协议、Prompt、骰点、消息记录与开关格式。
+
+`tests/dice-lifecycle.test.js` 复用真实生产模块、注册表和事务协调器，仅替换外部 I/O 与显示／生成工作器。两条回归覆盖无聊天启动、已有聊天启动后退出、进入下一聊天、原开关值及零额外写入；并检查晚到的偏好直接到达显示消费者。保留原数据清理契约测试。
+
+浏览器探针在 `output/playwright/os-host-timeout/`：`dice-startup.cli.js` 复现并核对无聊天启动；`dice-full-entry.cli.js` 恢复真实 manifest/index.js 自动入口，不手动初始化 OS，确认欢迎页已注册 Dice 监听器；随后通过真实按钮打开 Dice，原开关仍启用。`dice-startup-generate.cli.js` 退出并重新进入聊天后，不重开 Dice、不重置开关，实际完成 2 次本地供应商请求、1 条检定记录和 1 张静止卡片，Dice APP 错误与未捕获页面异常为 0。仍阻断外网并对 `/node_modules/` 返回 404。
+
+`dice-delayed-binding.cli.js` 仅在隔离浏览器响应中把最后一条已存骰点模拟为中止续写的记录，将 OS 文件响应延迟 1.5 秒。仅删除读取时，文件到达后恢复按钮仍不出现；显示层订阅分区变化后，按钮自动出现，无需打开 Dice 或触发额外消息更新。未修改真实用户聊天。
+
+最终复跑：完整 OS 套件 **985 项通过，0 失败**；OS TypeScript、OS／生命周期测试 ESLint、相对导入检查、宿主生产构建与 `git diff --check` 全部通过。最终产物再次通过完整插件无聊天自动启动、退出后重进及实际检定续写验证。本次修复尚未提交／推送。

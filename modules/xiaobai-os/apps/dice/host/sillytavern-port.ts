@@ -55,7 +55,7 @@ export const diceSavePort = { capture: captureDiceChat, save: saveSillyTavernCha
 export async function waitForDiceHost(target: DiceTarget, signal: AbortSignal, inGroup: boolean): Promise<void> {
     const deadline = Date.now() + 20_000;
     while (true) {
-        if (signal.aborted || !isDiceTargetCurrent(captureDiceChat(), target)) { throw new Error('聊天或候选已变更。'); }
+        if (signal.aborted || !isDiceTargetCurrent(captureDiceChat(), target)) { throw new Error('聊天或回复已变化。'); }
         const stream = diceHostContext().streamingProcessor;
         // ST 1.18 retains a stopped processor after stream errors. A normally finished stream,
         // however, still owns finalization/saving until the host releases its processor.

@@ -16,19 +16,19 @@ export function createDiceMessageSave(port: DiceSavePort) {
         const current = () => !signal.aborted && isDiceTargetCurrent(port.capture(), target)
             && jsonValuesEqual(readDiceRecords(target.message), target.records);
         if (staged || !current()) {
-            return { status: 'conflict', error: '聊天或候选已变更，未写入骰点。' };
+            return { status: 'conflict', error: '聊天或回复已变化，未保存这次骰点。' };
         }
         if (retry) {
             try {
                 const messages = await port.read(target.source);
-                if (!current()) { return { status: 'conflict', error: '聊天或候选已变更。' }; }
-                if (messages.length !== target.index + 1) { return { status: 'conflict', error: '服务端已有其他消息，请重新加载聊天。' }; }
+                if (!current()) { return { status: 'conflict', error: '聊天或回复已变化。' }; }
+                if (messages.length !== target.index + 1) { return { status: 'conflict', error: '已保存的消息与当前不同，请重新加载聊天。' }; }
                 if (candidateMatchesDisk(messages[target.index], target, candidate)) {
                     stageDiceCandidate(target, candidate);
                     return { status: 'confirmed' };
                 }
                 if (!candidateMatchesDisk(messages[target.index], target, target)) {
-                    return { status: 'conflict', error: '服务端聊天内容已变更，请重新加载聊天。' };
+                    return { status: 'conflict', error: '已保存的回复有变化，请重新加载聊天。' };
                 }
             } catch (error) { return { status: 'unconfirmed', error: String(error) }; }
         }
@@ -43,15 +43,15 @@ export function createDiceMessageSave(port: DiceSavePort) {
             if (result.status === 'failed') { return { status: 'failed', error: result.error.message }; }
             // A lost acknowledgement is not a failed write. Read the captured chat, never the current one.
             const messages = await port.read(target.source);
-            if (messages.length !== target.index + 1) { return { status: 'conflict', error: '服务端已有其他消息，请重新加载聊天。' }; }
+            if (messages.length !== target.index + 1) { return { status: 'conflict', error: '已保存的消息与当前不同，请重新加载聊天。' }; }
             if (candidateMatchesDisk(messages[target.index], target, candidate)) {
                 confirmed = true;
                 return { status: 'confirmed' };
             }
             if (candidateMatchesDisk(messages[target.index], target, target)) {
-                return { status: 'unconfirmed', error: '服务端尚未确认这次骰点。可核实并重试保存。' };
+                return { status: 'unconfirmed', error: '还不确定骰点是否保存成功，请检查保存。' };
             }
-            return { status: 'conflict', error: '服务端聊天内容已变更，请重新加载聊天。' };
+            return { status: 'conflict', error: '已保存的回复有变化，请重新加载聊天。' };
         } catch (error) {
             return { status: 'unconfirmed', error: error instanceof Error ? error.message : String(error) };
         } finally {

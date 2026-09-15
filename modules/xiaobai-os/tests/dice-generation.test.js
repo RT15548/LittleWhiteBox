@@ -100,6 +100,10 @@ const { createDiceGenerationAdapter, captureDiceChat, waitForDiceHost, host } = 
 const call = 'Attempt.\n\n<xb_action_check>{"action":"Climb","stat":"Agility","difficulty":"hard"}</xb_action_check>';
 const message = mes => ({ name: 'Mira', mes, extra: {} });
 function setup(t, group = false, reveal = async () => {}) {
+    t.mock.method(console, 'error', () => {});
+    const previousWindow = Object.getOwnPropertyDescriptor(globalThis, 'window');
+    Object.defineProperty(globalThis, 'window', { configurable: true, value: { toastr: { error: () => assert.fail('Dice must not add error toasts') } } });
+    t.after(() => { if (previousWindow) Object.defineProperty(globalThis, 'window', previousWindow); else delete globalThis.window; });
     host.reset({ key: group ? 'group:g:chat' : 'character:mira.png:chat', chatId: 'chat', chat: [message('Old reply')],
         characterId: 0, characterName: 'Mira', avatar: 'mira.png', ...(group ? { groupId: 'g' } : {}) });
     const adapter = createDiceGenerationAdapter(() => host.enabled, () => {}, reveal);
@@ -302,6 +306,7 @@ for (const partial of [false, true]) {
         assert.equal(host.writes, 1);
         assert.equal(host.requests.length, 1);
         assert.equal(saved.checks.length, 1);
+        assert.equal(adapter.view().phase.error, '', 'native stream failures are not repeated in Dice feedback');
         if (partial) {
             assert.equal(target.mes, 'Attempt.\n\n' + call, 'partial output is never rolled back');
             assert.equal(adapter.view().phase.kind, 'invalid');
@@ -319,3 +324,49 @@ for (const partial of [false, true]) {
         assert.deepEqual(target.extra.xiaobaiOsDice, saved);
     });
 }
+
+for (const group of [false, true]) {
+    test(`failed optional check preparation leaves ${group ? 'group' : 'single'} replies running without rolling`, async t => {
+        const adapter = setup(t, group);
+        if (group) host.group(true);
+        host.preflight = async () => { throw new Error('internal setup details'); };
+        await begin('normal', { signal: new AbortController().signal });
+        assert.equal(await host.intercept('normal'), false);
+        assert.equal(host.prompts.get('xiaobai_os_dice'), '');
+        const target = message(call);
+        host.source.chat.push(target);
+        await received();
+        if (group) await host.emit('GROUP_MEMBER_DRAFTED');
+        await settled(adapter);
+        assert.equal(host.writes, 0);
+        assert.equal(host.requests.length, 0, 'no Dice follow-up is dispatched');
+        assert.equal(target.mes, call);
+        assert.equal(adapter.view().phase.kind, 'invalid');
+        assert.ok(adapter.view().phase.error);
+        assert.equal(adapter.view().phase.error.includes('internal setup details'), false);
+    });
+}
+
+test('host rejection keeps silent same-roll recovery while Dice preparation failure stays local', async t => {
+    const adapter = setup(t);
+    const normalReply = host.reply;
+    await begin(); await host.intercept('normal');
+    const target = message(call); host.source.chat.push(target);
+    host.reply = async () => { throw new Error('provider error already shown by host'); };
+    await received(); await settled(adapter);
+    const saved = structuredClone(target.extra.xiaobaiOsDice);
+    assert.equal(adapter.view().phase.kind, 'continue-error');
+    assert.equal(adapter.view().phase.error, '');
+    host.preflight = async () => { throw new Error('private implementation failure'); };
+    await adapter.retry(1);
+    assert.equal(adapter.view().phase.kind, 'continue-error');
+    assert.ok(adapter.view().phase.error);
+    assert.equal(adapter.view().phase.error.includes('private implementation failure'), false);
+    assert.equal(host.requests.length, 1, 'Dice preparation failure must not call the provider without the saved result');
+    host.preflight = async () => {}; host.reply = normalReply;
+    await adapter.retry(1);
+    assert.equal(host.requests.length, 2);
+    assert.equal(host.writes, 1);
+    assert.deepEqual(target.extra.xiaobaiOsDice, saved);
+    assert.equal(adapter.view(), null);
+});

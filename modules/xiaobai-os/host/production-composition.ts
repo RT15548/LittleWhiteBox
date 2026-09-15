@@ -14,7 +14,7 @@ import {
 import { createProductionMapModule } from '../apps/map/production-module.js';
 import { createProductionMessagesModule } from '../apps/messages/production-module.js';
 import { createMessagesBranchCopy } from '../apps/messages/host/branch-copy.js';
-import type { ChatMessage } from '../apps/messages/application/projection.js';
+import { projectionMarker, type ChatMessage } from '../apps/messages/application/projection.js';
 import { createProductionShopModule } from '../apps/shop/production-module.js';
 import { createProductionTasksModule } from '../apps/tasks/production-module.js';
 import { createWalletModule } from '../apps/wallet/module.js';
@@ -114,7 +114,11 @@ export function createProductionBootstrap(
     ];
 
     const modules = [
-        createProductionDiceModule(),
+        createProductionDiceModule(async identityKey => {
+            const summary = await import('../../story-summary/story-summary.js') as { isStorySummaryEnabledForCurrentChat(): boolean };
+            return { world: composition.capabilities.require(WORLD_CONTEXT_CAPABILITY).isStoryBackgroundEnabled(identityKey),
+                summary: summary.isStorySummaryEnabledForCurrentChat() };
+        }, message => !!projectionMarker(message)),
         createAgentApiModule(),
         createProductionFourthWallModule(settings, upstreamFourthWall),
         createProductionMessagesModule(mainGeneration, settings),

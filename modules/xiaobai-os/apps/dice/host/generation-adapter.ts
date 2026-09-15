@@ -18,13 +18,14 @@ interface Observation {
     type: string; from: number; initialBody: string; signal?: AbortSignal;
     stage: 'preparing' | 'receiving';
     previousStream: ReturnType<typeof diceHostContext>['streamingProcessor'];
+    error?: string;
 }
 
 export function createDiceGenerationAdapter(enabled: () => boolean, changed: () => void,
     reveal: (target: DiceTarget, candidate: DiceCandidate, signal: AbortSignal) => Promise<void>) {
     const saver = createDiceMessageSave(diceSavePort);
     let observation: Observation | null = null;
-    let intention: { target: DiceTarget; candidate: DiceCandidate; signal: AbortSignal } | null = null;
+    let intention: { target: DiceTarget; candidate: DiceCandidate; signal: AbortSignal; error?: string } | null = null;
     let wrapperSignal: AbortSignal | undefined;
     let revealing: AbortSignal | null = null;
     let unsubscribe: (() => void) | null = null;
@@ -47,8 +48,8 @@ export function createDiceGenerationAdapter(enabled: () => boolean, changed: () 
             if (!isDiceTargetCurrent(captureDiceChat(), target) || signal.aborted) { return null; }
             const callController = new AbortController();
             const callSignal = is_group_generating ? wrapperSignal : callController.signal;
-            if (!callSignal) { throw new Error('群聊生成身份已失效。'); }
-            const own = { target, candidate, signal: callSignal };
+            if (!callSignal) { throw new Error('本次群聊已结束，无法继续检定。'); }
+            const own: NonNullable<typeof intention> = { target, candidate, signal: callSignal };
             if (!is_group_generating) { setExternalAbortController(callController); }
             intention = own;
             // Internal follow-ups inherit a busy parent in ST. Dice resumes after that parent has finished.
@@ -63,18 +64,26 @@ export function createDiceGenerationAdapter(enabled: () => boolean, changed: () 
                     signal: callSignal, depth: 1,
                     ...(target.source.groupId ? { force_chid: target.source.characterId } : {}),
                 };
-                if (target.source.groupId && !is_group_generating) {
-                    // Generate's outer group branch does not forward depth; the exported wrapper does.
-                    await generateGroupWrapper(false, 'continue', options);
-                } else {
-                    await diceHostContext().generate('continue', options);
+                try {
+                    if (target.source.groupId && !is_group_generating) {
+                        // Generate's outer group branch does not forward depth; the exported wrapper does.
+                        await generateGroupWrapper(false, 'continue', options);
+                    } else {
+                        await diceHostContext().generate('continue', options);
+                    }
+                } catch (error) {
+                    if (own.error) { throw new Error(own.error); }
+                    // Native generation owns API feedback. Keep same-roll recovery without repeating it.
+                    console.error('[LittleWhiteBox] Dice host continuation failed', error);
+                    return null;
                 }
+                if (own.error) { throw new Error(own.error); }
                 const source = captureDiceChat();
                 if (!source || source.key !== target.source.key || source.chat !== target.source.chat
                     || source.chat.at(-1) !== target.message || (target.message.swipe_id ?? 0) !== target.swipe) { return null; }
                 const stream = diceHostContext().streamingProcessor;
                 // Generate resolves even when its stream fails. Partial output is not a completed reply.
-                if (stream && stream !== previousStream && stream.isStopped) { throw new Error('流式续写已中断。'); }
+                if (stream && stream !== previousStream && stream.isStopped) { return null; }
                 return captureDiceTarget(source, target.index, candidate.body.length);
             } finally {
                 signal.removeEventListener('abort', cancel);
@@ -149,8 +158,11 @@ export function createDiceGenerationAdapter(enabled: () => boolean, changed: () 
         registerGenerateInterceptor(KEY, async (_chat: unknown, _size: unknown, abort: (immediate: boolean) => void, type: string) => {
             if (is_group_generating && wrapperSignal?.aborted) { abort(true); return; }
             const own = intention;
-            const current = () => !own || intention === own && !own.signal.aborted
-                && isDiceTargetCurrent(captureDiceChat(), own.target);
+            const observed = observation;
+            const current = () => own ? intention === own && !own.signal.aborted
+                && isDiceTargetCurrent(captureDiceChat(), own.target)
+                : !observed || observation === observed && !observed.signal?.aborted
+                    && captureDiceChat()?.chat === observed.source.chat && captureDiceChat()?.key === observed.source.key;
             if (!current()) { clearPrompt(); abort(true); return; }
             if (!enabled() || !MAIN_TYPES.includes(String(type || ''))) { clearPrompt(); return; }
             if (observation) { observation.stage = 'receiving'; }
@@ -167,7 +179,17 @@ export function createDiceGenerationAdapter(enabled: () => boolean, changed: () 
                 }
                 if (!enabled()) { clearPrompt(); return; }
                 setSillyTavernPrompt(KEY, buildActionCheckPrompt(records));
-            } catch (error) { clearPrompt(); abort(true); notify(error); }
+            } catch (error) {
+                clearPrompt();
+                console.error('[LittleWhiteBox] Dice check preparation failed', error);
+                if (!current()) { abort(true); return; }
+                if (own) {
+                    own.error = '暂时无法继续行动检定。';
+                    abort(true);
+                } else if (observed) {
+                    observed.error = '本次未能进行行动检定。';
+                }
+            }
         }, GENERATE_INTERCEPTOR_ORDER.XIAOBAI_OS_DICE);
         events.on(event_types.GENERATE_AFTER_DATA, (_data: unknown, dryRun: unknown) => { if (!dryRun) { clearPrompt(); } });
         events.on(event_types.MESSAGE_RECEIVED, (index: number, type: string) => {
@@ -182,8 +204,8 @@ export function createDiceGenerationAdapter(enabled: () => boolean, changed: () 
             if (!source || source.key !== observed.source.key || source.chat !== observed.source.chat || observed.signal?.aborted) { return; }
             const target = captureDiceTarget(source, index, observed.from);
             if (!target || !target.body.startsWith(observed.initialBody)) { return; }
-            session.accept(target);
-            if (!source.groupId) { void session.drain().catch(notify); }
+            session.accept(target, observed.error);
+            if (!source.groupId) { void session.drain().catch(error => console.error('[LittleWhiteBox] Dice check failed', error)); }
         });
         events.on(event_types.GROUP_MEMBER_DRAFTED, groupBoundary);
         events.on(event_types.GROUP_WRAPPER_FINISHED, async () => { await groupBoundary(); wrapperSignal = undefined; });
@@ -212,9 +234,6 @@ export function createDiceGenerationAdapter(enabled: () => boolean, changed: () 
         cancel(); unsubscribe?.(); unsubscribe = null; wrapperSignal = undefined;
         // Re-enabling the OS must not interpret a still-staged, unconfirmed write as persisted history.
         await saver.settled();
-    }
-    function notify(error: unknown): void {
-        (window.toastr as unknown as { error?(text: string): void })?.error?.(error instanceof Error ? error.message : String(error));
     }
     return { start, stop, cancel, settled: saver.settled, view: session.view, readConfirmed: saver.readConfirmed,
         async retry(index: number) {

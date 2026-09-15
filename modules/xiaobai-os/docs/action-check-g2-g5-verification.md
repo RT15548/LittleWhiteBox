@@ -117,7 +117,7 @@ Playwright 使用修复后的完整生产构建，在真实隔离 ST 1.18 上重
 
 - `tests/dice-contracts.test.js`：10 项，字段／Markdown 边界、示例、D20、八次上限、锚点及显示规则维护。
 - `tests/dice-message-session.test.js`：10 项，确认三态、原聊天读回、候选同步、字段保留、原骰点恢复、等待失败保留候选、目标失效／取消和停用收尾。
-- `tests/dice-cleanup.test.js`：执行真实生产 module／controller／消息清理，替换外部 I/O；确认顺序、未确认不删分区、切聊保护、忙时拒绝。
+- `tests/dice-lifecycle.test.js`（原 `dice-cleanup.test.js`）：执行真实生产 module／controller／消息清理，替换外部 I/O；确认顺序、未确认不删分区、切聊保护、忙时拒绝。
 - `tests/dice-ui.test.js`：编译并挂载真实 Vue 组件；按钮往返、公开 bridge 回复、迟到结果与推送、卸载订阅。
 - `tests/dice-controller.test.js`：预检切聊零写入、提交页面校验、迟到确认不取消新链。
 - `tests/dice-generation.test.js`：10 项宿主边界回归，执行真实 adapter／等待屏障／session／saver；单聊、群成员边界与群收尾续写的草稿保护，重新生成删除事件，关闭后的候选隔离，异步预检目标变化，以及流收尾屏障、失败流身份、原骰点恢复和部分正文保护。

@@ -98,8 +98,8 @@ test('invalid requests and the persisted eight-check limit consume no randomness
 });
 
 test('new preferences default off, unsupported data is rejected without a legacy fallback', () => {
-    assert.deepEqual(DICE_PARTITION.createInitial(), { schemaVersion: 1, actionChecksEnabled: false });
-    assert.equal(DICE_PARTITION.parse({ schemaVersion: 1, actionChecksEnabled: true }).ok, true);
+    assert.deepEqual(DICE_PARTITION.createInitial(), { schemaVersion: 1, actionChecksEnabled: false, encountersEnabled: false });
+    assert.equal(DICE_PARTITION.parse({ schemaVersion: 1, actionChecksEnabled: true, encountersEnabled: false }).ok, true);
     assert.equal(DICE_PARTITION.parse({ schemaVersion: 1, actionChecksEnabled: true, encounters: false }).ok, false);
     assert.throws(() => parseDiceRecords({ schemaVersion: 99, checks: [] }));
 });

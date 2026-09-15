@@ -30,17 +30,17 @@ test('Dice switch survives repeated confirmed replies, keeps newer file-state pu
     });
     // eslint-disable-next-line no-unsanitized/method -- Compiled repository Vue component, not user content.
     const { default: DiceApp } = await import(`data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].text).toString('base64')}`);
-    let state = { chatIdentity: 'chat-a', enabled: false, fileState: 'ready', pending: false };
+    let state = { chatIdentity: 'chat-a', actionChecksEnabled: false, encountersEnabled: false, fileState: 'ready', pending: false };
     const listeners = new Set();
     let calls = 0;
     let release;
     const bridge = {
         subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
         async request(type, payload) {
-            assert.equal(type, 'dice/set-enabled');
+            assert.equal(type, 'dice/set-feature');
             assert.equal(payload.chatIdentity, 'chat-a');
             calls++;
-            state = { ...state, enabled: payload.enabled };
+            state = { ...state, [payload.feature]: payload.enabled };
             if (calls === 3) { await new Promise(resolve => { release = resolve; }); }
             return { ok: true, result: state };
         },
@@ -63,6 +63,11 @@ test('Dice switch survives repeated confirmed replies, keeps newer file-state pu
     for (const listener of listeners) { listener({ type: 'dice/state', payload: { state } }); }
     await nextTick();
     assert.equal(button.disabled, false);
+    const encounterButton = dom.document.querySelector('[aria-labelledby="dice-encounter-label"] button') || dom.document.querySelector('button[aria-labelledby="dice-encounter-label"]');
+    encounterButton.click();
+    await Promise.resolve(); await nextTick();
+    assert.equal(encounterButton.getAttribute('aria-checked'), 'true');
+    assert.equal(button.getAttribute('aria-checked'), 'true', 'enabling encounters leaves action checks unchanged');
     app.unmount();
     assert.equal(listeners.size, 0);
 });

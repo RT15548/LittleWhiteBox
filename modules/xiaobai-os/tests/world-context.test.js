@@ -38,6 +38,33 @@ async function installContext(h, t) {
     return { context, dispose };
 }
 
+test('the story-background flag uses only the matching chat confirmed preference, even without news', async t => {
+    const h = await worldHarness({ ...createEmptyWorld(), injectToStory: false }); t.after(h.dispose);
+    const { context, dispose } = await installContext(h, t);
+    const identity = h.state.capture.identityKey;
+    assert.equal(context.isStoryBackgroundEnabled(identity), false);
+    assert.equal(context.readCurrent(h.getChatIdentity()), null);
+    h.state.replace = () => ({ status: 'unconfirmed', observed: null });
+    await assert.rejects(h.world.setPreference(h.getChatIdentity(), 'injectToStory', true, () => true));
+    assert.equal(context.isStoryBackgroundEnabled(identity), false);
+    h.state.replace = null;
+    await h.world.confirmPending();
+    assert.equal(context.isStoryBackgroundEnabled(identity), true);
+    assert.equal(context.isStoryBackgroundEnabled('another-chat'), false);
+    assert.equal(context.readCurrent(h.getChatIdentity()), null);
+    assert.equal(h.state.requests.length, 0);
+    await dispose();
+    assert.equal(context.isStoryBackgroundEnabled(identity), false);
+});
+
+test('a new chat exposes the same background default as World without creating a partition', async t => {
+    const h = await worldHarness(); t.after(h.dispose);
+    const { context } = await installContext(h, t);
+    assert.equal(context.isStoryBackgroundEnabled(h.state.capture.identityKey), h.world.readCurrent().world.injectToStory);
+    assert.equal(context.readCurrent(h.getChatIdentity()), null);
+    assert.equal(h.state.writes.length, 0);
+});
+
 test('optional world material uses confirmed content, ignores subscription/D4 switches, and releases on disposal', async t => {
     const initial = { ...createEmptyWorld(), injectToStory: false, overview: '初夏的港城', news: [article()] };
     const h = await worldHarness(initial, { chatIdentity: 'character:0:test-world' }); t.after(h.dispose);
@@ -131,7 +158,7 @@ test('background capture rejects another chat and an unavailable optional provid
     await capabilities.install(); t.after(() => capabilities.dispose());
     const context = capabilities.require(WORLD_CONTEXT_CAPABILITY);
     const report = t.mock.method(console, 'error', () => {});
-    context.registerProvider(() => { throw new Error('unavailable'); });
+    context.registerProvider({ readCurrent() { throw new Error('unavailable'); }, isStoryBackgroundEnabled: () => false });
     const background = createMaintenanceBackgroundCapture({
         promptContext: {
             currentChatIdentity: () => 'world:one',

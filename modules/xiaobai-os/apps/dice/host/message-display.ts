@@ -50,7 +50,8 @@ export function createDiceMessageDisplay(runtime: Runtime, enabled: () => boolea
         button.addEventListener('click', () => {
             button.disabled = true;
             void runtime.retry(index).catch(error => {
-                const note = span('xb-dice-note', error instanceof Error ? error.message : String(error));
+                console.error('[LittleWhiteBox] Dice retry failed', error);
+                const note = span('xb-dice-note', '暂时无法继续，请稍后重试；回复已有变化时，请用酒馆的「继续」。');
                 note.setAttribute('role', 'alert'); button.after(note);
             }).finally(() => { button.disabled = false; refresh(); });
         });
@@ -122,29 +123,29 @@ export function createDiceMessageDisplay(runtime: Runtime, enabled: () => boolea
                                 placed = placeAtPrefix(content, template.content.textContent ?? '', node);
                             }
                             if (!placed) { content.append(node); }
-                            const error = phase?.kind === 'continue-error' && phase.candidate.records.checks.at(-1)?.id === record.id
-                                ? phase.error : '';
+                            const failedContinuation = phase?.kind === 'continue-error' && phase.candidate.records.checks.at(-1)?.id === record.id;
+                            const error = failedContinuation ? phase.error : '';
                             let retry = '';
-                            if (enabled() && (error || source?.chat.at(-1) === message && record === records.checks.at(-1)
+                            if (enabled() && (failedContinuation || source?.chat.at(-1) === message && record === records.checks.at(-1)
                                 && valid && message.mes.length === record.offset && !active)) {
                                 retry = '沿用骰点续写';
                             }
                             setStatus(entry, index, error, retry);
-                            errorPlaced ||= !!error;
+                            errorPlaced ||= !!failedContinuation;
                         }
                     } catch {
-                        const notice = span('xb-dice-card xb-dice-notice', '检定记录格式无效，未执行任何操作。');
+                        const notice = span('xb-dice-card xb-dice-notice', '这条检定记录暂时无法显示。');
                         wanted.add(notice); content.append(notice);
                     }
                 }
                 for (const id of cached.entries.keys()) { if (!kept.has(id)) { cached.entries.delete(id); } }
                 if (phase && !errorPlaced) {
-                    if ('error' in phase) {
+                    if ('error' in phase && phase.error) {
                         const notice = span('xb-dice-card xb-dice-notice', '');
                         notice.setAttribute('role', 'status');
                         notice.append(span('xb-dice-note', phase.error));
                         if (enabled() && (phase.kind === 'save-error' || phase.kind === 'continue-error')) {
-                            notice.append(retryButton(index, phase.kind === 'save-error' ? '核实并重试保存' : '沿用骰点续写'));
+                            notice.append(retryButton(index, phase.kind === 'save-error' ? '检查保存' : '沿用骰点续写'));
                         }
                         wanted.add(notice); content.append(notice);
                     }

@@ -2,7 +2,8 @@ import type { XiaobaiOsFileState } from '../../kernel/contracts.js';
 
 export interface DiceClientState {
     chatIdentity: string;
-    enabled: boolean;
+    actionChecksEnabled: boolean;
+    encountersEnabled: boolean;
     fileState: XiaobaiOsFileState;
     pending: boolean;
 }

@@ -17,6 +17,7 @@ export interface DiceSessionPort<T extends ActionCheckTarget> {
     ready(target: T, signal: AbortSignal, inGroup: boolean): Promise<void>;
     save(target: T, candidate: DiceCandidate, signal: AbortSignal, retry: boolean): Promise<DiceSaveResult>;
     reveal(target: T, candidate: DiceCandidate, signal: AbortSignal): Promise<void>;
+    /** Null means the host did not complete the continuation; its own UI owns provider errors. */
     continue(target: T, candidate: DiceCandidate, signal: AbortSignal): Promise<T | null>;
     changed(): void;
     random?: () => number;
@@ -24,8 +25,8 @@ export interface DiceSessionPort<T extends ActionCheckTarget> {
 }
 
 const errors: Record<string, string> = {
-    dice_check_limit: '本条回复已完成 8 次检定，新的检定未执行。',
-    dice_body_changed: '原文已变更，未执行新的检定。',
+    dice_check_limit: '本条回复已检定 8 次，不再继续掷骰。',
+    dice_body_changed: '原文已修改，本次不再掷骰。',
 };
 
 /** One ephemeral chain. Rendering, reload and retry never enter the random source. */
@@ -40,10 +41,12 @@ export function createActionCheckSession<T extends ActionCheckTarget>(port: Dice
         publish();
     }
 
-    function accept(target: T): void {
+    function accept(target: T, preparationError = ''): void {
         cancel();
         if (!port.enabled()) { return; }
-        run = { controller: new AbortController(), target, phase: { kind: 'waiting' } };
+        run = { controller: new AbortController(), target,
+            phase: preparationError ? { kind: 'invalid', error: preparationError } : { kind: 'waiting' } };
+        publish();
     }
 
     async function execute(current: Run<T>, inGroup: boolean, retry = false): Promise<void> {
@@ -60,7 +63,7 @@ export function createActionCheckSession<T extends ActionCheckTarget>(port: Dice
                         generatedFrom: current.target.generatedFrom, id: port.id(), random: port.random });
                     if (prepared.kind === 'none') { run = null; return; }
                     if (prepared.kind === 'invalid') {
-                        current.phase = { kind: 'invalid', error: errors[prepared.error] ?? '检定请求不完整或格式无效，本次未投骰。' };
+                        current.phase = { kind: 'invalid', error: errors[prepared.error] ?? '这次检定信息不完整，未掷骰。' };
                         return;
                     }
                     candidate = prepared;
@@ -71,8 +74,9 @@ export function createActionCheckSession<T extends ActionCheckTarget>(port: Dice
                     const saved = await port.save(current.target, candidate, current.controller.signal, recovery);
                     if (!owns(current)) { return; }
                     if (saved.status !== 'confirmed') {
+                        console.error('[LittleWhiteBox] Dice result save not confirmed', saved);
                         current.phase = saved.status === 'conflict' ? { kind: 'invalid', error: saved.error }
-                            : { kind: 'save-error', candidate, error: `骰点尚未确认保存：${saved.error}` };
+                            : { kind: 'save-error', candidate, error: '骰点还未确认保存，暂不续写。' };
                         return;
                     }
                     current.target = { ...current.target, body: candidate.body, records: candidate.records };
@@ -90,7 +94,9 @@ export function createActionCheckSession<T extends ActionCheckTarget>(port: Dice
                 const next = await port.continue(current.target, candidate, current.controller.signal);
                 if (!owns(current)) { return; }
                 if (!next || !next.body.startsWith(candidate.body) || !next.body.slice(candidate.body.length).trim()) {
-                    current.phase = { kind: 'continue-error', candidate, error: '骰点已保存，但没有收到后续正文。' };
+                    current.phase = port.current(current.target)
+                        ? { kind: 'continue-error', candidate, error: '' }
+                        : { kind: 'invalid', error: '' };
                     return;
                 }
                 current.target = next;
@@ -100,16 +106,16 @@ export function createActionCheckSession<T extends ActionCheckTarget>(port: Dice
         } catch (error) {
             if (!owns(current)) { return; }
             const phase = current.phase;
-            const message = error instanceof Error ? error.message : String(error);
+            console.error('[LittleWhiteBox] Dice check failed', error);
             if (phase.kind === 'continuing' || phase.kind === 'revealing') {
                 current.phase = port.current(current.target)
-                    ? { kind: 'continue-error', candidate: phase.candidate, error: `骰点已保存，续写失败：${message}` }
-                    : { kind: 'invalid', error: '骰点已保存，续写中断；原回复已有后文或已变更，请使用酒馆的普通继续操作。' };
+                    ? { kind: 'continue-error', candidate: phase.candidate, error: '骰点已保留，暂时无法自动续写。' }
+                    : { kind: 'invalid', error: '回复已有变化，请用酒馆的「继续」接着写。' };
             } else if (!port.current(current.target)) { cancel(); }
             else if (phase.kind === 'save-error' || phase.kind === 'continue-error') {
                 // A failed readiness wait does not invalidate the retained roll or its retry route.
-                current.phase = { ...phase, error: message };
-            } else { current.phase = { kind: 'invalid', error: message }; }
+                current.phase = { ...phase, error: '暂时无法继续检定，请稍后重试。' };
+            } else { current.phase = { kind: 'invalid', error: '本次未完成行动检定。' }; }
         } finally { publish(); }
     }
 
@@ -136,7 +142,7 @@ export function createActionCheckSession<T extends ActionCheckTarget>(port: Dice
         const records = parseDiceRecords(target.records);
         const last = records.checks.at(-1);
         if (!last || target.body.length !== last.offset || records.checks.some(record => !hasValidCheckAnchor(target.body, record))) {
-            throw new Error('原回复已有后文或已变更，请使用酒馆的普通继续操作。');
+            throw new Error('回复已有变化，请用酒馆的「继续」接着写。');
         }
         cancel();
         const restored: Run<T> = { controller: new AbortController(), target,
