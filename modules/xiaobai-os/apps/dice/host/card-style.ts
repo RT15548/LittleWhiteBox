@@ -39,11 +39,15 @@ export const DICE_CARD_CSS = `
 .xb-dice-card :is(button, summary):focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
 .xb-dice-card .xb-dice-rolling-label { grid-area: 1 / 2; font-size: .9em; }
 .xb-dice-notice { display: flex; flex-wrap: wrap; gap: .7em; font-size: .9em; }
+.xb-dice-pending { display: flex; align-items: center; gap: .7em; font-size: .9em; }
+.xb-dice-pending::before { content: ''; flex: none; width: 1em; height: 1em; border: 2px solid color-mix(in srgb, currentColor 20%, transparent); border-top-color: currentColor; border-radius: 50%; }
 @media (prefers-reduced-motion: no-preference) {
+    .xb-dice-pending::before { animation: xb-dice-pending-spin .9s linear infinite; }
     .xb-dice-card .xb-dice-die { transition: transform .28s ease-out; }
     .xb-dice-card[data-state="rolling"] .xb-dice-die { transform: scale(1.12); }
     .xb-dice-card[data-revealed="true"] :is(.xb-dice-verdict, .xb-dice-copy) { animation: xb-dice-unveil .28s ease-out both; }
 }
+@keyframes xb-dice-pending-spin { to { transform: rotate(360deg); } }
 @keyframes xb-dice-unveil { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
 @media (max-width: 400px) {
     .xb-dice-card { padding: .7em .75em; }

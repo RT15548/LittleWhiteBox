@@ -23,20 +23,35 @@ const compiled = await build({
             const listeners = new Map();
             export let is_group_generating = false;
             export let isChatSaving = false;
+            export let is_send_press = false;
             export const host = {
                 source: null, busy: false, draft: '', enabled: true, requests: [], prompts: new Map(), writes: 0,
                 preflight: async () => {}, controller: null, stream: null, reply: normalReply, editing: false,
+                save: async () => ({status:'confirmed'}), generate,
                 async emit(name, ...args) { for (const fn of [...(listeners.get(name) ?? [])]) await fn(...args); },
+                listen(name, fn) {
+                    if (!listeners.has(name)) listeners.set(name, new Set());
+                    listeners.get(name).add(fn);
+                    return () => listeners.get(name).delete(fn);
+                },
                 group(value) { is_group_generating = value; },
                 saving(value) { isChatSaving = value; },
+                lock() { setSendButtonState(true); deactivateSendButtons(); },
+                unlock: activateSendButtons,
+                stop: stopGeneration,
                 async intercept(type) { let aborted = false; await host.interceptor([], 0, () => { aborted = true; }, type); return aborted; },
                 reset(source) {
                     Object.assign(host, { source, busy: false, draft: '', enabled: true, requests: [], writes: 0,
-                        preflight: async () => {}, controller: null, stream: null, reply: normalReply, editing: false });
-                    host.prompts.clear(); is_group_generating = false; isChatSaving = false;
+                        preflight: async () => {}, controller: null, stream: null, reply: normalReply, editing: false,
+                        save: async () => ({status:'confirmed'}), stopVisible: false, dataGenerating: false, locks: 0 });
+                    host.prompts.clear(); is_group_generating = false; isChatSaving = false; is_send_press = false;
                 },
             };
             export const event_types = new Proxy({}, { get: (_, name) => name });
+            export const eventSource = {
+                makeFirst(name, fn) { listeners.set(name, new Set([fn, ...(listeners.get(name) ?? [])])); },
+                removeListener(name, fn) { listeners.get(name)?.delete(fn); },
+            };
             export function createModuleEvents() { const owned = []; return {
                 on(name, fn) { if (!listeners.has(name)) listeners.set(name, new Set()); listeners.get(name).add(fn); owned.push([name,fn]); },
                 cleanup() { for (const [name,fn] of owned) listeners.get(name).delete(fn); },
@@ -55,21 +70,28 @@ const compiled = await build({
             export const saveScriptsByType = () => host.preflight();
             export const getRequestHeaders = () => ({});
             export const saveSillyTavernChat = async guard => {
-                if (!guard()) throw new Error('stale target'); host.writes++; return {status:'confirmed'};
+                if (!guard()) throw new Error('stale target'); host.writes++; return host.save();
             };
             export const isGenerating = () => host.busy || is_group_generating;
-            export const setSendButtonState = value => { host.busy = value; };
-            export const deactivateSendButtons = () => { host.stopVisible = true; };
-            export const activateSendButtons = () => { host.stopVisible = false; host.busy = false; };
+            export const setSendButtonState = value => { host.busy = is_send_press = value; };
+            export const deactivateSendButtons = () => { host.stopVisible = true; host.dataGenerating = true; host.locks++; };
+            function hideStopButton() {
+                if (!host.stopVisible) return;
+                host.stopVisible = false; void host.emit('GENERATION_ENDED');
+            }
+            export function activateSendButtons() {
+                setSendButtonState(false); hideStopButton(); host.dataGenerating = false;
+            }
             export const setCharacterId = value => { host.source.characterId = value; };
             export const setCharacterName = value => { host.source.characterName = value; };
             export const setExternalAbortController = value => { host.controller = value; };
-            export function stopGeneration() { host.controller?.abort(); void host.emit('GENERATION_STOPPED'); }
+            export function stopGeneration() { host.stream?.onStopStreaming?.(); host.controller?.abort(); hideStopButton(); void host.emit('GENERATION_STOPPED'); }
 
             // Frozen ST 1.18 boundary: nonzero depth skips composer consumption; outer Generate drops depth
             // when delegating to a group wrapper, while the wrapper forwards its own params to each member.
             async function generate(type, options = {}) {
                 await host.emit('GENERATION_STARTED', type, options, false);
+                if (!(host.controller && options.signal)) host.controller = new AbortController();
                 await host.emit('GENERATION_AFTER_COMMANDS', type, options, false);
                 if (host.source.groupId && !is_group_generating) {
                     return generateGroupWrapper(false, type, {signal:options.signal, force_chid:options.force_chid});
@@ -77,9 +99,11 @@ const compiled = await build({
                 if (!options.depth && host.draft) {
                     host.source.chat.push({mes:host.draft,is_user:true,extra:{}}); host.draft = '';
                 }
-                if (await host.intercept(type) || options.signal?.aborted) return;
-                host.requests.push({type, busy:isGenerating(), prompt:host.prompts.get('xiaobai_os_dice')});
-                await host.reply();
+                host.lock();
+                if (await host.intercept(type) || options.signal?.aborted) { activateSendButtons(); return; }
+                host.requests.push({type, signal:host.controller.signal, busy:isGenerating(), prompt:host.prompts.get('xiaobai_os_dice')});
+                try { await host.reply(host.controller.signal); }
+                finally { activateSendButtons(); }
             }
             async function normalReply() {
                 host.source.chat.at(-1).mes += '\\n\\nAfterward.';
@@ -128,6 +152,264 @@ async function settled(adapter) {
     }
     assert.fail('Dice chain did not settle');
 }
+
+test('ordinary prose, examples and invalid requests never acquire post-processing controls', async t => {
+    const adapter = setup(t);
+    const block = call.slice(call.indexOf('<xb_action_check>'));
+    const bodies = ['Plain reply.', '```json\n' + block + '\n```', '~~~\n' + block + '\n~~~',
+        '`' + block + '`', '> ' + block, '> Example:\n' + block, '    ' + block,
+        block.slice(0, -4), block.replace('hard', 'unknown'), block + '\nAfterward.', block + '\n' + block];
+    for (const body of bodies) {
+        await begin(); await host.intercept('normal');
+        host.lock();
+        const nativeLocks = host.locks;
+        host.source.chat.push(message(body)); await received();
+        assert.equal(host.locks, nativeLocks, body);
+        host.unlock(); await setImmediate();
+        assert.equal(host.stopVisible, false, body);
+        assert.equal(host.busy, false, body);
+        assert.equal(host.writes, 0, body);
+        assert.equal(host.requests.length, 0, body);
+    }
+    host.source.chat.push(message(call));
+    await begin('continue'); await host.intercept('continue');
+    host.source.chat.at(-1).mes += '\nNormal continuation.';
+    await received();
+    assert.equal(adapter.view(), null, 'an old request is not a newly generated check');
+    assert.equal(host.busy, false);
+    assert.equal(host.writes, 0);
+});
+
+test('valid checks stay visibly busy from native finalization through saving, reveal and continuation', async t => {
+    const saving = Promise.withResolvers();
+    const revealing = Promise.withResolvers();
+    const continuing = Promise.withResolvers();
+    const adapter = setup(t, false, () => revealing.promise);
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    await begin(); await host.intercept('normal');
+    host.lock(); host.source.chat.push(message(call));
+    host.save = () => saving.promise;
+    const reply = host.reply;
+    host.reply = async () => { await continuing.promise; await reply(); };
+    await received(); await received();
+    assert.equal(adapter.view().phase.kind, 'settling');
+    assert.equal(host.writes, 0, 'native finalization must release the message first');
+    host.unlock(); await setImmediate();
+    assert.equal(host.busy, true);
+    assert.equal(host.stopVisible, true);
+    assert.equal(host.dataGenerating, true, 'native cleanup must not erase the processing indicator');
+    t.mock.timers.tick(40); await setImmediate();
+    assert.equal(adapter.view().phase.kind, 'saving');
+    assert.equal(host.writes, 1);
+    assert.equal(host.busy, true);
+    assert.equal(host.requests.length, 0);
+    saving.resolve({ status: 'confirmed' }); await setImmediate();
+    assert.equal(adapter.view().phase.kind, 'revealing');
+    assert.equal(host.stopVisible, true);
+    revealing.resolve(); await setImmediate();
+    assert.equal(adapter.view().phase.kind, 'continuing');
+    assert.equal(host.requests.length, 1);
+    assert.equal(host.stopVisible, true);
+    continuing.resolve(); await settled(adapter);
+    assert.equal(host.busy, false);
+    assert.equal(host.stopVisible, false);
+    assert.equal(host.dataGenerating, false);
+    assert.equal(host.writes, 1, 'duplicate completion events cannot roll twice');
+});
+
+for (const replacement of [false, true]) {
+    test(`${replacement ? 'a replacement generation' : 'Stop'} cancels delayed saving without late continuation or control theft`, async t => {
+        const saving = Promise.withResolvers();
+        const adapter = setup(t);
+        await adapter.stop();
+        const otherListener = Promise.withResolvers();
+        const event = replacement ? 'GENERATION_STARTED' : 'GENERATION_STOPPED';
+        let blocked = false;
+        t.after(host.listen(event, () => blocked ? otherListener.promise : undefined));
+        adapter.start();
+        await begin(); await host.intercept('normal');
+        host.save = () => saving.promise;
+        host.source.chat.push(message(call)); await received(); await setImmediate();
+        assert.equal(adapter.view().phase.kind, 'saving');
+        assert.equal(host.stopVisible, true);
+        blocked = true;
+        let starting;
+        if (replacement) {
+            host.lock(); starting = begin();
+        } else { host.stop(); }
+        await setImmediate();
+        assert.equal(adapter.view(), null, 'cancellation must precede unrelated slow native listeners');
+        assert.equal(host.busy, replacement);
+        assert.equal(host.stopVisible, replacement);
+        saving.resolve({ status: 'confirmed' }); await adapter.settled(); await setImmediate();
+        assert.equal(host.requests.length, 0);
+        assert.equal(host.busy, replacement);
+        assert.equal(host.stopVisible, replacement);
+        assert.equal(host.prompts.get('xiaobai_os_dice'), '');
+        otherListener.resolve(); await starting;
+    });
+}
+
+for (const mode of ['request', 'stream', 'already-stopped']) {
+    const streaming = mode === 'stream';
+    test(`replacement generation cancels the old ${mode} and waits for its native cleanup`, async t => {
+        const adapter = setup(t);
+        const cleanup = Promise.withResolvers();
+        const replacementReply = Promise.withResolvers();
+        t.after(() => { cleanup.resolve(); replacementReply.resolve(); });
+        const streamController = new AbortController();
+        const normalReply = host.reply;
+        host.reply = async signal => {
+            if (host.requests.length === 1) {
+                if (streaming) host.stream = { isStopped: false,
+                    onStopStreaming() { streamController.abort(); this.isStopped = true; } };
+                await cleanup.promise;
+                host.stream = null;
+                (streaming ? streamController.signal : signal).throwIfAborted();
+                await normalReply();
+            } else { await replacementReply.promise; await normalReply(); }
+        };
+        await begin(); await host.intercept('normal');
+        const target = message(call); host.source.chat.push(target);
+        await received(); await setImmediate();
+        assert.equal(host.requests.length, 1);
+        const oldSignal = host.requests[0].signal;
+        if (mode === 'already-stopped') { host.stop(); await setImmediate(); }
+        // Native callers may install their controller before emitting GENERATION_STARTED.
+        const nextController = new AbortController(); host.controller = nextController;
+        const replacement = host.generate('normal', { signal: nextController.signal, depth: 1 });
+        await setImmediate();
+        assert.equal(oldSignal.aborted, true);
+        if (streaming) assert.equal(streamController.signal.aborted, true);
+        assert.equal(nextController.signal.aborted, false, 'cancellation must not stop the incoming request');
+        assert.equal(host.requests.length, 1, 'the old native finalizer must finish before dispatching a new request');
+        assert.equal(host.busy, true);
+        assert.equal(host.stopVisible, true, 'waiting for the old native call remains stoppable');
+        cleanup.resolve(); await setImmediate();
+        assert.equal(host.requests.length, 2);
+        assert.equal(host.busy, true);
+        assert.equal(host.stopVisible, true);
+        assert.equal(target.mes, 'Attempt.\n\n[dice:generated-0]', 'the aborted request cannot append late text');
+        replacementReply.resolve(); await replacement;
+        assert.equal(adapter.view(), null);
+        assert.equal(host.busy, false);
+        assert.equal(host.stopVisible, false);
+    });
+}
+
+test('Stop during replacement handoff prevents the incoming native call from dispatching', async t => {
+    const adapter = setup(t);
+    const cleanup = Promise.withResolvers();
+    t.after(() => cleanup.resolve());
+    host.reply = async signal => { await cleanup.promise; signal.throwIfAborted(); };
+    await begin(); await host.intercept('normal');
+    host.source.chat.push(message(call)); await received(); await setImmediate();
+    const replacement = host.generate('normal', { depth: 1 });
+    await setImmediate();
+    assert.equal(host.requests.length, 1);
+    assert.equal(host.stopVisible, true);
+    host.stop(); await setImmediate();
+    assert.equal(host.busy, false);
+    assert.equal(host.stopVisible, false);
+    cleanup.resolve(); await replacement;
+    assert.equal(host.requests.length, 1);
+    assert.equal(host.busy, false);
+    assert.equal(host.stopVisible, false);
+    assert.equal(adapter.view(), null);
+});
+
+test('same-roll retry after Stop waits for the cancelled native continuation to finish', async t => {
+    const adapter = setup(t);
+    const cleanup = Promise.withResolvers();
+    t.after(() => cleanup.resolve());
+    const normalReply = host.reply;
+    host.reply = async signal => {
+        if (host.requests.length === 1) { await cleanup.promise; signal.throwIfAborted(); }
+        else await normalReply();
+    };
+    await begin(); await host.intercept('normal');
+    const target = message(call); host.source.chat.push(target);
+    await received(); await setImmediate();
+    const saved = structuredClone(target.extra.xiaobaiOsDice);
+    host.stop(); await setImmediate();
+    const retry = adapter.retry(1); await setImmediate();
+    assert.equal(host.requests.length, 1);
+    cleanup.resolve(); await retry;
+    assert.equal(host.requests.length, 2);
+    assert.equal(host.writes, 1);
+    assert.deepEqual(target.extra.xiaobaiOsDice, saved);
+    assert.equal(adapter.view(), null);
+    assert.equal(host.busy, false);
+});
+
+test('native auto-swipe can re-enter Generate from the completed continuation without waiting on itself', { timeout: 2000 }, async t => {
+    const adapter = setup(t);
+    const completed = Promise.withResolvers();
+    const normalReply = host.reply;
+    host.reply = async () => {
+        await normalReply();
+        const target = host.source.chat.at(-1);
+        target.swipe_id = 1; target.mes = '';
+        await host.emit('MESSAGE_SWIPED', host.source.chat.length - 1);
+        host.reply = normalReply;
+        await host.generate('swipe');
+        completed.resolve();
+    };
+    await begin(); await host.intercept('normal');
+    host.source.chat.push(message(call)); await received();
+    await completed.promise; await setImmediate();
+    assert.equal(host.requests.length, 2);
+    assert.equal(host.writes, 1);
+    assert.equal(host.source.chat.at(-1).extra.xiaobaiOsDice, undefined);
+    assert.equal(adapter.view(), null);
+    assert.equal(host.busy, false);
+    assert.equal(host.stopVisible, false);
+});
+
+for (const failure of ['save', 'continue']) {
+    test(`Stop cancels a ${failure} retry waiting for native saving without another save or continuation`, async t => {
+        const adapter = setup(t);
+        t.mock.timers.enable({ apis: ['setTimeout'] });
+        await begin(); await host.intercept('normal');
+        host.source.chat.push(message(call));
+        if (failure === 'save') host.save = async () => ({ status: 'failed', error: 'not saved' });
+        else host.reply = async () => { throw new Error('provider unavailable'); };
+        await received(); await settled(adapter);
+        assert.equal(adapter.view().phase.kind, `${failure}-error`);
+        const writes = host.writes, requests = host.requests.length;
+        host.saving(true);
+        const retry = adapter.retry(1);
+        await setImmediate();
+        assert.equal(host.busy, true);
+        assert.equal(host.stopVisible, true);
+        host.stop(); await setImmediate();
+        assert.equal(adapter.view(), null);
+        assert.equal(host.busy, false);
+        assert.equal(host.stopVisible, false);
+        host.saving(false); t.mock.timers.tick(40); await retry;
+        assert.equal(host.writes, writes);
+        assert.equal(host.requests.length, requests);
+    });
+}
+
+test('successive checks in one reply retain busy ownership across native continuation unlocks', async t => {
+    const adapter = setup(t);
+    await begin(); await host.intercept('normal');
+    host.source.chat.push(message(call));
+    const finalReply = host.reply;
+    host.reply = async () => {
+        host.source.chat.at(-1).mes += '\n\n' + call;
+        await host.emit('MESSAGE_RECEIVED', host.source.chat.length - 1, 'appendFinal');
+        host.reply = finalReply;
+    };
+    await received(); await settled(adapter);
+    assert.equal(host.writes, 2);
+    assert.equal(host.requests.length, 2);
+    assert.ok(host.requests.every(request => request.busy));
+    assert.equal(host.source.chat.at(-1).extra.xiaobaiOsDice.checks.length, 2);
+    assert.equal(host.stopVisible, false);
+    assert.equal(host.busy, false);
+});
 
 for (const mode of ['single', 'group-member', 'group-finished']) {
     test(`autonomous ${mode} continuation preserves an unsent draft and writes only the original AI floor`, async t => {

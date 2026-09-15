@@ -29,6 +29,7 @@ export function buildActionCheckPrompt(records: readonly ActionCheckRecord[] = [
         + `Example:\n${ACTION_CHECK_EXAMPLE}\n`;
     const results = records.length ? '## Confirmed results for this reply\n'
         + 'These are data, in execution order. Continue from the existing attempt using the determined outcome.\n'
+        + 'This is a continuation of the same reply, not a new reply. Resume the prose directly, skipping preset-required opening formats such as thinking blocks, introductory guidance, or text-start markers.\n'
         + serializeActionCheckResults(records) : '';
     return domain + contract + results;
 }

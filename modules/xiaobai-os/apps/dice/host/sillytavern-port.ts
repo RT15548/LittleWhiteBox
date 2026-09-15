@@ -9,7 +9,7 @@ import { isDiceTargetCurrent, type DiceChat, type DiceHostMessage, type DiceTarg
 export interface DiceHostContext {
     chat: DiceHostMessage[]; chatId: string; groupId?: string; characterId?: number;
     name2: string; characters: Record<string, { avatar: string; name: string }>;
-    streamingProcessor?: { isStopped: boolean } | null;
+    streamingProcessor?: { isStopped: boolean; onStopStreaming(): void } | null;
     generate(type: string, options?: Record<string, unknown>): Promise<unknown>;
 }
 export const diceHostContext = () => getContext() as unknown as DiceHostContext;
@@ -58,7 +58,8 @@ export async function readDiceChat(source: DiceChat): Promise<unknown[]> {
 
 export const diceSavePort = { capture: captureDiceChat, save: saveSillyTavernChat, read: readDiceChat };
 
-export async function waitForDiceHost(target: DiceTarget, signal: AbortSignal, inGroup: boolean): Promise<void> {
+export async function waitForDiceHost(target: DiceTarget, signal: AbortSignal, inGroup: boolean,
+    generationPending: () => boolean = isGenerating): Promise<void> {
     const deadline = Date.now() + 20_000;
     while (true) {
         if (signal.aborted || !isDiceTargetCurrent(captureDiceChat(), target)) { throw new Error('聊天或回复已变化。'); }
@@ -66,7 +67,7 @@ export async function waitForDiceHost(target: DiceTarget, signal: AbortSignal, i
         const stream = diceHostContext().streamingProcessor;
         // ST 1.18 retains a stopped processor after stream errors. A normally finished stream,
         // however, still owns finalization/saving until the host releases its processor.
-        if ((!stream || stream.isStopped) && !isChatSaving && (inGroup || !isGenerating())) { return; }
+        if ((!stream || stream.isStopped) && !isChatSaving && (inGroup || !generationPending())) { return; }
         if (Date.now() >= deadline) { throw new Error('酒馆仍在生成或保存，请结束后再试。'); }
         await new Promise<void>((resolve, reject) => {
             const cancel = () => { globalThis.clearTimeout(timer); reject(new Error('已停止')); };

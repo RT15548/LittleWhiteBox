@@ -1,4 +1,4 @@
-import { activateSendButtons, deactivateSendButtons, setCharacterId, setCharacterName, setExternalAbortController, setSendButtonState, stopGeneration, isGenerating } from '../../../../../../../../../script.js';
+import { activateSendButtons, deactivateSendButtons, setCharacterId, setCharacterName, setExternalAbortController, setSendButtonState, stopGeneration, isGenerating, is_send_press, eventSource } from '../../../../../../../../../script.js';
 import { generateGroupWrapper, is_group_generating } from '../../../../../../../../group-chats.js';
 import { uuidv4 } from '../../../../../../../../utils.js';
 import { createModuleEvents, event_types } from '../../../../../core/event-manager.js';
@@ -25,39 +25,48 @@ export function createDiceGenerationAdapter(enabled: () => boolean, changed: () 
     reveal: (target: DiceTarget, candidate: DiceCandidate, signal: AbortSignal) => Promise<void>) {
     const saver = createDiceMessageSave(diceSavePort);
     let observation: Observation | null = null;
-    let intention: { target: DiceTarget; candidate: DiceCandidate; signal: AbortSignal; error?: string } | null = null;
+    let intention: { target: DiceTarget; candidate: DiceCandidate; signal: AbortSignal;
+        settled: Promise<void>; received: boolean; error?: string } | null = null;
     let wrapperSignal: AbortSignal | undefined;
-    let revealing: AbortSignal | null = null;
+    let controls: { signal: AbortSignal; nativePending: boolean } | null = null;
+    let replacement: AbortController | null = null;
     let unsubscribe: (() => void) | null = null;
     const clearPrompt = () => setSillyTavernPrompt(KEY, '');
     const currentTarget = (target: DiceTarget) => isDiceTargetCurrent(captureDiceChat(), target) && !isDiceMessageBeingEdited(target.index);
     const session = createActionCheckSession({
         enabled, current: currentTarget,
         same: (left, right) => left.message === right.message && left.swipe === right.swipe,
-        ready: waitForDiceHost, save: saver.commit, changed,
+        ready: (target, signal, inGroup) => waitForDiceHost(target, signal, inGroup,
+            () => controls?.signal === signal ? controls.nativePending : isGenerating()),
+        save: saver.commit, changed,
+        busy(value, signal) { setPostprocessBusy(value, signal); },
         id: uuidv4,
-        async reveal(target, candidate, signal) {
-            revealing = signal;
-            setSendButtonState(true);
-            deactivateSendButtons();
-            try { await reveal(target, candidate, signal); }
-            finally {
-                if (revealing === signal) { releaseReveal(); }
-            }
-        },
+        reveal,
         async continue(target, candidate, signal) {
+            if (intention) { await intention.settled; }
             if (!currentTarget(target) || signal.aborted) { return null; }
+            const inGroup = is_group_generating;
             const callController = new AbortController();
-            const callSignal = is_group_generating ? wrapperSignal : callController.signal;
+            const callSignal = inGroup ? wrapperSignal : callController.signal;
             if (!callSignal) { throw new Error('本次群聊已结束，无法继续检定。'); }
-            const own: NonNullable<typeof intention> = { target, candidate, signal: callSignal };
-            if (!is_group_generating) { setExternalAbortController(callController); }
+            let settle!: () => void;
+            const settled = new Promise<void>(resolve => { settle = resolve; });
+            const own: NonNullable<typeof intention> = { target, candidate, signal: callSignal, settled, received: false };
+            if (!inGroup) { setExternalAbortController(callController); }
             intention = own;
-            // Internal follow-ups inherit a busy parent in ST. Dice resumes after that parent has finished.
-            setSendButtonState(true);
-            const cancel = () => { if (intention === own) { stopGeneration(); } };
-            signal.addEventListener('abort', cancel, { once: true });
             const previousStream = diceHostContext().streamingProcessor;
+            const cancel = () => {
+                if (intention !== own) { return; }
+                if (inGroup) { stopGeneration(); }
+                else {
+                    // A replacement caller may already have installed its external controller.
+                    // Cancel our request and stream, never whichever controller is now global.
+                    callController.abort();
+                    const stream = diceHostContext().streamingProcessor;
+                    if (stream && stream !== previousStream) { stream.onStopStreaming(); }
+                }
+            };
+            signal.addEventListener('abort', cancel, { once: true });
             try {
                 // ST 1.18's nonzero recursion depth skips slash commands and all composer reads/writes.
                 // 'continue' cannot call native tools, so this does not reduce a tool-call recursion budget.
@@ -73,6 +82,7 @@ export function createDiceGenerationAdapter(enabled: () => boolean, changed: () 
                         await diceHostContext().generate('continue', options);
                     }
                 } catch (error) {
+                    if (signal.aborted) { return null; }
                     if (own.error) { throw new Error(own.error); }
                     // Native generation owns API feedback. Keep same-roll recovery without repeating it.
                     console.error('[LittleWhiteBox] Dice host continuation failed', error);
@@ -88,23 +98,34 @@ export function createDiceGenerationAdapter(enabled: () => boolean, changed: () 
                 return captureDiceTarget(source, target.index, candidate.body.length);
             } finally {
                 signal.removeEventListener('abort', cancel);
-                if (intention === own) { intention = null; setSendButtonState(false); clearPrompt(); }
+                if (intention === own) { intention = null; clearPrompt(); }
+                settle();
                 changed();
             }
         },
     });
 
-    function releaseReveal(): void {
-        revealing = null; setSendButtonState(false);
-        // An active native group wrapper owns its own Stop/swipe controls.
+    function setPostprocessBusy(value: boolean, signal: AbortSignal): void {
+        if (value) {
+            if (signal.aborted || controls?.signal === signal) { return; }
+            controls = { signal, nativePending: is_send_press };
+            setSendButtonState(true);
+            deactivateSendButtons();
+            return;
+        }
+        if (controls?.signal !== signal) { return; }
+        controls = null;
+        setSendButtonState(false);
         if (!is_group_generating) { activateSendButtons(); }
     }
 
     function cancel(): void {
         observation = null;
+        if (replacement) {
+            replacement.abort();
+            setPostprocessBusy(false, replacement.signal);
+        }
         session.cancel();
-        if (revealing) { releaseReveal(); }
-        if (intention) { intention = null; setSendButtonState(false); }
         clearPrompt();
     }
 
@@ -135,13 +156,47 @@ export function createDiceGenerationAdapter(enabled: () => boolean, changed: () 
     function start(): void {
         if (unsubscribe) { return; }
         const events = createModuleEvents('xiaobaiOsDice');
-        events.on(event_types.GENERATION_STARTED, (type: unknown, options: { signal?: AbortSignal }, dryRun: unknown) => {
+        const started = async (type: unknown, options: { signal?: AbortSignal }, dryRun: unknown) => {
             if (dryRun || intention && type === 'continue' && options.signal === intention.signal
                 && currentTarget(intention.target)) { return; }
             // Keep an error at the preceding member while the aborted wrapper unwinds.
             if (is_group_generating && wrapperSignal?.aborted) { return; }
+            const previous = intention;
+            // ST auto-swipe awaits a nested Generate after MESSAGE_SWIPED changes the target.
+            // Waiting on that outer call here would make it wait on itself.
+            const nativeSwipe = previous?.received && type === 'swipe'
+                && captureDiceChat()?.chat === previous.target.source.chat
+                && (previous.target.message.swipe_id ?? 0) !== previous.target.swipe;
+            controls = null;
             cancel();
-        });
+            replacement = null;
+            if (nativeSwipe) { intention = null; return; }
+            // Do not let the old native Generate() finalize after the replacement has taken ownership.
+            // Its stop path is abortable, but the host still performs async save/UI cleanup afterward.
+            if (previous) {
+                const incoming = new AbortController();
+                replacement = incoming;
+                setPostprocessBusy(true, incoming.signal);
+                await previous.settled;
+                if (replacement === incoming && !incoming.signal.aborted) {
+                    // Hand the controls back to the incoming native call, not the cancelled Dice run.
+                    controls = null; replacement = null;
+                    setSendButtonState(true); deactivateSendButtons();
+                }
+            }
+        };
+        eventSource.makeFirst(event_types.GENERATION_STARTED, started);
+        const ended = () => {
+            const own = controls;
+            if (!own || own.signal.aborted) { return; }
+            own.nativePending = false;
+            queueMicrotask(() => {
+                if (controls !== own || own.signal.aborted) { return; }
+                setSendButtonState(true);
+                deactivateSendButtons();
+            });
+        };
+        eventSource.makeFirst(event_types.GENERATION_ENDED, ended);
         events.on(event_types.GENERATION_AFTER_COMMANDS, (value: unknown, options: { signal?: AbortSignal }, dryRun: unknown) => {
             if (dryRun) { return; }
             const type = String(value || '');
@@ -157,6 +212,7 @@ export function createDiceGenerationAdapter(enabled: () => boolean, changed: () 
                 previousStream: diceHostContext().streamingProcessor };
         });
         registerGenerateInterceptor(KEY, async (_chat: unknown, _size: unknown, abort: (immediate: boolean) => void, type: string) => {
+            if (replacement?.signal.aborted) { replacement = null; clearPrompt(); abort(true); return; }
             if (is_group_generating && wrapperSignal?.aborted) { abort(true); return; }
             const own = intention;
             const observed = observation;
@@ -193,7 +249,8 @@ export function createDiceGenerationAdapter(enabled: () => boolean, changed: () 
             }
         }, GENERATE_INTERCEPTOR_ORDER.XIAOBAI_OS_DICE);
         events.on(event_types.GENERATE_AFTER_DATA, (_data: unknown, dryRun: unknown) => { if (!dryRun) { clearPrompt(); } });
-        events.on(event_types.MESSAGE_RECEIVED, (index: number, type: string) => {
+        const received = (index: number, type: string) => {
+            if (intention && index === intention.target.index) { intention.received = true; }
             if (intention || observation?.stage !== 'receiving' || !MAIN_TYPES.includes(type) && type !== 'appendFinal') { return; }
             const observed = observation;
             observation = null;
@@ -207,15 +264,17 @@ export function createDiceGenerationAdapter(enabled: () => boolean, changed: () 
             if (!target || !target.body.startsWith(observed.initialBody)) { return; }
             session.accept(target, observed.error);
             if (!source.groupId) { void session.drain().catch(error => console.error('[LittleWhiteBox] Dice check failed', error)); }
-        });
+        };
+        eventSource.makeFirst(event_types.MESSAGE_RECEIVED, received);
         events.on(event_types.GROUP_MEMBER_DRAFTED, groupBoundary);
         events.on(event_types.GROUP_WRAPPER_FINISHED, async () => { await groupBoundary(); wrapperSignal = undefined; });
-        events.on(event_types.GENERATION_STOPPED, () => {
+        const stopped = () => {
             const phase = session.view()?.phase.kind;
             // Internal wrapper stop must not discard the same-roll recovery candidate.
-            if (phase !== 'save-error' && phase !== 'continue-error' && phase !== 'invalid') { cancel(); }
+            if (controls || (phase !== 'save-error' && phase !== 'continue-error' && phase !== 'invalid')) { cancel(); }
             clearPrompt();
-        });
+        };
+        eventSource.makeFirst(event_types.GENERATION_STOPPED, stopped);
         events.on(event_types.MESSAGE_DELETED, () => {
             // ST removes the old reply once between AFTER_COMMANDS and the interceptors on regenerate.
             // Consume that preparation step only; a deletion during reception still cancels the request.
@@ -228,7 +287,13 @@ export function createDiceGenerationAdapter(enabled: () => boolean, changed: () 
         for (const name of [event_types.CHAT_CHANGED, event_types.MESSAGE_SWIPED, event_types.MESSAGE_EDITED]) {
             events.on(name, cancel);
         }
-        unsubscribe = () => { events.cleanup(); unregisterGenerateInterceptor(KEY); };
+        unsubscribe = () => {
+            eventSource.removeListener(event_types.MESSAGE_RECEIVED, received);
+            eventSource.removeListener(event_types.GENERATION_ENDED, ended);
+            eventSource.removeListener(event_types.GENERATION_STARTED, started);
+            eventSource.removeListener(event_types.GENERATION_STOPPED, stopped);
+            events.cleanup(); unregisterGenerateInterceptor(KEY);
+        };
     }
 
     async function stop(): Promise<void> {

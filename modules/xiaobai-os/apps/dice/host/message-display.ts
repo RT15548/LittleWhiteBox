@@ -56,6 +56,8 @@ export function createDiceMessageDisplay(runtime: Runtime, enabled: () => boolea
         try {
             const source = captureDiceChat();
             const active = runtime.view();
+            const chat = document.getElementById('chat');
+            const following = active && chat && chat.scrollHeight - chat.clientHeight - chat.scrollTop <= 24;
             for (const root of document.querySelectorAll<HTMLElement>('#chat .mes')) {
                 const index = Number(root.getAttribute('mesid'));
                 const message = source?.chat[index];
@@ -101,7 +103,10 @@ export function createDiceMessageDisplay(runtime: Runtime, enabled: () => boolea
                             const node = view.element;
                             placements.set(record.id, node);
                             const failedContinuation = phase?.kind === 'continue-error' && phase.candidate.records.checks.at(-1)?.id === record.id;
-                            const error = failedContinuation ? phase.error : '';
+                            const waitingForText = phase?.kind === 'continuing'
+                                && phase.candidate.records.checks.at(-1)?.id === record.id
+                                && message.mes === phase.candidate.body;
+                            const error = failedContinuation ? phase.error : waitingForText ? '正在续写…' : '';
                             let retry = '';
                             if (enabled() && (failedContinuation || source?.chat.at(-1) === message && record === records.checks.at(-1)
                                 && isCheckContinuationPoint(message.mes, record) && !active)) {
@@ -116,7 +121,7 @@ export function createDiceMessageDisplay(runtime: Runtime, enabled: () => boolea
                     }
                 }
                 let mounted = mountCheckCards(content, placements);
-                if (mounted.size < placements.size && (!isGenerating() || phase?.kind === 'revealing')) {
+                if (mounted.size < placements.size && (!isGenerating() || phase?.kind === 'saving' || phase?.kind === 'revealing')) {
                     const sourceSignature = JSON.stringify([message.mes, projection, message.swipe_id ?? 0]);
                     if (failedSync.get(content) !== sourceSignature) {
                         // The display regex hid the former request, or native translation still projects it.
@@ -130,6 +135,16 @@ export function createDiceMessageDisplay(runtime: Runtime, enabled: () => boolea
                 for (const node of mounted) { wanted.add(node); }
                 for (const id of cached.entries.keys()) { if (!kept.has(id)) { cached.entries.delete(id); } }
                 if (phase && !errorPlaced) {
+                    if (phase.kind === 'waiting' || phase.kind === 'settling' || phase.kind === 'saving') {
+                        const pending = content.querySelector<HTMLElement>('.xb-dice-pending')
+                            ?? span('xb-dice-card xb-dice-pending');
+                        pending.setAttribute('role', 'status');
+                        pending.setAttribute('aria-live', 'polite');
+                        const label = phase.kind === 'saving' ? '正在保存骰点…' : '正在准备检定…';
+                        if (pending.textContent !== label) { pending.textContent = label; }
+                        wanted.add(pending);
+                        if (!pending.isConnected) { content.append(pending); }
+                    }
                     if ('error' in phase && phase.error) {
                         const notice = span('xb-dice-card xb-dice-notice', '');
                         notice.setAttribute('role', 'status');
@@ -142,6 +157,7 @@ export function createDiceMessageDisplay(runtime: Runtime, enabled: () => boolea
                 }
                 content.querySelectorAll<HTMLElement>(OWN).forEach(node => { if (!wanted.has(node)) { node.remove(); } });
             }
+            if (following) { chat.scrollTop = chat.scrollHeight; }
         } finally { observe(); }
     }
     function observe(): void {

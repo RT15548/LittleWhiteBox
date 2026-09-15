@@ -1,5 +1,6 @@
 import { prepareActionCheck } from './prepare-action-check.js';
 import { hasValidCheckAnchor, isCheckContinuationPoint, parseDiceRecords, type DiceMessageRecords } from '../domain/check-records.js';
+import { parseActionCheck } from '../protocol/request.js';
 
 export interface ActionCheckTarget { body: string; records: unknown; generatedFrom: number }
 export interface DiceCandidate { body: string; records: DiceMessageRecords }
@@ -19,6 +20,7 @@ export interface DiceSessionPort<T extends ActionCheckTarget> {
     reveal(target: T, candidate: DiceCandidate, signal: AbortSignal): Promise<void>;
     /** Null means the host did not complete the continuation; its own UI owns provider errors. */
     continue(target: T, candidate: DiceCandidate, signal: AbortSignal): Promise<T | null>;
+    busy?(busy: boolean, signal: AbortSignal): void;
     changed(): void;
     random?: () => number;
     id(): string;
@@ -36,25 +38,39 @@ export function createActionCheckSession<T extends ActionCheckTarget>(port: Dice
     const publish = () => port.changed();
 
     function cancel(): void {
-        run?.controller.abort();
+        const previous = run;
         run = null;
+        previous?.controller.abort();
+        if (previous) { port.busy?.(false, previous.controller.signal); }
         publish();
+    }
+
+    function pendingPhase(target: T, preparationError = ''): Phase | null {
+        const parsed = parseActionCheck(target.body, target.generatedFrom);
+        if (parsed.kind === 'none') { return null; }
+        if (preparationError) { return { kind: 'invalid', error: preparationError }; }
+        return parsed.kind === 'request' ? { kind: 'waiting' }
+            : { kind: 'invalid', error: '这次检定信息不完整，未掷骰。' };
     }
 
     function accept(target: T, preparationError = ''): void {
         cancel();
-        if (!port.enabled()) { return; }
-        run = { controller: new AbortController(), target,
-            phase: preparationError ? { kind: 'invalid', error: preparationError } : { kind: 'waiting' } };
+        if (!port.enabled() || !port.current(target)) { return; }
+        const phase = pendingPhase(target, preparationError);
+        if (!phase) { return; }
+        run = { controller: new AbortController(), target, phase };
+        if (phase.kind === 'waiting') { port.busy?.(true, run.controller.signal); }
         publish();
     }
 
     async function execute(current: Run<T>, inGroup: boolean, retry = false): Promise<void> {
         let recovery = retry;
         try {
+            port.busy?.(true, current.controller.signal);
             while (owns(current)) {
                 await port.ready(current.target, current.controller.signal, inGroup);
-                if (!owns(current) || !port.current(current.target)) { return; }
+                if (!owns(current)) { return; }
+                if (!port.current(current.target)) { cancel(); return; }
                 const phase = current.phase;
                 let candidate: DiceCandidate;
                 if (phase.kind === 'save-error' || phase.kind === 'continue-error') { candidate = phase.candidate; }
@@ -100,7 +116,10 @@ export function createActionCheckSession<T extends ActionCheckTarget>(port: Dice
                     return;
                 }
                 current.target = next;
-                current.phase = { kind: 'waiting' };
+                const nextPhase = pendingPhase(next);
+                if (!nextPhase) { run = null; return; }
+                current.phase = nextPhase;
+                if (nextPhase.kind === 'invalid') { return; }
                 recovery = false;
             }
         } catch (error) {
@@ -116,7 +135,10 @@ export function createActionCheckSession<T extends ActionCheckTarget>(port: Dice
                 // A failed readiness wait does not invalidate the retained roll or its retry route.
                 current.phase = { ...phase, error: '暂时无法继续检定，请稍后重试。' };
             } else { current.phase = { kind: 'invalid', error: '本次未完成行动检定。' }; }
-        } finally { publish(); }
+        } finally {
+            port.busy?.(false, current.controller.signal);
+            publish();
+        }
     }
 
     function drain(inGroup = false): Promise<void> {
