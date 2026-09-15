@@ -137,6 +137,9 @@ test('action-check prompt states genuine uncertainty, stakes, and natural no-che
     assert.match(prompt, /overwhelming advantage, position, or common sense/);
     assert.match(prompt, /without stakes, risk, or resistance/);
     assert.match(prompt, /consensual intimacy/);
+    assert.match(prompt, /objective task for an average person/);
+    assert.match(prompt, /hard \(DC 15\) is demanding/);
+    assert.match(prompt, /adds no numeric modifier/);
 });
 
 test('continuation prompt resumes directly without preset opening material', () => {

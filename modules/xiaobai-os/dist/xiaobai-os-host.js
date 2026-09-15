@@ -3226,6 +3226,7 @@ function zb(e = []) {
   const t = `# Action checks
 When an attempt could genuinely go either way and its outcome changes what happens next, resolve it with one local D20 roll. Examples include climbing, sneaking, confrontation, deception, persuasion, gambling, chases, spellcasting, spotting lies, and risky improvisation.
 An outcome settled by overwhelming advantage, position, or common sense needs no check. Interactions without stakes, risk, or resistance—such as consensual intimacy, casual conversation, or falling asleep together—follow the scene naturally.
+Choose difficulty from the objective task for an average person, not from the acting character’s strength: easy (DC 5) is a limited but consequential challenge, ordinary (DC 10) is a typical uncertain challenge, hard (DC 15) is demanding, very_hard (DC 20) is exceptional, and nearly_impossible (DC 21) is beyond normal capability. The stat field names the relevant ability and adds no numeric modifier.
 The app rolls 1–20 without attribute modifiers: 1 is critical failure, 20 is critical success; other rolls succeed at or above the target DC.
 `, n = e.length >= 8 ? `This reply has used all its action checks. Continue the scene using the confirmed results.
 ` : `## Requesting a check
