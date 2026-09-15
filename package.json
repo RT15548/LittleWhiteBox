@@ -26,6 +26,7 @@
         "test:story-summary:chat-toggle": "node --test modules/story-summary/tests/chat-toggle.test.js",
         "test:story-summary:undo": "node --test modules/story-summary/tests/summary-undo.test.js",
         "test:story-summary:replay-shim": "node --test modules/story-summary/tests/replay-openai-shim.test.js",
+        "test:story-summary:tokenizer": "node --test modules/story-summary/tests/tokenizer.test.js",
         "test:story-summary:cancel": "node scripts/story-summary-replay-runner.mjs --check-cancel",
         "test:story-summary:bundle": "node scripts/story-summary-replay-runner.mjs --build-only",
         "test:story-summary:replay": "node scripts/story-summary-replay-runner.mjs",

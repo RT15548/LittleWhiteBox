@@ -241,8 +241,22 @@ function detectAsianLanguage(text) {
 const PLACEHOLDER_PREFIX = '\uE000\uE010';
 const PLACEHOLDER_SUFFIX = '\uE001';
 
+// 完整占位符匹配。由上面两个常量派生，避免格式定义出现第二份；
+// 与 String.prototype.replace + /g 配合使用，不依赖正则的 lastIndex 状态。
+const PLACEHOLDER_PATTERN = new RegExp(`${PLACEHOLDER_PREFIX}\\d+${PLACEHOLDER_SUFFIX}`, 'g');
+
 /**
  * 在文本中执行实体最长匹配，替换为占位符
+ *
+ * 实现方式（两遍法）：
+ * 1. 第一遍在**不可变原文**上收集全部匹配区间 —— 读坐标与写坐标天然一致；
+ * 2. 重叠的候选按「最长匹配优先」让位（entityList 已按长度降序排列）；
+ * 3. 第二遍**从后往前**替换 —— 前面的下标不受后续改动影响。
+ *
+ * 之所以不能用「边搜索边改写同一个字符串」：indexOf 取自旧快照、slice/splice
+ * 作用在新串，占位符长度 ≠ 实体长度会让坐标逐次漂移，同一实体的第 2 次及以后
+ * 会出现替换到错误位置（切出垃圾串）；用前后 ±4 字符的邻域判定「是否已被占位符
+ * 覆盖」也会误跳过紧邻占位符的合法实体。
  *
  * @param {string} text - 原始文本
  * @returns {{masked: string, entities: Map<string, string>}} masked 文本 + 占位符→原文映射
@@ -254,39 +268,39 @@ function maskEntities(text) {
         return { masked: text, entities };
     }
 
-    let masked = text;
-    let idx = 0;
+    const ranges = [];
+    const lowerText = text.toLowerCase();
 
-    // entityList 已按长度降序排列，保证最长匹配优先
+    // 1. 在原文上收集匹配区间（原文不变，坐标恒定）
     for (const entity of entityList) {
         // 大小写不敏感搜索
-        const lowerMasked = masked.toLowerCase();
         const lowerEntity = entity.toLowerCase();
         let searchFrom = 0;
 
         while (true) {
-            const pos = lowerMasked.indexOf(lowerEntity, searchFrom);
+            const pos = lowerText.indexOf(lowerEntity, searchFrom);
             if (pos === -1) break;
 
-            // 已被占位符覆盖则跳过（检查前后是否存在 PUA 边界字符）
-            const aroundStart = Math.max(0, pos - 4);
-            const aroundEnd = Math.min(masked.length, pos + entity.length + 4);
-            const around = masked.slice(aroundStart, aroundEnd);
-            if (around.includes('\uE000') || around.includes('\uE001')) {
-                searchFrom = pos + 1;
-                continue;
-            }
+            const end = pos + entity.length;
+            // 与已占用区间重叠则让位（entityList 长度降序 = 最长匹配优先）
+            const taken = ranges.some(range => pos < range.end && end > range.start);
+            if (!taken) ranges.push({ start: pos, end, entity });
 
-            const placeholder = `${PLACEHOLDER_PREFIX}${idx}${PLACEHOLDER_SUFFIX}`;
-            const originalText = masked.slice(pos, pos + entity.length);
-            entities.set(placeholder, originalText);
-
-            masked = masked.slice(0, pos) + placeholder + masked.slice(pos + entity.length);
-            idx++;
-
-            // 更新搜索位置（跳过占位符）
-            searchFrom = pos + placeholder.length;
+            searchFrom = pos + 1;
         }
+    }
+
+    // 2. 从后往前替换，避免坐标漂移
+    ranges.sort((a, b) => b.start - a.start);
+
+    let masked = text;
+    let idx = 0;
+
+    for (const range of ranges) {
+        const placeholder = `${PLACEHOLDER_PREFIX}${idx}${PLACEHOLDER_SUFFIX}`;
+        entities.set(placeholder, text.slice(range.start, range.end));
+        masked = masked.slice(0, range.start) + placeholder + masked.slice(range.end);
+        idx++;
     }
 
     return { masked, entities };
@@ -673,8 +687,18 @@ function tokenizeCore(text) {
     // 1. 实体保护
     const { masked, entities } = maskEntities(input);
 
+    // 1.5 预先抽出完整占位符。
+    // 占位符里的 ASCII 序号会被 segmentByScript 判成 latin 段（两侧 PUA 是 other 段），
+    // 而下面只消费 asian/latin 段，碎片因此永远进不了 unmaskTokens —— 实体词被静默丢弃。
+    // 先整体抽出、用空格占位，随后作为独立 token 加回，交 unmaskTokens 还原成实体原词。
+    const keptPlaceholders = [];
+    const maskedForSeg = masked.replace(PLACEHOLDER_PATTERN, (placeholder) => {
+        keptPlaceholders.push(placeholder);
+        return ' ';
+    });
+
     // 2. 分段
-    const segments = segmentByScript(masked);
+    const segments = segmentByScript(maskedForSeg);
 
     // 3. 分段分词
     const rawTokens = [];
@@ -692,6 +716,9 @@ function tokenizeCore(text) {
             rawTokens.push(...tokenizeLatin(seg.text));
         }
     }
+
+    // 3.5 加回预先抽出的占位符（无实体时为空数组，行为与改动前一致）
+    rawTokens.push(...keptPlaceholders);
 
     // 4. 还原占位符
     return unmaskTokens(rawTokens, entities);
