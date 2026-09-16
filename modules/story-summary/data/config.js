@@ -2,6 +2,7 @@ import { extension_settings } from "../../../../../../extensions.js";
 import { EXT_ID } from "../../../core/constants.js";
 import { xbLog } from "../../../core/debug-core.js";
 import { CommonSettingStorage } from "../../../core/server-storage.js";
+import { CHARACTER_ALIAS_OUTPUT_TEMPLATE } from './character-aliases.js';
 import { EVENT_MEMORY_ROLES } from "./events.js";
 import { DEFAULT_SUMMARY_DELAY_FLOORS, normalizeSummaryDelayFloors } from './summary-delay.js';
 
@@ -213,10 +214,11 @@ Before generating, observe the USER and analyze carefully:
 - 只输出有变化的条目，确保少、硬、稳定
 
 ## characterAliasUpdates 规则（可选）
-- 目的: 处理同一角色先用称号/外号/代号，后续揭示真名或统一主名的情况
-- 只有当前新内容出现明确身份桥时才输出；没有证据就省略整个 characterAliasUpdates 字段，不要猜
-- to: 统一主名；from: 旧称呼数组；evidence: 当前批次里的短证据，必须能说明“from 其实是 to”
-- 例: {"to":"李玄清","from":["道长"],"evidence":"#37 道长报出本名李玄清"}
+- 目的: 维护同一角色的不同写法，让称号、昵称、缩写、不同语言或译名都能指向同一人
+- 当前对话与既有总结能确认两种名称是同一角色时输出。明确揭示身份、稳定称号或昵称、唯一缩写、不同语言/译名/书写形式都可以作为依据
+- 称号、昵称、缩写必须在当前剧情和既有资料中只指向这一位角色。亲昵称呼、亲属称呼、泛称、普通职位、代词、仅因读音/字形相近的名称不构成同一人依据
+- to: 已有总结中稳定使用的主名；from: 其他写法数组；evidence: 简短说明确认依据
+- 例: {"to":"五条悟","from":["悟","Gojo Satoru"],"evidence":"当前中文称呼“悟”与既有日文名五条悟均指同一角色"}
 - 不要列出要修改哪些事件/事实/弧光，系统会自动合并
 
 ## Output Format
@@ -249,7 +251,7 @@ Before generating, observe the USER and analyze carefully:
     {"s": "要删除的主体", "p": "要删除的谓词", "retracted": true}
   ],
   "characterAliasUpdates": [
-    {"to": "统一主名，仅明确揭示身份时输出", "from": ["旧称呼/外号/代号/职称"], "evidence": "当前批次里的短证据"}
+    {"to": "${CHARACTER_ALIAS_OUTPUT_TEMPLATE.to}", "from": ["${CHARACTER_ALIAS_OUTPUT_TEMPLATE.from}"], "evidence": "${CHARACTER_ALIAS_OUTPUT_TEMPLATE.evidence}"}
   ]
 }
 \`\`\`
@@ -259,7 +261,7 @@ Before generating, observe the USER and analyze carefully:
 - summary 按 doc 中的“Event Summary Style”执行，不要写成泛化概括
 - keywords 是全局关键词，综合已有+新增
 - factUpdates 可为空数组
-- characterAliasUpdates 是可选字段；没有明确身份揭示时不要输出这个 key
+- characterAliasUpdates 是可选字段；没有可靠的同一人依据时不要输出这个 key
 - 合法JSON，字符串值内部避免英文双引号
 - 用朴实、白描、有烟火气的笔触记录事实，避免比喻和意象
 - 严谨、注重细节，避免使用模糊的概括性语言，应用具体的动词描述动作，例:谁,在什么时间/地点,通过什么方式,对谁,做了什么事,出现了什么道具,结果如何。

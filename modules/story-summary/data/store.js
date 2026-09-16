@@ -7,10 +7,8 @@ import { EXT_ID } from "../../../core/constants.js";
 import { xbLog } from "../../../core/debug-core.js";
 import { clearEventVectors, deleteEventVectorsByIds } from "../vector/storage/chunk-store.js";
 import {
-    applyAliasMigrationsForRollback,
     applyCharacterAliasUpdates,
     canonicalizeIncrementalSummaryData,
-    normalizeAliasMigrations,
     normalizeCharacterAliases,
 } from "./character-aliases.js";
 import {
@@ -111,16 +109,6 @@ function normalizeSummaryHistory(history) {
     }
 
     return { value: changed ? next : history, changed };
-}
-
-function normalizeInternalAliasMigrations(migrations) {
-    const normalized = normalizeAliasMigrations(migrations);
-    if (!Array.isArray(migrations)) {
-        return { value: normalized, changed: migrations != null };
-    }
-
-    const changed = JSON.stringify(normalized) !== JSON.stringify(migrations);
-    return { value: changed ? normalized : migrations, changed };
 }
 
 function normalizeSummaryJson(json) {
@@ -321,13 +309,11 @@ function normalizeSummaryStore(store) {
         changed = true;
     }
 
-    const aliasMigrations = normalizeInternalAliasMigrations(store.aliasMigrations);
-    if (aliasMigrations.changed) {
-        if (aliasMigrations.value.length) {
-            store.aliasMigrations = aliasMigrations.value;
-        } else {
-            delete store.aliasMigrations;
-        }
+    // Alias mappings are identity vocabulary, not summary-history state.
+    // Old versions persisted rollback-only migration snapshots; they no
+    // longer describe any live behavior and are discarded at the upgrade edge.
+    if (Object.hasOwn(store, 'aliasMigrations')) {
+        delete store.aliasMigrations;
         changed = true;
     }
 
@@ -779,7 +765,6 @@ export async function executeRollback(chatId, store, targetEndMesId) {
     const oldEvents = store.json?.events || [];
 
     let json = store.json || {};
-    const migrations = Array.isArray(store.aliasMigrations) ? store.aliasMigrations : [];
     const exactRollback = applyExactSummaryHistoryUndo(
         json,
         store.summaryHistory,
@@ -792,12 +777,9 @@ export async function executeRollback(chatId, store, targetEndMesId) {
     }
     json = exactRollback.json;
     if (exactRollback.crossedLegacyHistory) {
-        json = applyAliasMigrationsForRollback(json, migrations, targetEndMesId);
-
         // 升级前的历史没有逆操作，只能保持旧版 best-effort 回滚语义。
         json.events = (json.events || []).filter(e => (e._addedAt ?? 0) <= targetEndMesId);
         json.keywords = (json.keywords || []).filter(k => (k._addedAt ?? 0) <= targetEndMesId);
-        json.characterAliases = (json.characterAliases || []).filter(a => (a._addedAt ?? 0) <= targetEndMesId);
         json.arcs = (json.arcs || []).filter(a => (a._addedAt ?? 0) <= targetEndMesId);
         json.arcs.forEach(a => {
             a.moments = (a.moments || []).filter(m =>
@@ -811,7 +793,12 @@ export async function executeRollback(chatId, store, targetEndMesId) {
             );
         }
         json.facts = (json.facts || []).filter(f => (f._addedAt ?? 0) <= targetEndMesId);
-        if (targetEndMesId < 0) json = {};
+        if (targetEndMesId < 0) {
+            // A legacy content rollback can reach an empty story, while its
+            // identity vocabulary remains useful for every later summary.
+            const aliases = normalizeCharacterAliases(json.characterAliases);
+            json = aliases.length ? { characterAliases: aliases } : {};
+        }
     }
 
     const retainedEventIds = new Set((json.events || []).map(event => event?.id).filter(Boolean));
@@ -836,8 +823,6 @@ export async function executeRollback(chatId, store, targetEndMesId) {
     store.json = nextJson;
     store.lastSummarizedMesId = targetEndMesId;
     store.summaryHistory = (store.summaryHistory || []).filter(h => h.endMesId <= targetEndMesId);
-    store.aliasMigrations = migrations.filter(m => (m._addedAt ?? 0) <= targetEndMesId);
-    if (!store.aliasMigrations.length) delete store.aliasMigrations;
     delete store.summaryInvalid;
     if (targetEndMesId < 0) {
         store.hideSummarizedHistory = false;
@@ -898,7 +883,6 @@ export async function clearSummaryData(chatId) {
         delete store.json;
         store.lastSummarizedMesId = -1;
         store.summaryHistory = [];
-        delete store.aliasMigrations;
         delete store.pendingImportBoundary;
         delete store.summaryInvalid;
         store.hideSummarizedHistory = false;

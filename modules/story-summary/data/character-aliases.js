@@ -1,12 +1,8 @@
 // Story Summary - Character aliases
-// Pure helpers for identity reveal handling and deterministic canonicalization.
+// Identity vocabulary and deterministic canonicalization for story summaries.
 
 function isPlainObject(value) {
     return !!value && typeof value === 'object' && !Array.isArray(value);
-}
-
-function clone(value) {
-    return value == null ? value : structuredClone(value);
 }
 
 function sameJson(a, b) {
@@ -38,13 +34,41 @@ function cleanEvidence(evidence) {
     return String(evidence || '').trim().slice(0, 120);
 }
 
+// The model-output format and its defensive parser share these template
+// values. A model occasionally echoes an example field verbatim; those words
+// describe the schema and must never become identity vocabulary.
+export const CHARACTER_ALIAS_OUTPUT_TEMPLATE = Object.freeze({
+    to: '既有总结中稳定使用的主名',
+    from: '称号/昵称/唯一缩写/不同语言或译名',
+    evidence: '简短的确认依据',
+});
+
+const ALIAS_PLACEHOLDER_SNIPPETS = [
+    ...Object.values(CHARACTER_ALIAS_OUTPUT_TEMPLATE),
+    // Saved user prompts can still contain the former built-in template.
+    '统一主名',
+    '旧称呼',
+    '当前批次里的短证据',
+    '可选，说明确认依据',
+];
+
 function isAliasPlaceholder(text) {
     const value = String(text || '').trim();
     return !value
-        || value.includes('统一主名')
-        || value.includes('旧称呼')
-        || value.includes('当前批次里的短证据')
-        || value.includes('仅明确揭示身份时输出');
+        || ALIAS_PLACEHOLDER_SNIPPETS.some(placeholder => value.includes(placeholder));
+}
+
+// These are relational forms of address, not identities. A model cannot know
+// which person they mean from the word alone; users can still intentionally
+// add a mapping in the editor when their story gives the term one fixed owner.
+const GENERIC_AUTOMATIC_ALIAS_TERMS = new Set([
+    '老婆', '老公', '妻子', '丈夫', '爱人', '亲爱的', '宝贝', '宝宝',
+    '先生', '女士', '小姐', '夫人', '大人', '大哥', '大姐', '哥哥', '姐姐',
+    '弟弟', '妹妹', '爸爸', '妈妈', '父亲', '母亲', '儿子', '女儿',
+]);
+
+function isGenericAutomaticAlias(name) {
+    return GENERIC_AUTOMATIC_ALIAS_TERMS.has(normalizeAliasNameKey(name));
 }
 
 function dedupeByKey(items, getKey) {
@@ -98,6 +122,7 @@ export function sanitizeCharacterAliasUpdates(updates) {
                 .map(cleanName)
                 .filter(Boolean)
                 .filter(name => !isAliasPlaceholder(name))
+                .filter(name => !isGenericAutomaticAlias(name))
                 .filter(name => normalizeAliasNameKey(name) !== normalizeAliasNameKey(to)),
             normalizeAliasNameKey,
         );
@@ -415,64 +440,41 @@ function mergeFactsByCanonicalKey(facts, resolver) {
 }
 
 function applyCanonicalization(json, resolver) {
-    const before = {};
     let changed = false;
 
     json.characters ||= {};
     json.characters.main ||= [];
-    const oldMain = clone(json.characters.main);
+    const oldMain = json.characters.main;
     const newMain = mergeCharacters(json.characters.main, resolver);
     if (!sameJson(oldMain, newMain)) {
-        before.charactersMain = oldMain;
         json.characters.main = newMain;
         changed = true;
     }
 
-    const eventParticipants = [];
-    for (let index = 0; index < (json.events || []).length; index += 1) {
-        const event = json.events[index];
+    for (const event of (json.events || [])) {
         if (!isPlainObject(event)) continue;
         const oldParticipants = Array.isArray(event.participants) ? [...event.participants] : [];
         const nextParticipants = canonicalizeNameList(oldParticipants, resolver);
         if (sameJson(oldParticipants, nextParticipants)) continue;
-        eventParticipants.push({
-            id: String(event.id || ''),
-            index,
-            participants: oldParticipants,
-        });
         event.participants = nextParticipants;
         changed = true;
     }
-    if (eventParticipants.length) {
-        before.eventParticipants = eventParticipants;
-    }
 
-    const oldArcs = clone(json.arcs || []);
+    const oldArcs = json.arcs || [];
     const newArcs = mergeArcs(json.arcs || [], resolver);
     if (!sameJson(oldArcs, newArcs)) {
-        before.arcs = oldArcs;
         json.arcs = newArcs;
         changed = true;
     }
 
-    const oldFacts = clone(json.facts || []);
+    const oldFacts = json.facts || [];
     const newFacts = mergeFactsByCanonicalKey(json.facts || [], resolver);
     if (!sameJson(oldFacts, newFacts)) {
-        before.facts = oldFacts;
         json.facts = newFacts;
         changed = true;
     }
 
-    return { changed, before };
-}
-
-function migrationId(floor, edges) {
-    const text = JSON.stringify(edges.map(e => [e.from, e.to]));
-    let hash = 0;
-    for (let i = 0; i < text.length; i += 1) {
-        hash = ((hash << 5) - hash + text.charCodeAt(i)) | 0;
-    }
-    return `alias-${floor}-${Math.abs(hash)}`;
+    return { changed };
 }
 
 export function applyCharacterAliasUpdates(json, updates, floor) {
@@ -482,84 +484,86 @@ export function applyCharacterAliasUpdates(json, updates, floor) {
         if (!sameJson(json.characterAliases || [], beforeAliases)) {
             json.characterAliases = beforeAliases;
         }
-        return { json, aliasChanged: false, migration: null };
+        return { json, aliasChanged: false };
     }
 
     json.characterAliases = aliases;
     const resolver = buildAliasResolver(aliases);
-    const canonicalized = applyCanonicalization(json, resolver);
-
-    const before = {
-        characterAliases: beforeAliases,
-        ...canonicalized.before,
-    };
+    applyCanonicalization(json, resolver);
 
     return {
         json,
         aliasChanged: true,
-        migration: {
-            id: migrationId(floor, accepted),
-            _addedAt: floor,
-            edges: accepted.map(({ from, to }) => ({ from, to })),
-            before,
-        },
     };
 }
 
-export function applyAliasMigrationsForRollback(json, migrations, targetEndMesId) {
-    if (!json || !Array.isArray(migrations)) return json;
-
-    const pending = migrations
-        .filter(migration => normalizeAddedAt(migration?._addedAt, -1) > targetEndMesId)
-        .sort((a, b) => normalizeAddedAt(b._addedAt, 0) - normalizeAddedAt(a._addedAt, 0));
-
-    for (const migration of pending) {
-        const before = migration?.before || {};
-        if (Array.isArray(before.characterAliases)) {
-            json.characterAliases = clone(before.characterAliases);
+function validateAliasGraph(aliases) {
+    const edges = new Map();
+    for (const alias of aliases) {
+        const fromKey = normalizeAliasNameKey(alias.from);
+        const toKey = normalizeAliasNameKey(alias.to);
+        if (!fromKey || !toKey || fromKey === toKey) {
+            throw new Error('每条映射都需要两个不同的名称');
         }
-        if (Array.isArray(before.charactersMain)) {
-            json.characters ||= {};
-            json.characters.main = clone(before.charactersMain);
+        if (edges.has(fromKey)) {
+            throw new Error(`别名“${alias.from}”重复指向多个角色`);
         }
-        if (Array.isArray(before.arcs)) {
-            json.arcs = clone(before.arcs);
-        }
-        if (Array.isArray(before.facts)) {
-            json.facts = clone(before.facts);
-        }
-        if (Array.isArray(before.eventParticipants)) {
-            for (const patch of before.eventParticipants) {
-                const byId = patch.id
-                    ? (json.events || []).find(event => String(event?.id || '') === patch.id)
-                    : null;
-                const event = byId || (json.events || [])[patch.index];
-                if (event && isPlainObject(event)) {
-                    event.participants = clone(patch.participants || []);
-                }
-            }
-        }
+        edges.set(fromKey, toKey);
     }
 
-    return json;
+    for (const start of edges.keys()) {
+        const seen = new Set();
+        let current = start;
+        while (edges.has(current)) {
+            if (seen.has(current)) {
+                throw new Error('别名映射不能形成循环');
+            }
+            seen.add(current);
+            current = edges.get(current);
+        }
+    }
 }
 
-export function normalizeAliasMigrations(value) {
-    if (!Array.isArray(value)) return [];
-    return value
-        .filter(isPlainObject)
-        .map(item => ({
-            id: String(item.id || '').trim(),
-            _addedAt: normalizeAddedAt(item._addedAt, 0),
-            edges: Array.isArray(item.edges)
-                ? item.edges
-                    .filter(isPlainObject)
-                    .map(edge => ({ from: cleanName(edge.from), to: cleanName(edge.to) }))
-                    .filter(edge => edge.from && edge.to)
-                : [],
-            before: isPlainObject(item.before) ? item.before : {},
-        }))
-        .filter(item => item.id && item.edges.length);
+/**
+ * Replace the user-editable identity vocabulary as one coherent table.
+ * Alias mappings are independent of summary-history rollback. Editing this
+ * vocabulary does not rewrite historical content; it changes how present and
+ * future names are resolved for recall and subsequent summary generation.
+ */
+export function replaceCharacterAliases(json, rawAliases, floor) {
+    if (!Array.isArray(rawAliases)) {
+        throw new Error('别名映射必须是列表');
+    }
+
+    const existing = normalizeCharacterAliases(json?.characterAliases, floor);
+    const existingByEdge = new Map(existing.map(alias => [
+        `${normalizeAliasNameKey(alias.from)}\u0000${normalizeAliasNameKey(alias.to)}`,
+        alias,
+    ]));
+    const aliases = [];
+    for (const raw of rawAliases) {
+        if (!isPlainObject(raw)) throw new Error('别名映射格式无效');
+        const from = cleanName(raw.from);
+        const to = cleanName(raw.to);
+        const evidence = cleanEvidence(raw.evidence);
+        if (!from && !to && !evidence) continue;
+        const edgeKey = `${normalizeAliasNameKey(from)}\u0000${normalizeAliasNameKey(to)}`;
+        const existingAlias = existingByEdge.get(edgeKey);
+        aliases.push({
+            from,
+            to,
+            evidence,
+            _addedAt: existingAlias?._addedAt ?? normalizeAddedAt(floor, 0),
+        });
+    }
+    validateAliasGraph(aliases);
+
+    const tableChanged = !sameJson(existing, aliases);
+    if (tableChanged) {
+        if (aliases.length) json.characterAliases = aliases;
+        else delete json.characterAliases;
+    }
+    return { json, aliasChanged: tableChanged };
 }
 
 export function formatCharacterAliasTableForAI(json) {

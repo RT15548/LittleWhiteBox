@@ -69,7 +69,7 @@ import {
     isSummaryConsumable,
     extractRelationshipsFromFacts,
 } from "./data/store.js";
-import { normalizeCharacterAliases } from "./data/character-aliases.js";
+import { normalizeCharacterAliases, replaceCharacterAliases } from "./data/character-aliases.js";
 import { stampEditedCharacters } from "./data/character-edits.js";
 import { normalizeEventMemoryRole, projectEditedSummaryEvents } from "./data/events.js";
 import { isRelationFact, parseRelationTarget } from "./data/fact-predicates.js";
@@ -2180,6 +2180,8 @@ function buildFramePayload(store) {
         },
         arcs: json.arcs || [],
         facts,
+        characterAliases: normalizeCharacterAliases(json.characterAliases)
+            .map(({ from, to, evidence }) => ({ from, to, evidence })),
         lastSummarizedMesId: store?.lastSummarizedMesId ?? -1,
     };
 }
@@ -2573,7 +2575,6 @@ async function importSummaryMemoryPackage(rawText, targetChatId = '') {
     invalidateLexicalIndex();
 
     store.json = importedJson;
-    delete store.aliasMigrations;
     delete store.summaryInvalid;
     const importBoundary = (Array.isArray(chat) ? chat.length : 0) - 1;
     if (importBoundary >= 0) {
@@ -3513,6 +3514,34 @@ async function handleFrameMessage(event) {
             if (data.section === "events" && oldEvents) {
                 syncEventVectorsOnEdit(oldEvents, store.json.events);
             }
+            break;
+        }
+
+        case "UPDATE_CHARACTER_ALIASES": {
+            const store = getSummaryStore();
+            if (!store || !Array.isArray(data.aliases)) break;
+            cancelRecallAndClearPrompt('character-aliases-edited');
+            store.json ||= {};
+
+            let result;
+            try {
+                result = replaceCharacterAliases(store.json, data.aliases, getCurrentFloorHint());
+            } catch (error) {
+                postToFrame({
+                    type: 'SUMMARY_ERROR',
+                    message: `别名映射未保存：${formatErrorDetails(error, { includeStack: false })}`,
+                });
+                break;
+            }
+
+            if (!result.aliasChanged) break;
+            store.updatedAt = Date.now();
+            saveSummaryStore();
+
+            // Alias mappings affect terminology and event ownership through
+            // the shared vocabulary. Existing event bodies stay untouched.
+            refreshEntityLexiconAndWarmup();
+            postToFrame({ type: 'SUMMARY_FULL_DATA', payload: buildFramePayload(store) });
             break;
         }
 

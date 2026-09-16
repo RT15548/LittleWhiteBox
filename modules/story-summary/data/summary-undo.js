@@ -124,12 +124,6 @@ export function buildSummaryUndo(beforeJson = {}, afterJson = {}, { aliasChanged
         forceSnapshot: aliasChanged,
     });
 
-    const beforeAliases = beforeJson.characterAliases || [];
-    const afterAliases = afterJson.characterAliases || [];
-    if (!sameJson(beforeAliases, afterAliases)) {
-        undo.previousCharacterAliases = clone(beforeAliases);
-        undo.generatedCharacterAliases = clone(afterAliases);
-    }
     return undo;
 }
 
@@ -139,7 +133,6 @@ const SNAPSHOT_PAIRS = [
     ['previousMainCharacters', 'generatedMainCharacters'],
     ['previousArcs', 'generatedArcs'],
     ['previousFacts', 'generatedFacts'],
-    ['previousCharacterAliases', 'generatedCharacterAliases'],
 ];
 
 const CHANGE_FIELDS = [
@@ -179,19 +172,29 @@ function normalizeChanges(value, getKey) {
 
 export function normalizeSummaryUndo(value) {
     if (!isPlainObject(value) || value.version !== UNDO_VERSION) return null;
+    // Earlier records stored identity vocabulary in every history entry.
+    // Aliases outlive content rollback, so normalize those records once at the
+    // storage boundary instead of carrying a compatibility branch through undo.
+    const hasAliasSnapshots = Object.hasOwn(value, 'previousCharacterAliases')
+        || Object.hasOwn(value, 'generatedCharacterAliases');
+    const normalizedValue = hasAliasSnapshots ? { ...value } : value;
+    if (hasAliasSnapshots) {
+        delete normalizedValue.previousCharacterAliases;
+        delete normalizedValue.generatedCharacterAliases;
+    }
     const allowed = new Set(['version', ...CHANGE_FIELDS.map(([field]) => field), ...SNAPSHOT_PAIRS.flat()]);
-    if (Object.keys(value).some(field => !allowed.has(field))) return null;
+    if (Object.keys(normalizedValue).some(field => !allowed.has(field))) return null;
 
     for (const [previousField, generatedField] of SNAPSHOT_PAIRS) {
-        const hasPrevious = Object.hasOwn(value, previousField);
-        const hasGenerated = Object.hasOwn(value, generatedField);
+        const hasPrevious = Object.hasOwn(normalizedValue, previousField);
+        const hasGenerated = Object.hasOwn(normalizedValue, generatedField);
         if (hasPrevious !== hasGenerated) return null;
-        if (hasPrevious && (!Array.isArray(value[previousField]) || !Array.isArray(value[generatedField]))) {
+        if (hasPrevious && (!Array.isArray(normalizedValue[previousField]) || !Array.isArray(normalizedValue[generatedField]))) {
             return null;
         }
     }
     for (const [field, getKey] of CHANGE_FIELDS) {
-        if (Object.hasOwn(value, field) && !normalizeChanges(value[field], getKey)) return null;
+        if (Object.hasOwn(normalizedValue, field) && !normalizeChanges(normalizedValue[field], getKey)) return null;
     }
     for (const [snapshotField, changesField] of [
         ['generatedEvents', 'eventChanges'],
@@ -199,9 +202,9 @@ export function normalizeSummaryUndo(value) {
         ['generatedArcs', 'arcChanges'],
         ['generatedFacts', 'factChanges'],
     ]) {
-        if (Object.hasOwn(value, snapshotField) && Object.hasOwn(value, changesField)) return null;
+        if (Object.hasOwn(normalizedValue, snapshotField) && Object.hasOwn(normalizedValue, changesField)) return null;
     }
-    return value;
+    return normalizedValue;
 }
 
 function indexByKey(items, getKey) {
@@ -254,7 +257,6 @@ function collections(json) {
         mainCharacters: Array.isArray(json.characters?.main) ? json.characters.main : [],
         arcs: Array.isArray(json.arcs) ? json.arcs : [],
         facts: Array.isArray(json.facts) ? json.facts : [],
-        characterAliases: Array.isArray(json.characterAliases) ? json.characterAliases : [],
     };
 }
 
@@ -268,7 +270,6 @@ export function applySummaryUndo(json = {}, rawUndo) {
         ['previousMainCharacters', 'generatedMainCharacters', 'mainCharacters'],
         ['previousArcs', 'generatedArcs', 'arcs'],
         ['previousFacts', 'generatedFacts', 'facts'],
-        ['previousCharacterAliases', 'generatedCharacterAliases', 'characterAliases'],
     ];
     for (const [, generatedField, collection] of snapshots) {
         if (Object.hasOwn(undo, generatedField) && !sameJson(current[collection], undo[generatedField])) {

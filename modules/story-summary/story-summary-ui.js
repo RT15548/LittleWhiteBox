@@ -255,7 +255,8 @@ import { DEFAULT_SUMMARY_DELAY_FLOORS, normalizeSummaryDelayFloors } from './dat
         events: { title: '编辑事件时间线', hint: '编辑时，每个事件要素都应完整' },
         characters: { title: '编辑人物关系', hint: '编辑时，每个要素都应完整' },
         arcs: { title: '编辑角色弧光', hint: '编辑时，每个要素都应完整' },
-        facts: { title: '编辑事实图谱', hint: '每行一条：主体|谓词|值|趋势(可选)。删除用：主体|谓词|（留空值）' }
+        facts: { title: '编辑事实图谱', hint: '每行一条：主体|谓词|值|趋势(可选)。删除用：主体|谓词|（留空值）' },
+        aliases: { title: '编辑别名映射', hint: '别名与角色主名必须不同；确认依据可留空' }
     };
 
     const TREND_COLORS = {
@@ -318,7 +319,7 @@ import { DEFAULT_SUMMARY_DELAY_FLOORS, normalizeSummaryDelayFloors } from './dat
         }
     };
 
-    let summaryData = { keywords: [], events: [], characters: { main: [], relationships: [] }, arcs: [], facts: [] };
+    let summaryData = { keywords: [], events: [], characters: { main: [], relationships: [] }, arcs: [], facts: [], characterAliases: [] };
     let builtInSummaryPrompts = { ...EMPTY_BUILTIN_SUMMARY_PROMPTS };
     let localGenerating = false;
     let vectorGenerating = false;
@@ -1756,6 +1757,24 @@ import { DEFAULT_SUMMARY_DELAY_FLOORS, normalizeSummaryDelayFloors } from './dat
         renderCharacterProfile();
     }
 
+    function renderCharacterAliases(aliases) {
+        summaryData.characterAliases = aliases || [];
+        const list = $('aliases-list');
+        if (!list) return;
+        if (!aliases?.length) {
+            setHtml(list, '<div class="empty">暂无别名映射</div>');
+            return;
+        }
+        setHtml(list, aliases.map(alias => `
+            <div class="alias-item">
+                <span class="alias-from">${h(alias.from || '')}</span>
+                <span class="alias-arrow" aria-hidden="true">→</span>
+                <span class="alias-to">${h(alias.to || '')}</span>
+                ${alias.evidence ? `<span class="alias-evidence">${h(alias.evidence)}</span>` : ''}
+            </div>
+        `).join(''));
+    }
+
     function updateStats(s) {
         if (!s) return;
         $('stat-summarized').textContent = s.summarizedUpTo ?? 0;
@@ -2180,6 +2199,35 @@ import { DEFAULT_SUMMARY_DELAY_FLOORS, normalizeSummaryDelayFloors } from './dat
         };
     }
 
+    function renderCharacterAliasesEditor(aliases) {
+        const list = aliases?.length ? aliases : [{ from: '', to: '', evidence: '' }];
+        const es = $('editor-struct');
+        const renderItem = alias => `
+            <div class="struct-item alias-edit-item">
+                <div class="struct-row">
+                    <input type="text" class="alias-edit-from" placeholder="别名、称号或译名" value="${h(alias.from || '')}">
+                    <input type="text" class="alias-edit-to" placeholder="角色主名" value="${h(alias.to || '')}">
+                </div>
+                <div class="struct-row">
+                    <input type="text" class="alias-edit-evidence" placeholder="确认依据（可选）" value="${h(alias.evidence || '')}">
+                </div>
+                <div class="struct-actions"><span>别名映射</span></div>
+            </div>`;
+
+        setHtml(es, `
+            <div id="alias-edit-list">${list.map(renderItem).join('')}</div>
+            <div style="margin-top:8px"><button type="button" class="btn btn-sm" id="alias-add">＋ 新增映射</button></div>
+        `);
+        es.querySelectorAll('.alias-edit-item').forEach(addDeleteHandler);
+        $('alias-add').onclick = () => {
+            const div = document.createElement('div');
+            div.className = 'struct-item alias-edit-item';
+            setHtml(div, renderItem({ from: '', to: '', evidence: '' }));
+            addDeleteHandler(div);
+            $('alias-edit-list').appendChild(div);
+        };
+    }
+
     function openEditor(section) {
         currentEditSection = section;
         const meta = SECTION_META[section];
@@ -2210,6 +2258,7 @@ import { DEFAULT_SUMMARY_DELAY_FLOORS, normalizeSummaryDelayFloors } from './dat
             if (section === 'events') renderEventsEditor(summaryData.events || []);
             else if (section === 'characters') renderCharactersEditor(summaryData.characters || { main: [], relationships: [] });
             else if (section === 'arcs') renderArcsEditor(summaryData.arcs || []);
+            else if (section === 'aliases') renderCharacterAliasesEditor(summaryData.characterAliases || []);
         }
 
         $('editor-modal').classList.add('active');
@@ -2310,6 +2359,15 @@ import { DEFAULT_SUMMARY_DELAY_FLOORS, normalizeSummaryDelayFloors } from './dat
                         return fact;
                     })
                     .filter(Boolean);
+            } else if (section === 'aliases') {
+                parsed = Array.from(es.querySelectorAll('.alias-edit-item')).map(item => ({
+                    from: item.querySelector('.alias-edit-from').value.trim(),
+                    to: item.querySelector('.alias-edit-to').value.trim(),
+                    evidence: item.querySelector('.alias-edit-evidence').value.trim(),
+                })).filter(alias => alias.from || alias.to || alias.evidence);
+                if (parsed.some(alias => !alias.from || !alias.to)) {
+                    throw new Error('每条映射都要填写别名和角色主名');
+                }
             }
         } catch (e) {
             $('editor-err').textContent = `格式错误: ${e.message}`;
@@ -2317,7 +2375,8 @@ import { DEFAULT_SUMMARY_DELAY_FLOORS, normalizeSummaryDelayFloors } from './dat
             return;
         }
 
-        postMsg('UPDATE_SECTION', { section, data: parsed });
+        if (section === 'aliases') postMsg('UPDATE_CHARACTER_ALIASES', { aliases: parsed });
+        else postMsg('UPDATE_SECTION', { section, data: parsed });
 
         if (section === 'keywords') renderKeywords(parsed);
         else if (section === 'events') { renderTimeline(parsed, { scrollMode: 'preserve' }); $('stat-events').textContent = parsed.length; }
@@ -2386,6 +2445,7 @@ import { DEFAULT_SUMMARY_DELAY_FLOORS, normalizeSummaryDelayFloors } from './dat
                     if (p.characters) renderRelations(p.characters);
                     if (p.arcs) renderArcs(p.arcs);
                     if (p.facts) renderFacts(p.facts);
+                    if (p.characterAliases) renderCharacterAliases(p.characterAliases);
                     $('stat-events').textContent = p.events?.length || 0;
                     if (p.lastSummarizedMesId != null) $('stat-summarized').textContent = p.lastSummarizedMesId + 1;
                     if (p.stats) updateStats(p.stats);
@@ -2411,13 +2471,14 @@ import { DEFAULT_SUMMARY_DELAY_FLOORS, normalizeSummaryDelayFloors } from './dat
                 $('stat-summarized').textContent = 0;
                 $('stat-pending').textContent = t;
                 $('summarized-count').textContent = 0;
-                summaryData = { keywords: [], events: [], characters: { main: [], relationships: [] }, arcs: [], facts: [] };
+                summaryData = { keywords: [], events: [], characters: { main: [], relationships: [] }, arcs: [], facts: [], characterAliases: [] };
                 currentTimelineChatId = '';
                 renderKeywords([]);
                 renderTimeline([]);
                 renderRelations(null);
                 renderArcs([]);
                 renderFacts([]);
+                renderCharacterAliases([]);
                 break;
             }
 
@@ -2804,6 +2865,7 @@ import { DEFAULT_SUMMARY_DELAY_FLOORS, normalizeSummaryDelayFloors } from './dat
         renderTimeline([]);
         renderArcs([]);
         renderFacts([]);
+        renderCharacterAliases([]);
 
         bindEvents();
         syncCurrentChatSummaryControls(currentChatSummaryEnabled);

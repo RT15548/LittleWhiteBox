@@ -20,7 +20,10 @@ export function projectStoryCharacters(store, { throughMessageIndex, currentMess
     const json = store.json;
     const budget = Math.min(8000, Math.max(0, Number(maxCharacters) || 0));
     const peopleLimit = Math.min(200, Math.max(0, Number(maxPeople) || 0));
-    const aliases = (json.characterAliases || []).filter(item => at(item, throughMessageIndex));
+    // Identity vocabulary is a current, durable lookup table. Unlike story
+    // facts, it is neither a historical assertion nor subject to a content
+    // rollback boundary.
+    const aliases = json.characterAliases || [];
     const selectedName = key(name);
     let remaining = budget;
     const people = [];

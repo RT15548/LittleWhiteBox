@@ -2,13 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-    applyAliasMigrationsForRollback,
     applyCharacterAliasUpdates,
     buildAliasResolver,
     canonicalizeIncrementalSummaryData,
     formatCharacterAliasTableForAI,
     mergeCharacterAliasEdges,
     normalizeUserIdentityKey,
+    replaceCharacterAliases,
+    sanitizeCharacterAliasUpdates,
 } from '../data/character-aliases.js';
 
 function baseSummary() {
@@ -57,7 +58,6 @@ test('character alias update canonicalizes structured names and keeps natural su
         '李玄清::身份',
         '大小姐::对李玄清的看法',
     ]);
-    assert.ok(result.migration?.before?.eventParticipants?.length);
 });
 
 test('missing explicit bridge produces no alias change', () => {
@@ -65,14 +65,20 @@ test('missing explicit bridge produces no alias change', () => {
     const result = applyCharacterAliasUpdates(json, [], 39);
 
     assert.equal(result.aliasChanged, false);
-    assert.equal(result.migration, null);
     assert.deepEqual(json.characters.main.map(item => item.name), ['道长', '大小姐']);
     assert.equal(json.characterAliases, undefined);
 });
 
-test('placeholder alias example is ignored', () => {
+test('current and saved-template alias placeholders are ignored', () => {
     const json = baseSummary();
-    const result = applyCharacterAliasUpdates(json, [
+    const currentResult = applyCharacterAliasUpdates(json, [
+        {
+            to: '既有总结中稳定使用的主名',
+            from: ['称号/昵称/唯一缩写/不同语言或译名'],
+            evidence: '简短的确认依据',
+        },
+    ], 39);
+    const savedTemplateResult = applyCharacterAliasUpdates(json, [
         {
             to: '统一主名，仅明确揭示身份时输出',
             from: ['旧称呼/外号/代号/职称'],
@@ -80,7 +86,8 @@ test('placeholder alias example is ignored', () => {
         },
     ], 39);
 
-    assert.equal(result.aliasChanged, false);
+    assert.equal(currentResult.aliasChanged, false);
+    assert.equal(savedTemplateResult.aliasChanged, false);
     assert.equal(json.characterAliases, undefined);
 });
 
@@ -163,26 +170,48 @@ test('conflicting alias update does not rebind an existing alias source', () => 
     ]);
 });
 
-test('alias migration restores pre-reveal structures on rollback', () => {
+test('automatic aliases reject generic relationship forms of address', () => {
     const json = baseSummary();
-    const result = applyCharacterAliasUpdates(json, [
-        { to: '李玄清', from: ['道长'], evidence: '#37 道长报出本名李玄清' },
-    ], 39);
-
-    applyAliasMigrationsForRollback(json, [result.migration], 19);
-    json.events = json.events.filter(event => (event._addedAt ?? 0) <= 19);
-    json.arcs = json.arcs.filter(arc => (arc._addedAt ?? 0) <= 19);
-    json.facts = json.facts.filter(fact => (fact._addedAt ?? 0) <= 19);
-    json.characterAliases = (json.characterAliases || []).filter(alias => (alias._addedAt ?? 0) <= 19);
-
-    assert.deepEqual(json.events[0].participants, ['道长', '大小姐']);
-    assert.deepEqual(json.characters.main.map(item => item.name), ['道长', '大小姐']);
-    assert.deepEqual(json.arcs.map(arc => arc.name), ['道长']);
-    assert.deepEqual(json.facts.map(fact => `${fact.s}::${fact.p}`), [
-        '道长::身份',
-        '大小姐::对道长的看法',
+    const updates = sanitizeCharacterAliasUpdates([
+        { to: '李玄清', from: ['老婆', '道长'], evidence: '#37 的可靠身份依据' },
     ]);
-    assert.deepEqual(json.characterAliases, []);
+
+    assert.deepEqual(updates, [
+        { to: '李玄清', from: ['道长'], evidence: '#37 的可靠身份依据' },
+    ]);
+    assert.equal(applyCharacterAliasUpdates(json, updates, 39).aliasChanged, true);
+    assert.deepEqual(json.characterAliases.map(alias => alias.from), ['道长']);
+});
+
+test('manual alias replacement keeps identity vocabulary outside historical content', () => {
+    const json = baseSummary();
+    const before = structuredClone(json);
+
+    const result = replaceCharacterAliases(json, [
+        { from: '李玄清', to: 'Gojo Satoru', evidence: '用户确认的不同语言名' },
+        { from: '老婆', to: 'Gojo Satoru', evidence: '' },
+    ], 100);
+
+    assert.equal(result.aliasChanged, true);
+    assert.deepEqual(json.characterAliases, [
+        { from: '李玄清', to: 'Gojo Satoru', evidence: '用户确认的不同语言名', _addedAt: 100 },
+        { from: '老婆', to: 'Gojo Satoru', evidence: '', _addedAt: 100 },
+    ]);
+    assert.deepEqual(
+        { events: json.events, characters: json.characters, arcs: json.arcs, facts: json.facts },
+        { events: before.events, characters: before.characters, arcs: before.arcs, facts: before.facts },
+    );
+});
+
+test('manual alias replacement rejects conflicting and circular mappings', () => {
+    assert.throws(() => replaceCharacterAliases(baseSummary(), [
+        { from: '小悟', to: '五条悟' },
+        { from: '小悟', to: '夏油杰' },
+    ], 100), /重复指向/);
+    assert.throws(() => replaceCharacterAliases(baseSummary(), [
+        { from: '小悟', to: '五条悟' },
+        { from: '五条悟', to: '小悟' },
+    ], 100), /循环/);
 });
 
 test('alias table formats canonical groups for prompt context', () => {

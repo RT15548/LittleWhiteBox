@@ -187,6 +187,17 @@ test('in-place alias target, USER and role edits invalidate the shared vocabular
     assert.deepEqual(mod.buildQueryBundle(message).focusTerms, ['Alice', 'Bob']);
 });
 
+test('a multilingual alias makes the chat spelling a direct event participant', () => {
+    host.store.json.characters.main = ['五条悟'];
+    host.store.json.events = [{ id: 'evt-1', participants: ['五条悟'], summary: '五条悟抵达东京。' }];
+    host.store.json.characterAliases = [{ from: 'Gojo Satoru', to: '五条悟' }];
+
+    const bundle = mod.buildQueryBundle([{ is_user: true, mes: 'Gojo Satoru 接下来会做什么？' }]);
+
+    assert.deepEqual(bundle.focusTerms, ['五条悟']);
+    assert.deepEqual(bundle.focusCharacters, ['五条悟']);
+});
+
 test('canonical and alias queries find historical prose without double-counting aliases', async () => {
     host.store.json.characters.main = ['雪照宁', '黑衣人'];
     host.chunks = [chunk('old-alias', '黑衣人来到城里')];

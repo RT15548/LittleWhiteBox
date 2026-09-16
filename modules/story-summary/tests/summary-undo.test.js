@@ -66,7 +66,7 @@ test('manual edits to a touched item reject the whole undo without mutation', ()
     assert.deepEqual(current, snapshot);
 });
 
-test('alias canonicalization is part of the same undo record', () => {
+test('alias canonicalization rolls back content while retaining identity vocabulary', () => {
     const before = makeBaseline();
     const merged = structuredClone(before);
     merged.events[0].summary = 'AI 新事件';
@@ -78,7 +78,26 @@ test('alias canonicalization is part of the same undo record', () => {
     }], 20);
     const undo = buildSummaryUndo(before, aliasResult.json, { aliasChanged: true });
 
-    assert.deepEqual(applySummaryUndo(aliasResult.json, undo), before);
+    assert.deepEqual(applySummaryUndo(aliasResult.json, undo), {
+        ...before,
+        characterAliases: aliasResult.json.characterAliases,
+    });
+});
+
+test('old history snapshots discard alias state at the upgrade boundary', () => {
+    const before = makeBaseline();
+    const after = structuredClone(before);
+    after.events.push({ id: 'evt-2', summary: '新事件', participants: [], _addedAt: 20 });
+    const legacyUndo = {
+        ...buildSummaryUndo(before, after),
+        previousCharacterAliases: [],
+        generatedCharacterAliases: [{ from: '小红', to: '红叶' }],
+    };
+
+    const normalized = normalizeSummaryUndo(legacyUndo);
+    assert.ok(normalized);
+    assert.equal(Object.hasOwn(normalized, 'previousCharacterAliases'), false);
+    assert.equal(Object.hasOwn(normalized, 'generatedCharacterAliases'), false);
 });
 
 test('manual edits after alias canonicalization reject the whole undo', () => {
