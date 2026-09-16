@@ -96,7 +96,6 @@ function basePlan() {
     return {
         chatId: 'chat-1',
         messageId: '7',
-        replacedSlotIds: ['old-slot'],
         gallery: { characterName: 'A' },
         items: [{ index: 0, slotId: 'slot-a', imgId: 'img-a', previewMetadata: {} }],
     };

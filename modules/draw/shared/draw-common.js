@@ -10,7 +10,7 @@ import {
     ScenePlannerError,
 } from "./scene-plan-contract.js";
 import { ScenePlacementError } from './scene-placement.js';
-import { replaceSceneSlotElements } from './scene-slot-dom.js';
+import { getRenderedSceneSlotIds, replaceSceneSlotElements } from './scene-slot-dom.js';
 import { getPendingImageJobSlots, PendingJobState } from './pending-image-jobs.js';
 import { createDrawImageSlotRegex } from './image-marker-syntax.js';
 import { classifyScenePlannerErrorForUi } from "./scene-planner-error-ui.js";
@@ -531,8 +531,7 @@ async function resolveRenderPreviewForSlot(message, messageId, slotId) {
         };
     }
 
-    const displayData = await getDisplayPreviewForSlot(slotId);
-    return { ...displayData, currentIndex: 0 };
+    return getDisplayPreviewForSlot(slotId);
 }
 
 function buildFailedPlaceholderHtml({ slotId, messageId, tags, positive, errorType, errorMessage }) {
@@ -585,11 +584,6 @@ async function rebuildRenderedMessageFromState(messageId, {
     return true;
 }
 
-function renderedMessageContainsSlot(mesTextEl, slotId) {
-    if (mesTextEl.querySelector(buildDrawSlotSelector(slotId))) return true;
-    return String(mesTextEl.textContent || '').includes(createPlaceholder(slotId));
-}
-
 async function renderPreviewsForMessageNow(messageId, {
     refreshSlotIds = [],
     expectedChatId,
@@ -605,7 +599,10 @@ async function renderPreviewsForMessageNow(messageId, {
     const slotIds = extractSlotIds(sourceText);
     let mesTextEl = getMesTextElement(messageId);
     if (!mesTextEl) return;
-    if ([...slotIds].some(slotId => !renderedMessageContainsSlot(mesTextEl, slotId))) {
+    // 锚点探测与实际替换共用 DOM 解析；不能因合法空格或换行误判缺失，
+    // 再用尚未提交新槽位的正文重建 DOM，把本批等待卡清掉。
+    const renderedSlots = getRenderedSceneSlotIds(mesTextEl);
+    if ([...slotIds].some(slotId => !renderedSlots.has(slotId))) {
         // message.mes 是持久化排版事实。adoption 当下若恰逢聊天切换或宿主 DOM
         // 尚未挂载，一次局部 patch 可能没有锚点；先按前台生成相同的宿主格式
         // 重建楼层，再在下面统一投影 pending 卡或图片。

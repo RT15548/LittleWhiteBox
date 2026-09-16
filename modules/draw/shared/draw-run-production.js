@@ -93,8 +93,8 @@ export async function submitProviderDrawRun({
         throw new DrawRunProductionError('当前 swipe 不可用，无法提交后台画图。', 'DRAW_RUN_TARGET_INVALID');
     }
     const targetHash = hashSceneSource(String(message.mes ?? ''));
-    // 排版替换以整条 swipe 为边界。用户即使在旧任务期间切换了 Provider，
-    // 也不能再开第二批，否则后接管的一批会清理先接管批次的槽位。
+    // 同一 swipe 的后台任务串行接入，避免重复提交及相互改变规划的正文快照。
+    // 完成后再次配图会追加新槽位，不替换既有图片；切换 Provider 也遵守同一入口约束。
     if (listActiveSwipeDrawRunMarkers(message).length > 0) {
         throw new DrawRunProductionError(
             '该楼层当前版本已有后台画图任务，请等待完成或先取消。',

@@ -31,8 +31,6 @@ import { stripDrawImageSlots } from "../../shared/image-marker-syntax.js";
 import {
     commitRecoverableScenePlacements,
     commitSceneSlotDelivery,
-    commitSceneSlotReplacement,
-    getSceneSlotIds,
     ScenePlacementError,
     assertSceneSourceUnchanged,
     insertScenePlacementsPreservingSlots,
@@ -4002,7 +4000,6 @@ export async function generateAndInsertImages({
             throw new ScenePlacementError('该楼层正在编辑，请保存或取消编辑后再配图。', 'SCENE_MESSAGE_EDITING');
         }
         const originalMes = message.mes;
-        const replacedSlotIds = getSceneSlotIds(originalMes);
         const slotIds = tasks.map(() => generateSlotId());
         const results = new Array(tasks.length);
         let successCount = 0;
@@ -4054,6 +4051,7 @@ export async function generateAndInsertImages({
         }
         syncRenderedMessage();
         renderPendingSlots();
+        await renderPreviewsForMessage(resolvedMessageId);
 
         job.phase = 'gen';
         onStateChange?.('gen', { current: 0, total: tasks.length });
@@ -4116,7 +4114,6 @@ export async function generateAndInsertImages({
                 chatId: String(initialChatId || ''),
                 messageId: String(resolvedMessageId),
             },
-            replacedSlotIds,
             gallery: {
                 chatId: String(initialChatId || ''),
                 characterName: String(message.name || ''),
@@ -4185,7 +4182,7 @@ export async function generateAndInsertImages({
             }
             await Promise.all([...messageIds].map(currentMessageId => renderPreviewsForMessage(
                 currentMessageId,
-                final ? { refreshSlotIds: [...new Set([...slotIds, ...replacedSlotIds])] } : undefined,
+                final ? { refreshSlotIds: slotIds } : undefined,
             )));
         };
         const renderRemovedTargets = async (targets, removedSlotIds) => {
@@ -4269,17 +4266,6 @@ export async function generateAndInsertImages({
                         errorMessage: errorType.desc,
                     }));
                 }
-            }
-            if (replacedSlotIds.length > 0) {
-                const removedTargets = await commitImageJobDeliverySlotRemoval({
-                    slotIds: replacedSlotIds,
-                    resolveTarget: resolveDeliveryTarget,
-                    isEditing: isMessageBeingEdited,
-                    isAnyEditing: isAnyMessageBeingEdited,
-                    guard,
-                    persist: persistChatSilently,
-                });
-                await renderRemovedTargets(removedTargets, replacedSlotIds).catch(() => {});
             }
         };
         const resolveBackendSettlement = ({ error } = {}) => {
@@ -4411,16 +4397,11 @@ export async function generateAndInsertImages({
         }
         if (!placementLifecycle.committedEarly) {
             try {
-                await commitSceneSlotReplacement({
-                    message,
-                    stagedText: plannedMes,
-                    replacedSlotIds,
-                    persist: persistChatSilently,
-                });
-                if (replacedSlotIds.length > 0) requiresFinalDomSync = true;
+                setActiveMessageText(message, plannedMes);
+                await persistChatSilently();
             } catch (error) {
                 requiresFinalDomSync = true;
-                console.warn('[SD Draw] 替换旧图片槽位的保存未确认，已保留旧槽位:', error);
+                console.warn('[SD Draw] 追加图片槽位的保存未确认，当前排版仍保留:', error);
             }
         }
         if (shouldUpdateDom && requiresFinalDomSync) {

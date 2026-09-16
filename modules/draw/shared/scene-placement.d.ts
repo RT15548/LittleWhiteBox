@@ -18,8 +18,6 @@ export declare function assertSceneSourceUnchanged(sourceText: string, expectedH
 
 export declare function isSceneSlotAlive(currentText: string, slotId: string): boolean;
 
-export declare function getSceneSlotIds(sourceText: string): string[];
-
 export declare function setActiveMessageText(message: {
     mes?: string;
     swipe_id?: number;
@@ -65,13 +63,6 @@ export declare function commitRecoverableScenePlacements(options: {
     persist?: () => Promise<unknown> | unknown;
     syncAfterRollback?: (messageText: string) => Promise<unknown> | unknown;
 }): Promise<boolean>;
-
-export declare function commitSceneSlotReplacement(options: {
-    message: { mes?: string; swipe_id?: number; swipes?: string[] };
-    stagedText: string;
-    replacedSlotIds?: string[];
-    persist?: () => Promise<unknown> | unknown;
-}): Promise<string>;
 
 export declare function commitSceneSlotDelivery(options: {
     committedEarly?: boolean;

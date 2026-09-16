@@ -16,7 +16,7 @@ import {
     getDrawRunMarkerText,
     setDrawRunMarkerText,
 } from './draw-run-markers.js';
-import { getSceneSlotIds, insertScenePlacementsPreservingSlots, isSceneSlotAlive } from './scene-placement.js';
+import { insertScenePlacementsPreservingSlots, isSceneSlotAlive } from './scene-placement.js';
 import { hashSceneSource, normalizeMessageSceneSourceText } from './scene-source.js';
 
 const defaultJournal = {
@@ -141,7 +141,6 @@ async function acquireRecord({ handoff, marker, resolveTarget, chatTarget, journ
 
     const target = currentTarget(resolveTarget, handoff.runId, marker);
     if (!target) return { record: null, owned: false };
-    const manifestSlots = new Set(handoff.items.map(item => item.slotId));
     record = await journal.create({
         jobId: handoff.childJobId,
         provider: handoff.provider,
@@ -155,7 +154,6 @@ async function acquireRecord({ handoff, marker, resolveTarget, chatTarget, journ
             messageId: String(target.messageId),
             swipeIndex: target.swipeIndex,
         },
-        replacedSlotIds: getSceneSlotIds(target.sourceText).filter(slotId => !manifestSlots.has(slotId)),
         gallery: {
             chatId: String(target.chatId || ''),
             messageId: String(target.messageId),

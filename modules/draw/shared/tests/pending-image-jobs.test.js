@@ -34,7 +34,6 @@ function newRecord(jobId) {
         provider: 'novelai',
         delivery: { mode: 'slots', chatId: 'chat-1', messageId: '4' },
         sourceHash: 'obsolete-hash',
-        replacedSlotIds: ['old-a', 'old-a', 'old-b'],
         gallery: {},
         items: [{ index: 0, slotId: `slot-${jobId}`, imgId: `img-${jobId}`, previewMetadata: {} }],
     };
@@ -147,10 +146,10 @@ test('a control page can persist Draw Run child cancellation without owning the 
     await forgetPendingImageJob(jobId, adoptionLeaseId);
 });
 
-test('journal keeps replacement ownership but drops unused source snapshots', async () => {
+test('journal keeps this batch items but drops unused source snapshots', async () => {
     const jobId = `normalized-fields-${Date.now()}`;
     const record = await recordPendingImageJob(newRecord(jobId));
-    assert.deepEqual(record.replacedSlotIds, ['old-a', 'old-b']);
+    assert.deepEqual(record.items.map(item => item.slotId), [`slot-${jobId}`]);
     assert.equal('sourceHash' in record, false);
     await forgetPendingImageJob(jobId, record.leaseId);
 });

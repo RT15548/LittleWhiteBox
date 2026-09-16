@@ -125,7 +125,7 @@ function previewOptions(record, item, target) {
     };
 }
 
-async function renderRecord(record, { final = false } = {}) {
+async function renderRecord(record) {
     if (record.delivery?.mode !== 'slots') return;
     const slotsByMessage = new Map();
     for (const item of record.items) {
@@ -137,11 +137,7 @@ async function renderRecord(record, { final = false } = {}) {
     }
     await Promise.all([...slotsByMessage].map(([messageId, slotIds]) => renderPreviewsForMessage(
         messageId,
-        {
-            refreshSlotIds: final
-                ? [...new Set([...slotIds, ...(record.replacedSlotIds || [])])]
-                : slotIds,
-        },
+        { refreshSlotIds: slotIds },
     )));
 }
 
@@ -244,7 +240,6 @@ function createDeliveryAdapter() {
                     await this.failItem(record, item, errorType, guard);
                 }
             }
-            if (settlement.mode !== 'discard') slotsToRemove.push(...(record.replacedSlotIds || []));
             let removedTargets = [];
             if (slotsToRemove.length > 0) {
                 const saveContext = getContext();
@@ -352,7 +347,7 @@ function createDeliveryAdapter() {
             // 终态来自已落库图片，不依赖当前聊天是否挂载、DOM 是否可重建。
             // UI 投影失败仍可由 CHAT_CHANGED / 消息渲染 / 缓存事件重试，不能反过来
             // 吞掉已经完成这一事实。
-            await renderRecord(record, { final: true });
+            await renderRecord(record);
         },
     };
 }

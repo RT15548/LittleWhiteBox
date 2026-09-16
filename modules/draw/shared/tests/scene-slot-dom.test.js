@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { parseHTML } from 'linkedom';
-import { replaceSceneSlotElements } from '../scene-slot-dom.js';
+import { getRenderedSceneSlotIds, replaceSceneSlotElements } from '../scene-slot-dom.js';
 
 function message(markup) {
     const { document } = parseHTML(`<html><body><div id="message">${markup}</div></body></html>`);
@@ -104,4 +104,55 @@ test('slot syntax uses the existing marker contract and skips text inside image 
     assert.deepEqual([...rendered], ['slot-a']);
     assert.equal(root.textContent, '[image:nested]BEFOREIMAGEAFTER');
     assert.equal(root.querySelectorAll('.xb-nd-img').length, 2);
+});
+
+test('markers split by line breaks and inline wrappers preserve outside breaks and live elements', () => {
+    const root = message('<p>BEFORE<br id="before">[im<span>age\t<br>:<br>slot-a</span>]<br id="after"><button>AFTER</button></p>');
+    const wrapper = root.querySelector('span');
+    const before = root.querySelector('#before');
+    const after = root.querySelector('#after');
+    const button = root.querySelector('button');
+    let clicks = 0;
+    button.addEventListener('click', () => { clicks += 1; });
+
+    assert.deepEqual([...getRenderedSceneSlotIds(root)], ['slot-a']);
+    assert.deepEqual([...replaceSceneSlotElements(root, [card('slot-a')])], ['slot-a']);
+
+    assert.equal(root.textContent, 'BEFOREIMAGEAFTER');
+    assert.deepEqual([...root.querySelectorAll('br')], [before, after]);
+    assert.equal(root.contains(wrapper), true);
+    assert.equal(root.querySelector('button'), button);
+    button.click();
+    assert.equal(clicks, 1);
+    assert.deepEqual([...getRenderedSceneSlotIds(root)], ['slot-a']);
+});
+
+test('multiple split markers sharing text nodes retain order and replace only the first occurrence', () => {
+    const root = message('A[image:<br>one]B[image:<br>two]C[image:three]D[image:one]E');
+
+    replaceSceneSlotElements(root, [card('three', '3'), card('two', '2'), card('one', '1')]);
+
+    assert.equal(root.textContent, 'A1B2C3D[image:one]E');
+    assert.equal(root.querySelectorAll('br').length, 0);
+    assert.deepEqual([...root.querySelectorAll('.xb-nd-img')].map(node => node.dataset.slotId), ['one', 'two', 'three']);
+});
+
+test('paragraph boundaries are whitespace, not missing characters within marker names or ids', () => {
+    const root = message('<p>BEFORE[image</p><p>: slot-a]AFTER</p><p>[im</p><p>age:wrong]</p><p>[image:bad</p><p>-id]</p>');
+    const paragraphs = [...root.querySelectorAll('p')];
+
+    assert.deepEqual([...getRenderedSceneSlotIds(root)], ['slot-a']);
+    assert.deepEqual([...replaceSceneSlotElements(root, [card('slot-a'), card('wrong'), card('bad-id')])], ['slot-a']);
+    assert.deepEqual([...root.querySelectorAll('p')], paragraphs);
+    assert.equal(root.textContent, 'BEFOREIMAGEAFTER[image:wrong][image:bad-id]');
+});
+
+test('cards, controls and media are opaque boundaries for both detection and replacement', () => {
+    const root = message('<p>[image:<button></button>button-gap]</p><p>[image:<img src="local.png">image-gap]</p><p>[image:<div class="xb-nd-img" data-slot-id="existing">[image:nested]</div>card-gap]</p><button>[image:button-label]</button><textarea>[image:editor]</textarea><div data-marker="[image:attribute]"></div>');
+    const markup = root.innerHTML;
+
+    assert.deepEqual([...getRenderedSceneSlotIds(root)], ['existing']);
+    const candidates = ['button-gap', 'image-gap', 'card-gap', 'nested', 'button-label', 'editor', 'attribute'];
+    assert.equal(replaceSceneSlotElements(root, candidates.map(slotId => card(slotId))).size, 0);
+    assert.equal(root.innerHTML, markup);
 });

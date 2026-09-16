@@ -266,9 +266,6 @@ export function normalizePendingImageJob(source) {
         } : {}),
         delivery,
         adoptionPhase,
-        replacedSlotIds: [...new Set((Array.isArray(source?.replacedSlotIds) ? source.replacedSlotIds : [])
-            .map(value => normalizeText(value).trim())
-            .filter(Boolean))],
         state,
         leaseExpiresAt: Number.isFinite(lease) ? lease : 0,
         createdAt: Number.isFinite(Number(source?.createdAt)) ? Number(source.createdAt) : Date.now(),

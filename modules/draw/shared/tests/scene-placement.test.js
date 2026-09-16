@@ -11,14 +11,13 @@ import {
     ScenePlacementError,
     assertSceneSourceUnchanged,
     commitRecoverableScenePlacements,
-    commitSceneSlotReplacement,
     commitSceneSlotDelivery,
     commitSettledScenePlacements,
-    getSceneSlotIds,
     insertScenePlacements,
     insertScenePlacementsPreservingSlots,
     isSceneSlotAlive,
     removeSceneSlotPlaceholders,
+    setActiveMessageText,
 } from '../scene-placement.js';
 
 test('scene source keeps original offsets while hiding image markers and filtered sections', () => {
@@ -60,7 +59,6 @@ test('message Scene Source normalization removes only provider image placeholder
         '正文。[ebook-image:keep][tavern-image:keep]',
     );
     assert.equal(normalizeMessageSceneSourceText('正文。[image : slot-1]'), '正文。');
-    assert.deepEqual(getSceneSlotIds('正文。[image : slot-1]'), ['slot-1']);
 });
 
 test('scene source ignores punctuation that is not a safe illustration boundary', () => {
@@ -141,7 +139,6 @@ test('recoverable placement stages new slots without removing existing image slo
     }], { block: true });
 
     assert.equal(result, '第一段。[image:old-slot]第二段。\n[image:new-slot]');
-    assert.deepEqual(getSceneSlotIds(result), ['old-slot', 'new-slot']);
 });
 
 test('scene placement rejects changed text and foreign placements without a tail fallback', () => {
@@ -261,36 +258,36 @@ test('recoverable placement keeps the active swipe synchronized during commit an
     assert.deepEqual(message.swipes, ['other', 'story']);
 });
 
-test('local replacement persists the safe superset before deleting old slots', async () => {
-    const message = { mes: 'story\n[image:old]' };
-    const snapshots = [];
-    await commitSceneSlotReplacement({
-        message,
-        stagedText: 'story\n[image:old]\n[image:new]',
-        replacedSlotIds: ['old'],
-        persist: () => { snapshots.push(message.mes); },
-    });
+test('adding two images keeps the three existing slots in place for every local settlement', () => {
+    const original = '第一段。[image:old-1]第二段。[image:old-2]第三段。[image:old-3]尾声。';
+    const source = createSceneSource(normalizeMessageSceneSourceText(original));
+    const planned = insertScenePlacementsPreservingSlots(original, ['new-1', 'new-2'].map(slotId => ({
+        placement: { mode: 'source', offset: source.points[1].offset, sourceHash: source.sourceHash },
+        content: `[image:${slotId}]`,
+    })));
+    assert.equal(planned, '第一段。[image:old-1]第二段。[image:old-2][image:new-1][image:new-2]第三段。[image:old-3]尾声。');
 
-    assert.deepEqual(snapshots, [
-        'story\n[image:old]\n[image:new]',
-        'story\n[image:new]',
-    ]);
-    assert.equal(message.mes, 'story\n[image:new]');
+    // 成功和失败卡都属于已交付结果；取消/中断只丢弃本批没有结果的槽位。
+    for (const settledSlotIds of [[], ['new-1'], ['new-2'], ['new-1', 'new-2']]) {
+        const message = { mes: original, swipe_id: 1, swipes: ['另一版本', original] };
+        setActiveMessageText(message, commitSettledScenePlacements(planned, {
+            allSlotIds: ['new-1', 'new-2'], settledSlotIds,
+        }));
+        assert.equal(removeSceneSlotPlaceholders(message.mes, ['new-1', 'new-2']), original);
+        for (const slotId of ['new-1', 'new-2']) {
+            assert.equal(isSceneSlotAlive(message.mes, slotId), settledSlotIds.includes(slotId));
+        }
+        assert.deepEqual(message.swipes, ['另一版本', message.mes]);
+    }
 });
 
-test('local replacement restores the safe superset when deleting old slots has an uncertain save result', async () => {
-    const message = { mes: 'story\n[image:old]' };
-    let saves = 0;
-    await assert.rejects(commitSceneSlotReplacement({
-        message,
-        stagedText: 'story\n[image:old]\n[image:new]',
-        replacedSlotIds: ['old'],
-        persist: () => {
-            if (++saves === 2) throw new Error('response lost');
-        },
-    }));
-
-    assert.equal(message.mes, 'story\n[image:old]\n[image:new]');
+test('tail additions follow existing trailing slots, including an image-only message', () => {
+    for (const original of ['正文。\n[image:old-1][image:old-2]', '[image:old-1][image:old-2]']) {
+        assert.equal(insertScenePlacementsPreservingSlots(original, [
+            { placement: { mode: 'tail' }, content: '[image:new-1]' },
+            { placement: { mode: 'tail' }, content: '[image:new-2]' },
+        ], { block: true }), `${original}\n[image:new-1]\n[image:new-2]`);
+    }
 });
 
 test('scene slot delivery rolls back only its own facts when the slot is deleted mid-write', async () => {

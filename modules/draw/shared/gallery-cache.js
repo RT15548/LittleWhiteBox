@@ -765,13 +765,13 @@ export async function getDisplayPreviewForSlot(slotId) {
     if (selectedImgId) {
         const selectedFailure = failedPreviews.find(p => p.imgId === selectedImgId);
         if (selectedFailure) return asFailure(selectedFailure);
-        const selected = successPreviews.find(p => p.imgId === selectedImgId);
-        if (selected) {
-            return { preview: selected, historyCount: successPreviews.length, hasData: true, isFailed: false };
+        const currentIndex = successPreviews.findIndex(p => p.imgId === selectedImgId);
+        if (currentIndex >= 0) {
+            return { preview: successPreviews[currentIndex], currentIndex, historyCount: successPreviews.length, hasData: true, isFailed: false };
         }
     }
     
-    return { preview: successPreviews[0], historyCount: successPreviews.length, hasData: true, isFailed: false };
+    return { preview: successPreviews[0], currentIndex: 0, historyCount: successPreviews.length, hasData: true, isFailed: false };
 }
 
 export async function getLatestPreviewForSlot(slotId) {

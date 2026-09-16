@@ -43,14 +43,6 @@ function escapeRegex(value) {
     return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-export function getSceneSlotIds(sourceText) {
-    const ids = [];
-    const regex = createDrawImageSlotRegex();
-    let match;
-    while ((match = regex.exec(String(sourceText ?? ''))) !== null) ids.push(match[1]);
-    return [...new Set(ids)];
-}
-
 export function setActiveMessageText(message, text) {
     const value = String(text ?? '');
     if (!message || typeof message !== 'object') return value;
@@ -122,28 +114,6 @@ export async function commitRecoverableScenePlacements({
         } catch (syncError) {
             console.warn('[ScenePlacement] 占位符保存失败后的界面同步未完成:', syncError);
         }
-        throw error;
-    }
-}
-
-export async function commitSceneSlotReplacement({
-    message,
-    stagedText,
-    replacedSlotIds = [],
-    persist,
-} = {}) {
-    setActiveMessageText(message, stagedText);
-    await persist?.();
-
-    const replacementText = removeSceneSlotPlaceholders(message?.mes, replacedSlotIds);
-    if (replacementText === message?.mes) return replacementText;
-    setActiveMessageText(message, replacementText);
-    try {
-        await persist?.();
-        return replacementText;
-    } catch (error) {
-        // 第二次保存结果未知。内存退回“旧图 + 新图”这一安全超集，绝不因响应丢失而抹掉旧图。
-        if (message?.mes === replacementText) setActiveMessageText(message, stagedText);
         throw error;
     }
 }
@@ -222,8 +192,8 @@ export function insertScenePlacements(sourceText, insertions = [], options = {})
     return result;
 }
 
-// 新一批占位符先与旧图片槽位共存。旧槽位只有在整批结果完成并成功保存后才会删除，
-// 因而保存响应丢失或生成中断都不会先把用户原有图片从持久正文中抹掉。
+// 每批只追加自己的槽位，既有图片及相对正文的位置保持不变。
+// 规划 offset 基于去掉图片标记的正文；插入时须映射回带有既有标记的原文。
 export function insertScenePlacementsPreservingSlots(sourceText, insertions = [], options = {}) {
     const source = String(sourceText ?? '');
     const markerRanges = [];
@@ -240,17 +210,19 @@ export function insertScenePlacementsPreservingSlots(sourceText, insertions = []
         let removedLength = 0;
         for (const range of markerRanges) {
             const cleanRangeStart = range.start - removedLength;
-            if (cleanOffset <= cleanRangeStart) return cleanOffset + removedLength;
+            // 同一插图点已有图片时，新图排在它们之后；尾部图片也遵守追加顺序。
+            if (cleanOffset < cleanRangeStart) return cleanOffset + removedLength;
             removedLength += range.end - range.start;
         }
         return cleanOffset + removedLength;
     };
     const ordered = (Array.isArray(insertions) ? insertions : []).map((insertion, order) => {
         const cleanOffset = resolvePlacementOffset(cleanSource, insertion?.placement, sourceHash);
+        const offset = mapOffset(cleanOffset);
         const content = String(insertion?.content ?? '');
         return {
-            content: options.block ? wrapBlockContent(cleanSource, cleanOffset, content) : content,
-            offset: mapOffset(cleanOffset),
+            content: options.block ? wrapBlockContent(source, offset, content) : content,
+            offset,
             order,
         };
     }).sort((left, right) => right.offset - left.offset || right.order - left.order);

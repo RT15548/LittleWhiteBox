@@ -114,7 +114,7 @@ function createJournalKeeper({ journal, jobId, leaseId }) {
 
 // 提交一批可恢复的后台生图任务。
 //
-// plan 描述「这批任务的槽位事实」：{ chatId, messageId, replacedSlotIds, gallery, items }，
+// plan 描述「这批任务的槽位事实」：{ delivery, gallery, items }，
 // 其中 items 的 slotId 必须与 commitPlacements 即将写入正文的占位符一致，imgId 必须预先
 // 分配好——预分配是重复落库天然幂等的前提，接回时按同一个 imgId 落库不会产生重复图片。
 //

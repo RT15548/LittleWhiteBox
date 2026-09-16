@@ -15,9 +15,9 @@ const CHAT_TARGET = {
     body: { ch_name: 'Alice', file_name: 'chat-1', avatar_url: 'alice.png' },
 };
 
-function fixture() {
-    const sourceHash = hashSceneSource(normalizeMessageSceneSourceText(SOURCE));
-    const targetHash = hashSceneSource(SOURCE);
+function fixture(sourceText = SOURCE) {
+    const sourceHash = hashSceneSource(normalizeMessageSceneSourceText(sourceText));
+    const targetHash = hashSceneSource(sourceText);
     const ids = deriveDrawRunItemIds(RUN_ID, 0);
     const marker = {
         version: 1,
@@ -51,9 +51,9 @@ function fixture() {
     };
     const message = {
         name: 'Alice',
-        mes: SOURCE,
+        mes: sourceText,
         swipe_id: 0,
-        swipes: [SOURCE],
+        swipes: [sourceText],
     };
     const target = {
         runId: RUN_ID,
@@ -165,6 +165,38 @@ test('a dispatched child persists its slots before becoming an active image jour
         'Alice',
     );
     assert.equal(renderedAfterSave, true);
+});
+
+test('Draw Run adoption adds two slots without moving three existing images and is idempotent', async () => {
+    const original = 'Alpha.[image:old-1] Beta.[image:old-2][image:old-3]';
+    const { marker, message, run, target } = fixture(original);
+    run.handoffManifest.items.push({
+        ...run.handoffManifest.items[0],
+        index: 1,
+        ...deriveDrawRunItemIds(RUN_ID, 1),
+    });
+    const journal = createJournal();
+    const saved = [];
+    const options = {
+        run, marker, journal, chatTarget: CHAT_TARGET, now: () => 0,
+        resolveTarget: () => target,
+        confirmSlots() { saved.push(message.mes); },
+    };
+    const first = await adoptExistingJobFromDrawRun(options);
+    assert.equal(first.status, 'ready');
+    const [a, b] = run.handoffManifest.items.map(item => item.slotId);
+    const expected = `Alpha.[image:old-1]\n[image:${a}]\n\n[image:${b}]\n Beta.[image:old-2][image:old-3]`;
+    assert.equal(message.mes, expected);
+    assert.equal(message.swipes[0], expected);
+    assert.deepEqual(saved, [expected]);
+    assert.deepEqual(first.record.items.map(item => item.slotId), [a, b]);
+
+    await journal.release(first.record.jobId, first.record.leaseId);
+    const replay = await adoptExistingJobFromDrawRun(options);
+    assert.equal(replay.status, 'ready');
+    assert.equal(replay.inserted, false);
+    assert.equal(message.mes, expected);
+    assert.deepEqual(saved, [expected]);
 });
 
 test('a pre-save chat conflict restores the local text and leaves adoption recoverable', async () => {

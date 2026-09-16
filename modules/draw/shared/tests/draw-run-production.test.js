@@ -138,7 +138,7 @@ test('switching image provider cannot start a second Draw Run on the same active
     assert.equal(statusChecks, 0);
 });
 
-test('a persisted image journal with a live slot blocks replacement before Planner admission', async () => {
+test('a persisted image journal with a live slot blocks a second batch before Planner admission', async () => {
     let statusChecks = 0;
     let prepared = 0;
     await assert.rejects(
