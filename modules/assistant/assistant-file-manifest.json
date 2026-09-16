@@ -7034,7 +7034,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/dice/host/message-display.ts",
       "relativePath": "modules/xiaobai-os/apps/dice/host/message-display.ts",
       "extension": ".ts",
-      "sizeBytes": 12323
+      "sizeBytes": 12269
     },
     {
       "source": "littlewhitebox",
@@ -11207,6 +11207,13 @@
       "relativePath": "modules/xiaobai-os/tests/dice-marker-display.test.js",
       "extension": ".js",
       "sizeBytes": 4397
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/tests/dice-message-display.test.js",
+      "relativePath": "modules/xiaobai-os/tests/dice-message-display.test.js",
+      "extension": ".js",
+      "sizeBytes": 5074
     },
     {
       "source": "littlewhitebox",

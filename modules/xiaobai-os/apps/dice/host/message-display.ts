@@ -56,8 +56,8 @@ export function createDiceMessageDisplay(runtime: Runtime, enabled: () => boolea
         try {
             const source = captureDiceChat();
             const active = runtime.view();
-            const chat = document.getElementById('chat');
-            const following = active && chat && chat.scrollHeight - chat.clientHeight - chat.scrollTop <= 24;
+            // The host owns stream following. Its temporary marker-only layout cannot
+            // tell us whether the reader left the bottom; only reveal() positions a new die.
             for (const root of document.querySelectorAll<HTMLElement>('#chat .mes')) {
                 const index = Number(root.getAttribute('mesid'));
                 const message = source?.chat[index];
@@ -157,7 +157,6 @@ export function createDiceMessageDisplay(runtime: Runtime, enabled: () => boolea
                 }
                 content.querySelectorAll<HTMLElement>(OWN).forEach(node => { if (!wanted.has(node)) { node.remove(); } });
             }
-            if (following) { chat.scrollTop = chat.scrollHeight; }
         } finally { observe(); }
     }
     function observe(): void {
