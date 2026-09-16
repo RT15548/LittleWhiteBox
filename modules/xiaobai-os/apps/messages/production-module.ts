@@ -21,7 +21,7 @@ export function createProductionMessagesModule(mainGeneration: MainGenerationRun
     return createMessagesModule(async (service, agent) => {
         const getSettings = () => settings.read()!.apps.messages;
         const chat = createMessagesChatAdapter(mainGeneration.isActive);
-        const context = createMessagesContext(chat.port);
+        const context = createMessagesContext(chat.port, () => service.current().segments);
         const id = createMessageId;
         const timeline = createMessagesTimeline(service, chat.port, id);
         const modifications = createMessagesModifications(service, timeline, chat.port, id);

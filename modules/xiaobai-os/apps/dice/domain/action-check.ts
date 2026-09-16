@@ -1,7 +1,8 @@
-export const ACTION_CHECK_DC = Object.freeze({
-    easy: 5, ordinary: 10, hard: 15, very_hard: 20, nearly_impossible: 21,
-});
-export type ActionCheckDifficulty = keyof typeof ACTION_CHECK_DC;
+export const ACTION_CHECK_DC_RANGES = Object.freeze({
+    easy: { min: 2, max: 5 }, ordinary: { min: 6, max: 10 }, hard: { min: 11, max: 15 },
+    very_hard: { min: 16, max: 20 }, nearly_impossible: { min: 21, max: 21 },
+} as const);
+export type ActionCheckDifficulty = keyof typeof ACTION_CHECK_DC_RANGES;
 export type ActionCheckOutcome = 'critical_failure' | 'failure' | 'success' | 'critical_success';
 
 export interface ActionCheckRequest {
@@ -29,7 +30,7 @@ export function parseActionCheckRequest(value: unknown): ActionCheckRequest {
     if (Object.keys(input).some(key => key !== 'difficulty' && !Object.hasOwn(ACTION_CHECK_REQUEST_FIELDS, key))) {
         throw new TypeError('dice_request_unknown_field');
     }
-    if (typeof input.difficulty !== 'string' || !Object.hasOwn(ACTION_CHECK_DC, input.difficulty)) {
+    if (typeof input.difficulty !== 'string' || !Object.hasOwn(ACTION_CHECK_DC_RANGES, input.difficulty)) {
         throw new TypeError('dice_request_difficulty_invalid');
     }
     const fields: Record<string, string> = {};
@@ -46,18 +47,25 @@ export function parseActionCheckRequest(value: unknown): ActionCheckRequest {
         ...(fields.stakes === undefined ? {} : { stakes: fields.stakes }) };
 }
 
-export function resolveActionCheck(difficulty: ActionCheckDifficulty, roll: number): ActionCheckResult {
-    if (!Object.hasOwn(ACTION_CHECK_DC, difficulty) || !Number.isInteger(roll) || roll < 1 || roll > 20) {
+export function resolveActionCheck(dc: number, roll: number): ActionCheckResult {
+    if (!Number.isInteger(dc) || dc < 2 || dc > 21 || !Number.isInteger(roll) || roll < 1 || roll > 20) {
         throw new TypeError('dice_result_invalid');
     }
-    const dc = ACTION_CHECK_DC[difficulty];
     const outcome = roll === 1 ? 'critical_failure' : roll === 20 ? 'critical_success'
         : roll >= dc ? 'success' : 'failure';
     return { roll, dc, outcome };
 }
 
-export function rollActionCheck(difficulty: ActionCheckDifficulty, random: () => number = Math.random): ActionCheckResult {
+function randomInteger(min: number, max: number, random: () => number): number {
     const sample = random();
     if (!Number.isFinite(sample) || sample < 0 || sample >= 1) { throw new TypeError('dice_random_invalid'); }
-    return resolveActionCheck(difficulty, Math.floor(sample * 20) + 1);
+    return min + Math.floor(sample * (max - min + 1));
+}
+
+export function rollActionCheck(difficulty: ActionCheckDifficulty, random: () => number = Math.random): ActionCheckResult {
+    if (!Object.hasOwn(ACTION_CHECK_DC_RANGES, difficulty)) { throw new TypeError('dice_request_difficulty_invalid'); }
+    const { min, max } = ACTION_CHECK_DC_RANGES[difficulty];
+    const dc = randomInteger(min, max, random);
+    const roll = randomInteger(1, 20, random);
+    return resolveActionCheck(dc, roll);
 }

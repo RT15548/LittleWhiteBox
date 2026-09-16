@@ -40,12 +40,12 @@ export async function generateMessageReply(deps: SendDependencies, input: {
     while (archive.length) {
         input.stage('summarizing');
         let batch = archive;
-        while (await count(buildSummaryPrompt(contact, batch, meteringImages(batch))) > SUMMARY_TRIGGER) {
+        while (await count(buildSummaryPrompt(contact, batch, background.chronology, meteringImages(batch))) > SUMMARY_TRIGGER) {
             if (batch.length === 1) {throw new Error('messages_context_capacity');}
             batch = batch.slice(0, Math.ceil(batch.length / 2));
         }
         const images = await loadImages(batch);
-        const response = await session.run({ ...buildSummaryPrompt(contact, batch, images), tools: [], signal: input.signal }); assertCurrent();
+        const response = await session.run({ ...buildSummaryPrompt(contact, batch, background.chronology, images), tools: [], signal: input.signal }); assertCurrent();
         const summary = { throughSeq: batch.at(-1)!.seq, text: compileSummary(response) };
         const previous = contact.summary;
         contact.summary = summary;

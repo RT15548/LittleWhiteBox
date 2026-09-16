@@ -5,6 +5,7 @@ import { createTransactionCoordinator } from '../../kernel/transaction-coordinat
 import { MESSAGES_PARTITION } from '../../apps/messages/partition.js';
 import { createMessagesService } from '../../apps/messages/application/service.js';
 import { createMessagesTimeline } from '../../apps/messages/application/timeline.js';
+import { projectCommunicationChronology } from '../../apps/messages/application/communication-chronology.js';
 import { sendPrivateMessage } from '../../apps/messages/application/send.js';
 import { addContact } from '../../domains/messages/commands.js';
 import { createMessagesModifications } from '../../apps/messages/application/modifications.js';
@@ -68,7 +69,9 @@ export async function harness(seed) {
         h.images.set(path, Buffer.from(data, 'base64'));
         return path;
     }, async path => h.images.has(path) ? new Response(h.images.get(path)) : new Response(null, { status: 404 }));
-    const deps = { service, timeline, modifications: createMessagesModifications(service, timeline, chat, id), images, context: { capture: async () => ({ ...normalizePromptContext({}), people: [] }) },
+    const deps = { service, timeline, modifications: createMessagesModifications(service, timeline, chat, id), images,
+        context: { capture: async (_contact, history, incoming) => ({ ...normalizePromptContext({}), people: [],
+            chronology: projectCommunicationChronology(service.current().segments, h.messages, history, incoming) }) },
         countTokens: async options => ({ tokens: estimateConversationTokens(options), source: 'tokenizer' }),
         getSettings: () => settings.read().apps.messages,
         async saveSettings(value) {await settings.setMessagesCapabilities(value);}, subscribeSettings: settings.subscribe,

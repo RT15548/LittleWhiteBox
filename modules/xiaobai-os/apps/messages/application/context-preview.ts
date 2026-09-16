@@ -11,5 +11,5 @@ export async function previewMessageContext(deps: Pick<SendDependencies, 'contex
     const context = await deps.context.capture(contact, history, incoming);
     const recent = history.filter(message => message.seq > (contact.summary?.throughSeq ?? 0));
     const prompt = buildReplyPrompt({ contact, context, history: recent, incoming, images: meteringImages(recent), settings: deps.getSettings() });
-    return estimateContext(prompt, contact, recent);
+    return estimateContext(prompt, contact, recent, context);
 }

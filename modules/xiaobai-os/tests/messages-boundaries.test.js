@@ -26,9 +26,9 @@ test('closing media during cache lookup prevents subsequent generation and late 
     const media = createMessagesMedia(() => ({ xiaobaixDraw: {
         getStatus: () => ({ enabled: true, ready: true }),
         checkGeneratedImageCache: () => new Promise(resolve => {release = resolve;}),
-        generateSharedImage: async () => {calls++; return 'data:image/png;base64,AAAA';},
+        generateSharedImage: async () => {calls++; return 'AAAA';},
     } }));
-    const pending = media.image({ id: 'image', payload: { type: 'image', description: '茶杯' } }, true);
+    const pending = media.image({ id: 'image', payload: { type: 'image', description: '茶杯' } }, { requestId: 'closing' });
     media.cancelAll(); release(null);
     await assert.rejects(pending, /media_cancelled/);
     assert.equal(calls, 0);
@@ -55,8 +55,9 @@ test('optional media failures and unsafe cached image URLs do not break text com
     const media = createMessagesMedia(() => ({ xiaobaixDraw: {
         getStatus: () => ({ enabled: true, ready: true }),
         checkGeneratedImageCache: async () => 'https://untrusted.example/tracker.png',
+        generateSharedImage: async () => 'AAAA',
     } }));
-    assert.equal(await media.image({ id: 'image', payload: { type: 'image', description: '茶杯' } }, false), null);
+    assert.equal(await media.image({ id: 'image', payload: { type: 'image', description: '茶杯' } }, { requestId: 'unsafe-cache' }), 'data:image/png;base64,AAAA');
 });
 
 test('excluded communications stay out of recent story and worldbook scanning without renumbering or changing turn count', async () => {

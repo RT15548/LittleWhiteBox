@@ -57,7 +57,8 @@ export function createMessagesTimeline(service: MessagesService, chat: MessagesC
 
     async function select(guard: () => boolean): Promise<string> {
         await seal(observe(), guard);
-        const open = service.current().segments.filter(segment => intact(segment)).at(-1);
+        // A recovery projection only re-records old messages; new sends need their own timepoint.
+        const open = service.current().segments.filter(segment => !segment.recovered && intact(segment)).at(-1);
         if (open) {return open.id;}
         const next = id(); createdHere.add(next); return next;
     }

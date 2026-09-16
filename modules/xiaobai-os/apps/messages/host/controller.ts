@@ -173,7 +173,7 @@ export function createMessagesController(deps: MessagesControllerDependencies): 
                     return await exclusive(async () => {await modifications.recover(guard); await syncCurrentMessages(service, timeline, guard); runtime.clearError(); return state();});
                 case 'messages/recover':
                     return await exclusive(async () => {await service.refresh(); await modifications.recover(guard); await timeline.recover(guard); runtime.clearError(); return state();});
-                case 'messages/image/check':
+                case 'messages/image/cancel': media.cancelImage(string('mediaRequestId')); return {};
                 case 'messages/image/generate':
                 case 'messages/voice/play': {
                     const id = string('messageId'); const current = activation;
@@ -183,7 +183,15 @@ export function createMessagesController(deps: MessagesControllerDependencies): 
                         media.play(selected, status => current?.post('messages/voice-state', { messageId: id, status }));
                         return { started: true };
                     }
-                    return { data: await media.image(selected, message.type === 'messages/image/generate') };
+                    const mediaRequestId = string('mediaRequestId');
+                    return { data: await media.image(selected, {
+                        requestId: mediaRequestId,
+                        onProgress(status, ahead, delay) {
+                            if (activation === current && current?.isCurrent() && pageIdentity === deps.identity()) {
+                                current.post('messages/image-progress', { messageId: id, mediaRequestId, status, ahead, delay });
+                            }
+                        },
+                    }) };
                 }
                 case 'messages/voice/stop': media.stop(); return {};
                 default: throw new Error('messages_unknown_action');
@@ -191,7 +199,14 @@ export function createMessagesController(deps: MessagesControllerDependencies): 
         } catch (cause) {
             console.warn('[LittleWhiteBox] 信息操作失败', cause);
             if (message.type === 'messages/context') {throw new Error('上下文用量暂时无法读取。');}
-            if (message.type.startsWith('messages/image/') || message.type.startsWith('messages/voice/')) {
+            if (message.type.startsWith('messages/image/')) {
+                const reason = cause instanceof Error ? cause.message : '';
+                throw new Error(reason === 'messages_image_invalid' ? '画图返回的图片数据无效。'
+                    : reason === 'messages_media_cancelled' ? '图片生成已取消。'
+                        : reason === 'messages_image_busy' ? '这张图片正在处理中。'
+                            : reason && !reason.startsWith('messages_') ? reason : '图片暂时无法读取。');
+            }
+            if (message.type.startsWith('messages/voice/')) {
                 throw new Error('媒体暂不可用，消息原文已保留。');
             }
             const code = cause instanceof Error ? cause.message : '';

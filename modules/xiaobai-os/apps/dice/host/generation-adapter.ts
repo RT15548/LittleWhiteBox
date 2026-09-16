@@ -9,6 +9,7 @@ import { hasValidCheckAnchor, parseDiceRecords } from '../domain/check-records.j
 import { createActionCheckSession } from '../application/action-check-session.js';
 import { captureDiceTarget, clearNewDiceSwipe, isDiceTargetCurrent, type DiceCandidate, type DiceTarget } from './message-records.js';
 import { createDiceMessageSave } from './message-save.js';
+import { filterDiceGenerationData, type DiceGenerationData } from './request-filter.js';
 import { captureDiceChat, diceHostContext, diceSavePort, ensureDiceDisplayRule, isDiceMessageBeingEdited, waitForDiceHost } from './sillytavern-port.js';
 
 const KEY = 'xiaobai_os_dice';
@@ -248,7 +249,11 @@ export function createDiceGenerationAdapter(enabled: () => boolean, changed: () 
                 }
             }
         }, GENERATE_INTERCEPTOR_ORDER.XIAOBAI_OS_DICE);
-        events.on(event_types.GENERATE_AFTER_DATA, (_data: unknown, dryRun: unknown) => { if (!dryRun) { clearPrompt(); } });
+        events.on(event_types.GENERATE_AFTER_DATA, (data: DiceGenerationData, dryRun: unknown) => {
+            // Saved markers remain display-only even when new checks are disabled; previews use the same projection.
+            filterDiceGenerationData(data);
+            if (!dryRun) { clearPrompt(); }
+        });
         const received = (index: number, type: string) => {
             if (intention && index === intention.target.index) { intention.received = true; }
             if (intention || observation?.stage !== 'receiving' || !MAIN_TYPES.includes(type) && type !== 'appendFinal') { return; }

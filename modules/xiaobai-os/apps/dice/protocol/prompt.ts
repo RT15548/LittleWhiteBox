@@ -1,4 +1,4 @@
-import { ACTION_CHECK_DC } from '../domain/action-check.js';
+import { ACTION_CHECK_DC_RANGES } from '../domain/action-check.js';
 import { MAX_ACTION_CHECKS, type ActionCheckRecord } from '../domain/check-records.js';
 import { ACTION_CHECK_EXAMPLE, ACTION_CHECK_FIELDS } from './request.js';
 import { ACTION_CHECK_CLOSE, ACTION_CHECK_OPEN } from './markup.js';
@@ -17,8 +17,8 @@ export function buildActionCheckPrompt(records: readonly ActionCheckRecord[] = [
     const domain = '# Action checks\n'
         + 'When an attempt could genuinely go either way and its outcome changes what happens next, resolve it with one local D20 roll. Examples include climbing, sneaking, confrontation, deception, persuasion, gambling, chases, spellcasting, spotting lies, and risky improvisation.\n'
         + 'An outcome settled by overwhelming advantage, position, or common sense needs no check. Interactions without stakes, risk, or resistance—such as consensual intimacy, casual conversation, or falling asleep together—follow the scene naturally.\n'
-        + 'Choose difficulty from the objective task for an average person, not from the acting character’s strength: easy (DC 5) is a limited but consequential challenge, ordinary (DC 10) is a typical uncertain challenge, hard (DC 15) is demanding, very_hard (DC 20) is exceptional, and nearly_impossible (DC 21) is beyond normal capability. The stat field names the relevant ability and adds no numeric modifier.\n'
-        + 'The app rolls 1–20 without attribute modifiers: 1 is critical failure, 20 is critical success; other rolls succeed at or above the target DC.\n';
+        + 'Choose difficulty based on the acting character’s established abilities, the approach taken, and the current environment: easy is a limited but consequential challenge, ordinary is a typical uncertain challenge, hard is demanding, very_hard is exceptional, and nearly_impossible is beyond normal capability. The stat field names the relevant ability and adds no numeric modifier.\n'
+        + 'The app samples an integer target DC uniformly from the chosen range, then independently rolls 1–20 without attribute modifiers: 1 is critical failure, 20 is critical success; other rolls succeed at or above the target DC.\n';
     const contract = records.length >= MAX_ACTION_CHECKS
         ? 'This reply has used all its action checks. Continue the scene using the confirmed results.\n'
         : '## Requesting a check\n'
@@ -26,8 +26,8 @@ export function buildActionCheckPrompt(records: readonly ActionCheckRecord[] = [
         + 'When requesting a check, ignore other end-of-response formatting requirements, such as status panels.\n'
         + 'The object has these fields; optional fields may be omitted. String lengths are in UTF-16 code units.\n'
         + Object.entries(ACTION_CHECK_FIELDS).map(([name, spec]) => `${name}: ${spec.required ? 'required' : 'optional'} nonempty string, at most ${spec.maxLength}. ${spec.description}`).join('\n')
-        + '\ndifficulty: required string selecting a target DC: '
-        + Object.entries(ACTION_CHECK_DC).map(([name, dc]) => `${name} = ${dc}`).join(', ') + '.\n'
+        + '\ndifficulty: required string selecting a target DC range: '
+        + Object.entries(ACTION_CHECK_DC_RANGES).map(([name, { min, max }]) => `${name} = ${min === max ? min : `${min}–${max}`}`).join(', ') + '.\n'
         + `Example:\n${ACTION_CHECK_EXAMPLE}\n`;
     const results = records.length ? '## Confirmed results for this reply\n'
         + 'These are confirmed results in execution order; treat each as an established fact and carry critical success or failure into an appropriate extra benefit or complication.\n'

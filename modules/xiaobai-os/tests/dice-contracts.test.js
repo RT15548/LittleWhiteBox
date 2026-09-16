@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ACTION_CHECK_DC, resolveActionCheck } from '../apps/dice/domain/action-check.ts';
+import { resolveActionCheck, rollActionCheck } from '../apps/dice/domain/action-check.ts';
 import { DICE_PARTITION } from '../apps/dice/partition.ts';
 import { parseDiceRecords, hasValidCheckAnchor } from '../apps/dice/domain/check-records.ts';
 import { prepareActionCheck } from '../apps/dice/application/prepare-action-check.ts';
@@ -13,12 +13,44 @@ const request = { action: '攀上墙壁', stat: '敏捷', difficulty: 'hard' };
 const block = (data = request) => `<xb_action_check>${JSON.stringify(data)}</xb_action_check>`;
 const filter = text => text.replace(new RegExp(ACTION_CHECK_DISPLAY_PATTERN, 'gm'), '$1');
 
-test('D20 thresholds and critical outcomes hold for every face at all five difficulties', () => {
-    for (const [difficulty, dc] of Object.entries(ACTION_CHECK_DC)) {
+test('D20 thresholds and critical outcomes hold for every face and every supported target', () => {
+    for (let dc = 2; dc <= 21; dc++) {
         for (let roll = 1; roll <= 20; roll++) {
             const outcome = roll === 1 ? 'critical_failure' : roll === 20 ? 'critical_success' : roll >= dc ? 'success' : 'failure';
-            assert.deepEqual(resolveActionCheck(difficulty, roll), { roll, dc, outcome });
+            assert.deepEqual(resolveActionCheck(dc, roll), { roll, dc, outcome });
         }
+    }
+});
+
+// The requested bands and independent random choices are gameplay contracts, not sampling statistics.
+test('each band maps equal random intervals to integer targets independently of the D20 roll', () => {
+    const bands = [['easy', 2, 5], ['ordinary', 6, 10], ['hard', 11, 15], ['very_hard', 16, 20], ['nearly_impossible', 21, 21]];
+    for (const [difficulty, min, max] of bands) {
+        for (let dc = min; dc <= max; dc++) {
+            for (const fraction of [0, 0.5, 0.999999]) {
+                for (let roll = 1; roll <= 20; roll++) {
+                    const samples = [(dc - min + fraction) / (max - min + 1), (roll - 0.5) / 20];
+                    const result = rollActionCheck(difficulty, () => {
+                        assert.ok(samples.length, 'a check consumes only its target and die samples');
+                        return samples.shift();
+                    });
+                    const outcome = roll === 1 ? 'critical_failure' : roll === 20 ? 'critical_success' : roll >= dc ? 'success' : 'failure';
+                    assert.deepEqual(result, { dc, roll, outcome });
+                    assert.equal(samples.length, 0);
+                }
+            }
+        }
+    }
+});
+
+test('invalid targets, rolls and random samples cannot produce check results', () => {
+    for (const dc of [1, 22, 2.5, NaN, Infinity]) assert.throws(() => resolveActionCheck(dc, 10));
+    for (const roll of [0, 21, 1.5, NaN, Infinity]) assert.throws(() => resolveActionCheck(10, roll));
+    assert.throws(() => rollActionCheck('unknown', () => assert.fail('invalid difficulty must not draw')));
+    for (const bad of [-0.01, 1, NaN, Infinity]) {
+        assert.throws(() => rollActionCheck('hard', () => bad), /dice_random_invalid/);
+        const samples = [0.3, bad];
+        assert.throws(() => rollActionCheck('hard', () => samples.shift()), /dice_random_invalid/);
     }
 });
 
@@ -86,12 +118,13 @@ test('invalid requests and the persisted eight-check limit consume no randomness
         body = candidate.body;
         records = parseDiceRecords(JSON.parse(JSON.stringify(candidate.records)));
     }
-    assert.equal(calls, 8);
+    const drawsBeforeLimit = calls;
+    assert.ok(drawsBeforeLimit > 0);
     assert.equal(records.checks.length, 8);
-    assert.ok(records.checks.every(record => record.roll === 7 && hasValidCheckAnchor(body, record)));
+    assert.ok(records.checks.every(record => record.roll === 7 && record.dc === 12 && hasValidCheckAnchor(body, record)));
     const denied = prepareActionCheck({ body: body + '\n\n' + block(), generatedFrom: body.length, records, id: 'ninth', random });
     assert.deepEqual(denied, { kind: 'invalid', error: 'dice_check_limit' });
-    assert.equal(calls, 8);
+    assert.equal(calls, drawsBeforeLimit);
     assert.equal(hasValidCheckAnchor('changed' + body, records.checks[0]), false);
     assert.equal(hasValidCheckAnchor(body + '\n后文', records.checks[0]), true);
     assert.deepEqual(projectActionCheckResults(records.checks), records.checks.map(record => ({ ...request, roll: record.roll, dc: record.dc, outcome: record.outcome })));
@@ -137,13 +170,11 @@ test('action-check prompt states genuine uncertainty, stakes, and natural no-che
     assert.match(prompt, /overwhelming advantage, position, or common sense/);
     assert.match(prompt, /without stakes, risk, or resistance/);
     assert.match(prompt, /consensual intimacy/);
-    assert.match(prompt, /objective task for an average person/);
-    assert.match(prompt, /hard \(DC 15\) is demanding/);
     assert.match(prompt, /adds no numeric modifier/);
 });
 
 test('continuation prompt resumes directly without preset opening material', () => {
-    const prompt = buildActionCheckPrompt([{ request, roll: 12, dc: ACTION_CHECK_DC.hard, outcome: 'success', id: 'x', prefixDigest: 'digest' }]);
+    const prompt = buildActionCheckPrompt([{ request, roll: 12, dc: 12, outcome: 'success', id: 'x', prefixDigest: 'digest' }]);
     assert.match(prompt, /established fact/);
     assert.match(prompt, /exact point where the attempted action paused/);
     assert.match(prompt, /next in-character prose sentence/);

@@ -146,11 +146,42 @@ test('session waits, saves, then continues; repeat completion and explicit retry
     session.accept(target);
     await Promise.all([session.drain(), session.drain()]);
     assert.equal(session.view().phase.kind, 'save-error');
-    assert.equal(randomCalls, 1); assert.equal(continuations, 0);
+    const retained = structuredClone(session.view().phase.candidate.records);
+    assert.equal(retained.checks[0].dc, 12);
+    assert.equal(retained.checks[0].roll, 7);
+    assert.equal(randomCalls, 2); assert.equal(continuations, 0);
     rejected = false;
     await session.retry(target);
-    assert.equal(randomCalls, 1); assert.equal(continuations, 1);
+    assert.equal(randomCalls, 2); assert.equal(continuations, 1);
+    assert.deepEqual(readDiceRecords(source.chat[0]), retained);
     assert.equal(session.view(), null);
+});
+
+test('a recreated session continues the saved random target and die without sampling or saving them again', async () => {
+    const { source, target, candidate } = fixture();
+    const saver = createDiceMessageSave({ capture: () => source, save: async () => ({ status: 'confirmed' }), read: async () => [] });
+    await saver.commit(target, candidate, new AbortController().signal);
+    source.chat = JSON.parse(JSON.stringify(source.chat));
+    const restored = captureDiceTarget(source, 0, 0);
+    let continuations = 0;
+    const session = createActionCheckSession({ enabled: () => true,
+        current: target => isDiceTargetCurrent(source, target), same: (a,b) => a.message === b.message && a.swipe === b.swipe,
+        ready: async () => {}, changed() {}, id: () => assert.fail('restored checks already have an ID'),
+        random: () => assert.fail('restored targets and dice must not be sampled again'),
+        save: async () => assert.fail('the restored result is already saved'),
+        reveal: async () => assert.fail('the restored result is already revealed'),
+        continue: async (_target, saved) => {
+            continuations++;
+            assert.deepEqual(saved.records, candidate.records);
+            assert.equal(saved.records.checks[0].dc, 12);
+            assert.equal(saved.records.checks[0].roll, 7);
+            source.chat[0].mes += '\n\nAfter reload.';
+            return captureDiceTarget(source, 0, saved.body.length);
+        } });
+    await session.retry(restored);
+    assert.equal(continuations, 1);
+    assert.equal(session.view(), null);
+    assert.deepEqual(readDiceRecords(source.chat[0]), candidate.records);
 });
 
 test('cancellation while save is in flight prevents late confirmed continuation', async () => {
@@ -185,7 +216,7 @@ test('fresh result waits for reveal; stop, target edits, and recovery cannot rer
         const session = createActionCheckSession({ enabled: () => true,
             current: target => isDiceTargetCurrent(source, target), same: (a,b) => a.message === b.message && a.swipe === b.swipe,
             ready: async () => {}, save: saver.commit, changed() {}, id: () => 'revealed',
-            random: () => { steps.push('roll'); return .3; },
+            random: () => { steps.push('sample'); return .3; },
             reveal: async (_target, candidate, signal) => {
                 assert.deepEqual(saver.readConfirmed(source.chat[0]), candidate.records);
                 steps.push('reveal'); started();
@@ -196,17 +227,17 @@ test('fresh result waits for reveal; stop, target edits, and recovery cannot rer
         session.accept(target);
         const operation = session.drain();
         await shown;
-        assert.deepEqual(steps, ['roll', 'save', 'reveal']);
+        assert.deepEqual(steps, ['sample', 'sample', 'save', 'reveal']);
         await session.drain();
         if (ending === 'cancel') session.cancel();
         if (ending === 'edit') source.chat[0].mes = 'Edited action';
         release(); await operation;
         assert.equal(readDiceRecords(source.chat[0]).checks[0].roll, 7);
         if (ending === 'edit') { assert.equal(session.view(), null); continue; }
-        if (ending === 'cancel') assert.deepEqual(steps, ['roll', 'save', 'reveal']);
-        else assert.deepEqual(steps, ['roll', 'save', 'reveal', 'continue']);
+        if (ending === 'cancel') assert.deepEqual(steps, ['sample', 'sample', 'save', 'reveal']);
+        else assert.deepEqual(steps, ['sample', 'sample', 'save', 'reveal', 'continue']);
         await session.retry(captureDiceTarget(source, 0, 0));
-        assert.equal(steps.filter(step => step === 'roll').length, 1);
+        assert.equal(steps.filter(step => step === 'sample').length, 2);
         assert.equal(steps.filter(step => step === 'reveal').length, 1);
         assert.equal(steps.at(-1), 'continue');
     }
@@ -241,12 +272,12 @@ test('a retry readiness failure retains the same candidate until recovery succee
         await session.retry(captureDiceTarget(source, 0, 0));
         assert.equal(session.view().phase.kind, firstFailure);
         assert.deepEqual(session.view().phase.candidate, candidate);
-        assert.equal(randomCalls, 1);
+        assert.equal(randomCalls, 2);
         assert.equal(continuations, before);
         failReadiness = false; failOperation = false;
         await session.retry(captureDiceTarget(source, 0, 0));
         assert.equal(session.view(), null);
-        assert.equal(randomCalls, 1);
+        assert.equal(randomCalls, 2);
         assert.deepEqual(readDiceRecords(source.chat[0]), candidate.records);
     }
 });
@@ -274,7 +305,7 @@ test('target changes and cancellation during retry readiness prevent continuatio
         await retry;
         assert.equal(session.view(), null);
         assert.equal(continuations, 1);
-        assert.equal(randomCalls, 1);
+        assert.equal(randomCalls, 2);
         assert.equal(readDiceRecords(source.chat[0]).checks.length, 1);
     }
 });

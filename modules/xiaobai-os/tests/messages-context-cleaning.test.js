@@ -40,8 +40,8 @@ test('Messages uses live default/custom Summary cleaning before 4000-character c
     host.context = { chatId: 'chat', characterId: 0, characters: [], chat: [{ is_user: false, mes: raw }],
         getWorldInfoPrompt: async messages => {scan = messages; return {};},
     };
-    const adapter = createMessagesContext({ messages: () => host.context.chat });
-    const contact = { name: '林月', note: '' }; const incoming = { from: '我', payload: { type: 'text', text: '到家了' } };
+    const adapter = createMessagesContext({ messages: () => host.context.chat }, () => []);
+    const contact = { name: '林月', note: '' }; const incoming = { id: 'current', seq: 1, from: '我', payload: { type: 'text', text: '到家了' } };
     let result = await adapter.capture(contact, [], incoming);
     assert.equal(result.recentMessages[0].text, '<custom>不能带入世界书</custom>门口放着两碗牛肉面。');
     const config = getSummaryPanelConfig();

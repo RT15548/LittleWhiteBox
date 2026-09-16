@@ -153,6 +153,93 @@ async function settled(adapter) {
     assert.fail('Dice chain did not settle');
 }
 
+// The native event boundary is the cheapest place to verify installation, request projection and cleanup together.
+test('final requests hide Dice markers without changing source messages, non-text parts or result data', async t => {
+    setup(t);
+    const saved = prepareActionCheck({ body: call, generatedFrom: 0, id: 'saved', random: () => 0.4 });
+    host.source.chat.push({ ...message(saved.body), extra: { xiaobaiOsDice: saved.records } });
+    await begin('continue');
+    await host.intercept('continue');
+    const resultsPrompt = host.prompts.get('xiaobai_os_dice');
+    assert.ok(resultsPrompt);
+    const sourceMessages = [
+        { role: 'system', content: resultsPrompt },
+        { role: 'assistant', content: saved.body, extra: host.source.chat.at(-1).extra },
+        { role: 'user', content: [
+            { type: 'text', text: 'Before[dice:saved]\n[dice:second-ID_2]After [image:keep] [ordinary] <xb_action_check>' },
+            { type: 'image_url', image_url: { url: 'https://example.test/[dice:keep].png' } },
+        ] },
+        { role: 'assistant', content: null, tool_calls: [{ id: 'keep', function: { arguments: '[dice:keep]' } }] },
+        { role: 'assistant', tool_calls: [] },
+    ];
+    const original = structuredClone(sourceMessages);
+    const savedChat = structuredClone(host.source.chat);
+    const data = { prompt: sourceMessages, temperature: 0.5 };
+    await host.emit('GENERATE_AFTER_DATA', data, false);
+    assert.equal(data.prompt[0].content, resultsPrompt);
+    assert.equal(data.prompt[1].content, 'Attempt.\n\n');
+    assert.equal(data.prompt[2].content[0].text, 'Before\nAfter [image:keep] [ordinary] <xb_action_check>');
+    assert.deepEqual(data.prompt[2].content[1], original[2].content[1]);
+    assert.deepEqual(data.prompt.slice(3), original.slice(3));
+    assert.deepEqual(sourceMessages, original, 'host-owned prompt objects are not mutated');
+    assert.deepEqual(host.source.chat, savedChat, 'body, records and continuation anchors remain unchanged');
+    assert.equal(data.temperature, 0.5);
+    assert.equal(host.prompts.get('xiaobai_os_dice'), '', 'normal prompt cleanup still runs after assembly');
+});
+
+test('historical Dice markers filter for text requests and previews even with checks disabled', async t => {
+    setup(t);
+    host.enabled = false;
+    host.prompts.set('xiaobai_os_dice', 'Pending result data');
+    const original = 'Before\n[dice:one][dice:two-ID_3]\nAfter [image:keep] [ordinary] [dice:] [dice:unfinished';
+    for (const dryRun of [true, false]) {
+        const data = { prompt: original, max_length: 80 };
+        await host.emit('GENERATE_AFTER_DATA', data, dryRun);
+        assert.equal(data.prompt, 'Before\n\nAfter [image:keep] [ordinary] [dice:] [dice:unfinished');
+        assert.equal(data.max_length, 80);
+        assert.equal(host.prompts.get('xiaobai_os_dice'), dryRun ? 'Pending result data' : '');
+    }
+    assert.equal(host.writes, 0);
+    assert.equal(host.requests.length, 0);
+});
+
+test('NovelAI input hides Dice markers without requiring or adding a prompt field', async t => {
+    setup(t);
+    host.enabled = false;
+    for (const dryRun of [true, false]) {
+        const data = { input: 'Before[dice:one]\n[dice:two-ID_3]After [ordinary]', model: 'kayra-v1', use_string: true };
+        await host.emit('GENERATE_AFTER_DATA', data, dryRun);
+        assert.deepEqual(data, { input: 'Before\nAfter [ordinary]', model: 'kayra-v1', use_string: true });
+    }
+    assert.equal(host.writes, 0);
+});
+
+test('CFG requests hide Dice markers in both positive and negative context', async t => {
+    setup(t);
+    const source = 'History[dice:one]\nContinuation[dice:two-ID_3]';
+    host.source.chat.at(-1).mes = source;
+    const data = { prompt: source, negative_prompt: source + '\nAvoid repetition', guidance_scale: 1.5,
+        stopping_strings: ['[dice:keep]'] };
+    await host.emit('GENERATE_AFTER_DATA', data, false);
+    assert.deepEqual(data, { prompt: 'History\nContinuation', negative_prompt: 'History\nContinuation\nAvoid repetition',
+        guidance_scale: 1.5, stopping_strings: ['[dice:keep]'] });
+    assert.equal(host.source.chat.at(-1).mes, source);
+    assert.equal(host.writes, 0);
+});
+
+test('Dice request filtering detaches on stop and reattaches on restart', async t => {
+    const adapter = setup(t);
+    await adapter.stop();
+    const stopped = { prompt: 'Before[dice:one]After' };
+    await host.emit('GENERATE_AFTER_DATA', stopped, false);
+    assert.equal(stopped.prompt, 'Before[dice:one]After');
+    adapter.start();
+    adapter.start();
+    const restarted = { prompt: stopped.prompt };
+    await host.emit('GENERATE_AFTER_DATA', restarted, false);
+    assert.equal(restarted.prompt, 'BeforeAfter');
+});
+
 test('ordinary prose, examples and invalid requests never acquire post-processing controls', async t => {
     const adapter = setup(t);
     const block = call.slice(call.indexOf('<xb_action_check>'));

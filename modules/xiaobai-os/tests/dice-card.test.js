@@ -70,10 +70,11 @@ test('cancellation, reduced motion, hidden page, and detached card all settle wi
 test('all twenty historical results are static, readable on the facing die, and never schedule animation', t => {
     const dom = browser(t);
     for (let roll = 1; roll <= 20; roll++) {
-        const card = createCheckCard(record(roll), false);
+        const saved = record(roll);
+        const card = createCheckCard(saved, false);
         assert.equal(card.element.dataset.state, 'settled');
         assert.match(card.element.getAttribute('aria-label'), new RegExp(`掷骰 ${roll}，`));
-        assert.equal(card.element.querySelector('.xb-dice-comparison').textContent, `掷骰${roll}难度15`,
+        assert.equal(card.element.querySelector('.xb-dice-comparison').textContent, `掷骰${roll}难度${saved.dc}`,
             'the stored roll and difficulty must be readable together outside the decorative die');
         const facing = [...card.element.querySelectorAll('svg text')].find(label => label.textContent === String(roll));
         for (let node = facing; node && node !== card.element; node = node.parentElement) {

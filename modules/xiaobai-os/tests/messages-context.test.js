@@ -18,7 +18,8 @@ function fixture(count = 100, text = '约定'.repeat(2000)) {
         sender: index % 2 ? 'contact' : 'user', from: index % 2 ? '甲' : '我', to: index % 2 ? '我' : '甲',
         replyTo: index % 2 ? `m${index - 1}` : null, createdAt: 0, payload: { type: 'text', text } }));
     const incoming = { ...history[0], id: 'input', seq: count + 1, payload: { type: 'text', text: '还记得吗？' } };
-    const background = { ...normalizePromptContext({}), people: [] };
+    const background = { ...normalizePromptContext({}), people: [],
+        chronology: [{ firstSeq: 1, throughSeq: incoming.seq, afterStoryFloor: 0, breakBefore: null }] };
     const calls = []; const summaries = []; const loaded = [];
     const h = { contact, history, incoming, background, calls, summaries, loaded, respond: null };
     const deps = { getSettings: () => settings, context: { capture: async () => background },
@@ -43,7 +44,7 @@ test('the complete request, not the old 18k character allowance, controls compac
     await h.run();
     assert.equal(h.calls.length, 1); assert.equal(h.summaries.length, 0);
     assert.deepEqual(h.history, original);
-    const thread = h.calls[0].messages[2].content;
+    const thread = h.calls[0].messages.find(message => message.content.includes('<private_message_thread phase="current">')).content;
     for (const message of original) {assert.ok(thread.includes(message.payload.text));}
 });
 
@@ -96,7 +97,7 @@ test('403 allows replies using estimates; restored authentication uses token cou
         const count = requests.length === 1 ? 194088 : 16671;
         return Response.json({ count, ids: Array(count).fill(1) });
     });
-    assert.ok(estimateContext(h.prompt(), h.contact, h.history).usedTokens < SUMMARY_TRIGGER);
+    assert.ok(estimateContext(h.prompt(), h.contact, h.history, h.background).usedTokens < SUMMARY_TRIGGER);
     await h.run();
     assert.equal(h.calls.length, 1); assert.equal(h.summaries.length, 0);
     csrf = 'valid';
@@ -108,7 +109,7 @@ test('image-only context reserves visual tokens, compacts with real pixels, and 
     const h = fixture(60, '');
     const attachment = uploadedImageReference(photo.upload);
     for (const message of h.history) {if (message.sender === 'user') {message.payload = { type: 'image', description: '', attachment };}}
-    const stats = estimateContext(h.prompt(), h.contact, h.history);
+    const stats = estimateContext(h.prompt(), h.contact, h.history, h.background);
     assert.equal(stats.imageTokens, 30 * 6000); assert.ok(stats.usedTokens > CONTEXT_LIMIT);
     await h.run();
     assert.ok(h.summaries.length > 0); assert.equal(h.loaded.length, 30);

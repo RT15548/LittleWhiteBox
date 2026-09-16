@@ -13,6 +13,7 @@ import { createChatBindingManager } from '../storage/chat-binding.js';
 import { MESSAGES_PARTITION } from '../apps/messages/partition.js';
 import { buildReplyPrompt } from '../apps/messages/prompt/reply-prompt.js';
 import { normalizePromptContext } from '../host/prompt-context/normalize.js';
+import { projectCommunicationChronology } from '../apps/messages/application/communication-chronology.js';
 
 const clone = structuredClone;
 const hash = text => createHash('sha256').update(text).digest('hex');
@@ -46,8 +47,10 @@ test('historical branch trims later additions to the same floor, future contacts
     assert.equal(MESSAGES_PARTITION.parse(result).ok, true);
     assert.deepEqual(unsyncedIds(result), []);
     assert.deepEqual(h.source, before);
-    const prompt = buildReplyPrompt({ contact: result.contacts[0], context: { ...normalizePromptContext({}), people: [] },
-        history: result.messages, incoming: { ...result.messages[0], payload: { type: 'text', text: '现在呢？' } }, settings: { imagePrompt: false, voicePrompt: false } });
+    const incoming = { ...result.messages[0], id: 'now', seq: result.nextSeq, payload: { type: 'text', text: '现在呢？' } };
+    const prompt = buildReplyPrompt({ contact: result.contacts[0], context: { ...normalizePromptContext({}), people: [],
+        chronology: projectCommunicationChronology(result.segments, childChat, result.messages, incoming) },
+    history: result.messages, incoming, settings: { imagePrompt: false, voicePrompt: false } });
     assert.match(JSON.stringify(prompt), /过去约定/); assert.doesNotMatch(JSON.stringify(prompt), /未来/);
 });
 
