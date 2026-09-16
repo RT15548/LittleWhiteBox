@@ -45,6 +45,7 @@ const shims = {
         'export const scoreRecallRuntimeEvents=async()=>({scores:host().scores});',
         'export const diffuseRecallRuntimeL0=async()=>({diffused:[]});',
         'export const scoreRecallRuntimeL1=async()=>new Map();',
+        'export const selectRecallRuntimeL1Evidence=async()=>({items:[],status:"applied",stats:{}});',
         'export const getRecallRuntimeEventVectorsByIds=async(chatId,ids)=>{',
         'host().vectorRequests.push(ids); return ids.map(eventId=>({eventId,vector:[1,0]})); };',
     ].join('\n'),
@@ -736,12 +737,12 @@ test('a failed lexical term keeps other hits but reports partial recall with its
     assert.match(report, /Caused by: postings unavailable\nCaused by: broken search state/);
 });
 
-test('full recall preserves a late lexical time event without lowering gates or growing caps', async () => {
+test('full recall reranks even with a saved false flag and preserves a late lexical time event within caps', async () => {
     const { target, rejected } = temporalRecallFixture('Bob');
     const index = await mod.getLexicalIndex();
     const lexicalOrder = mod.searchLexicalIndex(index, ['Alice']).eventIds;
     assert.ok(lexicalOrder.indexOf(target.id) > 150, 'fixture must reproduce the truncated lexical tail');
-    const result = await mod.recallMemory(host.store.json.events, { enabled: true, eventRerankEnabled: true });
+    const result = await mod.recallMemory(host.store.json.events, { enabled: true, eventRerankEnabled: false });
     assert.ok(result.events.some(item => item.event.id === target.id));
     assert.ok(!result.events.some(item => item.event.id === rejected.id));
     assert.equal(result.events.find(item => item.event.id === target.id)._recallType, 'RELATED');
@@ -755,7 +756,7 @@ test('full recall preserves a late lexical time event without lowering gates or 
 
 test('full recall protects a focused time event before dense top-100 and diversity top-50', async () => {
     const { target, rejected } = temporalRecallFixture('Alice');
-    const result = await mod.recallMemory(host.store.json.events, { enabled: true, eventRerankEnabled: true });
+    const result = await mod.recallMemory(host.store.json.events, { enabled: true });
     assert.ok(host.vectorRequests.every(ids => ids.length === 100 && ids.includes(target.id)));
     assert.ok(result.events.some(item => item.event.id === target.id && item._recallType === 'DIRECT'));
     assert.ok(!result.events.some(item => item.event.id === rejected.id));

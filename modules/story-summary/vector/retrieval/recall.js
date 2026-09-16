@@ -60,7 +60,8 @@ import { formatErrorDetails } from '../../../../core/error-details.js';
 import { tokenizeForIndex } from '../utils/tokenizer.js';
 import { rerankRecalledEvents } from './event-rerank.js';
 import { selectBoundedEventCandidates } from './event-candidate-selection.js';
-import { rankSelectedDirectEvidence } from './direct-evidence-retrieval.js';
+import { selectDiverseEvents } from './event-diversity-selection.js';
+import { selectDirectEvidence } from './direct-evidence-retrieval.js';
 import { buildSemanticRecallInputs } from './semantic-query.js';
 import {
     releaseDirectEvidenceRuntimeLease,
@@ -149,17 +150,6 @@ const CONFIG = {
 // ═══════════════════════════════════════════════════════════════════════════
 // 工具函数
 // ═══════════════════════════════════════════════════════════════════════════
-
-function cosineSimilarity(a, b) {
-    if (!a?.length || !b?.length || a.length !== b.length) return 0;
-    let dot = 0, nA = 0, nB = 0;
-    for (let i = 0; i < a.length; i++) {
-        dot += a[i] * b[i];
-        nA += a[i] * a[i];
-        nB += b[i] * b[i];
-    }
-    return nA && nB ? dot / (Math.sqrt(nA) * Math.sqrt(nB)) : 0;
-}
 
 function normalize(s) {
     return String(s || '')
@@ -260,49 +250,6 @@ function computeR2Weights(segments, hintsSegment) {
 
     const focusIdx = segments.length - 1;
     return clampMinNormalizedWeight(normalized, focusIdx, FOCUS_MIN_NORMALIZED_WEIGHT);
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// MMR 选择算法
-// ═══════════════════════════════════════════════════════════════════════════
-
-function mmrSelect(candidates, k, lambda, getVector, getScore) {
-    const selected = [];
-    const ids = new Set();
-
-    while (selected.length < k && candidates.length) {
-        let best = null;
-        let bestScore = -Infinity;
-
-        for (const c of candidates) {
-            if (ids.has(c._id)) continue;
-
-            const rel = getScore(c);
-            let div = 0;
-
-            if (selected.length) {
-                const vC = getVector(c);
-                if (vC?.length) {
-                    for (const s of selected) {
-                        const sim = cosineSimilarity(vC, getVector(s));
-                        if (sim > div) div = sim;
-                    }
-                }
-            }
-
-            const score = lambda * rel - (1 - lambda) * div;
-            if (score > bestScore) {
-                bestScore = score;
-                best = c;
-            }
-        }
-
-        if (!best) break;
-        selected.push(best);
-        ids.add(best._id);
-    }
-
-    return selected;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -446,12 +393,10 @@ async function recallEvents(queryVector, allEvents, vectorConfig, focusCharacter
         xbLog.warn(MODULE_ID, `L2候选向量缺失 ${missingCandidateVectors}/${candidateEventIds.length}，MMR diversity 可能退化`);
     }
     // MMR 选择
-    const diversified = mmrSelect(
+    const diversified = selectDiverseEvents(
         candidates,
         CONFIG.EVENT_SELECT_MAX,
         CONFIG.EVENT_MMR_LAMBDA,
-        c => c.vector,
-        c => c.similarity
     );
     const { candidates: selected } = selectBoundedEventCandidates(
         candidates, CONFIG.EVENT_SELECT_MAX, snapshot?.temporalCarrier?.exactFloors, diversified,
@@ -1216,60 +1161,36 @@ export async function hydrateSelectedDirectEvidence(selectedDirect, context, met
     const startedAt = performance.now();
     if (context?.diagnostics) context.diagnostics.stage = 'direct-evidence';
     try {
-        const result = await rankSelectedDirectEvidence(selectedDirect, context);
-        const elapsedMs = Math.round(performance.now() - startedAt);
+        const result = await selectDirectEvidence(selectedDirect, context);
         const stats = result.stats || {};
-        const diagnostics = result.diagnostics || getRerankBatchDiagnostics([]);
-
         if (metrics?.evidence) {
             metrics.evidence.directEvidenceStatus = result.status || 'failed';
-            metrics.evidence.directEvidenceParents = Number(stats.parents || 0);
-            metrics.evidence.directEvidenceFloors = Number(stats.floors || 0);
-            metrics.evidence.directEvidenceSourceCandidates = Number(stats.sourceCandidates || 0);
-            metrics.evidence.directEvidenceCandidates = Number(stats.candidates || 0);
-            metrics.evidence.directEvidenceRelevantItems = Number(stats.relevantItems || 0);
-            metrics.evidence.directEvidenceTemporalCandidates = Number(stats.temporalCandidates || 0);
-            metrics.evidence.directEvidenceTemporalFloorWinners = Number(stats.temporalFloorWinners || 0);
-            metrics.evidence.directEvidenceTemporalProtectionCap = Number(stats.temporalProtectionCap || 0);
-            metrics.evidence.directEvidenceTemporalProtectedCandidates = Number(
-                stats.temporalProtectedCandidates || 0,
-            );
-            metrics.evidence.directEvidenceTemporalForced = Number(stats.temporalForced || 0);
-            metrics.evidence.directEvidenceTemporalOverflow = Number(stats.temporalOverflow || 0);
-            metrics.evidence.directEvidenceTemporalSameFloorNonWinners = Number(
-                stats.temporalSameFloorNonWinners || 0,
-            );
-            metrics.evidence.directEvidenceVectorHits = Number(stats.vectorHits || 0);
-            metrics.evidence.directEvidenceMissingVectors = Number(stats.missingVectors || 0);
+            for (const [key, field] of Object.entries({
+                parents: 'directEvidenceParents', floors: 'directEvidenceFloors',
+                sourceCandidates: 'directEvidenceSourceCandidates', candidates: 'directEvidenceCandidates',
+                relevantItems: 'directEvidenceRelevantItems', vectorHits: 'directEvidenceVectorHits',
+                missingVectors: 'directEvidenceMissingVectors', missingEventVectors: 'directEvidenceMissingEventVectors',
+                eventItems: 'directEvidenceEventItems', conversationItems: 'directEvidenceConversationItems',
+                lexicalItems: 'directEvidenceLexicalItems', temporalCandidates: 'directEvidenceTemporalCandidates',
+                temporalFloorWinners: 'directEvidenceTemporalFloorWinners',
+                temporalProtectedCandidates: 'directEvidenceTemporalProtectedCandidates',
+            })) metrics.evidence[field] = Number(stats[key] || 0);
             metrics.evidence.directEvidenceItems = result.items.length;
-            metrics.evidence.directEvidenceRerankBatchTotal = Number(diagnostics.totalBatches || 0);
-            metrics.evidence.directEvidenceRerankBatchFailed = Number(diagnostics.failedBatches || 0);
         }
-        if (metrics?.timing) {
-            metrics.timing.directEvidenceVectorScore = Number(stats.vectorScoreMs || 0);
-            metrics.timing.directEvidenceRerank = Number(stats.rerankMs || 0);
-            metrics.timing.directEvidenceRetrieval = elapsedMs;
-        }
-        for (const failure of diagnostics.failures) {
-            recordExternalFailure(metrics, { stage: 'direct-evidence-rerank', ...failure });
-        }
-        if (['incomplete-rerank', 'incomplete-vectors'].includes(result.status)) {
-            recordRecallFallback(context?.diagnostics, 'direct-evidence', result.status);
+        if (result.status === 'partial-vectors') {
+            recordRecallFallback(context?.diagnostics, 'direct-evidence',
+                `部分向量缺失：L1=${stats.missingVectors || 0}, events=${stats.missingEventVectors || 0}，保留可用通道结果`);
         }
         return result;
     } catch (error) {
         if (error?.name === 'AbortError') throw error;
-        const elapsedMs = Math.round(performance.now() - startedAt);
         xbLog.warn(MODULE_ID, 'DIRECT evidence retrieval failed; keep the existing evidence path', error);
         recordRecallFallback(context?.diagnostics, 'direct-evidence', error);
         if (metrics?.evidence) {
             metrics.evidence.directEvidenceStatus = 'failed';
             metrics.evidence.directEvidenceItems = 0;
         }
-        if (metrics?.timing) {
-            metrics.timing.directEvidenceRetrieval = elapsedMs;
-        }
-        return { items: [], status: 'failed', diagnostics: getRerankBatchDiagnostics([]), stats: {} };
+        return { items: [], status: 'failed', stats: {} };
     } finally {
         if (metrics?.timing) metrics.timing.directEvidenceRetrieval = Math.round(performance.now() - startedAt);
         await releaseDirectEvidenceContext(context, metrics);
@@ -1886,60 +1807,57 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
     metrics.event.causalCount = causalChain.length;
 
     // Candidate packing always consumes relevance order. Normalize the base
-    // order before the optional L2 rerank; once reranked, keep that result
+    // order before L2 rerank; once reranked, keep that result
     // intact because cosine similarity and cross-encoder scores are not on
     // the same scale.
     eventHits = [...eventHits].sort((left, right) => (
         Number(right?.similarity || 0) - Number(left?.similarity || 0)
     ));
 
-    if (vectorConfig?.eventRerankEnabled === true) {
-        if (diagnostics) diagnostics.stage = 'event-rerank';
-        const eventRerank = await rerankRecalledEvents(eventHits, {
-            ...semanticInputs.eventRerank,
-            chat,
-            queryFloor: queryBoundary,
-            signal,
-        });
-        metrics.event.rerank = {
-            status: eventRerank.status,
-            sourceCandidates: eventRerank.sourceCount,
-            candidates: eventRerank.candidateCount,
-            tailCandidates: eventRerank.tailCount,
-            exactTime: {
-                marker: eventRerank.exactTimeMarker,
-                floors: eventRerank.exactTimeFloorCount,
-                candidates: eventRerank.exactTimeCandidateCount,
-                winners: eventRerank.exactTimeWinnerCount,
-                reserved: eventRerank.exactTimeReservedCount,
-                overflow: eventRerank.exactTimeOverflowCount,
-                forced: eventRerank.exactTimeForcedCount,
-            },
-            batchTotal: eventRerank.diagnostics.totalBatches,
-            batchFailed: eventRerank.diagnostics.failedBatches,
-        };
-        metrics.timing.eventRerank = eventRerank.rerankMs;
-        for (const failure of eventRerank.diagnostics.failures) {
-            recordExternalFailure(metrics, { stage: 'event-rerank', ...failure });
-        }
-        if (eventRerank.status === 'applied') {
-            eventHits = eventRerank.events;
-        } else if (eventRerank.status === 'rerank-failed') {
-            recordRecallFallback(diagnostics, 'event-rerank', '重排失败，保留原事件顺序');
-            xbLog.warn(MODULE_ID, `Event rerank ${eventRerank.status}; keep original event order`);
-        }
+    if (diagnostics) diagnostics.stage = 'event-rerank';
+    const eventRerank = await rerankRecalledEvents(eventHits, {
+        ...semanticInputs.eventRerank,
+        chat,
+        queryFloor: queryBoundary,
+        signal,
+    });
+    metrics.event.rerank = {
+        status: eventRerank.status,
+        sourceCandidates: eventRerank.sourceCount,
+        candidates: eventRerank.candidateCount,
+        tailCandidates: eventRerank.tailCount,
+        exactTime: {
+            marker: eventRerank.exactTimeMarker,
+            floors: eventRerank.exactTimeFloorCount,
+            candidates: eventRerank.exactTimeCandidateCount,
+            winners: eventRerank.exactTimeWinnerCount,
+            reserved: eventRerank.exactTimeReservedCount,
+            overflow: eventRerank.exactTimeOverflowCount,
+            forced: eventRerank.exactTimeForcedCount,
+        },
+        batchTotal: eventRerank.diagnostics.totalBatches,
+        batchFailed: eventRerank.diagnostics.failedBatches,
+    };
+    metrics.timing.eventRerank = eventRerank.rerankMs;
+    for (const failure of eventRerank.diagnostics.failures) {
+        recordExternalFailure(metrics, { stage: 'event-rerank', ...failure });
+    }
+    if (eventRerank.status === 'applied') {
+        eventHits = eventRerank.events;
+    } else if (eventRerank.status === 'rerank-failed') {
+        recordRecallFallback(diagnostics, 'event-rerank', '重排失败，保留原事件顺序');
+        xbLog.warn(MODULE_ID, `Event rerank ${eventRerank.status}; keep original event order`);
     }
 
     let directEvidenceContext = null;
     if (!eventHits.some(item => item?._evidenceEligible === true)) {
-        metrics.evidence.directEvidenceStatus = 'skipped-no-direct-events';
+        metrics.evidence.directEvidenceStatus = 'skipped-no-eligible-events';
     } else {
         directEvidenceContext = {
             diagnostics,
             chatId,
             ...semanticInputs.directEvidence,
-            timeMarker: temporalCarrier.marker,
-            temporalFloors: temporalCarrier.exactFloors,
+            lexicalScores: lexicalResult.chunkScores,
             temporalCarrier,
             signal,
         };

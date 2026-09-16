@@ -104,9 +104,9 @@ test('protected budget includes floor overhead and protects one item per floor',
 
 test('floor overhead is charged once across admission phases', () => {
     const budget = { used: 0, max: 12 };
-    const admittedFloors = new Set();
+    const admittedGroups = new Set();
     const options = {
-        admittedFloors,
+        admittedGroups,
         getTokenCost: costOf,
         floorOverheadTokens: 2,
     };
@@ -132,4 +132,13 @@ test('rank relevance uses one scale across short and long source lists', () => {
     assert.equal(short.get('a'), long.get('item-0'));
     assert.equal(short.get('b'), long.get('item-1'));
     assert.equal(short.get('c'), long.get('item-2'));
+});
+
+test('overlapping events each pay their own displayed floor group once', () => {
+    const budget = { used: 0, max: 30 };
+    const options = { admittedGroups: new Set(), getTokenCost: costOf, floorOverheadTokens: 2 };
+    const make = (ownerId, id) => ({ id, floor: 3, tokens: 5, owner: { event: { id: ownerId } } });
+    admitDirectEvidenceItems([make('a', 'l0')], budget, options);
+    admitDirectEvidenceItems([make('b', 'l1-b'), make('a', 'l1-a')], budget, options);
+    assert.equal(budget.used, 19);
 });

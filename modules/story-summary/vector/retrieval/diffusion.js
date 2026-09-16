@@ -242,17 +242,30 @@ function buildInvertedIndices(features) {
  * @param {Map} index - value → [atomIndex, ...]
  * @param {Set<number>} pairSet - packed pair collector
  * @param {number} N - total atom count (for pair packing)
+ * @param {object[]} allAtoms - supplies the same floor window as R semantics
+ * @returns {number} skipped pair occurrences, before cross-group deduplication
  */
-function collectPairsFromIndex(index, pairSet, N) {
+function collectPairsFromIndex(index, pairSet, N, allAtoms) {
+    let skippedOccurrences = 0;
     for (const indices of index.values()) {
-        for (let a = 0; a < indices.length; a++) {
-            for (let b = a + 1; b < indices.length; b++) {
-                const lo = Math.min(indices[a], indices[b]);
-                const hi = Math.max(indices[a], indices[b]);
-                pairSet.add(lo * N + hi);
+        const byFloor = indices.map(idx => ({ idx, floor: Number(allAtoms[idx]?.floor || 0) }))
+            .sort((a, b) => a.floor - b.floor);
+        const pairs = [];
+        for (let a = 0; a < byFloor.length; a++) {
+            for (let b = a + 1; b < byFloor.length; b++) {
+                if (byFloor[b].floor - byFloor[a].floor > CONFIG.TIME_WINDOW_MAX) break;
+                const lo = Math.min(byFloor[a].idx, byFloor[b].idx);
+                const hi = Math.max(byFloor[a].idx, byFloor[b].idx);
+                pairs.push(lo * N + hi);
             }
         }
+        skippedOccurrences += indices.length * (indices.length - 1) / 2 - pairs.length;
+        // Restore the original source-index traversal order, even for shuffled
+        // floors. PPR must see the same edge order and floating-point sums.
+        pairs.sort((a, b) => a - b);
+        for (const pair of pairs) pairSet.add(pair);
     }
+    return skippedOccurrences;
 }
 
 /**
@@ -275,7 +288,7 @@ function buildGraph(allAtoms, stateVectors = [], excludeEntities = new Set(), lo
     const pairSetByRSem = new Set();
     const rSemByPair = new Map();
     const pairSet = new Set();
-    collectPairsFromIndex(whatIndex, pairSetByWhat, N);
+    const whatWindowSkippedOccurrences = collectPairsFromIndex(whatIndex, pairSetByWhat, N, allAtoms);
 
     const rVectorByAtomId = new Map(
         (stateVectors || [])
@@ -288,7 +301,6 @@ function buildGraph(allAtoms, stateVectors = [], excludeEntities = new Set(), lo
     let rSemSimSum = 0;
     let rSemSimCount = 0;
     let topKPrunedPairs = 0;
-    let timeWindowFilteredPairs = 0;
 
     // Enumerate only pairs within floor window to avoid O(N^2) full scan.
     const sortedByFloor = allAtoms
@@ -349,10 +361,6 @@ function buildGraph(allAtoms, stateVectors = [], excludeEntities = new Set(), lo
         const j = packed % N;
 
         const distance = getFloorDistance(allAtoms[i], allAtoms[j]);
-        if (distance > CONFIG.TIME_WINDOW_MAX) {
-            timeWindowFilteredPairs++;
-            continue;
-        }
         const wTime = getTimeScore(distance);
 
         const fi = features[i];
@@ -399,7 +407,7 @@ function buildGraph(allAtoms, stateVectors = [], excludeEntities = new Set(), lo
         `(candidate_by_what=${pairSetByWhat.size} candidate_by_r_sem=${pairSetByRSem.size}) ` +
         `(what=${channelStats.what} r_sem=${channelStats.rSem} who=${channelStats.who} where=${channelStats.where}) ` +
         `(reweight_who_used=${reweightWhoUsed} reweight_where_used=${reweightWhereUsed}) ` +
-        `(time_window_filtered=${timeWindowFilteredPairs} topk_pruned=${topKPrunedPairs}) ` +
+        `(what_window_skipped_occurrences=${whatWindowSkippedOccurrences} topk_pruned=${topKPrunedPairs}) ` +
         `(${buildTime}ms)`
     );
 
@@ -415,7 +423,7 @@ function buildGraph(allAtoms, stateVectors = [], excludeEntities = new Set(), lo
         pairsFromWhat: pairSetByWhat.size,
         pairsFromRSem: pairSetByRSem.size,
         rSemAvgSim: rSemSimCount ? Number((rSemSimSum / rSemSimCount).toFixed(3)) : 0,
-        timeWindowFilteredPairs,
+        whatWindowSkippedOccurrences,
         topKPrunedPairs,
         reweightWhoUsed,
         reweightWhereUsed,
@@ -754,7 +762,7 @@ export function diffuseFromSeeds(seeds, allAtoms, stateVectors, queryVector, met
             pairsFromWhat: graph.pairsFromWhat,
             pairsFromRSem: graph.pairsFromRSem,
             rSemAvgSim: graph.rSemAvgSim,
-            timeWindowFilteredPairs: graph.timeWindowFilteredPairs,
+            whatWindowSkippedOccurrences: graph.whatWindowSkippedOccurrences,
             topKPrunedPairs: graph.topKPrunedPairs,
             edgeDensity: graph.edgeDensity,
             reweightWhoUsed: graph.reweightWhoUsed,
@@ -818,7 +826,7 @@ export function diffuseFromSeeds(seeds, allAtoms, stateVectors, queryVector, met
         pairsFromWhat: graph.pairsFromWhat,
         pairsFromRSem: graph.pairsFromRSem,
         rSemAvgSim: graph.rSemAvgSim,
-        timeWindowFilteredPairs: graph.timeWindowFilteredPairs,
+        whatWindowSkippedOccurrences: graph.whatWindowSkippedOccurrences,
         topKPrunedPairs: graph.topKPrunedPairs,
         edgeDensity: graph.edgeDensity,
         reweightWhoUsed: graph.reweightWhoUsed,
@@ -902,7 +910,7 @@ function fillMetricsEmpty(metrics) {
         pairsFromWhat: 0,
         pairsFromRSem: 0,
         rSemAvgSim: 0,
-        timeWindowFilteredPairs: 0,
+        whatWindowSkippedOccurrences: 0,
         topKPrunedPairs: 0,
         edgeDensity: 0,
         reweightWhoUsed: 0,
@@ -942,7 +950,7 @@ function fillMetrics(metrics, data) {
         pairsFromWhat: data.pairsFromWhat || 0,
         pairsFromRSem: data.pairsFromRSem || 0,
         rSemAvgSim: data.rSemAvgSim || 0,
-        timeWindowFilteredPairs: data.timeWindowFilteredPairs || 0,
+        whatWindowSkippedOccurrences: data.whatWindowSkippedOccurrences || 0,
         topKPrunedPairs: data.topKPrunedPairs || 0,
         edgeDensity: data.edgeDensity || 0,
         reweightWhoUsed: data.reweightWhoUsed || 0,

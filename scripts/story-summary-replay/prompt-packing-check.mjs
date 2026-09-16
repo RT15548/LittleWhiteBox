@@ -31,7 +31,7 @@ export async function runPromptPackingChecks(buildVectorPrompt, createMetrics, o
             eventTemporalFloors: [],
             l0Selected: options.l0Selected || [],
             l1ByFloor: options.l1ByFloor || new Map(),
-            directEvidenceStatus: 'applied',
+            directEvidenceStatus: options.directEvidenceStatus || 'applied',
             directEvidenceL1: options.directEvidenceL1 || [],
         }, new Map(causes.map(item => [item.event.id, item])), options.focusCharacters || ['角色'],
         { lastChunkFloor: options.lastChunkFloor ?? -1 }, createMetrics());
@@ -59,7 +59,8 @@ export async function runPromptPackingChecks(buildVectorPrompt, createMetrics, o
         const ordinary = await build([owner], [cause('evt-1', 'CAUSE_BODY')]);
         const oversized = await build([owner], [cause('evt-1', 'OVERSIZED_CAUSE', 5500)]);
         const full = await build([owner], [cause('evt-1', 'NO_ROOM_CAUSE', 200)], {
-            directEvidenceL1: evidence(`RAW_KEPT ${'乙'.repeat(3820)}`),
+            directEvidenceL1: [...evidence(`RAW_KEPT ${'乙'.repeat(3820)}`),
+                chunk('SMALL_FITTING_RAW', 100, 3500), chunk('EXTRA_FITTING_RAW', 100, 150)],
             lastSummarizedMesId: 200,
             l0Selected: [anchor('FULL_HISTORY', 50, 600)],
         });
@@ -153,8 +154,26 @@ export async function runPromptPackingChecks(buildVectorPrompt, createMetrics, o
             l0Selected: [{ id: 'no-focus', floor: 10, atom: { semantic: 'NO_FOCUS_HISTORY' } }],
         });
         const empty = await build([]);
+        const overlapping = await build([
+            event('evt-100', 'OWNER_FIRST (#101)'), event('evt-101', 'OWNER_SECOND (#101)'),
+        ], [], {
+            l0Selected: [anchor('ANCHOR_FIRST', 100)],
+            directEvidenceStatus: 'partial-vectors',
+            directEvidenceL1: [{ ...chunk('RAW_SECOND', 100), ownerEventId: 'evt-101' }],
+        });
+        const protectedMix = await build([owner], [cause('evt-1', 'PROTECTED_CAUSE', 200)], {
+            l0Selected: [anchor('PROTECTED_L0', 100, 750)],
+            directEvidenceL1: Array.from({ length: 20 }, (_, i) => ({ ...chunk(`RAW_${i}`, 100, 250), ownerEventId: owner.event.id })),
+        });
 
         return {
+            newEvidence: {
+                overlapPositions: ['OWNER_FIRST', 'ANCHOR_FIRST', 'OWNER_SECOND', 'RAW_SECOND'].map(marker => overlapping.promptText.indexOf(marker)),
+                overlapCopies: overlapping.promptText.split('RAW_SECOND').length - 1,
+                protectedRendered: ['PROTECTED_L0', 'PROTECTED_CAUSE', 'RAW_0'].map(marker => protectedMix.promptText.includes(marker)),
+                protectedTokens: protectedMix.metrics.evidence.l0ProtectedTokens,
+                budget: budgetSnapshot(protectedMix),
+            },
             charging: {
                 baselineEventTokens: baseline.injectionStats.event.tokens,
                 eventTokens: ordinary.injectionStats.event.tokens,

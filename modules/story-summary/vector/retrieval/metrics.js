@@ -150,7 +150,7 @@ export function createMetrics() {
             l1CacheWarm: false,
             l1CacheFallbackDbTime: 0,
 
-            // Selected DIRECT events → expanded and reranked L1 evidence
+            // Selected events → local two-lane L1 evidence selection
             directEvidenceStatus: '',
             directEvidenceParents: 0,
             directEvidenceFloors: 0,
@@ -159,13 +159,14 @@ export function createMetrics() {
             directEvidenceRelevantItems: 0,
             directEvidenceTemporalCandidates: 0,
             directEvidenceTemporalFloorWinners: 0,
-            directEvidenceTemporalProtectionCap: 0,
             directEvidenceTemporalProtectedCandidates: 0,
-            directEvidenceTemporalForced: 0,
-            directEvidenceTemporalOverflow: 0,
-            directEvidenceTemporalSameFloorNonWinners: 0,
             directEvidenceVectorHits: 0,
             directEvidenceMissingVectors: 0,
+            directEvidenceMissingEventVectors: 0,
+            directEvidenceEventItems: 0,
+            directEvidenceConversationItems: 0,
+            directEvidenceLexicalItems: 0,
+            l0ProtectedTokens: 0,
             directEvidenceItems: 0,
             directEvidencePromptGroups: 0,
             directEvidencePromptItems: 0,
@@ -182,8 +183,6 @@ export function createMetrics() {
             distantEvidenceBudgetUsed: 0,
             distantEvidenceBudgetMax: 0,
             distantEvidenceDroppedByBudget: 0,
-            directEvidenceRerankBatchTotal: 0,
-            directEvidenceRerankBatchFailed: 0,
 
             // 装配
             contextPairsAdded: 0,
@@ -199,7 +198,7 @@ export function createMetrics() {
             pairsFromWhat: 0,
             pairsFromRSem: 0,
             rSemAvgSim: 0,
-            timeWindowFilteredPairs: 0,
+            whatWindowSkippedOccurrences: 0,
             topKPrunedPairs: 0,
             edgeDensity: 0,
             reweightWhoUsed: 0,
@@ -267,8 +266,6 @@ export function createMetrics() {
             eventRerank: 0,
             evidenceRetrieval: 0,
             evidenceRerank: 0,
-            directEvidenceVectorScore: 0,
-            directEvidenceRerank: 0,
             directEvidenceRetrieval: 0,
             evidenceAssembly: 0,
             diffusion: 0,
@@ -293,14 +290,13 @@ export function createMetrics() {
 // Parent spans exclude their separately measured children. Retry backoff is not API time.
 export function finalizeMetricsTiming(metrics, totalMs) {
     const t = metrics.timing;
-    // On interruption the child request timings may not have returned. Do not
-    // classify that unmeasured span as local CPU work.
-    const directEvidenceLocal = ['ready', 'failed'].includes(metrics.evidence.directEvidenceStatus)
-        ? 0 : Math.max(0, t.directEvidenceRetrieval - t.directEvidenceRerank);
+    // L1 selection is entirely local (including Worker scheduling/waiting),
+    // with no child API request to attribute even if it fails or is cancelled.
+    const directEvidenceLocal = Math.max(0, t.directEvidenceRetrieval);
     t.total = Math.round(totalMs);
     t.externalTotal = Math.round(
         Math.max(0, t.round1Embed - t.round1EmbedRetryWait)
-        + t.round2Embed + t.evidenceRerank + t.eventRerank + t.directEvidenceRerank,
+        + t.round2Embed + t.evidenceRerank + t.eventRerank,
     );
     t.localKnownTotal = Math.round(
         metrics.query.buildTime + metrics.query.refineTime
@@ -584,17 +580,18 @@ export function formatMetricsLog(metrics, { complete = true } = {}) {
     lines.push(`│   ├─ fallback_db_time: ${m.evidence.l1CacheFallbackDbTime || 0}ms`);
     lines.push(`│   └─ breakdown: chunk_db=${m.evidence.l1ChunkFetchTime}ms, vector_db=${m.evidence.l1VectorFetchTime}ms, deserialize=${m.evidence.l1DeserializeTime}ms, score=${m.evidence.l1ScoreTime}ms, sort=${m.evidence.l1SortTime}ms`);
     if (m.evidence.directEvidenceStatus) {
-        lines.push(`├─ DIRECT evidence: ${m.evidence.directEvidenceStatus}`);
+        lines.push(`├─ Event evidence: ${m.evidence.directEvidenceStatus}`);
         lines.push(`│   ├─ parents/floors: ${m.evidence.directEvidenceParents || 0}/${m.evidence.directEvidenceFloors || 0}`);
         lines.push(`│   ├─ candidates: ${m.evidence.directEvidenceSourceCandidates || 0} → ${m.evidence.directEvidenceCandidates || 0} → relevant=${m.evidence.directEvidenceRelevantItems || 0}`);
         lines.push(`│   ├─ enumerated/admitted: ${m.evidence.directEvidenceEnumerated || 0}/${m.evidence.directEvidenceAdmitted || 0}, skipped_by_budget=${m.evidence.directEvidenceSkippedByBudget || 0}`);
         if ((m.evidence.directEvidenceTemporalProtectedItems || 0) > 0) {
             lines.push(`│   ├─ temporal_protected_in_prompt: items=${m.evidence.directEvidenceTemporalProtectedItems}, tokens=${m.evidence.directEvidenceTemporalProtectedTokens || 0}`);
         }
-        lines.push(`│   ├─ rerank_batches: ${m.evidence.directEvidenceRerankBatchTotal || 0}, failed=${m.evidence.directEvidenceRerankBatchFailed || 0}`);
+        lines.push(`│   ├─ local_selection: event=${m.evidence.directEvidenceEventItems || 0}, conversation=${m.evidence.directEvidenceConversationItems || 0}, lexical_hits=${m.evidence.directEvidenceLexicalItems || 0}`);
         lines.push(`│   ├─ vector_coverage: hits=${m.evidence.directEvidenceVectorHits || 0}, missing=${m.evidence.directEvidenceMissingVectors || 0}`);
-        lines.push(`│   ├─ temporal_candidate_protection: candidates=${m.evidence.directEvidenceTemporalCandidates || 0}, floor_winners=${m.evidence.directEvidenceTemporalFloorWinners || 0}, protected=${m.evidence.directEvidenceTemporalProtectedCandidates || 0}, forced=${m.evidence.directEvidenceTemporalForced || 0}, overflow=${m.evidence.directEvidenceTemporalOverflow || 0}, same_floor_non_winners=${m.evidence.directEvidenceTemporalSameFloorNonWinners || 0}, cap=${m.evidence.directEvidenceTemporalProtectionCap || 0}`);
-        lines.push(`│   ├─ ranked/prompt: ${m.evidence.directEvidenceItems || 0}/${m.evidence.directEvidencePromptItems || 0} in ${m.evidence.directEvidencePromptGroups || 0} groups`);
+        lines.push(`│   ├─ temporal_candidate_protection: candidates=${m.evidence.directEvidenceTemporalCandidates || 0}, floor_winners=${m.evidence.directEvidenceTemporalFloorWinners || 0}, protected=${m.evidence.directEvidenceTemporalProtectedCandidates || 0}`);
+        lines.push(`│   ├─ selected_L1/prompt_L0_L1: ${m.evidence.directEvidenceItems || 0}/${m.evidence.directEvidencePromptItems || 0} in ${m.evidence.directEvidencePromptGroups || 0} groups`);
+        lines.push(`│   ├─ missing_event_vectors: ${m.evidence.directEvidenceMissingEventVectors || 0}, L0_protected_tokens=${m.evidence.l0ProtectedTokens || 0}`);
         lines.push(`│   └─ prompt_tokens: ${m.evidence.directEvidencePromptTokens || 0}`);
     }
     if (m.evidence.causalEvidence) {
@@ -617,7 +614,7 @@ export function formatMetricsLog(metrics, { complete = true } = {}) {
     lines.push(`├─ graph: ${m.diffusion.graphNodes} nodes, ${m.diffusion.graphEdges} edges`);
     lines.push(`├─ candidate_pairs: ${m.diffusion.candidatePairs || 0} (what=${m.diffusion.pairsFromWhat || 0}, r_sem=${m.diffusion.pairsFromRSem || 0})`);
     lines.push(`├─ r_sem_avg_sim: ${m.diffusion.rSemAvgSim || 0}`);
-    lines.push(`├─ pair_filters: time_window=${m.diffusion.timeWindowFilteredPairs || 0}, topk_pruned=${m.diffusion.topKPrunedPairs || 0}`);
+    lines.push(`├─ pair_filters: what_window_skipped_occurrences=${m.diffusion.whatWindowSkippedOccurrences || 0}, topk_pruned=${m.diffusion.topKPrunedPairs || 0}`);
     lines.push(`├─ edge_density: ${m.diffusion.edgeDensity || 0}%`);
     if (m.diffusion.graphEdges > 0) {
         const ch = m.diffusion.byChannel || {};
@@ -697,8 +694,6 @@ export function formatMetricsLog(metrics, { complete = true } = {}) {
     }
     if (m.evidence.directEvidenceStatus) {
         lines.push(`├─ direct_evidence_retrieval: ${m.timing.directEvidenceRetrieval || 0}ms`);
-        lines.push(`│   ├─ vector_score: ${m.timing.directEvidenceVectorScore || 0}ms`);
-        lines.push(`│   └─ rerank: ${m.timing.directEvidenceRerank || 0}ms`);
     }
     lines.push(`├─ l1_cosine: ${m.evidence.l1CosineTime}ms`);
     lines.push(`│   ├─ l1_chunk_db: ${m.evidence.l1ChunkFetchTime}ms`);

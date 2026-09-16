@@ -1,5 +1,4 @@
 export const TEMPORAL_PROTECTION_POLICY = Object.freeze({
-    maxExtraDirectEvidenceParents: 5,
     maxProtectedEvents: 5,
     maxCandidateShare: 0.40,
     maxEvidenceBudgetShare: 0.40,

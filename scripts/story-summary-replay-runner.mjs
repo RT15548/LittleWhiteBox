@@ -187,16 +187,6 @@ function readFlag(argv, name) {
     return value ? value.slice(prefix.length) : null;
 }
 
-function readBooleanFlag(argv, name) {
-    const value = readFlag(argv, name);
-    if (value == null) return null;
-    const normalized = String(value).trim().toLowerCase();
-    if (!['0', '1', 'false', 'true', 'no', 'yes', 'off', 'on'].includes(normalized)) {
-        throw new Error(`--${name} 必须是 true 或 false`);
-    }
-    return ['1', 'true', 'yes', 'on'].includes(normalized);
-}
-
 function applyCliOverrides(config, argv) {
     const samplePath = readFlag(argv, 'sample');
     const snapshotPath = readFlag(argv, 'snapshot');
@@ -207,7 +197,6 @@ function applyCliOverrides(config, argv) {
     const summaryKeyEnv = readFlag(argv, 'summary-api-key-env');
     const summaryReasoningEffort = readFlag(argv, 'summary-api-reasoning-effort');
     const summaryMaxTokens = readFlag(argv, 'summary-api-max-tokens');
-    const eventRerankEnabled = readBooleanFlag(argv, 'event-rerank');
     const maxFloors = readFlag(argv, 'max-floors');
     const casesPath = readFlag(argv, 'gold-cases');
     const runsRoot = readFlag(argv, 'gold-runs-root');
@@ -248,12 +237,6 @@ function applyCliOverrides(config, argv) {
             ...(summaryKeyEnv ? { key: environmentKey, keyEnv: summaryKeyEnv } : {}),
             ...(summaryReasoningEffort ? { reasoningEffort: summaryReasoningEffort } : {}),
             ...(parsedMaxTokens ? { maxTokens: parsedMaxTokens } : {}),
-        };
-    }
-    if (eventRerankEnabled != null) {
-        config.vectorConfig = {
-            ...(config.vectorConfig || {}),
-            eventRerankEnabled,
         };
     }
     if (maxFloors != null) {

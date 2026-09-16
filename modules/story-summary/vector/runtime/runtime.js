@@ -22,6 +22,7 @@ import {
 } from './scoring.js';
 import { throwIfSignalAborted } from '../../../../shared/common/abort-utils.js';
 import { diffuseFromSeeds } from '../retrieval/diffusion.js';
+import { selectL1Evidence } from '../retrieval/l1-evidence-selection.js';
 import {
     createSessionLeaseRegistry,
     DEFAULT_SESSION_LEASE_TTL_MS,
@@ -583,7 +584,7 @@ function createMainBackend() {
 
     return {
         kind: 'main-fallback',
-        async call(type, payload = {}) {
+        async call(type, payload = {}, options = {}) {
             if (terminated) throw new Error('RecallRuntime main backend terminated');
             switch (type) {
                 case 'ping':
@@ -648,6 +649,14 @@ function createMainBackend() {
                         scores,
                         stats: stats(entry),
                     };
+                }
+                case 'selectL1Evidence': {
+                    const entry = await ensureReady(payload.chatId);
+                    const selection = await selectL1Evidence(payload.parents, entry, {
+                        ...payload.options, signal: options.signal,
+                        isCurrent: () => entries.get(payload.chatId) === entry,
+                    });
+                    return { selection, stats: stats(entry) };
                 }
                 case 'scoreL1': {
                     const entry = await ensureReady(payload.chatId);
@@ -1004,6 +1013,19 @@ export async function scoreRecallRuntimeEvents(chatId, queryVector, options = {}
         timeoutMs: WORKER_TIMEOUT_MS,
         signal: options.signal || null,
     });
+}
+
+export async function selectRecallRuntimeL1Evidence(chatId, parents, options = {}) {
+    const response = await callRuntimePrimitive(chatId, 'selectL1Evidence', {
+        chatId,
+        parents: parents.map(({ event }) => ({ event: { id: event.id, summary: event.summary } })),
+        options: {
+            queryVector: options.queryVector,
+            lexicalScores: options.lexicalScores,
+            temporalCarrier: options.temporalCarrier,
+        },
+    }, { timeoutMs: WORKER_TIMEOUT_MS, signal: options.signal || null });
+    return response.selection;
 }
 
 export async function scoreRecallRuntimeL1(chatId, floors, queryVector, options = {}) {

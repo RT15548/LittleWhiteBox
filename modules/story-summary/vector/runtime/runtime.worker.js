@@ -13,6 +13,7 @@ import {
     toFloat32,
 } from './scoring.js';
 import { diffuseFromSeeds } from '../retrieval/diffusion.js';
+import { selectL1Evidence } from '../retrieval/l1-evidence-selection.js';
 import {
     createSessionLeaseRegistry,
     DEFAULT_SESSION_LEASE_TTL_MS,
@@ -601,6 +602,13 @@ async function handle(type, payload = {}) {
             const scores = scoreEventsFromEventVectors([...(entry?.eventVectorsById.values() || [])], payload.queryVector);
             if (entry) entry.timings = { ...(entry.timings || {}), scoreEventsMs: Math.round(performance.now() - startedAt) };
             return { scores, stats: entryStats(entry) };
+        }
+        case 'selectL1Evidence': {
+            const entry = await ensureReady(payload.chatId);
+            const selection = await selectL1Evidence(payload.parents, entry, {
+                ...payload.options, isCurrent: () => entries.get(payload.chatId) === entry,
+            });
+            return { selection, stats: entryStats(entry) };
         }
         case 'scoreL1':
             return await scoreL1(payload.chatId, payload.floors, payload.queryVector);

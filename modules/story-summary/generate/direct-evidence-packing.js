@@ -18,7 +18,7 @@ export function buildRankRelevance(items, getId) {
     return relevance;
 }
 
-// Mutates budget and admittedFloors so multi-phase admission shares one ledger.
+// Mutates budget and admittedGroups so multi-phase admission shares one ledger.
 export function admitDirectEvidenceItems(items, budget, options = {}) {
     if (!budget || !Number.isFinite(budget.used) || !Number.isFinite(budget.max)) {
         throw new TypeError('budget must contain finite used and max values');
@@ -31,8 +31,8 @@ export function admitDirectEvidenceItems(items, budget, options = {}) {
         ? options.isOrdinaryEligible
         : item => item?.ordinaryEligible !== false;
     const floorOverheadTokens = Math.max(0, finiteNumber(options.floorOverheadTokens));
-    const admittedFloors = options.admittedFloors instanceof Set
-        ? options.admittedFloors
+    const admittedGroups = options.admittedGroups instanceof Set
+        ? options.admittedGroups
         : new Set();
     const protectedBudget = options.protectedBudget || { used: 0, max: budget.max };
     if (!Number.isFinite(protectedBudget.used) || !Number.isFinite(protectedBudget.max)) {
@@ -57,13 +57,14 @@ export function admitDirectEvidenceItems(items, budget, options = {}) {
     const admitted = [];
     const admittedSources = new Set();
     const tryAdmit = (item, protectedLane) => {
-        const overhead = admittedFloors.has(item.floor) ? 0 : floorOverheadTokens;
+        const groupKey = `${item.owner?.event?.id || ''}:${item.floor}`;
+        const overhead = admittedGroups.has(groupKey) ? 0 : floorOverheadTokens;
         const cost = Math.max(0, finiteNumber(getTokenCost(item))) + overhead;
         if (budget.used + cost > budget.max) return false;
         if (protectedLane && protectedBudget.used + cost > protectedBudget.max) return false;
         budget.used += cost;
         if (protectedLane) protectedBudget.used += cost;
-        admittedFloors.add(item.floor);
+        admittedGroups.add(groupKey);
         admittedSources.add(item);
         admitted.push(protectedLane
             ? { ...item, temporal: true, temporalProtected: true }

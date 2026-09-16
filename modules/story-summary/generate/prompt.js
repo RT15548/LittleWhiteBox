@@ -32,12 +32,9 @@ import {
     parseEventRange,
     TEMPORAL_PROTECTION_POLICY,
 } from "../vector/retrieval/temporal-turn-carrier.js";
-import {
-    admitDirectEvidenceItems,
-    buildRankRelevance,
-} from "./direct-evidence-packing.js";
+import { buildRankRelevance } from "./direct-evidence-packing.js";
 import { buildTemporalEventPackingOrder } from "./temporal-event-packing.js";
-import { packCausalEvidence } from "./causal-evidence-packing.js";
+import { packEventEvidence } from "./event-evidence-packing.js";
 
 // Metrics
 import { detectIssues, finalizeMetricsTiming } from "../vector/retrieval/metrics.js";
@@ -589,8 +586,8 @@ function directEvidenceItemTokens(item) {
 }
 
 /**
- * 枚举所有可挂到已入选 DIRECT 事件的证据条目。
- * 归属（owner）= candidateRank 最小且楼层范围包含该条目的事件；
+ * 枚举可挂到已入选、允许携带证据的事件的条目。
+ * L1 保留选择时的归属；L0／回退片段归到候选序最早的范围匹配事件。
  * id 级去重，跨事件不重复枚举。
  */
 function enumerateDirectEvidenceItems(
@@ -644,7 +641,10 @@ function enumerateDirectEvidenceItems(
             : null;
         const itemFloor = fallbackParentFloor ?? Number(chunk.floor);
         if (!Number.isInteger(itemFloor)) continue;
-        const owner = findOwner(itemFloor);
+        const owner = chunk.ownerEventId
+            ? ownedRanges.find(({ selected, range }) => selected.event.id === chunk.ownerEventId
+                && itemFloor >= range.start && itemFloor <= range.end)?.selected
+            : findOwner(itemFloor);
         if (!owner) continue;
         seenL1Ids.add(id);
 
@@ -1237,19 +1237,20 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
         recallResult.directEvidenceContext = null;
         deferredDirectEvidenceContext = null;
     }
-    const directL1Candidates = directEvidenceStatus === 'applied'
+    const hasSelectedL1 = ['applied', 'partial-vectors'].includes(directEvidenceStatus);
+    const directL1Candidates = hasSelectedL1
         ? (directEvidenceL1 || [])
         : l1FallbackFromPairs(l1ByFloor);
     const directEvidenceRelevance = {
         l0ByFloor: buildRankRelevance(l0Selected, l0 => l0.floor),
-        l1ByChunkId: directEvidenceStatus === 'applied'
+        l1ByChunkId: hasSelectedL1
             ? buildRankRelevance(directL1Candidates, chunk => chunk.chunkId)
             : new Map(),
     };
 
     // ── 单条证据入选 ──
-    // 1) 枚举可挂到已入选 DIRECT 事件的 L0/L1 条目（id 级去重，归属第一个
-    //    候选序事件）；2) 时间保护通道每层最多一条，且最多占实际证据池 40%；
+    // 1) 枚举可挂到已入选事件的 L0/L1 条目（id 级去重，保留 L1 归属）；
+    //    2) 时间保护通道每层最多一条，且最多占实际证据池 40%；
     //    超额项撤销特权后回普通相关性队列；3) 入选后才写 usedEvidenceIds；
     //    4) 按事件/楼层分组仅供时间线呈现。
     const enumeration = enumerateDirectEvidenceItems(
@@ -1264,28 +1265,21 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
         }
     }
 
-    const admittedEvidenceFloors = new Set();
-    const evidenceAdmissionOptions = {
-        admittedFloors: admittedEvidenceFloors,
-        getTokenCost: directEvidenceItemTokens,
+    selectedDirect.sort((a, b) => getEventSortKey(a.event) - getEventSortKey(b.event));
+    selectedRelated.sort((a, b) => getEventSortKey(a.event) - getEventSortKey(b.event));
+    const causalOwners = [
+        ...selectedDirect.map((item, index) => ({ ...item, label: `[印象深的事]第${index + 1}条` })),
+        ...selectedRelated.map((item, index) => ({ ...item, label: `[其他人的事]第${index + 1}条` })),
+    ].sort((left, right) => left.candidateRank - right.candidateRank);
+    const packed = packEventEvidence({
+        ...enumeration,
+        causalOwners, causesById: causalById, budget: eventEvidenceBudget,
+        estimateTokens, getTokenCost: directEvidenceItemTokens,
         floorOverheadTokens: DIRECT_EVIDENCE_FLOOR_OVERHEAD_TOKENS,
         protectedBudget: temporalEvidenceProtectionBudget,
-    };
-    const admittedItems = admitDirectEvidenceItems(
-        [...enumeration.l0Items, ...enumeration.l1Items],
-        eventEvidenceBudget,
-        evidenceAdmissionOptions,
-    );
-    // fallback L1 与父 L0 捆绑：只有父楼层已入选 L0 才能入选
-    const admittedFallbackItems = admitDirectEvidenceItems(
-        enumeration.fallbackItems.filter(item => (
-            admittedItems.some(admitted => admitted.kind === 'l0' && admitted.floor === item.floor)
-        )),
-        eventEvidenceBudget,
-        evidenceAdmissionOptions,
-    );
-
-    const allAdmittedItems = [...admittedItems, ...admittedFallbackItems];
+    });
+    const allAdmittedItems = packed.items;
+    const causalEvidence = packed.causal;
     for (const item of allAdmittedItems) {
         usedEvidenceIds.add(item.id);
         if (evidenceTrace) evidenceTrace.eventEvidence('prompt', item.owner.event, item.floor);
@@ -1306,15 +1300,15 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
         + enumeration.fallbackItems.length;
     const directEvidenceTemporalProtectedItems = allAdmittedItems.filter(item => item.temporalProtected === true);
 
-    injectionStats.directEvidence.tokens = eventEvidenceBudget.used;
+    injectionStats.directEvidence.tokens = eventEvidenceBudget.used - causalEvidence.stats.tokens;
     // 该 ledger 在实际入选时计费，包含首次出现楼层的标题开销。
     const directEvidenceTemporalProtectedTokens = temporalEvidenceProtectionBudget.used;
     if (metrics?.evidence) {
         metrics.evidence.directEvidencePromptGroups = injectionStats.directEvidence.units;
         metrics.evidence.directEvidencePromptItems = injectionStats.directEvidence.l0 + injectionStats.directEvidence.l1;
-        metrics.evidence.directEvidencePromptTokens = eventEvidenceBudget.used;
-        // 单条入选后的枚举/入选/被预算跳过计数；claimed-but-dropped 在该
-        // 结构下不可再现，任何丢弃都来自预算且会计入 skippedByBudget。
+        metrics.evidence.directEvidencePromptTokens = injectionStats.directEvidence.tokens;
+        metrics.evidence.l0ProtectedTokens = packed.l0ProtectedTokens;
+        // 枚举条目均已通过通道准入；此处记录共享预算／时间保护预算的舍弃。
         metrics.evidence.directEvidenceEnumerated = directEvidenceEnumeratedCount;
         metrics.evidence.directEvidenceAdmitted = allAdmittedItems.length;
         metrics.evidence.directEvidenceSkippedByBudget = Math.max(
@@ -1397,15 +1391,6 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
             distantRanked.length - acceptedDistantGroups.length,
         );
     }
-    // Causal background is a bounded supplement to raw/anchor evidence, not
-    // part of the 5000-token main-event pool. Only accepted direct edges render.
-    selectedDirect.sort((a, b) => getEventSortKey(a.event) - getEventSortKey(b.event));
-    selectedRelated.sort((a, b) => getEventSortKey(a.event) - getEventSortKey(b.event));
-    const causalOwners = [
-        ...selectedDirect.map((item, index) => ({ ...item, label: `[印象深的事]第${index + 1}条` })),
-        ...selectedRelated.map((item, index) => ({ ...item, label: `[其他人的事]第${index + 1}条` })),
-    ].sort((left, right) => left.candidateRank - right.candidateRank);
-    const causalEvidence = packCausalEvidence(causalOwners, causalById, eventEvidenceBudget, estimateTokens);
     injectionStats.causalEvidence = causalEvidence.stats;
     if (metrics?.evidence) {
         metrics.evidence.causalEvidence = causalEvidence.stats;

@@ -36,26 +36,25 @@ test('external status and actual lexical gates appear in the copyable report', (
     assert.doesNotMatch(text, /threshold=0\.50/);
 });
 
-test('timing counts assembly and direct-evidence children once, excluding retry backoff from API time', () => {
+test('timing counts assembly and local L1 selection once, excluding retry backoff from API time', () => {
     const m = createMetrics();
     Object.assign(m.timing, {
         round1Embed: 700, round1EmbedRetryWait: 500,
-        directEvidenceRetrieval: 90, directEvidenceRerank: 70,
+        directEvidenceRetrieval: 90,
         evidenceAssembly: 30, constraintFilter: 10, formatting: 10, runtimeEndSession: 5,
     });
     m.query.buildTime = 15;
     finalizeMetricsTiming(m, 900);
     assert.equal(m.timing.total, 900);
-    assert.equal(m.timing.externalTotal, 270);
-    assert.equal(m.timing.localKnownTotal, 90);
+    assert.equal(m.timing.externalTotal, 200);
+    assert.equal(m.timing.localKnownTotal, 160);
     assert.equal(m.timing.unattributed, 40);
     finalizeMetricsTiming(m, 900);
-    assert.equal(m.timing.localKnownTotal, 90);
+    assert.equal(m.timing.localKnownTotal, 160);
     m.evidence.directEvidenceStatus = 'failed';
-    m.timing.directEvidenceRerank = 0;
     finalizeMetricsTiming(m, 900);
-    assert.equal(m.timing.localKnownTotal, 70);
-    assert.equal(m.timing.unattributed, 130);
+    assert.equal(m.timing.localKnownTotal, 160);
+    assert.equal(m.timing.unattributed, 40);
 });
 
 test('event-only recall is not diagnosed as total retrieval failure', () => {

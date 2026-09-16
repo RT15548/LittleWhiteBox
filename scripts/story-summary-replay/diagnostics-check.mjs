@@ -9,8 +9,8 @@ import { runSummaryGeneration } from '../../modules/story-summary/generate/gener
 import { createRecallDiagnostics, formatRecallDiagnostics } from '../../modules/story-summary/recall-diagnostics.js';
 import { createMetrics } from '../../modules/story-summary/vector/retrieval/metrics.js';
 import { getEngineFingerprint } from '../../modules/story-summary/vector/utils/embedder.js';
-import { metaTable, eventVectorsTable } from '../../modules/story-summary/data/db.js';
-import { shutdownRecallRuntime } from '../../modules/story-summary/vector/runtime/runtime.js';
+import { metaTable, eventVectorsTable, chunksTable, chunkVectorsTable } from '../../modules/story-summary/data/db.js';
+import { shutdownRecallRuntime, getRecallRuntimeStats } from '../../modules/story-summary/vector/runtime/runtime.js';
 import { invalidateLexicalIndex } from '../../modules/story-summary/vector/retrieval/lexical-index.js';
 
 // Real production paths with only host/API boundaries substituted. No external calls.
@@ -24,7 +24,7 @@ export async function runDiagnosticsCheck() {
     __setReplayContext({ chatId, chat, name1: '用户', name2: '小红', saveMetadata: async () => {} });
     applySummaryPanelConfigSnapshot({
         prompts: { memoryTemplate: '{$剧情记忆}' },
-        vector: { enabled: true,
+        vector: { enabled: true, eventRerankEnabled: false,
             embeddingApi: { provider: 'custom', url: 'https://diagnostics.invalid', key: 'test', model: 'test' },
             rerankApi: { provider: 'custom', url: 'https://diagnostics.invalid', key: 'test', model: 'test' },
         },
@@ -56,6 +56,7 @@ export async function runDiagnosticsCheck() {
         passed.push('embedding retry retains HTTP status and cause');
 
         const config = getVectorConfig();
+        assert.equal(Object.hasOwn(config, 'eventRerankEnabled'), false);
         const fingerprint = getEngineFingerprint(config);
         await metaTable.put({ chatId, fingerprint, lastChunkFloor: 0 });
         await eventVectorsTable.put({ chatId, eventId: event.id, vector: new Float32Array([1, 0]).buffer, dims: 2, fingerprint });
@@ -72,6 +73,29 @@ export async function runDiagnosticsCheck() {
         assert.match(report, /status: degraded/);
         assert.match(report, /event-rerank: http \| HTTP 429/);
         passed.push('rerank failure preserves usable events and reports the degraded stage');
+
+        const rawText = '她当时带着蓝色信封回家，约好第二天解释缘由。';
+        await chunksTable.put({ chatId, chunkId: 'raw-0', floor: 0, chunkIdx: 0, speaker: '小红', text: rawText });
+        await chunkVectorsTable.put({ chatId, chunkId: 'raw-0', vector: new Float32Array([1, 0]).buffer, dims: 2, fingerprint });
+        invalidateLexicalIndex();
+        const rerankDocuments = [];
+        globalThis.fetch = async (url, options) => {
+            const body = JSON.parse(options.body);
+            if (String(url).endsWith('/embeddings')) {
+                return Response.json({ data: body.input.map((_, index) => ({ index, embedding: [1, 0] })) });
+            }
+            assert.ok(String(url).endsWith('/rerank'));
+            rerankDocuments.push(body.documents);
+            return Response.json({ results: body.documents.map((_, index) => ({ index, relevance_score: 0.9 })) });
+        };
+        const selected = await buildVectorPromptText();
+        assert.ok(selected.text.includes(rawText), formatRecallDiagnostics(selected.diagnostics, { status: 'success' }));
+        assert.equal(selected.diagnostics.metrics.evidence.directEvidenceStatus, 'applied');
+        assert.equal(rerankDocuments.length, 1, 'only event rerank is needed when no L0 floors exist');
+        assert.ok(rerankDocuments[0][0].includes('小红回到家里'));
+        assert.ok(!rerankDocuments.flat().some(text => text.includes(rawText)), 'raw evidence must not be sent for rerank');
+        assert.ok(getRecallRuntimeStats().every(stats => !stats.chunkVectors && !stats.eventVectors));
+        passed.push('saved false cannot disable L2 rerank; L1 reaches the prompt with no extra API call or retained runtime');
 
         // Advance a controlled wall clock through public data reads during assembly.
         const originalPerformance = globalThis.performance;

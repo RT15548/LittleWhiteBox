@@ -1940,9 +1940,6 @@ export async function runStorySummaryReplay({ rootDir, config, configPath }) {
     if (naturalResumePlan && !panelConfig.vector?.enabled) {
         throw new Error('natural-resume 需要启用 vectorConfig.enabled');
     }
-    if (eventRerankGatePlan && panelConfig.vector?.eventRerankEnabled !== true) {
-        throw new Error('event-rerank-gate 需要 --event-rerank=true');
-    }
     if (shouldRunPromptOnly && !config?.goldEval?.captureRunDir) {
         throw new Error('prompt-only 需要 goldEval.captureRunDir');
     }

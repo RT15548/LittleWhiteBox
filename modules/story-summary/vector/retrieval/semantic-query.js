@@ -1,9 +1,9 @@
 /**
- * Build the two semantic-ranking inputs owned by one recall run.
+ * Build the semantic inputs owned by one recall run.
  *
  * Event rerank needs the bounded three-message text plus the current USER text
- * for its separate exact-time rule. Direct L1 needs that same full text and
- * the final weighted dense-retrieval vector.
+ * for its separate exact-time rule. Local L1 selection uses the final weighted
+ * dense-retrieval vector, not another text-rerank request.
  */
 export function buildSemanticRecallInputs(bundle, queryVector) {
     const query = String(bundle?.rerankQuery || '').trim();
@@ -13,7 +13,6 @@ export function buildSemanticRecallInputs(bundle, queryVector) {
             temporalQuery: String(bundle?.focusQuery || '').trim(),
         },
         directEvidence: {
-            query,
             queryVector,
         },
     };

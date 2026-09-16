@@ -60,7 +60,7 @@ test('final prompt uses the fixed evidence budget despite saved overrides and bo
     assert.deepEqual(result.evidence.renderedEvidenceFloors, [102, 106, 110]);
 });
 
-test('causes use evidence space without changing main-event admission or evicting raw evidence', async () => {
+test('causes reserve evidence space without changing main-event admission; oversized raw text is skipped whole', async () => {
     const { charging } = (await runAssemblyCheck()).packingChecks;
     assert.equal(charging.eventTokens, charging.baselineEventTokens);
     assert.equal(charging.causeRendered, true);
@@ -69,10 +69,10 @@ test('causes use evidence space without changing main-event admission or evictin
     assert.equal(charging.breakdown.causalEvidence, charging.causalTokens);
     assert.equal(charging.breakdown.events, charging.eventTokens);
     assert.deepEqual(charging.oversized, { ownerRendered: true, links: 0, trace: [] });
-    assert.equal(charging.full.rawRendered, true);
-    assert.equal(charging.full.causeRendered, false);
+    assert.equal(charging.full.rawRendered, false);
+    assert.equal(charging.full.causeRendered, true);
     assert.ok(charging.full.tokens <= 4000);
-    assert.deepEqual(charging.full.trace, []);
+    assert.equal(charging.full.trace.length, 1);
     assert.deepEqual(charging.mixed.rendered, [true, true, true]);
     assert.equal(charging.mixed.tokens,
         charging.mixed.breakdown.directEvidence
@@ -104,7 +104,7 @@ test('causal supplementation rotates across events and respects both caps within
     const { fair, capped } = (await runAssemblyCheck()).packingChecks;
     assert.equal(fair.firstA, true);
     assert.equal(fair.firstB, true);
-    assert.equal(fair.secondA, false);
+    assert.equal(fair.secondA, true);
     assert.ok(fair.tokens <= 4000);
     assert.equal(capped.stats.maxTokens, 1000);
     assert.equal(capped.stats.perEventMaxTokens, 400);
@@ -173,4 +173,16 @@ test('aggregate budget sums the independent pools once and reports 15500 even fo
     }
     assert.equal(empty.promptText, '');
     assert.equal(empty.budget.injection.used, 0);
+});
+
+test('local L1 retains its explicit owner across overlapping ranges and cannot starve L0 or causes', async () => {
+    const { newEvidence } = (await runAssemblyCheck()).packingChecks;
+    assert.ok(newEvidence.overlapPositions.every(position => position >= 0));
+    assert.deepEqual(newEvidence.overlapPositions, [...newEvidence.overlapPositions].sort((a, b) => a - b));
+    assert.equal(newEvidence.overlapCopies, 1);
+    assert.deepEqual(newEvidence.protectedRendered, [true, true, true]);
+    assert.ok(newEvidence.protectedTokens > 750 && newEvidence.protectedTokens <= 1000);
+    assert.ok(newEvidence.budget.eventEvidenceUsed <= 4000);
+    assert.equal(newEvidence.budget.eventEvidenceUsed,
+        newEvidence.budget.metrics.breakdown.directEvidence + newEvidence.budget.metrics.breakdown.causalEvidence);
 });
