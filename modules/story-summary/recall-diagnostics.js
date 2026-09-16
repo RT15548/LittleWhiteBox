@@ -30,3 +30,15 @@ export function formatRecallDiagnostics(diagnostics, { status, reason = '', erro
     if (d.metrics) lines.push(formatMetricsLog(d.metrics, { complete: status === 'success' }));
     return lines.join('\n');
 }
+
+export function formatRecallReuseDiagnostics(diagnostics, memory) {
+    return [
+        '[Recall Reuse] 复用本轮记忆',
+        `chat: ${diagnostics.chatId || '-'} | type: ${diagnostics.type || 'normal'}`,
+        `来源楼层: ${memory.sourceIndex + 1}`,
+        `elapsed: ${Math.max(0, Math.round((diagnostics.finishedAt ?? performance.now()) - diagnostics.startedAt))}ms`,
+        '本次未执行召回、嵌入或重排。',
+        '--- 来源召回报告（以下状态及耗时属于首次召回） ---',
+        memory.report,
+    ].join('\n');
+}

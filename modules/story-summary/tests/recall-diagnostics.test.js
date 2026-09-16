@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createRecallDiagnostics, formatRecallDiagnostics, recordRecallFallback } from '../recall-diagnostics.js';
+import { createRecallDiagnostics, formatRecallDiagnostics, formatRecallReuseDiagnostics, recordRecallFallback } from '../recall-diagnostics.js';
 import { createMetrics, detectIssues, finalizeMetricsTiming } from '../vector/retrieval/metrics.js';
 
 test('recall reports distinguish empty, failed, cancelled and degraded with real reasons', () => {
@@ -63,4 +63,21 @@ test('event-only recall is not diagnosed as total retrieval failure', () => {
     m.event.selected = 1;
     m.event.byRecallType.lexical = 1;
     assert.doesNotMatch(detectIssues(m).join('\n'), /all retrieval paths|No floor or event candidates|No DIRECT or CAUSAL/i);
+});
+
+test('reuse identifies the source and preserves degradation as an original report, without new retrieval metrics', () => {
+    const original = createRecallDiagnostics('chat-a');
+    recordRecallFallback(original, 'lexical-index', new Error('IndexedDB read failed'));
+    const memory = { sourceIndex: 5, report: formatRecallDiagnostics(original, { status: 'success' }) };
+    const reused = createRecallDiagnostics('chat-a', 'continue');
+    reused.finishedAt = reused.startedAt + 1;
+    const text = formatRecallReuseDiagnostics(reused, memory);
+    assert.match(text, /复用本轮记忆/);
+    assert.match(text, /来源楼层: 6/);
+    assert.match(text, /以下状态及耗时属于首次召回/);
+    assert.match(text, /status: degraded/);
+    assert.match(text, /IndexedDB read failed/);
+    assert.equal(text.split('[Recall Result]').length, 2);
+    assert.equal(formatRecallReuseDiagnostics(reused, memory), text);
+    assert.equal(reused.metrics, null);
 });
