@@ -135,7 +135,7 @@ function Xe(t) {
   });
 }
 var Ve = Object.freeze({
-  dice: () => import("./xiaobai-os-DiceApp-BIEiS9ZM.js"),
+  dice: () => import("./xiaobai-os-DiceApp-CM0hkIV3.js"),
   "agent-api": () => import("./xiaobai-os-AgentApiApp-Z2ML_2mV.js"),
   "fourth-wall": () => import("./xiaobai-os-FourthWallApp-D6dG5swh.js"),
   wallet: () => import("./xiaobai-os-WalletApp-C5MjHond.js"),
@@ -145,7 +145,7 @@ var Ve = Object.freeze({
   map: () => import("./xiaobai-os-MapApp-Dx-s1Y79.js"),
   messages: () => import("./xiaobai-os-MessagesApp-rNnWs23d.js"),
   tasks: () => import("./xiaobai-os-TasksApp-DBMo6l5_.js"),
-  world: () => import("./xiaobai-os-WorldApp-y3NSoKUt.js"),
+  world: () => import("./xiaobai-os-WorldApp-CJNOGVi8.js"),
   learning: () => import("./xiaobai-os-LearningApp-CDgxYvsM.js")
 }), he = Object.freeze(Fe.map((t) => {
   const i = Ve[t.id];

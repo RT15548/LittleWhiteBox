@@ -161,8 +161,7 @@ test('main story projection is safe, summary-only and independent from subscript
     assert.ok(prompt.includes('&lt;script&gt;&#123;&#123;char&#125;&#125;&amp;'));
     assert.ok(!prompt.includes(article().body));
     assert.ok(!prompt.includes(article().id));
-    assert.equal(buildWorldStoryPrompt({ ...world, injectToStory: false }), '');
-    assert.throws(() => parseWorld({ ...world, version: 2 }));
+    assert.throws(() => parseWorld({ ...world, version: 3 }));
     assert.throws(() => parseWorld({ ...world, news: null }));
 });
 
@@ -172,9 +171,9 @@ test('content CAS preserves concurrent preference changes but rejects a stale pu
     const stale = await h.session();
     await one.executeTool('WorldEdit', { upsert: [article()] });
     await stale.executeTool('WorldEdit', { upsert: [article('stale')] });
-    await h.world.setPreference('world:one', 'injectToStory', false, () => true);
+    await h.settings.setWorldPreference('injectToStory', false);
     await one.commit(() => true);
-    assert.equal(h.world.readCurrent().world.injectToStory, false);
+    assert.equal(h.settings.read().apps.world.injectToStory, false);
     await assert.rejects(stale.commit(() => true));
     assert.equal(h.world.readCurrent().world.news[0].id, 'canal');
 });
@@ -218,13 +217,13 @@ test('invalidation and chat switches block staged world writes', async t => {
     assert.equal(h.state.writes.length, 0);
 });
 
-test('historical branches inherit preferences only; full copies and other partitions remain intact', () => {
-    const original = { ...createEmptyWorld(), subscribed: true, injectToStory: false, overview: 'future', news: [article()] };
+test('historical branches start without future news; full copies and other partitions remain intact', () => {
+    const original = { ...createEmptyWorld(), overview: 'future', news: [article()] };
     const source = { kind: 'group', ownerLocator: 'team', chatId: 'parent' };
     const capture = { identityKey: 'child', binding: { ...source, chatId: 'child' }, mainChatId: 'parent' };
     const partitions = { world: structuredClone(original), map: { untouched: true } };
     copyWorldBranch(capture, source, partitions);
-    assert.deepEqual(partitions.world, { ...createEmptyWorld(), subscribed: true, injectToStory: false });
+    assert.deepEqual(partitions.world, createEmptyWorld());
     assert.deepEqual(partitions.map, { untouched: true });
     const copy = { world: structuredClone(original) };
     copyWorldBranch({ ...capture, mainChatId: null }, source, copy);

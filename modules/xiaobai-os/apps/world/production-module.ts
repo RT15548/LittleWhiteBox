@@ -5,18 +5,21 @@ import { createWorldModule } from './module.js';
 import { createWorldController } from './host/controller.js';
 import { createWorldMaintenanceParticipant } from './host/maintenance-participant.js';
 import { createWorldPromptRuntime, type WorldPromptEventHandlers } from './host/prompt-runtime.js';
+import type { XiaobaiOsSettingsRepository } from '../../host/settings-repository.js';
 
 export function createProductionWorldModule(dependencies: {
+    settings: XiaobaiOsSettingsRepository;
     getChatIdentity(): string;
     setPrompt(value: string): void;
     subscribePrompt(handlers: WorldPromptEventHandlers): () => void;
 }) {
     return createWorldModule({
+        settings: dependencies.settings,
         getChatIdentity: dependencies.getChatIdentity,
         install({ world, maintenance, agent, execution }) {
-            const unregister = maintenance.registerParticipant(createWorldMaintenanceParticipant(world));
+            const unregister = maintenance.registerParticipant(createWorldMaintenanceParticipant(world, () => dependencies.settings.read()!.apps.world));
             execution.addCleanup(unregister);
-            const controller = createWorldController({ world, maintenance: maintenance.runner,
+            const controller = createWorldController({ world, settings: dependencies.settings, maintenance: maintenance.runner,
                 getChatIdentity: dependencies.getChatIdentity,
                 async checkAgent() {
                     const config = resolveActiveProviderConfig(normalizeAgentSettings(await agent.loadConfig()));
@@ -24,7 +27,7 @@ export function createProductionWorldModule(dependencies: {
                         && (isSillyTavernProvider(config.provider) || !!String(config.apiKey || '').trim());
                 },
             });
-            const prompt = createWorldPromptRuntime({ world, getChatIdentity: dependencies.getChatIdentity,
+            const prompt = createWorldPromptRuntime({ world, settings: dependencies.settings, getChatIdentity: dependencies.getChatIdentity,
                 setPrompt: dependencies.setPrompt, subscribe: dependencies.subscribePrompt });
             return createAppRuntimeGroup(controller, [prompt]);
         },

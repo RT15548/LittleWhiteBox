@@ -114,7 +114,7 @@ export function createProductionBootstrap(
     ];
 
     const modules = [
-        createProductionDiceModule(async identityKey => {
+        createProductionDiceModule(settings, async identityKey => {
             const summary = await import('../../story-summary/story-summary.js') as { isStorySummaryEnabledForCurrentChat(): boolean };
             return { world: composition.capabilities.require(WORLD_CONTEXT_CAPABILITY).isStoryBackgroundEnabled(identityKey),
                 summary: summary.isStorySummaryEnabledForCurrentChat() };
@@ -160,6 +160,7 @@ export function createProductionBootstrap(
             },
         }),
         createProductionWorldModule({
+            settings,
             getChatIdentity: () => getSillyTavernChatIdentity()?.key ?? '',
             setPrompt: value => setSillyTavernPrompt('xiaobai_os_world_context', value, 4),
             subscribePrompt: subscribeWorldPromptEvents,

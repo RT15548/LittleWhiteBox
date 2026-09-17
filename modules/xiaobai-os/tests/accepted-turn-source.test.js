@@ -215,7 +215,7 @@ test('matching rejects identity, evidence edits, deletion, and selected swipe ch
     assert.equal(matchesAcceptedTurnSource(chat, source), false);
 });
 
-test('automatic matching compares its captured prefix while manual matching requires the current tail', () => {
+test('all maintenance modes allow appended turns but still reject changes to their captured evidence', () => {
     const automaticChat = surface([user('U1'), assistant('A1'), user('U2')]);
     const automatic = captureAutomaticAcceptedTurn(automaticChat, 2);
     assert.ok(automatic);
@@ -225,9 +225,19 @@ test('automatic matching compares its captured prefix while manual matching requ
     automaticChat.messages.push(user('U3'));
     assert.equal(matchesAcceptedTurnSource(automaticChat, automatic), true);
 
-    const manualChat = surface([user('U1'), assistant('A1')]);
-    const manual = captureManualAcceptedTurn(manualChat, { generationActive: false });
-    assert.equal(manual.ok, true);
-    manualChat.messages.push(user('U2'));
-    assert.equal(matchesAcceptedTurnSource(manualChat, manual.source), false);
+    for (const capture of [captureManualAcceptedTurn, captureRebuildSource]) {
+        const chat = surface([user('U1'), assistant('A1')]);
+        const result = capture(chat, { generationActive: false });
+        assert.equal(result.ok, true);
+        chat.messages.push(user('U2'), assistant('A2'));
+        assert.equal(matchesAcceptedTurnSource(chat, result.source), true);
+        chat.messages[1].mes = 'edited';
+        assert.equal(matchesAcceptedTurnSource(chat, result.source), false);
+        chat.messages[1].mes = 'A1';
+        chat.messages[1].swipe_id = 9;
+        assert.equal(matchesAcceptedTurnSource(chat, result.source), false);
+        chat.messages.splice(1, 1);
+        assert.equal(matchesAcceptedTurnSource(chat, result.source), false);
+        assert.equal(matchesAcceptedTurnSource({ ...chat, identityKey: 'other' }, result.source), false);
+    }
 });

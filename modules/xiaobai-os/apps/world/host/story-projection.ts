@@ -1,10 +1,10 @@
 import { escapePromptData } from '../../../capabilities/maintenance/prompt-safety.js';
-import type { WorldDomainV1 } from '../../../domains/world/types.js';
+import type { WorldContent } from '../../../domains/world/types.js';
 
 export const MAX_WORLD_STORY_MESSAGE_CHARS = 2_000;
 
-export function buildWorldStoryPrompt(world: WorldDomainV1 | null): string {
-    if (!world?.injectToStory || (!world.overview && !world.news.length)) { return ''; }
+export function buildWorldStoryPrompt(world: WorldContent | null): string {
+    if (!world || (!world.overview && !world.news.length)) { return ''; }
     const sections = [
         ...(world.overview ? [escapePromptData(world.overview)] : []),
         ...world.news.map(item => `• ${escapePromptData(item.summary)}`),

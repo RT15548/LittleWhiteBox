@@ -3,8 +3,8 @@ import { ACTION_CHECK_CLOSE, ACTION_CHECK_OPEN, findActionCheckStart } from './m
 
 export const ACTION_CHECK_FIELDS = Object.freeze({
     action: { ...ACTION_CHECK_REQUEST_FIELDS.action, description: 'The action being attempted.' },
-    stat: { ...ACTION_CHECK_REQUEST_FIELDS.stat, description: 'The check label, such as Agility; this is a name, not a numeric bonus.' },
-    character: { ...ACTION_CHECK_REQUEST_FIELDS.character, description: 'The acting character, when needed to distinguish the actor.' },
+    stat: { ...ACTION_CHECK_REQUEST_FIELDS.stat, description: 'The relevant ability, such as Agility.' },
+    character: { ...ACTION_CHECK_REQUEST_FIELDS.character, description: 'The acting character, if ambiguous.' },
     stakes: { ...ACTION_CHECK_REQUEST_FIELDS.stakes, description: 'What success or failure changes.' },
 });
 

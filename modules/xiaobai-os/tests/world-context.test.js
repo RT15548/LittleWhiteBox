@@ -24,7 +24,7 @@ async function installContext(h, t) {
     await capabilities.install();
     const context = capabilities.require(WORLD_CONTEXT_CAPABILITY);
     const cleanups = [];
-    const module = createWorldModule({ getChatIdentity: h.getChatIdentity, install: () => ({}) });
+    const module = createWorldModule({ settings: h.settings, getChatIdentity: h.getChatIdentity, install: () => ({}) });
     await module.install({
         partition: h.coordinator.createScopedStore(WORLD_PARTITION), files: h.coordinator,
         execution: { addCleanup: cleanup => cleanups.push(cleanup) },
@@ -38,17 +38,17 @@ async function installContext(h, t) {
     return { context, dispose };
 }
 
-test('the story-background flag uses only the matching chat confirmed preference, even without news', async t => {
-    const h = await worldHarness({ ...createEmptyWorld(), injectToStory: false }); t.after(h.dispose);
+test('the global background preference still requires the matching chat and a successful save', async t => {
+    const h = await worldHarness(null, { preferences: { injectToStory: false } }); t.after(h.dispose);
     const { context, dispose } = await installContext(h, t);
     const identity = h.state.capture.identityKey;
     assert.equal(context.isStoryBackgroundEnabled(identity), false);
     assert.equal(context.readCurrent(h.getChatIdentity()), null);
-    h.state.replace = () => ({ status: 'unconfirmed', observed: null });
-    await assert.rejects(h.world.setPreference(h.getChatIdentity(), 'injectToStory', true, () => true));
+    h.state.saveSettings = () => false;
+    await assert.rejects(h.settings.setWorldPreference('injectToStory', true));
     assert.equal(context.isStoryBackgroundEnabled(identity), false);
-    h.state.replace = null;
-    await h.world.confirmPending();
+    h.state.saveSettings = null;
+    await h.settings.setWorldPreference('injectToStory', true);
     assert.equal(context.isStoryBackgroundEnabled(identity), true);
     assert.equal(context.isStoryBackgroundEnabled('another-chat'), false);
     assert.equal(context.readCurrent(h.getChatIdentity()), null);
@@ -60,14 +60,14 @@ test('the story-background flag uses only the matching chat confirmed preference
 test('a new chat exposes the same background default as World without creating a partition', async t => {
     const h = await worldHarness(); t.after(h.dispose);
     const { context } = await installContext(h, t);
-    assert.equal(context.isStoryBackgroundEnabled(h.state.capture.identityKey), h.world.readCurrent().world.injectToStory);
+    assert.equal(context.isStoryBackgroundEnabled(h.state.capture.identityKey), h.settings.read().apps.world.injectToStory);
     assert.equal(context.readCurrent(h.getChatIdentity()), null);
     assert.equal(h.state.writes.length, 0);
 });
 
 test('optional world material uses confirmed content, ignores subscription/D4 switches, and releases on disposal', async t => {
-    const initial = { ...createEmptyWorld(), injectToStory: false, overview: '初夏的港城', news: [article()] };
-    const h = await worldHarness(initial, { chatIdentity: 'character:0:test-world' }); t.after(h.dispose);
+    const initial = { ...createEmptyWorld(), overview: '初夏的港城', news: [article()] };
+    const h = await worldHarness(initial, { chatIdentity: 'character:0:test-world', preferences: { injectToStory: false } }); t.after(h.dispose);
     const { context, dispose } = await installContext(h, t);
     const identity = h.getChatIdentity();
     assert.deepEqual(context.readCurrent(identity), worldContent(initial));
@@ -113,8 +113,8 @@ test('map/tasks runs receive world material without a World run, while a combine
         readMapContext: () => '<current_map>港城</current_map>',
         readWorldContext: identity => worldContext.readCurrent(identity),
     });
-    const initial = { ...createEmptyWorld(), injectToStory: false, news: [article()] };
-    const h = await worldHarness(initial, { captureBackground: background, participants: [participant('map'), participant('tasks')] });
+    const initial = { ...createEmptyWorld(), news: [article()] };
+    const h = await worldHarness(initial, { captureBackground: background, participants: [participant('map'), participant('tasks')], preferences: { injectToStory: false } });
     t.after(h.dispose);
     worldContext = (await installContext(h, t)).context;
     h.state.messages = [{ is_user: true, mes: '出门看看。' }, { is_user: false, mes: '港城刚刚开市。' }];
@@ -123,7 +123,7 @@ test('map/tasks runs receive world material without a World run, while a combine
         assert.deepEqual(publications(h.state.requests.at(-1).messages), [worldContent(initial)]);
         assert.equal(h.state.requests.at(-1).tools.length, 0);
     }
-    await h.world.setPreference('world:one', 'subscribed', true, () => true);
+    await h.settings.setWorldPreference('subscribed', true);
     const done = deferred();
     const off = h.runner.subscribeStatus((id, identity, status) => {
         if (id === 'tasks' && identity === 'world:one' && status.message === 'unchanged') { done.resolve(); }

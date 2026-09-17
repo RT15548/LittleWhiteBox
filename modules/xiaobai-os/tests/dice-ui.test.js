@@ -8,7 +8,7 @@ import { parse, compileScript } from 'vue/compiler-sfc';
 import { build } from 'esbuild';
 
 // Mount the actual SFC. Only the bridge is replaced, returning the host's public {ok,result} envelope.
-test('Dice switch survives repeated confirmed replies, keeps newer file-state pushes and unsubscribes on exit', async t => {
+test('Dice switches accept confirmed settings, keep newer preference pushes and unsubscribe on exit', async t => {
     const dom = parseHTML('<html><body><div id="app"></div></body></html>');
     const previous = new Map();
     for (const key of ['window', 'document', 'Node', 'Element', 'HTMLElement', 'SVGElement']) {
@@ -30,15 +30,21 @@ test('Dice switch survives repeated confirmed replies, keeps newer file-state pu
     });
     // eslint-disable-next-line no-unsanitized/method -- Compiled repository Vue component, not user content.
     const { default: DiceApp } = await import(`data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].text).toString('base64')}`);
-    let state = { chatIdentity: 'chat-a', actionChecksEnabled: false, encountersEnabled: false, fileState: 'ready', pending: false };
+    let state = { chatIdentity: 'chat-a', actionChecksEnabled: false, actionCheckFrequency: 'standard', encountersEnabled: false };
     const listeners = new Set();
     let calls = 0;
     let release;
+    let failFrequency = false;
     const bridge = {
         subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
         async request(type, payload) {
-            assert.equal(type, 'dice/set-feature');
             assert.equal(payload.chatIdentity, 'chat-a');
+            if (type === 'dice/set-frequency') {
+                if (failFrequency) { throw new Error('save failed'); }
+                state = { ...state, actionCheckFrequency: payload.frequency };
+                return { ok: true, result: state };
+            }
+            assert.equal(type, 'dice/set-feature');
             calls++;
             state = { ...state, [payload.feature]: payload.enabled };
             if (calls === 3) { await new Promise(resolve => { release = resolve; }); }
@@ -49,6 +55,8 @@ test('Dice switch survives repeated confirmed replies, keeps newer file-state pu
     app.mount(dom.document.getElementById('app'));
     t.after(() => app.unmount());
     const button = dom.document.querySelector('[role="switch"]');
+    const choices = () => [...dom.document.querySelectorAll('button[aria-pressed]')];
+    assert.equal(choices().length, 0, 'frequency choices stay hidden until action checks are enabled');
     for (const expected of ['true', 'false']) {
         button.click();
         await Promise.resolve(); await nextTick();
@@ -56,10 +64,10 @@ test('Dice switch survives repeated confirmed replies, keeps newer file-state pu
         assert.equal(button.disabled, false);
     }
     button.click();
-    for (const listener of listeners) { listener({ type: 'dice/state', payload: { state: { ...state, fileState: 'saving' } } }); }
+    for (const listener of listeners) { listener({ type: 'dice/state', payload: { state: { ...state, actionChecksEnabled: false } } }); }
     release();
     await Promise.resolve(); await Promise.resolve(); await nextTick();
-    assert.equal(button.disabled, true, 'late request reply cannot replace the newer saving projection');
+    assert.equal(button.getAttribute('aria-checked'), 'false', 'late request reply cannot replace newer confirmed preferences');
     for (const listener of listeners) { listener({ type: 'dice/state', payload: { state } }); }
     await nextTick();
     assert.equal(button.disabled, false);
@@ -68,6 +76,28 @@ test('Dice switch survives repeated confirmed replies, keeps newer file-state pu
     await Promise.resolve(); await nextTick();
     assert.equal(encounterButton.getAttribute('aria-checked'), 'true');
     assert.equal(button.getAttribute('aria-checked'), 'true', 'enabling encounters leaves action checks unchanged');
+    assert.deepEqual(choices().map(choice => choice.textContent), ['轻量', '标准', '活跃']);
+    assert.deepEqual(choices().map(choice => choice.getAttribute('aria-pressed')), ['false', 'true', 'false']);
+    choices()[2].click();
+    await Promise.resolve(); await nextTick();
+    assert.deepEqual(choices().map(choice => choice.getAttribute('aria-pressed')), ['false', 'false', 'true']);
+    assert.equal(dom.document.getElementById('dice-frequency-description').textContent, '模型将更活跃地使用骰子参与剧情。');
+    for (const expected of ['false', 'true']) {
+        button.click();
+        await Promise.resolve(); await nextTick();
+        assert.equal(button.getAttribute('aria-checked'), expected);
+    }
+    assert.equal(choices()[2].getAttribute('aria-pressed'), 'true', 'turning checks off and on retains the selected frequency');
+    failFrequency = true;
+    choices()[0].click();
+    await Promise.resolve(); await nextTick();
+    assert.equal(choices()[2].getAttribute('aria-pressed'), 'true', 'failed saves keep the confirmed selection');
+    assert.equal(dom.document.querySelector('.dice-recovery').textContent.trim(), '操作未完成，请稍后重试。');
+    failFrequency = false;
+    choices()[0].click();
+    await Promise.resolve(); await nextTick();
+    assert.equal(choices()[0].getAttribute('aria-pressed'), 'true', 'a failed choice can be retried');
+    assert.equal(encounterButton.getAttribute('aria-checked'), 'true', 'frequency changes do not affect encounters');
     app.unmount();
     assert.equal(listeners.size, 0);
 });

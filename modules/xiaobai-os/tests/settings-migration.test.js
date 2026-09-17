@@ -40,6 +40,8 @@ function createCurrentSettings(enabled = true) {
             map: { autoMaintenance: false },
             tasks: { autoMaintenance: false },
             messages: { imagePrompt: false, voicePrompt: false },
+            dice: { actionChecksEnabled: false, actionCheckFrequency: 'standard', encountersEnabled: false },
+            world: { subscribed: false, injectToStory: true },
         },
     };
 }
@@ -56,6 +58,8 @@ test('enables a new OS entry without enabling automatic app features', async () 
         assert.equal(current.apps.fourthWall.image.enablePrompt, false);
         assert.equal(current.apps.fourthWall.voice.enabled, false);
         assert.deepEqual(current.apps.messages, { imagePrompt: false, voicePrompt: false });
+        assert.deepEqual(current.apps.dice, { actionChecksEnabled: false, actionCheckFrequency: 'standard', encountersEnabled: false });
+        assert.deepEqual(current.apps.world, { subscribed: false, injectToStory: true });
         assert.deepEqual(repository.read(), current);
     }
 });
@@ -263,6 +267,10 @@ test('rejects invalid mutation arguments without changing preferences', async ()
     assert.throws(() => repository.setMapAutoMaintenance(null), /must be a boolean/);
     assert.throws(() => repository.setTasksAutoMaintenance(1), /must be a boolean/);
     assert.throws(() => repository.setMessagesCapabilities({ imagePrompt: 'yes', voicePrompt: false }), /must be boolean/);
+    assert.throws(() => repository.setDiceFeature('unknown', true), /invalid Dice feature/);
+    assert.throws(() => repository.setDiceFeature('actionChecksEnabled', 'yes'), /must be a boolean/);
+    assert.throws(() => repository.setWorldPreference('unknown', true), /invalid World preference/);
+    assert.throws(() => repository.setWorldPreference('subscribed', 'yes'), /must be a boolean/);
     assert.deepEqual(settings.xiaobaiOs, before);
 });
 

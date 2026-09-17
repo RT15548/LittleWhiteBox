@@ -1,4 +1,4 @@
-import { WORLD_LIMITS, type WorldContent, type WorldDomainV1, type WorldNews } from './types.js';
+import { WORLD_LIMITS, type WorldContent, type WorldDomain, type WorldNews } from './types.js';
 
 export class WorldValidationError extends Error {
     constructor(readonly path: string, message: string) { super(message); }
@@ -46,11 +46,11 @@ export function parseWorldContent(value: unknown, path = 'world'): WorldContent 
     return { overview, news };
 }
 
-export function parseWorld(value: unknown): WorldDomainV1 {
-    const item = record(value, 'world', ['version', 'subscribed', 'injectToStory', 'overview', 'news']);
-    if (item.version !== 1 || typeof item.subscribed !== 'boolean' || typeof item.injectToStory !== 'boolean') {
-        throw new WorldValidationError('world', 'Expected version 1 and boolean subscription/background preferences.');
+export function parseWorld(value: unknown): WorldDomain {
+    const item = record(value, 'world', ['version', 'overview', 'news']);
+    if (item.version !== 2) {
+        throw new WorldValidationError('world', 'Expected version 2.');
     }
-    return { version: 1, subscribed: item.subscribed, injectToStory: item.injectToStory,
+    return { version: 2,
         ...parseWorldContent({ overview: item.overview, news: item.news }) };
 }

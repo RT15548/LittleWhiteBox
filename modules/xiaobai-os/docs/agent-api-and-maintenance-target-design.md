@@ -237,7 +237,7 @@ Provider-aware tool loop 只拥有传输和编排错误，不复制领域失败�
 ## 9. 队列、取消与失败
 
 - 当前聊天只有一条 FIFO maintenance 队列，不并行维护两个接受轮。
-- 新 User 到来时前一 job 可继续；后一个等待前一个完成，避免旧结果覆盖新状态。
+- 新 User 到来时前一 job 可继续；自动、手动维护和重建均允许原捕获边界之后追加消息，不因继续聊天整次作废。原依据的文本、角色、swipe、位置或聊天身份发生变化仍失效；后一个等待前一个完成，避免旧结果覆盖新状态。
 - 关闭 OS 窗口不影响已经获准的自动 job、手动维护或重建；三者都属于 Host 后台，不由页面寿命拥有。重新打开 APP 时从 runner 状态恢复按钮和最近结果，不新增持久任务字段。
 - board 刷新和候选招募仍是所属页面拥有的前台请求，离开对应页面、再次发起同类请求或 OS cleanup 时请求 abort。手动维护/重建只在切聊、来源变化、OS 总开关关闭、Host cleanup 或明确取消时失效；保存 commit point 之后按真实结果落定。
 - 切聊、OS cleanup 或 OS 总开关关闭时，中止 active job 并清空当前运行队列。若某 participant 的 sidecar replace 已经发出，该次保存无法物理撤回；等待它落定、保留真实 committed outcome，再取消其余 participant 和后续 job。

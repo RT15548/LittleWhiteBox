@@ -6,6 +6,10 @@ import { normalizeTasksSettings } from '../apps/tasks/settings.js';
 import type { TasksSettings } from '../apps/tasks/types.js';
 import { normalizeMessagesSettings } from '../apps/messages/settings.js';
 import type { MessagesSettings } from '../apps/messages/types.js';
+import { normalizeDiceSettings } from '../apps/dice/settings.js';
+import type { DiceSettings } from '../apps/dice/types.js';
+import { normalizeWorldSettings } from '../apps/world/settings.js';
+import type { WorldSettings } from '../apps/world/types.js';
 import type { XiaobaiOsSettings as XiaobaiOsSettingsRoot } from '../types.js';
 import { jsonValuesEqual } from './json-values-equal.js';
 import { normalizeAppOrder } from '../shell/app-order.js';
@@ -18,6 +22,8 @@ export type XiaobaiOsSettings = XiaobaiOsSettingsRoot<{
     map: MapSettings;
     tasks: TasksSettings;
     messages: MessagesSettings;
+    dice: DiceSettings;
+    world: WorldSettings;
 }>;
 
 export const LEGACY_FOURTH_WALL_SETTING_KEYS = Object.freeze([
@@ -52,6 +58,8 @@ export function createDefaultXiaobaiOsSettings(): XiaobaiOsSettings {
             map: normalizeMapSettings(undefined),
             tasks: normalizeTasksSettings(undefined),
             messages: normalizeMessagesSettings(undefined),
+            dice: normalizeDiceSettings(undefined),
+            world: normalizeWorldSettings(undefined),
         },
     };
 }
@@ -71,6 +79,8 @@ export function normalizeXiaobaiOsSettings(value: unknown): XiaobaiOsSettings {
             map: normalizeMapSettings(apps.map),
             tasks: normalizeTasksSettings(apps.tasks),
             messages: normalizeMessagesSettings(apps.messages),
+            dice: normalizeDiceSettings(apps.dice),
+            world: normalizeWorldSettings(apps.world),
         },
     };
 }
@@ -114,6 +124,8 @@ export function migrateUpstreamFourthWallSettings(extensionSettings: unknown): {
                 map: normalizeMapSettings(undefined),
                 tasks: normalizeTasksSettings(undefined),
                 messages: normalizeMessagesSettings(undefined),
+                dice: normalizeDiceSettings(undefined),
+                world: normalizeWorldSettings(undefined),
             },
         },
         legacyKeys: LEGACY_FOURTH_WALL_SETTING_KEYS.filter((key) => Object.hasOwn(source, key)),

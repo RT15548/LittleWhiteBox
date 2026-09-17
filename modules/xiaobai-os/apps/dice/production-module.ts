@@ -1,10 +1,9 @@
 import type { XiaobaiOsAppModule } from '../../kernel/app-registry.js';
-import type { ScopedChatStore } from '../../kernel/contracts.js';
+import type { XiaobaiOsSettingsRepository } from '../../host/settings-repository.js';
 import { createAppRuntimeGroup } from '../../kernel/runtime-group.js';
 import { saveSillyTavernChat } from '../../host/sillytavern-chat-save.js';
 import { isGenerating, isChatSaving, updateMessageBlock } from '../../../../../../../../script.js';
 import { DICE_APP_DESCRIPTOR } from './descriptor.js';
-import { DICE_PARTITION, type DicePartition } from './partition.js';
 import { createDiceController } from './host/controller.js';
 import { createDiceGenerationAdapter } from './host/generation-adapter.js';
 import { createDiceMessageDisplay } from './host/message-display.js';
@@ -14,26 +13,24 @@ import { createEncounterRuntime } from './host/encounter-runtime.js';
 import { createEncounterDisplay } from './host/encounter-display.js';
 import type { EncounterReferences } from './protocol/encounter-prompt.js';
 
-export function createProductionDiceModule(references: (identityKey: string) => Promise<EncounterReferences>,
+export function createProductionDiceModule(settings: XiaobaiOsSettingsRepository,
+    references: (identityKey: string) => Promise<EncounterReferences>,
     isAuxiliaryMessage: (message: DiceHostMessage) => boolean): XiaobaiOsAppModule {
     let cleanup: (() => Promise<void>) | null = null;
     return {
-        descriptor: DICE_APP_DESCRIPTOR, partition: DICE_PARTITION, capabilities: [],
+        descriptor: DICE_APP_DESCRIPTOR, capabilities: [],
         async install(context) {
-            const store = context.partition as ScopedChatStore<DicePartition>;
             let running = false;
-            const enabled = () => running && store.peekCurrent()?.identityKey === captureDiceChat()?.key
-                && (store.peekCurrent()?.value?.actionChecksEnabled ?? false);
-            const generation = createDiceGenerationAdapter(enabled, () => display.refresh(),
+            const enabled = () => running && !!captureDiceChat() && settings.read()!.apps.dice.actionChecksEnabled;
+            const generation = createDiceGenerationAdapter(enabled, () => settings.read()!.apps.dice.actionCheckFrequency, () => display.refresh(),
                 (target, candidate, signal) => display.reveal(target, candidate, signal));
             const display = createDiceMessageDisplay(generation, enabled);
-            const encountersEnabled = () => running && store.peekCurrent()?.identityKey === captureDiceChat()?.key
-                && (store.peekCurrent()?.value?.encountersEnabled ?? false);
+            const encountersEnabled = () => running && !!captureDiceChat() && settings.read()!.apps.dice.encountersEnabled;
             const encounters = createEncounterRuntime({ enabled: encountersEnabled, references, isAuxiliaryMessage,
                 changed: message => encounterDisplay.refresh(message) });
             const encounterDisplay = createEncounterDisplay(encounters);
-            context.execution.addCleanup(store.subscribe(display.refresh));
-            const controller = createDiceController(store, context.files, ensureDiceDisplayRule,
+            context.execution.addCleanup(settings.subscribe(display.refresh));
+            const controller = createDiceController(settings, () => captureDiceChat()?.key ?? '', ensureDiceDisplayRule,
                 feature => feature === 'actionChecksEnabled' ? generation.cancel() : encounters.cancel());
             cleanup = async () => {
                 if (isGenerating() || isChatSaving) { throw new Error('请等回复和保存结束，再清理 Dice 数据。'); }
@@ -53,8 +50,7 @@ export function createProductionDiceModule(references: (identityKey: string) => 
                 display.refresh();
                 encounterDisplay.refresh();
             };
-            // The OS binding lifecycle loads the current chat's partitions.
-            // Background listeners also run on the welcome screen, without a chat.
+            // Preferences are global; generation still requires a current chat.
             const background = {
                 startBackground() { running = true; generation.start(); display.start(); encounters.start(); encounterDisplay.start(); },
                 async stopBackground() { running = false; display.stop(); encounterDisplay.stop(); encounters.stop(); await generation.stop(); },
@@ -68,7 +64,9 @@ export function createProductionDiceModule(references: (identityKey: string) => 
         async clearData(context) {
             if (!cleanup) { throw new Error('请先启用小白 OS 并打开要清理的聊天。'); }
             await cleanup();
-            await context.removePartition(DICE_PARTITION.key);
+            // Remove upstream's former per-chat preferences on explicit cleanup.
+            // Drop this cleanup when those chat files are no longer supported.
+            await context.removePartition('dice');
         },
     };
 }

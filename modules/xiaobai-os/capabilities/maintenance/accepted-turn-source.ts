@@ -282,15 +282,12 @@ export function matchesAcceptedTurnSource(
     ) {
         return false;
     }
-    const automatic = source.trigger !== undefined;
-    if (
-        (automatic && surface.messages.length < source.messageCount)
-        || (!automatic && surface.messages.length !== source.messageCount)
-    ) {
+    // Every job owns its captured evidence, not the future tail of the chat.
+    if (surface.messages.length < source.messageCount) {
         return false;
     }
     if (
-        automatic
+        source.trigger !== undefined
         && (source.trigger?.role !== 'user' || source.trigger.index !== source.messageCount - 1)
     ) {
         return false;

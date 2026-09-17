@@ -3,6 +3,7 @@ import { computed, nextTick, ref, shallowRef, toRaw } from 'vue';
 import { useAppBack } from '../../../shell/app-src/navigation/app-navigation.js';
 import type { XiaobaiOsAppProps } from '../../../shell/app-contract.js';
 import type { WorldNews } from '../../../domains/world/types.js';
+import type { WorldSettings } from '../types.js';
 import NewsArticle from './NewsArticle.vue';
 import WorldOpening from './WorldOpening.vue';
 import { useWorldState } from './use-world-state.js';
@@ -21,6 +22,12 @@ const latest = computed(() => state.value.world.news.find(item => item.id === re
 const articleUpdate = computed(() => !latest.value ? 'removed'
     : JSON.stringify(latest.value) === JSON.stringify(reading.value) ? 'same' : 'updated');
 const canRefresh = computed(() => writable.value && !refreshing.value);
+
+async function setPreference(event: Event, key: keyof WorldSettings) {
+    const input = event.target as HTMLInputElement;
+    await request(key === 'subscribed' ? 'subscribe' : 'background', { enabled: input.checked });
+    input.checked = state.value.settings[key];
+}
 
 async function openArticle(item: WorldNews) {
     listScroll = listing.value?.scrollTop ?? 0;
@@ -82,18 +89,22 @@ useAppBack(() => {
                         <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.7" /><circle cx="12" cy="12" r="1.7" /><circle cx="19" cy="12" r="1.7" /></svg>
                     </summary>
                     <div class="world-menu-sheet">
-                        <button type="button" :disabled="!writable" @click="request('subscribe', { enabled: !state.world.subscribed })">
-                            <span>{{ state.world.subscribed ? '取消订阅' : '订阅新闻' }}</span>
-                        </button>
-                        <p>随剧情更新，将调用模型。取消订阅后保留新闻。</p>
+                        <label>
+                            <span>自动新闻</span>
+                            <input
+                                type="checkbox" :checked="state.settings.subscribed" :disabled="pending"
+                                @change="setPreference($event, 'subscribed')"
+                            >
+                        </label>
+                        <p>所有聊天生效，随剧情更新并调用模型。关闭后保留新闻。</p>
                         <label>
                             <span>作为剧情背景</span>
                             <input
-                                type="checkbox" :checked="state.world.injectToStory" :disabled="!writable"
-                                @change="request('background', { enabled: ($event.target as HTMLInputElement).checked })"
+                                type="checkbox" :checked="state.settings.injectToStory" :disabled="pending"
+                                @change="setPreference($event, 'injectToStory')"
                             >
                         </label>
-                        <p>将近况提供给后续剧情。</p>
+                        <p>所有聊天生效，仅提供各自聊天的世界近况。</p>
                     </div>
                 </details>
             </div>
@@ -122,12 +133,12 @@ useAppBack(() => {
                 </article>
             </section>
             <section v-else class="world-empty">
-                <h2>{{ refreshing ? '正在更新新闻' : state.world.subscribed ? '已订阅，等待新闻' : '暂无新闻' }}</h2>
+                <h2>{{ refreshing ? '正在更新新闻' : state.settings.subscribed ? '已开启自动新闻' : '暂无新闻' }}</h2>
                 <button
                     type="button" class="world-primary" :disabled="!canRefresh"
-                    @click="state.world.subscribed ? request('refresh') : request('subscribe', { enabled: true })"
+                    @click="state.settings.subscribed ? request('refresh') : request('subscribe', { enabled: true })"
                 >
-                    {{ refreshing ? '正在更新…' : pending ? '正在处理…' : state.world.subscribed ? '获取新闻' : '订阅新闻' }}
+                    {{ refreshing ? '正在更新…' : pending ? '正在处理…' : state.settings.subscribed ? '获取新闻' : '开启自动新闻' }}
                 </button>
                 <small>获取及更新将调用模型</small>
             </section>

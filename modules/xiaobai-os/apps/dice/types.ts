@@ -1,9 +1,12 @@
-import type { XiaobaiOsFileState } from '../../kernel/contracts.js';
+export type DiceFeature = 'actionChecksEnabled' | 'encountersEnabled';
+export type ActionCheckFrequency = 'light' | 'standard' | 'active';
 
-export interface DiceClientState {
-    chatIdentity: string;
+export interface DiceSettings {
     actionChecksEnabled: boolean;
+    actionCheckFrequency: ActionCheckFrequency;
     encountersEnabled: boolean;
-    fileState: XiaobaiOsFileState;
-    pending: boolean;
+}
+
+export interface DiceClientState extends DiceSettings {
+    chatIdentity: string;
 }

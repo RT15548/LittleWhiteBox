@@ -2,6 +2,9 @@ import type { FourthWallGlobalSettings } from '../apps/fourth-wall/types.js';
 import type { MapSettings } from '../apps/map/types.js';
 import type { TasksSettings } from '../apps/tasks/types.js';
 import type { MessagesSettings } from '../apps/messages/types.js';
+import type { ActionCheckFrequency, DiceFeature, DiceSettings } from '../apps/dice/types.js';
+import { isActionCheckFrequency } from '../apps/dice/settings.js';
+import type { WorldSettings } from '../apps/world/types.js';
 import type { XiaobaiOsSettings as XiaobaiOsSettingsRoot } from '../types.js';
 import { jsonValuesEqual } from './json-values-equal.js';
 import { normalizeAppOrder } from '../shell/app-order.js';
@@ -18,6 +21,8 @@ type XiaobaiOsSettings = XiaobaiOsSettingsRoot<{
     map: MapSettings;
     tasks: TasksSettings;
     messages: MessagesSettings;
+    dice: DiceSettings;
+    world: WorldSettings;
 }>;
 
 type UnknownRecord = Record<string, unknown>;
@@ -49,6 +54,9 @@ export interface XiaobaiOsSettingsRepository {
     setMapAutoMaintenance: (enabled: boolean) => Promise<XiaobaiOsSettings>;
     setTasksAutoMaintenance: (enabled: boolean) => Promise<XiaobaiOsSettings>;
     setMessagesCapabilities: (settings: MessagesSettings) => Promise<XiaobaiOsSettings>;
+    setDiceFeature: (feature: DiceFeature, enabled: boolean) => Promise<XiaobaiOsSettings>;
+    setDiceActionCheckFrequency: (frequency: ActionCheckFrequency) => Promise<XiaobaiOsSettings>;
+    setWorldPreference: (key: keyof WorldSettings, enabled: boolean) => Promise<XiaobaiOsSettings>;
     mutateFourthWall: (
         action: (current: FourthWallGlobalSettings) => FourthWallGlobalSettings,
     ) => Promise<XiaobaiOsSettings>;
@@ -267,6 +275,25 @@ export function createSettingsRepository(adapter: XiaobaiOsSettingsAdapter): Xia
         return mutate(next => ({ ...next, apps: { ...next.apps, messages: nextSettings } }));
     }
 
+    function setDiceFeature(feature: DiceFeature, enabled: boolean): Promise<XiaobaiOsSettings> {
+        if (feature !== 'actionChecksEnabled' && feature !== 'encountersEnabled') {
+            throw new TypeError('invalid Dice feature');
+        }
+        if (typeof enabled !== 'boolean') { throw new TypeError('Dice feature must be a boolean'); }
+        return mutate(next => {
+            next.apps.dice[feature] = enabled;
+            return next;
+        });
+    }
+
+    function setDiceActionCheckFrequency(frequency: ActionCheckFrequency): Promise<XiaobaiOsSettings> {
+        if (!isActionCheckFrequency(frequency)) { throw new TypeError('invalid Dice action-check frequency'); }
+        return mutate(next => {
+            next.apps.dice.actionCheckFrequency = frequency;
+            return next;
+        });
+    }
+
     function mutateFourthWall(
         action: (current: FourthWallGlobalSettings) => FourthWallGlobalSettings,
     ): Promise<XiaobaiOsSettings> {
@@ -279,6 +306,15 @@ export function createSettingsRepository(adapter: XiaobaiOsSettingsAdapter): Xia
                 throw new TypeError('fourth-wall settings action must return the complete next state');
             }
             next.apps.fourthWall = result;
+            return next;
+        });
+    }
+
+    function setWorldPreference(key: keyof WorldSettings, enabled: boolean): Promise<XiaobaiOsSettings> {
+        if (key !== 'subscribed' && key !== 'injectToStory') { throw new TypeError('invalid World preference'); }
+        if (typeof enabled !== 'boolean') { throw new TypeError('World preference must be a boolean'); }
+        return mutate(next => {
+            next.apps.world[key] = enabled;
             return next;
         });
     }
@@ -307,6 +343,9 @@ export function createSettingsRepository(adapter: XiaobaiOsSettingsAdapter): Xia
         setMapAutoMaintenance,
         setTasksAutoMaintenance,
         setMessagesCapabilities,
+        setDiceFeature,
+        setDiceActionCheckFrequency,
+        setWorldPreference,
         mutateFourthWall,
         subscribe,
         subscribeMutationInstalled,

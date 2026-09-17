@@ -5,6 +5,7 @@ import { createModuleEvents, event_types } from '../../../../../core/event-manag
 import { registerGenerateInterceptor, unregisterGenerateInterceptor, GENERATE_INTERCEPTOR_ORDER } from '../../../../../shared/common/generate-interceptor.js';
 import { setSillyTavernPrompt } from '../../../host/sillytavern-runtime-adapters.js';
 import { buildActionCheckPrompt } from '../protocol/prompt.js';
+import type { ActionCheckFrequency } from '../types.js';
 import { hasValidCheckAnchor, parseDiceRecords } from '../domain/check-records.js';
 import { createActionCheckSession } from '../application/action-check-session.js';
 import { captureDiceTarget, clearNewDiceSwipe, isDiceTargetCurrent, type DiceCandidate, type DiceTarget } from './message-records.js';
@@ -22,7 +23,7 @@ interface Observation {
     error?: string;
 }
 
-export function createDiceGenerationAdapter(enabled: () => boolean, changed: () => void,
+export function createDiceGenerationAdapter(enabled: () => boolean, frequency: () => ActionCheckFrequency, changed: () => void,
     reveal: (target: DiceTarget, candidate: DiceCandidate, signal: AbortSignal) => Promise<void>) {
     const saver = createDiceMessageSave(diceSavePort);
     let observation: Observation | null = null;
@@ -236,7 +237,7 @@ export function createDiceGenerationAdapter(enabled: () => boolean, changed: () 
                     clearPrompt(); return;
                 }
                 if (!enabled()) { clearPrompt(); return; }
-                setSillyTavernPrompt(KEY, buildActionCheckPrompt(records));
+                setSillyTavernPrompt(KEY, buildActionCheckPrompt(records, frequency()));
             } catch (error) {
                 clearPrompt();
                 console.error('[LittleWhiteBox] Dice check preparation failed', error);

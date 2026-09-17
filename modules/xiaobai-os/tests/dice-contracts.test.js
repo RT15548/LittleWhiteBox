@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { resolveActionCheck, rollActionCheck } from '../apps/dice/domain/action-check.ts';
-import { DICE_PARTITION } from '../apps/dice/partition.ts';
 import { parseDiceRecords, hasValidCheckAnchor } from '../apps/dice/domain/check-records.ts';
 import { prepareActionCheck } from '../apps/dice/application/prepare-action-check.ts';
 import { parseActionCheck, ACTION_CHECK_EXAMPLE, ACTION_CHECK_FIELDS } from '../apps/dice/protocol/request.ts';
@@ -130,10 +129,7 @@ test('invalid requests and the persisted eight-check limit consume no randomness
     assert.deepEqual(projectActionCheckResults(records.checks), records.checks.map(record => ({ ...request, roll: record.roll, dc: record.dc, outcome: record.outcome })));
 });
 
-test('new preferences default off, unsupported data is rejected without a legacy fallback', () => {
-    assert.deepEqual(DICE_PARTITION.createInitial(), { schemaVersion: 1, actionChecksEnabled: false, encountersEnabled: false });
-    assert.equal(DICE_PARTITION.parse({ schemaVersion: 1, actionChecksEnabled: true, encountersEnabled: false }).ok, true);
-    assert.equal(DICE_PARTITION.parse({ schemaVersion: 1, actionChecksEnabled: true, encounters: false }).ok, false);
+test('unsupported message records are rejected without a legacy fallback', () => {
     assert.throws(() => parseDiceRecords({ schemaVersion: 99, checks: [] }));
 });
 

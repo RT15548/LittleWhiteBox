@@ -211,6 +211,39 @@ test('registry and disabled automatic mode perform no capture-adjacent Agent wor
     assert.throws(() => createMaintenanceRegistry([disabled.participant, disabled.participant]), /Duplicate/);
 });
 
+test('real Map manual and rebuild jobs persist after new turns, but not after their evidence or chat changes', async t => {
+    for (const mode of ['manual', 'rebuild']) {
+        for (const boundary of ['append', 'edit', 'chat']) {
+            await t.test(`${mode}/${boundary}`, async () => {
+                const original = createEmptyMapDomain();
+                const kernel = createMapKernelHarness(original);
+                const chat = surface();
+                const staged = deferred(); const finish = deferred();
+                const participant = createMapMaintenanceParticipant({ map: kernel.map, readSettings: () => ({ autoMaintenance: true }) });
+                const h = createHarness({ chat, participants: [participant], agent: {
+                    async run(_request, round) {
+                        if (round === 1) { return { toolCalls: [{ id: 'place', name: 'MapAtlasEdit',
+                            arguments: JSON.stringify({ locations: [{ key: 'harbor', name: 'Harbor' }] }) }] }; }
+                        staged.resolve(); return finish.promise;
+                    },
+                } });
+                const run = mode === 'manual' ? h.runner.startManual('map') : h.runner.startRebuild('map');
+                await staged.promise;
+                if (boundary === 'append') { chat.messages.push(user('U2'), assistant('A2')); }
+                if (boundary === 'edit') { chat.messages[1].mes = 'changed evidence'; }
+                if (boundary === 'chat') { h.setSurface({ ...chat, identityKey: 'chat:other' }); }
+                finish.resolve({ text: 'Done.' });
+                const outcome = await run.completion;
+                assert.equal(outcome.status, boundary === 'append' ? 'updated' : 'cancelled');
+                assert.equal(kernel.state.writes.length, boundary === 'append' ? 1 : 0);
+                if (boundary === 'append') { assert.equal(kernel.state.persisted.partitions.map.atlas.locations[0].key, 'harbor'); }
+                else { assert.deepEqual(kernel.state.persisted.partitions.map, original); }
+                h.runner.stopBackground();
+            });
+        }
+    }
+});
+
 test('nullable no-work sessions skip without loading Agent configuration', async () => {
     let backgroundCaptures = 0;
     const participant = {

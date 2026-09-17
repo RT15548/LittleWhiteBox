@@ -6,6 +6,7 @@ import { setImmediate } from 'node:timers/promises';
 import { build } from 'esbuild';
 import { prepareActionCheck } from '../apps/dice/application/prepare-action-check.ts';
 import { captureDiceTarget } from '../apps/dice/host/message-records.ts';
+import { buildActionCheckPrompt } from '../apps/dice/protocol/prompt.ts';
 
 // These regressions live at the native event/API boundary, which the session's continuation stub cannot cover.
 // Run the actual adapter, readiness barrier, session, saver and protocol; replace native I/O only.
@@ -135,7 +136,8 @@ function setup(t, group = false, reveal = async () => {}) {
     t.after(() => { if (previousDocument) Object.defineProperty(globalThis, 'document', previousDocument); else delete globalThis.document; });
     host.reset({ key: group ? 'group:g:chat' : 'character:mira.png:chat', chatId: 'chat', chat: [message('Old reply')],
         characterId: 0, characterName: 'Mira', avatar: 'mira.png', ...(group ? { groupId: 'g' } : {}) });
-    const adapter = createDiceGenerationAdapter(() => host.enabled, () => {}, reveal);
+    host.frequency = 'standard';
+    const adapter = createDiceGenerationAdapter(() => host.enabled, () => host.frequency, () => {}, reveal);
     adapter.start();
     t.after(() => adapter.stop());
     return adapter;
@@ -154,6 +156,32 @@ async function settled(adapter) {
 }
 
 // The native event boundary is the cheapest place to verify installation, request projection and cleanup together.
+test('each generation uses the current frequency, including continuations with already-confirmed results', async t => {
+    setup(t);
+    const prompts = new Set();
+    for (const frequency of ['light', 'standard', 'active']) {
+        host.frequency = frequency;
+        await begin();
+        await host.intercept('normal');
+        assert.equal(host.prompts.get('xiaobai_os_dice'), buildActionCheckPrompt([], frequency));
+        prompts.add(host.prompts.get('xiaobai_os_dice'));
+    }
+    assert.equal(prompts.size, 3, 'the three preferences produce distinct model instructions');
+    const saved = prepareActionCheck({ body: call, generatedFrom: 0, id: 'saved', random: () => 0.4 });
+    host.source.chat.push({ ...message(saved.body), extra: { xiaobaiOsDice: saved.records } });
+    for (const frequency of ['light', 'active']) {
+        host.frequency = frequency;
+        await begin('continue');
+        await host.intercept('continue');
+        assert.equal(host.prompts.get('xiaobai_os_dice'), buildActionCheckPrompt(saved.records.checks, frequency));
+        assert.deepEqual(host.source.chat.at(-1).extra.xiaobaiOsDice, saved.records, 'switching frequency preserves rolled results');
+    }
+    host.enabled = false;
+    await begin();
+    await host.intercept('normal');
+    assert.equal(host.prompts.get('xiaobai_os_dice'), '');
+});
+
 test('final requests hide Dice markers without changing source messages, non-text parts or result data', async t => {
     setup(t);
     const saved = prepareActionCheck({ body: call, generatedFrom: 0, id: 'saved', random: () => 0.4 });

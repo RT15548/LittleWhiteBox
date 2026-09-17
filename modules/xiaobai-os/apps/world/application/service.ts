@@ -1,20 +1,20 @@
 import type { ScopedChatStore, XiaobaiOsFileControls, XiaobaiOsFileState } from '../../../kernel/contracts.js';
 import { parseWorld, parseWorldContent } from '../../../domains/world/invariants.js';
 import { worldContent } from '../../../domains/world/projection.js';
-import { createEmptyWorld, sameWorldContent, type WorldContent, type WorldDomainV1 } from '../../../domains/world/types.js';
+import { createEmptyWorld, sameWorldContent, type WorldContent, type WorldDomain } from '../../../domains/world/types.js';
 
 export interface WorldView {
     /** Sidecar binding key; character owners use the avatar filename, not the UI index. */
     identityKey: string;
     /** Runtime chat key used by the UI, maintenance runner and context consumers. */
     chatIdentity: string;
-    world: WorldDomainV1;
+    world: WorldDomain;
     writeState: XiaobaiOsFileState;
     pendingSave: boolean;
 }
 
 export function createWorldService(
-    store: ScopedChatStore<WorldDomainV1>,
+    store: ScopedChatStore<WorldDomain>,
     files: XiaobaiOsFileControls,
     getChatIdentity: () => string,
 ) {
@@ -33,15 +33,14 @@ export function createWorldService(
             writeState: files.getFileState(), pendingSave: files.hasPendingCommit() };
     }
 
-    async function change(identityKey: string, update: (current: WorldDomainV1) => WorldDomainV1, guard: () => boolean) {
+    async function change(identityKey: string, update: (current: WorldDomain) => WorldDomain, guard: () => boolean) {
         const valid = () => !!identityKey && store.peekCurrent()?.identityKey === identityKey && guard();
         if (!valid()) { throw new Error('world_context_changed'); }
         const result = await store.transact(transaction => {
             if (!valid()) { throw new Error('world_context_changed'); }
             const current = transaction.currentOrInitial();
             const next = parseWorld(update(current));
-            if (current.subscribed !== next.subscribed || current.injectToStory !== next.injectToStory
-                || !sameWorldContent(current, next)) { transaction.replace(next); }
+            if (!sameWorldContent(current, next)) { transaction.replace(next); }
         }, { commitGuard: valid });
         if (result.status === 'failed' || result.status === 'unconfirmed' || result.status === 'conflict') {
             throw Object.assign(new Error(`world_save_${result.status}`), {
@@ -55,9 +54,6 @@ export function createWorldService(
     return Object.freeze({
         readCurrent,
         async refreshCurrent() { await store.read(); return readCurrent(); },
-        setPreference(identityKey: string, key: 'subscribed' | 'injectToStory', enabled: boolean, guard: () => boolean) {
-            return change(identityKey, current => ({ ...current, [key]: enabled }), guard);
-        },
         replaceContent(identityKey: string, expected: WorldContent, candidate: WorldContent, guard: () => boolean) {
             const replacement = parseWorldContent(candidate);
             return change(identityKey, current => {
