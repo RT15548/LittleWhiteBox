@@ -851,7 +851,7 @@ export function buildNonVectorPromptText() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function createEvidenceTraceRecorder(causalById) {
-    const value = { final: [], prompt: [] };
+    const value = { final: [], prompt: [], eventEvidence: [] };
     const units = { final: new Map(), prompt: new Map() };
     const anonymousIds = new WeakMap();
     let nextAnonymousId = 1;
@@ -1280,6 +1280,23 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
     });
     const allAdmittedItems = packed.items;
     const causalEvidence = packed.causal;
+    if (evidenceTrace) {
+        const admitted = new Set(allAdmittedItems.map(item => item.id));
+        evidenceTrace.value.eventEvidence = [
+            ...enumeration.l0Items, ...enumeration.l1Items, ...enumeration.fallbackItems,
+        ].map(item => ({
+            id: item.id, kind: item.kind, floor: item.floor,
+            ownerEventId: item.owner.event.id,
+            lane: item.chunk?.evidenceLane || (item.kind === 'l0' ? 'l0' : 'fallback'),
+            score: item.score,
+            eventScore: item.chunk?.eventScore ?? null,
+            queryScore: item.chunk?.queryScore ?? null,
+            lexicalScore: item.chunk?.lexicalScore ?? null,
+            tokenCost: directEvidenceItemTokens(item),
+            temporal: item.temporal,
+            admitted: admitted.has(item.id),
+        }));
+    }
     for (const item of allAdmittedItems) {
         usedEvidenceIds.add(item.id);
         if (evidenceTrace) evidenceTrace.eventEvidence('prompt', item.owner.event, item.floor);
@@ -1613,11 +1630,16 @@ export async function buildVectorPromptForReplay(store, recallResult, causalById
  * @returns {Promise<{text: string, diagnostics: object, notice: object|null}>}
  */
 export async function buildVectorPromptText(excludeLastAi = false, options = {}) {
-    const { signal = null, diagnostics = createRecallDiagnostics(getContext()?.chatId) } = options;
+    const { signal = null, diagnostics = createRecallDiagnostics(getContext()?.chatId),
+        stageObserver = null, captureEvidenceTrace = false } = options;
+    let recallResult = null;
+    let meta = null;
+    let assembly = null;
     const finish = (text, reason = '', notice = null) => {
         diagnostics.reason = reason || diagnostics.reason;
         diagnostics.finishedAt ??= performance.now();
-        return { text, notice, diagnostics };
+        return { text, notice, diagnostics,
+            ...(captureEvidenceTrace ? { observation: { recallResult, meta, assembly } } : {}) };
     };
 
     if (!getSettings().storySummary?.enabled) {
@@ -1645,100 +1667,99 @@ export async function buildVectorPromptText(excludeLastAi = false, options = {})
     }
 
     const { chatId } = getContext();
-    const meta = chatId ? await getMeta(chatId) : null;
-
-    let recallResult = null;
+    meta = chatId ? await getMeta(chatId) : null;
     let causalById = new Map();
 
     try {
-        recallResult = await recallMemory(allEvents, vectorCfg, {
-            excludeLastAi,
-            signal,
-            deferRuntimeRelease: true,
-            diagnostics,
-        });
+        try {
+            recallResult = await recallMemory(allEvents, vectorCfg, {
+                excludeLastAi,
+                signal,
+                deferRuntimeRelease: true,
+                diagnostics,
+                stageObserver,
+            });
 
-        recallResult = {
-            ...recallResult,
-            events: recallResult?.events || [],
-            l0Selected: recallResult?.l0Selected || [],
-            l1ByFloor: recallResult?.l1ByFloor || new Map(),
-            causalChain: recallResult?.causalChain || [],
-            focusTerms: recallResult?.focusTerms || recallResult?.focusEntities || [],
-            focusEntities: recallResult?.focusTerms || recallResult?.focusEntities || [], // compat alias
-            focusCharacters: recallResult?.focusCharacters || [],
-            metrics: recallResult?.metrics || null,
-        };
+            recallResult = {
+                ...recallResult,
+                events: recallResult?.events || [],
+                l0Selected: recallResult?.l0Selected || [],
+                l1ByFloor: recallResult?.l1ByFloor || new Map(),
+                causalChain: recallResult?.causalChain || [],
+                focusTerms: recallResult?.focusTerms || recallResult?.focusEntities || [],
+                focusEntities: recallResult?.focusTerms || recallResult?.focusEntities || [], // compat alias
+                focusCharacters: recallResult?.focusCharacters || [],
+                metrics: recallResult?.metrics || null,
+            };
 
-        // 构建因果事件索引
-        causalById = new Map(
-            (recallResult.causalChain || [])
-                .map(c => [c?.event?.id, c])
-                .filter(x => x[0])
-        );
-    } catch (e) {
-        if (recallResult?.directEvidenceContext) {
-            await releaseDirectEvidenceContext(recallResult.directEvidenceContext, recallResult?.metrics);
+            // 构建因果事件索引
+            causalById = new Map(
+                (recallResult.causalChain || [])
+                    .map(c => [c?.event?.id, c])
+                    .filter(x => x[0])
+            );
+        } catch (e) {
+            if (signal?.aborted) {
+                return finish('', '召回已取消');
+            }
+            xbLog.error(MODULE_ID, "向量召回失败", e);
+            throw e;
         }
-        if (recallResult?.directEvidenceContext) recallResult.directEvidenceContext = null;
+
         if (signal?.aborted) {
             return finish('', '召回已取消');
         }
-        xbLog.error(MODULE_ID, "向量召回失败", e);
-        throw e;
-    }
 
-    if (signal?.aborted) {
+        const hasRecallEvidence =
+            (recallResult?.events?.length || 0) > 0 ||
+            (recallResult?.l0Selected?.length || 0) > 0 ||
+            (recallResult?.causalChain?.length || 0) > 0;
+
+        let notice = null;
+        if (!hasRecallEvidence) {
+            const noVectorsGenerated = !meta?.fingerprint || (meta?.lastChunkFloor ?? -1) < 0;
+            const fpMismatch = meta?.fingerprint && meta.fingerprint !== getEngineFingerprint(vectorCfg);
+
+            if (!diagnostics.reason && fpMismatch) {
+                notice = {
+                    issueCode: 'fingerprint_mismatch',
+                    message: '向量引擎已变更，请重新生成向量',
+                };
+            } else if (!diagnostics.reason && noVectorsGenerated) {
+                notice = {
+                    issueCode: 'vectors_not_generated',
+                    message: '没有可用向量，请在剧情总结面板中生成向量',
+                };
+            }
+            // 向量存在但本次未命中 → 静默跳过，不打扰用户
+            return finish('', diagnostics.reason || notice?.message || '检索完成，没有命中候选', notice);
+        }
+
+        diagnostics.stage = 'prompt-assembly';
+        assembly = await buildVectorPrompt(
+            store,
+            recallResult,
+            causalById,
+            recallResult?.focusCharacters || [],
+            meta,
+            recallResult?.metrics || null,
+            { captureEvidenceTrace },
+        );
+        if (signal?.aborted) {
+            return finish('', '召回已取消');
+        }
+
+        const cfg = getSummaryPanelConfig();
+        let finalText = String(assembly.promptText || "");
+        if (cfg.trigger?.wrapperHead) finalText = cfg.trigger.wrapperHead + "\n" + finalText;
+        if (cfg.trigger?.wrapperTail) finalText = finalText + "\n" + cfg.trigger.wrapperTail;
+
+        diagnostics.stage = 'prompt-ready';
+        return finish(finalText, finalText.trim() ? '' : '已有候选，但没有内容进入最终装配', notice);
+    } finally {
         if (recallResult?.directEvidenceContext) {
-            await releaseDirectEvidenceContext(recallResult.directEvidenceContext, recallResult?.metrics);
+            await releaseDirectEvidenceContext(recallResult.directEvidenceContext, recallResult.metrics);
             recallResult.directEvidenceContext = null;
         }
-        return finish('', '召回已取消');
     }
-
-    const hasRecallEvidence =
-        (recallResult?.events?.length || 0) > 0 ||
-        (recallResult?.l0Selected?.length || 0) > 0 ||
-        (recallResult?.causalChain?.length || 0) > 0;
-
-    let notice = null;
-    if (!hasRecallEvidence) {
-        const noVectorsGenerated = !meta?.fingerprint || (meta?.lastChunkFloor ?? -1) < 0;
-        const fpMismatch = meta?.fingerprint && meta.fingerprint !== getEngineFingerprint(vectorCfg);
-
-        if (!diagnostics.reason && fpMismatch) {
-            notice = {
-                issueCode: 'fingerprint_mismatch',
-                message: '向量引擎已变更，请重新生成向量',
-            };
-        } else if (!diagnostics.reason && noVectorsGenerated) {
-            notice = {
-                issueCode: 'vectors_not_generated',
-                message: '没有可用向量，请在剧情总结面板中生成向量',
-            };
-        }
-        // 向量存在但本次未命中 → 静默跳过，不打扰用户
-        return finish('', diagnostics.reason || notice?.message || '检索完成，没有命中候选', notice);
-    }
-
-    diagnostics.stage = 'prompt-assembly';
-    const { promptText } = await buildVectorPrompt(
-        store,
-        recallResult,
-        causalById,
-        recallResult?.focusCharacters || [],
-        meta,
-        recallResult?.metrics || null
-    );
-    if (signal?.aborted) {
-        return finish('', '召回已取消');
-    }
-
-    const cfg = getSummaryPanelConfig();
-    let finalText = String(promptText || "");
-    if (cfg.trigger?.wrapperHead) finalText = cfg.trigger.wrapperHead + "\n" + finalText;
-    if (cfg.trigger?.wrapperTail) finalText = finalText + "\n" + cfg.trigger.wrapperTail;
-
-    diagnostics.stage = 'prompt-ready';
-    return finish(finalText, finalText.trim() ? '' : '已有候选，但没有内容进入最终装配', notice);
 }

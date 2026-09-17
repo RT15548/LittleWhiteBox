@@ -75,7 +75,8 @@ import { normalizeEventMemoryRole, projectEditedSummaryEvents } from "./data/eve
 import { isRelationFact, parseRelationTarget } from "./data/fact-predicates.js";
 import { formatStorySummaryL2Events } from "./prompt-events.js";
 import { projectStoryCharacters } from "./prompt-characters.js";
-import { getSummarySourceEnd } from './generate/source-boundary.js';
+import { getAutoSummaryPlan } from './generate/summary-trigger.js';
+import { buildEventVectorText, selectMissingEventVectorPairs } from './vector/pipeline/event-vector-input.js';
 import { createHideStateController } from './hide-state.js';
 
 // prompt text builder
@@ -1531,10 +1532,6 @@ async function rebuildActiveVectorCacheAfterSummary(execution) {
     }
 }
 
-function buildEventVectorText(event) {
-    return `${event?.title || ""} ${event?.summary || ""}`.trim();
-}
-
 function buildEventLexicalSignature(event) {
     const participants = Array.isArray(event?.participants) ? event.participants.join(" ") : "";
     return `${event?.title || ""} ${participants} ${event?.summary || ""}`.trim();
@@ -1542,14 +1539,7 @@ function buildEventLexicalSignature(event) {
 
 async function collectMissingEventVectorPairs(chatId, events, fingerprint) {
     const existingVectors = await getAllEventVectors(chatId);
-    const existingIds = new Set(existingVectors
-        .filter(item => item?.fingerprint === fingerprint)
-        .map(item => item?.eventId)
-        .filter(Boolean));
-    return (events || [])
-        .filter(event => event?.id && !existingIds.has(event.id))
-        .map(event => ({ id: event.id, text: buildEventVectorText(event) }))
-        .filter(pair => pair.text);
+    return selectMissingEventVectorPairs(events, existingVectors, fingerprint);
 }
 
 async function autoVectorizeMissingEventsNow(store, execution, writeSession) {
@@ -2935,17 +2925,12 @@ async function maybeAutoRunSummary(reason) {
     const cfgAll = getSummaryPanelConfig();
     const trig = cfgAll.trigger || {};
 
-    if (!trig.enabled) return;
-    if (trig.timing === "after_ai" && reason !== "after_ai") return;
-    if (trig.timing === "before_user" && reason !== "before_user") return;
-
     if (isSummaryGenerating()) return;
 
     const store = getSummaryStore();
     const lastSummarized = store?.lastSummarizedMesId ?? -1;
-    const target = getSummarySourceEnd(chat, chat.length - 1, trig.delayFloors);
-    const pending = target - lastSummarized;
-    if (pending < (trig.interval || 1)) return;
+    const { target, triggered } = getAutoSummaryPlan(chat, lastSummarized, trig, reason);
+    if (!triggered) return;
 
     await autoRunSummaryWithRetry(target, { api: cfgAll.api, gen: cfgAll.gen, trigger: trig });
 }

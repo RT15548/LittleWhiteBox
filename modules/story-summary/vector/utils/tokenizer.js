@@ -21,6 +21,7 @@ import { xbLog } from '../../../../core/debug-core.js';
 import { BASE_STOP_WORDS } from './stopwords-base.js';
 import { DOMAIN_STOP_WORDS, KEEP_WORDS } from './stopwords-patch.js';
 import { createEntityMatcher, normalizeEntityTerm } from '../retrieval/entity-matcher.js';
+import { stripMarkupTags } from './markup-text.js';
 
 const MODULE_ID = 'tokenizer';
 
@@ -480,7 +481,7 @@ export function getTokenizerSnapshot() {
     const matcher = entityMatcher;
     const keep = new Set(matcher.terms.keys());
     const core = input => {
-        const { text, spans } = matcher.match(input);
+        const { text, spans } = matcher.match(stripMarkupTags(input));
         const tokens = [];
         let cursor = 0;
         for (const span of spans) {
@@ -504,7 +505,7 @@ export function getTokenizerSnapshot() {
         cut, segmenter,
         entities: matcher.terms,
         blockedTerms: matcher.blockedTerms,
-        extractEntities: text => matcher.extractEntities(text),
+        extractEntities: text => matcher.extractEntities(stripMarkupTags(text)),
         tokenize: text => [...new Map(core(text).map(token => [normalizeEntityTerm(token), token])).values()],
         tokenizeForIndex: text => core(text).map(normalizeEntityTerm),
     });

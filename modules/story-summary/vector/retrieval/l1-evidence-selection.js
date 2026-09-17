@@ -105,6 +105,19 @@ async function pickForLane(selection, lane, round, selectedIds, isProtected, che
     return best;
 }
 
+// Admission consumes this order as rank. Rotate only after selection so lane
+// scheduling cannot change MMR, shared-chunk ownership or temporal winners.
+function orderForAdmission(items) {
+    const batchSize = 5;
+    const event = items.filter(item => item.evidenceLane === 'event');
+    const conversation = items.filter(item => item.evidenceLane === 'conversation');
+    const ordered = [];
+    for (let start = 0; start < Math.max(event.length, conversation.length); start += batchSize) {
+        ordered.push(...event.slice(start, start + batchSize), ...conversation.slice(start, start + batchSize));
+    }
+    return ordered;
+}
+
 /** Small owned L1 sets using runtime-resident vectors. No API or storage writes. */
 export async function selectL1Evidence(parents, data, options = {}) {
     const query = unitVector(options.queryVector);
@@ -200,5 +213,6 @@ export async function selectL1Evidence(parents, data, options = {}) {
     stats.lexicalItems = items.filter(item => item.lexicalScore > 0).length;
     stats.candidates = stats.relevantItems = items.length;
     check();
-    return { items, stats, status: stats.missingVectors || stats.missingEventVectors ? 'partial-vectors' : 'applied' };
+    return { items: orderForAdmission(items), stats,
+        status: stats.missingVectors || stats.missingEventVectors ? 'partial-vectors' : 'applied' };
 }

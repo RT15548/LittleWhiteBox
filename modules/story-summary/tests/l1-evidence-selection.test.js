@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { selectL1Evidence } from '../vector/retrieval/l1-evidence-selection.js';
 import { buildTemporalTurnCarrier } from '../vector/retrieval/temporal-turn-carrier.js';
-import { admitDirectEvidenceItems } from '../generate/direct-evidence-packing.js';
+import { admitDirectEvidenceItems, buildRankRelevance } from '../generate/direct-evidence-packing.js';
 
 function fixture(rows, count = 1) {
     const parents = Array.from({ length: count }, (_, i) => ({ event: { id: `evt-${i}`, summary: `事件 (#${i + 1})` } }));
@@ -81,18 +81,47 @@ test('identical words from different speakers or turns survive; overlapping even
     assert.equal(new Set(result.items.map(item => item.chunkId)).size, 3);
 });
 
-test('all selected owners can participate beyond the old first-twenty cap, with at most three passages per lane', async () => {
+test('five-item lane rotation preserves each lane and admits conversation evidence under a tight budget', async () => {
     const { parents, data } = fixture(Array.from({ length: 30 * 12 }, (_, i) => ({ floor: Math.floor(i / 12), vector: [1, 1, 0] })), 30);
     const result = await selectL1Evidence(parents, data, { queryVector: [0, 1, 0] });
     assert.equal(new Set(result.items.map(item => item.ownerEventId)).size, 30);
-    assert.deepEqual(result.items.slice(0, 30).map(item => item.ownerEventId), parents.map(parent => parent.event.id));
-    assert.ok(result.items.slice(0, 30).every(item => item.evidenceLane === 'event'));
-    assert.deepEqual(result.items.slice(30, 60).map(item => item.ownerEventId), parents.map(parent => parent.event.id));
-    assert.ok(result.items.slice(30, 60).every(item => item.evidenceLane === 'conversation'));
+    for (const lane of ['event', 'conversation']) {
+        assert.deepEqual(result.items.filter(item => item.evidenceLane === lane).map(item => item.ownerEventId),
+            Array.from({ length: 3 }, () => parents.map(parent => parent.event.id)).flat());
+    }
+    for (let start = 0; start < result.items.length; start += 10) {
+        assert.deepEqual(result.items.slice(start, start + 10).map(item => item.evidenceLane),
+            [...Array(5).fill('event'), ...Array(5).fill('conversation')]);
+    }
     for (const parent of parents) {
         for (const lane of ['event', 'conversation']) assert.ok(result.items.filter(item => item.ownerEventId === parent.event.id && item.evidenceLane === lane).length <= 3);
     }
-    assert.ok(result.items.length > 60);
+    assert.equal(result.items.length, 180);
+    assert.equal(new Set(result.items.map(item => item.chunkId)).size, 180);
+    const relevance = buildRankRelevance(result.items, item => item.chunkId);
+    const budget = { used: 0, max: 2050 };
+    const admitted = admitDirectEvidenceItems(result.items.map(chunk => ({
+        id: chunk.chunkId, floor: chunk.floor, lane: chunk.evidenceLane,
+        score: relevance.get(chunk.chunkId), tokenCost: 200, owner: { event: { id: chunk.ownerEventId } },
+    })), budget, { floorOverheadTokens: 10 });
+    assert.deepEqual(admitted.map(item => item.lane),
+        [...Array(5).fill('event'), ...Array(5).fill('conversation')]);
+    assert.equal(budget.used, 2050);
+});
+
+test('lane rotation drains empty or short lanes without losing the other lane or its order', async () => {
+    for (const [events, conversations] of [[0, 0], [0, 8], [8, 0], [3, 8], [8, 3]]) {
+        const { parents, data } = fixture(Array.from({ length: events + conversations }, (_, floor) => ({
+            floor, vector: floor < events ? [1, 0, 0] : [0, 1, 0],
+        })), events + conversations);
+        const result = await selectL1Evidence(parents, data, { queryVector: [0, 1, 0] });
+        const expected = [];
+        for (let start = 0; start < Math.max(events, conversations); start += 5) {
+            for (let i = start; i < Math.min(start + 5, events); i++) expected.push(`c-${i}`);
+            for (let i = start; i < Math.min(start + 5, conversations); i++) expected.push(`c-${events + i}`);
+        }
+        assert.deepEqual(result.items.map(item => item.chunkId), expected, `${events}/${conversations}`);
+    }
 });
 
 test('partial vectors retain usable lexical evidence and report degradation; unselected floors stay out', async () => {

@@ -23,7 +23,7 @@ import {
     isRetryableEmbeddingFailure,
 } from '../llm/embedding-failure.js';
 import { xbLog } from '../../../../core/debug-core.js';
-import { filterText } from '../utils/text-filter.js';
+import { cleanRecallMessageText } from '../utils/text-filter.js';
 
 const MODULE_ID = 'chunk-builder';
 const INCREMENTAL_EMBED_BATCH_SIZE = 20;
@@ -56,13 +56,7 @@ export function chunkMessage(floor, message, maxTokens = CHUNK_MAX_TOKENS) {
     const speaker = message.name || (message.is_user ? '用户' : '角色');
     const isUser = !!message.is_user;
 
-    // 1. 应用用户自定义过滤规则
-    // 2. 移除 TTS 标记（硬编码）
-    // 3. 移除 <state> 标签（硬编码，L0 已单独存储）
-    const cleanText = filterText(text)
-        .replace(/\[tts:[^\]]*\]/gi, '')
-        .replace(/<state>[\s\S]*?<\/state>/gi, '')
-        .trim();
+    const cleanText = cleanRecallMessageText(text);
 
     if (!cleanText) return [];
 

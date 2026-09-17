@@ -27,11 +27,36 @@ test('code assigns sequential IDs and resolves existing and batch references wit
     assert.throws(() => prepare({ events: [event(), event()] }, lastAvailable), /事件编号/);
 });
 
-test('dangling, guessed permanent, malformed and self causal references reject the batch', () => {
-    for (const ref of ['evt-99', 'evt-14', 'new-0', 'new-3', 'new-1', 'new-1.5', 'evt-7x', 7, '']) {
-        assert.throws(() => prepare({ events: [event({ causedBy: [ref] }), event()] }), /events\[0\]\.causedBy/, String(ref));
+test('batch permanent IDs and local positions bind the same causes before persistence', () => {
+    const batch = { events: [
+        event({ causedBy: ['evt-15'] }),
+        event({ causedBy: ['evt-13', 'new-1', 'evt-7'] }),
+        event({ causedBy: ['evt-12'] }),
+        event({ causedBy: ['evt-13', 'evt-14', 'new-2'] }),
+    ] };
+    const before = structuredClone(batch);
+    const result = prepare(batch);
+    const localReferences = { events: [
+        event({ causedBy: ['new-3'] }),
+        event({ causedBy: ['new-1', 'evt-7'] }),
+        event({ causedBy: ['evt-12'] }),
+        event({ causedBy: ['new-1', 'new-2'] }),
+    ] };
+    assert.deepEqual(result, prepare(localReferences));
+    assert.deepEqual(result.events.map(item => item.causedBy), [['evt-15'], ['evt-13', 'evt-7'], ['evt-12'], ['evt-13', 'evt-14']]);
+    assert.deepEqual(batch, before);
+    assert.deepEqual(context.existingEvents, [{ id: 'evt-12' }, { id: 'evt-7' }]);
+});
+
+test('dangling, malformed and self causal references reject the batch', () => {
+    for (const ref of ['evt-99', 'evt-15', 'evt-8', 'evt-13', 'evt-013', 'new-0', 'new-3', 'new-1', 'new-1.5', 'evt-7x', 7, '']) {
+        const batch = { events: [event({ id: 'evt-99', causedBy: [ref] }), event()] };
+        const before = structuredClone(batch);
+        assert.throws(() => prepare(batch), /events\[0\]\.causedBy/, String(ref));
+        assert.deepEqual(batch, before);
     }
     assert.throws(() => prepare({ events: [event({ causedBy: ['evt-7', 'evt-12', 'new-2'] }), event()] }), /causedBy/);
+    assert.throws(() => prepare({ events: [event({ causedBy: ['evt-7', 'evt-12', 'evt-14'] }), event()] }), /causedBy/);
     assert.throws(() => prepare({ events: [event({ causedBy: 'evt-7' })] }), /causedBy/);
 });
 
@@ -46,6 +71,31 @@ test('generated floor markers must map exactly to the supplied source, never cla
         '正文 (#23-21)', '正文 (#999-1000)', '正文 (#21) 续文', '正文 (#21) (#22)', '正文 (#21.5-22)']) {
         assert.throws(() => prepare({ events: [event({ summary })] }), /events\[0\]\.summary/, summary);
     }
+});
+
+test('explicit source lists become a bounded runtime envelope without changing model input or prose', () => {
+    for (const marker of ['(#21、#23、#25)', '(#25, #21, #23)', '(#23，#25，#21)', '(#21、#25、#21)']) {
+        const batch = { events: [event({ summary: `正文 ${marker}` })] };
+        const before = structuredClone(batch);
+        const result = prepare(batch);
+        assert.equal(result.events[0].summary, '正文 (#21-25)');
+        assert.deepEqual(parseEventRange(result.events[0].summary), { start: 20, end: 24 });
+        assert.deepEqual(batch, before);
+    }
+    assert.equal(prepare({ events: [event({ summary: '正文 (#23、#23)' })] }).events[0].summary, '正文 (#23)');
+});
+
+test('source-list normalization rejects every out-of-batch member and ambiguous marker', () => {
+    for (const marker of ['(#21、#26、#25)', '(#21、#0、#25)', '(#20、#25)',
+        '(#21、#9007199254740992)', '(#21、#23.5)', '(#21、#-23)', '(#21、#23附近)',
+        '(#21、23)', '(#21、)', '(#21-23、#25)', '(#21至#25)', '(#21、#23) 续文',
+        '(#21) (#23、#25)', '(#21、#23) (#25)', '(#21、#23) (#24、#25)']) {
+        const batch = { events: [event(), event({ summary: `正文 ${marker}` })] };
+        const before = structuredClone(batch);
+        assert.throws(() => prepare(batch), /events\[1\]\.summary/, marker);
+        assert.deepEqual(batch, before);
+    }
+    assert.throws(() => prepare({ events: [event({ summary: '(#21、#25)' })] }), /须有正文/);
 });
 
 test('omitted update collections and empty events are legitimate; populated collections must be well formed', () => {

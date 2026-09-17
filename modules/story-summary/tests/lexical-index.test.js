@@ -33,7 +33,7 @@ const shims = {
     'store.js': 'export const getSummaryStore=()=>globalThis.__lexicalTestHost.store;',
     'chunk-store.js': 'export const getAllChunks=()=>globalThis.__lexicalTestHost.readChunks();',
     'state-store.js': 'export const getStateAtoms=()=>globalThis.__lexicalTestHost.atoms;',
-    'config.js': 'export const getTextFilterRules=()=>[];',
+    'config.js': 'export const getTextFilterRules=()=>globalThis.__lexicalTestHost.filterRules || [];',
     'debug-core.js': 'export const xbLog={info(){},warn(){},error(){},debug(){},isEnabled(){return false;}};',
     'embedder.js': 'export const getEngineFingerprint=()=>"test"; export const embed=async texts=>texts.map(()=>[1,0]);',
     'runtime.js': [
@@ -65,6 +65,7 @@ const bundled = await build({
             "export { default as MiniSearch } from './libs/minisearch.mjs';",
             "export * from './modules/story-summary/vector/retrieval/query-builder.js';",
             "export * from './modules/story-summary/vector/utils/tokenizer.js';",
+            "export * from './modules/story-summary/vector/utils/text-filter.js';",
             "export * from './modules/story-summary/vector/retrieval/recall.js';",
         ].join('\n'),
     },
@@ -99,6 +100,61 @@ beforeEach(() => {
 
 const chunk = (id, text, floor = 0) => ({ chunkId: id, text, floor });
 const hits = (index, terms) => mod.searchLexicalIndex(index, terms).chunkIds;
+
+test('query terms and stored-chunk lexical scores ignore format tags but preserve their contents', async () => {
+    host.store.json.characters.main = ['Alice', 'Bob'];
+    host.chunks = [
+        chunk('tagged', '<fictional_scenarios who="Bob">Alice found silver keys</fictional_scenarios>'),
+        chunk('plain', 'Alice found silver keys', 1),
+        chunk('words', 'fictional scenarios', 2),
+    ];
+    const original = structuredClone(host.chunks);
+    const index = await mod.getLexicalIndex();
+    const messages = text => [{ is_user: true, mes: text }];
+    const tagged = mod.buildQueryBundle(messages('<fictional_scenarios who="Bob">Alice found silver keys</fictional_scenarios>'));
+    const plain = mod.buildQueryBundle(messages('Alice found silver keys'));
+    assert.deepEqual(tagged.lexicalTerms, plain.lexicalTerms);
+    assert.equal(tagged.focusQuery, plain.focusQuery);
+    assert.deepEqual(tagged.querySegments, plain.querySegments);
+    assert.equal(tagged.rerankQuery, plain.rerankQuery);
+    assert.deepEqual(tagged.focusTerms, ['Alice']);
+    const scores = new Map(mod.searchLexicalIndex(index, plain.lexicalTerms).chunkScores.map(item => [item.chunkId, item.score]));
+    assert.ok(scores.get('tagged') > 0);
+    assert.equal(scores.get('tagged'), scores.get('plain'));
+    assert.deepEqual(hits(index, ['fictional', 'scenarios']), ['words']);
+    assert.deepEqual(hits(index, ['Bob']), []);
+    assert.deepEqual(host.chunks, original, 'lexical projection must not rewrite stored source material');
+});
+
+test('recall prose keeps tag contents after existing exclusion rules have removed private blocks', () => {
+    host.filterRules = [{ start: '<think>', end: '</think>' }];
+    const text = '<think>hidden thought</think><state>hidden state</state><x>visible story</x>[tts:voice]';
+    assert.equal(mod.cleanRecallMessageText(text), 'visible story');
+    assert.equal(mod.cleanRecallMessageText('visible story'), 'visible story');
+});
+
+test('UI custom exclusions run before tag removal and query construction', () => {
+    host.store.json.characters.main = ['Alice', 'Bob'];
+    host.filterRules = [
+        { start: '', end: '</planning~>' },
+        { start: '<custom-note>', end: '</custom-note>' },
+        { start: '[draft.*]', end: '[/draft.*]' },
+        { start: '<afterword>', end: '' },
+    ];
+    const dirty = 'Bob draft</planning~><context>Alice found the key.</context>'
+        + '<CUSTOM-NOTE>Bob\n<inner>discard this</inner></CUSTOM-NOTE>'
+        + '[draft.*]Bob question[/draft.*]<afterword>Bob asks what to write next';
+    const originalRules = structuredClone(host.filterRules);
+    assert.equal(mod.cleanRecallMessageText(dirty), 'Alice found the key.');
+    const query = text => mod.buildQueryBundle([{ is_user: true, mes: text }]);
+    const actual = query(dirty), expected = query('Alice found the key.');
+    for (const key of ['querySegments', 'rerankQuery', 'lexicalTerms', 'focusQuery', 'focusTerms']) {
+        assert.deepEqual(actual[key], expected[key]);
+    }
+    assert.deepEqual(host.filterRules, originalRules);
+    host.filterRules = [];
+    assert.equal(mod.cleanRecallMessageText('<custom-note>ordinary story</custom-note>'), 'ordinary story');
+});
 
 test('concurrent tokenizer loads preserve the original failure and keep fallback tokenization usable', async (t) => {
     const error = new Error('WASM download failed', { cause: new Error('network unavailable') });

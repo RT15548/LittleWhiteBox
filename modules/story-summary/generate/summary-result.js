@@ -46,29 +46,36 @@ export function getNextEventId(existingEvents = []) {
 
 function eventSummary(value, path, startFloor, endFloor) {
     const summary = text(value, path);
-    const ranges = [...summary.matchAll(/\(#(\d+)(?:-(\d+))?\)/g)];
-    const range = ranges[0];
+    const markers = [...summary.matchAll(/\(#([^()]*)\)/g)];
+    const marker = markers[0];
     // Retrieval reads the first marker; generation requires one unambiguous suffix.
-    if (ranges.length !== 1 || range.index + range[0].length !== summary.length) {
-        invalid(path, '须以唯一的来源楼层标注 (#X-Y) 或 (#X) 结尾');
+    if (markers.length !== 1 || marker.index + marker[0].length !== summary.length) {
+        invalid(path, '须以唯一的来源楼层标注结尾');
     }
-    if (!summary.slice(0, range.index).trim()) invalid(path, '楼层标注前须有正文');
-    const start = Number(range[1]);
-    const end = Number(range[2] ?? range[1]);
-    if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end)
-        || start < startFloor || end > endFloor || start > end) {
+    if (!summary.slice(0, marker.index).trim()) invalid(path, '楼层标注前须有正文');
+    const range = marker[1].match(/^(\d+)(?:-(\d+))?$/);
+    const list = !range && /^\d+(?:\s*[,，、]\s*#\d+)+$/.test(marker[1])
+        ? marker[1].split(/\s*[,，、]\s*#/).map(Number) : null;
+    if (!range && !list) invalid(path, '来源楼层须为 (#X)、(#X-Y) 或 (#X、#Y)');
+    const floors = list || [Number(range[1]), Number(range[2] ?? range[1])];
+    if (floors.some(floor => !Number.isSafeInteger(floor) || floor < startFloor || floor > endFloor)
+        || (!list && floors[0] > floors[1])) {
         invalid(path, `来源楼层须按顺序落在本批 #${startFloor}-#${endFloor} 内`);
     }
-    return summary;
+    if (!list) return summary;
+    // Project explicit sources to the runtime's continuous envelope once, at input.
+    const start = list.reduce((min, floor) => Math.min(min, floor));
+    const end = list.reduce((max, floor) => Math.max(max, floor));
+    return `${summary.slice(0, marker.index)}(#${start}${start === end ? '' : `-${end}`})`;
 }
 
-function resolveCauses(value, path, selfId, existingIds, newIds) {
+function resolveCauses(value, path, selfId, eventIds, newIds) {
     const refs = names(optionalArray(value, path), path);
     const resolved = refs.map((ref, i) => {
         const position = ref.match(/^new-([1-9]\d*)$/);
         const id = position ? newIds[Number(position[1]) - 1]
-            : /^evt-\d+$/.test(ref) && existingIds.has(ref) ? ref : undefined;
-        if (!id) invalid(`${path}[${i}]`, `引用 ${ref} 不存在；旧事件使用真实 evt-N，本批使用 new-N`);
+            : /^evt-\d+$/.test(ref) && eventIds.has(ref) ? ref : undefined;
+        if (!id) invalid(`${path}[${i}]`, `引用 ${ref} 不存在；须指向已有事件或本批事件`);
         if (id === selfId) invalid(`${path}[${i}]`, '事件不能引用自身为前因');
         return id;
     });
@@ -120,7 +127,8 @@ export function prepareSummaryResult(parsed, { existingEvents = [], startFloor, 
         invalid('events', '事件编号超出安全整数范围');
     }
     const newIds = rawEvents.map((_, i) => `evt-${nextId + i}`);
-    const existingIds = new Set(existingEvents.map(event => event.id));
+    // Bind against the complete batch before any event is merged or saved.
+    const eventIds = new Set([...existingEvents.map(event => event.id), ...newIds]);
     const events = rawEvents.map((event, i) => {
         const path = `events[${i}]`;
         object(event, path);
@@ -133,7 +141,7 @@ export function prepareSummaryResult(parsed, { existingEvents = [], startFloor, 
             ...(event.timeLabel === undefined ? {} : { timeLabel: text(event.timeLabel, `${path}.timeLabel`, true) }),
             participants: names(optionalArray(event.participants, `${path}.participants`), `${path}.participants`),
             memoryRole,
-            causedBy: resolveCauses(event.causedBy, `${path}.causedBy`, newIds[i], existingIds, newIds),
+            causedBy: resolveCauses(event.causedBy, `${path}.causedBy`, newIds[i], eventIds, newIds),
         };
     });
     const arcUpdates = optionalArray(parsed.arcUpdates, 'arcUpdates').map((update, i) => prepareArc(update, `arcUpdates[${i}]`));

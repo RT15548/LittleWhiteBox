@@ -23,7 +23,7 @@ import {
 } from './entity-lexicon.js';
 import { getLexicalIdfAccessor } from './lexical-index.js';
 import { getSummaryStore } from '../../data/store.js';
-import { filterText } from '../utils/text-filter.js';
+import { cleanRecallMessageText as cleanMessageText } from '../utils/text-filter.js';
 import { getTokenizerSnapshot, injectEntities, tokenizeForIndex as tokenizerTokenizeForIndex } from '../utils/tokenizer.js';
 import { buildBoundedRerankQuery } from './rerank-query.js';
 import { boundRecallEmbeddingSegment } from './recall-query-bounds.js';
@@ -61,18 +61,6 @@ const LEXICAL_TERMS_MAX = 10;
 // ─────────────────────────────────────────────────────────────────────────
 // 工具函数
 // ─────────────────────────────────────────────────────────────────────────
-
-/**
- * 清洗消息文本（与 chunk-builder / recall 保持一致）
- * @param {string} text
- * @returns {string}
- */
-function cleanMessageText(text) {
-    return filterText(text)
-        .replace(/\[tts:[^\]]*\]/gi, '')
-        .replace(/<state>[\s\S]*?<\/state>/gi, '')
-        .trim();
-}
 
 /**
  * 清理事件摘要（移除楼层标记）
