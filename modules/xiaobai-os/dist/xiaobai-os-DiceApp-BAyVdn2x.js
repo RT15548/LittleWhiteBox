@@ -95,7 +95,11 @@ var A = { class: "dice-app" }, B = {
           }, u(n.label), 9, $)), 64))]),
           a("p", O, u(k[t.value.actionCheckFrequency].description), 1)
         ], 8, N)) : m("", !0),
-        e[6] || (e[6] = a("aside", { class: "dice-notice" }, [a("p", null, "请关闭酒馆的「自动续写」。"), a("p", null, "功能开启期间，请勿修改或删除「小白 OS · 行动检定显示」正则。")], -1))
+        e[6] || (e[6] = a("aside", { class: "dice-notice" }, [
+          a("p", null, "请勿开启酒馆的「自动续写」。"),
+          a("p", null, "酒馆 1.14 / 1.15：行动检定的自动续写会发送输入框中尚未发送的文字。"),
+          a("p", null, "功能开启期间，会自动创建「小白 OS · 行动检定显示」全局正则。")
+        ], -1))
       ]),
       a("section", j, [
         a("div", H, [e[8] || (e[8] = a("h2", { id: "dice-encounter-label" }, "随机遭遇", -1)), a("button", {
@@ -127,7 +131,7 @@ var A = { class: "dice-app" }, B = {
   const t = p.__vccOpts || p;
   for (const [i, l] of d) t[i] = l;
   return t;
-}, G = /* @__PURE__ */ T(R, [["__scopeId", "data-v-71092aab"]]);
+}, G = /* @__PURE__ */ T(R, [["__scopeId", "data-v-083a9ada"]]);
 export {
   G as default
 };

@@ -7,8 +7,14 @@ import { readLearning } from './data-projection.js';
 import type { LearningAction } from './session.js';
 import { createLearningBackground } from './background.js';
 import type { LearningPresentation } from '../application/presentation.js';
+import type { LearningMessage } from './messages.js';
 
-export interface LearningDialogue { user: string; teacher: string; presentation?: LearningPresentation }
+export interface LearningDialogue {
+    user: string; teacher: string; presentation?: LearningPresentation;
+    messages: LearningMessage[];
+    status: 'running' | 'finished' | 'failed' | 'cancelled' | 'unconfirmed' | 'conflict';
+    message: string;
+}
 export interface LearningTeacherContext { snapshot: PromptContextSnapshot; teacherDetails: string }
 function focus(data: LearningData, language: string, osId: string, action: LearningAction, exerciseId?: string) {
     const profile = data.profiles.find(entry => entry.language === language);

@@ -97,15 +97,13 @@ test('conversation answers use the exact student message and pre-turn help condi
     const run = h.session({ kind: 'talk' }, publicScope, 'story-a', message);
     const exerciseId = unit.exercises[0].id;
     assert.equal(run.executeTool('LearningAnswer', { exerciseId, text: 'A corrected answer.' }).ok, false);
-    assert.equal(run.executeTool('LearningHelp', { exerciseIds: [exerciseId] }).ok, true);
+    assert.equal(run.executeTool('LearningHelp', { exerciseIds: [exerciseId], materialIds: [] }).ok, true);
     const recorded = run.executeTool('LearningAnswer', { exerciseId });
     assert.equal(recorded.ok, true, JSON.stringify(recorded));
     assert.deepEqual(run.executeTool('LearningAnswer', { exerciseId }).ids, recorded.ids);
     const attempt = run.executeTool('LearningRead', { section: 'unit' }).data.attempts[0];
     assert.equal(attempt.answer.text, message);
     assert.equal(attempt.help.hint, false);
-    assert.equal(h.read().unit.attempts.length, 0);
-    await assert.rejects(run.commit(() => true), { path: 'assessment' });
     assert.equal(h.read().unit.attempts.length, 0);
     assert.equal(run.executeTool('LearningAssess', h.feedback(recorded.ids[0])).ok, true);
     await run.commit(() => true);
@@ -116,7 +114,8 @@ test('conversation answers use the exact student message and pre-turn help condi
     assert.equal(late.executeTool('LearningLessonEdit', { exercises: [question({ key: 'new', materialKeys: [unit.materials[0].id] })] }).ok, true);
     const added = late.executeTool('LearningRead', { section: 'unit' }).data.exercises.at(-1).id;
     assert.equal(late.executeTool('LearningAnswer', { exerciseId: added }).ok, false);
-    await assert.rejects(late.commit(() => true));
+    assert.equal((await late.commit(() => true)).status, 'confirmed');
+    assert.equal(h.read().unit.attempts.length, 1);
 });
 
 test('a teacher starts a fresh lesson only after a confirmed completion, preserving the reward and retained evidence', async () => {
@@ -129,7 +128,6 @@ test('a teacher starts a fresh lesson only after a confirmed completion, preserv
     assert.equal(finishing.executeTool('LearningAssess', h.feedback(attemptId)).ok, true);
     assert.equal(finishing.executeTool('LearningComplete', { unitId: unit.id, attemptIds: [attemptId], summary: '完成' }).ok, true);
     assert.equal(finishing.executeTool('LearningLessonEdit', { ...lesson(), newLesson: true }).ok, false);
-    finishing.executeTool('LearningLessonEdit', { discard: true });
     await finishing.commit(() => true);
     const completion = structuredClone(h.read().completions[0]);
     const next = h.session({ kind: 'talk' });
@@ -146,8 +144,8 @@ test('presentation references cannot outlive a deleted exercise in the same prop
     const run = h.session({ kind: 'talk' });
     const id = unit.exercises[1].id;
     assert.equal(run.executeTool('LearningPresent', { kind: 'exercise', id }).ok, true);
-    assert.equal(run.executeTool('LearningLessonEdit', { removeExercises: [id] }).ok, true);
-    await assert.rejects(run.commit(() => true));
+    assert.equal(run.executeTool('LearningLessonEdit', { removeExercises: [id] }).ok, false);
+    assert.equal((await run.commit(() => true)).status, 'unchanged');
     assert.equal(h.read().unit.exercises.length, 2);
 });
 
@@ -172,7 +170,7 @@ test('lesson tools preserve actual source text through submission, assessment, c
     assert.equal((await run.commit(() => true)).status, 'unchanged');
 });
 
-test('failed proposals are atomic, correction retains IDs, unrelated reads do not permit publishing', async () => {
+test('failed calls are atomic, correction retains IDs and valid earlier changes remain saveable', async () => {
     const h = await harness();
     const action = { kind: 'prepare', replaceCurrent: false, prices };
     const run = h.session(action);
@@ -181,7 +179,6 @@ test('failed proposals are atomic, correction retains IDs, unrelated reads do no
     assert.equal(bad.ok, false);
     assert.equal(run.executeTool('LearningRead', { section: 'unit' }).data.exercises.length, 1);
     assert.equal(h.read().unit, null);
-    await assert.rejects(run.commit(() => true));
     const corrected = run.executeTool('LearningLessonEdit', lesson());
     assert.deepEqual(corrected.ids, good.ids);
     assert.equal(corrected.changed, false);
@@ -206,8 +203,6 @@ test('ordinary teaching can maintain the stated goal but cannot manufacture atte
     assert.equal(run.executeTool('LearningAssess', { ...h.feedback(attemptId), answer: '伪造原答' }).ok, false);
     assert.equal(run.executeTool('LearningAssess', h.feedback(attemptId)).ok, true);
     assert.equal(run.executeTool('LearningComplete', { unitId: unit.id, attemptIds: [attemptId], summary: '完成', amount: 999 }).ok, false);
-    await assert.rejects(run.commit(() => true));
-    assert.equal(run.executeTool('LearningComplete', { discard: true }).ok, true);
     await run.commit(() => true);
     assert.equal(h.read().completions.length, 0);
     assert.equal(h.read().unit.attempts[0].answer.text, 'Trees make streets cooler.');
@@ -490,7 +485,7 @@ test('data projection budget degrades without invalidating saved text; read and 
     await assert.rejects(run.commit(() => true));
 });
 
-test('wrap-up cannot hide a failed assessment behind success on another attempt', async () => {
+test('a failed item attachment leaves no debt on a successful assessment of another attempt', async () => {
     const h = await harness();
     await h.prepare(lesson({ exercises: [question({ skill: 'reading', response: { kind: 'choice', multiple: false,
         options: [{ id: 'a', text: 'cool' }, { id: 'b', text: 'warm' }] },
@@ -500,9 +495,7 @@ test('wrap-up cannot hide a failed assessment behind success on another attempt'
     const run = h.session({ kind: 'complete' });
     assert.equal(run.executeTool('LearningAssess', { attemptId: first, items: [{ itemId: 'missing' }] }).ok, false);
     assert.equal(run.executeTool('LearningAssess', { attemptId: second, items: [{ label: '读懂原因' }] }).ok, true);
-    await assert.rejects(run.commit(() => true));
     assert.equal(h.read().items.length, 0);
-    assert.equal(run.executeTool('LearningAssess', { discard: true }).ok, true);
     await run.commit(() => true);
     assert.equal(h.read().items[0].evidence[0].attempt.id, second);
 });
@@ -532,7 +525,7 @@ test('out-of-range lessons and mismatched answers are rejected without replacing
     for (const input of invalid) {
         const run = h.session(action);
         assert.equal(run.executeTool('LearningLessonEdit', input).ok, false);
-        await assert.rejects(run.commit(() => true));
+        assert.equal((await run.commit(() => true)).status, 'unchanged');
     }
     assert.equal(h.read().unit.id, unit.id);
     await assert.rejects(h.submit({ kind: 'choice', ids: ['fabricated'] }));

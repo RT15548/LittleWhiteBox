@@ -2,10 +2,10 @@ import { ACTION_CHECK_REQUEST_FIELDS, parseActionCheckRequest, type ActionCheckR
 import { ACTION_CHECK_CLOSE, ACTION_CHECK_OPEN, findActionCheckStart } from './markup.js';
 
 export const ACTION_CHECK_FIELDS = Object.freeze({
-    action: { ...ACTION_CHECK_REQUEST_FIELDS.action, description: 'The action being attempted.' },
+    action: { ...ACTION_CHECK_REQUEST_FIELDS.action, description: 'The specific outcome being attempted, including any desired quality, completion time, or cost.' },
     stat: { ...ACTION_CHECK_REQUEST_FIELDS.stat, description: 'The relevant ability, such as Agility.' },
     character: { ...ACTION_CHECK_REQUEST_FIELDS.character, description: 'The acting character, if ambiguous.' },
-    stakes: { ...ACTION_CHECK_REQUEST_FIELDS.stakes, description: 'What success or failure changes.' },
+    stakes: { ...ACTION_CHECK_REQUEST_FIELDS.stakes, description: 'What success and failure each mean for this attempt, and which established facts remain unchanged.' },
 });
 
 export type ActionCheckParseResult = { kind: 'none' }

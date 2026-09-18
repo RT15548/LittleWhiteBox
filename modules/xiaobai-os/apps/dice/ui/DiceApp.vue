@@ -69,8 +69,9 @@ async function send(type: string, payload: Record<string, unknown>) {
                 <p id="dice-frequency-description" aria-live="polite">{{ frequencyChoices[state.actionCheckFrequency].description }}</p>
             </fieldset>
             <aside class="dice-notice">
-                <p>请关闭酒馆的「自动续写」。</p>
-                <p>功能开启期间，请勿修改或删除「小白 OS · 行动检定显示」正则。</p>
+                <p>请勿开启酒馆的「自动续写」。</p>
+                <p>酒馆 1.14 / 1.15：行动检定的自动续写会发送输入框中尚未发送的文字。</p>
+                <p>功能开启期间，会自动创建「小白 OS · 行动检定显示」全局正则。</p>
             </aside>
         </section>
         <section aria-labelledby="dice-encounter-label" class="dice-feature">

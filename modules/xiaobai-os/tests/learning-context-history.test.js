@@ -1,8 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { declaredTeacher } from './fixtures/learning-reply.js';
 import { OpenAIResponsesAdapter } from '../../agent-core/adapters/openai-responses.js';
-import { OpenAICompatibleAdapter } from '../../agent-core/adapters/openai-compatible.js';
-import { estimateConversationTokens } from '../../agent-core/runtime/context-tokens.js';
 import { buildLearningContext } from '../apps/learning/agent/context.js';
 import { buildLearningSystemPrompt } from '../apps/learning/agent/prompt.js';
 import { runLearningProviderLoop } from '../apps/learning/agent/provider-loop.js';
@@ -12,66 +11,45 @@ import { createClassroomFixture } from './fixtures/learning-classroom.js';
 
 const readRequest = message => JSON.parse(message.content.split('<learning_request>\n').at(-1).split('\n</learning_request>')[0]);
 const overflow = () => Object.assign(new Error('maximum context length exceeded'), { status: 400, code: 'context_length_exceeded' });
-const turn = (name, content = name.repeat(300)) => ({ user: name, teacher: content,
+const turn = (name, content = name.repeat(300)) => ({ user: name, teacher: content, status: 'finished', message: '',
     messages: [{ role: 'user', content: name }, { role: 'assistant', content }] });
 const bigHistory = () => [turn('earlier', 'Detailed classroom exchange. '.repeat(LEARNING_SUMMARY_TRIGGER_TOKENS / 5)), turn('recent-a'), turn('recent-b')];
 
-test('learning counts replayed reasoning both before proactive compaction and when accepting a summary after provider overflow', async t => {
-    for (const proactive of [true, false]) {
-        await t.test(proactive ? '158k proactive threshold' : 'smaller provider window', async () => {
-            const config = { provider: 'openai-compatible', model: 'deepseek-chat', apiKey: 'test-only', reasoning: { mode: 'on' } };
-            const adapter = new OpenAICompatibleAdapter(config);
-            const reasoning = '思'.repeat(proactive ? 192000 : 8000);
-            const history = [turn('old', 'answer'), turn('recent-a', 'recent answer a'), turn('recent-b', 'recent answer b')];
-            const calls = [{ id: 'old-read', type: 'function', function: { name: 'Read', arguments: '{}' } }];
-            history[0].messages.splice(1, 0,
-                { role: 'assistant', content: '', tool_calls: calls, providerPayload: { openaiCompatibleMessage: {
-                    role: 'assistant', content: '', tool_calls: calls, reasoning_content: reasoning,
-                } } },
-                { role: 'tool', tool_call_id: 'old-read', content: '{}' });
-            const original = structuredClone(history);
-            const tools = [{ type: 'function', function: { name: 'Read', parameters: { type: 'object' } } }];
-            const messages = [{ role: 'user', content: 'continue' }];
-            const input = { messages: [...history.flatMap(entry => entry.messages), ...messages], tools };
-            assert.ok(estimateConversationTokens(input) < 1000);
-            const before = estimateConversationTokens({ ...input, providerConfig: config });
-            assert.equal(before > LEARNING_SUMMARY_TRIGGER_TOKENS, proactive);
-            const summary = 'Useful classroom summary. '.repeat(200).trim();
-            assert.ok(estimateConversationTokens({ messages: [{ role: 'system', content: summary }] }) > estimateConversationTokens(input));
-            const events = []; const published = [];
-            const teacher = { providerConfig: config, supportsSessionToolLoop: false, run: async request => {
-                events.push('teacher');
-                const body = adapter.buildRequestBody({ ...request, reasoning: config.reasoning });
-                const replayed = body.messages.map(message => message.reasoning_content || '').join('');
-                if (replayed) {
-                    assert.equal(replayed, reasoning);
-                    assert.equal(proactive, false, 'the 158k check must compact before the first teacher call');
-                    throw overflow();
-                }
-                assert.ok(request.messages.some(message => message.content.includes(summary)));
-                assert.ok(estimateConversationTokens({ ...request, providerConfig: config }) < before);
-                return { text: 'continue the lesson' };
-            } };
-            const result = await runLearningProviderLoop({ agent: teacher, history, messages, tools, systemPrompt: 'teacher',
-                signal: new AbortController().signal, guard: () => true, executeTool: () => assert.fail('no tool call expected'),
-                onCompact: (count, text) => published.push({ count, text }),
-                reopen: async () => ({ ...teacher, run: async request => {
-                    if (request.tools.length) { return teacher.run(request); }
-                    events.push('summary');
-                    assert.equal(request.reasoning.mode, 'inherit');
-                    assert.deepEqual(request.tools, []);
-                    const source = JSON.parse(request.messages[0].content);
-                    assert.equal(source.exchanges.length, 1);
-                    assert.ok(source.exchanges.flat().every(message => !message.providerPayload && !message.reasoning_content));
-                    return { text: summary };
-                } }),
-            });
-            assert.equal(result.status, 'finished', result.details?.cause?.stack ?? result.reason); assert.equal(result.removedTurns, 1);
-            assert.deepEqual(events, proactive ? ['summary', 'teacher'] : ['teacher', 'summary', 'teacher']);
-            assert.deepEqual(published, [{ count: 1, text: summary }]);
-            assert.deepEqual(history, original);
-        });
-    }
+test('summary input contains published exchanges, never discarded teaching or private tool results', async () => {
+    const history = turn('question', 'Published answer.');
+    history.messages.push({ role: 'assistant', content: 'Discarded answer.', contentVisibility: 'private' },
+        { role: 'tool', toolName: 'LearningRead', toolCallId: 'read', content: 'Private source.' });
+    const summary = await summariseLearningHistory({ summary: '', turns: [history], signal: new AbortController().signal,
+        guard: () => true, openSession: async () => ({ providerConfig: {}, supportsSessionToolLoop: false, run: async request => {
+            const source = JSON.parse(request.messages[0].content);
+            assert.deepEqual(source.exchanges, [[{ role: 'user', content: 'question' }, { role: 'assistant', content: 'Published answer.' }]]);
+            return { text: 'Safe summary.' };
+        } }) });
+    assert.equal(summary, 'Safe summary.');
+});
+
+test('finished exchanges omit private protocol payloads and measure only the published history', async () => {
+    const history = [turn('old', 'answer'), turn('recent-a', 'recent answer a')];
+    history[0].messages.splice(1, 0, { role: 'assistant', content: 'unpublished teaching text', contentVisibility: 'private',
+        toolCalls: [{ id: 'old-read', name: 'Read', arguments: '{}' }],
+        providerPayload: { openaiCompatibleMessage: { role: 'assistant', content: 'unpublished teaching text',
+            reasoning_content: '思'.repeat(192000) } } }, { role: 'tool', content: 'private tool result', toolName: 'Read', toolCallId: 'old-read' });
+    const original = structuredClone(history);
+    const result = await runLearningProviderLoop({ systemPrompt: '', messages: [{ role: 'user', content: 'continue' }],
+        tools: [], history, signal: new AbortController().signal, guard: () => true, executeTool: () => assert.fail(),
+        reopen: () => assert.fail('Unsent private payloads must not trigger compaction'),
+        agent: { providerConfig: { provider: 'openai-compatible', model: 'deepseek-chat' }, supportsSessionToolLoop: false,
+            run: async request => {
+                assert.deepEqual(request.messages, [
+                    { role: 'user', content: 'old' }, { role: 'assistant', content: 'answer' },
+                    { role: 'user', content: 'recent-a' }, { role: 'assistant', content: 'recent answer a' },
+                    { role: 'user', content: 'continue' },
+                ]);
+                return { text: 'Continue with this question.' };
+            } },
+    });
+    assert.equal(result.status, 'finished');
+    assert.deepEqual(history, original);
 });
 
 test('learning rejects an expanding summary when old tool reasoning is not replayed across the current user boundary', async () => {
@@ -79,10 +57,10 @@ test('learning rejects an expanding summary when old tool reasoning is not repla
     const calls = [{ id: 'old-read', type: 'function', function: { name: 'Read', arguments: '{}' } }];
     const history = [{ user: 'old', teacher: 'answer', messages: [
         { role: 'user', content: 'old' },
-        { role: 'assistant', content: '', tool_calls: calls, providerPayload: { openaiCompatibleMessage: {
+        { role: 'assistant', content: '', toolCalls: [{ id: 'old-read', name: 'Read', arguments: '{}' }], providerPayload: { openaiCompatibleMessage: {
             role: 'assistant', content: '', tool_calls: calls, reasoning_content: '思'.repeat(192000),
         } } },
-        { role: 'tool', tool_call_id: 'old-read', content: '{}' },
+        { role: 'tool', toolCallId: 'old-read', toolName: 'Read', content: '{}' },
     ] }];
     const events = []; let published = 0;
     const result = await runLearningProviderLoop({ history, systemPrompt: 'teacher', messages: [{ role: 'user', content: 'continue' }],
@@ -140,7 +118,7 @@ test('proactive summarisation precedes the teacher request and leaves subsequent
     const summary = 'The learner prefers concrete grammar examples; next practise cause and effect.';
     let writes = 0;
     const teacher = { providerConfig: {}, supportsSessionToolLoop: false, run: async request => {
-        events.push('teacher'); requests.push(structuredClone({ ...request, signal: undefined }));
+        events.push('teacher'); requests.push(structuredClone({ ...request, signal: undefined, onStreamProgress: undefined }));
         return requests.length === 1 ? { toolCalls: [{ id: 'write-1', name: 'Write', arguments: '{}' }] } : { text: '继续。' };
     } };
     const result = await runLearningProviderLoop({ agent: teacher, history, historySummary: 'Previous agreement.',
@@ -180,7 +158,11 @@ test('failed, incomplete, non-shrinking and late summaries never replace the old
                 agent: { providerConfig: {}, supportsSessionToolLoop: false, run: async () => { teacherCalls++; return { text: 'teacher' }; } },
                 reopen: async () => ({ providerConfig: {}, supportsSessionToolLoop: false, run: async () => {
                     if (mode === 'failed') { throw new Error('network'); }
-                    if (['MAX_TOKENS', 'content_filter', 'incomplete'].includes(mode)) { return { text: 'partial summary', finishReason: mode }; }
+                    if (['MAX_TOKENS', 'content_filter', 'incomplete'].includes(mode)) {
+                        throw Object.assign(new Error('Model response did not complete normally.'), {
+                            code: mode === 'MAX_TOKENS' ? 'AGENT_RESPONSE_TRUNCATED' : 'AGENT_RESPONSE_INCOMPLETE', reason: mode,
+                        });
+                    }
                     if (mode === 'larger') { return { text: history[0].teacher.repeat(2) }; }
                     if (mode === 'cancelled') { controller.abort(); }
                     if (mode === 'changed') { current = false; }
@@ -260,7 +242,7 @@ test('a non-shrinking summary is not retried for unchanged history during later 
     assert.equal(result.status, 'finished'); assert.equal(published, 0);
     assert.deepEqual(sizes, [1, 2, 3], 'try wider whole-exchange windows once, not once per tool round');
     assert.equal(requests.length, 3);
-    for (const request of requests) { assert.deepEqual(request.messages.slice(0, 6), history.flatMap(entry => entry.messages)); }
+    for (const request of requests) { assert.deepEqual(JSON.parse(JSON.stringify(request.messages.slice(0, 6))), history.flatMap(entry => entry.messages).map(entry => ({ ...entry, content: entry.content.trim() }))); }
 });
 
 test('summary can include more old exchanges when the oldest alone cannot shrink', async t => {
@@ -284,7 +266,7 @@ test('summary can include more old exchanges when the oldest alone cannot shrink
             });
             assert.equal(result.status, 'finished'); assert.equal(result.removedTurns, 2);
             assert.deepEqual(sizes, [1, 2]); assert.deepEqual(published, [2]);
-            assert.deepEqual(resumed.messages.slice(1, 3), history[2].messages);
+            assert.deepEqual(JSON.parse(JSON.stringify(resumed.messages.slice(1, 3))), history[2].messages);
         });
     }
 });
@@ -340,11 +322,11 @@ test('classroom summary survives APP reentry, but never becomes an asset or surv
     const h = await createClassroomFixture(); t.after(h.dispose); await h.openLesson();
     const saved = h.repository.snapshot().document;
     const requests = []; let summaries = 0; let largeReplies = 3;
-    h.flags.teacherResponse = request => {
+    h.flags.teacherResponse = declaredTeacher(request => {
         if (!request.tools.length) { summaries++; return { text: 'CLASSROOM_MEMORY: learner wants concrete examples.' }; }
-        requests.push(structuredClone({ ...request, signal: undefined }));
+        requests.push(structuredClone({ ...request, signal: undefined, onStreamProgress: undefined }));
         return { text: largeReplies-- > 0 ? 'A detailed teaching discussion. '.repeat(8000) : '继续举例。' };
-    };
+    });
     for (let i = 0; i < 4; i++) { await h.command('talk', { message: `交流 ${i}` }); }
     assert.ok(summaries > 0); assert.ok(h.state().conversation.removedTurns > 0);
     const calls = h.counts.provider; await h.reenter(); assert.equal(h.counts.provider, calls);

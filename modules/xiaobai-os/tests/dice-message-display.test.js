@@ -13,11 +13,12 @@ const compiled = await build({
     bundle: true, write: false, format: 'esm', platform: 'node', logLevel: 'silent',
     plugins: [{ name: 'dice-display-host', setup(builder) {
         builder.onResolve({ filter: /^js-sha256$/ }, () => ({ path: import.meta.resolve('js-sha256'), external: true }));
-        builder.onResolve({ filter: /(?:^dice-display-host$|\/(?:script|event-manager|sillytavern-port)\.js$)/ }, () => ({ path: 'host', namespace: 'fixture' }));
+        builder.onResolve({ filter: /(?:^dice-display-host$|\/(?:script|group-chats|event-manager|sillytavern-port)\.js$)/ }, () => ({ path: 'host', namespace: 'fixture' }));
         builder.onLoad({ filter: /.*/, namespace: 'fixture' }, () => ({ contents: `
             export const source = { chat: [] };
             export const captureDiceChat = () => source;
-            export const isGenerating = () => true;
+            export const is_send_press = true;
+            export const is_group_generating = false;
             export const updateMessageBlock = () => { throw new Error('Unexpected native repaint'); };
             export const event_types = {};
             export const createModuleEvents = () => ({ on() {}, cleanup() {} });

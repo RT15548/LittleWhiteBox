@@ -1,8 +1,24 @@
 import { safePromptJson } from '../../../capabilities/maintenance/prompt-safety.js';
 import type { LearningDialogue } from './context.js';
+import { learningReplyText } from './messages.js';
 
-export interface LearningTurn extends LearningDialogue {
-    messages: Record<string, unknown>[];
+export type LearningTurn = LearningDialogue;
+
+export function learningTurnMessages(turn: LearningTurn): Record<string, unknown>[] {
+    if (turn.status !== 'finished') { return learningInterruptedMessages(turn); }
+    const text = learningReplyText(turn.messages);
+    // Completed classroom exchanges are not a continuation of their private tool protocol.
+    // Current saved records supply the facts; the active loop retains its own exact wire messages.
+    return [{ role: 'user', content: turn.user }, ...(text ? [{ role: 'assistant', content: text }] : [])];
+}
+
+/** An interrupted draft is not a saved tool result. Retain the visible exchange without replaying uncommitted writes. */
+export function learningInterruptedMessages(turn: LearningDialogue): Record<string, unknown>[] {
+    const text = learningReplyText(turn.messages);
+    return [{ role: 'user', content: turn.user }, ...(text ? [{ role: 'assistant', content: text }] : []),
+        { role: 'system', content: `Classroom operation status (reference data): ${safePromptJson({
+            status: turn.status, message: turn.message, learningChanges: 'Draft changes are not confirmed saved. Use current learning records for saved facts, including any help already recorded.',
+        })}` }];
 }
 
 /** Known external provider errors, not a guessed context window or a catch-all for HTTP 400. */

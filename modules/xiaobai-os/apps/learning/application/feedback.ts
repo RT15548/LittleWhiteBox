@@ -15,11 +15,11 @@ export interface LearningFailureDetails extends LearningProgress {
 const stages: Record<LearningProgress['stage'], string> = {
     context: '准备课堂资料', config: '加载 API 设置', session: '准备上课',
     summary: '整理课堂记忆',
-    provider: '等待老师回复', tools: '整理学习内容', save: '保存学习内容', action: '处理你的请求',
+    provider: '接收老师回复', tools: '执行工具', save: '保存学习内容', action: '处理你的请求',
 };
 
 export function learningProgressMessage(progress: LearningProgress): string {
-    return `正在${stages[progress.stage]}${progress.round ? `（第 ${progress.round} 轮）` : ''}…`;
+    return progress.stage === 'tools' && progress.tool ? `正在执行 ${progress.tool}…` : `正在${stages[progress.stage]}…`;
 }
 
 export function learningTeachingFailure(reason: string): string {
@@ -35,9 +35,9 @@ export function learningTeachingFailure(reason: string): string {
         case 'learning_context_full': return '内容太长，当前模型处理不了，聊天记录也无法再缩短。已保存的课程和作答不变；请换用支持更长上下文的模型，或分几次提出要求。';
         case 'learning_summary_failed': return '课堂记忆整理失败，原对话和已保存的学习内容仍保留。请重试，或换用支持更长上下文的模型。';
         case 'learning_empty_response': return '老师没有返回有效回复，已有内容未改，可以重试。';
+        case 'learning_help_undeclared': return '老师未确认本轮讲解涉及哪些练习，文字暂未展示，教学草稿未保存。请重试。';
+        case 'learning_response_truncated': return '模型达到输出长度上限，回复未完成。已展示的文字保留，本次教学草稿未保存；请调整 API 的输出上限或缩小本次任务。';
         case 'learning_stalled': return '老师一直在重复同一步，已停止本次请求。已保存的内容不变，可以换个说法再试。';
-        case 'learning_unresolved_proposals': return '老师给出的学习内容不符合要求，这次没有保存，请重试。';
-        case 'learning_assessment_missing': return '老师还没有批改这道题，你的作答已保留，可以重新请老师批改。';
         case 'learning_file_invalid': return '学习文件暂时无法读取，请检查文件；不会覆盖已有内容。';
         case 'learning_read_failed': return '读取学习记录失败，请检查连接后重试。';
         case 'learning_resolve_pending_first': return '还不确定上次是否保存成功，请先检查保存。';

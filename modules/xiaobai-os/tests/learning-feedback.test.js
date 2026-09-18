@@ -34,7 +34,8 @@ async function setup(mode) {
                     if (mode === 'unknown') { return { toolCalls: [call('NotProvided')] }; }
                     if (mode === 'limit') { return { toolCalls: Array.from({ length: 17 }, () => call('LearningRead')) }; }
                     if (mode === 'cancel') { teaching.cancel(); throw fault(); }
-                    if (requests === 1) { return { toolCalls: [call('LearningProfileEdit', mode === 'invalid' || mode === 'corrected' ? {} : profile)] }; }
+                    if (requests === 1) { return { toolCalls: [call('LearningProfileEdit', mode === 'invalid' || mode === 'corrected' ? {} : profile),
+                        call('LearningHelp', { exerciseIds: [], materialIds: [] })] }; }
                     if (mode === 'corrected' && requests === 2) { return { toolCalls: [call('LearningProfileEdit', profile)] }; }
                     return { text: '已记住你的目标。' };
                 } };
@@ -49,7 +50,7 @@ test('profile failures identify their stage, log one bounded diagnostic and neve
         ['context', 'learning_context_failed', 'context'], ['config', 'learning_config_failed', 'config'],
         ['session', 'learning_session_failed', 'session'], ['provider', 'provider-request', 'provider'],
         ['protocol', 'learning_protocol_failed', 'provider'], ['unknown', 'learning_stalled', 'tools', 'NotProvided'],
-        ['limit', 'learning_stalled', 'tools', 'LearningRead'], ['invalid', 'learning_unresolved_proposals', 'tools'],
+        ['limit', 'learning_stalled', 'tools', 'LearningRead'],
         ['save', 'learning_save_failed', 'save'],
     ]) {
         await t.test(mode, async sub => {
@@ -63,9 +64,6 @@ test('profile failures identify their stage, log one bounded diagnostic and neve
             assert.equal(diagnostic.action, 'profile'); assert.equal(diagnostic.stage, stage);
             if (tool) { assert.equal(diagnostic.tool, tool); assert.equal(diagnostic.round, 3); }
             if (mode === 'provider') { assert.equal(diagnostic.httpStatus, 400); }
-            if (mode === 'invalid') {
-                assert.ok(diagnostic.issues.some(issue => issue.path === 'profile.explanationLanguage' && issue.rule.includes('non-empty')));
-            }
             assert.ok(!JSON.stringify([result, logs.mock.calls.map(call => call.arguments)]).includes(privateText));
             assert.equal(h.repository.snapshot().document, null); assert.equal(h.counts().writes, 0);
             if (['context', 'config', 'session'].includes(mode)) { assert.equal(h.counts().requests, 0); }
@@ -96,7 +94,7 @@ test('corrected proposals and cancellation do not emit terminal failure logs or 
     const h = await setup('corrected');
     assert.equal((await h.teaching.run({ action: { kind: 'profile' }, message: '开始' })).status, 'finished');
     assert.equal(h.repository.snapshot().document.data.profiles[0].goal.description, profile.goal.description);
-    assert.deepEqual(h.progress.map(value => value.stage), ['context', 'config', 'session', 'provider', 'tools', 'provider', 'tools', 'provider', 'save']);
+    assert.deepEqual(h.progress.map(value => value.stage), ['context', 'config', 'session', 'provider', 'tools', 'tools', 'provider', 'tools', 'provider', 'save']);
     const cancelled = await setup('cancel');
     assert.equal((await cancelled.teaching.run({ action: { kind: 'profile' }, message: '开始' })).status, 'cancelled');
     assert.equal(cancelled.counts().writes, 0); assert.equal(logs.mock.calls.length, 0);

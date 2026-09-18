@@ -5,6 +5,7 @@ import { learningText, LearningValidationError, type LearningTeacherPreference }
 import { buildLearningContext, type LearningDialogue, type LearningTeacherContext } from '../agent/context.js';
 import { createLearningBackground, learningBackgroundTool } from '../agent/background.js';
 import type { LearningTurn } from '../agent/history.js';
+import { learningReplyText } from '../agent/messages.js';
 import { buildLearningSystemPrompt } from '../agent/prompt.js';
 import { runLearningProviderLoop } from '../agent/provider-loop.js';
 import { learningResearchTools } from '../agent/research-tools.js';
@@ -16,6 +17,8 @@ import { LearningStorageError } from '../storage/repository.js';
 import { sameLearningDocument } from '../storage/document.js';
 import { confirmedLearning, type LearningRepository } from './service.js';
 import { reportLearningFailure, type LearningFailureDetails, type LearningProgress } from './feedback.js';
+import { learningMessageView, type LearningDialogueView } from './message-view.js';
+import { createLearningPublication } from './publication.js';
 
 export interface LearningClassroom {
     language: string; osId: string; chatIdentity: string;
@@ -41,20 +44,27 @@ export function createLearningTeaching(options: {
     let active: AbortController | null = null;
     let dialogueKey = '';
     let turns: LearningTurn[] = [];
-    let pending: string | null = null;
+    let activeTurn: LearningTurn | null = null;
     let removedTurns = 0;
     let historySummary = '';
-    // An uncertain upload owns this reply until its exact commit is confirmed or explicitly abandoned.
-    let awaitingSave: { commitId: string; turn: LearningTurn; result: Extract<LearningTeachingResult, { status: 'finished' }>;
-        request: TeachingRequest } | null = null;
+    // Only this exact commit can publish pending text and enable the corresponding activity.
+    let awaitingSave: { commitId: string; turn: LearningTurn; presentation: LearningDialogue['presentation']; result: Extract<LearningTeachingResult, { status: 'finished' }>;
+        request: TeachingRequest; publication: ReturnType<typeof createLearningPublication> } | null = null;
     let sources = createLearningSourceRegistry();
     let cache = createLearningResearchCache();
     function reset() {
-        active?.abort(); active = null; turns = []; pending = null; dialogueKey = ''; removedTurns = 0; historySummary = ''; awaitingSave = null;
+        active?.abort(); active = null; turns = []; activeTurn = null; dialogueKey = ''; removedTurns = 0; historySummary = ''; awaitingSave = null;
         sources = createLearningSourceRegistry(); cache = createLearningResearchCache();
     }
+    function settle(turn: LearningTurn, status: LearningDialogue['status'], message = '') {
+        turn.status = status; turn.message = message;
+    }
     return {
-        cancel() { active?.abort(); active = null; pending = null; },
+        cancel() {
+            active?.abort(); active = null;
+            if (activeTurn) { settle(activeTurn, 'cancelled', '已停止。已展示的内容保留；本次教学草稿未确认保存。'); activeTurn = null; }
+            options.onConversation?.();
+        },
         reset,
         recoverConfirmed() {
             const saved = options.repository.snapshot();
@@ -62,14 +72,20 @@ export function createLearningTeaching(options: {
             const recovered = awaitingSave;
             awaitingSave = null;
             if (saved.document?.commitId !== recovered.commitId || dialogueKey !== JSON.stringify(options.current())) { return null; }
-            turns.push(recovered.turn);
+            recovered.turn.presentation = recovered.presentation;
+            recovered.publication.confirmSave();
+            recovered.turn.teacher = learningReplyText(recovered.turn.messages);
+            recovered.result.text = recovered.turn.teacher;
+            settle(recovered.turn, 'finished');
             options.onConversation?.();
             return { result: recovered.result, request: recovered.request };
         },
-        conversation(): { turns: LearningDialogue[]; pending: string | null; removedTurns: number } {
+        conversation(): { turns: LearningDialogueView[]; removedTurns: number } {
             return dialogueKey === JSON.stringify(options.current())
-                ? { turns: turns.map(({ user, teacher, presentation }) => ({ user, teacher, ...(presentation ? { presentation } : {}) })), pending, removedTurns }
-                : { turns: [], pending: null, removedTurns: 0 };
+                ? { turns: structuredClone(turns.map(turn => ({ ...turn,
+                    messages: turn.messages.filter(message => message.role === 'assistant' || message.role === 'tool').map(learningMessageView),
+                }))), removedTurns }
+                : { turns: [], removedTurns: 0 };
         },
         async run(input: TeachingRequest): Promise<LearningTeachingResult> {
             if (active) { return { status: 'busy' }; }
@@ -81,13 +97,18 @@ export function createLearningTeaching(options: {
             active = controller;
             const guard = () => active === controller && !controller.signal.aborted && JSON.stringify(options.current()) === key;
             let draft: ReturnType<typeof createLearningSession> | null = null;
+            let publication: ReturnType<typeof createLearningPublication> | null = null;
+            let visible: LearningTurn | null = null;
             let progress: LearningProgress = { stage: 'context' };
             const advance = (next: LearningProgress) => {
                 if (guard()) { progress = next; options.onProgress?.(next); }
             };
-            const failure = (reason: string, details: LearningFailureDetails = progress): LearningTeachingResult => ({
-                status: 'failed', reason, message: reportLearningFailure(input.action.kind, reason, details),
-            });
+            const failure = (reason: string, details: LearningFailureDetails = progress): LearningTeachingResult => {
+                const message = reportLearningFailure(input.action.kind, reason, details);
+                publication?.discard();
+                if (visible) { settle(visible, 'failed', message); }
+                return { status: 'failed', reason, message };
+            };
             try {
                 advance(progress);
                 const request = structuredClone(input);
@@ -96,12 +117,18 @@ export function createLearningTeaching(options: {
                 if (storage.status === 'unconfirmed' || storage.status === 'conflict') { return { status: storage.status }; }
                 if (storage.status === 'unloaded') { return failure('learning_read_failed'); }
                 const baseline = confirmedLearning(options.repository);
-                pending = request.displayMessage ?? request.message; options.onConversation?.();
+                visible = { user: request.displayMessage ?? request.message, teacher: '', status: 'running', message: '', messages: [] };
+                publication = createLearningPublication(visible.messages, { declared: () => draft?.helpDeclared() ?? false,
+                    helpIsPublished: () => draft?.helpIsPublished() ?? false, current: guard });
+                controller.signal.addEventListener('abort', publication.discard, { once: true });
+                activeTurn = visible;
+                turns.push(visible); options.onConversation?.();
                 const context = await options.capture(classroom.teacher.name, classroom.chatIdentity);
                 if (!guard()) { return { status: 'cancelled' }; }
                 const asOf = options.now?.() ?? new Date().toISOString();
                 const { prefix, messages, turn } = buildLearningContext({ ...classroom, ...request, context, asOf,
                     data: baseline?.data ?? { profiles: [] } });
+                visible.messages.push(turn);
                 const background = createLearningBackground(context);
                 advance({ stage: 'config' });
                 const config = await options.gateway.loadConfig();
@@ -109,39 +136,70 @@ export function createLearningTeaching(options: {
                 advance({ stage: 'session' });
                 const agent = await options.gateway.openSession(config);
                 if (!guard()) { return { status: 'cancelled' }; }
-                if (!sameLearningDocument(baseline, confirmedLearning(options.repository))) { return { status: 'conflict' }; }
+                if (!sameLearningDocument(baseline, confirmedLearning(options.repository))) {
+                    settle(visible, 'conflict', '学习记录已变化，本次请求未继续。请重新加载后再试。');
+                    return { status: 'conflict' };
+                }
                 const research = createLearningResearch(config, { sources, cache, signal: controller.signal, createId: options.createId, now: options.now });
                 // One story-aware teacher for every action, including web research. Free-form derivatives retain this story scope.
                 draft = createLearningSession(options.repository, { ...classroom, action: request.action,
                     inputScope: { kind: 'story', osId: classroom.osId }, sources, learnerMessage: request.message, createId: options.createId, now: options.now, asOf });
                 const session = draft;
-                if (request.exerciseId && request.action.kind === 'explain') { session.markExplained(request.exerciseId); }
+                let helpError: unknown;
+                async function saveHelp() {
+                    try {
+                        const helpSave = await session.saveHelp(guard);
+                        if (helpSave.status !== 'confirmed' && helpSave.status !== 'unchanged') { throw new LearningStorageError('learning_resolve_pending_first'); }
+                    } catch (error) { helpError = error; throw error; }
+                }
+                if (request.exerciseId && request.action.kind === 'explain') {
+                    session.markExplained(request.exerciseId);
+                    advance({ stage: 'save' });
+                    await saveHelp();
+                }
                 const outcome = await runLearningProviderLoop({ agent, systemPrompt: buildLearningSystemPrompt(classroom.teacher.name), prefix, messages,
-                    history: turns, historySummary, reopen: () => options.gateway.openSession(config),
+                    history: turns.slice(0, -1), historySummary, reopen: () => options.gateway.openSession(config),
                     onCompact: (count, summary) => { turns.splice(0, count); removedTurns += count; historySummary = summary; options.onConversation?.(); },
                     tools: [...learningTools(), learningBackgroundTool, ...(research.available ? learningResearchTools() : [])],
-                    signal: controller.signal, guard, onProgress: advance, executeTool: (name, args) => name === 'LearningSearch' || name === 'LearningExtract'
-                        ? research.executeTool(name, args) : name === 'LearningContextRead' ? background.execute(args) : session.executeTool(name, args) });
+                    signal: controller.signal, guard, onProgress: advance,
+                    onResponseStart: publication.begin, onResponseComplete: publication.complete,
+                    transcript: visible.messages, onMessages: options.onConversation,
+                    executeTool: async (name, args) => {
+                        if (name === 'LearningSearch' || name === 'LearningExtract') { return research.executeTool(name, args); }
+                        if (name === 'LearningContextRead') { return background.execute(args); }
+                        const result = session.executeTool(name, args);
+                        const mutation = result as { ok?: boolean; changed?: boolean };
+                        if (name === 'LearningLessonEdit' && mutation.ok && mutation.changed) {
+                            publication!.discard();
+                        }
+                        if (name === 'LearningHelp' && mutation.ok) { await saveHelp(); }
+                        return result;
+                    } });
                 if (outcome.status === 'cancelled') { return outcome; }
-                if (outcome.status === 'failed') { return failure(outcome.reason, { ...outcome.details, issues: session.unresolvedErrors() }); }
-                if (session.unresolvedErrors().length) {
-                    return failure('learning_unresolved_proposals', { ...progress, stage: 'tools', issues: session.unresolvedErrors() });
-                }
+                if (helpError) { return failure(helpError instanceof LearningStorageError ? helpError.code : 'learning_save_failed', { stage: 'save', cause: helpError }); }
+                if (outcome.status === 'failed') { return failure(outcome.reason, outcome.details); }
                 const appliedTools = session.appliedTools();
-                if (session.missingMessageAssessment() || request.action.kind === 'assess' && !session.hasAssessment(request.action.attemptId)) { return failure('learning_assessment_missing'); }
+                visible.teacher = learningReplyText(visible.messages);
+                options.onConversation?.();
                 advance({ stage: 'save' });
                 const saved = await session.commit(guard);
                 const presentation = session.presentation();
-                const completedTurn: LearningTurn = { user: request.displayMessage ?? request.message, teacher: outcome.text,
-                    ...(presentation ? { presentation } : {}), messages: [turn, ...outcome.messages] };
-                const result = { status: 'finished' as const, text: outcome.text, changed: saved.status !== 'unchanged', appliedTools };
+                const result = { status: 'finished' as const, text: visible.teacher, changed: saved.status !== 'unchanged', appliedTools };
                 const commitId = saved.commitId;
-                if (commitId && dialogueKey === key && (saved.status === 'unconfirmed' || saved.status === 'conflict' || !guard())) {
-                    awaitingSave = { commitId, turn: completedTurn, result, request };
+                if (commitId && guard() && (saved.status === 'unconfirmed' || saved.status === 'conflict')) {
+                    awaitingSave = { commitId, turn: visible, presentation: presentation ?? undefined, result, request, publication };
                 }
                 if (!guard()) { return { status: 'cancelled' }; }
-                if (saved.status !== 'confirmed' && saved.status !== 'unchanged') { return { status: saved.status }; }
-                turns.push(completedTurn);
+                if (saved.status !== 'confirmed' && saved.status !== 'unchanged') {
+                    settle(visible, saved.status, saved.status === 'unconfirmed' ? '回复已收到，学习修改尚未确认保存，请检查保存。'
+                        : saved.status === 'conflict' ? '回复已收到，学习记录有冲突，请检查保存。' : '已停止，本次教学草稿未保存。');
+                    return { status: saved.status };
+                }
+                visible.presentation = presentation ?? undefined;
+                publication.confirmSave();
+                visible.teacher = learningReplyText(visible.messages);
+                result.text = visible.teacher;
+                settle(visible, 'finished');
                 return result;
             } catch (error) {
                 if (!guard()) { return { status: 'cancelled' }; }
@@ -155,8 +213,11 @@ export function createLearningTeaching(options: {
                         : progress.stage === 'save' ? 'learning_save_failed' : 'learning_session_failed';
                 return failure(reason, details);
             } finally {
+                if (publication) { controller.signal.removeEventListener('abort', publication.discard); }
+                if (awaitingSave?.turn !== visible) { publication?.discard(); }
                 draft?.invalidate();
-                if (active === controller) { active = null; pending = null; options.onConversation?.(); }
+                if (visible?.status === 'running') { settle(visible, 'cancelled', '已停止，本次教学草稿未保存。'); }
+                if (active === controller) { active = null; activeTurn = null; options.onConversation?.(); }
             }
         },
     };

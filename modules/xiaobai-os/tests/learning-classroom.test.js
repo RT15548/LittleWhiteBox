@@ -569,14 +569,18 @@ test('confirming an owned teacher save restores the reply and activity once with
                 { name: 'LearningPresent', args: { kind: 'exercise', id: unit.exercises[0].id } }];
             h.flags.userFailure = true;
             assert.equal((await h.command('talk', { message: '给我阅读练习。' })).storage, 'unconfirmed');
-            assert.deepEqual(h.state().conversation.turns, turns);
+            assert.deepEqual(h.state().conversation.turns.slice(0, -1), turns);
+            assert.equal(h.state().conversation.turns.at(-1).status, 'unconfirmed');
+            assert.ok(h.state().conversation.turns.at(-1).teacher);
+            assert.equal(h.state().conversation.turns.at(-1).presentation, undefined);
             const calls = h.counts.provider;
             if (recovery === 'cancel-then-verify') { await h.command('cancel'); }
             h.confirmUser();
             let restored = recovery === 'reenter' ? await h.reenter() : await h.command(recovery === 'cancel-then-verify' ? 'verify' : recovery);
             if (recovery === 'read' || recovery === 'reenter') {
                 assert.equal(restored.storage, 'unconfirmed');
-                assert.deepEqual(restored.conversation.turns, turns);
+                assert.deepEqual(restored.conversation.turns.slice(0, -1), turns);
+                assert.equal(restored.conversation.turns.at(-1).status, 'unconfirmed');
                 restored = await h.command('verify');
             }
             assert.equal(restored.storage, 'ready');

@@ -34,9 +34,8 @@ const rule = object({
 const mutationResult = [
     'Returns {ok,changed,ids,errors:[{path,message}]}. IDs identify the affected draft entities; changed:false with ok:true is success.',
     'Each call is atomic. Successful changes remain in the current draft until this teaching action is saved.',
-    'errors also lists unresolved failed proposals. Correct the same tool call, or send discard:true alone to withdraw this tool’s failed proposals; this leaves earlier successful changes intact.',
+    'A failed call returns only its own errors and changes nothing. Read the result, then correct the call, choose another approach or explain the obstacle to the learner.',
 ].join('\n');
-const discard = { type: 'boolean', description: 'Send true alone to withdraw an unresolved failed proposal from this tool.' };
 
 const tools = [
     { type: 'function', function: {
@@ -48,28 +47,29 @@ const tools = [
             'The last successful presentation in this turn selects one window. It opens only after the teaching turn is saved; closing it returns to the conversation, and its link can reopen it.',
             mutationResult,
         ].join('\n'),
-        parameters: object({ discard, kind: enumeration(['material', 'exercise', 'replacement'], 'What the learner will open.'), id: id('Required for material or exercise: its existing ID in the current lesson. Omit for replacement.') }),
+        parameters: object({ kind: enumeration(['material', 'exercise', 'replacement'], 'What the learner will open.'), id: id('Required for material or exercise: its existing ID in the current lesson. Omit for replacement.') }),
     } },
     { type: 'function', function: {
         name: 'LearningAnswer',
         description: [
             'Record the learner’s current typed message as their answer to a previously published text-response exercise. The app supplies the exact message and its original help/listening conditions.',
             'Use when the learner answers a question in conversation, not when they ask for help or discuss goals. Native exercise-window submissions are already recorded and arrive with their attempt ID.',
-            'Returns the attempt ID in ids for LearningAssess. One message can answer one exercise; repeating the same call returns the same attempt. The answer and this turn’s feedback are saved together.',
+            'Returns the attempt ID in ids for LearningAssess. One message can answer one exercise; repeating the same call returns the same attempt. An answer without feedback remains available for later assessment.',
             mutationResult,
         ].join('\n'),
-        parameters: object({ discard, exerciseId: id('Text-response exercise ID published before the current learner message.') }),
+        parameters: object({ exerciseId: id('Text-response exercise ID published before the current learner message.') }),
     } },
     { type: 'function', function: {
         name: 'LearningHelp',
         description: [
-            'Record which current exercises your reply helps with and which listening transcripts it reveals or translates. Use before giving this help in free conversation; the focused question’s explanation button records its hint automatically.',
-            'Future attempts on these exercises count as helped; earlier submitted answers keep their original conditions. A general greeting or a change of learning goals needs no help record.',
-            mutationResult,
+            'Declare the assistance in this turn’s learner-facing text: questions receiving help and listening transcripts shown, quoted or translated. Send both arrays before speaking; empty arrays explicitly declare that a greeting or goal discussion gives no exercise help.',
+            'Future attempts on the named exercises count as helped; earlier submitted answers keep their original conditions. The focused explanation button already records its question’s hint; include any listening text your reply reveals.',
+            'Returns {ok,changed,ids,errors:[{path,message}]}. Published-content help is confirmed before text is displayed and survives interruption. Text helping with new or changed draft content waits for the lesson save.',
+            'A changed lesson discards unpublished text generated before or alongside that edit. Read the edit result, declare the resulting assistance scope and then reply. A failed declaration requires a corrected declaration before replying.',
         ].join('\n'),
-        parameters: object({ discard,
+        parameters: object({
             exerciseIds: list(id('Current exercise ID.'), undefined, 'Questions receiving a hint, explanation or worked answer in this reply.'),
-            materialIds: list(id('Current material ID.'), undefined, 'Listening text being shown, quoted or translated in this reply.') }),
+            materialIds: list(id('Current material ID.'), undefined, 'Listening text being shown, quoted or translated in this reply.') }, ['exerciseIds', 'materialIds']),
     } },
     { type: 'function', function: {
         name: 'LearningRead',
@@ -91,7 +91,7 @@ const tools = [
     { type: 'function', function: {
         name: 'LearningProfileEdit',
         description: `Update the learner’s stated goal or self-assessment from what they tell you. Omitted fields keep their values. A first profile needs explanationLanguage, selfAssessment and goal.description. Practice-based conclusions belong in LearningAssess, not selfAssessment.\n${mutationResult}`,
-        parameters: object({ discard, explanationLanguage: text(80, 'Language tag for explanations.'), selfAssessment: text(L.goal, 'The learner’s own account, including uncertainty.'),
+        parameters: object({ explanationLanguage: text(80, 'Language tag for explanations.'), selfAssessment: text(L.goal, 'The learner’s own account, including uncertainty.'),
             goal: object({ description: text(L.goal, 'What the learner wants to become able to do.'),
                 exam: { anyOf: [text(80, 'Exam name.'), { type: 'null' }], description: 'Omit to keep; null clears.' },
                 targetLevel: { anyOf: [text(80, 'Level in the learner’s chosen framework.'), { type: 'null' }], description: 'Omit to keep; null clears.' },
@@ -108,7 +108,7 @@ const tools = [
             'Original material is copied from extracted source paragraphs. Adapted text is labelled teaching adaptation; authored text is labelled original teaching material.',
             'Returns IDs in unit, material, exercise order. Read the updated draft for their full relationships.', mutationResult,
         ].join('\n'),
-        parameters: object({ discard, newLesson: { type: 'boolean', description: 'Default false. Start a fresh lesson after a previously saved completion; include all first-lesson fields.' }, title: text(L.name, 'Lesson title.'), goal: text(L.goal, 'One concrete learning objective.'),
+        parameters: object({ newLesson: { type: 'boolean', description: 'Default false. Start a fresh lesson after a previously saved completion; include all first-lesson fields.' }, title: text(L.name, 'Lesson title.'), goal: text(L.goal, 'One concrete learning objective.'),
             tier: enumeration(['short', 'regular', 'deep'], 'Lesson workload relative to the learner.'),
             removeMaterials: list(id('Saved material ID.'), undefined, 'Remove unused materials. Missing IDs are already removed.'),
             removeExercises: list(id('Saved exercise ID.'), undefined, 'Remove unused exercises. Missing IDs are already removed.'),
@@ -131,7 +131,7 @@ const tools = [
             'To attach learning items to existing feedback without changing its judgment, send only attemptId and items. This is also available during wrap-up after locally checked exercises.',
             `At most ${L.itemChanges} item changes per call. A new item needs a focused label; existing itemId retains its label unless a replacement is supplied.`, mutationResult,
         ].join('\n'),
-        parameters: object({ discard, attemptId: id('An available saved attempt ID from the current request or LearningRead.'),
+        parameters: object({ attemptId: id('An available saved attempt ID from the current request or LearningRead.'),
             review: { type: 'boolean', description: 'True when the learner has asked to reconsider existing feedback. Default false; the explicit review button also enables review for its named attempt.' },
             verdict: enumeration(['correct', 'partial', 'incorrect', 'disputed'], 'Judgment against the published objective; disputed means the answer or question still needs review.'),
             understanding: text(L.explanation, 'Feedback on meaning; empty when not applicable.'), expression: text(L.explanation, 'Feedback on language use; empty when not applicable.'),
@@ -146,7 +146,7 @@ const tools = [
             'Each cited attempt needs resolved, available feedback; valid feedback from LearningAssess in this action can be used. Completion and related feedback are saved together before reward settlement.',
             'An already completed unit keeps its original completion and reward. This tool does not change the published reward or make a payment.', mutationResult,
         ].join('\n'),
-        parameters: object({ discard, unitId: id('Current unit ID.'), attemptIds: list(id('Actual attempt with resolved feedback in this unit.'), undefined, 'Evidence for this wrap-up, at least one attempt.'),
+        parameters: object({ unitId: id('Current unit ID.'), attemptIds: list(id('Actual attempt with resolved feedback in this unit.'), undefined, 'Evidence for this wrap-up, at least one attempt.'),
             summary: text(L.explanation, 'A learner-facing account of what was practised, what improved and what to revisit.') }),
     } },
 ];

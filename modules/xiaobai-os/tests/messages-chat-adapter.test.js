@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { Buffer } from 'node:buffer';
+import { readFileSync } from 'node:fs';
 import process from 'node:process';
 import test from 'node:test';
 import { build } from 'esbuild';
@@ -60,7 +61,7 @@ function harness(t, group = false, floors = 1) {
             for (const listener of host.listeners.get(name) ?? []) { await listener(...args); }
         } } };
     const h = { remote: [{ chat_metadata: {} }, ...structuredClone(host.context.chat)], mode: 'confirmed',
-        failRead: false, reads: [], saves: [], upload: null };
+        failRead: false, reads: [], saves: [], upload: null, acknowledgement: { ok: true } };
     t.mock.method(globalThis, 'fetch', async (url, options) => {
         const body = JSON.parse(options.body);
         if (url.endsWith('/save')) {
@@ -69,7 +70,7 @@ function harness(t, group = false, floors = 1) {
             if (h.mode === 'rejected') { return new Response('{"error":"integrity"}', { status: 400 }); }
             h.remote = body.chat;
             if (h.mode === 'lost-response') { throw new TypeError('disconnected'); }
-            return new Response('{"ok":true}');
+            return new Response(JSON.stringify(h.acknowledgement));
         }
         h.reads.push({ url, body });
         if (h.failRead) { throw new Error('offline read'); }
@@ -80,6 +81,38 @@ function harness(t, group = false, floors = 1) {
         marker: { version: 1, segmentId: 'segment', throughSeq: seq, digest: String(seq).repeat(64) }, guard: () => true });
     return { h, ...adapter, input };
 }
+
+test('ST 1.14 single-chat success confirms messages and OS references without recovery reads', async t => {
+    const { h, port, input } = harness(t);
+    // Frozen successful body from ST 1.14.0 src/endpoints/chats.js POST /save.
+    h.acknowledgement = JSON.parse(readFileSync(new URL('./fixtures/sillytavern-1.14-chat-save.json', import.meta.url), 'utf8'));
+    h.failRead = true;
+    const first = input(1);
+    assert.equal(await port.publish(first), true);
+    assert.equal(await port.confirm('chat', first.marker, first.text), true);
+    const references = createChatReferencePort(createSillyTavernChatMetadataAdapter());
+    assert.equal((await references.install(references.capture(), { formatVersion: 1, osId: 'os-1' })).status, 'confirmed');
+    assert.equal(h.saves.length, 2);
+    assert.equal(h.reads.length, 0);
+});
+
+test('chat saves require an exact success body and successful HTTP status', async t => {
+    const { h } = harness(t);
+    for (const acknowledgement of [null, {}, { result: true }, { result: 'error' }, { ok: 'true' }, { ok: false }]) {
+        h.acknowledgement = acknowledgement;
+        const result = await saveSillyTavernChat(() => true);
+        assert.equal(result.status, 'unconfirmed', JSON.stringify(acknowledgement));
+        assert.equal(result.error.message, 'chat_save_ack_invalid');
+    }
+    for (const status of [400, 500]) {
+        h.upload = () => new Response('{"result":"ok"}', { status });
+        const result = await saveSillyTavernChat(() => true);
+        assert.equal(result.status, status === 400 ? 'failed' : 'unconfirmed');
+        assert.equal(result.error.message, `chat_save_http_${status}`);
+    }
+    h.upload = () => new Response('not json');
+    assert.equal((await saveSillyTavernChat(() => true)).status, 'unconfirmed');
+});
 
 test('native deletion uses its normal event lifecycle once, tolerates lost ACK and never deletes the preceding floor on retry', async t => {
     const { h, port, input, subscribe } = harness(t);

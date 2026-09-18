@@ -51,7 +51,11 @@ export function saveSillyTavernChat(guard: () => boolean, signal?: AbortSignal):
             const response = await fetch(source.groupId ? '/api/chats/group/save' : '/api/chats/save', request);
             if (response.ok) {
                 const acknowledgement: unknown = await response.json();
-                if (acknowledgement && typeof acknowledgement === 'object' && 'ok' in acknowledgement && acknowledgement.ok === true) {
+                // ST 1.14's single-chat endpoint returns { result: 'ok' }; newer hosts
+                // and group saves return { ok: true }. Keep both while supporting that native protocol.
+                if (acknowledgement && typeof acknowledgement === 'object'
+                    && (('ok' in acknowledgement && acknowledgement.ok === true)
+                        || ('result' in acknowledgement && acknowledgement.result === 'ok'))) {
                     return { status: 'confirmed' };
                 }
                 return { status: 'unconfirmed', error: new Error('chat_save_ack_invalid') };

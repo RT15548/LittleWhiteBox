@@ -25,7 +25,7 @@ const compiled = await build({
             export const extension_settings = { disabledExtensions: [] };
             export const getRequestHeaders = () => ({ 'Content-Type': 'application/json' });
             export const isChatSaving = false;
-            export const isGenerating = () => false;
+            export const is_send_press = false;
             export const cancelDebouncedChatSave = () => {};
             export const SCRIPT_TYPES = {};
             export const getScriptsByType = () => [];

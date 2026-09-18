@@ -1,6 +1,6 @@
 import type { LearningClassView } from './application/projection.js';
 import type { LearningAction } from './agent/session.js';
-import type { LearningDialogue } from './agent/context.js';
+import type { LearningDialogueView } from './application/message-view.js';
 import type { LearningMediaState, LearningVoice } from './host/media-adapter.js';
 
 export interface LearningClientState extends LearningClassView {
@@ -13,7 +13,7 @@ export interface LearningClientState extends LearningClassView {
     busy: boolean;
     message: string;
     reply: { text: string; action: LearningAction['kind']; exerciseId?: string } | null;
-    conversation: { turns: LearningDialogue[]; pending: string | null; removedTurns: number };
+    conversation: { turns: LearningDialogueView[]; removedTurns: number };
     walletOpen: boolean;
     media: LearningMediaState;
     voices: { enabled: boolean; voices: LearningVoice[]; defaultVoice: string; message: string };

@@ -12,6 +12,7 @@ import { createLearningSourceRegistry } from '../apps/learning/materials/lesson-
 import { createLearningResearch } from '../apps/learning/materials/research.js';
 import { runLearningProviderLoop } from '../apps/learning/agent/provider-loop.js';
 import { safePromptJson } from '../capabilities/maintenance/prompt-safety.js';
+import { declaredTeacher } from './fixtures/learning-reply.js';
 
 const prices = { short: 17, regular: 29, deep: 41 }; // Protocol fixture, not a pricing decision.
 const action = { kind: 'prepare', replaceCurrent: false, prices };
@@ -29,7 +30,7 @@ const lesson = (materials = [{ key: 'article', title: '短文', kind: 'authored'
 function results(request) {
     return request.toolResponses ?? request.messages.filter(message => message.role === 'tool').map(message => ({ name: message.toolName, response: JSON.parse(message.content) }));
 }
-async function harness(handler, { session = false, search = false } = {}) {
+async function harness(handler, { session = false, search = false, beforeWrite } = {}) {
     let file = null;
     let id = 0;
     let failWrite = false;
@@ -38,6 +39,7 @@ async function harness(handler, { session = false, search = false } = {}) {
     let captures = 0;
     const requests = [];
     const files = { read: async () => structuredClone(file), replace: async (_name, value) => {
+        await beforeWrite?.(value);
         if (failWrite) { held = value; throw new Error('private write response'); }
         file = structuredClone(value);
     } };
@@ -51,13 +53,47 @@ async function harness(handler, { session = false, search = false } = {}) {
     const teaching = createLearningTeaching({ repository, createId, now, current: () => current,
         capture: async () => { captures++; return structuredClone(context); }, gateway: {
             loadConfig: async () => search ? config : {}, openSession: async () => ({ providerConfig: {}, supportsSessionToolLoop: session,
-                run: async request => { requests.push(structuredClone({ ...request, signal: undefined })); return handler(request, requests.length); } }),
+                run: declaredTeacher(async request => { requests.push(structuredClone({ ...request, signal: undefined, onStreamProgress: undefined })); return handler(request, requests.length); }) }),
         } });
     const read = () => repository.snapshot().document.data.profiles[0];
     return { repository, teaching, requests, read, now, createId, captures: () => captures,
         current: () => current, setCurrent: value => { current = value; },
         interruptSave: () => { failWrite = true; }, confirmSave: () => { file = held; failWrite = false; },
         reopen: () => createLearningRepository(files).read() };
+}
+
+for (const responseLost of [false, true]) {
+    test(`stopping an already-sent save never resurrects unpublished teaching (response lost: ${responseLost})`, async () => {
+        let release; let started; let block = false;
+        const gate = new Promise(resolve => { release = resolve; });
+        const entered = new Promise(resolve => { started = resolve; });
+        const secret = 'An unpublished explanation of the new listening passage.';
+        const h = await harness((request, round) => {
+            if (round === 1) {
+                const draft = lesson(); draft.exercises[0].skill = 'listening';
+                return { toolCalls: [call('LearningLessonEdit', draft)] };
+            }
+            if (round === 2) {
+                const ids = results(request).find(entry => entry.name === 'LearningLessonEdit').response.ids;
+                return { toolCalls: [call('LearningHelp', { exerciseIds: [ids[2]], materialIds: [ids[1]] })] };
+            }
+            return { text: secret };
+        }, { beforeWrite: async () => { if (block) { started(); await gate; } } });
+        if (responseLost) { h.interruptSave(); }
+        block = true;
+        const running = h.teaching.run({ action, message: '开始听力。' });
+        try {
+            await entered;
+            assert.ok(!JSON.stringify(h.teaching.conversation()).includes(secret));
+            h.teaching.cancel();
+        } finally { release(); }
+        assert.equal((await running).status, 'cancelled');
+        if (responseLost) { h.confirmSave(); await h.repository.verify(); }
+        assert.ok(h.read().unit, 'A write already sent may persist; stopping cannot pretend to roll it back');
+        assert.equal(h.teaching.recoverConfirmed(), null, 'Storage recovery does not authorize stopped reply publication');
+        assert.equal(h.teaching.conversation().turns.at(-1).status, 'cancelled');
+        assert.ok(!JSON.stringify(h.teaching.conversation()).includes(secret));
+    });
 }
 
 for (const session of [false, true]) {
@@ -91,7 +127,7 @@ for (const session of [false, true]) {
         assert.equal(h.requests.length, 0);
         const result = await h.teaching.run({ action, message: '找篇适合我的 BBC 短文。' });
         assert.equal(result.status, 'finished', JSON.stringify(result));
-        assert.deepEqual(result.appliedTools, ['LearningLessonEdit']);
+        assert.deepEqual(result.appliedTools, ['LearningLessonEdit', 'LearningHelp']);
         assert.deepEqual(http.map(request => request.url), ['https://tavily.example.com/search', 'https://tavily.example.com/extract']);
         assert.equal(http[0].body.query, 'BBC urban trees beginner reading');
         assert.equal(h.captures(), 1);
@@ -114,7 +150,8 @@ for (const outcome of ['confirmed', 'unconfirmed', 'failed', 'cancelled']) {
             }
             if (outcome === 'failed') { throw Object.assign(new Error('fixture'), { status: 401 }); }
             if (outcome === 'cancelled') { h.teaching.cancel(); }
-            assert.equal(h.teaching.conversation().turns.length, 0);
+            assert.equal(h.teaching.conversation().turns.length, 1);
+            assert.equal(h.teaching.conversation().turns[0].presentation, undefined);
             assert.equal(h.read().unit, null);
             return { text: '试试用自己的话表达。' };
         });
@@ -126,7 +163,9 @@ for (const outcome of ['confirmed', 'unconfirmed', 'failed', 'cancelled']) {
             assert.equal(turns.at(-1).presentation.id, h.read().unit.exercises[0].id);
             assert.equal(turns.at(-1).presentation.unitId, h.read().unit.id);
         } else {
-            assert.equal(turns.length, 0);
+            assert.equal(turns.length, 1);
+            assert.equal(turns[0].presentation, undefined);
+            assert.equal(turns[0].status, outcome);
             assert.equal(h.read().unit, null);
             if (outcome === 'unconfirmed') {
                 h.confirmSave(); await h.repository.verify();
@@ -141,7 +180,7 @@ for (const outcome of ['confirmed', 'unconfirmed', 'failed', 'cancelled']) {
     });
 }
 
-test('a conversational answer and feedback publish together; provider failure leaves the previous lesson intact', async () => {
+test('a conversational answer can await feedback; provider failure leaves the previous lesson intact', async () => {
     let phase = 'prepare'; let step = 0; let original;
     const h = await harness(request => {
         if (phase === 'prepare') { return ++step === 1 ? { toolCalls: [call('LearningLessonEdit', lesson())] } : { text: 'Summarise the main point.' }; }
@@ -160,11 +199,12 @@ test('a conversational answer and feedback publish together; provider failure le
     assert.equal((await h.teaching.run(input)).status, 'failed');
     assert.deepEqual(h.read().unit, original);
     phase = 'missing'; step = 0;
-    assert.equal((await h.teaching.run(input)).reason, 'learning_assessment_missing');
-    assert.deepEqual(h.read().unit, original);
-    phase = 'success'; step = 0;
     assert.equal((await h.teaching.run(input)).status, 'finished');
     assert.equal(h.read().unit.attempts.length, 1);
+    assert.equal(h.read().unit.assessments.length, 0);
+    phase = 'success'; step = 0;
+    assert.equal((await h.teaching.run(input)).status, 'finished');
+    assert.equal(h.read().unit.attempts.length, 2);
     assert.equal(h.read().unit.attempts[0].answer.text, input.message);
     assert.equal(h.teaching.conversation().turns.at(-1).user, input.message);
 });
@@ -203,11 +243,13 @@ test('real submitted answer survives failed assessment and is evaluated under th
     assert.equal(h.read().completions[0].reward.amount, 17);
 });
 
-test('unknown save outcome publishes no teacher reply and recovery only reads the pending upload', async () => {
+test('unknown save outcome retains the teacher reply and recovery only reads the pending upload', async () => {
     const h = await harness((_request, step) => step === 1 ? { toolCalls: [call('LearningLessonEdit', lesson())] } : { text: '新课程。' });
     h.interruptSave();
     assert.deepEqual(await h.teaching.run({ action, message: '开始' }), { status: 'unconfirmed' });
     assert.equal(h.read().unit, null);
+    assert.equal(h.teaching.conversation().turns.at(-1).teacher, '新课程。');
+    assert.equal(h.teaching.conversation().turns.at(-1).status, 'unconfirmed');
     const calls = h.requests.length;
     assert.equal((await h.teaching.run({ action, message: '重试' })).status, 'unconfirmed');
     assert.equal(h.requests.length, calls);
@@ -231,7 +273,7 @@ test('cancel, changed classroom and late provider replies cannot publish staged 
     }
 });
 
-test('empty replies, repeated no-progress calls and unresolved tools do not publish drafts', async () => {
+test('empty replies and repeated no-progress calls stop, while a rejected edit does not erase valid work', async () => {
     for (const mode of ['empty', 'limit', 'invalid']) {
         const h = await harness((_request, step) => {
             if (step === 1) { return { toolCalls: [call('LearningLessonEdit', lesson())] }; }
@@ -240,8 +282,9 @@ test('empty replies, repeated no-progress calls and unresolved tools do not publ
             return { text: mode === 'empty' ? '' : '完成' };
         });
         const result = await h.teaching.run({ action, message: '开始' });
-        assert.equal(result.status, 'failed');
-        assert.equal(h.read().unit, null);
+        assert.equal(result.status, mode === 'invalid' ? 'finished' : 'failed');
+        if (mode === 'invalid') { assert.equal(h.read().unit.title, lesson().title); }
+        else { assert.equal(h.read().unit, null); }
         if (mode === 'limit') { assert.equal(result.reason, 'learning_stalled'); }
     }
 });
@@ -435,7 +478,7 @@ test('a substantive tool turn can exceed 32000 serialized characters and eight r
         }
         if (round === 1) {
             assert.ok(request.messages.some(message => message.role === 'assistant' && message.content === '我们下一步练习因果表达。'));
-            assert.ok(request.messages.some(message => message.role === 'tool'));
+            assert.ok(!request.messages.some(message => message.role === 'tool'), 'Finished exchanges replay published dialogue, not private working tools');
             assert.ok(request.tools.some(tool => tool.function.name === 'LearningLessonEdit'));
             return { toolCalls: [call('LearningLessonEdit', { exercises: [{ key: 'easier', skill: 'writing', materialKeys: [],
                 prompt: 'Write one sentence with because.', response: { kind: 'text' }, rule: { kind: 'semantic' } }] })] };

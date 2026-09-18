@@ -5,7 +5,7 @@ import { parseDiceRecords, hasValidCheckAnchor } from '../apps/dice/domain/check
 import { prepareActionCheck } from '../apps/dice/application/prepare-action-check.ts';
 import { parseActionCheck, ACTION_CHECK_EXAMPLE, ACTION_CHECK_FIELDS } from '../apps/dice/protocol/request.ts';
 import { ACTION_CHECK_OPEN, ACTION_CHECK_DISPLAY_PATTERN } from '../apps/dice/protocol/markup.ts';
-import { buildActionCheckPrompt, projectActionCheckResults, serializeActionCheckResults } from '../apps/dice/protocol/prompt.ts';
+import { projectActionCheckResults, serializeActionCheckResults } from '../apps/dice/protocol/prompt.ts';
 import { repairDiceDisplayRules, DICE_DISPLAY_RULE } from '../apps/dice/host/display-rule.ts';
 
 const request = { action: '攀上墙壁', stat: '敏捷', difficulty: 'hard' };
@@ -157,29 +157,6 @@ test('result data round-trips macro-like action text without emitting executable
     assert.deepEqual(JSON.parse(encoded), projectActionCheckResults(candidate.records.checks));
     // This is an external host protocol safety boundary, not a source-code existence check.
     assert.equal(encoded.includes('{{'), false);
-});
-
-test('action-check prompt states genuine uncertainty, stakes, and natural no-check situations', () => {
-    const prompt = buildActionCheckPrompt();
-    assert.match(prompt, /genuinely go either way/);
-    assert.match(prompt, /outcome changes what happens next/);
-    assert.match(prompt, /overwhelming advantage, position, or common sense/);
-    assert.match(prompt, /without stakes, risk, or resistance/);
-    assert.match(prompt, /consensual intimacy/);
-    assert.match(prompt, /adds no numeric modifier/);
-});
-
-test('continuation prompt resumes directly without preset opening material', () => {
-    const prompt = buildActionCheckPrompt([{ request, roll: 12, dc: 12, outcome: 'success', id: 'x', prefixDigest: 'digest' }]);
-    assert.match(prompt, /established fact/);
-    assert.match(prompt, /exact point where the attempted action paused/);
-    assert.match(prompt, /next in-character prose sentence/);
-    assert.match(prompt, /thinking or reasoning block/);
-    assert.match(prompt, /instructional preamble/);
-    assert.match(prompt, /title, header, speaker label, status panel/);
-    assert.match(prompt, /do not mention the dice/);
-    assert.ok(prompt.includes('"roll":12'));
-    assert.ok(prompt.includes('"outcome":"success"'));
 });
 
 test('managed rule checks are no-ops when valid, repair only their own ID and preserve other rule objects', () => {

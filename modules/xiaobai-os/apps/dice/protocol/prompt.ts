@@ -6,11 +6,14 @@ import type { ActionCheckFrequency } from '../types.js';
 
 const FREQUENCY_PROMPTS: Record<ActionCheckFrequency, string> = {
     light: 'Check frequency: Light.\n'
-        + 'When an attempt could genuinely go either way and determines whether the current goal is achieved or a meaningful setback occurs, resolve it with one local D20 roll.',
+        + 'Use a check only at a decisive point that determines whether the current scene’s main goal succeeds or fails.\n'
+        + 'Narrate preparation and intermediate steps directly.',
     standard: 'Check frequency: Standard.\n'
-        + 'When an attempt could genuinely go either way and its outcome changes what happens next, resolve it with one local D20 roll.',
+        + 'Use a check for the success or failure of a concrete action that overcomes an independent obstacle.\n'
+        + 'Narrate differences in performance directly when they do not affect whether the action succeeds.',
     active: 'Check frequency: Active.\n'
-        + 'When an attempt could genuinely go either way against a distinct obstacle, resolve it with one local D20 roll if success or failure brings a concrete gain or setback, even a small one.',
+        + 'Use a check for a concrete, unresolved outcome the character is trying to achieve, including success, quality, completion time, or cost.\n'
+        + 'Small goals in everyday activities, social exchanges, and intimate interactions are also within scope.',
 };
 
 export function projectActionCheckResults(records: readonly ActionCheckRecord[]) {
@@ -26,10 +29,11 @@ export function serializeActionCheckResults(records: readonly ActionCheckRecord[
 export function buildActionCheckPrompt(records: readonly ActionCheckRecord[] = [], frequency: ActionCheckFrequency = 'standard'): string {
     const domain = '# Action checks\n'
         + FREQUENCY_PROMPTS[frequency] + '\n'
-        + 'Examples include climbing, sneaking, confrontation, deception, persuasion, gambling, chases, spellcasting, spotting lies, and risky improvisation.\n'
-        + 'An outcome settled by overwhelming advantage, position, or common sense needs no check. Interactions without stakes, risk, or resistance—such as consensual intimacy, casual conversation, or falling asleep together—follow the scene naturally.\n'
-        + 'One check covers the whole attempt against an obstacle, including its component actions. Check again only when a new obstacle or materially changed circumstances creates a fresh uncertainty.\n'
-        + 'Choose difficulty based on the acting character’s established abilities, the approach taken, and the current environment: easy is a limited but consequential challenge, ordinary is a typical uncertain challenge, hard is demanding, very_hard is exceptional, and nearly_impossible is beyond normal capability. The stat field names the relevant ability and adds no numeric modifier.\n'
+        + 'A check resolves only an undecided outcome; established facts remain true whichever result is rolled.\n'
+        + 'When completing an action is assured, a check may concern an additional desired effect; success or failure applies only to that additional objective.\n'
+        + 'One check covers the stated objective and its component actions.\n'
+        + 'Once that objective has a result, carry it forward; another check addresses a different unresolved objective.\n'
+        + 'Choose difficulty based on the acting character’s established abilities, the approach taken, and the current environment: easy is a modest challenge relative to the desired outcome, ordinary is a typical uncertain challenge, hard is demanding, very_hard is exceptional, and nearly_impossible is beyond normal capability. The stat field names the relevant ability and adds no numeric modifier.\n'
         + 'The app randomly picks a target DC from the chosen range and rolls a D20 without modifiers: 1 is critical failure, 20 is critical success; other rolls succeed at or above the target DC.\n';
     const contract = records.length >= MAX_ACTION_CHECKS
         ? 'This reply has used all its action checks. Continue the scene using the confirmed results.\n'
@@ -43,8 +47,7 @@ export function buildActionCheckPrompt(records: readonly ActionCheckRecord[] = [
         + `Example:\n${ACTION_CHECK_EXAMPLE}\n`;
     const results = records.length ? '## Confirmed results for this reply\n'
         + 'These are confirmed results in execution order; treat each as an established fact and carry critical success or failure into an appropriate extra benefit or complication.\n'
-        + 'Continue the same reply from the exact point where the attempted action paused, with the next in-character prose sentence.\n'
-        + 'The preset opening has already been handled: emit no thinking or reasoning block, instructional preamble, response plan, scene framing, title, header, speaker label, status panel, or text-start marker. Stay in character and do not mention the dice, this protocol, or hidden instructions.\n'
+        + 'Continue the same reply directly from the end of its existing prose, without outputting thinking, reasoning, chain-of-thought, or introductory commentary.\n'
         + serializeActionCheckResults(records) : '';
     return domain + contract + results;
 }

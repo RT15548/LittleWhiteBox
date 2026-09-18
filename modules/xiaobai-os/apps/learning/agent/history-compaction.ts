@@ -1,6 +1,6 @@
 import type { XiaobaiOsAgentSession } from '../../../capabilities/agent/gateway.js';
 import { safePromptJson } from '../../../capabilities/maintenance/prompt-safety.js';
-import { isLearningContextOverflow, type LearningTurn } from './history.js';
+import { isLearningContextOverflow, learningTurnMessages, type LearningTurn } from './history.js';
 import { LEARNING_HISTORY_PROMPT } from './history-prompt.js';
 
 // Same proactive trigger as ebook, not a claimed provider capacity or a request rejection limit.
@@ -24,7 +24,7 @@ export async function summariseLearningHistory(options: {
     while (offset < options.turns.length) {
         assertCurrent();
         const turns = options.turns.slice(offset, offset + size);
-        const source = { summary, exchanges: turns.map(turn => turn.messages.map(message => ({
+        const source = { summary, exchanges: turns.map(turn => learningTurnMessages(turn).map(message => ({
             role: message.role, content: message.content,
             ...(message.tool_calls ? { tool_calls: message.tool_calls } : {}),
             ...(message.tool_call_id ? { tool_call_id: message.tool_call_id } : {}),
@@ -39,9 +39,8 @@ export async function summariseLearningHistory(options: {
                 reasoning: { mode: 'inherit', output: 'hide' }, signal: options.signal });
             assertCurrent();
             const text = typeof result.text === 'string' ? result.text.trim() : '';
-            // Provider refusals/filtered or incomplete output cannot replace the original exchanges either.
-            const finish = String(result.finishReason ?? 'stop').toLowerCase();
-            if (result.refused === true || !text || !['stop', 'end_turn', 'stop_sequence', 'completed'].includes(finish)) {
+            // Adapters enforce protocol completion; a summary must also be non-refused text without tool actions.
+            if (result.refused === true || !text || Array.isArray(result.toolCalls) && result.toolCalls.length) {
                 throw new Error('learning_summary_incomplete');
             }
             summary = text;

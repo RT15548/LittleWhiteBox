@@ -55,7 +55,7 @@ export function createLearningRuntime(deps: {
             ? { language, osId: saved.osId, chatIdentity, teacher: saved.value.teacher } : null;
     }
     const teaching = createLearningTeaching({ repository, gateway: deps.agent, current, capture: deps.capture,
-        onConversation: () => publish(),
+        onConversation: publish,
         onProgress: next => {
             const text = learningProgressMessage(next);
             if (text !== progress) { progress = text; publish(); }
@@ -318,7 +318,7 @@ export function createLearningRuntime(deps: {
             else if (name === 'rate' && !job) { speech.media.setRate(Number(input.value)); }
             else if (name === 'seek' && !job) { speech.media.seek(Number(input.value)); }
             else if (name === 'tts-settings') { speech.media.openSettings(); }
-            else if (name === 'cancel') { cancel(); message = '已停止本次操作；如果保存已经开始，仍需检查是否成功。'; }
+            else if (name === 'cancel') { cancel(); message = '已停止本次操作；如果保存已经开始，仍需检查是否成功。'; publish(); }
             else if (name === 'forget-conversation' && !job) { teaching.reset(); reply = null; replySelection = null; message = ''; }
             else if (name === 'language' && !job) {
                 const selected = parseLearningLanguageTag(input.language, 'language');

@@ -1,4 +1,5 @@
-import { isGenerating, updateMessageBlock } from '../../../../../../../../../script.js';
+import { updateMessageBlock } from '../../../../../../../../../script.js';
+import { isGenerating } from '../../../host/sillytavern-generation-state.js';
 import { createModuleEvents, event_types } from '../../../../../core/event-manager.js';
 import { isCheckContinuationPoint, parseDiceRecords } from '../domain/check-records.js';
 import { checkMarkerIds } from '../domain/check-marker.js';

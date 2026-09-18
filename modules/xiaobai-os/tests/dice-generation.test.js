@@ -26,7 +26,8 @@ const compiled = await build({
             export let isChatSaving = false;
             export let is_send_press = false;
             export const host = {
-                source: null, busy: false, draft: '', enabled: true, requests: [], prompts: new Map(), writes: 0,
+                source: null, get busy() { return is_send_press; }, set busy(value) { is_send_press = value; },
+                draft: '', enabled: true, requests: [], prompts: new Map(), writes: 0,
                 preflight: async () => {}, controller: null, stream: null, reply: normalReply, editing: false,
                 save: async () => ({status:'confirmed'}), generate,
                 async emit(name, ...args) { for (const fn of [...(listeners.get(name) ?? [])]) await fn(...args); },
@@ -73,8 +74,8 @@ const compiled = await build({
             export const saveSillyTavernChat = async guard => {
                 if (!guard()) throw new Error('stale target'); host.writes++; return host.save();
             };
-            export const isGenerating = () => host.busy || is_group_generating;
-            export const setSendButtonState = value => { host.busy = is_send_press = value; };
+            // Match ST 1.14's native boundary: live flags, without an isGenerating export.
+            export const setSendButtonState = value => { is_send_press = value; };
             export const deactivateSendButtons = () => { host.stopVisible = true; host.dataGenerating = true; host.locks++; };
             function hideStopButton() {
                 if (!host.stopVisible) return;
@@ -102,7 +103,7 @@ const compiled = await build({
                 }
                 host.lock();
                 if (await host.intercept(type) || options.signal?.aborted) { activateSendButtons(); return; }
-                host.requests.push({type, signal:host.controller.signal, busy:isGenerating(), prompt:host.prompts.get('xiaobai_os_dice')});
+                host.requests.push({type, signal:host.controller.signal, busy:is_send_press || is_group_generating, prompt:host.prompts.get('xiaobai_os_dice')});
                 try { await host.reply(host.controller.signal); }
                 finally { activateSendButtons(); }
             }
@@ -652,7 +653,10 @@ test('readiness waits through stream finalization, saving and generation but rel
     host.saving(false); host.busy = true;
     t.mock.timers.tick(40); await setImmediate();
     assert.equal(ready, false, 'a stopped stream cannot bypass another generation');
-    host.busy = false;
+    host.group(true); host.busy = false;
+    t.mock.timers.tick(40); await setImmediate();
+    assert.equal(ready, false, 'the group wrapper remains busy between member generations');
+    host.group(false);
     t.mock.timers.tick(40); await operation;
     assert.equal(ready, true);
     assert.equal(host.stream, stopped, 'Dice must not clear native processor state');

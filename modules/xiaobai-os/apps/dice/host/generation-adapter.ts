@@ -1,4 +1,5 @@
-import { activateSendButtons, deactivateSendButtons, setCharacterId, setCharacterName, setExternalAbortController, setSendButtonState, stopGeneration, isGenerating, is_send_press, eventSource } from '../../../../../../../../../script.js';
+import { activateSendButtons, deactivateSendButtons, setCharacterId, setCharacterName, setExternalAbortController, setSendButtonState, stopGeneration, is_send_press, eventSource } from '../../../../../../../../../script.js';
+import { isGenerating } from '../../../host/sillytavern-generation-state.js';
 import { generateGroupWrapper, is_group_generating } from '../../../../../../../../group-chats.js';
 import { uuidv4 } from '../../../../../../../../utils.js';
 import { createModuleEvents, event_types } from '../../../../../core/event-manager.js';

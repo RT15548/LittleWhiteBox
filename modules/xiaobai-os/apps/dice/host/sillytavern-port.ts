@@ -1,5 +1,6 @@
 import { extension_settings, getContext } from '../../../../../../../../extensions.js';
-import { getRequestHeaders, isChatSaving, isGenerating } from '../../../../../../../../../script.js';
+import { getRequestHeaders, isChatSaving } from '../../../../../../../../../script.js';
+import { isGenerating } from '../../../host/sillytavern-generation-state.js';
 import { getScriptsByType, saveScriptsByType, SCRIPT_TYPES } from '../../../../../../../../extensions/regex/engine.js';
 import { saveSillyTavernChat } from '../../../host/sillytavern-chat-save.js';
 import { repairDiceDisplayRules } from './display-rule.js';

@@ -14,11 +14,13 @@ const compiled = await build({
     footer: { js: '//# sourceURL=dice-lifecycle-fixture.js' },
     plugins: [{ name: 'dice-cleanup-host', setup(builder) {
         builder.onResolve({ filter: /^js-sha256$/ }, () => ({ path: import.meta.resolve('js-sha256'), external: true }));
-        builder.onResolve({ filter: /(?:^dice-cleanup-host$|\/(?:script|sillytavern-port|sillytavern-chat-save|generation-adapter|message-display|encounter-runtime|encounter-display)\.js$)/ },
+        builder.onResolve({ filter: /(?:^dice-cleanup-host$|\/(?:script|group-chats|sillytavern-port|sillytavern-chat-save|generation-adapter|message-display|encounter-runtime|encounter-display)\.js$)/ },
             () => ({ path: 'host', namespace: 'fixture' }));
         builder.onLoad({ filter: /.*/, namespace: 'fixture' }, () => ({ contents: `
-            export const host = { source: null, save: null, settled: Promise.resolve(), busy: false, cancelled: false };
-            export const isGenerating = () => host.busy;
+            export let is_send_press = false;
+            export const is_group_generating = false;
+            export const host = { source: null, save: null, settled: Promise.resolve(),
+                get busy() { return is_send_press; }, set busy(value) { is_send_press = value; }, cancelled: false };
             export const isChatSaving = false;
             export const captureDiceChat = () => host.source;
             export const ensureDiceDisplayRule = async () => {};

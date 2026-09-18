@@ -53,9 +53,12 @@ watch(() => state.value.unit, unit => {
     const target = activity.value;
     if (target && (unit?.id !== target.unitId || !(target.kind === 'exercise' ? unit.exercises : unit.materials).some(entry => entry.id === target.id))) { closeActivity(); }
 });
-watch(() => state.value.conversation.turns.length + state.value.conversation.removedTurns, (total, old) => {
+watch(() => {
     const target = state.value.conversation.turns.at(-1)?.presentation;
-    if (total > old && target) { void present(target); }
+    return target ? `${state.value.conversation.turns.length + state.value.conversation.removedTurns}:${target.unitId}:${target.kind}:${target.id}` : '';
+}, key => {
+    const target = state.value.conversation.turns.at(-1)?.presentation;
+    if (key && target) { void present(target); }
 });
 function present(target: LearningPresentation) {
     if (target.kind === 'replacement') {

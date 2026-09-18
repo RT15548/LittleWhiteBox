@@ -35,6 +35,7 @@ export function createLearningSession(repository: LearningRepository, options: {
     asOf?: string;
 }) {
     const expected = confirmedLearning(repository);
+    let saveExpected = expected;
     const action = structuredClone(options.action);
     const inputScope = structuredClone(options.inputScope);
     requireLearning(inputScope.kind === 'public' || inputScope.osId === options.osId, 'scope', 'Use the current story identity');
@@ -48,9 +49,8 @@ export function createLearningSession(repository: LearningRepository, options: {
     let sealed = false;
     let presentation: LearningPresentation | null = null;
     let messageAttempt: { exerciseId: string; id: string } | null = null;
+    let help: { exerciseIds: string[]; materialIds: string[] } | null = null;
     const applied = new Set<string>();
-    const assessed = new Set<string>();
-    const failures = new Map<string, { path: string; message: string }>();
     const names = learningToolNames();
     const sources = options.sources ?? createLearningSourceRegistry();
     const compileLesson = createLearningLessonCompiler({
@@ -58,17 +58,20 @@ export function createLearningSession(repository: LearningRepository, options: {
         createId, sources,
     });
     const active = () => requireLearning(!invalid && !sealed, 'action', 'This teaching action has ended');
-    const errors = () => [...failures.values()];
-    const missingMessageAssessment = () => !!messageAttempt && !staged.profiles.some(profile => profile.unit?.assessments
-        .some(entry => entry.attemptId === messageAttempt!.id && canReadLearningScope(entry.scope, accessOsId)));
     return {
         toolNames: [...names],
         appliedTools: () => [...applied],
-        missingMessageAssessment,
-        hasAssessment: (attemptId: string) => assessed.has(attemptId) || !(action.kind === 'assess' && action.review)
-            && staged.profiles.some(profile => profile.unit?.assessments.some(entry => entry.attemptId === attemptId && entry.verdict !== 'disputed' && canReadLearningScope(entry.scope, accessOsId))),
         presentation: () => presentation ? structuredClone(presentation) : null,
-        unresolvedErrors: () => structuredClone(errors()),
+        helpDeclared: () => help !== null,
+        helpIsPublished() {
+            if (!help) { return false; }
+            const proposed = staged.profiles.find(entry => entry.language === canonicalLanguage)?.unit;
+            const published = saveExpected?.data.profiles.find(entry => entry.language === canonicalLanguage)?.unit;
+            return help.exerciseIds.every(id => published?.revealed.hints.includes(id)
+                && JSON.stringify(published.exercises.find(entry => entry.id === id)) === JSON.stringify(proposed?.exercises.find(entry => entry.id === id)))
+                && help.materialIds.every(id => published?.materials.some(entry => entry.id === id && entry.transcriptRevealed
+                    && JSON.stringify(entry.paragraphs) === JSON.stringify(proposed?.materials.find(material => material.id === id)?.paragraphs)));
+        },
         markExplained(exerciseId: string) {
             active();
             const profile = staged.profiles.find(profile => profile.language === canonicalLanguage);
@@ -77,13 +80,52 @@ export function createLearningSession(repository: LearningRepository, options: {
                 && unit.exercises.some(exercise => exercise.id === exerciseId), 'exerciseId', 'Select an available exercise');
             exposeLearningContent(profile!, 'hints', exerciseId);
         },
+        async saveHelp(guard: () => boolean) {
+            active();
+            const data = structuredClone(saveExpected?.data ?? { profiles: [] });
+            const profile = data.profiles.find(entry => entry.language === canonicalLanguage);
+            const proposed = staged.profiles.find(entry => entry.language === canonicalLanguage)?.unit;
+            // Only exposure of already-published content survives an interrupted teaching turn.
+            if (profile?.unit && proposed?.id === profile.unit.id) {
+                for (const kind of ['answers', 'hints'] as const) {
+                    for (const id of proposed.revealed[kind]) {
+                        if (profile.unit.exercises.some(entry => entry.id === id
+                            && JSON.stringify(entry) === JSON.stringify(proposed.exercises.find(exercise => exercise.id === id)))) { exposeLearningContent(profile, kind, id); }
+                    }
+                }
+                for (const material of proposed.materials) {
+                    const published = profile.unit.materials.find(entry => entry.id === material.id);
+                    if (material.transcriptRevealed && published && JSON.stringify(material.paragraphs) === JSON.stringify(published.paragraphs)) {
+                        exposeLearningContent(profile, 'transcripts', material.id);
+                    }
+                }
+            }
+            const result = await repository.save(saveExpected, data, () => !invalid && guard());
+            if (result.status === 'confirmed' || result.status === 'unchanged') { saveExpected = result.document; }
+            return result;
+        },
         executeTool(name: string, args: unknown): unknown {
             active();
-            const attemptRef = name === 'LearningAssess' && args && typeof args === 'object' && 'attemptId' in args
-                && typeof args.attemptId === 'string' ? args.attemptId : null;
-            const failureKey = attemptRef === null ? name : `${name}:${attemptRef}`;
+            let nextPresentation = presentation;
+            let nextMessageAttempt = messageAttempt;
             try {
                 requireLearning(names.includes(name), 'tool', 'This tool is not available for the current learning action');
+                if (name === 'LearningHelp') {
+                    const input = learningRecord(args, name, ['exerciseIds', 'materialIds']);
+                    const exerciseIds = learningIds(input.exerciseIds, 'exerciseIds');
+                    const materialIds = learningIds(input.materialIds, 'materialIds');
+                    const next = structuredClone(staged);
+                    const profile = next.profiles.find(entry => entry.language === canonicalLanguage);
+                    requireLearning(!exerciseIds.length && !materialIds.length || profile?.unit && canReadLearningScope(profile.unit.scope, accessOsId), 'unit', 'Select an available current lesson');
+                    for (const id of exerciseIds) { exposeLearningContent(profile!, 'hints', id); }
+                    for (const id of materialIds) { exposeLearningContent(profile!, 'transcripts', id); }
+                    const changed = JSON.stringify(next) !== JSON.stringify(staged);
+                    staged = next;
+                    help = { exerciseIds: [...new Set([...(help?.exerciseIds ?? []), ...exerciseIds])],
+                        materialIds: [...new Set([...(help?.materialIds ?? []), ...materialIds])] };
+                    applied.add(name);
+                    return { ok: true, changed, ids: [...exerciseIds, ...materialIds], errors: [] };
+                }
                 if (name === 'LearningRead') {
                     if (args && typeof args === 'object' && 'section' in args && args.section === 'sources') {
                         const input = learningRecord(args, name, ['section', 'offset', 'limit']);
@@ -94,12 +136,6 @@ export function createLearningSession(repository: LearningRepository, options: {
                         return { section: 'sources', data: records.slice(offset, offset + limit), nextOffset, omitted: nextOffset !== null };
                     }
                     return readLearning(staged, canonicalLanguage, accessOsId, args, asOf);
-                }
-                if (args && typeof args === 'object' && 'discard' in args) {
-                    const input = learningRecord(args, name, ['discard']);
-                    requireLearning(input.discard === true, 'discard', 'Use true to withdraw this failed proposal');
-                    for (const key of failures.keys()) { if (key === name || key.startsWith(`${name}:`)) { failures.delete(key); } }
-                    return { ok: true, changed: false, ids: [], errors: errors() };
                 }
                 let next = structuredClone(staged);
                 const index = next.profiles.findIndex(profile => profile.language === canonicalLanguage);
@@ -121,8 +157,8 @@ export function createLearningSession(repository: LearningRepository, options: {
                     if (name === 'LearningPresent') {
                         const target = learningPresentation(profile.unit, args, options.learnerMessage);
                         requireLearning(target.kind === 'replacement' || profile.unit && canReadLearningScope(profile.unit.scope, accessOsId), 'unit', 'Choose a lesson available in this classroom');
-                        presentation = target;
-                        ids = [presentation.id];
+                        nextPresentation = target;
+                        ids = [target.id];
                     } else if (name === 'LearningAnswer') {
                         const input = learningRecord(args, name, ['exerciseId']);
                         const published = structuredClone(expected?.data.profiles.find(entry => entry.language === canonicalLanguage));
@@ -140,7 +176,7 @@ export function createLearningSession(repository: LearningRepository, options: {
                                 answer: { kind: 'text', text: options.learnerMessage }, scope: inputScope, osId: options.osId,
                                 replays: 0, slowPlayback: false, createId, now });
                             profile.unit.attempts.push(attempt);
-                            messageAttempt = { exerciseId: question.id, id: attempt.id };
+                            nextMessageAttempt = { exerciseId: question.id, id: attempt.id };
                             ids = [attempt.id];
                         }
                     } else if (name === 'LearningLessonEdit') {
@@ -153,7 +189,9 @@ export function createLearningSession(repository: LearningRepository, options: {
                         'newLesson', 'Finish and save the current lesson before beginning another, or use LearningPresent with kind:replacement to ask the learner to confirm putting it aside');
                         requireLearning(startNew || !profile.unit || canReadLearningScope(profile.unit.scope, accessOsId),
                             'unit', 'This lesson belongs to another story. LearningPresent with kind:replacement asks the learner to confirm starting another');
-                        const remembered = [...(profile.unit?.materials ?? []), ...profile.items.flatMap(item => item.evidence.flatMap(evidence => evidence.materials))];
+                        const confirmed = saveExpected?.data.profiles.find(entry => entry.language === canonicalLanguage);
+                        const remembered = [...(confirmed?.unit?.materials ?? []),
+                            ...(confirmed?.items.flatMap(item => item.evidence.flatMap(evidence => evidence.materials)) ?? [])];
                         const current = startNew ? null : profile.unit;
                         requireLearning(!current || current.scope.kind === inputScope.kind, 'unit',
                             'This shared lesson cannot acquire private story details. Ask the learner to start a new lesson in this classroom');
@@ -184,51 +222,43 @@ export function createLearningSession(repository: LearningRepository, options: {
                         const completed = completeLearning(visible, args, { osId: options.osId, inputScope, now });
                         next.profiles[index].completions = completed.completions;
                         ids = [profile.unit.id];
-                    } else if (name === 'LearningHelp') {
-                        const input = learningRecord(args, name, ['exerciseIds', 'materialIds']);
-                        requireLearning(profile.unit && canReadLearningScope(profile.unit.scope, accessOsId), 'unit', 'Select an available current lesson');
-                        const exercises = learningIds(input.exerciseIds ?? [], 'exerciseIds');
-                        const materials = learningIds(input.materialIds ?? [], 'materialIds');
-                        for (const id of exercises) { exposeLearningContent(profile, 'hints', id); }
-                        for (const id of materials) { exposeLearningContent(profile, 'transcripts', id); }
-                        ids = [...exercises, ...materials];
                     }
                 }
                 next = parseLearningData(next);
+                // Reject the particular edit that breaks a live reference, while the model can still repair it.
+                if (nextPresentation) {
+                    const unit = next.profiles.find(profile => profile.language === canonicalLanguage)?.unit ?? null;
+                    requireLearning(unit?.id === nextPresentation.unitId, 'presentation', 'Present content from the current lesson');
+                    nextPresentation = learningPresentation(unit, { kind: nextPresentation.kind, id: nextPresentation.id }, options.learnerMessage);
+                }
+                for (const profile of next.profiles) {
+                    const known = expected?.data.profiles.find(entry => entry.language === profile.language)?.completions ?? [];
+                    for (const completion of profile.completions.filter(entry => !known.some(old => old.unitId === entry.unitId))) {
+                        const unit = profile.unit;
+                        requireLearning(unit?.id === completion.unitId && completion.attemptIds.every(id => unit.attempts.some(attempt => attempt.id === id)
+                            && unit.assessments.some(assessment => assessment.attemptId === id && assessment.verdict !== 'disputed')),
+                        'completion', 'Keep resolved feedback for each attempt cited by the completion');
+                    }
+                }
                 const changed = JSON.stringify(next) !== JSON.stringify(staged);
                 staged = next;
+                if (name === 'LearningLessonEdit' && changed) { help = null; }
+                presentation = nextPresentation;
+                messageAttempt = nextMessageAttempt;
                 applied.add(name);
-                if (name === 'LearningAssess' && attemptRef) { assessed.add(attemptRef); }
-                failures.delete(failureKey);
-                failures.delete(name);
-                return { ok: true, changed, ids, errors: errors() };
+                return { ok: true, changed, ids, errors: [] };
             } catch (error) {
                 if (!(error instanceof LearningValidationError)) { invalid = true; throw error; }
+                // An unsuccessful replacement declaration cannot leave an older scope authorizing new text.
+                if (name === 'LearningHelp') { help = null; }
                 const issue = { path: error.path, message: error.message };
-                if (name !== 'LearningRead') { failures.set(failureKey, issue); }
-                return { ok: false, changed: false, ids: [], errors: name === 'LearningRead' ? [issue, ...errors()] : errors() };
+                return { ok: false, changed: false, ids: [], errors: [issue] };
             }
         },
         async commit(guard: () => boolean) {
             active();
-            requireLearning(failures.size === 0, 'action', 'Correct each failed proposal or withdraw it with discard:true on that tool');
-            requireLearning(!missingMessageAssessment(), 'assessment', 'Assess the attempt returned by LearningAnswer before finishing this reply');
-            if (presentation) {
-                const unit = staged.profiles.find(entry => entry.language === canonicalLanguage)?.unit ?? null;
-                requireLearning(unit?.id === presentation.unitId, 'presentation', 'Present content from the current lesson');
-                presentation = learningPresentation(unit, { kind: presentation.kind, id: presentation.id }, options.learnerMessage);
-            }
-            for (const profile of staged.profiles) {
-                const known = expected?.data.profiles.find(entry => entry.language === profile.language)?.completions ?? [];
-                for (const completion of profile.completions.filter(entry => !known.some(old => old.unitId === entry.unitId))) {
-                    const unit = profile.unit;
-                    requireLearning(unit?.id === completion.unitId && completion.attemptIds.every(id => unit.attempts.some(attempt => attempt.id === id)
-                        && unit.assessments.some(assessment => assessment.attemptId === id && assessment.verdict !== 'disputed')),
-                    'completion', 'The new completion still needs resolved feedback when this action is saved');
-                }
-            }
             sealed = true;
-            return repository.save(expected, staged, () => !invalid && guard());
+            return repository.save(saveExpected, staged, () => !invalid && guard());
         },
         invalidate() { invalid = true; },
     };

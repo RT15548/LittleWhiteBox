@@ -7,6 +7,7 @@ import { XiaobaiOsPartitionRegistry } from '../../kernel/partition-registry.js';
 import { createTransactionCoordinator } from '../../kernel/transaction-coordinator.js';
 import { XiaobaiOsExecutionScope } from '../../kernel/execution-scope.js';
 import { XiaobaiOsStorageError } from '../../storage/storage-port.js';
+import { declaredTeacher } from './learning-reply.js';
 
 // Fixed teaching responses at the Provider boundary. No network, account, key, or audio service.
 export const fixtureLesson = {
@@ -18,7 +19,7 @@ export const fixtureLesson = {
         rule: { kind: 'exact', answer: { kind: 'choice', ids: ['a'] }, explanation: '作者先用树荫举例，再解释树木能让城市生活更舒适。关键词是 do more than。' }, hint: '第二段的第一句，把视角从外观转向了作用。' }],
 };
 
-export async function createClassroomFixture({ listening = false, lesson: lessonInput = fixtureLesson, getTtsFacade = () => undefined } = {}) {
+export async function createClassroomFixture({ listening = false, lesson: lessonInput = fixtureLesson, getTtsFacade = () => undefined, agentConfig = {} } = {}) {
     let chat = 'runtime-a'; let envelope = null; let userFile = null; let serial = 0;
     const flags = { userFailure: false, userRejected: false, heldUser: null, ledgerFailure: false, ledgerUnknown: false, heldLedger: null, providerFailure: false, providerGate: null, prepareReply: null, profileReply: null, talkTools: null, teacherResponse: null };
     const counts = { provider: 0, userWrites: 0, ledgerWrites: 0 };
@@ -46,14 +47,10 @@ export async function createClassroomFixture({ listening = false, lesson: lesson
     } });
     const profile = () => repository.snapshot().document?.data.profiles[0];
     const call = (name, args) => ({ id: name, name, arguments: JSON.stringify(args) });
-    const gateway = { loadConfig: async () => ({}), openSession: async () => {
+    const gateway = { loadConfig: async () => agentConfig, openSession: async () => {
         let round = 0;
-        return { supportsSessionToolLoop: false, providerConfig: {}, run: async request => {
-            counts.provider++;
-            if (flags.providerGate) { await flags.providerGate; }
-            if (flags.providerFailure) { throw Object.assign(new Error('fixture secret must stay hidden'), { status: 401 }); }
+        const respond = declaredTeacher(async request => {
             round++;
-            if (flags.teacherResponse) { return flags.teacherResponse(request, round); }
             if (round > 1) { return { text: '你已经抓住关键了。语言不用一次学完，今天多会一点点就很好。' }; }
             const message = request.messages.findLast(entry => entry.role === 'user');
             const input = JSON.parse(message.content.split('<learning_request>\n').at(-1).split('\n</learning_request>')[0]);
@@ -79,6 +76,18 @@ export async function createClassroomFixture({ listening = false, lesson: lesson
                 ...(action.kind === 'assess' && (!input.focus?.assessment || action.review) ? { verdict: 'correct', understanding: '抓住了文章的中心。', expression: '', guidance: '下次试着用自己的句子说明原因。' } : {}),
                 items: [{ label: '抓住段落中心观点' }] }),
             call('LearningComplete', { unitId: unit.id, attemptIds: [attempt.id], summary: '读懂了树荫与城市生活的关系，也练习了辨认文章主旨。' })] };
+        }, request => {
+            const original = request.messages.find(entry => entry.role === 'user' && entry.content.includes('<learning_request>'));
+            const input = original ? JSON.parse(original.content.split('<learning_request>\n').at(-1).split('\n</learning_request>')[0]) : null;
+            return { exerciseIds: input?.action.kind === 'explain' && input.focus ? [input.focus.exercise.id] : [],
+                materialIds: input?.action.kind === 'explain' ? (input.focus?.materials ?? []).filter(material => !material.transcriptRevealed).map(material => material.id) : [] };
+        });
+        let customRound = 0;
+        return { supportsSessionToolLoop: false, providerConfig: {}, run: async request => {
+            counts.provider++;
+            if (flags.providerGate) { await flags.providerGate; }
+            if (flags.providerFailure) { throw Object.assign(new Error('fixture secret must stay hidden'), { status: 401 }); }
+            return flags.teacherResponse ? flags.teacherResponse(request, ++customRound) : respond(request);
         } };
     } };
     let active = true; let state;
