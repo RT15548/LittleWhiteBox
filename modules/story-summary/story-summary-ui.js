@@ -2215,8 +2215,11 @@ import { DEFAULT_SUMMARY_DELAY_FLOORS, normalizeSummaryDelayFloors } from './dat
         `);
         es.querySelectorAll('.alias-edit-item').forEach(addDeleteHandler);
         $('alias-add').onclick = () => {
+            // renderItem already emits a .struct-item.alias-edit-item wrapper. Giving
+            // this outer element the same class nested the new row twice, so saveEditor's
+            // querySelectorAll('.alias-edit-item') read it twice and every save failed
+            // validation with "duplicate alias points at several characters".
             const div = document.createElement('div');
-            div.className = 'struct-item alias-edit-item';
             setHtml(div, renderItem({ from: '', to: '', evidence: '' }));
             addDeleteHandler(div);
             $('alias-edit-list').appendChild(div);
