@@ -135,7 +135,7 @@ function Xe(t) {
   });
 }
 var Ve = Object.freeze({
-  dice: () => import("./xiaobai-os-DiceApp-DBG2PCvG.js"),
+  dice: () => import("./xiaobai-os-DiceApp-DC-7zSD4.js"),
   "agent-api": () => import("./xiaobai-os-AgentApiApp-Z2ML_2mV.js"),
   "fourth-wall": () => import("./xiaobai-os-FourthWallApp-53gXyVYR.js"),
   wallet: () => import("./xiaobai-os-WalletApp-C5MjHond.js"),

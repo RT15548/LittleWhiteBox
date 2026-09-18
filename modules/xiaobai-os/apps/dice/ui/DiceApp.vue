@@ -94,7 +94,7 @@ async function send(type: string, payload: Record<string, unknown>) {
 </template>
 
 <style scoped>
-.dice-app { max-width:36rem; margin:0 auto; padding:24px 22px; color:var(--xiaobai-os-ink); font-size:14px; line-height:1.75; }
+.dice-app { height:calc(100% - var(--os-status-height)); max-width:36rem; margin:var(--os-status-height) auto 0; padding:24px 22px; overflow-y:auto; color:var(--xiaobai-os-ink); font-size:14px; line-height:1.75; }
 .dice-switch-row { display:flex; align-items:center; justify-content:space-between; gap:16px; }
 h1,h2 { margin:0; font-size:20px; font-weight:650; }
 .dice-feature + .dice-feature { margin-top:28px; padding-top:24px; border-top:1px solid color-mix(in srgb,currentColor 15%,transparent); }
