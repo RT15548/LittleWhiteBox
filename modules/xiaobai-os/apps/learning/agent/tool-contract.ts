@@ -42,7 +42,7 @@ const tools = [
         name: 'LearningPresent',
         description: [
             'Open a material reader, exercise window or lesson-replacement confirmation alongside your reply. For teaching content, choose an ID returned by LearningRead after preparing it.',
-            'Use for a passage to read, audio to hear or a question to answer. Ordinary explanation and goal-setting stay in conversation.',
+            'Use when the learner is ready to read a passage, hear audio or answer a question. Choose one useful activity at a time and continue from its result in conversation; saved content can remain available without opening a window.',
             'For a learner who wants a different lesson, kind:replacement asks them to confirm putting the current lesson aside. It needs no id and can also replace a lesson from another story without reading it. Confirmation starts preparation from this learner message; the current lesson stays until the new one is saved.',
             'The last successful presentation in this turn selects one window. It opens only after the teaching turn is saved; closing it returns to the conversation, and its link can reopen it.',
             mutationResult,
@@ -90,7 +90,7 @@ const tools = [
     } },
     { type: 'function', function: {
         name: 'LearningProfileEdit',
-        description: `Update the learner’s stated goal or self-assessment from what they tell you. Omitted fields keep their values. A first profile needs explanationLanguage, selfAssessment and goal.description. Practice-based conclusions belong in LearningAssess, not selfAssessment.\n${mutationResult}`,
+        description: `Update the learner’s stated goal or self-assessment once they have supplied it. Omitted fields keep their values. A first profile needs explanationLanguage, selfAssessment and goal.description; ask about missing information when needed to take the learner’s chosen next step. Practice-based conclusions belong in LearningAssess, not selfAssessment.\n${mutationResult}`,
         parameters: object({ explanationLanguage: text(80, 'Language tag for explanations.'), selfAssessment: text(L.goal, 'The learner’s own account, including uncertainty.'),
             goal: object({ description: text(L.goal, 'What the learner wants to become able to do.'),
                 exam: { anyOf: [text(80, 'Exam name.'), { type: 'null' }], description: 'Omit to keep; null clears.' },
@@ -100,7 +100,9 @@ const tools = [
     { type: 'function', function: {
         name: 'LearningLessonEdit',
         description: [
-            'Create or incrementally adapt the current lesson. A first lesson needs title, goal, tier and at least one complete exercise; materials may be empty. After that, omitted fields and unmentioned materials/exercises stay unchanged.',
+            'Create or incrementally adapt the current lesson when the learner requests concrete practice or materials, agrees to a proposed activity, or is continuing that activity. Discussing their level, goals or possible approaches does not by itself call for a lesson.',
+            'Create only what the current activity needs. A short explanation or conversational example can stay in your reply without becoming saved reading material.',
+            'A first lesson needs title, goal, tier and at least one complete exercise; materials may be empty. After that, omitted fields and unmentioned materials/exercises stay unchanged.',
             'Each supplied material or exercise is a complete upsert. Use its saved ID as key to update it, or a new local key to add it. Local keys remain usable through this teacher turn; later turns use the IDs returned by LearningRead.',
             'Answered exercises, played listening exercises and materials supporting learner evidence keep their original content. Add a corrected or easier alternative with a new key. Unused content can be removed by ID; every remaining exercise must retain its required materials.',
             'Use newLesson:true to begin another lesson after the previous completion has been saved in an earlier turn. For an unfinished lesson, LearningPresent with kind:replacement requests learner confirmation; a prepare action with replaceCurrent:true then authorizes a fresh lesson. Otherwise adapt the current lesson; published rewards and objectives attached to saved answers stay fixed.',

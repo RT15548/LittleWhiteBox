@@ -3,6 +3,7 @@ import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import type { LearningClientState } from '../types.js';
 import type { LearningPresentation } from '../application/presentation.js';
 import type { LearningSelection } from '../../../domains/learning/notes.js';
+import { LEARNING_OPENING_MESSAGES } from '../agent/opening-prompts.js';
 import LearningIcon from './LearningIcon.vue';
 import LearningMessages from './LearningMessages.vue';
 
@@ -89,7 +90,7 @@ defineExpose({ async ask(exerciseId?: string, selection?: LearningSelection) { f
                 <div v-if="index === state.conversation.turns.length - 1 && state.reply?.text === turn.teacher" class="learning-conversation-tools"><button v-if="[...turn.teacher].length <= 1000" type="button" :disabled="disabled" @click="emit('action', 'say-reply')"><LearningIcon name="sound" />听老师说</button><button v-if="state.reply.exerciseId && [...turn.teacher].length <= 4000" type="button" :disabled="disabled || state.unit?.notes.some(note => note.text === turn.teacher)" @click="emit('action', 'save-note')">保存笔记</button></div>
             </div>
             <div v-if="state.busy" class="learning-working" role="status"><span class="learning-working-dot" aria-hidden="true" /><span>{{ state.message || '老师正在回复…' }}</span></div>
-            <div v-if="!state.conversation.turns.length && !state.busy" class="learning-conversation-empty"><LearningIcon name="chat" /><p>{{ state.teacher ? '今天想学什么？' : '先选一位老师' }}</p><button v-if="!state.teacher" class="learning-primary" type="button" @click="emit('profile')">选择老师</button><button v-else type="button" :disabled="disabled" @click="emit('action', 'talk', { message: state.profile ? '请根据我的学习目标和记录，带我继续学习。' : '我想跟你学习这门语言，先聊聊我的水平和目标吧。' })">{{ state.profile ? '继续学习' : '开始交流' }}</button><small v-if="state.teacher">交流与教学会调用模型</small></div>
+            <div v-if="!state.conversation.turns.length && !state.busy" class="learning-conversation-empty"><LearningIcon name="chat" /><p>{{ state.teacher ? '今天想学什么？' : '先选一位老师' }}</p><button v-if="!state.teacher" class="learning-primary" type="button" @click="emit('profile')">选择老师</button><button v-else type="button" :disabled="disabled" @click="emit('action', 'talk', { message: state.profile ? LEARNING_OPENING_MESSAGES.returning : LEARNING_OPENING_MESSAGES.initial })">{{ state.profile ? '继续学习' : '开始交流' }}</button><small v-if="state.teacher">交流与教学会调用模型</small></div>
         </div>
         <form v-if="state.teacher" class="learning-conversation-compose" @submit.prevent="send">
             <div class="learning-composer-surface">

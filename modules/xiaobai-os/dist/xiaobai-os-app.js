@@ -146,7 +146,7 @@ var Ve = Object.freeze({
   messages: () => import("./xiaobai-os-MessagesApp-rNnWs23d.js"),
   tasks: () => import("./xiaobai-os-TasksApp-DBMo6l5_.js"),
   world: () => import("./xiaobai-os-WorldApp-CJNOGVi8.js"),
-  learning: () => import("./xiaobai-os-LearningApp-dn9e1Rok.js")
+  learning: () => import("./xiaobai-os-LearningApp-5PylT_kw.js")
 }), he = Object.freeze(Fe.map((t) => {
   const i = Ve[t.id];
   if (!i) throw new Error(`missing_shell_app:${t.id}`);
