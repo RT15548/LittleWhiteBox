@@ -43,7 +43,6 @@ async function send(type: string, payload: Record<string, unknown>) {
 
 <template>
     <main class="dice-app">
-        <p class="dice-scope">全局设置</p>
         <section aria-labelledby="dice-action-label" class="dice-feature">
             <div class="dice-switch-row">
                 <h1 id="dice-action-label">行动检定</h1>
@@ -98,7 +97,6 @@ async function send(type: string, payload: Record<string, unknown>) {
 .dice-app { max-width:36rem; margin:0 auto; padding:24px 22px; color:var(--xiaobai-os-ink); font-size:14px; line-height:1.75; }
 .dice-switch-row { display:flex; align-items:center; justify-content:space-between; gap:16px; }
 h1,h2 { margin:0; font-size:20px; font-weight:650; }
-.dice-scope { margin:0 0 18px; font-size:12px; opacity:.7; }
 .dice-feature + .dice-feature { margin-top:28px; padding-top:24px; border-top:1px solid color-mix(in srgb,currentColor 15%,transparent); }
 .dice-rates { font-size:13px; word-spacing:.08em; }
 .dice-rates span { margin:0 .2em; opacity:.5; }
