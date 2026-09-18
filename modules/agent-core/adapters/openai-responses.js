@@ -179,6 +179,17 @@ function assertResponsesResponseShape(response) {
     throw error;
 }
 
+function responsesTerminationError(status, reason) {
+    const error = new Error(status === 'incomplete'
+        ? 'Responses 回复未完整生成。' : status === 'failed'
+            ? 'Responses 生成失败。' : 'Responses 未确认生成完成。');
+    error.name = 'OpenAIResponsesTerminationError';
+    error.code = status === 'incomplete' ? 'OPENAI_RESPONSES_INCOMPLETE'
+        : status === 'failed' ? 'OPENAI_RESPONSES_FAILED' : 'OPENAI_RESPONSES_UNFINISHED';
+    error.reason = reason;
+    return error;
+}
+
 function buildInputMessages(task) {
     const input = [];
 
@@ -317,6 +328,8 @@ function emitStreamProgress(task, payload) {
     task.onStreamProgress({
         ...(typeof payload.text === 'string' ? { text: payload.text } : {}),
         ...(Array.isArray(payload.thoughts) ? { thoughts: payload.thoughts } : {}),
+        ...(Array.isArray(payload.toolCalls) ? { toolCalls: payload.toolCalls } : {}),
+        ...(payload.toolCallDraft === true ? { toolCallDraft: true } : {}),
     });
 }
 
@@ -437,6 +450,9 @@ export class OpenAIResponsesAdapter {
         };
         const parseResponse = (response) => {
             assertResponsesResponseShape(response);
+            if (response.status !== 'completed') {
+                throw responsesTerminationError(response.status, response.incomplete_details?.reason);
+            }
             const output = response.output;
             const thoughts = isReasoningOutputVisible(effectiveReasoning) ? extractThoughts(output) : [];
             const toolCalls = output
@@ -481,6 +497,11 @@ export class OpenAIResponsesAdapter {
                 const textByPart = new Map();
                 const reasoningByPart = new Map();
                 const summaryByPart = new Map();
+                const callsByOutput = new Map();
+                let terminal;
+                for (const type of ['response.completed', 'response.incomplete', 'response.failed']) {
+                    stream.on(type, event => { terminal = event; });
+                }
 
                 const emitSnapshot = () => {
                     const thoughts = [];
@@ -499,9 +520,32 @@ export class OpenAIResponsesAdapter {
                             .join('\n')
                             .trim(),
                         thoughts,
+                        ...(callsByOutput.size ? {
+                            toolCalls: Array.from(callsByOutput.entries())
+                                .sort(([left], [right]) => left - right)
+                                .map(([, item]) => ({ id: item.call_id, name: item.name, arguments: item.arguments })),
+                            toolCallDraft: true,
+                        } : {}),
                     });
                 };
 
+                stream.on('response.output_item.added', (event) => {
+                    if (event.item.type !== 'function_call') return;
+                    callsByOutput.set(event.output_index, { ...event.item });
+                    emitSnapshot();
+                });
+                stream.on('response.function_call_arguments.delta', (event) => {
+                    const item = callsByOutput.get(event.output_index);
+                    if (!item) return;
+                    item.arguments += event.delta;
+                    emitSnapshot();
+                });
+                stream.on('response.function_call_arguments.done', (event) => {
+                    const item = callsByOutput.get(event.output_index);
+                    if (!item) return;
+                    item.arguments = event.arguments;
+                    emitSnapshot();
+                });
                 stream.on('response.output_text.delta', (event) => {
                     const key = `${event.output_index}:${event.content_index}`;
                     textByPart.set(key, `${textByPart.get(key) || ''}${event.delta}`);
@@ -518,7 +562,14 @@ export class OpenAIResponsesAdapter {
                     emitSnapshot();
                 });
 
-                return await stream.finalResponse();
+                const response = await stream.finalResponse();
+                // The SDK may finalize an in_progress snapshot on failed/incomplete events or EOF.
+                // Only the wire's completion event authorizes downstream tool execution.
+                if (terminal?.type !== 'response.completed') {
+                    throw responsesTerminationError(terminal?.type?.slice('response.'.length), terminal?.response?.incomplete_details?.reason);
+                }
+                if (response.status !== 'completed') { throw responsesTerminationError(response.status); }
+                return response;
             } catch (error) {
                 throw attachRequestInspection(error);
             }

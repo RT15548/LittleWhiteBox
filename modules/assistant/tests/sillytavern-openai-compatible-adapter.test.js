@@ -283,6 +283,21 @@ function createSseResponse(events = [], delimiter = '\n\n') {
     };
 }
 
+function createHostedSseResponse(data) {
+    if (data.content) {
+        return createSseResponse([
+            { type: 'message_start', message: { model: data.model } },
+            ...data.content.map((content_block, index) => ({ type: 'content_block_start', index, content_block })),
+            { type: 'message_delta', delta: { stop_reason: data.stop_reason } },
+            { type: 'message_stop' },
+        ]);
+    }
+    return createSseResponse([data.candidates ? data : {
+        candidates: [{ content: data.responseContent, finishReason: data.choices[0].finish_reason }],
+        modelVersion: data.model,
+    }]);
+}
+
 function createJsonResponse(data, ok = true, status = 200) {
     return {
         ok,
@@ -298,7 +313,7 @@ test('hosted Claude and Google use visible reasoning consistently when output is
         const body = JSON.parse(String(options.body || '{}'));
         requests.push(body);
         if (body.chat_completion_source === 'claude') {
-            return createJsonResponse({
+            return createHostedSseResponse({
                 content: [
                     { type: 'thinking', thinking: 'Claude 默认可见思考。' },
                     { type: 'text', text: '完成。' },
@@ -307,7 +322,7 @@ test('hosted Claude and Google use visible reasoning consistently when output is
                 model: 'claude-opus-4-7',
             });
         }
-        return createJsonResponse({
+        return createHostedSseResponse({
             candidates: [{
                 finishReason: 'STOP',
                 content: {
@@ -1006,6 +1021,7 @@ test('sillytavern Claude adapter streams tool calls through host generate endpoi
                 type: 'message_delta',
                 delta: { stop_reason: 'tool_use' },
             },
+            { type: 'message_stop' },
         ]);
     };
 
@@ -1047,7 +1063,7 @@ test('sillytavern Claude hides thinking output without dropping its replay signa
         model: 'claude-opus-4-7',
     });
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = async () => createJsonResponse({
+    globalThis.fetch = async () => createHostedSseResponse({
         content: [
             {
                 type: 'thinking',
@@ -1113,6 +1129,7 @@ test('sillytavern Claude adapter parses tool input only after stream completion'
             type: 'message_delta',
             delta: { stop_reason: 'tool_use' },
         },
+        { type: 'message_stop' },
     ]);
 
     try {
@@ -1168,6 +1185,7 @@ test('sillytavern Claude adapter preserves malformed final tool input for tool-l
             type: 'message_delta',
             delta: { stop_reason: 'tool_use' },
         },
+        { type: 'message_stop' },
     ]);
 
     try {
@@ -1226,6 +1244,7 @@ test('sillytavern Claude malformed Write input can be repaired by shared tool-ca
             type: 'message_delta',
             delta: { stop_reason: 'tool_use' },
         },
+        { type: 'message_stop' },
     ]);
 
     try {
@@ -1346,7 +1365,7 @@ test('sillytavern Claude adapter replays preserved anthropic content through hos
             url: String(url),
             body: JSON.parse(String(options.body || '{}')),
         });
-        return createJsonResponse({
+        return createHostedSseResponse({
             content: [{ type: 'text', text: '继续完成。' }],
             stop_reason: 'end_turn',
             model: 'claude-sonnet-4-0',
@@ -1398,7 +1417,7 @@ test('sillytavern Claude replay prefers repaired top-level tool arguments over r
             url: String(url),
             body: JSON.parse(String(options.body || '{}')),
         });
-        return createJsonResponse({
+        return createHostedSseResponse({
             content: [{ type: 'text', text: '继续完成。' }],
             stop_reason: 'end_turn',
             model: 'claude-sonnet-4-0',
@@ -1486,7 +1505,7 @@ test('sillytavern Google adapter replays preserved google contents with host too
             url: String(url),
             body: JSON.parse(String(options.body || '{}')),
         });
-        return createJsonResponse({
+        return createHostedSseResponse({
             model: 'gemini-2.5-pro',
             choices: [{
                 finish_reason: 'STOP',
@@ -1629,8 +1648,8 @@ test('hosted OpenAI-compatible text tools use the same safe finalization in both
         const hostClient = createHostChatCompletionsClient({
             requestHeadersProvider: () => ({}),
             fetch: async () => streaming
-                ? createSseResponse([...content].map(char => ({ choices: [{ delta: { content: char } }] })))
-                : createJsonResponse({ choices: [{ message: { role: 'assistant', content } }] }),
+                ? createSseResponse([...content].map(char => ({ choices: [{ delta: { content: char } }] })).concat({ choices: [{ delta: {}, finish_reason: 'stop' }] }))
+                : createJsonResponse({ choices: [{ message: { role: 'assistant', content }, finish_reason: 'stop' }] }),
         });
         const adapter = new SillyTavernOpenAICompatibleAdapter({ model: 'deepseek-v3.2', toolMode: 'tagged-json' }, hostClient);
         const progress = [];
@@ -1761,8 +1780,13 @@ test('every SillyTavern adapter chat uses the injected Host Client', async () =>
                 choices: [{ message: { content: 'openai-ok' }, finish_reason: 'stop' }],
             };
         },
-        async streamHostChatCompletion() {
-            throw new Error('not used');
+        async streamHostChatCompletion(payload, onEvent, options) {
+            const data = await this.createHostChatCompletion(payload, options);
+            if (data.content) {
+                onEvent({ type: 'content_block_start', index: 0, content_block: data.content[0] });
+                onEvent({ type: 'message_delta', delta: { stop_reason: data.stop_reason } });
+                onEvent({ type: 'message_stop' });
+            } else { onEvent(data); }
         },
     };
     const cases = [

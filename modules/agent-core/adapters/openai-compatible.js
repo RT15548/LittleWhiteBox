@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import { requireResponseCompletion } from '../runtime/response-completion.js';
 import {
     getLastUserMessageIndex,
     shouldPreserveHistoricalReasoning,
@@ -1112,7 +1113,7 @@ export class OpenAICompatibleAdapter {
         const assistantSnapshot = {
             role: 'assistant',
         };
-        let lastFinishReason = 'stop';
+        let lastFinishReason;
         let lastModel = this.config.model;
 
         await readSseEventsFromResponse(response, (payload) => {
@@ -1142,6 +1143,7 @@ export class OpenAICompatibleAdapter {
             }, effectiveReasoning);
         });
 
+        requireResponseCompletion('openai', lastFinishReason, !!assistantSnapshot.refusal);
         assertSignedToolCallsIntact(assistantSnapshot);
         const providerPayload = buildProviderPayload(assistantSnapshot);
         const standardToolCalls = getStreamedSnapshotToolCalls(assistantSnapshot);
@@ -1202,7 +1204,7 @@ export class OpenAICompatibleAdapter {
             const assistantSnapshot = {
                 role: 'assistant',
             };
-            let lastFinishReason = 'stop';
+            let lastFinishReason;
             let lastModel = this.config.model;
             let providerPayload;
 
@@ -1232,6 +1234,7 @@ export class OpenAICompatibleAdapter {
                     ...(!standardToolCalls.length && progressToolCalls.length ? { toolCallDraft: true } : {}),
                 }, effectiveReasoning);
             }
+            requireResponseCompletion('openai', lastFinishReason, !!assistantSnapshot.refusal);
             const finalCompletion = typeof stream.finalChatCompletion === 'function'
                 ? await stream.finalChatCompletion()
                 : null;
@@ -1273,6 +1276,7 @@ export class OpenAICompatibleAdapter {
 
         const choice = response.choices?.[0] || {};
         const message = choice.message || {};
+        requireResponseCompletion('openai', choice.finish_reason, !!message.refusal);
         assertSignedToolCallsIntact(message);
         const thoughts = extractThoughtsFromMessage(message, choice);
         const standardToolCalls = buildToolCallResultsFromOpenAI(message.tool_calls || []);
@@ -1290,7 +1294,7 @@ export class OpenAICompatibleAdapter {
             text: cleanedText,
             toolCalls,
             thoughts: visibleThoughts(effectiveReasoning, thoughts),
-            finishReason: choice.finish_reason || 'stop',
+            finishReason: choice.finish_reason,
             model: response.model || this.config.model,
             provider: 'openai-compatible',
             providerPayload: buildProviderPayload(replayableMessage),

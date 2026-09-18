@@ -50,6 +50,7 @@ export function createStreamingMessageController(deps) {
         setTimeout(flush, 16);
     }
 
+    /** @returns {import('./conversation.js').AgentMessage} */
     function createStreamingAssistantMessage() {
         const message = {
             role: 'assistant',
@@ -62,6 +63,7 @@ export function createStreamingMessageController(deps) {
         return message;
     }
 
+    /** @param {import('./conversation.js').AgentMessage} message */
     function updateStreamingAssistantMessage(message, patch = {}) {
         if (!message) return;
         if (typeof patch.content === 'string') {
@@ -81,6 +83,7 @@ export function createStreamingMessageController(deps) {
         }
     }
 
+    /** @param {import('./conversation.js').AgentMessage} message */
     function finalizeStreamingAssistantMessage(message, patch = {}) {
         if (!message) return;
         updateStreamingAssistantMessage(message, {

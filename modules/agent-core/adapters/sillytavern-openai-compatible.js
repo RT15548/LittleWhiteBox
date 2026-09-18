@@ -1,3 +1,4 @@
+import { requireResponseCompletion } from '../runtime/response-completion.js';
 import {
     assertHostChatCompletionsClient,
     browserHostChatCompletionsClient,
@@ -162,7 +163,7 @@ export class SillyTavernOpenAICompatibleAdapter {
         const assistantSnapshot = {
             role: 'assistant',
         };
-        let lastFinishReason = 'stop';
+        let lastFinishReason;
         let lastModel = this.config.model;
 
         await this.hostClient.streamHostChatCompletion(payload, (event) => {
@@ -197,6 +198,7 @@ export class SillyTavernOpenAICompatibleAdapter {
             onResponseAccepted: options.onResponseAccepted,
         });
 
+        requireResponseCompletion('openai', lastFinishReason, !!assistantSnapshot.refusal);
         assertSignedToolCallsIntact(assistantSnapshot);
         const standardToolCalls = getStreamedSnapshotToolCalls(assistantSnapshot);
         const { thinkTagged, cleanedText } = cleanTextForToolMode(
@@ -226,6 +228,7 @@ export class SillyTavernOpenAICompatibleAdapter {
         );
         const choice = response.choices?.[0] || {};
         const message = choice.message || {};
+        requireResponseCompletion('openai', choice.finish_reason, !!message.refusal);
         assertSignedToolCallsIntact(message);
         const thoughts = extractThoughtsFromMessage(message, choice);
         const standardToolCalls = buildToolCallResultsFromOpenAI(message.tool_calls || []);
@@ -239,7 +242,7 @@ export class SillyTavernOpenAICompatibleAdapter {
             text: cleanedText,
             toolCalls: [...standardToolCalls, ...taggedToolCalls],
             thoughts: isReasoningOutputVisible(effectiveReasoning) ? thoughts : [],
-            finishReason: choice.finish_reason || 'stop',
+            finishReason: choice.finish_reason,
             model: response.model || this.config.model,
             provider: 'sillytavern-openai-compatible',
             providerPayload: buildProviderPayload(replayableMessage),

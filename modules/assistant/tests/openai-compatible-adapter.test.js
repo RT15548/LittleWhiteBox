@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import OpenAI from 'openai';
 import { readFileSync } from 'node:fs';
 
 import {
@@ -1236,6 +1237,46 @@ test('OpenAI Responses uses one visible default for request, response, and diagn
     assert.deepEqual(offResult.thoughts, []);
 });
 
+test('OpenAI Responses streams interleaved function arguments with stable call IDs before completion', async () => {
+    const adapter = new OpenAIResponsesAdapter({ apiKey: 'test-key', baseUrl: 'https://api.openai.com/v1', model: 'gpt-5.6' });
+    const snapshots = [];
+    const calls = [
+        { type: 'function_call', id: 'fc-read', call_id: 'call-read', name: 'Read', arguments: '' },
+        { type: 'function_call', id: 'fc-search', call_id: 'call-search', name: 'Search', arguments: '' },
+    ];
+    const handlers = new Map();
+    const emit = (name, value) => handlers.get(name)?.(value);
+    adapter.client.responses.stream = () => ({
+        on(name, handler) { handlers.set(name, handler); },
+        async finalResponse() {
+            emit('response.output_text.delta', { output_index: 0, content_index: 0, delta: 'Checking.' });
+            emit('response.output_item.added', { output_index: 2, item: calls[0] });
+            const initial = snapshots.at(-1);
+            assert.deepEqual(initial.toolCalls, [{ id: 'call-read', name: 'Read', arguments: '' }]);
+            emit('response.output_item.added', { output_index: 3, item: calls[1] });
+            emit('response.function_call_arguments.delta', { output_index: 3, item_id: 'fc-search', delta: '{"query":' });
+            emit('response.function_call_arguments.delta', { output_index: 2, item_id: 'fc-read', delta: '{"path":' });
+            assert.deepEqual(snapshots.at(-1).toolCalls.map(call => call.arguments), ['{"path":', '{"query":']);
+            emit('response.reasoning_summary_text.delta', { output_index: 1, summary_index: 0, delta: 'Choose sources.' });
+            assert.equal(snapshots.at(-1).toolCalls.length, 2, 'A reasoning update must retain tool drafts');
+            emit('response.function_call_arguments.delta', { output_index: 2, item_id: 'fc-read', delta: '"chapter"}' });
+            emit('response.function_call_arguments.delta', { output_index: 3, item_id: 'fc-search', delta: '"trees"}' });
+            emit('response.function_call_arguments.done', { output_index: 2, item_id: 'fc-read', arguments: '{"path":"chapter"}' });
+            emit('response.function_call_arguments.done', { output_index: 3, item_id: 'fc-search', arguments: '{"query":"trees"}' });
+            assert.deepEqual(initial.toolCalls, [{ id: 'call-read', name: 'Read', arguments: '' }], 'Later deltas must not mutate published snapshots');
+            assert.equal(snapshots.at(-1).text, 'Checking.');
+            assert.equal(snapshots.at(-1).toolCallDraft, true);
+            const response = { status: 'completed', output_text: 'Checking.', output: calls.map((call, index) => ({ ...call,
+                arguments: index === 0 ? '{"path":"chapter"}' : '{"query":"trees"}', status: 'completed' })) };
+            emit('response.completed', { type: 'response.completed', response });
+            return response;
+        },
+    });
+    const result = await adapter.chat({ messages: [{ role: 'user', content: 'Read and search' }], onStreamProgress: snapshot => snapshots.push(snapshot) });
+    assert.deepEqual(result.toolCalls, snapshots.at(-1).toolCalls);
+    assert.deepEqual(calls.map(call => call.arguments), ['', ''], 'SDK event objects remain untouched');
+});
+
 test('OpenAI Responses strips SDK parsed projections before storing and replaying tool output', async () => {
     const adapter = new OpenAIResponsesAdapter({
         apiKey: 'test-key',
@@ -1267,13 +1308,18 @@ test('OpenAI Responses strips SDK parsed projections before storing and replayin
         status: 'completed',
         parsed_arguments: { filePath: 'book/chapter.md' },
     }];
+    const handlers = new Map();
     adapter.client.responses.stream = () => ({
-        on() {},
-        finalResponse: async () => ({
-            model: 'gpt-5.6',
-            status: 'completed',
-            output: rawOutput,
-        }),
+        on(name, handler) { handlers.set(name, handler); },
+        finalResponse: async () => {
+            const response = {
+                model: 'gpt-5.6',
+                status: 'completed',
+                output: rawOutput,
+            };
+            handlers.get('response.completed')({ type: 'response.completed', response });
+            return response;
+        },
     });
 
     const firstResult = await adapter.chat({
@@ -1344,6 +1390,26 @@ test('OpenAI Responses performs only one empty-response fallback and records bot
         result.requestInspection.requests.map(request => request.reason),
         ['initial', 'empty_response'],
     );
+});
+
+test('OpenAI Responses never returns executable tools from non-completed JSON responses', async () => {
+    for (const status of ['incomplete', 'failed', 'in_progress', 'cancelled', undefined]) {
+        const adapter = new OpenAIResponsesAdapter({ apiKey: 'fixture', baseUrl: 'https://responses-relay.example/v1', model: 'fixture' });
+        let requests = 0;
+        adapter.client = new OpenAI({ apiKey: 'fixture-not-real', maxRetries: 0, fetch: async () => {
+            requests++;
+            return Response.json({ id: 'resp_fixture', object: 'response', status, output: [{
+                type: 'function_call', id: 'fc_fixture', call_id: 'call_fixture', name: 'Write', arguments: '{"text":"unfinished"}',
+            }], incomplete_details: status === 'incomplete' ? { reason: 'max_output_tokens' } : null });
+        } });
+        await assert.rejects(adapter.chat({ messages: [{ role: 'user', content: 'write' }] }), error => {
+            assert.equal(error.name, 'OpenAIResponsesTerminationError');
+            assert.equal(error.requestInspection.requestCount, 1);
+            if (status === 'incomplete') { assert.equal(error.reason, 'max_output_tokens'); }
+            return true;
+        });
+        assert.equal(requests, 1);
+    }
 });
 
 test('OpenAI Responses performs at most one compatibility-error fallback', async () => {
@@ -2222,7 +2288,7 @@ test('tagged-json streaming treats leaked DSML like <tool_call>: hidden text, dr
         DSML_LEAK.slice(splitAt),
     ].map((content, index) => ({
         model: 'deepseek-v3.2',
-        choices: [{ index: 0, delta: { ...(index === 0 ? { role: 'assistant' } : {}), content } }],
+        choices: [{ index: 0, delta: { ...(index === 0 ? { role: 'assistant' } : {}), content }, finish_reason: index === 1 ? 'stop' : null }],
     }));
     const stream = {
         async *[Symbol.asyncIterator]() {
@@ -2269,6 +2335,7 @@ test('tagged-json streaming preserves malformed arguments after assembling respo
             for (const fragment of [content.slice(0, 70), content.slice(70)]) {
                 yield { choices: [{ delta: { content: fragment } }] };
             }
+            yield { choices: [{ delta: {}, finish_reason: 'stop' }] };
         },
         finalChatCompletion: async () => ({
             choices: [{ message: { role: 'assistant', content } }],
@@ -2299,7 +2366,7 @@ test('text tool finalization is safe across non-stream, tagged stream, and nativ
                 toolMode: transport === 'native-stream' ? 'native' : 'tagged-json',
             });
             const response = () => ({ choices: [{ message: { role: 'assistant', content }, finish_reason: 'stop' }] });
-            const events = () => [...content].map(char => ({ choices: [{ delta: { role: 'assistant', content: char } }] }));
+            const events = () => [...[...content].map(char => ({ choices: [{ delta: { role: 'assistant', content: char } }] })), { choices: [{ delta: {}, finish_reason: 'stop' }] }];
             adapter.client.chat.completions.create = async () => transport === 'non-stream' ? response() : {
                 async *[Symbol.asyncIterator]() {
                     yield* events();

@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { requireResponseCompletion } from '../runtime/response-completion.js';
 import {
     buildEffectiveReasoningConfig,
     buildSdkRequestInspection,
@@ -461,7 +462,7 @@ export class AnthropicAdapter {
             text,
             toolCalls,
             thoughts,
-            finishReason: response.stop_reason || 'stop',
+            finishReason: requireResponseCompletion('anthropic', response.stop_reason),
             model: response.model || this.config.model,
             provider: 'anthropic',
             providerPayload: buildProviderPayload(response),

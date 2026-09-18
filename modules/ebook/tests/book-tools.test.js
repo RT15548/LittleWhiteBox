@@ -7578,6 +7578,8 @@ test('Book agent leaves the book unchanged when a DSML Write response is structu
                     '<｜DSML｜parameter name="filePath" string="true">book/outline.md</｜DSML｜parameter>' +
                     '<｜DSML｜parameter name="content" string="true">unfinished</｜DSML｜invoke>',
                 } }] };
+                // Complete transport, malformed DSML: exercise the parser rather than an unrelated EOF failure.
+                yield { choices: [{ delta: {}, finish_reason: 'stop' }] };
             },
         };
     };

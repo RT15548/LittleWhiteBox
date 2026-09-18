@@ -1,4 +1,5 @@
 import { FunctionCallingConfigMode, GoogleGenAI, ThinkingLevel } from '@google/genai';
+import { requireResponseCompletion } from '../runtime/response-completion.js';
 import {
     buildEffectiveReasoningConfig,
     buildSdkRequestInspection,
@@ -712,6 +713,7 @@ export class GoogleAdapter {
             ...(requestConfig ? { config: requestConfig } : {}),
         };
         const shouldUseStreaming = typeof task.onStreamProgress === 'function';
+        let finishReason;
         const historyLengthBeforeSend = getChatHistory(chat).length;
         // Google SDK 的 sendMessage/sendMessageStream 一旦传 per-request config，
         // 就不会继承 chats.create() 时的 session config。
@@ -727,6 +729,7 @@ export class GoogleAdapter {
 
             for await (const chunk of stream) {
                 lastChunk = chunk;
+                if (chunk?.candidates?.[0]?.finishReason) { finishReason = chunk.candidates[0].finishReason; }
                 const chunkContent = chunk?.candidates?.[0]?.content;
                 if (chunkContent?.parts?.length) {
                     streamedContents.push(chunkContent);
@@ -771,6 +774,7 @@ export class GoogleAdapter {
             text = streamedText;
         } else {
             response = await chat.sendMessage(requestPayload);
+            finishReason = response?.candidates?.[0]?.finishReason;
             thoughts = isReasoningOutputVisible(effectiveReasoning) ? extractThoughts(response) : [];
             text = extractVisibleText(response);
         }
@@ -784,7 +788,7 @@ export class GoogleAdapter {
             text,
             toolCalls: normalizedToolCalls,
             thoughts,
-            finishReason: response.candidates?.[0]?.finishReason || 'STOP',
+            finishReason: requireResponseCompletion('google', finishReason),
             model: response.modelVersion || this.config.model,
             provider: 'google',
             providerPayload: buildProviderPayloadFromContents(historyModelContents)

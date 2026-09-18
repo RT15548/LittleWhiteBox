@@ -1,3 +1,4 @@
+import { requireResponseCompletion } from '../runtime/response-completion.js';
 import {
     assertHostChatCompletionsClient,
     browserHostChatCompletionsClient,
@@ -282,7 +283,7 @@ function parseContentResult(content = [], options = {}) {
         text,
         toolCalls,
         thoughts,
-        finishReason: options.finishReason || 'stop',
+        finishReason: requireResponseCompletion('anthropic', options.finishReason),
         model: options.model || '',
         provider: 'sillytavern-claude',
         providerPayload: normalized.length ? { anthropicContent: buildProviderPayloadContent(normalized) } : undefined,
@@ -301,7 +302,8 @@ function emitStreamProgress(task, payload) {
 
 function createClaudeStreamAccumulator(task, effectiveReasoning, config = {}) {
     const blocks = [];
-    let finishReason = 'stop';
+    let finishReason;
+    let stopped = false;
     let model = config.model || '';
 
     const ensureBlock = (index, initial = {}) => {
@@ -326,6 +328,7 @@ function createClaudeStreamAccumulator(task, effectiveReasoning, config = {}) {
 
     return {
         accept(event = {}) {
+            if (event.type === 'message_stop') { stopped = true; }
             if (event?.message?.model) {
                 model = event.message.model;
             }
@@ -358,7 +361,7 @@ function createClaudeStreamAccumulator(task, effectiveReasoning, config = {}) {
         },
         result() {
             return parseContentResult(blocks, {
-                finishReason,
+                finishReason: stopped ? finishReason : undefined,
                 model,
                 includeReasoningOutput: isReasoningOutputVisible(effectiveReasoning),
             });
@@ -385,7 +388,8 @@ export class SillyTavernClaudeAdapter {
         protocol = this.resolveToolProtocol(task),
         effectiveReasoning = resolveEffectiveReasoning(this.config, task, protocol),
     ) {
-        const stream = typeof task.onStreamProgress === 'function';
+        // SillyTavern's JSON wrapper omits stop reasons; SSE preserves the provider's terminal evidence.
+        const stream = true;
         const messages = this.buildMessages(task);
         const effectiveTask = {
             ...task,
@@ -418,7 +422,7 @@ export class SillyTavernClaudeAdapter {
         const payload = options.payload || this.buildPayload(task, protocol, effectiveReasoning);
         const request = await this.hostClient.buildHostChatCompletionGenerateRequest(
             payload,
-            typeof task.onStreamProgress === 'function',
+            true,
         );
         return this.buildRequestInspection(request, protocol, task, effectiveReasoning);
     }
@@ -454,7 +458,6 @@ export class SillyTavernClaudeAdapter {
 
     async chat(task) {
         const requestedReasoning = resolveTaskReasoning('sillytavern-claude', this.config, task.reasoning);
-        const stream = typeof task.onStreamProgress === 'function';
         const protocol = this.resolveToolProtocol(task, requestedReasoning);
         const effectiveReasoning = resolveEffectiveReasoning(
             this.config,
@@ -474,39 +477,9 @@ export class SillyTavernClaudeAdapter {
         };
 
         try {
-            if (stream) {
-                const accumulator = createClaudeStreamAccumulator(
-                    task,
-                    effectiveReasoning,
-                    this.config,
-                );
-                await this.hostClient.streamHostChatCompletion(payload, (event) => {
-                    accumulator.accept(event);
-                }, { signal: task.signal, onRequest });
-                return {
-                    ...accumulator.result(),
-                    requestInspection,
-                };
-            }
-
-            const response = await this.hostClient.createHostChatCompletion(
-                payload,
-                { signal: task.signal, onRequest },
-            );
-            const content = Array.isArray(response?.content)
-                ? response.content
-                : [{
-                    type: 'text',
-                    text: response?.choices?.[0]?.message?.content || '',
-                }];
-            return {
-                ...parseContentResult(content, {
-                    finishReason: response?.stop_reason || response?.choices?.[0]?.finish_reason || 'stop',
-                    model: response?.model || this.config.model,
-                    includeReasoningOutput: isReasoningOutputVisible(effectiveReasoning),
-                }),
-                requestInspection,
-            };
+            const accumulator = createClaudeStreamAccumulator(task, effectiveReasoning, this.config);
+            await this.hostClient.streamHostChatCompletion(payload, event => accumulator.accept(event), { signal: task.signal, onRequest });
+            return { ...accumulator.result(), requestInspection };
         } catch (error) {
             if (requestInspection && error && typeof error === 'object') {
                 error.requestInspection = requestInspection;

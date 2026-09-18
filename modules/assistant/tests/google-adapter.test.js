@@ -849,7 +849,7 @@ test('google adapter preserves tool ids and maps toolChoice to Gemini config', a
         return {
             sendMessage: async (payload) => {
                 sendPayload = payload;
-                return { candidates: [{ content: { role: 'model', parts: [{ text: 'ok' }] } }] };
+                return { candidates: [{ finishReason: 'STOP', content: { role: 'model', parts: [{ text: 'ok' }] } }] };
             },
         };
     };
@@ -902,6 +902,7 @@ test('google adapter sends the full session config with abortSignal and keeps du
                 candidates: [{ content: { role: 'model', parts: [{ text: 'A' }] } }],
                 functionCalls: [{ id: 'call-1', name: 'Read', args: { mode: 'full' } }],
             };
+            yield { candidates: [{ finishReason: 'STOP' }] };
         },
     });
     const controller = new AbortController();
@@ -935,6 +936,7 @@ test('google adapter keeps local ids for parallel id-less calls and omits them f
                         { name: 'Read', args: { path: 'b.md' } },
                     ],
                     candidates: [{
+                        finishReason: 'STOP',
                         content: {
                             role: 'model',
                             parts: [
@@ -949,6 +951,7 @@ test('google adapter keeps local ids for parallel id-less calls and omits them f
             return {
                 text: '两个文件都已读取。',
                 candidates: [{
+                    finishReason: 'STOP',
                     content: { role: 'model', parts: [{ text: '两个文件都已读取。' }] },
                 }],
             };
@@ -988,7 +991,7 @@ test('google adapter omits id-less Google call ids when replaying persisted hist
         createPayload = payload;
         return {
             sendMessage: async () => ({
-                candidates: [{ content: { role: 'model', parts: [{ text: '继续。' }] } }],
+                candidates: [{ finishReason: 'STOP', content: { role: 'model', parts: [{ text: '继续。' }] } }],
             }),
         };
     };
@@ -1043,6 +1046,7 @@ test('google adapter keeps separate id-less calls from separate stream chunks', 
                 functionCalls: [{ name: 'Read', args: { path: 'second.md' } }],
                 candidates: [{ content: { role: 'model', parts: [{ functionCall: { name: 'Read', args: { path: 'second.md' } } }] } }],
             };
+            yield { candidates: [{ finishReason: 'STOP' }] };
         },
     });
 
