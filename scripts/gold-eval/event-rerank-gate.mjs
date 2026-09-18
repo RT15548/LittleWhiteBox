@@ -11,6 +11,7 @@ import {
     sha256File,
 } from './lib/run-store.mjs';
 import { assertSuccessfulExternalTrace } from './lib/transport-cassette.mjs';
+import { assertProductAlignedCapture } from './lib/product-recall-turn.mjs';
 
 const DEFAULT_INTERVAL_MIN_MS = 12000;
 const DEFAULT_INTERVAL_MAX_MS = 15000;
@@ -120,6 +121,7 @@ export async function prepareEventRerankGate({ rootDir, config, samplePath }) {
     const captureRunDir = resolveFromRoot(rootDir, settings.captureRunDir);
     if (!captureRunDir) throw new Error('event-rerank-gate 需要 goldEval.captureRunDir');
     const source = await loadGoldCapture(captureRunDir);
+    assertProductAlignedCapture(source);
     if (source.manifest.mode !== 'story-summary-replay-natural-recall') {
         throw new Error(`event-rerank-gate source 类型无效: ${source.manifest.mode || 'unknown'}`);
     }

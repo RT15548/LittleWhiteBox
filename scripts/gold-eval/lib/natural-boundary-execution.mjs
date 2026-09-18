@@ -67,7 +67,7 @@ export async function executeNaturalBoundaryCase({
         assertSuccessfulExternalTrace(execution.transportTrace || [], {
             caseId: goldCase.id,
             stage: 'recall',
-            allowEmpty: false,
+            allowEmpty: execution.promptInput?.skipped === true,
             allowRecoveredTransient: true,
         });
         if (!execution.promptInput) throw new Error(`natural recall 缺少 Prompt 输入: ${goldCase.id}`);
@@ -98,7 +98,9 @@ export async function executeNaturalBoundaryCase({
     const transportRows = execution.transportTrace || [];
     const networkRequests = transportRows.filter(row => row?.source === 'network').length;
     const cassetteRequests = transportRows.filter(row => row?.source === 'cassette' && row?.cassetteHit).length;
-    const invalidLiveAccounting = !transportCassette && externalCalls !== logicalRequests;
+    const journalRequests = transportRows.filter(row => row?.source === 'journal' && row?.receipt?.id).length;
+    const archiveRequests = transportRows.filter(row => row?.source === 'archive' && row?.receipt?.archive?.manifestSha256).length;
+    const invalidLiveAccounting = !transportCassette && externalCalls + journalRequests + archiveRequests !== logicalRequests;
     const invalidPairedAccounting = !!transportCassette
         && (externalCalls !== networkRequests
             || cassetteRequests !== transportCassette.sourceRequestCount);

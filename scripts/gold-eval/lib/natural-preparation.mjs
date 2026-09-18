@@ -8,7 +8,8 @@ export function mergeNaturalPreparation(target, value, context) {
     const requests = Number(value.externalRequests ?? value.transportTrace?.length ?? 0);
     const trace = Array.isArray(value.transportTrace) ? value.transportTrace : [];
     if (!Number.isInteger(calls) || calls < 0 || !Number.isInteger(requests) || requests < 0
-        || calls !== requests || requests !== trace.length) {
+        || calls !== trace.filter(row => !['local-guard', 'cassette', 'journal', 'archive'].includes(row.source)).length
+        || requests !== trace.length) {
         throw new Error(`natural preparation network计数不一致: ${context}`);
     }
 

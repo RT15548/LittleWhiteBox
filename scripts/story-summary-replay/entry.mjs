@@ -2,11 +2,13 @@
 
 import path from 'node:path';
 import fs from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 
 import { indexedDB, IDBKeyRange } from 'fake-indexeddb';
 import {
     __setReplayContext,
+    getContext as getReplayContext,
     __setExtensionSettings,
     __resetMetadataSaveCount,
     __saveMetadataCallCount,
@@ -44,8 +46,15 @@ import {
 } from '../gold-eval/event-rerank-gate.mjs';
 import { withExternalCallTrace } from '../gold-eval/lib/transport-cassette.mjs';
 import { assertBootstrapHealthy } from '../gold-eval/baseline/bootstrap-health.mjs';
-import { withProductRecallTurn } from '../gold-eval/lib/product-recall-turn.mjs';
+import { withProductRecallTurn, PRODUCT_RECALL_CONTRACT } from '../gold-eval/lib/product-recall-turn.mjs';
 import { runPromptPackingChecks } from './prompt-packing-check.mjs';
+import { applyReplayConfig, buildReplayPanelOverrides } from './config.mjs';
+import { parseReplaySample } from './sample.mjs';
+import { executeRecallCase } from './recall-execution.mjs';
+import { getAutoSummaryPlan } from '../../modules/story-summary/generate/summary-trigger.js';
+import { getSummarySourceEnd } from '../../modules/story-summary/generate/source-boundary.js';
+import { selectMissingEventVectorPairs } from '../../modules/story-summary/vector/pipeline/event-vector-input.js';
+import { withSummaryRequestOverride } from './summary-request.mjs';
 
 class MemoryStorage {
     #map = new Map();
@@ -106,6 +115,44 @@ function ensureNodeReplayGlobals() {
     if (!globalThis.atob) {
         defineGlobal('atob', (input) => Buffer.from(String(input), 'base64').toString('binary'));
     }
+}
+
+async function loadReplayModules(extSettings) {
+    const [{ EXT_ID }, configModule, storeModule, generatorModule, promptModule, chunkStoreModule, chunkBuilderModule, stateStoreModule, stateIntegrationModule, recallModule, eventRerankModule, metricsModule, embedderModule, lexicalIndexModule] = await Promise.all([
+        import('../../core/constants.js'),
+        import('../../modules/story-summary/data/config.js'),
+        import('../../modules/story-summary/data/store.js'),
+        import('../../modules/story-summary/generate/generator.js'),
+        import('../../modules/story-summary/generate/prompt.js'),
+        import('../../modules/story-summary/vector/storage/chunk-store.js'),
+        import('../../modules/story-summary/vector/pipeline/chunk-builder.js'),
+        import('../../modules/story-summary/vector/storage/state-store.js'),
+        import('../../modules/story-summary/vector/pipeline/state-integration.js'),
+        import('../../modules/story-summary/vector/retrieval/recall.js'),
+        import('../../modules/story-summary/vector/retrieval/event-rerank.js'),
+        import('../../modules/story-summary/vector/retrieval/metrics.js'),
+        import('../../modules/story-summary/vector/utils/embedder.js'),
+        import('../../modules/story-summary/vector/retrieval/lexical-index.js'),
+    ]);
+
+    extSettings[EXT_ID] = { storySummary: { enabled: true } };
+
+    return {
+        ...configModule,
+        ...storeModule,
+        ...generatorModule,
+        ...promptModule,
+        ...chunkStoreModule,
+        ...chunkBuilderModule,
+        ...stateStoreModule,
+        ...stateIntegrationModule,
+        ...recallModule,
+        ...eventRerankModule,
+        ...metricsModule,
+        ...embedderModule,
+        ...lexicalIndexModule,
+        getContext: getReplayContext,
+    };
 }
 
 function toPosixPath(inputPath) {
@@ -226,179 +273,12 @@ function createStreamingGenerationShim(summaryApiConfig) {
     };
 }
 
-function normalizeMessage(rawMessage, index, defaults) {
-    const role = String(rawMessage?.role || '').trim().toLowerCase();
-    const isUser = rawMessage?.is_user != null
-        ? !!rawMessage.is_user
-        : rawMessage?.isUser != null
-            ? !!rawMessage.isUser
-            : role === 'user';
-    const messageText = rawMessage?.mes
-        ?? rawMessage?.message
-        ?? rawMessage?.content
-        ?? rawMessage?.text
-        ?? '';
-    const mes = String(messageText || '').replace(/\r\n/g, '\n');
-    const name = String(rawMessage?.name || (isUser ? defaults.name1 : defaults.name2) || '').trim()
-        || (isUser ? defaults.name1 : defaults.name2);
-
-    return {
-        mes,
-        name,
-        is_user: isUser,
-        extra: rawMessage?.extra || {},
-        swipes: Array.isArray(rawMessage?.swipes) ? rawMessage.swipes : [],
-        replayIndex: index,
-    };
-}
-
-function extractRawChatMessages(payload) {
-    if (Array.isArray(payload)) return payload;
-    if (Array.isArray(payload?.chat)) return payload.chat;
-    if (Array.isArray(payload?.messages)) return payload.messages;
-    if (Array.isArray(payload?.data?.chat)) return payload.data.chat;
-    if (Array.isArray(payload?.data?.messages)) return payload.data.messages;
-    return [];
-}
-
-function parseJsonlPayload(rawText) {
-    const lines = String(rawText || '')
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter(Boolean);
-
-    if (!lines.length) {
-        return null;
-    }
-
-    const records = lines.map((line, index) => {
-        try {
-            return JSON.parse(line);
-        } catch (error) {
-            throw new Error(`JSONL parse failed at line ${index + 1}: ${error?.message || error}`);
-        }
-    });
-
-    const header = records[0];
-    const hasHeaderOnlyMeta = !!header
-        && typeof header === 'object'
-        && !Array.isArray(header)
-        && !('mes' in header)
-        && !('message' in header)
-        && (
-            'chat_metadata' in header
-            || 'user_name' in header
-            || 'character_name' in header
-        );
-
-    if (hasHeaderOnlyMeta) {
-        return {
-            ...header,
-            chat: records.slice(1),
-        };
-    }
-
-    return {
-        chat: records,
-    };
-}
-
-function detectNames(payload, config) {
-    const name1 = String(
-        config?.name1
-        || payload?.name1
-        || payload?.user_name
-        || payload?.userName
-        || payload?.metadata?.name1
-        || '用户'
-    ).trim() || '用户';
-
-    const name2 = String(
-        config?.name2
-        || payload?.name2
-        || payload?.character_name
-        || payload?.characterName
-        || payload?.metadata?.name2
-        || '角色'
-    ).trim() || '角色';
-
-    return { name1, name2 };
-}
-
 async function loadSampleChat(samplePath, config) {
-    const raw = await fs.readFile(samplePath, 'utf8');
-    let payload;
-    try {
-        payload = JSON.parse(raw);
-    } catch {
-        payload = parseJsonlPayload(raw);
+    const bytes = await fs.readFile(samplePath);
+    if (config.prepared && createHash('sha256').update(bytes).digest('hex') !== config.prepared.sampleSha256) {
+        throw new Error('Prepared sample changed after preflight');
     }
-    if (!payload) {
-        throw new Error(`Unable to parse sample file: ${samplePath}`);
-    }
-    const names = detectNames(payload, config);
-    const allMessages = extractRawChatMessages(payload)
-        .map((message, index) => normalizeMessage(message, index, names))
-        .filter((message) => message.mes.trim().length > 0);
-
-    const maxFloors = Number.isFinite(Number(config?.maxFloors))
-        ? Math.max(1, Math.trunc(Number(config.maxFloors)))
-        : allMessages.length;
-    const messages = allMessages.slice(0, maxFloors);
-
-    return {
-        payload,
-        messages,
-        names,
-        totalSampleMessages: allMessages.length,
-    };
-}
-
-function buildReplayPanelConfig(config) {
-    const naturalCapture = normalizeReplayMode(config?.mode) === 'natural-capture';
-    return {
-        api: {
-            provider: config?.summaryApi?.provider || 'custom',
-            url: config?.summaryApi?.url || '',
-            key: config?.summaryApi?.key || '',
-            model: config?.summaryApi?.model || '',
-            modelCache: [],
-            maxTokens: config?.summaryApi?.maxTokens ?? null,
-            reasoningEffort: config?.summaryApi?.reasoningEffort ?? '',
-        },
-        gen: {
-            temperature: config?.summaryApi?.temperature ?? null,
-            top_p: config?.summaryApi?.top_p ?? null,
-            top_k: config?.summaryApi?.top_k ?? null,
-            presence_penalty: config?.summaryApi?.presence_penalty ?? null,
-            frequency_penalty: config?.summaryApi?.frequency_penalty ?? null,
-        },
-        trigger: {
-            enabled: naturalCapture,
-            interval: Math.max(1, Math.trunc(Number(config?.summaryTriggerInterval) || 20)),
-            timing: naturalCapture ? 'before_user' : 'manual',
-            role: 'system',
-            useStream: config?.summaryApi?.useStream !== false,
-            maxPerRun: Math.max(1, Math.trunc(Number(config?.summaryApi?.maxPerRun) || 100)),
-            wrapperHead: String(config?.wrapperHead || ''),
-            wrapperTail: String(config?.wrapperTail || ''),
-            forceInsertAtEnd: false,
-        },
-        ui: {
-            hideSummarized: true,
-            keepVisibleCount: 6,
-        },
-        textFilterRules: [
-            { start: '<think>', end: '</think>' },
-            { start: '<thinking>', end: '</thinking>' },
-            { start: '```', end: '```' },
-        ],
-        prompts: {},
-        vector: {
-            ...config?.vectorConfig,
-            enabled: !!config?.vectorConfig?.enabled,
-        },
-    };
+    return parseReplaySample(bytes.toString('utf8'), config);
 }
 
 function hashString(input) {
@@ -433,6 +313,9 @@ function buildReplayIdentity(samplePath, config) {
 
 function buildReplayDataFingerprint(samplePath, config) {
     return hashString(JSON.stringify({
+        contract: PRODUCT_RECALL_CONTRACT,
+        effectivePanel: config.effectivePanel || null,
+        evaluationSummaryRequest: config.evaluationSummaryRequest || null,
         samplePath: toPosixPath(samplePath),
         maxFloors: Number.isFinite(Number(config?.maxFloors))
             ? Math.max(1, Math.trunc(Number(config.maxFloors)))
@@ -492,11 +375,6 @@ function buildStoreSummary(store) {
         arcsCount: Array.isArray(json?.arcs) ? json.arcs.length : 0,
         factsCount: Array.isArray(json?.facts) ? json.facts.length : 0,
     };
-}
-
-function previewText(value, max = 160) {
-    const text = String(value || '').replace(/\s+/g, ' ').trim();
-    return text.length > max ? `${text.slice(0, max)}...` : text;
 }
 
 async function ensureDir(dirPath) {
@@ -749,18 +627,13 @@ async function vectorizeEventSummaries(modules, chatId, vectorConfig, events) {
         return { built: 0 };
     }
 
-    const pairs = events
-        .map((event) => ({
-            eventId: event?.id,
-            text: `${event?.title || ''} ${event?.summary || ''}`.trim(),
-        }))
-        .filter((item) => item.eventId && item.text);
+    const fingerprint = modules.getEngineFingerprint(vectorConfig);
+    const pairs = selectMissingEventVectorPairs(events, await modules.getAllEventVectors(chatId), fingerprint);
 
     if (!pairs.length) {
         return { built: 0 };
     }
 
-    const fingerprint = modules.getEngineFingerprint(vectorConfig);
     const batchSize = 20;
     let built = 0;
 
@@ -768,7 +641,7 @@ async function vectorizeEventSummaries(modules, chatId, vectorConfig, events) {
         const batch = pairs.slice(index, index + batchSize);
         const vectors = await modules.embed(batch.map((item) => item.text), vectorConfig);
         const items = batch.map((item, batchIndex) => ({
-            eventId: item.eventId,
+            eventId: item.id,
             vector: vectors[batchIndex],
         }));
         await modules.saveEventVectors(chatId, items, fingerprint);
@@ -778,49 +651,55 @@ async function vectorizeEventSummaries(modules, chatId, vectorConfig, events) {
     return { built };
 }
 
-async function summarizeNaturalHistoryBeforeUser({
+async function summarizeNaturalHistory({
     modules,
     chatId,
     panelConfig,
+    evaluationSummaryRequest,
     floor,
     historyThroughFloor,
     visibleMessages,
     nextCaseId,
+    reason = 'before_user',
 }) {
     const store = modules.getSummaryStore();
     const lastSummarized = Number(store?.lastSummarizedMesId ?? -1);
-    const pending = visibleMessages.length - lastSummarized - 1;
-    const interval = Math.max(1, Number(panelConfig?.trigger?.interval) || 20);
-    if (pending < interval || historyThroughFloor < 0) {
+    const { target, pending, interval, triggered } = getAutoSummaryPlan(
+        visibleMessages, lastSummarized, panelConfig.trigger, reason,
+    );
+    if (!triggered || historyThroughFloor < 0) {
         return {
             floor,
             externalCalls: 0,
             externalRequests: 0,
             transportTrace: [],
-            result: { triggered: false, pending, interval },
+            result: { triggered: false, target, pending, interval, reason },
         };
     }
 
     const summaryAttempts = [];
     let countedSummary = null;
     let summaryResult = null;
-    for (let attempt = 1; attempt <= 3; attempt++) {
+    // Prepared transport already retries the exact failed request. Never stack
+    // whole-generation retries on top of it or regenerate successful batches.
+    const maxSummaryAttempts = globalThis.fetch?.recoverTransientRequest || globalThis.fetch?.preparedRecoveryActive ? 1 : 3;
+    for (let attempt = 1; attempt <= maxSummaryAttempts; attempt++) {
         let countedAttempt;
         try {
-            countedAttempt = await withExternalCallTrace(() => modules.runSummaryGeneration(
-                historyThroughFloor,
+            countedAttempt = await withSummaryRequestOverride(evaluationSummaryRequest, floor, () => withExternalCallTrace(() => modules.runSummaryGeneration(
+                target,
                 panelConfig,
                 {},
                 { targetChatId: chatId },
-            ));
+            )));
         } catch (error) {
             const attemptTrace = error.externalTrace || [];
             summaryAttempts.push({
-                calls: Number(error.externalCalls || attemptTrace.length),
-                requestCount: Number(error.externalRequests || attemptTrace.length),
+                calls: Number(error.externalCalls ?? attemptTrace.length),
+                requestCount: Number(error.externalRequests ?? attemptTrace.length),
                 trace: attemptTrace,
             });
-            if (attempt >= 3) {
+            if (attempt >= maxSummaryAttempts) {
                 const countedAll = mergeCountedExternal(...summaryAttempts);
                 error.externalTrace = countedAll.transportTrace;
                 error.externalCalls = countedAll.externalCalls;
@@ -843,12 +722,12 @@ async function summarizeNaturalHistoryBeforeUser({
             countedSummary = mergeCountedExternal(...summaryAttempts);
             break;
         }
-        if (summaryResult?.cancelled || summaryResult?.stale || attempt >= 3) {
+        if (summaryResult?.cancelled || summaryResult?.stale || attempt >= maxSummaryAttempts) {
             const countedAll = mergeCountedExternal(...summaryAttempts);
             throwNaturalStageFailure(
                 'summary',
                 nextCaseId,
-                `natural summary 失败: floor=${floor} ${summaryResult?.error?.message || summaryResult?.error || (summaryResult?.stale ? 'stale' : 'unknown')}`,
+                `natural summary 失败: floor=${floor} ${summaryResult?.message || summaryResult?.error?.message || summaryResult?.error || (summaryResult?.stale ? 'stale' : 'unknown')}`,
                 {
                     calls: countedAll.externalCalls,
                     requestCount: countedAll.externalRequests,
@@ -873,15 +752,18 @@ async function summarizeNaturalHistoryBeforeUser({
     }
 
     let countedEvents = { calls: 0, requestCount: 0, trace: [], value: { built: 0 } };
-    if (newEvents.length) {
+    if (updatedStore?.json?.events?.length) {
         try {
             countedEvents = await withExternalCallTrace(() => vectorizeEventSummaries(
                 modules,
                 chatId,
                 panelConfig.vector,
-                newEvents,
+                updatedStore.json.events,
             ));
         } catch (error) {
+            error.externalTrace = [...countedSummary.transportTrace, ...(error.externalTrace || [])];
+            error.externalCalls = countedSummary.externalCalls + (error.externalCalls || 0);
+            error.externalRequests = countedSummary.externalRequests + (error.externalRequests || 0);
             error.goldFailure = error.goldFailure || {
                 stage: 'event-embedding',
                 kind: 'request',
@@ -900,6 +782,8 @@ async function summarizeNaturalHistoryBeforeUser({
         transportTrace: [...countedSummary.transportTrace, ...(countedEvents.trace || [])],
         result: {
             triggered: true,
+            target,
+            reason,
             pending,
             interval,
             endMesId: summaryResult.endMesId,
@@ -909,146 +793,31 @@ async function summarizeNaturalHistoryBeforeUser({
     };
 }
 
-function serializePromptRecallInput(normalizedRecall) {
-    const { l1ByFloor, ...rest } = normalizedRecall || {};
-    return {
-        ...cloneJsonSafe(rest),
-        l1ByFloorEntries: l1ByFloor instanceof Map
-            ? [...l1ByFloor.entries()].map(([floor, value]) => [floor, cloneJsonSafe(value)])
-            : Object.entries(l1ByFloor || {}).map(([floor, value]) => [Number(floor), cloneJsonSafe(value)]),
-    };
+async function maintainNaturalTurnAfterAi(args) {
+    // Own the complete turn trace, including work completed before a later stage throws.
+    const counted = await withExternalCallTrace(async () => {
+        const maintained = await maintainNaturalHistoryAfterAi(args);
+        const summary = await summarizeNaturalHistory({ ...args, historyThroughFloor: args.floor, reason: 'after_ai' });
+        return { ...maintained, result: { ...maintained.result, summary: summary.result } };
+    });
+    return { ...counted.value, ...mergeCountedExternal(counted) };
 }
 
 function deserializePromptRecallInput(value = {}) {
     const { l1ByFloorEntries, ...rest } = value;
-    return {
-        ...cloneJsonSafe(rest),
-        l1ByFloor: new Map((l1ByFloorEntries || []).map(([floor, item]) => [Number(floor), cloneJsonSafe(item)])),
-    };
+    return { ...cloneJsonSafe(rest), l1ByFloor: new Map(
+        (l1ByFloorEntries || []).map(([floor, item]) => [Number(floor), cloneJsonSafe(item)]),
+    ) };
 }
 
-async function executeRecallCase(
-    modules,
-    vectorConfig,
-    summaryConfig,
-    recallCase,
-    stageObserver = null,
-    transportCassette = null,
-) {
-    const store = modules.getSummaryStore();
-    const allEvents = store?.json?.events || [];
-    const label = String(recallCase?.label || 'recall-case');
-    const querySource = String(recallCase?.querySource || 'chat-tail');
-    const excludeLastAi = !!recallCase?.excludeLastAi;
-    const recallStartedAt = performance.now();
-    const meta = await modules.getMeta(modules.getContext().chatId);
-    const countedExecution = await withExternalCallTrace(
-        async () => {
-            let recallResult = null;
-            try {
-                recallResult = await modules.recallMemory(allEvents, vectorConfig, {
-                    excludeLastAi,
-                    stageObserver,
-                    deferRuntimeRelease: true,
-                });
-
-                const normalizedRecall = {
-                    ...recallResult,
-                    events: recallResult?.events || [],
-                    l0Selected: recallResult?.l0Selected || [],
-                    l1ByFloor: recallResult?.l1ByFloor || new Map(),
-                    causalChain: recallResult?.causalChain || [],
-                    focusTerms: recallResult?.focusTerms || recallResult?.focusEntities || [],
-                    focusCharacters: recallResult?.focusCharacters || [],
-                    metrics: recallResult?.metrics || null,
-                };
-
-                const causalById = new Map(
-                    (normalizedRecall.causalChain || [])
-                        .map((item) => [item?.event?.id, item])
-                        .filter((item) => item[0])
-                );
-
-                const builtPrompt = await modules.buildVectorPromptForReplay(
-                    store,
-                    normalizedRecall,
-                    causalById,
-                    normalizedRecall.focusCharacters || [],
-                    meta,
-                    normalizedRecall.metrics || null
-                );
-
-                return { normalizedRecall, builtPrompt };
-            } finally {
-                if (recallResult?.directEvidenceContext) {
-                    await modules.releaseDirectEvidenceContext(
-                        recallResult.directEvidenceContext,
-                        recallResult.metrics,
-                    );
-                    recallResult.directEvidenceContext = null;
-                }
-            }
-        },
-        { cassette: transportCassette },
-    );
-    const recallMs = Math.round(performance.now() - recallStartedAt);
-    const { normalizedRecall, builtPrompt } = countedExecution.value;
-
-    let promptText = String(builtPrompt?.promptText || '');
-    if (summaryConfig?.trigger?.wrapperHead) {
-        promptText = `${summaryConfig.trigger.wrapperHead}\n${promptText}`;
-    }
-    if (summaryConfig?.trigger?.wrapperTail) {
-        promptText = `${promptText}\n${summaryConfig.trigger.wrapperTail}`;
-    }
-
-    return {
-        normalizedRecall,
-        promptText,
-        promptInput: {
-            schemaVersion: 1,
-            recallResult: serializePromptRecallInput(normalizedRecall),
-            meta: cloneJsonSafe(meta),
-            wrapperHead: String(summaryConfig?.trigger?.wrapperHead || ''),
-            wrapperTail: String(summaryConfig?.trigger?.wrapperTail || ''),
-        },
-        evidenceTrace: builtPrompt?.evidenceTrace || { final: [], prompt: [] },
-        recallMs,
-        externalCalls: countedExecution.calls,
-        externalRequests: countedExecution.requestCount ?? countedExecution.calls,
-        transportTrace: countedExecution.trace,
-        reportCase: {
-            label,
-            excludeLastAi,
-            querySource,
-            promptChars: promptText.length,
-            externalCalls: countedExecution.calls,
-            externalRequests: countedExecution.requestCount ?? countedExecution.calls,
-            promptPreview: previewText(promptText, 300),
-            metrics: cloneJsonSafe(builtPrompt?.metrics || normalizedRecall.metrics || null),
-            injectionStats: cloneJsonSafe(builtPrompt?.injectionStats || null),
-            resultCounts: {
-                events: normalizedRecall.events.length,
-                l0Selected: normalizedRecall.l0Selected.length,
-                l1Floors: normalizedRecall.l1ByFloor instanceof Map ? normalizedRecall.l1ByFloor.size : 0,
-                causalChain: normalizedRecall.causalChain.length,
-                mustKeepFloors: Array.isArray(normalizedRecall.mustKeepFloors) ? normalizedRecall.mustKeepFloors.length : 0,
-            },
-            logText: modules.formatMetricsLog(
-                builtPrompt?.metrics || normalizedRecall.metrics || modules.createMetrics()
-            ),
-        },
-    };
-}
-
-async function runRecallCases(modules, vectorConfig, summaryConfig) {
+async function runRecallCases(modules, summaryConfig) {
     const recallCases = Array.isArray(summaryConfig.recallCases) && summaryConfig.recallCases.length
         ? summaryConfig.recallCases
         : [{ label: 'latest-context', excludeLastAi: false }];
 
     const results = [];
     for (const recallCase of recallCases) {
-        const execution = await executeRecallCase(modules, vectorConfig, summaryConfig, {
+        const execution = await executeRecallCase(modules, {
             ...recallCase,
             label: recallCase?.label || `case-${results.length + 1}`,
         });
@@ -1154,7 +923,10 @@ function renderMarkdownReport(report) {
         lines.push(`- l1_cache_warm: ${!!recallCase.metrics?.evidence?.l1CacheWarm}`);
         lines.push(`- l1_cache_hits: chunks ${recallCase.metrics?.evidence?.l1ChunkCacheHits ?? 0}/${recallCase.metrics?.evidence?.l1ChunkCacheMisses ?? 0}, vectors ${recallCase.metrics?.evidence?.l1VectorCacheHits ?? 0}/${recallCase.metrics?.evidence?.l1VectorCacheMisses ?? 0}`);
         lines.push(`- l1_cache_fallback_db: ${recallCase.metrics?.evidence?.l1CacheFallbackDbTime ?? 0}ms`);
-        lines.push(`- floor_rerank: ${recallCase.metrics?.evidence?.rerankTime ?? 0}ms`);
+        lines.push(`- floor_rerank (L0楼层): ${recallCase.metrics?.evidence?.rerankTime ?? 0}ms`);
+        lines.push(`- L2 event rerank: ${recallCase.metrics?.event?.rerank?.status || 'not-run'}`);
+        lines.push(`- L1 local selection: ${recallCase.metrics?.evidence?.directEvidenceStatus || 'not-run'}; event=${recallCase.metrics?.evidence?.directEvidenceEventItems || 0}, conversation=${recallCase.metrics?.evidence?.directEvidenceConversationItems || 0}`);
+        lines.push(`- event evidence budget: ${recallCase.metrics?.evidence?.eventEvidenceBudgetUsed || 0}/${recallCase.metrics?.evidence?.eventEvidenceBudgetMax || 0}`);
         lines.push(`- round1_embed: ${recallCase.metrics?.timing?.round1Embed ?? 0}ms`);
         lines.push(`- round2_embed: ${recallCase.metrics?.timing?.round2Embed ?? 0}ms`);
         lines.push(`- external_total: ${recallCase.metrics?.timing?.externalTotal ?? 0}ms`);
@@ -1833,7 +1605,7 @@ export async function runStorySummaryReplay({ rootDir, config, configPath }) {
     const { chatId, replayKey } = buildReplayIdentity(samplePath, config);
 
     const extSettings = {};
-    const panelConfig = buildReplayPanelConfig(config || {});
+    let panelConfig = buildReplayPanelOverrides(config || {});
 
     __setExtensionSettings(extSettings);
     __setChatMetadata({});
@@ -1849,52 +1621,18 @@ export async function runStorySummaryReplay({ rootDir, config, configPath }) {
     __resetMetadataSaveCount();
 
     globalThis.localStorage.setItem('summary_panel_config', JSON.stringify(panelConfig));
+
+    const modules = await loadReplayModules(extSettings);
+
+    const applied = applyReplayConfig(config, modules);
+    panelConfig = applied.panel;
+    config = applied.config;
     globalThis.window.xiaobaixStreamingGeneration = createStreamingGenerationShim(panelConfig.api);
 
-    const modules = await (async () => {
-        const [{ EXT_ID }, configModule, storeModule, generatorModule, promptModule, chunkStoreModule, chunkBuilderModule, stateStoreModule, stateIntegrationModule, recallModule, eventRerankModule, metricsModule, embedderModule, lexicalIndexModule] = await Promise.all([
-            import('../../core/constants.js'),
-            import('../../modules/story-summary/data/config.js'),
-            import('../../modules/story-summary/data/store.js'),
-            import('../../modules/story-summary/generate/generator.js'),
-            import('../../modules/story-summary/generate/prompt.js'),
-            import('../../modules/story-summary/vector/storage/chunk-store.js'),
-            import('../../modules/story-summary/vector/pipeline/chunk-builder.js'),
-            import('../../modules/story-summary/vector/storage/state-store.js'),
-            import('../../modules/story-summary/vector/pipeline/state-integration.js'),
-            import('../../modules/story-summary/vector/retrieval/recall.js'),
-            import('../../modules/story-summary/vector/retrieval/event-rerank.js'),
-            import('../../modules/story-summary/vector/retrieval/metrics.js'),
-            import('../../modules/story-summary/vector/utils/embedder.js'),
-            import('../../modules/story-summary/vector/retrieval/lexical-index.js'),
-        ]);
-
-        extSettings[EXT_ID] = { storySummary: { enabled: true } };
-
-        return {
-            ...configModule,
-            ...storeModule,
-            ...generatorModule,
-            ...promptModule,
-            ...chunkStoreModule,
-            ...chunkBuilderModule,
-            ...stateStoreModule,
-            ...stateIntegrationModule,
-            ...recallModule,
-            ...eventRerankModule,
-            ...metricsModule,
-            ...embedderModule,
-            ...lexicalIndexModule,
-            getContext: () => ({
-                chatId,
-                chat: replayMessages,
-                name1: sample.names.name1,
-                name2: sample.names.name2,
-            }),
-        };
-    })();
-
     const targetMesId = sample.messages.length - 1;
+    const summaryTargetMesId = Math.max(-1, getSummarySourceEnd(
+        sample.messages, targetMesId, panelConfig.trigger.delayFloors,
+    ));
     if (targetMesId < 0) {
         throw new Error('Sample contains no usable chat messages.');
     }
@@ -1991,21 +1729,24 @@ export async function runStorySummaryReplay({ rootDir, config, configPath }) {
                 replayMessages = messages;
                 __setReplayContext({ chat: replayMessages });
             },
-            summarizeBeforeUser: args => summarizeNaturalHistoryBeforeUser({
+            summarizeBeforeUser: args => summarizeNaturalHistory({
                 modules,
                 chatId,
                 panelConfig,
+                evaluationSummaryRequest: config.evaluationSummaryRequest,
                 ...args,
             }),
-            maintainAfterAi: args => maintainNaturalHistoryAfterAi({
+            maintainAfterAi: args => maintainNaturalTurnAfterAi({
                 modules,
                 chatId,
                 panelConfig,
+                evaluationSummaryRequest: config.evaluationSummaryRequest,
                 ...args,
             }),
             assertHistoryHealthy: args => assertNaturalHistoryHealthy({
                 modules,
                 chatId,
+                panelConfig,
                 ...args,
             }),
             writeBoundarySnapshot: ({ snapshotPath: destination, goldCase, visibleMessages }) => (
@@ -2035,8 +1776,6 @@ export async function runStorySummaryReplay({ rootDir, config, configPath }) {
             ),
             executeRecallCase: (recallCase, stageObserver, transportCassette) => executeRecallCase(
                 modules,
-                panelConfig.vector,
-                panelConfig,
                 recallCase,
                 stageObserver,
                 transportCassette,
@@ -2047,7 +1786,7 @@ export async function runStorySummaryReplay({ rootDir, config, configPath }) {
         summaryStoreSnapshot = buildStoreSummary(modules.getSummaryStore());
         summaryBatches = recallCases
             .flatMap(item => item.preparation || [])
-            .filter(item => item.stage?.startsWith('summary-before-user:') && item.result?.triggered);
+            .filter(item => item.result?.triggered || item.result?.summary?.triggered);
     } else if (shouldRunNaturalResume) {
         replayMessages = [];
         __setReplayContext({ chat: replayMessages });
@@ -2067,13 +1806,13 @@ export async function runStorySummaryReplay({ rootDir, config, configPath }) {
                 replayMessages = messages;
                 __setReplayContext({ chat: replayMessages });
             },
-            summarizeBeforeUser: args => summarizeNaturalHistoryBeforeUser({
+            summarizeBeforeUser: args => summarizeNaturalHistory({
                 modules,
                 chatId,
                 panelConfig,
                 ...args,
             }),
-            maintainAfterAi: args => maintainNaturalHistoryAfterAi({
+            maintainAfterAi: args => maintainNaturalTurnAfterAi({
                 modules,
                 chatId,
                 panelConfig,
@@ -2082,6 +1821,7 @@ export async function runStorySummaryReplay({ rootDir, config, configPath }) {
             assertHistoryHealthy: args => assertNaturalHistoryHealthy({
                 modules,
                 chatId,
+                panelConfig,
                 ...args,
             }),
             writeBoundarySnapshot: ({ snapshotPath: destination, goldCase, visibleMessages }) => (
@@ -2111,8 +1851,6 @@ export async function runStorySummaryReplay({ rootDir, config, configPath }) {
             ),
             executeRecallCase: (recallCase, stageObserver, transportCassette) => executeRecallCase(
                 modules,
-                panelConfig.vector,
-                panelConfig,
                 recallCase,
                 stageObserver,
                 transportCassette,
@@ -2123,7 +1861,7 @@ export async function runStorySummaryReplay({ rootDir, config, configPath }) {
         summaryStoreSnapshot = buildStoreSummary(modules.getSummaryStore());
         summaryBatches = recallCases
             .flatMap(item => item.preparation || [])
-            .filter(item => item.stage?.startsWith('summary-before-user:') && item.result?.triggered);
+            .filter(item => item.result?.triggered || item.result?.summary?.triggered);
     } else if (shouldRunNaturalRecall) {
         replayMessages = [];
         __setReplayContext({ chat: replayMessages });
@@ -2141,8 +1879,6 @@ export async function runStorySummaryReplay({ rootDir, config, configPath }) {
             },
             executeRecallCase: (recallCase, stageObserver, transportCassette) => executeRecallCase(
                 modules,
-                panelConfig.vector,
-                panelConfig,
                 recallCase,
                 stageObserver,
                 transportCassette,
@@ -2216,7 +1952,7 @@ export async function runStorySummaryReplay({ rootDir, config, configPath }) {
         await resetReplayStores(modules, chatId);
 
         const summaryStartedAt = performance.now();
-        summaryBatches = await runSummaryBatches(modules, targetMesId, panelConfig);
+        summaryBatches = await runSummaryBatches(modules, summaryTargetMesId, panelConfig);
         withTiming(stageTimings, 'summary_generation', performance.now() - summaryStartedAt);
 
         const summaryStore = modules.getSummaryStore();
@@ -2225,8 +1961,8 @@ export async function runStorySummaryReplay({ rootDir, config, configPath }) {
         if (summaryStoreSnapshot.eventsCount === 0) {
             anomalies.push('总结完成后 events 为空。');
         }
-        if (summaryStoreSnapshot.lastSummarizedMesId !== targetMesId) {
-            anomalies.push(`lastSummarizedMesId=${summaryStoreSnapshot.lastSummarizedMesId}，未到目标 ${targetMesId}`);
+        if (summaryStoreSnapshot.lastSummarizedMesId !== summaryTargetMesId) {
+            anomalies.push(`lastSummarizedMesId=${summaryStoreSnapshot.lastSummarizedMesId}，未到可总结目标 ${summaryTargetMesId}`);
         }
     } else {
         const snapshotStartedAt = performance.now();
@@ -2256,9 +1992,11 @@ export async function runStorySummaryReplay({ rootDir, config, configPath }) {
         const summaryStore = modules.getSummaryStore();
         const vectorStartedAt = performance.now();
         await modules.getMeta(chatId);
-        const l0Result = await modules.incrementalExtractAtoms(chatId, sample.messages, null, { maxFloors: Infinity });
-        const l0Stats = await modules.getAnchorStats();
         const l1Result = await modules.buildAllChunks({ vectorConfig: panelConfig.vector });
+        const l0Result = await modules.incrementalExtractAtoms(chatId, sample.messages, null, { maxFloors: Infinity });
+        const l0VectorResult = await modules.vectorizeMissingStateAtoms(chatId, null, { vectorConfig: panelConfig.vector });
+        if (!l0VectorResult.success) throw new Error(`evaluation_bootstrap_invalid: L0 vector maintenance ${l0VectorResult.code}`);
+        const l0Stats = await modules.getAnchorStats();
         const l2Result = await vectorizeEventSummaries(modules, chatId, panelConfig.vector, summaryStore?.json?.events || []);
         withTiming(stageTimings, 'vector_pipeline', performance.now() - vectorStartedAt);
 
@@ -2266,7 +2004,7 @@ export async function runStorySummaryReplay({ rootDir, config, configPath }) {
         const stateAtomsCount = modules.getStateAtomsCount();
         const stateVectorsCount = await modules.getStateVectorsCount(chatId);
         const bootstrapHealth = assertBootstrapHealthy({
-            targetFloor: targetMesId,
+            targetFloor: summaryTargetMesId,
             summaryStore,
             l0Result,
             l0Stats,
@@ -2324,8 +2062,6 @@ export async function runStorySummaryReplay({ rootDir, config, configPath }) {
                 config,
                 executeRecallCase: (recallCase, stageObserver, transportCassette) => executeRecallCase(
                     modules,
-                    panelConfig.vector,
-                    panelConfig,
                     recallCase,
                     stageObserver,
                     transportCassette,
@@ -2333,7 +2069,7 @@ export async function runStorySummaryReplay({ rootDir, config, configPath }) {
             });
             recallCases = goldEvalResult.replayCases;
         } else {
-            recallCases = await runRecallCases(modules, panelConfig.vector, {
+            recallCases = await runRecallCases(modules, {
                 ...panelConfig,
                 recallCases: config?.recallCases,
             });
@@ -2354,6 +2090,9 @@ export async function runStorySummaryReplay({ rootDir, config, configPath }) {
             samplePath,
             snapshotPath,
             buildPrompt: async (productionInput) => {
+                if (productionInput.skipped) {
+                    return { promptText: '', evidenceTrace: { final: [], prompt: [], eventEvidence: [] }, externalCalls: 0 };
+                }
                 const recallResult = deserializePromptRecallInput(productionInput?.recallResult || {});
                 const causalById = new Map(
                     (recallResult.causalChain || [])
@@ -2392,12 +2131,12 @@ export async function runStorySummaryReplay({ rootDir, config, configPath }) {
         await modules.rollbackSummaryOnce(chatId);
         rollbackReport.targetEndMesId = rollbackTarget;
         rollbackReport.afterRollback = buildStoreSummary(modules.getSummaryStore());
-        const replayBatches = await runSummaryBatches(modules, targetMesId, panelConfig);
+        const replayBatches = await runSummaryBatches(modules, summaryTargetMesId, panelConfig);
         rollbackReport.replayedBatches = replayBatches.length;
         rollbackReport.finalStore = buildStoreSummary(modules.getSummaryStore());
         withTiming(stageTimings, 'rollback_verify', performance.now() - rollbackStartedAt);
 
-        if (rollbackReport.finalStore.lastSummarizedMesId !== targetMesId) {
+        if (rollbackReport.finalStore.lastSummarizedMesId !== summaryTargetMesId) {
             anomalies.push('回退一次后再次总结，没有回到目标楼层。');
         }
     }
@@ -2479,4 +2218,32 @@ export async function runStorySummaryReplay({ rootDir, config, configPath }) {
         baselineWritten: !goldPlan && !hasNaturalPlan && !baselineReport && !!config?.writeBaselineOnMissing && recallCases.length > 0,
         goldEval: goldEvalResult,
     };
+}
+
+export async function runStorySummaryAlignmentCheck() {
+    ensureNodeReplayGlobals();
+    const extSettings = {};
+    __setExtensionSettings(extSettings);
+    __setChatMetadata({});
+    const modules = await loadReplayModules(extSettings);
+    const { runAlignmentCheck } = await import('./alignment-check.mjs');
+    return await runAlignmentCheck({ modules, extSettings, summarize: summarizeNaturalHistory });
+}
+
+export async function runStorySummaryPreflight({ rootDir, config }) {
+    ensureNodeReplayGlobals();
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => { throw new Error('Network is forbidden during preflight'); };
+    try {
+        const extSettings = {};
+        __setExtensionSettings(extSettings);
+        __setChatMetadata({});
+        __setReplayContext({ chatId: 'preflight', chat: [], name1: '用户', name2: '角色' });
+        const modules = await loadReplayModules(extSettings);
+        const { preflightNaturalReplay } = await import('./preflight.mjs');
+        return await preflightNaturalReplay({ rootDir, config, modules,
+            setHistory: chat => __setReplayContext({ chat }) });
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
 }

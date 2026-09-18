@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { validateCase } from '../lib/cases.mjs';
+import { PRODUCT_RECALL_CONTRACT } from '../lib/product-recall-turn.mjs';
 import {
     beginGoldRun,
     invalidateGoldRun,
@@ -79,6 +80,7 @@ async function createCapture(rootDir, { productionTransport = [], caseCount = 1 
         manifest: {
             runId: 'source-capture',
             mode: 'story-summary-replay-synthetic-probe-capture',
+            execution: { contract: PRODUCT_RECALL_CONTRACT },
             data: { casesHash: 'cases-hash', sampleHash, snapshotHash },
             code: { bundleHash },
             capture: {

@@ -3,6 +3,7 @@
 // that payload to the configured OpenAI-compatible upstream from Node.
 
 import { readSseEventsFromResponse } from '../../../shared/host-llm/chat-completions/sse.js';
+import { applySummaryRequestOverride } from '../summary-request.mjs';
 
 let requestHeadersProvider = null;
 
@@ -45,7 +46,7 @@ async function buildDirectRequest(payload, stream) {
     const baseUrl = normalizeBaseUrl(payload?.reverse_proxy);
     if (!/^https?:\/\//i.test(baseUrl)) throw new Error('Replay host adapter 缺少绝对 reverse_proxy URL');
     const apiKey = String(payload?.proxy_password || '').trim();
-    const body = { ...payload, stream: !!stream };
+    const body = applySummaryRequestOverride({ ...payload, stream: !!stream });
     delete body.chat_completion_source;
     delete body.reverse_proxy;
     delete body.proxy_password;

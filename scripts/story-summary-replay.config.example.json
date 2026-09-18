@@ -4,6 +4,13 @@
   "snapshotPath": "scripts/story-summary-replay-output/story-summary-replay-snapshot.json",
   "mode": "full",
   "maxFloors": 500,
+  "panelConfig": {
+    "trigger": {
+      "timing": "before_user",
+      "interval": 20,
+      "delayFloors": 2
+    }
+  },
   "summaryApi": {
     "provider": "custom",
     "url": "https://api.example.com/v1",

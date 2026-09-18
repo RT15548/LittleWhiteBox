@@ -2,6 +2,11 @@
 // without changing production code or treating a retryable L0 floor as final.
 
 import { withExternalCallTrace } from '../gold-eval/lib/transport-cassette.mjs';
+import { runVectorMaintenance } from '../../modules/story-summary/vector/pipeline/vector-workflow.js';
+
+function vectorDisabledStep(floor) {
+    return { floor, externalCalls: 0, externalRequests: 0, transportTrace: [], result: { vectorEnabled: false } };
+}
 
 export function throwNaturalStageFailure(stage, caseId, message, external = null) {
     const error = new Error(message);
@@ -36,14 +41,19 @@ export async function maintainNaturalHistoryAfterAi({
     visibleMessages,
     nextCaseId,
 }) {
-    let countedChunks;
+    if (!panelConfig.vector.enabled) return vectorDisabledStep(floor);
+    let counted;
     try {
-        countedChunks = await withExternalCallTrace(() => modules.buildIncrementalChunks({
-            vectorConfig: panelConfig.vector,
+        counted = await withExternalCallTrace(() => runVectorMaintenance({
+            buildChunks: () => modules.buildIncrementalChunks({ vectorConfig: panelConfig.vector }),
+            extract: () => modules.incrementalExtractAtoms(chatId, visibleMessages, null,
+                { maxFloors: 20, preferredFloors: [floor] }),
+            vectorize: () => modules.vectorizeMissingStateAtoms(chatId, null, { vectorConfig: panelConfig.vector }),
+            inspect: () => modules.getAnchorStats(),
         }));
     } catch (error) {
         error.goldFailure = error.goldFailure || {
-            stage: 'l1-index',
+            stage: 'vector-maintenance',
             kind: 'request',
             status: null,
             caseId: nextCaseId || null,
@@ -52,28 +62,15 @@ export async function maintainNaturalHistoryAfterAi({
         throw error;
     }
 
-    let countedL0;
-    try {
-        countedL0 = await withExternalCallTrace(() => modules.incrementalExtractAtoms(
-            chatId,
-            visibleMessages,
-            null,
-            { maxFloors: 20, preferredFloors: [floor] },
-        ));
-    } catch (error) {
-        error.goldFailure = error.goldFailure || {
-            stage: 'l0-index',
-            kind: 'request',
-            status: null,
-            caseId: nextCaseId || null,
-            message: String(error?.message || error),
-        };
-        throw error;
+    const { chunkResult, l0Result, l0VectorResult, cancelled } = counted.value;
+    if (cancelled || chunkResult?.success === false || !l0VectorResult?.success) {
+        throwNaturalStageFailure('vector-maintenance', nextCaseId,
+            `L0/L1 maintenance incomplete: ${l0VectorResult?.code || chunkResult?.code || (cancelled ? 'cancelled' : 'unknown')}`, counted);
     }
 
     const meta = await modules.getMeta(chatId);
     if (Number(meta?.lastChunkFloor ?? -1) < floor) {
-        throwNaturalStageFailure('l1-index', nextCaseId, `L1 boundary 未推进到 floor ${floor}`);
+        throwNaturalStageFailure('l1-index', nextCaseId, `L1 boundary 未推进到 floor ${floor}`, counted);
     }
     const floorStatus = modules.getL0FloorStatus(floor);
     const status = String(floorStatus?.status || 'missing');
@@ -82,7 +79,7 @@ export async function maintainNaturalHistoryAfterAi({
             'l0-index',
             nextCaseId,
             `L0 floor ${floor} 状态无效: ${status}`,
-            countedL0,
+            counted,
         );
     }
     if (status === 'ok') {
@@ -95,21 +92,25 @@ export async function maintainNaturalHistoryAfterAi({
                 'l0-embedding',
                 nextCaseId,
                 `L0 floor ${floor} atom/vector 不完整: atoms=${atoms.length} missing=${missing.length}`,
-                countedL0,
+                counted,
             );
         }
     }
-    if (countedChunks.value?.built > 0 || countedL0.value?.built > 0) {
+    if (chunkResult?.built > 0 || l0Result?.built > 0) {
         modules.invalidateLexicalIndex();
     }
 
     return {
         floor,
-        ...mergeCountedExternal(countedChunks, countedL0),
-        allowUnrecoveredTransient: status === 'fail',
+        ...mergeCountedExternal(counted),
+        // The prepared transport has already spent the three attempts. Legacy
+        // cross-turn L0 repair must not keep advancing/spending after exhaustion.
+        allowUnrecoveredTransient: status === 'fail'
+            && !globalThis.fetch?.recoverTransientRequest && !globalThis.fetch?.preparedRecoveryActive,
         result: {
-            l1Built: countedChunks.value?.built || 0,
-            l0Built: countedL0.value?.built || 0,
+            l1Built: chunkResult?.built || 0,
+            l0Built: l0Result?.built || 0,
+            l0Vectorized: l0VectorResult.vectorized || 0,
             l0Status: status,
             l0Reason: floorStatus?.reason || null,
             l0Attempts: Number(floorStatus?.attempts || 0),
@@ -121,10 +122,12 @@ export async function maintainNaturalHistoryAfterAi({
 export async function assertNaturalHistoryHealthy({
     modules,
     chatId,
+    panelConfig,
     floor,
     visibleMessages,
     nextCaseId,
 }) {
+    if (!panelConfig.vector.enabled) return vectorDisabledStep(floor);
     const aiFloors = [];
     for (let index = 0; index < visibleMessages.length; index++) {
         if (!visibleMessages[index]?.is_user) aiFloors.push(index);

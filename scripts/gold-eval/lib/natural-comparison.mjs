@@ -1,7 +1,9 @@
 // Gold Eval - paired, conversation-level comparison for evidence-only natural
 // captures. Case counts never determine a conversation's weight.
+import { assertProductAlignedCapture } from './product-recall-turn.mjs';
 
 function assertMode(capture, expected, label) {
+    assertProductAlignedCapture(capture);
     const actual = capture?.manifest?.mode;
     if (actual !== expected) throw new Error(`${label} mode无效: ${actual || 'unknown'}`);
     if (capture?.manifest?.status !== 'valid') throw new Error(`${label}不是valid run`);
@@ -96,6 +98,8 @@ export function compareNaturalPair({ baseline, candidate, corpusId }) {
     const baselineFull = baselinePass === total;
     return {
         corpusId: id,
+        metric: 'source-floor-coverage',
+        qualityMeasured: false,
         baselineRunId: baseline.manifest.runId,
         candidateRunId: candidate.manifest.runId,
         cases: total,
@@ -157,6 +161,8 @@ export function aggregateNaturalConversationMacro(comparisons, {
         : row.strictImprovement);
     return {
         conversations: rows.length,
+        metric: 'source-floor-coverage',
+        qualityMeasured: false,
         weighting: 'each corpusId has equal weight',
         baselineMacro: round6(baselineMacro),
         candidateMacro: round6(candidateMacro),
@@ -175,7 +181,7 @@ export function aggregateNaturalConversationMacro(comparisons, {
         },
         allEligibleImproved,
         macroPositive: delta > 0,
-        passed: allEligibleImproved && delta > 0,
+        coverageGatePassed: allEligibleImproved && delta > 0,
         byCorpus: rows.map(row => ({
             corpusId: row.corpusId,
             baseline: row.baseline,

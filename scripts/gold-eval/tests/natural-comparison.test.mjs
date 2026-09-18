@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { PRODUCT_RECALL_CONTRACT } from '../lib/product-recall-turn.mjs';
 
 import {
     aggregateNaturalConversationMacro,
@@ -11,6 +12,7 @@ function capture({ mode, runId, corpusId, passes, sourceRunId = null, hashes = n
     const boundaryHashes = hashes || caseIds.map((_, index) => String(index + 1).padStart(64, 'a'));
     return {
         manifest: {
+            execution: { contract: PRODUCT_RECALL_CONTRACT },
             status: 'valid',
             mode,
             runId,
@@ -82,7 +84,8 @@ test('conversation macro让每份聊天等权而不是按题量pooled', () => {
     assert.equal(large.delta, 0.1);
     assert.equal(small.delta, 0.5);
     assert.equal(macro.delta, 0.3);
-    assert.equal(macro.passed, true);
+    assert.equal(macro.coverageGatePassed, true);
+    assert.equal(macro.qualityMeasured, false);
     assert.equal(macro.weighting, 'each corpusId has equal weight');
 });
 
@@ -92,5 +95,5 @@ test('任一未满分聊天不提升时跨聊天闸门拒绝', () => {
     const macro = aggregateNaturalConversationMacro([improved, unchanged], { bootstrapIterations: 100 });
     assert.equal(macro.delta, 0.25);
     assert.equal(macro.allEligibleImproved, false);
-    assert.equal(macro.passed, false);
+    assert.equal(macro.coverageGatePassed, false);
 });

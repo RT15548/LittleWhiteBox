@@ -34,9 +34,13 @@ test('natural runtime保留L0 fail供下一AI回合重试，并只在query bound
             statuses.set(1, { status: 'ok', attempts: 2, atoms: 1 });
             statuses.set(3, { status: 'empty', reason: 'llm_empty', atoms: 0 });
             atoms.push({ atomId: 'atom-floor-1', floor: 1, semantic: '记忆' });
-            vectors.push({ atomId: 'atom-floor-1', floor: 1, vector: [0.1] });
             return { built: 1 };
         },
+        vectorizeMissingStateAtoms: async () => {
+            if (atoms.length && !vectors.length) vectors.push({ atomId: 'atom-floor-1', floor: 1, vector: [0.1] });
+            return { success: true, vectorized: vectors.length };
+        },
+        getAnchorStats: () => ({}),
         getMeta: async () => ({ lastChunkFloor }),
         getL0FloorStatus: floor => statuses.get(floor) || null,
         getStateAtoms: () => atoms,
@@ -60,6 +64,7 @@ test('natural runtime保留L0 fail供下一AI回合重试，并只在query bound
     await assert.rejects(() => assertNaturalHistoryHealthy({
         modules,
         chatId: 'fixture-chat',
+        panelConfig,
         floor: 2,
         visibleMessages: firstVisible,
         nextCaseId: 'case-now',
@@ -79,6 +84,7 @@ test('natural runtime保留L0 fail供下一AI回合重试，并只在query bound
     const health = await assertNaturalHistoryHealthy({
         modules,
         chatId: 'fixture-chat',
+        panelConfig,
         floor: 4,
         visibleMessages: secondVisible,
         nextCaseId: 'case-now',
@@ -91,4 +97,14 @@ test('natural runtime保留L0 fail供下一AI回合重试，并只在query bound
     });
     assert.equal(extractionRuns, 2);
     assert.equal(lexicalInvalidations, 2);
+});
+
+test('向量关闭时不建索引，也不把未建索引报成自然回放失败', async () => {
+    const args = { modules: {}, panelConfig: { vector: { enabled: false } }, floor: 3 };
+    for (const execute of [maintainNaturalHistoryAfterAi, assertNaturalHistoryHealthy]) {
+        const result = await execute(args);
+        assert.equal(result.externalCalls, 0);
+        assert.deepEqual(result.transportTrace, []);
+        assert.deepEqual(result.result, { vectorEnabled: false });
+    }
 });

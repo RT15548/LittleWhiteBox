@@ -108,7 +108,7 @@ export function summarizeExternalRequest(input, init = {}) {
 }
 
 export function createStrictTransportCassette(rows, { caseId = null } = {}) {
-    if (!Array.isArray(rows) || rows.length === 0) {
+    if (!Array.isArray(rows)) {
         throw cassetteFailure({
             caseId,
             kind: 'invalid-source',
@@ -116,17 +116,21 @@ export function createStrictTransportCassette(rows, { caseId = null } = {}) {
         });
     }
 
+    // A valid live capture may include bounded HTTP retries. Keep them in the
+    // source audit, but replay only the successful response for each invocation.
+    assertSuccessfulExternalTrace(rows, { caseId, stage: 'cassette-source', allowRecoveredTransient: true });
+    const successfulRows = rows.filter(isSuccessfulRow);
     const queues = new Map();
-    for (const [index, row] of rows.entries()) {
+    for (const [index, row] of successfulRows.entries()) {
         validateCapturedRow(row, caseId, index);
         const key = cassetteKey(row);
         if (!queues.has(key)) queues.set(key, []);
         queues.get(key).push(row);
     }
-    let remaining = rows.length;
+    let remaining = successfulRows.length;
 
     return {
-        sourceRequestCount: rows.length,
+        sourceRequestCount: successfulRows.length,
         consume(request) {
             const queue = queues.get(cassetteKey(request));
             if (!queue?.length) {
@@ -205,18 +209,19 @@ export function assertSuccessfulExternalTrace(rows, {
     const recovered = [];
     const pending = [];
     for (const attempts of attemptsByIdentity.values()) {
-        if (Number.isInteger(maxAttemptsPerRequest) && attempts.length > maxAttemptsPerRequest) {
-            const error = cassetteFailure({
-                caseId,
-                kind: 'excessive-retry',
-                message: `外部调用重试超过上限: stage=${stage} attempts=${attempts.length} max=${maxAttemptsPerRequest}`,
-            });
-            error.goldFailure.stage = stage;
-            throw error;
-        }
+        let consecutiveAttempts = 0;
         for (let offset = 0; offset < attempts.length; offset++) {
             const { index, row } = attempts[offset];
-            if (isSuccessfulRow(row)) continue;
+            consecutiveAttempts++;
+            if (Number.isInteger(maxAttemptsPerRequest) && consecutiveAttempts > maxAttemptsPerRequest) {
+                const error = cassetteFailure({ caseId, kind: 'excessive-retry',
+                    message: `外部调用重试超过上限: stage=${stage} attempts=${consecutiveAttempts} max=${maxAttemptsPerRequest}` });
+                error.goldFailure.stage = stage;
+                throw error;
+            }
+            // Repeated successful equal-content calls are separate occurrences,
+            // not retries. A successful response closes the current attempt chain.
+            if (isSuccessfulRow(row)) { consecutiveAttempts = 0; continue; }
             const laterSuccess = attempts.slice(offset + 1).find(item => isSuccessfulRow(item.row));
             if (allowRecoveredTransient && isRetryableRow(row) && laterSuccess) {
                 recovered.push({
@@ -268,12 +273,13 @@ export async function withExternalCallTrace(operation, { cassette = null } = {})
     }
     const trace = [];
     const pending = [];
-    globalThis.fetch = async (...args) => {
+    const tracedFetch = async (args, retry = null) => {
         const index = trace.length;
         const startedAt = performance.now();
         const row = {
             index,
             ...summarizeExternalRequest(args[0], args[1]),
+            ...(retry || {}),
             status: null,
             elapsedMs: null,
             rateHeaders: {},
@@ -290,6 +296,10 @@ export async function withExternalCallTrace(operation, { cassette = null } = {})
             const response = cassette
                 ? buildCassetteResponse(capturedRow)
                 : await Reflect.apply(originalFetch, globalThis, args);
+            if (response.preparedReceipt) {
+                row.source = response.preparedReceipt.source;
+                row.receipt = response.preparedReceipt;
+            }
             row.cassetteHit = !!cassette;
             row.status = response.status;
             row.elapsedMs = Math.max(0, Math.round(performance.now() - startedAt));
@@ -299,7 +309,7 @@ export async function withExternalCallTrace(operation, { cassette = null } = {})
                 pending.push(response.clone().json()
                     .then(payload => {
                         row.usage = payload?.usage || payload?.meta?.tokens || payload?.meta?.billed_units || null;
-                        if (row.endpoint === 'embedding' || row.endpoint === 'rerank') {
+                        if (row.endpoint === 'embedding' || row.endpoint === 'rerank' || response.preparedReceipt) {
                             row.responseBody = payload;
                             row.responseHash = capturedRow?.responseHash || sha256(JSON.stringify(payload));
                         }
@@ -311,27 +321,39 @@ export async function withExternalCallTrace(operation, { cassette = null } = {})
             row.elapsedMs = Math.max(0, Math.round(performance.now() - startedAt));
             row.errorKind = error?.goldFailure?.kind
                 || (error?.name === 'AbortError' ? 'timeout' : 'network');
+            if (error?.goldFailure?.transmitted === false) row.source = 'local-guard';
             row.errorMessage = String(error?.message || error).replace(/\s+/g, ' ').slice(0, 300);
             throw error;
         }
     };
+    // Recovery runs outside this collector so every individual attempt remains
+    // visible and counted; cassette replay never retries or reaches the network.
+    globalThis.fetch = !cassette && originalFetch.recoverTransientRequest
+        ? (...args) => originalFetch.recoverTransientRequest(args, retry => tracedFetch(args, retry))
+        : (...args) => tracedFetch(args);
+    globalThis.fetch.preparedRecoveryActive = !cassette
+        && !!(originalFetch.recoverTransientRequest || originalFetch.preparedRecoveryActive);
     try {
         const value = await operation();
         await Promise.allSettled(pending);
         if (cassette) cassette.assertFullyConsumed();
         return {
             value,
-            calls: cassette ? 0 : trace.length,
+            calls: trace.filter(row => row.source === 'network').length,
             requestCount: trace.length,
             trace,
         };
     } catch (error) {
         await Promise.allSettled(pending);
         error.externalTrace = trace;
-        error.externalCalls = cassette ? 0 : trace.length;
+        error.externalCalls = trace.filter(row => row.source === 'network').length;
         error.externalRequests = trace.length;
         throw error;
     } finally {
         globalThis.fetch = originalFetch;
     }
+}
+
+export function withPreparedRequestScope(name, operation) {
+    return globalThis.fetch?.runPreparedScope ? globalThis.fetch.runPreparedScope(name, operation) : operation();
 }

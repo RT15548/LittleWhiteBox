@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { PRODUCT_RECALL_CONTRACT } from '../lib/product-recall-turn.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -296,6 +297,7 @@ test('recall-cassette 按 case id 复放 source 子集、跳过节奏等待且 p
         manifest: {
             runId: 'source-capture',
             mode: 'story-summary-replay-synthetic-probe-capture',
+            execution: { contract: PRODUCT_RECALL_CONTRACT },
             data: { sampleHash, snapshotHash },
             capture: {
                 containsFullPrompts: true,

@@ -18,7 +18,8 @@ export function assertBootstrapHealthy({
     storageStats,
 }) {
     const failures = [];
-    const expectedFloor = nonNegativeInteger(targetFloor, 'targetFloor');
+    const expectedFloor = Number(targetFloor);
+    if (!Number.isInteger(expectedFloor) || expectedFloor < -1) throw new Error('targetFloor 必须是 -1 或非负整数');
     const summarizedFloor = Number(summaryStore?.lastSummarizedMesId ?? -1);
     if (summarizedFloor !== expectedFloor) {
         failures.push(`summary boundary ${summarizedFloor}/${expectedFloor}`);

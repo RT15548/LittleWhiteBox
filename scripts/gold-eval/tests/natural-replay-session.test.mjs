@@ -159,6 +159,7 @@ async function fixture(t) {
         naturalCase('natural-floor-6', 6),
     ].map(item => JSON.stringify(item)).join('\n')}\n`, 'utf8');
     const config = {
+        __codeState: { productionSourceHash: 'fixture-production' },
         summaryApi: { provider: 'custom', url: 'https://summary.example.com/v1', model: 'summary-a' },
         vectorConfig: {
             enabled: true,
@@ -705,69 +706,72 @@ test('natural capture在真实query boundary仍有L0 fail时作废且不召回',
     assert.equal(recallCalls, 0);
 });
 
-test('natural capture每次成功Summary写恢复点且目录只保留最近两份', async t => {
-    const fixtureState = await fixture(t);
-    const singleConfig = structuredClone(fixtureState.config);
-    singleConfig.goldEval.caseIds = ['natural-floor-6'];
-    const singlePlan = await prepareNaturalCapturePlan({
-        rootDir: fixtureState.tempDir,
-        config: singleConfig,
-        sample: fixtureState.sample,
+for (const timing of ['before_user', 'after_ai']) {
+    test(`natural capture ${timing} 成功Summary写恢复点且目录只保留最近两份`, async t => {
+        const fixtureState = await fixture(t);
+        const singleConfig = structuredClone(fixtureState.config);
+        singleConfig.goldEval.caseIds = ['natural-floor-6'];
+        const singlePlan = await prepareNaturalCapturePlan({
+            rootDir: fixtureState.tempDir,
+            config: singleConfig,
+            sample: fixtureState.sample,
+        });
+        let visibleMessages = [];
+        let now = 0;
+        const modules = {
+            getSummaryStore: () => ({ json: { events: [], facts: [] } }),
+            getContext: () => ({ chatId: 'fixture-chat', chat: visibleMessages }),
+            getAllChunks: async () => [{ floor: 0, text: '用户问题 0' }],
+            getStateAtoms: () => [],
+        };
+        const result = await runNaturalCaptureCases({
+            modules,
+            plan: singlePlan,
+            sample: fixtureState.sample,
+            samplePath: fixtureState.samplePath,
+            config: singleConfig,
+            setVisibleHistory: async messages => { visibleMessages = messages; },
+            summarizeBeforeUser: async ({ floor }) => ({
+                floor,
+                externalCalls: 0,
+                externalRequests: 0,
+                transportTrace: [],
+                result: { triggered: timing === 'before_user' && [2, 4, 6].includes(floor) },
+            }),
+            maintainAfterAi: async ({ floor }) => ({
+                floor,
+                externalCalls: 0,
+                externalRequests: 0,
+                transportTrace: [],
+                result: { summary: { triggered: timing === 'after_ai' && [1, 3, 5].includes(floor) } },
+            }),
+            assertHistoryHealthy: healthyHistory,
+            writeRecoverySnapshot: writeFixtureRecoverySnapshot,
+            writeBoundarySnapshot: async ({ snapshotPath, goldCase, visibleMessages: boundaryMessages }) => {
+                await fs.writeFile(snapshotPath, JSON.stringify({
+                    kind: 'natural-query-boundary',
+                    boundary: {
+                        queryFloor: goldCase.atFloor,
+                        historyThroughFloor: goldCase.historyThroughFloor,
+                    },
+                    sample: { messageCount: boundaryMessages.length },
+                }), 'utf8');
+            },
+            executeRecallCase: async () => successfulExecution(),
+            clock: () => now,
+            wait: async delayMs => { now += delayMs; },
+        });
+        const recoveryFiles = (await fs.readdir(path.join(result.artifacts.runDir, 'recovery')))
+            .filter(name => name.endsWith('-natural-recovery.json'));
+        assert.deepEqual(recoveryFiles.sort(), [
+            '000003-natural-recovery.json',
+            '000005-natural-recovery.json',
+        ]);
+        assert.deepEqual(result.recoveryPoints.map(item => item.resumeFloor), [3, 5]);
+        assert.equal(result.manifest.progress.recoveryPoint.resumeFloor, 5);
+        assert.ok(result.manifest.artifactHashes.recovery);
     });
-    let visibleMessages = [];
-    let now = 0;
-    const modules = {
-        getSummaryStore: () => ({ json: { events: [], facts: [] } }),
-        getContext: () => ({ chatId: 'fixture-chat', chat: visibleMessages }),
-        getAllChunks: async () => [{ floor: 0, text: '用户问题 0' }],
-        getStateAtoms: () => [],
-    };
-    const result = await runNaturalCaptureCases({
-        modules,
-        plan: singlePlan,
-        sample: fixtureState.sample,
-        samplePath: fixtureState.samplePath,
-        config: singleConfig,
-        setVisibleHistory: async messages => { visibleMessages = messages; },
-        summarizeBeforeUser: async ({ floor }) => ({
-            floor,
-            externalCalls: 0,
-            externalRequests: 0,
-            transportTrace: [],
-            result: { triggered: [2, 4, 6].includes(floor) },
-        }),
-        maintainAfterAi: async ({ floor }) => ({
-            floor,
-            externalCalls: 0,
-            externalRequests: 0,
-            transportTrace: [],
-        }),
-        assertHistoryHealthy: healthyHistory,
-        writeRecoverySnapshot: writeFixtureRecoverySnapshot,
-        writeBoundarySnapshot: async ({ snapshotPath, goldCase, visibleMessages: boundaryMessages }) => {
-            await fs.writeFile(snapshotPath, JSON.stringify({
-                kind: 'natural-query-boundary',
-                boundary: {
-                    queryFloor: goldCase.atFloor,
-                    historyThroughFloor: goldCase.historyThroughFloor,
-                },
-                sample: { messageCount: boundaryMessages.length },
-            }), 'utf8');
-        },
-        executeRecallCase: async () => successfulExecution(),
-        clock: () => now,
-        wait: async delayMs => { now += delayMs; },
-    });
-    const recoveryFiles = (await fs.readdir(path.join(result.artifacts.runDir, 'recovery')))
-        .filter(name => name.endsWith('-natural-recovery.json'));
-    assert.deepEqual(recoveryFiles.sort(), [
-        '000003-natural-recovery.json',
-        '000005-natural-recovery.json',
-    ]);
-    assert.deepEqual(result.recoveryPoints.map(item => item.resumeFloor), [3, 5]);
-    assert.equal(result.manifest.progress.recoveryPoint.resumeFloor, 5);
-    assert.ok(result.manifest.artifactHashes.recovery);
-});
+}
 
 test('natural capture在已提交case后的准备失败记录真实错误请求而非上一题recall', async t => {
     const fixtureState = await fixture(t);

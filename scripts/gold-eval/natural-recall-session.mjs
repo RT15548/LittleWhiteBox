@@ -6,6 +6,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { emptyNaturalPreparation, executeNaturalBoundaryCase } from './lib/natural-boundary-execution.mjs';
+import { PRODUCT_RECALL_CONTRACT, assertProductAlignedCapture } from './lib/product-recall-turn.mjs';
 import { aggregateMetrics } from './lib/metrics.mjs';
 import { validateNaturalCaseV2, validateNaturalSourceBindings } from './lib/natural-cases.mjs';
 import { buildRunId, renderGoldEvalReport } from './lib/report.mjs';
@@ -96,6 +97,7 @@ export async function prepareNaturalRecallPlan({ rootDir, config, sample, sample
     if (!runsRoot) throw new Error('natural-recall 需要 goldEval.runsRoot');
 
     const source = await loadGoldCapture(captureRunDir);
+    assertProductAlignedCapture(source);
     if (!['story-summary-replay-natural-capture', 'story-summary-replay-natural-resume'].includes(source.manifest.mode)) {
         throw new Error(`natural-recall source 类型无效: ${source.manifest.mode || 'unknown'}`);
     }
@@ -181,6 +183,7 @@ export async function runNaturalRecallCases({
             runnerHash: config?.__codeState?.runnerHash || null,
             worktreeStatusHash: config?.__codeState?.worktreeStatusHash || null,
             packageLockHash: config?.__codeState?.packageLockHash || null,
+            productionSourceHash: config?.__codeState?.productionSourceHash || null,
             nodeVersion: config?.__codeState?.nodeVersion || null,
             platform: config?.__codeState?.platform || null,
             arch: config?.__codeState?.arch || null,
@@ -199,6 +202,7 @@ export async function runNaturalRecallCases({
         },
         config: {
             fingerprint: buildReplayConfigFingerprint(config),
+            effectivePanel: config.effectivePanel || null,
             historyPolicy: 'restore source boundary q at floors 0..q-1; push the real USER object q into in-memory chat only for recall',
             casePacing: {
                 minMs: plan.caseIntervalMinMs,
@@ -226,7 +230,7 @@ export async function runNaturalRecallCases({
             sensitive: true,
             deletion: 'delete run directory',
         },
-        execution: { command: config?.__command || 'unknown' },
+        execution: { command: config?.__command || 'unknown', contract: PRODUCT_RECALL_CONTRACT },
     };
     const runStore = await beginGoldRun({
         runsRoot: plan.runsRoot,

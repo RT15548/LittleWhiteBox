@@ -1,7 +1,8 @@
-/* global process */
+/* global process, Buffer */
 
 import path from 'node:path';
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -9,9 +10,13 @@ import { createHash } from 'node:crypto';
 
 import { build } from 'esbuild';
 import { resolveCapturePath, runGoldReaderOnly } from './gold-eval/reader-session.mjs';
+import { selectPreparedJob, assertCredentialFree, assertPreparedArguments, verifyPreparedCode, assertPreparedJobNotStarted, loadPreparedCredentials, withPreparedRequestBudget } from './story-summary-replay/prepared-config.mjs';
+import { openRequestJournal, preparedJournalBinding } from './story-summary-replay/request-journal.mjs';
+import { prepareUnknownRetry, prepareReviewedContinuation } from './story-summary-replay/prepared-resume.mjs';
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const configPath = path.join(rootDir, 'scripts', 'story-summary-replay.local.json');
+const explicitConfig = readFlag(process.argv.slice(2), 'config');
+const configPath = explicitConfig ? path.resolve(explicitConfig) : path.join(rootDir, 'scripts', 'story-summary-replay.local.json');
 const cacheDir = path.join(rootDir, 'scripts', '.story-summary-replay-cache');
 const bundlePath = path.join(cacheDir, 'story-summary-replay.bundle.mjs');
 const execFileAsync = promisify(execFile);
@@ -58,6 +63,9 @@ async function readCodeState() {
             fs.readFile(packageLockPath),
         ]);
         const productionSource = await hashProductionStorySummarySource();
+        const supportFiles = ['api-client.mjs', 'prepared-config.mjs', 'request-recovery.mjs', 'request-journal.mjs', 'prepared-resume.mjs', 'summary-request.mjs', 'response-archive.mjs'];
+        const supportHash = sha256(Buffer.concat(await Promise.all(supportFiles.map(name =>
+            fs.readFile(path.join(rootDir, 'scripts', 'story-summary-replay', name))))));
         return {
             complete: true,
             commit: commit.trim(),
@@ -66,6 +74,7 @@ async function readCodeState() {
             bundleHash: sha256(bundleBytes),
             bundleBytes: bundleBytes.length,
             runnerHash: sha256(runnerBytes),
+            supportHash,
             worktreeStatusHash: sha256(status),
             packageLockHash: sha256(packageLockBytes),
             productionSourceHash: productionSource.hash,
@@ -77,6 +86,12 @@ async function readCodeState() {
                 { source: runnerPath, destination: 'story-summary-replay-runner.mjs' },
                 { source: path.join(rootDir, 'scripts', 'gold-eval'), destination: 'gold-eval' },
                 { source: path.join(rootDir, 'scripts', 'story-summary-replay', 'api-client.mjs'), destination: 'story-summary-replay/api-client.mjs' },
+                { source: path.join(rootDir, 'scripts', 'story-summary-replay', 'prepared-config.mjs'), destination: 'story-summary-replay/prepared-config.mjs' },
+                { source: path.join(rootDir, 'scripts', 'story-summary-replay', 'response-archive.mjs'), destination: 'story-summary-replay/response-archive.mjs' },
+                { source: path.join(rootDir, 'scripts', 'story-summary-replay', 'request-recovery.mjs'), destination: 'story-summary-replay/request-recovery.mjs' },
+                { source: path.join(rootDir, 'scripts', 'story-summary-replay', 'request-journal.mjs'), destination: 'story-summary-replay/request-journal.mjs' },
+                { source: path.join(rootDir, 'scripts', 'story-summary-replay', 'prepared-resume.mjs'), destination: 'story-summary-replay/prepared-resume.mjs' },
+                { source: path.join(rootDir, 'scripts', 'story-summary-replay', 'summary-request.mjs'), destination: 'story-summary-replay/summary-request.mjs' },
                 { source: packageJsonPath, destination: 'package.json' },
                 { source: packageLockPath, destination: 'package-lock.json' },
             ],
@@ -352,6 +367,39 @@ function applyCliOverrides(config, argv) {
 }
 
 async function main() {
+    const checkPreparedResume = process.argv.includes('--check-prepared-resume');
+    if (process.argv.includes('--preflight')) {
+        if (!explicitConfig) throw new Error('--preflight requires an explicit credential-free --config');
+        assertPreparedArguments(process.argv.slice(2));
+        const profile = await readLocalConfig();
+        assertCredentialFree(profile);
+        if (!Array.isArray(profile.jobs) || !profile.jobs.length) throw new Error('Prepared config needs jobs');
+        await buildBundle();
+        const code = await readCodeState();
+        const bundleUrl = `${pathToFileURL(bundlePath).href}?t=${Date.now()}`;
+        // eslint-disable-next-line no-unsanitized/method -- Import our just-built local replay bundle.
+        const replayModule = await import(bundleUrl);
+        const jobId = readFlag(process.argv.slice(2), 'job');
+        const jobs = jobId ? [jobId] : profile.jobs.map(job => job.id);
+        const results = [];
+        for (const id of jobs) {
+            const config = selectPreparedJob(profile, id);
+            verifyPreparedCode(config, code);
+            results.push(await replayModule.runStorySummaryPreflight({ rootDir, config }));
+        }
+        console.log(JSON.stringify({ code: { commit: code.commit, dirty: code.dirty,
+            productionSourceHash: code.productionSourceHash, bundleHash: code.bundleHash }, jobs: results }, null, 2));
+        return;
+    }
+    if (process.argv.includes('--check-alignment')) {
+        await buildBundle();
+        const bundleUrl = `${pathToFileURL(bundlePath).href}?t=${Date.now()}`;
+        // eslint-disable-next-line no-unsanitized/method -- URL points to the bundle built above.
+        const replayModule = await import(bundleUrl);
+        const result = await replayModule.runStorySummaryAlignmentCheck();
+        console.log(`[story-summary-replay] alignment check: ${JSON.stringify(result)}`);
+        return;
+    }
     if (process.argv.includes('--check-diagnostics')) {
         await buildBundle();
         const bundleUrl = `${pathToFileURL(bundlePath).href}?t=${Date.now()}`;
@@ -445,10 +493,24 @@ async function main() {
         return;
     }
 
-    const localConfig = await readLocalConfig();
+    const profile = await readLocalConfig();
+    const prepared = Object.hasOwn(profile, 'jobs');
+    if (prepared) {
+        assertCredentialFree(profile);
+        assertPreparedArguments(process.argv.slice(2));
+        if (!process.argv.includes('--allow-api') && !checkPreparedResume) throw new Error('Prepared run requires explicit --allow-api after owner approval');
+    }
+    const localConfig = prepared ? selectPreparedJob(profile, readFlag(process.argv.slice(2), 'job')) : profile;
+    const resumePrepared = process.argv.includes('--resume-prepared');
+    if (checkPreparedResume && (!prepared || !resumePrepared || process.argv.includes('--allow-api'))) {
+        throw new Error('Receipt-only check requires prepared resume without --allow-api');
+    }
+    if (resumePrepared && !prepared) throw new Error('--resume-prepared requires a prepared config');
+    if (prepared && localConfig.mode !== 'natural-capture') throw new Error('Prepared journal requires natural-capture');
+    if (prepared && !resumePrepared) await assertPreparedJobNotStarted(localConfig);
     localConfig.__command = ['node', 'scripts/story-summary-replay-runner.mjs', ...process.argv.slice(2)].join(' ');
-    applyCliOverrides(localConfig, process.argv.slice(2));
-    const cliMode = parseCliMode(process.argv.slice(2));
+    if (!prepared) applyCliOverrides(localConfig, process.argv.slice(2));
+    const cliMode = prepared ? null : parseCliMode(process.argv.slice(2));
     if (cliMode) {
         localConfig.mode = cliMode;
     }
@@ -481,11 +543,79 @@ async function main() {
     const bundleUrl = `${pathToFileURL(bundlePath).href}?t=${Date.now()}`;
     // eslint-disable-next-line no-unsanitized/method -- URL points to the bundle path created above.
     const replayModule = await import(bundleUrl);
-    const result = await replayModule.runStorySummaryReplay({
+    if (prepared) {
+        verifyPreparedCode(localConfig, localConfig.__codeState);
+        await replayModule.runStorySummaryPreflight({ rootDir, config: localConfig });
+    }
+    const execute = () => replayModule.runStorySummaryReplay({
         rootDir,
         config: localConfig,
         configPath,
     });
+    let result;
+    if (prepared) {
+        const retryFlags = ['retry-unknown', 'retry-journal-sha256', 'retry-source-manifest', 'retry-source-sha256']
+            .map(name => readFlag(process.argv.slice(2), name));
+        if (retryFlags.some(Boolean) && (!resumePrepared || retryFlags.some(value => !value))) {
+            throw new Error('Unknown retry requires --resume-prepared and all four exact approval flags');
+        }
+        const retryUnknown = retryFlags.some(Boolean) ? await prepareUnknownRetry(localConfig, localConfig.__codeState, {
+            requestId: Number(retryFlags[0]), journalSha256: retryFlags[1],
+            sourceManifestPath: retryFlags[2], sourceManifestSha256: retryFlags[3],
+        }) : null;
+        const applyTransition = process.argv.includes('--apply-transition');
+        if (applyTransition && (!resumePrepared || retryUnknown)) throw new Error('Continuation requires resume without unknown retry');
+        const transition = applyTransition ? await prepareReviewedContinuation(localConfig, localConfig.__codeState) : null;
+        const journal = await openRequestJournal({
+            directory: localConfig.outputPath,
+            binding: preparedJournalBinding(localConfig, localConfig.__codeState),
+            maxRequests: localConfig.prepared.maxRequests, resume: resumePrepared,
+            retryUnknown, transition, readOnly: checkPreparedResume,
+        });
+        try {
+            // Validate/lock receipts BEFORE opening private credentials. A missing
+            // old journal or uncertain response never becomes a fresh batch.
+            localConfig.__requestJournal = journal.descriptor;
+            if (checkPreparedResume) {
+                const originalJournalHash = sha256(await fs.readFile(journal.descriptor.journalPath));
+                // Exercise the real replay with receipt bodies only. Temporary
+                // capture files never become a replacement for the source run.
+                const temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'lwb-prepared-check-'));
+                if (path.dirname(temporary) !== path.resolve(os.tmpdir())
+                    || !path.basename(temporary).startsWith('lwb-prepared-check-')) throw new Error('Invalid temporary check path');
+                const checkConfig = { ...structuredClone(localConfig), outputPath: path.join(temporary, 'output'),
+                    goldEval: { ...localConfig.goldEval, runsRoot: path.join(temporary, 'runs') } };
+                // Product readiness checks require nonempty keys. Receipt-only
+                // transport never dispatches these placeholders or reads secrets.
+                checkConfig.summaryApi.key = 'receipt-only-placeholder';
+                for (const name of ['l0Api', 'embeddingApi', 'rerankApi']) {
+                    checkConfig.vectorConfig[name].key = 'receipt-only-placeholder';
+                }
+                try {
+                    try {
+                        await withPreparedRequestBudget(localConfig, () => replayModule.runStorySummaryReplay({
+                            rootDir, config: checkConfig, configPath,
+                        }), { journal });
+                    } catch (error) {
+                        if (error.goldFailure?.kind !== 'replay-boundary') throw error;
+                    }
+                    if (journal.replayedResponses !== journal.descriptor.priorResponses
+                        || sha256(await fs.readFile(journal.descriptor.journalPath)) !== originalJournalHash) {
+                        throw new Error('Receipt-only check did not preserve and replay every complete response');
+                    }
+                    console.log(`[prepared-receipt-check] ${JSON.stringify({ networkCalls: 0,
+                        replayedResponses: journal.replayedResponses, priorRequests: journal.descriptor.priorRequests,
+                        journalUnchanged: true, qualityMeasured: false })}`);
+                } finally {
+                    await fs.rm(temporary, { recursive: true, force: true });
+                }
+                return;
+            }
+            await loadPreparedCredentials(localConfig, process.env);
+            result = await withPreparedRequestBudget(localConfig, execute, { journal });
+            await journal.finish();
+        } finally { await journal.close(); }
+    } else result = await execute();
 
     console.log('[story-summary-replay] completed');
     console.log(`report.json: ${result.reportJsonPath}`);

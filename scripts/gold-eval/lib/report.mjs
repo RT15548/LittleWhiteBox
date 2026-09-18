@@ -93,15 +93,25 @@ export function renderGoldEvalReport({
     lines.push('');
     lines.push(`- 生成时间: ${manifest?.generatedAt || ''}`);
     lines.push(`- 模式: ${manifest?.mode || ''}`);
+    lines.push(`- 执行契约: ${manifest?.execution?.contract || 'historical'}`);
     lines.push(`- 状态: ${manifest?.status || 'unknown'}`);
     lines.push(`- 源码 commit: ${manifest?.code?.commit || 'unknown'}${manifest?.code?.dirty ? ' (dirty)' : ''}`);
     lines.push(`- 样本: ${manifest?.data?.samplePath || ''} (${manifest?.data?.messageCount ?? '?'} 条消息)`);
     lines.push(`- 用例集: ${manifest?.data?.casesPath || ''} (运行 ${aggregated?.overall?.cases ?? 0} 题)`);
     lines.push(`- snapshot: ${manifest?.data?.snapshotPath || 'n/a'}`);
+    if (manifest?.capture?.requestJournal) {
+        lines.push(`- 请求收据: ${manifest.capture.requestJournal.journalPath}`);
+        lines.push(`- 启动前已预留请求: ${manifest.capture.requestJournal.priorRequests}；本次外发: ${manifest?.progress?.productionExternalCalls ?? 'n/a'}`);
+    }
+    if (manifest?.capture?.latencyComparable === false) {
+        lines.push('- 本次复用了已保存响应；耗时仅是恢复执行时间，不可当作线上 API 延迟比较。');
+    }
     lines.push('');
 
     const overall = aggregated?.overall || {};
     lines.push('## 总体指标');
+    lines.push('');
+    lines.push('楼层覆盖与阶段命中仅用于诊断；不等于语义证据充分或回答正确。未运行阅读/语义裁决时，算法质量未测量。');
     lines.push('');
     lines.push('| 指标 | 值 |');
     lines.push('|---|---|');
@@ -131,7 +141,7 @@ export function renderGoldEvalReport({
         lines.push('');
     }
 
-    lines.push('## 失败归因（最早失真阶段）');
+    lines.push('## 楼层路径诊断（不是已确认的语义根因）');
     lines.push('');
     const failureCounts = overall.failures || {};
     if (Object.keys(failureCounts).length) {
@@ -139,7 +149,7 @@ export function renderGoldEvalReport({
             lines.push(`- ${stage}: ${count} 题`);
         }
     } else {
-        lines.push('- 无失败（或阅读阶段未运行）');
+        lines.push('- 未发现楼层路径缺失；是否能正确回答需单独验证。');
     }
     lines.push('');
 

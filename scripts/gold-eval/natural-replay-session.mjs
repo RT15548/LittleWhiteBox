@@ -4,6 +4,7 @@
 // into the in-memory chat during recall, exactly like the product send path.
 
 import fs from 'node:fs/promises';
+import { withPreparedRequestScope } from './lib/transport-cassette.mjs';
 import path from 'node:path';
 
 import { aggregateMetrics } from './lib/metrics.mjs';
@@ -13,6 +14,7 @@ import {
     validateNaturalSourceBindings,
 } from './lib/natural-cases.mjs';
 import { emptyNaturalPreparation, executeNaturalBoundaryCase } from './lib/natural-boundary-execution.mjs';
+import { PRODUCT_RECALL_CONTRACT } from './lib/product-recall-turn.mjs';
 import {
     assertNaturalPreparationHealthy,
     mergeNaturalPreparation,
@@ -62,6 +64,9 @@ export async function prepareNaturalCapturePlan({ rootDir, config, sample }) {
     if (!runsRoot) throw new Error('natural-capture 需要 goldEval.runsRoot');
 
     const casesText = await fs.readFile(casesPath, 'utf8');
+    if (config.prepared && sha256Text(casesText) !== config.prepared.casesSha256) {
+        throw new Error('Prepared cases changed after preflight');
+    }
     const parsed = parseNaturalCasesJsonl(casesText);
     if (parsed.errors.length) throw new Error(`Natural cases 无效:\n${parsed.errors.join('\n')}`);
     validateNaturalSourceBindings(parsed.cases, sample.messages);
@@ -182,8 +187,10 @@ export async function runNaturalCaptureCases({
             bundleHash: config?.__codeState?.bundleHash || null,
             bundleBytes: config?.__codeState?.bundleBytes ?? null,
             runnerHash: config?.__codeState?.runnerHash || null,
+            supportHash: config?.__codeState?.supportHash || null,
             worktreeStatusHash: config?.__codeState?.worktreeStatusHash || null,
             packageLockHash: config?.__codeState?.packageLockHash || null,
+            productionSourceHash: config?.__codeState?.productionSourceHash || null,
             nodeVersion: config?.__codeState?.nodeVersion || null,
             platform: config?.__codeState?.platform || null,
             arch: config?.__codeState?.arch || null,
@@ -198,6 +205,11 @@ export async function runNaturalCaptureCases({
         },
         config: {
             fingerprint: buildReplayConfigFingerprint(config),
+            effectivePanel: config.effectivePanel || null,
+            evaluationSummaryRequest: config.evaluationSummaryRequest || null,
+            prepared: config.prepared || null,
+            requestRecovery: config.requestRecovery || null,
+            requestJournal: config.__requestJournal || null,
             historyPolicy: 'persist floors 0..q-1; push the real USER object q into in-memory chat only for recall',
             minEvidenceDistanceFloors: plan.minEvidenceDistanceFloors,
             turnPacing: {
@@ -225,8 +237,14 @@ export async function runNaturalCaptureCases({
             transportMode: 'live-production',
             sensitive: true,
             deletion: 'delete run directory',
+            ...(config.__requestJournal ? {
+                requestJournal: config.__requestJournal,
+                latencyComparable: !config.__requestJournal.resumed && !config.responseArchive?.length,
+                journalDeletion: 'delete prepared output directory only when all referencing captures are retired',
+            } : {}),
+            ...(config.responseArchive?.length ? { responseArchive: config.responseArchive, latencyComparable: false } : {}),
         },
-        execution: { command: config?.__command || 'unknown' },
+        execution: { command: config?.__command || 'unknown', contract: PRODUCT_RECALL_CONTRACT },
     };
     const runStore = await beginGoldRun({
         runsRoot: plan.runsRoot,
@@ -280,7 +298,7 @@ export async function runNaturalCaptureCases({
                     minMs: plan.turnIntervalMinMs,
                     maxMs: plan.turnIntervalMaxMs,
                 });
-                await waitForStartCadence({
+                if (!globalThis.fetch?.preparedReplayPending?.()) await waitForStartCadence({
                     previousStartedAt: previousUserTurnStartedAt,
                     intervalMs,
                     clock,
@@ -290,12 +308,12 @@ export async function runNaturalCaptureCases({
 
                 const visibleMessages = sample.messages.slice(0, floor);
                 await setVisibleHistory(visibleMessages, floor - 1);
-                const summaryStep = await summarizeBeforeUser({
+                const summaryStep = await withPreparedRequestScope(`before-user:${floor}`, () => summarizeBeforeUser({
                     floor,
                     historyThroughFloor: floor - 1,
                     visibleMessages,
                     nextCaseId: activeCase?.id || null,
-                });
+                }));
                 mergeNaturalPreparation(
                     preparation,
                     summaryStep,
@@ -325,7 +343,7 @@ export async function runNaturalCaptureCases({
                 if (summaryStep?.result?.triggered) {
                     const recoveryPoint = await persistNaturalRecoveryPoint({
                         runStore,
-                        floor,
+                        resumeFloor: floor - 1,
                         visibleMessages,
                         preparation,
                         writeRecoverySnapshot,
@@ -349,7 +367,7 @@ export async function runNaturalCaptureCases({
 
                     let boundary;
                     try {
-                        boundary = await executeNaturalBoundaryCase({
+                        boundary = await withPreparedRequestScope(`recall:${floor}`, () => executeNaturalBoundaryCase({
                             modules,
                             goldCase: activeCase,
                             visibleMessages,
@@ -357,7 +375,7 @@ export async function runNaturalCaptureCases({
                             snapshotRef,
                             preparation,
                             executeRecallCase,
-                        });
+                        }));
                     } catch (error) {
                         activeExecution = error?.naturalExecution || null;
                         throw error;
@@ -391,15 +409,27 @@ export async function runNaturalCaptureCases({
             } else {
                 const visibleMessages = sample.messages.slice(0, floor + 1);
                 await setVisibleHistory(visibleMessages, floor);
+                const maintenanceStep = await withPreparedRequestScope(`after-ai:${floor}`, () => maintainAfterAi({
+                    floor,
+                    visibleMessages,
+                    nextCaseId: activeCase?.id || null,
+                }));
                 mergeNaturalPreparation(
                     preparation,
-                    await maintainAfterAi({
-                        floor,
-                        visibleMessages,
-                        nextCaseId: activeCase?.id || null,
-                    }),
+                    maintenanceStep,
                     `maintenance-after-ai:${floor}`,
                 );
+                if (maintenanceStep?.result?.summary?.triggered) {
+                    const recoveryPoint = await persistNaturalRecoveryPoint({
+                        runStore,
+                        resumeFloor: floor,
+                        visibleMessages,
+                        preparation,
+                        writeRecoverySnapshot,
+                    });
+                    recoveryPoints.push(recoveryPoint);
+                    if (recoveryPoints.length > 2) recoveryPoints.shift();
+                }
             }
         }
 

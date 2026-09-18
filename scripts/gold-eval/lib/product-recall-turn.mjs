@@ -1,5 +1,13 @@
 // Gold Eval - reproduce the product's in-memory USER turn boundary.
 
+export const PRODUCT_RECALL_CONTRACT = 'story-summary-computation-v1';
+
+export function assertProductAlignedCapture(source) {
+    if (source?.manifest?.execution?.contract !== PRODUCT_RECALL_CONTRACT) {
+        throw new Error('Source uses a historical replay contract; create a new product-aligned capture');
+    }
+}
+
 function assertHistoryIdentity(chat, historyMessages, label) {
     if (!Array.isArray(chat) || !Array.isArray(historyMessages)) {
         throw new Error(`${label}: recall chat/history must be arrays`);

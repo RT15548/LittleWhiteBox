@@ -4,6 +4,7 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { createHash } from 'node:crypto';
+import { assertProductAlignedCapture } from './product-recall-turn.mjs';
 
 export const GOLD_CAPTURE_SCHEMA_VERSION = 1;
 
@@ -732,6 +733,7 @@ export function assertSyntheticProbeCapture(source) {
     if (source?.manifest?.mode !== 'story-summary-replay-synthetic-probe-capture') {
         throw new Error(`Gold capture 不是 synthetic probe capture: ${source?.manifest?.mode || 'unknown'}`);
     }
+    assertProductAlignedCapture(source);
 }
 
 export function assertReaderSourceCapture(source) {

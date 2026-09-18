@@ -82,7 +82,8 @@ async function main() {
     process.stdout.write(`${JSON.stringify({
         conversations: result.macro.conversations,
         delta: result.macro.delta,
-        passed: result.macro.passed,
+        coverageGatePassed: result.macro.coverageGatePassed,
+        qualityMeasured: false,
         outputPath: outputPath || result.outputPath || null,
     }, null, 2)}\n`);
 }

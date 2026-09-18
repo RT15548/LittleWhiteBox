@@ -38,3 +38,9 @@ test('评测 bootstrap 拒绝被插件降级吞掉的外部失败', () => {
         /evaluation_bootstrap_invalid:.*L0 incomplete.*L0 vector mismatch.*L1 embedding batches failed.*L1 vector mismatch.*L2 vector mismatch/,
     );
 });
+
+test('bootstrap 按可总结边界检查，全部处于延迟后缀时允许尚未总结', () => {
+    const state = healthy({ targetFloor: -1, summaryStore: { lastSummarizedMesId: -1 } });
+    assert.equal(assertBootstrapHealthy(state).summaryBoundary, -1);
+    assert.throws(() => assertBootstrapHealthy({ ...state, targetFloor: 0 }), /summary boundary/);
+});

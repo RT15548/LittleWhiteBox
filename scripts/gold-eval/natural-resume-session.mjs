@@ -5,6 +5,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { emptyNaturalPreparation, executeNaturalBoundaryCase } from './lib/natural-boundary-execution.mjs';
+import { PRODUCT_RECALL_CONTRACT, assertProductAlignedCapture } from './lib/product-recall-turn.mjs';
 import {
     assertNaturalPreparationHealthy,
     mergeNaturalPreparation,
@@ -141,6 +142,13 @@ export async function prepareNaturalResumePlan({ rootDir, config, sample, sample
     }
 
     const source = await loadNaturalCaptureResumePrefix(sourceRunDir);
+    assertProductAlignedCapture(source);
+    if (source.manifest.code?.productionSourceHash !== expectedProductionSourceHash) {
+        throw new Error('natural-resume production source differs from the source capture');
+    }
+    if (JSON.stringify(source.manifest.config?.effectivePanel || null) !== JSON.stringify(config.effectivePanel || null)) {
+        throw new Error('natural-resume effective panel config differs from the source capture');
+    }
     const sampleHash = await sha256File(samplePath);
     if (source.manifest.data?.sampleHash !== sampleHash) {
         throw new Error('natural-resume sample与来源run不一致');
@@ -313,6 +321,7 @@ export async function runNaturalResumeCases({
         },
         config: {
             fingerprint: buildReplayConfigFingerprint(config),
+            effectivePanel: config.effectivePanel || null,
             historyPolicy: 'import committed prefix; restore latest verified boundary/recovery state; continue at resumeFloor+1',
             resumeFloor: plan.resumeFloor,
             resumeMessageCount: plan.resumeMessageCount,
@@ -343,7 +352,7 @@ export async function runNaturalResumeCases({
             sensitive: true,
             deletion: 'delete run directory',
         },
-        execution: { command: config?.__command || 'unknown' },
+        execution: { command: config?.__command || 'unknown', contract: PRODUCT_RECALL_CONTRACT },
     };
     const runStore = await beginGoldRun({
         runsRoot: plan.runsRoot,
@@ -490,7 +499,7 @@ export async function runNaturalResumeCases({
                 if (summaryStep?.result?.triggered) {
                     const recoveryPoint = await persistNaturalRecoveryPoint({
                         runStore,
-                        floor,
+                        resumeFloor: floor - 1,
                         visibleMessages,
                         preparation,
                         writeRecoverySnapshot,
@@ -555,15 +564,27 @@ export async function runNaturalResumeCases({
             } else {
                 const visibleMessages = sample.messages.slice(0, floor + 1);
                 await setVisibleHistory(visibleMessages, floor);
+                const maintenanceStep = await maintainAfterAi({
+                    floor,
+                    visibleMessages,
+                    nextCaseId: activeCase?.id || null,
+                });
                 mergeNaturalPreparation(
                     preparation,
-                    await maintainAfterAi({
-                        floor,
-                        visibleMessages,
-                        nextCaseId: activeCase?.id || null,
-                    }),
+                    maintenanceStep,
                     `maintenance-after-ai:${floor}`,
                 );
+                if (maintenanceStep?.result?.summary?.triggered) {
+                    const recoveryPoint = await persistNaturalRecoveryPoint({
+                        runStore,
+                        resumeFloor: floor,
+                        visibleMessages,
+                        preparation,
+                        writeRecoverySnapshot,
+                    });
+                    recoveryPoints.push(recoveryPoint);
+                    if (recoveryPoints.length > 2) recoveryPoints.shift();
+                }
             }
         }
 

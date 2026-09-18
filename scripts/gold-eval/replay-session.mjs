@@ -16,7 +16,7 @@ import {
     loadGoldCasesFromText,
     selectEvidenceCatalogForCase,
 } from './lib/replay-adapter.mjs';
-import { withProductRecallTurn } from './lib/product-recall-turn.mjs';
+import { withProductRecallTurn, PRODUCT_RECALL_CONTRACT } from './lib/product-recall-turn.mjs';
 import {
     buildRunId,
     renderGoldEvalReport,
@@ -128,6 +128,8 @@ export function buildReplayConfigFingerprint(config = {}) {
         },
         wrapperHead: String(config.wrapperHead || ''),
         wrapperTail: String(config.wrapperTail || ''),
+        effectivePanel: config.effectivePanel || null,
+        ...(config.requestRecovery ? { requestRecovery: config.requestRecovery } : {}),
         vector: {
             enabled: !!config.vectorConfig?.enabled,
             l0Concurrency: config.vectorConfig?.l0Concurrency ?? null,
@@ -537,6 +539,7 @@ export async function runGoldEvalCases({
             runnerHash: config?.__codeState?.runnerHash || null,
             worktreeStatusHash: config?.__codeState?.worktreeStatusHash || null,
             packageLockHash: config?.__codeState?.packageLockHash || null,
+            productionSourceHash: config?.__codeState?.productionSourceHash || null,
             nodeVersion: config?.__codeState?.nodeVersion || null,
             platform: config?.__codeState?.platform || null,
             arch: config?.__codeState?.arch || null,
@@ -552,6 +555,7 @@ export async function runGoldEvalCases({
         },
         config: {
             fingerprint: buildReplayConfigFingerprint(config),
+            effectivePanel: config.effectivePanel || null,
             pacing: {
                 caseIntervalMinMs: goldPlan.caseIntervalMinMs ?? DEFAULT_CASE_INTERVAL_MIN_MS,
                 caseIntervalMaxMs: goldPlan.caseIntervalMaxMs ?? DEFAULT_CASE_INTERVAL_MAX_MS,
@@ -582,7 +586,7 @@ export async function runGoldEvalCases({
             sensitive: true,
             deletion: 'delete run directory',
         },
-        execution: { command: config?.__command || 'unknown' },
+        execution: { command: config?.__command || 'unknown', contract: PRODUCT_RECALL_CONTRACT },
     };
     const runStore = await beginGoldRun({
         runsRoot: goldPlan.runsRoot,

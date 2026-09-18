@@ -52,20 +52,18 @@ async function pruneRecoveryDirectory(recoveryDir, keepPath) {
 
 export async function persistNaturalRecoveryPoint({
     runStore,
-    floor,
+    resumeFloor,
     visibleMessages,
     preparation,
     writeRecoverySnapshot,
 }) {
-    const resumeFloor = floor - 1;
     const messageCount = visibleMessages.length;
     if (!Number.isInteger(resumeFloor) || resumeFloor < 0 || messageCount !== resumeFloor + 1) {
-        throw new Error(`natural recovery floor/messageCount不一致: floor=${floor} messages=${messageCount}`);
+        throw new Error(`natural recovery floor/messageCount不一致: floor=${resumeFloor} messages=${messageCount}`);
     }
     const snapshotPath = path.join(runStore.paths.recovery, recoveryFileName(resumeFloor));
     await writeRecoverySnapshot({
         snapshotPath,
-        floor,
         resumeFloor,
         visibleMessages,
         preparation: structuredClone(preparation),
