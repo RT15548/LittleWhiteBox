@@ -93,6 +93,7 @@ import {
     insertPreviewIntoRenderedMessage,
     isAnyMessageBeingEdited,
     isMessageBeingEdited,
+    notifyMessageRewritten,
     detectPresentCharacters,
     DEFAULT_MESSAGE_FILTER_RULES,
     joinTags,
@@ -4028,6 +4029,7 @@ export async function generateAndInsertImages({
             if (isMessageBeingEdited(resolvedMessageId)) return;
             const formatted = messageFormatting(sourceText, message.name, message.is_system, message.is_user, resolvedMessageId);
             $(`[mesid="${resolvedMessageId}"] .mes_text`).html(formatted);
+            void notifyMessageRewritten(resolvedMessageId);
         };
         const renderPendingSlots = () => {
             const settledSlotIds = new Set(results.filter(Boolean).map((item) => item.slotId));

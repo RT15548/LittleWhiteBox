@@ -140,6 +140,7 @@ import {
     toScenePlannerProgress,
     isAnyMessageBeingEdited,
     isMessageBeingEdited,
+    notifyMessageRewritten,
     DEFAULT_MESSAGE_FILTER_RULES,
 } from '../../shared/draw-common.js';
 import { replaceSceneSlotElements } from '../../shared/scene-slot-dom.js';
@@ -3367,6 +3368,7 @@ async function generateAndInsertImages({
             if (isMessageBeingEdited(messageId)) return;
             const formatted = messageFormatting(sourceText, message.name, message.is_system, message.is_user, messageId);
             $(`[mesid="${messageId}"] .mes_text`).html(formatted);
+            await notifyMessageRewritten(messageId);
         };
         const renderPendingSlots = () => {
             const settledSlotIds = new Set(results.filter(Boolean).map((item) => item.slotId));
@@ -3836,6 +3838,7 @@ async function generateAndInsertImages({
                     messageId
                 );
                 $('[mesid="' + messageId + '"] .mes_text').html(formatted);
+                await notifyMessageRewritten(messageId);
                 await renderSharedPreviewsForMessage(messageId);
                 const { processMessageById } = await import('../../../iframe-renderer.js');
                 processMessageById(messageId, true);
