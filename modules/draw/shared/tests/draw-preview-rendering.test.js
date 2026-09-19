@@ -199,9 +199,11 @@ test('genuinely missing anchors still rebuild from the current persisted message
     assert.equal(message.mes, `Before[image : ${slotId}]After`);
 });
 
-test('rebuilding a message notifies other renderers only after the rewritten DOM is in place', async t => {
+const CODE_BLOCK = ['', '', '```html', '<div>frontend</div>', '```', ''].join('\n');
+
+test('rebuilding a message with a code block notifies other renderers only after the rewritten DOM is in place', async t => {
     const slotId = 'rewrite-notify';
-    const { message, root } = mountMessage(t, `Before[image:${slotId}]After`);
+    const { message, root } = mountMessage(t, `Before[image:${slotId}]After${CODE_BLOCK}`);
     await seedImage(slotId, 'image');
     root.textContent = 'outdated rendering';
     const emitted = [];
@@ -215,9 +217,23 @@ test('rebuilding a message notifies other renderers only after the rewritten DOM
     assert.deepEqual(emitted, [{ event: 'message_updated', messageId: 0, domRewritten: true }]);
 });
 
+test('rebuilding a message without any code block does not emit MESSAGE_UPDATED', async t => {
+    const slotId = 'rewrite-no-pre';
+    const { message, root } = mountMessage(t, `Before[image:${slotId}]After`);
+    await seedImage(slotId, 'image');
+    root.textContent = 'outdated rendering';
+    const emitted = [];
+    host.ctx.eventSource = { emit: async (...args) => emitted.push(args) };
+
+    const rebuilt = await api.syncRenderedMessageFromState(0, { chatId: 'test-chat', expectedMessage: message });
+
+    assert.equal(rebuilt, true);
+    assert.deepEqual(emitted, []);
+});
+
 test('a failing MESSAGE_UPDATED listener does not break rebuilding the message', async t => {
     const slotId = 'rewrite-notify-error';
-    const { message, root } = mountMessage(t, `Before[image:${slotId}]After`);
+    const { message, root } = mountMessage(t, `Before[image:${slotId}]After${CODE_BLOCK}`);
     await seedImage(slotId, 'image');
     root.textContent = 'outdated rendering';
     host.ctx.eventSource = { emit: async () => { throw new Error('listener failed'); } };
