@@ -557,6 +557,19 @@ function buildFailedPlaceholderHtml({ slotId, messageId, tags, positive, errorTy
 </div>`;
 }
 
+// 整条重写楼层 DOM 会销毁其它扩展（如酒馆助手）已渲染的 iframe，而它们只在楼层事件时才重新处理。
+// 重写完成后补发 MESSAGE_UPDATED，让它们重新渲染该楼层。
+export async function notifyMessageRewritten(messageId) {
+    try {
+        const eventSource = getContext()?.eventSource;
+        if (eventSource?.emit && event_types?.MESSAGE_UPDATED) {
+            await eventSource.emit(event_types.MESSAGE_UPDATED, messageId);
+        }
+    } catch (error) {
+        console.warn('[DrawCommon] 通知楼层重写失败:', error);
+    }
+}
+
 async function rebuildRenderedMessageFromState(messageId, {
     chatId,
     expectedMessage,
@@ -581,6 +594,7 @@ async function rebuildRenderedMessageFromState(messageId, {
     // Host-generated message markup.
     // eslint-disable-next-line no-unsanitized/property
     mesTextEl.innerHTML = formatted;
+    await notifyMessageRewritten(messageId);
     return true;
 }
 

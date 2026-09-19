@@ -24,7 +24,7 @@ const stubs = {
     'utils.js': 'export const saveBase64AsFile = async () => { throw new Error("Unexpected image upload"); };',
     'event-manager.js': `
         export const createModuleEvents = () => ({ on() {}, cleanup() {} });
-        export const event_types = {};
+        export const event_types = { MESSAGE_UPDATED: 'message_updated' };
     `,
     'generate-interceptor.js': `
         export const GENERATE_INTERCEPTOR_ORDER = {};
@@ -197,4 +197,34 @@ test('genuinely missing anchors still rebuild from the current persisted message
     assert.ok(root.textContent.startsWith('Before'));
     assert.ok(root.textContent.endsWith('After'));
     assert.equal(message.mes, `Before[image : ${slotId}]After`);
+});
+
+test('rebuilding a message notifies other renderers only after the rewritten DOM is in place', async t => {
+    const slotId = 'rewrite-notify';
+    const { message, root } = mountMessage(t, `Before[image:${slotId}]After`);
+    await seedImage(slotId, 'image');
+    root.textContent = 'outdated rendering';
+    const emitted = [];
+    host.ctx.eventSource = {
+        emit: async (event, messageId) => emitted.push({ event, messageId, domRewritten: root.textContent.startsWith('Before') }),
+    };
+
+    const rebuilt = await api.syncRenderedMessageFromState(0, { chatId: 'test-chat', expectedMessage: message });
+
+    assert.equal(rebuilt, true);
+    assert.deepEqual(emitted, [{ event: 'message_updated', messageId: 0, domRewritten: true }]);
+});
+
+test('a failing MESSAGE_UPDATED listener does not break rebuilding the message', async t => {
+    const slotId = 'rewrite-notify-error';
+    const { message, root } = mountMessage(t, `Before[image:${slotId}]After`);
+    await seedImage(slotId, 'image');
+    root.textContent = 'outdated rendering';
+    host.ctx.eventSource = { emit: async () => { throw new Error('listener failed'); } };
+    t.mock.method(console, 'warn', () => {});
+
+    const rebuilt = await api.syncRenderedMessageFromState(0, { chatId: 'test-chat', expectedMessage: message });
+
+    assert.equal(rebuilt, true);
+    assert.ok(root.querySelector(`[data-slot-id="${slotId}"] img`));
 });
