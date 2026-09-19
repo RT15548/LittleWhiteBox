@@ -23,6 +23,7 @@ import {
     getStateAtoms,
     saveStateAtoms,
     clearStateAtoms,
+    reconcileL0IndexWithAtoms,
     getAllStateVectors,
     saveStateVectors,
     clearStateVectors,
@@ -409,6 +410,9 @@ export async function importVectors(file, onProgress, options = {}) {
         assertWriteActive(chatId, options);
         saveStateAtoms(stateAtoms);
     }
+    // stateAtoms 被包内数据整体替换，L0Index 必须对账，
+    // 否则"索引 ok 但无 atom"的残留会让对应楼层被 tryQueueFloor 永久跳过。
+    reconcileL0IndexWithAtoms();
 
     // Write state vectors (semantic + optional r-vector)
     if (stateVectorMetas.length > 0) {
@@ -748,6 +752,8 @@ export async function restoreFromServer(onProgress, options = {}) {
         assertWriteActive(chatId, options);
         saveStateAtoms(stateAtoms);
     }
+    // 与 importVectors 同理：stateAtoms 被整体替换后必须对账 L0Index。
+    reconcileL0IndexWithAtoms();
 
     if (stateVectorMetas.length > 0) {
         const stateVectorItems = stateVectorMetas.map((meta, idx) => ({

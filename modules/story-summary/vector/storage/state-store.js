@@ -282,6 +282,51 @@ export function deleteL0IndexFromFloor(fromFloor) {
 }
 
 /**
+ * 对账：让 L0Index 与实际 StateAtoms 保持一致。
+ *
+ * 向量包导入 / 服务器备份恢复会整体替换 stateAtoms（clearStateAtoms + saveStateAtoms），
+ * 但不会动 l0Index。若包里那份 atom 比索引记的少（导出时该楼层尚未提取/已被删除），
+ * 就会留下 "status=ok 但无 atom" 的残留条目。incrementalExtractAtoms 的 tryQueueFloor
+ * 只看 l0Index（ok/empty 直接跳过），于是这些楼层被永久跳过、无法自愈。
+ *
+ * 规则：
+ * - ok 且无 atom → 删除条目（该楼层重新排队提取）
+ * - ok 且计数与实际不符（有 atom）→ 修正为实际条数（以包内数据为准，不触发重提取）
+ * - empty / fail 是"确实没有 atom"的合法状态，保留不动
+ */
+export function reconcileL0IndexWithAtoms() {
+    const idx = ensureL0Index();
+    const counts = new Map();
+    for (const atom of ensureStateAtomsArray()) {
+        if (typeof atom?.floor === 'number' && atom.floor >= 0) {
+            counts.set(atom.floor, (counts.get(atom.floor) || 0) + 1);
+        }
+    }
+
+    let removed = 0;
+    let fixed = 0;
+    for (const k of Object.keys(idx.byFloor || {})) {
+        const rec = idx.byFloor[k];
+        if (rec?.status !== 'ok') continue;
+        const actual = counts.get(Number(k)) || 0;
+        if (actual === 0) {
+            delete idx.byFloor[k];
+            removed++;
+        } else if ((rec.atoms || 0) !== actual) {
+            rec.atoms = actual;
+            rec.updatedAt = Date.now();
+            fixed++;
+        }
+    }
+
+    if (removed > 0 || fixed > 0) {
+        markL0MetadataDirty('reconcileL0IndexWithAtoms');
+        xbLog.info(MODULE_ID, `L0Index 对账: 删除 ${removed} 条无 atom 残留, 修正 ${fixed} 条计数`);
+    }
+    return { removed, fixed };
+}
+
+/**
  * 获取当前聊天的所有 StateAtoms
  */
 export function getStateAtoms() {
