@@ -12,6 +12,7 @@ import type {
 import type { UserTransactions } from '../../../kernel/user-transactions.js';
 import { upgradeTasksUserFile } from '../upgrade/user-file.js';
 import { TASKS_PARTITION } from '../partition.js';
+import { createPartitionDocument, type PartitionDocument } from '../../../kernel/partition-document.js';
 import { collectTaskIdentityIds } from '../../../domains/tasks/invariants.js';
 import { cancelTask } from '../../../domains/tasks/commands/recruitment.js';
 import { projectTaskRecords } from '../../../domains/tasks/projection.js';
@@ -106,6 +107,7 @@ export interface MaintenanceCommitRequest {
 }
 
 export interface TasksService {
+    document: Pick<PartitionDocument, 'read'>;
     ensureReady(evidenceDigest?: string, identityKey?: string): Promise<void>;
     cancelCommission(input: CancelTaskRequest & { scopeId: string }): Promise<TasksActionResult>;
     readCommission(scopeId: string, taskId: string): { domain: TaskDomainV1; record: TaskRecord };
@@ -377,6 +379,7 @@ export function createTasksService(
     }
 
     return Object.freeze({
+        document: { read: createPartitionDocument(store, TASKS_PARTITION).read },
         ensureReady,
         readCurrent: () => buildView(),
         refreshCurrent,

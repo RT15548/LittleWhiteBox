@@ -1,6 +1,6 @@
 import { AGENT_CAPABILITY, type AgentCapability } from '../../capabilities/agent/index.js';
 import { PROMPT_INJECTION_CAPABILITY, type PromptInjectionCapability } from '../../capabilities/prompt-injection/index.js';
-import { MANAGEMENT_CAPABILITY, type ManagementRegistry } from '../../capabilities/management/index.js';
+import { MANAGEMENT_CAPABILITY } from '../../capabilities/management/index.js';
 import { MAINTENANCE_CAPABILITY, type MaintenanceCapability } from '../../capabilities/maintenance/index.js';
 import type { AppInstallContext, XiaobaiOsAppModule } from '../../kernel/app-registry.js';
 import type { PartitionStore } from '../../kernel/contracts.js';
@@ -16,7 +16,7 @@ import { WORLD_CONTEXT_CAPABILITY } from './context-capability.js';
 export function createWorldModule(dependencies: {
     settings: XiaobaiOsSettingsRepository;
     getChatIdentity(): string;
-    install(context: { world: WorldService; maintenance: MaintenanceCapability; management: ManagementRegistry; agent: AgentCapability; prompts: PromptInjectionCapability; execution: AppInstallContext['execution'] }): XiaobaiOsAppRuntime;
+    install(context: { world: WorldService; maintenance: MaintenanceCapability; agent: AgentCapability; prompts: PromptInjectionCapability; execution: AppInstallContext['execution'] }): XiaobaiOsAppRuntime;
 }): XiaobaiOsAppModule {
     return {
         descriptor: WORLD_APP_DESCRIPTOR,
@@ -38,7 +38,6 @@ export function createWorldModule(dependencies: {
                 },
             }));
             return dependencies.install({ world, execution: context.execution, maintenance: context.useCapability(MAINTENANCE_CAPABILITY),
-                management: context.useCapability(MANAGEMENT_CAPABILITY),
                 prompts: context.useCapability(PROMPT_INJECTION_CAPABILITY),
                 agent: context.useCapability(AGENT_CAPABILITY) });
         },

@@ -11,7 +11,13 @@ export interface ManagementTool {
 export interface ManagementResult {
     ok: boolean;
     status: 'read' | 'saved' | 'unchanged' | 'partial' | 'failed';
+    code?: string;
     data?: unknown;
+}
+
+export function managementReadError(error: unknown) {
+    const code = error !== null && typeof error === 'object' && 'code' in error ? error.code : undefined;
+    return { code: typeof code === 'string' ? code : 'management_read_failed', message: error instanceof Error ? error.message : String(error) };
 }
 export type ManagementInspection = { status: 'confirmed'; result: ManagementResult }
     | { status: 'unchanged' | 'superseded' }
@@ -29,6 +35,8 @@ export interface ManagementSession {
 export interface ManagementParticipant {
     id: string;
     label: string;
+    prompt: string;
+    tools: readonly ManagementTool[];
     open(): Promise<ManagementSession>;
     confirmPending(): Promise<PendingCommitRecoveryResult>;
 }

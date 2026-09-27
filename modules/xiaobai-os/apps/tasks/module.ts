@@ -5,7 +5,7 @@ import {
 } from '../../capabilities/economy/index.js';
 import { AGENT_CAPABILITY, type AgentCapability } from '../../capabilities/agent/index.js';
 import { PROMPT_INJECTION_CAPABILITY, type PromptInjectionCapability } from '../../capabilities/prompt-injection/index.js';
-import { MANAGEMENT_CAPABILITY, type ManagementRegistry } from '../../capabilities/management/index.js';
+import { MANAGEMENT_CAPABILITY } from '../../capabilities/management/index.js';
 import {
     MAINTENANCE_CAPABILITY,
     type MaintenanceCapability,
@@ -35,7 +35,6 @@ export interface TasksModuleInstallContext {
     agent: AgentCapability;
     prompts: PromptInjectionCapability;
     maintenance: MaintenanceCapability;
-    management: ManagementRegistry;
     mapContext: MapContextCapability;
     worldContext: WorldContextCapability;
     execution: AppInstallContext['execution'];
@@ -91,7 +90,6 @@ export function createTasksModule(dependencies: TasksModuleDependencies): Xiaoba
                     agent: context.useCapability(AGENT_CAPABILITY),
                     prompts: context.useCapability(PROMPT_INJECTION_CAPABILITY),
                     maintenance: context.useCapability(MAINTENANCE_CAPABILITY),
-                    management: context.useCapability(MANAGEMENT_CAPABILITY),
                     mapContext: context.useCapability(MAP_CONTEXT_CAPABILITY),
                     worldContext: context.useCapability(WORLD_CONTEXT_CAPABILITY),
                     execution: context.execution,

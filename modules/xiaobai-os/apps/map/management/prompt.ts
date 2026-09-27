@@ -4,6 +4,6 @@ export const MAP_MANAGEMENT_PROMPT = [
     'You supply spatial facts; the map supplies appearance from categories, materials and geometry.',
     '',
     '## What you have',
-    'You start with atlas counts and the player position.',
+    'You start with atlas counts and the player position, or a stored-JSON page and validation error when the map data is invalid.',
     'Use MapAtlasRead collections to find the places, routes and actors the user is talking about, along with their keys. MapSceneRead shows a place’s current layout and the elements you can edit.',
 ].join('\n');

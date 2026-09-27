@@ -3,7 +3,7 @@ import type { PartitionStore } from '../../kernel/contracts.js';
 import type { XiaobaiOsAppRuntime } from '../../types.js';
 import { AGENT_CAPABILITY, type AgentCapability } from '../../capabilities/agent/index.js';
 import { PROMPT_INJECTION_CAPABILITY, type PromptInjectionCapability } from '../../capabilities/prompt-injection/index.js';
-import { MANAGEMENT_CAPABILITY, type ManagementRegistry } from '../../capabilities/management/index.js';
+import { MANAGEMENT_CAPABILITY } from '../../capabilities/management/index.js';
 import {
     MAINTENANCE_CAPABILITY,
     type MaintenanceCapability,
@@ -23,7 +23,6 @@ export interface MapModuleInstallContext {
     agent: AgentCapability;
     prompts: PromptInjectionCapability;
     maintenance: MaintenanceCapability;
-    management: ManagementRegistry;
     mapContext: MapContextCapability;
     execution: AppInstallContext['execution'];
 }
@@ -56,7 +55,6 @@ export function createMapModule(dependencies: MapModuleDependencies): XiaobaiOsA
                 agent: context.useCapability(AGENT_CAPABILITY),
                 prompts: context.useCapability(PROMPT_INJECTION_CAPABILITY),
                 maintenance: context.useCapability(MAINTENANCE_CAPABILITY),
-                management: context.useCapability(MANAGEMENT_CAPABILITY),
                 mapContext,
                 execution: context.execution,
             });

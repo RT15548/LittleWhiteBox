@@ -27,8 +27,9 @@ test('work projection retains round order and narration without transferring too
 test('live, completed and reopened work uses the same saved narration and actual operation status', async () => {
     const h = await administratorHarness(); let finish;
     const narration = '检查进度。'.repeat(1800);
-    h.registry.register({ id: 'probe', label: 'Probe', async open() { return {
-        prompt: '', initial: {}, tools: [{ effect: 'read', label: 'Probe', target: () => '', definition: { type: 'function', function: { name: 'Probe', parameters: {} } } }],
+    const tools = [{ effect: 'read', label: 'Probe', target: () => '', definition: { type: 'function', function: { name: 'Probe', parameters: {} } } }];
+    h.registry.register({ id: 'probe', label: 'Probe', prompt: '', tools, async open() { return {
+        prompt: '', initial: {}, tools,
         async execute() { await new Promise(resolve => { finish = resolve; }); return { ok: true, status: 'read', data: 'private-result' }; },
     }; } });
     let step = 0;

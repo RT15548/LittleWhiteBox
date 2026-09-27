@@ -8,6 +8,7 @@
 <title>SD Draw</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 <link rel="stylesheet" href="../../shared/agent-settings-surface.css">
+<script type="module" src="../../shared/draw-usage.js"></script>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 :root {
@@ -509,7 +510,7 @@ select.input { cursor: pointer; }
                 <div class="tip-box">
                     <i class="fa-solid fa-lightbulb"></i>
                     <div>
-                        <div>消息楼层按钮的 🎨 为对应消息生成配图。</div>
+                        <div data-draw-usage></div>
                         <div>小白X会先分析当前楼层，再把结果组装成 SD 出图参数。</div>
                         <div>本页填写的参数和固定 TAG 会直接发给 SD API；WebUI 网页输入框不会参与这次出图。</div>
                     </div>

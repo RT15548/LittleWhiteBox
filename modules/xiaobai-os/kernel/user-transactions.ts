@@ -192,11 +192,15 @@ export function createUserTransactions(options: {
         if (!registration.storage) { throw new Error('A user store requires a user-owned partition'); }
         const storyOwned = registration.storage === 'user-story';
         const capture = () => storyOwned ? options.references.capture() : null;
-        function snapshot(current = capture()): PartitionSnapshot<T> {
+        function rawSnapshot(current = capture()): PartitionSnapshot<unknown> {
             const scope = current?.reference?.osId ?? null;
             const raw = storyOwned ? scope ? document?.stories[scope]?.[registration.key] : undefined : document?.partitions[registration.key];
             return { identityKey: storyOwned ? current?.identityKey ?? '' : USER_IDENTITY, osId: scope,
-                envelopeRevision: document?.revision ?? null, value: raw === undefined ? null : parseRegisteredPartition(registration, raw) };
+                envelopeRevision: document?.revision ?? null, value: structuredClone(raw) };
+        }
+        function snapshot(current = capture()): PartitionSnapshot<T> {
+            const raw = rawSnapshot(current);
+            return { ...raw, value: raw.value === undefined ? null : parseRegisteredPartition(registration, raw.value) };
         }
         async function transact<R>(command: (context: ScopedTransaction<T>) => R | Promise<R>, transactionOptions: TransactionOptions = {}): Promise<ScopedTransactionResult<T, R>> {
             let requested = capture();
@@ -267,6 +271,13 @@ export function createUserTransactions(options: {
             peekBinding: () => storyOwned ? (() => { const current = capture(); return current ? { identityKey: current.identityKey, osId: current.reference?.osId ?? null } : null; })() : { identityKey: USER_IDENTITY, osId: null },
             peekCurrent: () => document && (!storyOwned || capture()) ? snapshot() : null,
             read: () => enqueue(async () => { await prepare(); const current = storyOwned ? await options.resolveStory(false) : null; return snapshot(current); }),
+            readRaw: () => enqueue(async () => {
+                const requested = capture();
+                await prepare();
+                const current = storyOwned ? await options.resolveStory(false) : null;
+                if (storyOwned && (!requested || !await options.references.isCurrent(requested))) { throw Object.assign(new Error(changed().message), changed()); }
+                return rawSnapshot(current);
+            }),
             transact,
             subscribe(listener) { const publish = () => { if (!storyOwned || capture()) { listener(snapshot()); } }; stores.add(publish); return () => stores.delete(publish); },
         };

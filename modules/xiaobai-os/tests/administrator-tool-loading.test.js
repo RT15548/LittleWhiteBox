@@ -47,30 +47,32 @@ test('one load supplies a complete registered APP package and common tools witho
     assert.deepEqual(f.executor.getTools().slice(0, snapshot.length), snapshot);
 });
 
-test('invalid loads are atomic, unavailable APPs are excluded, and common tools need no APP', async () => {
+test('invalid loads are atomic, initial read failures retain their package, and common tools need no APP', async () => {
     const h = await administratorHarness();
-    const remove = h.registry.register({ id: 'unavailable', label: 'Unavailable', async open() { throw new Error('private'); } });
+    const remove = h.registry.register({ id: 'unavailable', label: 'Unavailable', prompt: '', tools: [], async open() { throw Object.assign(new Error('read failed'), { code: 'storage_read_failed' }); } });
     const f = await executorFixture(h);
     for (const args of [null, [], { apps: null }, { apps: 'map' }, { apps: [1] }, { apps: [{ toString: null }] },
-        { apps: [], extra: true }, { apps: ['map', 'unknown'] }, { apps: ['map', 'unavailable'] }]) {
+        { apps: [], extra: true }, { apps: ['map', 'unknown'] }]) {
         assert.equal((await f.call(TOOLS_LOAD, args)).status, 'failed');
         assert.deepEqual(names(f.executor.getTools()), [TOOLS_LOAD]);
     }
-    assert.deepEqual(f.executor.data.unavailable, [{ id: 'unavailable', code: 'management_unavailable' }]);
+    assert.equal((await f.call(TOOLS_LOAD, { apps: ['unavailable'] })).status, 'read');
+    assert.deepEqual(f.executor.data.readErrors.map(error => error.code), ['storage_read_failed']);
     remove();
-    assert.deepEqual((await f.call(TOOLS_LOAD)).data, { apps: [], tools: common });
-    assert.deepEqual((await f.call(TOOLS_LOAD, { apps: [] })).data, { apps: [], tools: common });
+    assert.deepEqual((await f.call(TOOLS_LOAD)).data, { apps: ['unavailable'], tools: common });
+    assert.deepEqual((await f.call(TOOLS_LOAD, { apps: [] })).data, { apps: ['unavailable'], tools: common });
     const after = await executorFixture(h);
-    assert.deepEqual(after.executor.data.unavailable, []);
+    assert.deepEqual(after.executor.data.readErrors, []);
     assert.deepEqual(names(after.executor.getTools()), [TOOLS_LOAD]);
 });
 
 test('new APP registration joins loading without administrator-specific routing, and removal leaves no package', async () => {
     const h = await administratorHarness(); let executed = 0;
-    const remove = h.registry.register({ id: 'probe', label: 'Probe', async open() { return {
-        prompt: '', initial: {}, tools: [{ effect: 'read', label: 'Probe', target: () => '', definition: {
+    const tools = [{ effect: 'read', label: 'Probe', target: () => '', definition: {
             type: 'function', function: { name: 'ProbeRead', description: 'Read probe.', parameters: { type: 'object', properties: {} } },
-        } }], async execute() { executed++; return { ok: true, status: 'read', data: 7 }; },
+        } }];
+    const remove = h.registry.register({ id: 'probe', label: 'Probe', prompt: '', tools, async open() { return {
+        prompt: '', initial: {}, tools, async execute() { executed++; return { ok: true, status: 'read', data: 7 }; },
     }; } });
     const f = await executorFixture(h);
     await f.call(TOOLS_LOAD, { apps: ['probe'] });

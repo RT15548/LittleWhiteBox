@@ -15,6 +15,12 @@ import { createTaskSettingsRuntime } from './host/settings-runtime.js';
 import { createTasksModule } from './module.js';
 import { TASK_PROMPTS } from './prompt-registration.js';
 import { createTasksManagement } from './management/participant.js';
+import { createTasksService } from './application/service.js';
+import type { PartitionStore } from '../../kernel/contracts.js';
+import type { TaskDomainV1 } from '../../domains/tasks/types.js';
+import type { XiaobaiOsAppModule } from '../../kernel/app-registry.js';
+import { MANAGEMENT_CAPABILITY } from '../../capabilities/management/index.js';
+import { ECONOMY_READ_CAPABILITY } from '../../capabilities/economy/index.js';
 
 export interface ProductionTasksModuleDependencies {
     settings: XiaobaiOsSettingsRepository;
@@ -26,16 +32,18 @@ export interface ProductionTasksModuleDependencies {
     notifyCompletion(notice: TaskCompletionNotice): void;
 }
 
-export function createProductionTasksModule(dependencies: ProductionTasksModuleDependencies) {
-    return createTasksModule({
+export function createProductionTasksModule(dependencies: ProductionTasksModuleDependencies): XiaobaiOsAppModule {
+    const service = {
         getPlayerDisplayName: dependencies.getPlayerDisplayName,
         getEvidenceDigest: () => latestTaskEvidenceDigest(getSillyTavernChatSurface()),
         getStoryLabel: () => getSillyTavernChatSurface()?.assistantName ?? '',
+    };
+    const module = createTasksModule({
+        ...service,
         userTransactions: dependencies.userTransactions,
-        async install({ tasks, store, economy, agent, maintenance, management, mapContext, worldContext, prompts, execution }) {
+        async install({ tasks, store, economy, agent, maintenance, mapContext, worldContext, prompts, execution }) {
             const injection = prompts.register(TASK_PROMPTS);
             execution.addCleanup(injection.dispose);
-            execution.addCleanup(management.register(createTasksManagement(tasks)));
             const unregisterParticipant = maintenance.registerParticipant(createTaskMaintenanceParticipant({
                 tasks,
                 readSettings: () => dependencies.settings.read()?.apps.tasks ?? null,
@@ -97,4 +105,13 @@ export function createProductionTasksModule(dependencies: ProductionTasksModuleD
             };
         },
     });
+    return { ...module, register(context) {
+        const registry = context.useCapability(MANAGEMENT_CAPABILITY);
+        const tasks = createTasksService(context.partition as PartitionStore<TaskDomainV1>, context.files,
+            context.useCapability(ECONOMY_READ_CAPABILITY), { ...service, userTransactions: dependencies.userTransactions() ?? undefined });
+        try {
+            const unregister = registry.register(createTasksManagement(tasks));
+            return () => { unregister(); tasks.dispose(); };
+        } catch (error) { tasks.dispose(); throw error; }
+    } };
 }

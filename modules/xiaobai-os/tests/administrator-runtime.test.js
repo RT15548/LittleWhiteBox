@@ -52,7 +52,7 @@ test('regeneration excludes the target reply, its receipts, later turns and summ
         { role: 'user', content: 'target request' },
     ]);
     const reference = JSON.parse(messages[0].content.slice(messages[0].content.indexOf('\n') + 1));
-    assert.deepEqual(Object.keys(reference).sort(), ['apps', 'environment', 'story', 'unavailable']);
+    assert.deepEqual(Object.keys(reference).sort(), ['apps', 'environment', 'readErrors', 'story']);
     assert.deepEqual(h.conversation.read().turns[1].operations, []);
     assert.deepEqual(h.conversation.read().turns[1].toolMessages, []);
     assert.equal(h.conversation.read().turns[1].assistantPayload, undefined);

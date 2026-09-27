@@ -1,4 +1,4 @@
-import type { ManagementRegistry, ManagementResult, ManagementSession, ManagementTool } from '../../../capabilities/management/index.js';
+import { managementReadError, type ManagementParticipant, type ManagementRegistry, type ManagementResult, type ManagementSession, type ManagementTool } from '../../../capabilities/management/index.js';
 import { MANAGEMENT_READ_CHARS, textPage } from '../../../capabilities/management/read-page.js';
 import { safePromptJson } from '../../../capabilities/maintenance/prompt-safety.js';
 import type { AdministratorOperation } from '../domain/types.js';
@@ -21,24 +21,33 @@ export async function createAdministratorToolExecutor(options: {
     guard(): boolean; onChange(): void; saveReceipts(confirmation?: AdministratorConfirmation): Promise<void>;
 }) {
     const runId = createAdministratorId();
-    const routes = new Map<string, { appId: string; tool: ManagementTool; session: ManagementSession | null }>();
+    const routes = new Map<string, { appId: string; tool: ManagementTool; participant: ManagementParticipant | null }>();
+    const sessions = new Map<string, ManagementSession>();
     const domains: { id: string; label: string; prompt: string; data: unknown; tools: readonly ManagementTool[] }[] = [];
-    const unavailable: { id: string; code: string }[] = [];
+    const readErrors: { id: string; code: string; message: string }[] = [];
     const evidence = createAdministratorToolResults();
     let pending: { id: string; operation: AdministratorOperation; session: ManagementSession; messageIndex: number; confirmation?: AdministratorConfirmation } | null = null;
-    function register(tool: ManagementTool, appId: string, session: ManagementSession | null) {
+    function register(tool: ManagementTool, appId: string, participant: ManagementParticipant | null) {
         const name = tool.definition.function.name;
         if (routes.has(name)) { throw new Error('administrator_duplicate_tool'); }
-        routes.set(name, { appId, tool, session });
+        routes.set(name, { appId, tool, participant });
     }
     for (const participant of options.registry.list()) {
-        let session: ManagementSession;
-        try { session = await participant.open(); }
-        catch { options.reader.assertCurrent(); unavailable.push({ id: participant.id, code: 'management_unavailable' }); continue; }
-        const initial = safePromptJson(session.initial);
-        domains.push({ id: participant.id, label: participant.label, tools: session.tools, prompt: session.prompt,
-            data: initial.length <= MANAGEMENT_READ_CHARS ? session.initial : { ...textPage(initial), detail: ADMINISTRATOR_REFERENCE_TEXT.initialPage } });
-        for (const tool of session.tools) { register(tool, participant.id, session); }
+        let data: unknown;
+        try {
+            const session = await participant.open();
+            sessions.set(participant.id, session);
+            data = session.initial;
+        } catch (error) {
+            options.reader.assertCurrent();
+            const failure = { id: participant.id, ...managementReadError(error) };
+            readErrors.push(failure);
+            data = { error: failure };
+        }
+        const initial = safePromptJson(data);
+        domains.push({ id: participant.id, label: participant.label, tools: participant.tools, prompt: participant.prompt,
+            data: initial.length <= MANAGEMENT_READ_CHARS ? data : { ...textPage(initial), detail: ADMINISTRATOR_REFERENCE_TEXT.initialPage } });
+        for (const tool of participant.tools) { register(tool, participant.id, participant); }
     }
     const common = [...ADMINISTRATOR_CHAT_TOOLS, ADMINISTRATOR_OS_INSPECT, ADMINISTRATOR_RESULT_READ];
     for (const tool of common) { register(tool, ADMINISTRATOR_CHAT_TOOLS.includes(tool) ? 'story' : 'administrator', null); }
@@ -66,7 +75,7 @@ export async function createAdministratorToolExecutor(options: {
     return {
         getTools: loader.getTools,
         prompt: domains.map(domain => domain.prompt).join('\n\n'),
-        data: { environment: inspectEnvironment(), story: options.reader.info, apps: domains.map(({ id, data }) => ({ id, data })), unavailable },
+        data: { environment: inspectEnvironment(), story: options.reader.info, apps: domains.map(({ id, data }) => ({ id, data })), readErrors },
         evidence: evidence.read,
         async confirmSaved() {
             if (!pending) { return; }
@@ -98,9 +107,14 @@ export async function createAdministratorToolExecutor(options: {
                 // Record the attempted write before dispatch, so reload cannot present it as a confirmed success.
                 if (route.tool.effect === 'write') { await options.saveReceipts(); }
                 let result: ManagementResult;
-                if (route.session) {
-                    try { result = await route.session.execute(name, args, options.guard); }
-                    catch (error) { if (route.tool.effect === 'write') { pending = { id, operation, session: route.session, messageIndex }; } throw error; }
+                if (route.participant) {
+                    options.reader.assertCurrent();
+                    let session = sessions.get(route.appId);
+                    if (!session) { session = await route.participant.open(); sessions.set(route.appId, session); }
+                    options.reader.assertCurrent();
+                    try { result = await session.execute(name, args, options.guard); }
+                    catch (error) { if (route.tool.effect === 'write') { pending = { id, operation, session, messageIndex }; } throw error; }
+                    if (route.tool.effect === 'read') { options.reader.assertCurrent(); }
                 } else if (name === TOOLS_LOAD) {
                     options.reader.assertCurrent();
                     result = loader.load(args);
@@ -120,7 +134,7 @@ export async function createAdministratorToolExecutor(options: {
                 operation.summary = String(error instanceof Error ? error.message : error).slice(0, 350);
                 options.onChange();
                 if (route.tool.effect === 'read' && (error as Error).name !== 'AbortError' && (error as Error).message !== 'administrator_context_changed') {
-                    return { ok: false, status: 'failed', code: (error as Error).message, receipt: { ...operation } };
+                    return { ok: false, status: 'failed', code: (error as { code?: string })?.code ?? (error as Error).message, receipt: { ...operation } };
                 }
                 throw error;
             }

@@ -1,6 +1,7 @@
 import type { ManagementTool } from '../../../capabilities/management/index.js';
 import { MANAGEMENT_MAX_PAGE_SIZE, MANAGEMENT_PAGE_SIZE } from '../../../capabilities/management/read-page.js';
 import { taskTools, TASK_MAINTENANCE_TOOL_NAMES as TOOLS } from '../tools/tool-contract.js';
+import { withDocumentRead } from '../../../capabilities/management/document-tools.js';
 
 const WRITE_LABELS: Record<string, string> = {
     [TOOLS.PROGRESS]: '修正任务进展',
@@ -9,7 +10,7 @@ const WRITE_LABELS: Record<string, string> = {
 };
 
 export function createTasksManagementTools(taskTitle: (id: unknown) => string): readonly ManagementTool[] {
-    return [
+    const tools: ManagementTool[] = [
         { effect: 'read', label: '查看任务', target: args => String(args.taskId ?? ''), definition: { type: 'function', function: {
             name: 'TasksRead',
             description: [
@@ -35,4 +36,6 @@ export function createTasksManagementTools(taskTitle: (id: unknown) => string): 
             target: (args: Record<string, unknown>) => taskTitle(args.taskId),
         })),
     ];
+    withDocumentRead(tools[0].definition);
+    return tools;
 }

@@ -150,12 +150,12 @@ test('inspection accepts no selectors and terminates on chat switch or cancellat
     await assert.rejects(during.call(), { message: 'administrator_context_changed' });
 });
 
-test('read failures are explicit and sanitized, while unavailable management differs from missing entry and APP load failure', async () => {
+test('initial record failures preserve the catalog; environment failures remain sanitized and independent', async () => {
     const registry = createManagementRegistry();
-    registry.register({ id: 'world', label: 'World', async open() { throw new Error('private record and URL'); }, confirmPending: forbidden });
+    registry.register({ id: 'world', label: 'World', prompt: '', tools: [], async open() { throw Object.assign(new Error('record read failed'), { code: 'storage_read_failed' }); }, confirmPending: forbidden });
     const h = await executorFixture(registry);
-    assert.deepEqual(h.executor.data.unavailable, [{ id: 'world', code: 'management_unavailable' }]);
-    assert.deepEqual(h.executor.data.apps, []);
+    assert.deepEqual(h.executor.data.readErrors.map(error => ({ id: error.id, code: error.code })), [{ id: 'world', code: 'storage_read_failed' }]);
+    assert.deepEqual(h.executor.data.apps.map(app => app.id), ['world']);
     assert.deepEqual(h.executor.data.environment.data.apps.find(app => app.id === 'wallet').load, { state: 'ready' });
     h.sources.userFile.getFileState = () => { throw new Error('private-storage-location'); };
     const result = await h.call();

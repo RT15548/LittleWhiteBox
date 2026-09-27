@@ -91,6 +91,8 @@ export interface PartitionSnapshot<T> {
 }
 
 export interface ScopedTransaction<T> {
+    /** Owner's stored JSON, including invalid content; undefined means absent. Writes still validate. */
+    readonly rawCurrent: unknown;
     readonly current: T | null;
     currentOrInitial(): T;
     replace(next: T): void;
@@ -133,6 +135,8 @@ export interface PartitionStore<T> {
     peekBinding(): { identityKey: string; osId: string | null } | null;
     peekCurrent(): PartitionSnapshot<T> | null;
     read(): Promise<PartitionSnapshot<T>>;
+    /** Does not validate the owner's content. An absent partition has value undefined. */
+    readRaw(): Promise<PartitionSnapshot<unknown>>;
     transact<R>(
         command: (context: ScopedTransaction<T>) => R | Promise<R>,
         options?: TransactionOptions,

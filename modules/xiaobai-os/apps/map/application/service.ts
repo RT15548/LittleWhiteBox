@@ -5,9 +5,11 @@ import type {
 } from '../../../kernel/contracts.js';
 import type { TransactionCoordinator } from '../../../kernel/transaction-coordinator.js';
 import { jsonValuesEqual } from '../../../host/json-values-equal.js';
-import { parseMapDomain } from '../../../domains/map/invariants.js';
+import { isMapRevision, parseMapDomain } from '../../../domains/map/invariants.js';
 import { createEmptyMapDomain } from '../../../domains/map/state.js';
 import type { MapDomainV1 } from '../../../domains/map/types.js';
+import { createPartitionDocument, type PartitionDocument } from '../../../kernel/partition-document.js';
+import { MAP_PARTITION } from '../partition.js';
 
 export interface MapServiceView {
     map: MapDomainV1 | null;
@@ -20,6 +22,7 @@ export interface MapMutationOptions {
 }
 
 export interface MapService {
+    document: PartitionDocument;
     readCurrent(): MapServiceView;
     refreshCurrent(): Promise<MapServiceView>;
     replaceCurrent(candidate: unknown, options: MapMutationOptions): Promise<MapServiceView>;
@@ -107,6 +110,11 @@ export function createMapService(
     }
 
     return Object.freeze({
+        document: createPartitionDocument(store, MAP_PARTITION, (value, previous) => {
+            const revision = previous !== null && typeof previous === 'object' && 'revision' in previous ? previous.revision : undefined;
+            // Keep an existing valid counter; a damaged counter comes from the validated correction.
+            return { ...value, revision: (isMapRevision(revision) ? revision : value.revision) + 1 };
+        }),
         readCurrent: () => buildView(),
         refreshCurrent,
         replaceCurrent,

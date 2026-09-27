@@ -8,6 +8,11 @@ import { createMapSettingsRuntime } from './host/settings-runtime.js';
 import { createMapModule } from './module.js';
 import { MAP_PROMPTS } from './prompt-registration.js';
 import { createMapManagement } from './management/participant.js';
+import { createMapService } from './application/service.js';
+import type { PartitionStore } from '../../kernel/contracts.js';
+import type { MapDomainV1 } from '../../domains/map/types.js';
+import type { XiaobaiOsAppModule } from '../../kernel/app-registry.js';
+import { MANAGEMENT_CAPABILITY } from '../../capabilities/management/index.js';
 
 export interface ProductionMapModuleDependencies {
     settings: XiaobaiOsSettingsRepository;
@@ -16,12 +21,11 @@ export interface ProductionMapModuleDependencies {
     subscribePrompt(handlers: MapPromptEventHandlers): () => void;
 }
 
-export function createProductionMapModule(dependencies: ProductionMapModuleDependencies) {
-    return createMapModule({
-        async install({ map, maintenance, management, prompts, execution }) {
+export function createProductionMapModule(dependencies: ProductionMapModuleDependencies): XiaobaiOsAppModule {
+    const module = createMapModule({
+        async install({ map, maintenance, prompts, execution }) {
             const injection = prompts.register(MAP_PROMPTS);
             execution.addCleanup(injection.dispose);
-            execution.addCleanup(management.register(createMapManagement(map, () => ({ actorKey: 'player', displayName: dependencies.getPlayerDisplayName() }))));
             const unregisterParticipant = maintenance.registerParticipant(createMapMaintenanceParticipant({
                 map,
                 readSettings: () => dependencies.settings.read()?.apps.map ?? null,
@@ -47,4 +51,12 @@ export function createProductionMapModule(dependencies: ProductionMapModuleDepen
         },
         async dispose(runtime) { await runtime.stopBackground?.(); },
     });
+    return { ...module, register(context) {
+        const registry = context.useCapability(MANAGEMENT_CAPABILITY);
+        const map = createMapService(context.partition as PartitionStore<MapDomainV1>, context.files);
+        try {
+            const unregister = registry.register(createMapManagement(map, () => ({ actorKey: 'player', displayName: dependencies.getPlayerDisplayName() })));
+            return () => { unregister(); map.dispose(); };
+        } catch (error) { map.dispose(); throw error; }
+    } };
 }

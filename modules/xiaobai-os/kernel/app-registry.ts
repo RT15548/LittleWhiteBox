@@ -31,12 +31,16 @@ export interface AppInstallContext {
     filesFor(registration: PartitionRegistration<unknown>): XiaobaiOsFileControls;
 }
 
+export type AppRegistrationContext = Omit<AppInstallContext, 'execution'>;
+
 export interface XiaobaiOsAppModule {
     descriptor: Readonly<XiaobaiOsAppDescriptor>;
     partition?: PartitionRegistration<unknown>;
     additionalPartitions?: readonly PartitionRegistration<unknown>[];
     fileScope?: 'user';
     capabilities: readonly CapabilityToken<unknown>[];
+    /** Lightweight contributions live until registry disposal, independently of the UI runtime. */
+    register?(context: AppRegistrationContext): () => void;
     install(context: AppInstallContext): Promise<XiaobaiOsAppRuntime>;
     dispose?(runtime: XiaobaiOsAppRuntime): Promise<void>;
     clearData?(context: AppDataCleanupContext): Promise<void>;
@@ -82,6 +86,7 @@ interface InstalledApp {
     installQueue: Promise<void>;
     releaseQueue: Promise<unknown[]>;
     generation: number;
+    unregister: (() => void) | null;
 }
 
 function appFailure(phase: AppFailurePhase, error: unknown): AppFailure {
@@ -133,6 +138,7 @@ export function createAppModuleRegistry(
             installQueue: Promise.resolve(),
             releaseQueue: Promise.resolve([]),
             generation: 0,
+            unregister: null,
         });
         descriptors.push(Object.freeze({ ...module.descriptor }));
     }
@@ -175,8 +181,8 @@ export function createAppModuleRegistry(
         let phase: AppFailurePhase = 'dependency';
         publish(appId, { state: 'loading', phase });
         try {
-            const allowed = new Map(app.module.capabilities.map(token => [token.id, token] as const));
-            const resolved = new Map<string, unknown>();
+            const context = registrationContext(app);
+            if (app.module.register && !app.unregister) { app.unregister = app.module.register(context); }
             for (const token of app.module.capabilities) {
                 if (!options.hasCapability(token)) {
                     throw Object.assign(new Error(`capability is not registered: ${token.id}`), {
@@ -194,44 +200,14 @@ export function createAppModuleRegistry(
                 void releaseApp(app, 'app-background-failed');
             });
             app.execution = execution;
-            let partition: PartitionStore<unknown> | null = null;
             if (app.module.partition) {
                 phase = 'partition';
                 publish(appId, { state: 'loading', phase });
-                partition = options.createStore(app.module.partition, app.module.capabilities);
             }
+            const installContext = { ...context, execution };
             phase = 'install';
             publish(appId, { state: 'loading', phase });
-            const runtime = await app.module.install({
-                ownerId: appId,
-                partition,
-                execution,
-                files: options.filesFor?.(app.module.partition, app.module.fileScope) ?? options.files,
-                storeFor<T>(registration: PartitionRegistration<T>): PartitionStore<T> {
-                    if (registration.ownerId !== appId || !app.module.additionalPartitions?.includes(registration)) {
-                        throw new Error('App partition access was not declared');
-                    }
-                    return options.createStore(registration, app.module.capabilities) as PartitionStore<T>;
-                },
-                filesFor(registration) {
-                    if (registration.ownerId !== appId || !app.module.additionalPartitions?.includes(registration)) {
-                        throw new Error('App partition access was not declared');
-                    }
-                    return options.filesFor?.(registration) ?? options.files;
-                },
-                useCapability<C>(token: CapabilityToken<C>): C {
-                    if (!allowed.has(token.id)) {
-                        throw Object.assign(new Error(`${appId} did not declare capability ${token.id}`), {
-                            code: 'capability_not_authorized',
-                            retryable: false,
-                        });
-                    }
-                    if (!resolved.has(token.id)) {
-                        resolved.set(token.id, options.requireCapability(token));
-                    }
-                    return resolved.get(token.id) as C;
-                },
-            });
+            const runtime = await app.module.install(installContext);
             if (backgroundFailure !== noFailure) {
                 app.runtime = runtime;
                 await releaseApp(app, 'app-background-failed');
@@ -248,6 +224,30 @@ export function createAppModuleRegistry(
             await releaseApp(app, 'app-install-failed');
             publish(appId, { state: 'failed', failure: appFailure(phase, error) });
         }
+    }
+
+    function registrationContext(app: InstalledApp): AppRegistrationContext {
+        const module = app.module;
+        const appId = module.descriptor.id;
+        return {
+            ownerId: appId,
+            get partition() { return module.partition ? options.createStore(module.partition, module.capabilities) : null; },
+            get files() { return options.filesFor?.(module.partition, module.fileScope) ?? options.files; },
+            storeFor<T>(registration: PartitionRegistration<T>) {
+                if (registration.ownerId !== appId || !module.additionalPartitions?.includes(registration)) { throw new Error('App partition access was not declared'); }
+                return options.createStore(registration, module.capabilities) as PartitionStore<T>;
+            },
+            filesFor(registration) {
+                if (registration.ownerId !== appId || !module.additionalPartitions?.includes(registration)) { throw new Error('App partition access was not declared'); }
+                return options.filesFor?.(registration) ?? options.files;
+            },
+            useCapability<C>(token: CapabilityToken<C>): C {
+                if (!module.capabilities.some(allowed => allowed.id === token.id)) {
+                    throw Object.assign(new Error(`${appId} did not declare capability ${token.id}`), { code: 'capability_not_authorized', retryable: false });
+                }
+                return options.requireCapability(token);
+            },
+        };
     }
 
     function enqueueInstall(appId: string): Promise<void> {
@@ -334,7 +334,7 @@ export function createAppModuleRegistry(
         operation: (runtime: XiaobaiOsAppRuntime) => void | Promise<void>,
     ): Promise<void> {
         const targets = [...apps.entries()].filter(([, app]) => app.runtime !== null);
-        const results = await Promise.allSettled(targets.map(([, app]) => operation(app.runtime as XiaobaiOsAppRuntime)));
+        const results = await Promise.allSettled(targets.map(async ([, app]) => operation(app.runtime as XiaobaiOsAppRuntime)));
         const cleanups: Promise<unknown[]>[] = [];
         results.forEach((result, index) => {
             if (result.status !== 'rejected') { return; }
@@ -372,6 +372,8 @@ export function createAppModuleRegistry(
         const results = await Promise.allSettled([...apps.values()].map(async (app) => {
             app.generation += 1;
             const errors = await releaseApp(app, 'app-registry-disposed');
+            try { app.unregister?.(); } catch (error) { errors.push(error); }
+            app.unregister = null;
             if (errors.length > 0) { throw new AggregateError(errors, `app ${app.module.descriptor.id} disposal failed`); }
         }));
         const errors = results

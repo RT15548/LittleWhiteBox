@@ -37,10 +37,19 @@ export function preparePartitionCommand<T>(options: {
             replacements.set(target.key, serializeRegisteredPartition(target, value));
         },
     };
-    const current = access.readPartition(registration);
+    let current: T | null;
+    let hasCurrent = false;
+    const readCurrent = () => {
+        if (!hasCurrent) { current = access.readPartition(registration); hasCurrent = true; }
+        return current;
+    };
     const context: ScopedTransaction<T> = {
-        current,
-        currentOrInitial: () => current === null ? createRegisteredPartitionInitial(registration) : cloneJsonValue(current),
+        get rawCurrent() { return structuredClone(options.readRaw(registration)); },
+        get current() { return readCurrent(); },
+        currentOrInitial() {
+            const value = readCurrent();
+            return value === null ? createRegisteredPartitionInitial(registration) : cloneJsonValue(value);
+        },
         replace: next => access.replacePartition(registration, next),
         useCapability<C>(token: CapabilityToken<C>): C {
             if (!allowed.has(token.id)) {

@@ -320,8 +320,8 @@ export function createTransactionCoordinator(options: TransactionCoordinatorOpti
 
     async function readForStore<T>(
         requested: CapturedChatBinding,
-        registration: PartitionRegistration<T>,
-    ): Promise<PartitionSnapshot<T>> {
+        project: (envelope: XiaobaiOsSidecarV1 | null) => T,
+    ): Promise<T> {
         return await enqueue(async () => {
             await assertCurrent(requested);
             const frozenState = stateFor(requested);
@@ -339,7 +339,7 @@ export function createTransactionCoordinator(options: TransactionCoordinatorOpti
                 if (!isFrozen) { setState(requested.identityKey, 'failed', failure); }
                 throw error;
             }
-            return snapshotFromEnvelope(registration, requested.identityKey, envelope);
+            return project(envelope);
         });
     }
 
@@ -441,7 +441,17 @@ export function createTransactionCoordinator(options: TransactionCoordinatorOpti
         }
 
         async function read(): Promise<PartitionSnapshot<T>> {
-            return await readForStore(await captureForOperation(), registration);
+            const requested = await captureForOperation();
+            return readForStore(requested, envelope => snapshotFromEnvelope(registration, requested.identityKey, envelope));
+        }
+
+        async function readRaw(): Promise<PartitionSnapshot<unknown>> {
+            const requested = await captureForOperation();
+            return readForStore(requested, envelope => ({
+                identityKey: requested.identityKey, osId: envelope?.osId ?? null,
+                envelopeRevision: envelope?.revision ?? null,
+                value: structuredClone(envelope?.partitions[registration.key]),
+            }));
         }
 
         async function transact<R>(
@@ -609,7 +619,7 @@ export function createTransactionCoordinator(options: TransactionCoordinatorOpti
             };
         }
 
-        return Object.freeze({ peekBinding, peekCurrent, read, transact, subscribe });
+        return Object.freeze({ peekBinding, peekCurrent, read, readRaw, transact, subscribe });
     }
 
     async function refresh(): Promise<void> {

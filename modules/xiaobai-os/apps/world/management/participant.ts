@@ -4,30 +4,36 @@ import { editWorld } from '../../../domains/world/edit.js';
 import { worldContent } from '../../../domains/world/projection.js';
 import type { WorldService } from '../application/service.js';
 import { createManagementSave } from '../../../capabilities/management/save.js';
-import { sameWorldContent } from '../../../domains/world/types.js';
+import { sameWorldContent, type WorldContent } from '../../../domains/world/types.js';
 import { jsonValuesEqual } from '../../../host/json-values-equal.js';
 import { WORLD_MANAGEMENT_PROMPT } from './prompt.js';
 import { createWorldManagementTools } from './tool-contract.js';
+import { createManagementDocument } from '../../../capabilities/management/document.js';
 
 export function createWorldManagement(world: WorldService): ManagementParticipant {
-    return { id: 'world', label: '世界', confirmPending: world.confirmPending,
+    const tools = createWorldManagementTools();
+    return { id: 'world', label: '世界', prompt: WORLD_MANAGEMENT_PROMPT, tools, confirmPending: world.confirmPending,
         async open() {
-            await world.refreshCurrent();
-            let view = world.readCurrent();
-            let expected = worldContent(view.world);
-            let overviewRead = expected.overview;
-            const articlesRead = new Map(expected.news.map(article => [article.id, article]));
+            const inspection = await world.document.read();
+            const initial = inspection.validation.valid ? worldContent(world.readCurrent().world) : null;
+            let overviewRead = initial?.overview;
+            const articlesRead = new Map(initial?.news.map(article => [article.id, article]) ?? []);
             const saving = createManagementSave(world.confirmPending);
-            const projection = () => ({ overview: expected.overview, news: expected.news.map(n => ({ id: n.id, title: n.title })) });
+            const document = createManagementDocument(world.document, saving, world.document);
+            const projection = (content: WorldContent) => ({ overview: content.overview, news: content.news.map(n => ({ id: n.id, title: n.title })) });
             return {
                 recover: saving.recover,
                 confirmSaved: saving.confirmSaved,
                 prompt: WORLD_MANAGEMENT_PROMPT,
-                initial: projection(),
-                tools: createWorldManagementTools(),
+                initial: initial ? projection(initial) : (await document.read({})).data,
+                tools,
                 async execute(name, args, guard) {
+                    if (name === 'WorldRead' && args.mode === 'document') { return document.read(args); }
+                    if (name === 'WorldEdit' && Object.hasOwn(args, 'patches')) { return document.edit(args, guard); }
                     if (name === 'WorldRead') {
-                        await world.refreshCurrent(); view = world.readCurrent(); expected = worldContent(view.world);
+                        const inspected = await world.document.read();
+                        if (!inspected.validation.valid) { return document.read({}); }
+                        const expected = worldContent(world.readCurrent().world);
                         if (args.id) {
                             const id = String(args.id), article = expected.news.find(n => n.id === id);
                             if (Number(args.offset ?? 0) > 0 && !jsonValuesEqual(articlesRead.get(id) ?? null, article ?? null)) { throw new Error('management_request_superseded'); }
@@ -36,10 +42,10 @@ export function createWorldManagement(world: WorldService): ManagementParticipan
                             if (Number(args.offset ?? 0) > 0 && overviewRead !== expected.overview) { throw new Error('management_request_superseded'); }
                             overviewRead = expected.overview;
                         }
-                        return { ok: true, status: 'read', data: textPage(JSON.stringify(args.id ? expected.news.find(n => n.id === args.id) ?? null : projection()), args.offset) };
+                        return { ok: true, status: 'read', data: textPage(JSON.stringify(args.id ? expected.news.find(n => n.id === args.id) ?? null : projection(expected)), args.offset) };
                     }
                     if (name !== 'WorldEdit') { throw new Error('management_tool_unknown'); }
-                    await world.refreshCurrent(); view = world.readCurrent(); expected = worldContent(view.world);
+                    const view = await world.refreshCurrent(); let expected = worldContent(view.world);
                     const edit = editWorld(expected, args);
                     if (!edit.ok) { return { ok: false, status: 'failed', data: { errors: edit.errors } }; }
                     if (!edit.changed) { return { ok: true, status: 'unchanged' }; }
@@ -56,14 +62,14 @@ export function createWorldManagement(world: WorldService): ManagementParticipan
                             const article = expected.news.find(n => n.id === id);
                             if (article) { articlesRead.set(id, article); } else { articlesRead.delete(id); }
                         }
-                        return { ok: true, status: 'saved' as const, data: projection() };
+                        return { ok: true, status: 'saved' as const, data: projection(expected) };
                     };
                     return saving.run(async commitGuard => {
-                        view = await world.replaceContent(identity, before, edit.data, commitGuard);
-                        expected = worldContent(view.world);
+                        const saved = await world.replaceContent(identity, before, edit.data, commitGuard);
+                        expected = worldContent(saved.world);
                         return result();
                     }, async () => {
-                        await world.refreshCurrent(); view = world.readCurrent(); expected = worldContent(view.world);
+                        expected = worldContent((await world.refreshCurrent()).world);
                         if (sameWorldContent(expected, edit.data)) { return { status: 'confirmed', result: result() }; }
                         return { status: sameWorldContent(expected, before) ? 'unchanged' : 'superseded' };
                     }, guard);

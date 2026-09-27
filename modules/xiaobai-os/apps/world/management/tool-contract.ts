@@ -1,9 +1,10 @@
 import type { ManagementTool } from '../../../capabilities/management/index.js';
 import { MANAGEMENT_READ_CHARS } from '../../../capabilities/management/read-page.js';
 import { worldEditTool } from '../tools/tool-contract.js';
+import { withDocumentEdit, withDocumentRead } from '../../../capabilities/management/document-tools.js';
 
 export function createWorldManagementTools(): readonly ManagementTool[] {
-    return [
+    const tools: ManagementTool[] = [
         { effect: 'read', label: '查看世界记录', target: args => String(args.id ?? ''), definition: { type: 'function', function: {
             name: 'WorldRead',
             description: [
@@ -21,4 +22,7 @@ export function createWorldManagementTools(): readonly ManagementTool[] {
             'A saved result includes data:{overview,news:[{id,title}]}; unchanged has no data; failed includes data:{errors:[{path,message}]}.',
         ].join('\n')) as ManagementTool['definition'] },
     ];
+    withDocumentRead(tools[0].definition);
+    withDocumentEdit(tools[1].definition);
+    return tools;
 }

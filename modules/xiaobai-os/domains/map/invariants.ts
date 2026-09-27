@@ -431,6 +431,10 @@ function validateReferences(
     }
 }
 
+export function isMapRevision(value: unknown): value is number {
+    return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
 /** Validates the serialized V1 shape and all cross-Atlas/Scene invariants. */
 export function validateMapDomain(value: unknown, path = 'domains.map'): asserts value is MapDomainV1 {
     const root = requireRecord(value, path);
@@ -438,7 +442,7 @@ export function validateMapDomain(value: unknown, path = 'domains.map'): asserts
     if (root.schemaVersion !== MAP_DOMAIN_SCHEMA_VERSION) {
         fail('map_unsupported_version', `${path}.schemaVersion`, 'is unsupported');
     }
-    if (!Number.isSafeInteger(root.revision) || Number(root.revision) < 0) {
+    if (!isMapRevision(root.revision)) {
         fail('map_invalid_domain', `${path}.revision`, 'must be a non-negative safe integer');
     }
 

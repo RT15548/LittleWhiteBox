@@ -2,6 +2,8 @@ import type { PartitionStore, XiaobaiOsFileControls, XiaobaiOsFileState } from '
 import { parseWorld, parseWorldContent } from '../../../domains/world/invariants.js';
 import { worldContent } from '../../../domains/world/projection.js';
 import { createEmptyWorld, sameWorldContent, type WorldContent, type WorldDomain } from '../../../domains/world/types.js';
+import { createPartitionDocument } from '../../../kernel/partition-document.js';
+import { WORLD_PARTITION } from '../partition.js';
 
 export interface WorldView {
     /** Sidecar binding key; character owners use the avatar filename, not the UI index. */
@@ -52,6 +54,7 @@ export function createWorldService(
     }
 
     return Object.freeze({
+        document: createPartitionDocument(store, WORLD_PARTITION),
         readCurrent,
         async refreshCurrent() { await store.read(); return readCurrent(); },
         replaceContent(identityKey: string, expected: WorldContent, candidate: WorldContent, guard: () => boolean) {

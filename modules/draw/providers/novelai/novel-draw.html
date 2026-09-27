@@ -8,6 +8,7 @@
 <title>Novel Draw</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 <link rel="stylesheet" href="../../shared/agent-settings-surface.css">
+<script type="module" src="../../shared/draw-usage.js"></script>
 
 <!-- ═══════════════════════════════════════════════════════════════════════════
      样式
@@ -717,7 +718,7 @@ select.input { cursor: pointer; }
                 <div class="tip-box">
                     <i class="fa-solid fa-lightbulb"></i>
                     <div class="tip-text">
-                        <div>消息楼层按钮的 🎨 为对应消息生成配图。</div>
+                        <div data-draw-usage></div>
                         <div>悬浮按钮的 🎨 仅作用于最后一条AI消息。</div>
                         <div>开启自动模式后，AI回复时会自动配图。</div>
                     </div>

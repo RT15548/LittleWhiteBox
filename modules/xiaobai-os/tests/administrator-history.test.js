@@ -84,8 +84,9 @@ test('saving a completed tool result fails closed and confirmation only persists
 
 test('cancelling a tool batch retains paired completed, uncertain and undispatched results without replaying execution on reload', async () => {
     const h = await administratorHarness(); const executions = [];
-    h.registry.register({ id: 'probe', label: 'Probe', async open() { return {
-        prompt: '', initial: {}, tools: [{ effect: 'read', label: 'probe', target: () => '', definition: { type: 'function', function: { name: 'Probe', parameters: {} } } }],
+    const tools = [{ effect: 'read', label: 'probe', target: () => '', definition: { type: 'function', function: { name: 'Probe', parameters: {} } } }];
+    h.registry.register({ id: 'probe', label: 'Probe', prompt: '', tools, async open() { return {
+        prompt: '', initial: {}, tools,
         async execute(_, args) {
             executions.push(args.step);
             if (args.step === 2) { await h.request('stop'); throw new DOMException('cancelled', 'AbortError'); }

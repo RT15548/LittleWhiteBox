@@ -1,6 +1,7 @@
 import type { ManagementTool } from '../../../capabilities/management/index.js';
 import { MANAGEMENT_PAGE_SIZE, MANAGEMENT_READ_CHARS } from '../../../capabilities/management/read-page.js';
 import { mapTools, MAP_MAINTENANCE_TOOL_NAMES as TOOLS, MAP_SCENE_READ_DESCRIPTION } from '../tools/tool-contract.js';
+import { withDocumentEdit, withDocumentRead } from '../../../capabilities/management/document-tools.js';
 
 const LABELS: Record<string, string> = {
     [TOOLS.ATLAS_READ]: '查看图册',
@@ -36,6 +37,8 @@ export function createMapManagementTools(): readonly ManagementTool[] {
                 'Continue with nextOffset while it is not null.',
             ].join('\n');
         }
+        if (name === TOOLS.ATLAS_READ) { withDocumentRead(definition); }
+        if (name === TOOLS.ATLAS_EDIT) { withDocumentEdit(definition); }
         return {
             definition,
             effect: name.endsWith('Read') ? 'read' : 'write',

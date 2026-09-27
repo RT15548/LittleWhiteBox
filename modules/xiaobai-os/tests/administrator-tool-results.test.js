@@ -64,14 +64,15 @@ test('result continuation keeps one reference and cursor while reconstructing HT
 test('continuing a near-budget result does not evict its source; details expire with that source', async () => {
     const registry = createManagementRegistry();
     const result = { ok: true, status: 'read', data: '原'.repeat(ADMINISTRATOR_POLICY.evidenceChars - 1000) };
+    const tools = [{ effect: 'read', label: 'Read', target: () => '', definition: { type: 'function', function: {
+        name: 'LargeRead', description: '', parameters: { type: 'object', properties: {} },
+    } } }];
     registry.register({
-        id: 'fixture', label: 'Fixture',
+        id: 'fixture', label: 'Fixture', prompt: '', tools,
         async open() {
             return {
                 prompt: '', initial: {},
-                tools: [{ effect: 'read', label: 'Read', target: () => '', definition: { type: 'function', function: {
-                    name: 'LargeRead', description: '', parameters: { type: 'object', properties: {} },
-                } } }],
+                tools,
                 async execute() { return result; },
             };
         },
