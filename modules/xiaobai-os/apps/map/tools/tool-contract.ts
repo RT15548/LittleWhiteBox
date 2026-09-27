@@ -37,7 +37,11 @@ const mood = ['neutral', 'warm', 'cold', 'dark', 'mystic', 'danger', 'calm'];
 
 const objectGuidance = MAP_OBJECT_GROUPS.map(group => `${group.name}: ${group.icons.join(', ')}. ${group.hint}`.trim()).join('\n');
 
-const EDIT_ITEM_REPORTS = 'applied and skipped identify edits by index, id and, when available, collection. applied may include changed; skipped includes reason and hint. warnings lists additional notices.';
+const EDIT_ITEM_REPORTS = [
+    'applied and skipped identify edits by index, id and, when available, collection. applied may include changed; skipped includes reason and hint. warnings lists additional notices.',
+    'inputIssues, when present on a skipped edit, lists invalid arguments as {code,path,message,expected}. These paths refer to this tool call. An explicitly requested shape is kept; incompatible geometry is rejected rather than replaced by a different shape.',
+    'A skipped edit may include validation:{issues:[{code,path,message}],unchecked}. Issues refer to the candidate map document; unchecked lists branches or reference checks that require valid structure first. Correct the reported issues together. A related location group shares one validation report on its first skipped entry.',
+].join('\n');
 const READ_REPORT = 'Returns {ok,status,changed,applied,skipped,warnings,data}. A successful read has status unchanged and changed false; it does not edit the draft.';
 
 export const MAP_SCENE_READ_DESCRIPTION = [

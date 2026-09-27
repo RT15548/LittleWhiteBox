@@ -12,6 +12,7 @@ import { ADMINISTRATOR_OS_INSPECT, OS_INSPECT } from './os-tools.js';
 import { ADMINISTRATOR_RESULT_READ, TOOL_RESULT_READ } from './result-tools.js';
 import { createAdministratorToolLoader, TOOLS_LOAD, TOOL_NOT_LOADED } from './tool-loader.js';
 import { ADMINISTRATOR_REFERENCE_TEXT } from './reference-data.js';
+import { requireToolArgumentsObject, ToolArgumentsError } from '../../../capabilities/agent/tool-arguments.js';
 
 type Reader = ReturnType<typeof createAdministratorChatReader>;
 export interface AdministratorConfirmation { messageIndex: number; result: ManagementResult & { receipt: AdministratorOperation } }
@@ -91,8 +92,12 @@ export async function createAdministratorToolExecutor(options: {
             const route = routes.get(name);
             if (!route) { return { ok: false, status: 'failed', code: 'tool_unavailable' }; }
             if (!loader.getTools().some(tool => tool.function.name === name)) { return TOOL_NOT_LOADED; }
-            if (!raw || typeof raw !== 'object' || Array.isArray(raw)) { return { ok: false, status: 'failed', code: 'arguments_must_be_object' }; }
-            const args = raw as Record<string, unknown>;
+            let args: Record<string, unknown>;
+            try { args = requireToolArgumentsObject(raw); }
+            catch (error) {
+                if (!(error instanceof ToolArgumentsError)) { throw error; }
+                return error.result();
+            }
             if (name === OS_INSPECT && Object.keys(args).length) { return { ok: false, status: 'failed', code: 'arguments_must_be_empty' }; }
             if (route.tool.effect === 'write' && !options.reader.isCurrent()) {
                 return { ok: false, status: 'failed', code: 'story_evidence_changed', floors: options.reader.staleFloors() };

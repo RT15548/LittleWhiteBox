@@ -116,7 +116,7 @@ test('maintenance keeps task data untrusted, escapes boundaries, and exposes onl
     assert.equal(TASK_MAINTENANCE_TOOLS[1].function.parameters.properties.resultSummary.maxLength, MAX_TASK_RESULT_SUMMARY_LENGTH);
 });
 
-test('session stages one changed intent per task, preserves its action id, and commits the frozen batch once', async () => {
+test('session revises a pending decision, preserves its action id, and commits the final decision once', async () => {
     const harness = createHarness();
     const session = harness.participant.createSession(source(), 'manual');
     const noOp = session.executeTool(TASK_MAINTENANCE_TOOL_NAMES.PROGRESS, {
@@ -125,6 +125,9 @@ test('session stages one changed intent per task, preserves its action id, and c
     assert.equal(noOp.status, 'unchanged');
     assert.equal(harness.state.actionIds, 0);
 
+    assert.equal(session.executeTool(TASK_MAINTENANCE_TOOL_NAMES.PROGRESS, {
+        taskId: 'task-1', revision: 2, progressSummary: '已交信，正在签收',
+    }).status, 'updated');
     const completed = session.executeTool(TASK_MAINTENANCE_TOOL_NAMES.COMPLETE, {
         taskId: 'task-1', revision: 2, resultSummary: '伊莱已接过未拆封的信',
     });
@@ -133,10 +136,7 @@ test('session stages one changed intent per task, preserves its action id, and c
     assert.equal(session.executeTool(TASK_MAINTENANCE_TOOL_NAMES.COMPLETE, {
         taskId: 'task-1', revision: 2, resultSummary: '伊莱已接过未拆封的信',
     }).status, 'unchanged');
-    assert.equal(session.executeTool(TASK_MAINTENANCE_TOOL_NAMES.FAIL, {
-        taskId: 'task-1', revision: 2, resultSummary: '错误的第二意图',
-    }).skipped[0].reason, 'task_command_already_staged');
-    assert.equal(session.getResult().status, 'partial');
+    assert.equal(session.getResult().status, 'updated');
 
     await session.commit(() => true, { completed: false });
     assert.equal(harness.state.commits.length, 1);
@@ -153,6 +153,19 @@ test('session stages one changed intent per task, preserves its action id, and c
         evidenceDigest: taskEvidenceDigest(source(), harness.state.surface),
     });
     await assert.rejects(session.commit(() => true, { completed: false }), /tasks_maintenance_session_committed/);
+});
+
+test('task errors report independent fields together and a valid retry can withdraw an unsaved decision', async () => {
+    const h = createHarness();
+    const session = h.participant.createSession(source(), 'manual');
+    const bad = session.executeTool('TaskComplete', { taskId: 'task-1', revision: 99, resultSummary: '', extra: true });
+    assert.deepEqual(new Set(bad.skipped[0].issues.map(issue => issue.path)), new Set(['revision', 'resultSummary', 'extra']));
+    assert.equal(h.state.actionIds, 0);
+    assert.equal(session.executeTool('TaskComplete', { taskId: 'task-1', revision: 2, resultSummary: '已签收' }).ok, true);
+    assert.equal(session.executeTool('TaskProgress', { taskId: 'task-1', revision: 2, progressSummary: '已找到伊莱，仍需交信' }).changed, true);
+    assert.equal(session.getResult().status, 'unchanged');
+    await session.commit(() => true, { completed: true });
+    assert.deepEqual(h.state.commits[0].commands, []);
 });
 
 test('invalid tool arguments never allocate an action id or create commit work', () => {

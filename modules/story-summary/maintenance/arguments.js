@@ -1,4 +1,5 @@
 import { MemoryMaintenanceError } from './errors.js';
+import { collectToolInputIssues } from '../../agent-core/runtime/tool-input-validation.js';
 
 // Model/API argument formatting, not data migration. Business text and record IDs
 // remain exact; only schema-unambiguous scalars and single-item lists are repaired.
@@ -32,32 +33,12 @@ export function normalizeToolArguments(value, schema) {
 
 // Validate the same schema the model receives, including nested patch fields.
 export function validateToolArguments(value, schema, field = '') {
-    const expectedShape = schema.enum || Object.fromEntries(['type', 'minimum', 'maximum', 'maxItems', 'maxLength']
-        .filter(key => schema[key] !== undefined).map(key => [key, schema[key]]));
-    const fail = (code = 'invalid_arguments', path = field || 'arguments', expected = expectedShape) => {
-        const error = new MemoryMaintenanceError(code, '', path);
-        error.expected = expected;
-        throw error;
-    };
-    if (schema.anyOf) {
-        const candidate = schema.anyOf.find(item => item.properties.collection.enum.includes(value?.collection));
-        if (!candidate) fail('invalid_arguments', `${field}.collection`, schema.anyOf.flatMap(item => item.properties.collection.enum));
-        return validateToolArguments(value, candidate, field);
-    }
-    if (schema.type === 'object') {
-        if (!value || typeof value !== 'object' || Array.isArray(value)) fail();
-        for (const key of schema.required || []) if (!Object.hasOwn(value, key)) fail('invalid_arguments', field ? `${field}.${key}` : key, schema.properties[key].type);
-        for (const [key, item] of Object.entries(value)) {
-            const path = field ? `${field}.${key}` : key;
-            if (!Object.hasOwn(schema.properties, key)) fail('invalid_field', path, Object.keys(schema.properties));
-            validateToolArguments(item, schema.properties[key], path);
-        }
-    } else if (schema.type === 'array') {
-        if (!Array.isArray(value) || (schema.maxItems != null && value.length > schema.maxItems)) fail();
-        value.forEach((item, index) => validateToolArguments(item, schema.items, `${field}[${index}]`));
-    } else if (schema.type === 'integer') {
-        if (!Number.isInteger(value) || value < (schema.minimum ?? -Infinity) || value > (schema.maximum ?? Infinity)) fail();
-    } else if (typeof value !== schema.type) fail();
-    if (schema.enum && !schema.enum.includes(value)) fail();
-    if (schema.maxLength != null && value.length > schema.maxLength) fail();
+    const issues = collectToolInputIssues(value, schema, field);
+    if (!issues.length) return;
+    const errors = issues.map(issue => {
+        const error = new MemoryMaintenanceError(issue.code === 'unknown_field' ? 'invalid_field' : 'invalid_arguments', '', issue.path);
+        error.expected = issue.expected;
+        return error;
+    });
+    throw MemoryMaintenanceError.batch(errors, ['records', 'references']);
 }

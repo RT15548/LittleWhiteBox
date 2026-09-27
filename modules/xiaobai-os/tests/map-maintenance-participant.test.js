@@ -151,17 +151,17 @@ test('indoor and outdoor first-map fixtures create observable scenes and use the
     assert.equal(second.scenes['Forest Road'].elements.some(element => element.actorKey === 'player'), true);
 });
 
-test('scene intent tolerates inference and pollution, saves valid siblings, and clears a skipped id after repair', async () => {
+test('scene intent infers omitted shapes, saves valid siblings, and clears a skipped id after repair', async () => {
     const harness = createHarness(mapAtlasFixture([{ key: 'Courtyard' }]));
     const session = await harness.participant.createSession(acceptedSource(), 'manual');
     const mixed = await session.executeTool(MAP_MAINTENANCE_TOOL_NAMES.SCENE_EDIT, {
         scene: 'Courtyard',
         playerHere: true,
         elements: [
-            { id: 'yard', cat: 'ground', geo: { center: [100, 80], size: [160, 100], points: [], curve: [], radius: 0 } },
-            { id: 'brook', cat: 'water', shape: 'curve', geo: { curve: [[0, 50], [200, 60]], points: [] } },
+            { id: 'yard', cat: 'ground', geo: { center: [100, 80], size: [160, 100] } },
+            { id: 'brook', cat: 'water', shape: 'curve', geo: { curve: [[0, 50], [200, 60]] } },
             { id: 'guide', cat: 'actor', shape: 'icon', geo: { at: [80, 70], icon: 'actor' }, label: 'Guide' },
-            { id: 'bench', cat: 'furniture', actorKey: 'not-an-actor', shape: 'rect', geo: { center: [120, 90], size: [30, 8] }, icon: 'chair' },
+            { id: 'bench', cat: 'furniture', shape: 'rect', geo: { center: [120, 90], size: [30, 8] }, icon: 'chair' },
             { id: 'trail', cat: 'road', geo: { center: [100, 80], size: [160, 20], points: [[0, 80], [200, 80]] } },
             { id: 'watcher', cat: 'actor', geo: { at: [140, 70], radius: 8 }, label: 'Watcher' },
             { id: 'caption', cat: 'label', geo: { at: [100, 40] }, label: 'Courtyard' },
@@ -171,7 +171,6 @@ test('scene intent tolerates inference and pollution, saves valid siblings, and 
 
     assert.equal(mixed.status, 'partial');
     assert.deepEqual(mixed.skipped.map(item => item.id), ['broken']);
-    assert.match(mixed.warnings.join('\n'), /Inferred shape|terrain category alias|non-actor/);
     assert.equal(session.getResult().status, 'partial');
 
     const repaired = await session.executeTool(MAP_MAINTENANCE_TOOL_NAMES.SCENE_EDIT, {
@@ -724,11 +723,9 @@ test('existing element category and actor identity cannot be rewritten by a patc
             { id: 'keeper-room', cat: 'actor', kind: 'player', actorKey: 'keeper', shape: 'icon', geo: { at: [160, 120] }, label: 'Mara' },
         ],
     });
-    assert.equal(patched.status, 'updated');
-    assert.match(patched.warnings.join('\n'), /unsupported category.*stable/);
-    assert.match(patched.warnings.join('\n'), /actorKey change.*stable/);
-    assert.match(patched.warnings.join('\n'), /category change.*stable/);
-    assert.match(patched.warnings.join('\n'), /Ignored player kind/);
+    assert.equal(patched.status, 'failed');
+    assert.deepEqual(patched.skipped.map(item => item.id), ['player-room', 'room-terrain', 'keeper-room']);
+    assert.ok(patched.skipped.every(item => item.inputIssues.length));
 
     const scene = await session.executeTool(MAP_MAINTENANCE_TOOL_NAMES.SCENE_READ, { scene: 'Inn Room' });
     const player = scene.data.scene.elements.find(element => element.id === 'player-room');
@@ -737,14 +734,13 @@ test('existing element category and actor identity cannot be rewritten by a patc
     assert.equal(player.actorKey, 'player');
     assert.equal(player.kind, 'player');
     assert.equal(player.label, 'Alice');
-    assert.deepEqual(player.geo, { at: [240, 190] });
+    assert.deepEqual(player.geo, { at: [200, 180] });
     assert.equal(terrain.cat, 'terrain');
-    assert.equal(scene.data.scene.elements.find(element => element.id === 'keeper-room').actorKey, 'keeper');
+    assert.equal(scene.data.scene.elements.some(element => element.id === 'keeper-room'), false);
 
     const actors = await session.executeTool(MAP_MAINTENANCE_TOOL_NAMES.ATLAS_READ, { mode: 'actors' });
     assert.deepEqual(actors.data.actors, [
         { actorKey: 'player', displayName: 'Alice', locationKey: 'Inn Room' },
-        { actorKey: 'keeper', displayName: 'Mara', locationKey: 'Inn Room' },
     ]);
 });
 
@@ -788,8 +784,9 @@ test('Scene tools report unsupported fields precisely while retaining the geo.ic
     assert.equal(mixed.status, 'partial');
     assert.deepEqual(mixed.skipped.map(item => item.reason), [
         'element_has_unsupported_fields:position',
-        'geo_has_unsupported_fields:position',
+        'invalid_arguments',
     ]);
+    assert.equal(mixed.skipped[1].inputIssues[0].path, 'elements[2].geo.position');
     const read = await itemSession.executeTool(MAP_MAINTENANCE_TOOL_NAMES.SCENE_READ, { scene: 'Gallery' });
     assert.deepEqual(read.data.scene.elements.map(element => element.id), ['valid']);
     assert.equal(read.data.scene.elements[0].icon, 'marker');

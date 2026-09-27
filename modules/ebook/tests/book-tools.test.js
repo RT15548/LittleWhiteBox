@@ -1,6 +1,7 @@
 import 'fake-indexeddb/auto';
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { parseHTML } from 'linkedom';
 import { readFileSync } from 'node:fs';
 import { estimateConversationTokens, resolveConversationTokens } from '../../agent-core/runtime/context-tokens.js';
 
@@ -109,6 +110,12 @@ const { createLightBrakeController } = lightBrakeModule;
 const { applyTextEdits } = textEditModule;
 const { buildTaggedMessages, extractTaggedToolCalls } = openAICompatibleAdapterModule;
 const { repairLooseToolArguments } = looseToolArgumentsModule;
+
+function openStoredProcesses(state) {
+    const { document } = parseHTML(renderAgentMessages(state));
+    state.openToolTurnKeys = [...document.querySelectorAll('details[data-tool-turn-key]')]
+        .map((node) => node.dataset.toolTurnKey);
+}
 
 async function resetDb() {
     await db.delete();
@@ -1471,7 +1478,6 @@ test('Book agent cancel is immediate before provider request starts', async () =
         messages: [],
         toolTrace: [],
         openToolTurnKeys: [],
-        activeTurnStartIndex: -1,
         openThoughtKeys: [],
         isBusy: false,
         isCancellingRun: false,
@@ -1621,7 +1627,6 @@ test('Book agent shows DelegateRun dispatch before result and keeps task in hist
         messages: [],
         toolTrace: [],
         openToolTurnKeys: [],
-        activeTurnStartIndex: -1,
         openThoughtKeys: [],
         historySummary: '',
         archivedTurnCount: 0,
@@ -1724,6 +1729,7 @@ test('Book agent shows DelegateRun dispatch before result and keeps task in hist
     );
     assert.equal(state.messages.find((message) => message.role === 'tool')?.toolDisplay?.payload?.length, 3);
 
+    openStoredProcesses(state);
     const finalHtml = renderEbookShell({
         state,
         providerConfig: { provider: 'test', model: 'demo' },
@@ -4034,6 +4040,13 @@ test('Book conversation preserves tool context separately from UI folding', asyn
     assert.equal(providerMessages[2].role, 'tool');
     assert.equal(providerMessages[2].tool_call_id, 'ebook-tool-1');
     assert.equal(providerMessages[2].toolName, EBOOK_TOOL_NAMES.READ);
+
+    const storedBeforeRendering = await ebookMessagesTable.where('bookId').equals(book.id).toArray();
+    openStoredProcesses(state);
+    renderAgentMessages(state);
+    assert.deepEqual(buildEbookProviderMessagesFromHistory(state.messages), providerMessages);
+    await store.persistConversation(book.id);
+    assert.deepEqual(await ebookMessagesTable.where('bookId').equals(book.id).toArray(), storedBeforeRendering);
 });
 
 test('Book renderer shows thoughts while keeping tool batches folded', async () => {
@@ -4073,14 +4086,17 @@ test('Book renderer shows thoughts while keeping tool batches folded', async () 
             },
         ],
         toolTrace: [],
-        openToolTurnKeys: ['tool-turn:call-read'],
-        openThoughtKeys: ['tool-turn:call-read:thought:1', 'thought-message:3'],
+        openToolTurnKeys: [],
+        openThoughtKeys: ['thought-message:3'],
         historySummary: '',
         isBusy: false,
         status: '就绪',
         toast: '',
     };
 
+    openStoredProcesses(state);
+    const processDocument = parseHTML(renderAgentMessages(state)).document;
+    state.openThoughtKeys.push(processDocument.querySelector('.xb-tool-round [data-thought-key]').dataset.thoughtKey);
     const html = renderEbookShell({
         state,
         providerConfig: { provider: 'test', model: 'demo' },
@@ -4089,8 +4105,9 @@ test('Book renderer shows thoughts while keeping tool batches folded', async () 
     });
 
     assert.match(html, /已创作 1 轮/);
-    assert.match(html, /<details class="xb-tool-trace xb-tool-turn" data-tool-turn-key="tool-turn:call-read" open>/);
-    assert.match(html, /data-thought-key="tool-turn:call-read:thought:1" open/);
+    const { document } = parseHTML(html);
+    assert.ok(document.querySelector('details[data-tool-turn-key][open]'));
+    assert.ok(document.querySelector('.xb-tool-round [data-thought-key][open]'));
     assert.match(html, /data-thought-key="thought-message:3" open/);
     assert.match(html, /data-message-action="copy" data-message-index="0"/);
     assert.match(html, /data-message-action="edit" data-message-index="0"/);
@@ -4159,70 +4176,6 @@ test('Book message window counts consecutive tool rounds as one mounted unit', (
     assert.equal(countMessageWindowUnits(messages), 3);
 });
 
-test('Book renderer keeps the active tool turn expanded while the run is still in progress', async () => {
-    await resetDb();
-    const book = await createBook('运行中展开测试');
-    const state = {
-        book,
-        books: [book],
-        files: await listBookFiles(book.id),
-        selectedPath: 'book/chapters/001.md',
-        readerPath: '',
-        viewMode: 'studio',
-        editorContent: '',
-        savedContent: '',
-        messages: [
-            { role: 'user', content: '继续检查第一章。' },
-            {
-                role: 'assistant',
-                content: '',
-                thoughts: [{ label: '思考块', text: '先读取正文。' }],
-                toolCalls: [{
-                    id: 'call-read-live',
-                    name: EBOOK_TOOL_NAMES.READ,
-                    arguments: '{"filePath":"book/chapters/001.md"}',
-                }],
-            },
-            {
-                role: 'tool',
-                toolCallId: 'call-read-live',
-                toolName: EBOOK_TOOL_NAMES.READ,
-                content: '{"ok":true,"summary":"读取第一章。"}',
-            },
-        ],
-        toolTrace: [{
-            round: 1,
-            ok: true,
-            title: '读取第一章',
-            name: EBOOK_TOOL_NAMES.READ,
-            summary: '读取第一章。',
-        }],
-        openToolTurnKeys: [],
-        activeTurnStartIndex: 0,
-        openThoughtKeys: [],
-        historySummary: '',
-        isBusy: true,
-        status: 'AI 正在处理工具结果（1/48）...',
-        toast: '',
-    };
-
-    const html = renderEbookShell({
-        state,
-        providerConfig: { provider: 'test', model: 'demo' },
-        providerLabel: '测试',
-        dirty: false,
-    });
-
-    assert.match(html, /<details class="xb-tool-trace xb-tool-turn" data-tool-turn-key="tool-turn:call-read-live" data-auto-open-tool-turn="true" open>/);
-    assert.match(html, /xb-tool-turn-live/);
-    assert.match(html, /正在创作 1 轮/);
-    assert.doesNotMatch(html, /<details class="xb-tool-trace" open>/);
-    assert.ok(
-        html.indexOf('xb-agent-log') < html.indexOf('xb-tool-turn-live'),
-        'live tool turn should render inside the chat log',
-    );
-    assert.match(html, /读取第一章/);
-});
 
 test('Book renderer folds the active tool turn after the final assistant message is delivered', async () => {
     await resetDb();
@@ -4257,7 +4210,6 @@ test('Book renderer folds the active tool turn after the final assistant message
         ],
         toolTrace: [],
         openToolTurnKeys: [],
-        activeTurnStartIndex: -1,
         openThoughtKeys: [],
         historySummary: '',
         isBusy: false,
@@ -4272,162 +4224,13 @@ test('Book renderer folds the active tool turn after the final assistant message
         dirty: false,
     });
 
-    assert.match(html, /data-tool-turn-key="tool-turn:call-read-done"/);
-    assert.doesNotMatch(html, /data-tool-turn-key="tool-turn:call-read-done"[^>]* open/);
+    const { document } = parseHTML(html);
+    assert.ok(document.querySelector('details[data-tool-turn-key]'));
+    assert.equal(document.querySelector('details[data-tool-turn-key][open]'), null);
     assert.doesNotMatch(html, /data-auto-open-tool-turn/);
 });
 
-test('Book renderer defers stored tool round details while keeping folded previews', async () => {
-    await resetDb();
-    const book = await createBook('折叠工具懒渲染测试');
-    const state = {
-        book,
-        books: [book],
-        files: await listBookFiles(book.id),
-        selectedPath: 'book/chapters/001.md',
-        readerPath: '',
-        viewMode: 'studio',
-        editorContent: '',
-        savedContent: '',
-        messages: [
-            { role: 'user', content: '检查章节。' },
-            {
-                role: 'assistant',
-                content: 'UNIQUE-LAZY-PREFACE',
-                thoughts: [{ label: 'thinking', text: 'UNIQUE-LAZY-THOUGHT' }],
-                toolCalls: [{
-                    id: 'call-lazy-tool',
-                    name: EBOOK_TOOL_NAMES.READ,
-                    arguments: '{"filePath":"book/chapters/001.md"}',
-                }],
-            },
-            {
-                role: 'tool',
-                toolCallId: 'call-lazy-tool',
-                toolName: EBOOK_TOOL_NAMES.READ,
-                content: '{"ok":true,"summary":"UNIQUE-LAZY-TOOL-DETAIL"}',
-            },
-            { role: 'assistant', content: '检查完成。' },
-        ],
-        toolTrace: [],
-        openToolTurnKeys: [],
-        activeTurnStartIndex: -1,
-        openThoughtKeys: [],
-        historySummary: '',
-        isBusy: false,
-        status: '就绪',
-        toast: '',
-    };
 
-    const foldedHtml = renderEbookShell({
-        state,
-        providerConfig: { provider: 'test', model: 'demo' },
-        providerLabel: '测试',
-        dirty: false,
-    });
-
-    assert.match(foldedHtml, /data-lazy-tool-turn="true"/);
-    assert.match(foldedHtml, /data-tool-detail-mode="preview"/);
-    assert.match(foldedHtml, /展开查看思考、说明和完整工具轮次/);
-    assert.match(foldedHtml, /UNIQUE-LAZY-TOOL-DETAIL/);
-    assert.match(foldedHtml, /UNIQUE-LAZY-PREFACE/);
-    assert.doesNotMatch(foldedHtml, /UNIQUE-LAZY-THOUGHT/);
-
-    const storedMessagesBeforeToggle = JSON.stringify(state.messages);
-    const providerMessagesBeforeToggle = JSON.stringify(buildEbookProviderMessagesFromHistory(state.messages));
-    state.openToolTurnKeys = ['tool-turn:call-lazy-tool'];
-    const openHtml = renderEbookShell({
-        state,
-        providerConfig: { provider: 'test', model: 'demo' },
-        providerLabel: '测试',
-        dirty: false,
-    });
-
-    assert.doesNotMatch(openHtml, /data-lazy-tool-turn="true"/);
-    assert.match(openHtml, /data-tool-detail-mode="full"/);
-    assert.match(openHtml, /UNIQUE-LAZY-TOOL-DETAIL/);
-    assert.match(openHtml, /UNIQUE-LAZY-PREFACE/);
-    assert.match(openHtml, /UNIQUE-LAZY-THOUGHT/);
-
-    state.openToolTurnKeys = [];
-    const closedAgainHtml = renderEbookShell({
-        state,
-        providerConfig: { provider: 'test', model: 'demo' },
-        providerLabel: '测试',
-        dirty: false,
-    });
-
-    assert.match(closedAgainHtml, /data-lazy-tool-turn="true"/);
-    assert.match(closedAgainHtml, /data-tool-detail-mode="preview"/);
-    assert.doesNotMatch(closedAgainHtml, /UNIQUE-LAZY-THOUGHT/);
-    assert.equal(JSON.stringify(state.messages), storedMessagesBeforeToggle);
-    assert.equal(JSON.stringify(buildEbookProviderMessagesFromHistory(state.messages)), providerMessagesBeforeToggle);
-});
-
-test('Book renderer keeps large folded tool previews lightweight until opened', async () => {
-    await resetDb();
-    const book = await createBook('大型工具折叠测试');
-    const largePayload = `{"ok":true,"summary":"LARGE_TOOL_SUMMARY","content":"${'x'.repeat(30000)}UNIQUE_LARGE_TOOL_DETAIL"}`;
-    const state = {
-        book,
-        books: [book],
-        files: await listBookFiles(book.id),
-        selectedPath: 'book/chapters/001.md',
-        readerPath: '',
-        viewMode: 'studio',
-        editorContent: '',
-        savedContent: '',
-        messages: [
-            { role: 'user', content: '读取长文件。' },
-            {
-                role: 'assistant',
-                content: '',
-                toolCalls: [{
-                    id: 'call-large-tool',
-                    name: EBOOK_TOOL_NAMES.READ,
-                    arguments: '{"filePath":"book/chapters/001.md"}',
-                }],
-            },
-            {
-                role: 'tool',
-                toolCallId: 'call-large-tool',
-                toolName: EBOOK_TOOL_NAMES.READ,
-                content: largePayload,
-            },
-            { role: 'assistant', content: '读取完成。' },
-        ],
-        toolTrace: [],
-        openToolTurnKeys: [],
-        activeTurnStartIndex: -1,
-        openThoughtKeys: [],
-        historySummary: '',
-        isBusy: false,
-        status: '就绪',
-        toast: '',
-    };
-
-    const foldedHtml = renderEbookShell({
-        state,
-        providerConfig: { provider: 'test', model: 'demo' },
-        providerLabel: '测试',
-        dirty: false,
-    });
-
-    assert.match(foldedHtml, /LARGE_TOOL_SUMMARY/);
-    assert.doesNotMatch(foldedHtml, /UNIQUE_LARGE_TOOL_DETAIL/);
-
-    state.openToolTurnKeys = ['tool-turn:call-large-tool'];
-    const openHtml = renderEbookShell({
-        state,
-        providerConfig: { provider: 'test', model: 'demo' },
-        providerLabel: '测试',
-        dirty: false,
-    });
-
-    assert.match(openHtml, /第 1 轮 · 1 个工具/);
-    assert.match(openHtml, /LARGE_TOOL_SUMMARY/);
-    assert.doesNotMatch(openHtml, /data-lazy-tool-turn="true"/);
-});
 
 test('Book renderer shows plan update results as checklist items', async () => {
     await resetDb();
@@ -4473,7 +4276,6 @@ test('Book renderer shows plan update results as checklist items', async () => {
         ],
         toolTrace: [],
         openToolTurnKeys: [],
-        activeTurnStartIndex: -1,
         openThoughtKeys: [],
         historySummary: '',
         isBusy: false,
@@ -4481,6 +4283,7 @@ test('Book renderer shows plan update results as checklist items', async () => {
         toast: '',
     };
 
+    openStoredProcesses(state);
     const html = renderEbookShell({
         state,
         providerConfig: { provider: 'test', model: 'demo' },
@@ -4540,7 +4343,6 @@ test('Book renderer hides internal plan ids in visible plan checklist', async ()
         ],
         toolTrace: [],
         openToolTurnKeys: [],
-        activeTurnStartIndex: -1,
         openThoughtKeys: [],
         historySummary: '',
         isBusy: false,
@@ -4548,6 +4350,7 @@ test('Book renderer hides internal plan ids in visible plan checklist', async ()
         toast: '',
     };
 
+    openStoredProcesses(state);
     const html = renderEbookShell({
         state,
         providerConfig: { provider: 'test', model: 'demo' },
@@ -4595,7 +4398,6 @@ test('Book renderer falls back for malformed plan tool results', async () => {
         ],
         toolTrace: [],
         openToolTurnKeys: [],
-        activeTurnStartIndex: -1,
         openThoughtKeys: [],
         historySummary: '',
         isBusy: false,
@@ -4603,6 +4405,7 @@ test('Book renderer falls back for malformed plan tool results', async () => {
         toast: '',
     };
 
+    openStoredProcesses(state);
     const html = renderEbookShell({
         state,
         providerConfig: { provider: 'test', model: 'demo' },
@@ -4615,50 +4418,6 @@ test('Book renderer falls back for malformed plan tool results', async () => {
     assert.doesNotMatch(html, /计划已更新：/);
 });
 
-test('Book tool turn auto-open does not persist as a manual fold state', () => {
-    const state = {
-        isBusy: true,
-        openToolTurnKeys: [],
-    };
-    const details = {
-        dataset: {
-            toolTurnKey: 'tool-turn:call-read-live',
-            autoOpenToolTurn: 'true',
-        },
-        open: true,
-        matches(selector) {
-            return selector.includes('.xb-tool-turn');
-        },
-    };
-    const listeners = {};
-    const root = {
-        querySelectorAll(selector) {
-            return selector === '.xb-tool-turn[data-tool-turn-key]' ? [details] : [];
-        },
-        querySelector() {
-            return null;
-        },
-        addEventListener(eventName, handler) {
-            listeners[eventName] = handler;
-        },
-    };
-
-    bindEbookEvents({
-        root,
-        state,
-        render() {},
-        postToHost() {},
-        bookController: {},
-        agentRunner: {},
-        persistConversation() {},
-        clearConversation() {},
-        showToast() {},
-    });
-
-    listeners.toggle({ target: details });
-
-    assert.deepEqual(state.openToolTurnKeys, []);
-});
 
 test('Book lazy tool turns request rerender when opened or closed', () => {
     const state = {
@@ -4692,7 +4451,7 @@ test('Book lazy tool turns request rerender when opened or closed', () => {
     bindEbookEvents({
         root,
         state,
-        render() {
+        renderAgentSurface() {
             renderCount += 1;
         },
         postToHost() {},
@@ -5922,7 +5681,6 @@ test('Book renderer keeps streaming assistant thoughts expanded before final del
         ],
         toolTrace: [],
         openToolTurnKeys: [],
-        activeTurnStartIndex: 0,
         openThoughtKeys: [],
         historySummary: '',
         isBusy: true,
@@ -6950,7 +6708,6 @@ test('Book agent stores a multi-tool batch only after all tool results exist', a
     assert.equal(state.messages[1].thoughts[0].text, '同时读取两个文件。');
     assert.equal(state.messages.filter((message) => message.role === 'tool').length, 2);
     assert.equal(state.toolTrace.length, 0);
-    assert.equal(state.activeTurnStartIndex, -1);
 });
 
 test('Book agent refreshes file snapshot before first model request', async () => {

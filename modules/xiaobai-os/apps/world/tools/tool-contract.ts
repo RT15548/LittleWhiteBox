@@ -1,7 +1,6 @@
 import type { MaintenanceFunctionDeclaration } from '../../../capabilities/maintenance/registry.js';
 import { WORLD_WRITE_LIMITS as L } from '../../../domains/world/types.js';
-
-const text = (maxLength: number, description: string) => ({ type: 'string', maxLength, description });
+import { WORLD_EDIT_SCHEMA } from '../../../domains/world/schema.js';
 
 export function worldEditTool(saveDescription: string): MaintenanceFunctionDeclaration {
     return { type: 'function', function: {
@@ -11,18 +10,9 @@ export function worldEditTool(saveDescription: string): MaintenanceFunctionDecla
             saveDescription,
             'Use it to submit related publication changes together. The batch is atomic: a failed batch changes nothing.',
             `Unmentioned articles remain; existing articles keep their order, and new articles appear first in input order. The publication holds at most ${L.news} articles. Text limits count Unicode code points.`,
+            'Validation errors identify independent problems by path and message, with code and expected when available. unchecked:["publication"] means the final article list needs valid fields before its relationships and capacity can be checked.',
         ].join('\n'),
-        parameters: { type: 'object', additionalProperties: false, properties: {
-            overview: text(L.overview, 'Wider-world atmosphere. Omit to keep; an empty string clears it.'),
-            upsert: { type: 'array', maxItems: L.news, description: 'Complete new or replacement articles. Reuse the same ID to continue an item.', items: {
-                type: 'object', additionalProperties: false, required: ['id', 'title', 'body'], properties: {
-                    id: text(L.id, 'Stable non-empty article ID. Each ID appears once in this batch, in upsert or remove.'),
-                    title: text(L.title, 'Non-empty article title.'),
-                    body: text(L.body, 'Non-empty plain-text news brief. Used for reading and story background; its opening is also the list preview.'),
-                },
-            } },
-            remove: { type: 'array', maxItems: L.news, description: 'Article IDs to retire. Omit to keep all articles not replaced by upsert.', items: text(L.id, 'Article ID to retire. A missing ID is already removed.') },
-        } },
+        parameters: structuredClone(WORLD_EDIT_SCHEMA),
     } };
 }
 

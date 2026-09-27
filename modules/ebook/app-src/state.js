@@ -30,7 +30,6 @@ export function createEbookState() {
         toolTrace: [],
         liveToolTurn: null,
         openToolTurnKeys: [],
-        activeTurnStartIndex: -1,
         openThoughtKeys: [],
         editingMessageIndex: -1,
         messageActionFeedback: {},

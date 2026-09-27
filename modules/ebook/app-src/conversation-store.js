@@ -79,7 +79,6 @@ function resetConversationUiState(state) {
     state.toolTrace = [];
     state.liveToolTurn = null;
     state.openToolTurnKeys = [];
-    state.activeTurnStartIndex = -1;
     state.openThoughtKeys = [];
     state.editingMessageIndex = -1;
     state.messageActionFeedback = {};

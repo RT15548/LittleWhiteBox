@@ -7,7 +7,31 @@ import { buildWorldStoryPrompt, MAX_WORLD_STORY_MESSAGE_CHARS } from '../apps/wo
 import { buildWorldDataMessage, MAX_WORLD_DATA_MESSAGE_CHARS } from '../apps/world/prompt-data.js';
 import { escapePromptData } from '../capabilities/maintenance/prompt-safety.js';
 import { copyWorldBranch } from '../apps/world/host/branch-copy.js';
+import { createWorldManagementTools } from '../apps/world/management/tool-contract.js';
 import { article, worldHarness } from './world-harness.js';
+
+test('news reports independent input errors together and one corrected batch saves without changing prior content', async t => {
+    const h = await worldHarness(); t.after(h.dispose);
+    const session = await h.session();
+    const invalid = { overview: 4, upsert: [{ ...article('one'), title: '' }, { ...article('two'), body: false }] };
+    const failed = await session.executeTool('WorldEdit', invalid);
+    assert.deepEqual(failed.errors.map(issue => issue.path), ['WorldEdit.overview', 'WorldEdit.upsert[0].title', 'WorldEdit.upsert[1].body']);
+    assert.deepEqual(await session.executeTool('WorldRead', {}), { overview: '', news: [] });
+    const fixed = { overview: '初夏港城。', upsert: [article('one'), article('two')] };
+    assert.equal((await session.executeTool('WorldEdit', fixed)).ok, true);
+    await session.commit(() => true);
+    assert.deepEqual(h.state.persisted.partitions.world.news, fixed.upsert);
+});
+
+test('administrator document fields cannot leak into the maintenance news contract', async t => {
+    const h = await worldHarness(); t.after(h.dispose);
+    createWorldManagementTools();
+    const session = await h.session();
+    const schema = session.tools.find(tool => tool.function.name === 'WorldEdit').function.parameters;
+    assert.equal(Object.hasOwn(schema.properties, 'patches'), false);
+    assert.equal((await session.executeTool('WorldEdit', { patches: [] })).ok, false);
+    assert.equal((await session.executeTool('WorldEdit', { upsert: [article()] })).ok, true);
+});
 
 test('world tools create, continue, retain and retire articles through the real partition store', async t => {
     const h = await worldHarness(); t.after(h.dispose);

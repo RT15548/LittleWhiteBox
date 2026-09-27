@@ -13,6 +13,7 @@ export function withDocumentRead(tool: ManagementTool['definition']) {
         'If the records are invalid, the default read returns the first stored-JSON page with its validation error.',
         `document mode returns data:{mode,path,found,validation,text,offset,nextOffset,totalChars}, at most ${MANAGEMENT_READ_CHARS} characters.`,
         'validation contains present, valid, the supported schemaVersion and error (null or {code,message}). found is false for an absent path. Reading does not require the APP to be open or its content to be valid.',
+        'When supplied, validation.issues lists independent problems as {code,path,message}; validation.unchecked lists branches or reference checks that need valid structure before they can be checked.',
     ].join('\n');
     return tool;
 }
@@ -29,7 +30,7 @@ export function withDocumentEdit(tool: ManagementTool['definition']) {
     tool.function.description += '\n' + [
         'For damaged records, patches correct the stored JSON in place; ordinary record edits use the fields above.',
         'All patches save together only if the resulting document is valid and the read version is still current. Targeted patches preserve unrelated records.',
-        'A saved patch returns data:{mode:"document"}; unchanged means no modification. Invalid results return status failed with data.validation:{valid,schemaVersion,error:{code,message}} and leave storage unchanged.',
+        'A saved patch returns data:{mode:"document"}; unchanged means no modification. Invalid results return status failed with data.validation:{valid,schemaVersion,error} and any issues/unchecked fields described by the read tool. Storage stays unchanged. Correct the reported issues together before retrying.',
         'Invalid patch arguments return status failed, code and data:{message,path?}, without saving. Correct the indicated input and continue.',
     ].join('\n');
     return tool;

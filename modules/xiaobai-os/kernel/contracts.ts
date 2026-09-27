@@ -55,9 +55,14 @@ export interface XiaobaiOsStoragePort {
     delete(osId: string, signal?: AbortSignal): Promise<'deleted' | 'missing'>;
 }
 
+export interface PartitionValidationReport {
+    issues: readonly { code: string; path: string; message: string }[];
+    unchecked: readonly string[];
+}
+
 export type PartitionParseResult<T> =
     | { ok: true; value: T }
-    | { ok: false; error: { code: 'partition_invalid'; message: string } };
+    | { ok: false; error: { code: 'partition_invalid'; message: string; validation?: PartitionValidationReport } };
 
 export interface PartitionRegistration<T> {
     key: string;

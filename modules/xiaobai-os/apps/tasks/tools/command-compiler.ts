@@ -7,8 +7,9 @@ import {
 } from '../../../domains/tasks/invariants.js';
 import type { TaskRecord } from '../../../domains/tasks/types.js';
 import type { TaskMaintenanceCommand } from '../application/service.js';
-import { appliedTaskToolResult, failedTaskToolResult, type TaskToolResult } from './result.js';
-import { TASK_MAINTENANCE_TOOL_NAMES } from './tool-contract.js';
+import { appliedTaskToolResult, failedTaskToolResult, taskToolIssue, type TaskToolIssue, type TaskToolResult } from './result.js';
+import { TASK_MAINTENANCE_TOOL_NAMES, TASK_MAINTENANCE_TOOLS } from './tool-contract.js';
+import { collectToolInputIssues } from '../../../../agent-core/runtime/tool-input-validation.js';
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -22,6 +23,7 @@ export interface TaskCommandCompileResult {
     readonly result: TaskToolResult;
     readonly command?: TaskMaintenanceCommand;
     readonly taskId?: string;
+    readonly clearStaged?: boolean;
 }
 
 function isPlainRecord(value: unknown): value is UnknownRecord {
@@ -72,30 +74,34 @@ export function compileTaskMaintenanceCommand(
             : null;
     if (!summaryName) {throw new TypeError(`Unknown Tasks maintenance tool: ${toolName}`);}
 
+    const schema = TASK_MAINTENANCE_TOOLS.find(tool => tool.function.name === toolName)!.function.parameters;
+    const issues: TaskToolIssue[] = collectToolInputIssues(args, schema).map(issue => taskToolIssue(
+        issue.code === 'unknown_field' ? 'unsupported_fields'
+            : issue.path === 'taskId' ? 'task_id_required'
+                : issue.path === 'revision' ? 'revision_invalid'
+                    : typeof args[summaryName] === 'string' && [...args[summaryName] as string].length > summaryLimit(summaryName)
+                        ? 'summary_too_long' : 'summary_required', issue.path, issue.expected));
     let taskId = '';
-    try {taskId = normalizeTaskIdentity(args.taskId);} catch {
-        return { result: failedTaskToolResult('task_id_required') };
-    }
-    const allowed = new Set(['taskId', 'revision', summaryName]);
-    if (Object.keys(args).some(key => !allowed.has(key))) {
-        return { taskId, result: failedTaskToolResult('unsupported_fields', taskId) };
+    if (!issues.some(issue => issue.path === 'taskId')) {
+        try {taskId = normalizeTaskIdentity(args.taskId);} catch { issues.push(taskToolIssue('task_id_required', 'taskId')); }
     }
     const record = context.records.get(taskId);
-    if (!record) {return { taskId, result: failedTaskToolResult('task_not_in_session', taskId) };}
-    if (!Number.isSafeInteger(args.revision) || Number(args.revision) < 1) {
-        return { taskId, result: failedTaskToolResult('revision_invalid', taskId) };
+    if (taskId && !record) { issues.push(taskToolIssue('task_not_in_session', 'taskId', [...context.records.keys()])); }
+    if (record && !issues.some(issue => issue.path === 'revision') && args.revision !== record.taskRevision) {
+        issues.push(taskToolIssue('revision_conflict', 'revision', record.taskRevision));
     }
-    if (Number(args.revision) !== record.taskRevision) {
-        return { taskId, result: failedTaskToolResult('revision_conflict', taskId) };
+    if (record && record.status !== 'active') { issues.push(taskToolIssue('task_not_active', 'taskId')); }
+    let summary: string | null = null;
+    if (!issues.some(issue => issue.path === summaryName)) {
+        try {summary = normalizeSummary(args[summaryName], summaryName);} catch {
+            issues.push(taskToolIssue('summary_too_long', summaryName, { maxLength: summaryLimit(summaryName) }));
+        }
+        if (!summary && !issues.some(issue => issue.path === summaryName)) { issues.push(taskToolIssue('summary_required', summaryName)); }
     }
-    if (record.status !== 'active') {
-        return { taskId, result: failedTaskToolResult('task_not_active', taskId) };
+    if (issues.length) { return { taskId, result: failedTaskToolResult(issues[0].code, taskId, issues) }; }
+    if (!record || !summary) {
+        throw new Error('tasks_validated_input_missing');
     }
-    let summary: string | null;
-    try {summary = normalizeSummary(args[summaryName], summaryName);} catch {
-        return { taskId, result: failedTaskToolResult('summary_too_long', taskId) };
-    }
-    if (!summary) {return { taskId, result: failedTaskToolResult('summary_required', taskId) };}
 
     const common = {
         actionId: '',
@@ -109,17 +115,13 @@ export function compileTaskMaintenanceCommand(
             ? { ...common, kind: 'complete', resultSummary: summary }
             : { ...common, kind: 'fail', resultSummary: summary };
     const existing = context.staged.get(taskId);
-    if (existing) {
-        return sameCommand(existing, draft)
-            ? { taskId, result: appliedTaskToolResult(taskId, false) }
-            : { taskId, result: failedTaskToolResult('task_command_already_staged', taskId) };
-    }
+    if (existing && sameCommand(existing, draft)) { return { taskId, result: appliedTaskToolResult(taskId, false) }; }
     if (draft.kind === 'progress' && draft.progressSummary === record.progressSummary) {
-        return { taskId, result: appliedTaskToolResult(taskId, false) };
+        return { taskId, clearStaged: true, result: appliedTaskToolResult(taskId, !!existing) };
     }
     return {
         taskId,
-        command: { ...draft, actionId: context.createActionId() },
+        command: { ...draft, actionId: existing?.actionId ?? context.createActionId() },
         result: appliedTaskToolResult(taskId, true),
     };
 }

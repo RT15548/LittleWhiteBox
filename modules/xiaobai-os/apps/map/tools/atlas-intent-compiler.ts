@@ -14,8 +14,8 @@ import type {
     MapLink,
     MapLinkKind,
 } from '../../../domains/map/types.js';
-import { mapToolResult, type MapToolResult } from './result.js';
-import { applyIntentEdits, enumToken, errorText, intentId, intentText, isRecord } from './intent-common.js';
+import { mapToolFailure, mapToolResult, type MapToolResult } from './result.js';
+import { applyIntentEdits, enumToken, intentId, intentText, isRecord } from './intent-common.js';
 
 const LINK_KINDS: readonly MapLinkKind[] = ['door', 'stairs', 'elevator', 'path', 'road', 'portal', 'passage'];
 const ROOT_FIELDS = new Set(['locations', 'links', 'actors', 'remove']);
@@ -197,7 +197,7 @@ export function compileAtlasIntent(
             applied.push({ collection, index, id, changed: next.changed });
             return true;
         } catch (error) {
-            skipped.push({ collection, index, id, reason: errorText(error), hint });
+            skipped.push({ collection, index, id, ...mapToolFailure(error), hint });
             return false;
         }
     };

@@ -75,16 +75,13 @@ test('inclusive provider bounds cannot store zero-sized physical footprints', as
     assert.equal(result.status, 'failed');
     assert.deepEqual(result.skipped.map(item => item.id), ['rect']);
     assert.equal(session.canCommit(), false);
-    // Preserve existing tolerant behavior: an unusable circle with a valid at
-    // becomes a point marker with a warning, never a zero-radius physical object.
+    // An explicit physical circle cannot silently turn into a point marker.
     const point = await session.executeTool(TOOLS.SCENE_EDIT, { scene: 'point', elements: [
         { id: 'circle', cat: 'decoration', shape: 'circle', geo: { at: [20, 20], radius: 0 } },
     ] });
-    assert.equal(point.status, 'updated');
-    assert.ok(point.warnings.length > 0);
+    assert.equal(point.status, 'failed');
     const read = await session.executeTool(TOOLS.SCENE_READ, { scene: 'point' });
-    assert.equal(read.data.scene.elements[0].shape, 'icon');
-    assert.deepEqual(read.data.scene.elements[0].geo, { at: [20, 20] });
+    assert.equal(read.data.scene, null);
 });
 
 for (const example of SCENE_EXAMPLES) {
@@ -168,7 +165,7 @@ test('bad orientations reject only that element, can be repaired, and cannot ent
     for (const rotation of [-1, 360, Infinity, NaN, '90']) {
         const result = await session.executeTool(TOOLS.SCENE_EDIT, { scene: 'tavern', elements: [{ id: 'table', rotation }, { id: 'bar', material: 'metal' }] });
         assert.deepEqual(result.skipped.map(e => e.id), ['table']);
-        assert.match(result.skipped[0].reason, /rotation/);
+        assert.equal(result.skipped[0].inputIssues[0].path, 'elements[0].rotation');
     }
     for (const id of ['walls', 'door']) {
         const result = await session.executeTool(TOOLS.SCENE_EDIT, { scene: 'tavern', elements: [{ id, rotation: 0 }] });

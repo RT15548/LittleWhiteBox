@@ -37,6 +37,52 @@ async function run(env, chat, options = {}) {
     return runMemoryAgent(env.session, { config: {}, adapter: { chat }, readCurrent: env.ports.read, onSave: env.save, onFinish: env.save, ...options });
 }
 
+test('a deletion and its reference repair succeed on the first attempt in either order and remain reversible', async () => {
+    const remove = { kind: 'delete', collection: 'events', key: 'evt-2' };
+    const repair = { collection: 'events', key: 'evt-4', patch: { causedBy: ['evt-1'] } };
+    for (const edits of [[remove, repair], [repair, remove]]) {
+        const env = setup(), before = structuredClone(env.ports.read());
+        let requests = 0;
+        const result = await run(env, async request => {
+            if (++requests === 1) return edit(edits);
+            assert.equal(JSON.parse(request.messages.at(-1).content).status, 'saved');
+            return { text: '完成修正。' };
+        });
+        assert.equal(requests, 2);
+        assert.equal(result.saved, 2);
+        const after = env.ports.read();
+        assert.equal(after.json.events.some(item => item.id === 'evt-2'), false);
+        assert.deepEqual(after.json.events.find(item => item.id === 'evt-4').causedBy, ['evt-1']);
+        const receipts = after.store.summaryHistory.flatMap(item => item.maintenance || []);
+        assert.deepEqual(restoreMaintenance({ json: after.json, atoms: after.atoms }, receipts), { json: before.json, atoms: before.atoms });
+    }
+});
+
+test('one memory failure reports independent fields and one corrected retry saves without partial writes', async () => {
+    for (const supportsSessionToolLoop of [false, true]) {
+        const env = setup(), before = structuredClone(env.ports.read().json);
+        let requests = 0;
+        const chat = async request => {
+            if (++requests === 1) return edit([
+                { collection: 'facts', key: 'f-1', patch: { o: 3, isState: 'maybe' } },
+                { collection: 'events', key: 'evt-3', patch: { title: false } },
+            ]);
+            const response = supportsSessionToolLoop ? request.toolResponses.at(-1).response : JSON.parse(request.messages.at(-1).content);
+            if (requests === 2) {
+                assert.equal(response.status, 'needs_fix');
+                assert.deepEqual(new Set(response.rejected.map(item => item.field)), new Set(['edits[0].patch.o', 'edits[0].patch.isState', 'edits[1].patch.title']));
+                assert.deepEqual(env.ports.read().json, before);
+                return edit([correction, { collection: 'events', key: 'evt-3', patch: { title: '青山的船票争吵' } }]);
+            }
+            assert.equal(response.status, 'saved');
+            return { text: '已修正。' };
+        };
+        const result = await run(env, chat, { adapter: { supportsSessionToolLoop, chat } });
+        assert.equal(requests, 3);
+        assert.equal(result.saved, 2);
+    }
+});
+
 function batchFixture(ends, completed = []) {
     const floors = ends.at(-1), history = [];
     const json = { events: [], facts: [], characters: { main: [] }, arcs: [], keywords: [], characterAliases: [] };
@@ -613,7 +659,7 @@ test('unambiguous argument formats work without rewriting text; bad fields retur
     const bad = session.runTool('EditMemory', { edits: [correction, { ...correction, patch: { value: '北京' } }] });
     assert.equal(bad.status, 'needs_fix');
     assert.equal(bad.rejected[0].field, 'edits[1].patch.value');
-    assert.ok(bad.rejected[0].expected.includes('o'));
+    assert.ok(bad.rejected[0].expected.fields.includes('o'));
     assert.equal(session.memory.json.facts[0].o, '  保留原样的文字  ');
     assert.equal(session.runTool('EditMemory', { edits: [{ ...correction, patch: { isState: 'maybe' } }] }).status, 'needs_fix');
 });

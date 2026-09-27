@@ -1,7 +1,14 @@
-import { WORLD_LIMITS, WORLD_VERSION, type WorldContent, type WorldDomain, type WorldNews } from './types.js';
+import { WORLD_VERSION, type WorldContent, type WorldDomain } from './types.js';
+import { collectToolInputIssues } from '../../../agent-core/runtime/tool-input-validation.js';
+import { WORLD_CONTENT_SCHEMA, WORLD_SCHEMA } from './schema.js';
 
 export class WorldValidationError extends Error {
-    constructor(readonly path: string, message: string) { super(message); }
+    constructor(readonly path: string, message: string, readonly issues?: ReturnType<typeof collectToolInputIssues>) { super(message); }
+}
+
+export function validateWorldInput(value: unknown, schema: Record<string, unknown>, path: string): void {
+    const issues = collectToolInputIssues(value, schema, path);
+    if (issues.length) { throw new WorldValidationError(issues[0].path, issues[0].message, issues); }
 }
 
 export function record(value: unknown, path: string, keys: readonly string[]): Record<string, unknown> {
@@ -23,33 +30,18 @@ export function worldText(value: unknown, path: string, max: number, allowEmpty 
     return value;
 }
 
-export function parseWorldNews(value: unknown, path: string, bodyLimit: number = WORLD_LIMITS.body): WorldNews {
-    const item = record(value, path, ['id', 'title', 'body']);
-    return {
-        id: worldText(item.id, `${path}.id`, WORLD_LIMITS.id),
-        title: worldText(item.title, `${path}.title`, WORLD_LIMITS.title),
-        body: worldText(item.body, `${path}.body`, bodyLimit),
-    };
-}
-
 export function parseWorldContent(value: unknown, path = 'world'): WorldContent {
-    const item = record(value, path, ['overview', 'news']);
-    const overview = worldText(item.overview, `${path}.overview`, WORLD_LIMITS.overview, true);
-    if (!Array.isArray(item.news) || item.news.length > WORLD_LIMITS.news) {
-        throw new WorldValidationError(`${path}.news`, `Expected up to ${WORLD_LIMITS.news} news items.`);
-    }
-    const news = item.news.map((entry, index) => parseWorldNews(entry, `${path}.news[${index}]`));
+    validateWorldInput(value, WORLD_CONTENT_SCHEMA, path);
+    const { overview, news } = value as WorldContent;
     if (new Set(news.map(entry => entry.id)).size !== news.length) {
         throw new WorldValidationError(`${path}.news`, 'News IDs must be unique.');
     }
-    return { overview, news };
+    return structuredClone({ overview, news });
 }
 
 export function parseWorld(value: unknown): WorldDomain {
-    const item = record(value, 'world', ['version', 'overview', 'news']);
-    if (item.version !== WORLD_VERSION) {
-        throw new WorldValidationError('world', `Expected version ${WORLD_VERSION}.`);
-    }
+    validateWorldInput(value, WORLD_SCHEMA, 'world');
+    const item = value as WorldDomain;
     return { version: WORLD_VERSION,
         ...parseWorldContent({ overview: item.overview, news: item.news }) };
 }

@@ -17,6 +17,7 @@ import { createTasksService } from '../apps/tasks/application/service.js';
 import { createTaskController } from '../apps/tasks/host/controller.js';
 import { createTaskCompletionRuntime } from '../apps/tasks/host/completion-runtime.js';
 import { createTaskMaintenanceParticipant } from '../apps/tasks/host/maintenance-participant.js';
+import { createTaskMaintenanceSession } from '../apps/tasks/maintenance/session.js';
 import { buildTaskPromptBlock } from '../apps/tasks/host/prompt-runtime.js';
 import { createTasksModule } from '../apps/tasks/module.js';
 import { TASKS_PARTITION } from '../apps/tasks/partition.js';
@@ -538,6 +539,31 @@ test('received and published tasks retain settlement, refund, recruitment and ba
         assert.equal(balances[`counterparty:task:${candidateId}`], 80);
         assert.equal(balances.player, 20);
     });
+});
+
+test('revising a staged task decision settles only the final reward through the real ledger', async () => {
+    const h = await createHarness();
+    const board = await h.tasks.replaceBoard({ expectedBoardId: null, listings: [listing()], generatedAt: 10 }, allowCommit);
+    const accepted = await h.tasks.acceptListing({ actionId: 'revised-accept', boardId: board.view.domain.board.boardId,
+        listingId: board.view.domain.board.listings[0].listingId }, allowCommit);
+    const session = createTaskMaintenanceSession(h.tasks, [accepted.record], 'new-story');
+    const identity = { taskId: accepted.record.taskId, revision: accepted.record.taskRevision };
+    const before = structuredClone(ledgerOf(h));
+    assert.equal(session.executeTool('TaskProgress', { ...identity, progressSummary: '送信途中' }).ok, true);
+    assert.equal(session.executeTool('TaskFail', { ...identity, resultSummary: '信件可能遗失' }).ok, true);
+    const complete = { ...identity, resultSummary: '确认封蜡信已经送达' };
+    assert.equal(session.executeTool('TaskComplete', complete).ok, true);
+    assert.equal(session.executeTool('TaskComplete', complete).changed, false);
+    assert.deepEqual(ledgerOf(h), before);
+    await session.commit(allowCommit, { completed: true });
+    assert.equal(h.tasks.readCurrent().records[0].status, 'completed');
+    const balances = projectBalances(ledgerOf(h));
+    assert.equal(balances.player, 250);
+    assert.equal(balances[`escrow:task:${accepted.record.taskId}`], 0);
+    assert.equal(ledgerOf(h).transactions.length, before.transactions.length + 1);
+    const settled = structuredClone(ledgerOf(h));
+    await assert.rejects(session.commit(allowCommit, { completed: true }));
+    assert.deepEqual(ledgerOf(h), settled);
 });
 
 test('commit guards and failed replaces publish neither prepared Tasks nor Economy state', async () => {

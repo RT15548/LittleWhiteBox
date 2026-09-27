@@ -1,28 +1,23 @@
-import { parseWorldContent, parseWorldNews, record, WorldValidationError, worldText } from './invariants.js';
-import { sameWorldContent, WORLD_WRITE_LIMITS as L, type WorldContent } from './types.js';
+import { parseWorldContent, validateWorldInput, WorldValidationError } from './invariants.js';
+import { WORLD_EDIT_SCHEMA } from './schema.js';
+import { sameWorldContent, type WorldContent, type WorldNews } from './types.js';
 
 export interface WorldEditResult {
     ok: boolean;
     status: 'updated' | 'unchanged' | 'failed';
     changed: boolean;
     data: WorldContent;
-    errors: { path: string; message: string }[];
+    errors: { path: string; message: string; code?: string; expected?: unknown }[];
+    unchecked?: string[];
 }
 
 export function editWorld(current: WorldContent, input: unknown): WorldEditResult {
     try {
-        const edit = record(input, 'WorldEdit', ['overview', 'upsert', 'remove']);
-        const overview = 'overview' in edit
-            ? worldText(edit.overview, 'WorldEdit.overview', L.overview, true) : current.overview;
-        const list = (key: 'upsert' | 'remove'): unknown[] => {
-            if (!(key in edit)) { return []; }
-            if (!Array.isArray(edit[key]) || edit[key].length > L.news) {
-                throw new WorldValidationError(`WorldEdit.${key}`, `Expected up to ${L.news} items.`);
-            }
-            return edit[key];
-        };
-        const upsert = list('upsert').map((item, i) => parseWorldNews(item, `WorldEdit.upsert[${i}]`, L.body));
-        const remove = list('remove').map((id, i) => worldText(id, `WorldEdit.remove[${i}]`, L.id));
+        validateWorldInput(input, WORLD_EDIT_SCHEMA, 'WorldEdit');
+        const edit = input as { overview?: string; upsert?: WorldNews[]; remove?: string[] };
+        const overview = edit.overview ?? current.overview;
+        const upsert = edit.upsert ?? [];
+        const remove = edit.remove ?? [];
         const ids = [...upsert.map(item => item.id), ...remove];
         if (new Set(ids).size !== ids.length) {
             throw new WorldValidationError('WorldEdit', 'Each ID may appear once per edit, in either upsert or remove.');
@@ -38,6 +33,7 @@ export function editWorld(current: WorldContent, input: unknown): WorldEditResul
     } catch (error) {
         if (!(error instanceof WorldValidationError)) { throw error; }
         return { ok: false, status: 'failed', changed: false, data: structuredClone(current),
-            errors: [{ path: error.path, message: error.message }] };
+            errors: error.issues ?? [{ path: error.path, message: error.message }],
+            ...(error.issues ? { unchecked: ['publication'] } : {}) };
     }
 }

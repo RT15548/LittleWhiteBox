@@ -1375,16 +1375,11 @@ export function injectEbookStyles(rootId = 'xb-ebook-root') {
             display: grid;
             gap: 8px;
         }
-        .xb-tool-lazy-note {
-            color: var(--xb-text-dim);
+        .xb-tool-run-label {
+            color: var(--xb-cyan);
             font-family: var(--xb-font-mono);
             font-size: 11px;
-        }
-        .xb-tool-preface-preview {
-            color: var(--xb-text-muted);
-            font-size: 12px;
-            line-height: 1.6;
-            white-space: pre-wrap;
+            margin-bottom: 7px;
         }
         .xb-tool-round {
             display: grid;

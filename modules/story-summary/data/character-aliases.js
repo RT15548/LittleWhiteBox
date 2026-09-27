@@ -495,31 +495,51 @@ export function applyCharacterAliasUpdates(json, updates, floor) {
     };
 }
 
-export function validateAliasGraph(aliases) {
+const ALIAS_GRAPH_MESSAGES = {
+    invalid_names: () => '每条映射都需要两个不同的名称',
+    duplicate_source: issue => `别名“${issue.from}”重复指向多个角色`,
+    cycle: () => '别名映射不能形成循环',
+};
+
+export function collectAliasGraphIssues(aliases) {
+    const issues = [];
     const edges = new Map();
-    for (const alias of aliases) {
+    for (const [index, alias] of aliases.entries()) {
         const fromKey = normalizeAliasNameKey(alias.from);
         const toKey = normalizeAliasNameKey(alias.to);
         if (!fromKey || !toKey || fromKey === toKey) {
-            throw new Error('每条映射都需要两个不同的名称');
+            issues.push({ code: 'invalid_names', index, from: alias.from, to: alias.to });
+            continue;
         }
         if (edges.has(fromKey)) {
-            throw new Error(`别名“${alias.from}”重复指向多个角色`);
+            issues.push({ code: 'duplicate_source', index, from: alias.from });
+            continue;
         }
-        edges.set(fromKey, toKey);
+        edges.set(fromKey, { toKey, index });
     }
 
+    const done = new Set();
     for (const start of edges.keys()) {
         const seen = new Set();
         let current = start;
-        while (edges.has(current)) {
+        while (edges.has(current) && !done.has(current)) {
             if (seen.has(current)) {
-                throw new Error('别名映射不能形成循环');
+                const cycle = [...seen].slice([...seen].indexOf(current));
+                issues.push({ code: 'cycle', index: edges.get(current).index,
+                    names: cycle.map(key => aliases[edges.get(key).index].from) });
+                break;
             }
             seen.add(current);
-            current = edges.get(current);
+            current = edges.get(current).toKey;
         }
+        for (const key of seen) done.add(key);
     }
+    return issues;
+}
+
+export function validateAliasGraph(aliases) {
+    const issues = collectAliasGraphIssues(aliases);
+    if (issues.length) throw new Error(issues.map(issue => ALIAS_GRAPH_MESSAGES[issue.code](issue)).join('\n'));
 }
 
 /**

@@ -41,7 +41,7 @@ function tool(
             description: [
                 description,
                 saveDescription,
-                'Task reports in applied and skipped identify the record by collection, index and id. They include changed when applied, or reason and hint when skipped; warnings lists additional notices.',
+                'Task reports in applied and skipped identify the record by collection, index and id. They include changed when applied, or reason, hint and issues:[{code,path,message,expected?}] when skipped; warnings lists additional notices. Correct the independent issues together. A rejected call leaves earlier successful changes untouched.',
             ].join('\n'),
             parameters: {
                 type: 'object',
@@ -89,5 +89,6 @@ export function taskTools(saveDescription: string): readonly MaintenanceFunction
 ]); }
 export const TASK_MAINTENANCE_TOOLS = taskTools([
     'Changes remain pending until the app saves them after this run.',
+    'A later successful call for the same task replaces its pending decision. Repeating the same decision is unchanged; submitting its original progress cancels the pending change. Only the final decision is saved and settled once.',
     'Returns {ok,status,changed,applied,skipped,warnings,hint?}; status is updated, unchanged (already matches; success) or failed.',
 ].join('\n'));

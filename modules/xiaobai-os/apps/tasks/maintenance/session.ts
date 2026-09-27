@@ -52,6 +52,7 @@ export function createTaskMaintenanceSession(
             if (compiled.result.ok) {
                 unresolvedFailures.delete(key);
                 unresolvedFailures.delete('*');
+                if (compiled.clearStaged && compiled.taskId) { staged.delete(compiled.taskId); }
                 if (compiled.command) {staged.set(compiled.command.taskId, compiled.command);}
             } else {
                 unresolvedFailures.set(key, compiled.result.skipped[0]?.reason || 'task_tool_failed');

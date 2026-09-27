@@ -322,6 +322,7 @@ export function bindEbookEvents(options = {}) {
         root,
         state,
         render,
+        renderAgentSurface,
         renderSettingsSurface,
         postToHost,
         bookController,
@@ -618,9 +619,8 @@ export function bindEbookEvents(options = {}) {
 
     const handleDelegatedToggle = (event) => {
         const details = event.target;
-        if (!details?.matches?.('.xb-tool-turn[data-tool-turn-key], .xb-thought-details[data-thought-key]')) return;
-        if (details.matches('.xb-tool-turn[data-tool-turn-key]')) {
-            if (state.isBusy && details.dataset.autoOpenToolTurn === 'true') return;
+        if (!details?.matches?.('details.xb-tool-turn[data-tool-turn-key], .xb-thought-details[data-thought-key]')) return;
+        if (details.matches('details.xb-tool-turn[data-tool-turn-key]')) {
             const wasLazy = details.dataset.lazyToolTurn === 'true';
             state.openToolTurnKeys = updateOpenKeyList(
                 state.openToolTurnKeys,
@@ -628,7 +628,8 @@ export function bindEbookEvents(options = {}) {
                 details.open,
             );
             if (wasLazy || !details.open) {
-                render();
+                suspendAgentAutoScroll();
+                renderAgentSurface();
             }
             return;
         }

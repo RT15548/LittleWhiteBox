@@ -4,8 +4,8 @@ import { MAX_MAP_BRIEF_LENGTH } from '../../../domains/map/invariants.js';
 import type { MapAtlas, MapDomainV1, MapLocation, MapLocationScale, MapLocationStatus } from '../../../domains/map/types.js';
 import { jsonValuesEqual } from '../../../host/json-values-equal.js';
 import { MAP_REGION_REQUIRED_HINT, MAP_SCENE_LOCATION_REQUIRED_HINT } from './hierarchy-feedback.js';
-import { applyIntentEdits, enumToken, errorText, intentId, intentText, isRecord } from './intent-common.js';
-import type { MapToolItemReport } from './result.js';
+import { applyIntentEdits, enumToken, intentId, intentText, isRecord } from './intent-common.js';
+import { mapToolFailure, type MapToolItemReport } from './result.js';
 
 const LOCATION_SCALES: readonly MapLocationScale[] = ['world', 'region', 'city', 'district', 'building', 'floor', 'room', 'outdoor'];
 const LOCATION_STATUSES: readonly MapLocationStatus[] = ['mentioned', 'visited'];
@@ -94,9 +94,10 @@ export function compileAtlasLocations(current: MapDomainV1, values: readonly unk
             locations.set(id, location);
             groupEdits.push({ op: 'upsert-location', location });
         }
-        const reject = (reason: string, hint: string) => {
+        const reject = (reason: string, hint: string, validation?: MapToolItemReport['validation']) => {
             for (const { index, id } of group) {
-                skipped.push({ collection: 'locations', index, id, ...(failures.get(index) || { reason, hint }) });
+                skipped.push({ collection: 'locations', index, id, ...(failures.get(index) || { reason, hint }),
+                    ...(validation && index === group[0].index ? { validation } : {}) });
             }
         };
         if (failures.size) {
@@ -123,7 +124,8 @@ export function compileAtlasLocations(current: MapDomainV1, values: readonly unk
             changed ||= next.changed;
             edits.push(...groupEdits);
         } catch (error) {
-            reject(errorText(error), LOCATION_EDIT_HINT);
+            const failure = mapToolFailure(error);
+            reject(failure.reason, LOCATION_EDIT_HINT, failure.validation);
         }
     }
     return { domain, changed, edits, applied, skipped };

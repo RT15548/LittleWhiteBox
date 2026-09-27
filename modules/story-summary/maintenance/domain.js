@@ -1,7 +1,7 @@
 import { EVENT_MEMORY_ROLES, normalizeEventStringArray } from '../data/events.js';
 import { calcAtomQuality } from '../vector/llm/atom-quality.js';
 import { RELATION_TRENDS, factKey } from '../data/fact-predicates.js';
-import { normalizeCharacterAliases, validateAliasGraph } from '../data/character-aliases.js';
+import { normalizeCharacterAliases, collectAliasGraphIssues } from '../data/character-aliases.js';
 import { MemoryMaintenanceError, requireMemory } from './errors.js';
 import { eventSourceRange } from './records.js';
 
@@ -106,25 +106,32 @@ export function validateRecord(collection, value, cutoff) {
     }
 }
 
-function validateReferences(events) {
+function collectReferenceErrors(events) {
+    const errors = [];
     const byId = new Map(events.map(event => [event.id, event]));
-    requireMemory(byId.size === events.length, 'invalid_reference');
+    const reject = (event, expected) => {
+        const error = new MemoryMaintenanceError('invalid_reference', '', `events[${events.indexOf(event)}].causedBy`);
+        error.expected = { key: event.id, ...expected };
+        errors.push(error);
+    };
     const visiting = new Set();
     const done = new Set();
     function visit(id) {
         if (done.has(id)) return;
-        requireMemory(!visiting.has(id), 'invalid_reference');
         visiting.add(id);
-        const causes = byId.get(id)?.causedBy || [];
-        requireMemory(new Set(causes).size === causes.length, 'invalid_reference');
+        const event = byId.get(id);
+        const causes = event.causedBy || [];
+        if (new Set(causes).size !== causes.length) reject(event, { uniqueItems: true });
         for (const cause of causes) {
-            requireMemory(cause !== id && byId.has(cause), 'invalid_reference');
-            visit(cause);
+            if (!byId.has(cause)) reject(event, { missing: cause, values: [...byId.keys()] });
+            else if (visiting.has(cause)) reject(event, { cycle: [...visiting].slice([...visiting].indexOf(cause)).concat(cause) });
+            else visit(cause);
         }
         visiting.delete(id);
         done.add(id);
     }
     for (const id of byId.keys()) visit(id);
+    return errors;
 }
 
 function changesBetween(before, after) {
@@ -222,21 +229,21 @@ function applyMemoryEdit(memory, command, cutoff) {
             }));
         }
     }
+    // Name-based keys address later operations. Keeping them unambiguous is necessary
+    // even inside a batch; cross-record links are checked only after the whole list.
     for (const name of MEMORY_COLLECTIONS) {
         const keys = memoryItems(draft, name).map(item => memoryKey(name, item));
-        requireMemory(keys.every(text) && new Set(keys).size === keys.length, 'invalid_record');
+        requireMemory(keys.every(text) && new Set(keys).size === keys.length, 'invalid_record', '', 'key');
     }
-    validateReferences(draft.json.events || []);
-    try { validateAliasGraph(draft.json.characterAliases || []); }
-    catch { requireMemory(false, 'invalid_alias'); }
     return { memory: draft, key, changes: changesBetween(memory, draft), completedMarker };
 }
 
 // Facts have a persistent ID for undo, and a business key used by generation.
 // Check the final list so correcting ownership and removing a duplicate can be
 // one atomic request, in either order.
-function validateFactKeys(memory, commands) {
+function collectFactKeyErrors(memory, commands) {
     const byKey = new Map();
+    const errors = [];
     for (const fact of memory.json.facts || []) {
         if (fact.retracted) continue;
         const key = factKey(fact), previous = byKey.get(key);
@@ -247,15 +254,17 @@ function validateFactKeys(memory, commands) {
             const field = Object.hasOwn(patch, 's') ? 'patch.s' : Object.hasOwn(patch, 'p') ? 'patch.p' : 'patch';
             const error = new MemoryMaintenanceError('fact_conflict', JSON.stringify({ keys: [previous.id, fact.id], s: fact.s, p: fact.p }), field);
             if (index >= 0) error.entry = `edits[${index}]`;
-            throw error;
+            errors.push(error);
         }
         byKey.set(key, fact);
     }
+    return errors;
 }
 
 export function editMemoryBatch(memory, commands, cutoff) {
     let draft = memory;
     const results = [];
+    const errors = [];
     for (const [index, command] of commands.entries()) {
         try {
             const result = applyMemoryEdit(draft, command, cutoff);
@@ -267,10 +276,19 @@ export function editMemoryBatch(memory, commands, cutoff) {
                 error.field ||= error.code === 'source_boundary' || error.code === 'source_marker_missing' ? 'patch.summary'
                     : error.code === 'invalid_reference' ? 'patch.causedBy' : error.code === 'record_missing' ? 'key' : 'patch';
             }
-            throw error;
+            if (!(error instanceof MemoryMaintenanceError)) throw error;
+            errors.push(error);
         }
     }
-    if (commands.some(command => command.collection === 'facts')) validateFactKeys(draft, commands);
+    if (errors.length) throw MemoryMaintenanceError.batch(errors, ['references']);
+    errors.push(...collectReferenceErrors(draft.json.events || []));
+    for (const issue of collectAliasGraphIssues(draft.json.characterAliases || [])) {
+        const error = new MemoryMaintenanceError('invalid_alias', '', `characterAliases[${issue.index}]`);
+        error.expected = issue;
+        errors.push(error);
+    }
+    if (commands.some(command => command.collection === 'facts')) errors.push(...collectFactKeyErrors(draft, commands));
+    if (errors.length) throw MemoryMaintenanceError.batch(errors);
     return { memory: draft, results };
 }
 

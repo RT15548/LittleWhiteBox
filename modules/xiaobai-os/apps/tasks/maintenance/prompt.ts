@@ -39,7 +39,6 @@ export const TASK_MAINTENANCE_PROMPT = [
     `Otherwise, call ${TOOLS.PROGRESS} only when objective-related facts changed; leave the task unchanged when they did not.`,
     '',
     '## Tool calls',
-    'Choose one final intent per task before calling a tool. Keep successful changes and correct only failed calls; unchanged is a successful no-op.',
     'Write summaries in the language of the task.',
 ].join('\n');
 

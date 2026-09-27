@@ -34,6 +34,17 @@ export class MemoryMaintenanceError extends Error {
         this.code = code;
         if (field) this.field = field;
     }
+
+    static batch(errors, unchecked = []) {
+        const error = errors[0];
+        error.rejected = errors.flatMap(item => item.rejected || [{
+            entry: item.entry || item.field?.match(/^edits\[\d+\]/u)?.[0] || 'arguments',
+            field: item.field || 'arguments', code: item.code, message: item.message,
+            ...(item.expected ? { expected: item.expected } : {}),
+        }]);
+        error.unchecked = unchecked;
+        return error;
+    }
 }
 
 export function requireMemory(condition, code, detail, field) {

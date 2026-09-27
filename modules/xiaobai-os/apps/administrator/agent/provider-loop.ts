@@ -1,6 +1,7 @@
 import { resolveResultToolCalls } from '../../../../agent-core/runtime/protocol.js';
 import type { AgentMessage } from '../../../../agent-core/runtime/conversation.js';
 import type { XiaobaiOsAgentGateway } from '../../../capabilities/agent/gateway.js';
+import { parseToolArguments, ToolArgumentsError } from '../../../capabilities/agent/tool-arguments.js';
 import type { ManagementTool } from '../../../capabilities/management/index.js';
 import { safePromptJson } from '../../../capabilities/maintenance/prompt-safety.js';
 import { ADMINISTRATOR_POLICY as POLICY } from '../domain/policy.js';
@@ -72,12 +73,17 @@ export async function runAdministratorLoop(options: {
         const responses: AgentRecord[] = [];
         for (const [index, call] of calls.entries()) {
             signal.throwIfAborted();
-            let args: unknown;
-            try { args = JSON.parse(call.arguments); } catch { args = null; }
+            let args: Record<string, unknown> | undefined;
+            let argumentFailure: ReturnType<ToolArgumentsError['result']> | undefined;
+            try { args = parseToolArguments(call.arguments); }
+            catch (error) {
+                if (!(error instanceof ToolArgumentsError)) { throw error; }
+                argumentFailure = error.result();
+            }
             // Until the executor returns, no outcome is confirmed, including across write-receipt saves.
             results[index].content = safePromptJson({ ok: false, status: 'unconfirmed', code: 'tool_result_unconfirmed' });
             const value = advertised.has(call.name)
-                ? await options.execute(call.name, args, administratorToolCallKey(rounds, call.id), turn.toolMessages.indexOf(results[index])) : TOOL_NOT_LOADED;
+                ? argumentFailure ?? await options.execute(call.name, args, administratorToolCallKey(rounds, call.id), turn.toolMessages.indexOf(results[index])) : TOOL_NOT_LOADED;
             results[index].content = safePromptJson(value);
             responses.push({ id: call.id, name: call.name, response: value, ...(Object.hasOwn(call, 'providerId') ? { providerId: call.providerId } : {}) });
             await save();

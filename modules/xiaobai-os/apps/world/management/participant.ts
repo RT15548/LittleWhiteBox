@@ -47,7 +47,7 @@ export function createWorldManagement(world: WorldService): ManagementParticipan
                     if (name !== 'WorldEdit') { throw new Error('management_tool_unknown'); }
                     const view = await world.refreshCurrent(); let expected = worldContent(view.world);
                     const edit = editWorld(expected, args);
-                    if (!edit.ok) { return { ok: false, status: 'failed', data: { errors: edit.errors } }; }
+                    if (!edit.ok) { return { ok: false, status: 'failed', data: { errors: edit.errors, ...(edit.unchecked ? { unchecked: edit.unchecked } : {}) } }; }
                     if (!edit.changed) { return { ok: true, status: 'unchanged' }; }
                     const ids = new Set([...expected.news, ...edit.data.news].filter(article =>
                         !jsonValuesEqual(expected.news.find(n => n.id === article.id) ?? null, edit.data.news.find(n => n.id === article.id) ?? null)).map(article => article.id));

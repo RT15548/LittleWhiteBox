@@ -1,5 +1,5 @@
-import type { PartitionRegistration, PartitionSnapshot, PartitionStore } from './contracts.js';
-import { parseRegisteredPartition } from './partition-registry.js';
+import type { PartitionRegistration, PartitionSnapshot, PartitionStore, PartitionValidationReport } from './contracts.js';
+import { parseRegisteredPartition, XiaobaiOsPartitionError } from './partition-registry.js';
 import { jsonValuesEqual } from '../host/json-values-equal.js';
 
 /** Owner-scoped access to stored JSON. Validation is required for the replacement, not its predecessor. */
@@ -11,12 +11,14 @@ export function createPartitionDocument<T>(store: PartitionStore<T>, registratio
     }
     function validate(value: unknown, expected?: PartitionSnapshot<unknown>) {
         let error: { code: string; message: string } | null = null;
+        let report: PartitionValidationReport | undefined;
         try { parseCandidate(value, expected); }
         catch (cause) {
             if ((cause as { code?: string })?.code !== 'partition_invalid') { throw cause; }
             error = { code: 'partition_invalid', message: (cause as Error).message };
+            if (cause instanceof XiaobaiOsPartitionError) { report = cause.validation; }
         }
-        return { valid: !error, schemaVersion: registration.schemaVersion, error };
+        return { valid: !error, schemaVersion: registration.schemaVersion, error, ...report };
     }
     return {
         validate,

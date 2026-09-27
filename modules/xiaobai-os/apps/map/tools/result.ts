@@ -1,4 +1,15 @@
+import { MapDomainError, type MapValidationReport } from '../../../domains/map/validation.js';
+import { errorText } from './intent-common.js';
+import { ToolInputError, type collectToolInputIssues } from '../../../../agent-core/runtime/tool-input-validation.js';
+
 export type MapToolStatus = 'updated' | 'unchanged' | 'partial' | 'failed';
+
+export function mapToolFailure(error: unknown): { reason: string; validation?: MapValidationReport; inputIssues?: ReturnType<typeof collectToolInputIssues> } {
+    if (error instanceof ToolInputError) { return { reason: 'invalid_arguments', inputIssues: error.issues }; }
+    return error instanceof MapDomainError && error.validation
+        ? { reason: error.code, validation: error.validation }
+        : { reason: errorText(error) };
+}
 
 export interface MapToolItemReport {
     readonly index: number;
@@ -7,6 +18,8 @@ export interface MapToolItemReport {
     readonly changed?: boolean;
     readonly reason?: string;
     readonly hint?: string;
+    readonly validation?: MapValidationReport;
+    readonly inputIssues?: ReturnType<typeof collectToolInputIssues>;
 }
 
 export interface MapToolResult {

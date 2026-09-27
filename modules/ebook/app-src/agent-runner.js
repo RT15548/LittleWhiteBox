@@ -530,7 +530,6 @@ export function createEbookAgentRunner(deps = {}) {
         if (appendUserMessage) {
             state.messages.push({ role: 'user', content: taskText });
         }
-        state.activeTurnStartIndex = findLastUserMessageIndex(state.messages);
         render();
         try {
             if (isEditorDirty() && state.selectedPath) {
@@ -794,11 +793,9 @@ export function createEbookAgentRunner(deps = {}) {
                         if (controller.signal.aborted) throw new Error('assistant_aborted');
                         const args = parsedArguments.args;
                         const isDelegateTool = toolCall.name === EBOOK_TOOL_NAMES.DELEGATE_RUN;
-                        const liveTraceEntry = isDelegateTool ? buildRunningToolTraceEntry(toolCall, args, round) : null;
-                        if (liveTraceEntry) {
-                            state.toolTrace.push(liveTraceEntry);
-                            renderToolSurface();
-                        }
+                        const liveTraceEntry = buildRunningToolTraceEntry(toolCall, args, round);
+                        state.toolTrace.push(liveTraceEntry);
+                        renderToolSurface();
                         let toolResult;
                         if (!allowedToolNames.has(toolCall.name)) {
                             toolResult = {
@@ -828,12 +825,7 @@ export function createEbookAgentRunner(deps = {}) {
                                 toolResult = buildEbookToolFailureResult(toolCall.name, args, error);
                             }
                         }
-                        const traceEntry = liveTraceEntry
-                            ? resolveRunningToolTraceEntry(liveTraceEntry, { ...toolCall, round }, args, toolResult)
-                            : buildToolTraceEntry({ ...toolCall, round }, args, toolResult);
-                        if (!liveTraceEntry) {
-                            state.toolTrace.push(traceEntry);
-                        }
+                        const traceEntry = resolveRunningToolTraceEntry(liveTraceEntry, { ...toolCall, round }, args, toolResult);
                         const toolMessage = buildToolResultMessage({
                             toolCallId: toolCall.id,
                             toolName: toolCall.name,
@@ -924,7 +916,6 @@ export function createEbookAgentRunner(deps = {}) {
             state.activeController = null;
             state.toolTrace = [];
             state.liveToolTurn = null;
-            state.activeTurnStartIndex = -1;
             await refreshBooksAndFiles().catch(() => {});
             render();
         }

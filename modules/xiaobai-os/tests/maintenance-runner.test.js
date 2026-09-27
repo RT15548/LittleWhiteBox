@@ -593,7 +593,10 @@ test('a successful participant tool clears its earlier cross-tool transport fail
             async run(request, round) {
                 if (round === 1) {return { toolCalls: [{ id: 'bad', name: 'map_edit', arguments: '{bad json' }] };}
                 if (round === 2) {
-                    assert.match(request.messages.at(-1).content, /invalid_tool_arguments_json|Correct the arguments/);
+                    const failure = JSON.parse(request.messages.at(-1).content);
+                    assert.equal(failure.code, 'arguments_invalid_json');
+                    assert.equal(failure.data.stage, 'arguments');
+                    assert.equal(typeof failure.data.parserMessage, 'string');
                     return { toolCalls: [{ id: 'fixed', name: 'map_read', arguments: '{"fixed":true}' }] };
                 }
                 return { text: 'done' };

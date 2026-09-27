@@ -9,8 +9,14 @@ export type TaskToolReason =
     | 'revision_conflict'
     | 'summary_required'
     | 'summary_too_long'
-    | 'task_not_active'
-    | 'task_command_already_staged';
+    | 'task_not_active';
+
+export interface TaskToolIssue {
+    readonly code: TaskToolReason;
+    readonly path: string;
+    readonly message: string;
+    readonly expected?: unknown;
+}
 
 export interface TaskToolItemReport {
     readonly collection: 'tasks';
@@ -19,6 +25,7 @@ export interface TaskToolItemReport {
     readonly changed?: boolean;
     readonly reason?: TaskToolReason;
     readonly hint?: string;
+    readonly issues?: readonly TaskToolIssue[];
 }
 
 export interface TaskToolResult {
@@ -41,17 +48,20 @@ const HINTS: Readonly<Record<TaskToolReason, string>> = Object.freeze({
     summary_required: 'Provide a non-empty objective-only summary.',
     summary_too_long: 'Shorten the summary to the declared maximum length.',
     task_not_active: 'Only active tasks can be maintained.',
-    task_command_already_staged: 'This task already has a different staged final intent.',
 });
 
-export function failedTaskToolResult(reason: TaskToolReason, taskId = ''): TaskToolResult {
+export function taskToolIssue(code: TaskToolReason, path: string, expected?: unknown): TaskToolIssue {
+    return { code, path, message: HINTS[code], ...(expected === undefined ? {} : { expected }) };
+}
+
+export function failedTaskToolResult(reason: TaskToolReason, taskId = '', issues: readonly TaskToolIssue[] = []): TaskToolResult {
     const hint = HINTS[reason];
     return Object.freeze({
         ok: false,
         status: 'failed',
         changed: false,
         applied: [],
-        skipped: [{ collection: 'tasks' as const, index: taskId ? 0 : -1, id: taskId, reason, hint }],
+        skipped: [{ collection: 'tasks' as const, index: taskId ? 0 : -1, id: taskId, reason, hint, issues }],
         warnings: [],
         hint,
     });

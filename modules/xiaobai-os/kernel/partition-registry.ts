@@ -1,4 +1,4 @@
-import type { PartitionParseResult, PartitionRegistration } from './contracts.js';
+import type { PartitionParseResult, PartitionRegistration, PartitionValidationReport } from './contracts.js';
 import { assertJsonValue, cloneJsonValue } from './envelope.js';
 
 const PARTITION_KEY = /^[A-Za-z][A-Za-z0-9._-]*$/;
@@ -11,11 +11,14 @@ export class XiaobaiOsPartitionError extends Error {
         message: string,
         readonly partitionKey: string,
         readonly ownerId: string,
-        options: { cause?: unknown } = {},
+        options: { cause?: unknown; validation?: PartitionValidationReport } = {},
     ) {
         super(message, options);
         this.name = 'XiaobaiOsPartitionError';
+        this.validation = options.validation;
     }
+
+    readonly validation?: PartitionValidationReport;
 }
 
 export class XiaobaiOsPartitionRegistry {
@@ -91,7 +94,8 @@ export function parseRegisteredPartition<T>(registration: PartitionRegistration<
     }
     if (!result || result.ok !== true) {
         const message = result && result.ok === false ? result.error.message : 'partition parser returned an invalid result';
-        throw new XiaobaiOsPartitionError(message, registration.key, registration.ownerId);
+        throw new XiaobaiOsPartitionError(message, registration.key, registration.ownerId,
+            { validation: result && result.ok === false ? result.error.validation : undefined });
     }
     return result.value;
 }

@@ -4,6 +4,7 @@ import {
     resolveResultToolCalls,
 } from '../../../agent-core/runtime/protocol.js';
 import { safePromptJson } from './prompt-safety.js';
+import { parseToolArguments, ToolArgumentsError } from '../agent/tool-arguments.js';
 import type { MaintenanceDataMessage, MaintenanceSession } from './registry.js';
 
 type UnknownRecord = Record<string, unknown>;
@@ -36,6 +37,7 @@ export interface ProviderToolLoopResult {
 }
 
 const MAX_PROVIDER_ROUNDS = 12;
+const REPEATED_FAILURE_HINT = 'Repeated identical failure. Change the arguments or stop calling this tool.';
 
 function errorMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error || 'tool_failed');
@@ -56,7 +58,7 @@ function structuredToolError(error: unknown, hint: string, brake = false): Unkno
         warnings: [],
         error: errorMessage(error),
         hint,
-        ...(brake ? { brake: 'Repeated identical failure. Change the arguments or stop calling this tool.' } : {}),
+        ...(brake ? { brake: REPEATED_FAILURE_HINT } : {}),
     };
 }
 
@@ -209,9 +211,7 @@ export async function runProviderToolLoop(options: {
             let failureSignature = '';
             try {
                 if (!owner || !owner.isActive()) { throw new Error(owner ? 'participant_inactive' : `unknown_tool:${toolCall.name}`); }
-                let args: unknown;
-                try { args = JSON.parse(String(toolCall.arguments || '').trim() || '{}'); }
-                catch (error) { throw new TypeError(`invalid_tool_arguments_json:${errorMessage(error)}`); }
+                const args = parseToolArguments(toolCall.arguments);
                 value = await owner.session.executeTool(toolCall.name, args);
                 for (const [key, failure] of unresolvedFailures) {
                     if (failure.participantId === owner.session.participantId
@@ -227,7 +227,7 @@ export async function runProviderToolLoop(options: {
                         return loopResult('provider-failed', round, new Error('repeated_tool_failure'), 'tool-errors-unresolved');
                     }
                     if (repeatedFailures === 3) {
-                        value = { ...value, brake: 'Repeated identical failure. Change the arguments or stop calling this tool.' };
+                        value = { ...value, brake: REPEATED_FAILURE_HINT };
                     }
                 } else {
                     lastFailureSignature = '';
@@ -242,7 +242,9 @@ export async function runProviderToolLoop(options: {
                 if (repeatedFailures >= 4) {
                     return loopResult('provider-failed', round, new Error('repeated_tool_failure'), 'tool-errors-unresolved');
                 }
-                value = structuredToolError(
+                value = error instanceof ToolArgumentsError ? {
+                    ...error.result(), ...(repeatedFailures === 3 ? { brake: REPEATED_FAILURE_HINT } : {}),
+                } : structuredToolError(
                     error,
                     'Correct the arguments using this tool’s recovery rules. Changes from previous successful calls remain available.',
                     repeatedFailures === 3,

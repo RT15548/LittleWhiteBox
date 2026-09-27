@@ -18,13 +18,13 @@ import type {
     MapElementCategory,
     MapElementShape,
     MapLocation,
-    MapSceneMood,
 } from '../../../domains/map/types.js';
-import { mapToolResult, type MapToolItemReport, type MapToolResult } from './result.js';
+import { mapToolFailure, mapToolResult, type MapToolItemReport, type MapToolResult } from './result.js';
+import { mapTools, MAP_MAINTENANCE_TOOL_NAMES } from './tool-contract.js';
+import { collectToolInputIssues, ToolInputError } from '../../../../agent-core/runtime/tool-input-validation.js';
 import {
     applyIntentEdits,
     enumToken,
-    errorText,
     finiteNumber,
     intentId,
     intentText,
@@ -35,12 +35,12 @@ import {
     positivePair,
 } from './intent-common.js';
 
-const SCENE_MOODS: readonly MapSceneMood[] = ['neutral', 'warm', 'cold', 'dark', 'mystic', 'danger', 'calm'];
-const ROOT_FIELDS = new Set(['scene', 'playerHere', 'viewBox', 'mood', 'elements', 'remove']);
-const ELEMENT_FIELDS = new Set(['id', 'cat', 'kind', 'shape', 'geo', 'label', 'actorKey', 'icon', 'material', 'certainty', 'closed', 'rotation']);
-// geo.icon was accepted by the original intent compiler and remains a deliberate tolerant input.
-const GEO_FIELDS = new Set(['center', 'at', 'size', 'radius', 'points', 'curve', 'icon']);
 const missingActorName = (id: string) => `Actor ${id} has no displayed name; set label to the character's name.`;
+const sceneSchema = mapTools('').find(tool => tool.function.name === MAP_MAINTENANCE_TOOL_NAMES.SCENE_EDIT)!.function.parameters;
+const sceneProperties = sceneSchema.properties as Record<string, Record<string, unknown>>;
+const elementSchema = sceneProperties.elements.items as Record<string, unknown>;
+const ROOT_FIELDS = new Set(Object.keys(sceneProperties));
+const ELEMENT_FIELDS = new Set(Object.keys(elementSchema.properties as Record<string, unknown>));
 
 export interface SceneIntentCompileResult {
     readonly domain: MapDomainV1;
@@ -52,19 +52,13 @@ function unsupportedFields(value: Record<string, unknown>, allowed: ReadonlySet<
     return Object.keys(value).filter(key => !allowed.has(key));
 }
 
-function category(value: unknown, shape: MapElementShape, warnings: string[], id: string): MapElementCategory {
+function category(value: unknown, warnings: string[], id: string): MapElementCategory {
     const raw = String(value || '').trim().toLowerCase();
     if (MAP_TERRAIN_CATEGORY_ALIASES.has(raw)) {
         warnings.push(`Normalized terrain category alias "${raw}" for ${id}.`);
         return 'terrain';
     }
-    const normalized = enumToken(raw, MAP_ELEMENT_CATEGORIES);
-    if (normalized) {return normalized;}
-    if (raw) {warnings.push(`Ignored unsupported category "${raw}" for ${id}.`);}
-    if (shape === 'label') {return 'label';}
-    if (shape === 'path' || shape === 'curve') {return 'road';}
-    if (shape === 'icon') {return 'marker';}
-    return 'terrain';
+    return enumToken(raw, MAP_ELEMENT_CATEGORIES)!;
 }
 
 function usableShape(shape: MapElementShape, geo: Record<string, unknown>, label: string): boolean {
@@ -113,15 +107,17 @@ function compileElement(
     if (!id) {throw new Error(`element_id_required:${index + 1}`);}
     const elementUnknown = unsupportedFields(raw, ELEMENT_FIELDS);
     if (elementUnknown.length) {throw new Error(`element_has_unsupported_fields:${elementUnknown.join(',')}`);}
-    if (!existing && raw.cat === undefined) {throw new Error(`new_element_requires_category:${id}`);}
-    if (
-        !existing
-        && !MAP_TERRAIN_CATEGORY_ALIASES.has(String(raw.cat || '').trim().toLowerCase())
-        && !enumToken(raw.cat, MAP_ELEMENT_CATEGORIES)
-    ) {
-        throw new Error(`new_element_has_unsupported_category:${id}`);
+    // Preserve the established terrain and geo.icon spellings without changing requested meaning.
+    const input = { ...raw };
+    if (MAP_TERRAIN_CATEGORY_ALIASES.has(String(raw.cat || '').trim().toLowerCase())) { input.cat = 'terrain'; }
+    if (isRecord(raw.geo) && Object.hasOwn(raw.geo, 'icon')) {
+        const { icon, ...geo } = raw.geo;
+        input.geo = geo;
+        if (input.icon === undefined) { input.icon = icon; }
     }
-
+    const inputIssues = collectToolInputIssues(input, elementSchema, `elements[${index}]`);
+    if (inputIssues.length) { throw new ToolInputError(inputIssues); }
+    if (!existing && raw.cat === undefined) {throw new Error(`new_element_requires_category:${id}`);}
     const hasGeoPatch = Object.hasOwn(raw, 'geo') || Object.hasOwn(raw, 'shape');
     let shape = existing?.shape;
     let geometry: MapElement['geometry'] | undefined = existing
@@ -133,7 +129,7 @@ function compileElement(
         else {
             const normalized = intentText(raw.label, '', MAX_MAP_LABEL_LENGTH);
             if (normalized) {label = normalized;}
-            else {warnings.push(`Ignored invalid label for ${id}.`);}
+            else {throw new ToolInputError([{ code: 'invalid_value', path: `elements[${index}].label`, message: 'Use non-empty label text, or null to clear it.', expected: { type: ['string', 'null'], minLength: 1 } }]);}
         }
     }
 
@@ -141,13 +137,10 @@ function compileElement(
         if (!isRecord(raw.geo)) {
             throw new Error(existing ? `shape_and_geo_required:${id}` : `new_element_requires_geo:${id}`);
         }
-        const geoUnknown = unsupportedFields(raw.geo, GEO_FIELDS);
-        if (geoUnknown.length) {throw new Error(`geo_has_unsupported_fields:${geoUnknown.join(',')}`);}
         const explicitShape = enumToken(raw.shape, MAP_ELEMENT_SHAPES);
         const inferred = inferShape(existing?.category ?? raw.cat, raw.geo, label);
         shape = explicitShape || (raw.shape === undefined ? existing?.shape : undefined);
-        if (shape && !usableShape(shape, raw.geo, label) && inferred && inferred !== shape) {
-            warnings.push(`Shape "${shape}" for ${id} had unusable geo; used "${inferred}" instead.`);
+        if (!explicitShape && shape && !usableShape(shape, raw.geo, label) && inferred && inferred !== shape) {
             shape = inferred;
         } else if (!shape && inferred) {
             shape = inferred;
@@ -184,14 +177,12 @@ function compileElement(
             const requestedCategory = MAP_TERRAIN_CATEGORY_ALIASES.has(rawCategory)
                 ? 'terrain'
                 : enumToken(rawCategory, MAP_ELEMENT_CATEGORIES);
-            if (!requestedCategory) {
-                warnings.push(`Ignored unsupported category "${rawCategory}" for ${id}; existing category is stable.`);
-            } else if (requestedCategory !== cat) {
-                warnings.push(`Ignored category change from "${cat}" to "${requestedCategory}" for ${id}; existing category is stable.`);
+            if (requestedCategory !== cat) {
+                throw new ToolInputError([{ code: 'identity_conflict', path: `elements[${index}].cat`, message: 'Use the existing category for this ID, or a new ID for another entity.', expected: { enum: [cat] } }]);
             }
         }
     } else {
-        cat = category(raw.cat, shape, warnings, id);
+        cat = category(raw.cat, warnings, id);
     }
     const element: MapElement = existing
         ? { ...structuredClone(existing), id, category: cat, shape, geometry }
@@ -200,18 +191,14 @@ function compileElement(
     if (Object.hasOwn(raw, 'kind')) {
         if (raw.kind === null) {delete element.kind;}
         else {
-            const kind = enumToken(raw.kind, MAP_ELEMENT_KINDS);
-            if (kind) {element.kind = kind;}
-            else {warnings.push(`Ignored unsupported kind for ${id}.`);}
+            element.kind = enumToken(raw.kind, MAP_ELEMENT_KINDS)!;
         }
     }
     const geoIcon = isRecord(raw.geo) && Object.hasOwn(raw.geo, 'icon') ? raw.geo.icon : undefined;
     if (Object.hasOwn(raw, 'icon') || geoIcon !== undefined) {
         if (raw.icon === null) {delete element.icon;}
         else {
-            const icon = enumToken(Object.hasOwn(raw, 'icon') ? raw.icon : geoIcon, MAP_ICON_TOKENS);
-            if (icon) {element.icon = icon;}
-            else {warnings.push(`Ignored unsupported icon for ${id}.`);}
+            element.icon = enumToken(Object.hasOwn(raw, 'icon') ? raw.icon : geoIcon, MAP_ICON_TOKENS)!;
         }
     }
     if (Object.hasOwn(raw, 'label')) {
@@ -221,29 +208,24 @@ function compileElement(
     if (Object.hasOwn(raw, 'material')) {
         if (raw.material === null) {delete element.material;}
         else {
-            const material = enumToken(raw.material, MAP_MATERIALS);
-            if (material) {element.material = material;}
-            else {warnings.push(`Ignored unsupported material for ${id}.`);}
+            element.material = enumToken(raw.material, MAP_MATERIALS)!;
         }
     }
     if (Object.hasOwn(raw, 'certainty')) {
         if (raw.certainty === null) {delete element.certainty;}
         else {
-            const certainty = enumToken(raw.certainty, MAP_CERTAINTIES);
-            if (certainty) {element.certainty = certainty;}
-            else {warnings.push(`Ignored unsupported certainty for ${id}.`);}
+            element.certainty = enumToken(raw.certainty, MAP_CERTAINTIES)!;
         }
     }
     if (Object.hasOwn(raw, 'closed')) {
         if (raw.closed === null) {delete element.closed;}
-        else if (typeof raw.closed === 'boolean') {element.closed = raw.closed;}
-        else {warnings.push(`Ignored invalid closed value for ${id}.`);}
+        else {element.closed = raw.closed as boolean;}
     }
     if (shape !== 'path' && shape !== 'curve') {delete element.closed;}
     if (Object.hasOwn(raw, 'rotation')) {
         if (raw.rotation === null) {delete element.rotation;}
         else if (typeof raw.rotation !== 'number' || !Number.isFinite(raw.rotation) || raw.rotation < 0 || raw.rotation >= 360) {
-            throw new Error(`rotation_requires_finite_angle_in_0_to_360_exclusive:${id}`);
+            throw new ToolInputError([{ code: 'invalid_value', path: `elements[${index}].rotation`, message: 'Rotation is an angle from 0 inclusive to 360 exclusive.', expected: { minimum: 0, exclusiveMaximum: 360 } }]);
         } else {element.rotation = raw.rotation;}
     }
     if (element.rotation !== undefined && shape !== 'rect' && shape !== 'circle') {
@@ -258,7 +240,7 @@ function compileElement(
         if (priorActorKey) {
             const canonicalRequest = requestedActorKey === 'user' ? 'player' : requestedActorKey;
             if (Object.hasOwn(raw, 'actorKey') && canonicalRequest !== priorActorKey) {
-                warnings.push(`Ignored actorKey change for ${id}; existing actor identity "${priorActorKey}" is stable.`);
+                throw new ToolInputError([{ code: 'identity_conflict', path: `elements[${index}].actorKey`, message: 'This element belongs to another actor. Use its existing actorKey, or a new element ID.', expected: { enum: [priorActorKey] } }]);
             }
             requestedActorKey = priorActorKey;
         }
@@ -273,19 +255,15 @@ function compileElement(
             element.kind = 'player';
             element.label = player.displayName;
         } else if (element.kind === 'player') {
-            element.kind = 'actor';
-            warnings.push(`Ignored player kind for actor ${id}; actor identity is "${element.actorKey}".`);
+            throw new ToolInputError([{ code: 'identity_conflict', path: `elements[${index}].kind`, message: 'Only the player actor has kind player.', expected: { actorKey: 'player' } }]);
         } else if (!element.kind) {
             element.kind = 'actor';
         }
     } else {
         if (raw.actorKey !== undefined && raw.actorKey !== null) {
-            warnings.push(`Ignored actorKey on non-actor element ${id}.`);
+            throw new ToolInputError([{ code: 'invalid_field', path: `elements[${index}].actorKey`, message: 'actorKey belongs to actor elements.', expected: { cat: 'actor' } }]);
         }
         delete element.actorKey;
-        if (existing?.category === 'actor' && raw.kind === undefined && (element.kind === 'actor' || element.kind === 'player')) {
-            delete element.kind;
-        }
     }
     if (shape === 'label' && !element.label) {throw new Error(`label_text_required:${id}`);}
     return { id, element };
@@ -346,6 +324,12 @@ export function compileSceneIntent(
     }
     const rawElements = Array.isArray(value.elements) ? value.elements : [];
     const rawRemovals = Array.isArray(value.remove) ? value.remove : [];
+    const header = Object.fromEntries(Object.entries(value).filter(([key]) => key !== 'elements'));
+    const headerIssues = collectToolInputIssues(header, sceneSchema);
+    if (Array.isArray(value.viewBox) && value.viewBox.length === 4 && (Number(value.viewBox[2]) <= 0 || Number(value.viewBox[3]) <= 0)) {
+        headerIssues.push({ code: 'invalid_value', path: 'viewBox', message: 'The viewBox width and height must be positive.', expected: { exclusiveMinimum: 0 } });
+    }
+    if (headerIssues.length) { return { domain: current, edits: [], result: mapToolResult({ skipped: [{ index: 0, id: intentId(value.scene), ...mapToolFailure(new ToolInputError(headerIssues)) }] }) }; }
     const oversizedCollection = rawElements.length > MAX_SCENE_ELEMENTS
         ? 'elements'
         : rawRemovals.length > MAX_SCENE_ELEMENTS ? 'remove' : '';
@@ -392,9 +376,7 @@ export function compileSceneIntent(
         && (viewBox[2] as number) > 0 && (viewBox[3] as number) > 0
         ? viewBox as [number, number, number, number]
         : undefined;
-    if (value.viewBox !== undefined && !validViewBox) {warnings.push('Ignored invalid scene viewBox.');}
-    const mood = enumToken(value.mood, SCENE_MOODS);
-    if (value.mood !== undefined && value.mood !== null && !mood) {warnings.push('Ignored invalid scene mood.');}
+    const mood = value.mood as MapDomainV1['scenes'][string]['mood'];
 
     if (!existingLocation.sceneKey && rawElements.length === 0 && rawRemovals.length === 0) {
         return {
@@ -436,7 +418,7 @@ export function compileSceneIntent(
         return {
             domain: current,
             edits: [],
-            result: mapToolResult({ skipped: [{ index: 0, id: sceneName, reason: errorText(error), hint: 'Correct the scene identity or hierarchy and retry.' }], warnings }),
+            result: mapToolResult({ skipped: [{ index: 0, id: sceneName, ...mapToolFailure(error), hint: 'Correct the scene identity or hierarchy and retry.' }], warnings }),
         };
     }
 
@@ -454,7 +436,7 @@ export function compileSceneIntent(
             edits.push(...itemEdits);
             applied.push({ collection: 'remove', index, id, changed: next.changed });
         } catch (error) {
-            skipped.push({ collection: 'remove', index, id, reason: errorText(error), hint: 'Use an element id from this scene.' });
+            skipped.push({ collection: 'remove', index, id, ...mapToolFailure(error), hint: 'Use an element id from this scene.' });
         }
     });
 
@@ -489,7 +471,7 @@ export function compileSceneIntent(
             edits.push(...elementEdits);
             applied.push({ collection: 'elements', index, id: compiled.id, changed: next.changed });
         } catch (error) {
-            skipped.push({ collection: 'elements', index, id, reason: errorText(error), hint: 'Retry only this id with corrected fields. Omit unchanged fields; send complete geo only when changing geometry. A rotation-only correction needs only id and rotation ([0,360), or null to clear).' });
+            skipped.push({ collection: 'elements', index, id, ...mapToolFailure(error), hint: 'Retry only this id with corrected fields. Omit unchanged fields; send complete geo only when changing geometry. A rotation-only correction needs only id and rotation ([0,360), or null to clear).' });
         }
     });
 

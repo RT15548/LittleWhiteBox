@@ -127,7 +127,8 @@ export function createMemorySession({ chatId, chat, json, atoms, l0Index, cutoff
         const staged = [];
         try {
             validateToolArguments(args, MEMORY_TOOLS.find(tool => tool.function.name === 'EditMemory').function.parameters);
-            const commands = args.edits.map((operation, index) => {
+            const errors = [];
+            const commands = args.edits.flatMap((operation, index) => {
                 try {
                     const { collection, kind, key, removeIds } = operation;
                     if (kind === 'delete') {
@@ -138,16 +139,19 @@ export function createMemorySession({ chatId, chat, json, atoms, l0Index, cutoff
                     const patch = structuredClone(operation.patch || {});
                     if (collection === 'facts' && Object.hasOwn(patch, 'isState')) { patch._isState = patch.isState; delete patch.isState; }
                     if (collection === 'arcs' && Object.hasOwn(patch, 'progress')) patch.progress /= ARC_PROGRESS_MAX;
-                    return { kind, collection, key, removeIds, patch };
+                    return [{ kind, collection, key, removeIds, patch }];
                 } catch (error) {
                     if (error instanceof MemoryMaintenanceError) {
                         error.entry = 'edits[' + index + ']';
                         error.field ||= error.code === 'source_boundary' || error.code === 'source_marker_missing' ? 'patch.summary'
                             : error.code === 'invalid_reference' ? 'patch.causedBy' : error.code === 'record_missing' ? 'key' : 'patch';
                     }
-                    throw error;
+                    if (!(error instanceof MemoryMaintenanceError)) throw error;
+                    errors.push(error);
+                    return [];
                 }
             });
+            if (errors.length) throw MemoryMaintenanceError.batch(errors, ['records', 'references']);
             assertRunOwnership(memory, editTargets(commands), history);
             const result = editMemoryBatch(memory, commands, cutoff);
             assertRunOwnership(memory, result.results.flatMap(item => item.changes), history);
@@ -160,9 +164,9 @@ export function createMemorySession({ chatId, chat, json, atoms, l0Index, cutoff
         } catch (error) {
             if (!(error instanceof MemoryMaintenanceError)) throw error;
             if (error.code === 'memory_updated') return { status: 'error', code: error.code, message: error.message, records: error.records };
-            return { status: 'needs_fix', rejected: [{ entry: error.entry || error.field?.match(/^edits\[\d+\]/u)?.[0] || 'arguments',
+            return { status: 'needs_fix', rejected: error.rejected || [{ entry: error.entry || error.field?.match(/^edits\[\d+\]/u)?.[0] || 'arguments',
                 field: error.field || 'arguments', code: error.code, message: error.message,
-                ...(error.expected ? { expected: error.expected } : {}) }] };
+                ...(error.expected ? { expected: error.expected } : {}) }], unchecked: error.unchecked || [] };
         }
         return { status: staged.length ? 'staged' : 'unchanged', changed: staged.length };
     }

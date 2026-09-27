@@ -1,4 +1,5 @@
 import { createEbookAgentRunner } from './agent-runner.js';
+import { adoptAgentRenderUnits, applyAgentRenderUnits } from './agent-render-dom.js';
 import { createBookController } from './book-controller.js';
 import { createEbookConversationStore } from './conversation-store.js';
 import { createAgentSettingsPanel } from '../../agent-core/ui/settings-panel.js';
@@ -186,40 +187,6 @@ function buildHtmlElement(html = '') {
     // eslint-disable-next-line no-unsanitized/property
     template.innerHTML = String(html || '').trim();
     return template.content.firstElementChild || document.createTextNode('');
-}
-
-function applyAgentRenderUnits(container, previousUnits = [], unitSpecs = [], enhanceNode = () => {}) {
-    const nextUnits = [];
-    unitSpecs.forEach((unit, index) => {
-        const previousUnit = previousUnits[index];
-        const canReuseNode = previousUnit?.signature === unit.signature
-            && previousUnit.node?.parentNode === container;
-        const node = canReuseNode ? previousUnit.node : buildHtmlElement(unit.html);
-        const currentNode = container.childNodes[index] || null;
-
-        if (currentNode !== node) {
-            container.insertBefore(node, currentNode);
-        }
-        if (!canReuseNode && previousUnit?.node?.parentNode === container && previousUnit.node !== node) {
-            previousUnit.node.remove();
-        }
-        if (!canReuseNode && node?.nodeType === (globalThis.Node?.ELEMENT_NODE || 1)) {
-            enhanceNode(node);
-        }
-        if (node?.nodeType === (globalThis.Node?.ELEMENT_NODE || 1)) {
-            node.dataset.agentUnitKey = unit.key;
-        }
-
-        nextUnits.push({
-            signature: unit.signature,
-            node,
-        });
-    });
-
-    while (container.childNodes.length > unitSpecs.length) {
-        container.lastChild?.remove();
-    }
-    return nextUnits;
 }
 
 function getDirectFileButtons(groupNode) {
@@ -817,7 +784,10 @@ export function createEbookApp(options = {}) {
             providerConfig,
             dirty: bookController.isEditorDirty(),
         });
-        agentRenderCache = [];
+        const initialAgentLog = root.querySelector('.xb-agent-log');
+        agentRenderCache = initialAgentLog
+            ? adoptAgentRenderUnits(initialAgentLog, collectAgentRenderUnits(state))
+            : [];
         root.querySelectorAll('.xb-msg-markdown, .xb-tool-preface-markdown').forEach((node) => {
             enhanceMarkdownContent(node, {
                 codeBlockClassName: 'xb-assistant-codeblock',
@@ -833,6 +803,7 @@ export function createEbookApp(options = {}) {
             root,
             state,
             render,
+            renderAgentSurface,
             renderSettingsSurface,
             postToHost: hostBridge.postToHost,
             bookController,

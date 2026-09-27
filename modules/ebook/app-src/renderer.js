@@ -426,26 +426,20 @@ function renderThoughtDetails(message = {}, options = {}) {
     `;
 }
 
-function buildToolTurnKey(batches = [], fallbackIndex = 0) {
-    const ids = [];
-    batches.forEach((batch) => {
-        (batch.assistantMessage?.toolCalls || []).forEach((toolCall) => {
-            const id = String(toolCall?.id || '').trim();
-            if (id) ids.push(id);
-        });
-    });
-    return ids.length
-        ? `tool-turn:${ids.join('|')}`
-        : `tool-turn:fallback:${fallbackIndex}`;
+function buildToolTurnKey(message) {
+    // UI identity belongs to this message, not to the provider's call ID or its
+    // current history position. Copies keep it; storage and provider projections
+    // omit it, so loading another conversation starts a new UI lifetime.
+    message.uiProcessId ??= getRenderObjectId(message);
+    return `tool-turn:${message.uiProcessId}`;
 }
 
 function shouldAutoOpenActiveToolTurn(state = {}, startIndex = -1) {
-    return !!(
-        state.isBusy
-        && Number.isInteger(state.activeTurnStartIndex)
-        && state.activeTurnStartIndex >= 0
-        && startIndex > state.activeTurnStartIndex
-    );
+    // Compaction can remove earlier turns, so derive this boundary from current history.
+    const messages = state.messages || [];
+    let userIndex = messages.length - 1;
+    while (userIndex >= 0 && messages[userIndex]?.role !== 'user') userIndex -= 1;
+    return !!state.isBusy && startIndex > userIndex;
 }
 
 function parseToolContent(content = '') {
@@ -705,7 +699,9 @@ function renderLiveToolTraceItem(item = {}) {
 }
 
 function renderStoredToolMessage(toolMessage = {}) {
-    const parsed = parseToolContent(toolMessage.content);
+    const parsed = parseToolPreviewContent(toolMessage.content, {
+        forceParse: isPlanToolName(toolMessage.toolName),
+    });
     const planBody = renderPlanToolBody(toolMessage, parsed);
     const display = toolMessage.toolDisplay && typeof toolMessage.toolDisplay === 'object'
         ? toolMessage.toolDisplay
@@ -714,7 +710,7 @@ function renderStoredToolMessage(toolMessage = {}) {
         return `
             <div class="xb-tool ${parsed.ok === false ? 'is-error' : ''}">
                 <div class="xb-tool-plain-title">${escapeHtml(toolMessage.toolName || '工具结果')}</div>
-                ${planBody || `<small>${escapeHtml(formatToolSummary(toolMessage))}</small>`}
+                ${planBody || `<small>${escapeHtml(formatToolSummary(toolMessage, parsed))}</small>`}
             </div>
         `;
     }
@@ -734,47 +730,10 @@ function renderStoredToolMessage(toolMessage = {}) {
         title: display.title || toolMessage.toolName || '工具结果',
         ok: parsed.ok !== false,
         status: display.status || 'resolved',
-        summary: formatToolSummary(toolMessage),
+        summary: formatToolSummary(toolMessage, parsed),
         payload: Array.isArray(display.payload) ? display.payload : [],
         elapsedMs: Number(display.elapsedMs) || 0,
     });
-}
-
-function renderStoredToolPreview(toolMessage = {}) {
-    const isPlanTool = isPlanToolName(toolMessage.toolName);
-    const parsed = parseToolPreviewContent(toolMessage.content, {
-        forceParse: isPlanTool,
-    });
-    const planBody = isPlanTool ? renderPlanToolBody(toolMessage, parsed) : '';
-    const display = toolMessage.toolDisplay && typeof toolMessage.toolDisplay === 'object'
-        ? toolMessage.toolDisplay
-        : null;
-    if (display) {
-        const statusText = display.status === 'running'
-            ? '运行中'
-            : (parsed.ok === false ? '失败' : '已返回');
-        return `
-            <div class="xb-tool ${parsed.ok === false ? 'is-error' : 'is-resolved'}">
-                <div class="xb-tool-head">
-                    <span>${escapeHtml(display.title || toolMessage.toolName || '工具结果')}</span>
-                    <em>${escapeHtml(statusText)}</em>
-                </div>
-                ${planBody || `<small>${escapeHtml(formatToolSummary(toolMessage, parsed))}</small>`}
-            </div>
-        `;
-    }
-    return `
-        <div class="xb-tool ${parsed.ok === false ? 'is-error' : ''}">
-            <div class="xb-tool-plain-title">${escapeHtml(toolMessage.toolName || '工具结果')}</div>
-            ${planBody || `<small>${escapeHtml(formatToolSummary(toolMessage, parsed))}</small>`}
-        </div>
-    `;
-}
-
-function renderToolPrefacePreview(assistantMessage = {}) {
-    const content = trimInlineText(String(assistantMessage.content || '').trim(), 260);
-    if (!content) return '';
-    return `<div class="xb-tool-preface-preview">${escapeHtml(content)}</div>`;
 }
 
 function renderMessageMarkdownHtml(text = '') {
@@ -1303,9 +1262,6 @@ function withAgentRenderUnitKey(html = '', key = '') {
     const safeKey = escapeHtml(key);
     const text = String(html || '');
     if (!safeKey || /^\s*<[a-zA-Z][^>]*\sdata-agent-unit-key=/.test(text)) return text;
-    if (/^\s*<details\b/.test(text)) {
-        return text.replace(/(<summary\b(?![^>]*\sdata-agent-unit-key=)[^>]*)(>)/, `$1 data-agent-unit-key="${safeKey}"$2`);
-    }
     return text.replace(/^(\s*<[a-zA-Z][^>]*?)(\s*\/?>)/, `$1 data-agent-unit-key="${safeKey}"$2`);
 }
 
@@ -1344,31 +1300,114 @@ function getMessageRenderSignature(message = {}, messageIndex = 0, state = {}) {
     ].join(':');
 }
 
-function getToolRunSignature(batches = [], turnKey = '', state = {}, isOpen = false, autoOpen = false) {
-    const parts = batches.map((batch) => {
-        const assistantMessage = batch.assistantMessage || {};
-        const toolMessages = Array.isArray(batch.toolMessages) ? batch.toolMessages : [];
-        return [
-            getMessageRenderSignature(assistantMessage, 0, state),
-            toolMessages.map((message) => [
-                getRenderObjectId(message),
-                message.toolName || '',
-                getCachedTextSignature(message, 'content', message.content || ''),
-                getCachedTextSignature(message, 'toolDisplay', JSON.stringify(message.toolDisplay || null)),
-            ].join(':')).join(','),
-        ].join('|');
-    }).join('||');
-    return [
-        turnKey,
-        isOpen ? 'open' : 'folded',
-        autoOpen ? 'auto' : 'manual',
-        Array.isArray(state.openThoughtKeys) ? state.openThoughtKeys.join('|') : '',
-        parts,
-    ].join(':');
+function createAgentGroupUnit(key, shellSignature, children, renderShell) {
+    return {
+        key,
+        shellSignature,
+        signature: [shellSignature, ...children.map((child) => child.signature)].join('|'),
+        children,
+        get scaffoldHtml() { return renderShell(''); },
+        get html() {
+            return renderShell(children.map((child) => withAgentRenderUnitKey(child.html, child.key)).join(''));
+        },
+    };
+}
+
+function collectMessageGroups(messages = []) {
+    const groups = [];
+    for (let index = 0; index < messages.length; index += 1) {
+        const message = messages[index];
+        if (!message || !['user', 'assistant'].includes(message.role)) continue;
+        if (!(message.role === 'assistant' && message.toolCalls?.length)) {
+            groups.push({ message, startIndex: index });
+            continue;
+        }
+        const group = { batches: [], startIndex: index };
+        do {
+            const assistantMessage = messages[index];
+            const toolMessages = [];
+            index += 1;
+            while (messages[index]?.role === 'tool') toolMessages.push(messages[index++]);
+            group.batches.push({ assistantMessage, toolMessages });
+        } while (messages[index]?.role === 'assistant' && messages[index]?.toolCalls?.length);
+        index -= 1;
+        groups.push(group);
+    }
+    return groups;
+}
+
+function renderToolRunUnit({ batches, startIndex }, state) {
+    const turnKey = buildToolTurnKey(batches[0].assistantMessage);
+    const running = shouldAutoOpenActiveToolTurn(state, startIndex);
+    const isOpen = running || (state.openToolTurnKeys || []).includes(turnKey);
+    // A closed process is only a summary: don't read or hash any tool payloads.
+    const rounds = isOpen ? batches.map((batch, batchIndex) => {
+        const { assistantMessage, toolMessages } = batch;
+        const batchKey = buildToolTurnKey(assistantMessage);
+        const thoughtKey = `${turnKey}:thought:${batchIndex + 1}`;
+        const children = [createAgentRenderUnit(`${batchKey}:heading`, `
+            <div class="xb-tool-round-title">第 ${batchIndex + 1} 轮 · ${assistantMessage.toolCalls.length} 个工具</div>
+        `)];
+        if (assistantMessage.thoughts?.length) children.push(createAgentRenderUnit(
+            `${batchKey}:thoughts`,
+            `${getThoughtsSignature(assistantMessage)}:${(state.openThoughtKeys || []).includes(thoughtKey)}`,
+            () => renderThoughtDetails(assistantMessage, { key: thoughtKey, openThoughtKeys: state.openThoughtKeys }),
+        ));
+        if (String(assistantMessage.content || '').trim()) children.push(createAgentRenderUnit(
+            `${batchKey}:preface`,
+            getCachedTextSignature(assistantMessage, 'content', assistantMessage.content),
+            () => `<div class="xb-tool-preface xb-tool-preface-markdown xb-assistant-markdown">${renderMessageMarkdownHtml(assistantMessage.content)}</div>`,
+        ));
+        const live = state.liveToolTurn && batchKey === buildToolTurnKey(state.liveToolTurn);
+        const traces = live ? state.toolTrace || [] : [];
+        for (const call of assistantMessage.toolCalls) {
+            const message = toolMessages.find((item) => item.toolCallId === call.id);
+            const trace = traces.find((item) => item.id === call.id);
+            if (message) {
+                children.push(createAgentRenderUnit(
+                    `${batchKey}:tool:${call.id}`,
+                    [message.toolName, getCachedTextSignature(message, 'content', message.content || ''), JSON.stringify(message.toolDisplay || null)].join(':'),
+                    () => renderStoredToolMessage(message),
+                ));
+            } else if (trace) {
+                children.push(createAgentRenderUnit(
+                    `${batchKey}:tool:${call.id}`, JSON.stringify(trace), () => renderLiveToolTraceItem(trace),
+                ));
+            }
+        }
+        return createAgentGroupUnit(batchKey, 'round', children, (body) => (
+            `<div class="xb-tool-round" data-agent-unit-children>${body}</div>`
+        ));
+    }) : [];
+    const label = `${running ? '正在创作' : '已创作'} ${batches.length} 轮`;
+    const children = [createAgentRenderUnit(`${turnKey}:label`, `${running}:${label}`, () => (
+        running
+            ? `<div class="xb-tool-run-label">${escapeHtml(label)}</div>`
+            : `<summary><span>${escapeHtml(label)}</span><span class="xb-tool-fold-indicator" aria-hidden="true"></span></summary>`
+    ))];
+    if (isOpen) children.push(createAgentGroupUnit(`${turnKey}:body`, 'body', rounds, (body) => (
+        `<div class="xb-tool-trace-body" data-tool-detail-mode="full" data-agent-unit-children>${body}</div>`
+    )));
+    return createAgentGroupUnit(`tool:${turnKey}`, `${running}:${isOpen}`, children, (body) => {
+        const keyAttr = `data-tool-turn-key="${escapeHtml(turnKey)}"`;
+        return running
+            ? `<section class="xb-tool-trace xb-tool-turn xb-tool-turn-live" ${keyAttr} data-agent-unit-children>
+                ${body}
+            </section>`
+            : `<details class="xb-tool-trace xb-tool-turn" ${keyAttr}${isOpen ? ' open' : ' data-lazy-tool-turn="true"'} data-agent-unit-children>
+                ${body}
+            </details>`;
+    });
 }
 
 export function collectAgentRenderUnits(state = {}) {
-    const messages = Array.isArray(state.messages) ? state.messages : [];
+    const messages = [...(state.messages || [])];
+    const live = state.isBusy && state.liveToolTurn;
+    // During saving the live batch already exists in history; never render it twice.
+    if (live) {
+        buildToolTurnKey(live);
+        if (!messages.some((message) => message.uiProcessId === live.uiProcessId)) messages.push(live);
+    }
     const units = [];
 
     const renderMessageActions = (message = {}, messageIndex = 0) => {
@@ -1429,100 +1468,22 @@ export function collectAgentRenderUnits(state = {}) {
         `;
     };
 
-    const renderToolRun = (startIndex = 0) => {
-        const batches = [];
-        let index = startIndex;
-        while (
-            index < messages.length
-            && messages[index]?.role === 'assistant'
-            && Array.isArray(messages[index].toolCalls)
-            && messages[index].toolCalls.length
-        ) {
-            const assistantMessage = messages[index];
-            const toolMessages = [];
-            let nextIndex = index + 1;
-            while (nextIndex < messages.length && messages[nextIndex]?.role === 'tool') {
-                toolMessages.push(messages[nextIndex]);
-                nextIndex += 1;
-            }
-            batches.push({ assistantMessage, toolMessages });
-            index = nextIndex;
+    for (const group of collectMessageGroups(messages)) {
+        if (group.batches) {
+            units.push(renderToolRunUnit(group, state));
+        } else {
+            units.push(createAgentRenderUnit(
+                `message:${group.startIndex}`,
+                getMessageRenderSignature(group.message, group.startIndex, state),
+                () => renderPlainMessage(group.message, group.startIndex),
+            ));
         }
-        const turnKey = buildToolTurnKey(batches, startIndex);
-        const autoOpen = shouldAutoOpenActiveToolTurn(state, startIndex);
-        const isOpen = autoOpen
-            || (Array.isArray(state.openToolTurnKeys) && state.openToolTurnKeys.includes(turnKey));
-        const autoOpenAttr = autoOpen ? ' data-auto-open-tool-turn="true"' : '';
-        const lazyAttr = isOpen ? '' : ' data-lazy-tool-turn="true"';
-        const openAttr = isOpen ? ' open' : '';
-        const toolCount = batches.reduce((sum, batch) => (
-            sum + (batch.toolMessages.length || batch.assistantMessage.toolCalls.length || 0)
-        ), 0);
-        const buildToolBodyHtml = () => {
-            const previewHtml = batches.map((batch) => [
-                renderToolPrefacePreview(batch.assistantMessage),
-                batch.toolMessages.map((toolMessage) => renderStoredToolPreview(toolMessage)).join(''),
-            ].filter(Boolean).join('')).join('');
-            return isOpen
-                ? `
-                    <div class="xb-tool-trace-body" data-tool-detail-mode="full">
-                        ${batches.map((batch, batchIndex) => `
-                            <div class="xb-tool-round">
-                                <div class="xb-tool-round-title">第 ${batchIndex + 1} 轮 · ${batch.toolMessages.length || batch.assistantMessage.toolCalls.length} 个工具</div>
-                                ${renderThoughtDetails(batch.assistantMessage, {
-                                    key: `${turnKey}:thought:${batchIndex + 1}`,
-                                    openThoughtKeys: state.openThoughtKeys,
-                                })}
-                                ${String(batch.assistantMessage.content || '').trim() ? `<div class="xb-tool-preface xb-tool-preface-markdown xb-assistant-markdown">${renderMessageMarkdownHtml(batch.assistantMessage.content)}</div>` : ''}
-                                ${batch.toolMessages.map((toolMessage) => renderStoredToolMessage(toolMessage)).join('')}
-                            </div>
-                        `).join('')}
-                    </div>
-                `
-                : `
-                    <div class="xb-tool-trace-body xb-tool-trace-preview" data-tool-detail-mode="preview">
-                        ${previewHtml || `<div class="xb-tool-lazy-note">展开查看 ${toolCount || 0} 个工具结果</div>`}
-                        <div class="xb-tool-lazy-note">展开查看思考、说明和完整工具轮次</div>
-                    </div>
-                `;
-        };
-        return {
-            unit: createAgentRenderUnit(
-                `tool:${turnKey}`,
-                getToolRunSignature(batches, turnKey, state, isOpen, autoOpen),
-                () => `
-                    <details class="xb-tool-trace xb-tool-turn" data-tool-turn-key="${escapeHtml(turnKey)}"${autoOpenAttr}${lazyAttr}${openAttr}>
-                        <summary><span>已创作 ${batches.length || 1} 轮</span><span class="xb-tool-fold-indicator" aria-hidden="true"></span></summary>
-                        ${buildToolBodyHtml()}
-                    </details>
-                `,
-            ),
-            nextIndex: index,
-        };
-    };
-
-    for (let index = 0; index < messages.length; index += 1) {
-        const message = messages[index];
-        if (!message || !['user', 'assistant', 'tool'].includes(message.role)) continue;
-        if (message.role === 'assistant' && Array.isArray(message.toolCalls) && message.toolCalls.length) {
-            const unit = renderToolRun(index);
-            units.push(unit.unit);
-            index = unit.nextIndex - 1;
-            continue;
-        }
-        if (message.role === 'tool') continue;
-        units.push(createAgentRenderUnit(
-            `message:${index}`,
-            getMessageRenderSignature(message, index, state),
-            () => renderPlainMessage(message, index),
-        ));
     }
 
-    const hasLiveToolTurn = !!(state.isBusy && Array.isArray(state.toolTrace) && state.toolTrace.length);
-    if (!units.length && !hasLiveToolTurn) {
+    if (!units.length) {
         return [
             createAgentRenderUnit('empty', '<div class="xb-agent-empty">这里是写作助手记录。可以先导入资料，也可以直接说“我想试试写一本书”。</div>'),
-        ].filter(Boolean);
+        ];
     }
     const messageWindow = getMessageWindow(state, units.length, {
         preserveStartOnGrow: state.agentAutoScroll === false,
@@ -1533,21 +1494,7 @@ export function collectAgentRenderUnits(state = {}) {
             `<div class="xb-agent-history-gate">较早记录 ${messageWindow.hiddenBefore} 条</div>`,
         )
         : null;
-    const liveTraceSignature = hasLiveToolTurn
-        ? getCachedTextSignature(state, 'liveToolTurn', JSON.stringify({
-            trace: (state.toolTrace || []).slice(-8),
-            live: state.liveToolTurn || null,
-            openThoughtKeys: state.openThoughtKeys || [],
-        }))
-        : '';
-    const liveToolTurn = hasLiveToolTurn
-        ? createAgentRenderUnit('live-tool-turn', liveTraceSignature, () => renderLiveToolTurn(state))
-        : null;
-    return [
-        historyGate,
-        ...units.slice(messageWindow.startIndex),
-        liveToolTurn,
-    ].filter(Boolean);
+    return [historyGate, ...units.slice(messageWindow.startIndex)].filter(Boolean);
 }
 
 export function renderAgentMessages(state = {}) {
@@ -1555,66 +1502,7 @@ export function renderAgentMessages(state = {}) {
 }
 
 export function countMessageWindowUnits(messages = []) {
-    let count = 0;
-    for (let index = 0; index < messages.length; index += 1) {
-        const message = messages[index];
-        if (!message || !['user', 'assistant', 'tool'].includes(message.role)) continue;
-        if (message.role === 'assistant' && Array.isArray(message.toolCalls) && message.toolCalls.length) {
-            count += 1;
-            let nextIndex = index;
-            while (
-                nextIndex < messages.length
-                && messages[nextIndex]?.role === 'assistant'
-                && Array.isArray(messages[nextIndex].toolCalls)
-                && messages[nextIndex].toolCalls.length
-            ) {
-                nextIndex += 1;
-                while (nextIndex < messages.length && messages[nextIndex]?.role === 'tool') {
-                    nextIndex += 1;
-                }
-            }
-            index = nextIndex - 1;
-            continue;
-        }
-        if (message.role === 'tool') continue;
-        count += 1;
-    }
-    return count;
-}
-
-function renderLiveToolTurn(state = {}) {
-    const traceItems = Array.isArray(state.toolTrace) ? state.toolTrace.slice(-8) : [];
-    if (!traceItems.length) return '';
-    const assistantMessage = state.liveToolTurn && typeof state.liveToolTurn === 'object'
-        ? state.liveToolTurn
-        : {
-            role: 'assistant',
-            content: '',
-            thoughts: [],
-            toolCalls: traceItems.map((item, index) => ({
-                id: String(item.id || `live-tool-${index}`),
-                name: String(item.name || ''),
-                arguments: '{}',
-            })),
-        };
-    const rounds = new Set(state.toolTrace.map((item) => Number(item.round) || 1)).size || 1;
-    const turnKey = buildToolTurnKey([{ assistantMessage }], 'live');
-    return `
-        <details class="xb-tool-trace xb-tool-turn xb-tool-turn-live" data-tool-turn-key="${escapeHtml(turnKey)}" data-auto-open-tool-turn="true" open>
-            <summary><span>正在创作 ${rounds} 轮</span><span class="xb-tool-fold-indicator" aria-hidden="true"></span></summary>
-            <div class="xb-tool-trace-body">
-                <div class="xb-tool-round">
-                    <div class="xb-tool-round-title">当前工具轮</div>
-                    ${renderThoughtDetails(assistantMessage, {
-                        key: `${turnKey}:thought:live`,
-                        openThoughtKeys: state.openThoughtKeys,
-                    })}
-                    ${String(assistantMessage.content || '').trim() ? `<div class="xb-tool-preface xb-tool-preface-markdown xb-assistant-markdown">${renderMessageMarkdownHtml(assistantMessage.content)}</div>` : ''}
-                    ${traceItems.map((item) => renderLiveToolTraceItem(item)).join('')}
-                </div>
-            </div>
-        </details>
-    `;
+    return collectMessageGroups(messages).length;
 }
 
 function renderDraftStats(state = {}) {

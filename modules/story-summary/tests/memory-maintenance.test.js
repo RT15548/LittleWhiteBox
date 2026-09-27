@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
-import { editMemory, restoreMaintenance, maintenanceImpact } from '../maintenance/domain.js';
+import { editMemory, editMemoryBatch, restoreMaintenance, maintenanceImpact } from '../maintenance/domain.js';
 import { createMemorySession } from '../maintenance/session.js';
 import { projectMaintenanceReceipts } from '../maintenance/history.js';
 import { upgradeSummaryHistory, appendMaintenanceReceipt, createSummaryBaseline } from '../data/summary-history.js';
@@ -75,6 +75,40 @@ test('merge selects the oldest identity regardless of model ordering; dangling c
     assert.deepEqual(before, snapshot);
     const resolved = editMemory(before, { ...merge, patch: { ...joinedEventPatch, causedBy: ['evt-5', 'evt-7'] } }, 23);
     assert.deepEqual(resolved.memory.json.events[0].causedBy, ['evt-5', 'evt-7']);
+});
+
+test('one rejected memory batch identifies independent dangling references, cycles and fact conflicts', () => {
+    const before = data();
+    before.json.characterAliases = [{ from: '实', to: '夏实', evidence: '', _addedAt: 19 },
+        { from: '旅者', to: '旅人', evidence: '', _addedAt: 19 }];
+    const snapshot = structuredClone(before);
+    const edits = [
+        { kind: 'edit', collection: 'events', key: 'evt-1', patch: { causedBy: ['missing-a'] } },
+        { kind: 'edit', collection: 'events', key: 'evt-2', patch: { causedBy: ['missing-b'] } },
+        { kind: 'edit', collection: 'events', key: 'evt-3', patch: { causedBy: ['evt-3'] } },
+        { kind: 'edit', collection: 'facts', key: 'f-2', patch: { p: '回收原因' } },
+        { kind: 'edit', collection: 'facts', key: 'f-4', patch: { p: '承诺' } },
+        { kind: 'edit', collection: 'characterAliases', key: '实', patch: { to: '旅者' } },
+        { kind: 'edit', collection: 'characterAliases', key: '旅者', patch: { to: '实' } },
+    ];
+    assert.throws(() => editMemoryBatch(before, edits, 23), error => {
+        assert.deepEqual(error.rejected.map(issue => issue.code).sort(), [
+            'invalid_reference', 'invalid_reference', 'invalid_reference', 'fact_conflict', 'fact_conflict', 'invalid_alias',
+        ].sort());
+        assert.deepEqual(error.rejected.filter(issue => issue.expected?.missing).map(issue => issue.expected.missing), ['missing-a', 'missing-b']);
+        assert.deepEqual(error.unchecked, []);
+        return true;
+    });
+    assert.deepEqual(before, snapshot);
+});
+
+test('name-based edit targets stay unambiguous inside an atomic batch', () => {
+    const before = data(), snapshot = structuredClone(before);
+    assert.throws(() => editMemoryBatch(before, [
+        { kind: 'edit', collection: 'characters', key: '夏实', patch: { name: '旅人' } },
+        { kind: 'delete', collection: 'characters', key: '旅人' },
+    ], 23), { code: 'invalid_record' });
+    assert.deepEqual(before, snapshot);
 });
 
 test('a rewritten event summary without a source marker keeps the span of the events it replaces', () => {

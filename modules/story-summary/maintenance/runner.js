@@ -114,6 +114,7 @@ export async function runMemoryAgent(session, { adapter, config, signal, onCall 
                     if (!(error instanceof MemoryMaintenanceError) && !(error instanceof SyntaxError)) throw error;
                     if (['conflict', 'cancelled'].includes(error.code)) throw error;
                     response = { status: 'error', code: error.code || 'invalid_json', field: error.field || 'arguments', message: error.message,
+                        ...(error.rejected ? { rejected: error.rejected, unchecked: error.unchecked } : {}),
                         ...(error.records ? { records: error.records } : {}),
                         ...(error.expected ? { expected: error.expected } : {}) };
                 }
