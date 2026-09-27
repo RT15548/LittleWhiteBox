@@ -41,23 +41,30 @@ export function geometryBounds(g: SpaceGeometry): SpaceBounds {
 }
 export function boundsOverlap(a: SpaceBounds, b: SpaceBounds): boolean { return a[0] <= b[0] + b[2] && b[0] <= a[0] + a[2] && a[1] <= b[1] + b[3] && b[1] <= a[1] + a[3]; }
 export function pointInGeometry(point: SpacePoint, geometry: SpaceGeometry): boolean {
+    return geometryContains(geometry)(point);
+}
+/** Prepare a contour once for repeated sampling; coordinate/edge semantics stay identical. */
+export function geometryContains(geometry: SpaceGeometry): (point: SpacePoint) => boolean {
     const points = geometryPoints(geometry);
-    if (!geometryClosed(geometry)) {
-        const width = (geometry.shape === 'path' || geometry.shape === 'curve') ? (geometry.width || 0) / 2 : 0;
-        for (let i = 1; i < points.length; i++) {
-            const a = points[i - 1], b = points[i];
-            const dx = b[0] - a[0], dy = b[1] - a[1];
-            const t = Math.max(0, Math.min(1, ((point[0] - a[0]) * dx + (point[1] - a[1]) * dy) / (dx * dx + dy * dy || 1)));
-            if (Math.hypot(point[0] - a[0] - t * dx, point[1] - a[1] - t * dy) <= width) { return true; }
+    const closed = geometryClosed(geometry);
+    return point => {
+        if (!closed) {
+            const width = (geometry.shape === 'path' || geometry.shape === 'curve') ? (geometry.width || 0) / 2 : 0;
+            for (let i = 1; i < points.length; i++) {
+                const a = points[i - 1], b = points[i];
+                const dx = b[0] - a[0], dy = b[1] - a[1];
+                const t = Math.max(0, Math.min(1, ((point[0] - a[0]) * dx + (point[1] - a[1]) * dy) / (dx * dx + dy * dy || 1)));
+                if (Math.hypot(point[0] - a[0] - t * dx, point[1] - a[1] - t * dy) <= width) { return true; }
+            }
+            return false;
         }
-        return false;
-    }
-    let inside = false;
-    for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
-        const a = points[i], b = points[j];
-        if ((a[1] > point[1]) !== (b[1] > point[1]) && point[0] < (b[0] - a[0]) * (point[1] - a[1]) / (b[1] - a[1]) + a[0]) { inside = !inside; }
-    }
-    return inside;
+        let inside = false;
+        for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+            const a = points[i], b = points[j];
+            if ((a[1] > point[1]) !== (b[1] > point[1]) && point[0] < (b[0] - a[0]) * (point[1] - a[1]) / (b[1] - a[1]) + a[0]) { inside = !inside; }
+        }
+        return inside;
+    };
 }
 
 function intersection(a: SpacePoint, b: SpacePoint, c: SpacePoint, d: SpacePoint): SpacePoint | null {

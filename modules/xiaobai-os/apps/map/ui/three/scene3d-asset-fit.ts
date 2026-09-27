@@ -1,7 +1,7 @@
 import { InstancedMesh, Matrix4, Vector3, type Group } from 'three';
 import type { MapElement, MapMaterial } from '../../../../domains/map/types.js';
 import type { SceneAsset, SceneAssetKind } from './scene3d-assets.js';
-import type { Scene3DResources } from './scene3d-resources.js';
+import type { RenderResources } from '../render/resources.js';
 import type { createSceneMaterials } from './scene3d-materials.js';
 import { isSceneMarker, sceneElementBounds } from '../scene-geometry.js';
 import assetManifest from './assets/kenney/manifest.json';
@@ -48,7 +48,7 @@ export function sceneAssetHeight(element: MapElement, kind: SceneAssetKind, widt
 }
 
 export function fitSceneAsset(parent: Group, element: MapElement, kind: SceneAssetKind, asset: SceneAsset,
-    width: number, depth: number, resources: Scene3DResources, materials: ReturnType<typeof createSceneMaterials>) {
+    width: number, depth: number, resources: RenderResources, materials: ReturnType<typeof createSceneMaterials>) {
     const { size } = asset;
     const { count, scale, height } = assetFit(element, kind, asset, width, depth);
     const main = element.material ? element : {

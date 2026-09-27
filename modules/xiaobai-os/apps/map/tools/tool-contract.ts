@@ -107,6 +107,7 @@ export function mapTools(saveDescription: string): readonly MaintenanceFunctionD
                 saveDescription,
                 EDIT_ITEM_REPORTS,
                 'Use it to establish places and their hierarchy before drawing their layouts with MapSceneEdit, or for movement between places.',
+                'data.baseGaps lists world/region maps with missing base coverage as {map,hasBase,uncoveredLocationKeys}. These are completion hints, not a failure to save valid edits.',
                 'Related containment, mapping, geometry, ownership and removal declarations are validated as one final candidate and accepted together. Independent groups may succeed separately. Omitted records remain unchanged.',
                 atlasExamplesPrompt(),
             ].join('\n'),

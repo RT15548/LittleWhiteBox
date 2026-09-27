@@ -135,6 +135,7 @@ defineExpose({ zoom, reset });
 </script>
 <template>
     <div class="map-viewport">
+        <slot name="background" :viewport="viewport" :size="size" :unit-scale="unitScale" />
         <svg
             ref="svg" class="map-viewport-svg" :viewBox="viewBoxText" preserveAspectRatio="xMidYMid meet" role="group" :aria-label="label"
             @wheel.prevent="zoom($event.deltaY < 0 ? .84 : 1.19, clientToMap($event.clientX, $event.clientY))"

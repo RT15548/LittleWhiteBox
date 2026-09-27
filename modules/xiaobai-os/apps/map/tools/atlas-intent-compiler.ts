@@ -6,6 +6,7 @@ import { MAX_MAP_ACTORS, MAX_MAP_LABEL_LENGTH, MAX_MAP_LINKS, MAX_MAP_LOCATIONS 
 import type { MapDomain, MapLink } from '../../../domains/map/types.js';
 import { MAX_MAP_FEATURES, MAX_MAP_FRAMES } from '../../../domains/map/space/types.js';
 import { mapFrameId } from '../../../domains/map/space/frames.js';
+import { atlasBaseGaps } from '../../../domains/map/space/coverage.js';
 import { jsonValuesEqual } from '../../../host/json-values-equal.js';
 import { compileLocationDeclaration } from './atlas-location-compiler.js';
 import { compileFeatureDeclaration, compileFrameDeclaration, mapOwner } from './atlas-spatial-compiler.js';
@@ -163,5 +164,5 @@ export function compileAtlasIntent(current: MapDomain, value: unknown, player: A
             for (const entry of group) { skipped.push({ collection: entry.collection, index: entry.index, id: entry.id, reason: entry.error || reason, hint }); }
         }
     }
-    return { domain: working, edits, result: mapToolResult({ changed: !jsonValuesEqual(current, working), applied, skipped }) };
+    return { domain: working, edits, result: mapToolResult({ changed: !jsonValuesEqual(current, working), applied, skipped, data: { baseGaps: atlasBaseGaps(working.atlas) } }) };
 }

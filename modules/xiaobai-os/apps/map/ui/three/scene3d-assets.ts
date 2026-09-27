@@ -1,6 +1,6 @@
 import { Box3, Mesh, Vector3 } from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { Scene3DResources } from './scene3d-resources.js';
+import { RenderResources } from '../render/resources.js';
 
 export type SceneAssetKind = 'table' | 'chair' | 'bed' | 'shelf' | 'tree' | 'rock' | 'stool' | 'bench' | 'sofa'
     | 'cabinet' | 'chest' | 'barrel' | 'stove' | 'refrigerator' | 'sink' | 'toilet' | 'bathtub'
@@ -11,7 +11,7 @@ export type SceneAssetLoader = (kind: SceneAssetKind, signal: AbortSignal) => Pr
 /** Prepared GLBs are baked static meshes: no images, animations, transforms or external URIs. */
 export async function decodeSceneAsset(buffer: ArrayBuffer) {
     const { scene } = await new GLTFLoader().parseAsync(buffer, '');
-    const resources = new Scene3DResources();
+    const resources = new RenderResources();
     const parts: { geometry: Mesh['geometry']; role: string }[] = [];
     const size = new Box3().setFromObject(scene).getSize(new Vector3());
     let radius = 0;

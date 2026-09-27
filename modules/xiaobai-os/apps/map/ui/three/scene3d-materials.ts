@@ -2,7 +2,7 @@ import { Color, type DataTexture, DoubleSide, LineDashedMaterial, MeshStandardMa
 import type { MapElement } from '../../../../domains/map/types.js';
 import { SCENE_MATERIAL_COLORS } from '../scene-materials.js';
 import { elementPresentation } from '../map-presentation.js';
-import type { Scene3DResources } from './scene3d-resources.js';
+import type { RenderResources } from '../render/resources.js';
 import { createSurfaceTexture } from './scene3d-textures.js';
 
 const SURFACE_COLORS = {
@@ -12,7 +12,7 @@ const SURFACE_COLORS = {
     marble: '#e5e6e7', water: '#6aabbf', grass: '#b7cba0', forest: '#6d957d',
 };
 
-export function createSceneMaterials(resources: Scene3DResources, dark: boolean) {
+export function createSceneMaterials(resources: RenderResources, dark: boolean) {
     const meshes = new Map<string, MeshStandardMaterial>();
     const lines = new Map<string, LineDashedMaterial>();
     const textures = new Map<string, DataTexture>();

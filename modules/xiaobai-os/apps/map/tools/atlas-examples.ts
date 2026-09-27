@@ -37,6 +37,8 @@ export const ATLAS_EXAMPLES = themes.map(theme => ({
 }));
 
 export function atlasExamplesPrompt(): string {
-    const desert = ATLAS_EXAMPLES.find(e => e.id === 'desert')!;
-    return ['## Atlas example (not exhaustive)', 'A desert map with dunes, an oasis and local-map boundaries. The app supplies the texture:', `MapAtlasEdit(${JSON.stringify(desert.input)})`].join('\n');
+    return ['## Atlas examples (not exhaustive)',
+        'Each map starts with its environment or main surface. These are relative layouts, not templates for unrelated worlds. Use names in the story’s language.',
+        ...ATLAS_EXAMPLES.filter(e => ['nature', 'city', 'space'].includes(e.id)).map(e => `${e.name}: MapAtlasEdit(${JSON.stringify(e.input)})`),
+    ].join('\n');
 }

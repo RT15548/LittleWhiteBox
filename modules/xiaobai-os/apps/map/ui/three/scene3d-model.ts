@@ -5,7 +5,7 @@ import { sortedSceneElements } from '../map-presentation.js';
 import { sceneTemplate } from './scene3d-presentation.js';
 import { elementFootprint, footprintGeometry, outlineGeometry, ribbonGeometry, sceneFrame, wallSegments } from './scene3d-geometry.js';
 import { createSceneMaterials } from './scene3d-materials.js';
-import { Scene3DResources } from './scene3d-resources.js';
+import { RenderResources } from '../render/resources.js';
 import { createTemplates } from './scene3d-templates.js';
 import { fitSceneAsset, sceneAssetHeight, sceneAssetKind } from './scene3d-asset-fit.js';
 import type { SceneAsset, SceneAssetKind } from './scene3d-assets.js';
@@ -21,7 +21,7 @@ function inside(point: Vector2, polygon: Vector2[]): boolean {
 }
 
 export function createSceneModel(data: MapScene, dark: boolean, assets?: { get(kind: SceneAssetKind): SceneAsset | undefined }, frame = sceneFrame(data)) {
-    const resources = new Scene3DResources();
+    const resources = new RenderResources();
     const group = new Group();
     try {
         const materials = createSceneMaterials(resources, dark);

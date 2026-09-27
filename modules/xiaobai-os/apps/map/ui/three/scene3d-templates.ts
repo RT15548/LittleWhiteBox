@@ -3,11 +3,11 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import type { MapElement, MapMaterial } from '../../../../domains/map/types.js';
 import type { SceneTemplate } from './scene3d-presentation.js';
 import type { createSceneMaterials } from './scene3d-materials.js';
-import type { Scene3DResources } from './scene3d-resources.js';
+import type { RenderResources } from '../render/resources.js';
 import { buildFixture } from './scene3d-fixtures.js';
 
 /** Normalized parts keep even tiny footprints positive and inside the authored bounds. */
-export function createTemplates(resources: Scene3DResources, materials: ReturnType<typeof createSceneMaterials>) {
+export function createTemplates(resources: RenderResources, materials: ReturnType<typeof createSceneMaterials>) {
     const cube = resources.own(new RoundedBoxGeometry(1, 1, 1, 3, .035));
     const cushion = resources.own(new RoundedBoxGeometry(1, 1, 1, 4, .16));
     const leg = resources.own(cube.clone());

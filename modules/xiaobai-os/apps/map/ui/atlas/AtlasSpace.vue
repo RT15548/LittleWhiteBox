@@ -6,7 +6,7 @@ import { boundsOverlap, geometryBounds, geometryClosed } from '../../../../domai
 import { atlasGeometryPath, atlasLineWidth } from './geometry.js';
 import { ATLAS_MATERIALS } from './materials.js';
 import { atlasDetails } from './details.js';
-import { atlasOccluders, atlasPaintOrder } from './composition.js';
+import { atlasOccluders, atlasPaintOrder } from '../../../../domains/map/space/composition.js';
 import AtlasSurface from './AtlasSurface.vue';
 import { useAtlasTiles } from './use-atlas-tiles.js';
 

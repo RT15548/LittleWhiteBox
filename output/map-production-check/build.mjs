@@ -40,6 +40,8 @@ fixtures['atlas-carrier'] = compileAtlasIntent(createEmptyMapDomain(), {
     ],
 }, { actorKey: 'player', displayName: '小白' }).domain;
 validateMapDomain(fixtures['atlas-carrier']);
+fixtures['atlas-lifecycle'] = compileSceneIntent(fixtures['atlas-nature'], { ...sceneMapInputs.find(input => input.scene === 'tavern'), scene: 'station' }, { actorKey: 'player', displayName: '小白' }).domain;
+validateMapDomain(fixtures['atlas-lifecycle']);
 validateMapDomain(fixtures.regions);
 const geography = compileAtlasIntent(createEmptyMapDomain(), atlasGeographyInput, { actorKey: 'player', displayName: '小白' });
 if (geography.result.skipped.length) throw new Error(JSON.stringify(geography.result));

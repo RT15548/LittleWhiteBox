@@ -7,7 +7,7 @@ import { sceneTemplate } from '../apps/map/ui/three/scene3d-presentation.js';
 import { elementFootprint, sceneFrame, wallSegments, footprintGeometry } from '../apps/map/ui/three/scene3d-geometry.js';
 import { createSceneModel } from '../apps/map/ui/three/scene3d-model.js';
 import { createSceneMaterials } from '../apps/map/ui/three/scene3d-materials.js';
-import { Scene3DResources } from '../apps/map/ui/three/scene3d-resources.js';
+import { RenderResources } from '../apps/map/ui/render/resources.js';
 import { createSceneAssetSession } from '../apps/map/ui/three/scene3d-assets.js';
 import { sceneAssetKind } from '../apps/map/ui/three/scene3d-asset-fit.js';
 import { SCENE_MATERIAL_COLORS } from '../apps/map/ui/scene-materials.js';
@@ -170,7 +170,7 @@ test('low walls uniformly change only height, including off-centre rooms, revers
 });
 
 test('all current material tokens and certainty states render without changing source facts', () => {
-    const resources = new Scene3DResources();
+    const resources = new RenderResources();
     for (const dark of [false, true]) {
         const materials = createSceneMaterials(resources, dark);
         for (const material of Object.keys(SCENE_MATERIAL_COLORS)) {

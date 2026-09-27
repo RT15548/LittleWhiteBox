@@ -7,10 +7,10 @@ import { readMapPartition } from '../domains/map/upgrades/read.js';
 import { frameTransform, mapFrameId, transformPoint } from '../domains/map/space/frames.js';
 import { mapBrowseScope, projectAtlas } from '../domains/map/space/projection.js';
 import { MAX_SPACE_DETAILS } from '../domains/map/space/types.js';
-import { clippedGeometryBounds } from '../domains/map/space/geometry.js';
+import { clippedGeometryBounds, transformGeometry } from '../domains/map/space/geometry.js';
 import { createMapMaintenanceSession } from '../apps/map/maintenance/session.js';
 import { atlasDetails } from '../apps/map/ui/atlas/details.js';
-import { atlasOccluders } from '../apps/map/ui/atlas/composition.js';
+import { atlasOccluders } from '../domains/map/space/composition.js';
 import { compileAtlasIntent } from '../apps/map/tools/atlas-intent-compiler.js';
 import { readAtlas } from '../apps/map/tools/atlas-reader.js';
 import { ATLAS_EXAMPLES } from '../apps/map/tools/atlas-examples.js';
@@ -90,7 +90,9 @@ test('same-call geometry and mapping corrections are order independent; reframe 
     for (const declarations of [features, [...features].reverse()]) {
         const result = compile(map, { ...edits, features: declarations });
         assert.equal(result.result.status, 'updated');
-        assert.deepEqual(view(result.domain).features.find(f => f.source.id === 'one').geometry, { shape: 'rect', x: 50, y: 80, width: 100, height: 120 });
+        const local = view(result.domain, 'west').features.find(f => f.source.id === 'one');
+        assert.deepEqual(transformGeometry(local.geometry, frameTransform(result.domain.atlas.frames, mapFrameId('west'), 'atlas')), { shape: 'rect', x: 50, y: 80, width: 100, height: 120 });
+        assert.ok(!view(result.domain).features.some(f => f.source.id === 'one'));
     }
     const before = view(map, 'west').nodes;
     const reframed = compile(map, { locations: [{ key: 'station', name: 'Station', reframe: null }] });
@@ -209,7 +211,8 @@ test('surface dependencies use both versions of frame mappings when maps exchang
     for (const maps of [declarations, [...declarations].reverse()]) {
         const result = compile(initial, { maps });
         assert.equal(result.result.status, 'updated');
-        assert.deepEqual(view(result.domain).features.map(f => [f.source.id, f.geometry.x]), [['surface-a', 20], ['surface-b', 0]]);
+        assert.deepEqual(result.domain.atlas.features.map(f => [f.id, transformGeometry(f.geometry, frameTransform(result.domain.atlas.frames, f.frame, 'atlas')).x]), [['surface-a', 20], ['surface-b', 0]]);
+        assert.deepEqual(view(result.domain).features, []);
     }
 });
 

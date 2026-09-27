@@ -5,15 +5,18 @@ import { MAX_MAP_FEATURES, MAX_MAP_FRAMES, SPACE_EXTRA_MATERIALS, SPACE_FORMS, S
 export const ATLAS_COLLECTION_MODES = ['locations', 'links', 'actors', 'maps', 'features'] as const;
 export const MAP_ATLAS_READ_CONTENT_DESCRIPTION = [
     'Read source facts in MapAtlasEdit vocabulary. Use collection reads to obtain existing identities and geometry before patching.',
-    'data contains mode and revision. Summary adds counts for locations, links, actors, maps, features and needsRegion, plus player (null when unrecorded). Collection reads add the named collection, count, returned, truncated and nextOffset.',
+    'data contains mode and revision. Summary adds counts for locations, links, actors, maps, features, needsRegion and needsBase, plus player (null when unrecorded). Collection reads add the named collection, count, returned, truncated and nextOffset.',
     'Locations include hasScene and needsRegion. hasScene means an internal layout exists, not that it is complete. needsRegion marks a concrete place lacking a region ancestor. Read status includes visits to containing places.',
-    'Maps contain map, mapping? and boundary?; features contain their source map and complete editable geometry, not a clipped fragment of another map.',
+    'Maps contain map, mapping? and boundary?. World and region maps also return read-only baseCoverage: hasBase and uncoveredLocationKeys. needsBase counts maps without a base or with uncovered positioned entrances. Features contain their source map and complete editable geometry, not a clipped fragment of another map.',
     'Continue with nextOffset while it is not null, keeping the same collection and filters.',
 ].join('\n');
 export const MAP_ATLAS_SPATIAL_GUIDANCE = [
     '## Atlas space',
     'The world and its regions use the same geometry for nature, settlements, oceans, artificial interiors, space and unusual environments. A region is an exploration area, not necessarily a land district.',
     'You establish surfaces, major outlines and paths; the app generates trees, dunes, mountain shading, roofs and material details. Generated details are not destinations. A real landmark reuses its location identity through destination.',
+    'A complete atlas has an environment or main surface appropriate to its setting, major geography and positioned entrances. Establish that base before adding local detail. A terrain tag on a location describes the place; it does not draw a surface. Read-only baseCoverage and edit data.baseGaps identify missing coverage, not a visual quality score.',
+    'World and region are separate browsing scales. World-owned geography and region outlines appear in the world overview. Geography owned by a region or a place inside it appears when entering that region; a specific destination building footprint appears in its region. Expressing its coordinates in another map does not move it to another browsing scale.',
+    'Build one shared world source for cross-region geography. Add local streets and building exteriors in their region; furniture, interior rooms and visible people belong to MapSceneEdit. Region outlines and world terrain provide the overview without copies of local detail.',
     'Containment and coordinates are independent. Place a destination in a chosen map even when it belongs inside a building or floor. Missing mappings remain unknown until the setting provides a relation; a place position does not establish its local origin.',
     'Cross-region features have one surviving common owner and one source geometry. A region shows an external projection only when its mapping and boundary are known. A city built-up area is separate from its region boundary.',
     'A link establishes connectivity. Its optional feature references an actual channel geometry; connectivity alone draws no road. Intersections do not establish crossings or connectivity.',
@@ -40,7 +43,7 @@ export const ATLAS_FEATURES_SCHEMA = {
     description: 'Patch source spatial features by id; absent features and omitted fields remain. New features require map, role, material and geometry. Their owner defaults to map. Reusing destination supplies its name; use name only for an independently named feature.',
     items: { type: 'object', properties: {
         id, map: ATLAS_MAP_SELECTOR,
-        owner: { ...ATLAS_MAP_SELECTOR, description: 'Lifecycle owner. Deleting it deletes this feature. A destination association is independent of ownership.' },
+        owner: { ...ATLAS_MAP_SELECTOR, description: 'Owner of this geography, defaulting to map. Its nearest region determines the browsing scope; null is world geography. Deleting the owner deletes this feature. A specific destination building footprint belongs to that destination’s region.' },
         role: { type: 'string', enum: SPACE_ROLES }, material: { type: 'string', enum: [...MAP_MATERIALS, ...SPACE_EXTRA_MATERIALS] },
         form: { anyOf: [{ type: 'string', enum: SPACE_FORMS }, { type: 'null' }], description: 'Known landscape or building form; omitted when the generic material and outline suffice.' },
         name: { type: ['string', 'null'], maxLength: MAX_MAP_NAME_LENGTH }, destination: nullableId, support: nullableId,

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, provide, ref, watch } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 import { useAppBack } from '../../../shell/app-src/navigation/app-navigation.js';
 import type { XiaobaiOsAppProps } from '../../../shell/app-contract.js';
 import MapAtlas from './MapAtlas.vue';
@@ -18,16 +18,12 @@ import { MAP_BROWSE_COPY, MAP_NAV_COPY, MAP_SPACE_COPY, MAP_VIEW_LABELS, mapBrow
 import { useMapState } from './use-map-state.js';
 import './map.css';
 import { useAtlasInsets } from './atlas/use-insets.js';
-import { atlasTileSession, ATLAS_TILE_SESSION } from './atlas/tile-session.js';
-import { atlasSurfaceKey } from './atlas/surface.js';
 
 const props = defineProps<XiaobaiOsAppProps>();
 const mapElement = ref<HTMLElement | null>(null), topElement = ref<HTMLElement | null>(null), bottomElement = ref<HTMLElement | null>(null);
 const atlasElement = ref<InstanceType<typeof MapAtlas> | null>(null);
 const { insets: atlasInsets, measure: measureAtlasInsets } = useAtlasInsets(mapElement, topElement, bottomElement);
 const { state, activeRequest, busy, disabledReason, requiresConfirmation, status, notice, isError, dismissNotice, refresh, confirmSave, adopt, setAuto, update, rebuild } = useMapState(props);
-const tileSession = atlasTileSession(props.bridge, state.value.chatIdentity);
-provide(ATLAS_TILE_SESSION, tileSession);
 const selectedKey = ref('');
 type MapView = { kind: 'world' } | { kind: 'region' | 'scene'; key: string };
 // An empty key follows the player's region/scene; explicit keys browse without moving anyone.
@@ -45,7 +41,6 @@ const settingsOpen = ref(false);
 const searchFilter = ref<MapBrowseFilter | null>(null);
 const helpOpen = ref(false);
 const atlas = computed(() => state.value.map?.atlas);
-watch(atlas, value => tileSession.cache.retainSurfaceKeys(new Set(value?.features.map(atlasSurfaceKey))), { immediate: true });
 const playerKey = computed(() => atlas.value?.actors.find(actor => actor.actorKey === 'player')?.locationKey || '');
 const player = computed(() => atlas.value?.locations.find(place => place.key === playerKey.value));
 const sceneLocation = computed(() => atlas.value?.locations.find(place => place.key === (sceneKey.value || playerKey.value)));
@@ -168,9 +163,9 @@ useAppBack(() => {
         </div>
         <div class="map-canvas" :class="{ 'has-detail': selected && !showingScene }">
             <template v-if="state.map && hasAtlas">
-                <MapAtlas v-if="projection.drawable" v-show="!showingScene" ref="atlasElement" :atlas="state.map.atlas" :projection="projection" :label="browseTitle" :insets="atlasInsets" :current-location-key="playerKey" :selected-location-key="selectedKey" :focus-key="focusKey" :focus-sequence="focusSequence" @select="key => selectPlace(key)" />
+                <MapAtlas v-if="projection.drawable" v-show="!showingScene" ref="atlasElement" :active="!showingScene" :atlas="state.map.atlas" :projection="projection" :label="browseTitle" :insets="atlasInsets" :current-location-key="playerKey" :selected-location-key="selectedKey" :focus-key="focusKey" :focus-sequence="focusSequence" @select="key => selectPlace(key)" />
                 <template v-if="showingScene">
-                    <MapSceneView v-if="scene?.status === 'active'" v-model:mode="renderMode" :scene="scene" :three-unavailable="threeUnavailable" @fallback="fallbackThree" />
+                    <MapSceneView v-if="scene?.status === 'active'" :key="scene.key" v-model:mode="renderMode" :scene="scene" :three-unavailable="threeUnavailable" @fallback="fallbackThree" />
                     <div v-else class="map-empty"><MapIcon name="layers" /><h2>{{ sceneLocation ? MAP_NAV_COPY.sceneEmpty : MAP_NAV_COPY.unknownLocation }}</h2><template v-if="sceneKey && sceneKey !== playerKey"><button type="button" class="map-secondary-button" @click="currentRegion ? enterRegion(currentRegion.key) : showWorld()">{{ currentRegion ? MAP_NAV_COPY.regionMap : MAP_VIEW_LABELS.world }}</button></template><template v-else><p>{{ sceneLocation ? MAP_NAV_COPY.sceneUpdateHint : MAP_NAV_COPY.locationUpdateHint }}</p><button type="button" class="map-secondary-button" :disabled="Boolean(disabledReason)" @click="update">{{ busy ? MAP_NAV_COPY.updating : MAP_NAV_COPY.update }}</button><p v-if="disabledReason && !busy" class="map-setting-note">{{ disabledReason }}</p></template></div>
                 </template>
                 <div v-if="!showingScene && !projection.drawable" class="map-empty"><MapIcon name="pin" /><h2>{{ view.kind === 'region' && !currentRegion ? MAP_NAV_COPY.unknownRegion : scope.locations.length ? MAP_SPACE_COPY.empty : browseCopy.empty }}</h2><p>{{ view.kind === 'region' && !currentRegion ? MAP_NAV_COPY.unknownRegionHint : scope.locations.length ? MAP_SPACE_COPY.emptyHint : browseCopy.emptyHint }}</p><button v-if="view.kind === 'region'" type="button" class="map-secondary-button" @click="showWorld">{{ MAP_VIEW_LABELS.world }}</button><button v-else type="button" class="map-secondary-button" :disabled="Boolean(disabledReason)" @click="update">{{ busy ? MAP_NAV_COPY.updating : MAP_NAV_COPY.update }}</button></div>

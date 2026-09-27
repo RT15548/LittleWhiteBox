@@ -372,7 +372,7 @@ test('Atlas reads default to a compact summary and page explicit collections', a
     });
 
     const summary = await session.executeTool(MAP_MAINTENANCE_TOOL_NAMES.ATLAS_READ, {});
-    assert.deepEqual(summary.data.counts, { locations: 35, links: 1, actors: 2, maps: 1, features: 0, needsRegion: 0 });
+    assert.deepEqual(summary.data.counts, { locations: 35, links: 1, actors: 2, maps: 1, features: 0, needsRegion: 0, needsBase: 36 });
     assert.equal(summary.data.player.displayName, 'Alice');
     assert.equal(Object.hasOwn(summary.data, 'atlas'), false);
     assert.equal(Object.hasOwn(summary.data, 'locations'), false);

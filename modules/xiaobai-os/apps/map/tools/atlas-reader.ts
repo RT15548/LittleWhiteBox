@@ -7,10 +7,11 @@ import type {
     MapLocationStatus,
 } from '../../../domains/map/types.js';
 import { enumToken, intentId, isRecord } from './intent-common.js';
-import { unassignedMapLocations, visitedMapLocationKeys } from '../../../domains/map/hierarchy.js';
+import { isMapRegion, unassignedMapLocations, visitedMapLocationKeys } from '../../../domains/map/hierarchy.js';
 import { mapToolResult, type MapToolResult } from './result.js';
 import { ATLAS_COLLECTION_MODES } from './atlas-tool-contract.js';
 import type { MapFeature, MapFrame, MapPosition } from '../../../domains/map/space/types.js';
+import { atlasBaseCoverage, atlasBaseGaps } from '../../../domains/map/space/coverage.js';
 
 const ATLAS_READ_MODES = ['summary', 'document', ...ATLAS_COLLECTION_MODES] as const;
 const LOCATION_STATUSES: readonly MapLocationStatus[] = ['mentioned', 'visited'];
@@ -31,7 +32,8 @@ function sourceMap(domain: MapDomain, id: string): string | null {
     return frame.owner ?? null;
 }
 function projectFrame(domain: MapDomain, frame: MapFrame) {
-    return { map: frame.owner ?? null, ...(frame.mapping ? { mapping: { map: sourceMap(domain, frame.mapping.frame), scale: frame.mapping.scale, offset: [...frame.mapping.offset] } } : {}), ...(frame.boundary ? { boundary: frame.boundary } : {}) };
+    const browsable = !frame.owner || domain.atlas.locations.some(l => l.key === frame.owner && isMapRegion(l));
+    return { map: frame.owner ?? null, ...(browsable ? { baseCoverage: atlasBaseCoverage(domain.atlas, frame.owner ?? null) } : {}), ...(frame.mapping ? { mapping: { map: sourceMap(domain, frame.mapping.frame), scale: frame.mapping.scale, offset: [...frame.mapping.offset] } } : {}), ...(frame.boundary ? { boundary: frame.boundary } : {}) };
 }
 function projectFeature(domain: MapDomain, feature: MapFeature) {
     const { frame, owner, ...rest } = structuredClone(feature);
@@ -124,6 +126,7 @@ export function readAtlas(domain: MapDomain, value: unknown): MapToolResult {
                     maps: domain.atlas.frames.length,
                     features: domain.atlas.features.length,
                     needsRegion: unassigned.size,
+                    needsBase: atlasBaseGaps(domain.atlas).length,
                 },
                 player: structuredClone(domain.atlas.actors.find(actor => actor.actorKey === 'player') || null),
             },

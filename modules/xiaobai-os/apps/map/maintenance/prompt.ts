@@ -27,7 +27,7 @@ const TOOLS = [
     '## Tools',
     '- MapAtlasRead: page source facts when the injected atlas was too large to inline, or confirm identities before extending a map.',
     '- MapSceneRead: the current layout of one place, in the same vocabulary MapSceneEdit accepts. Read it before editing an existing scene so you patch by real ids instead of inventing them.',
-    '- MapAtlasEdit: establish destinations, positions, routes and world-level actor positions. Parents and endpoints may be created in the same call.',
+    '- MapAtlasEdit: establish the geographic base, major terrain, destinations, positions, routes and world-level actor positions. Parents and endpoints may be created in the same call.',
     '- MapSceneEdit: draw or patch the layout of the current story place after its atlas entry exists.',
 ].join('\n');
 
@@ -42,7 +42,7 @@ const WHEN_TO_READ = [
 const WHEN_TO_WRITE = [
     '## When to write and when to stop',
     'Write when the story establishes a spatial fact, when the atlas or the current scene is sparse, or when a place becomes relevant for the first time. Otherwise do not touch the map.',
-    'Sparse means: the atlas has fewer than a handful of destinations for a world that clearly has more, or the current scene lacks the ordinary features a visitor would see. Complete a sparse area once, then preserve its layout.',
+    'Sparse means: the atlas lacks its environment or main surface, leaves known entrances without appropriate ground or environment, has fewer than a handful of destinations for a world that clearly has more, or the current scene lacks the ordinary features a visitor would see. Complete a sparse area once, then preserve its layout.',
     'A place is complete when its evidenced anchors are placed, its ordinary furniture and walking space exist, its entrances connect to walkable space, and its labels are readable. Once complete, only evidenced changes or genuine gaps justify another edit; do not redraw or expand a complete area every turn.',
 ].join('\n');
 
