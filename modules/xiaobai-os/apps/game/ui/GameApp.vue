@@ -2,10 +2,10 @@
 import { computed, nextTick, onBeforeUnmount, ref, shallowRef, watch, type Component } from 'vue';
 import { useAppBack } from '../../../shell/app-src/navigation/app-navigation.js';
 import type { XiaobaiOsAppProps } from '../../../shell/app-contract.js';
-import type { GameClientState, GameKind } from '../types.js';
+import type { GameClientState } from '../types.js';
 import type { GameAction } from './room-contract.js';
 import { createGameClient } from './game-client.js';
-import { gameRoom } from './room-catalog.js';
+import { gameEntry, type GameEntryId } from './room-catalog.js';
 import GameLobby from './GameLobby.vue';
 import GameRecords from './GameRecords.vue';
 import './game.css';
@@ -30,12 +30,13 @@ const {
 const scroll = ref<HTMLElement | null>(null);
 let lobbyScroll = 0;
 const page = ref<'lobby' | 'room' | 'records'>(state.value.activeGame ? 'room' : 'lobby');
-const selected = ref<GameKind | null>(state.value.activeGame?.kind || null);
+const selected = ref<GameEntryId | null>(state.value.activeGame?.kind || null);
 const roomComponent = shallowRef<Component | null>(null);
 const roomError = ref('');
 const roomLoading = ref(false);
 let loadGeneration = 0;
-const room = computed(() => (selected.value ? gameRoom(selected.value) : null));
+const room = computed(() => (selected.value ? gameEntry(selected.value) : null));
+const standaloneRoom = computed(() => page.value === 'room' && room.value?.mode === 'standalone');
 async function loadRoom(): Promise<void> {
     const definition = room.value;
     const generation = ++loadGeneration;
@@ -86,7 +87,7 @@ watch(
         });
     },
 );
-function open(kind: GameKind): void {
+function open(kind: GameEntryId): void {
     selected.value = kind;
     page.value = 'room';
 }
@@ -115,7 +116,7 @@ onBeforeUnmount(() => {
 });
 </script>
 <template>
-    <main class="game-app">
+    <main class="game-app" :class="{ 'game-app-standalone': standaloneRoom }">
         <header class="game-header">
             <button
                 v-if="page === 'room'"
@@ -127,11 +128,11 @@ onBeforeUnmount(() => {
                 ‹
             </button>
             <h1>{{ page === 'room' ? room?.name : '游戏' }}</h1>
-            <div class="game-funds" aria-label="可用小白币">
+            <div v-if="!standaloneRoom" class="game-funds" aria-label="可用小白币">
                 <strong>¤ {{ funds.balance.toLocaleString('zh-CN') }}</strong>
             </div>
         </header>
-        <nav class="game-nav" aria-label="游戏页面">
+        <nav v-if="!standaloneRoom" class="game-nav" aria-label="游戏页面">
             <button
                 type="button"
                 :aria-current="page === 'lobby' ? 'page' : undefined"
@@ -155,7 +156,7 @@ onBeforeUnmount(() => {
                 记录
             </button>
         </nav>
-        <aside v-if="state.message || error || state.generationActive" class="game-notice" role="status">
+        <aside v-if="!standaloneRoom && (state.message || error || state.generationActive)" class="game-notice" role="status">
             <p>{{ error || state.message || '故事正在回复，等回复结束就能继续玩。' }}</p>
             <button v-if="needsSave" type="button" :disabled="busy" @click="client.confirmSave">
                 {{ reading ? '正在检查…' : state.status === 'save-failed' ? '重试保存' : '检查保存' }}
@@ -196,7 +197,7 @@ onBeforeUnmount(() => {
                 </div>
                 <component
                     :is="roomComponent"
-                    v-else-if="roomComponent"
+                    v-else-if="roomComponent && room?.mode === 'wager'"
                     :state="state"
                     :disabled-reason="disabledReason"
                     :in-flight="inFlight"
@@ -208,6 +209,9 @@ onBeforeUnmount(() => {
                     @resume="resume"
                 />
             </template>
+            <KeepAlive :key="state.chatIdentity" :max="1">
+                <component :is="roomComponent" v-if="standaloneRoom && roomComponent && !roomLoading && !roomError" :key="selected!" :bridge="props.bridge" :chat-identity="state.chatIdentity" :generation-active="state.generationActive" />
+            </KeepAlive>
         </div>
     </main>
 </template>

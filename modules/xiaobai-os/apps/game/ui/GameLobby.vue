@@ -1,14 +1,14 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import type { GameActiveGameView, GameKind } from '../types.js';
-import { GAME_ROOMS, gameRoom } from './room-catalog.js';
+import type { GameActiveGameView } from '../types.js';
+import { GAME_ENTRIES, gameRoom, type GameEntryId } from './room-catalog.js';
 defineProps<{ activeGame: GameActiveGameView | null }>();
-defineEmits<{ open: [kind: GameKind] }>();
+defineEmits<{ open: [kind: GameEntryId] }>();
 const search = ref('');
 const category = ref('全部');
-const categories = ['全部', ...new Set(GAME_ROOMS.map((room) => room.category))];
+const categories = ['全部', ...new Set(GAME_ENTRIES.map((room) => room.category))];
 const visible = computed(() =>
-    GAME_ROOMS.filter(
+    GAME_ENTRIES.filter(
         (room) =>
             (category.value === '全部' || room.category === category.value) &&
             (room.name + room.tagline + room.category).includes(search.value.trim()),

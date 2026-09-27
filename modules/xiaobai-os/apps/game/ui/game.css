@@ -47,6 +47,10 @@
 .game-tile-art { aspect-ratio: 1.15; background: #dbf8ef; border-radius: 16px; display: grid; place-items: center; overflow: hidden; }
 .tone-claret .game-tile-art { background: #eee8ff; }
 .tone-amber .game-tile-art { background: #e1f3ff; }
+.tone-moving .game-tile-art { background: #e1eee8; }
+.game-app-standalone .game-header { min-height: 48px; padding-block: 4px; }
+.game-app-standalone .game-header h1 { font-size: 15px; }
+.game-app-standalone .game-scroll { padding: 0; container-type: size; container-name: moving-frame; }
 .game-tile-art img { width: 100%; height: 100%; object-fit: contain; padding: 6px; transition: transform 250ms ease; }
 .game-tile-copy { padding: 12px 2px 0; }
 .game-tile h3 { font-size: 15px; font-weight: 600; }

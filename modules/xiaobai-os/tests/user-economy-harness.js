@@ -9,6 +9,7 @@ import { GAME_PARTITION } from '../apps/game/partition.js';
 import { SHOP_PARTITION } from '../apps/shop/partition.js';
 import { TASKS_PARTITION } from '../apps/tasks/partition.js';
 import { USER_DOCUMENT_FILENAME } from '../kernel/user-document.js';
+import { MOVING_PARTITION } from '../apps/game/moving/partition.js';
 
 export async function userEconomyHarness({ files = new Map(), initialPartitions, resolveStory, references: suppliedReferences } = {}) {
     let serial = 0;
@@ -33,7 +34,7 @@ export async function userEconomyHarness({ files = new Map(), initialPartitions,
         },
     };
     const partitions = new XiaobaiOsPartitionRegistry();
-    for (const registration of [ECONOMY_PARTITION, DICE_PARTITION, LEARNING_REWARDS_PARTITION, BANK_PARTITION, GAME_PARTITION, SHOP_PARTITION, TASKS_PARTITION]) { partitions.register(registration); }
+    for (const registration of [ECONOMY_PARTITION, DICE_PARTITION, LEARNING_REWARDS_PARTITION, BANK_PARTITION, GAME_PARTITION, MOVING_PARTITION, SHOP_PARTITION, TASKS_PARTITION]) { partitions.register(registration); }
     const capabilities = createCapabilityRegistry(createEconomyCapabilityRegistrations());
     const transactions = createUserTransactions({ storage, partitions, references, binder: capabilities,
         createId: () => `commit-${++serial}-${Date.now()}`,

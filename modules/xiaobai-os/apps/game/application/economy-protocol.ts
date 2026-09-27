@@ -19,6 +19,7 @@ export interface GameEconomyLeg {
 const GAME_ESCROW_PREFIX = 'escrow:game:';
 const GAME_RESERVE_ACCOUNT = 'counterparty:game:reserve';
 const GAME_SOURCE_DOMAIN = 'game';
+const GAME_TRANSACTION_PREFIX = 'game:';
 
 function escrowAccount(gameId: string): string {
     return `${GAME_ESCROW_PREFIX}${gameId}`;
@@ -26,7 +27,7 @@ function escrowAccount(gameId: string): string {
 
 export function startGameStakeLeg(gameId: string, amount: number): GameEconomyLeg {
     return {
-        idempotencyKey: `game:${gameId}:stake`,
+        idempotencyKey: `${GAME_TRANSACTION_PREFIX}${gameId}:stake`,
         fromAccountId: 'player',
         toAccountId: escrowAccount(gameId),
         amount,
@@ -40,7 +41,7 @@ export function gameSettlementLegs(gameId: string, amountIn: number, payout: num
     const legs: GameEconomyLeg[] = [];
     if (payout > amountIn) {
         legs.push({
-            idempotencyKey: `game:${gameId}:reserve`,
+            idempotencyKey: `${GAME_TRANSACTION_PREFIX}${gameId}:reserve`,
             fromAccountId: GAME_RESERVE_ACCOUNT,
             toAccountId: escrow,
             amount: payout - amountIn,
@@ -50,7 +51,7 @@ export function gameSettlementLegs(gameId: string, amountIn: number, payout: num
     }
     if (payout > 0) {
         legs.push({
-            idempotencyKey: `game:${gameId}:payout`,
+            idempotencyKey: `${GAME_TRANSACTION_PREFIX}${gameId}:payout`,
             fromAccountId: escrow,
             toAccountId: 'player',
             amount: payout,
@@ -60,7 +61,7 @@ export function gameSettlementLegs(gameId: string, amountIn: number, payout: num
     }
     if (payout < amountIn) {
         legs.push({
-            idempotencyKey: `game:${gameId}:loss`,
+            idempotencyKey: `${GAME_TRANSACTION_PREFIX}${gameId}:loss`,
             fromAccountId: escrow,
             toAccountId: 'system:sink',
             amount: amountIn - payout,
@@ -113,7 +114,8 @@ export function validateGameEconomyConsistency(
 ): void {
     validateGameDomain(game);
     const expected = game.events.flatMap((event) => expectedEconomyLegs(event).map((leg) => ({ event, leg })));
-    const actual = economy.listOwnedTransactions();
+    // Game owns several feature partitions; this protocol owns only its wagering legs.
+    const actual = economy.listOwnedTransactions().filter(transaction => transaction.idempotencyKey.startsWith(GAME_TRANSACTION_PREFIX));
     if (actual.length !== expected.length) {
         throw new Error(`${path} Game events and Economy transactions are inconsistent`);
     }
