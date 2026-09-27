@@ -54,7 +54,7 @@ test('long floor continuation reconstructs exact Unicode text; edited or swiped 
     let joined = '', args = { from: 55 };
     do { const result = await reader.read(args); joined += result.items[0].text; args = result.next; } while (args);
     assert.equal(joined, original); assert.equal(reader.isCurrent(), true);
-    surface.messages[55].swipe_id = 1; assert.equal(reader.isCurrent(), false); assert.deepEqual(reader.staleFloors(), [55]);
+    surface.messages[55].swipe_id = 1; assert.equal(reader.isCurrent(), false); assert.deepEqual(reader.staleEvidence(), { floors: [55], missingFloors: [] });
     await reader.read({ from: 55 }); assert.equal(reader.isCurrent(), true);
     surface.messages[55].mes += '改'; assert.equal(reader.isCurrent(), false);
 });

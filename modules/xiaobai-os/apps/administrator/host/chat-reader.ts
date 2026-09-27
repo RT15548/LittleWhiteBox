@@ -36,26 +36,25 @@ export function createAdministratorChatReader(capture: () => AdministratorChatSu
         if (first > last || last >= messages.length) { throw new Error('administrator_floor_missing'); }
         return { first, last };
     }
+    function changedEvidence(messages: readonly unknown[]) {
+        const floors: number[] = [], missingFloors: number[] = [];
+        for (const [index, old] of evidence) {
+            const raw = messages[index], source = message(raw);
+            if (index >= messages.length) { floors.push(index); missingFloors.push(index); }
+            else if (raw !== old.raw || String(source.mes ?? '') !== old.text || source.swipe_id !== old.swipe) { floors.push(index); }
+        }
+        return { floors, missingFloors };
+    }
     return {
         identity,
         assertCurrent: () => { current(); },
         releaseEvidence: () => evidence.clear(),
         info: { player: initial.playerName, assistant: initial.assistantName, firstFloor: 0, lastFloor: initial.messages.length - 1 },
-        staleFloors() {
-            const surface = capture();
-            return [...evidence].filter(([index, old]) => {
-                const raw = surface?.messages[index], source = message(raw);
-                return raw !== old.raw || String(source.mes ?? '') !== old.text || source.swipe_id !== old.swipe;
-            }).map(([index]) => index);
-        },
+        staleEvidence: () => changedEvidence(current().messages),
         isCurrent() {
             const surface = capture();
             if (getSignal().aborted || surface?.identityKey !== identity) { return false; }
-            for (const [index, old] of evidence) {
-                const raw = surface.messages[index], source = message(raw);
-                if (raw !== old.raw || String(source.mes ?? '') !== old.text || source.swipe_id !== old.swipe) { return false; }
-            }
-            return true;
+            return changedEvidence(surface.messages).floors.length === 0;
         },
         async read(args: Record<string, unknown>) {
             const { first, last } = bounds(args.from, args.to ?? args.from);

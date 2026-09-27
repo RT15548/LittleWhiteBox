@@ -7,6 +7,8 @@ import { createMapKernelHarness } from './map-kernel-harness.js';
 import { sceneMapInputs, sceneMapLocations } from './fixtures/scene-maps.js';
 import { sceneElementPath } from '../apps/map/ui/scene-geometry.js';
 import { SCENE_EXAMPLES } from '../apps/map/tools/scene-examples.js';
+import { createMapManagement } from '../apps/map/management/participant.js';
+import { locationRegion } from '../domains/map/hierarchy.js';
 
 const source = { chatIdentity: 'scene-map-verification', messages: [{ index: 0, role: 'assistant', text: 'Independent scene verification.', swipeId: 0, speakerName: 'Narrator' }], messageCount: 1, assistantCount: 1, player: { actorKey: 'player', displayName: '小白' } };
 const sessionFor = kernel => createMapMaintenanceParticipant({ map: kernel.map, readSettings: () => ({ autoMaintenance: false }) }).createSession(source, 'manual');
@@ -109,6 +111,31 @@ for (const example of SCENE_EXAMPLES) {
             if (element.id !== patch.id) assert.deepEqual(current, element);
             else if (patch.geo) assert.deepEqual(current, { ...element, geometry: { x: patch.geo.at[0], y: patch.geo.at[1] } });
             else assert.deepEqual(current, { ...element, rotation: patch.rotation });
+        }
+    });
+
+    test(`administrator can establish ${example.create.scene} from an empty atlas and draw it without a failed attempt`, async t => {
+        const kernel = createMapKernelHarness();
+        t.after(kernel.map.dispose);
+        const session = await createMapManagement(kernel.map, () => source.player).open();
+        const atlas = await session.execute(TOOLS.ATLAS_EDIT, example.atlas, () => true);
+        assert.equal(atlas.status, 'saved');
+        assert.deepEqual(atlas.data.skipped, []);
+        assert.equal(kernel.state.writes.length, 1);
+        const drawn = await session.execute(TOOLS.SCENE_EDIT, example.create, () => true);
+        assert.equal(drawn.status, 'saved');
+        assert.deepEqual(drawn.data.skipped, []);
+        assert.equal(kernel.state.writes.length, 2);
+        const saved = parseMapDomain(kernel.state.persisted.partitions.map);
+        const place = saved.atlas.locations.find(location => location.key === example.create.scene);
+        const region = locationRegion(saved.atlas, place.key);
+        assert.ok(region);
+        assert.equal(place.parent, region.key);
+        assert.ok(saved.scenes[place.sceneKey]);
+        for (const declared of example.atlas.locations) {
+            const stored = saved.atlas.locations.find(location => location.key === declared.key);
+            assert.equal(stored.parent, declared.parent);
+            assert.equal(stored.scale, declared.scale);
         }
     });
 }

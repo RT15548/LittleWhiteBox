@@ -43,9 +43,13 @@ export const SCENE_EXAMPLES = [
         },
     },
     {
-        background: 'A metal-floored orbital cabin has a south hatch, a metal desk to the west, a chair south of it, and an angular metal instrument to the east. The player is just inside the hatch.',
+        background: 'In the Helios System, a station’s metal-floored orbital cabin has a south hatch, a metal desk to the west, a chair south of it, and an angular metal instrument to the east. The player is just inside the hatch.',
         layout: 'Reuse ordinary table/chair tokens with metal, not wood. Preserve the unfamiliar instrument as its own outline and label without guessing a furniture icon. The central aisle remains clear.',
-        atlas: { locations: [{ key: 'station', name: 'Orbital Station', scale: 'region' }, { key: 'cabin', name: 'Orbital Cabin', scale: 'room', parent: 'station' }] },
+        atlas: { locations: [
+            { key: 'cabin', name: 'Orbital Cabin', scale: 'room', parent: 'station' },
+            { key: 'station', name: 'Orbital Station', scale: 'region', parent: 'helios' },
+            { key: 'helios', name: 'Helios System', scale: 'world' },
+        ] },
         create: {
             scene: 'cabin', playerHere: true, viewBox: [0, 0, 600, 440], mood: 'cold',
             elements: [

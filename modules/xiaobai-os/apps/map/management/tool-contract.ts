@@ -1,6 +1,6 @@
 import type { ManagementTool } from '../../../capabilities/management/index.js';
 import { MANAGEMENT_PAGE_SIZE, MANAGEMENT_READ_CHARS } from '../../../capabilities/management/read-page.js';
-import { mapTools, MAP_MAINTENANCE_TOOL_NAMES as TOOLS, MAP_SCENE_READ_DESCRIPTION } from '../tools/tool-contract.js';
+import { mapTools, MAP_ATLAS_READ_RESULT, MAP_MAINTENANCE_TOOL_NAMES as TOOLS, MAP_SCENE_READ_DESCRIPTION } from '../tools/tool-contract.js';
 import { withDocumentEdit, withDocumentRead } from '../../../capabilities/management/document-tools.js';
 
 const LABELS: Record<string, string> = {
@@ -24,9 +24,9 @@ export function createMapManagementTools(): readonly ManagementTool[] {
             properties.limit.description = `Records per page. Default and maximum ${MANAGEMENT_PAGE_SIZE}.`;
             definition.function.description = [
                 'Read the current world atlas.',
-                'Summary data contains mode, revision, counts for locations/links/actors, and player (null when unrecorded). Collection data contains mode, revision, count, returned, truncated, nextOffset and the named collection.',
-                'Use a collection to find existing keys before editing. Locations include hasScene, which indicates whether a layout exists, not whether it is complete.',
-                'Continue with nextOffset while it is not null, keeping the same mode and filters.',
+                'Returns {ok,status,data}; a successful read has status read.',
+                MAP_ATLAS_READ_RESULT,
+                'Use a collection to find existing keys before editing.',
             ].join('\n');
         } else if (name === TOOLS.SCENE_READ) {
             properties.offset = { type: 'integer', minimum: 0, description: 'Character offset in the scene JSON. Default 0; use nextOffset to continue.' };

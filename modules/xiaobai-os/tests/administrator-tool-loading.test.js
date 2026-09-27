@@ -15,11 +15,12 @@ const common = [TOOLS_LOAD, 'ChatSearch', 'ChatRead', 'OSInspect', 'ToolResultRe
 const call = (name, args = {}) => ({ toolCalls: [{ id: 'call', name, arguments: JSON.stringify(args) }] });
 const result = (messages, name) => JSON.parse(messages.findLast(message => message.role === 'tool' && message.toolName === name).content);
 
-async function executorFixture(h) {
+async function executorFixture(h, saveReceipts = async () => { assert.fail('loading cannot save business data'); }) {
     const abort = new AbortController(), operations = [];
+    const reader = createAdministratorChatReader(h.capture, () => abort.signal);
     const executor = await createAdministratorToolExecutor({ registry: h.registry,
-        reader: createAdministratorChatReader(h.capture, () => abort.signal), readEnvironment: h.readEnvironment,
-        operations, guard: () => !abort.signal.aborted, onChange() {}, async saveReceipts() { assert.fail('loading cannot save business data'); } });
+        reader, readEnvironment: h.readEnvironment,
+        operations, guard: reader.isCurrent, onChange() {}, saveReceipts });
     let sequence = 0;
     return { executor, operations, abort, call: (name, args = {}) => executor.execute(name, args, String(++sequence), sequence) };
 }
@@ -84,12 +85,72 @@ test('new APP registration joins loading without administrator-specific routing,
     assert.deepEqual(names(next.executor.getTools()), [TOOLS_LOAD]);
 });
 
-test('loading is cancelled on chat switch or stop and cannot mutate the advertised tool surface', async () => {
+test('changed story floors block only the attempted write until all changed evidence is reread', async () => {
+    const h = await administratorHarness(); let receipts = 0;
+    const f = await executorFixture(h, async () => { receipts++; });
+    await f.call(TOOLS_LOAD, { apps: ['world'] });
+    assert.equal((await f.call('ChatRead', { from: 0, to: 1 })).status, 'read');
+    assert.equal((await f.call('WorldEdit', { overview: 'already saved' })).status, 'saved');
+    const writes = h.state.writes.length;
+    h.state.messages[0].mes = 'edited story';
+    h.state.messages[1].swipe_id++;
+    const stale = await f.call('WorldEdit', { overview: 'stale rewrite' });
+    assert.equal(stale.code, 'story_evidence_changed');
+    assert.deepEqual(stale.data.floors, [0, 1]);
+    assert.deepEqual(stale.data.missingFloors, []);
+    assert.equal((await f.call('ChatRead', { from: 0 })).status, 'read');
+    const partial = await f.call('WorldEdit', { overview: 'still stale' });
+    assert.equal(partial.code, 'story_evidence_changed');
+    assert.deepEqual(partial.data.floors, [1]);
+    assert.equal(receipts, 1); assert.equal(h.state.writes.length, writes);
+    assert.equal(h.world.readCurrent().world.overview, 'already saved');
+    assert.equal((await f.call('ChatRead', { from: 1 })).status, 'read');
+    assert.equal((await f.call('WorldEdit', { overview: 'fresh evidence' })).status, 'saved');
+    assert.equal(receipts, 2); assert.equal(h.state.writes.length, writes + 1);
+    assert.equal(h.world.readCurrent().world.overview, 'fresh evidence');
+});
+
+test('removed story floors remain blocked in this run but do not prevent a fresh request', async () => {
+    const h = await administratorHarness(); let receipts = 0;
+    const saveReceipts = async () => { receipts++; };
+    const f = await executorFixture(h, saveReceipts);
+    await f.call(TOOLS_LOAD, { apps: ['world'] });
+    const last = h.state.messages.length - 1;
+    assert.equal((await f.call('ChatRead', { from: last - 1, to: last })).status, 'read');
+    h.state.messages.pop();
+    h.state.messages[last - 1].mes = 'edited remaining floor';
+    const writes = h.state.writes.length;
+    const stale = await f.call('WorldEdit', { overview: 'stale rewrite' });
+    assert.equal(stale.code, 'story_evidence_changed');
+    assert.deepEqual(stale.data.floors, [last - 1, last]);
+    assert.deepEqual(stale.data.missingFloors, [last]);
+    assert.equal((await f.call('ChatRead', { from: last })).code, 'administrator_floor_missing');
+    assert.equal((await f.call('ChatRead', { from: last - 1 })).status, 'read');
+    const retry = await f.call('WorldEdit', { overview: 'still missing evidence' });
+    assert.equal(retry.code, 'story_evidence_changed');
+    assert.deepEqual(retry.data.floors, [last]);
+    assert.deepEqual(retry.data.missingFloors, [last]);
+    assert.equal(receipts, 0); assert.equal(h.state.writes.length, writes);
+    const next = await executorFixture(h, saveReceipts);
+    await next.call(TOOLS_LOAD, { apps: ['world'] });
+    assert.equal((await next.call('ChatRead', { from: last - 1 })).status, 'read');
+    assert.equal((await next.call('WorldEdit', { overview: 'current story' })).status, 'saved');
+    assert.equal(receipts, 1); assert.equal(h.state.writes.length, writes + 1);
+    assert.equal(h.world.readCurrent().world.overview, 'current story');
+});
+
+test('loading and loaded writes are cancelled on chat switch or stop without changing tools or records', async () => {
     for (const boundary of ['chat', 'stop']) {
-        const h = await administratorHarness(), f = await executorFixture(h);
-        if (boundary === 'chat') { h.state.capture.identityKey = 'another-chat'; } else { f.abort.abort(); }
-        await assert.rejects(f.call(TOOLS_LOAD, { apps: ['map'] }), boundary === 'chat' ? { message: 'administrator_context_changed' } : { name: 'AbortError' });
-        assert.deepEqual(names(f.executor.getTools()), [TOOLS_LOAD]);
+        for (const tool of [TOOLS_LOAD, 'WorldEdit']) {
+            const h = await administratorHarness(), f = await executorFixture(h);
+            if (tool === 'WorldEdit') { await f.call(TOOLS_LOAD, { apps: ['world'] }); }
+            const advertised = names(f.executor.getTools()), writes = h.state.writes.length;
+            if (boundary === 'chat') { h.state.capture.identityKey = 'another-chat'; } else { f.abort.abort(); }
+            await assert.rejects(f.call(tool, tool === TOOLS_LOAD ? { apps: ['map'] } : { overview: 'must not save' }),
+                boundary === 'chat' ? { message: 'administrator_context_changed' } : { name: 'AbortError' });
+            assert.deepEqual(names(f.executor.getTools()), advertised);
+            assert.equal(h.state.writes.length, writes);
+        }
     }
 });
 

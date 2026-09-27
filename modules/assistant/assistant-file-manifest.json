@@ -7776,14 +7776,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/administrator/agent/os-tools.ts",
       "relativePath": "modules/xiaobai-os/apps/administrator/agent/os-tools.ts",
       "extension": ".ts",
-      "sizeBytes": 2751
+      "sizeBytes": 2935
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/administrator/agent/prompt.ts",
       "relativePath": "modules/xiaobai-os/apps/administrator/agent/prompt.ts",
       "extension": ".ts",
-      "sizeBytes": 5596
+      "sizeBytes": 5587
     },
     {
       "source": "littlewhitebox",
@@ -7811,7 +7811,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/administrator/agent/tool-executor.ts",
       "relativePath": "modules/xiaobai-os/apps/administrator/agent/tool-executor.ts",
       "extension": ".ts",
-      "sizeBytes": 10821
+      "sizeBytes": 11640
     },
     {
       "source": "littlewhitebox",
@@ -7909,7 +7909,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/administrator/host/chat-reader.ts",
       "relativePath": "modules/xiaobai-os/apps/administrator/host/chat-reader.ts",
       "extension": ".ts",
-      "sizeBytes": 6497
+      "sizeBytes": 6503
     },
     {
       "source": "littlewhitebox",
@@ -9817,6 +9817,13 @@
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/geography-prompt.ts",
+      "relativePath": "modules/xiaobai-os/apps/map/geography-prompt.ts",
+      "extension": ".ts",
+      "sizeBytes": 1351
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/host/controller.ts",
       "relativePath": "modules/xiaobai-os/apps/map/host/controller.ts",
       "extension": ".ts",
@@ -9855,7 +9862,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/maintenance/prompt.ts",
       "relativePath": "modules/xiaobai-os/apps/map/maintenance/prompt.ts",
       "extension": ".ts",
-      "sizeBytes": 11568
+      "sizeBytes": 7092
     },
     {
       "source": "littlewhitebox",
@@ -9876,7 +9883,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/management/prompt.ts",
       "relativePath": "modules/xiaobai-os/apps/map/management/prompt.ts",
       "extension": ".ts",
-      "sizeBytes": 652
+      "sizeBytes": 785
     },
     {
       "source": "littlewhitebox",
@@ -9890,7 +9897,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/management/tool-contract.ts",
       "relativePath": "modules/xiaobai-os/apps/map/management/tool-contract.ts",
       "extension": ".ts",
-      "sizeBytes": 3193
+      "sizeBytes": 2904
     },
     {
       "source": "littlewhitebox",
@@ -9922,6 +9929,13 @@
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/scene-drawing-prompt.ts",
+      "relativePath": "modules/xiaobai-os/apps/map/scene-drawing-prompt.ts",
+      "extension": ".ts",
+      "sizeBytes": 2577
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/settings.ts",
       "relativePath": "modules/xiaobai-os/apps/map/settings.ts",
       "extension": ".ts",
@@ -9932,7 +9946,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/tools/atlas-data-message.ts",
       "relativePath": "modules/xiaobai-os/apps/map/tools/atlas-data-message.ts",
       "extension": ".ts",
-      "sizeBytes": 1423
+      "sizeBytes": 1510
     },
     {
       "source": "littlewhitebox",
@@ -9981,7 +9995,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/tools/scene-examples.ts",
       "relativePath": "modules/xiaobai-os/apps/map/tools/scene-examples.ts",
       "extension": ".ts",
-      "sizeBytes": 7186
+      "sizeBytes": 7343
     },
     {
       "source": "littlewhitebox",
@@ -10002,7 +10016,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/tools/tool-contract.ts",
       "relativePath": "modules/xiaobai-os/apps/map/tools/tool-contract.ts",
       "extension": ".ts",
-      "sizeBytes": 22500
+      "sizeBytes": 22488
     },
     {
       "source": "littlewhitebox",
@@ -13243,7 +13257,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/tests/administrator-chat-reader.test.js",
       "relativePath": "modules/xiaobai-os/tests/administrator-chat-reader.test.js",
       "extension": ".js",
-      "sizeBytes": 5783
+      "sizeBytes": 5816
     },
     {
       "source": "littlewhitebox",
@@ -13327,7 +13341,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/tests/administrator-tool-loading.test.js",
       "relativePath": "modules/xiaobai-os/tests/administrator-tool-loading.test.js",
       "extension": ".js",
-      "sizeBytes": 15728
+      "sizeBytes": 19706
     },
     {
       "source": "littlewhitebox",
@@ -14300,7 +14314,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/tests/scene-map-tools.test.js",
       "relativePath": "modules/xiaobai-os/tests/scene-map-tools.test.js",
       "extension": ".js",
-      "sizeBytes": 13581
+      "sizeBytes": 15162
     },
     {
       "source": "littlewhitebox",

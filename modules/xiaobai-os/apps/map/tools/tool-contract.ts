@@ -39,10 +39,19 @@ const objectGuidance = MAP_OBJECT_GROUPS.map(group => `${group.name}: ${group.ic
 
 const EDIT_ITEM_REPORTS = [
     'applied and skipped identify edits by index, id and, when available, collection. applied may include changed; skipped includes reason and hint. warnings lists additional notices.',
-    'inputIssues, when present on a skipped edit, lists invalid arguments as {code,path,message,expected}. These paths refer to this tool call. An explicitly requested shape is kept; incompatible geometry is rejected rather than replaced by a different shape.',
+    'inputIssues, when present on a skipped edit, lists invalid arguments as {code,path,message,expected}. These paths refer to this tool call.',
     'A skipped edit may include validation:{issues:[{code,path,message}],unchecked}. Issues refer to the candidate map document; unchecked lists branches or reference checks that require valid structure first. Correct the reported issues together. A related location group shares one validation report on its first skipped entry.',
 ].join('\n');
 const READ_REPORT = 'Returns {ok,status,changed,applied,skipped,warnings,data}. A successful read has status unchanged and changed false; it does not edit the draft.';
+
+/** Result fields shared by the maintenance and administrator atlas reads. */
+export const MAP_ATLAS_READ_RESULT = [
+    'data contains mode and revision. Summary adds counts for locations/links/actors/needsRegion and player (null when unrecorded); collection modes add the named collection, count, returned, truncated and nextOffset.',
+    'Continue collection reads with nextOffset while it is not null, keeping the same mode and filters.',
+    'Locations include hasScene, which indicates whether a layout exists, not whether it is complete.',
+    'Read status includes containment: visiting a place also means its containing locations have been visited.',
+    'needsRegion marks a concrete place without a containing region. Use the locations filter needsRegion: true to read these places for an atlas correction; worlds and regions themselves are not marked.',
+].join('\n');
 
 export const MAP_SCENE_READ_DESCRIPTION = [
     'Read one scene layout in MapSceneEdit vocabulary: {scene,viewBox,mood?,elements}, or null when no layout exists.',
@@ -77,11 +86,9 @@ export function mapTools(saveDescription: string): readonly MaintenanceFunctionD
             description: [
                 'Read locations, links and actor positions in the current atlas draft.',
                 READ_REPORT,
-                'data contains mode and revision. Summary adds counts for locations/links/actors/needsRegion and player (null when unrecorded); document adds the complete atlas; collection modes add the named collection, count, returned, truncated and nextOffset.',
-                'Use it when the initial atlas was too large to inline, to confirm a key, or to inspect edits made during this run.',
-                'Locations include hasScene, which indicates whether a layout exists, not whether it is complete. Continue collection reads with nextOffset while it is not null, keeping the same mode and filters.',
-                'Read status includes containment: visiting a place also means its containing locations have been visited.',
-                'needsRegion marks a concrete place without a containing region. Use the locations filter needsRegion: true to read these places for an Atlas correction; worlds and regions themselves are not marked.',
+                MAP_ATLAS_READ_RESULT,
+                'Document mode adds the complete atlas.',
+                'Use it to page an atlas injected as a summary, to confirm a key, or to see edits made during this run.',
             ].join('\n'),
             parameters: {
                 type: 'object',
@@ -110,7 +117,7 @@ export function mapTools(saveDescription: string): readonly MaintenanceFunctionD
                 'Add, update or remove atlas locations, routes and world-level actor positions.',
                 saveDescription,
                 EDIT_ITEM_REPORTS,
-                'Use it to establish places and their hierarchy before drawing their layouts with MapSceneEdit, or for movement between places.',
+                'Use it for places, their hierarchy, routes and movement between places.',
             ].join('\n'),
             parameters: {
                 type: 'object',
@@ -132,7 +139,7 @@ export function mapTools(saveDescription: string): readonly MaintenanceFunctionD
                                     description: 'Existing or same-call parent key. Concrete places need a region ancestor, directly or through another place. Worlds and regions may be at the Atlas root; null clears their parent.',
                                 },
                                 brief: { type: 'string', maxLength: MAX_MAP_BRIEF_LENGTH, description: 'Short in-world description: what distinguishes this place and why someone might visit. Do not invent events that already happened.' },
-                                position: { ...coordinatePair, type: ['array', 'null'], description: 'Stable [x,y] position inside the immediate parent; root regions share the world plane. North is smaller y. Use roughly 0..1000 with 160+ separation, following authored directions or the requested correction. Omit to preserve an existing position; null clears it.' },
+                                position: { ...coordinatePair, type: ['array', 'null'], description: 'Stable [x,y] position inside the immediate parent; root regions share the world plane. Use roughly 0..1000 with 160+ separation, following authored directions or the requested correction. Omit to preserve an existing position; null clears it.' },
                                 terrain: nullableEnum(['urban', 'plain', 'forest', 'water', 'mountain', 'desert', 'snow'], 'Use null to clear. Landscape of this place, used on the world map. Match the setting.'),
                             },
                             required: ['key', 'name'], additionalProperties: false,
@@ -171,7 +178,7 @@ export function mapTools(saveDescription: string): readonly MaintenanceFunctionD
                     },
                     remove: {
                         type: 'object',
-                        description: 'Remove records for explicit correction or destruction, not merely because an actor left a place. Removing a location also removes its descendants, routes, actor positions and scenes.',
+                        description: 'Remove records for explicit correction, disappearance or destruction, not merely because an actor left a place. Removing a location also removes its descendants, routes, actor positions and scenes.',
                         properties: {
                             locationKeys: { type: 'array', maxItems: MAX_MAP_LOCATIONS, items: { type: 'string', maxLength: MAX_MAP_ID_LENGTH } },
                             linkIds: { type: 'array', maxItems: MAX_MAP_LINKS, items: { type: 'string', maxLength: MAX_MAP_ID_LENGTH } },
@@ -218,7 +225,7 @@ export function mapTools(saveDescription: string): readonly MaintenanceFunctionD
                     scene: {
                         type: 'string',
                         maxLength: MAX_MAP_ID_LENGTH,
-                        description: 'Owning atlas location key. Establish the place and its region with MapAtlasEdit before drawing its layout.',
+                        description: 'Owning atlas location key.',
                     },
                     playerHere: { type: 'boolean', description: 'True when the player is inside this scene now. This makes the place visited. Also send a player element so the visible position updates.' },
                     viewBox: {
@@ -226,7 +233,7 @@ export function mapTools(saveDescription: string): readonly MaintenanceFunctionD
                         items: { type: 'number', minimum: -MAX_MAP_COORDINATE, maximum: MAX_MAP_COORDINATE },
                         minItems: 4,
                         maxItems: 4,
-                        description: 'Full-map extent [x,y,width,height], with positive size. New scenes default to [0,0,400,300]; omission preserves an existing extent. Include the whole layout and label margins. Used on scene entry or Fit; updates do not pan/zoom the current user viewport. Do not change it just to move an actor.',
+                        description: 'Full-map extent [x,y,width,height], with positive size. New scenes default to [0,0,400,300]; omission preserves an existing extent. Include the whole layout and label margins. Used on scene entry or Fit; updates do not pan/zoom the current user viewport. Grow it only when the place itself needs more room, not to move an actor.',
                     },
                     mood: nullableEnum(mood, 'Optional scene atmosphere used for rendering. Use null to clear it.'),
                     elements: {
@@ -239,7 +246,7 @@ export function mapTools(saveDescription: string): readonly MaintenanceFunctionD
                                 id: { type: 'string', maxLength: MAX_MAP_ID_LENGTH, description: 'Stable element identity inside this scene.' },
                                 cat: { type: 'string', enum: [...MAP_ELEMENT_CATEGORIES], description: 'What the element is. Required for a new id. An existing id keeps its stored category; use another id for a different entity.' },
                                 kind: nullableEnum(MAP_ELEMENT_KINDS, 'Optional semantic role, such as a door or the player. Use null to clear it.'),
-                                shape: { type: 'string', enum: [...MAP_ELEMENT_SHAPES], description: 'Shape matching the supplied geo; inferred from geo when omitted.' },
+                                shape: { type: 'string', enum: [...MAP_ELEMENT_SHAPES], description: 'Shape matching the supplied geo; inferred from geo when omitted. A supplied shape is kept, and geo that does not fit it is rejected.' },
                                 geo: {
                                     type: 'object',
                                     description: 'Complete geometry for one shape: rect uses center and size; circle uses at and radius; path uses points; curve uses curve; icon and label use at. Required for a new element; replaces the existing geometry when supplied. Omit for rotation-only or material-only edits; to move a rect, retain its size and change its center.',

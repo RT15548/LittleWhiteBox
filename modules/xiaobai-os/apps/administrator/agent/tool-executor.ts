@@ -15,6 +15,11 @@ import { ADMINISTRATOR_REFERENCE_TEXT } from './reference-data.js';
 import { requireToolArgumentsObject, ToolArgumentsError } from '../../../capabilities/agent/tool-arguments.js';
 
 type Reader = ReturnType<typeof createAdministratorChatReader>;
+const STORY_EVIDENCE_CHANGED = 'The story floors listed in floors changed after you read them. This write was not executed; earlier successful writes are unaffected.';
+const STORY_EVIDENCE_RECOVERY = {
+    changed: 'Read those floors again with ChatRead from the start of each floor, then decide from the new text whether the change is still wanted before retrying.',
+    missing: 'Floors listed in missingFloors no longer exist, so their earlier evidence cannot be refreshed in this run. Tell the user to send a new request based on the current story.',
+};
 export interface AdministratorConfirmation { messageIndex: number; result: ManagementResult & { receipt: AdministratorOperation } }
 export async function createAdministratorToolExecutor(options: {
     registry: ManagementRegistry; reader: Reader; operations: AdministratorOperation[];
@@ -99,8 +104,12 @@ export async function createAdministratorToolExecutor(options: {
                 return error.result();
             }
             if (name === OS_INSPECT && Object.keys(args).length) { return { ok: false, status: 'failed', code: 'arguments_must_be_empty' }; }
-            if (route.tool.effect === 'write' && !options.reader.isCurrent()) {
-                return { ok: false, status: 'failed', code: 'story_evidence_changed', floors: options.reader.staleFloors() };
+            if (route.tool.effect === 'write') {
+                const stale = options.reader.staleEvidence();
+                if (stale.floors.length) {
+                    const recovery = stale.missingFloors.length ? STORY_EVIDENCE_RECOVERY.missing : STORY_EVIDENCE_RECOVERY.changed;
+                    return { ok: false, status: 'failed', code: 'story_evidence_changed', data: { ...stale, message: `${STORY_EVIDENCE_CHANGED} ${recovery}` } };
+                }
             }
             const operation: AdministratorOperation = {
                 id, appId: route.appId, name: route.tool.label, target: route.tool.target(args).slice(0, 160),
