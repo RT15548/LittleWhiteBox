@@ -14,14 +14,20 @@ const bundled = await build({
         api.onResolve({ filter: /(?:llm-service|text-filter|debug-core)\.js$/ }, args => ({ path: path.basename(args.path), namespace: 'boundary' }));
         api.onLoad({ filter: /.*/, namespace: 'boundary' }, args => ({ contents:
             args.path.endsWith('llm-service.js')
-                ? 'let response; export function setResponse(value) { response = value; } export async function callLLM() { return JSON.stringify(response); }'
+                ? `let response, request;
+                    export function setResponse(value) { response = value; }
+                    export function getRequest() { return request; }
+                    export async function callLLM(messages, options) {
+                        request = { messages, options };
+                        return JSON.stringify(response);
+                    }`
                 : args.path.endsWith('text-filter.js') ? 'export const filterText = text => text;'
                     : 'export const xbLog = { info() {}, warn() {}, error() {} };',
         }));
     } }],
     stdin: { contents: [
         "export { extractAtomsForRound } from './modules/story-summary/vector/llm/atom-extraction.js';",
-        "export { setResponse } from './modules/story-summary/vector/llm/llm-service.js';",
+        "export { setResponse, getRequest } from './modules/story-summary/vector/llm/llm-service.js';",
     ].join('\n'), resolveDir: process.cwd() },
 });
 // eslint-disable-next-line no-unsanitized/method -- Locally compiled product code and fixed test stubs.
@@ -62,4 +68,21 @@ test('relation preservation retains empty-edge rejection, edge limit and harmles
     const [empty] = await extract(null);
     assert.deepEqual(empty.edges, []);
     assert.equal(buildRAggregateText(empty), scene);
+});
+
+test('extraction budgets the complete response and preserves both detailed and short scene cards', async () => {
+    // Controlled model output checks the request/data boundary, not model quality.
+    const anchors = [
+        {
+            scene: '6月1日，林舟在档案室把蓝色文件袋交给陈宁，说明袋内有三份借阅单，缺少的第四份仍在核对，不能据此认定资料遗失。陈宁核对封口上的编号后收下文件袋，答应6月3日上午带原始登记簿到会议室逐项复核；林舟随后锁好档案柜，把钥匙留在自己口袋里。',
+            edges: [{ s: '林舟', t: '陈宁', r: '交付文件并约定复核' }],
+            where: '档案室',
+        },
+        { scene, edges: [{ s: '甲', t: '乙', r: '再次拒绝交易' }], where: '会议室' },
+    ];
+    mod.setResponse({ anchors });
+    const atoms = await mod.extractAtomsForRound(null, { mes: anchors.map(anchor => anchor.scene).join('\n') }, 8);
+    assert.equal(mod.getRequest().options.max_tokens, 1200);
+    assert.deepEqual(atoms.map(atom => ({ scene: atom.semantic, edges: atom.edges, where: atom.where })), anchors);
+    assert.ok(atoms.every(atom => atom.floor === 8));
 });

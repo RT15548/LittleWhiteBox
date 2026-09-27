@@ -5,7 +5,7 @@
 // - BGE-M3 (BAAI, 2024): 自然语言段落检索精度最高 → semantic = 纯自然语言
 // - TransE (Bordes, 2013): s/t/r 三元组方向性 → edges 格式
 //
-// 每楼层 1-2 个场景锚点（非碎片原子），60-100 字场景摘要
+// 场景写作与数量规则由 ANCHOR_GENERATION_RULES 提供。
 // ============================================================================
 
 import { callLLM } from './llm-service.js';
@@ -42,7 +42,7 @@ const SYSTEM_PROMPT = `你是场景摘要器。从一轮对话中提取1-2个场
 只输出严格JSON：
 {"anchors":[
   {
-    "scene": "60-100字完整场景描述",
+    "scene": "完整场景描述",
     "edges": [{"s":"施事方","t":"受事方","r":"互动行为"}],
     "where": "地点"
   }
@@ -176,7 +176,7 @@ export async function extractAtomsForRound(userMessage, aiMessage, aiFloor, opti
                 { role: 'user', content: input },
             ], {
                 temperature: 0.3,
-                max_tokens: 600,
+                max_tokens: 1200,
                 timeout,
                 signal,
             });

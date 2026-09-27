@@ -383,7 +383,7 @@ function formatArcLine(arc) {
 /**
  * 从 L0 获取展示文本
  *
- * v7: L0 的 semantic 字段已是纯自然语言场景摘要（60-100字），直接使用。
+ * L0 的 semantic 字段是纯自然语言场景描述，直接使用。
  *
  * @param {object} l0 - L0 对象
  * @returns {string} 场景描述文本
