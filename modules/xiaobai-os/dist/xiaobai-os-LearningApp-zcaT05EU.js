@@ -1,7 +1,7 @@
 /* eslint-disable */
-import { C as ae, E as re, H as K, J as be, K as M, M as a, P as T, Q as u, R as me, T as W, X as Q, Y as s, a as ee, b as E, c as X, f as H, g as n, h as m, k as oe, l as Z, m as P, o as Y, p as t, q as ye, s as ne, u as S, v as N, y as R, z as B } from "./xiaobai-os-runtime-dom.esm-bundler-BcM9c-Z9.js";
-import { n as _, r as ue } from "./xiaobai-os-app-navigation-sg-40eOk.js";
-import { t as ke } from "./xiaobai-os-MessageMarkdown-C_jQgBbc.js";
+import { $ as W, E as Q, F as a, G as Z, H as U, L as T, M as re, O as oe, Q as s, V as be, X as me, Y as M, Z as ye, _ as n, a as ee, b as R, c as X, g as m, h as E, l as F, m as t, o as Y, p as H, s as ae, tt as u, u as S, w as ne, x as P, y as N } from "./xiaobai-os-runtime-dom.esm-bundler-DuiaxqDz.js";
+import { n as _, r as ue } from "./xiaobai-os-app-navigation-CKmHuh0u.js";
+import { t as ke } from "./xiaobai-os-MessageMarkdown-DEZcTPwM.js";
 var fe = ["disabled"], pe = {
   key: 0,
   class: "learning-choices"
@@ -35,9 +35,9 @@ var fe = ["disabled"], pe = {
 }, Ve = ["onUpdate:modelValue"], Ne = {
   key: 5,
   class: "learning-writing"
-}, qe = ["disabled"], Be = /* @__PURE__ */ E({
+}, Be = ["disabled"], Ue = /* @__PURE__ */ P({
   __name: "AnswerInput",
-  props: /* @__PURE__ */ ae({
+  props: /* @__PURE__ */ ne({
     response: {},
     paragraphs: {},
     disabled: { type: Boolean }
@@ -45,9 +45,9 @@ var fe = ["disabled"], pe = {
     modelValue: { required: !0 },
     modelModifiers: {}
   }),
-  emits: /* @__PURE__ */ ae(["submit"], ["update:modelValue"]),
+  emits: /* @__PURE__ */ ne(["submit"], ["update:modelValue"]),
   setup(e, { emit: l }) {
-    const k = e, o = l, g = me(e, "modelValue");
+    const k = e, o = l, g = be(e, "modelValue");
     function c(r) {
       k.response.kind === "choice" && !k.response.multiple ? g.value.picked = [r] : g.value.picked = g.value.picked.includes(r) ? g.value.picked.filter((b) => b !== r) : [...g.value.picked, r];
     }
@@ -83,12 +83,12 @@ var fe = ["disabled"], pe = {
     }
     return (r, b) => (a(), n("form", {
       class: "learning-answer",
-      onSubmit: Z(v, ["prevent"])
+      onSubmit: F(v, ["prevent"])
     }, [t("fieldset", { disabled: e.disabled }, [
       b[3] || (b[3] = t("legend", { class: "learning-sr-only" }, "你的回答", -1)),
       e.response.kind === "choice" ? (a(), n("div", pe, [(a(!0), n(S, null, T(e.response.options, (y, f) => (a(), n("label", {
         key: y.id,
-        class: Q({ selected: g.value.picked.includes(y.id) })
+        class: W({ selected: g.value.picked.includes(y.id) })
       }, [
         t("input", {
           type: e.response.multiple ? "checkbox" : "radio",
@@ -112,22 +112,22 @@ var fe = ["disabled"], pe = {
           "aria-label": `下移第 ${f + 1} 项`,
           onClick: (C) => p(f, 1)
         }, "↓", 8, xe)
-      ]))), 128))])) : e.response.kind === "match" ? (a(), n("div", Ie, [(a(!0), n(S, null, T(e.response.left, (y) => (a(), n("label", { key: y.id }, [N(u(y.text) + " ", 1), K(t("select", { "onUpdate:modelValue": (f) => g.value.values[y.id] = f }, [b[1] || (b[1] = t("option", { value: "" }, "选择对应项", -1)), (a(!0), n(S, null, T(e.response.right, (f) => (a(), n("option", {
+      ]))), 128))])) : e.response.kind === "match" ? (a(), n("div", Ie, [(a(!0), n(S, null, T(e.response.left, (y) => (a(), n("label", { key: y.id }, [N(u(y.text) + " ", 1), Z(t("select", { "onUpdate:modelValue": (f) => g.value.values[y.id] = f }, [b[1] || (b[1] = t("option", { value: "" }, "选择对应项", -1)), (a(!0), n(S, null, T(e.response.right, (f) => (a(), n("option", {
         key: f.id,
         value: f.id
       }, u(f.text), 9, Se))), 128))], 8, Le), [[ee, g.value.values[y.id]]])]))), 128))])) : e.response.kind === "evidence" ? (a(), n("div", Ae, [(a(!0), n(S, null, T(e.paragraphs, (y) => (a(), n("label", {
         key: y.id,
-        class: Q({ selected: g.value.picked.includes(y.id) })
+        class: W({ selected: g.value.picked.includes(y.id) })
       }, [t("input", {
         type: "checkbox",
         checked: g.value.picked.includes(y.id),
         onChange: (f) => c(y.id)
-      }, null, 40, Me), t("span", null, u(y.text), 1)], 2))), 128)), e.paragraphs.length ? m("", !0) : (a(), n("p", Te, "请先展开相关文稿，再选择原文依据。"))])) : e.response.kind === "gaps" ? (a(), n("div", Re, [(a(!0), n(S, null, T(e.response.slots, (y) => (a(), n("label", { key: y.id }, [N(u(y.text), 1), K(t("input", {
+      }, null, 40, Me), t("span", null, u(y.text), 1)], 2))), 128)), e.paragraphs.length ? m("", !0) : (a(), n("p", Te, "请先展开相关文稿，再选择原文依据。"))])) : e.response.kind === "gaps" ? (a(), n("div", Re, [(a(!0), n(S, null, T(e.response.slots, (y) => (a(), n("label", { key: y.id }, [N(u(y.text), 1), Z(t("input", {
         "onUpdate:modelValue": (f) => g.value.values[y.id] = f,
         type: "text",
         maxlength: "4000",
         autocomplete: "off"
-      }, null, 8, Ve), [[Y, g.value.values[y.id]]])]))), 128))])) : (a(), n("label", Ne, [b[2] || (b[2] = t("span", { class: "learning-sr-only" }, "你的回答", -1)), K(t("textarea", {
+      }, null, 8, Ve), [[Y, g.value.values[y.id]]])]))), 128))])) : (a(), n("label", Ne, [b[2] || (b[2] = t("span", { class: "learning-sr-only" }, "你的回答", -1)), Z(t("textarea", {
         "onUpdate:modelValue": b[0] || (b[0] = (y) => g.value.text = y),
         rows: "6",
         maxlength: "4000",
@@ -137,10 +137,10 @@ var fe = ["disabled"], pe = {
         class: "learning-primary",
         type: "submit",
         disabled: !h.value
-      }, "交给老师 →", 8, qe)
+      }, "交给老师 →", 8, Be)
     ], 8, fe)], 32));
   }
-}), Ue = Be, Oe = ["stroke-width"], De = ["d"], je = /* @__PURE__ */ E({
+}), qe = Ue, Oe = ["stroke-width"], De = ["d"], je = /* @__PURE__ */ P({
   __name: "LearningIcon",
   props: { name: {} },
   setup(e) {
@@ -173,16 +173,16 @@ var fe = ["disabled"], pe = {
       "aria-hidden": "true"
     }, [t("path", { d: l[e.name] }, null, 8, De)], 8, Oe));
   }
-}), q = je, He = { class: "learning-material" }, Pe = { class: "learning-source" }, Ee = { key: 0 }, Ke = ["href"], Ze = {
+}), B = je, He = { class: "learning-material" }, Ee = { class: "learning-source" }, Pe = { key: 0 }, Ze = ["href"], Fe = {
   key: 0,
   class: "learning-listening-cover"
-}, ze = ["disabled"], Fe = {
+}, Ke = ["disabled"], ze = {
   key: 1,
   class: "learning-material-body"
 }, Je = ["onMouseup", "onKeyup"], Ge = ["disabled", "onClick"], We = {
   class: "learning-audio-parts",
   "aria-label": "材料朗读分段"
-}, Qe = ["disabled", "onClick"], Xe = { key: 2 }, Ye = /* @__PURE__ */ E({
+}, Qe = ["disabled", "onClick"], Xe = { key: 2 }, Ye = /* @__PURE__ */ P({
   __name: "MaterialReader",
   props: {
     material: {},
@@ -219,13 +219,13 @@ var fe = ["disabled"], pe = {
     }
     return (p, h) => (a(), n("article", He, [
       t("h2", null, u(e.material.title), 1),
-      t("div", Pe, [e.material.provenance.kind === "authored" ? (a(), n("span", Ee, "老师自编练习")) : (a(), n("a", {
+      t("div", Ee, [e.material.provenance.kind === "authored" ? (a(), n("span", Pe, "老师自编练习")) : (a(), n("a", {
         key: 1,
         href: e.material.provenance.url,
         target: "_blank",
         rel: "noopener noreferrer"
-      }, u(e.material.provenance.kind === "original" ? "原文节选" : "改编自") + " · " + u(e.material.provenance.title) + " ↗", 9, Ke))]),
-      e.material.hidden ? (a(), n("div", Ze, [h[1] || (h[1] = t("svg", {
+      }, u(e.material.provenance.kind === "original" ? "原文节选" : "改编自") + " · " + u(e.material.provenance.title) + " ↗", 9, Ze))]),
+      e.material.hidden ? (a(), n("div", Fe, [h[1] || (h[1] = t("svg", {
         viewBox: "0 0 140 60",
         "aria-hidden": "true"
       }, [t("path", {
@@ -241,7 +241,7 @@ var fe = ["disabled"], pe = {
           kind: "transcripts",
           id: e.material.id
         }))
-      }, "看文稿", 8, ze)])) : (a(), n("div", Fe, [(a(!0), n(S, null, T(e.material.paragraphs, (v) => (a(), n("div", {
+      }, "看文稿", 8, Ke)])) : (a(), n("div", ze, [(a(!0), n(S, null, T(e.material.paragraphs, (v) => (a(), n("div", {
         key: v.id,
         class: "learning-paragraph"
       }, [t("p", {
@@ -263,7 +263,7 @@ var fe = ["disabled"], pe = {
           partKey: v.key,
           exerciseId: e.exerciseId
         })
-      }, [R(q, { name: "play" }), N(u(e.material.parts.length > 1 ? `听第 ${v.number} 段` : "播放朗读"), 1)], 8, Qe))), 128))]),
+      }, [R(B, { name: "play" }), N(u(e.material.parts.length > 1 ? `听第 ${v.number} 段` : "播放朗读"), 1)], 8, Qe))), 128))]),
       e.material.parts.length ? (a(), n("small", Xe, "TTS 合成朗读")) : m("", !0)
     ]));
   }
@@ -275,7 +275,7 @@ function de(e, l, k = []) {
 `) : e.ids.map(o).join(e.kind === "order" ? " → " : `
 `);
 }
-var _e = { class: "learning-feedback" }, et = { class: "learning-muted" }, tt = { key: 0 }, at = { key: 1 }, nt = { key: 0 }, lt = { key: 1 }, it = { key: 2 }, st = ["disabled"], rt = ["disabled"], ot = /* @__PURE__ */ E({
+var _e = { class: "learning-feedback" }, et = { class: "learning-muted" }, tt = { key: 0 }, at = { key: 1 }, nt = { key: 0 }, lt = { key: 1 }, it = { key: 2 }, st = ["disabled"], rt = ["disabled"], ot = /* @__PURE__ */ P({
   __name: "AttemptFeedback",
   props: {
     attempt: {},
@@ -335,7 +335,7 @@ var _e = { class: "learning-feedback" }, et = { class: "learning-muted" }, tt = 
 }, vt = {
   key: 2,
   class: "learning-row"
-}, ct = ["aria-label", "disabled"], gt = ["max", "value"], bt = /* @__PURE__ */ E({
+}, ct = ["aria-label", "disabled"], gt = ["max", "value"], bt = /* @__PURE__ */ P({
   __name: "LearningPlayer",
   props: { state: {} },
   emits: ["action"],
@@ -352,14 +352,14 @@ var _e = { class: "learning-feedback" }, et = { class: "learning-muted" }, tt = 
         onClick: c[0] || (c[0] = (p) => k("action", "tts-settings"))
       }, "如何开启 TTS")),
       e.state.media.key ? (a(), n("div", vt, [
-        R(q, { name: "sound" }),
+        R(B, { name: "sound" }),
         t("span", null, u(e.state.media.status === "loading" ? "正在生成声音…" : `${o(e.state.media.position)} / ${o(e.state.media.duration)}`), 1),
         e.state.media.status === "playing" ? (a(), n("button", {
           key: 0,
           type: "button",
           "aria-label": "暂停",
           onClick: c[1] || (c[1] = (p) => k("action", "pause"))
-        }, [R(q, { name: "pause" })])) : [
+        }, [R(B, { name: "pause" })])) : [
           "paused",
           "ended",
           "blocked"
@@ -369,12 +369,12 @@ var _e = { class: "learning-feedback" }, et = { class: "learning-muted" }, tt = 
           "aria-label": e.state.media.status === "ended" ? "再听一遍" : "继续播放",
           disabled: e.state.busy,
           onClick: c[2] || (c[2] = (p) => k("action", "resume"))
-        }, [R(q, { name: "play" })], 8, ct)) : m("", !0),
+        }, [R(B, { name: "play" })], 8, ct)) : m("", !0),
         t("button", {
           type: "button",
           "aria-label": "停止",
           onClick: c[3] || (c[3] = (p) => k("action", "stop"))
-        }, [R(q, { name: "stop" })]),
+        }, [R(B, { name: "stop" })]),
         e.state.media.duration ? (a(), n("button", {
           key: 2,
           type: "button",
@@ -428,7 +428,7 @@ var mt = ["onKeydown"], yt = {
 }, Rt = {
   key: 1,
   class: "learning-margin-note"
-}, Vt = { key: 0 }, Nt = { key: 1 }, qt = { key: 2 }, Bt = ["disabled"], Ut = /* @__PURE__ */ E({
+}, Vt = { key: 0 }, Nt = { key: 1 }, Bt = { key: 2 }, Ut = ["disabled"], qt = /* @__PURE__ */ P({
   __name: "LearningActivity",
   props: {
     state: {},
@@ -448,8 +448,8 @@ var mt = ["onKeydown"], yt = {
     ue(r, b);
     const y = M({});
     let f = null;
-    const C = H(() => k.target?.kind === "exercise" ? k.state.unit?.exercises.find(($) => $.id === k.target?.id) : void 0), j = H(() => k.state.unit?.materials.filter(($) => k.target?.kind === "material" ? $.id === k.target.id : C.value?.materialIds.includes($.id)) ?? []), V = H(() => C.value?.id ?? k.state.unit?.exercises.find(($) => $.skill === "listening" && $.materialIds.includes(k.target?.id ?? ""))?.id ?? k.state.unit?.exercises.find(($) => $.materialIds.includes(k.target?.id ?? ""))?.id), z = H(() => j.value.filter(($) => C.value?.response.kind !== "evidence" || $.id === C.value.response.materialId).flatMap(($) => $.paragraphs)), U = H(() => k.state.unit?.attempts.filter(($) => $.exerciseId === C.value?.id).at(-1)), F = H(() => k.state.unit?.assessments.find(($) => $.attemptId === U.value?.id));
-    B(() => C.value, ($) => {
+    const C = H(() => k.target?.kind === "exercise" ? k.state.unit?.exercises.find(($) => $.id === k.target?.id) : void 0), j = H(() => k.state.unit?.materials.filter(($) => k.target?.kind === "material" ? $.id === k.target.id : C.value?.materialIds.includes($.id)) ?? []), V = H(() => C.value?.id ?? k.state.unit?.exercises.find(($) => $.skill === "listening" && $.materialIds.includes(k.target?.id ?? ""))?.id ?? k.state.unit?.exercises.find(($) => $.materialIds.includes(k.target?.id ?? ""))?.id), K = H(() => j.value.filter(($) => C.value?.response.kind !== "evidence" || $.id === C.value.response.materialId).flatMap(($) => $.paragraphs)), q = H(() => k.state.unit?.attempts.filter(($) => $.exerciseId === C.value?.id).at(-1)), z = H(() => k.state.unit?.assessments.find(($) => $.attemptId === q.value?.id));
+    U(() => C.value, ($) => {
       if (!$) return;
       const w = JSON.stringify($.response);
       y.value[$.id]?.response !== w && (y.value[$.id] = {
@@ -463,11 +463,11 @@ var mt = ["onKeydown"], yt = {
         y.value[C.value.id].value = $;
       }
     });
-    B(() => k.target, async ($, w) => {
-      w && g.value && c.set(`${w.kind}:${w.id}`, g.value.scrollTop), h.value = !1, v.value = null, await W(), $ && (p.value?.focus(), g.value && (g.value.scrollTop = c.get(`${$.kind}:${$.id}`) ?? 0));
-    }), B(() => k.state.unit?.id, () => {
+    U(() => k.target, async ($, w) => {
+      w && g.value && c.set(`${w.kind}:${w.id}`, g.value.scrollTop), h.value = !1, v.value = null, await Q(), $ && (p.value?.focus(), g.value && (g.value.scrollTop = c.get(`${$.kind}:${$.id}`) ?? 0));
+    }), U(() => k.state.unit?.id, () => {
       y.value = {}, f = null;
-    }), B(() => k.state.unit?.attempts, ($) => {
+    }), U(() => k.state.unit?.attempts, ($) => {
       if (!f) return;
       const w = $?.filter((L) => L.exerciseId === f.id).at(-1);
       if (w && w.id !== f.before) {
@@ -478,7 +478,7 @@ var mt = ["onKeydown"], yt = {
     function x($) {
       f = {
         id: C.value.id,
-        before: U.value?.id
+        before: q.value?.id
       }, o("action", "submit", {
         unitId: k.state.unit.id,
         exerciseId: C.value.id,
@@ -490,7 +490,7 @@ var mt = ["onKeydown"], yt = {
       ref_key: "layer",
       ref: r,
       class: "learning-activity-shade",
-      onKeydown: X(Z(b, ["stop", "prevent"]), ["esc"])
+      onKeydown: X(F(b, ["stop", "prevent"]), ["esc"])
     }, [t("section", yt, [
       t("header", kt, [
         t("h2", ft, u(C.value ? "练习" : j.value[0]?.title ?? "材料"), 1),
@@ -501,7 +501,7 @@ var mt = ["onKeydown"], yt = {
           type: "button",
           "aria-label": "收起课件",
           onClick: w[0] || (w[0] = (L) => o("close"))
-        }, [w[17] || (w[17] = N("收起", -1)), R(q, { name: "back" })], 512)
+        }, [w[17] || (w[17] = N("收起", -1)), R(B, { name: "back" })], 512)
       ]),
       e.state.message && !e.state.busy ? (a(), n("p", $t, u(e.state.message), 1)) : m("", !0),
       t("div", {
@@ -509,7 +509,7 @@ var mt = ["onKeydown"], yt = {
         ref: g,
         class: "learning-activity-body"
       }, [
-        C.value && j.value.length ? (a(), n("details", ht, [t("summary", null, "阅读材料 · " + u(j.value.length), 1), (a(!0), n(S, null, T(j.value, (L) => (a(), P(le, {
+        C.value && j.value.length ? (a(), n("details", ht, [t("summary", null, "阅读材料 · " + u(j.value.length), 1), (a(!0), n(S, null, T(j.value, (L) => (a(), E(le, {
           key: L.id,
           material: L,
           "exercise-id": V.value,
@@ -520,7 +520,7 @@ var mt = ["onKeydown"], yt = {
           "material",
           "exercise-id",
           "disabled"
-        ]))), 128))])) : C.value ? m("", !0) : (a(!0), n(S, { key: 1 }, T(j.value, (L) => (a(), P(le, {
+        ]))), 128))])) : C.value ? m("", !0) : (a(!0), n(S, { key: 1 }, T(j.value, (L) => (a(), E(le, {
           key: L.id,
           material: L,
           "exercise-id": V.value,
@@ -578,18 +578,18 @@ var mt = ["onKeydown"], yt = {
             }, "问老师")
           ]),
           C.value.hint ? (a(), n("p", Tt, u(C.value.hint), 1)) : m("", !0),
-          C.value.solution ? (a(), n("div", Rt, [C.value.solution.kind === "exact" ? (a(), n("p", Vt, u(s(de)(C.value.solution.answer, C.value.response, z.value)), 1)) : C.value.solution.kind === "gaps" ? (a(), n("p", Nt, u(C.value.solution.accepted.map((L) => L.forms.join(" / ")).join(`
-`)), 1)) : m("", !0), C.value.solution.kind !== "semantic" ? (a(), n("p", qt, u(C.value.solution.explanation), 1)) : (a(), n("button", {
+          C.value.solution ? (a(), n("div", Rt, [C.value.solution.kind === "exact" ? (a(), n("p", Vt, u(s(de)(C.value.solution.answer, C.value.response, K.value)), 1)) : C.value.solution.kind === "gaps" ? (a(), n("p", Nt, u(C.value.solution.accepted.map((L) => L.forms.join(" / ")).join(`
+`)), 1)) : m("", !0), C.value.solution.kind !== "semantic" ? (a(), n("p", Bt, u(C.value.solution.explanation), 1)) : (a(), n("button", {
             key: 3,
             type: "button",
             onClick: w[12] || (w[12] = (L) => o("ask", C.value.id))
           }, "请老师讲解"))])) : m("", !0),
-          (!U.value || h.value) && y.value[C.value.id] ? (a(), P(Ue, {
+          (!q.value || h.value) && y.value[C.value.id] ? (a(), E(qe, {
             key: C.value.id,
             modelValue: A.value,
             "onUpdate:modelValue": w[13] || (w[13] = (L) => A.value = L),
             response: C.value.response,
-            paragraphs: z.value,
+            paragraphs: K.value,
             disabled: e.disabled,
             onSubmit: x
           }, null, 8, [
@@ -598,12 +598,12 @@ var mt = ["onKeydown"], yt = {
             "paragraphs",
             "disabled"
           ])) : m("", !0),
-          U.value ? (a(), P(ve, {
+          q.value ? (a(), E(ve, {
             key: 3,
-            attempt: U.value,
-            feedback: F.value,
+            attempt: q.value,
+            feedback: z.value,
             response: C.value.response,
-            paragraphs: z.value,
+            paragraphs: K.value,
             disabled: e.disabled,
             onAction: w[14] || (w[14] = (L, O) => {
               o("action", L, O), o("close");
@@ -615,7 +615,7 @@ var mt = ["onKeydown"], yt = {
             "paragraphs",
             "disabled"
           ])) : m("", !0),
-          U.value ? (a(), n("button", {
+          q.value ? (a(), n("button", {
             key: 4,
             type: "button",
             disabled: e.disabled,
@@ -625,7 +625,7 @@ var mt = ["onKeydown"], yt = {
                 value: s(ie)(C.value.response)
               };
             })
-          }, u(h.value ? "收起再练" : "再试一次"), 9, Bt)) : m("", !0)
+          }, u(h.value ? "收起再练" : "再试一次"), 9, Ut)) : m("", !0)
         ])) : m("", !0)
       ], 512),
       R(ce, {
@@ -634,18 +634,18 @@ var mt = ["onKeydown"], yt = {
       }, null, 8, ["state"])
     ])], 40, mt)) : m("", !0);
   }
-}), Ot = Ut, Dt = { class: "learning-profile-page" }, jt = { class: "learning-setup-heading" }, Ht = { class: "learning-language-options" }, Pt = [
+}), Ot = qt, Dt = { class: "learning-profile-page" }, jt = { class: "learning-setup-heading" }, Ht = { class: "learning-language-options" }, Et = [
   "disabled",
   "aria-pressed",
   "onClick"
-], Et = { "aria-hidden": "true" }, Kt = ["disabled"], Zt = { class: "learning-teacher-options" }, zt = [
+], Pt = { "aria-hidden": "true" }, Zt = ["disabled"], Ft = { class: "learning-teacher-options" }, Kt = [
   "disabled",
   "aria-pressed",
   "onClick"
-], Ft = { class: "learning-person-initial" }, Jt = {
+], zt = { class: "learning-person-initial" }, Jt = {
   key: 0,
   class: "learning-selected-teacher"
-}, Gt = { class: "learning-person-initial" }, Wt = ["open"], Qt = ["disabled"], Xt = ["disabled"], Yt = { class: "learning-setup-actions" }, _t = ["disabled"], ea = ["disabled"], ta = /* @__PURE__ */ E({
+}, Gt = { class: "learning-person-initial" }, Wt = ["open"], Qt = ["disabled"], Xt = ["disabled"], Yt = { class: "learning-setup-actions" }, _t = ["disabled"], ea = ["disabled"], ta = /* @__PURE__ */ P({
   __name: "LearningSetup",
   props: {
     state: {},
@@ -691,7 +691,7 @@ var mt = ["onKeydown"], yt = {
       ]
     ];
     async function h(v) {
-      o.value = v, await W(), g.value?.focus();
+      o.value = v, await Q(), g.value?.focus();
     }
     return _(() => o.value ? (h(0), !0) : !1), (v, r) => (a(), n("section", Dt, [t("div", jt, [t("h1", {
       ref_key: "heading",
@@ -704,19 +704,19 @@ var mt = ["onKeydown"], yt = {
       "aria-pressed": e.state.language === b,
       onClick: (C) => k("action", "language", { language: b })
     }, [
-      t("span", Et, u(f), 1),
+      t("span", Pt, u(f), 1),
       t("strong", null, u(y), 1),
-      e.state.language === b ? (a(), P(q, {
+      e.state.language === b ? (a(), E(B, {
         key: 0,
         name: "check"
       })) : m("", !0)
-    ], 8, Pt)), 64))]), t("button", {
+    ], 8, Et)), 64))]), t("button", {
       type: "button",
       class: "learning-primary learning-setup-next",
       disabled: e.disabled,
       onClick: r[0] || (r[0] = (b) => h(1))
-    }, [r[5] || (r[5] = N("继续", -1)), R(q, { name: "arrow" })], 8, Kt)], 64)) : (a(), n(S, { key: 1 }, [
-      t("div", Zt, [(a(!0), n(S, null, T(e.state.candidates, (b) => (a(), n("button", {
+    }, [r[5] || (r[5] = N("继续", -1)), R(B, { name: "arrow" })], 8, Zt)], 64)) : (a(), n(S, { key: 1 }, [
+      t("div", Ft, [(a(!0), n(S, null, T(e.state.candidates, (b) => (a(), n("button", {
         key: b.name,
         type: "button",
         disabled: e.disabled,
@@ -726,28 +726,28 @@ var mt = ["onKeydown"], yt = {
           note: ""
         } })
       }, [
-        t("span", Ft, u([...b.name][0]), 1),
+        t("span", zt, u([...b.name][0]), 1),
         t("strong", null, u(b.name), 1),
-        e.state.teacher?.name === b.name ? (a(), P(q, {
+        e.state.teacher?.name === b.name ? (a(), E(B, {
           key: 0,
           name: "check"
         })) : m("", !0)
-      ], 8, zt))), 128))]),
+      ], 8, Kt))), 128))]),
       e.state.teacher && !e.state.candidates.some((b) => b.name === e.state.teacher?.name) ? (a(), n("p", Jt, [
         t("span", Gt, u([...e.state.teacher.name][0]), 1),
         N(u(e.state.teacher.name), 1),
-        R(q, { name: "check" })
+        R(B, { name: "check" })
       ])) : m("", !0),
       t("details", {
         class: "learning-other-teacher",
         open: !e.state.candidates.length && !e.state.teacher
       }, [r[6] || (r[6] = t("summary", null, "选择其他人物", -1)), t("form", {
         class: "learning-row",
-        onSubmit: r[2] || (r[2] = Z((b) => k("action", "teacher", { teacher: {
+        onSubmit: r[2] || (r[2] = F((b) => k("action", "teacher", { teacher: {
           name: c.value.trim(),
           note: ""
         } }), ["prevent"]))
-      }, [K(t("input", {
+      }, [Z(t("input", {
         "onUpdate:modelValue": r[1] || (r[1] = (b) => c.value = b),
         type: "text",
         "aria-label": "其他人物名字",
@@ -767,7 +767,7 @@ var mt = ["onKeydown"], yt = {
         class: "learning-primary",
         disabled: e.disabled || !e.state.teacher,
         onClick: r[4] || (r[4] = (b) => k("done"))
-      }, [r[7] || (r[7] = N("和老师聊聊", -1)), R(q, { name: "arrow" })], 8, ea)])
+      }, [r[7] || (r[7] = N("和老师聊聊", -1)), R(B, { name: "arrow" })], 8, ea)])
     ], 64))]));
   }
 }), aa = ta, na = { class: "learning-records-page" }, la = { class: "learning-page-heading" }, ia = {
@@ -782,7 +782,7 @@ var mt = ["onKeydown"], yt = {
 }, va = ["disabled", "onClick"], ca = { key: 0 }, ga = {
   key: 1,
   class: "learning-row"
-}, ba = ["disabled"], ma = { class: "learning-muted" }, ya = ["disabled"], ka = /* @__PURE__ */ E({
+}, ba = ["disabled"], ma = { class: "learning-muted" }, ya = ["disabled"], ka = /* @__PURE__ */ P({
   __name: "LearningRecords",
   props: {
     state: {},
@@ -874,7 +874,7 @@ var mt = ["onKeydown"], yt = {
 }, ha = { class: "learning-tool-name" }, Ca = { class: "learning-tool-status" }, wa = { class: "learning-tool-details" }, xa = {
   key: 0,
   class: "learning-tool-error"
-}, Ia = /* @__PURE__ */ E({
+}, Ia = /* @__PURE__ */ P({
   __name: "LearningMessages",
   props: {
     messages: {},
@@ -945,15 +945,15 @@ var mt = ["onKeydown"], yt = {
       b.message.hasReasoning && b.message.streaming && !b.message.content && !b.tools.length ? (a(), n("p", $a, "正在思考…")) : m("", !0),
       b.message.content ? (a(), n("div", {
         key: 1,
-        class: Q(["learning-output", { "is-streaming": b.message.streaming }])
-      }, [b.message.content ? (a(), P(ke, {
+        class: W(["learning-output", { "is-streaming": b.message.streaming }])
+      }, [b.message.content ? (a(), E(ke, {
         key: 0,
         class: "learning-markdown",
         text: b.message.content
       }, null, 8, ["text"])) : m("", !0)], 2)) : m("", !0),
       (a(!0), n(S, null, T(b.tools, (f) => (a(), n("div", {
         key: f.call.id,
-        class: Q(["learning-tool-entry", `is-${f.status}`])
+        class: W(["learning-tool-entry", `is-${f.status}`])
       }, [t("details", null, [t("summary", null, [t("span", ha, [N(u(o[f.call.name] || f.call.name), 1), t("code", null, u(f.call.name), 1)]), t("span", Ca, u(g[f.status]), 1)]), t("div", wa, [
         r[1] || (r[1] = t("h3", null, "参数摘要", -1)),
         t("pre", null, u(p(f.call.arguments)), 1),
@@ -964,25 +964,25 @@ var mt = ["onKeydown"], yt = {
 }), La = Ia, Sa = { class: "learning-conversation" }, Aa = { class: "learning-conversation-heading" }, Ma = { class: "learning-person-initial" }, Ta = ["disabled"], Ra = {
   key: 0,
   class: "learning-history-notice"
-}, Va = { class: "learning-conversation-user" }, Na = ["disabled", "onClick"], qa = {
+}, Va = { class: "learning-conversation-user" }, Na = ["disabled", "onClick"], Ba = {
   key: 2,
   class: "learning-conversation-tools"
-}, Ba = ["disabled"], Ua = ["disabled"], Oa = {
+}, Ua = ["disabled"], qa = ["disabled"], Oa = {
   key: 1,
   class: "learning-working",
   role: "status"
 }, Da = {
   key: 2,
   class: "learning-conversation-empty"
-}, ja = ["disabled"], Ha = { key: 2 }, Pa = { class: "learning-composer-surface" }, Ea = {
+}, ja = ["disabled"], Ha = { key: 2 }, Ea = { class: "learning-composer-surface" }, Pa = {
   key: 0,
   class: "learning-composer-quote"
-}, Ka = { class: "learning-composer-row" }, Za = ["maxlength", "onKeydown"], za = [
+}, Za = { class: "learning-composer-row" }, Fa = ["maxlength", "onKeydown"], Ka = [
   "type",
   "disabled",
   "aria-label",
   "title"
-], Fa = /* @__PURE__ */ E({
+], za = /* @__PURE__ */ P({
   __name: "LearningConversation",
   props: {
     state: {},
@@ -1002,50 +1002,50 @@ var mt = ["onKeydown"], yt = {
       A && (r = A.scrollHeight - A.scrollTop - A.clientHeight < 70);
     }
     async function V() {
-      await W(), r && h.value && (h.value.scrollTop = h.value.scrollHeight);
+      await Q(), r && h.value && (h.value.scrollTop = h.value.scrollHeight);
     }
-    function z() {
+    function K() {
       const A = p.value;
       A?.clientWidth && (A.style.height = "auto", A.style.height = `${A.scrollHeight}px`, V());
     }
-    B(c, z, { flush: "post" }), B(p, (A) => {
+    U(c, K, { flush: "post" }), U(p, (A) => {
       if (b?.disconnect(), cancelAnimationFrame(y), !A) return;
       let x = 0;
       b = new ResizeObserver(([$]) => {
-        $.contentRect.width !== x && (x = $.contentRect.width, cancelAnimationFrame(y), y = requestAnimationFrame(z));
+        $.contentRect.width !== x && (x = $.contentRect.width, cancelAnimationFrame(y), y = requestAnimationFrame(K));
       }), b.observe(A.parentElement);
-    }, { flush: "post" }), oe(V), re(() => {
+    }, { flush: "post" }), re(V), oe(() => {
       b?.disconnect(), cancelAnimationFrame(y);
-    }), B(() => o.state.conversation.turns.length + o.state.conversation.removedTurns, (A) => {
+    }), U(() => o.state.conversation.turns.length + o.state.conversation.removedTurns, (A) => {
       const x = o.state.conversation.turns.at(-1), $ = v.value?.selection ? `${f}
 
 ${v.value.selection.quote}` : f;
       A > C && x?.user === $ && c.value.trim() === f && (c.value = "", f = "", v.value = null);
-    }), B([
+    }), U([
       () => o.state.chatIdentity,
       () => o.state.language,
       () => o.state.teacher?.name
     ], () => {
       c.value = "", f = "", v.value = null;
-    }), B(() => o.state.unit?.id, () => {
+    }), U(() => o.state.unit?.id, () => {
       v.value = null;
-    }), B(() => o.state.conversation.turns.length, (A, x) => {
+    }), U(() => o.state.conversation.turns.length, (A, x) => {
       !A && x && !o.state.busy && (c.value = "", f = "");
     });
-    function U() {
+    function q() {
       o.disabled || !c.value.trim() || (f = c.value.trim(), C = o.state.conversation.turns.length + o.state.conversation.removedTurns, g("action", v.value ? "explain" : "talk", {
         message: f,
         ...v.value ?? {}
       }));
     }
-    B(() => o.state.conversation.turns.length, (A, x) => {
+    U(() => o.state.conversation.turns.length, (A, x) => {
       A > x && (r = !0), V();
-    }), B([
+    }), U([
       () => o.state.conversation.turns,
       () => o.state.busy,
       () => o.state.message
     ], V);
-    function F(A) {
+    function z(A) {
       return A.kind === "replacement" ? !o.disabled && o.state.currentUnitId === A.unitId : o.state.unit?.id === A.unitId && (A.kind === "exercise" ? o.state.unit.exercises : o.state.unit.materials).some((x) => x.id === A.id);
     }
     return l({
@@ -1053,7 +1053,7 @@ ${v.value.selection.quote}` : f;
         v.value = {
           exerciseId: A,
           selection: x
-        }, await W(), p.value?.focus();
+        }, await Q(), p.value?.focus();
       },
       focus: () => p.value?.focus({ preventScroll: !0 })
     }), (A, x) => (a(), n("section", Sa, [
@@ -1086,38 +1086,38 @@ ${v.value.selection.quote}` : f;
           }, null, 8, ["messages", "running"]),
           $.message ? (a(), n("p", {
             key: 0,
-            class: Q(["learning-turn-notice", { "is-error": $.status === "failed" }]),
+            class: W(["learning-turn-notice", { "is-error": $.status === "failed" }]),
             role: "status"
           }, u($.message), 3)) : m("", !0),
           $.presentation ? (a(), n("button", {
             key: 1,
             type: "button",
             class: "learning-activity-link",
-            disabled: !F($.presentation),
+            disabled: !z($.presentation),
             onClick: (L) => g("present", $.presentation)
           }, [
-            R(q, { name: $.presentation.kind === "material" ? "book" : "records" }, null, 8, ["name"]),
+            R(B, { name: $.presentation.kind === "material" ? "book" : "records" }, null, 8, ["name"]),
             t("span", null, u($.presentation.title), 1),
-            R(q, { name: "arrow" })
+            R(B, { name: "arrow" })
           ], 8, Na)) : m("", !0),
-          w === e.state.conversation.turns.length - 1 && e.state.reply?.text === $.teacher ? (a(), n("div", qa, [[...$.teacher].length <= 1e3 ? (a(), n("button", {
+          w === e.state.conversation.turns.length - 1 && e.state.reply?.text === $.teacher ? (a(), n("div", Ba, [[...$.teacher].length <= 1e3 ? (a(), n("button", {
             key: 0,
             type: "button",
             disabled: e.disabled,
             onClick: x[1] || (x[1] = (L) => g("action", "say-reply"))
-          }, [R(q, { name: "sound" }), x[8] || (x[8] = N("听老师说", -1))], 8, Ba)) : m("", !0), e.state.reply.exerciseId && [...$.teacher].length <= 4e3 ? (a(), n("button", {
+          }, [R(B, { name: "sound" }), x[8] || (x[8] = N("听老师说", -1))], 8, Ua)) : m("", !0), e.state.reply.exerciseId && [...$.teacher].length <= 4e3 ? (a(), n("button", {
             key: 1,
             type: "button",
             disabled: e.disabled || e.state.unit?.notes.some((L) => L.text === $.teacher),
             onClick: x[2] || (x[2] = (L) => g("action", "save-note"))
-          }, "保存笔记", 8, Ua)) : m("", !0)])) : m("", !0)
+          }, "保存笔记", 8, qa)) : m("", !0)])) : m("", !0)
         ]))), 128)),
         e.state.busy ? (a(), n("div", Oa, [x[9] || (x[9] = t("span", {
           class: "learning-working-dot",
           "aria-hidden": "true"
         }, null, -1)), t("span", null, u(e.state.message || "老师正在回复…"), 1)])) : m("", !0),
         !e.state.conversation.turns.length && !e.state.busy ? (a(), n("div", Da, [
-          R(q, { name: "chat" }),
+          R(B, { name: "chat" }),
           t("p", null, u(e.state.teacher ? "今天想学什么？" : "先选一位老师"), 1),
           e.state.teacher ? (a(), n("button", {
             key: 1,
@@ -1136,12 +1136,12 @@ ${v.value.selection.quote}` : f;
       e.state.teacher ? (a(), n("form", {
         key: 0,
         class: "learning-conversation-compose",
-        onSubmit: Z(U, ["prevent"])
-      }, [t("div", Pa, [v.value ? (a(), n("div", Ea, [t("span", null, u(v.value.selection?.quote ?? "请教这道题"), 1), t("button", {
+        onSubmit: F(q, ["prevent"])
+      }, [t("div", Ea, [v.value ? (a(), n("div", Pa, [t("span", null, u(v.value.selection?.quote ?? "请教这道题"), 1), t("button", {
         type: "button",
         "aria-label": "取消引用",
         onClick: x[5] || (x[5] = ($) => v.value = null)
-      }, "×")])) : m("", !0), t("div", Ka, [K(t("textarea", {
+      }, "×")])) : m("", !0), t("div", Za, [Z(t("textarea", {
         ref_key: "composer",
         ref: p,
         "onUpdate:modelValue": x[6] || (x[6] = ($) => c.value = $),
@@ -1149,20 +1149,20 @@ ${v.value.selection.quote}` : f;
         maxlength: v.value?.selection ? 1800 : v.value?.exerciseId ? 2e3 : 4e3,
         "aria-label": "和老师说",
         placeholder: "和老师说…",
-        onKeydown: [X(Z(U, ["ctrl", "prevent"]), ["enter"]), X(Z(U, ["meta", "prevent"]), ["enter"])]
-      }, null, 40, Za), [[Y, c.value]]), t("button", {
+        onKeydown: [X(F(q, ["ctrl", "prevent"]), ["enter"]), X(F(q, ["meta", "prevent"]), ["enter"])]
+      }, null, 40, Fa), [[Y, c.value]]), t("button", {
         type: e.state.busy ? "button" : "submit",
-        class: Q(e.state.busy ? "learning-composer-stop" : "learning-primary"),
+        class: W(e.state.busy ? "learning-composer-stop" : "learning-primary"),
         disabled: e.state.busy ? e.pending : e.disabled || !c.value.trim(),
         "aria-label": e.state.busy ? "停止回复" : "发送给老师",
         title: e.state.busy ? "停止回复" : "发送给老师",
-        onClick: x[7] || (x[7] = Z(($) => e.state.busy ? g("action", "cancel") : U(), ["prevent"]))
-      }, [R(q, { name: e.state.busy ? "stop" : "send" }, null, 8, ["name"])], 10, za)])])], 32)) : m("", !0)
+        onClick: x[7] || (x[7] = F(($) => e.state.busy ? g("action", "cancel") : q(), ["prevent"]))
+      }, [R(B, { name: e.state.busy ? "stop" : "send" }, null, 8, ["name"])], 10, Ka)])])], 32)) : m("", !0)
     ]));
   }
-}), Ja = Fa;
+}), Ja = za;
 function Ga(e) {
-  const l = ye(structuredClone(be(e.initialState))), k = M(!1), o = M("");
+  const l = me(structuredClone(ye(e.initialState))), k = M(!1), o = M("");
   let g = !1, c = 0, p = () => {
   };
   const h = H(() => !k.value && !l.value.busy && l.value.storage === "ready");
@@ -1182,7 +1182,7 @@ function Ga(e) {
       g && (k.value = !1);
     }
   }
-  return oe(() => {
+  return re(() => {
     g = !0, p = e.bridge.subscribe((r) => {
       if (r.type === "learning/media") {
         l.value = {
@@ -1195,7 +1195,7 @@ function Ga(e) {
       const b = r.payload.state;
       b.chatIdentity === l.value.chatIdentity && (c++, l.value = b, o.value = "");
     });
-  }), re(() => {
+  }), oe(() => {
     g = !1, p();
   }), {
     state: l,
@@ -1244,14 +1244,14 @@ var Wa = {
 }, Mn = ["disabled"], Tn = ["disabled"], Rn = {
   key: 6,
   class: "learning-settings-page"
-}, Vn = ["value", "disabled"], Nn = ["value"], qn = {
+}, Vn = ["value", "disabled"], Nn = ["value"], Bn = {
   key: 0,
   class: "learning-muted"
-}, Bn = ["value", "disabled"], Un = ["disabled"], On = ["disabled"], Dn = ["disabled"], jn = ["disabled"], Hn = ["disabled"], Pn = ["disabled"], En = ["disabled"], Kn = {
+}, Un = ["value", "disabled"], qn = ["disabled"], On = ["disabled"], Dn = ["disabled"], jn = ["disabled"], Hn = ["disabled"], En = ["disabled"], Pn = ["disabled"], Zn = {
   role: "alertdialog",
   "aria-labelledby": "learning-confirm-title",
   class: "learning-confirm"
-}, Zn = { class: "learning-row" }, zn = ["disabled"], Fn = /* @__PURE__ */ E({
+}, Fn = { class: "learning-row" }, Kn = ["disabled"], zn = /* @__PURE__ */ P({
   __name: "LearningApp",
   props: {
     bridge: {},
@@ -1262,28 +1262,28 @@ var Wa = {
     _(() => v.value?.open ? (v.value.open = !1, !0) : !1, () => r.value);
     const b = M(null), y = M(null), f = M(null), C = {};
     let j = 0;
-    B(() => !!l.value.record, async (I, i) => {
-      p.value !== "records" || I === i || (I && (j = f.value?.scrollTop ?? 0), await W(), p.value === "records" && f.value && (f.value.scrollTop = I ? 0 : j));
+    U(() => !!l.value.record, async (I, i) => {
+      p.value !== "records" || I === i || (I && (j = f.value?.scrollTop ?? 0), await Q(), p.value === "records" && f.value && (f.value.scrollTop = I ? 0 : j));
     });
-    const V = M(null), z = M(null);
-    ue(z, () => {
+    const V = M(null), K = M(null);
+    ue(K, () => {
       V.value = null;
     });
-    const U = M(l.value.profile?.voice?.voiceId ?? l.value.voices.defaultVoice), F = M(l.value.profile?.voice?.language ?? l.value.language), A = M(l.value.profile?.voice?.speed ?? 1), x = M(0), $ = H(() => l.value.completions.slice(x.value * 20, (x.value + 1) * 20));
-    B([() => l.value.language, () => l.value.profile?.voice], ([I, i]) => {
-      U.value = i?.voiceId ?? l.value.voices.defaultVoice, F.value = i?.language ?? I, A.value = i?.speed ?? 1;
-    }), B([
+    const q = M(l.value.profile?.voice?.voiceId ?? l.value.voices.defaultVoice), z = M(l.value.profile?.voice?.language ?? l.value.language), A = M(l.value.profile?.voice?.speed ?? 1), x = M(0), $ = H(() => l.value.completions.slice(x.value * 20, (x.value + 1) * 20));
+    U([() => l.value.language, () => l.value.profile?.voice], ([I, i]) => {
+      q.value = i?.voiceId ?? l.value.voices.defaultVoice, z.value = i?.language ?? I, A.value = i?.speed ?? 1;
+    }), U([
       () => l.value.chatIdentity,
       () => l.value.language,
       () => l.value.teacher?.name
     ], () => {
       y.value = null, V.value = null, x.value = 0;
-    }), B(() => l.value.currentUnitId, (I) => {
+    }), U(() => l.value.currentUnitId, (I) => {
       V.value?.action === "replace-lesson" && V.value.input.unitId !== I && (V.value = null);
-    }), B(() => l.value.unit, (I) => {
+    }), U(() => l.value.unit, (I) => {
       const i = y.value;
       i && (I?.id !== i.unitId || !(i.kind === "exercise" ? I.exercises : I.materials).some((d) => d.id === i.id)) && L();
-    }), B(() => {
+    }), U(() => {
       const I = l.value.conversation.turns.at(-1)?.presentation;
       return I ? `${l.value.conversation.turns.length + l.value.conversation.removedTurns}:${I.unitId}:${I.kind}:${I.id}` : "";
     }, (I) => {
@@ -1313,7 +1313,7 @@ var Wa = {
         const d = h.indexOf(I);
         d >= 0 ? h.splice(d) : h.push(p.value);
       }
-      if (f.value && (C[p.value] = f.value.scrollTop), v.value && (v.value.open = !1), p.value = I, await W(), f.value) {
+      if (f.value && (C[p.value] = f.value.scrollTop), v.value && (v.value.open = !1), p.value = I, await Q(), f.value) {
         f.value.scrollTop = C[I] ?? 0;
         const d = [...f.value.querySelectorAll("h1")].find((G) => G.offsetParent !== null);
         d && (d.tabIndex = -1, d.focus({ preventScroll: !0 }));
@@ -1341,7 +1341,7 @@ var Wa = {
           class: "learning-toolbar-back",
           "aria-label": "返回上一页",
           onClick: i[0] || (i[0] = (...d) => s(te) && s(te)(...d))
-        }, [R(q, { name: "back" })])) : m("", !0),
+        }, [R(B, { name: "back" })])) : m("", !0),
         t("button", {
           type: "button",
           class: "learning-wordmark",
@@ -1355,8 +1355,8 @@ var Wa = {
           ref: v,
           class: "learning-menu",
           onToggle: i[2] || (i[2] = (d) => r.value = !!v.value?.open),
-          onKeydown: i[3] || (i[3] = X(Z((d) => v.value.open = !1, ["stop", "prevent"]), ["esc"]))
-        }, [t("summary", Xa, [R(q, { name: "more" })]), t("nav", Ya, [(a(), n(S, null, T([
+          onKeydown: i[3] || (i[3] = X(F((d) => v.value.open = !1, ["stop", "prevent"]), ["esc"]))
+        }, [t("summary", Xa, [R(B, { name: "more" })]), t("nav", Ya, [(a(), n(S, null, T([
           ["materials", "课件与笔记"],
           ["records", "学习记录"],
           ["goals", "学习目标"],
@@ -1394,7 +1394,7 @@ var Wa = {
           onClick: i[7] || (i[7] = (d) => s(c)("read"))
         }, "重新加载", 8, sn)) : m("", !0)
       ])])) : m("", !0),
-      K(R(Ja, {
+      Z(R(Ja, {
         ref_key: "conversation",
         ref: b,
         state: s(l),
@@ -1408,8 +1408,8 @@ var Wa = {
         "disabled",
         "pending",
         "onAction"
-      ]), [[ne, p.value === "teacher"]]),
-      K(t("div", {
+      ]), [[ae, p.value === "teacher"]]),
+      Z(t("div", {
         ref_key: "scroller",
         ref: f,
         class: "learning-scroll"
@@ -1426,7 +1426,7 @@ var Wa = {
             onClick: i[9] || (i[9] = (d) => s(c)("cancel"))
           }, "停止", 8, on)
         ])) : m("", !0),
-        p.value === "profile" ? (a(), P(aa, {
+        p.value === "profile" ? (a(), E(aa, {
           key: 1,
           state: s(l),
           disabled: !s(o),
@@ -1453,9 +1453,9 @@ var Wa = {
                 title: d.title
               })
             }, [
-              R(q, { name: "book" }),
+              R(B, { name: "book" }),
               t("span", null, u(d.title), 1),
-              R(q, { name: "arrow" })
+              R(B, { name: "arrow" })
             ], 8, cn))), 128)),
             (a(!0), n(S, null, T(s(l).unit.exercises, (d) => (a(), n("button", {
               key: d.id,
@@ -1468,9 +1468,9 @@ var Wa = {
                 title: d.prompt
               })
             }, [
-              R(q, { name: "records" }),
+              R(B, { name: "records" }),
               t("span", null, u(d.prompt), 1),
-              R(q, { name: "arrow" })
+              R(B, { name: "arrow" })
             ], 8, gn))), 128)),
             s(l).unit.notes.length ? (a(), n("section", bn, [(a(!0), n(S, null, T(s(l).unit.notes, (d) => (a(), n("article", { key: d.id }, [
               d.selection ? (a(), n("blockquote", mn, u(d.selection.quote), 1)) : m("", !0),
@@ -1501,7 +1501,7 @@ var Wa = {
             })
           }, "和老师聊聊")
         ])) : m("", !0),
-        p.value === "records" ? (a(), P(fa, {
+        p.value === "records" ? (a(), E(fa, {
           key: 4,
           state: s(l),
           disabled: !s(o),
@@ -1573,24 +1573,24 @@ var Wa = {
             i[43] || (i[43] = t("h2", null, "老师的声音", -1)),
             s(l).voices.enabled ? (a(), n("form", {
               key: 1,
-              onSubmit: i[21] || (i[21] = Z((d) => s(c)("voice", { voice: {
-                voiceId: U.value,
-                language: F.value,
+              onSubmit: i[21] || (i[21] = F((d) => s(c)("voice", { voice: {
+                voiceId: q.value,
+                language: z.value,
                 speed: Number(A.value)
               } }), ["prevent"]))
             }, [
-              t("label", null, [i[39] || (i[39] = N("音色", -1)), K(t("select", { "onUpdate:modelValue": i[18] || (i[18] = (d) => U.value = d) }, [(a(!0), n(S, null, T(s(l).voices.voices, (d) => (a(), n("option", {
+              t("label", null, [i[39] || (i[39] = N("音色", -1)), Z(t("select", { "onUpdate:modelValue": i[18] || (i[18] = (d) => q.value = d) }, [(a(!0), n(S, null, T(s(l).voices.voices, (d) => (a(), n("option", {
                 key: d.id,
                 value: d.id,
                 disabled: !d.available
-              }, u(d.name) + u(d.available ? "" : "（暂不可用）"), 9, Bn))), 128))], 512), [[ee, U.value]])]),
-              t("label", null, [i[40] || (i[40] = N("发音语言", -1)), K(t("input", {
-                "onUpdate:modelValue": i[19] || (i[19] = (d) => F.value = d),
+              }, u(d.name) + u(d.available ? "" : "（暂不可用）"), 9, Un))), 128))], 512), [[ee, q.value]])]),
+              t("label", null, [i[40] || (i[40] = N("发音语言", -1)), Z(t("input", {
+                "onUpdate:modelValue": i[19] || (i[19] = (d) => z.value = d),
                 type: "text",
                 maxlength: "80",
                 placeholder: "en / ja"
-              }, null, 512), [[Y, F.value]])]),
-              t("label", null, [i[42] || (i[42] = N("语速", -1)), K(t("select", { "onUpdate:modelValue": i[20] || (i[20] = (d) => A.value = d) }, [...i[41] || (i[41] = [
+              }, null, 512), [[Y, z.value]])]),
+              t("label", null, [i[42] || (i[42] = N("语速", -1)), Z(t("select", { "onUpdate:modelValue": i[20] || (i[20] = (d) => A.value = d) }, [...i[41] || (i[41] = [
                 t("option", { value: 0.75 }, "0.75×", -1),
                 t("option", { value: 1 }, "1×", -1),
                 t("option", { value: 1.25 }, "1.25×", -1)
@@ -1598,8 +1598,8 @@ var Wa = {
               t("button", {
                 type: "submit",
                 disabled: !s(o) || !s(l).profile
-              }, "保存声音设置", 8, Un)
-            ], 32)) : (a(), n("p", qn, "使用语音前，请先开启 TTS 模块。文字学习不受影响。")),
+              }, "保存声音设置", 8, qn)
+            ], 32)) : (a(), n("p", Bn, "使用语音前，请先开启 TTS 模块。文字学习不受影响。")),
             t("button", {
               type: "button",
               onClick: i[22] || (i[22] = (d) => s(c)("tts-settings"))
@@ -1634,22 +1634,22 @@ var Wa = {
               class: "learning-danger",
               disabled: !s(o) || !s(l).profile,
               onClick: i[26] || (i[26] = (d) => J("delete-language", {}, "删除当前语言的全部学习数据？未领取奖励也将放弃，已到账流水保留。"))
-            }, "删除当前语言", 8, Pn),
+            }, "删除当前语言", 8, En),
             t("button", {
               type: "button",
               class: "learning-danger",
               disabled: !s(o),
               onClick: i[27] || (i[27] = (d) => J("clear", {}, "清空所有语言的目标、课程和记录？未领取奖励也将放弃。已到账流水不撤销。"))
-            }, "清空全部学习数据", 8, En)
+            }, "清空全部学习数据", 8, Pn)
           ])
         ])) : m("", !0)
-      ], 512), [[ne, p.value !== "teacher"]]),
-      y.value ? m("", !0) : (a(), P(ce, {
+      ], 512), [[ae, p.value !== "teacher"]]),
+      y.value ? m("", !0) : (a(), E(ce, {
         key: 1,
         state: s(l),
         onAction: s(c)
       }, null, 8, ["state", "onAction"])),
-      s(l).unit ? (a(), P(Ot, {
+      s(l).unit ? (a(), E(Ot, {
         key: `${s(l).chatIdentity}:${s(l).language}:${s(l).unit.id}`,
         state: s(l),
         target: y.value,
@@ -1666,13 +1666,13 @@ var Wa = {
       V.value ? (a(), n("div", {
         key: 3,
         ref_key: "confirmLayer",
-        ref: z,
+        ref: K,
         class: "learning-confirm-shade",
-        onKeydown: i[30] || (i[30] = X(Z((d) => V.value = null, ["stop", "prevent"]), ["esc"]))
-      }, [t("section", Kn, [
+        onKeydown: i[30] || (i[30] = X(F((d) => V.value = null, ["stop", "prevent"]), ["esc"]))
+      }, [t("section", Zn, [
         i[47] || (i[47] = t("h2", { id: "learning-confirm-title" }, "确认这次操作", -1)),
         t("p", null, u(V.value.text), 1),
-        t("div", Zn, [t("button", {
+        t("div", Fn, [t("button", {
           autofocus: "",
           type: "button",
           onClick: i[28] || (i[28] = (d) => V.value = null)
@@ -1683,11 +1683,11 @@ var Wa = {
           onClick: i[29] || (i[29] = (d) => {
             s(c)(V.value.action, V.value.input), V.value = null;
           })
-        }, "确认", 8, zn)])
+        }, "确认", 8, Kn)])
       ])], 544)) : m("", !0)
     ]));
   }
-}), Xn = Fn;
+}), Xn = zn;
 export {
   Xn as default
 };

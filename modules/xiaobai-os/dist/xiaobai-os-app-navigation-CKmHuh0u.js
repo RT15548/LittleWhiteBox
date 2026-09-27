@@ -1,5 +1,5 @@
 /* eslint-disable */
-import { S as l, T as f, z as v } from "./xiaobai-os-runtime-dom.esm-bundler-BcM9c-Z9.js";
+import { C as l, E as f, H as v } from "./xiaobai-os-runtime-dom.esm-bundler-DuiaxqDz.js";
 var d = /* @__PURE__ */ Symbol("app-navigation");
 function s(e) {
   return e.isConnected && !e.matches(":disabled") && !e.closest("[inert]") && e.getClientRects().length > 0 && getComputedStyle(e).visibility !== "hidden";

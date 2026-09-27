@@ -1,14 +1,14 @@
 /* eslint-disable */
-import { E as L, K as b, M as m, P as k, Q as u, X as c, Y as A, Z as $, b as F, f as B, g as v, h as C, m as p, p as a, u as g, z as R } from "./xiaobai-os-runtime-dom.esm-bundler-BcM9c-Z9.js";
-import { r as O } from "./xiaobai-os-room-catalog-CeHt_XVj.js";
-import { n as G, t as T } from "./xiaobai-os-GameResult-CCkazyjn.js";
-var S = { class: "ladder-table" }, z = { class: "room-heading" }, E = { class: "ladder-prize" }, I = {
+import { $ as c, F as m, H as k, L as $, O as L, Q as O, Y as b, _ as v, et as C, g as R, h as p, m as a, p as F, tt as u, u as g, x as B } from "./xiaobai-os-runtime-dom.esm-bundler-DuiaxqDz.js";
+import { i as A } from "./xiaobai-os-room-catalog-S5poA7Hy.js";
+import { n as G, t as T } from "./xiaobai-os-GameResult-D-YTFkQc.js";
+var S = { class: "ladder-table" }, z = { class: "room-heading" }, I = { class: "ladder-prize" }, j = {
   class: "ladder-stairs",
   "aria-label": "五层阶梯"
-}, M = {
+}, w = {
   key: 0,
   "aria-hidden": "true"
-}, j = { role: "status" }, w = { class: "ladder-next" }, N = { class: "ladder-paths" }, P = ["disabled", "onClick"], V = { "aria-hidden": "true" }, D = ["disabled"], K = /* @__PURE__ */ F({
+}, E = { role: "status" }, M = { class: "ladder-next" }, N = { class: "ladder-paths" }, V = ["disabled", "onClick"], D = { "aria-hidden": "true" }, H = ["disabled"], P = /* @__PURE__ */ B({
   __name: "LadderTable",
   props: {
     game: {},
@@ -47,11 +47,11 @@ var S = { class: "ladder-table" }, z = { class: "room-heading" }, E = { class: "
         i(), d.value = !1;
       }, e);
     }
-    R(() => o.game.completedFloors, (i, e) => {
+    k(() => o.game.completedFloors, (i, e) => {
       i > e && y(() => {
         l.value = { ...o.game };
       });
-    }), R(() => o.settlement, (i) => {
+    }), k(() => o.settlement, (i) => {
       if (!i || i.record.detail.kind !== "ladder" || i.record.outcome === "cashed-out") return;
       const e = i.record.detail.steps.at(-1);
       e && y(() => {
@@ -63,27 +63,27 @@ var S = { class: "ladder-table" }, z = { class: "room-heading" }, E = { class: "
         });
       });
     }, { immediate: !0 });
-    const h = B(() => !!o.disabledReason || o.stepping || d.value || !!o.settlement);
+    const h = F(() => !!o.disabledReason || o.stepping || d.value || !!o.settlement);
     return L(() => clearTimeout(r)), (i, e) => (m(), v("section", S, [
       a("header", z, [a("small", null, "本局筹码 ¤ " + u(t.game.bet), 1)]),
       a("div", { class: c(["ladder-landscape", {
         "is-climbing": t.stepping || d.value,
         "is-fallen": s.value
       }]) }, [
-        a("div", E, [a("span", null, u(t.settlement && !d.value ? "这一局，拿回" : l.value.canCashOut ? "现在收手，带走" : "走过第一层就能收手"), 1), a("strong", null, u(t.settlement && !d.value ? "¤ " + t.settlement.record.payout : l.value.canCashOut ? "¤ " + l.value.cashoutAmount : "从这里出发"), 1)]),
-        a("div", I, [(m(), v(g, null, k(5, (n) => a("div", {
+        a("div", I, [a("span", null, u(t.settlement && !d.value ? "这一局，拿回" : l.value.canCashOut ? "现在收手，带走" : "走过第一层就能收手"), 1), a("strong", null, u(t.settlement && !d.value ? "¤ " + t.settlement.record.payout : l.value.canCashOut ? "¤ " + l.value.cashoutAmount : "从这里出发"), 1)]),
+        a("div", j, [(m(), v(g, null, $(5, (n) => a("div", {
           key: n,
           class: c(["ladder-stair", {
             "is-done": n <= l.value.completedFloors,
             "is-next": n === l.value.completedFloors + 1
           }]),
-          style: $({ "--floor": n })
-        }, [a("span", null, u(n), 1), n === 5 ? (m(), v("i", M, "✦")) : C("", !0)], 6)), 64)), a("span", {
+          style: C({ "--floor": n })
+        }, [a("span", null, u(n), 1), n === 5 ? (m(), v("i", w, "✦")) : R("", !0)], 6)), 64)), a("span", {
           class: "ladder-traveler",
-          style: $({ "--position": l.value.completedFloors }),
+          style: C({ "--position": l.value.completedFloors }),
           "aria-hidden": "true"
         }, [...e[4] || (e[4] = [a("i", null, null, -1)])], 4)]),
-        a("p", j, u(t.stepping || d.value ? "迈出这一步，看看能不能站稳…" : s.value ? "这一步没站稳，下局再来。" : l.value.completedFloors === 5 ? "五层登顶！" : "已走过 " + l.value.completedFloors + " 层 / 共 5 层"), 1)
+        a("p", E, u(t.stepping || d.value ? "迈出这一步，看看能不能站稳…" : s.value ? "这一步没站稳，下局再来。" : l.value.completedFloors === 5 ? "五层登顶！" : "已走过 " + l.value.completedFloors + " 层 / 共 5 层"), 1)
       ], 2),
       t.settlement && !d.value ? (m(), p(T, {
         key: 0,
@@ -97,31 +97,31 @@ var S = { class: "ladder-table" }, z = { class: "room-heading" }, E = { class: "
         "record",
         "balance-after",
         "disabled"
-      ])) : t.settlement ? C("", !0) : (m(), v(g, { key: 1 }, [
-        a("div", w, [a("h3", null, "第 " + u(l.value.completedFloors + 1) + " 层，怎么走？", 1), e[5] || (e[5] = a("p", null, "成功继续向上，失败本局归零。", -1))]),
-        a("div", N, [(m(!0), v(g, null, k(l.value.nextChoices, (n) => (m(), v("button", {
+      ])) : t.settlement ? R("", !0) : (m(), v(g, { key: 1 }, [
+        a("div", M, [a("h3", null, "第 " + u(l.value.completedFloors + 1) + " 层，怎么走？", 1), e[5] || (e[5] = a("p", null, "成功继续向上，失败本局归零。", -1))]),
+        a("div", N, [(m(!0), v(g, null, $(l.value.nextChoices, (n) => (m(), v("button", {
           key: n.choice,
           type: "button",
           class: c("is-" + n.choice),
           disabled: h.value,
-          onClick: (X) => i.$emit("step", n.choice)
+          onClick: (Y) => i.$emit("step", n.choice)
         }, [
-          a("i", V, u(f[n.choice].mark), 1),
+          a("i", D, u(f[n.choice].mark), 1),
           a("strong", null, u(f[n.choice].name), 1),
           a("span", null, u(n.successProbabilityBps / 100) + "% 能走过", 1),
           e[6] || (e[6] = a("small", null, "走过后拿回", -1)),
           a("b", null, "¤ " + u(n.successAmount), 1)
-        ], 10, P))), 128))]),
+        ], 10, V))), 128))]),
         a("button", {
           type: "button",
           class: "game-secondary-action ladder-cashout",
           disabled: h.value || !l.value.canCashOut,
           onClick: e[3] || (e[3] = (n) => i.$emit("cashOut"))
-        }, u(l.value.canCashOut ? "就到这里，带走 ¤ " + l.value.cashoutAmount : "走过第一层后，可以收手"), 9, D)
+        }, u(l.value.canCashOut ? "就到这里，带走 ¤ " + l.value.cashoutAmount : "走过第一层后，可以收手"), 9, H)
       ], 64))
     ]));
   }
-}), Q = K, U = /* @__PURE__ */ F({
+}), Q = P, U = /* @__PURE__ */ B({
   __name: "LadderRoom",
   props: {
     state: {},
@@ -137,7 +137,7 @@ var S = { class: "ladder-table" }, z = { class: "room-heading" }, E = { class: "
     "resume"
   ],
   setup(t) {
-    const o = t, l = B(() => o.settlement?.before.kind === "ladder" ? o.settlement.before : o.state.activeGame?.kind === "ladder" ? o.state.activeGame : null);
+    const o = t, l = F(() => o.settlement?.before.kind === "ladder" ? o.settlement.before : o.state.activeGame?.kind === "ladder" ? o.state.activeGame : null);
     return (d, s) => l.value ? (m(), p(Q, {
       key: l.value.id,
       game: l.value,
@@ -178,7 +178,7 @@ var S = { class: "ladder-table" }, z = { class: "room-heading" }, E = { class: "
       ],
       balance: t.state.balance,
       "disabled-reason": t.disabledReason,
-      "other-game": t.state.activeGame ? A(O)(t.state.activeGame.kind).name : "",
+      "other-game": t.state.activeGame ? O(A)(t.state.activeGame.kind).name : "",
       rules: [
         "共五层，每一步都能选一条路。胜算越低，成功后的奖励越高。",
         "走过第一层，就能收手带走奖励；继续走，失败则本局归零。",
@@ -195,7 +195,7 @@ var S = { class: "ladder-table" }, z = { class: "room-heading" }, E = { class: "
       "other-game"
     ]));
   }
-}), H = U;
+}), W = U;
 export {
-  H as default
+  W as default
 };

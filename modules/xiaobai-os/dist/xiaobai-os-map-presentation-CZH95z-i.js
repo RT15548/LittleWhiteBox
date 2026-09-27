@@ -8,18 +8,18 @@ var Q = {
   zoomIn: "放大地图",
   zoomOut: "缩小地图",
   fit: "全图"
-}, T = {
+}, at = { failed: "地图画面暂不可用，地点仍可查看。重新打开地图可重试。" }, L = {
   visited: "已到访",
   unvisited: "未到访"
-}, at = {
+}, rt = {
   position_unknown: "位置尚未记录",
   mapping_unknown: "尚未确定在这张地图上的位置",
   outside_map: "已记录的位置在本图范围之外"
-}, rt = {
+}, et = {
   empty: "这里还没有可绘制的位置或地貌",
   emptyHint: "已记录的地点仍可从列表查看。",
   current: "你在这里",
-  legend: "图面只绘制已记录的位置与地貌，点状底纹表示未记录范围；连接关系可在地点详情查看。",
+  legend: "图面只绘制已记录的位置与地貌；连接关系可在地点详情查看。",
   placeLabel: (t) => `查看${t}`
 }, j = {
   world: {
@@ -38,7 +38,7 @@ var Q = {
     emptyHint: "可以查看其他地区，或更新地图补充。",
     notFound: "没有找到符合条件的场景"
   }
-}, et = {
+}, nt = {
   viewLabel: "地图视图",
   trailLabel: "当前查看位置",
   unknownRegion: "所属地区待确认",
@@ -61,13 +61,13 @@ var Q = {
 function N(t, a) {
   return `${a} 个${j[t].unit}`;
 }
-function nt(t, a, n) {
-  return `${N(t, a)} · ${n} 个${T.unvisited}`;
+function ot(t, a, n) {
+  return `${N(t, a)} · ${n} 个${L.unvisited}`;
 }
-function ot(t, a) {
-  return `查看${a === "all" ? "" : T[a]}${j[t].unit}`;
+function it(t, a) {
+  return `查看${a === "all" ? "" : L[a]}${j[t].unit}`;
 }
-var it = Object.freeze([
+var st = Object.freeze([
   "wall",
   "road",
   "water",
@@ -90,7 +90,7 @@ var it = Object.freeze([
   "curve",
   "icon",
   "label"
-]), st = Object.freeze([
+]), ht = Object.freeze([
   "door",
   "stairs",
   "elevator",
@@ -109,7 +109,7 @@ var it = Object.freeze([
   "marker",
   "player",
   "actor"
-]), ht = Object.freeze([
+]), dt = Object.freeze([
   "unknown",
   "wood",
   "stone",
@@ -132,7 +132,7 @@ var it = Object.freeze([
   "warm-light",
   "cold-light",
   "shadow"
-]), dt = Object.freeze([
+]), lt = Object.freeze([
   "confirmed",
   "inferred",
   "unknown"
@@ -216,8 +216,8 @@ var it = Object.freeze([
     ],
     hint: "light is a freestanding fixture; light regions use category light without an object icon."
   }
-]), L = Object.freeze(R.flatMap((t) => [...t.icons])), lt = Object.freeze([
-  ...L,
+]), T = Object.freeze(R.flatMap((t) => [...t.icons])), ut = Object.freeze([
+  ...T,
   "stairs",
   "elevator",
   "portal",
@@ -236,7 +236,7 @@ var it = Object.freeze([
   "actor",
   "building",
   "water"
-]), ut = Object.freeze(/* @__PURE__ */ new Set([
+]), gt = Object.freeze(/* @__PURE__ */ new Set([
   "floor",
   "ground",
   "surface",
@@ -274,10 +274,10 @@ var it = Object.freeze([
 function B(t, a) {
   return `url(#${a}-material-${t || "unknown"})`;
 }
-function gt(t, a) {
+function ft(t, a) {
   return `url(#${a}-face-${t || "unknown"})`;
 }
-function ft(t) {
+function pt(t) {
   return `color-mix(in srgb, ${z[t]}, var(--map-surface) var(--scene-material-mix))`;
 }
 var Y = /* @__PURE__ */ new Set([
@@ -289,7 +289,7 @@ var Y = /* @__PURE__ */ new Set([
   "magic",
   "secret",
   "light"
-]), F = new Set(L), D = /* @__PURE__ */ new Set([
+]), F = new Set(T), G = /* @__PURE__ */ new Set([
   "chair",
   "table",
   "bed",
@@ -300,20 +300,20 @@ var Y = /* @__PURE__ */ new Set([
   "tree",
   "rock"
 ]);
-function pt(t) {
-  return !!t.icon && D.has(t.icon);
+function bt(t) {
+  return !!t.icon && G.has(t.icon);
 }
 var _ = (t) => Number(t.toFixed(3)).toString(), m = (t) => t.geometry.points || [];
-function G(t) {
+function H(t) {
   return t.shape === "icon" || t.shape === "label" || t.category === "actor" || t.category === "door" || t.kind === "stairs" || t.icon === "stairs" || t.icon === "door-open";
 }
 function y(t) {
   return m(t).length >= 3 && (t.closed ?? Y.has(t.category));
 }
-function k(t) {
+function O(t) {
   return t.category === "wall" || t.category === "grid" || t.icon === "fence" && ["path", "curve"].includes(t.shape) ? !1 : t.shape === "rect" || t.shape === "circle" ? !0 : (t.shape === "path" || t.shape === "curve") && y(t);
 }
-function H(t) {
+function D(t) {
   return ![
     "wall",
     "grid",
@@ -325,26 +325,26 @@ function H(t) {
   ].includes(t.category));
 }
 function x(t, a, n) {
-  const r = t[n], i = t[(n + 1) % t.length], e = t[n - 1] || (a ? t[t.length - 1] : r), o = t[n + 2] || (a ? t[(n + 2) % t.length] : i), c = (s, l, g) => Math.max(Math.min(l, g), Math.min(Math.max(l, g), s));
-  return [[c(r[0] + (i[0] - e[0]) / 6, r[0], i[0]), c(r[1] + (i[1] - e[1]) / 6, r[1], i[1])], [c(i[0] - (o[0] - r[0]) / 6, r[0], i[0]), c(i[1] - (o[1] - r[1]) / 6, r[1], i[1])]];
+  const r = t[n], i = t[(n + 1) % t.length], e = t[n - 1] || (a ? t[t.length - 1] : r), o = t[n + 2] || (a ? t[(n + 2) % t.length] : i), s = (c, l, g) => Math.max(Math.min(l, g), Math.min(Math.max(l, g), c));
+  return [[s(r[0] + (i[0] - e[0]) / 6, r[0], i[0]), s(r[1] + (i[1] - e[1]) / 6, r[1], i[1])], [s(i[0] - (o[0] - r[0]) / 6, r[0], i[0]), s(i[1] - (o[1] - r[1]) / 6, r[1], i[1])]];
 }
-function bt(t) {
+function wt(t) {
   if (t.shape === "rect") {
-    const { x: e, y: o, width: c, height: s } = t.geometry;
+    const { x: e, y: o, width: s, height: c } = t.geometry;
     return {
       points: [
         [e, o],
-        [e + c, o],
-        [e + c, o + s],
-        [e, o + s]
+        [e + s, o],
+        [e + s, o + c],
+        [e, o + c]
       ],
       closed: !0
     };
   }
   if (t.shape === "circle") {
-    const { x: e, y: o, radius: c } = t.geometry;
+    const { x: e, y: o, radius: s } = t.geometry;
     return {
-      points: Array.from({ length: 64 }, (s, l) => [e + c * Math.cos(l * Math.PI / 32), o + c * Math.sin(l * Math.PI / 32)]),
+      points: Array.from({ length: 64 }, (c, l) => [e + s * Math.cos(l * Math.PI / 32), o + s * Math.sin(l * Math.PI / 32)]),
       closed: !0
     };
   }
@@ -359,10 +359,10 @@ function bt(t) {
   };
   const i = [r(a[0])];
   for (let e = 0; e < a.length - (n ? 0 : 1); e += 1) {
-    const o = r(a[e]), c = r(a[(e + 1) % a.length]), [s, l] = x(a, n, e).map(r);
+    const o = r(a[e]), s = r(a[(e + 1) % a.length]), [c, l] = x(a, n, e).map(r);
     for (let g = 1; g <= 12; g += 1) {
       const h = g / 12, u = 1 - h;
-      i.push([0, 1].map((d) => u ** 3 * o[d] + 3 * u ** 2 * h * s[d] + 3 * u * h ** 2 * l[d] + h ** 3 * c[d]));
+      i.push([0, 1].map((d) => u ** 3 * o[d] + 3 * u ** 2 * h * c[d] + 3 * u * h ** 2 * l[d] + h ** 3 * s[d]));
     }
   }
   return n && i.pop(), {
@@ -370,14 +370,14 @@ function bt(t) {
     closed: n
   };
 }
-function wt(t) {
+function _t(t) {
   if (t.shape === "rect") {
-    const { x: e, y: o, width: c, height: s } = t.geometry;
-    return `M ${e} ${o} h ${c} v ${s} h ${-c} Z`;
+    const { x: e, y: o, width: s, height: c } = t.geometry;
+    return `M ${e} ${o} h ${s} v ${c} h ${-s} Z`;
   }
   if (t.shape === "circle") {
-    const { x: e, y: o, radius: c } = t.geometry;
-    return `M ${e - c} ${o} a ${c} ${c} 0 1 0 ${c * 2} 0 a ${c} ${c} 0 1 0 ${-c * 2} 0 Z`;
+    const { x: e, y: o, radius: s } = t.geometry;
+    return `M ${e - s} ${o} a ${s} ${s} 0 1 0 ${s * 2} 0 a ${s} ${s} 0 1 0 ${-s * 2} 0 Z`;
   }
   const a = m(t);
   if (a.length < 2) return "";
@@ -385,12 +385,12 @@ function wt(t) {
   if (t.shape === "path") return `M ${a.map(([e, o]) => `${_(e)} ${_(o)}`).join(" L ")}${n ? " Z" : ""}`;
   const r = [`M ${a[0].map(_).join(" ")}`], i = a.length;
   for (let e = 0; e < i - (n ? 0 : 1); e += 1) {
-    const [o, c] = x(a, n, e), s = a[(e + 1) % i];
-    r.push(`C ${o.map(_).join(" ")}, ${c.map(_).join(" ")}, ${s.map(_).join(" ")}`);
+    const [o, s] = x(a, n, e), c = a[(e + 1) % i];
+    r.push(`C ${o.map(_).join(" ")}, ${s.map(_).join(" ")}, ${c.map(_).join(" ")}`);
   }
   return r.join(" ") + (n ? " Z" : "");
 }
-function O(t) {
+function k(t) {
   if (t.shape === "rect") return { ...t.geometry };
   if (t.shape === "circle") {
     const { x: i, y: e, radius: o } = t.geometry;
@@ -419,31 +419,31 @@ function O(t) {
     height: Math.max(...r) - Math.min(...r)
   };
 }
-function _t(t) {
+function vt(t) {
   if (!t.rotation) return;
-  const a = O(t);
+  const a = k(t);
   return `rotate(${t.rotation} ${a.x + a.width / 2} ${a.y + a.height / 2})`;
 }
-function vt(t, a = 1) {
-  const n = O(t), r = [n.x + n.width / 2, n.y + n.height / 2];
+function mt(t, a = 1) {
+  const n = k(t), r = [n.x + n.width / 2, n.y + n.height / 2];
   if (t.shape === "label") return r;
-  if (G(t)) return [r[0], r[1] + 23 * a];
-  if ((t.category === "terrain" || t.category === "water") && k(t)) return r;
+  if (H(t)) return [r[0], r[1] + 23 * a];
+  if ((t.category === "terrain" || t.category === "water") && O(t)) return r;
   if (t.shape === "path" || t.shape === "curve") {
-    const o = m(t), c = y(t), s = o.length - (c ? 0 : 1), l = Array.from({ length: s }, (w, p) => Math.hypot(o[(p + 1) % o.length][0] - o[p][0], o[(p + 1) % o.length][1] - o[p][1]));
+    const o = m(t), s = y(t), c = o.length - (s ? 0 : 1), l = Array.from({ length: c }, (w, p) => Math.hypot(o[(p + 1) % o.length][0] - o[p][0], o[(p + 1) % o.length][1] - o[p][1]));
     let g = l.reduce((w, p) => w + p, 0) / 2, h = 0;
     for (; h < l.length - 1 && g > l[h]; )
       g -= l[h], h += 1;
     const u = o[h], d = o[(h + 1) % o.length], f = l[h] ? g / l[h] : 0.5;
-    let E = u[0] + (d[0] - u[0]) * f, A = u[1] + (d[1] - u[1]) * f, S = d[0] - u[0], P = d[1] - u[1];
+    let A = u[0] + (d[0] - u[0]) * f, E = u[1] + (d[1] - u[1]) * f, P = d[0] - u[0], S = d[1] - u[1];
     if (t.shape === "curve") {
-      const [w, p] = x(o, c, h), b = 1 - f;
-      E = b ** 3 * u[0] + 3 * b ** 2 * f * w[0] + 3 * b * f ** 2 * p[0] + f ** 3 * d[0], A = b ** 3 * u[1] + 3 * b ** 2 * f * w[1] + 3 * b * f ** 2 * p[1] + f ** 3 * d[1], S = 3 * b ** 2 * (w[0] - u[0]) + 6 * b * f * (p[0] - w[0]) + 3 * f ** 2 * (d[0] - p[0]), P = 3 * b ** 2 * (w[1] - u[1]) + 6 * b * f * (p[1] - w[1]) + 3 * f ** 2 * (d[1] - p[1]);
+      const [w, p] = x(o, s, h), b = 1 - f;
+      A = b ** 3 * u[0] + 3 * b ** 2 * f * w[0] + 3 * b * f ** 2 * p[0] + f ** 3 * d[0], E = b ** 3 * u[1] + 3 * b ** 2 * f * w[1] + 3 * b * f ** 2 * p[1] + f ** 3 * d[1], P = 3 * b ** 2 * (w[0] - u[0]) + 6 * b * f * (p[0] - w[0]) + 3 * f ** 2 * (d[0] - p[0]), S = 3 * b ** 2 * (w[1] - u[1]) + 6 * b * f * (p[1] - w[1]) + 3 * f ** 2 * (d[1] - p[1]);
     }
-    const C = Math.hypot(S, P);
-    if (!C) return [E, A - 13 * a];
-    let M = -P / C, v = S / C;
-    return (v > 0 || v === 0 && M < 0) && (M = -M, v = -v), [E + M * 13 * a, A + v * 13 * a];
+    const C = Math.hypot(P, S);
+    if (!C) return [A, E - 13 * a];
+    let M = -S / C, v = P / C;
+    return (v > 0 || v === 0 && M < 0) && (M = -M, v = -v), [A + M * 13 * a, E + v * 13 * a];
   }
   const i = (t.rotation || 0) * Math.PI / 180, e = t.shape === "circle" ? n.height / 2 : (Math.abs(Math.sin(i)) * n.width + Math.abs(Math.cos(i)) * n.height) / 2;
   return [r[0], r[1] + e + 13 * a];
@@ -453,16 +453,16 @@ function K(t) {
   for (const n of t) a = Math.imul(a ^ n.charCodeAt(0), 16777619);
   return a >>> 0;
 }
-function mt(t) {
-  const a = t.filter((r) => r.category === "terrain" && r.material === "forest" && k(r) && !H(r)).sort((r, i) => r.id < i.id ? -1 : r.id > i.id ? 1 : 0), n = /* @__PURE__ */ new Map();
+function Mt(t) {
+  const a = t.filter((r) => r.category === "terrain" && r.material === "forest" && O(r) && !D(r)).sort((r, i) => r.id < i.id ? -1 : r.id > i.id ? 1 : 0), n = /* @__PURE__ */ new Map();
   for (let r = 0; r < a.length; r += 1) {
-    const i = a[r], e = O(i), o = Math.floor(256 / a.length) + (r < 256 % a.length ? 1 : 0), c = e.width && e.height ? Math.min(o, Math.max(1, Math.ceil(e.width * e.height / 2704))) : 0, s = Math.min(c, Math.max(1, Math.ceil(Math.sqrt(c * e.width / Math.max(1, e.height))))), l = Math.ceil(c / Math.max(1, s));
+    const i = a[r], e = k(i), o = Math.floor(256 / a.length) + (r < 256 % a.length ? 1 : 0), s = e.width && e.height ? Math.min(o, Math.max(1, Math.ceil(e.width * e.height / 2704))) : 0, c = Math.min(s, Math.max(1, Math.ceil(Math.sqrt(s * e.width / Math.max(1, e.height))))), l = Math.ceil(s / Math.max(1, c));
     let g = K(i.id);
     const h = () => (g = Math.imul(g, 1664525) + 1013904223 >>> 0, g / 4294967296), u = [];
-    for (let d = 0; d < c; d += 1) u.push({
-      x: e.x + (d % s + 0.5 + (h() - 0.5) * 0.35) * e.width / s,
-      y: e.y + (Math.floor(d / s) + 0.5 + (h() - 0.5) * 0.35) * e.height / l,
-      size: Math.min(Math.max(e.width / s, e.height / l), Math.min(e.width, e.height)) * (1.25 + h() * 0.35),
+    for (let d = 0; d < s; d += 1) u.push({
+      x: e.x + (d % c + 0.5 + (h() - 0.5) * 0.35) * e.width / c,
+      y: e.y + (Math.floor(d / c) + 0.5 + (h() - 0.5) * 0.35) * e.height / l,
+      size: Math.min(Math.max(e.width / c, e.height / l), Math.min(e.width, e.height)) * (1.25 + h() * 0.35),
       variant: Math.floor(h() * 3)
     });
     n.set(i.id, u);
@@ -728,7 +728,7 @@ var I = {
   marker: 80,
   actor: 85,
   label: 90
-}), Mt = Object.freeze({
+}), yt = Object.freeze({
   neutral: {
     background: "#071019",
     glow: "rgba(59, 157, 219, .13)",
@@ -764,7 +764,7 @@ var I = {
     glow: "rgba(61, 189, 158, .13)",
     accent: "#69d8b8"
   }
-}), yt = Object.freeze({
+}), Ot = Object.freeze({
   world: "世界",
   region: j.world.unit,
   city: "城市",
@@ -785,8 +785,8 @@ var I = {
 function X(t, a) {
   return t < a ? -1 : t > a ? 1 : 0;
 }
-function Ot(t, a) {
-  const n = W[t.category], r = k(t), i = r && (t.material || t.category === "water") ? B(t.material || "water", a) : "", e = t.certainty === "inferred" ? "8 6" : t.certainty === "unknown" ? "3 7" : n.dash;
+function At(t, a) {
+  const n = W[t.category], r = O(t), i = r && (t.material || t.category === "water") ? B(t.material || "water", a) : "", e = t.certainty === "inferred" ? "8 6" : t.certainty === "unknown" ? "3 7" : n.dash;
   return {
     ...n,
     fill: r ? i || n.fill : "none",
@@ -799,47 +799,48 @@ function Ot(t, a) {
 }
 function Et(t) {
   const a = (n) => {
-    if (!k(n)) return 0;
-    const r = O(n);
+    if (!O(n)) return 0;
+    const r = k(n);
     return r.width * r.height;
   };
   return [...t].sort((n, r) => $[n.category] - $[r.category] || a(r) - a(n) || X(n.id, r.id));
 }
 export {
   rt as A,
-  st as C,
-  j as D,
-  ht as E,
-  N as F,
-  nt as I,
-  Q as M,
-  T as N,
-  et as O,
-  ot as P,
-  it as S,
-  lt as T,
+  ht as C,
+  at as D,
+  dt as E,
+  it as F,
+  N as I,
+  ot as L,
+  tt as M,
+  Q as N,
+  j as O,
+  L as P,
+  st as S,
+  ut as T,
   z as _,
-  Ot as a,
+  At as a,
   B as b,
-  pt as c,
-  H as d,
-  O as f,
-  _t as g,
-  wt as h,
-  yt as i,
-  tt as j,
-  at as k,
-  k as l,
-  bt as m,
+  bt as c,
+  D as d,
+  k as f,
+  vt as g,
+  _t as h,
+  Ot as i,
+  et as j,
+  nt as k,
+  O as l,
+  wt as m,
   kt as n,
   Et as o,
-  vt as p,
-  Mt as r,
-  mt as s,
+  mt as p,
+  yt as r,
+  Mt as s,
   J as t,
-  G as u,
-  ft as v,
+  H as u,
+  pt as v,
   ct as w,
-  dt as x,
-  gt as y
+  lt as x,
+  ft as y
 };

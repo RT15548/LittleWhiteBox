@@ -1,8 +1,8 @@
 /* eslint-disable */
-import { A as he, C as ce, D as na, E as ia, G as qe, H as j, K as $, M as l, P as be, Q as g, R as Le, T as we, U as ua, V as Pe, X as te, Y as G, Z as Ie, b as Z, c as Ue, f as x, g as n, h as I, i as ke, j as oa, k as ra, l as ve, m as oe, o as ue, p as e, s as da, u as T, v as le, y as A, z as Ce } from "./xiaobai-os-runtime-dom.esm-bundler-BcM9c-Z9.js";
-import { n as Fe } from "./xiaobai-os-app-navigation-sg-40eOk.js";
+import { $ as te, E as we, F as l, G as j, H as he, J as qe, K as na, L as be, M as ia, N as Ie, O as ua, P as oa, Q as G, V as Le, W as Pe, Y as $, _ as n, b as x, c as Fe, et as Ce, g as I, h as oe, i as ke, k as ra, l as ve, m as e, o as ue, p as A, s as da, tt as g, u as T, w as ce, x as K, y as le } from "./xiaobai-os-runtime-dom.esm-bundler-DuiaxqDz.js";
+import { n as Ue } from "./xiaobai-os-app-navigation-CKmHuh0u.js";
 import { t as va } from "./xiaobai-os-context-tokens-bfmDTbG3.js";
-import { t as Ve } from "./xiaobai-os-AppDialog-CI-E933W.js";
+import { t as Ve } from "./xiaobai-os-AppDialog-CaAiivYL.js";
 var ga = {
   viewBox: "0 0 24 24",
   fill: "none",
@@ -11,7 +11,7 @@ var ga = {
   "stroke-linecap": "round",
   "stroke-linejoin": "round",
   "aria-hidden": "true"
-}, ma = ["d"], ca = /* @__PURE__ */ Z({
+}, ma = ["d"], ca = /* @__PURE__ */ K({
   __name: "MessageIcon",
   props: { name: {} },
   setup(a) {
@@ -31,7 +31,7 @@ var ga = {
     };
     return (s, f) => (l(), n("svg", ga, [e("path", { d: w[a.name] }, null, 8, ma)]));
   }
-}), R = ca, ya = /* @__PURE__ */ Z({
+}), N = ca, ya = /* @__PURE__ */ K({
   __name: "ContactAvatar",
   props: {
     identity: {},
@@ -39,14 +39,14 @@ var ga = {
     small: { type: Boolean }
   },
   setup(a) {
-    const w = a, s = x(() => {
+    const w = a, s = A(() => {
       let f = 0;
       for (const d of w.identity) f = Math.imul(f, 31) + d.codePointAt(0) | 0;
       return String((f >>> 0) % 360);
     });
     return (f, d) => (l(), n("span", {
       class: te(["messages-avatar", { small: a.small }]),
-      style: Ie({ "--avatar-hue": s.value }),
+      style: Ce({ "--avatar-hue": s.value }),
       "aria-hidden": "true"
     }, g(Array.from(a.name)[0]), 7));
   }
@@ -68,7 +68,7 @@ var ga = {
 }, Ba = {
   key: 2,
   class: "messages-preview"
-}, Aa = /* @__PURE__ */ Z({
+}, xa = /* @__PURE__ */ K({
   __name: "ContactList",
   props: {
     contacts: {},
@@ -81,7 +81,7 @@ var ga = {
     "settings"
   ],
   setup(a) {
-    const w = a, s = $(""), f = x(() => w.contacts.filter((b) => `${b.name} ${b.note}`.toLocaleLowerCase().includes(s.value.toLocaleLowerCase())));
+    const w = a, s = $(""), f = A(() => w.contacts.filter((b) => `${b.name} ${b.note}`.toLocaleLowerCase().includes(s.value.toLocaleLowerCase())));
     function d(b) {
       if (b === null) return "";
       const r = new Date(b);
@@ -99,12 +99,12 @@ var ga = {
         title: "设置",
         "aria-label": "设置",
         onClick: r[0] || (r[0] = (o) => b.$emit("settings"))
-      }, [A(R, { name: "settings" })]), e("button", {
+      }, [x(N, { name: "settings" })]), e("button", {
         class: "messages-icon-button messages-add-contact",
         "aria-label": "添加联系人",
         onClick: r[1] || (r[1] = (o) => b.$emit("add"))
-      }, [A(R, { name: "plus" })])])]),
-      e("label", ka, [A(R, { name: "search" }), j(e("input", {
+      }, [x(N, { name: "plus" })])])]),
+      e("label", ka, [x(N, { name: "search" }), j(e("input", {
         "onUpdate:modelValue": r[2] || (r[2] = (o) => s.value = o),
         type: "search",
         placeholder: "搜索联系人",
@@ -114,20 +114,20 @@ var ga = {
         key: o.id,
         class: "messages-contact-row",
         onClick: (E) => b.$emit("select", o.id)
-      }, [A(ye, {
+      }, [x(ye, {
         identity: o.id,
         name: o.name
       }, null, 8, ["identity", "name"]), e("span", Ca, [e("span", Ma, [e("strong", null, g(o.name), 1), e("time", null, g(d(o.lastAt)), 1)]), a.busyContactId === o.id ? (l(), n("span", Sa, "正在等待回复…")) : a.drafts.get(o.id)?.text.trim() || a.drafts.get(o.id)?.image ? (l(), n("span", Ea, [r[7] || (r[7] = e("em", null, "草稿", -1)), le(" " + g(a.drafts.get(o.id)?.image ? "［图片］" : "") + g(a.drafts.get(o.id)?.text), 1)])) : (l(), n("span", Ba, g(o.preview), 1))])], 8, Ia))), 128))])) : (l(), n("div", $a, [
-        A(R, { name: "message" }),
+        x(N, { name: "message" }),
         r[6] || (r[6] = e("h2", null, "暂无联系人", -1)),
         e("button", {
           class: "messages-primary",
           onClick: r[3] || (r[3] = (o) => b.$emit("add"))
-        }, [r[5] || (r[5] = le("添加联系人", -1)), A(R, { name: "plus" })])
+        }, [r[5] || (r[5] = le("添加联系人", -1)), x(N, { name: "plus" })])
       ]))
     ]));
   }
-}), xa = Aa, V = {
+}), Aa = xa, V = {
   pending: (a) => `${a} 条消息已保留，尚未确认写入主聊天。`,
   title: "主聊天同步",
   view: "查看",
@@ -141,7 +141,7 @@ var ga = {
   saveFailed: "还不能确认这次保存，请检查网络后重试。",
   saveOutdated: "原操作已经失效，不能安全重试。可以使用已保存版本；已保存的消息不会重新生成。",
   closed: "原记录已被修改、删除，或故事已继续。可以展开下方说明，在当前位置补记。"
-}, Da = ["disabled"], Ta = ["disabled"], Ra = ["disabled"], Na = /* @__PURE__ */ Z({
+}, Da = ["disabled"], Ta = ["disabled"], Na = ["disabled"], Ra = /* @__PURE__ */ K({
   __name: "MessagesSettings",
   props: {
     settings: {},
@@ -173,25 +173,25 @@ var ga = {
         type: "submit",
         class: "messages-primary",
         disabled: a.busy
-      }, g(a.busy ? "请稍候…" : "保存设置"), 9, Ra)
+      }, g(a.busy ? "请稍候…" : "保存设置"), 9, Na)
     ], 32));
   }
-}), qa = Na, La = ["src", "alt"], Pa = {
+}), qa = Ra, La = ["src", "alt"], Pa = {
   key: 2,
   class: "messages-image-placeholder",
   role: "status",
   "aria-live": "polite"
-}, Ua = {
+}, Fa = {
   key: 4,
   class: "messages-image-placeholder messages-media-unavailable"
-}, Fa = {
+}, Ua = {
   key: 5,
   class: "messages-image-caption"
 }, Va = {
   key: 6,
   class: "messages-media-error",
   role: "status"
-}, za = ["src", "alt"], Ga = /* @__PURE__ */ Z({
+}, za = ["src", "alt"], Ga = /* @__PURE__ */ K({
   __name: "MessageImage",
   props: {
     message: {},
@@ -201,7 +201,7 @@ var ga = {
   },
   emits: ["resize"],
   setup(a, { emit: w }) {
-    const s = a, f = w, d = $(null), b = $(!1), r = $(""), o = $(""), E = $(""), h = $(""), C = $(!1), S = $(!1), D = x(() => s.message.payload.type === "image" ? s.message.payload.attachment : void 0), p = x(() => s.message.payload.type === "image" ? s.message.payload.description : ""), i = x(() => D.value?.path || r.value);
+    const s = a, f = w, d = $(null), b = $(!1), r = $(""), o = $(""), E = $(""), h = $(""), C = $(!1), S = $(!1), D = A(() => s.message.payload.type === "image" ? s.message.payload.attachment : void 0), p = A(() => s.message.payload.type === "image" ? s.message.payload.description : ""), i = A(() => D.value?.path || r.value);
     let k = null;
     function m() {
       const B = h.value;
@@ -245,7 +245,7 @@ var ga = {
           E.value = q ? `排队中，前方 ${q} 张` : "已进入图片队列";
         } else y.status === "generating" ? E.value = "正在生成图片…" : y.status === "cooldown" && (E.value = y.delay ? `等待 ${Math.ceil(y.delay / 1e3)} 秒后继续` : "等待继续生成…");
     });
-    return ra(() => {
+    return ia(() => {
       if (!D.value) {
         if (typeof IntersectionObserver > "u") {
           b.value = !0;
@@ -255,9 +255,9 @@ var ga = {
           b.value = B.some((y) => y.isIntersecting);
         }, { root: d.value?.closest(".messages-thread-scroll") ?? null }), d.value && k.observe(d.value);
       }
-    }), Ce([b, () => s.available], ([B, y]) => {
+    }), he([b, () => s.available], ([B, y]) => {
       B && y && !i.value && !o.value && c();
-    }), ia(() => {
+    }), ua(() => {
       k?.disconnect(), M(), m();
     }), (B, y) => (l(), n("div", {
       ref_key: "root",
@@ -278,19 +278,19 @@ var ga = {
         class: "messages-image-placeholder",
         onClick: c
       }, [
-        A(R, { name: "image" }),
+        x(N, { name: "image" }),
         y[5] || (y[5] = e("span", null, "图片暂时无法显示", -1)),
         y[6] || (y[6] = e("small", null, "点击重新加载", -1))
-      ])) : h.value ? (l(), n("div", Pa, [A(R, { name: "image" }), e("span", null, g(E.value), 1)])) : a.available ? (l(), n("button", {
+      ])) : h.value ? (l(), n("div", Pa, [x(N, { name: "image" }), e("span", null, g(E.value), 1)])) : a.available ? (l(), n("button", {
         key: 3,
         class: "messages-image-placeholder",
         onClick: c
-      }, [A(R, { name: "image" }), e("span", null, g(o.value ? "重试加载图片" : "图片"), 1)])) : (l(), n("div", Ua, [
-        A(R, { name: "image" }),
+      }, [x(N, { name: "image" }), e("span", null, g(o.value ? "重试加载图片" : "图片"), 1)])) : (l(), n("div", Fa, [
+        x(N, { name: "image" }),
         y[7] || (y[7] = e("span", null, "图片描述", -1)),
         y[8] || (y[8] = e("small", null, "开启画图后自动加载", -1))
       ])),
-      p.value ? (l(), n("p", Fa, g(p.value), 1)) : I("", !0),
+      p.value ? (l(), n("p", Ua, g(p.value), 1)) : I("", !0),
       o.value ? (l(), n("small", Va, g(o.value), 1)) : I("", !0),
       S.value ? (l(), oe(Ve, {
         key: 7,
@@ -301,7 +301,7 @@ var ga = {
         default: Pe(() => [e("button", {
           "aria-label": "关闭图片",
           onClick: y[3] || (y[3] = (q) => S.value = !1)
-        }, [A(R, { name: "close" })]), i.value ? (l(), n("img", {
+        }, [x(N, { name: "close" })]), i.value ? (l(), n("img", {
           key: 0,
           src: i.value,
           alt: p.value || D.value?.name || "图片"
@@ -310,21 +310,21 @@ var ga = {
       })) : I("", !0)
     ], 512));
   }
-}), Oa = Ga, Ha = ["data-message-id"], Za = {
+}), Oa = Ga, Ha = ["data-message-id"], Ka = {
   class: "messages-bubble-actions",
   role: "group",
   "aria-label": "消息操作"
-}, Ka = ["disabled", "title"], ja = ["disabled"], Ya = { key: 0 }, Xa = ["disabled", "aria-label"], Ja = {
+}, Za = ["disabled", "title"], ja = ["disabled"], Ya = { key: 0 }, Ja = ["disabled", "aria-label"], Wa = {
   key: 0,
   class: "messages-media-unavailable-note"
-}, Qa = {
+}, Xa = {
   key: 2,
   class: "messages-transcript"
-}, Wa = {
+}, Qa = {
   key: 3,
   class: "messages-media-error",
   role: "status"
-}, _a = /* @__PURE__ */ Z({
+}, _a = /* @__PURE__ */ K({
   __name: "MessageBubble",
   props: {
     message: {},
@@ -346,7 +346,7 @@ var ga = {
     function d(i) {
       i.target.closest("button, a, dialog") || window.getSelection()?.toString() || f("select", s.message.id);
     }
-    const b = $(""), r = $(""), o = $(!1), E = x(() => [
+    const b = $(""), r = $(""), o = $(!1), E = A(() => [
       "playing",
       "loading",
       "generating",
@@ -375,7 +375,7 @@ var ga = {
       const k = i.payload;
       k.messageId === s.message.id ? r.value = k.status : k.status === "playing" && (r.value = ""), k.messageId === s.message.id && k.status === "error" && (b.value = "播放失败，点击可以重试。");
     });
-    return he(() => {
+    return Ie(() => {
       C = !1, p(), E.value && S("messages/voice/stop").catch(() => {
       });
     }), (i, k) => (l(), n("article", {
@@ -388,13 +388,13 @@ var ga = {
       "aria-label": "消息操作",
       onClick: d,
       onFocus: k[4] || (k[4] = (m) => f("select", a.message.id))
-    }, [e("div", Za, [e("button", {
+    }, [e("div", Ka, [e("button", {
       disabled: a.disabled,
       title: a.permission?.reason,
       class: te({ "is-unavailable": a.permission?.reason }),
       "aria-haspopup": "dialog",
       onClick: k[0] || (k[0] = (m) => i.$emit("deleteMessage", a.message.id))
-    }, "删除", 10, Ka), a.permission?.regenerate ? (l(), n("button", {
+    }, "删除", 10, Za), a.permission?.regenerate ? (l(), n("button", {
       key: 0,
       disabled: a.disabled,
       onClick: k[1] || (k[1] = (m) => i.$emit("regenerate", a.message.id))
@@ -417,10 +417,10 @@ var ga = {
         "aria-label": E.value ? "停止播放" : "播放语音",
         onClick: D
       }, [
-        A(R, { name: E.value ? "stop" : "play" }, null, 8, ["name"]),
+        x(N, { name: E.value ? "stop" : "play" }, null, 8, ["name"]),
         e("span", { class: te(["messages-wave", { playing: r.value === "playing" }]) }, [(l(), n(T, null, be(16, (m) => e("i", {
           key: m,
-          style: Ie({
+          style: Ce({
             height: `${8 + m * 7 % 17}px`,
             animationDelay: `${m * 45}ms`
           })
@@ -430,22 +430,22 @@ var ga = {
           "generating",
           "queued"
         ].includes(r.value) ? "准备中" : "语音"), 1)
-      ], 8, Xa),
-      a.media.voice ? I("", !0) : (l(), n("small", Ja, "开启 TTS 后可播放")),
+      ], 8, Ja),
+      a.media.voice ? I("", !0) : (l(), n("small", Wa, "开启 TTS 后可播放")),
       a.media.voice ? (l(), n("button", {
         key: 1,
         class: "messages-transcript-toggle",
         onClick: k[3] || (k[3] = (m) => o.value = !o.value)
       }, g(o.value ? "收起原文" : "查看原文"), 1)) : I("", !0),
-      o.value || !a.media.voice ? (l(), n("p", Qa, g(a.message.payload.transcript), 1)) : I("", !0)
-    ], 64)), b.value ? (l(), n("small", Wa, g(b.value), 1)) : I("", !0)], 2)], 42, Ha));
+      o.value || !a.media.voice ? (l(), n("p", Xa, g(a.message.payload.transcript), 1)) : I("", !0)
+    ], 64)), b.value ? (l(), n("small", Qa, g(b.value), 1)) : I("", !0)], 2)], 42, Ha));
   }
 }), es = _a, as = [
   "image/png",
   "image/jpeg",
   "image/webp",
   "image/gif"
-], Ft = 4 * 1024 * 1024;
+], Ut = 4 * 1024 * 1024;
 async function ss(a) {
   if (!as.includes(a.type)) throw new Error("请选择 PNG、JPG、WEBP 或 GIF 图片。");
   if (!a.size || a.size > 4194304) throw new Error("请选择不超过 4MB 的图片。");
@@ -478,7 +478,7 @@ var ts = {
   key: 3,
   class: "messages-composer-wait",
   role: "status"
-}, rs = { class: "messages-composer-line" }, ds = ["disabled"], vs = ["placeholder", "disabled"], gs = ["disabled"], ms = /* @__PURE__ */ Z({
+}, rs = { class: "messages-composer-line" }, ds = ["disabled"], vs = ["placeholder", "disabled"], gs = ["disabled"], ms = /* @__PURE__ */ K({
   __name: "MessageComposer",
   props: /* @__PURE__ */ ce({
     disabled: { type: Boolean },
@@ -490,7 +490,7 @@ var ts = {
   }),
   emits: /* @__PURE__ */ ce(["send"], ["update:draft"]),
   setup(a, { emit: w }) {
-    const s = a, f = w, d = Le(a, "draft"), b = x({
+    const s = a, f = w, d = Le(a, "draft"), b = A({
       get: () => d.value.text,
       set: (i) => {
         d.value = {
@@ -534,7 +534,7 @@ var ts = {
         text: i
       });
     }
-    he(() => {
+    Ie(() => {
       h = !1;
     });
     function p(i) {
@@ -565,7 +565,7 @@ var ts = {
           "aria-label": "移除图片",
           disabled: a.sending || o.value,
           onClick: S
-        }, [A(R, { name: "close" })], 8, ns)
+        }, [x(N, { name: "close" })], 8, ns)
       ])) : I("", !0),
       d.value.image ? (l(), n("p", is, "图片将随消息发送，需要当前模型支持看图。")) : I("", !0),
       o.value || E.value ? (l(), n("p", us, g(o.value ? "正在读取图片…" : E.value), 1)) : I("", !0),
@@ -577,7 +577,7 @@ var ts = {
           "aria-label": "选择图片",
           disabled: a.sending || o.value,
           onClick: k[0] || (k[0] = (m) => r.value?.click())
-        }, [A(R, { name: "plus" })], 8, ds),
+        }, [x(N, { name: "plus" })], 8, ds),
         j(e("textarea", {
           "onUpdate:modelValue": k[1] || (k[1] = (m) => b.value = m),
           rows: "1",
@@ -592,14 +592,14 @@ var ts = {
           type: "submit",
           disabled: a.disabled || o.value || !b.value.trim() && !d.value.image,
           "aria-label": "发送"
-        }, [A(R, { name: "send" })], 8, gs)
+        }, [x(N, { name: "send" })], 8, gs)
       ])
     ], 32));
   }
 }), cs = ms, ys = {
   class: "messages-delivery",
   role: "status"
-}, bs = { key: 0 }, fs = ["disabled"], ps = ["disabled"], ks = /* @__PURE__ */ Z({
+}, bs = { key: 0 }, fs = ["disabled"], ps = ["disabled"], ks = /* @__PURE__ */ K({
   __name: "DeliveryStatus",
   props: {
     sending: { type: Boolean },
@@ -623,7 +623,7 @@ var ts = {
       }, "删除", 8, ps)) : I("", !0)
     ], 64))]));
   }
-}), Re = ks, $s = 158e3, ws = 128e3, Ne = 6e3;
+}), Ne = ks, $s = 158e3, ws = 128e3, Re = 6e3;
 function hs(a) {
   return String(a ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;").replace(/{/g, "&#123;").replace(/}/g, "&#125;");
 }
@@ -634,7 +634,7 @@ var Is = ["aria-label", "aria-expanded"], Cs = {
 }, Ms = { class: "messages-context-total" }, Ss = {
   key: 1,
   role: "status"
-}, Es = { key: 3 }, Bs = /* @__PURE__ */ Z({
+}, Es = { key: 3 }, Bs = /* @__PURE__ */ K({
   __name: "MessageContextButton",
   props: {
     bridge: {},
@@ -644,7 +644,7 @@ var Is = ["aria-label", "aria-expanded"], Cs = {
   },
   setup(a) {
     const w = a, s = $(!1), f = $(!1), d = $(!1), b = $(0), r = $(null);
-    Fe(() => (s.value = !1, !0), () => s.value), Ce(() => JSON.stringify([
+    Ue(() => (s.value = !1, !0), () => s.value), he(() => JSON.stringify([
       w.contactId,
       w.state.chatIdentity,
       w.state.revision,
@@ -674,14 +674,14 @@ var Is = ["aria-label", "aria-expanded"], Cs = {
         k && (f.value = !1);
       }
     }, { immediate: !0 });
-    const o = x(() => va(hs(w.draft.text))), E = x(() => (r.value?.imageTokens ?? 0) + (w.draft.image ? Ne : 0)), h = x(() => (r.value?.usedTokens ?? 0) + o.value + (w.draft.image ? Ne : 0)), C = x(() => Math.min(1, h.value / $s)), S = (D) => `${(D / 1e3).toFixed(1)}k`;
+    const o = A(() => va(hs(w.draft.text))), E = A(() => (r.value?.imageTokens ?? 0) + (w.draft.image ? Re : 0)), h = A(() => (r.value?.usedTokens ?? 0) + o.value + (w.draft.image ? Re : 0)), C = A(() => Math.min(1, h.value / $s)), S = (D) => `${(D / 1e3).toFixed(1)}k`;
     return (D, p) => (l(), n("div", {
       class: "messages-context",
-      onKeydown: p[3] || (p[3] = Ue(ve((i) => s.value = !1, ["stop"]), ["esc"]))
+      onKeydown: p[3] || (p[3] = Fe(ve((i) => s.value = !1, ["stop"]), ["esc"]))
     }, [e("button", {
       type: "button",
       class: te(["messages-context-ring", { "is-warning": h.value >= G(ws) }]),
-      style: Ie({ "--context-fill": `${r.value ? C.value * 360 : 0}deg` }),
+      style: Ce({ "--context-fill": `${r.value ? C.value * 360 : 0}deg` }),
       "aria-label": r.value ? `上下文：约 ${S(h.value)} / 158k` : "上下文用量",
       "aria-expanded": s.value,
       title: "上下文",
@@ -712,20 +712,20 @@ var Is = ["aria-label", "aria-expanded"], Cs = {
       E.value ? (l(), n("small", Es, "图片按每张 6k 预留，实际用量由模型决定。")) : I("", !0)
     ])) : I("", !0)], 32));
   }
-}), As = Bs, xs = { class: "messages-conversation" }, Ds = { class: "messages-thread-header" }, Ts = { class: "messages-thread-heading" }, Rs = ["disabled"], Ns = {
+}), xs = Bs, As = { class: "messages-conversation" }, Ds = { class: "messages-thread-header" }, Ts = { class: "messages-thread-heading" }, Ns = ["disabled"], Rs = {
   key: 1,
   class: "messages-thread-start"
 }, qs = {
   key: 0,
   class: "messages-time"
-}, Ls = { class: "messages-bubble-row outgoing" }, Ps = { key: 0 }, Us = ["src", "alt"], Fs = {
+}, Ls = { class: "messages-bubble-row outgoing" }, Ps = { key: 0 }, Fs = ["src", "alt"], Us = {
   key: 0,
   class: "messages-image-caption"
 }, Vs = {
   key: 3,
   class: "messages-typing",
   role: "status"
-}, zs = /* @__PURE__ */ Z({
+}, zs = /* @__PURE__ */ K({
   __name: "Conversation",
   props: /* @__PURE__ */ ce({
     contextState: {},
@@ -765,7 +765,7 @@ var Is = ["aria-label", "aria-expanded"], Cs = {
     function b(m) {
       m.target.closest(".messages-bubble-row") || (d.value = "");
     }
-    const r = x(() => f.busy?.contactId === f.contact.id ? f.busy.stage : ""), o = x(() => [
+    const r = A(() => f.busy?.contactId === f.contact.id ? f.busy.stage : ""), o = A(() => [
       "replying",
       "summarizing",
       "saving-reply"
@@ -775,7 +775,7 @@ var Is = ["aria-label", "aria-expanded"], Cs = {
     }
     const h = $(null);
     let C = !0, S = !1, D = null;
-    na(() => {
+    ra(() => {
       D = null;
       const m = h.value;
       if (!m || C && !S && !f.page.hasNewer) return;
@@ -799,7 +799,7 @@ var Is = ["aria-label", "aria-expanded"], Cs = {
     async function i() {
       await we(), C && !S && !f.page.hasNewer && h.value && (h.value.scrollTop = h.value.scrollHeight);
     }
-    Ce(() => [
+    he(() => [
       f.page.messages.at(-1)?.id,
       f.outgoing?.messageId,
       r.value,
@@ -818,20 +818,20 @@ var Is = ["aria-label", "aria-expanded"], Cs = {
     }
     return w({ sent() {
       C = !0, i();
-    } }), (m, c) => (l(), n("section", xs, [
+    } }), (m, c) => (l(), n("section", As, [
       e("header", Ds, [
         e("button", {
           class: "messages-icon-button",
           "aria-label": "返回信息",
           onClick: c[0] || (c[0] = (M) => m.$emit("back"))
-        }, [A(R, { name: "back" })]),
-        A(ye, {
+        }, [x(N, { name: "back" })]),
+        x(ye, {
           identity: a.contact.id,
           name: a.contact.name,
           small: ""
         }, null, 8, ["identity", "name"]),
         e("div", Ts, [e("h2", null, g(a.contact.name), 1)]),
-        A(As, {
+        x(xs, {
           bridge: a.bridge,
           state: a.contextState,
           "contact-id": a.contact.id,
@@ -846,7 +846,7 @@ var Is = ["aria-label", "aria-expanded"], Cs = {
           class: "messages-icon-button",
           "aria-label": "联系人详情",
           onClick: c[1] || (c[1] = (M) => m.$emit("details"))
-        }, [A(R, { name: "more" })])
+        }, [x(N, { name: "more" })])
       ]),
       e("div", {
         ref_key: "scroller",
@@ -854,7 +854,7 @@ var Is = ["aria-label", "aria-expanded"], Cs = {
         class: "messages-thread-scroll",
         onScroll: p,
         onClick: b,
-        onKeydown: c[7] || (c[7] = Ue((M) => d.value = "", ["esc"]))
+        onKeydown: c[7] || (c[7] = Fe((M) => d.value = "", ["esc"]))
       }, [
         c[12] || (c[12] = e("p", { class: "messages-subtle messages-context-hint" }, "对话参考角色设定、世界书、近期剧情及可用总结。", -1)),
         a.page.hasMore ? (l(), n("button", {
@@ -862,8 +862,8 @@ var Is = ["aria-label", "aria-expanded"], Cs = {
           class: "messages-older",
           disabled: a.loading,
           onClick: k
-        }, g(a.loading ? "读取中…" : "查看更早的消息"), 9, Rs)) : I("", !0),
-        a.loading && !a.page.messages.length ? (l(), n("p", Ns, "正在读取消息…")) : I("", !0),
+        }, g(a.loading ? "读取中…" : "查看更早的消息"), 9, Ns)) : I("", !0),
+        a.loading && !a.page.messages.length ? (l(), n("p", Rs, "正在读取消息…")) : I("", !0),
         (l(!0), n(T, null, be(a.page.messages, (M, B) => (l(), n(T, { key: M.id }, [
           B === 0 || M.createdAt - a.page.messages[B - 1].createdAt > 3e5 ? (l(), n("time", qs, g(new Date(M.createdAt).toLocaleString(void 0, {
             month: "numeric",
@@ -871,7 +871,7 @@ var Is = ["aria-label", "aria-expanded"], Cs = {
             hour: "2-digit",
             minute: "2-digit"
           })), 1)) : I("", !0),
-          A(es, {
+          x(es, {
             message: M,
             bridge: a.bridge,
             "chat-identity": a.chatIdentity,
@@ -892,7 +892,7 @@ var Is = ["aria-label", "aria-expanded"], Cs = {
             "selected",
             "permission"
           ]),
-          M.id === a.page.retryMessageId && !o.value ? (l(), oe(Re, {
+          M.id === a.page.retryMessageId && !o.value ? (l(), oe(Ne, {
             key: 1,
             sending: a.busy?.messageId === M.id && ["saving", "uploading"].includes(r.value),
             error: E(M.id),
@@ -912,7 +912,7 @@ var Is = ["aria-label", "aria-expanded"], Cs = {
           src: a.outgoing.payload.upload.dataUrl,
           alt: a.outgoing.payload.upload.name,
           onLoad: i
-        }, null, 40, Us), a.outgoing.payload.description ? (l(), n("p", Fs, g(a.outgoing.payload.description), 1)) : I("", !0)], 64))], 2)]), A(Re, {
+        }, null, 40, Fs), a.outgoing.payload.description ? (l(), n("p", Us, g(a.outgoing.payload.description), 1)) : I("", !0)], 64))], 2)]), x(Ne, {
           sending: a.working || a.busy?.messageId === a.outgoing.messageId,
           error: E(a.outgoing.messageId) || "发送未完成",
           "pending-save": a.pendingSave,
@@ -936,10 +936,10 @@ var Is = ["aria-label", "aria-expanded"], Cs = {
         key: 0,
         class: "messages-latest",
         onClick: c[8] || (c[8] = (M) => {
-          ua(C) ? C.value = !0 : C = !0, m.$emit("latest");
+          na(C) ? C.value = !0 : C = !0, m.$emit("latest");
         })
       }, "回到最新消息")) : I("", !0),
-      A(cs, {
+      x(cs, {
         draft: s.value,
         "onUpdate:draft": c[9] || (c[9] = (M) => s.value = M),
         disabled: a.sendDisabled,
@@ -960,15 +960,15 @@ var Is = ["aria-label", "aria-expanded"], Cs = {
 function $e() {
   return Array.from(globalThis.crypto.getRandomValues(new Uint8Array(16)), (a) => a.toString(16).padStart(2, "0")).join("");
 }
-var Hs = { class: "messages-app" }, Zs = {
+var Hs = { class: "messages-app" }, Ks = {
   key: 0,
   class: "messages-banner",
   role: "status"
-}, Ks = { class: "messages-save-actions" }, js = ["disabled"], Ys = ["disabled"], Xs = {
+}, Zs = { class: "messages-save-actions" }, js = ["disabled"], Ys = ["disabled"], Js = {
   key: 1,
   class: "messages-banner",
   role: "status"
-}, Js = { key: 0 }, Qs = { class: "messages-save-actions" }, Ws = ["disabled"], _s = ["disabled"], et = {
+}, Ws = { key: 0 }, Xs = { class: "messages-save-actions" }, Qs = ["disabled"], _s = ["disabled"], et = {
   key: 2,
   class: "messages-notice"
 }, at = {
@@ -996,7 +996,7 @@ var Hs = { class: "messages-app" }, Zs = {
 }, wt = { key: 1 }, ht = ["disabled"], It = {
   key: 0,
   role: "status"
-}, Ct = { key: 1 }, Mt = ["disabled"], St = ["disabled"], Et = ["disabled"], Bt = { class: "messages-manual" }, At = ["disabled"], xt = ["disabled"], Dt = ["disabled"], Tt = ["disabled"], Rt = ["disabled"], Nt = /* @__PURE__ */ Z({
+}, Ct = { key: 1 }, Mt = ["disabled"], St = ["disabled"], Et = ["disabled"], Bt = { class: "messages-manual" }, xt = ["disabled"], At = ["disabled"], Dt = ["disabled"], Tt = ["disabled"], Nt = ["disabled"], Rt = /* @__PURE__ */ K({
   __name: "MessagesApp",
   props: {
     bridge: {},
@@ -1011,31 +1011,31 @@ var Hs = { class: "messages-app" }, Zs = {
       retryMessageId: null,
       revision: "",
       permissions: {}
-    }), d = $(""), b = $(f()), r = $(!1), o = $(!1), E = $(!1), h = $(!1), C = $(""), S = $(""), D = $(null), p = $(!1), i = $("add"), k = x(() => p.value && (i.value === "sync" || i.value === "recover")), m = $(null), c = x(() => s.value.syncNotice.messageIds.length), M = $(""), B = $(""), y = x(() => i.value === "delete" ? O.value?.deleteReason ?? "" : b.value.permissions[M.value]?.reason ?? ""), q = $(""), _ = $(""), re = $(""), J = $("ready"), ge = $($e());
+    }), d = $(""), b = $(f()), r = $(!1), o = $(!1), E = $(!1), h = $(!1), C = $(""), S = $(""), D = $(null), p = $(!1), i = $("add"), k = A(() => p.value && (i.value === "sync" || i.value === "recover")), m = $(null), c = A(() => s.value.syncNotice.messageIds.length), M = $(""), B = $(""), y = A(() => i.value === "delete" ? O.value?.deleteReason ?? "" : b.value.permissions[M.value]?.reason ?? ""), q = $(""), _ = $(""), re = $(""), W = $("ready"), ge = $($e());
     let Y = !0, ne = 0, ee = 0;
-    const ie = qe(/* @__PURE__ */ new Map()), Me = x({
+    const ie = qe(/* @__PURE__ */ new Map()), Me = A({
       get: () => ie.get(d.value) ?? Os(),
       set: (u) => {
         ie.set(d.value, u);
       }
-    }), L = $(null), X = $(null), ae = x(() => s.value.outgoing ?? L.value), ze = x(() => ae.value?.contactId === d.value && !b.value.messages.some((u) => u.id === ae.value?.messageId) ? ae.value : null), O = x(() => s.value.contacts.find((u) => u.id === d.value)), Ge = x(() => s.value.busy && s.value.busy.contactId !== d.value ? s.value.contacts.find((u) => u.id === s.value.busy?.contactId)?.name ?? "另一位联系人" : ""), de = x(() => s.value.pendingSave || s.value.pendingModification || [
+    }), L = $(null), J = $(null), ae = A(() => s.value.outgoing ?? L.value), ze = A(() => ae.value?.contactId === d.value && !b.value.messages.some((u) => u.id === ae.value?.messageId) ? ae.value : null), O = A(() => s.value.contacts.find((u) => u.id === d.value)), Ge = A(() => s.value.busy && s.value.busy.contactId !== d.value ? s.value.contacts.find((u) => u.id === s.value.busy?.contactId)?.name ?? "另一位联系人" : ""), de = A(() => s.value.pendingSave || s.value.pendingModification || [
       "unconfirmed",
       "conflict",
       "failed"
-    ].includes(s.value.fileState)), U = x(() => o.value || !!s.value.busy || s.value.operationPending || de.value || s.value.fileState !== "ready" || s.value.generationActive), Se = x(() => s.value.knownPeople.filter((u) => !s.value.contacts.some((t) => t.name === u.name) && `${u.name} ${u.aliases.join(" ")}`.toLocaleLowerCase().includes(re.value.toLocaleLowerCase())));
-    async function N(u, t = {}) {
+    ].includes(s.value.fileState)), F = A(() => o.value || !!s.value.busy || s.value.operationPending || de.value || s.value.fileState !== "ready" || s.value.generationActive), Se = A(() => s.value.knownPeople.filter((u) => !s.value.contacts.some((t) => t.name === u.name) && `${u.name} ${u.aliases.join(" ")}`.toLocaleLowerCase().includes(re.value.toLocaleLowerCase())));
+    async function R(u, t = {}) {
       return (await w.bridge.request(u, {
         chatIdentity: s.value.chatIdentity,
         ...t
       }, 6e4)).result;
     }
-    async function Q(u = !1, t = !1) {
+    async function X(u = !1, t = !1) {
       const v = d.value;
       if (!v) return;
       const z = ++ne;
       r.value = !0, S.value = "";
       try {
-        const H = b.value, W = await N("messages/thread", {
+        const H = b.value, Q = await R("messages/thread", {
           contactId: v,
           ...u ? {
             before: H.messages[0]?.seq,
@@ -1046,17 +1046,17 @@ var Hs = { class: "messages-app" }, Zs = {
             latest: !H.hasNewer
           } } : {}
         });
-        if (!Y || z !== ne || d.value !== v || W.revision !== s.value.revision) return;
-        const fe = u && H.revision === W.revision, pe = fe ? [...W.messages, ...H.messages].slice(0, 100) : W.messages;
+        if (!Y || z !== ne || d.value !== v || Q.revision !== s.value.revision) return;
+        const fe = u && H.revision === Q.revision, pe = fe ? [...Q.messages, ...H.messages].slice(0, 100) : Q.messages;
         b.value = {
-          ...W,
+          ...Q,
           messages: pe,
-          hasNewer: fe ? pe.at(-1)?.id !== H.messages.at(-1)?.id || H.hasNewer : W.hasNewer,
+          hasNewer: fe ? pe.at(-1)?.id !== H.messages.at(-1)?.id || H.hasNewer : Q.hasNewer,
           permissions: fe ? {
             ...H.permissions,
-            ...W.permissions
-          } : W.permissions
-        }, L.value?.contactId === v && pe.some((la) => la.id === L.value?.messageId) && (L.value = null, X.value = null);
+            ...Q.permissions
+          } : Q.permissions
+        }, L.value?.contactId === v && pe.some((la) => la.id === L.value?.messageId) && (L.value = null, J.value = null);
       } catch {
         Y && z === ne && d.value === v && (S.value = "消息暂时无法读取。");
       } finally {
@@ -1066,21 +1066,21 @@ var Hs = { class: "messages-app" }, Zs = {
     function P(u) {
       if (!Y || u.chatIdentity !== s.value.chatIdentity) return;
       const t = s.value.revision !== u.revision || s.value.boundary !== u.boundary || s.value.fileState !== u.fileState || s.value.pendingSave !== u.pendingSave;
-      s.value = u, L.value && (u.outgoing?.messageId === L.value.messageId || u.busy?.messageId === L.value.messageId || u.contacts.some((v) => v.lastMessageId === L.value.messageId)) && (L.value = null, X.value = null);
+      s.value = u, L.value && (u.outgoing?.messageId === L.value.messageId || u.busy?.messageId === L.value.messageId || u.contacts.some((v) => v.lastMessageId === L.value.messageId)) && (L.value = null, J.value = null);
       for (const v of ie.keys()) u.contacts.some((z) => z.id === v) || ie.delete(v);
-      L.value && !u.contacts.some((v) => v.id === L.value?.contactId) && (L.value = null, X.value = null), d.value && !u.contacts.some((v) => v.id === d.value) ? me() : d.value && t && Q();
+      L.value && !u.contacts.some((v) => v.id === L.value?.contactId) && (L.value = null, J.value = null), d.value && !u.contacts.some((v) => v.id === d.value) ? me() : d.value && t && X();
     }
     const Oe = w.bridge.subscribe((u) => {
       u.type === "messages/state" && P(u.payload.state);
     });
     function Ee(u) {
-      d.value = u, C.value = "", b.value = f(u), Q();
+      d.value = u, C.value = "", b.value = f(u), X();
     }
     function me() {
       d.value = "", ne++, S.value = "", b.value = f();
     }
-    Fe(() => (me(), !0), () => !!d.value);
-    async function K(u, t = () => !0) {
+    Ue(() => (me(), !0), () => !!d.value);
+    async function Z(u, t = () => !0) {
       if (!o.value) {
         o.value = !0, C.value = "";
         try {
@@ -1093,23 +1093,23 @@ var Hs = { class: "messages-app" }, Zs = {
       }
     }
     function He(u) {
-      if (U.value || ae.value) return;
+      if (F.value || ae.value) return;
       const t = {
         contactId: d.value,
         messageId: `input:${$e()}`,
         payload: u,
         createdAt: Date.now()
       };
-      L.value = t, X.value = null, ie.delete(t.contactId), b.value = {
+      L.value = t, J.value = null, ie.delete(t.contactId), b.value = {
         ...b.value,
         hasNewer: !1
-      }, Q(!1, !0), D.value?.sent(), Be(t.contactId, t.messageId, t);
+      }, X(!1, !0), D.value?.sent(), Be(t.contactId, t.messageId, t);
     }
     async function Be(u, t, v) {
       if (!o.value) {
-        o.value = !0, X.value = null, C.value = "";
+        o.value = !0, J.value = null, C.value = "";
         try {
-          if (de.value && (P(await N("messages/confirm")), de.value))
+          if (de.value && (P(await R("messages/confirm")), de.value))
             return;
           const z = v?.payload.type === "image" ? {
             type: "image",
@@ -1119,16 +1119,16 @@ var Hs = { class: "messages-app" }, Zs = {
             type: "text",
             text: v.payload.text
           } : void 0;
-          P(v ? await N("messages/send", {
+          P(v ? await R("messages/send", {
             contactId: u,
             actionId: t.slice(6),
             payload: z
-          }) : await N("messages/retry", {
+          }) : await R("messages/retry", {
             contactId: u,
             messageId: t
           }));
         } catch (z) {
-          Y && (X.value = {
+          Y && (J.value = {
             contactId: u,
             messageId: t,
             message: z instanceof Error && z.message !== "host_request_timeout" ? z.message : "还不确定是否发送成功，可以重试。"
@@ -1138,41 +1138,41 @@ var Hs = { class: "messages-app" }, Zs = {
         }
       }
     }
-    function Ze(u) {
+    function Ke(u) {
       const t = ae.value?.messageId === u ? ae.value : void 0;
       Be(d.value, u, t);
     }
-    function Ke(u) {
-      K(async () => {
-        P(await N("messages/discard-send", { messageId: u })), L.value?.messageId === u && (L.value = null), X.value = null, await Q();
+    function Ze(u) {
+      Z(async () => {
+        P(await R("messages/discard-send", { messageId: u })), L.value?.messageId === u && (L.value = null), J.value = null, await X();
       });
     }
     function je(u) {
-      K(async () => P(await N(u)));
+      Z(async () => P(await R(u)));
     }
     function Ye(u) {
-      K(async () => {
-        P(await N("messages/settings", { settings: u })), F();
+      Z(async () => {
+        P(await R("messages/settings", { settings: u })), U();
       });
     }
-    function Xe() {
+    function Je() {
       if (E.value) return;
       E.value = !0, C.value = "";
       const u = ee;
-      N("messages/sync").then((t) => {
-        P(t), ee === u && F();
+      R("messages/sync").then((t) => {
+        P(t), ee === u && U();
       }).catch((t) => {
         Y && ee === u && s.value.settings.syncNoticeEnabled && (C.value = t instanceof Error && t.message !== "host_request_timeout" ? t.message : V.operationTimeout);
       }).finally(() => {
         E.value = !1;
       });
     }
-    function Ae() {
+    function xe() {
       if (h.value || !s.value.settings.syncNoticeEnabled) return;
       h.value = !0, C.value = "";
       const u = ee;
-      N("messages/dismiss-sync-notice").then((t) => {
-        P(t), p.value && ee === u && F(), C.value = "";
+      R("messages/dismiss-sync-notice").then((t) => {
+        P(t), p.value && ee === u && U(), C.value = "";
       }).catch((t) => {
         Y && (C.value = t instanceof Error && t.message !== "host_request_timeout" ? t.message : V.settingsFailed);
       }).finally(() => {
@@ -1180,56 +1180,56 @@ var Hs = { class: "messages-app" }, Zs = {
       });
     }
     function se(u) {
-      p.value && we(() => m.value?.focus()), ee++, i.value = u, C.value = "", q.value = "", _.value = O.value?.note ?? "", re.value = "", ge.value = $e(), p.value = !0, B.value = s.value.revision, u === "add" && xe();
+      p.value && we(() => m.value?.focus()), ee++, i.value = u, C.value = "", q.value = "", _.value = O.value?.note ?? "", re.value = "", ge.value = $e(), p.value = !0, B.value = s.value.revision, u === "add" && Ae();
     }
-    async function xe() {
+    async function Ae() {
       const u = ge.value, t = () => Y && p.value && i.value === "add" && ge.value === u;
-      J.value = "loading";
+      W.value = "loading";
       try {
-        const v = await N("messages/refresh");
+        const v = await R("messages/refresh");
         if (!t()) return;
-        P(v), J.value = "ready";
+        P(v), W.value = "ready";
       } catch {
-        t() && (J.value = "failed");
+        t() && (W.value = "failed");
       }
     }
-    function F() {
+    function U() {
       k.value && (C.value = ""), p.value = !1, ee++;
     }
     function De() {
-      F();
+      U();
     }
-    function Je() {
+    function We() {
       if (o.value && k.value) {
-        F();
+        U();
         return;
       }
       o.value || (i.value === "delete" ? i.value = "detail" : i.value === "recover" ? i.value = "sync" : De());
     }
     function Te(u = q.value) {
-      !u.trim() || U.value || J.value === "loading" || K(async () => {
-        const t = await N("messages/contact/add", {
+      !u.trim() || F.value || W.value === "loading" || Z(async () => {
+        const t = await R("messages/contact/add", {
           actionId: ge.value,
           name: u.trim(),
           note: _.value.trim()
         });
-        P(t.state), F(), Ee(t.contactId);
+        P(t.state), U(), Ee(t.contactId);
+      });
+    }
+    function Xe() {
+      Z(async () => {
+        P(await R("messages/contact/note", {
+          contactId: d.value,
+          note: _.value
+        })), U();
       });
     }
     function Qe() {
-      K(async () => {
-        P(await N("messages/contact/note", {
-          contactId: d.value,
-          note: _.value
-        })), F();
-      });
-    }
-    function We() {
-      K(async () => {
-        P(await N("messages/contact/delete", {
+      Z(async () => {
+        P(await R("messages/contact/delete", {
           contactId: d.value,
           revision: B.value
-        })), F(), me();
+        })), U(), me();
       });
     }
     function _e(u) {
@@ -1237,12 +1237,12 @@ var Hs = { class: "messages-app" }, Zs = {
     }
     function ea() {
       const u = d.value, t = M.value;
-      K(async () => {
-        P(await N("messages/message/delete", {
+      Z(async () => {
+        P(await R("messages/message/delete", {
           contactId: u,
           messageId: t,
           revision: B.value
-        })), await Q(), F();
+        })), await X(), U();
       });
     }
     function aa(u) {
@@ -1251,46 +1251,46 @@ var Hs = { class: "messages-app" }, Zs = {
         messageId: u,
         revision: b.value.revision
       };
-      K(async () => {
-        P(await N("messages/regenerate", t));
+      Z(async () => {
+        P(await R("messages/regenerate", t));
       });
     }
     function sa() {
-      K(async () => {
-        P(await N("messages/recover")), F();
+      Z(async () => {
+        P(await R("messages/recover")), U();
       });
     }
     function ta() {
-      K(async () => {
-        P(await N("messages/adopt-server-state")), s.value.fileState === "ready" && !s.value.pendingSave ? (L.value = null, X.value = null, F()) : C.value = "暂时无法加载已保存版本，请检查网络后重试。当前记录未改。";
+      Z(async () => {
+        P(await R("messages/adopt-server-state")), s.value.fileState === "ready" && !s.value.pendingSave ? (L.value = null, J.value = null, U()) : C.value = "暂时无法加载已保存版本，请检查网络后重试。当前记录未改。";
       });
     }
-    return he(() => {
+    return Ie(() => {
       Y = !1, ne++, Oe();
     }), (u, t) => (l(), n("main", Hs, [
-      de.value ? (l(), n("div", Zs, [e("span", null, g(s.value.fileState === "conflict" ? "服务器上的存档已有变化，请选择如何处理。" : "还不确定部分消息是否保存成功，请先检查保存。"), 1), e("div", Ks, [e("button", {
+      de.value ? (l(), n("div", Ks, [e("span", null, g(s.value.fileState === "conflict" ? "服务器上的存档已有变化，请选择如何处理。" : "还不确定部分消息是否保存成功，请先检查保存。"), 1), e("div", Zs, [e("button", {
         disabled: o.value || s.value.operationPending || !!s.value.busy,
         onClick: t[0] || (t[0] = (v) => je("messages/confirm"))
       }, "检查保存", 8, js), s.value.fileState === "conflict" || s.value.recoveryBlocked ? (l(), n("button", {
         key: 0,
         disabled: o.value || s.value.operationPending || !!s.value.busy || s.value.generationActive,
         onClick: t[1] || (t[1] = (v) => se("adopt"))
-      }, "使用已保存版本", 8, Ys)) : I("", !0)])])) : c.value && s.value.settings.syncNoticeEnabled && !s.value.busy ? (l(), n("div", Xs, [
+      }, "使用已保存版本", 8, Ys)) : I("", !0)])])) : c.value && s.value.settings.syncNoticeEnabled && !s.value.busy ? (l(), n("div", Js, [
         e("span", null, g(G(V).pending(c.value)), 1),
-        s.value.syncNotice.error ? (l(), n("span", Js, g(s.value.syncNotice.error), 1)) : I("", !0),
-        e("div", Qs, [e("button", {
-          disabled: U.value,
+        s.value.syncNotice.error ? (l(), n("span", Ws, g(s.value.syncNotice.error), 1)) : I("", !0),
+        e("div", Xs, [e("button", {
+          disabled: F.value,
           onClick: t[2] || (t[2] = (v) => se("sync"))
-        }, g(G(V).view), 9, Ws), e("button", {
+        }, g(G(V).view), 9, Qs), e("button", {
           disabled: h.value,
-          onClick: Ae
+          onClick: xe
         }, g(G(V).dismiss), 9, _s)])
       ])) : I("", !0),
       s.value.generationActive ? (l(), n("div", et, "故事正在继续，稍后就能发送消息。")) : I("", !0),
       C.value && !k.value || s.value.error ? (l(), n("p", at, g(!k.value && C.value || s.value.error), 1)) : I("", !0),
       S.value ? (l(), n("div", st, [e("span", null, g(S.value), 1), e("button", {
         disabled: r.value,
-        onClick: t[3] || (t[3] = (v) => Q())
+        onClick: t[3] || (t[3] = (v) => X())
       }, "重新加载", 8, tt)])) : I("", !0),
       O.value ? (l(), oe(Gs, {
         key: O.value.id,
@@ -1303,27 +1303,27 @@ var Hs = { class: "messages-app" }, Zs = {
         page: b.value,
         bridge: a.bridge,
         "chat-identity": s.value.chatIdentity,
-        disabled: U.value,
-        "send-disabled": U.value || !!ae.value,
+        disabled: F.value,
+        "send-disabled": F.value || !!ae.value,
         busy: s.value.busy,
         outgoing: ze.value,
         "send-failure": s.value.sendFailure,
-        "send-error": X.value,
+        "send-error": J.value,
         working: o.value,
         "pending-save": de.value,
         "retry-disabled": o.value || s.value.operationPending || !!s.value.busy || s.value.generationActive || s.value.fileState === "conflict",
         loading: r.value,
-        "load-more": () => Q(!0),
+        "load-more": () => X(!0),
         media: s.value.media,
         "waiting-for": Ge.value,
         onBack: me,
         onDetails: t[5] || (t[5] = (v) => se("detail")),
         onSend: He,
-        onRetry: Ze,
-        onDiscard: Ke,
+        onRetry: Ke,
+        onDiscard: Ze,
         onDeleteMessage: _e,
         onRegenerate: aa,
-        onLatest: t[6] || (t[6] = (v) => Q(!1, !0))
+        onLatest: t[6] || (t[6] = (v) => X(!1, !0))
       }, null, 8, [
         "draft",
         "context-state",
@@ -1345,7 +1345,7 @@ var Hs = { class: "messages-app" }, Zs = {
         "media",
         "waiting-for"
       ])) : I("", !0),
-      j(A(xa, {
+      j(x(Aa, {
         contacts: s.value.contacts,
         "busy-contact-id": s.value.busy?.contactId ?? "",
         drafts: ie,
@@ -1362,7 +1362,7 @@ var Hs = { class: "messages-app" }, Zs = {
         class: "messages-dialog",
         "aria-labelledby": "messages-dialog-title",
         busy: o.value && !k.value,
-        onClose: Je
+        onClose: We
       }, {
         default: Pe(() => [
           e("header", null, [
@@ -1380,10 +1380,10 @@ var Hs = { class: "messages-app" }, Zs = {
               "aria-label": "关闭",
               disabled: o.value && !k.value,
               onClick: De
-            }, [A(R, { name: "close" })], 8, nt)
+            }, [x(N, { name: "close" })], 8, nt)
           ]),
           C.value || k.value && s.value.syncNotice.error ? (l(), n("p", it, g(C.value || s.value.syncNotice.error), 1)) : I("", !0),
-          i.value === "settings" ? (l(), n(T, { key: 1 }, [A(qa, {
+          i.value === "settings" ? (l(), n(T, { key: 1 }, [x(qa, {
             settings: s.value.settings,
             busy: o.value || s.value.operationPending,
             onSave: Ye
@@ -1393,7 +1393,7 @@ var Hs = { class: "messages-app" }, Zs = {
             disabled: o.value,
             onClick: t[9] || (t[9] = (v) => se("sync"))
           }, g(G(V).title) + " · " + g(c.value), 9, ut)) : I("", !0)], 64)) : i.value === "add" ? (l(), n(T, { key: 2 }, [
-            e("label", ot, [A(R, { name: "search" }), j(e("input", {
+            e("label", ot, [x(N, { name: "search" }), j(e("input", {
               "onUpdate:modelValue": t[10] || (t[10] = (v) => re.value = v),
               placeholder: "查找已知人物",
               "aria-label": "查找已知人物",
@@ -1405,26 +1405,26 @@ var Hs = { class: "messages-app" }, Zs = {
             }, "人物来自当前聊天的剧情总结，需要开启总结功能；找不到的人可以手动添加。", -1)),
             e("div", {
               class: "messages-known-list",
-              "aria-busy": J.value === "loading"
-            }, [J.value === "loading" ? (l(), n("p", dt, "正在读取已知人物…")) : J.value === "failed" ? (l(), n("div", vt, [t[18] || (t[18] = e("p", {
+              "aria-busy": W.value === "loading"
+            }, [W.value === "loading" ? (l(), n("p", dt, "正在读取已知人物…")) : W.value === "failed" ? (l(), n("div", vt, [t[18] || (t[18] = e("p", {
               class: "messages-subtle",
               role: "alert"
             }, "已知人物暂时无法读取，可以重试或手动添加。", -1)), e("button", {
               class: "messages-secondary",
               disabled: o.value,
-              onClick: xe
+              onClick: Ae
             }, "重新加载", 8, gt)])) : (l(), n(T, { key: 2 }, [(l(!0), n(T, null, be(Se.value, (v) => (l(), n("button", {
               key: v.name,
-              disabled: U.value,
+              disabled: F.value,
               onClick: (z) => Te(v.name)
             }, [
-              A(ye, {
+              x(ye, {
                 identity: v.name,
                 name: v.name,
                 small: ""
               }, null, 8, ["identity", "name"]),
               e("span", null, [le(g(v.name), 1), v.aliases.length ? (l(), n("small", ct, g(v.aliases.join("、")), 1)) : I("", !0)]),
-              A(R, { name: "plus" })
+              x(N, { name: "plus" })
             ], 8, mt))), 128)), Se.value.length ? I("", !0) : (l(), n("p", yt, g(re.value ? "没有匹配的人物，可以在下面手动添加。" : "暂无可添加的已知人物，可以在下面手动添加。"), 1))], 64))], 8, rt),
             e("details", bt, [t[21] || (t[21] = e("summary", null, "想联系的人不在这里？", -1)), e("form", { onSubmit: t[13] || (t[13] = ve((v) => Te(), ["prevent"])) }, [
               e("label", null, [t[19] || (t[19] = le("姓名", -1)), j(e("input", {
@@ -1441,12 +1441,12 @@ var Hs = { class: "messages-app" }, Zs = {
               }, null, 512), [[ue, _.value]])]),
               e("button", {
                 class: "messages-primary",
-                disabled: U.value || J.value === "loading" || !q.value.trim()
+                disabled: F.value || W.value === "loading" || !q.value.trim()
               }, "添加并聊天", 8, ft)
             ], 32)])
           ], 64)) : i.value === "detail" ? (l(), n("form", {
             key: 3,
-            onSubmit: ve(Qe, ["prevent"])
+            onSubmit: ve(Xe, ["prevent"])
           }, [
             e("label", null, [t[23] || (t[23] = le("身份说明 / 备注", -1)), j(e("textarea", {
               "onUpdate:modelValue": t[14] || (t[14] = (v) => _.value = v),
@@ -1456,20 +1456,20 @@ var Hs = { class: "messages-app" }, Zs = {
             }, null, 512), [[ue, _.value]])]),
             e("button", {
               class: "messages-primary",
-              disabled: U.value
+              disabled: F.value
             }, "保存备注", 8, pt),
             e("button", {
               type: "button",
               class: "messages-danger",
-              disabled: U.value,
+              disabled: F.value,
               onClick: t[15] || (t[15] = (v) => i.value = "delete")
             }, "删除联系人与通讯记录", 8, kt)
           ], 32)) : i.value === "delete" ? (l(), n(T, { key: 4 }, [
             y.value ? (l(), n("p", $t, g(y.value), 1)) : (l(), n("p", wt, "删除与 " + g(O.value?.name) + " 的全部通讯和摘要，同时更新主聊天记录。其他联系人和图库文件保留，删除后不能恢复。", 1)),
             e("button", {
               class: "messages-danger",
-              disabled: U.value || !!y.value,
-              onClick: We
+              disabled: F.value || !!y.value,
+              onClick: Qe
             }, "确认删除", 8, ht),
             e("button", {
               class: "messages-secondary",
@@ -1479,35 +1479,35 @@ var Hs = { class: "messages-app" }, Zs = {
             y.value ? (l(), n("p", It, g(y.value), 1)) : (l(), n("p", Ct, "删除这条消息，同时更新主聊天记录。后续回复、其他消息和图库文件保留，删除后不能恢复。")),
             e("button", {
               class: "messages-danger",
-              disabled: U.value || !!y.value,
+              disabled: F.value || !!y.value,
               onClick: ea
             }, "确认删除", 8, Mt),
             e("button", {
               class: "messages-secondary",
-              onClick: F
+              onClick: U
             }, "取消")
           ], 64)) : i.value === "sync" ? (l(), n(T, { key: 6 }, [
             e("p", null, g(G(V).pending(c.value)), 1),
             e("p", null, g(G(V).description), 1),
             e("button", {
               class: "messages-primary",
-              disabled: U.value || E.value,
-              onClick: Xe
+              disabled: F.value || E.value,
+              onClick: Je
             }, g(G(V).retry), 9, St),
             s.value.settings.syncNoticeEnabled ? (l(), n("button", {
               key: 0,
               class: "messages-secondary",
               disabled: h.value,
-              onClick: Ae
+              onClick: xe
             }, g(G(V).dismiss), 9, Et)) : I("", !0),
             e("details", Bt, [
               t[24] || (t[24] = e("summary", null, "原来的记录已被修改或删除？", -1)),
               t[25] || (t[25] = e("p", null, "不会覆盖你的修改。需要这些消息继续进入剧情时，可以在当前位置另加一条补记。", -1)),
               e("button", {
                 class: "messages-secondary",
-                disabled: U.value,
+                disabled: F.value,
                 onClick: t[17] || (t[17] = (v) => i.value = "recover")
-              }, "查看补记方式", 8, At)
+              }, "查看补记方式", 8, xt)
             ])
           ], 64)) : i.value === "adopt" ? (l(), n(T, { key: 7 }, [
             t[26] || (t[26] = e("p", null, "将读取服务器上的当前聊天小白 OS 存档，放弃本地尚未确认的修改。信息 APP 会显示服务器已保存的联系人和消息。", -1)),
@@ -1516,31 +1516,31 @@ var Hs = { class: "messages-app" }, Zs = {
               class: "messages-danger",
               disabled: o.value || !!s.value.busy || s.value.generationActive,
               onClick: ta
-            }, "确认使用已保存版本", 8, xt),
+            }, "确认使用已保存版本", 8, At),
             e("button", {
               class: "messages-secondary",
               disabled: o.value,
-              onClick: F
+              onClick: U
             }, "暂不处理", 8, Dt)
           ], 64)) : (l(), n(T, { key: 8 }, [
             t[28] || (t[28] = e("p", null, "先检查已有记录；仍未写入的消息会在主聊天当前位置标为「补录」，保留原发送时间。不会覆盖旧记录或恢复你删除的那一条。", -1)),
             e("button", {
               class: "messages-primary",
-              disabled: U.value,
+              disabled: F.value,
               onClick: sa
             }, "确认补记", 8, Tt),
             e("button", {
               class: "messages-secondary",
               disabled: o.value,
-              onClick: F
-            }, "暂不补记", 8, Rt)
+              onClick: U
+            }, "暂不补记", 8, Nt)
           ], 64))
         ]),
         _: 1
       }, 8, ["busy"])) : I("", !0)
     ]));
   }
-}), Vt = Nt;
+}), Vt = Rt;
 export {
   Vt as default
 };

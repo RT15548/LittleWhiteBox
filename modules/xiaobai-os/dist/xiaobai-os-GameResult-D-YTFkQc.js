@@ -1,10 +1,10 @@
 /* eslint-disable */
-import { H as p, K as $, M as m, P as c, Q as i, X as g, b as k, f as b, g as r, h as v, k as f, o as C, p as a, u as y, v as h } from "./xiaobai-os-runtime-dom.esm-bundler-BcM9c-Z9.js";
-import { n as x } from "./xiaobai-os-room-catalog-CeHt_XVj.js";
-var G = { class: "game-entry-art" }, N = ["src"], R = { class: "game-entry-rules" }, B = {
+import { $ as g, F as m, G as $, L as c, M as p, Y as C, _ as r, g as v, m as a, o as f, p as b, tt as i, u as y, x as k, y as x } from "./xiaobai-os-runtime-dom.esm-bundler-DuiaxqDz.js";
+import { r as G } from "./xiaobai-os-room-catalog-S5poA7Hy.js";
+var h = { class: "game-entry-art" }, N = ["src"], L = { class: "game-entry-rules" }, R = {
   key: 0,
   class: "game-entry-blocked"
-}, L = {
+}, B = {
   key: 1,
   class: "game-entry-stake"
 }, S = {
@@ -38,28 +38,28 @@ var G = { class: "game-entry-art" }, N = ["src"], R = { class: "game-entry-rules
   },
   emits: ["start", "resume"],
   setup(e) {
-    const s = e, n = $(s.initial), d = b(() => x(s.kind)), u = b(() => s.disabledReason || (!Number.isSafeInteger(n.value) || n.value < s.minimum || n.value > s.maximum || n.value % s.step !== 0 ? `请选择 ${s.minimum}–${s.maximum}，每次 ${s.step} 小白币。` : s.balance < n.value ? "小白币不够，换个小一点的筹码吧。" : ""));
+    const s = e, n = C(s.initial), d = b(() => G(s.kind)), u = b(() => s.disabledReason || (!Number.isSafeInteger(n.value) || n.value < s.minimum || n.value > s.maximum || n.value % s.step !== 0 ? `请选择 ${s.minimum}–${s.maximum}，每次 ${s.step} 小白币。` : s.balance < n.value ? "小白币不够，换个小一点的筹码吧。" : ""));
     return (o, t) => (m(), r("section", { class: g(["game-entry", "is-" + d.value.tone]) }, [
-      a("div", G, [a("img", {
+      a("div", h, [a("img", {
         src: d.value.artwork,
         alt: ""
       }, null, 8, N)]),
-      a("ol", R, [(m(!0), r(y, null, c(e.rules, (l) => (m(), r("li", { key: l }, i(l), 1))), 128))]),
-      e.otherGame ? (m(), r("div", B, [a("p", null, "还有一局" + i(e.otherGame) + "没结束，可以先逛逛，玩完再来。", 1), a("button", {
+      a("ol", L, [(m(!0), r(y, null, c(e.rules, (l) => (m(), r("li", { key: l }, i(l), 1))), 128))]),
+      e.otherGame ? (m(), r("div", R, [a("p", null, "还有一局" + i(e.otherGame) + "没结束，可以先逛逛，玩完再来。", 1), a("button", {
         type: "button",
         class: "game-primary-action",
         onClick: t[0] || (t[0] = (l) => o.$emit("resume"))
-      }, "继续那一局")])) : (m(), r("div", L, [
+      }, "继续那一局")])) : (m(), r("div", B, [
         a("h3", null, i(e.minimum === e.maximum ? "本局入场" : "本局筹码"), 1),
         e.minimum !== e.maximum ? (m(), r("div", S, [(m(!0), r(y, null, c(e.chips, (l) => (m(), r("button", {
           key: l,
           type: "button",
           "aria-pressed": n.value === l,
-          onClick: (H) => n.value = l
+          onClick: (U) => n.value = l
         }, [a("span", null, i(l), 1)], 8, z))), 128))])) : v("", !0),
         e.minimum !== e.maximum ? (m(), r("label", E, [
           t[3] || (t[3] = a("span", null, "自选", -1)),
-          p(a("input", {
+          $(a("input", {
             "onUpdate:modelValue": t[1] || (t[1] = (l) => n.value = l),
             type: "number",
             min: e.minimum,
@@ -67,7 +67,7 @@ var G = { class: "game-entry-art" }, N = ["src"], R = { class: "game-entry-rules
             step: e.step,
             "aria-label": "本局下注"
           }, null, 8, V), [[
-            C,
+            f,
             n.value,
             void 0,
             { number: !0 }
@@ -85,7 +85,7 @@ var G = { class: "game-entry-art" }, N = ["src"], R = { class: "game-entry-rules
       ]))
     ], 2));
   }
-}), Q = A, D = { class: "game-result-net" }, I = ["disabled"], F = /* @__PURE__ */ k({
+}), q = A, D = { class: "game-result-net" }, F = ["disabled"], I = /* @__PURE__ */ k({
   __name: "GameResult",
   props: {
     record: {},
@@ -99,14 +99,14 @@ var G = { class: "game-entry-art" }, N = ["src"], R = { class: "game-entry-rules
   ],
   setup(e, { emit: s }) {
     const n = e, d = s;
-    f(() => d("revealed"));
+    p(() => d("revealed"));
     const u = b(() => (n.record.net > 0 ? "+" : "") + n.record.net.toLocaleString("zh-CN"));
     return (o, t) => (m(), r("section", {
       class: g(["game-result", "is-" + e.record.outcomeTone]),
       "aria-label": "本局结算"
     }, [
       a("h3", null, i(e.record.outcomeLabel), 1),
-      a("strong", D, [h(i(u.value), 1), t[2] || (t[2] = a("small", null, "小白币", -1))]),
+      a("strong", D, [x(i(u.value), 1), t[2] || (t[2] = a("small", null, "小白币", -1))]),
       a("p", null, "下注 " + i(e.record.amountIn) + " · 拿回 " + i(e.record.payout) + "（含返还的本金）", 1),
       a("p", null, "现在有 " + i(e.balanceAfter.toLocaleString("zh-CN")) + " 小白币", 1),
       a("div", null, [a("button", {
@@ -114,15 +114,15 @@ var G = { class: "game-entry-art" }, N = ["src"], R = { class: "game-entry-rules
         class: "game-primary-action",
         disabled: e.disabled,
         onClick: t[0] || (t[0] = (l) => o.$emit("again"))
-      }, " 再玩一局 ", 8, I), a("button", {
+      }, " 再玩一局 ", 8, F), a("button", {
         type: "button",
         class: "game-secondary-action",
         onClick: t[1] || (t[1] = (l) => o.$emit("lobby"))
       }, "回大厅")])
     ], 2));
   }
-}), U = F;
+}), H = I;
 export {
-  Q as n,
-  U as t
+  q as n,
+  H as t
 };

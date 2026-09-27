@@ -1,11 +1,11 @@
 /* eslint-disable */
-import { K as d, M as m, b as f, g as p, z as h } from "./xiaobai-os-runtime-dom.esm-bundler-BcM9c-Z9.js";
+import { F as d, H as m, Y as f, _ as p, x as h } from "./xiaobai-os-runtime-dom.esm-bundler-DuiaxqDz.js";
 import { n as b, t as k } from "./xiaobai-os-message-markdown-BzYeKWMY.js";
-var g = /* @__PURE__ */ f({
+var _ = /* @__PURE__ */ h({
   __name: "MessageMarkdown",
   props: { text: {} },
   setup(c) {
-    const a = c, r = d(null), l = /* @__PURE__ */ new Set([
+    const a = c, r = f(null), l = /* @__PURE__ */ new Set([
       "p",
       "br",
       "em",
@@ -45,7 +45,7 @@ var g = /* @__PURE__ */ f({
       "svg",
       "math"
     ]);
-    return h([r, () => a.text], () => {
+    return m([r, () => a.text], () => {
       if (!r.value) return;
       const t = document.createElement("template");
       t.innerHTML = b(a.text, { htmlFenceMode: "code" });
@@ -71,13 +71,13 @@ var g = /* @__PURE__ */ f({
         codeBlockClassName: "os-markdown-codeblock",
         codeCopyClassName: "os-markdown-code-copy"
       }), r.value.replaceChildren(t.content);
-    }, { flush: "post" }), (t, e) => (m(), p("div", {
+    }, { flush: "post" }), (t, e) => (d(), p("div", {
       ref_key: "surface",
       ref: r,
       class: "os-message-markdown"
     }, null, 512));
   }
-}), M = g;
+}), v = _;
 export {
-  M as t
+  v as t
 };

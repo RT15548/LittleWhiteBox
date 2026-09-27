@@ -1,5 +1,5 @@
 /* eslint-disable */
-import { E as It, G as _t, H as $t, J as st, K as ye, M as Ne, Q as qe, T as Dt, X as Rt, b as Bt, f as we, g as Oe, h as Lt, k as Kt, p as w, s as jt } from "./xiaobai-os-runtime-dom.esm-bundler-BcM9c-Z9.js";
+import { $ as _t, E as It, F as Ne, G as $t, J as Dt, M as Rt, O as Bt, Y as ye, Z as st, _ as qe, g as Lt, m as w, p as we, s as Kt, tt as Oe, x as jt } from "./xiaobai-os-runtime-dom.esm-bundler-DuiaxqDz.js";
 import { a as ce, i as xe, n as Ft, o as Ht, r as ct, t as zt } from "./xiaobai-os-reasoning-capabilities-jekAYzl_.js";
 var Jt = "https://api.tavily.com";
 function Gt(t = "") {
@@ -12,7 +12,7 @@ var Vt = "agent-core-no-auth";
 function pt(t) {
   return String(t ?? "").trim();
 }
-function Ie(t, a) {
+function _e(t, a) {
   const n = pt(a);
   if (t === "google") return {
     apiKey: n,
@@ -58,19 +58,19 @@ function Ie(t, a) {
     }
   };
 }
-var gt = "openai-compatible", $e = "默认", mt = "default", Wt = "deny", z = 32e3, Xt = Object.freeze([{
+var gt = "openai-compatible", $e = "默认", mt = "default", Wt = "deny", z = 32e3, Yt = Object.freeze([{
   value: "default",
   label: "默认权限"
 }, {
   value: "full",
   label: "完全权限"
-}]), Yt = Object.freeze([{
+}]), Xt = Object.freeze([{
   value: "deny",
   label: "禁止"
 }, {
   value: "allow",
   label: "允许"
-}]), _e = {
+}]), Ie = {
   "openai-responses": {
     baseUrl: "https://api.openai.com/v1",
     model: "gpt-4.1-mini",
@@ -131,17 +131,17 @@ var gt = "openai-compatible", $e = "默认", mt = "default", Wt = "deny", z = 32
   }
 };
 function ft() {
-  return JSON.parse(JSON.stringify(_e));
+  return JSON.parse(JSON.stringify(Ie));
 }
-function I() {
+function _() {
   return {
     provider: gt,
     modelConfigs: ft(),
     permissionMode: mt
   };
 }
-function bt(t = I()) {
-  const a = t && typeof t == "object" ? t : I();
+function bt(t = _()) {
+  const a = t && typeof t == "object" ? t : _();
   return {
     provider: De(a.provider),
     modelConfigs: U(a.modelConfigs || {})
@@ -166,8 +166,8 @@ function P(t) {
 }
 function U(t = {}) {
   const a = ft();
-  return Object.keys(_e).forEach((n) => {
-    const i = t && typeof t[n] == "object" ? t[n] : {}, o = _e[n];
+  return Object.keys(Ie).forEach((n) => {
+    const i = t && typeof t[n] == "object" ? t[n] : {}, o = Ie[n];
     a[n] = {
       baseUrl: String(i.baseUrl ?? o.baseUrl ?? ""),
       model: String(i.model ?? o.model ?? ""),
@@ -190,7 +190,7 @@ function Re(t = {}, a) {
     permissionMode: t.permissionMode
   } } : {};
 }
-function Qt(t = {}, a) {
+function Zt(t = {}, a) {
   const n = {}, i = Re(t, a);
   return Object.entries(i).forEach(([o, d]) => {
     if (!d || typeof d != "object") return;
@@ -200,9 +200,9 @@ function Qt(t = {}, a) {
       modelConfigs: U(d.modelConfigs || {}),
       permissionMode: ie(d.permissionMode)
     };
-  }), Object.keys(n).length || (n[$e] = I()), n;
+  }), Object.keys(n).length || (n[$e] = _()), n;
 }
-function Zt(t, a) {
+function Qt(t, a) {
   const n = P(a);
   return t[n] ? n : Object.keys(t)[0];
 }
@@ -210,7 +210,7 @@ function ea(t, a, n) {
   const i = P(a || n);
   return t[i] ? i : t[n] ? n : Object.keys(t)[0];
 }
-function vt(t = {}, a = I()) {
+function vt(t = {}, a = _()) {
   const n = bt(a), i = t && typeof t == "object" ? t : {};
   return {
     provider: De(i.provider || n.provider),
@@ -223,7 +223,7 @@ function ta(t = {}, a = {}, n = $e, i = n) {
   const o = t?.delegateConfig;
   if (!o || typeof o != "object" || Array.isArray(o) || !(typeof o.provider == "string" && o.provider.trim() || o.modelConfigs && typeof o.modelConfigs == "object" && Object.keys(o.modelConfigs).length)) return !1;
   if (t?.delegateConfigured === !0) return !0;
-  const d = a[n] || I(), u = bt(d), p = vt(o, d);
+  const d = a[n] || _(), u = bt(d), p = vt(o, d);
   return JSON.stringify(p) !== JSON.stringify(u);
 }
 function aa(t = {}, a, n, i, o) {
@@ -269,7 +269,7 @@ function na(t = {}, a, n) {
   };
 }
 function ke(t = {}) {
-  const a = P(t.currentPresetName || t.presetDraftName || "默认"), n = Qt(t, a), i = Zt(n, t.currentPresetName), o = ea(n, t.delegatePresetName, i), d = n[i] || I(), u = n[o] || d, p = vt(t.delegateConfig, u), m = ta(t, n, i, o), v = na(t, a, i);
+  const a = P(t.currentPresetName || t.presetDraftName || "默认"), n = Zt(t, a), i = Qt(n, t.currentPresetName), o = ea(n, t.delegatePresetName, i), d = n[i] || _(), u = n[o] || d, p = vt(t.delegateConfig, u), m = ta(t, n, i, o), v = na(t, a, i);
   return {
     workspaceFileName: String(t.workspaceFileName || ""),
     updatedAt: Number(t.updatedAt) || 0,
@@ -673,7 +673,7 @@ function ht(t) {
   }
   return ge([`${a}/v1/models`, `${a}/models`]);
 }
-function Ia(t, a) {
+function _a(t, a) {
   const n = le(t);
   if (!n) return [];
   const i = n.endsWith("/v1beta") ? n.slice(0, -7) : n, o = a ? `?key=${encodeURIComponent(a)}` : "";
@@ -686,7 +686,7 @@ function Ia(t, a) {
     `${i}/models`
   ]);
 }
-function _a(t, a) {
+function Ia(t, a) {
   const n = [
     t?.error?.message,
     t?.message,
@@ -711,7 +711,7 @@ async function $a(t, a = {}) {
     data: o,
     rawText: i,
     parseError: d,
-    errorSnippet: _a(o, i)
+    errorSnippet: Ia(o, i)
   };
 }
 function Da(t) {
@@ -752,7 +752,7 @@ async function he({ urls: t, requestOptionsList: a, extractModels: n, providerLa
   throw new Error(`${i} 拉取模型失败：未获取到模型列表。`);
 }
 async function Ba(t, a = {}) {
-  const n = Ie("anthropic", t.apiKey), i = le(t.baseUrl || ""), o = le(i || St.claude);
+  const n = _e("anthropic", t.apiKey), i = le(t.baseUrl || ""), o = le(i || St.claude);
   if (o && (n.apiKey || i)) try {
     return await he({
       urls: ht(o),
@@ -773,12 +773,12 @@ async function Ba(t, a = {}) {
   return [...qa];
 }
 async function La(t, a = {}) {
-  const n = t.provider, i = le(t.baseUrl || ""), o = Ie(n, t.apiKey), { apiKey: d } = o;
+  const n = t.provider, i = le(t.baseUrl || ""), o = _e(n, t.apiKey), { apiKey: d } = o;
   if (n === "sillytavern-claude") return pe(await Ba(t, a));
   if (Ea(n)) return pe(await Ke(t, Oa(n), { signal: a.signal }));
   if (!i) throw new Error("请先填写 Base URL。");
   return n === "google" ? await he({
-    urls: Ia(i, d),
+    urls: _a(i, d),
     requestOptionsList: [{
       headers: {
         Accept: "application/json",
@@ -788,7 +788,7 @@ async function La(t, a = {}) {
     }, ...d ? [{
       headers: {
         Accept: "application/json",
-        ...Ie("openai-compatible", d).headers
+        ..._e("openai-compatible", d).headers
       },
       signal: a.signal
     }] : []],
@@ -843,7 +843,7 @@ function ja(t = {}) {
       [g(e, s)]: r
     };
   }
-  function _(e, r, s = "main") {
+  function I(e, r, s = "main") {
     a.modelOptionsByProvider = {
       ...a.modelOptionsByProvider || {},
       [g(e, s)]: Array.isArray(r) ? r : []
@@ -857,8 +857,8 @@ function ja(t = {}) {
     const s = a.config?.presets || {}, l = P(e || r || "默认");
     return s[l] ? l : r && s[r] ? r : Object.keys(s)[0] || "默认";
   }
-  function X(e, r) {
-    const s = O(e, $e), l = r && typeof r == "object" ? r : I(), c = l.provider || "openai-compatible", S = U(l.modelConfigs || {}), x = S[c] || {}, k = Se(c, x);
+  function Y(e, r) {
+    const s = O(e, $e), l = r && typeof r == "object" ? r : _(), c = l.provider || "openai-compatible", S = U(l.modelConfigs || {}), x = S[c] || {}, k = Se(c, x);
     return {
       delegatePresetName: s,
       delegateProvider: c,
@@ -875,7 +875,7 @@ function ja(t = {}) {
       delegateToolMode: x.toolMode || "native"
     };
   }
-  function Z(e = "openai-compatible", r = {}) {
+  function Q(e = "openai-compatible", r = {}) {
     const s = U(r || {})[e] || {}, l = Se(e, s);
     return {
       baseUrl: String(s.baseUrl || ""),
@@ -904,7 +904,7 @@ function ja(t = {}) {
     };
   }
   function R(e, r, s = a.config) {
-    const l = P(e || "默认"), c = r && typeof r == "object" ? r : I(), S = c.provider || "openai-compatible", x = U(c.modelConfigs || {}), k = Z(S, x), A = O(s?.delegatePresetName, l), h = X(A, s?.delegateConfig && typeof s.delegateConfig == "object" ? s.delegateConfig : (s?.presets || {})[A] || c);
+    const l = P(e || "默认"), c = r && typeof r == "object" ? r : _(), S = c.provider || "openai-compatible", x = U(c.modelConfigs || {}), k = Q(S, x), A = O(s?.delegatePresetName, l), h = Y(A, s?.delegateConfig && typeof s.delegateConfig == "object" ? s.delegateConfig : (s?.presets || {})[A] || c);
     return {
       currentPresetName: l,
       presetDraftName: l,
@@ -921,7 +921,7 @@ function ja(t = {}) {
   function y() {
     if (a.configDraft) return a.configDraft;
     const e = P(a.config?.currentPresetName || "默认");
-    return a.configDraft = R(e, (a.config?.presets || {})[e] || I()), a.configDraft;
+    return a.configDraft = R(e, (a.config?.presets || {})[e] || _()), a.configDraft;
   }
   function J(e, r = {}) {
     const s = y(), l = r.provider || e.querySelector("#xb-assistant-provider")?.value || s.provider || "openai-compatible", c = r.delegateProvider || e.querySelector("#xb-assistant-delegate-provider")?.value || s.delegateProvider || "openai-compatible", S = e.querySelector("#xb-assistant-base-url")?.value.trim() || "", x = e.querySelector("#xb-assistant-model")?.value.trim() || "", k = e.querySelector("#xb-assistant-delegate-base-url")?.value.trim() ?? s.delegateBaseUrl ?? "", A = e.querySelector("#xb-assistant-delegate-model")?.value.trim() ?? s.delegateModel ?? "", h = dt({
@@ -950,7 +950,7 @@ function ja(t = {}) {
       sendTemperature: e.querySelector("#xb-assistant-delegate-send-temperature")?.checked ?? !!(s.delegateSendTemperature ?? !0),
       reasoning: G,
       toolMode: re(c) ? e.querySelector("#xb-assistant-delegate-tool-mode")?.value || s.delegateToolMode || "native" : void 0
-    }, Y = {
+    }, X = {
       ...U(s.modelConfigs || {}),
       [l]: {
         ...U(s.modelConfigs || {})[l] || {},
@@ -968,7 +968,7 @@ function ja(t = {}) {
       currentPresetName: s.currentPresetName,
       presetDraftName: P(e.querySelector("#xb-assistant-preset-name")?.value),
       provider: l,
-      modelConfigs: Y,
+      modelConfigs: X,
       baseUrl: C.baseUrl,
       model: C.model,
       apiKey: C.apiKey,
@@ -1165,8 +1165,8 @@ function ja(t = {}) {
       baseUrl: x,
       model: k,
       reasoning: A
-    }), C = G.reasoningMode, E = G.reasoningEffort, Y = G.reasoningBudgetTokens, H = e.querySelector(`${c}-mode`), te = e.querySelector(`${c}-capability`), ae = e.querySelector(`${c}-effort-wrap`), se = e.querySelector(`${c}-effort`), ne = e.querySelector(`${c}-budget-wrap`), Q = e.querySelector(`${c}-budget`);
-    H && (K(H, Ft(h)), H.value = C), te && (te.textContent = h.unsupportedReason || `能力配置：${h.profileId}`), se && (K(se, zt(h)), se.value = E), ae && (ae.style.display = C === "on" && h.intensity.kind === "effort" ? "" : "none"), Q && h.intensity.kind === "budget" && (Q.min = h.intensity.allowAuto ? "-1" : String(h.intensity.min), Q.max = String(h.intensity.max), Q.value = String(Y)), ne && (ne.style.display = C === "on" && h.intensity.kind === "budget" ? "" : "none");
+    }), C = G.reasoningMode, E = G.reasoningEffort, X = G.reasoningBudgetTokens, H = e.querySelector(`${c}-mode`), te = e.querySelector(`${c}-capability`), ae = e.querySelector(`${c}-effort-wrap`), se = e.querySelector(`${c}-effort`), ne = e.querySelector(`${c}-budget-wrap`), Z = e.querySelector(`${c}-budget`);
+    H && (K(H, Ft(h)), H.value = C), te && (te.textContent = h.unsupportedReason || `能力配置：${h.profileId}`), se && (K(se, zt(h)), se.value = E), ae && (ae.style.display = C === "on" && h.intensity.kind === "effort" ? "" : "none"), Z && h.intensity.kind === "budget" && (Z.min = h.intensity.allowAuto ? "-1" : String(h.intensity.min), Z.max = String(h.intensity.max), Z.value = String(X)), ne && (ne.style.display = C === "on" && h.intensity.kind === "budget" ? "" : "none");
   }
   function F(e) {
     const r = e.querySelector("#xb-assistant-runtime");
@@ -1181,18 +1181,18 @@ function ja(t = {}) {
   function He(e) {
     if (!a.config) return;
     Fe(e);
-    const r = y(), s = r.provider || "openai-compatible", l = q(s), c = r.delegateProvider || "openai-compatible", S = q(c, "delegate"), x = e.querySelector("#xb-assistant-provider"), k = e.querySelector("#xb-assistant-base-url"), A = e.querySelector("#xb-assistant-model"), h = e.querySelector("#xb-assistant-api-key"), G = e.querySelector("#xb-assistant-temperature"), C = e.querySelector("#xb-assistant-send-temperature"), E = e.querySelector("#xb-assistant-tool-mode-wrap"), Y = e.querySelector("#xb-assistant-tool-mode"), H = e.querySelector("#xb-assistant-permission-mode"), te = e.querySelector("#xb-assistant-jsapi-permission"), ae = e.querySelector("#xb-assistant-model-pulled"), se = e.querySelector("#xb-assistant-max-tokens"), ne = e.querySelector("#xb-assistant-preset-select"), Q = e.querySelector("#xb-assistant-preset-name"), Ce = e.querySelector("#xb-assistant-delegate-preset-select"), Ge = e.querySelector("#xb-assistant-delegate-provider"), Ve = e.querySelector("#xb-assistant-delegate-base-url"), We = e.querySelector("#xb-assistant-delegate-model"), Xe = e.querySelector("#xb-assistant-delegate-api-key"), Ye = e.querySelector("#xb-assistant-tavily-api-key"), Me = e.querySelector("#xb-assistant-delegate-model-pulled"), Qe = e.querySelector("#xb-assistant-delegate-max-tokens"), Ze = e.querySelector("#xb-assistant-delegate-tool-mode-wrap"), Ee = e.querySelector("#xb-assistant-delegate-tool-mode");
-    if (!ne || !Q) return;
+    const r = y(), s = r.provider || "openai-compatible", l = q(s), c = r.delegateProvider || "openai-compatible", S = q(c, "delegate"), x = e.querySelector("#xb-assistant-provider"), k = e.querySelector("#xb-assistant-base-url"), A = e.querySelector("#xb-assistant-model"), h = e.querySelector("#xb-assistant-api-key"), G = e.querySelector("#xb-assistant-temperature"), C = e.querySelector("#xb-assistant-send-temperature"), E = e.querySelector("#xb-assistant-tool-mode-wrap"), X = e.querySelector("#xb-assistant-tool-mode"), H = e.querySelector("#xb-assistant-permission-mode"), te = e.querySelector("#xb-assistant-jsapi-permission"), ae = e.querySelector("#xb-assistant-model-pulled"), se = e.querySelector("#xb-assistant-max-tokens"), ne = e.querySelector("#xb-assistant-preset-select"), Z = e.querySelector("#xb-assistant-preset-name"), Ce = e.querySelector("#xb-assistant-delegate-preset-select"), Ge = e.querySelector("#xb-assistant-delegate-provider"), Ve = e.querySelector("#xb-assistant-delegate-base-url"), We = e.querySelector("#xb-assistant-delegate-model"), Ye = e.querySelector("#xb-assistant-delegate-api-key"), Xe = e.querySelector("#xb-assistant-tavily-api-key"), Me = e.querySelector("#xb-assistant-delegate-model-pulled"), Ze = e.querySelector("#xb-assistant-delegate-max-tokens"), Qe = e.querySelector("#xb-assistant-delegate-tool-mode-wrap"), Ee = e.querySelector("#xb-assistant-delegate-tool-mode");
+    if (!ne || !Z) return;
     const et = (a.config.presetNames || []).map((V) => ({
       value: V,
       label: V
     }));
-    K(ne, et), ne.value = r.currentPresetName || a.config.currentPresetName || "默认", Ce && (K(Ce, et), Ce.value = O(r.delegatePresetName, r.currentPresetName)), Q.value = r.presetDraftName || r.currentPresetName || "默认", x && (x.value = s), k && (k.value = r.baseUrl || ""), A && (A.value = r.model || ""), h && (h.value = r.apiKey || ""), se && (se.value = String(N(r.maxTokens))), G && (G.value = String($(r.temperature, 1))), C && (C.checked = !!(r.sendTemperature ?? !0)), Ye && (Ye.value = r.tavilyApiKey || ""), E && (E.style.display = re(s) ? "" : "none"), Y && (K(Y, ot), Y.value = r.toolMode || "native"), H && (K(H, Xt), H.value = ie(r.permissionMode)), te && (K(te, Yt), te.value = W(r.jsApiPermission)), L(e), ae && (K(ae, l.map((V) => ({
+    K(ne, et), ne.value = r.currentPresetName || a.config.currentPresetName || "默认", Ce && (K(Ce, et), Ce.value = O(r.delegatePresetName, r.currentPresetName)), Z.value = r.presetDraftName || r.currentPresetName || "默认", x && (x.value = s), k && (k.value = r.baseUrl || ""), A && (A.value = r.model || ""), h && (h.value = r.apiKey || ""), se && (se.value = String(N(r.maxTokens))), G && (G.value = String($(r.temperature, 1))), C && (C.checked = !!(r.sendTemperature ?? !0)), Xe && (Xe.value = r.tavilyApiKey || ""), E && (E.style.display = re(s) ? "" : "none"), X && (K(X, ot), X.value = r.toolMode || "native"), H && (K(H, Yt), H.value = ie(r.permissionMode)), te && (K(te, Xt), te.value = W(r.jsApiPermission)), L(e), ae && (K(ae, l.map((V) => ({
       value: V,
       label: V
-    })), "手动填写"), ae.value = l.includes(r.model) ? r.model : ""), Ge && (Ge.value = c), Ve && (Ve.value = r.delegateBaseUrl || ""), We && (We.value = r.delegateModel || ""), Xe && (Xe.value = r.delegateApiKey || "");
+    })), "手动填写"), ae.value = l.includes(r.model) ? r.model : ""), Ge && (Ge.value = c), Ve && (Ve.value = r.delegateBaseUrl || ""), We && (We.value = r.delegateModel || ""), Ye && (Ye.value = r.delegateApiKey || "");
     const tt = e.querySelector("#xb-assistant-delegate-temperature"), at = e.querySelector("#xb-assistant-delegate-send-temperature");
-    Qe && (Qe.value = String(N(r.delegateMaxTokens))), tt && (tt.value = String($(r.delegateTemperature, 1))), at && (at.checked = !!(r.delegateSendTemperature ?? !0)), Ze && (Ze.style.display = re(c) ? "" : "none"), Ee && (K(Ee, ot), Ee.value = r.delegateToolMode || "native"), L(e, "delegate"), Me && (K(Me, S.map((V) => ({
+    Ze && (Ze.value = String(N(r.delegateMaxTokens))), tt && (tt.value = String($(r.delegateTemperature, 1))), at && (at.checked = !!(r.delegateSendTemperature ?? !0)), Qe && (Qe.style.display = re(c) ? "" : "none"), Ee && (K(Ee, ot), Ee.value = r.delegateToolMode || "native"), L(e, "delegate"), Me && (K(Me, S.map((V) => ({
       value: V,
       label: V
     })), "手动填写"), Me.value = S.includes(r.delegateModel) ? r.delegateModel : ""), je(e, "#xb-assistant-model-pull-status", D(s)), je(e, "#xb-assistant-delegate-model-pull-status", D(c, "delegate")), F(e);
@@ -1229,14 +1229,14 @@ function ja(t = {}) {
       return i?.(l[0]), !1;
     a.config = s;
     const c = P(r.presetName || s.currentPresetName || "默认");
-    return a.configDraft = R(c, s.presets?.[c] || I(), s), v(), Et({
+    return a.configDraft = R(c, s.presets?.[c] || _(), s), v(), Et({
       requestId: o(r.requestPrefix || "save-config"),
       config: s,
       payload: Nt(s)
     }), !0;
   }
   function ve(e, r = {}) {
-    const s = f(e), l = P(r.presetName || s.presetDraftName), c = P(s.currentPresetName || a.config?.currentPresetName || "默认"), S = (a.config?.presets || {})[c] || I(), x = U(s.modelConfigs || S.modelConfigs || {}), k = {
+    const s = f(e), l = P(r.presetName || s.presetDraftName), c = P(s.currentPresetName || a.config?.currentPresetName || "默认"), S = (a.config?.presets || {})[c] || _(), x = U(s.modelConfigs || S.modelConfigs || {}), k = {
       ...S,
       provider: s.provider,
       permissionMode: ie(s.permissionMode),
@@ -1321,10 +1321,10 @@ function ja(t = {}) {
       a.configDraft = {
         ...c,
         provider: s,
-        ...Z(s, c.modelConfigs)
+        ...Q(s, c.modelConfigs)
       }, v(), n?.();
     }), e.querySelector("#xb-assistant-preset-select")?.addEventListener("change", (r) => {
-      const s = P(r.currentTarget.value), l = (a.config?.presets || {})[s] || I(), c = f(e);
+      const s = P(r.currentTarget.value), l = (a.config?.presets || {})[s] || _(), c = f(e);
       a.config = ke({
         ...a.config,
         jsApiPermission: W(c.jsApiPermission),
@@ -1398,10 +1398,10 @@ function ja(t = {}) {
     }), e.querySelector("#xb-assistant-jsapi-permission")?.addEventListener("change", () => {
       f(e);
     }), e.querySelector("#xb-assistant-delegate-preset-select")?.addEventListener("change", (r) => {
-      const s = O(r.currentTarget?.value, a.configDraft?.currentPresetName || a.config?.currentPresetName || "默认"), l = (a.config?.presets || {})[s] || I();
+      const s = O(r.currentTarget?.value, a.configDraft?.currentPresetName || a.config?.currentPresetName || "默认"), l = (a.config?.presets || {})[s] || _();
       a.configDraft = {
         ...f(e),
-        ...X(s, l)
+        ...Y(s, l)
       }, v(), n?.();
     }), e.querySelectorAll("[data-config-page]").forEach((r) => {
       r.addEventListener("click", (s) => {
@@ -1416,12 +1416,12 @@ function ja(t = {}) {
       }), n?.();
       try {
         const s = await u(r);
-        _(r.provider, s), B(r.provider, {
+        I(r.provider, s), B(r.provider, {
           status: "success",
           message: `已拉取 ${s.length} 个模型`
         });
       } catch (s) {
-        _(r.provider, []), B(r.provider, {
+        I(r.provider, []), B(r.provider, {
           status: "error",
           message: p(s)
         });
@@ -1436,12 +1436,12 @@ function ja(t = {}) {
       }, "delegate"), n?.();
       try {
         const s = await u(r);
-        _(r.provider, s, "delegate"), B(r.provider, {
+        I(r.provider, s, "delegate"), B(r.provider, {
           status: "success",
           message: `已拉取 ${s.length} 个模型`
         }, "delegate");
       } catch (s) {
-        _(r.provider, [], "delegate"), B(r.provider, {
+        I(r.provider, [], "delegate"), B(r.provider, {
           status: "error",
           message: p(s)
         }, "delegate");
@@ -1506,7 +1506,7 @@ function Ha(t = {}) {
   };
 }
 function za(t = {}) {
-  const { configSave: a = {}, runtimeText: n = "", inlineToastText: i = "", showInlineToast: o = !0, showAssistantPermissions: d = !0, showDelegateSettings: u = !0, showTavilySettings: p = !0, activePage: m = "main", delegatePresetHint: v = "DelegateRun 分身会使用这里的独立 API 配置；可以和主助手使用不同 Provider、Base URL、模型和 Tool 调用格式。", isBusy: g = !1, canDeletePreset: D = !0, configLoadError: B = "" } = t, _ = String(B || "").trim(), q = Ha(a), O = Fa(a), X = g || _ || String(a?.status || "") === "saving" ? "disabled" : "", Z = g || !D ? "disabled" : "", ee = m === "delegate" ? "delegate" : "main", R = ee === "main", y = ee === "delegate", J = d ? `
+  const { configSave: a = {}, runtimeText: n = "", inlineToastText: i = "", showInlineToast: o = !0, showAssistantPermissions: d = !0, showDelegateSettings: u = !0, showTavilySettings: p = !0, activePage: m = "main", delegatePresetHint: v = "DelegateRun 分身会使用这里的独立 API 配置；可以和主助手使用不同 Provider、Base URL、模型和 Tool 调用格式。", isBusy: g = !1, canDeletePreset: D = !0, configLoadError: B = "" } = t, I = String(B || "").trim(), q = Ha(a), O = Fa(a), Y = g || I || String(a?.status || "") === "saving" ? "disabled" : "", Q = g || !D ? "disabled" : "", ee = m === "delegate" ? "delegate" : "main", R = ee === "main", y = ee === "delegate", J = d ? `
             <label>
                 <span>斜杠命令权限</span>
                 <select id="xb-assistant-permission-mode"></select>
@@ -1524,7 +1524,7 @@ function za(t = {}) {
                 <div class="xb-assistant-preset-row">
                     <select id="xb-assistant-delegate-preset-select" class="xb-assistant-preset-field" aria-label="已存预设"></select>
                     <div class="xb-assistant-preset-tools is-single" aria-label="分身 API 预设操作">
-                        <button id="xb-assistant-delegate-save" type="button" class="xb-assistant-icon-button ${q.className}" title="${q.title}" aria-label="${q.title}" ${X}>${ue(O)}</button>
+                        <button id="xb-assistant-delegate-save" type="button" class="xb-assistant-icon-button ${q.className}" title="${q.title}" aria-label="${q.title}" ${Y}>${ue(O)}</button>
                     </div>
                 </div>
                 <label>
@@ -1601,7 +1601,7 @@ function za(t = {}) {
             </div>` : "";
   return `
         <section class="xb-assistant-config">
-            <fieldset class="xb-assistant-config-fields" data-xb-agent-config-fields ${_ ? "disabled" : ""}>
+            <fieldset class="xb-assistant-config-fields" data-xb-agent-config-fields ${I ? "disabled" : ""}>
             ${f}
             <div class="xb-assistant-config-page" data-config-page-panel="main" ${R ? "" : "hidden"}>
             <div class="xb-assistant-preset-row">
@@ -1610,8 +1610,8 @@ function za(t = {}) {
                 <div class="xb-assistant-preset-tools" aria-label="API 预设操作">
                     <button id="xb-assistant-new-preset" type="button" class="xb-assistant-icon-button" title="新增预设" aria-label="新增预设" ${g ? "disabled" : ""}>${ue("add")}</button>
                     <button id="xb-assistant-rename-preset" type="button" class="xb-assistant-icon-button" title="重命名预设" aria-label="重命名预设" ${g ? "disabled" : ""}>${ue("rename")}</button>
-                    <button id="xb-assistant-save" type="button" class="xb-assistant-icon-button ${q.className}" title="${q.title}" aria-label="${q.title}" ${X}>${ue(O)}</button>
-                    <button id="xb-assistant-delete-preset" type="button" class="xb-assistant-icon-button" title="删除预设" aria-label="删除预设" ${Z}>${ue("delete")}</button>
+                    <button id="xb-assistant-save" type="button" class="xb-assistant-icon-button ${q.className}" title="${q.title}" aria-label="${q.title}" ${Y}>${ue(O)}</button>
+                    <button id="xb-assistant-delete-preset" type="button" class="xb-assistant-icon-button" title="删除预设" aria-label="删除预设" ${Q}>${ue("delete")}</button>
                 </div>
             </div>
             <label>
@@ -1697,7 +1697,7 @@ function za(t = {}) {
             ${b}
             <div class="xb-assistant-runtime" id="xb-assistant-runtime">${Pe(n)}</div>
             </fieldset>
-            ${o ? `<div class="xb-assistant-toast xb-assistant-toast-inline" id="xb-assistant-toast" aria-live="polite">${Pe(_ || i)}</div>` : ""}
+            ${o ? `<div class="xb-assistant-toast xb-assistant-toast-inline" id="xb-assistant-toast" aria-live="polite">${Pe(I || i)}</div>` : ""}
         </section>
     `;
 }
@@ -1705,14 +1705,14 @@ var Ja = { class: "agent-api-app" }, Ga = { class: "agent-api-scroll" }, Va = { 
   key: 0,
   class: "agent-api-state",
   "aria-live": "polite"
-}, Xa = {
+}, Ya = {
   key: 1,
   class: "agent-api-state is-error",
   role: "alert"
-}, Ya = {
+}, Xa = {
   class: "agent-api-panel xb-agent-settings-surface",
   "aria-label": "API 设置"
-}, Qa = { "aria-live": "polite" }, Za = ["disabled"], ut = 13e4, es = /* @__PURE__ */ Bt({
+}, Za = { "aria-live": "polite" }, Qa = ["disabled"], ut = 13e4, es = /* @__PURE__ */ jt({
   __name: "AgentApiApp",
   props: {
     bridge: {},
@@ -1722,7 +1722,7 @@ var Ja = { class: "agent-api-app" }, Ga = { class: "agent-api-scroll" }, Va = { 
     const a = t, n = structuredClone(st(a.initialState)), i = ye(n), o = ye(null), d = ye("idle"), u = ye("连接尚未测试");
     let p = () => {
     }, m = null, v = 0;
-    const g = _t({
+    const g = Dt({
       config: null,
       configDraft: null,
       configDirty: !1,
@@ -1736,7 +1736,7 @@ var Ja = { class: "agent-api-app" }, Ga = { class: "agent-api-scroll" }, Va = { 
       modelOptionsByProvider: {},
       pullStateByProvider: {},
       inlineToastText: ""
-    }), D = we(() => i.value.status === "ready" && g.config !== null), B = we(() => Object.keys(g.config?.presets || {}).length), _ = we(() => d.value === "testing");
+    }), D = we(() => i.value.status === "ready" && g.config !== null), B = we(() => Object.keys(g.config?.presets || {}).length), I = we(() => d.value === "testing");
     function q(b) {
       const T = b instanceof Error ? b.message : String(b || "unknown_error");
       return T === "host_request_timeout" ? "暂时没收到结果，请检查网络后重试。" : T === "app_inactive" ? "页面已经关闭。" : T;
@@ -1750,7 +1750,7 @@ var Ja = { class: "agent-api-app" }, Ga = { class: "agent-api-scroll" }, Va = { 
         }, g.inlineToastText = "", y();
       }, 1800);
     }
-    async function X(b) {
+    async function Y(b) {
       const T = b.payload || {};
       g.configSave = {
         status: "saving",
@@ -1775,7 +1775,7 @@ var Ja = { class: "agent-api-app" }, Ga = { class: "agent-api-scroll" }, Va = { 
       }
       y(), O();
     }
-    async function Z() {
+    async function Q() {
       const b = ++v;
       try {
         const T = await a.bridge.request("agent-api/reload", {}, 35e3);
@@ -1796,7 +1796,7 @@ var Ja = { class: "agent-api-app" }, Ga = { class: "agent-api-scroll" }, Va = { 
     const R = ja({
       state: g,
       render: y,
-      saveConfig: X,
+      saveConfig: Y,
       pullModels: ee,
       describeError: q
     });
@@ -1812,11 +1812,11 @@ var Ja = { class: "agent-api-app" }, Ga = { class: "agent-api-scroll" }, Va = { 
       }), R.syncConfigToForm(b), R.bindSettingsPanelEvents(b));
     }
     function J(b) {
-      i.value = structuredClone(b), b.status === "ready" && b.config && (g.config = ke(b.config), g.configDraft = null, g.configDirty = !1, g.configFormSyncPending = !0), Dt(y);
+      i.value = structuredClone(b), b.status === "ready" && b.config && (g.config = ke(b.config), g.configDraft = null, g.configDirty = !1, g.configFormSyncPending = !0), It(y);
     }
     async function f() {
       const b = o.value;
-      if (!b || !D.value || _.value) return;
+      if (!b || !D.value || I.value) return;
       const T = R.getActiveProviderConfigFromForm(b);
       d.value = "testing", u.value = "正在测试当前填写的连接…";
       try {
@@ -1826,26 +1826,26 @@ var Ja = { class: "agent-api-app" }, Ga = { class: "agent-api-scroll" }, Va = { 
         d.value = "error", u.value = q(M);
       }
     }
-    return Kt(() => {
+    return Rt(() => {
       p = a.bridge.subscribe((b) => {
         b.type === "agent-api/state" && J(b.payload.state);
       }), J(n);
-    }), It(() => {
+    }), Bt(() => {
       v += 1, p(), m && clearTimeout(m);
-    }), (b, T) => (Ne(), Oe("main", Ja, [w("div", Ga, [w("div", Va, [
+    }), (b, T) => (Ne(), qe("main", Ja, [w("div", Ga, [w("div", Va, [
       T[2] || (T[2] = w("header", { class: "agent-api-header" }, [w("h1", null, "API 设置"), w("p", null, "与小白助手等功能共用主预设")], -1)),
-      i.value.status === "loading" ? (Ne(), Oe("section", Wa, " 正在加载设置 ")) : i.value.status === "error" ? (Ne(), Oe("section", Xa, [w("div", null, [T[1] || (T[1] = w("strong", null, "设置暂时无法加载", -1)), w("span", null, qe(i.value.message), 1)]), w("button", {
+      i.value.status === "loading" ? (Ne(), qe("section", Wa, " 正在加载设置 ")) : i.value.status === "error" ? (Ne(), qe("section", Ya, [w("div", null, [T[1] || (T[1] = w("strong", null, "设置暂时无法加载", -1)), w("span", null, Oe(i.value.message), 1)]), w("button", {
         type: "button",
-        onClick: T[0] || (T[0] = (M) => Z())
+        onClick: T[0] || (T[0] = (M) => Q())
       }, "重新加载")])) : Lt("", !0),
-      $t(w("section", Ya, [w("div", {
+      $t(w("section", Xa, [w("div", {
         ref_key: "panelRoot",
         ref: o
-      }, null, 512), w("div", { class: Rt(["agent-api-connection", `is-${d.value}`]) }, [w("p", Qa, qe(u.value), 1), w("button", {
+      }, null, 512), w("div", { class: _t(["agent-api-connection", `is-${d.value}`]) }, [w("p", Za, Oe(u.value), 1), w("button", {
         type: "button",
-        disabled: !D.value || _.value,
+        disabled: !D.value || I.value,
         onClick: f
-      }, qe(_.value ? "测试中…" : "测试当前连接"), 9, Za)], 2)], 512), [[jt, D.value]])
+      }, Oe(I.value ? "测试中…" : "测试当前连接"), 9, Qa)], 2)], 512), [[Kt, D.value]])
     ])])]));
   }
 }), rs = es;
