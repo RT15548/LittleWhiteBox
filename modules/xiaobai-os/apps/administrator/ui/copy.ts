@@ -5,6 +5,7 @@ export const ADMINISTRATOR_COPY = Object.freeze({
     send: '发送', stop: '停止', attach: '选择图片', removeImage: '移除图片', placeholder: '说说需要处理的事…',
     latest: '回到最新', earlier: '更早记录', later: '后面记录', confirm: '重新提交', check: '检查保存结果', close: '关闭',
     empty: '有什么需要处理？', details: '查看过程', moreText: '展开更多',
+    process: (rounds: number) => `工作经过 · ${rounds} 轮`, processLoading: '加载经过', queued: '等待执行', notExecuted: '未执行',
     evidence: '查看资料', inspect: '检查 OS 状态', loadTools: '加载工具', toolsLoaded: '工具已就绪',
     itemReport: (applied: number, skipped: number) => `成功 ${applied} 项，未完成 ${skipped} 项`,
     messageActions: '消息操作', messagePages: '展开消息', noReply: '尚未回复', longReply: '回复结束后可展开完整内容。',

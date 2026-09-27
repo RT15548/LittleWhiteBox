@@ -5,6 +5,7 @@ import type { ManagementTool } from '../../../capabilities/management/index.js';
 import { safePromptJson } from '../../../capabilities/maintenance/prompt-safety.js';
 import { ADMINISTRATOR_POLICY as POLICY } from '../domain/policy.js';
 import { TOOL_NOT_LOADED } from './tool-loader.js';
+import { administratorToolCallKey } from '../application/identity.js';
 import type { AdministratorContextUsage } from '../domain/types.js';
 import { administratorContext, administratorTurnMessages, contextUsage, retainedAdministratorTurns, summarizeAdministrator,
     type AdministratorHistory, type AgentRecord } from './history.js';
@@ -76,7 +77,7 @@ export async function runAdministratorLoop(options: {
             // Until the executor returns, no outcome is confirmed, including across write-receipt saves.
             results[index].content = safePromptJson({ ok: false, status: 'unconfirmed', code: 'tool_result_unconfirmed' });
             const value = advertised.has(call.name)
-                ? await options.execute(call.name, args, `${rounds}:${call.id}`, turn.toolMessages.indexOf(results[index])) : TOOL_NOT_LOADED;
+                ? await options.execute(call.name, args, administratorToolCallKey(rounds, call.id), turn.toolMessages.indexOf(results[index])) : TOOL_NOT_LOADED;
             results[index].content = safePromptJson(value);
             responses.push({ id: call.id, name: call.name, response: value, ...(Object.hasOwn(call, 'providerId') ? { providerId: call.providerId } : {}) });
             await save();

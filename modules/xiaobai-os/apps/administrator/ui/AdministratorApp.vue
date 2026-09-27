@@ -3,7 +3,6 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, toRaw,
 import { estimateTokenCount } from '../../../../agent-core/runtime/context-tokens.js';
 import type { XiaobaiOsAppProps } from '../../../shell/app-contract.js';
 import AppDialog from '../../../shell/app-src/components/AppDialog.vue';
-import MessageMarkdown from '../../../shell/app-src/components/MessageMarkdown.vue';
 import type { AdministratorPage, AdministratorRow, AdministratorState } from '../domain/types.js';
 import { ADMINISTRATOR_IMAGE_TYPES, ADMINISTRATOR_POLICY as POLICY } from '../domain/policy.js';
 import type { AdministratorUpload } from '../storage/images.js';
@@ -27,7 +26,7 @@ watch([draft, image], () => { draftRevision++; }, { flush: 'sync' });
 const busy = computed(() => !!pending.value || !!state.value.live);
 const phase = computed(() => state.value.live?.phase ?? (['send', 'regenerate'].includes(pending.value) ? 'preparing' : null));
 const disabled = computed(() => busy.value || state.value.unsaved || state.value.corrupted);
-const displayed = computed(() => rows.value.filter(row => row.role !== 'assistant' || row.turnId !== state.value.live?.turnId || !!row.text));
+const liveInRows = computed(() => rows.value.some(row => row.role === 'assistant' && row.turnId === state.value.live?.turnId));
 const latest = computed(() => start.value + rows.value.length >= total.value);
 let unsubscribe = () => {};
 let tokenTimer: ReturnType<typeof setTimeout> | undefined;
@@ -165,14 +164,12 @@ onBeforeUnmount(() => { windowRequest++; unsubscribe(); if (tokenTimer) { clearT
             <button v-if="start > 0" type="button" class="admin-history-button" :disabled="paging" @click="loadPage(Math.max(0, start - POLICY.pageSize), 'earlier')">{{ C.earlier }}</button>
             <p v-if="!rows.length && !phase && !state.corrupted" class="admin-empty">{{ C.empty }}</p>
             <AdministratorMessage
-                v-for="row in displayed" :key="row.id" :row="row" :bridge="bridge" :chat-identity="state.chatIdentity" :disabled="disabled"
+                v-for="row in rows" :key="row.id" :row="row" :live="row.role === 'assistant' && row.turnId === state.live?.turnId ? state.live : null" :bridge="bridge" :chat-identity="state.chatIdentity" :disabled="disabled"
+                :unsaved-process="row.role === 'assistant' && row.turnId === state.unsavedProcess?.turnId ? state.unsavedProcess.rounds : null"
                 @delete="deleteRow = $event" @regenerate="action('regenerate', { turnId: $event.turnId })" @details="details = $event.turnId"
             />
-            <div v-if="phase && latest" class="admin-live">
+            <div v-if="phase && latest && !liveInRows" class="admin-live">
                 <div class="admin-live-status" role="status" aria-live="polite"><span class="admin-working-dot" />{{ C.phases[phase] }}</div>
-                <div v-for="op in state.live?.operations" :key="op.id" class="admin-operation-line"><i class="admin-operation-dot" :class="`is-${op.status}`" /><span>{{ op.name }}<small v-if="op.target"> · {{ op.target }}</small></span><small>{{ C.operations[op.status] }}</small></div>
-                <MessageMarkdown v-if="state.live?.text" class="admin-markdown" :text="state.live.text" />
-                <small v-if="state.live && state.live.totalChars > POLICY.textBlock" class="admin-muted">{{ C.longReply }}</small>
             </div>
             <button v-if="!latest" type="button" class="admin-history-button" :disabled="paging" @click="loadPage(start + rows.length, 'later')">{{ C.later }}</button>
         </div>

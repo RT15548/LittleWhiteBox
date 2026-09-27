@@ -234,5 +234,5 @@ test('history deletion is local, drops affected summary, and frame pages stay bo
     const page = administratorPage(actual);
     assert.equal(page.rows.length, ADMINISTRATOR_POLICY.pageSize);
     assert.ok(page.rows.every(row => row.text.length <= ADMINISTRATOR_POLICY.textBlock));
-    assert.ok(page.rows.every(row => row.operations.length <= ADMINISTRATOR_POLICY.visibleOperations));
+    assert.ok(page.rows.every(row => row.processCount === 0));
 });

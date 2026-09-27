@@ -15,6 +15,7 @@ import { parseAdministratorUpload, type AdministratorImages, type AdministratorU
 import type { AdministratorConversation } from './conversation.js';
 import { administratorError, ADMINISTRATOR_COPY } from '../ui/copy.js';
 import { createAdministratorId } from './identity.js';
+import { administratorProcess } from './process.js';
 import type { AdministratorEnvironmentReader } from '../domain/environment.js';
 
 interface ActiveRun {
@@ -47,6 +48,9 @@ export function createAdministratorRuntime(deps: {
     let usage: AdministratorContextUsage = { used: 0, limit: POLICY.inputBudget, trigger: POLICY.summaryTrigger, rules: 0, tools: 0, history: 0, images: 0, runtime: 0 };
     let streamTimer: ReturnType<typeof setTimeout> | null = null;
     const sameChat = (active: ActiveRun) => active.current() && repository.identity() === active.identity && deps.capture()?.identityKey === active.sourceIdentity;
+    // A failed run owns its unsaved display until confirmation, abandonment or chat reset.
+    // This never replaces confirmed conversation data or starts another dispatch.
+    const unsavedRun = () => run?.failed && !run.promise && sameChat(run) && conversation.unsaved() ? run : null;
     function changed(immediate = false) {
         if (immediate) { if (streamTimer) { clearTimeout(streamTimer); streamTimer = null; } deps.changed(); }
         else if (!streamTimer) { streamTimer = setTimeout(() => { streamTimer = null; deps.changed(); }, POLICY.streamInterval); }
@@ -227,10 +231,21 @@ export function createAdministratorRuntime(deps: {
         },
         live(): AdministratorLive | null {
             if (pendingSend?.preparing && pendingSend.current()) {
-                return { turnId: pendingSend.turn.id, text: '', totalChars: 0, operations: [], operationCount: 0, phase: pendingSend.stopped ? 'stopping' : 'preparing' };
+                return { turnId: pendingSend.turn.id, text: '', totalChars: 0, process: [], preview: [], phase: pendingSend.stopped ? 'stopping' : 'preparing' };
             }
             return run?.promise && sameChat(run) ? { turnId: run.turn.id, text: run.text.slice(0, POLICY.textBlock), totalChars: run.text.length,
-                operations: [...run.turn.operations, ...run.preview].slice(-POLICY.visibleOperations), operationCount: run.turn.operations.length + run.preview.length, phase: run.abort.signal.aborted ? 'stopping' : run.phase } : null;
+                process: administratorProcess(run.turn, true), preview: run.preview, phase: run.abort.signal.aborted ? 'stopping' : run.phase } : null;
+        },
+        unsavedProcess() {
+            const active = unsavedRun();
+            return active ? { turnId: active.turn.id, rounds: administratorProcess(active.turn) } : null;
+        },
+        process(turnId: string) {
+            const visible = run?.promise && sameChat(run) ? run : unsavedRun();
+            const active = visible?.turn.id === turnId ? visible : null;
+            const turn = active?.turn ?? conversation.read().turns.find(item => item.id === turnId);
+            if (!turn) { throw new Error('administrator_message_missing'); }
+            return administratorProcess(turn, !!active?.promise);
         },
         async send(submissionId: unknown, text: string, upload?: unknown) {
             if (run?.promise || conversation.unsaved()) { throw new Error('administrator_busy'); }

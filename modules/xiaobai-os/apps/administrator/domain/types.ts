@@ -30,19 +30,24 @@ export interface AdministratorData {
     summary: AdministratorSummary | null;
 }
 export interface AdministratorContextUsage { used: number; limit: number; trigger: number; history: number; rules: number; tools: number; images: number; runtime: number }
+export interface AdministratorProcessRound {
+    index: number; text: string;
+    tools: { id: string; name: string; target: string; status: OperationStatus | 'queued' | 'not-executed' }[];
+}
+export interface AdministratorUnsavedProcess { turnId: string; rounds: AdministratorProcessRound[] }
 export interface AdministratorRow {
     revision: number;
     id: string; turnId: string; role: 'user' | 'assistant'; text: string; totalChars: number;
-    image?: AdministratorImage; operations: AdministratorOperation[]; operationCount: number;
+    image?: AdministratorImage; processCount: number;
     status: AdministratorTurn['status']; error: string; canRegenerate: boolean;
 }
 export interface AdministratorPage { rows: AdministratorRow[]; start: number; total: number; revision: number }
 export interface AdministratorLive {
-    turnId: string; text: string; totalChars: number; operations: AdministratorOperation[]; operationCount: number;
+    turnId: string; text: string; totalChars: number; process: AdministratorProcessRound[]; preview: AdministratorOperation[];
     phase: 'preparing' | 'replying' | 'summarizing' | 'saving' | 'stopping';
 }
 export interface AdministratorState {
-    chatIdentity: string; page: AdministratorPage; live: AdministratorLive | null;
+    chatIdentity: string; page: AdministratorPage; live: AdministratorLive | null; unsavedProcess: AdministratorUnsavedProcess | null;
     context: AdministratorContextUsage; error: string; corrupted: boolean; unsaved: boolean;
     submission: { id: string; turnId: string; accepted: boolean } | null;
     conflict: boolean;

@@ -1,5 +1,6 @@
 import type { AdministratorData, AdministratorPage, AdministratorRow } from '../domain/types.js';
 import { ADMINISTRATOR_POLICY as POLICY } from '../domain/policy.js';
+import { administratorProcessCount } from './process.js';
 
 export function administratorPage(data: AdministratorData, requestedStart?: number): AdministratorPage {
     // References only until the requested page is selected; large message strings are never cloned for frame projection.
@@ -12,7 +13,7 @@ export function administratorPage(data: AdministratorData, requestedStart?: numb
         const text = role === 'user' ? turn.user!.text : turn.assistant ?? '';
         return { revision: data.revision, id: `${turn.id}:${role}`, turnId: turn.id, role, text: text.slice(0, POLICY.textBlock), totalChars: text.length,
             ...(role === 'user' && turn.user?.image ? { image: turn.user.image } : {}),
-            operations: role === 'assistant' ? turn.operations.slice(-POLICY.visibleOperations) : [], operationCount: role === 'assistant' ? turn.operations.length : 0,
+            processCount: role === 'assistant' ? administratorProcessCount(turn) : 0,
             status: turn.status, error: role === 'assistant' ? turn.error : '', canRegenerate: !!turn.user };
     }) };
 }

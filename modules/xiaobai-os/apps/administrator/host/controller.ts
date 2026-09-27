@@ -11,15 +11,15 @@ export function createAdministratorController(conversation: AdministratorConvers
     let busy: object | null = null;
     let localError = '';
     let lastStateKey = '';
-    function state(): AdministratorState {
-        return { chatIdentity: conversation.identity(), page: conversation.page(), live: runtime.live(), context: runtime.context(),
+    function state(live = runtime.live(), unsavedProcess = runtime.unsavedProcess()): AdministratorState {
+        return { chatIdentity: conversation.identity(), page: conversation.page(), live, unsavedProcess, context: runtime.context(),
             error: localError || runtime.error(), corrupted: conversation.corrupted(), unsaved: conversation.unsaved(), submission: runtime.submission(), conflict: conversation.conflict() };
     }
     function emit() {
         if (!activation?.isCurrent()) { return; }
-        const live = runtime.live();
-        const key = JSON.stringify([conversation.identity(), conversation.read().revision, !!live, localError || runtime.error(), conversation.corrupted(), conversation.unsaved(), conversation.conflict(), runtime.submission()]);
-        if (key !== lastStateKey) { lastStateKey = key; activation.post('administrator/state', { state: state() }); }
+        const live = runtime.live(), unsavedProcess = runtime.unsavedProcess();
+        const key = JSON.stringify([conversation.identity(), conversation.read().revision, !!live, unsavedProcess?.turnId, localError || runtime.error(), conversation.corrupted(), conversation.unsaved(), conversation.conflict(), runtime.submission()]);
+        if (key !== lastStateKey) { lastStateKey = key; activation.post('administrator/state', { state: state(live, unsavedProcess) }); }
         else { activation.post('administrator/live', { live, context: runtime.context() }); }
     }
     async function exclusive(action: () => Promise<unknown>) {
@@ -72,6 +72,10 @@ export function createAdministratorController(conversation: AdministratorConvers
                     const offset = Number(payload.offset ?? 0);
                     if (!Number.isSafeInteger(offset) || offset < 0 || offset > text.length) { throw new Error('administrator_page_invalid'); }
                     return { text: text.slice(offset, offset + POLICY.textBlock), offset, totalChars: text.length };
+                }
+                case 'administrator/process': {
+                    if (payload.revision !== conversation.read().revision) { throw new Error('administrator_history_conflict'); }
+                    return runtime.process(String(payload.turnId));
                 }
                 case 'administrator/operations': {
                     const turn = conversation.read().turns.find(t => t.id === payload.turnId);
