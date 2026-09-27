@@ -41,7 +41,7 @@ const results = (offset = 0) => {
     const page = projectMaintenanceReceipts(store, offset);
     page.items = page.items.map(receipt => presentMaintenanceReceipt(receipt, fixture));
     send({ type: 'MEMORY_MAINTENANCE_RESULTS', payload: { ...page, offset, state, index: indexState, chatId: fixture.chatId,
-        ranges: maintenanceRanges(store.summaryHistory, fixture.cutoff) } });
+        ranges: maintenanceRanges(store.summaryHistory, store.summaryHistory.at(-1)?.endMesId ?? fixture.cutoff) } });
 };
 window.previewMemory = {
     messages,
@@ -68,6 +68,45 @@ window.previewMemory = {
         store = { summaryHistory: [{ endMesId: 243, maintenance: [receipt] }] }; results();
     },
     indexPending() { indexState = { status: 'pending' }; results(); },
+    manyChanges(floors = 1000) {
+        const edits = Array.from({ length: Math.floor(floors / 2) }, (_, index) => {
+            const floor = index * 2 + 1;
+            const before = { ...fixture.atoms[0], atomId: `preview-anchor-${floor}`, floor,
+                semantic: '夏实确认自己因为看到机密而被回收。' };
+            return { kind: 'edit', collection: 'anchors', key: before.atomId,
+                changes: [{ collection: 'anchors', key: before.atomId, index,
+                    before, after: { ...before, semantic: '夏实听说自己可能因为看到机密而被回收，但没有确证。' } }] };
+        });
+        const base = structuredClone(receipts.at(-1));
+        const work = { ...base, id: 'long-work', runId: 'long-run', cutoff: floors, outcome: undefined,
+            operations: [receipts[0].operations[0], ...base.operations.filter(item => item.collection !== 'anchors'), ...edits],
+            summary: '这段过程说明不应出现在维护汇报中。', coverage: { supplied: [], missingAnchors: [] } };
+        const final = { ...work, id: 'long-final', operations: [], outcome: { status: 'completed' },
+            summary: '## 维护结果\n\n已修正传闻被写成确定事实的问题，**保留原有的不确定性**。\n\n- 大总结：续接红山争吵，保留青山的独立事件。\n- 锚点：统一恢复消息来源和说话人。\n\n| 内容 | 结果 |\n| --- | --- |\n| 事实归属 | 已核对 |\n| 独立经历 | 保留 |\n\n> 没有证据支持的推断，未改成确定事实。\n\n```json\n{"certainty":"unknown"}\n```' };
+        const completion = { ...work, id: 'long-completion', operations: [], summary: '', completion: { from: 1, to: floors } };
+        store = { summaryHistory: [{ endMesId: floors - 1, maintenance: [...receipts, work, completion, final] }] };
+        state = { status: 'completed' }; results();
+    },
+    appendChange() {
+        const final = store.summaryHistory.at(-1).maintenance.at(-1);
+        const work = store.summaryHistory.at(-1).maintenance.find(item => item.id === 'long-work');
+        const operation = structuredClone(work.operations.at(-1));
+        operation.changes[0].after.where = '图书馆';
+        work.operations.push(operation);
+        final.summary += '\n\n补充核对了最后一处地点。';
+        results();
+    },
+    longReport() {
+        store.summaryHistory.at(-1).maintenance.at(-1).summary = Array.from({ length: 40 }, (_, index) =>
+            `### 核对事项 ${index + 1}\n\n保持角色、归属与原文一致，不将传闻改成事实。`).join('\n\n');
+        results();
+    },
+    newRun() {
+        const previous = store.summaryHistory.at(-1).maintenance.at(-1);
+        store.summaryHistory.at(-1).maintenance.push({ ...previous, id: 'new-final', runId: 'new-run',
+            createdAt: previous.createdAt + 60000, operations: [], summary: '本轮没有需要修正的内容。' });
+        results();
+    },
 };
 // eslint-disable-next-line no-restricted-syntax -- isTrustedMessage validates both the preview origin and its only iframe.
 window.addEventListener('message', event => {

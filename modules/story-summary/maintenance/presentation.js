@@ -34,9 +34,22 @@ export function presentMaintenanceReceipt(receipt, memory) {
     return { ...receipt, coverage, eventNames };
 }
 
-export function operationTitle(operation) {
+function primaryValue(operation) {
     const primary = operation.changes.find(change => change.collection === operation.collection && change.key === operation.key);
-    return copy.operationTitle(copy.operation[operation.kind], memoryLabel(operation.collection, primary?.after ?? primary?.before));
+    return primary?.after ?? primary?.before;
+}
+
+export const operationCategory = operation => operation.collection === 'anchors' ? 'anchors' : 'summary';
+
+export function operationFloor(operation) {
+    return operationCategory(operation) === 'anchors' ? primaryValue(operation).floor + 1 : null;
+}
+
+export function operationTitle(operation) {
+    const category = operationCategory(operation);
+    const title = memoryLabel(operation.collection, primaryValue(operation));
+    return copy.operationTitle(copy.operation[operation.kind], copy[category],
+        category === 'anchors' ? title : `${copy.collections[operation.collection]} · ${title}`);
 }
 
 function fieldValue(field, value, eventNames) {

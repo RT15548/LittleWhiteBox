@@ -57,7 +57,8 @@ export function projectMaintenanceReceipts(store, offset = 0, limit = 10) {
     const runs = [...groups].map(([runId, receipts]) => {
         const latest = receipts[0], operations = [...receipts].reverse().flatMap(receipt => receipt.operations);
         return { ...latest, id: runId, receiptId: latest.id, receiptIds: receipts.map(receipt => receipt.id),
-            operations, summary: [...new Set([...receipts].reverse().map(receipt => receipt.summary).filter(Boolean))].join('\n'),
+            // A run's report is its concluding reply, never the notes attached to edits.
+            operations, summary: receipts.find(receipt => receipt.outcome)?.summary || '',
             completed: unionRanges(receipts.flatMap(receipt => receipt.completion ? subtractRanges([receipt.completion], receipt.invalidated || []) : [])),
             outcome: latest.outcome || { status: 'interrupted' },
             coverage: {
@@ -69,5 +70,6 @@ export function projectMaintenanceReceipts(store, offset = 0, limit = 10) {
                 merges: operations.filter(operation => operation.kind === 'merge').length,
             } };
     });
-    return { total: runs.length, next: offset + limit < runs.length ? offset + limit : null, items: runs.slice(offset, offset + limit) };
+    return { total: runs.length, runIds: runs.map(run => run.id),
+        next: offset + limit < runs.length ? offset + limit : null, items: runs.slice(offset, offset + limit) };
 }

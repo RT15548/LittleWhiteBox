@@ -3,6 +3,8 @@
     "private": true,
     "type": "module",
     "scripts": {
+        "build:message-markdown": "node scripts/build-message-markdown.mjs",
+        "check:message-markdown": "node scripts/build-message-markdown.mjs --check",
         "build:agent-core": "vite build --config vite.agent-core.config.mjs",
         "test:agent-core:auth": "node --test modules/agent-core/tests/provider-auth.test.js",
         "build:agent-core:node": "node scripts/build-agent-core-node.mjs",
@@ -30,7 +32,7 @@
         "test:story-summary:replay-shim": "node --test modules/story-summary/tests/replay-openai-shim.test.js",
         "test:story-summary:tokenizer": "node --test modules/story-summary/tests/tokenizer.test.js",
         "test:story-summary:cancel": "node scripts/story-summary-replay-runner.mjs --check-cancel",
-        "test:story-summary:bundle": "node scripts/story-summary-replay-runner.mjs --build-only",
+        "test:story-summary:bundle": "npm run check:message-markdown && node scripts/story-summary-replay-runner.mjs --build-only",
         "test:story-summary:vectors": "npm run check:sha256:vendor && node --test modules/story-summary/tests/vector-input-digest.test.js modules/story-summary/tests/vector-package.test.js",
         "build:sha256:vendor": "node scripts/build-sha256-vendor.mjs",
         "check:sha256:vendor": "node scripts/build-sha256-vendor.mjs --check",

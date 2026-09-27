@@ -545,3 +545,17 @@ Playwright CLI 驱动实际总结 iframe 与隔离宿主：1280×900、390×900�
 - 宿主与 iframe 入口按插件边界 esbuild `write:false` 构建，2 输出、0 警告。全仓 `npm run lint`、受影响文件 eslint、`git diff --check` 通过。
 
 模型与 embedding 使用离线替身，元数据确认及 IndexedDB 使用现有存储测试边界。未发起真实模型请求，不增加语义质量结论；未改提示词、总结生成／锚点提取逻辑、检索排序或 UI，不提交推送，也未清理既有工作区产物。
+
+## 20. 维护记录阅读体验
+
+2026-09-27。现行展示规则见[目标设计第 4.2 节](./memory-maintenance-target-design.md#42-成果和状态)。本轮只调整成果投影、页面及其构建与验证；原始收据、维护执行和聊天数据不改。
+
+- 总结模块测试 **491/491 通过**；新增 DOM／投影回归保护最终汇报来源、Markdown 排版与安全边界、末页进入、分类、刷新保留和回退后的列表状态。未将 UI 文案作为测试契约。
+- 全仓 `npm run lint` 通过；末轮受影响文件再次 eslint 通过。运行时检查、replay bundle、共享 Markdown 浏览器产物一致性检查、`git diff --check` 通过。原有 jieba Node 模块类型警告未改。
+- Playwright CLI 在隔离宿主中运行真实总结 iframe：1000 楼、502 项修正首次显示末页，单页最多 20 项。确认手动旧页、已展开项和焦点在新修改到达后不变，已加载的更早轮次在新轮次到达后仍保留。
+- 检查楼层定位、无修正楼层反馈、同一楼多次修正定位最新项、大总结合并与锚点分组、长汇报展开／收起、原文打开／返回、键盘操作、保存未确认及空态。
+- 实际视口 1280×900、390×900、320×740；后两者内容宽度分别为 358/358 与 288/288（client/scroll），无横向溢出。390 宽度下 200% 文字仍为 358/358。已看过深浅主题截图。
+
+本地证据：`output/playwright/maintenance-records/`。`check.js`、`extra-check.js` 通过 CLI `run-code --filename` 运行；`latest-page-desktop.png`、`latest-page-mobile.png` 展示默认 `5 / 5`，`desktop-light.png` 展示 Markdown，`mobile-light.png`、`mobile-dark.png` 展示内容对照。
+
+Markdown 复用 agent-core 现有源实现，为原生模块 iframe 派生独立浏览器包；维护页面只挂载允许的阅读节点，不开放聊天 HTML 预览。构建命令 `npm run build:message-markdown`；总结 bundle 检查同时核对产物是否过期。没有新增 npm 依赖，没有发起模型／embedding 请求，没有实体手机或用户真实聊天写入测试，未提交推送。

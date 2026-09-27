@@ -44,9 +44,40 @@
 .memory-counts, .memory-outstanding { display: block; color: var(--txt2); font-size: .75rem; }
 .memory-outstanding { margin-top: 4px; }
 .memory-receipt-body { padding-bottom: 20px; overflow-wrap: anywhere; }
-.memory-outcome { color: var(--txt2); margin-bottom: 22px; }
-.memory-operation + .memory-operation { margin-top: 28px; padding-top: 24px; border-top: 1px solid var(--bdr); }
-.memory-operation h4 { font-size: .9375rem; font-weight: 600; margin-bottom: 14px; }
+.memory-report { margin: 8px 0 24px; }
+.memory-report > h4, .memory-changes > h4 { font-size: .9375rem; font-weight: 600; margin-bottom: 10px; }
+.memory-report-viewport { max-height: 18rem; overflow: hidden; }
+.memory-report.is-expanded .memory-report-viewport { max-height: none; }
+.memory-report.is-clipped:not(.is-expanded) .memory-report-viewport { mask-image: linear-gradient(#000 calc(100% - 28px), transparent); }
+.memory-report-toggle { display: block; border: 0; background: none; color: var(--hl); padding: 8px 0; min-height: 40px; }
+.memory-outcome { color: var(--txt); line-height: 1.8; }
+.memory-outcome > :first-child { margin-top: 0; }
+.memory-outcome > :last-child { margin-bottom: 0; }
+.memory-outcome p, .memory-outcome ul, .memory-outcome ol, .memory-outcome pre, .memory-outcome blockquote, .memory-outcome table { margin: .7em 0; }
+.memory-outcome ul, .memory-outcome ol { padding-left: 1.6em; }
+.memory-outcome li + li { margin-top: .25em; }
+.memory-outcome h1, .memory-outcome h2, .memory-outcome h3, .memory-outcome h4, .memory-outcome h5, .memory-outcome h6 { font-size: 1em; font-weight: 600; margin: 1em 0 .4em; }
+.memory-outcome blockquote { border-left: 2px solid var(--bdr); padding-left: 12px; color: var(--txt2); }
+.memory-outcome pre { padding: 10px 12px; background: var(--bg2); border-radius: 6px; overflow-x: auto; }
+.memory-outcome code { font-size: .9em; font-family: ui-monospace, monospace; }
+.memory-outcome a { color: var(--hl); text-decoration: underline; text-underline-offset: 3px; }
+.memory-outcome table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; }
+.memory-outcome th, .memory-outcome td { border: 1px solid var(--bdr); padding: 6px 10px; text-align: left; }
+.memory-outcome hr { border: 0; border-top: 1px solid var(--bdr); margin: 1em 0; }
+.memory-change-filters { display: flex; flex-wrap: wrap; gap: 4px 16px; border-bottom: 1px solid var(--bdr); margin-bottom: 12px; }
+.memory-filter { min-height: 42px; padding: 8px 0; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--txt2); }
+.memory-filter[aria-pressed='true'] { border-bottom-color: var(--hl); color: var(--txt); font-weight: 600; }
+.memory-floor-lookup { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px; font-size: .8125rem; }
+.memory-floor-lookup label { display: flex; align-items: center; gap: 8px; }
+.memory-floor-lookup input { box-sizing: border-box; width: 6em; min-height: 40px; border: 1px solid var(--bdr); border-radius: 6px; color: var(--txt); background: var(--bg); padding: 6px 8px; font: inherit; }
+.memory-lookup-status { color: var(--txt2); font-size: .8125rem; margin-bottom: 10px; }
+.memory-lookup-status:empty { display: none; }
+.memory-operation { border-bottom: 1px solid var(--bdr); }
+.memory-operation > summary { min-height: 44px; padding: 10px 0; box-sizing: border-box; font-size: .875rem; }
+.memory-operation[open] > summary { font-weight: 600; }
+.memory-operation-body { padding: 8px 0 20px; }
+.memory-pagination { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; margin-top: 16px; }
+.memory-page-position { min-width: 4em; text-align: center; font-variant-numeric: tabular-nums; font-size: .8125rem; color: var(--txt2); }
 .memory-comparison { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
 .memory-version { min-width: 0; border-left: 2px solid var(--bdr); padding-left: 14px; }
 .memory-version-after { border-left-color: var(--hl); }

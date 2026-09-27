@@ -1,27 +1,13 @@
 import { MEMORY_COPY as copy } from './copy.js';
 import { comparisonRows, memoryLabel, operationTitle } from './presentation.js';
-
-const element = (tag, className, text) => {
-    const node = document.createElement(tag);
-    if (className) node.className = className;
-    if (text != null) node.textContent = text;
-    return node;
-};
-const button = (label, action, className = 'memory-button') => {
-    const node = element('button', className, label);
-    node.type = 'button';
-    node.onclick = action;
-    return node;
-};
-const disclosure = (label, className) => {
-    const node = element('details', className);
-    node.append(element('summary', '', label));
-    return node;
-};
+import { element, button, disclosure } from './ui-elements.js';
+import { createOperationList } from './operation-list.js';
+import { reportMarkdown } from './report-markdown.js';
 
 export function createMemoryMaintenancePage(root, send) {
     let chatId = null;
     let next = null;
+    let runIds = [];
     let requestSequence = 0;
     let sourceRequest = null;
     const authorization = element('section', 'memory-settings');
@@ -86,8 +72,9 @@ export function createMemoryMaintenancePage(root, send) {
     function setChat(nextChatId) {
         if (nextChatId === chatId) return;
         chatId = nextChatId;
-        list.replaceChildren();
+        clearReceipts();
         next = null;
+        runIds = [];
         more.hidden = true;
         cancel.hidden = index.hidden = empty.hidden = true;
         state.textContent = copy.loading;
@@ -150,8 +137,7 @@ export function createMemoryMaintenancePage(root, send) {
     }
 
     function renderOperation(operation, receipt) {
-        const block = element('section', 'memory-operation');
-        block.append(element('h4', '', operationTitle(operation)));
+        const block = element('div', 'memory-operation-body');
         for (const reason of new Set(operation.changes.filter(change => change.retired).map(change => change.retired.reason))) {
             block.append(element('p', 'memory-retired', copy.retired[reason]));
         }
@@ -174,44 +160,92 @@ export function createMemoryMaintenancePage(root, send) {
         const details = element('details', 'memory-receipt');
         details.dataset.receiptId = receipt.id;
         const summary = element('summary');
-        const meta = element('span', 'memory-receipt-meta');
-        const time = element('time', '', new Date(receipt.createdAt).toLocaleString());
-        time.dateTime = new Date(receipt.createdAt).toISOString();
-        meta.append(element('span', '', copy.boundary(receipt.cutoff)), time);
-        const titles = element('span', 'memory-receipt-titles');
-        for (const operation of receipt.operations.slice(0, 2)) titles.append(element('strong', '', operationTitle(operation)));
-        if (!receipt.operations.length) titles.append(element('strong', '', copy.noChanges));
-        if (receipt.operations.length > 2) titles.append(element('span', 'memory-hint', copy.moreChanges(receipt.operations.length - 2)));
-        const counts = Object.entries(receipt.counts).filter(([, count]) => count > 0).map(([key, count]) => copy.count(copy[key], count));
-        summary.append(meta, titles);
-        if (counts.length) summary.append(element('span', 'memory-counts', counts.join(' · ')));
-        const coverage = receipt.coverage;
-        if (coverage.missingAnchors.length) summary.append(element('span', 'memory-outstanding', copy.count(copy.missing, coverage.missingAnchors.length)));
-        if (receipt.outcome) summary.append(element('span', 'memory-hint', copy.states[receipt.outcome.status]));
         const content = element('div', 'memory-receipt-body');
-        if (receipt.completed?.length) content.append(element('p', 'memory-hint', `${copy.completedRanges}：${copy.ranges(receipt.completed)}`));
-        if (receipt.summary) content.append(element('p', 'memory-outcome', receipt.summary));
-        for (const operation of receipt.operations) content.append(renderOperation(operation, receipt));
+        const completed = element('p', 'memory-hint');
+        const report = element('section', 'memory-report');
+        const reportViewport = element('div', 'memory-report-viewport');
+        const reportContent = element('div', 'memory-outcome');
+        reportViewport.append(reportContent);
+        let expandedReport = false;
+        const expandReport = button(copy.expandReport, () => {
+            expandedReport = !expandedReport;
+            report.classList.toggle('is-expanded', expandedReport);
+            expandReport.textContent = expandedReport ? copy.collapseReport : copy.expandReport;
+            expandReport.setAttribute('aria-expanded', String(expandedReport));
+        }, 'memory-report-toggle');
+        expandReport.hidden = true;
+        expandReport.setAttribute('aria-expanded', 'false');
+        report.append(element('h4', '', copy.report), reportViewport, expandReport);
+        const measureReport = () => {
+            if (!details.open || report.hidden || expandedReport) return;
+            const clipped = reportContent.getBoundingClientRect().height > reportViewport.clientHeight + 1;
+            expandReport.hidden = !clipped;
+            report.classList.toggle('is-clipped', clipped);
+        };
+        const observer = new ResizeObserver(measureReport);
+        observer.observe(reportContent);
+        details.addEventListener('toggle', measureReport);
+        const operations = createOperationList(renderOperation);
         const coverageDetails = disclosure(copy.coverage, 'memory-coverage');
-        if (coverage.supplied.length) coverageDetails.append(evidenceLinks(receipt, coverage.supplied));
-        for (const [key, items] of Object.entries({ missingAnchors: coverage.missingAnchors })) {
-            if (!items.length) continue;
-            const section = element('section');
-            section.append(element('h4', '', copy.count(copy[key === 'missingAnchors' ? 'missing' : key], items.length)));
-            const entries = element('ul');
-            for (const item of items) {
-                const entry = element('li');
-                const floors = item.ranges?.map(range => range.floor);
-                entry.append(element('span', '', floors?.length ? copy.sourceRange(Math.min(...floors), Math.max(...floors)) : copy.floor(item.floor)));
-                if (key === 'missingAnchors' && copy.anchorStates[item.status]) entry.append(element('span', 'memory-hint', ` · ${copy.anchorStates[item.status]}`));
-                entries.append(entry);
-            }
-            section.append(entries);
-            coverageDetails.append(section);
-        }
-        content.append(coverageDetails);
+        content.append(completed, report, operations.element, coverageDetails);
         details.append(summary, content);
+        let previousReport;
+        let previousCoverage;
+        details.update = receipt => {
+            summary.replaceChildren();
+            const meta = element('span', 'memory-receipt-meta');
+            const time = element('time', '', new Date(receipt.createdAt).toLocaleString());
+            time.dateTime = new Date(receipt.createdAt).toISOString();
+            meta.append(element('span', '', copy.boundary(receipt.cutoff)), time);
+            const titles = element('span', 'memory-receipt-titles');
+            for (const operation of receipt.operations.slice(-2)) titles.append(element('strong', '', operationTitle(operation)));
+            if (!receipt.operations.length) titles.append(element('strong', '', copy.noChanges));
+            if (receipt.operations.length > 2) titles.append(element('span', 'memory-hint', copy.moreChanges(receipt.operations.length - 2)));
+            const counts = Object.entries(receipt.counts).filter(([, count]) => count > 0).map(([key, count]) => copy.count(copy[key], count));
+            summary.append(meta, titles);
+            if (counts.length) summary.append(element('span', 'memory-counts', counts.join(' · ')));
+            const coverage = receipt.coverage;
+            if (coverage.missingAnchors.length) summary.append(element('span', 'memory-outstanding', copy.count(copy.missing, coverage.missingAnchors.length)));
+            if (receipt.outcome) summary.append(element('span', 'memory-hint', copy.states[receipt.outcome.status]));
+            completed.hidden = !receipt.completed?.length;
+            completed.textContent = receipt.completed?.length ? `${copy.completedRanges}：${copy.ranges(receipt.completed)}` : '';
+            report.hidden = !receipt.summary;
+            if (previousReport !== receipt.summary) {
+                previousReport = receipt.summary;
+                reportContent.replaceChildren(reportMarkdown(receipt.summary));
+            }
+            operations.update(receipt);
+            const coverageSignature = JSON.stringify([receipt.receiptId, coverage]);
+            if (previousCoverage === coverageSignature) return;
+            previousCoverage = coverageSignature;
+            while (coverageDetails.children.length > 1) coverageDetails.lastElementChild.remove();
+            if (coverage.supplied.length) coverageDetails.append(evidenceLinks(receipt, coverage.supplied));
+            for (const [key, items] of Object.entries({ missingAnchors: coverage.missingAnchors })) {
+                if (!items.length) continue;
+                const section = element('section');
+                section.append(element('h4', '', copy.count(copy[key === 'missingAnchors' ? 'missing' : key], items.length)));
+                const entries = element('ul');
+                for (const item of items) {
+                    const entry = element('li');
+                    const floors = item.ranges?.map(range => range.floor);
+                    entry.append(element('span', '', floors?.length ? copy.sourceRange(Math.min(...floors), Math.max(...floors)) : copy.floor(item.floor)));
+                    if (key === 'missingAnchors' && copy.anchorStates[item.status]) entry.append(element('span', 'memory-hint', ` · ${copy.anchorStates[item.status]}`));
+                    entries.append(entry);
+                }
+                section.append(entries);
+                coverageDetails.append(section);
+            }
+        };
+        details.dispose = () => observer.disconnect();
+        details.update(receipt);
         return details;
+    }
+
+    function clearReceipts(keep = new Set()) {
+        for (const node of [...list.children]) if (!keep.has(node.dataset.receiptId)) {
+            node.dispose();
+            node.remove();
+        }
     }
 
     return {
@@ -261,24 +295,28 @@ export function createMemoryMaintenancePage(root, send) {
             cancel.disabled = data.state?.status === 'saving';
             index.hidden = blocked || data.index?.status !== 'pending';
             repair.disabled = running || blocked;
-            const opened = new Set([...list.querySelectorAll('details[open][data-receipt-id]')].map(node => node.dataset.receiptId));
-            if (!data.offset && data.total != null) {
-                const currentIds = [...list.children].slice(0, data.items.length).map(node => node.dataset.receiptId);
-                if (data.total === 0 || data.total < list.children.length
-                    || data.items.some((receipt, position) => currentIds[position] !== receipt.id)) list.replaceChildren();
+            if (data.total != null) {
+                runIds = data.runIds;
+                clearReceipts(new Set(runIds));
             }
             for (const receipt of data.items || []) {
                 const existing = [...list.children].find(node => node.dataset.receiptId === receipt.id);
-                if (existing?._receipt === JSON.stringify(receipt)) continue;
-                const node = renderReceipt(receipt);
-                node._receipt = JSON.stringify(receipt);
-                node.open = opened.has(receipt.id);
-                if (existing) existing.replaceWith(node);
-                else if (!data.offset) list.insertBefore(node, list.children[(data.items || []).indexOf(receipt)] || null);
-                else list.append(node);
+                const signature = JSON.stringify(receipt);
+                const node = existing || renderReceipt(receipt);
+                if (existing && existing._receipt !== signature) existing.update(receipt);
+                node._receipt = signature;
+                if (!existing) list.append(node);
             }
+            const loaded = new Map([...list.children].map(node => [node.dataset.receiptId, node]));
+            runIds.filter(id => loaded.has(id)).forEach((id, position) => {
+                const node = loaded.get(id);
+                if (list.children[position] !== node) list.insertBefore(node, list.children[position] || null);
+            });
             empty.hidden = list.children.length > 0 || running || blocked || !!code;
-            next = data.total != null && list.children.length < data.total ? list.children.length : null;
+            // New runs may arrive while older pages are open. Query the first gap,
+            // not the number of mounted cards, so an unseen middle page is not skipped.
+            const missing = runIds.findIndex(id => !loaded.has(id));
+            next = missing >= 0 ? missing : null;
             more.disabled = false;
             more.hidden = next == null;
         },

@@ -17,7 +17,7 @@ http.createServer((request, response) => {
         return;
     }
     if ((!/^\/modules\/story-summary\/[a-zA-Z0-9_./-]+$/.test(pathname)
-        && !['/core/iframe-messaging.js', '/libs/js-sha256.mjs'].includes(pathname)) || pathname.includes('..')) {
+        && !['/core/iframe-messaging.js', '/libs/js-sha256.mjs', '/modules/agent-core/ui/dist/message-markdown.js'].includes(pathname)) || pathname.includes('..')) {
         response.writeHead(404).end();
         return;
     }

@@ -90,8 +90,22 @@ test('results paginate by run and retain saved edits with the final reply and st
     const page = projectMaintenanceReceipts(store, 0, 1);
     assert.equal(page.total, 2);
     assert.equal(page.next, 1);
+    assert.deepEqual(page.runIds, ['new', 'old']);
     assert.deepEqual(page.items[0].receiptIds, ['two', 'one']);
     assert.equal(page.items[0].outcome.status, 'completed');
+    assert.equal(page.items[0].summary, receipts[2].summary);
     assert.equal(page.items[0].coverage.supplied.length, 1);
     assert.equal(projectMaintenanceReceipts(store, page.next, 1).items[0].id, 'old');
+});
+
+test('reports never promote edit notes to a final reply, including interrupted and failed runs', () => {
+    const coverage = { supplied: [], missingAnchors: [] };
+    const edit = { id: 'edit', runId: 'run', operations: [], summary: 'working note', coverage };
+    const final = { ...edit, id: 'final', outcome: { status: 'failed' }, summary: '' };
+    for (const receipts of [[edit], [edit, final]]) {
+        const store = { summaryHistory: [{ maintenance: receipts }] };
+        const before = structuredClone(store);
+        assert.equal(projectMaintenanceReceipts(store).items[0].summary, '');
+        assert.deepEqual(store, before);
+    }
 });
