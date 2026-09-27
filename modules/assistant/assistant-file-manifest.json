@@ -839,7 +839,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/prompts/system-prompt.js",
       "relativePath": "modules/assistant/app-src/prompts/system-prompt.js",
       "extension": ".js",
-      "sizeBytes": 18853
+      "sizeBytes": 18852
     },
     {
       "source": "littlewhitebox",
@@ -1028,7 +1028,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/references/stscript-reference.md",
       "relativePath": "modules/assistant/references/stscript-reference.md",
       "extension": ".md",
-      "sizeBytes": 80939
+      "sizeBytes": 81423
     },
     {
       "source": "littlewhitebox",

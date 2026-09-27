@@ -6442,26 +6442,31 @@ var wZ = 3.35, _Z = new TextEncoder();
 function xZ(e = [], t = [], n = {}) {
   const r = RE(n, t), i = ["openai-compatible", "sillytavern-openai-compatible"].includes(n.provider) && !(n.toolMode === "tagged-json" && t.length), s = $E(e);
   return e.map((o, a) => {
-    const l = o.role === "assistant" ? o.providerPayload?.openaiCompatibleMessage : null, c = typeof l?.reasoning_content == "string" && (r || i && QE(l, a, s)) ? l.reasoning_content : "", u = c ? { reasoning_content: c } : {}, d = Array.isArray(o.content) ? o.content.map((f) => !f || typeof f != "object" ? "" : f.type === "text" ? f.text || "" : f.type === "image_url" ? `[image:${f.name || f.mimeType || "image"}]` : "").filter(Boolean).join(`
+    const l = o.role === "assistant" ? o.providerPayload : null, c = ["google", "sillytavern-google"].includes(n.provider) ? l?.googleContents || l?.googleContent : ["anthropic", "sillytavern-claude"].includes(n.provider) ? l?.anthropicContent : n.provider === "openai-responses" ? l?.openAIResponseOutput : null;
+    if (c) return {
+      role: o.role,
+      content: JSON.stringify(c)
+    };
+    const u = o.role === "assistant" ? o.providerPayload?.openaiCompatibleMessage : null, d = typeof u?.reasoning_content == "string" && (r || i && QE(u, a, s)) ? u.reasoning_content : "", f = d ? { reasoning_content: d } : {}, m = Array.isArray(o.content) ? o.content.map((O) => !O || typeof O != "object" ? "" : O.type === "text" ? O.text || "" : O.type === "image_url" ? `[image:${O.name || O.mimeType || "image"}]` : "").filter(Boolean).join(`
 `) : o.content || "";
     return o.role === "assistant" && Array.isArray(o.tool_calls) && o.tool_calls.length ? {
       role: "assistant",
-      content: [d, o.tool_calls.map((f) => JSON.stringify({
-        id: f.id,
-        name: f.function?.name || "",
-        arguments: f.function?.arguments || "{}"
+      content: [m, o.tool_calls.map((O) => JSON.stringify({
+        id: O.id,
+        name: O.function?.name || "",
+        arguments: O.function?.arguments || "{}"
       })).join(`
 `)].filter(Boolean).join(`
 `),
-      ...u
+      ...f
     } : o.role === "tool" ? {
       role: "tool",
       content: [o.tool_call_id || "", o.content || ""].filter(Boolean).join(`
 `)
     } : {
       role: o.role,
-      content: d,
-      ...u
+      content: m,
+      ...f
     };
   });
 }
@@ -64375,7 +64380,7 @@ var cfe = ['你是 SillyTavern 中 LittleWhiteBox（中文一般称"小白X"）�
   " - Character cards: /getvar name={{char}}, /setvar key=char::field",
   " - Lorebook: /wi-list-books, /wi-list-entries",
   " - Chat/swipes: /messages, /swipe, /addswipe, /delswipe",
-  " - Presets: /presets-list, /preset-switch",
+  " - Presets: /preset, /context, /instruct",
   " - Extensions: /extension-settings",
   " - Variables: /getvar, /setvar, /addvar",
   "",

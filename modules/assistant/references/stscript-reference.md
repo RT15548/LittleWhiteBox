@@ -369,6 +369,7 @@ STscript 支持两种主要参数形式：
 ### API与连接命令
 - [/api](#api) - 切换API
 - [/api-url](#api-url) - 设置API URL
+- [/preset](#preset) - 切换当前API的设置预设
 - [/context](#context) - 切换context preset
 - [/instruct](#instruct) - 切换instruct preset
 - [/instruct-on](#instruct-on) - 启用instruct模式
@@ -1396,6 +1397,22 @@ STscript 支持两种主要参数形式：
 /api openai
 /api quiet=true claude
 ```
+
+---
+
+### /preset
+
+切换或获取当前API的设置预设。名称优先精确匹配；未精确匹配时会尝试模糊匹配，未找到时保持当前预设。
+
+**别名**: 无
+
+**未命名参数**:
+
+| 位置 | 类型 | 必需 | 说明 |
+|------|------|------|------|
+| 1 | STRING | 否 | 预设名称（不提供则返回当前预设） |
+
+**返回值**: 当前或选中的预设名称；未找到时返回原预设名称。
 
 ---
 

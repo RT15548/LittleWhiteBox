@@ -135,7 +135,7 @@ const TOOL_GUIDELINES = [
     ' - Character cards: /getvar name={{char}}, /setvar key=char::field',
     ' - Lorebook: /wi-list-books, /wi-list-entries',
     ' - Chat/swipes: /messages, /swipe, /addswipe, /delswipe',
-    ' - Presets: /presets-list, /preset-switch',
+    ' - Presets: /preset, /context, /instruct',
     ' - Extensions: /extension-settings',
     ' - Variables: /getvar, /setvar, /addvar',
     '',
