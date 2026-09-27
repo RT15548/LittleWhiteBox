@@ -9,7 +9,7 @@ import { jsonValuesEqual } from '../../../host/json-values-equal.js';
 import type { MapService, MapServiceView } from '../application/service.js';
 import { createEmptyMapDomain } from '../../../domains/map/state.js';
 import type { MapDomainEdit } from '../../../domains/map/edit.js';
-import type { MapDomain } from '../../../domains/map/types.js';
+import type { MapDomainV1 } from '../../../domains/map/types.js';
 import { compileAtlasIntent } from '../tools/atlas-intent-compiler.js';
 import { buildMapAtlasDataMessage } from '../tools/atlas-data-message.js';
 import { readAtlas } from '../tools/atlas-reader.js';
@@ -20,7 +20,7 @@ import { resolveSceneKey, sceneForTool } from '../tools/scene-reader.js';
 import { MAP_MAINTENANCE_TOOLS, MAP_MAINTENANCE_TOOL_NAMES } from '../tools/tool-contract.js';
 import { intentId, isRecord } from '../tools/intent-common.js';
 
-function mapContent(domain: MapDomain): Pick<MapDomain, 'atlas' | 'scenes'> {
+function mapContent(domain: MapDomainV1): Pick<MapDomainV1, 'atlas' | 'scenes'> {
     return { atlas: domain.atlas, scenes: domain.scenes };
 }
 
@@ -49,7 +49,7 @@ export function createMapMaintenanceSession(
     const acceptCompile = (
         scope: 'atlas' | 'scene',
         contextId: string,
-        compiled: { domain: MapDomain; edits: readonly MapDomainEdit[]; result: MapToolResult },
+        compiled: { domain: MapDomainV1; edits: readonly MapDomainEdit[]; result: MapToolResult },
     ): MapToolResult => {
         const callFailureKey = (context: string): string => `${scope}:${context}:call:*`;
         const failureKey = (item: Pick<MapToolItemReport, 'collection' | 'id'>): string => {

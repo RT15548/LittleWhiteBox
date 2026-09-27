@@ -1,168 +1,283 @@
 import { sha256 } from 'js-sha256';
 import type { AcceptedTurnPlayer } from '../../../capabilities/maintenance/accepted-turn-source.js';
-import { stageMapDomainEdits, type MapDomainEdit } from '../../../domains/map/edit.js';
-import { isMapSceneLocation, locationRegion, unassignedMapLocations } from '../../../domains/map/hierarchy.js';
-import { MAX_MAP_ACTORS, MAX_MAP_LABEL_LENGTH, MAX_MAP_LINKS, MAX_MAP_LOCATIONS } from '../../../domains/map/invariants.js';
-import type { MapDomain, MapLink } from '../../../domains/map/types.js';
-import { MAX_MAP_FEATURES, MAX_MAP_FRAMES } from '../../../domains/map/space/types.js';
-import { mapFrameId } from '../../../domains/map/space/frames.js';
-import { atlasBaseGaps } from '../../../domains/map/space/coverage.js';
-import { jsonValuesEqual } from '../../../host/json-values-equal.js';
-import { compileLocationDeclaration } from './atlas-location-compiler.js';
-import { compileFeatureDeclaration, compileFrameDeclaration, mapOwner } from './atlas-spatial-compiler.js';
-import { atlasEditGroups } from './atlas-dependencies.js';
-import { actorMoveEdits, atlasRemovalEdits } from './atlas-removals.js';
-import { applyIntentEdits, errorText, intentId, intentText, isRecord } from './intent-common.js';
-import { mapToolResult, type MapToolItemReport, type MapToolResult } from './result.js';
-import { MAP_REGION_REQUIRED_HINT, MAP_SCENE_LOCATION_REQUIRED_HINT } from './hierarchy-feedback.js';
+import type { MapDomainEdit } from '../../../domains/map/edit.js';
+import { compileAtlasLocations } from './atlas-location-compiler.js';
+import {
+    MAX_MAP_ACTORS,
+    MAX_MAP_LABEL_LENGTH,
+    MAX_MAP_LINKS,
+    MAX_MAP_LOCATIONS,
+} from '../../../domains/map/invariants.js';
+import type {
+    MapActorPosition,
+    MapDomainV1,
+    MapLink,
+    MapLinkKind,
+} from '../../../domains/map/types.js';
+import { mapToolResult, type MapToolResult } from './result.js';
+import { applyIntentEdits, enumToken, errorText, intentId, intentText, isRecord } from './intent-common.js';
 
-export interface AtlasIntentCompileResult { readonly domain: MapDomain; readonly edits: readonly MapDomainEdit[]; readonly result: MapToolResult }
-interface Entry { collection: string; index: number; id: string; target: string; refs: string[]; raw: unknown; edits: MapDomainEdit[]; error?: string }
-const COLLECTIONS = [
-    ['locations', 'key', 'location', MAX_MAP_LOCATIONS],
-    ['maps', 'map', 'frame', MAX_MAP_FRAMES],
-    ['features', 'id', 'feature', MAX_MAP_FEATURES],
-    ['links', 'id', 'link', MAX_MAP_LINKS],
-    ['actors', 'actorKey', 'actor', MAX_MAP_ACTORS],
-] as const;
-const REMOVALS = [
-    ['locationKeys', 'location', MAX_MAP_LOCATIONS], ['maps', 'frame', MAX_MAP_FRAMES],
-    ['featureIds', 'feature', MAX_MAP_FEATURES], ['linkIds', 'link', MAX_MAP_LINKS], ['actorKeys', 'actor', MAX_MAP_ACTORS],
-] as const;
-const GROUP_HINT = 'Correct the related declarations and retry them together. The related group was not changed.';
-function stableLinkId(raw: Record<string, unknown>): string {
-    const bidirectional = raw.bidirectional !== false, from = intentId(raw.from), to = intentId(raw.to);
+const LINK_KINDS: readonly MapLinkKind[] = ['door', 'stairs', 'elevator', 'path', 'road', 'portal', 'passage'];
+const ROOT_FIELDS = new Set(['locations', 'links', 'actors', 'remove']);
+const LINK_FIELDS = new Set(['id', 'from', 'to', 'kind', 'label', 'bidirectional']);
+const ACTOR_FIELDS = new Set(['actorKey', 'displayName', 'locationKey']);
+const REMOVAL_FIELDS = new Set(['locationKeys', 'linkIds', 'actorKeys']);
+
+export interface AtlasIntentCompileResult {
+    readonly domain: MapDomainV1;
+    readonly edits: readonly MapDomainEdit[];
+    readonly result: MapToolResult;
+}
+
+function stableLinkId(from: string, to: string, kind: string, bidirectional: boolean): string {
     const endpoints = bidirectional ? [from, to].sort() : [from, to];
-    return from && to && raw.kind ? `link:${sha256(JSON.stringify([bidirectional, ...endpoints, raw.kind]))}` : '';
-}
-function references(collection: string, raw: unknown): string[] {
-    if (!isRecord(raw)) { return []; }
-    const refs: string[] = [];
-    const loc = (value: unknown) => { const key = intentId(value); if (key) { refs.push(`location:${key}`); } };
-    const map = (value: unknown) => { const key = intentId(value); if (value === null || key) { refs.push(`frame:${mapFrameId(key || null)}`); loc(value); } };
-    const feature = (value: unknown) => { if (typeof value === 'string') { refs.push(`feature:${value}`); } };
-    if (collection === 'locations') { loc(raw.parent); if (isRecord(raw.position)) { map(raw.position.map); } if (Object.hasOwn(raw, 'reframe')) { map(raw.reframe); } }
-    if (collection === 'maps') { loc(raw.map); if (isRecord(raw.mapping)) { map(raw.mapping.map); } feature(raw.boundary); }
-    if (collection === 'features') { loc(raw.owner); map(raw.map); map(raw.reframe); loc(raw.destination); feature(raw.support); if (Array.isArray(raw.crosses)) { raw.crosses.forEach(feature); } }
-    if (collection === 'links') { loc(raw.from); loc(raw.to); feature(raw.feature); }
-    if (collection === 'actors') { loc(raw.locationKey); }
-    return refs;
-}
-function targetValue(domain: MapDomain, entry: Entry): unknown {
-    const [kind, ...rest] = entry.target.split(':'), id = rest.join(':');
-    if (kind === 'location') { return domain.atlas.locations.find(l => l.key === id); }
-    if (kind === 'frame') { return domain.atlas.frames.find(f => f.id === id); }
-    if (kind === 'feature') { return domain.atlas.features.find(f => f.id === id); }
-    if (kind === 'link') { return domain.atlas.links.find(l => l.id === id); }
-    return domain.atlas.actors.find(a => a.actorKey === id);
-}
-function prepareEntry(domain: MapDomain, entry: Entry, player: AcceptedTurnPlayer): MapDomainEdit[] {
-    if (!isRecord(entry.raw)) { throw new Error('atlas_item_must_be_object'); }
-    const raw = entry.raw;
-    if (entry.collection === 'locations') { return [{ op: 'upsert-location', location: compileLocationDeclaration(domain, raw) }]; }
-    if (entry.collection === 'maps') { return [{ op: 'upsert-frame', frame: compileFrameDeclaration(domain, raw) }]; }
-    if (entry.collection === 'features') { return [{ op: 'upsert-feature', feature: compileFeatureDeclaration(domain, raw) }]; }
-    if (entry.collection === 'links') {
-        if (Object.keys(raw).some(k => !['id', 'from', 'to', 'kind', 'label', 'bidirectional', 'feature'].includes(k))) { throw new Error('link_has_unsupported_fields'); }
-        const from = intentId(raw.from), to = intentId(raw.to), kind = raw.kind as MapLink['kind'];
-        if (!from || !to || !kind || !entry.id) { throw new Error('link_requires_from_to_kind'); }
-        const bidirectional = raw.bidirectional === undefined ? true : raw.bidirectional as boolean;
-        const ends = bidirectional ? [from, to].sort() : [from, to];
-        const existing = domain.atlas.links.find(l => l.id === entry.id);
-        const link: MapLink = { ...existing, id: entry.id, from: ends[0], to: ends[1], kind, bidirectional };
-        if (raw.label === null) { delete link.label; }
-        else if (raw.label !== undefined) { link.label = intentText(raw.label, '', MAX_MAP_LABEL_LENGTH); }
-        if (raw.feature === null) { delete link.feature; }
-        else if (raw.feature !== undefined) { link.feature = intentId(raw.feature); }
-        return [{ op: 'upsert-link', link }];
-    }
-    if (Object.keys(raw).some(k => !['actorKey', 'displayName', 'locationKey'].includes(k))) { throw new Error('actor_has_unsupported_fields'); }
-    const locationKey = intentId(raw.locationKey), actorKey = entry.id;
-    if (!actorKey || !locationKey) { throw new Error('actor_requires_actorKey_and_locationKey'); }
-    const displayName = actorKey === 'player' ? player.displayName : intentText(raw.displayName, domain.atlas.actors.find(a => a.actorKey === actorKey)?.displayName || actorKey);
-    return actorMoveEdits(domain, { actorKey, displayName, locationKey });
-}
-function removals(domain: MapDomain, entries: Entry[]): MapDomainEdit[] {
-    if (entries.some(e => !e.id)) { throw new Error('atlas_removal_id_required'); }
-    const ids = (collection: string) => entries.filter(e => e.collection === `remove.${collection}`).map(e => e.id);
-    return atlasRemovalEdits(domain, { locations: ids('locationKeys'), frames: ids('maps'), features: ids('featureIds'), links: ids('linkIds'), actors: ids('actorKeys') });
+    return `link:${sha256(JSON.stringify([bidirectional, ...endpoints, kind]))}`;
 }
 
-export function compileAtlasIntent(current: MapDomain, value: unknown, player: AcceptedTurnPlayer): AtlasIntentCompileResult {
-    const fail = (reason: string): AtlasIntentCompileResult => ({ domain: current, edits: [], result: mapToolResult({ skipped: [{ index: 0, id: '', reason }] }) });
-    if (!isRecord(value)) { return fail('arguments_must_be_object'); }
-    if (Object.keys(value).some(k => ![...COLLECTIONS.map(c => c[0]), 'remove'].includes(k))) { return fail('atlas_has_unsupported_fields'); }
-    if (value.remove !== undefined && !isRecord(value.remove)) { return fail('atlas_remove_must_be_object'); }
-    const removed = isRecord(value.remove) ? value.remove : {};
-    if (Object.keys(removed).some(k => !REMOVALS.some(r => r[0] === k))) { return fail('atlas_remove_has_unsupported_fields'); }
-    const entries: Entry[] = [];
-    for (const [collection, key, kind, limit] of COLLECTIONS) {
-        const values = value[collection];
-        if (values === undefined) { continue; }
-        if (!Array.isArray(values)) { return fail('atlas_collection_must_be_array'); }
-        if (values.length > limit) { return fail('atlas_collection_exceeds_limit'); }
-        values.forEach((raw, index) => {
-            let id = isRecord(raw) ? intentId(raw[key]) : '';
-            if (collection === 'maps' && isRecord(raw) && (raw.map === null || intentId(raw.map))) { id = mapFrameId(intentId(raw.map) || null); }
-            if (collection === 'links' && !id && isRecord(raw)) { id = stableLinkId(raw); }
-            if (collection === 'actors' && id === 'user') { id = 'player'; }
-            entries.push({ collection, index, id, target: `${kind}:${id || '?'+index}`, refs: references(collection, raw), raw, edits: [] });
-        });
-    }
-    for (const [name, kind, limit] of REMOVALS) {
-        const values = removed[name];
-        if (values === undefined) { continue; }
-        if (!Array.isArray(values)) { return fail('atlas_collection_must_be_array'); }
-        if (values.length > limit) { return fail('atlas_collection_exceeds_limit'); }
-        values.forEach((raw, index) => {
-            let id = name === 'maps' && (raw === null || intentId(raw)) ? mapFrameId(intentId(raw) || null) : intentId(raw);
-            if (name === 'actorKeys' && id === 'user') { id = 'player'; }
-            entries.push({ collection: `remove.${name}`, index, id, target: `${kind}:${id || '?'+index}`, refs: [], raw, edits: [] });
-        });
-    }
-    // All explicit mapping declarations are available when computing a same-call reframe.
-    let draft = structuredClone(current);
-    for (const entry of entries.filter(e => e.collection === 'maps')) {
-        try { entry.edits = prepareEntry(draft, entry, player); draft = stageMapDomainEdits(draft, entry.edits); }
-        catch (error) { entry.error = errorText(error); }
-    }
-    for (const entry of entries.filter(e => e.collection !== 'maps' && !e.collection.startsWith('remove.'))) {
-        try {
-            entry.edits = prepareEntry(draft, entry, player);
-            // Frame identities are generated locally. Their relation to other frames remains unknown.
-            const owners: Array<string | null> = [];
-            const raw = entry.raw as Record<string, unknown>;
-            if (entry.collection === 'locations' && isRecord(raw.position)) { owners.push(mapOwner(raw.position.map) ?? null); }
-            if (entry.collection === 'features' && Object.hasOwn(raw, 'map')) { owners.push(mapOwner(raw.map) ?? null); }
-            for (const owner of owners) {
-                const id = mapFrameId(owner);
-                if (!current.atlas.frames.some(f => f.id === id) && !entries.some(e => e.collection === 'maps' && e.id === id)) { entry.edits.unshift({ op: 'upsert-frame', frame: { id, ...(owner ? { owner } : {}) } }); }
+function unsupportedFields(value: Record<string, unknown>, allowed: ReadonlySet<string>): string[] {
+    return Object.keys(value).filter(key => !allowed.has(key));
+}
+
+function actorRemovalEdits(domain: MapDomainV1, actorKey: string): MapDomainEdit[] {
+    const edits: MapDomainEdit[] = [];
+    for (const scene of Object.values(domain.scenes)) {
+        for (const element of scene.elements) {
+            if (element.category === 'actor' && element.actorKey === actorKey) {
+                edits.push({ op: 'remove-element', sceneKey: scene.key, elementId: element.id });
             }
-            draft = stageMapDomainEdits(draft, entry.edits);
-        } catch (error) { entry.error = errorText(error); }
-    }
-    const groups = atlasEditGroups(entries, current, draft);
-    let working = current;
-    const edits: MapDomainEdit[] = [], applied: MapToolItemReport[] = [], skipped: MapToolItemReport[] = [];
-    for (const group of groups) {
-        try {
-            const failed = group.find(e => e.error);
-            if (failed) { throw new Error(failed.error); }
-            if (new Set(group.map(e => e.target)).size !== group.length) { throw new Error('atlas_duplicate_target'); }
-            const groupEdits = group.flatMap(e => e.edits);
-            const candidate = stageMapDomainEdits(working, groupEdits);
-            groupEdits.push(...removals(candidate, group.filter(e => e.collection.startsWith('remove.'))));
-            const next = applyIntentEdits(working, groupEdits);
-            const changedKeys = new Set(group.filter(e => e.collection === 'locations').map(e => e.id));
-            if (next.domain.atlas.locations.some(l => changedKeys.has(l.key) && l.sceneKey && !isMapSceneLocation(l))) { throw new Error('scene_location_required'); }
-            if (unassignedMapLocations(next.domain.atlas).some(l => changedKeys.has(l.key) || locationRegion(working.atlas, l.key))) { throw new Error('location_region_required'); }
-            for (const entry of group) { applied.push({ collection: entry.collection, index: entry.index, id: entry.id, changed: !jsonValuesEqual(targetValue(working, entry), targetValue(next.domain, entry)) }); }
-            working = next.domain; edits.push(...groupEdits);
-        } catch (error) {
-            const reason = errorText(error);
-            const hint = reason === 'location_region_required' ? MAP_REGION_REQUIRED_HINT : reason === 'scene_location_required' ? MAP_SCENE_LOCATION_REQUIRED_HINT : GROUP_HINT;
-            for (const entry of group) { skipped.push({ collection: entry.collection, index: entry.index, id: entry.id, reason: entry.error || reason, hint }); }
         }
     }
-    return { domain: working, edits, result: mapToolResult({ changed: !jsonValuesEqual(current, working), applied, skipped, data: { baseGaps: atlasBaseGaps(working.atlas) } }) };
+    edits.push({ op: 'remove-actor-position', actorKey });
+    return edits;
+}
+
+function actorMoveEdits(domain: MapDomainV1, position: MapActorPosition): MapDomainEdit[] {
+    const ownerByScene = new Map(domain.atlas.locations
+        .filter(location => location.sceneKey)
+        .map(location => [location.sceneKey as string, location.key]));
+    return [
+        ...Object.values(domain.scenes).flatMap(scene => scene.elements
+            .filter(element => (
+                element.category === 'actor'
+                && element.actorKey === position.actorKey
+                && ownerByScene.get(scene.key) !== position.locationKey
+            ))
+            .map(element => ({ op: 'remove-element' as const, sceneKey: scene.key, elementId: element.id }))),
+        { op: 'set-actor-position', position },
+    ];
+}
+
+function descendantLocationKeys(domain: MapDomainV1, rootKey: string): Set<string> {
+    const result = new Set([rootKey]);
+    let changed = true;
+    while (changed) {
+        changed = false;
+        for (const location of domain.atlas.locations) {
+            if (location.parent && result.has(location.parent) && !result.has(location.key)) {
+                result.add(location.key);
+                changed = true;
+            }
+        }
+    }
+    return result;
+}
+
+function locationRemovalEdits(domain: MapDomainV1, locationKey: string): MapDomainEdit[] {
+    const keys = descendantLocationKeys(domain, locationKey);
+    const edits: MapDomainEdit[] = [];
+    for (const link of domain.atlas.links) {
+        if (keys.has(link.from) || keys.has(link.to)) {edits.push({ op: 'remove-link', linkId: link.id });}
+    }
+    for (const actor of domain.atlas.actors) {
+        if (keys.has(actor.locationKey)) {edits.push(...actorRemovalEdits(domain, actor.actorKey));}
+    }
+    for (const location of domain.atlas.locations) {
+        if (!keys.has(location.key)) {continue;}
+        if (location.sceneKey) {edits.push({ op: 'remove-scene', sceneKey: location.sceneKey });}
+    }
+    [...keys].reverse().forEach(key => edits.push({ op: 'remove-location', locationKey: key }));
+    return edits;
+}
+
+export function compileAtlasIntent(
+    current: MapDomainV1,
+    value: unknown,
+    player: AcceptedTurnPlayer,
+): AtlasIntentCompileResult {
+    if (!isRecord(value)) {
+        return { domain: current, edits: [], result: mapToolResult({ skipped: [{ index: 0, id: '', reason: 'arguments_must_be_object' }] }) };
+    }
+    const rootUnknown = unsupportedFields(value, ROOT_FIELDS);
+    if (rootUnknown.length) {
+        return {
+            domain: current,
+            edits: [],
+            result: mapToolResult({
+                skipped: [{ index: 0, id: '', reason: 'atlas_has_unsupported_fields', hint: `Remove unsupported fields: ${rootUnknown.join(', ')}.` }],
+            }),
+        };
+    }
+    if (value.remove !== undefined && !isRecord(value.remove)) {
+        return {
+            domain: current,
+            edits: [],
+            result: mapToolResult({ skipped: [{ index: 0, id: '', reason: 'atlas_remove_must_be_object' }] }),
+        };
+    }
+    const removals = isRecord(value.remove) ? value.remove : {};
+    const removalUnknown = unsupportedFields(removals, REMOVAL_FIELDS);
+    if (removalUnknown.length) {
+        return {
+            domain: current,
+            edits: [],
+            result: mapToolResult({
+                skipped: [{ index: 0, id: '', reason: 'atlas_remove_has_unsupported_fields', hint: `Remove unsupported fields: ${removalUnknown.join(', ')}.` }],
+            }),
+        };
+    }
+    const wrongCollection = [
+        ['locations', value.locations],
+        ['links', value.links],
+        ['actors', value.actors],
+        ['remove.locationKeys', removals.locationKeys],
+        ['remove.linkIds', removals.linkIds],
+        ['remove.actorKeys', removals.actorKeys],
+    ].find(entry => entry[1] !== undefined && !Array.isArray(entry[1]));
+    if (wrongCollection) {
+        return {
+            domain: current,
+            edits: [],
+            result: mapToolResult({
+                skipped: [{
+                    index: 0,
+                    id: '',
+                    reason: 'atlas_collection_must_be_array',
+                    hint: `${String(wrongCollection[0])} must be an array.`,
+                }],
+            }),
+        };
+    }
+    const oversized = [
+        ['locations', value.locations, MAX_MAP_LOCATIONS],
+        ['links', value.links, MAX_MAP_LINKS],
+        ['actors', value.actors, MAX_MAP_ACTORS],
+        ['remove.locationKeys', removals.locationKeys, MAX_MAP_LOCATIONS],
+        ['remove.linkIds', removals.linkIds, MAX_MAP_LINKS],
+        ['remove.actorKeys', removals.actorKeys, MAX_MAP_ACTORS],
+    ].find((entry) => Array.isArray(entry[1]) && entry[1].length > Number(entry[2]));
+    if (oversized) {
+        return {
+            domain: current,
+            edits: [],
+            result: mapToolResult({
+                skipped: [{
+                    index: 0,
+                    id: '',
+                    reason: 'atlas_collection_exceeds_limit',
+                    hint: `Send at most ${Number(oversized[2])} ${String(oversized[0])} entries in one MapAtlasEdit call.`,
+                }],
+            }),
+        };
+    }
+    const rawLocations = Array.isArray(value.locations) ? value.locations : [];
+    const locations = compileAtlasLocations(current, rawLocations);
+    let working = locations.domain;
+    const edits = [...locations.edits];
+    const applied = [...locations.applied];
+    const skipped = [...locations.skipped];
+    const warnings: string[] = [];
+    let changed = locations.changed;
+
+    const applyItem = (collection: string, index: number, id: string, itemEdits: MapDomainEdit[], hint: string): boolean => {
+        try {
+            const next = applyIntentEdits(working, itemEdits);
+            working = next.domain;
+            changed ||= next.changed;
+            edits.push(...itemEdits);
+            applied.push({ collection, index, id, changed: next.changed });
+            return true;
+        } catch (error) {
+            skipped.push({ collection, index, id, reason: errorText(error), hint });
+            return false;
+        }
+    };
+
+    const rawLinks = Array.isArray(value.links) ? value.links : [];
+    rawLinks.forEach((raw, index) => {
+        if (!isRecord(raw)) {
+            skipped.push({ collection: 'links', index, id: '', reason: 'link_must_be_object' });
+            return;
+        }
+        const unknown = unsupportedFields(raw, LINK_FIELDS);
+        if (unknown.length) {
+            skipped.push({ collection: 'links', index, id: intentId(raw.id), reason: 'link_has_unsupported_fields', hint: `Remove unsupported fields: ${unknown.join(', ')}.` });
+            return;
+        }
+        const from = intentId(raw.from);
+        const to = intentId(raw.to);
+        const kind = enumToken(raw.kind, LINK_KINDS);
+        const bidirectional = raw.bidirectional !== false;
+        const id = intentId(raw.id, from && to && kind ? stableLinkId(from, to, kind, bidirectional) : '');
+        if (!from || !to || !kind || !id) {
+            skipped.push({ collection: 'links', index, id, reason: 'link_requires_from_to_kind', hint: 'Use existing location keys and a supported route kind.' });
+            return;
+        }
+        const [canonicalFrom, canonicalTo] = bidirectional ? [from, to].sort() : [from, to];
+        const link: MapLink = { id, from: canonicalFrom, to: canonicalTo, kind, bidirectional };
+        const label = intentText(raw.label, '', MAX_MAP_LABEL_LENGTH);
+        if (label) {link.label = label;}
+        applyItem('links', index, id, [{ op: 'upsert-link', link }], 'Create both endpoint locations before this link.');
+    });
+
+    const rawActors = Array.isArray(value.actors) ? value.actors : [];
+    rawActors.forEach((raw, index) => {
+        if (!isRecord(raw)) {
+            skipped.push({ collection: 'actors', index, id: '', reason: 'actor_must_be_object' });
+            return;
+        }
+        const unknown = unsupportedFields(raw, ACTOR_FIELDS);
+        if (unknown.length) {
+            skipped.push({ collection: 'actors', index, id: intentId(raw.actorKey), reason: 'actor_has_unsupported_fields', hint: `Remove unsupported fields: ${unknown.join(', ')}.` });
+            return;
+        }
+        const requested = intentId(raw.actorKey);
+        const actorKey = requested === 'user' ? 'player' : requested;
+        const locationKey = intentId(raw.locationKey);
+        if (!actorKey || !locationKey) {
+            skipped.push({ collection: 'actors', index, id: actorKey, reason: 'actor_requires_actorKey_and_locationKey' });
+            return;
+        }
+        const displayName = actorKey === 'player'
+            ? player.displayName
+            : intentText(
+                raw.displayName,
+                working.atlas.actors.find(actor => actor.actorKey === actorKey)?.displayName || actorKey,
+            );
+        applyItem('actors', index, actorKey, actorMoveEdits(working, { actorKey, displayName, locationKey }), 'Use an existing location key.');
+    });
+
+    const linkIds = Array.isArray(removals.linkIds) ? removals.linkIds : [];
+    linkIds.forEach((raw, index) => {
+        const id = intentId(raw);
+        if (!id) {skipped.push({ collection: 'remove.linkIds', index, id: '', reason: 'link_id_required' }); return;}
+        applyItem('remove.linkIds', index, id, [{ op: 'remove-link', linkId: id }], 'Use a valid link id.');
+    });
+    const actorKeys = Array.isArray(removals.actorKeys) ? removals.actorKeys : [];
+    actorKeys.forEach((raw, index) => {
+        const requested = intentId(raw);
+        const actorKey = requested === 'user' ? 'player' : requested;
+        if (!actorKey) {skipped.push({ collection: 'remove.actorKeys', index, id: '', reason: 'actor_key_required' }); return;}
+        applyItem('remove.actorKeys', index, actorKey, actorRemovalEdits(working, actorKey), 'Use a valid actor key.');
+    });
+    const locationKeys = Array.isArray(removals.locationKeys) ? removals.locationKeys : [];
+    locationKeys.forEach((raw, index) => {
+        const key = intentId(raw);
+        if (!key) {skipped.push({ collection: 'remove.locationKeys', index, id: '', reason: 'location_key_required' }); return;}
+        applyItem('remove.locationKeys', index, key, locationRemovalEdits(working, key), 'Use an existing location key.');
+    });
+
+    if (!rawLocations.length && !rawLinks.length && !rawActors.length && !Object.keys(removals).length) {
+        warnings.push('No atlas declarations were supplied.');
+    }
+    return { domain: working, edits, result: mapToolResult({ changed, applied, skipped, warnings }) };
 }

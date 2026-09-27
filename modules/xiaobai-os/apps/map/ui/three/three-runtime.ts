@@ -6,8 +6,6 @@ import { createSceneLabels } from './scene3d-labels.js';
 import { createSceneAssetSession, decodeSceneAsset } from './scene3d-assets.js';
 import { SCENE_ASSET_URLS } from './scene3d-asset-catalog.js';
 import { sceneAssetKind } from './scene3d-asset-fit.js';
-import { mapPixelRatio } from '../render/pixel-ratio.js';
-import { demandFrame } from '../render/demand-frame.js';
 
 export function createThreeRuntime(host: HTMLElement, labelHost: HTMLElement, options: { fallback: (reason: string) => void }) {
     let renderer: WebGLRenderer | undefined;
@@ -18,7 +16,7 @@ export function createThreeRuntime(host: HTMLElement, labelHost: HTMLElement, op
     let resizeObserver: ResizeObserver | undefined;
     let visibilityObserver: IntersectionObserver | undefined;
     let themeObserver: MutationObserver | undefined;
-    let disposed = false, failed = false, visible = true;
+    let disposed = false, failed = false, visible = true, raf = 0;
     let width = 0, height = 0, showLabels = true, lowWalls = false, symbolsReady = false;
     let data: MapScene | undefined;
     let fitWidth = 14, fitHeight = 14;
@@ -37,8 +35,7 @@ export function createThreeRuntime(host: HTMLElement, labelHost: HTMLElement, op
     scene.add(ambient, key, key.target, fill);
     const isDark = () => !!host.closest('.theme-dark');
     let dark = isDark();
-    const frame = demandFrame(draw, () => !disposed && !failed && visible && width > 0 && height > 0);
-    const cancelFrame = frame.cancel;
+    function cancelFrame() {if (raf) {cancelAnimationFrame(raf); raf = 0;}}
     function dispose() {
         if (disposed) {return;}
         disposed = true; cancelFrame(); abort.abort();
@@ -52,17 +49,18 @@ export function createThreeRuntime(host: HTMLElement, labelHost: HTMLElement, op
         failed = true; cancelFrame(); options.fallback(reason);
     }
     function invalidate() {
-        frame.request();
-    }
-    function draw() {
-        try {
-            // Resizing clears WebGL's drawing buffer. Resize and draw in the same
-            // frame so layout changes never flash blank.
-            renderer!.getSize(drawingSize);
-            if (drawingSize.x !== width || drawingSize.y !== height) {renderer!.setSize(width, height, false);}
-            renderer!.render(scene, camera);
-            labels?.update(camera, width, height, showLabels);
-        } catch {fail('三维画面暂不可用，已切换二维。');}
+        if (disposed || failed || raf || document.hidden || !visible || width <= 0 || height <= 0) {return;}
+        raf = requestAnimationFrame(() => {
+            raf = 0;
+            try {
+                // Resizing clears WebGL's drawing buffer. Resize and draw in the same
+                // frame so layout changes never flash blank.
+                renderer!.getSize(drawingSize);
+                if (drawingSize.x !== width || drawingSize.y !== height) {renderer!.setSize(width, height, false);}
+                renderer!.render(scene, camera);
+                labels?.update(camera, width, height, showLabels);
+            } catch {fail('三维画面暂不可用，已切换二维。');}
+        });
     }
     function sceneBounds() {
         const [x, y, w, h] = data!.viewBox;
@@ -153,7 +151,7 @@ export function createThreeRuntime(host: HTMLElement, labelHost: HTMLElement, op
     }
     try {
         renderer = new WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'low-power' });
-        renderer.setPixelRatio(mapPixelRatio());
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.8));
         renderer.setClearColor(0, 0);
         renderer.outputColorSpace = SRGBColorSpace;
         renderer.toneMapping = NeutralToneMapping;

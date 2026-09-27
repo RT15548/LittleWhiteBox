@@ -5,20 +5,19 @@ import fixtures from 'check:fixtures';
 import './preview.css';
 
 const initial = key => ({ chatIdentity: 'test:' + key, map: structuredClone(fixtures[key]), status: 'ready', writeState: 'ready', message: '', autoMaintenance: false });
-const listeners = new Set();
+let listener;
 const requests = [];
 const startKey = new URL(location.href).searchParams.get('scene') || 'cabin';
 let current = initial(startKey);
 if (new URL(location.href).searchParams.has('loading')) {current = { ...current, map: null, status: 'loading' };}
-const bridge = { subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); }, request(endpoint) { requests.push(endpoint); return Promise.resolve({ result: current }); } };
+const bridge = { subscribe(fn) { listener = fn; return () => { listener = undefined; }; }, request(endpoint) { requests.push(endpoint); return Promise.resolve({ result: current }); } };
 createApp({ setup() {
     const key = ref(startKey), version = ref(0), dark = ref(false), shown = ref(true);
     const nav = ref();
     const reopen = () => { current = initial(key.value); version.value++; };
     window.mapCheck = {
         requests,
-        push(map, extra = {}) {current = { ...current, map, ...extra }; listeners.forEach(listener => listener({ type: 'map/state', payload: { state: current } }));},
-        resetChat() { listeners.forEach(listener => listener({ type: 'os/init', payload: {} })); shown.value = false; },
+        push(map, extra = {}) {current = { ...current, map, ...extra }; listener?.({ type: 'map/state', payload: { state: current } });},
         map: () => structuredClone(current.map),
         fixture: key => structuredClone(fixtures[key]),
         reopen, back: () => nav.value?.back(),

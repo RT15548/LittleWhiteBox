@@ -1,46 +1,29 @@
 import type {
     MapActorPosition,
-    MapDomain,
+    MapDomainV1,
     MapLink,
     MapLinkKind,
     MapLocation,
     MapLocationStatus,
 } from '../../../domains/map/types.js';
 import { enumToken, intentId, isRecord } from './intent-common.js';
-import { isMapRegion, unassignedMapLocations, visitedMapLocationKeys } from '../../../domains/map/hierarchy.js';
+import { unassignedMapLocations, visitedMapLocationKeys } from '../../../domains/map/hierarchy.js';
 import { mapToolResult, type MapToolResult } from './result.js';
-import { ATLAS_COLLECTION_MODES } from './atlas-tool-contract.js';
-import type { MapFeature, MapFrame, MapPosition } from '../../../domains/map/space/types.js';
-import { atlasBaseCoverage, atlasBaseGaps } from '../../../domains/map/space/coverage.js';
 
-const ATLAS_READ_MODES = ['summary', 'document', ...ATLAS_COLLECTION_MODES] as const;
+const ATLAS_READ_MODES = ['summary', 'document', 'locations', 'links', 'actors'] as const;
 const LOCATION_STATUSES: readonly MapLocationStatus[] = ['mentioned', 'visited'];
 const LINK_KINDS: readonly MapLinkKind[] = ['door', 'stairs', 'elevator', 'path', 'road', 'portal', 'passage'];
 const ALLOWED_ARGUMENTS = new Set([
-    'mode', 'query', 'parent', 'status', 'from', 'to', 'kind', 'actorKey', 'limit', 'offset', 'needsRegion', 'map',
+    'mode', 'query', 'parent', 'status', 'from', 'to', 'kind', 'actorKey', 'limit', 'offset', 'needsRegion',
 ]);
 export const DEFAULT_ATLAS_READ_LIMIT = 30;
 export const MAX_ATLAS_READ_LIMIT = 300;
 export const MAX_ATLAS_QUERY_LENGTH = 120;
 
 /** Scene links are compiler-owned: the model learns whether a scene exists, never its key. */
-type AgentMapLocation = Omit<MapLocation, 'sceneKey' | 'position'> & { hasScene: boolean; needsRegion: boolean; position?: { map: string | null; at: MapPosition['at'] } };
+type AgentMapLocation = Omit<MapLocation, 'sceneKey'> & { hasScene: boolean; needsRegion: boolean };
 
-function sourceMap(domain: MapDomain, id: string): string | null {
-    const frame = domain.atlas.frames.find(f => f.id === id);
-    if (!frame) { throw new Error('space_frame_missing'); }
-    return frame.owner ?? null;
-}
-function projectFrame(domain: MapDomain, frame: MapFrame) {
-    const browsable = !frame.owner || domain.atlas.locations.some(l => l.key === frame.owner && isMapRegion(l));
-    return { map: frame.owner ?? null, ...(browsable ? { baseCoverage: atlasBaseCoverage(domain.atlas, frame.owner ?? null) } : {}), ...(frame.mapping ? { mapping: { map: sourceMap(domain, frame.mapping.frame), scale: frame.mapping.scale, offset: [...frame.mapping.offset] } } : {}), ...(frame.boundary ? { boundary: frame.boundary } : {}) };
-}
-function projectFeature(domain: MapDomain, feature: MapFeature) {
-    const { frame, owner, ...rest } = structuredClone(feature);
-    return { ...rest, map: sourceMap(domain, frame), owner: owner ?? null };
-}
-
-function projectLocation(domain: MapDomain, location: MapLocation, unassigned: ReadonlySet<string>, visited: ReadonlySet<string>): AgentMapLocation {
+function projectLocation(location: MapLocation, unassigned: ReadonlySet<string>, visited: ReadonlySet<string>): AgentMapLocation {
     return {
         key: location.key,
         name: location.name,
@@ -50,7 +33,7 @@ function projectLocation(domain: MapDomain, location: MapLocation, unassigned: R
         needsRegion: unassigned.has(location.key),
         ...(location.parent ? { parent: location.parent } : {}),
         ...(location.brief ? { brief: location.brief } : {}),
-        ...(location.position ? { position: { map: sourceMap(domain, location.position.frame), at: [...location.position.at] as [number, number] } } : {}),
+        ...(location.position ? { position: [...location.position] as [number, number] } : {}),
         ...(location.terrain ? { terrain: location.terrain } : {}),
     };
 }
@@ -104,7 +87,7 @@ function includesQuery(values: readonly (string | undefined)[], query: string): 
     return values.some(value => String(value || '').toLowerCase().includes(needle));
 }
 
-export function readAtlas(domain: MapDomain, value: unknown): MapToolResult {
+export function readAtlas(domain: MapDomainV1, value: unknown): MapToolResult {
     if (!isRecord(value)) {throw new TypeError('MapAtlasRead expects an object.');}
     const unknown = Object.keys(value).filter(key => !ALLOWED_ARGUMENTS.has(key));
     if (unknown.length) {throw new TypeError(`MapAtlasRead has unsupported fields: ${unknown.join(', ')}.`);}
@@ -123,10 +106,7 @@ export function readAtlas(domain: MapDomain, value: unknown): MapToolResult {
                     locations: domain.atlas.locations.length,
                     links: domain.atlas.links.length,
                     actors: domain.atlas.actors.length,
-                    maps: domain.atlas.frames.length,
-                    features: domain.atlas.features.length,
                     needsRegion: unassigned.size,
-                    needsBase: atlasBaseGaps(domain.atlas).length,
                 },
                 player: structuredClone(domain.atlas.actors.find(actor => actor.actorKey === 'player') || null),
             },
@@ -138,11 +118,9 @@ export function readAtlas(domain: MapDomain, value: unknown): MapToolResult {
                 mode,
                 revision,
                 atlas: {
-                    locations: domain.atlas.locations.map(location => projectLocation(domain, location, unassigned, visited)),
+                    locations: domain.atlas.locations.map(location => projectLocation(location, unassigned, visited)),
                     links: structuredClone(domain.atlas.links),
                     actors: structuredClone(domain.atlas.actors),
-                    maps: domain.atlas.frames.map(frame => projectFrame(domain, frame)),
-                    features: domain.atlas.features.map(feature => projectFeature(domain, feature)),
                 },
             },
         });
@@ -162,7 +140,7 @@ export function readAtlas(domain: MapDomain, value: unknown): MapToolResult {
             && (value.needsRegion === undefined || unassigned.has(location.key) === value.needsRegion)
             && includesQuery([location.key, location.name, location.brief], query)
         ));
-        const result = page(matches.map(location => projectLocation(domain, location, unassigned, visited)), offset, limit);
+        const result = page(matches.map(location => projectLocation(location, unassigned, visited)), offset, limit);
         return mapToolResult({
             data: {
                 mode, revision, count: result.count, returned: result.returned,
@@ -190,13 +168,6 @@ export function readAtlas(domain: MapDomain, value: unknown): MapToolResult {
         });
     }
 
-    if (mode === 'maps' || mode === 'features') {
-        if (Object.hasOwn(value, 'map') && value.map !== null) { optionalId(value.map, 'map'); }
-        const records = mode === 'maps' ? domain.atlas.frames.map(f => projectFrame(domain, f)) : domain.atlas.features.map(f => projectFeature(domain, f));
-        const filtered = records.filter(record => (!Object.hasOwn(value, 'map') || record.map === value.map) && includesQuery([record.map ?? undefined, 'id' in record ? String(record.id) : undefined, 'name' in record ? String(record.name) : undefined], query));
-        const result = page(filtered, offset, limit);
-        return mapToolResult({ data: { mode, revision, count: result.count, returned: result.returned, truncated: result.truncated, nextOffset: result.nextOffset, [mode]: result.items } });
-    }
     const actorKey = optionalId(value.actorKey, 'actorKey');
     const matches = domain.atlas.actors.filter((actor: MapActorPosition) => (
         (!actorKey || actor.actorKey === actorKey)

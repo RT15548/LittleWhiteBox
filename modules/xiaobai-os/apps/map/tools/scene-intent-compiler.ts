@@ -13,7 +13,7 @@ import {
     MAP_TERRAIN_CATEGORY_ALIASES,
 } from '../../../domains/map/semantics.js';
 import type {
-    MapDomain,
+    MapDomainV1,
     MapElement,
     MapElementCategory,
     MapElementShape,
@@ -40,9 +40,10 @@ const ROOT_FIELDS = new Set(['scene', 'playerHere', 'viewBox', 'mood', 'elements
 const ELEMENT_FIELDS = new Set(['id', 'cat', 'kind', 'shape', 'geo', 'label', 'actorKey', 'icon', 'material', 'certainty', 'closed', 'rotation']);
 // geo.icon was accepted by the original intent compiler and remains a deliberate tolerant input.
 const GEO_FIELDS = new Set(['center', 'at', 'size', 'radius', 'points', 'curve', 'icon']);
+const missingActorName = (id: string) => `Actor ${id} has no displayed name; set label to the character's name.`;
 
 export interface SceneIntentCompileResult {
-    readonly domain: MapDomain;
+    readonly domain: MapDomainV1;
     readonly edits: readonly MapDomainEdit[];
     readonly result: MapToolResult;
 }
@@ -290,14 +291,14 @@ function compileElement(
     return { id, element };
 }
 
-function findLocation(domain: MapDomain, scene: string): MapLocation | undefined {
+function findLocation(domain: MapDomainV1, scene: string): MapLocation | undefined {
     return domain.atlas.locations.find(location => location.key === scene)
         || domain.atlas.locations.find(location => location.sceneKey === scene)
         || domain.atlas.locations.find(location => location.name === scene);
 }
 
 function actorMoveEdits(
-    domain: MapDomain,
+    domain: MapDomainV1,
     actorKey: string,
     displayName: string,
     locationKey: string,
@@ -320,7 +321,7 @@ function actorMoveEdits(
 }
 
 export function compileSceneIntent(
-    current: MapDomain,
+    current: MapDomainV1,
     value: unknown,
     player: AcceptedTurnPlayer,
 ): SceneIntentCompileResult {
@@ -466,11 +467,10 @@ export function compileSceneIntent(
             if (compiled.element.category === 'actor' && compiled.element.actorKey) {
                 const { actorKey } = compiled.element;
                 const existingActor = working.atlas.actors.find(actor => actor.actorKey === actorKey);
-                // actorKey is never shown: a placed actor displays its label, so a known name fills it and a missing one is reported.
                 const knownName = existingActor?.displayName !== actorKey ? existingActor?.displayName : undefined;
-                if (actorKey !== 'player' && !compiled.element.label) {
+                if (actorKey !== 'player' && !compiled.element.label && isRecord(raw) && !Object.hasOwn(raw, 'label')) {
                     if (knownName) {compiled.element.label = knownName;}
-                    else {warnings.push(`Actor ${compiled.element.id} has no displayed name; set label to the character's name.`);}
+                    else {warnings.push(missingActorName(compiled.element.id));}
                 }
                 elementEdits.push(...actorMoveEdits(
                     working,

@@ -1,8 +1,8 @@
 /** Model-facing examples, also exercised through the real tools. Not live-model results. */
 export const SCENE_EXAMPLES = [
     {
-        background: 'A timber-floored inn taproom has stone walls, a south entrance, a counter against the north wall and a table in the western half. Mara the innkeeper stands behind the counter. The player has just entered. No exact dimensions or chairs were described.',
-        layout: 'Approximate the rectangle around these anchors. Break the south wall at the entrance; keep the route from entrance to counter east of the table clear. One ordinary chair is inferred, faces its table, and is marked accordingly. Mara gets a stable actorKey and her displayed name in label; the player needs neither.',
+        background: 'A timber-floored inn taproom has stone walls, a south entrance, a counter against the north wall and a table in the western half. The player has just entered. No exact dimensions or chairs were described.',
+        layout: 'Approximate the rectangle around these anchors. Break the south wall at the entrance; keep the route from entrance to counter east of the table clear. One ordinary chair is inferred, faces its table, and is marked accordingly.',
         atlas: { locations: [{ key: 'town', name: 'Riverside Town', scale: 'region' }, { key: 'taproom', name: 'Taproom', scale: 'room', parent: 'town' }] },
         create: {
             scene: 'taproom', playerHere: true, viewBox: [0, 0, 480, 380], mood: 'warm',
@@ -13,7 +13,6 @@ export const SCENE_EXAMPLES = [
                 { id: 'table', cat: 'furniture', shape: 'rect', geo: { center: [130, 185], size: [90, 60] }, icon: 'table', material: 'wood' },
                 { id: 'chair', cat: 'furniture', shape: 'rect', geo: { center: [130, 240], size: [32, 34] }, icon: 'chair', material: 'wood', rotation: 180, certainty: 'inferred' },
                 { id: 'entrance', cat: 'door', kind: 'entrance', shape: 'icon', geo: { at: [235, 300] }, label: 'Entrance' },
-                { id: 'mara', cat: 'actor', actorKey: 'mara', shape: 'icon', geo: { at: [240, 45] }, label: 'Mara' },
                 { id: 'player', cat: 'actor', kind: 'player', actorKey: 'player', shape: 'icon', geo: { at: [235, 265] } },
             ],
         },

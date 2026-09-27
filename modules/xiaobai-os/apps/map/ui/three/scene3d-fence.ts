@@ -1,9 +1,9 @@
 import { InstancedMesh, Matrix4, Vector3, type BufferGeometry, type Group, type MeshStandardMaterial, type Vector2 } from 'three';
 import { wallSegments } from './scene3d-geometry.js';
-import type { RenderResources } from '../render/resources.js';
+import type { Scene3DResources } from './scene3d-resources.js';
 
 /** Rails follow the authored line; posts are decorative subdivisions, never added connections. */
-export function buildFence(parent: Group, points: Vector2[], closed: boolean, cube: BufferGeometry, material: MeshStandardMaterial, resources: RenderResources): number {
+export function buildFence(parent: Group, points: Vector2[], closed: boolean, cube: BufferGeometry, material: MeshStandardMaterial, resources: Scene3DResources): number {
     const segments = wallSegments(points, closed), matrices: Matrix4[] = [];
     const spacing = Math.max(.45, segments.reduce((sum, segment) => sum + segment.length, 0) / 128);
     let untilPost = 0;

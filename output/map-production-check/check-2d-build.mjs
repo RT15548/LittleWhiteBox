@@ -12,6 +12,6 @@ const result = await build({ configFile: false, plugins: [vue(), {
             throw new Error(`Two-dimensional Map scene depends on Three: ${id}`);
         }
     },
-}], build: { write: false, lib: { entry: { scene: path.resolve('modules/xiaobai-os/apps/map/ui/MapScene.vue'), atlas: path.resolve('modules/xiaobai-os/apps/map/ui/MapAtlas.vue') }, formats: ['es'] } } });
+}], build: { write: false, lib: { entry: path.resolve('modules/xiaobai-os/apps/map/ui/MapScene.vue'), formats: ['es'] } } });
 assert.ok(result[0].output.some(item => item.type === 'chunk' && item.isEntry));
-console.log('Real MapScene/MapAtlas/MapViewport two-dimensional build passed without Three.');
+console.log('Real MapScene/MapViewport two-dimensional build passed without Three.');

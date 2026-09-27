@@ -7,10 +7,10 @@ import type { TransactionCoordinator } from '../../../kernel/transaction-coordin
 import { jsonValuesEqual } from '../../../host/json-values-equal.js';
 import { parseMapDomain } from '../../../domains/map/invariants.js';
 import { createEmptyMapDomain } from '../../../domains/map/state.js';
-import type { MapDomain } from '../../../domains/map/types.js';
+import type { MapDomainV1 } from '../../../domains/map/types.js';
 
 export interface MapServiceView {
-    map: MapDomain | null;
+    map: MapDomainV1 | null;
     writeState: XiaobaiOsFileState;
 }
 
@@ -39,7 +39,7 @@ export class MapRevisionConflictError extends Error {
     }
 }
 
-function sameMapContent(left: MapDomain, right: MapDomain): boolean {
+function sameMapContent(left: MapDomainV1, right: MapDomainV1): boolean {
     return jsonValuesEqual(
         { schemaVersion: left.schemaVersion, atlas: left.atlas, scenes: left.scenes },
         { schemaVersion: right.schemaVersion, atlas: right.atlas, scenes: right.scenes },
@@ -55,7 +55,7 @@ function transactionError(result: { status: string; error?: { code: string; mess
 }
 
 export function createMapService(
-    store: PartitionStore<MapDomain>,
+    store: PartitionStore<MapDomainV1>,
     files: Pick<
         TransactionCoordinator,
         'retryPending' | 'adoptServerState' | 'getFileState' | 'subscribeFileState'
@@ -71,7 +71,7 @@ export function createMapService(
     };
     const unsubscribeStore = store.subscribe(publish);
     const unsubscribeFiles = files.subscribeFileState(publish);
-    const currentMap = (): MapDomain | null => store.peekCurrent()?.value ?? null;
+    const currentMap = (): MapDomainV1 | null => store.peekCurrent()?.value ?? null;
 
     function buildView(map = currentMap()): MapServiceView {
         return { map: map ? structuredClone(map) : null, writeState: files.getFileState() };

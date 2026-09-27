@@ -1,38 +1,21 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { atlasCamera, atlasFocus, type AtlasInsets } from './atlas/camera.js';
-import MapZoomControls from './MapZoomControls.vue';
 const props = withDefaults(defineProps<{
     viewBox: readonly [number, number, number, number];
     resetKey?: string;
     label: string;
     focusPoint?: [number, number];
     focusSequence?: number;
-    atlasInsets?: AtlasInsets;
-    initialPoint?: [number, number];
-    initialOverview?: boolean;
-    controls?: boolean;
-}>(), { resetKey: '', focusSequence: 0, focusPoint: undefined, atlasInsets: undefined, initialPoint: undefined, initialOverview: false, controls: true });
+}>(), { resetKey: '', focusSequence: 0, focusPoint: undefined });
 const svg = ref<SVGSVGElement | null>(null);
 const viewport = ref<[number, number, number, number]>([...props.viewBox]);
 const size = ref<[number, number]>([0, 0]);
 const unitScale = computed(() => size.value[0] && size.value[1] ? Math.max(viewport.value[2] / size.value[0], viewport.value[3] / size.value[1]) : 1);
 let resizeObserver: ResizeObserver | undefined;
-let initialized = false;
 onMounted(() => {
     resizeObserver = new ResizeObserver(entries => {
         const bounds = entries[0].contentRect;
-        if (!bounds.width || !bounds.height) { return; }
-        const previous = size.value;
         size.value = [bounds.width, bounds.height];
-        if (props.atlasInsets) {
-            if (!initialized) { initialize(); }
-            else if (previous[0] && previous[1]) {
-                const scale = viewport.value[2] / previous[0];
-                viewport.value = [viewport.value[0] + (previous[0] - bounds.width) * scale / 2,
-                    viewport.value[1] + (previous[1] - bounds.height) * scale / 2, bounds.width * scale, bounds.height * scale];
-            }
-        }
     });
     if (svg.value) {resizeObserver.observe(svg.value);}
 });
@@ -46,13 +29,7 @@ let suppressClick = false;
 let suppressTimer: ReturnType<typeof setTimeout> | null = null;
 const viewBoxText = computed(() => viewport.value.join(' '));
 
-function reset(): void {
-    viewport.value = props.atlasInsets && size.value[0] ? atlasCamera([...props.viewBox], size.value, props.atlasInsets, true) : [...props.viewBox];
-}
-function initialize(): void {
-    initialized = !!size.value[0];
-    viewport.value = props.atlasInsets && initialized ? atlasCamera([...props.viewBox], size.value, props.atlasInsets, props.initialOverview, props.initialPoint) : [...props.viewBox];
-}
+function reset(): void { viewport.value = [...props.viewBox]; }
 function screenScale(): number {return unitScale.value;}
 function clientToMap(x: number, y: number): [number, number] {
     const bounds = svg.value?.getBoundingClientRect();
@@ -62,18 +39,14 @@ function clientToMap(x: number, y: number): [number, number] {
         viewport.value[1] + viewport.value[3] / 2 + (y - bounds.top - bounds.height / 2) * scale];
 }
 function zoom(factor: number, center?: [number, number]): void {
-    const baseWidth = Math.max(1, props.atlasInsets && size.value[0] ? atlasCamera([...props.viewBox], size.value, props.atlasInsets, true)[2] : props.viewBox[2]);
-    // Fit and zoom share the same scale. After a resize/data change an out-of-range
-    // camera may move back towards the limits, but never reverse the requested direction.
-    const minimum = Math.min(baseWidth * .24, 240, viewport.value[2]), maximum = Math.max(baseWidth * 3, viewport.value[2]);
-    const width = Math.min(maximum, Math.max(minimum, viewport.value[2] * factor));
+    const baseWidth = Math.max(1, props.viewBox[2]);
+    const width = Math.min(baseWidth * 3, Math.max(Math.min(baseWidth * .24, 240), viewport.value[2] * factor));
     const ratio = width / viewport.value[2];
     const focus = center || [viewport.value[0] + viewport.value[2] / 2, viewport.value[1] + viewport.value[3] / 2];
     viewport.value = [focus[0] - (focus[0] - viewport.value[0]) * ratio, focus[1] - (focus[1] - viewport.value[1]) * ratio, width, viewport.value[3] * ratio];
 }
 function focus(): void {
     if (!props.focusPoint) {return;}
-    if (props.atlasInsets && size.value[0]) { viewport.value = atlasFocus(props.focusPoint, viewport.value, size.value, props.atlasInsets); return; }
     const width = Math.min(viewport.value[2], 620);
     const height = viewport.value[3] * width / viewport.value[2];
     viewport.value = [props.focusPoint[0] - width / 2, props.focusPoint[1] - height / 2, width, height];
@@ -128,19 +101,20 @@ function finishPointer(event: PointerEvent): void {
 function captureClick(event: MouseEvent): void {
     if (suppressClick) {event.preventDefault(); event.stopPropagation();}
 }
-watch(() => props.resetKey, initialize, { immediate: true });
+watch(() => props.resetKey, reset, { immediate: true });
 watch(() => props.focusSequence, focus, { flush: 'post' });
 onBeforeUnmount(() => {resizeObserver?.disconnect(); if (suppressTimer) {clearTimeout(suppressTimer);}});
-defineExpose({ zoom, reset });
 </script>
 <template>
     <div class="map-viewport">
-        <slot name="background" :viewport="viewport" :size="size" :unit-scale="unitScale" />
         <svg
             ref="svg" class="map-viewport-svg" :viewBox="viewBoxText" preserveAspectRatio="xMidYMid meet" role="group" :aria-label="label"
             @wheel.prevent="zoom($event.deltaY < 0 ? .84 : 1.19, clientToMap($event.clientX, $event.clientY))"
             @pointerdown="onPointerDown" @pointermove="onPointerMove" @pointerup="finishPointer" @pointercancel="finishPointer" @click.capture="captureClick"
-        ><slot :unit-scale="unitScale" :viewport="viewport" /></svg>
-        <MapZoomControls v-if="controls" @zoom="zoom" @reset="reset" />
+        ><slot :unit-scale="unitScale" /></svg>
+        <div class="map-viewport-controls" aria-label="地图缩放">
+            <button type="button" aria-label="放大地图" @click="zoom(.8)">+</button><button type="button" aria-label="缩小地图" @click="zoom(1.25)">−</button>
+            <button type="button" class="map-fit" @click="reset">全图</button>
+        </div>
     </div>
 </template>

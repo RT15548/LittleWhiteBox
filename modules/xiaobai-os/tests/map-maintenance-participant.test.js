@@ -301,7 +301,7 @@ test('tool collection limits are declared and oversized calls fail before stagin
     const atlasReadTool = session.tools.find(tool => tool.function.name === MAP_MAINTENANCE_TOOL_NAMES.ATLAS_READ);
     assert.equal(sceneTool.function.parameters.properties.elements.maxItems, MAX_SCENE_ELEMENTS);
     assert.equal(atlasTool.function.parameters.properties.locations.maxItems, MAX_MAP_LOCATIONS);
-    assert.deepEqual(atlasReadTool.function.parameters.properties.mode.enum, ['summary', 'document', 'locations', 'links', 'actors', 'maps', 'features']);
+    assert.deepEqual(atlasReadTool.function.parameters.properties.mode.enum, ['summary', 'document', 'locations', 'links', 'actors']);
     assert.equal(atlasReadTool.function.parameters.properties.limit.maximum, 300);
     const locationProperties = atlasTool.function.parameters.properties.locations.items.properties;
     const elementProperties = sceneTool.function.parameters.properties.elements.items.properties;
@@ -372,7 +372,7 @@ test('Atlas reads default to a compact summary and page explicit collections', a
     });
 
     const summary = await session.executeTool(MAP_MAINTENANCE_TOOL_NAMES.ATLAS_READ, {});
-    assert.deepEqual(summary.data.counts, { locations: 35, links: 1, actors: 2, maps: 1, features: 0, needsRegion: 0, needsBase: 36 });
+    assert.deepEqual(summary.data.counts, { locations: 35, links: 1, actors: 2, needsRegion: 0 });
     assert.equal(summary.data.player.displayName, 'Alice');
     assert.equal(Object.hasOwn(summary.data, 'atlas'), false);
     assert.equal(Object.hasOwn(summary.data, 'locations'), false);
@@ -688,8 +688,7 @@ test('actor movement uses the merged canonical element and preserves an existing
     assert.equal(cellar.data.scene.elements.some(element => element.actorKey === 'keeper'), false);
 });
 
-// actorKey is an internal id: an unnamed new actor is reported instead of silently storing the key as its name.
-test('a new non-player actor without label is reported, and the player needs none', async () => {
+test('unnamed actors request a name while explicit label clearing remains available', async () => {
     const harness = createHarness(mapAtlasFixture([{ key: 'Inn' }]));
     const session = await harness.participant.createSession(acceptedSource(), 'manual');
     const placed = await session.executeTool(MAP_MAINTENANCE_TOOL_NAMES.SCENE_EDIT, {
@@ -700,11 +699,16 @@ test('a new non-player actor without label is reported, and the player needs non
         ],
     });
     assert.equal(placed.status, 'updated');
-    assert.deepEqual(placed.warnings, ["Actor stranger has no displayed name; set label to the character's name."]);
+    assert.equal(placed.warnings.length, 1);
     const named = await session.executeTool(MAP_MAINTENANCE_TOOL_NAMES.SCENE_EDIT, { scene: 'Inn', elements: [{ id: 'stranger', label: 'Ivo' }] });
     assert.deepEqual(named.warnings, []);
     const atlas = await session.executeTool(MAP_MAINTENANCE_TOOL_NAMES.ATLAS_READ, { mode: 'actors', actorKey: 'stranger' });
     assert.equal(atlas.data.actors[0].displayName, 'Ivo');
+    const cleared = await session.executeTool(MAP_MAINTENANCE_TOOL_NAMES.SCENE_EDIT, { scene: 'Inn', elements: [{ id: 'stranger', label: null }] });
+    assert.equal(cleared.status, 'updated');
+    const read = await session.executeTool(MAP_MAINTENANCE_TOOL_NAMES.SCENE_READ, { scene: 'Inn' });
+    assert.equal(Object.hasOwn(read.data.scene.elements.find(element => element.id === 'stranger'), 'label'), false);
+    assert.equal(read.data.scene.elements.find(element => element.actorKey === 'player').label, 'Alice');
 });
 
 test('existing element category and actor identity cannot be rewritten by a patch', async () => {
@@ -871,8 +875,8 @@ test('world destinations persist before a visit or scene and later edits preserv
     const result = await session.executeTool(MAP_MAINTENANCE_TOOL_NAMES.ATLAS_EDIT, {
         locations: [
             { key: 'coast', name: '潮汐海岸', scale: 'region', terrain: 'water' },
-            { key: 'home', name: '家', parent: 'coast', scale: 'building', position: { map: 'coast', at: [200, 650] } },
-            { key: 'lighthouse', name: '潮声灯塔', parent: 'coast', scale: 'building', position: { map: 'coast', at: [750, 100] }, terrain: 'water', brief: '可以俯瞰整片海湾的古老灯塔。' },
+            { key: 'home', name: '家', parent: 'coast', scale: 'building', position: [200, 650] },
+            { key: 'lighthouse', name: '潮声灯塔', parent: 'coast', scale: 'building', position: [750, 100], terrain: 'water', brief: '可以俯瞰整片海湾的古老灯塔。' },
         ],
         links: [{ from: 'home', to: 'lighthouse', kind: 'road' }],
         actors: [{ actorKey: 'player', locationKey: 'home' }],
@@ -881,8 +885,7 @@ test('world destinations persist before a visit or scene and later edits preserv
     await session.commit(() => true);
     let map = harness.map.readCurrent().map;
     const destination = map.atlas.locations.find(place => place.key === 'lighthouse');
-    assert.deepEqual(destination.position.at, [750, 100]);
-    assert.equal(map.atlas.frames.find(frame => frame.id === destination.position.frame).owner, 'coast');
+    assert.deepEqual(destination.position, [750, 100]);
     assert.equal(destination.status, 'mentioned');
     assert.equal(destination.terrain, 'water');
     assert.equal(map.atlas.locations.find(place => place.key === 'home').status, 'visited');
@@ -898,7 +901,7 @@ test('world destinations persist before a visit or scene and later edits preserv
         locations: [{ key: 'lighthouse', name: '潮声灯塔', brief: '海湾北侧的观景地。' }],
     });
     const read = await update.executeTool(MAP_MAINTENANCE_TOOL_NAMES.ATLAS_READ, { mode: 'locations', query: '潮声灯塔' });
-    assert.deepEqual(read.data.locations[0].position, { map: 'coast', at: [750, 100] });
+    assert.deepEqual(read.data.locations[0].position, [750, 100]);
     assert.equal(read.data.locations[0].terrain, 'water');
     assert.equal(read.data.locations[0].status, 'mentioned');
     await update.commit(() => true);

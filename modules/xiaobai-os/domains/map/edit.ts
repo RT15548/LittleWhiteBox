@@ -1,8 +1,7 @@
 import { MapDomainError, parseMapDomain } from './invariants.js';
-import type { MapFeature, MapFrame } from './space/types.js';
 import type {
     MapActorPosition,
-    MapDomain,
+    MapDomainV1,
     MapElement,
     MapLink,
     MapLocation,
@@ -34,12 +33,7 @@ export type MapSceneEdit =
     | { op: 'remove-element'; sceneKey: string; elementId: string };
 
 /** Internal canonical commands emitted by Map intent compilers; never exposed as Agent tools. */
-export type MapSpaceEdit =
-    | { op: 'upsert-frame'; frame: MapFrame }
-    | { op: 'remove-frame'; frameId: string }
-    | { op: 'upsert-feature'; feature: MapFeature }
-    | { op: 'remove-feature'; featureId: string };
-export type MapDomainEdit = MapLocationEdit | MapLinkEdit | MapActorEdit | MapSceneEdit | MapSpaceEdit;
+export type MapDomainEdit = MapLocationEdit | MapLinkEdit | MapActorEdit | MapSceneEdit;
 
 function replaceByKey<T>(items: T[], value: T, keyOf: (item: T) => string): void {
     const index = items.findIndex(item => keyOf(item) === keyOf(value));
@@ -47,12 +41,8 @@ function replaceByKey<T>(items: T[], value: T, keyOf: (item: T) => string): void
     else {items[index] = structuredClone(value);}
 }
 
-function applyEdit(candidate: MapDomain, edit: MapDomainEdit): void {
+function applyEdit(candidate: MapDomainV1, edit: MapDomainEdit): void {
     switch (edit.op) {
-        case 'upsert-frame': replaceByKey(candidate.atlas.frames, edit.frame, item => item.id); return;
-        case 'remove-frame': candidate.atlas.frames = candidate.atlas.frames.filter(item => item.id !== edit.frameId); return;
-        case 'upsert-feature': replaceByKey(candidate.atlas.features, edit.feature, item => item.id); return;
-        case 'remove-feature': candidate.atlas.features = candidate.atlas.features.filter(item => item.id !== edit.featureId); return;
         case 'upsert-location': {
             const location = structuredClone(edit.location);
             if (candidate.atlas.actors.some(actor => actor.actorKey === 'player' && actor.locationKey === location.key)) {
@@ -117,13 +107,7 @@ function applyEdit(candidate: MapDomain, edit: MapDomainEdit): void {
 }
 
 /** Applies canonical internal commands atomically and advances one observable domain revision. */
-export function stageMapDomainEdits(current: MapDomain, edits: readonly MapDomainEdit[]): MapDomain {
-    const candidate = structuredClone(current);
-    edits.forEach(edit => applyEdit(candidate, edit));
-    return candidate;
-}
-
-export function applyMapDomainEdits(current: MapDomain, edits: readonly MapDomainEdit[]): MapDomain {
+export function applyMapDomainEdits(current: MapDomainV1, edits: readonly MapDomainEdit[]): MapDomainV1 {
     const original = parseMapDomain(current);
     // Tools bound their declarations and the domain bounds saved data. One valid
     // cascade can expand to many more internal removals than the input count.
@@ -131,7 +115,8 @@ export function applyMapDomainEdits(current: MapDomain, edits: readonly MapDomai
         throw new MapDomainError('map_invalid_edit', 'edits must be an array');
     }
     const before = JSON.stringify({ atlas: original.atlas, scenes: original.scenes });
-    const candidate = stageMapDomainEdits(original, edits);
+    const candidate = structuredClone(original);
+    edits.forEach(edit => applyEdit(candidate, edit));
     const validated = parseMapDomain(candidate);
     if (JSON.stringify({ atlas: validated.atlas, scenes: validated.scenes }) === before) {return validated;}
     if (validated.revision === Number.MAX_SAFE_INTEGER) {

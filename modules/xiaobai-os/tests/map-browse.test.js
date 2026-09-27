@@ -1,10 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mapBrowseScope, projectAtlas } from '../domains/map/space/projection.js';
-import { searchMapScope } from '../apps/map/ui/map-browse.js';
-import { mapFrameId } from '../domains/map/space/frames.js';
+import { mapBrowseScope, searchMapScope } from '../apps/map/ui/map-browse.js';
 import { locationRegion } from '../domains/map/hierarchy.js';
-import { locationInScope } from '../apps/map/ui/world-map.js';
+import { layoutWorldMap, locationInScope } from '../apps/map/ui/world-map.js';
 import { validateMapDomain } from '../domains/map/invariants.js';
 import { mapBrowseFixture } from './fixtures/map-browse.js';
 
@@ -25,7 +23,7 @@ test('world counts and searches only regions; a region counts and searches only 
     assert.equal(searchMapScope(region, '', 'visited').length, 5);
     assert.equal(searchMapScope(region, '群山', 'all').length, 0);
     assert.deepEqual(searchMapScope(region, '  酒馆  ', 'all').map(place => place.key), ['harbor-0']);
-    assert.deepEqual(projectAtlas(map.atlas, world).nodes.map(node => node.location.key).sort(), world.locations.map(place => place.key).sort());
+    assert.deepEqual(layoutWorldMap(map.atlas, world).nodes.map(node => node.location.key).sort(), world.locations.map(place => place.key).sort());
     assert.equal(locationInScope(map.atlas, 'harbor-0', world.locations), 'harbor');
     assert.deepEqual(map, original);
 });
@@ -46,7 +44,7 @@ test('an empty or unknown region never borrows scenes from elsewhere', () => {
 test('scene ownership follows the nearest region, not scene existence or direct parent depth', () => {
     const { atlas } = mapBrowseFixture();
     atlas.locations.push(
-        { key: 'room', name: '二楼客房', scale: 'room', status: 'mentioned', parent: 'harbor-0', position: { frame: mapFrameId('harbor-0'), at: [10, 20] } },
+        { key: 'room', name: '二楼客房', scale: 'room', status: 'mentioned', parent: 'harbor-0', position: [10, 20] },
         { key: 'inner-region', name: '内港区', scale: 'region', status: 'mentioned', parent: 'harbor' },
         { key: 'inner-place', name: '内港工坊', scale: 'building', status: 'mentioned', parent: 'inner-region' },
         { key: 'other-place', name: '山间旅舍', scale: 'building', status: 'mentioned', parent: 'mountains' },
@@ -59,33 +57,34 @@ test('scene ownership follows the nearest region, not scene existence or direct 
     assert.equal(locationRegion(atlas, 'unassigned'), undefined);
     assert.deepEqual(searchMapScope(scope, '旅舍', 'all').map(place => place.key), ['harbor-9']);
     assert.ok(!scope.locations.some(place => ['inner-region', 'inner-place', 'other-place', 'unassigned'].includes(place.key)));
-    assert.equal(projectAtlas(atlas, scope).unlocated.find(item => item.location.key === 'room').reason, 'mapping_unknown');
+    assert.equal(layoutWorldMap(atlas, scope).nodes.find(node => node.location.key === 'room').placed, false);
     const world = mapBrowseScope(atlas, null);
     assert.equal(world.locations.length, 4);
-    assert.equal(world.frame, 'atlas');
+    assert.equal(world.positionParent, 'world');
     assert.equal(locationInScope(atlas, 'inner-place', world.locations), 'inner-region');
 });
 
-test('connectivity without geometry never fabricates routes or ancestor endpoints', () => {
+test('routes stay inside a region; world routes project scene endpoints to their regions', () => {
     const { atlas } = mapBrowseFixture();
     atlas.locations.push({ key: 'other-place', name: '山间旅舍', scale: 'building', status: 'mentioned', parent: 'mountains' });
     atlas.links.push({ id: 'mountain-road', from: 'harbor-0', to: 'other-place', kind: 'road', bidirectional: false });
-    const local = projectAtlas(atlas, mapBrowseScope(atlas, 'harbor'));
-    assert.deepEqual(local.routes, []);
-    const world = projectAtlas(atlas, mapBrowseScope(atlas, null));
-    assert.deepEqual(world.routes, []);
+    const local = layoutWorldMap(atlas, mapBrowseScope(atlas, 'harbor'));
+    assert.deepEqual(local.routes.map(route => route.link.id), ['harbor-path']);
+    const world = layoutWorldMap(atlas, mapBrowseScope(atlas, null));
+    assert.deepEqual(world.routes.map(route => [route.from.location.key, route.to.location.key]), [['harbor', 'mountains']]);
 });
 
 test('adding a nested region preserves authored outer-region coordinates', () => {
     const { atlas } = mapBrowseFixture();
-    const before = projectAtlas(atlas, mapBrowseScope(atlas, null));
-    atlas.locations.push({ key: 'inner', name: 'Inner', parent: 'harbor', scale: 'region', status: 'mentioned', position: { frame: mapFrameId('harbor'), at: [80, 100] } });
-    const after = projectAtlas(atlas, mapBrowseScope(atlas, null));
+    const before = layoutWorldMap(atlas, mapBrowseScope(atlas, null));
+    atlas.locations.push({ key: 'inner', name: 'Inner', parent: 'harbor', scale: 'region', status: 'mentioned', position: [80, 100] });
+    const after = layoutWorldMap(atlas, mapBrowseScope(atlas, null));
     for (const original of before.nodes) {
         const node = after.nodes.find(item => item.location.key === original.location.key);
+        assert.equal(node.placed, true);
         assert.deepEqual([node.x, node.y], [original.x, original.y]);
     }
-    assert.equal(after.unlocated.find(item => item.location.key === 'inner').reason, 'mapping_unknown');
+    assert.equal(after.nodes.find(node => node.location.key === 'inner').placed, false);
 });
 
 test('visits to scenes determine containing-region visits without rewriting saved records', () => {

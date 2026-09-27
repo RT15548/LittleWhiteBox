@@ -22,9 +22,6 @@ import {
     MAP_OBJECT_GROUPS,
 } from '../../../domains/map/semantics.js';
 import { DEFAULT_ATLAS_READ_LIMIT, MAX_ATLAS_QUERY_LENGTH, MAX_ATLAS_READ_LIMIT } from './atlas-reader.js';
-import { atlasExamplesPrompt } from './atlas-examples.js';
-import { ATLAS_COLLECTION_MODES, ATLAS_FEATURES_SCHEMA, ATLAS_MAPS_SCHEMA, ATLAS_MAP_SELECTOR, ATLAS_POSITION_SCHEMA, MAP_ATLAS_READ_CONTENT_DESCRIPTION } from './atlas-tool-contract.js';
-import { MAX_MAP_FEATURES, MAX_MAP_FRAMES } from '../../../domains/map/space/types.js';
 
 export const MAP_MAINTENANCE_TOOL_NAMES = Object.freeze({
     ATLAS_READ: 'MapAtlasRead',
@@ -74,15 +71,18 @@ export function mapTools(saveDescription: string): readonly MaintenanceFunctionD
         function: {
             name: MAP_MAINTENANCE_TOOL_NAMES.ATLAS_READ,
             description: [
-                MAP_ATLAS_READ_CONTENT_DESCRIPTION,
+                'Read locations, links and actor positions in the current atlas draft.',
                 READ_REPORT,
-                'Document mode adds the complete atlas with all five collections.',
+                'data contains mode and revision. Summary adds counts for locations/links/actors/needsRegion and player (null when unrecorded); document adds the complete atlas; collection modes add the named collection, count, returned, truncated and nextOffset.',
+                'Use it when the initial atlas was too large to inline, to confirm a key, or to inspect edits made during this run.',
+                'Locations include hasScene, which indicates whether a layout exists, not whether it is complete. Continue collection reads with nextOffset while it is not null, keeping the same mode and filters.',
+                'Read status includes containment: visiting a place also means its containing locations have been visited.',
+                'needsRegion marks a concrete place without a containing region. Use the locations filter needsRegion: true to read these places for an Atlas correction; worlds and regions themselves are not marked.',
             ].join('\n'),
             parameters: {
                 type: 'object',
                 properties: {
-                    mode: { type: 'string', enum: ['summary', 'document', ...ATLAS_COLLECTION_MODES], description: 'Default summary. Collection modes are paged.' },
-                    map: { ...ATLAS_MAP_SELECTOR, description: 'Optional exact source map filter for maps/features. Omit to read all source maps.' },
+                    mode: { type: 'string', enum: ['summary', 'document', 'locations', 'links', 'actors'], description: 'Default summary. Collection modes are paged.' },
                     query: { type: 'string', maxLength: MAX_ATLAS_QUERY_LENGTH, description: 'Case-insensitive text filter for the selected collection.' },
                     parent: { type: 'string', maxLength: MAX_MAP_ID_LENGTH, description: 'Optional exact parent key filter for locations.' },
                     status: { type: 'string', enum: locationStatus, description: 'Optional location status filter.' },
@@ -103,19 +103,14 @@ export function mapTools(saveDescription: string): readonly MaintenanceFunctionD
         function: {
             name: MAP_MAINTENANCE_TOOL_NAMES.ATLAS_EDIT,
             description: [
-                'Add, update or remove atlas locations, map relations, spatial features, routes and actor positions.',
+                'Add, update or remove atlas locations, routes and world-level actor positions.',
                 saveDescription,
                 EDIT_ITEM_REPORTS,
                 'Use it to establish places and their hierarchy before drawing their layouts with MapSceneEdit, or for movement between places.',
-                'data.baseGaps lists world/region maps with missing base coverage as {map,hasBase,uncoveredLocationKeys}. These are completion hints, not a failure to save valid edits.',
-                'Related containment, mapping, geometry, ownership and removal declarations are validated as one final candidate and accepted together. Independent groups may succeed separately. Omitted records remain unchanged.',
-                atlasExamplesPrompt(),
             ].join('\n'),
             parameters: {
                 type: 'object',
                 properties: {
-                    maps: ATLAS_MAPS_SCHEMA,
-                    features: ATLAS_FEATURES_SCHEMA,
                     locations: {
                         type: 'array',
                         maxItems: MAX_MAP_LOCATIONS,
@@ -133,8 +128,7 @@ export function mapTools(saveDescription: string): readonly MaintenanceFunctionD
                                     description: 'Existing or same-call parent key. Concrete places need a region ancestor, directly or through another place. Worlds and regions may be at the Atlas root; null clears their parent.',
                                 },
                                 brief: { type: 'string', maxLength: MAX_MAP_BRIEF_LENGTH, description: 'Short in-world description: what distinguishes this place and why someone might visit. Do not invent events that already happened.' },
-                                position: ATLAS_POSITION_SCHEMA,
-                                reframe: { ...ATLAS_MAP_SELECTOR, description: 'Express the existing position in another known map without moving it. Use alone, without position.' },
+                                position: { ...coordinatePair, type: ['array', 'null'], description: 'Stable [x,y] position inside the immediate parent; root regions share the world plane. North is smaller y. Use roughly 0..1000 with 160+ separation, following authored directions or the requested correction. Omit to preserve an existing position; null clears it.' },
                                 terrain: nullableEnum(['urban', 'plain', 'forest', 'water', 'mountain', 'desert', 'snow'], 'Use null to clear. Landscape of this place, used on the world map. Match the setting.'),
                             },
                             required: ['key', 'name'], additionalProperties: false,
@@ -153,7 +147,6 @@ export function mapTools(saveDescription: string): readonly MaintenanceFunctionD
                                 kind: { type: 'string', enum: linkKind, description: 'Route type connecting the two places.' },
                                 label: { type: 'string', maxLength: MAX_MAP_LABEL_LENGTH, description: 'Optional short route name.' },
                                 bidirectional: { type: 'boolean', description: 'Defaults true.' },
-                                feature: { type: ['string', 'null'], maxLength: MAX_MAP_ID_LENGTH, description: 'Optional ID of the actual open channel geometry. Null clears the geometry association; the connection remains.' },
                             },
                             required: ['from', 'to', 'kind'], additionalProperties: false,
                         },
@@ -174,13 +167,11 @@ export function mapTools(saveDescription: string): readonly MaintenanceFunctionD
                     },
                     remove: {
                         type: 'object',
-                        description: 'Remove records for correction or destruction. A location deletion cascades to descendants and their owned maps/features, routes, actor positions and scenes. Independent features merely associated with a destination survive; references to a deleted support must be repaired in this same call.',
+                        description: 'Remove records for explicit correction or destruction, not merely because an actor left a place. Removing a location also removes its descendants, routes, actor positions and scenes.',
                         properties: {
                             locationKeys: { type: 'array', maxItems: MAX_MAP_LOCATIONS, items: { type: 'string', maxLength: MAX_MAP_ID_LENGTH } },
                             linkIds: { type: 'array', maxItems: MAX_MAP_LINKS, items: { type: 'string', maxLength: MAX_MAP_ID_LENGTH } },
                             actorKeys: { type: 'array', maxItems: MAX_MAP_ACTORS, items: { type: 'string', maxLength: MAX_MAP_ID_LENGTH } },
-                            maps: { type: 'array', maxItems: MAX_MAP_FRAMES, items: ATLAS_MAP_SELECTOR },
-                            featureIds: { type: 'array', maxItems: MAX_MAP_FEATURES, items: { type: 'string', maxLength: MAX_MAP_ID_LENGTH } },
                         },
                         additionalProperties: false,
                     },
@@ -264,7 +255,7 @@ export function mapTools(saveDescription: string): readonly MaintenanceFunctionD
                                     },
                                     additionalProperties: false,
                                 },
-                                label: { type: ['string', 'null'], maxLength: MAX_MAP_LABEL_LENGTH, description: 'Short visible text. Required for shape "label". On cat "actor" it is the character\'s displayed name: actorKey is only an internal id and is never shown, so give every new non-player actor its name here. The player\'s name is filled automatically. Use null to clear it.' },
+                                label: { type: ['string', 'null'], maxLength: MAX_MAP_LABEL_LENGTH, description: 'Short visible text. Required for shape "label". On cat "actor" it is the character\'s displayed name; actorKey identifies the character but is not shown. Give new non-player actors their name here. An omitted label uses an already recorded actor name when available; the player\'s name is filled automatically. Use null to clear it.' },
                                 actorKey: { type: ['string', 'null'], maxLength: MAX_MAP_ID_LENGTH, description: 'Stable actor identity for a new cat "actor" element. The player is always "player". An existing actor keeps its stored actorKey.' },
                                 icon: nullableEnum(MAP_ICON_TOKENS, `Object type or marker symbol. Sized objects use rect/circle footprints; other outlines retain their original shape. On shape icon/label it is only a position marker/text. Actors and entrances retain their marker identity regardless of icon. Use null to clear.\n${objectGuidance}`),
                                 material: nullableEnum(MAP_MATERIALS, 'What the surface is made of, independent of object type: e.g. icon table + material metal. Floors, ground, decks and platforms are cat terrain with a surface material; fabric and bed-sheet describe soft objects, not a floor. Textures are automatic. Use null to clear.'),

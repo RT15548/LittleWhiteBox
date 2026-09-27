@@ -147,7 +147,7 @@ async (page) => {
         const map = window.mapCheck.map(); map.atlas.actors[0].locationKey = 'other-scene'; window.mapCheck.push(map);
     });
     await page.locator('.map-search-dialog').waitFor({ state: 'detached' });
-    check(await page.locator('.map-place').count() === 0, 'unlocated destination received a fabricated marker');
+    check(await page.locator('.map-place').count() === 1, 'current region did not follow player movement');
     await openBanner();
     check(await page.locator('.map-search-result').count() === 1, 'all-visited region did not open its local list');
     await back();
@@ -162,7 +162,6 @@ async (page) => {
         const map = window.mapCheck.map();
         map.atlas.locations = map.atlas.locations.filter(place => place.scale !== 'region');
         for (const place of map.atlas.locations) delete place.parent;
-        map.atlas.frames = map.atlas.frames.filter(frame => !frame.owner || map.atlas.locations.some(place => place.key === frame.owner));
         window.mapCheck.push(map);
     });
     await tab(0).click();
@@ -214,20 +213,15 @@ async (page) => {
     // A legal region key matching the world level must still enter its own coordinate frame.
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(base);
-    await page.evaluate(async () => {
+    await page.evaluate(() => {
         const map = window.mapCheck.map();
         map.atlas.locations = map.atlas.locations.filter(place => place.scale !== 'world');
-        const local = map.atlas.frames.find(frame => frame.owner === 'harbor');
-        const previousFrame = local.id;
-        local.id = 'map:' + [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode('world')))].map(byte => byte.toString(16).padStart(2, '0')).join('');
-        local.owner = 'world';
         for (const place of map.atlas.locations) {
             if (place.scale === 'region') {
                 delete place.parent;
-                place.position.at = [place.position.at[0] + 6000, place.position.at[1] + 5000];
+                place.position = [place.position[0] + 6000, place.position[1] + 5000];
             } else if (place.parent === 'harbor') { place.parent = 'world'; }
             if (place.key === 'harbor') place.key = 'world';
-            if (place.position?.frame === previousFrame) place.position.frame = local.id;
         }
         window.mapCheck.push(map);
     });
@@ -253,7 +247,7 @@ async (page) => {
     })));
     await page.evaluate(() => {
         const map = window.mapCheck.map();
-        map.atlas.locations.push({ key: 'inner-region', name: 'Inner', scale: 'region', status: 'mentioned', parent: 'world', position: { frame: map.atlas.frames.find(frame => frame.owner === 'world').id, at: [10, 20] } });
+        map.atlas.locations.push({ key: 'inner-region', name: 'Inner', scale: 'region', status: 'mentioned', parent: 'world', position: [10, 20] });
         window.mapCheck.push(map);
     });
     const nestedPositions = await page.locator('.map-place').evaluateAll(nodes => nodes.map(node => ({

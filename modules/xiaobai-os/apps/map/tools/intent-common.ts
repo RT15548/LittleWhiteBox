@@ -7,10 +7,10 @@ import {
     parseMapDomain,
 } from '../../../domains/map/invariants.js';
 import { applyMapDomainEdits, type MapDomainEdit } from '../../../domains/map/edit.js';
-import type { MapDomain } from '../../../domains/map/types.js';
+import type { MapDomainV1 } from '../../../domains/map/types.js';
 
 export interface AppliedIntentEdits {
-    readonly domain: MapDomain;
+    readonly domain: MapDomainV1;
     readonly changed: boolean;
 }
 
@@ -69,7 +69,7 @@ export function enumToken<T extends string>(value: unknown, allowed: readonly T[
 }
 
 export function applyIntentEdits(
-    current: MapDomain,
+    current: MapDomainV1,
     edits: readonly MapDomainEdit[],
 ): AppliedIntentEdits {
     if (!edits.length) {return { domain: current, changed: false };}

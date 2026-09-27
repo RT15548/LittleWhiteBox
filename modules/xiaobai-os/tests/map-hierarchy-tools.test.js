@@ -3,8 +3,7 @@ import test from 'node:test';
 import { compileAtlasIntent } from '../apps/map/tools/atlas-intent-compiler.js';
 import { compileSceneIntent } from '../apps/map/tools/scene-intent-compiler.js';
 import { readAtlas } from '../apps/map/tools/atlas-reader.js';
-import { mapBrowseScope } from '../domains/map/space/projection.js';
-import { mapFrameId } from '../domains/map/space/frames.js';
+import { mapBrowseScope } from '../apps/map/ui/map-browse.js';
 import { validateMapDomain } from '../domains/map/invariants.js';
 import { createEmptyMapDomain } from '../domains/map/state.js';
 import { locationRegion } from '../domains/map/hierarchy.js';
@@ -74,7 +73,7 @@ test('same-call hierarchy is order-independent and creates browsable scenes', ()
 });
 
 test('existing unassigned places are readable and repair preserves scene, visits, position and actor facts', () => {
-    const located = mapAtlasFixture([{ key: 'inn', scale: 'building', position: { frame: mapFrameId('fixture-region'), at: [100, 200] } }, { key: 'room', parent: 'inn' }]);
+    const located = mapAtlasFixture([{ key: 'inn', scale: 'building', position: [100, 200] }, { key: 'room', parent: 'inn' }]);
     const { domain } = compileSceneIntent(located, { scene: 'room', elements: [floor], playerHere: true }, player);
     delete domain.atlas.locations.find(item => item.key === 'inn').parent;
     domain.atlas.locations.push({ key: 'unrelated', name: 'Unrelated', scale: 'outdoor', status: 'mentioned' });
@@ -122,7 +121,7 @@ test('regions may be detached from a world without detaching their places', () =
 // These operations have valid final hierarchies but cannot be validated one ancestor at a time.
 test('same-call scale corrections are order-independent and preserve scene, actor and geography facts', () => {
     const { domain } = compileSceneIntent(mapAtlasFixture([
-        { key: 'city', scale: 'city', position: { frame: mapFrameId('fixture-region'), at: [100, 200] }, terrain: 'urban' },
+        { key: 'city', scale: 'city', position: [100, 200], terrain: 'urban' },
         { key: 'room', parent: 'city' },
     ]), { scene: 'room', elements: [floor], playerHere: true }, player);
     const original = structuredClone(domain);

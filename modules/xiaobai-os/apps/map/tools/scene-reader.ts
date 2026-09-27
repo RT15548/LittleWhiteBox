@@ -1,6 +1,6 @@
-import type { CircleGeometry, MapDomain, MapElement, MapLocation, MapScene, PointGeometry, PointsGeometry, RectGeometry } from '../../../domains/map/types.js';
+import type { CircleGeometry, MapDomainV1, MapElement, MapLocation, MapScene, PointGeometry, PointsGeometry, RectGeometry } from '../../../domains/map/types.js';
 
-export function resolveSceneKey(domain: MapDomain, requested: string): string {
+export function resolveSceneKey(domain: MapDomainV1, requested: string): string {
     const location = domain.atlas.locations.find(candidate => candidate.key === requested)
         || domain.atlas.locations.find(candidate => candidate.sceneKey === requested)
         || domain.atlas.locations.find(candidate => candidate.name === requested);

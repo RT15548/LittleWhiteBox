@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { isDeepStrictEqual } from 'node:util';
 import { administratorHarness, settled } from './administrator-harness.js';
 import { createAdministratorToolExecutor } from '../apps/administrator/agent/tool-executor.js';
 import { createAdministratorChatReader } from '../apps/administrator/host/chat-reader.js';
@@ -10,10 +9,6 @@ import { GoogleAdapter } from '../../agent-core/adapters/google.js';
 import { administratorContext, contextUsage } from '../apps/administrator/agent/history.js';
 import { ADMINISTRATOR_PROMPT } from '../apps/administrator/agent/prompt.js';
 import { administratorReferenceMessage } from '../apps/administrator/agent/reference-data.js';
-import { createMapMaintenanceSession } from '../apps/map/maintenance/session.js';
-import { MAP_MAINTENANCE_TOOL_NAMES, mapTools } from '../apps/map/tools/tool-contract.js';
-import { ATLAS_EXAMPLES } from '../apps/map/tools/atlas-examples.js';
-import { createMapKernelHarness } from './map-kernel-harness.js';
 
 const names = tools => tools.map(tool => tool.function.name);
 const common = [TOOLS_LOAD, 'ChatSearch', 'ChatRead', 'OSInspect', 'ToolResultRead'];
@@ -28,52 +23,6 @@ async function executorFixture(h) {
     let sequence = 0;
     return { executor, operations, abort, call: (name, args = {}) => executor.execute(name, args, String(++sequence), sequence) };
 }
-
-test('Atlas examples travel with the loaded tool and execute in both consumers with their own save boundaries', async t => {
-    const name = MAP_MAINTENANCE_TOOL_NAMES.ATLAS_EDIT;
-    // Parse the published tool-call data, not its surrounding explanatory wording.
-    const examples = text => [...text.matchAll(new RegExp(`${name}\\s*\\(\\s*(\\{[\\s\\S]*?\\})\\s*\\)`, 'g'))]
-        .map(match => JSON.parse(match[1]));
-    const toolExamples = tools => tools.filter(tool => tool.function.name === name)
-        .flatMap(tool => examples(tool.function.description));
-    const inputs = toolExamples(mapTools(''));
-    assert.ok(inputs.length > 0);
-    for (const input of inputs) {
-        const example = ATLAS_EXAMPLES.find(example => isDeepStrictEqual(input, example.input));
-        assert.ok(example);
-        await t.test(example.id, async () => {
-            const h = await administratorHarness(), maintenance = createMapKernelHarness();
-            await maintenance.map.refreshCurrent();
-            const source = { player: { actorKey: 'player', displayName: h.capture().playerName } };
-            const session = createMapMaintenanceSession(maintenance.map, source, 'manual');
-            assert.deepEqual(toolExamples(session.tools), inputs);
-            for (const mode of ['manual', 'rebuild']) {
-                assert.deepEqual(examples(createMapMaintenanceSession(maintenance.map, source, mode).prompt), []);
-            }
-            assert.deepEqual(examples((await h.registry.get('map').open()).prompt), []);
-            assert.equal((await session.executeTool(name, input)).status, 'updated');
-            assert.equal(maintenance.state.writes.length, 0);
-            await session.commit(() => true);
-            assert.equal(maintenance.state.writes.length, 1);
-
-            let step = 0;
-            h.state.generate = async request => {
-                if (++step === 1) {
-                    assert.deepEqual(toolExamples(request.tools), []);
-                    return call(TOOLS_LOAD, { apps: ['map'] });
-                }
-                assert.deepEqual(toolExamples(request.tools), inputs);
-                if (step === 2) { return call(name, input); }
-                assert.equal(result(request.messages, name).status, 'saved');
-                return { text: 'done' };
-            };
-            await h.request('send', { text: 'draw the example atlas' });
-            await settled(h.runtime);
-            assert.equal(step, 3);
-            assert.deepEqual(h.state.persisted.partitions.map, maintenance.state.persisted.partitions.map);
-        });
-    }
-});
 
 test('one load supplies a complete registered APP package and common tools without business activity', async () => {
     const h = await administratorHarness(), f = await executorFixture(h);

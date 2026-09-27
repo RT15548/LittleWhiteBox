@@ -6,7 +6,7 @@ import { setImmediate } from 'node:timers';
 import { Box3, Matrix4, Raycaster, Vector3 } from 'three';
 import { MAP_ICON_TOKENS, MAP_OBJECT_ICONS } from '../domains/map/semantics.js';
 import { mapAtlasFixture } from './fixtures/map-atlas.js';
-import { MAP_DOMAIN_SCHEMA_VERSION, parseMapDomain, validateMapDomain } from '../domains/map/invariants.js';
+import { parseMapDomain, validateMapDomain } from '../domains/map/invariants.js';
 import { compileSceneIntent } from '../apps/map/tools/scene-intent-compiler.js';
 import { sceneForTool } from '../apps/map/tools/scene-reader.js';
 import { elementPresentation } from '../apps/map/ui/map-presentation.js';
@@ -47,7 +47,7 @@ test('all 37 object types survive compilation, persisted reads and icon-only pat
         const expected = structuredClone(scene.elements);
         delete expected.find(e => e.id === target.id).icon;
         assert.deepEqual(changed.scenes[input.scene].elements, expected);
-        assert.equal(changed.schemaVersion, MAP_DOMAIN_SCHEMA_VERSION);
+        assert.equal(changed.schemaVersion, 1);
     }
     assert.deepEqual(covered, new Set(MAP_OBJECT_ICONS));
 });

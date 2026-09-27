@@ -8,7 +8,7 @@ import {
     MAINTENANCE_CAPABILITY,
     type MaintenanceCapability,
 } from '../../capabilities/maintenance/index.js';
-import type { MapDomain } from '../../domains/map/types.js';
+import type { MapDomainV1 } from '../../domains/map/types.js';
 import { createMapService, type MapService } from './application/service.js';
 import { MAP_CONTEXT_CAPABILITY, type MapContextCapability } from './context-capability.js';
 import { buildMapPromptBlock } from '../../domains/map/projection.js';
@@ -41,7 +41,7 @@ export function createMapModule(dependencies: MapModuleDependencies): XiaobaiOsA
         install(context) {
             if (!context.partition) { throw new Error('Map partition store is unavailable'); }
             const map = createMapService(
-                context.partition as PartitionStore<MapDomain>,
+                context.partition as PartitionStore<MapDomainV1>,
                 context.files,
             );
             context.execution.addCleanup(map.dispose);

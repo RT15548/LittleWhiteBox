@@ -1,13 +1,12 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import type { MapDomain, MapLocation } from '../../../domains/map/types.js';
+import type { MapDomainV1, MapLocation } from '../../../domains/map/types.js';
 import MapIcon from './MapIcon.vue';
 import { connectedPlaces } from './world-map.js';
 import { isMapRegion, locationTrail } from '../../../domains/map/hierarchy.js';
 import { MAP_SCALE_LABELS, MAP_LINK_LABELS } from './map-presentation.js';
-import { MAP_NAV_COPY, MAP_VISIT_LABELS, MAP_POSITION_COPY } from './map-copy.js';
-import type { UnlocatedReason } from '../../../domains/map/space/projection.js';
-const props = defineProps<{ location: MapLocation; map: MapDomain; currentKey: string; unlocated?: UnlocatedReason }>();
+import { MAP_NAV_COPY, MAP_VISIT_LABELS } from './map-copy.js';
+const props = defineProps<{ location: MapLocation; map: MapDomainV1; currentKey: string }>();
 defineEmits<{ close: []; scene: []; explore: []; select: [key: string] }>();
 const trail = computed(() => locationTrail(props.map.atlas, props.location.key).slice(0, -1));
 const region = computed(() => isMapRegion(props.location));
@@ -19,7 +18,6 @@ const connections = computed(() => connectedPlaces(props.map.atlas, props.locati
         <div class="map-sheet-grip" aria-hidden="true" />
         <header><div><small>{{ MAP_SCALE_LABELS[location.scale] }} · {{ currentKey === location.key ? '当前位置' : MAP_VISIT_LABELS[location.status === 'visited' ? 'visited' : 'unvisited'] }}</small><h2 id="map-place-title">{{ location.name }}</h2></div><button type="button" class="map-round-button" aria-label="关闭地点详情" @click="$emit('close')"><MapIcon name="close" /></button></header>
         <div class="map-place-content">
-            <p v-if="unlocated" class="map-position-note" :data-position-status="unlocated"><MapIcon name="pin" />{{ MAP_POSITION_COPY[unlocated] }}</p>
             <p v-if="location.name.length > 24" class="map-place-full-name">{{ location.name }}</p>
             <p v-if="trail.length" class="map-address"><MapIcon name="pin" />{{ trail.map(place => place.name).join(' · ') }}</p>
             <p class="map-place-intro">{{ location.brief || '这个地点已记录在世界地图上，更多介绍等待故事展开。' }}</p>

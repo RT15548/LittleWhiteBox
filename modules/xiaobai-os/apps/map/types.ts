@@ -1,5 +1,5 @@
 import type { XiaobaiOsFileState } from '../../kernel/contracts.js';
-import type { MapDomain } from '../../domains/map/types.js';
+import type { MapDomainV1 } from '../../domains/map/types.js';
 
 export interface MapSettings {
     autoMaintenance: boolean;
@@ -19,7 +19,7 @@ export type MapMaintenanceStatus = 'idle' | 'maintaining' | 'rebuilding' | 'erro
 /** Controller-facing state; only MapSettings and domains.map are persisted. */
 export interface MapClientState {
     chatIdentity: string;
-    map: MapDomain | null;
+    map: MapDomainV1 | null;
     writeState: XiaobaiOsFileState;
     status: MapClientStatus;
     message: string;

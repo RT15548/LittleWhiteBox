@@ -6,12 +6,43 @@ import {
 } from '../apps/map/ui/map-presentation.js';
 import { sceneElementPath } from '../apps/map/ui/scene-geometry.js';
 
-import { connectedPlaces } from '../apps/map/ui/world-map.js';
+import { layoutWorldMap, locationInScope, connectedPlaces } from '../apps/map/ui/world-map.js';
 
-test('connection details preserve direction even without map positions', () => {
-    const atlas = { locations: [{ key: 'a' }, { key: 'b' }], links: [{ id: 'route', from: 'a', to: 'b', kind: 'path', bidirectional: false }], actors: [] };
-    assert.equal(connectedPlaces(atlas, 'a')[0].outgoing, true);
-    assert.equal(connectedPlaces(atlas, 'b')[0].outgoing, false);
+function atlas(locations, links) {
+    return {
+        locations,
+        links,
+        actors: [],
+    };
+}
+
+test('world layout preserves authored geography and gives unpositioned destinations a read-only layout', () => {
+    const locations = [
+        { key: 'town', name: 'Town', scale: 'city', status: 'mentioned' },
+        { key: 'home', name: 'Home', scale: 'building', status: 'visited', parent: 'town', position: [200, 650] },
+        { key: 'forest', name: 'Forest', scale: 'outdoor', status: 'mentioned', parent: 'town', position: [500, 100] },
+        { key: 'lake', name: 'Lake', scale: 'outdoor', status: 'mentioned', parent: 'town' },
+        { key: 'room', name: 'Room', scale: 'room', status: 'visited', parent: 'home' },
+    ];
+    const links = [{ id: 'trail', from: 'room', to: 'forest', kind: 'path', bidirectional: false }];
+    const world = atlas(locations, links);
+    const original = structuredClone(world);
+    const scope = { locations: locations.filter(place => place.parent === 'town'), positionParent: 'town' };
+    const layout = layoutWorldMap(world, scope);
+    assert.deepEqual(layoutWorldMap(atlas([...locations].reverse(), links), { ...scope, locations: [...scope.locations].reverse() }), layout);
+    assert.deepEqual(world, original);
+    assert.deepEqual(layout.nodes.map(node => node.location.key), ['forest', 'home', 'lake']);
+    assert.equal(layout.nodes.find(node => node.location.key === 'forest').y, 100);
+    assert.equal(layout.nodes.find(node => node.location.key === 'home').x, 200);
+    for (const node of layout.nodes.filter(item => !item.placed)) {
+        assert.ok(layout.nodes.every(other => other === node || Math.hypot(other.x - node.x, other.y - node.y) >= 160));
+    }
+    assert.equal(locationInScope(world, 'room', scope.locations), 'home');
+    assert.equal(layout.routes[0].from.location.key, 'home');
+    assert.equal(layout.routes[0].to.location.key, 'forest');
+    assert.equal(layout.routes[0].link.bidirectional, false);
+    assert.equal(connectedPlaces(world, 'forest')[0].outgoing, false);
+    assert.equal(connectedPlaces(world, 'room')[0].outgoing, true);
 });
 
 test('Scene paths close area semantics while routes remain open and curves stay smooth', () => {

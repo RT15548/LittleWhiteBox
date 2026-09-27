@@ -9771,7 +9771,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/application/service.ts",
       "relativePath": "modules/xiaobai-os/apps/map/application/service.ts",
       "extension": ".ts",
-      "sizeBytes": 4869
+      "sizeBytes": 4881
     },
     {
       "source": "littlewhitebox",
@@ -9813,7 +9813,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/host/prompt-runtime.ts",
       "relativePath": "modules/xiaobai-os/apps/map/host/prompt-runtime.ts",
       "extension": ".ts",
-      "sizeBytes": 2189
+      "sizeBytes": 2193
     },
     {
       "source": "littlewhitebox",
@@ -9827,14 +9827,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/maintenance/prompt.ts",
       "relativePath": "modules/xiaobai-os/apps/map/maintenance/prompt.ts",
       "extension": ".ts",
-      "sizeBytes": 11713
+      "sizeBytes": 11568
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/maintenance/session.ts",
       "relativePath": "modules/xiaobai-os/apps/map/maintenance/session.ts",
       "extension": ".ts",
-      "sizeBytes": 7637
+      "sizeBytes": 7645
     },
     {
       "source": "littlewhitebox",
@@ -9848,35 +9848,35 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/management/prompt.ts",
       "relativePath": "modules/xiaobai-os/apps/map/management/prompt.ts",
       "extension": ".ts",
-      "sizeBytes": 690
+      "sizeBytes": 579
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/management/read-baseline.ts",
       "relativePath": "modules/xiaobai-os/apps/map/management/read-baseline.ts",
       "extension": ".ts",
-      "sizeBytes": 3928
+      "sizeBytes": 4530
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/management/tool-contract.ts",
       "relativePath": "modules/xiaobai-os/apps/map/management/tool-contract.ts",
       "extension": ".ts",
-      "sizeBytes": 2625
+      "sizeBytes": 2942
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/module.ts",
       "relativePath": "modules/xiaobai-os/apps/map/module.ts",
       "extension": ".ts",
-      "sizeBytes": 3170
+      "sizeBytes": 3174
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/partition.ts",
       "relativePath": "modules/xiaobai-os/apps/map/partition.ts",
       "extension": ".ts",
-      "sizeBytes": 1154
+      "sizeBytes": 1036
     },
     {
       "source": "littlewhitebox",
@@ -9904,63 +9904,28 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/tools/atlas-data-message.ts",
       "relativePath": "modules/xiaobai-os/apps/map/tools/atlas-data-message.ts",
       "extension": ".ts",
-      "sizeBytes": 1535
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/tools/atlas-dependencies.ts",
-      "relativePath": "modules/xiaobai-os/apps/map/tools/atlas-dependencies.ts",
-      "extension": ".ts",
-      "sizeBytes": 4670
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/tools/atlas-examples.ts",
-      "relativePath": "modules/xiaobai-os/apps/map/tools/atlas-examples.ts",
-      "extension": ".ts",
-      "sizeBytes": 5704
+      "sizeBytes": 1423
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/tools/atlas-intent-compiler.ts",
       "relativePath": "modules/xiaobai-os/apps/map/tools/atlas-intent-compiler.ts",
       "extension": ".ts",
-      "sizeBytes": 13246
+      "sizeBytes": 12841
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/tools/atlas-location-compiler.ts",
       "relativePath": "modules/xiaobai-os/apps/map/tools/atlas-location-compiler.ts",
       "extension": ".ts",
-      "sizeBytes": 2247
+      "sizeBytes": 7431
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/tools/atlas-reader.ts",
       "relativePath": "modules/xiaobai-os/apps/map/tools/atlas-reader.ts",
       "extension": ".ts",
-      "sizeBytes": 11168
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/tools/atlas-removals.ts",
-      "relativePath": "modules/xiaobai-os/apps/map/tools/atlas-removals.ts",
-      "extension": ".ts",
-      "sizeBytes": 6987
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/tools/atlas-spatial-compiler.ts",
-      "relativePath": "modules/xiaobai-os/apps/map/tools/atlas-spatial-compiler.ts",
-      "extension": ".ts",
-      "sizeBytes": 4089
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/tools/atlas-tool-contract.ts",
-      "relativePath": "modules/xiaobai-os/apps/map/tools/atlas-tool-contract.ts",
-      "extension": ".ts",
-      "sizeBytes": 8859
+      "sizeBytes": 8601
     },
     {
       "source": "littlewhitebox",
@@ -9974,7 +9939,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/tools/intent-common.ts",
       "relativePath": "modules/xiaobai-os/apps/map/tools/intent-common.ts",
       "extension": ".ts",
-      "sizeBytes": 3330
+      "sizeBytes": 3336
     },
     {
       "source": "littlewhitebox",
@@ -9988,196 +9953,49 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/tools/scene-examples.ts",
       "relativePath": "modules/xiaobai-os/apps/map/tools/scene-examples.ts",
       "extension": ".ts",
-      "sizeBytes": 7437
+      "sizeBytes": 7186
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/tools/scene-intent-compiler.ts",
       "relativePath": "modules/xiaobai-os/apps/map/tools/scene-intent-compiler.ts",
       "extension": ".ts",
-      "sizeBytes": 23912
+      "sizeBytes": 23899
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/tools/scene-reader.ts",
       "relativePath": "modules/xiaobai-os/apps/map/tools/scene-reader.ts",
       "extension": ".ts",
-      "sizeBytes": 1885
+      "sizeBytes": 1889
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/tools/tool-contract.ts",
       "relativePath": "modules/xiaobai-os/apps/map/tools/tool-contract.ts",
       "extension": ".ts",
-      "sizeBytes": 22434
+      "sizeBytes": 21886
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/types.ts",
       "relativePath": "modules/xiaobai-os/apps/map/types.ts",
       "extension": ".ts",
-      "sizeBytes": 878
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/ui/atlas/atlas-tiles.worker.ts",
-      "relativePath": "modules/xiaobai-os/apps/map/ui/atlas/atlas-tiles.worker.ts",
-      "extension": ".ts",
-      "sizeBytes": 186
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/ui/atlas/AtlasBackdrop.vue",
-      "relativePath": "modules/xiaobai-os/apps/map/ui/atlas/AtlasBackdrop.vue",
-      "extension": ".vue",
-      "sizeBytes": 2933
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/ui/atlas/AtlasCanvas.vue",
-      "relativePath": "modules/xiaobai-os/apps/map/ui/atlas/AtlasCanvas.vue",
-      "extension": ".vue",
-      "sizeBytes": 3475
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/ui/atlas/AtlasSpace.vue",
-      "relativePath": "modules/xiaobai-os/apps/map/ui/atlas/AtlasSpace.vue",
-      "extension": ".vue",
-      "sizeBytes": 7957
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/ui/atlas/AtlasSurface.vue",
-      "relativePath": "modules/xiaobai-os/apps/map/ui/atlas/AtlasSurface.vue",
-      "extension": ".vue",
-      "sizeBytes": 2005
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/ui/atlas/camera.ts",
-      "relativePath": "modules/xiaobai-os/apps/map/ui/atlas/camera.ts",
-      "extension": ".ts",
-      "sizeBytes": 1689
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/ui/atlas/details.ts",
-      "relativePath": "modules/xiaobai-os/apps/map/ui/atlas/details.ts",
-      "extension": ".ts",
-      "sizeBytes": 2580
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/ui/atlas/geometry.ts",
-      "relativePath": "modules/xiaobai-os/apps/map/ui/atlas/geometry.ts",
-      "extension": ".ts",
-      "sizeBytes": 589
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/ui/atlas/gpu-content.ts",
-      "relativePath": "modules/xiaobai-os/apps/map/ui/atlas/gpu-content.ts",
-      "extension": ".ts",
-      "sizeBytes": 8632
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/ui/atlas/gpu-geometry.ts",
-      "relativePath": "modules/xiaobai-os/apps/map/ui/atlas/gpu-geometry.ts",
-      "extension": ".ts",
-      "sizeBytes": 2085
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/ui/atlas/gpu-materials.ts",
-      "relativePath": "modules/xiaobai-os/apps/map/ui/atlas/gpu-materials.ts",
-      "extension": ".ts",
-      "sizeBytes": 3794
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/ui/atlas/gpu-runtime.ts",
-      "relativePath": "modules/xiaobai-os/apps/map/ui/atlas/gpu-runtime.ts",
-      "extension": ".ts",
-      "sizeBytes": 9955
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/ui/atlas/materials.ts",
-      "relativePath": "modules/xiaobai-os/apps/map/ui/atlas/materials.ts",
-      "extension": ".ts",
-      "sizeBytes": 1984
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/ui/atlas/noise.ts",
-      "relativePath": "modules/xiaobai-os/apps/map/ui/atlas/noise.ts",
-      "extension": ".ts",
-      "sizeBytes": 2030
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/ui/atlas/surface.ts",
-      "relativePath": "modules/xiaobai-os/apps/map/ui/atlas/surface.ts",
-      "extension": ".ts",
-      "sizeBytes": 19694
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/ui/atlas/tile-plan.ts",
-      "relativePath": "modules/xiaobai-os/apps/map/ui/atlas/tile-plan.ts",
-      "extension": ".ts",
-      "sizeBytes": 3603
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/ui/atlas/tile-render.ts",
-      "relativePath": "modules/xiaobai-os/apps/map/ui/atlas/tile-render.ts",
-      "extension": ".ts",
-      "sizeBytes": 4135
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/ui/atlas/tile-session.ts",
-      "relativePath": "modules/xiaobai-os/apps/map/ui/atlas/tile-session.ts",
-      "extension": ".ts",
-      "sizeBytes": 1948
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/ui/atlas/tiles.ts",
-      "relativePath": "modules/xiaobai-os/apps/map/ui/atlas/tiles.ts",
-      "extension": ".ts",
-      "sizeBytes": 6646
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/ui/atlas/use-atlas-tiles.ts",
-      "relativePath": "modules/xiaobai-os/apps/map/ui/atlas/use-atlas-tiles.ts",
-      "extension": ".ts",
-      "sizeBytes": 7473
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/ui/atlas/use-insets.ts",
-      "relativePath": "modules/xiaobai-os/apps/map/ui/atlas/use-insets.ts",
-      "extension": ".ts",
-      "sizeBytes": 1382
+      "sizeBytes": 882
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/ui/map-browse.ts",
       "relativePath": "modules/xiaobai-os/apps/map/ui/map-browse.ts",
       "extension": ".ts",
-      "sizeBytes": 665
+      "sizeBytes": 2387
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/ui/map-copy.ts",
       "relativePath": "modules/xiaobai-os/apps/map/ui/map-copy.ts",
       "extension": ".ts",
-      "sizeBytes": 3098
+      "sizeBytes": 2275
     },
     {
       "source": "littlewhitebox",
@@ -10198,28 +10016,28 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/ui/map-view.ts",
       "relativePath": "modules/xiaobai-os/apps/map/ui/map-view.ts",
       "extension": ".ts",
-      "sizeBytes": 425
+      "sizeBytes": 429
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/ui/map.css",
       "relativePath": "modules/xiaobai-os/apps/map/ui/map.css",
       "extension": ".css",
-      "sizeBytes": 24876
+      "sizeBytes": 22981
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/ui/MapApp.vue",
       "relativePath": "modules/xiaobai-os/apps/map/ui/MapApp.vue",
       "extension": ".vue",
-      "sizeBytes": 17103
+      "sizeBytes": 15755
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/ui/MapAtlas.vue",
       "relativePath": "modules/xiaobai-os/apps/map/ui/MapAtlas.vue",
       "extension": ".vue",
-      "sizeBytes": 5412
+      "sizeBytes": 4059
     },
     {
       "source": "littlewhitebox",
@@ -10233,7 +10051,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/ui/MapPlaceDetail.vue",
       "relativePath": "modules/xiaobai-os/apps/map/ui/MapPlaceDetail.vue",
       "extension": ".vue",
-      "sizeBytes": 3527
+      "sizeBytes": 3249
     },
     {
       "source": "littlewhitebox",
@@ -10254,7 +10072,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/ui/MapSearch.vue",
       "relativePath": "modules/xiaobai-os/apps/map/ui/MapSearch.vue",
       "extension": ".vue",
-      "sizeBytes": 2498
+      "sizeBytes": 2444
     },
     {
       "source": "littlewhitebox",
@@ -10268,35 +10086,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/ui/MapViewport.vue",
       "relativePath": "modules/xiaobai-os/apps/map/ui/MapViewport.vue",
       "extension": ".vue",
-      "sizeBytes": 8048
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/ui/MapZoomControls.vue",
-      "relativePath": "modules/xiaobai-os/apps/map/ui/MapZoomControls.vue",
-      "extension": ".vue",
-      "sizeBytes": 570
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/ui/render/demand-frame.ts",
-      "relativePath": "modules/xiaobai-os/apps/map/ui/render/demand-frame.ts",
-      "extension": ".ts",
-      "sizeBytes": 541
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/ui/render/pixel-ratio.ts",
-      "relativePath": "modules/xiaobai-os/apps/map/ui/render/pixel-ratio.ts",
-      "extension": ".ts",
-      "sizeBytes": 156
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/ui/render/resources.ts",
-      "relativePath": "modules/xiaobai-os/apps/map/ui/render/resources.ts",
-      "extension": ".ts",
-      "sizeBytes": 422
+      "sizeBytes": 6358
     },
     {
       "source": "littlewhitebox",
@@ -10401,21 +10191,21 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/ui/three/scene3d-asset-fit.ts",
       "relativePath": "modules/xiaobai-os/apps/map/ui/three/scene3d-asset-fit.ts",
       "extension": ".ts",
-      "sizeBytes": 5604
+      "sizeBytes": 5606
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/ui/three/scene3d-assets.ts",
       "relativePath": "modules/xiaobai-os/apps/map/ui/three/scene3d-assets.ts",
       "extension": ".ts",
-      "sizeBytes": 3395
+      "sizeBytes": 3397
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/ui/three/scene3d-fence.ts",
       "relativePath": "modules/xiaobai-os/apps/map/ui/three/scene3d-fence.ts",
       "extension": ".ts",
-      "sizeBytes": 1796
+      "sizeBytes": 1798
     },
     {
       "source": "littlewhitebox",
@@ -10450,14 +10240,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/ui/three/scene3d-materials.ts",
       "relativePath": "modules/xiaobai-os/apps/map/ui/three/scene3d-materials.ts",
       "extension": ".ts",
-      "sizeBytes": 3747
+      "sizeBytes": 3749
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/ui/three/scene3d-model.ts",
       "relativePath": "modules/xiaobai-os/apps/map/ui/three/scene3d-model.ts",
       "extension": ".ts",
-      "sizeBytes": 8591
+      "sizeBytes": 8593
     },
     {
       "source": "littlewhitebox",
@@ -10468,10 +10258,17 @@
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/ui/three/scene3d-resources.ts",
+      "relativePath": "modules/xiaobai-os/apps/map/ui/three/scene3d-resources.ts",
+      "extension": ".ts",
+      "sizeBytes": 426
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/ui/three/scene3d-templates.ts",
       "relativePath": "modules/xiaobai-os/apps/map/ui/three/scene3d-templates.ts",
       "extension": ".ts",
-      "sizeBytes": 7303
+      "sizeBytes": 7305
     },
     {
       "source": "littlewhitebox",
@@ -10492,7 +10289,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/ui/three/three-runtime.ts",
       "relativePath": "modules/xiaobai-os/apps/map/ui/three/three-runtime.ts",
       "extension": ".ts",
-      "sizeBytes": 12427
+      "sizeBytes": 12449
     },
     {
       "source": "littlewhitebox",
@@ -10506,7 +10303,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/ui/world-map.ts",
       "relativePath": "modules/xiaobai-os/apps/map/ui/world-map.ts",
       "extension": ".ts",
-      "sizeBytes": 906
+      "sizeBytes": 3465
     },
     {
       "source": "littlewhitebox",
@@ -12130,28 +11927,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/docs/map-app-target-design.md",
       "relativePath": "modules/xiaobai-os/docs/map-app-target-design.md",
       "extension": ".md",
-      "sizeBytes": 31368
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/docs/map-atlas-geography-design.md",
-      "relativePath": "modules/xiaobai-os/docs/map-atlas-geography-design.md",
-      "extension": ".md",
-      "sizeBytes": 32753
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/docs/map-atlas-gpu-verification.md",
-      "relativePath": "modules/xiaobai-os/docs/map-atlas-gpu-verification.md",
-      "extension": ".md",
-      "sizeBytes": 11579
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/docs/map-atlas-implementation-plan.md",
-      "relativePath": "modules/xiaobai-os/docs/map-atlas-implementation-plan.md",
-      "extension": ".md",
-      "sizeBytes": 36363
+      "sizeBytes": 30760
     },
     {
       "source": "littlewhitebox",
@@ -12557,7 +12333,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/domains/map/edit.ts",
       "relativePath": "modules/xiaobai-os/domains/map/edit.ts",
       "extension": ".ts",
-      "sizeBytes": 6814
+      "sizeBytes": 5861
     },
     {
       "source": "littlewhitebox",
@@ -12571,14 +12347,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/domains/map/invariants.ts",
       "relativePath": "modules/xiaobai-os/domains/map/invariants.ts",
       "extension": ".ts",
-      "sizeBytes": 21283
+      "sizeBytes": 21094
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/domains/map/projection.ts",
       "relativePath": "modules/xiaobai-os/domains/map/projection.ts",
       "extension": ".ts",
-      "sizeBytes": 5794
+      "sizeBytes": 5798
     },
     {
       "source": "littlewhitebox",
@@ -12589,115 +12365,17 @@
     },
     {
       "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/domains/map/space/area-overlap.ts",
-      "relativePath": "modules/xiaobai-os/domains/map/space/area-overlap.ts",
-      "extension": ".ts",
-      "sizeBytes": 2684
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/domains/map/space/browse.ts",
-      "relativePath": "modules/xiaobai-os/domains/map/space/browse.ts",
-      "extension": ".ts",
-      "sizeBytes": 826
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/domains/map/space/composition.ts",
-      "relativePath": "modules/xiaobai-os/domains/map/space/composition.ts",
-      "extension": ".ts",
-      "sizeBytes": 3019
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/domains/map/space/coverage.ts",
-      "relativePath": "modules/xiaobai-os/domains/map/space/coverage.ts",
-      "extension": ".ts",
-      "sizeBytes": 1697
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/domains/map/space/frames.ts",
-      "relativePath": "modules/xiaobai-os/domains/map/space/frames.ts",
-      "extension": ".ts",
-      "sizeBytes": 2441
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/domains/map/space/geometry.ts",
-      "relativePath": "modules/xiaobai-os/domains/map/space/geometry.ts",
-      "extension": ".ts",
-      "sizeBytes": 9312
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/domains/map/space/invariants.ts",
-      "relativePath": "modules/xiaobai-os/domains/map/space/invariants.ts",
-      "extension": ".ts",
-      "sizeBytes": 11429
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/domains/map/space/projection.ts",
-      "relativePath": "modules/xiaobai-os/domains/map/space/projection.ts",
-      "extension": ".ts",
-      "sizeBytes": 8438
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/domains/map/space/surface-conflicts.ts",
-      "relativePath": "modules/xiaobai-os/domains/map/space/surface-conflicts.ts",
-      "extension": ".ts",
-      "sizeBytes": 2233
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/domains/map/space/types.ts",
-      "relativePath": "modules/xiaobai-os/domains/map/space/types.ts",
-      "extension": ".ts",
-      "sizeBytes": 1629
-    },
-    {
-      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/domains/map/state.ts",
       "relativePath": "modules/xiaobai-os/domains/map/state.ts",
       "extension": ".ts",
-      "sizeBytes": 888
+      "sizeBytes": 800
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/domains/map/types.ts",
       "relativePath": "modules/xiaobai-os/domains/map/types.ts",
       "extension": ".ts",
-      "sizeBytes": 3891
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/domains/map/upgrades/read.ts",
-      "relativePath": "modules/xiaobai-os/domains/map/upgrades/read.ts",
-      "extension": ".ts",
-      "sizeBytes": 1324
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/domains/map/upgrades/v1/invariants.ts",
-      "relativePath": "modules/xiaobai-os/domains/map/upgrades/v1/invariants.ts",
-      "extension": ".ts",
-      "sizeBytes": 21245
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/domains/map/upgrades/v1/semantics.ts",
-      "relativePath": "modules/xiaobai-os/domains/map/upgrades/v1/semantics.ts",
-      "extension": ".ts",
-      "sizeBytes": 3451
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/domains/map/upgrades/v1/types.ts",
-      "relativePath": "modules/xiaobai-os/domains/map/upgrades/v1/types.ts",
-      "extension": ".ts",
-      "sizeBytes": 3926
+      "sizeBytes": 3775
     },
     {
       "source": "littlewhitebox",
@@ -13572,7 +13250,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/tests/administrator-tool-loading.test.js",
       "relativePath": "modules/xiaobai-os/tests/administrator-tool-loading.test.js",
       "extension": ".js",
-      "sizeBytes": 18487
+      "sizeBytes": 15532
     },
     {
       "source": "littlewhitebox",
@@ -13873,14 +13551,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/tests/fixtures/map-atlas.js",
       "relativePath": "modules/xiaobai-os/tests/fixtures/map-atlas.js",
       "extension": ".js",
-      "sizeBytes": 703
+      "sizeBytes": 546
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/tests/fixtures/map-browse.js",
       "relativePath": "modules/xiaobai-os/tests/fixtures/map-browse.js",
       "extension": ".js",
-      "sizeBytes": 1874
+      "sizeBytes": 1508
     },
     {
       "source": "littlewhitebox",
@@ -14269,24 +13947,10 @@
     },
     {
       "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/tests/map-atlas-art.test.js",
-      "relativePath": "modules/xiaobai-os/tests/map-atlas-art.test.js",
-      "extension": ".js",
-      "sizeBytes": 15369
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/tests/map-atlas-layer.test.js",
-      "relativePath": "modules/xiaobai-os/tests/map-atlas-layer.test.js",
-      "extension": ".js",
-      "sizeBytes": 11669
-    },
-    {
-      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/tests/map-browse.test.js",
       "relativePath": "modules/xiaobai-os/tests/map-browse.test.js",
       "extension": ".js",
-      "sizeBytes": 6294
+      "sizeBytes": 6270
     },
     {
       "source": "littlewhitebox",
@@ -14300,7 +13964,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/tests/map-domain.test.js",
       "relativePath": "modules/xiaobai-os/tests/map-domain.test.js",
       "extension": ".js",
-      "sizeBytes": 14617
+      "sizeBytes": 14413
     },
     {
       "source": "littlewhitebox",
@@ -14314,7 +13978,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/tests/map-hierarchy-tools.test.js",
       "relativePath": "modules/xiaobai-os/tests/map-hierarchy-tools.test.js",
       "extension": ".js",
-      "sizeBytes": 13060
+      "sizeBytes": 12903
     },
     {
       "source": "littlewhitebox",
@@ -14328,35 +13992,35 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/tests/map-maintenance-participant.test.js",
       "relativePath": "modules/xiaobai-os/tests/map-maintenance-participant.test.js",
       "extension": ".js",
-      "sizeBytes": 51586
+      "sizeBytes": 51690
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/tests/map-presentation.test.js",
       "relativePath": "modules/xiaobai-os/tests/map-presentation.test.js",
       "extension": ".js",
-      "sizeBytes": 1853
+      "sizeBytes": 3651
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/tests/map-prompt-runtime.test.js",
       "relativePath": "modules/xiaobai-os/tests/map-prompt-runtime.test.js",
       "extension": ".js",
-      "sizeBytes": 5441
+      "sizeBytes": 5323
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/tests/map-repository.test.js",
       "relativePath": "modules/xiaobai-os/tests/map-repository.test.js",
       "extension": ".js",
-      "sizeBytes": 5415
+      "sizeBytes": 5361
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/tests/map-scene-3d.test.js",
       "relativePath": "modules/xiaobai-os/tests/map-scene-3d.test.js",
       "extension": ".js",
-      "sizeBytes": 13212
+      "sizeBytes": 13221
     },
     {
       "source": "littlewhitebox",
@@ -14370,7 +14034,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/tests/map-scene-objects.test.js",
       "relativePath": "modules/xiaobai-os/tests/map-scene-objects.test.js",
       "extension": ".js",
-      "sizeBytes": 23234
+      "sizeBytes": 23183
     },
     {
       "source": "littlewhitebox",
@@ -14378,13 +14042,6 @@
       "relativePath": "modules/xiaobai-os/tests/map-settings-runtime.test.js",
       "extension": ".js",
       "sizeBytes": 2531
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/tests/map-space.test.js",
-      "relativePath": "modules/xiaobai-os/tests/map-space.test.js",
-      "extension": ".js",
-      "sizeBytes": 27161
     },
     {
       "source": "littlewhitebox",

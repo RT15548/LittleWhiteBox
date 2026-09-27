@@ -1,7 +1,7 @@
 import type {
     CircleGeometry,
     MapActorPosition,
-    MapDomain,
+    MapDomainV1,
     MapElement,
     MapElementCategory,
     MapElementKind,
@@ -29,11 +29,9 @@ import {
     MAP_ICON_TOKENS,
     MAP_MATERIALS,
 } from './semantics.js';
-import { validateMapSpace, validateMapPosition } from './space/invariants.js';
 
-export const MAP_DOMAIN_SCHEMA_VERSION = 2 as const;
-// V1 admitted 512 KiB. The extra budget covers frame references for every old location.
-export const MAX_MAP_BYTES = 1024 * 1024;
+export const MAP_DOMAIN_SCHEMA_VERSION = 1 as const;
+export const MAX_MAP_BYTES = 512 * 1024;
 export const MAX_SCENE_ELEMENTS = 128;
 export const MAX_MAP_LOCATIONS = 512;
 export const MAX_MAP_LINKS = 1_024;
@@ -89,12 +87,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
     return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
-export function requireRecord(value: unknown, path: string): Record<string, unknown> {
+function requireRecord(value: unknown, path: string): Record<string, unknown> {
     if (!isRecord(value)) {fail('map_invalid_domain', path, 'must be an object');}
     return value;
 }
 
-export function requireKeys(
+function requireKeys(
     value: Record<string, unknown>,
     required: readonly string[],
     optional: readonly string[],
@@ -109,7 +107,7 @@ export function requireKeys(
     }
 }
 
-export function requireString(value: unknown, path: string, maxLength: number): string {
+function requireString(value: unknown, path: string, maxLength: number): string {
     if (
         typeof value !== 'string'
         || value.length === 0
@@ -122,27 +120,27 @@ export function requireString(value: unknown, path: string, maxLength: number): 
     return value;
 }
 
-export function requireId(value: unknown, path: string): string {
+function requireId(value: unknown, path: string): string {
     const id = requireString(value, path, MAX_MAP_ID_LENGTH);
     if (FORBIDDEN_RECORD_KEYS.has(id)) {fail('map_invalid_domain', path, 'uses a reserved key');}
     return id;
 }
 
-export function requireEnum<T extends string>(value: unknown, allowed: ReadonlySet<T>, path: string): T {
+function requireEnum<T extends string>(value: unknown, allowed: ReadonlySet<T>, path: string): T {
     if (typeof value !== 'string' || !allowed.has(value as T)) {
         fail('map_invalid_domain', path, 'has an unsupported token');
     }
     return value as T;
 }
 
-export function requireCoordinate(value: unknown, path: string): number {
+function requireCoordinate(value: unknown, path: string): number {
     if (typeof value !== 'number' || !Number.isFinite(value) || Math.abs(value) > MAX_MAP_COORDINATE) {
         fail('map_invalid_domain', path, 'must be a finite bounded coordinate');
     }
     return value;
 }
 
-export function requireDimension(value: unknown, path: string): number {
+function requireDimension(value: unknown, path: string): number {
     if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0 || value > MAX_MAP_DIMENSION) {
         fail('map_invalid_domain', path, 'must be a positive bounded dimension');
     }
@@ -311,7 +309,10 @@ function validateLocation(value: unknown, path: string): MapLocation {
         location.brief = requireString(record.brief, `${path}.brief`, MAX_MAP_BRIEF_LENGTH);
     }
     if (Object.hasOwn(record, 'position')) {
-        location.position = validateMapPosition(record.position, `${path}.position`);
+        if (!Array.isArray(record.position) || record.position.length !== 2) {
+            fail('map_invalid_domain', `${path}.position`, 'must be an [x, y] pair');
+        }
+        location.position = [requireCoordinate(record.position[0], `${path}.position.0`), requireCoordinate(record.position[1], `${path}.position.1`)];
     }
     if (Object.hasOwn(record, 'terrain')) {
         location.terrain = requireEnum(record.terrain, LOCATION_TERRAINS, `${path}.terrain`);
@@ -321,7 +322,7 @@ function validateLocation(value: unknown, path: string): MapLocation {
 
 function validateLink(value: unknown, path: string): MapLink {
     const record = requireRecord(value, path);
-    requireKeys(record, ['id', 'from', 'to', 'kind', 'bidirectional'], ['label', 'feature'], path);
+    requireKeys(record, ['id', 'from', 'to', 'kind', 'bidirectional'], ['label'], path);
     if (typeof record.bidirectional !== 'boolean') {
         fail('map_invalid_domain', `${path}.bidirectional`, 'must be boolean');
     }
@@ -335,7 +336,6 @@ function validateLink(value: unknown, path: string): MapLink {
     if (Object.hasOwn(record, 'label')) {
         link.label = requireString(record.label, `${path}.label`, MAX_MAP_LABEL_LENGTH);
     }
-    if (Object.hasOwn(record, 'feature')) { link.feature = requireId(record.feature, `${path}.feature`); }
     return link;
 }
 
@@ -431,8 +431,8 @@ function validateReferences(
     }
 }
 
-/** Validates only the current shape; historical input belongs at the partition boundary. */
-export function validateMapDomain(value: unknown, path = 'domains.map'): asserts value is MapDomain {
+/** Validates the serialized V1 shape and all cross-Atlas/Scene invariants. */
+export function validateMapDomain(value: unknown, path = 'domains.map'): asserts value is MapDomainV1 {
     const root = requireRecord(value, path);
     requireKeys(root, ['schemaVersion', 'revision', 'atlas', 'scenes'], [], path);
     if (root.schemaVersion !== MAP_DOMAIN_SCHEMA_VERSION) {
@@ -443,7 +443,7 @@ export function validateMapDomain(value: unknown, path = 'domains.map'): asserts
     }
 
     const atlas = requireRecord(root.atlas, `${path}.atlas`);
-    requireKeys(atlas, ['locations', 'links', 'actors', 'frames', 'features'], [], `${path}.atlas`);
+    requireKeys(atlas, ['locations', 'links', 'actors'], [], `${path}.atlas`);
     if (!Array.isArray(atlas.locations) || !Array.isArray(atlas.links) || !Array.isArray(atlas.actors)) {
         fail('map_invalid_domain', `${path}.atlas`, 'collections must be arrays');
     }
@@ -473,7 +473,6 @@ export function validateMapDomain(value: unknown, path = 'domains.map'): asserts
     }
 
     validateReferences(locations, links, actors, scenes, path);
-    validateMapSpace(atlas, locations, links, `${path}.atlas`);
     let bytes: number;
     try {
         bytes = new TextEncoder().encode(JSON.stringify(value)).byteLength;
@@ -485,7 +484,7 @@ export function validateMapDomain(value: unknown, path = 'domains.map'): asserts
     }
 }
 
-export function parseMapDomain(value: unknown, path = 'domains.map'): MapDomain {
+export function parseMapDomain(value: unknown, path = 'domains.map'): MapDomainV1 {
     validateMapDomain(value, path);
     return structuredClone(value);
 }

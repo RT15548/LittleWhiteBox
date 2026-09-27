@@ -43,7 +43,8 @@ async (page) => {
         }
     });
     await page.goto('http://127.0.0.1:8765/output/map-production-check/dist/?scene=world');
-    await page.getByRole('button', { name: '世界地图', exact: true }).waitFor();
+    await page.getByRole('navigation', { name: '地图视图' })
+        .getByRole('button', { name: '世界地图', exact: true }).waitFor();
     await page.waitForTimeout(250);
     if (downloads.length || await page.locator('canvas').count()) throw Error('World view downloaded models or opened WebGL');
     const settle = async () => {

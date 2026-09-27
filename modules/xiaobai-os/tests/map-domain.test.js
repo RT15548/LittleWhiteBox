@@ -25,7 +25,6 @@ function validDomain() {
         schemaVersion: MAP_DOMAIN_SCHEMA_VERSION,
         revision: 3,
         atlas: {
-            ...createEmptyMapDomain().atlas,
             locations: [
                 location('inn', { scale: 'building' }),
                 location('hall', { parent: 'inn', sceneKey: 'hall-scene', brief: 'The public hall.' }),
@@ -60,9 +59,9 @@ function validDomain() {
 test('empty state and root reads return isolated validated values', () => {
     const empty = createEmptyMapDomain();
     assert.deepEqual(empty, {
-        schemaVersion: MAP_DOMAIN_SCHEMA_VERSION,
+        schemaVersion: 1,
         revision: 0,
-        atlas: { locations: [], links: [], actors: [], frames: [{ id: 'atlas' }], features: [] },
+        atlas: { locations: [], links: [], actors: [] },
         scenes: {},
     });
     assert.doesNotThrow(() => validateMapDomain(empty));
@@ -120,14 +119,14 @@ test('scene and serialized collection bounds reject the whole candidate', () => 
 
     const oversized = createEmptyMapDomain();
     oversized.atlas.locations = Array.from({ length: 512 }, (_, index) => location(`place-${index}`, {
-        brief: '文'.repeat(500),
+        brief: 'x'.repeat(500),
     }));
     oversized.atlas.links = Array.from({ length: 1_024 }, (_, index) => ({
         id: `route-${index}`,
         from: `place-${index % 512}`,
         to: `place-${(index + 1) % 512}`,
         kind: 'road',
-        label: '路'.repeat(160),
+        label: 'x'.repeat(160),
         bidirectional: true,
     }));
     assert.ok(new TextEncoder().encode(JSON.stringify(oversized)).byteLength > MAX_MAP_BYTES);
@@ -246,7 +245,6 @@ test('prompt projection skips an oversized relationship but still packs later co
         schemaVersion: MAP_DOMAIN_SCHEMA_VERSION,
         revision: 1,
         atlas: {
-            ...createEmptyMapDomain().atlas,
             locations: [
                 location('current', { name: 'Current', status: 'visited' }),
                 location('noisy-parent', { name: noisyName, scale: 'building' }),
@@ -275,7 +273,6 @@ test('prompt projection exposes compact global topology while direct movement re
         schemaVersion: MAP_DOMAIN_SCHEMA_VERSION,
         revision: 99,
         atlas: {
-            ...createEmptyMapDomain().atlas,
             locations: [
                 parent,
                 location('home', { name: '蓝袖居住区', parent: parent.key, brief: '配有床铺、小台、卫浴，并连通内院。' }),

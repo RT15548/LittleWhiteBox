@@ -1,5 +1,5 @@
 import { buildMapPromptBlock } from '../../../domains/map/projection.js';
-import type { MapDomain } from '../../../domains/map/types.js';
+import type { MapDomainV1 } from '../../../domains/map/types.js';
 import type { XiaobaiOsAppRuntime } from '../../../types.js';
 
 export interface MapPromptEventHandlers {
@@ -11,7 +11,7 @@ export interface MapPromptEventHandlers {
 }
 
 export interface MapPromptRuntimeDependencies {
-    readonly readCurrentMap: () => MapDomain | null;
+    readonly readCurrentMap: () => MapDomainV1 | null;
     readonly setPrompt: (value: string) => void;
     readonly subscribe: (handlers: MapPromptEventHandlers) => () => void;
     readonly onError?: (error: unknown) => void;
