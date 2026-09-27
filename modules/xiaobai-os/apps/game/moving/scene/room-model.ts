@@ -79,10 +79,19 @@ export function createRoomModel(level: MovingLevel) {
     box(decoration, [2.15, .13, 1.35], level.id === 'witch' ? '#c1d8f0' : '#f5d6ac', [tx, ty, tz], .055);
     for (const x of [tx - .7, tx + .7]) { box(decoration, [.11, ty, .8], palette.trim, [x, ty / 2, tz], .03); }
 
-    // A shallow wall shelf and framed friend keep the room a home rather than a puzzle grid.
+    // Shelf furnishings have their own silhouettes, distinct from every playable item.
     box(decoration, [1.4, .13, .62], palette.trim, [3.25, 3.45, -3.02], .05);
-    for (const [kind, x] of [['plant', 3.0], ['cup', 3.53]] as const) {
-        const ornament = createItem(kit, kind); ornament.position.set(x, 3.76, -2.96); ornament.scale.setScalar(.7); decoration.add(ornament);
+    const clock = kit.group(decoration, [2.94, 3.515, -2.96]);
+    box(clock, [.5, .075, .24], palette.seat, [0, .04, 0], .025);
+    kit.cylinder(clock, .25, .25, .16, palette.seat, [0, .3, 0]).rotation.x = Math.PI / 2;
+    kit.cylinder(clock, .207, .207, .018, '#fffaf0', [0, .3, .09]).rotation.x = Math.PI / 2;
+    box(clock, [.025, .145, .018], '#53646b', [0, .36, .11], .008);
+    box(clock, [.13, .025, .018], '#53646b', [.05, .3, .11], .008);
+    for (const [x, height, color] of [[3.36, .42, palette.rug], [3.53, .54, palette.trim], [3.7, .46, palette.seat]] as const) {
+        const book = kit.group(decoration, [x, 3.515, -2.96]);
+        box(book, [.14, height, .3], color, [0, height / 2, 0], .012);
+        box(book, [.1, .018, .25], '#fffaf0', [0, height - .025, .012], .003);
+        for (const y of [.07, height - .07]) { box(book, [.095, .016, .012], '#fffaf0', [0, y, .151], .003); }
     }
     const portrait = kit.group(decoration, [-4.25, 2.55, .05]); portrait.rotation.y = Math.PI / 2;
     box(portrait, [1, 1.1, .09], '#fff7e8', [0, 0, 0], .04);

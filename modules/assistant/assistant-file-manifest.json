@@ -9127,14 +9127,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/game/moving/scene/room-model.ts",
       "relativePath": "modules/xiaobai-os/apps/game/moving/scene/room-model.ts",
       "extension": ".ts",
-      "sizeBytes": 7618
+      "sizeBytes": 8299
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/game/moving/scene/runtime.ts",
       "relativePath": "modules/xiaobai-os/apps/game/moving/scene/runtime.ts",
       "extension": ".ts",
-      "sizeBytes": 14596
+      "sizeBytes": 14594
     },
     {
       "source": "littlewhitebox",

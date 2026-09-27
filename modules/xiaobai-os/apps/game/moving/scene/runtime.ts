@@ -154,7 +154,7 @@ export function createMovingScene(host: HTMLElement, level: MovingLevel, initial
     }
     try {
         renderer = new WebGLRenderer({ alpha: true, antialias: true, powerPreference: 'low-power' });
-        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.7));
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         renderer.setClearColor(new Color('#e6f1ed'), 0);
         renderer.outputColorSpace = SRGBColorSpace; renderer.toneMapping = NeutralToneMapping;
         renderer.shadowMap.enabled = true; renderer.shadowMap.type = PCFSoftShadowMap;
