@@ -64,6 +64,7 @@ onBeforeUnmount(client.dispose);
         <MovingBoard
             v-else-if="page === 'board' && active && view.board" :key="active.id"
             :active="active" :board="view.board" :disabled="blocked || generationActive" :award="view.award" :challenge="view.challenge"
+            :sound-enabled="view.soundEnabled" :set-sound-enabled="client.setSoundEnabled"
             @pick="id => client.act({ type: 'pick', id })" @undo="client.act({ type: 'undo' })"
             @restart="modal = 'restart'" @abandon="modal = 'abandon'" @chapters="page = 'chapters'" @next="next"
             @animation="value => animating = value"

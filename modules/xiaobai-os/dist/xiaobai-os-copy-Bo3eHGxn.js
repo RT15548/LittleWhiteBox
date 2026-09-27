@@ -28,6 +28,7 @@ var n = Object.freeze({
   soundOff: "声音关",
   soundUnavailable: "当前浏览器不支持游戏声音。",
   soundFailed: "声音没能打开，可再次尝试。",
+  soundSaveFailed: "声音设置没有保存，稍后再试。",
   rotateLeft: "向左转",
   rotateRight: "向右转",
   resetView: "回正视角",

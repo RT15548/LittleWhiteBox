@@ -8987,7 +8987,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/game/module.ts",
       "relativePath": "modules/xiaobai-os/apps/game/module.ts",
       "extension": ".ts",
-      "sizeBytes": 2706
+      "sizeBytes": 2793
     },
     {
       "source": "littlewhitebox",
@@ -9001,14 +9001,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/game/moving/client.ts",
       "relativePath": "modules/xiaobai-os/apps/game/moving/client.ts",
       "extension": ".ts",
-      "sizeBytes": 3537
+      "sizeBytes": 3757
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/game/moving/copy.ts",
       "relativePath": "modules/xiaobai-os/apps/game/moving/copy.ts",
       "extension": ".ts",
-      "sizeBytes": 6901
+      "sizeBytes": 6968
     },
     {
       "source": "littlewhitebox",
@@ -9036,7 +9036,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/game/moving/host.ts",
       "relativePath": "modules/xiaobai-os/apps/game/moving/host.ts",
       "extension": ".ts",
-      "sizeBytes": 2934
+      "sizeBytes": 3376
     },
     {
       "source": "littlewhitebox",
@@ -9071,14 +9071,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/game/moving/MovingBoard.vue",
       "relativePath": "modules/xiaobai-os/apps/game/moving/MovingBoard.vue",
       "extension": ".vue",
-      "sizeBytes": 11883
+      "sizeBytes": 13058
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/game/moving/MovingRoom.vue",
       "relativePath": "modules/xiaobai-os/apps/game/moving/MovingRoom.vue",
       "extension": ".vue",
-      "sizeBytes": 7573
+      "sizeBytes": 7664
     },
     {
       "source": "littlewhitebox",
@@ -9148,14 +9148,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/game/moving/service.ts",
       "relativePath": "modules/xiaobai-os/apps/game/moving/service.ts",
       "extension": ".ts",
-      "sizeBytes": 6301
+      "sizeBytes": 6518
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/game/moving/sound.ts",
       "relativePath": "modules/xiaobai-os/apps/game/moving/sound.ts",
       "extension": ".ts",
-      "sizeBytes": 1814
+      "sizeBytes": 1828
     },
     {
       "source": "littlewhitebox",
@@ -9176,7 +9176,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/game/production-module.ts",
       "relativePath": "modules/xiaobai-os/apps/game/production-module.ts",
       "extension": ".ts",
-      "sizeBytes": 1248
+      "sizeBytes": 1494
     },
     {
       "source": "littlewhitebox",
@@ -9184,6 +9184,13 @@
       "relativePath": "modules/xiaobai-os/apps/game/README.md",
       "extension": ".md",
       "sizeBytes": 1002
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/game/settings.ts",
+      "relativePath": "modules/xiaobai-os/apps/game/settings.ts",
+      "extension": ".ts",
+      "sizeBytes": 475
     },
     {
       "source": "littlewhitebox",
@@ -12158,7 +12165,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/docs/moving-game-target-design.md",
       "relativePath": "modules/xiaobai-os/docs/moving-game-target-design.md",
       "extension": ".md",
-      "sizeBytes": 5715
+      "sizeBytes": 5803
     },
     {
       "source": "littlewhitebox",
@@ -12984,7 +12991,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/host/production-composition.ts",
       "relativePath": "modules/xiaobai-os/host/production-composition.ts",
       "extension": ".ts",
-      "sizeBytes": 15355
+      "sizeBytes": 15365
     },
     {
       "source": "littlewhitebox",
@@ -13082,14 +13089,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/host/settings-normalization.ts",
       "relativePath": "modules/xiaobai-os/host/settings-normalization.ts",
       "extension": ".ts",
-      "sizeBytes": 5705
+      "sizeBytes": 5974
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/host/settings-repository.ts",
       "relativePath": "modules/xiaobai-os/host/settings-repository.ts",
       "extension": ".ts",
-      "sizeBytes": 15611
+      "sizeBytes": 16118
     },
     {
       "source": "littlewhitebox",
@@ -14482,7 +14489,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/tests/moving-client.test.js",
       "relativePath": "modules/xiaobai-os/tests/moving-client.test.js",
       "extension": ".js",
-      "sizeBytes": 3320
+      "sizeBytes": 5890
     },
     {
       "source": "littlewhitebox",
@@ -14552,7 +14559,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/tests/settings-migration.test.js",
       "relativePath": "modules/xiaobai-os/tests/settings-migration.test.js",
       "extension": ".js",
-      "sizeBytes": 13552
+      "sizeBytes": 13759
     },
     {
       "source": "littlewhitebox",

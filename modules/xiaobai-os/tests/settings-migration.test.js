@@ -42,6 +42,7 @@ function createCurrentSettings(enabled = true) {
             messages: { imagePrompt: false, voicePrompt: false, syncNoticeEnabled: true },
             dice: { actionChecksEnabled: false, actionCheckFrequency: 'standard', actionCheckRule: 'd20', encountersEnabled: false },
             world: { subscribed: false, injectToStory: true },
+            game: { movingSoundEnabled: true },
         },
     };
 }
@@ -60,6 +61,7 @@ test('enables a new OS entry without enabling automatic app features', async () 
         assert.deepEqual(current.apps.messages, { imagePrompt: false, voicePrompt: false, syncNoticeEnabled: true });
         assert.deepEqual(current.apps.dice, { actionChecksEnabled: false, actionCheckFrequency: 'standard', actionCheckRule: 'd20', encountersEnabled: false });
         assert.deepEqual(current.apps.world, { subscribed: false, injectToStory: true });
+        assert.deepEqual(current.apps.game, { movingSoundEnabled: true });
         assert.deepEqual(repository.read(), current);
     }
 });
@@ -271,6 +273,7 @@ test('rejects invalid mutation arguments without changing preferences', async ()
     assert.throws(() => repository.setDiceFeature('actionChecksEnabled', 'yes'), /must be a boolean/);
     assert.throws(() => repository.setWorldPreference('unknown', true), /invalid World preference/);
     assert.throws(() => repository.setWorldPreference('subscribed', 'yes'), /must be a boolean/);
+    assert.throws(() => repository.setGameMovingSound('yes'), /must be a boolean/);
     assert.deepEqual(settings.xiaobaiOs, before);
 });
 

@@ -7,6 +7,7 @@ import { postMovingDifference, validateMovingEconomy } from './economy.js';
 import { MOVING_POLICY } from './policy.js';
 import type { MovingLevel } from './types.js';
 import { newMovingId } from './identity.js';
+import { DEFAULT_MOVING_SOUND_ENABLED } from '../settings.js';
 
 export interface MovingView {
     revision: number;
@@ -19,11 +20,13 @@ export interface MovingView {
     writeState: XiaobaiOsFileState;
     pending: boolean;
     ready: boolean;
+    soundEnabled: boolean;
 }
 export interface MovingRequest { actionId: string; revision: number; command: MovingCommand }
 
 export function createMovingService(store: PartitionStore<MovingData>, files: XiaobaiOsFileControls, economy: EconomyReadCapability,
-    dependencies: { generate?: typeof generateChallenge; seed?: () => number; id?: () => string; idle?: () => boolean } = {}) {
+    dependencies: { generate?: typeof generateChallenge; seed?: () => number; id?: () => string;
+        idle?: () => boolean; soundEnabled?: () => boolean } = {}) {
     const generate = dependencies.generate ?? generateChallenge;
     const seed = dependencies.seed ?? (() => crypto.getRandomValues(new Uint32Array(1))[0]);
     const id = dependencies.id ?? newMovingId;
@@ -34,7 +37,8 @@ export function createMovingService(store: PartitionStore<MovingData>, files: Xi
             board: data.active ? replayRun(data.active) : null, balance: economy.getPlayerBalance(),
             award: receipt?.settlement?.outcome === 'won' && receipt.settlement.actionId === data.last?.id
                 ? receipt.stage === null ? MOVING_POLICY.challengePrize : MOVING_POLICY.chapterReward : 0,
-            writeState: files.getFileState(), pending: files.hasPendingCommit(MOVING_PARTITION.key), ready: economy.isOpen() };
+            writeState: files.getFileState(), pending: files.hasPendingCommit(MOVING_PARTITION.key), ready: economy.isOpen(),
+            soundEnabled: dependencies.soundEnabled?.() ?? DEFAULT_MOVING_SOUND_ENABLED };
     }
     async function refresh() { await economy.refresh(); await store.read(); return view(); }
     async function act(input: MovingRequest, guard: () => boolean): Promise<MovingView> {

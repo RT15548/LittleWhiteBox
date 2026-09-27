@@ -10,6 +10,7 @@ export const MOVING_COPY = {
     chapters: '两间小屋', close: '收起', cancel: '取消', confirm: '确定',
     restart: '重新收拾', undo: '撤回一步', rules: '怎么玩', soundOn: '声音开', soundOff: '声音关',
     soundUnavailable: '当前浏览器不支持游戏声音。', soundFailed: '声音没能打开，可再次尝试。',
+    soundSaveFailed: '声音设置没有保存，稍后再试。',
     rotateLeft: '向左转', rotateRight: '向右转', resetView: '回正视角', zoomIn: '近一点', zoomOut: '远一点',
     rotateHint: '从上往下拆垛 · 拖动转视角', tray: '待打包架', emptySlot: '空位',
     pickList: '看物件', pickListTitle: '从上往下收拾', noItems: '转个角度，看看最上面的物件。',

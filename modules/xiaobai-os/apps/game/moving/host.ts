@@ -2,9 +2,11 @@ import type { XiaobaiOsAppRuntime, XiaobaiOsAppActivationContext } from '../../.
 import type { MovingService } from './service.js';
 import { movingFault } from './domain.js';
 import { movingId, parseMovingCommand } from './partition.js';
+import type { XiaobaiOsSettingsRepository } from '../../../host/settings-repository.js';
 
 /** Feature composition at Game's registration boundary, not in the wagering controller. */
-export function withMovingRuntime(primary: XiaobaiOsAppRuntime, moving: MovingService, identity: () => string): XiaobaiOsAppRuntime {
+export function withMovingRuntime(primary: XiaobaiOsAppRuntime, moving: MovingService, identity: () => string,
+    settings: Pick<XiaobaiOsSettingsRepository, 'setGameMovingSound'>): XiaobaiOsAppRuntime {
     let activation: { identity: string; post: XiaobaiOsAppActivationContext['post'] } | null = null;
     let busy = false;
     let unsubscribe: (() => void) | undefined;
@@ -32,6 +34,11 @@ export function withMovingRuntime(primary: XiaobaiOsAppRuntime, moving: MovingSe
             try {
                 if (message.type === 'game/moving/read') { return await moving.refresh(); }
                 if (message.type === 'game/moving/confirm') { return await moving.confirm(guard); }
+                if (message.type === 'game/moving/sound') {
+                    if (typeof payload.enabled !== 'boolean') { movingFault('invalid'); }
+                    await settings.setGameMovingSound(payload.enabled);
+                    return moving.view();
+                }
                 if (message.type !== 'game/moving/act') { movingFault('invalid'); }
                 return await moving.act({ actionId: movingId(payload.actionId), revision: payload.revision as number,
                     command: parseMovingCommand(payload.command) }, guard);

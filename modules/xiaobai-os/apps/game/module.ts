@@ -31,6 +31,7 @@ export interface GameModuleDependencies {
     install(context: GameModuleInstallContext): Promise<XiaobaiOsAppRuntime>;
     dispose?(runtime: XiaobaiOsAppRuntime): Promise<void>;
     service?: GameServiceDependencies;
+    movingSoundEnabled?: () => boolean;
 }
 
 export function createGameModule(dependencies: GameModuleDependencies): XiaobaiOsAppModule {
@@ -50,7 +51,7 @@ export function createGameModule(dependencies: GameModuleDependencies): XiaobaiO
             );
             context.execution.addCleanup(game.dispose);
             const moving = createMovingService(context.storeFor(MOVING_PARTITION), context.filesFor(MOVING_PARTITION), economy,
-                { idle: () => !dependencies.service?.isMainGenerationActive?.() });
+                { idle: () => !dependencies.service?.isMainGenerationActive?.(), soundEnabled: dependencies.movingSoundEnabled });
             return dependencies.install({
                 ownerId: context.ownerId,
                 game,

@@ -1,4 +1,4 @@
-/** Optional, gesture-started synthesis. No network, audio files or persistent preference. */
+/** Gesture-started synthesis. The game settings own the preference; this instance owns only live audio. */
 export function createMovingSound() {
     let context: AudioContext | undefined;
     let enabled = false;

@@ -10,6 +10,7 @@ import { normalizeDiceSettings } from '../apps/dice/settings.js';
 import type { DiceSettings } from '../apps/dice/types.js';
 import { normalizeWorldSettings } from '../apps/world/settings.js';
 import type { WorldSettings } from '../apps/world/types.js';
+import { normalizeGameSettings, type GameSettings } from '../apps/game/settings.js';
 import type { XiaobaiOsSettings as XiaobaiOsSettingsRoot } from '../types.js';
 import { jsonValuesEqual } from './json-values-equal.js';
 import { normalizeAppOrder } from '../shell/app-order.js';
@@ -24,6 +25,7 @@ export type XiaobaiOsSettings = XiaobaiOsSettingsRoot<{
     messages: MessagesSettings;
     dice: DiceSettings;
     world: WorldSettings;
+    game: GameSettings;
 }>;
 
 export const LEGACY_FOURTH_WALL_SETTING_KEYS = Object.freeze([
@@ -60,6 +62,7 @@ export function createDefaultXiaobaiOsSettings(): XiaobaiOsSettings {
             messages: normalizeMessagesSettings(undefined),
             dice: normalizeDiceSettings(undefined),
             world: normalizeWorldSettings(undefined),
+            game: normalizeGameSettings(undefined),
         },
     };
 }
@@ -81,6 +84,7 @@ export function normalizeXiaobaiOsSettings(value: unknown): XiaobaiOsSettings {
             messages: normalizeMessagesSettings(apps.messages),
             dice: normalizeDiceSettings(apps.dice),
             world: normalizeWorldSettings(apps.world),
+            game: normalizeGameSettings(apps.game),
         },
     };
 }
@@ -126,6 +130,7 @@ export function migrateUpstreamFourthWallSettings(extensionSettings: unknown): {
                 messages: normalizeMessagesSettings(undefined),
                 dice: normalizeDiceSettings(undefined),
                 world: normalizeWorldSettings(undefined),
+                game: normalizeGameSettings(undefined),
             },
         },
         legacyKeys: LEGACY_FOURTH_WALL_SETTING_KEYS.filter((key) => Object.hasOwn(source, key)),

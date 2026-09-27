@@ -10,14 +10,16 @@ import { CHAPTER_LEVELS } from './levels.js';
 import { createMovingScene, type MovingScene } from './scene/runtime.js';
 import ItemIcon from './ItemIcon.vue';
 
-const props = defineProps<{ active: MovingRun; board: MovingState; disabled: boolean; award: number; challenge: ReturnType<typeof challengeProgress> }>();
+const props = defineProps<{ active: MovingRun; board: MovingState; disabled: boolean; award: number;
+    challenge: ReturnType<typeof challengeProgress>; soundEnabled: boolean; setSoundEnabled: (enabled: boolean) => Promise<boolean> }>();
 const emit = defineEmits<{ pick: [id: string]; undo: []; restart: []; abandon: []; chapters: []; next: []; animation: [value: boolean] }>();
 const level = computed(() => props.active.level);
 const paid = computed(() => props.active.stage === null);
 const status = computed(() => props.active.abandoned ? 'abandoned' : movingStatus(props.board));
 const packed = computed(() => packedCount(level.value, props.board));
-const animating = ref(false), soundOn = ref(false), soundBusy = ref(false);
+const animating = ref(false), soundBusy = ref(false);
 const sound = createMovingSound();
+const soundOn = computed(() => props.soundEnabled && sound.available);
 const notice = ref<string>(c.description), graphicsError = ref('');
 const host = ref<HTMLElement | null>(null), dialog = ref<HTMLElement | null>(null);
 const modal = ref<'rules' | 'items' | null>(null);
@@ -26,6 +28,7 @@ const tray = computed(() => Array.from({ length: TRAY_CAPACITY }, (_, index) => 
 const stacks = computed(() => level.value.stacks.map(stack => stack.map(id => level.value.items.find(item => item.id === id)!).filter(item => props.board.remaining.includes(item.id))));
 let scene: MovingScene | undefined;
 let mounted = false, isActive = true, generation = 0;
+let soundStarting: Promise<boolean> | null = null;
 useAppLayer(dialog, () => { modal.value = null; });
 function animation(value: boolean) { animating.value = value; emit('animation', value); }
 function mountScene() {
@@ -47,9 +50,13 @@ function act(action: MovingAction) {
         if (item?.above) { scene?.focus(item.above); }
         return;
     }
-    modal.value = null; emit('pick', action.id);
+    modal.value = null;
+    soundStarting = soundOn.value ? sound.setEnabled(true).catch(cause => {
+        notice.value = c.soundFailed; console.error(c.soundFailed, cause); return false;
+    }) : null;
+    emit('pick', action.id);
 }
-watch(() => props.active.id, async () => { generation++; animation(false); notice.value = c.description; await nextTick(); mountScene(); });
+watch(() => props.active.id, async () => { generation++; soundStarting = null; animation(false); notice.value = c.description; await nextTick(); mountScene(); });
 watch(() => props.board, async (board, before) => {
     if (!mounted || !before || before === board) { return; }
     const current = ++generation;
@@ -59,7 +66,14 @@ watch(() => props.board, async (board, before) => {
     const matched = picked && before.tray.length + 1 - board.tray.length === MATCH_SIZE;
     if (item) {
         notice.value = matched ? c.packed(ITEM_NAMES[item.kind]) : c.selected(ITEM_NAMES[item.kind]);
-        if (isActive) { sound.play(matched); }
+        if (isActive) {
+            const opening = soundStarting;
+            soundStarting = null;
+            if (opening) {
+                void opening.then(started => { if (started && isActive && current === generation) { sound.play(matched); } })
+                    .catch(cause => { notice.value = c.soundFailed; console.error(c.soundFailed, cause); });
+            } else { sound.play(matched); }
+        }
     } else { notice.value = c.description; }
     animation(true);
     await scene?.update(board, item ? { type: 'pick', id: item.id } : undefined, matched);
@@ -68,18 +82,31 @@ watch(() => props.board, async (board, before) => {
 async function toggleSound() {
     if (soundBusy.value) { return; }
     soundBusy.value = true;
-    try { const next = !soundOn.value; if (await sound.setEnabled(next)) { soundOn.value = next; if (next) { sound.play(true); } } }
-    catch (cause) { notice.value = c.soundFailed; console.error(c.soundFailed, cause); }
+    const next = !soundOn.value;
+    let saving = false;
+    try {
+        if (next && !await sound.setEnabled(true)) { return; }
+        saving = true;
+        if (await props.setSoundEnabled(next)) {
+            if (next) { sound.play(true); }
+            else { await sound.setEnabled(false); }
+        } else if (next) { await sound.setEnabled(false); }
+    }
+    catch (cause) {
+        if (next) { await sound.setEnabled(false).catch(error => console.error(c.soundFailed, error)); }
+        const message = saving ? c.soundSaveFailed : c.soundFailed;
+        notice.value = message; console.error(message, cause);
+    }
     finally { soundBusy.value = false; }
 }
 async function quiet() {
-    try { await sound.setEnabled(false); soundOn.value = false; }
+    try { await sound.setEnabled(false); }
     catch (cause) { notice.value = c.soundFailed; console.error(c.soundFailed, cause); }
 }
 function showItems() { visibleItems.value = scene?.visibleItems() ?? []; modal.value = 'items'; }
 onMounted(() => { mounted = true; mountScene(); });
 onActivated(() => { isActive = true; scene?.active(true); });
-onDeactivated(() => { isActive = false; modal.value = null; scene?.active(false); void quiet(); });
+onDeactivated(() => { isActive = false; soundStarting = null; modal.value = null; scene?.active(false); void quiet(); });
 onBeforeUnmount(() => { generation++; mounted = false; scene?.dispose(); animation(false); void sound.dispose().catch(cause => console.error(c.soundFailed, cause)); });
 </script>
 <template>
@@ -129,7 +156,7 @@ onBeforeUnmount(() => { generation++; mounted = false; scene?.dispose(); animati
                 <button type="button" :disabled="disabled || animating || !!graphicsError || status !== 'playing'" @click="showItems">⌕ {{ c.pickList }}</button>
                 <button v-if="!paid" type="button" :disabled="disabled || animating" @click="emit('restart')">↻ {{ c.restart }}</button>
                 <button v-else type="button" :disabled="disabled || animating || status !== 'playing'" @click="emit('abandon')">{{ c.abandon }}</button>
-                <button type="button" :disabled="soundBusy || !sound.available" :aria-pressed="soundOn" @click="toggleSound">{{ soundOn ? c.soundOn : c.soundOff }}</button>
+                <button type="button" :disabled="disabled || soundBusy || !sound.available" :aria-pressed="soundOn" @click="toggleSound">{{ soundOn ? c.soundOn : c.soundOff }}</button>
             </div>
         </footer>
         <div v-if="modal" class="moving-modal-backdrop" @click.self="modal = null">

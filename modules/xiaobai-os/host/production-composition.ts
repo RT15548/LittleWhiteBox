@@ -166,7 +166,7 @@ export function createProductionBootstrap(
             userTransactions: () => composition.userTransactions,
             notifyMaturity: notifySillyTavernSuccess,
         }),
-        createProductionGameModule({ getChatIdentity: getSillyTavernChatIdentity, mainGeneration }),
+        createProductionGameModule({ getChatIdentity: getSillyTavernChatIdentity, mainGeneration, settings }),
         createProductionMapModule({
             settings,
             getPlayerDisplayName: () => getSillyTavernChatSurface()?.playerName ?? '玩家',

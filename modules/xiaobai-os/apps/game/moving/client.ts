@@ -16,9 +16,9 @@ export function createMovingClient(bridge: XiaobaiOsFrameBridge, chatIdentity: s
         if (disposed) { return; }
         view.value = next;
     }
-    async function request(type: 'read' | 'confirm' | 'act', input?: MovingRequest): Promise<boolean> {
+    async function request(type: 'read' | 'confirm' | 'act' | 'sound', input?: MovingRequest | { enabled: boolean }): Promise<boolean> {
         if (disposed || busy.value) { return false; }
-        busy.value = true; pushed = null; generating.value = input?.command.type === 'challenge'; error.value = '';
+        busy.value = true; pushed = null; generating.value = !!input && 'command' in input && input.command.type === 'challenge'; error.value = '';
         try {
             const reply = await bridge.request(`game/moving/${type}`, { chatIdentity, ...input }, 35000) as { result: MovingView };
             const latest = pushed as MovingView | null;
@@ -28,9 +28,10 @@ export function createMovingClient(bridge: XiaobaiOsFrameBridge, chatIdentity: s
         } catch (cause) {
             if (!disposed) {
                 if (pushed) { apply(pushed); }
+                if (type === 'sound') { throw cause; }
                 error.value = movingErrorText(cause);
                 const code = cause && typeof cause === 'object' && 'code' in cause ? String(cause.code) : cause instanceof Error ? cause.message : '';
-                if (input && (code.startsWith('moving_save_') || code.startsWith('host_request_'))) { failed.value = input; }
+                if (input && 'command' in input && (code.startsWith('moving_save_') || code.startsWith('host_request_'))) { failed.value = input; }
             }
             return false;
         } finally { if (!disposed) { busy.value = false; generating.value = false; } }
@@ -52,6 +53,7 @@ export function createMovingClient(bridge: XiaobaiOsFrameBridge, chatIdentity: s
         notice: computed(() => error.value || (view.value?.writeState === 'conflict' ? MOVING_COPY.conflict
             : view.value?.pending || view.value?.writeState === 'unconfirmed' ? MOVING_COPY.saveProblem : '')),
         read: () => request('read'), recover,
+        setSoundEnabled: (enabled: boolean) => request('sound', { enabled }),
         act: (command: MovingCommand) => blocked.value ? Promise.resolve(false) : request('act', {
             actionId: newMovingId(), revision: view.value!.revision, command,
         }),

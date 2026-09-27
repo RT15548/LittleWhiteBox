@@ -1,7 +1,7 @@
 /* eslint-disable */
 import { $ as v, F as m, H as b, L as R, O as B, Q as A, Y as g, _ as p, g as P, h, m as e, p as c, tt as d, u as k, x as w, y as f } from "./xiaobai-os-runtime-dom.esm-bundler-DuiaxqDz.js";
-import { i as T } from "./xiaobai-os-room-catalog-S5poA7Hy.js";
-import { n as G, t as F } from "./xiaobai-os-GameResult-D-YTFkQc.js";
+import { i as T } from "./xiaobai-os-room-catalog-BK1Nyed3.js";
+import { n as G, t as F } from "./xiaobai-os-GameResult-DLnF1VgE.js";
 var L = { class: "push-table" }, N = { class: "room-heading" }, O = { class: "push-felt" }, D = { class: "push-pot" }, I = { class: "push-card-stage" }, S = { class: "push-card-inner" }, V = {
   class: "push-table-talk",
   role: "status"
