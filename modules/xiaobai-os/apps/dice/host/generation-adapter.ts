@@ -21,6 +21,7 @@ import { DiceOperationError } from '../application/operation-error.js';
 import type { DiceRerollService } from '../application/reroll-service.js';
 import { jsonValuesEqual } from '../../../host/json-values-equal.js';
 import { holdDiceRecoverySave } from './recovery-save-gate.js';
+import { subscribeChatImagePlacement, rebaseImageOffset, rebaseImageText, restoreChatImagePlacements } from '../../../../draw/shared/chat-image-placement.js';
 
 export type DiceCardAction = 'continue-check' | 'cancel-continue' | 'reroll-check' | 'retry-check';
 // A replacement gets a new in-memory identity even when the paid roll has identical values.
@@ -357,6 +358,8 @@ export function createDiceGenerationAdapter(enabled: () => boolean, frequency: (
         events.on(event_types.STREAM_TOKEN_RECEIVED, () => advanceContinuation('responding'));
         const received = (index: number, type: string) => {
             if (!MAIN_TYPES.includes(type) && type !== 'appendFinal') { return; }
+            const message = diceHostContext().chat[index];
+            if (message) { restoreChatImagePlacements(message); }
             const own = intention;
             if (own && index === own.target.index) { own.received = true; }
             const observed = own ? { source: own.target.source, from: own.candidate.body.length,
@@ -390,6 +393,29 @@ export function createDiceGenerationAdapter(enabled: () => boolean, frequency: (
             }
         };
         eventSource.makeFirst(event_types.MESSAGE_RECEIVED, received);
+        const releaseImagePlacement = subscribeChatImagePlacement((change: {
+            message: DiceTarget['message']; swipeIndex: number; before: string; after: string;
+            edits: { start: number; end: number; content: string }[];
+        } | { removedSlotId: string } | { restoreMessage: DiceTarget['message'] }) => {
+            if ('removedSlotId' in change || 'restoreMessage' in change) { return; }
+            if (observation?.type === 'continue' && observation.source.chat.at(-1) === change.message
+                && (change.message.swipe_id ?? 0) === change.swipeIndex) {
+                const prefix = rebaseImageText(observation.initialBody, change);
+                if (prefix !== null) {
+                    observation.initialBody = prefix;
+                    observation.from = prefix.length;
+                }
+            }
+            const active = session.view();
+            if (!active || active.target.message !== change.message || active.target.swipe !== change.swipeIndex
+                || active.target.body !== change.before || !currentTarget({ ...active.target, body: change.after })) { return; }
+            // Only the drawing owner's validated replacements may advance these
+            // live references. Ordinary edits still invalidate the exact-body guard.
+            active.target.body = change.after;
+            active.target.generatedFrom = rebaseImageOffset(active.target.generatedFrom, change.edits);
+            if ('candidate' in active.phase && active.phase.candidate) { active.phase.candidate.body = change.after; }
+            changed();
+        });
         events.on(event_types.GROUP_MEMBER_DRAFTED, groupBoundary);
         events.on(event_types.GROUP_WRAPPER_FINISHED, async () => { await groupBoundary(); wrapperSignal = undefined; changed(); });
         const stopped = () => {
@@ -413,6 +439,7 @@ export function createDiceGenerationAdapter(enabled: () => boolean, frequency: (
             events.on(name, cancel);
         }
         unsubscribe = () => {
+            releaseImagePlacement();
             eventSource.removeListener(event_types.MESSAGE_RECEIVED, received);
             eventSource.removeListener(event_types.GENERATION_ENDED, ended);
             eventSource.removeListener(event_types.GENERATION_STARTED, started);

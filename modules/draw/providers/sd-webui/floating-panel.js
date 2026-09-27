@@ -8,9 +8,11 @@ import {
 } from '../../shared/draw-run-activity.js';
 import {
     cancelPendingChildDrawRuns,
+    captureDrawCancellationTarget,
+    isDrawCancellationTargetCurrent,
     getPendingDrawWorkState,
 } from '../../shared/draw-run-controls.js';
-import { isDrawRunCancelledError, isDrawRunPendingError } from '../../shared/draw-run-production.js';
+import { isDrawRunPendingError } from '../../shared/draw-run-production.js';
 import {
     formatDrawRunProgress,
     getDrawRunProgressIcon,
@@ -25,9 +27,11 @@ import {
     openSettings,
     updateSettingsPersistent,
     findLastAIMessageId,
-    classifyError,
-    getGenerationPhase,
+    getGenerationState,
 } from './sd-draw.js';
+
+import { FloorImageBusyError } from '../../shared/floor-image-job.js';
+import { DRAW_SLOT_COPY } from '../../shared/image-record.js';
 
 const FLOAT_POS_KEY = 'xb_sd_float_pos';
 const AUTO_RESET_DELAY = 8000;
@@ -575,10 +579,17 @@ function clearPanelCooldown(panelData) {
 }
 
 async function syncDrawRunPanelState(messageId, detail = {}) {
+    const local = getGenerationState(messageId);
+    if (local) { setStateForMessage(messageId, local.state, local.data); return; }
+    const target = captureDrawCancellationTarget(messageId);
     // 当前 swipe 最多只有一个 Draw Run；即使用户切换了图片 Provider，
     // 活动任务仍应在新面板可见并可取消。
     const markerState = await getPendingDrawWorkState(messageId).catch(() => null);
     if (!markerState) return;
+    if (!isDrawCancellationTargetCurrent(target)) return;
+    messageId = getContext().chat.indexOf(target.message);
+    const current = getGenerationState(messageId);
+    if (current) { setStateForMessage(messageId, current.state, current.data); return; }
     const ctx = getContext();
     const chatId = String(ctx?.chatId || '');
     const message = ctx?.chat?.[Number(messageId)];
@@ -644,14 +655,10 @@ function syncDrawRunActivity(detail = {}) {
 export function refreshDrawRunUiState() {
     const messageId = findLastAIMessageId();
     if (floatingEl) {
-        const generationPhase = messageId >= 0 ? getGenerationPhase(messageId) : null;
-        if (generationPhase) {
+        const generation = messageId >= 0 ? getGenerationState(messageId) : null;
+        if (generation) {
             floatingMessageId = messageId;
-            setFloatingState(generationPhase === 'llm'
-                ? FloatState.LLM
-                : generationPhase === 'submitting'
-                    ? FloatState.SUBMITTING
-                    : FloatState.GEN);
+            setFloatingState(generation.state, generation.data);
         } else {
             setFloatingState(FloatState.IDLE);
         }
@@ -778,7 +785,7 @@ function setFloorState(messageId, state, data = {}) {
         case FloatState.ERROR:
             el.classList.add('error');
             if (statusIcon) { statusIcon.textContent = '✗'; statusIcon.className = 'nd-status-icon'; }
-            if (statusText) statusText.textContent = DRAW_CAPSULE_COPY.error;
+            if (statusText) statusText.textContent = data.unknown ? DRAW_CAPSULE_COPY.unknown : DRAW_CAPSULE_COPY.error;
             panelData.result.error = data.error;
             panelData.autoResetTimer = setTimeout(() => setFloorState(messageId, FloatState.IDLE), AUTO_RESET_DELAY);
             break;
@@ -802,7 +809,7 @@ function updateFloorDetailPopup(messageId) {
         }
     } else if (state === FloatState.ERROR) {
         if (resultEl) {
-            resultEl.textContent = '生成失败';
+            resultEl.textContent = result.error?.label || DRAW_SLOT_COPY.redrawFailed;
             resultEl.className = 'nd-detail-value error';
         }
         if (errorRow) errorRow.style.display = 'flex';
@@ -822,48 +829,20 @@ async function handleFloorDrawClick(messageId) {
         panelData.root.dataset.messageId = String(resolvedMessageId);
         panelMap.set(resolvedMessageId, panelData);
     }
-    const targetChatId = String(getContext()?.chatId || '');
     try {
         await generateAndInsertImages({
             messageId: resolvedMessageId,
-            onStateChange: (state, data) => {
-                if (String(getContext()?.chatId || '') !== targetChatId) return;
-                switch (state) {
-                    case 'submitting': setFloorState(resolvedMessageId, FloatState.SUBMITTING, data); break;
-                    case 'accepted': setFloorState(resolvedMessageId, FloatState.ACCEPTED, data); break;
-                    case 'uncertain': setFloorState(resolvedMessageId, FloatState.UNCERTAIN, data); break;
-                    case 'queued': setFloorState(resolvedMessageId, FloatState.QUEUED, data); break;
-                    case 'llm': setFloorState(resolvedMessageId, FloatState.LLM, data); break;
-                    case 'gen':
-                    case 'progress': setFloorState(resolvedMessageId, FloatState.GEN, data); break;
-                    case 'cooldown': setFloorState(resolvedMessageId, FloatState.COOLDOWN, data); break;
-                    case 'reconnecting': setFloorState(resolvedMessageId, FloatState.RECONNECTING, data); break;
-                    case 'cancelling': setFloorState(resolvedMessageId, FloatState.CANCELLING, data); break;
-                    case 'success':
-                        if (data.aborted && data.success === 0) {
-                            setFloorState(resolvedMessageId, FloatState.IDLE);
-                        } else if (data.aborted || data.success < data.total) {
-                            setFloorState(resolvedMessageId, FloatState.PARTIAL, data);
-                        } else {
-                            setFloorState(resolvedMessageId, FloatState.SUCCESS, data);
-                        }
-                        break;
-                }
+            onStateChange: (state, data, liveId) => {
+                setStateForMessage(liveId, state, data);
             },
         });
     } catch (error) {
-        console.error('[SdDraw]', error);
-        if (String(getContext()?.chatId || '') !== targetChatId) return;
-        if (error?.uncertain === true) {
-            setFloorState(resolvedMessageId, FloatState.UNCERTAIN);
-        } else if (isDrawRunPendingError(error)) {
+        if (error.drawTaskReported) return;
+        if (error instanceof FloorImageBusyError || isDrawRunPendingError(error)) {
             toastr?.info?.(error.message);
-        } else if (isDrawRunCancelledError(error) || error.message?.includes('已有任务进行中') || error.message?.includes('该楼层已有任务进行中')) {
-            setFloorState(resolvedMessageId, FloatState.IDLE);
-            if (error.message?.includes('任务进行中')) toastr?.info?.(error.message);
         } else {
-            toastr?.error?.(error?.message || '后台画图提交失败', '小白X画图');
-            setFloorState(resolvedMessageId, FloatState.ERROR, { error: classifyError(error) });
+            console.error(error);
+            toastr?.error?.(error.message);
         }
     }
 }
@@ -875,19 +854,22 @@ function resolvePanelMessageId(panelData) {
 }
 
 async function handleFloorAbort(messageId) {
+    const target = captureDrawCancellationTarget(messageId);
     try {
-        const aborted = abortGeneration(messageId);
-        if (aborted) {
-            setFloorState(messageId, FloatState.CANCELLING);
+        const aborted = abortGeneration(messageId, { target });
+        if (aborted && isDrawCancellationTargetCurrent(target)) {
+            setFloorState(getContext().chat.indexOf(target.message), FloatState.CANCELLING);
             toastr?.info?.('正在中止');
         }
-        const cancelledChild = await cancelPendingChildDrawRuns(messageId);
-        if (!aborted && cancelledChild) {
+        const cancelledChild = await cancelPendingChildDrawRuns(messageId, { target });
+        if (!aborted && cancelledChild && isDrawCancellationTargetCurrent(target)) {
             toastr?.info?.('正在中止');
-            void syncDrawRunPanelState(messageId, { messageId, phase: 'cancelling' });
+            const liveId = getContext().chat.indexOf(target.message);
+            void syncDrawRunPanelState(liveId, { messageId: liveId, phase: 'cancelling' });
         }
     } catch (error) {
         console.error('[SdDraw] 中止失败:', error);
+        toastr?.error?.(DRAW_SLOT_COPY.cancelFailed);
     }
 }
 
@@ -1233,7 +1215,7 @@ export function setFloatingState(state, data = {}) {
             floatingEl.classList.add('error');
             statusIcon.textContent = '✗';
             statusIcon.className = 'nd-status-icon';
-            statusText.textContent = DRAW_CAPSULE_COPY.error;
+            statusText.textContent = data.unknown ? DRAW_CAPSULE_COPY.unknown : DRAW_CAPSULE_COPY.error;
             floatingResult.error = data.error;
             floatingAutoResetTimer = setTimeout(() => setFloatingState(FloatState.IDLE), AUTO_RESET_DELAY);
             break;
@@ -1252,7 +1234,7 @@ function updateFloatingDetailPopup() {
             detailError.textContent = `${floatingResult.total - floatingResult.success} 张失败`;
         }
     } else if (floatingState === FloatState.ERROR) {
-        detailResult.textContent = '生成失败';
+        detailResult.textContent = floatingResult.error?.label || DRAW_SLOT_COPY.redrawFailed;
         detailResult.className = 'nd-detail-value error';
         detailErrorRow.style.display = 'flex';
         detailError.textContent = floatingResult.error?.desc || '未知错误';
@@ -1331,67 +1313,42 @@ async function handleFloatingDrawClick() {
         return;
     }
     floatingMessageId = messageId;
-    const targetChatId = String(getContext()?.chatId || '');
     try {
         await generateAndInsertImages({
             messageId,
-            onStateChange: (state, data) => {
-                if (String(getContext()?.chatId || '') !== targetChatId) return;
-                switch (state) {
-                    case 'submitting': setFloatingState(FloatState.SUBMITTING, data); break;
-                    case 'accepted': setFloatingState(FloatState.ACCEPTED, data); break;
-                    case 'uncertain': setFloatingState(FloatState.UNCERTAIN, data); break;
-                    case 'queued': setFloatingState(FloatState.QUEUED, data); break;
-                    case 'llm': setFloatingState(FloatState.LLM, data); break;
-                    case 'gen':
-                    case 'progress': setFloatingState(FloatState.GEN, data); break;
-                    case 'cooldown': setFloatingState(FloatState.COOLDOWN, data); break;
-                    case 'reconnecting': setFloatingState(FloatState.RECONNECTING, data); break;
-                    case 'cancelling': setFloatingState(FloatState.CANCELLING, data); break;
-                    case 'success':
-                        if (data.aborted && data.success === 0) {
-                            setFloatingState(FloatState.IDLE);
-                        } else if (data.aborted || data.success < data.total) {
-                            setFloatingState(FloatState.PARTIAL, data);
-                        } else {
-                            setFloatingState(FloatState.SUCCESS, data);
-                        }
-                        break;
-                }
+            onStateChange: (state, data, liveId) => {
+                setStateForMessage(liveId, state, data);
             },
         });
     } catch (error) {
-        console.error('[SdDraw]', error);
-        if (String(getContext()?.chatId || '') !== targetChatId) return;
-        if (error?.uncertain === true) {
-            setFloatingState(FloatState.UNCERTAIN);
-        } else if (isDrawRunPendingError(error)) {
+        if (error.drawTaskReported) return;
+        if (error instanceof FloorImageBusyError || isDrawRunPendingError(error)) {
             toastr?.info?.(error.message);
-        } else if (isDrawRunCancelledError(error) || error.message?.includes('已有任务进行中') || error.message?.includes('该楼层已有任务进行中')) {
-            setFloatingState(FloatState.IDLE);
-            if (error.message?.includes('任务进行中')) toastr?.info?.(error.message);
         } else {
-            toastr?.error?.(error?.message || '后台画图提交失败', '小白X画图');
-            setFloatingState(FloatState.ERROR, { error: classifyError(error) });
+            console.error(error);
+            toastr?.error?.(error.message);
         }
     }
 }
 
 async function handleFloatingAbort() {
+    const messageId = floatingMessageId;
+    const target = captureDrawCancellationTarget(messageId);
     try {
-        const messageId = floatingMessageId;
-        const aborted = messageId >= 0 && abortGeneration(messageId);
-        if (aborted) {
+        const aborted = messageId >= 0 && abortGeneration(messageId, { target });
+        if (aborted && isDrawCancellationTargetCurrent(target)) {
             setFloatingState(FloatState.CANCELLING);
             toastr?.info?.('正在中止');
         }
-        const cancelledChild = messageId >= 0 && await cancelPendingChildDrawRuns(messageId);
-        if (!aborted && cancelledChild) {
+        const cancelledChild = messageId >= 0 && await cancelPendingChildDrawRuns(messageId, { target });
+        if (!aborted && cancelledChild && isDrawCancellationTargetCurrent(target)) {
             toastr?.info?.('正在中止');
-            void syncDrawRunPanelState(messageId, { messageId, phase: 'cancelling' });
+            const liveId = getContext().chat.indexOf(target.message);
+            void syncDrawRunPanelState(liveId, { messageId: liveId, phase: 'cancelling' });
         }
     } catch (error) {
         console.error('[SdDraw] 中止失败:', error);
+        toastr?.error?.(DRAW_SLOT_COPY.cancelFailed);
     }
 }
 

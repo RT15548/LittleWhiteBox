@@ -14,7 +14,7 @@ import { ScenePlacementError } from './scene-placement.js';
 import { getRenderedSceneSlotIds, replaceSceneSlotElements } from './scene-slot-dom.js';
 import { getPendingImageJobSlots, PendingJobState } from './pending-image-jobs.js';
 import { createDrawImageSlotRegex } from './image-marker-syntax.js';
-import { hasPreviewImage, DRAW_SLOT_COPY, DRAW_SLOT_ERRORS } from './image-record.js';
+import { hasPreviewImage, PreviewStatus, DRAW_SLOT_COPY, DRAW_SLOT_ERRORS } from './image-record.js';
 import { getSlotActivity } from './slot-activity.js';
 import { classifyScenePlannerErrorForUi } from "./scene-planner-error-ui.js";
 import { isCharacterEnabled } from './character-selection.js';
@@ -286,6 +286,8 @@ export function ensureDrawImageStyles() {
 .xb-nd-failed-desc{color:inherit;opacity:.75;font-size:12px;margin-bottom:12px;overflow-wrap:anywhere}
 .xb-nd-failed-btns{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
 .xb-nd-failed-btns button{padding:8px 16px;border-radius:8px;font-size:12px;cursor:pointer;transition:all 0.15s}
+.xb-nd-tag-actions{display:inline-flex;margin-inline-start:12px;vertical-align:middle}
+.xb-nd-tag-actions button{min-height:44px;min-width:64px}
 .xb-nd-retry-btn{border:1px solid rgba(212,165,116,0.5);background:rgba(212,165,116,0.2);color:inherit}
 .xb-nd-edit-btn{border:1px solid rgba(127,127,127,0.4);background:rgba(127,127,127,0.1);color:inherit}
 .xb-nd-remove-btn{border:1px solid rgba(248,113,113,0.3);background:transparent;color:rgba(248,113,113,0.8)}
@@ -686,7 +688,9 @@ async function renderPreviewsForMessageNow(messageId, {
                     label: activity?.label || (pendingSlot.state === PendingJobState.CANCELLING ? '正在取消' : DRAW_SLOT_COPY.generating),
                 });
             } else if (displayData.isFailed) {
-                const interrupted = displayData.isPending ? DRAW_SLOT_ERRORS.interrupted : null;
+                const interrupted = displayData.isPending
+                    ? (displayData.preview?.status === PreviewStatus.UNKNOWN
+                        ? DRAW_SLOT_ERRORS.unknown : DRAW_SLOT_ERRORS.interrupted) : null;
                 replacementHtml = buildFailedPlaceholderHtml({
                     slotId,
                     imgId: displayData.preview?.imgId,

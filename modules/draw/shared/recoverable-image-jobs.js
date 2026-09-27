@@ -5,6 +5,7 @@ import {
     markPendingImageJobCancelling,
     markPendingImageJobSettling,
     PendingImageJobLostError,
+    PendingJobState,
     recordPendingImageJob,
     releasePendingImageJobLease,
     renewPendingImageJobLease,
@@ -84,20 +85,31 @@ async function releaseStoppedFlowLease(journal, jobId, leaseId) {
 //
 // 续租失败返回 null 表示所有权已易主。这里不抛错：抢占方已经在接管了，本流程要做的是
 // 在下一个 assert 点安静地停手，而不是把一个已经有人负责的任务搅成失败。
-function createJournalKeeper({ journal, jobId, leaseId }) {
+function createJournalKeeper({ journal, jobId, leaseId, cancelSignal }) {
     let activated = false;
     let lost = false;
+    const cancellation = new AbortController();
+    const cancel = () => cancellation.abort();
+    cancelSignal?.addEventListener('abort', cancel, { once: true });
+    if (cancelSignal?.aborted) cancel();
+    const observe = record => {
+        if (record?.cancelRequested || record?.state === PendingJobState.CANCELLING) cancel();
+        return record;
+    };
     return {
+        signal: cancellation.signal,
+        observe,
+        dispose() { cancelSignal?.removeEventListener('abort', cancel); },
         get lost() { return lost; },
         async onStateChange(state) {
             if (lost) return;
             try {
                 if (state === 'created' && !activated) {
-                    await journal.markActive(jobId, leaseId);
+                    observe(await journal.markActive(jobId, leaseId));
                     activated = true;
                     return;
                 }
-                const renewed = await journal.renewLease(jobId, leaseId);
+                const renewed = observe(await journal.renewLease(jobId, leaseId));
                 if (!renewed) lost = true;
             } catch (error) {
                 if (isPendingJobLeaseLost(error)) {
@@ -145,7 +157,12 @@ export async function submitRecoverableImageJob({
     // 第一步必须是落日志：从这一刻起，无论页面怎么死，这批槽位都有归属。
     const record = await journal.record({ ...plan, jobId, provider });
     const { leaseId } = record;
-    const fenceLease = () => journal.fenceLease(jobId, leaseId);
+    let keeper;
+    const fenceLease = async () => {
+        const current = await journal.fenceLease(jobId, leaseId);
+        keeper?.observe(current);
+        return current;
+    };
 
     await fenceLease();
     const committed = (await commitPlacements({ jobId, leaseId, record })) !== false;
@@ -159,9 +176,10 @@ export async function submitRecoverableImageJob({
     // 跨过了持久化与保存的多次 await，页面完全可能在这中间被冻结很久。
     // POST 之前必须证明这条记录还属于本流程：记录已被接管或清理时继续提交，
     // 就会凭一个没人认领的 requestId 在后端造出孤儿任务。
-    await fenceLease();
+    const fenced = await fenceLease();
 
-    const keeper = createJournalKeeper({ journal, jobId, leaseId });
+    keeper = createJournalKeeper({ journal, jobId, leaseId, cancelSignal });
+    keeper.observe(fenced);
     let cancelIntentPromise = null;
     const markCancelIntent = () => {
         cancelIntentPromise ??= journal.markCancelling(jobId, leaseId);
@@ -179,7 +197,7 @@ export async function submitRecoverableImageJob({
     try {
         const result = await client.runJob(request, {
             requestId: jobId,
-            cancelSignal,
+            cancelSignal: keeper.signal,
             detachSignal,
             beforeIrreversible: fenceLease,
             beforeCancel: async () => {
@@ -221,6 +239,7 @@ export async function submitRecoverableImageJob({
         });
         throw error;
     } finally {
+        keeper.dispose();
         cancelSignal?.removeEventListener('abort', markCancelIntent);
     }
 }
@@ -289,8 +308,8 @@ export async function reattachRecoverableImageJob({
     const { jobId, leaseId } = record || {};
     if (!jobId || !leaseId) throw new Error('恢复记录缺少 jobId 或 leaseId');
 
-    const keeper = createJournalKeeper({ journal, jobId, leaseId });
-    const fenceLease = () => journal.fenceLease(jobId, leaseId);
+    const keeper = createJournalKeeper({ journal, jobId, leaseId, cancelSignal });
+    const fenceLease = async () => keeper.observe(await journal.fenceLease(jobId, leaseId));
     const forwardStateChange = async (state, data) => {
         await keeper.onStateChange(state);
         onStateChange?.(state, data);
@@ -298,7 +317,7 @@ export async function reattachRecoverableImageJob({
 
     try {
         const result = await client.attachJob(jobId, {
-            cancelSignal,
+            cancelSignal: keeper.signal,
             detachSignal,
             beforeIrreversible: fenceLease,
             beforeCancel: fenceLease,
@@ -327,6 +346,8 @@ export async function reattachRecoverableImageJob({
             journal, jobId, leaseId, settlePlacements, resolveSettlement, beforeForget, afterForget, result: null, error,
         });
         throw error;
+    } finally {
+        keeper.dispose();
     }
 }
 

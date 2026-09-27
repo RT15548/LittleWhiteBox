@@ -3,6 +3,7 @@
 export const DRAW_CAPSULE_COPY = Object.freeze({
     submitting: '提交',
     uncertain: '确认',
+    unknown: '未知',
     queued: '排队',
     analysis: '分析',
     correction: '纠错',

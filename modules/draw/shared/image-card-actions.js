@@ -2,9 +2,10 @@ import { getContext } from '../../../../../../extensions.js';
 import { getCardPreview, getPreviewsBySlot, deletePreview, clearSlotSelection, setSlotSelection } from './gallery-cache.js';
 import { generatePreparedChatImages } from './prepared-chat-images.js';
 import { getSlotActivity } from './slot-activity.js';
-import { getPendingImageJobSlots } from './pending-image-jobs.js';
+import { getPendingImageJobSlots, discardPendingImageSlot } from './pending-image-jobs.js';
+import { discardChatImagePlacement, commitChatImageRemoval, rollbackChatImageRemoval } from './chat-image-placement.js';
 import { isMessageBeingEdited, renderPreviewsForMessage, syncRenderedMessageFromState, clearDrawSavedEntry, syncDrawSavedFromPreview } from './draw-common.js';
-import { setActiveMessageText, removeSceneSlotPlaceholders, isSceneSlotAlive } from './scene-placement.js';
+import { isSceneSlotAlive } from './scene-placement.js';
 import { saveChatAndConfirm, withConfirmableChatMutation } from './confirmable-chat-save.js';
 import { findImageJobDeliverySlot } from './image-job-delivery-target.js';
 import { DRAW_SLOT_COPY, hasPreviewImage } from './image-record.js';
@@ -74,21 +75,33 @@ export async function removeChatImageSlot(container) {
     const messageId = Number(container.dataset.mesid);
     const slotId = container.dataset.slotId;
     const message = ctx.chat[messageId];
+    const swipeIndex = message?.swipe_id ?? 0;
+    const isCurrentTarget = () => String(getContext().chatId) === String(ctx.chatId)
+        && getContext().chat[messageId] === message && (message.swipe_id ?? 0) === swipeIndex;
+    const assertRemovable = () => {
+        if (!isCurrentTarget() || isMessageBeingEdited(messageId) || !isSceneSlotAlive(message.mes, slotId)) {
+            throw new Error(DRAW_SLOT_COPY.sourceChanged);
+        }
+    };
     if (!message || !isSceneSlotAlive(message.mes, slotId)) throw new Error(DRAW_SLOT_COPY.sourceChanged);
     await withConfirmableChatMutation(ctx, async () => {
-        if (String(getContext().chatId) !== String(ctx.chatId) || ctx.chat[messageId] !== message || isMessageBeingEdited(messageId)) throw new Error(DRAW_SLOT_COPY.sourceChanged);
-        const source = message.mes;
-        const next = removeSceneSlotPlaceholders(source, [slotId]);
-        setActiveMessageText(message, next);
+        assertRemovable();
+        // Mark only this item, not its batch. This intent precedes cleanup and
+        // survives refresh even if native persistence of the deletion fails.
+        getSlotActivity(slotId)?.discard?.();
+        discardChatImagePlacement(slotId);
+        await discardPendingImageSlot(slotId);
+        assertRemovable();
+        const change = commitChatImageRemoval({ message, swipeIndex, slotId });
         try {
             await saveChatAndConfirm({ ctx, verify: persisted => !findImageJobDeliverySlot(persisted, slotId) });
         } catch (error) {
-            if (error.saveAttempted === false && message.mes === next) {
-                setActiveMessageText(message, source);
+            if (error.saveAttempted === false && isCurrentTarget()) {
+                rollbackChatImageRemoval(change);
             }
             throw error;
         }
-        await clearDrawSavedEntry(messageId, slotId);
+        if (isCurrentTarget()) await clearDrawSavedEntry(messageId, slotId);
         for (const record of await getPreviewsBySlot(slotId)) await deletePreview(record.imgId);
         await clearSlotSelection(slotId);
         await syncRenderedMessageFromState(messageId, { chatId: ctx.chatId, expectedMessage: message });

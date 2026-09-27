@@ -3,7 +3,6 @@ import {
     storePreview,
     storeFailedPlaceholder,
     setSlotSelection,
-    clearSlotSelection,
     openDB,
     openGallery,
     getPreviewsBySlot,
@@ -26,7 +25,7 @@ import { SdDrawStorage } from "../../../../core/server-storage.js";
 import { generateAndParseScenePlan, prepareScenePlannerInput } from "../../shared/scene-planner.js";
 import { createSceneSource, normalizeMessageSceneSourceText } from "../../shared/scene-source.js";
 import { stripDrawImageSlots } from "../../shared/image-marker-syntax.js";
-import { assertSceneSourceUnchanged, removeSceneSlotPlaceholders } from "../../shared/scene-placement.js";
+import { assertSceneSourceUnchanged } from "../../shared/scene-placement.js";
 import { WorldbookProcessor } from "../../shared/worldbook-processor.js";
 import {
     loadSharedDrawSettings,
@@ -48,8 +47,8 @@ import {
     reportImageBackendJobState,
 } from "../../shared/backend-image-jobs.js";
 import { submitRecoverableImageJob } from "../../shared/recoverable-image-jobs.js";
-import { isDrawRunCancelledError, isDrawRunPendingError, submitProviderDrawRun } from "../../shared/draw-run-production.js";
-import { cancelPendingDrawRuns, hasPendingDrawRun } from "../../shared/draw-run-controls.js";
+import { submitProviderDrawRun } from "../../shared/draw-run-production.js";
+import { cancelPendingDrawRuns, captureDrawCancellationTarget } from "../../shared/draw-run-controls.js";
 import { createCharacterEnabledControl, getCharacterEnabledFromCard } from "../../shared/character-enabled-control.js";
 import { hashStableValue } from "../../shared/generation-fingerprint.js";
 import {
@@ -92,6 +91,9 @@ import {
     loadTagGuide,
 } from "./sd-prompts.js";
 import { submitPreparedChatImages, registerPreparedImageProvider } from "../../shared/prepared-chat-images.js";
+import { prepareImageInput } from '../../shared/prepared-image-input.js';
+import { acquireFloorImageJob, getFloorImageJob, getFloorImageJobs, getFloorImagePhase, getFloorImageState, releaseFloorImageJob, observeFloorImageJob, failFloorImageJob, clearFloorImageJobs, resolveFloorImageJobTarget, rebaseFloorImageJobsAfterSwipeDeletion } from '../../shared/floor-image-job.js';
+import { createImageRequestAttempt, imageHttpFailure } from '../../shared/image-request-outcome.js';
 import { createImageCardRedrawProvider } from "../../shared/image-card-redraw-provider.js";
 import { redrawImageCard, removeChatImageSlot, restoreImageCard } from "../../shared/image-card-actions.js";
 import { persistCardTagEdits } from "../../shared/card-tag-editor.js";
@@ -590,17 +592,21 @@ function buildSdProxyBody(extra = {}, generationConfig = getSettings()) {
     };
 }
 
-async function fetchSdProxy(path, body = {}, { signal, generationConfig } = {}) {
+async function fetchSdProxy(path, body = {}, { signal, generationConfig, attempt } = {}) {
+    const payload = JSON.stringify(buildSdProxyBody(body, generationConfig));
+    attempt?.submit();
     const response = await fetch(`/api/sd/${path}`, {
         method: 'POST',
         headers: getRequestHeaders(),
-        body: JSON.stringify(buildSdProxyBody(body, generationConfig)),
+        body: payload,
         signal,
     });
 
     if (!response.ok) {
         const text = await response.text().catch(() => '');
-        throw classifySdError(text || response.statusText || `HTTP ${response.status}`);
+        const error = classifySdError(text || response.statusText || `HTTP ${response.status}`);
+        error.status = response.status;
+        throw imageHttpFailure(error, response.status);
     }
 
     return response;
@@ -619,16 +625,20 @@ export async function fetchSdSamplers({ signal } = {}) {
 }
 
 async function requestSdImage({ prompt, negativePrompt = '', params = {}, payload, generationConfig, signal } = {}) {
-    const settings = generationConfig || getSettings();
-    const effective = generationConfig?.prepared === true ? params : getEffectiveParams(settings, params);
-    const body = payload || buildSdImageRequest({ prompt, negativePrompt, params: effective });
-    const response = await fetchSdProxy('generate', body, { signal, generationConfig });
-    const data = await response.json();
-    const firstImage = Array.isArray(data?.images) ? data.images[0] : null;
-    if (!firstImage) {
-        throw new Error('SD WebUI 没有返回图片');
-    }
-    return String(firstImage).replace(/^data:image\/\w+;base64,/, '');
+    const attempt = createImageRequestAttempt();
+    try {
+        signal?.throwIfAborted();
+        const settings = generationConfig || getSettings();
+        const effective = generationConfig?.prepared === true ? params : getEffectiveParams(settings, params);
+        const body = payload || buildSdImageRequest({ prompt, negativePrompt, params: effective });
+        const response = await fetchSdProxy('generate', body, { signal, generationConfig, attempt });
+        const data = await response.json();
+        const firstImage = Array.isArray(data?.images) ? data.images[0] : null;
+        if (!firstImage) {
+            throw new Error('SD WebUI 没有返回图片');
+        }
+        return String(firstImage).replace(/^data:image\/\w+;base64,/, '');
+    } catch (error) { throw attempt.failure(error); }
 }
 
 async function runSdImageBatch({
@@ -643,6 +653,7 @@ async function runSdImageBatch({
     onStateChange,
     onItemReady,
     onItemSettled,
+    onItemStarting,
 }) {
     if (!requests.length) return { mode: 'empty' };
     const settings = generationConfig || getSettings();
@@ -731,6 +742,7 @@ async function runSdImageBatch({
             const base64 = await generateSdImage({
                 ...requests[index],
                 payload: prepared[index],
+                beforeRequest: () => onItemStarting?.({ index }),
                 generationConfig: settings,
                 signal,
                 queueBatch,
@@ -743,6 +755,7 @@ async function runSdImageBatch({
                 onStateChange?.(state, { current: index + 1, total: requests.length, ...data });
                 },
             });
+            if (base64 === null) continue;
             await onItemReady?.({ index, base64 });
         } catch (error) {
             await onItemSettled?.({ index, state: signal?.aborted ? 'cancelled' : 'failed', error, source: 'frontend' });
@@ -761,9 +774,13 @@ export async function generateSdImage({
     signal,
     queueBatch,
     onQueueStateChange,
+    beforeRequest,
 } = {}) {
     return sdImageRequestQueue.enqueue(
-        () => requestSdImage({ prompt, negativePrompt, params, payload, generationConfig, signal }),
+        async () => {
+            if (await beforeRequest?.() === false) return null;
+            return requestSdImage({ prompt, negativePrompt, params, payload, generationConfig, signal });
+        },
         {
             signal,
             batchKey: queueBatch,
@@ -2750,50 +2767,42 @@ function generateImgId() {
     return `sd-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 }
 
-function createGenerationJob(messageId) {
-    const key = String(messageId);
-    if (generationJobs.has(key)) {
-        throw new Error('该楼层已有任务进行中');
-    }
-    const job = {
-        key,
-        chatId: String(getContext()?.chatId || ''),
+function createGenerationJob(messageId, options) {
+    return acquireFloorImageJob(generationJobs, getContext(), messageId, () => ({
         phase: 'starting',
         controller: new AbortController(),
         backendCancel: new AbortController(),
         messageId,
         abortReason: null,
-    };
-    generationJobs.set(key, job);
-    return job;
+    }), options);
 }
 
 function releaseGenerationJob(job) {
-    if (job && generationJobs.get(job.key) === job) generationJobs.delete(job.key);
+    releaseFloorImageJob(generationJobs, job);
 }
 
-function cancelPendingDrawRun(messageId) {
+function cancelPendingDrawRun(messageId, target) {
     // Draw Run 归属于当前 swipe。用户在任务期间切换图片 Provider 后，
     // 新 Provider 的按钮仍要能取消这一个既有任务。
-    if (!hasPendingDrawRun(messageId)) return false;
-    void cancelPendingDrawRuns(messageId).catch((error) => {
+    if (!target.entries.length) return false;
+    void cancelPendingDrawRuns(messageId, { ctx: target.ctx, target }).catch((error) => {
         console.error('[SdDraw] 后台 Draw Run 取消失败:', error);
         toastr.error(error?.message || '后台画图取消失败，请稍后重试', '小白X画图');
     });
     return true;
 }
 
-export function abortGeneration(messageId = null, { reason = 'user' } = {}) {
+export function abortGeneration(messageId = null, { reason = 'user', target = captureDrawCancellationTarget(messageId) } = {}) {
     if (messageId !== null && messageId !== undefined) {
-        const job = generationJobs.get(String(messageId));
+        const jobs = getFloorImageJobs(generationJobs, getContext(), messageId, target);
         let aborted = false;
-        if (job) {
+        for (const job of jobs) {
             job.abortReason ||= reason;
             if (reason === 'user') job.backendCancel.abort();
             job.controller.abort();
             aborted = true;
         }
-        if (reason === 'user' && cancelPendingDrawRun(messageId)) aborted = true;
+        if (reason === 'user' && cancelPendingDrawRun(messageId, target)) aborted = true;
         return aborted;
     }
     let aborted = false;
@@ -2811,16 +2820,19 @@ export function abortGeneration(messageId = null, { reason = 'user' } = {}) {
 
 export function isGenerating(messageId = null) {
     if (messageId !== null && messageId !== undefined) {
-        const job = generationJobs.get(String(messageId));
-        return Boolean(job && job.chatId === String(getContext()?.chatId || ''));
+        const job = getFloorImageJob(generationJobs, getContext(), messageId);
+        return Boolean(job);
     }
     return generationJobs.size > 0;
 }
 
 export function getGenerationPhase(messageId) {
-    const job = generationJobs.get(String(messageId));
-    if (!job || job.chatId !== String(getContext()?.chatId || '')) return null;
-    return job.phase;
+    const job = getFloorImageJob(generationJobs, getContext(), messageId);
+    return getFloorImagePhase(job);
+}
+
+export function getGenerationState(messageId) {
+    return getFloorImageState(generationJobs, getContext(), messageId);
 }
 
 async function autoGenerateForLastAI() {
@@ -2849,13 +2861,6 @@ async function autoGenerateForLastAI() {
         const floorOn = settings.showFloorButton !== false;
         const useFloatingOnly = floatingOn && floorOn;
 
-        const updateState = (state, data = {}) => {
-            if (useFloatingOnly || (floatingOn && !floorOn)) {
-                fp.setFloatingState?.(state, data);
-            } else if (floorOn) {
-                fp.setStateForMessage?.(lastIdx, state, data);
-            }
-        };
 
         if (floorOn && !useFloatingOnly) {
             const messageEl = document.querySelector(`.mes[mesid="${lastIdx}"]`);
@@ -2867,27 +2872,8 @@ async function autoGenerateForLastAI() {
         const result = await generateAndInsertImages({
             messageId: lastIdx,
             automatic: true,
-            onStateChange: (state, data) => {
-                switch (state) {
-                    case 'submitting': updateState(fp.FloatState?.SUBMITTING, data); break;
-                    case 'accepted': updateState(fp.FloatState?.ACCEPTED, data); break;
-                    case 'uncertain': updateState(fp.FloatState?.UNCERTAIN, data); break;
-                    case 'queued': updateState(fp.FloatState?.QUEUED, data); break;
-                    case 'llm': updateState(fp.FloatState?.LLM); break;
-                    case 'gen':
-                    case 'progress': updateState(fp.FloatState?.GEN, data); break;
-                    case 'cooldown': updateState(fp.FloatState?.COOLDOWN, data); break;
-                    case 'reconnecting': updateState(fp.FloatState?.RECONNECTING, data); break;
-                    case 'cancelling': updateState(fp.FloatState?.CANCELLING, data); break;
-                    case 'success':
-                        updateState(
-                            (data.aborted && data.success === 0) ? fp.FloatState?.IDLE
-                                : (data.success < data.total) ? fp.FloatState?.PARTIAL
-                                    : fp.FloatState?.SUCCESS,
-                            data,
-                        );
-                        break;
-                }
+            onStateChange: (state, data, liveId) => {
+                fp.setStateForMessage(liveId, state, data);
             },
         });
 
@@ -2896,39 +2882,10 @@ async function autoGenerateForLastAI() {
             lastMessage.extra.xb_sd_auto_done = true;
         }
     } catch (error) {
-        console.error('[SdDraw] 自动配图失败:', error);
-        try {
-            const fp = await import('./floating-panel.js');
-            const classified = classifyError(error);
-            const floatingOn = settings.showFloatingButton !== false;
-            const floorOn = settings.showFloorButton !== false;
-            const useFloatingOnly = floatingOn && floorOn;
-            if (error?.uncertain === true) {
-                if (useFloatingOnly || (floatingOn && !floorOn)) {
-                    fp.setFloatingState?.(fp.FloatState?.UNCERTAIN);
-                } else if (floorOn) {
-                    fp.setStateForMessage?.(lastIdx, fp.FloatState?.UNCERTAIN);
-                }
-                return;
-            }
-            if (isDrawRunPendingError(error)) {
-                toastr?.info?.(error.message);
-                return;
-            }
-            if (isDrawRunCancelledError(error)) {
-                if (useFloatingOnly || (floatingOn && !floorOn)) {
-                    fp.setFloatingState?.(fp.FloatState?.IDLE);
-                } else if (floorOn) {
-                    fp.setStateForMessage?.(lastIdx, fp.FloatState?.IDLE);
-                }
-                return;
-            }
-            if (useFloatingOnly || (floatingOn && !floorOn)) {
-                fp.setFloatingState?.(fp.FloatState?.ERROR, { error: classified });
-            } else if (floorOn) {
-                fp.setStateForMessage?.(lastIdx, fp.FloatState?.ERROR, { error: classified });
-            }
-        } catch {}
+        if (!error.drawTaskReported) {
+            console.error(error);
+            globalThis.toastr?.error(error.message);
+        }
     } finally {
         autoBusy = false;
     }
@@ -3015,11 +2972,6 @@ async function buildTasksFromMessage({ message, messageId, signal, promptOverrid
 
     console.log('[SdDraw] LLM plan ready for message %s: %d task(s)', messageId, tasks.length);
     return { tasks, sceneSource };
-}
-
-async function persistChatSilently() {
-    const ctx = getContext();
-    if (ctx?.saveChat) await Promise.resolve(ctx.saveChat());
 }
 
 function setImageState(container, state) {
@@ -3433,13 +3385,11 @@ async function deleteCurrentImage(container) {
         toastr.success(`已删除（剩余 ${successPreviews.length} 张）`);
         return;
     } else {
-        await clearSlotSelection(slotId).catch(() => {});
-        await clearDrawSavedEntry(messageId, slotId).catch(() => {});
-        const ctx = getContext();
-        const message = ctx.chat?.[messageId];
-        if (message?.mes) {
-            message.mes = removeSceneSlotPlaceholders(message.mes, [slotId]);
-            await persistChatSilently().catch(() => {});
+        try { await removeChatImageSlot(container); }
+        catch (error) {
+            console.error(DRAW_SLOT_COPY.removeFailed, error);
+            globalThis.toastr?.error(error.message);
+            return;
         }
     }
     container.remove();
@@ -3656,7 +3606,7 @@ let preparedImageDispose = null;
 
 async function runPreparedSdSlots(input) {
     const { ctx, message, messageId, sourceText, tasks, onStateChange } = input;
-    const job = input.job || createGenerationJob(`slot-input:${messageId}`);
+    const job = input.job || createGenerationJob(messageId);
     try {
         const settings = input.settings || cloneSettingsObject(getSettings());
 
@@ -3669,23 +3619,12 @@ async function runPreparedSdSlots(input) {
             itemCount: tasks.length,
 
         });
-        const compiledBatch = compileSdScenePlan(tasks, recipe);
-        const requests = compiledBatch.artifacts.map(({ promptData }) => ({
-            prompt: promptData.positive,
-            characterPrompts: promptData.characterPrompts,
-            negativePrompt: promptData.negative,
-            params: recipe.params,
-        }));
-        const metadata = compiledBatch.artifacts.map(({ task, promptData }) => ({
-            tags: task.scene || '',
-            positive: promptData.positive,
-            characterPrompts: promptData.characterPrompts,
-            negativePrompt: promptData.negative,
-        }));
+        const { compiledBatch, requests, metadata } = prepareImageInput('sd-webui', tasks, recipe);
         job.phase = 'gen';
         const monitorGeneration = backendJobMonitors.captureGeneration();
         return await submitPreparedChatImages({
             ctx, message, messageId, sourceText, tasks, metadata, swipeIndex: input.swipeIndex,
+            nativeMessage: input.nativeMessage, onPrepared: input.onPrepared, placementSource: input.placementSource,
             backend: settings.useImageBackendJobs === true,
             signal: job.controller.signal, onStateChange, onPlacement: input.onPlacement,
             run: handlers => runSdImageBatch({
@@ -3706,19 +3645,20 @@ export async function generateAndInsertImages({
     onStateChange,
     automatic = false,
 } = {}) {
-    const resolvedMessageId = Number.isFinite(Number(messageId)) ? Number(messageId) : findLastAIMessageId();
+    let resolvedMessageId = Number.isFinite(Number(messageId)) ? Number(messageId) : findLastAIMessageId();
     if (resolvedMessageId < 0) throw new Error('未找到可出图的 AI 消息');
 
     const job = createGenerationJob(resolvedMessageId);
     const signal = job.controller.signal;
+    onStateChange = observeFloorImageJob(job, { getCurrentContext: getContext, onStateChange, classifyError });
 
     try {
         ensureDrawImageStyles();
         await openDB();
         await loadSettings();
         await loadSharedDrawSettings();
-        const ctx = getContext();
-        const message = ctx.chat?.[resolvedMessageId];
+        const { ctx, message, messageId: liveId } = resolveFloorImageJobTarget(job, getContext());
+        resolvedMessageId = liveId;
         if (!message || message.is_user) throw new Error('消息不存在或不是 AI 消息');
 
         const sdSettings = cloneSettingsObject(getSettings());
@@ -3774,6 +3714,9 @@ export async function generateAndInsertImages({
         return await runPreparedSdSlots({ ctx, message, messageId: resolvedMessageId,
             sourceText: message.mes, tasks, settings: sdSettings,
             paramsOverride, promptOverride, negativePromptOverride, job, onStateChange });
+    } catch (error) {
+        failFloorImageJob(job, error);
+        throw error;
     } finally {
         releaseGenerationJob(job);
     }
@@ -3873,15 +3816,16 @@ export async function initSdDraw() {
     events.on(event_types.MESSAGE_SWIPED, () => {
         floatingPanel.refreshDrawRunUiState?.();
     });
+    events.on(event_types.MESSAGE_SWIPE_DELETED, detail => {
+        rebaseFloorImageJobsAfterSwipeDeletion(generationJobs, getContext(), detail);
+        floatingPanel.refreshDrawRunUiState?.();
+    });
     events.on(event_types.GENERATION_ENDED, async () => {
         try {
             await autoGenerateForLastAI();
         } catch (error) {
             console.error('[SdDraw]', error);
         }
-    });
-    events.on(event_types.GENERATION_STOPPED, () => {
-        abortGeneration();
     });
 
     setTimeout(() => {
@@ -3893,7 +3837,6 @@ export async function initSdDraw() {
         execute: runPreparedSdSlots,
         createJob: createGenerationJob,
         releaseJob: releaseGenerationJob,
-        ownsJob: job => generationJobs.get(job.key) === job,
         getCurrentContext: getContext,
         setStateForMessage: floatingPanel.setStateForMessage,
         classifyError,
@@ -3933,7 +3876,7 @@ export function cleanupSdDraw() {
     backendJobMonitors.deactivate();
     abortPendingRequest();
     abortGeneration(null, { reason: 'teardown' });
-    generationJobs = new Map();
+    clearFloorImageJobs(generationJobs);
     sdImageRequestQueue.clear();
     hideSettings();
     destroySdDrawPanelsRef?.();

@@ -28,7 +28,8 @@ import { executeImageJobReattachEntry } from './image-job-recovery-executor.js';
 import { planImageJobReattach, ReattachAction } from './image-job-reattach.js';
 import { readPageFarewells } from './page-farewell.js';
 import { getPendingImageJob, listPendingImageJobs, PendingJobState } from './pending-image-jobs.js';
-import { commitSceneSlotDelivery, removeSceneSlotPlaceholders } from './scene-placement.js';
+import { removeSceneSlotPlaceholders } from './scene-placement.js';
+import { deliverPreparedImage } from './prepared-image-delivery.js';
 import {
     classifyError,
     ErrorType,
@@ -70,7 +71,7 @@ function handleRecoveryVisibilityChange() {
 function drawRunActivityTarget(record) {
     const slots = record?.delivery?.mode === 'slots';
     const located = slots
-        ? record.items?.map(item => recordTarget(record, item))
+        ? record.items?.filter(item => !item.discarded).map(item => recordTarget(record, item))
             .find(target => target.state === ImageJobDeliveryTargetState.ALIVE)
         : null;
     const locatedSwipe = Number.isInteger(located?.swipe)
@@ -81,7 +82,7 @@ function drawRunActivityTarget(record) {
     return {
         provider: record?.provider,
         chatId: String(record?.chatTarget?.chatId || record?.delivery?.chatId || record?.gallery?.chatId || ''),
-        messageId: located ? located.messageId : Number(slots ? record?.delivery?.messageId : record?.gallery?.messageId),
+        messageId: located ? located.messageId : slots ? -1 : Number(record?.gallery?.messageId),
         swipeIndex: locatedSwipe ?? Number(slots ? record?.delivery?.swipeIndex : record?.gallery?.swipeIndex),
         runId: record?.originRunId,
     };
@@ -103,6 +104,10 @@ function recordTarget(record, item = null) {
 
 function requireAvailableTarget(record, item = null) {
     if (record.delivery?.mode !== 'slots') return null;
+    if (record.delivery.retainWithoutSlot) {
+        const target = recordTarget(record, item);
+        return target.state === ImageJobDeliveryTargetState.ALIVE ? target : null;
+    }
     const ctx = getContext();
     return requireImageJobDeliveryTarget({
         currentChatId: ctx?.chatId,
@@ -151,7 +156,6 @@ function describeMissingJob(record) {
 function createDeliveryAdapter() {
     return {
         onStateChange(record, state, data) {
-            if (!record.originRunId) return;
             reportImageBackendJobState((stage, progress = {}) => {
                 publishDrawRunActivity({
                     ...drawRunActivityTarget(record),
@@ -175,14 +179,15 @@ function createDeliveryAdapter() {
                 await storePreview({ ...previewOptions(record, item, null), base64 });
                 return;
             }
-            const committed = await commitSceneSlotDelivery({
-                committedEarly: true,
+            const committed = await deliverPreparedImage({
+                retainWithoutSlot: record.delivery?.retainWithoutSlot,
+                isDiscarded: current => current?.items.some(entry => entry.imgId === item.imgId && entry.discarded),
                 resolveTarget: () => requireAvailableTarget(record, item),
                 guard,
                 persist: target => storePreview({ ...previewOptions(record, item, target), base64 }),
-                rollbackPersisted: () => deletePreview(item.imgId),
+                remove: () => deletePreview(item.imgId),
                 select: () => setSlotSelection(item.slotId, item.imgId),
-                rollbackSelection: () => clearSlotSelection(item.slotId),
+                clearSelection: () => clearSlotSelection(item.slotId),
             });
             if (committed) {
                 await renderRecord(record);
@@ -198,8 +203,9 @@ function createDeliveryAdapter() {
             if (record.delivery?.mode === 'gallery') return;
             const errorType = error?.label ? error : classifyError(error);
             const failedImgId = item.imgId;
-            const committed = await commitSceneSlotDelivery({
-                committedEarly: true,
+            const committed = await deliverPreparedImage({
+                retainWithoutSlot: record.delivery?.retainWithoutSlot,
+                isDiscarded: current => current?.items.some(entry => entry.imgId === item.imgId && entry.discarded),
                 resolveTarget: () => requireAvailableTarget(record, item),
                 guard,
                 persist: target => storeFailedPlaceholder({
@@ -208,9 +214,9 @@ function createDeliveryAdapter() {
                     errorType: errorType.label,
                     errorMessage: errorType.desc,
                 }),
-                rollbackPersisted: () => deletePreview(failedImgId),
+                remove: () => deletePreview(failedImgId),
                 select: () => setSlotSelection(item.slotId, failedImgId),
-                rollbackSelection: () => clearSlotSelection(item.slotId),
+                clearSelection: () => clearSlotSelection(item.slotId),
             });
             if (committed) await renderRecord(record);
             else { await guard(); await deletePreview(item.imgId); }
@@ -423,7 +429,7 @@ async function runRecoveryPass() {
     }
     const records = allRecords.filter(record => (
         record.state !== PendingJobState.ADOPTING
-        && (record.delivery?.mode === 'gallery' || record.delivery?.chatId === chatId)
+        && (record.delivery?.mode === 'gallery' || record.delivery?.retainWithoutSlot || record.delivery?.chatId === chatId)
     ));
     if (records.length === 0) return;
 

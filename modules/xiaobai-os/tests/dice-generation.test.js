@@ -25,6 +25,8 @@ const compiled = await build({
     stdin: { contents: `export { createDiceGenerationAdapter } from '../apps/dice/host/generation-adapter.ts';
         export { createDiceMessageDisplay } from '../apps/dice/host/message-display.ts';
         export { captureDiceChat, waitForDiceHost } from '../apps/dice/host/sillytavern-port.ts';
+        export { commitChatImagePlacement } from '../../draw/shared/chat-image-placement.js';
+        export { parseChatImageTags } from '../../draw/shared/chat-message-image-markup.js';
         export { host } from 'dice-generation-host';`,
         resolveDir: fileURLToPath(new URL('.', import.meta.url)) },
     bundle: true, write: false, format: 'esm', platform: 'node', logLevel: 'silent',
@@ -165,12 +167,64 @@ const compiled = await build({
         ` }));
     } }],
 });
-// eslint-disable-next-line no-unsanitized/method -- Compiled repository modules and fixed native I/O fixture only.
-const { createDiceGenerationAdapter, createDiceMessageDisplay, captureDiceChat, waitForDiceHost, host } = await import(`data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].text).toString('base64')}`);
+const { createDiceGenerationAdapter, createDiceMessageDisplay, captureDiceChat, waitForDiceHost, host,
+    // eslint-disable-next-line no-unsanitized/method -- Compiled repository modules and fixed native I/O fixture only.
+    commitChatImagePlacement, parseChatImageTags } = await import(`data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].text).toString('base64')}`);
 
 const call = 'Attempt.\n\n<xb_action_check>{"action":"Climb","stat":"Agility","difficulty":"hard"}</xb_action_check>';
+
+test('a native image placement during continuation preparation preserves the incoming DICE check', async t => {
+    const adapter = setup(t);
+    const target = host.source.chat[0];
+    target.mes = '[img: prior] prose'; target.swipe_id = 0; target.swipes = [target.mes];
+    await begin('continue'); await host.intercept('continue');
+    const before = target.mes;
+    commitChatImagePlacement({ message: target, swipeIndex: 0, before,
+        edits: parseChatImageTags(before).map(tag => ({ ...tag, content: '[image:prior-slot]' })) });
+    target.mes += call;
+    await host.emit('MESSAGE_RECEIVED', 0, 'continue'); await setImmediate();
+    assert.equal(adapter.records(target).checks.length, 1);
+    assert.equal(adapter.view().phase.kind, 'awaiting-choice');
+});
 const cocCall = '<xb_action_check>' + JSON.stringify({ action: 'Force the door', stat: 'body', difficulty: 'regular' }) + '</xb_action_check>';
 const message = mes => ({ name: 'Mira', mes, extra: {} });
+
+for (const group of [false, true]) test(`validated native image placement preserves the live DICE choice and roll (group: ${group})`, async t => {
+    const revealing = Promise.withResolvers();
+    const adapter = setup(t, group, () => revealing.promise);
+    if (group) host.group(true);
+    t.after(host.listen('MESSAGE_RECEIVED', index => {
+        const target = host.source.chat[index];
+        const before = target.mes;
+        const tags = parseChatImageTags(before);
+        if (tags.length) commitChatImagePlacement({ message: target, swipeIndex: target.swipe_id ?? 0, before,
+            edits: tags.map((tag, i) => ({ ...tag, content: `[image:dice-img-${i}]` })) });
+    }));
+    await begin('normal', { signal: new AbortController().signal }); await host.intercept('normal');
+    const body = '[img: castle] ' + call + ' [img: discarded-tail]';
+    const target = { ...message(body), swipe_id: 0, swipes: [body] };
+    host.source.chat.push(target); await received();
+    const records = structuredClone(adapter.records(target));
+    assert.equal(records.checks.length, 1);
+    assert.equal(adapter.view().phase.kind, 'revealing');
+    assert.equal(adapter.current(adapter.view().target), true);
+    assert.equal(parseChatImageTags(target.mes).length, 0);
+    assert.equal(target.mes.includes('[image:dice-img-0]'), true);
+    assert.equal(target.mes.includes('[image:dice-img-1]'), false);
+    assert.equal(target.swipes[0], target.mes);
+    await host.saveNative();
+    revealing.resolve(); await setImmediate();
+    assert.equal(adapter.view().phase.kind, 'awaiting-choice');
+    assert.deepEqual(adapter.records(target), records);
+    assert.equal(adapter.actions(1).kind, 'choice');
+    if (group) {
+        await host.emit('GROUP_MEMBER_DRAFTED');
+        host.group(false); await host.emit('GROUP_WRAPPER_FINISHED');
+    }
+    await choose(adapter, 1);
+    assert.equal(host.requests.length, 1);
+    assert.deepEqual(adapter.records(target), records);
+});
 function setup(t, group = false, reveal = async () => {}, rerolls = null, results = createDiceResults({
     subscribe: () => () => {}, peekCurrent: () => ({ value: DICE_PARTITION.createInitial() }),
 })) {

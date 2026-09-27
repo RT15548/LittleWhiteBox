@@ -8,8 +8,13 @@ import { build } from 'esbuild';
 const entry = `
 import * as ui from './draw-common.js';
 import * as gallery from './gallery-cache.js';
-import { initChatMessageImages } from './chat-message-images.js';
+import { initChatMessageImages, mountChatMessageImages } from './chat-message-images.js';
 import { registerPreparedImageProvider, submitPreparedChatImages } from './prepared-chat-images.js';
+import { prepareImageInput } from './prepared-image-input.js';
+import { imageSlotFixtureRecipe } from './tests/fixtures/image-slot-recipes.js';
+import { createImageCardRedrawProvider } from './image-card-redraw-provider.js';
+import { acquireFloorImageJob, releaseFloorImageJob } from './floor-image-job.js';
+import { createSerialImageRequestQueue } from './serial-image-request-queue.js';
 import { persistCardTagEdits } from './card-tag-editor.js';
 import { redrawImageCard, removeChatImageSlot, restoreImageCard } from './image-card-actions.js';
 import * as jobs from './pending-image-jobs.js';
@@ -23,35 +28,76 @@ const initial = [{name:'Alice', mes:'河畔的散步。 [img: riverside, flowers
 const chat = JSON.parse(localStorage.getItem('fixtureChat') || 'null') || initial;
 const ctx = {chatId:'isolated-image-slots', chat, groupId:'test', chatMetadata:{xbDrawTagFormat:1}, getRequestHeaders:()=>({}),
     saveChat: async()=>localStorage.setItem('fixtureChat',JSON.stringify(chat))};
-window.fixture = {ctx, format:text=>markdown.makeHtml(text), requests:Number(sessionStorage.getItem('requests')||0), events:new Map()};
+window.fixture = {ctx, format:text=>markdown.makeHtml(text), requests:Number(sessionStorage.getItem('requests')||0), events:new Map(), states:[], calls:[]};
+window.fixture.emit=async(key,...args)=>{for(const fn of window.fixture.events.get(key)||[])await fn(...args);};
 window.fetch = async()=>new Response(JSON.stringify([{chat_metadata:ctx.chatMetadata},...JSON.parse(localStorage.getItem('fixtureChat'))]));
 window.toastr = {error:message=>{document.querySelector('#status').textContent=message;}};
 let provider='novelai';
-window.xiaobaixDraw = {getStatus:()=>({ready:true}),getProvider:()=>provider};
+window.xiaobaixDraw = {getStatus:()=>({enabled:true,ready:true}),getProvider:()=>provider};
 const canvas = document.createElement('canvas'); canvas.width=480; canvas.height=300;
 const c=canvas.getContext('2d');c.fillStyle='#a4d4ed';c.fillRect(0,0,480,180);c.fillStyle='#416e80';c.fillRect(0,180,480,120);
 c.fillStyle='#f4c567';c.beginPath();c.arc(380,65,30,0,Math.PI*2);c.fill();
 const base64=canvas.toDataURL().split(',')[1];
 const compilers={novelai:compileNovelPromptForTask,sdwebui:compileSdPromptForTask,comfyui:compileComfyPromptForTask};
-for(const name of Object.keys(compilers))registerPreparedImageProvider(name, input=>submitPreparedChatImages({...input, backend:false,
-    metadata:input.tasks.map(task=>{const data=compilers[name](task,{positivePrefix:'quality'});return {tags:task.scene,
-        positive:data.scene??data.positive,negativePrompt:data.negativePrompt??data.negative,characterPrompts:data.characterPrompts};}),
+const floorJobs=new Map();
+for(const name of Object.keys(compilers)){
+const queue=createSerialImageRequestQueue();
+registerPreparedImageProvider(name,createImageCardRedrawProvider({
+    createJob:(id,options)=>acquireFloorImageJob(floorJobs,ctx,id,()=>({controller:new AbortController()}),options),
+    releaseJob:job=>releaseFloorImageJob(floorJobs,job),ownsJob:job=>floorJobs.has(job),
+    getCurrentContext:()=>ctx,setStateForMessage:(id,state,data)=>{window.fixture.states.push({id,state,data});},classifyError:ui.classifyError,
+    execute:input=>{
+    const backendName=name==='sdwebui'?'sd-webui':name;
+    const prepared=prepareImageInput(backendName,input.tasks,imageSlotFixtureRecipe(backendName,input.tasks.length));
+    return submitPreparedChatImages({...input, backend:false, signal:input.job.controller.signal, metadata:prepared.metadata,
     run:async callbacks=>{window.fixture.requests++;sessionStorage.setItem('requests',window.fixture.requests);
         if(window.fixture.hold)await new Promise(resolve=>{window.fixture.release=resolve;});
-        await new Promise(resolve=>setTimeout(resolve,500));
         for(const [index,task] of input.tasks.entries()){
-            if(task.scene==='failed scene')await callbacks.onItemSettled({index,state:'failed',error:new Error('模拟绘图失败')});
-            else await callbacks.onItemReady({index,base64});
+            await queue.enqueue(async()=>{
+                if(await callbacks.onItemStarting({index})===false)return;
+                callbacks.onStateChange('progress',{current:index+1,total:input.tasks.length});
+                window.fixture.calls.push({provider:backendName,request:prepared.compiledBatch.items[index].request});
+                await new Promise(resolve=>setTimeout(resolve,100));
+                if(task.scene==='failed scene')await callbacks.onItemSettled({index,state:'failed',error:Object.assign(new Error('模拟绘图失败'),{imageRequestOutcome:'rejected'})});
+                else await callbacks.onItemReady({index,base64});
+            },{signal:callbacks.signal,batchKey:input.job});
         }
-    }}));
+    }});}
+}));}
 const root=document.querySelector('.mes_text');
 root.innerHTML=markdown.makeHtml(chat[0].mes);
 ui.ensureDrawImageStyles();
 await ui.renderPreviewsForMessage(0);
 initChatMessageImages();
+window.fixture.jobsRunning=()=>floorJobs.size;
+window.fixture.generate=async({streaming=true,source='河畔的散步。 [img: riverside, flowers] [图片: second view]',type='normal',hidden=false,saveFailure=false}={})=>{
+    if(type==='swipe'){chat[0].swipe_id=(chat[0].swipe_id||0)+1;(chat[0].swipes??=[]).push('');}
+    if(type==='regenerate')chat[0]={...chat[0]};
+    const next=type==='continue'||type==='swipe'?chat[0]:{name:'Alice',mes:'',swipe_id:0,swipes:[''],extra:{}};
+    await window.fixture.emit('GENERATION_STARTED',type,{},false);
+    await window.fixture.emit('GENERATION_AFTER_COMMANDS',type,{},false);
+    if(type==='regenerate'){chat.pop();await window.fixture.emit('MESSAGE_DELETED');}
+    await window.fixture.emit('GENERATE_AFTER_DATA',{},false);
+    const prefix=type==='continue'?next.mes:'';chat[0]=next;
+    ctx.streamingProcessor=streaming?{messageId:0,isStopped:false,isFinished:false}:null;
+    root.style.display=hidden?'none':'';
+    for(const part of streaming?[source.slice(0,Math.floor(source.length/2)),source]:[source]){
+        next.mes=prefix+part;
+        if(streaming){root.innerHTML=markdown.makeHtml(next.mes);await new Promise(resolve=>requestAnimationFrame(resolve));await new Promise(resolve=>setTimeout(resolve,150));}
+    }
+    if(ctx.streamingProcessor)ctx.streamingProcessor.isFinished=true;
+    await window.fixture.emit('GENERATION_ENDED');
+    await window.fixture.emit('MESSAGE_RECEIVED',0,type);
+    await window.fixture.emit('MESSAGE_RECEIVED',0,type);
+    next.swipes[next.swipe_id]=next.mes;
+    if(saveFailure)window.toastr.error('模拟宿主保存失败');else await ctx.saveChat();
+    root.innerHTML=markdown.makeHtml(next.mes);await ui.renderPreviewsForMessage(0);
+};
+window.fixture.remount=async()=>{root.innerHTML=markdown.makeHtml(chat[0].mes);const release=mountChatMessageImages(root,0);release();mountChatMessageImages(root,0);await ui.renderPreviewsForMessage(0);};
+window.fixture.setProvider=value=>{provider=value;document.querySelector('#provider').value=value;};
 document.querySelector('#provider').onchange=event=>{provider=event.target.value;};
 document.querySelector('#theme').onclick=()=>document.body.classList.toggle('dark');
-document.querySelector('#add').onclick=()=>{chat[0].mes+='\\n[img: another view]';ctx.saveChat();root.innerHTML=markdown.makeHtml(chat[0].mes);window.fixture.events.get('MESSAGE_UPDATED')?.();};
+document.querySelector('#add').onclick=()=>window.fixture.generate();
 document.addEventListener('click',async event=>{
     const button=event.target.closest('[data-action]');const card=button?.closest('.xb-nd-img');if(!card)return;
     const action=button.dataset.action;
@@ -108,7 +154,7 @@ const stubs = {
     'script.js': 'export const messageFormatting = text => window.fixture.format(text); export const getRequestHeaders = () => ({});',
     'utils.js': 'export const uuidv4 = () => crypto.randomUUID(); export const saveBase64AsFile = async () => { throw new Error("unexpected upload"); };',
     'event-manager.js': `export const event_types = new Proxy({}, {get:(_,key)=>key});
-        export const createModuleEvents = () => ({on:(key,fn)=>window.fixture.events.set(key,fn),cleanup:()=>{}});`,
+        export const createModuleEvents = () => ({on:(key,fn)=>{const list=window.fixture.events.get(key)||[];list.push(fn);window.fixture.events.set(key,list);},cleanup:()=>{}});`,
     'generate-interceptor.js': 'export const GENERATE_INTERCEPTOR_ORDER={}; export const registerGenerateInterceptor=()=>{}; export const unregisterGenerateInterceptor=()=>{};',
     'after-ai-gate.js': 'export const initAfterAiGate=()=>{}; export const notifyAfterAiHint=()=>{}; export const registerAfterAiHandler=()=>()=>{};',
     'debug-core.js': 'export const xbLog={error:console.error,warn:console.warn,info:()=>{}};',

@@ -82,10 +82,13 @@ async function migrate(ctx) {
     const chatId = String(ctx.chatId);
     const isCurrentChat = () => String(getContext().chatId) === chatId
         && getContext().chat === ctx.chat && getContext().chatMetadata === ctx.chatMetadata;
+    const loaded = new Map(ctx.chat.map(message => [message, { source: message.mes, swipe: message.swipe_id }]));
     if (!freshChats.has(ctx.chatMetadata)) await prepareChatBranches(ctx);
     if (!isCurrentChat()) throw new Error(DRAW_SLOT_COPY.sourceChanged);
     const branches = listChatImageBranches(ctx.chat).map(branch => ({ ...branch, tags: parseChatImageTags(branch.source) }))
-        .filter(branch => branch.tags.length);
+        .filter(branch => branch.tags.length && loaded.has(branch.message)
+            && loaded.get(branch.message).source === branch.message.mes
+            && loaded.get(branch.message).swipe === branch.message.swipe_id);
     const prepared = [];
     // Read all candidates before changing data. Failed reads do not mean lost images.
     for (const branch of branches) {

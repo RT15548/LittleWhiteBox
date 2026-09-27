@@ -754,7 +754,7 @@ export async function getDisplayPreviewForSlot(slotId) {
         historyCount: successPreviews.length,
         hasData: false,
         isFailed: true,
-        isPending: preview?.status === PreviewStatus.PENDING,
+        isPending: preview?.status === PreviewStatus.PENDING || preview?.status === PreviewStatus.UNKNOWN,
         failedInfo: {
             tags: preview?.tags || '',
             positive: preview?.positive || '',

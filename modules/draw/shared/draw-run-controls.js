@@ -10,6 +10,7 @@ import {
 import {
     getDrawRunMarkerText,
     listActiveSwipeDrawRunMarkers,
+    listDrawRunMarkers,
     persistedChatHasDrawRunMarker,
     persistedDrawRunTargetMatches,
     setDrawRunMarker,
@@ -20,11 +21,25 @@ import {
     requestPendingImageJobCancellation,
 } from './pending-image-jobs.js';
 import { isSceneSlotAlive } from './scene-placement.js';
+import { DRAW_SLOT_COPY } from './image-record.js';
 
 const client = createDrawRunClient({ getHeaders: getRequestHeaders });
 const imageClient = createImageBackendJobsClient({ getHeaders: getRequestHeaders });
 const pendingStateReadVersions = new WeakMap();
 let pendingStateReadVersion = 0;
+
+export function captureDrawCancellationTarget(messageId, ctx = getContext()) {
+    const message = ctx?.chat?.[Number(messageId)];
+    return { ctx, message, messageId: Number(messageId), chatId: String(ctx?.chatId || ''),
+        swipeIndex: message?.swipe_id ?? 0, text: String(message?.mes ?? ''),
+        entries: message ? listActiveSwipeDrawRunMarkers(message) : [] };
+}
+
+export function isDrawCancellationTargetCurrent(target) {
+    const ctx = getContext();
+    return String(ctx?.chatId || '') === target.chatId && ctx.chat?.includes(target.message)
+        && (target.message.swipe_id ?? 0) === target.swipeIndex;
+}
 
 function getPendingDrawRuns(messageId, ctx = getContext()) {
     const normalizedMessageId = Number(messageId);
@@ -43,8 +58,7 @@ function findPendingChildDrawRuns(messageId, records, ctx = getContext()) {
     const activeSwipeIndex = Number.isInteger(message.swipe_id) ? message.swipe_id : 0;
     const activeText = String(message.mes ?? '');
     return (Array.isArray(records) ? records : []).filter(record => {
-        if (!record?.originRunId
-            || ![PendingJobState.ADOPTING, PendingJobState.ACTIVE, PendingJobState.CANCELLING]
+        if (!record || ![PendingJobState.ADOPTING, PendingJobState.ACTIVE, PendingJobState.CANCELLING]
                 .includes(record.state)) return false;
         if (String(record.chatTarget?.chatId || record.delivery?.chatId || '') !== chatId) return false;
         const recordSwipeIndex = Number(record.delivery?.mode === 'slots'
@@ -54,7 +68,7 @@ function findPendingChildDrawRuns(messageId, records, ctx = getContext()) {
             // messageId 是数组下标；用户删除更早楼层后会移动。slotId 才是 slots
             // 交付的稳定身份；swipe 下标也会在用户删除更早 swipe 后移动，因此
             // slots 模式只按当前正文定位，不能拿任何冻结下标误判任务消失。
-            return record.items?.some(item => isSceneSlotAlive(activeText, item?.slotId));
+            return record.items?.some(item => !item.discarded && isSceneSlotAlive(activeText, item?.slotId));
         }
         if (recordSwipeIndex !== activeSwipeIndex) return false;
         return Number(record.gallery?.messageId) === normalizedMessageId;
@@ -113,18 +127,19 @@ export async function getPendingDrawWorkState(messageId, ctx = getContext()) {
 
 export async function cancelPendingDrawRuns(messageId, {
     ctx = getContext(),
+    target = captureDrawCancellationTarget(messageId, ctx),
     drawRunClient = client,
     saveAndConfirm = saveChatAndConfirm,
     syncActiveSwipe = syncMesToSwipe,
     now = Date.now,
 } = {}) {
-    const entries = getPendingDrawRuns(messageId, ctx);
+    const entries = target.entries;
     if (entries.length === 0) return false;
     const activityProvider = entries[0]?.marker?.provider || '';
     const activityTarget = {
         provider: activityProvider,
-        chatId: String(ctx?.chatId || ''),
-        messageId,
+        chatId: target.chatId,
+        messageId: target.messageId,
         swipeIndex: entries[0]?.swipeIndex,
         runId: entries[0]?.runId,
     };
@@ -136,7 +151,7 @@ export async function cancelPendingDrawRuns(messageId, {
     // 先把用户取消意图写进 marker。提交 POST 与取消 POST 可能交错：取消先到会
     // 暂时得到 404，只有这个持久事实才能让刷新后的恢复器在 run 出现时补发取消。
     const cancellationTime = Math.max(1, Math.floor(Number(now()) || Date.now()));
-    const targetMessage = ctx?.chat?.[Number(messageId)];
+    const targetMessage = target.message;
     const originalTargets = new Map(entries.map(entry => [entry.runId, {
         marker: { ...entry.marker },
         text: getDrawRunMarkerText({ message: targetMessage, swipeIndex: entry.swipeIndex }),
@@ -144,15 +159,16 @@ export async function cancelPendingDrawRuns(messageId, {
     let persistenceError = null;
     try {
         await withConfirmableChatMutation(ctx, async () => {
-            const message = ctx?.chat?.[Number(messageId)];
-            if (!message) throw new Error('后台画图目标楼层已经不可用');
-            const liveEntries = getPendingDrawRuns(messageId, ctx)
+            const message = targetMessage;
+            const liveId = ctx.chat?.indexOf(message) ?? -1;
+            if (liveId < 0 || String(getContext()?.chatId || '') !== target.chatId) throw new Error(DRAW_SLOT_COPY.sourceChanged);
+            const liveEntries = listDrawRunMarkers(message)
                 .filter(entry => originalTargets.has(entry.runId));
             if (liveEntries.length === 0) return;
             for (const entry of liveEntries) {
                 entry.marker = setDrawRunMarker({
                     message,
-                    messageId: Number(messageId),
+                    messageId: liveId,
                     swipeIndex: entry.swipeIndex,
                     runId: entry.runId,
                     marker: { ...entry.marker, cancelRequestedAt: cancellationTime },
@@ -182,12 +198,13 @@ export async function cancelPendingDrawRuns(messageId, {
     } catch (error) {
         persistenceError = error;
         if (error?.saveAttempted === false) {
-            const message = ctx?.chat?.[Number(messageId)];
-            for (const entry of entries) {
+            const message = targetMessage;
+            const liveId = ctx.chat?.indexOf(message) ?? -1;
+            for (const entry of liveId >= 0 ? listDrawRunMarkers(message).filter(item => originalTargets.has(item.runId)) : []) {
                 try {
                     entry.marker = setDrawRunMarker({
                         message,
-                        messageId: Number(messageId),
+                        messageId: liveId,
                         swipeIndex: entry.swipeIndex,
                         runId: entry.runId,
                         marker: originalTargets.get(entry.runId)?.marker,
@@ -205,21 +222,17 @@ export async function cancelPendingDrawRuns(messageId, {
         entries.map(entry => drawRunClient.cancelRun(entry.runId)),
     );
     const cancellationError = results.find(result => result.status === 'rejected')?.reason || null;
-    if (cancellationError && persistenceError) {
+    if (cancellationError || persistenceError) {
         publishDrawRunActivity({
             ...activityTarget,
             phase: 'cancel_failed',
-            error: cancellationError,
+            error: cancellationError || persistenceError,
             wakeRecovery: true,
         });
         if (cancellationError && typeof cancellationError === 'object') {
             cancellationError.persistenceError = persistenceError;
         }
-        throw cancellationError;
-    }
-    if (cancellationError) {
-        // marker 已经确认保存，恢复器会在 run 出现或网络恢复后继续补发取消。
-        console.warn('[Draw Run] 后台取消暂未送达，已保留取消意图等待恢复:', cancellationError);
+        throw cancellationError || persistenceError;
     }
     publishDrawRunActivity({
         ...activityTarget,
@@ -231,51 +244,44 @@ export async function cancelPendingDrawRuns(messageId, {
 
 export async function cancelPendingChildDrawRuns(messageId, {
     ctx = getContext(),
+    target = captureDrawCancellationTarget(messageId, ctx),
     drawRunClient = client,
     imageJobClient = imageClient,
     recordsLoader = listPendingImageJobs,
 } = {}) {
     const records = await recordsLoader();
-    const children = findPendingChildDrawRuns(messageId, records, ctx);
+    const children = findPendingChildDrawRuns(target.messageId, records, { chatId: target.chatId,
+        chat: { [target.messageId]: { mes: target.text, swipe_id: target.swipeIndex } } });
     if (children.length === 0) return false;
 
     const provider = children[0]?.provider || '';
-    const targetMessage = ctx?.chat?.[Number(messageId)];
     const activityTarget = {
         provider,
-        chatId: String(ctx?.chatId || ''),
-        messageId,
-        swipeIndex: Number.isInteger(targetMessage?.swipe_id) ? targetMessage.swipe_id : 0,
+        chatId: target.chatId,
+        messageId: target.messageId,
+        swipeIndex: target.swipeIndex,
         runId: children[0]?.originRunId,
     };
     publishDrawRunActivity({
         ...activityTarget,
         phase: 'cancelling',
     });
-    const persisted = await Promise.allSettled(
-        children.map(record => requestPendingImageJobCancellation(record.jobId)),
-    );
-    const persistenceError = persisted.find(result => result.status === 'rejected')?.reason;
-    if (persistenceError) throw persistenceError;
-
-    const cancellation = await Promise.allSettled(children.map(async record => {
+    const errors = [];
+    await Promise.all(children.map(async record => {
+        try {
+            if (!await requestPendingImageJobCancellation(record.jobId)) return;
+        } catch (error) { errors.push(error); }
         const attempts = await Promise.allSettled([
-            drawRunClient.cancelRun(record.originRunId),
+            ...(record.originRunId ? [drawRunClient.cancelRun(record.originRunId)] : []),
             imageJobClient.cancelJob(record.jobId),
         ]);
-        if (attempts.some(result => result.status === 'fulfilled')) return;
-        throw attempts[0]?.reason || attempts[1]?.reason || new Error('后台取消暂未送达');
+        errors.push(...attempts.filter(result => result.status === 'rejected').map(result => result.reason));
     }));
-    const cancellationError = cancellation.find(result => result.status === 'rejected')?.reason;
-    if (cancellationError) {
-        // journal 已持久化取消意图；恢复器会按 child jobId 补发，不把暂时断网
-        // 伪装成取消失败并恢复成可点击状态。
-        console.warn('[Draw Run] child 取消暂未送达，已保留取消意图等待恢复:', cancellationError);
-    }
     publishDrawRunActivity({
         ...activityTarget,
-        phase: 'cancelling',
+        phase: errors.length ? 'cancel_failed' : 'cancelling',
         wakeRecovery: true,
     });
+    if (errors.length) throw new globalThis.AggregateError(errors, DRAW_SLOT_COPY.cancelFailed);
     return true;
 }

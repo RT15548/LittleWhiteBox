@@ -1,14 +1,15 @@
 import { getContext } from '../../../../../../extensions.js';
 import { uuidv4 } from '../../../../../../utils.js';
-import { storePreview, deletePreview, setSlotSelection } from './gallery-cache.js';
+import { storePreview, deletePreview, setSlotSelection, clearSlotSelection } from './gallery-cache.js';
 import { createPlaceholder, renderPreviewsForMessage, syncRenderedMessageFromState,
     isMessageBeingEdited, classifyError, clearDrawSavedEntry } from './draw-common.js';
 import { withConfirmableChatMutation, saveChatAndConfirm } from './confirmable-chat-save.js';
 import { setActiveMessageText, insertScenePlacementsPreservingSlots, isSceneSlotAlive } from './scene-placement.js';
-import { getImageJobDeliveryTextAt, findImageJobDeliverySlot } from './image-job-delivery-target.js';
+import { findImageJobDeliverySlot } from './image-job-delivery-target.js';
 import { executePreparedSlots } from './prepared-slot-executor.js';
 import { setSlotActivity, clearSlotActivity } from './slot-activity.js';
 import { DRAW_SLOT_COPY } from './image-record.js';
+import { commitChatImagePlacement, restoreChatImagePlacements } from './chat-image-placement.js';
 
 const providers = new Map();
 
@@ -21,6 +22,18 @@ export function generatePreparedChatImages(provider, input) {
     const execute = providers.get(provider);
     if (!execute) throw new Error(DRAW_SLOT_COPY.unavailable);
     return execute(input);
+}
+
+// The host awaits only local preparation. The same provider/floor job continues
+// to own completion and cancellation; no second queue or detached task identity.
+export function prepareNativeChatImages(provider, input) {
+    let ready, failed;
+    const prepared = new Promise((resolve, reject) => { ready = resolve; failed = reject; });
+    const completed = Promise.resolve().then(() => generatePreparedChatImages(provider, {
+        ...input, nativeMessage: true, onPrepared: ready,
+    }));
+    completed.catch(failed);
+    return { prepared, completed };
 }
 
 export function createImageIdentifiers() {
@@ -55,22 +68,26 @@ export function placePreparedImageSlots(source, tasks, ids) {
 // The two input adapters supply already compiled metadata and the same provider
 // batch runner. This is the only owner of pre-request chat placement for them.
 export async function submitPreparedChatImages({ ctx, message, messageId, sourceText,
-    tasks, metadata, backend, run, signal, onStateChange, onPlacement,
+    tasks, metadata, backend, run, signal, onStateChange, onPlacement, nativeMessage = false, onPrepared, placementSource,
     swipeIndex = message.swipe_id ?? 0 }) {
     const chatId = String(ctx.chatId);
     const ids = tasks.map(task => ({ ...createImageIdentifiers(),
         ...(task.placement?.mode === 'existing' ? { slotId: task.placement.slotId } : {}) }));
-    const plannedText = placePreparedImageSlots(sourceText, tasks, ids);
+    const plannedText = nativeMessage ? null : placePreparedImageSlots(sourceText, tasks, ids);
     const owner = {};
     const items = metadata.map((data, index) => ({ ...data, ...ids[index], messageId,
         chatId, characterName: message.name || '',
-        delivery: { mode: 'slots', chatId, messageId: String(messageId), swipeIndex },
+        delivery: { mode: 'slots', chatId, messageId: String(messageId), swipeIndex,
+            ...(nativeMessage ? { retainWithoutSlot: true } : {}) },
     }));
     const resolveTarget = slotId => {
         const live = getContext();
         // A local request may finish after navigating away. Its original message
         // remains the delivery target; never write into the newly opened chat.
-        if (String(live.chatId) === chatId) return findImageJobDeliverySlot(live.chat, slotId);
+        if (String(live.chatId) === chatId) {
+            const target = findImageJobDeliverySlot(live.chat, slotId);
+            return !nativeMessage || target?.message === message ? target : null;
+        }
         const original = findImageJobDeliverySlot([message], slotId);
         return original ? { ...original, messageId } : null;
     };
@@ -86,7 +103,19 @@ export async function submitPreparedChatImages({ ctx, message, messageId, source
         }
         for (const [id, refreshSlotIds] of byMessage) await renderPreviewsForMessage(id, { refreshSlotIds });
     };
-    return executePreparedSlots({ items, backend, store: storePreview, remove: deletePreview,
+    const validateSource = () => {
+        const live = getContext();
+        const liveId = live.chat?.indexOf(message) ?? -1;
+        if (nativeMessage && String(live.chatId) === chatId && liveId >= 0 && !placementSource?.invalid
+            && (message.swipe_id ?? 0) === swipeIndex) restoreChatImagePlacements(message);
+        if (String(live.chatId) !== chatId || liveId < 0
+            || (message.swipe_id ?? 0) !== swipeIndex || placementSource?.invalid
+            || !(nativeMessage ? message.mes.startsWith(placementSource?.sourceText ?? sourceText) : message.mes === sourceText)
+            || isMessageBeingEdited(liveId)) throw new Error(DRAW_SLOT_COPY.sourceChanged);
+        signal?.throwIfAborted();
+    };
+    return executePreparedSlots({ items, backend, nativeMessage, onPrepared,
+        store: storePreview, remove: deletePreview, clearSelection: clearSlotSelection,
         select: async (slotId, imgId) => {
             await setSlotSelection(slotId, imgId);
             const target = resolveTarget(slotId);
@@ -94,31 +123,39 @@ export async function submitPreparedChatImages({ ctx, message, messageId, source
         }, resolveTarget, render, run, signal, onStateChange, classifyError,
         activity: (slotId, state) => state
             ? setSlotActivity(slotId, { ...state, owner }) : clearSlotActivity(slotId, owner),
-        commit: () => withConfirmableChatMutation(ctx, async () => {
-            const live = getContext();
-            if (String(live.chatId) !== chatId || live.chat?.[messageId] !== message
-                || (message.swipe_id ?? 0) !== swipeIndex || message.mes !== sourceText
-                || isMessageBeingEdited(messageId)) throw new Error(DRAW_SLOT_COPY.sourceChanged);
-            signal?.throwIfAborted();
+        commit: nativeMessage ? () => {
+            // MESSAGE_RECEIVED is inside the host's own save boundary. No extra
+            // chat I/O here, and no await between ownership check and mutation.
+            validateSource();
+            const before = message.mes;
+            const edits = tasks.map((task, index) => ({ ...task.placement, slotId: ids[index].slotId,
+                content: createPlaceholder(ids[index].slotId) }));
+            commitChatImagePlacement({ message, swipeIndex, before, edits, owner: placementSource });
+            onPlacement?.();
+            return true;
+        } : () => withConfirmableChatMutation(ctx, async () => {
+            validateSource();
             setActiveMessageText(message, plannedText);
             try {
-                await saveChatAndConfirm({ ctx, verify: persisted => {
-                    const text = getImageJobDeliveryTextAt(persisted, { messageId, swipeIndex });
-                    return items.every(item => isSceneSlotAlive(text, item.slotId));
-                } });
+                // Floor and swipe indices may move during storage/save/readback.
+                // The persisted slot identities, not the old indices, confirm placement.
+                await saveChatAndConfirm({ ctx, verify: persisted =>
+                    items.every(item => findImageJobDeliverySlot(persisted, item.slotId)) });
             } catch (error) {
                 if (error.saveAttempted === false && message.mes === plannedText) setActiveMessageText(message, sourceText);
                 throw error;
             }
-            if (String(getContext().chatId) !== chatId || ctx.chat[messageId] !== message
+            const live = getContext();
+            const liveId = live.chat?.indexOf(message) ?? -1;
+            if (String(live.chatId) !== chatId || liveId < 0
                 || (message.swipe_id ?? 0) !== swipeIndex || message.mes !== plannedText
-                || isMessageBeingEdited(messageId)) {
+                || isMessageBeingEdited(liveId)) {
                 const error = new Error(DRAW_SLOT_COPY.sourceChanged);
                 error.placementsCommitted = true;
                 throw error;
             }
             try {
-                await syncRenderedMessageFromState(messageId, { chatId, expectedMessage: message });
+                await syncRenderedMessageFromState(liveId, { chatId, expectedMessage: message });
                 onPlacement?.();
             } catch (error) { console.error(DRAW_SLOT_COPY.renderFailed, error); }
             return true;

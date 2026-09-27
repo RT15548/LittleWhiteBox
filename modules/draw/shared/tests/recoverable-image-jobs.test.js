@@ -101,6 +101,21 @@ function basePlan() {
     };
 }
 
+test('an active owner observes durable cancellation without waiting for its lease to expire', async () => {
+    const journal = createFakeJournal();
+    let cancelled = false;
+    await submitRecoverableImageJob({ journal, provider: 'sd-webui', request: {}, plan: basePlan(),
+        commitPlacements: () => true, client: { runJob: async (_request, callbacks) => {
+            await callbacks.onStateChange('created');
+            const entry = journal.store.get(callbacks.requestId);
+            entry.cancelRequested = true;
+            await callbacks.onStateChange('running');
+            cancelled = callbacks.cancelSignal.aborted;
+            return {};
+        } } });
+    assert.equal(cancelled, true);
+});
+
 // 主人指定的关键边界：页面冻结超过租约时长，另一个页面已经把 preparing 记录清理掉了。
 // 旧页面解冻后原地继续执行，绝不允许再向后端提交——那会凭一个没人认领的 requestId
 // 造出孤儿任务，而它对应的槽位早已从正文里删除。

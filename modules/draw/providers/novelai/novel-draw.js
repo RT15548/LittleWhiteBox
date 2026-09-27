@@ -95,8 +95,8 @@ import {
     reportImageBackendJobState,
 } from "../../shared/backend-image-jobs.js";
 import { submitRecoverableImageJob } from "../../shared/recoverable-image-jobs.js";
-import { isDrawRunCancelledError, isDrawRunPendingError, submitProviderDrawRun } from "../../shared/draw-run-production.js";
-import { cancelPendingDrawRuns, hasPendingDrawRun } from "../../shared/draw-run-controls.js";
+import { submitProviderDrawRun } from "../../shared/draw-run-production.js";
+import { cancelPendingDrawRuns, captureDrawCancellationTarget } from "../../shared/draw-run-controls.js";
 import { migrateLegacyNovelPromptSettings } from "./novel-prompt-migration.js";
 import { WorldbookProcessor } from "../../shared/worldbook-processor.js";
 import {
@@ -133,6 +133,9 @@ import { createSceneSource, normalizeMessageSceneSourceText } from "../../shared
 import { createDrawImageSlotRegex, stripDrawImageSlots } from "../../shared/image-marker-syntax.js";
 import { ScenePlacementError, assertSceneSourceUnchanged } from "../../shared/scene-placement.js";
 import { submitPreparedChatImages, registerPreparedImageProvider } from "../../shared/prepared-chat-images.js";
+import { prepareImageInput } from '../../shared/prepared-image-input.js';
+import { acquireFloorImageJob, getFloorImageJob, getFloorImageJobs, getFloorImagePhase, getFloorImageState, releaseFloorImageJob, observeFloorImageJob, failFloorImageJob, clearFloorImageJobs, resolveFloorImageJobTarget, rebaseFloorImageJobsAfterSwipeDeletion } from '../../shared/floor-image-job.js';
+import { createImageRequestAttempt, imageHttpFailure, withImageRequestOutcome, ImageRequestOutcome } from '../../shared/image-request-outcome.js';
 import { createImageCardRedrawProvider } from "../../shared/image-card-redraw-provider.js";
 import { redrawImageCard, removeChatImageSlot, restoreImageCard } from "../../shared/image-card-actions.js";
 import { persistCardTagEdits } from "../../shared/card-tag-editor.js";
@@ -526,32 +529,32 @@ function insertPreviewIntoRenderedMessage({ messageId, slotId, html }) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 // 中止分两种，绝不能混为一谈：
-// - reason 'user'：用户亲手停的（停止键、Escape、面板取消）。只有这一种才允许把取消
+// - reason 'user'：用户明确取消图片任务。文字停止键和 Escape 不绑定图片取消；只有这一种才允许把取消
 //   传导到后端，删掉一个已经付过钱的任务。
 // - 其它 reason：模块卸载、聊天切换这类生命周期中止。前端必须停手，但后端任务要留着，
 //   靠恢复记录在下次打开时接回——否则「重载一次扩展」就等于烧掉一批图。
-function cancelPendingDrawRun(messageId) {
+function cancelPendingDrawRun(messageId, target) {
     // Draw Run 归属于当前 swipe。用户在任务期间切换图片 Provider 后，
     // 新 Provider 的按钮仍要能取消这一个既有任务。
-    if (!hasPendingDrawRun(messageId)) return false;
-    void cancelPendingDrawRuns(messageId).catch((error) => {
+    if (!target.entries.length) return false;
+    void cancelPendingDrawRuns(messageId, { ctx: target.ctx, target }).catch((error) => {
         console.error('[NovelDraw] 后台 Draw Run 取消失败:', error);
         toastr.error(error?.message || '后台画图取消失败，请稍后重试', '小白X画图');
     });
     return true;
 }
 
-function abortGeneration(messageId = null, { reason = 'user' } = {}) {
+function abortGeneration(messageId = null, { reason = 'user', target = captureDrawCancellationTarget(messageId) } = {}) {
     if (messageId !== null && messageId !== undefined) {
-        const job = generationJobs.get(String(messageId));
+        const jobs = getFloorImageJobs(generationJobs, getContext(), messageId, target);
         let aborted = false;
-        if (job) {
+        for (const job of jobs) {
             job.abortReason ||= reason;
             if (reason === 'user') job.backendCancel.abort();
             job.controller.abort();
             aborted = true;
         }
-        if (reason === 'user' && cancelPendingDrawRun(messageId)) aborted = true;
+        if (reason === 'user' && cancelPendingDrawRun(messageId, target)) aborted = true;
         return aborted;
     }
 
@@ -567,47 +570,40 @@ function abortGeneration(messageId = null, { reason = 'user' } = {}) {
 
 function isGenerating(messageId = null) {
     if (messageId !== null && messageId !== undefined) {
-        const job = generationJobs.get(String(messageId));
-        return Boolean(job && job.chatId === String(getContext()?.chatId || ''));
+        const job = getFloorImageJob(generationJobs, getContext(), messageId);
+        return Boolean(job);
     }
     return autoBusy || generationJobs.size > 0;
 }
 
 export function getGenerationPhase(messageId) {
-    const job = generationJobs.get(String(messageId));
-    if (!job || job.chatId !== String(getContext()?.chatId || '')) return null;
-    return job.phase;
+    const job = getFloorImageJob(generationJobs, getContext(), messageId);
+    return getFloorImagePhase(job);
+}
+
+export function getGenerationState(messageId) {
+    return getFloorImageState(generationJobs, getContext(), messageId);
 }
 
 function hasGenerationJob(messageId) {
     return isGenerating(messageId);
 }
 
-function createGenerationJob(messageId) {
-    const key = String(messageId);
-    if (generationJobs.has(key)) {
-        throw new NovelDrawError('该楼层已有任务进行中', ErrorType.UNKNOWN);
-    }
-
-    const job = {
-        key,
-        chatId: String(getContext()?.chatId || ''),
+function createGenerationJob(messageId, options) {
+    const job = acquireFloorImageJob(generationJobs, getContext(), messageId, () => ({
         phase: 'starting',
         messageId,
         controller: new AbortController(),
         backendCancel: new AbortController(),
         abortReason: null,
         createdAt: Date.now(),
-    };
-    generationJobs.set(key, job);
+    }), options);
     generationJobSignals.set(job.controller.signal, job);
     return job;
 }
 
 function releaseGenerationJob(job) {
-    if (job && generationJobs.get(job.key) === job) {
-        generationJobs.delete(job.key);
-    }
+    releaseFloorImageJob(generationJobs, job);
 }
 
 function enqueueImageRequest(run, options = {}) {
@@ -652,6 +648,10 @@ function classifyError(e) {
 }
 
 function parseApiError(status, text, fallbackType = ErrorType.UNKNOWN) {
+    return imageHttpFailure(describeApiError(status, text, fallbackType), status);
+}
+
+function describeApiError(status, text, fallbackType) {
     switch (status) {
         case 401: return new NovelDrawError('API Key 无效', ErrorType.AUTH);
         case 402: return new NovelDrawError('Anlas 不足', ErrorType.QUOTA);
@@ -666,6 +666,12 @@ function parseApiError(status, text, fallbackType = ErrorType.UNKNOWN) {
 }
 
 function handleFetchError(e) {
+    const normalized = normalizeFetchError(e);
+    if (e.imageRequestOutcome) normalized.imageRequestOutcome = e.imageRequestOutcome;
+    return normalized;
+}
+
+function normalizeFetchError(e) {
     if (e.name === 'AbortError') return new NovelDrawError('超时', ErrorType.TIMEOUT);
     if (e instanceof NovelV5RequestError) return new NovelDrawError(e.message, ErrorType.REQUEST_CONFIG);
     if (e instanceof NovelImageResponseError) return new NovelDrawError(e.message, ErrorType.PARSE);
@@ -675,7 +681,8 @@ function handleFetchError(e) {
             : e.code === 'V5_STREAM_READ_FAILED'
                 ? ErrorType.NETWORK
                 : ErrorType.PARSE;
-        return new NovelDrawError(e.message, type);
+        const error = new NovelDrawError(e.message, type);
+        return e.code === 'V5_PROVIDER_ERROR' ? withImageRequestOutcome(error, ImageRequestOutcome.REJECTED) : error;
     }
     if (e.message?.includes('Failed to fetch')) return new NovelDrawError('网络错误', ErrorType.NETWORK);
     if (e instanceof NovelDrawError) return e;
@@ -1373,21 +1380,20 @@ function countFields(char) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 // 后端发送：前端负责解析完整端点，ST server plugin 只代发并返回 base64。
-async function generateViaBackend({ url, legacyBaseUrl, apiKey, insecure, payload, signal, timeout }) {
+async function generateViaBackend({ url, legacyBaseUrl, apiKey, insecure, payload, signal, timeout, attempt }) {
     let res;
     try {
-        const request = endpoint => fetch(endpoint, {
-            method: 'POST',
-            headers: getRequestHeaders(),
-            signal,
-            body: JSON.stringify({
-                url: endpoint === NAI_BACKEND_GENERATE ? legacyBaseUrl : url,
-                key: apiKey,
-                insecure: !!insecure,
-                payload,
-                timeout,
-            }),
-        });
+        const request = endpoint => {
+            const body = JSON.stringify({ url: endpoint === NAI_BACKEND_GENERATE ? legacyBaseUrl : url,
+                key: apiKey, insecure: !!insecure, payload, timeout });
+            attempt.submit();
+            return fetch(endpoint, {
+                method: 'POST',
+                headers: getRequestHeaders(),
+                signal,
+                body,
+            });
+        };
         res = await request(NAI_BACKEND_GENERATE_V2);
         // Compatibility with the upstream-released v1.0.1 server plugin.
         // Remove this fallback when that public backend API is retired.
@@ -1400,7 +1406,7 @@ async function generateViaBackend({ url, legacyBaseUrl, apiKey, insecure, payloa
         throw new NovelDrawError('后端代发失败（未安装 littlewhitebox-image-jobs 插件或 SillyTavern 未开启 server plugins）', ErrorType.NETWORK);
     }
     if (res.status === 404) {
-        throw new NovelDrawError('后端端点不存在：请安装 plugins/littlewhitebox-image-jobs 并在 config.yaml 开启 enableServerPlugins 后重启酒馆', ErrorType.NETWORK);
+        throw imageHttpFailure(new NovelDrawError('后端端点不存在：请安装 plugins/littlewhitebox-image-jobs 并在 config.yaml 开启 enableServerPlugins 后重启酒馆', ErrorType.NETWORK), 404);
     }
     if (!res.ok) {
         throw parseApiError(res.status, await res.text().catch(() => ''));
@@ -1422,24 +1428,26 @@ async function generateViaBackend({ url, legacyBaseUrl, apiKey, insecure, payloa
     return formatImageBase64(data.base64, data.mime);
 }
 
-async function generateV5ViaBackend({ url, apiKey, insecure, payload, signal, timeout }) {
+async function generateV5ViaBackend({ url, apiKey, insecure, payload, signal, timeout, attempt }) {
     let response;
     try {
+        const body = JSON.stringify({ url, key: apiKey, insecure: !!insecure, payload, timeout });
+        attempt.submit();
         response = await fetch(NAI_BACKEND_GENERATE_STREAM, {
             method: 'POST',
             headers: getRequestHeaders(),
             signal,
-            body: JSON.stringify({ url, key: apiKey, insecure: !!insecure, payload, timeout }),
+            body,
         });
     } catch (error) {
         if (error?.name === 'AbortError') throw error;
         throw new NovelDrawError('V5 后端代发失败，请检查 littlewhitebox-image-jobs 插件', ErrorType.NETWORK);
     }
     if (response.status === 404) {
-        throw new NovelDrawError(
+        throw imageHttpFailure(new NovelDrawError(
             `V5 后端端点不存在：请安装当前 littlewhitebox-image-jobs（兼容后端最低 v${NAI_BACKEND_V5_MIN_VERSION}）`,
             ErrorType.NETWORK,
-        );
+        ), 404);
     }
     if (!response.ok) {
         throw parseApiError(response.status, await readNovelV5ErrorText(response), ErrorType.PROVIDER);
@@ -1610,6 +1618,7 @@ function prepareNovelImageRequest(
 }
 
 async function executePreparedNovelRequest(prepared, requestConfig, signal) {
+    const attempt = createImageRequestAttempt();
     const controller = new AbortController();
     const forwardAbort = () => controller.abort();
     signal?.addEventListener('abort', forwardAbort, { once: true });
@@ -1623,6 +1632,7 @@ async function executePreparedNovelRequest(prepared, requestConfig, signal) {
             if (prepared.isV5) {
                 await assertV5BackendCapability(controller.signal);
                 const response = await generateV5ViaBackend({
+                    attempt,
                     url: prepared.apiUrl,
                     apiKey: requestConfig.apiKey,
                     insecure: requestConfig.insecureTLS,
@@ -1639,6 +1649,7 @@ async function executePreparedNovelRequest(prepared, requestConfig, signal) {
                 return imageBytesToBase64(image);
             }
             const base64 = await generateViaBackend({
+                attempt,
                 url: prepared.apiUrl,
                 legacyBaseUrl: prepared.legacyBaseUrl,
                 apiKey: requestConfig.apiKey,
@@ -1655,6 +1666,7 @@ async function executePreparedNovelRequest(prepared, requestConfig, signal) {
         if (prepared.isV5) {
             body.append('request', new Blob([JSON.stringify(prepared.payload)], { type: 'application/json' }), 'blob');
         }
+        attempt.submit();
         const response = await fetch(prepared.apiUrl, {
             method: 'POST',
             headers: {
@@ -1684,8 +1696,7 @@ async function executePreparedNovelRequest(prepared, requestConfig, signal) {
         console.log(`[NovelDraw] 完成 ${Date.now() - startedAt}ms`);
         return base64;
     } catch (error) {
-        if (signal?.aborted) throw new NovelDrawError('已取消', ErrorType.ABORTED);
-        throw handleFetchError(error);
+        throw attempt.failure(handleFetchError(error));
     } finally {
         clearTimeout(timeoutId);
         signal?.removeEventListener('abort', forwardAbort);
@@ -1717,6 +1728,7 @@ async function runNovelImageBatch({
     onStateChange,
     onItemReady,
     onItemSettled,
+    onItemStarting,
 }) {
     if (!Array.isArray(requests) || requests.length === 0) return { mode: 'empty', outcomes: [] };
     const settings = getRuntimeSettings();
@@ -1880,7 +1892,10 @@ async function runNovelImageBatch({
         }
         try {
             const base64 = await enqueueImageRequest(
-                () => executePreparedNovelRequest(prepared[index], requestConfig, signal),
+                async () => {
+                    if (await onItemStarting?.({ index }) === false) return null;
+                    return executePreparedNovelRequest(prepared[index], requestConfig, signal);
+                },
                 {
                     signal,
                     batchKey: queueBatch,
@@ -1897,12 +1912,11 @@ async function runNovelImageBatch({
                     },
                 },
             );
+            if (base64 === null) continue;
             await onItemReady?.({ index, base64 });
             outcomes[index] = { state: 'ready', base64 };
         } catch (error) {
-            const normalized = signal?.aborted
-                ? new NovelDrawError('已取消', ErrorType.ABORTED)
-                : handleFetchError(error);
+            const normalized = handleFetchError(error);
             const state = signal?.aborted ? 'cancelled' : 'failed';
             outcomes[index] = { state, error: normalized };
             await onItemSettled?.({ index, state, error: normalized, source: 'frontend' });
@@ -2604,7 +2618,7 @@ async function generateImagesFromText(options = {}) {
     if (!text.trim()) throw new NovelDrawError('正文内容为空，无法配图', ErrorType.PARSE);
     const galleryMeta = buildTextSourceGalleryMeta(options);
     const messageId = String(options.messageId || galleryMeta.messageId || `text:${Date.now()}`);
-    const job = createGenerationJob(messageId);
+    const job = createGenerationJob(messageId, { scope: 'text' });
     const forwardExternalAbort = () => {
         job.abortReason ||= 'user';
         job.backendCancel.abort();
@@ -2769,7 +2783,7 @@ let preparedImageDispose = null;
 
 async function runPreparedNovelSlots(input) {
     const { ctx, message, messageId, sourceText, tasks, onStateChange } = input;
-    const job = input.job || createGenerationJob(`slot-input:${messageId}`);
+    const job = input.job || createGenerationJob(messageId);
     try {
         const settings = input.settings || cloneSettingsObject(getRuntimeSettings());
         const preset = input.preset || cloneSettingsObject(getActiveParamsPreset());
@@ -2779,23 +2793,12 @@ async function runPreparedNovelSlots(input) {
             itemCount: tasks.length,
             resolveForBackend: resolveNovelImageTransport(settings) !== 'frontend',
         });
-        const compiledBatch = compileNovelScenePlan(tasks, recipe);
-        const requests = compiledBatch.artifacts.map(({ promptData }) => ({
-            scene: promptData.scene,
-            characterPrompts: promptData.characterPrompts,
-            negativePrompt: promptData.negativePrompt,
-            params: recipe.params,
-        }));
-        const metadata = compiledBatch.artifacts.map(({ task, promptData }) => ({
-            tags: task.scene || '',
-            positive: promptData.scene,
-            characterPrompts: promptData.characterPrompts,
-            negativePrompt: promptData.negativePrompt,
-        }));
+        const { compiledBatch, requests, metadata } = prepareImageInput('novelai', tasks, recipe);
         job.phase = 'gen';
         const monitorGeneration = backendJobMonitors.captureGeneration();
         return await submitPreparedChatImages({
             ctx, message, messageId, sourceText, tasks, metadata, swipeIndex: input.swipeIndex,
+            nativeMessage: input.nativeMessage, onPrepared: input.onPrepared, placementSource: input.placementSource,
             backend: resolveNovelImageTransport(settings) === 'backend-job',
             signal: job.controller.signal, onStateChange, onPlacement: input.onPlacement,
             run: handlers => runNovelImageBatch({
@@ -2815,12 +2818,13 @@ async function generateAndInsertImages({
 }) {
 
     const job = createGenerationJob(messageId);
+    onStateChange = observeFloorImageJob(job, { getCurrentContext: getContext, onStateChange, classifyError });
 
     try {
         await loadSettings();
         await loadSharedDrawSettings();
-        const ctx = getContext();
-        const message = ctx.chat?.[messageId];
+        const { ctx, message, messageId: liveId } = resolveFloorImageJobTarget(job, getContext());
+        messageId = liveId;
         if (!message) throw new NovelDrawError('消息不存在', ErrorType.PARSE);
 
         const signal = job.controller.signal;
@@ -2904,6 +2908,9 @@ async function generateAndInsertImages({
         assertSceneSourceUnchanged(normalizeMessageSceneSourceText(message.mes), sceneSource.sourceHash);
         return await runPreparedNovelSlots({ ctx, message, messageId, sourceText: message.mes,
             tasks, settings, preset, job, onStateChange });
+    } catch (error) {
+        failFloorImageJob(job, error);
+        throw error;
     } finally {
         releaseGenerationJob(job);
     }
@@ -2938,18 +2945,11 @@ async function autoGenerateForLastAI() {
     autoBusy = true;
 
     try {
-        const { setStateForMessage, setFloatingState, FloatState, ensureNovelDrawPanel } = await import('./floating-panel.js');
+        const { setStateForMessage, ensureNovelDrawPanel } = await import('./floating-panel.js');
         const floatingOn = s.showFloatingButton === true;
         const floorOn = s.showFloorButton !== false;
         const useFloatingOnly = floatingOn && floorOn;
 
-        const updateState = (state, data = {}) => {
-            if (useFloatingOnly || (floatingOn && !floorOn)) {
-                setFloatingState?.(state, data);
-            } else if (floorOn) {
-                setStateForMessage(lastIdx, state, data);
-            }
-        };
 
         if (floorOn && !useFloatingOnly) {
             const messageEl = document.querySelector(`.mes[mesid="${lastIdx}"]`);
@@ -2962,48 +2962,8 @@ async function autoGenerateForLastAI() {
             messageId: lastIdx,
             skipLock: true,
             automatic: true,
-            onStateChange: (state, data) => {
-                switch (state) {
-                    case 'submitting':
-                        updateState(FloatState.SUBMITTING, data);
-                        break;
-                    case 'accepted':
-                        updateState(FloatState.ACCEPTED, data);
-                        break;
-                    case 'uncertain':
-                        updateState(FloatState.UNCERTAIN, data);
-                        break;
-                    case 'queued':
-                        updateState(FloatState.QUEUED, data);
-                        break;
-                    case 'llm': 
-                        updateState(FloatState.LLM); 
-                        break;
-                    case 'gen': 
-                    case 'progress': 
-                        updateState(FloatState.GEN, data); 
-                        break;
-                    case 'cooldown': 
-                        updateState(FloatState.COOLDOWN, data); 
-                        break;
-                    case 'reconnecting':
-                        updateState(FloatState.RECONNECTING, data);
-                        break;
-                    case 'cancelling':
-                        updateState(FloatState.CANCELLING, data);
-                        break;
-                    case 'backend_legacy':
-                        updateState(FloatState.BACKEND_LEGACY, data);
-                        break;
-                    case 'success': 
-                        updateState(
-                            (data.aborted && data.success === 0) ? FloatState.IDLE
-                                : (data.success < data.total) ? FloatState.PARTIAL
-                                    : FloatState.SUCCESS,
-                            data
-                        );
-                        break;
-                }
+            onStateChange: (state, data, liveId) => {
+                setStateForMessage(liveId, state, data);
             }
         });
 
@@ -3014,41 +2974,11 @@ async function autoGenerateForLastAI() {
             lastMessage.extra.xb_novel_auto_done = true;
         }
 
-    } catch (e) {
-        console.error('[NovelDraw] 自动配图失败:', e);
-        try {
-            const { setStateForMessage, setFloatingState, FloatState } = await import('./floating-panel.js');
-            const floatingOn = s.showFloatingButton === true;
-            const floorOn = s.showFloorButton !== false;
-            const useFloatingOnly = floatingOn && floorOn;
-
-            if (e?.uncertain === true) {
-                if (useFloatingOnly || (floatingOn && !floorOn)) {
-                    setFloatingState?.(FloatState.UNCERTAIN);
-                } else if (floorOn) {
-                    setStateForMessage(lastIdx, FloatState.UNCERTAIN);
-                }
-                return;
-            }
-            if (isDrawRunPendingError(e)) {
-                toastr?.info?.(e.message);
-                return;
-            }
-            if (isDrawRunCancelledError(e)) {
-                if (useFloatingOnly || (floatingOn && !floorOn)) {
-                    setFloatingState?.(FloatState.IDLE);
-                } else if (floorOn) {
-                    setStateForMessage(lastIdx, FloatState.IDLE);
-                }
-                return;
-            }
-
-            if (useFloatingOnly || (floatingOn && !floorOn)) {
-                setFloatingState?.(FloatState.ERROR, { error: classifyError(e) });
-            } else if (floorOn) {
-                setStateForMessage(lastIdx, FloatState.ERROR, { error: classifyError(e) });
-            }
-        } catch {}
+    } catch (error) {
+        if (!error.drawTaskReported) {
+            console.error(error);
+            globalThis.toastr?.error(error.message);
+        }
     } finally {
         autoBusy = false;
     }
@@ -3989,11 +3919,6 @@ export async function initNovelDraw() {
         }
     });
 
-    // ST 停止键 / Escape → 同时中止 novel-draw 生成
-    events.on(event_types.GENERATION_STOPPED, () => {
-        console.log('[NovelDraw] ST 停止信号，中止图片生成');
-        abortGeneration();
-    });
 
     // 聊天切换时重新创建面板
     events.on(event_types.CHAT_CHANGED, () => {
@@ -4001,6 +3926,10 @@ export async function initNovelDraw() {
         setTimeout(renderExistingPanels, 200);
     });
     events.on(event_types.MESSAGE_SWIPED, () => {
+        floatingPanel.refreshDrawRunUiState?.();
+    });
+    events.on(event_types.MESSAGE_SWIPE_DELETED, detail => {
+        rebaseFloorImageJobsAfterSwipeDeletion(generationJobs, getContext(), detail);
         floatingPanel.refreshDrawRunUiState?.();
     });
 
@@ -4019,7 +3948,6 @@ export async function initNovelDraw() {
         execute: runPreparedNovelSlots,
         createJob: createGenerationJob,
         releaseJob: releaseGenerationJob,
-        ownsJob: job => generationJobs.get(job.key) === job,
         getCurrentContext: getContext,
         setStateForMessage: floatingPanel.setStateForMessage,
         classifyError,
@@ -4080,7 +4008,7 @@ export async function cleanupNovelDraw() {
 
     backendJobMonitors.deactivate();
     abortGeneration(null, { reason: 'teardown' });
-    generationJobs = new Map();
+    clearFloorImageJobs(generationJobs);
     novelImageRequestQueue.clear();
 
     window.removeEventListener('message', handleFrameMessage);

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { executePreparedSlots } from '../prepared-slot-executor.js';
 import { DRAW_SLOT_ERRORS } from '../image-record.js';
+import { createImageRequestAttempt, imageHttpFailure, ImageRequestOutcome } from '../image-request-outcome.js';
 
 function harness(overrides = {}) {
     const records = new Map(), selected = new Map(), activity = new Map(), order = [];
@@ -16,7 +17,8 @@ function harness(overrides = {}) {
         resolveTarget: () => ({ messageId: 0 }), render: async () => {},
         activity: (slot, state) => state ? activity.set(slot, state) : activity.delete(slot),
         classifyError: error => ({ label: 'failed', desc: String(error) }),
-        run: async callbacks => { order.push('request'); for (const index of items.keys()) {
+        run: async callbacks => { for (const index of items.keys()) {
+            await callbacks.onItemStarting({ index }); order.push('request');
             await callbacks.onItemReady({ index, base64: 'YWJj' });
             await callbacks.onItemSettled({ index, state: 'ready' });
         } }, ...overrides,
@@ -24,15 +26,70 @@ function harness(overrides = {}) {
     return { records, selected, activity, order, options, execute: () => executePreparedSlots(options) };
 }
 
+test('cancellation cannot erase an unknown submitted outcome or a delivered success', async () => {
+    const controller = new AbortController();
+    const h = harness({ signal: controller.signal, run: async callbacks => {
+        await callbacks.onItemStarting({ index: 0 });
+        await callbacks.onItemReady({ index: 0, base64: 'YWJj' });
+        await callbacks.onItemStarting({ index: 1 });
+        controller.abort();
+        await callbacks.onItemSettled({ index: 1, state: 'failed', error: Object.assign(new Error('lost response'),
+            { imageRequestOutcome: ImageRequestOutcome.UNKNOWN }) });
+    } });
+    const result = await h.execute();
+    assert.equal(h.records.get('img-a').status, 'success');
+    assert.equal(h.records.get('img-b').status, 'unknown');
+    assert.equal(result.success, 1);
+});
+
+for (const scenario of ['preflight', 'rejected', 'truncated-json', 'decode', 'proxy-timeout']) {
+    test(`direct request ${scenario} preserves submission certainty without retrying`, async () => {
+        let requests = 0;
+        const h = harness({ run: async callbacks => {
+            await callbacks.onItemStarting({ index: 0 });
+            const attempt = createImageRequestAttempt();
+            if (scenario !== 'preflight') { attempt.submit(); requests++; }
+            let error = scenario === 'truncated-json' ? new SyntaxError('incomplete JSON') : new Error(scenario);
+            if (scenario === 'rejected') error = imageHttpFailure(error, 401);
+            if (scenario === 'proxy-timeout') error = imageHttpFailure(error, 504);
+            await callbacks.onItemSettled({ index: 0, state: 'failed', error: attempt.failure(error) });
+            await callbacks.onItemSettled({ index: 1, state: 'failed', error: Object.assign(new Error('unsubmitted'),
+                { imageRequestOutcome: ImageRequestOutcome.NOT_SUBMITTED }) });
+        } });
+        const result = await h.execute();
+        assert.equal(h.records.get('img-a').status, ['preflight', 'rejected'].includes(scenario) ? 'failed' : 'unknown');
+        assert.equal(h.records.get('img-b').status, 'failed');
+        assert.equal(requests, scenario === 'preflight' ? 0 : 1);
+        assert.equal(result.success, 0);
+        assert.equal(result.results.length, 2);
+    });
+}
+
 test('inputs persist before placement; one batch requests only after confirmed placement', async () => {
     const h = harness();
     const result = await h.execute();
-    assert.deepEqual(h.order.slice(0, 4), ['store:pending', 'store:pending', 'commit', 'request']);
+    assert.deepEqual(h.order.slice(0, 5), ['store:pending', 'store:pending', 'commit', 'store:unknown', 'request']);
     assert.equal(result.success, 2);
     assert.equal(h.records.size, 2);
     assert.equal(h.selected.size, 2);
     assert.equal(h.activity.size, 0);
     assert.deepEqual(h.records.get('img-a').characterPrompts, []);
+});
+
+for (const backend of [false, true]) test(`queued siblings do not inherit the running card state (${backend ? 'backend' : 'direct'})`, async () => {
+    const h = harness({ backend, run: async callbacks => {
+        if (backend) await callbacks.recoverable.commitPlacements();
+        callbacks.onStateChange('progress', { current: 1, total: 2 });
+        if (!backend) await callbacks.onItemStarting({ index: 0 });
+        assert.equal(h.activity.get('a').phase, 'generating');
+        assert.equal(h.activity.get('b').phase, 'queued');
+        await callbacks.onItemReady({ index: 0, base64: 'YWJj' });
+        callbacks.onStateChange('queued', { current: 2, total: 2 });
+        assert.equal(h.activity.has('a'), false);
+        assert.equal(h.activity.get('b').phase, 'queued');
+        await callbacks.onItemReady({ index: 1, base64: 'YWJj' });
+    } });
+    assert.equal((await h.execute()).success, 2);
 });
 
 for (const uncertain of [false, true]) test(`save ${uncertain ? 'uncertainty retains' : 'rejection removes'} staged records without requesting`, async () => {
@@ -85,7 +142,10 @@ test('backend journal controls placement before its one submission', async () =>
 });
 
 test('lost connection to backend preserves pending input for its original task', async () => {
-    const h = harness({ run: async () => { throw Object.assign(new Error('offline'), { detached: true }); } });
+    const h = harness({ backend: true, run: async callbacks => {
+        await callbacks.recoverable.commitPlacements();
+        throw Object.assign(new Error('offline'), { detached: true });
+    } });
     await assert.rejects(h.execute());
     assert.equal(h.records.get('img-a').status, 'pending');
     assert.equal(h.activity.size, 0);
@@ -96,7 +156,7 @@ test('delivery failure never acknowledges success or overwrites a retained resul
     const store = h.options.store;
     h.options.store = async record => { if (record.status === 'success') throw new Error('quota'); await store(record); };
     await assert.rejects(h.execute(), error => error.preserveBackendResult === true);
-    assert.equal(h.records.get('img-a').status, 'pending');
+    assert.equal(h.records.get('img-a').status, 'unknown');
     assert.equal(h.selected.size, 0);
 });
 
@@ -137,5 +197,31 @@ test('render failure reports separately and does not cause regeneration or faile
     const h = harness({ render: async () => { throw new Error('DOM'); }, onRenderError: () => { reports++; } });
     assert.equal((await h.execute()).success, 2);
     assert.ok(reports > 0);
-    assert.equal(h.order.filter(item => item === 'request').length, 1);
+    assert.equal(h.order.filter(item => item === 'request').length, 2);
+});
+
+test('native readiness and submission are independent of a stalled renderer', async () => {
+    let ready = false, requested = false, release;
+    const rendering = new Promise(resolve => { release = resolve; });
+    const h = harness({ nativeMessage: true, onPrepared: () => { ready = true; }, render: () => rendering,
+        run: async () => { requested = true; release(); } });
+    await h.execute();
+    assert.equal(ready, true); assert.equal(requested, true);
+});
+
+test('direct transport marks only started items uncertain and does not resubmit a network failure', async () => {
+    const h = harness({ classifyError: () => ({ code: 'network' }) });
+    let calls = 0;
+    h.options.run = async callbacks => {
+        assert.equal(h.records.get('img-a').status, 'pending');
+        await callbacks.onItemStarting({ index: 0 }); calls++;
+        assert.equal(h.records.get('img-a').status, 'unknown');
+        assert.equal(h.records.get('img-b').status, 'pending');
+        await callbacks.onItemSettled({ index: 0, state: 'failed', error: new Error('network') });
+        await callbacks.onItemStarting({ index: 1 }); calls++;
+        await callbacks.onItemReady({ index: 1, base64: 'YWJj' });
+    };
+    const result = await h.execute();
+    assert.equal(h.records.get('img-a').status, 'unknown'); assert.equal(calls, 2);
+    assert.equal(result.results.length, 2); assert.equal(result.success, 1);
 });

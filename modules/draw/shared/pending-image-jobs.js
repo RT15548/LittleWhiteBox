@@ -165,6 +165,7 @@ function normalizeItem(source) {
         index,
         slotId,
         imgId,
+        ...(source.discarded === true ? { discarded: true } : {}),
         previewMetadata: {
             tags: normalizeText(metadata.tags),
             positive: normalizeText(metadata.positive),
@@ -209,6 +210,7 @@ function normalizeDelivery(source) {
         // image inputs instead survive cancellation (including an existing slot
         // whose previous image has expired). This local policy dies with the job.
         ...(source.preserveSlotsOnCancel === true ? { preserveSlotsOnCancel: true } : {}),
+        ...(source.retainWithoutSlot === true ? { retainWithoutSlot: true } : {}),
     };
 }
 
@@ -263,10 +265,10 @@ export function normalizePendingImageJob(source) {
         leaseId,
         originRunId,
         originRunAckReady,
+        cancelRequested: source?.cancelRequested === true,
         ...(originRunId ? {
             chatTarget,
             sourceHash,
-            cancelRequested: source?.cancelRequested === true,
         } : {}),
         delivery,
         adoptionPhase,
@@ -424,6 +426,23 @@ export async function getPendingImageJob(jobId) {
     return normalizePendingImageJob(record);
 }
 
+// A user's per-slot deletion is not a lease-owner operation or a batch cancel.
+// Read/modify/write the latest journal so renewals cannot erase this intent.
+export async function discardPendingImageSlot(slotId) {
+    return runTransaction('readwrite', (store, setOutput) => {
+        const request = store.getAll();
+        request.onsuccess = () => {
+            for (const raw of request.result) {
+                const record = normalizePendingImageJob(raw);
+                if (!record?.items.some(item => item.slotId === slotId)) continue;
+                store.put({ ...record, items: record.items.map(item => item.slotId === slotId
+                    ? { ...item, discarded: true } : item) });
+            }
+            setOutput(true);
+        };
+    });
+}
+
 // 状态迁移与删除都只有租约持有者有权执行，因此一律要求 leaseId：
 // 让易主后的旧流程写不进任何东西，是这套所有权模型唯一有意义的落点。
 
@@ -442,13 +461,10 @@ export async function requestPendingImageJobCancellation(jobId) {
         const request = store.get(key);
         request.onsuccess = () => {
             const record = normalizePendingImageJob(request.result);
-            if (!record) return fail(new PendingImageJobLostError(key, '记录已被清理'));
-            if (!record.originRunId) {
-                return fail(new Error(`后台生图任务 ${key} 不属于 Draw Run`));
-            }
+            if (!record) return setOutput(null);
             if (![PendingJobState.ADOPTING, PendingJobState.ACTIVE, PendingJobState.CANCELLING]
                 .includes(record.state)) {
-                return fail(new PendingImageJobLostError(key, `记录状态已变为 ${record.state}`));
+                return setOutput(null);
             }
             const updated = normalizePendingImageJob({
                 ...record,
@@ -646,6 +662,7 @@ export async function getPendingImageJobSlots() {
     const records = await listPendingImageJobs();
     for (const record of records) {
         for (const item of record.items) {
+            if (item.discarded) continue;
             slots.set(item.slotId, {
                 jobId: record.jobId,
                 imgId: item.imgId,
