@@ -22,6 +22,10 @@ export class ConfirmableChatSaveBlockedError extends Error {
     }
 }
 
+const CONFIRMABLE_CHAT_READBACK_RETRIES = 4;
+const CONFIRMABLE_CHAT_READBACK_RETRY_DELAY_MS = 1_000;
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
 const localSaveQueues = new Map();
 
 function isPresent(value) {
@@ -223,33 +227,48 @@ export async function saveChatAndConfirm({
             saveError = error;
         }
 
+        // A host can publish the chat file slightly after its save resolves
+        // (observed on TauriTavern): an immediate read-back may still return the
+        // previous content, failing every "save then confirm immediately" flow.
+        // Retry the confirmation briefly before reporting an uncertain save.
         let persistedChat;
-        try {
-            persistedChat = await readPersistedChat(ctx, target, fetchImpl, timeoutMs);
-        } catch (error) {
-            throw new ConfirmableChatSaveUncertainError(
-                'readback_failed',
-                'Unable to read back the persisted chat',
-                { cause: error, saveError },
-            );
-        }
-
         let confirmed;
-        try {
-            confirmed = await verify(persistedChat, target);
-        } catch (error) {
-            throw new ConfirmableChatSaveUncertainError(
-                'verification_failed',
-                'Persisted chat verification failed',
-                { cause: error, saveError },
-            );
-        }
-        if (confirmed !== true) {
-            throw new ConfirmableChatSaveUncertainError(
-                'content_mismatch',
-                'Persisted chat does not contain the expected state',
-                { saveError },
-            );
+        for (let attempt = 0; ; attempt += 1) {
+            try {
+                persistedChat = await readPersistedChat(ctx, target, fetchImpl, timeoutMs);
+            } catch (error) {
+                if (attempt >= CONFIRMABLE_CHAT_READBACK_RETRIES) {
+                    throw new ConfirmableChatSaveUncertainError(
+                        'readback_failed',
+                        'Unable to read back the persisted chat',
+                        { cause: error, saveError },
+                    );
+                }
+                await sleep(CONFIRMABLE_CHAT_READBACK_RETRY_DELAY_MS);
+                continue;
+            }
+            try {
+                confirmed = await verify(persistedChat, target);
+            } catch (error) {
+                if (attempt >= CONFIRMABLE_CHAT_READBACK_RETRIES) {
+                    throw new ConfirmableChatSaveUncertainError(
+                        'verification_failed',
+                        'Persisted chat verification failed',
+                        { cause: error, saveError },
+                    );
+                }
+                await sleep(CONFIRMABLE_CHAT_READBACK_RETRY_DELAY_MS);
+                continue;
+            }
+            if (confirmed === true) break;
+            if (attempt >= CONFIRMABLE_CHAT_READBACK_RETRIES) {
+                throw new ConfirmableChatSaveUncertainError(
+                    'content_mismatch',
+                    'Persisted chat does not contain the expected state',
+                    { saveError },
+                );
+            }
+            await sleep(CONFIRMABLE_CHAT_READBACK_RETRY_DELAY_MS);
         }
 
         return { target };

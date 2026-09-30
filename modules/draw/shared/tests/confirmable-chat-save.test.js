@@ -119,7 +119,7 @@ test('a thrown save is still confirmed when read-back proves the write completed
     assert.equal(result.target.chatId, 'chat-a');
 });
 
-test('a stalled save is bounded and still followed by read-back confirmation', { timeout: 500 }, async () => {
+test('a stalled save is bounded and still followed by read-back confirmation', { timeout: 5000 }, async () => {
     let reads = 0;
     const result = await saveChatAndConfirm({
         ctx: characterContext({
@@ -203,7 +203,7 @@ test('same-page chat mutations remain serialized until their confirmed save fini
     assert.deepEqual(order, ['first-mutate', 'first-confirmed', 'second-mutate']);
 });
 
-test('a read-back timeout is reported as uncertain', { timeout: 500 }, async () => {
+test('a read-back timeout is reported as uncertain', { timeout: 15000 }, async () => {
     await assert.rejects(saveChatAndConfirm({
         ctx: characterContext(),
         fetchImpl: async (_url, { signal }) => await new Promise((resolve, reject) => {
@@ -214,6 +214,19 @@ test('a read-back timeout is reported as uncertain', { timeout: 500 }, async () 
     }), error => error instanceof ConfirmableChatSaveUncertainError
         && error.reason === 'readback_failed'
         && error.cause?.name === 'AbortError');
+});
+
+test('a stale first read-back is retried until the expected content appears', async () => {
+    let reads = 0;
+    await saveChatAndConfirm({
+        ctx: characterContext(),
+        fetchImpl: async () => {
+            reads += 1;
+            return jsonResponse(reads === 1 ? [{ chat_metadata: {} }] : [{ chat_metadata: {}, marker: true }]);
+        },
+        verify: persistedChat => persistedChat[0]?.marker === true,
+    });
+    assert.equal(reads, 2);
 });
 
 test('read-back transport and payload failures are reported as uncertain', async (t) => {
