@@ -23,6 +23,14 @@ function injectStyles() {
     margin: 8px 0;
     min-height: 34px;
     flex-wrap: wrap;
+    position: relative;
+    z-index: 200 !important;
+}
+
+/* 展开绘图菜单/详情时解除 mes_block 的裁切，否则弹出层被 overflow:hidden 剪掉 */
+.mes_block:has(.xb-msg-toolbar .expanded),
+.mes_block:has(.xb-msg-toolbar .show-detail) {
+    overflow: visible;
 }
 
 .xb-msg-toolbar:empty {
