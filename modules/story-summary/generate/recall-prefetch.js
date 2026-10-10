@@ -32,7 +32,9 @@ export function createRecallPrefetchCoordinator(options) {
     const getContext = options.getContext;
     const prepare = options.prepare;
     const pollMs = Math.max(0, Number(options.pollMs) || DEFAULT_POLL_MS);
-    const maxAgeMs = Math.max(1, Number(options.maxAgeMs) || RECALL_TIMEOUT_MS);
+    // Resolve lazily so config loaded after module init still applies.
+    const resolveMaxAgeMs = () => Math.max(1,
+        Number(typeof options.maxAgeMs === 'function' ? options.maxAgeMs() : options.maxAgeMs) || RECALL_TIMEOUT_MS);
     const schedule = options.setTimeout || globalThis.setTimeout.bind(globalThis);
     const unschedule = options.clearTimeout || globalThis.clearTimeout.bind(globalThis);
     const now = options.now || (() => performance.now());
@@ -143,7 +145,7 @@ export function createRecallPrefetchCoordinator(options) {
         // Watching for a USER message consumes no recall computation budget.
         if (slot.computeStartedAt === null) {
             slot.computeStartedAt = now();
-            slot.deadlineAt = slot.computeStartedAt + maxAgeMs;
+            slot.deadlineAt = slot.computeStartedAt + resolveMaxAgeMs();
         }
         slot.diagnostics.startedAt = now();
         slot.diagnostics.stage = 'prepare';
@@ -234,7 +236,7 @@ export function createRecallPrefetchCoordinator(options) {
             cancelReason: null,
             computeStartedAt: null,
             joinedAt: null,
-            deadlineAt: now() + maxAgeMs,
+            deadlineAt: now() + resolveMaxAgeMs(),
         };
     }
 

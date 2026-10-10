@@ -329,6 +329,7 @@ function normalizeVectorConfig(rawVector = null) {
         enabled: !!rawVector?.enabled,
         engine: "online",
         l0Concurrency: Math.max(1, Math.min(50, Number(rawVector?.l0Concurrency) || 10)),
+        recallTimeoutSec: Math.max(1, Number(rawVector?.recallTimeoutSec) || 30),
         l0Api: normalizeOpenAiCompatApiConfig(rawVector?.l0Api, {
             provider: sharedProvider,
             url: sharedUrl,
