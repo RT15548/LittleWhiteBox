@@ -2385,13 +2385,13 @@ const UNANNOTATED_LABEL = '未标注';
         if (section === 'keywords') {
             ta.value = summaryData.keywords.map(k => `${k.text}|${k.weight || '一般'}`).join('\n');
         } else if (section === 'facts') {
-            ta.value = (summaryData.facts || [])
-                .filter(f => !f.retracted)
-                .map(f => {
-                    const parts = [f.s, f.p, f.o];
-                    if (f.trend) parts.push(f.trend);
-                    return parts.join('|');
-                })
+            // 按人物首次出现的插入顺序分组，同一人物的事实保持相邻
+            const grouped = new Map();
+            for (const f of (summaryData.facts || []).filter(f => !f.retracted)) {
+                grouped.set(f.s, [...(grouped.get(f.s) || []), f]);
+            }
+            ta.value = [...grouped.values()].flat()
+                .map(f => [f.s, f.p, f.o].concat(f.trend ? [f.trend] : []).join('|'))
                 .join('\n');
         } else {
             ta.classList.add('hidden');
