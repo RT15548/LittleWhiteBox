@@ -167,7 +167,8 @@ ${SUMMARY_ALIAS_RULES}
   "mindful_prelude": {
     "user_insight": "本轮主要新增了哪些情节、关系或事实，哪些细节值得进入可召回摘要",
     "dedup_analysis": "已有X个事件，本次识别Y个新事件",
-    "fact_changes": "识别到的事实变化概述"
+    "fact_changes": "识别到的事实变化概述",
+    "coverage_check": "本批楼层覆盖自检：写出所有事件 marker 的并集 S（区间列表），逐区间确认 S 是否完全覆盖 [#N, #M]，任一缺失楼必须补事件或拓 marker"
   },
   "keywords": [
     {"text": "综合历史+新内容的全剧情关键词(5-10个)", "weight": "核心|重要|一般"}
@@ -204,6 +205,10 @@ ${SUMMARY_ALIAS_RULES}
 - characterAliasUpdates 是可选字段；没有可靠的同一人依据时不要输出这个 key
 - 合法JSON，字符串值内部避免英文双引号
 ${SUMMARY_PLAIN_STYLE_RULES}
+
+## 楼层覆盖约束（确保 marker 无空洞）
+- 所有事件 marker 取并集 S 必须完全覆盖本批所有楼层，无任何一楼遗漏
+- 输出前在 mindful_prelude.coverage_check 字段写“已确认本批所有楼层全覆盖”
 </meta_protocol>`;
 
 export const DEFAULT_SUMMARY_ASSISTANT_CHECK_PROMPT = `Content review initiated...
