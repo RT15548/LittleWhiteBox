@@ -285,13 +285,13 @@ export function ensureDrawImageStyles() {
 .xb-nd-view-empty .xb-nd-view-notice{padding:12px 0 0}
 .xb-nd-view-empty .xb-nd-status-overlay{position:static;max-height:none}
 .xb-nd-edit{animation:nd-slide-up 0.2s ease-out}
-.xb-nd-edit-scroll{max-height:250px;overflow-y:auto;margin-bottom:8px}
+.xb-nd-edit-scroll{max-height:720px;overflow-y:auto;margin-bottom:8px}
 .xb-nd-edit-scroll::-webkit-scrollbar{width:4px}
 .xb-nd-edit-scroll::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.2);border-radius:2px}
 .xb-nd-edit-group{margin-bottom:8px}
 .xb-nd-edit-group:last-child{margin-bottom:0}
 .xb-nd-edit-group-label{font-size:11px;color:inherit;opacity:.8;margin-bottom:4px}
-.xb-nd-edit-input{box-sizing:border-box;width:100%;min-height:60px;background:rgba(127,127,127,0.1);border:1px solid rgba(127,127,127,0.4);border-radius:6px;color:inherit;font-size:12px;padding:8px;resize:vertical;font-family:monospace}
+.xb-nd-edit-input{box-sizing:border-box;width:100%;min-height:240px;background:rgba(127,127,127,0.1);border:1px solid rgba(127,127,127,0.4);border-radius:6px;color:inherit;font-size:12px;padding:8px;resize:vertical;font-family:monospace}
 .xb-nd-edit-actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
 .xb-nd-edit-actions button{min-height:36px;padding:6px 12px;border:1px solid rgba(127,127,127,.4);background:rgba(127,127,127,.1);border-radius:6px;color:inherit;cursor:pointer;white-space:nowrap}
 .xb-nd-edit-actions [data-action="save-tags"]{flex:1;background:rgba(212,165,116,.2)}
