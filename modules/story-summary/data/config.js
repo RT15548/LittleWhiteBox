@@ -355,6 +355,7 @@ function createDefaultSummaryPanelConfig() {
         gen: { temperature: null, top_p: null, top_k: null, presence_penalty: null, frequency_penalty: null },
         trigger: {
             enabled: false,
+            notifyOnComplete: false,
             interval: 20,
             delayFloors: DEFAULT_SUMMARY_DELAY_FLOORS,
             timing: "before_user",
@@ -451,6 +452,7 @@ function normalizeSummaryPanelConfig(rawConfig = null) {
         result.trigger.timing = defaults.trigger.timing;
     }
     if (result.trigger.useStream === undefined) result.trigger.useStream = true;
+    result.trigger.notifyOnComplete = rawConfig?.trigger?.notifyOnComplete === true;
     result.trigger.delayFloors = normalizeSummaryDelayFloors(result.trigger.delayFloors);
     result.ui.hideSummarized = !!result.ui.hideSummarized;
     result.ui.keepVisibleCount = clampKeepVisibleCount(result.ui.keepVisibleCount);
