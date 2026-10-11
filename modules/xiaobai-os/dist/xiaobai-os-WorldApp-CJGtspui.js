@@ -1,5 +1,5 @@
 /* eslint-disable */
-import { $ as L, D as E, E as P, M as W, P as U, R as F, S as r, T as J, U as R, V as s, at as j, dt as H, f as G, ft as k, h as V, lt as t, m as Q, ot as M, p as X, q as Y, r as Z, rt as _, ut as T, v as h, w as ee, x as $, y as a } from "./xiaobai-os-app-navigation-Dv7QNwzp.js";
+import { $ as L, D as E, E as P, M as W, P as U, R as F, S as r, T as J, U as R, V as s, at as j, dt as H, f as G, ft as k, h as V, lt as t, m as Q, ot as M, p as X, q as Y, r as Z, rt as _, ut as T, v as h, w as ee, x as $, y as a } from "./xiaobai-os-app-navigation-DvMnPkC0.js";
 import { n as te } from "./xiaobai-os-frame-bridge-BfVuKvnh.js";
 var ae = { class: "world-article" }, le = { tabindex: "-1" }, re = {
   key: 0,

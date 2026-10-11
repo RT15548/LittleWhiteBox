@@ -1,6 +1,6 @@
 /* eslint-disable */
-import { D as y, O as _, Q as k, S as w, V as v, b as j, ft as x, it as E, s as C, x as P, y as b } from "./xiaobai-os-app-navigation-Dv7QNwzp.js";
-import { T as I, t as M, w as N } from "./xiaobai-os-MapBrowser-SBR06gBj.js";
+import { D as y, O as _, Q as k, S as w, V as v, b as j, ft as x, it as E, s as C, x as P, y as b } from "./xiaobai-os-app-navigation-DvMnPkC0.js";
+import { T as I, t as M, w as N } from "./xiaobai-os-MapBrowser-wEeT2tGo.js";
 var A = {
   key: 0,
   class: "map-notice",

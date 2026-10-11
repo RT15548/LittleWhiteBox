@@ -1,5 +1,5 @@
 /* eslint-disable */
-import { D as N, E as Y, G as ye, H as be, L as xe, M as pe, P as ue, Q as te, R as fe, S as O, T as ve, U as ke, V as b, W as he, X as Ae, Z as _e, _ as Oe, a as Se, at as oe, b as W, dt as ne, ft as q, h as ce, lt as T, m as ae, n as Ee, o as Pe, rt as x, s as Re, t as Le, tt as de, ut as Q, v as ie, x as X, y as d } from "./xiaobai-os-app-navigation-Dv7QNwzp.js";
+import { D as N, E as Y, G as ye, H as be, L as xe, M as pe, P as ue, Q as te, R as fe, S as O, T as ve, U as ke, V as b, W as he, X as Ae, Z as _e, _ as Oe, a as Se, at as oe, b as W, dt as ne, ft as q, h as ce, lt as T, m as ae, n as Ee, o as Pe, rt as x, s as Re, t as Le, tt as de, ut as Q, v as ie, x as X, y as d } from "./xiaobai-os-app-navigation-DvMnPkC0.js";
 import { t as Ie } from "./xiaobai-os-descriptor-DmDuv1pM.js";
 import { n as re, r as Me } from "./xiaobai-os-frame-bridge-BfVuKvnh.js";
 var se = [
@@ -151,19 +151,19 @@ function qe(t) {
   });
 }
 var Ne = Object.freeze({
-  administrator: () => import("./xiaobai-os-AdministratorApp-fZdn3KPS.js"),
-  dice: () => import("./xiaobai-os-DiceApp-sdzDaRRH.js"),
-  "agent-api": () => import("./xiaobai-os-AgentApiApp-B3euwaoi.js"),
-  "fourth-wall": () => import("./xiaobai-os-FourthWallApp-BxuWX7dV.js"),
-  wallet: () => import("./xiaobai-os-WalletApp-CH5_1vWE.js"),
-  shop: () => import("./xiaobai-os-ShopApp-lc-XqWN4.js"),
-  bank: () => import("./xiaobai-os-BankApp-BpQfiyUe.js"),
-  game: () => import("./xiaobai-os-GameApp-CpL4f_TE.js"),
-  map: () => import("./xiaobai-os-MapApp-C1EActEY.js"),
-  messages: () => import("./xiaobai-os-MessagesApp-BpoE7bRH.js"),
-  tasks: () => import("./xiaobai-os-TasksApp-ZX7BeD4-.js"),
-  world: () => import("./xiaobai-os-WorldApp-D_71GV6l.js"),
-  learning: () => import("./xiaobai-os-LearningApp-Cw4D94PA.js")
+  administrator: () => import("./xiaobai-os-AdministratorApp-DrrpE0lQ.js"),
+  dice: () => import("./xiaobai-os-DiceApp-96ffz7UW.js"),
+  "agent-api": () => import("./xiaobai-os-AgentApiApp-DWSatHlc.js"),
+  "fourth-wall": () => import("./xiaobai-os-FourthWallApp-CULcyO1a.js"),
+  wallet: () => import("./xiaobai-os-WalletApp-CxfDwgGL.js"),
+  shop: () => import("./xiaobai-os-ShopApp-BvT8x49O.js"),
+  bank: () => import("./xiaobai-os-BankApp-DlUDBbaE.js"),
+  game: () => import("./xiaobai-os-GameApp-Ba-5__X5.js"),
+  map: () => import("./xiaobai-os-MapApp-Dq2w0_ca.js"),
+  messages: () => import("./xiaobai-os-MessagesApp-Cq-sM2eq.js"),
+  tasks: () => import("./xiaobai-os-TasksApp-D7HjrAxn.js"),
+  world: () => import("./xiaobai-os-WorldApp-CJGtspui.js"),
+  learning: () => import("./xiaobai-os-LearningApp-MfrlpBXB.js")
 }), me = Object.freeze(Ve.map((t) => {
   const i = Ne[t.id];
   if (!i) throw new Error(`missing_shell_app:${t.id}`);

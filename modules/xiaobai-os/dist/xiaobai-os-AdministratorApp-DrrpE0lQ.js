@@ -1,11 +1,11 @@
 /* eslint-disable */
 import { t as qe } from "./xiaobai-os-message-markdown-C9E8FiNZ.js";
-import { $ as Ie, D as ne, E as ye, M as ce, P as me, Q as we, R as Ce, S as u, T as ue, U as ie, V as s, X as te, at as pe, b as ee, d as Ae, dt as ze, ft as r, h as G, i as De, lt as a, m as de, ot as ke, p as oe, r as Oe, rt as g, ut as ae, v as U, x as c, y as n } from "./xiaobai-os-app-navigation-Dv7QNwzp.js";
+import { $ as Ie, D as ne, E as ye, M as ce, P as me, Q as we, R as Ce, S as u, T as ue, U as ie, V as s, X as te, at as pe, b as ee, d as Ae, dt as ze, ft as r, h as G, i as De, lt as a, m as de, ot as ke, p as oe, r as Oe, rt as g, ut as ae, v as U, x as c, y as n } from "./xiaobai-os-app-navigation-DvMnPkC0.js";
 import { t as Le } from "./xiaobai-os-descriptor-DmDuv1pM.js";
 import { t as Ne } from "./xiaobai-os-_plugin-vue_export-helper-Dj7HTbfw.js";
-import { t as xe } from "./xiaobai-os-AppDialog-C-L6J5Ew.js";
+import { t as xe } from "./xiaobai-os-AppDialog-B4VpOkFC.js";
 import { r as Ve, t as je } from "./xiaobai-os-composer-keyboard-COt-GHsA.js";
-import { t as Te } from "./xiaobai-os-MessageMarkdown-BSxgoVIo.js";
+import { t as Te } from "./xiaobai-os-MessageMarkdown-_hWt2Lpl.js";
 var D = Object.freeze({
   inputBudget: 158e3,
   summaryTrigger: 128e3,

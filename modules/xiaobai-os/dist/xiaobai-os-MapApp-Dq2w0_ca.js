@@ -1,7 +1,7 @@
 /* eslint-disable */
-import { D as F, E as $, P as X, Q as M, R as G, S as b, T as V, V as r, X as K, b as Y, ft as d, h as L, lt as e, ot as W, rt as P, ut as J, v as R, x as c, y as i } from "./xiaobai-os-app-navigation-Dv7QNwzp.js";
-import { E as S, T, t as Z, w as C } from "./xiaobai-os-MapBrowser-SBR06gBj.js";
-import { t as x } from "./xiaobai-os-AppDialog-C-L6J5Ew.js";
+import { D as F, E as $, P as X, Q as M, R as G, S as b, T as V, V as r, X as K, b as Y, ft as d, h as L, lt as e, ot as W, rt as P, ut as J, v as R, x as c, y as i } from "./xiaobai-os-app-navigation-DvMnPkC0.js";
+import { E as S, T, t as Z, w as C } from "./xiaobai-os-MapBrowser-wEeT2tGo.js";
+import { t as x } from "./xiaobai-os-AppDialog-B4VpOkFC.js";
 var _ = { class: "map-dialog-header" }, ee = { key: 0 }, te = { class: "map-settings-content" }, ae = { class: "map-auto-setting" }, ne = ["aria-checked", "disabled"], se = { class: "map-auto-setting" }, ie = [
   "aria-checked",
   "aria-label",

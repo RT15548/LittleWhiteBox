@@ -1,6 +1,6 @@
 /* eslint-disable */
 import { n as d, r as m } from "./xiaobai-os-message-markdown-C9E8FiNZ.js";
-import { D as f, S as p, V as h, X as b, rt as k } from "./xiaobai-os-app-navigation-Dv7QNwzp.js";
+import { D as f, S as p, V as h, X as b, rt as k } from "./xiaobai-os-app-navigation-DvMnPkC0.js";
 var _ = /* @__PURE__ */ f({
   __name: "MessageMarkdown",
   props: { text: {} },

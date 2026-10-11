@@ -1,7 +1,7 @@
 /* eslint-disable */
-import { $ as B, D as I, E as f, M as n1, P as m1, Q as f1, R as p1, S as i, T as Z, U as S, V as a, b as Q, d as r1, dt as T1, f as K, ft as r, h as L, lt as w, m as b1, nt as y1, ot as k1, q as g1, r as Z1, rt as x, ut as X, v as y, w as H, x as p, y as e } from "./xiaobai-os-app-navigation-Dv7QNwzp.js";
+import { $ as B, D as I, E as f, M as n1, P as m1, Q as f1, R as p1, S as i, T as Z, U as S, V as a, b as Q, d as r1, dt as T1, f as K, ft as r, h as L, lt as w, m as b1, nt as y1, ot as k1, q as g1, r as Z1, rt as x, ut as X, v as y, w as H, x as p, y as e } from "./xiaobai-os-app-navigation-DvMnPkC0.js";
 import { n as $1 } from "./xiaobai-os-frame-bridge-BfVuKvnh.js";
-import { t as M1 } from "./xiaobai-os-AppDialog-C-L6J5Ew.js";
+import { t as M1 } from "./xiaobai-os-AppDialog-B4VpOkFC.js";
 var w1 = {
   class: "shop-icon",
   viewBox: "0 0 24 24",

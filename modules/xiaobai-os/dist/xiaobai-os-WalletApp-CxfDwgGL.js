@@ -1,6 +1,6 @@
 /* eslint-disable */
-import { D as k, E as g, P as K, Q as N, R as X, S as i, T as A, U as I, V as s, W as H, b as W, ft as n, h as B, lt as v, ot as ee, rt as M, ut as S, v as C, x as b, y as e } from "./xiaobai-os-app-navigation-Dv7QNwzp.js";
-import { t as R } from "./xiaobai-os-AppDialog-C-L6J5Ew.js";
+import { D as k, E as g, P as K, Q as N, R as X, S as i, T as A, U as I, V as s, W as H, b as W, ft as n, h as B, lt as v, ot as ee, rt as M, ut as S, v as C, x as b, y as e } from "./xiaobai-os-app-navigation-DvMnPkC0.js";
+import { t as R } from "./xiaobai-os-AppDialog-B4VpOkFC.js";
 var te = {
   class: "wallet-icon",
   viewBox: "0 0 24 24",

@@ -1,5 +1,5 @@
 /* eslint-disable */
-import { D as Me, E as re, I as Ze, M as Ye, N as Be, P as Fe, R as Oe, S as y, T as ne, U as ce, V as h, X as Te, at as we, b as Ne, dt as xe, ft as m, h as te, i as Ve, lt as t, m as je, r as Ue, rt as W, ut as ue, v as J, w as se, x as q, y as s } from "./xiaobai-os-app-navigation-Dv7QNwzp.js";
+import { D as Me, E as re, I as Ze, M as Ye, N as Be, P as Fe, R as Oe, S as y, T as ne, U as ce, V as h, X as Te, at as we, b as Ne, dt as xe, ft as m, h as te, i as Ve, lt as t, m as je, r as Ue, rt as W, ut as ue, v as J, w as se, x as q, y as s } from "./xiaobai-os-app-navigation-DvMnPkC0.js";
 import { C as Ce, Ft as We, It as Re, Lt as ve, St as Xe, X as Ke, _ as Le, a as Je, d as Qe, et, h as tt, kt as at, n as nt, st as it, vt as ot, w as lt, xt as rt } from "./xiaobai-os-three.module-Ah3xIFOr.js";
 import { a as st, n as dt, o as ct, t as ut } from "./xiaobai-os-performance-BD3WuJCC.js";
 import { t as ft } from "./xiaobai-os-RoundedBoxGeometry-6yGznEQp.js";

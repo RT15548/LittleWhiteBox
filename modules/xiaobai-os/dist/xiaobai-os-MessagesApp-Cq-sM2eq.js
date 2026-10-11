@@ -1,6 +1,6 @@
 /* eslint-disable */
-import { $ as Q, A as fe, B as ua, D as K, E, F as oa, J as Pe, M as Ie, P as ra, Q as Ue, R as da, S as n, T as ie, U as me, V as l, X as pe, b as ve, c as we, d as de, dt as Se, et as va, ft as v, h as R, lt as B, m as ce, nt as Fe, p as Ve, r as ze, rt as $, ut as W, v as A, x as w, y as e, z as Me } from "./xiaobai-os-app-navigation-Dv7QNwzp.js";
-import { t as _e } from "./xiaobai-os-AppDialog-C-L6J5Ew.js";
+import { $ as Q, A as fe, B as ua, D as K, E, F as oa, J as Pe, M as Ie, P as ra, Q as Ue, R as da, S as n, T as ie, U as me, V as l, X as pe, b as ve, c as we, d as de, dt as Se, et as va, ft as v, h as R, lt as B, m as ce, nt as Fe, p as Ve, r as ze, rt as $, ut as W, v as A, x as w, y as e, z as Me } from "./xiaobai-os-app-navigation-DvMnPkC0.js";
+import { t as _e } from "./xiaobai-os-AppDialog-B4VpOkFC.js";
 import { r as ga, t as ma } from "./xiaobai-os-composer-keyboard-COt-GHsA.js";
 var ca = {
   viewBox: "0 0 24 24",

@@ -1,5 +1,5 @@
 /* eslint-disable */
-import { $ as Vt, D as Yt, M as Xt, P as Qt, R as Zt, S as De, V as Ue, f as es, ft as Be, nt as ts, ot as mt, rt as Te, ut as ss, v as je, x as as, y as w } from "./xiaobai-os-app-navigation-Dv7QNwzp.js";
+import { $ as Vt, D as Yt, M as Xt, P as Qt, R as Zt, S as De, V as Ue, f as es, ft as Be, nt as ts, ot as mt, rt as Te, ut as ss, v as je, x as as, y as w } from "./xiaobai-os-app-navigation-DvMnPkC0.js";
 import { a as be, i as ke, n as ns, o as rs, r as kt, t as is } from "./xiaobai-os-reasoning-capabilities-jekAYzl_.js";
 import { t as At } from "./xiaobai-os-constants-CDXgazQ7.js";
 var ue = "littlewhitebox-server", ka = `/api/plugins/${ue}`, Q = Object.freeze([{

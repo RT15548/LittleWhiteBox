@@ -1,7 +1,7 @@
 /* eslint-disable */
-import { $ as le, A as Mt, C as pa, D as ee, E as W, G as ba, H as ma, J as fa, M as de, P as Ne, Q as Wt, R as Te, S as i, T as H, U as D, V as a, W as ka, X as z, Y as ya, at as ha, b as Z, c as $a, d as pe, dt as Gt, f as wa, ft as r, h as R, i as pt, k as xa, lt as l, m as ve, nt as Ie, ot as Ca, p as Me, r as Xe, rt as G, st as ye, u as et, ut as oe, v as S, x as g, y as n } from "./xiaobai-os-app-navigation-Dv7QNwzp.js";
+import { $ as le, A as Mt, C as pa, D as ee, E as W, G as ba, H as ma, J as fa, M as de, P as Ne, Q as Wt, R as Te, S as i, T as H, U as D, V as a, W as ka, X as z, Y as ya, at as ha, b as Z, c as $a, d as pe, dt as Gt, f as wa, ft as r, h as R, i as pt, k as xa, lt as l, m as ve, nt as Ie, ot as Ca, p as Me, r as Xe, rt as G, st as ye, u as et, ut as oe, v as S, x as g, y as n } from "./xiaobai-os-app-navigation-DvMnPkC0.js";
 import { n as Ia, t as La } from "./xiaobai-os-frame-bridge-BfVuKvnh.js";
-import { t as bt } from "./xiaobai-os-MessageMarkdown-BSxgoVIo.js";
+import { t as bt } from "./xiaobai-os-MessageMarkdown-_hWt2Lpl.js";
 var ut = /* @__PURE__ */ new WeakMap(), Et = [
   "select",
   "input",

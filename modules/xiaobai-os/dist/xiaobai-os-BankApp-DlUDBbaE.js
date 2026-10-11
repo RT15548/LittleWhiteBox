@@ -1,6 +1,6 @@
 /* eslint-disable */
-import { $ as de, D as N, E as g, P as ve, Q as be, R as ce, S as o, T as F, U as P, V as s, b as R, d as ke, ft as l, h as A, lt as ae, m as me, ot as fe, r as pe, rt as C, ut as D, v as _, x as k, y as e } from "./xiaobai-os-app-navigation-Dv7QNwzp.js";
-import { t as ge } from "./xiaobai-os-AppDialog-C-L6J5Ew.js";
+import { $ as de, D as N, E as g, P as ve, Q as be, R as ce, S as o, T as F, U as P, V as s, b as R, d as ke, ft as l, h as A, lt as ae, m as me, ot as fe, r as pe, rt as C, ut as D, v as _, x as k, y as e } from "./xiaobai-os-app-navigation-DvMnPkC0.js";
+import { t as ge } from "./xiaobai-os-AppDialog-B4VpOkFC.js";
 var ye = class extends Error {
   code;
   constructor(n, u = "") {

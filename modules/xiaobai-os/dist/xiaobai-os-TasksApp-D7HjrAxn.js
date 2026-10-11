@@ -1,6 +1,6 @@
 /* eslint-disable */
-import { $ as Q, D as x, E as g, M as Qe, P as We, Q as fe, R as Ge, S as d, T as y, U, V as u, W as Je, b as S, d as W, ft as r, h as T, lt as A, m as Xe, nt as Ye, ot as ge, r as _e, rt as R, ut as G, v as I, x as m, y as e } from "./xiaobai-os-app-navigation-Dv7QNwzp.js";
-import { t as et } from "./xiaobai-os-AppDialog-C-L6J5Ew.js";
+import { $ as Q, D as x, E as g, M as Qe, P as We, Q as fe, R as Ge, S as d, T as y, U, V as u, W as Je, b as S, d as W, ft as r, h as T, lt as A, m as Xe, nt as Ye, ot as ge, r as _e, rt as R, ut as G, v as I, x as m, y as e } from "./xiaobai-os-app-navigation-DvMnPkC0.js";
+import { t as et } from "./xiaobai-os-AppDialog-B4VpOkFC.js";
 var tt = {
   class: "tasks-icon",
   viewBox: "0 0 24 24",

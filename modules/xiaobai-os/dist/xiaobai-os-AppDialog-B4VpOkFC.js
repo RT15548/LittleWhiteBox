@@ -1,5 +1,5 @@
 /* eslint-disable */
-import { D as c, V as u, W as _, _ as f, b as v, i as y, j as m, k as h, m as o, p as g, rt as b, t as k, v as A, y as l } from "./xiaobai-os-app-navigation-Dv7QNwzp.js";
+import { D as c, V as u, W as _, _ as f, b as v, i as y, j as m, k as h, m as o, p as g, rt as b, t as k, v as A, y as l } from "./xiaobai-os-app-navigation-DvMnPkC0.js";
 var w = ["onKeydown"], B = /* @__PURE__ */ c({
   inheritAttrs: !1,
   __name: "AppDialog",

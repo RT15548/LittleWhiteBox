@@ -1,7 +1,7 @@
 /* eslint-disable */
 import { r as xe } from "./xiaobai-os-message-markdown-C9E8FiNZ.js";
-import { $ as P, D as H, E as J, K as Ae, M as ue, O as ee, P as ae, Q as se, R as le, S as p, T as U, U as de, V as b, X, b as j, c as Q, d as z, dt as Te, ft as C, h as Y, i as ve, j as Me, lt as L, m as Ee, nt as _, ot as O, r as me, rt as T, ut as ne, v as N, x as q, y as e } from "./xiaobai-os-app-navigation-Dv7QNwzp.js";
-import { t as fe } from "./xiaobai-os-AppDialog-C-L6J5Ew.js";
+import { $ as P, D as H, E as J, K as Ae, M as ue, O as ee, P as ae, Q as se, R as le, S as p, T as U, U as de, V as b, X, b as j, c as Q, d as z, dt as Te, ft as C, h as Y, i as ve, j as Me, lt as L, m as Ee, nt as _, ot as O, r as me, rt as T, ut as ne, v as N, x as q, y as e } from "./xiaobai-os-app-navigation-DvMnPkC0.js";
+import { t as fe } from "./xiaobai-os-AppDialog-B4VpOkFC.js";
 import { r as te, t as qe } from "./xiaobai-os-composer-keyboard-COt-GHsA.js";
 var Fe = { class: "fourth-wall-context" }, We = ["aria-label", "aria-expanded"], Be = {
   key: 0,
