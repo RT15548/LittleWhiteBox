@@ -92,7 +92,7 @@ async function waitForMemory(task: ReturnType<ConversationMemoryAccess['compact'
 
 export async function prepareConversation(session: XiaobaiOsAgentSession, campaign: Campaign, person: Participant,
     text: string, canon: NarrativeCanon, signal: AbortSignal,
-    options: { countTokens?: TokenCounter; memory: ConversationMemoryAccess; force?: boolean }) {
+    options: { countTokens?: TokenCounter; memory: ConversationMemoryAccess; force?: boolean; onWait?: () => void }) {
     const count = options.countTokens ?? resolveConversationTokens;
     async function measure() {
         for (;;) {
@@ -112,6 +112,7 @@ export async function prepareConversation(session: XiaobaiOsAgentSession, campai
                 const snapshot = structuredClone(campaign); snapshot.memories[person] = memory;
                 const task = options.memory.compact(session, snapshot);
                 if (!options.force && tokens < MEMORY_POLICY.waitAt) { break; }
+                options.onWait?.();
                 await waitForMemory(task, signal);
                 ({ memory, prompt, tokens } = await measure());
             } while (tokens >= MEMORY_POLICY.waitAt && canSummarize(campaign, person, memory));

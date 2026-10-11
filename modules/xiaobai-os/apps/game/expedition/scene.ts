@@ -78,6 +78,7 @@ export function createExpeditionScene(host: HTMLElement, onError: () => void, op
             lastFrame = now; const c = PALETTES[zone];
             const nextWorld = world ? world.definition.id : `${zone}:${b?.boss ?? false}:${!!b}`;
             if (nextWorld !== worldKey) {
+                hero.resetMotion();
                 nameplates.forEach(label => label.remove()); nameplates.clear();
                 disposeWorld?.();
                 if (world) {
@@ -93,6 +94,7 @@ export function createExpeditionScene(host: HTMLElement, onError: () => void, op
             }
             // A confirmed input batch replaces the snapshot, not the encounter or camera.
             if (!!b !== !!lastBattle || b && lastBattle && b.tick < lastTick) {
+                hero.resetMotion();
                 clearActors(); lastHp = b?.player.hp ?? 0;
             }
             const portrait = !world && mode !== 'battle', mobile = width < 600, compact = mobile || height < 400, aspect = width / height;
@@ -108,7 +110,7 @@ export function createExpeditionScene(host: HTMLElement, onError: () => void, op
             const npcChanged = world && worldScenery?.animate(world.location.position, now, reduced.matches, inView);
             if (world && !dirty && cameraReady && cameraSettled && appearance === lastAppearance && b === lastBattle && !tickChanged
                 && worldX === world.location.position.x && worldY === world.location.position.y
-                && worldFacing === world.location.facing && drawnFacts === world.facts && !npcChanged && !peopleMoved) { return; }
+                && worldFacing === world.location.facing && drawnFacts === world.facts && !npcChanged && !peopleMoved && !hero.animating) { return; }
             if (!cameraReady || reduced.matches) { target.set(desiredX, 0, desiredZ); cameraReady = true; }
             else { target.x += (desiredX - target.x) * .14; target.z += (desiredZ - target.z) * .14; }
             camera.left = -horizontal / 2; camera.right = horizontal / 2; camera.top = horizontal / aspect / 2; camera.bottom = -camera.top;
@@ -136,7 +138,7 @@ export function createExpeditionScene(host: HTMLElement, onError: () => void, op
                 sun.target.updateMatrixWorld();
             }
             const explorer = world ? { ...world.location.position, facing: world.location.facing, dashTime: 0, swing: 0, shield: 0, guard: 0, resonance: 0 } : null;
-            hero.update(b?.player ?? explorer, loadout.weapon, loadout.outfit, time, reduced.matches, portrait, !!b?.effects.some(e => e.kind === 'resonance'));
+            hero.update(b?.player ?? explorer, loadout.weapon, loadout.outfit, time, now / 1000, reduced.matches, portrait, !!b?.effects.some(e => e.kind === 'resonance'));
             for (const e of b?.enemies ?? []) {
                 let entry = enemies.get(e.id);
                 if (!entry) {

@@ -9,6 +9,7 @@ import { dressHero } from './scene-outfits.js';
 import { sculptBoss } from './scene-bosses.js';
 import { createGuardShield } from './scene-defense.js';
 import { createGrimoire } from './scene-grimoire.js';
+import { createTravelerGait } from './traveler-gait.js';
 export type HeroPose = Pick<Player, 'x' | 'y' | 'facing' | 'dashTime' | 'swing' | 'shield' | 'guard' | 'resonance'>;
 
 function addBow(k: SceneKit, parent: Group, scale = 1) {
@@ -23,9 +24,10 @@ export function createHero(k: SceneKit, parent: Group, gender: Traveler['gender'
     const shadow = k.ring(root, '#193f49', .6, 0, 0, .14, true);
     const equipment = k.group(body), hand = traveler.hand, clothing = k.group(equipment);
     const guardShield = createGuardShield(k, equipment);
+    const gait = createTravelerGait();
     let grimoire: ReturnType<typeof createGrimoire> | null = null;
     let motionTime = -1, facing = Math.PI / 2;
-    let wardrobe: ReturnType<typeof dressHero> | null = null, weapon: Weapon | null = null, outfit: Outfit | null = null, lastX = 0, lastY = 0;
+    let wardrobe: ReturnType<typeof dressHero> | null = null, weapon: Weapon | null = null, outfit: Outfit | null = null;
     function equip(nextWeapon: Weapon, nextOutfit: Outfit) {
         if (nextWeapon === weapon && nextOutfit === outfit) { return; }
         weapon = nextWeapon; outfit = nextOutfit; clothing.clear(); hand.clear(); grimoire = null; wardrobe = dressHero(k, clothing, outfit);
@@ -52,18 +54,19 @@ export function createHero(k: SceneKit, parent: Group, gender: Traveler['gender'
             k.mesh(hand, 'box', '#906749', [.22, .16, .2], [0, -.1, .13]);
         }
     }
-    return { root,
-        update(p: HeroPose | null, nextWeapon: Weapon, nextOutfit: Outfit, time: number, reduced: boolean, portrait: boolean, casting = false) {
+    return { root, resetMotion: gait.reset,
+        get animating() { return gait.active; },
+        update(p: HeroPose | null, nextWeapon: Weapon, nextOutfit: Outfit, time: number, seconds: number, reduced: boolean, portrait: boolean, casting = false) {
             equip(nextWeapon, nextOutfit);
             guardShield.update(nextWeapon, !!p?.shield, !!p?.guard, time, reduced);
             const blend = reduced || motionTime < 0 || time < motionTime ? 1 : 1 - Math.exp(-Math.min(4, time - motionTime) * .65); motionTime = time;
             const desiredFacing = portrait ? Math.PI / 2 + .23 : p?.facing ?? Math.PI / 2;
             facing += Math.atan2(Math.sin(desiredFacing - facing), Math.cos(desiredFacing - facing)) * blend;
-            const moving = !!p && (Math.abs(p.x - lastX) + Math.abs(p.y - lastY) > .001), dash = !!p?.dashTime;
+            const motion = gait.update(portrait ? null : p, seconds, reduced), dash = !!p?.dashTime;
             root.position.set(p?.x ?? 0, portrait ? .3 : 0, p?.y ?? -8);
             root.scale.setScalar(portrait ? 1.65 : 1);
-            traveler.pose(facing, time, moving, dash, reduced, !!p?.swing || casting);
-            wardrobe!.cape.rotation.x = !reduced ? -.15 - (moving ? .5 : .06) - Math.sin(time * .15) * .12 : -.15;
+            traveler.pose(facing, motion.stride, motion.lift, dash, reduced, !!p?.swing || casting);
+            wardrobe!.cape.rotation.x = !reduced ? -.21 - motion.amount * .44 - Math.sin(time * .15) * .12 : -.15;
             wardrobe!.animate(time, reduced);
             const swing = p?.swing && !reduced ? Math.sin(p.swing / (nextWeapon === 'cannon' ? 16 : 9) * Math.PI) : 0;
             hand.rotation.z += ((casting ? -.3 : -.2 - swing * 1.3) - hand.rotation.z) * blend;
@@ -72,7 +75,6 @@ export function createHero(k: SceneKit, parent: Group, gender: Traveler['gender'
                 grimoire.update(!!p?.resonance, casting, time, reduced);
             }
             shadow.scale.set(.6 + (dash ? .25 : 0), .6, 1);
-            if (p) { lastX = p.x; lastY = p.y; }
         },
         dispose() { traveler.dispose(); root.removeFromParent(); },
     };

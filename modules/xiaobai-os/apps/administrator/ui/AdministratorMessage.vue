@@ -127,7 +127,7 @@ async function loadThrough(end: number, refresh = false) {
             <button v-if="!live && row.totalChars" type="button" data-action="copy" :disabled="fullText === null || copying" @click="copy">{{ copied ? C.copied : C.copy }}</button>
             <button v-if="row.role === 'user'" type="button" data-action="edit" :disabled="disabled || fullText === null" @click="edit">{{ C.edit }}</button>
             <button type="button" :disabled="disabled" @click="emit('delete', row)">{{ C.delete }}</button>
-            <button v-if="row.canRegenerate" type="button" :disabled="disabled" @click="emit('regenerate', row)">{{ C.regenerate }}</button>
+            <button v-if="row.canRegenerate" type="button" data-action="regenerate" :disabled="disabled" @click="emit('regenerate', row)">{{ C.regenerate }}</button>
             <button v-if="processCount" type="button" @click="emit('details', row)">{{ C.evidence }}</button>
         </nav>
         <small v-if="preparing" class="admin-muted" role="status">{{ C.loadingText }}</small>

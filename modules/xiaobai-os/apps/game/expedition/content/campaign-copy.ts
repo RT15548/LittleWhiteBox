@@ -41,7 +41,7 @@ export const CAMPAIGN_COPY = Object.freeze({
     alarm: '烽火传讯', alarmRaised: '内堡增援已集结', alarmSeconds: (n: number) => `距离传讯 ${n} 秒`,
     endingTitle: '归来的人', ending: '归还的药材堆在诊棚桌上。三娘一份份核对，没有按签上的户名把它们分开。阿念被安排在帘边坐着，有人叫她，她才抬起头。扣子蹲在管架上，伸手试了试新接头；老白仍站在小门边。\n\n这一次，两个人都回来了。可药签照旧按人头发，照旧会过期。檐下的名字依然不在内堡的册子里。门厅之后还有一扇门，古炉仍在变冷。',
     continued: `${JOURNEY_COPY.nextChapter}${JOURNEY_COPY.forthcoming}`, remain: '留在檐下', optional: '根庭仍可探索；营地的人也还有话想说。',
-    talk: '交谈', send: '发送', cancel: '停止等待', input: '你想说什么？', player: '你', thinking: '对方正在回应…',
+    talk: '交谈', send: '发送', cancel: '停止等待', input: '你想说什么？', player: '你',
     aiUnknown: '这次交谈的结果尚未确认，不会自动再次调用模型。先核对存档；若没有收到回复，重新发送会产生新调用。',
     noAi: '请先在小白 OS 设置中配置 AI，再进行自由交谈。',
     aiAuth: 'AI 服务未通过身份验证，请在小白 OS 的 AI 设置中检查密钥与连接配置。输入已保留。',

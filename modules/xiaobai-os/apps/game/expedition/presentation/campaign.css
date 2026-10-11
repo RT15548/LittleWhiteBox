@@ -55,8 +55,10 @@
 .ember-person-heading h2 { font-size:23px; letter-spacing:.08em; }
 .ember-person-heading small { color:#647b7d; }
 .ember-dialogue-heading > button { background:transparent; padding:6px 10px; border:0; }
-.ember-dialogue-scroll { overflow:auto; overscroll-behavior:contain; flex:1; min-height:0; display:flex; flex-direction:column; align-items:stretch; gap:20px; padding:24px; scrollbar-width:thin; }
+.ember-dialogue-scroll { overflow:auto; overflow-anchor:none; overscroll-behavior:contain; flex:1; min-height:0; display:flex; flex-direction:column; align-items:stretch; gap:20px; padding:24px; scrollbar-width:thin; }
 .ember-dialogue-scroll > * { flex-shrink:0; }
+.ember-history-nav { display:flex; justify-content:center; gap:16px; }
+.ember-dialogue-scroll .ember-history-link { align-self:center; min-height:40px; padding:6px 12px; background:transparent; border:0; color:#526f69; font-size:.85em; }
 .ember-greeting,.ember-npc-line,.ember-player-line,.ember-prose { white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.95; }
 .ember-player-line { padding:10px 14px; align-self:flex-end; max-width:88%; border-radius:6px; background:#e7eee8; }
 .ember-player-line small { display:block; color:#637f79; }

@@ -226,20 +226,29 @@ test('unclosed dialogue and provider truncation preserve received body without c
     }
 });
 
-test('real adapters preserve incomplete response text as a receipt, without a second request or invented action', async () => {
+test('real adapters preserve incomplete streamed text as a receipt, without a second request or invented action', async t => {
     for (const protocol of ['chat', 'responses']) {
         let calls = 0;
         const text = '<dialogue>received</dialogue>\n{"action":"briefing","affection":"up"}';
+        const incomplete = { id: 'resp-fixture', object: 'response', status: 'incomplete', incomplete_details: { reason: 'max_output_tokens' },
+            output: [{ id: 'message-fixture', type: 'message', role: 'assistant', content: [{ type: 'output_text', text, annotations: [] }] }] };
+        const events = protocol === 'chat' ? [
+            { choices: [{ index: 0, delta: { role: 'assistant', content: text }, finish_reason: null }] },
+            { choices: [{ index: 0, delta: {}, finish_reason: 'length' }] },
+        ] : [
+            { type: 'response.created', response: { ...incomplete, status: 'in_progress', output: [] } },
+            { type: 'response.output_item.added', output_index: 0, item: incomplete.output[0] },
+            { type: 'response.output_item.done', output_index: 0, item: incomplete.output[0] },
+            { type: 'response.incomplete', response: incomplete },
+        ];
+        t.mock.method(globalThis, 'fetch', async () => {
+            calls++;
+            return new Response(events.map(data => `${data.type ? `event: ${data.type}\n` : ''}data: ${JSON.stringify(data)}\n\n`).join(''),
+                { headers: { 'content-type': 'text/event-stream' } });
+        });
         const adapter = protocol === 'chat'
             ? new OpenAICompatibleAdapter({ apiKey: 'fixture', model: 'fixture' })
             : new OpenAIResponsesAdapter({ apiKey: 'fixture', model: 'fixture' });
-        if (protocol === 'chat') adapter.client.chat.completions.create = async () => {
-            calls++; return { choices: [{ message: { role: 'assistant', content: text }, finish_reason: 'length' }] };
-        };
-        else adapter.client.responses.create = async () => {
-            calls++; return { status: 'incomplete', incomplete_details: { reason: 'max_output_tokens' },
-                output: [{ type: 'message', content: [{ type: 'output_text', text }] }] };
-        };
         const c = campaign(), result = await generateConversation(agentFor(request => adapter.chat(request)), c, 'sanniang', 'hello', signal(), narrativeOptions);
         assert.deepEqual(result, { kind: 'receipt', reply: 'received', action: null, affection: null, issue: 'reply_incomplete' });
         assert.equal(calls, 1); assert.deepEqual(c.facts, []);
@@ -348,14 +357,19 @@ test('capacity rejection with no archivable prefix stops without replaying the s
     assert.equal(calls, 1);
 });
 
-test('incomplete forced summary is not a character reply and never advances memory or retries dialogue', async () => {
+test('incomplete forced summary is not a character reply and never advances memory or retries dialogue', async t => {
     const c = campaign();
     c.conversations.sanniang = Array.from({ length: 13 }, (_, i) => turn('t' + i, 'a'.repeat(500), 'b'.repeat(1500)));
     const before = structuredClone(c);
     let calls = 0, saves = 0, receipts = 0;
+    t.mock.method(globalThis, 'fetch', async () => {
+        calls++;
+        return new Response(JSON.stringify({ error: { code: 'context_length_exceeded', message: 'maximum context length exceeded' } }),
+            { status: 400, headers: { 'content-type': 'application/json' } });
+    });
     const adapter = new OpenAICompatibleAdapter({ apiKey: 'fixture', model: 'fixture' });
     adapter.client.chat.completions.create = async () => {
-        if (++calls === 1) { throw { code: 'context_length_exceeded' }; }
+        calls++;
         return { choices: [{ message: { role: 'assistant', content: 'unfinished memory' }, finish_reason: 'length' }] };
     };
     await assert.rejects(generateConversation(agentFor(request => adapter.chat(request)), c, 'sanniang', 'pending', signal(), {

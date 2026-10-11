@@ -10,7 +10,7 @@ import { buildWorld } from '../apps/game/expedition/scene-world.ts';
 import { createHero } from '../apps/game/expedition/scene-actors.ts';
 import { createWardShell } from '../apps/game/expedition/scene-defense.ts';
 
-import { REGIONS, WEAPON_LIST } from '../apps/game/expedition/content.ts';
+import { REGIONS, RULES, WEAPON_LIST } from '../apps/game/expedition/content.ts';
 import { OUTFIT_IDS } from '../apps/game/expedition/ids.ts';
 const createBattle = (seed, zone, elite, boss, hp, gear) => initializeBattle({ seed, zone, chapter: zone % 3, elite, boss, hp, bossKind: REGIONS[zone].bosses[0], encounter: 'skirmish' }, gear);
 
@@ -103,7 +103,7 @@ test('equipped defense and casting poses remain finite across outfit changes, an
         for (const outfit of OUTFIT_IDS) for (const weapon of WEAPON_LIST) {
             for (const reduced of [false, true]) {
                 for (let tick = 0; tick < 12; tick++) {
-                    hero.update({ ...b.player, facing: tick < 6 ? 3.1 : -3.1, shield: tick < 6 ? 5 : 0, guard: 0, resonance: 50 }, weapon, outfit, tick, reduced, false, tick < 6);
+                    hero.update({ ...b.player, facing: tick < 6 ? 3.1 : -3.1, shield: tick < 6 ? 5 : 0, guard: 0, resonance: 50 }, weapon, outfit, tick, tick / RULES.hz, reduced, false, tick < 6);
                 }
             }
         }
@@ -128,12 +128,12 @@ test('both traveler silhouettes stand on the floor, animate without drift, and r
         const kit = createSceneKit(), root = new Group(), hero = createHero(kit, root, gender);
         const pose = { x: 0, y: 0, facing: Math.PI / 2, dashTime: 0, swing: 0, shield: 0, guard: 0, resonance: 0 };
         try {
-            hero.update(pose, 'blade', 'traveler', 0, true, false);
+            hero.update(pose, 'blade', 'traveler', 0, 0, true, false);
             const standing = new Box3().setFromObject(root);
             assert.ok(standing.min.y >= -.03 && standing.min.y < .1, `feet at ground: ${standing.min.y}`);
             assert.ok(standing.max.y > 2 && standing.max.y < 2.7);
-            for (let tick = 1; tick <= 60; tick++) { hero.update({ ...pose, x: tick * .1, swing: tick % 9 }, 'blade', 'traveler', tick, false, false); }
-            hero.update(pose, 'blade', 'traveler', 0, true, false);
+            for (let tick = 1; tick <= 60; tick++) { hero.update({ ...pose, x: tick * .1, swing: tick % 9 }, 'blade', 'traveler', tick, tick / RULES.hz, false, false); }
+            hero.update(pose, 'blade', 'traveler', 0, 0, true, false);
             const returned = new Box3().setFromObject(root);
             assert.ok(returned.min.distanceTo(standing.min) < 1e-8 && returned.max.distanceTo(standing.max) < 1e-8);
             const geometries = new Set();

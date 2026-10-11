@@ -11,7 +11,7 @@ export function withExpeditionRuntime(primary: XiaobaiOsAppRuntime, service: Exp
     const detach = () => { activation = null; };
     const cancel = () => { conversation?.abort(); detach(); service.stopMemory(); };
     function publish() {
-        if (!activation || busy || identity() !== activation.identity) { return; }
+        if (!activation || busy && !conversation || identity() !== activation.identity) { return; }
         try { activation.post('game/expedition/state', { chatIdentity: activation.identity, state: service.view() }); }
         catch (error) {
             if (error && typeof error === 'object' && 'code' in error && typeof error.code === 'string'

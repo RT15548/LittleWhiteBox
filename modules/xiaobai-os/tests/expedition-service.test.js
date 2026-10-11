@@ -247,6 +247,71 @@ async function until(check) {
     }
     assert.fail('Expected async boundary was not reached');
 }
+
+test('real request phases reach a busy and reattached client, stay transient, and stop after completion or cancellation', async () => {
+    let request, response, calls = 0;
+    const agent = { loadConfig: async () => ({}), openSession: async () => ({ providerConfig: { model: 'fixture' }, run: input => {
+        calls++; request = input; response = deferred(); return response.promise;
+    } }) };
+    const h = await setup(undefined, { agent }); await h.act(start); await h.driver.walk('clinic');
+    const runtime = withExpeditionRuntime({}, h.service, () => 'chat'), posts = [];
+    let listener, reattached;
+    const bridge = { subscribe(fn) { listener = fn; return () => { listener = null; }; },
+        request: async (type, payload) => ({ result: await runtime.handleMessage({ type, payload }) }) };
+    const activate = () => runtime.activate({ post(type, payload) { posts.push(structuredClone(payload.state)); listener?.({ type, payload }); } });
+    const client = createExpeditionClient(bridge, 'chat');
+    await runtime.startBackground(); await activate(); await client.read();
+    try {
+        const before = structuredClone(h.service.view().data);
+        const pending = client.talk('sanniang', 'question');
+        assert.equal(client.conversationProgress.value.phase, 'preparing');
+        await until(() => !!request);
+        assert.equal(client.conversationProgress.value.phase, 'waiting');
+        const startedAt = client.conversationProgress.value.startedAt;
+        const count = posts.length;
+        request.onStreamProgress({ activity: 'thinking' });
+        request.onStreamProgress({ activity: 'thinking' });
+        assert.equal(posts.length, count + 1);
+        assert.equal(client.conversationProgress.value.phase, 'thinking');
+        request.onStreamProgress({ thoughts: [{ text: 'private' }] });
+        request.onStreamProgress({ text: '<dialogue>partial', thoughts: [{ text: 'private' }] });
+        assert.equal(client.conversationProgress.value.phase, 'replying');
+        request.onStreamProgress({ text: '<dialogue>partial', thoughts: [{ text: 'private' }] });
+        assert.equal(client.conversationProgress.value.phase, 'replying');
+        assert.deepEqual(h.service.view().data, before);
+        assert.equal(Object.hasOwn(client.conversationProgress.value, 'thoughts'), false);
+        await runtime.deactivate('switch-app');
+        reattached = createExpeditionClient(bridge, 'chat'); await activate(); await reattached.read();
+        assert.equal(reattached.conversationProgress.value.phase, 'replying');
+        assert.equal(reattached.conversationProgress.value.startedAt, startedAt);
+        response.resolve({ text: narrativeReply({ reply: 'complete', action: null }) });
+        assert.equal(await pending, true);
+        assert.equal(reattached.conversationProgress.value, null);
+        assert.ok(posts.some(state => state.conversation?.phase === 'saving'));
+        const finishedPosts = posts.length;
+        request.onStreamProgress({ activity: 'thinking' }); assert.equal(posts.length, finishedPosts);
+        assert.equal(Object.hasOwn(h.service.view().data, 'conversation'), false);
+        const original = h.service.view().data.active.lastReply.turnId;
+        const after = structuredClone(h.service.view().data);
+        const replacing = reattached.talk('sanniang', 'question', original);
+        await until(() => calls === 2);
+        assert.equal(reattached.conversationProgress.value.phase, 'waiting');
+        assert.equal(reattached.conversationProgress.value.regenerating, true);
+        await reattached.cancelTalk();
+        assert.equal(reattached.conversationProgress.value.phase, 'stopping');
+        request.onStreamProgress({ activity: 'replying' });
+        assert.equal(reattached.conversationProgress.value.phase, 'stopping');
+        response.reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+        assert.equal(await replacing, false);
+        assert.equal(reattached.conversationProgress.value, null);
+        assert.deepEqual(h.service.view().data, after);
+        const failed = reattached.talk('sanniang', 'try again');
+        await until(() => calls === 3);
+        response.reject(Object.assign(new Error('fixture'), { status: 500 }));
+        assert.equal(await failed, false); assert.equal(reattached.conversationProgress.value, null);
+        assert.equal(reattached.conversationFailure.value.code, 'expedition_agent_failed');
+    } finally { client.dispose(); reattached?.dispose(); await runtime.stopBackground(); }
+});
 async function memoryHarness(t) {
     const summaries = [], dialogues = [], control = { tokens: 80000, afterSummary: 10000, reply: null, count: null, counting: false };
     t.mock.method(console, 'warn', () => {});
@@ -305,10 +370,10 @@ test('80k summary runs beside five new exchanges; completion keeps the fixed ten
 test('98k waits for the existing summary, recounts, and sends a retained tail above 98k without a false hard-limit error', async t => {
     const h = await memoryHarness(t); await h.speak();
     h.control.tokens = 110000;
-    const pending = h.speak(); await until(() => !!h.service.view().conversation);
-    await new Promise(resolve => setImmediate(resolve));
+    const pending = h.speak(); await until(() => h.service.view().conversation?.phase === 'summarizing');
     assert.equal(h.dialogues.length, 1); assert.equal(h.summaries.length, 1);
     assert.equal(h.service.view().conversation.text, 'next question');
+    assert.equal(h.service.view().conversation.phase, 'summarizing');
     h.summaries[0].resolve({ text: 'Earlier events.' }); await pending;
     assert.equal(h.dialogues.length, 2); assert.equal(h.summaries.length, 1);
     assert.equal(inspectNarrativePrompt(h.dialogues[1]).story.memory, 'Earlier events.');

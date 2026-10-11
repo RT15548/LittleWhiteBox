@@ -1,10 +1,17 @@
 import { CLOTHING_COPY } from './clothing.js';
+import type { ConversationPhase } from '../narrative/conversation.js';
 
 export const DIALOGUE_COPY = Object.freeze({
     affection: '好感', context: '上下文', close: '关闭', loading: '正在读取人物资料',
     retry: '重新读取', rawReply: '查看回复原文',
     reloadArtwork: '重新加载人物画面',
+    older: '查看更早消息', newer: '查看后续消息', latest: '回到最新',
     regenerate: '重新生成', retrySend: '重试发送', sendFailed: '未完成回复，原消息已保留。', continue: '继续',
+    phases: {
+        preparing: '准备中', summarizing: '整理记忆中', waiting: '等待响应', thinking: '思考中',
+        replying: '生成回复中', saving: '保存回复中', stopping: '正在停止',
+    } satisfies Record<ConversationPhase, string>,
+    elapsed: (seconds: number) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`,
     issues: {
         action_rejected: '对白已保存，附带行动不成立，未执行。',
         clothing_rejected: CLOTHING_COPY.rejected,

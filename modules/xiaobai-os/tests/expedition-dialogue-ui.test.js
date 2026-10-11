@@ -50,7 +50,8 @@ test('dialogue keeps drafts and reading position; failed meters never remove the
                         : h('textarea',{value:p.modelValue,onInput:e=>emit('update:modelValue',e.target.value)}),
                         h('button',{type:'submit','data-send':'',disabled:p.blocked})])}}`, loader: 'js' };
                 if (args.path.endsWith('ExplorationField.vue')) return { contents: `import {h} from 'vue'; export default {props:['world','paused'],emits:['interact','input','ready','pause'],setup(p,ctx){ctx.expose({focus(){}});return()=>h('div',{'data-paused':p.paused},[...['sanniang','laobai',...p.world.definition.exits.map(e=>e.id)].map(id=>h('button',{'data-interact':id,onClick:()=>ctx.emit('interact',id)})),h('button',{'data-frame':'',onClick:()=>ctx.emit('ready',p.world.definition.id)}),h('button',{'data-background':'',onClick:()=>ctx.emit('pause')}),h('button',{'data-step':'',onClick:()=>ctx.emit('input',{move:1,dash:false,skill:false})})])}}`, loader: 'js' };
-                if (['ExpeditionWardrobe.vue', 'WorldFrontispiece.vue', 'ExpeditionIcon.vue', 'DialogueActor.vue'].some(name => args.path.endsWith(name))) return { contents: 'export default {render(){return null}}', loader: 'js' };
+                if (args.path.endsWith('DialogueActor.vue')) return { contents: "import {h} from 'vue'; export default {setup(){return()=>h('i',{'data-dialogue-actor':''})}}", loader: 'js' };
+                if (['ExpeditionWardrobe.vue', 'WorldFrontispiece.vue', 'ExpeditionIcon.vue'].some(name => args.path.endsWith(name))) return { contents: 'export default {render(){return null}}', loader: 'js' };
                 const { descriptor } = parse(readFileSync(args.path, 'utf8'), { filename: args.path });
                 return { contents: compileScript(descriptor, { id: args.path, inlineTemplate: true }).content, loader: 'ts' };
             });
@@ -150,7 +151,19 @@ test('dialogue keeps drafts and reading position; failed meters never remove the
         assert.equal(root.querySelector('textarea').value, '');
         assert.equal(root.querySelectorAll('.ember-player-line').length, 1);
         assert.equal(root.querySelector('.ember-player-line').getAttribute('aria-busy'), 'true');
+        const status = () => root.querySelector('.ember-dialogue-status');
+        assert.equal(status().dataset.phase, 'preparing');
+        for (const phase of ['waiting', 'thinking', 'replying', 'saving']) {
+            const progress = structuredClone(state);
+            progress.conversation = { actionId: 'live-fixture', person: 'sanniang', text: 'one sent message', regenerating: false, phase, startedAt: Date.now() - 3000 };
+            notify({ type: 'game/expedition/state', payload: { chatIdentity: 'fixture', state: progress } }); await settle();
+            assert.equal(status().dataset.phase, phase);
+            assert.equal(status().querySelector('time').getAttribute('datetime'), 'PT3S');
+            assert.equal(root.querySelector('[role=log]').contains(status()), false);
+        }
+        notify({ type: 'game/expedition/state', payload: { chatIdentity: 'fixture', state: structuredClone(state) } });
         editDraft('next draft'); await settle(); release(); await settle();
+        assert.equal(status(), null);
         assert.equal(root.querySelector('textarea').value, 'next draft');
         assert.equal(root.querySelectorAll('.ember-player-line').length, 1);
         const original = state.data.active.conversations.sanniang.at(-1).id;
@@ -194,6 +207,104 @@ test('dialogue keeps drafts and reading position; failed meters never remove the
         log.scrollTop = 75; log.dispatchEvent(new window.Event('scroll'));
         release(); await settle();
         assert.equal(log.scrollTop, 75);
+    });
+
+    await t.test('long history is a bounded message window; browsing never edits saved conversations or memories', async st => {
+        const baseline = structuredClone(state.data);
+        const publish = async () => {
+            notify({ type: 'game/expedition/state', payload: { chatIdentity: 'fixture', state: structuredClone(state) } }); await settle();
+        };
+        const remount = async () => {
+            app.unmount(); app = createApp(Room, { bridge, chatIdentity: 'fixture', generationActive: false }); app.mount(root); await settle();
+            button(CAMPAIGN_COPY.resume + '→').click(); await settle();
+            root.querySelector('[data-interact=sanniang]').click(); await settle();
+        };
+        let release;
+        st.after(async () => {
+            release?.(); await settle(); beforeTalk = async () => {};
+            state.data = { ...baseline, revision: state.data.revision + 1 }; await remount();
+        });
+        for (let i = 0; i < 120; i++) applyReply(state.data.active, { person: 'sanniang', text: `player-${i}`, actionId: `history-${i}` },
+            { kind: 'dialogue', reply: `npc-${i}`, action: null, affection: null });
+        state.data.active.memories.sanniang = { throughId: 'history-50', text: 'saved memory' };
+        state.data.revision++; await remount();
+        const saved = structuredClone(state.data.active);
+        const rows = () => [...root.querySelectorAll('[data-message-key]')];
+        const keys = () => rows().map(row => row.dataset.messageKey);
+        const navigate = async direction => { root.querySelector(`[data-history=${direction}]`).click(); await settle(); };
+        assert.equal(rows().length, 10);
+        assert.equal(root.querySelectorAll('[data-dialogue-actor]').length, 5);
+        assert.equal(keys().at(0), 'history-115:player');
+        const removed = rows().at(-1);
+        await navigate('older'); assert.equal(rows().length, 20);
+        await navigate('older'); assert.equal(rows().length, 30);
+        await navigate('older'); assert.equal(rows().length, 30);
+        assert.equal(removed.isConnected, false);
+        assert.equal(root.querySelectorAll('[data-dialogue-actor]').length, 15);
+        const visited = new Set(keys());
+        while (root.querySelector('[data-history=older]')) {
+            await navigate('older'); assert.ok(rows().length <= 30); keys().forEach(key => visited.add(key));
+        }
+        assert.equal(keys()[0], `${saved.conversations.sanniang[0].id}:npc`);
+        while (root.querySelector('[data-history=newer]')) {
+            await navigate('newer'); assert.ok(rows().length <= 30); keys().forEach(key => visited.add(key));
+        }
+        assert.equal(visited.size, saved.conversations.sanniang.length * 2 - 1);
+        await navigate('latest'); assert.equal(rows().length, 10);
+        for (let i = 0; i < 4; i++) await navigate('older');
+        const browsing = keys(), log = root.querySelector('[role=log]');
+        Object.defineProperties(log, { scrollHeight: { value: 5000 }, clientHeight: { value: 300 } });
+        log.scrollTop = 220; log.dispatchEvent(new window.Event('scroll'));
+        editDraft('preserved draft'); await settle(); await leave();
+        root.querySelector('[data-interact=laobai]').click(); await settle();
+        assert.equal(rows().length, 1);
+        await leave(); root.querySelector('[data-interact=sanniang]').click(); await settle();
+        assert.deepEqual(keys(), browsing); assert.equal(root.querySelector('[role=log]').scrollTop, 220);
+        assert.equal(root.querySelector('textarea').value, 'preserved draft');
+        assert.deepEqual(state.data.active, saved);
+
+        // Collapse immediately, before the model completes. The pending player line is one of ten.
+        beforeTalk = () => new Promise(resolve => { release = resolve; });
+        editDraft('new message from old history'); await settle();
+        // A browse update already queued for the same frame cannot reopen the window after send.
+        root.querySelector('[data-history=older]').click();
+        root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true })); await settle();
+        assert.equal(rows().length, 10); assert.equal(keys().at(-1), 'pending');
+        assert.equal(root.querySelectorAll('[data-dialogue-actor]').length, 5);
+        assert.equal(root.querySelector('textarea').value, '');
+        assert.deepEqual(state.data.active, saved);
+
+        // Reading older messages during the paid request must not be interrupted by its arrival.
+        for (let i = 0; i < 4; i++) await navigate('older');
+        const waitingRange = keys();
+        release(); await settle(); assert.deepEqual(keys(), waitingRange);
+        assert.deepEqual(state.data.active.conversations.sanniang.slice(0, -1), saved.conversations.sanniang);
+        assert.deepEqual(state.data.active.memories, saved.memories);
+        const length = state.data.active.conversations.sanniang.length;
+        root.querySelector('[data-regenerate]').click(); await settle();
+        assert.equal(rows().length, 10); assert.equal(root.querySelector('[data-history=latest]'), null);
+        release(); await settle();
+        assert.equal(rows().length, 10); assert.equal(state.data.active.conversations.sanniang.length, length);
+
+        // A failed send and its retry obey the same bound; the error does not destroy old records.
+        beforeTalk = async () => { throw Object.assign(new Error('fixture'), { code: 'expedition_agent_failed' }); };
+        await navigate('older'); await navigate('older');
+        editDraft('retry this message'); await settle();
+        root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true })); await settle();
+        root.querySelector('[role=alertdialog] button').click(); await settle();
+        assert.equal(rows().length, 10); assert.equal(keys().at(-1), 'pending');
+        await navigate('older'); await navigate('older');
+        beforeTalk = () => new Promise(resolve => { release = resolve; });
+        root.querySelector('[data-regenerate]').click(); await settle();
+        assert.equal(rows().length, 10); assert.equal(keys().at(-1), 'pending');
+        release(); await settle(); assert.equal(rows().length, 10);
+        assert.equal(state.data.active.conversations.sanniang.length, length + 1);
+        assert.deepEqual(state.data.active.conversations.sanniang.slice(0, saved.conversations.sanniang.length), saved.conversations.sanniang);
+
+        // A new campaign owns a new, temporary reading window.
+        await navigate('older');
+        state.data.active.id = 'another-campaign'; state.data.revision++; await publish();
+        assert.equal(rows().length, 10);
     });
 
     await t.test('speech styling preserves reply text and treats model markup as text, not HTML', async () => {

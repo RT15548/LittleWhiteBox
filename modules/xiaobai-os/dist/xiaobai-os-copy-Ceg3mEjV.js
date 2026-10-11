@@ -6,7 +6,7 @@ var g = [
   "daggers",
   "grimoire",
   "cannon"
-], k = [
+], w = [
   "warden",
   "thornheart",
   "weaver",
@@ -80,7 +80,7 @@ var g = [
   "bunker",
   "salvage",
   "railgun"
-], w = [
+], k = [
   "traveler",
   "guardian",
   "moonweaver",
@@ -481,7 +481,6 @@ var A = [
   cancel: "停止等待",
   input: "你想说什么？",
   player: "你",
-  thinking: "对方正在回应…",
   aiUnknown: "这次交谈的结果尚未确认，不会自动再次调用模型。先核对存档；若没有收到回复，重新发送会产生新调用。",
   noAi: "请先在小白 OS 设置中配置 AI，再进行自由交谈。",
   aiAuth: "AI 服务未通过身份验证，请在小白 OS 的 AI 设置中检查密钥与连接配置。输入已保留。",
@@ -1131,8 +1130,8 @@ function D(e) {
   return a === "expedition_agent_not_configured" ? n.noAi : a === "expedition_agent_auth" ? n.aiAuth : a === "expedition_agent_failed" ? n.aiFailed : a === "expedition_context_capacity" ? n.contextFull : a === "expedition_data_invalid" ? n.dataInvalid : a === "expedition_narrative_unavailable" ? n.narrativeFailed : a.startsWith("expedition_memory_") ? n.memoryFailed : a.startsWith("expedition_reply_") ? n.emptyReply : a === "expedition_stale" ? o.stale : a === "expedition_locked" ? o.locked : a === "expedition_funds" ? o.noCoins : a === "expedition_unavailable" ? o.unavailable : a === "expedition_invalid" || a === "expedition_identity" ? o.invalid : a.startsWith("expedition_save_") || a.startsWith("host_request_") ? o.saveError : o.failure(a);
 }
 export {
-  w as C,
-  k as S,
+  k as C,
+  w as S,
   l as _,
   c as a,
   S as b,

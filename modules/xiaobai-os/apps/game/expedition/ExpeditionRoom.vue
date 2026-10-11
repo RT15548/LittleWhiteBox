@@ -4,6 +4,7 @@ import type { XiaobaiOsFrameBridge } from '../../../shell/app-src/frame-bridge.j
 import { useAppBack, useAppLayer } from '../../../shell/app-src/navigation/app-navigation.js';
 import { createExpeditionClient } from './client.js';
 import { createCampaignPlayback } from './presentation/playback.js';
+import { useDialogueWindow } from './presentation/dialogue-window.js';
 import { CAMPAIGN_RULES, loadoutIssue } from './campaign/rules.js';
 import { CAMPAIGN_COPY as c, FACT_COPY, campaignObjective } from './content/campaign-copy.js';
 import { WORLD_COPY as w } from './content/world-copy.js';
@@ -23,6 +24,7 @@ import ExpeditionWardrobe from './ExpeditionWardrobe.vue';
 import ConversationMeters from './presentation/ConversationMeters.vue';
 import JourneyEntry from './presentation/JourneyEntry.vue';
 import DialogueComposer from './presentation/DialogueComposer.vue';
+import DialogueStatus from './presentation/DialogueStatus.vue';
 import DialogueActionFeedback from './presentation/DialogueActionFeedback.vue';
 import ClothingFeedback from './presentation/ClothingFeedback.vue';
 import DialogueBubble from './performance/DialogueBubble.vue';
@@ -37,7 +39,7 @@ import './presentation/campaign.css';
 
 const props = defineProps<{ bridge: XiaobaiOsFrameBridge; chatIdentity: string; generationActive: boolean }>();
 const client = createExpeditionClient(props.bridge, props.chatIdentity), playback = createCampaignPlayback(client);
-const { view, notice, busy, blocked, talking, outgoing, conversationFailure } = client, { current: run, dirty } = playback;
+const { view, notice, busy, blocked, talking, outgoing, conversationProgress, conversationFailure } = client, { current: run, dirty } = playback;
 const paused = ref(true), sound = ref(false), renderingError = ref(false), epoch = ref(0), entered = ref(false);
 const performing = ref(false), transition = ref<CourtyardScene | null>(null);
 const entry = ref<InstanceType<typeof JourneyEntry> | null>(null);
@@ -48,7 +50,6 @@ const person = ref<Participant>('sanniang'), passage = ref<keyof typeof w.passag
 const drafts = ref<Partial<Record<Participant, string>>>({});
 const draft = computed({ get: () => drafts.value[person.value] ?? '', set: value => { drafts.value[person.value] = value; } });
 const queued = ref<{ person: Participant; text: string } | null>(null), preparingSend = ref(false);
-const reading = new Map<Participant, { top: number; latest: boolean }>();
 const transcript = ref<HTMLElement | null>(null);
 const noticePanel = ref<HTMLElement | null>(null);
 const field = ref<InstanceType<typeof ExplorationField> | null>(null);
@@ -74,6 +75,10 @@ const pendingLine = computed(() => queued.value?.person === person.value ? { ...
 const retrying = computed(() => pendingLine.value?.status === 'failed');
 const regeneratable = computed(() => run.value && latestReply(run.value)?.person === person.value);
 const freshReply = ref<string | null>(null);
+const { messages, hasOlder, hasNewer, expanded, pendingVisible, rememberReading, resetLatest, older, newer } = useDialogueWindow({
+    history: computed(() => greeting.value ? [greeting.value] : history.value), pending: computed(() => !!pendingLine.value),
+    person, campaignId: computed(() => run.value?.id), transcript, freshReply, talking,
+});
 const loadoutOptions = computed(() => run.value?.collection.map(relic => {
     const equipped = run.value!.equipped.includes(relic.id) ? run.value!.equipped.filter(id => id !== relic.id) : [...run.value!.equipped, relic.id];
     return { ...relic, equipped, issue: loadoutIssue(run.value!, equipped) };
@@ -162,7 +167,7 @@ async function send() {
     const recipient = person.value, text = draft.value.trim();
     if (blocked.value || preparingSend.value || !text || conclusion.value) { return; }
     drafts.value[recipient] = ''; queued.value = { person: recipient, text }; preparingSend.value = true;
-    reading.delete(recipient); freshReply.value = null;
+    resetLatest();
     try {
         if (!await playback.flush()) { return; }
         const request = client.talk(recipient, text);
@@ -172,7 +177,7 @@ async function send() {
 }
 async function regenerate() {
     if (blocked.value || preparingSend.value || !run.value) { return; }
-    reading.delete(person.value);
+    resetLatest();
     if (retrying.value && pendingLine.value) {
         const pending = pendingLine.value;
         const request = client.talk(pending.person, pending.text);
@@ -182,17 +187,6 @@ async function regenerate() {
         const latest = latestReply(run.value);
         if (latest?.person === person.value && await client.talk(person.value, latest.turn.player, latest.turn.id)) { playback.sync(); }
     }
-}
-function rememberReading() {
-    const element = transcript.value;
-    if (element) { reading.set(person.value, { top: element.scrollTop, latest: element.scrollHeight - element.clientHeight - element.scrollTop < 32 }); }
-}
-function scrollToReply() {
-    const log = transcript.value;
-    if (!log || reading.get(person.value)?.latest === false) { return; }
-    const latest = freshReply.value ? log.querySelector<HTMLElement>('[data-fresh-reply="true"]') : null;
-    log.scrollTop = latest && latest.offsetHeight > log.clientHeight
-        ? latest.getBoundingClientRect().top - log.getBoundingClientRect().top + log.scrollTop - 12 : log.scrollHeight;
 }
 async function recover() { if (await playback.recover()) { paused.value = true; epoch.value++; } }
 watch(() => props.generationActive, value => { if (value) { pause(); } });
@@ -208,24 +202,12 @@ watch(() => view.value?.data, (next, previous) => {
     if (!before.has('chapter_completed') && after.has('chapter_completed')) { panel.value = 'ending'; }
     else if (!before.has('captives_arrived') && after.has('captives_arrived')) { panel.value = 'arrival'; }
 });
-watch(() => run.value?.id, () => { drafts.value = {}; queued.value = null; reading.clear(); });
+watch(() => run.value?.id, () => { drafts.value = {}; queued.value = null; });
 watch([panel, person], () => { freshReply.value = null; });
 watch(notice, value => { if (value) { freshReply.value = null; } });
 watch(() => [person.value, history.value] as const, ([recipient, next], [priorRecipient, previous]) => {
     const latest = next.filter(turn => turn.kind === 'dialogue').at(-1);
     if (recipient === priorRecipient && panel.value === 'person' && latest && !previous.some(turn => turn.id === latest.id)) { freshReply.value = latest.id; }
-});
-watch([transcript, person], ([element, recipient]) => {
-    const position = reading.get(recipient);
-    if (element) { element.scrollTop = position && !position.latest ? position.top : element.scrollHeight; }
-}, { flush: 'post' });
-watch(transcript, (element, _previous, onCleanup) => {
-    if (!element) { return; }
-    const observer = new ResizeObserver(scrollToReply);
-    observer.observe(element); onCleanup(() => observer.disconnect());
-}, { flush: 'post' });
-watch(() => [history.value.length, talking.value, pendingLine.value, freshReply.value], async () => {
-    await nextTick(); scrollToReply();
 });
 onMounted(async () => { await client.read(); mounted = true; });
 onActivated(() => { if (mounted && !dirty.value) { void client.read(); } });
@@ -314,30 +296,36 @@ onBeforeUnmount(() => { playback.dispose(); client.dispose(); audio.dispose(); }
                         <ConversationMeters :key="person" :campaign="run" :person="person" :draft="draft" :memory-state="view?.memories?.[person]" :blocked="blocked" @retry-memory="client.retryMemory(person)" />
                         <button v-if="!endingPerson && run.pendingParley?.decision !== 'attack'" type="button" :disabled="!!run.pendingParley && blocked" @click="resume">{{ c.close }}</button>
                     </header>
-                    <div ref="transcript" class="ember-dialogue-scroll" role="log" aria-live="polite" @scroll="rememberReading">
-                        <DialogueBubble v-if="greeting" :person="person" :reply="greeting.reply" :performance="greeting.performance" :animate="false" />
-                        <template v-for="turn in history" :key="turn.id">
-                            <p v-if="turn.kind !== 'greeting'" class="ember-player-line"><small>{{ run.traveler.name }}</small>{{ turn.player }}</p>
-                            <p v-if="turn.issue === 'action_rejected' || turn.issue === 'clothing_rejected' || turn.issue === 'reply_invalid' || turn.issue === 'reply_incomplete'" class="ember-dialogue-issue">{{ dialogueCopy.issues[turn.issue] }}</p>
-                            <details v-if="turn.kind === 'receipt' && turn.issue === 'reply_invalid'"><summary>{{ dialogueCopy.rawReply }}</summary><p class="ember-prose">{{ turn.reply }}</p></details>
-                            <p v-else-if="turn.kind === 'receipt'" class="ember-prose">{{ turn.reply }}</p>
-                            <div v-else class="ember-npc-turn" :data-fresh-reply="freshReply === turn.id">
-                                <DialogueBubble :person="person" :reply="turn.reply" :performance="turn.performance" :animate="freshReply === turn.id" />
-                                <DialogueActionFeedback :campaign="run" :person="person" :turn="turn" />
-                                <ClothingFeedback v-if="turn.clothing" :clothing="turn.clothing" />
+                    <div ref="transcript" class="ember-dialogue-scroll" role="log" aria-live="polite" tabindex="-1" @scroll="rememberReading">
+                        <button v-if="hasOlder" type="button" class="ember-history-link" data-history="older" @click="older">{{ dialogueCopy.older }}</button>
+                        <template v-for="message in messages" :key="message.key">
+                            <p v-if="message.side === 'player'" class="ember-player-line" :data-message-key="message.key"><small>{{ run.traveler.name }}</small>{{ message.turn.player }}</p>
+                            <div v-else class="ember-npc-turn" :data-message-key="message.key" :data-fresh-reply="freshReply === message.turn.id">
+                                <p v-if="message.turn.issue === 'action_rejected' || message.turn.issue === 'clothing_rejected' || message.turn.issue === 'reply_invalid' || message.turn.issue === 'reply_incomplete'" class="ember-dialogue-issue">{{ dialogueCopy.issues[message.turn.issue] }}</p>
+                                <details v-if="message.turn.kind === 'receipt' && message.turn.issue === 'reply_invalid'"><summary>{{ dialogueCopy.rawReply }}</summary><p class="ember-prose">{{ message.turn.reply }}</p></details>
+                                <p v-else-if="message.turn.kind === 'receipt'" class="ember-prose">{{ message.turn.reply }}</p>
+                                <template v-else>
+                                    <DialogueBubble :person="person" :reply="message.turn.reply" :performance="message.turn.performance" :animate="freshReply === message.turn.id" />
+                                    <DialogueActionFeedback :campaign="run" :person="person" :turn="message.turn" />
+                                    <ClothingFeedback v-if="message.turn.clothing" :clothing="message.turn.clothing" />
+                                </template>
                             </div>
                         </template>
-                        <template v-if="pendingLine">
-                            <p class="ember-player-line" :aria-busy="pendingLine.status === 'sending'"><small>{{ run.traveler.name }}</small>{{ pendingLine.text }}</p>
+                        <template v-if="pendingVisible && pendingLine">
+                            <p class="ember-player-line" data-message-key="pending" :aria-busy="pendingLine.status === 'sending'"><small>{{ run.traveler.name }}</small>{{ pendingLine.text }}</p>
                             <p v-if="retrying" class="ember-dialogue-issue" role="status">{{ dialogueCopy.sendFailed }}</p>
                         </template>
-                        <div v-if="conversationFailure?.person === person && !history.some(turn => turn.id === conversationFailure?.actionId)" class="ember-dialogue-issue" role="status">
+                        <div v-if="!hasNewer && conversationFailure?.person === person && !history.some(turn => turn.id === conversationFailure?.actionId)" class="ember-dialogue-issue" role="status">
                             <p>{{ errorText(conversationFailure) }}</p>
                             <details v-if="conversationFailure.text"><summary>{{ c.receivedReply }}</summary><p class="ember-prose">{{ conversationFailure.text }}</p></details>
                             <button type="button" @click="client.dismissConversationFailure">{{ c.acknowledge }}</button>
                         </div>
-                        <p v-if="talking">{{ c.thinking }}</p>
+                        <nav v-if="expanded" class="ember-history-nav">
+                            <button v-if="hasNewer" type="button" class="ember-history-link" data-history="newer" @click="newer">{{ dialogueCopy.newer }}</button>
+                            <button type="button" class="ember-history-link" data-history="latest" @click="resetLatest">{{ dialogueCopy.latest }}</button>
+                        </nav>
                     </div>
+                    <DialogueStatus v-if="conversationProgress?.person === person" :phase="conversationProgress.phase" :started-at="conversationProgress.startedAt" />
                     <DialogueComposer v-model="draft" :blocked="blocked || preparingSend || generationActive" :talking="talking" :can-regenerate="!!regeneratable || retrying" :retrying="retrying" :conclusion="conclusion" @send="send" @regenerate="regenerate" @continue="continueDialogue" @cancel="client.cancelTalk" />
                 </template>
                 <template v-else-if="panel === 'passage'"><p class="ember-prose">{{ w.passages[passage].body }}</p></template>

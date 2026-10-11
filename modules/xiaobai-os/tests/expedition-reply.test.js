@@ -9,6 +9,7 @@ import { PARTICIPANT_IDS } from '../apps/game/expedition/content/participants.ts
 import { readPerformance } from '../apps/game/expedition/performance/catalog.ts';
 import { replayTurns } from '../apps/game/expedition/narrative/history.ts';
 import { decodeNarrativeReply } from '../apps/game/expedition/narrative/response.ts';
+import { segmentDialogue } from '../apps/game/expedition/performance/dialogue-text.ts';
 const campaign = () => createCampaign('reply-fixture', 7, 'blade', 'traveler', traveler);
 const reply = (action, affection = null) => ({ kind: 'dialogue', reply: 'fixture', action, affection });
 const input = (actionId = 'one') => ({ actionId, person: 'sanniang', text: 'question' });
@@ -25,6 +26,11 @@ test('each authored greeting appears once as assistant speech with a valid portr
     }
     const returned = campaign(); recordFact(returned, 'captives_arrived');
     for (const person of ['anian', 'kouzi']) assert.notEqual(greetingTurn(returned, person).reply, greetingTurn(c, person).reply);
+    for (const world of [c, returned]) for (const person of PARTICIPANT_IDS) {
+        const segments = segmentDialogue(greetingTurn(world, person).reply);
+        assert.deepEqual(segments.map(segment => segment.spoken), [false, true]);
+        assert.ok(segments.every(segment => segment.text.trim().length > 0));
+    }
     assert.deepEqual(returned.relationships, c.relationships);
 });
 
