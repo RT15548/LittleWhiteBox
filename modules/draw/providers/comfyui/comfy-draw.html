@@ -252,11 +252,22 @@ select.input { cursor: pointer; }
 .chain-section.expanded > .chain-section-content { display: block; }
 .chain-fields { display: grid; gap: 4px; margin-top: 8px; }
 .chain-field {
-    display: grid; grid-template-columns: minmax(120px, 0.6fr) 1fr; gap: 8px;
+    display: grid; grid-template-columns: minmax(120px, 0.6fr) 1fr auto; gap: 8px; align-items: start;
     padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px;
     background: var(--bg-tertiary); font-size: 11px; color: var(--text-secondary);
 }
-.chain-field code { font-size: 10px; color: var(--accent); word-break: break-all; }
+.chain-field code { font-size: 10px; color: var(--accent); word-break: break-all; padding-top: 4px; }
+.chain-field-desc {
+    width: 100%; min-height: 44px; resize: vertical; padding: 4px 6px;
+    border: 1px solid transparent; border-radius: 4px; background: transparent;
+    color: inherit; font: inherit; line-height: 1.45;
+}
+.chain-field-desc:focus { border-color: var(--border-focus); background: var(--bg-input); outline: none; }
+.chain-field-reset {
+    padding: 2px 6px; margin-top: 2px; border: 1px solid var(--border); border-radius: 4px;
+    background: transparent; color: var(--text-secondary); cursor: pointer; font-size: 11px;
+}
+.chain-field-reset:hover { border-color: var(--border-focus); color: var(--accent); }
 .preview-box {
     display: none; margin-top: 16px; text-align: center;
     background: var(--bg-input); border-radius: 10px; padding: 16px;

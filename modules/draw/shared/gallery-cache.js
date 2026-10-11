@@ -500,6 +500,7 @@ export async function exportPortablePreviewsForSlots(slotIds = []) {
             errorMessage: preview.errorMessage || null,
             characterPrompts: preview.characterPrompts || null,
             negativePrompt: preview.negativePrompt || null,
+            postPrompt: preview.postPrompt ?? null,
             timestamp: Number(preview.timestamp) || Date.now(),
         });
         selections.push({ slotId, selectedImgId: imgId });
@@ -597,6 +598,8 @@ export async function storePreview(opts) {
         errorMessage = null,
         characterPrompts = null,
         negativePrompt = null,
+        // 整图正向提示词追加位（ComfyUI 编译器拼在最后），落盘以便画廊编辑重生成时重建
+        postPrompt = null,
         source = '',
         chatId = '',
         characterName = '',
@@ -634,6 +637,7 @@ export async function storePreview(opts) {
                 errorMessage,
                 characterPrompts,
                 negativePrompt,
+                postPrompt,
                 timestamp: Date.now()
             });
             tx.oncomplete = () => {
@@ -668,6 +672,7 @@ export async function storeFailedPlaceholder(opts) {
         errorMessage: opts.errorMessage,
         characterPrompts: opts.characterPrompts ?? null,
         negativePrompt: opts.negativePrompt ?? null,
+        postPrompt: opts.postPrompt ?? null,
     });
 }
 

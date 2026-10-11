@@ -258,7 +258,9 @@ function normalizeCharacter(value, path, knownNameLookup, centerMode) {
     return {
         name: canonicalName || returnedName,
         danbooru: optionalString(value, 'danbooru', path),
-        type: canonicalName ? '' : type,
+        // 已录入角色也保留场景 type：type 承载画面方位等随图变化的信息，组装层
+        // （character-prompts.js）让非空场景 type 打头并顶替角色库的 type；为空时回落库 type。
+        type,
         appear: canonicalName ? '' : appear,
         costume: optionalString(value, 'costume', path),
         action: optionalString(value, 'action', path),
@@ -321,10 +323,14 @@ function normalizeImages(images, options = {}) {
         const chars = image.characters.map((character, characterIndex) => (
             normalizeCharacter(character, `${path}.characters[${characterIndex}]`, knownNameLookup, centerMode)
         ));
+        // 整图正向提示词的追加位：可选字段，编译器拼在所有角色之后（整条提示词最末尾）。
+        // 不进 REQUIRED_IMAGE_FIELDS、不影响 maxCharactersPerImage；未提交时不出键（无感知）。
+        const postPrompt = optionalString(image, 'post_prompt', path);
         return {
             index: imageIndex + 1,
             scene: requireString(image.scene, `${path}.scene`),
             chars,
+            ...(postPrompt ? { post_prompt: postPrompt } : {}),
             placement: {
                 mode: 'source',
                 insertAfter,

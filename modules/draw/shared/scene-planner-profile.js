@@ -6,12 +6,15 @@
 const CENTER_MODES = new Set(['none', 'grid', 'normalized']);
 const INTERACT_SYNTAXES = new Set(['plain', 'directional']);
 const UC_SCOPES = new Set(['global', 'character']);
+// append = 模型可提交 post_prompt（整图正向提示词追加位，编译器拼在最后）；none = 不暴露该字段。
+const POST_PROMPT_MODES = new Set(['none', 'append']);
 
 const DEFAULT_PROFILE = Object.freeze({
     imageModelName: '图像模型',
     centerMode: 'none',
     interactSyntax: 'plain',
     ucScope: 'global',
+    postPrompt: 'none',
 });
 
 export function normalizeScenePlannerProfile(profile) {
@@ -24,5 +27,6 @@ export function normalizeScenePlannerProfile(profile) {
             ? source.interactSyntax
             : DEFAULT_PROFILE.interactSyntax,
         ucScope: UC_SCOPES.has(source.ucScope) ? source.ucScope : DEFAULT_PROFILE.ucScope,
+        postPrompt: POST_PROMPT_MODES.has(source.postPrompt) ? source.postPrompt : DEFAULT_PROFILE.postPrompt,
     });
 }

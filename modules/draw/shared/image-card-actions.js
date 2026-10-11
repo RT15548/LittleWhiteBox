@@ -62,6 +62,7 @@ async function redraw(provider, container) {
         if (!tags?.trim()) throw new Error(DRAW_SLOT_COPY.emptyTags);
         return await generatePreparedChatImages(provider, { ctx, message, messageId, sourceText, swipeIndex,
             tasks: [{ scene: tags, characterPrompts: record?.characterPrompts ?? [],
+                post_prompt: record?.postPrompt ?? '',
                 negativePrompt: record?.negativePrompt ?? undefined,
                 placement: { mode: 'existing', slotId } }] });
     } finally {

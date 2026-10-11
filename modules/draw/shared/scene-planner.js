@@ -29,6 +29,8 @@ const EMPTY_PROMPT_CONFIG = {
     topSystem: '',
     tagGuideContent: '',
     sceneRules: '',
+    // submit_scene_plan 字段描述覆写（JSON 字符串：{ 字段路径: 文案 }），空串 = 全部用内置文案
+    fieldDescriptions: '',
 };
 
 function createSerializableSnapshot(value) {
@@ -152,6 +154,23 @@ function buildSessionLimitsLine(maxImages, maxCharactersPerImage, insertPointCou
     return clauses.length ? `本次提交数量约束：${clauses.join('；')}。` : '';
 }
 
+/** fieldDescriptions 存的是 JSON 字符串；坏 JSON / 非对象一律回落空覆写（全部用内置文案）。 */
+function parseFieldDescriptions(value) {
+    if (typeof value !== 'string' || !value.trim()) return {};
+    try {
+        const parsed = JSON.parse(value);
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+        const out = {};
+        for (const [key, text] of Object.entries(parsed)) {
+            if (typeof key === 'string' && key.trim() && typeof text === 'string') out[key] = text;
+        }
+        return out;
+    } catch (error) {
+        console.warn('[Scene Planner] fieldDescriptions 解析失败，已忽略自定义字段描述:', error);
+        return {};
+    }
+}
+
 function resolveRequestedMaxImages(maxImages) {
     const requested = Number(maxImages) > 0 ? Math.floor(Number(maxImages)) : 0;
     return Math.max(0, requested);
@@ -212,6 +231,7 @@ async function buildScenePlannerRequest(options = {}) {
         absoluteMaxCharactersPerImage,
     );
     const promptConfig = getEffectivePromptConfig(customPrompts, promptDefaults);
+    const fieldDescriptions = parseFieldDescriptions(promptConfig.fieldDescriptions);
     const runtime = await resolveExpansionRuntime(options.expansionOptions);
     const slots = createPromptSlots(['worldInfo', 'characterInfo', 'lastMessage']);
 
@@ -286,6 +306,7 @@ async function buildScenePlannerRequest(options = {}) {
                 maxCharactersPerImage: effectiveMaxCharactersPerImage,
                 insertPointCount: sceneSource.points.length,
                 profile,
+                descriptions: fieldDescriptions,
             }),
             validationContext: {
                 sceneSource,
