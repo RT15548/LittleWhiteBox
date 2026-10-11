@@ -1,11 +1,10 @@
 import { computed, nextTick, reactive, watch, type Ref } from 'vue';
 import type { ConversationTurn } from '../campaign/types.js';
 import type { Participant } from '../content/participants.js';
-import { CONVERSATION_WINDOW } from '../../../../shell/conversation-window.js';
+import { CONVERSATION_WINDOW, conversationRange, type ConversationSelection } from '../../../../shell/conversation-window.js';
 
 const { recent: RECENT_MESSAGES, maximum: BROWSE_MESSAGES } = CONVERSATION_WINDOW;
-interface Range { start: number; end: number }
-interface Reading { range: Range | null; top: number; latest: boolean }
+interface Reading { range: ConversationSelection | null; top: number; latest: boolean }
 interface Message { key: string; side: 'player' | 'npc'; turn: ConversationTurn }
 
 /** Presentation only: saved turns and model context never pass through this window. */
@@ -20,11 +19,7 @@ export function useDialogueWindow(options: {
     const greeting = computed(() => history.value[0]?.kind === 'greeting' ? 1 : 0);
     const savedCount = computed(() => history.value.length * 2 - greeting.value);
     const count = computed(() => savedCount.value + Number(pending.value));
-    const range = computed<Range>(() => {
-        const saved = reading.get(person.value)?.range;
-        const end = Math.min(saved?.end ?? count.value, count.value);
-        return { start: Math.max(0, Math.min(saved?.start ?? end - RECENT_MESSAGES, end - 1)), end };
-    });
+    const range = computed(() => conversationRange(reading.get(person.value)?.range, count.value));
     const messages = computed<Message[]>(() => {
         const rows: Message[] = [];
         for (let i = range.value.start; i < Math.min(range.value.end, savedCount.value); i++) {
@@ -42,6 +37,19 @@ export function useDialogueWindow(options: {
 
     function restoreFocus(focused: Element | null) {
         if (focused && !focused.isConnected) { transcript.value?.focus({ preventScroll: true }); }
+    }
+    function readingAnchor(log: HTMLElement, kept: Set<string>) {
+        const top = log.getBoundingClientRect().top;
+        const row = [...log.querySelectorAll<HTMLElement>('[data-message-key]')]
+            .find(row => kept.has(row.dataset.messageKey!) && row.getBoundingClientRect().bottom > top);
+        return row ? { key: row.dataset.messageKey, offset: row.getBoundingClientRect().top - top } : null;
+    }
+    function restoreAnchor(log: HTMLElement, anchor: ReturnType<typeof readingAnchor>) {
+        const row = anchor && [...log.querySelectorAll<HTMLElement>('[data-message-key]')]
+            .find(row => row.dataset.messageKey === anchor.key);
+        if (!row || !anchor) { return false; }
+        log.scrollTop += row.getBoundingClientRect().top - log.getBoundingClientRect().top - anchor.offset;
+        return true;
     }
 
     function scrollToReply() {
@@ -62,7 +70,8 @@ export function useDialogueWindow(options: {
         if (!log || shifting) { return; }
         const latest = !hasNewer.value && log.scrollHeight - log.clientHeight - log.scrollTop < 32;
         if (latest && expanded.value) { resetLatest(); return; }
-        reading.set(person.value, { top: log.scrollTop, latest, range: latest ? null : { ...range.value } });
+        reading.set(person.value, { top: log.scrollTop, latest,
+            range: latest ? null : { start: range.value.start, end: hasNewer.value ? range.value.end : null } });
     }
     async function shift(direction: 'older' | 'newer') {
         const log = transcript.value;
@@ -79,21 +88,16 @@ export function useDialogueWindow(options: {
             const position = range.value.start + index;
             return position >= next.start && position < next.end;
         }).map(row => row.key));
-        const top = log.getBoundingClientRect().top;
-        const anchor = [...log.querySelectorAll<HTMLElement>('[data-message-key]')]
-            .find(row => kept.has(row.dataset.messageKey!) && row.getBoundingClientRect().bottom > top);
-        const offset = anchor ? anchor.getBoundingClientRect().top - top : 0;
+        const anchor = readingAnchor(log, kept);
         const focused = log.contains(document.activeElement) ? document.activeElement : null;
         const recipient = person.value, version = ++revision;
         shifting = true;
-        reading.set(recipient, { range: next, top: log.scrollTop, latest: false });
+        const selected = { start: next.start, end: next.end === count.value ? null : next.end };
+        reading.set(recipient, { range: selected, top: log.scrollTop, latest: false });
         await nextTick();
         if (version !== revision || person.value !== recipient || transcript.value !== log) { return; }
-        const restored = anchor && [...log.querySelectorAll<HTMLElement>('[data-message-key]')]
-            .find(row => row.dataset.messageKey === anchor.dataset.messageKey);
-        if (restored) { log.scrollTop += restored.getBoundingClientRect().top - log.getBoundingClientRect().top - offset; }
-        else { log.scrollTop = direction === 'older' ? 0 : log.scrollHeight; }
-        reading.set(recipient, { range: next, top: log.scrollTop, latest: false });
+        if (!restoreAnchor(log, anchor)) { log.scrollTop = direction === 'older' ? 0 : log.scrollHeight; }
+        reading.set(recipient, { range: selected, top: log.scrollTop, latest: false });
         shifting = false;
         restoreFocus(focused);
     }
@@ -108,6 +112,16 @@ export function useDialogueWindow(options: {
         const observer = new ResizeObserver(scrollToReply);
         observer.observe(log); onCleanup(() => observer.disconnect());
     }, { flush: 'post' });
+    watch(messages, async rows => {
+        const log = transcript.value, recipient = person.value, version = revision;
+        const position = reading.get(recipient);
+        if (!log || shifting || !position || position.latest) { return; }
+        const anchor = readingAnchor(log, new Set(rows.map(row => row.key)));
+        await nextTick();
+        if (version !== revision || transcript.value !== log || reading.get(recipient) !== position) { return; }
+        restoreAnchor(log, anchor);
+        position.top = log.scrollTop;
+    });
     watch([history, pending, talking, freshReply], async () => { await nextTick(); scrollToReply(); });
     return { messages, hasOlder, hasNewer, expanded, pendingVisible, rememberReading, resetLatest,
         older: () => shift('older'), newer: () => shift('newer') };

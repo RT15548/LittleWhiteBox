@@ -142,6 +142,29 @@ test('administrator keeps a bounded reading window and projects submissions befo
         assert.equal(rows().length, 10); assert.equal(keys().at(-1), 'pending');
         accept(); releaseSend(); await settle(); assert.equal(rows().length, 10);
     });
+    for (const pages of [0, 1, 2]) {
+        await t.test(`reading near the tail after ${pages} history expansions keeps incoming replies mounted without auto-scrolling`, async () => {
+            await mount(); await submit('read while waiting');
+            for (let i = 0; i < pages; i++) { await navigate('older'); }
+            const anchor = keys().at(-3);
+            log().scrollTop = 120; log().dispatchEvent(new window.Event('scroll')); await settle();
+            accept(); await settle(); releaseSend(); await settle();
+            assert.ok(keys().includes(anchor));
+            assert.equal(keys().at(-1), `${submission.id}:assistant`);
+            assert.equal(rows().length, Math.min(11 + pages * 10, 30));
+            assert.equal(log().scrollTop, 120);
+            assert.equal(root.querySelector('[data-history=newer]'), null);
+            state.live = { ...state.live, text: 'incoming reply', phase: 'replying' }; emit(); await settle();
+            assert.equal(log().scrollTop, 120);
+            assert.equal(keys().at(-1), `${submission.id}:assistant`);
+            state.live = null; data.turns.at(-1).assistant = 'finished reply'; data.turns.at(-1).status = 'finished';
+            data.revision++; publish(); await settle();
+            assert.equal(log().scrollTop, 120);
+            assert.equal(root.querySelector('[data-history=newer]'), null);
+            log().scrollTop = 4700; log().dispatchEvent(new window.Event('scroll')); await settle();
+            assert.equal(rows().length, 10);
+        });
+    }
     for (const direction of ['older', 'newer']) {
         await t.test(`acceptance preserves an in-flight ${direction} navigation, without another click or adopting its stale page`, async () => {
             await mount(); await submit('navigation in progress'); await navigate('older');
@@ -151,7 +174,11 @@ test('administrator keeps a bounded reading window and projects submissions befo
             assert.deepEqual(keys(), reading);
             accept(); await settle(); releaseSend(); await settle();
             assert.equal(rows().length, 30);
-            assert.equal(keys()[0], direction === 'older' ? 'history-85:assistant' : 'history-80:assistant');
+            assert.equal(keys()[0], direction === 'older' ? 'history-86:user' : 'history-80:assistant');
+            if (direction === 'older') {
+                assert.equal(keys().at(-1), `${submission.id}:assistant`);
+                assert.equal(root.querySelector('[data-history=newer]'), null);
+            }
             const destination = keys();
             releasePage(); await settle();
             assert.deepEqual(keys(), destination);

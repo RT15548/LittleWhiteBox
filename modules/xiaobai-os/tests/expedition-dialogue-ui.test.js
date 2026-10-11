@@ -207,6 +207,9 @@ test('dialogue keeps drafts and reading position; failed meters never remove the
         log.scrollTop = 75; log.dispatchEvent(new window.Event('scroll'));
         release(); await settle();
         assert.equal(log.scrollTop, 75);
+        const latest = state.data.active.conversations.sanniang.at(-1);
+        assert.ok(log.querySelector(`[data-message-key="${latest.id}:npc"]`));
+        assert.equal(log.querySelector('[data-history=newer]'), null);
     });
 
     await t.test('long history is a bounded message window; browsing never edits saved conversations or memories', async st => {
@@ -305,6 +308,29 @@ test('dialogue keeps drafts and reading position; failed meters never remove the
         await navigate('older');
         state.data.active.id = 'another-campaign'; state.data.revision++; await publish();
         assert.equal(rows().length, 10);
+        for (const pages of [0, 1, 2]) {
+            await st.test(`reading near the latest reply after ${pages} history expansions does not hide arrivals`, async () => {
+                editDraft('read while waiting'); await settle();
+                root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true })); await settle();
+                for (let i = 0; i < pages; i++) await navigate('older');
+                const anchor = keys().at(-3);
+                log.scrollTop = 220; log.dispatchEvent(new window.Event('scroll')); await settle();
+                release(); await settle();
+                assert.ok(keys().includes(anchor));
+                assert.equal(keys().at(-1), `${state.data.active.conversations.sanniang.at(-1).id}:npc`);
+                assert.equal(root.querySelector('[data-history=newer]'), null);
+                assert.equal(rows().length, Math.min(11 + pages * 10, 30));
+                assert.equal(log.scrollTop, 220);
+                root.querySelector('[data-regenerate]').click(); await settle();
+                log.scrollTop = 180; log.dispatchEvent(new window.Event('scroll')); await settle();
+                release(); await settle();
+                assert.equal(keys().at(-1), `${state.data.active.conversations.sanniang.at(-1).id}:npc`);
+                assert.equal(root.querySelector('[data-history=newer]'), null);
+                assert.equal(log.scrollTop, 180);
+                log.scrollTop = 4700; log.dispatchEvent(new window.Event('scroll')); await settle();
+                assert.equal(rows().length, 10);
+            });
+        }
     });
 
     await t.test('speech styling preserves reply text and treats model markup as text, not HTML', async () => {

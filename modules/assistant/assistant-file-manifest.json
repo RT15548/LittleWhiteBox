@@ -8483,7 +8483,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/administrator/ui/conversation-window.ts",
       "relativePath": "modules/xiaobai-os/apps/administrator/ui/conversation-window.ts",
       "extension": ".ts",
-      "sizeBytes": 7727
+      "sizeBytes": 8047
     },
     {
       "source": "littlewhitebox",
@@ -10394,7 +10394,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/game/expedition/presentation/dialogue-window.ts",
       "relativePath": "modules/xiaobai-os/apps/game/expedition/presentation/dialogue-window.ts",
       "extension": ".ts",
-      "sizeBytes": 6832
+      "sizeBytes": 7688
     },
     {
       "source": "littlewhitebox",
@@ -14167,7 +14167,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/docs/administrator-app-target-design.md",
       "relativePath": "modules/xiaobai-os/docs/administrator-app-target-design.md",
       "extension": ".md",
-      "sizeBytes": 40498
+      "sizeBytes": 40777
     },
     {
       "source": "littlewhitebox",
@@ -15546,7 +15546,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/shell/conversation-window.ts",
       "relativePath": "modules/xiaobai-os/shell/conversation-window.ts",
       "extension": ".ts",
-      "sizeBytes": 172
+      "sizeBytes": 736
     },
     {
       "source": "littlewhitebox",
@@ -15749,7 +15749,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/tests/administrator-window.test.js",
       "relativePath": "modules/xiaobai-os/tests/administrator-window.test.js",
       "extension": ".js",
-      "sizeBytes": 17735
+      "sizeBytes": 19479
     },
     {
       "source": "littlewhitebox",
@@ -16099,7 +16099,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/tests/expedition-dialogue-ui.test.js",
       "relativePath": "modules/xiaobai-os/tests/expedition-dialogue-ui.test.js",
       "extension": ".js",
-      "sizeBytes": 43426
+      "sizeBytes": 45270
     },
     {
       "source": "littlewhitebox",
