@@ -10,7 +10,6 @@ import { getRequestHeaders, syncMesToSwipe } from "../../../../../../../../scrip
 import { extensionFolderPath } from "../../../../core/constants.js";
 import { SERVER_PLUGIN_BASE, SERVER_PLUGIN_VERSION } from '../../../../shared/server-plugin/identity.js';
 import { SERVER_PLUGIN_COPY } from '../../../../shared/server-plugin/copy.js';
-import { SERVER_PLUGIN_INSTALLATION } from '../../../../shared/server-plugin/installation.js';
 import { DRAW_BACKEND_COPY, createDrawBackendStatusCopy } from '../../shared/draw-backend-copy.js';
 import { createModuleEvents, event_types } from "../../../../core/event-manager.js";
 import { NovelDrawStorage } from "../../../../core/server-storage.js";
@@ -3057,7 +3056,6 @@ async function sendInitData() {
         settings.autoLearnCharacters, settings.advancedMode, settings.promptPresets?.length);
     const buildPayload = (stats = { count: 0, sizeMB: 0 }, gallerySummary = {}) => ({
         type: 'INIT_DATA',
-        backendInstallation: SERVER_PLUGIN_INSTALLATION,
         backendCopy: DRAW_BACKEND_COPY,
         settings: {
             enabled: moduleInitialized,

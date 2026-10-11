@@ -19,7 +19,7 @@ import { getContext } from "../../../../../../../extensions.js";
 import { saveBase64AsFile } from "../../../../../../../utils.js";
 import { getRequestHeaders, syncMesToSwipe } from "../../../../../../../../script.js";
 import { extensionFolderPath } from "../../../../core/constants.js";
-import { DRAW_BACKEND_COPY } from '../../shared/draw-backend-copy.js';
+import { mountServerPluginGuide } from '../../../../shared/server-plugin/installation-guide.js';
 import { createModuleEvents, event_types } from "../../../../core/event-manager.js";
 import { SdDrawStorage } from "../../../../core/server-storage.js";
 import { generateAndParseScenePlan, prepareScenePlannerInput } from "../../shared/scene-planner.js";
@@ -893,6 +893,11 @@ function querySettingsAll(selector) {
 function bindOverlayEvents() {
     if (!overlayElement || eventsBound || !getSettingsDocument()) return;
     eventsBound = true;
+    const backendGuide = getSettingsElement('sd-backend-guide');
+    mountServerPluginGuide(backendGuide, 'sd-backend');
+    querySettings('#sd-use-image-backend-jobs').addEventListener('change', (event) => {
+        backendGuide.classList.toggle('hidden', !event.currentTarget.checked);
+    });
     querySettings('#sd-draw-close')?.addEventListener('click', hideSettings);
     getSettingsDocument()?.addEventListener('click', (event) => {
         const button = event.target?.closest?.('[data-sd-view]');
@@ -1319,8 +1324,7 @@ function fillForm(settings) {
     setValue('sd-draw-auth', settings.auth);
     setValue('sd-draw-timeout', settings.timeout);
     setChecked('sd-use-image-backend-jobs', settings.useImageBackendJobs === true);
-    const backendRequirement = getSettingsElement('sd-backend-requirement');
-    if (backendRequirement) backendRequirement.textContent = DRAW_BACKEND_COPY.requirement;
+    getSettingsElement('sd-backend-guide').classList.toggle('hidden', settings.useImageBackendJobs !== true);
     setValue('sd-draw-steps', preset.steps ?? '');
     setValue('sd-draw-cfg', preset.cfg_scale ?? '');
     setValue('sd-draw-seed', Number.isFinite(Number(preset.seed)) ? preset.seed : -1);

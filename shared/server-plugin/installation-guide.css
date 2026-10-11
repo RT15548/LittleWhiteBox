@@ -1,0 +1,46 @@
+.xb-web-guide-button {
+    min-height: 36px;
+    flex: none;
+    padding: 6px 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text-primary);
+    background: var(--bg-tertiary);
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+}
+.xb-web-guide-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.xb-web-install-dialog {
+    box-sizing: border-box;
+    width: min(560px, calc(100vw - 24px));
+    max-height: calc(100vh - 32px);
+    margin: auto;
+    padding: 20px;
+    overflow: auto;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    color: var(--text-primary);
+    background: var(--bg-secondary);
+    font: inherit;
+    font-size: 14px;
+    line-height: 1.6;
+    text-align: left;
+}
+.xb-web-install-dialog::backdrop { background: rgb(0 0 0 / .45); }
+.xb-web-install-dialog header { display: flex; align-items: flex-start; gap: 12px; }
+.xb-web-install-dialog h3 { flex: 1; margin: 0; font-size: 16px; overflow-wrap: anywhere; }
+.xb-web-install-dialog ol { margin: 16px 0 0; padding-left: 22px; }
+.xb-web-install-dialog li + li { margin-top: 12px; }
+.xb-web-install-dialog code {
+    display: block;
+    margin-top: 6px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    color: var(--text-primary);
+    background: var(--bg-tertiary);
+    font-size: 12px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    user-select: text;
+}

@@ -166,9 +166,6 @@ select.input { cursor: pointer; }
 .nd-status-dot.checking { background: #f0b429; }
 .nd-status-txt { font-size: 13px; color: var(--text-primary); flex: 1 1 auto; }
 .nd-backend-status-row .btn-sm { margin-left: auto; }
-.nd-guide-steps { margin: 6px 0 0; padding-left: 20px; font-size: 12px; color: var(--text-secondary, #aaa); line-height: 1.7; }
-.nd-guide-steps code { display: block; white-space: pre-wrap; overflow-wrap: anywhere; background: rgba(255,255,255,0.08); padding: 4px 6px; border-radius: 4px; font-size: 11px; }
-.nd-guide-steps li + li { margin-top: 8px; }
 .btn-sm { padding: 6px 10px; min-height: 32px; font-size: 12px; }
 .btn.saving { pointer-events: none; opacity: 0.7; }
 .btn.save-success { background: var(--success) !important; border-color: var(--success) !important; color: #fff !important; pointer-events: none; }
@@ -760,18 +757,14 @@ select.input { cursor: pointer; }
                         <div id="nd_backend_options" class="hidden">
                             <label class="check-row" style="margin-top:8px;"><input type="checkbox" id="nd_insecure_tls"> 忽略证书验证（连接自签证书端点时勾选）</label>
                             <label class="check-row" style="margin-top:8px;"><input type="checkbox" id="nd_use_backend_jobs"> 使用小白X后台任务（场景分析 + 批量出图）</label>
-                            <p class="form-hint"><span id="nd_backend_requirement"></span>开启后，楼层配图的场景分析与批量出图都由酒馆服务器接管。看到“提交后台”完成后，刷新、断网或关闭浏览器都可自动接回。非酒馆 Agent 渠道的 Base URL 必须能从酒馆服务器访问，其中 127.0.0.1 指酒馆服务器本机；失败不会退回浏览器执行。</p>
 
                             <!-- 后端插件状态栏（仅后端发送模式显示） -->
                             <div id="nd_backend_panel" class="nd-backend-panel hidden">
                                 <div class="nd-backend-status-row">
                                     <span id="nd_backend_dot" class="nd-status-dot"></span>
                                     <span id="nd_backend_status_text" class="nd-status-txt"></span>
+                                    <span id="nd_backend_guide"></span>
                                     <button id="nd_backend_recheck" class="btn btn-sm" type="button"><i class="fa-solid fa-rotate"></i> 重新检测</button>
-                                </div>
-                                <div id="nd_backend_guide" class="nd-backend-guide hidden">
-                                    <p id="nd_backend_guide_intro" class="form-hint" style="margin-top:4px;"></p>
-                                    <ol id="nd_backend_install_steps" class="nd-guide-steps"></ol>
                                 </div>
                             </div>
                         </div>
@@ -1619,10 +1612,8 @@ function requestBackendPluginCheck() {
 function setBackendStatusUI(state, text) {
     const dot = $('nd_backend_dot');
     const txt = $('nd_backend_status_text');
-    const guide = $('nd_backend_guide');
     if (dot) dot.className = 'nd-status-dot ' + (state === 'ok' ? 'ok' : state === 'bad' ? 'bad' : 'checking');
     if (txt) txt.textContent = text || '';
-    if (guide) guide.classList.toggle('hidden', state !== 'bad');
 }
 
 function isVersionAtLeast(version, minimum) {
@@ -2944,18 +2935,6 @@ window.addEventListener('message', event => {
     switch (data.type) {
         case 'INIT_DATA':
             backendCopy = data.backendCopy;
-            $('nd_backend_requirement').textContent = backendCopy.requirement;
-            $('nd_backend_guide_intro').textContent = data.backendInstallation.open;
-            $('nd_backend_install_steps').replaceChildren(...data.backendInstallation.steps.map(step => {
-                const item = document.createElement('li');
-                item.textContent = step.text;
-                if (step.code) {
-                    const code = document.createElement('code');
-                    code.textContent = step.code;
-                    item.append(code);
-                }
-                return item;
-            }));
             console.log('[ND-UI] INIT_DATA received — autoLearn=%s, advMode=%s, promptPresets:',
                 data.settings?.autoLearnCharacters, data.settings?.advancedMode,
                 JSON.stringify((data.settings?.promptPresets || []).map(p => p.name)));
@@ -3675,6 +3654,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // ═══════════════════════════════════════════════════════════════════════
     postToParent({ type: 'FRAME_READY' });
 });
+</script>
+<script type="module">
+import { mountServerPluginGuide } from '../../../../shared/server-plugin/installation-guide.js';
+mountServerPluginGuide(document.getElementById('nd_backend_guide'), 'nd-backend');
 </script>
 </body>
 </html>
