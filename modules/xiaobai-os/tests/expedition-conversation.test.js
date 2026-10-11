@@ -17,6 +17,7 @@ import { DESTINATIONS } from '../apps/game/expedition/content/people-places.ts';
 import { WORLD_COPY } from '../apps/game/expedition/content/world-copy.ts';
 import { OUTFIT_COPY, WEAPON_COPY } from '../apps/game/expedition/copy.ts';
 import { movePerson, tickPeople } from '../apps/game/expedition/world/people.ts';
+import { TRAVELER_AGES, TRAVELER_AGE_IDS } from '../apps/game/expedition/content/traveler-ages.ts';
 import { replayTurns, historyForSummary } from '../apps/game/expedition/narrative/history.ts';
 const campaign = () => createCampaign('chapter', 7, 'blade', 'traveler', traveler);
 const signal = () => new AbortController().signal;
@@ -24,12 +25,14 @@ const turn = (id, player = 'question', reply = 'answer', action = null) => ({ id
 const agentFor = run => ({ loadConfig: async () => ({}), openSession: async () => ({ providerConfig: { model: 'fixture' }, run }) });
 
 test('both residents and guards receive the saved traveler rather than a host persona', async () => {
-    for (const gender of ['male', 'female']) {
-        const c = campaign(); c.traveler = { name: '江雪', gender };
+    for (const gender of ['male', 'female']) for (const appearanceAge of [undefined, ...TRAVELER_AGE_IDS]) {
+        const c = campaign(); c.traveler = { name: '江雪', gender, ...appearanceAge ? { appearanceAge } : {} };
         for (const person of ['sanniang', 'bajin']) {
             const prompt = buildConversationPrompt(c, person, 'hello', await loadCanon(person, signal()));
             const data = inspectNarrativePrompt(prompt);
-            assert.deepEqual(data.player, { ...c.traveler, outfit: OUTFIT_COPY[c.outfit].detail, equipment: WEAPON_COPY[c.weapon].equipment });
+            assert.deepEqual(data.player, { name: '江雪', gender, adult: true,
+                ...appearanceAge ? { appearanceAge: TRAVELER_AGES[appearanceAge] } : {},
+                outfit: OUTFIT_COPY[c.outfit].detail, equipment: WEAPON_COPY[c.weapon].equipment });
         }
     }
 });
@@ -54,7 +57,8 @@ test('current equipment and movement reach the request without becoming player i
     assert.deepEqual(context().story.movement, { mode: 'idle', destination: null });
     c.weapon = 'bow'; c.outfit = 'ranger';
     const before = structuredClone(c), data = context();
-    assert.deepEqual(data.player, { ...c.traveler, outfit: OUTFIT_COPY.ranger.detail, equipment: WEAPON_COPY.bow.equipment });
+    assert.deepEqual(data.player, { ...c.traveler, adult: true, appearanceAge: TRAVELER_AGES[c.traveler.appearanceAge],
+        outfit: OUTFIT_COPY.ranger.detail, equipment: WEAPON_COPY.bow.equipment });
     assert.equal(data.story.stage.name, undefined); assert.deepEqual(c, before);
 });
 
@@ -257,7 +261,8 @@ test('long history compresses before dialogue, retains five full exchanges and c
         if (request.maxTokens === undefined) {
             summaries++;
             const source = JSON.parse(request.messages[0].content);
-            assert.equal(source.person, WORLD_COPY.people.sanniang); assert.deepEqual(source.player, c.traveler);
+            assert.equal(source.person, WORLD_COPY.people.sanniang);
+            assert.deepEqual(source.player, { ...c.traveler, adult: true, appearanceAge: TRAVELER_AGES[c.traveler.appearanceAge] });
             assert.deepEqual(source.events.map(event => event.id), ['captives_released']);
             assert.equal(inspectHistoryMessage(source.conversation[0]).scene.place, WORLD_COPY.scenes.cells);
             return { text: 'Retained attributable promise and preference.', finishReason: 'STOP' };

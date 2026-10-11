@@ -394,6 +394,8 @@ var A = [
   back: "返回",
   enter: "启程",
   title: "返回标题",
+  age: "年龄",
+  agePlaceholder: "选择年龄",
   nextChapter: "第二章",
   forthcoming: "待续",
   chooseChapter: "选择篇章",

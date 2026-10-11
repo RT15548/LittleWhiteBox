@@ -11,6 +11,7 @@ import { build } from 'esbuild';
 import { createCampaign } from '../apps/game/expedition/campaign/rules.ts';
 import { advanceExpedition, emptyExpedition } from '../apps/game/expedition/domain.ts';
 import { DIALOGUE_COPY } from '../apps/game/expedition/content/dialogue-copy.ts';
+import { CLOTHING_COPY, INITIAL_CLOTHING } from '../apps/game/expedition/content/clothing.ts';
 import { CAMPAIGN_COPY } from '../apps/game/expedition/content/campaign-copy.ts';
 import { JOURNEY_COPY } from '../apps/game/expedition/content/journey-copy.ts';
 import { COURTYARD } from '../apps/game/expedition/content/courtyard.ts';
@@ -67,14 +68,14 @@ test('dialogue keeps drafts and reading position; failed meters never remove the
     const campaign = createCampaign('fixture', 7, 'blade', 'traveler', traveler); campaign.location.position = { ...campaign.people.sanniang.position };
     campaign.people.laobai.position = { ...campaign.location.position };
     const state = { data: { ...emptyExpedition(), active: campaign }, fileRevision: 0, balance: 0, ready: true, pending: false, writeState: 'ready', conversation: null, replyFailure: null, memories: {} };
-    let notify, retriedMemory, replyAction = null, beforeAct = async () => {}, beforeTalk = async () => {};
+    let notify, retriedMemory, replyAction = null, replyClothing, beforeAct = async () => {}, beforeTalk = async () => {};
     const bridge = { subscribe(listener) { notify = listener; return () => {}; }, async request(type, payload) {
         if (type === 'game/expedition/retry-memory') { retriedMemory = payload.person; state.memories[payload.person] = { status: 'running' }; }
         if (type === 'game/expedition/act') { await beforeAct(payload); state.data = advanceExpedition(state.data, payload.command, payload.actionId, 7); }
         if (type === 'game/expedition/talk' || type === 'game/expedition/regenerate') {
             await beforeTalk(payload);
             if (payload.turnId) state.data.active = rewindReply(state.data.active, payload.person, payload.turnId);
-            applyReply(state.data.active, { ...payload, regenerate: payload.turnId }, { kind: 'dialogue', reply: payload.actionId, action: replyAction, affection: 'up' });
+            applyReply(state.data.active, { ...payload, regenerate: payload.turnId }, { kind: 'dialogue', reply: payload.actionId, action: replyAction, affection: 'up', clothing: replyClothing });
             state.data.revision++;
         }
         return { result: structuredClone(state) };
@@ -90,6 +91,12 @@ test('dialogue keeps drafts and reading position; failed meters never remove the
     assert.equal(root.querySelector('[role=alertdialog]'), null);
     assert.ok(root.querySelector('textarea'));
     assert.equal(root.querySelector('[data-choice]'), null);
+
+    // Clothing belongs to saved game state; unavailable remote character cards cannot hide it.
+    root.querySelector(`[aria-label="${CLOTHING_COPY.title}"]`).click(); await settle();
+    assert.equal(root.querySelectorAll('.ember-clothing-popover dd').length, 6);
+    assert.equal(root.querySelector('.ember-clothing-popover [role=status]'), null);
+    root.querySelector('.ember-clothing-popover button').click(); await settle();
 
     const editDraft = text => { const input = root.querySelector('textarea'); input.value = text; input.dispatchEvent(new window.Event('input')); };
     const leave = async () => { [...root.querySelector('[role=dialog]').querySelectorAll('button')].find(b => b.textContent === CAMPAIGN_COPY.close).click(); await settle(); };
@@ -129,6 +136,7 @@ test('dialogue keeps drafts and reading position; failed meters never remove the
         const retry = button(DIALOGUE_COPY.memoryRetry); assert.ok(retry); retry.click(); await settle();
         assert.equal(retriedMemory, 'sanniang'); assert.equal(state.memories.sanniang.status, 'running');
         assert.equal(button(DIALOGUE_COPY.memoryRetry), undefined);
+        assert.equal(root.querySelector('.ember-meter-popover [role=status]'), null);
         assert.deepEqual(state.data.active.conversations, history);
         assert.equal(root.querySelector('textarea').value, 'I will ask Sanniang about her work.');
         state.memories = {}; notify({ type: 'game/expedition/state', payload: { chatIdentity: 'fixture', state: structuredClone(state) } }); await settle();
@@ -161,6 +169,33 @@ test('dialogue keeps drafts and reading position; failed meters never remove the
         beforeTalk = async () => {};
     });
 
+    await t.test('sending after a tall reply reveals the pending input immediately without hijacking later manual scrolling', async st => {
+        const baseline = structuredClone(state.data);
+        editDraft('first message'); await settle();
+        root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true })); await settle();
+        const log = root.querySelector('[role=log]'), reply = root.querySelector('[data-fresh-reply=true]');
+        Object.defineProperties(log, { scrollHeight: { value: 1500, configurable: true }, clientHeight: { value: 300, configurable: true } });
+        Object.defineProperty(reply, 'offsetHeight', { value: 800, configurable: true });
+        log.getBoundingClientRect = () => ({ top: 0 }); reply.getBoundingClientRect = () => ({ top: 0 });
+        log.scrollTop = 50; log.dispatchEvent(new window.Event('scroll'));
+        let release;
+        st.after(async () => {
+            release?.(); await settle(); beforeTalk = async () => {};
+            delete log.scrollHeight; delete log.clientHeight; delete log.getBoundingClientRect;
+            delete reply.offsetHeight; delete reply.getBoundingClientRect;
+            state.data = { ...baseline, revision: state.data.revision + 1 };
+            notify({ type: 'game/expedition/state', payload: { chatIdentity: 'fixture', state: structuredClone(state) } }); await settle();
+        });
+        beforeTalk = () => new Promise(resolve => { release = resolve; });
+        editDraft('next message'); await settle();
+        root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true })); await settle();
+        assert.equal(root.querySelector('.ember-player-line[aria-busy=true]').textContent, traveler.name + 'next message');
+        assert.equal(log.scrollTop, log.scrollHeight);
+        log.scrollTop = 75; log.dispatchEvent(new window.Event('scroll'));
+        release(); await settle();
+        assert.equal(log.scrollTop, 75);
+    });
+
     await t.test('speech styling preserves reply text and treats model markup as text, not HTML', async () => {
         const turn = state.data.active.conversations.sanniang.at(-1), original = turn.reply;
         const speech = ['「先坐。<img src=x onerror=alert(1)>」', '“别急。”', '"茶还热着。"', '『嗯。』'];
@@ -179,7 +214,7 @@ test('dialogue keeps drafts and reading position; failed meters never remove the
 
     await t.test('complete dialogue diagnostics do not interrupt reading or follow the player out of chat; actionable failures stay visible', async () => {
         const before = structuredClone(state.data.active);
-        for (const issue of ['metadata_invalid', 'performance_rejected', 'action_rejected', 'reply_invalid', 'reply_incomplete']) {
+        for (const issue of ['metadata_invalid', 'performance_rejected', 'action_rejected', 'clothing_rejected', 'reply_invalid', 'reply_incomplete']) {
             state.data.active = structuredClone(before);
             const turn = state.data.active.conversations.sanniang.at(-1);
             turn.issue = issue;
@@ -261,6 +296,40 @@ test('dialogue keeps drafts and reading position; failed meters never remove the
         notify({ type: 'game/expedition/state', payload: { chatIdentity: 'fixture', state: structuredClone(state) } }); await settle();
     });
 
+    await t.test('clothing is readable without model access, safely renders free text and follows reply replacement', async () => {
+        const baseline = structuredClone(state.data);
+        root.querySelector(`[aria-label="${CLOTHING_COPY.title}"]`).click(); await settle();
+        const value = slot => root.querySelector(`.ember-clothing-popover [data-clothing-slot=${slot}]`);
+        assert.equal(root.querySelectorAll('.ember-clothing-popover dd').length, 6);
+        assert.equal(value('outer').textContent, INITIAL_CLOTHING.sanniang.outer);
+        editDraft('leave this draft untouched'); await settle();
+        root.querySelector('.ember-clothing-popover button').click(); await settle();
+        assert.equal(root.querySelector('textarea').value, 'leave this draft untouched');
+        replyClothing = { outer: '<img src=x onerror=alert(1)>', lower: 'grass skirt', shoes: null };
+        root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true })); await settle();
+        assert.equal(root.querySelectorAll('.ember-clothing-feedback').length, 1);
+        assert.equal(root.querySelector('.ember-clothing-feedback img'), null);
+        root.querySelector(`[aria-label="${CLOTHING_COPY.title}"]`).click(); await settle();
+        assert.equal(value('outer').textContent, replyClothing.outer);
+        assert.equal(value('lower').textContent, replyClothing.lower);
+        assert.equal(value('shoes').textContent, CLOTHING_COPY.absent);
+        assert.equal(root.querySelector('.ember-clothing-popover img'), null);
+        root.querySelector('.ember-clothing-popover button').click(); await settle();
+        replyClothing = undefined;
+        root.querySelector('[data-regenerate]').click(); await settle();
+        assert.equal(root.querySelector('.ember-clothing-feedback'), null);
+        await leave(); root.querySelector('[data-interact=laobai]').click(); await settle();
+        root.querySelector(`[aria-label="${CLOTHING_COPY.title}"]`).click(); await settle();
+        assert.equal(value('outer').textContent, INITIAL_CLOTHING.laobai.outer);
+        root.querySelector('.ember-clothing-popover button').click(); await settle();
+        await leave(); root.querySelector('[data-interact=sanniang]').click(); await settle();
+        root.querySelector(`[aria-label="${CLOTHING_COPY.title}"]`).click(); await settle();
+        assert.equal(value('outer').textContent, INITIAL_CLOTHING.sanniang.outer);
+        root.querySelector('.ember-clothing-popover button').click(); await settle();
+        state.data = { ...baseline, revision: state.data.revision + 1 };
+        notify({ type: 'game/expedition/state', payload: { chatIdentity: 'fixture', state: structuredClone(state) } }); await settle();
+    });
+
     await t.test('a slow save cannot flash the old panel or reopen one that was closed', async () => {
         await leave();
         root.querySelector(`[aria-label="${CAMPAIGN_COPY.journal}"]`).click(); await settle(); await leave();
@@ -318,8 +387,17 @@ test('dialogue keeps drafts and reading position; failed meters never remove the
         const name = root.querySelector('input[type=text], #ember-traveler-name');
         name.value = '江雪'; name.dispatchEvent(new window.Event('input'));
         const gender = root.querySelector('input[value=female]'); gender.checked = true; gender.dispatchEvent(new window.Event('change'));
+        const age = root.querySelector('#ember-traveler-age');
+        age.querySelector('option[value=forties]').selected = true;
+        age.dispatchEvent(new window.Event('change'));
         root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true })); await settle();
         assert.equal(state.data.active.id, priorId);
+        root.querySelector('.entry-sheet header button').click(); await settle();
+        assert.equal(root.querySelector('#ember-traveler-name').value, '江雪');
+        assert.equal(root.querySelector('input[value=female]').checked, true);
+        const restoredAge = root.querySelector('#ember-traveler-age');
+        assert.equal(restoredAge.options[restoredAge.selectedIndex].value, 'forties');
+        root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true })); await settle();
         root.querySelector('.entry-sheet').scrollTop = 90;
         root.querySelector('.entry-chapter').click(); await settle();
         assert.equal(root.querySelector('.entry-sheet').scrollTop, 0);
@@ -328,7 +406,7 @@ test('dialogue keeps drafts and reading position; failed meters never remove the
         const checkbox = root.querySelector('input[type=checkbox]'); checkbox.checked = true; checkbox.dispatchEvent(new window.Event('change'));
         root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true })); await settle();
         assert.notEqual(state.data.active.id, priorId);
-        assert.deepEqual(state.data.active.traveler, { name: '江雪', gender: 'female' });
+        assert.deepEqual(state.data.active.traveler, { name: '江雪', gender: 'female', appearanceAge: 'forties' });
         assert.ok(root.querySelector('[role=dialog]'));
     });
 
@@ -350,13 +428,23 @@ test('dialogue keeps drafts and reading position; failed meters never remove the
         assert.equal(!!button(DIALOGUE_COPY.fight), decision === 'attack');
     });
 
-    await t.test('first-time identity has no selected gender and incomplete setup cannot create a save', async () => {
+    await t.test('first-time identity requires explicit gender and adult age choices before proceeding', async () => {
         app.unmount(); state.data = emptyExpedition();
         app = createApp(Room, { bridge, chatIdentity: 'fixture', generationActive: false }); app.mount(root); await settle();
         button(JOURNEY_COPY.begin + '→').click(); await settle();
         assert.equal([...root.querySelectorAll('input[type=radio]')].some(input => input.checked), false);
+        const age = root.querySelector('#ember-traveler-age');
+        assert.equal(age.options[age.selectedIndex].value, '');
+        assert.deepEqual([...age.options].filter(option => !option.hasAttribute('disabled')).map(option => option.value), ['twenties', 'thirties', 'forties', 'elder']);
         const name = root.querySelector('#ember-traveler-name'); name.value = '江雪'; name.dispatchEvent(new window.Event('input'));
         root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true })); await settle();
         assert.ok(root.querySelector('#ember-traveler-name')); assert.equal(state.data.active, null);
+        const gender = root.querySelector('input[value=female]'); gender.checked = true; gender.dispatchEvent(new window.Event('change'));
+        root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true })); await settle();
+        assert.ok(root.querySelector('#ember-traveler-age')); assert.equal(state.data.active, null);
+        age.querySelector('option[value=twenties]').selected = true;
+        age.dispatchEvent(new window.Event('change'));
+        root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true })); await settle();
+        assert.ok(root.querySelector('.entry-chapter')); assert.equal(state.data.active, null);
     });
 });

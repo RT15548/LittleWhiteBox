@@ -9,14 +9,16 @@ import type { PendingParley } from './parley.js';
 import type { Traveler } from './traveler.js';
 import type { ChapterId } from '../content/chapters.js';
 import type { Performance } from '../performance/catalog.js';
+import type { ClothingChange } from '../content/clothing.js';
 
 export interface ConversationTurn {
     id: string; kind: 'greeting' | 'dialogue' | 'receipt'; player: string; reply: string;
     action: NarrativeAction | null; facts: CourtyardFact[]; scene: CourtyardScene;
     affectionDelta?: number;
     performance?: Performance;
+    clothing?: ClothingChange;
     regeneratedFrom?: string;
-    issue?: 'action_rejected' | 'performance_rejected' | 'metadata_invalid' | 'reply_invalid' | 'reply_incomplete';
+    issue?: 'action_rejected' | 'clothing_rejected' | 'performance_rejected' | 'metadata_invalid' | 'reply_invalid' | 'reply_incomplete';
 }
 export interface ConversationMemory { throughId: string; text: string }
 export type DialogueEffects = Pick<Campaign, 'seed' | 'facts' | 'knowledge' | 'relationships' | 'people' | 'pendingParley'>;

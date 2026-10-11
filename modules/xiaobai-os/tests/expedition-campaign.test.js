@@ -7,12 +7,13 @@ import { campaignLoadout, tickCampaign } from '../apps/game/expedition/campaign/
 import { campaignDriver } from './fixtures/campaign-driver.mjs';
 import { COURTYARD } from '../apps/game/expedition/content/courtyard.ts';
 import { startWorld } from '../apps/game/expedition/world/exploration.ts';
+import { TRAVELER_AGE_IDS } from '../apps/game/expedition/content/traveler-ages.ts';
 const start = { type: 'start', weapon: 'blade', outfit: 'traveler', ...journey };
 test('a journey requires the chosen identity and chapter; the saved profile survives a round trip', () => {
-    for (const gender of ['male', 'female']) {
-        const command = parseCommand({ ...start, traveler: { name: '  江雪  ', gender } });
+    for (const gender of ['male', 'female']) for (const appearanceAge of TRAVELER_AGE_IDS) {
+        const command = parseCommand({ ...start, traveler: { name: '  江雪  ', gender, appearanceAge } });
         const state = advanceExpedition(emptyExpedition(), command, 'identity', 7);
-        assert.deepEqual(state.active.traveler, { name: '江雪', gender });
+        assert.deepEqual(state.active.traveler, { name: '江雪', gender, appearanceAge });
         assert.equal(state.active.chapter, journey.chapter);
         assert.deepEqual(EXPEDITION_PARTITION.parse(EXPEDITION_PARTITION.serialize(state)).value, state);
     }
@@ -20,6 +21,30 @@ test('a journey requires the chosen identity and chapter; the saved profile surv
         assert.throws(() => parseCommand({ ...start, traveler }), { code: 'expedition_invalid' });
     }
     assert.throws(() => parseCommand({ ...start, chapter: 'future' }), { code: 'expedition_invalid' });
+});
+test('new journeys require a listed adult age without replacing a save on invalid input', () => {
+    const current = advanceExpedition(emptyExpedition(), start, 'current', 7), before = structuredClone(current);
+    for (const appearanceAge of [undefined, null, '', 17, 'minor', 'seventeen', 'adult', '看起来20上下']) {
+        const traveler = { ...journey.traveler, appearanceAge };
+        if (appearanceAge !== undefined) {
+            assert.throws(() => parseCommand({ ...start, traveler }), { code: 'expedition_invalid' });
+        }
+        assert.throws(() => advanceExpedition(emptyExpedition(), { ...start, traveler }, 'new', 7), { code: 'expedition_invalid' });
+        assert.throws(() => advanceExpedition(current, { ...start, type: 'restart', traveler }, 'replacement', 7), { code: 'expedition_invalid' });
+        assert.deepEqual(current, before);
+    }
+});
+test('an unselected age remains unselected through saving and continued play', () => {
+    const state = advanceExpedition(emptyExpedition(), start, 'current', 7);
+    delete state.active.traveler.appearanceAge;
+    delete state.last.command.traveler.appearanceAge;
+    state.active.location.position = { ...state.active.people.sanniang.position };
+    const restored = EXPEDITION_PARTITION.parse(EXPEDITION_PARTITION.serialize(state)).value;
+    assert.deepEqual(restored, state);
+    const continued = advanceExpedition(restored, { type: 'greet', person: 'sanniang' }, 'greeting', 0);
+    assert.deepEqual(continued.active.traveler, state.active.traveler);
+    assert.equal(continued.active.id, state.active.id);
+    assert.deepEqual(EXPEDITION_PARTITION.parse(EXPEDITION_PARTITION.serialize(continued)).value, continued);
 });
 function fixture(seed = 7) {
     let state = advanceExpedition(emptyExpedition(), start, 'start', seed), serial = 0;
@@ -86,9 +111,9 @@ test('an explicit restart from outside camp replaces the traveler and leaves own
     const state = advanceExpedition(emptyExpedition(), start, 'old', 7);
     state.active.location = startWorld(COURTYARD.cells, 'waterway');
     state.purchases.push({ id: 'ranger', actionId: 'purchase', amount: 180 });
-    const next = advanceExpedition(state, { ...start, type: 'restart', traveler: { name: '江雪', gender: 'female' } }, 'new', 9);
+    const next = advanceExpedition(state, { ...start, type: 'restart', traveler: { name: '江雪', gender: 'female', appearanceAge: 'elder' } }, 'new', 9);
     validateExpedition(next);
-    assert.deepEqual(next.active.traveler, { name: '江雪', gender: 'female' });
+    assert.deepEqual(next.active.traveler, { name: '江雪', gender: 'female', appearanceAge: 'elder' });
     assert.equal(next.active.location.scene, 'camp');
     assert.deepEqual(next.purchases, state.purchases);
     assert.deepEqual(state.active.traveler, journey.traveler);

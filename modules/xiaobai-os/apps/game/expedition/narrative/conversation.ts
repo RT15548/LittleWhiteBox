@@ -11,6 +11,7 @@ import { prepareConversation, type ConversationMemoryAccess, type TokenCounter }
 import { runNarrativeRequest } from './provider.js';
 import { readPerformance } from '../performance/catalog.js';
 import { decodeNarrativeReply } from './response.js';
+import { readClothingChange } from '../clothing.js';
 
 export interface ConversationOptions {
     loadCanon?: typeof loadNarrativeCanon;
@@ -19,7 +20,7 @@ export interface ConversationOptions {
     received: (response: Record<string, unknown>) => void;
 }
 
-export type ConversationResult = Pick<ConversationTurn, 'reply' | 'action' | 'performance'> & (
+export type ConversationResult = Pick<ConversationTurn, 'reply' | 'action' | 'performance' | 'clothing'> & (
     { kind: 'dialogue'; affection: AffectionDirection; issue?: ConversationTurn['issue'] }
     | { kind: 'receipt'; affection: null; issue: 'reply_invalid' | 'reply_incomplete' }
 );
@@ -67,8 +68,11 @@ export async function generateConversation(agent: AgentCapability, campaign: Cam
     const submitted = typeof result.action === 'string' ? result.action.trim() : result.action;
     const action = typeof submitted === 'string' && conversationContext(campaign, person, canon.stages).actions.includes(submitted) ? submitted as NarrativeAction : null;
     const performance = readPerformance(person, result.performance);
+    const clothing = readClothingChange(result.clothing);
     const issue = submitted !== null && submitted !== undefined && !action ? 'action_rejected' as const
+        : clothing.rejected ? 'clothing_rejected' as const
         : result.performance !== null && result.performance !== undefined && !performance ? 'performance_rejected' as const : undefined;
     const affection: AffectionDirection = isPerson(person) && (result.affection === 'up' || result.affection === 'down') ? result.affection : null;
-    return { kind: 'dialogue' as const, reply, action, affection, ...(performance ? { performance } : {}), ...(issue ? { issue } : {}) };
+    return { kind: 'dialogue' as const, reply, action, affection, ...(performance ? { performance } : {}),
+        ...(clothing.change ? { clothing: clothing.change } : {}), ...(issue ? { issue } : {}) };
 }

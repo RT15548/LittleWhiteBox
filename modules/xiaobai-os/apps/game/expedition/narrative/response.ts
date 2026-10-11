@@ -12,9 +12,9 @@ export interface NarrativeEnvelope {
 }
 
 /** The only transport framing. The body is plain text, not XML/HTML or a JSON string. */
-export function encodeNarrativeReply(turn: Pick<ConversationTurn, 'reply' | 'action' | 'performance' | 'affectionDelta'>): string {
+export function encodeNarrativeReply(turn: Pick<ConversationTurn, 'reply' | 'action' | 'performance' | 'affectionDelta' | 'clothing'>): string {
     const affection = turn.affectionDelta ? turn.affectionDelta > 0 ? 'up' : 'down' : null;
-    return `${OPEN}\n${turn.reply}\n${CLOSE}\n${JSON.stringify({ action: turn.action, affection, performance: turn.performance ?? null })}`;
+    return `${OPEN}\n${turn.reply}\n${CLOSE}\n${JSON.stringify({ action: turn.action, affection, performance: turn.performance ?? null, clothing: turn.clothing ?? null })}`;
 }
 
 /** A complete body survives missing/broken controls; unclosed bodies never carry operations. */

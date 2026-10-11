@@ -32,7 +32,9 @@ export function loadoutIssue(campaign: Campaign, equipped: Relic[]) {
     return equipped.some(id => !relicReady(loadout, id)) ? 'dependency' : null;
 }
 export function createCampaign(id: string, seed: number, weapon: Weapon, outfit: Outfit, traveler: Traveler): Campaign {
-    return { id, seed, weapon, outfit, traveler: parseTraveler(traveler), chapter: FIRST_CHAPTER.id, location: startWorld(COURTYARD.camp, 'start'), facts: [], hp: RULES.maxHp,
+    const identity = parseTraveler(traveler);
+    if (!identity.appearanceAge) { fault('invalid'); }
+    return { id, seed, weapon, outfit, traveler: identity, chapter: FIRST_CHAPTER.id, location: startWorld(COURTYARD.camp, 'start'), facts: [], hp: RULES.maxHp,
         collection: [], equipped: [], offers: [], phase: 'exploration', battle: null, checkpoint: null, alarmTicks: 0,
         relationships: Object.fromEntries(PERSON_IDS.map(person => [person, { affection: 0, highestBand: 0 }])) as Campaign['relationships'], people: initialPeople(),
         pendingParley: null, evidence: { dispatchNoteSeen: false },

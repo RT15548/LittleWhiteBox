@@ -23,6 +23,7 @@ import { PARLEY_IDS, PARLEY_ENEMIES } from './content/parley.js';
 import { parseTraveler } from './campaign/traveler.js';
 import { FIRST_CHAPTER } from './content/chapters.js';
 import { readPerformance } from './performance/catalog.js';
+import { readClothingChange } from './clothing.js';
 export { expeditionId } from './validation.js';
 
 const weapon = (v: unknown) => member(v, WEAPON_LIST);
@@ -115,14 +116,18 @@ function validateCampaign(raw: unknown, data: ExpeditionData) {
             if (t.action !== null) { member(t.action, isPerson(person) ? [...CAMPAIGN_CHOICES, 'share_secret', 'follow', 'stay', ...Object.keys(DESTINATIONS).map(id => `go:${id}`)] : ['pass', 'attack']); }
             if (t.affectionDelta !== undefined) { integer(t.affectionDelta, -RELATIONSHIP_RULES.changeMax, RELATIONSHIP_RULES.changeMax); }
             if (t.performance !== undefined && (t.kind === 'receipt' || !readPerformance(person, t.performance))) { fault('invalid'); }
+            if (t.clothing !== undefined) {
+                const clothing = readClothingChange(t.clothing);
+                if (t.kind !== 'dialogue' || clothing.rejected || !clothing.change) { fault('invalid'); }
+            }
             if (t.kind === 'receipt') {
                 member(t.issue, ['reply_invalid', 'reply_incomplete']);
                 if (t.action !== null || t.affectionDelta !== undefined) { fault('invalid'); }
             } else if (t.issue !== undefined) {
-                const issue = member(t.issue, ['action_rejected', 'performance_rejected', 'metadata_invalid']);
+                const issue = member(t.issue, ['action_rejected', 'clothing_rejected', 'performance_rejected', 'metadata_invalid']);
                 if (t.kind !== 'dialogue' || issue === 'action_rejected' && t.action !== null
                     || issue === 'performance_rejected' && t.performance !== undefined
-                    || issue === 'metadata_invalid' && (t.action !== null || t.performance !== undefined || t.affectionDelta)) { fault('invalid'); }
+                    || issue === 'metadata_invalid' && (t.action !== null || t.performance !== undefined || t.affectionDelta || t.clothing !== undefined)) { fault('invalid'); }
             }
             boundedText(t.reply, t.kind === 'receipt' ? Number.MAX_SAFE_INTEGER : CAMPAIGN_RULES.replyTextLimit);
             if (facts(t.facts).some(f => !knownFacts.includes(f))) { fault('invalid'); } return id;

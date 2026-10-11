@@ -11,10 +11,14 @@ import { responseInstruction } from './response.js';
 import { memoryBoundary, replayTurns, witnessedEvents } from './history.js';
 import { conversationScene } from './scene.js';
 import { greetingTurn } from '../content/greetings.js';
+import { CLOTHING_SLOTS } from '../content/clothing.js';
+import { currentClothing } from '../clothing.js';
+import { travelerContext } from './traveler.js';
 
 export function conversationContext(campaign: Campaign, person: Participant, stages: readonly RelationshipStage[] = []) {
     const actionMeanings = narrativeActions(campaign, person, stages), actions = Object.keys(actionMeanings);
     const shared = { person: participantName(person), ...conversationScene(campaign, person),
+        clothing: currentClothing(campaign, person),
         events: witnessedEvents(campaign.knowledge[person]), actions, actionMeanings };
     if (!isPerson(person)) {
         const spec = PARLEY_ENEMIES[person];
@@ -32,14 +36,14 @@ export function buildConversationPrompt(campaign: Campaign, person: Participant,
     const secret = isPerson(person) ? secretFact(person) : null;
     const stage = isPerson(person) ? projectStage(canon.stages, campaign.relationships[person], !!secret && campaign.facts.includes(secret)) : null;
     const { actions: _actions, actionMeanings, events, ...situation } = context;
-    const operations = { actions: actionMeanings, performance };
+    const operations = { actions: actionMeanings, performance, clothing: CLOTHING_SLOTS };
     const story = { memory: memory?.text ?? null, events, ...situation,
         opening: campaign.conversations[person].some(t => t.kind === 'dialogue') || !isPerson(person) && campaign.facts.includes(PARLEY_ENEMIES[person].complete)
             ? null : context.rescued ? canon.opening.returned : canon.opening.initial,
         stage };
     return {
         systemPrompt: [canon.system.trim(), block('background', canon.world.trim()),
-            block('player', `${canon.player.trim()}\n\n${JSON.stringify({ ...campaign.traveler,
+            block('player', `${canon.player.trim()}\n\n${JSON.stringify({ ...travelerContext(campaign.traveler),
                 outfit: OUTFIT_COPY[campaign.outfit].detail, equipment: WEAPON_COPY[campaign.weapon].equipment }, null, 2)}`),
             block('NPCs', `${canon.npcs}\n\n${canon.character.trim()}`)].join('\n\n'),
         messages: [

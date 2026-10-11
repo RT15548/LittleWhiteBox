@@ -4,6 +4,7 @@ import type { Campaign } from '../campaign/types.js';
 import { TRAVELER_GENDERS, TRAVELER_NAME_LIMIT, type Traveler } from '../campaign/traveler.js';
 import { FIRST_CHAPTER, chapterTitle } from '../content/chapters.js';
 import { JOURNEY_COPY as j } from '../content/journey-copy.js';
+import { TRAVELER_AGES, type TravelerAge } from '../content/traveler-ages.js';
 import { CAMPAIGN_COPY as c } from '../content/campaign-copy.js';
 import type { JourneySetup, Weapon } from '../types.js';
 import WeaponSelection from './WeaponSelection.vue';
@@ -14,16 +15,17 @@ const props = defineProps<{ campaign: Campaign | null; ready: boolean; busy: boo
 const emit = defineEmits<{ start: [setup: Omit<JourneySetup, 'outfit'>]; continue: [] }>();
 const step = ref<'title' | 'identity' | 'chapters' | 'weapon'>('title'), creating = ref(false);
 const name = ref(props.campaign?.traveler.name ?? ''), gender = ref<Traveler['gender'] | null>(props.campaign?.traveler.gender ?? null);
+const appearanceAge = ref<TravelerAge | ''>(props.campaign?.traveler.appearanceAge ?? '');
 const weapon = ref<Weapon>(props.campaign?.weapon ?? 'blade'), confirmed = ref(false), heading = ref<HTMLElement | null>(null), sheet = ref<HTMLElement | null>(null);
 const headingText = computed(() => ({ title: c.title, identity: j.identity, chapters: j.chooseChapter, weapon: j.chooseWeapon })[step.value]);
 watch(step, async () => { await nextTick(); if (sheet.value) { sheet.value.scrollTop = 0; } heading.value?.focus({ preventScroll: true }); });
 function begin() { creating.value = true; confirmed.value = false; step.value = 'identity'; }
-function identify() { if (name.value.trim() && gender.value) { name.value = name.value.trim(); step.value = 'chapters'; } }
+function identify() { if (name.value.trim() && gender.value && appearanceAge.value) { name.value = name.value.trim(); step.value = 'chapters'; } }
 function back() { step.value = step.value === 'weapon' ? 'chapters' : step.value === 'chapters' && creating.value ? 'identity' : 'title'; }
 function chooseChapter() { if (props.campaign && !creating.value) { emit('continue'); } else { step.value = 'weapon'; } }
 function start() {
-    if (!gender.value || !name.value.trim() || props.blocked || props.campaign && !confirmed.value) { return; }
-    emit('start', { traveler: { name: name.value.trim(), gender: gender.value }, weapon: weapon.value, chapter: FIRST_CHAPTER.id });
+    if (!gender.value || !appearanceAge.value || !name.value.trim() || props.blocked || props.campaign && !confirmed.value) { return; }
+    emit('start', { traveler: { name: name.value.trim(), gender: gender.value, appearanceAge: appearanceAge.value }, weapon: weapon.value, chapter: FIRST_CHAPTER.id });
 }
 defineExpose({ back: () => { if (step.value === 'title') { return false; } back(); return true; } });
 </script>
@@ -45,9 +47,20 @@ defineExpose({ back: () => { if (step.value === 'title') { return false; } back(
             <header><button type="button" :disabled="busy" @click="back">← {{ j.back }}</button><span>{{ c.title }}</span></header>
             <h2 ref="heading" tabindex="-1">{{ headingText }}</h2>
             <form v-if="step === 'identity'" class="entry-identity" @submit.prevent="identify">
-                <label for="ember-traveler-name">{{ j.name }}</label>
-                <input id="ember-traveler-name" v-model="name" :maxlength="TRAVELER_NAME_LIMIT" :placeholder="j.namePlaceholder" required autocomplete="off" :pattern="'.*\\S.*'">
-                <fieldset><legend>{{ j.gender }}</legend><label v-for="id in TRAVELER_GENDERS" :key="id"><input v-model="gender" type="radio" name="ember-traveler-gender" :value="id" required><span>{{ j.genders[id] }}</span></label></fieldset>
+                <div class="entry-name">
+                    <label for="ember-traveler-name">{{ j.name }}</label>
+                    <input id="ember-traveler-name" v-model="name" :maxlength="TRAVELER_NAME_LIMIT" :placeholder="j.namePlaceholder" required autocomplete="off" :pattern="'.*\\S.*'">
+                </div>
+                <div class="entry-identity-details">
+                    <fieldset><legend>{{ j.gender }}</legend><label v-for="id in TRAVELER_GENDERS" :key="id"><input v-model="gender" type="radio" name="ember-traveler-gender" :value="id" required><span>{{ j.genders[id] }}</span></label></fieldset>
+                    <div class="entry-age">
+                        <label for="ember-traveler-age">{{ j.age }}</label>
+                        <select id="ember-traveler-age" v-model="appearanceAge" required>
+                            <option disabled value="">{{ j.agePlaceholder }}</option>
+                            <option v-for="(label, id) in TRAVELER_AGES" :key="id" :value="id">{{ label }}</option>
+                        </select>
+                    </div>
+                </div>
                 <button class="entry-primary" type="submit">{{ j.next }}<span aria-hidden="true">→</span></button>
             </form>
             <div v-else-if="step === 'chapters'" class="entry-chapters">
@@ -61,7 +74,7 @@ defineExpose({ back: () => { if (step.value === 'title') { return false; } back(
                 <div class="entry-forthcoming"><span>{{ j.nextChapter }}</span><span>{{ j.forthcoming }}</span></div>
             </div>
             <form v-else class="entry-loadout" @submit.prevent="start">
-                <p class="entry-traveler"><strong>{{ name }}</strong><span>{{ gender ? j.genders[gender] : '' }} · {{ j.identityRole }}</span></p>
+                <p class="entry-traveler"><strong>{{ name }}</strong><span>{{ gender ? j.genders[gender] : '' }} · {{ appearanceAge ? TRAVELER_AGES[appearanceAge] : '' }} · {{ j.identityRole }}</span></p>
                 <WeaponSelection v-model="weapon" />
                 <label v-if="campaign" class="entry-restart"><input v-model="confirmed" type="checkbox" required><span>{{ j.restartWarning }}</span></label>
                 <button class="entry-primary" type="submit" :disabled="blocked">{{ busy ? j.entering : campaign ? j.confirmRestart : j.enter }}<span v-if="!busy" aria-hidden="true">→</span></button>
@@ -88,14 +101,17 @@ defineExpose({ back: () => { if (step.value === 'title') { return false; } back(
 .entry-sheet header { display:flex; align-items:center; justify-content:space-between; color:#627b7c; font-size:13px; }
 .entry-sheet header button { background:none; border:0; padding:8px 0; }
 .entry-sheet h2 { font-family:'Songti SC',SimSun,serif; font-weight:400; font-size:30px; }
-.entry-identity { display:flex; flex-direction:column; gap:16px; margin-block:auto; padding-bottom:28px; }
-.entry-identity>label,.entry-identity legend { font-size:13px; color:#5c7275; }
-.entry-identity>input { font:inherit; color:inherit; box-sizing:border-box; width:100%; border:0; border-bottom:1px solid #90a6a7; background:transparent; padding:10px 0; font-size:23px; border-radius:0; }
-.entry-identity fieldset { border:0; padding:0; margin:18px 0 34px; display:flex; gap:28px; }
+.entry-identity { display:flex; flex-direction:column; gap:28px; margin-block:auto; padding-bottom:28px; }
+.entry-name,.entry-age { display:flex; flex-direction:column; gap:10px; min-width:0; }
+.entry-name>label,.entry-age>label,.entry-identity legend { font-size:13px; color:#5c7275; }
+.entry-name>input { font:inherit; color:inherit; box-sizing:border-box; width:100%; border:0; border-bottom:1px solid #90a6a7; background:transparent; padding:10px 0; font-size:23px; border-radius:0; }
+.entry-identity-details { display:grid; grid-template-columns:minmax(112px,1fr) minmax(0,1.5fr); gap:24px; }
+.entry-age select { width:100%; min-height:44px; box-sizing:border-box; padding:8px; font:inherit; font-size:16px; color:inherit; background:#fff9; border:1px solid #90a6a7; border-radius:3px; }
+.entry-identity fieldset { border:0; padding:0; margin:0; min-width:0; display:flex; gap:24px; }
 .entry-identity legend { margin-bottom:10px; }
 .entry-identity fieldset label { display:flex; align-items:center; gap:9px; min-height:44px; cursor:pointer; }
 .ember-entry input { accent-color:var(--ember-action); }
-.ember-entry input:focus-visible { outline:2px solid #b86f40; outline-offset:4px; }
+.ember-entry input:focus-visible,.ember-entry select:focus-visible { outline:2px solid #b86f40; outline-offset:4px; }
 .entry-chapters { display:flex; flex-direction:column; gap:28px; margin-block:auto; padding-bottom:28px; }
 .ember-entry .entry-chapter { display:grid; grid-template-columns:64px minmax(0,1fr) 24px; gap:20px 16px; padding:0 0 24px; background:none; border:0; border-bottom:1px solid #839d9c66; position:relative; }
 .entry-chapter-art { grid-column:1/-1; width:100%; aspect-ratio:16/9; object-fit:cover; border-radius:2px; }
@@ -116,10 +132,12 @@ defineExpose({ back: () => { if (step.value === 'title') { return false; } back(
  .entry-shade { background:linear-gradient(0deg,#18223ff5,transparent 100%); }.entry-sheet { inset:0; width:100%; padding:18px 24px; background:#f4f5fcf2; gap:24px; }.entry-sheet h2 { font-size:26px; }
 }
 @container journey-entry (max-height:420px) {
- .entry-title { padding:20px 32px; justify-content:center; }.entry-title h1 { font-size:54px; margin:0 0 10px; }.entry-title nav { gap:0; }.entry-city,.entry-save { display:none; }.entry-sheet { padding:12px 24px; gap:12px; }.entry-identity { margin:0; }.entry-identity fieldset { margin:0; }.entry-chapters { margin:0; }.entry-sheet h2 { font-size:24px; }
+ .entry-title { padding:20px 32px; justify-content:center; }.entry-title h1 { font-size:54px; margin:0 0 10px; }.entry-title nav { gap:0; }.entry-city,.entry-save { display:none; }.entry-sheet { padding:12px 24px; gap:12px; }.entry-identity { margin:0; gap:16px; padding-bottom:12px; }.entry-chapters { margin:0; }.entry-sheet h2 { font-size:24px; }
 }
 @container journey-entry (min-width:701px) and (max-height:420px) {
  .entry-sheet { width:100%; }.entry-sheet > h2 { position:absolute; top:18px; left:50%; transform:translateX(-50%); }
+ .entry-identity { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); align-items:end; gap:24px 32px; padding:12px 0; }
+ .entry-identity > button { grid-column:2; }
  .entry-loadout { display:grid; grid-template-columns:minmax(0,1fr) 180px; gap:12px 24px; align-items:start; }
  .entry-loadout > .ember-weapon-selector { grid-column:1; grid-row:1/4; }
  .entry-traveler { grid-column:2; grid-row:1; flex-direction:column; gap:2px; }

@@ -24,9 +24,11 @@ import ConversationMeters from './presentation/ConversationMeters.vue';
 import JourneyEntry from './presentation/JourneyEntry.vue';
 import DialogueComposer from './presentation/DialogueComposer.vue';
 import DialogueActionFeedback from './presentation/DialogueActionFeedback.vue';
+import ClothingFeedback from './presentation/ClothingFeedback.vue';
 import DialogueBubble from './performance/DialogueBubble.vue';
 import { SCENE_ART, STORY_ART } from './artwork.js';
 import { JOURNEY_COPY as j } from './content/journey-copy.js';
+import { TRAVELER_AGES } from './content/traveler-ages.js';
 import { chapterTitle } from './content/chapters.js';
 import { campaignInteractions } from './world/people.js';
 import { greetingTurn } from './content/greetings.js';
@@ -160,7 +162,7 @@ async function send() {
     const recipient = person.value, text = draft.value.trim();
     if (blocked.value || preparingSend.value || !text || conclusion.value) { return; }
     drafts.value[recipient] = ''; queued.value = { person: recipient, text }; preparingSend.value = true;
-    reading.delete(recipient);
+    reading.delete(recipient); freshReply.value = null;
     try {
         if (!await playback.flush()) { return; }
         const request = client.talk(recipient, text);
@@ -292,7 +294,7 @@ onBeforeUnmount(() => { playback.dispose(); client.dispose(); audio.dispose(); }
                 <template v-else-if="panel === 'build'">
                     <ExpeditionWardrobe v-if="packTab === 'wardrobe' && view" :data="view.data" :traveler="run.traveler" :balance="view.balance" :blocked="blocked" :weapon="run.weapon" @command="act" />
                     <template v-else>
-                        <div class="ember-pack-heading"><strong>{{ run.traveler.name }}</strong><span>{{ j.genders[run.traveler.gender] }} · {{ j.identityRole }}</span></div>
+                        <div class="ember-pack-heading"><strong>{{ run.traveler.name }}</strong><span>{{ j.genders[run.traveler.gender] }}<template v-if="run.traveler.appearanceAge"> · {{ TRAVELER_AGES[run.traveler.appearanceAge] }}</template> · {{ j.identityRole }}</span></div>
                         <small>{{ c.slots(run.equipped.length, RULES.relicSlots) }}</small>
                         <p>{{ WEAPON_COPY[run.weapon].name }} · {{ skillDetail(run.weapon) }}</p>
                         <p v-if="!COURTYARD[run.location.scene].safe">{{ c.safeBuild }}</p>
@@ -316,12 +318,13 @@ onBeforeUnmount(() => { playback.dispose(); client.dispose(); audio.dispose(); }
                         <DialogueBubble v-if="greeting" :person="person" :reply="greeting.reply" :performance="greeting.performance" :animate="false" />
                         <template v-for="turn in history" :key="turn.id">
                             <p v-if="turn.kind !== 'greeting'" class="ember-player-line"><small>{{ run.traveler.name }}</small>{{ turn.player }}</p>
-                            <p v-if="turn.issue === 'action_rejected' || turn.issue === 'reply_invalid' || turn.issue === 'reply_incomplete'" class="ember-dialogue-issue">{{ dialogueCopy.issues[turn.issue] }}</p>
+                            <p v-if="turn.issue === 'action_rejected' || turn.issue === 'clothing_rejected' || turn.issue === 'reply_invalid' || turn.issue === 'reply_incomplete'" class="ember-dialogue-issue">{{ dialogueCopy.issues[turn.issue] }}</p>
                             <details v-if="turn.kind === 'receipt' && turn.issue === 'reply_invalid'"><summary>{{ dialogueCopy.rawReply }}</summary><p class="ember-prose">{{ turn.reply }}</p></details>
                             <p v-else-if="turn.kind === 'receipt'" class="ember-prose">{{ turn.reply }}</p>
                             <div v-else class="ember-npc-turn" :data-fresh-reply="freshReply === turn.id">
                                 <DialogueBubble :person="person" :reply="turn.reply" :performance="turn.performance" :animate="freshReply === turn.id" />
                                 <DialogueActionFeedback :campaign="run" :person="person" :turn="turn" />
+                                <ClothingFeedback v-if="turn.clothing" :clothing="turn.clothing" />
                             </div>
                         </template>
                         <template v-if="pendingLine">

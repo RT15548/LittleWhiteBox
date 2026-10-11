@@ -9,6 +9,7 @@ import { movePerson } from '../world/people.js';
 import { secretFact, type MovementAction } from './actions.js';
 import type { ConversationResult } from './conversation.js';
 import { fault } from '../random.js';
+import { clothingDifference } from '../clothing.js';
 
 /** Both first replies and replacements settle exactly once from their pre-reply state. */
 export function applyReply(campaign: Campaign, input: { actionId: string; person: Participant; text: string; regenerate?: string }, response: ConversationResult) {
@@ -16,9 +17,11 @@ export function applyReply(campaign: Campaign, input: { actionId: string; person
     delete campaign.lastReply;
     greet(campaign, person);
     const affectionDelta = response.kind === 'dialogue' && isPerson(person) ? settleAffection(campaign, person, response.affection) : undefined;
+    const clothing = response.kind === 'dialogue' ? clothingDifference(campaign, person, response.clothing) : undefined;
     campaign.conversations[person].push({ id: input.actionId, kind: response.kind, player: input.text,
         reply: response.reply, action: response.action, ...(response.issue ? { issue: response.issue } : {}),
         ...(response.performance ? { performance: response.performance } : {}),
+        ...(clothing ? { clothing } : {}),
         ...(input.regenerate ? { regeneratedFrom: input.regenerate } : {}),
         ...(affectionDelta === undefined ? {} : { affectionDelta }), scene: campaign.location.scene, facts: [...campaign.knowledge[person]] });
     if (response.action === 'share_secret' && isPerson(person)) {

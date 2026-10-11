@@ -7,6 +7,7 @@ import type { NarrativeCanon } from './canon.js';
 import { buildConversationPrompt } from './prompt.js';
 import { historyForSummary, memoryBoundary, sameMemory } from './history.js';
 import { runNarrativeRequest } from './provider.js';
+import { travelerContext } from './traveler.js';
 
 /** Scheduling thresholds, not a claim about the provider's context window. */
 export const MEMORY_POLICY = Object.freeze({ trigger: 80000, waitAt: 98000, inputBudget: 128000, recentExchanges: 5 });
@@ -45,7 +46,7 @@ export async function summarizeConversation(session: XiaobaiOsAgentSession, camp
     while (cursor < end) {
         let until = Math.min(end, cursor + batchLimit);
         const summaryPrompt = (n: number): Prompt => ({ systemPrompt: SUMMARY_PROMPT, messages: [
-            { role: 'user', content: JSON.stringify({ person: participantName(person), player: campaign.traveler,
+            { role: 'user', content: JSON.stringify({ person: participantName(person), player: travelerContext(campaign.traveler),
                 memory: memory?.text ?? null, ...historyForSummary(turns.slice(cursor, n)) }) },
         ] });
         let source = summaryPrompt(until);
