@@ -8,7 +8,7 @@ import { CAMPAIGN_RULES, loadoutIssue } from './campaign/rules.js';
 import { CAMPAIGN_COPY as c, FACT_COPY, campaignObjective } from './content/campaign-copy.js';
 import { WORLD_COPY as w } from './content/world-copy.js';
 import { COURTYARD } from './content/courtyard.js';
-import type { CourtyardFact } from './content/world-types.js';
+import type { CourtyardFact, CourtyardScene } from './content/world-types.js';
 import { isPerson, participantName, type Participant } from './content/participants.js';
 import { parleyInteractions } from './campaign/parley.js';
 import { DIALOGUE_COPY as dialogueCopy } from './content/dialogue-copy.js';
@@ -23,6 +23,7 @@ import ExpeditionWardrobe from './ExpeditionWardrobe.vue';
 import ConversationMeters from './presentation/ConversationMeters.vue';
 import JourneyEntry from './presentation/JourneyEntry.vue';
 import DialogueComposer from './presentation/DialogueComposer.vue';
+import DialogueActionFeedback from './presentation/DialogueActionFeedback.vue';
 import DialogueBubble from './performance/DialogueBubble.vue';
 import { SCENE_ART, STORY_ART } from './artwork.js';
 import { JOURNEY_COPY as j } from './content/journey-copy.js';
@@ -36,6 +37,7 @@ const props = defineProps<{ bridge: XiaobaiOsFrameBridge; chatIdentity: string; 
 const client = createExpeditionClient(props.bridge, props.chatIdentity), playback = createCampaignPlayback(client);
 const { view, notice, busy, blocked, talking, outgoing, conversationFailure } = client, { current: run, dirty } = playback;
 const paused = ref(true), sound = ref(false), renderingError = ref(false), epoch = ref(0), entered = ref(false);
+const performing = ref(false), transition = ref<CourtyardScene | null>(null);
 const entry = ref<InstanceType<typeof JourneyEntry> | null>(null);
 const panel = ref<'map' | 'journal' | 'build' | 'person' | 'passage' | 'ending' | 'arrival' | 'prologue' | null>(null);
 const packTab = ref<'relics' | 'wardrobe'>('relics');
@@ -53,12 +55,15 @@ const facts = computed<ReadonlySet<CourtyardFact>>(previous => {
     return previous && previous.size === ids.length && ids.every(id => previous.has(id)) ? previous : new Set(ids);
 });
 const world = computed(() => run.value ? { definition: COURTYARD[run.value.location.scene], location: run.value.location, facts: facts.value, people: run.value.people } : null);
-const sceneArtStyle = computed(() => run.value ? { '--scene-art': `url("${SCENE_ART[run.value.location.scene]}")` } : undefined);
+const sceneArtStyle = computed(() => {
+    const art = run.value && SCENE_ART[run.value.location.scene];
+    return art ? { '--scene-art': `url("${art}")` } : undefined;
+});
 const outfit = computed(() => run.value?.outfit ?? view.value?.data.equippedOutfit ?? 'traveler');
 const endingPerson = computed(() => run.value ? pendingEnding(run.value) : null);
 const conclusion = computed(() => run.value?.pendingParley ? run.value.pendingParley.decision === 'attack' ? 'fight' as const : 'continue' as const : endingPerson.value ? 'continue' as const : undefined);
 const halted = computed(() => !entered.value || !run.value || !!run.value.pendingParley || !!endingPerson.value || paused.value || !!panel.value || !!notice.value || talking.value || renderingError.value || props.generationActive
-    || !['exploration', 'battle'].includes(run.value.phase) || !view.value?.ready || view.value.pending || view.value.writeState !== 'ready');
+    || performing.value || !!transition.value || !['exploration', 'battle'].includes(run.value.phase) || !view.value?.ready || view.value.pending || view.value.writeState !== 'ready');
 const boss = computed(() => run.value?.battle?.enemies.find(e => isBoss(e.kind)));
 const history = computed(() => run.value?.conversations[person.value] ?? []);
 const greeting = computed(() => run.value && !history.value.length ? greetingTurn(run.value, person.value) : null);
@@ -96,7 +101,8 @@ useAppLayer(noticePanel, () => {
 function pause() { paused.value = true; void playback.flush(); }
 function menu() { panel.value = null; pause(); }
 async function open(next: NonNullable<typeof panel.value>) {
-    paused.value = true; panel.value = next;
+    if (performing.value || transition.value) { return; }
+    panel.value = next;
     if (next === 'build') { packTab.value = 'relics'; }
     await playback.flush();
 }
@@ -110,27 +116,36 @@ async function resume() {
 }
 function continueJourney() {
     entered.value = true;
-    if (run.value?.pendingParley || endingPerson.value) { person.value = run.value?.pendingParley?.enemy ?? endingPerson.value!; panel.value = 'person'; paused.value = true; }
+    if (run.value?.pendingParley || endingPerson.value) { person.value = run.value?.pendingParley?.enemy ?? endingPerson.value!; panel.value = 'person'; paused.value = false; }
     else { void resume(); }
 }
 async function act(command: Command) {
-    paused.value = true;
-    if (!await playback.flush()) { return false; }
-    const ok = await client.act(command);
-    if (ok) {
-        playback.sync();
-        paused.value = false;
-        if (!panel.value) { await nextTick(); field.value?.focus(); }
+    if (performing.value || transition.value) { return false; }
+    performing.value = true;
+    if (command.type === 'interact' && run.value) {
+        transition.value = COURTYARD[run.value.location.scene].exits.find(exit => exit.id === command.id)?.to ?? null;
     }
-    return ok;
+    let ok = false;
+    try {
+        if (!await playback.flush()) { return false; }
+        ok = await client.act(command);
+        if (ok) {
+            playback.sync();
+            if (!panel.value && !paused.value) { await nextTick(); field.value?.focus(); }
+        }
+        return ok;
+    } finally {
+        performing.value = false;
+        if (!ok) { transition.value = null; }
+    }
 }
+function sceneReady(scene: CourtyardScene) { if (scene === transition.value) { transition.value = null; } }
 async function start(setup: Omit<JourneySetup, 'outfit'>) {
     if (await act({ type: run.value ? 'restart' : 'start', ...setup, outfit: outfit.value })) { entered.value = true; panel.value = 'prologue'; }
 }
 function returnToTitle() { paused.value = true; panel.value = null; entered.value = false; void playback.flush(); }
 async function interact(id: string) {
-    if (!run.value) { return; }
-    paused.value = true;
+    if (!run.value || performing.value || transition.value) { return; }
     const target = [...campaignInteractions(run.value), ...parleyInteractions(run.value.location.scene, run.value.location.position, new Set(run.value.facts))].find(item => item.target.id === id);
     const object = target?.kind === 'object' ? target.target : null;
     if (object?.kind === 'person' || object?.kind === 'enemy') {
@@ -180,7 +195,7 @@ function scrollToReply() {
 async function recover() { if (await playback.recover()) { paused.value = true; epoch.value++; } }
 watch(() => props.generationActive, value => { if (value) { pause(); } });
 watch(() => [run.value?.pendingParley, endingPerson.value] as const, ([pending, ending]) => {
-    if (pending || ending) { person.value = pending?.enemy ?? ending!; panel.value = 'person'; paused.value = true; }
+    if (pending || ending) { person.value = pending?.enemy ?? ending!; panel.value = 'person'; }
 }, { immediate: true });
 watch(sound, value => { void audio.enable(value); });
 watch(run, value => { if (sound.value && value?.battle) { audio.tick(value.battle); } });
@@ -221,22 +236,22 @@ onBeforeUnmount(() => { playback.dispose(); client.dispose(); audio.dispose(); }
         <JourneyEntry v-if="!entered" ref="entry" :campaign="run" :ready="!!view?.ready" :busy="busy" :blocked="blocked || generationActive" @start="start" @continue="continueJourney" />
         <ExplorationField
             v-if="entered && run && world"
-            :key="epoch" ref="field" :world="world" :traveler="run.traveler" :paused="halted" :weapon="run.weapon" :outfit="outfit" :battle="run.battle"
-            @input="playback.input" @interact="interact" @pause="pause" @resume="resume" @error="renderingError = true"
+            :key="epoch" ref="field" :world="world" :traveler="run.traveler" :paused="halted" :transitioning="!!transition" :weapon="run.weapon" :outfit="outfit" :battle="run.battle"
+            @input="playback.input" @interact="interact" @pause="pause" @resume="resume" @error="renderingError = true" @ready="sceneReady"
         >
             <template #status>
                 <template v-if="run">
                     <div class="ember-health"><meter :min="0" :max="RULES.maxHp" :value="run.hp" :aria-label="COPY.hp" /><span>{{ Math.ceil(run.hp) }} / {{ RULES.maxHp }}</span></div>
                     <p class="ember-objective">{{ campaignObjective(run) }}</p>
-                    <small class="ember-save">{{ talking ? c.thinking : busy ? c.saving : dirty ? '' : c.saved }}</small>
                 </template>
             </template>
             <template #overlay><span /></template>
         </ExplorationField>
+        <aside v-if="entered && transition && !notice && !renderingError && !panel && !paused" class="ember-transition" role="status">{{ w.transition(w.scenes[transition]) }}</aside>
         <nav v-if="entered && run && !run.pendingParley && !endingPerson" class="ember-tools" :aria-label="c.prepare">
-            <button type="button" :aria-label="c.map" @click="open('map')"><ExpeditionIcon name="map" /><span>{{ c.map }}</span></button>
-            <button type="button" :aria-label="c.build" @click="open('build')"><ExpeditionIcon name="bag" /><span>{{ c.build }}</span></button>
-            <button type="button" :aria-label="c.journal" @click="open('journal')"><ExpeditionIcon name="journal" /><span>{{ c.journal }}</span></button>
+            <button type="button" :disabled="performing || !!transition" :aria-label="c.map" @click="open('map')"><ExpeditionIcon name="map" /><span>{{ c.map }}</span></button>
+            <button type="button" :disabled="performing || !!transition" :aria-label="c.build" @click="open('build')"><ExpeditionIcon name="bag" /><span>{{ c.build }}</span></button>
+            <button type="button" :disabled="performing || !!transition" :aria-label="c.journal" @click="open('journal')"><ExpeditionIcon name="journal" /><span>{{ c.journal }}</span></button>
             <button type="button" :aria-label="c.pause" @click="menu"><ExpeditionIcon name="pause" /><span>{{ c.pause }}</span></button>
         </nav>
         <div v-if="entered && boss && !panel" class="ember-boss">
@@ -280,7 +295,7 @@ onBeforeUnmount(() => { playback.dispose(); client.dispose(); audio.dispose(); }
                         <div class="ember-pack-heading"><strong>{{ run.traveler.name }}</strong><span>{{ j.genders[run.traveler.gender] }} · {{ j.identityRole }}</span></div>
                         <small>{{ c.slots(run.equipped.length, RULES.relicSlots) }}</small>
                         <p>{{ WEAPON_COPY[run.weapon].name }} · {{ skillDetail(run.weapon) }}</p>
-                        <p v-if="run.location.scene !== 'camp'">{{ c.safeBuild }}</p>
+                        <p v-if="!COURTYARD[run.location.scene].safe">{{ c.safeBuild }}</p>
                         <p v-if="!run.collection.length">{{ c.emptyBuild }}</p>
                         <div class="ember-relics">
                             <article v-for="relic in loadoutOptions" :key="relic.id">
@@ -294,17 +309,20 @@ onBeforeUnmount(() => { playback.dispose(); client.dispose(); audio.dispose(); }
                 <template v-else-if="panel === 'person'">
                     <header class="ember-dialogue-heading">
                         <div class="ember-person-heading"><h2>{{ participantName(person) }}</h2><small>{{ w.scenes[run.location.scene] }}</small></div>
-                        <ConversationMeters :key="person" :campaign="run" :person="person" :draft="draft" />
+                        <ConversationMeters :key="person" :campaign="run" :person="person" :draft="draft" :memory-state="view?.memories?.[person]" :blocked="blocked" @retry-memory="client.retryMemory(person)" />
                         <button v-if="!endingPerson && run.pendingParley?.decision !== 'attack'" type="button" :disabled="!!run.pendingParley && blocked" @click="resume">{{ c.close }}</button>
                     </header>
                     <div ref="transcript" class="ember-dialogue-scroll" role="log" aria-live="polite" @scroll="rememberReading">
                         <DialogueBubble v-if="greeting" :person="person" :reply="greeting.reply" :performance="greeting.performance" :animate="false" />
                         <template v-for="turn in history" :key="turn.id">
                             <p v-if="turn.kind !== 'greeting'" class="ember-player-line"><small>{{ run.traveler.name }}</small>{{ turn.player }}</p>
-                            <p v-if="turn.issue" class="ember-dialogue-issue">{{ dialogueCopy.issues[turn.issue] }}</p>
+                            <p v-if="turn.issue === 'action_rejected' || turn.issue === 'reply_invalid' || turn.issue === 'reply_incomplete'" class="ember-dialogue-issue">{{ dialogueCopy.issues[turn.issue] }}</p>
                             <details v-if="turn.kind === 'receipt' && turn.issue === 'reply_invalid'"><summary>{{ dialogueCopy.rawReply }}</summary><p class="ember-prose">{{ turn.reply }}</p></details>
                             <p v-else-if="turn.kind === 'receipt'" class="ember-prose">{{ turn.reply }}</p>
-                            <DialogueBubble v-else :person="person" :reply="turn.reply" :performance="turn.performance" :animate="freshReply === turn.id" :data-fresh-reply="freshReply === turn.id" />
+                            <div v-else class="ember-npc-turn" :data-fresh-reply="freshReply === turn.id">
+                                <DialogueBubble :person="person" :reply="turn.reply" :performance="turn.performance" :animate="freshReply === turn.id" />
+                                <DialogueActionFeedback :campaign="run" :person="person" :turn="turn" />
+                            </div>
                         </template>
                         <template v-if="pendingLine">
                             <p class="ember-player-line" :aria-busy="pendingLine.status === 'sending'"><small>{{ run.traveler.name }}</small>{{ pendingLine.text }}</p>

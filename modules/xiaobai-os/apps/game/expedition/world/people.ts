@@ -11,6 +11,7 @@ import type { WorldSpace } from './types.js';
 import type { Point } from '../types.js';
 import { RULES } from '../content.js';
 import { fault } from '../random.js';
+import { livingSpace } from '../content/living-spaces.js';
 
 export interface PersonLocation { scene: CourtyardScene; position: Point; facing: number; mode: 'idle' | 'follow' | 'travel'; destination: DestinationId | null }
 export type PeopleLocations = Record<CourtyardPerson, PersonLocation>;
@@ -57,9 +58,10 @@ function sceneRoute(from: Pick<PersonLocation, 'scene' | 'position'>, to: Person
 export function personMap(campaign: Campaign, person: CourtyardPerson) {
     const facts = new Set(campaign.facts), location = campaign.people[person];
     return Object.entries(DESTINATIONS).map(([id, place]) => ({ id: id as DestinationId, name: place.name,
+        ...(livingSpace(place.scene) ? { use: livingSpace(place.scene)!.use } : {}),
         personHere: location.scene === place.scene && (id === place.scene || distance(location.position, COURTYARD[place.scene].anchors[place.anchor]) <= INTERACTION_REACH),
         playerHere: campaign.location.scene === place.scene && (id === place.scene || distance(campaign.location.position, COURTYARD[place.scene].anchors[place.anchor]) <= INTERACTION_REACH),
-        accessible: (place.scene === 'camp' || facts.has('briefed')) && sceneRoute(location, place, facts, false) !== null,
+        accessible: sceneRoute(location, place, facts, false) !== null,
         safe: sceneSafe(place.scene, facts),
         solo: sceneSafe(location.scene, facts) && sceneSafe(place.scene, facts) && sceneRoute(location, place, facts, true) !== null,
     }));
@@ -100,13 +102,10 @@ export function movePerson(campaign: Campaign, person: CourtyardPerson, action: 
         state.mode = 'travel'; state.destination = id;
     }
 }
-export function relocatePeople(campaign: Campaign, previousScene: CourtyardScene) {
+export function relocatePeople(campaign: Campaign) {
     for (const id of PERSON_IDS) {
         const state = campaign.people[id];
         if (state.mode === 'follow') { state.scene = campaign.location.scene; state.position = { ...campaign.location.position }; }
-        else if (state.scene === previousScene && previousScene !== 'camp' && state.mode === 'idle' && personCanMove(campaign, id)) {
-            campaign.people[id] = personAt(PERSON_PLACES[id].home);
-        }
     }
 }
 /** Positions advance in fixed gameplay ticks. Pausing or backgrounding never runs a second movement clock. */

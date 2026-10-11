@@ -23,5 +23,5 @@ import ending from './assets/cg-ending.webp?url&no-inline';
 /** Presentation-only assets. Importing a URL never starts an image download. */
 export const WORLD_ART = { city, cityMobile, chapter } as const;
 export const WEAPON_ART = { blade, bow, staff, daggers, grimoire, cannon } satisfies Record<Weapon, string>;
-export const SCENE_ART = { camp, crossroads, gate, beacon, waterway, cells, hall, roots } satisfies Record<CourtyardScene, string>;
+export const SCENE_ART: Partial<Record<CourtyardScene, string>> = { camp, crossroads, gate, beacon, waterway, cells, hall, roots };
 export const STORY_ART = { arrival, ending } as const;

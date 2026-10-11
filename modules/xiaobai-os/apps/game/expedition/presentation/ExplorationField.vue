@@ -13,9 +13,10 @@ import { reachablePersonInteractions } from '../world/people.js';
 import { parleyInteractions } from '../campaign/parley.js';
 import { interactionLabel } from './interaction-copy.js';
 import './world-feedback.css';
+import type { CourtyardScene } from '../content/world-types.js';
 
-const props = defineProps<{ world: ExplorationFrame; traveler: Traveler; paused: boolean; weapon: Weapon; outfit: Outfit; battle?: Battle | null }>();
-const emit = defineEmits<{ input: [frame: InputFrame]; interact: [id: string]; pause: []; resume: []; error: [error: unknown] }>();
+const props = defineProps<{ world: ExplorationFrame; traveler: Traveler; paused: boolean; transitioning?: boolean; weapon: Weapon; outfit: Outfit; battle?: Battle | null }>();
+const emit = defineEmits<{ input: [frame: InputFrame]; interact: [id: string]; pause: []; resume: []; ready: [scene: CourtyardScene]; error: [error: unknown] }>();
 const root = ref<HTMLElement | null>(null), canvas = ref<HTMLElement | null>(null), knob = ref({ x: 0, y: 0 });
 const selection = ref<string | null>(null);
 const artwork = ref({ failed: 0, pending: 0 });
@@ -71,7 +72,7 @@ watch(() => props.world.definition.id, () => { clear(); selection.value = nearby
 watch(() => props.paused, value => { clear(); schedule(); if (!value) { root.value?.focus({ preventScroll: true }); } });
 watch(() => [props.world.definition, props.world.facts, props.world.location.position.x, props.world.location.position.y, props.weapon, props.outfit], schedule);
 onMounted(() => {
-    try { scene = createExpeditionScene(canvas.value!, () => { pause(); emit('error', new Error('expedition_webgl_context_lost')); }, { traveler: props.traveler, world: true, invalidate: schedule, artworkStatus: (failed, pending) => { artwork.value = { failed, pending }; } }); }
+    try { scene = createExpeditionScene(canvas.value!, () => { pause(); emit('error', new Error('expedition_webgl_context_lost')); }, { traveler: props.traveler, world: true, invalidate: schedule, sceneReady: id => emit('ready', id), artworkStatus: (failed, pending) => { artwork.value = { failed, pending }; } }); }
     catch (error) { emit('error', error); return; }
     controls = createControls(root.value!, pause, () => {});
     document.addEventListener('visibilitychange', visibility);
@@ -109,7 +110,7 @@ defineExpose({ stats: () => scene?.stats(), focus: () => root.value?.focus({ pre
                 <button class="journey-act" type="button" :disabled="battle.player.skill > 0" @pointerdown.prevent="pointerAction($event, 'skill')" @click="skill"><kbd>{{ combatCopy.skillKey }}</kbd>{{ WEAPON_COPY[weapon].action }}<small>{{ battle.player.skill > 0 ? combatCopy.secondsLeft(battle.player.skill) : combatCopy.ready }}</small></button>
             </div>
         </div>
-        <div v-if="paused" class="journey-overlay"><slot name="overlay"><button class="journey-act" type="button" @click="emit('resume')">{{ c.actions.resume }}</button></slot></div>
+        <div v-if="paused && !transitioning" class="journey-overlay"><slot name="overlay"><button class="journey-act" type="button" @click="emit('resume')">{{ c.actions.resume }}</button></slot></div>
     </section>
 </template>
 

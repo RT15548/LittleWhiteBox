@@ -42,7 +42,7 @@ export function buildExplorableWorld(k: SceneKit, root: Group, definition: Scene
         for (const item of visibleInteractions(definition, next)) {
             const p = item.position;
             if (item.kind === 'exit') {
-                for (const side of [-1, 1]) { lamp(k, objects, p.x + side * 1.7, p.y, 1.5); }
+                if (!item.target.doorway) { for (const side of [-1, 1]) { lamp(k, objects, p.x + side * 1.7, p.y, 1.5); } }
                 k.mesh(objects, 'box', LAND.brass, [3, .025, .35], [p.x, .12, p.y]).castShadow = false;
             } else if (item.target.kind === 'inspect' && item.target.passage === 'warning') {
                 k.mesh(objects, 'box', LAND.timber, [.12, 1.8, .12], [p.x, .9, p.y]);
@@ -125,7 +125,7 @@ export function buildExplorableWorld(k: SceneKit, root: Group, definition: Scene
         setPeople(locations, now) {
             let changed = false;
             for (const id of PERSON_IDS) {
-                const location = locations[id], home = PERSON_PLACES[id].home, homePoint = COURTYARD[home.scene].anchors[home.anchor];
+                const location = locations[id], home = PERSON_PLACES[id].station, homePoint = COURTYARD[home.scene].anchors[home.anchor];
                 const seated = location.mode === 'idle' && (location.scene === 'cells' || location.scene === home.scene && Math.hypot(location.position.x - homePoint.x, location.position.y - homePoint.y) < 1);
                 let model = people.find(p => p.id === id);
                 if (model && (location.scene !== definition.id || model.seated !== seated)) { model.dispose(); people.splice(people.indexOf(model), 1); model = undefined; changed = true; }

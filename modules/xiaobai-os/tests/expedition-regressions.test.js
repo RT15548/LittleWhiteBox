@@ -69,11 +69,14 @@ test('bomber lead uses its fuse, not imaginary projectile flight distance', () =
 test('chapter map only reveals reachable frontier silhouettes, never undiscovered names or closed links', () => {
     const c = createCampaign('map', 7, 'blade', 'traveler', traveler);
     const initial = discoveredRoutes(c);
-    assert.deepEqual(initial.scenes.sort(), ['camp', 'crossroads']);
-    assert.equal(initial.links.length, 1);
+    assert.deepEqual(initial.scenes, ['camp']);
+    assert.equal(initial.links.length, 0);
+    c.facts.push('briefed'); assert.deepEqual(discoveredRoutes(c).scenes.sort(), ['camp', 'crossroads']);
     c.facts.push('postern_opened'); assert.ok(discoveredRoutes(c).scenes.includes('cells'));
-    const points = mapMarkers(Array.from({ length: 25 }, () => ({ x: 99, y: -99 })), { x: 0, z: 0, width: 40, depth: 40 });
-    assert.equal(points.length, 25); assert.ok(points.every(p => Math.abs(p.x) <= 17 && Math.abs(p.y) <= 17));
+    for (const size of [18, 40, 96]) {
+        const points = mapMarkers(Array.from({ length: 25 }, () => ({ x: 99, y: -99 })), { x: 0, z: 0, width: size, depth: size });
+        assert.equal(points.length, 25); assert.ok(points.every(p => Math.abs(p.x) < size / 2 && Math.abs(p.y) < size / 2));
+    }
 });
 
 test('perched NPC ring stays on ground and attention motion does not move its interaction anchor', () => {

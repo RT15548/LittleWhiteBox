@@ -5,8 +5,6 @@ export const DIALOGUE_COPY = Object.freeze({
     regenerate: '重新生成', retrySend: '重试发送', sendFailed: '未完成回复，原消息已保留。', continue: '继续',
     issues: {
         action_rejected: '对白已保存，附带行动不成立，未执行。',
-        performance_rejected: '对白已保存，附带表演未能呈现。',
-        metadata_invalid: '对白已保存，附带信息未能读取，未执行行动或改变好感。',
         reply_invalid: '回复格式有误。原文已保存，未执行行动或改变好感。',
         reply_incomplete: '回复未完整生成。已收到的原文已保存，未执行行动或改变好感。',
     },
@@ -16,6 +14,8 @@ export const DIALOGUE_COPY = Object.freeze({
     pass: '决定放行，不再进行这场战斗；玩家读完并关闭面板后让路。',
     attack: '决定动手，对话结束；玩家读完并迎战后开始战斗。', fight: '迎战',
     contextParts: { system: '世界与人物', situation: '当前处境', memory: '历史摘要', history: '近期交谈' },
-    estimate: '本地估算；达到摘要阈值时，发送前自动整理较早记录。',
-    threshold: (remaining: number) => `距自动摘要约 ${Math.max(0, remaining).toLocaleString()} tokens`,
+    estimate: '本地估算；摘要期间保留原文继续交谈，达到等待线后等摘要完成再发送。',
+    memoryRunning: '正在后台整理较早的交谈', memoryRetry: '重试摘要',
+    memoryServiceFailed: '摘要服务调用失败，原文已保留。',
+    threshold: (trigger: number) => `${trigger / 1000}k 开始后台摘要`,
 });

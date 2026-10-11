@@ -20,8 +20,10 @@ export function createExpeditionClient(bridge: XiaobaiOsFrameBridge, chatIdentit
     const dataInvalid = ref(false);
     let disposed = false, pushed: ExpeditionView | null = null;
     const blocked = computed(() => busy.value || talking.value || uncertainTalk.value || !!failed.value || !view.value?.ready || view.value.writeState !== 'ready' || view.value.pending);
+    const atLeastAsRecent = (next: ExpeditionView, previous: ExpeditionView) => next.data.revision !== previous.data.revision
+        ? next.data.revision > previous.data.revision : next.fileRevision >= previous.fileRevision;
     function apply(next: ExpeditionView) {
-        if (disposed || view.value && next.data.revision < view.value.data.revision) { return; }
+        if (disposed || view.value && !atLeastAsRecent(next, view.value)) { return; }
         const pending = submission.value;
         if (view.value?.data.active?.id !== next.data.active?.id || pending && next.data.active?.conversations[pending.person].some(turn => turn.id === pending.actionId)) { submission.value = null; }
         view.value = next;
@@ -33,13 +35,13 @@ export function createExpeditionClient(bridge: XiaobaiOsFrameBridge, chatIdentit
         if (!failure || failure.regenerating || view.value?.data.active?.conversations[failure.person].some(turn => turn.id === failure.actionId)) { return null; }
         return { actionId: failure.actionId, person: failure.person, text: failure.playerText, regenerating: false, status: 'failed' as const };
     });
-    async function request(type: 'read' | 'act' | 'confirm' | 'rebuild', input?: ExpeditionRequest): Promise<boolean> {
+    async function request(type: 'read' | 'act' | 'confirm' | 'rebuild' | 'retry-memory', input?: ExpeditionRequest, person?: Participant): Promise<boolean> {
         if (disposed || busy.value) { return false; }
         busy.value = true; pushed = null; error.value = '';
         try {
-            const reply = await bridge.request(`game/expedition/${type}`, { chatIdentity, ...(type === 'rebuild' ? { actionId: newId() } : {}), ...input }, 35000) as { result: ExpeditionView };
+            const reply = await bridge.request(`game/expedition/${type}`, { chatIdentity, ...(type === 'rebuild' ? { actionId: newId() } : {}), ...input, ...(person ? { person } : {}) }, 35000) as { result: ExpeditionView };
             const latest = pushed as ExpeditionView | null;
-            apply(latest && latest.data.revision >= reply.result.data.revision ? latest : reply.result);
+            apply(latest && atLeastAsRecent(latest, reply.result) ? latest : reply.result);
             readNeeded.value = false; dataInvalid.value = false;
             if (view.value?.writeState === 'ready' && !view.value.pending && type !== 'read') { failed.value = null; }
             return true;
@@ -81,7 +83,7 @@ export function createExpeditionClient(bridge: XiaobaiOsFrameBridge, chatIdentit
             const reply = await bridge.request(turnId ? 'game/expedition/regenerate' : 'game/expedition/talk',
                 { chatIdentity, actionId, revision: view.value!.data.revision, person, text, ...(turnId ? { turnId } : {}) }, 180000) as { result: ExpeditionView };
             const latest = pushed as ExpeditionView | null;
-            apply(latest && latest.data.revision >= reply.result.data.revision ? latest : reply.result); return true;
+            apply(latest && atLeastAsRecent(latest, reply.result) ? latest : reply.result); return true;
         } catch (cause) {
             if (!disposed) {
                 if (pushed) { apply(pushed); }
@@ -110,8 +112,10 @@ export function createExpeditionClient(bridge: XiaobaiOsFrameBridge, chatIdentit
     return { view, busy, error, blocked, failed, talking, uncertainTalk, talk, outgoing, cancelTalk, recoveryRequired, dataInvalid, conversationFailure,
         dismissConversationFailure() { dismissedFailure.value = view.value?.replyFailure?.actionId ?? null; },
         rebuild: () => request('rebuild'),
+        retryMemory: (person: Participant) => blocked.value ? Promise.resolve(false) : request('retry-memory', undefined, person),
         dismissError() { if (!recoveryRequired.value) { error.value = ''; } },
-        notice: computed(() => error.value || (view.value && (view.value.pending || view.value.writeState !== 'ready') ? COPY.saveError : '')),
+        notice: computed(() => error.value || (view.value && (['failed', 'conflict', 'unconfirmed'].includes(view.value.writeState)
+            || view.value.pending && view.value.writeState === 'ready') ? COPY.saveError : '')),
         read: () => request('read'), recover,
         act: (command: Command) => blocked.value ? Promise.resolve(false) : request('act', { actionId: newId(), revision: view.value!.data.revision, command: parseCommand(command) }),
         dispose() { disposed = true; unsubscribe(); },

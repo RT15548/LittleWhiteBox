@@ -9,7 +9,7 @@ import { interactWorld, reachableInteractions, sceneSpace, startWorld, walkWorld
 import { buildExplorableWorld } from '../apps/game/expedition/presentation/world-scenery.ts';
 import { createSceneKit } from '../apps/game/expedition/scene-kit.ts';
 
-const allFacts = new Set(['crossroads_cleared', 'patrol_cleared', 'sluice_opened', 'waterway_cleared', 'alarm_silenced',
+const allFacts = new Set(['briefed', 'crossroads_cleared', 'patrol_cleared', 'sluice_opened', 'waterway_cleared', 'alarm_silenced',
     'captives_released', 'postern_opened', 'receiving_arranged', 'captives_arrived', 'warden_defeated', 'roots_cleared']);
 const at = (scene, anchor) => ({ scene, position: { ...COURTYARD[scene].anchors[anchor] }, facing: 0, visited: [scene] });
 
@@ -47,7 +47,7 @@ test('sluice, prison doors, postern and optional roots have no walkable bypass',
 });
 
 test('interaction requires authored availability, real proximity and unblocked sight', () => {
-    assert.throws(() => interactWorld(COURTYARD, startWorld(COURTYARD.camp, 'start'), new Set(), 'road'), { code: 'expedition_world_out_of_reach' });
+    assert.throws(() => interactWorld(COURTYARD, startWorld(COURTYARD.camp, 'start'), new Set(['briefed']), 'road'), { code: 'expedition_world_out_of_reach' });
     assert.throws(() => interactWorld(COURTYARD, at('camp', 'postern'), new Set(), 'postern'), { code: 'expedition_world_interaction_unavailable' });
     assert.throws(() => interactWorld(COURTYARD, at('waterway', 'sluice'), new Set(['sluice_opened']), 'sluice'), { code: 'expedition_world_interaction_unavailable' });
     assert.equal(interactWorld(COURTYARD, at('waterway', 'sluice'), new Set(), 'sluice').object.fact, 'sluice_opened');
@@ -55,9 +55,9 @@ test('interaction requires authored availability, real proximity and unblocked s
 });
 
 test('travel records discovery once and neither mutates the old location nor supplies story results', () => {
-    const location = at('camp', 'road'), before = structuredClone(location), facts = new Set();
+    const location = at('camp', 'road'), before = structuredClone(location), facts = new Set(['briefed']);
     const result = interactWorld(COURTYARD, location, facts, 'road');
-    assert.deepEqual(location, before); assert.equal(facts.size, 0);
+    assert.deepEqual(location, before); assert.deepEqual([...facts], ['briefed']);
     assert.deepEqual(result.location.visited, ['camp', 'crossroads']);
     const back = interactWorld(COURTYARD, result.location, facts, 'camp');
     assert.deepEqual(back.location.visited, ['camp', 'crossroads']);

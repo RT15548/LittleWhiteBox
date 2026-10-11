@@ -9,7 +9,7 @@ export function withExpeditionRuntime(primary: XiaobaiOsAppRuntime, service: Exp
     let activation: { identity: string; post: XiaobaiOsAppActivationContext['post'] } | null = null, busy = false;
     let unsubscribe: (() => void) | undefined, conversation: AbortController | null = null;
     const detach = () => { activation = null; };
-    const cancel = () => { conversation?.abort(); detach(); };
+    const cancel = () => { conversation?.abort(); detach(); service.stopMemory(); };
     function publish() {
         if (!activation || busy || identity() !== activation.identity) { return; }
         try { activation.post('game/expedition/state', { chatIdentity: activation.identity, state: service.view() }); }
@@ -35,6 +35,7 @@ export function withExpeditionRuntime(primary: XiaobaiOsAppRuntime, service: Exp
             try {
                 if (message.type === 'game/expedition/read') { return await service.refresh(); }
                 if (message.type === 'game/expedition/confirm') { return await service.confirm(guard); }
+                if (message.type === 'game/expedition/retry-memory') { return await service.retryMemory(member(payload.person, PARTICIPANT_IDS), guard); }
                 if (message.type === 'game/expedition/rebuild') { return await service.rebuild(expeditionId(payload.actionId), guard); }
                 if (message.type === 'game/expedition/talk' || message.type === 'game/expedition/regenerate') {
                     const controller = new AbortController(); conversation = controller;

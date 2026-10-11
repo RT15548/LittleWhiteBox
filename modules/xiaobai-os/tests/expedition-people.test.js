@@ -90,11 +90,13 @@ test('following crosses scenes, sees local events and stays outside all combat t
     const followers = c.battle.companions ?? []; assert.ok(!followers.some(p => p.id === 'sanniang'));
 });
 
-test('left-behind NPC returns home only after leaving an outside scene, and conversation reach follows location', () => {
+test('stay preserves the agreed location when the player leaves and returns', () => {
     const c = create(); recordFact(c, 'briefed'); movePerson(c, 'laobai', 'follow');
     c.location.position = { ...COURTYARD.camp.anchors.road }; advanceCampaign(c, { type: 'interact', id: 'road' });
     movePerson(c, 'laobai', 'stay'); assert.equal(canTalk(c, 'laobai'), true);
     advanceCampaign(c, { type: 'interact', id: 'camp' });
-    assert.equal(c.people.laobai.scene, 'camp'); assert.equal(canTalk(c, 'laobai'), false);
-    assert.deepEqual(c.people.laobai.position, COURTYARD.camp.anchors.guard);
+    assert.equal(c.people.laobai.scene, 'crossroads'); assert.equal(canTalk(c, 'laobai'), false);
+    assert.deepEqual(c.people.laobai.position, COURTYARD.crossroads.anchors.camp);
+    advanceCampaign(c, { type: 'interact', id: 'road' });
+    assert.equal(canTalk(c, 'laobai'), true);
 });

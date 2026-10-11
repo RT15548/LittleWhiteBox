@@ -1,14 +1,16 @@
-import type { CourtyardPerson, CourtyardScene } from './world-types.js';
+import type { CourtyardPerson, CourtyardScene, LivingScene } from './world-types.js';
 import { WORLD_COPY } from './world-copy.js';
+import { LIVING_SPACES } from './living-spaces.js';
 
 export interface PersonPlace { scene: CourtyardScene; anchor: string }
-export const PERSON_PLACES: Record<CourtyardPerson, { initial: PersonPlace; home: PersonPlace; captive: boolean }> = {
-    sanniang: { initial: { scene: 'camp', anchor: 'clinic' }, home: { scene: 'camp', anchor: 'clinic' }, captive: false },
-    laobai: { initial: { scene: 'camp', anchor: 'guard' }, home: { scene: 'camp', anchor: 'guard' }, captive: false },
-    kouzi: { initial: { scene: 'cells', anchor: 'kouzi' }, home: { scene: 'camp', anchor: 'kouzi' }, captive: true },
-    anian: { initial: { scene: 'cells', anchor: 'anian' }, home: { scene: 'camp', anchor: 'anian' }, captive: true },
+export const PERSON_PLACES: Record<CourtyardPerson, { initial: PersonPlace; station: PersonPlace; captive: boolean }> = {
+    sanniang: { initial: { scene: 'camp', anchor: 'clinic' }, station: { scene: 'camp', anchor: 'clinic' }, captive: false },
+    laobai: { initial: { scene: 'camp', anchor: 'guard' }, station: { scene: 'camp', anchor: 'guard' }, captive: false },
+    kouzi: { initial: { scene: 'cells', anchor: 'kouzi' }, station: { scene: 'camp', anchor: 'kouzi' }, captive: true },
+    anian: { initial: { scene: 'cells', anchor: 'anian' }, station: { scene: 'camp', anchor: 'anian' }, captive: true },
 };
 export const DESTINATIONS = {
+    ...Object.fromEntries(Object.keys(LIVING_SPACES).map(id => [id, { scene: id, anchor: 'settle', name: WORLD_COPY.scenes[id as LivingScene] }])) as Record<LivingScene, PersonPlace & { name: string }>,
     camp: { scene: 'camp', anchor: 'start', name: '檐下营地' },
     gatehouse: { scene: 'camp', anchor: 'gatehouse', name: '外门门楼' },
     pipewalk: { scene: 'camp', anchor: 'kouzi', name: '管架高处' },

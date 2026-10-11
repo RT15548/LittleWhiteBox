@@ -9,22 +9,47 @@ import type { AgentCapability } from '../../../capabilities/agent/index.js';
 import type { Participant } from './content/participants.js';
 import { canTalk, CAMPAIGN_RULES } from './campaign/rules.js';
 import { rewindReply } from './campaign/reply-checkpoint.js';
-import type { ConversationMemory } from './campaign/types.js';
 import { applyReply } from './narrative/apply-reply.js';
 import { generateConversation, type ConversationOptions } from './narrative/conversation.js';
+import { createMemoryJobs, type MemoryJobState } from './narrative/memory-jobs.js';
+import { memoryBoundary, sameMemory } from './narrative/history.js';
 
 export interface ExpeditionView {
     data: ExpeditionData & ReturnType<typeof expeditionProgress>; balance: number; ready: boolean; pending: boolean; writeState: XiaobaiOsFileState;
+    fileRevision: number;
     conversation: { actionId: string; person: Participant; text: string; regenerating: boolean } | null;
     replyFailure: { actionId: string; person: Participant; playerText: string; regenerating: boolean; text: string | null; code: string } | null;
+    memories: Partial<Record<Participant, MemoryJobState>>;
 }
 export interface ExpeditionRequest { actionId: string; revision: number; command: Command }
 export function createExpeditionService(store: PartitionStore<ExpeditionData>, files: XiaobaiOsFileControls, economy: EconomyReadCapability,
     dependencies: { seed?: () => number; idle?: () => boolean; agent?: AgentCapability } & Partial<Pick<ConversationOptions, 'loadCanon' | 'countTokens'>> = {}) {
     let conversation: ExpeditionView['conversation'] = null, replyFailure: ExpeditionView['replyFailure'] = null;
+    const listeners = new Set<() => void>();
+    const memories = createMemoryJobs({ countTokens: dependencies.countTokens, changed: () => listeners.forEach(listener => listener()),
+        async save(snapshot, person, memory, signal) {
+            let accepted = false;
+            const result = await store.transact(transaction => {
+                if (signal.aborted) { fault('cancelled'); }
+                const data = transaction.current, active = data?.active;
+                if (!active || active.id !== snapshot.id) { fault('stale'); }
+                const boundary = memoryBoundary(snapshot.conversations[person], memory);
+                if (!sameMemory(active.memories[person], snapshot.memories[person])
+                    || JSON.stringify(active.conversations[person].slice(0, boundary)) !== JSON.stringify(snapshot.conversations[person].slice(0, boundary))) { fault('stale'); }
+                const next = structuredClone(data!); next.active!.memories[person] = memory;
+                // Memory maintenance is not a game move: preserve action revision,
+                // last action and all turns received since the snapshot was taken.
+                transaction.replace(next); accepted = true;
+            }, { retainFailedCandidate: true, commitGuard: () => accepted || !signal.aborted });
+            if (result.status !== 'confirmed' && result.status !== 'unchanged') { fault(`save_${result.status}`); }
+        },
+    });
     function view(): ExpeditionView {
-        let data: ExpeditionData;
-        try { data = structuredClone(store.peekCurrent()?.value ?? emptyExpedition()); }
+        let data: ExpeditionData, fileRevision: number;
+        try {
+            const snapshot = store.peekCurrent();
+            data = structuredClone(snapshot?.value ?? emptyExpedition()); fileRevision = snapshot?.envelopeRevision ?? 0;
+        }
         catch (error) {
             if (error && typeof error === 'object' && 'code' in error && error.code === 'partition_invalid') {
                 if (files.hasPendingCommit(EXPEDITION_PARTITION.key)) {
@@ -34,8 +59,8 @@ export function createExpeditionService(store: PartitionStore<ExpeditionData>, f
             }
             throw error;
         }
-        return { data: { ...data, ...expeditionProgress(data) }, balance: economy.getPlayerBalance(), ready: economy.isOpen(),
-            pending: files.hasPendingCommit(EXPEDITION_PARTITION.key), writeState: files.getFileState(), conversation, replyFailure };
+        return { data: { ...data, ...expeditionProgress(data) }, fileRevision, balance: economy.getPlayerBalance(), ready: economy.isOpen(),
+            pending: files.hasPendingCommit(EXPEDITION_PARTITION.key), writeState: files.getFileState(), conversation, replyFailure, memories: memories.states(data.active?.id) };
     }
     async function refresh() { await economy.refresh(); await store.readRaw(); return view(); }
     async function act(input: ExpeditionRequest, guard: () => boolean): Promise<ExpeditionView> {
@@ -55,7 +80,7 @@ export function createExpeditionService(store: PartitionStore<ExpeditionData>, f
             postExpeditionMoney(data, next, money); validateEconomy(next, money); transaction.replace(next); accepted = true;
         }, { retainFailedCandidate: true, commitGuard: () => (accepted || guard()) && (dependencies.idle?.() ?? true) });
         if (result.status !== 'confirmed' && result.status !== 'unchanged') { throw Object.assign(new Error(`expedition_save_${result.status}`), { code: `expedition_save_${result.status}` }); }
-        if (command.type === 'start' || command.type === 'restart') { replyFailure = null; }
+        if (command.type === 'start' || command.type === 'restart') { replyFailure = null; memories.stop(); }
         return view();
     }
     async function converse(input: { actionId: string; revision: number; person: Participant; text: string; regenerate?: string }, guard: () => boolean, signal: AbortSignal) {
@@ -71,26 +96,21 @@ export function createExpeditionService(store: PartitionStore<ExpeditionData>, f
         if (input.regenerate && saved.conversations[input.person].at(-1)?.player !== input.text) { fault('identity'); }
         if (!canTalk(campaign, input.person)) { fault('unavailable'); }
         if (!dependencies.agent) { fault('agent_not_configured'); }
-        let revision = input.revision, received: Record<string, unknown> | null = null;
-        let replacementMemory: ConversationMemory | null = campaign.memories[input.person];
+        const revision = input.revision;
+        let received: Record<string, unknown> | null = null;
         conversation = { actionId: input.actionId, person: input.person, text: input.text, regenerating: !!input.regenerate };
         replyFailure = null;
         try {
         const response = await generateConversation(dependencies.agent, campaign, input.person, input.text, signal, {
             loadCanon: dependencies.loadCanon, countTokens: dependencies.countTokens,
             received: result => { received = result; },
-            async saveMemory(memory) {
-                if (input.regenerate) { replacementMemory = memory; return; }
-                let accepted = false;
-                const result = await store.transact(transaction => {
-                    if (!allowed()) { fault('cancelled'); }
-                    const data = transaction.current;
-                    if (!data?.active || data.active.id !== campaign.id || data.revision !== revision) { fault('stale'); }
-                    const next = structuredClone(data); next.active!.memories[input.person] = memory; next.revision++;
-                    transaction.replace(next); accepted = true;
-                }, { retainFailedCandidate: true, commitGuard: () => accepted || allowed() });
-                if (result.status !== 'confirmed' && result.status !== 'unchanged') { fault(`save_${result.status}`); }
-                revision++;
+            memory: {
+                read() {
+                    const active = store.peekCurrent()?.value?.active;
+                    if (active?.id !== campaign.id) { fault('stale'); }
+                    return active.memories[input.person];
+                },
+                compact: (session, snapshot) => memories.start(session, snapshot, input.person),
             },
         });
         if (!allowed()) { fault('unavailable'); }
@@ -103,7 +123,6 @@ export function createExpeditionService(store: PartitionStore<ExpeditionData>, f
             const next = structuredClone(data);
             if (input.regenerate) {
                 next.active = rewindReply(data.active, input.person, input.regenerate);
-                next.active.memories[input.person] = replacementMemory;
             }
             if (!canTalk(next.active!, input.person)) { fault('stale'); }
             applyReply(next.active!, input, response);
@@ -114,7 +133,12 @@ export function createExpeditionService(store: PartitionStore<ExpeditionData>, f
             transaction.replace(next); accepted = true;
         }, { retainFailedCandidate: true, commitGuard: () => accepted || allowed() });
         if (result.status !== 'confirmed' && result.status !== 'unchanged') { throw Object.assign(new Error(`expedition_save_${result.status}`), { code: `expedition_save_${result.status}` }); }
-        replyFailure = response.issue ? { actionId: input.actionId, person: input.person, playerText: input.text, regenerating: !!input.regenerate, text: null, code: `expedition_${response.issue}` } : null;
+        // A saved dialogue is a successful reply. Control diagnostics stay on its
+        // turn; they must not become a second, persistent failure notification.
+        replyFailure = response.kind === 'receipt' ? { actionId: input.actionId, person: input.person, playerText: input.text, regenerating: !!input.regenerate, text: null, code: `expedition_${response.issue}` } : null;
+        if (response.kind === 'dialogue' && response.issue) {
+            console.warn('[LittleWhiteBox:expedition]', { code: `expedition_${response.issue}`, person: input.person, actionId: input.actionId });
+        }
         } catch (error) {
             const result = received as Record<string, unknown> | null;
             const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : 'expedition_agent_failed';
@@ -125,7 +149,18 @@ export function createExpeditionService(store: PartitionStore<ExpeditionData>, f
         } finally { conversation = null; }
         return view();
     }
-    return { view, refresh, act, converse,
+    return { view, refresh, act, converse, stopMemory: memories.stop,
+        async retryMemory(person: Participant, guard: () => boolean) {
+            if (!guard() || !(dependencies.idle?.() ?? true) || conversation) { fault('unavailable'); }
+            const campaign = view().data.active;
+            if (!campaign || memories.states(campaign.id)[person]?.status !== 'failed') { return view(); }
+            if (!dependencies.agent) { fault('agent_not_configured'); }
+            const session = await dependencies.agent.openSession(await dependencies.agent.loadConfig());
+            if (!guard() || store.peekCurrent()?.value?.active?.id !== campaign.id) { fault('stale'); }
+            if (!String(session.providerConfig.model ?? '').trim()) { fault('agent_not_configured'); }
+            memories.clearFailure(person); void memories.start(session, campaign, person);
+            return view();
+        },
         async rebuild(actionId: string, guard: () => boolean) {
             expeditionId(actionId);
             const allowed = () => guard() && !conversation && (dependencies.idle?.() ?? true);
@@ -138,19 +173,24 @@ export function createExpeditionService(store: PartitionStore<ExpeditionData>, f
                 transaction.replace(next);
             }, { retainFailedCandidate: true, commitGuard: allowed });
             if (result.status !== 'confirmed' && result.status !== 'unchanged') { fault(`save_${result.status}`); }
-            replyFailure = null; return view();
+            replyFailure = null; memories.stop(); return view();
         },
         async confirm(guard: () => boolean) {
             if (files.hasPendingCommit() && !files.hasPendingCommit(EXPEDITION_PARTITION.key)) { fault('unavailable'); }
             if (!guard() || !(dependencies.idle?.() ?? true)) { fault('unavailable'); }
             await files.retryPending({ beforeRetry: guard });
             const next = await refresh();
+            if (!next.pending && next.writeState === 'ready') {
+                for (const [person, state] of Object.entries(next.memories)) {
+                    if (state.status === 'failed' && state.code.startsWith('expedition_save_')) { memories.clearFailure(person as Participant); }
+                }
+            }
             if (replyFailure && (next.data.active?.conversations[replyFailure.person].some(turn => turn.id === replyFailure!.actionId)
                 || replyFailure.code.startsWith('expedition_save_') && !next.pending && next.writeState === 'ready')) { replyFailure = null; }
             return view();
         },
         // User-file notifications cover game writes without parsing an invalid optional partition before the owner can handle it.
-        subscribe(listener: () => void) { const stops = [economy.subscribe(listener), files.subscribeFileState(listener)]; return () => stops.forEach(stop => stop()); },
+        subscribe(listener: () => void) { listeners.add(listener); const stops = [economy.subscribe(listener), files.subscribeFileState(listener)]; return () => { listeners.delete(listener); stops.forEach(stop => stop()); }; },
     };
 }
 export type ExpeditionService = ReturnType<typeof createExpeditionService>;

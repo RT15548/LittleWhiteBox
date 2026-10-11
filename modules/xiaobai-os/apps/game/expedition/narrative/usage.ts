@@ -12,5 +12,5 @@ export function conversationUsage(campaign: Campaign, person: Participant, draft
     const system = estimateTokenCount(prompt.systemPrompt), memory = estimateTokenCount(campaign.memories[person]?.text ?? '');
     const history = estimateTokenCount(JSON.stringify(prompt.messages.slice(1, -1)));
     return { used, system, memory, history, situation: Math.max(0, used - system - memory - history),
-        limit: MEMORY_POLICY.inputBudget, trigger: MEMORY_POLICY.trigger };
+        limit: MEMORY_POLICY.waitAt, trigger: MEMORY_POLICY.trigger };
 }

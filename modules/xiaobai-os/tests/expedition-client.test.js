@@ -4,7 +4,7 @@ import { journey } from './fixtures/expedition-traveler.js';
 import { ref } from 'vue';
 import { createExpeditionClient } from '../apps/game/expedition/client.ts';
 import { emptyExpedition } from '../apps/game/expedition/domain.ts';
-const state = revision => ({ data: { ...emptyExpedition(), revision }, balance: 100, ready: true, pending: false, writeState: 'ready' });
+const state = (revision, fileRevision = revision) => ({ data: { ...emptyExpedition(), revision }, fileRevision, balance: 100, ready: true, pending: false, writeState: 'ready', memories: {} });
 function fixture(handler) {
     let listener;
     const requests = [], bridge = { subscribe(fn) { listener = fn; return () => { listener = null; }; },
@@ -12,6 +12,18 @@ function fixture(handler) {
     const client = createExpeditionClient(bridge, 'chat-a');
     return { client, requests, push(next, chatIdentity = 'chat-a') { listener?.({ type: 'game/expedition/state', payload: { chatIdentity, state: next } }); } };
 }
+test('ordinary loading and saving are not error notices; unresolved persistence stays visible', async () => {
+    const h = fixture(async () => ({ result: state(0) })); await h.client.read();
+    for (const writeState of ['loading', 'saving']) {
+        h.push({ ...state(0), writeState, pending: true });
+        assert.equal(h.client.notice.value, ''); assert.equal(h.client.blocked.value, true);
+    }
+    for (const writeState of ['failed', 'conflict', 'unconfirmed']) {
+        h.push({ ...state(0), writeState }); assert.notEqual(h.client.notice.value, '');
+    }
+    h.push(state(0)); assert.equal(h.client.notice.value, ''); h.client.dispose();
+});
+
 test('reactive loadout selections cross the real structured-clone boundary as plain protocol data', async () => {
     const h = fixture(async type => ({ result: state(type.endsWith('/act') ? 1 : 0) }));
     await h.client.read(); const equipped = ref(['cinder']);
@@ -45,6 +57,17 @@ test('a business rejection never becomes a saved operation that is blindly retri
     const h = fixture(async type => { if (type.endsWith('/act')) throw Object.assign(new Error('locked'), { code: 'expedition_locked' }); return { result: state(0) }; });
     await h.client.read(); await h.client.act({ type: 'start', weapon: 'bow', outfit: 'traveler', ...journey });
     assert.equal(h.client.failed.value, null); await h.client.recover(); assert.equal(h.requests.filter(r => r.type.endsWith('/act')).length, 1); h.client.dispose();
+});
+
+test('memory-only file updates win over older read responses or pushes without changing the game revision', async () => {
+    let reply = state(4, 8), pushed;
+    const h = fixture(async () => { if (pushed) h.push(pushed); return { result: reply }; });
+    await h.client.read();
+    pushed = state(4, 8); reply = state(4, 9); await h.client.read();
+    assert.equal(h.client.view.value.fileRevision, 9);
+    h.push(state(4, 8)); assert.equal(h.client.view.value.fileRevision, 9);
+    pushed = state(4, 10); await h.client.read(); assert.equal(h.client.view.value.fileRevision, 10);
+    assert.equal(h.client.view.value.data.revision, 4); h.client.dispose();
 });
 
 test('conversation errors can be dismissed without a file operation, but unknown saves cannot', async () => {

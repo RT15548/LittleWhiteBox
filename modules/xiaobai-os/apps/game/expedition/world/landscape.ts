@@ -7,15 +7,17 @@ import { type WorldMap, worldFault } from './types.js';
 export interface Footprint { x: number; z: number; width: number; depth: number }
 export type LandscapeKind = 'clinic' | 'storehouse' | 'tree' | 'planter' | 'wall' | 'tower' | 'water'
     | 'wagon' | 'supplies' | 'bench' | 'ruin' | 'thicket' | 'arch' | 'column' | 'beacon' | 'bunk' | 'root'
-    | 'dwelling' | 'workshop' | 'stove' | 'medicine' | 'cargo' | 'fuel' | 'ledger';
+    | 'dwelling' | 'workshop' | 'stove' | 'medicine' | 'cargo' | 'fuel' | 'ledger'
+    | 'bed' | 'cabinet' | 'wardrobe' | 'toolrack' | 'table' | 'chair' | 'basin' | 'screen' | 'workbench' | 'door';
 export interface LandscapeFeature {
     id: string;
     kind: LandscapeKind;
     footprint: Footprint;
     height?: number;
     tint?: 'sage' | 'amber' | 'rose';
-    wallUse?: 'homes';
+    wallUse?: 'homes' | 'room';
     damaged?: boolean;
+    entrance?: boolean;
 }
 export interface LandscapeRoad { points: readonly (readonly [number, number])[]; width: number }
 /** Suspended between existing masonry; no posts or ground-level collision. */
@@ -25,8 +27,8 @@ export interface Landscape {
     features: readonly LandscapeFeature[];
     roads: readonly LandscapeRoad[];
     gates: readonly (SceneGate & { footprint: Footprint })[];
-    vista: 'camp' | 'ramparts' | 'interior' | 'garden';
-    surface: 'grass' | 'paving' | 'wet' | 'marble' | 'street';
+    vista: 'camp' | 'ramparts' | 'interior' | 'garden' | 'room';
+    surface: 'grass' | 'paving' | 'wet' | 'marble' | 'street' | 'boards';
     suspended?: readonly SuspendedDetail[];
 }
 

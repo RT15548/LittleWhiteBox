@@ -6,7 +6,7 @@ import { LAND } from './world-palette.js';
 /** Reused roofs, patched shutters and warm windows, not landmark-sized detached villas. */
 export function streetHouse(k: SceneKit, base: Group, upper: Group, item: LandscapeFeature) {
     const { width, depth } = item.footprint, alongX = width >= depth;
-    const count = Math.max(1, Math.floor(Math.max(width, depth) / 5));
+    const count = item.entrance ? 1 : Math.max(1, Math.floor(Math.max(width, depth) / 5));
     k.mesh(base, 'box', LAND.mortar, [width, .4, depth], [0, .2, 0]);
     for (let i = 0; i < count; i++) {
         const w = alongX ? width / count : width, d = alongX ? depth : depth / count;
@@ -24,8 +24,9 @@ export function streetHouse(k: SceneKit, base: Group, upper: Group, item: Landsc
         for (let x = -w / 2; x <= w / 2; x += .8) { k.mesh(roof, 'box', LAND.roofLight, [.055, .07, roofDepth], [x, .12, 0]); }
         k.mesh(roof, 'box', LAND.brass, [w + .65, .12, .13], [0, .03, roofDepth / 2]);
         const front = k.group(root, [0, 0, d / 2]);
-        k.mesh(front, 'box', LAND.shadow, [1.05, 2.1, .1], [-w * .19, 1.1, 0]);
-        for (const x of [-.4, -.13, .14, .41]) { k.mesh(front, 'box', LAND.wood, [.24, 1.95, .12], [-w * .19 + x, 1.06, .04]); }
+        const doorX = item.entrance ? 0 : -w * .19;
+        k.mesh(front, 'box', LAND.shadow, [1.05, 2.1, .1], [doorX, 1.1, 0]);
+        for (const x of [-.4, -.13, .14, .41]) { k.mesh(front, 'box', LAND.wood, [.24, 1.95, .12], [doorX + x, 1.06, .04]); }
         k.mesh(front, 'box', LAND.shadow, [.9, .9, .12], [w * .27, 2.25, .03]);
         k.mesh(front, 'box', LAND.ember, [.7, .67, .14], [w * .27, 2.25, .1], true);
         k.mesh(front, 'box', LAND.timber, [.07, .85, .16], [w * .27, 2.25, .15]);

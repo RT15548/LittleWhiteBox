@@ -64,7 +64,7 @@ export function canTalk(campaign: Campaign, person: Participant) {
 function receiveCaptives(campaign: Campaign) {
     if (campaign.location.scene === 'camp' && ['captives_released', 'postern_opened', 'receiving_arranged'].every(f => campaign.facts.includes(f as CourtyardFact))) {
         if (!campaign.facts.includes('captives_arrived')) {
-            for (const id of PERSON_IDS.filter(id => PERSON_PLACES[id].captive)) { campaign.people[id] = personAt(PERSON_PLACES[id].home); }
+            for (const id of PERSON_IDS.filter(id => PERSON_PLACES[id].captive)) { campaign.people[id] = personAt(PERSON_PLACES[id].station); }
             recordFact(campaign, 'captives_arrived');
         }
     }
@@ -149,9 +149,7 @@ export function advanceCampaign(campaign: Campaign, command: Exclude<Command, { 
             if (campaign.phase !== 'exploration') { fault('unavailable'); }
             const result = interactWorld(COURTYARD, campaign.location, facts, command.id);
             if (result.kind === 'travel') {
-                if (!facts.has('briefed')) { fault('locked'); }
-                const previous = campaign.location.scene;
-                campaign.location = result.location; relocatePeople(campaign, previous); receiveCaptives(campaign);
+                campaign.location = result.location; relocatePeople(campaign); receiveCaptives(campaign);
             } else if (result.object.kind === 'switch') {
                 recordFact(campaign, result.object.fact);
                 if (result.object.fact === 'captives_released' && !facts.has('alarm_silenced')) { recordFact(campaign, 'alarm_raised'); }
@@ -191,13 +189,13 @@ export function advanceCampaign(campaign: Campaign, command: Exclude<Command, { 
             if (campaign.phase !== 'lost' || !campaign.checkpoint) { fault('unavailable'); }
             campaign.battle = structuredClone(campaign.checkpoint); campaign.phase = 'battle'; campaign.hp = campaign.battle.player.hp;
             campaign.location.position = { x: campaign.battle.player.x, y: campaign.battle.player.y };
-            relocatePeople(campaign, campaign.location.scene); break;
+            relocatePeople(campaign); break;
         case 'retreat': {
             if (campaign.phase !== 'lost') { fault('unavailable'); }
-            const visited = campaign.location.visited, previous = campaign.location.scene;
+            const visited = campaign.location.visited;
             campaign.location = { ...startWorld(COURTYARD.camp, 'rest'), visited };
             campaign.hp = RULES.maxHp; campaign.battle = null; campaign.checkpoint = null; campaign.phase = 'exploration';
-            relocatePeople(campaign, previous); receiveCaptives(campaign); break;
+            relocatePeople(campaign); receiveCaptives(campaign); break;
         }
     }
 }

@@ -1,11 +1,15 @@
-import type { CourtyardPerson, CourtyardScene, CourtyardSwitch } from './world-types.js';
+import type { CourtyardPerson, CourtyardScene, CourtyardSwitch, LivingScene } from './world-types.js';
 import { PERSON_NAMES } from './people.js';
+import { LIVING_SPACES } from './living-spaces.js';
 
 export const WORLD_COPY = Object.freeze({
     artwork: { unavailable: '部分场景纹理未载入，不影响游玩。', retry: '重新载入', loading: '载入中…' },
+    transition: (place: string) => `正在前往 · ${place}`,
+    households: { anian_parents: '阿念的父母', innkeeper: '客店店家' },
     scenes: {
         camp: '檐下', crossroads: '外墙岔口', gate: '哨站正门', beacon: '烽火台',
         waterway: '旧水道', cells: '牢房', hall: '内堡门厅', roots: '根庭',
+        ...Object.fromEntries(Object.entries(LIVING_SPACES).map(([id, space]) => [id, space.name])) as Record<LivingScene, string>,
     } satisfies Record<CourtyardScene, string>,
     people: PERSON_NAMES satisfies Record<CourtyardPerson, string>,
     switches: {

@@ -1,5 +1,5 @@
 /* eslint-disable */
-var v = [
+var g = [
   "blade",
   "bow",
   "staff",
@@ -19,7 +19,7 @@ var v = [
   "leviathan",
   "archivist",
   "voidknight"
-], y = [
+], v = [
   "storm-step",
   "conductor",
   "momentum",
@@ -80,7 +80,7 @@ var v = [
   "bunker",
   "salvage",
   "railgun"
-], _ = [
+], w = [
   "traveler",
   "guardian",
   "moonweaver",
@@ -122,7 +122,7 @@ var v = [
   masteryAward: 120,
   oathAward: 100,
   recordLimit: 20
-}), $ = Object.freeze({
+}), _ = Object.freeze({
   resonanceTicks: 90,
   maxPower: 100,
   familiarHp: 38,
@@ -130,7 +130,7 @@ var v = [
   empoweredDamage: 17,
   attackTicks: 32,
   empoweredAttackTicks: 20
-}), x = {
+}), $ = {
   blade: {
     damage: 24,
     period: 20,
@@ -191,7 +191,7 @@ var v = [
     unlock: 3,
     guard: 0.9
   }
-}, S = y, C = v, s = Object.freeze({
+}, x = v, S = g, l = Object.freeze({
   bloodDamage: 1.3,
   bloodHurt: 1.25,
   hunterRange: 5,
@@ -208,15 +208,15 @@ var v = [
   focusAttack: 1.12,
   renewalHeal: 6,
   renewalZoneHeal: 8
-}), r = (e, a, t, p, f, h, g) => ({
+}), r = (e, a, t, u, p, f, h) => ({
   hp: e,
   speed: a,
   radius: t,
-  damage: p,
-  reach: f,
-  windup: h,
-  cooldown: g
-}), b = {
+  damage: u,
+  reach: p,
+  windup: f,
+  cooldown: h
+}), y = {
   soldier: r(48, 0.083, 0.4, 11, 1.45, 19, 35),
   archer: r(36, 0.058, 0.36, 10, 11, 26, 55),
   guard: r(95, 0.057, 0.58, 18, 2, 32, 65),
@@ -225,7 +225,7 @@ var v = [
   stalker: r(46, 0.12, 0.35, 10, 1.25, 16, 44),
   bomber: r(55, 0.047, 0.42, 15, 13, 28, 82),
   wisp: r(30, 0.062, 0.3, 8, 10, 22, 60)
-}, u = {
+}, m = {
   warden: {
     ...r(1050, 0.055, 1.25, 21, 20, 34, 32),
     region: 0,
@@ -286,12 +286,12 @@ var v = [
     region: 5,
     awardKey: "boss-voidknight"
   }
-}, E = {
-  ...b,
-  ...u
+}, C = {
+  ...y,
+  ...m
 };
-function O(e) {
-  return Object.hasOwn(u, e);
+function E(e) {
+  return Object.hasOwn(m, e);
 }
 var A = [
   {
@@ -378,7 +378,7 @@ var A = [
       "wisp"
     ]
   }
-], d = Object.freeze({
+], s = Object.freeze({
   city: "赤炉城",
   begin: "开始旅程",
   chapters: "篇章",
@@ -408,7 +408,7 @@ var A = [
   confirmRestart: "确认开始新的旅程",
   entering: "正在启程…",
   loading: "正在读取旅程…"
-}), R = {
+}), O = {
   bajin_intel: "老白向旅人讲出了八斤的事。",
   bajin_passed: "八斤侧过盾，给旅人让开了路。",
   changyounian_passed: "常有年眯着眼看了旅人一会儿，叫人把火绳收了。",
@@ -442,8 +442,6 @@ var A = [
   beginning: "到诊棚找三娘，或向北门的老白了解情况。",
   prepare: "准备行装",
   close: "返回",
-  saving: "正在保存",
-  saved: "进度已保存",
   retry: "重试这场战斗",
   fallen: "火还没有熄灭",
   fallenDetail: "从这场战斗开始的位置、生命和构筑重试。已完成的救援和已取得的奖励不会丢失。",
@@ -473,7 +471,7 @@ var A = [
   ending: `归还的药材堆在诊棚桌上。三娘一份份核对，没有按签上的户名把它们分开。阿念被安排在帘边坐着，有人叫她，她才抬起头。扣子蹲在管架上，伸手试了试新接头；老白仍站在小门边。
 
 这一次，两个人都回来了。可药签照旧按人头发，照旧会过期。檐下的名字依然不在内堡的册子里。门厅之后还有一扇门，古炉仍在变冷。`,
-  continued: `${d.nextChapter}${d.forthcoming}`,
+  continued: `${s.nextChapter}${s.forthcoming}`,
   remain: "留在檐下",
   optional: "根庭仍可探索；营地的人也还有话想说。",
   talk: "交谈",
@@ -511,7 +509,7 @@ var A = [
   chapterMap: "区域总览",
   localMap: "当前区域",
   mapKey: "朱红：当前位置 · 蓝色：已抵达 · 浅色：未探索"
-}), w = {
+}), b = {
   crossroads: "岔口有巡兵守着。过了这里，正门和水道才走得通。",
   gate: "八斤的盾排开了。冲过去，烽火台就在后头。",
   beacon: "守军护着火盆。别让那堆火烧起来。",
@@ -519,49 +517,15 @@ var A = [
   hall: "门厅守卫守着主闸。药和管件都压在闸后。",
   roots: "荆棘之心在地底下动。地面鼓起来时，往旁边让。"
 };
-function T(e) {
-  const a = w[e.location.scene];
+function R(e) {
+  const a = b[e.location.scene];
   if (e.phase === "battle" && a) return a;
   const t = new Set(e.facts);
   return t.has("briefed") ? t.has("chapter_completed") ? n.optional : t.has("crossroads_cleared") ? t.has("captives_released") ? t.has("postern_opened") ? t.has("receiving_arranged") ? t.has("captives_arrived") ? t.has("warden_defeated") ? t.has("supplies_secured") ? "回三娘那儿，把这趟收尾。" : "回营，到诊棚东边的货车上点一点还回来的东西。" : "去内堡门厅。药和管件压在主闸后头。" : "从小门回营，担架队会把人抬回来。" : "回营找老白，让他把担架摆到小门。" : "牢房东南角有扇小门，打开它，回营就不用绕。" : "走正门上烽火台，或者下旧水道直奔牢房。" : "沿营地北路去外墙岔口。" : n.beginning;
 }
-var l = Object.freeze({
-  affection: "好感",
-  context: "上下文",
-  close: "关闭",
-  loading: "正在读取人物资料",
-  retry: "重新读取",
-  rawReply: "查看回复原文",
-  reloadArtwork: "重新加载人物画面",
-  regenerate: "重新生成",
-  retrySend: "重试发送",
-  sendFailed: "未完成回复，原消息已保留。",
-  continue: "继续",
-  issues: {
-    action_rejected: "对白已保存，附带行动不成立，未执行。",
-    performance_rejected: "对白已保存，附带表演未能呈现。",
-    metadata_invalid: "对白已保存，附带信息未能读取，未执行行动或改变好感。",
-    reply_invalid: "回复格式有误。原文已保存，未执行行动或改变好感。",
-    reply_incomplete: "回复未完整生成。已收到的原文已保存，未执行行动或改变好感。"
-  },
-  shareSecret: "把当前阶段的秘密实际讲给玩家，记录玩家已获得这份情报。",
-  follow: "跟随玩家，跨场景同行；可以进入战区，但不参战。",
-  stay: "停止跟随，留在原处；营地外在玩家离开场景后自行回营。",
-  go: (e) => `自己步行去${e}，到了在那里等玩家；不移动玩家。`,
-  pass: "决定放行，不再进行这场战斗；玩家读完并关闭面板后让路。",
-  attack: "决定动手，对话结束；玩家读完并迎战后开始战斗。",
-  fight: "迎战",
-  contextParts: {
-    system: "世界与人物",
-    situation: "当前处境",
-    memory: "历史摘要",
-    history: "近期交谈"
-  },
-  estimate: "本地估算；达到摘要阈值时，发送前自动整理较早记录。",
-  threshold: (e) => `距自动摘要约 ${Math.max(0, e).toLocaleString()} tokens`
-}), c = ["余烬", "远征"], o = {
-  titleFirst: c[0],
-  titleSecond: c[1],
+var d = ["余烬", "远征"], o = {
+  titleFirst: d[0],
+  titleSecond: d[1],
   journey: "远征之路",
   dashKey: "空格",
   skillKey: "E",
@@ -576,7 +540,7 @@ var l = Object.freeze({
   nextGoal: (e) => `下一位首领 · ${e}`,
   name: n.title,
   category: "冒险",
-  tagline: d.city,
+  tagline: s.city,
   entry: "探索 · 战斗 · 人物交谈",
   start: "启程",
   resume: "继续远征",
@@ -720,7 +684,7 @@ var l = Object.freeze({
   unlocked: "已解锁",
   healthCost: "生命不足，无法献祭",
   noShards: "碎晶不足"
-}, I = {
+}, T = {
   traveler: {
     name: "晨风旅人",
     detail: "蓝披风与金线，旅途最初的模样。"
@@ -769,7 +733,7 @@ var l = Object.freeze({
     name: "观星使徒",
     detail: "星环冠、层叠长袍与悬浮的星轨。"
   }
-}, m = {
+}, c = {
   blade: {
     name: "破晓剑士",
     equipment: "剑与盾",
@@ -812,7 +776,7 @@ var l = Object.freeze({
     action: "部署",
     skill: "放置可承伤的自动炮台，建立火力阵地。"
   }
-}, P = (e) => `${m[e].action}：${m[e].skill}`, j = {
+}, I = (e) => `${c[e].action}：${c[e].skill}`, P = {
   soldier: "失落卫兵",
   archer: "逐风射手",
   guard: "重盾守卫",
@@ -858,7 +822,7 @@ var l = Object.freeze({
     name: "交叉火线",
     detail: "穿越交错射线，击败守军"
   }
-}, D = {
+}, q = {
   "storm-step": {
     name: "踏雷靴",
     detail: "闪避起点留下雷场，每次命中造成雷击。",
@@ -886,7 +850,7 @@ var l = Object.freeze({
   },
   "blood-price": {
     name: "赤誓",
-    detail: `所有伤害提高，但受到伤害增加 ${Math.round((s.bloodHurt - 1) * 100)}%。强化继续提高输出。`,
+    detail: `所有伤害提高，但受到伤害增加 ${Math.round((l.bloodHurt - 1) * 100)}%。强化继续提高输出。`,
     family: "险"
   },
   frost: {
@@ -906,7 +870,7 @@ var l = Object.freeze({
   },
   hunter: {
     name: "猎星镜",
-    detail: `距离超过 ${s.hunterRange} 步的远程命中伤害增加。强化提高远距伤害。`,
+    detail: `距离超过 ${l.hunterRange} 步的远程命中伤害增加。强化提高远距伤害。`,
     family: "弓"
   },
   piercing: {
@@ -931,12 +895,12 @@ var l = Object.freeze({
   },
   siphon: {
     name: "温血石",
-    detail: `每击败 ${s.siphonEvery} 名敌人恢复生命；击败首领恢复更多。强化增加恢复量。`,
+    detail: `每击败 ${l.siphonEvery} 名敌人恢复生命；击败首领恢复更多。强化增加恢复量。`,
     family: "生"
   },
   focus: {
     name: "澄明",
-    detail: `技能冷却缩短，但普攻间隔延长 ${Math.round((s.focusAttack - 1) * 100)}%。强化进一步缩短技能冷却。`,
+    detail: `技能冷却缩短，但普攻间隔延长 ${Math.round((l.focusAttack - 1) * 100)}%。强化进一步缩短技能冷却。`,
     family: "技"
   },
   renewal: {
@@ -946,7 +910,7 @@ var l = Object.freeze({
   },
   execution: {
     name: "断章",
-    detail: `对生命低于 ${s.executeThreshold * 100}% 的敌人伤害提高。强化增加斩杀伤害。`,
+    detail: `对生命低于 ${l.executeThreshold * 100}% 的敌人伤害提高。强化增加斩杀伤害。`,
     family: "锋"
   },
   "last-stand": {
@@ -1160,33 +1124,32 @@ var l = Object.freeze({
     family: "炮"
   }
 };
-function q(e) {
+function D(e) {
   const a = e && typeof e == "object" && "code" in e ? String(e.code) : e instanceof Error ? e.message : "";
-  return a === "expedition_agent_not_configured" ? n.noAi : a === "expedition_agent_auth" ? n.aiAuth : a === "expedition_agent_failed" ? n.aiFailed : a === "expedition_context_capacity" ? n.contextFull : a === "expedition_data_invalid" ? n.dataInvalid : a === "expedition_narrative_unavailable" ? n.narrativeFailed : a.startsWith("expedition_memory_") ? n.memoryFailed : a === "expedition_action_rejected" ? l.issues.action_rejected : a === "expedition_performance_rejected" ? l.issues.performance_rejected : a === "expedition_metadata_invalid" ? l.issues.metadata_invalid : a.startsWith("expedition_reply_") ? n.emptyReply : a === "expedition_stale" ? o.stale : a === "expedition_locked" ? o.locked : a === "expedition_funds" ? o.noCoins : a === "expedition_unavailable" ? o.unavailable : a === "expedition_invalid" || a === "expedition_identity" ? o.invalid : a.startsWith("expedition_save_") || a.startsWith("host_request_") ? o.saveError : o.failure(a);
+  return a === "expedition_agent_not_configured" ? n.noAi : a === "expedition_agent_auth" ? n.aiAuth : a === "expedition_agent_failed" ? n.aiFailed : a === "expedition_context_capacity" ? n.contextFull : a === "expedition_data_invalid" ? n.dataInvalid : a === "expedition_narrative_unavailable" ? n.narrativeFailed : a.startsWith("expedition_memory_") ? n.memoryFailed : a.startsWith("expedition_reply_") ? n.emptyReply : a === "expedition_stale" ? o.stale : a === "expedition_locked" ? o.locked : a === "expedition_funds" ? o.noCoins : a === "expedition_unavailable" ? o.unavailable : a === "expedition_invalid" || a === "expedition_identity" ? o.invalid : a.startsWith("expedition_save_") || a.startsWith("host_request_") ? o.saveError : o.failure(a);
 }
 export {
-  k as C,
-  O as S,
-  S as _,
-  m as a,
-  x as b,
-  l as c,
-  T as d,
-  d as f,
-  A as g,
-  E as h,
-  D as i,
-  n as l,
-  $ as m,
-  j as n,
-  q as o,
-  u as p,
-  I as r,
-  P as s,
+  w as C,
+  k as S,
+  l as _,
+  c as a,
+  S as b,
+  n as c,
+  s as d,
+  m as f,
+  x as g,
+  A as h,
+  q as i,
+  O as l,
+  C as m,
+  P as n,
+  D as o,
+  _ as p,
+  T as r,
+  I as s,
   o as t,
   R as u,
-  s as v,
-  _ as w,
-  C as x,
-  i as y
+  i as v,
+  E as x,
+  $ as y
 };

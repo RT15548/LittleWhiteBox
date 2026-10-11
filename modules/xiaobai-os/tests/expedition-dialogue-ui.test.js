@@ -48,7 +48,7 @@ test('dialogue keeps drafts and reading position; failed meters never remove the
                         p.conclusion ? h('button',{type:'button',disabled:p.blocked,onClick:()=>emit('continue')},p.conclusion==='fight'?${JSON.stringify(DIALOGUE_COPY.fight)}:${JSON.stringify(DIALOGUE_COPY.continue)})
                         : h('textarea',{value:p.modelValue,onInput:e=>emit('update:modelValue',e.target.value)}),
                         h('button',{type:'submit','data-send':'',disabled:p.blocked})])}}`, loader: 'js' };
-                if (args.path.endsWith('ExplorationField.vue')) return { contents: `import {h} from 'vue'; export default {emits:['interact','input'],setup(_,ctx){ctx.expose({focus(){}});return()=>h('div',[...['sanniang','laobai'].map(id=>h('button',{'data-interact':id,onClick:()=>ctx.emit('interact',id)})),h('button',{'data-step':'',onClick:()=>ctx.emit('input',{move:1,dash:false,skill:false})})])}}`, loader: 'js' };
+                if (args.path.endsWith('ExplorationField.vue')) return { contents: `import {h} from 'vue'; export default {props:['world','paused'],emits:['interact','input','ready','pause'],setup(p,ctx){ctx.expose({focus(){}});return()=>h('div',{'data-paused':p.paused},[...['sanniang','laobai',...p.world.definition.exits.map(e=>e.id)].map(id=>h('button',{'data-interact':id,onClick:()=>ctx.emit('interact',id)})),h('button',{'data-frame':'',onClick:()=>ctx.emit('ready',p.world.definition.id)}),h('button',{'data-background':'',onClick:()=>ctx.emit('pause')}),h('button',{'data-step':'',onClick:()=>ctx.emit('input',{move:1,dash:false,skill:false})})])}}`, loader: 'js' };
                 if (['ExpeditionWardrobe.vue', 'WorldFrontispiece.vue', 'ExpeditionIcon.vue', 'DialogueActor.vue'].some(name => args.path.endsWith(name))) return { contents: 'export default {render(){return null}}', loader: 'js' };
                 const { descriptor } = parse(readFileSync(args.path, 'utf8'), { filename: args.path });
                 return { contents: compileScript(descriptor, { id: args.path, inlineTemplate: true }).content, loader: 'ts' };
@@ -66,14 +66,15 @@ test('dialogue keeps drafts and reading position; failed meters never remove the
     });
     const campaign = createCampaign('fixture', 7, 'blade', 'traveler', traveler); campaign.location.position = { ...campaign.people.sanniang.position };
     campaign.people.laobai.position = { ...campaign.location.position };
-    const state = { data: { ...emptyExpedition(), active: campaign }, balance: 0, ready: true, pending: false, writeState: 'ready', conversation: null, replyFailure: null };
-    let notify, beforeAct = async () => {}, beforeTalk = async () => {};
+    const state = { data: { ...emptyExpedition(), active: campaign }, fileRevision: 0, balance: 0, ready: true, pending: false, writeState: 'ready', conversation: null, replyFailure: null, memories: {} };
+    let notify, retriedMemory, replyAction = null, beforeAct = async () => {}, beforeTalk = async () => {};
     const bridge = { subscribe(listener) { notify = listener; return () => {}; }, async request(type, payload) {
+        if (type === 'game/expedition/retry-memory') { retriedMemory = payload.person; state.memories[payload.person] = { status: 'running' }; }
         if (type === 'game/expedition/act') { await beforeAct(payload); state.data = advanceExpedition(state.data, payload.command, payload.actionId, 7); }
         if (type === 'game/expedition/talk' || type === 'game/expedition/regenerate') {
             await beforeTalk(payload);
             if (payload.turnId) state.data.active = rewindReply(state.data.active, payload.person, payload.turnId);
-            applyReply(state.data.active, { ...payload, regenerate: payload.turnId }, { kind: 'dialogue', reply: payload.actionId, action: null, affection: 'up' });
+            applyReply(state.data.active, { ...payload, regenerate: payload.turnId }, { kind: 'dialogue', reply: payload.actionId, action: replyAction, affection: 'up' });
             state.data.revision++;
         }
         return { result: structuredClone(state) };
@@ -120,6 +121,19 @@ test('dialogue keeps drafts and reading position; failed meters never remove the
     assert.ok(root.querySelector('.ember-meter-popover dl'));
     assert.equal(root.querySelector('textarea').value, 'I will ask Sanniang about her work.');
 
+    await t.test('background memory status stays inside its meter and explicit retry targets that character without sending dialogue', async () => {
+        const history = structuredClone(state.data.active.conversations);
+        state.memories.sanniang = { status: 'failed', code: 'expedition_agent_failed' };
+        notify({ type: 'game/expedition/state', payload: { chatIdentity: 'fixture', state: structuredClone(state) } }); await settle();
+        assert.equal(root.querySelector('[role=alertdialog],.ember-conversation-notice,.ember-dialogue-issue'), null);
+        const retry = button(DIALOGUE_COPY.memoryRetry); assert.ok(retry); retry.click(); await settle();
+        assert.equal(retriedMemory, 'sanniang'); assert.equal(state.memories.sanniang.status, 'running');
+        assert.equal(button(DIALOGUE_COPY.memoryRetry), undefined);
+        assert.deepEqual(state.data.active.conversations, history);
+        assert.equal(root.querySelector('textarea').value, 'I will ask Sanniang about her work.');
+        state.memories = {}; notify({ type: 'game/expedition/state', payload: { chatIdentity: 'fixture', state: structuredClone(state) } }); await settle();
+    });
+
     await t.test('sending moves text into the log immediately; replacement never duplicates the player turn or erases the next draft', async () => {
         let release;
         beforeTalk = () => new Promise(resolve => { release = resolve; });
@@ -147,6 +161,106 @@ test('dialogue keeps drafts and reading position; failed meters never remove the
         beforeTalk = async () => {};
     });
 
+    await t.test('speech styling preserves reply text and treats model markup as text, not HTML', async () => {
+        const turn = state.data.active.conversations.sanniang.at(-1), original = turn.reply;
+        const speech = ['「先坐。<img src=x onerror=alert(1)>」', '“别急。”', '"茶还热着。"', '『嗯。』'];
+        turn.reply = `我放下药碗。\n${speech.join('\n')}\n<script>alert(1)</script>`;
+        state.data.revision++;
+        notify({ type: 'game/expedition/state', payload: { chatIdentity: 'fixture', state: structuredClone(state) } }); await settle();
+        const line = [...root.querySelectorAll('.ember-npc-line')].at(-1);
+        assert.equal(line.textContent, turn.reply);
+        assert.deepEqual([...line.querySelectorAll('.ember-spoken')].map(el => el.textContent), speech);
+        assert.equal(line.querySelector('img,script'), null);
+        turn.reply = original; state.data.revision++;
+        notify({ type: 'game/expedition/state', payload: { chatIdentity: 'fixture', state: structuredClone(state) } }); await settle();
+        assert.equal([...root.querySelectorAll('.ember-npc-line')].at(-1).textContent, original);
+        assert.equal([...root.querySelectorAll('.ember-npc-line')].at(-1).querySelector('.ember-spoken'), null);
+    });
+
+    await t.test('complete dialogue diagnostics do not interrupt reading or follow the player out of chat; actionable failures stay visible', async () => {
+        const before = structuredClone(state.data.active);
+        for (const issue of ['metadata_invalid', 'performance_rejected', 'action_rejected', 'reply_invalid', 'reply_incomplete']) {
+            state.data.active = structuredClone(before);
+            const turn = state.data.active.conversations.sanniang.at(-1);
+            turn.issue = issue;
+            turn.kind = issue.startsWith('reply_') ? 'receipt' : 'dialogue';
+            const quiet = issue === 'metadata_invalid' || issue === 'performance_rejected';
+            state.data.revision++;
+            notify({ type: 'game/expedition/state', payload: { chatIdentity: 'fixture', state: structuredClone(state) } }); await settle();
+            assert.equal(root.querySelectorAll('.ember-dialogue-issue').length, quiet ? 0 : 1);
+            assert.ok(root.querySelector('[role=log]').textContent.includes(turn.reply));
+            assert.equal(root.querySelector('[role=alertdialog]'), null);
+            await leave();
+            assert.equal(root.querySelector('.ember-conversation-notice'), null);
+            root.querySelector('[data-interact=sanniang]').click(); await settle();
+            assert.equal(root.querySelectorAll('.ember-dialogue-issue').length, quiet ? 0 : 1);
+        }
+        state.data.active = before; state.data.revision++;
+        notify({ type: 'game/expedition/state', payload: { chatIdentity: 'fixture', state: structuredClone(state) } }); await settle();
+    });
+
+    await t.test('action feedback belongs to the committed reply, survives reopening and follows successful regeneration only', async () => {
+        const baseline = structuredClone(state.data);
+        const outcomes = () => [...root.querySelectorAll('.ember-action-feedback')].map(el => [el.dataset.action, el.dataset.phase]);
+        let release;
+        beforeTalk = () => new Promise(resolve => { release = resolve; });
+        replyAction = 'briefing';
+        editDraft('accept rescue'); await settle();
+        root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true })); await settle();
+        assert.deepEqual(outcomes(), []);
+        release(); await settle();
+        assert.equal(state.data.active.facts.includes('briefed'), true);
+        assert.deepEqual(outcomes(), [['briefing', 'applied']]);
+        assert.equal(root.querySelectorAll('[role=dialog]').length, 1);
+        assert.equal(root.querySelector('[role=alertdialog]'), null);
+        assert.ok(root.querySelector('.ember-action-feedback').previousElementSibling.matches('.ember-npc-bubble'));
+
+        replyAction = 'go:clinic_back';
+        root.querySelector('[data-regenerate]').click(); await settle();
+        assert.deepEqual(outcomes(), [['briefing', 'applied']]);
+        release(); await settle();
+        assert.equal(state.data.active.facts.includes('briefed'), false);
+        assert.equal(state.data.active.people.sanniang.destination, 'clinic_back');
+        assert.deepEqual(outcomes(), [['go:clinic_back', 'pending']]);
+        beforeTalk = async () => { throw Object.assign(new Error('fixture'), { code: 'expedition_agent_failed' }); };
+        root.querySelector('[data-regenerate]').click(); await settle();
+        root.querySelector('[role=alertdialog] button').click(); await settle();
+        assert.deepEqual(outcomes(), [['go:clinic_back', 'pending']]);
+
+        beforeTalk = async () => {}; replyAction = null;
+        root.querySelector('[data-regenerate]').click(); await settle();
+        assert.deepEqual(outcomes(), []);
+        assert.equal(state.data.active.people.sanniang.mode, baseline.active.people.sanniang.mode);
+        replyAction = 'follow';
+        root.querySelector('[data-regenerate]').click(); await settle();
+        assert.deepEqual(outcomes(), [['follow', 'pending']]);
+        replyAction = null;
+        editDraft('continue ordinary conversation'); await settle();
+        root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true })); await settle();
+        assert.deepEqual(outcomes(), [['follow', 'pending']]);
+        assert.ok(root.querySelector('textarea'));
+        assert.equal(root.querySelectorAll('[role=dialog]').length, 1);
+        await leave();
+        root.querySelector('[data-interact=laobai]').click(); await settle();
+        assert.deepEqual(outcomes(), []); await leave();
+        root.querySelector('[data-interact=sanniang]').click(); await settle();
+        assert.deepEqual(outcomes(), [['follow', 'pending']]);
+        const confirmed = structuredClone(state.data);
+        app.unmount(); app = createApp(Room, { bridge, chatIdentity: 'fixture', generationActive: false }); app.mount(root); await settle();
+        button(CAMPAIGN_COPY.resume + '→').click(); await settle();
+        root.querySelector('[data-interact=sanniang]').click(); await settle();
+        assert.deepEqual(outcomes(), [['follow', 'pending']]);
+        assert.deepEqual(state.data, confirmed);
+        replyAction = 'stay'; editDraft('wait here instead'); await settle();
+        root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true })); await settle();
+        assert.deepEqual(outcomes(), [['follow', 'applied'], ['stay', 'applied']]);
+        assert.equal(state.data.active.people.sanniang.mode, 'idle');
+        assert.ok(root.querySelector('textarea'));
+        replyAction = null;
+        state.data = { ...baseline, revision: state.data.revision + 1 };
+        notify({ type: 'game/expedition/state', payload: { chatIdentity: 'fixture', state: structuredClone(state) } }); await settle();
+    });
+
     await t.test('a slow save cannot flash the old panel or reopen one that was closed', async () => {
         await leave();
         root.querySelector(`[aria-label="${CAMPAIGN_COPY.journal}"]`).click(); await settle(); await leave();
@@ -159,6 +273,41 @@ test('dialogue keeps drafts and reading position; failed meters never remove the
         await leave(); assert.equal(root.querySelector('[role=dialog]'), null);
         release(); await settle(); assert.equal(root.querySelector('[role=dialog]'), null);
         beforeAct = async () => {};
+    });
+
+    await t.test('travel waits for saving and the first rendered frame without a pause menu, double travel or manual resume', async () => {
+        const baseline = structuredClone(state.data);
+        state.data.active.location.position = { ...COURTYARD.camp.anchors.clinic_front }; state.data.revision++;
+        notify({ type: 'game/expedition/state', payload: { chatIdentity: 'fixture', state: structuredClone(state) } }); await settle();
+        let release, calls = 0;
+        beforeAct = () => { calls++; return new Promise(resolve => { release = resolve; }); };
+        root.querySelector('[data-interact=clinic_front]').click(); await settle();
+        assert.ok(root.querySelector('.ember-transition')); assert.equal(root.querySelector('[role=dialog]'), null);
+        assert.equal(root.querySelector('[data-paused]').getAttribute('data-paused'), 'true');
+        root.querySelector('[data-interact=clinic_front]').click(); await settle(); assert.equal(calls, 1);
+        release(); await settle(); assert.equal(state.data.active.location.scene, 'clinic_front');
+        assert.ok(root.querySelector('.ember-transition')); assert.equal(root.querySelector('[role=dialog]'), null);
+        root.querySelector('[data-frame]').click(); await settle();
+        assert.equal(root.querySelector('.ember-transition'), null); assert.equal(root.querySelector('[role=dialog]'), null);
+        assert.equal(root.querySelector('[data-paused]').getAttribute('data-paused'), 'false');
+
+        // A real background pause during the transaction is not erased by the completion callback.
+        root.querySelector('[data-interact=south]').click(); await settle();
+        root.querySelector('[data-background]').click(); await settle();
+        release(); await settle(); root.querySelector('[data-frame]').click(); await settle();
+        assert.equal(root.querySelector('[role=dialog]').getAttribute('aria-label'), CAMPAIGN_COPY.pause);
+        assert.equal(root.querySelector('[data-paused]').getAttribute('data-paused'), 'true');
+        await leave();
+        beforeAct = async () => { throw Object.assign(new Error('save'), { code: 'expedition_save_failed' }); };
+        root.querySelector('[data-interact=clinic_front]').click(); await settle();
+        assert.equal(root.querySelector('.ember-transition'), null); assert.ok(root.querySelector('[role=alertdialog]'));
+        assert.equal(state.data.active.location.scene, 'camp');
+        beforeAct = async () => {};
+        root.querySelector('[role=alertdialog] button').click(); await settle();
+        assert.equal(root.querySelector('[role=alertdialog]'), null); assert.equal(state.data.active.location.scene, 'clinic_front');
+        await leave();
+        state.data = { ...baseline, revision: state.data.revision + 1 };
+        notify({ type: 'game/expedition/state', payload: { chatIdentity: 'fixture', state: structuredClone(state) } }); await settle();
     });
 
     await t.test('new journey setup keeps choices while navigating, and only confirmation replaces the save', async () => {
@@ -194,6 +343,8 @@ test('dialogue keeps drafts and reading position; failed meters never remove the
         button(CAMPAIGN_COPY.resume + '→').click(); await settle();
         assert.deepEqual(state.data.active.pendingParley, { enemy: 'bajin', decision });
         assert.ok(root.querySelector('[role=log]'));
+        assert.equal(root.querySelector('.ember-action-feedback').dataset.action, decision);
+        assert.equal(root.querySelector('.ember-action-feedback').dataset.phase, 'pending');
         assert.equal(root.querySelector('textarea'), null);
         assert.equal(!!button(CAMPAIGN_COPY.close), decision === 'pass');
         assert.equal(!!button(DIALOGUE_COPY.fight), decision === 'attack');

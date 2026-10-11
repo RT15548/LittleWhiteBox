@@ -28,7 +28,7 @@ export const CAMPAIGN_COPY = Object.freeze({
     title: '余火', start: '走进檐下', resume: '继续旅程', pause: '菜单', map: '地图', journal: '手记', build: '行囊', wardrobe: '衣装',
     opening: '天刚亮，雾还挂在外墙上。老白拖着伤腿回来了，身后少了扣子和阿念。三娘的诊棚亮了一夜，哨站仍扣着药材和冷却管件。',
     beginning: '到诊棚找三娘，或向北门的老白了解情况。',
-    prepare: '准备行装', close: '返回', saving: '正在保存', saved: '进度已保存', retry: '重试这场战斗',
+    prepare: '准备行装', close: '返回', retry: '重试这场战斗',
     fallen: '火还没有熄灭', fallenDetail: '从这场战斗开始的位置、生命和构筑重试。已完成的救援和已取得的奖励不会丢失。',
     retreat: '返回营地整备',
     reward: '拾起余烬', rewardDetail: '选择一件遗物收入收藏。营地可以重新搭配，已收集的遗物不会因卸下而消失。', skip: '暂不拾取',

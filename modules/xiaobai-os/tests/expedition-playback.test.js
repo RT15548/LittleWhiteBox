@@ -11,7 +11,7 @@ async function fixture() {
     let state = advanceExpedition(emptyExpedition(), { type: 'start', weapon: 'blade', outfit: 'traveler', ...journey }, 'start', 7);
     let release, delay = false, unknown = false;
     const writes = [];
-    const view = () => ({ data: structuredClone(state), balance: 100, ready: true, pending: false, writeState: 'ready' });
+    const view = () => ({ data: structuredClone(state), fileRevision: state.revision, balance: 100, ready: true, pending: false, writeState: 'ready', memories: {} });
     const client = createExpeditionClient({ subscribe: () => () => {}, async request(type, payload) {
         if (type.endsWith('/act')) {
             writes.push(structuredClone(payload));

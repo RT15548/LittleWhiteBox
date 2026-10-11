@@ -10,7 +10,7 @@ import { RULES, isBoss } from './content.js';
 import { createWardShell } from './scene-defense.js';
 import { createWorldStatus } from './scene-status.js';
 import { buildExplorableWorld, type ExplorableScenery } from './presentation/world-scenery.js';
-import type { CourtyardFact, SceneDefinition } from './content/world-types.js';
+import type { CourtyardFact, CourtyardScene, SceneDefinition } from './content/world-types.js';
 import type { WorldLocation } from './world/exploration.js';
 import { participantName } from './content/participants.js';
 import { reachablePersonInteractions, type PeopleLocations } from './world/people.js';
@@ -22,7 +22,7 @@ import { createWorldTextures } from './presentation/world-textures.js';
 export type SceneMode = 'camp' | 'battle' | 'between';
 export interface ExplorationFrame { definition: SceneDefinition; location: WorldLocation; facts: ReadonlySet<CourtyardFact>; people: PeopleLocations }
 /** Owns presentation lifetime only: camera, meshes and transient damage labels. */
-export function createExpeditionScene(host: HTMLElement, onError: () => void, options: { traveler: Traveler; world?: boolean; invalidate?: () => void; artworkStatus?: (failed: number, pending: number) => void }) {
+export function createExpeditionScene(host: HTMLElement, onError: () => void, options: { traveler: Traveler; world?: boolean; invalidate?: () => void; sceneReady?: (scene: CourtyardScene) => void; artworkStatus?: (failed: number, pending: number) => void }) {
     const renderer = new WebGLRenderer({ antialias: true, alpha: false, powerPreference: options.world ? 'default' : 'high-performance' });
     renderer.outputColorSpace = SRGBColorSpace; renderer.toneMapping = NeutralToneMapping; renderer.toneMappingExposure = 1;
     renderer.setPixelRatio(Math.min(devicePixelRatio || 1, options.world ? 1.4 : 1.8)); renderer.shadowMap.enabled = true; renderer.shadowMap.type = PCFSoftShadowMap;
@@ -44,6 +44,7 @@ export function createExpeditionScene(host: HTMLElement, onError: () => void, op
     const reduced = matchMedia('(prefers-reduced-motion: reduce)'), target = new Vector3(), projection = new Vector3();
     let disposeWorld: (() => void) | null = null, worldKey = '', lastMode = '', lastAppearance = '', lastBattle: Battle | null = null;
     let worldScenery: ExplorableScenery | null = null;
+    let shownWorld: CourtyardScene | null = null;
     let worldX = NaN, worldY = NaN, worldFacing = NaN, drawnFacts: ReadonlySet<CourtyardFact> | null = null, draws = 0, submitMs = 0;
     let width = 1, height = 1, dirty = true, disposed = false, failed = false, lastFrame = 0, lastTick = -1, lastHp = 0, cameraReady = false;
     const worldTextures = options.world ? createWorldTextures(() => { worldKey = ''; dirty = true; options.invalidate?.(); }, (failed, pending) => options.artworkStatus?.(failed, pending)) : null;
@@ -95,11 +96,12 @@ export function createExpeditionScene(host: HTMLElement, onError: () => void, op
                 clearActors(); lastHp = b?.player.hp ?? 0;
             }
             const portrait = !world && mode !== 'battle', mobile = width < 600, compact = mobile || height < 400, aspect = width / height;
-            const horizontal = world ? (mobile ? WORLD_CAMERA.mobileWidth : Math.max(WORLD_CAMERA.minimumWidth, aspect * (height < 400 ? WORLD_CAMERA.shortSpan : WORLD_CAMERA.tallSpan))) * (world.definition.safe && !b ? WORLD_CAMERA.settlementScale : 1)
+            const room = world?.definition.landscape.vista === 'room';
+            const horizontal = room ? (mobile ? 20 : Math.max(30, aspect * (height < 400 ? 19 : 25))) : world ? (mobile ? WORLD_CAMERA.mobileWidth : Math.max(WORLD_CAMERA.minimumWidth, aspect * (height < 400 ? WORLD_CAMERA.shortSpan : WORLD_CAMERA.tallSpan))) * (world.definition.safe && !b ? WORLD_CAMERA.settlementScale : 1)
                 : portrait ? mobile ? 13 : 28 : mobile ? 18.5 : Math.max(27, aspect * (height < 400 ? 14 : 23));
             const pan = Math.max(0, RULES.arena - horizontal / 2 + .5);
-            const desiredX = world ? world.location.position.x : b ? compact ? b.player.x * .62 : Math.max(-pan, Math.min(pan, b.player.x * .62)) : mobile ? 0 : 5.5;
-            const desiredZ = world ? world.location.position.y - WORLD_CAMERA.lead : b ? b.player.y * (compact ? .62 : .2) - .4 : mobile ? -4.2 : -11.8;
+            const desiredX = world ? world.location.position.x * (room ? .4 : 1) : b ? compact ? b.player.x * .62 : Math.max(-pan, Math.min(pan, b.player.x * .62)) : mobile ? 0 : 5.5;
+            const desiredZ = world ? room ? world.location.position.y * .4 - 1 : world.location.position.y - WORLD_CAMERA.lead : b ? b.player.y * (compact ? .62 : .2) - .4 : mobile ? -4.2 : -11.8;
             if (world && Math.hypot(worldX - world.location.position.x, worldY - world.location.position.y) > 8) { cameraReady = false; }
             const cameraSettled = Math.abs(target.x - desiredX) + Math.abs(target.z - desiredZ) < .015;
             const peopleMoved = world && worldScenery?.setPeople(world.people, now);
@@ -169,6 +171,7 @@ export function createExpeditionScene(host: HTMLElement, onError: () => void, op
                 f.element.style.opacity = String(Math.min(1, (1 - age) * 3));
             }
             renderer.render(scene, camera); draws++; submitMs += performance.now() - started;
+            if (world && shownWorld !== world.definition.id) { shownWorld = world.definition.id; options.sceneReady?.(shownWorld); }
             dirty = false; lastMode = mode; lastAppearance = appearance; lastBattle = b; lastTick = b?.tick ?? -1;
             if (world) { worldX = world.location.position.x; worldY = world.location.position.y; worldFacing = world.location.facing; drawnFacts = world.facts; }
         },

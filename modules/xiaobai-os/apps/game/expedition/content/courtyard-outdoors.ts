@@ -1,17 +1,20 @@
 import { defineLandscapeScene } from '../world/landscape.js';
 import { feature } from './landscape-content.js';
+import { LIVING_ENTRANCES } from './living-spaces.js';
 
 export const COURTYARD_CAMP = defineLandscapeScene({
     id: 'camp', safe: true,
     anchors: {
+        ...Object.fromEntries(LIVING_ENTRANCES.map(door => [door.to, door.position])),
         start: { x: -22, y: 16 }, road: { x: 0, y: -53 }, clinic: { x: -13, y: 12 }, guard: { x: 7, y: -39 },
         kouzi: { x: 32, y: 8 }, anian: { x: -18, y: 15 }, rest: { x: -3, y: 15 }, cargo: { x: 16, y: 7 },
         postern: { x: -42, y: 7 }, receiving: { x: -16, y: 16 },
         gatehouse: { x: 11, y: -37 }, clinic_back: { x: -29, y: 8 }, registry: { x: -10, y: 15 },
     },
     exits: [
-        { id: 'road', anchor: 'road', to: 'crossroads', arrival: 'camp' },
-        { id: 'postern', anchor: 'postern', to: 'cells', arrival: 'postern', condition: { all: ['postern_opened'] } },
+        ...LIVING_ENTRANCES.map(door => ({ id: door.to, anchor: door.to, to: door.to, arrival: 'south', doorway: true })),
+        { id: 'road', anchor: 'road', to: 'crossroads', arrival: 'camp', condition: { all: ['briefed'] } },
+        { id: 'postern', anchor: 'postern', to: 'cells', arrival: 'postern', condition: { all: ['postern_opened', 'briefed'] } },
     ],
     objects: [
         { id: 'rest', anchor: 'rest', kind: 'rest' },
@@ -74,7 +77,7 @@ export const COURTYARD_CAMP = defineLandscapeScene({
             feature('wall-row', 'dwelling', -24, -21, 18, 4, { height: 4.5 }),
             feature('roadside-homes', 'dwelling', -8, -12, 4, 10, { height: 4.2 }),
             feature('clinic-back-shed', 'workshop', -20, -5, 16, 2, { height: 2.6 }),
-        ],
+        ].map(item => LIVING_ENTRANCES.some(door => door.building === item.id) ? { ...item, entrance: true } : item),
     },
 });
 

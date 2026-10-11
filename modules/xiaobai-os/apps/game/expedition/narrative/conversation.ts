@@ -1,5 +1,5 @@
 import type { AgentCapability } from '../../../../capabilities/agent/index.js';
-import type { Campaign, ConversationMemory, ConversationTurn } from '../campaign/types.js';
+import type { Campaign, ConversationTurn } from '../campaign/types.js';
 import { CAMPAIGN_RULES } from '../campaign/rules.js';
 import { isPerson, type Participant } from '../content/participants.js';
 import { conversationContext } from './prompt.js';
@@ -7,7 +7,7 @@ import type { NarrativeAction } from './actions.js';
 import type { AffectionDirection } from '../campaign/relationships.js';
 import { fault } from '../random.js';
 import { loadNarrativeCanon } from './canon.js';
-import { prepareConversation, type TokenCounter } from './memory.js';
+import { prepareConversation, type ConversationMemoryAccess, type TokenCounter } from './memory.js';
 import { runNarrativeRequest } from './provider.js';
 import { readPerformance } from '../performance/catalog.js';
 import { decodeNarrativeReply } from './response.js';
@@ -15,7 +15,7 @@ import { decodeNarrativeReply } from './response.js';
 export interface ConversationOptions {
     loadCanon?: typeof loadNarrativeCanon;
     countTokens?: TokenCounter;
-    saveMemory: (memory: ConversationMemory) => Promise<void>;
+    memory: ConversationMemoryAccess;
     received: (response: Record<string, unknown>) => void;
 }
 
@@ -34,9 +34,8 @@ export async function generateConversation(agent: AgentCapability, campaign: Cam
     const session = await agent.openSession(config); check();
     if (!String(session.providerConfig.model ?? '').trim()) { fault('agent_not_configured'); }
     const canon = await (options.loadCanon ?? loadNarrativeCanon)(person, signal); check();
-    let memory = campaign.memories[person];
     const prepare = (force = false) => prepareConversation(session, campaign, person, text, canon, signal, {
-        ...options, memory, force, async saveMemory(next) { await options.saveMemory(next); memory = next; },
+        ...options, force,
     });
     const prompt = await prepare(); check();
     const requestDialogue = async (prepared: typeof prompt) => {

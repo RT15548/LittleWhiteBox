@@ -30,6 +30,10 @@ export function memoryBoundary(turns: readonly ConversationTurn[], memory: Conve
     return memory ? turns.findIndex(turn => turn.id === memory.throughId) + 1 : 0;
 }
 
+export function sameMemory(left: ConversationMemory | null, right: ConversationMemory | null) {
+    return left?.throughId === right?.throughId && left?.text === right?.text;
+}
+
 export function historyForSummary(turns: readonly ConversationTurn[]) {
     const facts = [...new Set(turns.filter(turn => turn.kind !== 'receipt').flatMap(turn => turn.facts))];
     return { events: witnessedEvents(facts), conversation: replayTurns(turns) };

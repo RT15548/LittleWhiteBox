@@ -4,6 +4,7 @@ import type { LandscapeFeature } from '../world/landscape.js';
 import { LAND } from './world-palette.js';
 import { cookstove, medicineBench, streetHouse, wallHomes } from './street-models.js';
 import { bunkBelongings, supplyFurniture } from './supply-models.js';
+import { roomDoor, roomFurniture, roomWall } from './room-models.js';
 
 export function lamp(k: SceneKit, root: Group, x: number, z: number, height = 2.8) {
     k.mesh(root, 'cylinder', LAND.shadow, [.055, height, .055], [x, height / 2, z]);
@@ -113,6 +114,10 @@ function tower(k: SceneKit, root: Group, item: LandscapeFeature) {
 export function landscapeFeature(k: SceneKit, ground: Group, upper: Group, item: LandscapeFeature, interior: boolean) {
     const f = item.footprint, base = k.group(ground, [f.x, 0, f.z]), model = k.group(upper, [f.x, 0, f.z]);
     switch (item.kind) {
+        case 'door': roomDoor(k, model); break;
+        case 'screen': roomFurniture(k, model, item); break;
+        case 'bed': case 'cabinet': case 'wardrobe': case 'toolrack': case 'table': case 'chair': case 'basin': case 'workbench':
+            roomFurniture(k, base, item); break;
         case 'dwelling': case 'workshop': streetHouse(k, base, model, item); break;
         case 'stove': cookstove(k, base); break;
         case 'medicine': medicineBench(k, base, f.width, f.depth); break;
@@ -196,6 +201,7 @@ export function landscapeFeature(k: SceneKit, ground: Group, upper: Group, item:
             break;
         }
         case 'wall': {
+            if (item.wallUse === 'room') { roomWall(k, base, model, item); break; }
             const h = item.height!, plinth = Math.min(h, .65);
             if (item.wallUse === 'homes') { wallHomes(k, model, f); }
             k.mesh(base, 'box', LAND.mortar, [f.width, plinth, f.depth], [0, plinth / 2, 0]);

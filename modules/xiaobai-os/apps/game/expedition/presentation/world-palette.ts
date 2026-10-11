@@ -10,3 +10,5 @@ export const LAND = {
     window: '#c4d1e5', distantGround: '#8596b2', distantLeaf: '#a2b0c8', distantWall: '#bac5df', distantRoof: '#818cac',
     street: '#a2acc3', streetStone: '#bdc5d7', streetSeam: '#98a3ba',
 } as const;
+
+export const ROOM_WOOD = ['#b9a89e', '#bdada2', '#c1b1a5'] as const;

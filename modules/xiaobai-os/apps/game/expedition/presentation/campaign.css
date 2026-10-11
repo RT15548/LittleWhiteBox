@@ -14,7 +14,6 @@
 .ember-health { display:flex; align-items:center; gap:8px; margin-top:8px; font-size:12px; font-weight:650; }
 .ember-health meter { width:135px; height:16px; accent-color:#4e947e; }
 .ember-objective { margin-top:6px!important; max-width:240px; font-size:12px; line-height:1.5; }
-.ember-save { color:var(--ember-muted); }
 .ember-tools { position:absolute; top:20px; right:20px; display:flex; gap:6px; }
 .ember-tools button { display:flex; align-items:center; gap:6px; background:#f5f7fded; box-shadow:0 2px 12px #1e41451a; }
 .ember-boss { position:absolute; top:24px; left:50%; transform:translateX(-50%); width:26%; max-width:360px; text-align:center; text-shadow:0 1px 4px #fff; }
@@ -25,6 +24,7 @@
 .ember-conversation-notice button { justify-self:end; }
 .ember-dialogue-issue { padding:8px 12px; border-left:3px solid #aa7946; color:#78532e; font-size:13px; }
 .ember-dialogue-scroll details { overflow-wrap:anywhere; }
+.ember-transition { position:absolute; z-index:4; left:50%; top:48%; transform:translate(-50%,-50%); max-width:calc(100% - 32px); padding:9px 17px; border-block:1px solid #c9cedf99; border-radius:3px; background:#f4f6f1ed; color:#3c4e62; font-size:13px; letter-spacing:.04em; pointer-events:none; text-align:center; }
 .ember-curtain { position:absolute; inset:0; z-index:5; display:grid; place-items:center; padding:20px; background:#274d5359; }
 .ember-panel { box-sizing:border-box; display:flex; flex-direction:column; gap:20px; width:min(100%,680px); max-height:100%; padding:24px 30px 30px; overflow:auto; background:var(--ember-paper); border:1px solid #fff8; box-shadow:0 18px 70px #24495045; border-radius:10px; }
 .ember-wide { width:min(100%,1040px); }
@@ -103,7 +103,7 @@
 @media (max-height:450px) {
  .ember-panel { padding:14px 20px; }.ember-tools { flex-direction:row; }.ember-boss { top:90px; }.ember-alarm { top:130px; }
  .ember-curtain:has(.ember-dialogue) { padding:6px; }
- .ember-dialogue-heading { padding:4px 12px; }.ember-person-heading h2 { font-size:18px; }.ember-person-heading small { display:none; }
+ .ember-dialogue-heading { padding:4px 12px; }.ember-person-heading { display:flex; align-items:baseline; gap:10px; }.ember-person-heading h2 { font-size:18px; flex-shrink:0; }.ember-person-heading small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11px; }
  .ember-dialogue-scroll { padding:12px; }
 }
 @media (min-width:650px) and (max-height:450px) {

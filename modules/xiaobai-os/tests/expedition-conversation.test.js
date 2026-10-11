@@ -6,7 +6,7 @@ import { createCampaign, recordFact } from '../apps/game/expedition/campaign/rul
 import { buildConversationPrompt, conversationContext } from '../apps/game/expedition/narrative/prompt.ts';
 import { generateConversation } from '../apps/game/expedition/narrative/conversation.ts';
 import { loadNarrativeCanon } from '../apps/game/expedition/narrative/canon.ts';
-import { narrativeOptions, loadCanon, narrativeReply, inspectNarrativePrompt, inspectHistoryMessage, promptBlock } from './fixtures/expedition-narrative.js';
+import { narrativeOptions, conversationMemory, loadCanon, narrativeReply, inspectNarrativePrompt, inspectHistoryMessage, promptBlock } from './fixtures/expedition-narrative.js';
 import { PARTICIPANT_IDS, isPerson } from '../apps/game/expedition/content/participants.ts';
 import { PARLEY_ENEMIES } from '../apps/game/expedition/content/parley.ts';
 import { decodeNarrativeReply } from '../apps/game/expedition/narrative/response.ts';
@@ -16,7 +16,7 @@ import { COURTYARD } from '../apps/game/expedition/content/courtyard.ts';
 import { DESTINATIONS } from '../apps/game/expedition/content/people-places.ts';
 import { WORLD_COPY } from '../apps/game/expedition/content/world-copy.ts';
 import { OUTFIT_COPY, WEAPON_COPY } from '../apps/game/expedition/copy.ts';
-import { movePerson } from '../apps/game/expedition/world/people.ts';
+import { movePerson, tickPeople } from '../apps/game/expedition/world/people.ts';
 import { replayTurns, historyForSummary } from '../apps/game/expedition/narrative/history.ts';
 const campaign = () => createCampaign('chapter', 7, 'blade', 'traveler', traveler);
 const signal = () => new AbortController().signal;
@@ -42,6 +42,14 @@ test('current equipment and movement reach the request without becoming player i
     assert.deepEqual(context().story.movement, { mode: 'follow', destination: null });
     movePerson(c, 'sanniang', 'go:clinic_back');
     assert.deepEqual(context().story.movement, { mode: 'travel', destination: DESTINATIONS.clinic_back.name });
+    const beforeTravel = structuredClone(c.people.sanniang.position);
+    for (let i = 0; i < 3; i++) {
+        assert.equal(context().story.map.find(place => place.id === 'clinic_back').personHere, false);
+        assert.deepEqual(c.people.sanniang.position, beforeTravel);
+    }
+    for (let i = 0; i < 1000 && c.people.sanniang.mode === 'travel'; i++) tickPeople(c);
+    assert.deepEqual(context().story.movement, { mode: 'idle', destination: null });
+    assert.equal(context().story.map.find(place => place.id === 'clinic_back').personHere, true);
     movePerson(c, 'sanniang', 'stay');
     assert.deepEqual(context().story.movement, { mode: 'idle', destination: null });
     c.weapon = 'bow'; c.outfit = 'ranger';
@@ -246,7 +254,7 @@ test('long history compresses before dialogue, retains five full exchanges and c
     recordFact(c, 'captives_released', ['sanniang']); recordFact(c, 'captives_arrived', ['sanniang']);
     let summaries = 0, dialogue = 0, saved = null;
     const agent = agentFor(async request => {
-        if (request.maxTokens === 6000) {
+        if (request.maxTokens === undefined) {
             summaries++;
             const source = JSON.parse(request.messages[0].content);
             assert.equal(source.person, WORLD_COPY.people.sanniang); assert.deepEqual(source.player, c.traveler);
@@ -262,7 +270,7 @@ test('long history compresses before dialogue, retains five full exchanges and c
         assert.deepEqual(inspectNarrativePrompt(request).story.events.map(event => event.id), ['captives_released', 'captives_arrived']);
         return { text: narrativeReply({ reply: 'ok' }) };
     });
-    await generateConversation(agent, c, 'sanniang', 'pending', signal(), { ...narrativeOptions, saveMemory: async memory => { saved = memory; } });
+    await generateConversation(agent, c, 'sanniang', 'pending', signal(), { ...narrativeOptions, memory: conversationMemory(c, async memory => { saved = memory; }) });
     assert.ok(summaries >= 1); assert.equal(dialogue, 1); assert.equal(saved.throughId, 't124');
     assert.equal(c.conversations.sanniang.length, 130);
 });
@@ -273,7 +281,7 @@ test('failed summary never advances the memory boundary or buys a dialogue respo
     let saves = 0, calls = 0;
     const agent = agentFor(async () => { calls++; return { text: 'partial', finishReason: 'length', truncated: true }; });
     await assert.rejects(generateConversation(agent, c, 'sanniang', 'pending', signal(),
-        { ...narrativeOptions, saveMemory: async () => { saves++; } }), { code: 'expedition_memory_incomplete' });
+        { ...narrativeOptions, memory: conversationMemory(c, async () => { saves++; }) }), { code: 'expedition_memory_incomplete' });
     assert.equal(saves, 0); assert.equal(calls, 1); assert.equal(c.memories.sanniang, null);
 });
 
@@ -295,12 +303,12 @@ test('summary provider or persistence failures leave history untouched and do no
         c.conversations.sanniang = Array.from({ length: 130 }, (_, i) => turn('t' + i, 'a'.repeat(2000), 'b'.repeat(8000)));
         const before = structuredClone(c); let dialogue = 0, saves = 0;
         const agent = agentFor(async request => {
-            if (request.maxTokens !== 6000) { dialogue++; }
+            if (request.maxTokens !== undefined) { dialogue++; }
             if (failure === 'auth') { throw Object.assign(new Error('unauthorized'), { status: 401 }); }
             return { text: 'Attributable promise.', finishReason: 'stop' };
         });
         await assert.rejects(generateConversation(agent, c, 'sanniang', 'pending', signal(), {
-            ...narrativeOptions, saveMemory: async () => { saves++; throw Object.assign(new Error('save'), { code: 'expedition_save_failed' }); },
+            ...narrativeOptions, memory: conversationMemory(c, async () => { saves++; throw Object.assign(new Error('save'), { code: 'expedition_save_failed' }); }),
         }), { code: failure === 'auth' ? 'expedition_agent_auth' : 'expedition_save_failed' });
         assert.equal(dialogue, 0); assert.equal(saves, failure === 'auth' ? 0 : 1); assert.deepEqual(c, before);
     }
@@ -311,7 +319,7 @@ test('explicit provider capacity rejection compresses below the policy threshold
     c.conversations.sanniang = Array.from({ length: 13 }, (_, i) => turn('t' + i, 'a'.repeat(500), 'b'.repeat(1500)));
     let dialogue = 0, summaries = 0, saved;
     const agent = agentFor(async request => {
-        if (request.maxTokens === 6000) {
+        if (request.maxTokens === undefined) {
             summaries++;
             const source = JSON.parse(request.messages[0].content);
             if (source.conversation.length > 8) { throw { code: 'context_length_exceeded' }; }
@@ -323,7 +331,7 @@ test('explicit provider capacity rejection compresses below the policy threshold
         assert.equal(inspectNarrativePrompt(request).input, 'pending');
         return { text: narrativeReply({ reply: 'ok' }) };
     });
-    await generateConversation(agent, c, 'sanniang', 'pending', signal(), { ...narrativeOptions, saveMemory: async value => { saved = value; } });
+    await generateConversation(agent, c, 'sanniang', 'pending', signal(), { ...narrativeOptions, memory: conversationMemory(c, async value => { saved = value; }) });
     assert.equal(dialogue, 2); assert.equal(summaries, 3); assert.equal(saved.throughId, 't7');
     assert.equal(c.memories.sanniang, null); assert.equal(c.conversations.sanniang.length, 13);
 });
@@ -346,7 +354,7 @@ test('incomplete forced summary is not a character reply and never advances memo
         return { choices: [{ message: { role: 'assistant', content: 'unfinished memory' }, finish_reason: 'length' }] };
     };
     await assert.rejects(generateConversation(agentFor(request => adapter.chat(request)), c, 'sanniang', 'pending', signal(), {
-        ...narrativeOptions, saveMemory: async () => { saves++; }, received: () => { receipts++; },
+        ...narrativeOptions, memory: conversationMemory(c, async () => { saves++; }), received: () => { receipts++; },
     }), { code: 'expedition_agent_failed' });
     assert.equal(calls, 2); assert.equal(saves, 0); assert.equal(receipts, 0); assert.deepEqual(c, before);
 });

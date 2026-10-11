@@ -194,6 +194,8 @@ test('rejected actions and raw receipts survive reload without fictional facts, 
         response = value;
         const input = { actionId: `receipt-${index}`, revision: h.service.view().data.revision, person: 'sanniang', text: 'hello' };
         inputs.push(input); await h.service.converse(input, () => true, new AbortController().signal);
+        const current = h.service.view();
+        assert.equal(current.replyFailure !== null, current.data.active.conversations.sanniang.at(-1).kind === 'receipt');
     }
     const c = h.service.view().data.active;
     assert.deepEqual(c.facts, []); assert.equal(c.relationships.sanniang.affection, 0);
@@ -222,13 +224,156 @@ test('a cancelled summary save remains recoverable and never starts a dialogue r
     h.storage.replace = () => { began(); return new Promise((_, reject) => { rejectSave = reject; }); };
     const pending = h.service.converse({ actionId: 'cancel-summary-save', revision: h.service.view().data.revision,
         person: 'sanniang', text: 'hello' }, () => true, controller.signal);
-    const rejected = assert.rejects(pending, { code: 'expedition_save_failed' });
+    const rejected = assert.rejects(pending, { code: 'expedition_cancelled' });
     await uploading; controller.abort(); rejectSave(Object.assign(new Error('rejected'), { httpStatus: 403 })); await rejected;
+    while (h.service.view().memories.sanniang?.status === 'running') { await new Promise(resolve => setImmediate(resolve)); }
     h.storage.replace = replace; await h.service.confirm(() => true);
     assert.equal(h.service.view().pending, false); assert.equal(calls, 1);
     assert.equal(h.service.view().replyFailure, null);
     assert.equal(h.service.view().data.active.memories.sanniang.throughId, 'older-14');
+    assert.equal(h.service.view().memories.sanniang, undefined);
     assert.equal(h.service.view().data.active.conversations.sanniang.length, 20);
+});
+
+function deferred() {
+    let resolve, reject;
+    const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
+    return { promise, resolve, reject };
+}
+async function until(check) {
+    for (let i = 0; i < 10000; i++) {
+        if (check()) return;
+        await new Promise(resolve => setImmediate(resolve));
+    }
+    assert.fail('Expected async boundary was not reached');
+}
+async function memoryHarness(t) {
+    const summaries = [], dialogues = [], control = { tokens: 80000, afterSummary: 10000, reply: null, count: null, counting: false };
+    t.mock.method(console, 'warn', () => {});
+    const agent = { loadConfig: async () => ({}), openSession: async () => ({ providerConfig: { model: 'fixture', maxTokens: 12345 }, run: async request => {
+        if (request.maxTokens === undefined) {
+            const result = deferred(); summaries.push({ request, ...result }); return result.promise;
+        }
+        dialogues.push(request);
+        return control.reply ? control.reply.promise : { text: narrativeReply({ reply: 'A new exchange.', action: null, affection: 'up' }) };
+    } }) };
+    const countTokens = async options => {
+        if (options.messages.some(m => m.role === 'assistant')) {
+            const data = inspectNarrativePrompt({ systemPrompt: options.messages[0].content, messages: options.messages.slice(1) });
+            if (control.count) { const pending = control.count; control.count = null; control.counting = true; await pending.promise; }
+            return { tokens: data.story.memory ? control.afterSummary : control.tokens, source: 'estimated' };
+        }
+        return narrativeOptions.countTokens(options);
+    };
+    const h = await setup(undefined, { agent, countTokens }); await h.act(start); await h.driver.walk('clinic');
+    await h.store(EXPEDITION_PARTITION).transact(tx => {
+        const data = structuredClone(tx.current); data.revision++;
+        data.active.conversations.sanniang = Array.from({ length: 20 }, (_, i) => ({ id: `older-${i}`, kind: 'dialogue', player: `question-${i}`,
+            reply: `answer-${i}`, action: null, scene: 'camp', facts: [] })); tx.replace(data);
+    });
+    t.after(() => h.service.stopMemory());
+    const speak = regenerate => h.service.converse({ actionId: crypto.randomUUID(), revision: h.service.view().data.revision,
+        person: 'sanniang', text: 'next question', ...(regenerate ? { regenerate } : {}) }, () => true, new AbortController().signal);
+    return { ...h, control, summaries, dialogues, speak };
+}
+
+test('80k summary runs beside five new exchanges; completion keeps the fixed ten floors plus every new floor', async t => {
+    const h = await memoryHarness(t);
+    const before = h.service.view().data;
+    for (let i = 0; i < 5; i++) await h.speak();
+    assert.equal(h.dialogues.length, 5); assert.equal(h.summaries.length, 1);
+    assert.equal(h.service.view().data.active.memories.sanniang, null);
+    assert.equal(h.service.view().memories.sanniang.status, 'running');
+    const source = JSON.parse(h.summaries[0].request.messages[0].content);
+    assert.equal(source.conversation.length, 30); // First 15 exchanges only; last ten floors stay raw.
+    assert.equal(Object.hasOwn(h.summaries[0].request, 'maxTokens'), false);
+    const latest = h.service.view().data;
+    h.summaries[0].resolve({ text: 'Remember the original promises.' });
+    await until(() => !h.service.view().memories.sanniang);
+    const done = h.service.view().data;
+    assert.equal(done.revision, before.revision + 5); assert.deepEqual(done.last, latest.last);
+    assert.deepEqual(done.active.conversations, latest.active.conversations);
+    assert.deepEqual(done.active.relationships, latest.active.relationships);
+    assert.equal(done.active.memories.sanniang.throughId, 'older-14');
+    await h.speak();
+    assert.equal(h.dialogues.at(-1).messages.filter(m => m.role === 'assistant').length, 10); // 20 retained floors.
+    assert.equal(inspectNarrativePrompt(h.dialogues.at(-1)).story.memory, 'Remember the original promises.');
+    const reloaded = await setup(h.state.files);
+    assert.deepEqual(reloaded.service.view().data.active, h.service.view().data.active);
+});
+
+test('98k waits for the existing summary, recounts, and sends a retained tail above 98k without a false hard-limit error', async t => {
+    const h = await memoryHarness(t); await h.speak();
+    h.control.tokens = 110000;
+    const pending = h.speak(); await until(() => !!h.service.view().conversation);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(h.dialogues.length, 1); assert.equal(h.summaries.length, 1);
+    assert.equal(h.service.view().conversation.text, 'next question');
+    h.summaries[0].resolve({ text: 'Earlier events.' }); await pending;
+    assert.equal(h.dialogues.length, 2); assert.equal(h.summaries.length, 1);
+    assert.equal(inspectNarrativePrompt(h.dialogues[1]).story.memory, 'Earlier events.');
+
+    // An unusually long retained tail is not rejected just because it exceeds the visible meter.
+    h.control.afterSummary = 100000;
+    const another = h.speak(); await until(() => h.summaries.length === 2);
+    h.summaries[1].resolve({ text: 'Compact memory.' }); await another;
+    assert.equal(h.dialogues.length, 3); assert.equal(h.service.view().replyFailure, null);
+});
+
+test('a background summary completing during regeneration cannot stale the paid reply or be overwritten by its checkpoint', async t => {
+    const h = await memoryHarness(t); await h.speak();
+    const original = h.service.view().data.active;
+    h.control.reply = deferred();
+    const pending = h.speak(original.lastReply.turnId); await until(() => h.dialogues.length === 2);
+    h.summaries[0].resolve({ text: 'Earlier events, never the discarded reply.' });
+    await until(() => !h.service.view().memories.sanniang);
+    h.control.reply.resolve({ text: narrativeReply({ reply: 'Replacement.', affection: 'down' }) }); await pending;
+    const done = h.service.view().data.active;
+    assert.equal(done.memories.sanniang.throughId, 'older-14');
+    assert.equal(done.conversations.sanniang.length, original.conversations.sanniang.length);
+    assert.equal(done.conversations.sanniang.at(-1).reply, 'Replacement.');
+    assert.equal(done.relationships.sanniang.affection, 0);
+    assert.equal(h.service.view().replyFailure, null);
+});
+
+test('summary completion during remote token counting uses the new memory instead of repurchasing its old prefix', async t => {
+    const h = await memoryHarness(t); await h.speak();
+    const counter = deferred(); h.control.count = counter;
+    const pending = h.speak(); await until(() => h.control.counting);
+    h.summaries[0].resolve({ text: 'Memory completed while counting.' });
+    await until(() => !h.service.view().memories.sanniang);
+    counter.resolve(); await pending;
+    assert.equal(h.summaries.length, 1); assert.equal(h.dialogues.length, 2);
+    assert.equal(inspectNarrativePrompt(h.dialogues[1]).story.memory, 'Memory completed while counting.');
+});
+
+test('failed background summaries preserve history, do not disturb dialogue or rebuy on each send, and have an explicit retry', async t => {
+    const h = await memoryHarness(t); await h.speak();
+    h.summaries[0].reject(Object.assign(new Error('provider failed'), { status: 500 }));
+    await until(() => h.service.view().memories.sanniang?.status === 'failed');
+    await h.speak(); await h.speak();
+    assert.equal(h.dialogues.length, 3); assert.equal(h.summaries.length, 1);
+    assert.equal(h.service.view().replyFailure, null); assert.equal(h.service.view().data.active.memories.sanniang, null);
+    h.control.tokens = 99000;
+    await assert.rejects(h.speak(), { code: 'expedition_agent_failed' });
+    assert.equal(h.dialogues.length, 3); assert.equal(h.summaries.length, 1);
+    assert.equal(h.service.view().replyFailure.playerText, 'next question');
+    await h.service.retryMemory('sanniang', () => true);
+    await until(() => h.summaries.length === 2);
+    h.summaries[1].resolve({ text: 'All earlier promises.' });
+    await until(() => !h.service.view().memories.sanniang); await h.speak();
+    assert.equal(h.dialogues.length, 4); assert.equal(h.summaries.length, 2);
+});
+
+test('leaving the game keeps its summary alive; starting a new journey aborts it and rejects late results', async t => {
+    const h = await memoryHarness(t), runtime = withExpeditionRuntime({}, h.service, () => 'chat');
+    await runtime.activate({ post() {} }); await h.speak();
+    await runtime.deactivate('switch-app'); assert.equal(h.summaries[0].request.signal.aborted, false);
+    await h.act({ type: 'restart', weapon: 'blade', outfit: 'traveler', ...journey });
+    assert.equal(h.summaries[0].request.signal.aborted, true);
+    const fresh = h.service.view().data;
+    h.summaries[0].resolve({ text: 'Late old memory.' }); await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(h.service.view().data, fresh); assert.deepEqual(h.service.view().memories, {});
 });
 
 test('a reattached client sees background conversation failure without blocking unrelated game actions', async () => {
@@ -363,6 +508,38 @@ test('greeting needs no model; replacements share one persisted baseline and rec
     await assert.rejects(speak(c.lastReply.turnId), { code: 'expedition_stale' }); assert.equal(calls, count);
 });
 
+test('complete no-operation regenerations stay successful, retain diagnostics and never accumulate discarded affection', async t => {
+    let text = narrativeReply({ reply: 'original', action: 'briefing', affection: 'up' }), calls = 0;
+    const warnings = t.mock.method(console, 'warn', () => {});
+    const agent = { loadConfig: async () => ({}), openSession: async () => ({ providerConfig: { model: 'fixture' }, run: async () => {
+        calls++; return { text };
+    } }) };
+    const h = await setup(undefined, { agent }); await h.act(start); await h.driver.walk('clinic');
+    const speak = regenerate => h.service.converse({ actionId: crypto.randomUUID(), revision: h.service.view().data.revision,
+        person: 'sanniang', text: 'question', ...(regenerate ? { regenerate } : {}) }, () => true, new AbortController().signal);
+    await speak();
+    const baseline = h.service.view().data.active.lastReply.before;
+    for (const [source, issue] of [
+        ['<dialogue>replacement</dialogue>', 'metadata_invalid'],
+        ['replacement', 'metadata_invalid'],
+        ['<dialogue>replacement</dialogue>\n{"action":', 'metadata_invalid'],
+        [narrativeReply({ reply: 'replacement', performance: { expression: 'unknown' } }), 'performance_rejected'],
+        [narrativeReply({ reply: 'replacement', action: null }), undefined],
+    ]) {
+        text = source;
+        await speak(h.service.view().data.active.lastReply.turnId);
+        const view = h.service.view(), c = view.data.active, turn = c.conversations.sanniang.at(-1);
+        assert.equal(view.replyFailure, null); assert.equal(view.pending, false);
+        assert.equal(turn.kind, 'dialogue'); assert.equal(turn.action, null); assert.equal(turn.issue, issue);
+        assert.equal(c.conversations.sanniang.filter(t => t.kind !== 'greeting').length, 1);
+        assert.deepEqual(c.relationships, baseline.relationships); assert.deepEqual(c.facts, baseline.facts);
+        assert.deepEqual(c.lastReply.before, baseline);
+    }
+    assert.equal(calls, 6);
+    assert.deepEqual(warnings.mock.calls.map(call => call.arguments[1].code),
+        ['expedition_metadata_invalid', 'expedition_metadata_invalid', 'expedition_metadata_invalid', 'expedition_performance_rejected']);
+});
+
 test('failed, cancelled and incomplete regenerations preserve the complete original reply and game state', async () => {
     let mode = 'ok', controller;
     const agent = { loadConfig: async () => ({}), openSession: async () => ({ providerConfig: { model: 'fixture' }, run: async () => {
@@ -403,12 +580,12 @@ test('the chapter ending stays a readable replaceable reply until explicit accep
     const loaded = await setup(h.state.files); assert.deepEqual(loaded.service.view().data, h.service.view().data);
 });
 
-test('regeneration compression excludes discarded speech and publishes its memory only with a successful replacement', async () => {
+test('regeneration compression excludes discarded speech and survives a failed replacement without losing the original', async () => {
     let compress = false, summaries = 0, failReply = false, number = 0;
     const requests = [];
     const agent = { loadConfig: async () => ({}), openSession: async () => ({ providerConfig: { model: 'fixture' }, run: async request => {
         requests.push(request);
-        if (request.maxTokens === 6000) { summaries++; return { text: '记得较早的交谈。' }; }
+        if (request.maxTokens === undefined) { summaries++; return { text: '记得较早的交谈。' }; }
         if (failReply) throw new Error('fixture');
         return { text: narrativeReply({ reply: `answer-${++number}`, action: null }) };
     } }) };
@@ -422,13 +599,17 @@ test('regeneration compression excludes discarded speech and publishes its memor
     for (let i = 0; i < 9; i++) await speak();
     const original = h.service.view().data, last = original.active.conversations.sanniang.at(-1);
     compress = true; failReply = true; requests.length = 0;
-    await assert.rejects(speak(last.id)); assert.deepEqual(h.service.view().data, original); assert.equal(summaries, 1);
-    summaries = 0; failReply = false; requests.length = 0; await speak(last.id);
+    await assert.rejects(speak(last.id));
+    const compacted = h.service.view().data;
+    assert.ok(compacted.active.memories.sanniang);
+    assert.deepEqual({ ...compacted, active: { ...compacted.active, memories: original.active.memories } }, original);
+    assert.equal(summaries, 1);
+    failReply = false; await speak(last.id);
     assert.equal(summaries, 1);
     const c = h.service.view().data.active;
     assert.ok(c.memories.sanniang); assert.notEqual(c.memories.sanniang.throughId, last.id);
     for (const request of requests) {
-        const messages = request.maxTokens === 6000 ? JSON.parse(request.messages[0].content).conversation : request.messages;
+        const messages = request.maxTokens === undefined ? JSON.parse(request.messages[0].content).conversation : request.messages;
         assert.equal(messages.filter(m => m.role === 'assistant').some(m => decodeNarrativeReply(m.content)?.reply === last.reply), false);
     }
 });

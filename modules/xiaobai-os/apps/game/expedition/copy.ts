@@ -1,7 +1,6 @@
 import { BOSSES, BOSS_SPECS, RELIC_RULES as R, RULES, WEAPON_LIST } from './content.js';
 import type { EncounterKind, EnemyKind, Oath, Outfit, Relic, RouteKind, Weapon } from './types.js';
 import { CAMPAIGN_COPY } from './content/campaign-copy.js';
-import { DIALOGUE_COPY } from './content/dialogue-copy.js';
 import { JOURNEY_COPY } from './content/journey-copy.js';
 
 const TITLE = ['余烬', '远征'];
@@ -179,9 +178,6 @@ export function errorText(cause: unknown) {
     if (code === 'expedition_data_invalid') { return CAMPAIGN_COPY.dataInvalid; }
     if (code === 'expedition_narrative_unavailable') { return CAMPAIGN_COPY.narrativeFailed; }
     if (code.startsWith('expedition_memory_')) { return CAMPAIGN_COPY.memoryFailed; }
-    if (code === 'expedition_action_rejected') { return DIALOGUE_COPY.issues.action_rejected; }
-    if (code === 'expedition_performance_rejected') { return DIALOGUE_COPY.issues.performance_rejected; }
-    if (code === 'expedition_metadata_invalid') { return DIALOGUE_COPY.issues.metadata_invalid; }
     if (code.startsWith('expedition_reply_')) { return CAMPAIGN_COPY.emptyReply; }
     if (code === 'expedition_stale') { return COPY.stale; }
     if (code === 'expedition_locked') { return COPY.locked; }
