@@ -21,6 +21,50 @@ function chatFixture() {
     return { context, messageSources };
 }
 
+for (const transition of ['switch', 'reload', 'save']) test(`chat initialization after visibility wait respects ownership: ${transition}`, async () => {
+    const { context } = chatFixture();
+    let store = { json: { events: [{ id: 'old' }] } };
+    let release, entered, backgroundRequests = 0;
+    const pending = new Promise(resolve => { release = resolve; });
+    const waiting = new Promise(resolve => { entered = resolve; });
+    const publications = [];
+    const startBackground = () => { backgroundRequests++; };
+    const host = entry(['handleChatChanged', 'isChatStale'], {
+        ...vectorWrites, events: {}, activeChatId: context.chatId,
+        getContext: () => context, getSummaryStore: () => store,
+        clearDeferredBackgroundTasks: noop, lastRecallLogText: '', postToFrame: noop,
+        notifyStorySummaryChatState: noop, initButtonsForAll: noop,
+        isStorySummaryEnabledForCurrentChat: () => true,
+        logRecallRuntimeCheckpoint: noop, retainRecallRuntimeOnly: noop,
+        rollbackSummaryIfNeeded: async () => ({ status: 'unchanged' }), reconcileVectorFloorsOnLoad: noop,
+        applyHideState: () => { entered(); return pending; }, frameReady: true,
+        sendFrameBaseData: async current => publications.push({ stats: current.json.events.length }),
+        sendFrameFullData: current => publications.push({ chatId: context.chatId, events: current.json.events }),
+        sendAnchorStatsToFrame: noop, sendVectorStatsToFrame: noop,
+        refreshEntityLexiconAndWarmup: startBackground, invalidateLexicalIndex: noop,
+        scheduleLexicalWarmup: startBackground, CHAT_CHANGE_LEXICAL_WARMUP_MS: 0,
+        embeddingConnection: { warmup: startBackground }, scheduleVectorIntegrityCheck: startBackground,
+    });
+    const initializing = host.handleChatChanged();
+    await waiting;
+    assert.deepEqual(publications, []);
+    assert.equal(backgroundRequests, 0);
+    // A normal commit updates the store in place; a reload replaces metadata,
+    // even when the host reuses both the chat ID and the chat array.
+    if (transition === 'switch') context.chatId = host.activeChatId = 'other-chat';
+    if (transition === 'reload') store = structuredClone(store);
+    store.json.events = [{ id: 'confirmed' }];
+    release();
+    await initializing;
+    if (transition === 'save') {
+        assert.deepEqual(publications, [{ stats: 1 }, { chatId: context.chatId, events: store.json.events }]);
+        assert.ok(backgroundRequests > 0);
+    } else {
+        assert.deepEqual(publications, []);
+        assert.equal(backgroundRequests, 0);
+    }
+});
+
 for (const kind of ['anchor', 'vector-rebuild', 'vector-repair']) for (const interruption of ['stop', 'chat', 'config', 'unload', 'none']) {
     test(`${kind}: ${interruption} during source synchronization owns the subsequent generation request`, async () => {
         let releaseSources, requests = 0, released = false;

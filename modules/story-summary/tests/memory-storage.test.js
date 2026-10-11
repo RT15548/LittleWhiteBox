@@ -11,6 +11,8 @@ import 'fake-indexeddb/auto';
 import { maintenanceFixture, joinedEventPatch } from './fixtures/memory-maintenance.js';
 import { memoryPolicy } from '../data/memory-policy.js';
 import { entry } from './helpers/story-summary-entry.js';
+import { createHideStateController } from '../hide-state.js';
+import { memorySaveError } from '../data/memory-copy.js';
 
 const root = fileURLToPath(new URL('../../../', import.meta.url));
 const host = globalThis.__memoryStorageTest = { metadata: {}, context: {} };
@@ -166,6 +168,73 @@ for (const scenario of [
     assert.equal((await mod.synchronizeSourceCaches(tracker, host.context, scenario)).status, 'unchanged');
     assert.equal(writes(), 0);
     assert.equal(host.writes, saves);
+});
+
+// Exercise the real entry's hide wiring, not a second copy of its save policy.
+function memoryVisibility() {
+    const errors = [], rendered = [], saves = [];
+    let warnings = 0;
+    host.context.saveChat = async () => saves.push(host.context.chat.map(message => message.is_system));
+    const ui = entry(['hideState', 'applyHideState', 'clearHideState', 'isStorySummaryConsumableForCurrentChat'], {
+        ...mod, createHideStateController, memorySaveError,
+        getContext: () => host.context,
+        getStorySummaryEnablement: () => ({ context: host.context, effectiveEnabled: true }),
+        getHideUiSettings: () => ({ hideSummarized: true, useVectorBoundary: false, keepVisibleCount: 4 }),
+        getVectorConfig: () => host.vectorConfig,
+        events: {}, MODULE_ID: 'story-summary',
+        document: { querySelector: selector => ({ setAttribute: (_key, value) => rendered.push({ selector, value }) }) },
+        window: { toastr: { warning: () => { warnings++; } } },
+        xbLog: { error: (_module, _message, error) => errors.push(error.code) },
+    });
+    return { ...ui, errors, rendered, saves, warnings: () => warnings };
+}
+
+for (const uncertain of [false, true]) test(`first swipe during initial visibility waits for its own save (uncertain: ${uncertain})`, async () => {
+    await importFixture();
+    const context = host.context;
+    context.chat.push({ mes: '次日', is_user: true }, { mes: '原回复', is_user: false, swipe_id: 0 });
+    const memory = mod.readSummaryMemory();
+    memory.l0Index.byFloor[25] = { floor: 25, status: 'empty', atoms: 0 };
+    await mod.commitSummaryMemory(context.chatId, memory);
+    // Loaded persisted flags/cache, with no edit or generation in this session.
+    context.chat.forEach((message, floor) => { message.is_system = floor <= 19; });
+    const initial = context.chat.map(message => message.is_system);
+    const tracker = mod.createMessageSourceTracker(); tracker.reset(context);
+    const ui = memoryVisibility();
+    let release, entered;
+    const saveStarted = new Promise(resolve => { entered = resolve; });
+    host.afterSave = () => { entered(); return new Promise(resolve => { release = resolve; }); };
+    if (uncertain) host.mode = 'read_fail';
+    context.chat[25].swipe_id = 1;
+    const syncing = mod.synchronizeSourceCaches(tracker, context, { kind: 'swipe', floor: 25 });
+    const synced = uncertain ? assert.rejects(syncing, { code: 'metadata_save_unconfirmed' }) : syncing;
+    await saveStarted;
+    const updating = ui.applyHideState();
+    try {
+        assert.equal(mod.getMemoryCommitState(), 'saving');
+        assert.deepEqual(context.chat.map(message => message.is_system), initial);
+        assert.deepEqual(ui.rendered, []);
+        assert.deepEqual(ui.saves, []);
+        assert.deepEqual(ui.errors, []);
+        assert.equal(ui.warnings(), 0);
+    } finally {
+        host.afterSave = null;
+        release();
+        await synced;
+        await updating;
+    }
+    assert.deepEqual(ui.saves, []); // Never write an unconfirmed draft with a visibility save.
+    assert.equal(ui.warnings(), uncertain ? 1 : 0);
+    assert.deepEqual(ui.errors, uncertain ? ['metadata_unconfirmed'] : []);
+    assert.equal(mod.getMemoryCommitState(), uncertain ? 'unconfirmed' : 'ready');
+    assert.equal(mod.isSummaryConsumable(mod.getSummaryStore(), context.chat.length), !uncertain);
+    if (uncertain) assert.ok(context.chat.every(message => !message.is_system));
+    else {
+        assert.equal(tracker.inspect(context), null);
+        assert.deepEqual(context.chat.map(message => message.is_system), initial);
+        assert.deepEqual(ui.rendered, []);
+        assert.deepEqual(disk(), ext());
+    }
 });
 
 test('same-chat reload preserves every persisted L0/L1 row and extraction receipt with zero writes', async t => {

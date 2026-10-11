@@ -80,7 +80,7 @@ import {
     isSummaryConsumable,
     extractRelationshipsFromFacts,
 } from "./data/store.js";
-import { commitSummaryMemory, readSummaryMemory, readPublishedSummaryMemory, assertMemoryWritable, getMemoryCommitState, waitForMemoryCommit } from './data/memory-commit.js';
+import { commitSummaryMemory, readSummaryMemory, readPublishedSummaryMemory, assertMemoryWritable, getMemoryCommitState, getPendingMemoryCommit, waitForMemoryCommit } from './data/memory-commit.js';
 import { usesStoryRecall } from './generate/recall-policy.js';
 import { prepareImportedSummary, readSummaryPackageData, SUMMARY_MEMORY_PACKAGE } from './data/summary-import.js';
 import { createFactIdAllocator } from './data/fact-identity.js';
@@ -2810,6 +2810,7 @@ function openPanelForMessage(mesId) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 const hideState = createHideStateController({
+    getPendingSave: getPendingMemoryCommit,
     getState: () => {
         const context = getContext();
         const ui = getHideUiSettings();
@@ -3810,6 +3811,8 @@ async function handleChatChanged(scheduledChatId = getContext()?.chatId || '') {
     const store = getSummaryStore();
 
     await applyHideState();
+    // Waiting for a commit may outlive this chat or a same-ID metadata reload.
+    if (isChatStale(scheduledChatId) || getSummaryStore() !== store) return;
 
     if (frameReady) {
         await sendFrameBaseData(store, newLength);

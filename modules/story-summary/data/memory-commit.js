@@ -32,17 +32,24 @@ export function rememberLoadedMemory() {
 
 export function getMemoryCommitState() { return transactions.get(chat_metadata.extensions?.[EXT_ID])?.status || 'ready'; }
 
+// Settlement is not success: consumers must reread the final state after waiting.
+export function getPendingMemoryCommit(owner = chat_metadata.extensions?.[EXT_ID]) {
+    const transaction = transactions.get(owner);
+    return transaction?.status === 'saving' ? transaction.settled : null;
+}
+
 // A caller can wait for an in-flight save without consuming its unpublished draft.
 export async function waitForMemoryCommit(signal) {
     const owner = extension();
-    while (transactions.get(owner)?.status === 'saving') {
+    let pending;
+    while ((pending = getPendingMemoryCommit(owner))) {
         throwIfSignalAborted(signal);
         let onAbort;
         const cancelled = new Promise((_, reject) => {
             onAbort = () => reject(createAbortError());
             signal?.addEventListener('abort', onAbort, { once: true });
         });
-        try { await Promise.race([transactions.get(owner).settled, cancelled]); }
+        try { await Promise.race([pending, cancelled]); }
         finally { signal?.removeEventListener('abort', onAbort); }
     }
     throwIfSignalAborted(signal);

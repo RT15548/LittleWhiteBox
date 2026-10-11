@@ -12,6 +12,7 @@ export function getHiddenThrough({ enabled, summaryBoundary, vectorBoundary = -1
 
 export function createHideStateController({
     getState,
+    getPendingSave,
     readVectorBoundary,
     renderMessage,
     refresh,
@@ -42,11 +43,14 @@ export function createHideStateController({
             && messages.every((message, id) => state.chat[id] === message);
     }
 
+    function ownsCurrentChat(state, current = getState()) {
+        return state.chatId === current.chatId && state.chat === current.chat;
+    }
+
     function isCurrent(state, version) {
         if (version !== revision) return false;
         const current = getState();
-        return state.chatId === current.chatId
-            && state.chat === current.chat
+        return ownsCurrentChat(state, current)
             && state.length === (current.chat?.length || 0)
             && state.enabled === current.enabled
             && state.summaryBoundary === current.summaryBoundary
@@ -58,7 +62,7 @@ export function createHideStateController({
     function apply(state, end, messageId) {
         if (!state.chatId || !Array.isArray(state.chat)) return 0;
         const previous = applied;
-        const audit = !previous || previous.chat !== state.chat || previous.chatId !== state.chatId
+        const audit = !previous || !ownsCurrentChat(previous, state)
             || !matchesMessagePrefix(state, previous.messages);
         let changed = 0;
         const updateRange = (start, last) => {
@@ -87,9 +91,17 @@ export function createHideStateController({
     async function saveChanges(state, changed) {
         if (!changed) return;
         try {
-            // No await between mutating flags/DOM and handing the save to the
-            // host. Never write flags again after this asynchronous boundary.
-            await save(state);
+            // Clear restores flags immediately, even during a memory commit.
+            // Wait only to save; never rewrite flags or save another chat later.
+            while (ownsCurrentChat(state)) {
+                const pending = getPendingSave();
+                if (pending) {
+                    await pending;
+                    continue;
+                }
+                await save(state);
+                return;
+            }
         } catch (error) {
             onError(error, 'save');
         }
@@ -98,22 +110,36 @@ export function createHideStateController({
     async function reconcile({ full = true, messageId } = {}) {
         if (full) applied = null;
         const version = invalidate();
-        const state = capture();
-        let vectorBoundary = -1;
-        let readError = null;
-        if (state.chatId && state.length > 0 && state.enabled && state.summaryBoundary >= 0 && state.useVectorBoundary) {
-            try {
-                vectorBoundary = await readVectorBoundary(state.chatId);
-            } catch (error) {
-                // Only a currently valid summary is a safe fallback. The owner
-                // supplies enabled=false when the summary itself is unusable.
-                readError = error;
+        const owner = getState();
+        while (version === revision && ownsCurrentChat(owner)) {
+            // A pending commit temporarily blocks consumption; it does not mean
+            // hiding was disabled. Capture the projection only after settlement.
+            const pending = getPendingSave();
+            if (pending) {
+                await pending;
+                continue;
             }
+            const state = capture();
+            let vectorBoundary = -1;
+            let readError = null;
+            if (state.chatId && state.length > 0 && state.enabled && state.summaryBoundary >= 0 && state.useVectorBoundary) {
+                try {
+                    vectorBoundary = await readVectorBoundary(state.chatId);
+                } catch (error) {
+                    // Only a currently valid summary is a safe fallback. The owner
+                    // supplies enabled=false when the summary itself is unusable.
+                    readError = error;
+                }
+            }
+            // A commit may have started during the vector read. Discard that
+            // boundary and recapture after saving rather than publishing it.
+            if (getPendingSave()) continue;
+            if (!isCurrent(state, version)) return;
+            const changed = apply(state, getHiddenThrough({ ...state, vectorBoundary }), messageId);
+            if (readError) onError(readError, 'boundary');
+            await saveChanges(state, changed);
+            return;
         }
-        if (!isCurrent(state, version)) return;
-        const changed = apply(state, getHiddenThrough({ ...state, vectorBoundary }), messageId);
-        if (readError) onError(readError, 'boundary');
-        await saveChanges(state, changed);
     }
 
     return {
