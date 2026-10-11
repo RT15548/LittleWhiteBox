@@ -12,6 +12,7 @@ import type { Point } from '../types.js';
 import { RULES } from '../content.js';
 import { fault } from '../random.js';
 import { livingSpace } from '../content/living-spaces.js';
+import { rescuePhase } from '../campaign/rescue.js';
 
 export interface PersonLocation { scene: CourtyardScene; position: Point; facing: number; mode: 'idle' | 'follow' | 'travel'; destination: DestinationId | null }
 export type PeopleLocations = Record<CourtyardPerson, PersonLocation>;
@@ -66,7 +67,7 @@ export function personMap(campaign: Campaign, person: CourtyardPerson) {
         solo: sceneSafe(location.scene, facts) && sceneSafe(place.scene, facts) && sceneRoute(location, place, facts, true) !== null,
     }));
 }
-export function personCanMove(campaign: Campaign, person: CourtyardPerson) { return !PERSON_PLACES[person].captive || campaign.facts.includes('captives_arrived'); }
+export function personCanMove(campaign: Campaign, person: CourtyardPerson) { return rescuePhase(campaign.facts, person) !== 'confined'; }
 const followDistance = (person: CourtyardPerson) => INTERACTION_REACH * (.7 + PERSON_IDS.indexOf(person) / PERSON_IDS.length * .2);
 export function peopleNeedTick(campaign: Campaign) {
     return PERSON_IDS.some(id => campaign.people[id].mode === 'travel' || campaign.people[id].mode === 'follow'
@@ -86,7 +87,7 @@ export function reachablePeople(campaign: Campaign) {
 export function reachablePersonInteractions(scene: SceneDefinition, player: Point, facts: ReadonlySet<CourtyardFact>, people: PeopleLocations) {
     return personInteractions(scene.id, people).filter(item => {
         if (item.kind !== 'object' || item.target.kind !== 'person') { return false; }
-        const acrossBars = scene.id === 'cells' && PERSON_PLACES[item.target.person].captive && !facts.has('captives_arrived');
+        const acrossBars = scene.id === 'cells' && !!PERSON_PLACES[item.target.person].returnFact && !facts.has('captives_released');
         const space = sceneSpace(scene, acrossBars ? new Set([...facts, 'captives_released']) : facts);
         return distance(item.position, player) <= (acrossBars ? 5 : INTERACTION_REACH) && worldLineClear(space, player, item.position);
     });

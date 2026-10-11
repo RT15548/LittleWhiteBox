@@ -8,6 +8,7 @@ import { campaignDriver } from './fixtures/campaign-driver.mjs';
 import { COURTYARD } from '../apps/game/expedition/content/courtyard.ts';
 import { startWorld } from '../apps/game/expedition/world/exploration.ts';
 import { TRAVELER_AGE_IDS } from '../apps/game/expedition/content/traveler-ages.ts';
+import { applyReply } from '../apps/game/expedition/narrative/apply-reply.ts';
 const start = { type: 'start', weapon: 'blade', outfit: 'traveler', ...journey };
 test('a journey requires the chosen identity and chapter; the saved profile survives a round trip', () => {
     for (const gender of ['male', 'female']) for (const appearanceAge of TRAVELER_AGE_IDS) {
@@ -64,6 +65,34 @@ for (const route of ['gate', 'waterway']) {
         assert.throws(() => h.act({ type: 'choice', id: 'finish', person: 'sanniang' })); assert.deepEqual(h.get().awards, data.awards);
     });
 }
+test('escort rescue reaches chapter completion through real movement without reception or using the postern', async () => {
+    const h = fixture();
+    await h.driver.walk('clinic'); h.act({ type: 'choice', id: 'briefing', person: 'sanniang' });
+    await h.driver.interact('road'); await h.driver.interact('waterway');
+    await h.driver.interact('sluice'); await h.driver.interact('cells'); await h.driver.interact('release');
+    for (const person of ['anian', 'kouzi']) {
+        await h.driver.walk(person);
+        applyReply(h.get().active, { actionId: `escort-${person}`, person, text: 'Follow me' },
+            { kind: 'dialogue', reply: 'Agreed', action: 'follow', affection: null });
+        validateExpedition(h.get());
+    }
+    for (const exit of ['waterway', 'crossroads', 'camp']) await h.driver.interact(exit);
+    assert.ok(h.get().active.facts.includes('captives_arrived'));
+    assert.equal(h.get().active.facts.includes('postern_opened'), false);
+    assert.equal(h.get().active.facts.includes('receiving_arranged'), false);
+    for (const person of ['anian', 'kouzi']) {
+        assert.equal(h.get().active.people[person].scene, 'camp'); assert.equal(h.get().active.people[person].mode, 'follow');
+    }
+    await h.driver.interact('rest');
+    for (const exit of ['road', 'waterway', 'cells', 'hall']) await h.driver.interact(exit);
+    await h.driver.walk('encounter'); await h.driver.battle();
+    for (const exit of ['cells', 'waterway', 'crossroads', 'camp']) await h.driver.interact(exit);
+    await h.driver.interact('cargo'); await h.driver.walk('clinic'); h.act({ type: 'choice', id: 'finish', person: 'sanniang' });
+    assert.ok(h.get().active.facts.includes('chapter_completed'));
+    assert.equal(h.get().awards.filter(award => award.key === 'chapter-one').length, 1);
+    assert.deepEqual(EXPEDITION_PARTITION.parse(EXPEDITION_PARTITION.serialize(h.get())).value, h.get());
+});
+
 test('collection ownership and equipped ranks have one source; safe-point respec cannot heal or reroll', () => {
     const h = fixture(), c = h.get().active;
     c.collection = [{ id: 'cinder', rank: 2 }, { id: 'wildfire', rank: 1 }]; c.equipped = ['cinder', 'wildfire']; c.hp = 35;

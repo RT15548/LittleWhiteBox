@@ -59,7 +59,7 @@ test('chapter handoff stays available beside Sanniang at a camp appointment, wit
     assert.ok(c.facts.includes('chapter_completed'));
 });
 
-test('captives cannot be walked out; solo appointments cannot route through a hostile scene', () => {
+test('locked captives cannot follow; solo appointments cannot route through a hostile scene', () => {
     const c = create();
     assert.ok(!('follow' in narrativeActions(c, 'kouzi'))); assert.throws(() => movePerson(c, 'kouzi', 'follow'));
     recordFact(c, 'briefed');

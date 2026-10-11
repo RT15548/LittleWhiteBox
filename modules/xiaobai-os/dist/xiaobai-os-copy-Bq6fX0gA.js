@@ -1,12 +1,12 @@
 /* eslint-disable */
-var g = [
+var $ = [
   "blade",
   "bow",
   "staff",
   "daggers",
   "grimoire",
   "cannon"
-], k = [
+], I = [
   "warden",
   "thornheart",
   "weaver",
@@ -19,7 +19,7 @@ var g = [
   "leviathan",
   "archivist",
   "voidknight"
-], v = [
+], S = [
   "storm-step",
   "conductor",
   "momentum",
@@ -80,7 +80,7 @@ var g = [
   "bunker",
   "salvage",
   "railgun"
-], _ = [
+], T = [
   "traveler",
   "guardian",
   "moonweaver",
@@ -122,7 +122,7 @@ var g = [
   masteryAward: 120,
   oathAward: 100,
   recordLimit: 20
-}), $ = Object.freeze({
+}), z = Object.freeze({
   resonanceTicks: 90,
   maxPower: 100,
   familiarHp: 38,
@@ -130,7 +130,7 @@ var g = [
   empoweredDamage: 17,
   attackTicks: 32,
   empoweredAttackTicks: 20
-}), x = {
+}), F = {
   blade: {
     damage: 24,
     period: 20,
@@ -191,7 +191,7 @@ var g = [
     unlock: 3,
     guard: 0.9
   }
-}, C = v, S = g, s = Object.freeze({
+}, j = S, N = $, h = Object.freeze({
   bloodDamage: 1.3,
   bloodHurt: 1.25,
   hunterRange: 5,
@@ -208,92 +208,92 @@ var g = [
   focusAttack: 1.12,
   renewalHeal: 6,
   renewalZoneHeal: 8
-}), r = (e, a, i, u, p, f, h) => ({
+}), i = (e, a, n, s, d, m, u) => ({
   hp: e,
   speed: a,
-  radius: i,
-  damage: u,
-  reach: p,
-  windup: f,
-  cooldown: h
-}), y = {
-  soldier: r(48, 0.083, 0.4, 11, 1.45, 19, 35),
-  archer: r(36, 0.058, 0.36, 10, 11, 26, 55),
-  guard: r(95, 0.057, 0.58, 18, 2, 32, 65),
-  priest: r(58, 0.035, 0.42, 8, 12, 35, 110),
-  charger: r(65, 0.076, 0.48, 16, 12, 32, 80),
-  stalker: r(46, 0.12, 0.35, 10, 1.25, 16, 44),
-  bomber: r(55, 0.047, 0.42, 15, 13, 28, 82),
-  wisp: r(30, 0.062, 0.3, 8, 10, 22, 60)
-}, m = {
+  radius: n,
+  damage: s,
+  reach: d,
+  windup: m,
+  cooldown: u
+}), E = {
+  soldier: i(48, 0.083, 0.4, 11, 1.45, 19, 35),
+  archer: i(36, 0.058, 0.36, 10, 11, 26, 55),
+  guard: i(95, 0.057, 0.58, 18, 2, 32, 65),
+  priest: i(58, 0.035, 0.42, 8, 12, 35, 110),
+  charger: i(65, 0.076, 0.48, 16, 12, 32, 80),
+  stalker: i(46, 0.12, 0.35, 10, 1.25, 16, 44),
+  bomber: i(55, 0.047, 0.42, 15, 13, 28, 82),
+  wisp: i(30, 0.062, 0.3, 8, 10, 22, 60)
+}, w = {
   warden: {
-    ...r(1050, 0.055, 1.25, 21, 20, 34, 32),
+    ...i(1050, 0.055, 1.25, 21, 20, 34, 32),
     region: 0,
     awardKey: "boss-0"
   },
   thornheart: {
-    ...r(1e3, 0.043, 1.3, 18, 20, 30, 35),
+    ...i(1e3, 0.043, 1.3, 18, 20, 30, 35),
     region: 0,
     awardKey: "boss-thornheart"
   },
   weaver: {
-    ...r(1450, 0.07, 1.1, 19, 20, 30, 31),
+    ...i(1450, 0.07, 1.1, 19, 20, 30, 31),
     region: 1,
     awardKey: "boss-1"
   },
   astrologer: {
-    ...r(1400, 0.035, 1.1, 22, 20, 36, 32),
+    ...i(1400, 0.035, 1.1, 22, 20, 36, 32),
     region: 1,
     awardKey: "boss-astrologer"
   },
   king: {
-    ...r(2050, 0.09, 1.4, 25, 20, 25, 23),
+    ...i(2050, 0.09, 1.4, 25, 20, 25, 23),
     region: 2,
     awardKey: "boss-2"
   },
   phoenix: {
-    ...r(1750, 0.075, 1.2, 22, 20, 30, 28),
+    ...i(1750, 0.075, 1.2, 22, 20, 30, 28),
     region: 2,
     awardKey: "boss-phoenix"
   },
   forgemaster: {
-    ...r(1100, 0.048, 1.25, 23, 20, 38, 35),
+    ...i(1100, 0.048, 1.25, 23, 20, 38, 35),
     region: 3,
     awardKey: "boss-forgemaster"
   },
   colossus: {
-    ...r(1250, 0.036, 1.5, 25, 20, 42, 38),
+    ...i(1250, 0.036, 1.5, 25, 20, 42, 38),
     region: 3,
     awardKey: "boss-colossus"
   },
   frostqueen: {
-    ...r(1450, 0.062, 1.05, 19, 20, 32, 28),
+    ...i(1450, 0.062, 1.05, 19, 20, 32, 28),
     region: 4,
     awardKey: "boss-frostqueen"
   },
   leviathan: {
-    ...r(1550, 0.072, 1.4, 23, 20, 34, 32),
+    ...i(1550, 0.072, 1.4, 23, 20, 34, 32),
     region: 4,
     awardKey: "boss-leviathan"
   },
   archivist: {
-    ...r(1900, 0.04, 1.15, 21, 20, 34, 25),
+    ...i(1900, 0.04, 1.15, 21, 20, 34, 25),
     region: 5,
     awardKey: "boss-archivist"
   },
   voidknight: {
-    ...r(1850, 0.1, 1.05, 24, 20, 26, 25),
+    ...i(1850, 0.1, 1.05, 24, 20, 26, 25),
     region: 5,
     awardKey: "boss-voidknight"
   }
-}, E = {
-  ...y,
-  ...m
+}, D = {
+  ...E,
+  ...w
 };
-function A(e) {
-  return Object.hasOwn(m, e);
+function q(e) {
+  return Object.hasOwn(w, e);
 }
-var O = [
+var M = [
   {
     bosses: ["warden", "thornheart"],
     encounters: [
@@ -378,7 +378,7 @@ var O = [
       "wisp"
     ]
   }
-], l = Object.freeze({
+], f = Object.freeze({
   city: "赤炉城",
   begin: "开始旅程",
   chapters: "篇章",
@@ -410,7 +410,434 @@ var O = [
   confirmRestart: "确认开始新的旅程",
   entering: "正在启程…",
   loading: "正在读取旅程…"
-}), R = {
+}), g = {
+  sanniang: "三娘",
+  anian: "阿念",
+  kouzi: "扣子",
+  laobai: "老白"
+}, O = Object.keys(g), W = {
+  sanniang: "changyounian_intel",
+  laobai: "bajin_intel",
+  anian: null,
+  kouzi: null
+}, x = (e, a, n, s, d, m, u = {}) => ({
+  id: e,
+  kind: a,
+  footprint: {
+    x: n,
+    z: s,
+    width: d,
+    depth: m
+  },
+  ...u
+}), r = (e, a, n, s, d, m, u, _ = {}) => ({
+  ...x(e, n, s, d, m, u, _),
+  label: a
+}), p = {
+  clinic_front: {
+    name: "诊棚 · 接诊间",
+    household: ["sanniang"],
+    use: "三娘接诊、换药与整理药材的前间，病人会来候诊。",
+    enclosure: "临街木门经过后掩上；北侧木门通向三娘的起居后间。候诊处与诊床间有屏风。",
+    width: 24,
+    depth: 22,
+    doors: [{
+      side: "south",
+      to: "camp",
+      arrival: "clinic_front"
+    }, {
+      side: "north",
+      to: "sanniang_room",
+      arrival: "south"
+    }],
+    furniture: [
+      r("examination", "铺白布的诊床", "bed", -5.5, -3.5, 3, 5, { tint: "sage" }),
+      r("screen", "遮住诊床的屏风", "screen", -2.5, -3, 1, 6),
+      r("apothecary", "分格药柜", "cabinet", 7, -7, 6, 2, { tint: "sage" }),
+      r("medicine", "药碗与药材工作台", "medicine", 7, -2, 6, 2),
+      r("wash", "洗手盆与清水罐", "basin", -8, -8, 2, 2),
+      r("waiting", "候诊长凳", "bench", -7, 6, 6, 2)
+    ]
+  },
+  sanniang_room: {
+    name: "三娘的起居后间",
+    household: ["sanniang"],
+    use: "三娘在诊棚后的日常住处，与接诊间分开。",
+    enclosure: "木门通接诊间，经过后掩上；窗帘遮住临巷的窗，门外的说话声仍可能传进来。",
+    width: 18,
+    depth: 18,
+    doors: [{
+      side: "south",
+      to: "clinic_front",
+      arrival: "north"
+    }],
+    furniture: [
+      r("bed", "床与叠好的薄被", "bed", -4.5, -4, 3, 4, { tint: "rose" }),
+      r("wardrobe", "衣柜与换洗衣物", "wardrobe", 5, -7, 6, 2, { tint: "rose" }),
+      r("tea", "放着茶具和书的矮桌", "table", 4, 1, 4, 2),
+      r("chair", "桌边的木椅", "chair", 4, 4, 2, 2),
+      r("wash", "梳洗盆与毛巾", "basin", -7, 4, 2, 2)
+    ]
+  },
+  inn: {
+    name: "小客店 · 前厅",
+    household: ["innkeeper"],
+    use: "檐下供过路人投宿的小客店，共用前厅。",
+    enclosure: "临街木门与客房门相隔一个前厅，店家在柜台边照看生意。",
+    width: 24,
+    depth: 22,
+    doors: [{
+      side: "south",
+      to: "camp",
+      arrival: "inn"
+    }, {
+      side: "north",
+      to: "guest_room",
+      arrival: "south"
+    }],
+    furniture: [
+      r("counter", "店家的柜台与登记簿", "ledger", 7, -5, 6, 2),
+      r("shelf", "碗盏与备用被褥柜", "cabinet", 7, -9, 6, 2),
+      r("table", "共用饭桌", "table", -5, 0, 4, 4),
+      r("seats", "饭桌旁的长凳", "bench", -5, 4, 4, 2),
+      r("stove", "温着水的小炉", "stove", -8, -7, 2, 2)
+    ]
+  },
+  guest_room: {
+    name: "小客店 · 旅人客房",
+    household: ["player"],
+    use: "旅人在檐下投宿的一间客房，暂住，不是自有房产。",
+    enclosure: "独立木门通前厅，经过后掩上；有窗帘，木隔墙不完全隔音。",
+    width: 18,
+    depth: 18,
+    doors: [{
+      side: "south",
+      to: "inn",
+      arrival: "north"
+    }],
+    furniture: [
+      r("bed", "客床与干净被褥", "bed", -4.5, -3, 3, 4, { tint: "sage" }),
+      r("chest", "放行囊的矮柜", "cabinet", 5, -6, 4, 2, { height: 1.2 }),
+      r("table", "带烛台的小桌", "table", 5, 0, 4, 2),
+      r("chair", "木椅", "chair", 5, 3, 2, 2),
+      r("wash", "水盆与毛巾", "basin", -7, 4, 2, 2)
+    ]
+  },
+  laobai_home: {
+    name: "老白的小屋",
+    household: ["laobai"],
+    use: "外门附近，老白离开父母家后独住的小屋；门楼是工作点。",
+    enclosure: "独立木门临街，经过后掩上；窄窗挂着旧布帘，能听见外门的动静。",
+    width: 18,
+    depth: 18,
+    doors: [{
+      side: "south",
+      to: "camp",
+      arrival: "laobai_home"
+    }],
+    furniture: [
+      r("bed", "靠墙的单人床", "bed", -4.5, -4, 3, 4, { tint: "sage" }),
+      r("kit", "衣物柜与守门用具", "wardrobe", 6, -7, 4, 2),
+      r("table", "饭碗与水壶所在的桌子", "table", 5, -1, 4, 2),
+      r("chair", "旧木椅", "chair", 5, 2, 2, 2),
+      r("stove", "墙角的小炉", "stove", -7, 5, 2, 2)
+    ]
+  },
+  kouzi_home: {
+    name: "扣子的管边小窝",
+    household: ["kouzi"],
+    use: "扣子在管线旁自搭的住处，修缮工具和睡铺挤在同一间。",
+    enclosure: "木板门经过后掩上，板壁接缝透进管架的光；热管的震声穿过墙板。",
+    width: 18,
+    depth: 18,
+    doors: [{
+      side: "south",
+      to: "camp",
+      arrival: "kouzi_home"
+    }],
+    furniture: [
+      r("bed", "挤在工具旁的睡铺", "bed", -4.5, -3, 3, 4, { tint: "amber" }),
+      r("bench", "钳子、扳手与零件工作台", "workbench", 5, -4, 6, 2),
+      r("rack", "铜管短料与工具架", "toolrack", 5, -7, 6, 2),
+      r("chair", "修理凳", "chair", 5, -1, 2, 2),
+      r("wash", "搪洗盆", "basin", -7, 5, 2, 2)
+    ]
+  },
+  anian_home: {
+    name: "阿念家 · 起居间",
+    household: ["anian", "anian_parents"],
+    use: "阿念与父母同住的家，共用起居间供一家吃饭、做活。父母睡处在屏风后。",
+    enclosure: "临街木门经过后掩上；北侧木门通阿念的睡处。父母在家做活，起居间不是空屋。",
+    width: 26,
+    depth: 24,
+    doors: [{
+      side: "south",
+      to: "camp",
+      arrival: "anian_home"
+    }, {
+      side: "north",
+      to: "anian_room",
+      arrival: "south"
+    }],
+    furniture: [
+      r("table", "一家人吃饭的桌子", "table", -5, 3, 4, 4),
+      r("bench", "桌边长凳", "bench", -5, 7, 4, 2),
+      r("work", "父亲修铜管的工作台", "workbench", 8, -6, 6, 2),
+      r("sewing", "母亲的衣料柜", "wardrobe", 8, 0, 6, 2, { tint: "rose" }),
+      r("parents_bed", "父母的床铺", "bed", -7, -6, 4, 4),
+      r("screen", "遮住父母睡处的屏风", "screen", -7, -1.5, 6, 1)
+    ]
+  },
+  anian_room: {
+    name: "阿念的睡处",
+    household: ["anian"],
+    use: "阿念在父母家中的小房间。",
+    enclosure: "木门与起居间相隔，经过后掩上；有窗帘，隔壁父母做活与说话的声音可闻。",
+    width: 18,
+    depth: 18,
+    doors: [{
+      side: "south",
+      to: "anian_home",
+      arrival: "north"
+    }],
+    furniture: [
+      r("bed", "小床与洗净的被单", "bed", -4.5, -3, 3, 4, { tint: "rose" }),
+      r("clothes", "衣物柜", "wardrobe", 5, -6, 6, 2, { tint: "rose" }),
+      r("desk", "临窗小桌", "table", 5, 0, 4, 2),
+      r("chair", "木椅", "chair", 5, 3, 2, 2),
+      r("wash", "洗脸盆", "basin", -7, 5, 2, 2)
+    ]
+  }
+}, L = [
+  {
+    to: "clinic_front",
+    building: "clinic",
+    position: {
+      x: -19,
+      y: 12
+    }
+  },
+  {
+    to: "inn",
+    building: "arrival-home",
+    position: {
+      x: -27,
+      y: 32.5
+    }
+  },
+  {
+    to: "laobai_home",
+    building: "roadside-workshop",
+    position: {
+      x: -17,
+      y: -32.5
+    }
+  },
+  {
+    to: "kouzi_home",
+    building: "eastern-workshop",
+    position: {
+      x: 28,
+      y: 34.5
+    }
+  },
+  {
+    to: "anian_home",
+    building: "eastern-home",
+    position: {
+      x: 15,
+      y: 23.5
+    }
+  }
+];
+function C(e) {
+  return Object.hasOwn(p, e) ? p[e] : void 0;
+}
+function K(e) {
+  return C(e) ? "camp" : e;
+}
+var l = Object.freeze({
+  artwork: {
+    unavailable: "部分场景纹理未载入，不影响游玩。",
+    retry: "重新载入",
+    loading: "载入中…"
+  },
+  transition: (e) => `正在前往 · ${e}`,
+  households: {
+    anian_parents: "阿念的父母",
+    innkeeper: "客店店家"
+  },
+  scenes: {
+    camp: "檐下",
+    crossroads: "外墙岔口",
+    gate: "哨站正门",
+    beacon: "烽火台",
+    waterway: "旧水道",
+    cells: "牢房",
+    hall: "内堡门厅",
+    roots: "根庭",
+    ...Object.fromEntries(Object.entries(p).map(([e, a]) => [e, a.name]))
+  },
+  people: g,
+  switches: {
+    sluice_opened: "升起水闸",
+    captives_released: "打开牢门",
+    postern_opened: "拉开小门"
+  },
+  passages: {
+    warning: {
+      title: "哨站的烽火",
+      body: "墙上的传令管正通向烽火台。先熄灭烽火，能截住内堡的增援；若从水道先去救人，守军会在撤离途中或内堡集结。受困者不会因为你停下来查看道路而被处决。"
+    },
+    cargo: {
+      title: "归还的货签",
+      body: `货车上是药材和冷却管件。
+
+哨站随货送来的放还单：
+“冷却管件十二副，库中仅此，余者冻裂报损。”
+
+管件箱里夹着的出库签：
+“本箱原装二十四副，出十二，存十二，完好。”`
+    },
+    orders: {
+      title: "主闸控制台",
+      body: "封锁的闸齿停了下来，外墙的输送轨道正在逐段亮起。控制台上的旧命令只有“内城优先”四个字，没有撤销日期。"
+    }
+  },
+  actions: {
+    inspect: "查看",
+    talk: "交谈",
+    rest: "休整",
+    travel: "前往",
+    close: "返回",
+    interact: "交互",
+    next: "切换对象",
+    map: "地图",
+    resume: "继续",
+    move: "移动",
+    controls: "WASD 或方向键移动，E 交互",
+    paused: "已暂停"
+  }
+}), b = {
+  sanniang: {
+    initial: {
+      scene: "camp",
+      anchor: "clinic"
+    },
+    station: {
+      scene: "camp",
+      anchor: "clinic"
+    },
+    returnFact: null
+  },
+  laobai: {
+    initial: {
+      scene: "camp",
+      anchor: "guard"
+    },
+    station: {
+      scene: "camp",
+      anchor: "guard"
+    },
+    returnFact: null
+  },
+  kouzi: {
+    initial: {
+      scene: "cells",
+      anchor: "kouzi"
+    },
+    station: {
+      scene: "camp",
+      anchor: "kouzi"
+    },
+    returnFact: "kouzi_returned"
+  },
+  anian: {
+    initial: {
+      scene: "cells",
+      anchor: "anian"
+    },
+    station: {
+      scene: "camp",
+      anchor: "anian"
+    },
+    returnFact: "anian_returned"
+  }
+}, A = O.filter((e) => b[e].returnFact !== null), H = {
+  ...Object.fromEntries(Object.keys(p).map((e) => [e, {
+    scene: e,
+    anchor: "settle",
+    name: l.scenes[e]
+  }])),
+  camp: {
+    scene: "camp",
+    anchor: "start",
+    name: "檐下营地"
+  },
+  gatehouse: {
+    scene: "camp",
+    anchor: "gatehouse",
+    name: "外门门楼"
+  },
+  pipewalk: {
+    scene: "camp",
+    anchor: "kouzi",
+    name: "管架高处"
+  },
+  clinic_back: {
+    scene: "camp",
+    anchor: "clinic_back",
+    name: "诊棚后"
+  },
+  registry: {
+    scene: "camp",
+    anchor: "registry",
+    name: "登记棚"
+  },
+  crossroads: {
+    scene: "crossroads",
+    anchor: "warning",
+    name: l.scenes.crossroads
+  },
+  gate: {
+    scene: "gate",
+    anchor: "crossroads",
+    name: l.scenes.gate
+  },
+  beacon: {
+    scene: "beacon",
+    anchor: "gate",
+    name: l.scenes.beacon
+  },
+  waterway: {
+    scene: "waterway",
+    anchor: "crossroads",
+    name: l.scenes.waterway
+  },
+  cells: {
+    scene: "cells",
+    anchor: "release",
+    name: l.scenes.cells
+  },
+  hall: {
+    scene: "hall",
+    anchor: "cells",
+    name: l.scenes.hall
+  },
+  roots: {
+    scene: "roots",
+    anchor: "crossroads",
+    name: l.scenes.roots
+  }
+};
+function k(e, a) {
+  const n = b[a].returnFact;
+  return n !== null && (e.includes("captives_arrived") || e.includes(n));
+}
+function B(e, a) {
+  return b[a].returnFact ? k(e, a) ? "returned" : e.includes("captives_released") ? "released" : "confined" : null;
+}
+var Y = {
   bajin_intel: "老白向旅人讲出了八斤的事。",
   bajin_passed: "八斤侧过盾，给旅人让开了路。",
   changyounian_passed: "常有年眯着眼看了旅人一会儿，叫人把火绳收了。",
@@ -422,16 +849,18 @@ var O = [
   waterway_cleared: "水道看守躺下了。",
   alarm_raised: "守军接到了警报；烽火未熄时，内堡将有援军。",
   alarm_silenced: "烽火没点起来，内堡的援兵不会来。",
-  captives_released: "旅人打开牢门，扣子与阿念暂留安全处等候接应。",
+  captives_released: "旅人打开了两间牢房的门，扣子与阿念可以离开牢房。",
   postern_opened: "旅人打开牢房小门，营地与牢房之间的捷径永久畅通。",
   receiving_arranged: "老白带担架队守在营地小门，三娘留出了两张床。",
-  captives_arrived: "两名受困者已由担架队接回营地。",
+  anian_returned: "阿念已经脱困返营。",
+  kouzi_returned: "扣子已经脱困返营。",
+  captives_arrived: "两名受困者均已脱困返营。",
   warden_defeated: "门厅守卫倒了，主闸松开。",
   supplies_secured: "旅人核对并接收了哨站归还的药材和冷却管件。",
   roots_cleared: "旅人清除了根庭的荆棘之心，外墙旧庭恢复通行。",
   chapter_completed: "哨站救援结束。营火旁多了两个人，内堡深处的路仍未开启。",
   clinic_helped: "旅人与三娘整理诊棚和归还的药材，陪三娘在门边歇了一会儿。"
-}, n = Object.freeze({
+}, o = Object.freeze({
   title: "余火",
   start: "走进檐下",
   resume: "继续旅程",
@@ -463,8 +892,9 @@ var O = [
     capacity: "装配已满，先卸下一件遗物。",
     dependency: "这组搭配缺少触发条件；先调整依赖它的遗物。"
   },
-  received: "小门外传来担架落地的轻响。三娘掀开诊棚的帘子。阿念抱着泡皱的货签坐下，扣子避开伸来的手，自己找了个高处。老白把门闩推回去，低头翻了翻那本没有看的签本。人回来了。",
-  waiting: "牢门已开。他们暂时留在安全处，等小门打开、营地接应到位。",
+  received: "阿念与扣子都已脱困返营。这一次，两个人都回来了。",
+  openCells: "靠近两间牢房外过道上的机关，打开牢门。",
+  rescueObjective: (e) => `${e}尚未返营。可交谈带她们同行，或打开小门请老白接应。`,
   rescueAlarm: "牢门的锁链惊动了守军。烽火未熄，内堡将多出一队援兵；你仍可以回头截断信号。",
   alarm: "烽火传讯",
   alarmRaised: "内堡增援已集结",
@@ -473,7 +903,7 @@ var O = [
   ending: `归还的药材堆在诊棚桌上。三娘一份份核对，没有按签上的户名把它们分开。阿念被安排在帘边坐着，有人叫她，她才抬起头。扣子蹲在管架上，伸手试了试新接头；老白仍站在小门边。
 
 这一次，两个人都回来了。可药签照旧按人头发，照旧会过期。檐下的名字依然不在内堡的册子里。门厅之后还有一扇门，古炉仍在变冷。`,
-  continued: `${l.nextChapter}${l.forthcoming}`,
+  continued: `${f.nextChapter}${f.forthcoming}`,
   remain: "留在檐下",
   optional: "根庭仍可探索；营地的人也还有话想说。",
   talk: "交谈",
@@ -510,7 +940,7 @@ var O = [
   chapterMap: "区域总览",
   localMap: "当前区域",
   mapKey: "朱红：当前位置 · 蓝色：已抵达 · 浅色：未探索"
-}), b = {
+}), R = {
   crossroads: "岔口有巡兵守着。过了这里，正门和水道才走得通。",
   gate: "八斤的盾排开了。冲过去，烽火台就在后头。",
   beacon: "守军护着火盆。别让那堆火烧起来。",
@@ -518,22 +948,22 @@ var O = [
   hall: "门厅守卫守着主闸。药和管件都压在闸后。",
   roots: "荆棘之心在地底下动。地面鼓起来时，往旁边让。"
 };
-function T(e) {
-  const a = b[e.location.scene];
+function U(e) {
+  const a = R[e.location.scene];
   if (e.phase === "battle" && a) return a;
-  const i = new Set(e.facts);
-  return i.has("briefed") ? i.has("chapter_completed") ? n.optional : i.has("crossroads_cleared") ? i.has("captives_released") ? i.has("postern_opened") ? i.has("receiving_arranged") ? i.has("captives_arrived") ? i.has("warden_defeated") ? i.has("supplies_secured") ? "回三娘那儿，把这趟收尾。" : "回营，到诊棚东边的货车上点一点还回来的东西。" : "去内堡门厅。药和管件压在主闸后头。" : "从小门回营，担架队会把人抬回来。" : "回营找老白，让他把担架摆到小门。" : "牢房东南角有扇小门，打开它，回营就不用绕。" : "走正门上烽火台，或者下旧水道直奔牢房。" : "沿营地北路去外墙岔口。" : n.beginning;
+  const n = new Set(e.facts);
+  return n.has("briefed") ? n.has("chapter_completed") ? o.optional : n.has("crossroads_cleared") ? n.has("captives_released") ? n.has("captives_arrived") ? n.has("warden_defeated") ? n.has("supplies_secured") ? "回三娘那儿，把这趟收尾。" : "回营，到诊棚东边的货车上点一点还回来的东西。" : "去内堡门厅。药和管件压在主闸后头。" : o.rescueObjective(A.filter((s) => !k(e.facts, s)).map((s) => g[s]).join("、")) : e.location.scene === "cells" ? o.openCells : "走正门上烽火台，或者下旧水道直奔牢房。" : "沿营地北路去外墙岔口。" : o.beginning;
 }
-function w(e) {
-  const a = e && typeof e == "object" && "code" in e ? String(e.code) : "expedition_agent_failed", i = e && typeof e == "object" && "message" in e && typeof e.message == "string" ? e.message : typeof e == "string" ? e : void 0;
+function P(e) {
+  const a = e && typeof e == "object" && "code" in e ? String(e.code) : "expedition_agent_failed", n = e && typeof e == "object" && "message" in e && typeof e.message == "string" ? e.message : typeof e == "string" ? e : void 0;
   return {
     code: a,
-    ...i && i !== a ? { message: i } : {}
+    ...n && n !== a ? { message: n } : {}
   };
 }
-var d = ["余烬", "远征"], o = {
-  titleFirst: d[0],
-  titleSecond: d[1],
+var v = ["余烬", "远征"], c = {
+  titleFirst: v[0],
+  titleSecond: v[1],
   journey: "远征之路",
   dashKey: "空格",
   skillKey: "E",
@@ -546,9 +976,9 @@ var d = ["余烬", "远征"], o = {
   equipped: "已装备",
   noRelics: "击败敌人后，选择你的第一件遗物。",
   nextGoal: (e) => `下一位首领 · ${e}`,
-  name: n.title,
+  name: o.title,
   category: "冒险",
-  tagline: l.city,
+  tagline: f.city,
   entry: "探索 · 战斗 · 人物交谈",
   start: "启程",
   resume: "继续远征",
@@ -692,7 +1122,7 @@ var d = ["余烬", "远征"], o = {
   unlocked: "已解锁",
   healthCost: "生命不足，无法献祭",
   noShards: "碎晶不足"
-}, P = {
+}, V = {
   traveler: {
     name: "晨风旅人",
     detail: "蓝披风与金线，旅途最初的模样。"
@@ -741,7 +1171,7 @@ var d = ["余烬", "远征"], o = {
     name: "观星使徒",
     detail: "星环冠、层叠长袍与悬浮的星轨。"
   }
-}, c = {
+}, y = {
   blade: {
     name: "破晓剑士",
     equipment: "剑与盾",
@@ -784,7 +1214,7 @@ var d = ["余烬", "远征"], o = {
     action: "部署",
     skill: "放置可承伤的自动炮台，建立火力阵地。"
   }
-}, I = (e) => `${c[e].action}：${c[e].skill}`, F = {
+}, G = (e) => `${y[e].action}：${y[e].skill}`, J = {
   soldier: "失落卫兵",
   archer: "逐风射手",
   guard: "重盾守卫",
@@ -805,7 +1235,7 @@ var d = ["余烬", "远征"], o = {
   leviathan: "沉潮巨兽",
   archivist: "无页典守",
   voidknight: "折光骑士"
-}, q = {
+}, Z = {
   skirmish: {
     name: "肃清",
     detail: "击败全部守军"
@@ -816,7 +1246,7 @@ var d = ["余烬", "远征"], o = {
   },
   siege: {
     name: "守护烽火",
-    detail: `保护中央烽火，击败守军。${o.beaconRule}。`
+    detail: `保护中央烽火，击败守军。${c.beaconRule}。`
   },
   ritual: {
     name: "三重封印",
@@ -830,7 +1260,7 @@ var d = ["余烬", "远征"], o = {
     name: "交叉火线",
     detail: "穿越交错射线，击败守军"
   }
-}, D = {
+}, Q = {
   "storm-step": {
     name: "踏雷靴",
     detail: "闪避起点留下雷场，每次命中造成雷击。",
@@ -858,7 +1288,7 @@ var d = ["余烬", "远征"], o = {
   },
   "blood-price": {
     name: "赤誓",
-    detail: `所有伤害提高，但受到伤害增加 ${Math.round((s.bloodHurt - 1) * 100)}%。强化继续提高输出。`,
+    detail: `所有伤害提高，但受到伤害增加 ${Math.round((h.bloodHurt - 1) * 100)}%。强化继续提高输出。`,
     family: "险"
   },
   frost: {
@@ -878,7 +1308,7 @@ var d = ["余烬", "远征"], o = {
   },
   hunter: {
     name: "猎星镜",
-    detail: `距离超过 ${s.hunterRange} 步的远程命中伤害增加。强化提高远距伤害。`,
+    detail: `距离超过 ${h.hunterRange} 步的远程命中伤害增加。强化提高远距伤害。`,
     family: "弓"
   },
   piercing: {
@@ -903,12 +1333,12 @@ var d = ["余烬", "远征"], o = {
   },
   siphon: {
     name: "温血石",
-    detail: `每击败 ${s.siphonEvery} 名敌人恢复生命；击败首领恢复更多。强化增加恢复量。`,
+    detail: `每击败 ${h.siphonEvery} 名敌人恢复生命；击败首领恢复更多。强化增加恢复量。`,
     family: "生"
   },
   focus: {
     name: "澄明",
-    detail: `技能冷却缩短，但普攻间隔延长 ${Math.round((s.focusAttack - 1) * 100)}%。强化进一步缩短技能冷却。`,
+    detail: `技能冷却缩短，但普攻间隔延长 ${Math.round((h.focusAttack - 1) * 100)}%。强化进一步缩短技能冷却。`,
     family: "技"
   },
   renewal: {
@@ -918,7 +1348,7 @@ var d = ["余烬", "远征"], o = {
   },
   execution: {
     name: "断章",
-    detail: `对生命低于 ${s.executeThreshold * 100}% 的敌人伤害提高。强化增加斩杀伤害。`,
+    detail: `对生命低于 ${h.executeThreshold * 100}% 的敌人伤害提高。强化增加斩杀伤害。`,
     family: "锋"
   },
   "last-stand": {
@@ -1132,32 +1562,46 @@ var d = ["余烬", "远征"], o = {
     family: "炮"
   }
 };
-function z(e) {
-  const { code: a, message: i } = w(e);
-  return a === "expedition_agent_not_configured" ? n.noAi : a === "expedition_agent_auth" ? i || n.aiAuth : a === "expedition_agent_failed" ? i || n.aiFailed : a === "expedition_context_capacity" ? i || n.contextFull : a === "expedition_data_invalid" ? n.dataInvalid : a === "expedition_narrative_unavailable" ? n.narrativeFailed : a.startsWith("expedition_memory_") ? n.memoryFailed : a.startsWith("expedition_reply_") ? n.emptyReply : a === "expedition_stale" ? o.stale : a === "expedition_locked" ? o.locked : a === "expedition_funds" ? o.noCoins : a === "expedition_unavailable" ? o.unavailable : a === "expedition_invalid" || a === "expedition_identity" ? o.invalid : a.startsWith("expedition_save_") || a.startsWith("host_request_") ? o.saveError : i || o.failure(a);
+function X(e) {
+  const { code: a, message: n } = P(e);
+  return a === "expedition_agent_not_configured" ? o.noAi : a === "expedition_agent_auth" ? n || o.aiAuth : a === "expedition_agent_failed" ? n || o.aiFailed : a === "expedition_context_capacity" ? n || o.contextFull : a === "expedition_data_invalid" ? o.dataInvalid : a === "expedition_narrative_unavailable" ? o.narrativeFailed : a.startsWith("expedition_memory_") ? o.memoryFailed : a.startsWith("expedition_reply_") ? o.emptyReply : a === "expedition_stale" ? c.stale : a === "expedition_locked" ? c.locked : a === "expedition_funds" ? c.noCoins : a === "expedition_unavailable" ? c.unavailable : a === "expedition_invalid" || a === "expedition_identity" ? c.invalid : a.startsWith("expedition_save_") || a.startsWith("host_request_") ? c.saveError : n || c.failure(a);
 }
 export {
-  _ as C,
-  k as S,
-  s as _,
-  c as a,
-  S as b,
-  n as c,
-  l as d,
-  m as f,
-  C as g,
-  O as h,
-  D as i,
-  R as l,
-  E as m,
-  F as n,
-  z as o,
-  $ as p,
-  P as r,
-  I as s,
-  o as t,
-  T as u,
-  t as v,
-  A as x,
-  x as y
+  j as A,
+  g as C,
+  z as D,
+  w as E,
+  q as F,
+  I,
+  T as L,
+  t as M,
+  F as N,
+  D as O,
+  N as P,
+  O as S,
+  f as T,
+  L as _,
+  y as a,
+  C as b,
+  o as c,
+  k as d,
+  B as f,
+  l as g,
+  b as h,
+  Q as i,
+  h as j,
+  M as k,
+  Y as l,
+  H as m,
+  J as n,
+  X as o,
+  A as p,
+  V as r,
+  G as s,
+  c as t,
+  U as u,
+  p as v,
+  W as w,
+  x,
+  K as y
 };

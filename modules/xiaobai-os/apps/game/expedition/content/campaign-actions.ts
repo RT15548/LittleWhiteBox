@@ -17,7 +17,7 @@ export const CAMPAIGN_ACTIONS = {
     briefing: { atClinic: false, people: ['sanniang', 'laobai'], requires: [], fact: 'briefed',
         meaning: '玩家明确愿意去哨站救人时提交，确认接下救援委托、开放营地外的路线。对白说明正门与旧水道两条路线；是否邀你同行另算，实际救援由探索完成。' },
     receiving: { atClinic: false, people: ['laobai'], requires: [], fact: 'receiving_arranged',
-        meaning: '玩家请求或接受担架接应，老白答应安排时提交。担架队在小门接应；牢门和小门打开后，玩家回到檐下才完成接回。' },
+        meaning: '玩家请求或接受担架接应，老白答应安排时提交。牢门、小门打开且玩家回到檐下后，担架队接回仍留在牢房等候的人；已跟随或自行离开的人继续自己的行程。' },
     finish: { atClinic: false, people: ['sanniang'], requires: ['captives_arrived', 'supplies_secured', 'warden_defeated'], fact: 'chapter_completed',
         meaning: '与玩家核对回来的两个人和药材后提交收尾。玩家读完并继续后结算这一章。第二章尚未开放。' },
     clinic: { atClinic: true, people: ['sanniang'], requires: ['captives_arrived', 'supplies_secured'], fact: 'clinic_helped',

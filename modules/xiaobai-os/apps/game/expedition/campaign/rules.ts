@@ -11,7 +11,9 @@ import type { Campaign } from './types.js';
 import { availableChoices, CAMPAIGN_ACTIONS } from '../content/campaign-actions.js';
 import { PERSON_IDS } from '../content/people.js';
 import { initialPeople, personAt, reachablePeople, relocatePeople, tickPeople } from '../world/people.js';
-import { PERSON_PLACES } from '../content/people-places.js';
+import { CAPTIVE_IDS, PERSON_PLACES } from '../content/people-places.js';
+import { districtScene } from '../content/living-spaces.js';
+import { hasReturned } from './rescue.js';
 import { isPerson, PARTICIPANT_IDS, type Participant } from '../content/participants.js';
 import { PARLEY_ENEMIES, PARLEY_IDS } from '../content/parley.js';
 import { canParley } from './parley.js';
@@ -63,12 +65,24 @@ export function canTalk(campaign: Campaign, person: Participant) {
     return campaign.phase === 'exploration' && reachablePeople(campaign)
         .some(i => i.kind === 'object' && i.target.kind === 'person' && i.target.person === person);
 }
-function receiveCaptives(campaign: Campaign) {
-    if (campaign.location.scene === 'camp' && ['captives_released', 'postern_opened', 'receiving_arranged'].every(f => campaign.facts.includes(f as CourtyardFact))) {
-        if (!campaign.facts.includes('captives_arrived')) {
-            for (const id of PERSON_IDS.filter(id => PERSON_PLACES[id].captive)) { campaign.people[id] = personAt(PERSON_PLACES[id].station); }
-            recordFact(campaign, 'captives_arrived');
+function settleRescue(campaign: Campaign) {
+    if (!campaign.facts.includes('captives_released') || campaign.facts.includes('captives_arrived')) { return; }
+    const receiving = districtScene(campaign.location.scene) === 'camp'
+        && campaign.facts.includes('postern_opened') && campaign.facts.includes('receiving_arranged');
+    for (const id of CAPTIVE_IDS) {
+        if (hasReturned(campaign.facts, id)) { continue; }
+        const state = campaign.people[id];
+        // Reception collects only those still waiting in the cells, never an agreed follower or traveller elsewhere.
+        if (receiving && state.scene === 'cells' && state.mode === 'idle') {
+            campaign.people[id] = personAt(PERSON_PLACES[id].station);
         }
+        const scene = campaign.people[id].scene;
+        if (districtScene(scene) === 'camp') {
+            recordFact(campaign, PERSON_PLACES[id].returnFact!, PERSON_IDS.filter(person => campaign.people[person].scene === scene));
+        }
+    }
+    if (CAPTIVE_IDS.every(id => hasReturned(campaign.facts, id))) {
+        recordFact(campaign, 'captives_arrived', PERSON_IDS.filter(id => campaign.people[id].scene === 'camp'));
     }
 }
 function battleReward(campaign: Campaign) {
@@ -112,7 +126,7 @@ export function tickCampaign(campaign: Campaign, input: InputFrame) {
             campaign.checkpoint = structuredClone(campaign.battle); campaign.phase = 'battle';
         }
     }
-    if (campaign.phase === 'exploration' || campaign.phase === 'battle') { tickPeople(campaign); }
+    if (campaign.phase === 'exploration' || campaign.phase === 'battle') { tickPeople(campaign); settleRescue(campaign); }
 }
 export function advanceCampaign(campaign: Campaign, command: Exclude<Command, { type: 'start' | 'restart' | 'purchase' | 'equip' }>) {
     if (campaign.pendingParley && command.type !== 'resolve_parley') { fault('unavailable'); }
@@ -151,7 +165,7 @@ export function advanceCampaign(campaign: Campaign, command: Exclude<Command, { 
             if (campaign.phase !== 'exploration') { fault('unavailable'); }
             const result = interactWorld(COURTYARD, campaign.location, facts, command.id);
             if (result.kind === 'travel') {
-                campaign.location = result.location; relocatePeople(campaign); receiveCaptives(campaign);
+                campaign.location = result.location; relocatePeople(campaign); settleRescue(campaign);
             } else if (result.object.kind === 'switch') {
                 recordFact(campaign, result.object.fact);
                 if (result.object.fact === 'captives_released' && !facts.has('alarm_silenced')) { recordFact(campaign, 'alarm_raised'); }
@@ -168,7 +182,7 @@ export function advanceCampaign(campaign: Campaign, command: Exclude<Command, { 
             const person = command.person;
             if (!canTalk(campaign, person) || !availableChoices(campaign.facts, person, campaign.people[person]).includes(command.id)) { fault('unavailable'); }
             recordFact(campaign, action.fact, [person]);
-            receiveCaptives(campaign);
+            settleRescue(campaign);
             break;
         }
         case 'relic': {
@@ -197,7 +211,7 @@ export function advanceCampaign(campaign: Campaign, command: Exclude<Command, { 
             const visited = campaign.location.visited;
             campaign.location = { ...startWorld(COURTYARD.camp, 'rest'), visited };
             campaign.hp = RULES.maxHp; campaign.battle = null; campaign.checkpoint = null; campaign.phase = 'exploration';
-            relocatePeople(campaign); receiveCaptives(campaign); break;
+            relocatePeople(campaign); settleRescue(campaign); break;
         }
     }
 }

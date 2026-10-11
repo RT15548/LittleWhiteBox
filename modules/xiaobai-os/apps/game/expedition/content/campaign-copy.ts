@@ -1,6 +1,9 @@
 import type { CourtyardFact, CourtyardScene } from './world-types.js';
 import type { Campaign } from '../campaign/types.js';
 import { JOURNEY_COPY } from './journey-copy.js';
+import { CAPTIVE_IDS } from './people-places.js';
+import { PERSON_NAMES } from './people.js';
+import { hasReturned } from '../campaign/rescue.js';
 
 export const FACT_COPY: Record<CourtyardFact, string> = {
     bajin_intel: '老白向旅人讲出了八斤的事。',
@@ -14,10 +17,12 @@ export const FACT_COPY: Record<CourtyardFact, string> = {
     waterway_cleared: '水道看守躺下了。',
     alarm_raised: '守军接到了警报；烽火未熄时，内堡将有援军。',
     alarm_silenced: '烽火没点起来，内堡的援兵不会来。',
-    captives_released: '旅人打开牢门，扣子与阿念暂留安全处等候接应。',
+    captives_released: '旅人打开了两间牢房的门，扣子与阿念可以离开牢房。',
     postern_opened: '旅人打开牢房小门，营地与牢房之间的捷径永久畅通。',
     receiving_arranged: '老白带担架队守在营地小门，三娘留出了两张床。',
-    captives_arrived: '两名受困者已由担架队接回营地。',
+    anian_returned: '阿念已经脱困返营。',
+    kouzi_returned: '扣子已经脱困返营。',
+    captives_arrived: '两名受困者均已脱困返营。',
     warden_defeated: '门厅守卫倒了，主闸松开。',
     supplies_secured: '旅人核对并接收了哨站归还的药材和冷却管件。',
     roots_cleared: '旅人清除了根庭的荆棘之心，外墙旧庭恢复通行。',
@@ -35,8 +40,9 @@ export const CAMPAIGN_COPY = Object.freeze({
     equipped: '已装配', stored: '收入收藏', emptyBuild: '战斗后可获得遗物。', safeBuild: '回到营地可调整装配。', safeWardrobe: '回到营地可更换衣装。',
     slots: (n: number, max: number) => `装配 ${n} / ${max}`, takeOff: '卸下', putOn: '装配',
     loadoutIssue: { capacity: '装配已满，先卸下一件遗物。', dependency: '这组搭配缺少触发条件；先调整依赖它的遗物。' },
-    received: '小门外传来担架落地的轻响。三娘掀开诊棚的帘子。阿念抱着泡皱的货签坐下，扣子避开伸来的手，自己找了个高处。老白把门闩推回去，低头翻了翻那本没有看的签本。人回来了。',
-    waiting: '牢门已开。他们暂时留在安全处，等小门打开、营地接应到位。',
+    received: '阿念与扣子都已脱困返营。这一次，两个人都回来了。',
+    openCells: '靠近两间牢房外过道上的机关，打开牢门。',
+    rescueObjective: (names: string) => `${names}尚未返营。可交谈带她们同行，或打开小门请老白接应。`,
     rescueAlarm: '牢门的锁链惊动了守军。烽火未熄，内堡将多出一队援兵；你仍可以回头截断信号。',
     alarm: '烽火传讯', alarmRaised: '内堡增援已集结', alarmSeconds: (n: number) => `距离传讯 ${n} 秒`,
     endingTitle: '归来的人', ending: '归还的药材堆在诊棚桌上。三娘一份份核对，没有按签上的户名把它们分开。阿念被安排在帘边坐着，有人叫她，她才抬起头。扣子蹲在管架上，伸手试了试新接头；老白仍站在小门边。\n\n这一次，两个人都回来了。可药签照旧按人头发，照旧会过期。檐下的名字依然不在内堡的册子里。门厅之后还有一扇门，古炉仍在变冷。',
@@ -75,10 +81,8 @@ export function campaignObjective(c: Campaign): string {
     if (!f.has('briefed')) { return CAMPAIGN_COPY.beginning; }
     if (f.has('chapter_completed')) { return CAMPAIGN_COPY.optional; }
     if (!f.has('crossroads_cleared')) { return '沿营地北路去外墙岔口。'; }
-    if (!f.has('captives_released')) { return '走正门上烽火台，或者下旧水道直奔牢房。'; }
-    if (!f.has('postern_opened')) { return '牢房东南角有扇小门，打开它，回营就不用绕。'; }
-    if (!f.has('receiving_arranged')) { return '回营找老白，让他把担架摆到小门。'; }
-    if (!f.has('captives_arrived')) { return '从小门回营，担架队会把人抬回来。'; }
+    if (!f.has('captives_released')) { return c.location.scene === 'cells' ? CAMPAIGN_COPY.openCells : '走正门上烽火台，或者下旧水道直奔牢房。'; }
+    if (!f.has('captives_arrived')) { return CAMPAIGN_COPY.rescueObjective(CAPTIVE_IDS.filter(id => !hasReturned(c.facts, id)).map(id => PERSON_NAMES[id]).join('、')); }
     if (!f.has('warden_defeated')) { return '去内堡门厅。药和管件压在主闸后头。'; }
     if (!f.has('supplies_secured')) { return '回营，到诊棚东边的货车上点一点还回来的东西。'; }
     return '回三娘那儿，把这趟收尾。';

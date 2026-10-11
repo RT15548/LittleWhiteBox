@@ -9817,10 +9817,17 @@
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/game/expedition/campaign/rescue.ts",
+      "relativePath": "modules/xiaobai-os/apps/game/expedition/campaign/rescue.ts",
+      "extension": ".ts",
+      "sizeBytes": 768
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/game/expedition/campaign/rules.ts",
       "relativePath": "modules/xiaobai-os/apps/game/expedition/campaign/rules.ts",
       "extension": ".ts",
-      "sizeBytes": 13806
+      "sizeBytes": 14631
     },
     {
       "source": "littlewhitebox",
@@ -9946,14 +9953,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/game/expedition/content/campaign-actions.ts",
       "relativePath": "modules/xiaobai-os/apps/game/expedition/content/campaign-actions.ts",
       "extension": ".ts",
-      "sizeBytes": 2823
+      "sizeBytes": 2880
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/game/expedition/content/campaign-copy.ts",
       "relativePath": "modules/xiaobai-os/apps/game/expedition/content/campaign-copy.ts",
       "extension": ".ts",
-      "sizeBytes": 8147
+      "sizeBytes": 8243
     },
     {
       "source": "littlewhitebox",
@@ -10023,14 +10030,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/game/expedition/content/dialogue-copy.ts",
       "relativePath": "modules/xiaobai-os/apps/game/expedition/content/dialogue-copy.ts",
       "extension": ".ts",
-      "sizeBytes": 2065
+      "sizeBytes": 2116
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/game/expedition/content/greetings.ts",
       "relativePath": "modules/xiaobai-os/apps/game/expedition/content/greetings.ts",
       "extension": ".ts",
-      "sizeBytes": 3552
+      "sizeBytes": 3504
     },
     {
       "source": "littlewhitebox",
@@ -10079,7 +10086,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/game/expedition/content/people-places.ts",
       "relativePath": "modules/xiaobai-os/apps/game/expedition/content/people-places.ts",
       "extension": ".ts",
-      "sizeBytes": 2187
+      "sizeBytes": 2385
     },
     {
       "source": "littlewhitebox",
@@ -10087,6 +10094,13 @@
       "relativePath": "modules/xiaobai-os/apps/game/expedition/content/people.ts",
       "extension": ".ts",
       "sizeBytes": 410
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/game/expedition/content/rescue-copy.ts",
+      "relativePath": "modules/xiaobai-os/apps/game/expedition/content/rescue-copy.ts",
+      "extension": ".ts",
+      "sizeBytes": 732
     },
     {
       "source": "littlewhitebox",
@@ -10107,7 +10121,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/game/expedition/content/world-types.ts",
       "relativePath": "modules/xiaobai-os/apps/game/expedition/content/world-types.ts",
       "extension": ".ts",
-      "sizeBytes": 2113
+      "sizeBytes": 2151
     },
     {
       "source": "littlewhitebox",
@@ -10254,7 +10268,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/game/expedition/narrative/prompt.ts",
       "relativePath": "modules/xiaobai-os/apps/game/expedition/narrative/prompt.ts",
       "extension": ".ts",
-      "sizeBytes": 3845
+      "sizeBytes": 3878
     },
     {
       "source": "littlewhitebox",
@@ -10275,7 +10289,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/game/expedition/narrative/scene.ts",
       "relativePath": "modules/xiaobai-os/apps/game/expedition/narrative/scene.ts",
       "extension": ".ts",
-      "sizeBytes": 2951
+      "sizeBytes": 3743
     },
     {
       "source": "littlewhitebox",
@@ -10541,7 +10555,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/game/expedition/presentation/world-people.ts",
       "relativePath": "modules/xiaobai-os/apps/game/expedition/presentation/world-people.ts",
       "extension": ".ts",
-      "sizeBytes": 8705
+      "sizeBytes": 8756
     },
     {
       "source": "littlewhitebox",
@@ -10744,7 +10758,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/game/expedition/world/people.ts",
       "relativePath": "modules/xiaobai-os/apps/game/expedition/world/people.ts",
       "extension": ".ts",
-      "sizeBytes": 9891
+      "sizeBytes": 9923
     },
     {
       "source": "littlewhitebox",
@@ -14230,7 +14244,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/docs/expedition-campaign-design.md",
       "relativePath": "modules/xiaobai-os/docs/expedition-campaign-design.md",
       "extension": ".md",
-      "sizeBytes": 8179
+      "sizeBytes": 8194
     },
     {
       "source": "littlewhitebox",
@@ -14251,7 +14265,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/docs/expedition-cards/chapter1-plan.md",
       "relativePath": "modules/xiaobai-os/docs/expedition-cards/chapter1-plan.md",
       "extension": ".md",
-      "sizeBytes": 17269
+      "sizeBytes": 17996
     },
     {
       "source": "littlewhitebox",
@@ -14300,14 +14314,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/docs/expedition-cards/meta-protocol.md",
       "relativePath": "modules/xiaobai-os/docs/expedition-cards/meta-protocol.md",
       "extension": ".md",
-      "sizeBytes": 3401
+      "sizeBytes": 3934
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/docs/expedition-cards/openings.md",
       "relativePath": "modules/xiaobai-os/docs/expedition-cards/openings.md",
       "extension": ".md",
-      "sizeBytes": 2992
+      "sizeBytes": 2968
     },
     {
       "source": "littlewhitebox",
@@ -14321,7 +14335,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/docs/expedition-cards/README.md",
       "relativePath": "modules/xiaobai-os/docs/expedition-cards/README.md",
       "extension": ".md",
-      "sizeBytes": 5768
+      "sizeBytes": 5977
     },
     {
       "source": "littlewhitebox",
@@ -14356,7 +14370,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/docs/expedition-game-target-design.md",
       "relativePath": "modules/xiaobai-os/docs/expedition-game-target-design.md",
       "extension": ".md",
-      "sizeBytes": 10087
+      "sizeBytes": 10614
     },
     {
       "source": "littlewhitebox",
@@ -16071,7 +16085,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/tests/expedition-campaign.test.js",
       "relativePath": "modules/xiaobai-os/tests/expedition-campaign.test.js",
       "extension": ".js",
-      "sizeBytes": 8871
+      "sizeBytes": 10867
     },
     {
       "source": "littlewhitebox",
@@ -16212,6 +16226,13 @@
       "relativePath": "modules/xiaobai-os/tests/expedition-reply.test.js",
       "extension": ".js",
       "sizeBytes": 4281
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/tests/expedition-rescue.test.js",
+      "relativePath": "modules/xiaobai-os/tests/expedition-rescue.test.js",
+      "extension": ".js",
+      "sizeBytes": 10613
     },
     {
       "source": "littlewhitebox",
