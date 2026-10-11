@@ -17,7 +17,7 @@ SillyTavern 中的独立应用面板，与小白酒馆 Phone OS 不共享数据�
 | 商店 | [商品、库存与回复效果](./docs/shop-app-target-design.md) |
 | 钱包 | [用户级余额与流水](./apps/wallet/README.md) |
 | 银行 | [存单、理财与计期](./docs/bank-app-target-design.md) |
-| 游戏 | [游艺室](./docs/game-app-target-design.md)、[小白搬家](./docs/moving-game-target-design.md)、[小白筑家](./docs/building-game-target-design.md) |
+| 游戏 | [游艺室](./docs/game-app-target-design.md)、[小白搬家](./docs/moving-game-target-design.md)、[小白筑家](./docs/building-game-target-design.md)、[余火](./docs/expedition-game-target-design.md) |
 | Agent API | [共享模型设置与后台维护](./docs/agent-api-and-maintenance-target-design.md) |
 
 不明物不属于普通 OS；它由小白酒馆拥有。设计不等于模型质量保证，未完成的外部服务或实体设备验证见各功能限制。

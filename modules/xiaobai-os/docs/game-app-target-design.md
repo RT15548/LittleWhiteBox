@@ -2,7 +2,7 @@
 
 ## 1. 定位
 
-Game 是独立纯规则游戏领域，提供大话骰、翻牌寻金、步步登高。大厅另有[小白搬家](./moving-game-target-design.md)、[小白筑家](./building-game-target-design.md)和[余烬远征](./expedition-game-target-design.md)，各自独立拥有规则与用户分区。下文的资金/事件合同仅针对原有金融玩法。玩家进入 APP 直接玩游戏；Game 不生成剧情、不调用模型、不修改角色、不读取主聊天消息或回合。
+Game 是独立纯规则游戏领域，提供大话骰、翻牌寻金、步步登高。大厅另有[小白搬家](./moving-game-target-design.md)、[小白筑家](./building-game-target-design.md)和[余火](./expedition-game-target-design.md)，各自独立拥有规则与用户分区。下文的资金/事件合同仅针对原有金融玩法。玩家进入 APP 直接玩游戏；Game 不生成剧情、不调用模型、不修改角色、不读取主聊天消息或回合。
 
 ## 2. 所有权与结构
 
