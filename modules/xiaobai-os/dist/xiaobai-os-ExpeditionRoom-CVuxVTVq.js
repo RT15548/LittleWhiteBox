@@ -6,7 +6,7 @@ import { n as mr, t as vr } from "./xiaobai-os-conversation-window-no8ylrha.js";
 import { t as gr } from "./xiaobai-os-constants-CDXgazQ7.js";
 import { C as la, Ct as br, Ft as Fn, Lt as dt, Pt as yr, S as wr, St as ws, T as Bn, Tt as xr, X as yt, Y as xs, Z as Mr, _ as on, _t as _r, a as za, bt as en, d as Sn, et as Ms, h as kr, kt as Sr, l as Rr, n as _s, o as Cr, p as $r, st as ks, vt as zr, w as Ss, wt as Wn, x as Pr, xt as Rn, y as qn, yt as Ir } from "./xiaobai-os-three.module-Ah3xIFOr.js";
 import { t as Rs } from "./xiaobai-os-BufferGeometryUtils-BLglYbHr.js";
-import { C as Cs, S as Ar, _ as Oe, a as Rt, b as $s, c as D, d as ce, f as ln, g as zs, h as Er, i as Ma, l as Ps, m as pe, n as cn, o as $t, p as ct, r as Gt, s as Lr, t as ne, u as Hn, v as X, x as ke, y as Ut } from "./xiaobai-os-copy-Ceg3mEjV.js";
+import { C as Cs, S as Ar, _ as Oe, a as Rt, b as $s, c as D, d as ce, f as ln, g as zs, h as Er, i as Ma, l as Ps, m as pe, n as cn, o as $t, p as ct, r as Gt, s as Lr, t as ne, u as Hn, v as X, x as ke, y as Ut } from "./xiaobai-os-copy-CA8sutbQ.js";
 function ja(e) {
   return e.seed = Math.imul(e.seed, 1664525) + 1013904223 >>> 0, e.seed / 4294967296;
 }
@@ -4328,8 +4328,7 @@ var ue = Object.freeze({
     memory: "历史摘要",
     history: "近期交谈"
   },
-  memoryRetry: "重试",
-  memoryServiceFailed: "摘要服务调用失败，原文已保留。"
+  memoryRetry: "重试"
 });
 function Bo(e) {
   let t = null, s = null, a = null, n = !1, o = !1, i = null, c = -1, r = 0, l = 0, u = 0, h = 0, d = 0;
@@ -4552,7 +4551,7 @@ var f = {
   daggers: "#a95176",
   grimoire: "#578476",
   cannon: "#987347"
-}, n2 = Object.fromEntries(Object.entries(fa).map(([e, t]) => [e, Wo[t.family]]));
+}, o2 = Object.fromEntries(Object.entries(fa).map(([e, t]) => [e, Wo[t.family]]));
 function qo(e, t, s) {
   const a = /* @__PURE__ */ new Set();
   let n = {
@@ -13740,7 +13739,7 @@ function gc(e, t, s = []) {
   }
   return a;
 }
-var rr = "dialogue", Ha = `<${rr}>`, Tn = `</${rr}>`, s2 = new RegExp(`${Ha}([\\s\\S]*?)${Tn}`, "i"), r2 = new RegExp(Ha, "i");
+var rr = "dialogue", Ha = `<${rr}>`, Tn = `</${rr}>`, i2 = new RegExp(`${Ha}([\\s\\S]*?)${Tn}`, "i"), l2 = new RegExp(Ha, "i");
 function fs(e) {
   const t = e.affectionDelta ? e.affectionDelta > 0 ? "up" : "down" : null;
   return `${Ha}
@@ -13957,7 +13956,10 @@ var Cc = { class: "ember-clothing-list" }, $c = ["data-clothing-slot"], zc = /* 
   class: "ember-affection-heart",
   viewBox: "2 3 20 19",
   "aria-hidden": "true"
-}, Lc = ["id"], Tc = ["y", "height"], Oc = ["href"], jc = ["href", "clip-path"], Zc = ["aria-label", "aria-expanded"], Uc = ["aria-label"], Nc = ["aria-label"], Dc = { class: "ember-meter-total" }, Fc = { key: 0 }, Bc = { class: "ember-meter-total" }, Wc = { class: "ember-meter-breakdown" }, qc = { role: "status" }, Hc = ["disabled"], Vc = { key: 3 }, Gc = { role: "status" }, Yc = /* @__PURE__ */ Le({
+}, Lc = ["id"], Tc = ["y", "height"], Oc = ["href"], jc = ["href", "clip-path"], Zc = ["aria-label", "aria-expanded"], Uc = ["aria-label"], Nc = ["aria-label"], Dc = { class: "ember-meter-total" }, Fc = { key: 0 }, Bc = { class: "ember-meter-total" }, Wc = { class: "ember-meter-breakdown" }, qc = {
+  class: "ember-error-detail",
+  role: "status"
+}, Hc = ["disabled"], Vc = { key: 3 }, Gc = { role: "status" }, Yc = /* @__PURE__ */ Le({
   __name: "ConversationMeters",
   props: {
     campaign: {},
@@ -14074,7 +14076,7 @@ var Cc = { class: "ember-clothing-list" }, $c = ["data-clothing-slot"], zc = /* 
         }, null, 8, ["clothing"])) : _.value ? ($(), z(ee, { key: 2 }, [
           S("p", Bc, R(M(_.value.used)) + " / " + R(M(_.value.limit)), 1),
           S("dl", Wc, [($(!0), z(ee, null, Ie(p(ue).contextParts, (x, y) => ($(), z(ee, { key: y }, [S("dt", null, R(x), 1), S("dd", null, R(M(_.value[y])), 1)], 64))), 128))]),
-          e.memoryState?.status === "failed" ? ($(), z(ee, { key: 0 }, [S("p", qc, R(e.memoryState.code === "expedition_agent_failed" ? p(ue).memoryServiceFailed : p($t)(e.memoryState)), 1), S("button", {
+          e.memoryState?.status === "failed" ? ($(), z(ee, { key: 0 }, [S("p", qc, R(p($t)(e.memoryState)), 1), S("button", {
             type: "button",
             disabled: e.blocked,
             onClick: b[3] || (b[3] = (x) => k.$emit("retry-memory"))
@@ -14087,7 +14089,7 @@ var Cc = { class: "ember-clothing-list" }, $c = ["data-clothing-slot"], zc = /* 
       ], 10, Uc)) : Y("", !0)
     ], 40, Pc));
   }
-}), Qc = /* @__PURE__ */ Ve(Yc, [["__scopeId", "data-v-b206a6ba"]]), Kc = ["aria-label"], Xc = { class: "ember-weapon-layout" }, Jc = { class: "ember-weapon-list" }, eu = ["name", "value"], tu = {
+}), Qc = /* @__PURE__ */ Ve(Yc, [["__scopeId", "data-v-be9b84d5"]]), Kc = ["aria-label"], Xc = { class: "ember-weapon-layout" }, Jc = { class: "ember-weapon-list" }, eu = ["name", "value"], tu = {
   class: "ember-weapon-profile",
   "aria-live": "polite",
   "aria-atomic": "true"
@@ -14918,34 +14920,34 @@ var C1 = ["src"], $1 = ["src"], z1 = ["src"], P1 = /* @__PURE__ */ Le({
 ], G1 = {
   key: 5,
   class: "ember-alarm"
-}, Y1 = ["aria-label"], Q1 = ["disabled"], K1 = ["disabled"], X1 = {
+}, Y1 = ["aria-label"], Q1 = { class: "ember-error-detail" }, K1 = ["disabled"], X1 = ["disabled"], J1 = {
   key: 7,
   class: "ember-conversation-notice",
   role: "status"
-}, J1 = { key: 0 }, eh = { class: "ember-prose" }, th = ["aria-label"], ah = {
+}, eh = { class: "ember-error-detail" }, th = { key: 0 }, ah = { class: "ember-prose" }, nh = ["aria-label"], sh = {
   key: 0,
   class: "ember-panel-heading"
-}, nh = ["aria-label"], sh = ["aria-pressed"], rh = ["aria-pressed"], oh = ["disabled"], ih = { class: "ember-prose ember-prologue" }, lh = { class: "ember-objective-panel" }, ch = { class: "ember-journal" }, uh = { class: "ember-pack-heading" }, dh = { key: 0 }, hh = { key: 1 }, fh = { class: "ember-relics" }, ph = { key: 0 }, mh = ["disabled", "onClick"], vh = { class: "ember-dialogue-heading" }, gh = { class: "ember-person-heading" }, bh = ["disabled"], yh = ["data-message-key"], wh = ["data-message-key", "data-fresh-reply"], xh = {
+}, rh = ["aria-label"], oh = ["aria-pressed"], ih = ["aria-pressed"], lh = ["disabled"], ch = { class: "ember-prose ember-prologue" }, uh = { class: "ember-objective-panel" }, dh = { class: "ember-journal" }, hh = { class: "ember-pack-heading" }, fh = { key: 0 }, ph = { key: 1 }, mh = { class: "ember-relics" }, vh = { key: 0 }, gh = ["disabled", "onClick"], bh = { class: "ember-dialogue-heading" }, yh = { class: "ember-person-heading" }, wh = ["disabled"], xh = ["data-message-key"], Mh = ["data-message-key", "data-fresh-reply"], _h = {
   key: 0,
   class: "ember-dialogue-issue"
-}, Mh = { key: 1 }, _h = { class: "ember-prose" }, kh = {
+}, kh = { key: 1 }, Sh = { class: "ember-prose" }, Rh = {
   key: 2,
   class: "ember-prose"
-}, Sh = ["aria-busy"], Rh = {
+}, Ch = ["aria-busy"], $h = {
   key: 0,
   class: "ember-dialogue-issue",
   role: "status"
-}, Ch = {
+}, zh = {
   key: 2,
   class: "ember-dialogue-issue",
   role: "status"
-}, $h = { key: 0 }, zh = { class: "ember-prose" }, Ph = {
+}, Ph = { class: "ember-error-detail" }, Ih = { key: 0 }, Ah = { class: "ember-prose" }, Eh = {
   key: 3,
   class: "ember-history-nav"
-}, Ih = {
+}, Lh = {
   key: 6,
   class: "ember-prose"
-}, Ah = ["src"], Eh = { class: "ember-prose" }, Lh = ["src"], Th = { class: "ember-prose" }, Oh = { class: "ember-continued" }, jh = { class: "ember-relics" }, Zh = ["disabled", "onClick"], Uh = ["disabled"], Nh = { class: "ember-prose" }, Dh = ["disabled"], Fh = ["disabled"], Bh = ["disabled"], Wh = { class: "ember-pause-actions" }, qh = ["aria-pressed"], Hh = { class: "ember-help ember-keyboard-help" }, Vh = { class: "ember-help ember-touch-help" }, Gh = /* @__PURE__ */ Le({
+}, Th = ["src"], Oh = { class: "ember-prose" }, jh = ["src"], Zh = { class: "ember-prose" }, Uh = { class: "ember-continued" }, Nh = { class: "ember-relics" }, Dh = ["disabled", "onClick"], Fh = ["disabled"], Bh = { class: "ember-prose" }, Wh = ["disabled"], qh = ["disabled"], Hh = ["disabled"], Vh = { class: "ember-pause-actions" }, Gh = ["aria-pressed"], Yh = { class: "ember-help ember-keyboard-help" }, Qh = { class: "ember-help ember-touch-help" }, Kh = /* @__PURE__ */ Le({
   __name: "ExpeditionRoom",
   props: {
     bridge: {},
@@ -15220,7 +15222,7 @@ var C1 = ["src"], $1 = ["src"], z1 = ["src"], P1 = /* @__PURE__ */ Le({
         "aria-modal": "true",
         "aria-label": p(D).noticeTitle,
         tabindex: "-1"
-      }, [S("p", null, R(w.value ? p(D).renderError : e.generationActive ? p(D).generation : p(o)), 1), w.value ? ($(), z("button", {
+      }, [S("p", Q1, R(w.value ? p(D).renderError : e.generationActive ? p(D).generation : p(o)), 1), w.value ? ($(), z("button", {
         key: 0,
         type: "button",
         onClick: F[4] || (F[4] = (j) => {
@@ -15230,16 +15232,16 @@ var C1 = ["src"], $1 = ["src"], z1 = ["src"], P1 = /* @__PURE__ */ Le({
         type: "button",
         disabled: p(i),
         onClick: F[5] || (F[5] = (...j) => p(s).rebuild && p(s).rebuild(...j))
-      }, R(p(D).rebuild), 9, Q1)], 64)) : e.generationActive ? Y("", !0) : ($(), z("button", {
+      }, R(p(D).rebuild), 9, K1)], 64)) : e.generationActive ? Y("", !0) : ($(), z("button", {
         key: 2,
         type: "button",
         disabled: p(i),
         onClick: F[6] || (F[6] = (j) => p(s).recoveryRequired.value ? Ya() : p(s).dismissError())
-      }, R(p(s).recoveryRequired.value ? p(D).recover : p(D).acknowledge), 9, K1))], 8, Y1)) : Y("", !0),
-      p(h) && !p(o) && (y.value !== "person" || T.value !== p(h).person) ? ($(), z("aside", X1, [
+      }, R(p(s).recoveryRequired.value ? p(D).recover : p(D).acknowledge), 9, X1))], 8, Y1)) : Y("", !0),
+      p(h) && !p(o) && (y.value !== "person" || T.value !== p(h).person) ? ($(), z("aside", J1, [
         S("strong", null, R(p(He)(p(h).person)), 1),
-        S("p", null, R(p($t)(p(h))), 1),
-        p(h).text ? ($(), z("details", J1, [S("summary", null, R(p(D).receivedReply), 1), S("p", eh, R(p(h).text), 1)])) : Y("", !0),
+        S("p", eh, R(p($t)(p(h))), 1),
+        p(h).text ? ($(), z("details", th, [S("summary", null, R(p(D).receivedReply), 1), S("p", ah, R(p(h).text), 1)])) : Y("", !0),
         S("button", {
           type: "button",
           onClick: F[7] || (F[7] = (...j) => p(s).dismissConversationFailure && p(s).dismissConversationFailure(...j))
@@ -15262,7 +15264,7 @@ var C1 = ["src"], $1 = ["src"], z1 = ["src"], P1 = /* @__PURE__ */ Le({
         "aria-modal": "true",
         "aria-label": O.value,
         tabindex: "-1"
-      }, [y.value !== "map" && y.value !== "person" ? ($(), z("header", ah, [
+      }, [y.value !== "map" && y.value !== "person" ? ($(), z("header", sh, [
         S("h2", null, R(O.value), 1),
         y.value === "build" ? ($(), z("nav", {
           key: 0,
@@ -15272,26 +15274,26 @@ var C1 = ["src"], $1 = ["src"], z1 = ["src"], P1 = /* @__PURE__ */ Le({
           type: "button",
           "aria-pressed": P.value === "relics",
           onClick: F[8] || (F[8] = (j) => P.value = "relics")
-        }, R(p(ce).equipment), 9, sh), S("button", {
+        }, R(p(ce).equipment), 9, oh), S("button", {
           type: "button",
           "aria-pressed": P.value === "wardrobe",
           onClick: F[9] || (F[9] = (j) => P.value = "wardrobe")
-        }, R(p(D).wardrobe), 9, rh)], 8, nh)) : Y("", !0),
+        }, R(p(D).wardrobe), 9, ih)], 8, rh)) : Y("", !0),
         y.value !== "prologue" && p(d).pendingParley?.decision !== "attack" && (y.value || p(d).phase !== "lost" && p(d).phase !== "reward") ? ($(), z("button", {
           key: 1,
           type: "button",
           disabled: !!p(d).pendingParley && p(c),
           onClick: Se
-        }, R(p(D).close), 9, oh)) : Y("", !0)
+        }, R(p(D).close), 9, lh)) : Y("", !0)
       ])) : Y("", !0), y.value === "map" ? ($(), St(Nl, {
         key: 1,
         campaign: p(d),
         onClose: Se
-      }, null, 8, ["campaign"])) : y.value === "prologue" ? ($(), z(ee, { key: 2 }, [S("p", ih, R(p(D).opening), 1), S("button", {
+      }, null, 8, ["campaign"])) : y.value === "prologue" ? ($(), z(ee, { key: 2 }, [S("p", ch, R(p(D).opening), 1), S("button", {
         class: "ember-primary",
         type: "button",
         onClick: Se
-      }, R(p(D).start), 1)], 64)) : y.value === "journal" ? ($(), z(ee, { key: 3 }, [S("p", lh, R(p(Hn)(p(d))), 1), S("ol", ch, [($(!0), z(ee, null, Ie(p(d).facts, (j) => ($(), z("li", { key: j }, R(p(Ps)[j]), 1))), 128))])], 64)) : y.value === "build" ? ($(), z(ee, { key: 4 }, [P.value === "wardrobe" && p(n) ? ($(), St(hc, {
+      }, R(p(D).start), 1)], 64)) : y.value === "journal" ? ($(), z(ee, { key: 3 }, [S("p", uh, R(p(Hn)(p(d))), 1), S("ol", dh, [($(!0), z(ee, null, Ie(p(d).facts, (j) => ($(), z("li", { key: j }, R(p(Ps)[j]), 1))), 128))])], 64)) : y.value === "build" ? ($(), z(ee, { key: 4 }, [P.value === "wardrobe" && p(n) ? ($(), St(hc, {
         key: 0,
         data: p(n).data,
         traveler: p(d).traveler,
@@ -15306,20 +15308,20 @@ var C1 = ["src"], $1 = ["src"], z1 = ["src"], P1 = /* @__PURE__ */ Le({
         "blocked",
         "weapon"
       ])) : ($(), z(ee, { key: 1 }, [
-        S("div", uh, [S("strong", null, R(p(d).traveler.name), 1), S("span", null, [
+        S("div", hh, [S("strong", null, R(p(d).traveler.name), 1), S("span", null, [
           ze(R(p(ce).genders[p(d).traveler.gender]), 1),
           p(d).traveler.appearanceAge ? ($(), z(ee, { key: 0 }, [ze(" · " + R(p(ma)[p(d).traveler.appearanceAge]), 1)], 64)) : Y("", !0),
           ze(" · " + R(p(ce).identityRole), 1)
         ])]),
         S("small", null, R(p(D).slots(p(d).equipped.length, p(X).relicSlots)), 1),
         S("p", null, R(p(Rt)[p(d).weapon].name) + " · " + R(p(Lr)(p(d).weapon)), 1),
-        p(_e)[p(d).location.scene].safe ? Y("", !0) : ($(), z("p", dh, R(p(D).safeBuild), 1)),
-        p(d).collection.length ? Y("", !0) : ($(), z("p", hh, R(p(D).emptyBuild), 1)),
-        S("div", fh, [($(!0), z(ee, null, Ie(H.value, (j) => ($(), z("article", { key: j.id }, [
+        p(_e)[p(d).location.scene].safe ? Y("", !0) : ($(), z("p", fh, R(p(D).safeBuild), 1)),
+        p(d).collection.length ? Y("", !0) : ($(), z("p", ph, R(p(D).emptyBuild), 1)),
+        S("div", mh, [($(!0), z(ee, null, Ie(H.value, (j) => ($(), z("article", { key: j.id }, [
           De(Tt, { name: j.id }, null, 8, ["name"]),
           S("h3", null, [ze(R(p(Ma)[j.id].name) + " ", 1), S("small", null, R(p(ne).rank(j.rank)), 1)]),
           S("p", null, R(p(Ma)[j.id].detail), 1),
-          j.issue === "dependency" || j.issue === "capacity" ? ($(), z("small", ph, R(p(D).loadoutIssue[j.issue]), 1)) : Y("", !0),
+          j.issue === "dependency" || j.issue === "capacity" ? ($(), z("small", vh, R(p(D).loadoutIssue[j.issue]), 1)) : Y("", !0),
           S("button", {
             type: "button",
             disabled: p(c) || !!j.issue,
@@ -15327,11 +15329,11 @@ var C1 = ["src"], $1 = ["src"], z1 = ["src"], P1 = /* @__PURE__ */ Le({
               type: "loadout",
               equipped: j.equipped
             })
-          }, R(p(d).equipped.includes(j.id) ? p(D).takeOff : p(D).putOn), 9, mh)
+          }, R(p(d).equipped.includes(j.id) ? p(D).takeOff : p(D).putOn), 9, gh)
         ]))), 128))])
       ], 64))], 64)) : y.value === "person" ? ($(), z(ee, { key: 5 }, [
-        S("header", vh, [
-          S("div", gh, [S("h2", null, R(p(He)(T.value)), 1), S("small", null, R(p(se).scenes[p(d).location.scene]), 1)]),
+        S("header", bh, [
+          S("div", yh, [S("h2", null, R(p(He)(T.value)), 1), S("small", null, R(p(se).scenes[p(d).location.scene]), 1)]),
           ($(), St(Qc, {
             key: T.value,
             campaign: p(d),
@@ -15352,7 +15354,7 @@ var C1 = ["src"], $1 = ["src"], z1 = ["src"], P1 = /* @__PURE__ */ Le({
             type: "button",
             disabled: !!p(d).pendingParley && p(c),
             onClick: Se
-          }, R(p(D).close), 9, bh)) : Y("", !0)
+          }, R(p(D).close), 9, wh)) : Y("", !0)
         ]),
         S("div", {
           ref_key: "transcript",
@@ -15374,12 +15376,12 @@ var C1 = ["src"], $1 = ["src"], z1 = ["src"], P1 = /* @__PURE__ */ Le({
             key: 0,
             class: "ember-player-line",
             "data-message-key": j.key
-          }, [S("small", null, R(p(d).traveler.name), 1), ze(R(j.turn.player), 1)], 8, yh)) : ($(), z("div", {
+          }, [S("small", null, R(p(d).traveler.name), 1), ze(R(j.turn.player), 1)], 8, xh)) : ($(), z("div", {
             key: 1,
             class: "ember-npc-turn",
             "data-message-key": j.key,
             "data-fresh-reply": Ze.value === j.turn.id
-          }, [j.turn.issue === "action_rejected" || j.turn.issue === "clothing_rejected" || j.turn.issue === "reply_invalid" || j.turn.issue === "reply_incomplete" ? ($(), z("p", xh, R(p(ue).issues[j.turn.issue]), 1)) : Y("", !0), j.turn.kind === "receipt" && j.turn.issue === "reply_invalid" ? ($(), z("details", Mh, [S("summary", null, R(p(ue).rawReply), 1), S("p", _h, R(j.turn.reply), 1)])) : j.turn.kind === "receipt" ? ($(), z("p", kh, R(j.turn.reply), 1)) : ($(), z(ee, { key: 3 }, [
+          }, [j.turn.issue === "action_rejected" || j.turn.issue === "clothing_rejected" || j.turn.issue === "reply_invalid" || j.turn.issue === "reply_incomplete" ? ($(), z("p", _h, R(p(ue).issues[j.turn.issue]), 1)) : Y("", !0), j.turn.kind === "receipt" && j.turn.issue === "reply_invalid" ? ($(), z("details", kh, [S("summary", null, R(p(ue).rawReply), 1), S("p", Sh, R(j.turn.reply), 1)])) : j.turn.kind === "receipt" ? ($(), z("p", Rh, R(j.turn.reply), 1)) : ($(), z(ee, { key: 3 }, [
             De(T1, {
               person: T.value,
               reply: j.turn.reply,
@@ -15404,21 +15406,21 @@ var C1 = ["src"], $1 = ["src"], z1 = ["src"], P1 = /* @__PURE__ */ Le({
               key: 0,
               clothing: j.turn.clothing
             }, null, 8, ["clothing"])) : Y("", !0)
-          ], 64))], 8, wh))], 64))), 128)),
+          ], 64))], 8, Mh))], 64))), 128)),
           p(ye) && Re.value ? ($(), z(ee, { key: 1 }, [S("p", {
             class: "ember-player-line",
             "data-message-key": "pending",
             "aria-busy": Re.value.status === "sending"
-          }, [S("small", null, R(p(d).traveler.name), 1), ze(R(Re.value.text), 1)], 8, Sh), he.value ? ($(), z("p", Rh, R(p(ue).sendFailed), 1)) : Y("", !0)], 64)) : Y("", !0),
-          !p(ea) && p(h)?.person === T.value && !Qe.value.some((j) => j.id === p(h)?.actionId) ? ($(), z("div", Ch, [
-            S("p", null, R(p($t)(p(h))), 1),
-            p(h).text ? ($(), z("details", $h, [S("summary", null, R(p(D).receivedReply), 1), S("p", zh, R(p(h).text), 1)])) : Y("", !0),
+          }, [S("small", null, R(p(d).traveler.name), 1), ze(R(Re.value.text), 1)], 8, Ch), he.value ? ($(), z("p", $h, R(p(ue).sendFailed), 1)) : Y("", !0)], 64)) : Y("", !0),
+          !p(ea) && p(h)?.person === T.value && !Qe.value.some((j) => j.id === p(h)?.actionId) ? ($(), z("div", zh, [
+            S("p", Ph, R(p($t)(p(h))), 1),
+            p(h).text ? ($(), z("details", Ih, [S("summary", null, R(p(D).receivedReply), 1), S("p", Ah, R(p(h).text), 1)])) : Y("", !0),
             S("button", {
               type: "button",
               onClick: F[12] || (F[12] = (...j) => p(s).dismissConversationFailure && p(s).dismissConversationFailure(...j))
             }, R(p(D).acknowledge), 1)
           ])) : Y("", !0),
-          p(Va) ? ($(), z("nav", Ph, [p(ea) ? ($(), z("button", {
+          p(Va) ? ($(), z("nav", Eh, [p(ea) ? ($(), z("button", {
             key: 0,
             type: "button",
             class: "ember-history-link",
@@ -15457,14 +15459,14 @@ var C1 = ["src"], $1 = ["src"], z1 = ["src"], P1 = /* @__PURE__ */ Le({
           "conclusion",
           "onCancel"
         ])
-      ], 64)) : y.value === "passage" ? ($(), z("p", Ih, R(p(se).passages[L.value].body), 1)) : y.value === "arrival" ? ($(), z(ee, { key: 7 }, [
+      ], 64)) : y.value === "passage" ? ($(), z("p", Lh, R(p(se).passages[L.value].body), 1)) : y.value === "arrival" ? ($(), z(ee, { key: 7 }, [
         S("img", {
           class: "ember-story-art",
           src: p(ds).arrival,
           alt: "",
           decoding: "async"
-        }, null, 8, Ah),
-        S("p", Eh, R(p(D).received), 1),
+        }, null, 8, Th),
+        S("p", Oh, R(p(D).received), 1),
         S("button", {
           class: "ember-primary",
           type: "button",
@@ -15476,10 +15478,10 @@ var C1 = ["src"], $1 = ["src"], z1 = ["src"], P1 = /* @__PURE__ */ Le({
           src: p(ds).ending,
           alt: "",
           decoding: "async"
-        }, null, 8, Lh),
+        }, null, 8, jh),
         S("h2", null, R(p(D).endingTitle), 1),
-        S("p", Th, R(p(D).ending), 1),
-        S("strong", Oh, R(p(D).continued), 1),
+        S("p", Zh, R(p(D).ending), 1),
+        S("strong", Uh, R(p(D).continued), 1),
         S("p", null, R(p(D).optional), 1),
         S("button", {
           class: "ember-primary",
@@ -15488,7 +15490,7 @@ var C1 = ["src"], $1 = ["src"], z1 = ["src"], P1 = /* @__PURE__ */ Le({
         }, R(p(D).remain), 1)
       ], 64)) : p(d).phase === "reward" ? ($(), z(ee, { key: 9 }, [
         S("p", null, R(p(D).rewardDetail), 1),
-        S("div", jh, [($(!0), z(ee, null, Ie(p(d).offers, (j) => ($(), z("button", {
+        S("div", Nh, [($(!0), z(ee, null, Ie(p(d).offers, (j) => ($(), z("button", {
           key: j.id,
           type: "button",
           disabled: p(c),
@@ -15500,50 +15502,50 @@ var C1 = ["src"], $1 = ["src"], z1 = ["src"], P1 = /* @__PURE__ */ Le({
           De(Tt, { name: j.id }, null, 8, ["name"]),
           S("h3", null, [ze(R(p(Ma)[j.id].name) + " ", 1), S("small", null, R(p(ne).rank(j.rank)), 1)]),
           S("p", null, R(p(Ma)[j.id].detail), 1)
-        ], 8, Zh))), 128))]),
+        ], 8, Dh))), 128))]),
         S("button", {
           type: "button",
           disabled: p(c),
           onClick: F[17] || (F[17] = (j) => Te({ type: "leave" }))
-        }, R(p(D).skip), 9, Uh)
+        }, R(p(D).skip), 9, Fh)
       ], 64)) : p(d).phase === "lost" ? ($(), z(ee, { key: 10 }, [
-        S("p", Nh, R(p(D).fallenDetail), 1),
+        S("p", Bh, R(p(D).fallenDetail), 1),
         S("button", {
           class: "ember-primary",
           type: "button",
           disabled: p(c),
           onClick: F[18] || (F[18] = (j) => Te({ type: "retry" }))
-        }, R(p(D).retry), 9, Dh),
+        }, R(p(D).retry), 9, Wh),
         S("button", {
           type: "button",
           disabled: p(c),
           onClick: F[19] || (F[19] = (j) => Te({ type: "retreat" }))
-        }, R(p(D).retreat), 9, Fh)
+        }, R(p(D).retreat), 9, qh)
       ], 64)) : ($(), z(ee, { key: 11 }, [
         S("button", {
           class: "ember-primary",
           type: "button",
           disabled: !!p(o) || e.generationActive,
           onClick: Se
-        }, R(p(D).resume), 9, Bh),
-        S("div", Wh, [S("button", {
+        }, R(p(D).resume), 9, Hh),
+        S("div", Vh, [S("button", {
           type: "button",
           "aria-pressed": g.value,
           onClick: F[20] || (F[20] = (j) => g.value = !g.value)
-        }, R(p(D).sound), 9, qh)]),
+        }, R(p(D).sound), 9, Gh)]),
         S("details", null, [
           S("summary", null, R(p(ce).controls), 1),
-          S("p", Hh, R(p(D).controls), 1),
-          S("p", Vh, R(p(D).touchControls), 1)
+          S("p", Yh, R(p(D).controls), 1),
+          S("p", Qh, R(p(D).touchControls), 1)
         ]),
         S("button", {
           type: "button",
           onClick: xa
         }, R(p(ce).title), 1)
-      ], 64))], 10, th)], 4)) : Y("", !0)
+      ], 64))], 10, nh)], 4)) : Y("", !0)
     ]));
   }
-}), o2 = Gh;
+}), c2 = Kh;
 export {
-  o2 as default
+  c2 as default
 };

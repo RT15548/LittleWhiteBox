@@ -2,8 +2,9 @@ import type { XiaobaiOsAgentSession } from '../../../../capabilities/agent/gatew
 import type { Campaign, ConversationMemory } from '../campaign/types.js';
 import type { Participant } from '../content/participants.js';
 import { summarizeConversation, type TokenCounter } from './memory.js';
+import { expeditionFailure, type ExpeditionFailure } from '../failure.js';
 
-export type MemoryJobState = { status: 'running' } | { status: 'failed'; code: string };
+export type MemoryJobState = { status: 'running' } | ({ status: 'failed' } & ExpeditionFailure);
 type Outcome = { error?: unknown };
 type Job = { campaignId: string; controller: AbortController; state: MemoryJobState; promise: Promise<Outcome> };
 
@@ -31,7 +32,7 @@ export function createMemoryJobs(options: {
                 if (jobs.get(person) === job) {
                     if (controller.signal.aborted) { jobs.delete(person); }
                     else {
-                        job.state = { status: 'failed', code: error && typeof error === 'object' && 'code' in error ? String(error.code) : 'expedition_agent_failed' };
+                        job.state = { status: 'failed', ...expeditionFailure(error) };
                         console.warn('[LittleWhiteBox:expedition:memory]', error);
                     }
                 }

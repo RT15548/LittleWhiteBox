@@ -13,12 +13,13 @@ import { applyReply } from './narrative/apply-reply.js';
 import { generateConversation, type ConversationOptions, type ConversationPhase } from './narrative/conversation.js';
 import { createMemoryJobs, type MemoryJobState } from './narrative/memory-jobs.js';
 import { memoryBoundary, sameMemory } from './narrative/history.js';
+import { expeditionFailure, type ExpeditionFailure } from './failure.js';
 
 export interface ExpeditionView {
     data: ExpeditionData & ReturnType<typeof expeditionProgress>; balance: number; ready: boolean; pending: boolean; writeState: XiaobaiOsFileState;
     fileRevision: number;
     conversation: { actionId: string; person: Participant; text: string; regenerating: boolean; phase: ConversationPhase; startedAt: number } | null;
-    replyFailure: { actionId: string; person: Participant; playerText: string; regenerating: boolean; text: string | null; code: string } | null;
+    replyFailure: ({ actionId: string; person: Participant; playerText: string; regenerating: boolean; text: string | null } & ExpeditionFailure) | null;
     memories: Partial<Record<Participant, MemoryJobState>>;
 }
 export interface ExpeditionRequest { actionId: string; revision: number; command: Command }
@@ -151,9 +152,9 @@ export function createExpeditionService(store: PartitionStore<ExpeditionData>, f
         }
         } catch (error) {
             const result = received as Record<string, unknown> | null;
-            const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : 'expedition_agent_failed';
-            if (guard() && code !== 'expedition_cancelled') {
-                replyFailure = { actionId: input.actionId, person: input.person, playerText: input.text, regenerating: !!input.regenerate, text: typeof result?.text === 'string' ? result.text : null, code };
+            const failure = expeditionFailure(error);
+            if (guard() && failure.code !== 'expedition_cancelled') {
+                replyFailure = { actionId: input.actionId, person: input.person, playerText: input.text, regenerating: !!input.regenerate, text: typeof result?.text === 'string' ? result.text : null, ...failure };
             }
             throw error;
         } finally { signal.removeEventListener('abort', stopping); conversation = null; }

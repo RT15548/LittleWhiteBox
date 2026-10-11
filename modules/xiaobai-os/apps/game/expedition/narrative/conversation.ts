@@ -73,7 +73,13 @@ export async function generateConversation(agent: AgentCapability, campaign: Cam
     try { response = await requestDialogue(prompt); }
     catch (error) {
         if (!(error && typeof error === 'object' && 'code' in error && error.code === 'expedition_context_capacity')) { throw error; }
-        const compacted = await prepare(true); check();
+        const compacted = await prepare(true).catch(compactionError => {
+            // If local compaction cannot make room, retain the provider rejection that
+            // triggered it. A new summary-provider failure still reports its own cause.
+            if (compactionError && typeof compactionError === 'object' && compactionError.code === 'expedition_context_capacity'
+                && !('cause' in compactionError)) { throw error; }
+            throw compactionError;
+        }); check();
         response = await requestDialogue(compacted);
     }
     options.received(response); check();

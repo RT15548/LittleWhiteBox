@@ -25,5 +25,4 @@ export const DIALOGUE_COPY = Object.freeze({
     attack: '决定动手，对话结束；玩家读完并迎战后开始战斗。', fight: '迎战',
     contextParts: { system: '世界与人物', situation: '当前处境', memory: '历史摘要', history: '近期交谈' },
     memoryRetry: '重试',
-    memoryServiceFailed: '摘要服务调用失败，原文已保留。',
 });

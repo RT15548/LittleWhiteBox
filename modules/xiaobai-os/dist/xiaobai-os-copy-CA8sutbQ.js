@@ -6,7 +6,7 @@ var g = [
   "daggers",
   "grimoire",
   "cannon"
-], w = [
+], k = [
   "warden",
   "thornheart",
   "weaver",
@@ -80,7 +80,7 @@ var g = [
   "bunker",
   "salvage",
   "railgun"
-], k = [
+], _ = [
   "traveler",
   "guardian",
   "moonweaver",
@@ -93,7 +93,7 @@ var g = [
   "beastcaller",
   "frostbound",
   "stargazer"
-], i = Object.freeze({
+], t = Object.freeze({
   hz: 30,
   arena: 11,
   playerRadius: 0.34,
@@ -122,7 +122,7 @@ var g = [
   masteryAward: 120,
   oathAward: 100,
   recordLimit: 20
-}), _ = Object.freeze({
+}), $ = Object.freeze({
   resonanceTicks: 90,
   maxPower: 100,
   familiarHp: 38,
@@ -130,7 +130,7 @@ var g = [
   empoweredDamage: 17,
   attackTicks: 32,
   empoweredAttackTicks: 20
-}), $ = {
+}), x = {
   blade: {
     damage: 24,
     period: 20,
@@ -191,7 +191,7 @@ var g = [
     unlock: 3,
     guard: 0.9
   }
-}, x = v, S = g, l = Object.freeze({
+}, C = v, S = g, s = Object.freeze({
   bloodDamage: 1.3,
   bloodHurt: 1.25,
   hunterRange: 5,
@@ -208,10 +208,10 @@ var g = [
   focusAttack: 1.12,
   renewalHeal: 6,
   renewalZoneHeal: 8
-}), r = (e, a, t, u, p, f, h) => ({
+}), r = (e, a, i, u, p, f, h) => ({
   hp: e,
   speed: a,
-  radius: t,
+  radius: i,
   damage: u,
   reach: p,
   windup: f,
@@ -286,14 +286,14 @@ var g = [
     region: 5,
     awardKey: "boss-voidknight"
   }
-}, C = {
+}, E = {
   ...y,
   ...m
 };
-function E(e) {
+function A(e) {
   return Object.hasOwn(m, e);
 }
-var A = [
+var O = [
   {
     bosses: ["warden", "thornheart"],
     encounters: [
@@ -378,7 +378,7 @@ var A = [
       "wisp"
     ]
   }
-], s = Object.freeze({
+], l = Object.freeze({
   city: "赤炉城",
   begin: "开始旅程",
   chapters: "篇章",
@@ -410,7 +410,7 @@ var A = [
   confirmRestart: "确认开始新的旅程",
   entering: "正在启程…",
   loading: "正在读取旅程…"
-}), O = {
+}), R = {
   bajin_intel: "老白向旅人讲出了八斤的事。",
   bajin_passed: "八斤侧过盾，给旅人让开了路。",
   changyounian_passed: "常有年眯着眼看了旅人一会儿，叫人把火绳收了。",
@@ -473,7 +473,7 @@ var A = [
   ending: `归还的药材堆在诊棚桌上。三娘一份份核对，没有按签上的户名把它们分开。阿念被安排在帘边坐着，有人叫她，她才抬起头。扣子蹲在管架上，伸手试了试新接头；老白仍站在小门边。
 
 这一次，两个人都回来了。可药签照旧按人头发，照旧会过期。檐下的名字依然不在内堡的册子里。门厅之后还有一扇门，古炉仍在变冷。`,
-  continued: `${s.nextChapter}${s.forthcoming}`,
+  continued: `${l.nextChapter}${l.forthcoming}`,
   remain: "留在檐下",
   optional: "根庭仍可探索；营地的人也还有话想说。",
   talk: "交谈",
@@ -481,14 +481,14 @@ var A = [
   cancel: "停止等待",
   input: "你想说什么？",
   player: "你",
-  aiUnknown: "这次交谈的结果尚未确认，不会自动再次调用模型。先核对存档；若没有收到回复，重新发送会产生新调用。",
+  aiUnknown: "这次交谈的结果尚未确认，请先核对并恢复存档。",
   noAi: "请先在小白 OS 设置中配置 AI，再进行自由交谈。",
-  aiAuth: "AI 服务未通过身份验证，请在小白 OS 的 AI 设置中检查密钥与连接配置。输入已保留。",
-  aiFailed: "AI 服务调用失败，未取得可保存的回复。输入已保留，不会自动重试；重新发送会产生新调用。",
-  emptyReply: "这次没有取得有效对白。可查看交谈记录中的原文；不会自动重发。",
+  aiAuth: "AI 服务未通过身份验证。",
+  aiFailed: "AI 服务调用失败，未返回错误详情。",
+  emptyReply: "这次没有取得有效对白，可查看交谈记录中的原文。",
   receivedReply: "查看未保存的回复原文",
   contextFull: "当前输入仍超出上下文预算。原记录完整保留，没有调用新的对话回复。",
-  memoryFailed: "记忆整理未完成，原记忆与记录未替换。不会自动重试付费请求。",
+  memoryFailed: "记忆整理未完成，原记忆与记录未替换。",
   narrativeFailed: "人物资料读取失败，请检查扩展文件是否完整。尚未调用对话模型。",
   dataInvalid: "余火存档不符合当前模型，未覆盖原文件。其他小游戏仍可使用。",
   rebuild: "丢弃旧测试旅程，重新开始",
@@ -518,11 +518,18 @@ var A = [
   hall: "门厅守卫守着主闸。药和管件都压在闸后。",
   roots: "荆棘之心在地底下动。地面鼓起来时，往旁边让。"
 };
-function R(e) {
+function T(e) {
   const a = b[e.location.scene];
   if (e.phase === "battle" && a) return a;
-  const t = new Set(e.facts);
-  return t.has("briefed") ? t.has("chapter_completed") ? n.optional : t.has("crossroads_cleared") ? t.has("captives_released") ? t.has("postern_opened") ? t.has("receiving_arranged") ? t.has("captives_arrived") ? t.has("warden_defeated") ? t.has("supplies_secured") ? "回三娘那儿，把这趟收尾。" : "回营，到诊棚东边的货车上点一点还回来的东西。" : "去内堡门厅。药和管件压在主闸后头。" : "从小门回营，担架队会把人抬回来。" : "回营找老白，让他把担架摆到小门。" : "牢房东南角有扇小门，打开它，回营就不用绕。" : "走正门上烽火台，或者下旧水道直奔牢房。" : "沿营地北路去外墙岔口。" : n.beginning;
+  const i = new Set(e.facts);
+  return i.has("briefed") ? i.has("chapter_completed") ? n.optional : i.has("crossroads_cleared") ? i.has("captives_released") ? i.has("postern_opened") ? i.has("receiving_arranged") ? i.has("captives_arrived") ? i.has("warden_defeated") ? i.has("supplies_secured") ? "回三娘那儿，把这趟收尾。" : "回营，到诊棚东边的货车上点一点还回来的东西。" : "去内堡门厅。药和管件压在主闸后头。" : "从小门回营，担架队会把人抬回来。" : "回营找老白，让他把担架摆到小门。" : "牢房东南角有扇小门，打开它，回营就不用绕。" : "走正门上烽火台，或者下旧水道直奔牢房。" : "沿营地北路去外墙岔口。" : n.beginning;
+}
+function w(e) {
+  const a = e && typeof e == "object" && "code" in e ? String(e.code) : "expedition_agent_failed", i = e && typeof e == "object" && "message" in e && typeof e.message == "string" ? e.message : typeof e == "string" ? e : void 0;
+  return {
+    code: a,
+    ...i && i !== a ? { message: i } : {}
+  };
 }
 var d = ["余烬", "远征"], o = {
   titleFirst: d[0],
@@ -541,7 +548,7 @@ var d = ["余烬", "远征"], o = {
   nextGoal: (e) => `下一位首领 · ${e}`,
   name: n.title,
   category: "冒险",
-  tagline: s.city,
+  tagline: l.city,
   entry: "探索 · 战斗 · 人物交谈",
   start: "启程",
   resume: "继续远征",
@@ -572,7 +579,7 @@ var d = ["余烬", "远征"], o = {
   route: "选择路线",
   reward: "遗物与强化",
   equipment: "行囊",
-  slots: (e) => `${e} / ${i.relicSlots} 遗物`,
+  slots: (e) => `${e} / ${t.relicSlots} 遗物`,
   replace: "选择要替换的遗物",
   requiredRelic: "这件遗物是新遗物的触发来源，不能替换。",
   discard: "放弃奖励",
@@ -581,7 +588,7 @@ var d = ["余烬", "远征"], o = {
   rest: "休整",
   restDetail: (e) => `恢复 ${e} 生命`,
   shrine: "献祭",
-  sacrifice: `献出 ${i.sacrificeHp} 生命，换取一件遗物`,
+  sacrifice: `献出 ${t.sacrificeHp} 生命，换取一件遗物`,
   merchant: "遗物商人",
   buy: (e) => `${e} 碎晶 · 购买`,
   shards: "碎晶",
@@ -648,7 +655,7 @@ var d = ["余烬", "远征"], o = {
   ready: "就绪",
   contractPower: "契约之力",
   resonanceActive: "使魔强化",
-  secondsLeft: (e) => `${(e / i.hz).toFixed(1)}秒`,
+  secondsLeft: (e) => `${(e / t.hz).toFixed(1)}秒`,
   wardValue: (e) => `护盾 ${Math.ceil(e)}`,
   guardActive: "格挡中",
   defenseFeedback: {
@@ -661,31 +668,31 @@ var d = ["余烬", "远征"], o = {
   beaconDanger: "烽火危急",
   beaconRule: "烽火被摧毁即失败",
   objectiveProgress: (e, a) => `${Math.floor(e / a * 100)}%`,
-  survive: (e) => `坚守 ${Math.ceil(e / i.hz)} 秒`,
-  reinforcement: (e) => `增援 ${Math.ceil(e / i.hz)} 秒`,
+  survive: (e) => `坚守 ${Math.ceil(e / t.hz)} 秒`,
+  reinforcement: (e) => `增援 ${Math.ceil(e / t.hz)} 秒`,
   unlockWeapon: (e) => `击败${e}后解锁`,
   unlockCloak: (e) => `击败第 ${e} 位首领后解锁`,
   sound: "声音",
   help: "操作",
   close: "关闭",
-  progress: (e, a) => `${e} · ${a + 1} / ${i.zoneSteps}`,
+  progress: (e, a) => `${e} · ${a + 1} / ${t.zoneSteps}`,
   wave: (e, a) => `第 ${e} / ${a} 波`,
   bossPhase: (e) => `阶段 ${e}`,
   gold: (e) => `本局累计到账 ${e} 小白币`,
   wallet: (e) => `小白币 ${e}`,
   earned: (e) => `获得 ${e} 小白币`,
   newUnlocks: (e) => `已解锁：${e.join(" · ")}`,
-  stats: (e, a) => `${e} 击败 · ${Math.floor(a / i.hz / 60)}:${String(Math.floor(a / i.hz) % 60).padStart(2, "0")}`,
+  stats: (e, a) => `${e} 击败 · ${Math.floor(a / t.hz / 60)}:${String(Math.floor(a / t.hz) % 60).padStart(2, "0")}`,
   journalEmpty: "完成一次远征后，战绩会留在这里。",
   unknown: "未发现",
-  rewardRule: `首领首胜各 ${i.firstBossAward} 币 · 首次通关 ${i.firstVictoryAward} 币 · 每种武器首次通关 ${i.masteryAward} 币 · 每条誓约首次通关 ${i.oathAward} 币`,
+  rewardRule: `首领首胜各 ${t.firstBossAward} 币 · 首次通关 ${t.firstVictoryAward} 币 · 每种武器首次通关 ${t.masteryAward} 币 · 每条誓约首次通关 ${t.oathAward} 币`,
   checkpoint: "战斗自动保存；意外关闭后，从最近一次已确认进度继续。",
-  lootPool: `遗物按职业适配。最多携带 ${i.relicSlots} 件，同一遗物能逐章强化至 ${i.maxRelicRank} 阶；部分组合需要先获得基础遗物。`,
+  lootPool: `遗物按职业适配。最多携带 ${t.relicSlots} 件，同一遗物能逐章强化至 ${t.maxRelicRank} 阶；部分组合需要先获得基础遗物。`,
   mastered: "已通关",
   unlocked: "已解锁",
   healthCost: "生命不足，无法献祭",
   noShards: "碎晶不足"
-}, T = {
+}, P = {
   traveler: {
     name: "晨风旅人",
     detail: "蓝披风与金线，旅途最初的模样。"
@@ -777,7 +784,7 @@ var d = ["余烬", "远征"], o = {
     action: "部署",
     skill: "放置可承伤的自动炮台，建立火力阵地。"
   }
-}, I = (e) => `${c[e].action}：${c[e].skill}`, P = {
+}, I = (e) => `${c[e].action}：${c[e].skill}`, F = {
   soldier: "失落卫兵",
   archer: "逐风射手",
   guard: "重盾守卫",
@@ -798,7 +805,7 @@ var d = ["余烬", "远征"], o = {
   leviathan: "沉潮巨兽",
   archivist: "无页典守",
   voidknight: "折光骑士"
-}, F = {
+}, q = {
   skirmish: {
     name: "肃清",
     detail: "击败全部守军"
@@ -823,7 +830,7 @@ var d = ["余烬", "远征"], o = {
     name: "交叉火线",
     detail: "穿越交错射线，击败守军"
   }
-}, q = {
+}, D = {
   "storm-step": {
     name: "踏雷靴",
     detail: "闪避起点留下雷场，每次命中造成雷击。",
@@ -851,7 +858,7 @@ var d = ["余烬", "远征"], o = {
   },
   "blood-price": {
     name: "赤誓",
-    detail: `所有伤害提高，但受到伤害增加 ${Math.round((l.bloodHurt - 1) * 100)}%。强化继续提高输出。`,
+    detail: `所有伤害提高，但受到伤害增加 ${Math.round((s.bloodHurt - 1) * 100)}%。强化继续提高输出。`,
     family: "险"
   },
   frost: {
@@ -871,7 +878,7 @@ var d = ["余烬", "远征"], o = {
   },
   hunter: {
     name: "猎星镜",
-    detail: `距离超过 ${l.hunterRange} 步的远程命中伤害增加。强化提高远距伤害。`,
+    detail: `距离超过 ${s.hunterRange} 步的远程命中伤害增加。强化提高远距伤害。`,
     family: "弓"
   },
   piercing: {
@@ -896,12 +903,12 @@ var d = ["余烬", "远征"], o = {
   },
   siphon: {
     name: "温血石",
-    detail: `每击败 ${l.siphonEvery} 名敌人恢复生命；击败首领恢复更多。强化增加恢复量。`,
+    detail: `每击败 ${s.siphonEvery} 名敌人恢复生命；击败首领恢复更多。强化增加恢复量。`,
     family: "生"
   },
   focus: {
     name: "澄明",
-    detail: `技能冷却缩短，但普攻间隔延长 ${Math.round((l.focusAttack - 1) * 100)}%。强化进一步缩短技能冷却。`,
+    detail: `技能冷却缩短，但普攻间隔延长 ${Math.round((s.focusAttack - 1) * 100)}%。强化进一步缩短技能冷却。`,
     family: "技"
   },
   renewal: {
@@ -911,7 +918,7 @@ var d = ["余烬", "远征"], o = {
   },
   execution: {
     name: "断章",
-    detail: `对生命低于 ${l.executeThreshold * 100}% 的敌人伤害提高。强化增加斩杀伤害。`,
+    detail: `对生命低于 ${s.executeThreshold * 100}% 的敌人伤害提高。强化增加斩杀伤害。`,
     family: "锋"
   },
   "last-stand": {
@@ -1125,32 +1132,32 @@ var d = ["余烬", "远征"], o = {
     family: "炮"
   }
 };
-function D(e) {
-  const a = e && typeof e == "object" && "code" in e ? String(e.code) : e instanceof Error ? e.message : "";
-  return a === "expedition_agent_not_configured" ? n.noAi : a === "expedition_agent_auth" ? n.aiAuth : a === "expedition_agent_failed" ? n.aiFailed : a === "expedition_context_capacity" ? n.contextFull : a === "expedition_data_invalid" ? n.dataInvalid : a === "expedition_narrative_unavailable" ? n.narrativeFailed : a.startsWith("expedition_memory_") ? n.memoryFailed : a.startsWith("expedition_reply_") ? n.emptyReply : a === "expedition_stale" ? o.stale : a === "expedition_locked" ? o.locked : a === "expedition_funds" ? o.noCoins : a === "expedition_unavailable" ? o.unavailable : a === "expedition_invalid" || a === "expedition_identity" ? o.invalid : a.startsWith("expedition_save_") || a.startsWith("host_request_") ? o.saveError : o.failure(a);
+function z(e) {
+  const { code: a, message: i } = w(e);
+  return a === "expedition_agent_not_configured" ? n.noAi : a === "expedition_agent_auth" ? i || n.aiAuth : a === "expedition_agent_failed" ? i || n.aiFailed : a === "expedition_context_capacity" ? i || n.contextFull : a === "expedition_data_invalid" ? n.dataInvalid : a === "expedition_narrative_unavailable" ? n.narrativeFailed : a.startsWith("expedition_memory_") ? n.memoryFailed : a.startsWith("expedition_reply_") ? n.emptyReply : a === "expedition_stale" ? o.stale : a === "expedition_locked" ? o.locked : a === "expedition_funds" ? o.noCoins : a === "expedition_unavailable" ? o.unavailable : a === "expedition_invalid" || a === "expedition_identity" ? o.invalid : a.startsWith("expedition_save_") || a.startsWith("host_request_") ? o.saveError : i || o.failure(a);
 }
 export {
-  k as C,
-  w as S,
-  l as _,
+  _ as C,
+  k as S,
+  s as _,
   c as a,
   S as b,
   n as c,
-  s as d,
+  l as d,
   m as f,
-  x as g,
-  A as h,
-  q as i,
-  O as l,
-  C as m,
-  P as n,
-  D as o,
-  _ as p,
-  T as r,
+  C as g,
+  O as h,
+  D as i,
+  R as l,
+  E as m,
+  F as n,
+  z as o,
+  $ as p,
+  P as r,
   I as s,
   o as t,
-  R as u,
-  i as v,
-  E as x,
-  $ as y
+  T as u,
+  t as v,
+  A as x,
+  x as y
 };

@@ -246,7 +246,7 @@ onBeforeUnmount(() => { playback.dispose(); client.dispose(); audio.dispose(); }
         </div>
 
         <section v-if="notice || renderingError || generationActive" ref="noticePanel" class="ember-notice" role="alertdialog" aria-modal="true" :aria-label="c.noticeTitle" tabindex="-1">
-            <p>{{ renderingError ? c.renderError : generationActive ? c.generation : notice }}</p>
+            <p class="ember-error-detail">{{ renderingError ? c.renderError : generationActive ? c.generation : notice }}</p>
             <button v-if="renderingError" type="button" @click="renderingError = false; epoch++">{{ c.reload }}</button>
             <template v-else-if="client.dataInvalid.value && !generationActive">
                 <p>{{ c.rebuildWarning }}</p><button type="button" :disabled="busy" @click="client.rebuild">{{ c.rebuild }}</button>
@@ -255,7 +255,7 @@ onBeforeUnmount(() => { playback.dispose(); client.dispose(); audio.dispose(); }
         </section>
 
         <aside v-if="conversationFailure && !notice && (panel !== 'person' || person !== conversationFailure.person)" class="ember-conversation-notice" role="status">
-            <strong>{{ participantName(conversationFailure.person) }}</strong><p>{{ errorText(conversationFailure) }}</p>
+            <strong>{{ participantName(conversationFailure.person) }}</strong><p class="ember-error-detail">{{ errorText(conversationFailure) }}</p>
             <details v-if="conversationFailure.text"><summary>{{ c.receivedReply }}</summary><p class="ember-prose">{{ conversationFailure.text }}</p></details>
             <button type="button" @click="client.dismissConversationFailure">{{ c.acknowledge }}</button>
         </aside>
@@ -316,7 +316,7 @@ onBeforeUnmount(() => { playback.dispose(); client.dispose(); audio.dispose(); }
                             <p v-if="retrying" class="ember-dialogue-issue" role="status">{{ dialogueCopy.sendFailed }}</p>
                         </template>
                         <div v-if="!hasNewer && conversationFailure?.person === person && !history.some(turn => turn.id === conversationFailure?.actionId)" class="ember-dialogue-issue" role="status">
-                            <p>{{ errorText(conversationFailure) }}</p>
+                            <p class="ember-error-detail">{{ errorText(conversationFailure) }}</p>
                             <details v-if="conversationFailure.text"><summary>{{ c.receivedReply }}</summary><p class="ember-prose">{{ conversationFailure.text }}</p></details>
                             <button type="button" @click="client.dismissConversationFailure">{{ c.acknowledge }}</button>
                         </div>

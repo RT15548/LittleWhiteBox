@@ -71,7 +71,7 @@ const format = (value: number) => `${(value / 1000).toFixed(1)}k`;
             <template v-else-if="usage">
                 <p class="ember-meter-total">{{ format(usage.used) }} / {{ format(usage.limit) }}</p>
                 <dl class="ember-meter-breakdown"><template v-for="(label, key) in c.contextParts" :key="key"><dt>{{ label }}</dt><dd>{{ format(usage[key]) }}</dd></template></dl>
-                <template v-if="memoryState?.status === 'failed'"><p role="status">{{ memoryState.code === 'expedition_agent_failed' ? c.memoryServiceFailed : errorText(memoryState) }}</p><button type="button" :disabled="blocked" @click="$emit('retry-memory')">{{ c.memoryRetry }}</button></template>
+                <template v-if="memoryState?.status === 'failed'"><p class="ember-error-detail" role="status">{{ errorText(memoryState) }}</p><button type="button" :disabled="blocked" @click="$emit('retry-memory')">{{ c.memoryRetry }}</button></template>
             </template><p v-else-if="!error">{{ c.loading }}</p>
             <template v-if="error && open !== 'clothing'"><p role="status">{{ error }}</p><button type="button" @click="load">{{ c.retry }}</button></template>
         </section>
@@ -91,6 +91,7 @@ const format = (value: number) => `${(value / 1000).toFixed(1)}k`;
 .ember-affection-change{position:absolute;left:50%;bottom:-12px;transform:translateX(-50%);font-size:12px;line-height:18px;font-weight:500;font-variant-numeric:tabular-nums;color:#a66c7e;pointer-events:none}.ember-affection-change.is-down{color:#728898}
 .ember-meter-popover{position:absolute;right:0;top:46px;z-index:6;width:min(260px,calc(100cqw - 64px));box-sizing:border-box;padding:12px 15px;background:#fbfdf7;box-shadow:0 5px 28px #163e4226;border:1px solid #ccddd1;border-radius:14px;font-size:12px;line-height:1.6}
 .ember-meter-popover header{display:flex;align-items:center;justify-content:space-between;gap:10px}.ember-meter-popover strong{font-size:13px}.ember-campaign .ember-meter-popover button{min-height:32px;padding:0 10px;border:0;background:transparent}
+.ember-meter-popover .ember-error-detail{max-height:30dvh;overflow:auto;overscroll-behavior:contain}
 .ember-meter-popover.ember-clothing-popover{width:min(350px,calc(100cqw - 48px));max-height:60dvh;overflow:auto;background:var(--ember-paper);border-color:var(--ember-line);color:var(--ember-ink)}
 .ember-clothing-popover header{position:sticky;top:-12px;padding-block:4px;background:var(--ember-paper);z-index:1}
 .ember-campaign .ember-meter-total{font-size:21px;margin:8px 0 12px;font-variant-numeric:tabular-nums}.ember-meter-breakdown{display:grid;grid-template-columns:1fr auto;gap:7px}.ember-meter-breakdown dd{margin:0;font-variant-numeric:tabular-nums}.ember-meter-popover small{display:block;color:#5e7977;line-height:1.5}.ember-meter-total small{display:inline}

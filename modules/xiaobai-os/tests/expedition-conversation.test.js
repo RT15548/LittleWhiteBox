@@ -15,10 +15,11 @@ import { OpenAIResponsesAdapter } from '../../agent-core/adapters/openai-respons
 import { COURTYARD } from '../apps/game/expedition/content/courtyard.ts';
 import { DESTINATIONS } from '../apps/game/expedition/content/people-places.ts';
 import { WORLD_COPY } from '../apps/game/expedition/content/world-copy.ts';
-import { OUTFIT_COPY, WEAPON_COPY } from '../apps/game/expedition/copy.ts';
+import { OUTFIT_COPY, WEAPON_COPY, errorText } from '../apps/game/expedition/copy.ts';
 import { movePerson, tickPeople } from '../apps/game/expedition/world/people.ts';
 import { TRAVELER_AGES, TRAVELER_AGE_IDS } from '../apps/game/expedition/content/traveler-ages.ts';
 import { replayTurns, historyForSummary } from '../apps/game/expedition/narrative/history.ts';
+import { HostRequestError } from '../shell/app-src/frame-bridge.ts';
 const campaign = () => createCampaign('chapter', 7, 'blade', 'traveler', traveler);
 const signal = () => new AbortController().signal;
 const turn = (id, player = 'question', reply = 'answer', action = null) => ({ id, kind: 'dialogue', player, reply, action, facts: [], scene: 'camp' });
@@ -300,12 +301,16 @@ test('failed summary never advances the memory boundary or buys a dialogue respo
 });
 
 test('provider failures retain their cause and never automatically retry', async () => {
-    for (const status of [401, 403, 500, undefined]) {
-        const cause = Object.assign(new Error('provider failure'), { status }); let calls = 0;
+    for (const status of [401, 403, 429, 500, undefined]) {
+        const cause = Object.assign(new Error(`HTTP ${status}\nrequest_id: fixture-request\nprovider diagnostic`), { status }); let calls = 0;
         const agent = agentFor(async () => { calls++; throw cause; });
         await assert.rejects(generateConversation(agent, campaign(), 'sanniang', 'hello', signal(), narrativeOptions), error => {
             assert.equal(error.code, status === 401 || status === 403 ? 'expedition_agent_auth' : 'expedition_agent_failed');
-            assert.equal(error.cause, cause); return true;
+            assert.equal(error.cause, cause);
+            // Provider diagnostics are transported data, not a UI copy contract.
+            assert.equal(error.message, cause.message);
+            const transported = new HostRequestError(JSON.parse(JSON.stringify({ error: error.code, message: error.message })));
+            assert.equal(errorText(transported), cause.message); return true;
         });
         assert.equal(calls, 1);
     }
@@ -352,8 +357,11 @@ test('explicit provider capacity rejection compresses below the policy threshold
 
 test('capacity rejection with no archivable prefix stops without replaying the same paid request', async () => {
     let calls = 0;
-    await assert.rejects(generateConversation(agentFor(async () => { calls++; throw { code: 'context_length_exceeded' }; }),
-        campaign(), 'sanniang', 'pending', signal(), narrativeOptions), { code: 'expedition_context_capacity' });
+    const cause = Object.assign(new Error('Maximum context length exceeded: requested 32769 tokens; limit 32768'), { code: 'context_length_exceeded' });
+    await assert.rejects(generateConversation(agentFor(async () => { calls++; throw cause; }),
+        campaign(), 'sanniang', 'pending', signal(), narrativeOptions), error => {
+        assert.equal(error.code, 'expedition_context_capacity'); assert.equal(errorText(error), cause.message); return true;
+    });
     assert.equal(calls, 1);
 });
 

@@ -2,6 +2,7 @@ import { BOSSES, BOSS_SPECS, RELIC_RULES as R, RULES, WEAPON_LIST } from './cont
 import type { EncounterKind, EnemyKind, Oath, Outfit, Relic, RouteKind, Weapon } from './types.js';
 import { CAMPAIGN_COPY } from './content/campaign-copy.js';
 import { JOURNEY_COPY } from './content/journey-copy.js';
+import { expeditionFailure } from './failure.js';
 
 const TITLE = ['余烬', '远征'];
 export const COPY = {
@@ -170,11 +171,11 @@ export const RELIC_COPY: Record<Relic, { name: string; detail: string; family: s
     railgun: { name: '轨道导管', detail: '重炮弹体贯穿敌人，每次命中都能爆炸。强化增加贯穿数量。', family: '炮' },
 };
 export function errorText(cause: unknown) {
-    const code = cause && typeof cause === 'object' && 'code' in cause ? String(cause.code) : cause instanceof Error ? cause.message : '';
+    const { code, message } = expeditionFailure(cause);
     if (code === 'expedition_agent_not_configured') { return CAMPAIGN_COPY.noAi; }
-    if (code === 'expedition_agent_auth') { return CAMPAIGN_COPY.aiAuth; }
-    if (code === 'expedition_agent_failed') { return CAMPAIGN_COPY.aiFailed; }
-    if (code === 'expedition_context_capacity') { return CAMPAIGN_COPY.contextFull; }
+    if (code === 'expedition_agent_auth') { return message || CAMPAIGN_COPY.aiAuth; }
+    if (code === 'expedition_agent_failed') { return message || CAMPAIGN_COPY.aiFailed; }
+    if (code === 'expedition_context_capacity') { return message || CAMPAIGN_COPY.contextFull; }
     if (code === 'expedition_data_invalid') { return CAMPAIGN_COPY.dataInvalid; }
     if (code === 'expedition_narrative_unavailable') { return CAMPAIGN_COPY.narrativeFailed; }
     if (code.startsWith('expedition_memory_')) { return CAMPAIGN_COPY.memoryFailed; }
@@ -185,7 +186,7 @@ export function errorText(cause: unknown) {
     if (code === 'expedition_unavailable') { return COPY.unavailable; }
     if (code === 'expedition_invalid' || code === 'expedition_identity') { return COPY.invalid; }
     if (code.startsWith('expedition_save_') || code.startsWith('host_request_')) { return COPY.saveError; }
-    return COPY.failure(code);
+    return message || COPY.failure(code);
 }
 export function awardTitle(key: string): string {
     const boss = BOSSES.find(id => BOSS_SPECS[id].awardKey === key);

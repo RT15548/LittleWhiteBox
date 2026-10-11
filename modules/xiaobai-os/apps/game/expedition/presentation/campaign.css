@@ -23,6 +23,7 @@
 .ember-conversation-notice { position:absolute; bottom:20px; left:50%; transform:translateX(-50%); width:min(90%,480px); max-height:45%; overflow:auto; box-sizing:border-box; z-index:7; display:grid; gap:8px; padding:12px 16px; border:1px solid #c0cbc2; border-radius:8px; background:#f7faf3; box-shadow:0 5px 22px #193e4928; font-size:13px; }
 .ember-conversation-notice button { justify-self:end; }
 .ember-dialogue-issue { padding:8px 12px; border-left:3px solid #aa7946; color:#78532e; font-size:13px; }
+.ember-error-detail { white-space:pre-wrap; overflow-wrap:anywhere; }
 .ember-dialogue-scroll details { overflow-wrap:anywhere; }
 .ember-transition { position:absolute; z-index:4; left:50%; top:48%; transform:translate(-50%,-50%); max-width:calc(100% - 32px); padding:9px 17px; border-block:1px solid #c9cedf99; border-radius:3px; background:#f4f6f1ed; color:#3c4e62; font-size:13px; letter-spacing:.04em; pointer-events:none; text-align:center; }
 .ember-curtain { position:absolute; inset:0; z-index:5; display:grid; place-items:center; padding:20px; background:#274d5359; }

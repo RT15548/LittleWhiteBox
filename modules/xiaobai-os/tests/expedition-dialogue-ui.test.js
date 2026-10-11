@@ -131,9 +131,12 @@ test('dialogue keeps drafts and reading position; failed meters never remove the
 
     await t.test('background memory status stays inside its meter and explicit retry targets that character without sending dialogue', async () => {
         const history = structuredClone(state.data.active.conversations);
-        state.memories.sanniang = { status: 'failed', code: 'expedition_agent_failed' };
+        const diagnostic = 'HTTP 502\n<html><body>upstream unavailable</body></html>\nrequest_id: summary-fixture';
+        state.memories.sanniang = { status: 'failed', code: 'expedition_agent_failed', message: diagnostic };
         notify({ type: 'game/expedition/state', payload: { chatIdentity: 'fixture', state: structuredClone(state) } }); await settle();
         assert.equal(root.querySelector('[role=alertdialog],.ember-conversation-notice,.ember-dialogue-issue'), null);
+        assert.equal(root.querySelector('.ember-meter-popover [role=status]').textContent, diagnostic);
+        assert.equal(root.querySelector('.ember-meter-popover [role=status]').children.length, 0);
         const retry = button(DIALOGUE_COPY.memoryRetry); assert.ok(retry); retry.click(); await settle();
         assert.equal(retriedMemory, 'sanniang'); assert.equal(state.memories.sanniang.status, 'running');
         assert.equal(button(DIALOGUE_COPY.memoryRetry), undefined);
@@ -141,6 +144,23 @@ test('dialogue keeps drafts and reading position; failed meters never remove the
         assert.deepEqual(state.data.active.conversations, history);
         assert.equal(root.querySelector('textarea').value, 'I will ask Sanniang about her work.');
         state.memories = {}; notify({ type: 'game/expedition/state', payload: { chatIdentity: 'fixture', state: structuredClone(state) } }); await settle();
+    });
+
+    await t.test('provider diagnostics remain literal text in the dialogue and outside it', async () => {
+        const diagnostic = 'HTTP 429\n<img src=x onerror=alert(1)>\nrequest_id: dialogue-fixture';
+        const before = structuredClone(state.data);
+        state.replyFailure = { actionId: 'failed-fixture', person: 'sanniang', playerText: 'question', regenerating: false, text: null,
+            code: 'expedition_agent_failed', message: diagnostic };
+        notify({ type: 'game/expedition/state', payload: { chatIdentity: 'fixture', state: structuredClone(state) } }); await settle();
+        const detail = root.querySelector('.ember-dialogue-issue .ember-error-detail');
+        assert.equal(detail.textContent, diagnostic); assert.equal(detail.children.length, 0);
+        await leave();
+        const notice = root.querySelector('.ember-conversation-notice .ember-error-detail');
+        assert.equal(notice.textContent, diagnostic); assert.equal(notice.children.length, 0);
+        assert.deepEqual(state.data, before);
+        state.replyFailure = null;
+        notify({ type: 'game/expedition/state', payload: { chatIdentity: 'fixture', state: structuredClone(state) } }); await settle();
+        root.querySelector('[data-interact=sanniang]').click(); await settle();
     });
 
     await t.test('sending moves text into the log immediately; replacement never duplicates the player turn or erases the next draft', async () => {

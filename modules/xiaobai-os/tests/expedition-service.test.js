@@ -414,8 +414,10 @@ test('summary completion during remote token counting uses the new memory instea
 
 test('failed background summaries preserve history, do not disturb dialogue or rebuy on each send, and have an explicit retry', async t => {
     const h = await memoryHarness(t); await h.speak();
-    h.summaries[0].reject(Object.assign(new Error('provider failed'), { status: 500 }));
+    const cause = Object.assign(new Error('HTTP 500: summary upstream unavailable\nrequest_id: summary-fixture'), { status: 500 });
+    h.summaries[0].reject(cause);
     await until(() => h.service.view().memories.sanniang?.status === 'failed');
+    assert.equal(h.service.view().memories.sanniang.message, cause.message);
     await h.speak(); await h.speak();
     assert.equal(h.dialogues.length, 3); assert.equal(h.summaries.length, 1);
     assert.equal(h.service.view().replyFailure, null); assert.equal(h.service.view().data.active.memories.sanniang, null);
@@ -423,6 +425,7 @@ test('failed background summaries preserve history, do not disturb dialogue or r
     await assert.rejects(h.speak(), { code: 'expedition_agent_failed' });
     assert.equal(h.dialogues.length, 3); assert.equal(h.summaries.length, 1);
     assert.equal(h.service.view().replyFailure.playerText, 'next question');
+    assert.equal(h.service.view().replyFailure.message, cause.message);
     await h.service.retryMemory('sanniang', () => true);
     await until(() => h.summaries.length === 2);
     h.summaries[1].resolve({ text: 'All earlier promises.' });
@@ -448,7 +451,7 @@ test('a reattached client sees background conversation failure without blocking 
     } }) };
     const h = await setup(undefined, { agent }); await h.act(start); await h.driver.walk('clinic');
     const runtime = withExpeditionRuntime({}, h.service, () => 'chat'); let listener;
-    const activate = () => runtime.activate({ post: (type, payload) => listener?.({ type, payload }) });
+    const activate = () => runtime.activate({ post: (type, payload) => listener?.({ type, payload: structuredClone(payload) }) });
     await activate();
     const pending = runtime.handleMessage({ type: 'game/expedition/talk', payload: { chatIdentity: 'chat', actionId: 'background-failure',
         revision: h.service.view().data.revision, person: 'sanniang', text: 'hello' } });
@@ -458,8 +461,12 @@ test('a reattached client sees background conversation failure without blocking 
         request: async (type, payload) => ({ result: await runtime.handleMessage({ type, payload }) }) }, 'chat');
     try {
         await activate(); await client.read(); assert.equal(client.talking.value, true);
-        rejectReply(Object.assign(new Error('fixture'), { status: 500 })); await rejected;
+        const before = structuredClone(h.service.view().data);
+        const cause = Object.assign(new Error('HTTP 500: provider unavailable\nrequest_id: dialogue-fixture'), { status: 500 });
+        rejectReply(cause); await rejected;
         assert.equal(client.conversationFailure.value.code, 'expedition_agent_failed'); assert.equal(client.conversationFailure.value.person, 'sanniang');
+        assert.equal(client.conversationFailure.value.message, cause.message);
+        assert.deepEqual(h.service.view().data, before);
         assert.equal(client.talking.value, false); assert.equal(client.blocked.value, false);
         assert.equal(client.outgoing.value.text, 'hello'); assert.equal(client.outgoing.value.status, 'failed');
         client.dismissConversationFailure(); assert.equal(client.conversationFailure.value, null);
