@@ -8,7 +8,7 @@ import type { Command, ExpeditionData } from './types.js';
 import type { AgentCapability } from '../../../capabilities/agent/index.js';
 import type { Participant } from './content/participants.js';
 import { canTalk, CAMPAIGN_RULES } from './campaign/rules.js';
-import { rewindReply } from './campaign/reply-checkpoint.js';
+import { prepareRegeneration } from './campaign/reply-checkpoint.js';
 import { applyReply } from './narrative/apply-reply.js';
 import { generateConversation, type ConversationOptions, type ConversationPhase } from './narrative/conversation.js';
 import { createMemoryJobs, type MemoryJobState } from './narrative/memory-jobs.js';
@@ -93,11 +93,11 @@ export function createExpeditionService(store: PartitionStore<ExpeditionData>, f
         const previous = saved.conversations[input.person].find(t => t.id === input.actionId);
         if (previous) { if (previous.player !== input.text || previous.regeneratedFrom !== input.regenerate) { fault('identity'); } return view(); }
         if (current.revision !== input.revision) { fault('stale'); }
-        const campaign = input.regenerate ? rewindReply(saved, input.person, input.regenerate) : saved;
+        let campaign = input.regenerate ? prepareRegeneration(saved, input.person, input.regenerate) : saved;
         if (input.regenerate && saved.conversations[input.person].at(-1)?.player !== input.text) { fault('identity'); }
         if (!canTalk(campaign, input.person)) { fault('unavailable'); }
         if (!dependencies.agent) { fault('agent_not_configured'); }
-        const revision = input.revision;
+        let revision = input.revision;
         let received: Record<string, unknown> | null = null;
         conversation = { actionId: input.actionId, person: input.person, text: input.text, regenerating: !!input.regenerate, phase: 'preparing', startedAt: Date.now() };
         replyFailure = null;
@@ -110,6 +110,28 @@ export function createExpeditionService(store: PartitionStore<ExpeditionData>, f
         signal.addEventListener('abort', stopping, { once: true });
         try {
         listeners.forEach(listener => listener());
+        if (input.regenerate) {
+            // Persist removal before any model request. Cancellation/reload leaves the
+            // player's message, never resurrects the discarded assistant response.
+            let accepted = false;
+            const result = await store.transact(transaction => {
+                if (!allowed()) { fault('cancelled'); }
+                const data = transaction.current;
+                if (!data?.active || data.revision !== revision || data.active.id !== campaign.id) { fault('stale'); }
+                const next = structuredClone(data);
+                next.active = prepareRegeneration(data.active, input.person, input.regenerate!);
+                if (data.active.conversations[input.person].at(-1)?.kind !== 'player') {
+                    next.revision++; transaction.replace(next); accepted = true;
+                }
+            }, { retainFailedCandidate: true, commitGuard: () => accepted || allowed() });
+            if (result.status !== 'confirmed' && result.status !== 'unchanged') { fault(`save_${result.status}`); }
+            const prepared = view().data;
+            revision = prepared.revision;
+            campaign = structuredClone(prepared.active!);
+            // generateConversation already appends input.text as the final user message.
+            campaign.conversations[input.person].pop();
+            listeners.forEach(listener => listener());
+        }
         const response = await generateConversation(dependencies.agent, campaign, input.person, input.text, signal, {
             loadCanon: dependencies.loadCanon, countTokens: dependencies.countTokens,
             onPhase,
@@ -132,9 +154,6 @@ export function createExpeditionService(store: PartitionStore<ExpeditionData>, f
             const data = transaction.current;
             if (!data || data.revision !== revision || !data.active || data.active.id !== campaign.id) { fault('stale'); }
             const next = structuredClone(data);
-            if (input.regenerate) {
-                next.active = rewindReply(data.active, input.person, input.regenerate);
-            }
             if (!canTalk(next.active!, input.person)) { fault('stale'); }
             applyReply(next.active!, input, response);
             next.revision++;

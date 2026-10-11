@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { traveler } from './fixtures/expedition-traveler.js';
 import { createCampaign, recordFact } from '../apps/game/expedition/campaign/rules.ts';
-import { dialogueEffects, rewindReply } from '../apps/game/expedition/campaign/reply-checkpoint.ts';
+import { dialogueEffects, rewindReply, prepareRegeneration, latestConversationReply } from '../apps/game/expedition/campaign/reply-checkpoint.ts';
+import { advanceExpedition, emptyExpedition } from '../apps/game/expedition/domain.ts';
+import { EXPEDITION_PARTITION } from '../apps/game/expedition/partition.ts';
 import { applyReply } from '../apps/game/expedition/narrative/apply-reply.ts';
 import { greet, greetingTurn } from '../apps/game/expedition/content/greetings.ts';
 import { PARTICIPANT_IDS } from '../apps/game/expedition/content/participants.ts';
@@ -13,6 +15,32 @@ import { segmentDialogue } from '../apps/game/expedition/performance/dialogue-te
 const campaign = () => createCampaign('reply-fixture', 7, 'blade', 'traveler', traveler);
 const reply = (action, affection = null) => ({ kind: 'dialogue', reply: 'fixture', action, affection });
 const input = (actionId = 'one') => ({ actionId, person: 'sanniang', text: 'question' });
+
+test('world movement commits progress without disabling reroll or stacking discarded relationship and clothing changes', () => {
+    const c = campaign(); c.location.position = { ...c.people.sanniang.position };
+    applyReply(c, input(), { ...reply('follow', 'up'), clothing: { outer: null } });
+    const committed = advanceExpedition({ ...emptyExpedition(), active: c },
+        { type: 'input', spans: [{ move: 3, ticks: 20, dash: false, skill: false }] }, 'walk', 0);
+    const world = committed.active;
+    assert.equal(world.lastReply, undefined);
+    assert.equal(latestConversationReply(world, 'sanniang').id, 'one');
+    const candidate = prepareRegeneration(world, 'sanniang', 'one');
+    assert.deepEqual(candidate.location, world.location);
+    assert.deepEqual(candidate.people, world.people);
+    assert.deepEqual(candidate.facts, world.facts);
+    assert.equal(candidate.seed, world.seed);
+    assert.equal(candidate.relationships.sanniang.affection, 0);
+    assert.equal(candidate.conversations.sanniang.at(-1).clothing, undefined);
+    assert.equal(candidate.conversations.sanniang.at(-1).kind, 'player');
+    assert.deepEqual(prepareRegeneration(candidate, 'sanniang', 'one'), candidate);
+    const saved = EXPEDITION_PARTITION.parse({ ...committed, active: candidate });
+    assert.equal(saved.ok, true);
+    assert.deepEqual(saved.value.active, candidate);
+    assert.equal(replayTurns(candidate.conversations.sanniang).at(-1).role, 'user');
+    applyReply(candidate, { ...input('two'), regenerate: 'one' }, reply(null, 'up'));
+    assert.equal(candidate.relationships.sanniang.affection, candidate.conversations.sanniang.at(-1).affectionDelta);
+    assert.equal(candidate.conversations.sanniang.length, world.conversations.sanniang.length);
+});
 
 test('each authored greeting appears once as assistant speech with a valid portrait performance', () => {
     const c = campaign();

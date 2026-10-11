@@ -1,4 +1,5 @@
 import { defineLandscapeScene } from '../world/landscape.js';
+import { SUPPLIES_HANDOFF } from './supplies.js';
 import { feature } from './landscape-content.js';
 import { LIVING_ENTRANCES } from './living-spaces.js';
 
@@ -18,7 +19,7 @@ export const COURTYARD_CAMP = defineLandscapeScene({
     ],
     objects: [
         { id: 'rest', anchor: 'rest', kind: 'rest' },
-        { id: 'cargo', anchor: 'cargo', kind: 'inspect', passage: 'cargo', condition: { all: ['warden_defeated'] } },
+        SUPPLIES_HANDOFF.object,
     ],
     landscape: {
         vista: 'camp', surface: 'street', bounds: { x: 0, z: -8, width: 96, depth: 100 },

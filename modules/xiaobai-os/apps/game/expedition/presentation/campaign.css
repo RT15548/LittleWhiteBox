@@ -22,10 +22,14 @@
 .ember-notice { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:min(90%,560px); max-height:calc(100% - 40px); overflow:auto; box-sizing:border-box; z-index:8; background:#fff3dc; border:1px solid #a96741; box-shadow:0 8px 30px #193e4940; padding:16px; display:grid; gap:12px; border-radius:8px; }
 .ember-conversation-notice { position:absolute; bottom:20px; left:50%; transform:translateX(-50%); width:min(90%,480px); max-height:45%; overflow:auto; box-sizing:border-box; z-index:7; display:grid; gap:8px; padding:12px 16px; border:1px solid #c0cbc2; border-radius:8px; background:#f7faf3; box-shadow:0 5px 22px #193e4928; font-size:13px; }
 .ember-conversation-notice button { justify-self:end; }
+.ember-award-notice { position:absolute; bottom:150px; left:50%; transform:translateX(-50%); display:flex; align-items:center; gap:16px; max-width:calc(100% - 32px); padding:8px 10px 8px 16px; border:1px solid var(--ember-line); border-radius:6px; background:var(--ember-paper); box-shadow:0 4px 18px #24495024; z-index:4; }
+.ember-award-notice span { display:grid; overflow-wrap:anywhere; }
+.ember-award-notice small { color:var(--ember-muted); }
+.ember-award-notice button { flex-shrink:0; min-width:44px; padding:4px; border:0; background:transparent; }
 .ember-dialogue-issue { padding:8px 12px; border-left:3px solid #aa7946; color:#78532e; font-size:13px; }
 .ember-error-detail { white-space:pre-wrap; overflow-wrap:anywhere; }
 .ember-dialogue-scroll details { overflow-wrap:anywhere; }
-.ember-transition { position:absolute; z-index:4; left:50%; top:48%; transform:translate(-50%,-50%); max-width:calc(100% - 32px); padding:9px 17px; border-block:1px solid #c9cedf99; border-radius:3px; background:#f4f6f1ed; color:#3c4e62; font-size:13px; letter-spacing:.04em; pointer-events:none; text-align:center; }
+.ember-transition,.ember-rest-notice { position:absolute; z-index:4; left:50%; top:48%; transform:translate(-50%,-50%); max-width:calc(100% - 32px); padding:9px 17px; border-block:1px solid #c9cedf99; border-radius:3px; background:#f4f6f1ed; color:#3c4e62; font-size:13px; letter-spacing:.04em; pointer-events:none; text-align:center; }
 .ember-curtain { position:absolute; inset:0; z-index:5; display:grid; place-items:center; padding:20px; background:#274d5359; }
 .ember-panel { box-sizing:border-box; display:flex; flex-direction:column; gap:20px; width:min(100%,680px); max-height:100%; padding:24px 30px 30px; overflow:auto; background:var(--ember-paper); border:1px solid #fff8; box-shadow:0 18px 70px #24495045; border-radius:10px; }
 .ember-wide { width:min(100%,1040px); }
@@ -64,7 +68,6 @@
 .ember-player-line { padding:10px 14px; align-self:flex-end; max-width:88%; border-radius:6px; background:#e7eee8; }
 .ember-player-line small { display:block; color:#637f79; }
 .ember-dialogue > .ember-primary { margin:12px 24px 20px; flex-shrink:0; }
-.ember-continued { letter-spacing:.2em; color:#a05b35; font-size:18px; }
 .ember-story-art { display:block; width:100%; aspect-ratio:16/9; object-fit:cover; flex-shrink:0; border-radius:3px; }
 .ember-pause-actions { display:flex; flex-wrap:wrap; gap:8px; }
 .ember-pause-actions button[aria-pressed=true] { color:#fff9e9; background:var(--ember-action); border-color:var(--ember-action); }

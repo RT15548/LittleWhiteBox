@@ -1,6 +1,7 @@
 import type { PartitionRegistration } from '../../../kernel/contracts.js';
 import { RELICS, RULES, WEAPON_LIST } from './content.js';
-import { awardAmount, awardKeys, emptyExpedition } from './domain.js';
+import { emptyExpedition } from './domain.js';
+import { awardAmount, awardKeys } from './campaign/awards.js';
 import { EXPEDITION_FORMAT_VERSION, OUTFIT_IDS } from './ids.js';
 import { OUTFITS, ownsOutfit } from './outfits.js';
 import { validateBattle } from './battle-validation.js';
@@ -108,7 +109,7 @@ function validateCampaign(raw: unknown, data: ExpeditionData) {
         }
         const entries = list(conversations[person], Number.MAX_SAFE_INTEGER, raw => {
             const t = object(raw); const id = boundedText(t.id, 150);
-            member(t.kind, ['greeting', 'dialogue', 'receipt']); scene(t.scene);
+            member(t.kind, ['greeting', 'dialogue', 'receipt', 'player']); scene(t.scene);
             if (t.kind === 'greeting') {
                 if (t.player !== '' || t.action !== null || t.affectionDelta !== undefined || t.issue !== undefined || t.regeneratedFrom !== undefined) { fault('invalid'); }
             } else { boundedText(t.player, CAMPAIGN_RULES.playerTextLimit); }
@@ -129,7 +130,9 @@ function validateCampaign(raw: unknown, data: ExpeditionData) {
                     || issue === 'performance_rejected' && t.performance !== undefined
                     || issue === 'metadata_invalid' && (t.action !== null || t.performance !== undefined || t.affectionDelta || t.clothing !== undefined)) { fault('invalid'); }
             }
-            boundedText(t.reply, t.kind === 'receipt' ? Number.MAX_SAFE_INTEGER : CAMPAIGN_RULES.replyTextLimit);
+            if (t.kind === 'player') {
+                if (t.reply !== '' || t.action !== null || ['affectionDelta', 'performance', 'clothing', 'issue', 'regeneratedFrom'].some(key => t[key] !== undefined)) { fault('invalid'); }
+            } else { boundedText(t.reply, t.kind === 'receipt' ? Number.MAX_SAFE_INTEGER : CAMPAIGN_RULES.replyTextLimit); }
             if (facts(t.facts).some(f => !knownFacts.includes(f))) { fault('invalid'); } return id;
         });
         unique(entries);
@@ -146,7 +149,7 @@ function validateCampaign(raw: unknown, data: ExpeditionData) {
         const turnId = expeditionId(checkpoint.turnId), turns = conversations[person] as { id: string; kind: string; action: string | null }[];
         const turn = turns.at(-1), before = object(checkpoint.before);
         const fields = ['seed', 'facts', 'knowledge', 'relationships', 'people', 'pendingParley'];
-        if (phase !== 'exploration' || !turn || turn.kind === 'greeting' || turn.id !== turnId
+        if (phase !== 'exploration' || !turn || !['dialogue', 'receipt'].includes(turn.kind) || turn.id !== turnId
             || Object.keys(before).length !== fields.length || fields.some(key => !Object.hasOwn(before, key))
             || facts(before.facts).some(f => !knownFacts.includes(f)) || before.pendingParley !== null
             || turn.action === 'finish' && (person !== 'sanniang' || knownFacts.includes('chapter_completed'))) { fault('invalid'); }

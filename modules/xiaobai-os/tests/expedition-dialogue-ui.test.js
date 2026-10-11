@@ -17,7 +17,7 @@ import { JOURNEY_COPY } from '../apps/game/expedition/content/journey-copy.ts';
 import { COURTYARD } from '../apps/game/expedition/content/courtyard.ts';
 import { startWorld } from '../apps/game/expedition/world/exploration.ts';
 import { applyReply } from '../apps/game/expedition/narrative/apply-reply.ts';
-import { rewindReply } from '../apps/game/expedition/campaign/reply-checkpoint.ts';
+import { prepareRegeneration } from '../apps/game/expedition/campaign/reply-checkpoint.ts';
 
 // Production entry, dialogue and maps. Visual-only renderers are replaced; the composer
 // supplies draft edits here and is exercised with real sizing/keyboard APIs in the browser.
@@ -74,8 +74,12 @@ test('dialogue keeps drafts and reading position; failed meters never remove the
         if (type === 'game/expedition/retry-memory') { retriedMemory = payload.person; state.memories[payload.person] = { status: 'running' }; }
         if (type === 'game/expedition/act') { await beforeAct(payload); state.data = advanceExpedition(state.data, payload.command, payload.actionId, 7); }
         if (type === 'game/expedition/talk' || type === 'game/expedition/regenerate') {
+            if (payload.turnId) {
+                state.data.active = prepareRegeneration(state.data.active, payload.person, payload.turnId);
+                state.data.revision++;
+                notify({ type: 'game/expedition/state', payload: { chatIdentity: 'fixture', state: structuredClone(state) } });
+            }
             await beforeTalk(payload);
-            if (payload.turnId) state.data.active = rewindReply(state.data.active, payload.person, payload.turnId);
             applyReply(state.data.active, { ...payload, regenerate: payload.turnId }, { kind: 'dialogue', reply: payload.actionId, action: replyAction, affection: 'up', clothing: replyClothing });
             state.data.revision++;
         }
@@ -189,6 +193,8 @@ test('dialogue keeps drafts and reading position; failed meters never remove the
         const original = state.data.active.conversations.sanniang.at(-1).id;
         root.querySelector('[data-regenerate]').click(); await settle();
         assert.equal(state.data.active.conversations.sanniang.at(-1).id, original);
+        assert.equal(state.data.active.conversations.sanniang.at(-1).kind, 'player');
+        assert.equal(root.querySelector(`[data-message-key="${original}:npc"]`), null);
         assert.equal(root.querySelectorAll('.ember-player-line').length, 1);
         release(); await settle();
         assert.notEqual(state.data.active.conversations.sanniang.at(-1).id, original);
@@ -199,7 +205,12 @@ test('dialogue keeps drafts and reading position; failed meters never remove the
         assert.ok(root.querySelector('[role=alertdialog]')); root.querySelector('[role=alertdialog] button').click(); await settle();
         assert.equal(root.querySelector('textarea').value, 'next draft');
         assert.equal(root.querySelectorAll('.ember-player-line').length, 1);
+        assert.equal(state.data.active.conversations.sanniang.at(-1).kind, 'player');
+        await leave(); root.querySelector('[data-interact=sanniang]').click(); await settle();
+        assert.equal(root.querySelector('[data-regenerate]').disabled, false);
         beforeTalk = async () => {};
+        root.querySelector('[data-regenerate]').click(); await settle();
+        assert.equal(state.data.active.conversations.sanniang.at(-1).kind, 'dialogue');
     });
 
     await t.test('sending after a tall reply reveals the pending input immediately without hijacking later manual scrolling', async st => {
@@ -275,14 +286,20 @@ test('dialogue keeps drafts and reading position; failed meters never remove the
         assert.equal(visited.size, saved.conversations.sanniang.length * 2 - 1);
         await navigate('latest'); assert.equal(rows().length, 10);
         for (let i = 0; i < 4; i++) await navigate('older');
-        const browsing = keys(), log = root.querySelector('[role=log]');
-        Object.defineProperties(log, { scrollHeight: { value: 5000 }, clientHeight: { value: 300 } });
+        const browsing = keys();
+        let log;
+        const measureLog = () => {
+            log = root.querySelector('[role=log]');
+            Object.defineProperties(log, { scrollHeight: { value: 5000, configurable: true }, clientHeight: { value: 300, configurable: true } });
+        };
+        measureLog();
         log.scrollTop = 220; log.dispatchEvent(new window.Event('scroll'));
         editDraft('preserved draft'); await settle(); await leave();
         root.querySelector('[data-interact=laobai]').click(); await settle();
         assert.equal(rows().length, 1);
         await leave(); root.querySelector('[data-interact=sanniang]').click(); await settle();
         assert.deepEqual(keys(), browsing); assert.equal(root.querySelector('[role=log]').scrollTop, 220);
+        measureLog();
         assert.equal(root.querySelector('textarea').value, 'preserved draft');
         assert.deepEqual(state.data.active, saved);
 
@@ -317,6 +334,7 @@ test('dialogue keeps drafts and reading position; failed meters never remove the
         root.querySelector('[role=alertdialog] button').click(); await settle();
         assert.equal(rows().length, 10); assert.equal(keys().at(-1), 'pending');
         await navigate('older'); await navigate('older');
+        measureLog();
         beforeTalk = () => new Promise(resolve => { release = resolve; });
         root.querySelector('[data-regenerate]').click(); await settle();
         assert.equal(rows().length, 10); assert.equal(keys().at(-1), 'pending');
@@ -391,7 +409,7 @@ test('dialogue keeps drafts and reading position; failed meters never remove the
         notify({ type: 'game/expedition/state', payload: { chatIdentity: 'fixture', state: structuredClone(state) } }); await settle();
     });
 
-    await t.test('action feedback belongs to the committed reply, survives reopening and follows successful regeneration only', async () => {
+    await t.test('action feedback survives reopening and is removed with the discarded reply before regeneration', async () => {
         const baseline = structuredClone(state.data);
         const outcomes = () => [...root.querySelectorAll('.ember-action-feedback')].map(el => [el.dataset.action, el.dataset.phase]);
         let release;
@@ -409,7 +427,7 @@ test('dialogue keeps drafts and reading position; failed meters never remove the
 
         replyAction = 'go:clinic_back';
         root.querySelector('[data-regenerate]').click(); await settle();
-        assert.deepEqual(outcomes(), [['briefing', 'applied']]);
+        assert.deepEqual(outcomes(), []);
         release(); await settle();
         assert.equal(state.data.active.facts.includes('briefed'), false);
         assert.equal(state.data.active.people.sanniang.destination, 'clinic_back');
@@ -417,7 +435,7 @@ test('dialogue keeps drafts and reading position; failed meters never remove the
         beforeTalk = async () => { throw Object.assign(new Error('fixture'), { code: 'expedition_agent_failed' }); };
         root.querySelector('[data-regenerate]').click(); await settle();
         root.querySelector('[role=alertdialog] button').click(); await settle();
-        assert.deepEqual(outcomes(), [['go:clinic_back', 'pending']]);
+        assert.deepEqual(outcomes(), []);
 
         beforeTalk = async () => {}; replyAction = null;
         root.querySelector('[data-regenerate]').click(); await settle();

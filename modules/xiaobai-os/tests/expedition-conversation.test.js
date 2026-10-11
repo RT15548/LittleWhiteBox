@@ -41,21 +41,21 @@ test('both residents and guards receive the saved traveler rather than a host pe
 test('current equipment and movement reach the request without becoming player identity or persisted state', async () => {
     const c = campaign(), canon = await loadCanon('sanniang', signal());
     const context = () => inspectNarrativePrompt(buildConversationPrompt(c, 'sanniang', 'hello', canon));
-    assert.deepEqual(context().story.movement, { mode: 'idle', destination: null });
+    assert.deepEqual(context().story.movement, { mode: 'idle', destination: null, leader: null });
     movePerson(c, 'sanniang', 'follow');
-    assert.deepEqual(context().story.movement, { mode: 'follow', destination: null });
+    assert.deepEqual(context().story.movement, { mode: 'follow', destination: null, leader: c.traveler.name });
     movePerson(c, 'sanniang', 'go:clinic_back');
-    assert.deepEqual(context().story.movement, { mode: 'travel', destination: DESTINATIONS.clinic_back.name });
+    assert.deepEqual(context().story.movement, { mode: 'travel', destination: DESTINATIONS.clinic_back.name, leader: null });
     const beforeTravel = structuredClone(c.people.sanniang.position);
     for (let i = 0; i < 3; i++) {
         assert.equal(context().story.map.find(place => place.id === 'clinic_back').personHere, false);
         assert.deepEqual(c.people.sanniang.position, beforeTravel);
     }
     for (let i = 0; i < 1000 && c.people.sanniang.mode === 'travel'; i++) tickPeople(c);
-    assert.deepEqual(context().story.movement, { mode: 'idle', destination: null });
+    assert.deepEqual(context().story.movement, { mode: 'idle', destination: null, leader: null });
     assert.equal(context().story.map.find(place => place.id === 'clinic_back').personHere, true);
     movePerson(c, 'sanniang', 'stay');
-    assert.deepEqual(context().story.movement, { mode: 'idle', destination: null });
+    assert.deepEqual(context().story.movement, { mode: 'idle', destination: null, leader: null });
     c.weapon = 'bow'; c.outfit = 'ranger';
     const before = structuredClone(c), data = context();
     assert.deepEqual(data.player, { ...c.traveler, adult: true, appearanceAge: TRAVELER_AGES[c.traveler.appearanceAge],

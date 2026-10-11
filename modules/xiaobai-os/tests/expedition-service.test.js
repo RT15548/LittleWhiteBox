@@ -35,10 +35,33 @@ test('complete chapter commits rescue, ending, equipment and wallet rewards and 
     for (const id of Object.keys(end.data.active.conversations)) {
         assert.deepEqual(conversationContext(end.data.active, id), conversationContext(withoutEvidence, id));
     }
-    assert.equal(end.balance, balance + RULES.firstBossAward + RULES.firstVictoryAward);
+    assert.equal(end.balance, balance + RULES.firstBossAward + 1000);
+    assert.deepEqual(Object.fromEntries(end.data.awards.map(a => [a.key, a.amount])), {
+        'boss-0': 80, 'chapter-one': 200, 'cells-opened': 200, 'rescue-returned': 300, 'supplies-received': 300,
+    });
     const reloaded = await setup(h.state.files); assert.deepEqual(reloaded.service.view().data, end.data);
     await assert.rejects(reloaded.act({ type: 'choice', id: 'finish', person: 'sanniang' })); assert.equal(reloaded.service.view().balance, end.balance);
+    await reloaded.act({ ...start, type: 'restart' }); await reloaded.driver.complete('waterway');
+    assert.deepEqual(reloaded.service.view().data.awards, end.data.awards);
+    assert.equal(reloaded.service.view().balance, end.balance);
 });
+
+for (const mode of ['rejected', 'unknown']) {
+    test(`a ${mode} rescue-milestone save recovers its original wallet payment exactly once`, async () => {
+        const h = await setup(); await h.act(start);
+        await h.driver.walk('clinic'); await h.act({ type: 'choice', id: 'briefing', person: 'sanniang' });
+        await h.driver.interact('road'); await h.driver.interact('waterway'); await h.driver.interact('sluice');
+        await h.driver.interact('cells'); await h.driver.walk('release');
+        const before = h.service.view(), open = h.request({ type: 'interact', id: 'release' });
+        h.state.mode = mode; await assert.rejects(h.service.act(open, () => true));
+        h.state.mode = 'confirmed'; await h.service.confirm(() => true);
+        const paid = h.service.view(); assert.equal(paid.balance, before.balance + 200);
+        assert.equal(paid.data.awards.filter(a => a.key === 'cells-opened').length, 1);
+        await h.service.act(open, () => true); assert.equal(h.service.view().balance, paid.balance);
+        const loaded = await setup(h.state.files); assert.deepEqual(loaded.service.view().data, paid.data);
+        assert.equal(loaded.service.view().balance, paid.balance);
+    });
+}
 
 test('both persuaded and mixed routes finish; Chang suppresses already-raised reinforcements after a failed-save recovery', async () => {
     for (const persuadeGate of [true, false]) {
@@ -292,11 +315,13 @@ test('real request phases reach a busy and reattached client, stay transient, an
         request.onStreamProgress({ activity: 'thinking' }); assert.equal(posts.length, finishedPosts);
         assert.equal(Object.hasOwn(h.service.view().data, 'conversation'), false);
         const original = h.service.view().data.active.lastReply.turnId;
-        const after = structuredClone(h.service.view().data);
         const replacing = reattached.talk('sanniang', 'question', original);
         await until(() => calls === 2);
         assert.equal(reattached.conversationProgress.value.phase, 'waiting');
         assert.equal(reattached.conversationProgress.value.regenerating, true);
+        const afterRemoval = structuredClone(h.service.view().data);
+        assert.equal(afterRemoval.active.conversations.sanniang.at(-1).kind, 'player');
+        assert.equal(afterRemoval.active.conversations.sanniang.at(-1).reply, '');
         await reattached.cancelTalk();
         assert.equal(reattached.conversationProgress.value.phase, 'stopping');
         request.onStreamProgress({ activity: 'replying' });
@@ -304,7 +329,7 @@ test('real request phases reach a busy and reattached client, stay transient, an
         response.reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
         assert.equal(await replacing, false);
         assert.equal(reattached.conversationProgress.value, null);
-        assert.deepEqual(h.service.view().data, after);
+        assert.deepEqual(h.service.view().data, afterRemoval);
         const failed = reattached.talk('sanniang', 'try again');
         await until(() => calls === 3);
         response.reject(Object.assign(new Error('fixture'), { status: 500 }));
@@ -551,9 +576,9 @@ test('parley waits for acknowledgement, persists its result, and cannot be escap
 });
 
 test('greeting needs no model; replacements share one persisted baseline and recover failed saves without another model call', async () => {
-    let response = { reply: 'original', action: 'briefing', affection: 'up' }, calls = 0, captured;
+    let response = { reply: 'original', action: 'briefing', affection: 'up' }, calls = 0, captured, rejectReplySave = false;
     const agent = { loadConfig: async () => ({}), openSession: async () => ({ providerConfig: { model: 'fixture' }, run: async request => {
-        calls++; captured = request; return { text: narrativeReply(response) };
+        calls++; captured = request; if (rejectReplySave) h.state.mode = 'rejected'; return { text: narrativeReply(response) };
     } }) };
     let h = await setup(undefined, { agent }); await h.act(start); await h.driver.walk('clinic');
     await h.act({ type: 'greet', person: 'sanniang' }); await h.act({ type: 'greet', person: 'sanniang' });
@@ -570,15 +595,40 @@ test('greeting needs no model; replacements share one persisted baseline and rec
     assert.deepEqual(captured.messages.filter(m => m.role === 'assistant').map(m => decodeNarrativeReply(m.content).reply), [c.conversations.sanniang[0].reply]);
     assert.equal(c.conversations.sanniang.length, 2);
     const replacementId = c.lastReply.turnId;
-    response = { reply: 'recovered', action: null, affection: 'down' }; h.state.mode = 'rejected';
-    await assert.rejects(speak(replacementId), { code: 'expedition_save_failed' }); assert.deepEqual(h.service.view().data.active, c);
+    response = { reply: 'recovered', action: null, affection: 'down' }; rejectReplySave = true;
+    await assert.rejects(speak(replacementId), { code: 'expedition_save_failed' });
+    assert.equal(h.service.view().data.active.conversations.sanniang.at(-1).kind, 'player');
+    rejectReplySave = false;
     const count = calls; h.state.mode = 'confirmed'; await h.service.confirm(() => true); assert.equal(calls, count);
     c = h.service.view().data.active; assert.equal(c.conversations.sanniang.at(-1).reply, response.reply);
     assert.equal(c.relationships.sanniang.affection, 0); assert.equal(c.people.sanniang.mode, baseline.people.sanniang.mode);
     assert.deepEqual(c.lastReply.before, baseline); assert.equal(c.conversations.sanniang.length, 2);
     await h.act({ type: 'loadout', equipped: [] }); assert.equal(h.service.view().data.active.lastReply, undefined);
-    await assert.rejects(speak(c.lastReply.turnId), { code: 'expedition_stale' }); assert.equal(calls, count);
+    await speak(c.lastReply.turnId); assert.equal(calls, count + 1);
+    assert.equal(h.service.view().data.active.conversations.sanniang.length, 2);
 });
+
+for (const mode of ['rejected', 'unknown']) {
+    test(`a ${mode} reply-removal save never starts a model call; confirmation retains the user-only turn`, async () => {
+        let calls = 0;
+        const agent = { loadConfig: async () => ({}), openSession: async () => ({ providerConfig: { model: 'fixture' }, run: async () => {
+            calls++; return { text: narrativeReply({ reply: 'original', action: null }) };
+        } }) };
+        const h = await setup(undefined, { agent }); await h.act(start); await h.driver.walk('clinic');
+        const speak = regenerate => h.service.converse({ actionId: crypto.randomUUID(), revision: h.service.view().data.revision,
+            person: 'sanniang', text: 'question', ...(regenerate ? { regenerate } : {}) }, () => true, new AbortController().signal);
+        await speak(); const before = h.service.view().data;
+        const turnId = before.active.conversations.sanniang.at(-1).id;
+        h.state.mode = mode;
+        await assert.rejects(speak(turnId));
+        assert.equal(calls, 1); assert.deepEqual(h.service.view().data, before);
+        h.state.mode = 'confirmed'; await h.service.confirm(() => true);
+        assert.equal(calls, 1);
+        assert.equal(h.service.view().data.active.conversations.sanniang.at(-1).kind, 'player');
+        await speak(turnId);
+        assert.equal(calls, 2); assert.equal(h.service.view().data.active.conversations.sanniang.length, before.active.conversations.sanniang.length);
+    });
+}
 
 test('complete no-operation regenerations stay successful, retain diagnostics and never accumulate discarded affection', async t => {
     let text = narrativeReply({ reply: 'original', action: 'briefing', affection: 'up' }), calls = 0;
@@ -612,7 +662,7 @@ test('complete no-operation regenerations stay successful, retain diagnostics an
         ['expedition_metadata_invalid', 'expedition_metadata_invalid', 'expedition_metadata_invalid', 'expedition_performance_rejected']);
 });
 
-test('failed, cancelled and incomplete regenerations preserve the complete original reply and game state', async () => {
+test('failed, cancelled and incomplete regenerations keep a durable user message and retry never deletes another reply', async () => {
     let mode = 'ok', controller;
     const agent = { loadConfig: async () => ({}), openSession: async () => ({ providerConfig: { model: 'fixture' }, run: async () => {
         if (mode === 'failed') throw new Error('fixture provider failure');
@@ -624,11 +674,27 @@ test('failed, cancelled and incomplete regenerations preserve the complete origi
     const speak = regenerate => { controller = new AbortController(); return h.service.converse({ actionId: crypto.randomUUID(),
         revision: h.service.view().data.revision, person: 'sanniang', text: 'question', ...(regenerate ? { regenerate } : {}) }, () => true, controller.signal); };
     await speak(); const original = h.service.view().data;
+    let removed;
     for (mode of ['failed', 'cancelled', 'incomplete']) {
         await assert.rejects(speak(original.active.lastReply.turnId));
-        assert.deepEqual(h.service.view().data, original); assert.equal(h.service.view().pending, false);
+        const next = h.service.view().data;
+        assert.equal(next.active.conversations.sanniang.at(-1).kind, 'player');
+        assert.equal(next.active.conversations.sanniang.at(-1).player, 'question');
+        assert.equal(next.active.conversations.sanniang.at(-1).reply, '');
+        assert.deepEqual(next.active.relationships, original.active.lastReply.before.relationships);
+        assert.deepEqual(next.active.conversations.sanniang.slice(0, -1), original.active.conversations.sanniang.slice(0, -1));
+        if (removed) assert.deepEqual(next, removed);
+        removed = next;
+        assert.equal(h.service.view().pending, false);
     }
     assert.ok(h.service.view().replyFailure.text);
+    const restored = await setup(h.state.files, { agent });
+    assert.deepEqual(restored.service.view().data, removed);
+    mode = 'ok';
+    await restored.service.converse({ actionId: 'resume-user-only', revision: removed.revision, person: 'sanniang', text: 'question',
+        regenerate: removed.active.conversations.sanniang.at(-1).id }, () => true, new AbortController().signal);
+    assert.equal(restored.service.view().data.active.conversations.sanniang.length, original.active.conversations.sanniang.length);
+    assert.equal(restored.service.view().data.active.conversations.sanniang.at(-1).kind, 'dialogue');
 });
 
 test('the chapter ending stays a readable replaceable reply until explicit acceptance, which awards only once', async () => {
@@ -652,7 +718,7 @@ test('the chapter ending stays a readable replaceable reply until explicit accep
     const loaded = await setup(h.state.files); assert.deepEqual(loaded.service.view().data, h.service.view().data);
 });
 
-test('regeneration compression excludes discarded speech and survives a failed replacement without losing the original', async () => {
+test('regeneration compression excludes discarded speech and survives a failed replacement with the user message intact', async () => {
     let compress = false, summaries = 0, failReply = false, number = 0;
     const requests = [];
     const agent = { loadConfig: async () => ({}), openSession: async () => ({ providerConfig: { model: 'fixture' }, run: async request => {
@@ -674,7 +740,9 @@ test('regeneration compression excludes discarded speech and survives a failed r
     await assert.rejects(speak(last.id));
     const compacted = h.service.view().data;
     assert.ok(compacted.active.memories.sanniang);
-    assert.deepEqual({ ...compacted, active: { ...compacted.active, memories: original.active.memories } }, original);
+    assert.deepEqual(compacted.active.conversations.sanniang.slice(0, -1), original.active.conversations.sanniang.slice(0, -1));
+    assert.equal(compacted.active.conversations.sanniang.at(-1).kind, 'player');
+    assert.equal(compacted.active.conversations.sanniang.at(-1).player, last.player);
     assert.equal(summaries, 1);
     failReply = false; await speak(last.id);
     assert.equal(summaries, 1);

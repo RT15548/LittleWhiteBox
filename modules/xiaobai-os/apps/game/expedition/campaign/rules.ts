@@ -21,6 +21,7 @@ import { parseTraveler, type Traveler } from './traveler.js';
 import { FIRST_CHAPTER } from '../content/chapters.js';
 import { greet } from '../content/greetings.js';
 import { pendingEnding } from './reply-checkpoint.js';
+import { SUPPLIES_HANDOFF } from '../content/supplies.js';
 
 export const CAMPAIGN_RULES = Object.freeze({ encounterReach: 14, alarmTicks: 900, explorationSpeed: 1.65, playerTextLimit: 2000, replyTextLimit: 8000 });
 export function campaignLoadout(campaign: Campaign): Loadout {
@@ -171,8 +172,8 @@ export function advanceCampaign(campaign: Campaign, command: Exclude<Command, { 
                 if (result.object.fact === 'captives_released' && !facts.has('alarm_silenced')) { recordFact(campaign, 'alarm_raised'); }
             } else if (result.object.kind === 'rest') {
                 campaign.hp = RULES.maxHp;
-            } else if (result.object.kind === 'inspect' && result.object.passage === 'cargo') {
-                recordFact(campaign, 'supplies_secured');
+            } else if (campaign.location.scene === SUPPLIES_HANDOFF.scene && result.object.id === SUPPLIES_HANDOFF.object.id) {
+                recordFact(campaign, SUPPLIES_HANDOFF.fact);
                 campaign.evidence.dispatchNoteSeen = true;
             }
             break;

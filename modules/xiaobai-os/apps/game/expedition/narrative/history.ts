@@ -19,6 +19,7 @@ export function replayTurns(turns: readonly ConversationTurn[]) {
         turn.facts.forEach(id => known.add(id)); previousScene = turn.scene;
         const annotation = Object.keys(scene).length ? `<scene>\n${JSON.stringify(scene)}\n</scene>\n` : '';
         if (turn.kind === 'greeting') { return [{ role: 'assistant', content: encodeNarrativeReply(turn) }]; }
+        if (turn.kind === 'player') { return [{ role: 'user', content: annotation + turn.player }]; }
         return [
             { role: 'user', content: annotation + turn.player },
             { role: 'assistant', content: encodeNarrativeReply(turn) },

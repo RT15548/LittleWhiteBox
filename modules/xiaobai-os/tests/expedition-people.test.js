@@ -44,7 +44,7 @@ test('every follower settles within talking reach instead of waiting just beyond
     for (let t = 0; t < 2000; t++) { tickPeople(c); }
     for (const id of Object.keys(c.people)) { assert.equal(canTalk(c, id), true, id); }
     assert.ok('stay' in narrativeActions(c, 'sanniang'));
-    assert.ok('receiving' in narrativeActions(c, 'laobai'));
+    assert.ok(!('receiving' in narrativeActions(c, 'laobai')));
 });
 
 test('chapter handoff stays available beside Sanniang at a camp appointment, without another model request', () => {

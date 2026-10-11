@@ -15,18 +15,19 @@ export function useDialogueWindow(options: {
     const { history, pending, talking, person, campaignId, transcript, freshReply } = options;
     const reading = reactive(new Map<Participant, Reading>());
     let revision = 0, shifting = false;
-    // Only the first saved turn may be a greeting. All other turns contain two messages.
-    const greeting = computed(() => history.value[0]?.kind === 'greeting' ? 1 : 0);
-    const savedCount = computed(() => history.value.length * 2 - greeting.value);
+    const savedCount = computed(() => history.value.reduce((count, turn) => count + (turn.kind === 'greeting' || turn.kind === 'player' ? 1 : 2), 0));
     const count = computed(() => savedCount.value + Number(pending.value));
     const range = computed(() => conversationRange(reading.get(person.value)?.range, count.value));
     const messages = computed<Message[]>(() => {
         const rows: Message[] = [];
-        for (let i = range.value.start; i < Math.min(range.value.end, savedCount.value); i++) {
-            const index = Math.floor((i + greeting.value) / 2);
-            const side = (i + greeting.value) % 2 ? 'npc' : 'player';
-            const turn = history.value[index];
-            rows.push({ key: `${turn.id}:${side}`, side, turn });
+        let index = 0;
+        for (const turn of history.value) {
+            if (index >= range.value.end) { break; }
+            const sides: Message['side'][] = turn.kind === 'greeting' ? ['npc'] : turn.kind === 'player' ? ['player'] : ['player', 'npc'];
+            for (const side of sides) {
+                if (index >= range.value.start && index < range.value.end) { rows.push({ key: `${turn.id}:${side}`, side, turn }); }
+                index++;
+            }
         }
         return rows;
     });

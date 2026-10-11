@@ -1,9 +1,10 @@
 import { EXPEDITION_FORMAT_VERSION } from './ids.js';
-import { BOSSES, BOSS_SPECS, OATHS, RULES, WEAPONS } from './content.js';
+import { BOSSES, BOSS_SPECS, OATHS, WEAPONS } from './content.js';
 import { OUTFITS, ownsOutfit, canChangeOutfit } from './outfits.js';
 import { fault } from './random.js';
 import { createCampaign, advanceCampaign } from './campaign/rules.js';
 import { pendingEnding } from './campaign/reply-checkpoint.js';
+import { CHAPTER_AWARDS } from './campaign/awards.js';
 import type { Command, ExpeditionData, Weapon } from './types.js';
 
 export function emptyExpedition(): ExpeditionData {
@@ -21,7 +22,7 @@ export function advanceExpedition(current: ExpeditionData, command: Command, act
         return current;
     }
     const data = structuredClone(current);
-    // A world action or a first greeting to another person accepts the previous reply.
+    // World actions commit reply side effects, not the right to replace its dialogue.
     if (command.type === 'purchase') {
         const spec = OUTFITS[command.id];
         if (ownsOutfit(data, command.id) || spec.price <= 0 || spec.achievement !== null) { fault('locked'); }
@@ -38,25 +39,12 @@ export function advanceExpedition(current: ExpeditionData, command: Command, act
     } else {
         if (!data.active) { fault('unavailable'); }
         advanceCampaign(data.active, command);
-        const awards = [
-            { fact: 'warden_defeated', key: BOSS_SPECS.warden.awardKey },
-            { fact: 'roots_cleared', key: BOSS_SPECS.thornheart.awardKey },
-            { fact: 'chapter_completed', key: 'chapter-one' },
-        ] as const;
-        for (const award of awards) {
+        for (const award of CHAPTER_AWARDS) {
             if (data.active.facts.includes(award.fact) && !data.awards.some(a => a.key === award.key)) {
-                data.awards.push({ key: award.key, actionId, runId: data.active.id, amount: awardAmount(award.key) });
+                data.awards.push({ key: award.key, actionId, runId: data.active.id, amount: award.amount });
             }
         }
     }
     if (data.active && !pendingEnding(data.active)) { delete data.active.lastReply; }
     data.revision++; data.last = { id: actionId, command: structuredClone(command) }; return data;
-}
-// Monetary receipts outlive the test campaign that earned them; these keys remain ledger identities.
-export const awardKeys = (): string[] => BOSSES.map(id => BOSS_SPECS[id].awardKey).concat('victory', 'chapter-one',
-    (Object.keys(WEAPONS) as Weapon[]).map(id => `mastery-${id}`), OATHS.map(id => `oath-${id}`));
-export function awardAmount(key: string) {
-    if (BOSSES.some(id => BOSS_SPECS[id].awardKey === key)) { return RULES.firstBossAward; }
-    if (key === 'victory' || key === 'chapter-one') { return RULES.firstVictoryAward; }
-    return key.startsWith('mastery-') ? RULES.masteryAward : RULES.oathAward;
 }

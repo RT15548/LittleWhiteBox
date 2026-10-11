@@ -41,7 +41,7 @@ export function sceneSafe(scene: CourtyardScene, facts: ReadonlySet<CourtyardFac
     const encounter = COURTYARD_ENCOUNTERS[scene]; return !encounter || facts.has(encounter.complete);
 }
 /** Scene graph traversal uses exactly the same exits as player travel; solo travel excludes every hostile intermediate scene. */
-function sceneRoute(from: Pick<PersonLocation, 'scene' | 'position'>, to: PersonPlace, facts: ReadonlySet<CourtyardFact>, safeOnly: boolean): SceneExit[] | null {
+export function sceneRoute(from: Pick<PersonLocation, 'scene' | 'position'>, to: PersonPlace, facts: ReadonlySet<CourtyardFact>, safeOnly: boolean): SceneExit[] | null {
     const queue: { scene: CourtyardScene; position: Point; route: SceneExit[] }[] = [{ ...from, route: [] }], visited = new Set<string>();
     while (queue.length) {
         const item = queue.shift()!;
@@ -58,14 +58,17 @@ function sceneRoute(from: Pick<PersonLocation, 'scene' | 'position'>, to: Person
 }
 export function personMap(campaign: Campaign, person: CourtyardPerson) {
     const facts = new Set(campaign.facts), location = campaign.people[person];
-    return Object.entries(DESTINATIONS).map(([id, place]) => ({ id: id as DestinationId, name: place.name,
+    return Object.entries(DESTINATIONS).map(([id, place]) => {
+        const route = sceneRoute(location, place, facts, false);
+        const safe = sceneSafe(place.scene, facts);
+        const soloRoute = sceneSafe(location.scene, facts) && safe ? sceneRoute(location, place, facts, true) : null;
+        return { id: id as DestinationId, name: place.name,
         ...(livingSpace(place.scene) ? { use: livingSpace(place.scene)!.use } : {}),
         personHere: location.scene === place.scene && (id === place.scene || distance(location.position, COURTYARD[place.scene].anchors[place.anchor]) <= INTERACTION_REACH),
         playerHere: campaign.location.scene === place.scene && (id === place.scene || distance(campaign.location.position, COURTYARD[place.scene].anchors[place.anchor]) <= INTERACTION_REACH),
-        accessible: sceneRoute(location, place, facts, false) !== null,
-        safe: sceneSafe(place.scene, facts),
-        solo: sceneSafe(location.scene, facts) && sceneSafe(place.scene, facts) && sceneRoute(location, place, facts, true) !== null,
-    }));
+        accessible: route !== null, safe, solo: soloRoute !== null,
+        route: soloRoute ?? route,
+    }; });
 }
 export function personCanMove(campaign: Campaign, person: CourtyardPerson) { return rescuePhase(campaign.facts, person) !== 'confined'; }
 const followDistance = (person: CourtyardPerson) => INTERACTION_REACH * (.7 + PERSON_IDS.indexOf(person) / PERSON_IDS.length * .2);

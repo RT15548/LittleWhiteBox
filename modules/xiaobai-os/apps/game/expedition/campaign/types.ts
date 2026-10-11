@@ -12,7 +12,7 @@ import type { Performance } from '../performance/catalog.js';
 import type { ClothingChange } from '../content/clothing.js';
 
 export interface ConversationTurn {
-    id: string; kind: 'greeting' | 'dialogue' | 'receipt'; player: string; reply: string;
+    id: string; kind: 'greeting' | 'dialogue' | 'receipt' | 'player'; player: string; reply: string;
     action: NarrativeAction | null; facts: CourtyardFact[]; scene: CourtyardScene;
     affectionDelta?: number;
     performance?: Performance;

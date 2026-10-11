@@ -28,6 +28,7 @@ export const CAMPAIGN_CHOICES = Object.keys(CAMPAIGN_ACTIONS) as CampaignChoice[
 export function availableChoices(facts: readonly CourtyardFact[], person: CourtyardPerson, location: PersonLocation): CampaignChoice[] {
     if (districtScene(location.scene) !== 'camp') { return []; }
     return CAMPAIGN_CHOICES.filter(id => {
+        if (id === 'receiving' && facts.includes('captives_arrived')) { return false; }
         const action: CampaignAction = CAMPAIGN_ACTIONS[id];
         const home = PERSON_PLACES[person].station, point = COURTYARD[home.scene].anchors[home.anchor];
         const atClinic = location.scene === 'clinic_front' || location.scene === home.scene

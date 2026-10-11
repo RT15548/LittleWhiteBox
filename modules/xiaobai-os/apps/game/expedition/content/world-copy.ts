@@ -5,6 +5,7 @@ import { LIVING_SPACES } from './living-spaces.js';
 export const WORLD_COPY = Object.freeze({
     artwork: { unavailable: '部分场景纹理未载入，不影响游玩。', retry: '重新载入', loading: '载入中…' },
     transition: (place: string) => `正在前往 · ${place}`,
+    rested: '生命值已满',
     households: { anian_parents: '阿念的父母', innkeeper: '客店店家' },
     scenes: {
         camp: '檐下', crossroads: '外墙岔口', gate: '哨站正门', beacon: '烽火台',

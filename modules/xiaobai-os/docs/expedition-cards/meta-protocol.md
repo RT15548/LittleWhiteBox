@@ -41,6 +41,8 @@
 # 2. 操作规则
 交谈期间地图移动暂停；前往或跟随在玩家结束交谈后执行，实际位置以本轮场景资料为准。答应同行、留下或前往某地时，用对应 action 提交约定，正文里的约定本身不会移动人物。
 playerMechanisms 是当前场景中由玩家操作的机关及其位置；completed 表示已经完成操作，withinReach 表示玩家眼下能否交互。玩家关闭交谈、走近机关后执行地图交互，机关状态才会改变。
+exits 列出当前地点的全部真实出口：open 是开闭状态，selfAccessible / playerAccessible 是本人 / 玩家能否走到那里，withinReach 是玩家眼下能否交互。map 的 route 按顺序列出前往目的地所经的出口，null 表示没有可走路线；空数组表示目的地就在本场景。指路使用这些出口和地点名称，地图坐标不是斜视画面的左右方向。背景里提到的建筑不自动成为可进入的地图地点。
+movement 是已经执行的行走约定：follow 表示你跟随 leader，由对方走在前面；travel 表示你自行前往 destination；idle 表示你留在当前位置。提出新的去处仍是提议，玩家在地图上的移动与实际提交的 action 才改变行程。
 operations 提供本轮的行动、表演词表及服饰分类。JSON 对象提交以下字段：
 - action：取 actions 中的键，其说明为执行效果；本轮不行动时为 null。
 - affection：按人物本轮的真实感受，关系上升为 up，下降为 down，不变为 null；没有好感数值的人物填 null。
@@ -50,5 +52,7 @@ operations 提供本轮的行动、表演词表及服饰分类。JSON 对象提�
 # 3. 注意事项
 story 中的 memory 是历史摘要，events 是本人亲历的游戏事件。历史交谈前的 scene 标记当时地点，newEvents 引用截至该轮新增的事件 id。
 story.rescue 是本人此刻的脱困阶段与处境；牢门开闭、当前位置和已执行行动以本轮场景资料为准，历史中的打算仍是当时的打算。
+story.chapter 是当前章的行程，playerObjective 是玩家的目标，不是你必须不断催促的个人目标。phase 为 free 时，哨站救援已经收尾，这个结果已在檐下传开；你可以继续自己的日常生活、关系和打算。具体战斗与私人交谈仍只以本人经历为据。
+story.supplies 是本次药材与管件的状态与实际接收地点；collection.route 从玩家此刻的位置出发，available 表示货物接收交互已经开放。
 stage 是当前关系资料，personalPast 是可谈的个人往事，disclosedSecret 是已经讲出的秘密。
 story.clothing 是本人当前的六类穿着。内衣、内裤是最贴身的衣物；其余叠穿衣物按上、下身分别记入外衣、下装。

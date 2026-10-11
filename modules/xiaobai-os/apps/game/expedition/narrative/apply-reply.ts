@@ -14,6 +14,11 @@ import { clothingDifference } from '../clothing.js';
 /** Both first replies and replacements settle exactly once from their pre-reply state. */
 export function applyReply(campaign: Campaign, input: { actionId: string; person: Participant; text: string; regenerate?: string }, response: ConversationResult) {
     const person = input.person, before = dialogueEffects(campaign);
+    if (input.regenerate && campaign.conversations[person].at(-1)?.kind === 'player') {
+        const pending = campaign.conversations[person].at(-1)!;
+        if (pending.id !== input.regenerate || pending.player !== input.text) { fault('stale'); }
+        campaign.conversations[person].pop();
+    }
     delete campaign.lastReply;
     greet(campaign, person);
     const affectionDelta = response.kind === 'dialogue' && isPerson(person) ? settleAffection(campaign, person, response.affection) : undefined;

@@ -1,9 +1,8 @@
 import type { CourtyardFact, CourtyardScene } from './world-types.js';
 import type { Campaign } from '../campaign/types.js';
 import { JOURNEY_COPY } from './journey-copy.js';
-import { CAPTIVE_IDS } from './people-places.js';
 import { PERSON_NAMES } from './people.js';
-import { hasReturned } from '../campaign/rescue.js';
+import { chapterProgress } from '../campaign/progress.js';
 
 export const FACT_COPY: Record<CourtyardFact, string> = {
     bajin_intel: '老白向旅人讲出了八斤的事。',
@@ -45,8 +44,12 @@ export const CAMPAIGN_COPY = Object.freeze({
     rescueObjective: (names: string) => `${names}尚未返营。可交谈带她们同行，或打开小门请老白接应。`,
     rescueAlarm: '牢门的锁链惊动了守军。烽火未熄，内堡将多出一队援兵；你仍可以回头截断信号。',
     alarm: '烽火传讯', alarmRaised: '内堡增援已集结', alarmSeconds: (n: number) => `距离传讯 ${n} 秒`,
-    endingTitle: '归来的人', ending: '归还的药材堆在诊棚桌上。三娘一份份核对，没有按签上的户名把它们分开。阿念被安排在帘边坐着，有人叫她，她才抬起头。扣子蹲在管架上，伸手试了试新接头；老白仍站在小门边。\n\n这一次，两个人都回来了。可药签照旧按人头发，照旧会过期。檐下的名字依然不在内堡的册子里。门厅之后还有一扇门，古炉仍在变冷。',
-    continued: `${JOURNEY_COPY.nextChapter}${JOURNEY_COPY.forthcoming}`, remain: '留在檐下', optional: '根庭仍可探索；营地的人也还有话想说。',
+    endingTitle: '归来的人', ending: '阿念与扣子都已脱困返营，药材和冷却管件也已取回。这趟哨站救援，在三娘这里有了交代。\n\n药签照旧按人头发，照旧会过期。檐下的名字依然不在内堡的册子里。那些事还在，但眼前这场救援已经结束，日子可以接着过了。',
+    continued: `${JOURNEY_COPY.nextChapter}${JOURNEY_COPY.forthcoming}`, remain: '继续自由活动',
+    freeTime: '本章主线已完成。可以继续聊天、同行和自由活动。', optionalRoots: '根庭尚未清理，可选探索。',
+    rewardReceived: (amount: number) => `+${amount} 小白币 · 已到账`, rewardTitle: '阶段奖励', rewardDismiss: '收起奖励',
+    journeyReward: (amount: number) => `本次旅程已获 ${amount} 小白币`,
+    rewardRule: '各项奖励仅首次完成时领取，重新开始旅程不会重复领取。',
     talk: '交谈', send: '发送', cancel: '停止等待', input: '你想说什么？', player: '你',
     aiUnknown: '这次交谈的结果尚未确认，请先核对并恢复存档。',
     noAi: '请先在小白 OS 设置中配置 AI，再进行自由交谈。',
@@ -77,13 +80,15 @@ const BATTLE_OBJECTIVE: Partial<Record<CourtyardScene, string>> = {
 export function campaignObjective(c: Campaign): string {
     const encounter = BATTLE_OBJECTIVE[c.location.scene];
     if (c.phase === 'battle' && encounter) { return encounter; }
-    const f = new Set(c.facts);
-    if (!f.has('briefed')) { return CAMPAIGN_COPY.beginning; }
-    if (f.has('chapter_completed')) { return CAMPAIGN_COPY.optional; }
-    if (!f.has('crossroads_cleared')) { return '沿营地北路去外墙岔口。'; }
-    if (!f.has('captives_released')) { return c.location.scene === 'cells' ? CAMPAIGN_COPY.openCells : '走正门上烽火台，或者下旧水道直奔牢房。'; }
-    if (!f.has('captives_arrived')) { return CAMPAIGN_COPY.rescueObjective(CAPTIVE_IDS.filter(id => !hasReturned(c.facts, id)).map(id => PERSON_NAMES[id]).join('、')); }
-    if (!f.has('warden_defeated')) { return '去内堡门厅。药和管件压在主闸后头。'; }
-    if (!f.has('supplies_secured')) { return '回营，到诊棚东边的货车上点一点还回来的东西。'; }
-    return '回三娘那儿，把这趟收尾。';
+    const progress = chapterProgress(c);
+    switch (progress.phase) {
+        case 'briefing': return CAMPAIGN_COPY.beginning;
+        case 'free': return CAMPAIGN_COPY.freeTime + (progress.optionalRoots ? CAMPAIGN_COPY.optionalRoots : '');
+        case 'road': return '沿营地北路去外墙岔口。';
+        case 'release': return c.location.scene === 'cells' ? CAMPAIGN_COPY.openCells : '走正门上烽火台，或者下旧水道直奔牢房。';
+        case 'return': return CAMPAIGN_COPY.rescueObjective(progress.awaitingReturn.map(id => PERSON_NAMES[id]).join('、'));
+        case 'warden': return '去内堡门厅解除封锁，让药材和管件运回檐下。';
+        case 'supplies': return '回檐下货车处，核对归还的药材和管件。';
+        case 'finish': return '回三娘那儿，把这趟收尾。';
+    }
 }

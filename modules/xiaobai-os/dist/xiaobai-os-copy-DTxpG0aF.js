@@ -1,12 +1,16 @@
 /* eslint-disable */
-var $ = [
+var S = [
   "blade",
   "bow",
   "staff",
   "daggers",
   "grimoire",
   "cannon"
-], I = [
+], E = [
+  "haste",
+  "scarcity",
+  "legion"
+], O = [
   "warden",
   "thornheart",
   "weaver",
@@ -19,7 +23,7 @@ var $ = [
   "leviathan",
   "archivist",
   "voidknight"
-], S = [
+], x = [
   "storm-step",
   "conductor",
   "momentum",
@@ -80,7 +84,7 @@ var $ = [
   "bunker",
   "salvage",
   "railgun"
-], T = [
+], F = [
   "traveler",
   "guardian",
   "moonweaver",
@@ -122,7 +126,7 @@ var $ = [
   masteryAward: 120,
   oathAward: 100,
   recordLimit: 20
-}), z = Object.freeze({
+}), D = Object.freeze({
   resonanceTicks: 90,
   maxPower: 100,
   familiarHp: 38,
@@ -130,7 +134,7 @@ var $ = [
   empoweredDamage: 17,
   attackTicks: 32,
   empoweredAttackTicks: 20
-}), F = {
+}), N = {
   blade: {
     damage: 24,
     period: 20,
@@ -191,7 +195,7 @@ var $ = [
     unlock: 3,
     guard: 0.9
   }
-}, j = S, N = $, h = Object.freeze({
+}, q = x, M = E, L = S, h = Object.freeze({
   bloodDamage: 1.3,
   bloodHurt: 1.25,
   hunterRange: 5,
@@ -208,15 +212,15 @@ var $ = [
   focusAttack: 1.12,
   renewalHeal: 6,
   renewalZoneHeal: 8
-}), i = (e, a, n, s, d, m, u) => ({
+}), i = (e, a, n, o, l, m, u) => ({
   hp: e,
   speed: a,
   radius: n,
-  damage: s,
-  reach: d,
+  damage: o,
+  reach: l,
   windup: m,
   cooldown: u
-}), E = {
+}), C = {
   soldier: i(48, 0.083, 0.4, 11, 1.45, 19, 35),
   archer: i(36, 0.058, 0.36, 10, 11, 26, 55),
   guard: i(95, 0.057, 0.58, 18, 2, 32, 65),
@@ -225,7 +229,7 @@ var $ = [
   stalker: i(46, 0.12, 0.35, 10, 1.25, 16, 44),
   bomber: i(55, 0.047, 0.42, 15, 13, 28, 82),
   wisp: i(30, 0.062, 0.3, 8, 10, 22, 60)
-}, w = {
+}, k = {
   warden: {
     ...i(1050, 0.055, 1.25, 21, 20, 34, 32),
     region: 0,
@@ -286,14 +290,14 @@ var $ = [
     region: 5,
     awardKey: "boss-voidknight"
   }
-}, D = {
-  ...E,
-  ...w
-};
-function q(e) {
-  return Object.hasOwn(w, e);
+}, W = {
+  ...C,
+  ...k
+}, H = O;
+function K(e) {
+  return Object.hasOwn(k, e);
 }
-var M = [
+var B = [
   {
     bosses: ["warden", "thornheart"],
     encounters: [
@@ -415,23 +419,23 @@ var M = [
   anian: "阿念",
   kouzi: "扣子",
   laobai: "老白"
-}, O = Object.keys(g), W = {
+}, A = Object.keys(g), Y = {
   sanniang: "changyounian_intel",
   laobai: "bajin_intel",
   anian: null,
   kouzi: null
-}, x = (e, a, n, s, d, m, u = {}) => ({
+}, R = (e, a, n, o, l, m, u = {}) => ({
   id: e,
   kind: a,
   footprint: {
     x: n,
-    z: s,
-    width: d,
+    z: o,
+    width: l,
     depth: m
   },
   ...u
-}), r = (e, a, n, s, d, m, u, _ = {}) => ({
-  ...x(e, n, s, d, m, u, _),
+}), r = (e, a, n, o, l, m, u, $ = {}) => ({
+  ...R(e, n, o, l, m, u, $),
   label: a
 }), p = {
   clinic_front: {
@@ -608,7 +612,7 @@ var M = [
       r("wash", "洗脸盆", "basin", -7, 5, 2, 2)
     ]
   }
-}, L = [
+}, U = [
   {
     to: "clinic_front",
     building: "clinic",
@@ -650,19 +654,20 @@ var M = [
     }
   }
 ];
-function C(e) {
+function T(e) {
   return Object.hasOwn(p, e) ? p[e] : void 0;
 }
-function K(e) {
-  return C(e) ? "camp" : e;
+function V(e) {
+  return T(e) ? "camp" : e;
 }
-var l = Object.freeze({
+var c = Object.freeze({
   artwork: {
     unavailable: "部分场景纹理未载入，不影响游玩。",
     retry: "重新载入",
     loading: "载入中…"
   },
   transition: (e) => `正在前往 · ${e}`,
+  rested: "生命值已满",
   households: {
     anian_parents: "阿念的父母",
     innkeeper: "客店店家"
@@ -763,11 +768,11 @@ var l = Object.freeze({
     },
     returnFact: "anian_returned"
   }
-}, A = O.filter((e) => b[e].returnFact !== null), H = {
+}, P = A.filter((e) => b[e].returnFact !== null), G = {
   ...Object.fromEntries(Object.keys(p).map((e) => [e, {
     scene: e,
     anchor: "settle",
-    name: l.scenes[e]
+    name: c.scenes[e]
   }])),
   camp: {
     scene: "camp",
@@ -797,47 +802,71 @@ var l = Object.freeze({
   crossroads: {
     scene: "crossroads",
     anchor: "warning",
-    name: l.scenes.crossroads
+    name: c.scenes.crossroads
   },
   gate: {
     scene: "gate",
     anchor: "crossroads",
-    name: l.scenes.gate
+    name: c.scenes.gate
   },
   beacon: {
     scene: "beacon",
     anchor: "gate",
-    name: l.scenes.beacon
+    name: c.scenes.beacon
   },
   waterway: {
     scene: "waterway",
     anchor: "crossroads",
-    name: l.scenes.waterway
+    name: c.scenes.waterway
   },
   cells: {
     scene: "cells",
     anchor: "release",
-    name: l.scenes.cells
+    name: c.scenes.cells
   },
   hall: {
     scene: "hall",
     anchor: "cells",
-    name: l.scenes.hall
+    name: c.scenes.hall
   },
   roots: {
     scene: "roots",
     anchor: "crossroads",
-    name: l.scenes.roots
+    name: c.scenes.roots
+  }
+}, v = {
+  scene: "camp",
+  fact: "supplies_secured",
+  object: {
+    id: "cargo",
+    anchor: "cargo",
+    kind: "inspect",
+    passage: "cargo",
+    condition: { all: ["warden_defeated"] }
+  },
+  situation: {
+    held: "药材与冷却管件仍被哨站扣押，解除内堡门厅的封锁后，物资会运回檐下的货车。",
+    ready: "门厅封锁已解除，药材与冷却管件已运回檐下的货车，等玩家在货车处核对接收。",
+    collected: "玩家已在檐下的货车核对接收药材与冷却管件，这批物资已经取回。"
   }
 };
-function k(e, a) {
+function _(e, a) {
   const n = b[a].returnFact;
   return n !== null && (e.includes("captives_arrived") || e.includes(n));
 }
-function B(e, a) {
-  return b[a].returnFact ? k(e, a) ? "returned" : e.includes("captives_released") ? "released" : "confined" : null;
+function J(e, a) {
+  return b[a].returnFact ? _(e, a) ? "returned" : e.includes("captives_released") ? "released" : "confined" : null;
 }
-var Y = {
+function I(e) {
+  const a = new Set(e.facts), n = P.filter((l) => !_(e.facts, l)), o = a.has(v.fact) ? "collected" : v.object.condition.all.every((l) => a.has(l)) ? "ready" : "held";
+  return {
+    phase: a.has("chapter_completed") ? "free" : a.has("briefed") ? a.has("crossroads_cleared") ? a.has("captives_released") ? a.has("captives_arrived") ? o === "held" ? "warden" : o === "ready" ? "supplies" : "finish" : "return" : "release" : "road" : "briefing",
+    awaitingReturn: n,
+    supplies: o,
+    optionalRoots: a.has("warden_defeated") && !a.has("roots_cleared")
+  };
+}
+var Z = {
   bajin_intel: "老白向旅人讲出了八斤的事。",
   bajin_passed: "八斤侧过盾，给旅人让开了路。",
   changyounian_passed: "常有年眯着眼看了旅人一会儿，叫人把火绳收了。",
@@ -860,7 +889,7 @@ var Y = {
   roots_cleared: "旅人清除了根庭的荆棘之心，外墙旧庭恢复通行。",
   chapter_completed: "哨站救援结束。营火旁多了两个人，内堡深处的路仍未开启。",
   clinic_helped: "旅人与三娘整理诊棚和归还的药材，陪三娘在门边歇了一会儿。"
-}, o = Object.freeze({
+}, s = Object.freeze({
   title: "余火",
   start: "走进檐下",
   resume: "继续旅程",
@@ -900,12 +929,18 @@ var Y = {
   alarmRaised: "内堡增援已集结",
   alarmSeconds: (e) => `距离传讯 ${e} 秒`,
   endingTitle: "归来的人",
-  ending: `归还的药材堆在诊棚桌上。三娘一份份核对，没有按签上的户名把它们分开。阿念被安排在帘边坐着，有人叫她，她才抬起头。扣子蹲在管架上，伸手试了试新接头；老白仍站在小门边。
+  ending: `阿念与扣子都已脱困返营，药材和冷却管件也已取回。这趟哨站救援，在三娘这里有了交代。
 
-这一次，两个人都回来了。可药签照旧按人头发，照旧会过期。檐下的名字依然不在内堡的册子里。门厅之后还有一扇门，古炉仍在变冷。`,
+药签照旧按人头发，照旧会过期。檐下的名字依然不在内堡的册子里。那些事还在，但眼前这场救援已经结束，日子可以接着过了。`,
   continued: `${f.nextChapter}${f.forthcoming}`,
-  remain: "留在檐下",
-  optional: "根庭仍可探索；营地的人也还有话想说。",
+  remain: "继续自由活动",
+  freeTime: "本章主线已完成。可以继续聊天、同行和自由活动。",
+  optionalRoots: "根庭尚未清理，可选探索。",
+  rewardReceived: (e) => `+${e} 小白币 · 已到账`,
+  rewardTitle: "阶段奖励",
+  rewardDismiss: "收起奖励",
+  journeyReward: (e) => `本次旅程已获 ${e} 小白币`,
+  rewardRule: "各项奖励仅首次完成时领取，重新开始旅程不会重复领取。",
   talk: "交谈",
   send: "发送",
   cancel: "停止等待",
@@ -940,7 +975,7 @@ var Y = {
   chapterMap: "区域总览",
   localMap: "当前区域",
   mapKey: "朱红：当前位置 · 蓝色：已抵达 · 浅色：未探索"
-}), R = {
+}), z = {
   crossroads: "岔口有巡兵守着。过了这里，正门和水道才走得通。",
   gate: "八斤的盾排开了。冲过去，烽火台就在后头。",
   beacon: "守军护着火盆。别让那堆火烧起来。",
@@ -948,22 +983,39 @@ var Y = {
   hall: "门厅守卫守着主闸。药和管件都压在闸后。",
   roots: "荆棘之心在地底下动。地面鼓起来时，往旁边让。"
 };
-function U(e) {
-  const a = R[e.location.scene];
+function Q(e) {
+  const a = z[e.location.scene];
   if (e.phase === "battle" && a) return a;
-  const n = new Set(e.facts);
-  return n.has("briefed") ? n.has("chapter_completed") ? o.optional : n.has("crossroads_cleared") ? n.has("captives_released") ? n.has("captives_arrived") ? n.has("warden_defeated") ? n.has("supplies_secured") ? "回三娘那儿，把这趟收尾。" : "回营，到诊棚东边的货车上点一点还回来的东西。" : "去内堡门厅。药和管件压在主闸后头。" : o.rescueObjective(A.filter((s) => !k(e.facts, s)).map((s) => g[s]).join("、")) : e.location.scene === "cells" ? o.openCells : "走正门上烽火台，或者下旧水道直奔牢房。" : "沿营地北路去外墙岔口。" : o.beginning;
+  const n = I(e);
+  switch (n.phase) {
+    case "briefing":
+      return s.beginning;
+    case "free":
+      return s.freeTime + (n.optionalRoots ? s.optionalRoots : "");
+    case "road":
+      return "沿营地北路去外墙岔口。";
+    case "release":
+      return e.location.scene === "cells" ? s.openCells : "走正门上烽火台，或者下旧水道直奔牢房。";
+    case "return":
+      return s.rescueObjective(n.awaitingReturn.map((o) => g[o]).join("、"));
+    case "warden":
+      return "去内堡门厅解除封锁，让药材和管件运回檐下。";
+    case "supplies":
+      return "回檐下货车处，核对归还的药材和管件。";
+    case "finish":
+      return "回三娘那儿，把这趟收尾。";
+  }
 }
-function P(e) {
+function j(e) {
   const a = e && typeof e == "object" && "code" in e ? String(e.code) : "expedition_agent_failed", n = e && typeof e == "object" && "message" in e && typeof e.message == "string" ? e.message : typeof e == "string" ? e : void 0;
   return {
     code: a,
     ...n && n !== a ? { message: n } : {}
   };
 }
-var v = ["余烬", "远征"], c = {
-  titleFirst: v[0],
-  titleSecond: v[1],
+var y = ["余烬", "远征"], d = {
+  titleFirst: y[0],
+  titleSecond: y[1],
   journey: "远征之路",
   dashKey: "空格",
   skillKey: "E",
@@ -976,7 +1028,7 @@ var v = ["余烬", "远征"], c = {
   equipped: "已装备",
   noRelics: "击败敌人后，选择你的第一件遗物。",
   nextGoal: (e) => `下一位首领 · ${e}`,
-  name: o.title,
+  name: s.title,
   category: "冒险",
   tagline: f.city,
   entry: "探索 · 战斗 · 人物交谈",
@@ -1122,7 +1174,7 @@ var v = ["余烬", "远征"], c = {
   unlocked: "已解锁",
   healthCost: "生命不足，无法献祭",
   noShards: "碎晶不足"
-}, V = {
+}, X = {
   traveler: {
     name: "晨风旅人",
     detail: "蓝披风与金线，旅途最初的模样。"
@@ -1171,7 +1223,7 @@ var v = ["余烬", "远征"], c = {
     name: "观星使徒",
     detail: "星环冠、层叠长袍与悬浮的星轨。"
   }
-}, y = {
+}, w = {
   blade: {
     name: "破晓剑士",
     equipment: "剑与盾",
@@ -1214,7 +1266,7 @@ var v = ["余烬", "远征"], c = {
     action: "部署",
     skill: "放置可承伤的自动炮台，建立火力阵地。"
   }
-}, G = (e) => `${y[e].action}：${y[e].skill}`, J = {
+}, ee = (e) => `${w[e].action}：${w[e].skill}`, ae = {
   soldier: "失落卫兵",
   archer: "逐风射手",
   guard: "重盾守卫",
@@ -1235,7 +1287,7 @@ var v = ["余烬", "远征"], c = {
   leviathan: "沉潮巨兽",
   archivist: "无页典守",
   voidknight: "折光骑士"
-}, Z = {
+}, re = {
   skirmish: {
     name: "肃清",
     detail: "击败全部守军"
@@ -1246,7 +1298,7 @@ var v = ["余烬", "远征"], c = {
   },
   siege: {
     name: "守护烽火",
-    detail: `保护中央烽火，击败守军。${c.beaconRule}。`
+    detail: `保护中央烽火，击败守军。${d.beaconRule}。`
   },
   ritual: {
     name: "三重封印",
@@ -1260,7 +1312,7 @@ var v = ["余烬", "远征"], c = {
     name: "交叉火线",
     detail: "穿越交错射线，击败守军"
   }
-}, Q = {
+}, ne = {
   "storm-step": {
     name: "踏雷靴",
     detail: "闪避起点留下雷场，每次命中造成雷击。",
@@ -1562,46 +1614,50 @@ var v = ["余烬", "远征"], c = {
     family: "炮"
   }
 };
-function X(e) {
-  const { code: a, message: n } = P(e);
-  return a === "expedition_agent_not_configured" ? o.noAi : a === "expedition_agent_auth" ? n || o.aiAuth : a === "expedition_agent_failed" ? n || o.aiFailed : a === "expedition_context_capacity" ? n || o.contextFull : a === "expedition_data_invalid" ? o.dataInvalid : a === "expedition_narrative_unavailable" ? o.narrativeFailed : a.startsWith("expedition_memory_") ? o.memoryFailed : a.startsWith("expedition_reply_") ? o.emptyReply : a === "expedition_stale" ? c.stale : a === "expedition_locked" ? c.locked : a === "expedition_funds" ? c.noCoins : a === "expedition_unavailable" ? c.unavailable : a === "expedition_invalid" || a === "expedition_identity" ? c.invalid : a.startsWith("expedition_save_") || a.startsWith("host_request_") ? c.saveError : n || c.failure(a);
+function ie(e) {
+  const { code: a, message: n } = j(e);
+  return a === "expedition_agent_not_configured" ? s.noAi : a === "expedition_agent_auth" ? n || s.aiAuth : a === "expedition_agent_failed" ? n || s.aiFailed : a === "expedition_context_capacity" ? n || s.contextFull : a === "expedition_data_invalid" ? s.dataInvalid : a === "expedition_narrative_unavailable" ? s.narrativeFailed : a.startsWith("expedition_memory_") ? s.memoryFailed : a.startsWith("expedition_reply_") ? s.emptyReply : a === "expedition_stale" ? d.stale : a === "expedition_locked" ? d.locked : a === "expedition_funds" ? d.noCoins : a === "expedition_unavailable" ? d.unavailable : a === "expedition_invalid" || a === "expedition_identity" ? d.invalid : a.startsWith("expedition_save_") || a.startsWith("host_request_") ? d.saveError : n || d.failure(a);
 }
 export {
-  j as A,
-  g as C,
-  z as D,
-  w as E,
-  q as F,
-  I,
-  T as L,
-  t as M,
-  F as N,
-  D as O,
-  N as P,
-  O as S,
-  f as T,
-  L as _,
-  y as a,
-  C as b,
-  o as c,
-  k as d,
-  B as f,
-  l as g,
-  b as h,
-  Q as i,
-  h as j,
-  M as k,
-  Y as l,
-  H as m,
-  J as n,
-  X as o,
-  A as p,
-  V as r,
-  G as s,
-  c as t,
-  U as u,
-  p as v,
-  W as w,
-  x,
-  K as y
+  D as A,
+  O as B,
+  R as C,
+  f as D,
+  Y as E,
+  h as F,
+  t as I,
+  N as L,
+  M,
+  B as N,
+  H as O,
+  q as P,
+  L as R,
+  T as S,
+  g as T,
+  F as V,
+  b as _,
+  w as a,
+  p as b,
+  s as c,
+  I as d,
+  _ as f,
+  G as g,
+  P as h,
+  ne as i,
+  W as j,
+  k,
+  Z as l,
+  v as m,
+  ae as n,
+  ie as o,
+  J as p,
+  X as r,
+  ee as s,
+  d as t,
+  Q as u,
+  c as v,
+  A as w,
+  V as x,
+  U as y,
+  K as z
 };

@@ -13,6 +13,7 @@ export function createExpeditionClient(bridge: XiaobaiOsFrameBridge, chatIdentit
     const failed = shallowRef<ExpeditionRequest | null>(null);
     const requestingTalk = ref(false), uncertainTalk = ref(false);
     const submission = shallowRef<(NonNullable<ExpeditionView['conversation']> & { status: 'sending' | 'failed' }) | null>(null);
+    const replacingReply = shallowRef<{ person: Participant; turnId: string } | null>(null);
     const dismissedFailure = ref<string | null>(null);
     const conversationFailure = computed(() => view.value?.replyFailure?.actionId === dismissedFailure.value ? null : view.value?.replyFailure ?? null);
     const talking = computed(() => requestingTalk.value || !!view.value?.conversation);
@@ -83,6 +84,7 @@ export function createExpeditionClient(bridge: XiaobaiOsFrameBridge, chatIdentit
     async function talk(person: Participant, text: string, turnId?: string) {
         if (blocked.value || disposed) { return false; }
         const actionId = newId();
+        replacingReply.value = turnId ? { person, turnId } : null;
         submission.value = { actionId, person, text, regenerating: !!turnId, status: 'sending', phase: 'preparing', startedAt: Date.now() };
         requestingTalk.value = true; busy.value = true; error.value = ''; pushed.value = null;
         try {
@@ -100,6 +102,7 @@ export function createExpeditionClient(bridge: XiaobaiOsFrameBridge, chatIdentit
             }
             return false;
         } finally {
+            replacingReply.value = null;
             requestingTalk.value = false;
             pushed.value = null;
             if (!disposed) {
@@ -116,7 +119,7 @@ export function createExpeditionClient(bridge: XiaobaiOsFrameBridge, chatIdentit
         catch (cause) { if (!disposed) { error.value = errorText(cause); } }
     }
     const recoveryRequired = computed(() => readNeeded.value || !!failed.value || uncertainTalk.value || !view.value || view.value.pending || view.value.writeState !== 'ready');
-    return { view, busy, error, blocked, failed, talking, uncertainTalk, talk, outgoing, conversationProgress, cancelTalk, recoveryRequired, dataInvalid, conversationFailure,
+    return { view, busy, error, blocked, failed, talking, uncertainTalk, talk, outgoing, replacingReply, conversationProgress, cancelTalk, recoveryRequired, dataInvalid, conversationFailure,
         dismissConversationFailure() { dismissedFailure.value = view.value?.replyFailure?.actionId ?? null; },
         rebuild: () => request('rebuild'),
         retryMemory: (person: Participant) => blocked.value ? Promise.resolve(false) : request('retry-memory', undefined, person),
