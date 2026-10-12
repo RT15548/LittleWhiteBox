@@ -4213,12 +4213,15 @@ function buildSharedGalleryCallbacks(slotId, messageId) {
         onSave: async (imgId, url) => {
             const cont = document.querySelector(`.xb-nd-img[data-img-id="${imgId}"]`);
             if (cont) {
-                const img = cont.querySelector('img');
-                if (img) img.src = url;
                 setImageState(cont, ImageState.SAVED);
             }
             const preview = await getPreview(imgId).catch(() => null);
-            if (preview) await syncDrawSavedFromPreview(messageId, preview, { slotId, savedUrl: url }).catch(() => {});
+            if (preview) {
+                // 保留本地 blob 源：根相对 /user 路径在 Tauritavern 等 iframe 内不可达会裂图。
+                const img = cont?.querySelector('img');
+                if (img) img.src = getPreviewDisplayUrl(preview);
+                await syncDrawSavedFromPreview(messageId, preview, { slotId, savedUrl: url }).catch(() => {});
+            }
         },
         onDelete: async (sid, deletedImgId, remainingPreviews) => {
             const cont = document.querySelector(`.xb-nd-img[data-slot-id="${sid}"]`);
@@ -4484,7 +4487,7 @@ async function saveCurrentImage(container) {
         await updatePreviewSavedUrl(imgId, url);
         await syncDrawSavedFromPreview(Number(container.dataset.mesid), preview, { slotId, savedUrl: url }).catch(() => {});
         const img = container.querySelector('img');
-        if (img) img.src = url;
+        if (img) img.src = getPreviewDisplayUrl(preview);
         container.dataset.state = 'saved';
         toastr.success('图片已保存到服务器');
     } catch (error) {

@@ -5,6 +5,7 @@ import { getContext } from "../../../../../../extensions.js";
 import { saveBase64AsFile } from "../../../../../../utils.js";
 import { hasPreviewImage, DRAW_SLOT_COPY, PreviewStatus } from './image-record.js';
 import { IMAGE_SAVE_LABEL_HTML } from './image-save-ui.js';
+import { toAbsoluteMediaUrl } from './media-url.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 常量
@@ -41,6 +42,40 @@ const slotOrderCache = new Map();
 let slotOrderGeneration = 0;
 const cacheChangeListeners = new Set();
 let cacheSyncChannel = null;
+
+// Tauritavern 等客户端把页面装在 about:srcdoc 跨域 iframe 内，<img> 无法直连根相对
+// /user 路径（自定义 origin），但 fetch 走原生 HTTP 栈可能可达。捕获阶段监听图片
+// error，仅对含 /user/ 的来源尝试 fetch → blob 自救，救活已保存的存量图；不可达则
+// 快速失败，不影响其他图片。
+const savedUrlFallbackInflight = new Set();
+if (typeof document !== 'undefined') {
+    document.addEventListener('error', (event) => {
+        const img = event.target;
+        if (!(img instanceof HTMLImageElement)) return;
+        const src = String(img.currentSrc || img.src || '');
+        if (!src.includes('/user/')) return;
+        if (img.dataset.xbSavedRetried === '1') return;
+        img.dataset.xbSavedRetried = '1';
+        const fetchUrl = toAbsoluteMediaUrl(src);
+        if (savedUrlFallbackInflight.has(fetchUrl)) return;
+        savedUrlFallbackInflight.add(fetchUrl);
+        (async () => {
+            // 依次尝试补全后的绝对地址与原始地址，任一可达即救活旧图；都失败则静默降级。
+            const candidates = [...new Set([fetchUrl, src])];
+            for (const candidate of candidates) {
+                try {
+                    const resp = await fetch(candidate);
+                    if (!resp.ok) continue;
+                    const type = resp.headers.get('content-type') || '';
+                    if (type && !type.startsWith('image/')) continue;
+                    img.src = URL.createObjectURL(await resp.blob());
+                    return;
+                } catch { /* 尝试下一个候选地址 */ }
+            }
+            img.classList.add('xb-saved-img-broken');
+        })().finally(() => savedUrlFallbackInflight.delete(fetchUrl));
+    }, true);
+}
 
 function storageWriteError(tx) { return tx.error || new Error(DRAW_SLOT_COPY.storageWriteFailed); }
 
@@ -94,7 +129,7 @@ function blobToDataUrl(blob) {
 }
 
 async function savedUrlToDataUrl(savedUrl = '') {
-    const url = String(savedUrl || '').trim();
+    const url = toAbsoluteMediaUrl(savedUrl);
     if (!url) return '';
     if (/^data:[^;]+;base64,/i.test(url)) return url;
     if (/^blob:/i.test(url)) {
@@ -170,11 +205,10 @@ export function clearPreviewObjectUrls() {
 }
 
 export function getPreviewDisplayUrl(preview = {}) {
-    const savedUrl = String(preview?.savedUrl || '').trim();
-    if (savedUrl) return savedUrl;
-
+    // 本地缓存是完整原图，优先使用：blob URL 同源，不受 Tauritavern 等自定义
+    // origin 客户端对 /user 路径可达性的影响；savedUrl 仅在本地数据缺失时兜底。
     const parsed = parseBase64Image(preview?.base64);
-    if (!parsed?.data) return '';
+    if (!parsed?.data) return toAbsoluteMediaUrl(preview?.savedUrl || '');
 
     if (typeof URL === 'undefined' || typeof URL.createObjectURL !== 'function' || typeof atob !== 'function') {
         return `data:${parsed.mime};base64,${parsed.data}`;
@@ -877,7 +911,8 @@ export async function updatePreviewSavedUrl(imgId, savedUrl) {
     if (!preview) return;
 
     preview.savedUrl = savedUrl;
-    preview.base64 = null;
+    // 保留本地原图：Tauritavern 等自定义 origin 客户端无法用 <img> 直连 /user
+    // 路径，清掉 base64 后已存图在画廊必裂；空间交由缓存过期清理负责，不在保存时剥离。
 
     return new Promise((resolve, reject) => {
         try {
@@ -1268,7 +1303,7 @@ function ensureGalleryStyles() {
     if (document.getElementById('nd-gallery-styles')) return;
     const style = document.createElement('style');
     style.id = 'nd-gallery-styles';
-    style.textContent = `#nd-gallery-overlay{position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:100000;display:none;background:rgba(0,0,0,0.85);backdrop-filter:blur(8px)}#nd-gallery-overlay.visible{display:flex;flex-direction:column;align-items:center;justify-content:center}.nd-gallery-close{position:absolute;top:16px;right:16px;width:40px;height:40px;border:none;background:rgba(255,255,255,0.1);border-radius:50%;color:#fff;font-size:20px;cursor:pointer;z-index:10}.nd-gallery-close:hover{background:rgba(255,255,255,0.2)}.nd-gallery-main{display:flex;align-items:center;gap:16px;max-width:90vw;max-height:70vh}.nd-gallery-nav{width:48px;height:48px;border:none;background:rgba(255,255,255,0.1);border-radius:50%;color:#fff;font-size:24px;cursor:pointer;flex-shrink:0}.nd-gallery-nav:hover{background:rgba(255,255,255,0.2)}.nd-gallery-nav:disabled{opacity:0.3;cursor:not-allowed}.nd-gallery-img-wrap{position:relative;max-width:calc(90vw - 140px);max-height:70vh}.nd-gallery-img{max-width:100%;max-height:70vh;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,0.5)}.nd-gallery-saved-badge{position:absolute;top:12px;left:12px;background:rgba(62,207,142,0.9);padding:4px 10px;border-radius:6px;font-size:11px;color:#fff;font-weight:600}.nd-gallery-thumbs{display:flex;gap:8px;margin-top:20px;padding:12px;background:rgba(0,0,0,0.3);border-radius:12px;max-width:90vw;overflow-x:auto}.nd-gallery-thumb{width:64px;height:64px;border-radius:8px;object-fit:cover;cursor:pointer;border:2px solid transparent;opacity:0.6;transition:all 0.15s;flex-shrink:0}.nd-gallery-thumb:hover{opacity:0.9}.nd-gallery-thumb.active{border-color:#d4a574;opacity:1}.nd-gallery-thumb.saved{border-color:rgba(62,207,142,0.8)}.nd-gallery-actions{display:flex;gap:12px;margin-top:16px}.nd-gallery-btn{padding:10px 20px;border:1px solid rgba(255,255,255,0.2);border-radius:8px;background:rgba(255,255,255,0.1);color:#fff;font-size:13px;cursor:pointer;transition:all 0.15s}.nd-gallery-btn:hover{background:rgba(255,255,255,0.2)}.nd-gallery-btn.primary{background:rgba(212,165,116,0.3);border-color:rgba(212,165,116,0.5)}.nd-gallery-btn.danger{color:#f87171;border-color:rgba(248,113,113,0.3)}.nd-gallery-btn.danger:hover{background:rgba(248,113,113,0.15)}.nd-gallery-info{text-align:center;margin-top:12px;font-size:12px;color:rgba(255,255,255,0.6)}`;
+    style.textContent = `#nd-gallery-overlay{position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:100000;display:none;background:rgba(0,0,0,0.85);backdrop-filter:blur(8px)}#nd-gallery-overlay.visible{display:flex;flex-direction:column;align-items:center;justify-content:center}.nd-gallery-close{position:absolute;top:calc(env(safe-area-inset-top, 0px) + 16px);right:16px;width:40px;height:40px;border:none;background:rgba(255,255,255,0.1);border-radius:50%;color:#fff;font-size:20px;cursor:pointer;z-index:10}.nd-gallery-close:hover{background:rgba(255,255,255,0.2)}.nd-gallery-main{display:flex;align-items:center;gap:16px;max-width:90vw;max-height:70vh}.nd-gallery-nav{width:48px;height:48px;border:none;background:rgba(255,255,255,0.1);border-radius:50%;color:#fff;font-size:24px;cursor:pointer;flex-shrink:0}.nd-gallery-nav:hover{background:rgba(255,255,255,0.2)}.nd-gallery-nav:disabled{opacity:0.3;cursor:not-allowed}.nd-gallery-img-wrap{position:relative;max-width:calc(90vw - 140px);max-height:70vh}.nd-gallery-img{max-width:100%;max-height:70vh;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,0.5)}.nd-gallery-saved-badge{position:absolute;top:12px;left:12px;background:rgba(62,207,142,0.9);padding:4px 10px;border-radius:6px;font-size:11px;color:#fff;font-weight:600}.nd-gallery-thumbs{display:flex;gap:8px;margin-top:20px;padding:12px;background:rgba(0,0,0,0.3);border-radius:12px;max-width:90vw;overflow-x:auto}.nd-gallery-thumb{width:64px;height:64px;border-radius:8px;object-fit:cover;cursor:pointer;border:2px solid transparent;opacity:0.6;transition:all 0.15s;flex-shrink:0}.nd-gallery-thumb:hover{opacity:0.9}.nd-gallery-thumb.active{border-color:#d4a574;opacity:1}.nd-gallery-thumb.saved{border-color:rgba(62,207,142,0.8)}.nd-gallery-actions{display:flex;gap:12px;margin-top:16px}.nd-gallery-btn{padding:10px 20px;border:1px solid rgba(255,255,255,0.2);border-radius:8px;background:rgba(255,255,255,0.1);color:#fff;font-size:13px;cursor:pointer;transition:all 0.15s}.nd-gallery-btn:hover{background:rgba(255,255,255,0.2)}.nd-gallery-btn.primary{background:rgba(212,165,116,0.3);border-color:rgba(212,165,116,0.5)}.nd-gallery-btn.danger{color:#f87171;border-color:rgba(248,113,113,0.3)}.nd-gallery-btn.danger:hover{background:rgba(248,113,113,0.15)}.nd-gallery-info{text-align:center;margin-top:12px;font-size:12px;color:rgba(255,255,255,0.6)}`;
     document.head.appendChild(style);
 }
 

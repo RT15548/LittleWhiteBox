@@ -2224,11 +2224,15 @@ async function handleImageClick(container) {
         onSave: (imgId, url) => {
             const cont = document.querySelector(`.xb-nd-img[data-img-id="${imgId}"]`);
             if (cont) {
-                cont.querySelector('img').src = url;
                 setImageState(cont, ImageState.SAVED);
             }
             void getPreview(imgId)
-                .then(preview => preview && syncNovelDrawSavedFromPreview(messageId, preview, { savedUrl: url }))
+                .then(preview => {
+                    if (!preview) return;
+                    // 保留本地 blob 源：根相对 /user 路径在 Tauritavern 等 iframe 内不可达会裂图。
+                    if (cont) cont.querySelector('img').src = getPreviewDisplayUrl(preview);
+                    return syncNovelDrawSavedFromPreview(messageId, preview, { savedUrl: url });
+                })
                 .catch(e => {
                     console.warn('[NovelDraw] 保存后的楼层持久化失败:', e);
                 });
@@ -2383,7 +2387,7 @@ async function saveSingleImage(container) {
         await updatePreviewSavedUrl(imgId, url);
         await setSlotSelection(slotId, imgId);
         await syncNovelDrawSavedFromPreview(messageId, preview, { slotId, savedUrl: url });
-        container.querySelector('img').src = url;
+        container.querySelector('img').src = getPreviewDisplayUrl(preview);
         setImageState(container, ImageState.SAVED);
         container.dataset.imgId = preview.imgId;
         showToast(`已保存到: ${url}`, 'success', 5000);

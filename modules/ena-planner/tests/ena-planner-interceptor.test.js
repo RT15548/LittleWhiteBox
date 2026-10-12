@@ -77,7 +77,7 @@ function createFixture(plan, overrides = {}) {
     };
     const settings = overrides.settings || {
         enabled: true,
-        api: { stream: true },
+        api: { baseUrl: 'https://example.com/v1', stream: true },
     };
     const errors = [];
     const notices = [];
@@ -222,6 +222,14 @@ test('disabled Ena, slash commands, and existing plots pass through untouched', 
         {
             input: '普通输入',
             settings: { enabled: false, api: { stream: true } },
+        },
+        {
+            input: '未配置 API URL',
+            settings: { enabled: true, api: { stream: true } },
+        },
+        {
+            input: '空白 API URL',
+            settings: { enabled: true, api: { baseUrl: '   ', stream: true } },
         },
         { input: '  /echo hello  ' },
         { input: '继续剧情\n<plot>已有规划</plot>' },
