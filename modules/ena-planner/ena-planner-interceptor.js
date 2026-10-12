@@ -113,6 +113,9 @@ export function createEnaPlannerSendInterceptor({
     const getEligibleSend = () => {
         const settings = getSettings();
         if (!settings?.enabled) return null;
+        // Without an API URL planning can never start, so let the native send
+        // through instead of swallowing every message while the module is enabled.
+        if (!String(settings?.api?.baseUrl ?? '').trim()) return null;
 
         const textarea = getTextarea();
         const button = getSendButton();
