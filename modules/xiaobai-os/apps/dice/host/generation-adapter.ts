@@ -466,7 +466,7 @@ export function createDiceGenerationAdapter(enabled: () => boolean, frequency: (
         const phase = active?.target.message === target.message ? active.phase.kind : null;
         const busy = !!controls || !!intention && !intention.signal.aborted;
         if (terminalCheck(target.body, target.records)) {
-            return { target, kind: 'choice', disabled: busy || !!phase && !['revealing', 'awaiting-choice', 'continue-error'].includes(phase),
+            return { target, kind: 'choice', disabled: busy || !session.canContinue(),
                 canCancel: phase === 'settling',
                 // Rerolls never write chat: a received result can change while native
                 // saving finishes. A new, not-yet-received generation still excludes it.

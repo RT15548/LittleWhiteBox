@@ -2033,8 +2033,14 @@ test('a saved-result retry waits for pending native cleanup and cannot start a d
     assert.deepEqual(target.extra.xiaobaiOsDice, saved);
 });
 
-for (const partial of [false, true]) {
-    test(`failed Dice stream ${partial ? 'with partial output stops the chain without replaying it' : 'can retry using exactly the saved roll'}`, async t => {
+for (const [change, suffix, retryable] of [
+    ['unchanged body', '', true],
+    ['trailing space', ' ', true],
+    ['trailing newlines', '\n\n', true],
+    ['trailing tab', '\t', true],
+    ['partial output', '\n\n' + call, false],
+]) {
+    test(`failed Dice stream with ${change} ${retryable ? 'can retry using exactly the saved roll' : 'stops the chain without replaying it'}`, async t => {
         const adapter = setup(t);
         const normalReply = host.reply;
         await begin();
@@ -2044,27 +2050,46 @@ for (const partial of [false, true]) {
         host.reply = async () => {
             host.stream = { isStopped: true, isFinished: false };
             // Even a complete new request inside a failed stream is not eligible for another roll.
-            if (partial) target.mes += '\n\n' + call;
+            target.mes += suffix;
         };
         await received();
-        await settled(adapter);
+        await setImmediate();
+        const originalChoice = adapter.actions(1).target;
+        const ids = host.ids;
         const saved = structuredClone(target.extra.xiaobaiOsDice);
+        await choose(adapter, 1);
         assert.equal(host.requests.length, 1);
         assert.equal(saved.checks.length, 1);
         assert.equal(adapter.view().phase.error, '', 'native stream failures are not repeated in Dice feedback');
-        if (partial) {
+        if (!retryable) {
             assert.equal(target.mes, 'Attempt.\n\n[dice:generated-0]\n\n' + call, 'partial output is never rolled back');
             assert.equal(adapter.view().phase.kind, 'invalid');
             await assert.rejects(choose(adapter, 1));
             assert.equal(host.requests.length, 1);
         } else {
-            assert.equal(adapter.view().phase.kind, 'continue-error');
-            host.reply = normalReply;
-            await choose(adapter, 1);
+            assert.equal(adapter.isBusy(), false);
+            assert.equal(adapter.actions(1).disabled, false, 'an ended failure must not lock a current continuation point');
+            if (suffix) {
+                await assert.rejects(adapter.act(originalChoice, 'continue-check'), { code: 'dice_target_changed' });
+            }
+            const interruptedBody = target.mes;
+            const replyPending = Promise.withResolvers();
+            host.reply = async () => { await replyPending.promise; await normalReply(); };
+            const retry = choose(adapter, 1);
+            try {
+                await setImmediate();
+                assert.equal(host.requests.length, 2);
+                assert.equal(adapter.actions(1).disabled, true);
+                await assert.rejects(choose(adapter, 1), { code: 'dice_busy' });
+            } finally {
+                replyPending.resolve();
+                await retry;
+            }
             assert.equal(host.requests.length, 2);
-            assert.equal(target.mes, 'Attempt.\n\n[dice:generated-0]\n\nAfterward.');
+            assert.equal(target.mes, interruptedBody + '\n\nAfterward.');
             assert.equal(adapter.view(), null);
         }
+        assert.equal(host.ids, ids, 'retrying does not sample a new roll');
         assert.deepEqual(target.extra.xiaobaiOsDice, saved);
     });
 }

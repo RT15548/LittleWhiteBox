@@ -429,7 +429,7 @@ function e2(e) {
     i.add(m);
     const g = t.get(m);
     if (!g) throw new Error(`missing capability dependency: ${m}`);
-    for (const w of g.dependencies ?? []) s(w.id);
+    for (const v of g.dependencies ?? []) s(v.id);
     i.delete(m), a.add(m), r.push(g);
   }
   for (const m of e) s(m.token.id);
@@ -442,11 +442,11 @@ function e2(e) {
           for (const g of r) {
             if (!g.install) continue;
             if (g.partition && !m.createStore) throw new Error(`capability partition store is unavailable: ${g.partition.key}`);
-            const w = new Set((g.dependencies ?? []).map((b) => b.id)), h = await g.install({
+            const v = new Set((g.dependencies ?? []).map((b) => b.id)), h = await g.install({
               partition: g.partition ? m.createStore?.(g.partition, g.dependencies) ?? null : null,
               files: m.filesFor?.(g.partition) ?? m.files ?? null,
               require(b) {
-                if (!w.has(b.id)) throw new Error(`${g.token.id} did not declare dependency ${b.id}`);
+                if (!v.has(b.id)) throw new Error(`${g.token.id} did not declare dependency ${b.id}`);
                 if (!o.has(b.id)) throw new Error(`capability dependency ${b.id} is not installed`);
                 return o.get(b.id);
               }
@@ -455,10 +455,10 @@ function e2(e) {
           }
           c = !0;
         } catch (g) {
-          for (const w of [...r].reverse()) {
-            const h = o.get(w.token.id);
+          for (const v of [...r].reverse()) {
+            const h = o.get(v.token.id);
             if (h !== void 0) try {
-              await w.dispose?.(h);
+              await v.dispose?.(h);
             } catch {
             }
           }
@@ -468,7 +468,7 @@ function e2(e) {
         }
       })(), await l);
   }
-  function f(m) {
+  function u(m) {
     if (!c) throw new Error(`capability is not installed: ${m.id}`);
     if (!o.has(m.id))
       throw t.has(m.id) ? Object.assign(/* @__PURE__ */ new Error(`capability requires a transaction: ${m.id}`), {
@@ -477,7 +477,7 @@ function e2(e) {
       }) : new Error(`capability is not registered: ${m.id}`);
     return o.get(m.id);
   }
-  function u(m, g, w) {
+  function f(m, g, v) {
     if (!c) throw new Error(`capability is not installed: ${m.id}`);
     const h = /* @__PURE__ */ new Map(), b = (k) => {
       if (h.has(k.id)) return h.get(k.id);
@@ -487,12 +487,12 @@ function e2(e) {
         retryable: !1
       });
       if (!I.bindTransaction) {
-        const _ = f(k);
+        const _ = u(k);
         return h.set(k.id, _), _;
       }
       const x = new Set((I.dependencies ?? []).map((_) => _.id)), S = I.bindTransaction({
         requesterId: g,
-        access: w,
+        access: v,
         require(_) {
           if (!x.has(_.id)) throw new Error(`${I.token.id} did not declare dependency ${_.id}`);
           return b(_);
@@ -505,10 +505,10 @@ function e2(e) {
   async function p() {
     const m = [];
     for (const g of [...r].reverse()) {
-      const w = o.get(g.token.id);
-      if (w !== void 0)
+      const v = o.get(g.token.id);
+      if (v !== void 0)
         try {
-          await g.dispose?.(w);
+          await g.dispose?.(v);
         } catch (h) {
           m.push(h);
         }
@@ -518,8 +518,8 @@ function e2(e) {
   return Object.freeze({
     install: d,
     has: (m) => t.has(m.id),
-    require: f,
-    bind: u,
+    require: u,
+    bind: f,
     dispose: p,
     registrations: () => Object.freeze([...e]),
     partitions: () => Object.freeze([...n.values()])
@@ -753,8 +753,8 @@ function c2(e, t) {
         let l = Xa();
         if (c.current !== null) try {
           l = ic(c.current.raw);
-        } catch (f) {
-          if (!s || f.message !== "administrator_data_invalid") throw f;
+        } catch (u) {
+          if (!s || u.message !== "administrator_data_invalid") throw u;
         }
         if (l.revision !== i) throw new Error("administrator_history_conflict");
         const d = ic({
@@ -831,11 +831,11 @@ function Af(e, t = !1) {
     index: c,
     text: String(s.content),
     tools: s.toolCalls.map((l, d) => {
-      const f = M0(c + 1, l.id), u = a.get(f);
-      if (u) return i(u);
+      const u = M0(c + 1, l.id), f = a.get(u);
+      if (f) return i(f);
       const p = JSON.parse(String(e.toolMessages[o + d + 1].content));
       return {
-        id: f,
+        id: u,
         name: l.name,
         target: "",
         status: p.code === "tool_not_executed" ? t ? "queued" : "not-executed" : p.status
@@ -894,70 +894,70 @@ function El(e) {
 function u2(e) {
   const t = e.read ?? fetch, n = e.id ?? ch;
   function r(l, d) {
-    const f = `/user/images/${Al(l)}/`;
-    if (!d.startsWith(f) || !xy.test(d.slice(f.length))) throw new Error("administrator_image_owner_mismatch");
+    const u = `/user/images/${Al(l)}/`;
+    if (!d.startsWith(u) || !xy.test(d.slice(u.length))) throw new Error("administrator_image_owner_mismatch");
     return d;
   }
   async function i(l, d) {
-    const f = P0(d), u = f.dataUrl.slice(11, f.dataUrl.indexOf(";")), p = n();
+    const u = P0(d), f = u.dataUrl.slice(11, u.dataUrl.indexOf(";")), p = n();
     if (!N0.test(p)) throw new Error("administrator_image_id_invalid");
-    const m = `/user/images/${Al(l)}/${p}.${u}`;
-    if (await e.upload(f.dataUrl.slice(f.dataUrl.indexOf(",") + 1), Al(l), p, u) !== m) throw new Error("administrator_image_save_failed");
+    const m = `/user/images/${Al(l)}/${p}.${f}`;
+    if (await e.upload(u.dataUrl.slice(u.dataUrl.indexOf(",") + 1), Al(l), p, f) !== m) throw new Error("administrator_image_save_failed");
     return {
-      name: f.name,
+      name: u.name,
       path: m
     };
   }
-  async function a(l, d, f) {
-    const u = await t(r(l, d.path), {
-      signal: f,
+  async function a(l, d, u) {
+    const f = await t(r(l, d.path), {
+      signal: u,
       redirect: "error"
     });
-    if (!u.ok) throw new Error("administrator_image_missing");
-    const p = await u.blob();
+    if (!f.ok) throw new Error("administrator_image_missing");
+    const p = await f.blob();
     if (!p.size || p.size > et.maxImageBytes) throw new Error("administrator_invalid_image");
     const m = new Uint8Array(await p.arrayBuffer());
     let g = "";
-    for (let w = 0; w < m.length; w += 8192) g += String.fromCharCode(...m.subarray(w, w + 8192));
-    return f?.throwIfAborted(), `data:image/${d.path.split(".").at(-1)};base64,${btoa(g)}`;
+    for (let v = 0; v < m.length; v += 8192) g += String.fromCharCode(...m.subarray(v, v + 8192));
+    return u?.throwIfAborted(), `data:image/${d.path.split(".").at(-1)};base64,${btoa(g)}`;
   }
   async function s(l, d) {
-    const f = r(l, d.path), u = await t("/api/images/delete", {
+    const u = r(l, d.path), f = await t("/api/images/delete", {
       method: "POST",
       headers: e.headers(),
-      body: JSON.stringify({ path: f.slice(1) })
+      body: JSON.stringify({ path: u.slice(1) })
     });
-    if (!u.ok && u.status !== 404) throw new Error("administrator_image_delete_failed");
+    if (!f.ok && f.status !== 404) throw new Error("administrator_image_delete_failed");
   }
   async function o(l) {
-    const d = Al(l), f = await t("/api/images/list", {
+    const d = Al(l), u = await t("/api/images/list", {
       method: "POST",
       headers: e.headers(),
       body: JSON.stringify({ folder: d })
     });
-    if (!f.ok) throw new Error("administrator_image_list_failed");
-    const u = await f.json();
-    if (!Array.isArray(u) || u.some((p) => typeof p != "string" || !xy.test(p))) throw new Error("administrator_image_list_invalid");
-    for (const p of u) await s(l, {
+    if (!u.ok) throw new Error("administrator_image_list_failed");
+    const f = await u.json();
+    if (!Array.isArray(f) || f.some((p) => typeof p != "string" || !xy.test(p))) throw new Error("administrator_image_list_invalid");
+    for (const p of f) await s(l, {
       name: p,
       path: `/user/images/${d}/${p}`
     });
   }
-  async function c(l, d, f) {
-    let u;
+  async function c(l, d, u) {
+    let f;
     try {
-      u = ic(f);
+      f = ic(u);
     } catch (p) {
       if (p.message !== "administrator_data_invalid") throw p;
-      return structuredClone(f);
+      return structuredClone(u);
     }
     try {
-      for (const p of u.turns)
+      for (const p of f.turns)
         p.user?.image && (p.user.image = await i(d, {
           name: p.user.image.name,
           dataUrl: await a(l, p.user.image)
         }));
-      return u;
+      return f;
     } catch (p) {
       try {
         await o(d);
@@ -1011,24 +1011,24 @@ function f2(e, t) {
   }
   async function s(o, c, l = {}) {
     if (!c()) throw new Error("administrator_context_changed");
-    const d = n, f = r();
+    const d = n, u = r();
     if (d.unsaved) throw new Error("administrator_save_pending");
-    const u = e.osId(), p = {
+    const f = e.osId(), p = {
       candidate: structuredClone(o),
       revision: d.data.revision,
       clear: !!l.clear,
-      osId: u,
-      guard: () => f() && c(),
-      cleanup: l.cleanup && u ? {
-        osId: u,
+      osId: f,
+      guard: () => u() && c(),
+      cleanup: l.cleanup && f ? {
+        osId: f,
         images: l.cleanup
       } : null
     };
     try {
       const m = await e.save(p.candidate, p.revision, p.guard, p.clear);
-      f() && (d.data = m, d.corrupted = !1, d.conflict = !1);
+      u() && (d.data = m, d.corrupted = !1, d.conflict = !1);
     } catch (m) {
-      throw f() && (d.unsaved = p, d.conflict = m.message === "administrator_history_conflict"), m;
+      throw u() && (d.unsaved = p, d.conflict = m.message === "administrator_history_conflict"), m;
     }
     d.cleanup = p.cleanup, await i(d);
   }
@@ -1045,11 +1045,11 @@ function f2(e, t) {
     refresh: a,
     save: s,
     async prepareTurn(o, c) {
-      const l = structuredClone(n.data), d = l.turns.findIndex((u) => u.id === o.id);
+      const l = structuredClone(n.data), d = l.turns.findIndex((f) => f.id === o.id);
       if (d < 0) l.turns.push(o);
       else if (Sf(l, o.id), l.turns = [...l.turns.slice(0, d), o], JSON.stringify(l) === JSON.stringify(n.data)) return;
-      const f = new Set(El(l).map((u) => u.path));
-      await s(l, c, { cleanup: El(n.data).filter((u) => !f.has(u.path)) });
+      const u = new Set(El(l).map((f) => f.path));
+      await s(l, c, { cleanup: El(n.data).filter((f) => !u.has(f.path)) });
     },
     async adopt() {
       const o = n, c = r(), l = o.unsaved, d = await e.adoptServer();
@@ -1058,20 +1058,20 @@ function f2(e, t) {
       if (o.unsaved = null, o.conflict = !1, await i(o), !c()) throw new Error("administrator_context_changed");
       if (await a(), !c()) throw new Error("administrator_context_changed");
       if (l && Sy(o.data, l) && (o.cleanup = l.cleanup, await i(o)), l?.osId && !o.corrupted) {
-        const f = new Set(El(o.data).map((u) => u.path));
+        const u = new Set(El(o.data).map((f) => f.path));
         o.cleanup = {
           osId: l.osId,
-          images: El(l.candidate).filter((u) => !f.has(u.path))
+          images: El(l.candidate).filter((f) => !u.has(f.path))
         }, await i(o);
       }
     },
     async confirm(o, c = !1) {
-      const l = n, d = r(), f = () => d() && o(), u = await e.confirmPending(c);
-      if (!f()) throw new Error("administrator_context_changed");
-      if (c && u.status === "unconfirmed") return;
-      if (!["none", "confirmed"].includes(u.status)) throw new Error(`administrator_save_${u.status}`);
+      const l = n, d = r(), u = () => d() && o(), f = await e.confirmPending(c);
+      if (!u()) throw new Error("administrator_context_changed");
+      if (c && f.status === "unconfirmed") return;
+      if (!["none", "confirmed"].includes(f.status)) throw new Error(`administrator_save_${f.status}`);
       const p = l.unsaved;
-      if (await a(), !f()) throw new Error("administrator_context_changed");
+      if (await a(), !u()) throw new Error("administrator_context_changed");
       if (p) {
         const m = l.data;
         if (Sy(m, p))
@@ -1080,25 +1080,25 @@ function f2(e, t) {
           if (!l.corrupted && m.revision !== p.revision)
             throw l.conflict = !0, new Error("administrator_history_conflict");
           if (!c) {
-            const g = await e.save(p.candidate, p.revision, () => f() && p.guard(), p.clear);
-            f() && (l.data = g, l.unsaved = null, l.corrupted = !1), l.cleanup = p.cleanup;
+            const g = await e.save(p.candidate, p.revision, () => u() && p.guard(), p.clear);
+            u() && (l.data = g, l.unsaved = null, l.corrupted = !1), l.cleanup = p.cleanup;
           }
         }
       }
       await i(l);
     },
     async editUserMessage(o, c, l) {
-      const d = structuredClone(n.data), f = d.turns.find((u) => u.id === o);
-      if (!f?.user) throw new Error("administrator_message_missing");
-      if (typeof c != "string" || c.length > et.maxInputChars || !c.trim() && !f.user.image) throw new Error("administrator_input_invalid");
-      f.user.text !== c.trim() && (f.user.text = c.trim(), Sf(d, o), await s(d, l));
+      const d = structuredClone(n.data), u = d.turns.find((f) => f.id === o);
+      if (!u?.user) throw new Error("administrator_message_missing");
+      if (typeof c != "string" || c.length > et.maxInputChars || !c.trim() && !u.user.image) throw new Error("administrator_input_invalid");
+      u.user.text !== c.trim() && (u.user.text = c.trim(), Sf(d, o), await s(d, l));
     },
     async deleteMessage(o, c, l) {
-      const d = structuredClone(n.data), f = d.turns.find((p) => p.id === o);
-      if (!f || !["user", "assistant"].includes(c)) throw new Error("administrator_message_missing");
+      const d = structuredClone(n.data), u = d.turns.find((p) => p.id === o);
+      if (!u || !["user", "assistant"].includes(c)) throw new Error("administrator_message_missing");
       Sf(d, o);
-      const u = c === "user" && f.user?.image ? [f.user.image] : [];
-      c === "user" ? f.user = null : (f.assistant = null, delete f.assistantPayload, f.toolMessages = [], f.operations = [], f.status = "finished", f.error = ""), !f.user && f.assistant === null && !f.toolMessages.length && !f.operations.length && d.turns.splice(d.turns.indexOf(f), 1), await s(d, l, { cleanup: u });
+      const f = c === "user" && u.user?.image ? [u.user.image] : [];
+      c === "user" ? u.user = null : (u.assistant = null, delete u.assistantPayload, u.toolMessages = [], u.operations = [], u.status = "finished", u.error = ""), !u.user && u.assistant === null && !u.toolMessages.length && !u.operations.length && d.turns.splice(d.turns.indexOf(u), 1), await s(d, l, { cleanup: f });
     },
     async clear(o) {
       await s(Xa(), o, {
@@ -1627,20 +1627,20 @@ function v2(e, t, n = []) {
         status: "failed",
         code: "arguments_invalid"
       };
-      const d = l.filter((f) => !r.has(f));
+      const d = l.filter((u) => !r.has(u));
       if (d.length) return {
         ok: !1,
         status: "failed",
         code: "management_unavailable",
         data: { unavailableApps: d }
       };
-      for (const f of l) i.set(f, r.get(f).tools);
+      for (const u of l) i.set(u, r.get(u).tools);
       return {
         ok: !0,
         status: "read",
         data: {
           apps: [...i.keys()],
-          tools: o().map((f) => f.function.name)
+          tools: o().map((u) => u.function.name)
         }
       };
     }
@@ -1667,13 +1667,13 @@ var b2 = "The story floors listed in floors changed after you read them. This wr
 async function My(e) {
   const t = ch(), n = /* @__PURE__ */ new Map(), r = /* @__PURE__ */ new Map(), i = [], a = [], s = g2();
   let o = null;
-  function c(m, g, w) {
+  function c(m, g, v) {
     const h = m.definition.function.name;
     if (n.has(h)) throw new Error("administrator_duplicate_tool");
     n.set(h, {
       appId: g,
       tool: m,
-      participant: w
+      participant: v
     });
   }
   for (const m of e.registry.list()) {
@@ -1689,14 +1689,14 @@ async function My(e) {
       };
       a.push(b), g = { error: b };
     }
-    const w = vt(g);
+    const v = vt(g);
     i.push({
       id: m.id,
       label: m.label,
       tools: m.tools,
       prompt: m.prompt,
-      data: w.length <= 12e3 ? g : {
-        ...Qa(w),
+      data: v.length <= 12e3 ? g : {
+        ...Qa(v),
         detail: Dc.initialPage
       }
     });
@@ -1709,9 +1709,9 @@ async function My(e) {
     ...l.tools
   ];
   for (const m of d) c(m, Ef.includes(m) ? "story" : "administrator", null);
-  const f = v2(i, d, e.loadedApps);
-  c(f.tool, "administrator", null);
-  function u() {
+  const u = v2(i, d, e.loadedApps);
+  c(u.tool, "administrator", null);
+  function f() {
     e.reader.assertCurrent();
     try {
       return {
@@ -1730,26 +1730,26 @@ async function My(e) {
       e.reader.assertCurrent();
     }
   }
-  function p(m, g, w, h) {
+  function p(m, g, v, h) {
     m.status = g.status;
     const b = g.data && typeof g.data == "object" ? g.data : null;
     m.summary = h ?? (g.data && typeof g.data == "object" && "message" in g.data && !g.ok ? String(g.data.message).slice(0, 350) : void 0) ?? (b?.applied || b?.skipped ? On.itemReport(b.applied?.length ?? 0, b.skipped?.length ?? 0) : On.operations[g.status]);
     const k = {
-      ...w === Ey ? g : s.project(m.id, g, {
-        sourcePaged: w !== void 0 && Ef.includes(w),
-        boundedSource: w !== void 0 && l.tools.includes(w)
+      ...v === Ey ? g : s.project(m.id, g, {
+        sourcePaged: v !== void 0 && Ef.includes(v),
+        boundedSource: v !== void 0 && l.tools.includes(v)
       }),
       receipt: { ...m }
     };
     return e.onChange(), k;
   }
   return {
-    getTools: f.getTools,
+    getTools: u.getTools,
     prompt: i.map((m) => m.prompt).join(`
 
 `),
     data: {
-      environment: u(),
+      environment: f(),
       story: e.reader.info,
       apps: i.map(({ id: m, data: g }) => ({
         id: m,
@@ -1771,14 +1771,14 @@ async function My(e) {
       };
       return await e.saveReceipts(g), o = null, m;
     },
-    async execute(m, g, w, h) {
-      const b = `${t}:${w}`, k = n.get(m);
+    async execute(m, g, v, h) {
+      const b = `${t}:${v}`, k = n.get(m);
       if (!k) return {
         ok: !1,
         status: "failed",
         code: "tool_unavailable"
       };
-      if (!f.getTools().some((_) => _.function.name === m)) return B0;
+      if (!u.getTools().some((_) => _.function.name === m)) return B0;
       let I;
       try {
         I = D0(g);
@@ -1827,16 +1827,16 @@ async function My(e) {
           y || (y = await k.participant.open(), r.set(k.appId, y)), e.reader.assertCurrent();
           try {
             _ = await y.execute(m, I, e.guard);
-          } catch (v) {
+          } catch (w) {
             throw k.tool.effect === "write" && (o = {
               id: b,
               operation: x,
               session: y,
               messageIndex: h
-            }), v;
+            }), w;
           }
           k.tool.effect === "read" && e.reader.assertCurrent();
-        } else l.owns(m) ? (e.reader.assertCurrent(), _ = await l.execute(m, I), e.reader.assertCurrent()) : m === "ToolsLoad" ? (e.reader.assertCurrent(), _ = f.load(I)) : m === "OSInspect" ? _ = u() : _ = {
+        } else l.owns(m) ? (e.reader.assertCurrent(), _ = await l.execute(m, I), e.reader.assertCurrent()) : m === "ToolsLoad" ? (e.reader.assertCurrent(), _ = u.load(I)) : m === "OSInspect" ? _ = f() : _ = {
           ok: !0,
           status: "read",
           data: m === "ChatRead" ? await e.reader.read(I) : m === "ChatSearch" ? await e.reader.search(I) : s.page(b, String(I.reference), I.offset)
@@ -1853,10 +1853,10 @@ async function My(e) {
       }
     },
     preview(m) {
-      return m.slice(0, 6).flatMap((g, w) => {
+      return m.slice(0, 6).flatMap((g, v) => {
         const h = n.get(g);
         return h ? [{
-          id: `preview-${w}`,
+          id: `preview-${v}`,
           appId: h.appId,
           name: h.tool.label,
           target: "",
@@ -2000,15 +2000,15 @@ function K0(e, t, n, r, i, a) {
       role: g.message.role,
       content: ""
     })
-  }), l = c(0), d = c(1), f = c(2), u = c(3), p = i * et.imageTokens;
+  }), l = c(0), d = c(1), u = c(2), f = c(3), p = i * et.imageTokens;
   return {
-    used: u + p,
+    used: f + p,
     limit: et.inputBudget,
     trigger: et.summaryTrigger,
     rules: d - l,
     tools: l,
-    history: f - d,
-    runtime: u - f,
+    history: u - d,
+    runtime: f - u,
     images: p
   };
 }
@@ -2068,30 +2068,30 @@ async function A2(e) {
   async function d() {
     await e.save(), n.throwIfAborted();
   }
-  async function f() {
+  async function u() {
     const p = l().used, m = W0(t), g = m.filter((b) => b.turn !== r || b.toolOffset < r.toolMessages.length).at(-1);
     if (!g) return !1;
     e.onPhase("summarizing");
-    const w = await x2({
+    const v = await x2({
       gateway: e.gateway,
       config: e.config,
       signal: n,
       summary: t.summary?.text ?? "",
       messages: m.flatMap((b) => F0(b.turn, b.toolOffset, b.turn === r ? e.requestForCounting : void 0))
     });
-    if (n.throwIfAborted(), !w) throw new Error("administrator_summary_failed");
+    if (n.throwIfAborted(), !v) throw new Error("administrator_summary_failed");
     const h = t.summary;
     if (t.summary = {
-      text: w,
+      text: v,
       throughId: g.turn.id,
       throughToolMessage: g.turn === r ? r.toolMessages.length : null
     }, l().used >= p)
       throw t.summary = h, new Error("administrator_summary_failed");
     return await d(), !0;
   }
-  async function u(p, m, g) {
+  async function f(p, m, g) {
     e.onPhase("tools");
-    const w = new Set(g.map((I) => I.function.name)), h = {
+    const v = new Set(g.map((I) => I.function.name)), h = {
       role: "assistant",
       content: String(p.text ?? ""),
       toolCalls: m,
@@ -2113,16 +2113,16 @@ async function A2(e) {
       let S, _;
       try {
         S = lh(x.arguments);
-      } catch (v) {
-        if (!(v instanceof ul)) throw v;
-        _ = v.result();
+      } catch (w) {
+        if (!(w instanceof ul)) throw w;
+        _ = w.result();
       }
       b[I].content = vt({
         ok: !1,
         status: "unconfirmed",
         code: "tool_result_unconfirmed"
       });
-      const y = w.has(x.name) ? _ ?? await e.execute(x.name, S, M0(o, x.id), r.toolMessages.indexOf(b[I])) : B0;
+      const y = v.has(x.name) ? _ ?? await e.execute(x.name, S, M0(o, x.id), r.toolMessages.indexOf(b[I])) : B0;
       b[I].content = vt(y), k.push({
         id: x.id,
         name: x.name,
@@ -2135,10 +2135,10 @@ async function A2(e) {
   try {
     for (; o < et.maxToolRounds; ) {
       n.throwIfAborted();
-      const p = e.getTools(), m = l().used >= et.summaryTrigger && await f(), g = c && (c.length !== p.length || c.some((_, y) => _ !== p[y]));
+      const p = e.getTools(), m = l().used >= et.summaryTrigger && await u(), g = c && (c.length !== p.length || c.some((_, y) => _ !== p[y]));
       a && (m || i.supportsSessionToolLoop && g) && (i = await e.gateway.openSession(e.config), a = void 0);
-      const w = l(p);
-      if (e.onContext(w), w.used > et.inputBudget) throw new Error("administrator_context_full");
+      const v = l(p);
+      if (e.onContext(v), v.used > et.inputBudget) throw new Error("administrator_context_full");
       e.onPhase("waiting"), e.onText("");
       let h, b = !0, k = "", I = "", x = "";
       try {
@@ -2151,13 +2151,13 @@ async function A2(e) {
           ..._ ? { toolResponses: a } : {},
           onStreamProgress: (y) => {
             if (!b || n.aborted) return;
-            const v = typeof y.text == "string" ? y.text : k, A = Array.isArray(y.thoughts) ? y.thoughts.map((E) => String(E.text ?? "")).join(`
+            const w = typeof y.text == "string" ? y.text : k, A = Array.isArray(y.thoughts) ? y.thoughts.map((E) => String(E.text ?? "")).join(`
 `) : I, C = Array.isArray(y.toolCalls) ? JSON.stringify(y.toolCalls) : x;
-            y.activity === "waiting" || y.activity === "thinking" || y.activity === "replying" ? e.onPhase(y.activity) : y.activity === "tool-call" || C !== x && Array.isArray(y.toolCalls) && y.toolCalls.length ? e.onPhase("tools") : v && v !== k ? e.onPhase("replying") : A && A !== I && e.onPhase("thinking"), k = v, I = A, x = C, e.onText(k), Array.isArray(y.toolCalls) && e.onToolPreview?.(y.toolCalls.map((E) => String(E.name ?? "")).filter(Boolean));
+            y.activity === "waiting" || y.activity === "thinking" || y.activity === "replying" ? e.onPhase(y.activity) : y.activity === "tool-call" || C !== x && Array.isArray(y.toolCalls) && y.toolCalls.length ? e.onPhase("tools") : w && w !== k ? e.onPhase("replying") : A && A !== I && e.onPhase("thinking"), k = w, I = A, x = C, e.onText(k), Array.isArray(y.toolCalls) && e.onToolPreview?.(y.toolCalls.map((E) => String(E.name ?? "")).filter(Boolean));
           }
         });
       } catch (_) {
-        if (b = !1, !n.aborted && !s && S2(_) && await f()) {
+        if (b = !1, !n.aborted && !s && S2(_) && await u()) {
           s = !0, i = await e.gateway.openSession(e.config), a = void 0;
           continue;
         }
@@ -2173,7 +2173,7 @@ async function A2(e) {
         return r.assistant = _, r.status = "finished", r.error = "", h.providerPayload && typeof h.providerPayload == "object" && (r.assistantPayload = h.providerPayload), e.onText(_), _;
       }
       if (S.length > 24) throw new Error("administrator_tool_batch_too_large");
-      a = await u(h, S, p);
+      a = await f(h, S, p);
     }
     throw new Error("administrator_tool_round_limit");
   } finally {
@@ -2191,32 +2191,32 @@ function Py(e, t) {
     if (!l || l.identityKey !== r) throw new Error("administrator_context_changed");
     return l;
   }
-  function s(l, d, f = !1) {
-    const u = Tl(d), p = {
+  function s(l, d, u = !1) {
+    const f = Tl(d), p = {
       raw: d,
-      text: String(u.mes ?? ""),
-      swipe: u.swipe_id
+      text: String(f.mes ?? ""),
+      swipe: f.swipe_id
     }, m = i.get(l);
-    if (f && (!m || m.raw !== d || m.text !== p.text || m.swipe !== p.swipe)) throw new Error("administrator_evidence_expired");
+    if (u && (!m || m.raw !== d || m.text !== p.text || m.swipe !== p.swipe)) throw new Error("administrator_evidence_expired");
     m && (m.raw !== d || m.text !== p.text || m.swipe !== p.swipe) && i.delete(l), i.set(l, p);
   }
   function o(l, d) {
-    const f = a().messages, u = Od(l, 0), p = Od(d, f.length - 1);
-    if (u > p || p >= f.length) throw new Error("administrator_floor_missing");
+    const u = a().messages, f = Od(l, 0), p = Od(d, u.length - 1);
+    if (f > p || p >= u.length) throw new Error("administrator_floor_missing");
     return {
-      first: u,
+      first: f,
       last: p
     };
   }
   function c(l) {
-    const d = [], f = [];
-    for (const [u, p] of i) {
-      const m = l[u], g = Tl(m);
-      u >= l.length ? (d.push(u), f.push(u)) : (m !== p.raw || String(g.mes ?? "") !== p.text || g.swipe_id !== p.swipe) && d.push(u);
+    const d = [], u = [];
+    for (const [f, p] of i) {
+      const m = l[f], g = Tl(m);
+      f >= l.length ? (d.push(f), u.push(f)) : (m !== p.raw || String(g.mes ?? "") !== p.text || g.swipe_id !== p.swipe) && d.push(f);
     }
     return {
       floors: d,
-      missingFloors: f
+      missingFloors: u
     };
   }
   return {
@@ -2237,32 +2237,32 @@ function Py(e, t) {
       return t().aborted || l?.identityKey !== r ? !1 : c(l.messages).floors.length === 0;
     },
     async read(l) {
-      const { first: d, last: f } = o(l.from, l.to ?? l.from), u = [];
+      const { first: d, last: u } = o(l.from, l.to ?? l.from), f = [];
       let p = ps;
-      const m = (g, w) => ({
-        items: u,
+      const m = (g, v) => ({
+        items: f,
         scanned: {
           from: d,
           to: g
         },
-        next: w,
-        complete: w === null
+        next: v,
+        complete: v === null
       });
-      for (let g = d; g <= f; g++) {
+      for (let g = d; g <= u; g++) {
         if (g - d === et.chatReadFloors) return m(g - 1, {
           from: g,
-          to: f,
+          to: u,
           offset: 0
         });
         (g - d) % 25 === 0 && await new Promise((x) => setTimeout(x, 0));
-        const w = a().messages[g], h = Tl(w), b = String(h.mes ?? ""), k = g === d ? Od(l.offset, 0, b.length) : 0;
+        const v = a().messages[g], h = Tl(v), b = String(h.mes ?? ""), k = g === d ? Od(l.offset, 0, b.length) : 0;
         let I = Math.min(b.length, k + p);
         if (I < b.length && /[\uD800-\uDBFF]/u.test(b[I - 1]) && I--, p <= 1) return m(g - 1, {
           from: g,
-          to: f,
+          to: u,
           offset: k
         });
-        if (s(g, w, k > 0), u.push({
+        if (s(g, v, k > 0), f.push({
           floor: g,
           speaker: String(h.name ?? ""),
           role: h.is_user ? "user" : "assistant",
@@ -2271,11 +2271,11 @@ function Py(e, t) {
           totalChars: b.length
         }), p -= I - k, I < b.length) return m(g, {
           from: g,
-          to: f,
+          to: u,
           offset: I
         });
       }
-      return m(f, null);
+      return m(u, null);
     },
     async search(l) {
       if (typeof l.query != "string" || !l.query.trim() || l.query.length > et.chatQueryChars) throw new Error("administrator_query_invalid");
@@ -2284,26 +2284,26 @@ function Py(e, t) {
         next: null,
         complete: !0
       };
-      const { first: d, last: f } = o(l.from, l.to), u = new RegExp(l.query.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "iu"), p = [];
-      for (let m = d; m <= f; m++) {
+      const { first: d, last: u } = o(l.from, l.to), f = new RegExp(l.query.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "iu"), p = [];
+      for (let m = d; m <= u; m++) {
         (m - d) % 25 === 0 && await new Promise((k) => setTimeout(k, 0));
-        const g = a().messages[m], w = Tl(g), h = String(w.mes ?? ""), b = u.exec(h)?.index ?? -1;
+        const g = a().messages[m], v = Tl(g), h = String(v.mes ?? ""), b = f.exec(h)?.index ?? -1;
         if (b >= 0) {
           s(m, g);
           const k = Math.max(0, b - 100);
           p.push({
             floor: m,
-            speaker: String(w.name ?? ""),
+            speaker: String(v.name ?? ""),
             snippet: h.slice(k, k + 350),
             offset: k
           });
         }
-        if (p.length === et.chatSearchMatches && m < f) return {
+        if (p.length === et.chatSearchMatches && m < u) return {
           items: p,
           next: {
             query: l.query,
             from: m + 1,
-            to: f
+            to: u
           },
           complete: !1
         };
@@ -2329,21 +2329,21 @@ function E2(e) {
     runtime: 0
   }, c = null;
   const l = (h) => h.current() && n.identity() === h.identity && e.capture()?.identityKey === h.sourceIdentity, d = () => r?.failed && !r.promise && l(r) && t.unsaved() ? r : null;
-  function f(h = !1) {
+  function u(h = !1) {
     h ? (c && (clearTimeout(c), c = null), e.changed()) : c || (c = setTimeout(() => {
       c = null, e.changed();
     }, et.streamInterval));
   }
-  async function u(h, b) {
+  async function f(h, b) {
     if (!l(h)) throw new Error("administrator_context_changed");
     const k = structuredClone(t.read()), I = k.turns.findIndex((x) => x.id === h.turn.id);
     if (I < 0) throw new Error("administrator_message_missing");
     if (b) {
       const x = k.turns[I], { messageIndex: S, result: _ } = b, y = x.operations.findIndex((E) => E.id === _.receipt.id);
       if (y < 0) return;
-      const v = x.toolMessages[S], A = h.turn.toolMessages[S];
-      if (!v || v.role !== "tool" || v.toolCallId !== A?.toolCallId || v.toolName !== A.toolName) throw new Error("administrator_history_conflict");
-      v.content = A.content = vt(_), x.operations[y] = { ..._.receipt };
+      const w = x.toolMessages[S], A = h.turn.toolMessages[S];
+      if (!w || w.role !== "tool" || w.toolCallId !== A?.toolCallId || w.toolName !== A.toolName) throw new Error("administrator_history_conflict");
+      w.content = A.content = vt(_), x.operations[y] = { ..._.receipt };
       const C = k.summary && k.turns.findIndex((E) => E.id === k.summary.throughId);
       if (C !== null && (C > I || C === I && (k.summary.throughToolMessage === null || k.summary.throughToolMessage > S)) && (k.summary = null), JSON.stringify(x) === JSON.stringify(t.read().turns[I]) && JSON.stringify(k.summary) === JSON.stringify(t.read().summary)) return;
       await t.save(k, () => l(h));
@@ -2367,9 +2367,9 @@ function E2(e) {
         operations: h.turn.operations,
         guard: () => l(h) && h.reader.isCurrent(),
         onChange: () => {
-          l(h) && f(!0);
+          l(h) && u(!0);
         },
-        saveReceipts: (_) => u(h, _)
+        saveReceipts: (_) => f(h, _)
       }), h.abort.signal.throwIfAborted();
       const k = h.turn.user?.image, I = k ? await e.images.load(n.osId(), k, h.abort.signal) : null, x = h.turn.user?.text ?? "", S = await A2({
         gateway: e.gateway,
@@ -2397,33 +2397,33 @@ function E2(e) {
         getTools: h.executor.getTools,
         signal: h.abort.signal,
         execute: h.executor.execute,
-        save: () => u(h),
+        save: () => f(h),
         onText: (_) => {
-          h.text = _, l(h) && f();
+          h.text = _, l(h) && u();
         },
         onPhase: (_) => {
-          h.phase !== _ && (h.phase = _, l(h) && f(!0));
+          h.phase !== _ && (h.phase = _, l(h) && u(!0));
         },
         onContext: (_) => {
-          l(h) && (o = _, f());
+          l(h) && (o = _, u());
         },
         onToolPreview: (_) => {
-          h.preview = h.executor.preview(_), l(h) && f();
+          h.preview = h.executor.preview(_), l(h) && u();
         }
       });
-      h.turn.assistant = S, h.turn.status = "finished", h.turn.error = "", h.phase = "saving", f(!0), await u(h), h.failed = !1, h.reader.releaseEvidence(), r === h && (s = "");
+      h.turn.assistant = S, h.turn.status = "finished", h.turn.error = "", h.phase = "saving", u(!0), await f(h), h.failed = !1, h.reader.releaseEvidence(), r === h && (s = "");
     } catch (b) {
       h.failed = !0;
       const k = h.abort.signal.aborted ? On.stopped : ra(b);
       if (r === h && (s = k), l(h) && (h.turn.status = h.abort.signal.aborted ? "interrupted" : "failed", h.turn.error = k, h.turn.assistant = h.text || null, !t.unsaved()))
         try {
-          await u(h);
+          await f(h);
         } catch (I) {
           r === h && (s = `${k}
 ${ra(I)}`);
         }
     } finally {
-      h.context = null, h.promise = null, r === h && l(h) && f(!0);
+      h.context = null, h.promise = null, r === h && l(h) && u(!0);
     }
   }
   async function m(h, b) {
@@ -2451,13 +2451,13 @@ ${ra(I)}`);
       failed: !1,
       reader: Py(e.capture, () => _.abort.signal)
     };
-    r = _, s = "", _.promise = p(_), f(!0);
+    r = _, s = "", _.promise = p(_), u(!0);
   }
   async function g(h) {
     const b = () => !h.stopped && h.current() && i === h, k = () => {
       if (!b()) throw new Error(h.stopped ? "administrator_stopped" : "administrator_context_changed");
     };
-    h.preparing = !0, f(!0);
+    h.preparing = !0, u(!0);
     try {
       if (k(), h.input && !n.osId() && await t.save(t.read(), b), k(), h.input && !h.turn.user.image) {
         const I = n.osId(), x = await e.images.save(I, h.input);
@@ -2467,11 +2467,11 @@ ${ra(I)}`);
     } catch (I) {
       throw i === h && !t.unsaved() && (i = null), I;
     } finally {
-      h.preparing = !1, f(!0);
+      h.preparing = !1, u(!0);
     }
     return h.turn.id;
   }
-  function w(h, b = null, k = null) {
+  function v(h, b = null, k = null) {
     const I = n.identity(), x = e.capture()?.identityKey, S = t.capture(), _ = () => S() && I === n.identity() && !!x && x === e.capture()?.identityKey;
     r = null, s = "", a = k ? {
       id: k,
@@ -2487,7 +2487,7 @@ ${ra(I)}`);
       operations: [],
       status: "interrupted",
       error: ""
-    }, v = {
+    }, w = {
       startedAt: Date.now(),
       turn: y,
       input: b,
@@ -2495,7 +2495,7 @@ ${ra(I)}`);
       stopped: !1,
       preparing: !1
     };
-    return i = v, g(v);
+    return i = w, g(w);
   }
   return {
     busy: () => !!r?.promise || !!i?.preparing,
@@ -2530,7 +2530,7 @@ ${ra(I)}`);
       const y = jp(t.read());
       o = K0([$y, _.prompt].join(`
 
-`), _.getTools(), [Oy(_.data)], y, 0, I.providerConfig), f(!0);
+`), _.getTools(), [Oy(_.data)], y, 0, I.providerConfig), u(!0);
     },
     async confirmed(h = !0) {
       if (t.unsaved()) return;
@@ -2588,7 +2588,7 @@ ${ra(I)}`);
       if (typeof h != "string" || !h || h.length > 128) throw new Error("administrator_input_invalid");
       if (typeof b != "string" || b.length > et.maxInputChars || !b.trim() && !k) throw new Error("administrator_input_invalid");
       const I = k ? P0(k) : null;
-      return w({
+      return v({
         id: ch(),
         createdAt: Date.now(),
         user: { text: b.trim() }
@@ -2598,14 +2598,14 @@ ${ra(I)}`);
       if (r?.promise || t.unsaved()) throw new Error("administrator_busy");
       const b = t.read().turns.find((k) => k.id === h);
       if (!b?.user) throw new Error("administrator_message_missing");
-      return w(b);
+      return v(b);
     },
     evidence(h, b) {
       if (!r?.executor || !l(r)) throw new Error("administrator_evidence_expired");
       return r.executor.evidence(h, b);
     },
     stop() {
-      r?.abort.abort(), i && (i.stopped = !0), f(!0);
+      r?.abort.abort(), i && (i.stopped = !0), u(!0);
     },
     async reset() {
       i && (i.stopped = !0);
@@ -2640,7 +2640,7 @@ function C2(e, t) {
   }
   function o() {
     if (!n?.isCurrent()) return;
-    const l = t.live(), d = t.unsavedProcess(), f = JSON.stringify([
+    const l = t.live(), d = t.unsavedProcess(), u = JSON.stringify([
       e.identity(),
       e.read().revision,
       !!l,
@@ -2651,21 +2651,21 @@ function C2(e, t) {
       e.conflict(),
       t.submission()
     ]);
-    f !== a ? (a = f, n.post("administrator/state", { state: s(l, d) })) : n.post("administrator/live", {
+    u !== a ? (a = u, n.post("administrator/state", { state: s(l, d) })) : n.post("administrator/live", {
       live: l,
       context: t.context()
     });
   }
   async function c(l) {
     if (r || t.busy()) throw new Error("administrator_busy");
-    const d = {}, f = e.capture();
+    const d = {}, u = e.capture();
     r = d, i = "";
     try {
-      const u = await l();
-      if (!f()) throw new Error("administrator_context_changed");
-      return u;
-    } catch (u) {
-      throw f() && (i = ra(u)), new Error(ra(u));
+      const f = await l();
+      if (!u()) throw new Error("administrator_context_changed");
+      return f;
+    } catch (f) {
+      throw u() && (i = ra(f)), new Error(ra(f));
     } finally {
       r === d && (r = null, o());
     }
@@ -2678,9 +2678,9 @@ function C2(e, t) {
       if (!r && !t.busy() && !e.unsaved() && await e.refresh(), !d() || n !== l) throw new Error("administrator_context_changed");
       if (!r && !t.busy() && !e.unsaved()) try {
         await t.confirmed();
-      } catch (f) {
-        if (!d()) throw f;
-        i = ra(f);
+      } catch (u) {
+        if (!d()) throw u;
+        i = ra(u);
       }
       if (!d() || n !== l) throw new Error("administrator_context_changed");
       return a = "", s();
@@ -2691,21 +2691,21 @@ function C2(e, t) {
     async handleMessage(l) {
       const d = zn(l.payload);
       if (!n?.isCurrent() || d.chatIdentity !== e.identity()) throw new Error("administrator_context_changed");
-      const f = e.capture();
+      const u = e.capture();
       switch (l.type) {
         case "administrator/stop":
           return t.stop(), {};
         case "administrator/page": {
           if (d.revision !== e.read().revision) throw new Error("administrator_history_conflict");
-          const u = Number(d.start);
-          if (!Number.isSafeInteger(u) || u < 0) throw new Error("administrator_page_invalid");
-          return e.page(u);
+          const f = Number(d.start);
+          if (!Number.isSafeInteger(f) || f < 0) throw new Error("administrator_page_invalid");
+          return e.page(f);
         }
         case "administrator/text": {
           if (d.revision !== e.read().revision) throw new Error("administrator_history_conflict");
-          const u = e.read().turns.find((g) => g.id === d.turnId);
-          if (!u) throw new Error("administrator_message_missing");
-          const p = d.role === "user" ? u.user?.text ?? "" : u.assistant ?? "", m = Number(d.offset ?? 0);
+          const f = e.read().turns.find((g) => g.id === d.turnId);
+          if (!f) throw new Error("administrator_message_missing");
+          const p = d.role === "user" ? f.user?.text ?? "" : f.assistant ?? "", m = Number(d.offset ?? 0);
           if (!Number.isSafeInteger(m) || m < 0 || m > p.length) throw new Error("administrator_page_invalid");
           return {
             text: p.slice(m, m + et.textBlock),
@@ -2717,13 +2717,13 @@ function C2(e, t) {
           if (d.revision !== e.read().revision) throw new Error("administrator_history_conflict");
           return t.process(String(d.turnId));
         case "administrator/operations": {
-          const u = e.read().turns.find((m) => m.id === d.turnId);
-          if (!u) throw new Error("administrator_message_missing");
+          const f = e.read().turns.find((m) => m.id === d.turnId);
+          if (!f) throw new Error("administrator_message_missing");
           const p = Number(d.offset ?? 0);
           if (!Number.isSafeInteger(p) || p < 0) throw new Error("administrator_page_invalid");
           return {
-            items: u.operations.slice(p, p + et.pageSize),
-            total: u.operations.length,
+            items: f.operations.slice(p, p + et.pageSize),
+            total: f.operations.length,
             offset: p
           };
         }
@@ -2741,14 +2741,14 @@ function C2(e, t) {
           });
         case "administrator/check":
         case "administrator/confirm":
-          return c(async () => (await e.confirm(f, l.type === "administrator/check"), await t.confirmed(), s()));
+          return c(async () => (await e.confirm(u, l.type === "administrator/check"), await t.confirmed(), s()));
         case "administrator/adopt":
           return c(async () => {
             t.stop(), await e.adopt();
             try {
               await t.confirmed(!1);
             } finally {
-              f() && !e.unsaved() && await t.reset();
+              u() && !e.unsaved() && await t.reset();
             }
             return await t.prepareContext(), s();
           });
@@ -2756,15 +2756,15 @@ function C2(e, t) {
           return c(async () => {
             if (e.unsaved()) throw new Error("administrator_save_pending");
             if (d.revision !== e.read().revision) throw new Error("administrator_history_conflict");
-            return await e.editUserMessage(String(d.turnId), d.text, f), await t.reset(), await t.prepareContext(), s();
+            return await e.editUserMessage(String(d.turnId), d.text, u), await t.reset(), await t.prepareContext(), s();
           });
         case "administrator/delete":
           return c(async () => {
             if (d.revision !== e.read().revision) throw new Error("administrator_history_conflict");
-            return await t.reset(), await e.deleteMessage(String(d.turnId), String(d.role), f), await t.prepareContext(), s();
+            return await t.reset(), await e.deleteMessage(String(d.turnId), String(d.role), u), await t.prepareContext(), s();
           });
         case "administrator/clear":
-          return c(async () => (await t.reset(), await e.clear(f), await t.prepareContext(), s()));
+          return c(async () => (await t.reset(), await e.clear(u), await t.prepareContext(), s()));
         case "administrator/refresh":
           return c(async () => (await e.refresh(), s()));
         default:
@@ -2915,8 +2915,8 @@ function N2(e, t) {
   function c(m) {
     const g = async () => {
       if (!a(m)) return;
-      const w = await o();
-      a(m) && m.post("agent-api/state", { state: w });
+      const v = await o();
+      a(m) && m.post("agent-api/state", { state: v });
     };
     t ? t.setTimeout(g, 0) : globalThis.setTimeout(() => {
       g();
@@ -2929,13 +2929,13 @@ function N2(e, t) {
   function d(m) {
     i.delete(m);
   }
-  function f(m = "cancelled") {
+  function u(m = "cancelled") {
     r += 1, n = null;
     for (const g of i) g.abort(m);
     i.clear();
   }
-  function u(m) {
-    f("reactivated");
+  function f(m) {
+    u("reactivated");
     const g = {
       generation: ++r,
       post: m.post
@@ -2943,22 +2943,22 @@ function N2(e, t) {
     return n = g, c(g), $2();
   }
   async function p(m) {
-    const g = s(), w = Ol(m.payload) ? m.payload : {};
+    const g = s(), v = Ol(m.payload) ? m.payload : {};
     if (m.type === "agent-api/reload") {
       const h = await o();
       if (!a(g)) throw new Error("app_inactive");
       return h;
     }
     if (m.type === "agent-api/save") {
-      const h = Ol(w.patch) ? w.patch : {}, b = await e.saveConfig(h);
+      const h = Ol(v.patch) ? v.patch : {}, b = await e.saveConfig(h);
       if (!a(g)) throw new Error("app_inactive");
       return b;
     }
     if (m.type === "agent-api/pull-models") {
-      if (!Ol(w.providerConfig)) throw new Error("模型配置无效");
+      if (!Ol(v.providerConfig)) throw new Error("模型配置无效");
       const h = l();
       try {
-        const b = await e.pullModels(w.providerConfig, h.signal);
+        const b = await e.pullModels(v.providerConfig, h.signal);
         if (!a(g)) throw new Error("app_inactive");
         return { models: b };
       } finally {
@@ -2966,10 +2966,10 @@ function N2(e, t) {
       }
     }
     if (m.type === "agent-api/test-connection") {
-      if (!Ol(w.providerConfig)) throw new Error("模型配置无效");
+      if (!Ol(v.providerConfig)) throw new Error("模型配置无效");
       const h = l();
       try {
-        const b = await e.testConnection(w.providerConfig, h.signal);
+        const b = await e.testConnection(v.providerConfig, h.signal);
         if (!a(g)) throw new Error("app_inactive");
         return b;
       } finally {
@@ -2978,14 +2978,14 @@ function N2(e, t) {
     }
     throw new Error("未知的 Agent API 操作");
   }
-  return t?.addCleanup(() => f("execution-disposed")), Object.freeze({
-    activate: u,
-    deactivate: f,
-    cancelForeground: f,
-    cancelAll: f,
+  return t?.addCleanup(() => u("execution-disposed")), Object.freeze({
+    activate: f,
+    deactivate: u,
+    cancelForeground: u,
+    cancelAll: u,
     handleMessage: p,
     stopBackground() {
-      f("background-stopped");
+      u("background-stopped");
     }
   });
 }
@@ -3040,32 +3040,32 @@ function L2(e, t) {
   function s() {
     n = "", r = { seen: !0 }, i = /* @__PURE__ */ new WeakMap(), a = null, c();
   }
-  function o(u, p) {
+  function o(f, p) {
     if (p < 0) return r;
-    const m = u[p];
-    if (!m || typeof m != "object" || Js(m) === "system") return o(u, p - 1);
+    const m = f[p];
+    if (!m || typeof m != "object" || Js(m) === "system") return o(f, p - 1);
     const g = i.get(m);
     if (g) return g;
-    const w = Js(m) === "user" ? { seen: !0 } : o(u, p - 1).next ??= { seen: !1 };
-    return i.set(m, w), w;
+    const v = Js(m) === "user" ? { seen: !0 } : o(f, p - 1).next ??= { seen: !1 };
+    return i.set(m, v), v;
   }
   function c() {
-    const u = e();
-    if (!u?.identityKey) return null;
-    if (n !== u.identityKey) {
-      n = u.identityKey, r = { seen: !0 }, i = /* @__PURE__ */ new WeakMap();
-      for (let p = 0; p < u.messages.length; p += 1) o(u.messages, p).seen = !0;
+    const f = e();
+    if (!f?.identityKey) return null;
+    if (n !== f.identityKey) {
+      n = f.identityKey, r = { seen: !0 }, i = /* @__PURE__ */ new WeakMap();
+      for (let p = 0; p < f.messages.length; p += 1) o(f.messages, p).seen = !0;
     }
-    return u;
+    return f;
   }
-  function l(u, p, m) {
+  function l(f, p, m) {
     if (p || ![
       "",
       "normal",
       "regenerate",
       "swipe",
       "continue"
-    ].includes(u)) return;
+    ].includes(f)) return;
     const g = c();
     a = g ? {
       identity: g.identityKey,
@@ -3073,30 +3073,30 @@ function L2(e, t) {
       sawText: !1
     } : null;
   }
-  function d(u) {
-    a && u.trim() && (a.sawText = !0);
+  function d(f) {
+    a && f.trim() && (a.sawText = !0);
   }
-  function f(u, p) {
+  function u(f, p) {
     const m = a, g = e();
-    if (!m || !g || g.identityKey !== m.identity || n !== g.identityKey || !Number.isSafeInteger(u) || u < 0 || u >= g.messages.length || ![
+    if (!m || !g || g.identityKey !== m.identity || n !== g.identityKey || !Number.isSafeInteger(f) || f < 0 || f >= g.messages.length || ![
       "",
       "normal",
       "regenerate",
       "swipe",
       "continue"
     ].includes(p)) return;
-    const w = g.messages[u];
-    if (!w || typeof w != "object" || Js(w) !== "assistant") return;
-    const h = w.mes;
+    const v = g.messages[f];
+    if (!v || typeof v != "object" || Js(v) !== "assistant") return;
+    const h = v.mes;
     if (typeof h != "string" || !h.trim() || m.streaming && !m.sawText) return;
-    const b = o(g.messages, u);
+    const b = o(g.messages, f);
     b.seen || (b.seen = !0, t());
   }
   return s(), Object.freeze({
     reset: s,
     started: l,
     token: d,
-    received: f
+    received: u
   });
 }
 function uh(e) {
@@ -3237,22 +3237,22 @@ function W2({ readHostGenerating: e, subscribe: t }) {
     const g = o();
     if (a !== g) {
       a = g;
-      for (const w of n) w(g);
+      for (const v of n) v(g);
     }
   }
   function l(g) {
     if (r = !g.dryRun && By(g.type), !i && a) {
       a = !1;
-      for (const w of n) w(!1);
+      for (const v of n) v(!1);
     }
   }
   function d(g) {
     i = !g.dryRun && By(g.type), c();
   }
-  function f() {
+  function u() {
     i = !1, c();
   }
-  function u() {
+  function f() {
     r = !1, i = !1, c();
   }
   function p() {
@@ -3260,17 +3260,17 @@ function W2({ readHostGenerating: e, subscribe: t }) {
       started: l,
       hostStateChanged: c,
       groupStarted: d,
-      groupFinished: f
+      groupFinished: u
     }), c());
   }
   function m() {
-    s?.(), s = null, u(), n.clear();
+    s?.(), s = null, f(), n.clear();
   }
   return Object.freeze({
     startBackground: p,
     stopBackground: m,
-    handleChatChanged: u,
-    cancelAll: u,
+    handleChatChanged: f,
+    cancelAll: f,
     isActive: o,
     subscribe(g) {
       return n.add(g), () => n.delete(g);
@@ -3575,12 +3575,12 @@ function iE({ bank: e, economy: t, execution: n }) {
       activityLimit: Wy
     }));
   }
-  function f(x, S) {
+  function u(x, S) {
     return r === x && x.post("bank/state", { state: S }), S;
   }
-  function u(x = r) {
+  function f(x = r) {
     if (!x) throw new Error("银行 APP 未激活");
-    return f(x, d(x.chatIdentity));
+    return u(x, d(x.chatIdentity));
   }
   async function p() {
     if (!t.isOpen()) try {
@@ -3598,32 +3598,32 @@ function iE({ bank: e, economy: t, execution: n }) {
     i = S;
     const _ = () => {
       i !== S || r !== x || o() !== x.chatIdentity || p().then(() => {
-        i !== S || r !== x || o() !== x.chatIdentity || (i = null, u(x));
+        i !== S || r !== x || o() !== x.chatIdentity || (i = null, f(x));
       }).catch((y) => {
         if (i !== S || r !== x || o() !== x.chatIdentity) return;
         console.error("[LittleWhiteBox] 银行数据准备失败", y);
-        const v = Dp(y) && typeof y.code == "string" ? y.code : "";
+        const w = Dp(y) && typeof y.code == "string" ? y.code : "";
         i = {
           activation: x,
           error: [
             "bank_invalid_domain",
             "bank_economy_inconsistent",
             "bank_unsupported_version"
-          ].includes(v) ? Ky.invalid : Ky.unavailable
-        }, u(x);
+          ].includes(w) ? Ky.invalid : Ky.unavailable
+        }, f(x);
       });
     };
     n ? n.setTimeout(_, 0) : globalThis.setTimeout(_, 0);
   }
   function g(x) {
-    w();
+    v();
     const S = o(), _ = {
       chatIdentity: S,
       post: x.post
     };
     return r = _, m(_), d(S);
   }
-  function w() {
+  function v() {
     r = null, i = null, a = !1;
   }
   async function h(x, S, _, y) {
@@ -3631,66 +3631,66 @@ function iE({ bank: e, economy: t, execution: n }) {
     a = !0;
     try {
       return y(await _());
-    } catch (v) {
-      throw r === x && o() === x.chatIdentity && Gy(v) && u(x), v;
+    } catch (w) {
+      throw r === x && o() === x.chatIdentity && Gy(w) && f(x), w;
     } finally {
       r === x && (a = !1);
     }
   }
   function b(x, S, _) {
-    return h(x, S, _, (y) => f(x, l(x.chatIdentity, y)));
+    return h(x, S, _, (y) => u(x, l(x.chatIdentity, y)));
   }
   async function k(x) {
     const S = Dp(x.payload) ? x.payload : {}, _ = c(S);
     if (x.type === "bank/refresh") {
       if (a) throw new Error("已有银行操作正在处理");
-      return i = null, typeof e.refreshCurrent == "function" && await e.refreshCurrent(), await p(), u(_);
+      return i = null, typeof e.refreshCurrent == "function" && await e.refreshCurrent(), await p(), f(_);
     }
     if (x.type === "bank/records/load-more") {
       if (a) throw new Error("已有银行操作正在处理");
-      const v = S.offset;
-      if (typeof v != "number" || !Number.isSafeInteger(v) || v < 1) throw new Error("银行记录游标无效");
+      const w = S.offset;
+      if (typeof w != "number" || !Number.isSafeInteger(w) || w < 1) throw new Error("银行记录游标无效");
       return V0(e.readCurrent({
-        activityOffset: v,
+        activityOffset: w,
         activityLimit: Wy
       }));
     }
     if (x.type === "bank/confirm-save")
-      return i = null, h(_, S, () => e.confirmPending(), (v) => ({
-        confirmation: v.status,
-        state: u(_)
+      return i = null, h(_, S, () => e.confirmPending(), (w) => ({
+        confirmation: w.status,
+        state: f(_)
       }));
-    if (x.type === "bank/retry-turns") return h(_, S, () => e.confirmPending(), () => u(_));
+    if (x.type === "bank/retry-turns") return h(_, S, () => e.confirmPending(), () => f(_));
     const y = {
       ...rE(S),
       actionId: Rl(S.actionId, "操作标识")
     };
     if (x.type === "bank/deposit/open") {
-      const v = {
+      const w = {
         ...y,
         productId: Rl(S.productId, "存单产品"),
         amount: Uy(S.amount)
       };
-      return b(_, S, () => e.openDeposit(v));
+      return b(_, S, () => e.openDeposit(w));
     }
     if (x.type === "bank/deposit/withdraw") {
-      const v = {
+      const w = {
         ...y,
         positionId: Rl(S.positionId, "存单头寸")
       };
-      return b(_, S, () => e.withdrawDeposit(v));
+      return b(_, S, () => e.withdrawDeposit(w));
     }
     if (x.type === "bank/fund/open") {
-      const v = {
+      const w = {
         ...y,
         productId: Rl(S.productId, "理财产品"),
         amount: Uy(S.amount)
       };
-      return b(_, S, () => e.openFund(v));
+      return b(_, S, () => e.openFund(w));
     }
     if (x.type === "bank/settle-due") {
-      const v = y;
-      return b(_, S, () => e.settleDue(v));
+      const w = y;
+      return b(_, S, () => e.settleDue(w));
     }
     throw new Error("未知的银行操作");
   }
@@ -3698,23 +3698,23 @@ function iE({ bank: e, economy: t, execution: n }) {
     const x = r;
     if (x)
       try {
-        u(x);
+        f(x);
       } catch (S) {
         x.post("bank/error", { message: S instanceof Error ? S.message : String(S) });
       }
   }
   return Object.freeze({
     activate: g,
-    deactivate: w,
-    cancelForeground: w,
-    cancelAll: w,
-    handleChatChanged: w,
+    deactivate: v,
+    cancelForeground: v,
+    cancelAll: v,
+    handleChatChanged: v,
     handleMessage: k,
     startBackground() {
       s || (s = e.subscribe(I));
     },
     stopBackground() {
-      s?.(), s = null, w();
+      s?.(), s = null, v();
     }
   });
 }
@@ -4217,23 +4217,23 @@ function LE(e, t, n, r, i) {
   new Set(l).size !== l.length && _e("event.positions-closed");
   const d = [...e.openDeposits, ...e.openInvestments].filter((p) => p.maturityTurn <= t.assistantTurn).map((p) => p.id);
   Yy(a.settledPositionIds, d) || _e("event.settled-position-ids");
-  const f = [...d];
+  const u = [...d];
   if (a.kind === "deposit-withdraw-early") {
     const p = e.openDeposits.find((m) => m.id === a.positionId);
-    (!p || p.maturityTurn <= t.assistantTurn) && _e("event.early-withdrawal"), f.push(p.id);
+    (!p || p.maturityTurn <= t.assistantTurn) && _e("event.early-withdrawal"), u.push(p.id);
   }
-  Yy(l, f) || _e("event.closed-positions");
+  Yy(l, u) || _e("event.closed-positions");
   for (const p of l) {
     const m = [...e.openDeposits, ...e.openInvestments].find((g) => g.id === p);
     m || _e(`event.closed-position:${p}`), PE(m, NE(o, p), p === (a.kind === "deposit-withdraw-early" ? a.positionId : ""));
   }
   e.openDeposits = e.openDeposits.filter((p) => !l.includes(p.id)), e.openInvestments = e.openInvestments.filter((p) => !l.includes(p.id));
-  const u = s.filter((p) => p.kind !== "positions-closed");
+  const f = s.filter((p) => p.kind !== "positions-closed");
   if (a.kind === "deposit-open" || a.kind === "fund-open") {
-    u.length !== 1 && _e("event.open-change");
-    const p = u[0];
+    f.length !== 1 && _e("event.open-change");
+    const p = f[0];
     a.kind === "deposit-open" && p?.kind === "deposit-opened" ? (Xy(t, p.position, a), n.has(p.position.id) && _e("event.entity-id"), n.add(p.position.id), e.openDeposits.push(structuredClone(p.position))) : a.kind === "fund-open" && p?.kind === "fund-opened" ? (Xy(t, p.position, a), n.has(p.position.id) && _e("event.entity-id"), n.add(p.position.id), e.openInvestments.push(structuredClone(p.position))) : _e("event.open-change");
-  } else u.length !== 0 && _e("event.close-change");
+  } else f.length !== 0 && _e("event.close-change");
   o.length !== l.length && _e("event.activities");
   for (const p of o)
     (r.has(p.id) || i.has(p.sourceId)) && _e("event.activity-id"), n.has(p.sourceId) || _e("event.activity-source"), r.add(p.id), i.add(p.sourceId);
@@ -4261,8 +4261,8 @@ function sk(e, t) {
   if (!t) {
     kn(n.currentTurn, 0, "domain.currentTurn"), Array.isArray(n.history) || _e("domain.history");
     const d = /* @__PURE__ */ new Set();
-    for (const f of n.history) {
-      const u = Gn(f, [
+    for (const u of n.history) {
+      const f = Gn(u, [
         "sourceStoryId",
         "id",
         "sourceId",
@@ -4275,15 +4275,15 @@ function sk(e, t) {
         "actionId",
         "assistantTurn",
         "createdAt"
-      ], "domain.history.entry"), p = Yt(u.sourceStoryId, "domain.history.sourceStoryId"), m = ak(Object.fromEntries(Object.entries(u).filter(([w]) => [
+      ], "domain.history.entry"), p = Yt(f.sourceStoryId, "domain.history.sourceStoryId"), m = ak(Object.fromEntries(Object.entries(f).filter(([v]) => [
         "id",
         "sourceId",
         "detail",
         "amountIn",
         "payout",
         "net"
-      ].includes(w))), "domain.history.activity");
-      kn(u.revision, 1, "domain.history.revision"), Yt(u.eventId, "domain.history.eventId"), Yt(u.actionId, "domain.history.actionId"), kn(u.assistantTurn, 0, "domain.history.assistantTurn"), kn(u.createdAt, 0, "domain.history.createdAt");
+      ].includes(v))), "domain.history.activity");
+      kn(f.revision, 1, "domain.history.revision"), Yt(f.eventId, "domain.history.eventId"), Yt(f.actionId, "domain.history.actionId"), kn(f.assistantTurn, 0, "domain.history.assistantTurn"), kn(f.createdAt, 0, "domain.history.createdAt");
       const g = `${p}:${m.id}`;
       d.has(g) && _e("domain.history.duplicate"), d.add(g);
     }
@@ -4295,8 +4295,8 @@ function sk(e, t) {
   };
   let l = 0;
   for (let d = 0; d < n.events.length; d += 1) {
-    const f = $E(n.events[d], d + 1);
-    !t && (f.assistantTurn < l || f.assistantTurn > Number(n.currentTurn)) && _e("event.assistantTurn"), l = f.assistantTurn, (r.has(f.eventId) || i.has(f.actionId)) && _e("event.id-duplicate"), r.add(f.eventId), i.add(f.actionId), LE(c, f, a, s, o);
+    const u = $E(n.events[d], d + 1);
+    !t && (u.assistantTurn < l || u.assistantTurn > Number(n.currentTurn)) && _e("event.assistantTurn"), l = u.assistantTurn, (r.has(u.eventId) || i.has(u.actionId)) && _e("event.id-duplicate"), r.add(u.eventId), i.add(u.actionId), LE(c, u, a, s, o);
   }
 }
 function DE(e) {
@@ -4583,12 +4583,12 @@ function Mi(e) {
     if (!Number.isSafeInteger(d.createdAt) || d.createdAt < 0 || d.createdAt > QE) throw new Ze("economy_invalid_transaction", "createdAt must be a valid non-negative integer timestamp");
     if (n.has(d.id) || r.has(d.idempotencyKey)) throw new Ze("economy_duplicate_transaction", "transaction id and idempotency key must be unique");
     if (n.add(d.id), r.add(d.idempotencyKey), c > 0 && d.actionId === "economy:opening-grant:v1") throw new Ze("economy_invalid_opening_grant", "the fixed opening grant can only appear once");
-    const f = Object.hasOwn(d, "reversalOfTransactionId");
-    if (d.kind === "reversal" !== f) throw new Ze("economy_invalid_reversal", "reversal kind and target must be declared together");
+    const u = Object.hasOwn(d, "reversalOfTransactionId");
+    if (d.kind === "reversal" !== u) throw new Ze("economy_invalid_reversal", "reversal kind and target must be declared together");
     if (o && o.actionId !== d.actionId && i.add(o.actionId), i.has(d.actionId)) throw new Ze("economy_non_contiguous_action", "transactions for one action must be contiguous");
     if (o?.actionId === d.actionId && (o.sourceDomain !== d.sourceDomain || o.sourceScope !== d.sourceScope || o.sourceId !== d.sourceId))
       throw new Ze("economy_inconsistent_action", "transactions for one action must share a source");
-    if (f) {
+    if (u) {
       si(d.reversalOfTransactionId, "reversalOfTransactionId", 160);
       const m = t.transactions.slice(0, c).find((g) => g.id === d.reversalOfTransactionId);
       if (!m || m.actionId === "economy:opening-grant:v1" || m.reversalOfTransactionId !== void 0) throw new Ze("economy_invalid_reversal", "reversal must reference an earlier non-reversal transaction");
@@ -4596,10 +4596,10 @@ function Mi(e) {
       if (d.fromAccountId !== m.toAccountId || d.toAccountId !== m.fromAccountId || d.amount !== m.amount) throw new Ze("economy_invalid_reversal", "reversal must mirror the original transaction");
       s.add(m.id);
     }
-    const u = (a.get(d.fromAccountId) || 0) - d.amount, p = (a.get(d.toAccountId) || 0) + d.amount;
-    if (!Number.isSafeInteger(u) || !Number.isSafeInteger(p)) throw new Ze("economy_balance_overflow", "account balance exceeds safe integer range");
-    a.set(d.fromAccountId, u), a.set(d.toAccountId, p);
-    for (const [m, g] of [[d.fromAccountId, u], [d.toAccountId, p]]) if ((m === "player" || m.startsWith("escrow:")) && g < 0) throw new Ze("economy_insufficient_funds", `${m} cannot be overdrawn`);
+    const f = (a.get(d.fromAccountId) || 0) - d.amount, p = (a.get(d.toAccountId) || 0) + d.amount;
+    if (!Number.isSafeInteger(f) || !Number.isSafeInteger(p)) throw new Ze("economy_balance_overflow", "account balance exceeds safe integer range");
+    a.set(d.fromAccountId, f), a.set(d.toAccountId, p);
+    for (const [m, g] of [[d.fromAccountId, f], [d.toAccountId, p]]) if ((m === "player" || m.startsWith("escrow:")) && g < 0) throw new Ze("economy_insufficient_funds", `${m} cannot be overdrawn`);
     o = d;
   }
   eC(t.transactions[0]);
@@ -4701,20 +4701,20 @@ function aC(e, t, n = {}) {
     if (i.has(d.idempotencyKey)) throw new Ze("economy_duplicate_action_leg", "economy action legs need unique idempotency keys");
     if (i.add(d.idempotencyKey), d.actionId !== r.actionId || d.sourceDomain !== r.sourceDomain || (d.sourceScope ?? "user") !== (r.sourceScope ?? "user") || d.sourceId !== r.sourceId) throw new Ze("economy_inconsistent_action", "economy action legs must share an action and source");
   }
-  const a = t.map((d) => e.transactions.find((f) => f.idempotencyKey === d.idempotencyKey));
+  const a = t.map((d) => e.transactions.find((u) => u.idempotencyKey === d.idempotencyKey));
   for (let d = 0; d < t.length; d += 1) {
-    const f = a[d];
-    if (f && !dk(f, t[d])) throw new Ze("economy_idempotency_conflict", "idempotency key was reused with different transaction data");
+    const u = a[d];
+    if (u && !dk(u, t[d])) throw new Ze("economy_idempotency_conflict", "idempotency key was reused with different transaction data");
   }
   const s = e.transactions.filter((d) => d.actionId === r.actionId);
-  if ((a.some(Boolean) || s.length > 0) && !(s.length === t.length && a.every((d, f) => d === s[f])))
+  if ((a.some(Boolean) || s.length > 0) && !(s.length === t.length && a.every((d, u) => d === s[u])))
     throw new Ze("economy_partial_action", "economy action is only partially present in the ledger");
   let o = structuredClone(e);
   const c = [];
   let l = !1;
   for (const d of t) {
-    const f = iC(o, d, n);
-    o = f.ledger, c.push(f.transaction), l ||= f.created;
+    const u = iC(o, d, n);
+    o = u.ledger, c.push(u.transaction), l ||= u.created;
   }
   return {
     ledger: o,
@@ -4960,42 +4960,42 @@ function Nl(e, t) {
   };
 }
 function yC({ createActivityId: e, createEventId: t, createPositionId: n, random: r, runAction: i }) {
-  function a(f, u, p) {
+  function a(u, f, p) {
     const m = ac(t(), "event-id");
-    f.domain.events.some((b) => b.eventId === m) && Se("bank_invalid_context", "event-id-conflict");
+    u.domain.events.some((b) => b.eventId === m) && Se("bank_invalid_context", "event-id-conflict");
     const g = p ? ac(n(), "position-id", !0) : null;
-    g && f.domain.events.some((b) => (b.command.kind === "deposit-open" || b.command.kind === "fund-open") && b.command.positionId === g) && Se("bank_invalid_context", "position-id-conflict");
-    const w = Array.from({ length: u }, () => ac(e(), "activity-id")), h = new Set(f.domain.events.flatMap((b) => b.result.activities.map((k) => k.id)));
-    return (new Set(w).size !== w.length || w.some((b) => h.has(b))) && Se("bank_invalid_context", "activity-id-conflict"), {
+    g && u.domain.events.some((b) => (b.command.kind === "deposit-open" || b.command.kind === "fund-open") && b.command.positionId === g) && Se("bank_invalid_context", "position-id-conflict");
+    const v = Array.from({ length: f }, () => ac(e(), "activity-id")), h = new Set(u.domain.events.flatMap((b) => b.result.activities.map((k) => k.id)));
+    return (new Set(v).size !== v.length || v.some((b) => h.has(b))) && Se("bank_invalid_context", "activity-id-conflict"), {
       eventId: m,
       positionId: g,
-      activityIds: w
+      activityIds: v
     };
   }
-  function s(f, u) {
+  function s(u, f) {
     let p = 0;
-    return gC(f, () => u[p++]);
+    return gC(u, () => f[p++]);
   }
-  function o(f) {
-    return i("deposit-open", f, (u) => {
-      const p = xE(f.productId), m = Bc(p, f.amount), g = $l(u.state, u.assistantTurn);
-      rw(u.playerBalance, g, m);
-      const w = a(u, g.length, !0), h = {
-        id: w.positionId,
+  function o(u) {
+    return i("deposit-open", u, (f) => {
+      const p = xE(u.productId), m = Bc(p, u.amount), g = $l(f.state, f.assistantTurn);
+      rw(f.playerBalance, g, m);
+      const v = a(f, g.length, !0), h = {
+        id: v.positionId,
         productId: p.id,
         principal: m,
-        startTurn: u.assistantTurn,
-        maturityTurn: u.assistantTurn + p.lockRounds,
+        startTurn: f.assistantTurn,
+        maturityTurn: f.assistantTurn + p.lockRounds,
         ...Wu(p, m)
       }, b = g.map((I) => ({
         position: I,
         early: !1
-      })), k = Nl(b, s(b, w.activityIds));
+      })), k = Nl(b, s(b, v.activityIds));
       return k.changes.push({
         kind: "deposit-opened",
         position: h
       }), {
-        eventId: w.eventId,
+        eventId: v.eventId,
         command: {
           kind: "deposit-open",
           productId: p.id,
@@ -5007,17 +5007,17 @@ function yC({ createActivityId: e, createEventId: t, createPositionId: n, random
       };
     });
   }
-  function c(f) {
-    return i("deposit-withdraw-early", f, (u) => {
-      const p = ac(f.positionId, "position-id"), m = u.state.openDeposits.find((b) => b.id === p);
-      m || Se("bank_position_missing", p), m.maturityTurn <= u.assistantTurn && Se("bank_position_state_changed", p);
-      const g = $l(u.state, u.assistantTurn), w = [...g.map((b) => ({
+  function c(u) {
+    return i("deposit-withdraw-early", u, (f) => {
+      const p = ac(u.positionId, "position-id"), m = f.state.openDeposits.find((b) => b.id === p);
+      m || Se("bank_position_missing", p), m.maturityTurn <= f.assistantTurn && Se("bank_position_state_changed", p);
+      const g = $l(f.state, f.assistantTurn), v = [...g.map((b) => ({
         position: b,
         early: !1
       })), {
         position: m,
         early: !0
-      }], h = a(u, w.length, !1);
+      }], h = a(f, v.length, !1);
       return {
         eventId: h.eventId,
         command: {
@@ -5025,30 +5025,30 @@ function yC({ createActivityId: e, createEventId: t, createPositionId: n, random
           positionId: p,
           settledPositionIds: g.map((b) => b.id)
         },
-        result: Nl(w, s(w, h.activityIds))
+        result: Nl(v, s(v, h.activityIds))
       };
     });
   }
-  function l(f) {
-    return i("fund-open", f, (u) => {
-      const p = SE(f.productId), m = Bc(p, f.amount), g = $l(u.state, u.assistantTurn);
-      rw(u.playerBalance, g, m);
-      const w = a(u, g.length, !0), h = AE(p, m, r), b = {
-        id: w.positionId,
+  function l(u) {
+    return i("fund-open", u, (f) => {
+      const p = SE(u.productId), m = Bc(p, u.amount), g = $l(f.state, f.assistantTurn);
+      rw(f.playerBalance, g, m);
+      const v = a(f, g.length, !0), h = AE(p, m, r), b = {
+        id: v.positionId,
         productId: p.id,
         principal: m,
-        startTurn: u.assistantTurn,
-        maturityTurn: u.assistantTurn + p.lockRounds,
+        startTurn: f.assistantTurn,
+        maturityTurn: f.assistantTurn + p.lockRounds,
         ...h
       }, k = g.map((x) => ({
         position: x,
         early: !1
-      })), I = Nl(k, s(k, w.activityIds));
+      })), I = Nl(k, s(k, v.activityIds));
       return I.changes.push({
         kind: "fund-opened",
         position: b
       }), {
-        eventId: w.eventId,
+        eventId: v.eventId,
         command: {
           kind: "fund-open",
           productId: p.id,
@@ -5060,19 +5060,19 @@ function yC({ createActivityId: e, createEventId: t, createPositionId: n, random
       };
     });
   }
-  function d(f) {
-    return i("settle-due", f, (u) => {
-      const p = $l(u.state, u.assistantTurn);
+  function d(u) {
+    return i("settle-due", u, (f) => {
+      const p = $l(f.state, f.assistantTurn);
       p.length === 0 && Se("bank_no_due_positions");
-      const m = p.map((w) => ({
-        position: w,
+      const m = p.map((v) => ({
+        position: v,
         early: !1
-      })), g = a(u, m.length, !1);
+      })), g = a(f, m.length, !1);
       return {
         eventId: g.eventId,
         command: {
           kind: "settle-due",
-          settledPositionIds: p.map((w) => w.id)
+          settledPositionIds: p.map((v) => v.id)
         },
         result: Nl(m, s(m, g.activityIds))
       };
@@ -5094,12 +5094,12 @@ var iw = /* @__PURE__ */ I0(((e, t) => {
     i.JS_SHA256_NO_WINDOW && (r = !1);
     var a = !r && typeof self == "object", s = !i.JS_SHA256_NO_NODE_JS && typeof process == "object" && process.versions && process.versions.node && process.type != "renderer";
     s ? i = globalThis : a && (i = self);
-    var o = !i.JS_SHA256_NO_COMMON_JS && typeof t == "object" && t.exports, c = typeof define == "function" && define.amd, l = !i.JS_SHA256_NO_ARRAY_BUFFER && typeof ArrayBuffer < "u", d = "0123456789abcdef".split(""), f = [
+    var o = !i.JS_SHA256_NO_COMMON_JS && typeof t == "object" && t.exports, c = typeof define == "function" && define.amd, l = !i.JS_SHA256_NO_ARRAY_BUFFER && typeof ArrayBuffer < "u", d = "0123456789abcdef".split(""), u = [
       -2147483648,
       8388608,
       32768,
       128
-    ], u = [
+    ], f = [
       24,
       16,
       8,
@@ -5180,24 +5180,24 @@ var iw = /* @__PURE__ */ I0(((e, t) => {
     }), l && (i.JS_SHA256_NO_ARRAY_BUFFER_IS_VIEW || !ArrayBuffer.isView) && (ArrayBuffer.isView = function(y) {
       return typeof y == "object" && y.buffer && y.buffer.constructor === ArrayBuffer;
     });
-    var w = function(y, v) {
+    var v = function(y, w) {
       return function(A) {
-        return new x(v, !0).update(A)[y]();
+        return new x(w, !0).update(A)[y]();
       };
     }, h = function(y) {
-      var v = w("hex", y);
-      s && (v = b(v, y)), v.create = function() {
+      var w = v("hex", y);
+      s && (w = b(w, y)), w.create = function() {
         return new x(y);
-      }, v.update = function(E) {
-        return v.create().update(E);
+      }, w.update = function(E) {
+        return w.create().update(E);
       };
       for (var A = 0; A < m.length; ++A) {
         var C = m[A];
-        v[C] = w(C, y);
+        w[C] = v(C, y);
       }
-      return v;
-    }, b = function(y, v) {
-      var A = iw(), C = iw().Buffer, E = v ? "sha224" : "sha256", T;
+      return w;
+    }, b = function(y, w) {
+      var A = iw(), C = iw().Buffer, E = w ? "sha224" : "sha256", T;
       C.from && !i.JS_SHA256_NO_BUFFER_FROM ? T = C.from : T = function(M) {
         return new C(M);
       };
@@ -5207,25 +5207,25 @@ var iw = /* @__PURE__ */ I0(((e, t) => {
         return M.constructor === ArrayBuffer && (M = new Uint8Array(M)), Array.isArray(M) || ArrayBuffer.isView(M) || M.constructor === C ? A.createHash(E).update(T(M)).digest("hex") : y(M);
       };
       return R;
-    }, k = function(y, v) {
+    }, k = function(y, w) {
       return function(A, C) {
-        return new S(A, v, !0).update(C)[y]();
+        return new S(A, w, !0).update(C)[y]();
       };
     }, I = function(y) {
-      var v = k("hex", y);
-      v.create = function(E) {
+      var w = k("hex", y);
+      w.create = function(E) {
         return new S(E, y);
-      }, v.update = function(E, T) {
-        return v.create(E).update(T);
+      }, w.update = function(E, T) {
+        return w.create(E).update(T);
       };
       for (var A = 0; A < m.length; ++A) {
         var C = m[A];
-        v[C] = k(C, y);
+        w[C] = k(C, y);
       }
-      return v;
+      return w;
     };
-    function x(y, v) {
-      v ? (g[0] = g[16] = g[1] = g[2] = g[3] = g[4] = g[5] = g[6] = g[7] = g[8] = g[9] = g[10] = g[11] = g[12] = g[13] = g[14] = g[15] = 0, this.blocks = g) : this.blocks = [
+    function x(y, w) {
+      w ? (g[0] = g[16] = g[1] = g[2] = g[3] = g[4] = g[5] = g[6] = g[7] = g[8] = g[9] = g[10] = g[11] = g[12] = g[13] = g[14] = g[15] = 0, this.blocks = g) : this.blocks = [
         0,
         0,
         0,
@@ -5247,7 +5247,7 @@ var iw = /* @__PURE__ */ I0(((e, t) => {
     }
     x.prototype.update = function(y) {
       if (!this.finalized) {
-        var v, A = typeof y;
+        var w, A = typeof y;
         if (A !== "string") {
           if (A === "object") {
             if (y === null) throw new Error(n);
@@ -5255,12 +5255,12 @@ var iw = /* @__PURE__ */ I0(((e, t) => {
             else if (!Array.isArray(y) && (!l || !ArrayBuffer.isView(y)))
               throw new Error(n);
           } else throw new Error(n);
-          v = !0;
+          w = !0;
         }
         for (var C, E = 0, T, R = y.length, M = this.blocks; E < R; ) {
-          if (this.hashed && (this.hashed = !1, M[0] = this.block, this.block = M[16] = M[1] = M[2] = M[3] = M[4] = M[5] = M[6] = M[7] = M[8] = M[9] = M[10] = M[11] = M[12] = M[13] = M[14] = M[15] = 0), v) for (T = this.start; E < R && T < 64; ++E) M[T >>> 2] |= y[E] << u[T++ & 3];
+          if (this.hashed && (this.hashed = !1, M[0] = this.block, this.block = M[16] = M[1] = M[2] = M[3] = M[4] = M[5] = M[6] = M[7] = M[8] = M[9] = M[10] = M[11] = M[12] = M[13] = M[14] = M[15] = 0), w) for (T = this.start; E < R && T < 64; ++E) M[T >>> 2] |= y[E] << f[T++ & 3];
           else for (T = this.start; E < R && T < 64; ++E)
-            C = y.charCodeAt(E), C < 128 ? M[T >>> 2] |= C << u[T++ & 3] : C < 2048 ? (M[T >>> 2] |= (192 | C >>> 6) << u[T++ & 3], M[T >>> 2] |= (128 | C & 63) << u[T++ & 3]) : C < 55296 || C >= 57344 ? (M[T >>> 2] |= (224 | C >>> 12) << u[T++ & 3], M[T >>> 2] |= (128 | C >>> 6 & 63) << u[T++ & 3], M[T >>> 2] |= (128 | C & 63) << u[T++ & 3]) : (C = 65536 + ((C & 1023) << 10 | y.charCodeAt(++E) & 1023), M[T >>> 2] |= (240 | C >>> 18) << u[T++ & 3], M[T >>> 2] |= (128 | C >>> 12 & 63) << u[T++ & 3], M[T >>> 2] |= (128 | C >>> 6 & 63) << u[T++ & 3], M[T >>> 2] |= (128 | C & 63) << u[T++ & 3]);
+            C = y.charCodeAt(E), C < 128 ? M[T >>> 2] |= C << f[T++ & 3] : C < 2048 ? (M[T >>> 2] |= (192 | C >>> 6) << f[T++ & 3], M[T >>> 2] |= (128 | C & 63) << f[T++ & 3]) : C < 55296 || C >= 57344 ? (M[T >>> 2] |= (224 | C >>> 12) << f[T++ & 3], M[T >>> 2] |= (128 | C >>> 6 & 63) << f[T++ & 3], M[T >>> 2] |= (128 | C & 63) << f[T++ & 3]) : (C = 65536 + ((C & 1023) << 10 | y.charCodeAt(++E) & 1023), M[T >>> 2] |= (240 | C >>> 18) << f[T++ & 3], M[T >>> 2] |= (128 | C >>> 12 & 63) << f[T++ & 3], M[T >>> 2] |= (128 | C >>> 6 & 63) << f[T++ & 3], M[T >>> 2] |= (128 | C & 63) << f[T++ & 3]);
           this.lastByteIndex = T, this.bytes += T - this.start, T >= 64 ? (this.block = M[16], this.start = T - 64, this.hash(), this.hashed = !0) : this.start = T;
         }
         return this.bytes > 4294967295 && (this.hBytes += this.bytes / 4294967296 << 0, this.bytes = this.bytes % 4294967296), this;
@@ -5268,31 +5268,31 @@ var iw = /* @__PURE__ */ I0(((e, t) => {
     }, x.prototype.finalize = function() {
       if (!this.finalized) {
         this.finalized = !0;
-        var y = this.blocks, v = this.lastByteIndex;
-        y[16] = this.block, y[v >>> 2] |= f[v & 3], this.block = y[16], v >= 56 && (this.hashed || this.hash(), y[0] = this.block, y[16] = y[1] = y[2] = y[3] = y[4] = y[5] = y[6] = y[7] = y[8] = y[9] = y[10] = y[11] = y[12] = y[13] = y[14] = y[15] = 0), y[14] = this.hBytes << 3 | this.bytes >>> 29, y[15] = this.bytes << 3, this.hash();
+        var y = this.blocks, w = this.lastByteIndex;
+        y[16] = this.block, y[w >>> 2] |= u[w & 3], this.block = y[16], w >= 56 && (this.hashed || this.hash(), y[0] = this.block, y[16] = y[1] = y[2] = y[3] = y[4] = y[5] = y[6] = y[7] = y[8] = y[9] = y[10] = y[11] = y[12] = y[13] = y[14] = y[15] = 0), y[14] = this.hBytes << 3 | this.bytes >>> 29, y[15] = this.bytes << 3, this.hash();
       }
     }, x.prototype.hash = function() {
-      var y = this.h0, v = this.h1, A = this.h2, C = this.h3, E = this.h4, T = this.h5, R = this.h6, M = this.h7, P = this.blocks, G, U, j, O, z, N, B, D, $, q, K;
+      var y = this.h0, w = this.h1, A = this.h2, C = this.h3, E = this.h4, T = this.h5, R = this.h6, M = this.h7, P = this.blocks, G, U, j, O, z, N, B, D, $, q, K;
       for (G = 16; G < 64; ++G)
         z = P[G - 15], U = (z >>> 7 | z << 25) ^ (z >>> 18 | z << 14) ^ z >>> 3, z = P[G - 2], j = (z >>> 17 | z << 15) ^ (z >>> 19 | z << 13) ^ z >>> 10, P[G] = P[G - 16] + U + P[G - 7] + j << 0;
-      for (K = v & A, G = 0; G < 64; G += 4)
-        this.first ? (this.is224 ? (D = 300032, z = P[0] - 1413257819, M = z - 150054599 << 0, C = z + 24177077 << 0) : (D = 704751109, z = P[0] - 210244248, M = z - 1521486534 << 0, C = z + 143694565 << 0), this.first = !1) : (U = (y >>> 2 | y << 30) ^ (y >>> 13 | y << 19) ^ (y >>> 22 | y << 10), j = (E >>> 6 | E << 26) ^ (E >>> 11 | E << 21) ^ (E >>> 25 | E << 7), D = y & v, O = D ^ y & A ^ K, B = E & T ^ ~E & R, z = M + j + B + p[G] + P[G], N = U + O, M = C + z << 0, C = z + N << 0), U = (C >>> 2 | C << 30) ^ (C >>> 13 | C << 19) ^ (C >>> 22 | C << 10), j = (M >>> 6 | M << 26) ^ (M >>> 11 | M << 21) ^ (M >>> 25 | M << 7), $ = C & y, O = $ ^ C & v ^ D, B = M & E ^ ~M & T, z = R + j + B + p[G + 1] + P[G + 1], N = U + O, R = A + z << 0, A = z + N << 0, U = (A >>> 2 | A << 30) ^ (A >>> 13 | A << 19) ^ (A >>> 22 | A << 10), j = (R >>> 6 | R << 26) ^ (R >>> 11 | R << 21) ^ (R >>> 25 | R << 7), q = A & C, O = q ^ A & y ^ $, B = R & M ^ ~R & E, z = T + j + B + p[G + 2] + P[G + 2], N = U + O, T = v + z << 0, v = z + N << 0, U = (v >>> 2 | v << 30) ^ (v >>> 13 | v << 19) ^ (v >>> 22 | v << 10), j = (T >>> 6 | T << 26) ^ (T >>> 11 | T << 21) ^ (T >>> 25 | T << 7), K = v & A, O = K ^ v & C ^ q, B = T & R ^ ~T & M, z = E + j + B + p[G + 3] + P[G + 3], N = U + O, E = y + z << 0, y = z + N << 0, this.chromeBugWorkAround = !0;
-      this.h0 = this.h0 + y << 0, this.h1 = this.h1 + v << 0, this.h2 = this.h2 + A << 0, this.h3 = this.h3 + C << 0, this.h4 = this.h4 + E << 0, this.h5 = this.h5 + T << 0, this.h6 = this.h6 + R << 0, this.h7 = this.h7 + M << 0;
+      for (K = w & A, G = 0; G < 64; G += 4)
+        this.first ? (this.is224 ? (D = 300032, z = P[0] - 1413257819, M = z - 150054599 << 0, C = z + 24177077 << 0) : (D = 704751109, z = P[0] - 210244248, M = z - 1521486534 << 0, C = z + 143694565 << 0), this.first = !1) : (U = (y >>> 2 | y << 30) ^ (y >>> 13 | y << 19) ^ (y >>> 22 | y << 10), j = (E >>> 6 | E << 26) ^ (E >>> 11 | E << 21) ^ (E >>> 25 | E << 7), D = y & w, O = D ^ y & A ^ K, B = E & T ^ ~E & R, z = M + j + B + p[G] + P[G], N = U + O, M = C + z << 0, C = z + N << 0), U = (C >>> 2 | C << 30) ^ (C >>> 13 | C << 19) ^ (C >>> 22 | C << 10), j = (M >>> 6 | M << 26) ^ (M >>> 11 | M << 21) ^ (M >>> 25 | M << 7), $ = C & y, O = $ ^ C & w ^ D, B = M & E ^ ~M & T, z = R + j + B + p[G + 1] + P[G + 1], N = U + O, R = A + z << 0, A = z + N << 0, U = (A >>> 2 | A << 30) ^ (A >>> 13 | A << 19) ^ (A >>> 22 | A << 10), j = (R >>> 6 | R << 26) ^ (R >>> 11 | R << 21) ^ (R >>> 25 | R << 7), q = A & C, O = q ^ A & y ^ $, B = R & M ^ ~R & E, z = T + j + B + p[G + 2] + P[G + 2], N = U + O, T = w + z << 0, w = z + N << 0, U = (w >>> 2 | w << 30) ^ (w >>> 13 | w << 19) ^ (w >>> 22 | w << 10), j = (T >>> 6 | T << 26) ^ (T >>> 11 | T << 21) ^ (T >>> 25 | T << 7), K = w & A, O = K ^ w & C ^ q, B = T & R ^ ~T & M, z = E + j + B + p[G + 3] + P[G + 3], N = U + O, E = y + z << 0, y = z + N << 0, this.chromeBugWorkAround = !0;
+      this.h0 = this.h0 + y << 0, this.h1 = this.h1 + w << 0, this.h2 = this.h2 + A << 0, this.h3 = this.h3 + C << 0, this.h4 = this.h4 + E << 0, this.h5 = this.h5 + T << 0, this.h6 = this.h6 + R << 0, this.h7 = this.h7 + M << 0;
     }, x.prototype.hex = function() {
       this.finalize();
-      var y = this.h0, v = this.h1, A = this.h2, C = this.h3, E = this.h4, T = this.h5, R = this.h6, M = this.h7, P = d[y >>> 28 & 15] + d[y >>> 24 & 15] + d[y >>> 20 & 15] + d[y >>> 16 & 15] + d[y >>> 12 & 15] + d[y >>> 8 & 15] + d[y >>> 4 & 15] + d[y & 15] + d[v >>> 28 & 15] + d[v >>> 24 & 15] + d[v >>> 20 & 15] + d[v >>> 16 & 15] + d[v >>> 12 & 15] + d[v >>> 8 & 15] + d[v >>> 4 & 15] + d[v & 15] + d[A >>> 28 & 15] + d[A >>> 24 & 15] + d[A >>> 20 & 15] + d[A >>> 16 & 15] + d[A >>> 12 & 15] + d[A >>> 8 & 15] + d[A >>> 4 & 15] + d[A & 15] + d[C >>> 28 & 15] + d[C >>> 24 & 15] + d[C >>> 20 & 15] + d[C >>> 16 & 15] + d[C >>> 12 & 15] + d[C >>> 8 & 15] + d[C >>> 4 & 15] + d[C & 15] + d[E >>> 28 & 15] + d[E >>> 24 & 15] + d[E >>> 20 & 15] + d[E >>> 16 & 15] + d[E >>> 12 & 15] + d[E >>> 8 & 15] + d[E >>> 4 & 15] + d[E & 15] + d[T >>> 28 & 15] + d[T >>> 24 & 15] + d[T >>> 20 & 15] + d[T >>> 16 & 15] + d[T >>> 12 & 15] + d[T >>> 8 & 15] + d[T >>> 4 & 15] + d[T & 15] + d[R >>> 28 & 15] + d[R >>> 24 & 15] + d[R >>> 20 & 15] + d[R >>> 16 & 15] + d[R >>> 12 & 15] + d[R >>> 8 & 15] + d[R >>> 4 & 15] + d[R & 15];
+      var y = this.h0, w = this.h1, A = this.h2, C = this.h3, E = this.h4, T = this.h5, R = this.h6, M = this.h7, P = d[y >>> 28 & 15] + d[y >>> 24 & 15] + d[y >>> 20 & 15] + d[y >>> 16 & 15] + d[y >>> 12 & 15] + d[y >>> 8 & 15] + d[y >>> 4 & 15] + d[y & 15] + d[w >>> 28 & 15] + d[w >>> 24 & 15] + d[w >>> 20 & 15] + d[w >>> 16 & 15] + d[w >>> 12 & 15] + d[w >>> 8 & 15] + d[w >>> 4 & 15] + d[w & 15] + d[A >>> 28 & 15] + d[A >>> 24 & 15] + d[A >>> 20 & 15] + d[A >>> 16 & 15] + d[A >>> 12 & 15] + d[A >>> 8 & 15] + d[A >>> 4 & 15] + d[A & 15] + d[C >>> 28 & 15] + d[C >>> 24 & 15] + d[C >>> 20 & 15] + d[C >>> 16 & 15] + d[C >>> 12 & 15] + d[C >>> 8 & 15] + d[C >>> 4 & 15] + d[C & 15] + d[E >>> 28 & 15] + d[E >>> 24 & 15] + d[E >>> 20 & 15] + d[E >>> 16 & 15] + d[E >>> 12 & 15] + d[E >>> 8 & 15] + d[E >>> 4 & 15] + d[E & 15] + d[T >>> 28 & 15] + d[T >>> 24 & 15] + d[T >>> 20 & 15] + d[T >>> 16 & 15] + d[T >>> 12 & 15] + d[T >>> 8 & 15] + d[T >>> 4 & 15] + d[T & 15] + d[R >>> 28 & 15] + d[R >>> 24 & 15] + d[R >>> 20 & 15] + d[R >>> 16 & 15] + d[R >>> 12 & 15] + d[R >>> 8 & 15] + d[R >>> 4 & 15] + d[R & 15];
       return this.is224 || (P += d[M >>> 28 & 15] + d[M >>> 24 & 15] + d[M >>> 20 & 15] + d[M >>> 16 & 15] + d[M >>> 12 & 15] + d[M >>> 8 & 15] + d[M >>> 4 & 15] + d[M & 15]), P;
     }, x.prototype.toString = x.prototype.hex, x.prototype.digest = function() {
       this.finalize();
-      var y = this.h0, v = this.h1, A = this.h2, C = this.h3, E = this.h4, T = this.h5, R = this.h6, M = this.h7, P = [
+      var y = this.h0, w = this.h1, A = this.h2, C = this.h3, E = this.h4, T = this.h5, R = this.h6, M = this.h7, P = [
         y >>> 24 & 255,
         y >>> 16 & 255,
         y >>> 8 & 255,
         y & 255,
-        v >>> 24 & 255,
-        v >>> 16 & 255,
-        v >>> 8 & 255,
-        v & 255,
+        w >>> 24 & 255,
+        w >>> 16 & 255,
+        w >>> 8 & 255,
+        w & 255,
         A >>> 24 & 255,
         A >>> 16 & 255,
         A >>> 8 & 255,
@@ -5317,10 +5317,10 @@ var iw = /* @__PURE__ */ I0(((e, t) => {
       return this.is224 || P.push(M >>> 24 & 255, M >>> 16 & 255, M >>> 8 & 255, M & 255), P;
     }, x.prototype.array = x.prototype.digest, x.prototype.arrayBuffer = function() {
       this.finalize();
-      var y = /* @__PURE__ */ new ArrayBuffer(this.is224 ? 28 : 32), v = new DataView(y);
-      return v.setUint32(0, this.h0), v.setUint32(4, this.h1), v.setUint32(8, this.h2), v.setUint32(12, this.h3), v.setUint32(16, this.h4), v.setUint32(20, this.h5), v.setUint32(24, this.h6), this.is224 || v.setUint32(28, this.h7), y;
+      var y = /* @__PURE__ */ new ArrayBuffer(this.is224 ? 28 : 32), w = new DataView(y);
+      return w.setUint32(0, this.h0), w.setUint32(4, this.h1), w.setUint32(8, this.h2), w.setUint32(12, this.h3), w.setUint32(16, this.h4), w.setUint32(20, this.h5), w.setUint32(24, this.h6), this.is224 || w.setUint32(28, this.h7), y;
     };
-    function S(y, v, A) {
+    function S(y, w, A) {
       var C, E = typeof y;
       if (E === "string") {
         var T = [], R = y.length, M = 0, P;
@@ -5333,13 +5333,13 @@ var iw = /* @__PURE__ */ I0(((e, t) => {
         else if (!Array.isArray(y) && (!l || !ArrayBuffer.isView(y)))
           throw new Error(n);
       } else throw new Error(n);
-      y.length > 64 && (y = new x(v, !0).update(y).array());
+      y.length > 64 && (y = new x(w, !0).update(y).array());
       var G = [], U = [];
       for (C = 0; C < 64; ++C) {
         var j = y[C] || 0;
         G[C] = 92 ^ j, U[C] = 54 ^ j;
       }
-      x.call(this, v, A), this.update(U), this.oKeyPad = G, this.inner = !0, this.sharedMemory = A;
+      x.call(this, w, A), this.update(U), this.oKeyPad = G, this.inner = !0, this.sharedMemory = A;
     }
     S.prototype = new x(), S.prototype.finalize = function() {
       if (x.prototype.finalize.call(this), this.inner) {
@@ -5437,8 +5437,8 @@ function _C(e, t) {
 function hk(e, t, n) {
   const r = t.listOwnedTransactions(), i = /* @__PURE__ */ new Set();
   for (const c of e) {
-    const l = mk(c), d = r.filter((f) => f.actionId === c.actionId);
-    (d.length !== l.length || d.some((f, u) => !_C(f, l[u]))) && Rd(`${n}:action:${c.actionId}`), d.forEach((f) => i.add(f.sequence));
+    const l = mk(c), d = r.filter((u) => u.actionId === c.actionId);
+    (d.length !== l.length || d.some((u, f) => !_C(u, l[f]))) && Rd(`${n}:action:${c.actionId}`), d.forEach((u) => i.add(u.sequence));
   }
   i.size !== r.length && Rd(`${n}:orphan-transaction`);
   const a = ok(e), s = new Map([...a.openDeposits, ...a.openInvestments].map((c) => [c.id, c.principal])), o = new Set(e.flatMap((c) => c.command.kind === "deposit-open" || c.command.kind === "fund-open" ? [c.command.positionId] : []));
@@ -5461,45 +5461,45 @@ async function xC(e) {
       const c = n.useCapability(s, ct);
       IC(o, c);
       const l = o, d = /* @__PURE__ */ new Map();
-      for (const f of l.events) {
-        for (const u of f.result.changes) u.kind === "deposit-opened" || u.kind === "fund-opened" ? d.set(u.position.id, u.position) : u.positionIds.forEach((p) => d.delete(p));
-        for (const u of f.result.activities) a.history.push({
-          ...structuredClone(u),
+      for (const u of l.events) {
+        for (const f of u.result.changes) f.kind === "deposit-opened" || f.kind === "fund-opened" ? d.set(f.position.id, f.position) : f.positionIds.forEach((p) => d.delete(p));
+        for (const f of u.result.activities) a.history.push({
+          ...structuredClone(f),
           sourceStoryId: s,
-          revision: f.revision,
-          eventId: f.eventId,
-          actionId: f.actionId,
-          assistantTurn: f.assistantTurn,
-          createdAt: f.createdAt
+          revision: u.revision,
+          eventId: u.eventId,
+          actionId: u.actionId,
+          assistantTurn: u.assistantTurn,
+          createdAt: u.createdAt
         });
       }
-      for (const f of d.values()) {
-        const u = `bank:upgrade:${(0, nr.sha256)(`${s}:${f.id}`)}`, p = "maturityAmount" in f ? f.maturityAmount : f.settlementAmount, m = {
-          id: u,
-          sourceId: f.id,
-          detail: "maturityAmount" in f ? {
+      for (const u of d.values()) {
+        const f = `bank:upgrade:${(0, nr.sha256)(`${s}:${u.id}`)}`, p = "maturityAmount" in u ? u.maturityAmount : u.settlementAmount, m = {
+          id: f,
+          sourceId: u.id,
+          detail: "maturityAmount" in u ? {
             kind: "deposit",
-            productId: f.productId,
+            productId: u.productId,
             outcome: "matured"
           } : {
             kind: "fund",
-            productId: f.productId,
-            resolvedReturnBps: f.resolvedReturnBps
+            productId: u.productId,
+            resolvedReturnBps: u.resolvedReturnBps
           },
-          amountIn: f.principal,
+          amountIn: u.principal,
           payout: p,
-          net: p - f.principal
-        }, g = `escrow:bank:${f.id}`;
+          net: p - u.principal
+        }, g = `escrow:bank:${u.id}`;
         if (c.postAction({ legs: [
-          ...p > f.principal ? [{
+          ...p > u.principal ? [{
             fromAccountId: "counterparty:bank:reserve",
             toAccountId: g,
-            amount: p - f.principal,
+            amount: p - u.principal,
             kind: "bank_position_profit",
             title: "银行收益补足",
-            idempotencyKey: `${u}:profit`,
-            actionId: u,
-            sourceId: u
+            idempotencyKey: `${f}:profit`,
+            actionId: f,
+            sourceId: f
           }] : [],
           ...p > 0 ? [{
             fromAccountId: g,
@@ -5507,28 +5507,28 @@ async function xC(e) {
             amount: p,
             kind: "bank_position_payout",
             title: "旧存单升级结算",
-            idempotencyKey: `${u}:payout`,
-            actionId: u,
-            sourceId: u
+            idempotencyKey: `${f}:payout`,
+            actionId: f,
+            sourceId: f
           }] : [],
-          ...p < f.principal ? [{
+          ...p < u.principal ? [{
             fromAccountId: g,
             toAccountId: "system:sink",
-            amount: f.principal - p,
+            amount: u.principal - p,
             kind: "bank_position_loss",
             title: "银行亏损核销",
-            idempotencyKey: `${u}:loss`,
-            actionId: u,
-            sourceId: u
+            idempotencyKey: `${f}:loss`,
+            actionId: f,
+            sourceId: f
           }] : []
         ] }), c.getAccountBalance(g) !== 0) throw new Error("bank_upgrade_escrow_unsettled");
         a.history.push({
           ...m,
           sourceStoryId: s,
           revision: l.events.length + 1,
-          eventId: u,
-          actionId: u,
-          assistantTurn: f.maturityTurn,
+          eventId: f,
+          actionId: f,
+          assistantTurn: u.maturityTurn,
           createdAt: Date.now()
         });
       }
@@ -5562,11 +5562,11 @@ function SC(e, t, n, { now: r = Date.now, createEventId: i = () => Of("bank-even
     } catch (R) {
       console.error("[LittleWhiteBox] Bank state listener failed", R);
     }
-  }, f = e.subscribe(d), u = n.subscribe(d), p = t.subscribeFileState(d), m = () => e.peekCurrent()?.value ?? null;
-  let g = !c, w = Promise.resolve(), h = 0, b = null;
+  }, u = e.subscribe(d), f = n.subscribe(d), p = t.subscribeFileState(d), m = () => e.peekCurrent()?.value ?? null;
+  let g = !c, v = Promise.resolve(), h = 0, b = null;
   const k = (T) => {
-    const R = w.then(T, T);
-    return w = R.catch(() => {
+    const R = v.then(T, T);
+    return v = R.catch(() => {
     }), R;
   };
   async function I() {
@@ -5636,11 +5636,11 @@ function SC(e, t, n, { now: r = Date.now, createEventId: i = () => Of("bank-even
       turnConfirmationAbandoned: b?.abandoned === !0
     };
   }
-  function v(T = {}) {
+  function w(T = {}) {
     return y(m(), n.getPlayerBalance(), T);
   }
   async function A(T = {}) {
-    return await I(), await n.refresh(), await e.read(), v(T);
+    return await I(), await n.refresh(), await e.read(), w(T);
   }
   const E = yC({
     createActivityId: s,
@@ -5688,7 +5688,7 @@ function SC(e, t, n, { now: r = Date.now, createEventId: i = () => Of("bank-even
   return Object.freeze({
     ensureReady: I,
     advanceTurns: S,
-    readCurrent: v,
+    readCurrent: w,
     refreshCurrent: A,
     ...E,
     confirmPending: _,
@@ -5697,7 +5697,7 @@ function SC(e, t, n, { now: r = Date.now, createEventId: i = () => Of("bank-even
       return l.add(T), () => l.delete(T);
     },
     dispose() {
-      f(), u(), p(), l.clear();
+      u(), f(), p(), l.clear();
     }
   });
 }
@@ -5762,11 +5762,11 @@ function CC(e, t) {
   for (const [s, o] of e.entries()) {
     const c = /* @__PURE__ */ new Map();
     for (const [l, d] of Object.entries(o.slots)) {
-      const f = `xiaobai_os_${o.id}_${l}`;
-      if (r.has(f)) throw new Error("prompt_injection_duplicate_slot");
-      r.add(f), c.set(l, {
+      const u = `xiaobai_os_${o.id}_${l}`;
+      if (r.has(u)) throw new Error("prompt_injection_duplicate_slot");
+      r.add(u), c.set(l, {
         ...d,
-        identifier: f,
+        identifier: u,
         order: 999 - s,
         content: ""
       });
@@ -5795,13 +5795,13 @@ function CC(e, t) {
             if (d) throw new Error("prompt_injection_registration_disposed");
             return;
           }
-          const f = c.get(l);
-          if (!f) throw new Error("prompt_injection_unknown_slot");
-          const u = {
-            ...f,
+          const u = c.get(l);
+          if (!u) throw new Error("prompt_injection_unknown_slot");
+          const f = {
+            ...u,
             content: d
           };
-          c.set(l, u), t(u);
+          c.set(l, f), t(f);
         },
         dispose() {
           i.get(s) === c && (a(c), i.delete(s));
@@ -6108,35 +6108,35 @@ function _h(e) {
 function PC(e, t, n, r, i) {
   let a = null;
   const s = () => {
-    const u = e.read().apps.dice;
+    const f = e.read().apps.dice;
     return {
       chatIdentity: t(),
-      ...u,
+      ...f,
       coc7Sheet: _h(i.read()),
       sheetStorage: i.getFileState()
     };
   }, o = () => a?.post("dice/state", { state: s() });
   let c = null, l = null;
-  async function d(u) {
+  async function d(f) {
     try {
-      await u();
+      await f();
     } catch (p) {
       throw console.error("[LittleWhiteBox] Dice settings save failed", p), new Error("设置未能保存，请重试。");
     }
   }
-  async function f(u, p, m = () => !0) {
-    if (p && u === "actionChecksEnabled") try {
+  async function u(f, p, m = () => !0) {
+    if (p && f === "actionChecksEnabled") try {
       await n();
     } catch (g) {
       throw console.error("[LittleWhiteBox] Dice display setup failed", g), new Error("行动检定暂时无法开启，请检查酒馆的正则扩展。");
     }
     if (!m()) throw new Error("聊天或页面已切换。");
-    if (await d(() => e.setDiceFeature(u, p)), !p && !c && r(u), !m()) throw new Error("聊天或页面已切换。");
+    if (await d(() => e.setDiceFeature(f, p)), !p && !c && r(f), !m()) throw new Error("聊天或页面已切换。");
     o();
   }
   return {
-    async activate(u) {
-      return await i.refresh(), a = u, s();
+    async activate(f) {
+      return await i.refresh(), a = f, s();
     },
     deactivate() {
       a = null;
@@ -6147,27 +6147,27 @@ function PC(e, t, n, r, i) {
     startBackground() {
       if (c) return;
       l = i.subscribe(o);
-      let u = e.read().apps.dice;
+      let f = e.read().apps.dice;
       c = e.subscribe((p) => {
-        for (const m of ["actionChecksEnabled", "encountersEnabled"]) u[m] && !p.apps.dice[m] && r(m);
-        u = p.apps.dice, o();
+        for (const m of ["actionChecksEnabled", "encountersEnabled"]) f[m] && !p.apps.dice[m] && r(m);
+        f = p.apps.dice, o();
       });
     },
     stopBackground() {
       c?.(), l?.(), c = null, l = null, a = null, r("actionChecksEnabled"), r("encountersEnabled");
     },
-    async handleMessage(u) {
-      const p = u.payload, m = a;
+    async handleMessage(f) {
+      const p = f.payload, m = a;
       if (!m?.isCurrent() || p?.chatIdentity !== s().chatIdentity) throw new Error("聊天或页面已切换。");
-      if (u.type === "dice/set-feature") {
+      if (f.type === "dice/set-feature") {
         if (typeof p?.enabled != "boolean" || !["actionChecksEnabled", "encountersEnabled"].includes(p.feature ?? "")) throw new Error("开关值无效。");
-        await f(p.feature, p.enabled, () => a === m && m.isCurrent() && p.chatIdentity === t());
-      } else if (u.type === "dice/set-rule") {
+        await u(p.feature, p.enabled, () => a === m && m.isCurrent() && p.chatIdentity === t());
+      } else if (f.type === "dice/set-rule") {
         const g = p?.rule;
         if (!th(g)) throw new Error("检定规则无效。");
         if (await d(() => e.setDiceActionCheckRule(g)), a !== m || !m.isCurrent() || p.chatIdentity !== t()) throw new Error("聊天或页面已切换。");
         o();
-      } else if (u.type === "dice/set-coc7-sheet") {
+      } else if (f.type === "dice/set-coc7-sheet") {
         const g = p?.sheet === null ? null : kh(p?.sheet);
         try {
           await i.save(g, () => a === m && m.isCurrent());
@@ -6176,9 +6176,9 @@ function PC(e, t, n, r, i) {
         }
         if (a !== m || !m.isCurrent() || p?.chatIdentity !== t()) throw new Error("聊天或页面已切换。");
         o();
-      } else if (u.type === "dice/confirm-sheet-save")
+      } else if (f.type === "dice/confirm-sheet-save")
         await i.confirm(), o();
-      else if (u.type === "dice/set-frequency") {
+      else if (f.type === "dice/set-frequency") {
         const g = p?.frequency;
         if (!nh(g)) throw new Error("检定频率无效。");
         if (await d(() => e.setDiceActionCheckFrequency(g)), a !== m || !m.isCurrent() || p?.chatIdentity !== t()) throw new Error("聊天或页面已切换。");
@@ -6187,7 +6187,7 @@ function PC(e, t, n, r, i) {
       return s();
     },
     async disable() {
-      await f("actionChecksEnabled", !1), await f("encountersEnabled", !1);
+      await u("actionChecksEnabled", !1), await u("encountersEnabled", !1);
     }
   };
 }
@@ -6595,7 +6595,7 @@ function Fc(e, t = 0, n = "d20") {
     error: "dice_request_json_invalid"
   };
   try {
-    const o = JSON.parse(i.slice(pl.length, a)), c = n === "coc7" ? nu : Tr, l = o && typeof o == "object" && !Array.isArray(o) ? Object.fromEntries(Object.entries(o).filter(([f]) => f === "difficulty" || Object.hasOwn(c, f))) : o, d = {
+    const o = JSON.parse(i.slice(pl.length, a)), c = n === "coc7" ? nu : Tr, l = o && typeof o == "object" && !Array.isArray(o) ? Object.fromEntries(Object.entries(o).filter(([u]) => u === "difficulty" || Object.hasOwn(c, u))) : o, d = {
       kind: "request",
       body: e.slice(0, r),
       start: r,
@@ -6874,107 +6874,107 @@ var pT = {
 }, pw = "这次检定信息不完整或格式无效，未掷骰。";
 function mT(e) {
   let t = null;
-  const n = (u) => t === u && !u.controller.signal.aborted && e.enabled(), r = () => e.changed();
+  const n = (p) => t === p && !p.controller.signal.aborted && e.enabled(), r = () => e.changed();
   function i() {
-    const u = t;
-    t = null, u?.controller.abort(), r();
+    const p = t;
+    t = null, p?.controller.abort(), r();
   }
-  function a(u, p = "") {
-    const m = Fc(u.body, u.generatedFrom, u.rule);
-    return m.kind === "none" ? null : p ? {
+  function a(p, m = "") {
+    const g = Fc(p.body, p.generatedFrom, p.rule);
+    return g.kind === "none" ? null : m ? {
       kind: "invalid",
-      error: p
-    } : m.kind === "request" ? { kind: "waiting" } : {
+      error: m
+    } : g.kind === "request" ? { kind: "waiting" } : {
       kind: "invalid",
-      error: fw[m.error] ?? pw
+      error: fw[g.error] ?? pw
     };
   }
-  function s(u, p = "") {
-    if (t?.phase.kind === "continuing" ? t = null : i(), !e.enabled() || !e.current(u)) return;
-    const m = a(u, p);
-    m && (t = {
+  function s(p, m = "") {
+    if (t?.phase.kind === "continuing" ? t = null : i(), !e.enabled() || !e.current(p)) return;
+    const g = a(p, m);
+    g && (t = {
       controller: new AbortController(),
-      target: u,
-      phase: m,
+      target: p,
+      phase: g,
       wait: null
     }, r());
   }
-  async function o(u, p, m = "roll") {
+  async function o(p, m, g = "roll") {
     try {
-      for (; n(u); ) {
-        const g = "candidate" in u.phase ? u.phase.candidate : void 0;
-        if (u.phase = {
+      for (; n(p); ) {
+        const v = "candidate" in p.phase ? p.phase.candidate : void 0;
+        if (p.phase = {
           kind: "settling",
-          candidate: g
-        }, u.wait = null, r(), m !== "roll" && await e.ready(u.target, u.controller.signal, p, (k) => {
-          n(u) && (u.wait = k, r());
-        }), !n(u)) return;
-        if (!e.current(u.target)) {
+          candidate: v
+        }, p.wait = null, r(), g !== "roll" && await e.ready(p.target, p.controller.signal, m, (I) => {
+          n(p) && (p.wait = I, r());
+        }), !n(p)) return;
+        if (!e.current(p.target)) {
           i();
           return;
         }
-        u.wait = null;
-        let w;
-        if (g) w = g;
+        p.wait = null;
+        let h;
+        if (v) h = v;
         else {
-          const k = fT({
-            body: u.target.body,
-            records: u.target.records,
-            generatedFrom: u.target.generatedFrom,
-            rule: u.target.rule,
-            coc7Sheet: u.target.coc7Sheet,
+          const I = fT({
+            body: p.target.body,
+            records: p.target.records,
+            generatedFrom: p.target.generatedFrom,
+            rule: p.target.rule,
+            coc7Sheet: p.target.coc7Sheet,
             id: e.id(),
             random: e.random
           });
-          if (k.kind === "none") {
+          if (I.kind === "none") {
             t = null;
             return;
           }
-          if (k.kind === "invalid") {
-            u.phase = {
+          if (I.kind === "invalid") {
+            p.phase = {
               kind: "invalid",
-              error: fw[k.error] ?? pw
+              error: fw[I.error] ?? pw
             };
             return;
           }
-          w = k;
+          h = I;
         }
-        if (g || (e.apply(u.target, w), u.target = {
-          ...u.target,
-          body: w.body,
-          records: w.records
-        }), !e.current(u.target)) {
+        if (v || (e.apply(p.target, h), p.target = {
+          ...p.target,
+          body: h.body,
+          records: h.records
+        }), !e.current(p.target)) {
           i();
           return;
         }
-        if (m !== "continue") {
-          const k = m === "retry" ? e.saveRecovered(u.target) : void 0;
-          if (u.phase = {
+        if (g !== "continue") {
+          const I = g === "retry" ? e.saveRecovered(p.target) : void 0;
+          if (p.phase = {
             kind: "revealing",
-            candidate: w,
-            revealId: w.records.checks.at(-1).id,
+            candidate: h,
+            revealId: h.records.checks.at(-1).id,
             placement: "new"
-          }, r(), await e.reveal(u.target, w, u.controller.signal), await k, !n(u)) return;
-          if (!e.current(u.target)) {
+          }, r(), await e.reveal(p.target, h, p.controller.signal), await I, !n(p)) return;
+          if (!e.current(p.target)) {
             i();
             return;
           }
-          u.phase = {
+          p.phase = {
             kind: "awaiting-choice",
-            candidate: w
+            candidate: h
           };
           return;
         }
-        u.phase = {
+        p.phase = {
           kind: "continuing",
-          candidate: w
+          candidate: h
         }, r();
-        const h = await e.continue(u.target, w, u.controller.signal);
-        if (!n(u)) return;
-        if (!h || !h.body.startsWith(w.body) || !h.body.slice(w.body.length).trim()) {
-          u.phase = e.current(u.target) ? {
+        const b = await e.continue(p.target, h, p.controller.signal);
+        if (!n(p)) return;
+        if (!b || !b.body.startsWith(h.body) || !b.body.slice(h.body.length).trim()) {
+          p.phase = e.current(p.target) ? {
             kind: "continue-error",
-            candidate: w,
+            candidate: h,
             error: ""
           } : {
             kind: "invalid",
@@ -6982,36 +6982,36 @@ function mT(e) {
           };
           return;
         }
-        u.target = h;
-        const b = a(h);
-        if (!b) {
+        p.target = b;
+        const k = a(b);
+        if (!k) {
           t = null;
           return;
         }
-        if (u.phase = b, b.kind === "invalid") return;
-        m = "roll";
+        if (p.phase = k, k.kind === "invalid") return;
+        g = "roll";
       }
-    } catch (g) {
-      if (!n(u)) return;
-      const w = u.phase;
-      console.error("[LittleWhiteBox] Dice check failed", g), w.kind === "revealing" ? u.phase = e.current(u.target) ? {
+    } catch (v) {
+      if (!n(p)) return;
+      const h = p.phase;
+      console.error("[LittleWhiteBox] Dice check failed", v), h.kind === "revealing" ? p.phase = e.current(p.target) ? {
         kind: "awaiting-choice",
-        candidate: w.candidate
+        candidate: h.candidate
       } : {
         kind: "invalid",
         error: ""
-      } : w.kind === "continuing" ? u.phase = e.current(u.target) ? {
+      } : h.kind === "continuing" ? p.phase = e.current(p.target) ? {
         kind: "continue-error",
-        candidate: w.candidate,
+        candidate: h.candidate,
         error: new mt("dice_continue_failed").message
       } : {
         kind: "invalid",
         error: new mt("dice_target_changed").message
-      } : e.current(u.target) ? w.kind === "settling" && w.candidate ? u.phase = {
+      } : e.current(p.target) ? h.kind === "settling" && h.candidate ? p.phase = {
         kind: "continue-error",
-        candidate: w.candidate,
+        candidate: h.candidate,
         error: new mt("dice_continue_failed").message
-      } : u.phase = {
+      } : p.phase = {
         kind: "invalid",
         error: new mt("dice_check_failed").message
       } : i();
@@ -7019,66 +7019,68 @@ function mT(e) {
       r();
     }
   }
-  function c(u = !1) {
-    const p = t;
-    return !p || p.phase.kind !== "waiting" ? Promise.resolve() : (p.phase = { kind: "settling" }, o(p, u));
+  function c(p = !1) {
+    const m = t;
+    return !m || m.phase.kind !== "waiting" ? Promise.resolve() : (m.phase = { kind: "settling" }, o(m, p));
   }
-  async function l(u) {
+  async function l(p) {
     if (!e.enabled()) throw new mt("dice_disabled");
-    if (!t && Fc(u.body, u.generatedFrom, u.rule).kind === "request") {
-      s(u), t && await o(t, !1, "retry");
+    if (!t && Fc(p.body, p.generatedFrom, p.rule).kind === "request") {
+      s(p), t && await o(t, !1, "retry");
       return;
     }
     throw new mt("dice_target_changed");
   }
-  async function d(u) {
-    if (!e.enabled()) throw new mt("dice_disabled");
-    if (!e.current(u)) throw new mt("dice_target_changed");
-    const p = t;
-    if (p && ![
+  function d() {
+    return !t || [
       "revealing",
       "awaiting-choice",
       "continue-error",
       "invalid"
-    ].includes(p.phase.kind)) return;
-    const m = ei(u.records), g = es(u.body, m.checks).at(-1);
-    if (!g || !Ao(u.body, g)) throw new mt("dice_target_changed");
+    ].includes(t.phase.kind);
+  }
+  async function u(p) {
+    if (!e.enabled()) throw new mt("dice_disabled");
+    if (!e.current(p)) throw new mt("dice_target_changed");
+    if (!d()) return;
+    const m = ei(p.records), g = es(p.body, m.checks).at(-1);
+    if (!g || !Ao(p.body, g)) throw new mt("dice_target_changed");
     i();
-    const w = {
+    const v = {
       controller: new AbortController(),
-      target: u,
+      target: p,
       phase: {
         kind: "awaiting-choice",
         candidate: {
-          body: u.body,
+          body: p.body,
           records: m
         }
       },
       wait: null
     };
-    t = w, await o(w, !1, "continue");
+    t = v, await o(v, !1, "continue");
   }
-  async function f(u, p, m) {
-    if (!e.enabled() || !e.current(u)) return;
+  async function f(p, m, g) {
+    if (!e.enabled() || !e.current(p)) return;
     i();
-    const g = {
+    const v = {
       controller: new AbortController(),
-      target: u,
+      target: p,
       phase: {
         kind: "revealing",
-        candidate: p,
-        revealId: m,
+        candidate: m,
+        revealId: g,
         placement: "replace"
       },
       wait: null
     };
-    t = g, r();
+    t = v, r();
     try {
-      await e.reveal(u, p, g.controller.signal);
+      await e.reveal(p, m, v.controller.signal);
     } finally {
-      n(g) && e.current(u) && (g.phase = {
+      n(v) && e.current(p) && (v.phase = {
         kind: "awaiting-choice",
-        candidate: p
+        candidate: m
       }), r();
     }
   }
@@ -7087,7 +7089,8 @@ function mT(e) {
     drain: c,
     cancel: i,
     retryRequest: l,
-    continueCheck: d,
+    canContinue: d,
+    continueCheck: u,
     showResult: f,
     view: () => t ? {
       target: t.target,
@@ -7247,13 +7250,13 @@ async function _T(e, t, n, r = () => Pu() ? "generation" : null, i) {
       blockers: c,
       elapsedSeconds: Math.floor((Date.now() - a) / 1e3)
     };
-    (!s || s.elapsedSeconds !== l.elapsedSeconds || s.blockers.join() !== c.join()) && (i?.(l), s = l), await new Promise((d, f) => {
-      const u = () => {
-        globalThis.clearTimeout(p), f(/* @__PURE__ */ new Error("已停止"));
+    (!s || s.elapsedSeconds !== l.elapsedSeconds || s.blockers.join() !== c.join()) && (i?.(l), s = l), await new Promise((d, u) => {
+      const f = () => {
+        globalThis.clearTimeout(p), u(/* @__PURE__ */ new Error("已停止"));
       }, p = globalThis.setTimeout(() => {
-        t.removeEventListener("abort", u), d();
+        t.removeEventListener("abort", f), d();
       }, 40);
-      t.addEventListener("abort", u, { once: !0 });
+      t.addEventListener("abort", f, { once: !0 });
     });
   }
 }
@@ -7283,37 +7286,37 @@ function ST(e, t = document) {
   const n = /* @__PURE__ */ new Map(), r = t.createElement("style");
   r.textContent = `.${$f} { opacity: .45; cursor: wait; }`, t.head.append(r);
   const i = () => {
-    for (const [f, u] of n)
-      f.toggleAttribute("inert", u.inert), u.aria === null ? f.removeAttribute("aria-disabled") : f.setAttribute("aria-disabled", u.aria), f.classList.remove($f);
+    for (const [u, f] of n)
+      u.toggleAttribute("inert", f.inert), f.aria === null ? u.removeAttribute("aria-disabled") : u.setAttribute("aria-disabled", f.aria), u.classList.remove($f);
     n.clear();
   }, a = () => {
     if (!e()) {
       i();
       return;
     }
-    for (const f of t.querySelectorAll(hw))
-      n.has(f) || (n.set(f, {
-        inert: f.hasAttribute("inert"),
-        aria: f.getAttribute("aria-disabled")
-      }), f.setAttribute("inert", ""), f.setAttribute("aria-disabled", "true"), f.classList.add($f));
-  }, s = (f) => {
+    for (const u of t.querySelectorAll(hw))
+      n.has(u) || (n.set(u, {
+        inert: u.hasAttribute("inert"),
+        aria: u.getAttribute("aria-disabled")
+      }), u.setAttribute("inert", ""), u.setAttribute("aria-disabled", "true"), u.classList.add($f));
+  }, s = (u) => {
     if (!e()) return;
-    const u = f.target instanceof t.defaultView.Element ? f.target : null;
-    let p = !!u?.closest(hw);
-    if (f.type === "keydown") {
-      const { key: m, ctrlKey: g, shiftKey: w, altKey: h, metaKey: b } = f, k = u?.closest('input, textarea, [contenteditable="true"]'), I = t.querySelector("#send_textarea");
-      p ||= m === "ArrowUp" && !(g && w) && k === I && I?.value === "" || (m === "ArrowLeft" || m === "ArrowRight") && !k && !(g || w || h || b);
-    } else f.type.startsWith("swiped-") && (p = !!u?.closest("#chat"));
-    p && (f.preventDefault(), f.stopImmediatePropagation());
+    const f = u.target instanceof t.defaultView.Element ? u.target : null;
+    let p = !!f?.closest(hw);
+    if (u.type === "keydown") {
+      const { key: m, ctrlKey: g, shiftKey: v, altKey: h, metaKey: b } = u, k = f?.closest('input, textarea, [contenteditable="true"]'), I = t.querySelector("#send_textarea");
+      p ||= m === "ArrowUp" && !(g && v) && k === I && I?.value === "" || (m === "ArrowLeft" || m === "ArrowRight") && !k && !(g || v || h || b);
+    } else u.type.startsWith("swiped-") && (p = !!f?.closest("#chat"));
+    p && (u.preventDefault(), u.stopImmediatePropagation());
   }, o = [
     "click",
     "keydown",
     "swiped-left",
     "swiped-right"
   ];
-  for (const f of o) t.addEventListener(f, s, !0);
-  const c = t.getElementById("chat"), l = (f) => {
-    e() && f.target instanceof t.defaultView.Element && f.target.closest(".mes_text, .mes_reasoning") && f.stopPropagation();
+  for (const u of o) t.addEventListener(u, s, !0);
+  const c = t.getElementById("chat"), l = (u) => {
+    e() && u.target instanceof t.defaultView.Element && u.target.closest(".mes_text, .mes_reasoning") && u.stopPropagation();
   };
   c?.addEventListener("click", l);
   const d = new t.defaultView.MutationObserver(a);
@@ -7322,7 +7325,7 @@ function ST(e, t = document) {
     subtree: !0
   }), a(), () => {
     d.disconnect();
-    for (const f of o) t.removeEventListener(f, s, !0);
+    for (const u of o) t.removeEventListener(u, s, !0);
     c?.removeEventListener("click", l), i(), r.remove();
   };
 }
@@ -7334,11 +7337,11 @@ var gw = "xiaobai_os_dice", Pl = [
   "continue"
 ];
 function AT(e, t, n, r, i, a = () => null, s = null, o, c) {
-  let l = null, d = null, f, u = null, p = null, m = null, g = !1, w = null, h = null;
-  const b = HS, k = () => (h && ur().streamingProcessor !== h && (h = null), b.isChatSaving === !0 || w ? "save" : h ? "finalization" : Pu() ? "generation" : null), I = () => k() !== null, x = (N) => o.records(qn(N)), S = (N) => N ? {
+  let l = null, d = null, u, f = null, p = null, m = null, g = !1, v = null, h = null;
+  const b = HS, k = () => (h && ur().streamingProcessor !== h && (h = null), b.isChatSaving === !0 || v ? "save" : h ? "finalization" : Pu() ? "generation" : null), I = () => k() !== null, x = (N) => o.records(qn(N)), S = (N) => N ? {
     ...N,
     records: x(N.message)
-  } : null, _ = c.setResult, y = c.setRules, v = () => {
+  } : null, _ = c.setResult, y = c.setRules, w = () => {
     _(""), y("");
   }, A = (N) => xh(gt(), N) && ze(x(N.message), N.records) && !qa(N.index), C = () => {
     const N = _h(a());
@@ -7381,15 +7384,15 @@ function AT(e, t, n, r, i, a = () => null, s = null, o, c) {
       const $ = D.catch((q) => {
         console.error("[LittleWhiteBox] Dice recovered check save failed", q), window.toastr.error(new mt("dice_result_save_failed").message);
       }).finally(() => {
-        B(), w === $ && (w = null), n();
+        B(), v === $ && (v = null), n();
       });
-      return w = $, $;
+      return v = $, $;
     },
     id: lA,
     reveal: r,
     async continue(N, B, D) {
       if (d && !d.signal.aborted && await d.settled, !A(N) || D.aborted) return null;
-      const $ = Sr, q = new AbortController(), K = $ ? f : q.signal;
+      const $ = Sr, q = new AbortController(), K = $ ? u : q.signal;
       if (!K) throw new Error("本次群聊已结束，无法继续检定。");
       let L;
       const J = {
@@ -7434,7 +7437,7 @@ function AT(e, t, n, r, i, a = () => null, s = null, o, c) {
         const fe = ur().streamingProcessor;
         return fe && fe !== te && fe.isStopped ? null : S(Mf(se, N.index, B.body.length, N.rule, N.coc7Sheet));
       } finally {
-        D.removeEventListener("abort", ne), d === J && (d = null, v()), L(), n();
+        D.removeEventListener("abort", ne), d === J && (d = null, w()), L(), n();
       }
     }
   });
@@ -7443,19 +7446,19 @@ function AT(e, t, n, r, i, a = () => null, s = null, o, c) {
   }
   function R(N, B) {
     if (N) {
-      if (B.aborted || u?.signal === B) return;
-      u = {
+      if (B.aborted || f?.signal === B) return;
+      f = {
         signal: B,
         nativePending: iA
       }, Lo(!0), kf();
       return;
     }
-    if (u?.signal !== B) return;
-    const D = u.nativePending;
-    u = null, !D && (Lo(!1), Sr || JS());
+    if (f?.signal !== B) return;
+    const D = f.nativePending;
+    f = null, !D && (Lo(!1), Sr || JS());
   }
   function M() {
-    l = null, p && (p.abort(), R(!1, p.signal)), E.cancel(), v();
+    l = null, p && (p.abort(), R(!1, p.signal)), E.cancel(), w();
   }
   async function P() {
     const N = E.view();
@@ -7485,29 +7488,29 @@ function AT(e, t, n, r, i, a = () => null, s = null, o, c) {
   function G() {
     if (m) return;
     const N = In("xiaobaiOsDice"), B = async (L, J, te) => {
-      if (te || L === "quiet" || d && L === "continue" && J.signal === d.signal && A(d.target) || Sr && f?.aborted) return;
+      if (te || L === "quiet" || d && L === "continue" && J.signal === d.signal && A(d.target) || Sr && u?.aborted) return;
       const ne = d, Z = ne?.received && L === "swipe" && gt()?.chat === ne.target.source.chat && (ne.target.message.swipe_id ?? 0) !== ne.target.swipe;
-      if (u = null, M(), p = null, w && await w, Z) {
+      if (f = null, M(), p = null, v && await v, Z) {
         d = null;
         return;
       }
       if (ne) {
         const se = new AbortController();
-        p = se, R(!0, se.signal), await ne.settled, p === se && !se.signal.aborted && (u = null, p = null, Lo(!0), kf());
+        p = se, R(!0, se.signal), await ne.settled, p === se && !se.signal.aborted && (f = null, p = null, Lo(!0), kf());
       }
     };
     Fi.makeFirst(ce.GENERATION_STARTED, B);
     const D = () => {
       queueMicrotask(n);
-      const L = u;
+      const L = f;
       !L || L.signal.aborted || (L.nativePending = !1, queueMicrotask(() => {
-        u !== L || L.signal.aborted || (Lo(!0), kf());
+        f !== L || L.signal.aborted || (Lo(!0), kf());
       }));
     };
     Fi.makeFirst(ce.GENERATION_ENDED, D), N.on(ce.GENERATION_AFTER_COMMANDS, (L, J, te) => {
       if (te) return;
       const ne = String(L || "");
-      e() && Pl.includes(ne) && Lo(!0), Sr && J.signal && (f = J.signal);
+      e() && Pl.includes(ne) && Lo(!0), Sr && J.signal && (u = J.signal);
       const Z = gt();
       if (!Z || Z.groupId && !Sr) return;
       const se = Z.chat.at(-1);
@@ -7524,16 +7527,16 @@ function AT(e, t, n, r, i, a = () => null, s = null, o, c) {
       }, n());
     }), $u(gw, async (L, J, te, ne) => {
       if (n(), p?.signal.aborted) {
-        p = null, v(), te(!0);
+        p = null, w(), te(!0);
         return;
       }
-      if (Sr && f?.aborted) {
+      if (Sr && u?.aborted) {
         te(!0);
         return;
       }
       const Z = d, se = l, fe = () => Z ? d === Z && !Z.signal.aborted && A(Z.target) : !se || l === se && !se.signal?.aborted && gt()?.chat === se.source.chat && gt()?.key === se.source.key;
       if (!e() || !Pl.includes(String(ne || ""))) {
-        v();
+        w();
         return;
       }
       l && (l.stage = "receiving");
@@ -7548,16 +7551,16 @@ function AT(e, t, n, r, i, a = () => null, s = null, o, c) {
         }
         const me = ur().chat.at(-1), Me = ne === "continue" && me ? x(me) : void 0, Te = Z?.candidate.records.checks ?? Me?.checks ?? [];
         if (!e()) {
-          v();
+          w();
           return;
         }
         const Ge = Z?.target.rule ?? se?.rule ?? i(), Ue = Z ? Z.target.coc7Sheet : se ? se.coc7Sheet : C();
         y(cT(t(), Ge, !!Ue)), _(ne === "continue" && me ? lT(me.mes, Te, Ge !== "coc7" || !!Ue) : "");
       } catch (me) {
-        console.error("[LittleWhiteBox] Dice check preparation failed", me), v(), Z ? (Z.error = "暂时无法继续行动检定。", te(!0)) : se && (se.error = "本次未能进行行动检定。", ne === "continue" && te(!0));
+        console.error("[LittleWhiteBox] Dice check preparation failed", me), w(), Z ? (Z.error = "暂时无法继续行动检定。", te(!0)) : se && (se.error = "本次未能进行行动检定。", ne === "continue" && te(!0));
       }
     }, xo.XIAOBAI_OS_DICE), N.on(ce.GENERATE_AFTER_DATA, (L, J) => {
-      vT(L), J || (v(), T("requesting"));
+      vT(L), J || (w(), T("requesting"));
     }), N.on(ce.STREAM_TOKEN_RECEIVED, () => T("responding"));
     const $ = (L, J) => {
       if (!Pl.includes(J) && J !== "appendFinal") return;
@@ -7605,19 +7608,19 @@ function AT(e, t, n, r, i, a = () => null, s = null, o, c) {
       }) || (J.target.body = L.after, J.target.generatedFrom = xA(J.target.generatedFrom, L.edits), "candidate" in J.phase && J.phase.candidate && (J.phase.candidate.body = L.after), n());
     });
     N.on(ce.GROUP_MEMBER_DRAFTED, P), N.on(ce.GROUP_WRAPPER_FINISHED, async () => {
-      await P(), f = void 0, n();
+      await P(), u = void 0, n();
     });
     const K = () => {
       if (g) {
-        v();
+        w();
         return;
       }
       const L = E.view()?.phase.kind;
-      (u || ![
+      (f || ![
         "awaiting-choice",
         "continue-error",
         "invalid"
-      ].includes(L ?? "")) && M(), v();
+      ].includes(L ?? "")) && M(), w();
     };
     Fi.makeFirst(ce.GENERATION_STOPPED, K), N.on(ce.MESSAGE_DELETED, () => {
       if (l?.type === "regenerate" && l.stage === "preparing") {
@@ -7636,7 +7639,7 @@ function AT(e, t, n, r, i, a = () => null, s = null, o, c) {
     };
   }
   function U() {
-    M(), m?.(), m = null, f = void 0;
+    M(), m?.(), m = null, u = void 0;
   }
   function j(N) {
     if (!e() || qa(N)) return null;
@@ -7648,15 +7651,11 @@ function AT(e, t, n, r, i, a = () => null, s = null, o, c) {
       ...$,
       originalRecords: qn($.message),
       resultVersion: o.version(qn($.message))
-    }, K = D?.target.message === q.message ? D.phase.kind : null, L = !!u || !!d && !d.signal.aborted;
+    }, K = D?.target.message === q.message ? D.phase.kind : null, L = !!f || !!d && !d.signal.aborted;
     return qp(q.body, q.records) ? {
       target: q,
       kind: "choice",
-      disabled: L || !!K && ![
-        "revealing",
-        "awaiting-choice",
-        "continue-error"
-      ].includes(K),
+      disabled: L || !E.canContinue(),
       canCancel: K === "settling",
       canReroll: !!s,
       rerollDisabled: K === "revealing" || !!l && I() || !s?.canAfford(),
@@ -7713,7 +7712,7 @@ function AT(e, t, n, r, i, a = () => null, s = null, o, c) {
         continuation: D
       };
     },
-    isBusy: () => I() || !!u || !!d && !d.signal.aborted,
+    isBusy: () => I() || !!f || !!d && !d.signal.aborted,
     canRetryRequest(N) {
       const B = j(N);
       return B?.kind === "request" && !B.disabled;
@@ -8031,24 +8030,24 @@ var $r = class {
   }
   static slerpFlat(e, t, n, r, i, a, s) {
     let o = n[r + 0], c = n[r + 1], l = n[r + 2], d = n[r + 3];
-    const f = i[a + 0], u = i[a + 1], p = i[a + 2], m = i[a + 3];
+    const u = i[a + 0], f = i[a + 1], p = i[a + 2], m = i[a + 3];
     if (s === 0) {
       e[t + 0] = o, e[t + 1] = c, e[t + 2] = l, e[t + 3] = d;
       return;
     }
     if (s === 1) {
-      e[t + 0] = f, e[t + 1] = u, e[t + 2] = p, e[t + 3] = m;
+      e[t + 0] = u, e[t + 1] = f, e[t + 2] = p, e[t + 3] = m;
       return;
     }
-    if (d !== m || o !== f || c !== u || l !== p) {
+    if (d !== m || o !== u || c !== f || l !== p) {
       let g = 1 - s;
-      const w = o * f + c * u + l * p + d * m, h = w >= 0 ? 1 : -1, b = 1 - w * w;
+      const v = o * u + c * f + l * p + d * m, h = v >= 0 ? 1 : -1, b = 1 - v * v;
       if (b > Number.EPSILON) {
-        const I = Math.sqrt(b), x = Math.atan2(I, w * h);
+        const I = Math.sqrt(b), x = Math.atan2(I, v * h);
         g = Math.sin(g * x) / I, s = Math.sin(s * x) / I;
       }
       const k = s * h;
-      if (o = o * g + f * k, c = c * g + u * k, l = l * g + p * k, d = d * g + m * k, g === 1 - s) {
+      if (o = o * g + u * k, c = c * g + f * k, l = l * g + p * k, d = d * g + m * k, g === 1 - s) {
         const I = 1 / Math.sqrt(o * o + c * c + l * l + d * d);
         o *= I, c *= I, l *= I, d *= I;
       }
@@ -8056,8 +8055,8 @@ var $r = class {
     e[t] = o, e[t + 1] = c, e[t + 2] = l, e[t + 3] = d;
   }
   static multiplyQuaternionsFlat(e, t, n, r, i, a) {
-    const s = n[r], o = n[r + 1], c = n[r + 2], l = n[r + 3], d = i[a], f = i[a + 1], u = i[a + 2], p = i[a + 3];
-    return e[t] = s * p + l * d + o * u - c * f, e[t + 1] = o * p + l * f + c * d - s * u, e[t + 2] = c * p + l * u + s * f - o * d, e[t + 3] = l * p - s * d - o * f - c * u, e;
+    const s = n[r], o = n[r + 1], c = n[r + 2], l = n[r + 3], d = i[a], u = i[a + 1], f = i[a + 2], p = i[a + 3];
+    return e[t] = s * p + l * d + o * f - c * u, e[t + 1] = o * p + l * u + c * d - s * f, e[t + 2] = c * p + l * f + s * u - o * d, e[t + 3] = l * p - s * d - o * u - c * f, e;
   }
   get x() {
     return this._x;
@@ -8093,25 +8092,25 @@ var $r = class {
     return this._x = e.x, this._y = e.y, this._z = e.z, this._w = e.w, this._onChangeCallback(), this;
   }
   setFromEuler(e, t = !0) {
-    const n = e._x, r = e._y, i = e._z, a = e._order, s = Math.cos, o = Math.sin, c = s(n / 2), l = s(r / 2), d = s(i / 2), f = o(n / 2), u = o(r / 2), p = o(i / 2);
+    const n = e._x, r = e._y, i = e._z, a = e._order, s = Math.cos, o = Math.sin, c = s(n / 2), l = s(r / 2), d = s(i / 2), u = o(n / 2), f = o(r / 2), p = o(i / 2);
     switch (a) {
       case "XYZ":
-        this._x = f * l * d + c * u * p, this._y = c * u * d - f * l * p, this._z = c * l * p + f * u * d, this._w = c * l * d - f * u * p;
+        this._x = u * l * d + c * f * p, this._y = c * f * d - u * l * p, this._z = c * l * p + u * f * d, this._w = c * l * d - u * f * p;
         break;
       case "YXZ":
-        this._x = f * l * d + c * u * p, this._y = c * u * d - f * l * p, this._z = c * l * p - f * u * d, this._w = c * l * d + f * u * p;
+        this._x = u * l * d + c * f * p, this._y = c * f * d - u * l * p, this._z = c * l * p - u * f * d, this._w = c * l * d + u * f * p;
         break;
       case "ZXY":
-        this._x = f * l * d - c * u * p, this._y = c * u * d + f * l * p, this._z = c * l * p + f * u * d, this._w = c * l * d - f * u * p;
+        this._x = u * l * d - c * f * p, this._y = c * f * d + u * l * p, this._z = c * l * p + u * f * d, this._w = c * l * d - u * f * p;
         break;
       case "ZYX":
-        this._x = f * l * d - c * u * p, this._y = c * u * d + f * l * p, this._z = c * l * p - f * u * d, this._w = c * l * d + f * u * p;
+        this._x = u * l * d - c * f * p, this._y = c * f * d + u * l * p, this._z = c * l * p - u * f * d, this._w = c * l * d + u * f * p;
         break;
       case "YZX":
-        this._x = f * l * d + c * u * p, this._y = c * u * d + f * l * p, this._z = c * l * p - f * u * d, this._w = c * l * d - f * u * p;
+        this._x = u * l * d + c * f * p, this._y = c * f * d + u * l * p, this._z = c * l * p - u * f * d, this._w = c * l * d - u * f * p;
         break;
       case "XZY":
-        this._x = f * l * d - c * u * p, this._y = c * u * d - f * l * p, this._z = c * l * p + f * u * d, this._w = c * l * d + f * u * p;
+        this._x = u * l * d - c * f * p, this._y = c * f * d - u * l * p, this._z = c * l * p + u * f * d, this._w = c * l * d + u * f * p;
         break;
       default:
         console.warn("THREE.Quaternion: .setFromEuler() encountered an unknown order: " + a);
@@ -8123,19 +8122,19 @@ var $r = class {
     return this._x = e.x * r, this._y = e.y * r, this._z = e.z * r, this._w = Math.cos(n), this._onChangeCallback(), this;
   }
   setFromRotationMatrix(e) {
-    const t = e.elements, n = t[0], r = t[4], i = t[8], a = t[1], s = t[5], o = t[9], c = t[2], l = t[6], d = t[10], f = n + s + d;
-    if (f > 0) {
-      const u = 0.5 / Math.sqrt(f + 1);
-      this._w = 0.25 / u, this._x = (l - o) * u, this._y = (i - c) * u, this._z = (a - r) * u;
+    const t = e.elements, n = t[0], r = t[4], i = t[8], a = t[1], s = t[5], o = t[9], c = t[2], l = t[6], d = t[10], u = n + s + d;
+    if (u > 0) {
+      const f = 0.5 / Math.sqrt(u + 1);
+      this._w = 0.25 / f, this._x = (l - o) * f, this._y = (i - c) * f, this._z = (a - r) * f;
     } else if (n > s && n > d) {
-      const u = 2 * Math.sqrt(1 + n - s - d);
-      this._w = (l - o) / u, this._x = 0.25 * u, this._y = (r + a) / u, this._z = (i + c) / u;
+      const f = 2 * Math.sqrt(1 + n - s - d);
+      this._w = (l - o) / f, this._x = 0.25 * f, this._y = (r + a) / f, this._z = (i + c) / f;
     } else if (s > d) {
-      const u = 2 * Math.sqrt(1 + s - n - d);
-      this._w = (i - c) / u, this._x = (r + a) / u, this._y = 0.25 * u, this._z = (o + l) / u;
+      const f = 2 * Math.sqrt(1 + s - n - d);
+      this._w = (i - c) / f, this._x = (r + a) / f, this._y = 0.25 * f, this._z = (o + l) / f;
     } else {
-      const u = 2 * Math.sqrt(1 + d - n - s);
-      this._w = (a - r) / u, this._x = (i + c) / u, this._y = (o + l) / u, this._z = 0.25 * u;
+      const f = 2 * Math.sqrt(1 + d - n - s);
+      this._w = (a - r) / f, this._x = (i + c) / f, this._y = (o + l) / f, this._z = 0.25 * f;
     }
     return this._onChangeCallback(), this;
   }
@@ -8193,11 +8192,11 @@ var $r = class {
       return this._w = a, this._x = n, this._y = r, this._z = i, this;
     const o = 1 - s * s;
     if (o <= Number.EPSILON) {
-      const u = 1 - t;
-      return this._w = u * a + t * this._w, this._x = u * n + t * this._x, this._y = u * r + t * this._y, this._z = u * i + t * this._z, this.normalize(), this;
+      const f = 1 - t;
+      return this._w = f * a + t * this._w, this._x = f * n + t * this._x, this._y = f * r + t * this._y, this._z = f * i + t * this._z, this.normalize(), this;
     }
-    const c = Math.sqrt(o), l = Math.atan2(c, s), d = Math.sin((1 - t) * l) / c, f = Math.sin(t * l) / c;
-    return this._w = a * d + this._w * f, this._x = n * d + this._x * f, this._y = r * d + this._y * f, this._z = i * d + this._z * f, this._onChangeCallback(), this;
+    const c = Math.sqrt(o), l = Math.atan2(c, s), d = Math.sin((1 - t) * l) / c, u = Math.sin(t * l) / c;
+    return this._w = a * d + this._w * u, this._x = n * d + this._x * u, this._y = r * d + this._y * u, this._z = i * d + this._z * u, this._onChangeCallback(), this;
   }
   slerpQuaternions(e, t, n) {
     return this.copy(e).slerp(t, n);
@@ -8331,8 +8330,8 @@ var de = class Ok {
     return this.x = (a[0] * n + a[4] * r + a[8] * i + a[12]) * s, this.y = (a[1] * n + a[5] * r + a[9] * i + a[13]) * s, this.z = (a[2] * n + a[6] * r + a[10] * i + a[14]) * s, this;
   }
   applyQuaternion(t) {
-    const n = this.x, r = this.y, i = this.z, a = t.x, s = t.y, o = t.z, c = t.w, l = 2 * (s * i - o * r), d = 2 * (o * n - a * i), f = 2 * (a * r - s * n);
-    return this.x = n + c * l + s * f - o * d, this.y = r + c * d + o * l - a * f, this.z = i + c * f + a * d - s * l, this;
+    const n = this.x, r = this.y, i = this.z, a = t.x, s = t.y, o = t.z, c = t.w, l = 2 * (s * i - o * r), d = 2 * (o * n - a * i), u = 2 * (a * r - s * n);
+    return this.x = n + c * l + s * u - o * d, this.y = r + c * d + o * l - a * u, this.z = i + c * u + a * d - s * l, this;
   }
   project(t) {
     return this.applyMatrix4(t.matrixWorldInverse).applyMatrix4(t.projectionMatrix);
@@ -8496,7 +8495,7 @@ var de = class Ok {
     yield this.x, yield this.y, yield this.z;
   }
 }, Nf = /* @__PURE__ */ new de(), ww = /* @__PURE__ */ new $r(), Ii = class Fp {
-  constructor(t, n, r, i, a, s, o, c, l, d, f, u, p, m, g, w) {
+  constructor(t, n, r, i, a, s, o, c, l, d, u, f, p, m, g, v) {
     Fp.prototype.isMatrix4 = !0, this.elements = [
       1,
       0,
@@ -8514,11 +8513,11 @@ var de = class Ok {
       0,
       0,
       1
-    ], t !== void 0 && this.set(t, n, r, i, a, s, o, c, l, d, f, u, p, m, g, w);
+    ], t !== void 0 && this.set(t, n, r, i, a, s, o, c, l, d, u, f, p, m, g, v);
   }
-  set(t, n, r, i, a, s, o, c, l, d, f, u, p, m, g, w) {
+  set(t, n, r, i, a, s, o, c, l, d, u, f, p, m, g, v) {
     const h = this.elements;
-    return h[0] = t, h[4] = n, h[8] = r, h[12] = i, h[1] = a, h[5] = s, h[9] = o, h[13] = c, h[2] = l, h[6] = d, h[10] = f, h[14] = u, h[3] = p, h[7] = m, h[11] = g, h[15] = w, this;
+    return h[0] = t, h[4] = n, h[8] = r, h[12] = i, h[1] = a, h[5] = s, h[9] = o, h[13] = c, h[2] = l, h[6] = d, h[10] = u, h[14] = f, h[3] = p, h[7] = m, h[11] = g, h[15] = v, this;
   }
   identity() {
     return this.set(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1), this;
@@ -8549,25 +8548,25 @@ var de = class Ok {
     return n[0] = r[0] * i, n[1] = r[1] * i, n[2] = r[2] * i, n[3] = 0, n[4] = r[4] * a, n[5] = r[5] * a, n[6] = r[6] * a, n[7] = 0, n[8] = r[8] * s, n[9] = r[9] * s, n[10] = r[10] * s, n[11] = 0, n[12] = 0, n[13] = 0, n[14] = 0, n[15] = 1, this;
   }
   makeRotationFromEuler(t) {
-    const n = this.elements, r = t.x, i = t.y, a = t.z, s = Math.cos(r), o = Math.sin(r), c = Math.cos(i), l = Math.sin(i), d = Math.cos(a), f = Math.sin(a);
+    const n = this.elements, r = t.x, i = t.y, a = t.z, s = Math.cos(r), o = Math.sin(r), c = Math.cos(i), l = Math.sin(i), d = Math.cos(a), u = Math.sin(a);
     if (t.order === "XYZ") {
-      const u = s * d, p = s * f, m = o * d, g = o * f;
-      n[0] = c * d, n[4] = -c * f, n[8] = l, n[1] = p + m * l, n[5] = u - g * l, n[9] = -o * c, n[2] = g - u * l, n[6] = m + p * l, n[10] = s * c;
+      const f = s * d, p = s * u, m = o * d, g = o * u;
+      n[0] = c * d, n[4] = -c * u, n[8] = l, n[1] = p + m * l, n[5] = f - g * l, n[9] = -o * c, n[2] = g - f * l, n[6] = m + p * l, n[10] = s * c;
     } else if (t.order === "YXZ") {
-      const u = c * d, p = c * f, m = l * d, g = l * f;
-      n[0] = u + g * o, n[4] = m * o - p, n[8] = s * l, n[1] = s * f, n[5] = s * d, n[9] = -o, n[2] = p * o - m, n[6] = g + u * o, n[10] = s * c;
+      const f = c * d, p = c * u, m = l * d, g = l * u;
+      n[0] = f + g * o, n[4] = m * o - p, n[8] = s * l, n[1] = s * u, n[5] = s * d, n[9] = -o, n[2] = p * o - m, n[6] = g + f * o, n[10] = s * c;
     } else if (t.order === "ZXY") {
-      const u = c * d, p = c * f, m = l * d, g = l * f;
-      n[0] = u - g * o, n[4] = -s * f, n[8] = m + p * o, n[1] = p + m * o, n[5] = s * d, n[9] = g - u * o, n[2] = -s * l, n[6] = o, n[10] = s * c;
+      const f = c * d, p = c * u, m = l * d, g = l * u;
+      n[0] = f - g * o, n[4] = -s * u, n[8] = m + p * o, n[1] = p + m * o, n[5] = s * d, n[9] = g - f * o, n[2] = -s * l, n[6] = o, n[10] = s * c;
     } else if (t.order === "ZYX") {
-      const u = s * d, p = s * f, m = o * d, g = o * f;
-      n[0] = c * d, n[4] = m * l - p, n[8] = u * l + g, n[1] = c * f, n[5] = g * l + u, n[9] = p * l - m, n[2] = -l, n[6] = o * c, n[10] = s * c;
+      const f = s * d, p = s * u, m = o * d, g = o * u;
+      n[0] = c * d, n[4] = m * l - p, n[8] = f * l + g, n[1] = c * u, n[5] = g * l + f, n[9] = p * l - m, n[2] = -l, n[6] = o * c, n[10] = s * c;
     } else if (t.order === "YZX") {
-      const u = s * c, p = s * l, m = o * c, g = o * l;
-      n[0] = c * d, n[4] = g - u * f, n[8] = m * f + p, n[1] = f, n[5] = s * d, n[9] = -o * d, n[2] = -l * d, n[6] = p * f + m, n[10] = u - g * f;
+      const f = s * c, p = s * l, m = o * c, g = o * l;
+      n[0] = c * d, n[4] = g - f * u, n[8] = m * u + p, n[1] = u, n[5] = s * d, n[9] = -o * d, n[2] = -l * d, n[6] = p * u + m, n[10] = f - g * u;
     } else if (t.order === "XZY") {
-      const u = s * c, p = s * l, m = o * c, g = o * l;
-      n[0] = c * d, n[4] = -f, n[8] = l * d, n[1] = u * f + g, n[5] = s * d, n[9] = p * f - m, n[2] = m * f - p, n[6] = o * d, n[10] = g * f + u;
+      const f = s * c, p = s * l, m = o * c, g = o * l;
+      n[0] = c * d, n[4] = -u, n[8] = l * d, n[1] = f * u + g, n[5] = s * d, n[9] = p * u - m, n[2] = m * u - p, n[6] = o * d, n[10] = g * u + f;
     }
     return n[3] = 0, n[7] = 0, n[11] = 0, n[12] = 0, n[13] = 0, n[14] = 0, n[15] = 1, this;
   }
@@ -8585,16 +8584,16 @@ var de = class Ok {
     return this.multiplyMatrices(t, this);
   }
   multiplyMatrices(t, n) {
-    const r = t.elements, i = n.elements, a = this.elements, s = r[0], o = r[4], c = r[8], l = r[12], d = r[1], f = r[5], u = r[9], p = r[13], m = r[2], g = r[6], w = r[10], h = r[14], b = r[3], k = r[7], I = r[11], x = r[15], S = i[0], _ = i[4], y = i[8], v = i[12], A = i[1], C = i[5], E = i[9], T = i[13], R = i[2], M = i[6], P = i[10], G = i[14], U = i[3], j = i[7], O = i[11], z = i[15];
-    return a[0] = s * S + o * A + c * R + l * U, a[4] = s * _ + o * C + c * M + l * j, a[8] = s * y + o * E + c * P + l * O, a[12] = s * v + o * T + c * G + l * z, a[1] = d * S + f * A + u * R + p * U, a[5] = d * _ + f * C + u * M + p * j, a[9] = d * y + f * E + u * P + p * O, a[13] = d * v + f * T + u * G + p * z, a[2] = m * S + g * A + w * R + h * U, a[6] = m * _ + g * C + w * M + h * j, a[10] = m * y + g * E + w * P + h * O, a[14] = m * v + g * T + w * G + h * z, a[3] = b * S + k * A + I * R + x * U, a[7] = b * _ + k * C + I * M + x * j, a[11] = b * y + k * E + I * P + x * O, a[15] = b * v + k * T + I * G + x * z, this;
+    const r = t.elements, i = n.elements, a = this.elements, s = r[0], o = r[4], c = r[8], l = r[12], d = r[1], u = r[5], f = r[9], p = r[13], m = r[2], g = r[6], v = r[10], h = r[14], b = r[3], k = r[7], I = r[11], x = r[15], S = i[0], _ = i[4], y = i[8], w = i[12], A = i[1], C = i[5], E = i[9], T = i[13], R = i[2], M = i[6], P = i[10], G = i[14], U = i[3], j = i[7], O = i[11], z = i[15];
+    return a[0] = s * S + o * A + c * R + l * U, a[4] = s * _ + o * C + c * M + l * j, a[8] = s * y + o * E + c * P + l * O, a[12] = s * w + o * T + c * G + l * z, a[1] = d * S + u * A + f * R + p * U, a[5] = d * _ + u * C + f * M + p * j, a[9] = d * y + u * E + f * P + p * O, a[13] = d * w + u * T + f * G + p * z, a[2] = m * S + g * A + v * R + h * U, a[6] = m * _ + g * C + v * M + h * j, a[10] = m * y + g * E + v * P + h * O, a[14] = m * w + g * T + v * G + h * z, a[3] = b * S + k * A + I * R + x * U, a[7] = b * _ + k * C + I * M + x * j, a[11] = b * y + k * E + I * P + x * O, a[15] = b * w + k * T + I * G + x * z, this;
   }
   multiplyScalar(t) {
     const n = this.elements;
     return n[0] *= t, n[4] *= t, n[8] *= t, n[12] *= t, n[1] *= t, n[5] *= t, n[9] *= t, n[13] *= t, n[2] *= t, n[6] *= t, n[10] *= t, n[14] *= t, n[3] *= t, n[7] *= t, n[11] *= t, n[15] *= t, this;
   }
   determinant() {
-    const t = this.elements, n = t[0], r = t[4], i = t[8], a = t[12], s = t[1], o = t[5], c = t[9], l = t[13], d = t[2], f = t[6], u = t[10], p = t[14], m = t[3], g = t[7], w = t[11], h = t[15];
-    return m * (+a * c * f - i * l * f - a * o * u + r * l * u + i * o * p - r * c * p) + g * (+n * c * p - n * l * u + a * s * u - i * s * p + i * l * d - a * c * d) + w * (+n * l * f - n * o * p - a * s * f + r * s * p + a * o * d - r * l * d) + h * (-i * o * d - n * c * f + n * o * u + i * s * f - r * s * u + r * c * d);
+    const t = this.elements, n = t[0], r = t[4], i = t[8], a = t[12], s = t[1], o = t[5], c = t[9], l = t[13], d = t[2], u = t[6], f = t[10], p = t[14], m = t[3], g = t[7], v = t[11], h = t[15];
+    return m * (+a * c * u - i * l * u - a * o * f + r * l * f + i * o * p - r * c * p) + g * (+n * c * p - n * l * f + a * s * f - i * s * p + i * l * d - a * c * d) + v * (+n * l * u - n * o * p - a * s * u + r * s * p + a * o * d - r * l * d) + h * (-i * o * d - n * c * u + n * o * f + i * s * u - r * s * f + r * c * d);
   }
   transpose() {
     const t = this.elements;
@@ -8606,10 +8605,10 @@ var de = class Ok {
     return t.isVector3 ? (i[12] = t.x, i[13] = t.y, i[14] = t.z) : (i[12] = t, i[13] = n, i[14] = r), this;
   }
   invert() {
-    const t = this.elements, n = t[0], r = t[1], i = t[2], a = t[3], s = t[4], o = t[5], c = t[6], l = t[7], d = t[8], f = t[9], u = t[10], p = t[11], m = t[12], g = t[13], w = t[14], h = t[15], b = f * w * l - g * u * l + g * c * p - o * w * p - f * c * h + o * u * h, k = m * u * l - d * w * l - m * c * p + s * w * p + d * c * h - s * u * h, I = d * g * l - m * f * l + m * o * p - s * g * p - d * o * h + s * f * h, x = m * f * c - d * g * c - m * o * u + s * g * u + d * o * w - s * f * w, S = n * b + r * k + i * I + a * x;
+    const t = this.elements, n = t[0], r = t[1], i = t[2], a = t[3], s = t[4], o = t[5], c = t[6], l = t[7], d = t[8], u = t[9], f = t[10], p = t[11], m = t[12], g = t[13], v = t[14], h = t[15], b = u * v * l - g * f * l + g * c * p - o * v * p - u * c * h + o * f * h, k = m * f * l - d * v * l - m * c * p + s * v * p + d * c * h - s * f * h, I = d * g * l - m * u * l + m * o * p - s * g * p - d * o * h + s * u * h, x = m * u * c - d * g * c - m * o * f + s * g * f + d * o * v - s * u * v, S = n * b + r * k + i * I + a * x;
     if (S === 0) return this.set(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
     const _ = 1 / S;
-    return t[0] = b * _, t[1] = (g * u * a - f * w * a - g * i * p + r * w * p + f * i * h - r * u * h) * _, t[2] = (o * w * a - g * c * a + g * i * l - r * w * l - o * i * h + r * c * h) * _, t[3] = (f * c * a - o * u * a - f * i * l + r * u * l + o * i * p - r * c * p) * _, t[4] = k * _, t[5] = (d * w * a - m * u * a + m * i * p - n * w * p - d * i * h + n * u * h) * _, t[6] = (m * c * a - s * w * a - m * i * l + n * w * l + s * i * h - n * c * h) * _, t[7] = (s * u * a - d * c * a + d * i * l - n * u * l - s * i * p + n * c * p) * _, t[8] = I * _, t[9] = (m * f * a - d * g * a - m * r * p + n * g * p + d * r * h - n * f * h) * _, t[10] = (s * g * a - m * o * a + m * r * l - n * g * l - s * r * h + n * o * h) * _, t[11] = (d * o * a - s * f * a - d * r * l + n * f * l + s * r * p - n * o * p) * _, t[12] = x * _, t[13] = (d * g * i - m * f * i + m * r * u - n * g * u - d * r * w + n * f * w) * _, t[14] = (m * o * i - s * g * i - m * r * c + n * g * c + s * r * w - n * o * w) * _, t[15] = (s * f * i - d * o * i + d * r * c - n * f * c - s * r * u + n * o * u) * _, this;
+    return t[0] = b * _, t[1] = (g * f * a - u * v * a - g * i * p + r * v * p + u * i * h - r * f * h) * _, t[2] = (o * v * a - g * c * a + g * i * l - r * v * l - o * i * h + r * c * h) * _, t[3] = (u * c * a - o * f * a - u * i * l + r * f * l + o * i * p - r * c * p) * _, t[4] = k * _, t[5] = (d * v * a - m * f * a + m * i * p - n * v * p - d * i * h + n * f * h) * _, t[6] = (m * c * a - s * v * a - m * i * l + n * v * l + s * i * h - n * c * h) * _, t[7] = (s * f * a - d * c * a + d * i * l - n * f * l - s * i * p + n * c * p) * _, t[8] = I * _, t[9] = (m * u * a - d * g * a - m * r * p + n * g * p + d * r * h - n * u * h) * _, t[10] = (s * g * a - m * o * a + m * r * l - n * g * l - s * r * h + n * o * h) * _, t[11] = (d * o * a - s * u * a - d * r * l + n * u * l + s * r * p - n * o * p) * _, t[12] = x * _, t[13] = (d * g * i - m * u * i + m * r * f - n * g * f - d * r * v + n * u * v) * _, t[14] = (m * o * i - s * g * i - m * r * c + n * g * c + s * r * v - n * o * v) * _, t[15] = (s * u * i - d * o * i + d * r * c - n * u * c - s * r * f + n * o * f) * _, this;
   }
   scale(t) {
     const n = this.elements, r = t.x, i = t.y, a = t.z;
@@ -8645,8 +8644,8 @@ var de = class Ok {
     return this.set(1, r, a, 0, t, 1, s, 0, n, i, 1, 0, 0, 0, 0, 1), this;
   }
   compose(t, n, r) {
-    const i = this.elements, a = n._x, s = n._y, o = n._z, c = n._w, l = a + a, d = s + s, f = o + o, u = a * l, p = a * d, m = a * f, g = s * d, w = s * f, h = o * f, b = c * l, k = c * d, I = c * f, x = r.x, S = r.y, _ = r.z;
-    return i[0] = (1 - (g + h)) * x, i[1] = (p + I) * x, i[2] = (m - k) * x, i[3] = 0, i[4] = (p - I) * S, i[5] = (1 - (u + h)) * S, i[6] = (w + b) * S, i[7] = 0, i[8] = (m + k) * _, i[9] = (w - b) * _, i[10] = (1 - (u + g)) * _, i[11] = 0, i[12] = t.x, i[13] = t.y, i[14] = t.z, i[15] = 1, this;
+    const i = this.elements, a = n._x, s = n._y, o = n._z, c = n._w, l = a + a, d = s + s, u = o + o, f = a * l, p = a * d, m = a * u, g = s * d, v = s * u, h = o * u, b = c * l, k = c * d, I = c * u, x = r.x, S = r.y, _ = r.z;
+    return i[0] = (1 - (g + h)) * x, i[1] = (p + I) * x, i[2] = (m - k) * x, i[3] = 0, i[4] = (p - I) * S, i[5] = (1 - (f + h)) * S, i[6] = (v + b) * S, i[7] = 0, i[8] = (m + k) * _, i[9] = (v - b) * _, i[10] = (1 - (f + g)) * _, i[11] = 0, i[12] = t.x, i[13] = t.y, i[14] = t.z, i[15] = 1, this;
   }
   decompose(t, n, r) {
     const i = this.elements;
@@ -8657,7 +8656,7 @@ var de = class Ok {
     return br.elements[0] *= c, br.elements[1] *= c, br.elements[2] *= c, br.elements[4] *= l, br.elements[5] *= l, br.elements[6] *= l, br.elements[8] *= d, br.elements[9] *= d, br.elements[10] *= d, n.setFromRotationMatrix(br), r.x = a, r.y = s, r.z = o, this;
   }
   makePerspective(t, n, r, i, a, s, o = yw, c = !1) {
-    const l = this.elements, d = 2 * a / (n - t), f = 2 * a / (r - i), u = (n + t) / (n - t), p = (r + i) / (r - i);
+    const l = this.elements, d = 2 * a / (n - t), u = 2 * a / (r - i), f = (n + t) / (n - t), p = (r + i) / (r - i);
     let m, g;
     if (c)
       m = a / (s - a), g = s * a / (s - a);
@@ -8666,10 +8665,10 @@ var de = class Ok {
     else if (o === 2001)
       m = -s / (s - a), g = -s * a / (s - a);
     else throw new Error("THREE.Matrix4.makePerspective(): Invalid coordinate system: " + o);
-    return l[0] = d, l[4] = 0, l[8] = u, l[12] = 0, l[1] = 0, l[5] = f, l[9] = p, l[13] = 0, l[2] = 0, l[6] = 0, l[10] = m, l[14] = g, l[3] = 0, l[7] = 0, l[11] = -1, l[15] = 0, this;
+    return l[0] = d, l[4] = 0, l[8] = f, l[12] = 0, l[1] = 0, l[5] = u, l[9] = p, l[13] = 0, l[2] = 0, l[6] = 0, l[10] = m, l[14] = g, l[3] = 0, l[7] = 0, l[11] = -1, l[15] = 0, this;
   }
   makeOrthographic(t, n, r, i, a, s, o = yw, c = !1) {
-    const l = this.elements, d = 2 / (n - t), f = 2 / (r - i), u = -(n + t) / (n - t), p = -(r + i) / (r - i);
+    const l = this.elements, d = 2 / (n - t), u = 2 / (r - i), f = -(n + t) / (n - t), p = -(r + i) / (r - i);
     let m, g;
     if (c)
       m = 1 / (s - a), g = s / (s - a);
@@ -8678,7 +8677,7 @@ var de = class Ok {
     else if (o === 2001)
       m = -1 / (s - a), g = -a / (s - a);
     else throw new Error("THREE.Matrix4.makeOrthographic(): Invalid coordinate system: " + o);
-    return l[0] = d, l[4] = 0, l[8] = 0, l[12] = u, l[1] = 0, l[5] = f, l[9] = 0, l[13] = p, l[2] = 0, l[6] = 0, l[10] = m, l[14] = g, l[3] = 0, l[7] = 0, l[11] = 0, l[15] = 1, this;
+    return l[0] = d, l[4] = 0, l[8] = 0, l[12] = f, l[1] = 0, l[5] = u, l[9] = 0, l[13] = p, l[2] = 0, l[6] = 0, l[10] = m, l[14] = g, l[3] = 0, l[7] = 0, l[11] = 0, l[15] = 1, this;
   }
   equals(t) {
     const n = this.elements, r = t.elements;
@@ -8731,25 +8730,25 @@ var de = class Ok {
     return this._x = t._x, this._y = t._y, this._z = t._z, this._order = t._order, this._onChangeCallback(), this;
   }
   setFromRotationMatrix(t, n = this._order, r = !0) {
-    const i = t.elements, a = i[0], s = i[4], o = i[8], c = i[1], l = i[5], d = i[9], f = i[2], u = i[6], p = i[10];
+    const i = t.elements, a = i[0], s = i[4], o = i[8], c = i[1], l = i[5], d = i[9], u = i[2], f = i[6], p = i[10];
     switch (n) {
       case "XYZ":
-        this._y = Math.asin(jt(o, -1, 1)), Math.abs(o) < 0.9999999 ? (this._x = Math.atan2(-d, p), this._z = Math.atan2(-s, a)) : (this._x = Math.atan2(u, l), this._z = 0);
+        this._y = Math.asin(jt(o, -1, 1)), Math.abs(o) < 0.9999999 ? (this._x = Math.atan2(-d, p), this._z = Math.atan2(-s, a)) : (this._x = Math.atan2(f, l), this._z = 0);
         break;
       case "YXZ":
-        this._x = Math.asin(-jt(d, -1, 1)), Math.abs(d) < 0.9999999 ? (this._y = Math.atan2(o, p), this._z = Math.atan2(c, l)) : (this._y = Math.atan2(-f, a), this._z = 0);
+        this._x = Math.asin(-jt(d, -1, 1)), Math.abs(d) < 0.9999999 ? (this._y = Math.atan2(o, p), this._z = Math.atan2(c, l)) : (this._y = Math.atan2(-u, a), this._z = 0);
         break;
       case "ZXY":
-        this._x = Math.asin(jt(u, -1, 1)), Math.abs(u) < 0.9999999 ? (this._y = Math.atan2(-f, p), this._z = Math.atan2(-s, l)) : (this._y = 0, this._z = Math.atan2(c, a));
+        this._x = Math.asin(jt(f, -1, 1)), Math.abs(f) < 0.9999999 ? (this._y = Math.atan2(-u, p), this._z = Math.atan2(-s, l)) : (this._y = 0, this._z = Math.atan2(c, a));
         break;
       case "ZYX":
-        this._y = Math.asin(-jt(f, -1, 1)), Math.abs(f) < 0.9999999 ? (this._x = Math.atan2(u, p), this._z = Math.atan2(c, a)) : (this._x = 0, this._z = Math.atan2(-s, l));
+        this._y = Math.asin(-jt(u, -1, 1)), Math.abs(u) < 0.9999999 ? (this._x = Math.atan2(f, p), this._z = Math.atan2(c, a)) : (this._x = 0, this._z = Math.atan2(-s, l));
         break;
       case "YZX":
-        this._z = Math.asin(jt(c, -1, 1)), Math.abs(c) < 0.9999999 ? (this._x = Math.atan2(-d, l), this._y = Math.atan2(-f, a)) : (this._x = 0, this._y = Math.atan2(o, p));
+        this._z = Math.asin(jt(c, -1, 1)), Math.abs(c) < 0.9999999 ? (this._x = Math.atan2(-d, l), this._y = Math.atan2(-u, a)) : (this._x = 0, this._y = Math.atan2(o, p));
         break;
       case "XZY":
-        this._z = Math.asin(-jt(s, -1, 1)), Math.abs(s) < 0.9999999 ? (this._x = Math.atan2(u, l), this._y = Math.atan2(o, a)) : (this._x = Math.atan2(-d, p), this._y = 0);
+        this._z = Math.asin(-jt(s, -1, 1)), Math.abs(s) < 0.9999999 ? (this._x = Math.atan2(f, l), this._y = Math.atan2(o, a)) : (this._x = Math.atan2(-d, p), this._y = 0);
         break;
       default:
         console.warn("THREE.Euler: .setFromRotationMatrix() encountered an unknown order: " + n);
@@ -9472,8 +9471,8 @@ var $k = class {
     return this.multiplyMatrices(t, this);
   }
   multiplyMatrices(t, n) {
-    const r = t.elements, i = n.elements, a = this.elements, s = r[0], o = r[3], c = r[6], l = r[1], d = r[4], f = r[7], u = r[2], p = r[5], m = r[8], g = i[0], w = i[3], h = i[6], b = i[1], k = i[4], I = i[7], x = i[2], S = i[5], _ = i[8];
-    return a[0] = s * g + o * b + c * x, a[3] = s * w + o * k + c * S, a[6] = s * h + o * I + c * _, a[1] = l * g + d * b + f * x, a[4] = l * w + d * k + f * S, a[7] = l * h + d * I + f * _, a[2] = u * g + p * b + m * x, a[5] = u * w + p * k + m * S, a[8] = u * h + p * I + m * _, this;
+    const r = t.elements, i = n.elements, a = this.elements, s = r[0], o = r[3], c = r[6], l = r[1], d = r[4], u = r[7], f = r[2], p = r[5], m = r[8], g = i[0], v = i[3], h = i[6], b = i[1], k = i[4], I = i[7], x = i[2], S = i[5], _ = i[8];
+    return a[0] = s * g + o * b + c * x, a[3] = s * v + o * k + c * S, a[6] = s * h + o * I + c * _, a[1] = l * g + d * b + u * x, a[4] = l * v + d * k + u * S, a[7] = l * h + d * I + u * _, a[2] = f * g + p * b + m * x, a[5] = f * v + p * k + m * S, a[8] = f * h + p * I + m * _, this;
   }
   multiplyScalar(t) {
     const n = this.elements;
@@ -9484,10 +9483,10 @@ var $k = class {
     return n * s * d - n * o * l - r * a * d + r * o * c + i * a * l - i * s * c;
   }
   invert() {
-    const t = this.elements, n = t[0], r = t[1], i = t[2], a = t[3], s = t[4], o = t[5], c = t[6], l = t[7], d = t[8], f = d * s - o * l, u = o * c - d * a, p = l * a - s * c, m = n * f + r * u + i * p;
+    const t = this.elements, n = t[0], r = t[1], i = t[2], a = t[3], s = t[4], o = t[5], c = t[6], l = t[7], d = t[8], u = d * s - o * l, f = o * c - d * a, p = l * a - s * c, m = n * u + r * f + i * p;
     if (m === 0) return this.set(0, 0, 0, 0, 0, 0, 0, 0, 0);
     const g = 1 / m;
-    return t[0] = f * g, t[1] = (i * l - d * r) * g, t[2] = (o * r - i * s) * g, t[3] = u * g, t[4] = (d * n - i * c) * g, t[5] = (i * a - o * n) * g, t[6] = p * g, t[7] = (r * c - l * n) * g, t[8] = (s * n - r * a) * g, this;
+    return t[0] = u * g, t[1] = (i * l - d * r) * g, t[2] = (o * r - i * s) * g, t[3] = f * g, t[4] = (d * n - i * c) * g, t[5] = (i * a - o * n) * g, t[6] = p * g, t[7] = (r * c - l * n) * g, t[8] = (s * n - r * a) * g, this;
   }
   transpose() {
     let t;
@@ -9768,8 +9767,8 @@ var $k = class {
       if (o !== void 0 && o.shapes !== void 0) {
         const c = o.shapes;
         if (Array.isArray(c)) for (let l = 0, d = c.length; l < d; l++) {
-          const f = c[l];
-          a(t.shapes, f);
+          const u = c[l];
+          a(t.shapes, u);
         }
         else a(t.shapes, c);
       }
@@ -9791,8 +9790,8 @@ var $k = class {
       }
     }
     if (n) {
-      const o = s(t.geometries), c = s(t.materials), l = s(t.textures), d = s(t.images), f = s(t.shapes), u = s(t.skeletons), p = s(t.animations), m = s(t.nodes);
-      o.length > 0 && (r.geometries = o), c.length > 0 && (r.materials = c), l.length > 0 && (r.textures = l), d.length > 0 && (r.images = d), f.length > 0 && (r.shapes = f), u.length > 0 && (r.skeletons = u), p.length > 0 && (r.animations = p), m.length > 0 && (r.nodes = m);
+      const o = s(t.geometries), c = s(t.materials), l = s(t.textures), d = s(t.images), u = s(t.shapes), f = s(t.skeletons), p = s(t.animations), m = s(t.nodes);
+      o.length > 0 && (r.geometries = o), c.length > 0 && (r.materials = c), l.length > 0 && (r.textures = l), d.length > 0 && (r.images = d), u.length > 0 && (r.shapes = u), f.length > 0 && (r.skeletons = f), p.length > 0 && (r.animations = p), m.length > 0 && (r.nodes = m);
     }
     return r.object = i, r;
     function s(o) {
@@ -9971,30 +9970,30 @@ var FT = 0, or = /* @__PURE__ */ new Ii(), zf = /* @__PURE__ */ new Uu(), As = /
     const s = this.getAttribute("tangent"), o = [], c = [];
     for (let y = 0; y < r.count; y++)
       o[y] = new de(), c[y] = new de();
-    const l = new de(), d = new de(), f = new de(), u = new ts(), p = new ts(), m = new ts(), g = new de(), w = new de();
-    function h(y, v, A) {
-      l.fromBufferAttribute(r, y), d.fromBufferAttribute(r, v), f.fromBufferAttribute(r, A), u.fromBufferAttribute(a, y), p.fromBufferAttribute(a, v), m.fromBufferAttribute(a, A), d.sub(l), f.sub(l), p.sub(u), m.sub(u);
+    const l = new de(), d = new de(), u = new de(), f = new ts(), p = new ts(), m = new ts(), g = new de(), v = new de();
+    function h(y, w, A) {
+      l.fromBufferAttribute(r, y), d.fromBufferAttribute(r, w), u.fromBufferAttribute(r, A), f.fromBufferAttribute(a, y), p.fromBufferAttribute(a, w), m.fromBufferAttribute(a, A), d.sub(l), u.sub(l), p.sub(f), m.sub(f);
       const C = 1 / (p.x * m.y - m.x * p.y);
-      isFinite(C) && (g.copy(d).multiplyScalar(m.y).addScaledVector(f, -p.y).multiplyScalar(C), w.copy(f).multiplyScalar(p.x).addScaledVector(d, -m.x).multiplyScalar(C), o[y].add(g), o[v].add(g), o[A].add(g), c[y].add(w), c[v].add(w), c[A].add(w));
+      isFinite(C) && (g.copy(d).multiplyScalar(m.y).addScaledVector(u, -p.y).multiplyScalar(C), v.copy(u).multiplyScalar(p.x).addScaledVector(d, -m.x).multiplyScalar(C), o[y].add(g), o[w].add(g), o[A].add(g), c[y].add(v), c[w].add(v), c[A].add(v));
     }
     let b = this.groups;
     b.length === 0 && (b = [{
       start: 0,
       count: t.count
     }]);
-    for (let y = 0, v = b.length; y < v; ++y) {
+    for (let y = 0, w = b.length; y < w; ++y) {
       const A = b[y], C = A.start, E = A.count;
       for (let T = C, R = C + E; T < R; T += 3) h(t.getX(T + 0), t.getX(T + 1), t.getX(T + 2));
     }
     const k = new de(), I = new de(), x = new de(), S = new de();
     function _(y) {
       x.fromBufferAttribute(i, y), S.copy(x);
-      const v = o[y];
-      k.copy(v), k.sub(x.multiplyScalar(x.dot(v))).normalize(), I.crossVectors(S, v);
+      const w = o[y];
+      k.copy(w), k.sub(x.multiplyScalar(x.dot(w))).normalize(), I.crossVectors(S, w);
       const A = I.dot(c[y]) < 0 ? -1 : 1;
       s.setXYZW(y, k.x, k.y, k.z, A);
     }
-    for (let y = 0, v = b.length; y < v; ++y) {
+    for (let y = 0, w = b.length; y < w; ++y) {
       const A = b[y], C = A.start, E = A.count;
       for (let T = C, R = C + E; T < R; T += 3)
         _(t.getX(T + 0)), _(t.getX(T + 1)), _(t.getX(T + 2));
@@ -10006,14 +10005,14 @@ var FT = 0, or = /* @__PURE__ */ new Ii(), zf = /* @__PURE__ */ new Uu(), As = /
       let r = this.getAttribute("normal");
       if (r === void 0)
         r = new Xs(new Float32Array(n.count * 3), 3), this.setAttribute("normal", r);
-      else for (let u = 0, p = r.count; u < p; u++) r.setXYZ(u, 0, 0, 0);
-      const i = new de(), a = new de(), s = new de(), o = new de(), c = new de(), l = new de(), d = new de(), f = new de();
-      if (t) for (let u = 0, p = t.count; u < p; u += 3) {
-        const m = t.getX(u + 0), g = t.getX(u + 1), w = t.getX(u + 2);
-        i.fromBufferAttribute(n, m), a.fromBufferAttribute(n, g), s.fromBufferAttribute(n, w), d.subVectors(s, a), f.subVectors(i, a), d.cross(f), o.fromBufferAttribute(r, m), c.fromBufferAttribute(r, g), l.fromBufferAttribute(r, w), o.add(d), c.add(d), l.add(d), r.setXYZ(m, o.x, o.y, o.z), r.setXYZ(g, c.x, c.y, c.z), r.setXYZ(w, l.x, l.y, l.z);
+      else for (let f = 0, p = r.count; f < p; f++) r.setXYZ(f, 0, 0, 0);
+      const i = new de(), a = new de(), s = new de(), o = new de(), c = new de(), l = new de(), d = new de(), u = new de();
+      if (t) for (let f = 0, p = t.count; f < p; f += 3) {
+        const m = t.getX(f + 0), g = t.getX(f + 1), v = t.getX(f + 2);
+        i.fromBufferAttribute(n, m), a.fromBufferAttribute(n, g), s.fromBufferAttribute(n, v), d.subVectors(s, a), u.subVectors(i, a), d.cross(u), o.fromBufferAttribute(r, m), c.fromBufferAttribute(r, g), l.fromBufferAttribute(r, v), o.add(d), c.add(d), l.add(d), r.setXYZ(m, o.x, o.y, o.z), r.setXYZ(g, c.x, c.y, c.z), r.setXYZ(v, l.x, l.y, l.z);
       }
-      else for (let u = 0, p = n.count; u < p; u += 3)
-        i.fromBufferAttribute(n, u + 0), a.fromBufferAttribute(n, u + 1), s.fromBufferAttribute(n, u + 2), d.subVectors(s, a), f.subVectors(i, a), d.cross(f), r.setXYZ(u + 0, d.x, d.y, d.z), r.setXYZ(u + 1, d.x, d.y, d.z), r.setXYZ(u + 2, d.x, d.y, d.z);
+      else for (let f = 0, p = n.count; f < p; f += 3)
+        i.fromBufferAttribute(n, f + 0), a.fromBufferAttribute(n, f + 1), s.fromBufferAttribute(n, f + 2), d.subVectors(s, a), u.subVectors(i, a), d.cross(u), r.setXYZ(f + 0, d.x, d.y, d.z), r.setXYZ(f + 1, d.x, d.y, d.z), r.setXYZ(f + 2, d.x, d.y, d.z);
       this.normalizeNormals(), r.needsUpdate = !0;
     }
   }
@@ -10024,13 +10023,13 @@ var FT = 0, or = /* @__PURE__ */ new Ii(), zf = /* @__PURE__ */ new Uu(), As = /
   }
   toNonIndexed() {
     function t(o, c) {
-      const l = o.array, d = o.itemSize, f = o.normalized, u = new l.constructor(c.length * d);
+      const l = o.array, d = o.itemSize, u = o.normalized, f = new l.constructor(c.length * d);
       let p = 0, m = 0;
-      for (let g = 0, w = c.length; g < w; g++) {
+      for (let g = 0, v = c.length; g < v; g++) {
         o.isInterleavedBufferAttribute ? p = c[g] * o.data.stride + o.offset : p = c[g] * d;
-        for (let h = 0; h < d; h++) u[m++] = l[p++];
+        for (let h = 0; h < d; h++) f[m++] = l[p++];
       }
-      return new Xs(u, d, f);
+      return new Xs(f, d, u);
     }
     if (this.index === null)
       return console.warn("THREE.BufferGeometry.toNonIndexed(): BufferGeometry is already non-indexed."), this;
@@ -10042,8 +10041,8 @@ var FT = 0, or = /* @__PURE__ */ new Ii(), zf = /* @__PURE__ */ new Uu(), As = /
     const a = this.morphAttributes;
     for (const o in a) {
       const c = [], l = a[o];
-      for (let d = 0, f = l.length; d < f; d++) {
-        const u = l[d], p = t(u, r);
+      for (let d = 0, u = l.length; d < u; d++) {
+        const f = l[d], p = t(f, r);
         c.push(p);
       }
       n.morphAttributes[o] = c;
@@ -10082,8 +10081,8 @@ var FT = 0, or = /* @__PURE__ */ new Ii(), zf = /* @__PURE__ */ new Uu(), As = /
     let a = !1;
     for (const c in this.morphAttributes) {
       const l = this.morphAttributes[c], d = [];
-      for (let f = 0, u = l.length; f < u; f++) {
-        const p = l[f];
+      for (let u = 0, f = l.length; u < f; u++) {
+        const p = l[u];
         d.push(p.toJSON(t.data));
       }
       d.length > 0 && (i[c] = d, a = !0);
@@ -10110,15 +10109,15 @@ var FT = 0, or = /* @__PURE__ */ new Ii(), zf = /* @__PURE__ */ new Uu(), As = /
     }
     const a = t.morphAttributes;
     for (const l in a) {
-      const d = [], f = a[l];
-      for (let u = 0, p = f.length; u < p; u++) d.push(f[u].clone(n));
+      const d = [], u = a[l];
+      for (let f = 0, p = u.length; f < p; f++) d.push(u[f].clone(n));
       this.morphAttributes[l] = d;
     }
     this.morphTargetsRelative = t.morphTargetsRelative;
     const s = t.groups;
     for (let l = 0, d = s.length; l < d; l++) {
-      const f = s[l];
-      this.addGroup(f.start, f.count, f.materialIndex);
+      const u = s[l];
+      this.addGroup(u.start, u.count, u.materialIndex);
     }
     const o = t.boundingBox;
     o !== null && (this.boundingBox = o.clone());
@@ -10147,12 +10146,12 @@ var FT = 0, or = /* @__PURE__ */ new Ii(), zf = /* @__PURE__ */ new Uu(), As = /
       const S = x + 1, _ = [];
       for (let y = 0; y <= S; y++) {
         _[y] = [];
-        const v = b.clone().lerp(I, y / S), A = k.clone().lerp(I, y / S), C = S - y;
-        for (let E = 0; E <= C; E++) E === 0 && y === S ? _[y][E] = v : _[y][E] = v.clone().lerp(A, E / C);
+        const w = b.clone().lerp(I, y / S), A = k.clone().lerp(I, y / S), C = S - y;
+        for (let E = 0; E <= C; E++) E === 0 && y === S ? _[y][E] = w : _[y][E] = w.clone().lerp(A, E / C);
       }
-      for (let y = 0; y < S; y++) for (let v = 0; v < 2 * (S - y) - 1; v++) {
-        const A = Math.floor(v / 2);
-        v % 2 === 0 ? (u(_[y][A + 1]), u(_[y + 1][A]), u(_[y][A])) : (u(_[y][A + 1]), u(_[y + 1][A + 1]), u(_[y + 1][A]));
+      for (let y = 0; y < S; y++) for (let w = 0; w < 2 * (S - y) - 1; w++) {
+        const A = Math.floor(w / 2);
+        w % 2 === 0 ? (f(_[y][A + 1]), f(_[y + 1][A]), f(_[y][A])) : (f(_[y][A + 1]), f(_[y + 1][A + 1]), f(_[y + 1][A]));
       }
     }
     function l(b) {
@@ -10164,18 +10163,18 @@ var FT = 0, or = /* @__PURE__ */ new Ii(), zf = /* @__PURE__ */ new Uu(), As = /
       const b = new de();
       for (let k = 0; k < a.length; k += 3) {
         b.x = a[k + 0], b.y = a[k + 1], b.z = a[k + 2];
-        const I = w(b) / 2 / Math.PI + 0.5, x = h(b) / Math.PI + 0.5;
+        const I = v(b) / 2 / Math.PI + 0.5, x = h(b) / Math.PI + 0.5;
         s.push(I, 1 - x);
       }
-      m(), f();
+      m(), u();
     }
-    function f() {
+    function u() {
       for (let b = 0; b < s.length; b += 6) {
         const k = s[b + 0], I = s[b + 2], x = s[b + 4];
         Math.max(k, I, x) > 0.9 && Math.min(k, I, x) < 0.1 && (k < 0.2 && (s[b + 0] += 1), I < 0.2 && (s[b + 2] += 1), x < 0.2 && (s[b + 4] += 1));
       }
     }
-    function u(b) {
+    function f(b) {
       a.push(b.x, b.y, b.z);
     }
     function p(b, k) {
@@ -10184,16 +10183,16 @@ var FT = 0, or = /* @__PURE__ */ new Ii(), zf = /* @__PURE__ */ new Uu(), As = /
     }
     function m() {
       const b = new de(), k = new de(), I = new de(), x = new de(), S = new ts(), _ = new ts(), y = new ts();
-      for (let v = 0, A = 0; v < a.length; v += 9, A += 6) {
-        b.set(a[v + 0], a[v + 1], a[v + 2]), k.set(a[v + 3], a[v + 4], a[v + 5]), I.set(a[v + 6], a[v + 7], a[v + 8]), S.set(s[A + 0], s[A + 1]), _.set(s[A + 2], s[A + 3]), y.set(s[A + 4], s[A + 5]), x.copy(b).add(k).add(I).divideScalar(3);
-        const C = w(x);
+      for (let w = 0, A = 0; w < a.length; w += 9, A += 6) {
+        b.set(a[w + 0], a[w + 1], a[w + 2]), k.set(a[w + 3], a[w + 4], a[w + 5]), I.set(a[w + 6], a[w + 7], a[w + 8]), S.set(s[A + 0], s[A + 1]), _.set(s[A + 2], s[A + 3]), y.set(s[A + 4], s[A + 5]), x.copy(b).add(k).add(I).divideScalar(3);
+        const C = v(x);
         g(S, A + 0, b, C), g(_, A + 2, k, C), g(y, A + 4, I, C);
       }
     }
     function g(b, k, I, x) {
       x < 0 && b.x === 1 && (s[k] = b.x - 1), I.x === 0 && I.z === 0 && (s[k] = x / 2 / Math.PI + 0.5);
     }
-    function w(b) {
+    function v(b) {
       return Math.atan2(b.z, -b.x);
     }
     function h(b) {
@@ -10446,8 +10445,8 @@ function JT(e) {
     opacity: ".3"
   });
   d.style.filter = "blur(3px)";
-  const f = ut("g"), u = mc.map((m, g) => {
-    const w = ut("g"), h = ut("linearGradient", {
+  const u = ut("g"), f = mc.map((m, g) => {
+    const v = ut("g"), h = ut("linearGradient", {
       id: `${a}-face-${g}`,
       gradientUnits: "userSpaceOnUse"
     }), b = [
@@ -10456,7 +10455,7 @@ function JT(e) {
       ".5",
       ".64",
       "1"
-    ].map((v) => ut("stop", { offset: v }));
+    ].map((w) => ut("stop", { offset: w }));
     h.append(...b), s.append(h);
     const k = ut("polygon", {
       fill: "#384555",
@@ -10491,8 +10490,8 @@ function JT(e) {
       "stroke-linejoin": "round",
       "paint-order": "stroke fill"
     });
-    return y.textContent = String(m.value), _.append(y), w.append(k, ...I, x, S, _), f.append(w), {
-      group: w,
+    return y.textContent = String(m.value), _.append(y), v.append(k, ...I, x, S, _), u.append(v), {
+      group: v,
       shell: k,
       surface: x,
       bevels: I,
@@ -10502,14 +10501,14 @@ function JT(e) {
       stops: b
     };
   });
-  i.append(s, d, f);
+  i.append(s, d, u);
   function p(m, g = !1) {
-    const w = Math.max(0, Math.min(1, m)), h = Math.pow(1 - Math.min(1, w / 0.84), 2.6), b = new $r().setFromEuler(new oo(-h * Math.PI * 5, h * Math.PI * 3.3, h * 0.7)).multiply(r).multiply(n), k = (1 - w) * (8 + Math.abs(Math.sin(w * Math.PI * 3)) * 15);
-    f.setAttribute("transform", `translate(0 ${-k})`), d.setAttribute("opacity", String(0.3 - k / 150)), d.setAttribute("rx", String(40 - k / 3)), mc.forEach((I, x) => {
-      const { group: S, shell: _, surface: y, bevels: v, rim: A, label: C, paint: E, stops: T } = u[x], R = I.normal.clone().applyQuaternion(b);
+    const v = Math.max(0, Math.min(1, m)), h = Math.pow(1 - Math.min(1, v / 0.84), 2.6), b = new $r().setFromEuler(new oo(-h * Math.PI * 5, h * Math.PI * 3.3, h * 0.7)).multiply(r).multiply(n), k = (1 - v) * (8 + Math.abs(Math.sin(v * Math.PI * 3)) * 15);
+    u.setAttribute("transform", `translate(0 ${-k})`), d.setAttribute("opacity", String(0.3 - k / 150)), d.setAttribute("rx", String(40 - k / 3)), mc.forEach((I, x) => {
+      const { group: S, shell: _, surface: y, bevels: w, rim: A, label: C, paint: E, stops: T } = f[x], R = I.normal.clone().applyQuaternion(b);
       if (S.style.display = R.z > 0.015 ? "" : "none", R.z <= 0.015) return;
       const M = I.center.clone().applyQuaternion(b), P = I.points.map((B) => B.clone().applyQuaternion(b)), G = I.inset.map((B) => B.clone().applyQuaternion(b));
-      _.setAttribute("points", Fl(P)), _.setAttribute("stroke", qf(R, !0)), y.setAttribute("points", Fl(G)), A.setAttribute("points", Fl(G.map((B) => B.clone().lerp(M, 0.045)))), v.forEach((B, D) => {
+      _.setAttribute("points", Fl(P)), _.setAttribute("stroke", qf(R, !0)), y.setAttribute("points", Fl(G)), A.setAttribute("points", Fl(G.map((B) => B.clone().lerp(M, 0.045)))), w.forEach((B, D) => {
         const $ = (D + 1) % 3;
         B.setAttribute("points", Fl([
           P[D],
@@ -10681,8 +10680,8 @@ function Ow(e, t) {
     opacity: ".22"
   });
   d.style.filter = "blur(3px)";
-  const f = Ln("g"), u = Wf.map((m, g) => {
-    const w = Ln("g"), h = Ln("linearGradient", {
+  const u = Ln("g"), f = Wf.map((m, g) => {
+    const v = Ln("g"), h = Ln("linearGradient", {
       id: `${o}-face-${g}`,
       gradientUnits: "userSpaceOnUse"
     }), b = [
@@ -10719,8 +10718,8 @@ function Ow(e, t) {
       "stroke-width": ".012",
       "paint-order": "stroke fill"
     });
-    return _.textContent = t === "tens" ? String(m.value * 10).padStart(2, "0") : String(m.value), w.append(k, ...I, x, S, _), f.append(w), {
-      group: w,
+    return _.textContent = t === "tens" ? String(m.value * 10).padStart(2, "0") : String(m.value), v.append(k, ...I, x, S, _), u.append(v), {
+      group: v,
       shell: k,
       bevels: I,
       surface: x,
@@ -10730,18 +10729,18 @@ function Ow(e, t) {
       stops: b
     };
   });
-  s.append(c, d, f);
+  s.append(c, d, u);
   function p(m, g = !1) {
-    const w = Math.max(0, Math.min(1, m)), h = Math.pow(1 - Math.min(1, w / 0.88), 2.5), b = new $r().setFromEuler(new oo(h * Math.PI * 4.5, i * h * Math.PI * 3.5, i * h * 0.8)).multiply(a).multiply(r), k = (1 - w) * (5 + Math.abs(Math.sin(w * Math.PI * 3 + i * 0.3)) * 15);
-    f.setAttribute("transform", `translate(0 ${-k})`), d.setAttribute("rx", String(36 - k / 3)), d.setAttribute("opacity", String(0.22 - k / 180)), Wf.forEach((I, x) => {
-      const S = u[x], _ = I.normal.clone().applyQuaternion(b);
+    const v = Math.max(0, Math.min(1, m)), h = Math.pow(1 - Math.min(1, v / 0.88), 2.5), b = new $r().setFromEuler(new oo(h * Math.PI * 4.5, i * h * Math.PI * 3.5, i * h * 0.8)).multiply(a).multiply(r), k = (1 - v) * (5 + Math.abs(Math.sin(v * Math.PI * 3 + i * 0.3)) * 15);
+    u.setAttribute("transform", `translate(0 ${-k})`), d.setAttribute("rx", String(36 - k / 3)), d.setAttribute("opacity", String(0.22 - k / 180)), Wf.forEach((I, x) => {
+      const S = f[x], _ = I.normal.clone().applyQuaternion(b);
       if (S.group.style.display = _.z > 0.015 ? "" : "none", _.z <= 0.015) return;
-      const y = I.center.clone().applyQuaternion(b), v = I.points.map((M) => M.clone().applyQuaternion(b)), A = I.inset.map((M) => M.clone().applyQuaternion(b));
-      S.shell.setAttribute("points", Wl(v)), S.shell.setAttribute("fill", Kl(_, !0)), S.shell.setAttribute("stroke", Kl(_, !0)), S.surface.setAttribute("points", Wl(A)), S.rim.setAttribute("points", Wl(A.map((M) => M.clone().lerp(y, 0.035)))), S.bevels.forEach((M, P) => {
+      const y = I.center.clone().applyQuaternion(b), w = I.points.map((M) => M.clone().applyQuaternion(b)), A = I.inset.map((M) => M.clone().applyQuaternion(b));
+      S.shell.setAttribute("points", Wl(w)), S.shell.setAttribute("fill", Kl(_, !0)), S.shell.setAttribute("stroke", Kl(_, !0)), S.surface.setAttribute("points", Wl(A)), S.rim.setAttribute("points", Wl(A.map((M) => M.clone().lerp(y, 0.035)))), S.bevels.forEach((M, P) => {
         const G = (P + 1) % 4;
         M.setAttribute("points", Wl([
-          v[P],
-          v[G],
+          w[P],
+          w[G],
           A[G],
           A[P]
         ]));
@@ -10768,10 +10767,10 @@ function Ow(e, t) {
   };
 }
 function Rw(e) {
-  const { request: t, result: n, resolution: r } = e, i = n.level === "critical", a = n.level === "fumble", s = i || a, o = s ? cr.levels[n.level] : cr.verdicts[n.verdict], c = i ? "critical_success" : a ? "critical_failure" : n.verdict === "achieved" ? "success" : "failure", l = Ee("xb-dice-coc7"), d = Ee("xb-dice-coc7-heading"), f = cr.identity(t.stat, n.value, r), u = Ee("xb-dice-coc7-identity", f);
-  u.dataset.resolution = r?.kind ?? "direct", d.append(u, Ee("xb-dice-system", cr.system(t.difficulty)));
-  const p = Ee("xb-dice-coc7-hero"), m = Ee("xb-dice-percentile-dice"), g = Ow(n.tens, "tens"), w = Ow(n.units, "units");
-  for (const C of [g, w]) {
+  const { request: t, result: n, resolution: r } = e, i = n.level === "critical", a = n.level === "fumble", s = i || a, o = s ? cr.levels[n.level] : cr.verdicts[n.verdict], c = i ? "critical_success" : a ? "critical_failure" : n.verdict === "achieved" ? "success" : "failure", l = Ee("xb-dice-coc7"), d = Ee("xb-dice-coc7-heading"), u = cr.identity(t.stat, n.value, r), f = Ee("xb-dice-coc7-identity", u);
+  f.dataset.resolution = r?.kind ?? "direct", d.append(f, Ee("xb-dice-system", cr.system(t.difficulty)));
+  const p = Ee("xb-dice-coc7-hero"), m = Ee("xb-dice-percentile-dice"), g = Ow(n.tens, "tens"), v = Ow(n.units, "units");
+  for (const C of [g, v]) {
     const E = Ee("xb-dice-percentile-die");
     E.append(C.element), m.append(E);
   }
@@ -10789,19 +10788,19 @@ function Rw(e) {
   S.dataset.value = String(n.value), S.dataset.threshold = String(n.threshold), _.kind === "bonus" ? (S.dataset.bonus = String(_.amount), S.dataset.cap = String(_.cap)) : S.dataset.divisor = String(_.divisor);
   let y = "";
   n.level === "critical" ? y = cr.critical(1) : n.level === "fumble" && (y = cr.fumble(xk(n.threshold)));
-  const v = Ee("xb-dice-coc7-detail");
-  v.dataset.level = n.level;
+  const w = Ee("xb-dice-coc7-detail");
+  w.dataset.level = n.level;
   const A = r?.kind === "untrained" ? cr.untrainedReasons[r.reason] : "";
-  return A && v.append(Ee("xb-dice-coc7-reason", A)), v.append(S), y && v.append(Ee("xb-dice-coc7-reason", y)), n.roll === 100 && v.append(Ee("xb-dice-coc7-hundred", cr.hundred)), p.append(m, h), l.append(d, p, v), h.hidden = !0, v.hidden = !0, {
+  return A && w.append(Ee("xb-dice-coc7-reason", A)), w.append(S), y && w.append(Ee("xb-dice-coc7-reason", y)), n.roll === 100 && w.append(Ee("xb-dice-coc7-hundred", cr.hundred)), p.append(m, h), l.append(d, p, w), h.hidden = !0, w.hidden = !0, {
     element: l,
     rollingSlot: p,
     tone: c,
-    label: cr.accessible(f, o, n.roll, n.threshold, x, [A, y].filter(Boolean).join("；")),
+    label: cr.accessible(u, o, n.roll, n.threshold, x, [A, y].filter(Boolean).join("；")),
     settle() {
-      g.draw(1, !0), w.draw(1, !0), h.hidden = !1, v.hidden = !1;
+      g.draw(1, !0), v.draw(1, !0), h.hidden = !1, w.hidden = !1;
     },
     draw(C) {
-      g.draw(C), w.draw(C);
+      g.draw(C), v.draw(C);
     }
   };
 }
@@ -10875,15 +10874,15 @@ function iO(e, t) {
   r.rollingSlot.append(s);
   const o = Ee("xb-dice-copy");
   if (o.append(Ee("xb-dice-action", e.request.action)), e.rule === "d20" && e.request.stakes) {
-    const u = Ee("xb-dice-stakes-text", e.request.stakes);
+    const f = Ee("xb-dice-stakes-text", e.request.stakes);
     if (e.request.stakes.length > 96) {
       const p = document.createElement("details");
       p.className = "xb-dice-stakes";
       const m = document.createElement("summary");
-      m.textContent = Ot.stakesDetails, p.append(m, u), o.append(p);
+      m.textContent = Ot.stakesDetails, p.append(m, f), o.append(p);
     } else {
       const p = Ee("xb-dice-stakes");
-      p.append(Ee("xb-dice-stakes-label", Ot.stakes), u), o.append(p);
+      p.append(Ee("xb-dice-stakes-label", Ot.stakes), f), o.append(p);
     }
   }
   const c = Ee("xb-dice-status");
@@ -10891,11 +10890,11 @@ function iO(e, t) {
   function l() {
     n.dataset.state !== "settled" && (n.dataset.state === "rolling" && (n.dataset.revealed = "true"), n.dataset.state = "settled", n.dataset.outcome = r.tone, e.rule === "coc7" && (n.dataset.verdict = e.result.verdict), a.hidden = e.rule === "coc7", n.setAttribute("aria-label", e.rule === "coc7" ? r.label : `${i}检定：${r.label}`), o.hidden = !1, s.hidden = !0, r.settle());
   }
-  function d(u, p = !1) {
-    delete n.dataset.state, delete n.dataset.revealed, delete n.dataset.outcome, delete n.dataset.verdict, s.hidden = !1, u ? (n.dataset.state = "rolling", n.setAttribute("aria-label", `${i}检定，${Ot.rolling}`), o.hidden = !p, r.draw(0)) : l();
+  function d(f, p = !1) {
+    delete n.dataset.state, delete n.dataset.revealed, delete n.dataset.outcome, delete n.dataset.verdict, s.hidden = !1, f ? (n.dataset.state = "rolling", n.setAttribute("aria-label", `${i}检定，${Ot.rolling}`), o.hidden = !p, r.draw(0)) : l();
   }
-  function f(u, p) {
-    e = u;
+  function u(f, p) {
+    e = f;
     const m = e.rule === "coc7" ? Rw(e) : Ew(e);
     r.element.replaceWith(m.element), r = m, r.rollingSlot.append(s), d(p, !0);
   }
@@ -10903,8 +10902,8 @@ function iO(e, t) {
     element: n,
     status: c,
     settle: l,
-    update: f,
-    draw: (u) => r.draw(u)
+    update: u,
+    draw: (f) => r.draw(f)
   };
 }
 var Nw = 2e3;
@@ -10914,7 +10913,7 @@ function aO(e, t) {
     let a = 0, s = !1;
     const o = matchMedia("(prefers-reduced-motion: reduce)"), c = () => {
       if (!s) {
-        s = !0, clearTimeout(u), cancelAnimationFrame(a), t.removeEventListener("abort", c), document.removeEventListener("visibilitychange", l), o.removeEventListener("change", d);
+        s = !0, clearTimeout(f), cancelAnimationFrame(a), t.removeEventListener("abort", c), document.removeEventListener("visibilitychange", l), o.removeEventListener("change", d);
         try {
           e.settle(), delete e.element.dataset.revealed, n();
         } catch (p) {
@@ -10925,7 +10924,7 @@ function aO(e, t) {
       document.hidden && c();
     }, d = () => {
       o.matches && c();
-    }, f = (p) => {
+    }, u = (p) => {
       if (s) return;
       if (!e.element.isConnected) {
         c();
@@ -10942,9 +10941,9 @@ function aO(e, t) {
         c();
         return;
       }
-      a = requestAnimationFrame(f);
-    }, u = setTimeout(c, Nw);
-    t.addEventListener("abort", c, { once: !0 }), document.addEventListener("visibilitychange", l), o.addEventListener("change", d), a = requestAnimationFrame(f);
+      a = requestAnimationFrame(u);
+    }, f = setTimeout(c, Nw);
+    t.addEventListener("abort", c, { once: !0 }), document.addEventListener("visibilitychange", l), o.addEventListener("change", d), a = requestAnimationFrame(u);
   });
 }
 var sO = `
@@ -11061,28 +11060,28 @@ function Pw(e, t) {
   const c = [];
   let l = 0;
   for (const d of s.matchAll(new RegExp(Ku, "g"))) {
-    const f = t.get(d[1]);
-    if (!f || n.has(f)) continue;
+    const u = t.get(d[1]);
+    if (!u || n.has(u)) continue;
     for (; a[l].end <= d.index; ) l++;
-    const u = l, p = a[l], m = d.index + d[0].length;
+    const f = l, p = a[l], m = d.index + d[0].length;
     for (; a[l].end < m; ) l++;
-    u !== l && a.slice(u, l + 1).some(({ node: g }, w, h) => {
+    f !== l && a.slice(f, l + 1).some(({ node: g }, v, h) => {
       const b = g.parentElement;
-      return !b?.classList.contains("text_segment") || b.childNodes.length !== 1 || w > 0 && h[w - 1].node.parentElement?.nextSibling !== b;
+      return !b?.classList.contains("text_segment") || b.childNodes.length !== 1 || v > 0 && h[v - 1].node.parentElement?.nextSibling !== b;
     }) || (c.push({
-      card: f,
+      card: u,
       first: p,
       last: a[l],
       start: d.index,
       end: m
-    }), n.add(f));
+    }), n.add(u));
   }
-  for (const { card: d, first: f, last: u, start: p, end: m } of c.reverse()) if (f === u) {
-    const g = r.createDocumentFragment(), w = f.node.textContent ?? "", h = r.createTextNode(w.slice(0, p - f.start));
-    g.append(h, d, r.createTextNode(w.slice(m - f.start))), f.node.replaceWith(g), f.node = h;
+  for (const { card: d, first: u, last: f, start: p, end: m } of c.reverse()) if (u === f) {
+    const g = r.createDocumentFragment(), v = u.node.textContent ?? "", h = r.createTextNode(v.slice(0, p - u.start));
+    g.append(h, d, r.createTextNode(v.slice(m - u.start))), u.node.replaceWith(g), u.node = h;
   } else {
     const g = r.createRange();
-    g.setStart(f.node, p - f.start), g.setEnd(u.node, m - u.start), g.deleteContents(), g.insertNode(d);
+    g.setStart(u.node, p - u.start), g.setEnd(f.node, m - f.start), g.deleteContents(), g.insertNode(d);
   }
   return n;
 }
@@ -11114,9 +11113,9 @@ var Gl = ".xb-dice-card";
 function dO(e, t) {
   let n = null, r = null, i = null, a = null, s = null;
   const o = /* @__PURE__ */ new WeakMap(), c = /* @__PURE__ */ new WeakMap();
-  function l(g, w, h = "continue-check") {
+  function l(g, v, h = "continue-check") {
     const b = document.createElement("button");
-    b.type = "button", b.textContent = w, b.dataset.diceAction = h;
+    b.type = "button", b.textContent = v, b.dataset.diceAction = h;
     const k = e.actions(g);
     return b.addEventListener("click", () => {
       if (b.disabled = !0, !k) {
@@ -11132,7 +11131,7 @@ function dO(e, t) {
       });
     }), b;
   }
-  function d(g, w, h) {
+  function d(g, v, h) {
     const b = JSON.stringify([h?.kind, h?.canReroll]), k = g.view.status;
     if (g.status !== b) {
       g.status = b, k.replaceChildren(Ee("xb-dice-note"));
@@ -11143,7 +11142,7 @@ function dO(e, t) {
       }
     }
     const I = k.querySelector(".xb-dice-note");
-    I.textContent = w || g.error || (h?.insufficientFunds ? Ot.insufficientFunds : ""), I.hidden = !I.textContent, k.hidden = !I.textContent && !h;
+    I.textContent = v || g.error || (h?.insufficientFunds ? Ot.insufficientFunds : ""), I.hidden = !I.textContent, k.hidden = !I.textContent && !h;
     for (const x of k.querySelectorAll("button"))
       (x.dataset.diceAction === "continue-check" || x.dataset.diceAction === "cancel-continue") && (x.dataset.diceAction = h?.canCancel ? "cancel-continue" : "continue-check", x.textContent = h?.canCancel ? Ot.cancelContinue : Ot.retryContinue), x.disabled = x.dataset.diceAction === "cancel-continue" ? !h?.canCancel : !h || h.disabled || x.dataset.diceAction === "reroll-check" && !!h.rerollDisabled, x.onclick = () => {
         !h || x.disabled || (g.error = void 0, document.activeElement === x && (g.restoreFocus = x), k.querySelectorAll("button").forEach((S) => {
@@ -11153,8 +11152,8 @@ function dO(e, t) {
         }).finally(p));
       };
   }
-  function f(g) {
-    let w = !1, h = !1;
+  function u(g) {
+    let v = !1, h = !1;
     n?.disconnect();
     try {
       const b = gt(), k = e.view();
@@ -11163,9 +11162,9 @@ function dO(e, t) {
         if (!I.isConnected || !I.matches("#chat .mes")) continue;
         const x = Number(I.getAttribute("mesid")), S = b?.chat[x], _ = I.querySelector(".mes_text");
         if (!_) continue;
-        const y = S && qn(S), v = k && k.target.message === S && k.target.swipe === (S?.swipe_id ?? 0) ? k : null;
-        h ||= !!v;
-        const A = v?.phase, C = A && "candidate" in A && A.candidate ? es(A.candidate.body, A.candidate.records.checks).at(-1) : void 0;
+        const y = S && qn(S), w = k && k.target.message === S && k.target.swipe === (S?.swipe_id ?? 0) ? k : null;
+        h ||= !!w;
+        const A = w?.phase, C = A && "candidate" in A && A.candidate ? es(A.candidate.body, A.candidate.records.checks).at(-1) : void 0;
         if (I.querySelector(".edit_textarea")) {
           A && e.cancel();
           continue;
@@ -11200,9 +11199,9 @@ function dO(e, t) {
             !B && L.element.dataset.state === "rolling" && L.settle();
             const J = L.element;
             T.set(N.id, J);
-            const te = A?.kind === "continue-error" && C?.id === N.id, ne = A?.kind === "continuing" && C?.id === N.id && Ao(S.mes, N), Z = A?.kind === "settling" && C?.id === N.id, se = ne ? v?.continuation : null;
-            w ||= !!se;
-            const fe = (te || Z) && v?.wait ? `${$w(v.wait)}${te ? `。${Ot.retained}` : ""}` : te ? A.error : ne ? se ? rO(se) : Ot.continuing : Z ? Ot.waitingHost : "", me = N === z.at(-1) ? e.actions(x) : null;
+            const te = A?.kind === "continue-error" && C?.id === N.id, ne = A?.kind === "continuing" && C?.id === N.id && Ao(S.mes, N), Z = A?.kind === "settling" && C?.id === N.id, se = ne ? w?.continuation : null;
+            v ||= !!se;
+            const fe = (te || Z) && w?.wait ? `${$w(w.wait)}${te ? `。${Ot.retained}` : ""}` : te ? A.error : ne ? se ? rO(se) : Ot.continuing : Z ? Ot.waitingHost : "", me = N === z.at(-1) ? e.actions(x) : null;
             d(K, fe, me), ne || Z ? L.status.dataset.diceState = Z ? "waiting" : se?.stage ?? "preparing" : delete L.status.dataset.diceState, se ? L.status.dataset.elapsedSeconds = String(se.elapsedSeconds) : delete L.status.dataset.elapsedSeconds, P ||= !!te || !!Z;
           }
         } catch {
@@ -11236,7 +11235,7 @@ function dO(e, t) {
           if (A.kind === "waiting" || A.kind === "settling") {
             const O = _.querySelector(".xb-dice-pending") ?? Ee("xb-dice-card xb-dice-pending");
             O.setAttribute("role", "status"), O.setAttribute("aria-live", "polite");
-            const z = v?.wait ? $w(v.wait) : A.kind === "waiting" ? Ot.waitingGroup : Ot.waitingHost;
+            const z = w?.wait ? $w(w.wait) : A.kind === "waiting" ? Ot.waitingGroup : Ot.waitingHost;
             O.dataset.diceState = "waiting", O.textContent !== z && (O.textContent = z), E.add(O), O.isConnected || _.append(O);
           }
           if ("error" in A && A.error) {
@@ -11253,10 +11252,10 @@ function dO(e, t) {
         });
       }
     } finally {
-      u(), h && (a !== null && (clearTimeout(a), a = null), w && (a = setTimeout(p, 1e3)));
+      f(), h && (a !== null && (clearTimeout(a), a = null), v && (a = setTimeout(p, 1e3)));
     }
   }
-  function u() {
+  function f() {
     const g = document.getElementById("chat");
     n && g && n.observe(g, {
       childList: !0,
@@ -11267,18 +11266,18 @@ function dO(e, t) {
   function p() {
     if (!n || i) return;
     const g = () => {
-      i === g && (i = null, f(document.querySelectorAll("#chat .mes")));
+      i === g && (i = null, u(document.querySelectorAll("#chat .mes")));
     };
     i = g, queueMicrotask(g);
   }
   function m(g) {
-    const w = /* @__PURE__ */ new Set();
+    const v = /* @__PURE__ */ new Set();
     for (const h of g) {
       const b = h.target.nodeType === 1 ? h.target : h.target.parentElement;
       if (b?.closest(Gl)) continue;
       const k = b?.closest("#chat .mes");
       if (k) {
-        w.add(k);
+        v.add(k);
         continue;
       }
       if ([...h.addedNodes, ...h.removedNodes].some((I) => I.nodeType === 1 && (I.matches(".mes") || I.querySelector(".mes")))) {
@@ -11286,21 +11285,21 @@ function dO(e, t) {
         break;
       }
     }
-    i ? i() : w.size && f(w);
+    i ? i() : v.size && u(v);
   }
   return {
     refresh: p,
-    async reveal(g, w, h) {
+    async reveal(g, v, h) {
       if (!n || h.aborted || (document.querySelector(`#chat .mes[mesid="${g.index}"]`) || await new Promise((_) => {
-        const y = In("xiaobaiOsDiceReveal"), v = () => {
-          y.cleanup(), h.removeEventListener("abort", v), _();
+        const y = In("xiaobaiOsDiceReveal"), w = () => {
+          y.cleanup(), h.removeEventListener("abort", w), _();
         };
         y.on(ce.CHARACTER_MESSAGE_RENDERED, (A) => {
-          A === g.index && v();
-        }), h.addEventListener("abort", v, { once: !0 });
+          A === g.index && w();
+        }), h.addEventListener("abort", w, { once: !0 });
       }), !n || h.aborted)) return;
-      i = null, f(document.querySelectorAll("#chat .mes"));
-      const b = es(w.body, w.records.checks).at(-1)?.id, k = o.get(g.message), I = b && k?.swipe === g.swipe ? k.entries.get(b)?.view : void 0;
+      i = null, u(document.querySelectorAll("#chat .mes"));
+      const b = es(v.body, v.records.checks).at(-1)?.id, k = o.get(g.message), I = b && k?.swipe === g.swipe ? k.entries.get(b)?.view : void 0;
       if (h.aborted) return;
       const x = e.view()?.phase, S = x?.kind === "revealing" && x.placement === "replace";
       if (!I?.element.isConnected || !S && !lO(I.element)) throw new Error("检定卡片暂时不可见。");
@@ -11308,14 +11307,14 @@ function dO(e, t) {
     },
     start() {
       if (n) return;
-      s = document.createElement("style"), s.textContent = sO, document.head.append(s), n = new MutationObserver(m), u();
+      s = document.createElement("style"), s.textContent = sO, document.head.append(s), n = new MutationObserver(m), f();
       const g = In("xiaobaiOsDiceDisplay");
-      for (const w of [
+      for (const v of [
         ce.CHAT_CHANGED,
         ce.MESSAGE_SWIPED,
         ce.MESSAGE_UPDATED,
         ce.MORE_MESSAGES_LOADED
-      ]) g.on(w, p);
+      ]) g.on(v, p);
       r = () => g.cleanup(), p();
     },
     stop() {
@@ -11416,14 +11415,14 @@ function gO(e) {
   function o() {
     if (n) return;
     const c = In("xiaobaiOsDiceEncounter");
-    c.on(ce.GENERATION_STARTED, (l, d, f) => {
-      f || s();
-    }), c.on(ce.GENERATION_AFTER_COMMANDS, (l, d, f) => {
-      if (f) return;
-      const u = String(l || ""), p = gt();
-      p && (!p.groupId || Sr) && Dw.includes(u) && e.enabled() && (t = {
+    c.on(ce.GENERATION_STARTED, (l, d, u) => {
+      u || s();
+    }), c.on(ce.GENERATION_AFTER_COMMANDS, (l, d, u) => {
+      if (u) return;
+      const f = String(l || ""), p = gt();
+      p && (!p.groupId || Sr) && Dw.includes(f) && e.enabled() && (t = {
         source: p,
-        type: u,
+        type: f,
         initialLength: p.chat.length,
         automatic: !!d.automatic_trigger,
         user: null,
@@ -11433,21 +11432,21 @@ function gO(e) {
     }), c.on(ce.MESSAGE_SENT, (l) => {
       const d = t;
       if (!d || d.automatic || !["", "normal"].includes(d.type) || l < d.initialLength) return;
-      const f = Gk(d.source, l);
-      !f || !Lw(gt(), f) || f.message !== d.source.chat.at(-1) || (d.user = f.message);
-    }), $u(jw, async (l, d, f, u) => {
+      const u = Gk(d.source, l);
+      !u || !Lw(gt(), u) || u.message !== d.source.chat.at(-1) || (d.user = u.message);
+    }), $u(jw, async (l, d, u, f) => {
       i();
       const p = t;
-      if (!p || !Dw.includes(String(u || "")) || !e.enabled()) return;
+      if (!p || !Dw.includes(String(f || "")) || !e.enabled()) return;
       p.preparing = !1;
       const m = () => t === p && !p.signal?.aborted && e.enabled() && gt()?.chat === p.source.chat && gt()?.key === p.source.key;
       if (!m()) {
-        f(!0);
+        u(!0);
         return;
       }
       const g = mO(p.source, p.type, e.isAuxiliaryMessage);
       if (!g) return;
-      const w = () => m() && Lw(gt(), g);
+      const v = () => m() && Lw(gt(), g);
       try {
         r = null;
         let h = g.records === void 0 ? null : Ah(g.records);
@@ -11455,14 +11454,14 @@ function gO(e) {
         const b = h && ru(h.encounter.outcome);
         if (!b) return;
         const k = await e.references(g.source.key);
-        if (!w()) {
-          f(!0);
+        if (!v()) {
+          u(!0);
           return;
         }
         e.setPrompt(pO(b, k));
       } catch (h) {
-        if (i(), !w()) {
-          f(!0);
+        if (i(), !v()) {
+          u(!0);
           return;
         }
         console.error("[LittleWhiteBox] Dice encounter preparation failed", h), r = {
@@ -11544,36 +11543,36 @@ function kO(e) {
   function c() {
     i = null, n?.disconnect();
     try {
-      const d = gt(), f = e.view();
-      for (const u of document.querySelectorAll("#chat .mes")) {
-        const p = Number(u.getAttribute("mesid")), m = d?.chat[p], g = u.querySelector(".mes_text");
+      const d = gt(), u = e.view();
+      for (const f of document.querySelectorAll("#chat .mes")) {
+        const p = Number(f.getAttribute("mesid")), m = d?.chat[p], g = f.querySelector(".mes_text");
         if (!m || !hl(m) || !g) {
-          u.querySelectorAll(Kf).forEach((S) => S.remove());
+          f.querySelectorAll(Kf).forEach((S) => S.remove());
           continue;
         }
-        let w = f?.target.message === m ? f.error : "", h = null;
+        let v = u?.target.message === m ? u.error : "", h = null;
         try {
           const S = qn(m);
           S !== void 0 && (h = ru(Ah(S).encounter.outcome));
         } catch {
-          w = "这条随机遭遇记录暂时无法显示。";
+          v = "这条随机遭遇记录暂时无法显示。";
         }
-        const b = !!u.querySelector(".edit_textarea"), k = JSON.stringify([
+        const b = !!f.querySelector(".edit_textarea"), k = JSON.stringify([
           h,
-          w,
+          v,
           b
-        ]), I = s.get(u);
+        ]), I = s.get(f);
         if (I?.message === m && I.signature === k && I.nodes.every((S, _) => S.previousSibling === (I.nodes[_ - 1] ?? g) && S.parentNode === g.parentNode)) continue;
-        u.querySelectorAll(Kf).forEach((S) => S.remove());
+        f.querySelectorAll(Kf).forEach((S) => S.remove());
         const x = [];
-        if (!b && h && !w && (x.push(vO(h, a.has(m))), a.delete(m)), !b && w) {
+        if (!b && h && !v && (x.push(vO(h, a.has(m))), a.delete(m)), !b && v) {
           a.delete(m);
           const S = document.createElement("div");
           S.className = "xb-dice-encounter-error";
           const _ = document.createElement("span");
-          _.textContent = w, S.append(_), x.push(S);
+          _.textContent = v, S.append(_), x.push(S);
         }
-        g.after(...x), s.set(u, {
+        g.after(...x), s.set(f, {
           message: m,
           signature: k,
           nodes: x
@@ -11596,13 +11595,13 @@ function kO(e) {
       if (t) return;
       r = document.createElement("style"), r.textContent = bO, document.head.append(r), n = new MutationObserver(() => l());
       const d = In("xiaobaiOsDiceEncounterDisplay");
-      for (const f of [
+      for (const u of [
         ce.CHAT_CHANGED,
         ce.USER_MESSAGE_RENDERED,
         ce.MESSAGE_DELETED,
         ce.MESSAGE_EDITED,
         ce.MESSAGE_SWIPED
-      ]) d.on(f, () => l());
+      ]) d.on(u, () => l());
       t = () => d.cleanup(), o(), l();
     },
     stop() {
@@ -11875,22 +11874,22 @@ var zw = [
 function MO(e, t, n, r, i, a) {
   const s = /* @__PURE__ */ new WeakSet(), o = /* @__PURE__ */ new Set();
   let c = Promise.resolve(), l = !1, d = !1;
-  const f = a.wait ?? ((m) => new Promise((g) => globalThis.setTimeout(g, m))), u = () => n.getFileState() !== "ready" || n.getPlayerBalance() >= 10;
+  const u = a.wait ?? ((m) => new Promise((g) => globalThis.setTimeout(g, m))), f = () => n.getFileState() !== "ready" || n.getPlayerBalance() >= 10;
   async function p(m, g) {
-    const w = new AbortController();
-    o.add(w);
+    const v = new AbortController();
+    o.add(v);
     let h = !1;
     const b = () => e.peekCurrent()?.value?.resultOverrides[m]?.version === g.version;
     let k;
     try {
-      for (let I = 0; I <= zw.length && !l && (I && await f(zw[I - 1]), !l); I++)
+      for (let I = 0; I <= zw.length && !l && (I && await u(zw[I - 1]), !l); I++)
         try {
           if (h) {
             const _ = await t.retryPending({ readOnly: !0 });
             if (b() || h && _.status === "conflict" && (await t.adoptServerState(() => h), b()))
               return;
             if (h) {
-              if (await t.retryPending({ beforeRetry: () => h && !w.signal.aborted }), b()) return;
+              if (await t.retryPending({ beforeRetry: () => h && !v.signal.aborted }), b()) return;
               continue;
             }
           }
@@ -11905,10 +11904,10 @@ function MO(e, t, n, r, i, a) {
                 [m]: g
               }
             });
-            const v = _.useCapability(ct);
-            if (v.getPlayerBalance() < 10) return;
+            const w = _.useCapability(ct);
+            if (w.getPlayerBalance() < 10) return;
             const A = `dice:reroll:${g.version}`;
-            v.postAction({ legs: [{
+            w.postAction({ legs: [{
               idempotencyKey: A,
               actionId: A,
               sourceId: g.version,
@@ -11919,7 +11918,7 @@ function MO(e, t, n, r, i, a) {
               title: RO
             }] });
           }, {
-            signal: w.signal,
+            signal: v.signal,
             abandonOnAbort: !0,
             discardRejectedCandidate: !0,
             onSettled: () => {
@@ -11934,7 +11933,7 @@ function MO(e, t, n, r, i, a) {
       if (b()) return;
       throw new mt("dice_result_save_failed", { cause: k });
     } finally {
-      w.abort(), o.delete(w);
+      v.abort(), o.delete(v);
     }
   }
   return {
@@ -11942,14 +11941,14 @@ function MO(e, t, n, r, i, a) {
       l = !0;
       for (const m of o) m.abort();
     },
-    canAfford: u,
+    canAfford: f,
     reroll(m) {
       if (l || d || s.has(m) || !i(m)) throw new mt("dice_target_changed");
-      if (!u()) throw new mt("dice_insufficient_funds");
+      if (!f()) throw new mt("dice_insufficient_funds");
       const g = qp(m.body, m.records);
       if (!g) throw new mt("dice_target_changed");
       s.add(m);
-      const w = (a.id ?? Eo)(), h = IT(g, a.random ?? Math.random), b = EO(h, w);
+      const v = (a.id ?? Eo)(), h = IT(g, a.random ?? Math.random), b = EO(h, v);
       r.apply(h.id, b);
       const k = c.then(() => p(h.id, b)).catch(a.onError);
       return c = k, {
@@ -11957,7 +11956,7 @@ function MO(e, t, n, r, i, a) {
           ...m,
           records: xT(ei(m.records), h)
         },
-        operationId: w,
+        operationId: v,
         saved: k
       };
     },
@@ -11967,7 +11966,7 @@ function MO(e, t, n, r, i, a) {
       o.add(g);
       try {
         await c;
-        const w = await e.transact((h) => {
+        const v = await e.transact((h) => {
           const b = h.currentOrInitial();
           h.replace({
             ...b,
@@ -11977,7 +11976,7 @@ function MO(e, t, n, r, i, a) {
           signal: g.signal,
           abandonOnAbort: !0
         });
-        if (w.status !== "confirmed" && w.status !== "unchanged") throw new mt("dice_result_save_failed");
+        if (v.status !== "confirmed" && v.status !== "unchanged") throw new mt("dice_result_save_failed");
         r.forget(m);
       } finally {
         g.abort(), o.delete(g), d = !1;
@@ -12051,10 +12050,10 @@ function NO(e, t, n, r) {
     async install(c) {
       const l = c.useCapability(Lr), d = l.register(gk);
       c.execution.addCleanup(d.dispose);
-      const f = l.register(yk);
-      c.execution.addCleanup(f.dispose), await r();
-      const u = OO(c.partition, c.files);
-      await u.refresh();
+      const u = l.register(yk);
+      c.execution.addCleanup(u.dispose), await r();
+      const f = OO(c.partition, c.files);
+      await f.refresh();
       const p = $O(c.partition);
       c.execution.addCleanup(p.dispose);
       const m = MO(c.partition, c.files, c.useCapability(xn), p, (y) => h.current(y), { onError(y) {
@@ -12062,12 +12061,12 @@ function NO(e, t, n, r) {
       } });
       c.execution.addCleanup(m.dispose);
       let g = !1;
-      const w = () => g && !!gt() && e.read().apps.dice.actionChecksEnabled, h = AT(w, () => e.read().apps.dice.actionCheckFrequency, () => {
+      const v = () => g && !!gt() && e.read().apps.dice.actionChecksEnabled, h = AT(v, () => e.read().apps.dice.actionCheckFrequency, () => {
         b.refresh(), o();
-      }, (y, v, A) => b.reveal(y, v, A), () => e.read().apps.dice.actionCheckRule, u.read, m, p, {
+      }, (y, w, A) => b.reveal(y, w, A), () => e.read().apps.dice.actionCheckRule, f.read, m, p, {
         setRules: (y) => d.set("rules", y),
         setResult: (y) => d.set("result", y)
-      }), b = dO(h, w);
+      }), b = dO(h, v);
       a = h.isReplyPaused, c.execution.addCleanup(() => {
         a = null, o();
       });
@@ -12075,30 +12074,30 @@ function NO(e, t, n, r) {
         enabled: () => g && !!gt() && e.read().apps.dice.encountersEnabled,
         references: t,
         isAuxiliaryMessage: n,
-        setPrompt: (y) => f.set("context", y),
+        setPrompt: (y) => u.set("context", y),
         changed: (y) => x.refresh(y)
       }), x = kO(I);
-      c.execution.addCleanup(e.subscribe(b.refresh)), c.execution.addCleanup(u.subscribe(b.refresh)), c.execution.addCleanup(p.subscribe(b.refresh));
-      const S = PC(e, () => gt()?.key ?? "", Ck, (y) => y === "actionChecksEnabled" ? h.cancel() : I.cancel(), u);
+      c.execution.addCleanup(e.subscribe(b.refresh)), c.execution.addCleanup(f.subscribe(b.refresh)), c.execution.addCleanup(p.subscribe(b.refresh));
+      const S = PC(e, () => gt()?.key ?? "", Ck, (y) => y === "actionChecksEnabled" ? h.cancel() : I.cancel(), f);
       i = async () => {
         const y = () => {
           if (Pu() || Pc) throw new Error("请等回复和保存结束，再清理 Dice 数据。");
         };
         y();
-        const v = gt();
-        if (!v) throw new Error("请先打开要清理的聊天。");
+        const w = gt();
+        if (!w) throw new Error("请先打开要清理的聊天。");
         await S.disable(), await m.idle();
-        const A = () => gt()?.chat === v.chat && gt()?.key === v.key, C = () => {
+        const A = () => gt()?.chat === w.chat && gt()?.key === w.key, C = () => {
           if (!A()) throw new mt("dice_target_changed");
-          if (y(), v.chat.some((M, P) => qa(P))) throw new Error("请先结束消息编辑，再清理 Dice 数据。");
+          if (y(), w.chat.some((M, P) => qa(P))) throw new Error("请先结束消息编辑，再清理 Dice 数据。");
         };
         C();
-        const E = mw(v.chat);
+        const E = mw(w.chat);
         await m.clearResults(E), C();
-        const T = mw(v.chat);
+        const T = mw(w.chat);
         if (T.size !== E.size || [...T].some((M) => !E.has(M))) throw new mt("dice_target_changed");
-        const R = wT(v.chat);
-        for (const M of R) Vm(v.chat.indexOf(M), M);
+        const R = wT(w.chat);
+        for (const M of R) Vm(w.chat.indexOf(M), M);
         if ((await eu(A)).status !== "confirmed") throw new Error("还不确定 Dice 记录是否清理成功，请重新加载聊天后再试。");
         if (!A()) throw new Error("聊天已切换，未继续清理 Dice 数据。");
         b.refresh(), x.refresh();
@@ -12279,24 +12278,24 @@ function GO(e, t, n, r) {
     }, { once: !0 });
   });
 }
-function UO({ getSettings: e, subscribe: t, capture: n, generate: r, commit: i, show: a, hide: s, isForegroundActive: o = () => !1, random: c = Math.random, now: l = Date.now, setTimer: d = setTimeout, clearTimer: f = clearTimeout, cooldownMs: u = KO } = {}) {
+function UO({ getSettings: e, subscribe: t, capture: n, generate: r, commit: i, show: a, hide: s, isForegroundActive: o = () => !1, random: c = Math.random, now: l = Date.now, setTimer: d = setTimeout, clearTimer: u = clearTimeout, cooldownMs: f = KO } = {}) {
   let p = null, m = null, g = 0;
-  function w() {
+  function v() {
     const I = m !== null;
     return m?.abort(), m = null, s?.(), I;
   }
   async function h(I) {
     const x = e?.();
-    if (!x?.enabled || m || o() || l() - g < u) return !1;
+    if (!x?.enabled || m || o() || l() - g < f) return !1;
     const S = Number(x.probability);
     if (c() * 100 >= S) return !1;
     const _ = new AbortController();
     m = _;
     try {
       const y = await n?.(I);
-      if (!y || _.signal.aborted || (g = l(), await GO(I?.kind === "ai_message" ? 1e3 + c() * 1e3 : 500 + c() * 500, _.signal, d, f), !r || !i)) return !1;
-      const v = await r(y, _.signal);
-      return _.signal.aborted || !String(v || "").trim() || (await i(y, String(v).trim(), _.signal), _.signal.aborted) ? !1 : (a?.(String(v).trim()), !0);
+      if (!y || _.signal.aborted || (g = l(), await GO(I?.kind === "ai_message" ? 1e3 + c() * 1e3 : 500 + c() * 500, _.signal, d, u), !r || !i)) return !1;
+      const w = await r(y, _.signal);
+      return _.signal.aborted || !String(w || "").trim() || (await i(y, String(w).trim(), _.signal), _.signal.aborted) ? !1 : (a?.(String(w).trim()), !0);
     } catch (y) {
       return (y !== null && typeof y == "object" && "name" in y ? String(y.name) : "") !== "AbortError" && console.warn("[LittleWhiteBox] 四次元壁吐槽失败", y), !1;
     } finally {
@@ -12306,16 +12305,16 @@ function UO({ getSettings: e, subscribe: t, capture: n, generate: r, commit: i, 
   function b() {
     const I = e?.()?.enabled === !0;
     I && !p && (p = t?.(h) || (() => {
-    })), !I && p && (w(), p(), p = null);
+    })), !I && p && (v(), p(), p = null);
   }
   function k() {
-    w(), p?.(), p = null, g = 0;
+    v(), p?.(), p = null, g = 0;
   }
   return Object.freeze({
     start: b,
     sync: b,
     stop: k,
-    cancel: w,
+    cancel: v,
     handleEvent: h,
     isRunning: () => m !== null
   });
@@ -12331,10 +12330,10 @@ function VO({ documentTarget: e = document, windowTarget: t = window, anchorId: 
     if (!c) return !1;
     const l = c.getBoundingClientRect();
     r = e.createElement("button"), r.type = "button", r.className = "xiaobaix-os-commentary", r.textContent = String(o || ""), r.addEventListener("click", a, { once: !0 }), e.body.append(r);
-    const d = r.getBoundingClientRect(), f = Math.min(Math.max(8, l.left + l.width / 2 - d.width / 2), Math.max(8, t.innerWidth - d.width - 8));
-    r.style.left = `${f}px`, r.style.bottom = `${Math.max(8, t.innerHeight - l.top + 8)}px`;
-    const u = Math.min(2e3 + Math.ceil(String(o || "").length / 5) * 1e3, 8e3);
-    return i = t.setTimeout(a, u), !0;
+    const d = r.getBoundingClientRect(), u = Math.min(Math.max(8, l.left + l.width / 2 - d.width / 2), Math.max(8, t.innerWidth - d.width - 8));
+    r.style.left = `${u}px`, r.style.bottom = `${Math.max(8, t.innerHeight - l.top + 8)}px`;
+    const f = Math.min(2e3 + Math.ceil(String(o || "").length / 5) * 1e3, 8e3);
+    return i = t.setTimeout(a, f), !0;
   }
   return Object.freeze({
     show: s,
@@ -12486,15 +12485,15 @@ function aR(e, t = "partitions.fourthWall") {
     if (i.add(l), Ra(c.name, `${t}.sessions[${s}].name`), !Number.isFinite(c.createdAt)) throw new $t("INVALID_CURRENT_DATA", `${t}.sessions[${s}].createdAt must be finite`);
     if (!Array.isArray(c.history)) throw new $t("INVALID_CURRENT_DATA", `${t}.sessions[${s}].history must be an array`);
     Ra(c.memory, `${t}.sessions[${s}].memory`), Bw(c.archivedCount, `${t}.sessions[${s}].archivedCount`, 0, c.history.length);
-    for (const [d, f] of c.history.entries()) {
-      const u = Ul(f, `${t}.sessions[${s}].history[${d}]`), p = [
+    for (const [d, u] of c.history.entries()) {
+      const f = Ul(u, `${t}.sessions[${s}].history[${d}]`), p = [
         "role",
         "content",
         "ts"
       ];
-      if (u.thinking !== void 0 && p.push("thinking"), u.type !== void 0 && p.push("type"), Vl(u, p, `${t}.sessions[${s}].history[${d}]`), u.role !== "user" && u.role !== "ai") throw new $t("INVALID_CURRENT_DATA", "fourth-wall message role is invalid");
-      if (Ra(u.content, "fourth-wall message content"), !Number.isFinite(u.ts)) throw new $t("INVALID_CURRENT_DATA", "fourth-wall message timestamp must be finite");
-      u.thinking !== void 0 && Ra(u.thinking, "message.thinking"), u.type !== void 0 && Ra(u.type, "message.type");
+      if (f.thinking !== void 0 && p.push("thinking"), f.type !== void 0 && p.push("type"), Vl(f, p, `${t}.sessions[${s}].history[${d}]`), f.role !== "user" && f.role !== "ai") throw new $t("INVALID_CURRENT_DATA", "fourth-wall message role is invalid");
+      if (Ra(f.content, "fourth-wall message content"), !Number.isFinite(f.ts)) throw new $t("INVALID_CURRENT_DATA", "fourth-wall message timestamp must be finite");
+      f.thinking !== void 0 && Ra(f.thinking, "message.thinking"), f.type !== void 0 && Ra(f.type, "message.type");
     }
   }
   const a = Ra(n.activeSessionId, `${t}.activeSessionId`);
@@ -12568,13 +12567,13 @@ ${e_(n.content)}`;
 }
 function Up({ userInput: e, history: t, memory: n = "", chatSnapshot: r, settings: i, globalSettings: a, commentary: s = !1 }) {
   const o = String(r?.userName || "User"), c = String(r?.characterName || "Assistant"), l = a?.promptTemplates || {}, d = Number.isInteger(i?.maxChatLayers) ? i.maxChatLayers : 20;
-  let f = s ? cR : String(l.metaProtocol || E0);
-  return f = qw(f, o, c), a?.image?.enablePrompt && (f += `
+  let u = s ? cR : String(l.metaProtocol || E0);
+  return u = qw(u, o, c), a?.image?.enablePrompt && (u += `
 
-${sR}`), a?.voice?.enabled && (f += `
+${sR}`), a?.voice?.enabled && (u += `
 
 ${oR}`), {
-    protocol: f.trim(),
+    protocol: u.trim(),
     msg1: qw(l.topuser || S0, o, c),
     msg2: String(l.confirm || "好的，我已阅读设置要求，准备查看历史并进入角色。"),
     msg3: `首先查看你们的历史过往:
@@ -12622,7 +12621,7 @@ function fR(e, t, n) {
 function pR() {
   let e = 0, t = "", n = 0, r = 0, i = 0, a = null;
   function s(c, l = !0) {
-    const d = c.sessions.find((f) => f.id === c.activeSessionId);
+    const d = c.sessions.find((u) => u.id === c.activeSessionId);
     return d.id !== t ? (t = d.id, r = d.history.length, n = Math.max(0, r - 20)) : r === i ? (r = d.history.length, n = Math.max(0, Math.min(n, r), r - 60)) : (r = Math.min(r, d.history.length), n = Math.min(n, Math.max(0, r - 1))), i = d.history.length, l && e++, a = {
       sessionId: t,
       revision: e,
@@ -12639,24 +12638,24 @@ function pR() {
     assertRevision: o,
     assertMessage(c, l, d) {
       o(d);
-      const f = a?.messages[l - a.start], u = c.sessions.find((p) => p.id === t)?.history[l];
-      if (!f || !ze(f, u)) throw new Error("消息已变化，请刷新后重试");
+      const u = a?.messages[l - a.start], f = c.sessions.find((p) => p.id === t)?.history[l];
+      if (!u || !ze(u, f)) throw new Error("消息已变化，请刷新后重试");
     },
     page(c, l, d) {
       o(d);
-      let f = n, u = r;
+      let u = n, f = r;
       if (l === "earlier")
-        u = n, n = Math.max(0, n - 20), f = n, r = Math.min(r, n + 60);
+        f = n, n = Math.max(0, n - 20), u = n, r = Math.min(r, n + 60);
       else if (l === "later")
-        f = r, r = Math.min(i, r + 20), u = r, n = Math.max(n, r - 60);
+        u = r, r = Math.min(i, r + 20), f = r, n = Math.max(n, r - 60);
       else if (l === "latest")
-        r = i, n = Math.max(0, r - 20), f = n, u = r;
+        r = i, n = Math.max(0, r - 20), u = n, f = r;
       else throw new Error("历史分页方向无效");
       const p = s(c, !1);
       return {
         ...p,
-        start: f,
-        messages: p.messages.slice(f - p.start, u - p.start)
+        start: u,
+        messages: p.messages.slice(u - p.start, f - p.start)
       };
     },
     reset() {
@@ -12750,13 +12749,13 @@ function gR({ generateResponse: e, loadAgentConfig: t }) {
         l.initializing = !1, l.controller.signal.aborted && a(l, String(l.controller.signal.reason || "cancelled"));
       }
       if (!i(l)) return { status: "cancelled" };
-      const f = await t();
+      const u = await t();
       if (!i(l)) return { status: "cancelled" };
-      const u = c.prepare ? await c.prepare(f, l.controller.signal) : c.builtPrompt;
+      const f = c.prepare ? await c.prepare(u, l.controller.signal) : c.builtPrompt;
       if (!i(l)) return { status: "cancelled" };
       const p = c.prepareOnly ? {} : await e({
-        config: f,
-        builtPrompt: u,
+        config: u,
+        builtPrompt: f,
         stream: c.stream === !0,
         signal: l.controller.signal,
         onStreamProgress(m) {
@@ -12767,9 +12766,9 @@ function gR({ generateResponse: e, loadAgentConfig: t }) {
         status: "completed",
         result: p
       }) : { status: "cancelled" };
-    }).catch(async (f) => l.controller.signal.aborted || l.sequence !== n || hR(f) ? (a(l, "aborted"), { status: "cancelled" }) : (r = null, await c.onError?.(f), {
+    }).catch(async (u) => l.controller.signal.aborted || l.sequence !== n || hR(u) ? (a(l, "aborted"), { status: "cancelled" }) : (r = null, await c.onError?.(u), {
       status: "failed",
-      error: f
+      error: u
     }));
     return Object.freeze({
       requestId: l.requestId,
@@ -12815,14 +12814,14 @@ function vR(e) {
   const t = Ld(e);
   return /api key|配置|provider|model/i.test(t) ? "configuration" : /parse|格式|<msg>/i.test(t) ? "parse" : "network";
 }
-function bR({ chatRepository: e, settingsRepository: t, getChatIdentity: n, getChatSnapshot: r, generateResponse: i, contextService: a, loadAgentConfig: s, imageProtocol: o, voiceProtocol: c, commentary: l = null, now: d = Date.now, createId: f = yR }) {
+function bR({ chatRepository: e, settingsRepository: t, getChatIdentity: n, getChatSnapshot: r, generateResponse: i, contextService: a, loadAgentConfig: s, imageProtocol: o, voiceProtocol: c, commentary: l = null, now: d = Date.now, createId: u = yR }) {
   if (!e || !t || typeof n != "function" || typeof r != "function" || typeof i != "function" || !a || typeof s != "function") throw new TypeError("fourth-wall controller dependencies are incomplete");
-  let u = null, p = 0;
+  let f = null, p = 0;
   const m = gR({
     generateResponse: i,
     loadAgentConfig: s
   }), g = pR();
-  function w() {
+  function v() {
     return e.readCurrentChatFourthWall() || jc(d());
   }
   function h() {
@@ -12874,15 +12873,15 @@ function bR({ chatRepository: e, settingsRepository: t, getChatIdentity: n, getC
     }, { beforeCommit() {
       if (B.aborted || !D()) throw new Error("summary_result_invalidated");
     } });
-    !B.aborted && D() && u && y($);
+    !B.aborted && D() && f && y($);
   }
   function x(j = {}, O = !1) {
-    if (!u) throw new Error("四次元壁 APP 未激活");
+    if (!f) throw new Error("四次元壁 APP 未激活");
     const z = li(n());
-    if (!z || z !== u.chatIdentity || String(j.chatIdentity || "") !== u.chatIdentity) throw new Error("聊天已切换，请重新打开四次元壁");
+    if (!z || z !== f.chatIdentity || String(j.chatIdentity || "") !== f.chatIdentity) throw new Error("聊天已切换，请重新打开四次元壁");
     if (O && !String(j.sessionId || "")) throw new Error("四次元壁记录标识缺失");
-    if (O && w().activeSessionId !== j.sessionId) throw new Error("皮下会话已切换，请重试");
-    return u;
+    if (O && v().activeSessionId !== j.sessionId) throw new Error("皮下会话已切换，请重试");
+    return f;
   }
   function S(j, O = {}, z = !1) {
     const N = x(O, z);
@@ -12890,19 +12889,19 @@ function bR({ chatRepository: e, settingsRepository: t, getChatIdentity: n, getC
     return N;
   }
   function _(j, O = {}) {
-    u?.post?.(j, O);
+    f?.post?.(j, O);
   }
   function y(j) {
     const O = b(j);
     return _("fourth-wall/state", { state: O }), O;
   }
-  function v(j) {
-    return !!u && u.generation === j.activationGeneration && u.chatIdentity === j.chatIdentity && li(n()) === j.chatIdentity;
+  function w(j) {
+    return !!f && f.generation === j.activationGeneration && f.chatIdentity === j.chatIdentity && li(n()) === j.chatIdentity;
   }
   function A({ chatState: j, sessionId: O, userInput: z, requestId: N, manual: B = !1, initialize: D, inputDraft: $ }) {
     let q = j.sessions.find((Te) => Te.id === O);
     if (!q) throw new Error("四次元壁记录不存在");
-    const K = u;
+    const K = f;
     if (!K) throw new Error("四次元壁 APP 未激活");
     const L = {
       activationGeneration: K.generation,
@@ -12939,7 +12938,7 @@ function bR({ chatRepository: e, settingsRepository: t, getChatIdentity: n, getC
         } catch (Ue) {
           throw me = Hl(Ue), Ue;
         }
-        fe = !0, j = Ge.state, z = Ge.userInput, q = j.sessions.find((Ue) => Ue.id === O), Z = q, J = k(j, q, z), v(L) && y(j);
+        fe = !0, j = Ge.state, z = Ge.userInput, q = j.sessions.find((Ue) => Ue.id === O), Z = q, J = k(j, q, z), w(L) && y(j);
       },
       async prepare(Te, Ge) {
         se = Ge;
@@ -12950,7 +12949,7 @@ function bR({ chatRepository: e, settingsRepository: t, getChatIdentity: n, getC
           signal: Ge,
           manual: B,
           onPhase(at) {
-            v(L) && _("fourth-wall/generation", {
+            w(L) && _("fourth-wall/generation", {
               requestId: N,
               sessionId: O,
               status: "started",
@@ -12959,14 +12958,14 @@ function bR({ chatRepository: e, settingsRepository: t, getChatIdentity: n, getC
             });
           },
           async commit(at, At) {
-            await I(j, q, at, At, Ge, () => v(L)), Z = {
+            await I(j, q, at, At, Ge, () => w(L)), Z = {
               ...q,
               memory: at,
               archivedCount: At
             };
           }
         });
-        if (!v(L)) throw new DOMException("已取消", "AbortError");
+        if (!w(L)) throw new DOMException("已取消", "AbortError");
         return B || _("fourth-wall/generation", {
           requestId: N,
           sessionId: O,
@@ -12975,7 +12974,7 @@ function bR({ chatRepository: e, settingsRepository: t, getChatIdentity: n, getC
         }), Ue;
       },
       onProgress(Te) {
-        v(L) && _("fourth-wall/generation", {
+        w(L) && _("fourth-wall/generation", {
           requestId: N,
           sessionId: O,
           status: "progress",
@@ -12983,7 +12982,7 @@ function bR({ chatRepository: e, settingsRepository: t, getChatIdentity: n, getC
         });
       },
       async onComplete(Te) {
-        if (!v(L)) return;
+        if (!w(L)) return;
         if (B) {
           _("fourth-wall/generation", {
             requestId: N,
@@ -13004,9 +13003,9 @@ function bR({ chatRepository: e, settingsRepository: t, getChatIdentity: n, getC
               ts: d()
             });
           }, { beforeCommit() {
-            if (!v(L) || se?.aborted) throw new Error("generation_result_invalidated");
+            if (!w(L) || se?.aborted) throw new Error("generation_result_invalidated");
           } });
-          if (!v(L)) return;
+          if (!w(L)) return;
           y(Ue), _("fourth-wall/generation", {
             requestId: N,
             sessionId: O,
@@ -13014,7 +13013,7 @@ function bR({ chatRepository: e, settingsRepository: t, getChatIdentity: n, getC
             ...Ge
           });
         } catch (Ue) {
-          if (!v(L)) return;
+          if (!w(L)) return;
           const at = Hl(Ue);
           if (at) {
             const At = e.readCurrentChatFourthWall();
@@ -13031,7 +13030,7 @@ function bR({ chatRepository: e, settingsRepository: t, getChatIdentity: n, getC
         }
       },
       onError(Te) {
-        v(L) && _("fourth-wall/generation", {
+        w(L) && _("fourth-wall/generation", {
           requestId: N,
           sessionId: O,
           status: "error",
@@ -13042,7 +13041,7 @@ function bR({ chatRepository: e, settingsRepository: t, getChatIdentity: n, getC
         });
       },
       onCancelled() {
-        v(L) && _("fourth-wall/generation", {
+        w(L) && _("fourth-wall/generation", {
           requestId: N,
           sessionId: O,
           status: "cancelled",
@@ -13063,7 +13062,7 @@ function bR({ chatRepository: e, settingsRepository: t, getChatIdentity: n, getC
         };
       }
     },
-    isForegroundActive: () => u !== null,
+    isForegroundActive: () => f !== null,
     async capture(j) {
       const O = l.capture?.(j);
       if (!O) return null;
@@ -13099,7 +13098,7 @@ function bR({ chatRepository: e, settingsRepository: t, getChatIdentity: n, getC
           config: $,
           signal: O,
           async commit(q, K) {
-            await I(z, N, q, K, O, () => !u && li(n()) === j.chatIdentity), j.chatState = {
+            await I(z, N, q, K, O, () => !f && li(n()) === j.chatIdentity), j.chatState = {
               ...z,
               sessions: z.sessions.map((L) => L.id === N.id ? {
                 ...L,
@@ -13140,7 +13139,7 @@ function bR({ chatRepository: e, settingsRepository: t, getChatIdentity: n, getC
     const z = ++p, N = await e.prepareCurrentChatFourthWall();
     if (li(n()) !== O || z !== p) throw new Error("聊天已切换，请重新打开四次元壁");
     const B = b(N);
-    return u = {
+    return f = {
       generation: z,
       chatIdentity: O,
       post: j
@@ -13190,11 +13189,11 @@ function bR({ chatRepository: e, settingsRepository: t, getChatIdentity: n, getC
     if (z === "cancel")
       return x(O), { cancelled: m.cancel("user-cancelled") };
     if (z === "refresh")
-      return x(O), y(w());
+      return x(O), y(v());
     if (z === "history-page")
-      return x(O, !0), g.page(w(), O.direction, O.revision);
+      return x(O, !0), g.page(v(), O.direction, O.revision);
     if (z === "read-memory")
-      return x(O, !0), g.assertRevision(O.revision), { content: Ui(w()).memory };
+      return x(O, !0), g.assertRevision(O.revision), { content: Ui(v()).memory };
     if (z === "save-memory") {
       if (x(O, !0), g.assertRevision(O.revision), typeof O.content != "string") throw new Error("记忆必须是文本");
       if (typeof O.expectedContent != "string") throw new Error("请重新打开记忆面板后保存");
@@ -13205,7 +13204,7 @@ function bR({ chatRepository: e, settingsRepository: t, getChatIdentity: n, getC
     }
     if (z === "summarize" || z === "retry") {
       if (x(O, !0), m.isRunning()) throw new Error("已有任务正在进行");
-      const N = w(), B = Ui(N);
+      const N = v(), B = Ui(N);
       let D = B.history.length - 1;
       for (; D >= 0 && B.history[D].role !== "user"; ) D--;
       const $ = B.history[D];
@@ -13226,7 +13225,7 @@ function bR({ chatRepository: e, settingsRepository: t, getChatIdentity: n, getC
       return m.cancel("session-switched"), await M(O, (N) => YO(N, String(O.targetSessionId || "")));
     if (z === "add-session")
       return m.cancel("session-created"), await M(O, (N) => XO(N, {
-        id: f(),
+        id: u(),
         name: O.name,
         createdAt: d()
       }));
@@ -13244,7 +13243,7 @@ function bR({ chatRepository: e, settingsRepository: t, getChatIdentity: n, getC
       if (m.isRunning()) throw new Error("已有回复正在生成");
       const B = String(O.content || "").trim();
       if (!B) throw new Error("请输入消息");
-      const D = String(O.sessionId || ""), $ = w();
+      const D = String(O.sessionId || ""), $ = v();
       return A({
         chatState: $,
         sessionId: D,
@@ -13269,7 +13268,7 @@ function bR({ chatRepository: e, settingsRepository: t, getChatIdentity: n, getC
     if (z === "regenerate") {
       const N = x(O, !0);
       if (m.isRunning()) throw new Error("已有任务正在进行");
-      const B = String(O.sessionId || ""), D = w();
+      const B = String(O.sessionId || ""), D = v();
       return A({
         chatState: D,
         sessionId: B,
@@ -13292,7 +13291,7 @@ function bR({ chatRepository: e, settingsRepository: t, getChatIdentity: n, getC
       const N = x(O);
       m.cancel("settings-changed");
       const B = O.patch && typeof O.patch == "object" && !Array.isArray(O.patch) ? O.patch : {};
-      return await P(N, O, (D) => wR(D, B)), C?.sync(), S(N, O), y(w());
+      return await P(N, O, (D) => wR(D, B)), C?.sync(), S(N, O), y(v());
     }
     if (z === "restore-prompts") {
       const N = x(O);
@@ -13301,7 +13300,7 @@ function bR({ chatRepository: e, settingsRepository: t, getChatIdentity: n, getC
       return await P(N, O, (D) => ({
         ...D,
         promptTemplates: B.promptTemplates
-      })), S(N, O), y(w());
+      })), S(N, O), y(v());
     }
     if (z === "image-check") {
       if (x(O, !0), !o) throw new Error("画图功能暂时不可用");
@@ -13314,7 +13313,7 @@ function bR({ chatRepository: e, settingsRepository: t, getChatIdentity: n, getC
         requestId: O.mediaRequestId,
         tags: O.tags,
         onProgress(B) {
-          u === N && _("fourth-wall/image-progress", {
+          f === N && _("fourth-wall/image-progress", {
             mediaRequestId: O.mediaRequestId,
             ...B
           });
@@ -13331,7 +13330,7 @@ function bR({ chatRepository: e, settingsRepository: t, getChatIdentity: n, getC
         text: O.text,
         emotion: O.emotion,
         onState(B) {
-          u === N && _("fourth-wall/voice-state", B);
+          f === N && _("fourth-wall/voice-state", B);
         }
       });
     }
@@ -13340,7 +13339,7 @@ function bR({ chatRepository: e, settingsRepository: t, getChatIdentity: n, getC
     throw new Error("unsupported_fourth_wall_action");
   }
   function U(j) {
-    p += 1, u = null, m.cancel(j), o?.cancelAll?.(), c?.cancelAll?.();
+    p += 1, f = null, m.cancel(j), o?.cancelAll?.(), c?.cancelAll?.();
   }
   return Object.freeze({
     activate: E,
@@ -13424,7 +13423,7 @@ function xR(e) {
     const l = await c(a(n));
     Vi(i);
     const d = x0(n);
-    let f = n;
+    let u = n;
     if ((o || l >= 128e3) && d > n.archivedCount) {
       s?.("summarizing");
       let p = n.memory, m = n.archivedCount, g = 0;
@@ -13447,18 +13446,18 @@ function xR(e) {
         ].includes(S)) throw new Error("总结未完整返回，原记忆与聊天保持不变，请重试");
         p = x, m = b.index, g = b.offset;
       }
-      f = {
+      u = {
         ...n,
         memory: p,
         archivedCount: d
       };
-      const w = await c(a(f));
-      if (Vi(i), !o && w >= l) throw new Error("本次总结没有减少上下文占用，原记忆与聊天保持不变，请重试");
+      const v = await c(a(u));
+      if (Vi(i), !o && v >= l) throw new Error("本次总结没有减少上下文占用，原记忆与聊天保持不变，请重试");
       s?.("saving"), await t.commit(p, d), Vi(i);
     } else if (o) throw new Error("没有可总结的较早聊天，近期原文需要保留");
-    const u = a(f);
-    if (!o && await c(u) > 158e3) throw new Error("上下文仍超过 158k：请减少主剧情层数、缩短记忆或过长的近期消息；保留的近期对话不会自动删除");
-    return Vi(i), u;
+    const f = a(u);
+    if (!o && await c(f) > 158e3) throw new Error("上下文仍超过 158k：请减少主剧情层数、缩短记忆或过长的近期消息；保留的近期对话不会自动删除");
+    return Vi(i), f;
   } };
 }
 function SR(e, t) {
@@ -13527,22 +13526,22 @@ function ER({ getFacade: e = AR } = {}) {
     };
   }
   async function i({ requestId: o, tags: c, onProgress: l }) {
-    const d = String(o || ""), f = Gw(c);
-    if (!d || !f) throw new Error("无效的图片请求");
-    const u = e();
-    if (!u || !Uf(u) || typeof u.generateSharedImage != "function") throw new Error("画图能力不可用");
+    const d = String(o || ""), u = Gw(c);
+    if (!d || !u) throw new Error("无效的图片请求");
+    const f = e();
+    if (!f || !Uf(f) || typeof f.generateSharedImage != "function") throw new Error("画图能力不可用");
     t.get(d)?.abort();
     const p = new AbortController();
     t.set(d, p);
     try {
-      const m = await u.generateSharedImage({
-        prompt: f,
+      const m = await f.generateSharedImage({
+        prompt: u,
         cacheNamespace: "fourth-wall",
         signal: p.signal,
-        onProgress(g, w, h) {
+        onProgress(g, v, h) {
           t.get(d) === p && l?.({
             status: String(g || ""),
-            position: g === "queued" ? Number(w || 0) + 1 : 0,
+            position: g === "queued" ? Number(v || 0) + 1 : 0,
             delay: h ? Math.round(h / 1e3) : void 0
           });
         }
@@ -13554,7 +13553,7 @@ function ER({ getFacade: e = AR } = {}) {
       return {
         available: !0,
         base64: m,
-        tags: f
+        tags: u
       };
     } finally {
       t.get(d) === p && t.delete(d);
@@ -13605,31 +13604,31 @@ function TR({ getFacade: e = CR } = {}) {
     const l = String(s || "").trim(), d = String(a || "");
     if (!l || !d) throw new Error("无效的语音请求");
     r();
-    const f = e();
-    if (f?.isEnabled?.() !== !0 || typeof f.playTransient != "function") throw new Error("TTS 能力不可用");
-    const u = {
+    const u = e();
+    if (u?.isEnabled?.() !== !0 || typeof u.playTransient != "function") throw new Error("TTS 能力不可用");
+    const f = {
       requestId: d,
       handle: null,
       onState: c,
       terminal: !1
     };
-    t = u;
+    t = f;
     try {
-      u.handle = f.playTransient(l, String(o || ""), {
+      f.handle = u.playTransient(l, String(o || ""), {
         requestId: d,
         onState(p, m) {
-          if (t !== u || u.terminal) return;
-          const g = String(p || ""), w = g === "ended" || g === "stopped" || g === "error";
-          w && (u.terminal = !0), u.onState?.({
+          if (t !== f || f.terminal) return;
+          const g = String(p || ""), v = g === "ended" || g === "stopped" || g === "error";
+          v && (f.terminal = !0), f.onState?.({
             requestId: d,
             state: g,
             duration: m?.duration,
             message: m?.message
-          }), w && t === u && (t = null);
+          }), v && t === f && (t = null);
         }
       });
     } catch (p) {
-      throw u.terminal = !0, t === u && (t = null), p;
+      throw f.terminal = !0, t === f && (t = null), p;
     }
     return {
       started: !0,
@@ -13739,15 +13738,15 @@ function MR(e, t = "partitions.fourthWall") {
     if (!l || i.has(l)) throw new TypeError(`${t}.sessions ids must be non-empty and unique`);
     if (i.add(l), Es(c.name, `${t}.sessions[${s}].name`), !Number.isFinite(c.createdAt)) throw new TypeError(`${t}.sessions[${s}].createdAt must be finite`);
     if (!Array.isArray(c.history)) throw new TypeError(`${t}.sessions[${s}].history must be an array`);
-    for (const [d, f] of c.history.entries()) {
-      const u = Jl(f, `${t}.sessions[${s}].history[${d}]`), p = [
+    for (const [d, u] of c.history.entries()) {
+      const f = Jl(u, `${t}.sessions[${s}].history[${d}]`), p = [
         "role",
         "content",
         "ts"
       ];
-      if (u.thinking !== void 0 && p.push("thinking"), u.type !== void 0 && p.push("type"), Yl(u, p, `${t}.sessions[${s}].history[${d}]`), u.role !== "user" && u.role !== "ai") throw new TypeError("fourth-wall message role is invalid");
-      if (Es(u.content, "fourth-wall message content"), !Number.isFinite(u.ts)) throw new TypeError("fourth-wall message timestamp must be finite");
-      u.thinking !== void 0 && Es(u.thinking, "message.thinking"), u.type !== void 0 && Es(u.type, "message.type");
+      if (f.thinking !== void 0 && p.push("thinking"), f.type !== void 0 && p.push("type"), Yl(f, p, `${t}.sessions[${s}].history[${d}]`), f.role !== "user" && f.role !== "ai") throw new TypeError("fourth-wall message role is invalid");
+      if (Es(f.content, "fourth-wall message content"), !Number.isFinite(f.ts)) throw new TypeError("fourth-wall message timestamp must be finite");
+      f.thinking !== void 0 && Es(f.thinking, "message.thinking"), f.type !== void 0 && Es(f.type, "message.type");
     }
   }
   const a = Es(n.activeSessionId, `${t}.activeSessionId`);
@@ -13820,8 +13819,8 @@ function l_(e) {
     if (i.add(d), Ma(l.name, `${c}.name`), !Number.isFinite(l.createdAt)) throw new TypeError(`${c}.createdAt must be finite`);
     if (!Array.isArray(l.history)) throw new TypeError(`${c}.history must be an array`);
     Ma(l.memory, `${c}.memory`), Vw(l.archivedCount, `${c}.archivedCount`, 0, l.history.length);
-    for (const [f, u] of l.history.entries()) {
-      const p = `${c}.history[${f}]`, m = Xl(u, p), g = [
+    for (const [u, f] of l.history.entries()) {
+      const p = `${c}.history[${u}]`, m = Xl(f, p), g = [
         "role",
         "content",
         "ts"
@@ -13872,9 +13871,9 @@ function PR(e, t, { now: n = Date.now, upgradeSource: r } = {}) {
   }
   async function s(o, c = {}) {
     if (typeof o != "function") throw new TypeError("chat mutation action must be a function");
-    const l = await e.transact((f) => {
-      const u = e.peekCurrent()?.identityKey, p = f.current, m = (p?.schemaVersion === 1 ? $R(p).state : p?.schemaVersion === 2 ? NR(p).state : p?.state) ?? i(u) ?? jc(n()), g = gl(o(structuredClone(m)));
-      return (p && p.schemaVersion !== 3 || !ze(m, g)) && f.replace({
+    const l = await e.transact((u) => {
+      const f = e.peekCurrent()?.identityKey, p = u.current, m = (p?.schemaVersion === 1 ? $R(p).state : p?.schemaVersion === 2 ? NR(p).state : p?.state) ?? i(f) ?? jc(n()), g = gl(o(structuredClone(m)));
+      return (p && p.schemaVersion !== 3 || !ze(m, g)) && u.replace({
         schemaVersion: 3,
         state: g
       }), g;
@@ -14200,21 +14199,21 @@ function YR(e) {
 }
 function XR({ game: e, economy: t, getChatIdentity: n, isMainGenerationActive: r, subscribeGeneration: i, execution: a }) {
   let s = null, o = null, c = !1, l = null, d = null;
-  function f() {
+  function u() {
     return UR(n());
   }
-  function u(v = {}) {
+  function f(w = {}) {
     if (!s) throw new Error("游戏 APP 未激活");
-    const A = f();
-    if (!A || A !== s.chatIdentity || typeof v.chatIdentity != "string" || v.chatIdentity !== A) throw new Error("聊天已切换，请重新打开游戏");
+    const A = u();
+    if (!A || A !== s.chatIdentity || typeof w.chatIdentity != "string" || w.chatIdentity !== A) throw new Error("聊天已切换，请重新打开游戏");
     return s;
   }
-  function p(v, A) {
-    if (u(A) !== v) throw new Error("游戏页面已切换，请重试");
+  function p(w, A) {
+    if (f(A) !== w) throw new Error("游戏页面已切换，请重试");
   }
-  function m(v) {
+  function m(w) {
     const A = GR({
-      chatIdentity: v,
+      chatIdentity: w,
       serviceView: e.readCurrent({
         activityOffset: 0,
         activityLimit: Xw
@@ -14232,58 +14231,58 @@ function XR({ game: e, economy: t, getChatIdentity: n, isMainGenerationActive: r
       message: ""
     };
   }
-  function g(v = s) {
-    if (!v) throw new Error("游戏 APP 未激活");
-    const A = m(v.chatIdentity);
-    return v.post("game/state", { state: A }), A;
+  function g(w = s) {
+    if (!w) throw new Error("游戏 APP 未激活");
+    const A = m(w.chatIdentity);
+    return w.post("game/state", { state: A }), A;
   }
-  async function w() {
+  async function v() {
     if (!t.isOpen())
       try {
         await t.ensureOpen();
-      } catch (v) {
-        if (!VR(v)) throw v;
+      } catch (w) {
+        if (!VR(w)) throw w;
       }
   }
-  function h(v) {
+  function h(w) {
     const A = {
-      activation: v,
+      activation: w,
       error: ""
     };
     o = A;
     const C = () => {
-      o !== A || s !== v || f() !== v.chatIdentity || w().then(() => {
-        o !== A || s !== v || f() !== v.chatIdentity || (o = null, g(v));
+      o !== A || s !== w || u() !== w.chatIdentity || v().then(() => {
+        o !== A || s !== w || u() !== w.chatIdentity || (o = null, g(w));
       }).catch((E) => {
-        o !== A || s !== v || f() !== v.chatIdentity || (console.error("[LittleWhiteBox] 游戏数据准备失败", E), o = {
-          activation: v,
+        o !== A || s !== w || u() !== w.chatIdentity || (console.error("[LittleWhiteBox] 游戏数据准备失败", E), o = {
+          activation: w,
           error: "游戏数据暂时无法读取，请稍后重试。"
-        }, g(v));
+        }, g(w));
       });
     };
     a ? a.setTimeout(C, 0) : globalThis.setTimeout(C, 0);
   }
-  function b(v) {
+  function b(w) {
     k();
-    const A = f();
+    const A = u();
     if (!A) throw new Error("请先打开一个聊天");
     const C = {
       chatIdentity: A,
-      post: v.post
+      post: w.post
     };
     return s = C, t.isOpen() || h(C), m(A);
   }
   function k() {
     s = null, o = null, c = !1;
   }
-  async function I(v, A, C) {
+  async function I(w, A, C) {
     if (c) throw new Error("已有游戏操作正在处理");
     c = !0;
     try {
       const E = await C();
-      return p(v, A), {
+      return p(w, A), {
         value: E,
-        state: m(v.chatIdentity)
+        state: m(w.chatIdentity)
       };
     } catch (E) {
       throw e.getWriteState() === "failed" && e.hasPendingSave() ? Object.assign(/* @__PURE__ */ new Error("本局结果尚未保存。请重试保存后再继续游戏。"), {
@@ -14292,28 +14291,28 @@ function XR({ game: e, economy: t, getChatIdentity: n, isMainGenerationActive: r
         cause: E
       }) : E;
     } finally {
-      s === v && (c = !1);
+      s === w && (c = !1);
     }
   }
-  function x(v) {
+  function x(w) {
     return {
-      ...HR(v),
-      actionId: Vp(v.actionId, "操作标识")
+      ...HR(w),
+      actionId: Vp(w.actionId, "操作标识")
     };
   }
-  function S(v) {
+  function S(w) {
     return {
-      ...x(v),
-      gameId: Vp(v.gameId, "赌局")
+      ...x(w),
+      gameId: Vp(w.gameId, "赌局")
     };
   }
-  async function _(v) {
-    const A = $h(v.payload) ? v.payload : {}, C = u(A);
-    if (v.type === "game/refresh")
+  async function _(w) {
+    const A = $h(w.payload) ? w.payload : {}, C = f(A);
+    if (w.type === "game/refresh")
       return o = null, (await I(C, A, async () => {
-        await e.refreshCurrent(), await w();
+        await e.refreshCurrent(), await v();
       })).state;
-    if (v.type === "game/confirm-save") {
+    if (w.type === "game/confirm-save") {
       o = null;
       const E = await I(C, A, e.confirmPending);
       return {
@@ -14321,7 +14320,7 @@ function XR({ game: e, economy: t, getChatIdentity: n, isMainGenerationActive: r
         state: E.state
       };
     }
-    if (v.type === "game/records/load-more") {
+    if (w.type === "game/records/load-more") {
       if (c) throw new Error("已有游戏操作正在处理");
       const E = Zs(A.offset, "记录页码", 1);
       return d_(e.readCurrent({
@@ -14329,63 +14328,63 @@ function XR({ game: e, economy: t, getChatIdentity: n, isMainGenerationActive: r
         activityLimit: Xw
       }));
     }
-    if (v.type === "game/dice/start") {
+    if (w.type === "game/dice/start") {
       const E = {
         ...x(A),
         bet: Zs(A.bet, "下注", 1)
       };
       return (await I(C, A, () => e.startDice(E))).state;
     }
-    if (v.type === "game/dice/bid") {
+    if (w.type === "game/dice/bid") {
       const E = {
         ...S(A),
         bid: JR(A.bid)
       };
       return (await I(C, A, () => e.bidDice(E))).state;
     }
-    if (v.type === "game/dice/challenge") {
+    if (w.type === "game/dice/challenge") {
       const E = S(A);
       return (await I(C, A, () => e.challengeDice(E))).state;
     }
-    if (v.type === "game/push/start") {
+    if (w.type === "game/push/start") {
       const E = x(A);
       return (await I(C, A, () => e.startPush(E))).state;
     }
-    if (v.type === "game/push/draw") {
+    if (w.type === "game/push/draw") {
       const E = S(A);
       return (await I(C, A, () => e.drawPush(E))).state;
     }
-    if (v.type === "game/push/cash-out") {
+    if (w.type === "game/push/cash-out") {
       const E = S(A);
       return (await I(C, A, () => e.cashOutPush(E))).state;
     }
-    if (v.type === "game/ladder/start") {
+    if (w.type === "game/ladder/start") {
       const E = {
         ...x(A),
         bet: Zs(A.bet, "下注", 1)
       };
       return (await I(C, A, () => e.startLadder(E))).state;
     }
-    if (v.type === "game/ladder/step") {
+    if (w.type === "game/ladder/step") {
       const E = {
         ...S(A),
         choice: YR(A.choice)
       };
       return (await I(C, A, () => e.stepLadder(E))).state;
     }
-    if (v.type === "game/ladder/cash-out") {
+    if (w.type === "game/ladder/cash-out") {
       const E = S(A);
       return (await I(C, A, () => e.cashOutLadder(E))).state;
     }
     throw new Error("未知的游戏操作");
   }
   function y() {
-    const v = s;
-    if (!(!v || c || f() !== v.chatIdentity))
+    const w = s;
+    if (!(!w || c || u() !== w.chatIdentity))
       try {
-        g(v);
+        g(w);
       } catch {
-        v.post("game/error", { message: "游戏状态暂时无法读取，请重新打开。" });
+        w.post("game/error", { message: "游戏状态暂时无法读取，请重新打开。" });
       }
   }
   return Object.freeze({
@@ -15607,13 +15606,13 @@ function Ts(e, t, n) {
   };
 }
 function A3({ random: e, runAction: t, unusedGameId: n }) {
-  function r(u) {
-    return t(u, {
+  function r(f) {
+    return t(f, {
       kind: "dice-start",
-      bet: u.bet
+      bet: f.bet
     }, (p) => {
       Hf(p.state);
-      const m = p_(u.bet);
+      const m = p_(f.bet);
       Jf(p.balance, m);
       const g = fM({
         id: n(p, "dice"),
@@ -15639,23 +15638,23 @@ function A3({ random: e, runAction: t, unusedGameId: n }) {
       };
     });
   }
-  function i(u) {
-    return t(u, {
+  function i(f) {
+    return t(f, {
       kind: "dice-bid",
-      gameId: u.gameId,
-      count: u.bid?.count,
-      face: u.bid?.face
+      gameId: f.gameId,
+      count: f.bid?.count,
+      face: f.bid?.face
     }, (p, m) => {
-      const g = Cs(p.state, "dice", u.gameId);
+      const g = Cs(p.state, "dice", f.gameId);
       g.kind !== "dice" && ye("game_action_invalid", "game-type-mismatch");
-      const w = hs(u.bid, "player"), h = g.game.bids.at(-1);
-      h && !wl(w, h) && ye("game_dice_bid_not_higher");
-      const b = mM(g.game, w, e), k = {
+      const v = hs(f.bid, "player"), h = g.game.bids.at(-1);
+      h && !wl(v, h) && ye("game_dice_bid_not_higher");
+      const b = mM(g.game, v, e), k = {
         kind: "dice-bid",
         gameId: g.game.id,
         bid: {
-          count: w.count,
-          face: w.face
+          count: v.count,
+          face: v.face
         }
       };
       return b.kind === "continued" ? {
@@ -15674,14 +15673,14 @@ function A3({ random: e, runAction: t, unusedGameId: n }) {
       };
     });
   }
-  function a(u) {
-    return t(u, {
+  function a(f) {
+    return t(f, {
       kind: "dice-challenge",
-      gameId: u.gameId
+      gameId: f.gameId
     }, (p, m) => {
-      const g = Cs(p.state, "dice", u.gameId);
+      const g = Cs(p.state, "dice", f.gameId);
       g.kind !== "dice" && ye("game_action_invalid", "game-type-mismatch"), g.game.bids.at(-1) || ye("game_dice_challenge_invalid");
-      const w = pM(g.game);
+      const v = pM(g.game);
       return {
         command: {
           kind: "dice-challenge",
@@ -15689,13 +15688,13 @@ function A3({ random: e, runAction: t, unusedGameId: n }) {
         },
         ...Ts({
           kind: "dice",
-          settlement: w
+          settlement: v
         }, g.game.bet, m)
       };
     });
   }
-  function s(u) {
-    return t(u, { kind: "push-start" }, (p) => {
+  function s(f) {
+    return t(f, { kind: "push-start" }, (p) => {
       Hf(p.state), Jf(p.balance, 50);
       const m = t3({ id: n(p, "push") }, e);
       return {
@@ -15717,41 +15716,41 @@ function A3({ random: e, runAction: t, unusedGameId: n }) {
       };
     });
   }
-  function o(u) {
-    return t(u, {
+  function o(f) {
+    return t(f, {
       kind: "push-draw",
-      gameId: u.gameId
+      gameId: f.gameId
     }, (p, m) => {
-      const g = Cs(p.state, "push", u.gameId);
+      const g = Cs(p.state, "push", f.gameId);
       g.kind !== "push" && ye("game_action_invalid", "game-type-mismatch");
-      const w = r3(g.game), h = {
+      const v = r3(g.game), h = {
         kind: "push-draw",
         gameId: g.game.id
       };
-      return w.kind === "continued" ? {
+      return v.kind === "continued" ? {
         command: h,
         result: Yf({
           kind: "push",
-          game: w.game
+          game: v.game
         }),
         economyLegs: []
       } : {
         command: h,
         ...Ts({
           kind: "push",
-          settlement: w.settlement
+          settlement: v.settlement
         }, g.game.bet, m)
       };
     });
   }
-  function c(u) {
-    return t(u, {
+  function c(f) {
+    return t(f, {
       kind: "push-cash-out",
-      gameId: u.gameId
+      gameId: f.gameId
     }, (p, m) => {
-      const g = Cs(p.state, "push", u.gameId);
+      const g = Cs(p.state, "push", f.gameId);
       g.kind !== "push" && ye("game_action_invalid", "game-type-mismatch"), g.game.revealedCoins < 1 && ye("game_push_cashout_invalid");
-      const w = i3(g.game);
+      const v = i3(g.game);
       return {
         command: {
           kind: "push-cash-out",
@@ -15759,18 +15758,18 @@ function A3({ random: e, runAction: t, unusedGameId: n }) {
         },
         ...Ts({
           kind: "push",
-          settlement: w
+          settlement: v
         }, g.game.bet, m)
       };
     });
   }
-  function l(u) {
-    return t(u, {
+  function l(f) {
+    return t(f, {
       kind: "ladder-start",
-      bet: u.bet
+      bet: f.bet
     }, (p) => {
       Hf(p.state);
-      const m = zh(u.bet);
+      const m = zh(f.bet);
       Jf(p.balance, m);
       const g = o3({
         id: n(p, "ladder"),
@@ -15796,43 +15795,43 @@ function A3({ random: e, runAction: t, unusedGameId: n }) {
       };
     });
   }
-  function d(u) {
-    return t(u, {
+  function d(f) {
+    return t(f, {
       kind: "ladder-step",
-      gameId: u.gameId,
-      choice: u.choice
+      gameId: f.gameId,
+      choice: f.choice
     }, (p, m) => {
-      const g = Cs(p.state, "ladder", u.gameId);
-      g.kind !== "ladder" && ye("game_action_invalid", "game-type-mismatch"), Bh(u.choice);
-      const w = c3(g.game, u.choice, e), h = {
+      const g = Cs(p.state, "ladder", f.gameId);
+      g.kind !== "ladder" && ye("game_action_invalid", "game-type-mismatch"), Bh(f.choice);
+      const v = c3(g.game, f.choice, e), h = {
         kind: "ladder-step",
         gameId: g.game.id,
-        choice: u.choice
+        choice: f.choice
       };
-      return w.kind === "continued" ? {
+      return v.kind === "continued" ? {
         command: h,
         result: Yf({
           kind: "ladder",
-          game: w.game
+          game: v.game
         }),
         economyLegs: []
       } : {
         command: h,
         ...Ts({
           kind: "ladder",
-          settlement: w.settlement
+          settlement: v.settlement
         }, g.game.bet, m)
       };
     });
   }
-  function f(u) {
-    return t(u, {
+  function u(f) {
+    return t(f, {
       kind: "ladder-cash-out",
-      gameId: u.gameId
+      gameId: f.gameId
     }, (p, m) => {
-      const g = Cs(p.state, "ladder", u.gameId);
+      const g = Cs(p.state, "ladder", f.gameId);
       g.kind !== "ladder" && ye("game_action_invalid", "game-type-mismatch"), g.game.steps.length < 1 && ye("game_ladder_cashout_invalid");
-      const w = l3(g.game);
+      const v = l3(g.game);
       return {
         command: {
           kind: "ladder-cash-out",
@@ -15840,7 +15839,7 @@ function A3({ random: e, runAction: t, unusedGameId: n }) {
         },
         ...Ts({
           kind: "ladder",
-          settlement: w
+          settlement: v
         }, g.game.bet, m)
       };
     });
@@ -15854,7 +15853,7 @@ function A3({ random: e, runAction: t, unusedGameId: n }) {
     cashOutPush: c,
     startLadder: l,
     stepLadder: d,
-    cashOutLadder: f
+    cashOutLadder: u
   });
 }
 var Kh = Object.freeze({
@@ -15906,7 +15905,7 @@ function T3(e, t, n, { now: r = Date.now, createGameId: i = (l) => Xf(`game-${l}
     } catch (_) {
       console.error("[LittleWhiteBox] Game state listener failed", _);
     }
-  }, f = e.subscribe(d), u = n.subscribe(d), p = t.subscribeFileState(d), m = () => e.peekCurrent()?.value ?? null;
+  }, u = e.subscribe(d), f = n.subscribe(d), p = t.subscribeFileState(d), m = () => e.peekCurrent()?.value ?? null;
   function g(S = m(), _ = n.getPlayerBalance(), y = {}) {
     return {
       ...p3({
@@ -15918,11 +15917,11 @@ function T3(e, t, n, { now: r = Date.now, createGameId: i = (l) => Xf(`game-${l}
       pendingCommit: t.hasPendingCommit(ou.key)
     };
   }
-  function w(S = {}) {
+  function v(S = {}) {
     return g(m(), n.getPlayerBalance(), S);
   }
   async function h() {
-    return await n.refresh(), await e.read(), w();
+    return await n.refresh(), await e.read(), v();
   }
   function b(S, _) {
     const y = S ?? jh();
@@ -15934,18 +15933,18 @@ function T3(e, t, n, { now: r = Date.now, createGameId: i = (l) => Xf(`game-${l}
   }
   function k(S, _) {
     const y = Vf(i(_), "game-id", !0);
-    return S.game.events.some((v) => v.command.gameId === y) && ye("game_invalid", "game-id-conflict"), y;
+    return S.game.events.some((w) => w.command.gameId === y) && ye("game_invalid", "game-id-conflict"), y;
   }
   const x = A3({
     random: o,
     runAction: async (S, _, y) => {
-      let v = !1;
+      let w = !1;
       const A = () => {
         if (c()) throw new Error("game_main_generation_active");
       }, C = await e.transact((T) => {
         const R = T.useCapability(ct), M = b(T.current, R);
         if (x3(M.game, S.actionId, _))
-          return v = !0, {
+          return w = !0, {
             game: M.game,
             balance: M.balance
           };
@@ -15971,7 +15970,7 @@ function T3(e, t, n, { now: r = Date.now, createGameId: i = (l) => Xf(`game-${l}
       }, {
         retainFailedCandidate: !0,
         commitGuard() {
-          return v || A(), !0;
+          return w || A(), !0;
         }
       });
       if (C.status === "failed" || C.status === "unconfirmed" || C.status === "conflict") throw C3(C);
@@ -15981,7 +15980,7 @@ function T3(e, t, n, { now: r = Date.now, createGameId: i = (l) => Xf(`game-${l}
     unusedGameId: k
   });
   return Object.freeze({
-    readCurrent: w,
+    readCurrent: v,
     refreshCurrent: h,
     ...x,
     confirmPending: () => t.retryPending(),
@@ -15991,7 +15990,7 @@ function T3(e, t, n, { now: r = Date.now, createGameId: i = (l) => Xf(`game-${l}
       return l.add(S), () => l.delete(S);
     },
     dispose() {
-      f(), u(), p(), l.clear();
+      u(), f(), p(), l.clear();
     }
   });
 }
@@ -16031,7 +16030,7 @@ function C_(e, t, n) {
     ok: !1,
     reason: "blocked"
   };
-  const i = [...t.tray], a = (l) => e.items.find((d) => d.id === l).kind === r.kind, s = i.reduce((l, d, f) => a(d) ? f : l, -1);
+  const i = [...t.tray], a = (l) => e.items.find((d) => d.id === l).kind === r.kind, s = i.reduce((l, d, u) => a(d) ? u : l, -1);
   i.splice(s < 0 ? i.length : s + 1, 0, r.id);
   const o = i.filter(a), c = o.length === 3 ? o : [];
   return {
@@ -16079,29 +16078,29 @@ function T_(e) {
     }
     o[h] /= k;
   }
-  const f = new Uint8Array(r);
-  f[0] = 1;
-  let u = 0, p = 0, m = 0;
+  const u = new Uint8Array(r);
+  u[0] = 1;
+  let f = 0, p = 0, m = 0;
   for (let h = 0; h < r; h++)
-    if (!(!f[h] || s[h] >= 7)) {
-      u++;
+    if (!(!u[h] || s[h] >= 7)) {
+      f++;
       for (let b = 0; b < e.length; b++) {
         if (Math.floor(h / n[b]) % (e[b].length + 1) === e[b].length) continue;
         const k = h + n[b];
-        a[h] < 7 && (p++, a[k] >= 7 && m++), f[k] = 1;
+        a[h] < 7 && (p++, a[k] >= 7 && m++), u[k] = 1;
       }
     }
   const g = [];
-  let w = 0;
-  for (; c[w] !== -1; ) {
-    const h = c[w];
-    g.push(h), w += n[h];
+  let v = 0;
+  for (; c[v] !== -1; ) {
+    const h = c[v];
+    g.push(h), v += n[h];
   }
   return {
     solvable: a[0] < 7,
     minimumPeak: a[0],
     randomWinProbability: o[0],
-    reachableStates: u,
+    reachableStates: f,
     branches: p,
     losingBranches: m,
     solution: g
@@ -16223,7 +16222,7 @@ function Uh(e, t, n, r) {
     key: n,
     seed: r,
     items: e.flatMap((a, s) => a.map((o, c) => {
-      const [l, d, f] = Xp[s];
+      const [l, d, u] = Xp[s];
       return {
         id: i[s][c],
         kind: o,
@@ -16231,7 +16230,7 @@ function Uh(e, t, n, r) {
         position: [
           l + (c % 2 ? 0.18 : -0.18),
           d + (a.length - c - 1) * M3 + 0.32,
-          f
+          u
         ]
       };
     })),
@@ -16392,8 +16391,8 @@ function sv(e) {
     else {
       (fa(r).length !== ki.length || a.id !== "witch" || !Number.isSafeInteger(a.seed) || Number(a.seed) < 0 || Number(a.seed) > 4294967295 || typeof a.key != "string" || !Array.isArray(a.stacks) || a.stacks.length !== Zp.lanes || !Array.isArray(a.items)) && Oe("invalid");
       const o = a.items.map(mi), c = a.stacks.map((l) => ((!Array.isArray(l) || l.length !== Zp.depth) && Oe("invalid"), l.map((d) => {
-        const f = o.find((u) => u.id === d);
-        return (!f || !Hu.includes(f.kind)) && Oe("invalid"), f.kind;
+        const u = o.find((f) => f.id === d);
+        return (!u || !Hu.includes(u.kind)) && Oe("invalid"), u.kind;
       })));
       (!av(a, Uh(c, "witch", a.key, Number(a.seed))) || M_(T_(c)) !== Qp(r).activeTier) && Oe("invalid");
     }
@@ -16466,7 +16465,7 @@ function D3() {
 function z3(e, t, n, r = {}) {
   const i = r.generate ?? N3, a = r.seed ?? (() => crypto.getRandomValues(new Uint32Array(1))[0]), s = r.id ?? D3;
   function o() {
-    const d = e.peekCurrent()?.value ?? zd(), f = d.receipts.find((u) => u.runId === d.active?.id);
+    const d = e.peekCurrent()?.value ?? zd(), u = d.receipts.find((f) => f.runId === d.active?.id);
     return {
       revision: d.revision,
       completed: fa(d),
@@ -16474,7 +16473,7 @@ function z3(e, t, n, r = {}) {
       active: d.active,
       board: d.active ? Ju(d.active) : null,
       balance: n.getPlayerBalance(),
-      award: f?.settlement?.outcome === "won" && f.settlement.actionId === d.last?.id ? f.stage === null ? Or.challengePrize : Or.chapterReward : 0,
+      award: u?.settlement?.outcome === "won" && u.settlement.actionId === d.last?.id ? u.stage === null ? Or.challengePrize : Or.chapterReward : 0,
       writeState: t.getFileState(),
       pending: t.hasPendingCommit(wc.key),
       ready: n.isOpen(),
@@ -16484,20 +16483,20 @@ function z3(e, t, n, r = {}) {
   async function c() {
     return await n.refresh(), await e.read(), o();
   }
-  async function l(d, f) {
+  async function l(d, u) {
     Ur(d.actionId), (!Number.isSafeInteger(d.revision) || d.revision < 0) && Oe("invalid");
-    const u = () => f() && (r.idle?.() ?? !0);
-    u() || Oe("unavailable");
+    const f = () => u() && (r.idle?.() ?? !0);
+    f() || Oe("unavailable");
     const p = e.peekCurrent()?.value ?? zd(), m = p.last?.id === d.actionId;
     !m && p.revision !== d.revision && Oe("stale");
     let g;
     !m && (d.command.type === "start" || d.command.type === "challenge") && (d.command.type === "challenge" && (fa(p).length !== ki.length && Oe("locked"), o().balance < Or.challengeFee && Oe("funds")), g = {
       id: Ur(s()),
       level: d.command.type === "challenge" ? await i(a(), Qp(p).tier) : ki[d.command.stage]
-    }, u() || Oe("unavailable"));
-    let w = !1;
+    }, f() || Oe("unavailable"));
+    let v = !1;
     const h = await e.transact((b) => {
-      u() || Oe("unavailable");
+      f() || Oe("unavailable");
       const k = b.current ?? zd(), I = b.useCapability(ct);
       if (cv(k, I), k.last?.id === d.actionId) {
         JSON.stringify(k.last.command) !== JSON.stringify(d.command) && Oe("identity");
@@ -16505,10 +16504,10 @@ function z3(e, t, n, r = {}) {
       }
       k.revision !== d.revision && Oe("stale"), d.command.type === "challenge" && I.getPlayerBalance() < Or.challengeFee && Oe("funds");
       const x = P3(k, d.command, d.actionId, g);
-      j3(k, x, I), cv(x, I), b.replace(x), w = !0;
+      j3(k, x, I), cv(x, I), b.replace(x), v = !0;
     }, {
       retainFailedCandidate: !0,
-      commitGuard: () => (w || f()) && (r.idle?.() ?? !0)
+      commitGuard: () => (v || u()) && (r.idle?.() ?? !0)
     });
     if (h.status !== "confirmed" && h.status !== "unchanged") throw Object.assign(/* @__PURE__ */ new Error(`moving_save_${h.status}`), { code: `moving_save_${h.status}` });
     return o();
@@ -16519,16 +16518,16 @@ function z3(e, t, n, r = {}) {
     act: l,
     async confirm(d) {
       t.hasPendingCommit() && !t.hasPendingCommit(wc.key) && Oe("unavailable");
-      const f = await t.retryPending({ beforeRetry: d });
-      return d() || Oe("unavailable"), (f.status === "confirmed" || f.status === "none" || f.status === "adopted") && await c(), o();
+      const u = await t.retryPending({ beforeRetry: d });
+      return d() || Oe("unavailable"), (u.status === "confirmed" || u.status === "none" || u.status === "adopted") && await c(), o();
     },
     subscribe(d) {
-      const f = [
+      const u = [
         e.subscribe(d),
         n.subscribe(d),
         t.subscribeFileState(d)
       ];
-      return () => f.forEach((u) => u());
+      return () => u.forEach((f) => f());
     }
   };
 }
@@ -16669,20 +16668,20 @@ function q3(e, t, n = {
   const o = [n];
   s.set(a, null);
   for (let c = 0; c < o.length; c++) {
-    const l = o[c], d = Ve(l), f = vc(l);
-    i.has(d) && f.push({
+    const l = o[c], d = Ve(l), u = vc(l);
+    i.has(d) && u.push({
       ...l,
       y: l.y + 1
     }), i.has(Ve({
       ...l,
       y: l.y - 1
-    })) && f.push({
+    })) && u.push({
       ...l,
       y: l.y - 1
     });
-    for (const u of f) {
-      const p = Ve(u), m = r.get(p);
-      m && m.kind !== "roof" && !s.has(p) && (s.set(p, d), o.push(u));
+    for (const f of u) {
+      const p = Ve(f), m = r.get(p);
+      m && m.kind !== "roof" && !s.has(p) && (s.set(p, d), o.push(f));
     }
   }
   return s;
@@ -16696,18 +16695,18 @@ function F3(e, t) {
     if (i.has(Ve(a))) continue;
     const s = [a];
     i.add(Ve(a));
-    for (let d = 0; d < s.length; d++) for (const f of vc(s[d])) {
-      const u = Ve(f), p = n.get(u);
-      p && p.kind !== "roof" && !i.has(u) && (i.add(u), s.push(f));
+    for (let d = 0; d < s.length; d++) for (const u of vc(s[d])) {
+      const f = Ve(u), p = n.get(f);
+      p && p.kind !== "roof" && !i.has(f) && (i.add(f), s.push(u));
     }
     const o = s.map((d) => ({
       ...d,
       y: d.y - 1
     })).filter((d) => {
-      const f = n.get(Ve(d));
-      return f && Oo(f.kind);
+      const u = n.get(Ve(d));
+      return u && Oo(u.kind);
     }), c = (d) => ["hall", "entry"].includes(n.get(Ve(d)).kind) ? 0 : 1, l = (d) => Math.abs(d.x - e.entrance) + Math.abs(d.z - e.entryZ);
-    o.sort((d, f) => c(d) - c(f) || l(d) - l(f) || d.z - f.z || d.x - f.x), o.length && r.add(Ve(o[0]));
+    o.sort((d, u) => c(d) - c(u) || l(d) - l(u) || d.z - u.z || d.x - u.x), o.length && r.add(Ve(o[0]));
   }
   return r;
 }
@@ -16899,39 +16898,39 @@ function F_(e, t, n) {
     need: null
   });
   if (!bl(t, n).habitable) return r("bedroom");
-  const a = D_(t, n), s = gs(n), o = q_(t, a).filter((d) => !d.issue).map((d) => d.part).sort(X3), c = o.filter((d) => d.kind === "garden"), l = (d) => er(d).some((f) => vc(f).some((u) => s.get(Ve(u))?.kind === "garden"));
+  const a = D_(t, n), s = gs(n), o = q_(t, a).filter((d) => !d.issue).map((d) => d.part).sort(X3), c = o.filter((d) => d.kind === "garden"), l = (d) => er(d).some((u) => vc(u).some((f) => s.get(Ve(f))?.kind === "garden"));
   switch (e) {
     case "gardenWalk": {
       if (!c.length) return r("garden");
-      const d = c.find((f) => vc(f).some((u) => s.get(Ve(u))?.kind === "path"));
+      const d = c.find((u) => vc(u).some((f) => s.get(Ve(f))?.kind === "path"));
       return d ? i(d) : r("path");
     }
     case "gardenReading": {
-      const d = o.filter((u) => u.kind === "study");
+      const d = o.filter((f) => f.kind === "study");
       if (!d.length) return r("study");
-      const f = d.find((u) => [-1, 1].some((p) => s.get(Ve({
-        ...u,
-        x: u.x + p
+      const u = d.find((f) => [-1, 1].some((p) => s.get(Ve({
+        ...f,
+        x: f.x + p
       }))?.kind === "garden"));
-      return f ? i(f) : r("gardenWindow");
+      return u ? i(u) : r("gardenWindow");
     }
     case "gardenTea": {
-      const d = o.filter((u) => u.kind === "wide");
+      const d = o.filter((f) => f.kind === "wide");
       if (!d.length) return r("livingRoom");
-      const f = d.find(l);
-      return f ? i(f) : r("gardenDoor");
+      const u = d.find(l);
+      return u ? i(u) : r("gardenDoor");
     }
     case "quietBedroom": {
-      const d = o.filter((f) => f.kind === "room" && z_(t, f, a)).find((f) => {
-        const u = a.filter((m) => m !== f && m.kind !== "roof"), p = vl(t, u);
-        return u.every((m) => er(m).every((g) => p.has(Ve(g))));
+      const d = o.filter((u) => u.kind === "room" && z_(t, u, a)).find((u) => {
+        const f = a.filter((m) => m !== u && m.kind !== "roof"), p = vl(t, f);
+        return f.every((m) => er(m).every((g) => p.has(Ve(g))));
       });
       return d ? i(d) : r("privacy");
     }
     case "courtyard": {
       if (!c.length) return r("garden");
-      const d = c.find((f) => vc(f).filter((u) => {
-        const p = s.get(Ve(u));
+      const d = c.find((u) => vc(u).filter((f) => {
+        const p = s.get(Ve(f));
         return p && Oo(p.kind);
       }).length >= 3);
       return d ? i(d) : r("enclosure");
@@ -16980,7 +16979,7 @@ function Q3(e) {
 }
 function e$(e, t) {
   let n = e >>> 0;
-  const r = (f) => (n = Math.imul(n, 1664525) + 1013904223 >>> 0, Math.floor(n / 4294967296 * f)), i = Q3(t), a = i.minWidth + r(i.maxWidth - i.minWidth + 1), s = ka[t], o = {
+  const r = (u) => (n = Math.imul(n, 1664525) + 1013904223 >>> 0, Math.floor(n / 4294967296 * u)), i = Q3(t), a = i.minWidth + r(i.maxWidth - i.minWidth + 1), s = ka[t], o = {
     seed: e,
     tier: t,
     width: a,
@@ -16995,10 +16994,10 @@ function e$(e, t) {
     sunSide: r(2) ? 1 : -1
   }, c = Array(a).fill(1);
   let l = 0, d = a;
-  for (let f = 2; f <= s.floors; f++) {
-    const u = 2 + r(Math.min(d - 1, 3));
-    l += r(d - u + 1), d = u;
-    for (let p = l; p < l + d; p++) c[p] = f;
+  for (let u = 2; u <= s.floors; u++) {
+    const f = 2 + r(Math.min(d - 1, 3));
+    l += r(d - f + 1), d = f;
+    for (let p = l; p < l + d; p++) c[p] = u;
   }
   return {
     ...o,
@@ -17028,19 +17027,19 @@ function t$(e, t = 2) {
       }]);
     } else for (let c = a; c <= s; c++) for (let l = c; l <= s; l++) {
       const d = [...o];
-      for (let f = 1; f < e.floors; f++) for (let u = c; u <= l; u++) {
+      for (let u = 1; u < e.floors; u++) for (let f = c; f <= l; f++) {
         const p = (e.tier === "sunroom" ? e.sunSide : e.gardenSide) === -1 ? c : l;
         d.push({
-          kind: e.terraces && f === e.floors - 1 && u === p ? "terrace" : "room",
-          x: u,
-          y: f,
+          kind: e.terraces && u === e.floors - 1 && f === p ? "terrace" : "room",
+          x: f,
+          y: u,
           z: e.entryZ
         });
       }
-      if (e.tier === "sunroom") for (const f of d.filter((u) => u.kind === "room")) r(d.map((u) => u === f ? {
-        ...u,
+      if (e.tier === "sunroom") for (const u of d.filter((f) => f.kind === "room")) r(d.map((f) => f === u ? {
+        ...f,
         kind: "study"
-      } : u));
+      } : f));
       else r(d);
     }
   }
@@ -17592,8 +17591,8 @@ function fv(e) {
       c.finished
     ])) {
       if (d === null) continue;
-      const f = Vr(d);
-      r.has(f) && pe("identity"), r.add(f);
+      const u = Vr(d);
+      r.has(u) && pe("identity"), r.add(u);
     }
     n.set(l, c);
   }
@@ -17606,7 +17605,7 @@ function fv(e) {
       "living",
       "abandoned"
     ].includes(String(c.state))) && pe("invalid"), i.add(l);
-    const f = c.rooms.map(sm), u = Yu({
+    const u = c.rooms.map(sm), f = Yu({
       seed: Number(c.seed),
       tier: d,
       site: h$(c.site, d),
@@ -17618,9 +17617,9 @@ function fv(e) {
         "owned",
         "remaining",
         "offers"
-      ].includes(g)) || !V_(m, f)) && pe("invalid");
+      ].includes(g)) || !V_(m, u)) && pe("invalid");
     } else c.supply !== null && pe("invalid");
-    (!p || p.tier !== d || Ro(u, f) || p.finished && c.state !== "living" || c.state === "living" && !p.ready || c.saved && c.state !== "living" || !c.saved && l !== t.activeId) && pe("invalid"), c.saved && a++;
+    (!p || p.tier !== d || Ro(f, u) || p.finished && c.state !== "living" || c.state === "living" && !p.ready || c.saved && c.state !== "living" || !c.saved && l !== t.activeId) && pe("invalid"), c.saved && a++;
   }
   const s = e;
   (a > Je.collectionSize || t.projects.length > Je.collectionSize + 1 || (s.activeId === null ? s.projects.length > 0 || s.receipts.length > 0 : !lu(s))) && pe("invalid");
@@ -17917,29 +17916,29 @@ function v$(e, t, n, r = {}) {
     (!Number.isSafeInteger(o.revision) || o.revision < 0) && pe("invalid");
     const d = () => c() && (r.idle?.() ?? !0);
     d() || pe("unavailable");
-    const f = e.peekCurrent()?.value ?? Bd(), u = f.last?.id === o.actionId;
-    !u && o.revision !== f.revision && pe("stale");
+    const u = e.peekCurrent()?.value ?? Bd(), f = u.last?.id === o.actionId;
+    !f && o.revision !== u.revision && pe("stale");
     let p;
-    if (!u && l.type === "start")
+    if (!f && l.type === "start")
       i().active?.state === "building" && pe("active"), i().balance < Je.fee && pe("funds"), p = {
         id: Vr((r.id ?? m$)()),
         seed: await (r.generate ?? r$)((r.seed ?? (() => crypto.getRandomValues(new Uint32Array(1))[0]))())
       }, d() || pe("unavailable"), p.offers = (r.draw ?? lv)();
-    else if (!u && l.type === "choose") {
-      const w = lu(f)?.supply;
-      w?.offers[l.choice] || pe("supply"), w.remaining > 1 && (p = { offers: (r.draw ?? lv)() });
+    else if (!f && l.type === "choose") {
+      const v = lu(u)?.supply;
+      v?.offers[l.choice] || pe("supply"), v.remaining > 1 && (p = { offers: (r.draw ?? lv)() });
     }
     let m = !1;
-    const g = await e.transact((w) => {
+    const g = await e.transact((v) => {
       d() || pe("unavailable");
-      const h = w.current ?? Bd(), b = w.useCapability(ct);
+      const h = v.current ?? Bd(), b = v.useCapability(ct);
       if (hv(h, b), h.last?.id === o.actionId) {
         h.last.fingerprint !== JSON.stringify(l) && pe("identity");
         return;
       }
       h.revision !== o.revision && pe("stale"), l.type === "start" && b.getPlayerBalance() < Je.fee && pe("funds");
       const k = c$(h, l, o.actionId, p);
-      w$(h, k, b), hv(k, b), w.replace(k), m = !0;
+      w$(h, k, b), hv(k, b), v.replace(k), m = !0;
     }, {
       retainFailedCandidate: !0,
       commitGuard: () => (m || c()) && (r.idle?.() ?? !0)
@@ -18415,10 +18414,10 @@ function eI(e, t) {
     (!c.id || i.has(c.id) || !c.cells.length) && Et("map_invalid"), i.add(c.id);
     const l = !t.has(c.id);
     l && o.add(c.id);
-    for (const { column: d, row: f } of c.cells) {
-      (!Number.isInteger(d) || !Number.isInteger(f) || d < 0 || d >= n || e.rows[f]?.[d] !== ".") && Et("map_invalid");
-      const u = f * n + d;
-      a.has(u) && Et("map_invalid"), a.add(u), l && s.add(u);
+    for (const { column: d, row: u } of c.cells) {
+      (!Number.isInteger(d) || !Number.isInteger(u) || d < 0 || d >= n || e.rows[u]?.[d] !== ".") && Et("map_invalid");
+      const f = u * n + d;
+      a.has(f) && Et("map_invalid"), a.add(f), l && s.add(f);
     }
   }
   for (const c of t) i.has(c) || Et("gate_unknown");
@@ -18453,8 +18452,8 @@ function tI(e, t, n, r, i) {
   ]]) if (c === 0) {
     if (o <= l || o >= l + i) return !1;
   } else {
-    const d = (l - o) / c, f = (l + i - o) / c;
-    if (a = Math.max(a, Math.min(d, f)), s = Math.min(s, Math.max(d, f)), a >= s) return !1;
+    const d = (l - o) / c, u = (l + i - o) / c;
+    if (a = Math.max(a, Math.min(d, u)), s = Math.min(s, Math.max(d, u)), a >= s) return !1;
   }
   return a < s;
 }
@@ -18490,8 +18489,8 @@ function mn(e, t, n, r = 0) {
   });
   for (let c = s.row; c <= o.row; c++) for (let l = s.column; l <= o.column; l++) {
     if (!e.blocked(l, c)) continue;
-    const d = i.origin.x + l * a, f = i.origin.y + c * a;
-    if (r === 0 ? tI(t, n, d, f, a) || du(t, d, f, a) === 0 && du(n, d, f, a) === 0 : T$(t, n, d, f, a) < r * r - C$) return !1;
+    const d = i.origin.x + l * a, u = i.origin.y + c * a;
+    if (r === 0 ? tI(t, n, d, u, a) || du(t, d, u, a) === 0 && du(n, d, u, a) === 0 : T$(t, n, d, u, a) < r * r - C$) return !1;
   }
   return !0;
 }
@@ -18511,12 +18510,12 @@ function Yh(e, t, n, r) {
       continue;
     }
     const d = Math.abs(s) >= Math.abs(o) ? ["x", "y"] : ["y", "x"];
-    for (const f of d) {
-      const u = {
+    for (const u of d) {
+      const f = {
         ...t,
-        [f]: t[f] + (f === "x" ? s : o)
+        [u]: t[u] + (u === "x" ? s : o)
       };
-      mn(e, t, u, r) && Object.assign(t, u);
+      mn(e, t, f, r) && Object.assign(t, f);
     }
   }
 }
@@ -18553,32 +18552,32 @@ function Bi(e) {
     "root"
   ].includes(d.kind) && (d.height === void 0 || !Number.isFinite(d.height) || d.height <= 0)) && Et("map_invalid");
   for (const d of i.slice(1)) (d.x - d.width / 2 < r.x || d.z - d.depth / 2 < r.y || d.x + d.width / 2 > r.x + n.width || d.z + d.depth / 2 > r.y + n.depth) && Et("map_invalid");
-  t.roads.some((d) => !Number.isFinite(d.width) || d.width <= 0 || d.points.length < 2 || d.points.some(([f, u], p) => !Number.isFinite(f) || !Number.isFinite(u) || p > 0 && f === d.points[p - 1][0] && u === d.points[p - 1][1])) && Et("map_invalid");
+  t.roads.some((d) => !Number.isFinite(d.width) || d.width <= 0 || d.points.length < 2 || d.points.some(([u, f], p) => !Number.isFinite(u) || !Number.isFinite(f) || p > 0 && u === d.points[p - 1][0] && f === d.points[p - 1][1])) && Et("map_invalid");
   const s = [];
   for (let d = 0; d < n.depth; d++) {
-    let f = "";
-    for (let u = 0; u < n.width; u++) {
+    let u = "";
+    for (let f = 0; f < n.width; f++) {
       const p = {
-        x: r.x + u + 0.5,
+        x: r.x + f + 0.5,
         y: r.y + d + 0.5
       };
-      f += t.features.some((m) => m.kind !== "arch" && O$(p, m.footprint)) ? "#" : ".";
+      u += t.features.some((m) => m.kind !== "arch" && O$(p, m.footprint)) ? "#" : ".";
     }
-    s.push(f);
+    s.push(u);
   }
   const o = {
     origin: r,
     cellSize: 1,
     rows: s,
     gates: t.gates.map((d) => {
-      const f = d.footprint, u = [];
-      for (let p = f.z - f.depth / 2 - r.y; p < f.z + f.depth / 2 - r.y; p++) for (let m = f.x - f.width / 2 - r.x; m < f.x + f.width / 2 - r.x; m++) u.push({
+      const u = d.footprint, f = [];
+      for (let p = u.z - u.depth / 2 - r.y; p < u.z + u.depth / 2 - r.y; p++) for (let m = u.x - u.width / 2 - r.x; m < u.x + u.width / 2 - r.x; m++) f.push({
         column: m,
         row: p
       });
       return {
         id: d.id,
-        cells: u
+        cells: f
       };
     })
   }, c = eI(o, new Set(o.gates.map((d) => d.id)));
@@ -20612,45 +20611,45 @@ var W$ = [
 function cs(e, t, n, r) {
   if (!yr(e, t, r) || !yr(e, n, r)) return null;
   if (mn(e, t, n, r)) return [{ ...n }];
-  const { map: i, columns: a, rows: s } = e, o = os(i, t), c = /* @__PURE__ */ new Map(), l = /* @__PURE__ */ new Map(), d = /* @__PURE__ */ new Set(), f = [];
-  function u(m) {
+  const { map: i, columns: a, rows: s } = e, o = os(i, t), c = /* @__PURE__ */ new Map(), l = /* @__PURE__ */ new Map(), d = /* @__PURE__ */ new Set(), u = [];
+  function f(m) {
     return ns(i, m % a, Math.floor(m / a));
   }
-  function p(m, g, w, h) {
+  function p(m, g, v, h) {
     if (m < 0 || m >= a || g < 0 || g >= s) return;
     const b = g * a + m;
-    d.has(b) || (c.get(b) ?? 1 / 0) <= w || (c.set(b, w), l.set(b, h), f.push({
+    d.has(b) || (c.get(b) ?? 1 / 0) <= v || (c.set(b, v), l.set(b, h), u.push({
       id: b,
-      score: w + np(u(b), n)
+      score: v + np(f(b), n)
     }));
   }
   for (let m = -1; m <= 1; m++) for (let g = -1; g <= 1; g++) {
-    const w = o.column + g, h = o.row + m, b = ns(i, w, h);
-    mn(e, t, b, r) && p(w, h, np(t, b), -1);
+    const v = o.column + g, h = o.row + m, b = ns(i, v, h);
+    mn(e, t, b, r) && p(v, h, np(t, b), -1);
   }
-  for (; f.length; ) {
-    f.sort((w, h) => h.score - w.score || h.id - w.id);
-    const { id: m } = f.pop();
+  for (; u.length; ) {
+    u.sort((v, h) => h.score - v.score || h.id - v.id);
+    const { id: m } = u.pop();
     if (d.has(m)) continue;
     d.add(m);
-    const g = u(m);
+    const g = f(m);
     if (mn(e, g, n, r)) {
-      const w = [{ ...n }];
+      const v = [{ ...n }];
       let h = m;
       for (; h !== -1; )
-        w.push(u(h)), h = l.get(h);
-      w.reverse();
+        v.push(f(h)), h = l.get(h);
+      v.reverse();
       const b = [];
       let k = t;
-      for (let I = 0; I < w.length; ) {
+      for (let I = 0; I < v.length; ) {
         let x = I;
-        for (; x + 1 < w.length && mn(e, k, w[x + 1], r); ) x++;
-        k = w[x], b.push(k), I = x + 1;
+        for (; x + 1 < v.length && mn(e, k, v[x + 1], r); ) x++;
+        k = v[x], b.push(k), I = x + 1;
       }
       return b;
     }
-    for (const [w, h] of W$) {
-      const b = m % a + w, k = Math.floor(m / a) + h, I = ns(i, b, k);
+    for (const [v, h] of W$) {
+      const b = m % a + v, k = Math.floor(m / a) + h, I = ns(i, b, k);
       mn(e, g, I, r) && p(b, k, c.get(m) + np(g, I), m);
     }
   }
@@ -20702,12 +20701,12 @@ function Qh(e, t, n, r) {
       x: n.x + o,
       y: n.y + o
     });
-    for (let f = Math.max(0, c.row); f <= Math.min(e.space.rows - 1, l.row); f++) for (let u = Math.max(0, c.column); u <= Math.min(e.space.columns - 1, l.column); u++) {
-      const p = ns(e.space.map, u, f);
+    for (let u = Math.max(0, c.row); u <= Math.min(e.space.rows - 1, l.row); u++) for (let f = Math.max(0, c.column); f <= Math.min(e.space.columns - 1, l.column); f++) {
+      const p = ns(e.space.map, f, u);
       Math.hypot(p.x - n.x, p.y - n.y) <= r + e.space.map.cellSize && yr(e.space, p, r) && mn(e.space, p, n) && s.push(p);
     }
-    s.sort((f, u) => Math.hypot(f.x - n.x, f.y - n.y) - Math.hypot(u.x - n.x, u.y - n.y));
-    const d = s.find((f) => cs(e.space, t, f, r));
+    s.sort((u, f) => Math.hypot(u.x - n.x, u.y - n.y) - Math.hypot(f.x - n.x, f.y - n.y));
+    const d = s.find((u) => cs(e.space, t, u, r));
     if (!d) return null;
     i = d;
   }
@@ -20847,15 +20846,15 @@ function Ai(e, t, n) {
 function Un(e, t, n, r, i, a = e.player, s) {
   if (t.hp <= 0 || !De(s, a, t)) return;
   const o = t.burn > 0 || ed(i) && X(r, "cinder") > 0, c = t.chill > 0 || ed(i) && X(r, "frost") > 0, l = (i === "skill" || i === "companion" && r.weapon === "cannon") && c && X(r, "shatter") > 0, d = ed(i) && o && c && X(r, "overload") > 0;
-  let f = n * (X(r, "blood-price") ? Ut.bloodDamage + (X(r, "blood-price") - 1) * 0.12 : 1);
-  if (X(r, "execution") && t.hp / t.maxHp < Ut.executeThreshold && (f *= Ut.executeDamage + (X(r, "execution") - 1) * 0.1), t.exposed > 0 && (f *= 1.25), (t.kind === "guard" || s && t.kind === "warden" && S$(t.phase)) && i === "attack" && Math.cos(Qe(t, a) - t.angle) > 0.4 && t.exposed <= 0 && (f *= X(r, "shield-break") ? 0.8 : 0.35), t.kind !== "priest" && !pn(t.kind) && e.enemies.some((u) => u.kind === "priest" && u.hp > 0 && be(t, u) < 3.5 && De(s, t, u)) && (f *= 0.7), i === "attack" && X(r, "backstab") && Math.cos(Qe(t, e.player) - t.angle) < -0.3 && (f *= 1.6 + X(r, "backstab") * 0.2, t.exposed = Math.max(t.exposed, 55)), i === "attack" && X(r, "duelist") && Ai(e, t, 9 * X(r, "duelist")), l) {
-    f += 15 * X(r, "shatter"), t.chill = 0, bt(e, t, "burst", 2.2);
-    for (const u of e.enemies) u.id !== t.id && be(t, u) < 2.2 && Un(e, u, 9 * X(r, "shatter"), r, "passive", t, s);
+  let u = n * (X(r, "blood-price") ? Ut.bloodDamage + (X(r, "blood-price") - 1) * 0.12 : 1);
+  if (X(r, "execution") && t.hp / t.maxHp < Ut.executeThreshold && (u *= Ut.executeDamage + (X(r, "execution") - 1) * 0.1), t.exposed > 0 && (u *= 1.25), (t.kind === "guard" || s && t.kind === "warden" && S$(t.phase)) && i === "attack" && Math.cos(Qe(t, a) - t.angle) > 0.4 && t.exposed <= 0 && (u *= X(r, "shield-break") ? 0.8 : 0.35), t.kind !== "priest" && !pn(t.kind) && e.enemies.some((f) => f.kind === "priest" && f.hp > 0 && be(t, f) < 3.5 && De(s, t, f)) && (u *= 0.7), i === "attack" && X(r, "backstab") && Math.cos(Qe(t, e.player) - t.angle) < -0.3 && (u *= 1.6 + X(r, "backstab") * 0.2, t.exposed = Math.max(t.exposed, 55)), i === "attack" && X(r, "duelist") && Ai(e, t, 9 * X(r, "duelist")), l) {
+    u += 15 * X(r, "shatter"), t.chill = 0, bt(e, t, "burst", 2.2);
+    for (const f of e.enemies) f.id !== t.id && be(t, f) < 2.2 && Un(e, f, 9 * X(r, "shatter"), r, "passive", t, s);
   }
-  if (ed(i) && (X(r, "cinder") && (t.burn = Math.max(t.burn, 80 + X(r, "cinder") * 25)), X(r, "frost") && (t.chill = Math.max(t.chill, 45 + X(r, "frost") * 20)), (X(r, "blood-dance") || X(r, "hemorrhage")) && (t.bleed = 100 + 25 * (X(r, "blood-dance") + X(r, "hemorrhage"))), X(r, "venom") && (t.poison = 100 + X(r, "venom") * 35), d && (f += 20 * X(r, "overload"), bt(e, t, "lightning")), i === "skill" && X(r, "hunter-mark") && (t.exposed = Math.max(t.exposed, 100 + X(r, "hunter-mark") * 40)), X(r, "inferno") && o && i === "skill" && nt(e, t, "fire", 1.5 + X(r, "inferno") * 0.3, 0, 70, 4 * X(r, "inferno"), !0)), d && (t.burn = 0), (d || l) && (t.chill = 0), t.hp = Math.max(0, t.hp - f), t.marked = 5, i === "lightning" && X(r, "momentum") && e.tick % 6 === 0 && (e.player.dash = Math.max(0, e.player.dash - X(r, "momentum") * 2)), !(t.hp > 0)) {
-    if (e.kills++, bt(e, t, "burst", pn(t.kind) ? 3 : 0.8), X(r, "wildfire") && o && nt(e, t, "fire", 1.8 + X(r, "wildfire") * 0.2, 0, 90, 3 * X(r, "wildfire"), !0), X(r, "fracture") && c) for (let u = 0; u < 4 + X(r, "fracture"); u++) Si(e, t, u * ia / (4 + X(r, "fracture")), 9, !0, { source: "passive" });
+  if (ed(i) && (X(r, "cinder") && (t.burn = Math.max(t.burn, 80 + X(r, "cinder") * 25)), X(r, "frost") && (t.chill = Math.max(t.chill, 45 + X(r, "frost") * 20)), (X(r, "blood-dance") || X(r, "hemorrhage")) && (t.bleed = 100 + 25 * (X(r, "blood-dance") + X(r, "hemorrhage"))), X(r, "venom") && (t.poison = 100 + X(r, "venom") * 35), d && (u += 20 * X(r, "overload"), bt(e, t, "lightning")), i === "skill" && X(r, "hunter-mark") && (t.exposed = Math.max(t.exposed, 100 + X(r, "hunter-mark") * 40)), X(r, "inferno") && o && i === "skill" && nt(e, t, "fire", 1.5 + X(r, "inferno") * 0.3, 0, 70, 4 * X(r, "inferno"), !0)), d && (t.burn = 0), (d || l) && (t.chill = 0), t.hp = Math.max(0, t.hp - u), t.marked = 5, i === "lightning" && X(r, "momentum") && e.tick % 6 === 0 && (e.player.dash = Math.max(0, e.player.dash - X(r, "momentum") * 2)), !(t.hp > 0)) {
+    if (e.kills++, bt(e, t, "burst", pn(t.kind) ? 3 : 0.8), X(r, "wildfire") && o && nt(e, t, "fire", 1.8 + X(r, "wildfire") * 0.2, 0, 90, 3 * X(r, "wildfire"), !0), X(r, "fracture") && c) for (let f = 0; f < 4 + X(r, "fracture"); f++) Si(e, t, f * ia / (4 + X(r, "fracture")), 9, !0, { source: "passive" });
     if (X(r, "siphon") && (e.kills % Ut.siphonEvery === 0 || pn(t.kind)) && aI(e, (pn(t.kind) ? Ut.siphonBossHeal : Ut.siphonHeal) + X(r, "siphon") - 1), X(r, "execution-chain") && (e.player.dash = Math.max(0, e.player.dash - 12 * X(r, "execution-chain")), e.player.skill = Math.max(0, e.player.skill - 8)), X(r, "soul-harvest") && (e.player.resource = Math.min(Rr.maxPower, e.player.resource + 9 * X(r, "soul-harvest"))), i === "companion" && X(r, "salvage") && (e.player.skill = Math.max(0, e.player.skill - 12 * X(r, "salvage"))), X(r, "magnet"))
-      for (const u of e.enemies) u.hp > 0 && be(t, u) < 3 + X(r, "magnet") && De(s, t, u) && hr(e, u, Qe(u, t), 0.7, Nt[u.kind].radius, s);
+      for (const f of e.enemies) f.hp > 0 && be(t, f) < 3 + X(r, "magnet") && De(s, t, f) && hr(e, f, Qe(f, t), 0.7, Nt[f.kind].radius, s);
   }
 }
 function um(e, t, n, r, i, a = e.player) {
@@ -20895,10 +20894,10 @@ function _c(e, t, n = 45) {
 function bv(e, t, n, r = !1, i) {
   const a = xi[t.weapon], s = e.player, o = Qe(s, n), c = (r ? 0.6 : 1) * (X(t, "gambit") ? 1 + X(t, "gambit") * 0.12 : 1);
   if (s.facing = o, s.swing = t.weapon === "cannon" ? 15 : 8, t.weapon === "blade" || t.weapon === "daggers") {
-    const u = a.range + X(t, "piercing") * 0.25;
-    bt(e, s, "slash", u, o);
+    const f = a.range + X(t, "piercing") * 0.25;
+    bt(e, s, "slash", f, o);
     for (const p of e.enemies)
-      be(s, p) > u + Nt[p.kind].radius || Math.cos(Qe(s, p) - o) < -0.1 || !De(i, s, p) || (Un(e, p, a.damage * c, t, "attack", s, i), t.weapon === "blade" && !r && s.combo % 3 === 2 && Ai(e, p, 14));
+      be(s, p) > f + Nt[p.kind].radius || Math.cos(Qe(s, p) - o) < -0.1 || !De(i, s, p) || (Un(e, p, a.damage * c, t, "attack", s, i), t.weapon === "blade" && !r && s.combo % 3 === 2 && Ai(e, p, 14));
     t.weapon === "blade" && (s.resource = Math.min(100, s.resource + 9), X(t, "cleave-wave") && s.combo % 3 === 2 && Si(e, s, o, 14 * X(t, "cleave-wave"), !0, {
       pierce: 5,
       radius: 0.4,
@@ -20909,15 +20908,15 @@ function bv(e, t, n, r = !1, i) {
   }
   let l = a.damage * c;
   X(t, "distance-draw") && (l *= 1 + Math.min(1, be(s, n) / 8) * 0.15 * X(t, "distance-draw")), t.weapon === "staff" && (s.resource = Math.min(100, s.resource + 18)), t.weapon === "grimoire" && (s.resource = Math.min(Rr.maxPower, s.resource + 12));
-  const d = X(t, "piercing") * Ut.extraPierce + X(t, "railgun") * 2, f = Si(e, s, o, l, !0, {
+  const d = X(t, "piercing") * Ut.extraPierce + X(t, "railgun") * 2, u = Si(e, s, o, l, !0, {
     pierce: d,
     speed: t.weapon === "bow" ? 0.38 : 0.28,
     splash: t.weapon === "staff" ? 1.4 : t.weapon === "cannon" ? 1.8 + X(t, "shrapnel") * 0.3 : 0,
     bounce: X(t, "ricochet"),
     radius: t.weapon === "cannon" ? 0.3 : 0.16
   });
-  if (t.weapon === "bow" && X(t, "split-arrow") && s.combo % 3 === 2) for (const u of [-0.18, 0.18]) Si(e, s, o + u, l * (0.35 + X(t, "split-arrow") * 0.1), !0, {
-    speed: f.speed,
+  if (t.weapon === "bow" && X(t, "split-arrow") && s.combo % 3 === 2) for (const f of [-0.18, 0.18]) Si(e, s, o + f, l * (0.35 + X(t, "split-arrow") * 0.1), !0, {
+    speed: u.speed,
     pierce: d
   });
 }
@@ -21006,7 +21005,7 @@ function V$(e, t, n, r) {
     i.facing = Zh(t.move);
     const l = i.swing > 0;
     let d = he.speed * (l ? xi[n.weapon].moveFire : 1);
-    X(n, "quicksilver") && i.dash > he.dashCooldown / 2 && (d *= 1 + X(n, "quicksilver") * 0.1), e.hazards.some((f) => !f.friendly && f.kind === "frost" && !f.wait && be(f, i) < f.radius && De(r, f, i)) && (d *= 0.65), hr(e, i, i.facing, d, he.playerRadius, r);
+    X(n, "quicksilver") && i.dash > he.dashCooldown / 2 && (d *= 1 + X(n, "quicksilver") * 0.1), e.hazards.some((u) => !u.friendly && u.kind === "frost" && !u.wait && be(u, i) < u.radius && De(r, u, i)) && (d *= 0.65), hr(e, i, i.facing, d, he.playerRadius, r);
   }
   i.travel += be(s, i), X(n, "pilgrim") && i.travel >= 28 && (i.travel -= 28, _c(i, X(n, "pilgrim") * 6, 35)), X(n, "wardstone") && e.tick - i.lastHit > 150 && e.tick % 30 === 0 && _c(i, 2, X(n, "wardstone") * 10);
   const o = a && De(r, i, a) ? a : void 0;
@@ -21493,20 +21492,20 @@ function cN(e, t, n, r) {
   for (const i of [...e.enemies]) {
     if (i.hp <= 0) continue;
     if (r?.segment && pn(i.kind)) {
-      const u = eN(i);
-      i.kind === "keeper" && u > i.phase && (i.pattern = 2), i.phase = u;
+      const f = eN(i);
+      i.kind === "keeper" && f > i.phase && (i.pattern = 2), i.phase = f;
     }
-    for (const u of [
+    for (const f of [
       "marked",
       "chill",
       "exposed",
       "controlRecovery"
-    ]) i[u] = Math.max(0, i[u] - 1);
-    for (const u of [
+    ]) i[f] = Math.max(0, i[f] - 1);
+    for (const f of [
       "burn",
       "bleed",
       "poison"
-    ]) i[u] > 0 && (i[u]--, e.tick % 15 === 0 && Un(e, i, 2 + (u === "burn" ? X(t, "cinder") + X(t, "inferno") : u === "bleed" ? X(t, "hemorrhage") + X(t, "blood-dance") : X(t, "venom")) * 1.5, t, "passive", r ? i : e.player, r));
+    ]) i[f] > 0 && (i[f]--, e.tick % 15 === 0 && Un(e, i, 2 + (f === "burn" ? X(t, "cinder") + X(t, "inferno") : f === "bleed" ? X(t, "hemorrhage") + X(t, "blood-dance") : X(t, "venom")) * 1.5, t, "passive", r ? i : e.player, r));
     if (i.hp <= 0 || J$(e, i, r)) continue;
     if (i.stun > 0) {
       i.stun--;
@@ -21523,13 +21522,13 @@ function cN(e, t, n, r) {
     }
     const o = iN(e, i, r), c = be(i, o), l = De(r, i, o);
     i.cooldown = Math.max(0, i.cooldown - 1), i.angle = Qe(i, o);
-    const d = r?.segment && e.enemies.filter((u) => u.id !== i.id && u.hp > 0 && (u.windup > 0 || u.motion > 0)).length + e.hazards.filter((u) => !u.friendly && u.life > 0).length >= on.simultaneousWindups;
+    const d = r?.segment && e.enemies.filter((f) => f.id !== i.id && f.hp > 0 && (f.windup > 0 || f.motion > 0)).length + e.hazards.filter((f) => !f.friendly && f.life > 0).length >= on.simultaneousWindups;
     if (!i.cooldown && c < a.reach && l && !d) {
       if (i.target = {
         x: o.x,
         y: o.y
       }, i.windup = Math.round(a.windup * (s ? 0.8 : 1)), o === e.player && (i.kind === "archer" || i.kind === "bomber")) {
-        const u = i.kind === "bomber" ? 23 : c / 0.24, p = Math.min(i.windup + u, 4.5 / Math.max(1e-3, Math.hypot(n.x, n.y))), m = {
+        const f = i.kind === "bomber" ? 23 : c / 0.24, p = Math.min(i.windup + f, 4.5 / Math.max(1e-3, Math.hypot(n.x, n.y))), m = {
           x: o.x + n.x * p,
           y: o.y + n.y * p
         };
@@ -21537,12 +21536,12 @@ function cN(e, t, n, r) {
       }
       continue;
     }
-    const f = i.kind === "archer" || i.kind === "priest" || i.kind === "bomber" || i.kind === "wisp";
-    if (c > (f ? 5 : pn(i.kind) ? 2.8 : 0.95) || f && c < 3 || !l) {
-      const u = i.kind === "stalker" && c > 3 ? i.id % 2 ? 0.28 : -0.28 : 0, p = Qh(r, i, o, a.radius);
-      p !== null && hr(e, i, p + (f && c < 3 && l ? Math.PI : r ? 0 : u), a.speed * (i.chill ? pn(i.kind) ? 0.8 : 0.5 : 1) * (s ? 1.08 : 1), a.radius, r);
+    const u = i.kind === "archer" || i.kind === "priest" || i.kind === "bomber" || i.kind === "wisp";
+    if (c > (u ? 5 : pn(i.kind) ? 2.8 : 0.95) || u && c < 3 || !l) {
+      const f = i.kind === "stalker" && c > 3 ? i.id % 2 ? 0.28 : -0.28 : 0, p = Qh(r, i, o, a.radius);
+      p !== null && hr(e, i, p + (u && c < 3 && l ? Math.PI : r ? 0 : f), a.speed * (i.chill ? pn(i.kind) ? 0.8 : 0.5 : 1) * (s ? 1.08 : 1), a.radius, r);
     }
-    for (const u of e.enemies) u.id !== i.id && u.hp > 0 && be(i, u) < a.radius + Nt[u.kind].radius && hr(e, i, Qe(u, i), 0.027, a.radius, r);
+    for (const f of e.enemies) f.id !== i.id && f.hp > 0 && be(i, f) < a.radius + Nt[f.kind].radius && hr(e, i, Qe(f, i), 0.027, a.radius, r);
   }
 }
 function td(e, t, n) {
@@ -21619,7 +21618,7 @@ function fN(e) {
   return e.player.hp <= 0 ? "fallen" : !e.boss && e.encounter === "siege" && e.objective.hp <= 0 ? "beacon" : null;
 }
 function pN(e, t, n) {
-  const { seed: r, zone: i, chapter: a, elite: s, boss: o, bossKind: c, encounter: l, hp: d } = e, f = {
+  const { seed: r, zone: i, chapter: a, elite: s, boss: o, bossKind: c, encounter: l, hp: d } = e, u = {
     tick: 0,
     seed: r,
     serial: 0,
@@ -21693,7 +21692,7 @@ function pN(e, t, n) {
       signalHp: 0
     }
   };
-  return n && ((o && !yv(c) || n.waves.some((u) => u.some((p) => !yv(p.kind)))) && Et("encounter_unsupported"), (l !== "skirmish" || !n.waves.length || !yr(n.space, n.entry, he.playerRadius) || n.waves.some((u) => !u.length || u.some((p) => !yr(n.space, p.position, Nt[p.kind].radius) || !cs(n.space, n.entry, p.position, he.playerRadius)))) && Et("map_invalid"), Object.assign(f.player, n.entry), Object.assign(f.objective, n.objective), f.obstacles = [], f.waves = n.waves.length), Q$(f), qd(f, t, n), f;
+  return n && ((o && !yv(c) || n.waves.some((f) => f.some((p) => !yv(p.kind)))) && Et("encounter_unsupported"), (l !== "skirmish" || !n.waves.length || !yr(n.space, n.entry, he.playerRadius) || n.waves.some((f) => !f.length || f.some((p) => !yr(n.space, p.position, Nt[p.kind].radius) || !cs(n.space, n.entry, p.position, he.playerRadius)))) && Et("map_invalid"), Object.assign(u.player, n.entry), Object.assign(u.objective, n.objective), u.obstacles = [], u.waves = n.waves.length), Q$(u), qd(u, t, n), u;
 }
 function mN(e, t, n, r) {
   if (e.status !== "fighting") return;
@@ -22329,10 +22328,10 @@ function EN(e) {
     }
     const c = mm(a, r.position, s);
     c || Y("unavailable");
-    const l = c.x - r.position.x, d = c.y - r.position.y, f = Math.hypot(l, d), u = Math.min(f, he.speed * 1.8);
-    f && (r.facing = Math.atan2(d, l), Yh(a, r.position, {
-      x: l / f * u,
-      y: d / f * u
+    const l = c.x - r.position.x, d = c.y - r.position.y, u = Math.hypot(l, d), f = Math.min(u, he.speed * 1.8);
+    u && (r.facing = Math.atan2(d, l), Yh(a, r.position, {
+      x: l / u * f,
+      y: d / u * f
     }, he.playerRadius));
   }
 }
@@ -22688,7 +22687,7 @@ function gm(e, t) {
       rank: l + 1
     }] : [];
   }), s = [], o = (c) => {
-    const l = gv(e, a.filter((d) => c.includes(d.id) && !s.some((f) => f.id === d.id)), 1)[0];
+    const l = gv(e, a.filter((d) => c.includes(d.id) && !s.some((u) => u.id === d.id)), 1)[0];
     l && s.push(l);
   };
   if (t === "crossroads") for (const c of DN[e.weapon]) o([c]);
@@ -23004,9 +23003,9 @@ function Av(e) {
   Xe(t.enemies, 50, (l) => {
     const d = Mt(l);
     o(d.id), Ce(d.kind, Object.keys(Nt)), ge(d.hp, 0, 1e5);
-    const f = ge(d.maxHp, 0.01, 1e5);
-    Number(d.hp) > f && Y("invalid"), ge(d.angle, -100, 100), ge(d.motionAngle, -100, 100), we(d.cooldown, 0, 1e3), we(d.windup, 0, 100), we(d.pattern), we(d.phase, 1, 3);
-    for (const u of [
+    const u = ge(d.maxHp, 0.01, 1e5);
+    Number(d.hp) > u && Y("invalid"), ge(d.angle, -100, 100), ge(d.motionAngle, -100, 100), we(d.cooldown, 0, 1e3), we(d.windup, 0, 100), we(d.pattern), we(d.phase, 1, 3);
+    for (const f of [
       "chill",
       "burn",
       "marked",
@@ -23017,7 +23016,7 @@ function Av(e) {
       "motion",
       "stagger",
       "controlRecovery"
-    ]) we(d[u], 0, 1e3);
+    ]) we(d[f], 0, 1e3);
     return Mt(d.target), Xe(d.memory, 4, Mt), d;
   }), Xe(t.shots, 1e3, (l) => {
     const d = Mt(l);
@@ -23027,7 +23026,7 @@ function Av(e) {
       "passive",
       "lightning",
       "companion"
-    ]), gr(d.friendly), bn(Xe(d.hits, 50, (f) => we(f, 1, n))), ge(d.radius, 0, 3), ge(d.splash, 0, 10), we(d.bounce, 0, 3), d;
+    ]), gr(d.friendly), bn(Xe(d.hits, 50, (u) => we(u, 1, n))), ge(d.radius, 0, 3), ge(d.splash, 0, 10), we(d.bounce, 0, 3), d;
   }), Xe(t.hazards, 1e3, (l) => {
     const d = Mt(l);
     return o(d.id), ge(d.radius, 0, 20), we(d.wait, 0, 300), we(d.life, 0, 300), ge(d.damage, 0, 1e5), Ce(d.kind, [
@@ -23045,7 +23044,7 @@ function Av(e) {
       "passive",
       "lightning",
       "companion"
-    ]), bn(Xe(d.hits, 65, (f) => we(f, 0, n))), ge(d.angle, -1e8, 1e8), ge(d.length, 0, 40), ge(d.width, 0, 10), ge(d.inner, 0, Number(d.radius)), d;
+    ]), bn(Xe(d.hits, 65, (u) => we(u, 0, n))), ge(d.angle, -1e8, 1e8), ge(d.length, 0, 40), ge(d.width, 0, 10), ge(d.inner, 0, Number(d.radius)), d;
   }), Xe(t.effects, 2e3, (l) => {
     const d = Mt(l);
     return o(d.id), Ce(d.kind, x$), we(d.life, 0, 20), ge(d.angle, -100, 100), ge(d.size, 0, 20), d;
@@ -23516,7 +23515,7 @@ function aP(e) {
     s(l.id), Ce(l.kind, nP), ge(l.hp, 0, 1e5);
     const d = ge(l.maxHp, 0.01, 1e5);
     Number(l.hp) > d && Y("invalid"), ge(l.angle, -100, 100), ge(l.motionAngle, -100, 100), we(l.cooldown, 0, 1e3), we(l.windup, 0, 100), we(l.pattern), we(l.phase, 1, 3);
-    for (const f of [
+    for (const u of [
       "chill",
       "burn",
       "marked",
@@ -23526,7 +23525,7 @@ function aP(e) {
       "exposed",
       "motion",
       "stagger"
-    ]) we(l[f], 0, 1e3);
+    ]) we(l[u], 0, 1e3);
     return Mt(l.target), Xe(l.memory, 4, Mt), l;
   }), Xe(t.shots, 1e3, (c) => {
     const l = Mt(c);
@@ -23610,10 +23609,10 @@ function sP(e) {
   if (t.active === null)
     return t.formatVersion = 7, t;
   const n = $e(t.active), r = $e(n.location), i = Xe(n.facts, 30, (d) => (typeof d != "string" && Y("invalid"), d)), a = Xe(n.offers, 3, (d) => {
-    const f = $e(d);
-    return typeof f.id != "string" && Y("invalid"), we(f.rank, 1, 3), {
-      id: f.id,
-      rank: f.rank
+    const u = $e(d);
+    return typeof u.id != "string" && Y("invalid"), we(u.rank, 1, 3), {
+      id: u.id,
+      rank: u.rank
     };
   }), s = Ce(n.phase, [
     "exploration",
@@ -23625,8 +23624,8 @@ function sP(e) {
   for (const d of [n.battle, n.checkpoint])
     d !== null && aP(d);
   const o = {};
-  for (const [d, f, u] of Ev) i.includes(d) && !o[f] && (o[f] = {
-    scene: u,
+  for (const [d, u, f] of Ev) i.includes(d) && !o[u] && (o[u] = {
+    scene: f,
     offers: []
   });
   const c = Xe(r.visited, 16, (d) => d);
@@ -23639,23 +23638,23 @@ function sP(e) {
   });
   let l = null;
   if (a.length) {
-    const d = Ev.find(([f, , u]) => u === r.scene && i.includes(f));
+    const d = Ev.find(([u, , f]) => f === r.scene && i.includes(u));
     d || Y("invalid"), l = d[1], o[l] = {
       scene: r.scene,
       offers: a
     };
   }
   if (n.checkpoint !== null) {
-    const d = $e(n.battle), f = $e(d.player), u = $e(n.checkpoint), p = Mt(r.position);
-    (f.hp !== n.hp || f.x !== p.x || f.y !== p.y || d.status !== (s === "lost" ? "lost" : "fighting") || u.status !== "fighting" || u.tick !== 0) && Y("invalid");
+    const d = $e(n.battle), u = $e(d.player), f = $e(n.checkpoint), p = Mt(r.position);
+    (u.hp !== n.hp || u.x !== p.x || u.y !== p.y || d.status !== (s === "lost" ? "lost" : "fighting") || f.status !== "fighting" || f.tick !== 0) && Y("invalid");
     const m = Mt($e(n.checkpoint).player);
     r.position = {
       x: m.x,
       y: m.y
     };
     for (const g of Object.values($e(n.people))) {
-      const w = $e(g);
-      w.mode === "follow" && (w.position = { ...$e(r.position) });
+      const v = $e(g);
+      v.mode === "follow" && (v.position = { ...$e(r.position) });
     }
     n.hp = 100, n.phase = "exploration";
   }
@@ -23772,25 +23771,25 @@ function NI(e, t) {
     const k = Ce(b, Fd);
     return wr[k].complete !== null && Y("invalid"), k;
   }));
-  const l = nd(n.facts), d = $e(n.location), f = Uo(d.scene), u = $e(d.position);
-  if (n.rewardNode !== null && $e(s[String(n.rewardNode)]).scene !== f && Y("invalid"), ge(u.x, -Number.MAX_VALUE, Number.MAX_VALUE), ge(u.y, -Number.MAX_VALUE, Number.MAX_VALUE), ge(d.facing, -100, 100), (!bn(Xe(d.visited, Object.keys(lt).length, Uo)).includes(f) || !yr(jr(lt[f], new Set(l)), {
-    x: Number(u.x),
-    y: Number(u.y)
+  const l = nd(n.facts), d = $e(n.location), u = Uo(d.scene), f = $e(d.position);
+  if (n.rewardNode !== null && $e(s[String(n.rewardNode)]).scene !== u && Y("invalid"), ge(f.x, -Number.MAX_VALUE, Number.MAX_VALUE), ge(f.y, -Number.MAX_VALUE, Number.MAX_VALUE), ge(d.facing, -100, 100), (!bn(Xe(d.visited, Object.keys(lt).length, Uo)).includes(u) || !yr(jr(lt[u], new Set(l)), {
+    x: Number(f.x),
+    y: Number(f.y)
   }, he.playerRadius)) && Y("invalid"), ge(n.hp, 0, he.maxHp), n.engagement !== null) {
     const b = $e(n.engagement), k = Ce(b.id, Fd);
-    gr(b.reinforcement), (wr[k].scene !== f || !["battle", "lost"].includes(c)) && Y("invalid");
+    gr(b.reinforcement), (wr[k].scene !== u || !["battle", "lost"].includes(c)) && Y("invalid");
   } else ["battle", "lost"].includes(c) && Y("invalid");
-  gr($e(n.evidence).dispatchNoteSeen), n.battle !== null ? (Av(n.battle), (!["battle", "lost"].includes(c) || n.battle.player.hp !== n.hp || n.battle.player.x !== u.x || n.battle.player.y !== u.y || (c === "battle" ? n.battle.status !== "fighting" : n.battle.status !== "lost")) && Y("invalid")) : ["battle", "lost"].includes(c) && Y("invalid"), n.checkpoint !== null ? (Av(n.checkpoint), (!n.battle || n.checkpoint.tick !== 0 || n.checkpoint.status !== "fighting") && Y("invalid")) : n.battle && Y("invalid");
-  const p = $e(n.conversations), m = $e(n.memories), g = $e(n.knowledge), w = $e(n.relationships), h = $e(n.people);
+  gr($e(n.evidence).dispatchNoteSeen), n.battle !== null ? (Av(n.battle), (!["battle", "lost"].includes(c) || n.battle.player.hp !== n.hp || n.battle.player.x !== f.x || n.battle.player.y !== f.y || (c === "battle" ? n.battle.status !== "fighting" : n.battle.status !== "lost")) && Y("invalid")) : ["battle", "lost"].includes(c) && Y("invalid"), n.checkpoint !== null ? (Av(n.checkpoint), (!n.battle || n.checkpoint.tick !== 0 || n.checkpoint.status !== "fighting") && Y("invalid")) : n.battle && Y("invalid");
+  const p = $e(n.conversations), m = $e(n.memories), g = $e(n.knowledge), v = $e(n.relationships), h = $e(n.people);
   for (const b of [
     p,
     m,
     g
   ]) (Object.keys(b).length !== Fn.length || Fn.some((k) => !Object.hasOwn(b, k))) && Y("invalid");
-  for (const b of [w, h]) (Object.keys(b).length !== Sn.length || Sn.some((k) => !Object.hasOwn(b, k))) && Y("invalid");
+  for (const b of [v, h]) (Object.keys(b).length !== Sn.length || Sn.some((k) => !Object.hasOwn(b, k))) && Y("invalid");
   if (n.pendingParley !== null) {
     const b = $e(n.pendingParley), k = rr[Ce(b.enemy, ef)], I = Ce(b.decision, ["pass", "attack"]);
-    (c !== "exploration" || k.scene !== f || l.includes(k.complete) || I === "pass" && !l.includes(k.intel)) && Y("invalid");
+    (c !== "exploration" || k.scene !== u || l.includes(k.complete) || I === "pass" && !l.includes(k.intel)) && Y("invalid");
   }
   for (const b of Fn) {
     if (Ct(b)) {
@@ -23804,9 +23803,9 @@ function NI(e, t) {
         "follow",
         "travel"
       ]);
-      _ === "travel" ? Ce(I.destination, Object.keys(Jc)) : I.destination !== null && Y("invalid"), _ === "follow" && x !== f && Y("invalid");
-      const y = $e(w[b]), v = we(y.affection, 0, tr.maximum);
-      we(y.highestBand, Mo(v), tr.bands.length - 1);
+      _ === "travel" ? Ce(I.destination, Object.keys(Jc)) : I.destination !== null && Y("invalid"), _ === "follow" && x !== u && Y("invalid");
+      const y = $e(v[b]), w = we(y.affection, 0, tr.maximum);
+      we(y.highestBand, Mo(w), tr.bands.length - 1);
     }
     const k = Xe(p[b], Number.MAX_SAFE_INTEGER, (I) => {
       const x = $e(I), S = Fa(x.id, 150);
@@ -23858,12 +23857,12 @@ function NI(e, t) {
       "people",
       "pendingParley"
     ];
-    (c !== "exploration" || !x || !["dialogue", "receipt"].includes(x.kind) || x.id !== I || Object.keys(S).length !== _.length || _.some((v) => !Object.hasOwn(S, v)) || nd(S.facts).some((v) => !l.includes(v)) || S.pendingParley !== null || x.action === "finish" && (k !== "sanniang" || l.includes("chapter_completed"))) && Y("invalid");
+    (c !== "exploration" || !x || !["dialogue", "receipt"].includes(x.kind) || x.id !== I || Object.keys(S).length !== _.length || _.some((w) => !Object.hasOwn(S, w)) || nd(S.facts).some((w) => !l.includes(w)) || S.pendingParley !== null || x.action === "finish" && (k !== "sanniang" || l.includes("chapter_completed"))) && Y("invalid");
     const y = {
       ...n,
       ...S,
-      conversations: Object.fromEntries(Fn.map((v) => [v, []])),
-      memories: Object.fromEntries(Fn.map((v) => [v, null]))
+      conversations: Object.fromEntries(Fn.map((w) => [w, []])),
+      memories: Object.fromEntries(Fn.map((w) => [w, null]))
     };
     delete y.lastReply, NI(y, t);
   }
@@ -24984,39 +24983,39 @@ function BI(e, t) {
   });
 }
 function AP(e, t) {
-  const n = new Set(e.facts), r = Ct(t) ? e.people[t] : null, i = lt[Ct(t) ? e.people[t].scene : rr[t].scene], a = Ct(t) ? e.people[t].position : gI(t, n), s = hI(i, a, n, e.people), o = yI(i.id, a, n).filter((m) => mn(jr(i, n), a, m.position)), c = uu(i.id), l = Ct(t) ? fI(e.facts, t) : null, d = e.location.scene === i.id ? tg(i, e.location, n) : [], f = SI(e), u = pa, p = jr(i, n);
+  const n = new Set(e.facts), r = Ct(t) ? e.people[t] : null, i = lt[Ct(t) ? e.people[t].scene : rr[t].scene], a = Ct(t) ? e.people[t].position : gI(t, n), s = hI(i, a, n, e.people), o = yI(i.id, a, n).filter((m) => mn(jr(i, n), a, m.position)), c = uu(i.id), l = Ct(t) ? fI(e.facts, t) : null, d = e.location.scene === i.id ? tg(i, e.location, n) : [], u = SI(e), f = pa, p = jr(i, n);
   return {
     place: sn.scenes[i.id],
     chapter: {
-      phase: f.phase,
+      phase: u.phase,
       playerObjective: XN(e),
-      optionalRoots: f.optionalRoots
+      optionalRoots: u.optionalRoots
     },
     supplies: {
-      phase: f.supplies,
-      situation: u.situation[f.supplies],
+      phase: u.supplies,
+      situation: f.situation[u.supplies],
       collection: {
-        scene: u.scene,
-        place: sn.scenes[u.scene],
-        interaction: sn.passages[u.object.passage].title,
-        position: lt[u.scene].anchors[u.object.anchor],
-        available: rs(u.object.condition, n),
+        scene: f.scene,
+        place: sn.scenes[f.scene],
+        interaction: sn.passages[f.object.passage].title,
+        position: lt[f.scene].anchors[f.object.anchor],
+        available: rs(f.object.condition, n),
         route: BI(e.location.scene, pu(e.location, {
-          scene: u.scene,
-          anchor: u.object.anchor
+          scene: f.scene,
+          anchor: f.object.anchor
         }, n, !1))
       }
     },
     exits: i.exits.map((m) => {
-      const g = i.anchors[m.anchor], w = rs(m.condition, n);
+      const g = i.anchors[m.anchor], v = rs(m.condition, n);
       return {
         id: m.id,
         to: m.to,
         place: sn.scenes[m.to],
         position: g,
-        open: w,
-        selfAccessible: w && cs(p, a, g, he.playerRadius) !== null,
-        playerAccessible: w && e.location.scene === i.id && cs(p, e.location.position, g, he.playerRadius) !== null,
+        open: v,
+        selfAccessible: v && cs(p, a, g, he.playerRadius) !== null,
+        playerAccessible: v && e.location.scene === i.id && cs(p, e.location.position, g, he.playerRadius) !== null,
         withinReach: d.some((h) => h.target.id === m.id)
       };
     }),
@@ -25113,14 +25112,14 @@ function EP(e, t, n, r, i = e.memories[t]) {
   const a = FI(e, t, r.stages), s = AI(t), o = Ct(t) ? cg(t) : null, c = Ct(t) ? {
     psychology: gP(r.relationship, e.relationships[t].affection).psychology,
     ...pP(r.stages, e.relationships[t], !!o && e.facts.includes(o))
-  } : null, { actions: l, actionMeanings: d, events: f, ...u } = a, p = {
+  } : null, { actions: l, actionMeanings: d, events: u, ...f } = a, p = {
     actions: d,
     performance: s,
     clothing: CI
   }, m = {
     memory: i?.text ?? null,
-    events: f,
-    ...u,
+    events: u,
+    ...f,
     opening: e.conversations[t].some((g) => g.kind === "dialogue") || !Ct(t) && e.facts.includes(rr[t].complete) ? null : a.rescued ? r.opening.returned : r.opening.initial,
     stage: c
   };
@@ -25189,7 +25188,7 @@ async function TP(e, t, n = CP) {
       document: b.replace(k[0][0], "").trim()
     };
   }), l = c.map((h) => h.introduction).join(`
-`), d = c.find((h) => h.id === e).document, f = {
+`), d = c.find((h) => h.id === e).document, u = {
     system: r,
     world: i,
     player: a,
@@ -25199,7 +25198,7 @@ async function TP(e, t, n = CP) {
   if (!Ct(e)) {
     const h = /<!-- opening:([a-z]+\.initial) -->\s*([\s\S]*?)\s*<!-- \/opening -->/.exec(d);
     return (!h || h[1] !== `${e}.initial`) && Y("narrative_unavailable"), {
-      ...f,
+      ...u,
       character: d.slice(0, h.index).replace(/# 开场\s*$/, "").trim(),
       relationship: null,
       stages: [],
@@ -25209,15 +25208,15 @@ async function TP(e, t, n = CP) {
       }
     };
   }
-  const [u, p] = await Promise.all(["openings", `${e}-stages`].map((h) => n(h, t))), m = new Map([...u.matchAll(/<!-- opening:([a-z]+\.(?:initial|returned)) -->\s*([\s\S]*?)\s*<!-- \/opening -->/g)].map((h) => [h[1], h[2].trim()])), g = m.get(`${e}.initial`), w = m.get(`${e}.returned`) ?? null;
-  return (!g || (e === "anian" || e === "kouzi") && !w) && Y("narrative_unavailable"), {
-    ...f,
+  const [f, p] = await Promise.all(["openings", `${e}-stages`].map((h) => n(h, t))), m = new Map([...f.matchAll(/<!-- opening:([a-z]+\.(?:initial|returned)) -->\s*([\s\S]*?)\s*<!-- \/opening -->/g)].map((h) => [h[1], h[2].trim()])), g = m.get(`${e}.initial`), v = m.get(`${e}.returned`) ?? null;
+  return (!g || (e === "anian" || e === "kouzi") && !v) && Y("narrative_unavailable"), {
+    ...u,
     character: d,
     relationship: hP(p),
     stages: fP(p),
     opening: {
       initial: g,
-      returned: w
+      returned: v
     }
   };
 }
@@ -25278,7 +25277,7 @@ async function OP(e, t, n, r, i = Ym) {
   let l = o - c;
   for (; c < o; ) {
     let d = Math.min(o, c + l);
-    const f = (m) => ({
+    const u = (m) => ({
       systemPrompt: Mv,
       messages: [{
         role: "user",
@@ -25290,20 +25289,20 @@ async function OP(e, t, n, r, i = Ym) {
         })
       }]
     });
-    let u = f(d);
-    for (; await Kd(u, e, r, i) > Ws.inputBudget; )
-      d - c <= 1 && Y("context_capacity"), d = c + Math.floor((d - c) / 2), u = f(d);
+    let f = u(d);
+    for (; await Kd(f, e, r, i) > Ws.inputBudget; )
+      d - c <= 1 && Y("context_capacity"), d = c + Math.floor((d - c) / 2), f = u(d);
     let p;
     for (; ; ) try {
       p = await WI(e, {
-        ...u,
+        ...f,
         tools: [],
         signal: r
       });
       break;
     } catch (m) {
       if (!(m && typeof m == "object" && "code" in m && m.code === "expedition_context_capacity") || d - c <= 1) throw m;
-      l = Math.floor((d - c) / 2), d = c + l, u = f(d);
+      l = Math.floor((d - c) / 2), d = c + l, f = u(d);
     }
     r.aborted && Y("cancelled"), (p.truncated || p.refusal || p.refused || typeof p.text != "string" || !p.text.trim()) && Y("memory_incomplete"), await Kd({
       systemPrompt: Mv,
@@ -25311,7 +25310,7 @@ async function OP(e, t, n, r, i = Ym) {
         role: "user",
         content: p.text
       }]
-    }, e, r, i) >= await Kd(u, e, r, i) && Y("memory_not_reduced"), a = {
+    }, e, r, i) >= await Kd(f, e, r, i) && Y("memory_not_reduced"), a = {
       throughId: s[d - 1].id,
       text: p.text.trim()
     }, c = d;
@@ -25335,25 +25334,25 @@ async function MP(e, t, n, r, i, a, s) {
   const o = s.countTokens ?? Ym;
   async function c() {
     for (; ; ) {
-      const u = s.memory.read(), p = EP(t, n, r, i, u), m = await Kd(p, e, a, o);
-      if (a.aborted && Y("cancelled"), km(u, s.memory.read())) return {
-        memory: u,
+      const f = s.memory.read(), p = EP(t, n, r, i, f), m = await Kd(p, e, a, o);
+      if (a.aborted && Y("cancelled"), km(f, s.memory.read())) return {
+        memory: f,
         prompt: p,
         tokens: m
       };
     }
   }
-  let { memory: l, prompt: d, tokens: f } = await c();
-  if (s.force || f >= Ws.trigger)
+  let { memory: l, prompt: d, tokens: u } = await c();
+  if (s.force || u >= Ws.trigger)
     if ($v(t, n, l)) do {
-      const u = structuredClone(t);
-      u.memories[n] = l;
-      const p = s.memory.compact(e, u);
-      if (!s.force && f < Ws.waitAt) break;
-      s.onWait?.(), await RP(p, a), { memory: l, prompt: d, tokens: f } = await c();
-    } while (f >= Ws.waitAt && $v(t, n, l));
+      const f = structuredClone(t);
+      f.memories[n] = l;
+      const p = s.memory.compact(e, f);
+      if (!s.force && u < Ws.waitAt) break;
+      s.onWait?.(), await RP(p, a), { memory: l, prompt: d, tokens: u } = await c();
+    } while (u >= Ws.waitAt && $v(t, n, l));
     else s.force && km(l, t.memories[n]) && Y("context_capacity");
-  return f > Ws.inputBudget && Y("context_capacity"), d;
+  return u > Ws.inputBudget && Y("context_capacity"), d;
 }
 function ap(e, t) {
   return (typeof e != "string" || !e.trim()) && Y(t), {
@@ -25377,11 +25376,11 @@ async function $P(e, t, n, r, i, a) {
     ...a,
     force: S,
     onWait: () => a.onPhase?.("summarizing")
-  })), f = await d();
+  })), u = await d();
   s();
-  const u = async (S) => {
+  const f = async (S) => {
     a.onPhase?.("waiting");
-    let _ = !0, y = "", v = "";
+    let _ = !0, y = "", w = "";
     try {
       return await WI(c, {
         ...S,
@@ -25391,8 +25390,8 @@ async function $P(e, t, n, r, i, a) {
         onStreamProgress(A) {
           if (!_ || i.aborted) return;
           const C = typeof A.text == "string" ? A.text : y, E = Array.isArray(A.thoughts) ? A.thoughts.map((T) => String(T.text ?? "")).join(`
-`) : v;
-          A.activity === "waiting" || A.activity === "thinking" || A.activity === "replying" ? a.onPhase?.(A.activity) : C && C !== y ? a.onPhase?.("replying") : E && E !== v && a.onPhase?.("thinking"), y = C, v = E;
+`) : w;
+          A.activity === "waiting" || A.activity === "thinking" || A.activity === "replying" ? a.onPhase?.(A.activity) : C && C !== y ? a.onPhase?.("replying") : E && E !== w && a.onPhase?.("thinking"), y = C, w = E;
         }
       });
     } catch (A) {
@@ -25408,13 +25407,13 @@ async function $P(e, t, n, r, i, a) {
   };
   let p;
   try {
-    p = await u(f);
+    p = await f(u);
   } catch (S) {
     if (!(S && typeof S == "object" && "code" in S && S.code === "expedition_context_capacity")) throw S;
     const _ = await d(!0).catch((y) => {
       throw y && typeof y == "object" && y.code === "expedition_context_capacity" && !("cause" in y) ? S : y;
     });
-    s(), p = await u(_);
+    s(), p = await f(_);
   }
   a.received(p), s(), typeof p.text != "string" && Y("reply_invalid");
   const m = bP(p.text);
@@ -25429,12 +25428,12 @@ async function $P(e, t, n, r, i, a) {
     affection: null,
     issue: "metadata_invalid"
   };
-  const w = m.controls, h = typeof w.action == "string" ? w.action.trim() : w.action, b = typeof h == "string" && FI(t, n, l.stages).actions.includes(h) ? h : null, k = EI(n, w.performance), I = TI(w.clothing), x = h != null && !b ? "action_rejected" : I.rejected ? "clothing_rejected" : w.performance !== null && w.performance !== void 0 && !k ? "performance_rejected" : void 0;
+  const v = m.controls, h = typeof v.action == "string" ? v.action.trim() : v.action, b = typeof h == "string" && FI(t, n, l.stages).actions.includes(h) ? h : null, k = EI(n, v.performance), I = TI(v.clothing), x = h != null && !b ? "action_rejected" : I.rejected ? "clothing_rejected" : v.performance !== null && v.performance !== void 0 && !k ? "performance_rejected" : void 0;
   return {
     kind: "dialogue",
     reply: g,
     action: b,
-    affection: Ct(n) && (w.affection === "up" || w.affection === "down") ? w.affection : null,
+    affection: Ct(n) && (v.affection === "up" || v.affection === "down") ? v.affection : null,
     ...k ? { performance: k } : {},
     ...I.change ? { clothing: I.change } : {},
     ...x ? { issue: x } : {}
@@ -25484,36 +25483,36 @@ function PP(e, t, n, r = {}) {
   let i = null, a = null;
   const s = /* @__PURE__ */ new Set(), o = NP({
     countTokens: r.countTokens,
-    changed: () => s.forEach((u) => u()),
-    async save(u, p, m, g) {
-      let w = !1;
+    changed: () => s.forEach((f) => f()),
+    async save(f, p, m, g) {
+      let v = !1;
       const h = await e.transact((b) => {
         g.aborted && Y("cancelled");
         const k = b.current, I = k?.active;
-        (!I || I.id !== u.id) && Y("stale");
-        const x = tf(u.conversations[p], m);
-        (!km(I.memories[p], u.memories[p]) || JSON.stringify(I.conversations[p].slice(0, x)) !== JSON.stringify(u.conversations[p].slice(0, x))) && Y("stale");
+        (!I || I.id !== f.id) && Y("stale");
+        const x = tf(f.conversations[p], m);
+        (!km(I.memories[p], f.memories[p]) || JSON.stringify(I.conversations[p].slice(0, x)) !== JSON.stringify(f.conversations[p].slice(0, x))) && Y("stale");
         const S = structuredClone(k);
-        S.active.memories[p] = m, b.replace(S), w = !0;
+        S.active.memories[p] = m, b.replace(S), v = !0;
       }, {
         retainFailedCandidate: !0,
-        commitGuard: () => w || !g.aborted
+        commitGuard: () => v || !g.aborted
       });
       h.status !== "confirmed" && h.status !== "unchanged" && Y(`save_${h.status}`);
     }
   });
   function c() {
-    let u, p;
+    let f, p;
     try {
       const m = e.peekCurrent();
-      u = structuredClone(m?.value ?? hu()), p = m?.envelopeRevision ?? 0;
+      f = structuredClone(m?.value ?? hu()), p = m?.envelopeRevision ?? 0;
     } catch (m) {
       throw m && typeof m == "object" && "code" in m && m.code === "partition_invalid" && (t.hasPendingCommit(Ua.key) && Y(t.getFileState() === "failed" ? "save_failed" : t.getFileState() === "conflict" ? "save_conflict" : "save_unconfirmed", m), Y("data_invalid", m)), m;
     }
     return {
       data: {
-        ...u,
-        ...HN(u)
+        ...f,
+        ...HN(f)
       },
       fileRevision: p,
       balance: n.getPlayerBalance(),
@@ -25522,52 +25521,52 @@ function PP(e, t, n, r = {}) {
       writeState: t.getFileState(),
       conversation: i,
       replyFailure: a,
-      memories: o.states(u.active?.id)
+      memories: o.states(f.active?.id)
     };
   }
   async function l() {
     return await n.refresh(), await e.readRaw(), c();
   }
-  async function d(u, p) {
-    _n(u.actionId);
-    const m = og(u.command);
-    (!Number.isSafeInteger(u.revision) || u.revision < 0) && Y("invalid");
+  async function d(f, p) {
+    _n(f.actionId);
+    const m = og(f.command);
+    (!Number.isSafeInteger(f.revision) || f.revision < 0) && Y("invalid");
     const g = () => p() && (r.idle?.() ?? !0);
     g() || Y("unavailable");
-    let w = !1;
+    let v = !1;
     const h = await e.transact((b) => {
       g() || Y("unavailable");
       const k = b.current ?? hu(), I = b.useCapability(ct);
-      if (cc(k, I), k.last?.id === u.actionId) {
+      if (cc(k, I), k.last?.id === f.actionId) {
         JSON.stringify(k.last.command) !== JSON.stringify(m) && Y("identity");
         return;
       }
-      k.revision !== u.revision && Y("stale");
-      const x = m.type === "start" || m.type === "restart" ? r.seed?.() ?? crypto.getRandomValues(new Uint32Array(1))[0] : 0, S = JN(k, m, u.actionId, x);
-      Ov(k, S, I), cc(S, I), b.replace(S), w = !0;
+      k.revision !== f.revision && Y("stale");
+      const x = m.type === "start" || m.type === "restart" ? r.seed?.() ?? crypto.getRandomValues(new Uint32Array(1))[0] : 0, S = JN(k, m, f.actionId, x);
+      Ov(k, S, I), cc(S, I), b.replace(S), v = !0;
     }, {
       retainFailedCandidate: !0,
-      commitGuard: () => (w || p()) && (r.idle?.() ?? !0)
+      commitGuard: () => (v || p()) && (r.idle?.() ?? !0)
     });
     if (h.status !== "confirmed" && h.status !== "unchanged") throw Object.assign(/* @__PURE__ */ new Error(`expedition_save_${h.status}`), { code: `expedition_save_${h.status}` });
     return (m.type === "start" || m.type === "restart") && (a = null, o.stop()), c();
   }
-  async function f(u, p, m) {
-    _n(u.actionId), Fa(u.text, po.playerTextLimit), u.regenerate !== void 0 && _n(u.regenerate);
-    const g = () => p() && !m.aborted, w = c().data, h = w.active;
+  async function u(f, p, m) {
+    _n(f.actionId), Fa(f.text, po.playerTextLimit), f.regenerate !== void 0 && _n(f.regenerate);
+    const g = () => p() && !m.aborted, v = c().data, h = v.active;
     (!g() || i || !(r.idle?.() ?? !0) || !h) && Y("unavailable");
-    const b = h.conversations[u.person].find((y) => y.id === u.actionId);
+    const b = h.conversations[f.person].find((y) => y.id === f.actionId);
     if (b)
-      return (b.player !== u.text || b.regeneratedFrom !== u.regenerate) && Y("identity"), c();
-    w.revision !== u.revision && Y("stale");
-    let k = u.regenerate ? Iv(h, u.person, u.regenerate) : h;
-    u.regenerate && h.conversations[u.person].at(-1)?.player !== u.text && Y("identity"), mu(k, u.person) || Y("unavailable"), r.agent || Y("agent_not_configured");
-    let I = u.revision, x = null;
+      return (b.player !== f.text || b.regeneratedFrom !== f.regenerate) && Y("identity"), c();
+    v.revision !== f.revision && Y("stale");
+    let k = f.regenerate ? Iv(h, f.person, f.regenerate) : h;
+    f.regenerate && h.conversations[f.person].at(-1)?.player !== f.text && Y("identity"), mu(k, f.person) || Y("unavailable"), r.agent || Y("agent_not_configured");
+    let I = f.revision, x = null;
     i = {
-      actionId: u.actionId,
-      person: u.person,
-      text: u.text,
-      regenerating: !!u.regenerate,
+      actionId: f.actionId,
+      person: f.person,
+      text: f.text,
+      regenerating: !!f.regenerate,
       phase: "preparing",
       startedAt: Date.now()
     }, a = null;
@@ -25575,27 +25574,27 @@ function PP(e, t, n, r = {}) {
       !i || i.phase === y || m.aborted && y !== "stopping" || (i = {
         ...i,
         phase: y
-      }, s.forEach((v) => v()));
+      }, s.forEach((w) => w()));
     }, _ = () => S("stopping");
     m.addEventListener("abort", _, { once: !0 });
     try {
-      if (s.forEach((C) => C()), u.regenerate) {
+      if (s.forEach((C) => C()), f.regenerate) {
         let C = !1;
         const E = await e.transact((R) => {
           g() || Y("cancelled");
           const M = R.current;
           (!M?.active || M.revision !== I || M.active.id !== k.id) && Y("stale");
           const P = structuredClone(M);
-          P.active = Iv(M.active, u.person, u.regenerate), M.active.conversations[u.person].at(-1)?.kind !== "player" && (P.revision++, R.replace(P), C = !0);
+          P.active = Iv(M.active, f.person, f.regenerate), M.active.conversations[f.person].at(-1)?.kind !== "player" && (P.revision++, R.replace(P), C = !0);
         }, {
           retainFailedCandidate: !0,
           commitGuard: () => C || g()
         });
         E.status !== "confirmed" && E.status !== "unchanged" && Y(`save_${E.status}`);
         const T = c().data;
-        I = T.revision, k = structuredClone(T.active), k.conversations[u.person].pop(), s.forEach((R) => R());
+        I = T.revision, k = structuredClone(T.active), k.conversations[f.person].pop(), s.forEach((R) => R());
       }
-      const y = await $P(r.agent, k, u.person, u.text, m, {
+      const y = await $P(r.agent, k, f.person, f.text, m, {
         loadCanon: r.loadCanon,
         countTokens: r.countTokens,
         onPhase: S,
@@ -25605,53 +25604,53 @@ function PP(e, t, n, r = {}) {
         memory: {
           read() {
             const C = e.peekCurrent()?.value?.active;
-            return C?.id !== k.id && Y("stale"), C.memories[u.person];
+            return C?.id !== k.id && Y("stale"), C.memories[f.person];
           },
-          compact: (C, E) => o.start(C, E, u.person)
+          compact: (C, E) => o.start(C, E, f.person)
         }
       });
-      g() || Y("unavailable"), u.regenerate && y.kind === "receipt" && Y(y.issue), S("saving");
-      let v = !1;
+      g() || Y("unavailable"), f.regenerate && y.kind === "receipt" && Y(y.issue), S("saving");
+      let w = !1;
       const A = await e.transact((C) => {
         g() || Y("unavailable");
         const E = C.current;
         (!E || E.revision !== I || !E.active || E.active.id !== k.id) && Y("stale");
         const T = structuredClone(E);
-        mu(T.active, u.person) || Y("stale"), uP(T.active, u, y), T.revision++, T.last = {
-          id: u.actionId,
+        mu(T.active, f.person) || Y("stale"), uP(T.active, f, y), T.revision++, T.last = {
+          id: f.actionId,
           command: {
             type: "conversation",
-            person: u.person,
-            text: u.text
+            person: f.person,
+            text: f.text
           }
         };
         const R = C.useCapability(ct);
-        cc(E, R), Ov(E, T, R), cc(T, R), C.replace(T), v = !0;
+        cc(E, R), Ov(E, T, R), cc(T, R), C.replace(T), w = !0;
       }, {
         retainFailedCandidate: !0,
-        commitGuard: () => v || g()
+        commitGuard: () => w || g()
       });
       if (A.status !== "confirmed" && A.status !== "unchanged") throw Object.assign(/* @__PURE__ */ new Error(`expedition_save_${A.status}`), { code: `expedition_save_${A.status}` });
       a = y.kind === "receipt" ? {
-        actionId: u.actionId,
-        person: u.person,
-        playerText: u.text,
-        regenerating: !!u.regenerate,
+        actionId: f.actionId,
+        person: f.person,
+        playerText: f.text,
+        regenerating: !!f.regenerate,
         text: null,
         code: `expedition_${y.issue}`
       } : null, y.kind === "dialogue" && y.issue && console.warn("[LittleWhiteBox:expedition]", {
         code: `expedition_${y.issue}`,
-        person: u.person,
-        actionId: u.actionId
+        person: f.person,
+        actionId: f.actionId
       });
     } catch (y) {
-      const v = x, A = PI(y);
+      const w = x, A = PI(y);
       throw p() && A.code !== "expedition_cancelled" && (a = {
-        actionId: u.actionId,
-        person: u.person,
-        playerText: u.text,
-        regenerating: !!u.regenerate,
-        text: typeof v?.text == "string" ? v.text : null,
+        actionId: f.actionId,
+        person: f.person,
+        playerText: f.text,
+        regenerating: !!f.regenerate,
+        text: typeof w?.text == "string" ? w.text : null,
         ...A
       }), y;
     } finally {
@@ -25663,43 +25662,43 @@ function PP(e, t, n, r = {}) {
     view: c,
     refresh: l,
     act: d,
-    converse: f,
+    converse: u,
     stopMemory: o.stop,
-    async retryMemory(u, p) {
+    async retryMemory(f, p) {
       (!p() || !(r.idle?.() ?? !0) || i) && Y("unavailable");
       const m = c().data.active;
-      if (!m || o.states(m.id)[u]?.status !== "failed") return c();
+      if (!m || o.states(m.id)[f]?.status !== "failed") return c();
       r.agent || Y("agent_not_configured");
       const g = await r.agent.openSession(await r.agent.loadConfig());
-      return (!p() || e.peekCurrent()?.value?.active?.id !== m.id) && Y("stale"), String(g.providerConfig.model ?? "").trim() || Y("agent_not_configured"), o.clearFailure(u), o.start(g, m, u), c();
+      return (!p() || e.peekCurrent()?.value?.active?.id !== m.id) && Y("stale"), String(g.providerConfig.model ?? "").trim() || Y("agent_not_configured"), o.clearFailure(f), o.start(g, m, f), c();
     },
-    async rebuild(u, p) {
-      _n(u);
-      const m = () => p() && !i && (r.idle?.() ?? !0), g = await e.transact((w) => {
-        m() || Y("unavailable"), (w.rawCurrent === void 0 || Ua.parse(w.rawCurrent).ok) && Y("unavailable");
-        const h = lP(w.useCapability(ct));
+    async rebuild(f, p) {
+      _n(f);
+      const m = () => p() && !i && (r.idle?.() ?? !0), g = await e.transact((v) => {
+        m() || Y("unavailable"), (v.rawCurrent === void 0 || Ua.parse(v.rawCurrent).ok) && Y("unavailable");
+        const h = lP(v.useCapability(ct));
         h.revision = 1, h.last = {
-          id: u,
+          id: f,
           command: { type: "rebuild" }
-        }, w.replace(h);
+        }, v.replace(h);
       }, {
         retainFailedCandidate: !0,
         commitGuard: m
       });
       return g.status !== "confirmed" && g.status !== "unchanged" && Y(`save_${g.status}`), a = null, o.stop(), c();
     },
-    async confirm(u) {
-      t.hasPendingCommit() && !t.hasPendingCommit(Ua.key) && Y("unavailable"), (!u() || !(r.idle?.() ?? !0)) && Y("unavailable"), await t.retryPending({ beforeRetry: u });
+    async confirm(f) {
+      t.hasPendingCommit() && !t.hasPendingCommit(Ua.key) && Y("unavailable"), (!f() || !(r.idle?.() ?? !0)) && Y("unavailable"), await t.retryPending({ beforeRetry: f });
       const p = await l();
       if (!p.pending && p.writeState === "ready")
         for (const [m, g] of Object.entries(p.memories)) g.status === "failed" && g.code.startsWith("expedition_save_") && o.clearFailure(m);
       return a && (p.data.active?.conversations[a.person].some((m) => m.id === a.actionId) || a.code.startsWith("expedition_save_") && !p.pending && p.writeState === "ready") && (a = null), c();
     },
-    subscribe(u) {
-      s.add(u);
-      const p = [n.subscribe(u), t.subscribeFileState(u)];
+    subscribe(f) {
+      s.add(f);
+      const p = [n.subscribe(f), t.subscribeFileState(f)];
       return () => {
-        s.delete(u), p.forEach((m) => m());
+        s.delete(f), p.forEach((m) => m());
       };
     }
   };
@@ -25768,15 +25767,15 @@ function jP(e, t, n, r) {
     },
     async handleMessage(l) {
       if (!l.type.startsWith("game/moving/")) return e.handleMessage?.(l);
-      const d = l.payload, f = i;
-      (!f || !d || d.chatIdentity !== f.identity || n() !== f.identity) && Oe("identity"), a && Oe("unavailable"), a = !0;
-      const u = () => n() === f.identity;
+      const d = l.payload, u = i;
+      (!u || !d || d.chatIdentity !== u.identity || n() !== u.identity) && Oe("identity"), a && Oe("unavailable"), a = !0;
+      const f = () => n() === u.identity;
       try {
-        return l.type === "game/moving/read" ? await t.refresh() : l.type === "game/moving/confirm" ? await t.confirm(u) : l.type === "game/moving/sound" ? (typeof d.enabled != "boolean" && Oe("invalid"), await r.setGameMovingSound(d.enabled), t.view()) : (l.type !== "game/moving/act" && Oe("invalid"), await t.act({
+        return l.type === "game/moving/read" ? await t.refresh() : l.type === "game/moving/confirm" ? await t.confirm(f) : l.type === "game/moving/sound" ? (typeof d.enabled != "boolean" && Oe("invalid"), await r.setGameMovingSound(d.enabled), t.view()) : (l.type !== "game/moving/act" && Oe("invalid"), await t.act({
           actionId: Ur(d.actionId),
           revision: d.revision,
           command: $_(d.command)
-        }, u));
+        }, f));
       } finally {
         a = !1, c();
       }
@@ -25823,15 +25822,15 @@ function DP(e, t, n, r) {
     },
     async handleMessage(l) {
       if (!l.type.startsWith("game/building/")) return e.handleMessage?.(l);
-      const d = l.payload, f = i;
-      (!f || !d || d.chatIdentity !== f.identity || n() !== f.identity) && pe("identity"), a && pe("unavailable"), a = !0;
-      const u = () => n() === f.identity;
+      const d = l.payload, u = i;
+      (!u || !d || d.chatIdentity !== u.identity || n() !== u.identity) && pe("identity"), a && pe("unavailable"), a = !0;
+      const f = () => n() === u.identity;
       try {
-        return l.type === "game/building/read" ? await t.refresh() : l.type === "game/building/confirm" ? await t.confirm(u) : l.type === "game/building/sound" ? (typeof d.enabled != "boolean" && pe("invalid"), await r.setGameBuildingSound(d.enabled), t.view()) : (l.type !== "game/building/act" && pe("invalid"), await t.act({
+        return l.type === "game/building/read" ? await t.refresh() : l.type === "game/building/confirm" ? await t.confirm(f) : l.type === "game/building/sound" ? (typeof d.enabled != "boolean" && pe("invalid"), await r.setGameBuildingSound(d.enabled), t.view()) : (l.type !== "game/building/act" && pe("invalid"), await t.act({
           actionId: Vr(d.actionId),
           revision: d.revision,
           command: H_(d.command)
-        }, u));
+        }, f));
       } finally {
         a = !1, c();
       }
@@ -25884,44 +25883,44 @@ function zP(e, t, n) {
   return {
     ...e,
     async activate(d) {
-      const f = await e.activate?.(d);
+      const u = await e.activate?.(d);
       return r = {
         identity: n(),
         post: d.post
-      }, f;
+      }, u;
     },
     async handleMessage(d) {
       if (!d.type.startsWith("game/expedition/")) return e.handleMessage?.(d);
-      const f = d.payload, u = r;
-      if ((!u || !f || f.chatIdentity !== u.identity || n() !== u.identity) && Y("identity"), d.type === "game/expedition/cancel")
+      const u = d.payload, f = r;
+      if ((!f || !u || u.chatIdentity !== f.identity || n() !== f.identity) && Y("identity"), d.type === "game/expedition/cancel")
         return s?.abort(), t.view();
       if (d.type === "game/expedition/read" && i) return t.view();
       i && Y("unavailable"), i = !0;
-      const p = () => n() === u.identity;
+      const p = () => n() === f.identity;
       try {
         if (d.type === "game/expedition/read") return await t.refresh();
         if (d.type === "game/expedition/confirm") return await t.confirm(p);
-        if (d.type === "game/expedition/retry-memory") return await t.retryMemory(Ce(f.person, Fn), p);
-        if (d.type === "game/expedition/rebuild") return await t.rebuild(_n(f.actionId), p);
+        if (d.type === "game/expedition/retry-memory") return await t.retryMemory(Ce(u.person, Fn), p);
+        if (d.type === "game/expedition/rebuild") return await t.rebuild(_n(u.actionId), p);
         if (d.type === "game/expedition/talk" || d.type === "game/expedition/regenerate") {
           const m = new AbortController();
           s = m;
           try {
             return await t.converse({
-              actionId: _n(f.actionId),
-              revision: f.revision,
-              person: Ce(f.person, Fn),
-              text: f.text,
-              ...d.type === "game/expedition/regenerate" ? { regenerate: _n(f.turnId) } : {}
+              actionId: _n(u.actionId),
+              revision: u.revision,
+              person: Ce(u.person, Fn),
+              text: u.text,
+              ...d.type === "game/expedition/regenerate" ? { regenerate: _n(u.turnId) } : {}
             }, p, m.signal);
           } finally {
             s === m && (s = null);
           }
         }
         return d.type !== "game/expedition/act" && Y("invalid"), await t.act({
-          actionId: _n(f.actionId),
-          revision: f.revision,
-          command: og(f.command)
+          actionId: _n(u.actionId),
+          revision: u.revision,
+          command: og(u.command)
         }, p);
       } catch (m) {
         throw m && typeof m == "object" && "code" in m && m.code === "partition_invalid" && Y("data_invalid", m), m;
@@ -26255,14 +26254,14 @@ function is(e, t) {
     const l = ir(c, t);
     if (l)
       for (const d of l.attempts) {
-        const f = l.exercises.find((p) => p.id === d.exerciseId), u = l.assessments.find((p) => p.attemptId === d.id);
+        const u = l.exercises.find((p) => p.id === d.exerciseId), f = l.assessments.find((p) => p.attemptId === d.id);
         i.set(d.id, {
           unitId: l.id,
-          exercise: f,
+          exercise: u,
           attempt: d,
-          assessment: u,
-          scope: rt(l.scope, u?.scope ?? d.scope),
-          materials: l.materials.filter((p) => f.materialIds.includes(p.id))
+          assessment: f,
+          scope: rt(l.scope, f?.scope ?? d.scope),
+          materials: l.materials.filter((p) => u.materialIds.includes(p.id))
         });
       }
   }
@@ -26274,7 +26273,7 @@ function is(e, t) {
   }
   const o = (c) => {
     const l = new Set(c);
-    for (const d of l) for (const f of a.get(d) ?? []) l.add(f);
+    for (const d of l) for (const u of a.get(d) ?? []) l.add(u);
     return l;
   };
   return {
@@ -26287,7 +26286,7 @@ function is(e, t) {
         family: d,
         actions: {
           review: !!l?.assessment && d.size === 1,
-          remove: !!l && [...d].every((f) => i.has(f))
+          remove: !!l && [...d].every((u) => i.has(u))
         }
       };
     }
@@ -26303,13 +26302,13 @@ function ho(e, t) {
   const n = ir(e, t);
   W(n, "unitId", "Select an available learning unit");
   const r = (c) => n.assessments.find((l) => l.attemptId === c?.id && l.verdict !== "disputed"), i = n.exercises.map((c) => {
-    const l = n.kind === "reading-writing" ? VP(n, c.id) : n.attempts.filter((u) => u.exerciseId === c.id).at(-1), d = new Set(l ? [l.id] : []), f = n.attempts.filter((u) => !u.revisesAttemptId || !d.has(u.revisesAttemptId) ? !1 : (d.add(u.id), !0)).at(-1);
+    const l = n.kind === "reading-writing" ? VP(n, c.id) : n.attempts.filter((f) => f.exerciseId === c.id).at(-1), d = new Set(l ? [l.id] : []), u = n.attempts.filter((f) => !f.revisesAttemptId || !d.has(f.revisesAttemptId) ? !1 : (d.add(f.id), !0)).at(-1);
     return {
       exercise: c,
       draft: l,
-      revision: f,
+      revision: u,
       draftAssessment: r(l),
-      revisionAssessment: r(f)
+      revisionAssessment: r(u)
     };
   }), a = (c) => i.map((l) => ({
     exerciseId: l.exercise.id,
@@ -26501,15 +26500,15 @@ function ZP(e) {
     return {
       async read() {
         if (i === "workbench") {
-          const d = ((await e.workbench.read()).value?.conversations.find((f) => f.language === a)?.memories ?? []).map((f) => n(f, !0));
+          const d = ((await e.workbench.read()).value?.conversations.find((u) => u.language === a)?.memories ?? []).map((u) => n(u, !0));
           return structuredClone({
-            exchanges: d.flatMap((f) => f.exchanges),
-            summary: d.map((f) => f.summary).filter(Boolean).join(`
+            exchanges: d.flatMap((u) => u.exchanges),
+            summary: d.map((u) => u.summary).filter(Boolean).join(`
 
 `),
-            summaryReferences: [...new Set(d.flatMap((f) => f.summaryReferences))],
-            summaryScope: d.reduce((f, u) => rt(f, u.summaryScope), Va().summaryScope),
-            archivedCount: d.reduce((f, u) => f + u.archivedCount, 0)
+            summaryReferences: [...new Set(d.flatMap((u) => u.summaryReferences))],
+            summaryScope: d.reduce((u, f) => rt(u, f.summaryScope), Va().summaryScope),
+            archivedCount: d.reduce((u, f) => u + f.archivedCount, 0)
           });
         }
         const c = (await e.companions.read()).value;
@@ -26520,18 +26519,18 @@ function ZP(e) {
       },
       save(c, l) {
         const d = YI(c);
-        return i === "workbench" ? e.workbench.transact((f) => {
-          const u = f.currentOrInitial(), p = u.conversations.find((m) => m.language === a);
-          p ? p.memories = [...p.memories.map((m) => n(m, !1)).filter((m) => m.exchanges.length || m.summary), d] : u.conversations.push({
+        return i === "workbench" ? e.workbench.transact((u) => {
+          const f = u.currentOrInitial(), p = f.conversations.find((m) => m.language === a);
+          p ? p.memories = [...p.memories.map((m) => n(m, !1)).filter((m) => m.exchanges.length || m.summary), d] : f.conversations.push({
             language: a,
             memories: [d]
-          }), f.replace(u);
-        }, { commitGuard: () => l() && e.workbench.peekBinding()?.identityKey === o }) : e.companions.transact((f) => {
-          const u = f.currentOrInitial();
-          if (!("schemaVersion" in u)) throw new Error("learning_companion_unavailable");
-          const p = u.sessions.find((m) => m.id === s);
+          }), u.replace(f);
+        }, { commitGuard: () => l() && e.workbench.peekBinding()?.identityKey === o }) : e.companions.transact((u) => {
+          const f = u.currentOrInitial();
+          if (!("schemaVersion" in f)) throw new Error("learning_companion_unavailable");
+          const p = f.sessions.find((m) => m.id === s);
           if (!p) throw new Error("learning_companion_unavailable");
-          p.memory = d, f.replace(u);
+          p.memory = d, u.replace(f);
         }, { commitGuard: () => l() && e.companions.peekBinding()?.identityKey === o });
       }
     };
@@ -26547,9 +26546,9 @@ function ZP(e) {
     async prune(i, a, s, o = !1) {
       const c = await e.workbench.transact((l) => {
         const d = l.currentOrInitial();
-        o ? d.conversations = [] : s && (d.conversations = d.conversations.filter((f) => f.language !== s));
-        for (const f of d.conversations) f.memories = f.memories.map((u) => {
-          const p = t(u);
+        o ? d.conversations = [] : s && (d.conversations = d.conversations.filter((u) => u.language !== s));
+        for (const u of d.conversations) u.memories = u.memories.map((f) => {
+          const p = t(f);
           return Pv(p, i), p;
         });
         l.replace(d);
@@ -26557,10 +26556,10 @@ function ZP(e) {
       return c.status !== "confirmed" && c.status !== "unchanged" ? c : e.companions.transact((l) => {
         const d = l.currentOrInitial();
         if (!("schemaVersion" in d)) throw new Error("learning_companion_unavailable");
-        for (const f of d.sessions) if (o) f.memory = Va();
+        for (const u of d.sessions) if (o) u.memory = Va();
         else {
-          const u = t(f.memory);
-          Pv(u, i), f.memory = u;
+          const f = t(u.memory);
+          Pv(f, i), u.memory = f;
         }
         l.replace(d);
       }, { commitGuard: a });
@@ -26624,19 +26623,19 @@ function n4(e, t, n, r) {
       "voice",
       "parts",
       "slowPlayback"
-    ]), c = ve(o.exerciseId, `${s}.exerciseId`), l = t.find((u) => u.id === c && u.skill === "listening");
+    ]), c = ve(o.exerciseId, `${s}.exerciseId`), l = t.find((f) => f.id === c && f.skill === "listening");
     W(l, s, "Listening belongs to a listening exercise");
-    const d = n.filter((u) => l.materialIds.includes(u.id)).flatMap(Ia).map((u) => u.key), f = Le(o.parts, `${s}.parts`, (u, p) => {
-      const m = ae(u, p, ["key", "count"]), g = oe(m.key, `${p}.key`, 160);
+    const d = n.filter((f) => l.materialIds.includes(f.id)).flatMap(Ia).map((f) => f.key), u = Le(o.parts, `${s}.parts`, (f, p) => {
+      const m = ae(f, p, ["key", "count"]), g = oe(m.key, `${p}.key`, 160);
       return W(d.includes(g), p, "Listening refers to an actual material span"), {
         key: g,
         count: kt(m.count, `${p}.count`, 1)
       };
     }, 64);
-    return it(f.map((u) => u.key), s), {
+    return it(u.map((f) => f.key), s), {
       exerciseId: c,
       voice: go(o.voice, `${s}.voice`),
-      parts: f,
+      parts: u,
       slowPlayback: Cr(o.slowPlayback, `${s}.slowPlayback`)
     };
   }, t.length * 64);
@@ -26860,16 +26859,16 @@ function el(e) {
   };
 }
 function f4(e, t, n, r = 0, i = "", a = (o) => o.receipt ? "paid" : "available", s = (/* @__PURE__ */ new Date()).toISOString()) {
-  const o = e.profiles.find((k) => k.language === t), c = (k) => Ke(k, n), l = ir(o?.unit, n), d = ir(o?.review, n), f = is(o, n), u = (k) => ({
+  const o = e.profiles.find((k) => k.language === t), c = (k) => Ke(k, n), l = ir(o?.unit, n), d = ir(o?.review, n), u = is(o, n), f = (k) => ({
     ...el(k),
     stage: ho(k, n),
     reward: k.reward,
     shared: k.scope.kind === "public",
     notes: k.notes ?? [],
     attempts: k.attempts,
-    attemptActions: Object.fromEntries(k.attempts.map((I) => [I.id, f.get(I.id).actions])),
+    attemptActions: Object.fromEntries(k.attempts.map((I) => [I.id, u.get(I.id).actions])),
     assessments: k.assessments
-  }), p = o?.items ?? [], m = p.find((k) => k.id === i), g = Math.min(r, Math.floor(Math.max(0, p.length - 1) / 30) * 30), w = (k) => ({
+  }), p = o?.items ?? [], m = p.find((k) => k.id === i), g = Math.min(r, Math.floor(Math.max(0, p.length - 1) / 30) * 30), v = (k) => ({
     id: k.id,
     label: c(k.scope) ? k.label : "其他故事中的学习项",
     skill: k.skill,
@@ -26879,7 +26878,7 @@ function f4(e, t, n, r = 0, i = "", a = (o) => o.receipt ? "paid" : "available",
     scheduleReason: k.schedule ? u4(k.schedule) : null,
     nextReviewAt: k.schedule?.dueAt ?? null,
     evidenceCount: k.evidence.filter((I) => c(I.scope)).length
-  }), h = p.map(w), b = o?.completions ?? [];
+  }), h = p.map(v), b = o?.completions ?? [];
   return {
     languages: e.profiles.map((k) => k.language),
     profile: o ? {
@@ -26900,9 +26899,9 @@ function f4(e, t, n, r = 0, i = "", a = (o) => o.receipt ? "paid" : "available",
     } : null,
     blockedUnit: !!o?.unit && !l,
     currentUnitId: o?.unit?.id ?? null,
-    unit: l ? u(l) : null,
+    unit: l ? f(l) : null,
     blockedReview: !!o?.review && !d,
-    review: d ? u(d) : null,
+    review: d ? f(d) : null,
     dueCount: o ? rx(o, s, n).length : 0,
     records: {
       offset: g,
@@ -26923,7 +26922,7 @@ function f4(e, t, n, r = 0, i = "", a = (o) => o.receipt ? "paid" : "available",
         exercise: Qc(k.exercise),
         attempt: k.attempt,
         assessment: k.assessment,
-        actions: f.get(k.attempt.id).actions,
+        actions: u.get(k.attempt.id).actions,
         materials: k.materials.map((I) => ax(I, k.exercise.skill === "listening" && !I.transcriptRevealed))
       }))
     } : null,
@@ -26970,7 +26969,7 @@ function yo(e, t, n, r) {
   if (a.stage !== "complete" || e.completions.some((d) => d.unitId === i.id)) return null;
   const s = new Set(a.exercises.flatMap((d) => [d.draftAttemptId, d.revisionAttemptId])), o = i.assessments.filter((d) => s.has(d.attemptId) && d.verdict !== "disputed");
   if (!o.length) return null;
-  const c = o.reduce((d, f) => rt(d, f.scope), i.scope), l = {
+  const c = o.reduce((d, u) => rt(d, u.scope), i.scope), l = {
     unitId: i.id,
     completedAt: Dr(n, "completedAt"),
     summary: i.title,
@@ -27007,8 +27006,8 @@ function h4(e, t, n) {
   if (e.completions.some((d) => d.unitId === i)) return structuredClone(e);
   let c = rt(a.scope, n.inputScope);
   for (const d of s) {
-    const f = a.attempts.find((p) => p.id === d), u = a.assessments.find((p) => p.attemptId === d);
-    W(f && u && u.verdict !== "disputed" && Ke(u.scope, n.osId), "attemptIds", "Each attempt needs available, resolved feedback in this unit"), c = rt(c, u.scope);
+    const u = a.attempts.find((p) => p.id === d), f = a.assessments.find((p) => p.attemptId === d);
+    W(u && f && f.verdict !== "disputed" && Ke(f.scope, n.osId), "attemptIds", "Each attempt needs available, resolved feedback in this unit"), c = rt(c, f.scope);
   }
   const l = structuredClone(e);
   return l.completions.push({
@@ -27105,7 +27104,7 @@ function sf(e, t, n, r = "answer") {
   const i = ae(e, r, ["kind", ...t.kind === "match" ? ["pairs"] : t.kind === "gaps" ? ["values"] : t.kind === "text" ? ["text"] : ["ids"]]);
   W(i.kind === t.kind, `${r}.kind`, "Answer form must match the exercise");
   const a = (c, l, d) => {
-    W(c.length > 0 && c.every((f) => l.includes(f)) && (!d || c.length === l.length), r, "Use the IDs supplied by this exercise");
+    W(c.length > 0 && c.every((u) => l.includes(u)) && (!d || c.length === l.length), r, "Use the IDs supplied by this exercise");
   };
   if (t.kind === "text") return {
     kind: "text",
@@ -27113,10 +27112,10 @@ function sf(e, t, n, r = "answer") {
   };
   if (t.kind === "gaps") {
     const c = Le(i.values, `${r}.values`, (l, d) => {
-      const f = ae(l, d, ["id", "text"]);
+      const u = ae(l, d, ["id", "text"]);
       return {
-        id: ve(f.id, `${d}.id`),
-        text: oe(f.text, `${d}.text`, Q.answer)
+        id: ve(u.id, `${d}.id`),
+        text: oe(u.text, `${d}.text`, Q.answer)
       };
     }, Q.gaps);
     return it(c.map((l) => l.id), r), a(c.map((l) => l.id), t.slots.map((l) => l.id), !0), W(c.reduce((l, d) => l + [...d.text].length, 0) <= Q.answer, r, `Combined answer is at most ${Q.answer} code points`), {
@@ -27126,10 +27125,10 @@ function sf(e, t, n, r = "answer") {
   }
   if (t.kind === "match") {
     const c = Le(i.pairs, `${r}.pairs`, (l, d) => {
-      const f = ae(l, d, ["left", "right"]);
+      const u = ae(l, d, ["left", "right"]);
       return {
-        left: ve(f.left, `${d}.left`),
-        right: ve(f.right, `${d}.right`)
+        left: ve(u.left, `${d}.left`),
+        right: ve(u.right, `${d}.right`)
       };
     }, Q.pairs);
     return it(c.map((l) => l.left), r), it(c.map((l) => l.right), r), a(c.map((l) => l.left), t.left.map((l) => l.id), !0), a(c.map((l) => l.right), t.right.map((l) => l.id), !0), {
@@ -27173,7 +27172,7 @@ function y4(e, t, n, r) {
     "explanation"
   ]);
   const s = Le(i.accepted, `${r}.accepted`, (o, c) => {
-    const l = ae(o, c, ["id", "forms"]), d = Le(l.forms, `${c}.forms`, (f, u) => oe(f, u, Q.answer), Q.acceptedForms);
+    const l = ae(o, c, ["id", "forms"]), d = Le(l.forms, `${c}.forms`, (u, f) => oe(u, f, Q.answer), Q.acceptedForms);
     return W(d.length > 0, c, "Provide at least one accepted form"), {
       id: ve(l.id, `${c}.id`),
       forms: d
@@ -27462,23 +27461,23 @@ function _4(e, t, n) {
   W(i === n.attemptId, "attemptId", "This action evaluates its submitted attempt");
   const a = (n.now ?? (() => (/* @__PURE__ */ new Date()).toISOString()))(), s = structuredClone(e), o = is(s, n.osId).get(i);
   W(o.work, "attemptId", aa.unavailable);
-  const { attempt: c, assessment: l } = o.work, d = rt(o.work.scope, n.inputScope), { items: f, annotations: u, ...p } = r, m = l && Object.keys(p).length === 1 && u === void 0, g = (y, v) => {
-    const A = s.items.find((E) => E.label === y && E.skill === v && JSON.stringify(E.scope) === JSON.stringify(d));
+  const { attempt: c, assessment: l } = o.work, d = rt(o.work.scope, n.inputScope), { items: u, annotations: f, ...p } = r, m = l && Object.keys(p).length === 1 && f === void 0, g = (y, w) => {
+    const A = s.items.find((E) => E.label === y && E.skill === w && JSON.stringify(E.scope) === JSON.stringify(d));
     if (A) return A;
     const C = {
       id: n.createId(),
       label: y,
       scope: d,
-      skill: v,
+      skill: w,
       evidence: [],
-      ...tx(v) ? { schedule: mg(a) } : {}
+      ...tx(w) ? { schedule: mg(a) } : {}
     };
     return s.items.push(C), C;
-  }, w = (y, v, A) => {
+  }, v = (y, w, A) => {
     const C = y.itemId === null ? null : s.items.find((E) => E.id === y.itemId);
-    return W(y.itemId === null || C, `${A}.itemId`, "Reference an existing learning item"), C ? (W(C.skill === v, `${A}.itemId`, "This attempt must train the same skill"), y.label !== null && y.label !== C.label && (W(Ke(C.scope, n.osId), `${A}.label`, "A label from another story cannot be changed here"), C.label = y.label, C.scope = rt(C.scope, d)), C) : (W(y.label, `${A}.label`, "A new learning item needs a focused label"), g(y.label, v));
-  }, h = [], b = u === void 0 ? void 0 : Le(u, "annotations", (y, v) => {
-    const { item: A, ...C } = ae(y, v, [
+    return W(y.itemId === null || C, `${A}.itemId`, "Reference an existing learning item"), C ? (W(C.skill === w, `${A}.itemId`, "This attempt must train the same skill"), y.label !== null && y.label !== C.label && (W(Ke(C.scope, n.osId), `${A}.label`, "A label from another story cannot be changed here"), C.label = y.label, C.scope = rt(C.scope, d)), C) : (W(y.label, `${A}.label`, "A new learning item needs a focused label"), g(y.label, w));
+  }, h = [], b = f === void 0 ? void 0 : Le(f, "annotations", (y, w) => {
+    const { item: A, ...C } = ae(y, w, [
       "category",
       "severity",
       "paragraphIndex",
@@ -27492,8 +27491,8 @@ function _4(e, t, n) {
       ...C
     };
     const E = C.category;
-    W(E === "grammar" || E === "vocabulary", `${v}.item`, "Only grammar and vocabulary annotations link a learning item");
-    const T = w(Dv(A, `${v}.item`), E, `${v}.item`);
+    W(E === "grammar" || E === "vocabulary", `${w}.item`, "Only grammar and vocabulary annotations link a learning item");
+    const T = v(Dv(A, `${w}.item`), E, `${w}.item`);
     return h.includes(T) || h.push(T), {
       id: n.createId(),
       ...C,
@@ -27505,12 +27504,12 @@ function _4(e, t, n) {
     scope: d
   }), I = l !== void 0 && JSON.stringify(l) !== JSON.stringify(k);
   W(!I || n.review, "attemptId", "Existing feedback can be changed in an explicit review"), W(!I || o.actions.review, "attemptId", aa.revised), gg(k, c);
-  const x = Le(f ?? [], "items", Dv, Q.itemChanges);
+  const x = Le(u ?? [], "items", Dv, Q.itemChanges);
   it(x.flatMap((y) => y.itemId === null ? [] : [y.itemId]), "items"), vg(s, k);
   const S = b4(s, i), _ = [i];
   for (const y of x) {
-    const v = w(y, S.exercise.skill, "items");
-    h.includes(v) || h.push(v);
+    const w = v(y, S.exercise.skill, "items");
+    h.includes(w) || h.push(w);
   }
   (!l || I) && px(s, S, a, l);
   for (const y of h)
@@ -27566,7 +27565,7 @@ function I4(e, t) {
   const i = t.basis ?? n;
   if (n.kind === "reading-writing") {
     const l = new Set(ir(n, t.osId).attempts.map((d) => d.id));
-    n.attempts = n.attempts.filter((d) => d.exerciseId !== r.id || !l.has(d.id) || n.assessments.some((f) => f.attemptId === d.id) || n.attempts.some((f) => f.revisesAttemptId === d.id));
+    n.attempts = n.attempts.filter((d) => d.exerciseId !== r.id || !l.has(d.id) || n.assessments.some((u) => u.attemptId === d.id) || n.attempts.some((u) => u.revisesAttemptId === d.id));
   }
   const a = sf(t.answer, r.response, n.materials);
   W(t.scope.kind === "public" || t.scope.osId === t.osId, "scope", "Use the current story identity");
@@ -27598,53 +27597,53 @@ function Dt(e) {
   return W(t.status === "ready" && t.document !== void 0, "storage", "Read or resolve the learning file first"), t.document;
 }
 function tl(e, t = {}) {
-  const n = t.createId ?? ri, r = t.now ?? (() => (/* @__PURE__ */ new Date()).toISOString()), i = (l, d, f) => {
-    const u = Dt(e), p = structuredClone(u?.data ?? { profiles: [] }), m = p.profiles.findIndex((g) => g.language === l);
-    return W(m >= 0, "language", "Select a saved learning profile"), d(p, m), e.save(u, p, f, t.onConfirmed);
+  const n = t.createId ?? ri, r = t.now ?? (() => (/* @__PURE__ */ new Date()).toISOString()), i = (l, d, u) => {
+    const f = Dt(e), p = structuredClone(f?.data ?? { profiles: [] }), m = p.profiles.findIndex((g) => g.language === l);
+    return W(m >= 0, "language", "Select a saved learning profile"), d(p, m), e.save(f, p, u, t.onConfirmed);
   }, a = () => Dr(r(), "now"), s = (l, d) => {
-    const f = l.unit;
-    return W(f?.kind === "reading-writing" && f.id === d, "unitId", "Select the current reading-writing unit"), f;
-  }, o = (l, d) => [l.unit, l.review].find((f) => f?.id === d) ?? null, c = (l, d) => {
-    for (const u of [l.unit, l.review])
-      u && (u.attempts = u.attempts.filter((p) => !d.has(p.id)), u.assessments = u.assessments.filter((p) => !d.has(p.attemptId)), u.skippedRevisionAttemptIds && (u.skippedRevisionAttemptIds = u.skippedRevisionAttemptIds.filter((p) => !d.has(p))));
-    for (const u of l.items) u.evidence = u.evidence.filter((p) => !d.has(p.attempt.id));
-    const f = a();
-    for (const u of d) Sm(l.items, u, f);
+    const u = l.unit;
+    return W(u?.kind === "reading-writing" && u.id === d, "unitId", "Select the current reading-writing unit"), u;
+  }, o = (l, d) => [l.unit, l.review].find((u) => u?.id === d) ?? null, c = (l, d) => {
+    for (const f of [l.unit, l.review])
+      f && (f.attempts = f.attempts.filter((p) => !d.has(p.id)), f.assessments = f.assessments.filter((p) => !d.has(p.attemptId)), f.skippedRevisionAttemptIds && (f.skippedRevisionAttemptIds = f.skippedRevisionAttemptIds.filter((p) => !d.has(p))));
+    for (const f of l.items) f.evidence = f.evidence.filter((p) => !d.has(p.attempt.id));
+    const u = a();
+    for (const f of d) Sm(l.items, f, u);
   };
   return {
-    saveSettings(l, d, f) {
-      const u = Dt(e), p = structuredClone(u?.data ?? { profiles: [] }), m = ae(d, "settings", [
+    saveSettings(l, d, u) {
+      const f = Dt(e), p = structuredClone(f?.data ?? { profiles: [] }), m = ae(d, "settings", [
         "explanationLanguage",
         "level",
         "targetLevel",
         "exam",
         "interests"
       ]), g = ls(l, "language");
-      let w = p.profiles.find((b) => b.language === g);
-      w || (w = {
+      let v = p.profiles.find((b) => b.language === g);
+      v || (v = {
         ...KP(g),
         unit: null,
         review: null,
         items: [],
         completions: []
-      }, p.profiles.push(w));
+      }, p.profiles.push(v));
       const h = (b, k) => m[b] === void 0 ? k : m[b];
-      return Object.assign(w, nf({
+      return Object.assign(v, nf({
         language: g,
-        explanationLanguage: h("explanationLanguage", w.explanationLanguage) ?? "zh-CN",
-        selfAssessment: w.selfAssessment,
-        level: h("level", w.level),
-        interests: h("interests", w.interests),
+        explanationLanguage: h("explanationLanguage", v.explanationLanguage) ?? "zh-CN",
+        selfAssessment: v.selfAssessment,
+        level: h("level", v.level),
+        interests: h("interests", v.interests),
         goal: {
-          ...w.goal,
-          exam: h("exam", w.goal.exam),
-          targetLevel: h("targetLevel", w.goal.targetLevel)
+          ...v.goal,
+          exam: h("exam", v.goal.exam),
+          targetLevel: h("targetLevel", v.goal.targetLevel)
         }
-      }, "settings")), e.save(u, p, f, t.onConfirmed);
+      }, "settings")), e.save(f, p, u, t.onConfirmed);
     },
-    bookmarkTerm(l, d, f, u, p, m) {
-      return i(l, (g, w) => {
-        const h = g.profiles[w], b = s(h, d), k = b.explanations.find((x) => x.materialId === f && x.paragraphId === u)?.terms.find((x) => x.text === p);
+    bookmarkTerm(l, d, u, f, p, m) {
+      return i(l, (g, v) => {
+        const h = g.profiles[v], b = s(h, d), k = b.explanations.find((x) => x.materialId === u && x.paragraphId === f)?.terms.find((x) => x.text === p);
         W(k, "termText", "Bookmark a term from this paragraph's explanation");
         const I = JSON.stringify(b.scope);
         h.items.some((x) => x.label === k.text && x.skill === "vocabulary" && JSON.stringify(x.scope) === I) || h.items.push({
@@ -27657,17 +27656,17 @@ function tl(e, t = {}) {
         });
       }, m);
     },
-    skipRevision(l, d, f, u) {
+    skipRevision(l, d, u, f) {
       return i(l, (p, m) => {
-        const g = s(p.profiles[m], d), w = ho(g, f).exercises.filter((h) => h.status === "revising").map((h) => h.revisionAttemptId ?? h.draftAttemptId);
-        g.skippedRevisionAttemptIds = [.../* @__PURE__ */ new Set([...g.skippedRevisionAttemptIds, ...w])], yo(p.profiles[m], "unit", a(), f);
-      }, u);
+        const g = s(p.profiles[m], d), v = ho(g, u).exercises.filter((h) => h.status === "revising").map((h) => h.revisionAttemptId ?? h.draftAttemptId);
+        g.skippedRevisionAttemptIds = [.../* @__PURE__ */ new Set([...g.skippedRevisionAttemptIds, ...v])], yo(p.profiles[m], "unit", a(), u);
+      }, f);
     },
-    submitRevision(l, d, f, u, p, m) {
-      return i(l, (g, w) => {
-        const h = s(g.profiles[w], d), b = ir(h, u);
+    submitRevision(l, d, u, f, p, m) {
+      return i(l, (g, v) => {
+        const h = s(g.profiles[v], d), b = ir(h, f);
         W(b, "unitId", "Select work available in this story");
-        const k = Le(f, "revisions", (x, S) => {
+        const k = Le(u, "revisions", (x, S) => {
           const _ = ae(x, S, ["attemptId", "text"]);
           return {
             attemptId: ve(_.attemptId, `${S}.attemptId`),
@@ -27678,9 +27677,9 @@ function tl(e, t = {}) {
         W(k.length > 0, "revisions", "Submit at least one revised draft"), it(k.map((x) => x.attemptId), "revisions");
         const I = m?.submittedAt ?? a();
         for (const x of k) {
-          const S = b.attempts.find((v) => v.id === x.attemptId), _ = b.assessments.find((v) => v.attemptId === S?.id);
+          const S = b.attempts.find((w) => w.id === x.attemptId), _ = b.assessments.find((w) => w.attemptId === S?.id);
           W(S && _ && _.verdict !== "disputed", `${x.path}.attemptId`, "Revise a saved answer with feedback");
-          const y = hx(zv(m, l, h, S.exerciseId), S.exerciseId, u);
+          const y = hx(zv(m, l, h, S.exerciseId), S.exerciseId, f);
           h.attempts.push({
             id: ve(n(), "attemptId"),
             exerciseId: S.exerciseId,
@@ -27700,29 +27699,29 @@ function tl(e, t = {}) {
         }
       }, p);
     },
-    saveModelEssay(l, d, f, u, p) {
+    saveModelEssay(l, d, u, f, p) {
       return i(l, (m, g) => {
-        ox(m.profiles[g], d, f, {
+        ox(m.profiles[g], d, u, {
           now: a(),
-          osId: u,
+          osId: f,
           inputScope: s(m.profiles[g], d).scope
         });
       }, p);
     },
-    reviewSelection(l, d = r(), f) {
-      const u = Dt(e)?.data.profiles.find((m) => m.language === l), p = u ? rx(u, Dr(d, "now"), f) : [];
+    reviewSelection(l, d = r(), u) {
+      const f = Dt(e)?.data.profiles.find((m) => m.language === l), p = f ? rx(f, Dr(d, "now"), u) : [];
       return p.length ? {
         itemIds: p.map((m) => m.id),
         tier: ix(p.length)
       } : null;
     },
-    abandonReview: (l, d) => i(l, (f, u) => {
-      f.profiles[u].review = null;
+    abandonReview: (l, d) => i(l, (u, f) => {
+      u.profiles[f].review = null;
     }, d),
     prepareAttempt(l, d) {
-      const f = Dt(e), u = structuredClone(f?.data ?? { profiles: [] }), p = u.profiles.find((b) => b.language === l.language);
+      const u = Dt(e), f = structuredClone(u?.data ?? { profiles: [] }), p = f.profiles.find((b) => b.language === l.language);
       W(p, "language", "Select a saved learning profile");
-      const m = [p.unit, p.review].find((b) => b?.id === l.unitId), g = zv(d, l.language, m, l.exerciseId), w = I4(p, {
+      const m = [p.unit, p.review].find((b) => b?.id === l.unitId), g = zv(d, l.language, m, l.exerciseId), v = I4(p, {
         ...l,
         createId: n,
         now: d ? () => d.submittedAt : r,
@@ -27730,40 +27729,40 @@ function tl(e, t = {}) {
       });
       let h = !1;
       return {
-        attemptId: w.id,
+        attemptId: v.id,
         save(b) {
-          return W(!h, "attemptId", "This submission has been sent; read or verify its saved result"), h = !0, e.save(f, u, b, t.onConfirmed);
+          return W(!h, "attemptId", "This submission has been sent; read or verify its saved result"), h = !0, e.save(u, f, b, t.onConfirmed);
         }
       };
     },
-    reveal(l, d, f, u, p, m) {
-      return i(l, (g, w) => {
-        const h = o(g.profiles[w], d);
-        W(h && Ke(h.scope, p), "unitId", "Select an available current unit"), W(f === "transcripts" ? h.materials.some((b) => b.id === u) : h.exercises.some((b) => b.id === u), "id", "Reveal content from this unit"), !(f === "hints" && !h.exercises.find((b) => b.id === u).hint.trim()) && xc(g.profiles[w], f, u, h);
+    reveal(l, d, u, f, p, m) {
+      return i(l, (g, v) => {
+        const h = o(g.profiles[v], d);
+        W(h && Ke(h.scope, p), "unitId", "Select an available current unit"), W(u === "transcripts" ? h.materials.some((b) => b.id === f) : h.exercises.some((b) => b.id === f), "id", "Reveal content from this unit"), !(u === "hints" && !h.exercises.find((b) => b.id === f).hint.trim()) && xc(g.profiles[v], u, f, h);
       }, m);
     },
-    setVoice(l, d, f) {
-      return i(l, (u, p) => {
-        u.profiles[p].voice = go(d);
-      }, f);
-    },
-    note(l, d, f, u, p) {
-      return i(l, (m, g) => {
-        const w = o(m.profiles[g], d);
-        W(w, "unitId", "Select the current unit"), w.notes ??= [], typeof f == "string" ? w.notes = w.notes.filter((h) => h.id !== f) : w.notes.some((h) => h.id === f.id) || (w.notes.push(structuredClone(f)), p && (w.scope = rt(w.scope, p)));
+    setVoice(l, d, u) {
+      return i(l, (f, p) => {
+        f.profiles[p].voice = go(d);
       }, u);
     },
-    listening(l, d, f, u, p, m, g, w, h) {
+    note(l, d, u, f, p) {
+      return i(l, (m, g) => {
+        const v = o(m.profiles[g], d);
+        W(v, "unitId", "Select the current unit"), v.notes ??= [], typeof u == "string" ? v.notes = v.notes.filter((h) => h.id !== u) : v.notes.some((h) => h.id === u.id) || (v.notes.push(structuredClone(u)), p && (v.scope = rt(v.scope, p)));
+      }, f);
+    },
+    listening(l, d, u, f, p, m, g, v, h) {
       return i(l, (b, k) => {
         const I = b.profiles[k].unit;
-        W(I?.id === d && Ke(I.scope, w) && I.exercises.some((y) => y.id === f && y.skill === "listening"), "exerciseId", "Select a current listening exercise");
-        const x = I.exercises.find((y) => y.id === f);
+        W(I?.id === d && Ke(I.scope, v) && I.exercises.some((y) => y.id === u && y.skill === "listening"), "exerciseId", "Select a current listening exercise");
+        const x = I.exercises.find((y) => y.id === u);
         W(I.materials.filter((y) => x.materialIds.includes(y.id)).flatMap(Ia).some((y) => y.key === p), "partKey", "Select an actual material span");
         const S = I.listening ?? [];
-        let _ = S.find((y) => y.exerciseId === f && y.parts.some((v) => v.key === p));
+        let _ = S.find((y) => y.exerciseId === u && y.parts.some((w) => w.key === p));
         !_ && !m || (_ || (_ = {
-          exerciseId: f,
-          voice: go(u),
+          exerciseId: u,
+          voice: go(f),
           parts: [{
             key: p,
             count: 0
@@ -27772,41 +27771,41 @@ function tl(e, t = {}) {
         }, S.push(_)), I.listening = S, m && _.parts.find((y) => y.key === p).count++, _.slowPlayback ||= g);
       }, h);
     },
-    dispute(l, d, f, u) {
+    dispute(l, d, u, f) {
       return i(l, (p, m) => {
-        const g = p.profiles[m], w = is(g, f).get(d), h = w.work?.assessment;
-        W(h, "attemptId", aa.feedbackRequired), W(w.actions.review, "attemptId", aa.revised), vg(g, {
+        const g = p.profiles[m], v = is(g, u).get(d), h = v.work?.assessment;
+        W(h, "attemptId", aa.feedbackRequired), W(v.actions.review, "attemptId", aa.revised), vg(g, {
           ...h,
           verdict: "disputed"
         }), Sm(g.items, d, a());
-      }, u);
+      }, f);
     },
-    deleteAttempt(l, d, f, u) {
+    deleteAttempt(l, d, u, f) {
       return i(l, (p, m) => {
-        const g = p.profiles[m], w = is(g, f).get(d);
-        W(w.work, "attemptId", aa.unavailable), W(w.actions.remove, "attemptId", aa.hiddenRevisions), c(g, w.family);
-      }, u);
+        const g = p.profiles[m], v = is(g, u).get(d);
+        W(v.work, "attemptId", aa.unavailable), W(v.actions.remove, "attemptId", aa.hiddenRevisions), c(g, v.family);
+      }, f);
     },
-    deleteItem: (l, d, f, u) => i(l, (p, m) => {
+    deleteItem: (l, d, u, f) => i(l, (p, m) => {
       const g = p.profiles[m];
       g.items = g.items.filter((b) => b.id !== d);
-      const w = g.review;
-      if (w) {
-        const b = w.exercises.filter((k) => k.itemId === d).map((k) => k.id);
-        c(g, is(g, f).family(w.attempts.filter((k) => b.includes(k.exerciseId)).map((k) => k.id))), w.exercises = w.exercises.filter((k) => !b.includes(k.id)), w.revealed = {
-          answers: w.revealed.answers.filter((k) => !b.includes(k)),
-          hints: w.revealed.hints.filter((k) => !b.includes(k))
-        }, w.notes && (w.notes = w.notes.filter((k) => !b.includes(k.exerciseId))), w.listening && (w.listening = w.listening.filter((k) => !b.includes(k.exerciseId))), w.exercises.length || (g.review = null);
+      const v = g.review;
+      if (v) {
+        const b = v.exercises.filter((k) => k.itemId === d).map((k) => k.id);
+        c(g, is(g, u).family(v.attempts.filter((k) => b.includes(k.exerciseId)).map((k) => k.id))), v.exercises = v.exercises.filter((k) => !b.includes(k.id)), v.revealed = {
+          answers: v.revealed.answers.filter((k) => !b.includes(k)),
+          hints: v.revealed.hints.filter((k) => !b.includes(k))
+        }, v.notes && (v.notes = v.notes.filter((k) => !b.includes(k.exerciseId))), v.listening && (v.listening = v.listening.filter((k) => !b.includes(k.exerciseId))), v.exercises.length || (g.review = null);
       }
       const h = [g.unit, g.review].flatMap((b) => b?.assessments ?? []).concat(g.items.flatMap((b) => b.evidence.map((k) => k.assessment)));
       for (const b of h.flatMap((k) => k.annotations ?? [])) b.itemId === d && delete b.itemId;
-      yo(g, "review", a(), f);
-    }, u),
-    abandonUnit: (l, d) => i(l, (f, u) => {
-      f.profiles[u].unit = null;
+      yo(g, "review", a(), u);
+    }, f),
+    abandonUnit: (l, d) => i(l, (u, f) => {
+      u.profiles[f].unit = null;
     }, d),
-    deleteLanguage: (l, d) => i(l, (f, u) => {
-      f.profiles.splice(u, 1);
+    deleteLanguage: (l, d) => i(l, (u, f) => {
+      u.profiles.splice(f, 1);
     }, d)
   };
 }
@@ -27829,33 +27828,33 @@ function S4(e) {
     try {
       const l = Dt(e.repository)?.data.profiles.find((k) => k.language === s.language), d = [l?.unit, l?.review].find((k) => k?.id === r.unitId);
       W(d, "unitId", "Select an available current unit");
-      const f = t.prepareAttempt({
+      const u = t.prepareAttempt({
         ...r,
         language: s.language,
         osId: s.osId,
         scope: d.scope
-      }, a), u = await f.save(c);
+      }, a), f = await u.save(c);
       if (!c()) return { status: "cancelled" };
-      if (u.status !== "confirmed" && u.status !== "unchanged") return { status: u.status };
-      const p = Dt(e.repository).data.profiles.find((k) => k.language === s.language), m = [p.unit, p.review].find((k) => k?.id === r.unitId), g = m.attempts.find((k) => k.id === f.attemptId), w = m.exercises.find((k) => k.id === g.exerciseId), h = x4(g.answer, w.response, m.materials.flatMap((k) => k.paragraphs)), b = m.kind === "lesson" ? await e.teaching.run({
+      if (f.status !== "confirmed" && f.status !== "unchanged") return { status: f.status };
+      const p = Dt(e.repository).data.profiles.find((k) => k.language === s.language), m = [p.unit, p.review].find((k) => k?.id === r.unitId), g = m.attempts.find((k) => k.id === u.attemptId), v = m.exercises.find((k) => k.id === g.exerciseId), h = x4(g.answer, v.response, m.materials.flatMap((k) => k.paragraphs)), b = m.kind === "lesson" ? await e.teaching.run({
         action: {
           kind: "assess",
-          attemptId: f.attemptId,
+          attemptId: u.attemptId,
           review: !1
         },
         message: "我提交了这道题的答案，请接着带我学。",
         displayMessage: h
-      }) : m.kind === "reading-writing" && w.paragraphId ? await e.teaching.run({
+      }) : m.kind === "reading-writing" && v.paragraphId ? await e.teaching.run({
         action: {
           kind: "summary-review",
-          attemptId: f.attemptId
+          attemptId: u.attemptId
         },
         message: "我写好了这一段的概括，请看一下。",
         displayMessage: h
       }) : null;
       return {
         status: "saved",
-        attemptId: f.attemptId,
+        attemptId: u.attemptId,
         teaching: b
       };
     } finally {
@@ -27903,33 +27902,33 @@ function A4(e) {
       const d = () => {
         const b = e.repository.snapshot();
         return b.status === "ready" && JSON.stringify(b.document?.data.profiles.find((k) => k.language === r)?.completions.find((k) => k.unitId === i)) === JSON.stringify(c);
-      }, f = () => s() && d();
+      }, u = () => s() && d();
       if (e.files.hasPendingCommit()) return "unconfirmed";
-      if (await e.economy.refresh(), !f()) return "cancelled";
+      if (await e.economy.refresh(), !u()) return "cancelled";
       if (!e.economy.isOpen()) {
         if (!a) return "wallet-closed";
-        if (await e.economy.ensureOpen(f), !f()) return "cancelled";
+        if (await e.economy.ensureOpen(u), !u()) return "cancelled";
       }
-      const u = await e.store.transact((b) => {
-        if (!f()) throw new Error("learning_reward_cancelled");
-        const k = b.useCapability(ct), I = gx(c), x = k.listOwnedTransactions().find((v) => v.idempotencyKey === I.idempotencyKey);
+      const f = await e.store.transact((b) => {
+        if (!u()) throw new Error("learning_reward_cancelled");
+        const k = b.useCapability(ct), I = gx(c), x = k.listOwnedTransactions().find((w) => w.idempotencyKey === I.idempotencyKey);
         if (x) {
           if (!qv(x, c)) throw new Error("learning_reward_mismatch");
           return x;
         }
         const { sourceDomain: S, sourceScope: _, ...y } = I;
         return k.postAction({ legs: [y] }).transactions[0];
-      }, { commitGuard: f });
-      if (!f()) return "cancelled";
-      if (u.status !== "confirmed" && u.status !== "unchanged") return u.status;
-      const p = u.result;
+      }, { commitGuard: u });
+      if (!u()) return "cancelled";
+      if (f.status !== "confirmed" && f.status !== "unchanged") return f.status;
+      const p = f.result;
       if (!p || !qv(p, c)) return "failed";
-      const m = Dt(e.repository), g = structuredClone(m.data), w = g.profiles.find((b) => b.language === r).completions.find((b) => b.unitId === i);
-      w.receipt = {
+      const m = Dt(e.repository), g = structuredClone(m.data), v = g.profiles.find((b) => b.language === r).completions.find((b) => b.unitId === i);
+      v.receipt = {
         transactionId: p.id,
         receivedAt: p.createdAt
       };
-      const h = await e.repository.save(m, g, f);
+      const h = await e.repository.save(m, g, u);
       return h.status === "confirmed" || h.status === "unchanged" ? "paid" : h.status;
     } catch {
       return s() ? "failed" : "cancelled";
@@ -27957,17 +27956,17 @@ function E4(e) {
   const t = e.getFacade ?? (() => window.xiaobaixTts);
   let n = Wv(), r = null;
   const i = () => ({ ...n });
-  function a(f) {
+  function a(u) {
     n = {
       ...n,
-      ...f
+      ...u
     }, e.onState(i());
   }
   function s() {
-    const f = t();
-    return f?.isEnabled() ? {
+    const u = t();
+    return u?.isEnabled() ? {
       enabled: !0,
-      ...f.getVoices(),
+      ...u.getVoices(),
       message: ""
     } : {
       enabled: !1,
@@ -27977,38 +27976,38 @@ function E4(e) {
     };
   }
   function o() {
-    const f = r;
-    r = null, f?.abort.abort(), f?.player.dispose(), n = Wv(), e.onState(i());
+    const u = r;
+    r = null, u?.abort.abort(), u?.player.dispose(), n = Wv(), e.onState(i());
   }
-  function c(f) {
-    return r === f && !f.abort.signal.aborted && e.isCurrent() && t() === f.facade && f.facade.isEnabled();
+  function c(u) {
+    return r === u && !u.abort.signal.aborted && e.isCurrent() && t() === u.facade && u.facade.isEnabled();
   }
-  async function l(f) {
+  async function l(u) {
     if (o(), !e.isCurrent()) return;
-    const u = t();
-    if (!u?.isEnabled()) {
+    const f = t();
+    if (!f?.isEnabled()) {
       a({
         status: "unavailable",
         message: Fv
       });
       return;
     }
-    if (!u.getVoices().voices.find((g) => g.id === f.voiceId)?.available) {
+    if (!f.getVoices().voices.find((g) => g.id === u.voiceId)?.available) {
       a({
         status: "unavailable",
         message: "这个音色暂不可用，请在声音设置中选择可用音色。"
       });
       return;
     }
-    const p = { ...f }, m = {
+    const p = { ...u }, m = {
       request: p,
-      facade: u,
-      player: u.createPlayer(),
+      facade: f,
+      player: f.createPlayer(),
       abort: new AbortController(),
       blob: null,
       started: !1
     };
-    r = m, m.player.onStateChange = (g, w, h) => {
+    r = m, m.player.onStateChange = (g, v, h) => {
       if (g === "disposed" && r === m) {
         o();
         return;
@@ -28039,7 +28038,7 @@ function E4(e) {
         status: "loading",
         key: p.key
       });
-      const g = await u.synthesize(p.text, {
+      const g = await f.synthesize(p.text, {
         speaker: p.voiceId,
         language: p.language,
         speed: p.speed,
@@ -28073,25 +28072,25 @@ function E4(e) {
       d()?.player.pause();
     },
     resume() {
-      const f = d();
-      f?.blob && (n.status === "ended" || n.status === "error" ? (f.started = !1, a({ position: 0 }), f.player.playNow({
-        id: f.request.key,
-        audioBlob: f.blob
-      })) : f.player.resume());
-    },
-    seek(f) {
-      return d()?.player.seek(f) ?? !1;
-    },
-    setRate(f) {
       const u = d();
-      u && (a({ rate: u.player.setPlaybackRate(f) }), u.started && n.rate < 1 && e.onPlayback?.(u.request, {
+      u?.blob && (n.status === "ended" || n.status === "error" ? (u.started = !1, a({ position: 0 }), u.player.playNow({
+        id: u.request.key,
+        audioBlob: u.blob
+      })) : u.player.resume());
+    },
+    seek(u) {
+      return d()?.player.seek(u) ?? !1;
+    },
+    setRate(u) {
+      const f = d();
+      f && (a({ rate: f.player.setPlaybackRate(u) }), f.started && n.rate < 1 && e.onPlayback?.(f.request, {
         started: !1,
         slow: !0
       }));
     },
     openSettings() {
-      const f = t();
-      f?.isEnabled() ? f.openSettings() : a({
+      const u = t();
+      u?.isEnabled() ? u.openSettings() : a({
         status: "unavailable",
         message: "请在酒馆扩展设置 → 小白X → 渲染交互中，勾选「启用 TTS 语音」。开启后回到语伴即可使用。"
       });
@@ -28107,19 +28106,19 @@ function C4(e) {
     getFacade: e.getFacade,
     isCurrent: () => !!e.current(),
     onState: e.onState,
-    onPlayback(f, u) {
+    onPlayback(u, f) {
       const p = s;
-      if (!p || p.request.key !== f.key) return;
+      if (!p || p.request.key !== u.key) return;
       const m = () => JSON.stringify(e.current()) === JSON.stringify(p.classroom);
       r.push(async () => {
         if (!m()) return;
-        const g = Dt(e.repository)?.data.profiles.find((k) => k.language === p.classroom.language)?.unit, w = g?.exercises.find((k) => k.id === p.exerciseId), h = g?.materials.find((k) => k.id === p.materialId);
-        if (g?.id !== p.unitId || !w || w.skill !== "listening" || !Ke(g.scope, p.classroom.osId) || !w.materialIds.includes(p.materialId) || !h || !Ia(h).some((k) => k.key === f.key && k.text === f.text)) return;
+        const g = Dt(e.repository)?.data.profiles.find((k) => k.language === p.classroom.language)?.unit, v = g?.exercises.find((k) => k.id === p.exerciseId), h = g?.materials.find((k) => k.id === p.materialId);
+        if (g?.id !== p.unitId || !v || v.skill !== "listening" || !Ke(g.scope, p.classroom.osId) || !v.materialIds.includes(p.materialId) || !h || !Ia(h).some((k) => k.key === u.key && k.text === u.text)) return;
         const b = await t.listening(p.classroom.language, p.unitId, p.exerciseId, {
-          voiceId: f.voiceId,
-          language: f.language,
-          speed: f.speed
-        }, f.key, u.started, u.slow, p.classroom.osId, m);
+          voiceId: u.voiceId,
+          language: u.language,
+          speed: u.speed
+        }, u.key, f.started, f.slow, p.classroom.osId, m);
         b.status !== "confirmed" && b.status !== "unchanged" && (e.onError(), o.stop()), e.onSave();
       }), n = n.then(() => i ? !1 : c());
     }
@@ -28129,8 +28128,8 @@ function C4(e) {
       if (e.repository.snapshot().status !== "ready") return !0;
       try {
         await r[0](), r.shift();
-      } catch (f) {
-        return i = !0, e.onError(f), o.stop(), !1;
+      } catch (u) {
+        return i = !0, e.onError(u), o.stop(), !1;
       }
     }
     return i = !1, !0;
@@ -28148,18 +28147,18 @@ function C4(e) {
     async settle() {
       await n;
     },
-    async play(f) {
+    async play(u) {
       d();
-      const u = a;
-      if (!await l() || u !== a) return;
+      const f = a;
+      if (!await l() || f !== a) return;
       const p = structuredClone(e.current());
       W(p, "classroom", "Choose a teacher and language");
-      const m = () => u === a && JSON.stringify(e.current()) === JSON.stringify(p), g = Dt(e.repository)?.data.profiles.find((y) => y.language === p.language), w = g?.unit;
-      W(w && (w.scope.kind === "public" || w.scope.osId === p.osId), "unit", "Select an available lesson");
-      const h = w.materials.find((y) => y.id === f.materialId), b = h && Ia(h).find((y) => y.key === f.partKey);
+      const m = () => f === a && JSON.stringify(e.current()) === JSON.stringify(p), g = Dt(e.repository)?.data.profiles.find((y) => y.language === p.language), v = g?.unit;
+      W(v && (v.scope.kind === "public" || v.scope.osId === p.osId), "unit", "Select an available lesson");
+      const h = v.materials.find((y) => y.id === u.materialId), b = h && Ia(h).find((y) => y.key === u.partKey);
       W(h && b, "material", "Select an actual material span");
-      const k = w.exercises.find((y) => y.id === f.exerciseId), I = k?.skill === "listening" && k.materialIds.includes(h.id);
-      W(I || h.transcriptRevealed || !w.exercises.some((y) => y.skill === "listening" && y.materialIds.includes(h.id)), "material", "Reveal the transcript before reading it outside this exercise");
+      const k = v.exercises.find((y) => y.id === u.exerciseId), I = k?.skill === "listening" && k.materialIds.includes(h.id);
+      W(I || h.transcriptRevealed || !v.exercises.some((y) => y.skill === "listening" && y.materialIds.includes(h.id)), "material", "Reveal the transcript before reading it outside this exercise");
       const x = o.capabilities();
       if (!x.enabled) {
         await o.play({
@@ -28171,7 +28170,7 @@ function C4(e) {
         });
         return;
       }
-      const S = go(I && w.listening?.find((y) => y.parts.some((v) => v.key === b.key))?.voice || g?.voice || {
+      const S = go(I && v.listening?.find((y) => y.parts.some((w) => w.key === b.key))?.voice || g?.voice || {
         voiceId: x.defaultVoice,
         language: p.language,
         speed: 1
@@ -28192,16 +28191,16 @@ function C4(e) {
       };
       I && (s = {
         classroom: p,
-        unitId: w.id,
+        unitId: v.id,
         exerciseId: k.id,
         materialId: h.id,
         request: _
       }), await o.play(_);
     },
-    async say(f) {
+    async say(u) {
       d();
-      const u = a;
-      if (!await l() || u !== a) return;
+      const f = a;
+      if (!await l() || f !== a) return;
       const p = e.current();
       if (!p) return;
       const m = Dt(e.repository)?.data.profiles.find((g) => g.language === p.language)?.voice ?? {
@@ -28209,10 +28208,10 @@ function C4(e) {
         language: p.language,
         speed: 1
       };
-      W(f.length > 0 && [...f].length <= 1e3, "text", "Choose up to 1000 characters to read"), await o.play({
+      W(u.length > 0 && [...u].length <= 1e3, "text", "Choose up to 1000 characters to read"), await o.play({
         ...m,
         key: "selection",
-        text: f
+        text: u
       });
     }
   };
@@ -28252,23 +28251,23 @@ function T4(e, t) {
       return e.read();
     },
     select(r, i, a) {
-      const s = UI({ teacher: i }), o = (f) => f.trim().normalize("NFKC").toLocaleLowerCase(), c = o(t.playerName()), l = [c, ...t.knownPeople().filter((f) => [f.name, ...f.aliases].some((u) => o(u) === c)).flatMap((f) => [f.name, ...f.aliases].map(o))];
+      const s = UI({ teacher: i }), o = (u) => u.trim().normalize("NFKC").toLocaleLowerCase(), c = o(t.playerName()), l = [c, ...t.knownPeople().filter((u) => [u.name, ...u.aliases].some((f) => o(f) === c)).flatMap((u) => [u.name, ...u.aliases].map(o))];
       if (s.teacher && l.includes(o(s.teacher.name))) throw new Error("learning_teacher_is_player");
       const d = () => !!r && a() && e.peekCurrent()?.identityKey === r;
-      return e.transact((f) => {
+      return e.transact((u) => {
         if (!d()) throw new Error("learning_context_changed");
-        const u = f.currentOrInitial();
-        if (!("schemaVersion" in u)) throw new Error("learning_companion_upgrade_required");
-        if (!s.teacher) u.activeSessionId = null;
+        const f = u.currentOrInitial();
+        if (!("schemaVersion" in f)) throw new Error("learning_companion_upgrade_required");
+        if (!s.teacher) f.activeSessionId = null;
         else {
-          let p = u.sessions.find((m) => o(m.person.name) === o(s.teacher.name));
+          let p = f.sessions.find((m) => o(m.person.name) === o(s.teacher.name));
           p ? p.person = s.teacher : (p = {
             id: ri(),
             person: s.teacher,
             memory: Va()
-          }, u.sessions.push(p)), u.activeSessionId = p.id;
+          }, f.sessions.push(p)), f.activeSessionId = p.id;
         }
-        f.replace(u);
+        u.replace(f);
       }, { commitGuard: d });
     }
   });
@@ -28403,9 +28402,9 @@ function _g(e, t, n, r, i = (/* @__PURE__ */ new Date()).toISOString(), a = "tea
     "review",
     "evidence",
     "completions"
-  ]), d = c.id === void 0 ? null : ve(c.id, "id"), f = c.offset === void 0 ? 0 : kt(c.offset, "offset"), u = c.limit === void 0 ? Q.readDefault : kt(c.limit, "limit", 1, Q.readMax), p = e.profiles.find((y) => y.language === t), m = (y) => Ke(y, n), g = c.unitId === void 0 ? null : ve(c.unitId, "unitId"), w = g ? [p?.unit, p?.review].find((y) => y?.id === g) : p?.[s];
-  W(!g || w && m(w.scope), "unitId", "Select an available lesson or review");
-  const h = ir(w, n), b = h ? o.include(el(h), h.scope, [h.id]) : null;
+  ]), d = c.id === void 0 ? null : ve(c.id, "id"), u = c.offset === void 0 ? 0 : kt(c.offset, "offset"), f = c.limit === void 0 ? Q.readDefault : kt(c.limit, "limit", 1, Q.readMax), p = e.profiles.find((y) => y.language === t), m = (y) => Ke(y, n), g = c.unitId === void 0 ? null : ve(c.unitId, "unitId"), v = g ? [p?.unit, p?.review].find((y) => y?.id === g) : p?.[s];
+  W(!g || v && m(v.scope), "unitId", "Select an available lesson or review");
+  const h = ir(v, n), b = h ? o.include(el(h), h.scope, [h.id]) : null;
   if (b) {
     for (const y of b.materials) o.include(y, h.scope, [y.id]);
     for (const y of b.exercises) o.include(y, h.scope, [y.id, ...y.itemId ? [y.itemId] : []]);
@@ -28416,18 +28415,18 @@ function _g(e, t, n, r, i = (/* @__PURE__ */ new Date()).toISOString(), a = "tea
     nextOffset: null,
     omitted: !1
   };
-  const k = h?.attempts.map(({ scope: y, ...v }) => o.include({
-    ...v,
-    assessment: h.assessments.filter((A) => A.attemptId === v.id).map(({ scope: A, ...C }) => o.include({
+  const k = h?.attempts.map(({ scope: y, ...w }) => o.include({
+    ...w,
+    assessment: h.assessments.filter((A) => A.attemptId === w.id).map(({ scope: A, ...C }) => o.include({
       ...C,
       shared: A.kind === "public"
-    }, A, [v.id]))[0] ?? null,
+    }, A, [w.id]))[0] ?? null,
     shared: y.kind === "public"
   }, y, [
     h.id,
-    v.id,
-    v.exerciseId,
-    ...v.revisesAttemptId ? [v.revisesAttemptId] : []
+    w.id,
+    w.exerciseId,
+    ...w.revisesAttemptId ? [w.revisesAttemptId] : []
   ])) ?? [], I = {
     profile: p ? {
       language: p.language,
@@ -28468,7 +28467,7 @@ function _g(e, t, n, r, i = (/* @__PURE__ */ new Date()).toISOString(), a = "tea
       listeningCount: h.listening?.length ?? 0,
       completed: !!p?.completions.some((y) => y.unitId === h.id)
     }, h.scope, [h.id]) : null,
-    blockedCurrentUnit: !!w && !h,
+    blockedCurrentUnit: !!v && !h,
     itemCount: p?.items.length ?? 0,
     units: [p?.unit, p?.review].filter((y) => y && m(y.scope)).map((y) => o.include({
       id: y.id,
@@ -28478,8 +28477,8 @@ function _g(e, t, n, r, i = (/* @__PURE__ */ new Date()).toISOString(), a = "tea
     ...l === "overview" ? { progress: $4(p, n, i) } : {}
   };
   if (l === "overview") {
-    const y = I.progress?.latestCompletion, v = y && p?.completions.find((A) => A.unitId === y.unitId);
-    for (v && o.include(y, v.scope, [v.unitId]); I.unit && I.unit.attempts.length && [...vt(I)].length > Q.dataMessage - 512; )
+    const y = I.progress?.latestCompletion, w = y && p?.completions.find((A) => A.unitId === y.unitId);
+    for (w && o.include(y, w.scope, [w.unitId]); I.unit && I.unit.attempts.length && [...vt(I)].length > Q.dataMessage - 512; )
       I.unit.attempts.shift(), I.unit.attemptsOmitted = !0;
     return {
       section: l,
@@ -28489,11 +28488,11 @@ function _g(e, t, n, r, i = (/* @__PURE__ */ new Date()).toISOString(), a = "tea
     };
   }
   if (l === "unit") {
-    if (h) for (const v of [
+    if (h) for (const w of [
       ...h.materials,
       ...h.exercises,
       ...h.notes ?? []
-    ]) o.include(v, h.scope, [v.id]);
+    ]) o.include(w, h.scope, [w.id]);
     const y = {
       section: l,
       data: h ? o.include({
@@ -28523,12 +28522,12 @@ function _g(e, t, n, r, i = (/* @__PURE__ */ new Date()).toISOString(), a = "tea
         material: A,
         scope: h.scope,
         unitId: h.id
-      })), v = d ? [...y, ...(p?.items ?? []).flatMap((A) => A.evidence.filter((C) => m(C.scope)).flatMap((C) => C.materials.map((E) => ({
+      })), w = d ? [...y, ...(p?.items ?? []).flatMap((A) => A.evidence.filter((C) => m(C.scope)).flatMap((C) => C.materials.map((E) => ({
         material: E,
         scope: C.scope,
         unitId: C.unitId
       }))))].filter((A) => A.material.id === d) : y;
-      x = v.filter((A, C) => v.findIndex((E) => E.material.id === A.material.id) === C).filter(({ material: A }) => a !== "public" || (h?.materials.some((C) => C.id === A.id) ? b.materials.some((C) => C.id === A.id && !C.hidden) : A.transcriptRevealed)).flatMap(({ material: A, scope: C, unitId: E }) => A.paragraphs.flatMap((T) => {
+      x = w.filter((A, C) => w.findIndex((E) => E.material.id === A.material.id) === C).filter(({ material: A }) => a !== "public" || (h?.materials.some((C) => C.id === A.id) ? b.materials.some((C) => C.id === A.id && !C.hidden) : A.transcriptRevealed)).flatMap(({ material: A, scope: C, unitId: E }) => A.paragraphs.flatMap((T) => {
         const R = [...T.text], M = [];
         for (let P = 0; P < R.length; P += Q.paragraphChunk) M.push(o.include({
           materialId: A.id,
@@ -28564,48 +28563,48 @@ function _g(e, t, n, r, i = (/* @__PURE__ */ new Date()).toISOString(), a = "tea
       break;
     case "review":
     case "items": {
-      const y = (p?.items ?? []).filter((v) => !d || v.id === d).map((v) => o.include({
-        id: v.id,
-        skill: v.skill,
-        ...pg(v),
-        nextReviewAt: v.schedule?.dueAt ?? null,
-        label: m(v.scope) ? v.label : null,
-        evidence: v.evidence.filter((A) => m(A.scope)).map((A) => o.include({
+      const y = (p?.items ?? []).filter((w) => !d || w.id === d).map((w) => o.include({
+        id: w.id,
+        skill: w.skill,
+        ...pg(w),
+        nextReviewAt: w.schedule?.dueAt ?? null,
+        label: m(w.scope) ? w.label : null,
+        evidence: w.evidence.filter((A) => m(A.scope)).map((A) => o.include({
           attemptId: A.attempt.id,
           unitId: A.unitId
         }, { kind: "public" }, [A.attempt.id, A.unitId]))
-      }, m(v.scope) ? v.scope : { kind: "public" }, [v.id]));
-      x = l === "review" ? y.filter((v) => v.nextReviewAt && Date.parse(v.nextReviewAt) <= Date.parse(i)).sort((v, A) => v.nextReviewAt.localeCompare(A.nextReviewAt) || v.id.localeCompare(A.id)) : y;
+      }, m(w.scope) ? w.scope : { kind: "public" }, [w.id]));
+      x = l === "review" ? y.filter((w) => w.nextReviewAt && Date.parse(w.nextReviewAt) <= Date.parse(i)).sort((w, A) => w.nextReviewAt.localeCompare(A.nextReviewAt) || w.id.localeCompare(A.id)) : y;
       break;
     }
     case "evidence":
-      x = (p?.items ?? []).flatMap((y) => y.evidence.filter((v) => (!d || y.id === d) && m(v.scope)).map((v) => o.include({
+      x = (p?.items ?? []).flatMap((y) => y.evidence.filter((w) => (!d || y.id === d) && m(w.scope)).map((w) => o.include({
         itemId: y.id,
-        unitId: v.unitId,
-        materials: v.materials.map((A) => ({
+        unitId: w.unitId,
+        materials: w.materials.map((A) => ({
           id: A.id,
           title: A.title
         })),
-        exercise: a === "public" ? Qc(v.exercise) : v.exercise,
+        exercise: a === "public" ? Qc(w.exercise) : w.exercise,
         attempt: {
-          id: v.attempt.id,
-          answer: v.attempt.answer,
-          submittedAt: v.attempt.submittedAt,
-          help: v.attempt.help,
-          ...v.attempt.listening ? { listening: v.attempt.listening } : {}
+          id: w.attempt.id,
+          answer: w.attempt.answer,
+          submittedAt: w.attempt.submittedAt,
+          help: w.attempt.help,
+          ...w.attempt.listening ? { listening: w.attempt.listening } : {}
         },
         assessment: {
-          verdict: v.assessment.verdict,
-          understanding: v.assessment.understanding,
-          expression: v.assessment.expression,
-          guidance: v.assessment.guidance
+          verdict: w.assessment.verdict,
+          understanding: w.assessment.understanding,
+          expression: w.assessment.expression,
+          guidance: w.assessment.guidance
         }
-      }, v.scope, [
+      }, w.scope, [
         y.id,
-        v.unitId,
-        v.attempt.id,
-        v.exercise.id,
-        ...v.materials.map((A) => A.id)
+        w.unitId,
+        w.attempt.id,
+        w.exercise.id,
+        ...w.materials.map((A) => A.id)
       ])));
       break;
     case "completions":
@@ -28617,11 +28616,11 @@ function _g(e, t, n, r, i = (/* @__PURE__ */ new Date()).toISOString(), a = "tea
       break;
   }
   const S = [];
-  for (const y of x.slice(f, f + u)) {
+  for (const y of x.slice(u, u + f)) {
     if (S.length && [...vt([...S, y])].length > Q.dataMessage - 256) break;
     S.push(y);
   }
-  const _ = f + S.length < x.length ? f + S.length : null;
+  const _ = u + S.length < x.length ? u + S.length : null;
   return {
     section: l,
     data: S,
@@ -28794,7 +28793,7 @@ function P4(e, t, n, r, i) {
       return {
         unitId: s.id,
         revisions: o.map((c) => {
-          const [l, d] = ad(s, [s.attempts.find((f) => f.id === c.revisesAttemptId), c], n, i);
+          const [l, d] = ad(s, [s.attempts.find((u) => u.id === c.revisesAttemptId), c], n, i);
           return i.include({
             exercise: d.exercise,
             draft: l.attempt,
@@ -28828,7 +28827,7 @@ function P4(e, t, n, r, i) {
       return {
         unitId: s.id,
         answers: ad(s, o, n, i).map((c) => {
-          const l = a.items.find((f) => f.id === c.exercise.itemId && Ke(f.scope, n)), d = i.include({
+          const l = a.items.find((u) => u.id === c.exercise.itemId && Ke(u.scope, n)), d = i.include({
             ...c,
             item: l?.label ?? null
           }, s.scope, [s.id, c.exercise.id]);
@@ -28851,20 +28850,20 @@ function P4(e, t, n, r, i) {
 function L4(e, t, n, r, i, a, s, o) {
   const c = P4(e, t, n, r, i);
   if (c !== void 0) return c;
-  const l = e.profiles.find((u) => u.language === t), d = l?.[a], f = ir(d, n);
+  const l = e.profiles.find((f) => f.language === t), d = l?.[a], u = ir(d, n);
   if (r.kind === "talk") {
-    const u = s.profiles.find((m) => m.language === t)?.[a], p = u && Ke(u.scope, n) ? u : null;
-    if (r.unitId && W(p?.id === r.unitId, "unitId", "Select the current available unit"), o && W(p?.exercises.some((m) => m.id === o), "exerciseId", "Select an available exercise"), f?.id !== p?.id || o && !f?.exercises.some((m) => m.id === o)) return null;
+    const f = s.profiles.find((m) => m.language === t)?.[a], p = f && Ke(f.scope, n) ? f : null;
+    if (r.unitId && W(p?.id === r.unitId, "unitId", "Select the current available unit"), o && W(p?.exercises.some((m) => m.id === o), "exerciseId", "Select an available exercise"), u?.id !== p?.id || o && !u?.exercises.some((m) => m.id === o)) return null;
   }
   if (r.kind === "assess") {
-    const u = is(l, n).work(r.attemptId);
-    W(u, "attemptId", aa.unavailable);
-    const p = u.assessment, { scope: m, ...g } = u.attempt, w = f ? el(f).materials : [];
+    const f = is(l, n).work(r.attemptId);
+    W(f, "attemptId", aa.unavailable);
+    const p = f.assessment, { scope: m, ...g } = f.attempt, v = u ? el(u).materials : [];
     return i.include({
-      unitId: u.unitId,
-      exercise: u.exercise,
-      materials: u.materials.filter((h) => !w.some((b) => b.id === h.id && !b.hidden && JSON.stringify(b.paragraphs) === JSON.stringify(h.paragraphs) && JSON.stringify(b.provenance) === JSON.stringify(h.provenance))),
-      attempt: i.include(g, u.attempt.scope, [u.attempt.id]),
+      unitId: f.unitId,
+      exercise: f.exercise,
+      materials: f.materials.filter((h) => !v.some((b) => b.id === h.id && !b.hidden && JSON.stringify(b.paragraphs) === JSON.stringify(h.paragraphs) && JSON.stringify(b.provenance) === JSON.stringify(h.provenance))),
+      attempt: i.include(g, f.attempt.scope, [f.attempt.id]),
       assessment: p ? i.include({
         attemptId: p.attemptId,
         verdict: p.verdict,
@@ -28872,53 +28871,53 @@ function L4(e, t, n, r, i, a, s, o) {
         expression: p.expression,
         guidance: p.guidance
       }, p.scope, [p.attemptId]) : null
-    }, u.scope, [
-      u.unitId,
-      u.exercise.id,
-      ...u.materials.map((h) => h.id)
+    }, f.scope, [
+      f.unitId,
+      f.exercise.id,
+      ...f.materials.map((h) => h.id)
     ]);
   }
   if (o) {
-    const u = f?.exercises.find((w) => w.id === o);
-    W(f && u, "exerciseId", "Select an available exercise");
-    const p = el(f), m = f.attempts.filter((w) => w.exerciseId === u.id).at(-1), g = f.assessments.find((w) => w.attemptId === m?.id);
+    const f = u?.exercises.find((v) => v.id === o);
+    W(u && f, "exerciseId", "Select an available exercise");
+    const p = el(u), m = u.attempts.filter((v) => v.exerciseId === f.id).at(-1), g = u.assessments.find((v) => v.attemptId === m?.id);
     return i.include({
-      unitId: f.id,
-      exercise: p.exercises.find((w) => w.id === u.id),
+      unitId: u.id,
+      exercise: p.exercises.find((v) => v.id === f.id),
       attempt: m ? Ig(m, i) : null,
       assessment: bx(g, i)
-    }, f.scope, [f.id, u.id]);
+    }, u.scope, [u.id, f.id]);
   }
   return null;
 }
 function j4(e) {
-  const { data: t, language: n, osId: r, action: i, context: a } = e, s = e.asOf ?? (/* @__PURE__ */ new Date()).toISOString(), o = e.actor === "companion" && a ? vx(a) : null, c = e.requestData ?? t, l = e.target?.unitKey ?? fg(i, c.profiles.find((w) => w.language === n)), d = i.kind === "assess" || !e.target?.unitId || t.profiles.find((w) => w.language === n)?.[l]?.id === e.target.unitId, f = kg(), u = (w) => _g(t, n, r, w, s, t4(i), l, f), p = {
+  const { data: t, language: n, osId: r, action: i, context: a } = e, s = e.asOf ?? (/* @__PURE__ */ new Date()).toISOString(), o = e.actor === "companion" && a ? vx(a) : null, c = e.requestData ?? t, l = e.target?.unitKey ?? fg(i, c.profiles.find((v) => v.language === n)), d = i.kind === "assess" || !e.target?.unitId || t.profiles.find((v) => v.language === n)?.[l]?.id === e.target.unitId, u = kg(), f = (v) => _g(t, n, r, v, s, t4(i), l, u), p = {
     language: n,
     action: i,
     currentTime: s,
     ...e.delegation ? { delegation: e.delegation } : {},
     ...e.taskResult ? { taskResult: e.taskResult } : {},
-    profile: u({}).data,
-    items: u({ section: "items" }),
-    review: u({ section: "review" }),
-    training: u({ section: "training" }).data,
-    focus: d ? L4(t, n, r, i, f, l, c, e.exerciseId) : null,
+    profile: f({}).data,
+    items: f({ section: "items" }),
+    review: f({ section: "review" }),
+    training: f({ section: "training" }).data,
+    focus: d ? L4(t, n, r, i, u, l, c, e.exerciseId) : null,
     selection: e.selection ?? null,
     ...e.target ? { target: e.target } : {},
     ...o ? { background: o.initial() } : {}
   }, m = {
     teacher: e.teacher,
-    characters: a?.snapshot.characters.map((w) => ({
-      cardName: w.displayName,
-      description: w.description,
-      personality: w.personality,
-      scenario: w.scenario
+    characters: a?.snapshot.characters.map((v) => ({
+      cardName: v.displayName,
+      description: v.description,
+      personality: v.personality,
+      scenario: v.scenario
     })) ?? []
   }, g = i.kind === "task-result" ? "[工作台委托结果，由应用送达]" : `[学生本轮发言]
 ${e.message}`;
   return {
-    ...f.inspect(p),
-    taskReferences: f.inspect(p.focus).references,
+    ...u.inspect(p),
+    taskReferences: u.inspect(p.focus).references,
     prefix: e.actor === "companion" && a ? [{
       role: "system",
       content: `人物与故事核心设定，作为身份背景资料。
@@ -28927,13 +28926,13 @@ ${vt(m)}
 </teacher_reference>`
     }] : [],
     get messages() {
-      const w = e.actor === "companion" ? e.workbench?.() : void 0, h = `本轮学习状态与背景资料：
+      const v = e.actor === "companion" ? e.workbench?.() : void 0, h = `本轮学习状态与背景资料：
 <learning_request>
 ${vt({
         ...p,
-        ...w ? { workbench: {
-          ...w,
-          ...w.busy ? { notice: "工作台正在更新任务，你看到的进度可能慢一拍；现在先聊，暂时别操作工作台。" } : {}
+        ...v ? { workbench: {
+          ...v,
+          ...v.busy ? { notice: "工作台正在更新任务，你看到的进度可能慢一拍；现在先聊，暂时别操作工作台。" } : {}
         } } : {}
       })}
 </learning_request>`;
@@ -29279,14 +29278,14 @@ async function eL(e) {
   const i = [...e.history ?? []];
   let a = e.historySummary ?? "", s = !1, o = 0;
   const c = { messages: e.transcript ?? [] }, l = c.messages.length, d = new Set(e.tools.map((E) => String(E.function.name)));
-  let f, u = "", p = !1, m = "";
-  const g = "The tool results are available. Reply to the learner with the outcome or the obstacle that needs their input.", w = () => t.aborted || !n();
+  let u, f = "", p = !1, m = "";
+  const g = "The tool results are available. Reply to the learner with the outcome or the obstacle that needs their input.", v = () => t.aborted || !n();
   let h = !0;
   const b = RA({
     state: c,
     minRenderIntervalMs: 80,
     render: () => {
-      h && !w() && e.onMessages?.();
+      h && !v() && e.onMessages?.();
     },
     filterThoughtsForCurrentTurn: (E, T) => wA(E, c.messages, { currentMessage: T })
   }), k = () => b0(c.messages.slice(l), { includeMessage: (E) => E.role !== "assistant" || !E.error && (!!E.content || !!E.toolCalls?.length) }), I = () => {
@@ -29299,20 +29298,20 @@ async function eL(e) {
   };
   const S = (E) => {
     x = E, e.onProgress?.(E);
-  }, _ = (E, T) => w() ? { status: "cancelled" } : {
+  }, _ = (E, T) => v() ? { status: "cancelled" } : {
     status: "failed",
     reason: E,
     details: {
       ...x,
       cause: T
     }
-  }, y = () => typeof e.messages == "function" ? e.messages() : e.messages, v = (E = a, T = i, R = y()) => [
+  }, y = () => typeof e.messages == "function" ? e.messages() : e.messages, w = (E = a, T = i, R = y()) => [
     ...e.prefix ?? [],
     ...E ? [B4(E)] : [],
     ...T.flatMap(kx),
     ...R,
     ...k()
-  ], A = (E = v()) => Lc({
+  ], A = (E = w()) => Lc({
     messages: [{
       role: "system",
       content: e.systemPrompt
@@ -29333,36 +29332,36 @@ async function eL(e) {
         systemPrompt: e.summaryPrompt,
         openSession: e.reopen,
         signal: t,
-        guard: () => !w()
+        guard: () => !v()
       });
-      if (w()) return !1;
-      if (!(A(v(R, i.slice(T))) >= A()))
+      if (v()) return !1;
+      if (!(A(w(R, i.slice(T))) >= A()))
         return a = R, i.splice(0, T), o += T, e.onCompact?.(T, a), !0;
     }
     return s = !0, !1;
   }
   try {
-    for (let E = 1; E <= Q4 && !w(); E++) {
-      if (w()) return { status: "cancelled" };
+    for (let E = 1; E <= Q4 && !v(); E++) {
+      if (v()) return { status: "cancelled" };
       let T, R = null;
       try {
         let M = !1;
         for (; e.reopen && i.length && !s && A() > 158e3; ) {
           const z = await C(E);
-          if (w()) return { status: "cancelled" };
+          if (v()) return { status: "cancelled" };
           if (!z) break;
           M = !0;
         }
-        if (M && (f || m) && (S({
+        if (M && (u || m) && (S({
           stage: "session",
           round: E
-        }), r = await e.reopen(), f = void 0, m = ""), w()) return { status: "cancelled" };
+        }), r = await e.reopen(), u = void 0, m = ""), v()) return { status: "cancelled" };
         S({
           stage: "provider",
           round: E
         });
-        const P = y(), G = r.supportsSessionToolLoop ? JSON.stringify(P) : "", U = r.supportsSessionToolLoop && G === u && (f !== void 0 || !!m), j = U ? [] : v(a, i, P);
-        u = G, R = b.createStreamingAssistantMessage(), e.onResponseStart?.(R);
+        const P = y(), G = r.supportsSessionToolLoop ? JSON.stringify(P) : "", U = r.supportsSessionToolLoop && G === f && (u !== void 0 || !!m), j = U ? [] : w(a, i, P);
+        f = G, R = b.createStreamingAssistantMessage(), e.onResponseStart?.(R);
         let O = !0;
         try {
           T = await r.run({
@@ -29370,10 +29369,10 @@ async function eL(e) {
             tools: e.tools,
             signal: t,
             messages: j,
-            ...U && f ? { toolResponses: f } : {},
+            ...U && u ? { toolResponses: u } : {},
             ...U && m ? { finalAnswerReminderText: m } : {},
             onStreamProgress: (z) => {
-              !O || w() || !R || (b.updateStreamingAssistantMessage(R, {
+              !O || v() || !R || (b.updateStreamingAssistantMessage(R, {
                 content: z.text,
                 thoughts: z.thoughts,
                 toolCalls: z.toolCalls
@@ -29385,7 +29384,7 @@ async function eL(e) {
         }
         m = "";
       } catch (M) {
-        if (w()) return { status: "cancelled" };
+        if (v()) return { status: "cancelled" };
         if (R && (R.error = !0, b.finalizeStreamingAssistantMessage(R)), x.stage === "summary") return _("learning_summary_failed", M);
         if (MA(M)) return _("learning_response_truncated", M);
         if (_x(M)) {
@@ -29395,7 +29394,7 @@ async function eL(e) {
             } catch (P) {
               return _("learning_summary_failed", P);
             }
-            if (w()) return { status: "cancelled" };
+            if (v()) return { status: "cancelled" };
             S({
               stage: "session",
               round: E
@@ -29405,14 +29404,14 @@ async function eL(e) {
             } catch (P) {
               return _(nl(P), P);
             }
-            f = void 0, m = "", E--;
+            u = void 0, m = "", E--;
             continue;
           }
           return _("learning_context_full", M);
         }
         return _(nl(M), M);
       }
-      if (w()) return { status: "cancelled" };
+      if (v()) return { status: "cancelled" };
       try {
         const M = Jm(T, r.providerConfig, { fallbackPrefix: `learning-${E}` });
         if (b.finalizeStreamingAssistantMessage(R, {
@@ -29429,7 +29428,7 @@ async function eL(e) {
             removedTurns: o
           };
           if (!G && c.messages.some((U) => U.role === "tool") && !p) {
-            p = !0, f = void 0, m = g, c.messages.push({
+            p = !0, u = void 0, m = g, c.messages.push({
               role: "user",
               content: g
             });
@@ -29441,10 +29440,10 @@ async function eL(e) {
             removedTurns: o
           }) : _("learning_empty_response");
         }
-        f = [];
+        u = [];
         let P = !0;
         for (const G of M) {
-          if (w()) return { status: "cancelled" };
+          if (v()) return { status: "cancelled" };
           S({
             stage: "tools",
             round: E,
@@ -29471,14 +29470,14 @@ async function eL(e) {
               tools: [...d]
             };
           } catch (z) {
-            return w() ? { status: "cancelled" } : (U.error = !0, U.content = "工具执行中断，请查看本轮状态。", U.streaming = !1, b.scheduleStreamRender(), _("learning_tool_failed", z));
+            return v() ? { status: "cancelled" } : (U.error = !0, U.content = "工具执行中断，请查看本轮状态。", U.streaming = !1, b.scheduleStreamRender(), _("learning_tool_failed", z));
           }
-          if (w()) return { status: "cancelled" };
+          if (v()) return { status: "cancelled" };
           if (O && typeof O == "object") {
             const z = O;
             (z.ok === !1 || z.status === "declined") && (P = !1);
           }
-          U.content = vt(O), U.streaming = !1, b.scheduleStreamRender(), f.push({
+          U.content = vt(O), U.streaming = !1, b.scheduleStreamRender(), u.push({
             id: G.id,
             name: G.name,
             response: O,
@@ -29490,7 +29489,7 @@ async function eL(e) {
         return _("learning_protocol_failed", M);
       }
     }
-    return w() ? { status: "cancelled" } : _("learning_round_limit");
+    return v() ? { status: "cancelled" } : _("learning_round_limit");
   } finally {
     h = !1, t.removeEventListener("abort", I), I();
   }
@@ -29586,15 +29585,15 @@ function Am() {
 function aL(e, t) {
   const { candidates: n, extracted: r } = t.cache ?? Am(), i = t.createId ?? ri, a = Hm(e);
   async function s(c) {
-    const l = ae(c, "LearningSearch", ["query", "maxResults"]), d = oe(l.query, "query", yi.query), f = kt(l.maxResults ?? yi.defaultResults, "maxResults", 1, yi.results);
+    const l = ae(c, "LearningSearch", ["query", "maxResults"]), d = oe(l.query, "query", yi.query), u = kt(l.maxResults ?? yi.defaultResults, "maxResults", 1, yi.results);
     try {
-      const u = await PA(e, {
+      const f = await PA(e, {
         query: d,
-        maxResults: f,
+        maxResults: u,
         signal: t.signal,
         timeoutMs: t.timeoutMs
       }), p = [];
-      for (const m of u.slice(0, f)) {
+      for (const m of f.slice(0, u)) {
         let g;
         try {
           g = tL(m.url);
@@ -29602,21 +29601,21 @@ function aL(e, t) {
           continue;
         }
         if (g.length > 2048) continue;
-        const w = {
+        const v = {
           id: i(),
           url: g,
           title: [...m.title].slice(0, 240).join(""),
           summary: [...m.content].slice(0, 600).join("")
         };
-        n.set(w.id, w), p.push(w);
+        n.set(v.id, v), p.push(v);
       }
       return {
         ok: !0,
         results: p
       };
-    } catch (u) {
-      const p = u && typeof u == "object" && "httpStatus" in u && typeof u.httpStatus == "number" ? u.httpStatus : void 0;
-      throw new Ar(u instanceof Mp && u.code === "web_timeout" ? "learning_search_timeout" : "learning_search_failed", p);
+    } catch (f) {
+      const p = f && typeof f == "object" && "httpStatus" in f && typeof f.httpStatus == "number" ? f.httpStatus : void 0;
+      throw new Ar(f instanceof Mp && f.code === "web_timeout" ? "learning_search_timeout" : "learning_search_failed", p);
     }
   }
   async function o(c) {
@@ -29627,24 +29626,24 @@ function aL(e, t) {
     ]), d = kt(l.offset ?? 0, "offset");
     if (l.sourceId !== void 0) {
       W(l.candidateIds === void 0, "sourceId", "Choose sourceId or candidateIds for this read");
-      const w = t.sources.get(ve(l.sourceId, "sourceId"));
-      return W(w, "sourceId", "Use a source ID from LearningRead section sources"), {
+      const v = t.sources.get(ve(l.sourceId, "sourceId"));
+      return W(v, "sourceId", "Use a source ID from LearningRead section sources"), {
         ok: !0,
-        results: [Gv(w, d)],
+        results: [Gv(v, d)],
         failed: []
       };
     }
-    const f = Le(l.candidateIds, "candidateIds", ve, 2);
-    W(f.length > 0 && new Set(f).size === f.length, "candidateIds", "Choose one or two distinct search candidates");
-    const u = f.map((w) => {
-      const h = n.get(w);
+    const u = Le(l.candidateIds, "candidateIds", ve, 2);
+    W(u.length > 0 && new Set(u).size === u.length, "candidateIds", "Choose one or two distinct search candidates");
+    const f = u.map((v) => {
+      const h = n.get(v);
       return W(h, "candidateIds", "Choose an ID returned by LearningSearch in this classroom"), h;
-    }), p = u.filter((w) => !r.has(w.id)), m = [];
+    }), p = f.filter((v) => !r.has(v.id)), m = [];
     if (p.length) {
-      const w = await rL(e, p.map((h) => h.url), t);
+      const v = await rL(e, p.map((h) => h.url), t);
       if (t.signal.aborted) throw new Ar("learning_research_cancelled");
       for (const h of p) {
-        const b = w.results.find((x) => x.url === h.url)?.text, k = iL(b ?? "");
+        const b = v.results.find((x) => x.url === h.url)?.text, k = iL(b ?? "");
         if (!k.length) {
           m.push({
             candidateId: h.id,
@@ -29662,10 +29661,10 @@ function aL(e, t) {
         r.set(h.id, I);
       }
     }
-    const g = u.flatMap((w) => {
-      const h = r.get(w.id);
+    const g = f.flatMap((v) => {
+      const h = r.get(v.id);
       return h ? (t.sources.get(h.id) || t.sources.add(h), [{
-        candidateId: w.id,
+        candidateId: v.id,
         ...Gv(h, d)
       }]) : [];
     });
@@ -29795,8 +29794,8 @@ function lL(e, t, n, r, i, a) {
   W(c.every((l) => cL(l) && l.materialIds.includes(s.id)), `${e}.exercises`, "Paragraph summaries are open writing on the article"), it(c.map((l) => l.paragraphId), `${e}.exercises`);
   for (const [l, d] of i.entries()) {
     if (d.revisesAttemptId === void 0) continue;
-    const f = i.slice(0, l).find((p) => p.id === d.revisesAttemptId), u = a.find((p) => p.attemptId === f?.id);
-    W(f && f.exerciseId === d.exerciseId && u, `${e}.attempts`, "A revision revises an earlier, assessed draft of the same exercise"), W(Zc(rt(u.scope, d.scope), d.scope), `${e}.attempts`, "A revision retains the scope of the feedback it uses");
+    const u = i.slice(0, l).find((p) => p.id === d.revisesAttemptId), f = a.find((p) => p.attemptId === u?.id);
+    W(u && u.exerciseId === d.exerciseId && f, `${e}.attempts`, "A revision revises an earlier, assessed draft of the same exercise"), W(Zc(rt(f.scope, d.scope), d.scope), `${e}.attempts`, "A revision retains the scope of the feedback it uses");
   }
 }
 function Em(e, t = "unit") {
@@ -29840,7 +29839,7 @@ function Em(e, t = "unit") {
       W(k && h.resolvedAnnotationIds.every((I) => k.annotations?.some((x) => x.id === I)), `${t}.assessments`, "Resolved annotations belong to the revised draft");
     }
   }
-  const f = ae(n.reward, `${t}.reward`, ["tier", "amount"]), u = ae(n.revealed, `${t}.revealed`, ["answers", "hints"]), p = Pr(u.answers, `${t}.revealed.answers`), m = Pr(u.hints, `${t}.revealed.hints`);
+  const u = ae(n.reward, `${t}.reward`, ["tier", "amount"]), f = ae(n.revealed, `${t}.revealed`, ["answers", "hints"]), p = Pr(f.answers, `${t}.revealed.answers`), m = Pr(f.hints, `${t}.revealed.hints`);
   W([...p, ...m].every((h) => a.some((b) => b.id === h)), t, "Revealed content must belong to this unit");
   const g = n.notes === void 0 ? void 0 : Le(n.notes, `${t}.notes`, (h) => {
     const b = ae(h, "note", [
@@ -29861,12 +29860,12 @@ function Em(e, t = "unit") {
     n.modelEssay,
     n.skippedRevisionAttemptIds
   ].every((h) => h !== void 0 === d), t, "Reading-writing units, and only they, carry explanations, a model essay and the revision choice");
-  let w = {};
+  let v = {};
   if (d) {
     const h = Le(n.explanations, `${t}.explanations`, oL);
     lL(t, i, a, h, s, o);
     const b = n.modelEssay === null ? null : ae(n.modelEssay, `${t}.modelEssay`, ["text", "level"]), k = Pr(n.skippedRevisionAttemptIds, `${t}.skippedRevisionAttemptIds`);
-    W(k.every((I) => s.some((x) => x.id === I) && o.some((x) => x.attemptId === I)), t, "A skipped revision belongs to a saved answer with feedback"), w = {
+    W(k.every((I) => s.some((x) => x.id === I) && o.some((x) => x.attemptId === I)), t, "A skipped revision belongs to a saved answer with feedback"), v = {
       explanations: h,
       modelEssay: b && {
         text: oe(b.text, `${t}.modelEssay.text`, Q.materialText),
@@ -29883,12 +29882,12 @@ function Em(e, t = "unit") {
     scope: c,
     originOsId: l,
     reward: {
-      tier: Mn(f.tier, `${t}.reward.tier`, [
+      tier: Mn(u.tier, `${t}.reward.tier`, [
         "short",
         "regular",
         "deep"
       ]),
-      amount: kt(f.amount, `${t}.reward.amount`, 1)
+      amount: kt(u.amount, `${t}.reward.amount`, 1)
     },
     materials: i,
     exercises: a,
@@ -29900,7 +29899,7 @@ function Em(e, t = "unit") {
     },
     ...g ? { notes: g } : {},
     ...n.listening === void 0 ? {} : { listening: n4(n.listening, a, i, `${t}.listening`) },
-    ...w
+    ...v
   };
 }
 function dL(e, t) {
@@ -29993,25 +29992,25 @@ function pL(e, t) {
     "voice"
   ]), c = nf(o, t), l = n === null ? null : Em(n, `${t}.unit`), d = r === null ? null : Em(r, `${t}.review`);
   W(l?.kind !== "review", `${t}.unit`, "A review belongs in the review slot"), W(!d || d.kind === "review", `${t}.review`, "The review slot holds a review unit");
-  const f = [l, d].filter((h) => h !== null);
-  it(f.map((h) => h.id), t), it(f.flatMap((h) => h.attempts.map((b) => b.id)), t);
-  const u = Le(i, `${t}.items`, uL), p = Le(a, `${t}.completions`, fL);
-  it(u.map((h) => h.id), `${t}.items`), it(p.map((h) => h.unitId), `${t}.completions`);
-  const m = u.flatMap((h) => h.evidence), g = /* @__PURE__ */ new Map();
+  const u = [l, d].filter((h) => h !== null);
+  it(u.map((h) => h.id), t), it(u.flatMap((h) => h.attempts.map((b) => b.id)), t);
+  const f = Le(i, `${t}.items`, uL), p = Le(a, `${t}.completions`, fL);
+  it(f.map((h) => h.id), `${t}.items`), it(p.map((h) => h.unitId), `${t}.completions`);
+  const m = f.flatMap((h) => h.evidence), g = /* @__PURE__ */ new Map();
   for (const h of m) {
     const b = JSON.stringify(h);
     W(!g.has(h.attempt.id) || g.get(h.attempt.id) === b, t, "Shared evidence must retain the same original facts"), g.set(h.attempt.id, b);
   }
   for (const h of m) {
-    const b = f.find((I) => I.id === h.unitId);
+    const b = u.find((I) => I.id === h.unitId);
     if (!b) continue;
     const k = b.attempts.some((I) => I.id === h.attempt.id) ? wg(b, h.attempt.id) : null;
     W(JSON.stringify(k) === JSON.stringify(h), t, "Evidence must match the current saved attempt, exercise and feedback");
   }
-  const w = [...f.flatMap((h) => h.assessments), ...m.map((h) => h.assessment)];
-  for (const h of w.flatMap((b) => b.annotations ?? [])) W(h.itemId === void 0 || u.some((b) => b.id === h.itemId && b.skill === h.category), t, "An annotation links an item of its own grammar or vocabulary book");
-  W((d?.exercises ?? []).every((h) => u.some((b) => b.id === h.itemId && b.schedule)), `${t}.review`, "Review exercises review saved grammar or vocabulary items");
-  for (const h of f) {
+  const v = [...u.flatMap((h) => h.assessments), ...m.map((h) => h.assessment)];
+  for (const h of v.flatMap((b) => b.annotations ?? [])) W(h.itemId === void 0 || f.some((b) => b.id === h.itemId && b.skill === h.category), t, "An annotation links an item of its own grammar or vocabulary book");
+  W((d?.exercises ?? []).every((h) => f.some((b) => b.id === h.itemId && b.schedule)), `${t}.review`, "Review exercises review saved grammar or vocabulary items");
+  for (const h of u) {
     const b = p.find((k) => k.unitId === h.id);
     if (b) {
       W(b.reward.amount === h.reward.amount && b.reward.originOsId === h.originOsId, t, "Completed reward must match the published unit");
@@ -30022,7 +30021,7 @@ function pL(e, t) {
     ...c,
     unit: l,
     review: d,
-    items: u,
+    items: f,
     completions: p,
     ...s === void 0 ? {} : { voice: go(s, `${t}.voice`) }
   };
@@ -30127,12 +30126,12 @@ function hL(e) {
       "lesson"
     ]);
     W(!i || l === i.kind, "kind", "A unit keeps its kind; start a new unit for another kind of practice");
-    const d = (y, v) => {
-      if ((y === "material" ? i?.materials : i?.exercises)?.some((C) => C.id === v)) return v;
-      const A = `${c}:${y}:${v}`;
+    const d = (y, w) => {
+      if ((y === "material" ? i?.materials : i?.exercises)?.some((C) => C.id === w)) return w;
+      const A = `${c}:${y}:${w}`;
       return t.has(A) || t.set(A, e.createId()), t.get(A);
-    }, f = Pr(o.removeMaterials ?? [], "removeMaterials"), u = Pr(o.removeExercises ?? [], "removeExercises"), p = structuredClone(i?.materials ?? []).filter((y) => !f.includes(y.id)), m = Le(o.materials ?? [], "materials", (y, v) => {
-      const A = ae(y, v, [
+    }, u = Pr(o.removeMaterials ?? [], "removeMaterials"), f = Pr(o.removeExercises ?? [], "removeExercises"), p = structuredClone(i?.materials ?? []).filter((y) => !u.includes(y.id)), m = Le(o.materials ?? [], "materials", (y, w) => {
+      const A = ae(y, w, [
         "key",
         "title",
         "kind",
@@ -30142,23 +30141,23 @@ function hL(e) {
         "text"
       ]);
       return {
-        key: ve(A.key, `${v}.key`),
+        key: ve(A.key, `${w}.key`),
         raw: A
       };
     });
     it(m.map((y) => y.key), "materials.key");
     const g = new Map(p.map((y) => [y.id, y.id]));
-    for (const { key: y, raw: v } of m) {
+    for (const { key: y, raw: w } of m) {
       const A = d("material", y);
-      W(!f.includes(A), "materials", "A material cannot be edited and removed in the same call");
-      const C = mL(v, A, e.sources), E = p.findIndex((R) => R.id === A), T = p[E];
+      W(!u.includes(A), "materials", "A material cannot be edited and removed in the same call");
+      const C = mL(w, A, e.sources), E = p.findIndex((R) => R.id === A), T = p[E];
       T && JSON.stringify(T.paragraphs) === JSON.stringify(C.paragraphs) && (C.transcriptRevealed = T.transcriptRevealed), E >= 0 ? p[E] = C : p.push(C), g.set(y, A), g.set(A, A);
     }
-    const w = (y) => {
-      const v = g.get(y) ?? t.get(`${c}:material:${y}`);
-      return W(v && p.some((A) => A.id === v), "materialKeys", "Use a current material ID or a local key from this turn"), v;
-    }, h = structuredClone(i?.exercises ?? []).filter((y) => !u.includes(y.id)), b = Le(o.exercises ?? [], "exercises", (y, v) => {
-      const A = ae(y, v, [
+    const v = (y) => {
+      const w = g.get(y) ?? t.get(`${c}:material:${y}`);
+      return W(w && p.some((A) => A.id === w), "materialKeys", "Use a current material ID or a local key from this turn"), w;
+    }, h = structuredClone(i?.exercises ?? []).filter((y) => !f.includes(y.id)), b = Le(o.exercises ?? [], "exercises", (y, w) => {
+      const A = ae(y, w, [
         "key",
         "skill",
         "materialKeys",
@@ -30170,38 +30169,38 @@ function hL(e) {
         "itemId"
       ]);
       return {
-        key: ve(A.key, `${v}.key`),
+        key: ve(A.key, `${w}.key`),
         raw: A
       };
     });
     it(b.map((y) => y.key), "exercises.key");
-    for (const { key: y, raw: v } of b) {
+    for (const { key: y, raw: w } of b) {
       const A = d("exercise", y);
-      W(!u.includes(A), "exercises", "An exercise cannot be edited and removed in the same call");
-      let C = v.response;
+      W(!f.includes(A), "exercises", "An exercise cannot be edited and removed in the same call");
+      let C = w.response;
       C && typeof C == "object" && "kind" in C && C.kind === "evidence" && (C = {
         kind: "evidence",
-        materialId: w(ve(ae(C, "response", ["kind", "materialKey"]).materialKey, "response.materialKey"))
+        materialId: v(ve(ae(C, "response", ["kind", "materialKey"]).materialKey, "response.materialKey"))
       });
       const E = {
         id: A,
-        skill: v.skill,
-        materialIds: Pr(v.materialKeys, "materialKeys").map(w),
-        prompt: v.prompt,
+        skill: w.skill,
+        materialIds: Pr(w.materialKeys, "materialKeys").map(v),
+        prompt: w.prompt,
         response: C,
-        rule: v.rule,
-        hint: v.hint ?? "",
-        ...v.paragraphId === void 0 ? {} : { paragraphId: v.paragraphId },
-        ...v.itemId === void 0 ? {} : { itemId: v.itemId }
+        rule: w.rule,
+        hint: w.hint ?? "",
+        ...w.paragraphId === void 0 ? {} : { paragraphId: w.paragraphId },
+        ...w.itemId === void 0 ? {} : { itemId: w.itemId }
       }, T = h.findIndex((R) => R.id === A);
       T >= 0 ? h[T] = E : h.push(E);
     }
-    if (l === "reading-writing") for (const y of p) for (const v of y.paragraphs)
-      h.some((A) => A.paragraphId === v.id) || h.push({
-        id: d("exercise", `summary:${v.id}`),
+    if (l === "reading-writing") for (const y of p) for (const w of y.paragraphs)
+      h.some((A) => A.paragraphId === w.id) || h.push({
+        id: d("exercise", `summary:${w.id}`),
         skill: "writing",
         materialIds: [y.id],
-        paragraphId: v.id,
+        paragraphId: w.id,
         prompt: GP,
         response: { kind: "text" },
         rule: { kind: "semantic" },
@@ -30210,8 +30209,8 @@ function hL(e) {
     let k;
     if (l === "review") {
       W(s, "kind", "A review is prepared from the learner's saved items");
-      const y = h.map((v) => v.itemId);
-      W(y.every((v) => s.profile.items.some((A) => A.id === v && A.schedule)), "exercises", "Review saved vocabulary or grammar items"), k = a?.reward.tier ?? ix(y.length);
+      const y = h.map((w) => w.itemId);
+      W(y.every((w) => s.profile.items.some((A) => A.id === w && A.schedule)), "exercises", "Review saved vocabulary or grammar items"), k = a?.reward.tier ?? ix(y.length);
     }
     const I = k ?? Mn(o.tier ?? i?.reward.tier, "tier", [
       "short",
@@ -30219,15 +30218,15 @@ function hL(e) {
       "deep"
     ]);
     W(!a || I === a.reward.tier, "tier", "A published lesson keeps its reward; adapt the practice within it");
-    const x = o.explanations === void 0 ? i?.explanations : Le(o.explanations, "explanations", (y, v) => {
-      const { materialKey: A, ...C } = ae(y, v, [
+    const x = o.explanations === void 0 ? i?.explanations : Le(o.explanations, "explanations", (y, w) => {
+      const { materialKey: A, ...C } = ae(y, w, [
         "materialKey",
         "paragraphId",
         "explanation",
         "terms"
       ]);
       return {
-        materialId: w(ve(A, `${v}.materialKey`)),
+        materialId: v(ve(A, `${w}.materialKey`)),
         ...C
       };
     }), S = l === "reading-writing" ? {
@@ -30254,8 +30253,8 @@ function hL(e) {
       attempts: i?.attempts ?? [],
       assessments: i?.assessments ?? [],
       revealed: {
-        answers: i?.revealed.answers.filter((y) => !u.includes(y)) ?? [],
-        hints: i?.revealed.hints.filter((y) => !u.includes(y)) ?? []
+        answers: i?.revealed.answers.filter((y) => !f.includes(y)) ?? [],
+        hints: i?.revealed.hints.filter((y) => !f.includes(y)) ?? []
       }
     });
     if (i) {
@@ -30263,10 +30262,10 @@ function hL(e) {
         ...i.attempts.map((A) => A.exerciseId),
         ...(i.listening ?? []).map((A) => A.exerciseId),
         ...(i.notes ?? []).map((A) => A.exerciseId)
-      ]), v = new Set(i.exercises.filter((A) => y.has(A.id)).flatMap((A) => A.materialIds));
-      for (const A of i.notes ?? []) A.selection && v.add(A.selection.materialId);
+      ]), w = new Set(i.exercises.filter((A) => y.has(A.id)).flatMap((A) => A.materialIds));
+      for (const A of i.notes ?? []) A.selection && w.add(A.selection.materialId);
       for (const A of i.exercises.filter((C) => y.has(C.id))) W(JSON.stringify(_.exercises.find((C) => C.id === A.id)) === JSON.stringify(A), "exercises", "This exercise has learner evidence. Keep it and add a corrected or alternative exercise with a new key");
-      for (const A of i.materials.filter((C) => v.has(C.id))) W(JSON.stringify(_.materials.find((C) => C.id === A.id)) === JSON.stringify(A), "materials", "This material has learner evidence. Keep it and add the revised material with a new key");
+      for (const A of i.materials.filter((C) => w.has(C.id))) W(JSON.stringify(_.materials.find((C) => C.id === A.id)) === JSON.stringify(A), "materials", "This material has learner evidence. Keep it and add the revised material with a new key");
       W(!i.attempts.length || _.goal === i.goal, "goal", "Keep the objective attached to saved answers; add practice within it or ask the learner to start a new lesson");
     }
     return i && JSON.stringify(i) !== JSON.stringify(_) && (_.scope = rt(i.scope, e.scope)), _;
@@ -30895,21 +30894,21 @@ function AL(e, t) {
   let a = structuredClone(t.inputScope);
   const s = /* @__PURE__ */ new Set();
   W(a.kind === "public" || a.osId === t.osId, "scope", "Use the current story identity");
-  const o = t.osId, c = t.createId ?? ri, l = t.now ?? (() => (/* @__PURE__ */ new Date()).toISOString()), d = t.asOf ?? l(), f = ls(t.language, "language");
-  let u = structuredClone(r?.data ?? { profiles: [] });
-  const p = t.unitKey ?? fg(i, u.profiles.find((j) => j.language === f)), m = u.profiles.find((j) => j.language === f), g = {
+  const o = t.osId, c = t.createId ?? ri, l = t.now ?? (() => (/* @__PURE__ */ new Date()).toISOString()), d = t.asOf ?? l(), u = ls(t.language, "language");
+  let f = structuredClone(r?.data ?? { profiles: [] });
+  const p = t.unitKey ?? fg(i, f.profiles.find((j) => j.language === u)), m = f.profiles.find((j) => j.language === u), g = {
     unit: m?.unit?.id,
     review: m?.review?.id
   };
-  let w = !1, h = !1, b = null, k = null;
-  const I = /* @__PURE__ */ new Set(), x = i.kind === "prepare" && i.replaceCurrent ? r?.data.profiles.find((j) => j.language === f)?.unit?.id : void 0, S = /* @__PURE__ */ new Set(), _ = yu(i, n), y = t.sources ?? Cm(), v = {
+  let v = !1, h = !1, b = null, k = null;
+  const I = /* @__PURE__ */ new Set(), x = i.kind === "prepare" && i.replaceCurrent ? r?.data.profiles.find((j) => j.language === u)?.unit?.id : void 0, S = /* @__PURE__ */ new Set(), _ = yu(i, n), y = t.sources ?? Cm(), w = {
     osId: t.osId,
-    language: f,
+    language: u,
     scope: a,
     prices: i.kind === "prepare" ? i.prices ?? Bv : Bv,
     createId: c,
     sources: y
-  }, A = hL(v), C = (...j) => (v.scope = a, A(...j)), E = () => W(!w && !h, "action", "This teaching action has ended"), T = (j, O) => {
+  }, A = hL(w), C = (...j) => (w.scope = a, A(...j)), E = () => W(!v && !h, "action", "This teaching action has ended"), T = (j, O) => {
     if (O === void 0)
       return W(j[p]?.id === g[p], "unitId", "The focused unit changed. Read its current content or select a unitId"), p;
     const z = ve(O, "unitId"), N = j.review?.id === z ? "review" : "unit";
@@ -30920,13 +30919,13 @@ function AL(e, t) {
       status: j() ? "unchanged" : "cancelled",
       document: e.snapshot().document ?? null
     };
-    if (JSON.stringify(u) === JSON.stringify(r?.data ?? { profiles: [] }))
+    if (JSON.stringify(f) === JSON.stringify(r?.data ?? { profiles: [] }))
       return k = null, {
         status: j() ? "unchanged" : "cancelled",
         document: e.snapshot().document ?? null
       };
-    const z = await e.save(r, u, () => !w && j(), (N) => {
-      r = N.document, u = structuredClone(r?.data ?? { profiles: [] }), k = null, O?.(N);
+    const z = await e.save(r, f, () => !v && j(), (N) => {
+      r = N.document, f = structuredClone(r?.data ?? { profiles: [] }), k = null, O?.(N);
     });
     return z.status === "cancelled" && (k?.(), k = null), z;
   }
@@ -30939,7 +30938,7 @@ function AL(e, t) {
 
 `));
   };
-  G(r?.data.profiles.find((j) => j.language === f));
+  G(r?.data.profiles.find((j) => j.language === u));
   const U = (j, O) => {
     G(O);
     for (const z of j.materials) {
@@ -30958,7 +30957,7 @@ function AL(e, t) {
       references: [...s]
     }),
     target(j) {
-      const O = u.profiles.find((B) => B.language === f)?.[p], z = O?.id === g[p] && O?.exercises.some((B) => B.id === j?.exerciseId) ? j?.exerciseId : void 0, N = O?.id === g[p] && j?.selection && O?.materials.some((B) => B.id === j.selection.materialId && B.paragraphs.some((D) => D.id === j.selection.paragraphId && D.text.slice(j.selection.start, j.selection.end) === j.selection.quote)) ? j.selection : null;
+      const O = f.profiles.find((B) => B.language === u)?.[p], z = O?.id === g[p] && O?.exercises.some((B) => B.id === j?.exerciseId) ? j?.exerciseId : void 0, N = O?.id === g[p] && j?.selection && O?.materials.some((B) => B.id === j.selection.materialId && B.paragraphs.some((D) => D.id === j.selection.paragraphId && D.text.slice(j.selection.start, j.selection.end) === j.selection.quote)) ? j.selection : null;
       return {
         unitKey: p,
         unitId: g[p],
@@ -30973,7 +30972,7 @@ function AL(e, t) {
       E(), I.add(j);
     },
     refresh() {
-      E(), W(JSON.stringify(u) === JSON.stringify(r?.data ?? { profiles: [] }), "storage", "Save the current edit before reading newer records"), r = n === "companion" ? e.snapshot().document ?? null : Dt(e), u = structuredClone(r?.data ?? { profiles: [] });
+      E(), W(JSON.stringify(f) === JSON.stringify(r?.data ?? { profiles: [] }), "storage", "Save the current edit before reading newer records"), r = n === "companion" ? e.snapshot().document ?? null : Dt(e), f = structuredClone(r?.data ?? { profiles: [] });
     },
     checkpoint: M,
     presentation: () => b ? structuredClone(b) : null,
@@ -30996,13 +30995,13 @@ function AL(e, t) {
               omitted: Ge !== null
             };
           }
-          const J = kg(), te = _g(u, f, o, O, d, L, p, J), ne = u.profiles.find((fe) => fe.language === f);
+          const J = kg(), te = _g(f, u, o, O, d, L, p, J), ne = f.profiles.find((fe) => fe.language === u);
           g.unit = ne?.unit?.id, g.review = ne?.review?.id;
           const { scope: Z, references: se } = J.inspect(te);
           return se.forEach((fe) => s.add(fe)), a = rt(a, Z), te;
         }
-        let N = structuredClone(u);
-        const B = N.profiles.findIndex((L) => L.language === f);
+        let N = structuredClone(f);
+        const B = N.profiles.findIndex((L) => L.language === u);
         let D = [], $;
         if (j === "LearningProfileEdit") {
           const L = ae(O, j, [
@@ -31012,7 +31011,7 @@ function AL(e, t) {
             "interests",
             "goal"
           ]), J = N.profiles[B], te = nf({
-            language: f,
+            language: u,
             explanationLanguage: L.explanationLanguage === void 0 ? J?.explanationLanguage : L.explanationLanguage,
             selfAssessment: L.selfAssessment === void 0 ? J?.selfAssessment : L.selfAssessment,
             level: L.level === void 0 ? J?.level ?? null : L.level,
@@ -31040,7 +31039,7 @@ function AL(e, t) {
             review: null,
             items: [],
             completions: []
-          }), D = [f];
+          }), D = [u];
         } else {
           W(B >= 0, "profile", "Save the learner goal before preparing a lesson");
           const L = N.profiles[B];
@@ -31122,12 +31121,12 @@ function AL(e, t) {
               "explanations"
             ]);
             W(te === void 0 || typeof te == "boolean", "newLesson", "Use true to begin the next lesson");
-            const Z = J === void 0 && (ne.kind === "review" || i.kind === "review-prepare") ? "review" : T(L, J), se = r?.data.profiles.find((Ue) => Ue.language === f)?.[Z], fe = te ?? (x !== void 0 && L[Z]?.id === x);
+            const Z = J === void 0 && (ne.kind === "review" || i.kind === "review-prepare") ? "review" : T(L, J), se = r?.data.profiles.find((Ue) => Ue.language === u)?.[Z], fe = te ?? (x !== void 0 && L[Z]?.id === x);
             fe && !R(L, L[Z]) && ($ = {
               id: L[Z].id,
               title: L[Z].title
             }), W(fe || !L[Z] || Ke(L[Z].scope, o), "unitId", "This lesson belongs to another story");
-            const me = r?.data.profiles.find((Ue) => Ue.language === f), Me = fe ? null : L[Z], Te = ne.kind ?? (Z === "review" ? "review" : !Me && i.kind === "prepare" ? i.unit : void 0), Ge = U(C({
+            const me = r?.data.profiles.find((Ue) => Ue.language === u), Me = fe ? null : L[Z], Te = ne.kind ?? (Z === "review" ? "review" : !Me && i.kind === "prepare" ? i.unit : void 0), Ge = U(C({
               ...ne,
               ...Te ? { kind: Te } : {}
             }, Me, se?.id === Me?.id ? se ?? null : null, {
@@ -31201,7 +31200,7 @@ function AL(e, t) {
           } else W(!1, "tool", "This tool requires the application executor");
         }
         if (N = xg(N), z) {
-          const L = N.profiles.find((te) => te.language === f), J = [L?.unit, L?.review].find((te) => te?.id === z.unitId) ?? null;
+          const L = N.profiles.find((te) => te.language === u), J = [L?.unit, L?.review].find((te) => te?.id === z.unitId) ?? null;
           z = J && (z.kind === "material" ? J.materials : J.exercises).some((te) => te.id === z.id) ? Uv(J, {
             kind: z.kind,
             id: z.id
@@ -31221,7 +31220,7 @@ function AL(e, t) {
           errors: [],
           approval: $
         };
-        const q = JSON.stringify(N) !== JSON.stringify(u);
+        const q = JSON.stringify(N) !== JSON.stringify(f);
         if (q && !k) {
           const L = {
             presentation: b,
@@ -31229,12 +31228,12 @@ function AL(e, t) {
             tools: [...S]
           };
           k = () => {
-            u = structuredClone(r?.data ?? { profiles: [] }), b = L.presentation, Object.assign(g, L.units), S.clear(), L.tools.forEach((J) => S.add(J));
+            f = structuredClone(r?.data ?? { profiles: [] }), b = L.presentation, Object.assign(g, L.units), S.clear(), L.tools.forEach((J) => S.add(J));
           };
         }
-        u = N;
-        const K = N.profiles.find((L) => L.language === f);
-        for (const L of ["unit", "review"]) K?.[L]?.id !== r?.data.profiles.find((J) => J.language === f)?.[L]?.id && (g[L] = K?.[L]?.id);
+        f = N;
+        const K = N.profiles.find((L) => L.language === u);
+        for (const L of ["unit", "review"]) K?.[L]?.id !== r?.data.profiles.find((J) => J.language === u)?.[L]?.id && (g[L] = K?.[L]?.id);
         return b = z, S.add(j), {
           ok: !0,
           changed: q,
@@ -31243,7 +31242,7 @@ function AL(e, t) {
         };
       } catch (N) {
         if (!(N instanceof Rn))
-          throw w = !0, N;
+          throw v = !0, N;
         return {
           ok: !1,
           changed: !1,
@@ -31260,7 +31259,7 @@ function AL(e, t) {
       return h = !0, O;
     },
     invalidate() {
-      w = !0;
+      v = !0;
     }
   };
 }
@@ -31271,38 +31270,38 @@ function EL(e, t, n) {
     const c = r.profiles.find((l) => l.language === o.language);
     if (!c) return null;
     for (const l of ["unit", "review"]) {
-      const d = o[l], f = c[l];
-      if (!(!d || !f || d.id !== f.id)) {
-        if (l === "unit" && f.kind === "reading-writing") {
-          const u = {
-            ...structuredClone(f),
+      const d = o[l], u = c[l];
+      if (!(!d || !u || d.id !== u.id)) {
+        if (l === "unit" && u.kind === "reading-writing") {
+          const f = {
+            ...structuredClone(u),
             explanations: d.explanations,
             exercises: d.exercises
-          }, p = Nv(f, f, u);
+          }, p = Nv(u, u, f);
           if (!p) return null;
           a.push({
             language: o.language,
-            before: structuredClone(f),
-            prepared: u
-          }), f.explanations = p.explanations, f.exercises = p.exercises;
+            before: structuredClone(u),
+            prepared: f
+          }), u.explanations = p.explanations, u.exercises = p.exercises;
         }
-        for (const u of ["answers", "hints"]) for (const p of d.revealed[u])
-          if (!f.revealed[u].includes(p)) {
-            if (!f.exercises.some((m) => m.id === p)) return null;
-            xc(c, u, p, f), i.push({
+        for (const f of ["answers", "hints"]) for (const p of d.revealed[f])
+          if (!u.revealed[f].includes(p)) {
+            if (!u.exercises.some((m) => m.id === p)) return null;
+            xc(c, f, p, u), i.push({
               language: o.language,
               unit: d,
-              kind: u,
+              kind: f,
               id: p
             });
           }
-        for (const u of d.materials) {
-          const p = f.materials.find((m) => m.id === u.id);
-          u.transcriptRevealed && p && !p.transcriptRevealed && (xc(c, "transcripts", u.id, f), i.push({
+        for (const f of d.materials) {
+          const p = u.materials.find((m) => m.id === f.id);
+          f.transcriptRevealed && p && !p.transcriptRevealed && (xc(c, "transcripts", f.id, u), i.push({
             language: o.language,
             unit: d,
             kind: "transcripts",
-            id: u.id
+            id: f.id
           }));
         }
       }
@@ -31361,7 +31360,7 @@ function TL(e, t) {
       interests: null,
       unit: null,
       review: null,
-      items: Le(s, `${r}.items`, (d, f) => ae(d, f, [
+      items: Le(s, `${r}.items`, (d, u) => ae(d, u, [
         "id",
         "label",
         "scope",
@@ -31406,12 +31405,12 @@ function OL(e, t = {}) {
   let i;
   const a = () => i ??= r();
   let s, o = null, c = !1, l = null, d = Promise.resolve();
-  function f(x) {
+  function u(x) {
     const S = d.then(x, x);
     return d = S.catch(() => {
     }), S;
   }
-  async function u() {
+  async function f() {
     let x;
     try {
       x = await e.read(Vv);
@@ -31455,7 +31454,7 @@ function OL(e, t = {}) {
     } };
     let x;
     try {
-      x = await u();
+      x = await f();
     } catch (S) {
       return S instanceof vn && S.code === "learning_file_invalid" ? (c = !o.invalidBaseline || JSON.stringify(l) !== JSON.stringify(o.invalidBaseline), {
         result: { status: c ? "conflict" : "unconfirmed" },
@@ -31470,11 +31469,11 @@ function OL(e, t = {}) {
       observed: x
     });
   }
-  async function w() {
+  async function v() {
     return (await g()).result;
   }
   async function h() {
-    (s === void 0 || l) && (s = await u());
+    (s === void 0 || l) && (s = await f());
   }
   async function b(x) {
     o = x;
@@ -31485,41 +31484,41 @@ function OL(e, t = {}) {
       if (_ !== void 0 && _ >= 400 && _ < 500 && _ !== 408 && _ !== 429)
         throw o = null, new vn("learning_write_rejected");
       return {
-        ...await w(),
+        ...await v(),
         commitId: x.candidate.commitId
       };
     }
     return m(x, x.candidate);
   }
   function k(x, S, _, y) {
-    const v = x === null ? null : od(x), A = xg(S);
-    return f(() => I(v, A, _, y));
+    const w = x === null ? null : od(x), A = xg(S);
+    return u(() => I(w, A, _, y));
   }
   async function I(x, S, _, y) {
     if (!_()) return { status: "cancelled" };
     if (o || c) throw new vn("learning_resolve_pending_first");
     await h();
-    const v = s ?? null;
+    const w = s ?? null;
     if (!_()) return { status: "cancelled" };
-    const A = x?.revision !== v?.revision || x?.commitId !== v?.commitId ? x && v ? EL(x.data, v.data, S) : null : S;
+    const A = x?.revision !== w?.revision || x?.commitId !== w?.commitId ? x && w ? EL(x.data, w.data, S) : null : S;
     if (!A) return { status: "cancelled" };
-    if (s = v, JSON.stringify(v?.data ?? { profiles: [] }) === JSON.stringify(A)) {
+    if (s = w, JSON.stringify(w?.data ?? { profiles: [] }) === JSON.stringify(A)) {
       const E = {
         status: "unchanged",
-        document: structuredClone(v)
+        document: structuredClone(w)
       };
       return y?.(E), E;
     }
     const C = od({
       schemaVersion: 2,
-      revision: (v?.revision ?? 0) + 1,
+      revision: (w?.revision ?? 0) + 1,
       commitId: n(),
       data: A
     });
-    if (C.commitId === v?.commitId) throw new vn("learning_commit_id_reused");
+    if (C.commitId === w?.commitId) throw new vn("learning_commit_id_reused");
     if (new TextEncoder().encode(JSON.stringify(C)).byteLength > 8388608) throw new vn("learning_file_full");
     return _() ? b({
-      expected: v,
+      expected: w,
       candidate: C,
       onConfirmed: y
     }) : { status: "cancelled" };
@@ -31528,26 +31527,26 @@ function OL(e, t = {}) {
     snapshot: p,
     pendingCommitId: () => o?.candidate.commitId ?? null,
     save: k,
-    read: () => f(async () => (o || await h(), p())),
-    refresh: () => f(async () => (!o && !c && (s = await u()), p())),
-    verify: () => f(w),
-    retry: (x) => f(async () => {
+    read: () => u(async () => (o || await h(), p())),
+    refresh: () => u(async () => (!o && !c && (s = await f()), p())),
+    verify: () => u(v),
+    retry: (x) => u(async () => {
       const { result: S, observed: _ } = await g();
       return !o || S.status === "conflict" || S.status === "confirmed" ? S : _ === void 0 ? { status: "unconfirmed" } : x() ? b(o) : { status: "cancelled" };
     }),
-    adoptServer: () => f(async () => {
-      const x = await u();
+    adoptServer: () => u(async () => {
+      const x = await f();
       return o && sa(x, o.candidate) ? (m(o, x), p()) : (s = x, o = null, c = !1, p());
     }),
     clear: (x, S) => k(x, { profiles: [] }, S),
-    resetInvalid: (x, S) => f(async () => {
+    resetInvalid: (x, S) => u(async () => {
       if (!x()) return { status: "cancelled" };
       if ((o || c) && p().status !== "invalid") throw new vn("learning_resolve_pending_first");
       try {
-        const v = await u();
-        return x() ? o && sa(v, o.candidate) ? m(o, v) : (s = v, o = null, c = !1, { status: "cancelled" }) : { status: "cancelled" };
-      } catch (v) {
-        if (!(v instanceof vn) || v.code !== "learning_file_invalid") throw v;
+        const w = await f();
+        return x() ? o && sa(w, o.candidate) ? m(o, w) : (s = w, o = null, c = !1, { status: "cancelled" }) : { status: "cancelled" };
+      } catch (w) {
+        if (!(w instanceof vn) || w.code !== "learning_file_invalid") throw w;
       }
       if (!x()) return { status: "cancelled" };
       const _ = o?.invalidBaseline ? o : null, y = _?.candidate ?? od({
@@ -31835,7 +31834,7 @@ function qL(e) {
     const l = await e.confirm(c, e.signal);
     if (!r() || !l) return !1;
     const d = s();
-    return W([d?.unit, d?.review].some((f) => f?.id === c.id), "unitId", "The selected lesson changed while awaiting confirmation"), n.authorizeReplacement(c.id), !0;
+    return W([d?.unit, d?.review].some((u) => u?.id === c.id), "unitId", "The selected lesson changed while awaiting confirmation"), n.authorizeReplacement(c.id), !0;
   }
   return async (c, l) => {
     try {
@@ -31844,23 +31843,23 @@ function qL(e) {
         status: "cancelled"
       };
       if (W(n.toolNames.includes(c), "tool", "Select an available tool"), c === "LearningRequest") {
-        const u = ae(l, c, [
+        const f = ae(l, c, [
           "task",
           "context",
           "deliverable"
         ]), p = {
-          task: oe(u.task, "task", eo.task),
-          ...u.context === void 0 ? {} : { context: oe(u.context, "context", eo.context) },
-          ...u.deliverable === void 0 ? {} : { deliverable: oe(u.deliverable, "deliverable", eo.deliverable) }
+          task: oe(f.task, "task", eo.task),
+          ...f.context === void 0 ? {} : { context: oe(f.context, "context", eo.context) },
+          ...f.deliverable === void 0 ? {} : { deliverable: oe(f.deliverable, "deliverable", eo.deliverable) }
         };
         W(e.actor === "companion" && e.delegate, "tool", "Select an available tool");
         const m = JSON.stringify(p), g = e.delegations?.get(m);
         if (g) return g;
-        const w = n.reading(), h = await e.delegate({
+        const v = n.reading(), h = await e.delegate({
           delegation: p,
           message: e.message,
-          scope: w.scope,
-          references: [.../* @__PURE__ */ new Set([...e.references ?? [], ...w.references])],
+          scope: v.scope,
+          references: [.../* @__PURE__ */ new Set([...e.references ?? [], ...v.references])],
           target: e.target ?? n.target({
             unitKey: "unit",
             exerciseId: e.exerciseId,
@@ -31872,27 +31871,27 @@ function qL(e) {
         return h.status === "accepted" && e.delegations?.set(m, h), h;
       }
       if (c === "LearningTaskGet") {
-        const u = ae(l, c, ["taskId"]);
-        return W(e.taskGet, "tool", "Select an available tool"), e.taskGet(u.taskId === void 0 ? void 0 : ve(u.taskId, "taskId"));
+        const f = ae(l, c, ["taskId"]);
+        return W(e.taskGet, "tool", "Select an available tool"), e.taskGet(f.taskId === void 0 ? void 0 : ve(f.taskId, "taskId"));
       }
       if (e.actor === "companion" && c === "LearningPresent" && e.workbenchBusy?.()) return {
         ok: !1,
         status: "busy"
       };
       if (n.refresh(), c === "LearningSubmit") {
-        const u = ae(l, c, [
+        const f = ae(l, c, [
           "unitId",
           "exerciseId",
           "text",
           "revisesAttemptId"
-        ]), p = u.text === void 0 ? e.message : oe(u.text, "text", Q.answer);
+        ]), p = f.text === void 0 ? e.message : oe(f.text, "text", Q.answer);
         W(p.length > 0 && e.message.includes(p), "text", "Submit the learner’s own text from this message");
-        const m = ve(u.unitId, "unitId"), g = ve(u.exerciseId, "exerciseId"), w = JSON.stringify([
+        const m = ve(f.unitId, "unitId"), g = ve(f.exerciseId, "exerciseId"), v = JSON.stringify([
           m,
           g,
-          u.revisesAttemptId ?? null,
+          f.revisesAttemptId ?? null,
           p
-        ]), h = e.submissions.get(w);
+        ]), h = e.submissions.get(v);
         if (h)
           return n.recordAppliedTool(c), {
             ok: !0,
@@ -31900,11 +31899,11 @@ function qL(e) {
             ...h
           };
         const b = [s()?.unit, s()?.review].find((x) => x?.id === m);
-        if (W(b && b.exercises.some((x) => x.id === g && x.response.kind === "text"), "exerciseId", "Select a published text question"), u.revisesAttemptId !== void 0) {
-          const x = ve(u.revisesAttemptId, "revisesAttemptId");
+        if (W(b && b.exercises.some((x) => x.id === g && x.response.kind === "text"), "exerciseId", "Select a published text question"), f.revisesAttemptId !== void 0) {
+          const x = ve(f.revisesAttemptId, "revisesAttemptId");
           W(b.attempts.some((_) => _.id === x && _.exerciseId === g), "revisesAttemptId", "Select an answer to this question");
           const S = await tl(t, { onConfirmed: (_) => {
-            e.submissions.set(w, { unitId: m }), i(_);
+            e.submissions.set(v, { unitId: m }), i(_);
           } }).submitRevision(e.language, m, [{
             attemptId: x,
             text: p
@@ -31916,7 +31915,7 @@ function qL(e) {
           });
         }
         const k = tl(t, { onConfirmed: (x) => {
-          e.submissions.set(w, { attemptId: k.attemptId }), i(x);
+          e.submissions.set(v, { attemptId: k.attemptId }), i(x);
         } }).prepareAttempt({
           language: e.language,
           unitId: m,
@@ -31951,11 +31950,11 @@ function qL(e) {
         n.refresh(), d = n.executeTool(c, l);
       }
       if (!d.ok || !d.changed) return d;
-      const f = await n.checkpoint(r, i);
-      return a(f), f.status === "cancelled" ? cp() : {
+      const u = await n.checkpoint(r, i);
+      return a(u), u.status === "cancelled" ? cp() : {
         ...d,
-        ok: f.status === "confirmed" || f.status === "unchanged",
-        status: f.status
+        ok: u.status === "confirmed" || u.status === "unchanged",
+        status: u.status
       };
     } catch (d) {
       if (!(d instanceof Rn)) throw d;
@@ -31993,21 +31992,21 @@ function WL(e) {
   const t = /* @__PURE__ */ new Map();
   let n = "", r = [];
   const i = /* @__PURE__ */ new Map(), a = /* @__PURE__ */ new Map();
-  let s = 0, o = "", c = [], l = { kind: "public" }, d = !1, f = null, u = null, p = Cm(), m = Am();
-  const g = /* @__PURE__ */ new Map(), w = (_ = e.repository.snapshot().document) => {
-    const y = _?.data.profiles.find((v) => v.language === e.current()?.language);
+  let s = 0, o = "", c = [], l = { kind: "public" }, d = !1, u = null, f = null, p = Cm(), m = Am();
+  const g = /* @__PURE__ */ new Map(), v = (_ = e.repository.snapshot().document) => {
+    const y = _?.data.profiles.find((w) => w.language === e.current()?.language);
     return JSON.stringify([y?.unit?.id, y?.review?.id]);
   };
   function h(_) {
     const y = g.get(_.id);
-    return y?.turn === _ && _.purpose === "talk" && ["failed", "cancelled"].includes(_.status) && _.progress?.stage !== "save" && !_.notice && y.material === w() && n === JSON.stringify(e.current()) && !t.has("conversation");
+    return y?.turn === _ && _.purpose === "talk" && ["failed", "cancelled"].includes(_.status) && _.progress?.stage !== "save" && !_.notice && y.material === v() && n === JSON.stringify(e.current()) && !t.has("conversation");
   }
   function b() {
     for (const _ of t.values()) _.controller.abort();
-    t.clear(), r = [], n = "", s = 0, o = "", u = null, i.clear(), a.clear(), c = [], l = { kind: "public" }, d = !1, f = null, p = Cm(), m = Am(), g.clear();
+    t.clear(), r = [], n = "", s = 0, o = "", f = null, i.clear(), a.clear(), c = [], l = { kind: "public" }, d = !1, u = null, p = Cm(), m = Am(), g.clear();
   }
-  function k(_, y, v = "") {
-    _.status = y, _.message = v, delete _.notice;
+  function k(_, y, w = "") {
+    _.status = y, _.message = w, delete _.notice;
   }
   async function I() {
     const _ = e.current();
@@ -32015,9 +32014,9 @@ function WL(e) {
       return b(), !0;
     const y = JSON.stringify(_);
     if (y !== n && (b(), n = y), d) return !0;
-    if (f) return f;
+    if (u) return u;
     if (!e.historyReady()) return !1;
-    const v = e.memory().read().then((A) => f !== v || n !== y || JSON.stringify(e.current()) !== y || !e.historyReady() ? !1 : (o = [A.summary, o].filter(Boolean).join(`
+    const w = e.memory().read().then((A) => u !== w || n !== y || JSON.stringify(e.current()) !== y || !e.historyReady() ? !1 : (o = [A.summary, o].filter(Boolean).join(`
 
 `), c = [.../* @__PURE__ */ new Set([...A.summaryReferences, ...c])], l = rt(A.summaryScope, l), s += A.archivedCount, r = [...A.exchanges.flatMap((C) => {
       const E = {
@@ -32036,11 +32035,11 @@ function WL(e) {
       };
       return C.replyTo && i.set(C.replyTo, E), C.summarized ? [] : [E];
     }), ...r], d = !0, !0));
-    f = v;
+    u = w;
     try {
-      return await v;
+      return await w;
     } finally {
-      f === v && (f = null);
+      u === w && (u = null);
     }
   }
   function x() {
@@ -32054,7 +32053,7 @@ function WL(e) {
         id: y.id,
         user: y.user,
         reply: y.teacher,
-        replyTo: [...i].find(([, v]) => v === y)?.[0] ?? null,
+        replyTo: [...i].find(([, w]) => w === y)?.[0] ?? null,
         summarized: !r.includes(y),
         references: y.references ?? [],
         scope: y.scope
@@ -32063,7 +32062,7 @@ function WL(e) {
   }
   async function S(_, y) {
     try {
-      const v = n, A = y.purpose === "task-result" ? () => v === n && v === JSON.stringify(e.current()) && r.includes(y) && y.status === "finished" : _;
+      const w = n, A = y.purpose === "task-result" ? () => w === n && w === JSON.stringify(e.current()) && r.includes(y) && y.status === "finished" : _;
       if (!_()) return !1;
       if (!await I() || !e.historyReady())
         return _() && (y.message = an.historySaveFailed, y.notice = "history-save"), !1;
@@ -32083,13 +32082,13 @@ function WL(e) {
   return {
     hydrate: I,
     cancel(_) {
-      for (const [y, v] of t)
-        _ && y !== _ || (v.controller.abort(), t.delete(y), v.turn && k(v.turn, "cancelled", an.stopped));
+      for (const [y, w] of t)
+        _ && y !== _ || (w.controller.abort(), t.delete(y), w.turn && k(w.turn, "cancelled", an.stopped));
       e.onConversation?.();
     },
     reset: b,
     reply(_) {
-      const y = _ ? r.find((v) => v.id === _) : [...r].reverse().find((v) => v.target && v.status === "finished" && v.teacher.trim() && v.purpose !== "companion");
+      const y = _ ? r.find((w) => w.id === _) : [...r].reverse().find((w) => w.target && w.status === "finished" && w.teacher.trim() && w.purpose !== "companion");
       return !y?.target || y.status !== "finished" || !y.teacher.trim() ? null : {
         id: y.id,
         text: y.teacher,
@@ -32108,9 +32107,9 @@ function WL(e) {
       y && g.delete(y.id), a.delete(_);
     },
     async saveNotification(_) {
-      const y = a.get(_), v = n;
+      const y = a.get(_), w = n;
       if (!y || y.status !== "finished" || y.notice !== "history-save") return !1;
-      const A = await S(() => v === n && v === JSON.stringify(e.current()), y);
+      const A = await S(() => w === n && w === JSON.stringify(e.current()), y);
       return e.onConversation?.(), A;
     },
     retryRequest(_) {
@@ -32122,12 +32121,12 @@ function WL(e) {
     },
     async recoverConfirmed() {
       const _ = e.repository.snapshot();
-      if (!u || _.status !== "ready") return null;
-      const y = u;
-      if (u = null, _.document?.commitId !== y.commitId || n !== JSON.stringify(e.current())) return null;
+      if (!f || _.status !== "ready") return null;
+      const y = f;
+      if (f = null, _.document?.commitId !== y.commitId || n !== JSON.stringify(e.current())) return null;
       y.turn.presentation = y.presentation, y.publication.confirmSave(), y.turn.teacher = Sc(y.turn.messages), y.result.text = y.turn.teacher, k(y.turn, "finished");
-      const v = n;
-      return await S(() => v === n && v === JSON.stringify(e.current()), y.turn), e.onConversation?.(), {
+      const w = n;
+      return await S(() => w === n && w === JSON.stringify(e.current()), y.turn), e.onConversation?.(), {
         result: y.result,
         request: y.request
       };
@@ -32136,20 +32135,20 @@ function WL(e) {
       if (!await I() || !e.historyReady()) return;
       const _ = n, y = await e.memory().read();
       if (!(_ !== n || _ !== JSON.stringify(e.current())))
-        for (const v of r) y.exchanges.some((A) => A.id === v.id && A.reply === v.teacher) && v.notice === "history-save" && (v.message = "", delete v.notice);
+        for (const w of r) y.exchanges.some((A) => A.id === w.id && A.reply === w.teacher) && w.notice === "history-save" && (w.message = "", delete w.notice);
     },
     conversation() {
-      const _ = e.current(), y = e.repository.snapshot().document?.data.profiles.find((v) => v.language === _?.language)?.unit?.attempts ?? [];
-      for (const v of i.keys()) y.some((A) => A.id === v) || i.delete(v);
+      const _ = e.current(), y = e.repository.snapshot().document?.data.profiles.find((w) => w.language === _?.language)?.unit?.attempts ?? [];
+      for (const w of i.keys()) y.some((A) => A.id === w) || i.delete(w);
       return n === JSON.stringify(e.current()) ? {
-        turns: structuredClone(r.map((v) => ({
-          ...v,
-          retryable: h(v),
-          messages: v.messages.filter((A) => A.role === "assistant" || A.role === "tool").map(zL)
+        turns: structuredClone(r.map((w) => ({
+          ...w,
+          retryable: h(w),
+          messages: w.messages.filter((A) => A.role === "assistant" || A.role === "tool").map(zL)
         }))),
         removedTurns: s,
-        summaryReviews: [...i].filter(([, v]) => v.status === "finished").map(([v, A]) => ({
-          attemptId: v,
+        summaryReviews: [...i].filter(([, w]) => w.status === "finished").map(([w, A]) => ({
+          attemptId: w,
           text: A.teacher
         }))
       } : {
@@ -32159,9 +32158,9 @@ function WL(e) {
       };
     },
     async run(_, y) {
-      const v = af(_.action);
-      if (W(e.actor === "workbench" || v, "action", "The companion can request workbench operations, not perform teaching tasks"), !await I() && v) return { status: "unconfirmed" };
-      const A = ZI(_.action), C = v ? "conversation" : A ? "preparation" : "work";
+      const w = af(_.action);
+      if (W(e.actor === "workbench" || w, "action", "The companion can request workbench operations, not perform teaching tasks"), !await I() && w) return { status: "unconfirmed" };
+      const A = ZI(_.action), C = w ? "conversation" : A ? "preparation" : "work";
       if (t.has(C)) return { status: "busy" };
       const E = _.action.kind === "task-result" ? a.get(_.action.taskId) : void 0, T = y ? g.get(y) : void 0, R = y && E?.id === y ? E : T && h(T.turn) ? T.turn : null;
       if (y && !R) return { status: "cancelled" };
@@ -32174,7 +32173,7 @@ function WL(e) {
         turn: null
       };
       t.set(C, U);
-      const j = w(), O = () => t.get(C) === U && !G.signal.aborted && JSON.stringify(e.current()) === P && (_.action.kind !== "companion" || j === w());
+      const j = v(), O = () => t.get(C) === U && !G.signal.aborted && JSON.stringify(e.current()) === P && (_.action.kind !== "companion" || j === v());
       let z = null, N = null, B = null, D = { stage: "context" };
       const $ = (K) => {
         O() && (D = K, B && (B.progress = K), e.onProgress?.(K, _.action));
@@ -32197,9 +32196,9 @@ function WL(e) {
         };
         L.target && (L.exerciseId = K.exerciseId ?? L.target.exerciseId, L.selection = K.selection ?? L.target.selection), oe(L.message, "message", 4e3, !!L.delegation || L.action.kind === "companion" || L.action.kind === "task-result");
         const J = e.repository.snapshot();
-        if (!v && (J.status === "unconfirmed" || J.status === "conflict")) return { status: J.status };
-        if (!v && J.status === "unloaded") return q("learning_read_failed");
-        let te = v ? J.document ?? null : Dt(e.repository);
+        if (!w && (J.status === "unconfirmed" || J.status === "conflict")) return { status: J.status };
+        if (!w && J.status === "unloaded") return q("learning_read_failed");
+        let te = w ? J.document ?? null : Dt(e.repository);
         B = {
           id: R?.id ?? (e.createId ?? ri)(),
           references: [],
@@ -32221,7 +32220,7 @@ function WL(e) {
           current: O
         }), G.signal.addEventListener("abort", N.discard, { once: !0 }), U.turn = B;
         let Z = 0;
-        if (R && !E ? r.splice(r.indexOf(R), 1, B) : (R && r.includes(R) && r.splice(r.indexOf(R), 1), r.push(B)), v) {
+        if (R && !E ? r.splice(r.indexOf(R), 1, B) : (R && r.includes(R) && r.splice(r.indexOf(R), 1), r.push(B)), w) {
           for (const [Re, st] of g) L.action.kind === "talk" && st.turn.purpose !== "task-result" && g.delete(Re);
           g.set(B.id, {
             turn: B,
@@ -32244,7 +32243,7 @@ function WL(e) {
         $({ stage: "session" });
         const Te = await e.gateway.openSession(Me);
         if (!O()) return { status: "cancelled" };
-        if (v && (te = e.repository.snapshot().document ?? null), !v && !sa(te, Dt(e.repository)))
+        if (w && (te = e.repository.snapshot().document ?? null), !w && !sa(te, Dt(e.repository)))
           return k(B, "conflict", an.changed), { status: "conflict" };
         const Ge = aL(Me, {
           sources: p,
@@ -32261,7 +32260,7 @@ function WL(e) {
         const Bt = e.actor === "companion" ? {
           kind: "story",
           osId: M.osId
-        } : L.scope ?? (v ? { kind: "public" } : L.action.kind === "review-prepare" ? e4(Ue, L.action.itemIds, M.osId) : $n ? $n.scope : !ln && An ? An.scope : { kind: "public" }), le = QP(L.action, Bt, M.osId), ue = (Re) => v || Ke(Re, Bt.kind === "story" ? Bt.osId : null), Ie = r.filter((Re) => Re.status !== "running" && ue(Re.scope));
+        } : L.scope ?? (w ? { kind: "public" } : L.action.kind === "review-prepare" ? e4(Ue, L.action.itemIds, M.osId) : $n ? $n.scope : !ln && An ? An.scope : { kind: "public" }), le = QP(L.action, Bt, M.osId), ue = (Re) => w || Ke(Re, Bt.kind === "story" ? Bt.osId : null), Ie = r.filter((Re) => Re.status !== "running" && ue(Re.scope));
         let ht = ue(l) ? o : "";
         B.references = [...new Set([
           ...L.references ?? [],
@@ -32290,7 +32289,7 @@ function WL(e) {
           now: e.now,
           asOf: fe,
           actor: e.actor
-        }), v ? B.references = [.../* @__PURE__ */ new Set([
+        }), w ? B.references = [.../* @__PURE__ */ new Set([
           ...B.references,
           ...ee,
           ...c,
@@ -32323,7 +32322,7 @@ function WL(e) {
             if (Re.status === "confirmed" || Re.status === "unchanged") {
               dt = null;
               const st = g.get(B.id);
-              if (st && (st.material = w(Re.document)), !("attemptId" in L.action)) {
+              if (st && (st.material = v(Re.document)), !("attemptId" in L.action)) {
                 const Nn = ie.target(L.target);
                 Object.assign(L.target, {
                   exerciseId: void 0,
@@ -32384,7 +32383,7 @@ function WL(e) {
         if (Pe.status === "cancelled") return Pe;
         if (dt) {
           const Re = dt;
-          return N.discard(), k(B, Re.status === "conflict" ? "conflict" : Re.status === "unconfirmed" ? "unconfirmed" : "cancelled", an.learningSaveUnconfirmed), B.notice = "learning-save", "commitId" in Re && Re.commitId && (u = {
+          return N.discard(), k(B, Re.status === "conflict" ? "conflict" : Re.status === "unconfirmed" ? "unconfirmed" : "cancelled", an.learningSaveUnconfirmed), B.notice = "learning-save", "commitId" in Re && Re.commitId && (f = {
             commitId: Re.commitId,
             turn: B,
             presentation: void 0,
@@ -32411,7 +32410,7 @@ function WL(e) {
           changed: Ae || It.status !== "unchanged",
           appliedTools: _t
         }, Ea = "commitId" in It ? It.commitId : void 0;
-        return Ea && O() && (It.status === "unconfirmed" || It.status === "conflict") && (u = {
+        return Ea && O() && (It.status === "unconfirmed" || It.status === "conflict") && (f = {
           commitId: Ea,
           turn: B,
           presentation: sr ?? void 0,
@@ -32427,7 +32426,7 @@ function WL(e) {
         };
         return K instanceof vn ? q(K.code, L) : K instanceof Rn ? q("learning_input_invalid", L) : q(D.stage === "provider" ? nl(K) : D.stage === "context" ? "learning_context_failed" : D.stage === "config" ? "learning_config_failed" : D.stage === "save" ? "learning_save_failed" : "learning_session_failed", L);
       } finally {
-        if (N && G.signal.removeEventListener("abort", N.discard), u?.turn !== B && N?.discard(), z?.invalidate(), B?.status === "running" && k(B, "cancelled", v ? an.stopped : an.workStopped), B && !["failed", "cancelled"].includes(B.status) && g.delete(B.id), B && B.purpose === "companion" && (B.status !== "finished" || !B.teacher.trim())) {
+        if (N && G.signal.removeEventListener("abort", N.discard), f?.turn !== B && N?.discard(), z?.invalidate(), B?.status === "running" && k(B, "cancelled", w ? an.stopped : an.workStopped), B && !["failed", "cancelled"].includes(B.status) && g.delete(B.id), B && B.purpose === "companion" && (B.status !== "finished" || !B.teacher.trim())) {
           const K = r.indexOf(B);
           K >= 0 && (r.splice(K, 1), e.onConversation?.());
         }
@@ -32522,16 +32521,16 @@ function HL(e) {
   };
 }
 function JL(e) {
-  const t = gL(), n = (l) => t.get(l.id) === l && l.owner === e.owner(), r = () => t.forOwner(e.owner() ?? ""), i = () => r().map((l) => wL(l, !l.result && e.awaitingApproval())), a = () => i().map(({ taskId: l, task: d, status: f, notification: u }) => ({
+  const t = gL(), n = (l) => t.get(l.id) === l && l.owner === e.owner(), r = () => t.forOwner(e.owner() ?? ""), i = () => r().map((l) => wL(l, !l.result && e.awaitingApproval())), a = () => i().map(({ taskId: l, task: d, status: u, notification: f }) => ({
     taskId: l,
     task: d,
-    status: f,
-    notification: u
+    status: u,
+    notification: f
   }));
   function s() {
     for (const d of r()) {
-      const f = e.notificationTurn(d.id);
-      d.notification === "failed" && f?.status === "finished" && !f.notice && (d.notification = "delivered", d.notificationError = "");
+      const u = e.notificationTurn(d.id);
+      d.notification === "failed" && u?.status === "finished" && !u.notice && (d.notification = "delivered", d.notificationError = "");
     }
     if (!e.canNotify()) return;
     const l = r().find((d) => d.result && d.notification === "pending");
@@ -32539,35 +32538,35 @@ function JL(e) {
   }
   function o(l) {
     l.notification = "delivering", l.notificationError = "";
-    const d = ++l.notificationAttempt, f = () => n(l) && l.notificationAttempt === d, u = e.notificationTurn(l.id), p = u?.status === "finished" && u.notice === "history-save" ? e.saveNotification(l.id).then((m) => ({
+    const d = ++l.notificationAttempt, u = () => n(l) && l.notificationAttempt === d, f = e.notificationTurn(l.id), p = f?.status === "finished" && f.notice === "history-save" ? e.saveNotification(l.id).then((m) => ({
       status: "finished",
       historySaved: m
-    })) : e.notify(yL(l), u?.id);
+    })) : e.notify(yL(l), f?.id);
     e.run(async () => {
       try {
         const m = await p;
-        if (!f()) return;
+        if (!u()) return;
         const g = e.notificationTurn(l.id);
         l.notification = m.status === "finished" && m.historySaved === !0 ? "delivered" : "failed", l.notification === "failed" && (l.notificationError = g?.message || (m.status === "failed" ? m.message : an.notificationFailed));
       } catch (m) {
-        f() && (l.notification = "failed", l.notificationError = Zi("task-result", "learning_action_failed", {
+        u() && (l.notification = "failed", l.notificationError = Zi("task-result", "learning_action_failed", {
           stage: "action",
           cause: m
         }));
       } finally {
-        f() && (s(), e.changed());
+        u() && (s(), e.changed());
       }
     }), e.changed();
   }
   function c(l, d) {
     d && e.resetNotification(l.id), l.result = null, l.notification = "pending", l.notificationError = "", l.notificationAttempt++;
-    const f = ++l.workAttempt, u = () => n(l) && l.workAttempt === f, p = e.work(l.request, l.id, d);
+    const u = ++l.workAttempt, f = () => n(l) && l.workAttempt === u, p = e.work(l.request, l.id, d);
     e.run(async () => {
       try {
         const m = await p;
-        u() && !l.result && (l.result = m);
+        f() && !l.result && (l.result = m);
       } catch (m) {
-        u() && !l.result && (l.result = {
+        f() && !l.result && (l.result = {
           status: "failed",
           reason: "learning_action_failed",
           displayed: !1,
@@ -32577,7 +32576,7 @@ function JL(e) {
           })
         });
       } finally {
-        u() && (s(), e.changed());
+        f() && (s(), e.changed());
       }
     }), e.changed();
   }
@@ -32596,9 +32595,9 @@ function JL(e) {
       return l === void 0 ? {
         ok: !0,
         tasks: a()
-      } : d.some((f) => f.taskId === l) ? {
+      } : d.some((u) => u.taskId === l) ? {
         ok: !0,
-        tasks: d.filter((f) => f.taskId === l)
+        tasks: d.filter((u) => u.taskId === l)
       } : {
         ok: !1,
         status: "not-found"
@@ -32607,20 +32606,20 @@ function JL(e) {
     retry(l) {
       const d = t.get(l);
       if (!d || !n(d) || d.notification !== "failed") return;
-      const f = e.notificationTurn(d.id);
-      if (!e.canNotify(f?.status === "finished" && f.notice === "history-save")) return "busy";
+      const u = e.notificationTurn(d.id);
+      if (!e.canNotify(u?.status === "finished" && u.notice === "history-save")) return "busy";
       o(d);
     },
     retryWork(l, d) {
-      const f = t.get(l);
-      if (!(!f || !n(f) || !["failed", "cancelled"].includes(f.result?.status ?? ""))) {
-        if (e.workBusy() || f.notification === "delivering") return "busy";
-        c(f, d);
+      const u = t.get(l);
+      if (!(!u || !n(u) || !["failed", "cancelled"].includes(u.result?.status ?? ""))) {
+        if (e.workBusy() || u.notification === "delivering") return "busy";
+        c(u, d);
       }
     },
     async start(l, d) {
-      const f = e.owner();
-      if (!f || d.aborted) return {
+      const u = e.owner();
+      if (!u || d.aborted) return {
         ok: !1,
         status: "cancelled"
       };
@@ -32628,11 +32627,11 @@ function JL(e) {
         ok: !1,
         status: "busy"
       };
-      const u = t.create(f, l);
-      return c(u), {
+      const f = t.create(u, l);
+      return c(f), {
         ok: !0,
         status: "accepted",
-        taskId: u.id
+        taskId: f.id
       };
     }
   };
@@ -32657,15 +32656,15 @@ function XL(e) {
       progress: ""
     }
   };
-  let d = null, f = null, u = "", p = "", m = !1, g = null;
-  const w = /* @__PURE__ */ new Map();
+  let d = null, u = null, f = "", p = "", m = !1, g = null;
+  const v = /* @__PURE__ */ new Map();
   let h = "", b = 0;
   const k = e.repository, I = HL(q), x = () => ({
     busy: !!a,
     chatBusy: !!l.companion.job && l.companion.kind !== "companion",
     workbenchBusy: !!l.workbench.job,
     preparation: o
-  }), S = (F) => !lp(F, x()), _ = () => !!l.workbench.job || !!a || !!s, y = tl(k), v = T4(e.store, {
+  }), S = (F) => !lp(F, x()), _ = () => !!l.workbench.job || !!a || !!s, y = tl(k), w = T4(e.store, {
     knownPeople: e.people,
     playerName: e.playerName
   }), A = A4({
@@ -32689,7 +32688,7 @@ function XL(e) {
     } : null;
   }
   function R() {
-    const F = T(), H = v.selected();
+    const F = T(), H = w.selected();
     return F && H ? {
       ...F,
       teacher: H.person,
@@ -32703,7 +32702,7 @@ function XL(e) {
       gateway: e.agent,
       current: F === "workbench" ? T : R,
       capture: e.capture,
-      memory: () => C.port(F, r, v.selected()?.id ?? null),
+      memory: () => C.port(F, r, w.selected()?.id ?? null),
       historyReady: () => (F === "workbench" ? e.workbenchFiles : e.files).getFileState() === "ready",
       onConversation: q,
       confirm: I.request,
@@ -32751,7 +32750,7 @@ function XL(e) {
   });
   function j(F, H, ee, ke) {
     const re = {}, ie = i, Ae = l[F];
-    return Ae.job = re, Ae.kind = ee, Ae.progress = "", F === "companion" && (f = null), e.execution.run(async () => {
+    return Ae.job = re, Ae.kind = ee, Ae.progress = "", F === "companion" && (u = null), e.execution.run(async () => {
       try {
         return E() && ie === i && Ae.job === re ? await H() : ke;
       } finally {
@@ -32761,8 +32760,8 @@ function XL(e) {
   }
   const O = (F) => F === "workbench" ? P : G, z = (F) => JSON.stringify(F === "workbench" ? T() : R());
   async function N(F, H = !1) {
-    const ee = w.get(F);
-    (H || ee === z(F)) && (F === "companion" && U.clear(), O(F).reset(), l[F].progress = ""), w.delete(F), await O(F).hydrate(), await O(F).verifyHistory();
+    const ee = v.get(F);
+    (H || ee === z(F)) && (F === "companion" && U.clear(), O(F).reset(), l[F].progress = ""), v.delete(F), await O(F).hydrate(), await O(F).verifyHistory();
   }
   const B = S4({
     repository: k,
@@ -32777,7 +32776,7 @@ function XL(e) {
     },
     onSave: () => q(),
     onError: (F) => {
-      u = F instanceof vn && F.code === "learning_file_full" ? "学习文件已满，已暂停播放。请先导出或清理不需要的学习记录；腾出空间后再操作，会重试保存听取记录。" : k.snapshot().status === "ready" ? "听取记录保存失败，已暂停播放。请重试刚才的操作，会先重试保存听取记录。" : "还不确定播放记录是否保存成功，请先检查保存再作答；题目不会更换。", q();
+      f = F instanceof vn && F.code === "learning_file_full" ? "学习文件已满，已暂停播放。请先导出或清理不需要的学习记录；腾出空间后再操作，会重试保存听取记录。" : k.snapshot().status === "ready" ? "听取记录保存失败，已暂停播放。请重试刚才的操作，会先重试保存听取记录。" : "还不确定播放记录是否保存成功，请先检查保存再作答；题目不会更换。", q();
     }
   });
   function $() {
@@ -32787,9 +32786,9 @@ function XL(e) {
       chatIdentity: n,
       commitId: F.document?.commitId ?? null,
       language: r,
-      teacher: v.selected()?.person ?? null,
-      companionSessionId: v.selected()?.id ?? null,
-      candidates: v.candidates().map((ke) => ({
+      teacher: w.selected()?.person ?? null,
+      companionSessionId: w.selected()?.id ?? null,
+      candidates: w.candidates().map((ke) => ({
         name: ke.name,
         aliases: ke.aliases
       })),
@@ -32803,10 +32802,10 @@ function XL(e) {
       companionBusy: !!l.companion.job && l.companion.kind === "companion",
       chatMessage: l.companion.progress,
       workbenchMessage: l.workbench.progress,
-      message: a ? p : u,
+      message: a ? p : f,
       reply: P.reply(),
       pending: d,
-      remark: f,
+      remark: u,
       companionReply: G.reply(),
       delegatedTasks: U.views(),
       conversation: G.conversation(),
@@ -32826,7 +32825,7 @@ function XL(e) {
     U.clear();
     for (const F of Object.values(l))
       F.job = null, F.kind = "", F.progress = "";
-    s = null, o = null, c = null, d = null, f = null;
+    s = null, o = null, c = null, d = null, u = null;
   }
   function J() {
     L(), i++, P.cancel(), G.cancel(), D.stop(), a = null, p = "";
@@ -32838,16 +32837,16 @@ function XL(e) {
     l.companion.job && l.companion.kind === "companion" && te("companion");
   }
   function Z(F) {
-    return F.status === "unconfirmed" ? u = Ks.unconfirmed : F.status === "conflict" ? u = k.snapshot().status === "invalid" ? Ks.invalid : Ks.conflict : F.status === "failed" && (u = Ks.failed), F.status === "confirmed" || F.status === "unchanged";
+    return F.status === "unconfirmed" ? f = Ks.unconfirmed : F.status === "conflict" ? f = k.snapshot().status === "invalid" ? Ks.invalid : Ks.conflict : F.status === "failed" && (f = Ks.failed), F.status === "confirmed" || F.status === "unchanged";
   }
   async function se(F, H, ee) {
     const ke = await A.settle(r, F, H, ee);
-    return !ee() || u || [
+    return !ee() || f || [
       "paid",
       "wallet-closed",
       "retired",
       "cancelled"
-    ].includes(ke) || (u = RL.unknown), ke;
+    ].includes(ke) || (f = RL.unknown), ke;
   }
   async function fe(F) {
     if (!F() || k.snapshot().status !== "ready") return;
@@ -32861,7 +32860,7 @@ function XL(e) {
   async function me(F, H) {
     if (H()) {
       if (F.status === "failed") {
-        F.displayed || (u = F.message);
+        F.displayed || (f = F.message);
         return;
       }
       if (F.status !== "finished") {
@@ -32908,7 +32907,7 @@ function XL(e) {
     if (!ie.size && !ee && !ke) return;
     U.clear(), te("workbench"), te("companion"), P.reset(), G.reset();
     const Ae = await C.prune(ie, H, ee, ke);
-    Ae.status !== "confirmed" && Ae.status !== "unchanged" && (u = an.memoryClearFailed), H() && (await P.hydrate(), await G.hydrate());
+    Ae.status !== "confirmed" && Ae.status !== "unchanged" && (f = an.memoryClearFailed), H() && (await P.hydrate(), await G.hydrate());
   }
   async function An() {
     g && k.snapshot().status === "ready" && (k.snapshot().document?.commitId === g.commitId && await At(g.before, E, g.language, g.clearAll), g = null), await P.recoverConfirmed(), await P.hydrate(), await G.hydrate();
@@ -33010,26 +33009,26 @@ function XL(e) {
         L(), P.reset(), G.reset();
       })), !ee()) return;
       if (k.snapshot().status === "ready") {
-        if (await v.read(), await e.workbenchStore.read(), await e.economy.refresh(), !ee()) return;
+        if (await w.read(), await e.workbenchStore.read(), await e.economy.refresh(), !ee()) return;
         await An();
       }
       ee() && (m = !1);
       return;
     }
     if (F === "verify-teacher" || F === "adopt-teacher") {
-      const re = v.selected()?.person, ie = F === "verify-teacher" ? await e.files.retryPending({ readOnly: !0 }) : await e.files.adoptServerState();
+      const re = w.selected()?.person, ie = F === "verify-teacher" ? await e.files.retryPending({ readOnly: !0 }) : await e.files.adoptServerState();
       if (e.files.getFileState() !== "ready") return;
-      await v.read(), ee() && await N("companion", ie.status === "adopted" || JSON.stringify(re) !== JSON.stringify(v.selected()?.person));
+      await w.read(), ee() && await N("companion", ie.status === "adopted" || JSON.stringify(re) !== JSON.stringify(w.selected()?.person));
       return;
     }
     if (F === "read" || F === "verify" || F === "retry-save" || F === "adopt-server") {
       const re = k.snapshot();
-      if (F === "verify" ? Z(await k.verify()) : F === "retry-save" ? Z(await k.retry(ee)) : F === "adopt-server" ? (await k.adoptServer(), P.reset(), g = null) : await k.refresh(), await v.read(), await e.economy.refresh(), m = !1, !ee()) return;
+      if (F === "verify" ? Z(await k.verify()) : F === "retry-save" ? Z(await k.retry(ee)) : F === "adopt-server" ? (await k.adoptServer(), P.reset(), g = null) : await k.refresh(), await w.read(), await e.economy.refresh(), m = !1, !ee()) return;
       F === "read" && re.status === "ready" && !sa(re.document ?? null, k.snapshot().document ?? null) && P.reset(), await An(), ee() && await fe(ee);
       return;
     }
     if (F === "verify-wallet" || F === "adopt-wallet") {
-      Z(await (F === "verify-wallet" ? e.rewardFiles.retryPending() : e.rewardFiles.adoptServerState())), ee() && w.has("workbench") && e.workbenchFiles.getFileState() === "ready" && await N("workbench", F === "adopt-wallet"), await e.economy.refresh(), ee() && await fe(ee);
+      Z(await (F === "verify-wallet" ? e.rewardFiles.retryPending() : e.rewardFiles.adoptServerState())), ee() && v.has("workbench") && e.workbenchFiles.getFileState() === "ready" && await N("workbench", F === "adopt-wallet"), await e.economy.refresh(), ee() && await fe(ee);
       return;
     }
     if (F === "verify-workbench" || F === "adopt-workbench") {
@@ -33040,9 +33039,9 @@ function XL(e) {
     if (F === "forget-conversation") {
       const re = Ho(H.target);
       re === "companion" && U.clear(), te(re);
-      const ie = z(re), Ae = await C.clear(re, r, v.selected()?.id ?? null, ee);
+      const ie = z(re), Ae = await C.clear(re, r, w.selected()?.id ?? null, ee);
       if (!ee()) return;
-      Ae.status === "confirmed" || Ae.status === "unchanged" ? await N(re, !0) : ((Ae.status === "unconfirmed" || Ae.status === "conflict") && (w.set(re, ie), O(re).forgetHistory()), l[re].progress = an.memoryClearFailed);
+      Ae.status === "confirmed" || Ae.status === "unchanged" ? await N(re, !0) : ((Ae.status === "unconfirmed" || Ae.status === "conflict") && (v.set(re, ie), O(re).forgetHistory()), l[re].progress = an.memoryClearFailed);
       return;
     }
     if (W(!m, "storage", "Read the learning file first"), Dt(k), F === "choose-original" || F === "retry-source") {
@@ -33054,9 +33053,9 @@ function XL(e) {
       return;
     }
     if (F === "teacher") {
-      const re = await v.read(), ie = H.teacher;
-      if (JSON.stringify(v.selected()?.person ?? null) === JSON.stringify(ie)) return;
-      Z(await v.select(re.identityKey, H.teacher, ee)) && (U.clear(), G.reset(), await G.hydrate()), e.files.getFileState() !== "ready" && (u = "");
+      const re = await w.read(), ie = H.teacher;
+      if (JSON.stringify(w.selected()?.person ?? null) === JSON.stringify(ie)) return;
+      Z(await w.select(re.identityKey, H.teacher, ee)) && (U.clear(), G.reset(), await G.hydrate()), e.files.getFileState() !== "ready" && (f = "");
       return;
     }
     if (F === "profile") {
@@ -33254,7 +33253,7 @@ function XL(e) {
     if (ne(), !E()) return;
     if (!S(F)) return "busy";
     const ke = i, re = {}, ie = () => E() && i === ke && a === re;
-    a = re, p = "正在处理你的请求…", u = "", f = null, D.stop(), e.execution.run(async () => {
+    a = re, p = "正在处理你的请求…", f = "", u = null, D.stop(), e.execution.run(async () => {
       const Ae = [
         "delete-note",
         "delete-item",
@@ -33270,7 +33269,7 @@ function XL(e) {
         else if (!await D.flush()) return;
         dn = k.snapshot().document, ie() && await Ie(F, H, ie, ee);
       } catch (Pe) {
-        ie() && (u = Pe instanceof vn ? Zi(F, Pe.code, {
+        ie() && (f = Pe instanceof vn ? Zi(F, Pe.code, {
           stage: "save",
           cause: Pe
         }) : Pe instanceof Error && Pe.message === "learning_teacher_is_player" ? "请选择其他已知人物作为语伴，不能选择自己。" : Zi(F, Pe instanceof Rn ? "learning_input_invalid" : "learning_action_failed", {
@@ -33289,7 +33288,7 @@ function XL(e) {
   }
   function tt(F, H) {
     const ee = F === "companion" ? "companion" : Ho(H.target), ke = l[ee];
-    if (F !== "companion" && ne(), !E() || ee === "companion" && !v.selected() || F === "companion" && (ke.job || a || l.workbench.job)) return;
+    if (F !== "companion" && ne(), !E() || ee === "companion" && !w.selected() || F === "companion" && (ke.job || a || l.workbench.job)) return;
     if (ke.job) return "busy";
     const re = F === "retry-chat" && typeof H.id == "string" ? H.id : void 0;
     let ie = null;
@@ -33306,7 +33305,7 @@ function XL(e) {
         unitId: ie.action.kind === "talk" ? ie.action.unitId : void 0
       };
     }
-    ee === "companion" && (f = null);
+    ee === "companion" && (u = null);
     const Ae = {}, dt = i;
     ke.job = Ae, ke.kind = F, ke.progress = "";
     const dn = () => E() && i === dt && ke.job === Ae;
@@ -33336,7 +33335,7 @@ function XL(e) {
 ${sr.quote}` : Re
         }, re);
         if (!dn()) return;
-        ke.progress = "", st.status === "failed" && !st.displayed && (ke.progress = st.message), st.status === "finished" && F === "companion" && st.text.trim() && (f = {
+        ke.progress = "", st.status === "failed" && !st.displayed && (ke.progress = st.message), st.status === "finished" && F === "companion" && st.text.trim() && (u = {
           text: st.text,
           materialId: ai,
           paragraphId: Ea
@@ -33355,14 +33354,14 @@ ${sr.quote}` : Re
     J(), P.reset(), G.reset(), t = null;
   }), {
     async activate(F) {
-      J(), t = F, n = e.chatIdentity(), u = "", b = 0, h = "";
+      J(), t = F, n = e.chatIdentity(), f = "", b = 0, h = "";
       const H = i;
       try {
         const ee = k.snapshot();
-        if (await k.read(), H !== i || (ee.status === "ready" && !sa(ee.document ?? null, k.snapshot().document ?? null) && P.reset(), await v.read(), await e.workbenchStore.read(), H !== i)) return $();
+        if (await k.read(), H !== i || (ee.status === "ready" && !sa(ee.document ?? null, k.snapshot().document ?? null) && P.reset(), await w.read(), await e.workbenchStore.read(), H !== i)) return $();
         await An(), await e.economy.refresh(), H === i && (m = !1), H === i && await fe(() => H === i && E());
       } catch (ee) {
-        H === i && (m = !0, u = Zi("open", ee instanceof vn ? ee.code : "learning_read_failed", {
+        H === i && (m = !0, f = Zi("open", ee instanceof vn ? ee.code : "learning_read_failed", {
           stage: "context",
           cause: ee
         }));
@@ -33437,14 +33436,14 @@ ${sr.quote}` : Re
       } else if (H === "cancel-companion")
         ne(), q();
       else if (H === "cancel")
-        $n(), P.cancel("work"), D.stop(), a = null, p = "", d = null, u = "已停止训练操作；如果保存已经开始，仍需检查是否成功。", U.drain(), q();
+        $n(), P.cancel("work"), D.stop(), a = null, p = "", d = null, f = "已停止训练操作；如果保存已经开始，仍需检查是否成功。", U.drain(), q();
       else if (H === "language" && K()) {
         const re = ls(ee.language, "language");
-        re !== r && (J(), P.reset(), G.reset(), r = re, h = "", b = 0, u = "", e.execution.run(async () => {
+        re !== r && (J(), P.reset(), G.reset(), r = re, h = "", b = 0, f = "", e.execution.run(async () => {
           try {
             await P.hydrate(), await G.hydrate();
           } catch {
-            u = an.historyLoadFailed;
+            f = an.historyLoadFailed;
           }
           q();
         }));
@@ -33716,24 +33715,24 @@ function s5({ map: e, settings: t, maintenance: n, getChatIdentity: r, subscribe
     if (!S || S !== a.chatIdentity || String(x.chatIdentity || "") !== S) throw new Error("聊天已切换，请重新打开地图");
     return a;
   }
-  function f(x, S = {}) {
+  function u(x, S = {}) {
     if (d(S) !== x) throw new Error("地图页面已切换，请重试");
   }
-  function u(x) {
-    const S = e.readCurrent(), _ = a5(S.writeState), y = n5(n.getStatus("map", x)), v = t.read()?.apps.map;
+  function f(x) {
+    const S = e.readCurrent(), _ = a5(S.writeState), y = n5(n.getStatus("map", x)), w = t.read()?.apps.map;
     return {
       chatIdentity: x,
       map: S.map,
       writeState: S.writeState,
       ..._,
-      autoMaintenance: v?.autoMaintenance === !0,
-      projectToChat: v?.projectToChat === !0,
+      autoMaintenance: w?.autoMaintenance === !0,
+      projectToChat: w?.projectToChat === !0,
       ...y
     };
   }
   function p(x = a) {
     if (!x) throw new Error("地图 APP 未激活");
-    const S = u(x.chatIdentity);
+    const S = f(x.chatIdentity);
     return x.post("map/state", { state: S }), S;
   }
   function m() {
@@ -33746,15 +33745,15 @@ function s5({ map: e, settings: t, maintenance: n, getChatIdentity: r, subscribe
       }
   }
   function g(x) {
-    w();
+    v();
     const S = l();
     if (!S) throw new Error("请先打开一个聊天");
     return a = {
       chatIdentity: S,
       post: x.post
-    }, u(S);
+    }, f(S);
   }
-  function w() {
+  function v() {
     a = null;
   }
   function h(x) {
@@ -33769,28 +33768,28 @@ function s5({ map: e, settings: t, maintenance: n, getChatIdentity: r, subscribe
   async function b(x) {
     const S = r5(x.payload) ? x.payload : {}, _ = d(S);
     if (x.type === "map/refresh")
-      return await e.refreshCurrent(), f(_, S), p(_);
+      return await e.refreshCurrent(), u(_, S), p(_);
     if (x.type === "map/confirm-save") {
       const y = await e.confirmPending();
-      return f(_, S), {
+      return u(_, S), {
         confirmation: y.status,
         state: p(_)
       };
     }
     if (x.type === "map/adopt-server-state") {
       const y = await e.adoptServerState();
-      return f(_, S), {
+      return u(_, S), {
         adoption: y.status,
         state: p(_)
       };
     }
     if (x.type === "map/set-auto-maintenance") {
       if (typeof S.enabled != "boolean") throw new TypeError("地图自动维护开关无效");
-      return await t.setMapAutoMaintenance(S.enabled), f(_, S), p(_);
+      return await t.setMapAutoMaintenance(S.enabled), u(_, S), p(_);
     }
     if (x.type === "map/set-projection") {
       if (typeof S.enabled != "boolean") throw new TypeError("invalid_map_projection");
-      return await t.setMapProjection(S.enabled), f(_, S), p(_);
+      return await t.setMapProjection(S.enabled), u(_, S), p(_);
     }
     if (x.type === "map/maintain-once") return h("manual");
     if (x.type === "map/rebuild") return h("rebuild");
@@ -33803,20 +33802,20 @@ function s5({ map: e, settings: t, maintenance: n, getChatIdentity: r, subscribe
     x === "map" && a?.chatIdentity === S && m();
   }
   return Object.freeze({
-    readState: () => u(l()),
+    readState: () => f(l()),
     activate: g,
-    deactivate: w,
-    cancelForeground: w,
-    cancelAll: w,
+    deactivate: v,
+    cancelForeground: v,
+    cancelAll: v,
     handleChatChanged() {
-      w(), n.cancelRequested("map", "chat-changed"), n.invalidateAutomatic("map", "chat-changed");
+      v(), n.cancelRequested("map", "chat-changed"), n.invalidateAutomatic("map", "chat-changed");
     },
     handleMessage: b,
     startBackground() {
       s ||= i(k), o ||= t.subscribe(m), c ||= n.subscribeStatus(I);
     },
     stopBackground() {
-      s?.(), o?.(), c?.(), s = null, o = null, c = null, w();
+      s?.(), o?.(), c?.(), s = null, o = null, c = null, v();
     }
   });
 }
@@ -34256,31 +34255,31 @@ function k5(e, t, n) {
   r && (Jr(e, r.actorKey, `${n}.actorKey`), Jr(e, r.locationKey, `${n}.locationKey`), ds(e, r.displayName, `${n}.displayName`, 120));
 }
 function _5(e, t, n) {
-  const { locations: r, links: i, actors: a } = t.atlas, { scenes: s } = t, o = new Map(r.map((f) => [f.key, f])), c = /* @__PURE__ */ new Set();
-  r.forEach((f, u) => {
-    const p = `${n}.atlas.locations.${u}`;
-    f.parent && e.check(o.has(f.parent), "map_invalid_domain", `${p}.parent`, `has missing parent ${f.parent}`), f.sceneKey && (e.check(Object.hasOwn(s, f.sceneKey), "map_invalid_domain", `${p}.sceneKey`, `has missing scene ${f.sceneKey}`), e.check(!c.has(f.sceneKey), "map_invalid_domain", `${p}.sceneKey`, `shares scene ${f.sceneKey}`), c.add(f.sceneKey));
-    const m = /* @__PURE__ */ new Set([f.key]);
-    let g = f;
+  const { locations: r, links: i, actors: a } = t.atlas, { scenes: s } = t, o = new Map(r.map((u) => [u.key, u])), c = /* @__PURE__ */ new Set();
+  r.forEach((u, f) => {
+    const p = `${n}.atlas.locations.${f}`;
+    u.parent && e.check(o.has(u.parent), "map_invalid_domain", `${p}.parent`, `has missing parent ${u.parent}`), u.sceneKey && (e.check(Object.hasOwn(s, u.sceneKey), "map_invalid_domain", `${p}.sceneKey`, `has missing scene ${u.sceneKey}`), e.check(!c.has(u.sceneKey), "map_invalid_domain", `${p}.sceneKey`, `shares scene ${u.sceneKey}`), c.add(u.sceneKey));
+    const m = /* @__PURE__ */ new Set([u.key]);
+    let g = u;
     for (; g?.parent && e.check(!m.has(g.parent), "map_invalid_domain", `${p}.parent`, `contains a parent cycle at ${g.parent}`); )
       m.add(g.parent), g = o.get(g.parent);
   });
-  for (const f of Object.keys(s)) e.check(c.has(f), "map_invalid_domain", `${n}.scenes.${f}`, "is not owned by a location");
-  i.forEach((f, u) => {
-    for (const p of ["from", "to"]) e.check(o.has(f[p]), "map_invalid_domain", `${n}.atlas.links.${u}.${p}`, `has missing endpoint ${f[p]}`);
-    e.check(f.from !== f.to, "map_invalid_domain", `${n}.atlas.links.${u}`, `has a self-link ${f.id}`);
+  for (const u of Object.keys(s)) e.check(c.has(u), "map_invalid_domain", `${n}.scenes.${u}`, "is not owned by a location");
+  i.forEach((u, f) => {
+    for (const p of ["from", "to"]) e.check(o.has(u[p]), "map_invalid_domain", `${n}.atlas.links.${f}.${p}`, `has missing endpoint ${u[p]}`);
+    e.check(u.from !== u.to, "map_invalid_domain", `${n}.atlas.links.${f}`, `has a self-link ${u.id}`);
   });
-  const l = new Map(a.map((f) => [f.actorKey, f]));
-  a.forEach((f, u) => {
-    e.check(o.has(f.locationKey), "map_invalid_domain", `${n}.atlas.actors.${u}.locationKey`, `has missing location ${f.locationKey}`);
+  const l = new Map(a.map((u) => [u.actorKey, u]));
+  a.forEach((u, f) => {
+    e.check(o.has(u.locationKey), "map_invalid_domain", `${n}.atlas.actors.${f}.locationKey`, `has missing location ${u.locationKey}`);
   });
   const d = /* @__PURE__ */ new Set();
-  for (const f of Object.values(s)) f.elements.forEach((u, p) => {
-    if (u.category !== "actor") return;
-    const m = `${n}.scenes.${f.key}.elements.${p}.actorKey`, g = l.get(u.actorKey);
-    if (!e.check(!!g, "map_invalid_domain", m, `has unknown actor ${u.actorKey}`)) return;
-    const w = o.get(g.locationKey);
-    w && e.check(w.sceneKey === f.key, "map_invalid_domain", m, `renders actor ${u.actorKey} at the wrong location`), e.check(!d.has(u.actorKey), "map_invalid_domain", m, `renders actor ${u.actorKey} more than once`), d.add(u.actorKey);
+  for (const u of Object.values(s)) u.elements.forEach((f, p) => {
+    if (f.category !== "actor") return;
+    const m = `${n}.scenes.${u.key}.elements.${p}.actorKey`, g = l.get(f.actorKey);
+    if (!e.check(!!g, "map_invalid_domain", m, `has unknown actor ${f.actorKey}`)) return;
+    const v = o.get(g.locationKey);
+    v && e.check(v.sceneKey === u.key, "map_invalid_domain", m, `renders actor ${f.actorKey} at the wrong location`), e.check(!d.has(f.actorKey), "map_invalid_domain", m, `renders actor ${f.actorKey} more than once`), d.add(f.actorKey);
   });
 }
 function jx(e) {
@@ -34324,9 +34323,9 @@ function I5(e, t = "domains.map") {
         "actorKey"
       ]
     ];
-    for (const [c, l, d, f] of o) {
-      const u = n.array(i[c], `${t}.atlas.${c}`, l);
-      u && (u.forEach((p, m) => d(n, p, `${t}.atlas.${c}.${m}`)), Lx(n, u, f, `${t}.atlas.${c}`));
+    for (const [c, l, d, u] of o) {
+      const f = n.array(i[c], `${t}.atlas.${c}`, l);
+      f && (f.forEach((p, m) => d(n, p, `${t}.atlas.${c}.${m}`)), Lx(n, f, u, `${t}.atlas.${c}`));
     }
   }
   const a = r.scenes;
@@ -34576,8 +34575,8 @@ function M5(e, t) {
   for (const [o, c] of i) {
     const l = /* @__PURE__ */ new Set([o]), d = [...r.get(o) || []];
     for (; d.length; ) {
-      const f = d.pop();
-      l.has(f) || (l.add(f), i.has(f) && (c.add(f), i.get(f).add(o)), d.push(...r.get(f) || []));
+      const u = d.pop();
+      l.has(u) || (l.add(u), i.has(u) && (c.add(u), i.get(u).add(o)), d.push(...r.get(u) || []));
     }
   }
   const a = new Set(i.keys()), s = n.filter((o) => !o.id).map((o) => [o]);
@@ -34595,9 +34594,9 @@ function $5(e, t) {
   let n = e, r = !1;
   const i = [], a = [], s = [];
   for (const o of M5(e.atlas, t)) {
-    const c = new Map(n.atlas.locations.map((u) => [u.key, u])), l = [], d = /* @__PURE__ */ new Map();
-    for (const { raw: u, index: p, id: m } of o) {
-      const g = Vt(u) ? Object.keys(u).filter((_) => !O5.has(_)) : [], w = Vt(u) ? bo(u.name) : "";
+    const c = new Map(n.atlas.locations.map((f) => [f.key, f])), l = [], d = /* @__PURE__ */ new Map();
+    for (const { raw: f, index: p, id: m } of o) {
+      const g = Vt(f) ? Object.keys(f).filter((_) => !O5.has(_)) : [], v = Vt(f) ? bo(f.name) : "";
       if (g.length) {
         d.set(p, {
           reason: "location_has_unsupported_fields",
@@ -34605,66 +34604,66 @@ function $5(e, t) {
         });
         continue;
       }
-      if (!Vt(u) || !m || !w) {
+      if (!Vt(f) || !m || !v) {
         d.set(p, {
           reason: "location_invalid_or_parent_missing",
           hint: R5
         });
         continue;
       }
-      const h = c.get(m), b = Wn(u.scale, C5) || h?.scale || "room", k = Wn(u.status, T5) || h?.status || "mentioned", I = {
+      const h = c.get(m), b = Wn(f.scale, C5) || h?.scale || "room", k = Wn(f.status, T5) || h?.status || "mentioned", I = {
         ...h,
         key: m,
-        name: w,
+        name: v,
         scale: b,
         status: k
-      }, x = yt(u.parent);
-      x ? I.parent = x : (u.parent === null || u.parent === "") && delete I.parent;
-      const S = bo(u.brief, "", 500);
-      S && (I.brief = S), u.position === null ? delete I.position : u.position !== void 0 && (I.position = u.position), u.terrain === null ? delete I.terrain : u.terrain !== void 0 && (I.terrain = u.terrain), c.set(m, I), l.push({
+      }, x = yt(f.parent);
+      x ? I.parent = x : (f.parent === null || f.parent === "") && delete I.parent;
+      const S = bo(f.brief, "", 500);
+      S && (I.brief = S), f.position === null ? delete I.position : f.position !== void 0 && (I.position = f.position), f.terrain === null ? delete I.terrain : f.terrain !== void 0 && (I.terrain = f.terrain), c.set(m, I), l.push({
         op: "upsert-location",
         location: I
       });
     }
-    const f = (u, p, m) => {
-      for (const { index: g, id: w } of o) s.push({
+    const u = (f, p, m) => {
+      for (const { index: g, id: v } of o) s.push({
         collection: "locations",
         index: g,
-        id: w,
+        id: v,
         ...d.get(g) || {
-          reason: u,
+          reason: f,
           hint: p
         },
         ...m && g === o[0].index ? { validation: m } : {}
       });
     };
     if (d.size) {
-      f("location_group_invalid", ib);
+      u("location_group_invalid", ib);
       continue;
     }
     try {
-      const u = Ac(n, l), p = new Set(o.map((m) => m.id));
-      if (u.domain.atlas.locations.some((m) => p.has(m.key) && m.sceneKey && !Og(m))) {
-        f("scene_location_required", Fx);
+      const f = Ac(n, l), p = new Set(o.map((m) => m.id));
+      if (f.domain.atlas.locations.some((m) => p.has(m.key) && m.sceneKey && !Og(m))) {
+        u("scene_location_required", Fx);
         continue;
       }
-      if (Bx(u.domain.atlas).some((m) => p.has(m.key) || Rg(n.atlas, m.key))) {
-        f("location_region_required", qx);
+      if (Bx(f.domain.atlas).some((m) => p.has(m.key) || Rg(n.atlas, m.key))) {
+        u("location_region_required", qx);
         continue;
       }
       for (const { index: m, id: g } of o) {
-        const w = n.atlas.locations.find((b) => b.key === g), h = u.domain.atlas.locations.find((b) => b.key === g);
+        const v = n.atlas.locations.find((b) => b.key === g), h = f.domain.atlas.locations.find((b) => b.key === g);
         a.push({
           collection: "locations",
           index: m,
           id: g,
-          changed: !ze(w, h)
+          changed: !ze(v, h)
         });
       }
-      n = u.domain, r ||= u.changed, i.push(...l);
-    } catch (u) {
-      const p = Gs(u);
-      f(p.reason, ib, p.validation);
+      n = f.domain, r ||= f.changed, i.push(...l);
+    } catch (f) {
+      const p = Gs(f);
+      u(p.reason, ib, p.validation);
     }
   }
   return {
@@ -34867,12 +34866,12 @@ function Gx(e, t, n) {
   };
   const c = Array.isArray(t.locations) ? t.locations : [], l = $5(e, c);
   let d = l.domain;
-  const f = [...l.edits], u = [...l.applied], p = [...l.skipped], m = [];
+  const u = [...l.edits], f = [...l.applied], p = [...l.skipped], m = [];
   let g = l.changed;
-  const w = (k, I, x, S, _) => {
+  const v = (k, I, x, S, _) => {
     try {
       const y = Ac(d, S);
-      return d = y.domain, g ||= y.changed, f.push(...S), u.push({
+      return d = y.domain, g ||= y.changed, u.push(...S), f.push({
         collection: k,
         index: I,
         id: x,
@@ -34909,7 +34908,7 @@ function Gx(e, t, n) {
       });
       return;
     }
-    const S = yt(k.from), _ = yt(k.to), y = Wn(k.kind, N5), v = k.bidirectional !== !1, A = yt(k.id, S && _ && y ? z5(S, _, y, v) : "");
+    const S = yt(k.from), _ = yt(k.to), y = Wn(k.kind, N5), w = k.bidirectional !== !1, A = yt(k.id, S && _ && y ? z5(S, _, y, w) : "");
     if (!S || !_ || !y || !A) {
       p.push({
         collection: "links",
@@ -34920,14 +34919,14 @@ function Gx(e, t, n) {
       });
       return;
     }
-    const [C, E] = v ? [S, _].sort() : [S, _], T = {
+    const [C, E] = w ? [S, _].sort() : [S, _], T = {
       id: A,
       from: C,
       to: E,
       kind: y,
-      bidirectional: v
+      bidirectional: w
     }, R = bo(k.label, "", 160);
-    R && (T.label = R), w("links", I, A, [{
+    R && (T.label = R), v("links", I, A, [{
       op: "upsert-link",
       link: T
     }], "Create both endpoint locations before this link.");
@@ -34964,10 +34963,10 @@ function Gx(e, t, n) {
       });
       return;
     }
-    const v = _ === "player" ? n.displayName : bo(k.displayName, d.atlas.actors.find((A) => A.actorKey === _)?.displayName || _);
-    w("actors", I, _, B5(d, {
+    const w = _ === "player" ? n.displayName : bo(k.displayName, d.atlas.actors.find((A) => A.actorKey === _)?.displayName || _);
+    v("actors", I, _, B5(d, {
       actorKey: _,
-      displayName: v,
+      displayName: w,
       locationKey: y
     }), "Use an existing location key.");
   }), (Array.isArray(i.linkIds) ? i.linkIds : []).forEach((k, I) => {
@@ -34981,7 +34980,7 @@ function Gx(e, t, n) {
       });
       return;
     }
-    w("remove.linkIds", I, x, [{
+    v("remove.linkIds", I, x, [{
       op: "remove-link",
       linkId: x
     }], "Use a valid link id.");
@@ -34996,7 +34995,7 @@ function Gx(e, t, n) {
       });
       return;
     }
-    w("remove.actorKeys", I, S, Kx(d, S), "Use a valid actor key.");
+    v("remove.actorKeys", I, S, Kx(d, S), "Use a valid actor key.");
   }), (Array.isArray(i.locationKeys) ? i.locationKeys : []).forEach((k, I) => {
     const x = yt(k);
     if (!x) {
@@ -35008,13 +35007,13 @@ function Gx(e, t, n) {
       });
       return;
     }
-    w("remove.locationKeys", I, x, F5(d, x), "Use an existing location key.");
+    v("remove.locationKeys", I, x, F5(d, x), "Use an existing location key.");
   }), !c.length && !h.length && !b.length && !Object.keys(i).length && m.push("No atlas declarations were supplied."), {
     domain: d,
-    edits: f,
+    edits: u,
     result: pt({
       changed: g,
-      applied: u,
+      applied: f,
       skipped: p,
       warnings: m
     })
@@ -35154,16 +35153,16 @@ function il(e, t) {
       actors: structuredClone(e.atlas.actors)
     }
   } });
-  const d = H5(t.query, "query", 120), f = sb(t.offset, "offset", 0, 0, Number.MAX_SAFE_INTEGER), u = sb(t.limit, "limit", 30, 1, 300);
+  const d = H5(t.query, "query", 120), u = sb(t.offset, "offset", 0, 0, Number.MAX_SAFE_INTEGER), f = sb(t.limit, "limit", 30, 1, 300);
   if (r === "locations") {
     if (t.needsRegion !== void 0 && typeof t.needsRegion != "boolean") throw new TypeError("MapAtlasRead.needsRegion must be a boolean.");
-    const g = dd(t.parent, "parent"), w = t.status === void 0 ? null : Wn(t.status, G5);
-    if (t.status !== void 0 && !w) throw new TypeError("MapAtlasRead.status is invalid.");
-    const h = up(e.atlas.locations.filter((b) => (!g || b.parent === g) && (!w || s.has(b.key) === (w === "visited")) && (t.needsRegion === void 0 || a.has(b.key) === t.needsRegion) && fp([
+    const g = dd(t.parent, "parent"), v = t.status === void 0 ? null : Wn(t.status, G5);
+    if (t.status !== void 0 && !v) throw new TypeError("MapAtlasRead.status is invalid.");
+    const h = up(e.atlas.locations.filter((b) => (!g || b.parent === g) && (!v || s.has(b.key) === (v === "visited")) && (t.needsRegion === void 0 || a.has(b.key) === t.needsRegion) && fp([
       b.key,
       b.name,
       b.brief
-    ], d)).map((b) => ab(b, a, s)), f, u);
+    ], d)).map((b) => ab(b, a, s)), u, f);
     return pt({ data: {
       mode: r,
       revision: i,
@@ -35175,14 +35174,14 @@ function il(e, t) {
     } });
   }
   if (r === "links") {
-    const g = dd(t.from, "from"), w = dd(t.to, "to"), h = t.kind === void 0 ? null : Wn(t.kind, U5);
+    const g = dd(t.from, "from"), v = dd(t.to, "to"), h = t.kind === void 0 ? null : Wn(t.kind, U5);
     if (t.kind !== void 0 && !h) throw new TypeError("MapAtlasRead.kind is invalid.");
-    const b = up(e.atlas.links.filter((k) => (!g || k.from === g || k.bidirectional && k.to === g) && (!w || k.to === w || k.bidirectional && k.from === w) && (!h || k.kind === h) && fp([
+    const b = up(e.atlas.links.filter((k) => (!g || k.from === g || k.bidirectional && k.to === g) && (!v || k.to === v || k.bidirectional && k.from === v) && (!h || k.kind === h) && fp([
       k.id,
       k.label,
       k.from,
       k.to
-    ], d)), f, u);
+    ], d)), u, f);
     return pt({ data: {
       mode: r,
       revision: i,
@@ -35197,7 +35196,7 @@ function il(e, t) {
     g.actorKey,
     g.displayName,
     g.locationKey
-  ], d)), f, u);
+  ], d)), u, f);
   return pt({ data: {
     mode: r,
     revision: i,
@@ -36316,18 +36315,18 @@ function wj(e, t, n, r, i) {
   if (s.length) throw new Error(`element_has_unsupported_fields:${s.join(",")}`);
   const o = { ...e };
   if (vu.has(String(e.cat || "").trim().toLowerCase()) && (o.cat = "terrain"), Vt(e.geo) && Object.hasOwn(e.geo, "icon")) {
-    const { icon: w, ...h } = e.geo;
-    o.geo = h, o.icon === void 0 && (o.icon = w);
+    const { icon: v, ...h } = e.geo;
+    o.geo = h, o.icon === void 0 && (o.icon = v);
   }
   const c = Du(o, e1, `elements[${t}]`);
   if (c.length) throw new fi(c);
   if (!i && e.cat === void 0) throw new Error(`new_element_requires_category:${a}`);
   const l = Object.hasOwn(e, "geo") || Object.hasOwn(e, "shape");
-  let d = i?.shape, f = i ? structuredClone(i.geometry) : void 0, u = i?.label || "";
-  if (Object.hasOwn(e, "label")) if (e.label === null) u = "";
+  let d = i?.shape, u = i ? structuredClone(i.geometry) : void 0, f = i?.label || "";
+  if (Object.hasOwn(e, "label")) if (e.label === null) f = "";
   else {
-    const w = bo(e.label, "", 160);
-    if (w) u = w;
+    const v = bo(e.label, "", 160);
+    if (v) f = v;
     else throw new fi([{
       code: "invalid_value",
       path: `elements[${t}].label`,
@@ -36340,12 +36339,12 @@ function wj(e, t, n, r, i) {
   }
   if (!i || l) {
     if (!Vt(e.geo)) throw new Error(i ? `shape_and_geo_required:${a}` : `new_element_requires_geo:${a}`);
-    const w = Wn(e.shape, Sg), h = yj(i?.category ?? e.cat, e.geo, u);
-    if (d = w || (e.shape === void 0 ? i?.shape : void 0), !w && d && !n1(d, e.geo, u) && h && h !== d ? d = h : !d && h && (d = h, r.push(`Inferred shape "${d}" for ${a}.`)), !d) throw new Error(`shape_or_matching_geo_required:${a}`);
+    const v = Wn(e.shape, Sg), h = yj(i?.category ?? e.cat, e.geo, f);
+    if (d = v || (e.shape === void 0 ? i?.shape : void 0), !v && d && !n1(d, e.geo, f) && h && h !== d ? d = h : !d && h && (d = h, r.push(`Inferred shape "${d}" for ${a}.`)), !d) throw new Error(`shape_or_matching_geo_required:${a}`);
     if (d === "rect") {
       const b = oa(e.geo.center), k = Wx(e.geo.size);
       if (!b || !k) throw new Error(`rect_requires_center_and_size:${a}`);
-      f = {
+      u = {
         x: b[0] - k[0] / 2,
         y: b[1] - k[1] / 2,
         width: k[0],
@@ -36354,7 +36353,7 @@ function wj(e, t, n, r, i) {
     } else if (d === "circle") {
       const b = oa(e.geo.at), k = bu(e.geo.radius);
       if (!b || k === null) throw new Error(`circle_requires_at_and_radius:${a}`);
-      f = {
+      u = {
         x: b[0],
         y: b[1],
         radius: k
@@ -36362,22 +36361,22 @@ function wj(e, t, n, r, i) {
     } else if (d === "path" || d === "curve") {
       const b = Mm(d === "path" ? e.geo.points : e.geo.curve);
       if (!b) throw new Error(`${d}_requires_two_points:${a}`);
-      f = { points: b };
+      u = { points: b };
     } else {
       const b = oa(e.geo.at);
       if (!b) throw new Error(`${d}_requires_at:${a}`);
-      f = {
+      u = {
         x: b[0],
         y: b[1]
       };
     }
   }
-  if (!d || !f) throw new Error(`new_element_requires_geo:${a}`);
+  if (!d || !u) throw new Error(`new_element_requires_geo:${a}`);
   let p;
   if (i) {
     if (p = i.category, Object.hasOwn(e, "cat")) {
-      const w = String(e.cat || "").trim().toLowerCase();
-      if ((vu.has(w) ? "terrain" : Wn(w, Il)) !== p) throw new fi([{
+      const v = String(e.cat || "").trim().toLowerCase();
+      if ((vu.has(v) ? "terrain" : Wn(v, Il)) !== p) throw new fi([{
         code: "identity_conflict",
         path: `elements[${t}].cat`,
         message: "Use the existing category for this ID, or a new ID for another entity.",
@@ -36390,16 +36389,16 @@ function wj(e, t, n, r, i) {
     id: a,
     category: p,
     shape: d,
-    geometry: f
+    geometry: u
   } : {
     id: a,
     category: p,
     shape: d,
-    geometry: f
+    geometry: u
   };
   Object.hasOwn(e, "kind") && (e.kind === null ? delete m.kind : m.kind = Wn(e.kind, Ag));
   const g = Vt(e.geo) && Object.hasOwn(e.geo, "icon") ? e.geo.icon : void 0;
-  if ((Object.hasOwn(e, "icon") || g !== void 0) && (e.icon === null ? delete m.icon : m.icon = Wn(Object.hasOwn(e, "icon") ? e.icon : g, Tg)), Object.hasOwn(e, "label") && (e.label === null ? delete m.label : u && (m.label = u)), Object.hasOwn(e, "material") && (e.material === null ? delete m.material : m.material = Wn(e.material, Eg)), Object.hasOwn(e, "certainty") && (e.certainty === null ? delete m.certainty : m.certainty = Wn(e.certainty, Cg)), Object.hasOwn(e, "closed") && (e.closed === null ? delete m.closed : m.closed = e.closed), d !== "path" && d !== "curve" && delete m.closed, Object.hasOwn(e, "rotation")) if (e.rotation === null) delete m.rotation;
+  if ((Object.hasOwn(e, "icon") || g !== void 0) && (e.icon === null ? delete m.icon : m.icon = Wn(Object.hasOwn(e, "icon") ? e.icon : g, Tg)), Object.hasOwn(e, "label") && (e.label === null ? delete m.label : f && (m.label = f)), Object.hasOwn(e, "material") && (e.material === null ? delete m.material : m.material = Wn(e.material, Eg)), Object.hasOwn(e, "certainty") && (e.certainty === null ? delete m.certainty : m.certainty = Wn(e.certainty, Cg)), Object.hasOwn(e, "closed") && (e.closed === null ? delete m.closed : m.closed = e.closed), d !== "path" && d !== "curve" && delete m.closed, Object.hasOwn(e, "rotation")) if (e.rotation === null) delete m.rotation;
   else {
     if (typeof e.rotation != "number" || !Number.isFinite(e.rotation) || e.rotation < 0 || e.rotation >= 360) throw new fi([{
       code: "invalid_value",
@@ -36414,17 +36413,17 @@ function wj(e, t, n, r, i) {
   }
   if (m.rotation !== void 0 && d !== "rect" && d !== "circle") throw new Error(`rotation_requires_rect_or_circle_clear_rotation_with_null:${a}`);
   if (p === "actor") {
-    const w = i?.category === "actor" ? i.actorKey : void 0;
-    let h = Object.hasOwn(e, "actorKey") ? yt(e.actorKey) : w || a;
-    if (w) {
+    const v = i?.category === "actor" ? i.actorKey : void 0;
+    let h = Object.hasOwn(e, "actorKey") ? yt(e.actorKey) : v || a;
+    if (v) {
       const k = h === "user" ? "player" : h;
-      if (Object.hasOwn(e, "actorKey") && k !== w) throw new fi([{
+      if (Object.hasOwn(e, "actorKey") && k !== v) throw new fi([{
         code: "identity_conflict",
         path: `elements[${t}].actorKey`,
         message: "This element belongs to another actor. Use its existing actorKey, or a new element ID.",
-        expected: { enum: [w] }
+        expected: { enum: [v] }
       }]);
-      h = w;
+      h = v;
     }
     if (!h) throw new Error(`actor_key_required:${a}`);
     const b = i ? h === "player" : h === "player" || h === "user" || !Object.hasOwn(e, "actorKey") && m.kind === "player";
@@ -36512,7 +36511,7 @@ function r1(e, t, n) {
       reason: "scene_remove_must_be_array"
     }] })
   };
-  const i = Array.isArray(t.elements) ? t.elements : [], a = Array.isArray(t.remove) ? t.remove : [], s = Du(Object.fromEntries(Object.entries(t).filter(([v]) => v !== "elements")), Zx);
+  const i = Array.isArray(t.elements) ? t.elements : [], a = Array.isArray(t.remove) ? t.remove : [], s = Du(Object.fromEntries(Object.entries(t).filter(([w]) => w !== "elements")), Zx);
   if (Array.isArray(t.viewBox) && t.viewBox.length === 4 && (Number(t.viewBox[2]) <= 0 || Number(t.viewBox[3]) <= 0) && s.push({
     code: "invalid_value",
     path: "viewBox",
@@ -36549,7 +36548,7 @@ function r1(e, t, n) {
     }] })
   };
   let l = e;
-  const d = [], f = [], u = [], p = [];
+  const d = [], u = [], f = [], p = [];
   let m = !1;
   const g = vj(l, c);
   if (!g || !Og(g)) return {
@@ -36572,7 +36571,7 @@ function r1(e, t, n) {
       hint: qx
     }] })
   };
-  const w = g.key, h = g.sceneKey || w, b = g.name, k = Array.isArray(t.viewBox) && t.viewBox.length === 4 ? t.viewBox.map(Rm) : null, I = k?.every((v) => v !== null) && k[2] > 0 && k[3] > 0 ? k : void 0, x = t.mood, S = t.lighting;
+  const v = g.key, h = g.sceneKey || v, b = g.name, k = Array.isArray(t.viewBox) && t.viewBox.length === 4 ? t.viewBox.map(Rm) : null, I = k?.every((w) => w !== null) && k[2] > 0 && k[3] > 0 ? k : void 0, x = t.mood, S = t.lighting;
   if (!g.sceneKey && i.length === 0 && a.length === 0) return {
     domain: e,
     edits: [],
@@ -36607,21 +36606,21 @@ function r1(e, t, n) {
     }
   });
   else {
-    const v = {
+    const w = {
       name: b,
       status: "active"
     };
-    I && (v.viewBox = I), x ? v.mood = x : t.mood === null && (v.mood = null), Object.hasOwn(t, "lighting") && (v.lighting = S), _.push({
+    I && (w.viewBox = I), x ? w.mood = x : t.mood === null && (w.mood = null), Object.hasOwn(t, "lighting") && (w.lighting = S), _.push({
       op: "update-scene",
       sceneKey: h,
-      changes: v
+      changes: w
     });
   }
-  t.playerHere === !0 && _.push(...mb(l, "player", n.displayName, w, { sceneKey: h }));
+  t.playerHere === !0 && _.push(...mb(l, "player", n.displayName, v, { sceneKey: h }));
   try {
-    const v = Ac(l, _);
-    l = v.domain, m ||= v.changed, d.push(..._);
-  } catch (v) {
+    const w = Ac(l, _);
+    l = w.domain, m ||= w.changed, d.push(..._);
+  } catch (w) {
     return {
       domain: e,
       edits: [],
@@ -36629,15 +36628,15 @@ function r1(e, t, n) {
         skipped: [{
           index: 0,
           id: c,
-          ...Gs(v),
+          ...Gs(w),
           hint: "Correct the scene identity or hierarchy and retry."
         }],
-        warnings: f
+        warnings: u
       })
     };
   }
-  return a.forEach((v, A) => {
-    const C = yt(v);
+  return a.forEach((w, A) => {
+    const C = yt(w);
     if (!C) {
       p.push({
         collection: "remove",
@@ -36654,7 +36653,7 @@ function r1(e, t, n) {
     }];
     try {
       const T = Ac(l, E);
-      l = T.domain, m ||= T.changed, d.push(...E), u.push({
+      l = T.domain, m ||= T.changed, d.push(...E), f.push({
         collection: "remove",
         index: A,
         id: C,
@@ -36669,13 +36668,13 @@ function r1(e, t, n) {
         hint: "Use an element id from this scene."
       });
     }
-  }), i.forEach((v, A) => {
-    const C = Vt(v) ? yt(v.id) : "";
+  }), i.forEach((w, A) => {
+    const C = Vt(w) ? yt(w.id) : "";
     try {
-      const E = l.scenes[h]?.elements.find((P) => P.id === C), T = wj(v, A, n, f, E), R = [];
+      const E = l.scenes[h]?.elements.find((P) => P.id === C), T = wj(w, A, n, u, E), R = [];
       if (T.element.category === "actor" && T.element.actorKey) {
         const { actorKey: P } = T.element, G = l.atlas.actors.find((j) => j.actorKey === P), U = G?.displayName !== P ? G?.displayName : void 0;
-        P !== "player" && !T.element.label && Vt(v) && !Object.hasOwn(v, "label") && (U ? T.element.label = U : f.push(fj(T.element.id))), R.push(...mb(l, P, P === "player" ? n.displayName : T.element.label || G?.displayName || P, w, {
+        P !== "player" && !T.element.label && Vt(w) && !Object.hasOwn(w, "label") && (U ? T.element.label = U : u.push(fj(T.element.id))), R.push(...mb(l, P, P === "player" ? n.displayName : T.element.label || G?.displayName || P, v, {
           sceneKey: h,
           elementId: T.element.id
         }));
@@ -36686,7 +36685,7 @@ function r1(e, t, n) {
         element: T.element
       });
       const M = Ac(l, R);
-      l = M.domain, m ||= M.changed, d.push(...R), u.push({
+      l = M.domain, m ||= M.changed, d.push(...R), f.push({
         collection: "elements",
         index: A,
         id: T.id,
@@ -36701,13 +36700,13 @@ function r1(e, t, n) {
         hint: "Retry only this id with corrected fields. Omit unchanged fields; send complete geo only when changing geometry. A rotation-only correction needs only id and rotation ([0,360), or null to clear)."
       });
     }
-  }), (i.length > 0 || a.length > 0) && u.length === 0 && p.length > 0 ? {
+  }), (i.length > 0 || a.length > 0) && f.length === 0 && p.length > 0 ? {
     domain: e,
     edits: [],
     result: pt({
-      applied: u,
+      applied: f,
       skipped: p,
-      warnings: f,
+      warnings: u,
       hint: "No scene changes were staged; fix the skipped elements."
     })
   } : {
@@ -36715,9 +36714,9 @@ function r1(e, t, n) {
     edits: d,
     result: pt({
       changed: m,
-      applied: u,
+      applied: f,
       skipped: p,
-      warnings: f
+      warnings: u
     })
   };
 }
@@ -36778,15 +36777,15 @@ function kj(e, t, n) {
   let s = n === "rebuild" ? vi() : structuredClone(a);
   const o = structuredClone(s), c = /* @__PURE__ */ new Map();
   let l = !1, d = !1;
-  const f = () => {
+  const u = () => {
     if (l) throw new Error("map_maintenance_session_invalid");
     if (d) throw new Error("map_maintenance_session_committed");
-  }, u = () => !ze(ud(s), ud(o)) && !ze(ud(s), ud(a)), p = (m, g, w) => {
+  }, f = () => !ze(ud(s), ud(o)) && !ze(ud(s), ud(a)), p = (m, g, v) => {
     const h = (k) => `${m}:${k}:call:*`, b = (k) => !k.collection || !k.id ? h(g) : `${m}:${g}:${m === "scene" && (k.collection === "elements" || k.collection === "remove") ? "element" : k.collection}:${k.id}`;
-    s = w.domain, w.result.ok && (c.delete(h(g)), g !== "*" && c.delete(h("*")));
-    for (const k of w.result.applied) k.id && c.delete(b(k));
-    for (const k of w.result.skipped) c.set(b(k), k.reason || "map_intent_failed");
-    return w.result;
+    s = v.domain, v.result.ok && (c.delete(h(g)), g !== "*" && c.delete(h("*")));
+    for (const k of v.result.applied) k.id && c.delete(b(k));
+    for (const k of v.result.skipped) c.set(b(k), k.reason || "map_intent_failed");
+    return v.result;
   };
   return Object.freeze({
     participantId: "map",
@@ -36798,11 +36797,11 @@ function kj(e, t, n) {
     }]),
     tools: uj,
     executeTool(m, g) {
-      if (f(), m === hn.ATLAS_READ) return il(s, g);
+      if (u(), m === hn.ATLAS_READ) return il(s, g);
       if (m === hn.SCENE_READ) {
         if (!Vt(g)) throw new TypeError("MapSceneRead expects an object.");
-        const w = Object.keys(g).filter((x) => x !== "scene");
-        if (w.length) throw new TypeError(`MapSceneRead has unsupported fields: ${w.join(", ")}.`);
+        const v = Object.keys(g).filter((x) => x !== "scene");
+        if (v.length) throw new TypeError(`MapSceneRead has unsupported fields: ${v.join(", ")}.`);
         const h = yt(g.scene);
         if (!h) throw new TypeError("MapSceneRead.scene is required.");
         const b = $m(s, h), k = s.scenes[b], I = s.atlas.locations.find((x) => x.sceneKey === b);
@@ -36813,36 +36812,36 @@ function kj(e, t, n) {
       }
       if (m === hn.ATLAS_EDIT) return p("atlas", "world", Gx(s, g, t.player));
       if (m === hn.SCENE_EDIT) {
-        const w = Vt(g) ? yt(g.scene, "*") : "*";
-        return p("scene", $m(s, w), r1(s, g, t.player));
+        const v = Vt(g) ? yt(g.scene, "*") : "*";
+        return p("scene", $m(s, v), r1(s, g, t.player));
       }
       throw new TypeError(`Unknown map maintenance tool: ${m}`);
     },
-    canCommit: () => u() && (n !== "rebuild" || c.size === 0),
+    canCommit: () => f() && (n !== "rebuild" || c.size === 0),
     getResult() {
-      const m = c.size > 0, g = u() && (n !== "rebuild" || !m);
+      const m = c.size > 0, g = f() && (n !== "rebuild" || !m);
       return Object.freeze({
         status: m ? g ? "partial" : "failed" : g ? "updated" : "unchanged",
         changed: g
       });
     },
     async commit(m) {
-      if (f(), n === "rebuild" && c.size) throw new Error("map_rebuild_edits_unresolved");
-      if (!u()) return e.readCurrent();
+      if (u(), n === "rebuild" && c.size) throw new Error("map_rebuild_edits_unresolved");
+      if (!f()) return e.readCurrent();
       const g = () => {
         if (l) throw new Error("map_maintenance_session_invalid");
         if (!m()) throw new Error("map_maintenance_commit_guard_rejected");
       };
       g();
       try {
-        const w = await e.replaceCurrent(s, {
+        const v = await e.replaceCurrent(s, {
           expectedRevision: i,
           beforeCommit: g
         });
-        return d = !0, w;
-      } catch (w) {
-        const h = w !== null && typeof w == "object" ? w : null;
-        if (h?.uncertain !== !0 && h?.code !== "chat_changed" || (d = !0, h.uncertain === !0)) throw w;
+        return d = !0, v;
+      } catch (v) {
+        const h = v !== null && typeof v == "object" ? v : null;
+        if (h?.uncertain !== !0 && h?.code !== "chat_changed" || (d = !0, h.uncertain === !0)) throw v;
         return;
       }
     },
@@ -36920,21 +36919,21 @@ function s1(e) {
       link: m
     });
   }
-  const f = Array.from(d.values()).map((m) => Aj(m.location, m.link)), u = [];
-  for (const m of f) o([
+  const u = Array.from(d.values()).map((m) => Aj(m.location, m.link)), f = [];
+  for (const m of u) o([
     ...s,
     "可直接到达：",
-    ...u,
+    ...f,
     m
-  ]) && u.push(m);
-  u.length ? s.push("可直接到达：", ...u) : i && !f.length && c("可直接到达：暂无已记录路线。");
+  ]) && f.push(m);
+  f.length ? s.push("可直接到达：", ...f) : i && !u.length && c("可直接到达：暂无已记录路线。");
   const p = (m, g) => {
-    const w = [];
+    const v = [];
     for (const h of g) {
-      const b = `${m}${[...w, h].join("；")}。`;
-      o([...s, b]) && w.push(h);
+      const b = `${m}${[...v, h].join("；")}。`;
+      o([...s, b]) && v.push(h);
     }
-    w.length && s.push(`${m}${w.join("；")}。`);
+    v.length && s.push(`${m}${v.join("；")}。`);
   };
   return p("世界地点：", t.atlas.locations.map((m) => Ej(m, r))), p("世界路线：", t.atlas.links.map((m) => Cj(m, r))), s.push(a), s.join(`
 `);
@@ -37335,21 +37334,21 @@ async function Hj(e) {
       role: "user",
       content: i.content
     }
-  ], f = Vj(n), u = /* @__PURE__ */ Object.create(null), p = [];
+  ], u = Vj(n), f = /* @__PURE__ */ Object.create(null), p = [];
   for (const S of n) for (const _ of S.session.tools) {
     const y = String(_.function.name || "").trim();
-    if (!y || u[y]) throw new Error(y ? `duplicate_tool:${y}` : "invalid_tool");
-    u[y] = S, p.push(_);
+    if (!y || f[y]) throw new Error(y ? `duplicate_tool:${y}` : "invalid_tool");
+    f[y] = S, p.push(_);
   }
-  const m = /* @__PURE__ */ new Map(), g = (S, _, y, v) => ({
+  const m = /* @__PURE__ */ new Map(), g = (S, _, y, w) => ({
     status: S,
     rounds: _,
     unresolvedParticipantIds: [...new Set([...m.values()].map((A) => A.participantId).filter((A) => A !== null))],
     unownedFailure: [...m.values()].some((A) => A.participantId === null),
     ...y === void 0 ? {} : { error: y },
-    ...v ? { reason: v } : {}
+    ...w ? { reason: w } : {}
   });
-  let w, h = "", b = !1, k = !1, I = "", x = 0;
+  let v, h = "", b = !1, k = !1, I = "", x = 0;
   for (let S = 1; S <= fd; S += 1) {
     for (; ; ) {
       if (a.aborted || !s() || !await o() || a.aborted || !s()) return g("cancelled", S - 1);
@@ -37357,19 +37356,19 @@ async function Hj(e) {
     }
     let _;
     try {
-      const A = t.supportsSessionToolLoop && (!!w || !!h);
+      const A = t.supportsSessionToolLoop && (!!v || !!h);
       _ = await t.run({
-        systemPrompt: f,
+        systemPrompt: u,
         messages: A ? [] : d,
         tools: p,
         signal: a,
-        ...t.supportsSessionToolLoop && w ? { toolResponses: w } : {},
-        ...t.supportsSessionToolLoop && !w && h ? { finalAnswerReminderText: h } : {}
+        ...t.supportsSessionToolLoop && v ? { toolResponses: v } : {},
+        ...t.supportsSessionToolLoop && !v && h ? { finalAnswerReminderText: h } : {}
       });
     } catch (A) {
       return a.aborted || !s() ? g("cancelled", S - 1, A) : (l(A), g("provider-failed", S, A));
     }
-    if (w = void 0, h = "", !s()) return g("cancelled", S);
+    if (v = void 0, h = "", !s()) return g("cancelled", S);
     const y = Jm(_, t.providerConfig, { fallbackPrefix: `maintenance-${S}` });
     if (!y.length) {
       const A = !!String(_.text || "").trim();
@@ -37389,10 +37388,10 @@ async function Hj(e) {
       return g("finished", S);
     }
     b = !0, d.push(gA(_, y, { fallbackPrefix: `maintenance-${S}` }));
-    const v = [];
+    const w = [];
     for (const A of y) {
       if (a.aborted || !s()) return g("cancelled", S);
-      const C = u[A.name], E = A.name || "<unknown>";
+      const C = f[A.name], E = A.name || "<unknown>";
       let T, R = "";
       try {
         if (!C || !C.isActive()) throw new Error(C ? "participant_inactive" : `unknown_tool:${A.name}`);
@@ -37426,14 +37425,14 @@ ${d1(P)}`, x = R === I ? x + 1 : 1, I = R, x >= 4) return g("provider-failed", S
         toolCallId: A.id,
         toolName: A.name,
         content: M
-      })), v.push({
+      })), w.push({
         id: A.id,
         name: A.name,
         response: T,
         ...Object.hasOwn(A, "providerId") ? { providerId: String(A.providerId || "") } : {}
       });
     }
-    if (w = v, S === fd) return g("round-limit", S);
+    if (v = w, S === fd) return g("round-limit", S);
   }
   return g("round-limit", fd);
 }
@@ -37446,8 +37445,8 @@ function Yj(e) {
   const { gate: t, signal: n, guard: r } = e;
   return n.aborted || !r() ? Promise.resolve(!1) : t.getState() === "ready" ? Promise.resolve(!0) : new Promise((i) => {
     let a = !1, s = null, o = !1;
-    const c = (f) => {
-      a || (a = !0, s ? s() : o = !0, n.removeEventListener("abort", l), i(f));
+    const c = (u) => {
+      a || (a = !0, s ? s() : o = !0, n.removeEventListener("abort", l), i(u));
     }, l = () => c(!1);
     if (n.addEventListener("abort", l, { once: !0 }), n.aborted) {
       c(!1);
@@ -37481,63 +37480,63 @@ function Xj(e) {
 }
 function Zj(e, t, n, r) {
   const { guardJob: i, guardRun: a, invalidate: s, automaticToken: o, updateStatus: c, captureBackground: l, report: d } = r;
-  async function f(w) {
-    for (const h of w.sessions) a(w, h) && !await p(w, h.participant) && s(h, "storage-unavailable");
-    return w.sessions.some((h) => a(w, h));
+  async function u(v) {
+    for (const h of v.sessions) a(v, h) && !await p(v, h.participant) && s(h, "storage-unavailable");
+    return v.sessions.some((h) => a(v, h));
   }
-  async function u(w, h) {
-    return await f(w) ? {
+  async function f(v, h) {
+    return await u(v) ? {
       started: !0,
       value: await h()
     } : { started: !1 };
   }
-  async function p(w, h) {
+  async function p(v, h) {
     const b = h.writeGate ?? n;
     return b.getState() === "ready" ? !0 : b.getState() !== "loading" && b.getState() !== "saving" ? !1 : Yj({
       gate: b,
-      signal: w.controller.signal,
-      guard: () => i(w) && (b.getState() === "loading" || b.getState() === "saving" || b.getState() === "ready")
+      signal: v.controller.signal,
+      guard: () => i(v) && (b.getState() === "loading" || b.getState() === "saving" || b.getState() === "ready")
     });
   }
-  function m(w) {
-    if (w.participantId) {
-      const h = e.selectById(w.participantId, w.mode);
+  function m(v) {
+    if (v.participantId) {
+      const h = e.selectById(v.participantId, v.mode);
       return h ? [h] : [];
     }
-    return e.selectByMode("automatic").filter((h) => w.preparedSessions.has(h.id) && !w.excludedParticipantIds.has(h.id));
+    return e.selectByMode("automatic").filter((h) => v.preparedSessions.has(h.id) && !v.excludedParticipantIds.has(h.id));
   }
-  async function g(w, h) {
-    const b = [...w.earlyResults], k = [];
+  async function g(v, h) {
+    const b = [...v.earlyResults], k = [];
     let I = !1;
-    const x = /* @__PURE__ */ new Set(), S = (v, A) => {
-      s(v, A), b.some((C) => C.participantId === v.participant.id) || b.push({
-        participantId: v.participant.id,
+    const x = /* @__PURE__ */ new Set(), S = (w, A) => {
+      s(w, A), b.some((C) => C.participantId === w.participant.id) || b.push({
+        participantId: w.participant.id,
         status: "cancelled",
         changed: !1,
         reason: A
       });
     };
-    for (const v of w.sessions) {
-      if (x.has(v.participant.writeGate ?? n)) {
-        S(v, "save-unconfirmed");
+    for (const w of v.sessions) {
+      if (x.has(w.participant.writeGate ?? n)) {
+        S(w, "save-unconfirmed");
         continue;
       }
-      if (!a(w, v)) {
-        v.invalidReason === "storage-unavailable" && i(w) ? b.push({
-          participantId: v.participant.id,
+      if (!a(v, w)) {
+        w.invalidReason === "storage-unavailable" && i(v) ? b.push({
+          participantId: w.participant.id,
           status: "failed",
           changed: !1,
           reason: "storage-unavailable"
-        }) : S(v, w.cancelledReason || (i(w) ? "participant-disabled" : "source-invalidated"));
+        }) : S(w, v.cancelledReason || (i(v) ? "participant-disabled" : "source-invalidated"));
         continue;
       }
-      const A = h.unownedFailure || h.unresolvedParticipantIds.includes(v.participant.id), C = h.status === "finished" && !A;
+      const A = h.unownedFailure || h.unresolvedParticipantIds.includes(w.participant.id), C = h.status === "finished" && !A;
       let E, T = !1;
       try {
-        E = v.session.getResult(), T = (v.session.commitPolicy !== "complete-run" || C) && await v.session.canCommit({ completed: C });
+        E = w.session.getResult(), T = (w.session.commitPolicy !== "complete-run" || C) && await w.session.canCommit({ completed: C });
       } catch (R) {
         d(R), b.push({
-          participantId: v.participant.id,
+          participantId: w.participant.id,
           status: "failed",
           changed: !1,
           reason: "session-result-failed"
@@ -37562,53 +37561,53 @@ function Zj(e, t, n, r) {
         };
       }
       if (T) {
-        const R = await p(w, v.participant);
-        if (!R || !a(w, v)) {
-          R || !i(w) ? S(v, w.cancelledReason || (i(w) ? "participant-disabled" : "source-invalidated")) : b.push({
-            participantId: v.participant.id,
+        const R = await p(v, w.participant);
+        if (!R || !a(v, w)) {
+          R || !i(v) ? S(w, v.cancelledReason || (i(v) ? "participant-disabled" : "source-invalidated")) : b.push({
+            participantId: w.participant.id,
             status: "failed",
             changed: !1,
             reason: "storage-unavailable"
           });
           continue;
         }
-        w.committing = !0;
+        v.committing = !0;
         try {
-          const M = await v.session.commit(() => a(w, v), { completed: C }), P = !!M && typeof M == "object" && "status" in M && M.status === "stale", G = P && M.changed === !0;
+          const M = await w.session.commit(() => a(v, w), { completed: C }), P = !!M && typeof M == "object" && "status" in M && M.status === "stale", G = P && M.changed === !0;
           P && (E = {
             status: G ? "partial" : "failed",
             changed: G,
             reason: "task-version-changed"
-          }), (!P || G) && k.push(v.participant.id);
+          }), (!P || G) && k.push(w.participant.id);
         } catch (M) {
           M !== null && typeof M == "object" && (M.uncertain === !0 || M.code === "SAVE_UNCONFIRMED" || M.code === "storage_unconfirmed") ? (E = {
             status: "failed",
             changed: !1,
             reason: "save-unconfirmed"
-          }, I = !0, x.add(v.participant.writeGate ?? n)) : (d(M), E = {
+          }, I = !0, x.add(w.participant.writeGate ?? n)) : (d(M), E = {
             status: "failed",
             changed: !1,
             reason: "save-failed"
           });
         } finally {
-          w.committing = !1;
+          v.committing = !1;
         }
       }
       b.push({
-        participantId: v.participant.id,
+        participantId: w.participant.id,
         ...E
       });
     }
-    const _ = !i(w);
-    if (_ && !k.length && !I) return pr(w, w.cancelledReason || "source-invalidated");
+    const _ = !i(v);
+    if (_ && !k.length && !I) return pr(v, v.cancelledReason || "source-invalidated");
     const y = Nm(b, h.status === "finished" ? "unchanged" : "failed");
     return no({
-      mode: w.mode,
+      mode: v.mode,
       status: y,
-      participantIds: al(w),
+      participantIds: al(v),
       committedParticipantIds: k,
       participantResults: b,
-      ...I ? { reason: "save-unconfirmed" } : h.status !== "finished" ? { reason: h.reason || h.status } : h.unownedFailure || h.unresolvedParticipantIds.length ? { reason: "tool-errors-unresolved" } : _ ? { reason: w.cancelledReason ? "cancelled-after-commit" : "source-invalidated-after-commit" } : {}
+      ...I ? { reason: "save-unconfirmed" } : h.status !== "finished" ? { reason: h.reason || h.status } : h.unownedFailure || h.unresolvedParticipantIds.length ? { reason: "tool-errors-unresolved" } : _ ? { reason: v.cancelledReason ? "cancelled-after-commit" : "source-invalidated-after-commit" } : {}
     });
   }
   return async function(h) {
@@ -37620,49 +37619,49 @@ function Zj(e, t, n, r) {
       participantIds: h.participantId ? [h.participantId] : [],
       reason: "participant-disabled"
     });
-    for (const v of b) {
+    for (const w of b) {
       if (!i(h)) return pr(h, "source-invalidated");
-      c(h, v.id, {
+      c(h, w.id, {
         state: "running",
         mode: h.mode,
         message: "",
         reason: ""
       });
       try {
-        if (!await p(h, v)) {
+        if (!await p(h, w)) {
           h.earlyResults.push({
-            participantId: v.id,
+            participantId: w.id,
             status: "failed",
             changed: !1,
             reason: "storage-unavailable"
           });
           continue;
         }
-        const A = await (h.preparedSessions.get(v.id) ?? (() => v.createSession(h.source, h.mode)))();
+        const A = await (h.preparedSessions.get(w.id) ?? (() => w.createSession(h.source, h.mode)))();
         if (A === null) {
           h.earlyResults.push({
-            participantId: v.id,
+            participantId: w.id,
             status: "skipped",
             changed: !1,
             reason: "no-work"
           });
           continue;
         }
-        if (A.participantId !== v.id) throw new Error(`participant_mismatch:${v.id}`);
+        if (A.participantId !== w.id) throw new Error(`participant_mismatch:${w.id}`);
         h.sessions.push({
-          participant: v,
+          participant: w,
           session: A,
-          automaticToken: o(v.id),
+          automaticToken: o(w.id),
           invalid: !1
         });
       } catch (A) {
-        d(A), c(h, v.id, {
+        d(A), c(h, w.id, {
           state: "error",
           mode: h.mode,
           message: "failed",
           reason: "session-creation-failed"
         }), h.earlyResults.push({
-          participantId: v.id,
+          participantId: w.id,
           status: "failed",
           changed: !1,
           reason: "session-creation-failed"
@@ -37670,65 +37669,65 @@ function Zj(e, t, n, r) {
       }
     }
     if (!i(h)) return pr(h, h.cancelledReason || "source-invalidated");
-    for (const v of h.sessions)
-      !v.invalid && !a(h, v) && s(v, "participant-disabled"), v.invalid && !h.earlyResults.some((A) => A.participantId === v.participant.id) && h.earlyResults.push({
-        participantId: v.participant.id,
+    for (const w of h.sessions)
+      !w.invalid && !a(h, w) && s(w, "participant-disabled"), w.invalid && !h.earlyResults.some((A) => A.participantId === w.participant.id) && h.earlyResults.push({
+        participantId: w.participant.id,
         status: "cancelled",
         changed: !1,
         reason: "participant-disabled"
       });
-    const k = h.sessions.filter((v) => !v.invalid);
+    const k = h.sessions.filter((w) => !w.invalid);
     if (!k.length) {
       if (h.cancelledReason) return pr(h, h.cancelledReason);
-      const v = Nm(h.earlyResults, "failed");
+      const w = Nm(h.earlyResults, "failed");
       return no({
         mode: h.mode,
-        status: v,
+        status: w,
         participantIds: b.map((A) => A.id),
         participantResults: h.earlyResults,
-        reason: v === "cancelled" ? "participant-disabled" : v === "skipped" ? "no-work" : "session-creation-failed"
+        reason: w === "cancelled" ? "participant-disabled" : w === "skipped" ? "no-work" : "session-creation-failed"
       });
     }
     try {
-      const v = await u(h, () => l(h.source, h.mode, k.filter((A) => a(h, A)).map((A) => A.participant.id)));
-      if (!v.started || !i(h)) return i(h) ? ui(h, k.map((A) => A.participant.id), "storage-unavailable") : pr(h, h.cancelledReason || "source-invalidated");
-      h.backgroundMessages = [...v.value];
-    } catch (v) {
-      return d(v), ui(h, k.map((A) => A.participant.id), "background-capture-failed");
+      const w = await f(h, () => l(h.source, h.mode, k.filter((A) => a(h, A)).map((A) => A.participant.id)));
+      if (!w.started || !i(h)) return i(h) ? ui(h, k.map((A) => A.participant.id), "storage-unavailable") : pr(h, h.cancelledReason || "source-invalidated");
+      h.backgroundMessages = [...w.value];
+    } catch (w) {
+      return d(w), ui(h, k.map((A) => A.participant.id), "background-capture-failed");
     }
     let I, x, S;
     try {
-      const v = await u(h, t.loadConfig);
-      if (!v.started) return pr(h, "source-invalidated");
-      if (I = v.value, !await f(h)) return i(h) ? ui(h, k.map((A) => A.participant.id), "storage-unavailable") : pr(h, h.cancelledReason || "source-invalidated");
+      const w = await f(h, t.loadConfig);
+      if (!w.started) return pr(h, "source-invalidated");
+      if (I = w.value, !await u(h)) return i(h) ? ui(h, k.map((A) => A.participant.id), "storage-unavailable") : pr(h, h.cancelledReason || "source-invalidated");
       x = Lu(I || {}), S = ju(x);
-    } catch (v) {
-      return d(v), ui(h, k.map((A) => A.participant.id), "config-load-failed");
+    } catch (w) {
+      return d(w), ui(h, k.map((A) => A.participant.id), "config-load-failed");
     }
-    if (!String(S.model || "").trim()) return ui(h, k.map((v) => v.participant.id), "agent-not-configured");
+    if (!String(S.model || "").trim()) return ui(h, k.map((w) => w.participant.id), "agent-not-configured");
     let _;
     try {
-      const v = await u(h, () => t.openSession(I));
-      if (!v.started) return i(h) ? ui(h, k.map((A) => A.participant.id), "storage-unavailable") : pr(h, h.cancelledReason || "source-invalidated");
-      _ = v.value;
-    } catch (v) {
-      return d(v), ui(h, k.map((A) => A.participant.id), "agent-session-failed");
+      const w = await f(h, () => t.openSession(I));
+      if (!w.started) return i(h) ? ui(h, k.map((A) => A.participant.id), "storage-unavailable") : pr(h, h.cancelledReason || "source-invalidated");
+      _ = w.value;
+    } catch (w) {
+      return d(w), ui(h, k.map((A) => A.participant.id), "agent-session-failed");
     }
     const y = await Hj({
       agent: _,
-      sessions: k.map((v) => ({
-        session: v.session,
-        isActive: () => a(h, v)
+      sessions: k.map((w) => ({
+        session: w.session,
+        isActive: () => a(h, w)
       })),
       backgroundMessages: h.backgroundMessages,
       sourceMessage: Xj(h.source),
       signal: h.controller.signal,
       guard: () => i(h),
-      beforeRound: () => f(h),
-      isRoundReady: () => h.sessions.filter((v) => a(h, v)).every((v) => (v.participant.writeGate ?? n).getState() === "ready"),
+      beforeRound: () => u(h),
+      isRoundReady: () => h.sessions.filter((w) => a(h, w)).every((w) => (w.participant.writeGate ?? n).getState() === "ready"),
       onError: d
     });
-    return y.status === "cancelled" ? i(h) ? ui(h, k.map((v) => v.participant.id), "storage-unavailable") : pr(h, h.cancelledReason || "source-invalidated") : await g(h, y);
+    return y.status === "cancelled" ? i(h) ? ui(h, k.map((w) => w.participant.id), "storage-unavailable") : pr(h, h.cancelledReason || "source-invalidated") : await g(h, y);
   };
 }
 var wb = Object.freeze({
@@ -37740,8 +37739,8 @@ var wb = Object.freeze({
 });
 function Qj({ registry: e, gateway: t, captureSurface: n, isGenerationActive: r, writeGate: i = Jj, schedule: a = (l) => queueMicrotask(l), now: s = () => Date.now(), onError: o = () => {
 }, captureBackground: c = async () => [] }) {
-  const l = Kj(), d = /* @__PURE__ */ new Map(), f = /* @__PURE__ */ Object.create(null), u = /* @__PURE__ */ Object.create(null), p = /* @__PURE__ */ new Set();
-  let m = 0, g = !1, w = !1, h = null, b = null;
+  const l = Kj(), d = /* @__PURE__ */ new Map(), u = /* @__PURE__ */ Object.create(null), f = /* @__PURE__ */ Object.create(null), p = /* @__PURE__ */ new Set();
+  let m = 0, g = !1, v = !1, h = null, b = null;
   const k = (D) => {
     try {
       o(D);
@@ -37775,7 +37774,7 @@ function Qj({ registry: e, gateway: t, captureSurface: n, isGenerationActive: r,
     }
   }, y = (D, $) => {
     D.settled || (D.settled = !0, D.resolve?.($));
-  }, v = (D, $) => {
+  }, w = (D, $) => {
     if (!D.invalid) {
       D.invalid = !0, D.invalidReason = $;
       try {
@@ -37795,12 +37794,12 @@ function Qj({ registry: e, gateway: t, captureSurface: n, isGenerationActive: r,
     return !D.cancelledReason && !D.controller.signal.aborted && D.epoch === m && x(D);
   }
   function E(D, $) {
-    return C(D) && !$.invalid && !D.excludedParticipantIds.has($.participant.id) && A($, D.mode) && (D.mode === "automatic" ? $.automaticToken === I(u, $.participant.id) : D.manualToken === I(f, $.participant.id));
+    return C(D) && !$.invalid && !D.excludedParticipantIds.has($.participant.id) && A($, D.mode) && (D.mode === "automatic" ? $.automaticToken === I(f, $.participant.id) : D.manualToken === I(u, $.participant.id));
   }
   function T(D, $) {
     if (!D.cancelledReason) {
       D.cancelledReason = $ || "cancelled", D.controller.abort(D.cancelledReason);
-      for (const q of D.sessions) v(q, D.cancelledReason);
+      for (const q of D.sessions) w(q, D.cancelledReason);
       for (const q of al(D)) _(D.source.chatIdentity, q, {
         state: "idle",
         mode: D.mode,
@@ -37813,15 +37812,15 @@ function Qj({ registry: e, gateway: t, captureSurface: n, isGenerationActive: r,
   const R = Zj(e, t, i, {
     guardJob: C,
     guardRun: E,
-    invalidate: v,
-    automaticToken: (D) => I(u, D),
+    invalidate: w,
+    automaticToken: (D) => I(f, D),
     updateStatus: (D, $, q) => _(D.source.chatIdentity, $, q),
     captureBackground: c,
     report: k
   });
   async function M() {
-    if (g = !1, !w) {
-      w = !0;
+    if (g = !1, !v) {
+      v = !0;
       try {
         for (; l.size; ) {
           const D = l.shift();
@@ -37851,12 +37850,12 @@ function Qj({ registry: e, gateway: t, captureSurface: n, isGenerationActive: r,
           y(D, $), h = null;
         }
       } finally {
-        h = null, w = !1, l.size && P();
+        h = null, v = !1, l.size && P();
       }
     }
   }
   function P() {
-    g || w || (g = !0, a(() => {
+    g || v || (g = !0, a(() => {
       M();
     }));
   }
@@ -37871,7 +37870,7 @@ function Qj({ registry: e, gateway: t, captureSurface: n, isGenerationActive: r,
       preparedSessions: new Map(L.map((J) => [J.id, J.prepareSession?.($, D) ?? (() => J.createSession($, D))])),
       participantId: q,
       epoch: m,
-      manualToken: q ? I(f, q) : 0,
+      manualToken: q ? I(u, q) : 0,
       excludedParticipantIds: /* @__PURE__ */ new Set(),
       controller: new AbortController(),
       sessions: [],
@@ -37986,17 +37985,17 @@ function Qj({ registry: e, gateway: t, captureSurface: n, isGenerationActive: r,
     startRebuild: (D) => O("rebuild", D),
     cancelRequested(D, $) {
       const q = String(D || "").trim();
-      f[q] = I(f, q) + 1, h?.mode !== "automatic" && h?.participantId === q && T(h, $);
+      u[q] = I(u, q) + 1, h?.mode !== "automatic" && h?.participantId === q && T(h, $);
       for (const K of l.removeWhere((L) => L.mode !== "automatic" && L.participantId === q)) T(K, $);
     },
     invalidateAutomatic(D, $) {
       const q = String(D || "").trim();
-      if (u[q] = I(u, q) + 1, l.forEach((K) => {
+      if (f[q] = I(f, q) + 1, l.forEach((K) => {
         K.mode === "automatic" && K.excludedParticipantIds.add(q);
       }), h?.mode === "automatic") {
         h.excludedParticipantIds.add(q);
         const K = h.sessions.find((L) => L.participant.id === q);
-        K && v(K, $ || "automatic-invalidated"), h.sessions.length && h.sessions.every((L) => L.invalid) && T(h, $ || "automatic-invalidated");
+        K && w(K, $ || "automatic-invalidated"), h.sessions.length && h.sessions.every((L) => L.invalid) && T(h, $ || "automatic-invalidated");
       }
     },
     handleChatChanged: () => B("chat-changed"),
@@ -38206,8 +38205,8 @@ function u1(e, t) {
   const n = /* @__PURE__ */ new Set(), r = () => {
     for (const d of n) try {
       d();
-    } catch (f) {
-      console.error("[LittleWhiteBox] Map state listener failed", f);
+    } catch (u) {
+      console.error("[LittleWhiteBox] Map state listener failed", u);
     }
   }, i = e.subscribe(r), a = t.subscribeFileState(r), s = () => e.peekCurrent()?.value ?? null;
   function o(d = s()) {
@@ -38219,27 +38218,27 @@ function u1(e, t) {
   async function c() {
     return await e.read(), o();
   }
-  async function l(d, { expectedRevision: f, beforeCommit: u }) {
+  async function l(d, { expectedRevision: u, beforeCommit: f }) {
     const p = Yr(d), m = await e.transact((g) => {
-      const w = g.current;
-      if ((w?.revision ?? 0) !== f) throw new i8();
-      const h = w ?? vi();
-      if (a8(h, p)) return w;
+      const v = g.current;
+      if ((v?.revision ?? 0) !== u) throw new i8();
+      const h = v ?? vi();
+      if (a8(h, p)) return v;
       const b = Yr({
         ...p,
         revision: h.revision + 1
       });
       return g.replace(b), b;
-    }, { commitGuard: u ? async () => (await u(), !0) : void 0 });
+    }, { commitGuard: f ? async () => (await f(), !0) : void 0 });
     if (m.status === "failed" || m.status === "unconfirmed" || m.status === "conflict") throw s8(m);
     return o(m.status === "confirmed" ? m.snapshot.value : m.result);
   }
   return Object.freeze({
-    document: Pg(e, Lm, (d, f) => {
-      const u = f !== null && typeof f == "object" && "revision" in f ? f.revision : void 0;
+    document: Pg(e, Lm, (d, u) => {
+      const f = u !== null && typeof u == "object" && "revision" in u ? u.revision : void 0;
       return {
         ...d,
-        revision: (jx(u) ? u : d.revision) + 1
+        revision: (jx(f) ? f : d.revision) + 1
       };
     }),
     readCurrent: () => o(),
@@ -38436,7 +38435,7 @@ function bb(e) {
       for (const c of s) {
         const l = vb(c);
         if (i(a, l), l.kind === "location" && o.add(l.key), l.kind === "scene") {
-          const d = a.atlas.locations.find((f) => f.sceneKey === l.key);
+          const d = a.atlas.locations.find((u) => u.sceneKey === l.key);
           d && o.add(d.key);
         }
         c.op === "upsert-location" && c.location.parent && o.add(c.location.parent), c.op === "upsert-link" && (o.add(c.link.from), o.add(c.link.to)), c.op === "set-actor-position" && o.add(c.position.locationKey);
@@ -38646,16 +38645,16 @@ function zg(e, t, n, r) {
   }
   return {
     async read(o) {
-      const c = o.path ?? "", l = m1(c), d = Number(o.offset ?? 0), f = await e.read();
-      if (!(i?.identityKey === f.snapshot.identityKey && i?.osId === f.snapshot.osId && ze(i?.value, f.snapshot.value))) {
+      const c = o.path ?? "", l = m1(c), d = Number(o.offset ?? 0), u = await e.read();
+      if (!(i?.identityKey === u.snapshot.identityKey && i?.osId === u.snapshot.osId && ze(i?.value, u.snapshot.value))) {
         if (d !== 0) throw new Error("management_request_superseded");
         a.clear();
       }
       if (d !== 0 && a.get(String(c))?.next !== d) throw new Error("management_document_page_required");
-      let u = f.snapshot.value;
-      for (const m of l) u = h1(u, m);
-      const p = Qa(JSON.stringify(u ?? null), d);
-      return i = f.snapshot, a.set(String(c), {
+      let f = u.snapshot.value;
+      for (const m of l) f = h1(f, m);
+      const p = Qa(JSON.stringify(f ?? null), d);
+      return i = u.snapshot, a.set(String(c), {
         keys: l,
         next: p.nextOffset
       }), {
@@ -38664,8 +38663,8 @@ function zg(e, t, n, r) {
         data: {
           mode: "document",
           path: c,
-          found: u !== void 0,
-          validation: f.validation,
+          found: f !== void 0,
+          validation: u.validation,
           ...p
         }
       };
@@ -38676,17 +38675,17 @@ function zg(e, t, n, r) {
       const l = i;
       let d;
       try {
-        d = f8(l.value, o, (m) => [...a.values()].some((g) => g.keys.length <= m.length && g.keys.every((w, h) => w === m[h])));
+        d = f8(l.value, o, (m) => [...a.values()].some((g) => g.keys.length <= m.length && g.keys.every((v, h) => v === m[h])));
       } catch (m) {
         if (!(m instanceof Mr)) throw m;
         return m.result();
       }
-      let f;
-      const u = n.validate(d, l);
-      if (!u.valid) return {
+      let u;
+      const f = n.validate(d, l);
+      if (!f.valid) return {
         ok: !1,
         status: "failed",
-        data: { validation: u }
+        data: { validation: f }
       };
       const p = {
         ok: !0,
@@ -38696,17 +38695,17 @@ function zg(e, t, n, r) {
       return t.run(async (m) => {
         const g = await n.replace(l, d, m);
         if (g.status === "failed" || g.status === "unconfirmed" || g.status === "conflict")
-          throw "preparedResult" in g && (f = g.preparedResult), Object.assign(new Error(g.status === "failed" ? g.error.message : `management_save_${g.status}`), {
+          throw "preparedResult" in g && (u = g.preparedResult), Object.assign(new Error(g.status === "failed" ? g.error.message : `management_save_${g.status}`), {
             code: g.status === "failed" ? g.error.code : g.status === "unconfirmed" ? "SAVE_UNCONFIRMED" : "SAVE_CONFLICT",
             uncertain: g.status === "unconfirmed"
           });
-        return f = g.result, s(f), g.status === "unchanged" ? {
+        return u = g.result, s(u), g.status === "unchanged" ? {
           ok: !0,
           status: "unchanged"
         } : p;
       }, async () => {
         const m = (await e.read()).snapshot;
-        return m.identityKey !== l.identityKey || m.osId !== l.osId ? { status: "superseded" } : f !== void 0 && ze(m.value, f) ? (s(f), {
+        return m.identityKey !== l.identityKey || m.osId !== l.osId ? { status: "superseded" } : u !== void 0 && ze(m.value, u) ? (s(u), {
           status: "confirmed",
           result: p
         }) : { status: ze(m.value, l.value) ? "unchanged" : "superseded" };
@@ -38754,35 +38753,35 @@ function p8(e, t) {
             };
           }
           if (o === "MapSceneRead") {
-            const m = $m(i, String(c.scene ?? "")), g = i.atlas.locations.find((h) => h.sceneKey === m), w = i.scenes[m];
+            const m = $m(i, String(c.scene ?? "")), g = i.atlas.locations.find((h) => h.sceneKey === m), v = i.scenes[m];
             return d.scene(i, m, Number(c.offset ?? 0)), {
               ok: !0,
               status: "read",
-              data: Qa(JSON.stringify(w && g ? i1(w, g) : null), c.offset)
+              data: Qa(JSON.stringify(v && g ? i1(v, g) : null), c.offset)
             };
           }
           if (!["MapAtlasEdit", "MapSceneEdit"].includes(o)) throw new Error("management_tool_unknown");
-          const f = o === "MapAtlasEdit" ? Gx(i, c, t()) : r1(i, c, t());
-          if (!f.edits.length) return {
-            ok: f.result.ok,
-            status: f.result.ok ? "unchanged" : "failed",
-            data: f.result
+          const u = o === "MapAtlasEdit" ? Gx(i, c, t()) : r1(i, c, t());
+          if (!u.edits.length) return {
+            ok: u.result.ok,
+            status: u.result.ok ? "unchanged" : "failed",
+            data: u.result
           };
-          d.assertEdits(i, f.edits);
-          const u = i, p = {
-            ok: f.result.ok,
-            status: f.result.status === "partial" ? "partial" : "saved",
-            data: f.result
+          d.assertEdits(i, u.edits);
+          const f = i, p = {
+            ok: u.result.ok,
+            status: u.result.status === "partial" ? "partial" : "saved",
+            data: u.result
           };
-          return r.run(async (m) => (i = (await e.replaceCurrent(f.domain, {
-            expectedRevision: u.revision,
+          return r.run(async (m) => (i = (await e.replaceCurrent(u.domain, {
+            expectedRevision: f.revision,
             beforeCommit: () => {
               if (!m()) throw new Error("management_context_changed");
             }
-          })).map ?? vi(), d.saved(i, f.edits), p), async () => (await e.refreshCurrent(), i = e.readCurrent().map ?? vi(), i.revision === u.revision + 1 && ze(i.atlas, f.domain.atlas) && ze(i.scenes, f.domain.scenes) ? (d.saved(i, f.edits), {
+          })).map ?? vi(), d.saved(i, u.edits), p), async () => (await e.refreshCurrent(), i = e.readCurrent().map ?? vi(), i.revision === f.revision + 1 && ze(i.atlas, u.domain.atlas) && ze(i.scenes, u.domain.scenes) ? (d.saved(i, u.edits), {
             status: "confirmed",
             result: p
-          }) : { status: ze(i, u) ? "unchanged" : "superseded" }), l);
+          }) : { status: ze(i, f) ? "unchanged" : "superseded" }), l);
         }
       };
     }
@@ -38885,15 +38884,15 @@ function g8(e) {
   return typeof t.swipe_id == "number" && Array.isArray(t.swipes) && t.swipe_id === t.swipes.length;
 }
 function y8({ enabled: e, isGenerationActive: t, isReplyPaused: n = () => !1, readState: r, captureChat: i, readTheme: a, subscribe: s, loadSurface: o }) {
-  let c = null, l = null, d = null, f = null, u = null, p = null, m = null, g = "", w = null, h = !0, b = "", k = null, I = "";
+  let c = null, l = null, d = null, u = null, f = null, p = null, m = null, g = "", v = null, h = !0, b = "", k = null, I = "";
   function x() {
-    p?.dispose(), p = null, m = null, u?.remove(), u = null, g = "", k = null, I = "";
+    p?.dispose(), p = null, m = null, f?.remove(), f = null, g = "", k = null, I = "";
   }
   function S() {
-    u?.remove();
+    f?.remove();
   }
   function _() {
-    w = null, b = "", h = !0;
+    v = null, b = "", h = !0;
   }
   function y() {
     if (e())
@@ -38906,8 +38905,8 @@ function y8({ enabled: e, isGenerationActive: t, isReplyPaused: n = () => !1, re
         ]
       });
   }
-  function v() {
-    f = null, l?.disconnect(), d?.disconnect();
+  function w() {
+    u = null, l?.disconnect(), d?.disconnect();
     try {
       if (!e()) {
         x(), _();
@@ -38944,9 +38943,9 @@ function y8({ enabled: e, isGenerationActive: t, isReplyPaused: n = () => !1, re
       }
       if (h) {
         const z = r(), N = JSON.stringify(z);
-        N !== b && (w = z, b = N), h = !1;
+        N !== b && (v = z, b = N), h = !1;
       }
-      if (!w?.projectToChat || M.identityKey !== w.chatIdentity || !w.map?.atlas.locations.length) {
+      if (!v?.projectToChat || M.identityKey !== v.chatIdentity || !v.map?.atlas.locations.length) {
         x();
         return;
       }
@@ -38955,27 +38954,27 @@ function y8({ enabled: e, isGenerationActive: t, isReplyPaused: n = () => !1, re
         S();
         return;
       }
-      if (g !== M.identityKey || !u) {
-        x(), g = M.identityKey, u = document.createElement("div"), u.className = "xb-map-projection", u.contentEditable = "false", u.setAttribute("role", "region"), u.setAttribute("aria-label", hp.label), u.textContent = h8.loading;
-        const z = u;
+      if (g !== M.identityKey || !f) {
+        x(), g = M.identityKey, f = document.createElement("div"), f.className = "xb-map-projection", f.contentEditable = "false", f.setAttribute("role", "region"), f.setAttribute("aria-label", hp.label), f.textContent = h8.loading;
+        const z = f;
         o().then((N) => {
-          u === z && (m = N, A());
+          f === z && (m = N, A());
         }).catch((N) => {
-          console.error(hp.loadFailed, N), u === z && (z.setAttribute("role", "alert"), z.textContent = hp.loadFailed);
+          console.error(hp.loadFailed, N), f === z && (z.setAttribute("role", "alert"), z.textContent = hp.loadFailed);
         });
       }
-      (u.parentElement !== j.parentElement || !(j.compareDocumentPosition(u) & Node.DOCUMENT_POSITION_FOLLOWING)) && j.after(u), !p && m && (p = m(u));
+      (f.parentElement !== j.parentElement || !(j.compareDocumentPosition(f) & Node.DOCUMENT_POSITION_FOLLOWING)) && j.after(f), !p && m && (p = m(f));
       const O = a();
-      p && (w !== k || O !== I) && (p.update(w, O), k = w, I = O);
+      p && (v !== k || O !== I) && (p.update(v, O), k = v, I = O);
     } finally {
       y();
     }
   }
   function A() {
-    c && !t() && f === null && (f = requestAnimationFrame(v));
+    c && !t() && u === null && (u = requestAnimationFrame(w));
   }
   function C() {
-    f !== null && (cancelAnimationFrame(f), f = null);
+    u !== null && (cancelAnimationFrame(u), u = null);
   }
   function E() {
     e() ? t() ? (C(), S()) : A() : (C(), x(), _());
@@ -39019,15 +39018,15 @@ function w8(e, t, n, r, i, a) {
       `/${Mu}/modules/xiaobai-os/dist/xiaobai-os-map-projection.js`
     )).mountMapProjection,
     subscribe({ stateChanged: o, messagesChanged: c, chatChanged: l, activityChanged: d }) {
-      const f = In("xiaobaiOsMapProjection");
-      f.on(ce.CHAT_CHANGED, l);
+      const u = In("xiaobaiOsMapProjection");
+      u.on(ce.CHAT_CHANGED, l);
       for (const p of [
         ce.CHARACTER_MESSAGE_RENDERED,
         ce.MESSAGE_DELETED,
         ce.MESSAGE_UPDATED,
         ce.MESSAGE_SWIPED
-      ]) f.on(p, c);
-      const u = [
+      ]) u.on(p, c);
+      const f = [
         i.subscribe(d),
         e.subscribe(o),
         t.subscribe(o),
@@ -39035,8 +39034,8 @@ function w8(e, t, n, r, i, a) {
           p === "map" && o();
         })
       ];
-      return a && u.push(a.subscribe(d)), () => {
-        f.cleanup(), u.forEach((p) => p());
+      return a && f.push(a.subscribe(d)), () => {
+        u.cleanup(), f.forEach((p) => p());
       };
     }
   });
@@ -39227,15 +39226,15 @@ function Di(e) {
       "regenerate"
     ].includes(String(s.kind)) || !Array.isArray(s.removeIds) || !s.removeIds.length || new Set(s.removeIds).size !== s.removeIds.length || !Array.isArray(s.replacements) || s.replacements.length > Jt.replies || typeof s.baseDigest != "string" || !/^[a-f0-9]{64}$/u.test(s.baseDigest) || typeof s.prefixDigest != "string" || !/^[a-f0-9]{64}$/u.test(s.prefixDigest)) throw new Error("messages_invalid_mutation");
     wt(s.id, 160), Na(s.index);
-    const o = s.removeIds, c = a.segments.find((f) => f.id === s.segmentId), l = s.removeIds.map((f) => n.get(f));
-    if (!c || l.some((f) => !f || f.contactId !== s.contactId) || c.receipt?.throughSeq !== c.messageIds.reduce((f, u) => Math.max(f, n.get(u).seq), 0) || s.removeIds.some((f) => !c.messageIds.includes(f) || a.segments.some((u) => u !== c && u.messageIds.includes(f)))) throw new Error("messages_invalid_mutation_target");
+    const o = s.removeIds, c = a.segments.find((u) => u.id === s.segmentId), l = s.removeIds.map((u) => n.get(u));
+    if (!c || l.some((u) => !u || u.contactId !== s.contactId) || c.receipt?.throughSeq !== c.messageIds.reduce((u, f) => Math.max(u, n.get(f).seq), 0) || s.removeIds.some((u) => !c.messageIds.includes(u) || a.segments.some((f) => f !== c && f.messageIds.includes(u)))) throw new Error("messages_invalid_mutation_target");
     if (s.kind !== "regenerate" && (s.replacements.length || s.summary !== null)) throw new Error("messages_invalid_mutation");
     if (s.kind === "delete" && l.length !== 1) throw new Error("messages_invalid_mutation");
-    if (s.kind === "delete-contact" && a.messages.some((f) => f.contactId === s.contactId && !o.includes(f.id))) throw new Error("messages_invalid_mutation");
+    if (s.kind === "delete-contact" && a.messages.some((u) => u.contactId === s.contactId && !o.includes(u.id))) throw new Error("messages_invalid_mutation");
     if (s.kind === "regenerate") {
-      const f = a.messages.filter((p) => p.contactId === s.contactId).at(-1), u = l[0].replyTo;
-      if (!s.replacements.length || !u || !f || !s.removeIds.includes(f.id) || l.some((p) => p.sender !== "contact" || p.replyTo !== u) || a.messages.some((p) => p.replyTo === u && !o.includes(p.id))) throw new Error("messages_invalid_mutation");
-      if (s.replacements.some((p) => !En(p) || n.has(String(p.id)) || Number(p.seq) <= r || p.contactId !== s.contactId || p.sender !== "contact" || p.replyTo !== u)) throw new Error("messages_invalid_mutation_reply");
+      const u = a.messages.filter((p) => p.contactId === s.contactId).at(-1), f = l[0].replyTo;
+      if (!s.replacements.length || !f || !u || !s.removeIds.includes(u.id) || l.some((p) => p.sender !== "contact" || p.replyTo !== f) || a.messages.some((p) => p.replyTo === f && !o.includes(p.id))) throw new Error("messages_invalid_mutation");
+      if (s.replacements.some((p) => !En(p) || n.has(String(p.id)) || Number(p.seq) <= r || p.contactId !== s.contactId || p.sender !== "contact" || p.replyTo !== f)) throw new Error("messages_invalid_mutation_reply");
     }
     const d = structuredClone(a);
     lf(d, a.pendingMutation), Di(d);
@@ -39295,7 +39294,7 @@ function b8(e, t = fetch) {
     const l = new Uint8Array(await c.arrayBuffer());
     a.throwIfAborted();
     let d = "";
-    for (let f = 0; f < l.length; f += 8192) d += String.fromCharCode(...l.subarray(f, f + 8192));
+    for (let u = 0; u < l.length; u += 8192) d += String.fromCharCode(...l.subarray(u, u + 8192));
     return `data:image/${s.path.split(".").at(-1)};base64,${btoa(d)}`;
   }
   return {
@@ -39572,59 +39571,59 @@ function ol(e, t) {
 function O8(e, t, n) {
   const r = /* @__PURE__ */ new Set(), i = /* @__PURE__ */ new Set(), a = /* @__PURE__ */ new Map();
   function s(g) {
-    return t.messages().flatMap((w, h) => Xt(w)?.segmentId === g ? [{
-      message: w,
+    return t.messages().flatMap((v, h) => Xt(v)?.segmentId === g ? [{
+      message: v,
       index: h
     }] : []);
   }
-  function o(g, w = e.current()) {
+  function o(g, v = e.current()) {
     if (g.sealed || i.has(g.id)) return !1;
     const h = s(g.id);
     if (!h.length) return !g.receipt && r.has(g.id);
     if (h.length !== 1 || h[0].index !== t.messages().length - 1 || h[0].index <= t.finalizedThrough()) return !1;
-    if (w.pendingMutation?.segmentId === g.id && ca(t.messages(), w.pendingMutation, ku(w, w.pendingMutation))) return !0;
+    if (v.pendingMutation?.segmentId === g.id && ca(t.messages(), v.pendingMutation, ku(v, v.pendingMutation))) return !0;
     const { message: b } = h[0], k = Xt(b);
-    return b.is_user === !1 && b.is_system === !1 && b.mes === ro(w, g, k.throughSeq) && (!g.receipt || k.throughSeq >= g.receipt.throughSeq);
+    return b.is_user === !1 && b.is_system === !1 && b.mes === ro(v, g, k.throughSeq) && (!g.receipt || k.throughSeq >= g.receipt.throughSeq);
   }
   function c() {
-    const g = e.current(), w = g.pendingMutation, h = g.segments.filter((b) => !b.sealed && !o(b, g) && !(w?.segmentId === b.id && ku(g, w) === null && t.messages().length === w.index && ca(t.messages(), w, null))).map((b) => b.id);
+    const g = e.current(), v = g.pendingMutation, h = g.segments.filter((b) => !b.sealed && !o(b, g) && !(v?.segmentId === b.id && ku(g, v) === null && t.messages().length === v.index && ca(t.messages(), v, null))).map((b) => b.id);
     return h.forEach((b) => i.add(b)), h;
   }
-  async function l(g, w) {
+  async function l(g, v) {
     g.length && await e.change((h) => {
       for (const b of h.segments) g.includes(b.id) && (b.sealed = !0);
-    }, w);
+    }, v);
   }
   async function d(g) {
     await l(c(), g);
-    const w = e.current().segments.filter((b) => !b.recovered && o(b)).at(-1);
-    if (w) return w.id;
+    const v = e.current().segments.filter((b) => !b.recovered && o(b)).at(-1);
+    if (v) return v.id;
     const h = n();
     return r.add(h), h;
   }
-  async function f(g, w, h) {
+  async function u(g, v, h) {
     const b = t.identity();
     await e.change((k) => {
       const I = k.segments.find((x) => x.id === g);
-      I && w.throughSeq >= (I.receipt?.throughSeq ?? 0) && (I.receipt = {
-        throughSeq: w.throughSeq,
-        digest: w.digest
+      I && v.throughSeq >= (I.receipt?.throughSeq ?? 0) && (I.receipt = {
+        throughSeq: v.throughSeq,
+        digest: v.digest
       });
-    }, h), t.releaseConfirmation(b, w);
+    }, h), t.releaseConfirmation(b, v);
   }
-  async function u(g, w) {
-    if (!w()) throw new Error("messages_boundary_changed");
-    const h = t.identity(), b = e.current(), k = b.segments.find((v) => v.id === g);
+  async function f(g, v) {
+    if (!v()) throw new Error("messages_boundary_changed");
+    const h = t.identity(), b = e.current(), k = b.segments.find((w) => w.id === g);
     if (!k) throw new Error("messages_segment_missing");
     const I = s(g);
     if (I.length === 1) {
-      const { message: v } = I[0], A = Xt(v), C = ro(b, k, A.throughSeq);
-      if (v.mes === C && (0, nr.sha256)(C) === A.digest && A.throughSeq > (k.receipt?.throughSeq ?? 0) && await t.confirm(h, A, C)) {
-        if (!w()) throw new Error("messages_boundary_changed");
-        await f(g, A, w);
+      const { message: w } = I[0], A = Xt(w), C = ro(b, k, A.throughSeq);
+      if (w.mes === C && (0, nr.sha256)(C) === A.digest && A.throughSeq > (k.receipt?.throughSeq ?? 0) && await t.confirm(h, A, C)) {
+        if (!v()) throw new Error("messages_boundary_changed");
+        await u(g, A, v);
       }
     }
-    const x = e.current().segments.find((v) => v.id === g), S = b.messages.filter((v) => k.messageIds.includes(v.id)).at(-1)?.seq ?? 0;
+    const x = e.current().segments.find((w) => w.id === g), S = b.messages.filter((w) => k.messageIds.includes(w.id)).at(-1)?.seq ?? 0;
     if ((x.receipt?.throughSeq ?? 0) >= S) {
       x.receipt && t.releaseConfirmation(h, {
         version: 1,
@@ -39634,26 +39633,26 @@ function O8(e, t, n) {
       return;
     }
     if (!o(x))
-      throw await l([g], w), new Error("messages_projection_closed");
+      throw await l([g], v), new Error("messages_projection_closed");
     const _ = ro(b, k), y = {
       version: 1,
       segmentId: g,
       throughSeq: S,
       digest: (0, nr.sha256)(_)
     };
-    if (!w() || !o(x)) throw new Error("messages_boundary_changed");
+    if (!v() || !o(x)) throw new Error("messages_boundary_changed");
     if (!await t.publish({
       identity: h,
       index: I[0]?.index ?? null,
       text: _,
       marker: y,
-      guard: w
+      guard: v
     })) throw new Error("messages_projection_unconfirmed");
-    w() && await f(g, y, w);
+    v() && await u(g, y, v);
   }
-  function p(g, w) {
+  function p(g, v) {
     const h = t.identity(), b = a.get(h), k = b ? b.catch(() => {
-    }).then(() => u(g, w)) : u(g, w);
+    }).then(() => f(g, v)) : f(g, v);
     return a.set(h, k), k.then(() => {
       a.get(h) === k && a.delete(h);
     }, () => {
@@ -39661,9 +39660,9 @@ function O8(e, t, n) {
     }), k;
   }
   async function m(g) {
-    const w = new Set(sl(e.current()));
+    const v = new Set(sl(e.current()));
     for (const k of e.current().segments)
-      if (k.messageIds.some((I) => w.has(I)))
+      if (k.messageIds.some((I) => v.has(I)))
         try {
           await p(k.id, g);
         } catch (I) {
@@ -39701,26 +39700,26 @@ function Ja(e) {
   return (0, nr.sha256)(JSON.stringify(e));
 }
 function R8(e, t, n, r) {
-  function i(f) {
-    const u = /* @__PURE__ */ new Map();
-    for (const b of f.segments) for (const k of b.messageIds) {
-      const I = u.get(k) ?? [];
-      I.push(b), u.set(k, I);
+  function i(u) {
+    const f = /* @__PURE__ */ new Map();
+    for (const b of u.segments) for (const k of b.messageIds) {
+      const I = f.get(k) ?? [];
+      I.push(b), f.set(k, I);
     }
     const p = /* @__PURE__ */ new Map();
     function m(b) {
-      return p.has(b.id) || p.set(b.id, w(b)), p.get(b.id);
+      return p.has(b.id) || p.set(b.id, v(b)), p.get(b.id);
     }
     function g(b) {
-      if (f.pendingMutation || e.pending()) return "还不确定上次修改是否保存成功，请先检查保存。";
+      if (u.pendingMutation || e.pending()) return "还不确定上次修改是否保存成功，请先检查保存。";
       if (e.fileState() !== "ready") return "信息记录暂时不可用，请先检查保存。";
-      const k = u.get(b[0])?.[0];
+      const k = f.get(b[0])?.[0];
       return !k || b.some((I) => {
-        const x = u.get(I);
+        const x = f.get(I);
         return x?.length !== 1 || x[0] !== k;
       }) ? "这些记录不在同一段可修改的通讯中。" : m(k);
     }
-    function w(b) {
+    function v(b) {
       const k = n.messages().flatMap((S, _) => Xt(S)?.segmentId === b.id ? [{
         message: S,
         index: _
@@ -39728,10 +39727,10 @@ function R8(e, t, n, r) {
       if (!k.length) return "主聊天中的通讯楼层已被删除，不能再修改这条信息。";
       if (k.length !== 1) return "主聊天中出现了重复的通讯记录，暂时不能修改。";
       const { message: I, index: x } = k[0];
-      return x <= n.finalizedThrough() ? "这段通讯已纳入剧情总结，不能再修改。" : I.is_user !== !1 || I.is_system !== !1 || I.mes !== ro(f, b) || !b.receipt || Xt(I).digest !== b.receipt.digest ? "主聊天中的通讯楼层已被手动修改，不能再覆盖。" : x !== n.messages().length - 1 || !t.intact(b, f) ? "主聊天已经推进到新楼层，不允许删除过往信息。" : "";
+      return x <= n.finalizedThrough() ? "这段通讯已纳入剧情总结，不能再修改。" : I.is_user !== !1 || I.is_system !== !1 || I.mes !== ro(u, b) || !b.receipt || Xt(I).digest !== b.receipt.digest ? "主聊天中的通讯楼层已被手动修改，不能再覆盖。" : x !== n.messages().length - 1 || !t.intact(b, u) ? "主聊天已经推进到新楼层，不允许删除过往信息。" : "";
     }
     function h(b, k) {
-      const I = s(f, b, g).at(-1)?.id;
+      const I = s(u, b, g).at(-1)?.id;
       return Object.fromEntries(k.map((x) => [x.id, {
         reason: g([x.id]),
         regenerate: x.id === I
@@ -39742,25 +39741,25 @@ function R8(e, t, n, r) {
       permissions: h
     };
   }
-  function a(f, u) {
-    return i(f).reason(u);
+  function a(u, f) {
+    return i(u).reason(f);
   }
-  function s(f, u, p = (m) => a(f, m)) {
-    const m = f.messages.filter((h) => h.contactId === u).at(-1);
+  function s(u, f, p = (m) => a(u, m)) {
+    const m = u.messages.filter((h) => h.contactId === f).at(-1);
     if (!m || m.sender !== "contact" || !m.replyTo) return [];
-    const g = f.messages.filter((h) => h.replyTo === m.replyTo), w = f.messages.find((h) => h.id === m.replyTo);
-    return !w || p([w.id, ...g.map((h) => h.id)]) ? [] : g;
+    const g = u.messages.filter((h) => h.replyTo === m.replyTo), v = u.messages.find((h) => h.id === m.replyTo);
+    return !v || p([v.id, ...g.map((h) => h.id)]) ? [] : g;
   }
-  function o(f, u, p) {
-    return i(f).permissions(u, p);
+  function o(u, f, p) {
+    return i(u).permissions(f, p);
   }
-  function c(f, u) {
+  function c(u, f) {
     const p = e.current();
-    if (f.revision !== Ja(p)) throw new Error("记录已经变化，请重新选择这条消息。");
-    if (!p.contacts.some((w) => w.id === f.contactId)) throw new Error("messages_contact_missing");
-    const m = u === "delete-contact" ? p.messages.filter((w) => w.contactId === f.contactId).map((w) => w.id) : u === "regenerate" ? s(p, f.contactId).map((w) => w.id) : [f.messageId];
-    if (u === "regenerate" && (!m.length || m.at(-1) !== f.messageId)) throw new Error("只能重新回复这位联系人最新的一轮。");
-    if (m.some((w) => !p.messages.some((h) => h.id === w && h.contactId === f.contactId))) throw new Error("messages_message_missing");
+    if (u.revision !== Ja(p)) throw new Error("记录已经变化，请重新选择这条消息。");
+    if (!p.contacts.some((v) => v.id === u.contactId)) throw new Error("messages_contact_missing");
+    const m = f === "delete-contact" ? p.messages.filter((v) => v.contactId === u.contactId).map((v) => v.id) : f === "regenerate" ? s(p, u.contactId).map((v) => v.id) : [u.messageId];
+    if (f === "regenerate" && (!m.length || m.at(-1) !== u.messageId)) throw new Error("只能重新回复这位联系人最新的一轮。");
+    if (m.some((v) => !p.messages.some((h) => h.id === v && h.contactId === u.contactId))) throw new Error("messages_message_missing");
     const g = m.length ? a(p, m) : p.pendingMutation || e.pending() ? "还不确定上次修改是否保存成功，请先检查保存。" : "";
     if (g) throw new Error(g);
     return {
@@ -39768,18 +39767,18 @@ function R8(e, t, n, r) {
       ids: m
     };
   }
-  async function l(f) {
-    const u = e.current(), p = u.pendingMutation;
+  async function l(u) {
+    const f = e.current(), p = f.pendingMutation;
     if (!p) return;
-    const m = n.identity(), g = () => f() && n.identity() === m;
+    const m = n.identity(), g = () => u() && n.identity() === m;
     if (!g() || e.pending() || e.fileState() !== "ready") throw new Error("messages_not_ready");
-    const w = ku(u, p), h = await n.readSaved(m);
+    const v = ku(f, p), h = await n.readSaved(m);
     if (!g()) throw new Error("messages_boundary_changed");
-    let b = ca(h, p, w);
+    let b = ca(h, p, v);
     if (!b) {
       const k = e.current().segments.find((x) => x.id === p.segmentId), I = n.messages();
-      if (!(k && !k.sealed && !t.wasClosed(k.id) && p.index > n.finalizedThrough() && (ol(I, p) || ca(I, p, w) && I.length === p.index + (w ? 1 : 0)) && ol(h, p))) {
-        if (ca(I, p, w)) throw new Error("还不确定主聊天中的修改是否保存成功，请稍后检查保存。");
+      if (!(k && !k.sealed && !t.wasClosed(k.id) && p.index > n.finalizedThrough() && (ol(I, p) || ca(I, p, v) && I.length === p.index + (v ? 1 : 0)) && ol(h, p))) {
+        if (ca(I, p, v)) throw new Error("还不确定主聊天中的修改是否保存成功，请稍后检查保存。");
         await e.change((x) => {
           if (x.pendingMutation?.id === p.id) {
             x.pendingMutation = null;
@@ -39792,7 +39791,7 @@ function R8(e, t, n, r) {
       b = await n.rewrite({
         identity: m,
         mutation: p,
-        result: w,
+        result: v,
         guard: g
       });
     }
@@ -39801,33 +39800,33 @@ function R8(e, t, n, r) {
       if (k.pendingMutation?.id !== p.id) throw new Error("messages_action_conflict");
       lf(k, p);
       const I = k.segments.find((x) => x.id === p.segmentId);
-      I && (n.messages().length !== p.index + 1 || p.index <= n.finalizedThrough() || !ca(n.messages(), p, w)) && (I.sealed = !0);
+      I && (n.messages().length !== p.index + 1 || p.index <= n.finalizedThrough() || !ca(n.messages(), p, v)) && (I.sealed = !0);
     }, g);
   }
-  async function d(f, u, p, m) {
-    const { state: g, ids: w } = c(f, u);
+  async function d(u, f, p, m) {
+    const { state: g, ids: v } = c(u, f);
     if (!p()) throw new Error("messages_boundary_changed");
-    if (!w.length) {
+    if (!v.length) {
       await e.change((I) => {
-        if (c(f, u), Ja(I) !== f.revision) throw new Error("记录已经变化，请重新选择这条消息。");
-        I.contacts = I.contacts.filter((x) => x.id !== f.contactId);
+        if (c(u, f), Ja(I) !== u.revision) throw new Error("记录已经变化，请重新选择这条消息。");
+        I.contacts = I.contacts.filter((x) => x.id !== u.contactId);
       }, p);
       return;
     }
-    const h = g.segments.find((I) => I.messageIds.includes(w[0])), b = n.messages().length - 1, k = {
+    const h = g.segments.find((I) => I.messageIds.includes(v[0])), b = n.messages().length - 1, k = {
       id: r(),
-      kind: u,
-      contactId: f.contactId,
+      kind: f,
+      contactId: u.contactId,
       segmentId: h.id,
       index: b,
       baseDigest: _1(n.messages()[b]),
       prefixDigest: Wg(n.messages(), b),
-      removeIds: w,
+      removeIds: v,
       replacements: m?.messages ?? [],
       summary: m?.summary ?? null
     };
     await e.change((I) => {
-      if (c(f, u), Ja(I) !== f.revision) throw new Error("记录已经变化，请重新选择这条消息。");
+      if (c(u, f), Ja(I) !== u.revision) throw new Error("记录已经变化，请重新选择这条消息。");
       I.nextSeq += k.replacements.length, I.pendingMutation = k;
     }, p), await l(p);
   }
@@ -39864,9 +39863,9 @@ function M8(e) {
       body: JSON.stringify(l)
     });
     if (!d.ok) throw new Error("messages_chat_read_failed");
-    const f = await d.json();
-    if (!Array.isArray(f)) throw new Error("messages_chat_read_invalid");
-    return f.filter((u) => u && typeof u == "object" && typeof u.mes == "string");
+    const u = await d.json();
+    if (!Array.isArray(u)) throw new Error("messages_chat_read_invalid");
+    return u.filter((f) => f && typeof f == "object" && typeof f.mes == "string");
   }
   const i = {
     identity: Hi,
@@ -39895,9 +39894,9 @@ function M8(e) {
       };
       try {
         if (ol(o.chat, c) && (o.chatMetadata.tainted = !0, await QS()), !d()) return !1;
-        const f = await eu(d);
-        if (f.status === "failed") throw f.error;
-        return f.status === "confirmed";
+        const u = await eu(d);
+        if (u.status === "failed") throw u.error;
+        return u.status === "confirmed";
       } finally {
         t = null;
       }
@@ -39910,9 +39909,9 @@ function M8(e) {
       if (Hi() !== s) return !1;
       const l = _r(), d = n.get(o.segmentId);
       if (d && d.text === c && hd(d.marker, o) && d.status !== "unconfirmed") return d.status === "confirmed";
-      const f = await r(l);
+      const u = await r(l);
       if (Hi() !== s || _r().chat !== l.chat) return !1;
-      const u = f.filter((m) => Xt(m)?.segmentId === o.segmentId), p = u.length === 1 && u[0].mes === c && hd(Xt(u[0]), o);
+      const f = u.filter((m) => Xt(m)?.segmentId === o.segmentId), p = f.length === 1 && f[0].mes === c && hd(Xt(f[0]), o);
       return p && n.set(o.segmentId, {
         marker: o,
         text: c,
@@ -39936,9 +39935,9 @@ function M8(e) {
           gen_id: Date.now(),
           [k1]: s.marker
         }, d = s.index ?? o.chat.length;
-        let f;
+        let u;
         if (s.index === null)
-          f = {
+          u = {
             name: "私人信息",
             is_user: !1,
             is_system: !1,
@@ -39955,35 +39954,35 @@ function M8(e) {
               gen_finished: null,
               extra: structuredClone(l)
             }]
-          }, o.chat.push(f);
+          }, o.chat.push(u);
         else {
-          if (f = o.chat[d], !f || d !== o.chat.length - 1 || d <= If() || Xt(f)?.segmentId !== s.marker.segmentId) throw new Error("messages_projection_closed");
-          f.mes = s.text, f.extra = {
-            ...f.extra,
+          if (u = o.chat[d], !u || d !== o.chat.length - 1 || d <= If() || Xt(u)?.segmentId !== s.marker.segmentId) throw new Error("messages_projection_closed");
+          u.mes = s.text, u.extra = {
+            ...u.extra,
             ...l
-          }, f.swipes = [s.text], f.swipe_id = 0, f.swipe_info = [{
-            send_date: f.send_date,
+          }, u.swipes = [s.text], u.swipe_id = 0, u.swipe_info = [{
+            send_date: u.send_date,
             gen_started: null,
             gen_finished: null,
-            extra: structuredClone(f.extra)
+            extra: structuredClone(u.extra)
           }];
         }
         o.chatMetadata.tainted = !0;
-        const u = {
+        const f = {
           marker: s.marker,
           text: s.text,
           status: "failed"
         };
-        if (n.set(s.marker.segmentId, u), s.index === null) {
+        if (n.set(s.marker.segmentId, f), s.index === null) {
           if (await o.eventSource.emit(ce.MESSAGE_RECEIVED, d, "command"), !c()) return !1;
-          YS(f), await o.eventSource.emit(ce.CHARACTER_MESSAGE_RENDERED, d, "command");
+          YS(u), await o.eventSource.emit(ce.CHARACTER_MESSAGE_RENDERED, d, "command");
         } else {
           if (await o.eventSource.emit(ce.MESSAGE_EDITED, d), !c()) return !1;
-          Vm(d, f), await o.eventSource.emit(ce.MESSAGE_UPDATED, d);
+          Vm(d, u), await o.eventSource.emit(ce.MESSAGE_UPDATED, d);
         }
-        if (!c() || o.chat[d] !== f || f.mes !== s.text) return !1;
-        const p = await eu(() => c() && o.chat[d] === f && f.mes === s.text && hd(Xt(f), s.marker));
-        if (u.status = p.status, p.status === "failed") throw p.error;
+        if (!c() || o.chat[d] !== u || u.mes !== s.text) return !1;
+        const p = await eu(() => c() && o.chat[d] === u && u.mes === s.text && hd(Xt(u), s.marker));
+        if (f.status = p.status, p.status === "failed") throw p.error;
         return p.status === "confirmed";
       } finally {
         t = null;
@@ -39992,8 +39991,8 @@ function M8(e) {
   };
   function a(s, o) {
     const c = In("xiaobaiOsMessages"), l = (d) => {
-      const f = t && _r().chat[t.index];
-      t && Number(d) === t.index && (t.text === null ? _r().chat.length === t.index : f?.mes === t.text && Xt(f)?.segmentId === t.segmentId) || s();
+      const u = t && _r().chat[t.index];
+      t && Number(d) === t.index && (t.text === null ? _r().chat.length === t.index : u?.mes === t.text && Xt(u)?.segmentId === t.segmentId) || s();
     };
     for (const d of [
       ce.MESSAGE_RECEIVED,
@@ -40039,8 +40038,8 @@ function N8(e, t) {
   if (r) {
     const o = (Array.isArray(e.groups) ? e.groups.filter(as) : []).find((l) => String(l.id ?? "") === r), c = new Set(Array.isArray(o?.disabled_members) ? o.disabled_members.map((l) => String(l)) : []);
     return (Array.isArray(o?.members) ? o.members.map((l) => String(l)) : []).filter((l) => !c.has(l)).flatMap((l) => {
-      const d = n.find((u) => String(u.avatar ?? "") === l), f = d ? _b(d) : null;
-      return f ? [f] : [];
+      const d = n.find((f) => String(f.avatar ?? "") === l), u = d ? _b(d) : null;
+      return u ? [u] : [];
     });
   }
   const i = e.characterId, a = i == null ? void 0 : Array.isArray(e.characters) ? e.characters[Number(i)] : as(e.characters) ? e.characters[String(i)] : void 0;
@@ -40103,28 +40102,28 @@ function x1(e, t = {}) {
   }, r = Ps(e) ? e : {}, i = Ps(r.player) ? r.player : {}, a = {
     displayName: yp(i.displayName, "User"),
     persona: Ir(i.persona, n.persona)
-  }, s = (Array.isArray(r.characters) ? r.characters : []).flatMap((u) => {
-    if (!Ps(u)) return [];
-    const p = I1(u.characterKey);
+  }, s = (Array.isArray(r.characters) ? r.characters : []).flatMap((f) => {
+    if (!Ps(f)) return [];
+    const p = I1(f.characterKey);
     return p ? [{
       characterKey: p,
-      displayName: yp(u.displayName, p),
-      description: Ir(u.description, n.characterDescription),
-      personality: Ir(u.personality, n.characterPersonality),
-      scenario: Ir(u.scenario, n.characterScenario)
+      displayName: yp(f.displayName, p),
+      description: Ir(f.description, n.characterDescription),
+      personality: Ir(f.personality, n.characterPersonality),
+      scenario: Ir(f.scenario, n.characterScenario)
     }] : [];
-  }).slice(0, n.characters), o = (Array.isArray(r.recentMessages) ? r.recentMessages : []).flatMap((u) => {
-    if (!Ps(u) || u.role !== "user" && u.role !== "assistant") return [];
-    if (!Number.isSafeInteger(u.index) || Number(u.index) < 0) return [];
-    const p = Ir(u.text, n.messageText);
+  }).slice(0, n.characters), o = (Array.isArray(r.recentMessages) ? r.recentMessages : []).flatMap((f) => {
+    if (!Ps(f) || f.role !== "user" && f.role !== "assistant") return [];
+    if (!Number.isSafeInteger(f.index) || Number(f.index) < 0) return [];
+    const p = Ir(f.text, n.messageText);
     return p ? [{
-      index: Number(u.index),
-      role: u.role,
-      speakerName: yp(u.speakerName, u.role === "user" ? "User" : "Assistant"),
+      index: Number(f.index),
+      role: f.role,
+      speakerName: yp(f.speakerName, f.role === "user" ? "User" : "Assistant"),
       text: p,
-      swipeId: P8(u.swipeId)
+      swipeId: P8(f.swipeId)
     }] : [];
-  }).sort((u, p) => u.index - p.index).slice(-n.recentMessages), c = Ps(r.worldInfo) ? r.worldInfo : {}, l = Ps(c.extras) ? c.extras : null, d = {
+  }).sort((f, p) => f.index - p.index).slice(-n.recentMessages), c = Ps(r.worldInfo) ? r.worldInfo : {}, l = Ps(c.extras) ? c.extras : null, d = {
     before: Ir(c.before, n.worldBefore),
     after: Ir(c.after, n.worldAfter),
     depth: Xo(c.depth, n),
@@ -40134,7 +40133,7 @@ function x1(e, t = {}) {
       authorNoteBefore: Xo(l.authorNoteBefore, n),
       authorNoteAfter: Xo(l.authorNoteAfter, n)
     } } : {}
-  }, f = Ir(r.storyEvents, n.storyEvents);
+  }, u = Ir(r.storyEvents, n.storyEvents);
   return {
     player: a,
     characters: s,
@@ -40142,7 +40141,7 @@ function x1(e, t = {}) {
     ...r.characterNote !== void 0 ? { characterNote: Ir(r.characterNote, n.characterNote) } : {},
     recentMessages: o,
     worldInfo: d,
-    storyEvents: f
+    storyEvents: u
   };
 }
 function Gr(e) {
@@ -40191,16 +40190,16 @@ function D8({ readContext: e, readStoryEvents: t, cleanMessageText: n, normaliza
     return Ib(e());
   }
   async function c(l = {}) {
-    const d = e(), f = Ib(d);
-    if (!f) throw new Error("prompt_context_chat_unavailable");
-    const u = Array.isArray(d.chat) ? d.chat : [], p = l.throughMessageIndex ?? u.length - 1;
-    if (!Number.isSafeInteger(p) || p < -1 || p >= u.length) throw new Error("prompt_context_boundary_invalid");
+    const d = e(), u = Ib(d);
+    if (!u) throw new Error("prompt_context_chat_unavailable");
+    const f = Array.isArray(d.chat) ? d.chat : [], p = l.throughMessageIndex ?? f.length - 1;
+    if (!Number.isSafeInteger(p) || p < -1 || p >= f.length) throw new Error("prompt_context_boundary_invalid");
     const m = l.recentBeforeIndex ?? p + 1;
     if (!Number.isSafeInteger(m) || m < 0 || m > p + 1) throw new Error("prompt_context_recent_boundary_invalid");
-    const g = new Set(l.excludeMessageIndices ?? []), w = L8(d, p).filter((S) => !g.has(S.index)).map((S) => n ? {
+    const g = new Set(l.excludeMessageIndices ?? []), v = L8(d, p).filter((S) => !g.has(S.index)).map((S) => n ? {
       ...S,
       text: n(String(S.text ?? ""))
-    } : S), h = w.filter((S) => S.index < m);
+    } : S), h = v.filter((S) => S.index < m);
     let b;
     if (i) {
       if (typeof d.getCharacterCardFields != "function") throw new Error("prompt_context_character_fields_unavailable");
@@ -40250,10 +40249,10 @@ function D8({ readContext: e, readStoryEvents: t, cleanMessageText: n, normaliza
           depth: []
         };
       }
-      const S = d.worldInfoIncludeNames === !0, _ = [...l.worldInfoScanMessages ?? [], ...w.map((C) => {
+      const S = d.worldInfoIncludeNames === !0, _ = [...l.worldInfoScanMessages ?? [], ...v.map((C) => {
         const E = String(C.text || "");
         return S ? `${C.speakerName}: ${E}` : E;
-      }).reverse()], y = j8(d, s, b), v = Number(d.maxContext), A = Number.isFinite(v) && v > 0 ? Math.floor(v) : 8192;
+      }).reverse()], y = j8(d, s, b), w = Number(d.maxContext), A = Number.isFinite(w) && w > 0 ? Math.floor(w) : 8192;
       try {
         const C = await d.getWorldInfoPrompt(_, A, !0, y);
         if (!Gr(C)) throw new Error("prompt_context_world_info_invalid");
@@ -40290,10 +40289,10 @@ function D8({ readContext: e, readStoryEvents: t, cleanMessageText: n, normaliza
         return s(S), "";
       }
     })()]);
-    if (o() !== f) throw new Error("prompt_context_chat_changed");
+    if (o() !== u) throw new Error("prompt_context_chat_changed");
     return {
-      chatIdentity: f,
-      assistantCount: dh(u, p + 1),
+      chatIdentity: u,
+      assistantCount: dh(f, p + 1),
       contextSnapshot: x1({
         ...k,
         worldInfo: I,
@@ -40329,26 +40328,26 @@ function Ug({ readContext: e = () => ({
 function B8(e, t, n, r) {
   const i = /* @__PURE__ */ new Map(), a = /* @__PURE__ */ new Map();
   let s = 0;
-  for (const [d, f] of t.entries()) {
-    const u = Xt(f);
-    u ? i.set(u.segmentId, i.has(u.segmentId) ? null : {
+  for (const [d, u] of t.entries()) {
+    const f = Xt(u);
+    f ? i.set(f.segmentId, i.has(f.segmentId) ? null : {
       afterStoryFloor: s,
-      throughSeq: u.throughSeq
-    }) : f.is_system !== !0 && typeof f.mes == "string" && f.mes.trim() && (a.set(s, d + 1), s = d + 1);
+      throughSeq: f.throughSeq
+    }) : u.is_system !== !0 && typeof u.mes == "string" && u.mes.trim() && (a.set(s, d + 1), s = d + 1);
   }
   const o = /* @__PURE__ */ new Map();
-  for (const d of e) for (const f of d.messageIds) (!o.has(f) || o.get(f).recovered && !d.recovered) && o.set(f, d);
+  for (const d of e) for (const u of d.messageIds) (!o.has(u) || o.get(u).recovered && !d.recovered) && o.set(u, d);
   const c = [];
   let l;
   for (const d of [...n, r]) {
-    const f = o.get(d.id), u = f && !f.recovered ? i.get(f.id) : null, p = d === r ? s : u && d.seq <= u.throughSeq ? u.afterStoryFloor : null, m = p === null ? `unplaced:${f?.id ?? d.id}` : `story:${p}`, g = c.at(-1);
+    const u = o.get(d.id), f = u && !u.recovered ? i.get(u.id) : null, p = d === r ? s : f && d.seq <= f.throughSeq ? f.afterStoryFloor : null, m = p === null ? `unplaced:${u?.id ?? d.id}` : `story:${p}`, g = c.at(-1);
     if (g && m === l) {
       g.throughSeq = d.seq;
       continue;
     }
-    const w = g?.afterStoryFloor === null ? void 0 : a.get(g?.afterStoryFloor ?? -1), h = g ? p !== null && w !== void 0 && w <= p ? {
+    const v = g?.afterStoryFloor === null ? void 0 : a.get(g?.afterStoryFloor ?? -1), h = g ? p !== null && v !== void 0 && v <= p ? {
       kind: "story",
-      fromFloor: w,
+      fromFloor: v,
       throughFloor: p
     } : { kind: "unplaced" } : null;
     c.push({
@@ -40404,15 +40403,15 @@ function W8(e, t) {
       includeActiveStoryDetails: !0,
       strictBackgroundRead: !0,
       normalizationLimits: F8
-    }), d = e.messages(), f = d.length - 1, u = B8(t(), d, s, o), p = d.flatMap((m, g) => Xt(m) ? [g] : []);
+    }), d = e.messages(), u = d.length - 1, f = B8(t(), d, s, o), p = d.flatMap((m, g) => Xt(m) ? [g] : []);
     return {
       ...(await l.capture({
-        throughMessageIndex: f,
+        throughMessageIndex: u,
         excludeMessageIndices: p,
         worldInfoScanMessages: q8(a, s, o)
       })).contextSnapshot,
-      people: n(a.name, f),
-      chronology: u
+      people: n(a.name, u),
+      chronology: f
     };
   }
   return {
@@ -40424,10 +40423,10 @@ function K8(e = () => window) {
   const t = /* @__PURE__ */ new Map();
   let n = null, r = null, i = 0;
   function a() {
-    let u = !1, p = !1;
+    let f = !1, p = !1;
     try {
       const m = e().xiaobaixDraw?.getStatus();
-      u = m?.enabled === !0 && m.ready === !0;
+      f = m?.enabled === !0 && m.ready === !0;
     } catch {
     }
     try {
@@ -40435,76 +40434,76 @@ function K8(e = () => window) {
     } catch {
     }
     return {
-      image: u,
+      image: f,
       voice: p
     };
   }
-  function s(u) {
-    if (typeof u != "string") return null;
-    const p = u.trim();
+  function s(f) {
+    if (typeof f != "string") return null;
+    const p = f.trim();
     return /^data:image\/(?:png|jpeg|webp|gif);base64,[A-Za-z0-9+/=\r\n]+$/u.test(p) ? p : /^[A-Za-z0-9+/\r\n]+={0,2}$/u.test(p) ? `data:image/png;base64,${p}` : null;
   }
-  async function o(u, p) {
-    if (u.payload.type !== "image") throw new Error("messages_not_image");
-    if (u.payload.attachment) return u.payload.attachment.path;
+  async function o(f, p) {
+    if (f.payload.type !== "image") throw new Error("messages_not_image");
+    if (f.payload.attachment) return f.payload.attachment.path;
     const m = e().xiaobaixDraw;
     if (!m || !a().image) return null;
     const g = {
-      prompt: u.payload.generationPrompt || u.payload.description,
+      prompt: f.payload.generationPrompt || f.payload.description,
       cacheNamespace: "os-messages"
     };
     if (t.has(p.requestId)) throw new Error("messages_image_busy");
-    const w = new AbortController();
-    t.set(p.requestId, w);
+    const v = new AbortController();
+    t.set(p.requestId, v);
     try {
       const h = await m.checkGeneratedImageCache(g);
-      if (w.signal.aborted) throw new Error("messages_media_cancelled");
+      if (v.signal.aborted) throw new Error("messages_media_cancelled");
       const b = s(h);
       if (b) return b;
       p.onProgress?.("generating");
       const k = await m.generateSharedImage({
         ...g,
-        signal: w.signal,
+        signal: v.signal,
         onProgress(x, S, _) {
-          w.signal.aborted || p.onProgress?.(x, S, _);
+          v.signal.aborted || p.onProgress?.(x, S, _);
         }
       });
-      if (w.signal.aborted) throw new Error("messages_media_cancelled");
+      if (v.signal.aborted) throw new Error("messages_media_cancelled");
       const I = s(k);
       if (!I) throw new Error("messages_image_invalid");
       return I;
     } finally {
-      t.get(p.requestId) === w && t.delete(p.requestId);
+      t.get(p.requestId) === v && t.delete(p.requestId);
     }
   }
-  function c(u) {
-    t.get(u)?.abort(), t.delete(u);
+  function c(f) {
+    t.get(f)?.abort(), t.delete(f);
   }
   function l() {
     i++;
-    const u = n, p = r;
+    const f = n, p = r;
     n = null, r = null;
     try {
-      u?.stop?.();
+      f?.stop?.();
     } finally {
       p?.("stopped");
     }
   }
-  function d(u, p) {
-    if (u.payload.type !== "voice") throw new Error("messages_not_voice");
+  function d(f, p) {
+    if (f.payload.type !== "voice") throw new Error("messages_not_voice");
     l();
     const m = e().xiaobaixTts;
     if (!m || !a().voice) throw new Error("messages_voice_unavailable");
     const g = i;
-    r = p, n = m.playTransient(u.payload.transcript, u.payload.emotion ?? "", {
-      requestId: `messages:${u.id}`,
-      onState(w) {
-        g === i && p(w);
+    r = p, n = m.playTransient(f.payload.transcript, f.payload.emotion ?? "", {
+      requestId: `messages:${f.id}`,
+      onState(v) {
+        g === i && p(v);
       }
     });
   }
-  function f() {
-    t.forEach((u) => u.abort()), t.clear(), l();
+  function u() {
+    t.forEach((f) => f.abort()), t.clear(), l();
   }
   return {
     capabilities: a,
@@ -40512,7 +40511,7 @@ function K8(e = () => window) {
     cancelImage: c,
     play: d,
     stop: l,
-    cancelAll: f
+    cancelAll: u
   };
 }
 function G8(e, t) {
@@ -40995,7 +40994,7 @@ function lD(e, t, n, r, i, a) {
   return o;
 }
 function jm(e) {
-  const { contact: t, context: n, history: r, incoming: i, settings: a } = e, s = Zt(t.name), o = Zt(n.player.displayName), c = [...r, i], l = new Map(c.filter((u) => u.payload.type === "image" && u.payload.attachment).map((u, p) => [u.id, p + 1])), d = O1(n, t), f = [
+  const { contact: t, context: n, history: r, incoming: i, settings: a } = e, s = Zt(t.name), o = Zt(n.player.displayName), c = [...r, i], l = new Map(c.filter((f) => f.payload.type === "image" && f.payload.attachment).map((f, p) => [f.id, p + 1])), d = O1(n, t), u = [
     d.contact.content,
     d.story.content,
     oD(t, n, r, l),
@@ -41018,7 +41017,7 @@ ${R1(i, l)}
       },
       {
         role: "user",
-        content: lD(f, c, l, e.images ?? /* @__PURE__ */ new Map(), n.player.displayName, t.name)
+        content: lD(u, c, l, e.images ?? /* @__PURE__ */ new Map(), n.player.displayName, t.name)
       }
     ]
   };
@@ -41111,15 +41110,15 @@ async function P1(e, t) {
     history: l(),
     images: Dm([...l(), t.incoming]),
     settings: c
-  }), f = async (k) => {
+  }), u = async (k) => {
     const I = await pD(k, i.providerConfig, t.signal, e.countTokens);
     return n(), I;
   };
-  let u = await f(d()), p = u >= 128e3 ? fD(l()) : [];
+  let f = await u(d()), p = f >= 128e3 ? fD(l()) : [];
   for (; p.length; ) {
     t.stage("summarizing");
     let k = p;
-    for (; await f(Sb(a, k, o.chronology, Dm(k))) > $1; ) {
+    for (; await u(Sb(a, k, o.chronology, Dm(k))) > $1; ) {
       if (k.length === 1) throw new Error("messages_context_capacity");
       k = k.slice(0, Math.ceil(k.length / 2));
     }
@@ -41134,13 +41133,13 @@ async function P1(e, t) {
       text: Y8(x)
     }, _ = a.summary;
     a.summary = S;
-    const y = await f(d());
-    if (y >= u) throw new Error("messages_summary_not_reduced");
-    await t.saveSummary?.(S, _?.throughSeq ?? 0), n(), u = y, p = p.slice(k.length);
+    const y = await u(d());
+    if (y >= f) throw new Error("messages_summary_not_reduced");
+    await t.saveSummary?.(S, _?.throughSeq ?? 0), n(), f = y, p = p.slice(k.length);
   }
-  if (u > 158e3) throw new Error("messages_context_capacity");
+  if (f > 158e3) throw new Error("messages_context_capacity");
   t.stage("replying");
-  const m = l(), g = await s([...m, t.incoming]), w = jm({
+  const m = l(), g = await s([...m, t.incoming]), v = jm({
     contact: a,
     context: o,
     incoming: t.incoming,
@@ -41148,7 +41147,7 @@ async function P1(e, t) {
     images: g,
     settings: c
   }), h = t.preview, b = await i.run({
-    ...w,
+    ...v,
     tools: [],
     signal: t.signal,
     ...h ? { onStreamProgress: (k) => {
@@ -41176,23 +41175,23 @@ async function hD(e, t) {
     description: t.payload.description,
     attachment: v1(t.payload.upload)
   } : t.payload;
-  if (!n.current().contacts.some((u) => u.id === t.contactId)) throw new Error("messages_contact_missing");
+  if (!n.current().contacts.some((f) => f.id === t.contactId)) throw new Error("messages_contact_missing");
   const s = await r.select(t.guard);
-  let o = n.current().messages.find((u) => u.id === t.messageId);
+  let o = n.current().messages.find((f) => f.id === t.messageId);
   if (o) {
     if (o.contactId !== t.contactId || o.sender !== "user" || a && JSON.stringify(o.payload) !== JSON.stringify(a)) throw new Error("messages_action_conflict");
   } else {
     if (!a) throw new Error("messages_input_missing");
     if (t.payload?.type === "image") {
       t.stage("uploading");
-      const u = await e.images.save(t.payload.upload, t.signal);
+      const f = await e.images.save(t.payload.upload, t.signal);
       i(), a = {
         type: "image",
         description: t.payload.description,
-        attachment: u
+        attachment: f
       };
     }
-    t.stage("saving"), await n.change((u) => xb(u, {
+    t.stage("saving"), await n.change((f) => xb(f, {
       segmentId: s,
       contactId: t.contactId,
       playerName: e.playerName(),
@@ -41202,40 +41201,40 @@ async function hD(e, t) {
         payload: a
       }],
       createdAt: Date.now()
-    }), t.guard, t.recoverInput), o = n.current().messages.find((u) => u.id === t.messageId);
+    }), t.guard, t.recoverInput), o = n.current().messages.find((f) => f.id === t.messageId);
   }
   i();
   let c = "replying";
-  const l = (u) => {
-    c = u, t.stage(u);
+  const l = (f) => {
+    c = f, t.stage(f);
   };
   async function d() {
-    if (n.current().messages.some((w) => w.replyTo === o.id)) return;
-    const u = n.current().messages.filter((w) => w.contactId === t.contactId);
-    if (u.at(-1)?.id !== o.id) throw new Error("messages_thread_changed");
-    const p = n.current().contacts.find((w) => w.id === t.contactId), { replies: m } = await P1(e, {
+    if (n.current().messages.some((v) => v.replyTo === o.id)) return;
+    const f = n.current().messages.filter((v) => v.contactId === t.contactId);
+    if (f.at(-1)?.id !== o.id) throw new Error("messages_thread_changed");
+    const p = n.current().contacts.find((v) => v.id === t.contactId), { replies: m } = await P1(e, {
       contact: p,
-      history: u.filter((w) => w.id !== o.id),
+      history: f.filter((v) => v.id !== o.id),
       incoming: o,
       signal: t.signal,
       guard: t.guard,
       stage: l,
       preview: t.preview,
-      async saveSummary(w, h) {
+      async saveSummary(v, h) {
         await n.change((b) => {
           const k = b.contacts.find((I) => I.id === t.contactId);
           if (!k || (k.summary?.throughSeq ?? 0) !== h) throw new Error("messages_thread_changed");
-          k.summary = w;
+          k.summary = v;
         }, t.guard);
       }
-    }), g = m.map((w) => ({
+    }), g = m.map((v) => ({
       id: e.id(),
-      payload: w
+      payload: v
     }));
-    l("saving-reply"), await n.change((w) => {
-      const h = w.messages.filter((k) => k.contactId === t.contactId), b = w.contacts.find((k) => k.id === t.contactId);
-      if (JSON.stringify(h) !== JSON.stringify(u) || b?.name !== p.name || b?.note !== p.note) throw new Error("messages_thread_changed");
-      xb(w, {
+    l("saving-reply"), await n.change((v) => {
+      const h = v.messages.filter((k) => k.contactId === t.contactId), b = v.contacts.find((k) => k.id === t.contactId);
+      if (JSON.stringify(h) !== JSON.stringify(f) || b?.name !== p.name || b?.note !== p.note) throw new Error("messages_thread_changed");
+      xb(v, {
         segmentId: s,
         contactId: t.contactId,
         playerName: o.from,
@@ -41245,29 +41244,29 @@ async function hD(e, t) {
       });
     }, t.guard);
   }
-  let f;
+  let u;
   try {
     await d();
-  } catch (u) {
-    f = new Bm(c, u);
+  } catch (f) {
+    u = new Bm(c, f);
   }
   if (t.guard() && !t.signal.aborted && !n.pending() && n.fileState() === "ready") {
-    const u = n.current(), p = new Set(u.messages.filter((w) => w.id === o.id || w.replyTo === o.id).map((w) => w.id)), m = new Set(sl(u)), g = u.segments.filter((w) => w.messageIds.some((h) => p.has(h) && m.has(h)));
+    const f = n.current(), p = new Set(f.messages.filter((v) => v.id === o.id || v.replyTo === o.id).map((v) => v.id)), m = new Set(sl(f)), g = f.segments.filter((v) => v.messageIds.some((h) => p.has(h) && m.has(h)));
     if (g.length) {
       l("syncing");
       try {
-        for (const w of g) await r.sync(w.id, t.guard);
-      } catch (w) {
-        f ??= new Bm("syncing", w);
+        for (const v of g) await r.sync(v.id, t.guard);
+      } catch (v) {
+        u ??= new Bm("syncing", v);
       }
     }
   }
-  if (f) throw f;
+  if (u) throw u;
 }
 async function gD(e, t, n, r) {
-  const { state: i, ids: a } = t.authorize(n, "regenerate"), s = i.messages.find((u) => u.id === a[0]), o = i.messages.find((u) => u.id === s.replyTo), c = structuredClone(i.contacts.find((u) => u.id === n.contactId));
+  const { state: i, ids: a } = t.authorize(n, "regenerate"), s = i.messages.find((f) => f.id === a[0]), o = i.messages.find((f) => f.id === s.replyTo), c = structuredClone(i.contacts.find((f) => f.id === n.contactId));
   c.summary && c.summary.throughSeq >= o.seq && (c.summary = null);
-  const l = i.messages.filter((u) => u.contactId === n.contactId && u.seq < o.seq), d = await P1(e, {
+  const l = i.messages.filter((f) => f.contactId === n.contactId && f.seq < o.seq), d = await P1(e, {
     ...r,
     contact: c,
     history: l,
@@ -41275,14 +41274,14 @@ async function gD(e, t, n, r) {
   });
   if (!r.guard() || r.signal.aborted) throw new Error("messages_cancelled");
   r.stage("saving-reply");
-  const f = d.replies.map((u, p) => ({
+  const u = d.replies.map((f, p) => ({
     ...s,
     id: e.id(),
     seq: i.nextSeq + p,
-    payload: u
+    payload: f
   }));
   await t.commit(n, "regenerate", r.guard, {
-    messages: f,
+    messages: u,
     summary: d.summary
   });
 }
@@ -41335,13 +41334,13 @@ function wD(e) {
   function d() {
     t++, n?.controller.abort(), n = null, e.changed();
   }
-  function f() {
-    const w = t, h = e.identity();
-    return () => !!h && w === t && h === e.identity() && !e.isGenerating();
+  function u() {
+    const v = t, h = e.identity();
+    return () => !!h && v === t && h === e.identity() && !e.isGenerating();
   }
-  function u(w, h) {
-    const b = w.preview;
-    w.preview = h, (!b || b.replies.length !== h.replies.length || b.characterStateDone !== h.characterStateDone || Date.now() - r >= 300) && (r = Date.now(), e.changed());
+  function f(v, h) {
+    const b = v.preview;
+    v.preview = h, (!b || b.replies.length !== h.replies.length || b.characterStateDone !== h.characterStateDone || Date.now() - r >= 300) && (r = Date.now(), e.changed());
   }
   function p() {
     if (o) {
@@ -41349,28 +41348,28 @@ function wD(e) {
       (o.identity !== e.identity() || !b.contacts.some((k) => k.id === o?.contactId) || b.messages.some((k) => k.id === o?.messageId)) && (o = null);
     }
     if (!o) return null;
-    const { identity: w, ...h } = o;
+    const { identity: v, ...h } = o;
     return h;
   }
-  function m(w, h, b) {
+  function m(v, h, b) {
     if (n) {
       if (n.messageId === h && n.identity === e.identity()) return;
       throw new Error("messages_busy");
     }
     if (e.isGenerating() || e.service.pending() || e.service.current().pendingMutation || e.service.fileState() !== "ready") throw new Error("messages_not_ready");
     const k = p();
-    if (k && (k.messageId !== h || k.contactId !== w)) throw new Error("messages_busy");
-    if (!e.service.current().contacts.some((_) => _.id === w)) throw new Error("messages_contact_missing");
+    if (k && (k.messageId !== h || k.contactId !== v)) throw new Error("messages_busy");
+    if (!e.service.current().contacts.some((_) => _.id === v)) throw new Error("messages_contact_missing");
     if (k && b && JSON.stringify(k.payload) !== JSON.stringify(b)) throw new Error("messages_action_conflict");
     b ??= k?.payload, b && !k && (o = {
       identity: e.identity(),
-      contactId: w,
+      contactId: v,
       messageId: h,
       payload: b,
       createdAt: Date.now()
     }), a = "", s = "", c = null;
     const I = {
-      contactId: w,
+      contactId: v,
       messageId: h,
       stage: "saving",
       controller: new AbortController(),
@@ -41378,19 +41377,19 @@ function wD(e) {
       preview: null
     };
     n = I, i = I;
-    const x = f();
+    const x = u();
     e.changed();
     const S = hD(e, {
-      contactId: w,
+      contactId: v,
       messageId: h,
       payload: b,
       signal: I.controller.signal,
       guard: x,
-      recoverInput: () => I.identity === e.identity() && !e.isGenerating() && e.service.current().contacts.some((_) => _.id === w),
+      recoverInput: () => I.identity === e.identity() && !e.isGenerating() && e.service.current().contacts.some((_) => _.id === v),
       stage(_) {
         I.stage = _, _ !== "replying" && _ !== "saving-reply" && (I.preview = null), _ === "syncing" && n === I && (n = null), e.changed();
       },
-      preview: (_) => u(I, _)
+      preview: (_) => f(I, _)
     }).catch((_) => {
       const y = _ instanceof Bm ? _.stage : I.stage;
       if (console.warn("[LittleWhiteBox] 私人信息未完成", {
@@ -41398,9 +41397,9 @@ function wD(e) {
         messageId: h,
         cause: _
       }), e.identity() === I.identity && i === I) {
-        const v = e.service.current(), A = v.messages.some((T) => T.id === h), C = v.messages.some((T) => T.contactId === w && T.payload.type === "image" && T.payload.attachment), E = Ab(_) || (I.controller.signal.aborted ? A ? "这次回复已停止，可以重试。" : "发送已停止，可以重试。" : e.service.pending() ? A ? "还不确定回复是否保存成功，请先检查保存。" : "还不确定是否发送成功，请先检查保存。" : y === "uploading" ? "图片发送失败，可以重试。" : _ instanceof Error && _.message === "messages_image_missing" ? "消息里的原图暂时无法读取，请恢复图库中的原图后重试。" : y === "syncing" ? za.failed : A ? "暂时没有收到回复。请检查 API 配置或网络，再重试这条消息。" + (C ? "若模型不支持图片，可更换支持图片的模型后重试。" : "") : "发送失败，可以重试。");
+        const w = e.service.current(), A = w.messages.some((T) => T.id === h), C = w.messages.some((T) => T.contactId === v && T.payload.type === "image" && T.payload.attachment), E = Ab(_) || (I.controller.signal.aborted ? A ? "这次回复已停止，可以重试。" : "发送已停止，可以重试。" : e.service.pending() ? A ? "还不确定回复是否保存成功，请先检查保存。" : "还不确定是否发送成功，请先检查保存。" : y === "uploading" ? "图片发送失败，可以重试。" : _ instanceof Error && _.message === "messages_image_missing" ? "消息里的原图暂时无法读取，请恢复图库中的原图后重试。" : y === "syncing" ? za.failed : A ? "暂时没有收到回复。请检查 API 配置或网络，再重试这条消息。" + (C ? "若模型不支持图片，可更换支持图片的模型后重试。" : "") : "发送失败，可以重试。");
         y === "syncing" ? s = E : c = {
-          contactId: w,
+          contactId: v,
           messageId: h,
           message: E
         };
@@ -41410,26 +41409,26 @@ function wD(e) {
     });
     l.add(S);
   }
-  function g(w) {
+  function g(v) {
     if (n || p()) throw new Error("messages_busy");
     if (e.isGenerating()) throw new Error("messages_not_ready");
-    e.modifications.authorize(w, "regenerate");
+    e.modifications.authorize(v, "regenerate");
     const h = {
-      contactId: w.contactId,
-      messageId: w.messageId,
+      contactId: v.contactId,
+      messageId: v.messageId,
       stage: "replying",
       controller: new AbortController(),
       identity: e.identity(),
       preview: null
-    }, b = f();
+    }, b = u();
     n = h, i = h, a = "", c = null, e.changed();
-    const k = gD(e, e.modifications, w, {
+    const k = gD(e, e.modifications, v, {
       signal: h.controller.signal,
       guard: b,
       stage(I) {
         h.stage = I, I !== "replying" && I !== "saving-reply" && (h.preview = null), e.changed();
       },
-      preview: (I) => u(h, I)
+      preview: (I) => f(h, I)
     }).catch((I) => {
       console.warn("[LittleWhiteBox] 重新回复未完成", I), h.identity === e.identity() && i === h && (a = e.service.pending() || e.service.current().pendingMutation ? "还不确定修改是否保存成功，请点击「检查保存」。" : Ab(I) || "重新回复未完成，原回复已保留。");
     }).finally(() => {
@@ -41441,8 +41440,8 @@ function wD(e) {
     start: m,
     regenerate: g,
     cancel: d,
-    guard: f,
-    contextStats: (w, h) => yD(e, w, h),
+    guard: u,
+    contextStats: (v, h) => yD(e, v, h),
     get active() {
       return n;
     },
@@ -41461,9 +41460,9 @@ function wD(e) {
     clearError() {
       a = "", s = "", c = null;
     },
-    discard(w) {
+    discard(v) {
       if (n || e.service.pending()) throw new Error("messages_busy");
-      o?.messageId === w && (o = null), c?.messageId === w && (c = null);
+      o?.messageId === v && (o = null), c?.messageId === v && (c = null);
     },
     reset() {
       d(), i = null, o = null, c = null, a = "", s = "";
@@ -41485,14 +41484,14 @@ function bD(e) {
   const { service: t, timeline: n, context: r, media: i, runtime: a, modifications: s } = e;
   let o = null, c = "";
   const l = /* @__PURE__ */ new Set();
-  let d = "", f = "", u = !1, p = 0, m = 0, g = [];
-  function w() {
-    const _ = t.current(), y = s.inspect(_), v = new Map(_.messages.map((C) => [C.contactId, C])), A = sl(_);
+  let d = "", u = "", f = !1, p = 0, m = 0, g = [];
+  function v() {
+    const _ = t.current(), y = s.inspect(_), w = new Map(_.messages.map((C) => [C.contactId, C])), A = sl(_);
     return {
       chatIdentity: e.identity(),
       settings: e.getSettings(),
       contacts: _.contacts.map(({ summary: C, ...E }) => {
-        const T = v.get(E.id), R = _.messages.filter((P) => P.contactId === E.id).map((P) => P.id), M = R.length ? y.reason(R) : "";
+        const T = w.get(E.id), R = _.messages.filter((P) => P.contactId === E.id).map((P) => P.id), M = R.length ? y.reason(R) : "";
         return {
           ...E,
           deleteReason: M,
@@ -41508,7 +41507,7 @@ function bD(e) {
       })),
       fileState: t.fileState(),
       pendingSave: t.pending(),
-      recoveryBlocked: u,
+      recoveryBlocked: f,
       operationPending: l.has(e.identity()),
       pendingModification: !!_.pendingMutation,
       revision: Ja(_),
@@ -41524,7 +41523,7 @@ function bD(e) {
       generationActive: e.isGenerating(),
       syncNotice: {
         messageIds: A,
-        error: f || a.syncError
+        error: u || a.syncError
       },
       error: d || a.error,
       media: i.capabilities()
@@ -41533,13 +41532,13 @@ function bD(e) {
   function h() {
     if (!(!o?.isCurrent() || c !== e.identity()))
       try {
-        o.post("messages/state", { state: w() });
+        o.post("messages/state", { state: v() });
       } catch (_) {
         console.warn("[LittleWhiteBox] 信息状态读取失败", _);
       }
   }
-  function b(_, y = 1 / 0, v) {
-    const A = t.current(), C = A.messages.filter((R) => R.contactId === _), E = (v ? C.filter((R) => R.seq >= v.first && (v.latest || R.seq <= v.last)) : C.filter((R) => R.seq < y)).slice(v ? -100 : -50), T = C.at(-1);
+  function b(_, y = 1 / 0, w) {
+    const A = t.current(), C = A.messages.filter((R) => R.contactId === _), E = (w ? C.filter((R) => R.seq >= w.first && (w.latest || R.seq <= w.last)) : C.filter((R) => R.seq < y)).slice(w ? -100 : -50), T = C.at(-1);
     return {
       contactId: _,
       messages: E,
@@ -41561,16 +41560,16 @@ function bD(e) {
     }
   }
   async function I(_) {
-    return await k(_), w();
+    return await k(_), v();
   }
   async function x(_) {
     const y = En(_.payload) ? _.payload : {};
     if (!o?.isCurrent() || y.chatIdentity !== e.identity() || c !== e.identity()) throw new Error("messages_chat_changed");
-    const v = a.guard(), A = e.identity(), C = p, E = () => A === e.identity() && C === p, T = (R, M = 160) => wt(y[R], M).trim();
+    const w = a.guard(), A = e.identity(), C = p, E = () => A === e.identity() && C === p, T = (R, M = 160) => wt(y[R], M).trim();
     try {
       switch (_.type) {
         case "messages/refresh":
-          return await t.refresh(), w();
+          return await t.refresh(), v();
         case "messages/settings": {
           const R = y.settings;
           if (!En(R) || typeof R.imagePrompt != "boolean" || typeof R.voicePrompt != "boolean" || typeof R.syncNoticeEnabled != "boolean") throw new Error("messages_invalid_settings");
@@ -41578,7 +41577,7 @@ function bD(e) {
             imagePrompt: R.imagePrompt,
             voicePrompt: R.voicePrompt,
             syncNoticeEnabled: R.syncNoticeEnabled
-          }), d = "", w();
+          }), d = "", v();
         }
         case "messages/thread": {
           const R = y.before === void 0 ? 1 / 0 : Number(y.before);
@@ -41609,9 +41608,9 @@ function bD(e) {
                 note: P,
                 createdAt: Date.now(),
                 summary: null
-              }), v), R;
+              }), w), R;
             }),
-            state: w()
+            state: v()
           };
         case "messages/contact/note":
           return await I(async () => {
@@ -41620,7 +41619,7 @@ function bD(e) {
               const G = P.contacts.find((U) => U.id === R);
               if (!G) throw new Error("messages_contact_missing");
               G.note = M;
-            }, v);
+            }, w);
           });
         case "messages/contact/delete":
           return await I(async () => {
@@ -41628,11 +41627,11 @@ function bD(e) {
             await s.commit({
               contactId: R,
               revision: T("revision")
-            }, "delete-contact", v);
+            }, "delete-contact", w);
           });
         case "messages/send":
           if (l.has(e.identity())) throw new Error("messages_busy");
-          return a.start(T("contactId"), `input:${T("actionId", 100)}`, v8(y.payload)), w();
+          return a.start(T("contactId"), `input:${T("actionId", 100)}`, v8(y.payload)), v();
         case "messages/message/delete":
           return await I(async () => {
             const R = T("contactId"), M = T("messageId");
@@ -41640,7 +41639,7 @@ function bD(e) {
               contactId: R,
               messageId: M,
               revision: T("revision")
-            }, "delete", v), i.stop(), a.clearError();
+            }, "delete", w), i.stop(), a.clearError();
           });
         case "messages/regenerate":
           if (l.has(e.identity())) throw new Error("messages_busy");
@@ -41648,39 +41647,39 @@ function bD(e) {
             contactId: T("contactId"),
             messageId: T("messageId"),
             revision: T("revision")
-          }), w();
+          }), v();
         case "messages/retry":
           if (l.has(e.identity())) throw new Error("messages_busy");
-          return a.start(T("contactId"), T("messageId")), w();
+          return a.start(T("contactId"), T("messageId")), v();
         case "messages/discard-send":
-          return a.discard(T("messageId")), w();
+          return a.discard(T("messageId")), v();
         case "messages/confirm":
           return await I(async () => {
             const R = await t.confirm();
             if (R.status !== "none" && R.status !== "confirmed") {
               const M = R.error?.code === "commit_guard_rejected";
-              throw E() && (u = M), new Error(M ? za.saveOutdated : za.saveFailed);
+              throw E() && (f = M), new Error(M ? za.saveOutdated : za.saveFailed);
             }
-            E() && (u = !1), await s.recover(v), a.clearError();
+            E() && (f = !1), await s.recover(w), a.clearError();
           });
         case "messages/adopt-server-state":
           return await I(async () => {
-            if (!v()) throw new Error("messages_chat_changed");
+            if (!w()) throw new Error("messages_chat_changed");
             const R = await t.adoptServerState();
-            if (!v()) throw new Error("messages_chat_changed");
-            R.status === "adopted" && (n.reset(), a.reset(), E() && (u = !1));
+            if (!w()) throw new Error("messages_chat_changed");
+            R.status === "adopted" && (n.reset(), a.reset(), E() && (f = !1));
           });
         case "messages/sync":
-          return f = "", await s.recover(v), await vD(t, n, v), a.clearError(), w();
+          return u = "", await s.recover(w), await vD(t, n, w), a.clearError(), v();
         case "messages/recover":
           return await I(async () => {
-            f = "", await t.refresh(), await s.recover(v), await n.recover(v), a.clearError();
+            u = "", await t.refresh(), await s.recover(w), await n.recover(w), a.clearError();
           });
         case "messages/dismiss-sync-notice":
           return await e.saveSettings({
             ...e.getSettings(),
             syncNoticeEnabled: !1
-          }), d = "", w();
+          }), d = "", v();
         case "messages/image/cancel":
           return i.cancelImage(T("mediaRequestId")), {};
         case "messages/image/generate":
@@ -41720,7 +41719,7 @@ function bD(e) {
       if (_.type.startsWith("messages/voice/")) throw new Error("媒体暂不可用，消息原文已保留。");
       const M = R instanceof Error ? R.message : "";
       if (_.type === "messages/sync" || _.type === "messages/recover")
-        throw E() && (f = M === "messages_projection_closed" ? za.closed : za.failed), h(), new Error(f);
+        throw E() && (u = M === "messages_projection_closed" ? za.closed : za.failed), h(), new Error(u);
       const P = M && !M.startsWith("messages_") && /[\u3400-\u9fff]/u.test(M) ? M : M === "messages_contact_exists" ? "通讯录里已经有这个人了。" : M === "messages_busy" ? "上一项操作还没完成，请稍候。" : M.startsWith("messages_invalid") ? "请检查输入内容和长度。" : M === "messages_projection_closed" ? za.closed : _.type === "messages/settings" || _.type === "messages/dismiss-sync-notice" ? za.settingsFailed : "操作未完成，已保存的消息会保留，请稍后重试。";
       throw E() && (d = P, h()), new Error(P);
     }
@@ -41734,7 +41733,7 @@ function bD(e) {
     activate(_) {
       return o = _, c = e.identity(), t.refresh().then(h).catch((y) => {
         console.warn("[LittleWhiteBox] 信息读取失败", y), d = "通讯记录暂时无法读取，请重试。", h();
-      }), w();
+      }), v();
     },
     deactivate: S,
     cancelForeground: S,
@@ -41743,7 +41742,7 @@ function bD(e) {
       p++, a.cancel(), S();
     },
     handleChatChanged() {
-      p++, a.reset(), n.reset(), d = "", f = "", u = !1, S();
+      p++, a.reset(), n.reset(), d = "", u = "", f = !1, S();
     },
     startBackground() {
       g.length || (g = [
@@ -41755,7 +41754,7 @@ function bD(e) {
         }),
         e.subscribeChat(() => {
           m++, a.cancel();
-          const _ = n.observe(), y = p, v = e.identity(), A = () => !!v && p === y && e.identity() === v;
+          const _ = n.observe(), y = p, w = e.identity(), A = () => !!w && p === y && e.identity() === w;
           _.length && n.seal(_, A).catch((C) => console.warn("[LittleWhiteBox] 通讯时点封存待确认", C)), h();
         })
       ]);
@@ -41795,20 +41794,20 @@ function _D(e, t, n, r, i) {
   for (let c = t; c < n; c++) {
     const l = e[c];
     if (l.tagName === "补录说明") {
-      const u = i.createElement("p");
-      u.className = "xb-private-note", u.textContent = l.textContent, u.dataset.recordIndex = String(c), u.dataset.recordKey = Tc(l), a.append(u), s = null, o = null;
+      const f = i.createElement("p");
+      f.className = "xb-private-note", f.textContent = l.textContent, f.dataset.recordIndex = String(c), f.dataset.recordKey = Tc(l), a.append(f), s = null, o = null;
       continue;
     }
     const d = j1(l);
     if (!s || d !== o) {
       if (s = i.createElement("section"), s.className = "xb-private-group", s.setAttribute("aria-label", `与${d}的通讯`), r) {
-        const u = i.createElement("h4");
-        u.textContent = `与${d}`, s.append(u);
+        const f = i.createElement("h4");
+        f.textContent = `与${d}`, s.append(f);
       }
       a.append(s), o = d;
     }
-    const f = kD(l, i);
-    f.dataset.recordIndex = String(c), f.dataset.recordKey = Tc(l), s.append(f);
+    const u = kD(l, i);
+    u.dataset.recordIndex = String(c), u.dataset.recordKey = Tc(l), s.append(u);
   }
   return a;
 }
@@ -41832,12 +41831,12 @@ function xD(e) {
   l.className = "xb-private-entries";
   const d = e.createElement("button");
   d.type = "button", d.className = "xb-private-latest", d.textContent = "回到最新", d.hidden = !0, o.append(c, d), t.append(n, o);
-  let f = [], u = !1, p = 0, m = 0, g = !0, w = null, h = null;
-  function b(v) {
+  let u = [], f = !1, p = 0, m = 0, g = !0, v = null, h = null;
+  function b(w) {
     const A = c.getBoundingClientRect().top;
     for (const C of c.querySelectorAll("[data-record-index]")) {
       const E = C.getBoundingClientRect();
-      if (E.bottom > A && (!v || v.has(C.dataset.recordKey))) return {
+      if (E.bottom > A && (!w || w.has(C.dataset.recordKey))) return {
         key: C.dataset.recordKey,
         offset: E.top - A
       };
@@ -41845,57 +41844,57 @@ function xD(e) {
     return null;
   }
   function k() {
-    return m === f.length && c.scrollHeight - c.clientHeight - c.scrollTop <= ID;
+    return m === u.length && c.scrollHeight - c.clientHeight - c.scrollTop <= ID;
   }
   function I() {
     if (!(!t.isConnected || !t.hasAttribute("open") || c.clientHeight <= 0)) {
       if (g) c.scrollTop = c.scrollHeight;
-      else if (w) {
-        const v = [...c.querySelectorAll("[data-record-key]")].find((A) => A.dataset.recordKey === w.key);
-        v && (c.scrollTop += v.getBoundingClientRect().top - c.getBoundingClientRect().top - w.offset);
+      else if (v) {
+        const w = [...c.querySelectorAll("[data-record-key]")].find((A) => A.dataset.recordKey === v.key);
+        w && (c.scrollTop += w.getBoundingClientRect().top - c.getBoundingClientRect().top - v.offset);
       }
-      g = k(), w = b(), d.hidden = g || f.length === 0;
+      g = k(), v = b(), d.hidden = g || u.length === 0;
     }
   }
-  function x(v, A) {
+  function x(w, A) {
     const C = e.createElement("button");
-    return C.type = "button", C.className = "xb-private-page", C.textContent = v, C.addEventListener("click", () => {
-      w = b(), g = !1, A < 0 ? (p = Math.max(0, p - zs), m = Math.min(m, p + Eb)) : (m = Math.min(f.length, m + zs), p = Math.max(p, m - Eb)), S(), c.focus({ preventScroll: !0 });
+    return C.type = "button", C.className = "xb-private-page", C.textContent = w, C.addEventListener("click", () => {
+      v = b(), g = !1, A < 0 ? (p = Math.max(0, p - zs), m = Math.min(m, p + Eb)) : (m = Math.min(u.length, m + zs), p = Math.max(p, m - Eb)), S(), c.focus({ preventScroll: !0 });
     }), C;
   }
   function S() {
-    const v = c.contains(e.activeElement), A = _D(f, p, m, u, e);
-    p > 0 && A.prepend(x("查看更早消息", -1)), m < f.length && A.append(x("查看较新消息", 1)), l.replaceChildren(A), l.parentNode !== c && c.replaceChildren(l), I(), v && c.focus({ preventScroll: !0 });
+    const w = c.contains(e.activeElement), A = _D(u, p, m, f, e);
+    p > 0 && A.prepend(x("查看更早消息", -1)), m < u.length && A.append(x("查看较新消息", 1)), l.replaceChildren(A), l.parentNode !== c && c.replaceChildren(l), I(), w && c.focus({ preventScroll: !0 });
     const C = e.defaultView?.ResizeObserver;
     !h && C && (h = new C(() => {
       !t.isConnected || !t.hasAttribute("open") ? (h?.disconnect(), h = null) : I();
     }), h.observe(c), h.observe(l));
   }
   function _() {
-    h?.disconnect(), h = null, l.replaceChildren(), c.replaceChildren(), w = null, d.hidden = !0;
+    h?.disconnect(), h = null, l.replaceChildren(), c.replaceChildren(), v = null, d.hidden = !0;
   }
   function y() {
-    m = f.length, p = Math.max(0, m - zs), g = !0, w = null, S();
+    m = u.length, p = Math.max(0, m - zs), g = !0, v = null, S();
   }
   return t.addEventListener("toggle", () => {
     t.hasAttribute("open") ? c.hasChildNodes() || y() : _();
   }), c.addEventListener("scroll", () => {
-    t.hasAttribute("open") && (g = k(), w = b(), d.hidden = g);
+    t.hasAttribute("open") && (g = k(), v = b(), d.hidden = g);
   }, { passive: !0 }), c.addEventListener("load", I, !0), d.addEventListener("click", () => {
     y(), c.focus({ preventScroll: !0 });
   }), {
     details: t,
-    update(v, A) {
-      const C = new Map(v.map((G, U) => [Tc(G), U]));
-      if (t.isConnected && t.hasAttribute("open") && c.clientHeight > 0 && (w = b(new Set(C.keys()))), !g && f.length) {
-        const G = m - p, U = f.slice(p, m).find((O) => C.has(Tc(O))), j = w ? C.get(w.key) : void 0;
-        p = U ? C.get(Tc(U)) : Math.max(0, Math.min(p, v.length - zs)), j !== void 0 && (j < p || j >= p + G) && (p = Math.max(0, j - Math.floor(G / 2))), m = Math.min(v.length, p + Math.max(zs, G));
+    update(w, A) {
+      const C = new Map(w.map((G, U) => [Tc(G), U]));
+      if (t.isConnected && t.hasAttribute("open") && c.clientHeight > 0 && (v = b(new Set(C.keys()))), !g && u.length) {
+        const G = m - p, U = u.slice(p, m).find((O) => C.has(Tc(O))), j = v ? C.get(v.key) : void 0;
+        p = U ? C.get(Tc(U)) : Math.max(0, Math.min(p, w.length - zs)), j !== void 0 && (j < p || j >= p + G) && (p = Math.max(0, j - Math.floor(G / 2))), m = Math.min(w.length, p + Math.max(zs, G));
       }
-      f = v;
-      const E = f.filter((G) => G.tagName === "消息"), T = new Set(E.map(j1));
-      u = T.size > 1, r.textContent = T.size === 1 ? `与${T.values().next().value}的通讯` : "私人通讯", i.textContent = `${E.length} 条消息`;
+      u = w;
+      const E = u.filter((G) => G.tagName === "消息"), T = new Set(E.map(j1));
+      f = T.size > 1, r.textContent = T.size === 1 ? `与${T.values().next().value}的通讯` : "私人通讯", i.textContent = `${E.length} 条消息`;
       const R = E.at(-1), M = R ? `${R.getAttribute("发送者") ?? ""}：${L1(R)}` : "暂无消息", P = Array.from(M.replace(/\s+/gu, " "));
-      s.textContent = P.slice(0, 96).join("") + (P.length > 96 ? "…" : ""), t.parentNode !== A && A.replaceChildren(t), t.hasAttribute("open") ? g || p >= f.length || !c.hasChildNodes() ? y() : (m = Math.min(m, f.length), S()) : _();
+      s.textContent = P.slice(0, 96).join("") + (P.length > 96 ? "…" : ""), t.parentNode !== A && A.replaceChildren(t), t.hasAttribute("open") ? g || p >= u.length || !c.hasChildNodes() ? y() : (m = Math.min(m, u.length), S()) : _();
     }
   };
 }
@@ -41911,7 +41910,7 @@ function SD(e, t = document) {
     const c = new DOMParser().parseFromString(n.mes, "application/xml");
     if (c.querySelector("parsererror") || c.documentElement.tagName !== "私人信息") return;
     const l = Array.from(c.documentElement.children);
-    if (l.some((f) => f.tagName !== "消息" && f.tagName !== "补录说明")) return;
+    if (l.some((u) => u.tagName !== "消息" && u.tagName !== "补录说明")) return;
     const d = o ? s.view : xD(a.ownerDocument);
     d.update(l, a), Cb.set(a, {
       segmentId: i.segmentId,
@@ -41930,8 +41929,8 @@ function ED(e) {
 function CD(e, t) {
   return T8(async (n, r) => {
     const i = () => t.read().apps.messages, a = M8(e.isActive), s = W8(a.port, () => n.current().segments), o = AD, c = O8(n, a.port, o), l = R8(n, c, a.port, o), d = K8();
-    let f;
-    const u = wD({
+    let u;
+    const f = wD({
       service: n,
       timeline: c,
       modifications: l,
@@ -41944,15 +41943,15 @@ function CD(e, t) {
       identity: a.port.identity,
       isGenerating: e.isActive,
       playerName: () => Cn()?.playerName ?? "玩家",
-      changed: () => f?.emit()
+      changed: () => u?.emit()
     }), p = () => SD(a.port.messages());
-    return f = bD({
+    return u = bD({
       service: n,
       timeline: c,
       modifications: l,
       context: s,
       media: d,
-      runtime: u,
+      runtime: f,
       getSettings: i,
       async saveSettings(m) {
         await t.setMessagesSettings(m);
@@ -41964,12 +41963,12 @@ function CD(e, t) {
       subscribeChat(m) {
         const g = zA(ED);
         p();
-        const w = a.subscribe(m, p);
+        const v = a.subscribe(m, p);
         return () => {
-          w(), g();
+          v(), g();
         };
       }
-    }), f;
+    }), u;
   });
 }
 function D1(e, t) {
@@ -42943,10 +42942,10 @@ function dz(e, t, n = {}) {
   if (c) return c;
   xl(e, i);
   const l = qi(e);
-  if (l.activations.some((f) => f.activationId === a)) throw new xe("shop_activation_id_conflict", `activationId already exists: ${a}`);
+  if (l.activations.some((u) => u.activationId === a)) throw new xe("shop_activation_id_conflict", `activationId already exists: ${a}`);
   if ((l.inventory[r.id]?.quantity || 0) < 1) throw new xe("shop_quantity_insufficient", `no inventory available: ${r.id}`);
   const d = Iu(r, s);
-  if (l.activations.some((f) => f.itemId === r.id && mf(f, r) && (r.stacking === "global-single" || Iu(r, f.parameters) === d))) throw new xe("shop_activation_duplicate", `effect is already active: ${r.id}`);
+  if (l.activations.some((u) => u.itemId === r.id && mf(u, r) && (r.stacking === "global-single" || Iu(r, u.parameters) === d))) throw new xe("shop_activation_duplicate", `effect is already active: ${r.id}`);
   return pf(e, i, o, n);
 }
 function uz(e, t, n = {}) {
@@ -42977,18 +42976,18 @@ function fz({ readCurrent: e, persist: t, now: n = Date.now, onError: r = (i, a)
 }, i) }) {
   const i = /* @__PURE__ */ new Map();
   let a = 0;
-  function s(w) {
-    let h = i.get(w);
+  function s(v) {
+    let h = i.get(v);
     return h || (h = {
       tickets: [],
       draining: !1,
       scheduled: !1,
       paused: !1
-    }, i.set(w, h)), h;
+    }, i.set(v, h)), h;
   }
-  function o(w, h) {
-    return G1(w, {
-      ...W1(w),
+  function o(v, h) {
+    return G1(v, {
+      ...W1(v),
       actionId: h.actionId,
       receipt: h.receipt
     }, {
@@ -42996,17 +42995,17 @@ function fz({ readCurrent: e, persist: t, now: n = Date.now, onError: r = (i, a)
       createEventId: () => h.projectedEventId
     });
   }
-  function c(w, h) {
-    return o(w, h).domain;
+  function c(v, h) {
+    return o(v, h).domain;
   }
-  function l(w, h) {
-    return (h?.tickets || []).reduce(c, structuredClone(w));
+  function l(v, h) {
+    return (h?.tickets || []).reduce(c, structuredClone(v));
   }
-  function d(w) {
+  function d(v) {
     const h = e();
-    return h?.chatIdentity === w ? h : null;
+    return h?.chatIdentity === v ? h : null;
   }
-  async function f(w, h) {
+  async function u(v, h) {
     if (!(h.draining || h.paused)) {
       h.draining = !0;
       try {
@@ -43024,49 +43023,49 @@ function fz({ readCurrent: e, persist: t, now: n = Date.now, onError: r = (i, a)
           }
         }
       } finally {
-        h.draining = !1, h.tickets.length === 0 && i.delete(w);
+        h.draining = !1, h.tickets.length === 0 && i.delete(v);
       }
     }
   }
-  function u(w, h) {
+  function f(v, h) {
     h.scheduled || h.draining || h.paused || h.tickets.length === 0 || (h.scheduled = !0, queueMicrotask(() => {
-      h.scheduled = !1, f(w, h);
+      h.scheduled = !1, u(v, h);
     }));
   }
-  function p(w) {
-    const h = d(w);
+  function p(v) {
+    const h = d(v);
     if (!h) return null;
-    const b = i.get(w);
+    const b = i.get(v);
     if (!h.domain) {
       if (b?.tickets.length) throw new Error("shop_delivery_base_missing");
       return null;
     }
     return l(h.domain, b);
   }
-  function m(w) {
-    const h = String(w.chatIdentity || "").trim();
+  function m(v) {
+    const h = String(v.chatIdentity || "").trim();
     if (!h) throw new Error("shop_generation_chat_changed");
     const b = d(h);
     if (!b?.domain) throw new Error("shop_generation_chat_changed");
-    const k = No(w.receipt), I = i.get(h), x = l(b.domain, I);
+    const k = No(v.receipt), I = i.get(h), x = l(b.domain, I);
     let S;
     do
       S = `shop-pending-${++a}`;
-    while (x.events.some((v) => v.eventId === S));
+    while (x.events.some((w) => w.eventId === S));
     const _ = {
       chatIdentity: h,
-      actionId: String(w.actionId || "").trim(),
+      actionId: String(v.actionId || "").trim(),
       receipt: k,
       projectedAt: n(),
       projectedEventId: S
     };
     if (!o(x, _).created) return;
     const y = I || s(h);
-    y.tickets.push(_), y.paused = !1, u(h, y);
+    y.tickets.push(_), y.paused = !1, f(h, y);
   }
-  function g(w) {
-    const h = i.get(w);
-    h && (h.paused = !1, u(w, h));
+  function g(v) {
+    const h = i.get(v);
+    h && (h.paused = !1, f(v, h));
   }
   return Object.freeze({
     readCurrent: p,
@@ -43183,10 +43182,10 @@ function yz(e) {
 }
 function V1({ shop: e, economy: t, getChatIdentity: n, isMainGenerationActive: r, subscribeGeneration: i, execution: a }) {
   let s = null, o = null, c = !1, l = null, d = null;
-  const f = () => gz(n()), u = (_) => s === _ && f() === _.chatIdentity;
+  const u = () => gz(n()), f = (_) => s === _ && u() === _.chatIdentity;
   function p(_ = {}) {
     if (!s) throw new Error("商店 APP 未激活");
-    if (!u(s) || String(_.chatIdentity || "") !== s.chatIdentity) throw new Error("聊天已切换，请重新打开商店");
+    if (!f(s) || String(_.chatIdentity || "") !== s.chatIdentity) throw new Error("聊天已切换，请重新打开商店");
     return s;
   }
   function m(_, y = {}) {
@@ -43208,7 +43207,7 @@ function V1({ shop: e, economy: t, getChatIdentity: n, isMainGenerationActive: r
       message: ""
     };
   }
-  function w(_ = s) {
+  function v(_ = s) {
     if (!_) throw new Error("商店 APP 未激活");
     const y = g(_.chatIdentity);
     return _.post("shop/state", { state: y }), y;
@@ -43219,66 +43218,66 @@ function V1({ shop: e, economy: t, getChatIdentity: n, isMainGenerationActive: r
       error: ""
     };
     o = y;
-    const v = async () => {
-      if (!(o !== y || !u(_)))
+    const w = async () => {
+      if (!(o !== y || !f(_)))
         try {
-          if (await t.ensureOpen(), o !== y || !u(_)) return;
-          o = null, w(_);
+          if (await t.ensureOpen(), o !== y || !f(_)) return;
+          o = null, v(_);
         } catch (A) {
-          if (o !== y || !u(_)) return;
+          if (o !== y || !f(_)) return;
           o = wd(A) && A.uncertain === !0 ? null : {
             activation: _,
             error: "商店数据暂时无法读取，请稍后重试。"
-          }, w(_);
+          }, v(_);
         }
     };
-    a ? a.setTimeout(v, 0) : globalThis.setTimeout(() => {
-      v();
+    a ? a.setTimeout(w, 0) : globalThis.setTimeout(() => {
+      w();
     }, 0);
   }
   function b(_) {
     k();
-    const y = f();
+    const y = u();
     if (!y) throw new Error("请先打开一个聊天");
-    const v = {
+    const w = {
       chatIdentity: y,
       post: _.post
     };
-    return s = v, t.isOpen() || h(v), g(y);
+    return s = w, t.isOpen() || h(w), g(y);
   }
   function k() {
     s = null, o = null, c = !1;
   }
-  async function I(_, y, v) {
+  async function I(_, y, w) {
     if (c) throw new Error("已有商店操作正在处理");
     c = !0;
     try {
-      const A = await v();
-      return m(_, y), w(_), A;
+      const A = await w();
+      return m(_, y), v(_), A;
     } catch (A) {
-      throw u(_) && wd(A) && A.uncertain === !0 && w(_), A;
+      throw f(_) && wd(A) && A.uncertain === !0 && v(_), A;
     } finally {
       s === _ && (c = !1);
     }
   }
   async function x(_) {
-    const y = wd(_.payload) ? _.payload : {}, v = p(y);
+    const y = wd(_.payload) ? _.payload : {}, w = p(y);
     if (_.type === "shop/refresh")
-      return o = null, await e.refreshCurrent(), e.getWriteState() === "ready" && !t.isOpen() && await t.ensureOpen(), m(v, y), w(v);
+      return o = null, await e.refreshCurrent(), e.getWriteState() === "ready" && !t.isOpen() && await t.ensureOpen(), m(w, y), v(w);
     if (_.type === "shop/confirm-save") {
       if (o = null, c) throw new Error("已有商店操作正在处理");
       const C = await e.confirmPending();
-      return m(v, y), {
+      return m(w, y), {
         confirmation: C.status,
-        state: w(v)
+        state: v(w)
       };
     }
     if (_.type === "shop/adopt-server-state") {
       if (o = null, c) throw new Error("已有商店操作正在处理");
       const C = await e.adoptServerState();
-      return m(v, y), {
+      return m(w, y), {
         adoption: C.status,
-        state: w(v)
+        state: v(w)
       };
     }
     const A = {
@@ -43290,8 +43289,8 @@ function V1({ shop: e, economy: t, getChatIdentity: n, isMainGenerationActive: r
         ...A,
         itemId: Zo(y.itemId, "商品")
       };
-      return I(v, y, async () => yd({
-        chatIdentity: v.chatIdentity,
+      return I(w, y, async () => yd({
+        chatIdentity: w.chatIdentity,
         serviceView: await e.purchaseCurrent(C),
         generationActive: r()
       }));
@@ -43302,8 +43301,8 @@ function V1({ shop: e, economy: t, getChatIdentity: n, isMainGenerationActive: r
         itemId: Zo(y.itemId, "商品"),
         parameters: wd(y.parameters) ? y.parameters : {}
       };
-      return I(v, y, async () => yd({
-        chatIdentity: v.chatIdentity,
+      return I(w, y, async () => yd({
+        chatIdentity: w.chatIdentity,
         serviceView: await e.activateCurrent(C),
         generationActive: r()
       }));
@@ -43314,8 +43313,8 @@ function V1({ shop: e, economy: t, getChatIdentity: n, isMainGenerationActive: r
         itemId: Zo(y.itemId, "商品"),
         activationId: Zo(y.activationId, "生效实例")
       };
-      return I(v, y, async () => yd({
-        chatIdentity: v.chatIdentity,
+      return I(w, y, async () => yd({
+        chatIdentity: w.chatIdentity,
         serviceView: await e.deactivateCurrent(C),
         generationActive: r()
       }));
@@ -43324,9 +43323,9 @@ function V1({ shop: e, economy: t, getChatIdentity: n, isMainGenerationActive: r
   }
   function S() {
     const _ = s;
-    if (!(!_ || !u(_)))
+    if (!(!_ || !f(_)))
       try {
-        w(_);
+        v(_);
       } catch (y) {
         _.post("shop/error", { message: y instanceof Error ? y.message : String(y) });
       }
@@ -43405,10 +43404,10 @@ function vz({ captureChatSurface: e }) {
     if (!Number.isSafeInteger(i) || i < 0) throw new Error("shop_generation_message_invalid");
     const s = No(a), o = e(), c = Ob(o?.messages[i]);
     if (!o || o.identityKey !== r || !c || c.is_user === !0 || c.is_system === !0) throw new Error("shop_generation_chat_changed");
-    const l = Fm(c), d = Rb(c), f = l ? Rb(l) : null;
+    const l = Fm(c), d = Rb(c), u = l ? Rb(l) : null;
     return Mb(c, s), l && Mb(l, s), Object.freeze({ rollback() {
-      const u = e();
-      u?.identityKey !== r || u.messages[i] !== c || ($b(c, d, s), l && Fm(c) === l && f && $b(l, f, s));
+      const f = e();
+      f?.identityKey !== r || f.messages[i] !== c || ($b(c, d, s), l && Fm(c) === l && u && $b(l, u, s));
     } });
   }
   return Object.freeze({
@@ -43502,12 +43501,12 @@ function jb(e) {
   return Lb();
 }
 function Ez({ captureConversation: e, readShop: t, enqueueDelivery: n, bindReplyReceipt: r, setPrompt: i, subscribe: a, createActionId: s = Sz, onError: o = (c) => console.error("[LittleWhiteBox] 商店效果运行失败", c) }) {
-  let c = null, l = 0, d = null, f = null;
-  function u() {
+  let c = null, l = 0, d = null, u = null;
+  function f() {
     i("");
   }
   function p() {
-    l += 1, d = null, f = null, u();
+    l += 1, d = null, u = null, f();
   }
   function m(k) {
     p();
@@ -43533,38 +43532,38 @@ function Ez({ captureConversation: e, readShop: t, enqueueDelivery: n, bindReply
   }
   function g(k) {
     const I = vp(k.type), x = ++l, S = d?.mode === I ? d : null;
-    if (d = null, f = null, u(), !!I)
+    if (d = null, u = null, f(), !!I)
       try {
         const _ = e(), y = _ ? t(_.identityKey) : null;
         if (!_ || !y || S?.chatIdentity && S.chatIdentity !== _.identityKey || I === "regenerate" && S && !S.regenerateReceipt) return;
-        const v = I === "normal" ? K1(y) : I === "regenerate" && S?.regenerateReceipt ? S.regenerateReceipt : jb(_);
-        if (x !== l || !Az(v) || (i(Iz(qi(y), v)), S?.dryRun === !0)) return;
-        I === "normal" ? f = {
+        const w = I === "normal" ? K1(y) : I === "regenerate" && S?.regenerateReceipt ? S.regenerateReceipt : jb(_);
+        if (x !== l || !Az(w) || (i(Iz(qi(y), w)), S?.dryRun === !0)) return;
+        I === "normal" ? u = {
           generation: x,
           kind: "delivery",
           chatIdentity: _.identityKey,
           actionId: s(),
-          receipt: v
-        } : I === "regenerate" && (f = {
+          receipt: w
+        } : I === "regenerate" && (u = {
           generation: x,
           kind: "reuse",
           chatIdentity: _.identityKey,
-          receipt: v
+          receipt: w
         });
       } catch (_) {
-        x === l && (f = null, u()), o(_);
+        x === l && (u = null, f()), o(_);
       }
   }
-  function w(k, I) {
-    const x = f, S = vp(String(I || "")), _ = x?.kind === "delivery" ? S === "normal" : S === "regenerate" || S === "normal";
+  function v(k, I) {
+    const x = u, S = vp(String(I || "")), _ = x?.kind === "delivery" ? S === "normal" : S === "regenerate" || S === "normal";
     if (!(!x || x.generation !== l || !_)) {
-      if (f = null, !Number.isSafeInteger(k) || Number(k) < 0) {
+      if (u = null, !Number.isSafeInteger(k) || Number(k) < 0) {
         o(/* @__PURE__ */ new Error("shop_generation_message_invalid"));
         return;
       }
       try {
-        const y = e(), v = y?.messages[Number(k)];
-        if (!y || y.identityKey !== x.chatIdentity || Number(k) !== y.messages.length - 1 || v?.role !== "assistant" || !v.content.trim()) return;
+        const y = e(), w = y?.messages[Number(k)];
+        if (!y || y.identityKey !== x.chatIdentity || Number(k) !== y.messages.length - 1 || w?.role !== "assistant" || !w.content.trim()) return;
         const A = r({
           chatIdentity: x.chatIdentity,
           messageId: Number(k),
@@ -43588,10 +43587,10 @@ function Ez({ captureConversation: e, readShop: t, enqueueDelivery: n, bindReply
     c || (c = a({
       generationStarted: m,
       intercept: g,
-      requestBuilt: u,
-      generationEnded: u,
+      requestBuilt: f,
+      generationEnded: f,
       generationStopped: p,
-      messageReceived: w
+      messageReceived: v
     }));
   }
   function b() {
@@ -43649,81 +43648,81 @@ function Rz(e, t, n, { getCurrentChatIdentity: r, now: i = Date.now, createEvent
     ...a ? { createEventId: a } : {}
   }, l = /* @__PURE__ */ new Set();
   let d = !1;
-  const f = () => {
+  const u = () => {
     d || (d = !0, queueMicrotask(() => {
       d = !1;
-      for (const v of l) try {
-        v();
+      for (const w of l) try {
+        w();
       } catch (A) {
         console.error("[LittleWhiteBox] Shop listener failed", A);
       }
     }));
-  }, u = e.subscribe(f), p = n.subscribe(f), m = t.subscribeFileState(f), g = () => e.peekCurrent()?.value ?? null;
-  function w(v = g()) {
+  }, f = e.subscribe(u), p = n.subscribe(u), m = t.subscribeFileState(u), g = () => e.peekCurrent()?.value ?? null;
+  function v(w = g()) {
     return {
-      domain: v ? structuredClone(v) : null,
-      projection: qi(v || F1()),
+      domain: w ? structuredClone(w) : null,
+      projection: qi(w || F1()),
       balance: n.getPlayerBalance(),
       writeState: t.getFileState()
     };
   }
   async function h() {
-    return await e.read(), w();
+    return await e.read(), v();
   }
   function b() {
     if (o()) throw new Error("shop_main_generation_active");
   }
-  function k(v) {
-    const A = String(v || "").trim();
+  function k(w) {
+    const A = String(w || "").trim();
     if (!A || r() !== A) throw new Error("shop_generation_chat_changed");
   }
-  async function I(v) {
-    if (v.status === "failed" || v.status === "unconfirmed" || v.status === "conflict") throw Oz(v);
-    return w(v.status === "confirmed" ? v.snapshot.value : v.result);
+  async function I(w) {
+    if (w.status === "failed" || w.status === "unconfirmed" || w.status === "conflict") throw Oz(w);
+    return v(w.status === "confirmed" ? w.snapshot.value : w.result);
   }
-  async function x(v) {
+  async function x(w) {
     return I(await e.transact((A) => {
-      const C = lz(A.currentOrInitial(), v, c), E = A.useCapability(ct);
+      const C = lz(A.currentOrInitial(), w, c), E = A.useCapability(ct);
       return C.created && (E.postAction(H1(C.event)), A.replace(C.domain)), vd(C.domain, E), C.domain;
     }));
   }
-  async function S(v) {
+  async function S(w) {
     return b(), I(await e.transact((A) => {
       b();
       const C = A.currentOrInitial();
       vd(C, A.useCapability(ct));
-      const E = C.events.find((M) => M.actionId === v.actionId), T = E?.action.kind === "activate" ? E.action.activationId : String(s() || "").trim(), R = dz(C, {
-        ...v,
+      const E = C.events.find((M) => M.actionId === w.actionId), T = E?.action.kind === "activate" ? E.action.activationId : String(s() || "").trim(), R = dz(C, {
+        ...w,
         activationId: T
       }, c);
       return R.created && A.replace(R.domain), R.domain;
     }, { commitGuard: () => (b(), !0) }));
   }
-  async function _(v) {
+  async function _(w) {
     return b(), I(await e.transact((A) => {
       b();
       const C = A.currentOrInitial();
       vd(C, A.useCapability(ct));
-      const E = uz(C, v, c);
+      const E = uz(C, w, c);
       return E.created && A.replace(E.domain), E.domain;
     }, { commitGuard: () => (b(), !0) }));
   }
-  async function y(v) {
-    const A = No(v.receipt);
-    return k(v.chatIdentity), I(await e.transact((C) => {
-      k(v.chatIdentity);
+  async function y(w) {
+    const A = No(w.receipt);
+    return k(w.chatIdentity), I(await e.transact((C) => {
+      k(w.chatIdentity);
       const E = C.currentOrInitial();
       vd(E, C.useCapability(ct));
       const T = G1(E, {
         ...W1(E),
-        actionId: v.actionId,
+        actionId: w.actionId,
         receipt: A
       }, c);
       return T.created && C.replace(T.domain), T.domain;
-    }, { commitGuard: () => (k(v.chatIdentity), !0) }));
+    }, { commitGuard: () => (k(w.chatIdentity), !0) }));
   }
   return Object.freeze({
-    readCurrent: () => w(),
+    readCurrent: () => v(),
     refreshCurrent: h,
     purchaseCurrent: x,
     activateCurrent: S,
@@ -43732,11 +43731,11 @@ function Rz(e, t, n, { getCurrentChatIdentity: r, now: i = Date.now, createEvent
     confirmPending: t.retryPending,
     adoptServerState: t.adoptServerState,
     getWriteState: t.getFileState,
-    subscribe(v) {
-      return l.add(v), () => l.delete(v);
+    subscribe(w) {
+      return l.add(w), () => l.delete(w);
     },
     dispose() {
-      u(), p(), m(), l.clear();
+      f(), p(), m(), l.clear();
     }
   });
 }
@@ -43855,8 +43854,8 @@ function Pz(e) {
       }), [c, {
         startBackground() {
           const d = () => {
-            const f = e.getChatIdentity();
-            f && t.getWriteState() === "ready" && o.resume(f.key);
+            const u = e.getChatIdentity();
+            u && t.getWriteState() === "ready" && o.resume(u.key);
           };
           l ||= t.subscribe(d), d();
         },
@@ -44621,11 +44620,11 @@ function u6(e) {
   };
 }
 function f6(e, t) {
-  const n = /* @__PURE__ */ new Map(), r = /* @__PURE__ */ new Map(), i = /* @__PURE__ */ new Map(), a = /* @__PURE__ */ new Set(), s = /* @__PURE__ */ new Set(), o = /* @__PURE__ */ new Set(), c = (d, f) => {
-    n.has(d) && ot(`identity.${d}`), n.set(d, f);
-  }, l = (d, f) => {
-    const u = n.get(d);
-    u && u !== f && ot(`identity.${d}`), u || n.set(d, f);
+  const n = /* @__PURE__ */ new Map(), r = /* @__PURE__ */ new Map(), i = /* @__PURE__ */ new Map(), a = /* @__PURE__ */ new Set(), s = /* @__PURE__ */ new Set(), o = /* @__PURE__ */ new Set(), c = (d, u) => {
+    n.has(d) && ot(`identity.${d}`), n.set(d, u);
+  }, l = (d, u) => {
+    const f = n.get(d);
+    f && f !== u && ot(`identity.${d}`), f || n.set(d, u);
   };
   if (e) {
     c(e.boardId, "board");
@@ -44635,10 +44634,10 @@ function f6(e, t) {
   for (const d of t)
     if (c(d.eventId, "event"), c(d.actionId, "action"), s.has(d.taskId) || (c(d.taskId, "task"), s.add(d.taskId)), d.kind === "accepted") {
       l(d.boardId, "board"), l(d.listingId, "listing");
-      const f = r.get(d.listingId);
-      f && f !== d.boardId && ot(`listing.${d.listingId}.board`);
-      const u = i.get(d.listingId);
-      u && !ll(u, d.listing) && ot(`listing.${d.listingId}.facts`), r.set(d.listingId, d.boardId), i.set(d.listingId, d.listing);
+      const u = r.get(d.listingId);
+      u && u !== d.boardId && ot(`listing.${d.listingId}.board`);
+      const f = i.get(d.listingId);
+      f && !ll(f, d.listing) && ot(`listing.${d.listingId}.facts`), r.set(d.listingId, d.boardId), i.set(d.listingId, d.listing);
       const p = `${d.boardId}\0${d.listingId}`;
       o.has(p) && ot(`listing.${d.listingId}.accepted`), o.add(p);
       const m = {
@@ -44650,8 +44649,8 @@ function f6(e, t) {
       (!ll(d.issuer, m) || d.listing.listingId !== d.listingId || d.assignee.kind !== "player") && ot(`event.${d.eventId}.accepted`), c(d.issuer.partyId, "party");
     } else if (d.kind === "published")
       d.issuer.kind !== "player" && ot(`event.${d.eventId}.issuer`);
-    else if (d.kind === "candidates-replaced") for (const f of d.candidates)
-      a.has(f.candidateId) && ot(`candidate.${f.candidateId}`), c(f.candidateId, "candidate"), a.add(f.candidateId);
+    else if (d.kind === "candidates-replaced") for (const u of d.candidates)
+      a.has(u.candidateId) && ot(`candidate.${u.candidateId}`), c(u.candidateId, "candidate"), a.add(u.candidateId);
 }
 function vr(e) {
   const t = Xr(e, "domain", !0);
@@ -44670,18 +44669,18 @@ function vr(e) {
   f6(r, i), cl(i);
   const a = Xr(t.checks, "domain.checks", !0), s = new Map(cl(i).map((l) => [l.taskId, l]));
   for (const [l, d] of Object.entries(a)) {
-    const f = Xr(d, `domain.checks.${l}`, !0);
-    ii(f, [
+    const u = Xr(d, `domain.checks.${l}`, !0);
+    ii(u, [
       "taskRevision",
       "digest",
       "phase"
     ], [], `domain.checks.${l}`, !0);
-    const u = s.get(l);
-    (!u || u.status !== "active" || !Number.isSafeInteger(f.taskRevision) || Number(f.taskRevision) !== u.taskRevision || typeof f.digest != "string" || f.digest.length > 128 || ![
+    const f = s.get(l);
+    (!f || f.status !== "active" || !Number.isSafeInteger(u.taskRevision) || Number(u.taskRevision) !== f.taskRevision || typeof u.digest != "string" || u.digest.length > 128 || ![
       "pending",
       "baseline",
       "checked"
-    ].includes(String(f.phase)) || f.phase === "pending" && f.digest !== "") && ot(`domain.checks.${l}`);
+    ].includes(String(u.phase)) || u.phase === "pending" && u.digest !== "") && ot(`domain.checks.${l}`);
   }
   i.some((l) => l.kind === "accepted") && !r && ot("domain.board");
   const o = /* @__PURE__ */ new Map();
@@ -44941,14 +44940,14 @@ function S6(e, t) {
   if (s < o || s > c) throw new Ye("reward_invalid");
   const [l, d] = tS[i];
   if (s < l || s > d) throw new Ye("grade_reward_mismatch");
-  let f;
+  let u;
   try {
-    f = oS(e.timing);
+    u = oS(e.timing);
   } catch {
     throw new Ye("timing_invalid");
   }
-  const u = f.startsWith("特定时机：");
-  if (a === "易介入" && u) throw new Ye("timing_invalid");
+  const f = u.startsWith("特定时机：");
+  if (a === "易介入" && f) throw new Ye("timing_invalid");
   const p = Wr(e.requirements, 64, !1);
   return {
     grade: i,
@@ -44959,7 +44958,7 @@ function S6(e, t) {
     objective: Wr(e.objective, 48),
     ...p ? { requirements: p } : {},
     location: Wr(e.location, 48),
-    timing: f,
+    timing: u,
     risk: Wr(e.risk, 64),
     reward: s
   };
@@ -44991,21 +44990,21 @@ function C6(e, t = {}) {
   const n = fS(e, "tasks", g6, t);
   if (!n.ok) return n.result;
   const { root: r } = n, i = [];
-  if (Object.keys(r).some((u) => u !== "tasks") && i.push("tasks_root_fields_ignored"), !Array.isArray(r.tasks)) return la("tasks", "tasks_must_be_array", i);
+  if (Object.keys(r).some((f) => f !== "tasks") && i.push("tasks_root_fields_ignored"), !Array.isArray(r.tasks)) return la("tasks", "tasks_must_be_array", i);
   if (r.tasks.length > w6) return la("tasks", "collection_exceeds_limit", i);
   const a = [], s = [], o = [], c = /* @__PURE__ */ new Set();
-  for (let u = 0; u < r.tasks.length; u += 1) try {
-    const p = S6(r.tasks[u], i), m = p.tags[0];
+  for (let f = 0; f < r.tasks.length; f += 1) try {
+    const p = S6(r.tasks[f], i), m = p.tags[0];
     if (c.has(m)) throw new Ye("direction_duplicate");
     c.add(m), a.push(p), s.push({
       collection: "tasks",
-      index: u,
+      index: f,
       id: "",
       changed: !0
     });
   } catch (p) {
     const m = p instanceof Ye ? p.reason : "field_type_invalid";
-    o.push(Tu("tasks", u, m));
+    o.push(Tu("tasks", f, m));
   }
   if (!a.length)
     return o.length || o.push(Tu("tasks", -1, "required_field_missing")), {
@@ -45017,15 +45016,15 @@ function C6(e, t = {}) {
       warnings: [...new Set(i)],
       hint: wf[o[0].reason]
     };
-  a.sort((u, p) => io.indexOf(u.tags[0]) - io.indexOf(p.tags[0]));
+  a.sort((f, p) => io.indexOf(f.tags[0]) - io.indexOf(p.tags[0]));
   const l = {
-    易介入: a.filter((u) => u.posture === "易介入").length,
-    中介入: a.filter((u) => u.posture === "中介入").length,
-    深介入: a.filter((u) => u.posture === "深介入").length
-  }, d = a.length === io.length, f = l.易介入 === 3 && l.中介入 === 2 && l.深介入 === 1;
-  return d || i.push("board_direction_quota_mismatch"), f || i.push("board_posture_quota_mismatch"), {
+    易介入: a.filter((f) => f.posture === "易介入").length,
+    中介入: a.filter((f) => f.posture === "中介入").length,
+    深介入: a.filter((f) => f.posture === "深介入").length
+  }, d = a.length === io.length, u = l.易介入 === 3 && l.中介入 === 2 && l.深介入 === 1;
+  return d || i.push("board_direction_quota_mismatch"), u || i.push("board_posture_quota_mismatch"), {
     ok: !0,
-    status: o.length > 0 || !d || !f ? "partial" : "updated",
+    status: o.length > 0 || !d || !u ? "partial" : "updated",
     changed: !0,
     applied: s,
     skipped: o,
@@ -45058,17 +45057,17 @@ function T6(e, t = [], n = {}) {
     warnings: [...new Set(a)],
     hint: wf[c[0].reason]
   };
-  const d = A6(s, t), f = s.map((p, m) => ({
+  const d = A6(s, t), u = s.map((p, m) => ({
     collection: "candidates",
     index: o[m],
     id: d ? t[m].candidateId : "",
     changed: !d
-  })), u = c.length > 0 || s.length > 0 && s.length < 3;
+  })), f = c.length > 0 || s.length > 0 && s.length < 3;
   return s.length > 0 && s.length < 3 && a.push("candidate_count_below_target"), {
     ok: !0,
-    status: u ? "partial" : d ? "unchanged" : "updated",
+    status: f ? "partial" : d ? "unchanged" : "updated",
     changed: !d,
-    applied: f,
+    applied: u,
     skipped: c,
     warnings: [...new Set(a)],
     data: d ? {
@@ -45113,26 +45112,26 @@ function R6({ gateway: e, tasks: t, context: n, isMainGenerationActive: r, now: 
     return _ === "board" ? o : c;
   }
   function d(_) {
-    f(_, "replaced");
+    u(_, "replaced");
     const y = {
       token: ++s,
       controller: new AbortController()
     };
     return _ === "board" ? o = y : c = y, y;
   }
-  function f(_, y = "cancelled") {
+  function u(_, y = "cancelled") {
     l(_)?.controller.abort(), _ === "board" ? o = null : c = null;
   }
-  function u(_, y) {
+  function f(_, y) {
     l(_) === y && (_ === "board" ? o = null : c = null);
   }
   function p(_, y) {
     return l(_)?.token === y.token && !y.controller.signal.aborted;
   }
-  function m(_, y, v) {
+  function m(_, y, w) {
     if (!p(_, y) || r() || t.getWriteState() !== "ready") return !1;
     try {
-      return n.currentChatIdentity() === v;
+      return n.currentChatIdentity() === w;
     } catch {
       return !1;
     }
@@ -45144,26 +45143,26 @@ function R6({ gateway: e, tasks: t, context: n, isMainGenerationActive: r, now: 
       throw bp(y) ? y : new Error("tasks_context_failed", { cause: y });
     }
   }
-  function w(_) {
+  function v(_) {
     const y = ju(Lu(_ || {}));
     if (!String(y.model || "").trim()) throw new Error("tasks_agent_not_configured");
   }
-  async function h(_, y, v) {
+  async function h(_, y, w) {
     let A;
     try {
       A = await e.loadConfig();
     } catch (E) {
       throw new Error("tasks_config_load_failed", { cause: E });
     }
-    if (!v()) throw new DOMException("Aborted", "AbortError");
-    w(A);
+    if (!w()) throw new DOMException("Aborted", "AbortError");
+    v(A);
     let C;
     try {
       C = await e.openSession(A);
     } catch (E) {
       throw new Error("tasks_agent_session_failed", { cause: E });
     }
-    if (!v()) throw new DOMException("Aborted", "AbortError");
+    if (!w()) throw new DOMException("Aborted", "AbortError");
     return await C.run({
       systemPrompt: y.systemPrompt,
       messages: y.messages.map((E) => ({ ...E })),
@@ -45175,19 +45174,19 @@ function R6({ gateway: e, tasks: t, context: n, isMainGenerationActive: r, now: 
     return ((t.readCurrent().domain?.board ?? null)?.boardId ?? null) === _;
   }
   function k(_) {
-    const y = t.readCurrent().records.find((v) => v.taskId === _.taskId);
+    const y = t.readCurrent().records.find((w) => w.taskId === _.taskId);
     return y?.source === "published" && y.status === "recruiting" && y.taskRevision === _.expectedTaskRevision && y.eventId === _.expectedEventId ? y : null;
   }
-  async function I(_, y, v) {
+  async function I(_, y, w) {
     if (!p(_, y) || r() || t.getWriteState() !== "ready") return { valid: !1 };
     try {
-      const A = await g(!1), C = v.kind === "board" ? b(v.expectedBoardId) : !!k(v);
-      return { valid: p(_, y) && !r() && t.getWriteState() === "ready" && A.chatIdentity === v.chatIdentity && ze({
+      const A = await g(!1), C = w.kind === "board" ? b(w.expectedBoardId) : !!k(w);
+      return { valid: p(_, y) && !r() && t.getWriteState() === "ready" && A.chatIdentity === w.chatIdentity && ze({
         ...A.contextSnapshot,
         worldInfo: null,
         worldContent: null
       }, {
-        ...v.contextSnapshot,
+        ...w.contextSnapshot,
         worldInfo: null,
         worldContent: null
       }) && C };
@@ -45199,11 +45198,11 @@ function R6({ gateway: e, tasks: t, context: n, isMainGenerationActive: r, now: 
     const _ = "board", y = d(_);
     try {
       if (r() || t.getWriteState() !== "ready") return qr(_);
-      const v = t.readCurrent(), A = await g(), C = {
+      const w = t.readCurrent(), A = await g(), C = {
         kind: _,
         chatIdentity: A.chatIdentity,
         contextSnapshot: A.contextSnapshot,
-        expectedBoardId: v.domain?.board?.boardId ?? null
+        expectedBoardId: w.domain?.board?.boardId ?? null
       };
       if (!m(_, y, C.chatIdentity) || !b(C.expectedBoardId)) return qr(_);
       const E = await h(y, Gz(C.contextSnapshot), () => m(_, y, C.chatIdentity) && b(C.expectedBoardId));
@@ -45231,15 +45230,15 @@ function R6({ gateway: e, tasks: t, context: n, isMainGenerationActive: r, now: 
         compile: T,
         action: R
       };
-    } catch (v) {
-      if (y.controller.signal.aborted || !p(_, y) || bp(v)) return qr(_);
-      throw a(v), v;
+    } catch (w) {
+      if (y.controller.signal.aborted || !p(_, y) || bp(w)) return qr(_);
+      throw a(w), w;
     } finally {
-      u(_, y);
+      f(_, y);
     }
   }
   async function S(_) {
-    const y = "candidates", v = d(y);
+    const y = "candidates", w = d(y);
     try {
       if (r() || t.getWriteState() !== "ready") return qr(y);
       const A = k(_);
@@ -45250,14 +45249,14 @@ function R6({ gateway: e, tasks: t, context: n, isMainGenerationActive: r, now: 
         contextSnapshot: C.contextSnapshot,
         ..._
       };
-      if (!m(y, v, E.chatIdentity) || !k(E)) return qr(y);
-      const T = await h(v, Zz(E.contextSnapshot, O6(A)), () => m(y, v, E.chatIdentity) && !!k(E));
-      if (!p(y, v)) return qr(y);
+      if (!m(y, w, E.chatIdentity) || !k(E)) return qr(y);
+      const T = await h(w, Zz(E.contextSnapshot, O6(A)), () => m(y, w, E.chatIdentity) && !!k(E));
+      if (!p(y, w)) return qr(y);
       const R = T6(Fb(T), A.candidates, {
         finishReason: T.finishReason,
         truncated: Wb(T)
       });
-      if (!(await I(y, v, E)).valid) return qr(y);
+      if (!(await I(y, w, E)).valid) return qr(y);
       if (!R.changed || R.data?.mode !== "replace") return {
         kind: y,
         status: R.status,
@@ -45270,7 +45269,7 @@ function R6({ gateway: e, tasks: t, context: n, isMainGenerationActive: r, now: 
         expectedTaskRevision: E.expectedTaskRevision,
         expectedEventId: E.expectedEventId,
         candidates: R.data.candidates
-      }, async () => (await I(y, v, E)).valid);
+      }, async () => (await I(y, w, E)).valid);
       return {
         kind: y,
         status: R.status,
@@ -45279,17 +45278,17 @@ function R6({ gateway: e, tasks: t, context: n, isMainGenerationActive: r, now: 
         action: P
       };
     } catch (A) {
-      if (v.controller.signal.aborted || !p(y, v) || bp(A)) return qr(y);
+      if (w.controller.signal.aborted || !p(y, w) || bp(A)) return qr(y);
       throw a(A), A;
     } finally {
-      u(y, v);
+      f(y, w);
     }
   }
   return Object.freeze({
     refreshBoard: x,
     refreshCandidates: S,
     cancelAll(_) {
-      f("board", _), f("candidates", _);
+      u("board", _), u("candidates", _);
     }
   });
 }
@@ -45463,9 +45462,9 @@ function z6({ requests: e, getChatIdentity: t, onChange: n, report: r }) {
       a(c) && n();
     }
   }
-  function o(c, l, d, f) {
+  function o(c, l, d, u) {
     if (i?.state.state === "running") throw new Error("tasks_generation_active");
-    const u = {
+    const f = {
       chatIdentity: c,
       state: {
         state: "running",
@@ -45474,7 +45473,7 @@ function z6({ requests: e, getChatIdentity: t, onChange: n, report: r }) {
         message: l === "board" ? "正在后台刷新任务，可离开任务 APP 或关闭小白 OS。" : "正在后台招募，可离开任务 APP 或关闭小白 OS。"
       }
     };
-    i = u, n(), s(u, f);
+    i = f, n(), s(f, u);
   }
   return Object.freeze({
     reconcileSave(c, l) {
@@ -45570,7 +45569,7 @@ function W6({ chatIdentity: e, serviceView: t, settings: n, economyReady: r, gen
     settings: structuredClone(n),
     playerBalance: t.playerBalance,
     currentScopeId: t.currentScopeId,
-    commissions: structuredClone(t.commissions).sort((d, f) => f.task.updatedAt - d.task.updatedAt || f.task.taskId.localeCompare(d.task.taskId)),
+    commissions: structuredClone(t.commissions).sort((d, u) => u.task.updatedAt - d.task.updatedAt || u.task.taskId.localeCompare(d.task.taskId)),
     generationActive: i,
     generation: { ...a },
     board: l ? {
@@ -45631,12 +45630,12 @@ function Gb(e) {
   const t = gS(e) && typeof e.code == "string" ? e.code : "";
   return t === "economy_insufficient_funds" ? /* @__PURE__ */ new Error("tasks_insufficient_funds") : t === "SAVE_UNCONFIRMED" || t === "storage_unconfirmed" ? /* @__PURE__ */ new Error("tasks_save_unconfirmed") : t === "SAVE_CONFLICT" || t === "storage_conflict" ? /* @__PURE__ */ new Error("tasks_save_conflict") : t === "CHAT_CHANGED" || t === "chat_changed" ? /* @__PURE__ */ new Error("tasks_chat_changed") : t === "task_listing_already_accepted" ? /* @__PURE__ */ new Error("tasks_listing_already_accepted") : t === "task_terminal" ? /* @__PURE__ */ new Error("tasks_terminal") : t.startsWith("task_") ? /* @__PURE__ */ new Error("tasks_state_changed") : (e instanceof Error ? e.message : "") === "tasks_commit_guard_failed" ? /* @__PURE__ */ new Error("tasks_state_changed") : /* @__PURE__ */ new Error("tasks_operation_failed");
 }
-function U6({ tasks: e, economy: t, generation: n, settings: r, maintenance: i, getChatIdentity: a, isMainGenerationActive: s, subscribeGeneration: o, subscribeData: c, schedule: l = (f) => {
+function U6({ tasks: e, economy: t, generation: n, settings: r, maintenance: i, getChatIdentity: a, isMainGenerationActive: s, subscribeGeneration: o, subscribeData: c, schedule: l = (u) => {
   globalThis.setTimeout(() => {
-    f();
+    u();
   }, 0);
-}, report: d = (f) => console.error("[LittleWhiteBox] Tasks controller failed", f) }) {
-  let f = null, u = null, p = !1, m = null, g = null, w = null, h = null;
+}, report: d = (u) => console.error("[LittleWhiteBox] Tasks controller failed", u) }) {
+  let u = null, f = null, p = !1, m = null, g = null, v = null, h = null;
   const b = () => G6(a()), k = z6({
     requests: n,
     getChatIdentity: b,
@@ -45644,10 +45643,10 @@ function U6({ tasks: e, economy: t, generation: n, settings: r, maintenance: i, 
     report: d
   });
   function I(O = {}) {
-    if (!f) throw new Error("tasks_app_inactive");
+    if (!u) throw new Error("tasks_app_inactive");
     const z = b();
-    if (!z || z !== f.chatIdentity || String(O.chatIdentity || "") !== z) throw new Error("tasks_chat_changed");
-    return f;
+    if (!z || z !== u.chatIdentity || String(O.chatIdentity || "") !== z) throw new Error("tasks_chat_changed");
+    return u;
   }
   function x(O, z) {
     if (I(z) !== O) throw new Error("tasks_page_changed");
@@ -45676,26 +45675,26 @@ function U6({ tasks: e, economy: t, generation: n, settings: r, maintenance: i, 
       generation: N,
       maintenanceStatus: i.getStatus("tasks", O)
     });
-    return B.status === "unconfirmed" || B.status === "conflict" || !u || u.activation !== f || B.status === "ready" ? B : u.error ? {
+    return B.status === "unconfirmed" || B.status === "conflict" || !f || f.activation !== u || B.status === "ready" ? B : f.error ? {
       ...B,
       status: "blocked",
-      message: u.error
+      message: f.error
     } : {
       ...B,
       status: "loading",
       message: ""
     };
   }
-  function v(O = f) {
+  function w(O = u) {
     if (!O) throw new Error("tasks_app_inactive");
     const z = y(O.chatIdentity);
     return O.post("tasks/state", { state: z }), z;
   }
   function A() {
-    const O = f;
+    const O = u;
     if (!(!O || b() !== O.chatIdentity))
       try {
-        v(O);
+        w(O);
       } catch (z) {
         d(z), O.post("tasks/error", { code: "tasks_state_unavailable" });
       }
@@ -45705,25 +45704,25 @@ function U6({ tasks: e, economy: t, generation: n, settings: r, maintenance: i, 
       activation: O,
       error: ""
     };
-    u = z, l(() => {
-      u !== z || f !== O || b() !== O.chatIdentity || e.ensureReady(void 0, O.chatIdentity).then(() => t.ensureOpen()).then(() => {
-        u !== z || f !== O || b() !== O.chatIdentity || (u = null, v(O));
+    f = z, l(() => {
+      f !== z || u !== O || b() !== O.chatIdentity || e.ensureReady(void 0, O.chatIdentity).then(() => t.ensureOpen()).then(() => {
+        f !== z || u !== O || b() !== O.chatIdentity || (f = null, w(O));
       }).catch((N) => {
-        u !== z || f !== O || b() !== O.chatIdentity || (d(N), u = {
+        f !== z || u !== O || b() !== O.chatIdentity || (d(N), f = {
           activation: O,
           error: "任务数据暂时无法读取，请稍后重试。"
-        }, v(O));
+        }, w(O));
       });
     });
   }
   function E(O) {
-    return f === O && b() === O.chatIdentity && !s() && e.getWriteState() === "ready";
+    return u === O && b() === O.chatIdentity && !s() && e.getWriteState() === "ready";
   }
   function T(O) {
     if (p) throw new Error("tasks_operation_busy");
     if (k.getState(O.chatIdentity).state === "running" || s()) throw new Error("tasks_generation_active");
     if (e.getWriteState() !== "ready") throw new Error("tasks_write_blocked");
-    if (!t.isOpen() || f !== O || b() !== O.chatIdentity) throw new Error("tasks_state_unavailable");
+    if (!t.isOpen() || u !== O || b() !== O.chatIdentity) throw new Error("tasks_state_unavailable");
   }
   async function R(O, z, N) {
     T(O), p = !0;
@@ -45732,12 +45731,12 @@ function U6({ tasks: e, economy: t, generation: n, settings: r, maintenance: i, 
       const D = await N(B);
       return x(O, z), {
         result: D,
-        state: v(O)
+        state: w(O)
       };
     } catch (D) {
-      throw d(D), f === O && b() === O.chatIdentity && A(), Gb(D);
+      throw d(D), u === O && b() === O.chatIdentity && A(), Gb(D);
     } finally {
-      f === O && (p = !1);
+      u === O && (p = !1);
     }
   }
   function M(O) {
@@ -45748,17 +45747,17 @@ function U6({ tasks: e, economy: t, generation: n, settings: r, maintenance: i, 
       chatIdentity: z,
       post: O.post
     };
-    return f = N, C(N), y(z);
+    return u = N, C(N), y(z);
   }
   function P(O = "route-left") {
-    f = null, u = null, p = !1;
+    u = null, f = null, p = !1;
   }
   function G(O) {
     P(O), k.cancelAll(O);
   }
   async function U(O) {
     const z = gS(O.payload) ? O.payload : {}, N = I(z);
-    if (O.type === "tasks/activate") return v(N);
+    if (O.type === "tasks/activate") return w(N);
     if (O.type === "tasks/detail/read") {
       const B = hi(z.taskId, "tasks_request_invalid");
       if (typeof z.scopeId == "string" && z.scopeId !== e.readCurrent().currentScopeId) {
@@ -45783,7 +45782,7 @@ function U6({ tasks: e, economy: t, generation: n, settings: r, maintenance: i, 
       if (T(N), i.getStatus("tasks", N.chatIdentity).state === "running") throw new Error("tasks_generation_active");
       return O.type === "tasks/refresh" ? k.startBoard(N.chatIdentity) : k.startCandidates(N.chatIdentity, _d(z)), {
         started: !0,
-        state: v(N)
+        state: w(N)
       };
     }
     if (O.type === "tasks/board/accept") {
@@ -45832,17 +45831,17 @@ function U6({ tasks: e, economy: t, generation: n, settings: r, maintenance: i, 
             ...D,
             scopeId: B
           }),
-          state: f === N ? v(N) : null
+          state: u === N ? w(N) : null
         };
       } catch ($) {
-        throw d($), f === N && A(), Gb($);
+        throw d($), u === N && A(), Gb($);
       } finally {
         p = !1;
       }
     }
     if (O.type === "tasks/settings/update") {
       if (typeof z.autoMaintenance != "boolean") throw new Error("tasks_request_invalid");
-      return await r.setTasksAutoMaintenance(z.autoMaintenance), x(N, z), v(N);
+      return await r.setTasksAutoMaintenance(z.autoMaintenance), x(N, z), w(N);
     }
     if (O.type === "tasks/maintenance/run") {
       T(N);
@@ -45850,23 +45849,23 @@ function U6({ tasks: e, economy: t, generation: n, settings: r, maintenance: i, 
       return {
         started: B.status === "started",
         status: B.status,
-        state: v(N)
+        state: w(N)
       };
     }
     if (O.type === "tasks/save/confirm") {
       const B = await e.confirmPending();
       return x(N, z), (B.status === "confirmed" || B.status === "none") && C(N), {
         confirmation: B.status,
-        state: v(N)
+        state: w(N)
       };
     }
     if (O.type === "tasks/read")
-      return u = null, await e.refreshCurrent(), x(N, z), t.isOpen() || C(N), { state: v(N) };
+      return f = null, await e.refreshCurrent(), x(N, z), t.isOpen() || C(N), { state: w(N) };
     if (O.type === "tasks/save/adopt-server") {
       const B = await e.adoptServerState();
       return x(N, z), {
         adoption: B.status,
-        state: v(N)
+        state: w(N)
       };
     }
     throw new Error("tasks_request_unknown");
@@ -45886,12 +45885,12 @@ function U6({ tasks: e, economy: t, generation: n, settings: r, maintenance: i, 
     startBackground() {
       m ||= c(j), g ||= o((O) => {
         O && k.cancelAll("main-generation-started"), A();
-      }), w ||= r.subscribe(A), h ||= i.subscribeStatus((O, z) => {
-        O === "tasks" && f?.chatIdentity === z && A();
+      }), v ||= r.subscribe(A), h ||= i.subscribeStatus((O, z) => {
+        O === "tasks" && u?.chatIdentity === z && A();
       });
     },
     stopBackground() {
-      m?.(), g?.(), w?.(), h?.(), m = null, g = null, w = null, h = null, G("stopped");
+      m?.(), g?.(), v?.(), h?.(), m = null, g = null, v = null, h = null, G("stopped");
     }
   });
 }
@@ -45934,11 +45933,11 @@ function J6(e) {
     if (!c.osId || l?.identityKey !== c.identityKey || l.osId !== c.osId) return;
     const d = n !== c.identityKey || r !== c.osId;
     d && (a(), n = c.identityKey, r = c.osId);
-    const f = c.value ? Vs(c.value) : [];
-    for (const u of f)
-      if (!(u.status !== "completed" || i.has(u.eventId)) && (i.add(u.eventId), !d))
+    const u = c.value ? Vs(c.value) : [];
+    for (const f of u)
+      if (!(f.status !== "completed" || i.has(f.eventId)) && (i.add(f.eventId), !d))
         try {
-          e.notify(H6(u));
+          e.notify(H6(f));
         } catch (p) {
           console.warn("[LittleWhiteBox] 任务完成通知未能显示", p);
         }
@@ -46094,23 +46093,23 @@ function bS(e, t, n) {
   if (!X6(t)) return { result: Ub("arguments_must_be_object") };
   const r = e === Kn.PROGRESS ? "progressSummary" : e === Kn.COMPLETE || e === Kn.FAIL ? "resultSummary" : null;
   if (!r) throw new TypeError(`Unknown Tasks maintenance tool: ${e}`);
-  const i = vS.find((u) => u.function.name === e).function.parameters, a = Du(t, i).map((u) => Pa(u.code === "unknown_field" ? "unsupported_fields" : u.path === "taskId" ? "task_id_required" : u.path === "revision" ? "revision_invalid" : typeof t[r] == "string" && [...t[r]].length > Km(r) ? "summary_too_long" : "summary_required", u.path, u.expected));
+  const i = vS.find((f) => f.function.name === e).function.parameters, a = Du(t, i).map((f) => Pa(f.code === "unknown_field" ? "unsupported_fields" : f.path === "taskId" ? "task_id_required" : f.path === "revision" ? "revision_invalid" : typeof t[r] == "string" && [...t[r]].length > Km(r) ? "summary_too_long" : "summary_required", f.path, f.expected));
   let s = "";
-  if (!a.some((u) => u.path === "taskId")) try {
+  if (!a.some((f) => f.path === "taskId")) try {
     s = en(t.taskId);
   } catch {
     a.push(Pa("task_id_required", "taskId"));
   }
   const o = n.records.get(s);
-  s && !o && a.push(Pa("task_not_in_session", "taskId", [...n.records.keys()])), o && !a.some((u) => u.path === "revision") && t.revision !== o.taskRevision && a.push(Pa("revision_conflict", "revision", o.taskRevision)), o && o.status !== "active" && a.push(Pa("task_not_active", "taskId"));
+  s && !o && a.push(Pa("task_not_in_session", "taskId", [...n.records.keys()])), o && !a.some((f) => f.path === "revision") && t.revision !== o.taskRevision && a.push(Pa("revision_conflict", "revision", o.taskRevision)), o && o.status !== "active" && a.push(Pa("task_not_active", "taskId"));
   let c = null;
-  if (!a.some((u) => u.path === r)) {
+  if (!a.some((f) => f.path === r)) {
     try {
       c = Z6(t[r], r);
     } catch {
       a.push(Pa("summary_too_long", r, { maxLength: Km(r) }));
     }
-    !c && !a.some((u) => u.path === r) && a.push(Pa("summary_required", r));
+    !c && !a.some((f) => f.path === r) && a.push(Pa("summary_required", r));
   }
   if (a.length) return {
     taskId: s,
@@ -46134,19 +46133,19 @@ function bS(e, t, n) {
     ...l,
     kind: "fail",
     resultSummary: c
-  }, f = n.staged.get(s);
-  return f && Q6(f, d) ? {
+  }, u = n.staged.get(s);
+  return u && Q6(u, d) ? {
     taskId: s,
     result: kp(s, !1)
   } : d.kind === "progress" && d.progressSummary === o.progressSummary ? {
     taskId: s,
     clearStaged: !0,
-    result: kp(s, !!f)
+    result: kp(s, !!u)
   } : {
     taskId: s,
     command: {
       ...d,
-      actionId: f?.actionId ?? n.createActionId()
+      actionId: u?.actionId ?? n.createActionId()
     },
     result: kp(s, !0)
   };
@@ -46212,17 +46211,17 @@ function nB(e) {
 `);
 }
 function rB(e, t, n) {
-  const r = new Map(t.map((f) => [f.taskId, structuredClone(f)])), i = /* @__PURE__ */ new Map(), a = /* @__PURE__ */ new Set(), s = /* @__PURE__ */ new Map();
+  const r = new Map(t.map((u) => [u.taskId, structuredClone(u)])), i = /* @__PURE__ */ new Map(), a = /* @__PURE__ */ new Set(), s = /* @__PURE__ */ new Map();
   let o = !1, c = !1;
   function l() {
     if (o) throw new Error("tasks_maintenance_session_invalid");
     if (c) throw new Error("tasks_maintenance_session_committed");
   }
   function d() {
-    for (let f = 0; f < 1e3; f += 1) {
-      const u = e.createActionId();
-      if (!a.has(u))
-        return a.add(u), u;
+    for (let u = 0; u < 1e3; u += 1) {
+      const f = e.createActionId();
+      if (!a.has(f))
+        return a.add(f), f;
     }
     throw new Error("tasks_action_id_exhausted");
   }
@@ -46234,35 +46233,35 @@ function rB(e, t, n) {
       content: nB([...r.values()])
     }]),
     tools: vS,
-    executeTool(f, u) {
+    executeTool(u, f) {
       l();
-      const p = bS(f, u, {
+      const p = bS(u, f, {
         records: r,
         staged: i,
         createActionId: d
       }), m = p.taskId || "*";
       return p.result.ok ? (s.delete(m), s.delete("*"), p.clearStaged && p.taskId && i.delete(p.taskId), p.command && i.set(p.command.taskId, p.command)) : s.set(m, p.result.skipped[0]?.reason || "task_tool_failed"), p.result;
     },
-    canCommit: ({ completed: f }) => i.size > 0 || f && s.size === 0,
+    canCommit: ({ completed: u }) => i.size > 0 || u && s.size === 0,
     getResult() {
-      const f = i.size > 0, u = s.size > 0;
+      const u = i.size > 0, f = s.size > 0;
       return Object.freeze({
-        status: u ? f ? "partial" : "failed" : f ? "updated" : "unchanged",
-        changed: f
+        status: f ? u ? "partial" : "failed" : u ? "updated" : "unchanged",
+        changed: u
       });
     },
-    async commit(f, { completed: u }) {
+    async commit(u, { completed: f }) {
       l();
       const p = () => {
         if (o) throw new Error("tasks_maintenance_session_invalid");
-        if (!f()) throw new Error("tasks_maintenance_commit_guard_rejected");
+        if (!u()) throw new Error("tasks_maintenance_commit_guard_rejected");
         return !0;
       };
       p();
       try {
         const m = await e.commitMaintenance({
           commands: [...i.values()],
-          checkedTasks: u && s.size === 0 ? [...r.values()].map((g) => ({
+          checkedTasks: f && s.size === 0 ? [...r.values()].map((g) => ({
             taskId: g.taskId,
             expectedTaskRevision: g.taskRevision,
             expectedEventId: g.eventId
@@ -46307,9 +46306,9 @@ function iB({ tasks: e, readSettings: t, captureSurface: n }) {
     if (e.getWriteState() !== "ready") throw Object.assign(/* @__PURE__ */ new Error("Task economy storage is not ready"), { code: "storage_unconfirmed" });
     const o = n();
     if (!o || o.identityKey !== i.chatIdentity) return null;
-    const c = l1(i), l = e.readCurrent(), d = l.records.filter((f) => {
-      const u = l.domain?.checks[f.taskId];
-      return (!s || s.has(f.taskId)) && f.status === "active" && !!u && u.phase !== "pending" && (u.digest !== c || a === "manual" && u.phase === "checked");
+    const c = l1(i), l = e.readCurrent(), d = l.records.filter((u) => {
+      const f = l.domain?.checks[u.taskId];
+      return (!s || s.has(u.taskId)) && u.status === "active" && !!f && f.phase !== "pending" && (f.digest !== c || a === "manual" && f.phase === "checked");
     });
     return d.length ? rB(e, d, c) : null;
   }
@@ -46517,9 +46516,9 @@ function fs(e, t, n) {
   i.add(t.actionId), i.add(t.taskId);
   let a = "";
   for (let d = 0; d < 1e3; d += 1) {
-    const f = en(n.createId("event"));
-    if (!i.has(f)) {
-      a = f;
+    const u = en(n.createId("event"));
+    if (!i.has(u)) {
+      a = u;
       break;
     }
   }
@@ -46586,15 +46585,15 @@ function pB(e, t, n) {
     "boardId",
     "listingId",
     "playerDisplayName"
-  ]), i = Zr(r.actionId), a = en(r.taskId), s = en(r.boardId), o = en(r.listingId), c = sS(r.playerDisplayName), l = e.events.find((f) => f.actionId === i);
+  ]), i = Zr(r.actionId), a = en(r.taskId), s = en(r.boardId), o = en(r.listingId), c = sS(r.playerDisplayName), l = e.events.find((u) => u.actionId === i);
   if (l) {
     if (l.kind !== "accepted" || l.taskId !== a || l.boardId !== s || l.listingId !== o || l.assignee.displayName !== c) throw new Be("task_action_conflict");
     return Po(e, l);
   }
   if (!e.board || e.board.boardId !== s) throw new Be("task_board_missing");
-  const d = e.board.listings.find((f) => f.listingId === o);
+  const d = e.board.listings.find((u) => u.listingId === o);
   if (!d) throw new Be("task_listing_missing");
-  if (e.events.some((f) => f.kind === "accepted" && f.boardId === s && f.listingId === o)) throw new Be("task_listing_already_accepted");
+  if (e.events.some((u) => u.kind === "accepted" && u.boardId === s && u.listingId === o)) throw new Be("task_listing_already_accepted");
   return ws(e, [
     i,
     a,
@@ -46707,14 +46706,14 @@ function gB(e, t, n) {
     "expectedTaskRevision",
     "expectedEventId",
     "candidateId"
-  ]), i = Zr(r.actionId), a = en(r.taskId), s = yf(r.expectedTaskRevision, r.expectedEventId), o = en(r.candidateId), c = e.events.find((f) => f.actionId === i);
+  ]), i = Zr(r.actionId), a = en(r.taskId), s = yf(r.expectedTaskRevision, r.expectedEventId), o = en(r.candidateId), c = e.events.find((u) => u.actionId === i);
   if (c) {
     if (c.kind !== "assigned" || c.taskId !== a || c.assignee.partyId !== o || !sy(e, c, s.expectedTaskRevision, s.expectedEventId)) throw new Be("task_action_conflict");
     return Po(e, c);
   }
   const l = iy(e, a);
   IS(l), ay(l, s.expectedTaskRevision, s.expectedEventId);
-  const d = l.candidates.find((f) => f.candidateId === o);
+  const d = l.candidates.find((u) => u.candidateId === o);
   if (!d) throw new Be("task_candidate_missing");
   return ws(e, [i]), fs(e, {
     kind: "assigned",
@@ -46859,10 +46858,10 @@ function ec(e, t) {
 function xB(e) {
   function t(o, c) {
     return e.execute(c, (l, d) => {
-      const f = Zr(o.actionId), u = l.events.find((m) => m.actionId === f), p = _i(l);
-      return p.add(f), ec(d, pB(l, {
-        actionId: f,
-        taskId: u?.taskId ?? e.ids.create("task", p),
+      const u = Zr(o.actionId), f = l.events.find((m) => m.actionId === u), p = _i(l);
+      return p.add(u), ec(d, pB(l, {
+        actionId: u,
+        taskId: f?.taskId ?? e.ids.create("task", p),
         boardId: o.boardId,
         listingId: o.listingId,
         playerDisplayName: e.getPlayerDisplayName()
@@ -46871,14 +46870,14 @@ function xB(e) {
   }
   function n(o, c) {
     return e.execute(c, (l, d) => {
-      const f = Zr(o.actionId), u = l.events.find((g) => g.actionId === f), p = _i(l);
-      p.add(f);
-      const m = u?.taskId ?? e.ids.create("task", p);
+      const u = Zr(o.actionId), f = l.events.find((g) => g.actionId === u), p = _i(l);
+      p.add(u);
+      const m = f?.taskId ?? e.ids.create("task", p);
       return ec(d, mB(l.storyLabel ? l : {
         ...l,
         storyLabel: e.getStoryLabel()
       }, {
-        actionId: f,
+        actionId: u,
         taskId: m,
         form: o.form,
         playerDisplayName: e.getPlayerDisplayName()
@@ -46887,15 +46886,15 @@ function xB(e) {
   }
   function r(o, c) {
     return e.execute(c, (l) => {
-      const d = _i(l), f = e.ids.create("board", d), u = o.listings.map((p) => ({
+      const d = _i(l), u = e.ids.create("board", d), f = o.listings.map((p) => ({
         ...structuredClone(p),
         listingId: e.ids.create("listing", d)
       }));
       return {
         domain: fB(l, {
           expectedBoardId: o.expectedBoardId,
-          boardId: f,
-          listings: u,
+          boardId: u,
+          listings: f,
           generatedAt: o.generatedAt
         }).domain,
         changed: !0
@@ -46904,16 +46903,16 @@ function xB(e) {
   }
   function i(o, c) {
     return e.execute(c, (l, d) => {
-      const f = Zr(o.actionId), u = l.events.find((m) => m.actionId === f);
+      const u = Zr(o.actionId), f = l.events.find((m) => m.actionId === u);
       let p;
-      if (u?.kind === "candidates-replaced") p = Vb(o.candidates, (m) => u.candidates[m]?.candidateId ?? `task-candidate-replay-${m}`);
+      if (f?.kind === "candidates-replaced") p = Vb(o.candidates, (m) => f.candidates[m]?.candidateId ?? `task-candidate-replay-${m}`);
       else {
         const m = _i(l);
-        m.add(f), p = Vb(o.candidates, () => e.ids.create("candidate", m));
+        m.add(u), p = Vb(o.candidates, () => e.ids.create("candidate", m));
       }
       return ec(d, hB(l, {
         ...o,
-        actionId: f,
+        actionId: u,
         candidates: p
       }, Bs(e, l)));
     });
@@ -46944,22 +46943,22 @@ function cy(e, t, n, r) {
     "expectedTaskRevision",
     "expectedEventId",
     i
-  ]), s = Zr(a.actionId), o = en(a.taskId), c = yf(a.expectedTaskRevision, a.expectedEventId), l = r === "progressed" ? dS(a[i]) : uS(a[i]), d = e.events.find((u) => u.actionId === s);
+  ]), s = Zr(a.actionId), o = en(a.taskId), c = yf(a.expectedTaskRevision, a.expectedEventId), l = r === "progressed" ? dS(a[i]) : uS(a[i]), d = e.events.find((f) => f.actionId === s);
   if (d) {
-    const u = _S(e, d);
-    if (d.kind !== r || d.taskId !== o || SB(d) !== l || !u || u.taskRevision !== c.expectedTaskRevision || u.eventId !== c.expectedEventId) throw new Be("task_action_conflict");
+    const f = _S(e, d);
+    if (d.kind !== r || d.taskId !== o || SB(d) !== l || !f || f.taskRevision !== c.expectedTaskRevision || f.eventId !== c.expectedEventId) throw new Be("task_action_conflict");
     return Po(e, d);
   }
-  const f = gf(e, o);
-  if (!f) throw new Be("task_task_missing");
-  if (f.status === "completed" || f.status === "failed" || f.status === "cancelled") throw new Be("task_terminal");
-  if (f.status !== "active") throw new Be("task_task_not_active");
-  if (f.taskRevision !== c.expectedTaskRevision) throw new Be("task_revision_conflict");
-  if (f.eventId !== c.expectedEventId) throw new Be("task_event_id_conflict");
-  return r === "progressed" && f.progressSummary === l ? {
+  const u = gf(e, o);
+  if (!u) throw new Be("task_task_missing");
+  if (u.status === "completed" || u.status === "failed" || u.status === "cancelled") throw new Be("task_terminal");
+  if (u.status !== "active") throw new Be("task_task_not_active");
+  if (u.taskRevision !== c.expectedTaskRevision) throw new Be("task_revision_conflict");
+  if (u.eventId !== c.expectedEventId) throw new Be("task_event_id_conflict");
+  return r === "progressed" && u.progressSummary === l ? {
     domain: structuredClone(e),
     event: null,
-    record: f,
+    record: u,
     changed: !1
   } : (ws(e, [s]), r === "progressed" ? fs(e, {
     kind: r,
@@ -47009,19 +47008,19 @@ function OB(e) {
         const m = i.events.filter((g) => g.taskId === p.taskId).at(-1);
         return m?.taskRevision === p.expectedTaskRevision && m.eventId === p.expectedEventId && i.checks[p.taskId]?.taskRevision === p.expectedTaskRevision;
       }).map((p) => p.taskId)), c = n.checkedTasks.filter((p) => !o.has(p.taskId)).map((p) => p.taskId);
-      let l = i, d = !1, f;
+      let l = i, d = !1, u;
       for (const p of n.commands) {
         const m = TB(e, l, p);
-        l = m.domain, f = m.record, d ||= m.changed, m.changed && m.event && oy(a, m.event, m.record);
+        l = m.domain, u = m.record, d ||= m.changed, m.changed && m.event && oy(a, m.event, m.record);
       }
-      let u = !1;
+      let f = !1;
       for (const p of o) {
-        const m = l.events.filter((w) => w.taskId === p).at(-1), g = l.checks[p];
+        const m = l.events.filter((v) => v.taskId === p).at(-1), g = l.checks[p];
         !m || !g || (g.phase !== "checked" || g.digest !== n.evidenceDigest) && (l.checks[p] = {
           taskRevision: m.taskRevision,
           phase: "checked",
           digest: n.evidenceDigest
-        }, u = !0);
+        }, f = !0);
       }
       return l = {
         ...l,
@@ -47029,9 +47028,9 @@ function OB(e) {
       }, {
         domain: l,
         changed: d,
-        persist: u,
+        persist: f,
         staleTaskIds: c,
-        ...f ? { record: f } : {}
+        ...u ? { record: u } : {}
       };
     });
   };
@@ -47051,7 +47050,7 @@ async function Hb(e) {
 function CS(e, t, n, { now: r = Date.now, ids: i = wB({ now: r }), getPlayerDisplayName: a = () => "玩家", getEvidenceDigest: s = () => "", getStoryLabel: o = () => "", userTransactions: c } = {}) {
   const l = /* @__PURE__ */ new Set();
   let d = !1;
-  const f = () => {
+  const u = () => {
     d || (d = !0, queueMicrotask(() => {
       d = !1;
       for (const T of l) try {
@@ -47060,19 +47059,19 @@ function CS(e, t, n, { now: r = Date.now, ids: i = wB({ now: r }), getPlayerDisp
         console.error("[LittleWhiteBox] Tasks state listener failed", R);
       }
     }));
-  }, u = e.subscribe(f), p = n.subscribe(f), m = t.subscribeFileState(f), g = () => e.peekCurrent()?.value ?? null;
-  let w = !c, h = null, b = "", k = null, I = "";
+  }, f = e.subscribe(u), p = n.subscribe(u), m = t.subscribeFileState(u), g = () => e.peekCurrent()?.value ?? null;
+  let v = !c, h = null, b = "", k = null, I = "";
   async function x(T = s(), R = e.peekBinding()?.identityKey) {
-    if (!w && c) {
+    if (!v && c) {
       h || (h = uB(c).then(() => {
-        w = !0;
+        v = !0;
       }).finally(() => {
         h = null;
       }));
       try {
         await h;
       } catch (P) {
-        throw I = R ?? "", f(), P;
+        throw I = R ?? "", u(), P;
       }
     }
     if (!R || e.peekBinding()?.identityKey !== R || b === R) return;
@@ -47096,17 +47095,17 @@ function CS(e, t, n, { now: r = Date.now, ids: i = wB({ now: r }), getPlayerDisp
     k = {
       identity: R,
       work: M
-    }, f();
+    }, u();
     try {
       await M;
     } catch (P) {
       throw I = R, P;
     } finally {
-      k?.work === M && (k = null), f();
+      k?.work === M && (k = null), u();
     }
   }
   function S(T) {
-    const R = e.peekBinding()?.identityKey ?? "", M = R && b === R && w ? "ready" : R && I === R ? "failed" : "loading", P = M === "ready" ? T === void 0 ? g() : T : null, G = e.peekBinding()?.osId ?? null;
+    const R = e.peekBinding()?.identityKey ?? "", M = R && b === R && v ? "ready" : R && I === R ? "failed" : "loading", P = M === "ready" ? T === void 0 ? g() : T : null, G = e.peekBinding()?.osId ?? null;
     return {
       initialization: M,
       domain: P ? structuredClone(P) : null,
@@ -47153,14 +47152,14 @@ function CS(e, t, n, { now: r = Date.now, ids: i = wB({ now: r }), getPlayerDisp
       view: S(M.status === "confirmed" ? M.snapshot.value : P.domain)
     };
   }
-  const v = {
+  const w = {
     now: r,
     ids: i,
     getPlayerDisplayName: a,
     getEvidenceDigest: s,
     getStoryLabel: o,
     execute: y
-  }, A = xB(v);
+  }, A = xB(w);
   async function C(T) {
     if (!c) throw new Error("tasks_global_commissions_unavailable");
     const R = await c.transactOwned(ea, [ct], (M) => {
@@ -47209,7 +47208,7 @@ function CS(e, t, n, { now: r = Date.now, ids: i = wB({ now: r }), getPlayerDisp
     ...A,
     cancelCommission: C,
     readCommission: E,
-    commitMaintenance: OB(v),
+    commitMaintenance: OB(w),
     getWriteState: () => t.getFileState(),
     subscribeWriteState: (T) => t.subscribeFileState(T),
     confirmPending: (T) => t.retryPending({ beforeRetry: T }),
@@ -47218,7 +47217,7 @@ function CS(e, t, n, { now: r = Date.now, ids: i = wB({ now: r }), getPlayerDisp
       return l.add(T), () => l.delete(T);
     },
     dispose() {
-      u(), p(), m(), l.clear();
+      f(), p(), m(), l.clear();
     }
   });
 }
@@ -47393,14 +47392,14 @@ function NB(e) {
             await e.refreshCurrent(), n = e.readCurrent().records;
             const m = Number(c.offset ?? 0), g = Number(c.limit ?? 20);
             if (!Number.isSafeInteger(m) || m < 0 || !Number.isSafeInteger(g) || g < 1 || g > 50) throw new Error("tasks_read_range_invalid");
-            const w = a().filter((h) => !c.taskId || h.taskId === c.taskId);
+            const v = a().filter((h) => !c.taskId || h.taskId === c.taskId);
             return {
               ok: !0,
               status: "read",
               data: {
-                items: w.slice(m, m + g),
-                total: w.length,
-                nextOffset: m + g < w.length ? m + g : null
+                items: v.slice(m, m + g),
+                total: v.length,
+                nextOffset: m + g < v.length ? m + g : null
               }
             };
           }
@@ -47410,32 +47409,32 @@ function NB(e) {
             status: "failed",
             data: { validation: d.validation }
           };
-          const f = bS(o, c, {
+          const u = bS(o, c, {
             records: new Map(n.map((m) => [m.taskId, m])),
             staged: /* @__PURE__ */ new Map(),
             createActionId: e.createActionId
           });
-          if (!f.command) return {
-            ok: f.result.ok,
-            status: f.result.ok ? "unchanged" : "failed",
-            data: f.result
+          if (!u.command) return {
+            ok: u.result.ok,
+            status: u.result.ok ? "unchanged" : "failed",
+            data: u.result
           };
-          const u = f.command, p = () => ({
+          const f = u.command, p = () => ({
             ok: !0,
             status: "saved",
-            data: a().find((m) => m.taskId === f.taskId)
+            data: a().find((m) => m.taskId === u.taskId)
           });
           return r.run(async (m) => (n = (await e.commitMaintenance({
-            commands: [u],
+            commands: [f],
             checkedTasks: [],
             evidenceDigest: ""
           }, m)).view.records, p()), async () => {
-            if (await e.refreshCurrent(), n = e.readCurrent().records, e.readCurrent().domain?.events.some((g) => g.actionId === u.actionId)) return {
+            if (await e.refreshCurrent(), n = e.readCurrent().records, e.readCurrent().domain?.events.some((g) => g.actionId === f.actionId)) return {
               status: "confirmed",
               result: p()
             };
-            const m = n.find((g) => g.taskId === u.taskId);
-            return { status: m?.taskRevision === u.expectedTaskRevision && m.eventId === u.expectedEventId ? "unchanged" : "superseded" };
+            const m = n.find((g) => g.taskId === f.taskId);
+            return { status: m?.taskRevision === f.expectedTaskRevision && m.eventId === f.expectedEventId ? "unchanged" : "superseded" };
           }, l);
         }
       };
@@ -47453,14 +47452,14 @@ function PB(e) {
       ...t,
       userTransactions: e.userTransactions,
       async install({ tasks: n, store: r, economy: i, agent: a, maintenance: s, mapContext: o, worldContext: c, prompts: l, execution: d }) {
-        const f = l.register(TS);
-        d.addCleanup(f.dispose);
-        const u = s.registerParticipant(iB({
+        const u = l.register(TS);
+        d.addCleanup(u.dispose);
+        const f = s.registerParticipant(iB({
           tasks: n,
           readSettings: () => e.settings.read()?.apps.tasks ?? null,
           captureSurface: Cn
         }));
-        d.addCleanup(u);
+        d.addCleanup(f);
         const p = So(V6({
           tasks: n,
           economy: i,
@@ -47482,7 +47481,7 @@ function PB(e) {
         }), [
           oB({
             tasks: n,
-            setPrompt: (w) => f.set("context", w),
+            setPrompt: (v) => u.set("context", v),
             subscribe: e.subscribePrompt
           }),
           cB({
@@ -47494,21 +47493,21 @@ function PB(e) {
             notify: e.notifyCompletion
           })
         ]), m = () => {
-          const w = e.getChatIdentity()?.key, h = Cn();
-          return w && h?.identityKey === w ? {
-            identity: w,
+          const v = e.getChatIdentity()?.key, h = Cn();
+          return v && h?.identityKey === v ? {
+            identity: v,
             digest: gb(h)
           } : null;
         }, g = () => {
-          const w = m();
-          w && n.ensureReady(w.digest, w.identity).catch((h) => {
+          const v = m();
+          v && n.ensureReady(v.digest, v.identity).catch((h) => {
             console.error("[LittleWhiteBox] 任务剧情基线初始化失败", h);
           });
         };
         return {
           ...p,
-          activate(w) {
-            return g(), p.activate?.(w);
+          activate(v) {
+            return g(), p.activate?.(v);
           },
           startBackground() {
             p.startBackground?.(), g();
@@ -47644,12 +47643,12 @@ function qB({ economy: e, confirmPending: t, adoptServerState: n, execution: r }
       message: ""
     };
   }
-  function f(h = i, b) {
+  function u(h = i, b) {
     if (!h) throw new Error("钱包 APP 未激活");
     const k = d(h.activationId);
     return b && (k.message = b), h.post("wallet/state", { state: k }), k;
   }
-  function u(h) {
+  function f(h) {
     const b = {
       activation: h,
       error: ""
@@ -47659,13 +47658,13 @@ function qB({ economy: e, confirmPending: t, adoptServerState: n, execution: r }
       if (!(a !== b || !c(h)))
         try {
           if (await e.ensureOpen(), a !== b || !c(h)) return;
-          a = null, f(h);
+          a = null, u(h);
         } catch (I) {
           if (a !== b || !c(h)) return;
           a = Xb(I) && I.uncertain === !0 ? null : {
             activation: h,
             error: "钱包数据暂时无法读取，请稍后重试。"
-          }, f(h);
+          }, u(h);
         }
     };
     r ? r.setTimeout(k, 0) : globalThis.setTimeout(() => {
@@ -47678,7 +47677,7 @@ function qB({ economy: e, confirmPending: t, adoptServerState: n, execution: r }
       activationId: b,
       post: h.post
     };
-    return i = k, e.isOpen() || u(k), d(b);
+    return i = k, e.isOpen() || f(k), d(b);
   }
   function m() {
     i = null, a = null;
@@ -47691,15 +47690,15 @@ function qB({ economy: e, confirmPending: t, adoptServerState: n, execution: r }
       if (I.status === "none" && await e.refresh(), !c(k)) throw new Error(tc.pageInactive);
       return I.status === "failed" ? {
         confirmation: I.status,
-        state: f(k, I.error?.code === "commit_guard_rejected" ? tc.operationExpired : tc.unavailable)
+        state: u(k, I.error?.code === "commit_guard_rejected" ? tc.operationExpired : tc.unavailable)
       } : {
         confirmation: I.status,
-        state: f(k)
+        state: u(k)
       };
     }
     if (h.type === "wallet/refresh") {
       if (a = null, await e.refresh(), e.getFileState() === "ready" && !e.isOpen() && await e.ensureOpen(), !c(k)) throw new Error(tc.pageInactive);
-      return f(k);
+      return u(k);
     }
     if (h.type === "wallet/load-more") {
       const I = Number(b.beforeSequence);
@@ -47711,11 +47710,11 @@ function qB({ economy: e, confirmPending: t, adoptServerState: n, execution: r }
     }
     throw new Error("未知的钱包操作");
   }
-  function w() {
+  function v() {
     const h = i;
     if (!(!h || !c(h)))
       try {
-        f(h);
+        u(h);
       } catch {
         h.post("wallet/error", { message: "钱包状态暂时无法读取，请重新打开。" });
       }
@@ -47725,10 +47724,10 @@ function qB({ economy: e, confirmPending: t, adoptServerState: n, execution: r }
     deactivate: m,
     cancelForeground: m,
     cancelAll: m,
-    handleChatChanged: w,
+    handleChatChanged: v,
     handleMessage: g,
     startBackground() {
-      s ||= e.subscribe(w);
+      s ||= e.subscribe(v);
     },
     stopBackground() {
       s?.(), s = null, m();
@@ -47991,14 +47990,14 @@ function LS(e, t, n) {
       pendingSave: t.hasPendingCommit()
     };
   }
-  async function c(l, d, f) {
-    const u = () => !!l && e.peekCurrent()?.identityKey === l && f();
-    if (!u()) throw new Error("world_context_changed");
+  async function c(l, d, u) {
+    const f = () => !!l && e.peekCurrent()?.identityKey === l && u();
+    if (!f()) throw new Error("world_context_changed");
     const p = await e.transact((m) => {
-      if (!u()) throw new Error("world_context_changed");
-      const g = m.currentOrInitial(), w = Ru(d(g));
-      Io(g, w) || m.replace(w);
-    }, { commitGuard: u });
+      if (!f()) throw new Error("world_context_changed");
+      const g = m.currentOrInitial(), v = Ru(d(g));
+      Io(g, v) || m.replace(v);
+    }, { commitGuard: f });
     if (p.status === "failed" || p.status === "unconfirmed" || p.status === "conflict") throw Object.assign(/* @__PURE__ */ new Error(`world_save_${p.status}`), {
       code: p.status === "failed" ? p.error.code : p.status === "unconfirmed" ? "SAVE_UNCONFIRMED" : "SAVE_CONFLICT",
       uncertain: p.status === "unconfirmed"
@@ -48011,15 +48010,15 @@ function LS(e, t, n) {
     async refreshCurrent() {
       return await e.read(), o();
     },
-    replaceContent(l, d, f, u) {
-      const p = dy(f);
+    replaceContent(l, d, u, f) {
+      const p = dy(u);
       return c(l, (m) => {
         if (!Io(mr(m), d)) throw new Error("world_content_conflict");
         return {
           ...m,
           ...p
         };
-      }, u);
+      }, f);
     },
     confirmPending: (l) => t.retryPending({ beforeRetry: l }),
     adoptServerState: t.adoptServerState,
@@ -48085,11 +48084,11 @@ var DS = {
 function zS(e, t) {
   try {
     ly(t, NS, "WorldEdit");
-    const n = t, r = n.overview ?? e.overview, i = n.upsert ?? [], a = n.remove ?? [], s = [...i.map((f) => f.id), ...a];
+    const n = t, r = n.overview ?? e.overview, i = n.upsert ?? [], a = n.remove ?? [], s = [...i.map((u) => u.id), ...a];
     if (new Set(s).size !== s.length) throw new ar("WorldEdit", "Each ID may appear once per edit, in either upsert or remove.");
-    const o = new Map(i.map((f) => [f.id, f])), c = new Set(e.news.map((f) => f.id)), l = dy({
+    const o = new Map(i.map((u) => [u.id, u])), c = new Set(e.news.map((u) => u.id)), l = dy({
       overview: r,
-      news: [...i.filter((f) => !c.has(f.id)), ...e.news.filter((f) => !a.includes(f.id)).map((f) => o.get(f.id) ?? f)]
+      news: [...i.filter((u) => !c.has(u.id)), ...e.news.filter((u) => !a.includes(u.id)).map((u) => o.get(u.id) ?? u)]
     }), d = !Io(e, l);
     return {
       ok: !0,
@@ -48241,9 +48240,9 @@ function YB(e) {
             };
           }
           if (c !== "WorldEdit") throw new Error("management_tool_unknown");
-          const f = await e.refreshCurrent();
-          let u = mr(f.world);
-          const p = zS(u, l);
+          const u = await e.refreshCurrent();
+          let f = mr(u.world);
+          const p = zS(f, l);
           if (!p.ok) return {
             ok: !1,
             status: "failed",
@@ -48256,24 +48255,24 @@ function YB(e) {
             ok: !0,
             status: "unchanged"
           };
-          const m = new Set([...u.news, ...p.data.news].filter((b) => !ze(u.news.find((k) => k.id === b.id) ?? null, p.data.news.find((k) => k.id === b.id) ?? null)).map((b) => b.id));
-          if (Object.hasOwn(l, "overview") && u.overview !== r || [...m].some((b) => !ze(i.get(b) ?? null, u.news.find((k) => k.id === b) ?? null))) throw new Error("management_request_superseded");
-          const g = u, w = f.identityKey, h = () => {
-            r = u.overview;
+          const m = new Set([...f.news, ...p.data.news].filter((b) => !ze(f.news.find((k) => k.id === b.id) ?? null, p.data.news.find((k) => k.id === b.id) ?? null)).map((b) => b.id));
+          if (Object.hasOwn(l, "overview") && f.overview !== r || [...m].some((b) => !ze(i.get(b) ?? null, f.news.find((k) => k.id === b) ?? null))) throw new Error("management_request_superseded");
+          const g = f, v = u.identityKey, h = () => {
+            r = f.overview;
             for (const b of m) {
-              const k = u.news.find((I) => I.id === b);
+              const k = f.news.find((I) => I.id === b);
               k ? i.set(b, k) : i.delete(b);
             }
             return {
               ok: !0,
               status: "saved",
-              data: o(u)
+              data: o(f)
             };
           };
-          return a.run(async (b) => (u = mr((await e.replaceContent(w, g, p.data, b)).world), h()), async () => (u = mr((await e.refreshCurrent()).world), Io(u, p.data) ? {
+          return a.run(async (b) => (f = mr((await e.replaceContent(v, g, p.data, b)).world), h()), async () => (f = mr((await e.refreshCurrent()).world), Io(f, p.data) ? {
             status: "confirmed",
             result: h()
-          } : { status: Io(u, g) ? "unchanged" : "superseded" }), d);
+          } : { status: Io(f, g) ? "unchanged" : "superseded" }), d);
         }
       };
     }
@@ -48323,11 +48322,11 @@ function XB(e, t, n = !1) {
 function ZB({ world: e, settings: t, maintenance: n, getChatIdentity: r, checkAgent: i }) {
   let a = null, s, o, c, l = 0;
   function d() {
-    const w = r(), h = e.readCurrent();
-    if (!w || h.chatIdentity !== w) throw new Error("聊天已切换，请重新打开世界。");
-    const b = n.getStatus("world", w), k = !h.pendingSave && h.writeState === "ready" && b.reason === "save-unconfirmed";
+    const v = r(), h = e.readCurrent();
+    if (!v || h.chatIdentity !== v) throw new Error("聊天已切换，请重新打开世界。");
+    const b = n.getStatus("world", v), k = !h.pendingSave && h.writeState === "ready" && b.reason === "save-unconfirmed";
     return {
-      chatIdentity: w,
+      chatIdentity: v,
       world: h.world,
       settings: t.read().apps.world,
       writeState: h.writeState,
@@ -48336,72 +48335,72 @@ function ZB({ world: e, settings: t, maintenance: n, getChatIdentity: r, checkAg
       message: k ? "已加载保存的新闻。" : b.message === "unchanged" && h.writeState === "ready" && !h.world.news.length ? "还没有新闻，等故事展开后再来看看。" : XB(h.writeState, b, h.pendingSave)
     };
   }
-  const f = (w) => a === w && w.context.isCurrent() && r() === w.chatIdentity;
-  function u() {
-    if (a && f(a)) try {
+  const u = (v) => a === v && v.context.isCurrent() && r() === v.chatIdentity;
+  function f() {
+    if (a && u(a)) try {
       a.context.post("world/state", { state: d() });
     } catch {
       a.context.post("world/error", { message: "新闻暂时加载不了，请重试。" });
     }
   }
-  function p(w) {
-    l++, n.cancelRequested("world", w), n.invalidateAutomatic("world", w);
+  function p(v) {
+    l++, n.cancelRequested("world", v), n.invalidateAutomatic("world", v);
   }
   function m() {
-    const w = n.startRebuild("world");
-    return w.status === "skipped" ? qS(w.reason) : w.status === "busy" ? "新闻正在更新，请稍候。" : "";
+    const v = n.startRebuild("world");
+    return v.status === "skipped" ? qS(v.reason) : v.status === "busy" ? "新闻正在更新，请稍候。" : "";
   }
   const g = () => {
     a = null;
   };
   return {
-    activate(w) {
+    activate(v) {
       const h = d();
       return a = {
         chatIdentity: h.chatIdentity,
-        context: w,
+        context: v,
         busy: !1
       }, h;
     },
     deactivate: g,
     cancelForeground: g,
-    cancelAll(w) {
-      p(w), g();
+    cancelAll(v) {
+      p(v), g();
     },
     handleWindowClosed: g,
     handleChatChanged() {
       p("chat-changed"), g();
     },
     startBackground() {
-      if (s ??= e.subscribe(u), o ??= n.subscribeStatus((w, h) => {
-        w === "world" && h === r() && u();
+      if (s ??= e.subscribe(f), o ??= n.subscribeStatus((v, h) => {
+        v === "world" && h === r() && f();
       }), !c) {
-        let w = t.read().apps.world.subscribed;
+        let v = t.read().apps.world.subscribed;
         c = t.subscribe((h) => {
-          w && !h.apps.world.subscribed && p("unsubscribed"), w = h.apps.world.subscribed, u();
+          v && !h.apps.world.subscribed && p("unsubscribed"), v = h.apps.world.subscribed, f();
         });
       }
     },
     stopBackground() {
       p("world-stopped"), g(), s?.(), o?.(), c?.(), s = void 0, o = void 0, c = void 0;
     },
-    async handleMessage(w) {
-      const h = w.payload, b = a;
-      if (!b || !f(b) || h?.chatIdentity !== b.chatIdentity) throw new Error("聊天已切换，请重新打开世界。");
+    async handleMessage(v) {
+      const h = v.payload, b = a;
+      if (!b || !u(b) || h?.chatIdentity !== b.chatIdentity) throw new Error("聊天已切换，请重新打开世界。");
       if (b.busy) throw new Error("正在处理上一次操作，请稍候。");
       b.busy = !0;
       let k = "";
-      const I = () => f(b);
+      const I = () => u(b);
       try {
-        if (w.type === "world/read") await e.refreshCurrent();
-        else if (w.type === "world/confirm-save") await e.confirmPending();
-        else if (w.type === "world/adopt-server-state") await e.adoptServerState();
-        else if (w.type === "world/refresh") {
+        if (v.type === "world/read") await e.refreshCurrent();
+        else if (v.type === "world/confirm-save") await e.confirmPending();
+        else if (v.type === "world/adopt-server-state") await e.adoptServerState();
+        else if (v.type === "world/refresh") {
           if (e.readCurrent().writeState !== "ready") throw new Error("请先按页面提示加载新闻或检查保存。");
           k = m();
-        } else if (w.type === "world/subscribe" || w.type === "world/background") {
+        } else if (v.type === "world/subscribe" || v.type === "world/background") {
           if (typeof h.enabled != "boolean") throw new Error("开关值无效。");
-          const x = w.type === "world/subscribe" ? "subscribed" : "injectToStory", S = t.read().apps.world[x];
+          const x = v.type === "world/subscribe" ? "subscribed" : "injectToStory", S = t.read().apps.world[x];
           if (x === "subscribed" && h.enabled && !S) {
             let y = !1;
             try {
@@ -48501,20 +48500,20 @@ function tq(e, t) {
       content: hf(r)
     }],
     tools: HB,
-    executeTool(d, f) {
+    executeTool(d, u) {
       if (c(), d === "WorldRead")
-        return vf(f, "WorldRead", []), mr(i);
+        return vf(u, "WorldRead", []), mr(i);
       if (d !== "WorldEdit") throw new TypeError("Unknown world tool.");
-      const u = zS(i, f), p = eq(f);
-      if (u.ok) {
-        i = mr(u.data), p.some((m) => m !== "call") && a.delete("call");
+      const f = zS(i, u), p = eq(u);
+      if (f.ok) {
+        i = mr(f.data), p.some((m) => m !== "call") && a.delete("call");
         for (const m of p) m !== "call" && a.delete(m);
-        u.errors = [...a].map((m) => ({
+        f.errors = [...a].map((m) => ({
           path: "WorldEdit",
           message: m === "call" ? "An earlier failed edit still needs a valid correction before this publication can be saved." : m === "overview" ? "An earlier failed batch included overview. Resubmit the desired or unchanged overview in WorldEdit." : `An earlier failed batch included article ID ${m.slice(5)}. Resolve it in WorldEdit with a complete upsert within the writing limits or remove (deletes it if present).`
         }));
       } else for (const m of p) a.add(m);
-      return u;
+      return f;
     },
     canCommit: () => !s && !o && !a.size && l(),
     getResult: () => ({
@@ -48524,8 +48523,8 @@ function tq(e, t) {
     async commit(d) {
       if (c(), a.size) throw new Error("world_edits_unresolved");
       if (!l()) return;
-      const f = () => !s && d(), u = await e.replaceContent(n.identityKey, r, i, f);
-      return o = !0, u;
+      const u = () => !s && d(), f = await e.replaceContent(n.identityKey, r, i, u);
+      return o = !0, f;
     },
     invalidate() {
       s = !0;
@@ -48712,12 +48711,12 @@ function t0(e, t = Date.now()) {
   if (n.sessions !== void 0) {
     if (!Array.isArray(n.sessions) || n.sessions.length === 0) throw new zr("fw.sessions must be a non-empty array");
     s = n.sessions.map((l, d) => {
-      const f = `fw.sessions[${d}]`, u = da(l, f);
+      const u = `fw.sessions[${d}]`, f = da(l, u);
       return {
-        id: Mc(u.id, `${f}.id`),
-        name: Mc(u.name, `${f}.name`),
-        createdAt: FS(u.createdAt, `${f}.createdAt`),
-        history: e0(u.history, `${f}.history`),
+        id: Mc(f.id, `${u}.id`),
+        name: Mc(f.name, `${u}.name`),
+        createdAt: FS(f.createdAt, `${u}.createdAt`),
+        history: e0(f.history, `${u}.history`),
         memory: "",
         archivedCount: 0
       };
@@ -48898,22 +48897,22 @@ function gq(e, t = {}) {
         error: La("invalid_chat_metadata", g instanceof Error ? g.message : "Chat metadata is invalid", !1)
       };
     }
-    const f = n.get(s.identityKey);
-    if (d?.osId === o.osId && s.reference?.osId === o.osId && !f) return { status: "confirmed" };
+    const u = n.get(s.identityKey);
+    if (d?.osId === o.osId && s.reference?.osId === o.osId && !u) return { status: "confirmed" };
     if (d && d.osId !== o.osId && d.osId !== s.reference?.osId) return {
       status: "failed",
       error: La("reference_conflict", "The chat reference changed before it could be replaced", !1)
     };
-    if (f && f.reference.osId !== o.osId) return {
+    if (u && u.reference.osId !== o.osId) return {
       status: "failed",
       error: La("reference_conflict", "Another chat reference save is still pending", !1)
     };
-    const u = f?.previousExtensions ?? (l.metadata.extensions === void 0 ? void 0 : structuredClone(l.metadata.extensions));
-    let p = f?.effect ?? null;
+    const f = u?.previousExtensions ?? (l.metadata.extensions === void 0 ? void 0 : structuredClone(l.metadata.extensions));
+    let p = u?.effect ?? null;
     if (d?.osId !== o.osId) try {
       p ??= t.createInstallEffect?.(l) ?? null, mq(l.metadata, o), p?.apply();
     } catch (g) {
-      return p?.rollback(), r0(l.metadata, u), {
+      return p?.rollback(), r0(l.metadata, f), {
         status: "failed",
         error: La("invalid_chat_metadata", g instanceof Error ? g.message : "Could not install the sidecar reference", !1)
       };
@@ -48925,21 +48924,21 @@ function gq(e, t = {}) {
         reference: s.reference ? { ...s.reference } : null
       },
       reference: { ...o },
-      previousExtensions: u,
+      previousExtensions: f,
       effect: p
     });
     let m;
     try {
-      return f && i0(await e.read(l.binding, c), o, p) ? (n.delete(s.identityKey), { status: "confirmed" }) : (await e.save(l, c), n.delete(s.identityKey), { status: "confirmed" });
+      return u && i0(await e.read(l.binding, c), o, p) ? (n.delete(s.identityKey), { status: "confirmed" }) : (await e.save(l, c), n.delete(s.identityKey), { status: "confirmed" });
     } catch (g) {
       m = g;
     }
     if (m && hq(m))
-      return p?.rollback(), r0(l.metadata, u), n.delete(s.identityKey), {
+      return p?.rollback(), r0(l.metadata, f), n.delete(s.identityKey), {
         status: "failed",
         error: La("reference_save_failed", m instanceof Error ? m.message : "Chat reference save failed", !0)
       };
-    if (!f) try {
+    if (!u) try {
       if (i0(await e.read(l.binding, c), o, p))
         return n.delete(s.identityKey), { status: "confirmed" };
     } catch {
@@ -49129,7 +49128,7 @@ function vq(e) {
       error: y.error
     };
   }
-  async function f(I, x) {
+  async function u(I, x) {
     const S = Gt(x.partitions), _ = a();
     return await e.prepareClonedPartitions?.(I, x.binding, S, {
       source: x.osId,
@@ -49143,7 +49142,7 @@ function vq(e) {
       partitions: S
     });
   }
-  async function u(I, x) {
+  async function f(I, x) {
     const S = {
       ...Gt(x),
       binding: { ...I.binding },
@@ -49189,7 +49188,7 @@ function vq(e) {
         created: !1
       };
     try {
-      return await t.read(S.binding) !== null ? await f(I, S) : await u(I, S);
+      return await t.read(S.binding) !== null ? await u(I, S) : await f(I, S);
     } catch {
       return {
         status: "conflict",
@@ -49207,33 +49206,33 @@ function vq(e) {
     let _;
     try {
       _ = await t.read(S);
-    } catch (v) {
+    } catch (w) {
       return {
         status: "failed",
-        error: yn("branch_parent_unavailable", v instanceof Error ? v.message : "Could not read branch parent", !0)
+        error: yn("branch_parent_unavailable", w instanceof Error ? w.message : "Could not read branch parent", !0)
       };
     }
     if (!_) return { status: "empty" };
     let y;
     try {
       y = ya(_);
-    } catch (v) {
+    } catch (w) {
       return {
         status: "failed",
-        error: yn("branch_parent_invalid", v instanceof Error ? v.message : "Branch parent reference is invalid", !1)
+        error: yn("branch_parent_invalid", w instanceof Error ? w.message : "Branch parent reference is invalid", !1)
       };
     }
     if (!y) return { status: "empty" };
     try {
-      const v = await r.read(y.osId);
-      return v ? await f(I, v) : {
+      const w = await r.read(y.osId);
+      return w ? await u(I, w) : {
         status: "failed",
         error: yn("branch_parent_missing", "Branch parent sidecar is missing", !0)
       };
-    } catch (v) {
+    } catch (w) {
       return {
         status: "failed",
-        error: yn("branch_parent_unavailable", v instanceof Error ? v.message : "Could not copy branch parent sidecar", !0)
+        error: yn("branch_parent_unavailable", w instanceof Error ? w.message : "Could not copy branch parent sidecar", !0)
       };
     }
   }
@@ -49260,7 +49259,7 @@ function vq(e) {
     }
     return S ? await p(I, S.osId) : await m(I);
   }
-  async function w() {
+  async function v() {
     const I = t.capture();
     if (!I) return {
       status: "failed",
@@ -49301,7 +49300,7 @@ function vq(e) {
   return Object.freeze({
     resolveCurrent: g,
     ensureCurrent: k,
-    retryPendingCurrent: w,
+    retryPendingCurrent: v,
     handleChatDeleted: h,
     handleCharacterRenamed: b
   });
@@ -49309,12 +49308,12 @@ function vq(e) {
 function bq(e) {
   const { manager: t, installResolvedSidecar: n, invalidateSidecar: r = () => {
   }, events: i, eventNames: a, onError: s = (b) => console.error("[LittleWhiteBox] 小白 OS 聊天生命周期刷新失败", b) } = e;
-  let o = !1, c = 0, l = 0, d = !1, f = null;
-  function u() {
+  let o = !1, c = 0, l = 0, d = !1, u = null;
+  function f() {
     if (!o) return Promise.resolve();
-    if (d = !0, l += 1, !f) {
+    if (d = !0, l += 1, !u) {
       const b = c;
-      f = Promise.resolve().then(async () => {
+      u = Promise.resolve().then(async () => {
         for (; o && c === b && d; ) {
           d = !1;
           const k = l, I = await t.resolveCurrent();
@@ -49324,33 +49323,33 @@ function bq(e) {
       }).catch((k) => {
         r(), s(k);
       }).finally(() => {
-        f = null, o && d && u();
+        u = null, o && d && f();
       });
     }
-    return f;
+    return u;
   }
   const p = () => {
-    r(), u();
+    r(), f();
   }, m = (b) => {
     t.handleChatDeleted(String(b || "")).catch(s);
   }, g = (b, k) => {
-    t.handleCharacterRenamed(String(b || ""), String(k || "")).then(() => (r(), u())).catch(s);
+    t.handleCharacterRenamed(String(b || ""), String(k || "")).then(() => (r(), f())).catch(s);
   };
-  function w() {
-    o || (o = !0, c += 1, i.on(a.chatChanged, p), i.on(a.chatRenamed, p), i.on(a.chatDeleted, m), i.on(a.groupChatDeleted, m), i.on(a.characterRenamed, g), u());
+  function v() {
+    o || (o = !0, c += 1, i.on(a.chatChanged, p), i.on(a.chatRenamed, p), i.on(a.chatDeleted, m), i.on(a.groupChatDeleted, m), i.on(a.characterRenamed, g), f());
   }
   async function h() {
     if (!o) {
-      f && await f;
+      u && await u;
       return;
     }
-    o = !1, c += 1, d = !1, i.removeListener(a.chatChanged, p), i.removeListener(a.chatRenamed, p), i.removeListener(a.chatDeleted, m), i.removeListener(a.groupChatDeleted, m), i.removeListener(a.characterRenamed, g), f && await f;
+    o = !1, c += 1, d = !1, i.removeListener(a.chatChanged, p), i.removeListener(a.chatRenamed, p), i.removeListener(a.chatDeleted, m), i.removeListener(a.groupChatDeleted, m), i.removeListener(a.characterRenamed, g), u && await u;
   }
   return Object.freeze({
-    start: w,
+    start: v,
     stop: h,
-    refresh: u,
-    ready: () => f ?? Promise.resolve()
+    refresh: f,
+    ready: () => u ?? Promise.resolve()
   });
 }
 var WS = 0;
@@ -49452,8 +49451,8 @@ function xp(e = {}) {
 }
 function _q(e = {}) {
   const t = e.fetch ?? globalThis.fetch.bind(globalThis), n = e.getRequestHeaders ?? (() => ({})), r = e.requestTimeoutMs ?? WS, i = e.readbackTimeoutMs ?? r, a = e.nonce ?? (() => `${Date.now()}-${Math.random().toString(36).slice(2)}`);
-  async function s(d, f, u) {
-    const p = $c(f, u);
+  async function s(d, u, f) {
+    const p = $c(u, f);
     try {
       const m = new URLSearchParams({ v: a() }), g = await t(`/user/files/${encodeURIComponent(Sd(d))}?${m}`, {
         method: "GET",
@@ -49470,14 +49469,14 @@ function _q(e = {}) {
         const h = await Hs(g);
         throw new Xn("storage_read_http", Nc("Sidecar read", g.status, h), g.status >= 500 || g.status === 408 || g.status === 429);
       }
-      let w;
+      let v;
       try {
-        w = JSON.parse(await g.text());
+        v = JSON.parse(await g.text());
       } catch (h) {
         throw new Xn("storage_invalid_json", "Sidecar contains invalid JSON", !1, { cause: h });
       }
       try {
-        const h = Kp(w);
+        const h = Kp(v);
         if (h.osId !== d) throw new Xn("storage_identity_mismatch", `Sidecar ${Sd(d)} contains osId ${h.osId}`, !1);
         return h;
       } catch (h) {
@@ -49491,13 +49490,13 @@ function _q(e = {}) {
       p.cleanup();
     }
   }
-  async function o(d, f) {
-    return await s(d, f, r);
+  async function o(d, u) {
+    return await s(d, u, r);
   }
-  async function c(d, f) {
-    let u;
+  async function c(d, u) {
+    let f;
     try {
-      if (f?.aborted) return {
+      if (u?.aborted) return {
         status: "failed",
         error: Ad("storage_aborted", "Sidecar write was cancelled before send", !1)
       };
@@ -49506,7 +49505,7 @@ function _q(e = {}) {
         status: "failed",
         error: Ad("storage_identity_mismatch", "Expected and candidate osId do not match", !1)
       };
-      u = AO(g);
+      f = AO(g);
     } catch (g) {
       return {
         status: "failed",
@@ -49523,15 +49522,15 @@ function _q(e = {}) {
         },
         body: JSON.stringify({
           name: Sd(d.candidate.osId),
-          data: KS(u)
+          data: KS(f)
         }),
         signal: p.signal
       });
       if (!g.ok && kq(g.status)) {
-        const w = await Hs(g);
+        const v = await Hs(g);
         return {
           status: "failed",
-          error: Ad("storage_write_http", Nc("Sidecar write", g.status, w), !1)
+          error: Ad("storage_write_http", Nc("Sidecar write", g.status, v), !1)
         };
       }
       if (!g.ok)
@@ -49564,8 +49563,8 @@ function _q(e = {}) {
       observed: null
     };
   }
-  async function l(d, f) {
-    const u = $c(f, r);
+  async function l(d, u) {
+    const f = $c(u, r);
     try {
       const p = await t("/api/files/delete", {
         method: "POST",
@@ -49574,7 +49573,7 @@ function _q(e = {}) {
           "Content-Type": "application/json"
         },
         body: JSON.stringify({ path: `user/files/${Sd(d)}` }),
-        signal: u.signal
+        signal: f.signal
       });
       if (p.status === 404) return "missing";
       if (!p.ok) {
@@ -49583,9 +49582,9 @@ function _q(e = {}) {
       }
       return "deleted";
     } catch (p) {
-      throw p instanceof Xn ? p : new Xn(u.timedOut() ? "storage_delete_timeout" : "storage_delete_network", u.timedOut() ? "Sidecar delete timed out" : "Sidecar delete failed", !0, { cause: p });
+      throw p instanceof Xn ? p : new Xn(f.timedOut() ? "storage_delete_timeout" : "storage_delete_network", f.timedOut() ? "Sidecar delete timed out" : "Sidecar delete failed", !0, { cause: p });
     } finally {
-      u.cleanup();
+      f.cleanup();
     }
   }
   return Object.freeze({
@@ -49602,7 +49601,7 @@ function Iq(e = {}) {
     if (n.kind === "group")
       a = "/api/chats/group/get", s = { id: n.chatId };
     else {
-      const d = Object.values(i.characters ?? {}).find((f) => f?.avatar === n.ownerLocator);
+      const d = Object.values(i.characters ?? {}).find((u) => u?.avatar === n.ownerLocator);
       if (!d) return null;
       a = "/api/chats/get", s = {
         ch_name: String(d.name || ""),
@@ -49708,50 +49707,50 @@ function Tq(e) {
 }
 function Oq(e, t = console) {
   let n = Promise.resolve();
-  function r(f) {
-    const u = n.then(f, f);
-    return n = u.catch(() => {
-    }), u;
+  function r(u) {
+    const f = n.then(u, u);
+    return n = f.catch(() => {
+    }), f;
   }
   async function i() {
     try {
-      const f = await e.read(o0);
-      return f === null ? c0() : Tq(f);
-    } catch (f) {
-      return t.warn("[LittleWhiteBox] 小白 OS sidecar 索引损坏或不可读，将渐进重建", f), c0();
-    }
-  }
-  async function a(f) {
-    ms(f);
-    try {
-      await e.replace(o0, f);
+      const u = await e.read(o0);
+      return u === null ? c0() : Tq(u);
     } catch (u) {
-      t.warn("[LittleWhiteBox] 小白 OS sidecar 索引保存失败", u);
+      return t.warn("[LittleWhiteBox] 小白 OS sidecar 索引损坏或不可读，将渐进重建", u), c0();
     }
   }
-  function s(f, u) {
+  async function a(u) {
+    ms(u);
+    try {
+      await e.replace(o0, u);
+    } catch (f) {
+      t.warn("[LittleWhiteBox] 小白 OS sidecar 索引保存失败", f);
+    }
+  }
+  function s(u, f) {
     return r(async () => {
-      const p = await i(), m = Ch(u);
-      Cq(p.entries[f], m) || (p.entries[f] = m, await a(p));
+      const p = await i(), m = Ch(f);
+      Cq(p.entries[u], m) || (p.entries[u] = m, await a(p));
     });
   }
-  function o(f) {
+  function o(u) {
     return r(async () => {
-      const u = await i();
-      Object.hasOwn(u.entries, f) && (delete u.entries[f], await a(u));
+      const f = await i();
+      Object.hasOwn(f.entries, u) && (delete f.entries[u], await a(f));
     });
   }
-  function c(f, u) {
+  function c(u, f) {
     return r(async () => {
       const p = await i();
-      return Object.entries(p.entries).filter(([, m]) => m.chatId === f && (!u || m.ownerLocator === u)).map(([m]) => m);
+      return Object.entries(p.entries).filter(([, m]) => m.chatId === u && (!f || m.ownerLocator === f)).map(([m]) => m);
     });
   }
-  function l(f, u) {
+  function l(u, f) {
     return r(async () => {
       const p = await i();
       let m = !1;
-      for (const g of Object.values(p.entries)) g.kind === "character" && g.ownerLocator === f && (g.ownerLocator = u, m = !0);
+      for (const g of Object.values(p.entries)) g.kind === "character" && g.ownerLocator === u && (g.ownerLocator = f, m = !0);
       m && await a(p);
     });
   }
@@ -49837,15 +49836,15 @@ function Lq({ iframe: e, onReady: t, onMessage: n, windowTarget: r = window } = 
   const i = e;
   let a = !1, s = !1;
   const o = Object.freeze({
-    post(f, u = {}, p = "", m) {
-      return s || !a || typeof f != "string" || !f ? !1 : qA(i, {
-        type: f,
+    post(u, f = {}, p = "", m) {
+      return s || !a || typeof u != "string" || !u ? !1 : qA(i, {
+        type: u,
         requestId: String(p || (m ? Pq() : "")),
         ...m ? {
           appId: m.appId,
           activationToken: m.activationToken
         } : {},
-        payload: u
+        payload: f
       }, Nq);
     },
     isReady() {
@@ -49856,15 +49855,15 @@ function Lq({ iframe: e, onReady: t, onMessage: n, windowTarget: r = window } = 
   function c() {
     a = !1;
   }
-  function l(f) {
-    if (s || !BA(f, i, "LittleWhiteBox-XiaobaiOS")) return;
-    const u = f.data;
-    if (!(!u || typeof u.type != "string")) {
-      if (u.type === "os/frame-ready") {
+  function l(u) {
+    if (s || !BA(u, i, "LittleWhiteBox-XiaobaiOS")) return;
+    const f = u.data;
+    if (!(!f || typeof f.type != "string")) {
+      if (f.type === "os/frame-ready") {
         a = !0, t?.(o);
         return;
       }
-      a && n?.(u, o);
+      a && n?.(f, o);
     }
   }
   function d() {
@@ -49945,13 +49944,13 @@ function zq(e) {
   }), a.append(s);
   const l = n.createElement("div");
   l.className = "xiaobaix-os-shortcut-grid", i.append(a, l), n.body.append(i);
-  let d = !1, f = 0;
-  const u = r.ResizeObserver, p = u ? new u(b) : null;
+  let d = !1, u = 0;
+  const f = r.ResizeObserver, p = f ? new f(b) : null;
   function m() {
     return [...l.querySelectorAll("button"), s];
   }
   function g() {
-    const v = n.activeElement?.dataset.appId, A = e.getApps().slice(0, 6).map((C) => {
+    const w = n.activeElement?.dataset.appId, A = e.getApps().slice(0, 6).map((C) => {
       const E = n.createElement("button");
       E.type = "button", E.className = "xiaobaix-os-shortcut", E.dataset.appId = C.id;
       const T = n.createElement("img");
@@ -49961,45 +49960,45 @@ function zq(e) {
         x(), e.launch(C.id);
       }), E;
     });
-    l.replaceChildren(...A), d && (h(), v && (A.find((C) => C.dataset.appId === v) ?? A[0] ?? s).focus());
+    l.replaceChildren(...A), d && (h(), w && (A.find((C) => C.dataset.appId === w) ?? A[0] ?? s).focus());
   }
-  function w() {
+  function v() {
     i.dataset.theme = e.getTheme();
   }
   function h() {
-    const v = r.visualViewport, A = (v?.offsetLeft ?? 0) + 10, C = (v?.offsetTop ?? 0) + 10, E = (v?.width ?? r.innerWidth) - 20, T = (v?.height ?? r.innerHeight) - 20;
+    const w = r.visualViewport, A = (w?.offsetLeft ?? 0) + 10, C = (w?.offsetTop ?? 0) + 10, E = (w?.width ?? r.innerWidth) - 20, T = (w?.height ?? r.innerHeight) - 20;
     i.style.maxWidth = `${Math.max(0, E)}px`, i.style.maxHeight = `${Math.max(0, T)}px`;
     const R = t.getBoundingClientRect(), M = i.offsetWidth, P = i.offsetHeight, G = Math.max(A, Math.min(R.right - M, A + E - M)), U = R.top - 10 - P >= C, j = Math.max(C, Math.min(U ? R.top - 10 - P : R.bottom + 10, C + T - P));
     i.style.left = `${G}px`, i.style.top = `${j}px`, i.dataset.side = U ? "above" : "below", i.style.transformOrigin = `${Math.max(0, Math.min(M, R.left + R.width / 2 - G))}px ${U ? "bottom" : "top"}`;
   }
   function b() {
-    !d || f || (f = r.requestAnimationFrame(() => {
-      f = 0, d && h();
+    !d || u || (u = r.requestAnimationFrame(() => {
+      u = 0, d && h();
     }));
   }
-  function k(v) {
-    const A = v ? "addEventListener" : "removeEventListener";
-    n[A]("pointerdown", S), n[A]("focusin", S), n[A]("keydown", _), r[A]("resize", b), r[A]("scroll", b, !0), r.visualViewport?.[A]("resize", b), r.visualViewport?.[A]("scroll", b), v ? (p?.observe(t), p?.observe(i)) : p?.disconnect();
+  function k(w) {
+    const A = w ? "addEventListener" : "removeEventListener";
+    n[A]("pointerdown", S), n[A]("focusin", S), n[A]("keydown", _), r[A]("resize", b), r[A]("scroll", b, !0), r.visualViewport?.[A]("resize", b), r.visualViewport?.[A]("scroll", b), w ? (p?.observe(t), p?.observe(i)) : p?.disconnect();
   }
-  function I(v) {
-    d || !e.canOpen() || (w(), h(), d = !0, i.classList.add("is-open"), i.removeAttribute("inert"), i.setAttribute("aria-hidden", "false"), t.setAttribute("aria-expanded", "true"), k(!0), e.onVisibilityChange(!0), v && (m()[0] ?? s).focus({ preventScroll: !0 }));
+  function I(w) {
+    d || !e.canOpen() || (v(), h(), d = !0, i.classList.add("is-open"), i.removeAttribute("inert"), i.setAttribute("aria-hidden", "false"), t.setAttribute("aria-expanded", "true"), k(!0), e.onVisibilityChange(!0), w && (m()[0] ?? s).focus({ preventScroll: !0 }));
   }
-  function x(v = !0) {
-    d && (d = !1, k(!1), f && (r.cancelAnimationFrame(f), f = 0), v && t.focus({ preventScroll: !0 }), i.classList.remove("is-open"), i.setAttribute("inert", ""), i.setAttribute("aria-hidden", "true"), t.setAttribute("aria-expanded", "false"), e.onVisibilityChange(!1));
+  function x(w = !0) {
+    d && (d = !1, k(!1), u && (r.cancelAnimationFrame(u), u = 0), w && t.focus({ preventScroll: !0 }), i.classList.remove("is-open"), i.setAttribute("inert", ""), i.setAttribute("aria-hidden", "true"), t.setAttribute("aria-expanded", "false"), e.onVisibilityChange(!1));
   }
-  function S(v) {
-    const A = v.target;
+  function S(w) {
+    const A = w.target;
     A && !i.contains(A) && !t.contains(A) && x(!1);
   }
-  function _(v) {
-    if (v.key === "Escape") {
-      v.preventDefault(), v.stopPropagation(), x();
+  function _(w) {
+    if (w.key === "Escape") {
+      w.preventDefault(), w.stopPropagation(), x();
       return;
     }
     const A = m(), C = A.indexOf(n.activeElement);
-    if (v.key === "Tab") {
-      v.preventDefault();
-      const T = C + (v.shiftKey ? -1 : 1);
+    if (w.key === "Tab") {
+      w.preventDefault();
+      const T = C + (w.shiftKey ? -1 : 1);
       T < 0 || T >= A.length ? x() : A[T].focus();
       return;
     }
@@ -50008,20 +50007,20 @@ function zq(e) {
       ArrowLeft: -1,
       ArrowDown: 3,
       ArrowUp: -3
-    }[v.key];
+    }[w.key];
     if (E !== void 0) {
-      v.preventDefault();
+      w.preventDefault();
       const T = C < 0 ? E > 0 ? 0 : A.length - 1 : C + E;
       A[Math.max(0, Math.min(A.length - 1, T))].focus();
     }
   }
-  function y(v) {
-    d ? x() : I(v.detail === 0);
+  function y(w) {
+    d ? x() : I(w.detail === 0);
   }
   return t.addEventListener("click", y), g(), Object.freeze({
     hide: x,
     refresh: g,
-    updateTheme: w,
+    updateTheme: v,
     isOpen: () => d,
     destroy() {
       x(!1), p?.disconnect(), t.removeEventListener("click", y), i.remove();
@@ -50079,12 +50078,12 @@ function Kq(e, t) {
 function Gq({ documentTarget: e = document, windowTarget: t = window, stylesheetHref: n, frameSrc: r, subscribeChatChanged: i = () => () => {
 }, subscribeAppDescriptorsChanged: a = () => () => {
 }, subscribeAppStatusChanged: s = () => () => {
-}, getInitSnapshot: o = () => ({}), getAppDescriptors: c = () => [], getAppOrder: l = () => [], saveAppOrder: d, subscribeAppOrderChanged: f = () => () => {
-}, getAppStatuses: u = () => ({}), captureChatBinding: p = () => null, onChatRequired: m = () => {
-}, isChatBindingCurrent: g = () => !0, createActivationToken: w = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`, appRuntime: h = {}, bridgeFactory: b = Lq, onError: k = (I) => console.error("[LittleWhiteBox] 小白 OS 运行失败", I) } = {}) {
+}, getInitSnapshot: o = () => ({}), getAppDescriptors: c = () => [], getAppOrder: l = () => [], saveAppOrder: d, subscribeAppOrderChanged: u = () => () => {
+}, getAppStatuses: f = () => ({}), captureChatBinding: p = () => null, onChatRequired: m = () => {
+}, isChatBindingCurrent: g = () => !0, createActivationToken: v = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`, appRuntime: h = {}, bridgeFactory: b = Lq, onError: k = (I) => console.error("[LittleWhiteBox] 小白 OS 运行失败", I) } = {}) {
   if (!n || !r) throw new TypeError("xiaobai OS lifecycle requires stylesheetHref and frameSrc");
   const I = n, x = r;
-  let S = !1, _ = null, y = null, v = null, A = null, C = null, E = null, T = null, R = null, M = null, P = null, G = null, U = null, j = null, O = null, z = 0, N = 0;
+  let S = !1, _ = null, y = null, w = null, A = null, C = null, E = null, T = null, R = null, M = null, P = null, G = null, U = null, j = null, O = null, z = 0, N = 0;
   const B = /* @__PURE__ */ new Set();
   function D(le, ue) {
     return !!ue && le.identityKey === ue.identityKey && le.binding.kind === ue.binding.kind && le.binding.ownerLocator === ue.binding.ownerLocator && le.binding.chatId === ue.binding.chatId && (!le.reference || le.reference.osId === ue.reference?.osId);
@@ -50105,7 +50104,7 @@ function Gq({ documentTarget: e = document, windowTarget: t = window, stylesheet
     }
   }
   function L() {
-    const le = u();
+    const le = f();
     return c().map((ue) => ({
       ...ue,
       status: le[ue.id] ?? {
@@ -50151,7 +50150,7 @@ function Gq({ documentTarget: e = document, windowTarget: t = window, stylesheet
     y?.refresh(), E?.isReady() && E.post("os/app-order-changed", { appOrder: l() });
   }
   async function fe(le = "closed") {
-    y?.hide(!1), v = null, z += 1;
+    y?.hide(!1), w = null, z += 1;
     const ue = te(le);
     E?.dispose(), E = null, O = null, Te(), A?.close(), A?.remove(), A = null, C = null, (le === "closed" || le === "frame-close") && _?.focus({ preventScroll: !0 }), await Promise.allSettled([ue, Promise.resolve().then(() => h.handleWindowClosed?.(le))]);
   }
@@ -50189,9 +50188,9 @@ function Gq({ documentTarget: e = document, windowTarget: t = window, stylesheet
       le.post("os/init", {
         ...Ie,
         apps: L(),
-        initialAppId: v,
+        initialAppId: w,
         appOrder: l()
-      }), v = null;
+      }), w = null;
     } catch (Ie) {
       ue === z && le === E && le.post("os/error", { message: Ie instanceof Error ? Ie.message : String(Ie) }), k(Ie);
     }
@@ -50297,7 +50296,7 @@ function Gq({ documentTarget: e = document, windowTarget: t = window, stylesheet
       }
       const Pe = {
         appId: ie,
-        activationToken: w(),
+        activationToken: v(),
         binding: dn,
         generation: dt
       };
@@ -50307,7 +50306,7 @@ function Gq({ documentTarget: e = document, windowTarget: t = window, stylesheet
           activationToken: Pe.activationToken,
           isCurrent: () => $(Pe) && (j === Pe || U === Pe),
           post: (sr, ai = {}, Ea = "") => $(Pe) && (j === Pe || U === Pe) ? ue.post(sr, ai, Ea, Pe) : !1
-        }), It = u()[ie];
+        }), It = f()[ie];
         if (It?.state === "failed") throw Object.assign(new Error(It.failure.message), It.failure);
         if (Ie !== z || ue !== E || j !== Pe || !$(Pe) || !await g(Pe.binding)) {
           Ie === z && ue === E && N === dt + 1 && K(() => h.cancelForeground?.("activation-cancelled")), ue.post("app/activation-result", {
@@ -50324,7 +50323,7 @@ function Gq({ documentTarget: e = document, windowTarget: t = window, stylesheet
         }, tt);
       } catch (_t) {
         j === Pe && (j = null);
-        const It = Ie !== z || ue !== E || !$(Pe), sr = u()[ie]?.state === "failed";
+        const It = Ie !== z || ue !== E || !$(Pe), sr = f()[ie]?.state === "failed";
         It || k(_t), ue.post("app/activation-result", {
           ok: !1,
           error: It ? "activation_cancelled" : di(_t) && typeof _t.code == "string" ? _t.code : "app_activation_failed",
@@ -50373,8 +50372,8 @@ function Gq({ documentTarget: e = document, windowTarget: t = window, stylesheet
   }
   function At(le) {
     if (!at() || le && !c().some((Ie) => Ie.id === le)) return !1;
-    if (y?.hide(!1), v = le || null, A?.isConnected)
-      return E?.isReady() && (E.post("os/navigate", { appId: v }), v = null), C?.focus(), !0;
+    if (y?.hide(!1), w = le || null, A?.isConnected)
+      return E?.isReady() && (E.post("os/navigate", { appId: w }), w = null), C?.focus(), !0;
     z += 1;
     const ue = z;
     return A = e.createElement("dialog"), A.id = US, A.className = "xiaobaix-os-overlay", A.setAttribute("aria-label", _?.getAttribute("aria-label") ?? ""), A.addEventListener("cancel", (Ie) => {
@@ -50411,7 +50410,7 @@ function Gq({ documentTarget: e = document, windowTarget: t = window, stylesheet
       onVisibilityChange: (le) => {
         le ? Me() : A || Te();
       }
-    }), T = i(An), R = a(ne), M = s(Z), P = f(se), t.addEventListener("pagehide", ln), K(() => h.startBackground?.()), S = !0), !0;
+    }), T = i(An), R = a(ne), M = s(Z), P = u(se), t.addEventListener("pagehide", ln), K(() => h.startBackground?.()), S = !0), !0;
   }
   async function Bt() {
     if (!S && !_ && !A && !e.getElementById(Ed)) return;
@@ -50472,8 +50471,8 @@ function Vq(e) {
       a && await Promise.allSettled([a]);
       const d = [];
       d.push(...await Promise.allSettled([i.cleanup()])), o && d.push(...await Promise.allSettled([t.dispose()])), o = !1;
-      const f = d.filter((u) => u.status === "rejected").map((u) => u.reason);
-      if (f.length > 0) throw new AggregateError(f, "Xiaobai OS cleanup failed");
+      const u = d.filter((f) => f.status === "rejected").map((f) => f.reason);
+      if (u.length > 0) throw new AggregateError(u, "Xiaobai OS cleanup failed");
     })().finally(() => {
       s = null;
     }), await s);
@@ -50557,13 +50556,13 @@ function Jq(e, t) {
   const n = /* @__PURE__ */ new Map(), r = /* @__PURE__ */ new Set(), i = [];
   let a = !1, s = !1;
   for (const y of e) {
-    const v = String(y?.descriptor?.id || "").trim();
-    if (!v || typeof y.install != "function" || !Array.isArray(y.capabilities)) throw new TypeError("invalid app module");
-    if (n.has(v)) throw new Error(`duplicate app module: ${v}`);
-    if (y.partition && y.partition.ownerId !== v) throw new Error(`partition ${y.partition.key} must be owned by app ${v}`);
+    const w = String(y?.descriptor?.id || "").trim();
+    if (!w || typeof y.install != "function" || !Array.isArray(y.capabilities)) throw new TypeError("invalid app module");
+    if (n.has(w)) throw new Error(`duplicate app module: ${w}`);
+    if (y.partition && y.partition.ownerId !== w) throw new Error(`partition ${y.partition.key} must be owned by app ${w}`);
     const A = y.capabilities.map((C) => C.id);
-    if (new Set(A).size !== A.length) throw new Error(`app ${v} declares a capability more than once`);
-    n.set(v, {
+    if (new Set(A).size !== A.length) throw new Error(`app ${w} declares a capability more than once`);
+    n.set(w, {
       module: y,
       status: {
         state: "loading",
@@ -50577,52 +50576,52 @@ function Jq(e, t) {
       unregister: null
     }), i.push(Object.freeze({ ...y.descriptor }));
   }
-  function o(y, v) {
+  function o(y, w) {
     const A = n.get(y);
     if (A) {
-      A.status = v;
+      A.status = w;
       for (const C of r) try {
-        C(y, v);
+        C(y, w);
       } catch (E) {
         console.error("[LittleWhiteBox] 小白 OS APP 状态监听失败", E);
       }
     }
   }
-  function c(y, v) {
+  function c(y, w) {
     const A = y.releaseQueue.then(async () => {
       const C = y.runtime, E = y.execution;
       y.runtime = null, y.execution = null;
       const T = [];
-      return C && T.push(Promise.resolve().then(() => y.module.dispose?.(C))), E && T.push(E.dispose(v)), (await Promise.allSettled(T)).filter((R) => R.status === "rejected").map((R) => R.reason);
+      return C && T.push(Promise.resolve().then(() => y.module.dispose?.(C))), E && T.push(E.dispose(w)), (await Promise.allSettled(T)).filter((R) => R.status === "rejected").map((R) => R.reason);
     });
     return y.releaseQueue = A, A;
   }
   async function l(y) {
-    const v = n.get(y);
-    if (!v) throw new Error(`unknown app module: ${y}`);
-    const A = ++v.generation;
-    await c(v, "app-retry");
+    const w = n.get(y);
+    if (!w) throw new Error(`unknown app module: ${y}`);
+    const A = ++w.generation;
+    await c(w, "app-retry");
     let C = "dependency";
     o(y, {
       state: "loading",
       phase: C
     });
     try {
-      const E = d(v);
-      v.module.register && !v.unregister && (v.unregister = v.module.register(E));
-      for (const U of v.module.capabilities) if (!t.hasCapability(U)) throw Object.assign(/* @__PURE__ */ new Error(`capability is not registered: ${U.id}`), {
+      const E = d(w);
+      w.module.register && !w.unregister && (w.unregister = w.module.register(E));
+      for (const U of w.module.capabilities) if (!t.hasCapability(U)) throw Object.assign(/* @__PURE__ */ new Error(`capability is not registered: ${U.id}`), {
         code: "capability_unavailable",
         retryable: !1
       });
       const T = /* @__PURE__ */ Symbol("no-background-failure");
       let R = T;
       const M = new Hq((U) => {
-        v.generation !== A || v.execution !== M || (R = U, o(y, {
+        w.generation !== A || w.execution !== M || (R = U, o(y, {
           state: "failed",
           failure: rc("background", U)
-        }), c(v, "app-background-failed"));
+        }), c(w, "app-background-failed"));
       });
-      v.execution = M, v.module.partition && (C = "partition", o(y, {
+      w.execution = M, w.module.partition && (C = "partition", o(y, {
         state: "loading",
         phase: C
       }));
@@ -50634,42 +50633,42 @@ function Jq(e, t) {
         state: "loading",
         phase: C
       });
-      const G = await v.module.install(P);
+      const G = await w.module.install(P);
       if (R !== T) {
-        v.runtime = G, await c(v, "app-background-failed");
+        w.runtime = G, await c(w, "app-background-failed");
         return;
       }
-      v.runtime = G, s && (C = "background", o(y, {
+      w.runtime = G, s && (C = "background", o(y, {
         state: "loading",
         phase: C
       }), await G.startBackground?.()), o(y, { state: "ready" });
     } catch (E) {
-      await c(v, "app-install-failed"), o(y, {
+      await c(w, "app-install-failed"), o(y, {
         state: "failed",
         failure: rc(C, E)
       });
     }
   }
   function d(y) {
-    const v = y.module, A = v.descriptor.id;
+    const w = y.module, A = w.descriptor.id;
     return {
       ownerId: A,
       get partition() {
-        return v.partition ? t.createStore(v.partition, v.capabilities) : null;
+        return w.partition ? t.createStore(w.partition, w.capabilities) : null;
       },
       get files() {
-        return t.filesFor?.(v.partition, v.fileScope) ?? t.files;
+        return t.filesFor?.(w.partition, w.fileScope) ?? t.files;
       },
       storeFor(C) {
-        if (C.ownerId !== A || !v.additionalPartitions?.includes(C)) throw new Error("App partition access was not declared");
-        return t.createStore(C, v.capabilities);
+        if (C.ownerId !== A || !w.additionalPartitions?.includes(C)) throw new Error("App partition access was not declared");
+        return t.createStore(C, w.capabilities);
       },
       filesFor(C) {
-        if (C.ownerId !== A || !v.additionalPartitions?.includes(C)) throw new Error("App partition access was not declared");
+        if (C.ownerId !== A || !w.additionalPartitions?.includes(C)) throw new Error("App partition access was not declared");
         return t.filesFor?.(C) ?? t.files;
       },
       useCapability(C) {
-        if (!v.capabilities.some((E) => E.id === C.id)) throw Object.assign(/* @__PURE__ */ new Error(`${A} did not declare capability ${C.id}`), {
+        if (!w.capabilities.some((E) => E.id === C.id)) throw Object.assign(/* @__PURE__ */ new Error(`${A} did not declare capability ${C.id}`), {
           code: "capability_not_authorized",
           retryable: !1
         });
@@ -50677,43 +50676,43 @@ function Jq(e, t) {
       }
     };
   }
-  function f(y) {
+  function u(y) {
     if (a) return Promise.reject(/* @__PURE__ */ new Error("app_registry_disposed"));
-    const v = n.get(y);
-    if (!v) return Promise.reject(/* @__PURE__ */ new Error(`unknown app module: ${y}`));
-    const A = v.installQueue.then(() => l(y), () => l(y));
-    return v.installQueue = A.catch(() => {
+    const w = n.get(y);
+    if (!w) return Promise.reject(/* @__PURE__ */ new Error(`unknown app module: ${y}`));
+    const A = w.installQueue.then(() => l(y), () => l(y));
+    return w.installQueue = A.catch(() => {
     }), A;
   }
-  async function u() {
-    await Promise.all([...n.keys()].map(f));
+  async function f() {
+    await Promise.all([...n.keys()].map(u));
   }
   function p(y) {
-    const v = n.get(y);
-    if (!v) throw new Error(`unknown app module: ${y}`);
-    return v.status;
+    const w = n.get(y);
+    if (!w) throw new Error(`unknown app module: ${y}`);
+    return w.status;
   }
   function m(y) {
-    const v = n.get(y);
-    return v?.status.state === "ready" ? v.runtime : null;
+    const w = n.get(y);
+    return w?.status.state === "ready" ? w.runtime : null;
   }
   function g(y) {
-    const v = n.get(y);
-    if (!v) throw Object.assign(/* @__PURE__ */ new Error("app_unavailable"), { code: "app_unavailable" });
-    if (v.status.state !== "ready" || !v.runtime) {
-      const A = v.status.state === "failed" ? v.status.failure : null;
+    const w = n.get(y);
+    if (!w) throw Object.assign(/* @__PURE__ */ new Error("app_unavailable"), { code: "app_unavailable" });
+    if (w.status.state !== "ready" || !w.runtime) {
+      const A = w.status.state === "failed" ? w.status.failure : null;
       throw Object.assign(new Error(A?.message ?? "APP is not ready"), {
         code: A?.code ?? "app_not_ready",
-        phase: A?.phase ?? (v.status.state === "loading" ? v.status.phase : "install"),
+        phase: A?.phase ?? (w.status.state === "loading" ? w.status.phase : "install"),
         retryable: A?.retryable ?? !0
       });
     }
-    return v;
+    return w;
   }
-  async function w(y, v) {
+  async function v(y, w) {
     const A = g(y), C = A.runtime, E = A.generation;
     try {
-      return await C?.activate?.(v);
+      return await C?.activate?.(w);
     } catch (T) {
       throw p0(T) && A.runtime === C && A.generation === E && (await c(A, "app-activation-failed"), o(y, {
         state: "failed",
@@ -50721,19 +50720,19 @@ function Jq(e, t) {
       })), T;
     }
   }
-  async function h(y, v) {
+  async function h(y, w) {
     const A = n.get(y);
     if (A?.runtime)
       try {
-        await A.runtime.deactivate?.(v);
+        await A.runtime.deactivate?.(w);
       } catch (C) {
         console.error(`[LittleWhiteBox] 小白 OS APP ${y} 停用失败`, C);
       }
   }
-  async function b(y, v) {
+  async function b(y, w) {
     const A = g(y), C = A.runtime, E = A.generation;
     try {
-      return await C?.handleMessage?.(v);
+      return await C?.handleMessage?.(w);
     } catch (T) {
       throw p0(T) && A.runtime === C && A.generation === E && (await c(A, "app-runtime-failed"), o(y, {
         state: "failed",
@@ -50741,55 +50740,55 @@ function Jq(e, t) {
       })), T;
     }
   }
-  async function k(y, v, A) {
+  async function k(y, w, A) {
     const C = [...n.entries()].filter(([, R]) => R.runtime !== null), E = await Promise.allSettled(C.map(async ([, R]) => A(R.runtime))), T = [];
     E.forEach((R, M) => {
       if (R.status !== "rejected") return;
       const [P] = C[M];
-      console.error(`[LittleWhiteBox] 小白 OS APP ${P}.${y} 失败`, R.reason), v && (o(P, {
+      console.error(`[LittleWhiteBox] 小白 OS APP ${P}.${y} 失败`, R.reason), w && (o(P, {
         state: "failed",
-        failure: rc(v, R.reason)
+        failure: rc(w, R.reason)
       }), T.push(c(C[M][1], `app-${String(y)}-failed`)));
     }), await Promise.allSettled(T);
   }
   function I() {
-    return Object.freeze(Object.fromEntries([...n].map(([y, v]) => [y, v.status])));
+    return Object.freeze(Object.fromEntries([...n].map(([y, w]) => [y, w.status])));
   }
   function x(y) {
     return r.add(y), () => r.delete(y);
   }
   async function S(y) {
-    await f(y);
-    const v = p(y);
-    if (v.state === "failed") throw Object.assign(new Error(v.failure.message), v.failure);
+    await u(y);
+    const w = p(y);
+    if (w.state === "failed") throw Object.assign(new Error(w.failure.message), w.failure);
   }
   async function _() {
     if (a) return;
-    a = !0, await Promise.allSettled([...n.values()].map((v) => v.installQueue));
-    const y = (await Promise.allSettled([...n.values()].map(async (v) => {
-      v.generation += 1;
-      const A = await c(v, "app-registry-disposed");
+    a = !0, await Promise.allSettled([...n.values()].map((w) => w.installQueue));
+    const y = (await Promise.allSettled([...n.values()].map(async (w) => {
+      w.generation += 1;
+      const A = await c(w, "app-registry-disposed");
       try {
-        v.unregister?.();
+        w.unregister?.();
       } catch (C) {
         A.push(C);
       }
-      if (v.unregister = null, A.length > 0) throw new AggregateError(A, `app ${v.module.descriptor.id} disposal failed`);
-    }))).filter((v) => v.status === "rejected").map((v) => v.reason);
+      if (w.unregister = null, A.length > 0) throw new AggregateError(A, `app ${w.module.descriptor.id} disposal failed`);
+    }))).filter((w) => w.status === "rejected").map((w) => w.reason);
     if (y.length > 0) throw new AggregateError(y, "app module disposal failed");
   }
   return Object.freeze({
     descriptors: () => Object.freeze([...i]),
     statuses: I,
-    installAll: u,
+    installAll: f,
     retry: S,
-    activate: w,
+    activate: v,
     deactivate: h,
     handleMessage: b,
-    cancelForeground: (y) => k("cancelForeground", null, (v) => v.cancelForeground?.(y)),
-    cancelAll: (y) => k("cancelAll", null, (v) => v.cancelAll?.(y)),
+    cancelForeground: (y) => k("cancelForeground", null, (w) => w.cancelForeground?.(y)),
+    cancelAll: (y) => k("cancelAll", null, (w) => w.cancelAll?.(y)),
     handleWindowOpened: () => k("handleWindowOpened", "background", (y) => y.handleWindowOpened?.()),
-    handleWindowClosed: (y) => k("handleWindowClosed", null, (v) => v.handleWindowClosed?.(y)),
+    handleWindowClosed: (y) => k("handleWindowClosed", null, (w) => w.handleWindowClosed?.(y)),
     handleChatChanged: () => k("handleChatChanged", "background", (y) => y.handleChatChanged?.()),
     startBackground: () => (s = !0, k("startBackground", "background", (y) => y.startBackground?.())),
     stopBackground: () => (s = !1, k("stopBackground", null, (y) => y.stopBackground?.())),
@@ -50800,19 +50799,19 @@ function Jq(e, t) {
   });
 }
 function VS(e) {
-  const { registration: t, partitions: n } = e, r = /* @__PURE__ */ new Map(), i = /* @__PURE__ */ new Map(), a = /* @__PURE__ */ new Map(), s = new Set(e.allowedCapabilities.map((f) => f.id)), o = {
+  const { registration: t, partitions: n } = e, r = /* @__PURE__ */ new Map(), i = /* @__PURE__ */ new Map(), a = /* @__PURE__ */ new Map(), s = new Set(e.allowedCapabilities.map((u) => u.id)), o = {
     scopeId: e.scopeId,
-    readPartition(f) {
-      if (n.assertRegistered(f), e.assertAccess?.(f), r.has(f.key)) return Ci(f, r.get(f.key));
-      if (!i.has(f.key)) {
-        const u = e.readRaw(f);
-        if (u === void 0) return null;
-        i.set(f.key, Ci(f, u));
+    readPartition(u) {
+      if (n.assertRegistered(u), e.assertAccess?.(u), r.has(u.key)) return Ci(u, r.get(u.key));
+      if (!i.has(u.key)) {
+        const f = e.readRaw(u);
+        if (f === void 0) return null;
+        i.set(u.key, Ci(u, f));
       }
-      return Gt(i.get(f.key));
+      return Gt(i.get(u.key));
     },
-    replacePartition(f, u) {
-      n.assertRegistered(f), e.assertAccess?.(f), r.set(f.key, Cc(f, u));
+    replacePartition(u, f) {
+      n.assertRegistered(u), e.assertAccess?.(u), r.set(u.key, Cc(u, f));
     }
   };
   let c, l = !1;
@@ -50826,14 +50825,14 @@ function VS(e) {
         return d();
       },
       currentOrInitial() {
-        const f = d();
-        return f === null ? r8(t) : Gt(f);
+        const u = d();
+        return u === null ? r8(t) : Gt(u);
       },
-      replace: (f) => o.replacePartition(t, f),
-      useCapability(f) {
-        if (!s.has(f.id)) throw Object.assign(/* @__PURE__ */ new Error(`${t.ownerId} did not declare capability ${f.id}`), { code: "capability_not_authorized" });
-        if (!e.binder) throw Object.assign(/* @__PURE__ */ new Error(`Capability ${f.id} is unavailable`), { code: "capability_unavailable" });
-        return a.has(f.id) || a.set(f.id, e.binder.bind(f, t.ownerId, o)), a.get(f.id);
+      replace: (u) => o.replacePartition(t, u),
+      useCapability(u) {
+        if (!s.has(u.id)) throw Object.assign(/* @__PURE__ */ new Error(`${t.ownerId} did not declare capability ${u.id}`), { code: "capability_not_authorized" });
+        if (!e.binder) throw Object.assign(/* @__PURE__ */ new Error(`Capability ${u.id} is unavailable`), { code: "capability_unavailable" });
+        return a.has(u.id) || a.set(u.id, e.binder.bind(u, t.ownerId, o)), a.get(u.id);
       }
     },
     replacements: r
@@ -50870,8 +50869,8 @@ function Yq(e) {
         state: r,
         ..._ ? { error: _ } : {}
       });
-    } catch (v) {
-      console.error("[LittleWhiteBox] User file listener failed", v);
+    } catch (w) {
+      console.error("[LittleWhiteBox] User file listener failed", w);
     }
   }
   function d(S) {
@@ -50882,54 +50881,54 @@ function Yq(e) {
       console.error("[LittleWhiteBox] User partition listener failed", y);
     }
   }
-  async function f() {
+  async function u() {
     const S = await e.storage.read(m0);
     return S === null ? null : h0(S);
   }
-  function u(S, _) {
+  function f(S, _) {
     const y = S.onSettled;
     S.onSettled = void 0;
     try {
       y?.(_);
-    } catch (v) {
-      console.error("[LittleWhiteBox] User file settlement listener failed", v);
+    } catch (w) {
+      console.error("[LittleWhiteBox] User file settlement listener failed", w);
     }
   }
   function p(S) {
-    return n = null, d(S.candidate), u(S, "confirmed"), l("ready"), { status: "confirmed" };
+    return n = null, d(S.candidate), f(S, "confirmed"), l("ready"), { status: "confirmed" };
   }
   function m(S, _, y) {
-    return S.retain || y && !S.discardRejectedCandidate ? n = S : (n = null, u(S, "rejected")), l(n ? "failed" : "ready", _), {
+    return S.retain || y && !S.discardRejectedCandidate ? n = S : (n = null, f(S, "rejected")), l(n ? "failed" : "ready", _), {
       status: "failed",
       error: _
     };
   }
   async function g(S) {
-    const _ = await f();
+    const _ = await u();
     return Ep(_, S.candidate) ? p(S) : Ep(_, S.expected) ? null : (n = S, l("conflict"), { status: "conflict" });
   }
-  async function w(S, _) {
+  async function v(S, _) {
     const y = n === S;
     try {
-      const v = await g(S);
-      if (v) return v;
-    } catch (v) {
-      const A = na("storage_read_failed", v instanceof Error ? v.message : String(v));
+      const w = await g(S);
+      if (w) return w;
+    } catch (w) {
+      const A = na("storage_read_failed", w instanceof Error ? w.message : String(w));
       return y ? (l("unconfirmed", A), { status: "unconfirmed" }) : m(S, A, y);
     }
     try {
       if (S.commitGuard && !await S.commitGuard() || _ && !await _()) return m(S, Ls(), y);
-    } catch (v) {
-      return m(S, na("commit_guard_rejected", v instanceof Error ? v.message : String(v)), y);
+    } catch (w) {
+      return m(S, na("commit_guard_rejected", w instanceof Error ? w.message : String(w)), y);
     }
     n = S, l("saving");
     try {
       return await e.storage.replace(m0, Gt(S.candidate)), p(S);
-    } catch (v) {
-      const A = v.httpStatus;
+    } catch (w) {
+      const A = w.httpStatus;
       if (A && A >= 400 && A < 500 && A !== 408 && A !== 429) {
-        const C = na("storage_write_failed", v instanceof Error ? v.message : String(v));
-        return !S.retain && (!y || S.discardRejectedCandidate) && (n = null, u(S, "rejected")), l(n ? "failed" : "ready", C), {
+        const C = na("storage_write_failed", w instanceof Error ? w.message : String(w));
+        return !S.retain && (!y || S.discardRejectedCandidate) && (n = null, f(S, "rejected")), l(n ? "failed" : "ready", C), {
           status: "failed",
           error: C
         };
@@ -50940,7 +50939,7 @@ function Yq(e) {
   async function h(S = {}) {
     const _ = n;
     if (!_) return { status: "none" };
-    if (!S.readOnly) return await w(_, S.beforeRetry);
+    if (!S.readOnly) return await v(_, S.beforeRetry);
     try {
       const y = await g(_);
       if (y) return y;
@@ -50956,13 +50955,13 @@ function Yq(e) {
     }
     l("loading");
     try {
-      const S = await f();
+      const S = await u();
       if (S) {
         d(S), l("ready");
         return;
       }
       if (t) throw Object.assign(new Error(Cp().message), Cp());
-      if ((await w({
+      if ((await v({
         expected: null,
         candidate: h0({
           formatVersion: 1,
@@ -50980,8 +50979,8 @@ function Yq(e) {
   }
   function k(S, _ = []) {
     if (e.partitions.assertRegistered(S), !S.storage) throw new Error("A user store requires a user-owned partition");
-    const y = S.storage === "user-story", v = () => y ? e.references.capture() : null;
-    function A(T = v()) {
+    const y = S.storage === "user-story", w = () => y ? e.references.capture() : null;
+    function A(T = w()) {
       const R = T?.reference?.osId ?? null, M = y ? R ? t?.stories[R]?.[S.key] : void 0 : t?.partitions[S.key];
       return {
         identityKey: y ? T?.identityKey ?? "" : Cd,
@@ -50990,7 +50989,7 @@ function Yq(e) {
         value: structuredClone(M)
       };
     }
-    function C(T = v()) {
+    function C(T = w()) {
       const R = A(T);
       return {
         ...R,
@@ -50998,7 +50997,7 @@ function Yq(e) {
       };
     }
     async function E(T, R = {}) {
-      let M = v();
+      let M = w();
       const { signal: P, commitGuard: G } = R;
       if (R.abandonOnAbort && !P) throw new TypeError("candidate_lifetime_signal_required");
       const U = async () => !P?.aborted && (!G || await G()), j = async () => !y || !!M && await e.references.isCurrent(M);
@@ -51057,14 +51056,14 @@ function Yq(e) {
         if (R.abandonOnAbort && P) {
           const te = () => {
             c(async () => {
-              n === L && (n = null, u(L, "abandoned"), l("ready"));
+              n === L && (n = null, f(L, "abandoned"), l("ready"));
             });
           };
           L.onSettled = (ne) => {
             P.removeEventListener("abort", te), R.onSettled?.(ne);
           }, P.addEventListener("abort", te, { once: !0 }), P.aborted && te();
         }
-        const J = await w(L, j);
+        const J = await v(L, j);
         return J.status === "confirmed" ? {
           status: "confirmed",
           result: q,
@@ -51084,7 +51083,7 @@ function Yq(e) {
     }
     return {
       peekBinding: () => y ? (() => {
-        const T = v();
+        const T = w();
         return T ? {
           identityKey: T.identityKey,
           osId: T.reference?.osId ?? null
@@ -51093,10 +51092,10 @@ function Yq(e) {
         identityKey: Cd,
         osId: null
       },
-      peekCurrent: () => t && (!y || v()) ? C() : null,
+      peekCurrent: () => t && (!y || w()) ? C() : null,
       read: () => c(async () => (await b(), C(y ? await e.resolveStory(!1) : null))),
       readRaw: () => c(async () => {
-        const T = v();
+        const T = w();
         await b();
         const R = y ? await e.resolveStory(!1) : null;
         if (y && (!T || !await e.references.isCurrent(T))) throw Object.assign(new Error(Ls().message), Ls());
@@ -51105,7 +51104,7 @@ function Yq(e) {
       transact: E,
       subscribe(T) {
         const R = () => {
-          (!y || v()) && T(C());
+          (!y || w()) && T(C());
         };
         return s.add(R), () => s.delete(R);
       }
@@ -51114,10 +51113,10 @@ function Yq(e) {
   function I(S) {
     if (e.partitions.assertRegistered(S), S.storage !== "user-story") throw new Error("Expected an owner-scoped story partition");
     return Object.entries(t?.stories ?? {}).flatMap(([_, y]) => {
-      const v = y[S.key];
-      return v === void 0 ? [] : [{
+      const w = y[S.key];
+      return w === void 0 ? [] : [{
         scopeId: _,
-        value: Ci(S, v)
+        value: Ci(S, w)
       }];
     });
   }
@@ -51129,7 +51128,7 @@ function Yq(e) {
         error: ja()
       };
       await b();
-      const v = t, A = Gt(v);
+      const w = t, A = Gt(w);
       let C = !1;
       const E = new Set(_.map((M) => M.id)), T = await y({
         global: () => Gt(A.partitions[S.key] ?? null),
@@ -51166,8 +51165,8 @@ function Yq(e) {
         result: T
       };
       A.revision += 1, A.commitId = o();
-      const R = await w({
-        expected: v,
+      const R = await v({
+        expected: w,
         candidate: A,
         owner: S.key,
         retain: !1
@@ -51198,8 +51197,8 @@ function Yq(e) {
     retryPending: (S) => c(() => h(S)),
     adoptServerState: (S) => c(async () => {
       if (S && !S()) return { status: "none" };
-      const _ = await f();
-      return _ ? n && Ep(_, n.candidate) ? p(n) : (n && u(n, "abandoned"), n = null, d(_), l("ready"), { status: "adopted" }) : {
+      const _ = await u();
+      return _ ? n && Ep(_, n.candidate) ? p(n) : (n && f(n, "abandoned"), n = null, d(_), l("ready"), { status: "adopted" }) : {
         status: "failed",
         error: Cp()
       };
@@ -51239,8 +51238,8 @@ function Zq(e) {
   if (!t || !n || !r) throw new TypeError("transaction coordinator requires storage, partitions and chat references");
   const i = e.createId ?? Eo;
   let a = Promise.resolve();
-  const s = /* @__PURE__ */ new Map(), o = /* @__PURE__ */ new Map(), c = /* @__PURE__ */ new Map(), l = /* @__PURE__ */ new Map(), d = /* @__PURE__ */ new Set(), f = /* @__PURE__ */ new Map();
-  let u = null, p = 0;
+  const s = /* @__PURE__ */ new Map(), o = /* @__PURE__ */ new Map(), c = /* @__PURE__ */ new Map(), l = /* @__PURE__ */ new Map(), d = /* @__PURE__ */ new Set(), u = /* @__PURE__ */ new Map();
+  let f = null, p = 0;
   function m($) {
     const q = a.then($, $);
     return a = q.catch(() => {
@@ -51249,14 +51248,14 @@ function Zq(e) {
   function g() {
     const $ = r.capture();
     if (!$) throw new gi(Wt("chat_unavailable", "No chat is currently open", !1));
-    if (u !== $.identityKey) {
+    if (f !== $.identityKey) {
       p += 1;
       for (const q of c.keys()) l.has(q) || c.delete(q);
-      u = $.identityKey;
+      f = $.identityKey;
     }
     return c.has($.identityKey) && (c.get($.identityKey)?.osId ?? null) !== ($.reference?.osId ?? null) && !l.has($.identityKey) && c.delete($.identityKey), $;
   }
-  async function w() {
+  async function v() {
     const $ = g();
     await e.beforeRead?.();
     const q = g();
@@ -51324,8 +51323,8 @@ function Zq(e) {
       value: Xq($, L)
     };
   }
-  function v($, q, K) {
-    if (!f.get($)?.size) return;
+  function w($, q, K) {
+    if (!u.get($)?.size) return;
     const L = n.get($);
     if (!L) return;
     let J;
@@ -51334,7 +51333,7 @@ function Zq(e) {
     } catch {
       return;
     }
-    for (const te of f.get($) ?? []) try {
+    for (const te of u.get($) ?? []) try {
       te(J);
     } catch (ne) {
       console.error(`[LittleWhiteBox] 分区 ${$} 状态监听失败`, ne);
@@ -51344,7 +51343,7 @@ function Zq(e) {
     const K = r.capture();
     if (!(!K || !Tp($, K))) {
       c.set($.identityKey, q ? Gt(q) : null);
-      for (const L of n.list()) v(L.key, $.identityKey, q);
+      for (const L of n.list()) w(L.key, $.identityKey, q);
     }
   }
   async function C($, q) {
@@ -51413,11 +51412,11 @@ function Zq(e) {
       } : null;
     }
     async function J() {
-      const se = await w();
+      const se = await v();
       return C(se, (fe) => y($, se.identityKey, fe));
     }
     async function te() {
-      const se = await w();
+      const se = await v();
       return C(se, (fe) => ({
         identityKey: se.identityKey,
         osId: fe?.osId ?? null,
@@ -51427,7 +51426,7 @@ function Zq(e) {
     }
     async function ne(se, fe = {}) {
       if (typeof se != "function") throw new TypeError("transaction command must be a function");
-      const me = await w();
+      const me = await v();
       return await m(async () => {
         await h(me);
         const Me = k(me);
@@ -51560,11 +51559,11 @@ function Zq(e) {
     }
     function Z(se) {
       if (typeof se != "function") throw new TypeError("partition listener must be a function");
-      let fe = f.get($.key);
-      fe || (fe = /* @__PURE__ */ new Set(), f.set($.key, fe));
+      let fe = u.get($.key);
+      fe || (fe = /* @__PURE__ */ new Set(), u.set($.key, fe));
       const me = se;
       return fe.add(me), () => {
-        fe?.delete(me), fe?.size === 0 && f.delete($.key);
+        fe?.delete(me), fe?.size === 0 && u.delete($.key);
       };
     }
     return Object.freeze({
@@ -51622,10 +51621,10 @@ function Zq(e) {
   function j() {
     p += 1;
     for (const q of c.keys()) l.has(q) || c.delete(q);
-    u = null;
+    f = null;
     const $ = r.capture();
     if ($)
-      for (const q of n.list()) v(q.key, $.identityKey, null);
+      for (const q of n.list()) w(q.key, $.identityKey, null);
   }
   async function O($ = {}) {
     const q = g();
@@ -51742,7 +51741,7 @@ function Qq(e) {
   for (const d of t.partitions()) n.register(d);
   for (const d of e.modules) {
     d.partition && n.register(d.partition);
-    for (const f of d.additionalPartitions ?? []) n.register(f);
+    for (const u of d.additionalPartitions ?? []) n.register(u);
   }
   const r = new pp(), i = new pp();
   for (const d of n.list()) (d.storage ? i : r).register(d);
@@ -51760,14 +51759,14 @@ function Qq(e) {
     binder: t,
     references: e.chatReferences,
     createId: e.createId
-  }) : null, o = (d, f) => {
+  }) : null, o = (d, u) => {
     if (d.storage) {
       if (!s) throw new Error("User storage is unavailable");
-      return s.createStore(d, f);
+      return s.createStore(d, u);
     }
-    return a.createScopedStore(d, { allowedCapabilities: f });
-  }, c = (d, f) => {
-    if (d?.storage || f === "user") {
+    return a.createScopedStore(d, { allowedCapabilities: u });
+  }, c = (d, u) => {
+    if (d?.storage || u === "user") {
       if (!s) throw new Error("User storage is unavailable");
       return s;
     }
@@ -51795,13 +51794,13 @@ function Qq(e) {
       const d = [];
       try {
         await l.dispose();
-      } catch (f) {
-        d.push(f);
+      } catch (u) {
+        d.push(u);
       }
       try {
         await t.dispose();
-      } catch (f) {
-        d.push(f);
+      } catch (u) {
+        d.push(u);
       }
       if (d.length > 0) throw new AggregateError(d, "Xiaobai OS Kernel composition disposal failed");
     }
@@ -51814,13 +51813,13 @@ function eF({ promptContext: e, readMapContext: t, readWorldContext: n }) {
       recentBeforeIndex: s
     });
     if (c.chatIdentity !== r.chatIdentity) throw new Error("maintenance_chat_changed");
-    const l = i === "rebuild" ? "" : t(), d = a.includes("world") ? null : n(r.chatIdentity), f = df(c.contextSnapshot), u = Hg(c.contextSnapshot, { additionalSections: [l, ...d ? [hf(d)] : []] });
+    const l = i === "rebuild" ? "" : t(), d = a.includes("world") ? null : n(r.chatIdentity), u = df(c.contextSnapshot), f = Hg(c.contextSnapshot, { additionalSections: [l, ...d ? [hf(d)] : []] });
     return [{
       role: "system",
-      content: f
-    }, ...u ? [{
-      role: "system",
       content: u
+    }, ...f ? [{
+      role: "system",
+      content: f
     }] : []];
   };
 }
@@ -51847,8 +51846,8 @@ function nF(e) {
       const o = t.getPromptCollection;
       let c = !0;
       const l = function(d) {
-        const f = o.call(this, d), u = i;
-        if (c && u?.ready && !u.run.signal.aborted && e.isChatCompletion() && String(d || "normal") === u.type && e.identity() === u.identity && this.activeCharacter === u.character && this.serviceSettings.prompts === u.prompts && this.serviceSettings.prompt_order === u.order) for (const p of s.snapshot()) f.add(this.preparePrompt({
+        const u = o.call(this, d), f = i;
+        if (c && f?.ready && !f.run.signal.aborted && e.isChatCompletion() && String(d || "normal") === f.type && e.identity() === f.identity && this.activeCharacter === f.character && this.serviceSettings.prompts === f.prompts && this.serviceSettings.prompt_order === f.order) for (const p of s.snapshot()) u.add(this.preparePrompt({
           identifier: p.identifier,
           content: p.content,
           role: p.role,
@@ -51856,7 +51855,7 @@ function nF(e) {
           injection_depth: p.depth,
           injection_order: p.order
         }));
-        return f;
+        return u;
       };
       t.getPromptCollection = l, r = () => {
         c = !1, t.getPromptCollection === l && (t.getPromptCollection = o);
@@ -51968,7 +51967,7 @@ function sF(e) {
       o(k, I, x), sq(k, I, x), x.administrator !== void 0 && (x.administrator = await c.clonePartition(S.source, S.target, x.administrator));
     },
     cleanupAttachments: c.clear
-  }), d = Z2(), f = J2(), u = Ug(), p = OL(xp({ getRequestHeaders: wi }));
+  }), d = Z2(), u = J2(), f = Ug(), p = OL(xp({ getRequestHeaders: wi }));
   let m;
   const g = [
     TC(tF, rF),
@@ -51979,19 +51978,19 @@ function sF(e) {
     lB(),
     e8({
       captureSurface: Cn,
-      isGenerationActive: f.isActive,
+      isGenerationActive: u.isActive,
       writeGate: {
         getState: () => m.transactions.getFileState(),
         subscribe: (k) => m.transactions.subscribeFileState((I) => k(I.state))
       },
       captureBackground: eF({
-        promptContext: u,
+        promptContext: f,
         readMapContext: () => m.capabilities.require(wo).readPromptContext(),
         readWorldContext: (k) => m.capabilities.require(us).readCurrent(k)
       }),
       onError: (k) => console.error("[LittleWhiteBox] 小白 OS 后台维护失败", k)
     })
-  ], w = NO(e, async (k) => {
+  ], v = NO(e, async (k) => {
     const I = await import("../../story-summary/story-summary.js");
     return {
       world: m.capabilities.require(us).isStoryBackgroundEnabled(k),
@@ -52018,7 +52017,7 @@ function sF(e) {
               status: x.getStatus(S.id, k)
             }));
           },
-          mainChatGenerating: f.isActive,
+          mainChatGenerating: u.isActive,
           chatFile: {
             getFileState: () => m.transactions.getFileState(),
             hasPendingCommit: () => m.transactions.hasPendingCommit()
@@ -52029,16 +52028,16 @@ function sF(e) {
           }
         })
       }),
-      w,
+      v,
       P2(),
       jR(e, a),
-      CD(f, e),
-      e5(p, u),
+      CD(u, e),
+      e5(p, f),
       FB(),
       Pz({
         getChatIdentity: Qn,
         captureChatSurface: Cn,
-        mainGeneration: f,
+        mainGeneration: u,
         subscribePrompt: G2
       }),
       EC({
@@ -52047,13 +52046,13 @@ function sF(e) {
       }),
       BP({
         getChatIdentity: Qn,
-        mainGeneration: f,
+        mainGeneration: u,
         settings: e
       }),
       m8({
         settings: e,
-        mainGeneration: f,
-        replyPause: w.replyPause,
+        mainGeneration: u,
+        replyPause: v.replyPause,
         getPlayerDisplayName: () => Cn()?.playerName ?? "玩家",
         getChatIdentity: Qn,
         subscribePrompt: U2,
@@ -52064,7 +52063,7 @@ function sF(e) {
         getChatIdentity: Qn,
         getPlayerDisplayName: () => Cn()?.playerName ?? "玩家",
         userTransactions: () => m.userTransactions,
-        mainGeneration: f,
+        mainGeneration: u,
         subscribePrompt: V2,
         notifyCompletion: w0
       }),
@@ -52105,17 +52104,17 @@ function sF(e) {
       }),
       async install() {
         if (!b) {
-          f.startBackground?.();
+          u.startBackground?.();
           try {
             h.start(), await h.ready(), await m.install(), m.userTransactions?.getFileState() === "ready" && (await m.userTransactions.prepare(), await e.finishDiceSheetMigration()), m.capabilities.require(ji).runner.startBackground(Y2), b = !0;
           } catch (k) {
-            throw await h.stop(), f.stopBackground?.(), await m.dispose().catch(() => {
+            throw await h.stop(), u.stopBackground?.(), await m.dispose().catch(() => {
             }), k;
           }
         }
       },
       async dispose() {
-        b && (b = !1, await h.stop(), d.dispose(), f.stopBackground?.(), await m.dispose());
+        b && (b = !1, await h.stop(), d.dispose(), u.stopBackground?.(), await m.dispose());
       }
     },
     stylesheetHref: iF,
@@ -52226,11 +52225,11 @@ function cF(e) {
       return T.xiaobaiOs = P, o(R, P);
     });
   }
-  function f(E) {
+  function u(E) {
     if (typeof E != "boolean") throw new TypeError("enabled must be a boolean");
     return d((T) => (T.enabled = E, T));
   }
-  function u(E) {
+  function f(E) {
     if (typeof E != "boolean") throw new TypeError("map auto-maintenance must be a boolean");
     return d((T) => (T.apps.map.autoMaintenance = E, T));
   }
@@ -52249,7 +52248,7 @@ function cF(e) {
     if (typeof E != "boolean") throw new TypeError("tasks auto-maintenance must be a boolean");
     return d((T) => (T.apps.tasks.autoMaintenance = E, T));
   }
-  function w(E) {
+  function v(E) {
     if (typeof E?.imagePrompt != "boolean" || typeof E?.voicePrompt != "boolean" || typeof E?.syncNoticeEnabled != "boolean") throw new TypeError("messages settings must be boolean");
     const T = {
       imagePrompt: E.imagePrompt,
@@ -52301,7 +52300,7 @@ function cF(e) {
     if (typeof E != "boolean") throw new TypeError("Game moving sound must be a boolean");
     return d((T) => (T.apps.game.movingSoundEnabled = E, T));
   }
-  function v(E) {
+  function w(E) {
     if (typeof E != "boolean") throw new TypeError("Game building sound must be a boolean");
     return d((T) => (T.apps.game.buildingSoundEnabled = E, T));
   }
@@ -52316,12 +52315,12 @@ function cF(e) {
   return Object.freeze({
     prepare: l,
     read: c,
-    setEnabled: f,
+    setEnabled: u,
     setAppOrder: m,
-    setMapAutoMaintenance: u,
+    setMapAutoMaintenance: f,
     setMapProjection: p,
     setTasksAutoMaintenance: g,
-    setMessagesSettings: w,
+    setMessagesSettings: v,
     setDiceFeature: h,
     setDiceActionCheckFrequency: x,
     setDiceActionCheckRule: b,
@@ -52329,7 +52328,7 @@ function cF(e) {
     finishDiceSheetMigration: I,
     setWorldPreference: _,
     setGameMovingSound: y,
-    setGameBuildingSound: v,
+    setGameBuildingSound: w,
     mutateFourthWall: S,
     subscribe: A,
     subscribeMutationInstalled: C,

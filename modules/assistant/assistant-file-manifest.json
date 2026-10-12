@@ -8973,7 +8973,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/dice/application/action-check-session.ts",
       "relativePath": "modules/xiaobai-os/apps/dice/application/action-check-session.ts",
       "extension": ".ts",
-      "sizeBytes": 11738
+      "sizeBytes": 11892
     },
     {
       "source": "littlewhitebox",
@@ -9204,7 +9204,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/dice/host/generation-adapter.ts",
       "relativePath": "modules/xiaobai-os/apps/dice/host/generation-adapter.ts",
       "extension": ".ts",
-      "sizeBytes": 33462
+      "sizeBytes": 33406
     },
     {
       "source": "littlewhitebox",
@@ -16400,7 +16400,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/tests/dice-generation.test.js",
       "relativePath": "modules/xiaobai-os/tests/dice-generation.test.js",
       "extension": ".js",
-      "sizeBytes": 115063
+      "sizeBytes": 116221
     },
     {
       "source": "littlewhitebox",
