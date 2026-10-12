@@ -188,6 +188,34 @@ export function normalizeGroupPresetState({ presets, applied } = {}, { groupIds,
 
 // ───────────── 增删改 ─────────────
 
+const UNDO_CONFLICT = '分组预设已发生变化，无法撤销';
+
+// 仅在撤销窗口内保存被删除分组的引用，不保留整份预设快照。
+export function captureGroupPresetReferences(presets, groupId) {
+    return {
+        groupId,
+        references: presets.filter(preset => Object.hasOwn(preset.groupStates, groupId))
+            .map(preset => ({ presetId: preset.id, revision: preset.revision, enabled: preset.groupStates[groupId] })),
+    };
+}
+
+// 宿主在同一次设置事务里恢复分组与引用。任一相关预设被改动/删除时整次撤销失败，
+// 不覆盖其他预设、名称或绑定；恢复影响应用结果，因此增加 revision。
+export function restoreGroupPresetReferences(presets, { groupId, references }) {
+    if (!isValidGroupKey(groupId) || !Array.isArray(references)) throw new TypeError(UNDO_CONFLICT);
+    const updates = new Map();
+    for (const reference of references) {
+        const preset = presets.find(item => item.id === reference.presetId);
+        if (!preset || preset.revision !== reference.revision || typeof reference.enabled !== 'boolean') {
+            throw new TypeError(UNDO_CONFLICT);
+        }
+        updates.set(preset.id, reference.enabled);
+    }
+    return presets.map(preset => updates.has(preset.id)
+        ? { ...preset, revision: preset.revision + 1, groupStates: { ...preset.groupStates, [groupId]: updates.get(preset.id) } }
+        : preset);
+}
+
 function validateName(presets, name, exceptId = '') {
     const trimmed = String(typeof name === 'string' ? name : '').trim();
     if (!trimmed) throw new TypeError('预设名不能为空');

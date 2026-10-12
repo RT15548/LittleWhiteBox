@@ -1583,8 +1583,9 @@ let loadedCharPreviews = {};
 // 图片管理分批加载：每批图组数、请求丢失的判定时间；每个角色同一时间只有一个在途的页请求。
 const GALLERY_PAGE_SIZE = 24;
 const GALLERY_REQUEST_TIMEOUT_MS = 15000;
-const galleryPageRequests = new Map(); // charName -> { offset, limit, reload, timer }
-const galleryVersionRequests = new Map(); // `${charName}\n${slotId}` -> 超时计时器
+const galleryPageRequests = new Map(); // charName -> { requestId, offset, limit, reload, timer }
+let galleryRequestSeq = 0;
+const galleryVersionRequests = new Map(); // `${charName}\n${slotId}` -> { requestId, timer }
 const gallerySentinelObservers = new Map(); // charName -> { observer, sentinel }
 // 图片管理里用户展开过的角色：头部点击时维护，重绘据此恢复。不从 DOM 反推——收到一次空摘要把列表画空之后，
 // DOM 里就没有展开状态了，后到的真实摘要只能画出全折叠的列表。
@@ -2104,6 +2105,7 @@ let CL = null; // character-library.js 的模块命名空间，DOMContentLoaded 
 let CD = null; // character-library-dialog.js（导入对话框、导出文件名），与 CL 一同动态引入
 let CS = null; // character-list-scroll.js（拖拽时的自动滚动），与 CL 一同动态引入
 let GP = null; // character-group-presets-ui.js（分组预设面板组件），与 CL 一同动态引入
+let GPM = null; // 分组预设领域操作，与角色库一起加载
 const GROUP_COLLAPSE_KEY = 'lwb.draw.charGroupCollapsed';
 let charGroupCollapsed = loadCharGroupCollapsed();
 
@@ -2141,8 +2143,9 @@ function getPersistedLibrary() {
 
 // 每次保存都带上完整的角色与分组快照：宿主按整表覆盖，不做按 id 的远程操作。
 // 未保存的空白草稿不会被写进去（否则任何库操作都会把空名角色连同存盘，并计入启用数 / 后台配方）。
-function saveCharacterLibrary() {
-    postToParent({ type: 'SAVE_CHARACTER_TAGS', characterTags: persistedCharacters(), characterGroups: state.characterGroups || [] });
+function saveCharacterLibrary(restorePresetReferences) {
+    postToParent({ type: 'SAVE_CHARACTER_TAGS', characterTags: persistedCharacters(), characterGroups: state.characterGroups || [],
+        ...(restorePresetReferences ? { restorePresetReferences } : {}) });
 }
 
 function registerDraftCharacter(char) {
@@ -2164,11 +2167,15 @@ function reattachDraftCharacters() {
     }
 }
 
-function applyCharacterLibrary(library, { restoreDrafts = false } = {}) {
+function applyCharacterLibrary(library, { restoreDrafts = false, restorePresetReferences } = {}) {
+    const presets = restorePresetReferences
+        ? GPM.restoreGroupPresetReferences(state.characterGroupPresets || [], restorePresetReferences)
+        : state.characterGroupPresets || [];
+    state.characterGroupPresets = GPM.normalizeGroupPresets(presets, { groupIds: library.groups.map(group => group.id) });
     state.characterTags = library.characters;
     state.characterGroups = library.groups;
     if (restoreDrafts) reattachDraftCharacters();
-    saveCharacterLibrary();
+    saveCharacterLibrary(restorePresetReferences);
     renderCharList();
     renderAutoLearnGroupOptions();
     renderGroupPresetPanel();
@@ -2422,6 +2429,7 @@ function handleGroupAction(action, groupId, trigger) {
                 deleteCharacters = confirm(`该分组有 ${savedMembers.length} 个角色。\n\n确定：连同角色一起删除（删除后 ${UNDO_WINDOW_MS / 1000} 秒内可点“撤销”恢复）\n取消：保留角色，移到“未分组”`);
             }
             const snapshot = cloneLibrary(library);
+            snapshot.restorePresetReferences = GPM.captureGroupPresetReferences(state.characterGroupPresets || [], groupId);
             applyCharacterLibrary(CL.deleteGroup(library, groupId, { deleteCharacters }));
             showUndo(`已删除分组“${group?.name || ''}”${deleteCharacters ? `及其 ${savedMembers.length} 个角色` : ''}`, snapshot);
         }
@@ -2434,7 +2442,7 @@ function handleGroupAction(action, groupId, trigger) {
 
 let charSelectMode = false;
 const selectedCharIds = new Set();
-let undoState = null; // { snapshot, expectedIds, timer }
+let undoState = null; // { snapshot, fingerprint, timer }
 const UNDO_WINDOW_MS = 10000;
 
 // 撤销快照只记已保存的角色：未保存的空白草稿不属于“操作前的库”，撤销时也不该把它带回来。
@@ -2549,7 +2557,13 @@ function expireUndo() {
 }
 
 function isUndoStale() {
-    return !!undoState && undoState.fingerprint !== libraryFingerprint();
+    if (!undoState) return false;
+    if (undoState.fingerprint !== libraryFingerprint()) return true;
+    if (undoState.snapshot.restorePresetReferences) {
+        try { GPM.restoreGroupPresetReferences(state.characterGroupPresets || [], undoState.snapshot.restorePresetReferences); }
+        catch { return true; } // 相关预设变化：不允许用撤销覆盖新内容。
+    }
+    return false;
 }
 
 // 撤销窗口内库被改动过（本页其他操作，或宿主推来了不同内容，例如自动学习新增了角色）：快照已过期。
@@ -2562,7 +2576,7 @@ function performUndo() {
     if (isUndoStale()) { expireUndo(); return; }
     const { snapshot } = undoState;
     hideUndo();
-    runLibraryAction(() => applyCharacterLibrary(snapshot, { restoreDrafts: true }));
+    runLibraryAction(() => applyCharacterLibrary(snapshot, { restoreDrafts: true, restorePresetReferences: snapshot.restorePresetReferences }));
 }
 
 function deleteCharactersWithUndo(ids, text) {
@@ -3476,12 +3490,11 @@ function applyGallerySummary(next) {
     const previous = gallerySummary || {};
     gallerySummary = next || {};
     let dropped = false;
-    for (const charName of Object.keys(loadedCharPreviews)) {
+    for (const charName of new Set([...Object.keys(loadedCharPreviews), ...galleryPageRequests.keys()])) {
         if (gallerySignature(previous[charName]) === gallerySignature(gallerySummary[charName])) continue;
-        if (gallerySummary[charName]) {
-            // 数据变了：旧内容先留着（画面不塌、滚动位置不动），标记过期，之后一次请求重新加载到先前已加载的数量。
-            loadedCharPreviews[charName].stale = true;
-        } else {
+        invalidateCharacterPreviews(charName);
+        // 仍存在的角色保留旧画面，分批收齐先前已加载的范围后再替换。
+        if (!gallerySummary[charName]) {
             delete loadedCharPreviews[charName];
             disconnectGallerySentinel(charName);
             dropped = true;
@@ -3826,21 +3839,31 @@ function syncGallerySentinel(charName) {
 
 // ── 向宿主要数据（每个角色同一时间只有一个在途请求，15 秒没回视为丢失，可重试）──────────
 
-function requestCharacterSlots(charName, { offset, limit, reload = false }) {
+function invalidateCharacterPreviews(charName) {
+    const request = galleryPageRequests.get(charName);
+    if (request) clearTimeout(request.timer);
+    galleryPageRequests.delete(charName);
+    if (loadedCharPreviews[charName]) loadedCharPreviews[charName].stale = true;
+    for (const [key, pending] of galleryVersionRequests) {
+        if (key.startsWith(`${charName}\n`)) { clearTimeout(pending.timer); galleryVersionRequests.delete(key); }
+    }
+}
+
+function requestCharacterSlots(charName, { offset, limit, reload = null }) {
     if (galleryPageRequests.has(charName)) return false;
-    const request = { offset, limit, reload, timer: null };
-    request.timer = setTimeout(() => failCharacterRequest(charName, request), GALLERY_REQUEST_TIMEOUT_MS);
+    const request = { requestId: ++galleryRequestSeq, offset, limit, reload, timer: null };
+    request.timer = setTimeout(() => failCharacterRequest(charName, request.requestId), GALLERY_REQUEST_TIMEOUT_MS);
     galleryPageRequests.set(charName, request);
     const entry = loadedCharPreviews[charName];
     if (entry) entry.loadError = false;
-    postToParent({ type: 'LOAD_CHARACTER_PREVIEWS', charName, offset, limit });
+    postToParent({ type: 'LOAD_CHARACTER_PREVIEWS', charName, offset, limit, requestId: request.requestId });
     updateGallerySentinel(charName);
     return true;
 }
 
-function failCharacterRequest(charName, only) {
+function failCharacterRequest(charName, requestId) {
     const request = galleryPageRequests.get(charName);
-    if (!request || (only && request !== only)) return;
+    if (!request || request.requestId !== requestId) return;
     clearTimeout(request.timer);
     galleryPageRequests.delete(charName);
     const entry = loadedCharPreviews[charName];
@@ -3858,12 +3881,14 @@ function failCharacterRequest(charName, only) {
     });
 }
 
-// 没有缓存 → 要第一批；缓存已过期（数据变了）→ 一次请求重新加载到先前已加载的数量。
+// 刷新也遵守单页上限；临时收齐旧可见范围再替换，失败时仍保留旧卡片。
 function ensureCharacterPreviews(charName) {
     const entry = loadedCharPreviews[charName];
     if (!entry) return requestCharacterSlots(charName, { offset: 0, limit: GALLERY_PAGE_SIZE });
     if (!entry.stale) return false;
-    return requestCharacterSlots(charName, { offset: 0, limit: Math.max(entry.nextOffset, entry.order.length, 1), reload: true });
+    const target = Math.max(entry.nextOffset, entry.order.length, 1);
+    return requestCharacterSlots(charName, { offset: 0, limit: Math.min(target, GALLERY_PAGE_SIZE),
+        reload: { target, order: [], slots: {} } });
 }
 
 function loadMoreCharacterSlots(charName) {
@@ -3883,24 +3908,39 @@ function handleCharacterPreviewsLoaded(data) {
     const charName = data.charName;
     if (!charName) return;
     const request = galleryPageRequests.get(charName);
-    if (request) { clearTimeout(request.timer); galleryPageRequests.delete(charName); }
+    if (!request || request.requestId !== data.requestId) return;
+    clearTimeout(request.timer);
+    galleryPageRequests.delete(charName);
 
     const existing = loadedCharPreviews[charName];
     const offset = Math.max(0, Number(data.offset) || 0);
     // 后面几页：数据已变（或缓存已作废）时这一页属于旧数据，丢掉并按新数据重新加载。
-    if (offset > 0 && (!existing || existing.stale)) { ensureCharacterPreviews(charName); return; }
+    if (offset > 0 && !request.reload && (!existing || existing.stale)) { ensureCharacterPreviews(charName); return; }
 
-    const page = buildGalleryPage(data);
+    let page = buildGalleryPage(data);
     const total = Number.isFinite(Number(data.total)) ? Number(data.total) : page.order.length;
     const hasMore = data.hasMore === true;
     const nextOffset = Number.isFinite(Number(data.nextOffset)) ? Number(data.nextOffset) : offset + page.order.length;
+
+    if (request.reload) {
+        const reload = request.reload;
+        for (const id of page.order) {
+            if (!reload.slots[id]) reload.order.push(id);
+            reload.slots[id] = page.slots[id];
+        }
+        if (hasMore && nextOffset < reload.target) {
+            requestCharacterSlots(charName, { offset: nextOffset, limit: Math.min(GALLERY_PAGE_SIZE, reload.target - nextOffset), reload });
+            return;
+        }
+        page = { order: reload.order, slots: reload.slots };
+    }
 
     // 新数据替换 / 追加时记下滚动位置，万一高度瞬间变化把它夹走了就补回去（同一同步过程内，不会与用户滚动冲突）。
     const gallery = $('nd_gallery_container');
     const scroller = gallery ? findScrollParent(gallery) : null;
     const keepTop = scroller ? scroller.scrollTop : 0;
 
-    if (offset > 0) {
+    if (offset > 0 && !request.reload) {
         if (offset > existing.nextOffset) { // 中间缺了一段，不能拼接
             existing.loadError = true;
             syncGallerySentinel(charName);
@@ -3916,8 +3956,8 @@ function handleCharacterPreviewsLoaded(data) {
         if (!added.length) syncGallerySentinel(charName);
     } else {
         loadedCharPreviews[charName] = { ...page, total, hasMore, nextOffset, stale: false, loadError: false };
-        for (const [key, timer] of Array.from(galleryVersionRequests)) {
-            if (key.startsWith(`${charName}\n`)) { clearTimeout(timer); galleryVersionRequests.delete(key); }
+        for (const [key, pending] of Array.from(galleryVersionRequests)) {
+            if (key.startsWith(`${charName}\n`)) { clearTimeout(pending.timer); galleryVersionRequests.delete(key); }
         }
         renderCharacterSlots(charName);
         pruneGalleryObjectUrls();
@@ -3938,20 +3978,25 @@ function requestSlotVersions(charName, slotId) {
     if (!info || info.versionsLoaded || info.count <= 1) return false;
     const key = `${charName}\n${slotId}`;
     if (galleryVersionRequests.has(key)) return false;
-    galleryVersionRequests.set(key, setTimeout(() => galleryVersionRequests.delete(key), GALLERY_REQUEST_TIMEOUT_MS));
-    postToParent({ type: 'LOAD_SLOT_VERSIONS', charName, slotId });
+    const requestId = ++galleryRequestSeq;
+    const timer = setTimeout(() => settleSlotVersionsRequest(charName, slotId, requestId), GALLERY_REQUEST_TIMEOUT_MS);
+    galleryVersionRequests.set(key, { requestId, timer });
+    postToParent({ type: 'LOAD_SLOT_VERSIONS', charName, slotId, requestId });
     return true;
 }
 
-function settleSlotVersionsRequest(charName, slotId) {
+function settleSlotVersionsRequest(charName, slotId, requestId) {
     const key = `${charName}\n${slotId}`;
-    clearTimeout(galleryVersionRequests.get(key));
+    const pending = galleryVersionRequests.get(key);
+    if (!pending || pending.requestId !== requestId) return false;
+    clearTimeout(pending.timer);
     galleryVersionRequests.delete(key);
+    return true;
 }
 
 function handleSlotVersionsLoaded(data) {
     const { charName, slotId } = data;
-    settleSlotVersionsRequest(charName, slotId);
+    if (!settleSlotVersionsRequest(charName, slotId, data.requestId)) return;
     const info = loadedCharPreviews[charName]?.slots[slotId];
     const incoming = (Array.isArray(data.images) ? data.images : []).filter(img => img && img.imgId);
     if (!info || !incoming.length) return;
@@ -4087,9 +4132,14 @@ function applyGalleryImageDeleted(imgId) {
     const slotId = entry.order.find(id => entry.slots[id].images.some(img => img.imgId === imgId));
     if (slotId === undefined) return;
     const info = entry.slots[slotId];
+    const latestDeleted = info.images[0]?.imgId === imgId;
+    const pendingVersions = galleryVersionRequests.get(`${charName}\n${slotId}`);
+    if (pendingVersions) settleSlotVersionsRequest(charName, slotId, pendingVersions.requestId);
     info.images = info.images.filter(img => img.imgId !== imgId);
     info.count = Math.max(0, info.count - 1);
     const slotGone = info.count === 0;
+    // 最新版本决定图组排序；旧 offset 和在途页面都不再对应同一段数据。
+    if ((!slotGone && latestDeleted) || galleryPageRequests.has(charName)) invalidateCharacterPreviews(charName);
 
     const summary = gallerySummary[charName];
     if (summary) {
@@ -4614,7 +4664,7 @@ window.addEventListener('message', event => {
             break;
 
         case 'CHARACTER_PREVIEWS_FAILED':
-            failCharacterRequest(data.charName);
+            failCharacterRequest(data.charName, data.requestId);
             break;
 
         case 'SLOT_VERSIONS_LOADED':
@@ -4622,7 +4672,7 @@ window.addEventListener('message', event => {
             break;
 
         case 'SLOT_VERSIONS_FAILED':
-            settleSlotVersionsRequest(data.charName, data.slotId);
+            settleSlotVersionsRequest(data.charName, data.slotId, data.requestId);
             break;
             
         case 'TEST_RESULT':
@@ -5329,8 +5379,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // ═══════════════════════════════════════════════════════════════════════
     // 角色库模块先于 FRAME_READY 加载：INIT_DATA 只会在 FRAME_READY 之后到达，渲染时 CL 一定可用。
     Promise.all([
-        import('../../shared/character-library.js')
-            .then((module) => { CL = module; })
+        Promise.all([import('../../shared/character-library.js'), import('../../shared/character-group-presets.js')])
+            .then(([library, presets]) => { CL = library; GPM = presets; })
             .catch((error) => { console.error('[ND-UI] 角色库模块加载失败，分组功能不可用:', error); }),
         import('../../shared/character-library-dialog.js')
             .then((module) => { CD = module; })

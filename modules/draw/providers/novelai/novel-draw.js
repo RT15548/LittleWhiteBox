@@ -60,6 +60,7 @@ import {
 import { attachDrawAgentSettingsSurface } from "../../shared/agent-settings-surface.js";
 import { createSerialImageRequestQueue } from "../../shared/serial-image-request-queue.js";
 import { characterLibraryFromSettings, selectEnabledCharacters } from "../../shared/character-library.js";
+import { restoreGroupPresetReferences } from "../../shared/character-group-presets.js";
 import { detectPresentCharacters } from "../../shared/present-characters.js";
 import { joinTags } from "../../shared/character-prompts.js";
 import { resolveAutoLearnCharacter } from "./novel-character-learning.js";
@@ -3622,10 +3623,13 @@ async function handleFrameMessage(event) {
 
         case 'SAVE_CHARACTER_TAGS': {
             const ok = await updateSharedSettingsPersistent((settings) => {
+                if (data.restorePresetReferences) {
+                    settings.characterGroupPresets = restoreGroupPresetReferences(settings.characterGroupPresets, data.restorePresetReferences);
+                }
                 if (Array.isArray(data.characterTags)) settings.characterTags = data.characterTags;
                 if (Array.isArray(data.characterGroups)) settings.characterGroups = data.characterGroups;
             }, '角色标签已保存');
-            if (!ok) await sendInitData();
+            if (!ok || data.restorePresetReferences) await sendInitData();
             break;
         }
 
@@ -3832,29 +3836,29 @@ async function handleFrameMessage(event) {
 
         // 图片管理分批加载：每次只取一页图组（每组最新一张），版本由 LOAD_SLOT_VERSIONS 按需再取。
         case 'LOAD_CHARACTER_PREVIEWS': {
-            const charName = data.charName;
+            const { charName, requestId } = data;
             if (!charName) break;
             const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
             try {
                 const page = await getCharacterSlotsPage(charName, { offset: data.offset, limit: data.limit });
-                if (iframe) postToIframe(iframe, { type: 'CHARACTER_PREVIEWS_LOADED', charName, ...page }, 'LittleWhiteBox-NovelDraw');
+                if (iframe) postToIframe(iframe, { type: 'CHARACTER_PREVIEWS_LOADED', charName, requestId, ...page }, 'LittleWhiteBox-NovelDraw');
             } catch (e) {
                 console.error('[NovelDraw] 加载预览失败:', e);
-                if (iframe) postToIframe(iframe, { type: 'CHARACTER_PREVIEWS_FAILED', charName }, 'LittleWhiteBox-NovelDraw');
+                if (iframe) postToIframe(iframe, { type: 'CHARACTER_PREVIEWS_FAILED', charName, requestId }, 'LittleWhiteBox-NovelDraw');
             }
             break;
         }
 
         case 'LOAD_SLOT_VERSIONS': {
-            const { charName, slotId } = data;
+            const { charName, slotId, requestId } = data;
             if (!charName || !slotId) break;
             const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
             try {
                 const images = await getSlotVersions(charName, slotId);
-                if (iframe) postToIframe(iframe, { type: 'SLOT_VERSIONS_LOADED', charName, slotId, images }, 'LittleWhiteBox-NovelDraw');
+                if (iframe) postToIframe(iframe, { type: 'SLOT_VERSIONS_LOADED', charName, slotId, requestId, images }, 'LittleWhiteBox-NovelDraw');
             } catch (e) {
                 console.error('[NovelDraw] 加载图组版本失败:', e);
-                if (iframe) postToIframe(iframe, { type: 'SLOT_VERSIONS_FAILED', charName, slotId }, 'LittleWhiteBox-NovelDraw');
+                if (iframe) postToIframe(iframe, { type: 'SLOT_VERSIONS_FAILED', charName, slotId, requestId }, 'LittleWhiteBox-NovelDraw');
             }
             break;
         }

@@ -465,6 +465,7 @@ test('floor-wide redraw ignores a second click while the first is still running 
 
 test('a redraw queues behind a running job on the same floor instead of failing as busy', async t => {
     const h = setup(t, floorSource('fr5', ['a', 'b'])); h.hold = true;
+    t.after(() => { h.hold = false; h.finish(); });
     await storeFailedSlots(h, 'fr5', [['a', 'tag a'], ['b', 'tag b']]);
     const [cardA, cardB] = failedCards(h);
     const firstRedraw = api.redrawImageCard('novelai', cardA);
@@ -473,7 +474,9 @@ test('a redraw queues behind a running job on the same floor instead of failing 
     // 同楼层已有任务：以前这里会抛“该楼层已有任务进行中”。
     const second = api.redrawImageCard('novelai', cardB);
     await until(() => h.submissions.length === 2);
-    h.finish(); await tick(); h.finish();
+    h.finish();
+    await until(() => h.requests === 2);
+    h.finish();
     await Promise.all([firstRedraw, second]);
     assert.equal(h.submissions.length, 2);
     assert.equal(h.root.querySelectorAll('.xb-nd-img img').length, 2);
@@ -537,6 +540,7 @@ test('a card the whole-floor redraw skips is released, so its single redraw is n
 
 test('a whole-floor redraw only claims its own failed cards; another card of the floor still queues normally', async t => {
     const h = setup(t, floorSource('fr8', ['a', 'b', 'c'])); h.hold = true;
+    t.after(() => { h.hold = false; h.finish(); });
     await storeFailedSlots(h, 'fr8', [['a', 'tag a'], ['b', 'tag b']]);
     await api.storePreview({ slotId: 'fr8-c', imgId: 'fr8-c-img', messageId: 0, tags: 'tag c', positive: 'tag c', base64: 'YWJj' });
     h.format(); await api.renderPreviewsForMessage(0);
@@ -547,7 +551,9 @@ test('a whole-floor redraw only claims its own failed cards; another card of the
     const other = api.redrawImageCard('novelai', cardC);
     assert.notEqual(other, floor);
     await until(() => h.submissions.length === 2);
-    h.finish(); await tick(); h.finish();
+    h.finish();
+    await until(() => h.requests === 2);
+    h.finish();
     await Promise.all([floor, other]);
     assert.equal(h.submissions.length, 2);
 });
@@ -569,6 +575,7 @@ test('clicking whole-floor redraw twice shows the skipped-cards notice only once
     assert.deepEqual(notices, [['info', '已重新生成 2 张，另有 1 张正在处理中已跳过']]);
     // 操作结束后再点一次是新的操作，会重新给出提示。
     notices.length = 0;
+    h.hold = false;
     await api.retryFloorFailedImageCards('novelai', card);
     assert.equal(notices.length, 1);
 });

@@ -464,6 +464,31 @@ test('backend exposes which retry is running and keeps the failed attempts of ea
     assert.deepEqual(last.attempts.map(item => Boolean(item.errorCode)), [true, true, false]);
 });
 
+test('active backend retry remains a retry in the frontend projection', async t => {
+    const { getDrawRunProgressPhase } = await import('../../../modules/draw/shared/draw-run-ui-state.js');
+    let release;
+    const held = new Promise(resolve => { release = resolve; });
+    let calls = 0;
+    const { manager } = createManager({ runtime: drawRuntime, managerOptions: {
+        agentCore: { createAgentAdapter: () => ({ async chat() {
+            calls += 1;
+            if (calls === 1) throw new Error('fetch failed');
+            await held;
+            return { toolCalls: [{ name: 'submit_scene_plan', arguments: JSON.stringify({ images: [
+                { insert_after: 1, scene: 'rain', characters: [] },
+            ] }) }] };
+        } }) },
+    } });
+    t.after(() => { release(); manager.close(); });
+    const envelope = createEnvelope('active-retry');
+    envelope.planner.retry = { maxRetries: 3, baseDelayMs: 100 };
+    manager.create('alice', envelope, {});
+    await waitFor(() => calls === 2, 5000);
+    const run = manager.get('alice', envelope.runId);
+    assert.deepEqual(run.progress.retry, { current: 1, total: 3 });
+    assert.equal(getDrawRunProgressPhase({ run }), 'retry');
+});
+
 test('backend dispatches a decorated tagged plan once and retains ambiguous-call diagnostics without dispatch', async (t) => {
     const agentCore = require('../draw-runs/vendor/agent-core-node.cjs');
     t.mock.method(console, 'log', () => {});

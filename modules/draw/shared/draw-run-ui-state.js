@@ -27,8 +27,8 @@ export function getDrawRunProgressIcon(detail = {}) {
 export function getDrawRunProgressPhase(detail = {}) {
     const stage = getDrawRunProgressStage(detail);
     if (stage === 'queued') return 'queued';
-    // 后台 Agent 请求失败后的退避重试仍属于规划阶段，用独立文案告诉用户“正在重试”而不是“生成中”。
-    if (stage === 'retry') return 'retry';
+    // 重试包括退避和随后实际执行的规划请求；底层 request / parse 阶段不覆盖轮次信息。
+    if (stage === 'retry' || (ANALYSIS_STAGES.has(stage) && (detail.retry ?? detail.run?.progress?.retry))) return 'retry';
     if (ANALYSIS_STAGES.has(stage)) return 'analysis';
     if (REATTACH_STAGES.has(stage)) return 'reattaching';
     if (stage === 'compiling') return 'preparing';

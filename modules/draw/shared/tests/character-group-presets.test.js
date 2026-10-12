@@ -9,6 +9,8 @@ import {
     MAX_PRESET_NAME_LENGTH,
     addBinding,
     captureGroupStatesFromLibrary,
+    captureGroupPresetReferences,
+    restoreGroupPresetReferences,
     computePresetApplication,
     createPreset,
     deletePreset,
@@ -32,6 +34,22 @@ import {
     setGroupStates,
     shouldApplyPreset,
 } from '../character-group-presets.js';
+
+test('restoring deleted-group references rejects a concurrently edited or deleted preset without mutation', () => {
+    const original = [
+        { id: 'p1', name: 'First', revision: 1, groupStates: { g1: false }, bindings: [] },
+        { id: 'p2', name: 'Second', revision: 2, groupStates: { g1: true }, bindings: [] },
+    ];
+    const snapshot = captureGroupPresetReferences(original, 'g1');
+    for (const current of [
+        [{ ...original[0], groupStates: {} }],
+        [{ ...original[0], groupStates: {} }, { ...original[1], groupStates: {}, revision: 3 }],
+    ]) {
+        const before = structuredClone(current);
+        assert.throws(() => restoreGroupPresetReferences(current, snapshot), TypeError);
+        assert.deepEqual(current, before);
+    }
+});
 
 function counterIds() {
     let n = 0;

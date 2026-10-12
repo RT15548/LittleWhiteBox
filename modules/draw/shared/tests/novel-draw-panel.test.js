@@ -11,6 +11,8 @@ import * as CL from '../character-library.js';
 import * as CD from '../character-library-dialog.js';
 import * as CS from '../character-list-scroll.js';
 import * as GP from '../character-group-presets-ui.js';
+import * as GPM from '../character-group-presets.js';
+import { normalizeSharedDrawSettings } from '../draw-settings.js';
 
 // 页面脚本跑在 vm 的另一个 realm 里，数组原型不同：按 JSON 内容比较。
 const sameJson = (actual, expected, message) => assert.deepStrictEqual(JSON.parse(JSON.stringify(actual)), expected, message);
@@ -27,6 +29,7 @@ const HOOK = `
     setCD: (module) => { CD = module; },
     setCS: (module) => { CS = module; },
     setGP: (module) => { GP = module; },
+    setGPM: (module) => { GPM = module; },
     exportCharacterFile, visibleCharacterIds, switchView,
     getEditingCharId: () => editingCharId,
     setSelectMode: (on) => { charSelectMode = !!on; },
@@ -46,7 +49,11 @@ function loadPanel(t, { characters = [], groups = [], intersection = false } = {
     const errors = [];
     const dialogs = { alerts: [], confirms: [], prompts: [] };
     const answers = { confirm: [], prompt: [] };
-    const host = { postMessage: message => posted.push(message) };
+    const requests = new Map();
+    const host = { postMessage(message) {
+        posted.push(message);
+        if (message.requestId) requests.set(`${message.type}:${message.charName}:${message.slotId || ''}`, message.requestId);
+    } };
     const timers = new Set();
     const win = {
         __messageHandlers: [],
@@ -101,6 +108,7 @@ function loadPanel(t, { characters = [], groups = [], intersection = false } = {
     nd.setCD(CD);
     nd.setCS(CS);
     nd.setGP(GP);
+    nd.setGPM(GPM);
     const state = nd.getState();
     state.characterTags = characters;
     state.characterGroups = groups;
@@ -117,10 +125,13 @@ function loadPanel(t, { characters = [], groups = [], intersection = false } = {
             }));
         },
         send(type, payload = {}) {
+            const requestType = type.startsWith('CHARACTER_PREVIEWS_') ? 'LOAD_CHARACTER_PREVIEWS'
+                : type.startsWith('SLOT_VERSIONS_') ? 'LOAD_SLOT_VERSIONS' : null;
+            const requestId = requests.get(`${requestType}:${payload.charName}:${payload.slotId || ''}`);
             win.__messageHandlers.forEach(handler => handler({
                 origin: 'http://host.test',
                 source: host,
-                data: { source: 'LittleWhiteBox-NovelDraw', type, ...payload },
+                data: { source: 'LittleWhiteBox-NovelDraw', type, requestId, ...payload },
             }));
         },
         $: selector => document.querySelector(selector),
@@ -808,12 +819,12 @@ const GALLERY_SLOTS = () => ({
 const NO_SETTINGS = () => ({ characterTags: [], characterGroups: [] });
 
 // 宿主真实顺序（novel-draw.js sendInitData）：先发不带统计的 INIT_DATA，IndexedDB 算完后再发带真实摘要的 CACHE_DATA。
-function openGallerySection(panel) {
+function openGallerySection(panel, slots = GALLERY_SLOTS()) {
     panel.initData(NO_SETTINGS());
     panel.send('CACHE_DATA', { cacheStats: { count: 2, sizeMB: 1 }, gallerySummary: GALLERY_SUMMARY() });
     panel.click(panel.$('.gallery-char-header'));
     assert.ok(panel.posted.some(message => message.type === 'LOAD_CHARACTER_PREVIEWS' && message.charName === '苍玄界'));
-    panel.send('CHARACTER_PREVIEWS_LOADED', { charName: '苍玄界', slots: GALLERY_SLOTS() });
+    panel.send('CHARACTER_PREVIEWS_LOADED', { charName: '苍玄界', slots });
     assert.equal(panel.$$('.gallery-slot').length, 1, '展开后画出了图片组');
     panel.posted.length = 0;
 }
@@ -859,9 +870,8 @@ test('a CACHE_DATA refresh that changed the character\'s images keeps the group 
 
 test('saving an image: the stats-only CACHE_DATA that follows (smaller totalSize, same count) rebuilds nothing, reloads nothing, and keeps the scroll position', (t) => {
     const panel = loadPanel(t);
-    openGallerySection(panel);
     // 还没保存的两张图（只有 base64）
-    panel.send('CHARACTER_PREVIEWS_LOADED', { charName: '苍玄界', slots: { s1: [{ imgId: 'a', slotId: 's1', timestamp: 5, base64: 'AAAA' }, { imgId: 'b', slotId: 's1', timestamp: 4, base64: 'BBBB' }] } });
+    openGallerySection(panel, { s1: [{ imgId: 'a', slotId: 's1', timestamp: 5, base64: 'AAAA' }, { imgId: 'b', slotId: 's1', timestamp: 4, base64: 'BBBB' }] });
     panel.send('CACHE_DATA', { gallerySummary: GALLERY_SUMMARY({ totalSize: 4 * 1024 * 1024 }) });
     assert.match(panel.$('.gallery-char-stats').textContent, /4\.00 MB/);
 
@@ -876,7 +886,7 @@ test('saving an image: the stats-only CACHE_DATA that follows (smaller totalSize
 
     panel.click(slotNode); // 打开大图，再在大图里保存
     assert.ok(panel.$('#nd_gallery_modal').classList.contains('visible'));
-    assert.match(panel.$('#nd_modal_save').textContent, /保存到服务器/);
+    assert.equal(panel.$('#nd_modal_save').disabled, false);
     const shownSrc = panel.$('#nd_modal_img').getAttribute('src');
     panel.send('GALLERY_IMAGE_SAVED', { imgId: 'a', savedUrl: '/img/a-saved.png' });
     // 宿主随后只发统计：保存把 base64 丢了，体积变小，张数没变
@@ -892,7 +902,7 @@ test('saving an image: the stats-only CACHE_DATA that follows (smaller totalSize
     assert.match(panel.$('.gallery-char-stats').textContent, /2 张 · 1 组 · 1\.00 MB/, '头部统计就地更新');
     assert.ok(panel.$('#nd_gallery_modal').classList.contains('visible'), '大图保持打开');
     assert.equal(panel.nd.getModalData().slotId, 's1', '仍停在当前这张图');
-    assert.match(panel.$('#nd_modal_save').textContent, /已保存/);
+    assert.equal(panel.$('#nd_modal_save').disabled, true);
     assert.equal(panel.$('#nd_modal_img').getAttribute('src'), shownSrc, '大图不因保存而重新加载');
     assert.ok(slotNode.querySelector('.gallery-slot-badge.saved'), '卡片角标就地更新为已保存');
     assert.deepEqual(panel.posted, [], '页面没有再向宿主发任何消息');
@@ -916,6 +926,8 @@ test('gallery modal arrows step between the slots of one character in card order
     assert.match(panel.$('#nd_modal_info').textContent, /^版本 1 \/ 2 · /);
     panel.click(panel.$('#nd_modal_close'));
 
+    panel.send('CACHE_DATA', { gallerySummary: GALLERY_SUMMARY({ count: 5, latestTimestamp: 9000,
+        slots: { s1: { count: 2 }, s2: { count: 1 }, s3: { count: 2 } } }) });
     panel.send('CHARACTER_PREVIEWS_LOADED', { charName: '苍玄界', slots: arrowSlots() });
     // 卡片顺序按每组最新图时间倒序：s2(9000) s1(5000) s3(1000)
     sameJson(panel.$$('.gallery-slot').map(card => card.dataset.slot), ['s2', 's1', 's3']);
@@ -1654,7 +1666,7 @@ test('a successful save receipt carries the normalized presets and the page adop
 // ── 图片管理：分批懒加载 ──────────────────────────────────────────────────
 
 const CHAR = '苍玄界';
-const withoutSource = ({ source, ...message }) => message;
+const withoutSource = ({ source, requestId, ...message }) => message;
 const loadRequests = panel => panel.posted.filter(message => message.type === 'LOAD_CHARACTER_PREVIEWS').map(withoutSource);
 const versionRequests = panel => panel.posted.filter(message => message.type === 'LOAD_SLOT_VERSIONS').map(withoutSource);
 const bigSummary = (count, extra = {}) => ({
@@ -1670,6 +1682,120 @@ const slotsPage = (ids, { offset = 0, total, hasMore = false, versions = {} } = 
 });
 const slotIds = (from, to) => Array.from({ length: to - from + 1 }, (_, i) => `s${from + i}`);
 const cardIds = panel => panel.$$('.gallery-slot').map(card => card.dataset.slot);
+
+test('undoing group deletion persists its preset references without overwriting unrelated preset edits', t => {
+    let stored = normalizeSharedDrawSettings({ characterGroups: [{ id: 'g1', name: 'Main' }],
+        characterGroupPresets: [
+            { id: 'p1', name: 'Preset', revision: 1, groupStates: { g1: false }, bindings: [] },
+            { id: 'p2', name: 'Other', revision: 1, groupStates: {}, bindings: [] },
+        ],
+    });
+    const panel = loadPanel(t);
+    panel.initData(stored);
+    const saveToHost = () => {
+        const message = panel.lastSave();
+        const presets = message.restorePresetReferences
+            ? GPM.restoreGroupPresetReferences(stored.characterGroupPresets, message.restorePresetReferences)
+            : stored.characterGroupPresets;
+        stored = normalizeSharedDrawSettings({ ...stored, characterGroupPresets: presets,
+            characterTags: message.characterTags, characterGroups: message.characterGroups });
+        panel.initData(stored);
+    };
+    panel.nd.handleGroupAction('delete', 'g1', null);
+    saveToHost();
+    assert.deepEqual(stored.characterGroupPresets[0].groupStates, {});
+    stored.characterGroupPresets[0].name = 'Renamed';
+    stored.characterGroupPresets[1].bindings = [{ type: 'character', avatar: 'new.png', name: 'New' }];
+    stored.characterGroupPresets[1].revision += 1;
+    panel.initData(stored);
+    panel.nd.performUndo();
+    saveToHost();
+    assert.equal(stored.characterGroups[0].id, 'g1');
+    assert.deepEqual(stored.characterGroupPresets[0].groupStates, { g1: false });
+    assert.equal(stored.characterGroupPresets[0].name, 'Renamed');
+    assert.equal(stored.characterGroupPresets[0].revision, 2);
+    assert.equal(stored.characterGroupPresets[1].bindings[0].avatar, 'new.png');
+});
+
+test('editing a referenced preset invalidates group-deletion undo', t => {
+    const panel = loadPanel(t);
+    panel.initData(normalizeSharedDrawSettings({ characterGroups: [{ id: 'g1', name: 'Main' }],
+        characterGroupPresets: [{ id: 'p1', name: 'Preset', revision: 1, groupStates: { g1: true }, bindings: [] }],
+    }));
+    panel.nd.handleGroupAction('delete', 'g1', null);
+    panel.state().characterGroupPresets[0].revision += 1;
+    const saves = panel.posted.length;
+    panel.nd.performUndo();
+    assert.equal(panel.posted.length, saves);
+    assert.equal(panel.state().characterGroups.length, 0);
+});
+
+test('deleting a latest version reloads ordered pages so no surviving group is skipped', t => {
+    const panel = loadPanel(t);
+    panel.initData(NO_SETTINGS());
+    panel.send('CACHE_DATA', { gallerySummary: bigSummary(5, {
+        slots: { s1: { count: 1 }, s2: { count: 2 }, s3: { count: 1 }, s4: { count: 1 } },
+    }) });
+    panel.click(panel.$('.gallery-char-header'));
+    panel.send('CHARACTER_PREVIEWS_LOADED', slotsPage(['s1', 's2', 's3'], { total: 4, hasMore: true, versions: { s2: 2 } }));
+    panel.click(panel.$$('.gallery-slot')[1]);
+    panel.send('SLOT_VERSIONS_LOADED', { charName: CHAR, slotId: 's2', images: [
+        { imgId: 's2-a', slotId: 's2', timestamp: 999, savedUrl: '/s2-a.png' },
+        { imgId: 's2-old', slotId: 's2', timestamp: 1, savedUrl: '/s2-old.png' },
+    ] });
+    panel.posted.length = 0;
+    panel.send('GALLERY_IMAGE_DELETED', { imgId: 's2-a' });
+    panel.send('CACHE_DATA', { gallerySummary: bigSummary(4) });
+    const liveOrder = ['s1', 's3', 's4', 's2'];
+    const request = loadRequests(panel).at(-1);
+    assert.equal(request.offset, 0);
+    panel.send('CHARACTER_PREVIEWS_LOADED', slotsPage(liveOrder.slice(0, request.limit), { total: 4, hasMore: request.limit < 4 }));
+    panel.click(panel.$('.gallery-more [data-action="more"]'));
+    const more = loadRequests(panel).at(-1);
+    panel.send('CHARACTER_PREVIEWS_LOADED', slotsPage(liveOrder.slice(more.offset), { offset: more.offset, total: 4 }));
+    sameJson(cardIds(panel), liveOrder);
+});
+
+test('refreshing over 500 loaded groups retains the visible range until every bounded page arrives', t => {
+    const panel = loadPanel(t);
+    expandPaged(panel, 528);
+    for (let offset = 0; offset < 528; offset += 24) {
+        if (offset) panel.click(panel.$('.gallery-more [data-action="more"]'));
+        panel.send('CHARACTER_PREVIEWS_LOADED', slotsPage(slotIds(offset + 1, offset + 24), { offset, total: 528, hasMore: offset + 24 < 528 }));
+    }
+    const oldCard = panel.$('.gallery-slot');
+    panel.send('CACHE_DATA', { gallerySummary: bigSummary(529) });
+    const liveOrder = ['new', ...slotIds(1, 528)];
+    for (let offset = 0; offset < 528; offset += 24) {
+        const request = loadRequests(panel).at(-1);
+        assert.equal(request.offset, offset);
+        assert.equal(request.limit, 24);
+        assert.equal(panel.$('.gallery-slot'), oldCard);
+        panel.send('CHARACTER_PREVIEWS_LOADED', slotsPage(liveOrder.slice(offset, offset + 24), { offset, total: 529, hasMore: true }));
+        assert.equal(cardIds(panel).length, 528);
+    }
+    sameJson(cardIds(panel), liveOrder.slice(0, 528));
+});
+
+test('failed refresh keeps old cards; obsolete success and failure replies cannot settle the retry', t => {
+    const panel = loadPanel(t);
+    expandPaged(panel, 30);
+    panel.send('CHARACTER_PREVIEWS_LOADED', slotsPage(slotIds(1, 24), { total: 30, hasMore: true }));
+    panel.click(panel.$('.gallery-more [data-action="more"]'));
+    const oldRequest = panel.posted.at(-1);
+    panel.send('CACHE_DATA', { gallerySummary: bigSummary(31) });
+    const refresh = panel.posted.at(-1);
+    panel.send('CHARACTER_PREVIEWS_FAILED', { charName: CHAR, requestId: refresh.requestId });
+    sameJson(cardIds(panel), slotIds(1, 24));
+    panel.click(panel.$('.gallery-more [data-action="more"]'));
+    const retry = panel.posted.at(-1);
+    assert.notEqual(retry.requestId, refresh.requestId);
+    panel.send('CHARACTER_PREVIEWS_LOADED', { ...slotsPage(slotIds(25, 30), { offset: 24, total: 30 }), requestId: oldRequest.requestId });
+    panel.send('CHARACTER_PREVIEWS_FAILED', { charName: CHAR, requestId: refresh.requestId });
+    sameJson(cardIds(panel), slotIds(1, 24));
+    panel.send('CHARACTER_PREVIEWS_LOADED', { ...slotsPage(['new', ...slotIds(1, 23)], { total: 31, hasMore: true }), requestId: retry.requestId });
+    sameJson(cardIds(panel), ['new', ...slotIds(1, 23)]);
+});
 
 function expandPaged(panel, count) {
     panel.initData(NO_SETTINGS());
@@ -1776,7 +1902,7 @@ test('stepping the modal to the last loaded slot requests the next batch, and th
     assert.equal(panel.$('#nd_modal_next').disabled, true, '真正的最后一个');
 });
 
-test('a changed gallery signature reloads in one request up to the loaded count, keeping the old cards until the new data arrives', (t) => {
+test('a changed gallery reloads the loaded range in bounded pages and replaces cards only when complete', (t) => {
     const panel = loadPanel(t, { intersection: true });
     expandPaged(panel, 30);
     panel.send('CHARACTER_PREVIEWS_LOADED', slotsPage(slotIds(1, 24), { total: 30, hasMore: true }));
@@ -1787,17 +1913,20 @@ test('a changed gallery signature reloads in one request up to the loaded count,
     panel.posted.length = 0;
 
     panel.send('CACHE_DATA', { cacheStats: { count: 31, sizeMB: 1 }, gallerySummary: bigSummary(31, { latestTimestamp: 2000 }) });
-    sameJson(loadRequests(panel), [{ type: 'LOAD_CHARACTER_PREVIEWS', charName: CHAR, offset: 0, limit: 30 }]);
+    sameJson(loadRequests(panel), [{ type: 'LOAD_CHARACTER_PREVIEWS', charName: CHAR, offset: 0, limit: 24 }]);
     assert.equal(panel.$('.gallery-loading'), null, '不显示占位');
     assert.equal(panel.$$('.gallery-slot').length, 30);
     assert.equal(panel.$('.gallery-slot'), oldCards[0], '新数据到达前旧节点保留');
     assert.equal(panel.$('.gallery-char-section').classList.contains('collapsed'), false);
 
-    panel.send('CHARACTER_PREVIEWS_LOADED', { ...slotsPage(['new', ...slotIds(1, 29)], { total: 31 }), limit: 30 });
+    panel.send('CHARACTER_PREVIEWS_LOADED', slotsPage(['new', ...slotIds(1, 23)], { total: 31, hasMore: true }));
+    assert.equal(panel.$('.gallery-slot'), oldCards[0]);
+    sameJson(loadRequests(panel).at(-1), { type: 'LOAD_CHARACTER_PREVIEWS', charName: CHAR, offset: 24, limit: 6 });
+    panel.send('CHARACTER_PREVIEWS_LOADED', { ...slotsPage(slotIds(24, 29), { offset: 24, total: 31, hasMore: true }), limit: 6 });
     assert.equal(panel.$$('.gallery-slot').length, 30);
     assert.equal(panel.$('.gallery-slot').dataset.slot, 'new');
     assert.notEqual(panel.$('.gallery-slot'), oldCards[0]);
-    assert.equal(loadRequests(panel).length, 1);
+    assert.equal(loadRequests(panel).length, 2);
 });
 
 test('deleting a whole slot from the modal removes its card locally, and the matching CACHE_DATA does not trigger a reload', (t) => {
@@ -1818,18 +1947,15 @@ test('deleting a whole slot from the modal removes its card locally, and the mat
     assert.equal(panel.$$('.gallery-slot').length, 1);
 });
 
-test('host source: LOAD_CHARACTER_PREVIEWS passes offset / limit to the paged reader and LOAD_SLOT_VERSIONS reads one slot', () => {
-    const source = fs.readFileSync(new URL('../../providers/novelai/novel-draw.js', import.meta.url), 'utf8');
-    const caseBody = (name) => {
-        const start = source.indexOf(`case '${name}'`);
-        assert.ok(start >= 0, name);
-        return source.slice(start, source.indexOf("\n        case '", start + 1));
-    };
-    const previews = caseBody('LOAD_CHARACTER_PREVIEWS');
-    assert.match(previews, /getCharacterSlotsPage\(charName, \{ offset: data\.offset, limit: data\.limit \}\)/);
-    assert.match(previews, /type: 'CHARACTER_PREVIEWS_LOADED', charName, \.\.\.page/);
-    const versions = caseBody('LOAD_SLOT_VERSIONS');
-    assert.match(versions, /getSlotVersions\(charName, slotId\)/);
-    assert.match(versions, /type: 'SLOT_VERSIONS_LOADED'/);
-    assert.doesNotMatch(source, /getCharacterPreviews\(/, '宿主不再整角色一次性读取');
+test('a version reply from before deletion cannot resurrect the deleted image', t => {
+    const panel = loadPanel(t);
+    expandPaged(panel, 1);
+    panel.send('CHARACTER_PREVIEWS_LOADED', slotsPage(['s1'], { versions: { s1: 2 } }));
+    panel.click(panel.$('.gallery-slot'));
+    const request = panel.posted.at(-1);
+    panel.send('GALLERY_IMAGE_DELETED', { imgId: 's1-a' });
+    panel.send('SLOT_VERSIONS_LOADED', { charName: CHAR, slotId: 's1', requestId: request.requestId,
+        images: [{ imgId: 's1-a' }, { imgId: 's1-old' }] });
+    assert.equal(panel.$('#nd_gallery_modal').classList.contains('visible'), false);
+    assert.equal(panel.nd.getModalData().images.length, 0);
 });
