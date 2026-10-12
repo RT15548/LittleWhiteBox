@@ -81,7 +81,8 @@ test('scene plan contract normalizes aliases, known character fields, placement,
     assert.equal(parsed.tasks.length, 2);
     assert.deepEqual(parsed.tasks.map((task) => task.index), [1, 2]);
     assert.equal(parsed.tasks[0].chars[0].name, '阿璃');
-    assert.equal(parsed.tasks[0].chars[0].type, '');
+    // 已录入角色也保留场景 type（方位等随图变化信息），由组装层决定打头/回落库 type
+    assert.equal(parsed.tasks[0].chars[0].type, 'girl');
     assert.equal(parsed.tasks[0].chars[0].appear, '');
     assert.equal(parsed.tasks[0].chars[0].interact, 'mutual#hug');
     assert.equal(parsed.tasks[0].chars[1].interact, 'source#hug, target#comfort');

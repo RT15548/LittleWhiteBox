@@ -56,11 +56,13 @@ export function getScenePlanCharacterProperties(profile) {
             '角色名。已录入角色用【已录入角色】列出的规范名，原文用别名也归一到规范名。未知角色用原文名字，无名时用简短称呼。',
             { minLength: 1 },
         ),
-        danbooru: stringSchema(
-            '该角色的 Danbooru 身份 tag，下划线格式：同人角色 `character_name_(series)`，原创角色 `中文名_(original)`。仅在确定时提交；已录入角色省略。',
-        ),
+        // type 在 danbooru 之前：与 assembleCharacterPrompts 的拼接顺序一致
+        // （type → danbooru → appear → costume → action），也让模型按"先说清是谁、在哪，再给身份 tag"的顺序写。
         type: stringSchema(
             `Character category: ${CHARACTER_TYPES.join(' / ')}. Use \`no_humans\` for non-humanoid subjects such as animals or monsters. Fill this for every unregistered character; omit for registered characters, whose category comes from the character library.`,
+        ),
+        danbooru: stringSchema(
+            '该角色的 Danbooru 身份 tag，下划线格式：同人角色 `character_name_(series)`，原创角色 `中文名_(original)`。仅在确定时提交；已录入角色省略。',
         ),
         appear: stringSchema(
             'Stable appearance visible in this composition, such as hair, eyes or build. Every unregistered character needs a non-empty appearance description. Omit for registered characters, whose appearance comes from the character library.',
@@ -78,17 +80,46 @@ export function getScenePlanCharacterProperties(profile) {
     };
 }
 
+/**
+ * Apply user-configured description overrides onto a freshly built parameters tree.
+ * Paths use the same naming as listScenePlanFieldDescriptions' flattening
+ * (`images`, `images[].scene`, `images[].characters[].name`, ...); `tool` targets the
+ * function-level description. Empty/whitespace overrides are ignored.
+ */
+function applyFieldDescriptionOverrides(tool, descriptions) {
+    const walk = (schema, path) => {
+        if (!schema || typeof schema !== 'object') return;
+        const override = descriptions[path];
+        if (typeof schema.description === 'string' && typeof override === 'string' && override.trim()) {
+            schema.description = override;
+        }
+        if (schema.type === 'object' && schema.properties) {
+            for (const [key, child] of Object.entries(schema.properties)) {
+                walk(child, path ? `${path}.${key}` : key);
+            }
+        } else if (schema.type === 'array' && schema.items) {
+            walk(schema.items, `${path}[]`);
+        }
+    };
+    walk(tool.function?.parameters, '');
+    const toolDescription = descriptions.tool;
+    if (typeof toolDescription === 'string' && toolDescription.trim()) {
+        tool.function.description = toolDescription;
+    }
+}
+
 export function createSubmitScenePlanTool(options = {}) {
     const maxImages = normalizeLimit(options.maxImages);
     const maxPlanImages = normalizeLimit(options.maxPlanImages);
     const maxCharactersPerImage = normalizeLimit(options.maxCharactersPerImage);
     const insertPointCount = normalizeLimit(options.insertPointCount);
     const profile = normalizeScenePlannerProfile(options.profile);
+    const descriptions = options.descriptions && typeof options.descriptions === 'object' ? options.descriptions : {};
     const maxPlanItems = maxImages || maxPlanImages;
     const charactersSchema = {
         type: 'array',
         ...(maxCharactersPerImage ? { maxItems: maxCharactersPerImage } : {}),
-        description: '画面中出现的角色，按重要度排序。纯风景、物件、建筑主体时为空数组。每项的字段按 danbooru → type → appear → costume → action → interact 的顺序拼成该角色的提示词。',
+        description: '画面中出现的角色，按重要度排序。纯风景、物件、建筑主体时为空数组。每项的字段按 type → danbooru → appear → costume → action → interact 的顺序拼成该角色的提示词。',
         items: {
             type: 'object',
             additionalProperties: false,
@@ -118,11 +149,18 @@ export function createSubmitScenePlanTool(options = {}) {
                     { minLength: 1 },
                 ),
                 characters: charactersSchema,
+                // 追加位（可选）：拼在所有角色之后、整条正向提示词的最末尾。
+                // 只有 profile.postPrompt === 'append' 的 provider 才暴露，避免教会模型一个编译器会丢的字段。
+                ...(profile.postPrompt === 'append' ? {
+                    post_prompt: stringSchema(
+                        '本字段留空不写',
+                    ),
+                } : {}),
             },
         },
     };
 
-    return {
+    const tool = {
         type: 'function',
         function: {
             name: SUBMIT_SCENE_PLAN_TOOL_NAME,
@@ -137,4 +175,6 @@ export function createSubmitScenePlanTool(options = {}) {
             },
         },
     };
+    applyFieldDescriptionOverrides(tool, descriptions);
+    return tool;
 }

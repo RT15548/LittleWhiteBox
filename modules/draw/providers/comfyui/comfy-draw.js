@@ -314,12 +314,14 @@ function getPromptPresetDefaults(name) {
             topSystem: DEFAULT_PROMPT_CONFIG.topSystemPov || DEFAULT_PROMPT_CONFIG.topSystem,
             tagGuideContent: guide,
             sceneRules: DEFAULT_PROMPT_CONFIG.sceneRules,
+            fieldDescriptions: '',
         };
     }
     return {
         topSystem: DEFAULT_PROMPT_CONFIG.topSystem,
         tagGuideContent: guide,
         sceneRules: DEFAULT_PROMPT_CONFIG.sceneRules,
+        fieldDescriptions: '',
     };
 }
 
@@ -437,6 +439,10 @@ function normalizeSettings(raw = {}) {
                 ? preset.tagGuideContent
                 : defaults.tagGuideContent,
             sceneRules: typeof preset.sceneRules === 'string' ? preset.sceneRules : defaults.sceneRules,
+            // submit_scene_plan 字段描述覆写（JSON 字符串）；空串 = 全部用内置文案
+            fieldDescriptions: typeof preset.fieldDescriptions === 'string'
+                ? preset.fieldDescriptions
+                : defaults.fieldDescriptions,
         };
     });
 
@@ -450,6 +456,7 @@ function normalizeSettings(raw = {}) {
         topSystem: activePromptPreset.topSystem,
         tagGuideContent: activePromptPreset.tagGuideContent,
         sceneRules: activePromptPreset.sceneRules,
+        fieldDescriptions: activePromptPreset.fieldDescriptions,
     };
 
     return merged;
@@ -1872,6 +1879,7 @@ function bindOverlayEvents() {
                     topSystem: active.topSystem,
                     tagGuideContent: active.tagGuideContent,
                     sceneRules: active.sceneRules,
+                    fieldDescriptions: active.fieldDescriptions,
                 };
             }
         }, '提示词预设已切换', { notify: false, silent: false }));
@@ -1891,6 +1899,7 @@ function bindOverlayEvents() {
                 topSystem: preset.topSystem,
                 tagGuideContent: preset.tagGuideContent,
                 sceneRules: preset.sceneRules,
+                fieldDescriptions: preset.fieldDescriptions,
             };
         }, '已创建提示词预设', { notify: false, silent: false }));
         if (ok) fillForm(getSettings());
@@ -1923,6 +1932,7 @@ function bindOverlayEvents() {
                     topSystem: active.topSystem,
                     tagGuideContent: active.tagGuideContent,
                     sceneRules: active.sceneRules,
+                    fieldDescriptions: active.fieldDescriptions,
                 };
             }
         }, '提示词预设已删除', { notify: false, silent: false }));
@@ -1939,6 +1949,7 @@ function bindOverlayEvents() {
                 topSystem: nextPreset.topSystem,
                 tagGuideContent: nextPreset.tagGuideContent,
                 sceneRules: nextPreset.sceneRules,
+                fieldDescriptions: nextPreset.fieldDescriptions,
             };
         }, '提示词预设已保存', { notify: false, silent: false }), {
             statusElementId: 'comfy-prompt-preset-status',
@@ -1959,6 +1970,7 @@ function bindOverlayEvents() {
                 topSystem: nextPreset.topSystem,
                 tagGuideContent: nextPreset.tagGuideContent,
                 sceneRules: nextPreset.sceneRules,
+                fieldDescriptions: nextPreset.fieldDescriptions,
             };
         }, '提示词预设已保存', { notify: false, silent: false }), {
             statusElementId: 'comfy-prompts-status',
@@ -1989,6 +2001,9 @@ function bindOverlayEvents() {
         setValue('comfy-prompt-system', defaults.topSystem);
         setValue('comfy-prompt-guide', defaults.tagGuideContent);
         setValue('comfy-prompt-format', defaults.sceneRules);
+        // 字段描述没有独立的表单控件：已存覆写与当前草稿全部打成空串墓碑，保存时一并剔除
+        const savedFieldDescriptions = parseFieldDescriptionOverride(getActivePromptPreset(getSettings())?.fieldDescriptions);
+        [...Object.keys(savedFieldDescriptions), ...promptFieldDraft.keys()].forEach((path) => promptFieldDraft.set(path, ''));
         renderPromptChainPreview();
     });
     querySettings('#comfy-prompt-preset-export')?.addEventListener('click', () => {
@@ -2000,6 +2015,7 @@ function bindOverlayEvents() {
             topSystem: getValue('comfy-prompt-system'),
             tagGuideContent: getValue('comfy-prompt-guide'),
             sceneRules: getValue('comfy-prompt-format'),
+            fieldDescriptions: serializeFieldDescriptions(preset),
         };
         const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
@@ -2030,6 +2046,8 @@ function bindOverlayEvents() {
                 topSystem: payload.topSystem,
                 tagGuideContent: payload.tagGuideContent,
                 sceneRules: payload.sceneRules,
+                // 老导出文件没有这一项，落到空覆写（全部用内置文案）
+                fieldDescriptions: typeof payload.fieldDescriptions === 'string' ? payload.fieldDescriptions : '',
             };
             const ok = await withSaveTimeout(updateSettingsPersistent((settings) => {
                 settings.promptPresets = [...settings.promptPresets, preset];
@@ -2279,6 +2297,8 @@ function applyPromptPresetToForm(settings = getSettings()) {
     setValue('comfy-prompt-system', promptPreset.topSystem || '');
     setValue('comfy-prompt-guide', promptPreset.tagGuideContent || '');
     setValue('comfy-prompt-format', promptPreset.sceneRules || '');
+    // 切换预设 / 保存回填时丢弃未保存的字段描述草稿
+    promptFieldDraft.clear();
     renderPromptChainPreview(settings);
 }
 
@@ -2288,7 +2308,29 @@ function readPromptPresetFromForm(basePreset = getActivePromptPreset(getSettings
         topSystem: getValue('comfy-prompt-system'),
         tagGuideContent: getValue('comfy-prompt-guide'),
         sceneRules: getValue('comfy-prompt-format'),
+        fieldDescriptions: serializeFieldDescriptions(basePreset),
     };
+}
+
+/** 预设里存的是 JSON 字符串；坏 JSON / 非对象一律回落空覆写（全部用内置文案）。 */
+function parseFieldDescriptionOverride(value) {
+    if (typeof value !== 'string' || !value.trim()) return {};
+    try {
+        const parsed = JSON.parse(value);
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+        return {};
+    }
+}
+
+/** 已存覆写与当前草稿合并成 JSON 字符串；空串/空白项剔除（= 恢复内置文案）。 */
+function serializeFieldDescriptions(basePreset = getActivePromptPreset(getSettings())) {
+    const merged = { ...parseFieldDescriptionOverride(basePreset?.fieldDescriptions), ...Object.fromEntries(promptFieldDraft) };
+    const out = {};
+    for (const [key, text] of Object.entries(merged)) {
+        if (typeof text === 'string' && text.trim()) out[key] = text;
+    }
+    return Object.keys(out).length ? JSON.stringify(out) : '';
 }
 
 function updateConnectionModeUI(
@@ -3556,6 +3598,9 @@ function ensureAgentSettingsSurface() {
     return agentSettingsSurface;
 }
 
+// submit_scene_plan 字段描述的未保存草稿（路径 → 文案）；保存时与预设里已存的覆写合并。
+const promptFieldDraft = new Map();
+
 function renderPromptChainPreview(settings = getSettings()) {
     const container = getSettingsElement('comfy-prompt-chain');
     if (!container || !container.closest('details')?.open) return;
@@ -3566,11 +3611,22 @@ function renderPromptChainPreview(settings = getSettings()) {
         sceneRules: 'comfy-prompt-format',
     };
     const guideInput = getSettingsElement(editableMap.tagGuide);
+    const savedOverrides = parseFieldDescriptionOverride(getActivePromptPreset(settings)?.fieldDescriptions);
+    const descriptions = { ...savedOverrides, ...Object.fromEntries(promptFieldDraft) };
     const chain = getPromptChainPreview({
         tagGuideContent: guideInput ? guideInput.value : (getActivePromptPreset(settings)?.tagGuideContent || ''),
-    });
+    }, descriptions);
     renderScenePlannerChain(container, chain, {
         getEditable: (key) => getSettingsElement(editableMap[key]),
+        onFieldEdit: (path, value) => {
+            // 只更新草稿，不触发预览重渲染——重渲染会销毁正在输入的文本框。
+            // 空串是墓碑：保存时该路径被剔除（= 恢复内置文案）。
+            promptFieldDraft.set(path, value);
+        },
+        onFieldReset: (path) => {
+            promptFieldDraft.set(path, '');
+            renderPromptChainPreview();
+        },
     });
 }
 
@@ -3958,6 +4014,8 @@ export async function generateImagesFromText(options = {}) {
                 positive: promptData.positive,
                 characterPrompts: promptData.characterPrompts,
                 negativePrompt: promptData.negative,
+                // 整图正向提示词追加位随图落盘，画廊编辑重生成时才能重建
+                postPrompt: task.post_prompt || '',
             });
             await setSlotSelection(slotId, imgId);
             successCount++;
@@ -4068,7 +4126,7 @@ function syncContainerToPreview(container, preview, historyCount = 1, currentInd
     void warmSlotPreviewNeighbors(container.dataset.slotId, currentIndex).catch(() => {});
 }
 
-function buildEditedPromptData(sceneTags, characterPrompts = [], params = getEffectiveParams(getSettings())) {
+function buildEditedPromptData(sceneTags, characterPrompts = [], params = getEffectiveParams(getSettings()), postPrompt = '') {
     const charPositive = (Array.isArray(characterPrompts) ? characterPrompts : [])
         .map(item => item?.prompt)
         .filter(Boolean)
@@ -4078,7 +4136,8 @@ function buildEditedPromptData(sceneTags, characterPrompts = [], params = getEff
         .filter(Boolean)
         .join(', ');
     return {
-        positive: joinTags(params.positivePrefix || '', sceneTags, charPositive),
+        // 追加位拼在所有角色之后，与 compileComfyPromptForTask 的顺序保持一致
+        positive: joinTags(params.positivePrefix || '', sceneTags, charPositive, postPrompt),
         negative: joinTags(params.negativePrefix || '', charNegative),
     };
 }
@@ -4306,6 +4365,11 @@ async function toggleEditPanel(container, show) {
             });
         }
 
+        // 追加位：与角色框一致，记录里实际存了 post_prompt 才渲染；为空的图不出框
+        if (preview?.postPrompt) {
+            appendEditGroup(scrollWrap, { label: '追加 (post_prompt)', value: preview.postPrompt, type: 'post_prompt' });
+        }
+
         editPanel.style.display = 'block';
 
         if (btnsPanel) {
@@ -4335,8 +4399,9 @@ async function toggleEditPanel(container, show) {
 
 async function saveEditedTags(container) {
     try {
-        await persistCardTagEdits(container, (tags, characters, record) => {
-            const data = buildEditedPromptData(tags, characters);
+        await persistCardTagEdits(container, (tags, characters, record, postPrompt) => {
+            // 追加位优先用编辑框的值；面板没有该字段时回落记录里存的
+            const data = buildEditedPromptData(tags, characters, undefined, postPrompt ?? record?.postPrompt ?? '');
             return { positive: data.positive, negativePrompt: data.negative ?? record?.negativePrompt ?? '' };
         });
         toggleEditPanel(container, false);
