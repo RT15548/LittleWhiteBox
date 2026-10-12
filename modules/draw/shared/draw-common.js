@@ -585,7 +585,7 @@ export function buildFailedPlaceholderHtml({ slotId, imgId = '', messageId, tags
 <div class="xb-nd-failed-desc">${escapeHtml(errorMessage || '点击重试')}</div>
 <div class="xb-nd-failed-btns">
     <button class="xb-nd-retry-btn" data-action="retry-image">⟳ 重新生成</button>
-    <button class="xb-nd-retry-btn" data-action="retry-floor-failed" title="重新生成本楼层所有失败或结果未知的图片，已成功的不受影响">⟳ 重画本楼失败项</button>
+    <button class="xb-nd-retry-btn" data-action="retry-floor-failed" title="重新生成本楼层所有失败或结果未知的图片，已成功的不受影响">⟳ 重生本楼失败项</button>
     <button class="xb-nd-edit-btn" data-action="edit-tags">✐ 编辑TAG</button>
     ${historyCount > 0 ? `<button class="xb-nd-edit-btn" data-action="restore-image">${DRAW_SLOT_COPY.restoreImage}</button>` : ''}
     <button class="xb-nd-remove-btn" data-action="remove-placeholder">✕ 移除</button>
