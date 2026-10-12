@@ -1,4 +1,6 @@
 import { describeMemoryFile, findMemoryFileByPath } from '../memory/memory-files.js';
+import { ACTIVITY_COPY as C } from './activity-copy.js';
+import { updateChromeIcon } from './chrome-icons.js';
 
 function appendSvgPath(svg, d) {
     const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
@@ -115,12 +117,11 @@ export function renderContextHint(root, state) {
     });
 }
 
-function resolveWorkspaceWidth(mainBody, requestedWidth) {
+export function resolveWorkspaceWidth(mainBody, requestedWidth) {
     const numericWidth = Number(requestedWidth);
     const desiredWidth = Number.isFinite(numericWidth) ? Math.round(numericWidth) : 520;
     const minWorkspaceWidth = 360;
     const minConversationWidth = 120;
-    const layoutGap = 16;
 
     if (!mainBody) {
         return Math.max(minWorkspaceWidth, Math.min(960, desiredWidth));
@@ -128,7 +129,7 @@ function resolveWorkspaceWidth(mainBody, requestedWidth) {
 
     const maxWorkspaceWidth = Math.max(
         minWorkspaceWidth,
-        Math.round(mainBody.clientWidth - minConversationWidth - layoutGap),
+        Math.round(mainBody.clientWidth - minConversationWidth),
     );
     return Math.max(minWorkspaceWidth, Math.min(maxWorkspaceWidth, desiredWidth));
 }
@@ -138,8 +139,6 @@ export function renderAppChrome(root, state, options = {}) {
 
     const {
         maxImageAttachments = 3,
-        maxContextTokens = 258000,
-        buildContextMeterLabel = () => '',
         getWorkspaceSummary = () => ({ fileCount: 0, modifiedFileCount: 0 }),
         renderAttachmentGallery = () => {},
         renderWorkspace = () => {},
@@ -188,7 +187,6 @@ export function renderAppChrome(root, state, options = {}) {
 
     const clearButton = root.querySelector('#xb-assistant-clear');
     clearButton.disabled = state.isBusy || !state.messages.length;
-    clearButton.textContent = window.matchMedia('(max-width: 900px)').matches ? '清空' : '清空对话';
 
     const workspaceButton = root.querySelector('#xb-assistant-open-workspace');
     if (workspaceButton) {
@@ -232,18 +230,6 @@ export function renderAppChrome(root, state, options = {}) {
     const pullButton = root.querySelector('#xb-assistant-pull-models');
     pullButton.disabled = state.isBusy;
 
-    const status = root.querySelector('#xb-assistant-status');
-    status.textContent = state.progressLabel || '就绪';
-    status.classList.toggle('busy', state.isBusy);
-
-    const contextMeter = root.querySelector('#xb-assistant-context-meter');
-    contextMeter.textContent = buildContextMeterLabel();
-    contextMeter.classList.toggle('summary-active', !!state.contextStats.summaryActive);
-    const contextBudgetLabel = `${Math.round(maxContextTokens / 1000)}k`;
-    contextMeter.title = state.contextStats.summaryActive
-        ? `当前实际送模上下文 / ${contextBudgetLabel}（已压缩较早历史）`
-        : `当前实际送模上下文 / ${contextBudgetLabel}`;
-
     const toast = root.querySelector('#xb-assistant-toast');
     toast.textContent = state.toast || '';
     toast.classList.toggle('visible', !!state.toast);
@@ -253,40 +239,22 @@ export function renderAppChrome(root, state, options = {}) {
     const sidebarToggle = root.querySelector('#xb-assistant-sidebar-toggle');
     const sidebarContent = root.querySelector('.xb-assistant-sidebar-content');
     const mobileSettingsButton = root.querySelector('#xb-assistant-mobile-settings');
-    const mobileCloseButton = root.querySelector('#xb-assistant-mobile-close');
     const mobileBackdrop = root.querySelector('#xb-assistant-mobile-backdrop');
     const isMobile = window.matchMedia('(max-width: 900px)').matches;
     shell?.classList.toggle('sidebar-collapsed', !!state.sidebarCollapsed);
     sidebar?.classList.toggle('is-collapsed', !!state.sidebarCollapsed);
     sidebarContent?.toggleAttribute('hidden', !!state.sidebarCollapsed);
     mobileBackdrop?.toggleAttribute('hidden', !isMobile || !!state.sidebarCollapsed);
-    mobileSettingsButton?.toggleAttribute('hidden', !isMobile);
-    mobileCloseButton?.toggleAttribute('hidden', !isMobile);
     if (sidebarToggle) {
         sidebarToggle.setAttribute('aria-expanded', state.sidebarCollapsed ? 'false' : 'true');
-        sidebarToggle.setAttribute('aria-label', state.sidebarCollapsed ? '展开 API 配置' : '收起 API 配置');
-        sidebarToggle.title = state.sidebarCollapsed ? '展开 API 配置' : '收起 API 配置';
-        const text = sidebarToggle.querySelector('.xb-assistant-sidebar-toggle-text');
-        const icon = sidebarToggle.querySelector('.xb-assistant-sidebar-toggle-icon');
-        if (text) {
-            text.textContent = isMobile
-                ? (state.sidebarCollapsed ? '展开设置' : '收起设置')
-                : '';
-        }
-        if (icon) {
-            icon.textContent = isMobile
-                ? (state.sidebarCollapsed ? '▼' : '▲')
-                : (state.sidebarCollapsed ? '⚙' : '‹');
-        }
+        sidebarToggle.setAttribute('aria-label', C.settingsToggle(state.sidebarCollapsed));
+        sidebarToggle.title = C.settingsToggle(state.sidebarCollapsed);
+        updateChromeIcon(sidebarToggle, state.sidebarCollapsed ? 'settings' : 'collapse');
     }
     if (mobileSettingsButton) {
-        mobileSettingsButton.textContent = state.sidebarCollapsed ? '设置' : '关闭设置';
         mobileSettingsButton.setAttribute('aria-expanded', state.sidebarCollapsed ? 'false' : 'true');
-        mobileSettingsButton.title = state.sidebarCollapsed ? '展开 API 配置' : '收起 API 配置';
-    }
-    if (mobileCloseButton) {
-        mobileCloseButton.textContent = '关闭';
-        mobileCloseButton.title = '关闭小白助手';
+        mobileSettingsButton.title = C.settingsToggle(state.sidebarCollapsed);
+        mobileSettingsButton.setAttribute('aria-label', C.settingsToggle(state.sidebarCollapsed));
     }
 
     const draftGallery = root.querySelector('#xb-assistant-draft-gallery');

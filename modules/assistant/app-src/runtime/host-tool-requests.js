@@ -144,6 +144,7 @@ export function createHostToolRequestController(deps) {
             }
 
             postHostToolCall(requestId, name, args, workspaceMeta);
+            options.onDispatched?.();
         });
     }
 
