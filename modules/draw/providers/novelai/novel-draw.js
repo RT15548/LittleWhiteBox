@@ -1962,7 +1962,7 @@ function setImageState(container, state) {
     if (dropdown) {
         const saveItem = dropdown.querySelector('[data-action="save-image"]');
         if (state === ImageState.PREVIEW && !saveItem) {
-            dropdown.insertAdjacentHTML('afterbegin', `<button data-action="save-image" title="保存到服务器">💾</button>`);
+            dropdown.insertAdjacentHTML('afterbegin', `<button data-action="save-image" title="保存到服务器">⬇</button>`);
         } else if (state !== ImageState.PREVIEW && saveItem) {
             saveItem.remove();
         }
