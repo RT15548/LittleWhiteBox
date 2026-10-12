@@ -3629,7 +3629,8 @@ async function handleFrameMessage(event) {
                 if (Array.isArray(data.characterTags)) settings.characterTags = data.characterTags;
                 if (Array.isArray(data.characterGroups)) settings.characterGroups = data.characterGroups;
             }, '角色标签已保存');
-            if (!ok || data.restorePresetReferences) await sendInitData();
+            // 页面已按同一规则恢复预设引用。成功只发保存状态，不用旧快照覆盖后续编辑。
+            if (!ok) await sendInitData();
             break;
         }
 

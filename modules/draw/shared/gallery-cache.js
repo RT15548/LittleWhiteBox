@@ -1189,23 +1189,18 @@ function getCharacterSlotOrder(charName) {
 }
 
 function readRecordsByKeys(keys) {
-    return openDB().then((database) => new Promise((resolve) => {
+    return openDB().then((database) => new Promise((resolve, reject) => {
         const results = new Array(keys.length).fill(null);
         if (!keys.length) { resolve(results); return; }
-        try {
-            const tx = database.transaction(DB_STORE, 'readonly');
-            const store = tx.objectStore(DB_STORE);
-            keys.forEach((key, index) => {
-                try {
-                    const request = store.get(key);
-                    request.onsuccess = () => { results[index] = request.result || null; };
-                    request.onerror = (event) => { event.preventDefault?.(); };
-                } catch {}
-            });
-            tx.oncomplete = tx.onabort = tx.onerror = () => resolve(results);
-        } catch {
-            resolve(results);
-        }
+        const tx = database.transaction(DB_STORE, 'readonly');
+        const store = tx.objectStore(DB_STORE);
+        tx.oncomplete = () => resolve(results);
+        tx.onabort = tx.onerror = () => reject(tx.error || new Error(DRAW_SLOT_COPY.storageReadFailed));
+        keys.forEach((key, index) => {
+            const request = store.get(key);
+            request.onsuccess = () => { results[index] = request.result || null; };
+            request.onerror = () => reject(request.error);
+        });
     }));
 }
 

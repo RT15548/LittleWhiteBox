@@ -26,6 +26,7 @@ export const DRAW_SLOT_COPY = Object.freeze({
     emptyResult: '绘图结果为空',
     storageFailed: '图片尚未保存成功，请勿刷新页面。',
     storageWriteFailed: '图库写入未完成。',
+    storageReadFailed: '图库读取未完成。',
     renderFailed: '图位已保存，但界面刷新失败。',
     imageReadFailed: '图片记录读取失败，未重新绘图。',
     imageLoadFailed: '图片加载失败，未重新绘图。',

@@ -1683,6 +1683,88 @@ const slotsPage = (ids, { offset = 0, total, hasMore = false, versions = {} } = 
 const slotIds = (from, to) => Array.from({ length: to - from + 1 }, (_, i) => `s${from + i}`);
 const cardIds = panel => panel.$$('.gallery-slot').map(card => card.dataset.slot);
 
+// 执行真实宿主消息处理器；只替换 iframe 和持久化边界，以控制保存完成的时序。
+function librarySaveHost(panel, initial) {
+    let stored = initial;
+    const pending = [];
+    const source = fs.readFileSync(new URL('../../providers/novelai/novel-draw.js', import.meta.url), 'utf8');
+    const handler = source.match(/^async function handleFrameMessage\(event\) \{[\s\S]*?^\}/m)[0];
+    const context = vm.createContext({
+        document: { getElementById: () => ({}) },
+        isTrustedMessage: () => true,
+        console: { log() {} },
+        restoreGroupPresetReferences: GPM.restoreGroupPresetReferences,
+        updateSharedSettingsPersistent: mutator => new Promise(resolve => pending.push(ok => {
+            if (ok) {
+                const next = structuredClone(stored);
+                mutator(next);
+                stored = normalizeSharedDrawSettings(next);
+            }
+            panel.send('STATUS', { state: ok ? 'success' : 'error' });
+            resolve(ok);
+        })),
+        sendInitData: async () => panel.initData(structuredClone(stored)),
+    });
+    vm.runInContext(handler, context);
+    return {
+        save: () => context.handleFrameMessage({ data: structuredClone(panel.lastSave()) }),
+        complete: (ok = true) => pending.shift()(ok),
+        stored: () => stored,
+    };
+}
+
+test('late undo completion cannot overwrite a subsequent group toggle or persist it back on the next edit', async t => {
+    const initial = normalizeSharedDrawSettings({ characterGroups: GROUPS,
+        characterGroupPresets: [{ id: 'p1', name: 'Preset', revision: 1, groupStates: { g1: false }, bindings: [] }],
+    });
+    const panel = loadPanel(t);
+    panel.initData(initial);
+    const host = librarySaveHost(panel, initial);
+    panel.nd.handleGroupAction('delete', 'g1', null);
+    const deletion = host.save();
+    host.complete();
+    await deletion;
+    panel.nd.performUndo();
+    const undo = host.save();
+    panel.nd.handleGroupAction('toggle-enabled', 'g2', null);
+    const toggle = host.save();
+    host.complete();
+    await undo;
+    assert.equal(panel.state().characterGroups.find(group => group.id === 'g2').enabled, false);
+    host.complete();
+    await toggle;
+    panel.answers.prompt.push('New name');
+    panel.nd.handleGroupAction('rename', 'g1', null);
+    const rename = host.save();
+    host.complete();
+    await rename;
+    assert.equal(host.stored().characterGroups.find(group => group.id === 'g2').enabled, false);
+    assert.equal(host.stored().characterGroups.find(group => group.id === 'g1').name, 'New name');
+    assert.deepEqual(host.stored().characterGroupPresets[0].groupStates, { g1: false });
+    sameJson(panel.state().characterGroupPresets, host.stored().characterGroupPresets);
+});
+
+test('a failed undo still rolls the optimistic group and preset references back together', async t => {
+    const initial = normalizeSharedDrawSettings({ characterGroups: GROUPS,
+        characterGroupPresets: [{ id: 'p1', name: 'Preset', revision: 1, groupStates: { g1: true }, bindings: [] }],
+    });
+    const panel = loadPanel(t);
+    panel.initData(initial);
+    const host = librarySaveHost(panel, initial);
+    panel.nd.handleGroupAction('delete', 'g1', null);
+    const deletion = host.save();
+    host.complete();
+    await deletion;
+    panel.nd.performUndo();
+    const undo = host.save();
+    host.complete(false);
+    await undo;
+    sameJson(panel.state().characterGroups, host.stored().characterGroups);
+    sameJson(panel.state().characterGroupPresets, host.stored().characterGroupPresets);
+    assert.equal(panel.state().characterGroups.some(group => group.id === 'g1'), false);
+    assert.deepEqual(host.stored().characterGroupPresets[0].groupStates, {});
+});
+
 test('undoing group deletion persists its preset references without overwriting unrelated preset edits', t => {
     let stored = normalizeSharedDrawSettings({ characterGroups: [{ id: 'g1', name: 'Main' }],
         characterGroupPresets: [
@@ -1754,6 +1836,105 @@ test('deleting a latest version reloads ordered pages so no surviving group is s
     const more = loadRequests(panel).at(-1);
     panel.send('CHARACTER_PREVIEWS_LOADED', slotsPage(liveOrder.slice(more.offset), { offset: more.offset, total: 4 }));
     sameJson(cardIds(panel), liveOrder);
+});
+
+test('a reordered slot outside the refreshed prefix moves the modal to a navigable neighbour, including refresh failure and retry', t => {
+    const panel = loadPanel(t);
+    expandPaged(panel, 61);
+    panel.send('CHARACTER_PREVIEWS_LOADED', slotsPage(slotIds(1, 24), { total: 60, hasMore: true, versions: { s2: 2 } }));
+    panel.click(panel.$$('.gallery-slot')[1]);
+    panel.send('SLOT_VERSIONS_LOADED', { charName: CHAR, slotId: 's2', images: [
+        { imgId: 's2-a', slotId: 's2', timestamp: 999, savedUrl: '/s2-a.png' },
+        { imgId: 's2-old', slotId: 's2', timestamp: 1, savedUrl: '/s2-old.png' },
+    ] });
+    panel.send('GALLERY_IMAGE_DELETED', { imgId: 's2-a' });
+    panel.send('CACHE_DATA', { gallerySummary: bigSummary(60) });
+    const reload = panel.posted.filter(message => message.type === 'LOAD_CHARACTER_PREVIEWS').at(-1);
+    panel.send('CHARACTER_PREVIEWS_FAILED', { charName: CHAR });
+    assert.equal(panel.nd.getModalData().images[0].imgId, 's2-old');
+    assert.equal(panel.$('#nd_modal_load_status').dataset.state, 'error');
+    panel.click(panel.$('#nd_modal_load_status [data-retry="page"]'));
+    const retry = panel.posted.filter(message => message.type === 'LOAD_CHARACTER_PREVIEWS').at(-1);
+    assert.notEqual(retry.requestId, reload.requestId);
+    assert.equal(retry.limit, 24);
+    panel.send('CHARACTER_PREVIEWS_LOADED', { ...slotsPage(slotIds(1, 24), { total: 60, hasMore: true }), requestId: reload.requestId });
+    assert.equal(panel.nd.getModalData().slotId, 's2');
+    panel.send('CHARACTER_PREVIEWS_LOADED', { ...slotsPage(['s1', ...slotIds(3, 25)], { total: 60, hasMore: true }), requestId: retry.requestId });
+    assert.equal(panel.nd.getModalData().slotId, 's3');
+    assert.equal(panel.$('#nd_modal_img').getAttribute('data-img-id'), 's3-a');
+    assert.equal(panel.$('#nd_modal_prev').disabled, false);
+    assert.equal(panel.$('#nd_modal_next').disabled, false);
+    assert.equal(panel.$('#nd_modal_load_status').hidden, true);
+    assert.equal(cardIds(panel).length, 24);
+    assert.equal(panel.posted.filter(message => message.type === 'LOAD_CHARACTER_PREVIEWS').at(-1), retry, 'no full-library scan');
+    panel.click(panel.$('#nd_modal_next'));
+    assert.equal(panel.nd.getModalData().slotId, 's4');
+    panel.click(panel.$('#nd_modal_prev'));
+    assert.equal(panel.nd.getModalData().slotId, 's3');
+});
+
+test('refreshing an open slot adopts its current image and closes the modal if the gallery disappears', t => {
+    const panel = loadPanel(t);
+    expandPaged(panel, 2);
+    panel.send('CHARACTER_PREVIEWS_LOADED', slotsPage(['s1', 's2']));
+    panel.click(panel.$('.gallery-slot'));
+    panel.send('CACHE_DATA', { gallerySummary: bigSummary(2, { latestTimestamp: 2000 }) });
+    const fresh = slotsPage(['s1', 's2']);
+    fresh.slots.s1[0].imgId = 's1-new';
+    panel.send('CHARACTER_PREVIEWS_LOADED', fresh);
+    assert.equal(panel.$('#nd_modal_img').getAttribute('data-img-id'), 's1-new');
+    panel.send('CACHE_DATA', { gallerySummary: {} });
+    assert.equal(panel.$('#nd_gallery_modal').classList.contains('visible'), false);
+    assert.equal(panel.nd.getModalData().slotId, null);
+});
+
+for (const failure of ['reply', 'timeout', 'empty']) {
+    test(`version loading ${failure} exposes retry without losing the current image; stale replies cannot settle the retry`, t => {
+        t.mock.timers.enable({ apis: ['setTimeout'] });
+        const panel = loadPanel(t);
+        expandPaged(panel, 3);
+        panel.send('CHARACTER_PREVIEWS_LOADED', slotsPage(['s1', 's2'], { versions: { s1: 3 } }));
+        panel.click(panel.$('.gallery-slot'));
+        const initial = panel.posted.filter(message => message.type === 'LOAD_SLOT_VERSIONS').at(-1);
+        assert.equal(panel.$('#nd_modal_load_status').dataset.state, 'loading');
+        if (failure === 'timeout') t.mock.timers.tick(15000);
+        else panel.send(failure === 'empty' ? 'SLOT_VERSIONS_LOADED' : 'SLOT_VERSIONS_FAILED', { charName: CHAR, slotId: 's1', images: [] });
+        assert.equal(panel.$('#nd_modal_load_status').hidden, false);
+        assert.equal(panel.$('#nd_modal_load_status').dataset.state, 'error');
+        assert.equal(panel.$('#nd_modal_img').getAttribute('data-img-id'), 's1-a');
+        panel.click(panel.$('#nd_modal_load_status [data-retry="versions"]'));
+        const retry = panel.posted.filter(message => message.type === 'LOAD_SLOT_VERSIONS').at(-1);
+        assert.notEqual(retry.requestId, initial.requestId);
+        const obsolete = { charName: CHAR, slotId: 's1', requestId: initial.requestId };
+        panel.send('SLOT_VERSIONS_FAILED', obsolete);
+        panel.send('SLOT_VERSIONS_LOADED', { ...obsolete, images: [{ imgId: 'obsolete' }] });
+        assert.equal(panel.$('#nd_modal_load_status').dataset.state, 'loading');
+        panel.send('SLOT_VERSIONS_LOADED', { charName: CHAR, slotId: 's1', requestId: retry.requestId,
+            images: ['a', 'b', 'c'].map(suffix => ({ imgId: `s1-${suffix}`, timestamp: 100, savedUrl: `/s1-${suffix}.png` })),
+        });
+        assert.equal(panel.$('#nd_modal_load_status').hidden, true);
+        assert.equal(panel.$$('#nd_modal_thumbs img').length, 3);
+        panel.click(panel.$$('#nd_modal_thumbs img')[2]);
+        assert.equal(panel.$('#nd_modal_img').getAttribute('data-img-id'), 's1-c');
+        t.mock.timers.tick(15000);
+        assert.equal(panel.$('#nd_modal_load_status').hidden, true);
+    });
+}
+
+test('a version failure for the previous slot cannot change the current modal status', t => {
+    const panel = loadPanel(t);
+    expandPaged(panel, 4);
+    panel.send('CHARACTER_PREVIEWS_LOADED', slotsPage(['s1', 's2'], { versions: { s1: 2, s2: 2 } }));
+    panel.click(panel.$('.gallery-slot'));
+    panel.click(panel.$('#nd_modal_next'));
+    panel.send('SLOT_VERSIONS_FAILED', { charName: CHAR, slotId: 's1' });
+    assert.equal(panel.$('#nd_modal_load_status').dataset.state, 'loading');
+    assert.equal(panel.nd.getModalData().slotId, 's2');
+    panel.send('SLOT_VERSIONS_LOADED', { charName: CHAR, slotId: 's2', images: [
+        { imgId: 's2-a', timestamp: 100, savedUrl: '/a.png' },
+        { imgId: 's2-b', timestamp: 99, savedUrl: '/b.png' },
+    ] });
+    assert.equal(panel.$('#nd_modal_load_status').hidden, true);
 });
 
 test('refreshing over 500 loaded groups retains the visible range until every bounded page arrives', t => {

@@ -624,6 +624,29 @@ test('a slot whose latest record is missing or broken is skipped without failing
     assert.deepEqual([page.hasMore, page.nextOffset], [false, 3], '跳过的图组仍计入已消耗的位置');
 });
 
+for (const failure of ['abort', 'throw']) {
+    test(`slot page ${failure} rejects rather than consuming offsets as an empty successful page; retry recovers`, async t => {
+        const who = `PagedReadFailure-${failure}`;
+        const slotId = `read-failure-${failure}`;
+        await seedGalleryImage(who, slotId, `${slotId}-a`, { timestamp: 100 });
+        assert.deepEqual((await api.getCharacterSlotsPage(who)).order, [slotId]);
+        const originalGet = IDBObjectStore.prototype.get;
+        const injected = new Error('injected read failure');
+        const mock = t.mock.method(IDBObjectStore.prototype, 'get', function (key) {
+            if (this.name !== 'previews') return originalGet.call(this, key);
+            if (failure === 'throw') throw injected;
+            const request = originalGet.call(this, key);
+            this.transaction.abort();
+            return request;
+        });
+        await assert.rejects(api.getCharacterSlotsPage(who), error => failure === 'abort' ? error.name === 'AbortError' : error === injected);
+        mock.mock.restore();
+        const retry = await api.getCharacterSlotsPage(who);
+        assert.deepEqual(retry.order, [slotId]);
+        assert.equal(retry.slots[slotId][0].imgId, `${slotId}-a`);
+    });
+}
+
 test('slot versions load on demand: every displayable version, newest first, saved ones with savedUrl only', async () => {
     const who = 'PagedChar-C';
     await seedGalleryImage(who, 'v1', 'v1-a', { timestamp: 100 });

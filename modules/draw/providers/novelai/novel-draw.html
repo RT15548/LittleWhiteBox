@@ -476,6 +476,8 @@ body.char-dragging, body.char-dragging * { cursor: grabbing !important; user-sel
 .gallery-modal-thumb.saved { border-color: var(--success); }
 .gallery-modal-actions { display: flex; gap: 12px; }
 .gallery-modal-info { font-size: 12px; color: rgba(255,255,255,0.6); text-align: center; }
+.gallery-modal-load-status { color: #fff; font-size: 13px; text-align: center; }
+.gallery-modal-load-status .btn { margin-left: 8px; color: #fff; background: rgba(255,255,255,0.15); }
 .mobile-nav {
     display: none; position: fixed; bottom: 0; left: 0; right: 0;
     height: 60px; background: var(--bg-secondary); border-top: 1px solid var(--border); z-index: 100;
@@ -1480,6 +1482,7 @@ body.char-dragging, body.char-dragging * { cursor: grabbing !important; user-sel
                 <button class="gallery-modal-nav next" id="nd_modal_next" type="button" aria-label="下一张" disabled>›</button>
             </div>
             <div class="gallery-modal-thumbs" id="nd_modal_thumbs"></div>
+            <div class="gallery-modal-load-status" id="nd_modal_load_status" role="status" aria-live="polite" hidden></div>
             <div class="gallery-modal-actions">
                 <button class="btn btn-primary" id="nd_modal_use"><i class="fa-solid fa-check"></i> 使用此图</button>
                 <button class="btn" id="nd_modal_save"><i class="fa-solid fa-floppy-disk"></i> 保存到服务器</button>
@@ -1583,6 +1586,12 @@ let loadedCharPreviews = {};
 // 图片管理分批加载：每批图组数、请求丢失的判定时间；每个角色同一时间只有一个在途的页请求。
 const GALLERY_PAGE_SIZE = 24;
 const GALLERY_REQUEST_TIMEOUT_MS = 15000;
+const GALLERY_LOAD_COPY = Object.freeze({
+    versionsLoading: '正在加载其他版本…',
+    versionsFailed: '其他版本加载失败',
+    pageFailed: '图组加载失败',
+    retry: '重试',
+});
 const galleryPageRequests = new Map(); // charName -> { requestId, offset, limit, reload, timer }
 let galleryRequestSeq = 0;
 const galleryVersionRequests = new Map(); // `${charName}\n${slotId}` -> { requestId, timer }
@@ -3496,6 +3505,7 @@ function applyGallerySummary(next) {
         // 仍存在的角色保留旧画面，分批收齐先前已加载的范围后再替换。
         if (!gallerySummary[charName]) {
             delete loadedCharPreviews[charName];
+            if (modalData.charName === charName) closeGalleryModal();
             disconnectGallerySentinel(charName);
             dropped = true;
         }
@@ -3858,6 +3868,7 @@ function requestCharacterSlots(charName, { offset, limit, reload = null }) {
     if (entry) entry.loadError = false;
     postToParent({ type: 'LOAD_CHARACTER_PREVIEWS', charName, offset, limit, requestId: request.requestId });
     updateGallerySentinel(charName);
+    renderModalLoadStatus();
     return true;
 }
 
@@ -3870,6 +3881,7 @@ function failCharacterRequest(charName, requestId) {
     if (entry) {
         entry.loadError = true;
         syncGallerySentinel(charName);
+        renderModalLoadStatus();
         return;
     }
     const container = getGallerySlotsContainer(charName);
@@ -3939,6 +3951,7 @@ function handleCharacterPreviewsLoaded(data) {
     const gallery = $('nd_gallery_container');
     const scroller = gallery ? findScrollParent(gallery) : null;
     const keepTop = scroller ? scroller.scrollTop : 0;
+    const previousModalPosition = galleryModalPosition();
 
     if (offset > 0 && !request.reload) {
         if (offset > existing.nextOffset) { // 中间缺了一段，不能拼接
@@ -3964,8 +3977,22 @@ function handleCharacterPreviewsLoaded(data) {
     }
     if (scroller && scroller.scrollTop !== keepTop) scroller.scrollTop = keepTop;
 
-    // 大图正开着：刷新左右箭头与“图组 x / y”；重新加载后该组只剩最新一张，版本再要一次。
+    // 重排后当前组可能已移出加载范围：停在原位置的有效组，不为定位旧组读取整库。
     if (modalData.charName === charName) {
+        const entry = loadedCharPreviews[charName];
+        const info = entry.slots[modalData.slotId];
+        if (!info) {
+            const slotId = entry.order[Math.min(previousModalPosition?.index ?? 0, entry.order.length - 1)];
+            if (slotId) openGalleryModalFromCache(charName, slotId);
+            else closeGalleryModal();
+            return;
+        }
+        if (request.reload || offset === 0) {
+            const currentId = modalData.images[modalData.currentIndex]?.imgId;
+            modalData.images = info.images;
+            modalData.currentIndex = Math.max(0, info.images.findIndex(img => img.imgId === currentId));
+            renderModalThumbs();
+        }
         renderModalContent();
         requestSlotVersions(charName, modalData.slotId);
     }
@@ -3979,9 +4006,11 @@ function requestSlotVersions(charName, slotId) {
     const key = `${charName}\n${slotId}`;
     if (galleryVersionRequests.has(key)) return false;
     const requestId = ++galleryRequestSeq;
-    const timer = setTimeout(() => settleSlotVersionsRequest(charName, slotId, requestId), GALLERY_REQUEST_TIMEOUT_MS);
+    const timer = setTimeout(() => failSlotVersionsRequest(charName, slotId, requestId), GALLERY_REQUEST_TIMEOUT_MS);
+    info.versionsError = false;
     galleryVersionRequests.set(key, { requestId, timer });
     postToParent({ type: 'LOAD_SLOT_VERSIONS', charName, slotId, requestId });
+    renderModalLoadStatus();
     return true;
 }
 
@@ -3999,12 +4028,18 @@ function handleSlotVersionsLoaded(data) {
     if (!settleSlotVersionsRequest(charName, slotId, data.requestId)) return;
     const info = loadedCharPreviews[charName]?.slots[slotId];
     const incoming = (Array.isArray(data.images) ? data.images : []).filter(img => img && img.imgId);
-    if (!info || !incoming.length) return;
+    if (!info) return;
+    if (!incoming.length) {
+        info.versionsError = true;
+        renderModalLoadStatus();
+        return;
+    }
     const known = new Map(info.images.map(img => [img.imgId, img]));
     info.images = incoming.map(img => known.get(img.imgId) || img);
     info.count = info.images.length;
     info.hasSaved = info.images.some(img => img.savedUrl);
     info.versionsLoaded = true;
+    info.versionsError = false;
     refreshSlotBadges(charName, slotId);
     if (modalData.charName === charName && modalData.slotId === slotId) {
         const currentId = modalData.images[modalData.currentIndex]?.imgId;
@@ -4014,6 +4049,30 @@ function handleSlotVersionsLoaded(data) {
         renderModalThumbs();
         renderModalContent();
     }
+}
+
+function failSlotVersionsRequest(charName, slotId, requestId) {
+    if (!settleSlotVersionsRequest(charName, slotId, requestId)) return;
+    const info = loadedCharPreviews[charName]?.slots[slotId];
+    if (info) info.versionsError = true;
+    renderModalLoadStatus();
+}
+
+function renderModalLoadStatus() {
+    const status = $('nd_modal_load_status');
+    const { charName, slotId } = modalData;
+    const entry = loadedCharPreviews[charName];
+    const info = entry?.slots[slotId];
+    const position = galleryModalPosition();
+    const pageFailed = entry?.loadError && (entry.stale || position?.index === position?.loaded - 1);
+    const versionsLoading = galleryVersionRequests.has(`${charName}\n${slotId}`);
+    const retry = pageFailed ? 'page' : info?.versionsError ? 'versions' : '';
+    const message = pageFailed ? GALLERY_LOAD_COPY.pageFailed : info?.versionsError ? GALLERY_LOAD_COPY.versionsFailed
+        : versionsLoading ? GALLERY_LOAD_COPY.versionsLoading : '';
+    status.hidden = !message;
+    status.dataset.state = retry ? 'error' : versionsLoading ? 'loading' : 'idle';
+    status.innerHTML = escapeHtml(message) + (retry
+        ? ` <button class="btn btn-sm" type="button" data-retry="${retry}">${GALLERY_LOAD_COPY.retry}</button>` : '');
 }
 
 // ── 大图 ──────────────────────────────────────────────────────────────────
@@ -4092,6 +4151,7 @@ function stepGallerySlot(delta) {
 }
 
 function renderModalContent() {
+    renderModalLoadStatus();
     const { images, currentIndex } = modalData;
     if (!images.length) return;
     const current = images[currentIndex];
@@ -4672,7 +4732,7 @@ window.addEventListener('message', event => {
             break;
 
         case 'SLOT_VERSIONS_FAILED':
-            settleSlotVersionsRequest(data.charName, data.slotId, data.requestId);
+            failSlotVersionsRequest(data.charName, data.slotId, data.requestId);
             break;
             
         case 'TEST_RESULT':
@@ -5159,6 +5219,11 @@ document.addEventListener('DOMContentLoaded', () => {
     // 画廊弹窗
     // ═══════════════════════════════════════════════════════════════════════
     $('nd_modal_close').addEventListener('click', closeGalleryModal);
+    $('nd_modal_load_status').addEventListener('click', event => {
+        const retry = event.target.closest?.('[data-retry]')?.dataset.retry;
+        if (retry === 'versions') requestSlotVersions(modalData.charName, modalData.slotId);
+        if (retry === 'page') retryCharacterSlots(modalData.charName);
+    });
 
     $('nd_modal_prev').addEventListener('click', () => stepGallerySlot(-1));
     $('nd_modal_next').addEventListener('click', () => stepGallerySlot(1));
