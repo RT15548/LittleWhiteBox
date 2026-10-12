@@ -5,7 +5,11 @@ import { useAppBack, useAppLayer } from '../../../shell/app-src/navigation/app-n
 import { createExpeditionClient } from './client.js';
 import { createCampaignPlayback } from './presentation/playback.js';
 import { useDialogueWindow } from './presentation/dialogue-window.js';
-import { CAMPAIGN_RULES, loadoutIssue } from './campaign/rules.js';
+import { campaignLoadout, loadoutIssue } from './campaign/rules.js';
+import RelicReward from './presentation/RelicReward.vue';
+import { campaignWorldInteractions, canRebuildLoadout } from './campaign/interactions.js';
+import { relicReady } from './relics.js';
+import { COMBAT_COPY } from './content/combat-copy.js';
 import { CAMPAIGN_COPY as c, FACT_COPY, campaignObjective } from './content/campaign-copy.js';
 import { WORLD_COPY as w } from './content/world-copy.js';
 import { COURTYARD } from './content/courtyard.js';
@@ -59,7 +63,22 @@ const facts = computed<ReadonlySet<CourtyardFact>>(previous => {
     const ids = run.value?.facts ?? [];
     return previous && previous.size === ids.length && ids.every(id => previous.has(id)) ? previous : new Set(ids);
 });
-const world = computed(() => run.value ? { definition: COURTYARD[run.value.location.scene], location: run.value.location, facts: facts.value, people: run.value.people } : null);
+const worldObjects = computed<ReadonlySet<string>>(previous => {
+    const ids = run.value ? campaignWorldInteractions(run.value).filter(i => i.kind === 'object').map(i => i.target.id) : [];
+    return previous && previous.size === ids.length && ids.every(id => previous.has(id)) ? previous : new Set(ids);
+});
+const world = computed(() => run.value ? { definition: COURTYARD[run.value.location.scene], location: run.value.location, facts: facts.value,
+    people: run.value.people, objects: worldObjects.value, completedSegments: run.value.completedSegments, engagement: run.value.engagement?.id } : null);
+const signal = computed(() => {
+    const battle = run.value?.battle;
+    if (run.value?.engagement?.id !== 'beacon' || !battle) { return ''; }
+    switch (battle.script.signal) {
+        case 'approach': return COMBAT_COPY.signalApproach;
+        case 'lighting': return COMBAT_COPY.signalCountdown(Math.ceil((battle.objective.target - battle.objective.progress) / RULES.hz));
+        case 'lit': return COMBAT_COPY.signalLit;
+        default: return '';
+    }
+});
 const sceneArtStyle = computed(() => {
     const art = run.value && SCENE_ART[run.value.location.scene];
     return art ? { '--scene-art': `url("${art}")` } : undefined;
@@ -84,6 +103,15 @@ const rested = ref(false);
 let restTimer: ReturnType<typeof setTimeout> | undefined;
 function clearRestFeedback() { clearTimeout(restTimer); restTimer = undefined; rested.value = false; }
 const rewardNotice = ref(0);
+const combatNotice = ref('');
+let combatNoticeTimer: ReturnType<typeof setTimeout> | undefined;
+function combatFeedback(text: string) {
+    clearTimeout(combatNoticeTimer); combatNotice.value = text;
+    combatNoticeTimer = setTimeout(() => { combatNotice.value = ''; }, 4000);
+}
+watch(() => [run.value?.id, run.value ? Object.keys(run.value.rewards).length : 0] as const, (next, previous) => {
+    if (next[0] && next[0] === previous[0] && next[1] > previous[1]) { combatFeedback(COMBAT_COPY.cacheReady); }
+});
 const earnedAwards = computed(() => CHAPTER_AWARDS.flatMap(spec => {
     const receipt = view.value?.data.awards.find(a => a.key === spec.key && a.runId === run.value?.id);
     return receipt ? [{ fact: spec.fact, amount: receipt.amount }] : [];
@@ -95,11 +123,12 @@ const { messages, hasOlder, hasNewer, expanded, pendingVisible, rememberReading,
 });
 const loadoutOptions = computed(() => run.value?.collection.map(relic => {
     const equipped = run.value!.equipped.includes(relic.id) ? run.value!.equipped.filter(id => id !== relic.id) : [...run.value!.equipped, relic.id];
-    return { ...relic, equipped, issue: loadoutIssue(run.value!, equipped) };
+    return { ...relic, equipped, issue: loadoutIssue(run.value!, equipped), dormant: run.value!.equipped.includes(relic.id) && !relicReady(campaignLoadout(run.value!), relic.id) };
 }) ?? []);
 const audio = createExpeditionSound(() => { client.error.value = COPY.presentationError.sound; sound.value = false; });
 let mounted = false;
 function close() {
+    if (!panel.value && run.value?.phase === 'reward') { void act({ type: 'leave' }); return; }
     if (panel.value || run.value && ['exploration', 'battle'].includes(run.value.phase)) { void resume(); }
 }
 async function resolveParley() {
@@ -113,6 +142,7 @@ useAppLayer(dialog, close);
 useAppBack(() => {
     if (!entered.value) { return entry.value?.back() ?? false; }
     if (panel.value) { close(); return true; }
+    if (run.value?.phase === 'reward') { close(); return true; }
     if (!paused.value) { pause(); return true; }
     return false;
 });
@@ -152,6 +182,7 @@ async function act(command: Command) {
         ok = await client.act(command);
         if (ok) {
             playback.sync();
+            if (command.type === 'relic') { combatFeedback(COMBAT_COPY.received(RELIC_COPY[command.id].name, !!run.value?.equipped.includes(command.id))); }
             if (!panel.value && !paused.value) { await nextTick(); field.value?.focus(); }
         }
         return ok;
@@ -234,7 +265,7 @@ watch(() => [person.value, history.value] as const, ([recipient, next], [priorRe
 onMounted(async () => { await client.read(); mounted = true; });
 onActivated(() => { if (mounted && !dirty.value) { void client.read(); } });
 onDeactivated(() => { freshReply.value = null; clearRestFeedback(); pause(); });
-onBeforeUnmount(() => { clearRestFeedback(); playback.dispose(); client.dispose(); audio.dispose(); });
+onBeforeUnmount(() => { clearTimeout(combatNoticeTimer); clearRestFeedback(); playback.dispose(); client.dispose(); audio.dispose(); });
 </script>
 
 <template>
@@ -251,23 +282,23 @@ onBeforeUnmount(() => { clearRestFeedback(); playback.dispose(); client.dispose(
                     <p class="ember-objective">{{ campaignObjective(run) }}</p>
                 </template>
             </template>
+            <template #threat>
+                <div v-if="entered && boss && !panel" class="ember-boss">
+                    <strong>{{ ENEMY_NAMES[boss.kind] }}</strong><meter min="0" :max="boss.maxHp" :value="boss.hp" :aria-label="ENEMY_NAMES[boss.kind]" />
+                </div>
+                <div v-if="entered && signal && !panel" class="ember-alarm" role="status">{{ signal }}</div>
+            </template>
             <template #overlay><span /></template>
         </ExplorationField>
         <aside v-if="entered && transition && !notice && !renderingError && !panel && !paused" class="ember-transition" role="status">{{ w.transition(w.scenes[transition]) }}</aside>
         <p v-if="entered && rested && !panel && !paused && !notice" class="ember-rest-notice" role="status">{{ w.rested }}</p>
+        <p v-else-if="entered && combatNotice && run?.phase === 'exploration' && !panel && !paused && !notice" class="ember-rest-notice" role="status">{{ combatNotice }}</p>
         <nav v-if="entered && run && !run.pendingParley && !endingPerson" class="ember-tools" :aria-label="c.prepare">
             <button type="button" :disabled="performing || !!transition" :aria-label="c.map" @click="open('map')"><ExpeditionIcon name="map" /><span>{{ c.map }}</span></button>
             <button type="button" :disabled="performing || !!transition" :aria-label="c.build" @click="open('build')"><ExpeditionIcon name="bag" /><span>{{ c.build }}</span></button>
             <button type="button" :disabled="performing || !!transition" :aria-label="c.journal" @click="open('journal')"><ExpeditionIcon name="journal" /><span>{{ c.journal }}</span></button>
             <button type="button" :aria-label="c.pause" @click="menu"><ExpeditionIcon name="pause" /><span>{{ c.pause }}</span></button>
         </nav>
-        <div v-if="entered && boss && !panel" class="ember-boss">
-            <strong>{{ ENEMY_NAMES[boss.kind] }}</strong><meter min="0" :max="boss.maxHp" :value="boss.hp" :aria-label="ENEMY_NAMES[boss.kind]" />
-        </div>
-        <div v-if="entered && run?.phase === 'battle' && ['gate', 'beacon'].includes(run.location.scene) && !facts.has('alarm_silenced')" class="ember-alarm">
-            {{ facts.has('alarm_raised') ? c.alarmRaised : c.alarmSeconds(Math.ceil((CAMPAIGN_RULES.alarmTicks - run.alarmTicks) / RULES.hz)) }}
-        </div>
-
         <section v-if="notice || renderingError || generationActive" ref="noticePanel" class="ember-notice" role="alertdialog" aria-modal="true" :aria-label="c.noticeTitle" tabindex="-1">
             <p class="ember-error-detail">{{ renderingError ? c.renderError : generationActive ? c.generation : notice }}</p>
             <button v-if="renderingError" type="button" @click="renderingError = false; epoch++">{{ c.reload }}</button>
@@ -307,12 +338,13 @@ onBeforeUnmount(() => { clearRestFeedback(); playback.dispose(); client.dispose(
                         <div class="ember-pack-heading"><strong>{{ run.traveler.name }}</strong><span>{{ j.genders[run.traveler.gender] }}<template v-if="run.traveler.appearanceAge"> · {{ TRAVELER_AGES[run.traveler.appearanceAge] }}</template> · {{ j.identityRole }}</span></div>
                         <small>{{ c.slots(run.equipped.length, RULES.relicSlots) }}</small>
                         <p>{{ WEAPON_COPY[run.weapon].name }} · {{ skillDetail(run.weapon) }}</p>
-                        <p v-if="!COURTYARD[run.location.scene].safe">{{ c.safeBuild }}</p>
+                        <p v-if="!canRebuildLoadout(run)">{{ COMBAT_COPY.restBuild }}</p>
                         <p v-if="!run.collection.length">{{ c.emptyBuild }}</p>
                         <div class="ember-relics">
                             <article v-for="relic in loadoutOptions" :key="relic.id">
                                 <ExpeditionIcon :name="relic.id" /><h3>{{ RELIC_COPY[relic.id].name }} <small>{{ COPY.rank(relic.rank) }}</small></h3><p>{{ RELIC_COPY[relic.id].detail }}</p>
-                                <small v-if="relic.issue === 'dependency' || relic.issue === 'capacity'">{{ c.loadoutIssue[relic.issue] }}</small>
+                                <small v-if="relic.issue === 'capacity'">{{ c.loadoutIssue.capacity }}</small>
+                                <small v-if="relic.dormant">{{ COMBAT_COPY.dormantRelic }}</small>
                                 <button type="button" :disabled="blocked || !!relic.issue" @click="act({ type: 'loadout', equipped: relic.equipped })">{{ run.equipped.includes(relic.id) ? c.takeOff : c.putOn }}</button>
                             </article>
                         </div>
@@ -360,9 +392,7 @@ onBeforeUnmount(() => { clearRestFeedback(); playback.dispose(); client.dispose(
                 <template v-else-if="panel === 'arrival'"><img class="ember-story-art" :src="STORY_ART.arrival" alt="" decoding="async"><p class="ember-prose">{{ c.received }}</p><button class="ember-primary" type="button" @click="resume">{{ c.resume }}</button></template>
                 <template v-else-if="panel === 'ending'"><img class="ember-story-art" :src="STORY_ART.ending" alt="" decoding="async"><h2>{{ c.endingTitle }}</h2><p class="ember-prose">{{ c.ending }}</p><p>{{ c.freeTime }}</p><p v-if="chapterProgress(run).optionalRoots">{{ c.optionalRoots }}</p><strong v-if="earnedAmount">{{ c.journeyReward(earnedAmount) }}</strong><small>{{ c.continued }}</small><button class="ember-primary" type="button" @click="resume">{{ c.remain }}</button></template>
                 <template v-else-if="run.phase === 'reward'">
-                    <p>{{ c.rewardDetail }}</p>
-                    <div class="ember-relics"><button v-for="offer in run.offers" :key="offer.id" type="button" :disabled="blocked" @click="act({ type: 'relic', id: offer.id })"><ExpeditionIcon :name="offer.id" /><h3>{{ RELIC_COPY[offer.id].name }} <small>{{ COPY.rank(offer.rank) }}</small></h3><p>{{ RELIC_COPY[offer.id].detail }}</p></button></div>
-                    <button type="button" :disabled="blocked" @click="act({ type: 'leave' })">{{ c.skip }}</button>
+                    <RelicReward :campaign="run" :blocked="blocked" @choose="(id, replace) => act({ type: 'relic', id, ...(replace ? { replace } : {}) })" @leave="act({ type: 'leave' })" />
                 </template>
                 <template v-else-if="run.phase === 'lost'"><p class="ember-prose">{{ c.fallenDetail }}</p><button class="ember-primary" type="button" :disabled="blocked" @click="act({ type: 'retry' })">{{ c.retry }}</button><button type="button" :disabled="blocked" @click="act({ type: 'retreat' })">{{ c.retreat }}</button></template>
                 <template v-else>

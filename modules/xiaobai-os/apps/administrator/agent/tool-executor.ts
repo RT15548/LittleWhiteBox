@@ -24,6 +24,7 @@ const STORY_EVIDENCE_RECOVERY = {
 export interface AdministratorConfirmation { messageIndex: number; result: ManagementResult & { receipt: AdministratorOperation } }
 export async function createAdministratorToolExecutor(options: {
     registry: ManagementRegistry; reader: Reader; operations: AdministratorOperation[];
+    loadedApps?: readonly string[];
     webConfig?: Record<string, unknown>; signal?: AbortSignal;
     readEnvironment: AdministratorEnvironmentReader;
     guard(): boolean; onChange(): void; saveReceipts(confirmation?: AdministratorConfirmation): Promise<void>;
@@ -60,7 +61,7 @@ export async function createAdministratorToolExecutor(options: {
     const web = createAdministratorWebTools(options.webConfig, options.signal);
     const common = [...ADMINISTRATOR_CHAT_TOOLS, ADMINISTRATOR_OS_INSPECT, ADMINISTRATOR_RESULT_READ, ...web.tools];
     for (const tool of common) { register(tool, ADMINISTRATOR_CHAT_TOOLS.includes(tool) ? 'story' : 'administrator', null); }
-    const loader = createAdministratorToolLoader(domains, common);
+    const loader = createAdministratorToolLoader(domains, common, options.loadedApps);
     register(loader.tool, 'administrator', null);
     function inspectEnvironment() {
         options.reader.assertCurrent();

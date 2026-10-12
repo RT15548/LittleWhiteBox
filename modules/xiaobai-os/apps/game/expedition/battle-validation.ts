@@ -9,6 +9,9 @@ export function validateBattle(raw: unknown): asserts raw is Battle {
     const zone = integer(b.zone, 0, REGIONS.length - 1); integer(b.chapter, 0, RULES.zones - 1);
     integer(b.wave, 1); integer(b.waves, 1, 3); integer(b.nextWave, 0, 45); integer(b.kills); finite(b.damageTaken, 0, 1e8);
     boolean(b.elite); boolean(b.boss); member(b.status, ['fighting', 'won', 'lost']); member(b.encounter, ENCOUNTER_IDS);
+    const script = object(b.script);
+    member(script.reinforcements, ['idle', 'warning', 'done']); integer(script.warning, 0, 36);
+    member(script.signal, ['idle', 'approach', 'lighting', 'stopped', 'lit']); finite(script.signalHp, 0, 1e5);
     const boss = member(b.bossKind, BOSS_IDS); if (BOSS_SPECS[boss].region !== zone) { fault('invalid'); }
     const p = point(b.player); finite(p.hp, 0, RULES.maxHp); finite(p.facing, -100, 100); finite(p.dashAngle, -100, 100);
     for (const k of ['attack', 'dash', 'skill', 'invulnerable', 'dashTime', 'swing', 'shield', 'combo', 'guard', 'lastHit', 'rescues']) { integer(p[k]); }
@@ -19,7 +22,7 @@ export function validateBattle(raw: unknown): asserts raw is Battle {
         const e = point(raw); id(e.id); member(e.kind, Object.keys(ENEMIES)); finite(e.hp, 0, 1e5); const hp = finite(e.maxHp, .01, 1e5);
         if (Number(e.hp) > hp) { fault('invalid'); }
         finite(e.angle, -100, 100); finite(e.motionAngle, -100, 100); integer(e.cooldown, 0, 1000); integer(e.windup, 0, 100); integer(e.pattern); integer(e.phase, 1, 3);
-        for (const k of ['chill', 'burn', 'marked', 'stun', 'bleed', 'poison', 'exposed', 'motion', 'stagger']) { integer(e[k], 0, 1000); }
+        for (const k of ['chill', 'burn', 'marked', 'stun', 'bleed', 'poison', 'exposed', 'motion', 'stagger', 'controlRecovery']) { integer(e[k], 0, 1000); }
         point(e.target); list(e.memory, 4, point); return e;
     });
     list(b.shots, 1000, raw => {
@@ -30,8 +33,9 @@ export function validateBattle(raw: unknown): asserts raw is Battle {
     list(b.hazards, 1000, raw => {
         const h = point(raw); id(h.id); finite(h.radius, 0, 20); integer(h.wait, 0, 300); integer(h.life, 0, 300); finite(h.damage, 0, 1e5);
         member(h.kind, ['storm', 'fire', 'slam', 'frost', 'poison', 'beam', 'ring', 'mine']); boolean(h.friendly);
+        if (h.gap !== undefined) { if (h.kind !== 'ring') { fault('invalid'); } finite(h.gap, 0, Math.PI); }
         member(h.source, ['attack', 'skill', 'passive', 'lightning', 'companion']);
-        unique(list(h.hits, 65, n => integer(n, 1, serial)));
+        unique(list(h.hits, 65, n => integer(n, 0, serial)));
         finite(h.angle, -1e8, 1e8); finite(h.length, 0, 40); finite(h.width, 0, 10); finite(h.inner, 0, Number(h.radius)); return h;
     });
     list(b.effects, 2000, raw => { const e = point(raw); id(e.id); member(e.kind, EFFECT_IDS); integer(e.life, 0, 20); finite(e.angle, -100, 100); finite(e.size, 0, 20); return e; });

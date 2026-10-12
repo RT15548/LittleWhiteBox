@@ -1,4 +1,5 @@
 import { BOSS_IDS, OATH_IDS, RELIC_IDS, WEAPON_IDS } from './ids.js';
+import { COMBAT_POLICY } from './content/combat-policy.js';
 import type { BossKind, EncounterKind, EnemyKind, MobKind, Weapon } from './types.js';
 
 export const RULES = Object.freeze({ hz: 30, arena: 11, playerRadius: .34, speed: .115, maxHp: 100,
@@ -37,6 +38,7 @@ export const MOB_SPECS: Record<MobKind, EnemySpec> = {
     wisp: mob(30, .062, .3, 8, 10, 22, 60),
 };
 export const BOSS_SPECS: Record<BossKind, EnemySpec & { region: number; awardKey: string }> = {
+    keeper: { ...mob(COMBAT_POLICY.keeperHp, .062, .85, 20, 12, 30, 65), region: 0, awardKey: 'keeper' },
     warden: { ...mob(1050, .055, 1.25, 21, 20, 34, 32), region: 0, awardKey: 'boss-0' },
     thornheart: { ...mob(1000, .043, 1.3, 18, 20, 30, 35), region: 0, awardKey: 'boss-thornheart' },
     weaver: { ...mob(1450, .07, 1.1, 19, 20, 30, 31), region: 1, awardKey: 'boss-1' },

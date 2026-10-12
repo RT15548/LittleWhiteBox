@@ -10,6 +10,7 @@ import { sculptBoss } from './scene-bosses.js';
 import { createGuardShield } from './scene-defense.js';
 import { createGrimoire } from './scene-grimoire.js';
 import { createTravelerGait } from './traveler-gait.js';
+import { wardenCarriesShield } from './content/combat-policy.js';
 export type HeroPose = Pick<Player, 'x' | 'y' | 'facing' | 'dashTime' | 'swing' | 'shield' | 'guard' | 'resonance'>;
 
 function addBow(k: SceneKit, parent: Group, scale = 1) {
@@ -84,6 +85,7 @@ export function createHero(k: SceneKit, parent: Group, gender: Traveler['gender'
 export function createEnemyActor(k: SceneKit, parent: Group, kind: EnemyKind, c: Palette) {
     const { mesh, group } = k, root = group(parent), body = group(root), weapon = group(body), head = group(body), limbs: Group[] = [];
     const boss = isBoss(kind), radius = ENEMIES[kind].radius;
+    let armorShield: Group | null = null;
     k.ring(root, '#1d3540', radius * 1.15, 0, 0, .16, true);
     const gold = '#cfad70', eye = '#fff0b0', armor = c.dark;
     function leg(x: number, z: number, height: number) {
@@ -132,7 +134,8 @@ export function createEnemyActor(k: SceneKit, parent: Group, kind: EnemyKind, c:
         for (let i = 0; i < 7; i++) { const t = i * Math.PI * 2 / 7; mesh(head, 'cone', gold, [.17, .85, .17], [Math.cos(t) * .78, 4.85, Math.sin(t) * .78]); }
         weapon.position.set(1.55, 1.35, .2); weapon.rotation.z = -.3; sword(weapon, 3.4, '#f6dc9f');
         mesh(body, 'box', c.stone, [.5, 1.2, .5], [-1.15, 2, .1]);
-    } else if (kind === 'warden') {
+    } else if (kind === 'warden' || kind === 'keeper') {
+        if (kind === 'keeper') { body.scale.setScalar(.72); }
         leg(-.65, .05, .85); leg(.65, .05, .85);
         mesh(body, 'cylinder', armor, [1.1, 1.85, .8], [0, 1.9, 0]);
         mesh(body, 'box', c.stone, [1.1, 1.45, .35], [0, 2, .72]);
@@ -146,6 +149,7 @@ export function createEnemyActor(k: SceneKit, parent: Group, kind: EnemyKind, c:
         mesh(head, 'box', eye, [.74, .095, .05], [0, 3.22, .66], true);
         mesh(head, 'cone', c.foliage, [.27, 1.1, .5], [0, 4, -.2]);
         const shield = group(body, [-1.32, 1.5, .6]);
+        armorShield = shield;
         mesh(shield, 'box', armor, [1.2, 1.8, .25]); mesh(shield, 'box', gold, [1, 1.58, .28]); mesh(shield, 'box', c.foliage, [.85, 1.42, .31]);
         mesh(shield, 'rock', c.light, [.28, .4, .1], [0, .1, .22]);
         weapon.position.set(1.5, 1.8, .25);
@@ -196,7 +200,7 @@ export function createEnemyActor(k: SceneKit, parent: Group, kind: EnemyKind, c:
     let previousWindup = 0, struckAt = -100, previousX = 0, previousY = 0;
     const baseWeaponZ = weapon.rotation.z;
     return { root, bar,
-        update(e: Enemy, tick: number, reduced: boolean) {
+        update(e: Enemy, tick: number, reduced: boolean, chapter = false) {
             const moving = Math.abs(e.x - previousX) + Math.abs(e.y - previousY) > .005;
             previousX = e.x; previousY = e.y;
             if (previousWindup && !e.windup) { struckAt = tick; } previousWindup = e.windup;
@@ -207,6 +211,10 @@ export function createEnemyActor(k: SceneKit, parent: Group, kind: EnemyKind, c:
             head.rotation.z = !reduced && kind === 'king' ? Math.sin(tick * .035) * .08 : 0;
             weapon.rotation.x = reduced ? 0 : anticipation * -1.3 + strike * 1.4;
             weapon.rotation.z = baseWeaponZ + (reduced ? 0 : anticipation * -.35);
+            if (armorShield && chapter) {
+                armorShield.visible = kind !== 'warden' || wardenCarriesShield(e.phase);
+                armorShield.rotation.x = e.exposed ? -Math.PI / 3 : 0;
+            }
             for (let i = 0; i < limbs.length; i++) { limbs[i].rotation.x = !reduced && moving ? Math.sin(tick * .32 + i * Math.PI) * .28 : 0; }
             for (const o of originals) { o.mesh.material = e.marked > 2 && !reduced ? k.material('#fff6dd') : o.material; }
             bar.visible = !boss && e.hp < e.maxHp;

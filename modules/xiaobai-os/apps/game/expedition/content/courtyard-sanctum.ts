@@ -6,11 +6,13 @@ export const COURTYARD_HALL = defineLandscapeScene({
     anchors: {
         beacon: { x: -22, y: 35 }, cells: { x: 22, y: 35 }, encounter: { x: 0, y: 5 }, warden: { x: 0, y: -17 },
         orders: { x: 0, y: -36 }, reinforcementLeft: { x: -24, y: -12 }, reinforcementRight: { x: 24, y: -12 },
+        reward: { x: 4, y: -34 }, rest: { x: 0, y: 24 },
     },
     exits: [
         { id: 'beacon', anchor: 'beacon', to: 'beacon', arrival: 'hall' },
         { id: 'cells', anchor: 'cells', to: 'cells', arrival: 'hall' },
-    ], objects: [{ id: 'orders', anchor: 'orders', kind: 'inspect', passage: 'orders', condition: { all: ['warden_defeated'] } }],
+    ], objects: [{ id: 'orders', anchor: 'orders', kind: 'inspect', passage: 'orders', condition: { all: ['warden_defeated'] } },
+        { id: 'relic_cache', anchor: 'reward', kind: 'reward', node: 'warden' }, { id: 'rest', anchor: 'rest', kind: 'rest' }],
     landscape: {
         vista: 'interior', surface: 'marble', bounds: { x: 0, z: 0, width: 80, depth: 92 }, gates: [],
         roads: [
@@ -43,8 +45,8 @@ export const COURTYARD_HALL = defineLandscapeScene({
 
 export const COURTYARD_ROOTS = defineLandscapeScene({
     id: 'roots', safe: false,
-    anchors: { crossroads: { x: 0, y: 34 }, encounter: { x: 0, y: 5 }, tree: { x: 0, y: -12 }, rootLeft: { x: -12, y: -13 }, rootRight: { x: 12, y: -13 } },
-    exits: [{ id: 'crossroads', anchor: 'crossroads', to: 'crossroads', arrival: 'roots' }], objects: [],
+    anchors: { crossroads: { x: 0, y: 34 }, encounter: { x: 0, y: 5 }, tree: { x: 0, y: -12 }, rootLeft: { x: -12, y: -13 }, rootRight: { x: 12, y: -13 }, reward: { x: 0, y: -20 } },
+    exits: [{ id: 'crossroads', anchor: 'crossroads', to: 'crossroads', arrival: 'roots' }], objects: [{ id: 'relic_cache', anchor: 'reward', kind: 'reward', node: 'roots' }],
     landscape: {
         vista: 'garden', surface: 'grass', bounds: { x: 0, z: 0, width: 80, depth: 84 }, gates: [],
         suspended: [

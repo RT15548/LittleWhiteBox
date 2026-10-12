@@ -4,13 +4,14 @@ import type { Battle, Loadout, MobKind } from '../types.js';
 import { beam, hazard, spawn } from './events.js';
 import { distance, TAU } from './geometry.js';
 import type { CombatField } from './field.js';
+import { chapterEncounterTick } from './chapter-encounter.js';
 
 export const ENCOUNTER_RULES = Object.freeze({ ritualTicks: 330, survivalTicks: 1500, pursuitInterval: 390, reinforcementInterval: 270, warningAfter: 1800 });
 const capturePoints = [{ x: -4, y: 0 }, { x: 4, y: -3 }, { x: 0, y: 4 }] as const;
 export function spawnWave(b: Battle, loadout: Loadout, field?: CombatField) {
     b.wave++;
     if (field) {
-        for (const enemy of field.waves[b.wave - 1]) { spawn(b, enemy.kind, enemy.position); }
+        for (const enemy of field.waves[b.wave - 1]) { spawn(b, enemy.kind, enemy.position, field, true); }
         return;
     }
     if (b.boss) { spawn(b, b.bossKind, { x: 0, y: -5 }); return; }
@@ -26,6 +27,7 @@ export function spawnWave(b: Battle, loadout: Loadout, field?: CombatField) {
     }
 }
 export function encounterTick(b: Battle, loadout: Loadout, field?: CombatField) {
+    if (field?.segment) { chapterEncounterTick(b, field); }
     if (b.boss) { return; }
     const o = b.objective, live = b.enemies.some(e => e.hp > 0);
     if (b.encounter === 'ritual') {
@@ -46,12 +48,13 @@ export function encounterTick(b: Battle, loadout: Loadout, field?: CombatField) 
             beam(b, horizontal ? { x: -10, y: lane } : { x: lane, y: -10 }, horizontal ? 0 : Math.PI / 2, 20, .65, 36, 15);
         }
     }
-    if (b.tick > ENCOUNTER_RULES.warningAfter && b.tick % 180 === 0) { hazard(b, b.player, 'fire', 2.2, 36, 90, 13); }
+    if (!field && b.tick > ENCOUNTER_RULES.warningAfter && b.tick % 180 === 0) { hazard(b, b.player, 'fire', 2.2, 36, 90, 13); }
     if (!live && b.wave < b.waves && b.encounter !== 'survival') { if (++b.nextWave >= 40) { b.nextWave = 0; spawnWave(b, loadout, field); } }
     else if (live) { b.nextWave = 0; }
 }
-export function encounterWon(b: Battle) {
+export function encounterWon(b: Battle, field?: CombatField) {
     if (b.enemies.some(e => e.hp > 0)) { return false; }
+    if ((field?.segment === 'gate' || field?.segment === 'beacon' && b.script.signal === 'lit') && b.script.reinforcements !== 'done') { return false; }
     // Timed reinforcements stop at the deadline, including waves delayed by crowding.
     if (!b.boss && b.encounter === 'survival') { return b.objective.progress >= b.objective.target; }
     if (!b.boss && b.encounter === 'ritual') { return b.objective.progress >= b.objective.target && b.wave >= b.waves; }

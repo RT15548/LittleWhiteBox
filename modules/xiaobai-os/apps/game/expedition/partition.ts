@@ -25,6 +25,9 @@ import { parseTraveler } from './campaign/traveler.js';
 import { FIRST_CHAPTER } from './content/chapters.js';
 import { readPerformance } from './performance/catalog.js';
 import { readClothingChange } from './clothing.js';
+import { upgradeExpeditionV6 } from './migration-v6.js';
+import { REWARD_NODES } from './content/campaign-rewards.js';
+import { COURTYARD_ENCOUNTERS, ENCOUNTER_SEGMENTS } from './content/courtyard-encounters.js';
 export { expeditionId } from './validation.js';
 
 const weapon = (v: unknown) => member(v, WEAPON_LIST);
@@ -56,7 +59,7 @@ export function parseCommand(value: unknown): Command {
             if (!spans.length || spans.reduce((sum, s) => sum + s.ticks, 0) > RULES.maxInputTicks) { fault('invalid'); }
             return { type: 'input', spans };
         }
-        case 'relic': return { type: 'relic', id: relic(v.id) };
+        case 'relic': return { type: 'relic', id: relic(v.id), ...(v.replace === undefined ? {} : { replace: relic(v.replace) }) };
         case 'leave': case 'retry': case 'retreat': case 'resolve_parley': case 'accept_reply': return { type: v.type };
         default: return fault('invalid');
     }
@@ -65,16 +68,33 @@ function validateCampaign(raw: unknown, data: ExpeditionData) {
     const r = object(raw); expeditionId(r.id); integer(r.seed, 0, 0xffffffff); const w = weapon(r.weapon);
     parseTraveler(r.traveler); member(r.chapter, [FIRST_CHAPTER.id]);
     if (!ownsOutfit(data, outfit(r.outfit))) { fault('invalid'); }
-    const owned = stacks(r.collection, RELICS.length), equipped = unique(list(r.equipped, RULES.relicSlots, relic)), offered = stacks(r.offers, 3);
+    const owned = stacks(r.collection, RELICS.length), equipped = unique(list(r.equipped, RULES.relicSlots, relic));
+    const rewards = object(r.rewards), offered: RelicStack[] = [];
+    for (const [key, rawReward] of Object.entries(rewards)) {
+        member(key, REWARD_NODES); const reward = object(rawReward), source = scene(reward.scene);
+        if (!COURTYARD[source].objects.some(o => o.kind === 'reward' && o.node === key)) { fault('invalid'); }
+        offered.push(...stacks(reward.offers, 3));
+    }
+    unique(offered.map(o => o.id));
     if ([...owned, ...offered].some(s => !compatibleRelics(w).includes(s.id)) || equipped.some(id => !owned.some(s => s.id === id))) { fault('invalid'); }
     for (const offer of offered) { if (offer.rank !== (owned.find(s => s.id === offer.id)?.rank ?? 0) + 1) { fault('invalid'); } }
     const phase = member(r.phase, ['exploration', 'battle', 'reward', 'lost']);
-    if ((phase === 'reward') !== !!offered.length) { fault('invalid'); }
+    if (r.rewardNode !== null) { const node = member(r.rewardNode, REWARD_NODES); if (!rewards[node] || !stacks(object(rewards[node]).offers, 3).length) { fault('invalid'); } }
+    if ((phase === 'reward') !== (r.rewardNode !== null)) { fault('invalid'); }
+    unique(list(r.completedSegments, ENCOUNTER_SEGMENTS.length, id => {
+        const segment = member(id, ENCOUNTER_SEGMENTS); if (COURTYARD_ENCOUNTERS[segment].complete !== null) { fault('invalid'); } return segment;
+    }));
     const knownFacts = facts(r.facts), location = object(r.location), id = scene(location.scene), position = object(location.position);
+    if (r.rewardNode !== null && object(rewards[String(r.rewardNode)]).scene !== id) { fault('invalid'); }
     finite(position.x, -Number.MAX_VALUE, Number.MAX_VALUE); finite(position.y, -Number.MAX_VALUE, Number.MAX_VALUE);
     finite(location.facing, -100, 100); const visited = unique(list(location.visited, Object.keys(COURTYARD).length, scene));
     if (!visited.includes(id) || !canStandInWorld(sceneSpace(COURTYARD[id], new Set(knownFacts)), { x: Number(position.x), y: Number(position.y) }, RULES.playerRadius)) { fault('invalid'); }
-    finite(r.hp, 0, RULES.maxHp); integer(r.alarmTicks);
+    finite(r.hp, 0, RULES.maxHp);
+    if (r.engagement !== null) {
+        const engagement = object(r.engagement), segment = member(engagement.id, ENCOUNTER_SEGMENTS);
+        boolean(engagement.reinforcement);
+        if (COURTYARD_ENCOUNTERS[segment].scene !== id || !['battle', 'lost'].includes(phase)) { fault('invalid'); }
+    } else if (['battle', 'lost'].includes(phase)) { fault('invalid'); }
     boolean(object(r.evidence).dispatchNoteSeen);
     if (r.battle !== null) {
         validateBattle(r.battle);
@@ -184,7 +204,7 @@ export const EXPEDITION_PARTITION: PartitionRegistration<ExpeditionData> = {
     key: 'expedition', ownerId: 'game', storage: 'user', schemaVersion: EXPEDITION_FORMAT_VERSION, createInitial: emptyExpedition,
     parse(raw) {
         try {
-            const value = structuredClone(raw);
+            const value = upgradeExpeditionV6(structuredClone(raw));
             validateExpedition(value); return { ok: true, value };
         } catch (error) { return { ok: false, error: { code: 'partition_invalid', message: error instanceof Error ? error.message : 'expedition_invalid' } }; }
     },

@@ -3,8 +3,9 @@ import type { CourtyardFact, CourtyardPerson, CourtyardScene, SceneExit, SceneDe
 import { PERSON_IDS } from '../content/people.js';
 import { DESTINATIONS, PERSON_PLACES, type DestinationId, type PersonPlace } from '../content/people-places.js';
 import { COURTYARD } from '../content/courtyard.js';
-import { COURTYARD_ENCOUNTERS } from '../content/courtyard-encounters.js';
-import { conditionMet, INTERACTION_REACH, sceneSpace, visibleInteractions, type Interaction } from './exploration.js';
+import { COURTYARD_ENCOUNTERS, sceneEncounters } from '../content/courtyard-encounters.js';
+import { conditionMet, INTERACTION_REACH, sceneSpace, type Interaction } from './exploration.js';
+import { campaignWorldInteractions } from '../campaign/interactions.js';
 import { findWorldPath } from './navigation.js';
 import { cellCenter, moveInWorld, worldCell, worldLineClear } from './geometry.js';
 import type { WorldSpace } from './types.js';
@@ -38,7 +39,10 @@ export function personAt(place: PersonPlace): PersonLocation {
 }
 export function initialPeople(): PeopleLocations { return Object.fromEntries(PERSON_IDS.map(id => [id, personAt(PERSON_PLACES[id].initial)])) as PeopleLocations; }
 export function sceneSafe(scene: CourtyardScene, facts: ReadonlySet<CourtyardFact>) {
-    const encounter = COURTYARD_ENCOUNTERS[scene]; return !encounter || facts.has(encounter.complete);
+    return sceneEncounters(scene).every(id => {
+        const encounter = COURTYARD_ENCOUNTERS[id];
+        return encounter.complete === null || facts.has(encounter.complete);
+    });
 }
 /** Scene graph traversal uses exactly the same exits as player travel; solo travel excludes every hostile intermediate scene. */
 export function sceneRoute(from: Pick<PersonLocation, 'scene' | 'position'>, to: PersonPlace, facts: ReadonlySet<CourtyardFact>, safeOnly: boolean): SceneExit[] | null {
@@ -81,7 +85,7 @@ export function personInteractions(scene: CourtyardScene, people: PeopleLocation
         target: { id, anchor: '', kind: 'person', person: id } }));
 }
 export function campaignInteractions(campaign: Campaign): Interaction[] {
-    return [...visibleInteractions(COURTYARD[campaign.location.scene], new Set(campaign.facts)), ...personInteractions(campaign.location.scene, campaign.people)];
+    return [...campaignWorldInteractions(campaign), ...personInteractions(campaign.location.scene, campaign.people)];
 }
 export function reachablePeople(campaign: Campaign) {
     return reachablePersonInteractions(COURTYARD[campaign.location.scene], campaign.location.position, new Set(campaign.facts), campaign.people);

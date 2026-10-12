@@ -1,7 +1,7 @@
 /* eslint-disable */
 import { D as A, E as G, P as V, R as N, S as r, T as h, U as B, V as i, X as I, b as k, ft as c, h as D, lt as $, rt as T, v as p, x as E, y as e } from "./xiaobai-os-app-navigation-DvMnPkC0.js";
-import { a as L, c as C, i as M, l as U, o as w, s as S } from "./xiaobai-os-room-catalog-Cd0QumWU.js";
-import { n as O, t as P } from "./xiaobai-os-GameResult-BXkyR5M9.js";
+import { a as L, c as C, i as M, l as U, o as w, s as S } from "./xiaobai-os-room-catalog-C1kpY1HV.js";
+import { n as O, t as P } from "./xiaobai-os-GameResult-CL5D5_Jo.js";
 var X = ["aria-label"], j = {
   class: "dice-call-dice",
   "aria-hidden": "true"

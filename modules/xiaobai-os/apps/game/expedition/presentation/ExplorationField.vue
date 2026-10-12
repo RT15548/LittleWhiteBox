@@ -22,7 +22,7 @@ const selection = ref<string | null>(null);
 const artwork = ref({ failed: 0, pending: 0 });
 const nearby = computed(() => props.battle ? [] : [
     ...parleyInteractions(props.world.definition.id, props.world.location.position, props.world.facts),
-    ...reachableInteractions(props.world.definition, props.world.location, props.world.facts),
+    ...reachableInteractions(props.world.definition, props.world.location, props.world.facts).filter(i => i.kind === 'exit' || props.world.objects.has(i.target.id)),
     ...reachablePersonInteractions(props.world.definition, props.world.location.position, props.world.facts, props.world.people),
 ]);
 const selected = computed(() => nearby.value.find(i => i.target.id === selection.value) ?? null);
@@ -90,7 +90,10 @@ defineExpose({ stats: () => scene?.stats(), focus: () => root.value?.focus({ pre
 <template>
     <section ref="root" class="journey-field" tabindex="0" :aria-label="battle ? combatCopy.controls : c.actions.controls">
         <div ref="canvas" class="journey-canvas" />
-        <header class="journey-heading"><h1>{{ c.scenes[world.definition.id] }}</h1><slot name="status" /></header>
+        <div class="journey-hud">
+            <header class="journey-heading"><h1>{{ c.scenes[world.definition.id] }}</h1><slot name="status" /></header>
+            <div class="journey-threat"><slot name="threat" /></div>
+        </div>
         <div v-if="artwork.failed" class="journey-artwork-issue" role="status"><span>{{ c.artwork.unavailable }}</span><button type="button" :disabled="artwork.pending > 0" @click="retryArtwork">{{ artwork.pending ? c.artwork.loading : c.artwork.retry }}</button></div>
         <div v-if="!paused" class="journey-controls">
             <div class="journey-stick" role="group" :aria-label="c.actions.move" @pointerdown.prevent="joystick.down" @pointermove.prevent="joystick.move" @pointerup="joystick.release" @pointercancel="joystick.release" @lostpointercapture="joystick.release" @contextmenu.prevent>
@@ -118,7 +121,9 @@ defineExpose({ stats: () => scene?.stats(), focus: () => root.value?.focus({ pre
 .journey-field { position: relative; width: 100%; height: 100%; overflow: hidden; outline: none; color: #203e4c; background: #bfe3e8; font-family: inherit; container: moving-frame / inline-size; }
 .journey-canvas { position: absolute; inset: 0; }
 .journey-canvas :deep(canvas) { display: block; width: 100%; height: 100%; }
-.journey-heading { position: absolute; top: max(22px, env(safe-area-inset-top)); left: max(24px, env(safe-area-inset-left)); pointer-events: none; padding:10px 12px; border-left:2px solid #afbed4; border-radius:3px; background:#f5f7fde8; color:var(--ember-ink); }
+.journey-hud { position:absolute; top:max(22px, env(safe-area-inset-top)); left:max(24px, env(safe-area-inset-left)); right:max(24px, env(safe-area-inset-right)); display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); align-items:start; gap:16px; pointer-events:none; }
+.journey-heading { justify-self:start; min-width:0; padding:10px 12px; border-left:2px solid #afbed4; border-radius:3px; background:#f5f7fde8; color:var(--ember-ink); }
+.journey-threat { min-width:0; }
 .journey-heading h1 { margin: 0; font-size: 20px; font-weight: 650; letter-spacing: .07em; }
 .journey-artwork-issue { position:absolute; bottom:140px; left:18px; right:18px; display:flex; align-items:center; gap:10px; width:fit-content; max-width:calc(100% - 36px); padding:8px 12px; border:1px solid #c3c9da; border-radius:6px; background:#f8f9fded; color:#344361; font-size:12px; }
 .journey-artwork-issue button { flex-shrink:0; }
@@ -137,6 +142,8 @@ defineExpose({ stats: () => scene?.stats(), focus: () => root.value?.focus({ pre
 .journey-overlay { position: absolute; inset: 0; display: grid; place-items: center; background: #42667829; padding: 20px; }
 button:focus-visible { outline: 3px solid #fce5a5; outline-offset: 3px; }
 @media (pointer: fine) { .journey-stick { opacity: .6; width: 80px; height: 80px; flex-basis: 80px; } }
-@container moving-frame (max-width: 599px) { .journey-heading { top: 18px; left: 18px; } .journey-heading h1 { font-size: 18px; } .journey-controls { inset-inline: 16px; bottom: max(18px, env(safe-area-inset-bottom)); } .journey-act { padding: 10px 13px; font-size: 14px; } .journey-act kbd { display: none; } }
-@media (max-height: 420px) { .journey-stick { width: 76px; height: 76px; flex-basis: 76px; } .journey-controls { bottom: 12px; } .journey-heading { top: 12px; } }
+@container moving-frame (max-width: 720px) { .journey-hud { top:18px; left:18px; right:104px; display:flex; flex-direction:column; gap:8px; } .journey-heading,.journey-threat { width:100%; } }
+@container moving-frame (max-width: 599px) { .journey-heading h1 { font-size: 18px; } .journey-controls { inset-inline: 16px; bottom: max(18px, env(safe-area-inset-bottom)); } .journey-act { padding: 10px 13px; font-size: 14px; } .journey-act kbd { display: none; } }
+@media (max-height: 450px) { .journey-hud { top:12px; } @container moving-frame (min-width: 500px) { .journey-hud { right:max(24px, env(safe-area-inset-right)); display:grid; gap:16px; } .journey-threat { padding-top:72px; } } }
+@media (max-height: 420px) { .journey-stick { width: 76px; height: 76px; flex-basis: 76px; } .journey-controls { bottom: 12px; } }
 </style>

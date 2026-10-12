@@ -15,6 +15,7 @@ import { COURTYARD } from '../content/courtyard.js';
 import { PARLEY_ENEMIES, PARLEY_IDS } from '../content/parley.js';
 import { parleyActor } from './world-parley.js';
 import { buildLocalLife } from './local-people.js';
+import type { EncounterSegment } from '../content/courtyard-encounters.js';
 
 export interface ExplorableScenery extends LandscapeScenery {
     setFacts(facts: ReadonlySet<CourtyardFact>): void; setEncounterActive(active: boolean): void;
@@ -22,6 +23,7 @@ export interface ExplorableScenery extends LandscapeScenery {
     people: ReturnType<typeof person>[];
     setPeople(people: PeopleLocations, now: number): boolean;
     parleyPeople: ReturnType<typeof parleyActor>[];
+    setProgress(completed: readonly EncounterSegment[], objects: ReadonlySet<string>): boolean;
 }
 
 /** Map geometry lives for one visit; a door or NPC change only rebuilds its small stateful layer. */
@@ -29,6 +31,20 @@ export function buildExplorableWorld(k: SceneKit, root: Group, definition: Scene
     const scenery = buildLandscape(k, root, definition.landscape), objects = k.group(root), residents = k.group(root);
     const sentries = buildSentries(k, root, definition, facts);
     const localLife = buildLocalLife(k, residents, definition.id);
+    const caches = definition.objects.filter(o => o.kind === 'reward' || o.kind === 'rest').map(item => {
+        const p = definition.anchors[item.anchor], model = k.group(root, [p.x, 0, p.y]);
+        if (item.kind === 'reward') {
+            k.mesh(model, 'box', LAND.wood, [.85, .45, .6], [0, .225, -.65]);
+            for (const side of [-1, 1]) { k.mesh(model, 'box', LAND.brass, [.055, .48, .63], [side * .26, .24, -.65]); }
+            k.mesh(model, 'rock', LAND.ember, [.15, .3, .15], [0, .68, -.65], true);
+            k.ring(model, LAND.brass, .65, 0, 0, .35, true);
+        } else {
+            k.mesh(model, 'box', LAND.wood, [1.4, .12, .6], [0, .5, -.7]);
+            for (const side of [-1, 1]) { k.mesh(model, 'box', LAND.timber, [.12, .45, .5], [side * .5, .22, -.7]); }
+        }
+        model.visible = false;
+        return { id: item.id, model, dispose: k.bake(model) };
+    });
     const people: ReturnType<typeof person>[] = [];
     const parleyPeople = PARLEY_IDS.filter(id => PARLEY_ENEMIES[id].scene === definition.id).map(id => parleyActor(k, residents, id, facts));
     let animatedAt = -1;
@@ -122,6 +138,14 @@ export function buildExplorableWorld(k: SceneKit, root: Group, definition: Scene
     }
     setFacts(facts);
     return { setFacts, people, parleyPeople,
+        setProgress(completed, visible) {
+            let changed = sentries.setProgress(completed);
+            for (const cache of caches) {
+                const show = visible.has(cache.id);
+                if (cache.model.visible !== show) { cache.model.visible = show; changed = true; }
+            }
+            return changed;
+        },
         setPeople(locations, now) {
             let changed = false;
             for (const id of PERSON_IDS) {
@@ -148,5 +172,5 @@ export function buildExplorableWorld(k: SceneKit, root: Group, definition: Scene
             }
             return changed;
         },
-        dispose() { localLife.dispose(); people.splice(0).forEach(person => person.dispose()); parleyPeople.forEach(person => person.dispose()); residents.removeFromParent(); disposeObjects?.(); sentries.dispose(); scenery.dispose(); } };
+        dispose() { caches.forEach(cache => { cache.dispose(); cache.model.removeFromParent(); }); localLife.dispose(); people.splice(0).forEach(person => person.dispose()); parleyPeople.forEach(person => person.dispose()); residents.removeFromParent(); disposeObjects?.(); sentries.dispose(); scenery.dispose(); } };
 }

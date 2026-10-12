@@ -2,6 +2,7 @@ import { BoxGeometry, type BufferGeometry, CircleGeometry, ConeGeometry, Cylinde
     Mesh, MeshBasicMaterial, MeshStandardMaterial, RingGeometry, Shape, ShapeGeometry, SphereGeometry, TorusGeometry,
     Matrix4, type Material, type Object3D, type Texture } from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { COMBAT_POLICY } from './content/combat-policy.js';
 
 export type Vec3 = [number, number, number];
 /** Scene-owned shared resources. Static architecture is baked by material, not drawn block by block. */
@@ -12,6 +13,7 @@ export function createSceneKit(textures?: ReadonlyMap<string, Texture>) {
         box: new BoxGeometry(1, 1, 1), sphere: new SphereGeometry(1, 20, 14), rock: new IcosahedronGeometry(1, 0), crown: new IcosahedronGeometry(1, 1),
         cylinder: new CylinderGeometry(1, 1, 1, 24), cone: new ConeGeometry(1, 1, 12),
         disc: new CircleGeometry(1, 48), ring: new RingGeometry(.965, 1, 64),
+        openRing: new RingGeometry(.965, 1, 48, 1, COMBAT_POLICY.rootRingGap / 2, Math.PI * 2 - COMBAT_POLICY.rootRingGap),
         arc: new RingGeometry(.87, 1, 40, 1, -.2, Math.PI * 1.3), torus: new TorusGeometry(1, .08, 8, 40),
         stroke: new RingGeometry(.975, 1, 48, 1, -.2, Math.PI * 1.3),
         crescent: new TorusGeometry(1, .14, 6, 24, Math.PI * 1.45),

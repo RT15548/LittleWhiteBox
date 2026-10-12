@@ -2,7 +2,8 @@
 import { distance } from '../../apps/game/expedition/combat.ts';
 import { ENEMIES, isBoss, RULES } from '../../apps/game/expedition/content.ts';
 import { insideHazard } from '../../apps/game/expedition/combat/projectiles.ts';
-import { canStandInWorld, worldLineClear } from '../../apps/game/expedition/world/geometry.ts';
+import { canStandInWorld, moveInWorld, worldLineClear } from '../../apps/game/expedition/world/geometry.ts';
+import { lineDistance } from '../../apps/game/expedition/combat/geometry.ts';
 import { findWorldPath } from '../../apps/game/expedition/world/navigation.ts';
 export function pilot(battle, weapon, field) {
     const p = battle.player;
@@ -22,7 +23,12 @@ export function pilot(battle, weapon, field) {
             if (d < r.radius + .9) value += 8 * (r.radius + .9 - d);
         }
         for (const h of battle.hazards) {
-            if (!h.friendly && h.wait < 40 && insideHazard(h, pos, .7)) value += 30;
+            if (!h.friendly && h.wait < 40 && insideHazard(h, pos, .7)) {
+                // Keep escaping when every one-step candidate is still inside a large warning.
+                const depth = h.kind === 'beam' ? h.width + .7 - lineDistance(pos, h, h.angle, h.length)
+                    : h.kind === 'ring' ? Math.min(distance(h, pos) - h.inner + .7, h.radius + .7 - distance(h, pos)) : h.radius + .7 - distance(h, pos);
+                value += 30 + depth * 12;
+            }
         }
         for (const s of battle.shots) {
             if (s.friendly) continue;
@@ -38,7 +44,9 @@ export function pilot(battle, weapon, field) {
     const immediateDanger = danger(p);
     for (let move = 0; move <= 8; move++) {
         const angle = (move - 1) * Math.PI / 4 - Math.PI / 2, stride = move ? 1.05 : 0;
-        const pos = { x: p.x + Math.cos(angle) * stride, y: p.y + Math.sin(angle) * stride };
+        const pos = { x: p.x, y: p.y }, delta = { x: Math.cos(angle) * stride, y: Math.sin(angle) * stride };
+        if (field) { moveInWorld(field.space, pos, delta, RULES.playerRadius); }
+        else { pos.x += delta.x; pos.y += delta.y; }
         let score = danger(pos) + (target ? Math.abs(distance(pos, target) - desired) * 1.3 : 0);
         if (field && target && !worldLineClear(field.space, p, target)) {
             const path = findWorldPath(field.space, p, target, RULES.playerRadius);

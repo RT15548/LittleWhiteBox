@@ -1,16 +1,16 @@
 /* eslint-disable */
-var S = [
+var $ = [
   "blade",
   "bow",
   "staff",
   "daggers",
   "grimoire",
   "cannon"
-], E = [
+], O = [
   "haste",
   "scarcity",
   "legion"
-], O = [
+], E = [
   "warden",
   "thornheart",
   "weaver",
@@ -22,7 +22,8 @@ var S = [
   "frostqueen",
   "leviathan",
   "archivist",
-  "voidknight"
+  "voidknight",
+  "keeper"
 ], x = [
   "storm-step",
   "conductor",
@@ -84,7 +85,7 @@ var S = [
   "bunker",
   "salvage",
   "railgun"
-], F = [
+], D = [
   "traveler",
   "guardian",
   "moonweaver",
@@ -97,7 +98,20 @@ var S = [
   "beastcaller",
   "frostbound",
   "stargazer"
-], t = Object.freeze({
+], C = Object.freeze({
+  rootRingGap: Math.PI / 2,
+  mobHp: 1.8,
+  enemyLimit: 6,
+  bossEnemyLimit: 5,
+  simultaneousWindups: 2,
+  signalTicks: 180,
+  reinforcementWarning: 36,
+  recoveryTicks: 48,
+  keeperHp: 3e3,
+  wardenHp: 5e3,
+  heartHp: 4600,
+  bossControlRecovery: 75
+}), N = (e) => e < 3, t = Object.freeze({
   hz: 30,
   arena: 11,
   playerRadius: 0.34,
@@ -126,7 +140,7 @@ var S = [
   masteryAward: 120,
   oathAward: 100,
   recordLimit: 20
-}), D = Object.freeze({
+}), H = Object.freeze({
   resonanceTicks: 90,
   maxPower: 100,
   familiarHp: 38,
@@ -134,7 +148,7 @@ var S = [
   empoweredDamage: 17,
   attackTicks: 32,
   empoweredAttackTicks: 20
-}), N = {
+}), L = {
   blade: {
     damage: 24,
     period: 20,
@@ -195,7 +209,7 @@ var S = [
     unlock: 3,
     guard: 0.9
   }
-}, q = x, M = E, L = S, h = Object.freeze({
+}, M = x, q = O, W = $, h = Object.freeze({
   bloodDamage: 1.3,
   bloodHurt: 1.25,
   hunterRange: 5,
@@ -220,7 +234,7 @@ var S = [
   reach: l,
   windup: m,
   cooldown: u
-}), C = {
+}), R = {
   soldier: i(48, 0.083, 0.4, 11, 1.45, 19, 35),
   archer: i(36, 0.058, 0.36, 10, 11, 26, 55),
   guard: i(95, 0.057, 0.58, 18, 2, 32, 65),
@@ -230,6 +244,11 @@ var S = [
   bomber: i(55, 0.047, 0.42, 15, 13, 28, 82),
   wisp: i(30, 0.062, 0.3, 8, 10, 22, 60)
 }, k = {
+  keeper: {
+    ...i(C.keeperHp, 0.062, 0.85, 20, 12, 30, 65),
+    region: 0,
+    awardKey: "keeper"
+  },
   warden: {
     ...i(1050, 0.055, 1.25, 21, 20, 34, 32),
     region: 0,
@@ -290,14 +309,14 @@ var S = [
     region: 5,
     awardKey: "boss-voidknight"
   }
-}, W = {
-  ...C,
+}, K = {
+  ...R,
   ...k
-}, H = O;
-function K(e) {
+}, B = E;
+function Y(e) {
   return Object.hasOwn(k, e);
 }
-var B = [
+var U = [
   {
     bosses: ["warden", "thornheart"],
     encounters: [
@@ -419,12 +438,12 @@ var B = [
   anian: "阿念",
   kouzi: "扣子",
   laobai: "老白"
-}, A = Object.keys(g), Y = {
+}, A = Object.keys(g), V = {
   sanniang: "changyounian_intel",
   laobai: "bajin_intel",
   anian: null,
   kouzi: null
-}, R = (e, a, n, o, l, m, u = {}) => ({
+}, T = (e, a, n, o, l, m, u = {}) => ({
   id: e,
   kind: a,
   footprint: {
@@ -434,8 +453,8 @@ var B = [
     depth: m
   },
   ...u
-}), r = (e, a, n, o, l, m, u, $ = {}) => ({
-  ...R(e, n, o, l, m, u, $),
+}), r = (e, a, n, o, l, m, u, S = {}) => ({
+  ...T(e, n, o, l, m, u, S),
   label: a
 }), p = {
   clinic_front: {
@@ -612,7 +631,7 @@ var B = [
       r("wash", "洗脸盆", "basin", -7, 5, 2, 2)
     ]
   }
-}, U = [
+}, G = [
   {
     to: "clinic_front",
     building: "clinic",
@@ -654,11 +673,11 @@ var B = [
     }
   }
 ];
-function T(e) {
+function P(e) {
   return Object.hasOwn(p, e) ? p[e] : void 0;
 }
-function V(e) {
-  return T(e) ? "camp" : e;
+function J(e) {
+  return P(e) ? "camp" : e;
 }
 var c = Object.freeze({
   artwork: {
@@ -768,7 +787,7 @@ var c = Object.freeze({
     },
     returnFact: "anian_returned"
   }
-}, P = A.filter((e) => b[e].returnFact !== null), G = {
+}, I = A.filter((e) => b[e].returnFact !== null), Z = {
   ...Object.fromEntries(Object.keys(p).map((e) => [e, {
     scene: e,
     anchor: "settle",
@@ -854,11 +873,11 @@ function _(e, a) {
   const n = b[a].returnFact;
   return n !== null && (e.includes("captives_arrived") || e.includes(n));
 }
-function J(e, a) {
+function Q(e, a) {
   return b[a].returnFact ? _(e, a) ? "returned" : e.includes("captives_released") ? "released" : "confined" : null;
 }
-function I(e) {
-  const a = new Set(e.facts), n = P.filter((l) => !_(e.facts, l)), o = a.has(v.fact) ? "collected" : v.object.condition.all.every((l) => a.has(l)) ? "ready" : "held";
+function z(e) {
+  const a = new Set(e.facts), n = I.filter((l) => !_(e.facts, l)), o = a.has(v.fact) ? "collected" : v.object.condition.all.every((l) => a.has(l)) ? "ready" : "held";
   return {
     phase: a.has("chapter_completed") ? "free" : a.has("briefed") ? a.has("crossroads_cleared") ? a.has("captives_released") ? a.has("captives_arrived") ? o === "held" ? "warden" : o === "ready" ? "supplies" : "finish" : "return" : "release" : "road" : "briefing",
     awaitingReturn: n,
@@ -866,7 +885,7 @@ function I(e) {
     optionalRoots: a.has("warden_defeated") && !a.has("roots_cleared")
   };
 }
-var Z = {
+var X = {
   bajin_intel: "老白向旅人讲出了八斤的事。",
   bajin_passed: "八斤侧过盾，给旅人让开了路。",
   changyounian_passed: "常有年眯着眼看了旅人一会儿，叫人把火绳收了。",
@@ -877,7 +896,7 @@ var Z = {
   sluice_opened: "旅人升起旧水闸，露出了通往牢房的检修路。",
   waterway_cleared: "水道看守躺下了。",
   alarm_raised: "守军接到了警报；烽火未熄时，内堡将有援军。",
-  alarm_silenced: "烽火没点起来，内堡的援兵不会来。",
+  alarm_silenced: "烽火信号已截断，内堡后续援兵不会再来。",
   captives_released: "旅人打开了两间牢房的门，扣子与阿念可以离开牢房。",
   postern_opened: "旅人打开牢房小门，营地与牢房之间的捷径永久畅通。",
   receiving_arranged: "老白带担架队守在营地小门，三娘留出了两张床。",
@@ -904,23 +923,18 @@ var Z = {
   close: "返回",
   retry: "重试这场战斗",
   fallen: "火还没有熄灭",
-  fallenDetail: "从这场战斗开始的位置、生命和构筑重试。已完成的救援和已取得的奖励不会丢失。",
+  fallenDetail: "恢复生命，重试这场战斗；也可以回营调整搭配。已打通的路、救援和遗物都保留。",
   retreat: "返回营地整备",
   reward: "拾起余烬",
-  rewardDetail: "选择一件遗物收入收藏。营地可以重新搭配，已收集的遗物不会因卸下而消失。",
   skip: "暂不拾取",
   equipped: "已装配",
   stored: "收入收藏",
-  emptyBuild: "战斗后可获得遗物。",
-  safeBuild: "回到营地可调整装配。",
+  emptyBuild: "尚未拾取遗物。",
   safeWardrobe: "回到营地可更换衣装。",
   slots: (e, a) => `装配 ${e} / ${a}`,
   takeOff: "卸下",
   putOn: "装配",
-  loadoutIssue: {
-    capacity: "装配已满，先卸下一件遗物。",
-    dependency: "这组搭配缺少触发条件；先调整依赖它的遗物。"
-  },
+  loadoutIssue: { capacity: "装配已满，先卸下一件遗物。" },
   received: "阿念与扣子都已脱困返营。这一次，两个人都回来了。",
   openCells: "靠近两间牢房外过道上的机关，打开牢门。",
   rescueObjective: (e) => `${e}尚未返营。可交谈带她们同行，或打开小门请老白接应。`,
@@ -975,7 +989,7 @@ var Z = {
   chapterMap: "区域总览",
   localMap: "当前区域",
   mapKey: "朱红：当前位置 · 蓝色：已抵达 · 浅色：未探索"
-}), z = {
+}), j = {
   crossroads: "岔口有巡兵守着。过了这里，正门和水道才走得通。",
   gate: "八斤的盾排开了。冲过去，烽火台就在后头。",
   beacon: "守军护着火盆。别让那堆火烧起来。",
@@ -983,10 +997,10 @@ var Z = {
   hall: "门厅守卫守着主闸。药和管件都压在闸后。",
   roots: "荆棘之心在地底下动。地面鼓起来时，往旁边让。"
 };
-function Q(e) {
-  const a = z[e.location.scene];
+function ee(e) {
+  const a = j[e.location.scene];
   if (e.phase === "battle" && a) return a;
-  const n = I(e);
+  const n = z(e);
   switch (n.phase) {
     case "briefing":
       return s.beginning;
@@ -1006,7 +1020,7 @@ function Q(e) {
       return "回三娘那儿，把这趟收尾。";
   }
 }
-function j(e) {
+function F(e) {
   const a = e && typeof e == "object" && "code" in e ? String(e.code) : "expedition_agent_failed", n = e && typeof e == "object" && "message" in e && typeof e.message == "string" ? e.message : typeof e == "string" ? e : void 0;
   return {
     code: a,
@@ -1174,7 +1188,7 @@ var y = ["余烬", "远征"], d = {
   unlocked: "已解锁",
   healthCost: "生命不足，无法献祭",
   noShards: "碎晶不足"
-}, X = {
+}, ae = {
   traveler: {
     name: "晨风旅人",
     detail: "蓝披风与金线，旅途最初的模样。"
@@ -1266,7 +1280,8 @@ var y = ["余烬", "远征"], d = {
     action: "部署",
     skill: "放置可承伤的自动炮台，建立火力阵地。"
   }
-}, ee = (e) => `${w[e].action}：${w[e].skill}`, ae = {
+}, re = (e) => `${w[e].action}：${w[e].skill}`, ne = {
+  keeper: "闸口看守",
   soldier: "失落卫兵",
   archer: "逐风射手",
   guard: "重盾守卫",
@@ -1287,7 +1302,7 @@ var y = ["余烬", "远征"], d = {
   leviathan: "沉潮巨兽",
   archivist: "无页典守",
   voidknight: "折光骑士"
-}, re = {
+}, ie = {
   skirmish: {
     name: "肃清",
     detail: "击败全部守军"
@@ -1312,7 +1327,7 @@ var y = ["余烬", "远征"], d = {
     name: "交叉火线",
     detail: "穿越交错射线，击败守军"
   }
-}, ne = {
+}, te = {
   "storm-step": {
     name: "踏雷靴",
     detail: "闪避起点留下雷场，每次命中造成雷击。",
@@ -1614,50 +1629,52 @@ var y = ["余烬", "远征"], d = {
     family: "炮"
   }
 };
-function ie(e) {
-  const { code: a, message: n } = j(e);
+function se(e) {
+  const { code: a, message: n } = F(e);
   return a === "expedition_agent_not_configured" ? s.noAi : a === "expedition_agent_auth" ? n || s.aiAuth : a === "expedition_agent_failed" ? n || s.aiFailed : a === "expedition_context_capacity" ? n || s.contextFull : a === "expedition_data_invalid" ? s.dataInvalid : a === "expedition_narrative_unavailable" ? s.narrativeFailed : a.startsWith("expedition_memory_") ? s.memoryFailed : a.startsWith("expedition_reply_") ? s.emptyReply : a === "expedition_stale" ? d.stale : a === "expedition_locked" ? d.locked : a === "expedition_funds" ? d.noCoins : a === "expedition_unavailable" ? d.unavailable : a === "expedition_invalid" || a === "expedition_identity" ? d.invalid : a.startsWith("expedition_save_") || a.startsWith("host_request_") ? d.saveError : n || d.failure(a);
 }
 export {
-  D as A,
-  O as B,
-  R as C,
+  H as A,
+  C as B,
+  T as C,
   f as D,
-  Y as E,
+  V as E,
   h as F,
+  E as H,
   t as I,
-  N as L,
-  M,
-  B as N,
-  H as O,
-  q as P,
-  L as R,
-  T as S,
+  L,
+  q as M,
+  U as N,
+  B as O,
+  M as P,
+  W as R,
+  P as S,
   g as T,
-  F as V,
+  D as U,
+  N as V,
   b as _,
   w as a,
   p as b,
   s as c,
-  I as d,
+  z as d,
   _ as f,
-  G as g,
-  P as h,
-  ne as i,
-  W as j,
+  Z as g,
+  I as h,
+  te as i,
+  K as j,
   k,
-  Z as l,
+  X as l,
   v as m,
-  ae as n,
-  ie as o,
-  J as p,
-  X as r,
-  ee as s,
+  ne as n,
+  se as o,
+  Q as p,
+  ae as r,
+  re as s,
   d as t,
-  Q as u,
+  ee as u,
   c as v,
   A as w,
-  V as x,
-  U as y,
-  K as z
+  J as x,
+  G as y,
+  Y as z
 };

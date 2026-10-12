@@ -18,9 +18,12 @@ import { parleyInteractions } from './campaign/parley.js';
 import { WORLD_COPY } from './content/world-copy.js';
 import type { Traveler } from './campaign/traveler.js';
 import { createWorldTextures } from './presentation/world-textures.js';
+import { COURTYARD_ENCOUNTERS, nextEncounter, type EncounterSegment } from './content/courtyard-encounters.js';
+import { COMBAT_COPY } from './content/combat-copy.js';
 
 export type SceneMode = 'camp' | 'battle' | 'between';
-export interface ExplorationFrame { definition: SceneDefinition; location: WorldLocation; facts: ReadonlySet<CourtyardFact>; people: PeopleLocations }
+export interface ExplorationFrame { definition: SceneDefinition; location: WorldLocation; facts: ReadonlySet<CourtyardFact>; people: PeopleLocations;
+    objects: ReadonlySet<string>; completedSegments: readonly EncounterSegment[]; engagement?: EncounterSegment }
 /** Owns presentation lifetime only: camera, meshes and transient damage labels. */
 export function createExpeditionScene(host: HTMLElement, onError: () => void, options: { traveler: Traveler; world?: boolean; invalidate?: () => void; sceneReady?: (scene: CourtyardScene) => void; artworkStatus?: (failed: number, pending: number) => void }) {
     const renderer = new WebGLRenderer({ antialias: true, alpha: false, powerPreference: options.world ? 'default' : 'high-performance' });
@@ -107,10 +110,11 @@ export function createExpeditionScene(host: HTMLElement, onError: () => void, op
             if (world && Math.hypot(worldX - world.location.position.x, worldY - world.location.position.y) > 8) { cameraReady = false; }
             const cameraSettled = Math.abs(target.x - desiredX) + Math.abs(target.z - desiredZ) < .015;
             const peopleMoved = world && worldScenery?.setPeople(world.people, now);
+            const progressChanged = world && worldScenery?.setProgress(world.completedSegments, world.objects);
             const npcChanged = world && worldScenery?.animate(world.location.position, now, reduced.matches, inView);
             if (world && !dirty && cameraReady && cameraSettled && appearance === lastAppearance && b === lastBattle && !tickChanged
                 && worldX === world.location.position.x && worldY === world.location.position.y
-                && worldFacing === world.location.facing && drawnFacts === world.facts && !npcChanged && !peopleMoved && !hero.animating) { return; }
+                && worldFacing === world.location.facing && drawnFacts === world.facts && !npcChanged && !peopleMoved && !progressChanged && !hero.animating) { return; }
             if (!cameraReady || reduced.matches) { target.set(desiredX, 0, desiredZ); cameraReady = true; }
             else { target.x += (desiredX - target.x) * .14; target.z += (desiredZ - target.z) * .14; }
             camera.left = -horizontal / 2; camera.right = horizontal / 2; camera.top = horizontal / aspect / 2; camera.bottom = -camera.top;
@@ -119,6 +123,18 @@ export function createExpeditionScene(host: HTMLElement, onError: () => void, op
             camera.position.set(target.x + Math.sin(bearing) * cameraDistance, world ? WORLD_CAMERA.height : 28, target.z + Math.cos(bearing) * cameraDistance); camera.lookAt(target.x, 0, target.z); camera.updateProjectionMatrix(); camera.updateMatrixWorld();
             if (world) { worldScenery?.setEncounterActive(!!b); worldScenery?.update(world.location.position, bearing); }
             nameplates.forEach(label => { label.hidden = true; });
+            if (world && !b) {
+                for (const object of world.definition.objects) {
+                    if (object.kind !== 'reward' || !world.objects.has(object.id)) { continue; }
+                    const id = `reward/${object.id}`, p = world.definition.anchors[object.anchor];
+                    let label = nameplates.get(id);
+                    if (!label) { label = document.createElement('span'); label.className = 'exp-person-name'; label.textContent = `◇ ${COMBAT_COPY.cache}`; labels.append(label); nameplates.set(id, label); }
+                    projection.set(p.x, 1.4, p.y).project(camera);
+                    const x = Math.max(65, Math.min(width - 65, (projection.x * .5 + .5) * width));
+                    const y = Math.max(105, Math.min(height - 145, (-projection.y * .5 + .5) * height));
+                    label.hidden = false; label.style.transform = `translate(${x}px,${y}px) translate(-50%,-100%)`;
+                }
+            }
             const speakers = new Set(world && !b ? [
                 ...reachablePersonInteractions(world.definition, world.location.position, world.facts, world.people),
                 ...parleyInteractions(world.definition.id, world.location.position, world.facts),
@@ -146,7 +162,7 @@ export function createExpeditionScene(host: HTMLElement, onError: () => void, op
                     entry = { actor: createEnemyActor(k, actors, e.kind, c), hp: e.hp, death: null, marker }; enemies.set(e.id, entry);
                 }
                 if (entry.hp > e.hp && tickChanged) { label(entry.hp - e.hp, e.x, e.y, b!.tick); }
-                entry.hp = e.hp; entry.actor.update(e, b!.tick, reduced.matches); entry.actor.bar.quaternion.copy(camera.quaternion);
+                entry.hp = e.hp; entry.actor.update(e, b!.tick, reduced.matches, !!world); entry.actor.bar.quaternion.copy(camera.quaternion);
                 projection.set(e.x, 1.2, e.y).project(camera);
                 const sx = (projection.x * .5 + .5) * width, sy = (-projection.y * .5 + .5) * height;
                 const marginX = Math.min(18, width / 2), top = Math.min(mobile ? 132 : 95, height * .3), bottom = Math.max(top, height - Math.min(130, height * .3));
@@ -161,7 +177,8 @@ export function createExpeditionScene(host: HTMLElement, onError: () => void, op
                 if (t >= 1 || !b || reduced.matches) { actors.remove(entry.actor.root); entry.marker.remove(); enemies.delete(id); }
             }
             if (b && tickChanged) { if (lastHp !== b.player.hp) { label(lastHp - b.player.hp, b.player.x, b.player.y, b.tick, lastHp > b.player.hp); } lastHp = b.player.hp; }
-            fx.update(b, reduced.matches);
+            const segment = world && (world.engagement ?? nextEncounter(world.definition.id, world.facts, world.completedSegments));
+            fx.update(b, reduced.matches, segment ? COURTYARD_ENCOUNTERS[segment].bounds : undefined);
             const wardHit = b?.effects.filter(e => e.kind === 'ward-hit').at(-1);
             ward.update(b?.player ?? null, wardHit ? Math.max(0, (wardHit.life - 5) / 10) : 0);
             status.update(b, camera, width, height);

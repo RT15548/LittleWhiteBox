@@ -54,5 +54,5 @@ story 中的 memory 是历史摘要，events 是本人亲历的游戏事件。�
 story.rescue 是本人此刻的脱困阶段与处境；牢门开闭、当前位置和已执行行动以本轮场景资料为准，历史中的打算仍是当时的打算。
 story.chapter 是当前章的行程，playerObjective 是玩家的目标，不是你必须不断催促的个人目标。phase 为 free 时，哨站救援已经收尾，这个结果已在檐下传开；你可以继续自己的日常生活、关系和打算。具体战斗与私人交谈仍只以本人经历为据。
 story.supplies 是本次药材与管件的状态与实际接收地点；collection.route 从玩家此刻的位置出发，available 表示货物接收交互已经开放。
-stage 是当前关系资料，personalPast 是可谈的个人往事，disclosedSecret 是已经讲出的秘密。
+stage.psychology 是当前好感的心理尺度，与性格、共同经历和眼前处境共同形成反应。personalPast 是可谈的个人往事，disclosedSecret 是已经讲出的秘密。
 story.clothing 是本人当前的六类穿着。内衣、内裤是最贴身的衣物；其余叠穿衣物按上、下身分别记入外衣、下装。

@@ -5,28 +5,47 @@ import { tickCampaign, campaignField, CAMPAIGN_RULES } from '../../apps/game/exp
 import { appendInput } from '../../apps/game/expedition/combat.ts';
 import { pilot } from './expedition-pilot.mjs';
 import { RULES } from '../../apps/game/expedition/content.ts';
+import { campaignWorldInteractions } from '../../apps/game/expedition/campaign/interactions.ts';
+import { rewardOffers } from '../../apps/game/expedition/campaign/rewards.ts';
 const check = (value, detail = 'campaign action failed') => { if (!value) { throw new Error(detail); } };
 
 /** Real authored navigation and fixed input only. No health, coordinates, rewards or victories are patched. */
-export function campaignDriver(get, act) {
+export function campaignDriver(get, act, observe = {}) {
+    let supplying = false;
+    async function chooseReward() {
+        const priority = ['cinder', 'wildfire', 'frost', 'siphon', 'orbit', 'echo', 'piercing', 'aegis', 'renewal'];
+        const offer = [...rewardOffers(get())].sort((a, b) => (priority.indexOf(a.id) < 0 ? 99 : priority.indexOf(a.id)) - (priority.indexOf(b.id) < 0 ? 99 : priority.indexOf(b.id)))[0];
+        await act(offer ? { type: 'relic', id: offer.id } : { type: 'leave' });
+    }
+    async function resupply() {
+        if (supplying || get().phase !== 'exploration') { return; }
+        supplying = true;
+        try {
+            const targets = campaignWorldInteractions(get()).filter(i => i.kind === 'object' && ['reward', 'rest'].includes(i.target.kind));
+            for (const { target } of targets) {
+                await walk(target.anchor); await act({ type: 'interact', id: target.id });
+                if (get().phase === 'reward') { await chooseReward(); }
+            }
+        } finally { supplying = false; }
+    }
     async function combatTicks(ticks) {
         const c = structuredClone(get()), spans = [], field = campaignField(c);
         for (let t = 0; t < ticks && c.phase === 'battle'; t++) {
-            const input = pilot(c.battle, c.weapon, field); appendInput(spans, input); tickCampaign(c, input);
+            const input = pilot(c.battle, c.weapon, field), battle = c.battle, segment = c.engagement.id;
+            appendInput(spans, input); tickCampaign(c, input);
+            if (c.phase !== 'battle') { observe.finished?.(segment, structuredClone(battle), c); }
         }
         if (spans.length) { await act({ type: 'input', spans }); }
     }
     async function battle() {
+        if (get().phase === 'battle') { observe.started?.(structuredClone(get())); }
         for (let batch = 0; get().phase === 'battle' && batch < 80; batch++) {
             await combatTicks(180);
         }
         check(get().phase !== 'battle', 'encounter must terminate');
         check(get().phase !== 'lost', `pilot lost at ${get().location.scene}`);
-        if (get().phase === 'reward') {
-            const priority = ['cinder', 'frost', 'siphon', 'orbit', 'echo', 'piercing', 'aegis', 'renewal'];
-            const offer = [...get().offers].sort((a, b) => (priority.indexOf(a.id) < 0 ? 99 : priority.indexOf(a.id)) - (priority.indexOf(b.id) < 0 ? 99 : priority.indexOf(b.id)))[0];
-            await act(offer ? { type: 'relic', id: offer.id } : { type: 'leave' });
-        }
+        if (get().phase === 'reward') { await chooseReward(); }
+        await resupply();
     }
     async function walk(anchor, fight = true) {
         for (let batch = 0; batch < 240; batch++) {
@@ -56,6 +75,7 @@ export function campaignDriver(get, act) {
         check(false, `navigation stuck ${get().location.scene}/${anchor} ${JSON.stringify(get().location.position)}`);
     }
     async function interact(id) {
+        await resupply();
         const scene = COURTYARD[get().location.scene], target = [...scene.exits, ...scene.objects].find(o => o.id === id);
         check(target); await walk(target.anchor); await act({ type: 'interact', id });
     }
@@ -72,5 +92,5 @@ export function campaignDriver(get, act) {
         await interact('cargo'); await walk('clinic'); await act({ type: 'choice', id: 'finish', person: 'sanniang' });
         return get();
     }
-    return { walk, battle, combatTicks, interact, complete };
+    return { walk, battle, combatTicks, interact, complete, resupply };
 }

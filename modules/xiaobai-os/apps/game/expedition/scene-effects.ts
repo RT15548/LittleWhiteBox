@@ -3,6 +3,7 @@ import { ENEMIES, isBoss } from './content.js';
 import type { Battle } from './types.js';
 import type { SceneKit } from './scene-kit.js';
 import { CONTRACT_COLORS as C, DEFENSE_COLORS } from './visuals.js';
+import type { FieldBounds } from './combat/field.js';
 
 const FX = { danger: '#c34740', warning: '#ec8754', magic: '#8bd9f2', frost: '#addffc', gold: '#fff0bb', heal: '#75dbb0', fire: '#f0ad55' };
 /** Reusable effect meshes: no geometry allocation in the combat frame loop. */
@@ -15,11 +16,20 @@ export function createBattleEffects(k: SceneKit, root: Group) {
         if (!mesh) { mesh = k.mesh(root, kind, color, [1, 1, 1], [0, 0, 0], !lit, alpha); pool.list.push(mesh); }
         mesh.visible = true; mesh.rotation.set(0, 0, 0); mesh.scale.set(1, 1, 1); return mesh;
     }
-    function ground(kind: 'ring' | 'disc' | 'arc' | 'stroke', color: string, radius: number, x: number, z: number, opacity = 1, y = .09) {
+    function ground(kind: 'ring' | 'openRing' | 'disc' | 'arc' | 'stroke', color: string, radius: number, x: number, z: number, opacity = 1, y = .09) {
         const mesh = draw(kind, color, opacity); mesh.position.set(x, y, z); mesh.scale.set(radius, radius, 1); mesh.rotation.x = -Math.PI / 2; return mesh;
     }
-    return { update(b: Battle | null, reduced: boolean) {
+    return { update(b: Battle | null, reduced: boolean, bounds?: FieldBounds) {
         for (const pool of pools.values()) { pool.used = 0; pool.list.forEach(m => m.visible = false); }
+        if (bounds) {
+            const { left, right, top, bottom } = bounds;
+            for (const x of [left, right]) {
+                const edge = draw('box', FX.warning, .5); edge.position.set(x, .14, (top + bottom) / 2); edge.scale.set(.1, .15, bottom - top);
+            }
+            for (const z of [top, bottom]) {
+                const edge = draw('box', FX.warning, .5); edge.position.set((left + right) / 2, .14, z); edge.scale.set(right - left, .15, .1);
+            }
+        }
         if (!b) { return; }
         const p = b.player;
         ground('ring', '#f2f6e2', .64, p.x, p.y, .8);
@@ -111,8 +121,10 @@ export function createBattleEffects(k: SceneKit, root: Group) {
                 continue;
             }
             if (h.kind === 'ring') {
-                ground('ring', color, h.inner, h.x, h.y); ground('ring', color, h.radius, h.x, h.y);
-                for (let i = 1; i <= 4; i++) { ground('ring', color, h.inner + (h.radius - h.inner) * i / 5, h.x, h.y, h.wait ? .35 : .8); }
+                for (let i = 0; i <= 5; i++) {
+                    const ring = ground(h.gap ? 'openRing' : 'ring', color, h.inner + (h.radius - h.inner) * i / 5, h.x, h.y, i === 0 || i === 5 ? 1 : h.wait ? .35 : .8);
+                    ring.rotation.z = -h.angle;
+                }
                 continue;
             }
             ground('disc', color, h.radius, h.x, h.y, h.wait ? .2 : .4); ground('ring', color, h.radius, h.x, h.y);

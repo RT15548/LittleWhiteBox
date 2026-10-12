@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, ref, shallowRef, useId, watch } from 'vue';
 import type { Campaign } from '../campaign/types.js';
 import { isPerson, type Participant } from '../content/participants.js';
 import { loadNarrativeCanon, type NarrativeCanon } from '../narrative/canon.js';
-import { relationshipBand } from '../campaign/relationships.js';
+import { projectRelationship } from '../narrative/relationship-profile.js';
 import { conversationUsage } from '../narrative/usage.js';
 import { DIALOGUE_COPY as c } from '../content/dialogue-copy.js';
 import { errorText } from '../copy.js';
@@ -32,7 +32,7 @@ watch(() => props.person, () => { open.value = null; change.value = 0; void load
 const affection = computed(() => isPerson(props.person) ? props.campaign.relationships[props.person].affection : 0);
 const affectionFillId = `ember-affection-${useId()}`;
 const affectionHeight = computed(() => 19 * affection.value / 100);
-const name = computed(() => canon.value?.stages[relationshipBand(affection.value)]?.name ?? '');
+const name = computed(() => canon.value?.relationship ? projectRelationship(canon.value.relationship, affection.value).name : '');
 const usage = computed(() => canon.value ? conversationUsage(props.campaign, props.person, props.draft, canon.value) : null);
 watch(() => [props.person, affection.value] as const, ([person, value], [previousPerson, previous]) => {
     if (person === previousPerson && value === previous) { return; }

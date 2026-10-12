@@ -3,10 +3,11 @@ import { isPerson, PARTICIPANT_IDS, type Participant } from '../content/particip
 import { PARLEY_ENEMIES } from '../content/parley.js';
 import { fault } from '../random.js';
 import { parseStages, type RelationshipStage } from './stages.js';
+import { parseRelationshipProfile, type RelationshipProfile } from './relationship-profile.js';
 
 export interface NarrativeCanon {
     system: string; world: string; player: string; protocol: string; npcs: string; character: string;
-    stages: RelationshipStage[]; opening: { initial: string; returned: string | null };
+    relationship: RelationshipProfile | null; stages: RelationshipStage[]; opening: { initial: string; returned: string | null };
 }
 export type CanonReader = (name: string, signal: AbortSignal) => Promise<string>;
 const readDocument: CanonReader = async (name, signal) => {
@@ -33,7 +34,7 @@ export async function loadNarrativeCanon(person: Participant, signal: AbortSigna
     if (!isPerson(person)) {
         const block = /<!-- opening:([a-z]+\.initial) -->\s*([\s\S]*?)\s*<!-- \/opening -->/.exec(document);
         if (!block || block[1] !== `${person}.initial`) { fault('narrative_unavailable'); }
-        return { ...shared, character: document.slice(0, block.index).replace(/# 开场\s*$/, '').trim(), stages: [], opening: { initial: block[2], returned: null } };
+        return { ...shared, character: document.slice(0, block.index).replace(/# 开场\s*$/, '').trim(), relationship: null, stages: [], opening: { initial: block[2], returned: null } };
     }
     const [openings, stages] = await Promise.all(['openings', `${person}-stages`].map(name => read(name, signal)));
     // Explicit authoring protocol IDs, never a display name or heading used as a key.
@@ -41,5 +42,5 @@ export async function loadNarrativeCanon(person: Participant, signal: AbortSigna
         .map(match => [match[1], match[2].trim()]));
     const initial = blocks.get(`${person}.initial`), returned = blocks.get(`${person}.returned`) ?? null;
     if (!initial || (person === 'anian' || person === 'kouzi') && !returned) { fault('narrative_unavailable'); }
-    return { ...shared, character: document, stages: parseStages(stages), opening: { initial, returned } };
+    return { ...shared, character: document, relationship: parseRelationshipProfile(stages), stages: parseStages(stages), opening: { initial, returned } };
 }

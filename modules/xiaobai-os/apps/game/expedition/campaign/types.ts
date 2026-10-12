@@ -10,6 +10,8 @@ import type { Traveler } from './traveler.js';
 import type { ChapterId } from '../content/chapters.js';
 import type { Performance } from '../performance/catalog.js';
 import type { ClothingChange } from '../content/clothing.js';
+import type { EncounterSegment } from '../content/courtyard-encounters.js';
+import type { RewardNode } from '../content/campaign-rewards.js';
 
 export interface ConversationTurn {
     id: string; kind: 'greeting' | 'dialogue' | 'receipt' | 'player'; player: string; reply: string;
@@ -35,11 +37,13 @@ export interface Campaign {
     hp: number;
     collection: RelicStack[];
     equipped: Relic[];
-    offers: RelicStack[];
+    rewards: Partial<Record<RewardNode, { scene: CourtyardScene; offers: RelicStack[] }>>;
+    rewardNode: RewardNode | null;
+    completedSegments: EncounterSegment[];
+    engagement: { id: EncounterSegment; reinforcement: boolean } | null;
     phase: 'exploration' | 'battle' | 'reward' | 'lost';
     battle: Battle | null;
     checkpoint: Battle | null;
-    alarmTicks: number;
     relationships: Record<CourtyardPerson, Relationship>;
     people: PeopleLocations;
     pendingParley: PendingParley | null;

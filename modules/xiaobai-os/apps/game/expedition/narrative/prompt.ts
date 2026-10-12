@@ -4,6 +4,7 @@ import { PARLEY_ENEMIES } from '../content/parley.js';
 import { OUTFIT_COPY, WEAPON_COPY } from '../copy.js';
 import { narrativeActions, secretFact } from './actions.js';
 import { projectStage, type RelationshipStage } from './stages.js';
+import { projectRelationship } from './relationship-profile.js';
 import { personMap } from '../world/people.js';
 import type { NarrativeCanon } from './canon.js';
 import { performanceOptions } from '../performance/catalog.js';
@@ -36,7 +37,10 @@ export function buildConversationPrompt(campaign: Campaign, person: Participant,
     const context = conversationContext(campaign, person, canon.stages);
     const performance = performanceOptions(person);
     const secret = isPerson(person) ? secretFact(person) : null;
-    const stage = isPerson(person) ? projectStage(canon.stages, campaign.relationships[person], !!secret && campaign.facts.includes(secret)) : null;
+    const stage = isPerson(person) ? {
+        psychology: projectRelationship(canon.relationship!, campaign.relationships[person].affection).psychology,
+        ...projectStage(canon.stages, campaign.relationships[person], !!secret && campaign.facts.includes(secret)),
+    } : null;
     const { actions: _actions, actionMeanings, events, ...situation } = context;
     const operations = { actions: actionMeanings, performance, clothing: CLOTHING_SLOTS };
     const story = { memory: memory?.text ?? null, events, ...situation,

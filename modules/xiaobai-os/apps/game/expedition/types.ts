@@ -27,7 +27,7 @@ export interface Player extends Point {
 export interface Enemy extends Point {
     id: number; kind: EnemyKind; hp: number; maxHp: number; angle: number; cooldown: number;
     windup: number; target: Point; pattern: number; phase: number; chill: number; burn: number; marked: number;
-    stun: number; bleed: number; poison: number; exposed: number; motion: number; motionAngle: number; stagger: number; memory: Point[];
+    stun: number; bleed: number; poison: number; exposed: number; motion: number; motionAngle: number; stagger: number; controlRecovery: number; memory: Point[];
 }
 export type DamageSource = 'attack' | 'skill' | 'passive' | 'lightning' | 'companion';
 export interface Shot extends Point {
@@ -39,6 +39,8 @@ export interface Hazard extends Point {
     kind: 'storm' | 'fire' | 'slam' | 'frost' | 'poison' | 'beam' | 'ring' | 'mine';
     angle: number; length: number; width: number; inner: number; source: DamageSource;
     hits: number[];
+    /** Angular safe opening of an annulus; absent means a complete ring. */
+    gap?: number;
 }
 export interface Effect extends Point { id: number; kind: typeof EFFECT_IDS[number]; life: number; angle: number; size: number }
 export interface Obstacle extends Point { radius: number }
@@ -50,6 +52,7 @@ export interface Battle {
     wave: number; waves: number; nextWave: number; kills: number; damageTaken: number;
     status: 'fighting' | 'won' | 'lost'; zone: number; chapter: number; elite: boolean; boss: boolean;
     bossKind: BossKind; encounter: EncounterKind; objective: Objective;
+    script: { reinforcements: 'idle' | 'warning' | 'done'; warning: number; signal: 'idle' | 'approach' | 'lighting' | 'stopped' | 'lit'; signalHp: number };
 }
 export type BattleHud = Pick<Battle, 'player' | 'enemies' | 'wave' | 'waves' | 'tick' | 'objective' | 'encounter'>;
 export type PresentationError = 'rendering' | 'sound';
@@ -61,7 +64,7 @@ export type Command =
     | (({ type: 'start' } | { type: 'restart' }) & JourneySetup)
     | { type: 'interact'; id: string }
     | { type: 'input'; spans: InputSpan[] }
-    | { type: 'relic'; id: Relic }
+    | { type: 'relic'; id: Relic; replace?: Relic }
     | { type: 'loadout'; equipped: Relic[] }
     | { type: 'purchase'; id: Outfit } | { type: 'equip'; id: Outfit }
     | { type: 'choice'; id: CampaignChoice; person: CourtyardPerson }

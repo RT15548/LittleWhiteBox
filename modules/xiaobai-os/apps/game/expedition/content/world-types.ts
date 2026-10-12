@@ -3,6 +3,7 @@ import type { WorldMap } from '../world/types.js';
 import type { Landscape } from '../world/landscape.js';
 import type { PERSON_NAMES } from './people.js';
 import type { ParleyEnemy } from './parley.js';
+import type { RewardNode } from './campaign-rewards.js';
 
 export type DistrictScene = 'camp' | 'crossroads' | 'gate' | 'beacon' | 'waterway' | 'cells' | 'hall' | 'roots';
 export type LivingScene = 'clinic_front' | 'sanniang_room' | 'inn' | 'guest_room' | 'laobai_home' | 'kouzi_home' | 'anian_home' | 'anian_room';
@@ -25,6 +26,7 @@ export type SceneObject = ObjectBase & (
     | { kind: 'person'; person: CourtyardPerson }
     | { kind: 'enemy'; enemy: ParleyEnemy }
     | { kind: 'rest' }
+    | { kind: 'reward'; node: RewardNode }
 );
 export interface SceneGate { id: string; condition: WorldCondition }
 export interface SceneDefinition {

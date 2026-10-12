@@ -87,13 +87,17 @@ export const COURTYARD_CROSSROADS = defineLandscapeScene({
     anchors: {
         camp: { x: 0, y: 43 }, gate: { x: 0, y: -43 }, waterway: { x: 34, y: 7 }, roots: { x: -36, y: -13 },
         warning: { x: 5, y: 19 }, encounter: { x: 0, y: 9 }, patrol: { x: -4, y: -8 }, lookout: { x: 8, y: -18 },
+        front_left: { x: -4, y: 13 }, front_right: { x: 4, y: 7 }, front_archer: { x: 6, y: -5 }, flank: { x: 6, y: -10 },
+        reward: { x: -8, y: 16 }, rest: { x: -7, y: 20 },
     },
     exits: [
         { id: 'camp', anchor: 'camp', to: 'camp', arrival: 'road' },
         { id: 'gate', anchor: 'gate', to: 'gate', arrival: 'crossroads', condition: { all: ['crossroads_cleared'] } },
         { id: 'waterway', anchor: 'waterway', to: 'waterway', arrival: 'crossroads', condition: { all: ['crossroads_cleared'] } },
         { id: 'roots', anchor: 'roots', to: 'roots', arrival: 'crossroads', condition: { all: ['warden_defeated'] } },
-    ], objects: [{ id: 'warning', anchor: 'warning', kind: 'inspect', passage: 'warning' }],
+    ], objects: [{ id: 'warning', anchor: 'warning', kind: 'inspect', passage: 'warning' },
+        { id: 'relic_cache', anchor: 'reward', kind: 'reward', node: 'crossroads' },
+        { id: 'rest', anchor: 'rest', kind: 'rest', condition: { all: ['crossroads_cleared'] } }],
     landscape: {
         vista: 'ramparts', surface: 'grass', bounds: { x: 0, z: 0, width: 96, depth: 96 },
         gates: [{ id: 'roots', footprint: { x: -29, z: -13, width: 2, depth: 6 }, condition: { all: ['warden_defeated'] } }],

@@ -3,9 +3,24 @@ import { isBoss } from '../content.js';
 import type { WorldSpace } from '../world/types.js';
 import { canStandInWorld, cellCenter, worldCell, worldLineClear } from '../world/geometry.js';
 import { findWorldPath } from '../world/navigation.js';
+import type { EncounterSegment } from '../content/courtyard-encounters.js';
 
 export interface FieldSpawn { kind: EnemyKind; position: Point }
-export const supportsFieldEnemy = (kind: EnemyKind) => !isBoss(kind) || kind === 'warden' || kind === 'thornheart';
+export const supportsFieldEnemy = (kind: EnemyKind) => !isBoss(kind) || kind === 'warden' || kind === 'thornheart' || kind === 'keeper';
+export interface FieldBounds { left: number; right: number; top: number; bottom: number }
+const boundedSpaces = new WeakMap<WorldSpace, WeakMap<FieldBounds, WorldSpace>>();
+export function boundedFieldSpace(space: WorldSpace, bounds: FieldBounds): WorldSpace {
+    let cache = boundedSpaces.get(space);
+    if (!cache) { cache = new WeakMap(); boundedSpaces.set(space, cache); }
+    let result = cache.get(bounds);
+    if (!result) {
+        result = { ...space, blocked(column, row) {
+            const p = cellCenter(space.map, column, row);
+            return p.x < bounds.left || p.x > bounds.right || p.y < bounds.top || p.y > bounds.bottom || space.blocked(column, row);
+        } }; cache.set(bounds, result);
+    }
+    return result;
+}
 /** Authored content and derived geometry are runtime context, not duplicated in a battle save. */
 export interface CombatField {
     space: WorldSpace;
@@ -13,8 +28,24 @@ export interface CombatField {
     objective: Point;
     waves: readonly (readonly FieldSpawn[])[];
     summonPoints: readonly Point[];
+    bounds?: FieldBounds;
+    segment?: EncounterSegment;
+    reinforcement?: boolean;
+    enemyLimit?: number;
+    signalPoint?: Point;
 }
 export const fieldVisible = (field: CombatField | undefined, from: Point, to: Point, radius = 0) => !field || worldLineClear(field.space, from, to, radius);
+
+/** Shared by the stored warning and its damage shape; walls stop both at the same endpoint. */
+export function fieldRayLength(field: CombatField, from: Point, angle: number, length: number, radius: number) {
+    let clear = 0;
+    for (let step = .2; step <= length + .2; step += .2) {
+        const d = Math.min(step, length), p = { x: from.x + Math.cos(angle) * d, y: from.y + Math.sin(angle) * d };
+        if (!worldLineClear(field.space, from, p, radius)) { break; }
+        clear = d;
+    }
+    return clear;
+}
 
 /** New summons use only authored entrances connected to the encounter, never arbitrary wall coordinates. */
 export function fieldSummonPosition(field: CombatField, requested: Point, radius: number): Point | null {

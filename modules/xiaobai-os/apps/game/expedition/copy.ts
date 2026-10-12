@@ -85,6 +85,7 @@ export const WEAPON_COPY: Record<Weapon, { name: string; equipment: string; deta
 };
 export const skillDetail = (weapon: Weapon) => `${WEAPON_COPY[weapon].action}：${WEAPON_COPY[weapon].skill}`;
 export const ENEMY_NAMES: Record<EnemyKind, string> = {
+    keeper: '闸口看守',
     soldier: '失落卫兵', archer: '逐风射手', guard: '重盾守卫', priest: '月灯祭司', charger: '裂角兽',
     stalker: '影爪猎手', bomber: '熔火投弹手', wisp: '游灯',
     warden: '庭院守望者', thornheart: '棘心古树', weaver: '织月者', astrologer: '失明占星师', king: '空冠之王', phoenix: '灰烬不死鸟',

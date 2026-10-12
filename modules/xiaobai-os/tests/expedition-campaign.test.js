@@ -96,7 +96,8 @@ test('escort rescue reaches chapter completion through real movement without rec
 test('collection ownership and equipped ranks have one source; safe-point respec cannot heal or reroll', () => {
     const h = fixture(), c = h.get().active;
     c.collection = [{ id: 'cinder', rank: 2 }, { id: 'wildfire', rank: 1 }]; c.equipped = ['cinder', 'wildfire']; c.hp = 35;
-    assert.throws(() => h.act({ type: 'loadout', equipped: ['wildfire'] }));
+    h.act({ type: 'loadout', equipped: ['wildfire'] });
+    assert.deepEqual(h.get().active.equipped, ['wildfire']);
     h.act({ type: 'loadout', equipped: ['cinder'] }); assert.equal(h.get().active.hp, 35);
     assert.equal(campaignLoadout(h.get().active).relics[0].rank, 2); assert.equal(h.get().active.collection.length, 2);
     h.get().active.location = startWorld(COURTYARD.cells, 'waterway');

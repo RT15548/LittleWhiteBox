@@ -3,10 +3,12 @@ import type { Battle, BossKind, Enemy, Loadout } from '../types.js';
 import { beam, effect, fan, hazard, ringShots, slam, spawn } from './events.js';
 import { angleTo, atAngle, TAU } from './geometry.js';
 import type { CombatField } from './field.js';
+import { worldBossAttack } from './world-bosses.js';
 
 type Pattern = (b: Battle, e: Enemy, field?: CombatField) => void;
 const charge = (e: Enemy, ticks: number) => { e.motion = ticks; e.motionAngle = angleTo(e, e.target); e.stun = 18; };
 const patterns: Record<BossKind, Pattern> = {
+    keeper(b, e, field) { if (field) { worldBossAttack(b, e, field); } else { slam(b, e.target, 2.5, 24, BOSS_SPECS.keeper.damage); } },
     warden(b, e, field) {
         const n = e.pattern % 3, damage = BOSS_SPECS.warden.damage;
         if (n === 0) { charge(e, 24); beam(b, e, e.motionAngle, 13, 1.1, 18, damage); }
@@ -90,6 +92,7 @@ const patterns: Record<BossKind, Pattern> = {
     },
 };
 export function bossAttack(b: Battle, e: Enemy, loadout: Loadout, field?: CombatField) {
+    if (field?.segment && ['keeper', 'warden', 'thornheart'].includes(e.kind)) { worldBossAttack(b, e, field); return; }
     const kind = e.kind as BossKind;
     // Enter phases in order so burst damage cannot skip phase-entry effects.
     while (e.phase < (e.hp / e.maxHp < .3 ? 3 : e.hp / e.maxHp < .65 ? 2 : 1)) {
