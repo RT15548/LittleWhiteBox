@@ -1511,7 +1511,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/comfyui/comfy-draw.js",
       "relativePath": "modules/draw/providers/comfyui/comfy-draw.js",
       "extension": ".js",
-      "sizeBytes": 202208
+      "sizeBytes": 202209
     },
     {
       "source": "littlewhitebox",
@@ -1616,7 +1616,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/novel-draw.js",
       "relativePath": "modules/draw/providers/novelai/novel-draw.js",
       "extension": ".js",
-      "sizeBytes": 191100
+      "sizeBytes": 191101
     },
     {
       "source": "littlewhitebox",
@@ -1854,7 +1854,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/sd-webui/sd-draw.js",
       "relativePath": "modules/draw/providers/sd-webui/sd-draw.js",
       "extension": ".js",
-      "sizeBytes": 166293
+      "sizeBytes": 166294
     },
     {
       "source": "littlewhitebox",
@@ -2120,7 +2120,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/draw-common.js",
       "relativePath": "modules/draw/shared/draw-common.js",
       "extension": ".js",
-      "sizeBytes": 50847
+      "sizeBytes": 50848
     },
     {
       "source": "littlewhitebox",
